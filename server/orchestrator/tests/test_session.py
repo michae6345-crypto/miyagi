@@ -2060,3 +2060,30 @@ def test_skip_step_moves_on_without_a_pass(rig):
     assert rig.of("step.started")[-1]["stepId"] == "s2"
     assert not any(p["status"] == "pass" for p in rig.of("check.updated"))  # never green
     assert {"state": "passed"} not in rig.of("status")
+
+
+def test_check_step_passes_now_or_says_what_is_missing(rig):
+    rig.s.check_wait_s = 0
+    asked = []
+
+    async def explain(step, question, ctx):
+        asked.append(question)
+        return {"kind": "answer", "title": "Almost", "body": "Add the Tanh layer."}
+
+    rig.s.m.explain = explain
+
+    async def go():
+        await _to_step(rig, 1)  # s2: Linear + Tanh layers
+        rig.write("import torch.nn as nn\nnet = nn.Sequential(nn.Linear(2, 50))\n")
+        await rig.s.action("check_step")
+        await rig.settle()
+        cards = rig.of("card")
+        assert cards[-2]["title"] == "Not yet" and "uses tanh" in cards[-2]["body"] and cards[-2]["actions"] == ["skip_step"]
+        assert cards[-1]["body"] == "Add the Tanh layer." and asked and "move on" in asked[0]
+        assert not rig.of("step.passed") or rig.of("step.passed")[-1]["stepId"] != "s2"
+        rig.write(S2)  # now done, without a run or any other trigger: asking is enough
+        await rig.s.action("check_step")
+        await rig.settle()
+
+    run(go())
+    assert rig.of("step.passed")[-1]["stepId"] == "s2" and "skipped" not in rig.of("step.passed")[-1]

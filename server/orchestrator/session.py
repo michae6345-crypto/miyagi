@@ -258,6 +258,7 @@ class LessonSession:
         self.result_stagger_s = result_stagger_s
         self.build_tick_s = build_tick_s
         self.ready_hold_s = float(os.environ.get("ORCH_READY_HOLD_S", "1.5"))
+        self.check_wait_s = float(os.environ.get("ORCH_CHECK_WAIT_S", "1.2"))  # check_step: wait for a fresh frame
 
         self.phase = "idle"  # idle | searching | building | active | done
         self.query = ""
@@ -1368,8 +1369,8 @@ class LessonSession:
 
     # ------------------------------------------------------------------ evaluation
     async def evaluate(self, trigger: str) -> None:
-        """trigger: start | segment | file | run_end | metric | screen | manual"""
-        learner = trigger in ("file", "run_end", "metric")
+        """trigger: start | segment | file | run_end | metric | screen | manual | check (the learner asked)"""
+        learner = trigger in ("file", "run_end", "metric", "check")
         if self.awaiting_resume:
             return  # frozen until the learner picks Continue / Start new
         async with self._lock:
@@ -1829,6 +1830,9 @@ class LessonSession:
             await self.emit("error", {"message": "No lesson is running yet."})
             return
         self._touch()
+        if kind == "check_step":  # "Can I move on?"
+            await self._check_step(step)
+            return
         if kind == "skip_step":  # leave this step unfinished and start the next one
             await self._pass_step(skipped=True)
             return
@@ -2172,6 +2176,33 @@ class LessonSession:
         await self._card(step, "Fix applied", "Re-run to check it. Undo if you'd rather type it yourself.",
                          kind="answer", actions=["undo"])
         await self.on_file_change([str(path)])
+
+    async def _check_step(self, step: dict) -> None:
+        """"Can I move on?": re-run the checks on a fresh frame now (the learner asking counts as acting, so a
+        pass moves on at once). Not done: a card naming what's missing right away, then the coach (Claude) looks
+        at the screen and says what's left, in words."""
+        gen = self.step_gen
+        await self._status("thinking")
+        if self.screen is not None:
+            self.screen.poke()  # a new frame, not one from before their last keystroke
+            if self.check_wait_s:
+                await asyncio.sleep(self.check_wait_s)
+        if gen != self.step_gen:
+            return
+        self.engaged = True
+        await self.evaluate("check")
+        if self.passed or gen != self.step_gen:
+            return
+        missing = [r.get("label") or r.get("checkId") for r in self.last_failed if r.get("label") or r.get("checkId")]
+        body = ("Still missing: " + "; ".join(missing[:4]) + ".") if missing else "The checks haven't passed yet."
+        await self._emit_card({"stepId": step["id"], "kind": "hint", "title": "Not yet", "body": body,
+                               "actions": ["skip_step"]}, window_s=2.0)
+        try:
+            await self.action("ask", "Can I move on from this step? Look at my screen and tell me exactly what is "
+                                     "still missing, in one or two sentences.")
+        except Exception as e:  # noqa: BLE001 - no coach (offline / no key): the checks' card stands
+            log.info("check_step: no coach answer (%s)", e)
+            await self._status("offtrack" if self.last_offtrack else "watching")
 
     async def _type_step_for_them(self, step: dict) -> None:
         """Lesson mode "Do it for me": E5 places the step's code in the file (preview -> confirm -> apply);
