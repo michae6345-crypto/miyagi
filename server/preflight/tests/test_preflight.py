@@ -154,6 +154,7 @@ def run(coro):
 
 
 async def _pf(vid: str, goal: str, *, claude=None, req=None, timeout=5.0, tr=None, keys=KEYS, **kw):
+    kw.setdefault("lesson_cache", False)  # hermetic: no real demo/cache/lessons lookup unless a test passes one
     async with httpx.AsyncClient(transport=tr or transport()) as http:
         return await preflight(f"https://www.youtube.com/watch?v={vid}", goal, timeout=timeout, keys=keys, http=http,
                                claude_client=claude or FakeClaude(CODING), requirements_fn=req, **kw)
@@ -324,7 +325,7 @@ def test_prefetch_then_pick_hits_memo():
 
     async def go():
         async with httpx.AsyncClient(transport=transport()) as http:
-            kw = dict(keys=KEYS, http=http, claude_client=claude, requirements_fn=None)  # noqa: C408
+            kw = dict(keys=KEYS, http=http, claude_client=claude, requirements_fn=None, lesson_cache=False)  # noqa: C408
             tasks = prefetch(rows, "build an LLM", **kw)
             assert len(tasks) == 2  # only the videos
             res = await preflight(rows[2]["url"], "Build an  LLM", **kw)  # while prefetch runs: shares it
@@ -431,3 +432,68 @@ def test_mirror_matches_e2_part_1_rules():
     chs = parse_chapters("0:00 long\n40:00 b\n50:00 c", 3600)
     a, b, titles = core._mirror_first(3600, chs)  # a 40 min chapter is split into ~12 min spans first
     assert (a, b) == (0.0, 600.0) and titles == ["long (1/4)"]
+
+
+COLAB_REQ = [
+    {"tool": "vscode", "label": "Visual Studio Code", "kind": "editor", "needed": False, "installed": True, "ok": True,
+     "why": "No editor needed: the video uses Google Colab.", "install": {"method": "none", "command": "", "url": ""}},
+    {"tool": "google_colab", "label": "Google Colab", "kind": "web_app", "needed": True, "installed": True, "ok": True,
+     "why": "", "install": {"method": "open", "command": "", "url": "https://colab.research.google.com"}},
+]
+
+
+def test_coding_lesson_always_gets_the_editor():
+    """Stage rehearsal (S11): a Colab-based coding video still runs locally in VS Code, so never 'No code editor'."""
+    seen = {}
+
+    def req(graph):
+        seen.update(graph)
+        return [dict(i) for i in COLAB_REQ]
+
+    res = run(_pf("kCc8FmEb1nY", "build an LLM", req=req))
+    card = preflight_card(res)
+    assert res["editorNeeded"] is True and "No code editor" not in card["body"]
+    assert "Needs: Visual Studio Code ✓" in card["body"]
+    assert "LOCALLY in VS Code" in seen["steps"][0]["instructions"]  # S2 is told how Miyagi runs lessons
+
+
+def test_cached_lesson_is_ready_instantly_and_checked_for_real():
+    real = {"lesson": {"id": "lesson-x", "title": "PINN"}, "sources": [{"kind": "video", "videoId": "kCc8FmEb1nY"}],
+            "steps": [{"index": i, "title": f"s{i}"} for i in range(5)]}
+    got = {}
+
+    def req(graph, *, workdir=None):
+        got.update(graph=graph, workdir=workdir)
+        return REQ_CODING
+
+    hit = {"graph": real, "file": "abc.json", "steps": 5, "workdir": "/tmp/pinn-lab"}
+    res = run(_pf("kCc8FmEb1nY", "build an LLM", req=req, lesson_cache=lambda u, g: hit))
+    assert got["graph"] is real and got["workdir"] == "/tmp/pinn-lab"  # the setup card's exact check, not the light graph
+    assert res["buildPlan"]["cached"] and res["buildPlan"]["estSecondsToFirstSteps"] == 0
+    body = preflight_card(res)["body"]
+    assert "Built before: ready instantly (5 steps)." in body and "Long video" not in body and "Building takes" not in body
+    assert res["cachedLesson"] == {"file": "abc.json", "steps": 5, "workdir": "/tmp/pinn-lab"}
+    core.clear_memo()
+    miss = run(_pf("kCc8FmEb1nY", "build an LLM", req=req, lesson_cache=lambda u, g: None))
+    assert "cached" not in miss["buildPlan"] and "cachedLesson" not in miss
+
+
+def test_memo_hit_rechecks_the_lesson_cache():
+    """Prefetched before the first build, picked again after it: the card must say 'ready instantly'."""
+    state = {"hit": None}
+
+    async def go():
+        async with httpx.AsyncClient(transport=transport()) as http:
+            kw = dict(keys=KEYS, http=http, claude_client=FakeClaude(CODING), requirements_fn=None,  # noqa: C408
+                      lesson_cache=lambda u, g: state["hit"])
+            first = await preflight("https://www.youtube.com/watch?v=kCc8FmEb1nY", "build an LLM", **kw)
+            state["hit"] = {"graph": {}, "file": "abc.json", "steps": 5, "workdir": "/tmp/w"}  # the build ran
+            again = await preflight("https://www.youtube.com/watch?v=kCc8FmEb1nY", "build an LLM", **kw)
+            state["hit"] = None  # cache cleared
+            third = await preflight("https://www.youtube.com/watch?v=kCc8FmEb1nY", "build an LLM", **kw)
+            return first, again, third
+
+    first, again, third = run(go())
+    assert "cached" not in first["buildPlan"] and first["buildPlan"]["estSecondsToFirstSteps"] > 0
+    assert again["cached"] and again["buildPlan"]["cached"] and "ready instantly (5 steps)" in preflight_card(again)["body"]
+    assert "cached" not in third["buildPlan"] and third["buildPlan"]["estSecondsToFirstSteps"] == first["buildPlan"]["estSecondsToFirstSteps"]

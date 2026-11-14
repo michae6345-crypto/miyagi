@@ -24,6 +24,12 @@ fix = await coach.fix_outdated(error_text, lesson["libraries"])  # offtrack-shap
 
 `metrics_summary` accepts `RunContext.metrics` (`{name: [(step, value)]}`), a string, or a summary dict.
 
+## Cost policy
+
+- **Models:** Opus (`claude-opus-5-5`) writes only the diagnosis card. Triage, pointing/locate, explain, "Do it for me" and `fix_outdated` use Haiku (`claude-haiku-5-5`). To override one purpose, set `COACH_MODEL_<PURPOSE>` (see `llm.model_for`).
+- **Prompt caching:** every system prompt carries `cache_control`. `warm()` pre-writes the diagnose prefix.
+- **Cost freeze:** run offline tests only. `tests/record_fixtures.py` makes paid calls and refuses to run without `COACH_ALLOW_LIVE=1`.
+
 ## Screen understanding (docs/research/screen-understanding.md, build list #7 and #8)
 
 ```python
@@ -43,6 +49,44 @@ targets = await coach.locate("the learning rate", screen)  # exact text → no m
 - **Do it for me.** It uses the latest diagnosis's diff when that applies cleanly. Otherwise Opus writes a patch, retried once with the reason it failed. The patch is accepted only if `apply_fix` finds the lines and, for Python, the result compiles. Otherwise it raises `CoachUnavailable`. It never writes files. The summary is the card's action sentence ("Lower the learning rate to 1e-3").
 - **locate** asks `claude-haiku-5-5` (effort low) to pick box ids from the same set-of-mark images. Screen and code reading is Claude only; there is no Gemini in `server/coach`.
 - **Computer use** is not used. If icon finding ever needs it, the tool is `computer_toolset_20260801`, because `computer_20251124` returns 400 on Opus 5.5.
+
+## Non-PINN robustness (S9 QA: React / pandas / git)
+
+- **Errors on screen count.** When `error_text` is empty and a `screen` is passed, error and refusal lines visible on screen become the error text: Traceback, `error:`, `fatal:`, "needs merge", CONFLICT, "You must…", "Failed to compile" and so on. Triage then never sends an erroring learner to the "do the step" card, even if Haiku says to.
+- **Web lookups** run only with error text that isn't self-explaining (NameError, ReferenceError, no-undef and SyntaxError skip it), capped at 1.5 s. The error line itself goes into the prompt as "THE ERROR MESSAGE (your cause must agree with exactly what it says…)".
+- **Prompt rules:**
+  - Trust the error on screen over the lesson's library versions.
+  - The diff is one contiguous block (up to 8 lines) that makes every edit the action sentence asks for.
+  - Never `git add` / `--continue` while conflict markers remain. `_shape` also drops such a command unless the diff itself removes the markers.
+- **`apply_fix`:**
+  - It tolerates OCR'd anchors: it strips gutter line numbers and gutter-only lines, then maps each line fuzzily (difflib ratio ≥ 0.8). When the screen-read lines keep the editor's gutter numbers, those numbers are used as the file's line numbers, provided the text there agrees (ratio ≥ 0.7). The fuzzy pass may skip up to 2 blank or conflict-marker rows that OCR dropped. That covers OCR errors like `<<<<<` for `<<<<<<<` and `=` for `=>`.
+  - When `expected` rewrites more lines than `yours` covers, the span widens over neighbours that `expected` rewrites (similarity ≥ 0.7). A patch is rejected only if it would repeat a contiguous run of 2 or more lines at its edges; single repeated lines like `});` are normal code. A `git-rebase-todo` patch must keep every commit hash exactly once.
+  - It rejects no-op patches.
+  - It edits `.ipynb` cell by cell (sources only, outputs kept, `indent=1`, magics ignored for the compile check). Excerpts of notebooks are cell sources, not raw JSON, even when the orchestrator truncates the JSON at 6000 characters.
+- **`do_it_for_me`:**
+  - It returns `{command, …}` for terminal fixes.
+  - It reuses the diagnosis's diff only if it contains every value the action sentence names ("…to `squash`", "…to 1e-3"); otherwise Opus writes the patch.
+
+## Step judge (judge.py)
+
+Deterministic checks sometimes can't see that the learner is done: visual or setup steps, or a file outside the workdir. `StepJudge` asks Haiku, check by check, from the screen text and the workspace files.
+
+```python
+judge = coach.StepJudge()                       # one per session; per-step rate limit + change detection inside
+if judge.should_judge(step, check_results, idle_s=idle, video_playing=playing, screen=obs, files=files, focused_app=app):
+    j = await judge.judge(step, check_results, screen=obs, files=files, focused_app=app)   # None if unavailable
+    for ev in j["events"]: emit(ev["type"], ev["payload"])     # check.updated status "pass", detail "Claude saw it on screen: …"
+    if j["card"]: emit("card", j["card"])
+```
+
+- **Gate:** a check is not yet passed, the learner has been idle at least 8 s, the video isn't playing, at most one judgment per 20 s per step, and only when the screen text or the files changed.
+- **Passing checks:** a check the machine still has as `pending` passes when Claude says done with confidence ≥ 0.8.
+- **Disagreement:** if a deterministic check says `fail` while Claude says done (confidence ≥ 0.6), Claude never overrules it. You get the card `{kind: "answer", title: "Looks done?", body: ≤12 words, actions: ["confirm", "skip_step"], checkIds}` instead.
+- **Ahead of the lesson:** if the learner is already on a later step, the card is `{title: "Already ahead?", actions: ["skip_step"], targetStepId}`. An earlier step on screen gives no card.
+- **Setup steps:** these are judged done when the tool is visibly open or installed.
+- **Check button** (action `check_step`): `await coach.judge_step(step, screen, files, check_results=...)` runs the same judgment with no gates. It returns `{checks: {id: {verdict: done|not_done|unsure, reason, evidence}}, done, missing (≤12 words), where, target: {text, rect} | None}`.
+- **Reading the editor.** `pointing.editor_state(screen)` reads window titles and boxes: the real app name, the open file, an unsaved `Untitled-N`, and the `●` unsaved marker. The step's expected file comes from its checks or targets, or from its instructions ("save it as calculator.py"). `where` then says exactly what to do: "You're in VS Code on an unsaved file. Save it as calculator.py in the lesson folder". Pointing and hints use this too, and it overrides Haiku's generic `where`.
+- **Inputs:** `screen` may be an E6 `ScreenObservation` (`lines_by_app`), a `ScreenContext`, a `{app: [lines]}` dict or plain text. `files` is `{path: text}`, notebooks become cell sources.
 
 ## Pointing: Explain / Show me / Hint (pointing.py)
 
@@ -77,7 +121,7 @@ Every coach answer about the screen carries `targets` (`[{boxId, label, text, re
 - **Metric flags work for any metric.** Direction comes from the step's checks (`op >` means higher is better). Without a check, names like acc/score/pass count as "up", everything else as "down".
 
 - **Triage first** (`triage.py`). Nothing run yet + only file checks failing → the step's own hint, no model. Exact error signature from the playbook (e.g. CUDA on a Mac) → curated card in milliseconds. Metric failures (the hero case) → Opus directly. Only the ambiguous middle pays for a Haiku call; any doubt goes to Opus.
-- **Playbook** (`playbook.py`): general failure modes, none tied to one demo. PINN total loss missing the IC/BC term (Raissi et al. 2019); PINN loss imbalance (Wang, Teng & Perdikaris); PINN convection at large β → β curriculum (Krishnapriyan et al., NeurIPS 2021); missing `zero_grad()`; CUDA vs MPS on Mac; LR too high; PINN inputs without `requires_grad`. Playbook diffs are only generic one-liners (e.g. `optimizer.zero_grad()`); Opus writes the tailored diff from the learner's actual code. A "low loss but wrong solution" metric flag fires when a loss-like metric falls more than 90% while an error metric (rel_l2, err...) barely moves. It's in the cached system prompt, used by the deterministic matcher, and is the **offline fallback card** when the API is down, times out or refuses, so the demo never shows a blank.
+- **Playbook** (`playbook.py`): general failure modes, none tied to one demo. PINN total loss missing the IC/BC term (Raissi et al. 2019); PINN loss imbalance (Wang, Teng & Perdikaris); PINN convection at large β → β curriculum (Krishnapriyan et al., NeurIPS 2021); missing `zero_grad()`; CUDA vs MPS on Mac; LR too high; PINN inputs without `requires_grad`. Git: a squash/fixup placed above the commit whose code it edits → `git rebase --abort` and reorder. Playbook diffs are only generic one-liners (e.g. `optimizer.zero_grad()`); Opus writes the tailored diff from the learner's actual code. A "low loss but wrong solution" metric flag fires when a loss-like metric falls more than 90% while an error metric (rel_l2, err...) barely moves. It's in the cached system prompt, used by the deterministic matcher, and is the **offline fallback card** when the API is down, times out or refuses, so the demo never shows a blank.
 - **Citations are whitelisted.** The model picks a `citation_id` from the playbook + lesson `sources`; unknown ids are dropped. It can't invent a paper.
 - **Limits enforced in code**: title ≤ 8 words, body clamped near 30 words, `apply_fix` only offered when there is a diff.
 - **API call** (`llm.py`): `claude-opus-5-5`, `thinking: adaptive`, `output_config: {effort: "low", format: json_schema}`, two `cache_control` breakpoints (instructions+playbook, then lesson context rendered with sorted keys), and server-side refusal fallback (`fallbacks: "default"`, beta `server-side-fallback-2026-07-01`). Haiku 5.5 for triage at low effort.

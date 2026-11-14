@@ -108,7 +108,7 @@ def test_progress_saved_on_step_and_video_and_in_memory_card_uses_it():
         seg = e.s._segment(e.s.step)
         await e.s.video_state(seg["start"] + 7, True)
         st = sessions.load()
-        assert st["stepIndex"] == 1 and st["videoT"] == seg["start"] + 7 and st["passedSteps"] == [] and st["mode"] == "video"
+        assert st["stepIndex"] == 1 and st["videoT"] == seg["start"] + 7 and st["passedSteps"] == [e.s.steps[0]["id"]] and st["mode"] == "video"
 
         e.clock.t += 600  # the app was away 10 min; E4's engine asks to resume (lesson frozen in memory)
         msgs = e.s.snapshot(ask_resume=True)
@@ -278,6 +278,7 @@ def test_text_lesson_survives_restart_step_3_of_7_with_zero_build_calls():
         assert [p["stepId"] for p in started] == [full["steps"][2]["id"]]
         assert not any(t.startswith("video.") for t in types)  # a text lesson has no player
         assert calls == [] and e2.s.idx == 2 and e2.s.lesson_mode
+        assert e2.s.skipped_steps == [full["steps"][1]["id"]]  # the session knows what was skipped again
         st = sessions.load()  # the restored session keeps saving, lists intact
         assert st["stepIndex"] == 2 and st["skippedSteps"] == [full["steps"][1]["id"]]
 

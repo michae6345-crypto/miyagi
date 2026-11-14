@@ -1,0 +1,221 @@
+{
+ "geometry": {
+  "text_left": 376.0,
+  "text_right": 1604,
+  "gutter_right": 350.0,
+  "top": 57,
+  "bottom": 795.0,
+  "line_h": 18.0,
+  "visible": [
+   1,
+   41
+  ]
+ },
+ "lines": {
+  "1": {
+   "y": 57.0,
+   "h": 18.0,
+   "text": "\"\"\"Physics-informed neural network for the 1D convection equation."
+  },
+  "2": {
+   "y": 75.0,
+   "h": 18.0,
+   "text": ""
+  },
+  "3": {
+   "y": 93.0,
+   "h": 18.0,
+   "text": "    u_t + beta * u_x = 0,   x in [0, 2*pi],   t in [0, 1]"
+  },
+  "4": {
+   "y": 111.0,
+   "h": 18.0,
+   "text": "    u(x, 0) = sin(x),       periodic boundary"
+  },
+  "5": {
+   "y": 129.0,
+   "h": 18.0,
+   "text": ""
+  },
+  "6": {
+   "y": 147.0,
+   "h": 18.0,
+   "text": "The network takes (x, t) and returns u. The loss is the PDE residual on"
+  },
+  "7": {
+   "y": 165.0,
+   "h": 18.0,
+   "text": "collocation points plus the initial-condition error."
+  },
+  "8": {
+   "y": 183.0,
+   "h": 18.0,
+   "text": "\"\"\""
+  },
+  "9": {
+   "y": 201.0,
+   "h": 18.0,
+   "text": "import math"
+  },
+  "10": {
+   "y": 219.0,
+   "h": 18.0,
+   "text": ""
+  },
+  "11": {
+   "y": 237.0,
+   "h": 18.0,
+   "text": "import torch"
+  },
+  "12": {
+   "y": 255.0,
+   "h": 18.0,
+   "text": "from torch import nn"
+  },
+  "13": {
+   "y": 273.0,
+   "h": 18.0,
+   "text": ""
+  },
+  "14": {
+   "y": 291.0,
+   "h": 18.0,
+   "text": "BETA = 30.0"
+  },
+  "15": {
+   "y": 309.0,
+   "h": 18.0,
+   "text": "N_COLLOCATION = 2000"
+  },
+  "16": {
+   "y": 327.0,
+   "h": 18.0,
+   "text": "N_INITIAL = 256"
+  },
+  "17": {
+   "y": 345.0,
+   "h": 18.0,
+   "text": "EPOCHS = 5000"
+  },
+  "18": {
+   "y": 363.0,
+   "h": 18.0,
+   "text": "LEARNING_RATE = 1e-3"
+  },
+  "19": {
+   "y": 381.0,
+   "h": 18.0,
+   "text": ""
+  },
+  "20": {
+   "y": 399.0,
+   "h": 18.0,
+   "text": ""
+  },
+  "21": {
+   "y": 417.0,
+   "h": 18.0,
+   "text": "class MLP(nn.Module):"
+  },
+  "22": {
+   "y": 435.0,
+   "h": 18.0,
+   "text": "    def __init__(self, width: int = 64, depth: int = 4):"
+  },
+  "23": {
+   "y": 453.0,
+   "h": 18.0,
+   "text": "        super().__init__()"
+  },
+  "24": {
+   "y": 471.0,
+   "h": 18.0,
+   "text": "        layers = [nn.Linear(2, width), nn.Tanh()]"
+  },
+  "25": {
+   "y": 489.0,
+   "h": 18.0,
+   "text": "        for _ in range(depth - 1):"
+  },
+  "26": {
+   "y": 507.0,
+   "h": 18.0,
+   "text": "            layers += [nn.Linear(width, width), nn.Tanh()]"
+  },
+  "27": {
+   "y": 525.0,
+   "h": 18.0,
+   "text": "        layers.append(nn.Linear(width, 1))"
+  },
+  "28": {
+   "y": 543.0,
+   "h": 18.0,
+   "text": "        self.net = nn.Sequential(*layers)"
+  },
+  "29": {
+   "y": 561.0,
+   "h": 18.0,
+   "text": ""
+  },
+  "30": {
+   "y": 579.0,
+   "h": 18.0,
+   "text": "    def forward(self, x, t):"
+  },
+  "31": {
+   "y": 597.0,
+   "h": 18.0,
+   "text": "        return self.net(torch.cat([x, t], dim=1))"
+  },
+  "32": {
+   "y": 615.0,
+   "h": 18.0,
+   "text": ""
+  },
+  "33": {
+   "y": 633.0,
+   "h": 18.0,
+   "text": ""
+  },
+  "34": {
+   "y": 651.0,
+   "h": 18.0,
+   "text": "def sample_collocation(n: int):"
+  },
+  "35": {
+   "y": 669.0,
+   "h": 18.0,
+   "text": "    x = torch.rand(n, 1) * 2 * math.pi"
+  },
+  "36": {
+   "y": 687.0,
+   "h": 18.0,
+   "text": "    t = torch.rand(n, 1)"
+  },
+  "37": {
+   "y": 705.0,
+   "h": 18.0,
+   "text": "    x.requires_grad_(True)"
+  },
+  "38": {
+   "y": 723.0,
+   "h": 18.0,
+   "text": "    t.requires_grad_(True)"
+  },
+  "39": {
+   "y": 741.0,
+   "h": 18.0,
+   "text": "    return x, t"
+  },
+  "40": {
+   "y": 759.0,
+   "h": 18.0,
+   "text": ""
+  },
+  "41": {
+   "y": 777.0,
+   "h": 18.0,
+   "text": ""
+  }
+ }
+}

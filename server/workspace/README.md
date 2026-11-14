@@ -120,6 +120,25 @@ right away. "The app you were in" = the owner of the frontmost normal window tha
 moves use `pyobjc-framework-ApplicationServices` (added to `server/pyproject.toml`). Keeping the overlay above full-screen
 spaces is the app's job (Electron `setVisibleOnAllWorkspaces(true, {visibleOnFullScreen: true})`).
 
+### "Just teach me" mode: full screen, and where to type
+
+- `open_editor(path, file, fullscreen=True)` opens Cursor/VS Code as usual (CLI, then `open -a` so it's frontmost). With
+  Accessibility, a background thread then sets `AXFullScreen=true` on the editor's window, instead of the left-60% layout.
+  Without Accessibility, `report["fullscreen"]` = "skipped: Accessibility not granted (the learner can press Ctrl+Cmd+F)" and
+  the editor stays a normal frontmost window. AppleScript keystrokes or menu clicks need the same permission, so there is no
+  permission-free full screen.
+- `editor_line_rect(file, line) -> {x, y, w, h, line, source: "ax"} | None`, in top-left global screen points. The technique is
+  E6's (server/screen/ax.py): turn the Electron AX tree on once per process (`AXManualAccessibility`); read the focused hidden
+  textarea's text, caret (`AXSelectedTextRange`) and rect (it sits on the caret line); map the 500-line AX page to file lines;
+  shift by whole lines. That's a handful of AX reads, no tree walk.
+- It returns None without Accessibility, while the tree is being built (first call per editor process; ask again after ~1 s),
+  when another file is in front (`AXDocument`), when the caret is off-screen, or when the line is outside the window. Then
+  use OCR locate. Folding and word wrap shift lines, so treat the result as a hint to cross-check.
+- Without Accessibility (or when AX can't see the line), `editor_line_rect` falls back to E6's screen reader
+  (`server.screen.locate_line`, PR #9; imported only if present) and returns its full-width row with `source: "screen"`.
+  `editor_line_location(file, line)` returns the full answer: `{rect, source: "ax"|"screen"|None, reason, direction?,
+  visible_lines?, line_height?}`. When `direction` is "up"/"down", jump with `goto_argv()` and ask again.
+
 ## Download the tutorial's own materials (resources.py)
 
 ```python

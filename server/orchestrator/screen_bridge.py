@@ -67,6 +67,19 @@ class ScreenBridge:
         except Exception:  # noqa: BLE001
             log.exception("screen stop failed")
 
+    def down_reason(self) -> str | None:
+        """Why the reader can't see the screen right now (E6: status error / no_permission), else None."""
+        r = self.reader
+        if r is None:
+            return None
+        try:
+            status = getattr(r, "status", "ok")
+        except Exception:  # noqa: BLE001
+            return None
+        if status not in ("error", "no_permission"):
+            return None
+        return "no_permission" if status == "no_permission" else str(getattr(r, "last_error", "") or "capture failed")
+
     # -- reads
     def latest(self) -> Any:
         return self.reader.latest() if self.reader is not None else None
@@ -152,6 +165,7 @@ class FakeScreen:
         self.overlay: list[dict] = []
         self.watched: dict[str, str] = {}
         self.active = True
+        self.down: str | None = None  # tests: what down_reason() reports
 
     def latest(self) -> Any:
         return self.text
@@ -176,6 +190,9 @@ class FakeScreen:
 
     def set_overlay(self, rects: list[dict]) -> None:
         self.overlay = rects
+
+    def down_reason(self) -> str | None:
+        return self.down
 
     def screenshot(self) -> Any:
         return None

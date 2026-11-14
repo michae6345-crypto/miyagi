@@ -296,3 +296,22 @@ def screen_contains(obs: ScreenObservation, pattern: str, app: str | None = None
     # those must match exactly (modulo whitespace), plain text may fuzzy-match.
     need = 100.0 if _REGEX_HINT.search(pattern) else fuzzy
     return any(line_score(pattern, ln.text) >= need for ln in group_lines(obs.blocks_in(app)))
+
+
+# ----------------------------------------------------------------- cursor
+
+def line_at_point(obs: ScreenObservation, x: float, y: float, slop: float = 6.0) -> Line | None:
+    """The OCR line under (x, y), or the nearest one within `slop` points."""
+    best, best_d = None, slop + 1
+    for ln in group_lines(obs.blocks):
+        r = ln.rect
+        dx = max(r.x - x, 0, x - r.x2)
+        dy = max(r.y - y, 0, y - r.y2)
+        d = max(dx, dy)
+        if d < best_d:
+            best, best_d = ln, d
+    return best if best_d <= slop else None
+
+
+def window_at_point(obs: ScreenObservation, x: float, y: float) -> Window | None:
+    return next((w for w in obs.windows if w.rect.contains_point(x, y)), None)
