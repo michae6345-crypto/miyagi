@@ -11,7 +11,8 @@
       "matplotlib": "3.x",
       "scikit-learn": "1.x"
     },
-    "workdir": "server/lesson/fixtures/diffusion_workdir"
+    "workdir": "server/lesson/fixtures/diffusion_workdir",
+    "builtBy": "gemini"
   },
   "sources": [
     {

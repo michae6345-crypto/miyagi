@@ -46,10 +46,21 @@ async def fetch_video_info(video_id: str) -> dict:
     return info
 
 
-async def _fetch_video_info(video_id: str) -> dict:
-    """-> {video_id, title, description, length_s, chapters:[{t,title}], transcript:[{t,text}], sources:{...}, errors:[...]}.
-    Raises RuntimeError when no transcript could be obtained (the transcript path can't work without one)."""
-    info: dict = {"video_id": video_id, "title": "", "description": "", "length_s": None, "chapters": [], "transcript": [], "sources": {}, "errors": []}
+_meta_tasks: dict[str, asyncio.Task] = {}
+
+
+async def fetch_metadata(video_id: str) -> dict:
+    """Title, description, chapters, length and caption tracks from the watch page, fetched once per
+    video per process (both engines use it; it loads even while YouTube 429s the caption endpoints)."""
+    t = _meta_tasks.get(video_id)
+    if t is None or (t.done() and (t.cancelled() or t.exception() is not None)):
+        t = _meta_tasks[video_id] = asyncio.ensure_future(_fetch_metadata(video_id))
+    return dict(await asyncio.shield(t))
+
+
+async def _fetch_metadata(video_id: str) -> dict:
+    info: dict = {"video_id": video_id, "title": "", "description": "", "length_s": None, "chapters": [], "transcript": [],
+                  "sources": {}, "errors": [], "_tracks": []}
     page = None
     bd = _brightdata_config()
     if bd:
@@ -71,15 +82,24 @@ async def _fetch_video_info(video_id: str) -> dict:
             info["errors"].append(f"watch page: {str(e)[:160]}")
 
     player = _player_response(page) if page else None
-    tracks = []
     if player:
         vd = player.get("videoDetails") or {}
         info["title"] = vd.get("title", "")
         info["description"] = vd.get("shortDescription", "")
         info["length_s"] = int(vd["lengthSeconds"]) if str(vd.get("lengthSeconds", "")).isdigit() else None
         info["chapters"] = parse_chapters(info["description"])
-        tracks = (((player.get("captions") or {}).get("playerCaptionsTracklistRenderer") or {}).get("captionTracks")) or []
+        info["_tracks"] = (((player.get("captions") or {}).get("playerCaptionsTracklistRenderer") or {}).get("captionTracks")) or []
+    return info
 
+
+async def _fetch_video_info(video_id: str) -> dict:
+    """-> {video_id, title, description, length_s, chapters:[{t,title}], transcript:[{t,text}], sources:{...}, errors:[...]}.
+    Raises RuntimeError when no transcript could be obtained (the transcript path can't work without one)."""
+    info = await fetch_metadata(video_id)
+    info["errors"] = list(info.get("errors") or [])
+    info["sources"] = dict(info.get("sources") or {})
+    tracks = info.pop("_tracks", [])
+    bd = _brightdata_config()
     if bd and tracks:
         try:
             info["transcript"] = await _brightdata_captions(tracks, *bd)
@@ -113,6 +133,20 @@ def parse_chapters(description: str) -> list[dict]:
             out.append({"t": t, "title": title})
     # YouTube only treats it as a chapter list if it starts at 0:00 and has >= 3 entries
     return out if len(out) >= 3 and out[0]["t"] == 0 else []
+
+
+def format_metadata(info: dict) -> str:
+    """Title, length, chapters and description (no transcript): context for the video-watching model."""
+    lines = [f"Title: {info.get('title', '')}"]
+    if info.get("length_s"):
+        lines.append(f"Length: {_mmss(info['length_s'])}")
+    if info.get("chapters"):
+        lines.append("Chapters (from the description):")
+        lines += [f"  {_mmss(c['t'])} {c['title']}" for c in info["chapters"]]
+    desc = (info.get("description") or "").strip()
+    if desc:
+        lines.append("Description (links here are the tutorial's code/data):\n" + desc[:3000])
+    return "\n".join(lines)
 
 
 def format_for_prompt(info: dict, max_chars: int = 120_000) -> str:

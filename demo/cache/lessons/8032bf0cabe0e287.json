@@ -8,7 +8,8 @@
       "numpy": "1.x",
       "matplotlib": "3.x"
     },
-    "workdir": "demo/pinn-lab"
+    "workdir": "demo/pinn-lab",
+    "builtBy": "gemini"
   },
   "sources": [
     {

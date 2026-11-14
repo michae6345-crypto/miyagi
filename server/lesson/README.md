@@ -18,9 +18,11 @@ a short on-screen `match` ("def lossPDE"). Extra top-level `build` = models, tim
 
 ## Engines
 `LESSON_ENGINE=auto` (default) | `gemini` | `claude` (CLI: `--engine`).
-- **Gemini** (primary) watches the YouTube URL directly.
-- **Claude** (`claude-opus-5-5`, adaptive thinking, JSON-schema structured output, server-side refusal
-  fallback) takes over when every Gemini model fails (quota, outage, missing key). It builds the same draft
+- **Gemini** (primary) watches the YouTube URL directly (0.5 fps), with the video's title, description and
+  chapters as text (so it sees the repo/data links). Auto mode waits up to `LESSON_GEMINI_TIMEOUT` (75 s) for it:
+  S3's eval found Gemini's step boundaries and on-screen names clearly better (median start error 1 s vs 15 s).
+- **Claude** (`claude-opus-5-5`, adaptive thinking, server-side refusal fallback) starts in parallel at t=0 and is
+  used when Gemini fails or runs out of time (quota, outage, missing key, > 75 s). It builds the same draft
   from the video's **timestamped transcript + title, description and chapters** (`transcript.py`: Bright Data
   Web Unlocker when `BRIGHTDATA_UNLOCKER_ZONE` is set, else the public watch page + `youtube-transcript-api`;
   no frames). The adapt pass falls back the same way.

@@ -60,8 +60,16 @@ def lint(graph: dict, known_metrics: set[str] | None = None, known_files: set[st
             f"no metric check: the workdir prints {sorted(known_metrics)}; the training step needs a metric_threshold/metric_trend "
             "with a metric_pattern that parses those lines"
         )
+    if steps and vague_setup(steps[0]):
+        problems.append(f"{steps[0].get('id', 's1')}: setup step says to clone/download/get the tutorial's code or data but gives "
+                        "no URL and no exact commands; give the link from the description, or the commands/files that recreate it")
+    prev: set | None = None
     for step in steps:
         sid = step.get("id", "?")
+        sig = {(c.get("type"), c.get("app"), c.get("pattern")) for c in step.get("checks", []) if c.get("type", "").startswith("screen_")}
+        if prev and sig and sig <= prev and not any(c.get("type", "").startswith("metric_") for c in step.get("checks", [])):
+            problems.append(f"{sid}: its checks repeat the previous step's, so it passes the moment it starts; check what THIS step adds")
+        prev = sig
         if len(step.get("title", "").split()) > 6:
             problems.append(f"{sid}: title longer than 6 words")
         checks = step.get("checks", [])
@@ -243,6 +251,16 @@ def is_output_check(c: dict, step: dict) -> bool:
     if c.get("app") == "Code":  # notebook output is rendered inside the editor
         return is_notebook_step(step) and not any(_search(c["pattern"], t) for t in code_texts(step))
     return True
+
+
+_SETUP_VERB = re.compile(r"\b(clone|download|grab|get|fetch|put|place|copy|use)\b[^.]*\b(repo(sitory)?|dataset|csv|data|project|starter|example|file)s?\b", re.I)
+_CONCRETE = re.compile(r"https?://|`[^`]+`|\bgit\s+\w+|\b(npm|npx|pip|curl|wget|cargo|mkdir|touch|echo)\b", re.I)
+
+
+def vague_setup(step: dict) -> bool:
+    """Step 1 tells the learner to obtain the tutorial's code/data without saying how (no URL, no command)."""
+    text = step.get("instructions") or ""
+    return bool(_SETUP_VERB.search(text)) and not _CONCRETE.search(text)
 
 
 def check_problems(c: dict, allowed: list[str], where: str, known_metrics=None, known_files=None) -> list[str]:
