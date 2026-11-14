@@ -134,6 +134,10 @@ spaces is the app's job (Electron `setVisibleOnAllWorkspaces(true, {visibleOnFul
 - It returns None without Accessibility, while the tree is being built (first call per editor process; ask again after ~1 s),
   when another file is in front (`AXDocument`), when the caret is off-screen, or when the line is outside the window. Then
   use OCR locate. Folding and word wrap shift lines, so treat the result as a hint to cross-check.
+- Without Accessibility (or when AX can't see the line), `editor_line_rect` falls back to E6's screen reader
+  (`server.screen.locate_line`, PR #9; imported only if present) and returns its full-width row with `source: "screen"`.
+  `editor_line_location(file, line)` returns the full answer: `{rect, source: "ax"|"screen"|None, reason, direction?,
+  visible_lines?, line_height?}`. When `direction` is "up"/"down", jump with `goto_argv()` and ask again.
 
 ## Download the tutorial's own materials (resources.py)
 

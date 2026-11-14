@@ -10,6 +10,7 @@
 from .core import open_file_for, prepare, read_state
 from .editor import (
     editor_label,
+    editor_line_location,
     editor_line_rect,
     goto_argv,
     installed_editors,
@@ -28,6 +29,7 @@ __all__ = [
     "download_resources",
     "download_summary",
     "editor_label",
+    "editor_line_location",
     "editor_line_rect",
     "editor_needed",
     "find_resources",

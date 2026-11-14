@@ -208,7 +208,10 @@ def test_line_rect_from_caret_anchor(tmp_path):
     assert E.editor_line_rect(f, 5, snapshot=s)["y"] == 436.0 and E.editor_line_rect(f, 1, snapshot=s)["y"] == 364.0
 
 
-def test_line_rect_none_cases(tmp_path):
+def test_line_rect_none_cases(tmp_path, monkeypatch):
+    import builtins
+    real_import = builtins.__import__
+    monkeypatch.setattr(builtins, "__import__", lambda n, *a, **k: (_ for _ in ()).throw(ImportError(n)) if n == "server.screen" else real_import(n, *a, **k))
     f, s = snap(tmp_path)
     assert E.editor_line_rect(tmp_path / "other.py", 3, snapshot=s) is None          # another file in front
     assert E.editor_line_rect(f, 400, snapshot=s) is None                            # scrolled out of the window
@@ -219,7 +222,32 @@ def test_line_rect_none_cases(tmp_path):
 
 def test_line_rect_without_accessibility_is_none(tmp_path, monkeypatch):
     monkeypatch.setattr(E, "ax_trusted", lambda: False)
-    assert E.editor_line_rect(tmp_path / "main.py", 1) is None
+    assert E.editor_line_rect(tmp_path / "main.py", 1, screen_locate=lambda f, ln: None) is None
+
+
+class Loc:
+    def __init__(self, **d):
+        self.d = d
+
+    def to_dict(self):
+        return self.d
+
+
+def test_falls_back_to_e6_screen_locate(tmp_path):
+    f, _ = snap(tmp_path)
+    e6 = lambda file, line: Loc(rect={"x": 10, "y": 200, "w": 900, "h": 18}, reason=None, visible_lines=[1, 40], line_height=18)
+    assert E.editor_line_rect(f, 7, snapshot=lambda: None, screen_locate=e6) == {"x": 10, "y": 200, "w": 900, "h": 18, "line": 7, "source": "screen"}
+    off = lambda file, line: Loc(rect=None, reason="not_visible", direction="down", visible_lines=[1, 40])
+    loc = E.editor_line_location(f, 90, snapshot=lambda: None, screen_locate=off)
+    assert loc["rect"] is None and loc["reason"] == "not_visible" and loc["direction"] == "down"
+    boom = lambda file, line: (_ for _ in ()).throw(RuntimeError("no screen permission"))
+    assert E.editor_line_location(f, 1, snapshot=lambda: None, screen_locate=boom)["reason"] == "unavailable"
+
+
+def test_ax_wins_over_screen(tmp_path):
+    f, s = snap(tmp_path)
+    called = []
+    assert E.editor_line_rect(f, 3, snapshot=s, screen_locate=lambda *a: called.append(a))["source"] == "ax" and called == []
 
 
 def test_page_start_for_big_files(tmp_path):

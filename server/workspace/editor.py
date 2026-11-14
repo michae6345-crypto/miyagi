@@ -402,23 +402,56 @@ def line_rect_from_state(state: dict, line: int, window: dict | None = None) -> 
     return rect
 
 
-def editor_line_rect(file: str | Path, line: int, *, snapshot: Callable[[], dict | None] | None = None) -> dict | None:
-    """{x, y, w, h} (top-left global screen points) of `line` (1-based) of `file` in the open Cursor/VS Code
-    window, from Accessibility. None without Accessibility, when another file is in front, or when the line
-    is scrolled out of view: then locate by OCR. Cheap (a handful of AX reads, no tree walk); the first call
-    for an editor process turns its AX tree on (AXManualAccessibility) and returns None while it settles (~1 s).
-
-    `snapshot` (tests / E6's reader) returns {document, caret_line, line_rect, line_height, window}."""
+def editor_line_location(file: str | Path, line: int, *, snapshot: Callable[[], dict | None] | None = None,
+                         screen_locate: Callable | None = None) -> dict:
+    """Where `line` (1-based) of `file` is on screen in Cursor/VS Code, best source first:
+    1. Accessibility (exact caret-anchored row, a few AX reads; needs the permission),
+    2. E6's screen reader `server.screen.locate_line` (works without Accessibility; PR #9) when installed.
+    -> {rect: {x,y,w,h} | None, source: "ax"|"screen"|None, reason, direction?, visible_lines?, line_height?}
+    rect is in top-left global screen points (spotlight space). reason: None | no_editor | file_not_active |
+    not_visible | not_found | unavailable. direction "up"/"down" = scrolled off: jump with goto_argv() and ask again."""
+    out: dict = {"rect": None, "source": None, "reason": "unavailable", "line": int(line)}
     snap = snapshot() if snapshot else _ax_editor_snapshot()
-    if not snap:
+    if snap:
+        doc, want = _doc_path(snap.get("document")), Path(file).expanduser().resolve()
+        if doc is not None and doc != want:
+            out["reason"] = "file_not_active"
+        elif (rect := line_rect_from_state(snap, line, snap.get("window"))) is not None:
+            return {**out, "rect": rect, "source": "ax", "reason": None, "line_height": snap.get("line_height")}
+        else:
+            out["reason"] = "not_visible"
+    locate = screen_locate
+    if locate is None:
+        try:
+            from server.screen import (
+                locate_line as locate,  # E6 (PR #9); absent on older builds
+            )
+        except ImportError:
+            locate = None
+    if locate is None:
+        return out
+    try:
+        loc = locate(str(file), int(line))
+    except Exception as e:  # noqa: BLE001 - screen reader not running / no permission: just no answer
+        log.debug("screen locate_line failed: %s", e)
+        return out
+    d = loc.to_dict() if hasattr(loc, "to_dict") else dict(loc or {})
+    rect = d.get("rect")
+    out.update(rect=rect, source="screen" if rect else None, reason=d.get("reason") if not rect else None)
+    for k in ("direction", "visible_lines", "line_height"):
+        if d.get(k) is not None:
+            out[k] = d[k]
+    return out
+
+
+def editor_line_rect(file: str | Path, line: int, *, snapshot: Callable[[], dict | None] | None = None,
+                     screen_locate: Callable | None = None) -> dict | None:
+    """{x, y, w, h, line, source} of `line` of `file` in the open editor, or None (see editor_line_location
+    for why). Accessibility first, then E6's screen reader."""
+    loc = editor_line_location(file, line, snapshot=snapshot, screen_locate=screen_locate)
+    if not loc["rect"]:
         return None
-    doc, want = _doc_path(snap.get("document")), Path(file).expanduser().resolve()
-    if doc is not None and doc != want:
-        return None  # a different file is in front
-    rect = line_rect_from_state(snap, line, snap.get("window"))
-    if rect is not None:
-        rect.update(line=int(line), source="ax")
-    return rect
+    return {**loc["rect"], "line": int(line), "source": loc["source"]}
 
 
 def _ax_editor_snapshot() -> dict | None:
