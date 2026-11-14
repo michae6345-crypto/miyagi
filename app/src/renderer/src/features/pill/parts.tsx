@@ -1,14 +1,33 @@
 /**
  * The pill's small pieces, sized to mockup 01 (measured at 1×: ring 16px / 2.25 stroke, dot 7px).
+ * Brand: the ring is the accent (white), green only for passed, amber only for off track, no glows.
  * The shared atoms in core/ui stay as they are for the cards; these are tuned for the 34px pill.
  */
 import { AnimatePresence, motion, useAnimate, useReducedMotion } from 'motion/react'
 import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react'
+import treeSmall from '../../assets/brand/tree-small-dark.svg'
 import { useLesson } from '../../core/lesson'
 import { color, spring } from '../../core/theme'
 import { pulsedOfftrack, ring } from './store'
 
 export type Mark = 'watching' | 'offtrack' | 'passed' | 'check' | 'done'
+
+/**
+ * The bonsai as a one-color template glyph, like a menu-bar icon: white on the black pill. Adrian's call:
+ * the pill is black and white, and the tree shows its colors once the island opens (launcher, cards).
+ * Same file and geometry as MiyagiMark's small cut (the SVG is the mask), so nothing is redrawn.
+ * 16px: the art is ~10.5×12 inside the box, the optical size of mockup 01's icon.
+ */
+export function MonoMark({ size = 16, tone = color.text, className = '' }: { size?: number; tone?: string; className?: string }): ReactNode {
+  const mask = `url("${treeSmall}") center / contain no-repeat`
+  return (
+    <span
+      aria-hidden
+      className={`inline-block shrink-0 ${className}`}
+      style={{ width: size, height: size, backgroundColor: tone, WebkitMask: mask, mask }}
+    />
+  )
+}
 
 /** Lesson progress ring: completed steps / total. Advances on the spring when a step passes. */
 export function PillRing({
@@ -31,8 +50,9 @@ export function PillRing({
   }, [fraction])
   const on = fraction > 0.001
   return (
-    <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`} className="shrink-0 -rotate-90 text-white/25">
-      <circle cx={size / 2} cy={size / 2} r={r} fill="none" stroke="currentColor" strokeWidth={stroke} />
+    <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`} className="shrink-0 -rotate-90">
+      {/* Track: the arc's own color, dimmed (like the Activity rings). */}
+      <circle cx={size / 2} cy={size / 2} r={r} fill="none" stroke={color.accent} strokeOpacity={0.22} strokeWidth={stroke} />
       <motion.circle
         cx={size / 2}
         cy={size / 2}
@@ -52,17 +72,15 @@ export function PillRing({
 /**
  * The status slot: a 7px dot (gray watching · amber off-track · green passed) that becomes a
  * 16px green check while a step pass is being celebrated, then settles back into a dot.
- * Off-track: the dot eases to amber and pulses twice (scale 1 → 1.35 → 1, two soft halos). Once per episode.
+ * Off-track: the dot eases to amber and pulses twice (scale 1 → 1.35 → 1). Once per episode. No glow, no halo.
  */
 export function StatusMark({ mark }: { mark: Mark }): ReactNode {
   const tone = mark === 'offtrack' ? color.amber : mark === 'watching' ? color.gray : color.green
   const off = useLesson((s) => s.offtrack)
   const reduced = useReducedMotion()
   const [dot, animate] = useAnimate<HTMLSpanElement>()
-  const [pulse, setPulse] = useState(0)
   useEffect(() => {
     if (mark !== 'offtrack' || !off || pulsedOfftrack.has(off)) return
-    setPulse((n) => n + 1)
     // Two calm beats while the color eases to amber. No shake, no red.
     if (!reduced) animate(dot.current, { scale: [1, 1.35, 1, 1.35, 1] }, { duration: 1.1, ease: 'easeInOut', delay: 0.15 })
     // Count the episode as seen only if we stayed on screen for the beats. When offtrack arrives the
@@ -73,26 +91,7 @@ export function StatusMark({ mark }: { mark: Mark }): ReactNode {
 
   return (
     <span className="relative inline-block h-[7px] w-[7px] shrink-0" data-mark={mark}>
-      {pulse > 0 &&
-        [0, 0.55].map((delay) => (
-          <motion.span
-            key={`${pulse}-${delay}`}
-            className="absolute inset-0 rounded-full"
-            style={{ background: color.amber }}
-            initial={{ scale: 1, opacity: 0 }}
-            animate={{ scale: [1, 3], opacity: [0.4, 0] }}
-            transition={{ duration: 0.9, ease: 'easeOut', delay: 0.15 + delay }}
-          />
-        ))}
-      <span
-        ref={dot}
-        className="absolute inset-0 rounded-full"
-        style={{
-          backgroundColor: tone,
-          boxShadow: mark === 'watching' ? `0 0 0 ${tone}` : `0 0 6px ${tone}`,
-          transition: 'background-color .3s ease, box-shadow .3s ease'
-        }}
-      />
+      <span ref={dot} className="absolute inset-0 rounded-full" style={{ backgroundColor: tone, transition: 'background-color .3s ease' }} />
       <AnimatePresence>
         {mark === 'check' && (
           <motion.svg
@@ -174,7 +173,8 @@ export function SwapText({ id, children, className = '' }: { id: string; childre
 export function BuildLine({ progress }: { progress: number }): ReactNode {
   return (
     <motion.span
-      className="pointer-events-none absolute bottom-[4px] left-[17px] right-[17px] h-[2px] overflow-hidden rounded-full bg-white/10"
+      className="pointer-events-none absolute bottom-[4px] left-[17px] right-[17px] h-[2px] overflow-hidden rounded-full"
+      style={{ background: color.hairline }}
       initial={{ opacity: 0 }}
       animate={{ opacity: 1 }}
       exit={{ opacity: 0 }}
