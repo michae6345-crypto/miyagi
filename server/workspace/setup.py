@@ -144,12 +144,102 @@ Go only by the video's steps above (what the learner typed when searching is not
 Runner = Callable[[list[str]], tuple[int, str]]
 
 
+TIMEOUT = 124  # _run's exit code for "timed out" (the output so far is returned)
+PY_CHECK_TIMEOUT = float(os.environ.get("MIYAGI_PY_CHECK_TIMEOUT", "45"))  # cold torch/matplotlib imports: 5-20 s
+
+
 def _run(argv: list[str], timeout: float = 8.0) -> tuple[int, str]:
     try:
         r = subprocess.run(argv, capture_output=True, text=True, timeout=timeout, check=False, stdin=subprocess.DEVNULL)
+    except subprocess.TimeoutExpired as e:
+        partial = e.stdout.decode(errors="replace") if isinstance(e.stdout, bytes) else (e.stdout or "")
+        return TIMEOUT, partial
     except (OSError, subprocess.SubprocessError) as e:
         return 127, str(e)
     return r.returncode, (r.stdout or "") + (r.stderr or "")
+
+
+# One interpreter imports every package in turn (no parallel cold imports), printing a line per package as
+# it goes, so a timeout still keeps the packages already checked. A module that exists but fails to
+# import for another reason is installed-but-broken, not missing (reinstalling wouldn't help).
+_PY_PROBE = """
+import importlib, importlib.metadata as md, json, sys
+for i, (cands, dist) in enumerate(json.loads(sys.argv[1])):
+    r = {"i": i, "ok": False}
+    for m in cands:
+        try:
+            mod = importlib.import_module(m)
+        except ModuleNotFoundError:
+            continue
+        except Exception as e:
+            r = {"i": i, "ok": True, "mod": m, "ver": "", "broken": type(e).__name__ + ": " + str(e)[:120]}
+            break
+        r = {"i": i, "ok": True, "mod": m, "ver": str(getattr(mod, "__version__", "") or "")}
+        break
+    if r["ok"] and not r.get("ver") and dist:
+        try:
+            r["ver"] = md.version(dist)
+        except Exception:
+            pass
+    print(json.dumps(r), flush=True)
+"""
+# pip name -> import names, for the common mismatches (the import name Claude gives is tried first).
+IMPORT_ALIASES = {
+    "pydoe": ["pyDOE", "pydoe"], "pydoe2": ["pyDOE2", "pydoe2"], "scikit-learn": ["sklearn"], "pillow": ["PIL"],
+    "opencv-python": ["cv2"], "opencv-python-headless": ["cv2"], "beautifulsoup4": ["bs4"], "pyyaml": ["yaml"],
+    "python-dotenv": ["dotenv"], "scikit-image": ["skimage"], "pytorch": ["torch"], "tensorflow-cpu": ["tensorflow"],
+}
+_MOD = re.compile(r"[A-Za-z_][\w.]*")
+
+
+def import_candidates(item: dict) -> list[str]:
+    """Import names to try: Claude's import_name, its lowercase, known aliases of the pip name, the pip name
+    as a module (dashes -> underscores) and its lowercase. pyDOE's current release installs `pydoe`."""
+    cat = CATALOG.get(item.get("tool", ""), {})
+    pip = re.split(r"[\[<>=!~ ;]", (item.get("pip_name") or cat.get("pip") or item.get("tool") or "").strip())[0]
+    base = [item.get("import_name") or "", cat.get("module") or ""]
+    base += IMPORT_ALIASES.get(pip.lower(), []) + IMPORT_ALIASES.get((item.get("tool") or "").lower(), [])
+    base += [pip.replace("-", "_"), (item.get("tool") or "").replace("-", "_")]
+    out: list[str] = []
+    for m in base:
+        for v in (m, m.lower()):
+            if v and _MOD.fullmatch(v) and v not in out:
+                out.append(v)
+    return out[:8]
+
+
+def check_python_packages(items: list[dict], py: str | None, *, run: Runner = _run, timeout: float | None = None) -> None:
+    """Fill installed / version / ok on python_package items with ONE interpreter run. A package the probe
+    didn't reach before the timeout is unknown (installed=None, ok=None, unknown=True), never "missing"."""
+    if not items:
+        return
+    if not py:
+        for it in items:
+            it.update(installed=False, version="", where="", ok=False)
+        return
+    payload = [[import_candidates(it), re.split(r"[\[<>=!~ ;]", it.get("pip_name") or it.get("tool") or "")[0]] for it in items]
+    code, out = (run([py, "-c", _PY_PROBE, json.dumps(payload)], timeout=timeout or PY_CHECK_TIMEOUT)
+                 if run is _run else run([py, "-c", _PY_PROBE, json.dumps(payload)]))
+    seen: dict[int, dict] = {}
+    for line in (out or "").splitlines():
+        try:
+            r = json.loads(line)
+        except ValueError:
+            continue
+        if isinstance(r, dict) and isinstance(r.get("i"), int):
+            seen[r["i"]] = r
+    for i, it in enumerate(items):
+        r = seen.get(i)
+        if r is None:  # probe timed out / crashed before this one: we don't know
+            it.update(installed=None, version="", where=py, ok=None, unknown=True,
+                      detail="timed out checking (cold import); try again" if code == TIMEOUT else "couldn't check")
+            continue
+        version = _version(r.get("ver") or "")
+        it.update(installed=bool(r["ok"]), version=version, where=py, import_name=r.get("mod") or it.get("import_name", ""),
+                  ok=bool(r["ok"]) and meets(version, it.get("min_version", "")))
+        it.pop("unknown", None)
+        if r.get("broken"):
+            it["detail"] = "installed but fails to import: " + r["broken"]
 
 
 def _version(text: str) -> str:
@@ -210,13 +300,8 @@ def check(item: dict, *, workdir: Path | str | None = None, run: Runner = _run) 
         item.update(installed=True, version="", where=cat.get("url") or _https(item.get("url", "")), ok=True)
         return item
     if kind == "python_package":
-        py = venv_python(workdir) or best_python()
-        mod = item.get("import_name") or cat.get("module") or item["tool"]
-        if py and re.fullmatch(r"[A-Za-z_][\w.]*", mod):
-            code, out = run([py, "-c", f"import {mod} as m; print(getattr(m, '__version__', ''))"])
-            installed = code == 0
-            version = _version(out.strip().splitlines()[-1]) if installed and out.strip() else ""
-            where = py
+        check_python_packages([item], venv_python(workdir) or best_python(), run=run)
+        return item
     else:
         if cat.get("bundle") or kind in ("app", "editor"):
             app = find_app(cat.get("bundle", ""), cat.get("app", item.get("label", "")), run)
@@ -393,8 +478,13 @@ def requirements(lesson: dict, *, workdir: Path | str | None = None, client=None
         cache.write_text(json.dumps(raw, indent=1))
     items = _items(raw)
     brew = brew_path()
+    pys = [it for it in items if it["kind"] == "python_package"]
     with ThreadPoolExecutor(max_workers=8) as ex:
-        list(ex.map(lambda it: check(it, workdir=workdir, run=run), items))
+        futs = [ex.submit(check, it, workdir=workdir, run=run) for it in items if it["kind"] != "python_package"]
+        if pys:  # one interpreter, packages imported one after another (cold imports in parallel time out)
+            futs.append(ex.submit(check_python_packages, pys, venv_python(workdir) or best_python(), run=run))
+        for f in futs:
+            f.result()
     for it in items:
         it["install"] = {k: v for k, v in recipe(it, brew).items() if k != "package"}
     return items
@@ -405,8 +495,13 @@ def editor_needed(items: list[dict]) -> bool:
 
 
 def missing(items: list[dict]) -> list[dict]:
-    """Needed items that aren't installed or are too old."""
-    return [it for it in items if it["needed"] and not it.get("ok")]
+    """Needed items that aren't installed or are too old (items we couldn't check are not "missing")."""
+    return [it for it in items if it["needed"] and not it.get("ok") and not it.get("unknown")]
+
+
+def unknown(items: list[dict]) -> list[dict]:
+    """Items whose check didn't finish (e.g. a cold torch import past the timeout)."""
+    return [it for it in items if it.get("unknown")]
 
 
 # --------------------------------------------------------------------------- install()
@@ -501,8 +596,12 @@ def setup_card(items: list[dict], *, step_id: str | None = None) -> dict:
         body = "Missing: " + ", ".join(it["label"] for it in miss) + ". Install now?"
     elif web and not need_ed:
         body = "Nothing to install."
+    elif unknown(items):
+        body = "Nothing missing so far."
     else:
         body = "You have everything this lesson needs."
+    if unk := unknown(items):
+        body += " Still checking " + ", ".join(it["label"] for it in unk) + " (first import is slow)."
     if web:
         body += " In your browser: " + ", ".join(it["label"] for it in web) + "."
     if not need_ed and ed:
@@ -522,7 +621,7 @@ def setup_card(items: list[dict], *, step_id: str | None = None) -> dict:
                              "install": "Install", "skip_setup": "Skip"},
             "items": [{
                 "tool": it["tool"], "label": it["label"], "kind": it["kind"], "why": it["why"], "needed": it["needed"],
-                "installed": it.get("installed", False), "ok": it.get("ok", False), "version": it.get("version") or None,
+                "installed": it.get("installed", False), "ok": it.get("ok", False), "unknown": bool(it.get("unknown")), "version": it.get("version") or None,
                 "minVersion": it.get("min_version") or None,
                 "install": {"method": it["install"]["method"], "command": it["install"]["command"] or None, "url": it["install"]["url"] or None},
             } for it in items],
