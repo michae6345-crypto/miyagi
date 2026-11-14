@@ -89,7 +89,7 @@ def test_resume_offer_card_matches_the_contract():
     card = resume_offer({"lessonId": "L", "title": "PINNs for convection", "stepIndex": 2, "stepCount": 7,
                          "lastActiveAt": 1000.0}, now=1000.0 + 12 * 60 + 5)
     assert card["kind"] == "resume" and card["actions"] == ["resume", "end_lesson"]
-    assert card["body"] == "PINNs for convection · Step 3 of 7 · 12 min ago"
+    assert card["body"] == "PINNs for convection · step 3 of 7 · 12 min ago"
     engine_message("card", card)
     assert parse_app_message({"type": "action", "payload": {"kind": "end_lesson"}}).payload.kind == "end_lesson"
     assert parse_app_message({"type": "action", "payload": {"kind": "resume"}}).payload.kind == "resume"
@@ -108,12 +108,12 @@ def test_progress_saved_on_step_and_video_and_in_memory_card_uses_it():
         seg = e.s._segment(e.s.step)
         await e.s.video_state(seg["start"] + 7, True)
         st = sessions.load()
-        assert st["stepIndex"] == 1 and st["videoT"] == seg["start"] + 7 and st["passedSteps"] == [e.s.steps[0]["id"]]
+        assert st["stepIndex"] == 1 and st["videoT"] == seg["start"] + 7 and st["passedSteps"] == [] and st["mode"] == "video"
 
         e.clock.t += 600  # the app was away 10 min; E4's engine asks to resume (lesson frozen in memory)
         msgs = e.s.snapshot(ask_resume=True)
         assert [t for t, _ in msgs] == ["video.pause", "card"] and e.s.awaiting_resume
-        assert msgs[1][1]["body"].endswith("Step 2 of %d · 10 min ago" % n)
+        assert msgs[1][1]["body"].endswith("step 2 of %d · 10 min ago" % n)
         for t, p in msgs:
             engine_message(t, p)
         m = e.mark()
@@ -145,7 +145,7 @@ def test_resume_after_engine_restart_restores_step_and_video():
     async def after():
         msgs = second.s.snapshot()  # what main.py's ws_endpoint sends a new connection
         assert [t for t, _ in msgs] == ["spotlight", "video.pause", "status", "card"]
-        assert msgs[2][1] == {"state": "idle"} and "Step 3 of" in msgs[3][1]["body"]
+        assert msgs[2][1] == {"state": "idle"} and "step 3 of" in msgs[3][1]["body"]
         assert msgs[3][1]["body"].endswith("1 h ago")
         for t, p in msgs:
             engine_message(t, p)
@@ -157,6 +157,7 @@ def test_resume_after_engine_restart_restores_step_and_video():
         assert types[0] == "lesson.ready"
         started = [e["payload"] for e in evs if e["type"] == "step.started"]
         assert len(started) == 1 and started[0]["index"] == 2  # no detour through step 0
+        assert started[0]["video"] == seg  # the video lesson gets its segment back
         seeks = [e["payload"] for e in evs if e["type"] == "video.seek"]
         assert seeks[-1] == {"t": seg["start"] + 20, "play": True}
         assert second.s.idx == 2 and second.s.phase == "active"
@@ -212,5 +213,85 @@ def test_resume_with_nothing_saved_is_a_clear_error():
         assert not await e.r.resume()
         assert [x["type"] for x in e.since(m)] == ["error", "status"]
         assert e.s.snapshot() == [("status", {"state": "idle"})]
+
+    run(go())
+
+
+def _text_lesson_7() -> dict:
+    g = stubs.text_lesson(stubs.load_fixture_lesson(), goal="teach me PINNs")
+    extra = json.loads(json.dumps(g["steps"][-1]))
+    extra["id"], extra["index"], extra["title"] = "s7-extra", len(g["steps"]), "One more practice step"
+    g["steps"].append(extra)
+    assert len(g["steps"]) == 7 and g["lesson"]["mode"] == "lesson"
+    return g
+
+
+def _no_builds(e: Engine) -> list[str]:
+    calls: list[str] = []
+    for name in ("build_lesson", "build_text_lesson", "extend_lesson"):
+        async def boom(*_a, _n=name, **_k):
+            calls.append(_n)
+            raise AssertionError(f"{_n} called on resume")
+        setattr(e.s.m, name, boom)
+    return calls
+
+
+def test_text_lesson_survives_restart_step_3_of_7_with_zero_build_calls():
+    full = _text_lesson_7()
+    first_part = json.loads(json.dumps(full))
+    first_part["steps"] = first_part["steps"][:4]
+    first_part["lesson"]["complete"] = False  # "Just teach me" arrives in parts
+    e1 = Engine()
+
+    async def before():
+        await e1.s.load_graph(first_part)
+        await e1.settle()
+        assert len(sessions.load_graph()["steps"]) == 4  # saved as soon as lesson.ready went out
+        await e1.s._extend_lesson(full, True)  # the rest of the lesson arrives
+        assert len(sessions.load_graph()["steps"]) == 7  # lesson.updated rewrites the saved graph
+        await e1.s._pass_step()  # step 1 passed
+        await e1.settle()
+        await e1.s._pass_step(skipped=True)  # step 2 skipped
+        await e1.settle()
+        assert e1.s.idx == 2
+        st = sessions.load()
+        assert (st["stepIndex"], st["stepCount"], st["mode"]) == (2, 7, "lesson")
+        assert st["passedSteps"] == [full["steps"][0]["id"]] and st["skippedSteps"] == [full["steps"][1]["id"]]
+
+    run(before())
+
+    e2 = Engine()  # engine restart: nothing in memory, a builder that must not be called
+    calls = _no_builds(e2)
+
+    async def after():
+        msgs = e2.s.snapshot()
+        card = msgs[-1][1]
+        assert card["kind"] == "resume" and card["actions"] == ["resume", "end_lesson"]
+        assert card["body"].startswith(full["lesson"]["title"] + " · step 3 of 7")
+        m = e2.mark()
+        await e2.s.action("resume")
+        await e2.settle()
+        evs = e2.since(m)
+        types = [x["type"] for x in evs]
+        assert types[0] == "lesson.ready" and len(evs[0]["payload"]["steps"]) == 7
+        started = [x["payload"] for x in evs if x["type"] == "step.started"]
+        assert [p["stepId"] for p in started] == [full["steps"][2]["id"]]
+        assert not any(t.startswith("video.") for t in types)  # a text lesson has no player
+        assert calls == [] and e2.s.idx == 2 and e2.s.lesson_mode
+        st = sessions.load()  # the restored session keeps saving, lists intact
+        assert st["stepIndex"] == 2 and st["skippedSteps"] == [full["steps"][1]["id"]]
+
+    run(after())
+
+
+def test_end_lesson_on_the_resume_card_clears_and_goes_idle():
+    e1 = Engine()
+    run(e1.s.load_graph(_text_lesson_7()))
+    e2 = Engine()
+
+    async def go():
+        assert e2.s.snapshot()[-1][0] == "card"
+        await e2.s.action("end_lesson")
+        assert sessions.load() is None and e2.s.snapshot() == [("status", {"state": "idle"})]
 
     run(go())

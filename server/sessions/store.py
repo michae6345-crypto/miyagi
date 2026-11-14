@@ -19,8 +19,8 @@ from typing import Any
 log = logging.getLogger("sessions")
 
 VERSION = 1
-STATE_FIELDS = ("lessonId", "sourceUrl", "title", "stepIndex", "stepCount", "stepId", "stepTitle", "passedSteps",
-                "checks", "videoT", "workdir", "editorOpen", "startedAt", "lastActiveAt")
+STATE_FIELDS = ("lessonId", "sourceUrl", "title", "mode", "stepIndex", "stepCount", "stepId", "stepTitle", "passedSteps",
+                "skippedSteps", "checks", "videoT", "workdir", "editorOpen", "startedAt", "lastActiveAt")
 
 
 def state_dir() -> Path:
