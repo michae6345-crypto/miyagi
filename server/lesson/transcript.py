@@ -62,24 +62,26 @@ async def _fetch_metadata(video_id: str) -> dict:
     info: dict = {"video_id": video_id, "title": "", "description": "", "length_s": None, "chapters": [], "transcript": [],
                   "sources": {}, "errors": [], "_tracks": []}
     page = None
+    # The plain watch page is fast and loads even while YouTube 429s caption endpoints; Bright Data is the
+    # fallback (its Unlocker has returned empty bodies for youtube.com, and each attempt costs up to 25 s).
+    try:
+        async with httpx.AsyncClient(headers=_HEADERS, timeout=10, follow_redirects=True) as c:
+            r = await c.get(WATCH_URL.format(vid=video_id))
+            r.raise_for_status()
+            if _player_response(r.text):
+                page = r.text
+                info["sources"]["metadata"] = "youtube.com"
+            else:
+                info["errors"].append("watch page: no player data (consent/bot page?)")
+    except Exception as e:  # noqa: BLE001
+        info["errors"].append(f"watch page: {str(e)[:160]}")
     bd = _brightdata_config()
-    if bd:
+    if page is None and bd:
         try:
             page = await _brightdata_get(WATCH_URL.format(vid=video_id), *bd)
             info["sources"]["metadata"] = "brightdata"
-        except Exception as e:  # noqa: BLE001  fall back to a direct fetch
-            info["errors"].append(f"brightdata watch page: {str(e)[:160]}")
-    else:
-        info["errors"].append("brightdata: BRIGHTDATA_API_KEY/BRIGHTDATA_UNLOCKER_ZONE not set")
-    if page is None:
-        try:
-            async with httpx.AsyncClient(headers=_HEADERS, timeout=30, follow_redirects=True) as c:
-                r = await c.get(WATCH_URL.format(vid=video_id))
-                r.raise_for_status()
-                page = r.text
-                info["sources"]["metadata"] = "youtube.com"
         except Exception as e:  # noqa: BLE001
-            info["errors"].append(f"watch page: {str(e)[:160]}")
+            info["errors"].append(f"brightdata watch page: {str(e)[:160]}")
 
     player = _player_response(page) if page else None
     if player:
