@@ -173,6 +173,8 @@ STACK_GUIDE = """Fit the checks to the tutorial's stack: grade what that stack v
 - ML / training: per-epoch or per-step lines (loss, accuracy, val metrics) as metric checks with metric_pattern.
 - Anything else: the most distinctive thing the step makes appear on screen (output text, a file name in the
   editor tab, a UI label), never a judgement call.
+Identifiers that only exist in the tutorial's off-camera starting code (constants like DEFAULT_USER, routes the
+learner never wrote in an earlier step) are demo literals too: precision_checks only.
 Every step needs at least one check that passes for ANY learner doing the step with their own names and data:
 tool output ("Successfully rebased", "CONFLICT", "RangeIndex: \\d+ entries", "Compiled successfully", "Finished")
 or API/keyword names ("useState\\(", "groupby\\(", "@app\\.get"). Literals that only exist in the tutorial's demo
@@ -220,10 +222,13 @@ Rules:
 """
 
 
-async def watch_video(url: str, goal: str, *, fps: float | None = None) -> dict:
+async def watch_video(url: str, goal: str, *, fps: float | None = None, context: str = "") -> dict:
     # 0.5 fps halves the frames of the default 1 fps; long videos otherwise miss the 45 s cap
     fps = fps if fps is not None else float(os.environ.get("LESSON_GEMINI_FPS", "0.5"))
-    parts = [_video_part(url, fps=fps), types.Part(text=WATCH_PROMPT.format(goal=goal, stack_guide=STACK_GUIDE))]
+    prompt = WATCH_PROMPT.format(goal=goal, stack_guide=STACK_GUIDE)
+    if context:  # title/description/chapters: the video alone never shows the repo/data links
+        prompt += "\n\nAbout this video (from its YouTube page):\n" + context
+    parts = [_video_part(url, fps=fps), types.Part(text=prompt)]
     return await _generate_json(model(), parts, VIDEO_DRAFT_SCHEMA, system=WATCH_SYSTEM)
 
 

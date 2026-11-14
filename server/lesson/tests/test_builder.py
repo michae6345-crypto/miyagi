@@ -63,7 +63,7 @@ def _bad_adapt():
 def fake(monkeypatch, tmp_path):
     calls = {"watch": 0, "detail": 0, "adapt": []}
 
-    async def watch_video(url, goal, fps=None):
+    async def watch_video(url, goal, fps=None, **kw):
         calls["watch"] += 1
         return json.loads(json.dumps(DRAFT))
 
@@ -89,6 +89,12 @@ def fake(monkeypatch, tmp_path):
     monkeypatch.setattr(_claude, "watch_transcript", offline)
     monkeypatch.setattr(_claude, "adapt_checks", adapt_checks)  # the adapt pass is Claude's
     monkeypatch.setattr(_transcript, "fetch_video_info", offline)
+
+    async def meta(vid):
+        calls["meta"] = calls.get("meta", 0) + 1
+        return {"video_id": vid, "title": "Fake tutorial", "description": "Code: https://github.com/x/y", "length_s": 600, "chapters": []}
+
+    monkeypatch.setattr(_transcript, "fetch_metadata", meta)
     monkeypatch.setattr(builder, "CACHE_DIR", tmp_path)
     monkeypatch.setattr(builder, "RAW_DIR", tmp_path / "raw")
     calls["responses"] = responses
@@ -396,7 +402,7 @@ def test_slow_gemini_hands_over_to_claude_within_the_cap(fake, monkeypatch):
     monkeypatch.setenv("LESSON_ENGINE", "auto")
     monkeypatch.setenv("LESSON_GEMINI_TIMEOUT", "0.2")
 
-    async def slow_gemini(url, goal, fps=None):
+    async def slow_gemini(url, goal, fps=None, **kw):
         await asyncio.sleep(5)
 
     monkeypatch.setattr(gemini, "watch_video", slow_gemini)
@@ -504,7 +510,7 @@ def test_race_takes_claude_after_a_short_grace(fake, monkeypatch):
     monkeypatch.setenv("LESSON_ENGINE", "auto")
     monkeypatch.setenv("LESSON_GEMINI_GRACE", "0.2")
 
-    async def slow_gemini(url, goal, fps=None):
+    async def slow_gemini(url, goal, fps=None, **kw):
         await asyncio.sleep(5)
 
     monkeypatch.setattr(gemini, "watch_video", slow_gemini)
@@ -615,3 +621,42 @@ def test_adapt_runs_in_parallel_batches(fake, monkeypatch):
     t0 = _t.time()
     asyncio.run(builder.build_lesson(URL, "x", WORKDIR, refresh=True))
     assert sizes[:3] == [1, 1, 1] and _t.time() - t0 < 0.55  # three 0.2 s calls ran concurrently
+
+
+# ---- S3 Gemini-path fixes ---------------------------------------------------------
+
+def test_auto_waits_for_gemini_even_when_claude_is_ready_first(fake, monkeypatch):
+    monkeypatch.setenv("LESSON_ENGINE", "auto")
+    calls = []
+    _claude_fakes(monkeypatch, calls)  # Claude answers instantly
+    seen = {}
+
+    async def gemini_slower(url, goal, fps=None, context=""):
+        seen["context"] = context
+        await asyncio.sleep(0.4)
+        return json.loads(json.dumps(DRAFT))
+
+    monkeypatch.setattr(gemini, "watch_video", gemini_slower)
+    gemini.last_model = "gemini-4-hydrogen"
+    g = asyncio.run(builder.build_lesson(URL, "x", WORKDIR, refresh=True))
+    assert g["build"]["model"]["video"].startswith("gemini-4-hydrogen")
+    assert "https://github.com/x/y" in seen["context"] and "Fake tutorial" in seen["context"]  # description reaches Gemini
+
+
+def test_vague_setup_step_and_repeated_checks_are_linted():
+    chk = {"id": "c", "type": "screen_contains", "label": "x", "app": "Code", "pattern": r"useState\("}
+    steps = [{"id": "s1", "title": "Get the starter", "instructions": "Clone the example repository from the tutorial.", "checks": [dict(chk, id="s1c1")]},
+             {"id": "s2", "title": "Add state", "instructions": "Add a counter.", "checks": [dict(chk, id="s2c1")]}]
+    probs = lint({"steps": steps})
+    assert any(p.startswith("s1: setup step") for p in probs) and any(p.startswith("s2: its checks repeat") for p in probs)
+    steps[0]["instructions"] = "Run `git clone https://github.com/x/y` and cd into it."
+    steps[1]["checks"].append({"id": "s2c2", "type": "screen_contains", "label": "list", "app": "Code", "pattern": r"items\.map\("})
+    assert lint({"steps": steps}) == []
+
+
+def test_notebook_cells_get_a_run_command():
+    draft = {"title": "pandas", "files": ["analysis.ipynb"], "libraries": [{"name": "pandas", "version": "2.x"}],
+             "steps": [{"index": 1, "start": 0, "end": 60, "title": "Load the data", "instructions": "Load it.", "code": "df = pd.read_csv('orders.csv')", "checks": []},
+                       {"index": 2, "start": 60, "end": 120, "title": "Read along", "instructions": "Listen.", "checks": []}]}
+    g = builder.assemble(draft, "x", {"steps": []})
+    assert g["steps"][0]["run_command"] == builder.NOTEBOOK_RUN and "run_command" not in g["steps"][1]

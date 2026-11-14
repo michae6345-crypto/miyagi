@@ -243,8 +243,12 @@ async def _video_draft(url: str, vid: str, goal: str, *, refresh: bool, detail: 
     return draft
 
 
-GEMINI_GRACE_S = 8.0  # LESSON_GEMINI_GRACE: how long Gemini may still answer once Claude's draft is ready
-GEMINI_VIDEO_TIMEOUT_S = 45.0  # LESSON_GEMINI_TIMEOUT; past this the Claude transcript path is faster
+# Gemini watching the video gives better step boundaries and reads names/versions off the screen
+# (S3 eval: median start error 1 s vs 15 s), so auto prefers it: it gets up to LESSON_GEMINI_TIMEOUT
+# seconds, and the Claude transcript draft (running in parallel from t=0) is used only if Gemini fails
+# or runs out of time. Paid tier: a 20-min video takes Gemini ~35-60 s at 0.5 fps.
+GEMINI_VIDEO_TIMEOUT_S = 75.0
+GEMINI_GRACE_S = GEMINI_VIDEO_TIMEOUT_S  # LESSON_GEMINI_GRACE: extra wait for Gemini once Claude's draft is ready
 
 
 def engines() -> list[str]:
@@ -287,7 +291,12 @@ async def _watch(url: str, vid: str, goal: str) -> dict:
         cap = float(os.environ.get("LESSON_GEMINI_TIMEOUT", GEMINI_VIDEO_TIMEOUT_S))
         _emit("watching")
         try:
-            raw = await asyncio.wait_for(gemini.watch_video(url, goal), cap)
+            meta = await asyncio.wait_for(transcript.fetch_metadata(vid), 10)
+            context = transcript.format_metadata(meta) if meta.get("title") else ""
+        except Exception:  # noqa: BLE001  metadata is a bonus for Gemini
+            context = ""
+        try:
+            raw = await asyncio.wait_for(gemini.watch_video(url, goal, context=context), cap - (time.time() - t0))
         except TimeoutError as e:
             raise RuntimeError(f"no answer within {cap:.0f}s") from e
         try:
@@ -557,6 +566,9 @@ def assemble(draft: dict, goal: str, adapted: dict) -> dict:
         name, ver = (lib.get("name") or "").strip(), (lib.get("version") or "").strip()
         if name and (name not in libs or (ver and not libs[name])):
             libs[name] = ver
+    # notebook tutorials: a cell with code is "run" too, so its output rule applies (Gemini drafts leave run_command empty)
+    files = " ".join(draft.get("files") or []) + " " + " ".join(libs)
+    notebook = bool(re.search(r"\.ipynb\b|jupyter|ipykernel|colab|notebook", files, re.I))
     steps = []
     for s in draft["steps"]:
         i = s["index"]
@@ -582,7 +594,8 @@ def assemble(draft: dict, goal: str, adapted: dict) -> dict:
                 "explanations": [{"topic": e["topic"], "t": e["t"], "sourceId": "src1"} for e in s.get("explanations") or []],
                 "hints": [h for h in s.get("hints") or [] if h],
                 "common_mistakes": [m for m in s.get("common_mistakes") or [] if m],
-                **({"run_command": s["run_command"].strip()} if (s.get("run_command") or "").strip() else {}),
+                **({"run_command": s["run_command"].strip()} if (s.get("run_command") or "").strip()
+                   else {"run_command": NOTEBOOK_RUN} if notebook and (s.get("code") or "").strip() else {}),
                 **({"code": s["code"]} if (s.get("code") or "").strip() else {}),
             }
         )
@@ -681,6 +694,9 @@ def complete_metric_checks(graph: dict, known_metrics: set[str]) -> dict:
                     step["checks"].append(promoted)
                     break
     return graph
+
+
+NOTEBOOK_RUN = "Run the cell (Shift+Enter)"
 
 
 def clean_check(raw: dict, cid: str) -> dict | None:
