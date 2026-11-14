@@ -367,6 +367,19 @@ class Modules:
                               step, failed_checks, metrics, code_excerpt, **kwargs)
         return self._public(out)
 
+    # -- learning events -> Tiger (E3's server.checks.tiger: non-blocking queue + offline spool)
+    def record(self, kind: str, lesson_id: str | None, step_id: str | None, video_t: float | None = None,
+               payload: dict | None = None, source_id: str | None = None) -> None:
+        if "checks" in self.forced:
+            return
+        try:
+            tiger = importlib.import_module("server.checks.tiger")
+        except Exception:  # noqa: BLE001 - no Tiger module: nothing to record
+            return
+        fn = getattr(tiger, "record_event", None)
+        if fn is not None:
+            fn(kind, lesson_id, step_id, video_t, payload, source_id=source_id)
+
     # -- voice (E5: ElevenLabs behind server.coach.voice; fills the existing `speak` event)
     def _voice(self) -> Any:
         if self.demo or "coach" in self.forced:

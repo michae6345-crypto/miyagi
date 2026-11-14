@@ -199,6 +199,7 @@ class LessonSession:
         self.on_workdir: Callable[[str], None] | None = None  # main.py hooks the file watcher here
         self.idx = -1
         self.runs: dict[str, RunInfo] = {}
+        self.video_t: float | None = None  # last position the player reported
         self.voice = False
         self.status = "idle"
         self._lock = asyncio.Lock()
@@ -269,6 +270,16 @@ class LessonSession:
             return
         lines = [self.m.voice_line("step.started", self._step_started_payload(st)) for st in self.steps]
         self._spawn(self.m.prefetch_voice([ln for ln in lines if ln]), timer=True)
+
+    def _record(self, kind: str, payload: dict | None = None, step: dict | None = None) -> None:
+        """A learning event for Tiger's stats (step_started, check_pass/fail, offtrack, fix_applied, question, step_passed)."""
+        step = step or self.step
+        seg = self._segment(step) if step else None
+        try:
+            self.m.record(kind, (self.graph or {}).get("lesson", {}).get("id"), step["id"] if step else None,
+                          self.video_t, payload or {}, source_id=(seg or {}).get("videoId") or None)
+        except Exception:  # noqa: BLE001 - stats must never break the lesson
+            log.exception("record %s failed", kind)
 
     def _say(self, kind: str, payload: dict) -> None:
         """Voice (when toggled on): speak this event in the background, never over the learner's typing."""
@@ -495,6 +506,7 @@ class LessonSession:
         started = self._step_started_payload(step)
         await self.emit("step.started", started)
         self._say("step.started", started)
+        self._record("step_started", {"title": step.get("title")}, step)
         for c in self.display_checks(step):
             self.check_state[c["id"]] = {"label": c.get("label", c["id"]), "status": "pending", "detail": None}
             await self.emit("check.updated", {"stepId": step["id"], "checkId": c["id"],
@@ -604,6 +616,7 @@ class LessonSession:
             payload["nextStepId"] = nxt
         await self.emit("step.passed", payload)
         self._say("step.passed", payload)
+        self._record("step_passed", {"nextStepId": payload.get("nextStepId")}, step)
         await self._status("passed")
         await self.emit("spotlight", {"clear": True})
         if nxt:
@@ -723,6 +736,8 @@ class LessonSession:
             label = r.get("label") or (prev or {}).get("label") or cid
             if prev and prev["status"] == shown and prev.get("detail") == detail:
                 continue
+            if shown in ("pass", "fail") and (not prev or prev["status"] != shown):
+                self._record(f"check_{shown}", {"check_id": cid, "label": label, "detail": detail}, step)
             self.check_state[cid] = {"label": label, "status": shown, "detail": detail}
             payload = {"stepId": step["id"], "checkId": cid, "label": label, "status": shown}
             if detail:
@@ -888,6 +903,8 @@ class LessonSession:
             self.last_offtrack = full
             await self.emit("offtrack", shown)
             self._say("offtrack", shown)
+            self._record("offtrack", {"title": full.get("title"), "level": level,
+                                      "check_ids": [r.get("checkId") for r in failed]}, step)
             diff = full.get("diff") or {}
             first = (diff.get("yours") or "").strip().splitlines()[:1]
             spot = self._locate(re.escape(first[0]), None, full.get("title", "")) if first else None
@@ -1001,6 +1018,7 @@ class LessonSession:
         if step is None or self.passed:
             return
         self.video_reports += 1
+        self.video_t = t
         seg = self._segment(step)
         if seg and not self.segment_done and t >= seg["end"] - 0.3 and t <= seg["end"] + 5:
             await self._segment_end()
@@ -1050,6 +1068,7 @@ class LessonSession:
             await self._spotlight_target(step)
             return
         if kind in ("explain", "ask"):
+            self._record("question", {"kind": kind, "text": (text or "")[:300]}, step)
             await self._status("thinking")
             card = await self.m.explain(step, text if kind == "ask" else (text or None), self._explain_context())
             card = dict(card)
@@ -1189,6 +1208,7 @@ class LessonSession:
         spot = self._locate(re.escape(first), None, "Fixed")
         if spot:
             await self._show_spot(spot)
+        self._record("fix_applied", {"file": path.name}, step)
         await self._card(step, "Fix applied", "Re-run to check it. Undo if you'd rather type it yourself.",
                          kind="answer", actions=["undo"])
         await self.on_file_change([str(path)])
@@ -1224,6 +1244,7 @@ class LessonSession:
             spot = self._locate(re.escape(pp["first"][0]), None, "Fixed")
             if spot:
                 await self._show_spot(spot)
+        self._record("fix_applied", {"file": path.name}, step)
         await self._card(step, "Fix applied", "Re-run to check it. Undo if you'd rather type it yourself.",
                          kind="answer", actions=["undo"])
         await self.on_file_change([str(path)])

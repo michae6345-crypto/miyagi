@@ -1037,3 +1037,24 @@ def test_voice_speaks_step_offtrack_and_pass_only_when_on_and_not_typing(tmp_pat
     run(go())
     assert said == ["step.passed", "step.started"]
     assert [p["audioUrl"] for p in rig.of("speak")] == ["/tts/step.passed.mp3", "/tts/step.started.mp3"]
+
+
+def test_learning_events_are_recorded_for_tiger_stats(rig):
+    events = []
+    rig.s.m.record = lambda kind, lesson, step, video_t=None, payload=None, source_id=None: events.append(
+        (kind, step, (payload or {}).get("check_id"), source_id, video_t))
+
+    async def go():
+        await _to_step(rig, 5)
+        await rig.s.video_state(480.0, True)
+        rig.write("beta = 30\n")
+        await rig.run("r1", PLATEAU)  # check_fail x2, offtrack
+        await rig.run("r2", CONVERGE)  # check_pass x2, step_passed
+        await rig.s.action("ask", "why?")
+
+    run(go())
+    kinds = [e[0] for e in events]
+    assert kinds[:2] == ["step_started", "step_started"]  # s1 (load) then s6 (goto)
+    assert {"check_fail", "offtrack", "check_pass", "step_passed", "question"} <= set(kinds)
+    fail = next(e for e in events if e[0] == "check_fail")
+    assert fail[1] == "s6" and fail[2] in ("s6c1", "s6c2") and fail[3] == "STUB_PINN_VID" and fail[4] == 480.0

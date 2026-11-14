@@ -148,6 +148,13 @@ try:  # E5 voice: GET /tts/<hash>.mp3 for `speak.audioUrl` (relative: the app pr
 except Exception as _e:  # noqa: BLE001
     log.warning("voice routes unavailable: %s", _e)
 
+try:  # E3 Tiger stats: GET /stats (HTML, refreshes every 2 s) + /stats/data (JSON); read-only, never blocks long
+    from server.checks.stats_web import router as _stats_router
+
+    app.include_router(_stats_router)
+except Exception as _e:  # noqa: BLE001
+    log.warning("stats routes unavailable: %s", _e)
+
 
 @app.websocket("/")
 async def ws_endpoint(ws: WebSocket) -> None:
