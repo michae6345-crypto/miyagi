@@ -11,6 +11,7 @@ Orchestrator usage:
     ws.send({"type": "offtrack", "payload": coach.public(card)})
 """
 
+from . import voice
 from .actions import do_it_for_me, inflight, locate
 from .common import get_lesson, set_lesson, system_blocks
 from .diagnose import diagnose, playbook_card, public
@@ -62,5 +63,6 @@ __all__ = [
     "set_lesson",
     "summarize_metrics",
     "triage",
+    "voice",
     "warm",
 ]
