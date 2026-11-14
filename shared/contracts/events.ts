@@ -62,7 +62,12 @@ export interface AppCommands {
   "action": { kind: "back" | "explain" | "diagram" | "show_me" | "hint" | "voice_toggle" | "ask" | "apply_fix"; text?: string };
   "video.state": { t: number; playing: boolean };   // player reports its position
   "overlay.bounds": { rects: Array<{ x: number; y: number; w: number; h: number }> };
+  /** Bring-your-own-key (like cue): sent on every connect from the app's Settings. Engine uses these over its .env, keeps them in memory only, never logs them. */
+  "config.keys": { anthropic?: string; gemini?: string; brightdata?: string; elevenlabs?: string; tigerUrl?: string };
 }
+// Engine -> app answer to config.keys: which keys are present and valid (never echo the keys themselves)
+export interface KeyStatusEvent { "config.status": { anthropic: KeyState; gemini: KeyState; brightdata: KeyState; elevenlabs: KeyState; tiger: KeyState } }
+export type KeyState = "ok" | "missing" | "invalid" | "env";   // "env" = falling back to the engine's .env
 
 export type EngineMessage = { [K in keyof EngineEvents]: { type: K; payload: EngineEvents[K] } }[keyof EngineEvents];
 export type AppMessage = { [K in keyof AppCommands]: { type: K; payload: AppCommands[K] } }[keyof AppCommands];

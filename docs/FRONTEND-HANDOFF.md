@@ -117,6 +117,12 @@ Framer Motion everywhere. **Default spring: `{type:'spring', stiffness:420, damp
 
 **Performance rules:** only animate `transform` and `opacity` (plus the pill's size via a transform-friendly wrapper); target 60fps; never call `setBounds` during an animation; preload every window at startup and toggle `show()`/`hide()` + opacity so nothing cold-starts during the demo.
 
+## Settings: bring your own keys (like cue)
+- A small Apple-style **Settings sheet** (⌘, or the gear in the expanded pill; also shown on first run): fields for **Anthropic** and **Gemini** (required), **Bright Data** (optional; without it you paste a YouTube link instead of searching), **ElevenLabs** (optional voice), **Tiger Data URL** (optional).
+- Store them **encrypted with Electron `safeStorage`** (macOS Keychain / Windows DPAPI) in `app.getPath('userData')`. Never in plain text, never in the repo, never logged.
+- On every WebSocket connect, send `config.keys {...}`; the engine replies `config.status` with ok / missing / invalid / env per key. Show a green dot per key and a "Test" button.
+- If a key is empty, the engine falls back to its own `.env` (shown as "env"). That's how the demo Mac runs.
+
 ## Keyboard shortcuts (global; Windows: launcher is Ctrl+Shift+Space)
 ⌥Space ask/launcher · ⌥← back (rewind the step) · ⌥E explain more · ⌥D diagram · ⌥S show me (play the step's clip) · ⌥H hint · ⌥V voice toggle · Esc hide card.
 
