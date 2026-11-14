@@ -13,7 +13,7 @@ starts after the learner has seen what the video is and said yes.
 
 ```mermaid
 flowchart LR
-  L["learn {query}"] --> S["search<br/>ranked by strict topic match<br/>kind + length on every row<br/>(E7)"]
+  L["learn {query}"] --> S["search<br/>ranked by strict topic match<br/>style + length on every row<br/>(E7)"]
   S -->|search.done| PF0["prefetch preflight<br/>top 3 videos (S8)"]
   S -->|"build_lesson {resultIds}<br/>or learn_url"| P["preflight ≤ 5 s<br/>card kind preflight<br/>(S8)"]
   PF0 -.memo.-> P
@@ -31,7 +31,7 @@ flowchart LR
 
 | # | Stage | Owner | Target | Measured (14 Nov) |
 |---|---|---|---|---|
-| 1 | **Search.** Ranked by strict topic match. Each row's `meta` shows kind (video / repo / blog) and length. | E7 (`server/finder`) | first row ≤ 4 s, done ≤ 13 s | 3.0–3.9 s / 12–13 s (Run 3) |
+| 1 | **Search.** Ranked by strict topic match. Each row carries `kind` (video / repo / blog), `style` (coding / no-code / conceptual), `durationLabel`, `long`, `chapters` (count) and `captions`. | E7 (`server/finder`) | first row ≤ 4 s, done ≤ 13 s | 3.0–3.9 s / 12–13 s (Run 3) |
 | 1b | **Prefetch.** On `search.done`, `server.preflight.prefetch(rows, query)` starts preflight for the top 3 videos in the background. | E4 calls it, S8 owns it | free: the later pick returns from the memo | not wired yet |
 | 2 | **Preflight.** Metadata + Claude's read + an early tool check, then card `kind: "preflight"`. | S8 (`server/preflight`) | ≤ 5 s hard; a late part re-sends the card within +3 s | cold 3.4–5.0 s; late tool list at 5.3–7.0 s |
 | 3 | **Confirm.** The learner presses `build`, or `pick_another` to go back to the results they already have. | Adrian (card UI), E4 | — | — |
@@ -77,7 +77,7 @@ listed in `missing`, and if it lands later it arrives through `on_late`.
 |---|---|
 | title, channel, duration, description, category, tags | oEmbed + the watch page (plain fetch ~1 s; Bright Data Unlocker as fallback) |
 | chapters | YouTube's own chapter list (`chapterRenderer`), else description timestamps (YouTube's rules: from 0:00, ascending, ≥ 3) |
-| `kind`: coding / no-code / conceptual / other, `topic`, `goalMatch {score 0–1 \| null, note}`, first hands-on chapter | Claude `claude-haiku-5-5`, structured output, on that metadata plus the finder's Gemini skim if it's cached (no new Gemini call) |
+| `style`: coding / no-code / conceptual (E7's vocabulary), `topic`, `goalMatch {score 0–1 \| null, note}`, first hands-on chapter | Claude `claude-haiku-5-5`, structured output, on that metadata plus the finder row's `style` (as a prior; it is also the fallback when Claude is late) and the finder's Gemini skim if it's cached (no new Gemini call) |
 | `items` ("Needs: VS Code ✓ Python 3 ✓ torch ✗") | S2's `server.workspace.requirements()` on a metadata-level step graph (lesson id `preflight-<videoId>`) |
 | `buildPlan {strategy whole\|chapters, firstChapter, firstHandsOn, estSecondsToFirstSteps}` | E2's `plan_windows` (local mirror when it isn't importable) |
 | `warning`, `recommended: "pick_another"` | when `goalMatch.score < 0.5` |
@@ -97,7 +97,7 @@ All lifecycle contract changes go in the one combined `contract:` PR (#17, branc
 preflight additions. The preflight additions are on branch `contract/preflight-additions` (2 commits on top of
 `contract/end-lesson`), ready to cherry-pick:
 
-- card `kind: "preflight"`, plus optional fields `items?: SetupItem[]`, `warning?`, `recommended?`, `preflight?: PreflightInfo`
+- card `kind: "preflight"` (`preflight.style` uses the finder's coding / no-code / conceptual), plus optional fields `items?: SetupItem[]`, `warning?`, `recommended?`, `preflight?: PreflightInfo`
 - action kinds `build` and `pick_another` (also on the card's `actions`)
 - `SetupItem.kind` `"web_app"`, `install.method` `"open"`, action `open_in_browser` (S2's no-code items, PR #22)
 

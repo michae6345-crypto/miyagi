@@ -20,10 +20,15 @@ await emit("card", preflight_card(res))       # kind "preflight", actions build 
    and chapters (YouTube's own `chapterRenderer` list, else description timestamps; a "Corrections:" tail
    doesn't count).
 2. **In parallel:**
-   - Claude `claude-haiku-5-5` (`PREFLIGHT_MODEL`), structured output: `kind` coding | no-code | conceptual |
-     other, `topic`, `goalMatch {score 0–1 | null, note}`, the first hands-on chapter, and libraries. It also
+   - Claude `claude-haiku-5-5` (`PREFLIGHT_MODEL`), structured output: `style` coding | no-code | conceptual
+     (the same vocabulary as E7's finder rows), `topic`, `goalMatch {score 0–1 | null, note}`, the first hands-on chapter, and libraries. It also
      gets the finder's Gemini skim when the picked row or `demo/cache/search/*.json` has one. No new Gemini
      call is made.
+   - The picked finder row (E7) is reused rather than re-derived. Its `style` goes into Claude's prompt as a
+     prior, and becomes the card's style when Claude is late (`styleFrom: "finder"`). `captions`,
+     `durationLabel` and `long` are copied through. `durationS`, title and channel fill in when YouTube
+     blocks the watch page. The watch page is still fetched, because the build plan needs the description
+     and the chapter *times* (the row only has a chapter count).
    - S2's `server.workspace.requirements()` on a metadata-level step graph (lesson id `preflight-<videoId>`),
      checked locally and read-only. It is skipped with a note if `server.workspace` doesn't export it yet.
 3. **buildPlan:** `whole` (≤ 30 min) or `chapters`. `firstChapter` is the window E2 builds first (its
@@ -42,7 +47,7 @@ starting another.
 {"kind": "preflight", "title": "<video title>",
  "body": "No-code · 19:29 · 10 chapters · AI Master\n<topic>\n⚠ This video builds no-code support bots, not an LLM.\nBuilding takes ~59 s.\nNo code editor needed for this one.\nNeeds: Botpress (web) Zapier (web)",
  "items": [SetupItem…], "actions": ["build", "pick_another"], "warning": "…", "recommended": "pick_another",
- "preflight": {"videoId", "url", "kind", "topic", "durationS", "chapters": 10, "goalMatch": {"score": 0.2, "note"},
+ "preflight": {"videoId", "url", "style", "topic", "durationS", "chapters": 10, "goalMatch": {"score": 0.2, "note"},
                "buildPlan": {"strategy", "firstChapter", "firstHandsOn"?, "estSecondsToFirstSteps"}, "editorNeeded": false, "partial": false}}
 ```
 
@@ -70,7 +75,7 @@ await self._status("idle")                     # waiting on the learner
 
 # action(kind):
 #   "build"        -> p = self.pending_pick; self.pending_pick = None; await self._run_build(p["url"], self.query)
-#                     (hand p["preflight"] to E2 / S2 if they accept it: chapters, duration, kind, goalMatch, items)
+#                     (hand p["preflight"] to E2 / S2 if they accept it: chapters, duration, style, goalMatch, items)
 #   "pick_another" -> self.pending_pick = None; self.phase = "idle"; await self._status("idle")   # the app re-shows its results
 #   "install"      -> S2's install flow (text = tool id), same as on the setup card
 # _emit_if_pending: emit only while self.pending_pick["url"] == url (a late card must not land after build / pick_another / end_lesson)
