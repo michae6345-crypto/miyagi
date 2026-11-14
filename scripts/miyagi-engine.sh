@@ -27,6 +27,10 @@ export ENGINE_PORT="${ENGINE_PORT:-8787}"
 export ORCH_SCREEN="${ORCH_SCREEN:-1}"
 export ORCH_OPEN_WORKSPACE="${ORCH_OPEN_WORKSPACE:-1}"
 export TUT_WORKDIR="${TUT_WORKDIR:-$ROOT/demo/pinn-lab}"
+# Hero lesson: SimCom "S5 Solving Linear convection equation using PINNs", built with the real lesson builder at boot
+# (E2's cache makes it instant). The launcher (learn / learn_url) can still switch lessons.
+export ORCH_LESSON_URL="${ORCH_LESSON_URL:-https://www.youtube.com/watch?v=unBU1PwCnvQ}"
+export ORCH_AUTOSTART="${ORCH_AUTOSTART:-1}"
 
 # --- macOS Screen Recording permission (the screen reader needs it) ---------------------
 if [ "$(uname)" = "Darwin" ] && [ "$ORCH_SCREEN" = "1" ]; then
