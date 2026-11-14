@@ -10,8 +10,17 @@ results = evaluate_step(step, ctx)                         # [{checkId, label, s
 results = evaluate_step(step, ctx, types=FILE_CHECK_TYPES) # on a file save
 results = evaluate_step(step, ctx, screen=screen.latest())  # screen-first: ScreenObservation (dict or object)
 results = evaluate_step(step, screen=obs, types=SCREEN_CHECK_TYPES)  # on a new OCR frame
+results = evaluate_step(step, ctx, which="precision")      # the step's optional precision_checks ("all" = both)
+
+gate = evaluate_gate(step, ctx, screen=obs, precision_mode=False)
+# -> {passed, via: "checks"|"precision"|None, checks: [...], precision: [...]}
 if step_passed(results): ...                               # every check passes (and there is at least one)
 ```
+
+**`checks` vs `precision_checks`.** `checks` (screen-gradable) gate the step. `precision_checks` (file_*, command_exit_ok,
+::metric:: names; ids `s{n}p{k}`) are backups for precision mode (known workdir / `tut run`). In screen mode `evaluate_gate`
+doesn't evaluate them at all, so they can never block a step. In precision mode the step passes if all `checks` pass **or**
+all (non-empty) `precision_checks` pass: an extra route to green, never an extra hurdle.
 
 A **pure function**: no network, no DB, no model calls. It never raises: a malformed check is reported as `fail`.
 

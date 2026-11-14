@@ -425,18 +425,59 @@ def evaluate_check(check: dict, ctx: RunContext) -> CheckResult:
         return _result(check, "fail", f"check error: {type(exc).__name__}: {exc}")
 
 
-def evaluate_step(step: dict, ctx: RunContext | None = None, types: Iterable[str] | None = None,
-                  screen: Any = None) -> list[CheckResult]:
-    """Evaluate every check of ``step`` (or only those whose type is in ``types``).
+CheckList = Literal["checks", "precision", "all"]
 
-    ``screen`` (a ScreenObservation) overrides ``ctx.screen``; ``ctx`` may be omitted
-    for screen-only evaluation.
+
+def evaluate_step(step: dict, ctx: RunContext | None = None, types: Iterable[str] | None = None,
+                  screen: Any = None, which: CheckList = "checks") -> list[CheckResult]:
+    """Evaluate a step's checks (or only those whose type is in ``types``).
+
+    ``which`` picks the list: ``"checks"`` (default, the screen-gradable list that gates the
+    step), ``"precision"`` (the optional ``precision_checks`` backups: file_*, command_exit_ok,
+    ::metric:: names; only meaningful with a workdir or ``tut run``), or ``"all"`` (both).
+    ``screen`` (a ScreenObservation) overrides ``ctx.screen``; ``ctx`` may be omitted.
     """
     ctx = ctx or RunContext()
     if screen is not None:
         ctx = dataclasses.replace(ctx, screen=screen)
+    if which == "checks":
+        checks = step.get("checks") or []
+    elif which == "precision":
+        checks = step.get("precision_checks") or []
+    elif which == "all":
+        checks = [*(step.get("checks") or []), *(step.get("precision_checks") or [])]
+    else:
+        raise ValueError(f"which must be 'checks', 'precision' or 'all', not {which!r}")
     wanted = set(types) if types is not None else None
-    return [evaluate_check(c, ctx) for c in step.get("checks", []) if wanted is None or c.get("type") in wanted]
+    return [evaluate_check(c, ctx) for c in checks if wanted is None or c.get("type") in wanted]
+
+
+class StepGate(TypedDict):
+    passed: bool
+    via: Literal["checks", "precision"] | None
+    checks: list[CheckResult]
+    precision: list[CheckResult]
+
+
+def evaluate_gate(step: dict, ctx: RunContext | None = None, screen: Any = None,
+                  precision_mode: bool = False) -> StepGate:
+    """Does the step pass? The one call the orchestrator needs.
+
+    * Screen mode (default): only ``checks`` are evaluated and they alone decide.
+      ``precision_checks`` are not evaluated, so they can never block the step.
+    * Precision mode: both lists are evaluated; the step passes when ALL ``checks`` pass
+      OR (``precision_checks`` is non-empty and ALL of them pass). Precision is an extra
+      route to green (e.g. OCR misses a line), never an extra hurdle.
+    """
+    checks = evaluate_step(step, ctx, screen=screen, which="checks")
+    prec = evaluate_step(step, ctx, screen=screen, which="precision") if precision_mode else []
+    if step_passed(checks):
+        via: Literal["checks", "precision"] | None = "checks"
+    elif precision_mode and step_passed(prec):
+        via = "precision"
+    else:
+        via = None
+    return {"passed": via is not None, "via": via, "checks": checks, "precision": prec}
 
 
 def step_passed(results: list[CheckResult]) -> bool:

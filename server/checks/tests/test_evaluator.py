@@ -230,3 +230,43 @@ def test_metric_pattern_trend_from_output_without_metric_name():
     assert status(c, RunContext(output_tail=lines, running=True, command="x")) == "pass"
     flat = [f"it {s} | loss {0.2504 - s * 1e-7:.5f}" for s in range(0, 3000, 50)]
     assert status(c, RunContext(output_tail=flat, running=True, command="x")) == "fail"
+
+
+# ---------------------------------------------------------------- precision_checks
+from server.checks import evaluate_gate  # noqa: E402
+
+PSTEP = {
+    "id": "s3",
+    "checks": [{"id": "s3c1", "type": "screen_contains", "label": "residual typed", "app": "Code",
+                "pattern": r"u_t\s*\+\s*beta\s*\*\s*u_x"}],
+    "precision_checks": [{"id": "s3p1", "type": "file_contains", "label": "residual in file",
+                          "file": "pinn_convection.py", "pattern": r"beta \* u_x"},
+                         {"id": "s3p2", "type": "command_exit_ok", "label": "script runs", "command": "python pinn_convection.py"}],
+}
+
+
+def test_which_selects_list(wd):
+    ctx = RunContext(workdir=str(wd))
+    assert [r["checkId"] for r in evaluate_step(PSTEP, ctx)] == ["s3c1"]
+    assert [r["checkId"] for r in evaluate_step(PSTEP, ctx, which="precision")] == ["s3p1", "s3p2"]
+    assert [r["checkId"] for r in evaluate_step(PSTEP, ctx, which="all")] == ["s3c1", "s3p1", "s3p2"]
+    assert evaluate_step({"checks": []}, ctx, which="precision") == []
+    with pytest.raises(ValueError):
+        evaluate_step(PSTEP, ctx, which="bogus")
+
+
+def test_precision_failures_never_block_screen_mode(tmp_path):
+    ctx = RunContext(workdir=str(tmp_path))  # empty workdir: every precision check would fail
+    g = evaluate_gate(PSTEP, ctx, screen=OBS)
+    assert g["passed"] and g["via"] == "checks" and g["precision"] == []
+    g = evaluate_gate(PSTEP, ctx, screen=OBS, precision_mode=True)
+    assert g["passed"] and g["via"] == "checks"
+    assert [r["status"] for r in g["precision"]] == ["fail", "pending"]
+
+
+def test_precision_mode_is_an_extra_route_to_green(wd):
+    ctx = RunContext(workdir=str(wd), command="python pinn_convection.py", exit_code=0)
+    assert not evaluate_gate(PSTEP, ctx)["passed"]  # screen mode, no screen yet → pending
+    g = evaluate_gate(PSTEP, ctx, precision_mode=True)
+    assert g["passed"] and g["via"] == "precision"
+    assert not evaluate_gate({**PSTEP, "precision_checks": []}, ctx, precision_mode=True)["passed"]
