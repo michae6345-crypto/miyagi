@@ -3,7 +3,8 @@
   "on": {
     "action:ask@step4": "ask_step4",
     "action:ask@step6": "ask_step6",
-    "learn": "search_checked"
+    "learn": "search_checked",
+    "end_lesson": "end_lesson"
   },
   "segments": {
     "ask_step4": [
@@ -52,7 +53,8 @@
           "warnings": [
             "Doesn't work on PyTorch 2 anymore, Variable is deprecated now. Use tensors with requires_grad instead.",
             "The plotting cell throws an error with the latest matplotlib version, had to pin an older one."
-          ]
+          ],
+          "style": "coding"
         }
       },
       {
@@ -60,7 +62,8 @@
         "type": "search.result",
         "payload": {
           "id": "r2",
-          "verified": true
+          "verified": true,
+          "style": "coding"
         }
       },
       {
@@ -68,7 +71,43 @@
         "type": "search.result",
         "payload": {
           "id": "r3",
-          "verified": "indexed"
+          "verified": false,
+          "style": "conceptual"
+        }
+      },
+      {
+        "wait": 160,
+        "type": "search.result",
+        "payload": {
+          "id": "r4",
+          "kind": "video",
+          "title": "Physics-informed neural networks, full course",
+          "meta": "Video · SciML Lab · 1:56:10",
+          "score": 0.7,
+          "reason": "Long course",
+          "style": "coding",
+          "long": true,
+          "durationS": 6970,
+          "durationLabel": "1 h 56 min · 30 chapters",
+          "chapters": 30,
+          "captions": true,
+          "verified": true
+        }
+      }
+    ],
+    "end_lesson": [
+      {
+        "wait": 150,
+        "type": "lesson.ended",
+        "payload": {
+          "reason": "end_lesson"
+        }
+      },
+      {
+        "wait": 0,
+        "type": "status",
+        "payload": {
+          "state": "idle"
         }
       }
     ]

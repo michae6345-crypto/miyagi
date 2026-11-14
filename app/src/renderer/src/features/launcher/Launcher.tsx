@@ -27,7 +27,7 @@
 import { AnimatePresence, motion, useReducedMotion, type HTMLMotionProps, type TargetAndTransition, type Transition } from 'motion/react'
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, type ClipboardEvent, type KeyboardEvent, type ReactNode } from 'react'
 import { useShallow } from 'zustand/react/shallow'
-import { Aperture, BookOpen, Bot, Lightbulb, Mic, Waves, WifiOff, type LucideIcon } from 'lucide-react'
+import { Aperture, Bot, Mic, Waves, WifiOff, type LucideIcon } from 'lucide-react'
 import type { Layout } from '../../../../preload/api'
 import { cmd } from '../../../../common/wire'
 import { bridge } from '../../bridge'
@@ -36,11 +36,11 @@ import { useLesson, useProgress } from '../../core/lesson'
 import { getIslandModes, type IslandMode } from '../../core/registry'
 import { triggerShortcut } from '../../core/shortcuts'
 import { MiyagiMark } from '../../core/ui/Mark'
-import { Spinner } from '../../core/ui/atoms'
-import { brand, color, copy, fill, launcher as launcherTheme, pill, radius, scrim, shadows, spring, springOut } from '../../core/theme'
+import { OptionButton, Spinner } from '../../core/ui/atoms'
+import { color, copy, fill, launcher as launcherTheme, pill, radius, scrim, shadows, spring, springOut } from '../../core/theme'
 import { Action, Chip, Hint, Rise } from './parts'
-import { LinkRow, MessageRow, ResultRow, ROW_H, SkeletonRow } from './Rows'
-import { setLauncherOpen, startSearch, useSearch } from './store'
+import { EndRow, LinkRow, MessageRow, ResultRow, ROW_H, SkeletonRow } from './Rows'
+import { clearResults, setLauncherOpen, startSearch, useSearch } from './store'
 import { chipTones } from './tint'
 import { parseYouTube } from './youtube'
 
@@ -49,7 +49,7 @@ type Mode = 'search' | 'ask'
 type View = 'idle' | 'link' | 'searching' | 'results' | 'empty' | 'error'
 type Size = { w: number; h: number }
 /** What Enter (and the footer action) would do right now. Mirrors submit(). */
-type Act = 'ask' | 'build' | 'search' | 'searching' | 'none'
+type Act = 'end' | 'ask' | 'build' | 'search' | 'searching' | 'none'
 
 /** Launcher width when grown out of the notch. */
 const WIDTH = launcherTheme.width
@@ -113,6 +113,8 @@ export function Launcher({ layout }: { layout: Layout }): ReactNode {
   const islandMode = useIslandMode()
   const reduce = useReducedMotion()
   const input = useRef<HTMLInputElement>(null)
+  /** The row Build last sent, so reopening (the preflight card's "Pick another") highlights the next one. */
+  const lastPick = useRef<string | undefined>(undefined)
   /** Per-row entrance delays (see delayFor). */
   const delays = useRef(new Map<string, number>())
   const lastEntry = useRef(0)
@@ -141,7 +143,11 @@ export function Launcher({ layout }: { layout: Layout }): ReactNode {
         setFrom(f && f.w > 0 && f.h > 0 ? { w: Math.round(f.w), h: Math.round(f.h) } : PILL)
         setMode(useLesson.getState().lesson ? 'ask' : 'search')
         delays.current.clear()
-        setSel(0)
+        // Results stay after Build until a new learn / learn_url. Reopened after a pick ("Pick another"), the
+        // highlight starts on the next row, so Enter doesn't rebuild the same tutorial.
+        const rows = useSearch.getState().results.slice(0, MAX_ROWS)
+        const picked = lastPick.current ? rows.findIndex((r) => r.id === lastPick.current) : -1
+        setSel(picked >= 0 && rows.length > 1 ? (picked + 1) % rows.length : 0)
         setHandoff(true)
         setGen((g) => g + 1)
         setPhase('open')
@@ -239,11 +245,15 @@ export function Launcher({ layout }: { layout: Layout }): ReactNode {
   const skeletons = view === 'searching' || (view === 'results' && search.pending) ? Math.max(0, SKELETONS - visible.length) : 0
   const slots = view === 'idle' ? 0 : view === 'results' || view === 'searching' ? Math.min(MAX_ROWS, visible.length + skeletons) : 1
   const selIndex = Math.min(sel, Math.max(0, visible.length - 1))
+  const typed = (mode === 'ask' ? question : query).trim()
+  /** During a lesson, with nothing typed: "End lesson" is the first row, highlighted. Typing replaces it. */
+  const endRow = lesson.hasLesson && !typed && (mode === 'ask' || view === 'idle')
   const highlight = view === 'link' ? 0 : view === 'results' ? selIndex : -1
 
   // ---- actions --------------------------------------------------------------------------------
 
   const learn = (q: string): void => {
+    lastPick.current = undefined
     startSearch(q)
     delays.current.clear()
     setSel(0)
@@ -252,13 +262,24 @@ export function Launcher({ layout }: { layout: Layout }): ReactNode {
 
   const build = (i = selIndex): void => {
     if (phaseRef.current !== 'open') return
-    if (link) bridge.send(cmd('learn_url', { url: link.url }))
-    else {
+    if (link) {
+      lastPick.current = undefined
+      clearResults()
+      bridge.send(cmd('learn_url', { url: link.url }))
+    } else {
       if (!visible.length) return
       const first = visible[Math.min(i, visible.length - 1)].id
+      lastPick.current = first
       bridge.send(cmd('build_lesson', { resultIds: [first, ...results.map((r) => r.id).filter((id) => id !== first)] }))
     }
     setPhase('building')
+  }
+
+  /** End the lesson (Michael): the engine answers lesson.ended and core resets to idle; the panel goes back into the island. */
+  const endLesson = (): void => {
+    if (phaseRef.current !== 'open') return
+    bridge.send(cmd('end_lesson', {}))
+    setPhase('closing')
   }
 
   const ask = (): void => {
@@ -286,6 +307,7 @@ export function Launcher({ layout }: { layout: Layout }): ReactNode {
   }
 
   const submit = (): void => {
+    if (endRow) return endLesson()
     if (mode === 'ask') return ask()
     if (link) return build()
     const q = query.trim()
@@ -353,9 +375,9 @@ export function Launcher({ layout }: { layout: Layout }): ReactNode {
 
   const offline = !lesson.connected
   const inlineError = view === 'results' && search.error
-  const typed = (mode === 'ask' ? question : query).trim()
-  const act: Act =
-    mode === 'ask'
+  const act: Act = endRow
+    ? 'end'
+    : mode === 'ask'
       ? typed
         ? 'ask'
         : 'none'
@@ -369,7 +391,7 @@ export function Launcher({ layout }: { layout: Layout }): ReactNode {
               ? 'build'
               : 'searching'
   const busy = search.pending && mode === 'search' && view !== 'link'
-  const actLabel = { ask: 'Ask', build: 'Build lesson', search: 'Search', searching: 'Searching…', none: mode === 'ask' ? 'Ask' : 'Search' }[act]
+  const actLabel = { end: 'End lesson', ask: 'Ask', build: 'Build lesson', search: 'Search', searching: 'Searching…', none: mode === 'ask' ? 'Ask' : 'Search' }[act]
   // The footer is keys, not sentences: only the offline / partial-error notes are words.
   const note = offline ? 'Offline' : inlineError ? search.error : undefined
   /** The best row: the one the engine marks "best", else the first. Only it gets a label. */
@@ -451,10 +473,19 @@ export function Launcher({ layout }: { layout: Layout }): ReactNode {
             </div>
           </Rise>
 
+          {endRow && (
+            <Rise key="end" i={2} className="pt-[8px]">
+              <div className="relative mx-[20px]" style={{ height: ROW_H }}>
+                <div className="pointer-events-none absolute inset-x-0 top-0 rounded-[12px]" style={{ height: ROW_H, background: fill.highlight }} />
+                <EndRow lessonTitle={lesson.title} onPick={endLesson} />
+              </div>
+            </Rise>
+          )}
+
           {mode === 'ask' ? (
             <Rise key="ask" i={2} className="flex flex-wrap gap-[8px] px-[20px] pt-[12px]">
-              <Chip icon={BookOpen} label="Explain this step" kbd={bridge.platform.keys.explain} tone={brand.pastel.sky} onClick={() => quick('explain')} />
-              <Chip icon={Lightbulb} label="Give me a hint" kbd={bridge.platform.keys.hint} tone={brand.pastel.pink} onClick={() => quick('hint')} />
+              <OptionButton action="explain" label="Explain this step" kbd={bridge.platform.keys.explain} onClick={() => quick('explain')} />
+              <OptionButton action="hint" label="Give me a hint" kbd={bridge.platform.keys.hint} onClick={() => quick('hint')} />
             </Rise>
           ) : view === 'idle' ? (
             <Rise key="try" i={2} className="flex flex-wrap gap-[8px] px-[20px] pt-[12px]">
@@ -515,7 +546,7 @@ export function Launcher({ layout }: { layout: Layout }): ReactNode {
                   <span className="mx-[4px] h-[16px] w-px shrink-0" style={{ background: fill.rule }} />
                 </>
               )}
-              <Action label={actLabel} keycap="↵" enabled={act === 'ask' || act === 'build' || act === 'search'} strong onClick={submit} />
+              <Action label={actLabel} keycap="↵" enabled={act === 'end' || act === 'ask' || act === 'build' || act === 'search'} strong onClick={submit} />
             </div>
           </Rise>
         </motion.div>

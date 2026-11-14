@@ -1,6 +1,18 @@
 # settings
 
-**Status:** new · **Priority:** P1 · **Port:** 5183 · **Branch:** `adrian/settings`
+**Status:** pass 1 done (stage-verified; Electron side typechecked, unrun) · **Priority:** P1 · **Port:** 5183 · **Branch:** `adrian/settings`
+
+### Pass 1 (Sat Nov 14)
+**Works in the stage** (`http://localhost:5183/?scenario=settings`, headless Chrome frames in `shots/settings-*.png`):
+- First run: the scenario answers Anthropic + Gemini `missing`, so the sheet grows out of the idle pill by itself, caret in Anthropic (`01`). Ctrl+, (⌘,) reopens it; anyone else calls `openSettings()` from `features/settings/open.ts`.
+- Grows from the island's exact shape (pill or card) and settles in ~210 ms (`06`). Esc, ✕, click outside (and in Electron, losing focus) collapse it onto the island's current size, the island's content fades back in, then `island:return` (`07`). The island is hidden while the sheet is open.
+- Paste a key → masked dots, Save turns white (`02`). Save (↵) → `•••• last4`, white dot, Clear (`03`). Clear → "Cleared" + Undo, applied on Save (`04`). Test → spinner until `config.status` (`05`); nothing back in 3 s → "No answer from Miyagi" (`08`). No safeStorage → "Not saved: no secure storage" (`09`, stage: `&nosecure`).
+- Status per key: white dot = your key, gray dot + "From engine" = the engine's .env, ring = missing, "Invalid" in white. Optional rows say "Optional" unless a status line replaces it. No green, no amber, no glow.
+- Checked in the page: `settings:get` / `settings:save` return `{set, last4}` only (never the key); unknown names and non-strings in a patch are ignored; `config.keys` always carries all five names; localStorage / sessionStorage stay empty.
+
+**Written, not run (Electron, Michael's Mac):** `src/main/features/settings.ts`. keys.bin via safeStorage (write-then-rename, removed when empty, never logged, not even a parse error), full `config.keys` on `engine.onOpen` and on Save/Test, full-display focusable window (like the launcher) raised over the overlay, blur → collapse, `settings:hidden` → hide + `returnFocus`, opens once per run on a `missing` required key.
+
+**Left:** Electron check on the Mac (list below). `invalid` only shows once the engine produces it. A way to open Settings in Electron before the overview's gear lands (see Core requests 3).
 
 ## Goal
 Bring-your-own-keys. A small settings sheet **born from the notch island** (like the launcher): a focusable window whose panel starts at the island's exact rect and collapses back into it. Five keys: **Anthropic** and **Gemini** (required), **Bright Data** (optional: without it you paste a YouTube link), **ElevenLabs** (optional: voice), **Tiger Data URL** (optional). One status per key, a Test button, Save.
@@ -38,7 +50,18 @@ Core has the hand-over: `ctx.islandSize()` + `ctx.yieldIsland(true|false)` in ma
 `npm run dev:web -- --port 5183` → `http://localhost:5183/?scenario=settings` (add `mock/scenarios/settings.json` that answers `config.keys` with a `config.status`; restart the dev server after adding it).
 
 ## Core requests
-_None yet._ (Ask here for anything in core; keep going with a local workaround.)
+1. **bridge.ts (web): let a renderer read the island size.** The web bridge keeps `islandSize` private, so in the stage `web.ts` measures the island off the DOM (the `[data-hit]` child of the centered wrapper at `top: pillTop`). Ask: fire `ui:island:size` from the web `emit('island:size')` (or expose `bridge.islandSize()`). Electron is fine: main has `ctx.islandSize()`.
+2. **mock/engine.ts: let a scenario say what unset keys answer.** `handle()` answers every `config.keys` itself with `env` for unset keys, so a scenario can't show `missing → ok`: after the first Save the stage flips the other rows to "From engine". Workaround: `settings.json` sends one `config.status` 400 ms after connect (Anthropic/Gemini missing, ElevenLabs invalid). Ask: e.g. a scenario field `"keys": {"unset": "missing"}` or an `on["config.keys"]` segment.
+3. **Opening Settings without the gear.** No global ⌘, on purpose (it would steal VS Code's Settings shortcut). Until the overview's gear lands, Electron opens it only on first run. Options: a "Keys" chip in the launcher, or ⌘, while the launcher window has focus (the launcher's call).
+4. **platform.ts `returnFocus` on the Mac calls `app.hide()`,** which hides every window, the player included; only the overlay is re-shown. Settings reuses it like the launcher does, so both share whatever the fix is.
 
 ## Notes
 The overlay window is not focusable, so Settings is its own window. Every `ctx.createWindow` window already follows Spaces / full-screen apps; call `ctx.raise(win)` so it floats on top.
+
+- **Files:** `keys.ts` (names, `{set,last4}` view, patch merge, full payload; imported by main too), `Settings.tsx` (the sheet), `store.ts` (open/close requests, `config.status` counter), `web.ts` (stage stand-in, in-memory), `open.ts` (`openSettings()`).
+- **Channels:** `settings:open | get | save | test | island | hidden` (invoke) and `settings:open {from} | settings:close` (broadcast). `test` and `island` are additions to the brief: the renderer has no keys to re-send and needs the island's size at close time.
+- **last4** only for values ≥ 12 characters, so a short secret never shows a third of itself. Values are trimmed; over 4096 characters is ignored as a paste accident.
+- **Unsaved typing is dropped on close** (Esc, ✕, click outside, blur). The window covers the display, so it can't stay open while you're in another app.
+- **Stage:** the sheet is a stage window at z 20 (above the launcher). In `full`, the engine's .env answers (`env` everywhere), so first run doesn't open.
+- **Mac checklist:** first-run open takes focus (or at least a click into a field works); Keychain prompt on first save, if any; keys.bin survives a restart and the dots come back white; blur closes it; focus returns to the editor; the sheet sits on the pill's exact pixels (pillTop 40).
+- **Shots script** (headless Chrome over CDP, screencast frame strips): `side-session-notes/…/settings-shots-cdp.mjs`.

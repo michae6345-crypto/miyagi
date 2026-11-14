@@ -8,7 +8,7 @@
  * Features add their own main-process code in src/main/features/<name>.ts (see context.ts).
  * Owner: core.
  */
-import { app, BrowserWindow, globalShortcut, ipcMain, screen, session, type BrowserWindowConstructorOptions } from 'electron'
+import { app, BrowserWindow, globalShortcut, ipcMain, screen, session, shell, type BrowserWindowConstructorOptions } from 'electron'
 import { join } from 'node:path'
 import { EngineLink } from './engine'
 import type { MainContext, MainFeature } from './context'
@@ -63,6 +63,11 @@ function createWindow(route: string, options: BrowserWindowConstructorOptions): 
   win.on('closed', () => windows.delete(win))
   // Every Miyagi window follows the learner across Spaces and over full-screen apps (Michael, Sat).
   followSpaces(win)
+  // window.open / target=_blank from any window: never a new Electron window; http(s) goes to the default browser.
+  win.webContents.setWindowOpenHandler(({ url }) => {
+    if (/^https?:\/\//i.test(url)) void shell.openExternal(url)
+    return { action: 'deny' }
+  })
   if (!app.isPackaged) {
     // Pipe renderer warnings/errors into the terminal (overlay windows have no visible devtools).
     win.webContents.on('console-message', (...args: unknown[]) => {

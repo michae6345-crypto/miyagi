@@ -97,7 +97,7 @@ export function describeYTError(code: number): string {
     case 150:
       return 'The owner doesn’t allow embedding'
     case 153:
-      return 'YouTube refused the embed (no page origin; see player.md)'
+      return 'YouTube won’t play this video here'
     default:
       return `YouTube error ${code}`
   }

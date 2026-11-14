@@ -1,0 +1,56 @@
+{
+  "name": "shortcut-bar",
+  "on": {
+    "action:explain@step4": "sb_explain_step4",
+    "action:explain@step6": "sb_explain_step6",
+    "action:hint@step4": "sb_hint_step4",
+    "action:hint@step6": "sb_hint_step6",
+    "action:diagram@step4": "sb_diagram_step4",
+    "action:diagram@step5": "sb_diagram_step4",
+    "action:diagram@step6": "sb_diagram_step6",
+    "action:show_me@step4": "sb_showme_step4",
+    "action:show_me@step6": "sb_showme_step6"
+  },
+  "segments": {
+    "sb_explain_step4": [
+      { "wait": 0, "type": "status", "payload": { "state": "thinking" } },
+      { "wait": 2000, "goto": "explain_step4" },
+      { "wait": 300, "type": "status", "payload": { "state": "watching" } }
+    ],
+    "sb_explain_step6": [
+      { "wait": 0, "type": "status", "payload": { "state": "thinking" } },
+      { "wait": 2000, "goto": "explain_step6" },
+      { "wait": 300, "type": "status", "payload": { "state": "offtrack" } }
+    ],
+    "sb_hint_step4": [
+      { "wait": 0, "type": "status", "payload": { "state": "thinking" } },
+      { "wait": 1500, "goto": "hint_step4" },
+      { "wait": 300, "type": "status", "payload": { "state": "watching" } }
+    ],
+    "sb_hint_step6": [
+      { "wait": 0, "type": "status", "payload": { "state": "thinking" } },
+      { "wait": 1500, "goto": "hint_step6" },
+      { "wait": 300, "type": "status", "payload": { "state": "offtrack" } }
+    ],
+    "sb_diagram_step4": [
+      { "wait": 0, "type": "status", "payload": { "state": "thinking" } },
+      { "wait": 2000, "goto": "diagram_network" },
+      { "wait": 300, "type": "status", "payload": { "state": "watching" } }
+    ],
+    "sb_diagram_step6": [
+      { "wait": 0, "type": "status", "payload": { "state": "thinking" } },
+      { "wait": 2000, "goto": "diagram_gradients" },
+      { "wait": 300, "type": "status", "payload": { "state": "offtrack" } }
+    ],
+    "sb_showme_step4": [
+      { "wait": 0, "type": "status", "payload": { "state": "thinking" } },
+      { "wait": 1200, "goto": "showme_step4" },
+      { "wait": 150, "type": "status", "payload": { "state": "watching" } }
+    ],
+    "sb_showme_step6": [
+      { "wait": 0, "type": "status", "payload": { "state": "thinking" } },
+      { "wait": 1200, "goto": "showme_step6" },
+      { "wait": 150, "type": "status", "payload": { "state": "offtrack" } }
+    ]
+  }
+}
