@@ -85,12 +85,12 @@ export const isHost = !isElectron || route === 'player'
 export function openSegment(): VideoSegment | undefined {
   const s = useLesson.getState()
   if (!s.stepId || s.passed.includes(s.stepId)) return undefined
-  return s.stepVideo ?? s.steps.find((x) => x.id === s.stepId)?.video
+  return s.stepVideo ?? s.steps.find((x) => x.id === s.stepId)?.video ?? undefined
 }
 
 function currentSegment(): VideoSegment | undefined {
   const s = useLesson.getState()
-  return s.stepVideo ?? s.steps.find((x) => x.id === s.stepId)?.video
+  return s.stepVideo ?? s.steps.find((x) => x.id === s.stepId)?.video ?? undefined
 }
 
 /**
@@ -445,6 +445,7 @@ onMessage('step.started', (p) => {
 onMessage('step.passed', (p) => {
   if (p.stepId !== useLesson.getState().stepId) return
   clearTimeout(resumeTimer)
+  if (p.skipped) return // skipped, not passed: no "Passed" beat; step.started seeks to the next clip
   setUi({ resuming: true })
   resumeTimer = setTimeout(() => {
     const s = usePlayer.getState()

@@ -33,6 +33,7 @@ import {
   NotebookText,
   Play,
   Search,
+  SkipForward,
   Undo2,
   Wrench,
   type LucideIcon
@@ -416,16 +417,21 @@ function KindTile({ k }: { k: (typeof KIND)[EngineCard['kind']] }): ReactNode {
 
 /** Button per card action. At most one white primary per card: the first primary kind present. */
 const ACTION: Partial<Record<CardAction, { label: string; Icon?: LucideIcon; primary?: boolean }>> = {
+  // Step controls ("Not yet" / "Looks done?" / "Stuck on this step?" cards).
+  check_step: { label: 'Check again', Icon: Check },
+  skip_step: { label: 'Skip step', Icon: SkipForward },
   confirm: { label: 'Yes', Icon: Check, primary: true },
   apply_fix: { label: 'Do it for me', Icon: Wrench, primary: true },
   open_editor: { label: 'Open VS Code', Icon: Code2, primary: true },
   resume: { label: 'Continue', Icon: Play, primary: true },
-  build: { label: 'Build', Icon: Hammer, primary: true },
+  // Preflight card: Build starts the lesson, Pick another reopens the results (`recommended` picks the primary).
+  build: { label: 'Build lesson', Icon: Hammer, primary: true },
   pick_another: { label: 'Pick another', Icon: Search },
   download: { label: 'Download', Icon: Download },
   undo: { label: 'Undo', Icon: Undo2 },
   end_lesson: { label: 'Start a new lesson' },
-  skip_setup: { label: 'Skip' }
+  skip_setup: { label: 'Skip' },
+  open_in_browser: { label: 'Open in browser', Icon: BookOpen }
 }
 
 /** The engine names some buttons itself: setup.actionLabels ("Download tutorial files"), setup.editorLabel ("Open Cursor"). */

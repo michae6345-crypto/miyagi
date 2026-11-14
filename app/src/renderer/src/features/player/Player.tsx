@@ -8,12 +8,14 @@
 import { AnimatePresence, motion } from 'motion/react'
 import { useEffect, useRef, type CSSProperties, type ReactNode } from 'react'
 import { useShallow } from 'zustand/react/shallow'
-import { Lock, PanelRight, Pause, Play, RotateCcw, SkipBack, VolumeX } from 'lucide-react'
+import { Check, Lock, PanelRight, Pause, Play, RotateCcw, SkipBack, SkipForward, Square, VolumeX, type LucideIcon } from 'lucide-react'
 import type { StepSummary, VideoSegment } from '../../../../../../shared/contracts/events'
 import type { Layout } from '../../../../preload/api'
+import { cmd } from '../../../../common/wire'
 import { bridge, isElectron } from '../../bridge'
-import { useLesson, useProgress, useStatus } from '../../core/lesson'
-import { clock, color, copy, radius, shadow, spring } from '../../core/theme'
+import { useLesson, useProgress, useStatus, useThinking } from '../../core/lesson'
+import { sendAction, usePressed } from '../../core/shortcuts'
+import { clock, color, copy, fill, radius, shadow, spring } from '../../core/theme'
 import { CheckIcon, PrimaryButton, Spinner, StatusDot } from '../../core/ui/atoms'
 import { MiyagiMark } from '../../core/ui/Mark'
 import { dockRect } from './dock'
@@ -23,9 +25,35 @@ import { attachPlayer, clipStart, inGate, player, usePlayer } from './store'
 const drag = { WebkitAppRegion: 'drag' } as CSSProperties
 const noDrag = { WebkitAppRegion: 'no-drag' } as CSSProperties
 
+/** Stop the lesson: the engine answers lesson.ended (every lesson store resets) + status idle. */
+const endLesson = (): void => bridge.send(cmd('end_lesson', {}))
+/** "Can I move on?": the engine re-runs the checks now and Claude looks at the screen. */
+const checkStep = (): void => sendAction('check_step')
+/** Leave this step unfinished and start the next one (never shown green). */
+const skipStep = (): void => sendAction('skip_step')
+
+/** A neutral pill (chrome, not an option or the primary): Replay / Skip next to the one white primary. */
+function QuietButton({ label, icon: I, onClick, busy }: { label: string; icon: LucideIcon; onClick: () => void; busy?: boolean }): ReactNode {
+  return (
+    <motion.button
+      type="button"
+      className="flex h-[30px] shrink-0 cursor-pointer items-center gap-[7px] whitespace-nowrap rounded-full px-[13px] text-[13px] font-medium"
+      style={{ background: fill.chipHover, color: color.text }}
+      whileHover={{ filter: 'brightness(1.15)' }}
+      whileTap={{ scale: 0.97 }}
+      transition={{ duration: 0.12 }}
+      onMouseDown={(e) => e.preventDefault()}
+      onClick={onClick}
+    >
+      {busy ? <Spinner size={13} c={color.text} /> : <I size={13} strokeWidth={1.8} className="shrink-0" />}
+      {label}
+    </motion.button>
+  )
+}
+
 /** The open step's clip (undefined once the step has passed). */
 function useOpenSegment(): VideoSegment | undefined {
-  return useLesson((s) => (!s.stepId || s.passed.includes(s.stepId) ? undefined : (s.stepVideo ?? s.steps.find((x) => x.id === s.stepId)?.video)))
+  return useLesson((s) => (!s.stepId || s.passed.includes(s.stepId) ? undefined : (s.stepVideo ?? s.steps.find((x) => x.id === s.stepId)?.video ?? undefined)))
 }
 
 // ---------------------------------------------------------------------------
@@ -85,6 +113,17 @@ function Header(): ReactNode {
         </span>
       )}
       <StatusDot status={status} />
+      {hasStep && (
+        <button
+          className="flex h-[24px] shrink-0 cursor-pointer items-center gap-[5px] rounded-[7px] px-[8px] text-[12px] font-medium text-white/60 hover:bg-white/10 hover:text-white"
+          style={noDrag}
+          onClick={endLesson}
+          title="End this lesson"
+          aria-label="End lesson"
+        >
+          <Square size={10} strokeWidth={2.2} /> End lesson
+        </button>
+      )}
       {isElectron && (
         <button
           className="grid h-[24px] w-[24px] cursor-pointer place-items-center rounded-[7px] text-white/55 hover:bg-white/10 hover:text-white"
@@ -161,6 +200,10 @@ const rise = { initial: { opacity: 0, y: 6 }, animate: { opacity: 1, y: 0 }, tra
 function Waiting(): ReactNode {
   const checks = useLesson((s) => s.checks)
   const offtrack = useLesson((s) => !!s.offtrack)
+  const thinking = useThinking()
+  const pressed = usePressed((s) => s.kind)
+  const checking = thinking && pressed === 'check_step'
+  const skipping = thinking && pressed === 'skip_step'
   const done = checks.filter((c) => c.status === 'pass').length
   // Amber only for off track; otherwise Miyagi is watching (gray).
   const tone = offtrack ? color.amber : color.gray
@@ -188,8 +231,10 @@ function Waiting(): ReactNode {
             {done} of {checks.length} pass
           </div>
         )}
-        <div className="pointer-events-auto mt-[16px]">
-          <PrimaryButton label="Replay step" icon={RotateCcw} onClick={() => player.replayStep()} />
+        <div className="pointer-events-auto mt-[16px] flex flex-wrap items-center justify-center gap-[8px]">
+          <PrimaryButton label={checking ? 'Checking…' : 'Check my work'} icon={Check} onClick={checkStep} disabled={checking} />
+          <QuietButton label="Replay" icon={RotateCcw} onClick={() => player.replayStep()} />
+          <QuietButton label="Skip step" icon={SkipForward} onClick={skipStep} busy={skipping} />
         </div>
       </motion.div>
     </motion.div>
@@ -294,14 +339,24 @@ function Controls(): ReactNode {
       <IconButton onClick={() => player.replayStep()} label="Back to the step’s start">
         <SkipBack size={15} strokeWidth={1.8} />
       </IconButton>
+      {seg && (
+        <IconButton onClick={skipStep} label="Skip this step">
+          <SkipForward size={15} strokeWidth={1.8} />
+        </IconButton>
+      )}
       <span className="ml-[6px] text-[13px] tabular-nums text-white/70">
         {clock(p.t)} <span style={{ color: color.faint }}>/ {p.duration ? clock(p.duration) : '–:––'}</span>
       </span>
       <span className="flex-1" />
       {seg ? (
-        <span className="flex items-center gap-[5px] text-[12px] tabular-nums" style={{ color: color.faint }} title="The video holds here until the step's checks pass">
-          <Lock size={11} strokeWidth={2} /> Checks at {clock(seg.end)}
-        </span>
+        <button
+          className="flex h-[24px] cursor-pointer items-center gap-[5px] rounded-[7px] px-[6px] text-[12px] tabular-nums hover:bg-white/10 hover:text-white"
+          style={{ color: color.faint }}
+          onClick={checkStep}
+          title="The video holds here until the step's checks pass. Click to check now."
+        >
+          <Lock size={11} strokeWidth={2} /> Checks at {clock(seg.end)} · Check now
+        </button>
       ) : (
         pendingNext && (
           <span className="text-[12px]" style={{ color: color.faint }}>
@@ -375,7 +430,7 @@ function SourceLine(): ReactNode {
 // Chapters
 // ---------------------------------------------------------------------------
 
-type ChapterStatus = 'done' | 'current' | 'locked'
+type ChapterStatus = 'done' | 'skipped' | 'current' | 'locked'
 
 /**
  * The lesson's steps. A long video builds part by part: lesson.updated replaces `steps` (ids stable,
@@ -384,8 +439,8 @@ type ChapterStatus = 'done' | 'current' | 'locked'
  * complete, a quiet last row says more steps are coming.
  */
 function Chapters(): ReactNode {
-  const { steps, stepId, passed, complete, parts } = useLesson(
-    useShallow((s) => ({ steps: s.steps, stepId: s.stepId, passed: s.passed, complete: s.complete, parts: s.parts }))
+  const { steps, stepId, passed, skipped, complete, parts } = useLesson(
+    useShallow((s) => ({ steps: s.steps, stepId: s.stepId, passed: s.passed, skipped: s.skipped, complete: s.complete, parts: s.parts }))
   )
   const playing = usePlayer((s) => s.playing)
   const cur = steps.findIndex((s) => s.id === stepId)
@@ -407,7 +462,7 @@ function Chapters(): ReactNode {
       <div ref={list} className="relative min-h-0 flex-1 overflow-y-auto">
         <AnimatePresence initial={false}>
           {steps.map((s, i) => {
-            const status: ChapterStatus = passed.includes(s.id) || (cur >= 0 && i < cur) ? 'done' : s.id === stepId ? 'current' : 'locked'
+            const status: ChapterStatus = skipped.includes(s.id) ? 'skipped' : passed.includes(s.id) || (cur >= 0 && i < cur) ? 'done' : s.id === stepId ? 'current' : 'locked'
             return (
               <motion.div key={s.id} data-step={s.id} initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} transition={spring}>
                 <Chapter step={s} status={status} now={s.id === stepId} playing={playing} />
@@ -457,6 +512,8 @@ function Chapter({ step, status, now, playing }: { step: StepSummary; status: Ch
       <span className="grid w-[18px] shrink-0 place-items-center">
         {status === 'done' ? (
           <CheckIcon status="pass" active={false} />
+        ) : status === 'skipped' ? (
+          <SkipForward size={13} strokeWidth={1.8} className="text-white/40" />
         ) : status === 'current' ? (
           <NowGlyph playing={playing} />
         ) : (

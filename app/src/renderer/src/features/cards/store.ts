@@ -246,7 +246,7 @@ onMessage('diagram', () => set({ card: undefined, pending: undefined, resume: ov
 onMessage('step.passed', (p) => {
   const { recovered, offtrackSeq } = get()
   set({ offtrackOpen: false, fixing: false, resume: false })
-  if (!recovered) return
+  if (!recovered || p.skipped) return
   const lesson = useLesson.getState()
   const index = lesson.steps.findIndex((x) => x.id === p.stepId)
   const summary = (p as typeof p & { summary?: string }).summary
