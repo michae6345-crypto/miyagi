@@ -86,13 +86,16 @@ class RunContext:
 # noisy minibatch can neither pass nor fail the check.
 THRESHOLD_SMOOTH_POINTS = 5
 
-# metric_trend: see _trend() for the full test.
-TREND_MIN_POINTS = 6           # need at least this many finite points in the window
+# metric_trend: see _metric_trend() for the full test. A trend passes only when it is BOTH
+# statistically significant (Mann-Kendall) AND big enough to matter (Theil-Sen effect size).
+TREND_MIN_POINTS = 8           # need at least this many finite points in the window
 TREND_MIN_COVERAGE = 0.5       # ...spanning at least half of `window` steps
 NOT_FLAT_MIN_REL_CHANGE = 0.05  # |relative change| over the window must be >= 5%
 DECREASING_MIN_REL_DROP = 0.02  # "decreasing" needs >= 2% robust drop
+MK_Z_TWO_SIDED = 2.576         # not_flat: Mann-Kendall p < 0.01 (two-sided)
+MK_Z_ONE_SIDED = 2.326         # decreasing: Mann-Kendall p < 0.01 (one-sided, downward)
 DEFAULT_TREND_WINDOW = 1000
-MAX_TS_POINTS = 200            # Theil-Sen is O(n^2); thin longer windows
+MAX_TS_POINTS = 200            # Theil-Sen / Mann-Kendall are O(n^2); thin longer windows
 
 _OPS = {
     "<": lambda a, b: a < b,
@@ -224,7 +227,8 @@ def _metric_name(check: dict) -> str | None:
     return check.get("metric") or (str(check.get("id")) if check.get("metric_pattern") else None)
 
 
-def _series(ctx: RunContext, name: str, check: dict | None = None) -> list[tuple[int, float]]:
+def _raw_series(ctx: RunContext, name: str, check: dict | None = None) -> list[tuple[int, float]]:
+    """All points sorted by step, None/NaN/inf kept as float (NaN for None)."""
     raw = list(ctx.metrics.get(name, []))
     pattern = (check or {}).get("metric_pattern")
     if not raw and pattern:
@@ -233,9 +237,30 @@ def _series(ctx: RunContext, name: str, check: dict | None = None) -> list[tuple
         for t in texts:
             merged.update(extract_metrics(pattern, t))
         raw = sorted(merged.items())
-    pts = [(int(s), float(v)) for s, v in raw if v is not None and math.isfinite(float(v))]
+    pts = [(int(s), math.nan if v is None else float(v)) for s, v in raw]
     pts.sort(key=lambda p: p[0])
     return pts
+
+
+def _series(ctx: RunContext, name: str, check: dict | None = None) -> list[tuple[int, float]]:
+    return [p for p in _raw_series(ctx, name, check) if math.isfinite(p[1])]
+
+
+def _diverged(ctx: RunContext, name: str, check: dict, since_step: int | None = None) -> CheckResult | None:
+    """Fail when the metric went NaN/inf: as its latest point, or anywhere at/after ``since_step``.
+
+    A diverged run must never be graded on the stale finite values logged before it blew up.
+    """
+    raw = _raw_series(ctx, name, check)
+    if not raw:
+        return None
+    bad = [p for p in raw if not math.isfinite(p[1]) and (since_step is None or p[0] >= since_step)]
+    if not math.isfinite(raw[-1][1]):
+        bad.append(raw[-1])
+    if not bad:
+        return None
+    s, v = bad[-1]
+    return _result(check, "fail", f"{name} diverged: {v} at step {s}")
 
 
 def _metric_threshold(check: dict, ctx: RunContext) -> CheckResult:
@@ -243,6 +268,9 @@ def _metric_threshold(check: dict, ctx: RunContext) -> CheckResult:
     if not name or op not in _OPS or target is None:
         return _result(check, "fail", "check needs 'metric' (or 'metric_pattern'), 'op' and 'value'")
     by_step = check.get("by_step")
+    div = _diverged(ctx, name, check)
+    if div:
+        return div
     pts = _series(ctx, name, check)
     if not pts:
         if ctx.run_finished:
@@ -313,7 +341,33 @@ def trend_stats(pts: list[tuple[int, float]]) -> dict[str, float]:
         scale = abs(first) or 1e-12
         rel_ts = -(slope * span) / scale
         rel_med = (first - last) / scale
-    return {"rel_median": rel_med, "rel_theil_sen": rel_ts, "first": first, "last": last, "span": span, "slope": slope}
+    return {"rel_median": rel_med, "rel_theil_sen": rel_ts, "first": first, "last": last, "span": span,
+            "slope": slope, "mk_z": mann_kendall_z(ys), "n": len(ys)}
+
+
+def mann_kendall_z(ys: list[float]) -> float:
+    """Mann-Kendall trend statistic as a z-score (negative = downward trend).
+
+    S = sum over pairs of sign(y_j - y_i); Var(S) = n(n-1)(2n+5)/18 minus the tie
+    correction; z = (S -/+ 1)/sqrt(Var). Rank-based, so it is immune to the noise scale
+    and to outliers: noise alone stays below |z| ~ 2.6 in 99% of windows.
+    """
+    n = len(ys)
+    if n < 3:
+        return 0.0
+    s = 0
+    for i in range(n - 1):
+        yi = ys[i]
+        for j in range(i + 1, n):
+            d = ys[j] - yi
+            s += (d > 0) - (d < 0)
+    ties: dict[float, int] = {}
+    for y in ys:
+        ties[y] = ties.get(y, 0) + 1
+    var = (n * (n - 1) * (2 * n + 5) - sum(t * (t - 1) * (2 * t + 5) for t in ties.values() if t > 1)) / 18
+    if var <= 0 or s == 0:
+        return 0.0
+    return (s - 1) / math.sqrt(var) if s > 0 else (s + 1) / math.sqrt(var)
 
 
 def _metric_trend(check: dict, ctx: RunContext) -> CheckResult:
@@ -322,14 +376,21 @@ def _metric_trend(check: dict, ctx: RunContext) -> CheckResult:
     Window = points with step >= latest_step - window. Pending until the window
     has >= TREND_MIN_POINTS finite points covering >= TREND_MIN_COVERAGE of it.
 
-    * ``not_flat`` passes when BOTH robust estimates (median-of-thirds and
-      Theil–Sen, see ``trend_stats``) show a relative change of at least
-      NOT_FLAT_MIN_REL_CHANGE (5%) across the window, in the same direction.
-      A plateaued PINN loss (0.2504 → 0.2490 over 1500 steps ≈ 0.6%) fails; a loss
-      that keeps dropping passes. Direction-agnostic by design (it is literally
-      "not flat"); use ``decreasing`` when the direction matters.
-    * ``decreasing`` passes when both estimates show a drop of at least
-      DECREASING_MIN_REL_DROP (2%).
+    Two gates, both required (the classic Mann-Kendall + Sen's slope pairing):
+
+    1. **Significance**: the Mann-Kendall z-score of the window. Rank-based, so it scales
+       with the noise automatically; pure noise passes this in about 1% of windows.
+    2. **Effect size**: the Theil–Sen relative change across the window (on log10 values
+       when all are positive). This keeps a real but negligible drift (a PINN plateau
+       creeping 0.2504 → 0.2490, which MK flags as "significant" when there are
+       thousands of points) from counting as progress.
+
+    * ``not_flat``: |z| >= MK_Z_TWO_SIDED (p<0.01) and |Theil–Sen change| >= 5%, same
+      direction. Direction-agnostic (literally "not flat"); use ``decreasing`` when the
+      direction matters.
+    * ``decreasing``: z <= -MK_Z_ONE_SIDED (p<0.01) and a Theil–Sen drop >= 2%.
+
+    A NaN/inf anywhere in the window (or as the latest point) fails the check: divergence.
     """
     name = _metric_name(check)
     trend = check.get("trend")
@@ -342,6 +403,9 @@ def _metric_trend(check: dict, ctx: RunContext) -> CheckResult:
             return _result(check, "fail", f"run logged no '{name}' metric")
         return _result(check, "pending", f"waiting for '{name}'")
     latest = pts[-1][0]
+    div = _diverged(ctx, name, check, since_step=latest - window)
+    if div:
+        return div
     win = [p for p in pts if p[0] >= latest - window]
     span = win[-1][0] - win[0][0]
     if len(win) < TREND_MIN_POINTS or span < TREND_MIN_COVERAGE * window:
@@ -351,14 +415,13 @@ def _metric_trend(check: dict, ctx: RunContext) -> CheckResult:
         return _result(check, "pending", msg)
 
     st = trend_stats(win)
-    rm, rt = st["rel_median"], st["rel_theil_sen"]
+    rt, z = st["rel_theil_sen"], st["mk_z"]
     desc = (f"{name} {_fmt(st['first'])} → {_fmt(st['last'])} over last {int(st['span'])} steps "
-            f"({-rm * 100:+.1f}%)")
+            f"({-rt * 100:+.1f}%, trend z={z:+.1f})")
     if trend == "decreasing":
-        ok = rm >= DECREASING_MIN_REL_DROP and rt >= DECREASING_MIN_REL_DROP
+        ok = z <= -MK_Z_ONE_SIDED and rt >= DECREASING_MIN_REL_DROP
         return _result(check, "pass" if ok else "fail", desc + ("" if ok else " — not decreasing"))
-    same_dir = (rm > 0) == (rt > 0)
-    ok = same_dir and abs(rm) >= NOT_FLAT_MIN_REL_CHANGE and abs(rt) >= NOT_FLAT_MIN_REL_CHANGE
+    ok = abs(z) >= MK_Z_TWO_SIDED and abs(rt) >= NOT_FLAT_MIN_REL_CHANGE and (rt > 0) == (z < 0)
     return _result(check, "pass" if ok else "fail", desc + ("" if ok else " — plateau"))
 
 

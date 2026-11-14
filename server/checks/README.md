@@ -46,15 +46,26 @@ A **pure function**: no network, no DB, no model calls. It never raises: a malfo
   Without `metric`, the series is keyed by the check id. `extract_metrics(pattern, text)` is exported so E6 can reuse the same parser.
 
 ### `metric_trend`: thresholds
-The window is the points with `step ≥ latest_step − window` (default window 1000). Two robust estimates of the relative change:
-1. **median of thirds**: `1 − median(last third) / median(first third)`. Immune to spikes and minibatch noise.
-2. **Theil–Sen**: the median pairwise slope of `log10(value)` against step (raw values if any are ≤ 0), turned into a relative change over the window span.
+The window is the points with `step ≥ latest_step − window` (default 1000; pending below 8 points or < 50 % coverage).
+A trend needs **both** gates (Mann-Kendall test + Sen's slope):
+1. **Significance:** the Mann-Kendall z-score (rank-based, so it scales with the noise automatically): `|z| ≥ 2.576` for `not_flat` (p<0.01, two-sided),
+   `z ≤ −2.326` for `decreasing` (p<0.01, one-sided).
+2. **Effect size:** the Theil–Sen relative change across the window (on log10 values when all are positive) is `≥ 5 %` (`not_flat`, same direction as z)
+   or a drop of `≥ 2 %` (`decreasing`). This keeps a real but negligible drift (a PINN plateau creeping 0.2504 → 0.2490) from counting as progress.
 
-- `not_flat` passes when **both** estimates show **≥ 5 %** change across the window, in the same direction (`NOT_FLAT_MIN_REL_CHANGE`). 
-  For example, a β=30 PINN plateau (0.2504 → 0.2490 over 1500 steps, ±3 % noise) fails, and a loss still decaying passes. It ignores direction
-  (it means literally "not flat"); use `decreasing` when the direction matters.
-- `decreasing` passes when both show a **≥ 2 %** drop (`DECREASING_MIN_REL_DROP`).
-- NaN/inf points are ignored. The constants live at the top of `evaluator.py`.
+Seed sweeps (300 seeds, 31 or 151 points per window):
+
+| | flat curve, 10 % noise | flat curve, 20 % noise | loss decaying ~4× per window |
+|---|---|---|---|
+| before | 61/300 (not_flat), 72/300 (decreasing) falsely passed | 136/300 | passes |
+| now | ≤ 3/300 | ≤ 3/300 | ≥ 98 % pass (tests) |
+
+The trade-off: a *slow* decline of about 11 % per window under 10 % per-point noise with only 31 points is often graded "plateau" (about a third pass).
+Log more often or use a larger `window` if that matters. Constants are at the top of `evaluator.py`.
+
+**Divergence:** a NaN/inf (or `None`) as the latest point, or anywhere in the trend window, **fails** `metric_threshold`/`metric_trend`
+("loss diverged: nan at step N") instead of grading the stale finite values. `tut run` forwards NaN as `{"value": null, "nonfinite": "nan"}`,
+and screen OCR reads `nan`/`inf`.
 
 `trend_stats(points)` is exported so the coach can quote the numbers.
 
@@ -85,9 +96,21 @@ record_metric(f"screen-{lesson_id}", "loss", step, value)  # any numeric signal 
 ```
 - Kinds: `step_started | check_pass | check_fail | offtrack | fix_applied | question | step_passed`. `check_id` from the payload goes in its own column.
   Every row carries `session_id` (`$TUT_SESSION_ID` or random per engine process).
-- Non-blocking: an in-memory queue, with a daemon thread `COPY`ing batches every 0.5 s. Without `TIGER_DATABASE_URL`, or with the DB down, it logs one warning and becomes a no-op.
+- Non-blocking: an in-memory queue, with a daemon thread `COPY`ing batches every 0.5 s. It never blocks or raises into the engine.
+- **Offline-safe:** when Tiger can't be reached (no URL, the venue Wi-Fi drops the port, a write error), batches go to a local spool
+  `~/.miyagi/tiger-spool/*.jsonl` (`$TUT_SPOOL_DIR` overrides; capped at 200 MB, beyond that rows are counted in `dropped`). It retries every **30 s**
+  and, once connected, uploads every spool file first (the engine's own and `tut run`'s `tut-<run_id>.jsonl`). Each file is claimed by rename
+  so it's never uploaded twice, and deleted once stored. There is one warning per outage, and the password is redacted from errors.
   `get_writer().flush()` on shutdown; `get_writer().counters()` gives in-process rows written and flush ms.
 - Continuous aggregates (`shared/contracts/tiger-schema.sql`, real-time + refresh policies in `cli/sql/tiger-extras.sql`):
   `metrics_1s` (live curves), `time_per_step` (avg/min/max seconds per step), `check_fail_rate` (fails/passes/evaluations per check),
   `stuck_heatmap` (offtrack + check_fail per 15 s of video), `learner_progress` (per session per minute: steps/checks passed, fails, offtracks; take a running sum for cumulative progress).
+- **Prove the connection** (e.g. on a phone hotspot): `python -m server.checks.tiger --ping` prints the host:port (never the user or password),
+  TCP connect ms, login ms, PostgreSQL/timescaledb versions, `SELECT 1` round trip, the hypertables and continuous aggregates present (and missing),
+  row counts and the spool backlog. Exit 0 = reachable. `--json` gives a machine-readable version; `--flush-spool` uploads the spool now.
+- **Ports:** a Tiger Cloud service listens on its own (high) port from the connection string. That's the one venue Wi-Fi tends to block.
+  If you enable **connection pooling** (pgBouncer) in the Console, the pooler is the *same host on another port*, which may or may not get through
+  (copy it from the Console's *Connection pooling* tab or `<service>-credentials.txt`, use the session pool for `COPY`). Tiger's docs list no endpoint on
+  443 or 5432, so don't count on one. If `--ping` says the TCP connect failed, use a phone hotspot; nothing is lost meanwhile because of the spool.
+  ([connection pooling](https://www.tigerdata.com/docs/use-timescale/latest/services/connection-pooling), [finding connection details](https://www.tigerdata.com/docs/integrate/find-connection-details))
 - `stats(conn)` (connection in autocommit) → `{training_metrics: {rows_per_s, total}, learning_events: {...}, chunks, query_ms: {live_curve, stuck_heatmap}}`. This is what `tut stats` prints.
