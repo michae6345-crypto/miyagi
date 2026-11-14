@@ -2,7 +2,7 @@
  * Feature: launcher. The rows of the results list. Every row is ROW_H tall and absolutely placed in
  * its slot, so a skeleton and the result that replaces it crossfade in place (no reflow, no jump).
  */
-import { motion } from 'motion/react'
+import { AnimatePresence, motion } from 'motion/react'
 import type { ReactNode } from 'react'
 import { CircleAlert, FileCode2, FileText, FolderGit2, Newspaper, SearchX } from 'lucide-react'
 import { Thumb } from '../../core/ui/atoms'
@@ -11,7 +11,8 @@ import type { SearchResult } from './store'
 import { thumbnailFor, type YouTubeLink } from './youtube'
 import { tint } from './tint'
 
-export const ROW_H = 60
+/** Fixed, so a row that gains a learner line later never moves its neighbours or the highlight. */
+export const ROW_H = 64
 
 const enter = { opacity: 0, y: 6 }
 const shown = { opacity: 1, y: 0 }
@@ -51,13 +52,40 @@ function Tile({ kind, thumbnail }: Pick<SearchResult, 'kind' | 'thumbnail'>): Re
   )
 }
 
-function Text({ title, meta }: { title: string; meta: string }): ReactNode {
+function Text({ title, meta, checked = false, warnings }: { title: string; meta: string; checked?: boolean; warnings?: string[] }): ReactNode {
+  const quote = warnings?.find((w) => w.trim())?.replace(/\s+/g, ' ').trim()
+  const more = (warnings?.length ?? 0) - 1
   return (
     <span className="min-w-0 flex-1">
-      <span className="block truncate text-[14px] font-medium leading-[19px] text-white">{title}</span>
-      <span className="block truncate text-[12.5px] leading-[18px]" style={{ color: color.faint }}>
-        {meta}
+      <span className="block truncate text-[14px] font-medium leading-[18px] text-white">{title}</span>
+      <span className="flex min-w-0 text-[12.5px] leading-[17px]" style={{ color: color.faint }}>
+        <span className="truncate">{meta}</span>
+        {/* The engine opened this link itself (oEmbed / HTTP / API). Gray: green only means passed. */}
+        {checked && (
+          <motion.span className="shrink-0 whitespace-pre" initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: 0.2 }}>
+            {' · Link checked'}
+          </motion.span>
+        )}
       </span>
+      {/* What other learners said, quoted as-is (the engine's filter can misfire, so never our own verdict). It may
+          arrive after the row: the line grows in and the row keeps its slot. */}
+      <AnimatePresence initial={false}>
+        {quote && (
+          <motion.span
+            key="learner"
+            className="flex min-w-0 overflow-hidden text-[12px] leading-[16px]"
+            style={{ color: color.faint }}
+            title={warnings?.join('\n\n')}
+            initial={{ height: 0, opacity: 0 }}
+            animate={{ height: 16, opacity: 1 }}
+            exit={{ height: 0, opacity: 0 }}
+            transition={spring}
+          >
+            <span className="truncate">A learner said: “{quote}”</span>
+            {more > 0 && <span className="shrink-0 whitespace-pre">{` · +${more} more`}</span>}
+          </motion.span>
+        )}
+      </AnimatePresence>
     </span>
   )
 }
@@ -66,7 +94,7 @@ export function ResultRow({ r, best, ...rest }: Slot & { r: SearchResult; best: 
   return (
     <RowShell {...rest}>
       <Tile kind={r.kind} thumbnail={r.thumbnail} />
-      <Text title={r.title} meta={r.meta} />
+      <Text title={r.title} meta={r.meta} checked={r.verified === true} warnings={r.warnings} />
       {best && (
         <span className="shrink-0 text-[12.5px] font-medium" style={{ color: color.accent }}>
           Best

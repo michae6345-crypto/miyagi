@@ -1,6 +1,6 @@
 # launcher
 
-**Status:** brand pass done (Miyagi brand kit + Adrian's "no unnecessary writing" cuts), rebased on `adrian/shell` db72ef9, waiting for Adrian's review · **Priority:** P0 · **Port:** 5176 · **Branch:** `adrian/launcher`
+**Status:** brand pass done + learner warnings / "Link checked" on results (Data for Good), rebased on `adrian/shell` 3958bad, waiting for Adrian's review · **Priority:** P0 · **Port:** 5176 · **Branch:** `adrian/launcher`
 
 ## Goal
 Launcher born from the notch island (⌥Space; Ctrl+Shift+Space on Windows). **Since Sat ~2 PM (Michael): the island expands down into the launcher and every exit collapses it back into the island; nothing opens mid-screen.** Type what you want to learn → results stream in (it grows down) → Build lesson → it collapses back up into the pill (the signature transition). Pasting a YouTube link skips search. **During a lesson** it becomes "Ask about this step": Enter sends `action {kind:"ask", text}` and the answer comes back as a card.
@@ -22,12 +22,14 @@ Launcher born from the notch island (⌥Space; Ctrl+Shift+Space on Windows). **S
 - [x] URL paste → `learn_url`
 - [x] Ask mode during a lesson
 - [x] Empty / searching / error states (plus engine offline)
+- [x] Results show what the engine checked: a gray "Link checked" (`verified: true`) and a quoted learner comment (`warnings`), updating in place when the engine re-sends a row
 - [x] Esc and click-outside collapse it back into the island (never fades out mid-screen)
 
 ## Test
 `npm run dev:web -- --port 5176` → `http://localhost:5176/?scenario=full`
 - **Search + build:** Ctrl+K (the pill grows into the launcher), type anything or click a suggestion chip, Enter (rows stream in, it grows down), ↑↓ or hover, Enter again → it collapses into the pill.
 - **Ask:** once "Step 4 · Define the residual" shows, Ctrl+K → ask mode (a faint step line, placeholder "Ask about this step"; Tab flips to a new lesson and back), type, Enter → it collapses back into the step pill and the answer card grows out. The mock answers at step 4 and step 6 (`mock/scenarios/launcher.json`); the chips send Explain / Hint.
+- **Learner warnings / Link checked:** after a search, about 1.3s after the rows land, the mock re-sends them by id: the video gets "Link checked" and "A learner said: “…” · +1 more", the notebook "Link checked", the paper (`verified: 'indexed'`) nothing. Rows don't move. (`mock/scenarios/launcher.json` overrides `learn` to play happy's `search` segment, then the updates.)
 - **Link:** paste a YouTube link (e.g. `https://www.youtube.com/watch?v=kCc8FmEb1nY&t=1m30s`) → one row, Enter → `learn_url`.
 - **States:** `?scenario=launcher` has no `learn` trigger, so a search stays in flight (skeletons). Answer it from the console: `(await import('/src/core/bus.ts')).dispatch({type:'search.done',payload:{total:0}})` (empty) or `{type:'error',payload:{message:'…'}}` (error).
 - Esc / click outside / Ctrl+K again collapse it back into whatever the island showed (pill or card); the HUD's Reset closes it and clears the field.
@@ -44,6 +46,15 @@ Launcher born from the notch island (⌥Space; Ctrl+Shift+Space on Windows). **S
 
 ## Notes
 Window show/hide/focus is core (`src/main/index.ts`); the shrink target comes from `bridge.platform.pillTop` + `theme.pill`.
+
+**Learner warnings + "Link checked" (Sat ~3 PM, Adrian via the Miyagi progress status session; Bright Data "Data for Good" track).**
+- The engine already sends two extra fields on `search.result` (server/finder/core.py `PUBLIC_FIELDS`), typed locally as `ResultExtras` in `store.ts` (the contract is untouched): `warnings?: string[]` (up to 3 raw YouTube comments ≤200 chars, matched by a regex that also catches "error"/"version", so false positives happen) and `verified?: true | 'indexed'`.
+- Row: `verified === true` → " · Link checked" at the end of the meta line (gray; `'indexed'` or missing → nothing). `warnings` → one gray line, clamped: `A learner said: “<first>” · +N more`, the full comments in the native tooltip. Quoted as-is, never labelled "outdated" in our words; no amber (off-track only), no green (passed only).
+- Rows are a fixed 64px (was 60) so the extra line fits and nothing moves. A re-sent row (same id) is merged into its slot instead of being moved to the end; the learner line grows in (height 0 → 16 on the spring). Checked headless: same DOM nodes, same slots, panel height and highlight unchanged; an update for an unknown id with no title is ignored.
+- Mock: `launcher.json` now maps `learn` → `search_checked` (plays happy's `search` unchanged, then re-sends r1 with 2 warnings + verified, r2 verified, r3 `'indexed'`). This overrides happy's `learn` trigger in `full`; same rows and timing, only the extra fields. With `?scenario=launcher` alone the search still stays in flight (the partial rows are ignored).
+- Later, not built: counts on `search.done` (`checked`, `droppedDead`, `flaggedOutdated`) for a footer like "Checked 47 links · dropped 6 dead"; waiting on Michael.
+- Also fixed: in search mode the footer was clipped by ~16px (the field's top margin collapsed through the measured wrapper); `flow-root` on the wrapper. Found by the UI polish session.
+- Shot: `agents/shots/launcher-warnings.png`.
 
 **Brand pass (Sat ~2:30 PM): Miyagi brand kit + Adrian's cuts.** Built on the UI polish session's monochrome pass (5584cf5; it replaced an earlier glow/aurora look Adrian rejected).
 - Rebase note: `adrian/shell` had picked up 34cf806, the UI polish session's first, pre-amend glow commit (prettier-default formatting). The rebase resolved every launcher file to the final monochrome versions (single quotes, no semicolons); `index.tsx`, `store.ts`, `youtube.ts` are unchanged since 3644feb.
