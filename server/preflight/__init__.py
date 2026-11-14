@@ -17,8 +17,9 @@ from .core import (
     prefetch,
     preflight,
     preflight_card,
+    video_meta,
 )
 from .meta import parse_chapters, parse_watch_page
 
 __all__ = ["build_plan", "cached_skim", "classify", "clear_memo", "light_graph", "needs_line", "parse_chapters",
-           "parse_watch_page", "prefetch", "preflight", "preflight_card"]
+           "parse_watch_page", "prefetch", "preflight", "preflight_card", "video_meta"]

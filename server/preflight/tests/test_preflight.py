@@ -191,13 +191,22 @@ def test_build_plan_mirrors_e2_window_1():
     assert build_plan(short)["strategy"] == "whole" and build_plan(short)["firstChapter"] is None
     assert build_plan({"duration_s": 29 * 60, "chapters": []})["strategy"] == "whole"  # E2: progressive only > 30 min
     m = {"duration_s": 6980, "chapters": parse_chapters(KARPATHY_DESC, 6980)}
-    p = build_plan(m, 1)
-    assert p["strategy"] == "chapters"
+    p = build_plan(m, None)
+    assert p["strategy"] == "chapters" and "skippedIntro" not in p
     fc = p["firstChapter"]
     # E2's plan_windows: window 1 = chapters from 0:00 grouped to 3-6 min; a 7:52 intro is a window on its own
     assert (fc["index"], fc["lastIndex"], fc["start"], fc["end"]) == (0, 0, 0, 472)
+    # with the first hands-on chapter at 7:52, E2 skips the intro and part 1 starts there (E2 1411782)
+    p = build_plan(m, 1)
     assert p["firstHandsOn"] == {"index": 1, "title": "reading and exploring the data", "start": 472}
-    assert 30 < p["estSecondsToFirstSteps"] < 50
+    assert p["skippedIntro"] == {"start": 0, "end": 472}
+    fc = p["firstChapter"]
+    assert (fc["index"], fc["start"], fc["end"]) == (1, 472, 568) and fc["title"] == "reading and exploring the data"
+    assert 30 <= p["estSecondsToFirstSteps"] < 50
+    # a hands-on chapter at 22:11 would skip real work: not trusted, no skip
+    late = build_plan(m, 4)
+    assert "skippedIntro" not in late and late["firstChapter"]["start"] == 0
+    assert "skippedIntro" not in build_plan(m, 0)  # < 1 min: nothing to skip
     short_chapters = {"duration_s": 3600, "chapters": parse_chapters("0:00 a\n1:00 b\n2:30 c\n4:00 d\n20:00 e", 3600)}
     fc = build_plan(short_chapters)["firstChapter"]
     assert (fc["start"], fc["end"], fc["lastIndex"]) == (0, 240, 2)  # grouped until >= 3 min (same as E2 plan_windows)
@@ -226,7 +235,7 @@ def test_coding_long_video_card():
     assert card["actions"] == ["build", "pick_another", "install"]  # torch missing
     assert "Coding · 1:56:20 · 7 chapters · Andrej Karpathy" in card["body"]
     assert "Needs: Visual Studio Code ✓ Python 3 ✓ PyTorch ✗" in card["body"]
-    assert "Long video: I'll build 0:00–7:52 first" in card["body"] and "Hands-on starts at 7:52" in card["body"]
+    assert "Long video: skipping the 7:52 intro, I'll build 7:52–9:28 first" in card["body"]
     assert "warning" not in card
     assert card["preflight"]["goalMatch"]["score"] == 0.92 and card["items"][2]["install"]["method"] == "pip"
 
@@ -397,3 +406,16 @@ def test_finder_row_fills_in_when_youtube_is_blocked():
     assert res["buildPlan"]["firstChapter"]["window"]
     other = {"videoId": "MXId-Ae6k_I", "url": "https://www.youtube.com/watch?v=MXId-Ae6k_I", "style": "coding"}
     assert core.finder_prior(other, "kCc8FmEb1nY") == {}  # a row for another video is ignored
+
+
+def test_video_meta_for_e2():
+    from server.preflight import video_meta
+
+    res = run(_pf("kCc8FmEb1nY", "build an LLM", req=lambda g: REQ_CODING))
+    vm = video_meta(res)
+    assert vm["duration_s"] == 6980 and vm["title"].startswith("Let's build GPT") and "Generatively" in vm["description"]
+    assert vm["chapters"][1] == {"start": 472, "title": "reading and exploring the data"} and len(vm["chapters"]) == 7
+    assert vm["firstHandsOn"] == 472  # = buildPlan.skippedIntro.end, the part E2 builds first
+    short = run(_pf("MXId-Ae6k_I", "react todo", claude=FakeClaude(REACT)))
+    assert "firstHandsOn" not in video_meta(short)
+    assert video_meta({"url": "x"}) is None

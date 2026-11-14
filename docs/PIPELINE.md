@@ -79,7 +79,7 @@ listed in `missing`, and if it lands later it arrives through `on_late`.
 | chapters | YouTube's own chapter list (`chapterRenderer`), else description timestamps (YouTube's rules: from 0:00, ascending, ≥ 3) |
 | `style`: coding / no-code / conceptual (E7's vocabulary), `topic`, `goalMatch {score 0–1 \| null, note}`, first hands-on chapter | Claude `claude-haiku-5-5`, structured output, on that metadata plus the finder row's `style` (as a prior; it is also the fallback when Claude is late) and the finder's Gemini skim if it's cached (no new Gemini call) |
 | `items` ("Needs: VS Code ✓ Python 3 ✓ torch ✗") | S2's `server.workspace.requirements()` on a metadata-level step graph (lesson id `preflight-<videoId>`) |
-| `buildPlan {strategy whole\|chapters, firstChapter, firstHandsOn, estSecondsToFirstSteps}` | E2's `plan_windows` (local mirror when it isn't importable) |
+| `buildPlan {strategy whole\|chapters, firstChapter, firstHandsOn, skippedIntro, estSecondsToFirstSteps}` | E2's `plan_windows(length, chapters, first_hands_on)` (local mirror when it isn't importable). A talk-only intro of 1–10 min is skipped, and part 1 starts at the first hands-on chapter |
 | `warning`, `recommended: "pick_another"` | when `goalMatch.score < 0.5` |
 
 Live cards (14 Nov, cold, this network):
@@ -101,15 +101,17 @@ long / chapters / captions`, and the preflight additions:
 - action kinds `build` and `pick_another` (also on the card's `actions`)
 - `PreflightInfo.style` uses `search.result.style`'s vocabulary (coding / no-code / conceptual) plus
   `styleFrom: claude | finder`. `goalMatch` has `lesson.goalMatch`'s shape. The rename from the first draft's
-  `kind` is one fast-forward commit, bbc4195 on branch `contract/preflight-style`, on top of #29's head.
+  `kind` is in #29 (65c7235). `buildPlan.skippedIntro` is one fast-forward commit, f3fddd9 on branch
+  `contract/preflight-style-2`, on top of #29's head.
 
 ## Open items
 
 - **E4:** wire preflight between the pick and `_build`, and call `prefetch` on `search.done` (the exact hook is in
   `server/preflight/README.md`).
-- **E2:** progressive builds already map to `lesson.ready {complete:false}` + `lesson.updated` (in #17). Optionally accept preflight's
-  metadata (chapters, duration, description) to skip the second watch-page fetch, and start window 1 at
-  `buildPlan.firstHandsOn` when the intro is long.
+- **E2:** done on `claude/michael-lesson-135f28` (1411782). `build_lesson(..., video_meta=pf.video_meta(res))`
+  skips the watch-page fetch, and part 1 starts at `firstHandsOn`. Progressive parts reach the app through
+  `lesson.ready {complete:false}` + `lesson.updated` (in #29); re-emitting `lesson.ready` also works.
+  Karpathy's part 1 is only 7:52–9:28 (96 s): the next chapter would push it past the 6 min cap.
 - **S2:** done in #28. `requirements()` caches by video id, so the preflight warms the real lesson's setup card
   (checked live: 0.01 s, no Claude call). #22 (`web_app` items) is merged, so no-code cards show "Botpress (web)".
 - **E7:** prefetching 3 preflights costs 3 haiku calls per search (~1–2 k tokens each); keep `top=3`.
