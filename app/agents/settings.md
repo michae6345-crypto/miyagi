@@ -3,7 +3,7 @@
 **Status:** new · **Priority:** P1 · **Port:** 5183 · **Branch:** `adrian/settings`
 
 ## Goal
-Bring-your-own-keys, like cue: a small Apple-style Settings sheet (gear in the overview card; also shown on first run) with fields for **Anthropic** and **Gemini** (required), **Bright Data** (optional: without it you paste a YouTube link instead of searching), **ElevenLabs** (optional voice) and **Tiger Data URL** (optional). Each key shows a status dot (ok / missing / invalid / env), and there's a Test button.
+Bring-your-own-keys, like cue. **Born from the notch island** like the launcher (a focusable window whose panel starts from the island's shape and collapses back into it; reuse the launcher's pattern, and ask core to generalize the `launcher:open {from}` handoff to settings). A small Apple-style Settings sheet (gear in the overview card; also shown on first run) with fields for **Anthropic** and **Gemini** (required), **Bright Data** (optional: without it you paste a YouTube link instead of searching), **ElevenLabs** (optional voice) and **Tiger Data URL** (optional). Each key shows a status dot (ok / missing / invalid / env), and there's a Test button.
 
 ## Owns
 - `app/src/renderer/src/features/settings/`: window `settings`, form, status dots, exports `openSettings()`

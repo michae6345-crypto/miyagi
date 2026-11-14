@@ -2,7 +2,9 @@
  * The bridge between renderer and main. Types only, shared by preload and renderer.
  *
  * UI signals (cross-window choreography):
- *   main -> launcher : 'launcher:open', 'launcher:close'
+ *   main -> launcher : 'launcher:open' {from:{w,h}} (the island's current size: the launcher grows out of it), 'launcher:close'
+ *   main -> overlay  : 'launcher:open' (the island hides: the launcher has it), 'launcher:closed' (the island is back)
+ *   overlay -> main  : 'island:size' {w,h} (the island's current size, so the launcher can start from it)
  *   launcher -> main : 'launcher:hidden' (closed normally), 'launcher:built' (shrank into the pill)
  *   main -> overlay  : 'pill:receive' (launcher just landed on the pill), 'shortcut' (kind)
  *   any -> main      : 'launcher:toggle' (e.g. clicking the idle pill or "Ask anything")
@@ -19,6 +21,8 @@ export type UiSignal =
   | 'launcher:built'
   | 'launcher:toggle'
   | 'pill:receive'
+  | 'launcher:closed'
+  | 'island:size'
   | 'shortcut'
   | 'overlay:interactive'
   | 'layout'

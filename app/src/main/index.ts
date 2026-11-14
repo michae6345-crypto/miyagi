@@ -32,6 +32,8 @@ const signalListeners = new Map<string, Set<(payload?: unknown) => void>>()
 let overlay: BrowserWindow
 let launcher: BrowserWindow
 let launcherOpen = false
+/** The island's latest size, so the launcher can grow out of its exact shape. */
+let islandSize = { w: 300, h: 34 }
 let actionsRegistered = false
 
 const displayNow = (): Electron.Display => screen.getDisplayNearestPoint(screen.getCursorScreenPoint())
@@ -98,7 +100,8 @@ function openLauncher(): void {
   launcher.show()
   launcher.focus()
   raise(launcher)
-  send(launcher, 'launcher:open')
+  send(launcher, 'launcher:open', { from: islandSize })
+  send(overlay, 'launcher:open') // the island hides: the launcher window has it now
 }
 
 function closeLauncher(): void {
@@ -108,6 +111,7 @@ function closeLauncher(): void {
 function hideLauncher(): void {
   launcherOpen = false
   launcher.hide()
+  send(overlay, 'launcher:closed') // the island is back
   returnFocus(app, overlay)
 }
 
@@ -163,6 +167,9 @@ app.whenReady().then(() => {
     switch (signal) {
       case 'overlay:interactive':
         overlay.setIgnoreMouseEvents(!payload, { forward: true })
+        break
+      case 'island:size':
+        islandSize = payload as typeof islandSize
         break
       case 'launcher:toggle':
         launcherOpen ? closeLauncher() : openLauncher()

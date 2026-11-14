@@ -16,6 +16,8 @@ import { color, pill, spring, springOut } from './theme'
 export function Island({ top }: { top: number }): ReactNode {
   const [hover, setHover] = useState(false)
   const [landing, setLanding] = useState(false)
+  /** The launcher (its own focusable window) has grown out of the island: hide until it hands back. */
+  const [yielded, setYielded] = useState(false)
   const hoverTimer = useRef<ReturnType<typeof setTimeout>>(undefined)
   const passFlash = useLesson((s) => s.passFlash)
 
@@ -25,15 +27,19 @@ export function Island({ top }: { top: number }): ReactNode {
   const isPill = !mode || mode.width === undefined
 
   // The launcher just shrank onto our exact pixels: appear at its size, then spring to ours.
-  useEffect(
-    () =>
+  useEffect(() => {
+    const offs = [
       bridge.on('pill:receive', () => {
         startBuild()
+        setYielded(false)
         setLanding(true)
         requestAnimationFrame(() => requestAnimationFrame(() => setLanding(false)))
       }),
-    []
-  )
+      bridge.on('launcher:open', () => setYielded(true)),
+      bridge.on('launcher:closed', () => setYielded(false))
+    ]
+    return () => offs.forEach((off) => off())
+  }, [])
 
   // Measure whichever layer is active; the container springs to its size.
   const [active, setActive] = useState<HTMLDivElement | null>(null)
@@ -52,6 +58,11 @@ export function Island({ top }: { top: number }): ReactNode {
     ro.observe(active)
     return () => ro.disconnect()
   }, [active, mode])
+
+  // Tell main (or the browser bus) our current size, so the launcher can grow out of exactly this shape.
+  useEffect(() => {
+    if (!landing) bridge.emit('island:size', { w: size.w, h: size.h })
+  }, [size, landing])
 
   const enter = (): void => {
     clearTimeout(hoverTimer.current)
@@ -73,7 +84,8 @@ export function Island({ top }: { top: number }): ReactNode {
         style={{
           background: color.island,
           boxShadow: isPill ? '0 2px 10px rgba(0,0,0,.25)' : '0 24px 60px rgba(0,0,0,.5)',
-          transformOrigin: '50% 0%'
+          transformOrigin: '50% 0%',
+          opacity: yielded ? 0 : 1
         }}
         initial={false}
         animate={{

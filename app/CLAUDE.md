@@ -23,6 +23,8 @@ Need a core change (a new field in `core/lesson.ts`, a new bus event, a new npm 
 - Main process: `src/main/features/<feature>.ts` default-exports `defineMainFeature({ id, setup(ctx) })`; see `src/main/context.ts` (createWindow, handle ↔ `bridge.invoke`, broadcast ↔ `bridge.onFeature`, `engine.onOpen`). In the browser stage, stand in for main handlers with `registerWebHandler(channel, fn)` from `bridge.ts`.
 - Interactive overlay elements need `data-hit` (stops click-through); visible-but-passive ones need `data-ui`. Both are reported to the engine as `overlay.bounds` so its screen reader ignores them.
 - Colors, radii, the spring: `core/theme.ts` tokens only. No new hard-coded colors (Adrian is swapping in his own theme).
+- **Every surface is born from the notch island and returns to it** (Michael, Sat ~2 PM): the launcher, cards, diagrams, settings. Nothing pops up mid-screen. Surfaces that need typing (launcher, settings) live in their own focusable window but start from the island's exact shape (`launcher:open` carries `{from:{w,h}}`) and collapse back into it.
+- **Nothing PINN-specific** (generality rule): PINN-on-convection is only the demo lesson. Labels come from the data (metric names, check labels, step titles); never hardcode 'loss', 'β' or 'PINN' in UI code.
 - Animation: the one spring `{stiffness 420, damping 34, mass 0.9}`; animate transform/opacity; never resize windows during an animation.
 
 ## Run and check

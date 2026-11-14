@@ -91,6 +91,7 @@ function createWebBridge(): TutBridge & { mode: () => EngineMode } {
   else startInline()
 
   let launcherOpen = false
+  let islandSize = { w: 300, h: 34 }
 
   return {
     platform,
@@ -114,16 +115,22 @@ function createWebBridge(): TutBridge & { mode: () => EngineMode } {
     emit(signal: UiSignal, payload?: unknown) {
       // Mirror of main/index.ts routing.
       switch (signal) {
+        case 'island:size':
+          islandSize = payload as typeof islandSize
+          break
         case 'launcher:toggle':
           launcherOpen = !launcherOpen
-          fire(launcherOpen ? 'ui:launcher:open' : 'ui:launcher:close')
+          // One bus in the browser: the launcher opens from the island's shape and the island hides.
+          fire(launcherOpen ? 'ui:launcher:open' : 'ui:launcher:close', launcherOpen ? { from: islandSize } : undefined)
           break
         case 'launcher:hidden':
           launcherOpen = false
+          fire('ui:launcher:closed')
           break
         case 'launcher:built':
           launcherOpen = false
           fire('ui:pill:receive')
+          fire('ui:launcher:closed')
           break
         case 'shortcut':
           fire('ui:shortcut', payload)

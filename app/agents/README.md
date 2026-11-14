@@ -28,6 +28,7 @@ P0 = needed for the 6 PM checkpoint (the happy path end to end) and "never cut" 
 3. **Overnight:** voice, drawer, then **theme last** (it touches color values in every feature, so run it alone once the others are merged).
 
 ## Cross-feature hand-offs (who touches what)
+- **Every surface is born from the notch island** (launcher, cards, diagrams, settings): the launcher and settings are focusable windows that start from the island's exact size (`launcher:open {from}`) and collapse back into it. Nothing pops up mid-screen.
 - The gear that opens **settings** lives in the **overview** card: settings exports `openSettings()`; the overview agent adds the button.
 - **cards**' video jump and **player** share `core/lesson.video` (the engine's intent). The player follows it; nobody else drives the player directly.
 - **shortcut-bar** shows Diagram / Voice as lit using the diagrams and voice stores (read-only).
