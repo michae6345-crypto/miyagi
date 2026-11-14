@@ -9,7 +9,7 @@ import { Thumb } from '../../core/ui/atoms'
 import { clock, color, spring } from '../../core/theme'
 import type { SearchResult } from './store'
 import { thumbnailFor, type YouTubeLink } from './youtube'
-import { tint } from './tint'
+import { alpha, kindTone, pastel, tint } from './tint'
 
 /** Fixed, so a row that gains a learner line later never moves its neighbours or the highlight. */
 export const ROW_H = 64
@@ -45,8 +45,12 @@ function RowShell({ slot, delay = 0, children, onHover, onPick }: Slot & { child
 function Tile({ kind, thumbnail }: Pick<SearchResult, 'kind' | 'thumbnail'>): ReactNode {
   if (kind === 'video') return <Thumb w={60} h={38} src={thumbnail} />
   const I = kind === 'repo' ? FolderGit2 : kind === 'notebook' ? FileCode2 : kind === 'paper' ? FileText : Newspaper
+  const tone = kindTone[kind]
   return (
-    <span className="grid h-[38px] w-[60px] shrink-0 place-items-center rounded-[8px]" style={{ background: tint.icon, color: tint.iconGlyph }}>
+    <span
+      className="grid h-[38px] w-[60px] shrink-0 place-items-center rounded-[8px]"
+      style={tone ? { background: alpha(tone, 0.16), color: tone } : { background: tint.icon, color: tint.iconGlyph }}
+    >
       <I size={16} strokeWidth={1.6} />
     </span>
   )
@@ -96,7 +100,7 @@ export function ResultRow({ r, best, ...rest }: Slot & { r: SearchResult; best: 
       <Tile kind={r.kind} thumbnail={r.thumbnail} />
       <Text title={r.title} meta={r.meta} checked={r.verified === true} warnings={r.warnings} />
       {best && (
-        <span className="shrink-0 text-[12.5px] font-medium" style={{ color: color.accent }}>
+        <span className="shrink-0 text-[12.5px] font-medium" style={{ color: pastel.pink }}>
           Best
         </span>
       )}
