@@ -3,17 +3,19 @@
  * the Video component only lends it a DOM node (attachPlayer).
  *
  * Gating:
- *   step.started  → load/cue the step's clip at video.start and play
+ *   step.started  → load/cue the step's clip at video.start (after a skipped intro) and play
  *   t ≥ video.end → while the step isn't passed: pause at end ("Waiting for your checks")
  *   step.passed   → a 400ms "Passed" beat, then resume (unless the learner paused it themself)
- * Engine intent (core/lesson.video, set by video.seek / video.pause / video.play and by card video jumps):
- *   followed as-is. A seek past the gate is allowed (the engine asked for it); the gate only stops
- *   playback that runs into the end of the open step.
+ *   step.passed {pending} → the next part of a long video is still building: no resume; the video
+ *                   holds at the end of the passed clip ("Next part is still building") until the
+ *                   engine starts the next step (after lesson.updated)
+ * Engine intent (core/lesson.video, with `kind`: video.seek / video.pause / video.play, and 'jump'
+ *   from core seekVideo, e.g. a card's video link): followed as-is. A seek past the gate is allowed
+ *   (the engine asked for it); the gate only stops playback that runs into the end of the open step.
  * Reports video.state {t, playing} every second while playing and on every change.
  *
  * Electron: this module runs in every window (features are imported everywhere), but only the
- * player window hosts the YouTube player. Card video jumps happen in the overlay window, so other
- * windows relay them through main (player:intent → broadcast) to the player window.
+ * player window hosts the YouTube player. core seekVideo reaches it through main (video:intent).
  */
 import { create } from 'zustand'
 import type { VideoSegment } from '../../../../../../shared/contracts/events'
@@ -92,22 +94,49 @@ function currentSegment(): VideoSegment | undefined {
 }
 
 /**
+ * Where playback must hold, if anywhere:
+ *   'checks'   the open step's end (its checks haven't passed yet)
+ *   'building' the passed step's end, while the next part of a long video is still building (pendingNext)
+ */
+export function holdPoint(): { end: number; why: 'checks' | 'building' } | undefined {
+  const s = useLesson.getState()
+  const seg = currentSegment()
+  if (!s.stepId || !seg) return undefined
+  if (!s.passed.includes(s.stepId)) return { end: seg.end, why: 'checks' }
+  if (s.pendingNext) return { end: seg.end, why: 'building' }
+  return undefined
+}
+
+/**
  * The engine (or a card's video jump) sent us to/after the open step's end on purpose, e.g. Show me
  * at step 6 seeks to 14:30 where the tutorial shows the fix. The gate stands aside until the step
  * changes or the learner goes back into the clip.
  */
 let excursion = false
 
-/** Is time t at (or just past) the open step's end, with the gate holding? */
+/** Is time t at (or just past) the hold point, with the gate holding? */
 export function inGate(t: number): boolean {
-  const seg = openSegment()
-  return !excursion && !!seg && t >= seg.end - GATE_EPS && t < seg.end + GATE_ZONE
+  const h = holdPoint()
+  return !excursion && !!h && t >= h.end - GATE_EPS && t < h.end + GATE_ZONE
 }
 
 /** Engine/card seeks: past the gate = an excursion. Learner seeks (chapters, replay, timeline) never are. */
 function setExcursion(t: number, fromEngine: boolean): void {
-  const seg = openSegment()
-  excursion = fromEngine && !!seg && t >= seg.end - GATE_EPS
+  const h = holdPoint()
+  excursion = fromEngine && !!h && t >= h.end - GATE_EPS
+}
+
+/**
+ * The preflight card's buildPlan.skippedIntro: a talk-only intro the build skipped. A clip that starts
+ * inside it (chapter 1, usually) starts at its end instead. Only for the same video.
+ */
+let skippedIntro: { videoId?: string; start: number; end: number } | undefined
+
+/** Where a step's clip really starts: after a skipped intro, if it starts inside one. */
+export function clipStart(seg: VideoSegment): number {
+  const k = skippedIntro
+  if (!k || (k.videoId && resolveVideoId(k.videoId) !== resolveVideoId(seg.videoId))) return seg.start
+  return seg.start >= k.start && seg.start < k.end && seg.end > k.end ? k.end : seg.start
 }
 
 // ---------------------------------------------------------------------------
@@ -237,8 +266,8 @@ function gate(end: number): void {
 function tick(): void {
   if (!yt || !ready) return
   const t = now()
-  const seg = openSegment()
-  if (seg && isRolling(state()) && inGate(t)) return gate(seg.end)
+  const h = holdPoint()
+  if (h && isRolling(state()) && inGate(t)) return gate(h.end)
   const s = usePlayer.getState()
   if (Math.abs(s.t - t) > 0.04 || !s.duration) sync()
 }
@@ -266,7 +295,7 @@ function onStateChange(st: number): void {
   if (isRolling(st)) clearTimeout(autoplayTimer)
   if (st === YTState.ENDED) {
     want = { ...want, play: false }
-    setUi({ pausedBy: openSegment() ? 'gate' : 'ended' })
+    setUi({ pausedBy: holdPoint() ? 'gate' : 'ended' })
   }
   sync(true)
 }
@@ -363,7 +392,7 @@ export const player = {
   /** Back to the start of the current step's clip. */
   replayStep(): void {
     const seg = currentSegment()
-    if (seg) player.seek(seg.start, true)
+    if (seg) player.seek(clipStart(seg), true)
   },
   unmute(): void {
     yt?.unMute()
@@ -371,10 +400,10 @@ export const player = {
   },
   /** Seek from the timeline: never past the open step's gate. */
   scrub(t: number): void {
-    const seg = openSegment()
-    const target = seg ? Math.min(t, seg.end) : t
+    const h = holdPoint()
+    const target = h ? Math.min(t, h.end) : t
     const keepPlaying = usePlayer.getState().playing && !inGate(target)
-    player.seek(target, keepPlaying, seg && target >= seg.end - GATE_EPS ? 'gate' : 'user')
+    player.seek(target, keepPlaying, h && target >= h.end - GATE_EPS ? 'gate' : 'user')
   }
 }
 
@@ -387,7 +416,14 @@ onMessage('lesson.ready', (p) => {
   // Cue the first clip so the player is warm when the first step starts (go() sets standIn).
   const first = p.steps.find((s) => s.video)?.video
   setUi({ pausedBy: undefined, resuming: false, error: undefined, title: undefined, ...(first ? {} : { standIn: false }) })
-  if (first) go(first.videoId, first.start, false)
+  if (first) go(first.videoId, clipStart(first), false)
+})
+
+// The preflight card (before the build) says whether part 1 skips a talk-only intro.
+onMessage('card', (p) => {
+  if (p.kind !== 'preflight' || !p.preflight) return
+  const k = p.preflight.buildPlan?.skippedIntro
+  skippedIntro = k ? { videoId: p.preflight.videoId, start: k.start, end: k.end } : undefined
 })
 
 onMessage('step.started', (p) => {
@@ -399,10 +435,11 @@ onMessage('step.started', (p) => {
   const t = now()
   const sameVideo = resolveVideoId(seg.videoId) === want.videoId
   // Already inside this clip (the previous step resumed straight into it): keep going, no jump.
-  if (sameVideo && t >= seg.start - 1 && t < seg.end - GATE_EPS) {
+  const start = clipStart(seg)
+  if (sameVideo && t >= start - 1 && t < seg.end - GATE_EPS) {
     want = { ...want, videoId: resolveVideoId(seg.videoId) }
     setPlay(true)
-  } else go(seg.videoId, seg.start, true)
+  } else go(seg.videoId, start, true)
 })
 
 onMessage('step.passed', (p) => {
@@ -412,47 +449,27 @@ onMessage('step.passed', (p) => {
   resumeTimer = setTimeout(() => {
     const s = usePlayer.getState()
     setUi({ resuming: false })
+    // The next part of a long video is still building: keep the video where it is (if it's still
+    // playing it holds at this clip's end). The engine starts the next step after lesson.updated.
+    if (p.pending) return
     if (!s.playing && s.pausedBy !== 'user' && s.pausedBy !== 'ended') player.play()
   }, RESUME_DELAY_MS)
 })
 
-// Engine intent lives in core/lesson.video. video.pause/play keep the old t, so we need to know
-// which message changed it: these set a flag, and the store subscription decides on a microtask
-// (after every handler for this message has run, whatever order they were registered in).
-let lastMsg: 'seek' | 'pause' | 'play' | undefined
-onMessage('video.seek', () => void (lastMsg = 'seek'))
-onMessage('video.pause', () => void (lastMsg = 'pause'))
-onMessage('video.play', () => void (lastMsg = 'play'))
-
+// Engine intent lives in core/lesson.video; `kind` says what changed it (seek / pause / play from the
+// engine, jump from core seekVideo, which also reaches this window from the others in Electron).
 useLesson.subscribe((s, prev) => {
-  if (s.video === prev.video || !s.video.at) return // at = 0: lesson.ready / reset blanking it
-  queueMicrotask(followIntent)
+  if (s.video === prev.video || !s.video.at || !isHost) return // at = 0: lesson.ready / reset blanking it
+  const v = s.video
+  if (v.kind === 'pause') player.pause('engine')
+  else if (v.kind === 'play') player.play()
+  else player.seek(v.t, v.playing, v.kind === 'seek' ? 'engine' : 'user', true)
 })
-
-function followIntent(): void {
-  const v = useLesson.getState().video
-  const kind = lastMsg ?? 'jump' // no engine message: something set it directly (a card's video jump)
-  lastMsg = undefined
-  if (!isHost) {
-    // Electron, overlay/launcher window: hand card jumps to the player window via main.
-    if (kind === 'jump') bridge.invoke('player:intent', { t: v.t, play: v.playing }).catch(() => {})
-    return
-  }
-  if (kind === 'pause') player.pause('engine')
-  else if (kind === 'play') player.play()
-  else player.seek(v.t, v.playing, kind === 'seek' ? 'engine' : 'user', true)
-}
-
-if (isElectron && isHost) {
-  bridge.onFeature('player:intent', (p) => {
-    const v = p as { t: number; play: boolean }
-    player.seek(v.t, v.play, 'user', true)
-  })
-}
 
 onUi('reset', () => {
   clearTimeout(resumeTimer)
   excursion = false
+  skippedIntro = undefined
   want = { ...want, play: false }
   if (yt && ready) yt.pauseVideo()
   setUi({ ...blank, ready: usePlayer.getState().ready })
