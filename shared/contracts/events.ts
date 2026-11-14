@@ -42,9 +42,13 @@ export interface EngineEvents {
   "video.seek": { t: number; play: boolean };
   "video.pause": {};
   "video.play": {};
-  "card": { stepId?: string; kind: "explain" | "hint" | "answer" | "resume" | "setup"; title: string; body: string; videoJump?: { t: number; label: string };
-            actions?: Array<"confirm" | "undo" | "apply_fix" | "open_editor" | "resume" | "end_lesson" | "install" | "skip_setup">;    // buttons on the card -> send `action {kind}`
+  "card": { stepId?: string; kind: "explain" | "hint" | "answer" | "resume" | "setup" | "preflight"; title: string; body: string; videoJump?: { t: number; label: string };
+            actions?: Array<"confirm" | "undo" | "apply_fix" | "open_editor" | "resume" | "end_lesson" | "install" | "skip_setup" | "open_in_browser" | "build" | "pick_another">;    // buttons on the card -> send `action {kind}`
             setup?: { editorNeeded: boolean; items: SetupItem[] };   // kind "setup": what the lesson needs on this Mac (one Install button per missing item -> action install {text: tool})
+            items?: SetupItem[];          // kind "preflight": early tool check (may arrive in a second card with the same kind, which replaces the first)
+            warning?: string;             // kind "preflight": shown in amber when the video doesn't fit the goal (goalMatch.score < 0.5)
+            recommended?: "build" | "pick_another";   // which button to make primary
+            preflight?: PreflightInfo;    // kind "preflight": what the picked video is, before anything is built
             diff?: string;               // unified diff to preview ("Apply this fix?" -> confirm)
             targets?: Array<{ boxId: number; label: string; text: string; rect: { x: number; y: number; w: number; h: number } }>;
             guidingQuestion?: string };
@@ -68,11 +72,23 @@ export interface EngineEvents {
   "error": { message: string };
 }
 
-/** one tool a lesson needs (server/workspace setup check). For install.method "download" the app opens install.url instead of sending `install`. */
+/** one tool a lesson needs (server/workspace setup check). For install.method "download" the app opens install.url instead of sending `install`.
+ *  kind "web_app" (Botpress, Zapier, ...): nothing to install; install.method "open" + url (action open_in_browser {text: tool}). */
 export interface SetupItem {
-  tool: string; label: string; kind: "editor" | "app" | "runtime" | "cli" | "python_package"; why: string;
+  tool: string; label: string; kind: "editor" | "app" | "runtime" | "cli" | "python_package" | "web_app"; why: string;
   needed: boolean; installed: boolean; ok: boolean; version?: string; minVersion?: string;
-  install: { method: "brew" | "brew_cask" | "pip" | "download" | "none"; command?: string; url?: string };
+  install: { method: "brew" | "brew_cask" | "pip" | "download" | "open" | "none"; command?: string; url?: string };
+}
+
+/** card kind "preflight" (server/preflight, <= 5 s after the pick, BEFORE build): build -> the lesson build starts; pick_another -> back to the results */
+export interface PreflightInfo {
+  videoId?: string; url: string;
+  kind?: "coding" | "no-code" | "conceptual" | "other";   // absent = Claude didn't answer in time (partial)
+  topic?: string; durationS?: number; chapters: number;
+  goalMatch?: { score: number | null; note: string };      // score 0..1, null when there was no goal
+  buildPlan: { strategy: "whole" | "chapters"; estSecondsToFirstSteps: number;
+               firstChapter: { index: number; lastIndex: number; title: string; start: number; end: number; window?: boolean } | null };
+  editorNeeded?: boolean | null; partial: boolean;
 }
 
 /** kind "graph": nodes on a fixed grid (the app maps (col,row) to pixels); reference renderer: server/diagrams/render_svg.py */
@@ -92,7 +108,7 @@ export interface AppCommands {
   "learn": { query: string };                       // launcher text
   "learn_url": { url: string };                     // pasted YouTube link
   "build_lesson": { resultIds: string[] };
-  "action": { kind: "back" | "explain" | "diagram" | "show_me" | "hint" | "voice_toggle" | "ask" | "apply_fix" | "confirm" | "undo" | "open_editor" | "resume" | "end_lesson" | "install" | "skip_setup"; text?: string };  // install: text = setup item tool id  // resume / end_lesson: the "Continue where you left off?" card  // open_editor: the learner accepted "Open VS Code?"  // confirm: "Looks done?" card; undo: revert the last "Do it for me"
+  "action": { kind: "back" | "explain" | "diagram" | "show_me" | "hint" | "voice_toggle" | "ask" | "apply_fix" | "confirm" | "undo" | "open_editor" | "resume" | "end_lesson" | "install" | "skip_setup" | "open_in_browser" | "build" | "pick_another"; text?: string };  // build / pick_another: the preflight card (build the picked video / back to the results)  // open_in_browser: text = web_app tool id  // install: text = setup item tool id  // resume / end_lesson: the "Continue where you left off?" card  // open_editor: the learner accepted "Open VS Code?"  // confirm: "Looks done?" card; undo: revert the last "Do it for me"
   "video.state": { t: number; playing: boolean };   // player reports its position
   "end_lesson": {};                                  // stop everything; the engine answers lesson.ended + status idle
   "overlay.bounds": { rects: Array<{ x: number; y: number; w: number; h: number }> };
