@@ -46,6 +46,14 @@ def _to_dict(obj: Any) -> Any:
     return obj
 
 
+def _accepts(fn: Callable, name: str) -> bool:
+    try:
+        params = inspect.signature(fn).parameters
+    except (TypeError, ValueError):
+        return False
+    return name in params or any(p.kind is p.VAR_KEYWORD for p in params.values())
+
+
 def _read_json(path: Path) -> Any | None:
     try:
         return json.loads(path.read_text())
@@ -79,7 +87,7 @@ class Modules:
 
     def describe(self) -> dict[str, str]:
         out = {}
-        probes = {"lesson": "build_lesson", "checks": "evaluate_step", "coach": "diagnose",
+        probes = {"lesson": "build_lesson", "checks": "evaluate_gate", "coach": "diagnose",
                   "finder": "search", "diagrams": "build"}
         for m, attr in probes.items():
             if self.demo and m != "checks":
@@ -140,30 +148,61 @@ class Modules:
             params = inspect.signature(cls).parameters
             candidates = {"workdir": ctx.workdir, "last_run": ctx.last_run, "metrics": ctx.metrics,
                           "exit_code": ctx.exit_code, "output_tail": ctx.output_tail,
-                          "command": ctx.command, "runs": ctx.runs}
+                          "command": ctx.command, "runs": ctx.runs, "running": ctx.running,
+                          "screen": ctx.screen}
             return cls(**{k: v for k, v in candidates.items() if k in params})
         except Exception:
             log.exception("could not build server.checks.RunContext; passing ours")
             return ctx
 
-    def evaluate_step(self, step: dict, ctx: RunContext) -> list[dict]:
-        fn = self._real_fn("checks", "evaluate_step")
+    def evaluate_gate(self, step: dict, ctx: RunContext, screen: Any = None, precision_mode: bool = False) -> dict:
+        """-> {passed, via: "checks"|"precision"|None, checks: [...], precision: [...]}"""
+        ctx.screen = screen
+        fn = self._real_fn("checks", "evaluate_gate")
         if fn is not None:
             try:
-                return [_to_dict(r) for r in fn(step, self.make_context(ctx))]
+                gate = _to_dict(fn(step, self.make_context(ctx), screen=screen, precision_mode=precision_mode))
+                gate["checks"] = [_to_dict(r) for r in gate.get("checks", [])]
+                gate["precision"] = [_to_dict(r) for r in gate.get("precision", [])]
+                return gate
             except Exception:
-                log.exception("server.checks.evaluate_step failed; using stub evaluator")
-        return stubs.evaluate_step(step, ctx)
+                log.exception("server.checks.evaluate_gate failed; using stub evaluator")
+        return stubs.evaluate_gate(step, ctx, screen=screen, precision_mode=precision_mode)
+
+    def evaluate_step(self, step: dict, ctx: RunContext) -> list[dict]:
+        return self.evaluate_gate(step, ctx, ctx.screen)["checks"]
 
     # -- coach
-    async def diagnose(self, step: dict, failed_checks: list[dict], metrics_summary: dict, code_excerpt: str) -> dict:
+    def _public(self, card: Any) -> dict:
+        card = _to_dict(card)
+        pub = getattr(self.real.get("coach"), "public", None) if not self.demo else None
+        if callable(pub):
+            try:
+                return pub(card)
+            except Exception:
+                log.exception("coach.public failed")
+        return {k: v for k, v in card.items() if not str(k).startswith("_")}
+
+    def set_lesson(self, graph: dict) -> None:
+        fn = self._real_fn("coach", "set_lesson")
+        if fn is not None:
+            try:
+                fn(graph)
+            except Exception:
+                log.exception("coach.set_lesson failed")
+
+    async def diagnose(self, step: dict, failed_checks: list[dict], metrics: dict, code_excerpt: str,
+                       error_text: str = "") -> dict:
+        """`metrics` is the raw series dict {name: [(step, value)]} (what coach.diagnose expects)."""
         cached = self._cache("coach", f"{step['id']}.json")
         if cached:
             return cached
-        ok, out = await self._try_real("coach", "diagnose", step, failed_checks, metrics_summary, code_excerpt)
+        fn = self._real_fn("coach", "diagnose")
+        kwargs = {"error_text": error_text} if fn is not None and error_text and _accepts(fn, "error_text") else {}
+        ok, out = await self._try_real("coach", "diagnose", step, failed_checks, metrics, code_excerpt, **kwargs)
         if ok and out:
-            return _to_dict(out)
-        return await stubs.diagnose(step, failed_checks, metrics_summary, code_excerpt)
+            return self._public(out)
+        return await stubs.diagnose(step, failed_checks, metrics, code_excerpt)
 
     async def explain(self, step: dict, question: str | None, context: dict) -> dict:
         kind = "answer" if question else "explain"
@@ -172,17 +211,30 @@ class Modules:
             return cached
         ok, out = await self._try_real("coach", "explain", step, question, context)
         if ok and out:
-            return _to_dict(out)
+            return self._public(out)
         return await stubs.explain(step, question, context)
 
-    async def hint(self, step: dict, level: int) -> dict:
+    async def hint(self, step: dict, level: int, last_offtrack: dict | None = None) -> dict:
         cached = self._cache("cards", f"{step['id']}-hint{level}.json")
         if cached:
             return cached
-        ok, out = await self._try_real("coach", "hint", step, level)
+        fn = self._real_fn("coach", "hint")
+        kwargs = {"last_offtrack": last_offtrack} if fn is not None and _accepts(fn, "last_offtrack") else {}
+        ok, out = await self._try_real("coach", "hint", step, level, **kwargs)
         if ok and out:
-            return _to_dict(out)
+            return self._public(out)
         return stubs.hint(step, level)
+
+    def propose_fix(self, diff: dict, file_text: str) -> str | None:
+        """-> the full new file text for an offtrack diff, or None if it can't be placed."""
+        fn = self._real_fn("coach", "apply_fix")
+        if fn is not None:
+            try:
+                patch = _to_dict(fn(diff, file_text))
+                return patch.get("new_text")
+            except Exception:
+                log.exception("coach.apply_fix failed; using the local fallback")
+        return stubs.apply_fix(diff, file_text)
 
     # -- diagrams
     async def diagram(self, kind: str, step: dict | None, ctx: RunContext | None) -> dict:

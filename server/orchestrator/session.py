@@ -25,7 +25,7 @@ from collections.abc import Awaitable, Callable
 from pathlib import Path
 from typing import Any
 
-from . import config, targets
+from . import config
 from .context import RunContext, RunInfo, metrics_summary
 from .modules import Modules
 
@@ -60,8 +60,13 @@ class LessonSession:
         metric_eval_s: float | None = None,
         result_stagger_s: float = 0.06,
         build_tick_s: float = 0.5,
+        screen: Any = None,
+        seen_interval_s: float = 5.0,
     ):
         self.emit = emit
+        self.screen = screen  # ScreenBridge / FakeScreen / None
+        self.seen_interval_s = seen_interval_s
+        self._last_seen = -1e9
         self.m = modules or Modules()
         self.clock = clock
         self.idle_gate_s = config.IDLE_GATE_S if idle_gate_s is None else idle_gate_s
@@ -90,6 +95,7 @@ class LessonSession:
     def _reset_step_state(self) -> None:
         self.check_state: dict[str, dict] = {}  # what the app was last told, per checkId
         self.last_results: list[dict] = []
+        self.last_failed: list[dict] = []
         self.consecutive_fails = 0
         self.engaged = False  # learner touched files / ran something during this step
         self.gate_open = False
@@ -143,8 +149,37 @@ class LessonSession:
         return None
 
     def context(self) -> RunContext:
-        last = self.step_runs[-1] if self.step_runs else None
-        return RunContext(workdir=self.workdir, last_run=last, runs=list(self.step_runs))
+        # a `tut run` (exact ::metric:: lines) beats the same curve read off the screen
+        tut = [r for r in self.step_runs if not r.run_id.startswith("screen-")]
+        last = (tut or self.step_runs or [None])[-1]
+        return RunContext(workdir=self.workdir, last_run=last, runs=list(self.step_runs),
+                          screen=self._screen_lines())
+
+    def _screen_lines(self) -> dict | None:
+        if self.screen is None:
+            return None
+        try:
+            return self.screen.lines()
+        except Exception:  # noqa: BLE001
+            log.exception("screen lines failed")
+            return None
+
+    def screen_active(self) -> bool:
+        return self.screen is not None and bool(getattr(self.screen, "active", True))
+
+    def _precision_display(self, step: dict) -> bool:
+        """Without a screen reader the screen checks can never move, so the checklist the app
+        shows is the step's precision_checks (when it has them and we're in precision mode)."""
+        return not self.screen_active() and bool(step.get("precision_checks")) and self.precision_mode()
+
+    def display_checks(self, step: dict) -> list[dict]:
+        return (step.get("precision_checks") if self._precision_display(step) else step.get("checks")) or []
+
+    def precision_mode(self) -> bool:
+        """Known workdir on disk, or a `tut run` this step -> precision_checks may also pass the step."""
+        if any(not r.run_id.startswith("screen-") for r in self.step_runs):
+            return True
+        return Path(self.workdir).is_dir()
 
     def _touch(self) -> None:
         self.last_activity = self.clock()
@@ -231,6 +266,7 @@ class LessonSession:
         self.workdir = new_wd
         if self.on_workdir:
             self.on_workdir(new_wd)
+        self.m.set_lesson(graph)
         await self.emit("lesson.ready", self._lesson_ready_payload())
         await self.start_step(0)
 
@@ -268,7 +304,7 @@ class LessonSession:
         self._reset_step_state()
         step = self.steps[idx]
         await self.emit("step.started", self._step_started_payload(step))
-        for c in step.get("checks", []):
+        for c in self.display_checks(step):
             self.check_state[c["id"]] = {"label": c.get("label", c["id"]), "status": "pending", "detail": None}
             await self.emit("check.updated", {"stepId": step["id"], "checkId": c["id"],
                                               "label": c.get("label", c["id"]), "status": "pending"})
@@ -279,8 +315,26 @@ class LessonSession:
             self._spawn(self._segment_timer(self.step_gen, seg["end"] - seg["start"]), timer=True)
         else:
             self.segment_done = True
+        self._watch_screen_metrics(step)
         await self._status("watching")
         await self.evaluate("start")
+
+    def _watch_screen_metrics(self, step: dict) -> None:
+        if self.screen is None:
+            return
+        patterns = {c["metric"]: c["metric_pattern"]
+                    for c in (step.get("checks") or []) + (step.get("precision_checks") or [])
+                    if c.get("metric") and c.get("metric_pattern")}
+        lesson_id = (self.graph or {}).get("lesson", {}).get("id", "lesson")
+        if patterns:
+            self.screen.watch(lesson_id, patterns, self._on_screen_metric)
+        else:
+            self.screen.unwatch()
+
+    def _on_screen_metric(self, run_id: str, name: str, step: int, value: float) -> None:
+        """Called on the loop by the screen bridge for each metric read off the terminal."""
+        self._spawn(self.ingest({"kind": "metric", "run_id": run_id, "step": step, "name": name,
+                                 "value": value, "source": "screen"}))
 
     async def _segment_timer(self, gen: int, duration: float) -> None:
         """Fallback when the player never reports video.state: end the segment by wall clock."""
@@ -293,7 +347,7 @@ class LessonSession:
             return
         self.segment_done = True
         step = self.step
-        if not step.get("checks"):
+        if not step.get("checks") and not step.get("precision_checks"):
             await self._pass_step()
             return
         await self.evaluate("segment")
@@ -304,9 +358,18 @@ class LessonSession:
         if self.status != "offtrack":
             await self._status("watching")
 
+    def _locate(self, match: str, app: str | None, caption: str) -> dict | None:
+        if self.screen is None or not match:
+            return None
+        spot = self.screen.locate(match, app)
+        if not spot:
+            return None
+        return {**spot, "caption": caption}
+
     async def _spotlight_target(self, step: dict) -> bool:
+        """Spotlight the step's first target that is visible on screen (rect in screen points)."""
         for t in step.get("targets") or []:
-            spot = targets.resolve(self.workdir, t)
+            spot = self._locate(t.get("match") or "", t.get("app"), t.get("caption", ""))
             if spot:
                 await self.emit("spotlight", spot)
                 return True
@@ -340,7 +403,7 @@ class LessonSession:
         step = self.step
         if step is None or self.passed:
             return
-        for c in step.get("checks", []):
+        for c in self.display_checks(step):
             await self.emit("check.updated", {"stepId": step["id"], "checkId": c["id"],
                                               "label": c.get("label", c["id"]), "status": "pass",
                                               "detail": "forced"})
@@ -351,23 +414,33 @@ class LessonSession:
 
     # ------------------------------------------------------------------ evaluation
     async def evaluate(self, trigger: str) -> None:
-        """trigger: start | segment | file | run_end | metric | manual"""
+        """trigger: start | segment | file | run_end | metric | screen | manual"""
         learner = trigger in ("file", "run_end", "metric")
         async with self._lock:
             step = self.step
             if step is None or self.passed or self.phase != "active":
                 return
-            if learner:
-                self.engaged = True
+            if learner or (trigger == "screen" and self.segment_done):
+                self.engaged = True  # screen changes count once the clip is over (the learner is working)
             ctx = self.context()
+            precision = self.precision_mode()
             try:
-                results = self.m.evaluate_step(step, ctx)
+                gate = self.m.evaluate_gate(step, ctx, ctx.screen, precision)
             except Exception as e:  # pragma: no cover - Modules already falls back
-                log.exception("evaluate_step failed")
+                log.exception("evaluate_gate failed")
                 await self.emit("error", {"message": f"Check evaluation failed: {e}"})
                 return
+            shown_list, other = ("precision", "checks") if self._precision_display(step) else ("checks", "precision")
+            results = list(gate.get(shown_list) or [])
+            if gate.get("passed") and gate.get("via") != shown_list:  # green by the other route: show it green
+                why = "confirmed by your files" if gate.get("via") == "precision" else "confirmed on screen"
+                results = [r if r.get("status") == "pass" else {**r, "status": "pass", "detail": why} for r in results]
             self.last_results = results
             failed = [r for r in results if r.get("status") == "fail"]
+            if not gate.get("passed"):
+                seen = {r.get("checkId") for r in failed}
+                failed += [r for r in gate.get(other) or [] if r.get("status") == "fail" and r.get("checkId") not in seen]
+            self.last_failed = failed
             if failed and learner:
                 self.consecutive_fails += 1
             elif not failed:
@@ -375,9 +448,7 @@ class LessonSession:
             if failed and (trigger == "run_end" or self.consecutive_fails >= 2):
                 self.gate_open = True
             await self._publish(step, results)
-            checks = step.get("checks", [])
-            all_pass = bool(checks) and len(results) >= len(checks) and all(r.get("status") == "pass" for r in results)
-            if all_pass and (self.segment_done or self.engaged):
+            if gate.get("passed") and (self.segment_done or self.engaged):
                 await self._pass_step()
                 return
             if failed and self.gate_open:
@@ -407,7 +478,7 @@ class LessonSession:
             return
         if self.clock() - self.last_activity < self.idle_gate_s:
             return
-        failed = [r for r in self.last_results if r.get("status") == "fail"]
+        failed = list(self.last_failed)
         if not failed:
             return
         async with self._lock:
@@ -420,7 +491,8 @@ class LessonSession:
     # ------------------------------------------------------------------ coaching
     def _code_excerpt(self, step: dict, limit: int = 6000) -> tuple[str, str | None]:
         files = [t.get("file") for t in step.get("targets") or [] if t.get("file")]
-        files += [c.get("file") for c in step.get("checks", []) if c.get("file")]
+        files += [c.get("file") for c in (step.get("checks") or []) + (step.get("precision_checks") or [])
+                  if c.get("file")]
         if not files:
             files = [p.name for p in sorted(Path(self.workdir).glob("*.py"))[:1]] if Path(self.workdir).is_dir() else []
         for f in files:
@@ -430,6 +502,11 @@ class LessonSession:
                     return p.read_text(errors="replace")[:limit], f
                 except OSError:
                     continue
+        lines = self._screen_lines() or {}  # screen-first: the code the learner is looking at
+        for app in [t.get("app") for t in step.get("targets") or [] if t.get("app")] + ["Code"]:
+            for a, ls in lines.items():
+                if app.lower() in (a or "").lower() and ls:
+                    return "\n".join(ls)[:limit], None
         return "", None
 
     def _maybe_coach(self, step: dict, failed: list[dict], ctx: RunContext) -> None:
@@ -444,10 +521,11 @@ class LessonSession:
     async def _coach(self, gen: int, step: dict, failed: list[dict], ctx: RunContext) -> None:
         try:
             await self._status("thinking")
-            by_id = {c["id"]: c for c in step.get("checks", [])}
+            by_id = {c["id"]: c for c in (step.get("checks") or []) + (step.get("precision_checks") or [])}
             failed_checks = [{**by_id.get(r.get("checkId"), {}), **r} for r in failed]
             code, _file = self._code_excerpt(step)
-            card = await self.m.diagnose(step, failed_checks, metrics_summary(ctx.metrics), code)
+            tail = ctx.output_tail[-40:] if isinstance(ctx.output_tail, list) else []
+            card = await self.m.diagnose(step, failed_checks, ctx.metrics, code, error_text="\n".join(tail))
             if gen != self.step_gen or self.passed:
                 return
             card = dict(card)
@@ -457,9 +535,10 @@ class LessonSession:
             self.last_offtrack = card
             await self.emit("offtrack", card)
             diff = card.get("diff") or {}
-            if diff.get("file") and diff.get("line"):
-                await self.emit("spotlight", targets.resolve_line(self.workdir, diff["file"], diff["line"],
-                                                                  card.get("title", "")))
+            first = (diff.get("yours") or "").strip().splitlines()[:1]
+            spot = self._locate(re.escape(first[0]), None, card.get("title", "")) if first else None
+            if spot:
+                await self.emit("spotlight", spot)
             else:
                 await self._spotlight_target(step)
             await self._status("offtrack")
@@ -468,6 +547,23 @@ class LessonSession:
                 self.coaching = False
 
     # ------------------------------------------------------------------ inputs
+    async def on_screen(self, obs: Any = None) -> None:
+        """A new screen observation (only fires when the screen actually changed)."""
+        self._touch()
+        now = self.clock()
+        if obs is not None and now - self._last_seen >= self.seen_interval_s:
+            self._last_seen = now
+            app = getattr(obs, "app", None) or ""
+            lines = self._screen_lines() or {}
+            summary = " · ".join((lines.get(app) or [])[:2])[:140]
+            await self.emit("screen.seen", {"app": app, "summary": summary, "t": float(getattr(obs, "t", 0) or 0)})
+        if self.step is not None:
+            await self.evaluate("screen")
+
+    def overlay_bounds(self, rects: list[dict]) -> None:
+        if self.screen is not None:
+            self.screen.set_overlay(rects)
+
     async def on_file_change(self, paths: list[str] | None = None) -> None:
         self._touch()
         if self.step is not None:
@@ -569,7 +665,7 @@ class LessonSession:
             await self._status("offtrack" if self.last_offtrack else ("passed" if self.passed else "watching"))
             return
         if kind == "hint":
-            card = dict(await self.m.hint(step, self.hint_level))
+            card = dict(await self.m.hint(step, self.hint_level, self.last_offtrack))
             card.setdefault("stepId", step["id"])
             self.hint_level += 1
             await self.emit("card", card)
@@ -599,6 +695,7 @@ class LessonSession:
             "query": self.query,
             "checks": self.last_results,
             "metrics": metrics_summary(self.context().metrics),
+            "metrics_summary": self.context().metrics,  # coach (E5) wants the raw series
             "code": code,
             "file": file,
             "offtrack": self.last_offtrack,
@@ -617,17 +714,12 @@ class LessonSession:
         except OSError as e:
             await self.emit("error", {"message": f"Could not open {file}: {e}"})
             return
-        lines = text.splitlines(keepends=True)
-        hits = [i for i, ln in enumerate(lines) if ln.strip() == yours.strip()]
-        if len(hits) != 1:
+        new_text = self.m.propose_fix(diff, text)
+        if new_text is None or new_text == text:
             await self.emit("card", {"stepId": step["id"], "kind": "hint", "title": "Fix it by hand",
                                      "body": f"Replace `{yours.strip()}` with `{expected.strip()}`."})
             return
-        i = hits[0]
-        indent = lines[i][: len(lines[i]) - len(lines[i].lstrip())]
-        nl = "\n" if lines[i].endswith("\n") else ""
-        lines[i] = indent + expected.strip() + nl
-        path.write_text("".join(lines))
+        path.write_text(new_text)  # the learner asked for it (apply_fix action)
         await self.on_file_change([str(path)])
 
     # ------------------------------------------------------------------ reconnect
@@ -668,5 +760,7 @@ class LessonSession:
             "consecutiveFails": self.consecutive_fails,
             "runs": [r.run_id for r in self.step_runs],
             "modules": self.m.describe(),
+            "precisionMode": self.precision_mode(),
+            "screen": bool(self.screen is not None and getattr(self.screen, "active", False)),
             "voice": self.voice,
         }

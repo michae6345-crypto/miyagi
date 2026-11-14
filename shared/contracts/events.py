@@ -125,18 +125,33 @@ class Offtrack(_Model):
     actions: list[OfftrackAction]
 
 
+class ScreenRect(_Model):
+    """Screen POINTS, TOP-LEFT origin, relative to the primary display's full frame."""
+
+    x: float
+    y: float
+    w: float
+    h: float
+
+
 class SpotlightTarget(_Model):
-    file: str
-    startLine: int
-    endLine: int
+    rect: ScreenRect
     caption: str
+    app: str | None = None
+    matched: str | None = None
 
 
 class SpotlightClear(_Model):
     clear: Literal[True]
 
 
-Spotlight = Union[SpotlightTarget, SpotlightClear]
+Spotlight = SpotlightTarget | SpotlightClear
+
+
+class ScreenSeen(_Model):
+    app: str
+    summary: str
+    t: float
 
 
 class VideoSeek(_Model):
@@ -207,6 +222,17 @@ class Error(_Model):
     message: str
 
 
+KeyState = Literal["ok", "missing", "invalid", "env"]  # "env" = falling back to the engine's .env
+
+
+class ConfigStatus(_Model):
+    anthropic: KeyState
+    gemini: KeyState
+    brightdata: KeyState
+    elevenlabs: KeyState
+    tigerUrl: KeyState
+
+
 ENGINE_EVENTS: dict[str, Any] = {
     "search.result": SearchResult,
     "search.done": SearchDone,
@@ -217,6 +243,7 @@ ENGINE_EVENTS: dict[str, Any] = {
     "step.passed": StepPassed,
     "offtrack": Offtrack,
     "spotlight": TypeAdapter(Spotlight),
+    "screen.seen": ScreenSeen,
     "video.seek": VideoSeek,
     "video.pause": Empty,
     "video.play": Empty,
@@ -226,12 +253,13 @@ ENGINE_EVENTS: dict[str, Any] = {
     "metric": Metric,
     "status": Status,
     "error": Error,
+    "config.status": ConfigStatus,
 }
 
 EngineEventType = Literal[
     "search.result", "search.done", "lesson.building", "lesson.ready", "step.started",
     "check.updated", "step.passed", "offtrack", "spotlight", "video.seek", "video.pause",
-    "video.play", "card", "diagram", "speak", "metric", "status", "error",
+    "video.play", "card", "diagram", "speak", "metric", "status", "error", "screen.seen", "config.status",
 ]
 
 
@@ -261,15 +289,31 @@ class VideoState(_Model):
     playing: bool
 
 
+class OverlayBounds(_Model):
+    rects: list[ScreenRect]
+
+
+class ConfigKeys(_Model):
+    """Bring-your-own-key. Keep in memory only; never log or echo these."""
+
+    anthropic: str | None = None
+    gemini: str | None = None
+    brightdata: str | None = None
+    elevenlabs: str | None = None
+    tigerUrl: str | None = None
+
+
 APP_COMMANDS: dict[str, type[_Model]] = {
     "learn": Learn,
     "learn_url": LearnUrl,
     "build_lesson": BuildLesson,
     "action": Action,
     "video.state": VideoState,
+    "overlay.bounds": OverlayBounds,
+    "config.keys": ConfigKeys,
 }
 
-AppCommandType = Literal["learn", "learn_url", "build_lesson", "action", "video.state"]
+AppCommandType = Literal["learn", "learn_url", "build_lesson", "action", "video.state", "overlay.bounds", "config.keys"]
 
 
 class AppMessage(BaseModel):

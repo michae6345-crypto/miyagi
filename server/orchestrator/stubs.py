@@ -84,9 +84,35 @@ def _fmt(v: float) -> str:
     return f"{v:.3g}"
 
 
+def _screen_text(screen, app: str | None) -> str | None:
+    """screen = {app: [lines]} (ScreenObservation.lines_by_app()) or a plain string."""
+    if screen is None:
+        return None
+    if isinstance(screen, str):
+        return screen
+    chunks = [("\n".join(v) if isinstance(v, list) else str(v)) for a, v in screen.items()
+              if not app or app.lower() in (a or "").lower()]
+    return "\n".join(chunks) if chunks else None
+
+
+def _eval_screen(check: dict, ctx: RunContext, absent: bool) -> dict:
+    text = _screen_text(getattr(ctx, "screen", None), check.get("app"))
+    if text is None:
+        return _res(check, "pending", "not on screen yet")
+    try:
+        found = re.search(check.get("pattern", ""), text, re.I | re.M) is not None
+    except re.error:
+        found = check.get("pattern", "") in text
+    if absent:
+        return _res(check, "fail" if found else "pass")
+    return _res(check, "pass" if found else "fail")
+
+
 def _eval_check(check: dict, ctx: RunContext) -> dict:
     t = check.get("type")
     wd = Path(ctx.workdir)
+    if t in ("screen_contains", "screen_absent"):
+        return _eval_screen(check, ctx, absent=t == "screen_absent")
     if t == "file_exists":
         ok = (wd / check["file"]).exists()
         return _res(check, "pass" if ok else "fail", None if ok else f"{check['file']} not found")
@@ -165,8 +191,24 @@ def _eval_trend(check: dict, ctx: RunContext) -> dict:
     return _res(check, "fail", f"{check['metric']} flat at {_fmt(v_last)} for {window} steps")
 
 
-def evaluate_step(step: dict, ctx: RunContext) -> list[dict]:
-    return [_eval_check(c, ctx) for c in step.get("checks", [])]
+def evaluate_step(step: dict, ctx: RunContext, which: str = "checks") -> list[dict]:
+    key = "precision_checks" if which == "precision" else "checks"
+    return [_eval_check(c, ctx) for c in step.get(key) or []]
+
+
+def _all_pass(results: list[dict]) -> bool:
+    return bool(results) and all(r["status"] == "pass" for r in results)
+
+
+def evaluate_gate(step: dict, ctx: RunContext, screen=None, precision_mode: bool = False) -> dict:
+    """Same contract as server.checks.evaluate_gate: `checks` gate the step; in precision mode
+    all-passing `precision_checks` are an extra route to green, never an extra hurdle."""
+    if screen is not None:
+        ctx.screen = screen
+    checks = evaluate_step(step, ctx)
+    prec = evaluate_step(step, ctx, "precision") if precision_mode else []
+    via = "checks" if _all_pass(checks) else ("precision" if precision_mode and _all_pass(prec) else None)
+    return {"passed": via is not None, "via": via, "checks": checks, "precision": prec}
 
 
 # ---------------------------------------------------------------- coach
@@ -185,7 +227,11 @@ def _find_line(code: str, pattern: str) -> tuple[int, str] | None:
     return None
 
 
-async def diagnose(step: dict, failed_checks: list[dict], metrics_summary: dict, code_excerpt: str) -> dict:
+async def diagnose(step: dict, failed_checks: list[dict], metrics_summary: dict, code_excerpt: str, **_: Any) -> dict:
+    if any(isinstance(v, list) for v in (metrics_summary or {}).values()):  # raw series -> summary
+        from .context import metrics_summary as _summ
+
+        metrics_summary = _summ(metrics_summary)
     metric_fail = any(c.get("type", "").startswith("metric") for c in failed_checks)
     if metric_fail:
         loss = metrics_summary.get("loss", {}).get("last")
@@ -253,6 +299,21 @@ def hint(step: dict, level: int) -> dict:
     if vj and i >= 1:
         card["videoJump"] = vj
     return card
+
+
+def apply_fix(diff: dict, file_text: str) -> str | None:
+    """Replace the single line equal to diff.yours with diff.expected (multi-line ok), keeping indentation."""
+    yours, expected = (diff.get("yours") or "").strip(), diff.get("expected") or ""
+    if not yours or not expected:
+        return None
+    lines = file_text.splitlines(keepends=True)
+    hits = [i for i, ln in enumerate(lines) if ln.strip() == yours.splitlines()[0].strip()]
+    if len(hits) != 1:
+        return None
+    i = hits[0]
+    indent = lines[i][: len(lines[i]) - len(lines[i].lstrip())]
+    repl = [indent + ln + "\n" for ln in expected.splitlines()]
+    return "".join(lines[:i] + repl + lines[i + max(1, len(yours.splitlines())):])
 
 
 async def fix_outdated(error_text: str, libraries: dict) -> dict | None:

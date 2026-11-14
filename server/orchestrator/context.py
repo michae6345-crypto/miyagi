@@ -10,6 +10,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import Any
 
 OUTPUT_TAIL = 200
 
@@ -41,6 +42,11 @@ class RunContext:
     workdir: str
     last_run: RunInfo | None = None
     runs: list[RunInfo] = field(default_factory=list)  # all runs this step, oldest first
+    screen: Any = None  # {app: [lines]} from the screen reader, or None
+
+    @property
+    def running(self) -> bool:
+        return bool(self.last_run and self.last_run.running)
 
     @property
     def exit_code(self) -> int | None:

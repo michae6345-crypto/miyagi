@@ -11,6 +11,7 @@ import pytest
 from server.orchestrator import stubs
 from server.orchestrator.hub import Hub
 from server.orchestrator.modules import Modules
+from server.orchestrator.screen_bridge import FakeScreen
 from server.orchestrator.session import LessonSession
 from shared.contracts.events import engine_message, parse_app_message
 
@@ -26,13 +27,14 @@ class Clock:
 class Rig:
     """A session wired to a strict (contract-validating) hub, with a recorded event log."""
 
-    def __init__(self, workdir: Path, modules: Modules | None = None):
+    def __init__(self, workdir: Path, modules: Modules | None = None, screen: FakeScreen | None = None):
         self.hub = Hub(strict=True)
         self.clock = Clock()
         self.workdir = workdir
+        self.screen = screen
         self.s = LessonSession(self.hub.emit, modules or Modules(demo=False, force_stubs="all"),
                                clock=self.clock, idle_gate_s=5, advance_delay_s=0, metric_eval_s=0,
-                               result_stagger_s=0, build_tick_s=0.01)
+                               result_stagger_s=0, build_tick_s=0.01, screen=screen, seen_interval_s=0)
 
     @property
     def events(self) -> list[dict]:
@@ -173,19 +175,58 @@ def test_already_done_step_waits_for_segment_end(rig):
     assert "video.pause" not in rig.types()
 
 
-def test_spotlight_on_segment_end(rig):
+def test_spotlight_on_segment_end_uses_screen_rect(tmp_path, monkeypatch):
+    monkeypatch.setenv("TUT_WORKDIR", str(tmp_path))
+    screen = FakeScreen()
+    rig = Rig(tmp_path, screen=screen)
+
     async def go():
         await rig.start_lesson()
-        await rig.save("# start\n")  # pass s1
-        rig.write("import torch.nn as nn\n\nclass Net(nn.Module):\n    def __init__(self):\n        pass\n")
+        await rig.save("# start\n")  # s1 passes via precision_checks (file exists), mirrored green
+        screen.text["Code"] = ["import torch.nn as nn", "", "class Net(nn.Module):", "    pass"]
         m = rig.mark()
         await rig.end_segment()
         return rig.since(m)
 
     ev = run(go())
+    assert rig.of("check.updated")[1]["checkId"] == "s1c1"  # screen checklist shown when a screen exists
+    assert any(p.get("detail") == "confirmed by your files" for p in rig.of("check.updated"))
     spots = [e["payload"] for e in ev if e["type"] == "spotlight"]
-    assert spots and spots[0]["startLine"] == 3 and spots[0]["endLine"] == 5
-    assert spots[0]["file"].endswith("pinn_convection.py")
+    assert spots == [{"rect": {"x": 100.0, "y": 140.0, "w": 400.0, "h": 20.0}, "caption": "Two inputs (x, t), one output u",
+                      "app": "Code", "matched": "class Net(nn.Module):"}]
+
+
+def test_screen_checks_pass_from_ocr_and_watch_metric_patterns(tmp_path, monkeypatch):
+    monkeypatch.setenv("TUT_WORKDIR", str(tmp_path / "nowhere"))  # no workdir: pure screen mode
+    screen = FakeScreen()
+    rig = Rig(tmp_path, screen=screen)
+
+    async def go():
+        await rig.start_lesson()
+        await rig.end_segment()
+        screen.text["Code"] = ["pinn_convection.py — sandbox"]
+        await rig.s.on_screen(types.SimpleNamespace(app="Code", t=1.0))
+        await rig.settle()
+        assert rig.s.step["id"] == "s2"
+        await rig.s.goto_step(4)
+        await rig.settle()
+        assert "loss" in screen.watched  # s5's metric_pattern is being read off the terminal
+        await rig.end_segment()
+        for st, v in CONVERGE:  # what the bridge does for each OCR'd metric line
+            rig.s._on_screen_metric("screen-stub-pinn-convection", "loss", st, v)
+        await rig.settle()
+
+    run(go())
+    assert rig.of("step.passed")[0] == {"stepId": "s1", "nextStepId": "s2"}
+    assert rig.of("step.passed")[-1] == {"stepId": "s5", "nextStepId": "s6"}
+    assert rig.of("screen.seen")[0]["summary"] == "pinn_convection.py — sandbox"
+
+
+def test_overlay_bounds_reach_the_screen_reader(tmp_path):
+    screen = FakeScreen()
+    rig = Rig(tmp_path, screen=screen)
+    rig.s.overlay_bounds([{"x": 0, "y": 0, "w": 300, "h": 34}])
+    assert screen.overlay == [{"x": 0, "y": 0, "w": 300, "h": 34}]
 
 
 # ---------------------------------------------------------------- don't-nag gate
@@ -248,6 +289,9 @@ def test_idle_gate_needs_engagement(rig):
 
 
 def test_hero_plateau_then_curriculum(rig):
+    rig.s.screen = FakeScreen()
+    rig.s.screen.text["Code"] = ["def train(model):", "    beta = 30", "    for epoch in range(4000):"]
+
     async def go():
         await _to_step(rig, 5)
         assert rig.s.step["id"] == "s6"
@@ -266,7 +310,7 @@ def test_hero_plateau_then_curriculum(rig):
     assert off[0]["citation"]["url"] == "https://arxiv.org/abs/2109.01050"
     assert off[0]["diff"]["yours"] == "beta = 30" and off[0]["diff"]["line"] == 2
     spot = [e["payload"] for e in plateau if e["type"] == "spotlight"][-1]
-    assert spot["startLine"] == 2
+    assert spot["matched"] == "    beta = 30" and spot["caption"] == off[0]["title"]
     assert any(e["type"] == "metric" for e in plateau)
     passed = [e["payload"] for e in fixed if e["type"] == "step.passed"]
     assert passed == [{"stepId": "s6"}]  # last step: no nextStepId
@@ -289,19 +333,35 @@ def test_same_failure_is_coached_once(rig):
 def test_runs_from_previous_step_do_not_count(rig):
     async def go():
         await _to_step(rig, 4)
+        await rig.end_segment()
         await rig.s.ingest({"kind": "run_started", "run_id": "r1"})
         await rig.s.ingest({"kind": "metric", "run_id": "r1",
                             "metrics": [{"step": s, "name": "loss", "value": v} for s, v in CONVERGE]})
         await rig.settle()
-        assert rig.s.step["id"] == "s5"  # still running: command_exit_ok pending
-        await rig.s.ingest({"kind": "run_ended", "run_id": "r1", "exit_code": 0})
-        await rig.settle()
-        assert rig.s.step["id"] == "s6"
+        assert rig.s.step["id"] == "s6"  # s5 passed mid-run on the loss threshold
         await rig.s.ingest({"kind": "metric", "run_id": "r1", "step": 6000, "name": "loss", "value": 1e-4})
+        await rig.s.ingest({"kind": "run_ended", "run_id": "r1", "exit_code": 0})
         await rig.settle()
 
     run(go())
     assert rig.s.step["id"] == "s6" and not rig.s.passed
+
+
+def test_config_keys_status_never_echoes_keys(monkeypatch):
+    import os
+
+    from server.orchestrator import main
+
+    for var in main.KEY_ENV.values():  # apply_keys writes os.environ; restore it afterwards
+        monkeypatch.setenv(var, os.environ.get(var, ""))
+    monkeypatch.setitem(main._ENV_AT_START, "gemini", "g-from-env")
+    monkeypatch.setitem(main._ENV_AT_START, "brightdata", "")
+    st = main.apply_keys({"anthropic": "sk-test-123", "tigerUrl": "postgres://..."})
+    assert st == {"anthropic": "ok", "gemini": "env", "brightdata": "missing", "elevenlabs": st["elevenlabs"],
+                  "tigerUrl": st["tigerUrl"]}
+    assert "sk-test-123" not in str(st)
+    engine_message("config.status", st)
+    assert main._redact({"type": "config.keys", "payload": {"anthropic": "sk"}})["payload"] == "<redacted>"
 
 
 # ---------------------------------------------------------------- actions

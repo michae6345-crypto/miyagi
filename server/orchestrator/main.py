@@ -16,6 +16,7 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import logging
+import os
 from typing import Any
 
 from fastapi import Body, FastAPI, WebSocket, WebSocketDisconnect
@@ -25,6 +26,7 @@ from shared.contracts.events import parse_app_message
 from . import config, recorder
 from .hub import Hub
 from .modules import Modules
+from .screen_bridge import ScreenBridge
 from .session import LessonSession
 from .watcher import Watcher
 
@@ -35,7 +37,8 @@ class Engine:
     def __init__(self) -> None:
         self.hub = Hub()
         self.modules = Modules()
-        self.session = LessonSession(self.hub.emit, self.modules)
+        self.screen = ScreenBridge()
+        self.session = LessonSession(self.hub.emit, self.modules, screen=self.screen)
         self.watcher = Watcher(self.session.on_file_change, interval=config.WATCH_INTERVAL_S)
         self.session.on_workdir = self.watcher.set_root
         self.recorder = recorder.Recorder()
@@ -49,12 +52,15 @@ class Engine:
     async def start(self) -> None:
         self.watcher.set_root(self.session.workdir)
         self.watcher.start()
+        if not self.screen.start(self.session.on_screen):
+            self.session.screen = None  # precision mode only (files + tut run)
         self._ticker = asyncio.create_task(self._tick_loop())
         log.info("engine up: demo=%s modules=%s workdir=%s", self.modules.demo, self.modules.describe(),
                  self.session.workdir)
 
     async def stop(self) -> None:
         await self.watcher.stop()
+        self.screen.stop()
         if self._ticker:
             self._ticker.cancel()
             with contextlib.suppress(asyncio.CancelledError):
@@ -82,6 +88,40 @@ class Engine:
             await s.action(p.kind, p.text)
         elif msg.type == "video.state":
             await s.video_state(p.t, p.playing)
+        elif msg.type == "overlay.bounds":
+            s.overlay_bounds([r.model_dump() for r in p.rects])
+        elif msg.type == "config.keys":
+            await self.hub.emit("config.status", apply_keys(p.model_dump()))
+
+
+# config.keys name -> env var the modules read. Keys stay in this process's memory; never logged.
+KEY_ENV = {"anthropic": "ANTHROPIC_API_KEY", "gemini": "GEMINI_API_KEY", "brightdata": "BRIGHTDATA_API_KEY",
+           "elevenlabs": "ELEVENLABS_API_KEY", "tigerUrl": "TIGER_DATABASE_URL"}
+_ENV_AT_START = {name: os.environ.get(var, "") for name, var in KEY_ENV.items()}
+
+
+def _usable(v: str | None) -> bool:
+    return bool(v) and "..." not in v
+
+
+def apply_keys(keys: dict) -> dict:
+    """Use the app's keys over .env (bring-your-own-key); answer with presence only."""
+    status = {}
+    for name, var in KEY_ENV.items():
+        v = (keys.get(name) or "").strip()
+        if _usable(v):
+            os.environ[var] = v
+            status[name] = "ok"
+        elif _usable(_ENV_AT_START[name]):
+            os.environ[var] = _ENV_AT_START[name]
+            status[name] = "env"
+        else:
+            status[name] = "missing"
+    return status
+
+
+def _redact(raw: dict) -> dict:
+    return {"type": raw.get("type"), "payload": "<redacted>"} if raw.get("type") == "config.keys" else raw
 
 
 engine = Engine()
@@ -112,7 +152,7 @@ async def ws_endpoint(ws: WebSocket) -> None:
             try:
                 await engine.dispatch(raw)
             except Exception as e:
-                log.exception("command failed: %s", raw)
+                log.exception("command failed: %s", _redact(raw))
                 with contextlib.suppress(Exception):
                     await engine.hub.send_to(ws, "error", {"message": f"{raw.get('type')}: {e}"})
 
@@ -122,7 +162,7 @@ async def ws_endpoint(ws: WebSocket) -> None:
             raw = await ws.receive_json()
             if not isinstance(raw, dict):
                 continue
-            if raw.get("type") == "video.state":
+            if raw.get("type") in ("video.state", "overlay.bounds"):  # frequent + instant: skip the queue
                 try:
                     await engine.dispatch(raw)
                 except Exception:
