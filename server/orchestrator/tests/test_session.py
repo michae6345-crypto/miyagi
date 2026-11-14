@@ -748,7 +748,7 @@ def test_streaming_finder_rows_arrive_before_search_finishes(rig):
     rig2 = Rig(rig.workdir, mods)
     built = []
 
-    async def fake_build(url, goal, workdir):
+    async def fake_build(url, goal, workdir, on_progress=None):
         built.append(url)
         return stubs.load_fixture_lesson()
 
@@ -912,7 +912,7 @@ def test_build_progress_ticks_with_real_stages_then_fails_humanly(tmp_path, monk
     rig.s.build_tick_s = 0.05
     lesson_log = _logging.getLogger("server.lesson")
 
-    async def slow_failing_build(url, goal, workdir):
+    async def slow_failing_build(url, goal, workdir, on_progress=None):
         await asyncio.sleep(0.12)
         lesson_log.warning("gemini video pass too slow; switching engine")
         await asyncio.sleep(0.12)
@@ -939,7 +939,7 @@ def test_build_progress_ticks_with_real_stages_then_fails_humanly(tmp_path, monk
 
 
 def test_build_success_still_loads_the_lesson(rig):
-    async def build(url, goal, workdir):
+    async def build(url, goal, workdir, on_progress=None):
         return stubs.load_fixture_lesson()
 
     rig.s.m.build_lesson = build
@@ -979,3 +979,26 @@ def test_diagram_uses_s4_build_signature_and_question(rig):
     assert calls[0]["question"] == "why do we need autograd here?" and "kind" not in calls[0]
     assert calls[1]["kind"] == "network" and calls[1]["question"] is None
     assert [d["stepId"] for d in rig.of("diagram")] == ["s4", "s4"]
+
+
+def test_build_stage_labels_come_from_on_progress(tmp_path, monkeypatch):
+    monkeypatch.setenv("TUT_WORKDIR", str(tmp_path))
+    rig = Rig(tmp_path)
+    rig.s.clock = RealClock()
+    rig.s.build_tick_s = 0.03
+
+    async def build(url, goal, workdir, on_progress=None):
+        for stage, msg in [("watching", ""), ("reading_transcript", ""), ("writing_steps", "212 transcript lines"),
+                           ("engine_switch", "quota"), ("steps_ready", "claude"), ("adapting", ""), ("done", "41.2")]:
+            on_progress(stage, msg)
+            await asyncio.sleep(0.07)
+        return stubs.load_fixture_lesson()
+
+    rig.s.m.build_lesson = build
+    run(rig.s.learn_url("https://www.youtube.com/watch?v=abcdefghijk"))
+    msgs = [b["message"] for b in rig.of("lesson.building")]
+    for label in ("Gemini is watching the video", "Claude is writing the steps",
+                  "Gemini is out of quota; using the transcript", "Steps ready (from the transcript)",
+                  "Fitting the checks to your project"):
+        assert any(m.startswith(label) for m in msgs), label
+    assert rig.of("lesson.ready")
