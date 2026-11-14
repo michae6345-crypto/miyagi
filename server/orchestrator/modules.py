@@ -367,6 +367,54 @@ class Modules:
                               step, failed_checks, metrics, code_excerpt, **kwargs)
         return self._public(out)
 
+    # -- learning events -> Tiger (E3's server.checks.tiger: non-blocking queue + offline spool)
+    def record(self, kind: str, lesson_id: str | None, step_id: str | None, video_t: float | None = None,
+               payload: dict | None = None, source_id: str | None = None) -> None:
+        if "checks" in self.forced:
+            return
+        try:
+            tiger = importlib.import_module("server.checks.tiger")
+        except Exception:  # noqa: BLE001 - no Tiger module: nothing to record
+            return
+        fn = getattr(tiger, "record_event", None)
+        if fn is not None:
+            fn(kind, lesson_id, step_id, video_t, payload, source_id=source_id)
+
+    # -- voice (E5: ElevenLabs behind server.coach.voice; fills the existing `speak` event)
+    def _voice(self) -> Any:
+        if self.demo or "coach" in self.forced:
+            return None
+        return getattr(self.real.get("coach"), "voice", None)
+
+    async def speak_event(self, kind: str, payload: dict) -> dict | None:
+        """-> {audioUrl, text} or None (no key, failure: logged once by the coach)."""
+        v = self._voice()
+        fn = getattr(v, "speak_event", None) if v is not None else None
+        if fn is None:
+            return None
+        try:
+            return _to_dict(await _call(fn, kind, payload)) or None
+        except Exception as e:  # voice must never break the lesson
+            log.warning("voice.speak_event failed: %s", e)
+            return None
+
+    def voice_line(self, kind: str, payload: dict) -> str | None:
+        v = self._voice()
+        fn = getattr(v, "line_for", None) if v is not None else None
+        try:
+            return fn(kind, payload) if fn else None
+        except Exception:  # noqa: BLE001
+            return None
+
+    async def prefetch_voice(self, lines: list[str]) -> None:
+        v = self._voice()
+        fn = getattr(v, "prefetch", None) if v is not None else None
+        if fn is not None:
+            try:
+                await _call(fn, lines)
+            except Exception as e:
+                log.warning("voice.prefetch failed: %s", e)
+
     def has_do_it_for_me(self) -> bool:
         return self._real_fn("coach", "do_it_for_me") is not None
 

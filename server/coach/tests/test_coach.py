@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import re
 from types import SimpleNamespace
 
 import pytest
@@ -802,3 +803,90 @@ def test_level0_for_an_old_card_without_a_question():
     old = {"stepId": "d6", "title": "Learning rate 0.3 is far too high", "body": "…", "citation": {"label": "x", "url": "https://example.org"}}
     q = coach.hint(d.STEP, 0, old)["body"]
     assert q.startswith("Learning rate 0.3 is far too high:") and q.endswith("?")
+
+
+# ---------- voice (ElevenLabs track) ------------------------------------------------------------------
+
+import httpx
+
+from server.coach import voice
+
+
+@pytest.fixture
+def tts(monkeypatch, tmp_path):
+    """Fake ElevenLabs: records requests, streams a fake mp3 in two chunks."""
+    calls = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        calls.append(request)
+        return httpx.Response(200, headers={"content-type": "audio/mpeg"}, content=b"ID3fake-mp3-bytes" * 64)
+
+    monkeypatch.setenv("COACH_TTS_DIR", str(tmp_path))
+    monkeypatch.setenv("ELEVENLABS_API_KEY", "el-test-key")
+    monkeypatch.setenv("ELEVENLABS_VOICE_ID", "voice123")
+    monkeypatch.setattr(voice, "_transport", httpx.MockTransport(handler))
+    monkeypatch.setattr(voice, "_client", None)
+    voice._logged.clear()
+    return calls
+
+
+def test_voice_lines_are_short_and_readable():
+    assert voice.line_for("step.started", {"index": 6, "title": "Train the PINN"}) == "Step 6: Train the PINN."
+    assert voice.line_for("offtrack", {"title": "Adam learning rate 0.3 is too high", "body": "long..."}) == "Adam learning rate 0.3 is too high."
+    assert voice.line_for("step.passed", {}) == "Nice, step passed."
+    assert voice.line_for("metric", {"value": 1}) is None
+    assert voice.spoken("Set lr to 1e-3 at β=30") == "Set learning rate to 0.001 at beta=30."
+
+
+def test_speak_streams_caches_and_serves(tts):
+    s = run(voice.speak_event("offtrack", {"title": "Adam learning rate 0.3 is too high"}))
+    assert s["text"] == "Adam learning rate 0.3 is too high." and re.fullmatch(r"/tts/[0-9a-f]{20}\.mp3", s["audioUrl"])
+    req = tts[0]
+    assert req.method == "POST" and req.url.path == "/v1/text-to-speech/voice123/stream"
+    assert req.url.params["output_format"] == "mp3_44100_128" and req.headers["xi-api-key"] == "el-test-key"
+    assert json.loads(req.content) == {"text": "Adam learning rate 0.3 is too high.", "model_id": "eleven_flash_v2_5"}
+    assert voice.last_timing["first_byte_s"] >= 0 and voice.last_timing["bytes"] > 0
+    # cached: same line again makes no request
+    assert run(voice.speak_event("offtrack", {"title": "Adam learning rate 0.3 is too high"})) == s and len(tts) == 1
+    # served by the router; bad names are 404
+    from fastapi import FastAPI
+    from fastapi.testclient import TestClient
+
+    app = FastAPI()
+    app.include_router(voice.router)
+    c = TestClient(app)
+    r = c.get(s["audioUrl"])
+    assert r.status_code == 200 and r.headers["content-type"] == "audio/mpeg" and r.content.startswith(b"ID3")
+    assert c.get("/tts/..%2F..%2Fetc%2Fpasswd").status_code == 404 and c.get("/tts/abc.mp3").status_code == 404
+
+
+def test_concurrent_identical_lines_make_one_request(tts):
+    async def go():
+        return await asyncio.gather(*(voice.speak("Nice, step passed.") for _ in range(5)))
+
+    out = run(go())
+    assert len(tts) == 1 and len({o["audioUrl"] for o in out}) == 1
+
+
+def test_voice_failures_never_raise(monkeypatch, tmp_path, caplog):
+    monkeypatch.setenv("COACH_TTS_DIR", str(tmp_path))
+    monkeypatch.setattr(voice, "_client", None)
+    voice._logged.clear()
+    # no key
+    assert run(voice.speak("Hello there")) is None
+    # HTTP error and network error
+    monkeypatch.setenv("ELEVENLABS_API_KEY", "k")
+    monkeypatch.setenv("ELEVENLABS_VOICE_ID", "v")
+    for handler in (lambda r: httpx.Response(401, json={"detail": "bad key"}), lambda r: (_ for _ in ()).throw(httpx.ConnectError("down"))):
+        monkeypatch.setattr(voice, "_transport", httpx.MockTransport(handler))
+        monkeypatch.setattr(voice, "_client", None)
+        assert run(voice.speak("Hello again")) is None
+    assert not list(tmp_path.glob("*.mp3")) and not list(tmp_path.glob("*.part"))
+    msgs = [r.getMessage() for r in caplog.records if r.name == "coach.voice"]
+    assert any("HTTP 401" in m for m in msgs) and any("ConnectError" in m for m in msgs)
+    assert not any("el-" in m or "k)" in m for m in msgs)  # never logs the key
+
+
+def test_prefetch_step_titles(tts):
+    titles = [s["title"] for s in d.LESSON["steps"]] + ["Write the residual"]
+    assert run(voice.prefetch(titles)) == len(titles)

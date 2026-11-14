@@ -107,6 +107,18 @@ screen, nothing is spotlighted.
   - `apply_fix` replaces the last offtrack `diff.yours` line with `diff.expected`, only when the learner explicitly asks for it.
 - **Reconnect:** a new socket gets a snapshot (`lesson.ready`, `step.started`, check states, the open offtrack card, `status`).
 
+## Ending a lesson
+
+`curl -X POST localhost:8787/end` (or `python -m server.orchestrator.client end`, or the app's `end_lesson` command) cancels any build or diagnosis, clears the
+spotlight and video, records `lesson_ended`, and sends `lesson.ended` + `status idle`. A new `learn` while a lesson runs ends it first.
+
+## VS Code
+
+Never opened automatically. After `lesson.ready`, a lesson that happens in an editor (its targets or checks name Code/Terminal or files)
+gets a card "Open VS Code?" with `actions: ["open_editor"]`. VS Code opens, and per-step `code -g` jumps start, only after the learner says yes.
+If S2's `server.workspace.requirements(graph, folder)` exists, its summary and items (tools needed / installed) fill the card.
+Lessons in other apps (Blender, Figma…) never get the card.
+
 ## HTTP
 
 Also handled on the socket: `overlay.bounds` → screen reader (OCR ignores our own UI); `config.keys` → used over `.env` (process env, never logged) and answered

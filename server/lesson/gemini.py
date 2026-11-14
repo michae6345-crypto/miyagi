@@ -15,7 +15,7 @@ warnings.filterwarnings("ignore", category=SyntaxWarning)  # SDK docstring escap
 from google import genai
 from google.genai import types
 
-from .schema import ADAPTED_SCHEMA, DETAIL_SCHEMA, VIDEO_DRAFT_SCHEMA
+from .schema import ADAPTED_SCHEMA, DETAIL_SCHEMA, VIDEO_DRAFT_SCHEMA, standard_outputs_for_prompt
 
 log = logging.getLogger("server.lesson")
 
@@ -179,7 +179,8 @@ or API/keyword names ("useState\\(", "groupby\\(", "@app\\.get"). Literals that 
 (its branch names, usernames, dataset values, commit messages) go in precision_checks, never as the only check.
 A Terminal check must match the command's OUTPUT, never the command the learner types (that passes on typing):
 for a step that runs something, include one check on what it prints ("Local:\\s+http", "Uvicorn running on",
-"Finished", a test count)."""
+"Finished", a test count). Standard output lines you can use as-is:
+""" + standard_outputs_for_prompt()
 
 
 WATCH_SYSTEM = """You turn a coding tutorial video into an auto-graded lab.
@@ -192,6 +193,7 @@ WATCH_PROMPT = """Learner's goal: {goal}
 Break this tutorial into 4-10 sequential steps a learner can code along with.
 Rules:
 - One step = one concrete thing the learner builds or runs (e.g. "Create the Counter component", "Add the fetch call", "Commit the first change", "Define the model", "Run the tests"). Skip intros, outros, sponsor segments and pure theory unless they end in code or a command. A step shorter than ~20 s belongs to its neighbour.
+- Each step's instructions state any state it depends on that no earlier step created (e.g. "first make two commits on main that change the same line"), so a learner who follows only the instructions gets there.
 - The lesson must be playable from an EMPTY folder: if the tutorial starts from code, data or repo state prepared off camera, step 1 sets it up (the link from the description, or exact commands to recreate it, e.g. git init + branches + the conflicting commits, or creating/downloading the CSV).
 - start/end are MM:SS (or H:MM:SS). end is the moment the step's code is complete or its run finished. Steps must not overlap and must be in order.
 - title: imperative, at most 6 words. instructions: at most 2 sentences, concrete.

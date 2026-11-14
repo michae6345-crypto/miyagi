@@ -179,7 +179,7 @@ class VideoJump(_Model):
     label: str
 
 
-CardAction = Literal["confirm", "undo", "apply_fix"]
+CardAction = Literal["confirm", "undo", "apply_fix", "open_editor"]
 
 
 class Card(_Model):
@@ -282,6 +282,11 @@ class Error(_Model):
     message: str
 
 
+class LessonEnded(_Model):
+    lessonId: str | None = None
+    reason: str
+
+
 KeyState = Literal["ok", "missing", "invalid", "env"]  # "env" = falling back to the engine's .env
 
 
@@ -313,13 +318,14 @@ ENGINE_EVENTS: dict[str, Any] = {
     "metric": Metric,
     "status": Status,
     "error": Error,
+    "lesson.ended": LessonEnded,
     "config.status": ConfigStatus,
 }
 
 EngineEventType = Literal[
     "search.result", "search.done", "lesson.building", "lesson.ready", "step.started",
     "check.updated", "step.passed", "offtrack", "spotlight", "video.seek", "video.pause",
-    "video.play", "card", "diagram", "speak", "metric", "status", "error", "screen.seen", "config.status",
+    "video.play", "card", "diagram", "speak", "metric", "status", "error", "screen.seen", "config.status", "lesson.ended",
 ]
 
 
@@ -337,7 +343,7 @@ class BuildLesson(_Model):
 
 
 ActionKind = Literal["back", "explain", "diagram", "show_me", "hint", "voice_toggle", "ask", "apply_fix",
-                     "confirm", "undo"]
+                     "confirm", "undo", "open_editor"]
 
 
 class Action(_Model):
@@ -348,6 +354,10 @@ class Action(_Model):
 class VideoState(_Model):
     t: float
     playing: bool
+
+
+class EndLesson(_Model):
+    pass
 
 
 class OverlayBounds(_Model):
@@ -372,9 +382,10 @@ APP_COMMANDS: dict[str, type[_Model]] = {
     "video.state": VideoState,
     "overlay.bounds": OverlayBounds,
     "config.keys": ConfigKeys,
+    "end_lesson": EndLesson,
 }
 
-AppCommandType = Literal["learn", "learn_url", "build_lesson", "action", "video.state", "overlay.bounds", "config.keys"]
+AppCommandType = Literal["learn", "learn_url", "build_lesson", "action", "video.state", "overlay.bounds", "config.keys", "end_lesson"]
 
 
 class AppMessage(BaseModel):

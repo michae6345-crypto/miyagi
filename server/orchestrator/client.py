@@ -1,6 +1,7 @@
 """Tiny CLI test client for the engine.
 
   python -m server.orchestrator.client                     # connect and print events
+  python -m server.orchestrator.client end                 # end the current lesson (= curl -X POST localhost:8787/end)
   python -m server.orchestrator.client --learn "how to use git rebase"
   python -m server.orchestrator.client --autopilot --learn "pinn"   # DEMO tool: needs a DEMO=1 engine (canned PINN lesson)
 
@@ -317,6 +318,7 @@ async def handle_line(line: str, send, http: str) -> None:
 
 def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    ap.add_argument("command", nargs="?", choices=["end"], help="one-shot: `end` ends the current lesson")
     ap.add_argument("--url", default="ws://localhost:8787", help="engine WebSocket URL")
     ap.add_argument("--learn", help="send a learn query on connect")
     ap.add_argument("--lesson-url", help="send learn_url on connect")
@@ -325,6 +327,11 @@ def main() -> None:
     ap.add_argument("--timeout", type=float, default=180.0)
     ap.add_argument("--json", action="store_true", help="print raw JSON messages")
     args = ap.parse_args()
+    if args.command == "end":
+        http = args.url.replace("ws://", "http://").replace("wss://", "https://").rstrip("/")
+        r = httpx.post(f"{http}/end", timeout=10)
+        print(json.dumps(r.json()))
+        return
     try:
         asyncio.run(main_async(args))
     except KeyboardInterrupt:

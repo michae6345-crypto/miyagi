@@ -54,7 +54,7 @@ class BuildStage(logging.Handler):
 
     RULES = [
         ("lesson cache hit", "Loading the saved lesson"),
-        ("daily quota exhausted", "Gemini is out of quota; trying another model"),
+        ("daily quota exhausted", "Gemini is at its limit; trying another model"),
         ("too slow; switching engine", "Gemini is slow; reading the transcript instead"),
         ("video pass failed", "Couldn't watch the video; reading the transcript instead"),
         ("video pass:", "Claude is writing the steps"),
@@ -73,7 +73,7 @@ class BuildStage(logging.Handler):
         "done": "Finishing up",
     }
     SWITCH_LABELS = {
-        "quota": "Gemini is out of quota; using the transcript",
+        "quota": "Gemini is rate-limited; using the transcript",
         "slow": "Gemini is slow; using the transcript",
         "key": "No Gemini key; using the transcript",
         "error": "Couldn't watch the video; using the transcript",
@@ -136,12 +136,12 @@ def human_build_error(e: BaseException) -> str:
     quota = "quota" in low or "resource_exhausted" in low
     yt_limited = ("429" in low or "too many requests" in low) and ("transcript" in low or "caption" in low)
     if quota and yt_limited:  # E2: "no engine could build the lesson" with both causes
-        return ("Couldn't watch this video: Gemini's quota is used up and YouTube is rate-limiting this network. "
-                "Try a lesson that's already built, another network (hotspot), or add a Gemini key in Settings.")
+        return ("Couldn't watch this video: Gemini is rate-limited and YouTube is rate-limiting this network. "
+                "Try again in a minute, a lesson that's already built, or another network (hotspot).")
     if "took over" in low or "no answer within" in low or isinstance(e, TimeoutError):
         return "Building this lesson is taking too long. Try again, or pick another video."
     if "quota" in low or "resource_exhausted" in low:
-        return "Gemini's daily quota is used up, so I couldn't watch this video. Try another video or add a key in Settings."
+        return "Gemini is rate-limited right now, so I couldn't watch this video. Try again in a minute or pick another video."
     if "429" in low or "too many requests" in low or ("rate" in low and "limit" in low):
         if "transcript" in low or "caption" in low or "youtube" in low:
             return ("Couldn't get this video's transcript: YouTube is rate-limiting this network. "
@@ -194,11 +194,15 @@ class LessonSession:
         self.query = ""
         self.results: dict[str, dict] = {}
         self.build_progress: dict | None = None  # last lesson.building payload while a build runs
+        self._build_task: asyncio.Task | None = None
+        self._quiet_cancel = False
+        self.editor_open = False  # VS Code opened for this lesson (only after the learner said yes)
         self.graph: dict | None = None
         self.workdir = str(config.default_workdir())
         self.on_workdir: Callable[[str], None] | None = None  # main.py hooks the file watcher here
         self.idx = -1
         self.runs: dict[str, RunInfo] = {}
+        self.video_t: float | None = None  # last position the player reported
         self.voice = False
         self.status = "idle"
         self._lock = asyncio.Lock()
@@ -262,6 +266,61 @@ class LessonSession:
                     return
                 continue
             await asyncio.wait(pending)
+
+    async def _offer_editor(self, graph: dict, folder: str) -> None:
+        """Ask before opening VS Code; never ask for lessons that don't happen in an editor."""
+        if self.workspace is None or not getattr(self.workspace, "enabled", False):
+            return
+        from . import workspace as wsmod
+
+        req = wsmod.requirements(graph, folder)  # S2's check (tools needed / installed) when available
+        needs = req.get("needs_editor") if req else wsmod.needs_editor(graph)
+        if not needs:
+            return
+        body = (req or {}).get("summary") or f"This lesson works in VS Code. Open the {Path(folder).name} folder there?"
+        card: dict[str, Any] = {"kind": "hint", "title": (req or {}).get("title") or "Open VS Code?", "body": body,
+                                "actions": ["open_editor"]}
+        if req and req.get("items"):
+            card["requirements"] = req["items"]  # additive: [{name, installed, install?}] from S2
+        await self.emit("card", card)
+
+    async def _open_editor(self) -> None:
+        if self.workspace is None or self.graph is None:
+            return
+        self.workspace.open(self.workdir, force=True)
+        self.editor_open = True
+        if self.step is not None:
+            self.workspace.goto_target(self.workdir, self.step)
+
+    def _prefetch_voice(self) -> None:
+        """Synthesize every step's spoken line ahead of time (only while voice is on: it costs TTS credits)."""
+        if not self.graph:
+            return
+        lines = [self.m.voice_line("step.started", self._step_started_payload(st)) for st in self.steps]
+        self._spawn(self.m.prefetch_voice([ln for ln in lines if ln]), timer=True)
+
+    def _record(self, kind: str, payload: dict | None = None, step: dict | None = None) -> None:
+        """A learning event for Tiger's stats (step_started, check_pass/fail, offtrack, fix_applied, question, step_passed)."""
+        step = step or self.step
+        seg = self._segment(step) if step else None
+        try:
+            self.m.record(kind, (self.graph or {}).get("lesson", {}).get("id"), step["id"] if step else None,
+                          self.video_t, payload or {}, source_id=(seg or {}).get("videoId") or None)
+        except Exception:  # noqa: BLE001 - stats must never break the lesson
+            log.exception("record %s failed", kind)
+
+    def _say(self, kind: str, payload: dict) -> None:
+        """Voice (when toggled on): speak this event in the background, never over the learner's typing."""
+        if not self.voice or self.typing():
+            return
+        gen = self.step_gen
+
+        async def go() -> None:
+            s = await self.m.speak_event(kind, payload)
+            if s and (gen == self.step_gen or kind == "step.passed"):
+                await self.emit("speak", s)
+
+        self._spawn(go(), timer=True)
 
     async def _status(self, state: str) -> None:
         self.status = state
@@ -331,6 +390,8 @@ class LessonSession:
 
     # ------------------------------------------------------------------ search + build
     async def learn(self, query: str) -> None:
+        if self.graph is not None or self.phase == "building":
+            await self.end_lesson("new lesson")  # a new search cleanly ends the current lesson
         self.phase = "searching"
         self.query = query
         await self._status("thinking")
@@ -353,10 +414,67 @@ class LessonSession:
         if not picked and self.results:
             picked = [next(iter(self.results.values()))]
         url = picked[0].get("url", "") if picked else ""
-        await self._build(url, self.query)
+        await self._run_build(url, self.query)
 
     async def learn_url(self, url: str) -> None:
-        await self._build(url, self.query)
+        await self._run_build(url, self.query)
+
+    async def _run_build(self, url: str, goal: str) -> None:
+        """Builds run as their own task so end_lesson / a new learn can cancel them mid-flight."""
+        if self.graph is not None:
+            await self.end_lesson("new lesson")
+        await self.cancel_build()
+        task = asyncio.ensure_future(self._build(url, goal))
+        self._build_task = task
+        try:
+            await task
+        except asyncio.CancelledError:
+            cur = asyncio.current_task()
+            if cur is not None and cur.cancelling():
+                raise  # we ourselves are being cancelled (shutdown)
+        finally:
+            if self._build_task is task:
+                self._build_task = None
+
+    def building(self) -> bool:
+        return self._build_task is not None and not self._build_task.done()
+
+    async def cancel_build(self) -> None:
+        """Cancel an in-flight build quietly (the caller reports what happens next)."""
+        task = self._build_task
+        if task is None or task.done():
+            return
+        self._quiet_cancel = True
+        task.cancel()
+        try:
+            await task
+        except BaseException:  # noqa: BLE001 - cancelled on purpose
+            pass
+        finally:
+            self._quiet_cancel = False
+
+    async def end_lesson(self, reason: str = "end_lesson") -> None:
+        """Stop everything: cancel the build / diagnosis / timers, clear spotlight + video, record it,
+        then `lesson.ended` + `status idle`. Safe to call when nothing is running."""
+        lesson_id = (self.graph or {}).get("lesson", {}).get("id")
+        had_lesson = self.graph is not None
+        await self.cancel_build()
+        self.m.cancel_coach()
+        if self.screen is not None:
+            self.screen.unwatch()
+        if had_lesson:
+            self._record("lesson_ended", {"reason": reason})
+        for t in list(self._timers):
+            t.cancel()
+        self._reset_step_state()  # bumps step_gen: stale coach/metric/advance tasks become no-ops
+        self.graph, self.idx, self.phase, self.runs = None, -1, "idle", {}
+        self.pending_patch, self.undo, self.build_progress = None, None, None
+        self.editor_open = False
+        if had_lesson:
+            await self.emit("spotlight", {"clear": True})
+            await self.emit("video.pause", {})
+        await self.emit("lesson.ended", {**({"lessonId": lesson_id} if lesson_id else {}), "reason": reason})
+        await self._status("idle")
 
     async def _build(self, url: str, goal: str) -> None:
         """Build a lesson with live progress (>= 1 tick/s, stage names from the builder's own log
@@ -400,14 +518,15 @@ class LessonSession:
             await self.emit("lesson.building", {"message": "Lesson ready", "progress": 1.0})
             ok = True
         except BaseException as e:
-            log.exception("build_lesson failed")
             if isinstance(e, Exception):
+                log.exception("build_lesson failed")
                 await self._build_failed(human_build_error(e))
-            raise_after = not isinstance(e, Exception)
-            if raise_after:  # cancelled (engine shutting down / client gone): still tell the app
-                await asyncio.shield(self._build_failed("The lesson build was interrupted. Try again."))
+                return
+            if self._quiet_cancel:  # end_lesson / a new learn: they report what happens next
                 raise
-            return
+            log.warning("lesson build interrupted")
+            await asyncio.shield(self._build_failed("The lesson build was interrupted. Try again."))
+            raise
         finally:
             done.set()
             if not tick.done():
@@ -432,9 +551,11 @@ class LessonSession:
             self.on_workdir(new_wd)
         self.m.set_lesson(graph)
         self._spawn(self.m.warm(), timer=True)  # pre-warm the coach's cached lesson prefix
+        if self.voice:
+            self._prefetch_voice()
         await self.emit("lesson.ready", self._lesson_ready_payload())
-        if self.workspace is not None:
-            self.workspace.open(new_wd)
+        self.editor_open = False
+        await self._offer_editor(graph, new_wd)  # a card; VS Code opens only on the learner's yes
         await self.start_step(0)
 
     def _lesson_ready_payload(self) -> dict:
@@ -470,7 +591,10 @@ class LessonSession:
         self.phase = "active"
         self._reset_step_state()
         step = self.steps[idx]
-        await self.emit("step.started", self._step_started_payload(step))
+        started = self._step_started_payload(step)
+        await self.emit("step.started", started)
+        self._say("step.started", started)
+        self._record("step_started", {"title": step.get("title")}, step)
         for c in self.display_checks(step):
             self.check_state[c["id"]] = {"label": c.get("label", c["id"]), "status": "pending", "detail": None}
             await self.emit("check.updated", {"stepId": step["id"], "checkId": c["id"],
@@ -485,7 +609,7 @@ class LessonSession:
         self._watch_screen_metrics(step)
         if self.m.has_diagrams() and os.environ.get("ORCH_DIAGRAM_PREFETCH", "1") == "1":
             self._spawn(self._prefetch_diagram(self.step_gen, step), timer=True)
-        if self.workspace is not None:
+        if self.workspace is not None and self.editor_open:  # `code -g` would itself launch VS Code
             self.workspace.goto_target(self.workdir, step)
         await self._status("watching")
         await self.evaluate("start")
@@ -579,6 +703,8 @@ class LessonSession:
         if nxt:
             payload["nextStepId"] = nxt
         await self.emit("step.passed", payload)
+        self._say("step.passed", payload)
+        self._record("step_passed", {"nextStepId": payload.get("nextStepId")}, step)
         await self._status("passed")
         await self.emit("spotlight", {"clear": True})
         if nxt:
@@ -698,6 +824,8 @@ class LessonSession:
             label = r.get("label") or (prev or {}).get("label") or cid
             if prev and prev["status"] == shown and prev.get("detail") == detail:
                 continue
+            if shown in ("pass", "fail") and (not prev or prev["status"] != shown):
+                self._record(f"check_{shown}", {"check_id": cid, "label": label, "detail": detail}, step)
             self.check_state[cid] = {"label": label, "status": shown, "detail": detail}
             payload = {"stepId": step["id"], "checkId": cid, "label": label, "status": shown}
             if detail:
@@ -862,6 +990,9 @@ class LessonSession:
             self.ladder = level
             self.last_offtrack = full
             await self.emit("offtrack", shown)
+            self._say("offtrack", shown)
+            self._record("offtrack", {"title": full.get("title"), "level": level,
+                                      "check_ids": [r.get("checkId") for r in failed]}, step)
             diff = full.get("diff") or {}
             first = (diff.get("yours") or "").strip().splitlines()[:1]
             spot = self._locate(re.escape(first[0]), None, full.get("title", "")) if first else None
@@ -975,6 +1106,7 @@ class LessonSession:
         if step is None or self.passed:
             return
         self.video_reports += 1
+        self.video_t = t
         seg = self._segment(step)
         if seg and not self.segment_done and t >= seg["end"] - 0.3 and t <= seg["end"] + 5:
             await self._segment_end()
@@ -1024,6 +1156,7 @@ class LessonSession:
             await self._spotlight_target(step)
             return
         if kind in ("explain", "ask"):
+            self._record("question", {"kind": kind, "text": (text or "")[:300]}, step)
             await self._status("thinking")
             card = await self.m.explain(step, text if kind == "ask" else (text or None), self._explain_context())
             card = dict(card)
@@ -1052,8 +1185,13 @@ class LessonSession:
             await self.emit("diagram", d)
             await self._status("offtrack" if self.last_offtrack else ("passed" if self.passed else "watching"))
             return
+        if kind == "open_editor":
+            await self._open_editor()
+            return
         if kind == "voice_toggle":
             self.voice = not self.voice
+            if self.voice:
+                self._prefetch_voice()
             return
         if kind == "apply_fix":
             await self._apply_fix(step)
@@ -1155,12 +1293,13 @@ class LessonSession:
         self.undo = (path, text)
         path.write_text(new_text)
         line = next((i for i, (a, b) in enumerate(zip(text.splitlines(), new_text.splitlines()), 1) if a != b), 1)
-        if self.workspace is not None:
+        if self.workspace is not None and self.editor_open:
             self.workspace.goto(str(path), line)
         first = expected.strip().splitlines()[0]
         spot = self._locate(re.escape(first), None, "Fixed")
         if spot:
             await self._show_spot(spot)
+        self._record("fix_applied", {"file": path.name}, step)
         await self._card(step, "Fix applied", "Re-run to check it. Undo if you'd rather type it yourself.",
                          kind="answer", actions=["undo"])
         await self.on_file_change([str(path)])
@@ -1190,12 +1329,13 @@ class LessonSession:
             log.warning("could not write a backup of %s", path)
         self.undo = (path, current)
         path.write_text(pp["new"])
-        if self.workspace is not None:
+        if self.workspace is not None and self.editor_open:
             self.workspace.goto(str(path), int(pp["line"]))
         if pp["first"]:
             spot = self._locate(re.escape(pp["first"][0]), None, "Fixed")
             if spot:
                 await self._show_spot(spot)
+        self._record("fix_applied", {"file": path.name}, step)
         await self._card(step, "Fix applied", "Re-run to check it. Undo if you'd rather type it yourself.",
                          kind="answer", actions=["undo"])
         await self.on_file_change([str(path)])
