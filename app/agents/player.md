@@ -9,7 +9,8 @@
 - **`video.state {t, playing}`**: on every change and every ~1s while playing (seen on the wire).
 - **Chapters:** the steps as done (green check) / current (moving bars while playing) / locked (lock, dimmed, not clickable). Click a done/current chapter to replay it. A chapter timeline under the video: one segment per step, played part filled, a ring at the open step's gate. Scrubbing never goes past the gate.
 - **Stand-in video:** any video id that isn't a real 11-character YouTube id (the mock's placeholder, for instance) plays `STAND_IN_VIDEO_ID` (`features/player/youtube.ts`, 3Blue1Brown "But what is a neural network?", 18:40, so the mock's times fit). The panel says it's a stand-in. Nothing in the player is lesson-specific: titles, chapters, times and check labels all come from the engine's data (generality rule).
-- **Rebased** onto the updated `adrian/shell` (launcher out of the notch, `tigerUrl`); re-checked in the stage afterwards (step 4 waits, resumes from 6:12 ~400ms after the pass).
+- **Rebased** onto `adrian/shell` `e1b117b` (lazy registry, merged pill + spotlight, real hero video). Re-checked in the stage: the real video `AXXnSzmpyoI` embeds and plays (24:19, no error, no stand-in); step 4 waits, resumes from 6:12 ~409ms after the pass, step 5 waits. My Back triggers still match the mock's step starts (372, 760); no trigger collisions with `pill.json` / `spotlight.json`.
+- **Confirmed by Michael:** the player enforces the pause at `video.end` itself (as built). `step.started.index` is 0-based; the player doesn't read it anyway (it uses the order of `lesson.ready.steps`).
 - Screenshots: `agents/shots/player-stage.png` (whole stage, spotlight + caption over the player), `player-waiting.png`, `player-offtrack.png`, `player-passed.png` (the 400ms beat, staged by setting the state), `player-playing.png`. Close-ups hide the spotlight dim so the panel is readable; the real composite dims the player like Electron will.
 
 ### Left / next
