@@ -34,7 +34,7 @@ EDITORS: dict[str, dict] = {
                "bundled_cli": "/Applications/Visual Studio Code.app/Contents/Resources/app/bin/code",
                "cask": "visual-studio-code", "url": "https://code.visualstudio.com/download"},
 }
-PREFERENCE = ["cursor", "vscode"]
+PREFERENCE = ["vscode", "cursor"]  # Michael uses VS Code: Cursor only when VS Code is missing
 ENV_NAMES = {"cursor": "cursor", "code": "vscode", "vscode": "vscode", "vs code": "vscode", "visual studio code": "vscode"}
 # Kept for older callers (orchestrator fallback).
 VSCODE_APP = EDITORS["vscode"]["app"]
@@ -81,7 +81,7 @@ def installed_editors() -> list[dict]:
 
 
 def preferred_editor(installed: list[dict] | None = None) -> dict | None:
-    """MIYAGI_EDITOR (cursor | code) if installed, else Cursor, else VS Code, else None."""
+    """MIYAGI_EDITOR (cursor | code) if installed, else VS Code, else Cursor, else None."""
     eds = installed if installed is not None else installed_editors()
     want = ENV_NAMES.get(os.environ.get("MIYAGI_EDITOR", "").strip().lower())
     if want:
