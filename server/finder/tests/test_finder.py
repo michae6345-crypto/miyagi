@@ -12,7 +12,7 @@ from pathlib import Path
 import httpx
 import pytest
 
-from server.finder import cache, core as search_mod, env, gemini, sources, youtube
+from server.finder import cache, claude, core as search_mod, env, gemini, sources, youtube
 from server.finder import search
 
 FX = Path(__file__).parent / "fixtures"
@@ -96,7 +96,8 @@ def _transport(calls: list[str]) -> httpx.MockTransport:
             return httpx.Response(200, text=AX)
         if url == DEAD:
             return httpx.Response(404, text="gone")
-        return httpx.Response(200, text="<html><title>ok</title></html>")  # HEAD/GET verification of indexed pages
+        page = "<html><title>ok</title><body><p>" + "A tutorial paragraph with code. " * 20 + "</p></body></html>"
+        return httpx.Response(200, text=page)  # HEAD/GET verification and page reads of indexed pages
 
     return httpx.MockTransport(handler)
 
@@ -112,7 +113,8 @@ def _known_urls() -> set[str]:
 @pytest.fixture
 def offline(monkeypatch, tmp_path):
     monkeypatch.setattr(env, "_loaded", True)
-    for k in ("GEMINI_API_KEY", "GOOGLE_API_KEY", "BRIGHTDATA_API_KEY", "GITHUB_TOKEN"):
+    monkeypatch.setattr(env, "_shared", lambda name: None)  # ignore server.config app keys
+    for k in ("GEMINI_API_KEY", "GOOGLE_API_KEY", "BRIGHTDATA_API_KEY", "GITHUB_TOKEN", "ANTHROPIC_API_KEY"):
         monkeypatch.setenv(k, "")
     monkeypatch.setattr(cache, "CACHE_DIR", tmp_path)
     calls: list[str] = []
@@ -153,30 +155,42 @@ def test_search_replay_without_gemini(offline):
     assert [r["id"] for r in again] == [r["id"] for r in rows] and offline == []
 
 
-def test_search_replay_with_gemini_scores(offline, monkeypatch):
-    monkeypatch.setenv("GEMINI_API_KEY", "test-key")
+def test_search_replay_claude_scores_gemini_watches(offline, monkeypatch):
+    monkeypatch.setenv("GEMINI_API_KEY", "test-gemini")
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "test-anthropic")
 
-    async def fake_score(key, goal, cands, **kw):
+    async def claude_score(key, goal, cands, **kw):
         return {c["id"]: {"score": 90 if "convection" in c["title"].lower() else 40,
                           "reason": "Exact topic, runnable code" if "convection" in c["title"].lower() else "Adjacent topic"}
                 for c in cands}
+
+    async def claude_read(key, goal, item, text, **kw):
+        return {"teaches_goal": True, "score": 88, "summary": "Teaches it end to end with PyTorch code",
+                "prerequisites": ["autograd"], "code": "PyTorch script"}
 
     async def fake_skim(key, goal, video, warns, **kw):
         return {"score": 99 if "S5" in video["title"] else 10, "reason": "Clear, 22 min, PyTorch code-along",
                 "hands_on": True, "outdated": False}
 
-    async def no_grounding(ctx, q):
+    async def gemini_must_not_score(*a, **kw):
+        raise AssertionError("Gemini scored although Claude answered")
+
+    async def no_claude_search(ctx, q, **kw):
         return []
 
-    monkeypatch.setattr(gemini, "score", fake_score)
+    monkeypatch.setattr(claude, "score", claude_score)
+    monkeypatch.setattr(claude, "read", claude_read)
     monkeypatch.setattr(gemini, "skim", fake_skim)
-    monkeypatch.setattr(sources, "gemini_grounded", no_grounding)
+    monkeypatch.setattr(gemini, "score", gemini_must_not_score)
+    monkeypatch.setattr(sources, "claude_search", no_claude_search)
     rows = asyncio.run(search("train a PINN on the convection equation", use_cache=False))
     _check_rows(rows)
     top = rows[0]
     assert top["kind"] == "video" and "S5" in top["title"]
-    assert top["reason"] == "Clear, 22 min, PyTorch code-along"
-    assert rows == sorted(rows, key=lambda r: -r["score"]) or rows[1:] == sorted(rows[1:], key=lambda r: -r["score"])
+    assert top["reason"] == "Clear, 22 min, PyTorch code-along" and top["watched"] == "watched by Gemini"
+    read = [r for r in rows if r.get("watched") == "read by Claude"]
+    assert read and all(r["kind"] != "video" and r["prerequisites"] == ["autograd"] for r in read)
+    assert all(r["scoredBy"].startswith("claude") for r in rows)
 
 
 def test_orchestrator_call_shape(offline):
@@ -185,3 +199,112 @@ def test_orchestrator_call_shape(offline):
     assert isinstance(rows, list) and all(isinstance(r["url"], str) for r in rows)
     assert youtube.video_id(rows[0]["url"])
     assert asyncio.run(search("   ")) == []
+
+
+# --------------------------------------------------------------------------- Claude search + fallbacks
+
+from types import SimpleNamespace as NS  # noqa: E402
+
+REAL_CLAUDE_URL = "https://github.com/dome272/Diffusion-Models-pytorch"
+INVENTED_URL = "https://example-made-up-tutorials.com/diffusion"
+
+
+def _fake_claude_response():
+    results = [NS(url=REAL_CLAUDE_URL, title="dome272/Diffusion-Models-pytorch", page_age=None),
+               NS(url="https://www.youtube.com/watch?v=TgTQE_muXec", title="Coding a Diffusion Model From Scratch", page_age=None)]
+    text = ("```json\n" + json.dumps([
+        {"url": INVENTED_URL, "kind": "blog", "why": "made up"},
+        {"url": REAL_CLAUDE_URL + "/", "kind": "repo", "why": "Exact DDPM in PyTorch"},
+    ]) + "\n```")
+    return NS(
+        content=[NS(type="server_tool_use", input={"query": "diffusion pytorch tutorial"}),
+                 NS(type="web_search_tool_result", content=results),
+                 NS(type="text", text=text)],
+        stop_reason="end_turn", usage=NS(input_tokens=1, output_tokens=1),
+    )
+
+
+def test_claude_search_keeps_only_tool_result_urls(monkeypatch):
+    async def create(**kw):
+        assert kw["tools"][0]["name"] == "web_search"
+        return _fake_claude_response()
+
+    monkeypatch.setattr(claude, "client", lambda key: NS(messages=NS(create=create)))
+    found, info = asyncio.run(claude.search("k", "train a diffusion model in pytorch"))
+    urls = [f["url"] for f in found]
+    assert INVENTED_URL not in urls  # Claude wrote it, the search tool never returned it
+    assert urls[0] == REAL_CLAUDE_URL and found[0]["picked"] and found[0]["why"] == "Exact DDPM in PyTorch"
+    assert "https://www.youtube.com/watch?v=TgTQE_muXec" in urls  # unpicked search results are real too
+    assert info["queries"] == ["diffusion pytorch tutorial"] and info["picked"] == 1
+
+
+def test_rows_say_plainly_when_not_watched_or_read(offline, monkeypatch):
+    monkeypatch.setenv("GEMINI_API_KEY", "test-gemini")
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "test-anthropic")
+
+    async def gemini_429(*a, **kw):
+        raise RuntimeError("Gemini failed: 429 RESOURCE_EXHAUSTED quota")
+
+    async def claude_score(key, goal, cands, **kw):
+        return {c["id"]: {"score": 77, "reason": "Scored by Claude"} for c in cands}
+
+    async def claude_read_timeout(*a, **kw):
+        raise asyncio.TimeoutError()
+
+    async def no_source(ctx, q, **kw):
+        return []
+
+    monkeypatch.setattr(gemini, "skim", gemini_429)
+    monkeypatch.setattr(claude, "score", claude_score)
+    monkeypatch.setattr(claude, "read", claude_read_timeout)
+    monkeypatch.setattr(sources, "claude_search", no_source)
+    rows = asyncio.run(search("train a PINN on the convection equation", use_cache=False))
+    _check_rows(rows)
+    assert all(r["scoredBy"] == "claude" for r in rows)
+    top_video = rows[0]
+    assert top_video["watched"] == "not watched: Gemini quota"  # said plainly, never faked
+    assert "not watched: Gemini quota" in top_video["meta"]
+    assert any(r.get("watched", "").startswith("not read: Claude") for r in rows if r["kind"] != "video")
+
+
+def test_gemini_scores_only_when_claude_fails(offline, monkeypatch):
+    monkeypatch.setenv("GEMINI_API_KEY", "test-gemini")
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "test-anthropic")
+
+    async def claude_down(*a, **kw):
+        raise RuntimeError("anthropic 529 overloaded")
+
+    async def gemini_score(key, goal, cands, **kw):
+        return {c["id"]: {"score": 60, "reason": "Gemini fallback"} for c in cands}
+
+    async def skim_ok(key, goal, video, warns, **kw):
+        return {"score": 70, "reason": "Watched", "hands_on": True, "outdated": False}
+
+    async def no_source(ctx, q, **kw):
+        return []
+
+    monkeypatch.setattr(claude, "score", claude_down)
+    monkeypatch.setattr(claude, "read", claude_down)
+    monkeypatch.setattr(gemini, "score", gemini_score)
+    monkeypatch.setattr(gemini, "skim", skim_ok)
+    monkeypatch.setattr(sources, "claude_search", no_source)
+    rows = asyncio.run(search("train a PINN on the convection equation", use_cache=False))
+    assert {r["scoredBy"].split("+")[0] for r in rows} == {"gemini"}
+
+
+def test_claude_candidates_flow_into_results(offline, monkeypatch):
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "test-anthropic")
+
+    async def create(**kw):
+        return _fake_claude_response()
+
+    async def claude_fail_score(*a, **kw):
+        raise RuntimeError("no network in tests")
+
+    monkeypatch.setattr(claude, "client", lambda key: NS(messages=NS(create=create)))
+    monkeypatch.setattr(claude, "score", claude_fail_score)
+    rows = asyncio.run(search("train a PINN on the convection equation", use_cache=False))
+    by_url = {r["url"]: r for r in rows}
+    assert by_url[REAL_CLAUDE_URL]["source"] == "claude" and by_url[REAL_CLAUDE_URL]["kind"] == "repo"
+    assert INVENTED_URL not in by_url
+    assert all(r["scoredBy"] == "keywords" for r in rows)  # both models down -> labelled keyword score
