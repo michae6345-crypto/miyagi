@@ -66,10 +66,9 @@ export default defineMainFeature({
       focusable: false,
       hasShadow: true,
       backgroundColor: WINDOW_BG,
-      webPreferences: { autoplayPolicy: 'no-user-gesture-required' },
-      ...(process.platform === 'darwin' ? { type: 'panel' as const } : {})
+      webPreferences: { autoplayPolicy: 'no-user-gesture-required' }
     })
-    float(win)
+    ctx.raise(win, -1)
     // The engine's screen reader must ignore the player, or it reads the tutorial's code as the learner's.
     ctx.reportBounds(win)
 
@@ -96,7 +95,7 @@ export default defineMainFeature({
     const reveal = (): void => {
       if (win.isDestroyed() || win.isVisible()) return
       win.showInactive()
-      float(win)
+      ctx.raise(win, -1)
     }
     ctx.engine.onEvent((e) => {
       if (e.type === 'lesson.ready') reveal()
@@ -115,11 +114,3 @@ export default defineMainFeature({
   }
 })
 
-/**
- * Same raise() as the overlay (Michael, Sat 3 PM: the player must show over full-screen apps), one
- * relative step below it so the overlay's dim, spotlight and cards stay on top.
- */
-function float(win: BrowserWindow): void {
-  win.setAlwaysOnTop(true, 'screen-saver', -1)
-  if (process.platform === 'darwin') win.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true, skipTransformProcessType: true })
-}
