@@ -3,16 +3,16 @@
  * Only visible during a lesson. Sits 24px above the dock / taskbar.
  */
 import { AnimatePresence, motion } from 'motion/react'
-import { useEffect, useState, type ReactNode } from 'react'
+import type { ReactNode } from 'react'
 import { useShallow } from 'zustand/react/shallow'
 import { AudioLines, Lightbulb, MessageSquareText, RotateCcw, Search, SquarePlay, Waypoints, type LucideIcon } from 'lucide-react'
 import { bridge } from '../../bridge'
-import { onUi } from '../../core/bus'
 import { useLesson } from '../../core/lesson'
 import { triggerShortcut, type ActionShortcut } from '../../core/shortcuts'
 import { color, spring } from '../../core/theme'
 import { useDiagram } from '../diagrams/store'
 import { useVoice } from '../voice/store'
+import { PRESS_MS, PRESS_SCALE, usePress } from './press'
 
 type Btn = { kind: ActionShortcut; label: string; icon: LucideIcon }
 
@@ -33,17 +33,8 @@ export function ShortcutBar({ bottom }: { bottom: number }): ReactNode {
   const diagramOpen = useDiagram((d) => d.open)
   const voice = useVoice(useShallow((v) => ({ on: v.on, speaking: v.speaking })))
   const s = { on, diagramOpen, voiceOn: voice.on, speaking: voice.speaking }
-  const [pressed, setPressed] = useState<string>()
-
-  // Any shortcut (global key, click, stage key): animate the matching button. Never claims it.
-  useEffect(
-    () =>
-      onUi('shortcut', (kind) => {
-        setPressed(kind as string)
-        setTimeout(() => setPressed(undefined), 90)
-      }),
-    []
-  )
+  // Any shortcut (click, global key, stage key, launcher chip): the matching tile dips for 90 ms (press.ts).
+  const pressed = usePress((p) => p.kind)
 
   return (
     <AnimatePresence>
@@ -80,10 +71,10 @@ export function ShortcutBar({ bottom }: { bottom: number }): ReactNode {
                 <motion.button
                   key={kind}
                   className="flex h-[72px] w-[84px] cursor-pointer flex-col items-center justify-center rounded-[16px]"
-                  animate={{ scale: pressed === kind ? 0.94 : 1, background: lit ? 'rgba(255,255,255,.09)' : 'rgba(255,255,255,0)' }}
+                  animate={{ scale: pressed === kind ? PRESS_SCALE : 1, background: lit ? 'rgba(255,255,255,.09)' : 'rgba(255,255,255,0)' }}
                   whileHover={{ background: 'rgba(255,255,255,.06)' }}
-                  whileTap={{ scale: 0.94 }}
-                  transition={{ duration: 0.09 }}
+                  whileTap={{ scale: PRESS_SCALE }}
+                  transition={{ duration: PRESS_MS / 1000 }}
                   onClick={() => triggerShortcut(kind)}
                 >
                   {blue && s.speaking ? <Equalizer /> : <Icon size={19} strokeWidth={1.6} style={{ color: blue ? color.accent : lit ? color.accent : '#fff' }} />}
