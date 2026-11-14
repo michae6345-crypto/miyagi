@@ -1,22 +1,25 @@
 /**
- * Building mode, screen-first (mockup 04): the engine's screen reader (Apple Vision OCR) finds the
- * target on screen and sends `spotlight {rect, caption}`. We dim everything to 55% and cut a rounded,
- * glowing hole at that rect, with a glass caption beside it. Works over any app; never takes a click
- * except on the voice button.
+ * Building mode, screen-first (mockup 04, Miyagi brand): the engine's screen reader (Apple Vision OCR)
+ * finds the target on screen and sends `spotlight {rect, caption}`. We dim everything to 55% and cut a
+ * rounded hole at that rect, edged with a crisp white hairline, with a glass caption beside it. Works
+ * over any app; never takes a click except on the voice button.
+ *
+ * Brand (app/brand/BRAND.md): no glows, no blur on the ring, no blue. The ring is a calm hairline in
+ * `color.accent` (white) over a faint `color.onAccent` keyline, so it still reads over light apps.
  *
  * Animation (FRONTEND-HANDOFF → "Dim overlay + spotlight"):
  *   - the dim fades in over 280ms;
- *   - the hole is ONE set of motion values (x, y, w, h) driven by the spring. The mask cut-out, the glow
- *     and the outline all read those same values, written straight to the SVG attributes every frame:
- *     no React re-render while it moves;
- *   - the glow pulses once per new target (0.6 → 1 → 0.6, 1.2s), then stays still;
+ *   - the hole is ONE set of motion values (x, y, w, h) driven by the spring. The mask cut-out and the
+ *     ring read those same values, written straight to the SVG attributes every frame: no React
+ *     re-render while it moves;
+ *   - the ring pulses once in opacity per new target (0.6 → 1 → 0.6, 1.2s), then stays still;
  *   - reduced motion: no spring, no pulse, crossfades only.
  */
 import { AnimatePresence, animate, motion, useMotionValue, useReducedMotion } from 'motion/react'
 import { useCallback, useEffect, useId, useLayoutEffect, useRef, useState, type ReactNode, type RefObject } from 'react'
 import { Volume2 } from 'lucide-react'
 import { useLesson, type Rect } from '../../core/lesson'
-import { color, radius, shadow, spring } from '../../core/theme'
+import { color, font, radius, shadow, spring, text } from '../../core/theme'
 import { toggleVoice, useVoice } from '../voice/store'
 import { hole, holeRadius, placeCaption, type Side } from './place'
 import type { SpotlightMode, SpotlightTarget } from './store'
@@ -24,13 +27,11 @@ import type { SpotlightMode, SpotlightTarget } from './store'
 const CAPTION_W = 300
 /** Until the caption has been measured (mockup 04: 84). */
 const CAPTION_H_GUESS = 84
-/** The dim is black at 55%: a spec value, not a theme color. */
+/** The dim is black at 55%: a spec value, not a theme color (see Core requests: a `dim` token). */
 const DIM = { fill: '#000', opacity: 0.55, fade: 0.28 } as const
+/** The ring: a crisp hairline (no blur) over a faint dark keyline for contrast on light apps. */
+const RING = { width: 1.5, keyline: 3.5, keylineOpacity: 0.35 } as const
 const PULSE = { rest: 0.6, peak: 1, duration: 1.2 } as const
-
-/** Derived from the accent token so Adrian's theme carries through. */
-const accentSoft = `color-mix(in srgb, ${color.accent} 22%, transparent)`
-const accentLight = `color-mix(in srgb, ${color.accent} 62%, white)`
 
 type Props = {
   target?: SpotlightTarget
@@ -41,18 +42,21 @@ type Props = {
   mode: SpotlightMode
   /** Only one window draws the caption when a target straddles two displays. */
   showCaption: boolean
+  /** UI outside this window the caption must not cover (the lesson player's window), window coordinates. */
+  avoid: Rect[]
 }
 
 export function Spotlight({ target, rect, ...rest }: Props): ReactNode {
   return <AnimatePresence>{target && rect && <Scene key="spotlight" target={target} rect={rect} {...rest} />}</AnimatePresence>
 }
 
-function Scene({ target, rect, bounds, mode, showCaption }: Props & { target: SpotlightTarget; rect: Rect }): ReactNode {
+function Scene({ target, rect, bounds, mode, showCaption, avoid }: Props & { target: SpotlightTarget; rect: Rect }): ReactNode {
   const reduced = useReducedMotion() ?? false
   const cut = hole(rect)
   const register = useAnimatedHole(cut, reduced)
-  const glow = usePulse(`${target.caption}|${Math.round(cut.x)},${Math.round(cut.y)},${Math.round(cut.w)},${Math.round(cut.h)}`, reduced)
+  const pulse = usePulse(`${target.caption}|${Math.round(cut.x)},${Math.round(cut.y)},${Math.round(cut.w)},${Math.round(cut.h)}`, reduced)
   const id = useId().replace(/[^a-zA-Z0-9_-]/g, '')
+  // Fallback (cut order): the same hairline, no dim.
   const outline = mode === 'outline'
 
   return (
@@ -65,33 +69,29 @@ function Scene({ target, rect, bounds, mode, showCaption }: Props & { target: Sp
       transition={{ duration: DIM.fade, ease: 'easeOut' }}
     >
       <svg className="absolute inset-0 h-full w-full" aria-hidden>
-        <defs>
-          {!outline && (
+        {!outline && (
+          <defs>
             <mask id={`${id}-hole`} maskUnits="userSpaceOnUse" x="0" y="0" width="100%" height="100%">
               {/* Mask luminance: white keeps the dim, black cuts the hole. */}
               <rect width="100%" height="100%" fill="#fff" />
               <rect ref={register} data-part="hole" fill="#000" />
             </mask>
-          )}
-          {/* Generous region so the blur isn't clipped on a one-line (short) target. */}
-          <filter id={`${id}-glow`} x="-50%" y="-150%" width="200%" height="400%">
-            <feGaussianBlur stdDeviation={outline ? 7 : 6} />
-          </filter>
-        </defs>
+          </defs>
+        )}
         {!outline && <rect width="100%" height="100%" fill={DIM.fill} fillOpacity={DIM.opacity} mask={`url(#${id}-hole)`} data-part="dim" />}
-        <motion.g style={{ opacity: glow }} data-part="glow">
-          <rect ref={register} fill="none" style={{ stroke: color.accent }} strokeWidth={outline ? 5 : 3} filter={`url(#${id}-glow)`} />
+        <motion.g style={{ opacity: pulse }} data-part="ring">
+          <rect ref={register} data-part="keyline" fill="none" style={{ stroke: color.onAccent }} strokeOpacity={RING.keylineOpacity} strokeWidth={RING.keyline} />
+          <rect ref={register} data-part="hairline" fill="none" style={{ stroke: color.accent }} strokeWidth={RING.width} />
         </motion.g>
-        <rect ref={register} data-part="ring" fill="none" style={{ stroke: accentLight }} strokeOpacity={0.9} strokeWidth={outline ? 2 : 1.5} />
       </svg>
-      {showCaption && <Caption target={target} hole={cut} bounds={bounds} reduced={reduced} />}
+      {showCaption && <Caption target={target} hole={cut} bounds={bounds} avoid={avoid} reduced={reduced} />}
     </motion.div>
   )
 }
 
 /**
  * The hole's x/y/w/h as motion values, sprung to each new target. Returns a ref callback: every SVG
- * rect registered with it (mask cut-out, glow, ring) gets the current values written to its
+ * rect registered with it (mask cut-out, keyline, hairline) gets the current values written to its
  * attributes on each animation frame, so they move as one object without re-rendering React.
  */
 function useAnimatedHole(to: Rect, reduced: boolean): (el: SVGRectElement | null) => void | (() => void) {
@@ -145,18 +145,18 @@ function useAnimatedHole(to: Rect, reduced: boolean): (el: SVGRectElement | null
   )
 }
 
-/** Glow opacity: one pulse (0.6 → 1 → 0.6 over 1.2s) whenever `key` changes, then still. */
+/** Ring opacity: one pulse (0.6 → 1 → 0.6 over 1.2s) whenever `key` changes, then still. */
 function usePulse(key: string, reduced: boolean) {
-  const glow = useMotionValue<number>(PULSE.rest)
+  const pulse = useMotionValue<number>(PULSE.rest)
   useEffect(() => {
     if (reduced) {
-      glow.jump(PULSE.rest)
+      pulse.jump(PULSE.rest)
       return
     }
-    const run = animate(glow, [PULSE.rest, PULSE.peak, PULSE.rest], { duration: PULSE.duration, ease: 'easeInOut', times: [0, 0.5, 1] })
+    const run = animate(pulse, [PULSE.rest, PULSE.peak, PULSE.rest], { duration: PULSE.duration, ease: 'easeInOut', times: [0, 0.5, 1] })
     return () => run.stop()
-  }, [key, reduced, glow])
-  return glow
+  }, [key, reduced, pulse])
+  return pulse
 }
 
 /**
@@ -203,7 +203,7 @@ const ENTER: Record<Side, { x: number; y: number }> = {
   inside: { x: 0, y: 0 }
 }
 
-function Caption({ target, hole: cut, bounds, reduced }: { target: SpotlightTarget; hole: Rect; bounds: Rect; reduced: boolean }): ReactNode {
+function Caption({ target, hole: cut, bounds, avoid: outside, reduced }: { target: SpotlightTarget; hole: Rect; bounds: Rect; avoid: Rect[]; reduced: boolean }): ReactNode {
   const voiceOn = useVoice((s) => s.on)
   const index = useLesson((s) => Math.max(0, s.steps.findIndex((x) => x.id === s.stepId)))
   const ref = useRef<HTMLDivElement>(null)
@@ -220,8 +220,8 @@ function Caption({ target, hole: cut, bounds, reduced }: { target: SpotlightTarg
     return () => ro.disconnect()
   }, [])
 
-  const avoid = useOtherUi(ref)
-  const at = placeCaption(cut, { w: CAPTION_W, h: height }, bounds, avoid)
+  const inOverlay = useOtherUi(ref)
+  const at = placeCaption(cut, { w: CAPTION_W, h: height }, bounds, [...inOverlay, ...outside])
   const from = reduced ? { x: 0, y: 0 } : ENTER[at.side]
   const code = target.code ?? target.matched
 
@@ -238,21 +238,24 @@ function Caption({ target, hole: cut, bounds, reduced }: { target: SpotlightTarg
     >
       <div className="flex items-center gap-[12px]">
         <div className="min-w-0 flex-1">
-          <div className="truncate text-[12px]" style={{ color: color.label }}>
+          <div className="truncate" style={{ fontSize: text.xs, color: color.label }}>
             Step {index + 1}
             {target.app ? ` · ${target.app}` : ''}
           </div>
-          <div className="mt-[2px] text-[16px] font-semibold leading-[21px]">{target.caption}</div>
+          <div className="mt-[2px] font-semibold leading-[20px]" style={{ fontSize: text.sm, color: color.text }}>
+            {target.caption}
+          </div>
           {code && (
-            <div className="mt-[3px] truncate font-mono text-[13px]" style={{ color: accentLight }}>
+            <div className="mt-[3px] truncate" style={{ fontFamily: font.mono, fontSize: text.xs, color: color.label }}>
               {code}
             </div>
           )}
         </div>
+        {/* Brand: white on dark when on (accent fill + onAccent icon), quiet glass when off. Never blue. */}
         <button
           data-hit
           className="pointer-events-auto grid h-[34px] w-[34px] shrink-0 cursor-pointer place-items-center rounded-full"
-          style={{ background: voiceOn ? color.accent : accentSoft, color: voiceOn ? 'white' : accentLight }}
+          style={{ background: voiceOn ? color.accent : color.hairline, color: voiceOn ? color.onAccent : color.label }}
           onClick={toggleVoice}
           aria-label={voiceOn ? 'Voice on' : 'Voice off'}
           aria-pressed={voiceOn}

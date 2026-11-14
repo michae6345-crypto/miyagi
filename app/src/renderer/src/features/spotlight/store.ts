@@ -8,7 +8,7 @@ export type SpotlightTarget = Exclude<Payload<'spotlight'>, { clear: true }> & {
 
 /**
  * Cut-order switch (FRONTEND-HANDOFF → "Cut order"): 'dim' = full-screen dim with a rounded cut-out
- * (the real thing); 'outline' = only a glowing outline at the rect, no dim. Flip this one constant
+ * (the real thing); 'outline' = only the hairline ring at the rect, no dim. Flip this one constant
  * to cut the dim; in the browser stage `?spotlight=outline` (or `?spotlight=dim`) overrides it.
  */
 export type SpotlightMode = 'dim' | 'outline'
