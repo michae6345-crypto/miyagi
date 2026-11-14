@@ -86,7 +86,7 @@ Live cards (14 Nov, cold, this network):
 
 | Video | Goal | Card | Latency |
 |---|---|---|---|
-| kCc8FmEb1nY Karpathy "Let's build GPT" | build an LLM | Coding · 1:56:20 · 30 chapters · match 0.9 · "Long video: I'll build 0:00–7:52 first (~42 s)… Hands-on starts at 7:52". Late update: "Needs: Visual Studio Code ✓ Python 3 ✓ torch ✗" + `install` | 4.97 s, late 6.33 s |
+| kCc8FmEb1nY Karpathy "Let's build GPT" | build an LLM | Coding · 1:56:20 · 30 chapters · match 0.9 · "Long video: skipping the 7:52 intro, I'll build 7:52–14:27 first" (when Claude marks 7:52 as the first hands-on chapter; otherwise 0:00–7:52 first). Late update: "Needs: Visual Studio Code ✓ Python 3 ✓ torch ✗" + `install` | 4.97 s, late 6.33 s |
 | zE2MJ3_muNQ "How to Build AI Agent with ChatGPT" (AI Master) | build chat gpt | No-code · 19:29 · 10 chapters · match 0.2 · ⚠ "This video builds no-code support bots, not an LLM." · No code editor needed · "Needs: ChatGPT (web) … Botpress (web) Zapier (web)" | 4.74 s |
 | MXId-Ae6k_I "How to Build a Todo-List-App with React" | build a todo app in React | Coding · 15:04 · 7 chapters · match ~0.95 · "Building takes ~53 s." · "Needs: Visual Studio Code ✓ Node.js ✓" | 4.95 s |
 
@@ -111,7 +111,7 @@ long / chapters / captions`, and the preflight additions:
 - **E2:** done on `claude/michael-lesson-135f28` (1411782). `build_lesson(..., video_meta=pf.video_meta(res))`
   skips the watch-page fetch, and part 1 starts at `firstHandsOn`. Progressive parts reach the app through
   `lesson.ready {complete:false}` + `lesson.updated` (in #29); re-emitting `lesson.ready` also works.
-  Karpathy's part 1 is only 7:52–9:28 (96 s): the next chapter would push it past the 6 min cap.
+  A part 1 under 3 min takes one more chapter, up to 8 min (d701162), so Karpathy's part 1 is 7:52–14:27.
 - **S2:** done in #28. `requirements()` caches by video id, so the preflight warms the real lesson's setup card
   (checked live: 0.01 s, no Claude call). #22 (`web_app` items) is merged, so no-code cards show "Botpress (web)".
 - **E7:** prefetching 3 preflights costs 3 haiku calls per search (~1–2 k tokens each); keep `top=3`.

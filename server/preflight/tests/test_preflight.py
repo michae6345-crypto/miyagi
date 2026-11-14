@@ -201,7 +201,8 @@ def test_build_plan_mirrors_e2_window_1():
     assert p["firstHandsOn"] == {"index": 1, "title": "reading and exploring the data", "start": 472}
     assert p["skippedIntro"] == {"start": 0, "end": 472}
     fc = p["firstChapter"]
-    assert (fc["index"], fc["start"], fc["end"]) == (1, 472, 568) and fc["title"] == "reading and exploring the data"
+    # part 1 under 3 min takes one more chapter while <= 8 min (E2 d701162): 7:52-14:27, not a 96 s part
+    assert (fc["index"], fc["lastIndex"], fc["start"], fc["end"]) == (1, 2, 472, 867) and fc["title"] == "reading and exploring the data"
     assert 30 <= p["estSecondsToFirstSteps"] < 50
     # a hands-on chapter at 22:11 would skip real work: not trusted, no skip
     late = build_plan(m, 4)
@@ -235,7 +236,7 @@ def test_coding_long_video_card():
     assert card["actions"] == ["build", "pick_another", "install"]  # torch missing
     assert "Coding · 1:56:20 · 7 chapters · Andrej Karpathy" in card["body"]
     assert "Needs: Visual Studio Code ✓ Python 3 ✓ PyTorch ✗" in card["body"]
-    assert "Long video: skipping the 7:52 intro, I'll build 7:52–9:28 first" in card["body"]
+    assert "Long video: skipping the 7:52 intro, I'll build 7:52–14:27 first" in card["body"]
     assert "warning" not in card
     assert card["preflight"]["goalMatch"]["score"] == 0.92 and card["items"][2]["install"]["method"] == "pip"
 
@@ -419,3 +420,14 @@ def test_video_meta_for_e2():
     short = run(_pf("MXId-Ae6k_I", "react todo", claude=FakeClaude(REACT)))
     assert "firstHandsOn" not in video_meta(short)
     assert video_meta({"url": "x"}) is None
+
+
+def test_mirror_matches_e2_part_1_rules():
+    chs = parse_chapters("0:00 a\n1:00 b\n7:00 c\n9:00 d\n40:00 e", 3600)
+    # a (1 min) + b (6 min) = 7 min > 6 min cap, but a alone is < 3 min and 7 <= 8: take b
+    assert core._mirror_first(3600, chs) == (0.0, 420.0, ["a", "b"])
+    chs = parse_chapters("0:00 a\n1:00 b\n10:00 c\n12:00 d", 3600)
+    assert core._mirror_first(3600, chs) == (0.0, 60.0, ["a"])  # a + b = 10 min > 8: a stays alone
+    chs = parse_chapters("0:00 long\n40:00 b\n50:00 c", 3600)
+    a, b, titles = core._mirror_first(3600, chs)  # a 40 min chapter is split into ~12 min spans first
+    assert (a, b) == (0.0, 600.0) and titles == ["long (1/4)"]

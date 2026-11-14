@@ -41,6 +41,8 @@ TIMEOUT_S = 5.0
 # videos longer than 30 min are built window by window; window 1 = chapters from 0:00 grouped to 3-6 min.
 LONG_VIDEO_S = float(os.environ.get("LESSON_LONG_VIDEO_S", str(30 * 60)))
 FIRST_MIN_S, FIRST_MAX_S = 3 * 60, 6 * 60
+FIRST_HARD_MAX_S = 8 * 60  # a part 1 still under 3 min may take one more chapter, up to this (E2 d701162)
+WINDOW_TARGET_S, WINDOW_MAX_S = 12 * 60, 15 * 60  # E2 splits a chapter longer than 15 min into ~12 min spans
 FIRST_WINDOW_NO_CHAPTERS_S = 8 * 60
 HANDS_ON_MIN_S = 60  # E2 skips an intro only from 1 min on
 HANDS_ON_MAX_S = 10 * 60  # a "first hands-on chapter" later than this would skip real work: not passed on
@@ -246,18 +248,32 @@ def est_build_s(segment_s: float | None) -> int:
 
 
 def _mirror_first(dur: float, chs: list[dict]) -> tuple[float, float, list[str]]:
-    """E2's window-1 rule: chapters from the start grouped to 3-6 min; 8 min with < 3 chapters."""
+    """E2's part-1 rule (progressive.plan_windows, d701162): chapters from the start grouped to 3-6 min; a part 1
+    still under 3 min takes one more chapter as long as it stays <= 8 min; a chapter > 15 min is split into
+    ~12 min spans; 8 min when there are < 3 chapters."""
     if len(chs) < 3:
         return (0.0, min(dur, FIRST_WINDOW_NO_CHAPTERS_S), [])
-    cur: list[dict] = []
+    spans: list[tuple[float, float, str]] = []
     for c in chs:
-        end = c.get("end") or dur
-        if cur and end - cur[0]["start"] > FIRST_MAX_S and (cur[-1].get("end") or dur) - cur[0]["start"] >= 60:
+        a, b = float(c["start"]), float(c.get("end") or dur)
+        if b <= a:
+            continue
+        if b - a > WINDOW_MAX_S:
+            n = int((b - a) // WINDOW_TARGET_S) + 1
+            spans += [(a + k * (b - a) / n, a + (k + 1) * (b - a) / n, f"{c['title']} ({k + 1}/{n})") for k in range(n)]
+        else:
+            spans.append((a, b, c["title"]))
+    cur: list[tuple[float, float, str]] = []
+    for sp in spans:
+        cur_len = (cur[-1][1] - cur[0][0]) if cur else 0.0
+        with_next = sp[1] - (cur[0][0] if cur else sp[0])
+        too_short = cur_len < FIRST_MIN_S and with_next <= FIRST_HARD_MAX_S  # don't ship a 1-step part 1
+        if cur and with_next > FIRST_MAX_S and cur_len >= 60 and not too_short:
             break
-        cur.append(c)
-        if end - cur[0]["start"] >= FIRST_MIN_S:
+        cur.append(sp)
+        if cur[-1][1] - cur[0][0] >= FIRST_MIN_S:
             break
-    return (float(cur[0]["start"]), float(cur[-1].get("end") or dur), [c["title"] for c in cur])
+    return (cur[0][0], cur[-1][1], [t for _, _, t in cur if t])
 
 
 def _windows(dur: float, chs: list[dict], hands_on: float | None) -> tuple[list[tuple[float, float, list[str]]], bool, bool]:
