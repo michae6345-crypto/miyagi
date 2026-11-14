@@ -1,20 +1,22 @@
 /**
- * Feature: pill. The island's pill-sized states (34px tall, width hugs content), to mockup 01:
- *   idle      no lesson yet: "✧ Learn anything ⌥Space" (click opens the launcher)
- *   building  between Build lesson and the first step: spinner + lesson.building message + progress line
- *   compact   during a lesson: "✧ Step 4 · Define the residual  ◔ ●" (ring = steps done, dot = status)
+ * Feature: pill. The island's pill-sized states (34px tall, width hugs content), to mockup 01 + the
+ * Miyagi brand (app/brand/BRAND.md): always black, the small bonsai on the left, the status on the right.
+ *   idle      no lesson yet: "[bonsai] Ask Miyagi ⌥Space" (click opens the launcher)
+ *   building  between Build lesson and the first step: lesson.building message + spinner + progress line
+ *   compact   during a lesson: "[bonsai] Step 4 · Define the residual  ◔ ●" (ring = steps done, dot = status)
  *
- * Measured from mockup 01 (1×): pad 15 left / 14 right · icon → text 10 · text → ring 15 · ring → dot 9 ·
- * 13px medium · "Step 4 ·" at 55% white, title at 100%.
+ * Measured from mockup 01 (1×): pad 15 left / 14 right · mark → text 10 · text → ring 15 · ring → dot 9 ·
+ * 13px medium · "Step 4 ·" in the muted label color, title in the text color.
  * The step-pass moment (check → ring → flash → crossfade) is driven by ./store.ts.
  */
 import { AnimatePresence } from 'motion/react'
 import type { ReactNode } from 'react'
 import { useShallow } from 'zustand/react/shallow'
-import { Sparkles } from 'lucide-react'
 import { bridge } from '../../bridge'
 import { useLesson } from '../../core/lesson'
 import { defineFeature } from '../../core/registry'
+import { color } from '../../core/theme'
+import { MiyagiMark } from '../../core/ui/Mark'
 import { Kbd, Spinner } from '../../core/ui/atoms'
 import { BuildLine, PillRing, StatusMark, SwapText, type Mark } from './parts'
 import { usePill } from './store'
@@ -22,12 +24,14 @@ import { usePill } from './store'
 function Idle(): ReactNode {
   return (
     <button
-      className="flex h-[34px] cursor-pointer items-center gap-[10px] whitespace-nowrap pl-[15px] pr-[7px] text-[13px] font-medium text-white/85 transition-colors duration-150 hover:text-white"
+      className="group flex h-[34px] cursor-pointer items-center gap-[10px] whitespace-nowrap pl-[15px] pr-[7px]"
+      style={{ color: color.text }}
       onClick={() => bridge.emit('launcher:toggle')}
-      aria-label="Learn anything: open the launcher"
+      aria-label="Ask Miyagi: open the launcher"
     >
-      <Sparkles size={14} strokeWidth={1.75} className="shrink-0" />
-      <span>Learn anything</span>
+      <MiyagiMark size={14} />
+      {/* Type on the span: styles.css's unlayered `button { font: inherit }` beats Tailwind's text-/font- utilities on <button>. */}
+      <span className="text-[13px] font-medium opacity-90 transition-opacity duration-150 group-hover:opacity-100">Ask Miyagi</span>
       {/* Concentric with the pill: 7px inset, fully round (radius 10 inside radius 17). */}
       <Kbd className="!h-[20px] !rounded-full !px-[8px]">{bridge.platform.keys.launcher}</Kbd>
     </button>
@@ -41,11 +45,13 @@ function Building(): ReactNode {
   const kept = usePill((s) => s.buildMessage)
   const text = message ?? kept ?? 'Building your lesson'
   return (
-    <div className="relative flex h-[34px] items-center gap-[10px] whitespace-nowrap pl-[15px] pr-[17px] text-[13px] font-medium">
-      <Spinner size={14} />
-      <SwapText id={text} className="text-white/85">
-        {text}
-      </SwapText>
+    <div className="relative flex h-[34px] items-center whitespace-nowrap pl-[15px] pr-[14px] text-[13px] font-medium" style={{ color: color.text }}>
+      <MiyagiMark size={14} className="mr-[10px]" />
+      <SwapText id={text}>{text}</SwapText>
+      {/* Where the ring will be once the lesson starts, so building → compact keeps its shape. */}
+      <span className="ml-[15px]">
+        <Spinner size={16} />
+      </span>
       <AnimatePresence>{progress !== undefined && <BuildLine progress={progress} />}</AnimatePresence>
     </div>
   )
@@ -90,14 +96,14 @@ function useShown(): Shown & { total: number } {
 function Compact(): ReactNode {
   const s = useShown()
   return (
-    <div className="flex h-[34px] items-center whitespace-nowrap pl-[15px] pr-[14px] text-[13px] font-medium" data-step={s.key}>
-      <Sparkles size={14} strokeWidth={1.75} className="mr-[10px] shrink-0" />
+    <div className="flex h-[34px] items-center whitespace-nowrap pl-[15px] pr-[14px] text-[13px] font-medium" style={{ color: color.text }} data-step={s.key}>
+      <MiyagiMark size={14} className="mr-[10px]" />
       <SwapText id={s.key} className="flex">
         {s.mark === 'done' ? (
           <span>{s.title}</span>
         ) : (
           <>
-            <span className="text-white/55">Step {s.index + 1} ·&nbsp;</span>
+            <span style={{ color: color.label }}>Step {s.index + 1} ·&nbsp;</span>
             <span className="max-w-[240px] truncate">{s.title}</span>
           </>
         )}

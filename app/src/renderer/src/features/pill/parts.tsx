@@ -1,5 +1,6 @@
 /**
  * The pill's small pieces, sized to mockup 01 (measured at 1×: ring 16px / 2.25 stroke, dot 7px).
+ * Brand: the ring is the accent (white), green only for passed, amber only for off track, no glows.
  * The shared atoms in core/ui stay as they are for the cards; these are tuned for the 34px pill.
  */
 import { AnimatePresence, motion, useAnimate, useReducedMotion } from 'motion/react'
@@ -31,8 +32,9 @@ export function PillRing({
   }, [fraction])
   const on = fraction > 0.001
   return (
-    <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`} className="shrink-0 -rotate-90 text-white/25">
-      <circle cx={size / 2} cy={size / 2} r={r} fill="none" stroke="currentColor" strokeWidth={stroke} />
+    <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`} className="shrink-0 -rotate-90">
+      {/* Track: the arc's own color, dimmed (like the Activity rings). */}
+      <circle cx={size / 2} cy={size / 2} r={r} fill="none" stroke={color.accent} strokeOpacity={0.22} strokeWidth={stroke} />
       <motion.circle
         cx={size / 2}
         cy={size / 2}
@@ -52,17 +54,15 @@ export function PillRing({
 /**
  * The status slot: a 7px dot (gray watching · amber off-track · green passed) that becomes a
  * 16px green check while a step pass is being celebrated, then settles back into a dot.
- * Off-track: the dot eases to amber and pulses twice (scale 1 → 1.35 → 1, two soft halos). Once per episode.
+ * Off-track: the dot eases to amber and pulses twice (scale 1 → 1.35 → 1). Once per episode. No glow, no halo.
  */
 export function StatusMark({ mark }: { mark: Mark }): ReactNode {
   const tone = mark === 'offtrack' ? color.amber : mark === 'watching' ? color.gray : color.green
   const off = useLesson((s) => s.offtrack)
   const reduced = useReducedMotion()
   const [dot, animate] = useAnimate<HTMLSpanElement>()
-  const [pulse, setPulse] = useState(0)
   useEffect(() => {
     if (mark !== 'offtrack' || !off || pulsedOfftrack.has(off)) return
-    setPulse((n) => n + 1)
     // Two calm beats while the color eases to amber. No shake, no red.
     if (!reduced) animate(dot.current, { scale: [1, 1.35, 1, 1.35, 1] }, { duration: 1.1, ease: 'easeInOut', delay: 0.15 })
     // Count the episode as seen only if we stayed on screen for the beats. When offtrack arrives the
@@ -73,26 +73,7 @@ export function StatusMark({ mark }: { mark: Mark }): ReactNode {
 
   return (
     <span className="relative inline-block h-[7px] w-[7px] shrink-0" data-mark={mark}>
-      {pulse > 0 &&
-        [0, 0.55].map((delay) => (
-          <motion.span
-            key={`${pulse}-${delay}`}
-            className="absolute inset-0 rounded-full"
-            style={{ background: color.amber }}
-            initial={{ scale: 1, opacity: 0 }}
-            animate={{ scale: [1, 3], opacity: [0.4, 0] }}
-            transition={{ duration: 0.9, ease: 'easeOut', delay: 0.15 + delay }}
-          />
-        ))}
-      <span
-        ref={dot}
-        className="absolute inset-0 rounded-full"
-        style={{
-          backgroundColor: tone,
-          boxShadow: mark === 'watching' ? `0 0 0 ${tone}` : `0 0 6px ${tone}`,
-          transition: 'background-color .3s ease, box-shadow .3s ease'
-        }}
-      />
+      <span ref={dot} className="absolute inset-0 rounded-full" style={{ backgroundColor: tone, transition: 'background-color .3s ease' }} />
       <AnimatePresence>
         {mark === 'check' && (
           <motion.svg
@@ -174,7 +155,8 @@ export function SwapText({ id, children, className = '' }: { id: string; childre
 export function BuildLine({ progress }: { progress: number }): ReactNode {
   return (
     <motion.span
-      className="pointer-events-none absolute bottom-[4px] left-[17px] right-[17px] h-[2px] overflow-hidden rounded-full bg-white/10"
+      className="pointer-events-none absolute bottom-[4px] left-[17px] right-[17px] h-[2px] overflow-hidden rounded-full"
+      style={{ background: color.hairline }}
       initial={{ opacity: 0 }}
       animate={{ opacity: 1 }}
       exit={{ opacity: 0 }}
