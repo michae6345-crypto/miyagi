@@ -117,11 +117,22 @@ class ScreenObservation:
     ocr_ms: float = 0.0           # how long OCR took for this frame
     frame: int = 0                # monotonically increasing frame counter
     source: str = "live"          # "live", or "fixture:<file>" (explicit/DEMO replay; never silent)
+    cursor: tuple[float, float] | None = None   # mouse x,y (points, top-left) at capture time
+    under_cursor: dict | None = None    # what's under the mouse: see ScreenReader.cursor_context()
+    ax: dict | None = None              # AX snapshot (focused editor / terminal / file / dirty)
+    ax_lines: dict[str, list[str]] = field(default_factory=dict)  # {app: lines} read via AX (exact, incl. off-screen)
+    trigger: str = "tick"               # why this frame was captured: tick|click|typing_pause|app_switch|...
+    overlay_excluded: bool = False      # overlay left out at capture time (ScreenCaptureKit)
 
     def text(self, app: str | None = None) -> str:
-        """All OCR text, one block per line; optionally only the blocks inside `app`'s windows."""
+        """All OCR text, one block per line, plus exact AX text (editor buffer page / terminal rows)
+        for matching apps; optionally only `app`'s windows."""
         from .match import app_matches
-        return "\n".join(b.text for b in self.blocks if app is None or app_matches(app, b.app))
+        lines = [b.text for b in self.blocks if app is None or app_matches(app, b.app)]
+        for a, ax_lines in self.ax_lines.items():
+            if app is None or app_matches(app, a):
+                lines.extend(ax_lines)
+        return "\n".join(lines)
 
     def blocks_in(self, app: str | None) -> list[Block]:
         from .match import app_matches
@@ -136,12 +147,17 @@ class ScreenObservation:
         out: dict[str, list[str]] = {}
         for ln in group_lines(self.blocks):
             out.setdefault(ln.app or "", []).append(ln.text)
+        for a, ax_lines in self.ax_lines.items():  # AX text: exact, unsaved, includes scrolled-off lines
+            have = set(out.get(a, []))
+            out.setdefault(a, []).extend(x for x in ax_lines if x not in have)
         return out
 
     def to_dict(self, with_blocks: bool = True) -> dict:
         d = {"t": self.t, "app": self.app, "windows": [w.to_dict() for w in self.windows],
              "screen": self.screen.to_dict(), "scale": self.scale, "ocr_ms": round(self.ocr_ms, 1),
-             "frame": self.frame, "source": self.source}
+             "frame": self.frame, "source": self.source, "trigger": self.trigger,
+             "cursor": {"x": self.cursor[0], "y": self.cursor[1]} if self.cursor else None,
+             "under_cursor": self.under_cursor, "ax": self.ax, "overlay_excluded": self.overlay_excluded}
         if with_blocks:
             d["blocks"] = [b.to_dict() for b in self.blocks]
         return d

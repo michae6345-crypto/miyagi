@@ -15,6 +15,7 @@ from pathlib import Path
 from . import match as M
 from .describe import DescribeError, Describer, to_jpeg
 from .metrics import TerminalMetricReader, TigerWriter
+from .privacy import is_private_app, redact
 from .types import Block, Rect, ScreenObservation, ScreenPermissionError, Window
 
 log = logging.getLogger("server.screen")
@@ -39,9 +40,22 @@ class ScreenReader:
     """
 
     def __init__(self, interval: float = 2.0, max_age: float = 15.0, diff_pixels: int = 3,
-                 fixture: str | None = None):
+                 fixture: str | None = None, debounce: float = 1.5, heartbeat_with_events: float = 5.0,
+                 use_ax: bool = True, use_events: bool = True):
         _load_env()
         self.interval = interval
+        self.debounce = debounce
+        self.heartbeat_with_events = heartbeat_with_events
+        self.use_ax = use_ax and os.environ.get("TUT_AX", "1") != "0"
+        self.use_events = use_events and os.environ.get("TUT_EVENTS", "1") != "0"
+        self.use_sck = os.environ.get("TUT_CAPTURE", "sck") != "cg"
+        self.ax_reader = None       # server.screen.ax.AXReader once started (None: AX unavailable)
+        self.events = None          # server.screen.events.EventTriggers once started
+        self._sck = None
+        self._sck_failed = False
+        self._pending_reason = "tick"
+        self._force_next = False
+        self._last_capture = 0.0
         self.max_age = max_age
         self.diff_pixels = diff_pixels
         # Fixtures are used ONLY when asked for explicitly (arg / TUT_SCREEN_FIXTURE), or under
@@ -74,6 +88,10 @@ class ScreenReader:
         if self._thread and self._thread.is_alive():
             return self
         self._stop.clear()
+        if sys.platform == "darwin" and not self.fixture:
+            self._start_sensors()
+        self.poke("start", force=True)
+        self._last_capture = 0.0
         self._thread = threading.Thread(target=self._run, name="screen-reader", daemon=True)
         self._thread.start()
         return self
@@ -83,22 +101,62 @@ class ScreenReader:
         self._wake.set()
         if self._thread:
             self._thread.join(timeout=5)
+        if self.ax_reader:
+            self.ax_reader.stop()
+        if self.events:
+            self.events.stop()
 
-    def poke(self) -> None:
-        """Capture now instead of waiting for the next tick (e.g. right after a run ended)."""
-        self._prev_thumb = None
+    def _start_sensors(self) -> None:
+        """AX worker (10 Hz) + event-tap triggers. Each degrades to nothing without permission."""
+        if self.use_ax and self.ax_reader is None:
+            try:
+                from .ax import AXReader
+                self.ax_reader = AXReader().start()
+                if self.ax_reader.available:
+                    self.ax_reader.on_change(self._on_ax_change)
+            except Exception as e:  # noqa: BLE001
+                log.warning("AX reader unavailable: %s", e)
+        if self.use_events and self.events is None:
+            try:
+                from .events import EventTriggers
+                self.events = EventTriggers(lambda reason, info: self.poke(reason, force=False)).start()
+            except Exception as e:  # noqa: BLE001
+                log.warning("event triggers unavailable: %s", e)
+
+    def _on_ax_change(self, snap, what: str) -> None:
+        # text changes fire typing_pause later; caret moves are too chatty to capture on
+        if what in ("app", "document", "dirty", "terminal", "typing_pause"):
+            self.poke(what, force=False)
+
+    def poke(self, reason: str = "manual", force: bool = True) -> None:
+        """Capture now instead of waiting for the next tick (e.g. right after a run ended).
+        force=True also re-OCRs an unchanged screen. Captures are debounced (>= `debounce` s apart)."""
+        self._pending_reason = reason
+        self._force_next = self._force_next or force
         self._wake.set()
+
+    @property
+    def heartbeat(self) -> float:
+        """Seconds between captures when nothing triggers one."""
+        return self.heartbeat_with_events if (self.events and self.events.available) else self.interval
 
     def _run(self) -> None:
         while not self._stop.is_set():
-            t0 = time.time()
+            woke = self._wake.wait(self.heartbeat)
+            self._wake.clear()
+            if self._stop.is_set():
+                break
+            wait = self.debounce - (time.time() - self._last_capture)
+            if woke and wait > 0:
+                self._stop.wait(wait)
+                self._wake.clear()  # pokes during the debounce window are coalesced into this capture
+            reason = self._pending_reason if woke else "tick"
+            force, self._force_next, self._pending_reason = self._force_next, False, "tick"
             try:
-                self.observe_now(force=False)
+                self.observe_now(force=force, trigger=reason)
             except Exception as e:
                 if not isinstance(e, ScreenPermissionError):
                     log.exception("screen capture/OCR failed")
-            self._wake.wait(max(0.05, self.interval - (time.time() - t0)))
-            self._wake.clear()
 
     # ------------------------------------------------------------------ health / errors / keys
 
@@ -234,10 +292,15 @@ class ScreenReader:
         from . import macos
         if self.fixture:
             img, screen, scale, windows, app = load_fixture(self.fixture)
-            return img, screen, scale, windows, app, f"fixture:{Path(self.fixture).name}"
+            return img, screen, scale, windows, app, f"fixture:{Path(self.fixture).name}", False
         try:
             if not macos.has_permission():
                 raise macos.ScreenPermissionError(macos.PERMISSION_HELP)
+            sck = self._sck_capture()
+            if sck is not None:
+                img, screen, scale, excluded = sck
+                windows = [w for w in macos.list_windows(screen) if w.app not in excluded]
+                return img, screen, scale, windows, None, "live", True
             f = macos.capture_main_display()
         except macos.ScreenPermissionError:
             if not self._permission_warned:
@@ -247,16 +310,34 @@ class ScreenReader:
             if self.demo and fixtures:
                 log.warning("DEMO=1 and no Screen Recording permission: replaying %s", fixtures[0].name)
                 img, screen, scale, windows, app = load_fixture(str(fixtures[0]))
-                return img, screen, scale, windows, app, f"fixture:{fixtures[0].name}"
+                return img, screen, scale, windows, app, f"fixture:{fixtures[0].name}", False
             raise
-        return f.image, f.screen, f.scale, macos.list_windows(f.screen), None, "live"
+        return f.image, f.screen, f.scale, macos.list_windows(f.screen), None, "live", False
 
-    def observe_now(self, force: bool = True) -> ScreenObservation | None:
+    def _sck_capture(self):
+        """ScreenCaptureKit with our overlay excluded; None -> use the CoreGraphics fallback."""
+        if not self.use_sck or self._sck_failed:
+            return None
+        try:
+            if self._sck is None:
+                from .sck import SCKCapturer
+                self._sck = SCKCapturer()
+            img, screen, scale = self._sck.capture()
+            return img, screen, scale, set(self._sck.excluded_apps)
+        except ScreenPermissionError:
+            raise
+        except Exception as e:  # noqa: BLE001
+            log.warning("ScreenCaptureKit failed (%s); falling back to CGDisplayCreateImage + overlay masking", e)
+            self._sck_failed = True
+            return None
+
+    def observe_now(self, force: bool = True, trigger: str = "manual") -> ScreenObservation | None:
         """Capture + OCR synchronously. With force=False, skips OCR when nothing changed."""
         from . import macos
         with self._capture_lock:
+            self._last_capture = time.time()
             try:
-                img, screen, scale, windows, fixture_app, source = self._grab()
+                img, screen, scale, windows, fixture_app, source, overlay_excluded = self._grab()
             except Exception as e:
                 self._set_error(e)
                 raise
@@ -274,12 +355,18 @@ class ScreenReader:
             self._prev_thumb, self._prev_layout = thumb, layout
 
             blocks, ms = macos.ocr_image(img, screen, scale)
-            blocks = M.drop_inside(blocks, overlay)
+            if not overlay_excluded:  # CG fallback: the overlay is in the pixels, drop its text
+                blocks = M.drop_inside(blocks, overlay)
             blocks = M.reading_order(M.assign_windows(blocks, windows))
+            blocks = [Block(redact(b.text), b.rect, b.confidence, b.app, b.window) for b in blocks
+                      if not is_private_app(b.app)]
             self._frame += 1
             obs = ScreenObservation(t=time.time(), app=fixture_app or macos.frontmost_app(windows),
                                     windows=windows, blocks=blocks, screen=screen, scale=scale,
-                                    ocr_ms=ms, frame=self._frame, source=source)
+                                    ocr_ms=ms, frame=self._frame, source=source, trigger=trigger,
+                                    overlay_excluded=overlay_excluded)
+            if source == "live":
+                self._attach_cursor_and_ax(obs)
             self.ocr_ms_history = (self.ocr_ms_history + [ms])[-50:]
             with self._lock:
                 self._latest, self._latest_image = obs, img
@@ -302,6 +389,52 @@ class ScreenReader:
             except Exception:
                 log.exception("screen subscriber failed")
         return obs
+
+    # ------------------------------------------------------------------ cursor + AX
+
+    def _attach_cursor_and_ax(self, obs: ScreenObservation) -> None:
+        snap = self.ax_reader.latest() if self.ax_reader else None
+        if snap is not None and time.time() - snap.t > 2.0:
+            snap = None
+        if snap is not None:
+            obs.ax = _redact_ax(snap.to_dict())
+            lines = (snap.editor.text.split("\n") if snap.editor else []) + list(snap.terminal_lines)
+            if sum(len(x) for x in lines) >= 100:  # under ~100 chars AX is unreliable: OCR only
+                obs.ax_lines = {snap.app: [redact(x) for x in lines]}
+        ctx = self.cursor_context(obs, snap)
+        obs.cursor = (ctx["x"], ctx["y"])
+        obs.under_cursor = ctx
+
+    def cursor_context(self, obs: ScreenObservation | None = None, snap=None) -> dict:
+        """Where the mouse is and what's under it, for every observation and the coach payload:
+        {x, y, app, window, ocr_line, ocr_rect, ax: {role, title, value, rect}, editor_line,
+         editor_line_text, caret_line}. Live: cheap enough to call on demand (~1 ms + one AX read)."""
+        from .ax import mouse_location
+        x, y = mouse_location()
+        obs = obs or self.latest()
+        out: dict = {"x": round(x, 1), "y": round(y, 1)}
+        if obs is not None:
+            w = M.window_at_point(obs, x, y)
+            out["app"], out["window"] = (w.app, w.title) if w else (None, None)
+            ln = M.line_at_point(obs, x, y)
+            out["ocr_line"] = ln.text if ln else None
+            out["ocr_rect"] = ln.rect.to_dict() if ln else None
+        if snap is None and self.ax_reader is not None:
+            snap = self.ax_reader.latest()
+        if snap is not None:
+            if snap.under_mouse is not None:
+                out["ax"] = _redact_ax(snap.under_mouse.to_dict())
+            ed = snap.editor
+            if ed is not None:
+                out["caret_line"] = ed.caret_line
+                hover = ed.line_at_y(y)
+                if hover is not None and ed.line_rect and ed.line_rect.x - 80 <= x <= ed.line_rect.x2:
+                    out["editor_line"] = hover
+                    t = ed.line_text(hover)
+                    out["editor_line_text"] = redact(t) if t is not None else None
+                    r = ed.rect_for_line(hover)
+                    out["editor_line_rect"] = r.to_dict() if r else None
+        return out
 
     def screenshot_pil(self, region=None):
         """The last captured frame as a PIL image (overlay blacked out), optionally cropped to a
@@ -359,6 +492,19 @@ def _mask_thumb(thumb: bytes, rects: list[Rect], screen: Rect) -> bytes:
         for y in range(max(0, y0), y1):
             buf[y * THUMB_W + max(0, x0): y * THUMB_W + x1] = bytes(max(0, x1 - max(0, x0)))
     return bytes(buf)
+
+
+def _redact_ax(d: dict) -> dict:
+    """Scrub PII from string values of an AX dict (recursively)."""
+    def walk(v):
+        if isinstance(v, str):
+            return redact(v)
+        if isinstance(v, dict):
+            return {k: walk(x) for k, x in v.items()}
+        if isinstance(v, list):
+            return [walk(x) for x in v]
+        return v
+    return walk(d)
 
 
 def load_fixture(path: str):
