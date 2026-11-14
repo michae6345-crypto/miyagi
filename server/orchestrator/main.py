@@ -23,6 +23,8 @@ from fastapi import Body, FastAPI, WebSocket, WebSocketDisconnect
 
 from shared.contracts.events import parse_app_message
 
+from server import config as server_config
+
 from . import config, recorder
 from .hub import Hub
 from .modules import Modules
@@ -54,9 +56,14 @@ class Engine:
         self.watcher.start()
         if not self.screen.start(self.session.on_screen):
             self.session.screen = None  # precision mode only (files + tut run)
+        if config.env_flag("ORCH_AUTOSTART") and config.lesson_file():
+            graph = self.modules._lesson_file()
+            if graph:
+                await self.session.load_graph(graph)  # no app needed: the lesson is live from the start
         self._ticker = asyncio.create_task(self._tick_loop())
-        log.info("engine up: demo=%s modules=%s workdir=%s", self.modules.demo, self.modules.describe(),
-                 self.session.workdir)
+        log.info("engine up: demo=%s modules=%s workdir=%s screen=%s precision=%s", self.modules.demo,
+                 self.modules.describe(), self.session.workdir, self.session.screen_active(),
+                 config.precision_setting())
 
     async def stop(self) -> None:
         await self.watcher.stop()
@@ -94,30 +101,23 @@ class Engine:
             await self.hub.emit("config.status", apply_keys(p.model_dump()))
 
 
-# config.keys name -> env var the modules read. Keys stay in this process's memory; never logged.
-KEY_ENV = {"anthropic": "ANTHROPIC_API_KEY", "gemini": "GEMINI_API_KEY", "brightdata": "BRIGHTDATA_API_KEY",
-           "elevenlabs": "ELEVENLABS_API_KEY", "tigerUrl": "TIGER_DATABASE_URL"}
+# config.keys -> server.config (get_key) + the env vars modules read. Memory only; never logged.
+KEY_ENV = server_config.KEY_ENV
 _ENV_AT_START = {name: os.environ.get(var, "") for name, var in KEY_ENV.items()}
-
-
-def _usable(v: str | None) -> bool:
-    return bool(v) and "..." not in v
 
 
 def apply_keys(keys: dict) -> dict:
     """Use the app's keys over .env (bring-your-own-key); answer with presence only."""
-    status = {}
+    server_config.set_app_keys(keys)
     for name, var in KEY_ENV.items():
-        v = (keys.get(name) or "").strip()
-        if _usable(v):
-            os.environ[var] = v
-            status[name] = "ok"
-        elif _usable(_ENV_AT_START[name]):
+        app_key = server_config._app_keys.get(name)
+        if app_key:
+            os.environ[var] = app_key
+        elif _ENV_AT_START[name]:
             os.environ[var] = _ENV_AT_START[name]
-            status[name] = "env"
         else:
-            status[name] = "missing"
-    return status
+            os.environ.pop(var, None)
+    return {name: server_config.key_source(name) for name in KEY_ENV}
 
 
 def _redact(raw: dict) -> dict:
@@ -256,7 +256,8 @@ def run() -> None:
     import uvicorn
 
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(levelname)s %(message)s")
-    uvicorn.run(app, host="0.0.0.0", port=config.port(), log_level="info")
+    # ENGINE_HOST=0.0.0.0 lets Adrian's app reach this Mac over the LAN (ws://<mac>.local:8787)
+    uvicorn.run(app, host=os.environ.get("ENGINE_HOST", "127.0.0.1"), port=config.port(), log_level="info")
 
 
 if __name__ == "__main__":

@@ -10,6 +10,7 @@ never kills the demo.
 
 from __future__ import annotations
 
+import asyncio
 import dataclasses
 import importlib
 import inspect
@@ -122,9 +123,28 @@ class Modules:
         ok, out = await self._try_real("finder", "search", query)
         if ok and out is not None:
             return [_to_dict(r) for r in out]
+        lesson = self._lesson_file()
+        if lesson:  # offer the ORCH_LESSON tutorial so the launcher matches the lesson that gets built
+            kinds = {"video": "YouTube", "paper": "Paper", "notebook": "Notebook", "repo": "Code", "blog": "Article"}
+            return [{"id": f"r{i + 1}", "kind": src.get("kind", "video"), "title": src.get("title", "Tutorial"),
+                     "meta": kinds.get(src.get("kind", ""), "Source"), "score": round(0.95 - 0.1 * i, 2),
+                     "reason": "Best match for your goal" if i == 0 else "Supporting source",
+                     "url": src.get("url", "")}
+                    for i, src in enumerate(lesson.get("sources", [])[:5])]
         return await stubs.search(query)
 
     # -- lesson
+    def _lesson_file(self) -> dict | None:
+        from .config import lesson_file
+
+        p = lesson_file()
+        if p is None:
+            return None
+        g = _read_json(p)
+        if g is None:
+            log.warning("ORCH_LESSON=%s could not be read", p)
+        return g
+
     async def build_lesson(self, source_url: str, goal: str, workdir: str) -> dict:
         if self.demo:
             cached = self._cache("lesson.json")
@@ -133,9 +153,25 @@ class Modules:
                 cached = _read_json(files[0]) if files else None
             if cached is not None:
                 return cached
-        ok, out = await self._try_real("lesson", "build_lesson", source_url, goal, workdir)
+            if (g := self._lesson_file()) is not None:
+                return g
+        fn = self._real_fn("lesson", "build_lesson")
+        kwargs = {}
+        if fn is not None and _accepts(fn, "api_key"):
+            from server.config import get_key
+
+            kwargs["api_key"] = get_key("gemini")
+        timeout = float(os.environ.get("ORCH_BUILD_TIMEOUT_S", "90"))
+        try:
+            ok, out = await asyncio.wait_for(
+                self._try_real("lesson", "build_lesson", source_url, goal, workdir, **kwargs), timeout)
+        except asyncio.TimeoutError:
+            log.warning("build_lesson took over %.0fs; using the fallback lesson", timeout)
+            ok, out = False, None
         if ok and out:
             return _to_dict(out)
+        if (g := self._lesson_file()) is not None:
+            return g
         return await stubs.build_lesson(source_url, goal, workdir)
 
     # -- checks (always local: the demo is a real run)

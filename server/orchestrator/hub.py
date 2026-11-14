@@ -35,7 +35,7 @@ class Hub:
     async def emit(self, type_: str, payload: dict[str, Any] | None = None) -> None:
         msg = self.encode(type_, payload or {})
         self.history.append(msg)
-        if type_ != "metric":
+        if type_ not in ("metric", "screen.seen"):  # screen.seen carries OCR'd screen text: keep it out of logs
             log.info("-> %s %s", type_, json.dumps(msg["payload"], ensure_ascii=False)[:200])
         dead = []
         for ws in list(self.clients):

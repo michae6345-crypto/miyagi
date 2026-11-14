@@ -73,6 +73,22 @@ def resolve_workdir(lesson_workdir: str | None) -> Path:
     return default_workdir()
 
 
+def lesson_file() -> Path | None:
+    """ORCH_LESSON=<step graph json> (absolute or repo-relative): the lesson used when live building
+    isn't possible (no Gemini key / not cached) and, with ORCH_AUTOSTART=1, loaded at startup."""
+    v = os.environ.get("ORCH_LESSON")
+    if not v:
+        return None
+    p = Path(v).expanduser()
+    return p if p.is_absolute() else REPO_ROOT / p
+
+
+def precision_setting() -> str:
+    """ORCH_PRECISION=auto (workdir on disk or a tut run) | on | off (screen checks only)."""
+    v = os.environ.get("ORCH_PRECISION", "auto").strip().lower()
+    return v if v in ("auto", "on", "off") else "auto"
+
+
 # Timings (seconds). Overridable for tests.
 IDLE_GATE_S = float(os.environ.get("ORCH_IDLE_GATE_S", "5"))
 ADVANCE_DELAY_S = float(os.environ.get("ORCH_ADVANCE_DELAY_S", "0.4"))

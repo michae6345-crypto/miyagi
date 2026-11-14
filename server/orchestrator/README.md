@@ -13,6 +13,22 @@ TUT_WORKDIR=/tmp/tut-work .venv/bin/python -m server.orchestrator.main        # 
 .venv/bin/python -m pytest server/orchestrator -q                               # state-machine tests
 ```
 
+### Live mode (watch the real screen)
+
+```bash
+ENGINE_HOST=0.0.0.0 ORCH_AUTOSTART=1 ORCH_PRECISION=off \
+ORCH_LESSON=server/lesson/fixtures/toscano_pinn_part1.expected.json \
+.venv/bin/python -m server.orchestrator.main
+```
+The screen reader (E6) starts and the lesson goes live immediately (`ORCH_AUTOSTART`). Every changed frame re-runs `evaluate_gate`, the spotlight
+follows the step's `target.match` on screen, terminal losses are read via `metric_pattern`, and failures go to the live coach. `ENGINE_HOST=0.0.0.0`
+makes it reachable at `ws://<mac>.local:8787`. **macOS permission:** Screen Recording (System Settings › Privacy & Security › Screen & System Audio Recording)
+for the app that launches python (Terminal, iTerm, VS Code…). `.env` comes from `TUT_ENV`, this checkout, or the main checkout.
+No real screen handy? `TUT_SCREEN_FIXTURE=server/screen/fixtures/vscode_terminal_flat.png` replays a saved VS Code + Terminal screenshot.
+
+`demo/recordings/engine-sample.jsonl` is ~60 s of real engine output (OCR, spotlight rects, live coach card, hint/explain, diagram, green) in
+`app/mock`'s `{wait, type, payload}` format.
+
 `--autopilot` is a fake learner that drives the **real** state machine. It reports player positions (`video.state`), writes the canned
 PINN solution into the workdir step by step, and POSTs simulated training runs to `/ingest`: a β=30 plateau, then `apply_fix`,
 then a β-curriculum run. It only writes `pinn_convection.py` and refuses to overwrite one it didn't create, so point
@@ -24,6 +40,11 @@ then a β-curriculum run. It only writes `pinn_convection.py` and refuses to ove
 | var | default | meaning |
 |---|---|---|
 | `ENGINE_PORT` | 8787 | port |
+| `ENGINE_HOST` | 127.0.0.1 | bind address; `0.0.0.0` for LAN access |
+| `ORCH_LESSON` | (none) | step-graph JSON used when live building isn't possible (and by the stub finder) |
+| `ORCH_AUTOSTART` | 0 | `1` = load `ORCH_LESSON` at startup, no launcher needed |
+| `ORCH_PRECISION` | auto | `auto` (workdir on disk or a `tut run`), `on`, or `off` (screen checks only) |
+| `ORCH_BUILD_TIMEOUT_S` | 90 | give up on a live lesson build and use the fallback |
 | `TUT_WORKDIR` | lesson's `workdir`, else `demo/pinn` | folder the learner works in (watched for saves) |
 | `DEMO` | 0 | `1` = serve `demo/cache/` files, never call live APIs (falls back to stubs) |
 | `ORCH_STUBS` | (empty) | `all` or `lesson,coach,...` = force stubs even if the real module exists |
@@ -40,7 +61,8 @@ then a β-curriculum run. It only writes `pinn_convection.py` and refuses to ove
 
 | module | what the orchestrator calls |
 |---|---|
-| lesson | `await build_lesson(source_url, goal, workdir) -> step graph` |
+| lesson | `await build_lesson(source_url, goal, workdir, api_key=get_key("gemini")) -> step graph`, with a timeout, then `ORCH_LESSON`, then the stub |
+| keys | `server/config.py`: `get_key("anthropic")` (the app's `config.keys` > `.env`) for every module |
 | checks | `evaluate_gate(step, ctx, screen=lines_by_app, precision_mode=bool) -> {passed, via, checks, precision}`. `ctx` is `server.checks.RunContext(**matching fields)` (workdir, exit_code, output_tail, metrics, command, running, screen), or our `context.RunContext`. Only runs started **during the current step** count; a `tut run` beats the same curve read off the screen. |
 | coach | `set_lesson(graph)`; `await diagnose(step, failed_checks, metrics, code_excerpt, error_text=tail)` → `public(card)` → `offtrack`; `await explain(step, question, context)` → `card`; `hint(step, level, last_offtrack)` → `card`; `apply_fix(diff, file_text)["new_text"]` (written only on the learner's `apply_fix`, and only if it compiles) |
 | screen | `get_reader()`: `start`, `subscribe(on_obs)` → re-evaluate, `locate_match(match, app)` → `spotlight{rect}`, `watch_metrics(lesson_id, {metric: metric_pattern})` → metrics, `set_overlay_bounds` ← `overlay.bounds` |

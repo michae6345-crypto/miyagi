@@ -108,6 +108,8 @@ class LessonSession:
         self.last_activity = self.clock()
         self.passed = False
         self.last_offtrack: dict | None = None
+        self.spot_track: tuple[str, str | None, str] | None = None  # (match, app, caption) to follow on screen
+        self.spot_rect: dict | None = None
         self.step_gen = getattr(self, "step_gen", 0) + 1  # invalidates stale timers/coach results
 
     def _spawn(self, coro, *, timer: bool = False) -> asyncio.Task:
@@ -176,7 +178,11 @@ class LessonSession:
         return (step.get("precision_checks") if self._precision_display(step) else step.get("checks")) or []
 
     def precision_mode(self) -> bool:
-        """Known workdir on disk, or a `tut run` this step -> precision_checks may also pass the step."""
+        """Known workdir on disk, or a `tut run` this step -> precision_checks may also pass the step.
+        ORCH_PRECISION=on/off overrides (off = screen checks only, e.g. live screen demos)."""
+        setting = config.precision_setting()
+        if setting != "auto":
+            return setting == "on"
         if any(not r.run_id.startswith("screen-") for r in self.step_runs):
             return True
         return Path(self.workdir).is_dir()
@@ -367,13 +373,36 @@ class LessonSession:
         return {**spot, "caption": caption}
 
     async def _spotlight_target(self, step: dict) -> bool:
-        """Spotlight the step's first target that is visible on screen (rect in screen points)."""
-        for t in step.get("targets") or []:
-            spot = self._locate(t.get("match") or "", t.get("app"), t.get("caption", ""))
+        """Spotlight the step's first target that is visible on screen (rect in screen points).
+        The target is remembered, so later frames re-place the spotlight when it scrolls into view or moves."""
+        tlist = [t for t in step.get("targets") or [] if t.get("match")]
+        if tlist and self.spot_track is None:
+            t = tlist[0]
+            self.spot_track = (t["match"], t.get("app"), t.get("caption", ""))
+        for t in tlist:
+            spot = self._locate(t["match"], t.get("app"), t.get("caption", ""))
             if spot:
-                await self.emit("spotlight", spot)
+                self.spot_track = (t["match"], t.get("app"), t.get("caption", ""))
+                await self._show_spot(spot)
                 return True
         return False
+
+    async def _show_spot(self, spot: dict) -> None:
+        self.spot_rect = spot["rect"]
+        await self.emit("spotlight", spot)
+
+    async def _follow_spot(self) -> None:
+        """On a new frame: move the spotlight with its target (only if it moved > 4pt)."""
+        if self.spot_track is None or self.passed or self.step is None:
+            return
+        match, app, caption = self.spot_track
+        spot = self._locate(match, app, caption)
+        if not spot:
+            return
+        r, old = spot["rect"], self.spot_rect
+        if old and all(abs(r[k] - old[k]) <= 4 for k in ("x", "y", "w", "h")):
+            return
+        await self._show_spot(spot)
 
     async def _pass_step(self) -> None:
         step = self.step
@@ -511,7 +540,8 @@ class LessonSession:
 
     def _maybe_coach(self, step: dict, failed: list[dict], ctx: RunContext) -> None:
         last = ctx.last_run
-        key = (step["id"], tuple(sorted(r.get("checkId", "") for r in failed)), last.run_id if last else None)
+        # one card per run (a run that keeps failing doesn't re-nag); with no run, one per distinct failure set
+        key = (step["id"], "run", last.run_id) if last else (step["id"], tuple(sorted(r.get("checkId", "") for r in failed)))
         if self.coaching or key == self.coached_key:
             return
         self.coached_key = key
@@ -538,7 +568,8 @@ class LessonSession:
             first = (diff.get("yours") or "").strip().splitlines()[:1]
             spot = self._locate(re.escape(first[0]), None, card.get("title", "")) if first else None
             if spot:
-                await self.emit("spotlight", spot)
+                self.spot_track = (re.escape(first[0]), None, card.get("title", ""))
+                await self._show_spot(spot)
             else:
                 await self._spotlight_target(step)
             await self._status("offtrack")
@@ -559,6 +590,7 @@ class LessonSession:
             await self.emit("screen.seen", {"app": app, "summary": summary, "t": float(getattr(obs, "t", 0) or 0)})
         if self.step is not None:
             await self.evaluate("screen")
+            await self._follow_spot()
 
     def overlay_bounds(self, rects: list[dict]) -> None:
         if self.screen is not None:

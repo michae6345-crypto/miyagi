@@ -353,12 +353,18 @@ def test_config_keys_status_never_echoes_keys(monkeypatch):
     from server.orchestrator import main
 
     for var in main.KEY_ENV.values():  # apply_keys writes os.environ; restore it afterwards
-        monkeypatch.setenv(var, os.environ.get(var, ""))
+        monkeypatch.setenv(var, "")
+    monkeypatch.setenv("GEMINI_API_KEY", "g-from-env")
     monkeypatch.setitem(main._ENV_AT_START, "gemini", "g-from-env")
-    monkeypatch.setitem(main._ENV_AT_START, "brightdata", "")
+    for name in main.KEY_ENV:
+        monkeypatch.setitem(main._ENV_AT_START, name, "g-from-env" if name == "gemini" else "")
     st = main.apply_keys({"anthropic": "sk-test-123", "tigerUrl": "postgres://..."})
-    assert st == {"anthropic": "ok", "gemini": "env", "brightdata": "missing", "elevenlabs": st["elevenlabs"],
-                  "tigerUrl": st["tigerUrl"]}
+    assert st == {"anthropic": "ok", "gemini": "env", "brightdata": "missing", "elevenlabs": "missing",
+                  "tigerUrl": "missing"}
+    from server.config import get_key, set_app_keys
+
+    assert get_key("anthropic") == "sk-test-123" and get_key("gemini") == "g-from-env"
+    set_app_keys({})
     assert "sk-test-123" not in str(st)
     engine_message("config.status", st)
     assert main._redact({"type": "config.keys", "payload": {"anthropic": "sk"}})["payload"] == "<redacted>"
@@ -521,3 +527,31 @@ def test_record_then_replay_passes_the_hero_step(rig):
     run_id = run(go())
     assert run_id.startswith("replay-good")
     assert rig.of("step.passed")[-1] == {"stepId": "s6"}
+
+
+def test_spotlight_follows_target_and_precision_off(tmp_path, monkeypatch):
+    monkeypatch.setenv("TUT_WORKDIR", str(tmp_path))
+    monkeypatch.setenv("ORCH_PRECISION", "off")
+    (tmp_path / "pinn_convection.py").write_text("# done already\n")
+    screen = FakeScreen()
+    rig = Rig(tmp_path, screen=screen)
+
+    async def go():
+        await rig.start_lesson()
+        await rig.end_segment()
+        assert rig.s.step["id"] == "s1"  # file exists, but precision is off: screen checks only
+        await rig.s.goto_step(1)
+        await rig.settle()
+        await rig.end_segment()  # target not visible yet: no spotlight
+        assert not [p for p in rig.of("spotlight") if "rect" in p]
+        screen.text["Code"] = ["x = 1", "net = nn.Sequential("]
+        await rig.s.on_screen(types.SimpleNamespace(app="Code", t=1.0))
+        await rig.settle()
+        screen.text["Code"] = ["# scrolled", "x = 1", "net = nn.Sequential("]
+        await rig.s.on_screen(types.SimpleNamespace(app="Code", t=2.0))
+        await rig.s.on_screen(types.SimpleNamespace(app="Code", t=3.0))  # unchanged: no re-send
+        await rig.settle()
+
+    run(go())
+    ys = [p["rect"]["y"] for p in rig.of("spotlight") if "rect" in p]
+    assert ys == [120.0, 140.0]
