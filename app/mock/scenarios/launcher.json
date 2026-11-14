@@ -3,7 +3,8 @@
   "on": {
     "action:ask@step4": "ask_step4",
     "action:ask@step6": "ask_step6",
-    "learn": "search_checked"
+    "learn": "search_checked",
+    "end_lesson": "end_lesson"
   },
   "segments": {
     "ask_step4": [
@@ -91,6 +92,22 @@
           "chapters": 30,
           "captions": true,
           "verified": true
+        }
+      }
+    ],
+    "end_lesson": [
+      {
+        "wait": 150,
+        "type": "lesson.ended",
+        "payload": {
+          "reason": "end_lesson"
+        }
+      },
+      {
+        "wait": 0,
+        "type": "status",
+        "payload": {
+          "state": "idle"
         }
       }
     ]
