@@ -174,3 +174,59 @@ def test_evaluate_step_all_and_filtered(wd):
     assert [r["checkId"] for r in only_files] == ["c1"]
     assert step_passed(only_files)
     assert not step_passed([])
+
+
+# ---------------------------------------------------------------- screen-first
+OBS = {
+    "t": 1.0, "app": "Code",
+    "windows": [
+        {"app": "Code", "title": "pinn_convection.py", "rect": {"x": 0, "y": 0, "w": 800, "h": 900}},
+        {"app": "Terminal", "title": "zsh", "rect": {"x": 800, "y": 0, "w": 640, "h": 900}},
+    ],
+    "blocks": [
+        {"text": "def pde_residual(u_t, u_x, beta):", "rect": {"x": 20, "y": 100, "w": 300, "h": 14}, "confidence": 0.95},
+        {"text": "    return u_t + beta * u_x", "rect": {"x": 20, "y": 116, "w": 300, "h": 14}, "confidence": 0.9},
+        {"text": "epoch 100 loss 0.2504", "rect": {"x": 820, "y": 100, "w": 200, "h": 14}, "confidence": 0.9},
+        {"text": "epoch 200 loss O.2501", "rect": {"x": 820, "y": 116, "w": 200, "h": 14}, "confidence": 0.9},
+        {"text": "ModuleNotFoundError: No module named 'torch'", "rect": [820, 132, 300, 14], "confidence": 0.9},
+        {"text": "garbled", "rect": [820, 148, 50, 14], "confidence": 0.1},
+    ],
+}
+
+
+def test_screen_contains_and_absent_with_app_scope():
+    sc = {"id": "s1", "type": "screen_contains", "label": "residual typed", "pattern": r"u_t\s*\+\s*beta\s*\*\s*u_x", "app": "code"}
+    assert status(sc, RunContext()) == "pending"  # no observation yet
+    assert evaluate_step({"checks": [sc]}, screen=OBS)[0]["status"] == "pass"
+    assert status({**sc, "app": "Terminal"}, RunContext(screen=OBS)) == "fail"  # it's in the editor, not the terminal
+    assert status({**sc, "app": "Safari"}, RunContext(screen=OBS)) == "pending"  # app not on screen
+    ab = {"id": "s2", "type": "screen_absent", "label": "no import error", "pattern": "ModuleNotFoundError", "app": "Terminal"}
+    r = evaluate_check(ab, RunContext(screen=OBS))
+    assert r["status"] == "fail" and "ModuleNotFoundError" in r["detail"]
+    assert status({**ab, "pattern": "Traceback"}, RunContext(screen=OBS)) == "pass"
+    assert status({**sc, "pattern": "garbled", "app": None}, RunContext(screen=OBS)) == "fail"  # low-confidence block dropped
+
+
+def test_screen_per_app_dict_and_line_wrap():
+    screen = {"Terminal": ["Epoch 3: loss went", "down to 0.01"], "Code": "x = 1"}
+    c = {"id": "w", "type": "screen_contains", "label": "x", "pattern": r"loss went down", "app": "Terminal"}
+    assert status(c, RunContext(screen=screen)) == "pass"  # matched across an OCR line break
+
+
+def test_metric_pattern_reads_terminal_text():
+    pat = r"epoch\s+(?P<step>\d+).*?loss\s+(?P<value>[0-9.eEO+-]+)"
+    c = {"id": "m", "type": "metric_threshold", "label": "loss < 0.3", "metric": "loss", "metric_pattern": pat,
+         "op": "<", "value": 0.3, "app": "Terminal"}
+    r = evaluate_check(c, RunContext(screen=OBS))
+    assert r["status"] == "pass" and "step 200" in r["detail"]  # 'O.2501' OCR slip read as 0.2501
+    # ctx.metrics (E6/orchestrator accumulated history) wins over the visible lines
+    assert status(c, RunContext(screen=OBS, metrics={"loss": [(5000, 0.9)] * 5}, exit_code=0)) == "fail"
+
+
+def test_metric_pattern_trend_from_output_without_metric_name():
+    lines = [f"it {s} | loss {0.25 * 0.999 ** s:.5f}" for s in range(0, 3000, 50)]
+    c = {"id": "trend1", "type": "metric_trend", "label": "loss dropping", "trend": "not_flat", "window": 1500,
+         "metric_pattern": r"it (?P<step>\d+) \| loss (?P<value>\S+)"}
+    assert status(c, RunContext(output_tail=lines, running=True, command="x")) == "pass"
+    flat = [f"it {s} | loss {0.2504 - s * 1e-7:.5f}" for s in range(0, 3000, 50)]
+    assert status(c, RunContext(output_tail=flat, running=True, command="x")) == "fail"

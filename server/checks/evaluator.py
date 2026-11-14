@@ -16,6 +16,7 @@ Status semantics (``CheckStatus`` in ``shared/contracts/events.ts``):
 """
 from __future__ import annotations
 
+import dataclasses
 import math
 import os
 import re
@@ -24,6 +25,8 @@ import statistics
 from collections.abc import Iterable
 from dataclasses import dataclass, field
 from typing import Any, Literal, TypedDict
+
+from .screen import extract_metrics, screen_text, search_screen
 
 CheckStatus = Literal["pending", "pass", "fail"]
 
@@ -44,6 +47,12 @@ class RunContext:
     most recent run (str or list of lines). ``exit_code`` is None while running or
     before any run. ``visual`` holds verdicts the orchestrator obtained from a
     vision model: ``{check_id: {"pass": bool, "detail": str}}``.
+
+    Screen-first: ``screen`` is the latest ScreenObservation from ``server.screen``
+    (dict or object, or ``{app: [lines]}``; see ``screen.py``). Metrics read off
+    the screen by E6 should be merged into ``metrics`` by the orchestrator; when a
+    metric check has a ``metric_pattern`` and ``metrics`` has nothing for it, the
+    evaluator parses the visible terminal text (and the run output) itself.
     """
 
     workdir: str = "."
@@ -53,6 +62,7 @@ class RunContext:
     command: str | None = None
     running: bool = False
     visual: dict[str, dict[str, Any]] = field(default_factory=dict)
+    screen: Any = None
 
     @property
     def has_run(self) -> bool:
@@ -210,18 +220,30 @@ def _output_contains(check: dict, ctx: RunContext) -> CheckResult:
     return _result(check, "pending", "waiting for output…")
 
 
-def _series(ctx: RunContext, name: str) -> list[tuple[int, float]]:
-    pts = [(int(s), float(v)) for s, v in ctx.metrics.get(name, []) if v is not None and math.isfinite(float(v))]
+def _metric_name(check: dict) -> str | None:
+    return check.get("metric") or (str(check.get("id")) if check.get("metric_pattern") else None)
+
+
+def _series(ctx: RunContext, name: str, check: dict | None = None) -> list[tuple[int, float]]:
+    raw = list(ctx.metrics.get(name, []))
+    pattern = (check or {}).get("metric_pattern")
+    if not raw and pattern:
+        texts = [screen_text(ctx.screen, check.get("app")) or "", ctx.output_text()]
+        merged: dict[int, float] = {}
+        for t in texts:
+            merged.update(extract_metrics(pattern, t))
+        raw = sorted(merged.items())
+    pts = [(int(s), float(v)) for s, v in raw if v is not None and math.isfinite(float(v))]
     pts.sort(key=lambda p: p[0])
     return pts
 
 
 def _metric_threshold(check: dict, ctx: RunContext) -> CheckResult:
-    name, op, target = check.get("metric"), check.get("op"), check.get("value")
+    name, op, target = _metric_name(check), check.get("op"), check.get("value")
     if not name or op not in _OPS or target is None:
-        return _result(check, "fail", "check needs 'metric', 'op' and 'value'")
+        return _result(check, "fail", "check needs 'metric' (or 'metric_pattern'), 'op' and 'value'")
     by_step = check.get("by_step")
-    pts = _series(ctx, name)
+    pts = _series(ctx, name, check)
     if not pts:
         if ctx.run_finished:
             return _result(check, "fail", f"run logged no '{name}' metric")
@@ -309,12 +331,12 @@ def _metric_trend(check: dict, ctx: RunContext) -> CheckResult:
     * ``decreasing`` passes when both estimates show a drop of at least
       DECREASING_MIN_REL_DROP (2%).
     """
-    name = check.get("metric")
+    name = _metric_name(check)
     trend = check.get("trend")
     if not name or trend not in ("not_flat", "decreasing"):
-        return _result(check, "fail", "check needs 'metric' and trend 'not_flat'|'decreasing'")
+        return _result(check, "fail", "check needs 'metric' (or 'metric_pattern') and trend 'not_flat'|'decreasing'")
     window = int(check.get("window") or DEFAULT_TREND_WINDOW)
-    pts = _series(ctx, name)
+    pts = _series(ctx, name, check)
     if not pts:
         if ctx.run_finished:
             return _result(check, "fail", f"run logged no '{name}' metric")
@@ -340,6 +362,35 @@ def _metric_trend(check: dict, ctx: RunContext) -> CheckResult:
     return _result(check, "pass" if ok else "fail", desc + ("" if ok else " — plateau"))
 
 
+def _screen(check: dict, ctx: RunContext, absent: bool) -> CheckResult:
+    pattern, app = check.get("pattern"), check.get("app")
+    if not pattern:
+        return _result(check, "fail", "check has no 'pattern'")
+    where = f" in {app}" if app else " on screen"
+    text = screen_text(ctx.screen, app)
+    if text is None:
+        return _result(check, "pending", f"{app} not visible" if app and ctx.screen is not None else "waiting for screen")
+    try:
+        m = search_screen(pattern, text)
+    except re.error as exc:
+        return _result(check, "fail", f"invalid pattern: {exc}")
+    if absent:
+        if m:
+            return _result(check, "fail", f"still showing {m.group(0)[:80]!r}{where}")
+        return _result(check, "pass", f"not showing{where}")
+    if m:
+        return _result(check, "pass", f"seen{where}: {m.group(0)[:80]!r}")
+    return _result(check, "fail", f"not seen{where}")
+
+
+def _screen_contains(check: dict, ctx: RunContext) -> CheckResult:
+    return _screen(check, ctx, absent=False)
+
+
+def _screen_absent(check: dict, ctx: RunContext) -> CheckResult:
+    return _screen(check, ctx, absent=True)
+
+
 def _visual(check: dict, ctx: RunContext) -> CheckResult:
     verdict = ctx.visual.get(str(check.get("id")))
     if not verdict:
@@ -349,6 +400,8 @@ def _visual(check: dict, ctx: RunContext) -> CheckResult:
 
 
 _HANDLERS = {
+    "screen_contains": _screen_contains,
+    "screen_absent": _screen_absent,
     "file_exists": _file_exists,
     "file_contains": _file_contains,
     "command_exit_ok": _command_exit_ok,
@@ -358,6 +411,7 @@ _HANDLERS = {
     "visual": _visual,
 }
 FILE_CHECK_TYPES = frozenset({"file_exists", "file_contains"})
+SCREEN_CHECK_TYPES = frozenset({"screen_contains", "screen_absent"})
 RUN_CHECK_TYPES = frozenset({"command_exit_ok", "output_contains", "metric_threshold", "metric_trend"})
 
 
@@ -371,8 +425,16 @@ def evaluate_check(check: dict, ctx: RunContext) -> CheckResult:
         return _result(check, "fail", f"check error: {type(exc).__name__}: {exc}")
 
 
-def evaluate_step(step: dict, ctx: RunContext, types: Iterable[str] | None = None) -> list[CheckResult]:
-    """Evaluate every check of ``step`` (or only those whose type is in ``types``)."""
+def evaluate_step(step: dict, ctx: RunContext | None = None, types: Iterable[str] | None = None,
+                  screen: Any = None) -> list[CheckResult]:
+    """Evaluate every check of ``step`` (or only those whose type is in ``types``).
+
+    ``screen`` (a ScreenObservation) overrides ``ctx.screen``; ``ctx`` may be omitted
+    for screen-only evaluation.
+    """
+    ctx = ctx or RunContext()
+    if screen is not None:
+        ctx = dataclasses.replace(ctx, screen=screen)
     wanted = set(types) if types is not None else None
     return [evaluate_check(c, ctx) for c in step.get("checks", []) if wanted is None or c.get("type") in wanted]
 

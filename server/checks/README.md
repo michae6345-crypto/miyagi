@@ -8,6 +8,8 @@ ctx = RunContext(workdir=lesson_workdir, command=last_cmd, running=False, exit_c
                  visual={"c9": {"pass": True, "detail": "..."}})
 results = evaluate_step(step, ctx)                         # [{checkId, label, status, detail}]
 results = evaluate_step(step, ctx, types=FILE_CHECK_TYPES) # on a file save
+results = evaluate_step(step, ctx, screen=screen.latest())  # screen-first: ScreenObservation (dict or object)
+results = evaluate_step(step, screen=obs, types=SCREEN_CHECK_TYPES)  # on a new OCR frame
 if step_passed(results): ...                               # every check passes (and there is at least one)
 ```
 
@@ -15,6 +17,8 @@ A **pure function**: no network, no DB, no model calls. It never raises: a malfo
 
 | type | pass | fail | pending |
 |---|---|---|---|
+| `screen_contains` | regex found in the OCR text (scoped to `app` windows if given; also tried with whitespace collapsed, so it survives OCR line wraps) | not seen | no observation, or `app` not on screen |
+| `screen_absent` | regex not in the (scoped) OCR text | still showing (detail quotes it) | no observation, or `app` not on screen |
 | `file_exists` | file present | missing | – |
 | `file_contains` | regex (MULTILINE) found; detail gives `file:line` | file missing / no match / bad regex | – |
 | `command_exit_ok` | the last run of the same script exited 0 | exited ≠ 0 | no run yet, still running, or the last run was a different script (flags may differ) |
@@ -22,6 +26,15 @@ A **pure function**: no network, no DB, no model calls. It never raises: a malfo
 | `metric_threshold` | median of the last 5 points (≤ `by_step`) satisfies `op value` | `by_step` reached or run ended without it | still training |
 | `metric_trend` | see below | see below | < 6 points or < 50 % of `window` covered |
 | `visual` | `ctx.visual[id].pass` | `ctx.visual[id]` is false | no verdict supplied (the orchestrator calls the vision model) |
+
+### Screen-first details (`screen.py`)
+- Accepts a ScreenObservation `{t, app, windows[{app,title,rect}], blocks[{text,rect,confidence,app?}]}` or `{app: [lines]|text}`.
+  A block belongs to the frontmost window (first in `windows`) that contains its centre. Rects can be `{x,y,w,h}`/`{x,y,width,height}`/`[x,y,w,h]`.
+  `app` matching is a case-insensitive substring. Blocks with confidence < 0.3 are dropped.
+- `metric_pattern` (on `metric_threshold`/`metric_trend`): `ctx.metrics[metric]` is authoritative, so E6/the orchestrator should accumulate
+  screen-read metrics there (run_id `screen-<lesson>`). Only when it's empty does the evaluator apply the pattern itself to the visible
+  terminal text (+ run output). Named groups `step`/`value` (without `step`, line order is used); it tolerates OCR slips like `O.25`.
+  Without `metric`, the series is keyed by the check id. `extract_metrics(pattern, text)` is exported so E6 can reuse the same parser.
 
 ### `metric_trend`: thresholds
 The window is the points with `step ≥ latest_step − window` (default window 1000). Two robust estimates of the relative change:
