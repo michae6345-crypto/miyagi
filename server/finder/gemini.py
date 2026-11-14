@@ -238,47 +238,6 @@ async def skim(key: str, goal: str, video: dict, warnings_: list[str], *, timeou
     return out
 
 
-# --------------------------------------------------------------------------- page read (non-video)
-
-READ_SCHEMA = {
-    "type": "object",
-    "properties": {
-        "teaches_goal": {"type": "boolean"},
-        "score": {"type": "integer"},
-        "summary": {"type": "string"},
-        "prerequisites": {"type": "array", "items": {"type": "string"}},
-        "code": {"type": "string"},
-    },
-    "required": ["teaches_goal", "score", "summary", "prerequisites", "code"],
-}
-
-READ_SYSTEM = """You read a web page (tutorial, notebook, repository README or paper) for a learner.
-Judge only from the page text given. teaches_goal: does it actually teach the learner's goal step by step?
-score 0-100 with the same rubric as for videos (exact topic, runnable code, clear, current libraries).
-summary: at most 12 words, concrete, e.g. "Teaches DDPM end to end, PyTorch, needs UNet basics".
-prerequisites: 0-4 short items the learner must know first. code: one short line on what code it gives
-(language, libraries, notebook or script), or "no code"."""
-
-READ_PROMPT = """Learner's goal: {goal}
-Page: {title} ({url})
-
-Page text:
-{text}"""
-
-
-async def read(key: str, goal: str, item: dict, text: str, *, timeout: float = 8.0) -> dict:
-    out = await _json(
-        key, triage_models(),
-        [types.Part(text=READ_PROMPT.format(goal=goal, title=item["title"], url=item["url"], text=text[:14000]))],
-        READ_SCHEMA, system=READ_SYSTEM, timeout=timeout, hedge_after=3.0,
-    )
-    out["score"] = clamp(out.get("score"))
-    out["summary"] = short(out.get("summary", ""))
-    out["prerequisites"] = [str(p)[:60] for p in (out.get("prerequisites") or [])][:4]
-    out["code"] = str(out.get("code") or "")[:140]
-    return out
-
-
 def failure(e: BaseException) -> str:
     """Why Gemini didn't answer, in the words the row shows: quota | timeout | error."""
     msg = str(e)

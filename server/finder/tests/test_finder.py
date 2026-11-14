@@ -155,30 +155,42 @@ def test_search_replay_without_gemini(offline):
     assert [r["id"] for r in again] == [r["id"] for r in rows] and offline == []
 
 
-def test_search_replay_with_gemini_scores(offline, monkeypatch):
-    monkeypatch.setenv("GEMINI_API_KEY", "test-key")
+def test_search_replay_claude_scores_gemini_watches(offline, monkeypatch):
+    monkeypatch.setenv("GEMINI_API_KEY", "test-gemini")
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "test-anthropic")
 
-    async def fake_score(key, goal, cands, **kw):
+    async def claude_score(key, goal, cands, **kw):
         return {c["id"]: {"score": 90 if "convection" in c["title"].lower() else 40,
                           "reason": "Exact topic, runnable code" if "convection" in c["title"].lower() else "Adjacent topic"}
                 for c in cands}
+
+    async def claude_read(key, goal, item, text, **kw):
+        return {"teaches_goal": True, "score": 88, "summary": "Teaches it end to end with PyTorch code",
+                "prerequisites": ["autograd"], "code": "PyTorch script"}
 
     async def fake_skim(key, goal, video, warns, **kw):
         return {"score": 99 if "S5" in video["title"] else 10, "reason": "Clear, 22 min, PyTorch code-along",
                 "hands_on": True, "outdated": False}
 
-    async def no_grounding(ctx, q):
+    async def gemini_must_not_score(*a, **kw):
+        raise AssertionError("Gemini scored although Claude answered")
+
+    async def no_claude_search(ctx, q, **kw):
         return []
 
-    monkeypatch.setattr(gemini, "score", fake_score)
+    monkeypatch.setattr(claude, "score", claude_score)
+    monkeypatch.setattr(claude, "read", claude_read)
     monkeypatch.setattr(gemini, "skim", fake_skim)
-    monkeypatch.setattr(sources, "gemini_grounded", no_grounding)
+    monkeypatch.setattr(gemini, "score", gemini_must_not_score)
+    monkeypatch.setattr(sources, "claude_search", no_claude_search)
     rows = asyncio.run(search("train a PINN on the convection equation", use_cache=False))
     _check_rows(rows)
     top = rows[0]
     assert top["kind"] == "video" and "S5" in top["title"]
-    assert top["reason"] == "Clear, 22 min, PyTorch code-along"
-    assert rows == sorted(rows, key=lambda r: -r["score"]) or rows[1:] == sorted(rows[1:], key=lambda r: -r["score"])
+    assert top["reason"] == "Clear, 22 min, PyTorch code-along" and top["watched"] == "watched by Gemini"
+    read = [r for r in rows if r.get("watched") == "read by Claude"]
+    assert read and all(r["kind"] != "video" and r["prerequisites"] == ["autograd"] for r in read)
+    assert all(r["scoredBy"].startswith("claude") for r in rows)
 
 
 def test_orchestrator_call_shape(offline):
@@ -226,7 +238,7 @@ def test_claude_search_keeps_only_tool_result_urls(monkeypatch):
     assert info["queries"] == ["diffusion pytorch tutorial"] and info["picked"] == 1
 
 
-def test_claude_scores_when_gemini_is_out_of_quota(offline, monkeypatch):
+def test_rows_say_plainly_when_not_watched_or_read(offline, monkeypatch):
     monkeypatch.setenv("GEMINI_API_KEY", "test-gemini")
     monkeypatch.setenv("ANTHROPIC_API_KEY", "test-anthropic")
 
@@ -236,22 +248,48 @@ def test_claude_scores_when_gemini_is_out_of_quota(offline, monkeypatch):
     async def claude_score(key, goal, cands, **kw):
         return {c["id"]: {"score": 77, "reason": "Scored by Claude"} for c in cands}
 
+    async def claude_read_timeout(*a, **kw):
+        raise asyncio.TimeoutError()
+
     async def no_source(ctx, q, **kw):
         return []
 
-    monkeypatch.setattr(gemini, "score", gemini_429)
     monkeypatch.setattr(gemini, "skim", gemini_429)
-    monkeypatch.setattr(gemini, "read", gemini_429)
     monkeypatch.setattr(claude, "score", claude_score)
-    monkeypatch.setattr(sources, "gemini_grounded", no_source)
+    monkeypatch.setattr(claude, "read", claude_read_timeout)
     monkeypatch.setattr(sources, "claude_search", no_source)
     rows = asyncio.run(search("train a PINN on the convection equation", use_cache=False))
     _check_rows(rows)
-    assert all(r["scoredBy"] == "claude" for r in rows)  # never the keyword fallback while Claude works
+    assert all(r["scoredBy"] == "claude" for r in rows)
     top_video = rows[0]
     assert top_video["watched"] == "not watched: Gemini quota"  # said plainly, never faked
     assert "not watched: Gemini quota" in top_video["meta"]
-    assert any(r.get("watched") == "not read: Gemini quota" for r in rows if r["kind"] != "video")
+    assert any(r.get("watched", "").startswith("not read: Claude") for r in rows if r["kind"] != "video")
+
+
+def test_gemini_scores_only_when_claude_fails(offline, monkeypatch):
+    monkeypatch.setenv("GEMINI_API_KEY", "test-gemini")
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "test-anthropic")
+
+    async def claude_down(*a, **kw):
+        raise RuntimeError("anthropic 529 overloaded")
+
+    async def gemini_score(key, goal, cands, **kw):
+        return {c["id"]: {"score": 60, "reason": "Gemini fallback"} for c in cands}
+
+    async def skim_ok(key, goal, video, warns, **kw):
+        return {"score": 70, "reason": "Watched", "hands_on": True, "outdated": False}
+
+    async def no_source(ctx, q, **kw):
+        return []
+
+    monkeypatch.setattr(claude, "score", claude_down)
+    monkeypatch.setattr(claude, "read", claude_down)
+    monkeypatch.setattr(gemini, "score", gemini_score)
+    monkeypatch.setattr(gemini, "skim", skim_ok)
+    monkeypatch.setattr(sources, "claude_search", no_source)
+    rows = asyncio.run(search("train a PINN on the convection equation", use_cache=False))
+    assert {r["scoredBy"].split("+")[0] for r in rows} == {"gemini"}
 
 
 def test_claude_candidates_flow_into_results(offline, monkeypatch):

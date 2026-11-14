@@ -95,9 +95,4 @@ def skim_models() -> list[str]:
     return _chain("FINDER_SKIM_MODEL", "gemini-3.1-flash-lite,gemini-3.5-flash-lite")
 
 
-def grounding_model() -> str:
-    load_env()
-    return os.environ.get("FINDER_GROUNDING_MODEL", "gemini-3.1-flash-lite")
-
-
 CACHE_DIR = ROOT / "demo" / "cache" / "search"

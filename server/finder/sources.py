@@ -1,8 +1,8 @@
 """Real search sources. Each returns raw candidates: dicts with at least url/title/kind/via.
 
 Nothing here invents a URL: every candidate comes from a search index (YouTube's own
-results page, Google via Bright Data SERP, DuckDuckGo, GitHub, arXiv) or from Gemini's
-Google Search grounding metadata (the cited result URLs, not model-written text).
+results page, Google via Bright Data SERP, DuckDuckGo, GitHub, arXiv) or from the result
+blocks of Claude's web search tool (never from model-written text).
 """
 
 from __future__ import annotations
@@ -11,7 +11,6 @@ import asyncio
 import html as htmllib
 import logging
 import re
-import time
 import xml.etree.ElementTree as ET
 from dataclasses import dataclass, field
 from urllib.parse import parse_qs, unquote, urlencode, urlparse
@@ -267,58 +266,6 @@ def parse_arxiv(xml_text: str) -> list[dict]:
             "verified": True,  # returned by the arXiv API itself
         })
     return out
-
-
-# --------------------------------------------------------------------------- Gemini + Google Search grounding
-
-_grounding_off_until = 0.0
-
-
-async def gemini_grounded(ctx: Ctx, query: str) -> list[dict]:
-    """Ask Gemini (with the google_search tool) for tutorials; keep ONLY the URLs in the
-    grounding metadata (real Google results), resolve their redirects, read their titles."""
-    global _grounding_off_until
-    if not ctx.keys.gemini or time.monotonic() < _grounding_off_until:
-        return []
-    from google.genai import types
-
-    from .gemini import client
-    from .env import grounding_model
-
-    prompt = (
-        f"Search the web for the best hands-on resources to learn: {query}\n"
-        "Find blog post tutorials, Colab/Jupyter notebooks, GitHub repositories and YouTube video tutorials "
-        "with runnable code. Briefly list them."
-    )
-    try:
-        resp = await client(ctx.keys.gemini).aio.models.generate_content(
-            model=grounding_model(),
-            contents=prompt,
-            config=types.GenerateContentConfig(tools=[types.Tool(google_search=types.GoogleSearch())], temperature=0.2),
-        )
-    except Exception as e:
-        if "429" in str(e) or "RESOURCE_EXHAUSTED" in str(e):
-            _grounding_off_until = time.monotonic() + 600
-        raise
-    ctx.used.add("gemini-search")
-    gm = resp.candidates[0].grounding_metadata if resp.candidates else None
-    chunks = (gm.grounding_chunks if gm else None) or []
-    uris = [(c.web.uri, c.web.title) for c in chunks if c.web and c.web.uri]
-
-    async def resolve(uri: str, title: str) -> dict | None:
-        try:
-            r = await ctx.client.get(uri, timeout=6)
-        except httpx.HTTPError:
-            return None
-        final = str(r.url)
-        if r.status_code >= 400 or skip(final):
-            return None
-        m = re.search(r"<title[^>]*>(.*?)</title>", r.text[:200_000], re.S | re.I)
-        page_title = _clean(m.group(1)) if m else title
-        return {"url": final, "title": page_title or title, "description": "", "kind": classify(final), "via": "gemini-search", "verified": True}
-
-    found = await asyncio.gather(*(resolve(u, t) for u, t in uris[:12]))
-    return [f for f in found if f]
 
 
 # --------------------------------------------------------------------------- Claude + web search tool

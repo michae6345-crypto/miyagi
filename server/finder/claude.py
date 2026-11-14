@@ -1,7 +1,8 @@
-"""Claude: the primary planner + searcher (server-side web search tool), and the triage
-fallback when Gemini is out of quota.
+"""Claude does everything except watching videos (Michael's rule, Sat ~2:30 PM):
+plans and runs the searches (server-side web search tool), scores every candidate, and reads
+the top non-video resources. Gemini only skims YouTube videos.
 
-Search rule (same as Gemini grounding): a candidate counts only if its URL appears in the
+Search rule: a candidate counts only if its URL appears in the
 web_search tool's actual result blocks. URLs Claude writes in its answer that the tool never
 returned are dropped.
 
@@ -156,3 +157,66 @@ async def score(key: str, goal: str, cands: list[dict], *, system: str, prompt: 
     text = next((b.text for b in resp.content if b.type == "text"), "{}")
     data = json.loads(text)
     return {i["id"]: {"score": max(0, min(100, int(i.get("score", 0)))), "reason": i.get("reason", "")} for i in data.get("items", []) if i.get("id")}
+
+
+# --------------------------------------------------------------------------- page read (non-video)
+
+READ_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "teaches_goal": {"type": "boolean"},
+        "score": {"type": "integer"},
+        "summary": {"type": "string"},
+        "prerequisites": {"type": "array", "items": {"type": "string"}},
+        "code": {"type": "string"},
+    },
+    "required": ["teaches_goal", "score", "summary", "prerequisites", "code"],
+    "additionalProperties": False,
+}
+
+READ_SYSTEM = """You read a web page (tutorial, notebook, repository README or paper) for a learner.
+Judge only from the page text given. teaches_goal: does it actually teach the learner's goal step by step?
+score 0-100: exact topic, runnable code, clear, current libraries.
+summary: at most 12 words, concrete, e.g. "Teaches DDPM end to end, PyTorch, needs UNet basics".
+prerequisites: 0-4 short items the learner must know first. code: one short line on what code it gives
+(language, libraries, notebook or script), or "no code"."""
+
+READ_PROMPT = """Learner's goal: {goal}
+Page: {title} ({url})
+
+<page_text>
+{text}
+</page_text>"""
+
+
+async def read(key: str, goal: str, item: dict, text: str, *, timeout: float = 8.0) -> dict:
+    resp = await client(key).messages.create(
+        model=model(),
+        max_tokens=2000,
+        system=READ_SYSTEM,
+        output_config={"effort": "low", "format": {"type": "json_schema", "schema": READ_SCHEMA}},
+        messages=[{"role": "user", "content": READ_PROMPT.format(goal=goal, title=item["title"], url=item["url"], text=text[:14000])}],
+        timeout=timeout,
+    )
+    if resp.stop_reason == "refusal":
+        raise RuntimeError("Claude declined to read the page")
+    out = json.loads(next((b.text for b in resp.content if b.type == "text"), "{}"))
+    words = str(out.get("summary") or "").strip().rstrip(".").split()
+    return {
+        "teaches_goal": bool(out.get("teaches_goal")),
+        "score": max(0, min(100, int(out.get("score") or 0))),
+        "summary": " ".join(words[:12]),
+        "prerequisites": [str(p)[:60] for p in (out.get("prerequisites") or [])][:4],
+        "code": str(out.get("code") or "")[:140],
+    }
+
+
+def failure(e: BaseException) -> str:
+    """Why Claude didn't answer, in the words a row shows."""
+    if isinstance(e, anthropic.RateLimitError):
+        return "rate limit"
+    if isinstance(e, (anthropic.APITimeoutError,)) or "timed out" in str(e).lower():
+        return "timeout"
+    if isinstance(e, anthropic.APIStatusError) and e.status_code >= 500:
+        return "overloaded"
+    return "error"

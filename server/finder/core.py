@@ -2,15 +2,19 @@
 
     results = await search("train a PINN on the convection equation", on_result, api_keys)
 
-Pipeline (target: first result < 4 s, done < 20 s):
-  1. at t=0: YouTube search for the raw query  ||  Gemini plans per-source queries
-  2. after the plan: web search (Bright Data SERP → Google, else DuckDuckGo) for a written
-     tutorial and a notebook, GitHub repos, arXiv papers, Gemini + Google Search grounding
-  3. every candidate is verified (oEmbed for videos, an HTTP request for the rest) and
-     scored by Gemini for the learner's goal; results stream through on_result as they land
-  4. the top videos get a low-fps Gemini skim (+ Bright Data comments when configured),
-     then one calibration pass re-scores everything; the ranked list is returned
-     (best video first, since build_lesson needs a video) and cached in demo/cache/search/.
+Who does what (Michael's rule): Claude searches, scores and reads; Gemini only watches videos.
+
+Pipeline (target: first result ~4 s, done < 20 s):
+  1. at t=0, in parallel: Claude + its web search tool (plans and runs 2-3 searches), the
+     YouTube results page, web search (Bright Data SERP -> Google, else DuckDuckGo) for a
+     tutorial and a notebook, GitHub repos, arXiv papers
+  2. every candidate is verified (oEmbed for videos, an HTTP request for the rest) and
+     scored by Claude for the learner's goal (Gemini only if Claude fails); rows stream
+     through on_result as they land
+  3. Gemini skims the top videos at low fps (+ Bright Data comments when configured);
+     Claude reads the top non-video pages (teaches the goal? prerequisites? code?)
+  4. the ranked list is returned (best video first, since build_lesson needs a video) and
+     cached in demo/cache/search/.
 """
 
 from __future__ import annotations
@@ -257,8 +261,6 @@ class _Run:
             jobs["youtube-2"] = sources.youtube_search(self.ctx, f"{topic} tutorial code", limit=6)
         if self.keys.anthropic:  # primary planner + searcher
             jobs["claude"] = sources.claude_search(self.ctx, q, timeout=max(4.0, SOURCES_BUDGET_S - 1.5))
-        if self.keys.gemini:
-            jobs["gemini-search"] = sources.gemini_grounded(self.ctx, q)
         tasks = [asyncio.create_task(self._source(name, coro)) for name, coro in jobs.items()]
         try:
             await asyncio.gather(*tasks)
@@ -337,8 +339,9 @@ class _Run:
     async def _score_and_emit(self, batch: list[dict]) -> None:
         # the first batch must land fast (first result < 4 s); later ones can take longer
         first = not self.cands
-        timeout = max(1.0, 3.7 - self.elapsed()) if first else max(1.0, min(8.0, self.left(margin=5)))
-        scores = await self._score_chunks(batch, timeout=timeout, hedge_after=1.4 if first else 2.5)
+        timeout = 4.5 if first else max(1.5, min(9.0, self.left(margin=5)))
+        # small chunks in parallel: Claude answers ~4 items much faster than 8+
+        scores = await self._score_chunks(batch, timeout=timeout, hedge_after=2.5, size=4 if first else 6)
         await self._emit(batch, scores)
 
     async def _score_chunks(self, items: list[dict], *, timeout: float, hedge_after: float, size: int = 8) -> dict[str, dict]:
@@ -346,48 +349,25 @@ class _Run:
         Gemini first; a chunk Gemini can't score (429 / overloaded / slow) goes to Claude;
         only if both fail does it get the labelled keyword score."""
 
-        async def by_gemini(ch: list[dict]) -> dict[str, dict]:
-            r = await gemini.score(self.keys.gemini, self.query, ch, timeout=timeout, hedge_after=hedge_after)
-            return {k: {**v, "by": "gemini"} for k, v in r.items()}
-
-        async def by_claude(ch: list[dict]) -> dict[str, dict]:
-            r = await claude.score(self.keys.anthropic, self.query, ch, system=gemini.SCORE_SYSTEM,
-                                   prompt=gemini.SCORE_PROMPT, timeout=max(2.0, min(9.0, self.left(margin=1.5))))
-            self.ctx.used.add("claude-triage")
-            return {k: {**v, "reason": gemini.short(v["reason"]), "by": "claude"} for k, v in r.items()}
-
         async def one(ch: list[dict]) -> dict[str, dict]:
-            """Gemini first. If it errors (429/503), or hasn't answered after claude_after s, Claude
-            starts too; the first good answer wins. Keyword scores only if both fail."""
-            tasks: dict[asyncio.Task, str] = {}
-            if self.gemini_ok:
-                tasks[asyncio.create_task(by_gemini(ch))] = "gemini"
-            claude_ok = bool(self.keys.anthropic) and self.left(margin=1.5) > 2
-            claude_after = 1.0 if hedge_after < 2 else 3.0
-            started_claude = False
-            if not tasks and claude_ok:
-                tasks[asyncio.create_task(by_claude(ch))] = "claude"
-                started_claude = True
-            try:
-                while tasks:
-                    wait = claude_after if (claude_ok and not started_claude) else None
-                    done, _ = await asyncio.wait(tasks, timeout=wait, return_when=asyncio.FIRST_COMPLETED)
-                    if not done:  # Gemini is slow: race Claude
-                        tasks[asyncio.create_task(by_claude(ch))] = "claude"
-                        started_claude = True
-                        continue
-                    for t in done:
-                        who = tasks.pop(t)
-                        try:
-                            return t.result()
-                        except Exception as e:
-                            self.ctx.note(f"{who} triage ({len(ch)} items) failed: {type(e).__name__}: {str(e)[:80]}")
-                    if claude_ok and not started_claude:
-                        tasks[asyncio.create_task(by_claude(ch))] = "claude"
-                        started_claude = True
-            finally:
-                for t in tasks:
-                    t.cancel()
+            """Claude scores. Gemini only steps in if Claude fails (its quota is kept for video skims);
+            keyword scores only if both fail."""
+            if self.keys.anthropic and self.left(margin=1.5) > 1.5:
+                try:
+                    r = await claude.score(self.keys.anthropic, self.query, ch, system=gemini.SCORE_SYSTEM,
+                                           prompt=gemini.SCORE_PROMPT, timeout=max(1.5, min(timeout, self.left(margin=1.5))))
+                    self.ctx.used.add("claude-triage")
+                    return {k: {**v, "reason": gemini.short(v["reason"]), "by": "claude"} for k, v in r.items()}
+                except Exception as e:
+                    self.ctx.note(f"claude triage ({len(ch)} items) failed: {type(e).__name__}: {str(e)[:80]}")
+            if self.gemini_ok and self.left(margin=1.5) > 1.5:
+                try:
+                    r = await gemini.score(self.keys.gemini, self.query, ch, timeout=max(1.5, min(5.0, self.left(margin=1.5))),
+                                           hedge_after=hedge_after)
+                    self.ctx.used.add("gemini-triage-fallback")
+                    return {k: {**v, "by": "gemini"} for k, v in r.items()}
+                except Exception as e:
+                    self.ctx.note(f"gemini triage fallback ({len(ch)} items) failed: {type(e).__name__}: {str(e)[:80]}")
             return {}
 
         chunks = [items[i:i + size] for i in range(0, len(items), size)]
@@ -413,8 +393,8 @@ class _Run:
     # ---- deep pass: skim the top videos (+ Bright Data comments), calibrate all scores
 
     def _start_skims(self) -> None:
-        """Gemini watches the current top videos and reads the top pages as soon as they are scored
-        (runs alongside the other sources)."""
+        """Gemini watches the current top videos; Claude reads the top pages. Both start as soon as
+        rows are scored (alongside the other sources)."""
         if self.left(margin=2) < 3:
             return
         ranked = sorted(self.cands.values(), key=lambda c: -c["score"])
@@ -431,9 +411,9 @@ class _Run:
         c["watched"] = f"not {'watched' if c['kind'] == 'video' else 'read'}: {why}"
 
     async def _read(self, c: dict) -> None:
-        """Gemini reads the page (via the Bright Data Unlocker when configured, else plain HTTP)."""
-        if not self.gemini_ok:
-            return self._not_watched(c, "no Gemini key")
+        """Claude reads the page (fetched via the Bright Data Unlocker when configured, else plain HTTP)."""
+        if not self.keys.anthropic:
+            return self._not_watched(c, "no Anthropic key")
         url = c["url"]
         nb = re.match(r"https://colab\.research\.google\.com/github/([^/]+/[^/]+)/blob/(.+?\.ipynb)", url)
         if nb:  # Colab is a JS app; read the notebook it opens from GitHub instead
@@ -453,11 +433,11 @@ class _Run:
         if len(text) < 200:
             return self._not_watched(c, "page has no readable text")
         try:
-            c["read"] = await gemini.read(self.keys.gemini, self.query, c, text, timeout=max(1.0, self.left(margin=0.7)))
-            self.ctx.used.add("gemini-read")
+            c["read"] = await claude.read(self.keys.anthropic, self.query, c, text, timeout=max(1.0, self.left(margin=0.7)))
+            self.ctx.used.add("claude-read")
         except Exception as e:
             self.ctx.note(f"read {c['id']} failed: {type(e).__name__}: {str(e)[:80]}")
-            self._not_watched(c, f"Gemini {gemini.failure(e)}")
+            self._not_watched(c, f"Claude {claude.failure(e)}")
 
     async def _skim(self, v: dict) -> None:
         if not self.gemini_ok:
@@ -487,7 +467,7 @@ class _Run:
         cal: dict[str, dict] = {}
 
         async def calibrate() -> None:
-            """Second chance for rows that only got a keyword score (Gemini was slow the first time)."""
+            """Second chance for rows that only got a keyword score (the scorer was slow the first time)."""
             nonlocal cal
             items = [c for c in self.cands.values() if c.get("scored_by") == "keywords"]
             if not (self.gemini_ok or self.keys.anthropic) or not items or self.left(margin=1) < 1.5:
@@ -504,7 +484,7 @@ class _Run:
             for cid, t in deep.items():
                 c = self.cands.get(cid)
                 if t in late and c is not None and not c.get("watched"):
-                    self._not_watched(c, "Gemini ran out of time")
+                    self._not_watched(c, f"{'Gemini' if c['kind'] == 'video' else 'Claude'} ran out of time")
         self.timings["deep"] = self.elapsed()
 
         for c in self.cands.values():
@@ -518,15 +498,15 @@ class _Run:
                 c["scored_by"] = f"{c['scored_by']}+gemini-watch"
                 c["watched"] = "watched by Gemini"
             rd = c.get("read")
-            if rd:  # what the page actually teaches outweighs its title
+            if rd:  # what the page actually teaches outweighs its title (read by Claude)
                 c["score"] = round(0.4 * c["score"] + 0.6 * rd["score"])
                 if not rd.get("teaches_goal"):
                     c["score"] = min(c["score"], 45)
                 c["reason"] = rd.get("summary") or c["reason"]
                 c["prerequisites"] = rd.get("prerequisites") or []
                 c["codeNotes"] = rd.get("code") or ""
-                c["scored_by"] = f"{c['scored_by']}+gemini-read"
-                c["watched"] = "read by Gemini"
+                c["scored_by"] = f"{c['scored_by']}+claude-read"
+                c["watched"] = "read by Claude"
             if str(c.get("watched", "")).startswith("not "):
                 c["meta"] = f"{c['meta']} · {c['watched']}"
         if self.emit_updates:
