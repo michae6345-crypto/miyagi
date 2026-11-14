@@ -7,6 +7,7 @@
 - ✅ Off-track: the dot eases to amber and pulses twice with soft halos, once per episode (`shots/pill-offtrack.png`).
 - ✅ Last step: "Lesson complete" with the ring closed in green.
 - ⚠️ Mac notch: placed at y = 6 by core, but see Core requests 2 (the mockups attach the island to the top edge, and a physical notch would hide the text).
+- ✅ Rebased onto `adrian/shell` 660f238 (launcher grows out of the island) and re-checked: the full flow and `?scenario=pill` behave the same.
 - ❌ Not seen in Electron (Windows). Checked in headless Chrome at 1600×1000 (the Browser pane was hidden).
 
 ## Goal
@@ -29,17 +30,19 @@ islandModes: idle (0), building (1), compact (2). The morphing container itself 
 - Mac: hugs the notch (y = 6)
 
 ## Test
-`npm run dev:web -- --port 5174` → `http://localhost:5174/?scenario=full` (or `?scenario=pill` once you add `mock/scenarios/pill.json`)
+`npm run dev:web -- --port 5174` → `http://localhost:5174/?scenario=pill` (or `?scenario=full`). Add `&engine=ws://127.0.0.1:9` while a mock server holds 8787 (Core request 3).
 
 ## Adrian's spec
 **First pass (no spec from Adrian yet):** build to the mockups in `docs/mockups/` (01–05 are the target look; 06–07 are earlier explorations to restyle in the Apple look) and the animation + placement spec in `docs/FRONTEND-HANDOFF.md`. Don't spend time on colors (Adrian's theme comes later). Adrian reviews after this pass and writes his spec here for pass 2.
 
 ## Core requests
-1. **Landing overshoot (bug, signature transition).** `core/Island.tsx:80–84`: on `pill:receive` the width snaps to `pill.landingWidth` with `transition={{ duration: 0 }}`. That one-frame jump leaves the width motion value with roughly 2300 px/s of velocity. The next `springOut` inherits it, so the island balloons before settling. Measured every 40ms after landing: 300 → 573 → 594 → 518 → 416 → 332 → 290 → 264 → 243. It shows as a ~590pt black bar right after the launcher lands (`shots/pill-landing-overshoot.png`, frames +508 to +635ms).
+_Written against core `660f238` (launcher grows out of the island, `yielded` state)._
+
+1. **Landing overshoot (bug, signature transition). Still there after the rebase.** In `core/Island.tsx:92–96`, on `pill:receive` (`:32–37`) the width snaps to `pill.landingWidth` with `transition={{ duration: 0 }}`. That one-frame jump leaves the width motion value with a large velocity. The next `springOut` inherits it, so the island balloons before settling. Measured on 660f238 every 40ms after landing: 300 → 520 → 538 → 478 → 387 → 320 → 285 → 262 → 243. It shows as a ~540pt black bar right after the launcher lands (`shots/pill-landing-overshoot.png`, frames +560 to +622ms).
    *Fix:* drive width and height with `useMotionValue`, call `width.jump(pill.landingWidth)` and `height.jump(pill.height)` in the `pill:receive` handler (`jump` resets velocity), then `animate(width, size.w, springOut)` as now. Minimal alternative: add `velocity: 0` to the transition, but only for the first animation after landing (a `justLanded` ref, cleared on the next size change). Using `velocity: 0` on every retarget would make the island stutter while it follows the pill's growing text slot.
-2. **Notch shape and placement (decide in pass 2).** Mockups 01 and 02 attach the island to the top edge, not as a free stadium at y = 6. Measured in 01: flat top at y = 0, body 258×36, flaring to 278 at y = 0 (two small concave "ears"), bottom corners about 14pt round. Mockup 02's card has the same attachment with about 24pt bottom corners. If adopted, in `core/Island.tsx:69,82`: `top` 0 on Mac, pill height 36, `borderRadius: isPill ? '0 0 14px 14px' : '0 0 24px 24px'`, plus the two inverse-corner ears.
+2. **Notch shape and placement (decide in pass 2).** Mockups 01 and 02 attach the island to the top edge, not as a free stadium at y = 6. Measured in 01: flat top at y = 0, body 258×36, flaring to 278 at y = 0 (two small concave "ears"), bottom corners about 14pt round. Mockup 02's card has the same attachment with about 24pt bottom corners. This matters more now that every surface is born from the island, since the launcher grows out of whatever shape the island has. If adopted, in `core/Island.tsx:80` (`top`) and `:94` (`borderRadius`): `top` 0 on Mac, pill height 36, `borderRadius: isPill ? '0 0 14px 14px' : '0 0 24px 24px'`, plus the two inverse-corner ears.
    **Demo risk:** if Michael's Mac has a physical notch (about 185×32pt at the top center), the middle of the text is hidden behind it either way. Then place the pill below the notch (`workArea.y`, about 38 on notched Macs), or widen it and put the content beside the notch. Please check which Mac the demo runs on.
-3. **Stage: `?scenario=` is ignored when something listens on 8787.** `bridge.ts:66–69` tries `ws://localhost:8787` first. Right now `npm run mock happy` from `repo/app` is running there, so every agent's stage silently plays *that* server's scenario instead of its own `?scenario=`. Suggest: when `?scenario=` is given explicitly, skip the socket and run inline. Workaround: append `&engine=ws://127.0.0.1:9` (dead port → inline mock after 900ms).
+3. **Stage: `?scenario=` is ignored when something listens on 8787. Unchanged on 660f238.** `bridge.ts:66–69` tries `ws://localhost:8787` first. Right now `npm run mock happy` from `repo/app` is running there, so every agent's stage silently plays *that* server's scenario instead of its own `?scenario=`. Suggest: when `?scenario=` is given explicitly, skip the socket and run inline. Workaround: append `&engine=ws://127.0.0.1:9` (dead port → inline mock after 900ms).
 
 ## Notes
 - **Ring = steps done / total** (computed in the pill), not core's `useProgress().fraction`, which also counts checks inside the step. With check-level progress the last check already fills the ring, so nothing moves visibly at the pass. Now the ring advances exactly one step on the spring at each pass.
@@ -47,6 +50,8 @@ islandModes: idle (0), building (1), compact (2). The morphing container itself 
 - **Dot color while watching:** mockups 01 and 02 show it **green** during a step in progress. The handoff spec says gray watching / amber off-track / green passed. I followed the spec. Adrian: pick one in pass 2. It's one line in `features/pill/parts.tsx` (`tone`).
 - **Off-track pulse once per episode:** when `offtrack` arrives, the cards feature takes the island at once, so the pill isn't visible. The pulse plays when the pill comes back (Esc or ✕), not again on hover remounts.
 - **Building:** keeps the last `lesson.building` message through `lesson.ready` (core clears it there), and the line fills to 100% on `lesson.ready`.
+- **`island:size` traffic (FYI for core):** when the step text changes, the pill's text slot springs its width over about 300ms. The island re-measures on every frame, so `Island.tsx:63–65` emits `island:size` about 20 times per step change (IPC to main in Electron). This is harmless, but if it ever shows up, emit only when the size settles or while the launcher is closed.
+- Generality rule: no PINN-specific UI strings in the pill ("Learn anything", "Building your lesson", "Step N ·", "Lesson complete"). PINN only appears as mock data in `mock/scenarios/pill.json`.
 - Reduced motion: `MotionConfig reducedMotion="user"` turns off the y offsets and the scale pulses. Crossfades, color changes and the width spring stay.
 - Own pieces in `features/pill/parts.tsx` (`PillRing`, `StatusMark`, `SwapText`, `BuildLine`), not the shared `core/ui/atoms` ones, because the pill sizes (16px ring, 7px dot) differ from the cards'.
 - **How to see it:** `http://localhost:5174/?scenario=pill&engine=ws://127.0.0.1:9` runs idle → building → steps 1–2 pass on their own → step 3 off-track (Esc to see the amber pulse) → step 4 → "Lesson complete" in about 35s. `?scenario=full&engine=ws://127.0.0.1:9`: Ctrl+K, type, Enter, Enter → step 4 passes at about +10s → step 6 goes off-track. HUD Reset restarts.
