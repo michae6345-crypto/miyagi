@@ -6,7 +6,8 @@ same picture; see the end of §1. Re-checked on **bb8feb2** (the head when this 
 offline take both PASS (58.5 s / 47.7 s). The one change: Build → `lesson.ready` now takes **1.5 s** instead of
 0.02 s (the "ready hold" in 31c5f4b). On **292561d** (with E5's 96d12b8), zero-cost takes only (cost freeze): DEMO=1
 offline PASS (53.4 s); LIVE offline with `COACH_OFFLINE_FALLBACK=1` gets no card. E5's PR #1 (8301c0c) fixes that:
-verified offline on a throwaway merge, card 0.9 s after amber (§2).
+verified offline on a throwaway merge, card 0.9 s after amber (§2). On **9f7066a** (skip_step / check_step), zero-cost
+again: DEMO=1 offline PASS (44.3 s, card 0.7 s after amber, green 12.2 s); LIVE offline still no card (PR #1 not merged).
 
 The script plays the app over the WebSocket: it reports the playhead like the player does, and it runs the learner's
 code with `tut run`. It starts its own engine on **:8797** (never :8787) on a **temp copy** of `demo/pinn-lab`, spools
