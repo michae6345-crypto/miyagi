@@ -44,6 +44,16 @@ targets = await coach.locate("the learning rate", screen)  # exact text → no m
 - **locate** asks `claude-haiku-5-5` (effort low) to pick box ids from the same set-of-mark images. Screen and code reading is Claude only; there is no Gemini in `server/coach`.
 - **Computer use** is not used. If icon finding ever needs it, the tool is `computer_toolset_20260801`, because `computer_20251124` returns 400 on Opus 5.5.
 
+## Voice (ElevenLabs track)
+
+`voice.py` speaks short lines only: the step title on `step.started`, the card title on `offtrack`, and "Nice, step passed." on `step.passed`.
+- **Synthesis:** ElevenLabs streaming TTS (`POST /v1/text-to-speech/{voice_id}/stream`, `eleven_flash_v2_5`, `mp3_44100_128`). The MP3 is cached under `~/.cache/sandhacks-tutor/tts` by a hash of voice, model and text, and identical concurrent lines make one request.
+- **Readable text:** 1e-3 is read as 0.001, β as beta, lr as learning rate.
+- **Serving:** `voice.router` serves `GET /tts/<hash>.mp3`; names are validated as hex only.
+- **Payload:** `speak_event(event, payload)` returns the existing contract's `speak` payload `{audioUrl, text}`, or `None`. It never raises; a failure means no audio and one log line.
+- **Prefetch:** `voice.prefetch([titles])` right after the lesson loads makes step starts instant.
+- **Gate:** E4 owns it (voice toggled on, and no keystroke in the last 2 s).
+
 ## Orchestrator contract notes (E4)
 
 - `diagnose(..., cursor={"x", "y", "under": {"text", "app", "rect"}})` and `explain(..., {"cursor": ...})` tell the coach what the learner points at, when no full `screen` is attached.
