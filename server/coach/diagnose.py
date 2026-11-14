@@ -10,6 +10,7 @@ from typing import Any
 from . import llm, web
 from .common import (
     citation_menu,
+    clamp_body,
     clamp_title,
     clamp_words,
     failed_checks_text,
@@ -42,10 +43,11 @@ Voice: a calm, precise senior engineer sitting beside them. Name the actual caus
 
 Hard limits:
 - title: 3 to 7 words (hard maximum 8), plain statement of the cause (not a question, no trailing period).
-- body: at most 30 words, at most 2 sentences. Sentence 1: why it fails. Sentence 2: what to do.
+- body: at most 30 words, at most 2 sentences. Sentence 1: why it fails. Sentence 2: what to do, stated completely in words with the concrete value or name (e.g. "Set lr to 1e-3."), because the diff is often hidden at first.
 - Refer to their code by its real names (variables, functions) when helpful.
 - diff_expected: the smallest replacement for the learner's offending line(s), at most 4 lines, in the learner's style and variable names; "" if no code change applies. If the fix adds training stages, keep the total training budget about the same (split the epochs across stages). diff_yours: the learner's current line(s) copied exactly from the numbered excerpt (without line numbers); "" if none. diff_line: the 1-based line number of diff_yours in the excerpt, 0 if none. diff_file: the file name if known, else "".
 - Ground the card in evidence: WEB SOURCES (official docs, changelogs, Stack Overflow / GitHub issues fetched live for this failure) take precedence over memory for API names, versions and deprecations. If a web source contradicts your memory, trust the source. Prefer official docs over community posts.
+- diff_command: when the fix is a terminal action (install or upgrade a package, add a CLI flag, re-run with an option), that single shell command; else "". It can go with or without a code diff.
 - citation_id: pick one id from the CITATIONS list (web:N, source:..., or a playbook id) only when that source directly supports the card; otherwise "none". Never invent a source.
 - playbook_id: the matching playbook entry id, or "none" if no entry fits. Do not force a match: if the evidence does not fit an entry, diagnose from first principles.
 - severity: "warn" when it runs but the result is off (a metric plateaus, a test count is short, output differs); "fail" when it crashes, errors, or produces nan/inf.
@@ -72,6 +74,7 @@ OFFTRACK_SCHEMA = {
         "diff_yours": {"type": "string"},
         "diff_file": {"type": "string"},
         "diff_line": {"type": "integer"},
+        "diff_command": {"type": "string"},
         "guiding_question": {"type": "string"},
         "actions": {
             "type": "array",
@@ -80,7 +83,7 @@ OFFTRACK_SCHEMA = {
     },
     "required": [
         "playbook_id", "severity", "title", "body", "citation_id",
-        "diff_expected", "diff_yours", "diff_file", "diff_line", "actions", "guiding_question",
+        "diff_expected", "diff_yours", "diff_file", "diff_line", "diff_command", "actions", "guiding_question",
     ],
     "additionalProperties": False,
 }
@@ -152,9 +155,12 @@ def _title(title: str, pid: str | None) -> str:
 def _shape(data: dict, step: dict, code_excerpt: str, lesson: dict | None, sources: list[dict] | None = None) -> dict:
     expected = (data.get("diff_expected") or "").strip("\n")
     yours = (data.get("diff_yours") or "").strip()
+    command = (data.get("diff_command") or "").strip()
     diff = None
+    if command and not expected:  # terminal-only fix: the app copies it to the clipboard
+        diff = {"expected": "", "yours": "", "command": command}
     if expected:
-        diff = {"expected": expected, "yours": yours}
+        diff = {"expected": expected, "yours": yours, **({"command": command} if command else {})}
         f = data.get("diff_file") or _target_file(step)
         if f:
             diff["file"] = f
@@ -174,7 +180,7 @@ def _shape(data: dict, step: dict, code_excerpt: str, lesson: dict | None, sourc
         "stepId": step.get("id", ""),
         "severity": data.get("severity") if data.get("severity") in ("warn", "fail") else "warn",
         "title": _title(data.get("title", ""), pid),
-        "body": clamp_words(data.get("body", ""), 34),
+        "body": clamp_body(data.get("body", "")),
         "actions": order_actions(data.get("actions") or [], has_diff=bool(diff)),
         "_meta": {"route": "opus", "playbook_id": pid if pid in BY_ID else None},
     }
@@ -199,6 +205,7 @@ async def diagnose(
     effort: str = "low",
     screen: ScreenContext | None = None,
     on_targets: Callable[[list[dict]], Any] | None = None,
+    cursor: dict | None = None,
 ) -> dict:
     """Return an `offtrack` payload for the failed step.
 
@@ -206,6 +213,8 @@ async def diagnose(
     `targets` first: [{boxId, label, text, rect}] in screen points. The reply is streamed and
     `on_targets(targets)` fires the moment that array is complete, before the rest of the card,
     so the spotlight can move early. Cancel the awaiting task to abort (stream is closed).
+    `cursor` ({"x", "y", "under": {"text", "app", "rect"}}, screen points) tells the coach what
+    the learner is pointing at when no full `screen` is attached.
 
     Extra keys starting with `_` (e.g. `_meta`: route, model, latency, usage) are
     for logs; strip them before sending (see `public()`).
@@ -226,7 +235,7 @@ async def diagnose(
             card = playbook_card(step, BY_ID[t.playbook_id], code_excerpt, severity="fail" if error_text else "warn")
         else:
             sources = await web_task
-            card = await _opus(step, failed_checks, metrics_text, flags, code_excerpt, error_text, lesson, effort, sources, screen, on_targets)
+            card = await _opus(step, failed_checks, metrics_text, flags, code_excerpt, error_text, lesson, effort, sources, screen, on_targets, cursor)
     finally:
         if not web_task.done():
             web_task.cancel()
@@ -257,11 +266,11 @@ def grounding_query(step: dict, failed_checks: list, error_text: str, code: str,
     return "", "", f"{title} {step.get('title', '')} {labels}".strip(), ""
 
 
-async def _opus(step, failed_checks, metrics_text, flags, code_excerpt, error_text, lesson, effort, sources=None, screen=None, on_targets=None) -> dict:
+async def _opus(step, failed_checks, metrics_text, flags, code_excerpt, error_text, lesson, effort, sources=None, screen=None, on_targets=None, cursor=None) -> dict:
     sources = sources or []
     file = _target_file(step)
     user = "\n\n".join(
-        [
+        x for x in [
             f"CURRENT STEP:\n{step_brief(step)}",
             f"FAILED CHECKS:\n{failed_checks_text(failed_checks)}",
             f"METRICS (summary of the learner's latest run):\n{metrics_text}"
@@ -270,8 +279,9 @@ async def _opus(step, failed_checks, metrics_text, flags, code_excerpt, error_te
             f"LEARNER CODE ({file or 'excerpt'}), numbered:\n{number_lines(code_excerpt) or '(not available)'}",
             f"WEB SOURCES (fetched live for this failure):\n{web.sources_text(sources)}" if sources else "WEB SOURCES: (none available)",
             f"CITATIONS you may use (id: source):\n{citation_menu(lesson, sources)}",
+            cursor_text(cursor) if cursor and screen is None else "",
             "Write the card.",
-        ]
+        ] if x
     )
     schema, content, stream = OFFTRACK_SCHEMA, None, None
     if screen is not None:
@@ -312,6 +322,15 @@ async def _opus(step, failed_checks, metrics_text, flags, code_excerpt, error_te
     card["_meta"]["web_sources"] = sources  # full dicts; explain() reuses them
     card["_meta"].update(model=res.model, latency_s=round(res.latency_s, 2), usage=res.usage, source=res.source)
     return card
+
+
+def cursor_text(cursor: dict) -> str:
+    """'LEARNER CURSOR: at (x, y) over "text" (app)' from the orchestrator's cursor dict."""
+    under = cursor.get("under") or {}
+    s = f"LEARNER CURSOR: at ({float(cursor.get('x', 0)):.0f}, {float(cursor.get('y', 0)):.0f})"
+    if under.get("text"):
+        s += f' over "{str(under["text"])[:120]}"' + (f" ({under['app']})" if under.get("app") else "")
+    return s + " (what they are looking at or pointing to; mention it only if relevant)"
 
 
 def screen_schema(base: dict) -> dict:
