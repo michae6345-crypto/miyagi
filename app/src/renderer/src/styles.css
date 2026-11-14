@@ -1,0 +1,54 @@
+@import "tailwindcss";
+
+@theme {
+  /* Miyagi brand (app/brand/BRAND.md). Green = passed, amber = off track, gray = watching. No blue. */
+  --color-pass: #30D158;
+  --color-pass-deep: #1F9B45;
+  --color-offtrack: #FFB020;
+  --color-watching: #8E8E93;
+  --color-ink: #141414;
+  --color-paper: #F6F6F3;
+  --color-pill: #000000;
+  /* "accent" = the active/interactive color on the dark HUD: white, never system blue. */
+  --color-accent: #F4F4F5;
+  --font-sans: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI Variable Text", "Segoe UI", system-ui, sans-serif;
+  --font-brand: "Google Sans Flex", system-ui, sans-serif;
+  --font-mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+}
+
+/* Brand font for brand moments only (the app UI uses the system font). */
+@font-face {
+  font-family: "Google Sans Flex";
+  src: url("../../../brand/fonts/GoogleSansFlex.woff2") format("woff2");
+  font-weight: 400 700;
+  font-display: swap;
+}
+
+html,
+body,
+#root {
+  margin: 0;
+  height: 100%;
+  overflow: hidden;
+  background: transparent;
+  color: #fff;
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+  user-select: none;
+  cursor: default;
+}
+
+/* Overlay windows must be fully transparent; only the browser stage gets a backdrop. */
+html[data-route="stage"] body {
+  background: #08080b;
+}
+
+button {
+  font: inherit;
+  color: inherit;
+}
+
+input {
+  user-select: text;
+}

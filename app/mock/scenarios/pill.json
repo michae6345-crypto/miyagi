@@ -1,0 +1,66 @@
+{
+  "name": "pill",
+  "on": {
+    "connect": "pill_intro"
+  },
+  "segments": {
+    "pill_intro": [
+      { "wait": 2000, "type": "lesson.building", "payload": { "message": "Watching the tutorial with Gemini", "progress": 0.3 } },
+      { "wait": 2000, "type": "lesson.building", "payload": { "message": "Writing a check for every step", "progress": 0.75 } },
+      {
+        "wait": 1600,
+        "type": "lesson.ready",
+        "payload": {
+          "lesson": { "id": "pill-demo", "title": "PINNs · Convection", "sources": [] },
+          "steps": [
+            { "id": "p1", "index": 0, "title": "Build the MLP" },
+            { "id": "p2", "index": 1, "title": "Define the residual" },
+            { "id": "p3", "index": 2, "title": "Train at β = 30" },
+            { "id": "p4", "index": 3, "title": "Compare to the exact solution" }
+          ]
+        }
+      },
+      { "wait": 500, "goto": "pill_s1" }
+    ],
+    "pill_s1": [
+      { "wait": 0, "type": "step.started", "payload": { "stepId": "p1", "index": 0, "title": "Build the MLP", "instructions": "A 4×50 tanh MLP from (x, t) to u." } },
+      { "wait": 0, "type": "check.updated", "payload": { "stepId": "p1", "checkId": "c1", "label": "Model returns u(x, t)", "status": "pending" } },
+      { "wait": 2500, "type": "check.updated", "payload": { "stepId": "p1", "checkId": "c1", "label": "Model returns u(x, t)", "status": "pass" } },
+      { "wait": 450, "type": "step.passed", "payload": { "stepId": "p1", "nextStepId": "p2" } },
+      { "wait": 400, "type": "video.play", "payload": {} },
+      { "wait": 3500, "goto": "pill_s2" }
+    ],
+    "pill_s2": [
+      { "wait": 0, "type": "step.started", "payload": { "stepId": "p2", "index": 1, "title": "Define the residual", "instructions": "Return u_t + β·u_x." } },
+      { "wait": 0, "type": "check.updated", "payload": { "stepId": "p2", "checkId": "c1", "label": "Return u_t + β·u_x", "status": "pending" } },
+      { "wait": 3000, "type": "check.updated", "payload": { "stepId": "p2", "checkId": "c1", "label": "Return u_t + β·u_x", "status": "pass" } },
+      { "wait": 450, "type": "step.passed", "payload": { "stepId": "p2" } },
+      { "wait": 250, "goto": "pill_s3" }
+    ],
+    "pill_s3": [
+      { "wait": 0, "type": "step.started", "payload": { "stepId": "p3", "index": 2, "title": "Train at β = 30", "instructions": "Run training until the loss drops below 1e-2." } },
+      { "wait": 0, "type": "check.updated", "payload": { "stepId": "p3", "checkId": "c1", "label": "Loss < 1e-2", "status": "pending" } },
+      { "wait": 3000, "type": "check.updated", "payload": { "stepId": "p3", "checkId": "c1", "label": "Loss < 1e-2", "status": "fail", "detail": "yours 0.31" } },
+      {
+        "wait": 0,
+        "type": "offtrack",
+        "payload": {
+          "stepId": "p3",
+          "severity": "warn",
+          "title": "Loss is stuck at β = 30",
+          "body": "Start at β = 1 and ramp up. The tutorial does this at 14:30.",
+          "actions": ["explain", "apply_fix"]
+        }
+      },
+      { "wait": 7000, "type": "check.updated", "payload": { "stepId": "p3", "checkId": "c1", "label": "Loss < 1e-2", "status": "pass", "detail": "yours 0.008" } },
+      { "wait": 450, "type": "step.passed", "payload": { "stepId": "p3", "nextStepId": "p4" } },
+      { "wait": 4500, "goto": "pill_s4" }
+    ],
+    "pill_s4": [
+      { "wait": 0, "type": "step.started", "payload": { "stepId": "p4", "index": 3, "title": "Compare to the exact solution", "instructions": "Plot u_pred next to the exact solution." } },
+      { "wait": 0, "type": "check.updated", "payload": { "stepId": "p4", "checkId": "c1", "label": "Relative L2 error < 5e-2", "status": "pending" } },
+      { "wait": 2500, "type": "check.updated", "payload": { "stepId": "p4", "checkId": "c1", "label": "Relative L2 error < 5e-2", "status": "pass" } },
+      { "wait": 450, "type": "step.passed", "payload": { "stepId": "p4" } }
+    ]
+  }
+}

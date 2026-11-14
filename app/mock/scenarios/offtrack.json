@@ -1,0 +1,515 @@
+{
+  "name": "offtrack",
+  "on": {
+    "connect": "resume",
+    "action:apply_fix": "fix",
+    "action:diagram@step6": "diagram_gradients",
+    "action:show_me@step6": "showme_step6",
+    "action:explain@step6": "explain_step6",
+    "action:hint@step6": "hint_step6"
+  },
+  "segments": {
+    "resume": [
+      {
+        "wait": 600,
+        "type": "lesson.ready",
+        "payload": {
+          "lesson": {
+            "id": "pinn-convection",
+            "title": "PINNs · Convection",
+            "sources": [
+              {
+                "id": "r1",
+                "kind": "video",
+                "title": "Learning PIML Part 1 – PINNs",
+                "url": "https://www.youtube.com/watch?v=AXXnSzmpyoI",
+                "meta": "Video · Juan Toscano · 24:20"
+              },
+              {
+                "id": "r2",
+                "kind": "notebook",
+                "title": "pinn_convection.ipynb",
+                "url": "https://github.com/",
+                "meta": "Notebook · GitHub · runs locally"
+              },
+              {
+                "id": "r3",
+                "kind": "paper",
+                "title": "Characterizing possible failure modes in PINNs",
+                "url": "https://arxiv.org/abs/2109.01050",
+                "meta": "Paper · Krishnapriyan et al. · NeurIPS 2021"
+              }
+            ]
+          },
+          "steps": [
+            {
+              "id": "s1",
+              "index": 0,
+              "title": "Set up the environment",
+              "video": {
+                "videoId": "AXXnSzmpyoI",
+                "start": 0,
+                "end": 70
+              }
+            },
+            {
+              "id": "s2",
+              "index": 1,
+              "title": "Sample collocation points",
+              "video": {
+                "videoId": "AXXnSzmpyoI",
+                "start": 70,
+                "end": 125
+              }
+            },
+            {
+              "id": "s3",
+              "index": 2,
+              "title": "Build the MLP",
+              "video": {
+                "videoId": "AXXnSzmpyoI",
+                "start": 125,
+                "end": 372
+              }
+            },
+            {
+              "id": "s4",
+              "index": 3,
+              "title": "Define the residual",
+              "video": {
+                "videoId": "AXXnSzmpyoI",
+                "start": 372,
+                "end": 588
+              }
+            },
+            {
+              "id": "s5",
+              "index": 4,
+              "title": "Write the training loop",
+              "video": {
+                "videoId": "AXXnSzmpyoI",
+                "start": 588,
+                "end": 760
+              }
+            },
+            {
+              "id": "s6",
+              "index": 5,
+              "title": "Train at β = 30",
+              "video": {
+                "videoId": "AXXnSzmpyoI",
+                "start": 760,
+                "end": 870
+              }
+            },
+            {
+              "id": "s7",
+              "index": 6,
+              "title": "Fix it with a β curriculum",
+              "video": {
+                "videoId": "AXXnSzmpyoI",
+                "start": 870,
+                "end": 1120
+              }
+            }
+          ]
+        }
+      },
+      {
+        "wait": 0,
+        "goto": "step6"
+      }
+    ],
+    "after_step5": [
+      {
+        "wait": 0,
+        "goto": "step6"
+      }
+    ],
+    "step6": [
+      {
+        "wait": 300,
+        "type": "step.started",
+        "payload": {
+          "stepId": "s6",
+          "title": "Train at β = 30",
+          "instructions": "Run training and watch the loss",
+          "video": {
+            "videoId": "AXXnSzmpyoI",
+            "start": 760,
+            "end": 870
+          },
+          "index": 5
+        }
+      },
+      {
+        "wait": 0,
+        "type": "video.seek",
+        "payload": {
+          "t": 760,
+          "play": true
+        }
+      },
+      {
+        "wait": 0,
+        "type": "check.updated",
+        "payload": {
+          "stepId": "s6",
+          "checkId": "c1",
+          "label": "Residual includes β·u_x",
+          "status": "pending"
+        }
+      },
+      {
+        "wait": 0,
+        "type": "check.updated",
+        "payload": {
+          "stepId": "s6",
+          "checkId": "c2",
+          "label": "Training runs without errors",
+          "status": "pending"
+        }
+      },
+      {
+        "wait": 0,
+        "type": "check.updated",
+        "payload": {
+          "stepId": "s6",
+          "checkId": "c3",
+          "label": "Loss < 1e-2",
+          "status": "pending"
+        }
+      },
+      {
+        "wait": 0,
+        "type": "video.pause",
+        "payload": {}
+      },
+      {
+        "wait": 500,
+        "type": "spotlight",
+        "payload": {
+          "rect": {
+            "x": 68,
+            "y": 545,
+            "w": 674,
+            "h": 90
+          },
+          "caption": "Run the training loop",
+          "app": "Code",
+          "matched": "python pinn_convection.py",
+          "code": "python pinn_convection.py"
+        }
+      },
+      {
+        "wait": 1200,
+        "type": "check.updated",
+        "payload": {
+          "stepId": "s6",
+          "checkId": "c1",
+          "label": "Residual includes β·u_x",
+          "status": "pass"
+        }
+      },
+      {
+        "wait": 1400,
+        "type": "check.updated",
+        "payload": {
+          "stepId": "s6",
+          "checkId": "c2",
+          "label": "Training runs without errors",
+          "status": "pass"
+        }
+      },
+      {
+        "wait": 3800,
+        "type": "check.updated",
+        "payload": {
+          "stepId": "s6",
+          "checkId": "c3",
+          "label": "Loss < 1e-2",
+          "status": "fail",
+          "detail": "yours 2.50e-1"
+        }
+      },
+      {
+        "wait": 150,
+        "type": "video.pause",
+        "payload": {}
+      },
+      {
+        "wait": 0,
+        "type": "offtrack",
+        "payload": {
+          "stepId": "s6",
+          "severity": "fail",
+          "reason": "loss flat for 5,200 epochs",
+          "title": "Your loss is stuck at 0.25",
+          "body": "Not your bug. Plain PINNs can't fit β = 30. Ramp β up instead.",
+          "diff": {
+            "line": 4,
+            "expected": "BETA_SCHEDULE = [1, 5, 10, 20, 30]",
+            "yours": "BETA = 30.0"
+          },
+          "actions": [
+            "show_me",
+            "explain",
+            "apply_fix"
+          ],
+          "curve": {
+            "label": "loss",
+            "yours": [
+              0,
+              -0.42,
+              -0.55,
+              -0.59,
+              -0.6,
+              -0.6,
+              -0.6,
+              -0.6,
+              -0.6,
+              -0.6,
+              -0.6,
+              -0.6
+            ],
+            "tutorial": [
+              0,
+              -0.9,
+              -1.6,
+              -2.2,
+              -2.7,
+              -3.1,
+              -3.4,
+              -3.6,
+              -3.8,
+              -3.9,
+              -4,
+              -4.05
+            ]
+          },
+          "citation": {
+            "label": "Krishnapriyan et al. · NeurIPS 2021",
+            "url": "https://arxiv.org/abs/2109.01050"
+          }
+        }
+      },
+      {
+        "wait": 400,
+        "type": "spotlight",
+        "payload": {
+          "rect": {
+            "x": 68,
+            "y": 185,
+            "w": 674,
+            "h": 18
+          },
+          "caption": "β = 30 is too steep to start from",
+          "app": "Code",
+          "matched": "BETA_SCHEDULE = [1, 5, 10, 20, 30]",
+          "code": "BETA_SCHEDULE = [1, 5, 10, 20, 30]"
+        }
+      }
+    ],
+    "fix": [
+      {
+        "wait": 250,
+        "type": "spotlight",
+        "payload": {
+          "rect": {
+            "x": 68,
+            "y": 185,
+            "w": 674,
+            "h": 18
+          },
+          "caption": "Curriculum applied",
+          "app": "Code",
+          "matched": "BETA_SCHEDULE = [1, 5, 10, 20, 30]",
+          "code": "BETA_SCHEDULE = [1, 5, 10, 20, 30]"
+        }
+      },
+      {
+        "wait": 0,
+        "type": "check.updated",
+        "payload": {
+          "stepId": "s6",
+          "checkId": "c3",
+          "label": "Loss < 1e-2",
+          "status": "pending",
+          "detail": "retraining · β 1 → 30"
+        }
+      },
+      {
+        "wait": 3600,
+        "type": "check.updated",
+        "payload": {
+          "stepId": "s6",
+          "checkId": "c3",
+          "label": "Loss < 1e-2",
+          "status": "pass",
+          "detail": "yours 6.08e-4"
+        }
+      },
+      {
+        "wait": 450,
+        "type": "step.passed",
+        "payload": {
+          "stepId": "s6",
+          "summary": "Relative L2 error 1.8e-2. The curriculum worked."
+        }
+      },
+      {
+        "wait": 400,
+        "type": "video.play",
+        "payload": {}
+      },
+      {
+        "wait": 4500,
+        "goto": "step7"
+      }
+    ],
+    "step7": [
+      {
+        "wait": 0,
+        "type": "step.started",
+        "payload": {
+          "stepId": "s7",
+          "title": "Compare to the exact solution",
+          "instructions": "Plot predicted vs exact u(x, t)",
+          "video": {
+            "videoId": "AXXnSzmpyoI",
+            "start": 870,
+            "end": 1120
+          },
+          "index": 6
+        }
+      },
+      {
+        "wait": 0,
+        "type": "check.updated",
+        "payload": {
+          "stepId": "s7",
+          "checkId": "c1",
+          "label": "Saves u_pred heatmap",
+          "status": "pending"
+        }
+      },
+      {
+        "wait": 0,
+        "type": "check.updated",
+        "payload": {
+          "stepId": "s7",
+          "checkId": "c2",
+          "label": "Relative L2 error < 5e-2",
+          "status": "pending"
+        }
+      }
+    ],
+    "diagram_gradients": [
+      {
+        "wait": 250,
+        "type": "diagram",
+        "payload": {
+          "kind": "gradients",
+          "data": {
+            "layers": [
+              "L1",
+              "L2",
+              "L3",
+              "L4",
+              "L5"
+            ],
+            "epochs": [
+              0,
+              1000,
+              2000,
+              3000,
+              4000,
+              5000
+            ],
+            "norms": [
+              [
+                0.9,
+                0.12,
+                0.02,
+                0.006,
+                0.003,
+                0.002
+              ],
+              [
+                1,
+                0.2,
+                0.05,
+                0.012,
+                0.006,
+                0.004
+              ],
+              [
+                1.1,
+                0.35,
+                0.1,
+                0.03,
+                0.015,
+                0.01
+              ],
+              [
+                1.2,
+                0.6,
+                0.3,
+                0.12,
+                0.08,
+                0.06
+              ],
+              [
+                1.3,
+                0.9,
+                0.7,
+                0.5,
+                0.45,
+                0.4
+              ]
+            ]
+          },
+          "caption": "At β = 30 the early layers stop learning. The gradients vanish before the wave forms."
+        }
+      }
+    ],
+    "showme_step6": [
+      {
+        "wait": 100,
+        "type": "video.seek",
+        "payload": {
+          "t": 870,
+          "play": true
+        }
+      }
+    ],
+    "explain_step6": [
+      {
+        "wait": 250,
+        "type": "card",
+        "payload": {
+          "stepId": "s6",
+          "kind": "explain",
+          "title": "Why β = 30 stalls",
+          "body": "A steep wave makes the loss landscape rugged. Gradients in early layers vanish, so the net settles on a flat solution.",
+          "videoJump": {
+            "t": 870,
+            "label": "14:30 · why it fails"
+          }
+        }
+      }
+    ],
+    "hint_step6": [
+      {
+        "wait": 250,
+        "type": "card",
+        "payload": {
+          "stepId": "s6",
+          "kind": "hint",
+          "title": "Hint",
+          "body": "Train at β = 1 first, then reuse the weights at 5, 10, 20, 30."
+        }
+      }
+    ]
+  }
+}

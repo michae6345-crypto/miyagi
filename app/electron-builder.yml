@@ -1,0 +1,18 @@
+appId: dev.sandhacks.miyagi
+productName: Miyagi
+directories:
+  output: dist
+  buildResources: build
+files:
+  - out/**
+  - package.json
+mac:
+  target: dir
+  icon: build/icon.png
+  category: public.app-category.education
+  identity: null
+  extendInfo:
+    LSUIElement: true
+win:
+  target: dir
+  icon: build/icon.ico
