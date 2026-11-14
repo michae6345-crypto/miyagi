@@ -535,10 +535,11 @@
         {
           "id": "s8p2",
           "type": "metric_threshold",
-          "label": "PINN loss drops below 0.05",
+          "label": "loss < 1e-2 by step 2000",
           "metric": "loss",
-          "op": "<=",
-          "value": 0.05
+          "op": "<",
+          "value": 0.01,
+          "by_step": 2000
         }
       ],
       "targets": [
@@ -637,7 +638,8 @@
     "warnings": [],
     "curated": [
       "s3c1: pattern accepts x_test or X_test (the notebook uses lowercase x_test; Gemini transcribed X_test)",
-      "s8 metric_threshold: loss < 1e-2 by step 2000 (hero demo spec: lr=1e-3 reaches it by ~1000, lr=1e-1 never does; generated value was <= 0.05 with no by_step)"
+      "s8 metric_threshold: loss < 1e-2 by step 2000 (hero demo spec: lr=1e-3 reaches it by ~1000; lr=0.3 never does (loss flat ~17, 6/6 seeds, measured by E4); lr=1e-1 dips under 1e-2 in 3/3 seeds; generated value was <= 0.05 with no by_step)",
+      "s8p2: precision backup tightened to match the screen check ({'op': '<=', 'value': 0.05, 'by_step': None} -> {'op': '<', 'value': 0.01, 'by_step': 2000})"
     ]
   }
 }

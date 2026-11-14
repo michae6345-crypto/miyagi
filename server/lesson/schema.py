@@ -224,7 +224,7 @@ DETAIL_SCHEMA = {
         "code": {"type": "string", "description": "the code on screen at the end of this clip, transcribed exactly"},
         "run_command": {"type": "string"},
         "terminal_output": {"type": "string", "description": "training/progress lines visible in the terminal or notebook output, verbatim"},
-        "printed_metrics": {"type": "array", "items": {"type": "string"}, "description": "names of values printed during training (loss, etc.)"},
+        "printed_metrics": {"type": "array", "items": {"type": "string"}, "description": "names of numbers the run prints (loss, accuracy, tests passed, latency...)"},
         "library_versions": {
             "type": "array",
             "items": {"type": "object", "properties": {"name": {"type": "string"}, "version": {"type": "string"}}, "required": ["name", "version"]},

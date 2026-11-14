@@ -161,6 +161,20 @@ async def _generate_json(model_id: str, parts: list[types.Part], schema: dict, *
 # Pass 1: watch the whole video
 # --------------------------------------------------------------------------- #
 
+STACK_GUIDE = """Fit the checks to the tutorial's stack: grade what that stack visibly produces.
+- Web / React / JS: the component or function in the editor (app "Code"), the dev server line in the
+  terminal (e.g. "Local:\\s+http://localhost:\\d+"), text the page renders in the browser (app "Google Chrome"
+  or "Safari"), and test-runner counts as a metric (metric "tests_passed", metric_pattern
+  "(?P<value>\\d+)\\s+passed").
+- git / shell / CLI tools: the command's own terminal output, e.g. `git log --oneline` lines
+  "[0-9a-f]+\\s+<commit message>", "On branch \\S+", "Switched to branch", "Initialized empty Git repository".
+- Data / pandas / notebooks: printed results such as a DataFrame's header row of column names, ".shape" output
+  "\\(\\d+,\\s*\\d+\\)", "dtype: \\w+", or a printed statistic as a metric.
+- ML / training: per-epoch or per-step lines (loss, accuracy, val metrics) as metric checks with metric_pattern.
+- Anything else: the most distinctive thing the step makes appear on screen (output text, a file name in the
+  editor tab, a UI label), never a judgement call."""
+
+
 WATCH_SYSTEM = """You turn a coding tutorial video into an auto-graded lab.
 A learner codes along in their own project; the video pauses at the end of each step
 until machine-checkable checks pass. Be precise about timestamps and about what code is
@@ -186,6 +200,7 @@ Rules:
     the line EXACTLY as the video's code prints it (copy the print format into expected_output).
     Thresholds: values the tutorial's own run clearly reaches.
   Never use a "visual" check. Every step needs at least one check.
+  {stack_guide}
 - targets: where the learner should look/edit: app ("Code"/"Terminal"), file, and `match` = a short literal
   substring that will be visible on screen, e.g. "function TodoList" or "git merge", plus a caption.
 - explanations: moments (MM:SS) where the presenter explains a concept relevant to the step.
@@ -196,7 +211,7 @@ Rules:
 
 
 async def watch_video(url: str, goal: str, *, fps: float | None = None) -> dict:
-    parts = [_video_part(url, fps=fps), types.Part(text=WATCH_PROMPT.format(goal=goal))]
+    parts = [_video_part(url, fps=fps), types.Part(text=WATCH_PROMPT.format(goal=goal, stack_guide=STACK_GUIDE))]
     return await _generate_json(model(), parts, VIDEO_DRAFT_SCHEMA, system=WATCH_SYSTEM)
 
 
@@ -235,7 +250,9 @@ the learner's SCREEN with on-device OCR (Apple Vision) and evaluates checks lite
 - `precision_checks` (backup, only when the workdir is known): file_contains / file_exists with paths relative
   to the workdir, command_exit_ok with a quick command that exists (small --epochs/--steps flag), metric_* by
   the ::metric:: name the code prints.
-Never emit "visual"."""
+Never emit "visual".
+"""
+ADAPT_SYSTEM += STACK_GUIDE
 
 ADAPT_PROMPT = """Learner's goal: {goal}
 
