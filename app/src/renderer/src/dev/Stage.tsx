@@ -12,7 +12,6 @@ import desktop from './desktop.png'
 import { bridge, engineMode, STAGE } from '../bridge'
 import { useLesson } from '../store'
 import { Overlay } from '../overlay/Overlay'
-import { stageRect } from '../overlay/Spotlight'
 import { Launcher } from '../launcher/Launcher'
 
 const KEYMAP: Record<string, 'back' | 'explain' | 'diagram' | 'show_me' | 'hint' | 'voice_toggle'> = { ArrowLeft: 'back', KeyE: 'explain', KeyD: 'diagram', KeyS: 'show_me', KeyH: 'hint', KeyV: 'voice_toggle' }
@@ -58,7 +57,7 @@ export function Stage({ openLauncher = false }: { openLauncher?: boolean }): Rea
         style={{ width: STAGE.width, height: STAGE.height, transform: `translate(-50%,-50%) scale(${scale})` }}
       >
         <img src={desktop} draggable={false} className="absolute inset-0 h-full w-full select-none" />
-        <Overlay layout={STAGE} spotlightRect={stageRect} />
+        <Overlay layout={STAGE} />
         <Launcher layout={STAGE} />
       </div>
       {!new URLSearchParams(location.search).has('clean') && <DevHud />}

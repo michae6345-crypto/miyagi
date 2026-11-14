@@ -246,10 +246,15 @@
         "wait": 700,
         "type": "spotlight",
         "payload": {
-          "file": "pinn_convection.py",
-          "startLine": 17,
-          "endLine": 22,
+          "rect": {
+            "x": 68,
+            "y": 419,
+            "w": 674,
+            "h": 108
+          },
           "caption": "Write the residual",
+          "app": "Code",
+          "matched": "u_t + β·u_x",
           "code": "u_t + β·u_x"
         }
       },
@@ -353,10 +358,15 @@
         "wait": 600,
         "type": "spotlight",
         "payload": {
-          "file": "pinn_convection.py",
-          "startLine": 24,
-          "endLine": 28,
+          "rect": {
+            "x": 68,
+            "y": 545,
+            "w": 674,
+            "h": 90
+          },
           "caption": "Write the training loop",
+          "app": "Code",
+          "matched": "loss.backward(); opt.step()",
           "code": "loss.backward(); opt.step()"
         }
       },

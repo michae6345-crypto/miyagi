@@ -63,7 +63,7 @@ function layoutFor(win: BrowserWindow): Layout {
   const b = win.getBounds()
   const d = screen.getDisplayMatching(b)
   const wa = d.workArea
-  return { width: b.width, height: b.height, workArea: { x: wa.x - b.x, y: wa.y - b.y, width: wa.width, height: wa.height } }
+  return { origin: { x: b.x, y: b.y }, width: b.width, height: b.height, workArea: { x: wa.x - b.x, y: wa.y - b.y, width: wa.width, height: wa.height } }
 }
 
 function send(win: BrowserWindow | undefined, signal: UiSignal, payload?: unknown): void {

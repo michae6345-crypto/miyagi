@@ -189,10 +189,15 @@
         "wait": 500,
         "type": "spotlight",
         "payload": {
-          "file": "pinn_convection.py",
-          "startLine": 24,
-          "endLine": 28,
+          "rect": {
+            "x": 68,
+            "y": 545,
+            "w": 674,
+            "h": 90
+          },
           "caption": "Run the training loop",
+          "app": "Code",
+          "matched": "python pinn_convection.py",
           "code": "python pinn_convection.py"
         }
       },
@@ -292,10 +297,15 @@
         "wait": 400,
         "type": "spotlight",
         "payload": {
-          "file": "pinn_convection.py",
-          "startLine": 4,
-          "endLine": 4,
+          "rect": {
+            "x": 68,
+            "y": 185,
+            "w": 674,
+            "h": 18
+          },
           "caption": "β = 30 is too steep to start from",
+          "app": "Code",
+          "matched": "BETA_SCHEDULE = [1, 5, 10, 20, 30]",
           "code": "BETA_SCHEDULE = [1, 5, 10, 20, 30]"
         }
       }
@@ -305,10 +315,15 @@
         "wait": 250,
         "type": "spotlight",
         "payload": {
-          "file": "pinn_convection.py",
-          "startLine": 4,
-          "endLine": 4,
+          "rect": {
+            "x": 68,
+            "y": 185,
+            "w": 674,
+            "h": 18
+          },
           "caption": "Curriculum applied",
+          "app": "Code",
+          "matched": "BETA_SCHEDULE = [1, 5, 10, 20, 30]",
           "code": "BETA_SCHEDULE = [1, 5, 10, 20, 30]"
         }
       },

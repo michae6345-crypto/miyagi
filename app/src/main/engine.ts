@@ -6,16 +6,16 @@
  *   DEMO=1                                     -> no network: the scripted run plays in-process
  */
 import WebSocket from 'ws'
-import { parseEngineMessage, type EngineMessage, type Outgoing } from '../common/wire'
+import { parseEngineMessage, type Incoming, type Outgoing } from '../common/wire'
 import { createMockEngine, type MockEngine } from '../../mock/engine'
 import { scenarios, type ScenarioName } from '../../mock/scenarios'
 
-type Listener = (m: EngineMessage) => void
+type Listener = (m: Incoming) => void
 type StatusListener = (connected: boolean) => void
 
 export class EngineLink {
   /** Every event since the last learn/build, replayed to a window that reloads. */
-  readonly log: EngineMessage[] = []
+  readonly log: Incoming[] = []
   connected = false
   private ws?: WebSocket
   private demo?: MockEngine
@@ -23,6 +23,8 @@ export class EngineLink {
   private listeners = new Set<Listener>()
   private statusListeners = new Set<StatusListener>()
   private retry = 500
+  /** Re-sent on reconnect so the engine's OCR keeps ignoring our UI. */
+  private lastBounds?: Outgoing
 
   constructor(private url: string, demoScenario?: string) {
     if (demoScenario) {
@@ -45,6 +47,7 @@ export class EngineLink {
 
   send(cmd: Outgoing): void {
     if (cmd.type === 'learn' || cmd.type === 'learn_url' || cmd.type === 'dev.reset') this.log.length = 0
+    if (cmd.type === 'overlay.bounds') this.lastBounds = cmd
     if (this.demo) return this.demo.handle(cmd)
     const msg = JSON.stringify(cmd)
     if (this.ws?.readyState === WebSocket.OPEN) this.ws.send(msg)
@@ -57,6 +60,7 @@ export class EngineLink {
     ws.on('open', () => {
       this.retry = 500
       this.setConnected(true)
+      if (this.lastBounds) ws.send(JSON.stringify(this.lastBounds))
       for (const m of this.queue.splice(0)) ws.send(m)
     })
     ws.on('message', (data) => {
@@ -73,7 +77,7 @@ export class EngineLink {
     })
   }
 
-  private dispatch(e: EngineMessage): void {
+  private dispatch(e: Incoming): void {
     if (e.type === 'lesson.ready') this.log.splice(0, this.log.length, ...this.log.filter((x) => x.type.startsWith('search')))
     this.log.push(e)
     for (const l of this.listeners) l(e)

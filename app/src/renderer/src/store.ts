@@ -6,7 +6,7 @@
 import { create } from 'zustand'
 import { useShallow } from 'zustand/react/shallow'
 import type { CheckStatus, Source, StepSummary, VideoSegment } from '../../../../shared/contracts/events'
-import type { EngineMessage, Payload } from '../../common/wire'
+import type { ConfigStatus, Incoming, Payload } from '../../common/wire'
 
 export type CheckItem = { id: string; label: string; status: CheckStatus; detail?: string }
 
@@ -17,7 +17,9 @@ export type Offtrack = Payload<'offtrack'> & {
   reason?: string
   curve?: { label: string; yours: number[]; tutorial: number[] }
 }
-export type SpotlightTarget = { file: string; startLine: number; endLine: number; caption: string; code?: string }
+/** Screen-first: rect is in screen POINTS, top-left of the primary display (the engine's OCR finds it). */
+export type SpotlightTarget = Exclude<Payload<'spotlight'>, { clear: true }> & { code?: string }
+export type Rect = { x: number; y: number; w: number; h: number }
 export type Card = Payload<'card'>
 export type Diagram = Payload<'diagram'>
 export type SearchResult = Payload<'search.result'>
@@ -52,12 +54,16 @@ type State = {
   /** Live metric feed, per metric name (capped). Powers the yours-vs-tutorial curve. */
   metrics: Record<string, { step: number; value: number }[]>
   engineState?: Payload<'status'>['state']
+  /** What the engine's screen reader currently sees (debug HUD). */
+  seen?: Payload<'screen.seen'>
+  /** Per-key status from config.status (bring-your-own-key Settings). */
+  keyStatus?: ConfigStatus['payload']
   error?: { message: string; at: number }
   /** Increments on every step.passed: drives the pill's green flash. */
   passFlash: number
   search: { query: string; results: SearchResult[]; done: boolean; pending: boolean }
 
-  apply(m: EngineMessage): void
+  apply(m: Incoming): void
   setConnected(c: boolean): void
   startSearch(query: string): void
   startBuild(): void
@@ -91,6 +97,7 @@ const blank = {
   lastSpeak: undefined,
   metrics: {},
   engineState: undefined,
+  seen: undefined,
   error: undefined,
   passFlash: 0,
   search: { query: '', results: [], done: false, pending: false }
@@ -168,6 +175,10 @@ export const useLesson = create<State>((set, get) => ({
         return set({ offtrack: m.payload as Offtrack, offtrackOpen: true, recovered: true, diagramOpen: false, card: undefined })
       case 'spotlight':
         return set({ spotlight: 'clear' in m.payload ? undefined : (m.payload as SpotlightTarget) })
+      case 'screen.seen':
+        return set({ seen: m.payload })
+      case 'config.status':
+        return set({ keyStatus: m.payload })
       case 'video.seek':
         return set({ video: { t: m.payload.t, playing: m.payload.play, at: Date.now() } })
       case 'video.pause':

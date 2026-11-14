@@ -14,7 +14,7 @@ import { Stage } from './dev/Stage'
 const route = location.hash.replace(/^#\/?/, '') || (isElectron ? 'overlay' : 'stage')
 
 function useEngineFeed(): Layout {
-  const [layout, setLayout] = useState<Layout>({ width: innerWidth, height: innerHeight, workArea: { x: 0, y: 0, width: innerWidth, height: innerHeight } })
+  const [layout, setLayout] = useState<Layout>({ origin: { x: 0, y: 0 }, width: innerWidth, height: innerHeight, workArea: { x: 0, y: 0, width: innerWidth, height: innerHeight } })
   useEffect(() => {
     const offs = [
       bridge.onEvent((e) => useLesson.getState().apply(e)),

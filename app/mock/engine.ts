@@ -18,7 +18,7 @@
  * `wait` is milliseconds after the previous item. `goto` chains another segment.
  * Triggers: "connect", a command type ("learn", "build_lesson", "learn_url"), or "action:<kind>".
  */
-import type { EngineMessage, Outgoing } from '../src/common/wire'
+import type { Incoming, Outgoing } from '../src/common/wire'
 
 export type ScenarioItem = { wait?: number; goto?: string; type?: string; payload?: unknown }
 
@@ -36,7 +36,7 @@ export type MockEngine = {
   stop(): void
 }
 
-export function createMockEngine(scenario: Scenario, emit: (m: EngineMessage) => void, log = false): MockEngine {
+export function createMockEngine(scenario: Scenario, emit: (m: Incoming) => void, log = false): MockEngine {
   let timers: ReturnType<typeof setTimeout>[] = []
   /** Last "stepN" segment played, so triggers like "action:diagram@step6" can depend on it. */
   let current = ''
@@ -65,7 +65,7 @@ export function createMockEngine(scenario: Scenario, emit: (m: EngineMessage) =>
           if (goto) play(goto)
           else if (type) {
             if (log) console.log(`[mock]   → ${type}`)
-            emit({ type, payload: payload ?? {} } as EngineMessage)
+            emit({ type, payload: payload ?? {} } as Incoming)
           }
         }, at)
       )
@@ -82,6 +82,14 @@ export function createMockEngine(scenario: Scenario, emit: (m: EngineMessage) =>
     start: () => trigger('connect'),
     stop: clear,
     handle(cmd) {
+      // The app streams these continuously; the mock just acknowledges keys like the engine would.
+      if (cmd.type === 'overlay.bounds' || cmd.type === 'video.state') return
+      if (cmd.type === 'config.keys') {
+        const st = (k?: string) => (k ? 'ok' : 'env') as 'ok' | 'env'
+        const p = cmd.payload
+        emit({ type: 'config.status', payload: { anthropic: st(p.anthropic), gemini: st(p.gemini), brightdata: st(p.brightdata), elevenlabs: st(p.elevenlabs), tiger: st(p.tigerUrl) } })
+        return
+      }
       if (log) console.log(`[mock] ← ${JSON.stringify(cmd)}`)
       if (cmd.type === 'dev.reset') {
         clear()

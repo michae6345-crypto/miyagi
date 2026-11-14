@@ -6,7 +6,7 @@
  *
  * Browser query params: ?os=win · ?engine=inline · ?scenario=happy|offtrack|full · ?engine=ws://host:port
  */
-import { parseEngineMessage, type EngineMessage, type Outgoing } from '../../common/wire'
+import { parseEngineMessage, type Incoming, type Outgoing } from '../../common/wire'
 import { describePlatform } from '../../main/platform'
 import type { Layout, TutBridge, UiSignal, Unsub } from '../../preload/api'
 import { createMockEngine, type MockEngine } from '../../../mock/engine'
@@ -17,7 +17,7 @@ export type EngineMode = 'electron' | 'socket' | 'inline'
 type Cb = (payload?: unknown) => void
 
 /** The fake desktop in the browser stage is the 1600×1000 mockup; the Mac menu bar is 32px. */
-export const STAGE: Layout = { width: 1600, height: 1000, workArea: { x: 0, y: 32, width: 1600, height: 968 } }
+export const STAGE: Layout = { origin: { x: 0, y: 0 }, width: 1600, height: 1000, workArea: { x: 0, y: 32, width: 1600, height: 968 } }
 
 function createWebBridge(): TutBridge & { mode: () => EngineMode } {
   const params = new URLSearchParams(location.search)
@@ -35,9 +35,9 @@ function createWebBridge(): TutBridge & { mode: () => EngineMode } {
   let inline: MockEngine | undefined
   let everConnected = false
   const queue: string[] = []
-  const log: EngineMessage[] = []
+  const log: Incoming[] = []
 
-  const dispatch = (e: EngineMessage): void => {
+  const dispatch = (e: Incoming): void => {
     log.push(e)
     fire('engine:event', e)
   }

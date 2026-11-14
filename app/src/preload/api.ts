@@ -9,7 +9,7 @@
  *   overlay -> main  : 'overlay:interactive' (boolean: stop click-through while over a control)
  *   main -> any      : 'layout' (Layout)
  */
-import type { EngineMessage, Outgoing } from '../common/wire'
+import type { Incoming, Outgoing } from '../common/wire'
 import type { PlatformInfo, Rect } from '../main/platform'
 
 export type UiSignal =
@@ -25,6 +25,8 @@ export type UiSignal =
 
 /** Geometry of the display the overlay covers, in the window's own coordinates. */
 export type Layout = {
+  /** Where this window sits in screen points (primary display top-left = 0,0). */
+  origin: { x: number; y: number }
   width: number
   height: number
   /** Usable area (excludes menu bar / dock / taskbar). */
@@ -36,7 +38,7 @@ export type Unsub = () => void
 export type TutBridge = {
   platform: PlatformInfo
   /** Engine messages (already parsed, {type, payload}). */
-  onEvent(cb: (m: EngineMessage) => void): Unsub
+  onEvent(cb: (m: Incoming) => void): Unsub
   onStatus(cb: (connected: boolean) => void): Unsub
   send(cmd: Outgoing): void
   /** Ask main to replay the events so far (after a reload) and send the layout. */
