@@ -12,6 +12,7 @@ import { triggerShortcut, type ActionShortcut } from '../../core/shortcuts'
 import { color, spring } from '../../core/theme'
 import { useDiagram } from '../diagrams/store'
 import { useVoice } from '../voice/store'
+import { Glyph } from './Busy'
 import { PRESS_MS, PRESS_SCALE, usePress } from './press'
 
 type Btn = { kind: ActionShortcut; label: string; icon: LucideIcon }
@@ -77,7 +78,9 @@ export function ShortcutBar({ bottom }: { bottom: number }): ReactNode {
                   transition={{ duration: PRESS_MS / 1000 }}
                   onClick={() => triggerShortcut(kind)}
                 >
-                  {blue && s.speaking ? <Equalizer /> : <Icon size={19} strokeWidth={1.6} style={{ color: blue ? color.accent : lit ? color.accent : '#fff' }} />}
+                  <Glyph kind={kind} tone={color.accent}>
+                    {blue && s.speaking ? <Equalizer /> : <Icon size={19} strokeWidth={1.6} style={{ color: blue ? color.accent : lit ? color.accent : '#fff' }} />}
+                  </Glyph>
                   <span className="mt-[5px] text-[13px] leading-none text-white/90">{label}</span>
                   <span className="mt-[5px] text-[11px] leading-none text-white/42">{bridge.platform.keys[kind]}</span>
                 </motion.button>
