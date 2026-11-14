@@ -91,7 +91,7 @@ Switching between mock and real is one env var: `ENGINE_URL`.
 Always compute from `screen.getDisplayNearestPoint(cursor).workArea`, never hard-coded pixels.
 - **Pill:** horizontally centered. On Mac it sits inside the menu-bar band hugging the notch (`y = 6`, height 34). On Windows `y = 8`. When collapsed it never covers app content.
 - **Expanded pill / cards / diagram popup:** grow **downward from the pill's center**, the same transform origin, so it reads as one object morphing. Top edge at `pill.bottom + 10`. Max width 520.
-- **Launcher:** centered horizontally, **top edge at 22% of the screen height** (like Spotlight, not dead center). Width 720.
+- **Launcher (UPDATED Sat ~2 PM, Michael's call): it opens OUT OF THE NOTCH.** ⌥Space makes the top-center pill expand downward, Dynamic-Island style, into the launcher (anchored top-center at the notch, width ~640, grows down as results stream in). "Build lesson" collapses it back up into the pill. **Every surface (launcher, cards, diagram, settings) is born from and returns to the notch island**; nothing pops up mid-screen. See mockups 01, 02 and 05 for the look.
 - **Shortcut bar:** bottom-center, `24px` above the dock or taskbar (`workArea.bottom - 24 - height`). Width hugs its content, about 740.
 - **Right-edge tab:** vertically centered, 6px from the right edge. Click it to open the lesson drawer.
 - **Lesson player:** docked to the right **40%** of the screen at lesson start. The user can drag it; remember its position.
