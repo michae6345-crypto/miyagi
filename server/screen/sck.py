@@ -5,6 +5,10 @@ visible on screen and in the user's screen recordings (unlike setContentProtecti
 ~35 ms per full-res frame warm on Apple Silicon. macOS 14+.
 
 Gotcha: pyobjc completion handlers must return None (a lambda returning a value aborts the process).
+
+Stalls: replayd (the daemon behind SCK) can drop our connection in a loop; then no completion
+handler ever fires. Calls time out after `timeout_s` with `SCKStalled`; the reader then captures
+with `screencapture` and backs off before trying SCK again.
 """
 from __future__ import annotations
 
@@ -30,13 +34,17 @@ DEFAULT_PRIVATE_BUNDLES = {"com.1password.1password", "com.agilebits.onepassword
                            "com.dashlane.dashlanephonefinal", "com.lastpass.LastPass"}
 
 
+class SCKStalled(TimeoutError):
+    """ScreenCaptureKit didn't answer in time (replayd stalled / connection interrupted)."""
+
+
 def _env_set(name: str) -> set[str]:
     return {s.strip() for s in os.environ.get(name, "").split(",") if s.strip()}
 
 
 class SCKCapturer:
     def __init__(self, overlay_bundles: set[str] | None = None, private_bundles: set[str] | None = None,
-                 refresh_s: float = 2.0, timeout_s: float = 3.0):
+                 refresh_s: float = 2.0, timeout_s: float = 1.5):
         self.overlay_bundles = (overlay_bundles if overlay_bundles is not None else DEFAULT_OVERLAY_BUNDLES) \
             | _env_set("TUT_OVERLAY_BUNDLES")
         self.private_bundles = (private_bundles if private_bundles is not None else DEFAULT_PRIVATE_BUNDLES) \
@@ -66,9 +74,12 @@ class SCKCapturer:
         SCK.SCShareableContent.getShareableContentExcludingDesktopWindows_onScreenWindowsOnly_completionHandler_(
             False, True, done)
         if not ev.wait(self.timeout_s):
-            raise TimeoutError("SCShareableContent timed out")
+            raise SCKStalled(f"SCShareableContent gave no answer in {self.timeout_s:.1f} s")
         if box.get("e") is not None or box.get("c") is None:
-            raise ScreenPermissionError()
+            # an interrupted replayd connection also lands here: only a missing grant is a permission error
+            if not Quartz.CGPreflightScreenCaptureAccess():
+                raise ScreenPermissionError()
+            raise RuntimeError(f"SCShareableContent failed: {box.get('e')}")
         content = box["c"]
         main_id = Quartz.CGMainDisplayID()
         disp = next((d for d in content.displays() if d.displayID() == main_id), None)
@@ -82,7 +93,21 @@ class SCKCapturer:
         self._content, self._content_t = content, time.time()
 
     def capture(self):
-        """-> (CGImage, screen Rect in points, scale). Raises ScreenPermissionError / RuntimeError."""
+        """-> (CGImage, screen Rect in points, scale). Raises ScreenPermissionError / SCKStalled /
+        RuntimeError. A failed screenshot with a stale filter (Space switch, app quit) is retried
+        once with fresh content; a stall is not (it would just stall again)."""
+        try:
+            return self._capture_once()
+        except SCKStalled:
+            raise
+        except ScreenPermissionError:
+            raise
+        except Exception as e:  # noqa: BLE001
+            log.info("SCK capture failed (%s); retrying once with fresh content", e)
+            self._filter = None
+            return self._capture_once()
+
+    def _capture_once(self):
         if self._filter is None or time.time() - self._content_t > self.refresh_s:
             self._refresh()
         disp = self._display
@@ -104,7 +129,8 @@ class SCKCapturer:
 
         SCK.SCScreenshotManager.captureImageWithFilter_configuration_completionHandler_(self._filter, cfg, done)
         if not ev.wait(self.timeout_s):
-            raise TimeoutError("SCScreenshotManager timed out")
+            self._filter = None
+            raise SCKStalled(f"SCScreenshotManager gave no answer in {self.timeout_s:.1f} s")
         if box.get("i") is None:
             self._filter = None  # force a refresh next time
             raise RuntimeError(f"ScreenCaptureKit capture failed: {box.get('e')}")

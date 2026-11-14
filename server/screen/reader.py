@@ -49,11 +49,16 @@ class ScreenReader:
         self.heartbeat_with_events = heartbeat_with_events
         self.use_ax = use_ax and os.environ.get("TUT_AX", "1") != "0"
         self.use_events = use_events and os.environ.get("TUT_EVENTS", "1") != "0"
-        self.use_sck = os.environ.get("TUT_CAPTURE", "sck") != "cg"
+        # capture backends, tried in order: sck (overlay left out) -> cli (`screencapture`, overlay
+        # masked) -> cg. TUT_CAPTURE=cli skips SCK; TUT_CAPTURE=cg forces the old CG-only path.
+        self.capture_mode = os.environ.get("TUT_CAPTURE", "sck")
+        self.use_sck = self.capture_mode == "sck"
+        self.backend: str | None = None   # which backend produced the latest frame
         self.ax_reader = None       # server.screen.ax.AXReader once started (None: AX unavailable)
         self.events = None          # server.screen.events.EventTriggers once started
         self._sck = None
-        self._sck_retry_at = 0.0     # after a ScreenCaptureKit failure, use CG until then (sleep/lock blips)
+        self._sck_retry_at = 0.0     # after a ScreenCaptureKit failure, skip it until then
+        self._sck_streak = 0         # consecutive SCK failures (backoff 10 s, 20 s, ... 5 min)
         self._pending_reason = "tick"
         self._force_next = False
         self._last_capture = 0.0
@@ -401,6 +406,7 @@ class ScreenReader:
         """
         from . import macos
         if self.fixture:
+            self.backend = None
             img, screen, scale, windows, app = load_fixture(self.fixture)
             return img, screen, scale, windows, app, f"fixture:{Path(self.fixture).name}", False
         try:
@@ -410,8 +416,9 @@ class ScreenReader:
             if sck is not None:
                 img, screen, scale, excluded = sck
                 windows = [w for w in macos.list_windows(screen) if w.app not in excluded]
+                self.backend = "sck"
                 return img, screen, scale, windows, None, "live", True
-            f = macos.capture_main_display()
+            f = self._fallback_capture()
         except macos.ScreenPermissionError:
             if not self._permission_warned:
                 print(macos.PERMISSION_HELP, file=sys.stderr)
@@ -424,8 +431,26 @@ class ScreenReader:
             raise
         return f.image, f.screen, f.scale, macos.list_windows(f.screen), None, "live", False
 
+    def _fallback_capture(self):
+        """`screencapture` (works when replayd stalls SCK + CG), then CGDisplayCreateImage."""
+        from . import macos
+        if self.capture_mode != "cg":
+            try:
+                f = macos.capture_main_display_cli()
+                self.backend = "cli"
+                return f
+            except FileNotFoundError:
+                pass  # no screencapture binary: CG below
+        f = macos.capture_main_display()
+        self.backend = "cg"
+        return f
+
     def _sck_capture(self):
-        """ScreenCaptureKit with our overlay excluded; None -> use the CoreGraphics fallback."""
+        """ScreenCaptureKit with our overlay excluded; None -> use the fallback capture.
+
+        A failure (replayd stall, Space switch, sleep) is never permanent: SCK is skipped for 10 s,
+        then 20, 40 ... up to 5 min while it keeps failing, and the fallback serves frames meanwhile,
+        so the screen never goes blind because of SCK."""
         if not self.use_sck or time.time() < self._sck_retry_at:
             return None
         try:
@@ -433,15 +458,19 @@ class ScreenReader:
                 from .sck import SCKCapturer
                 self._sck = SCKCapturer()
             img, screen, scale = self._sck.capture()
-            self._sck_retry_at = 0.0
+            if self._sck_streak:
+                log.info("ScreenCaptureKit recovered after %d failure(s)", self._sck_streak)
+            self._sck_retry_at, self._sck_streak = 0.0, 0
             return img, screen, scale, set(self._sck.excluded_apps)
         except ScreenPermissionError:
             raise
         except Exception as e:  # noqa: BLE001
-            if self._sck_retry_at == 0.0:  # log once per failure streak, not per frame
-                log.warning("ScreenCaptureKit failed (%s); using CGDisplayCreateImage + overlay masking, "
-                            "retrying SCK every 30 s", e)
-            self._sck_retry_at = time.time() + 30.0
+            self._sck_streak += 1
+            delay = min(300.0, 10.0 * 2 ** (self._sck_streak - 1))
+            if self._sck_streak == 1 or self._sck_streak % 5 == 0:  # not a line per frame
+                log.warning("ScreenCaptureKit failed (%s: %s); capturing with screencapture + overlay "
+                            "masking, retrying SCK in %.0f s", e.__class__.__name__, e, delay)
+            self._sck_retry_at = time.time() + delay
             return None
 
     def observe_now(self, force: bool = True, trigger: str = "manual") -> ScreenObservation | None:
@@ -477,7 +506,8 @@ class ScreenReader:
             obs = ScreenObservation(t=time.time(), app=fixture_app or macos.frontmost_app(windows),
                                     windows=windows, blocks=blocks, screen=screen, scale=scale,
                                     ocr_ms=ms, frame=self._frame, source=source, trigger=trigger,
-                                    overlay_excluded=overlay_excluded)
+                                    overlay_excluded=overlay_excluded,
+                                    capture=(self.backend or "") if source == "live" else "fixture")
             if source == "live":
                 self._attach_cursor_and_ax(obs)
             self.ocr_ms_history = (self.ocr_ms_history + [ms])[-50:]

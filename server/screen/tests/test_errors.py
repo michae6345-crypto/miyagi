@@ -101,7 +101,7 @@ def test_tiger_retries_with_backoff_and_keeps_points():
 
 
 @mac
-def test_sck_failure_is_temporary(monkeypatch, live_display):
+def test_sck_failure_is_temporary(monkeypatch, live_sck):
     """A ScreenCaptureKit blip (display asleep) must not disable overlay exclusion for good."""
     import time as _t
 

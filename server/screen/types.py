@@ -123,6 +123,7 @@ class ScreenObservation:
     ax_lines: dict[str, list[str]] = field(default_factory=dict)  # {app: lines} read via AX (exact, incl. off-screen)
     trigger: str = "tick"               # why this frame was captured: tick|click|typing_pause|app_switch|...
     overlay_excluded: bool = False      # overlay left out at capture time (ScreenCaptureKit)
+    capture: str = ""                   # backend that produced the frame: sck | cli | cg | fixture
 
     def text(self, app: str | None = None) -> str:
         """All OCR text, one block per line, plus exact AX text (editor buffer page / terminal rows)
@@ -157,7 +158,8 @@ class ScreenObservation:
              "screen": self.screen.to_dict(), "scale": self.scale, "ocr_ms": round(self.ocr_ms, 1),
              "frame": self.frame, "source": self.source, "trigger": self.trigger,
              "cursor": {"x": self.cursor[0], "y": self.cursor[1]} if self.cursor else None,
-             "under_cursor": self.under_cursor, "ax": self.ax, "overlay_excluded": self.overlay_excluded}
+             "under_cursor": self.under_cursor, "ax": self.ax, "overlay_excluded": self.overlay_excluded,
+             "capture": self.capture}
         if with_blocks:
             d["blocks"] = [b.to_dict() for b in self.blocks]
         return d
@@ -175,7 +177,7 @@ class ScreenObservation:
             scale=float(d.get("scale", 1.0)), ocr_ms=float(d.get("ocr_ms", 0.0)), frame=int(d.get("frame", 0)),
             source=d.get("source", "recorded"), cursor=(cur["x"], cur["y"]) if cur else None,
             under_cursor=d.get("under_cursor"), ax=d.get("ax"), trigger=d.get("trigger", "tick"),
-            overlay_excluded=bool(d.get("overlay_excluded", False)))
+            overlay_excluded=bool(d.get("overlay_excluded", False)), capture=d.get("capture", ""))
 
 
 __all__ = ["Block", "Rect", "ScreenObservation", "Window", "asdict"]
