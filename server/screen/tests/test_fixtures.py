@@ -85,7 +85,7 @@ def test_live_capture_is_primary_full_frame_points(live_display):
     if not macos.has_permission():
         pytest.skip("no Screen Recording permission")
     from AppKit import NSScreen
-    f = macos.capture_main_display()
+    f = macos.capture_main_display_cli()   # CG may be stalled with replayd; see test_capture.py
     full = NSScreen.screens()[0].frame()  # primary display, full frame incl. menu bar
     assert (f.screen.x, f.screen.y) == (0, 0)
     assert (f.screen.w, f.screen.h) == (full.size.width, full.size.height)
