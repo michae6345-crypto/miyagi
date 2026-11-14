@@ -59,7 +59,7 @@ targets = await coach.locate("the learning rate", screen)  # exact text → no m
   - The diff is one contiguous block (up to 8 lines) that makes every edit the action sentence asks for.
   - Never `git add` / `--continue` while conflict markers remain. `_shape` also drops such a command unless the diff itself removes the markers.
 - **`apply_fix`:**
-  - It tolerates OCR'd anchors: it strips gutter line numbers and gutter-only lines, then maps each line fuzzily (difflib ratio ≥ 0.8). That covers OCR errors like `<<<<<` for `<<<<<<<` and `=` for `=>`.
+  - It tolerates OCR'd anchors: it strips gutter line numbers and gutter-only lines, then maps each line fuzzily (difflib ratio ≥ 0.8). When the screen-read lines keep the editor's gutter numbers, those numbers are used as the file's line numbers, provided the text there agrees (ratio ≥ 0.7). The fuzzy pass may skip up to 2 blank or conflict-marker rows that OCR dropped. That covers OCR errors like `<<<<<` for `<<<<<<<` and `=` for `=>`.
   - When `expected` rewrites more lines than `yours` covers, the span widens over neighbours that `expected` rewrites (similarity ≥ 0.7). A patch that would duplicate an adjacent line is rejected. A `git-rebase-todo` patch must keep every commit hash exactly once.
   - It rejects no-op patches.
   - It edits `.ipynb` cell by cell (sources only, outputs kept, `indent=1`, magics ignored for the compile check). Excerpts of notebooks are cell sources, not raw JSON, even when the orchestrator truncates the JSON at 6000 characters.

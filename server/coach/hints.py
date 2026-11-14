@@ -166,9 +166,39 @@ def _ratio(a: str, b: str) -> float:
     return difflib.SequenceMatcher(None, a, b, autojunk=False).ratio() if a and b else 0.0
 
 
+MARKER_ONLY = re.compile(r"^\s*(<{5,}|={5,}|>{5,})[^\n]*$")
+GUTTER_NUM = re.compile(r"^\s*(\d{1,5})(?:\s|$)")
+
+
+def _span_from_gutter(lines: list[str], yours: list[str]) -> tuple[int, int] | None:
+    """OCR'd editor lines carry the editor's own line numbers ("12 app.post(..."): use them as file
+    line numbers when the text there agrees (S9 G3: OCR dropped the `=======` row entirely)."""
+    nums = [int(m.group(1)) for y in yours if (m := GUTTER_NUM.match(y))]
+    if len(nums) < 2 or nums != sorted(nums) or len(nums) < 0.6 * len(yours):
+        return None
+    start, end = nums[0] - 1, nums[-1]
+    if not (0 <= start < end <= len(lines)):
+        return None
+    pairs = []
+    for y in yours:
+        m = GUTTER_NUM.match(y)
+        text = GUTTER.sub("", y)
+        if m and text.strip() and not GUTTER_ONLY.match(y):
+            pairs.append((text, lines[int(m.group(1)) - 1]))
+    if not pairs:
+        return None
+    score = sum(_ratio(a, b) for a, b in pairs) / len(pairs)
+    return (start, end) if score >= 0.7 else None
+
+
 def _locate_span(lines: list[str], yours: list[str], hint_line: int | None) -> tuple[int, int] | None:
     """File span [start, end) holding `yours`: exact (indent-insensitive), then without OCR gutter
-    numbers, then line-by-line fuzzy (OCR errors like `<<<<<` for `<<<<<<<`, `=` for `=>`)."""
+    numbers, then the editor's own gutter numbers, then line-by-line fuzzy (OCR errors like `<<<<<`
+    for `<<<<<<<`, `=` for `=>`), skipping up to 2 blank / marker-only rows OCR dropped."""
+    if (g := _span_from_gutter(lines, yours)) is not None and _locate(lines, yours, hint_line) is None:
+        exact_stripped = _locate(lines, [GUTTER.sub("", y) for y in yours if not GUTTER_ONLY.match(y)], hint_line)
+        if exact_stripped is None:
+            return g
     yours = [y for y in yours if not GUTTER_ONLY.match(y)]
     if not yours:
         return None
@@ -179,10 +209,11 @@ def _locate_span(lines: list[str], yours: list[str], hint_line: int | None) -> t
     for s0 in range(len(lines)):
         if _ratio(yours[0], lines[s0]) < FUZZY_MIN:
             continue
-        j, total = s0, 0.0
+        j, total, skipped = s0, 0.0, 0
         for y in yours:
-            while j < len(lines) and not lines[j].strip() and _squash(y):  # blank file lines OCR dropped
-                j += 1
+            while j < len(lines) and (not lines[j].strip() or MARKER_ONLY.match(lines[j])) and skipped < 2 and _ratio(y, lines[j]) < FUZZY_MIN:
+                j += 1  # a blank / conflict-marker row the OCR dropped
+                skipped += 1
             if j >= len(lines) or (r := _ratio(y, lines[j])) < FUZZY_MIN:
                 break
             total += r

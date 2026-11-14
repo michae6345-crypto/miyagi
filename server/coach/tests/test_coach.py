@@ -1276,3 +1276,25 @@ def test_web_skips_self_explaining_errors_and_caps_at_1_5s(monkeypatch):
     assert calls == []
     run(coach.diagnose(step, [{"checkId": "x", "status": "fail"}], None, "x", error_text="TypeError: Cannot read properties of undefined (reading 'map')"))
     assert calls == [1.5]
+
+
+def _conflict_file() -> str:
+    filler = [f"const line{i} = {i};" for i in range(1, 10)]
+    block = ["<<<<<<< HEAD", "=======", "app.post('/logout', (req, res) => {", "  res.json({ ok: true });", "});", "", ">>>>>>> topic"]
+    return "\n".join(filler + block + ["app.listen(3000);"]) + "\n"
+
+
+def test_g3_ocr_dropped_marker_row_uses_gutter_numbers():
+    """S9 G3 re-check: Vision dropped the `=======` row; only its gutter "11" survived."""
+    ocr = "10 <<<<< HEAD\n11\n12 app.post('/logout', (req, res) = {\n13 res. json({ ok: true });\n14 });\n16 >>>>>>> topic"
+    expected = "app.post('/logout', (req, res) => {\n  res.json({ ok: true });\n});"
+    r = coach.apply_fix({"file": "index.js", "yours": ocr, "expected": expected}, _conflict_file())
+    assert r["error"] is None
+    assert not re.search(r"^(<{7}|={7}|>{7})", r["new_text"], re.MULTILINE)
+    assert r["new_text"].count("app.post('/logout'") == 1 and r["new_text"].rstrip().endswith("app.listen(3000);")
+
+
+def test_fuzzy_walk_skips_dropped_marker_rows():
+    ocr = "<<<<< HEAD\napp.post('/logout', (req, res) = {\nres. json({ ok: true });"  # no gutter numbers, `=======` dropped
+    r = coach.apply_fix({"file": "index.js", "yours": ocr, "expected": "app.post('/logout', (req, res) => {\n  res.json({ ok: true });"}, _conflict_file())
+    assert r["error"] is None and "<<<<<<<" not in r["new_text"] and "=======" not in r["new_text"]
