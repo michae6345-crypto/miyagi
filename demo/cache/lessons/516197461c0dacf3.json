@@ -9,7 +9,7 @@
       "vite": "4.4.9",
       "node": "20.8.0"
     },
-    "workdir": "/private/tmp/claude-501/-Users-tripi-sand-hacks-sandhacks-tutor--claude-worktrees-michael-lesson-135f28/a6d94223-e634-4a84-8594-7bbb9c0311ce/scratchpad/react-lab"
+    "workdir": "react-lab"
   },
   "sources": [
     {
