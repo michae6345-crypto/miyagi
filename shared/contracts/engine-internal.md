@@ -12,6 +12,22 @@ tut run (cli/) ──POST /ingest──▶ orchestrator ──WS :8787──▶ 
                                    └─ Tiger Data (training_metrics, runs, learning_events)
 ```
 
+## SCREEN-FIRST (decided Sat 1 PM): the engine watches the whole screen
+The product watches **your whole screen** during a lesson and teaches you, in any app. No VS Code extension.
+
+## server/screen (E6): the screen reader
+- Runs **in the engine process on the Mac** (Python + pyobjc): capture with Quartz/ScreenCaptureKit about every 2s, **only when the screen changed** (downscaled-hash diff).
+- On-device OCR via **Apple Vision** (`VNRecognizeTextRequest`, accurate mode, language correction off for code) → `ScreenObservation{t, app, windows[{app,title,rect}], blocks[{text, rect, confidence}]}`, with rects in **screen points** (divide pixels by the backing scale factor).
+- Ignores our own overlay: drops blocks inside the rects the app reports via `overlay.bounds`.
+- `latest() -> ScreenObservation`, `subscribe(cb)`, `locate(match: str, app: str|None) -> rect|None` (union of the lines matching a regex/substring, with padding) → used for `spotlight`.
+- **Terminal metric reader:** applies each check's `metric_pattern` to new terminal lines on screen → pushes `(step, value)` metrics into Tiger Data `training_metrics` (`run_id = "screen-<lesson>"`) and the orchestrator. This is how loss curves get graded without `tut run`.
+- `describe(region|None) -> str`: on demand, a screenshot to Gemini or Claude vision for semantic questions ("is this plot converging?"). Rate-limited.
+- Needs macOS **Screen Recording** permission for the terminal or app running the engine.
+
+## How checks change
+- Prefer `screen_contains` / `screen_absent` (regex over the OCR text, optionally scoped to an `app`) and `metric_*` with a `metric_pattern`.
+- `file_*` / `command_*` still work when a workdir is known or `tut run` is used (**precision mode, kept as a quiet backup for the live demo**).
+
 ## server/lesson (E2)
 - `async def build_lesson(source_url: str, goal: str, workdir: str) -> dict`: returns a step graph that validates against `shared/contracts/step-graph.schema.json`. Uses Gemini with the YouTube URL. Caches to `demo/cache/lessons/<hash>.json`; return the cached one if present (the demo must never wait on Gemini).
 

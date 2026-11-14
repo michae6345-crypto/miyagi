@@ -32,7 +32,10 @@ export interface EngineEvents {
     citation?: { label: string; url: string };
     actions: Array<"explain" | "show_me" | "apply_fix" | "hint">;
   };
-  "spotlight": { file: string; startLine: number; endLine: number; caption: string } | { clear: true };
+  /** Screen-first: rect is in macOS screen POINTS (top-left origin of the primary display), from the engine's screen reader. */
+  "spotlight": { rect: { x: number; y: number; w: number; h: number }; caption: string; app?: string; matched?: string } | { clear: true };
+  /** What the engine currently sees (debug HUD / optional). */
+  "screen.seen": { app: string; summary: string; t: number };
   "video.seek": { t: number; play: boolean };
   "video.pause": {};
   "video.play": {};
@@ -58,13 +61,14 @@ export interface AppCommands {
   "build_lesson": { resultIds: string[] };
   "action": { kind: "back" | "explain" | "diagram" | "show_me" | "hint" | "voice_toggle" | "ask" | "apply_fix"; text?: string };
   "video.state": { t: number; playing: boolean };   // player reports its position
+  "overlay.bounds": { rects: Array<{ x: number; y: number; w: number; h: number }> };
 }
 
 export type EngineMessage = { [K in keyof EngineEvents]: { type: K; payload: EngineEvents[K] } }[keyof EngineEvents];
 export type AppMessage = { [K in keyof AppCommands]: { type: K; payload: AppCommands[K] } }[keyof AppCommands];
 
-// ---------- App <-> VS Code extension (ws://localhost:8788) ----------
-export interface ExtensionMessages {
-  "spotlight": { file: string; startLine: number; endLine: number; caption: string } | { clear: true };
-  "editor.state": { file: string; visibleStart: number; visibleEnd: number; cursorLine: number }; // ext -> app
+// ---------- App -> Engine: overlay bounds (so the screen reader ignores our own UI) ----------
+export interface AppOverlayReport {
+  "overlay.bounds": { rects: Array<{ x: number; y: number; w: number; h: number }> }; // send whenever pill/cards/bar move or resize
 }
+// NOTE: the VS Code extension is dropped. The engine watches the whole screen (any app) and sends spotlight rects.

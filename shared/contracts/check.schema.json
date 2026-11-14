@@ -7,7 +7,9 @@
   "properties": {
     "id": {"type": "string"},
     "label": {"type": "string", "description": "shown in the UI checklist, <= 6 words"},
-    "type": {"enum": ["file_exists", "file_contains", "command_exit_ok", "output_contains", "metric_threshold", "metric_trend", "visual"]},
+    "type": {"enum": ["screen_contains", "screen_absent", "file_exists", "file_contains", "command_exit_ok", "output_contains", "metric_threshold", "metric_trend", "visual"], "description": "Screen-first: prefer screen_contains / screen_absent / metric_* (metrics are parsed from terminal text on screen). file_* and command_* need a known workdir or `tut run` (precision mode)."},
+    "app": {"type": "string", "description": "screen_*: only match text inside this app's windows, e.g. 'Code', 'Terminal', 'iTerm2'"},
+    "metric_pattern": {"type": "string", "description": "how to read this metric off the screen: regex with named groups step and value, e.g. 'epoch\\s+(?P<step>\\d+).*?loss\\s+(?P<value>[0-9.eE+-]+)'"},
     "file": {"type": "string", "description": "file_exists / file_contains"},
     "pattern": {"type": "string", "description": "regex for file_contains / output_contains"},
     "command": {"type": "string", "description": "command_exit_ok: the command the learner runs via `tut run`"},
