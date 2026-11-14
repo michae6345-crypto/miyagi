@@ -1,0 +1,90 @@
+{
+  "kind": "graph",
+  "caption": "groupby('pclass') splits rows by class, .agg() computes mean_fare, survival_rate and passengers for each group, then the results combine into one row per pclass.",
+  "data": {
+    "title": "Split-apply-combine",
+    "layout": "data",
+    "direction": "LR",
+    "nodes": [
+      {
+        "id": "df",
+        "label": "df",
+        "shape": "data",
+        "emphasis": false,
+        "detail": "survived, pclass, fare",
+        "col": 0,
+        "row": 0.0
+      },
+      {
+        "id": "gb",
+        "label": "groupby('pclass')",
+        "shape": "box",
+        "emphasis": true,
+        "detail": "one group per class",
+        "col": 1,
+        "row": 0.0
+      },
+      {
+        "id": "agg",
+        "label": ".agg()",
+        "shape": "box",
+        "emphasis": true,
+        "detail": "mean, mean, count",
+        "col": 2,
+        "row": 0.0
+      },
+      {
+        "id": "sum",
+        "label": "summary",
+        "shape": "data",
+        "emphasis": false,
+        "detail": "mean_fare, survival_rate",
+        "col": 4,
+        "row": 0.0
+      },
+      {
+        "id": "ri",
+        "label": "reset_index()",
+        "shape": "round",
+        "emphasis": false,
+        "detail": "pclass becomes column",
+        "col": 3,
+        "row": 0.0
+      }
+    ],
+    "edges": [
+      {
+        "from": "df",
+        "to": "gb",
+        "style": "solid",
+        "emphasis": false,
+        "label": "split"
+      },
+      {
+        "from": "gb",
+        "to": "agg",
+        "style": "solid",
+        "emphasis": true,
+        "label": "apply per group"
+      },
+      {
+        "from": "agg",
+        "to": "ri",
+        "style": "solid",
+        "emphasis": false,
+        "label": "combine"
+      },
+      {
+        "from": "ri",
+        "to": "sum",
+        "style": "solid",
+        "emphasis": false
+      }
+    ],
+    "grid": {
+      "cols": 5,
+      "rows": 1
+    }
+  },
+  "stepId": "s5"
+}

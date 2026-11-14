@@ -1,0 +1,24 @@
+{
+  "kind": "network",
+  "caption": "FCN maps (x, t) to y through two Tanh layers of 32. lossPDE differentiates f twice with create_graph=True so f_t and f_xx stay trainable.",
+  "data": {
+    "layers": [
+      2,
+      32,
+      32,
+      1
+    ],
+    "activation": "Tanh",
+    "derivatives": [
+      "f_t",
+      "f_xx"
+    ],
+    "residual": "f_t - f_xx + s",
+    "inputs": [
+      "x",
+      "t"
+    ],
+    "output": "y"
+  },
+  "stepId": "s6"
+}

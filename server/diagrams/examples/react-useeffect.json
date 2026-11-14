@@ -1,0 +1,91 @@
+{
+  "kind": "graph",
+  "caption": "The effect runs once after the first render because of []. setUsers triggers a re-render, and the cleanup calls controller.abort() on unmount.",
+  "data": {
+    "title": "Effect lifecycle",
+    "layout": "flow",
+    "direction": "LR",
+    "nodes": [
+      {
+        "id": "mount",
+        "label": "First render",
+        "shape": "round",
+        "emphasis": false,
+        "detail": "users = []",
+        "col": 0,
+        "row": 0.5
+      },
+      {
+        "id": "effect",
+        "label": "useEffect",
+        "shape": "box",
+        "emphasis": true,
+        "detail": "deps: []",
+        "col": 1,
+        "row": 0.5
+      },
+      {
+        "id": "fetch",
+        "label": "fetch /api/users",
+        "shape": "box",
+        "emphasis": false,
+        "detail": "signal: controller",
+        "col": 2,
+        "row": 0.0
+      },
+      {
+        "id": "set",
+        "label": "setUsers(data)",
+        "shape": "box",
+        "emphasis": false,
+        "detail": "re-render with list",
+        "col": 3,
+        "row": 0.5
+      },
+      {
+        "id": "clean",
+        "label": "controller.abort()",
+        "shape": "box",
+        "emphasis": true,
+        "detail": "cleanup on unmount",
+        "col": 2,
+        "row": 1.0
+      }
+    ],
+    "edges": [
+      {
+        "from": "mount",
+        "to": "effect",
+        "style": "solid",
+        "emphasis": true,
+        "label": "runs once"
+      },
+      {
+        "from": "effect",
+        "to": "fetch",
+        "style": "solid",
+        "emphasis": false,
+        "label": "starts request"
+      },
+      {
+        "from": "fetch",
+        "to": "set",
+        "style": "solid",
+        "emphasis": false,
+        "label": "res.json()"
+      },
+      {
+        "from": "effect",
+        "to": "clean",
+        "style": "dashed",
+        "emphasis": true,
+        "label": "returns"
+      }
+    ],
+    "grid": {
+      "cols": 4,
+      "rows": 2
+    }
+  },
+  "stepId": "s4"
+}
