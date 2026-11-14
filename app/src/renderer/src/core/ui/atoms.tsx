@@ -1,19 +1,19 @@
 /** Small building blocks shared by the pill, cards, launcher and shortcut bar. */
 import { motion } from 'motion/react'
 import type { ReactNode } from 'react'
-import { X } from 'lucide-react'
+import { Lightbulb, MessageSquareText, Play, SquarePlay, Waypoints, X, type LucideIcon } from 'lucide-react'
 import type { CheckItem, Status } from '../lesson'
 import { emitUi } from '../bus'
-import { brand, color, spring } from '../theme'
+import { actionTone, brand, color, fill, spring, type OptionAction } from '../theme'
 
-/** Status dot: gray watching · amber off-track · green passed. Pulses twice when it turns amber. */
+/** Status dot: gray watching · amber off-track · green passed. Pulses twice when it turns amber. No glow (brand). */
 export function StatusDot({ status, size = 7 }: { status: Status; size?: number }): ReactNode {
   const c = status === 'offtrack' ? color.amber : status === 'passed' ? color.green : color.gray
   return (
     <motion.span
       key={status}
       className="inline-block shrink-0 rounded-full"
-      style={{ width: size, height: size, background: c, boxShadow: status === 'watching' ? 'none' : `0 0 8px ${c}` }}
+      style={{ width: size, height: size, background: c }}
       initial={{ scale: 1 }}
       animate={{ scale: status === 'offtrack' ? [1, 1.35, 1, 1.35, 1] : 1 }}
       transition={{ duration: 0.9, ease: 'easeInOut' }}
@@ -26,7 +26,7 @@ export function ProgressRing({ fraction, size = 15, stroke = 2 }: { fraction: nu
   const r = (size - stroke) / 2
   return (
     <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`} className="shrink-0 -rotate-90">
-      <circle cx={size / 2} cy={size / 2} r={r} fill="none" stroke="rgba(255,255,255,.18)" strokeWidth={stroke} />
+      <circle cx={size / 2} cy={size / 2} r={r} fill="none" stroke={fill.track} strokeWidth={stroke} />
       <motion.circle
         cx={size / 2}
         cy={size / 2}
@@ -54,7 +54,7 @@ export function Spinner({ size = 18, c = color.accent }: { size?: number; c?: st
       animate={{ rotate: 360 }}
       transition={{ repeat: Infinity, duration: 1, ease: 'linear' }}
     >
-      <circle cx="9" cy="9" r="7.5" fill="none" stroke="rgba(255,255,255,.14)" strokeWidth="1.6" />
+      <circle cx="9" cy="9" r="7.5" fill="none" stroke={fill.trackSoft} strokeWidth="1.6" />
       <path d="M9 1.5 A7.5 7.5 0 0 1 16.5 9" fill="none" stroke={c} strokeWidth="1.6" strokeLinecap="round" />
     </motion.svg>
   )
@@ -90,7 +90,7 @@ export function CheckIcon({ status, active }: { status: CheckItem['status']; act
   if (active) return <Spinner />
   return (
     <svg width="18" height="18" viewBox="0 0 18 18" className="shrink-0">
-      <circle cx="9" cy="9" r="8.2" fill="none" stroke="rgba(255,255,255,.28)" strokeWidth="1.4" />
+      <circle cx="9" cy="9" r="8.2" fill="none" stroke={fill.ring} strokeWidth="1.4" />
     </svg>
   )
 }
@@ -101,7 +101,7 @@ export function CheckList({ checks }: { checks: CheckItem[] }): ReactNode {
     <div className="flex flex-col gap-[11px]">
       {checks.map((c) => {
         const active = c.id === activeId
-        const tone = c.status === 'pass' ? color.label : c.status === 'fail' || active ? '#fff' : color.faint
+        const tone = c.status === 'pass' ? color.label : c.status === 'fail' || active ? color.text : color.faint
         return (
           <div key={c.id} className="flex items-center gap-3 text-[14px] leading-[18px]">
             <CheckIcon status={c.status} active={active} />
@@ -125,7 +125,7 @@ export function Kbd({ children, className = '' }: { children: ReactNode; classNa
   return (
     <span
       className={`inline-flex h-[22px] items-center rounded-[6px] px-[7px] text-[12px] font-medium ${className}`}
-      style={{ background: 'rgba(255,255,255,.1)', color: 'rgba(255,255,255,.62)' }}
+      style={{ background: fill.key, color: fill.keyText }}
     >
       {children}
     </span>
@@ -139,13 +139,13 @@ export function Thumb({ w, h, time, src }: { w: number; h: number; time?: string
       {src ? (
         <img src={src} className="h-full w-full object-cover" />
       ) : (
-        <div className="absolute inset-0" style={{ background: '#1C1C1E' }}>
+        <div className="absolute inset-0" style={{ background: fill.thumb }}>
           <div className="absolute left-[9%] top-[18%] h-[5%] w-[38%] rounded-full bg-white/50" />
           <div className="absolute left-[9%] top-[32%] h-[4%] w-[26%] rounded-full bg-white/25" />
           <div className="absolute left-[9%] top-[44%] h-[4%] w-[30%] rounded-full bg-white/25" />
           <div
             className="absolute right-[8%] top-[18%] h-[62%] w-[38%] rounded-[3px]"
-            style={{ background: '#3A3A3C' }}
+            style={{ background: fill.thumbArt }}
           />
         </div>
       )}
@@ -165,24 +165,70 @@ export function Thumb({ w, h, time, src }: { w: number; h: number; time?: string
 
 export const hairline = { borderColor: color.hairline } as const
 
-/** Small uppercase status chip, e.g. OFF-TRACK. */
-export function Chip({ tone, children }: { tone: string; children: ReactNode }): ReactNode {
+const ACTION_ICON: Record<OptionAction, LucideIcon> = { explain: MessageSquareText, diagram: Waypoints, watch: Play, show_me: SquarePlay, hint: Lightbulb }
+
+/**
+ * An option (Explain, Diagram, Watch, Show me, Hint): a 30px pill in the action's pastel with ink label and
+ * icon, keycap on ink 10%. The same action is the same color everywhere (theme.actionTone). Options only.
+ */
+export function OptionButton({ action, label, kbd, onClick, icon }: { action: OptionAction; label: string; kbd?: string; onClick: () => void; icon?: LucideIcon }): ReactNode {
+  const I = icon ?? ACTION_ICON[action]
   return (
-    <span
-      className="inline-flex h-[20px] items-center gap-[5px] rounded-[6px] px-[7px] text-[11px] font-semibold uppercase tracking-[0.04em]"
-      style={{ color: tone, background: `${tone}26` }}
+    <motion.button
+      type="button"
+      className={`flex h-[30px] shrink-0 cursor-pointer items-center gap-[7px] whitespace-nowrap rounded-full pl-[11px] text-[13px] font-medium ${kbd ? 'pr-[4px]' : 'pr-[13px]'}`}
+      style={{ backgroundColor: actionTone[action], color: color.onAccent }}
+      whileHover={{ filter: 'brightness(1.06)' }}
+      whileTap={{ scale: 0.97 }}
+      transition={{ duration: 0.12 }}
+      onMouseDown={(e) => e.preventDefault()}
+      onClick={onClick}
     >
-      {children}
-    </span>
+      <I size={13} strokeWidth={1.8} className="shrink-0" />
+      {label}
+      {kbd && (
+        <span className="inline-flex h-[22px] items-center rounded-full px-[8px] text-[11px] font-medium" style={{ background: fill.onAccentKey }}>
+          {kbd}
+        </span>
+      )}
+    </motion.button>
   )
 }
 
-/** Card action button. Brand: buttons are white on dark (never blue, green or amber). `tone` is ignored (kept for older call sites). */
+/** The ONE primary action on a surface (Build lesson, Apply fix, Ask, Replay step): white pill, ink text, keycap on ink 10%. */
+export function PrimaryButton({ label, kbd, onClick, icon: I, disabled }: { label: string; kbd?: string; onClick: () => void; icon?: LucideIcon; disabled?: boolean }): ReactNode {
+  return (
+    <motion.button
+      type="button"
+      disabled={disabled}
+      className={`flex h-[30px] shrink-0 cursor-pointer items-center gap-[7px] whitespace-nowrap rounded-full pl-[13px] text-[13px] font-medium disabled:cursor-default ${kbd ? 'pr-[4px]' : 'pr-[13px]'}`}
+      style={{ backgroundColor: color.accent, color: color.onAccent, opacity: disabled ? 0.4 : 1 }}
+      whileHover={disabled ? undefined : { filter: 'brightness(0.96)' }}
+      whileTap={disabled ? undefined : { scale: 0.97 }}
+      transition={{ duration: 0.12 }}
+      onMouseDown={(e) => e.preventDefault()}
+      onClick={onClick}
+    >
+      {I && <I size={13} strokeWidth={1.8} className="shrink-0" />}
+      {label}
+      {kbd && (
+        <span className="inline-flex h-[22px] items-center rounded-full px-[8px] text-[11px] font-medium" style={{ background: fill.onAccentKey }}>
+          {kbd}
+        </span>
+      )}
+    </motion.button>
+  )
+}
+
+/**
+ * @deprecated Use OptionButton (Explain / Show me / Hint / ...) or PrimaryButton (the one primary action).
+ * Kept so older call sites still compile: `primary` = white + ink, otherwise neutral. `tone` is ignored.
+ */
 export function CardButton({ children, onClick, primary }: { children: ReactNode; onClick: () => void; primary?: boolean; tone?: string }): ReactNode {
   return (
     <motion.button
       className="flex h-[36px] flex-1 cursor-pointer items-center justify-center gap-[7px] rounded-[12px] text-[14px] font-semibold"
-      style={primary ? { background: color.accent, color: color.onAccent } : { background: 'rgba(255,255,255,.09)', color: color.text }}
+      style={primary ? { background: color.accent, color: color.onAccent } : { background: fill.button, color: color.text }}
       whileHover={{ scale: 1.02 }}
       whileTap={{ scale: 0.94 }}
       transition={{ duration: 0.09 }}
@@ -198,7 +244,7 @@ export function CloseButton(): ReactNode {
   return (
     <button
       className="grid h-[22px] w-[22px] cursor-pointer place-items-center rounded-full text-white/60 hover:text-white"
-      style={{ background: 'rgba(255,255,255,.1)' }}
+      style={{ background: fill.key }}
       onClick={() => emitUi('dismiss')}
       aria-label="Close"
     >

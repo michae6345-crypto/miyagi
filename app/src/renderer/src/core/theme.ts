@@ -99,9 +99,43 @@ export const fill = {
   tileGlyph: 'rgba(255,255,255,.55)',
   skeleton: 'rgba(255,255,255,.06)',
   rule: 'rgba(255,255,255,.08)',
-  /** A keycap sitting on a white (accent) button. */
+  /** A keycap sitting on a white (accent) or pastel button: ink at 10%. */
   onAccentKey: 'rgba(0,0,0,.1)',
-  clear: 'rgba(255,255,255,0)'
+  clear: 'rgba(255,255,255,0)',
+  /** Ring / spinner tracks and the empty check circle. */
+  track: 'rgba(255,255,255,.18)',
+  trackSoft: 'rgba(255,255,255,.14)',
+  ring: 'rgba(255,255,255,.28)',
+  /** Keycaps (Kbd) and the round close button. */
+  key: 'rgba(255,255,255,.1)',
+  keyText: 'rgba(255,255,255,.62)',
+  /** A neutral (chrome / navigation) button. */
+  button: 'rgba(255,255,255,.09)',
+  /** Generated video thumbnail. */
+  thumb: '#1C1C1E',
+  thumbArt: '#3A3A3C'
+} as const
+
+/**
+ * The pastel options mapping (Adrian, Sat: "the same action is the same color everywhere"). Options only,
+ * never status. sky = understand (Explain, Diagram, Watch) · lilac = Show me · pink = Hint.
+ * The ONE primary action per surface is white + ink (PrimaryButton). Chrome and navigation stay neutral.
+ */
+export const actionTone = {
+  explain: brand.pastel.sky,
+  diagram: brand.pastel.sky,
+  watch: brand.pastel.sky,
+  show_me: brand.pastel.lilac,
+  hint: brand.pastel.pink
+} as const
+export type OptionAction = keyof typeof actionTone
+
+/** Source-kind tiles: a 16% wash of the pastel with a pastel glyph (videos keep their thumbnail). */
+export const kindTone = {
+  notebook: brand.pastel.skyDeep,
+  repo: brand.pastel.skyDeep,
+  paper: brand.pastel.pinkDeep,
+  blog: brand.pastel.lilac
 } as const
 
 /** Screen dims behind surfaces. */

@@ -24,7 +24,7 @@ Need a core change (a new field in `core/lesson.ts`, a new bus event, a new npm 
 - Interactive overlay elements need `data-hit` (stops click-through); visible-but-passive ones need `data-ui`. Both are reported to the engine as `overlay.bounds` so its screen reader ignores them.
 - **Brand: read `app/brand/BRAND.md` before touching anything visible** (Miyagi brand kit, its rules are not optional):
   - Green (`color.green`) ONLY means passed. Amber (`color.amber`) ONLY means off track. Gray = watching. No red.
-  - **Pastels for options only** (`brand.pastel`: pink, sky, lilac, with ink text): suggestion / quick-action chips, source-kind tiles, the "Best" label. Never for status, never for chrome.
+  - **Pastels for options only**, by the mapping in BRAND.md (`theme.actionTone`): sky = Explain / Diagram / Watch, lilac = Show me, pink = Hint; source kinds via `theme.kindTone`. Use `OptionButton` for options and `PrimaryButton` for the ONE primary action per surface (`core/ui/atoms.tsx`); chrome and navigation stay neutral. Never pastel for status, never for chrome. Status dots have no glow.
   - **No blue anywhere else.** `color.accent` is now white: buttons are white on dark (`color.accent` fill + `color.onAccent` text), never blue, green or amber.
   - No gradients, glows, purple, neon, sparkles, emoji or hand-drawn annotations. Every sparkle icon becomes the bonsai: `<MiyagiMark size={14} />` from `core/ui/Mark.tsx` (it picks the right cut for the size). In the app the tree is **monochrome** (white on dark) by default; don't pass `mono={false}`.
   - App text uses the system font (SF Pro / Segoe). No Inter. Copy is calm and short (≤12 words per card); the launcher placeholder is "Ask Miyagi anything"; the passed line is "Good. Now the next one."
