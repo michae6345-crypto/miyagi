@@ -95,6 +95,12 @@ def fake(monkeypatch, tmp_path):
         return {"video_id": vid, "title": "Fake tutorial", "description": "Code: https://github.com/x/y", "length_s": 600, "chapters": []}
 
     monkeypatch.setattr(_transcript, "fetch_metadata", meta)
+    from server.lesson import links as _links
+
+    async def no_net_resolve(client, url):  # tests never touch the network
+        return "dead" not in url
+
+    monkeypatch.setattr(_links, "_resolves", no_net_resolve)
     monkeypatch.setattr(builder, "CACHE_DIR", tmp_path)
     monkeypatch.setattr(builder, "RAW_DIR", tmp_path / "raw")
     calls["responses"] = responses
@@ -678,3 +684,49 @@ def test_built_by_and_claude_first_switch(fake, monkeypatch):
     _claude_fakes(monkeypatch, calls)
     g = asyncio.run(builder.build_lesson(URL, "x", WORKDIR, refresh=True))
     assert g["lesson"]["builtBy"] == "claude"
+
+
+def test_invented_links_go_back_to_adapt_then_get_stripped(fake):
+    d = json.loads(json.dumps(DRAFT))
+    d["steps"][1]["instructions"] = "Clone https://github.com/someone/dead-example-repo (or init a repo) and open it."
+    d["steps"][1]["hints"] = ["See https://github.com/someone/dead-example-repo/issues", "Read the autograd docs"]
+    d["steps"][0]["instructions"] = "Get the code from https://github.com/x/y as linked in the description."
+
+    async def watch(url, goal, fps=None, **kw):
+        fake["watch"] += 1
+        return json.loads(json.dumps(d))
+
+    import server.lesson.gemini as gm
+    from unittest import mock
+    with mock.patch.object(gm, "watch_video", watch):
+        g = asyncio.run(builder.build_lesson(URL, "x", WORKDIR, refresh=True))
+    fb = "\n".join(f for f in fake["adapt"][1] or []) if len(fake["adapt"]) > 1 else ""
+    assert "dead-example-repo" in fb and "never mentions" in fb  # sent back to the adapt pass
+    imp = next(s for s in g["steps"] if s["title"] == "Import the libraries")  # draft step 1 (sorted by time)
+    pinn = next(s for s in g["steps"] if s["title"] == "Code the PINN")
+    assert "dead-example-repo" not in imp["instructions"] and imp["hints"] == ["Read the autograd docs"]
+    assert "https://github.com/x/y" in pinn["instructions"]  # in the description: kept
+    assert any("removed a link" in w for w in g["build"]["warnings"])
+
+
+def test_claude_429_is_retried_with_backoff(monkeypatch):
+    n = {"calls": 0, "inflight": 0, "max": 0}
+
+    async def flaky(mid, system, prompt, *, effort, schema):
+        n["calls"] += 1
+        n["inflight"] += 1
+        n["max"] = max(n["max"], n["inflight"])
+        await asyncio.sleep(0.01)
+        n["inflight"] -= 1
+        if n["calls"] <= 2:
+            raise claude._RateLimited("Number of concurrent requests", 0.01)
+        return "msg", "{}"
+
+    monkeypatch.setattr(claude, "_call_once", flaky)
+    assert asyncio.run(claude._call("m", "s", "p", effort="low", schema=None)) == ("msg", "{}") and n["calls"] == 3
+
+    n.update(calls=10, inflight=0, max=0)  # now always succeeds: check the concurrency cap
+    async def many():
+        await asyncio.gather(*(claude._call("m", "s", "p", effort="low", schema=None) for _ in range(12)))
+    asyncio.run(many())
+    assert n["max"] <= claude.CONCURRENCY
