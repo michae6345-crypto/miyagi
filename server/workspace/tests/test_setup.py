@@ -265,3 +265,9 @@ def test_preflight_warms_the_real_lessons_cache(mac):
     assert S.cache_key({"lesson": {"id": "preflight-vmEHCJofslg"}, "sources": [{"url": ""}]}) == "video-vmEHCJofslg"
     other = load("git_rebase.json")  # no video id -> lesson-keyed
     assert S.cache_key(other).startswith("lesson-")
+
+
+def test_hyphenated_ids_hit_the_catalog():
+    for raw in ("openai-agent-builder", "OpenAI Agent Builder", "openai_platform", "google-sheets", "Zapier Agents", "node.js", "visual-studio-code"):
+        assert S._canonical(raw) in S.CATALOG, raw
+    assert S._canonical("some new tool") == "some-new-tool"

@@ -331,7 +331,7 @@ def _https(url: str) -> str:
 
 
 def _canonical(tool: str) -> str:
-    t = re.sub(r"\s+", " ", (tool or "").strip().lower())
+    t = re.sub(r"[\s_-]+", " ", (tool or "").strip().lower())  # "openai-agent-builder" == "OpenAI Agent Builder"
     return ALIASES.get(t, t.replace(" ", "-"))
 
 
