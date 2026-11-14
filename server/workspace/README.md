@@ -43,7 +43,8 @@ res = install(item, workdir=wd, on_line=cb)  # ONLY after the learner tapped Ins
   Items: `{tool, label, kind (editor|app|runtime|cli|python_package|web_app), why, needed, installed, ok, version, min_version, where,
   install: {method (brew|brew_cask|pip|download|open|none), command, url}}`. `web_app` items (OpenAI Platform,
   Botpress, Zapier, Google Sheets, ...) are always `ok`, method `open` + an https URL, and never count as missing. `ok` = installed and `>= min_version`.
-  Returns `[]` with no key or on API failure (the lesson still runs).
+  Returns `[]` with no key or on API failure (the lesson still runs). Claude's list is cached by **video id** (the prompt
+  never sees the goal), so S8's preflight (`preflight-<videoId>`) warms the real lesson's setup card.
 - Local checks are fast and read-only: `/Applications/<App>.app` then `mdfind kMDItemCFBundleIdentifier == '<id>'` for apps
   (+ `defaults read .../Info CFBundleShortVersionString`), `which <bin>` + `<bin> --version` for CLIs/runtimes (python = the
   newest `python3.x` on PATH, since Apple's `/usr/bin/python3` is 3.9), `<python> -c "import <module>"` for Python packages
