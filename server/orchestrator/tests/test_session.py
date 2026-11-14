@@ -607,7 +607,10 @@ def test_demo_mode_falls_back_to_stubs(rig, monkeypatch, tmp_path):
 
 def test_vscode_opens_only_after_the_learner_says_yes(tmp_path, monkeypatch):
     monkeypatch.setenv("TUT_WORKDIR", str(tmp_path))
+    from server.orchestrator import workspace as wsmod
     from server.orchestrator.workspace import Workspace
+
+    monkeypatch.setattr(wsmod, "requirements", lambda graph, folder: None)  # no S2 check: the plain offer
 
     calls = []
     ws = Workspace(enabled=True, runner=lambda argv: calls.append(argv) or True)
@@ -619,6 +622,7 @@ def test_vscode_opens_only_after_the_learner_says_yes(tmp_path, monkeypatch):
         await rig.start_lesson()
         await rig.s.goto_step(3)
         await rig.settle()
+        await asyncio.sleep(0.05)  # the setup card is computed in the background
         assert not calls  # nothing opened, not even `code -g`
         card = rig.of("card")[0]
         assert card["title"] == "Open VS Code?" and card["actions"] == ["open_editor"]
@@ -641,11 +645,18 @@ def test_non_code_lesson_never_offers_vscode(tmp_path, monkeypatch):
         for c in st["checks"]:
             c["app"] = "Blender"
         st["precision_checks"] = []
+    from server.orchestrator import workspace as wsmod
+
+    monkeypatch.setattr(wsmod, "requirements", lambda graph, folder: None)
     assert needs_editor(graph) is False and needs_editor(stubs.load_fixture_lesson()) is True
     calls = []
     rig = Rig(tmp_path)
     rig.s.workspace = Workspace(enabled=True, runner=lambda argv: calls.append(argv) or True)
-    run(rig.s.load_graph(graph))
+    async def go():
+        await rig.s.load_graph(graph)
+        await asyncio.sleep(0.05)
+
+    run(go())
     assert not calls and not [c for c in rig.of("card") if c.get("actions") == ["open_editor"]]
 
 
@@ -1288,3 +1299,47 @@ def test_nothing_from_an_ended_lesson_arrives_after_lesson_ended(rig):
     assert "lesson.ended" in types_
     tail = types_[types_.index("lesson.ended") + 1:]
     assert not [t for t in tail if t in ("card", "diagram", "offtrack", "spotlight", "check.updated", "error")], tail
+
+
+def test_s2_setup_card_install_and_open_editor_gate(tmp_path, monkeypatch):
+    monkeypatch.setenv("TUT_WORKDIR", str(tmp_path))
+    from server.orchestrator import workspace as wsmod
+    from server.orchestrator.workspace import Workspace
+    from server.workspace import setup_card
+
+    state = {"pandas_ok": False}
+
+    def reqs(graph, folder):
+        return [{"tool": "pandas", "label": "pandas", "kind": "python_package", "why": "dataframes", "needed": True,
+                 "installed": state["pandas_ok"], "ok": state["pandas_ok"],
+                 "install": {"method": "pip", "command": "pip install pandas", "url": None}},
+                {"tool": "vscode", "label": "VS Code", "kind": "editor", "why": "No editor needed for this lesson.",
+                 "needed": False, "installed": True, "ok": True, "install": {"method": "none", "command": None, "url": None}}]
+
+    def fake_install(item, folder, on_line):
+        on_line("Collecting pandas")
+        state["pandas_ok"] = True
+        return {"ok": True, "tool": item["tool"], "version": "2.2.3"}
+
+    monkeypatch.setattr(wsmod, "requirements", reqs)
+    monkeypatch.setattr(wsmod, "setup_card", setup_card)
+    monkeypatch.setattr(wsmod, "install", fake_install)
+    calls = []
+    rig = Rig(tmp_path)
+    rig.s.workspace = Workspace(enabled=True, runner=lambda argv: calls.append(argv) or True)
+
+    async def go():
+        await rig.start_lesson()
+        await asyncio.sleep(0.05)
+        card = rig.of("card")[0]
+        assert card["kind"] == "setup" and "install" in card["actions"] and "open_editor" not in card["actions"]
+        await rig.s.action("install", "pandas")
+        await asyncio.sleep(0.1)
+        await rig.s.action("open_editor")  # editor not needed for this lesson: ignored
+
+    run(go())
+    prog = rig.of("setup.progress")
+    assert prog[0]["line"].startswith("Installing") and {"tool": "pandas", "line": "Collecting pandas"} in prog
+    assert prog[-1] == {"tool": "pandas", "done": True, "ok": True, "version": "2.2.3"}
+    assert rig.of("card")[-1]["title"] == "Ready to go"
+    assert not calls  # never opened VS Code

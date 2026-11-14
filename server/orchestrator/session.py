@@ -206,6 +206,7 @@ class LessonSession:
         self._quiet_cancel = False
         self.editor_open = False  # VS Code opened for this lesson (only after the learner said yes)
         self.awaiting_resume = False  # "Continue where you left off?" shown: the lesson is frozen until answered
+        self.reqs: list[dict] | None = None  # S2's setup items for this lesson
         self.graph: dict | None = None
         self.workdir = str(config.default_workdir())
         self.on_workdir: Callable[[str], None] | None = None  # main.py hooks the file watcher here
@@ -294,25 +295,67 @@ class LessonSession:
             await asyncio.wait(pending)
 
     async def _offer_editor(self, graph: dict, folder: str) -> None:
-        """Ask before opening VS Code; never ask for lessons that don't happen in an editor."""
+        """Ask before opening VS Code or installing anything (S2's setup card), in the background so the
+        first step isn't delayed. Lessons that don't happen in an editor never get an open_editor button."""
+        self.reqs = None
         if self.workspace is None or not getattr(self.workspace, "enabled", False):
             return
+        self._spawn(self._setup_card_task(graph, folder))
+
+    async def _setup_card_task(self, graph: dict, folder: str) -> None:
         from . import workspace as wsmod
 
-        req = wsmod.requirements(graph, folder)  # S2's check (tools needed / installed) when available
-        needs = req.get("needs_editor") if req else wsmod.needs_editor(graph)
-        if not needs:
+        items = await asyncio.to_thread(wsmod.requirements, graph, folder)  # 3-6 s the first time, cached
+        if items:  # S2: what this lesson needs, what's installed, install recipes
+            self.reqs = items
+            card = wsmod.setup_card(items)
+            if card:
+                await self.emit("card", card)
             return
-        body = (req or {}).get("summary") or f"This lesson works in VS Code. Open the {Path(folder).name} folder there?"
-        card: dict[str, Any] = {"kind": "hint", "title": (req or {}).get("title") or "Open VS Code?", "body": body,
-                                "actions": ["open_editor"]}
-        if req and req.get("items"):
-            card["requirements"] = req["items"]  # additive: [{name, installed, install?}] from S2
-        await self.emit("card", card)
+        # no setup check available (module missing, no key): a plain offer, only for editor lessons
+        if not wsmod.needs_editor(graph):
+            return
+        await self.emit("card", {"kind": "hint", "title": "Open VS Code?",
+                                 "body": f"This lesson works in VS Code. Open the {Path(folder).name} folder there?",
+                                 "actions": ["open_editor"]})
+
+    async def _install(self, tool: str) -> None:
+        """Install one setup item (the learner pressed Install), streaming setup.progress lines."""
+        from . import workspace as wsmod
+
+        item = next((it for it in self.reqs or [] if it.get("tool") == tool), None)
+        if item is None:
+            await self.emit("setup.progress", {"tool": tool or "?", "done": True, "ok": False,
+                                               "error": "Unknown tool for this lesson"})
+            return
+        loop = asyncio.get_running_loop()
+        ep = self.lesson_epoch
+
+        def on_line(line: str) -> None:  # installer thread -> loop
+            if ep == self.lesson_epoch:
+                loop.call_soon_threadsafe(lambda: self._spawn(self.emit("setup.progress", {"tool": tool, "line": str(line)[:300]})))
+
+        await self.emit("setup.progress", {"tool": tool, "line": f"Installing {item.get('label', tool)}…"})
+        res = await asyncio.to_thread(wsmod.install, item, self.workdir, on_line)
+        done = {"tool": tool, "done": True, "ok": bool(res.get("ok"))}
+        for k in ("error", "url", "version"):
+            if res.get(k):
+                done[k] = str(res[k])
+        await self.emit("setup.progress", done)
+        items = await asyncio.to_thread(wsmod.requirements, self.graph or {}, self.workdir)  # cached list, fresh checks
+        if items:
+            self.reqs = items
+            card = wsmod.setup_card(items)
+            if card:
+                await self.emit("card", card)
 
     async def _open_editor(self) -> None:
         if self.workspace is None or self.graph is None:
             return
+        from . import workspace as wsmod
+
+        if self.reqs is not None and not wsmod.editor_needed(self.reqs):
+            return  # e.g. a Blender/Figma lesson: never open VS Code
         self.workspace.open(self.workdir, force=True)
         self.editor_open = True
         if self.step is not None:
@@ -1261,6 +1304,11 @@ class LessonSession:
             return
         if kind == "open_editor":
             await self._open_editor()
+            return
+        if kind == "install":  # text = the setup item's tool id
+            self._spawn(self._install((text or "").strip()))
+            return
+        if kind == "skip_setup":  # the app dismisses the setup card; nothing to undo here
             return
         if kind == "voice_toggle":
             self.voice = not self.voice
