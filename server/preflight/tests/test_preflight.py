@@ -118,12 +118,12 @@ class FakeClaude:
         return SimpleNamespace(stop_reason="end_turn", content=[SimpleNamespace(type="text", text=json.dumps(ans))])
 
 
-CODING = {"kind": "coding", "kindWhy": "writes and trains a transformer in PyTorch", "topic": "Builds a GPT language model from scratch in PyTorch",
+CODING = {"style": "coding", "styleWhy": "writes and trains a transformer in PyTorch", "topic": "Builds a GPT language model from scratch in PyTorch",
           "goalMatch": {"score": 0.92, "note": "Builds a real GPT from scratch."}, "firstHandsOnChapter": 1, "libraries": ["Python", "PyTorch"]}
-NOCODE = {"kind": "no-code", "kindWhy": "configures bots in Zapier and Botpress", "topic": "Configures no-code support agents in Botpress and Zapier",
+NOCODE = {"style": "no-code", "styleWhy": "configures bots in Zapier and Botpress", "topic": "Configures no-code support agents in Botpress and Zapier",
           "goalMatch": {"score": 0.2, "note": "This video builds no-code support bots, not an LLM."}, "firstHandsOnChapter": 1,
           "libraries": ["Botpress", "Zapier"]}
-REACT = {"kind": "coding", "kindWhy": "writes React components", "topic": "Builds a todo app with React hooks",
+REACT = {"style": "coding", "styleWhy": "writes React components", "topic": "Builds a todo app with React hooks",
          "goalMatch": {"score": 0.95, "note": "Exactly a React todo app."}, "firstHandsOnChapter": -1, "libraries": ["React", "Node.js"]}
 
 REQ_CODING = [
@@ -217,7 +217,7 @@ def test_coding_long_video_card():
     claude = FakeClaude(CODING)
     res = run(_pf("kCc8FmEb1nY", "build an LLM", claude=claude, req=lambda g: REQ_CODING))
     assert not res["partial"] and res["missing"] == []
-    assert res["kind"] == "coding" and res["durationS"] == 6980 and len(res["chapters"]) == 7
+    assert res["style"] == "coding" and res["durationS"] == 6980 and len(res["chapters"]) == 7
     assert res["buildPlan"]["strategy"] == "chapters" and res["editorNeeded"] is True
     prompt = claude.calls[0]["messages"][0]["content"]
     assert "Learner's goal: build an LLM" in prompt and "1:56:20" in prompt and "1. [7:52] reading and exploring the data" in prompt
@@ -234,7 +234,7 @@ def test_coding_long_video_card():
 def test_nocode_low_match_warns_and_needs_no_editor():
     res = run(_pf("zE2MJ3_muNQ", "build chat gpt", claude=FakeClaude(NOCODE), req=lambda g: REQ_NOCODE))
     card = preflight_card(res)
-    assert res["kind"] == "no-code" and res["editorNeeded"] is False
+    assert res["style"] == "no-code" and res["editorNeeded"] is False
     assert card["warning"] == "This video builds no-code support bots, not an LLM." and card["recommended"] == "pick_another"
     assert "⚠ This video builds no-code support bots, not an LLM." in card["body"]
     assert "No code editor needed" in card["body"] and card["actions"] == ["build", "pick_another"]
@@ -261,7 +261,7 @@ def test_hard_timeout_partial_result():
     assert res["partial"] and "claude" in res["missing"] and res["title"].startswith("How to Build a Todo")
     card = preflight_card(res)
     assert card["actions"][:2] == ["build", "pick_another"] and "couldn't check this video in time" in card["body"]
-    assert "kind" not in res  # never invented
+    assert "style" not in res and "goalMatch" not in res  # never invented
 
 
 def test_late_requirements_reach_on_late():
@@ -303,7 +303,7 @@ def test_late_claude_fills_the_card_in():
         return again
 
     again = run(go())
-    assert len(got) == 1 and got[0]["kind"] == "no-code" and not got[0]["partial"]
+    assert len(got) == 1 and got[0]["style"] == "no-code" and not got[0]["partial"]
     assert preflight_card(got[0])["warning"].startswith("This video builds no-code") and again["cached"]
 
 
@@ -323,7 +323,7 @@ def test_prefetch_then_pick_hits_memo():
             return res, again
 
     res, again = run(go())
-    assert res["kind"] == "no-code" and again["cached"] and again["kind"] == "coding"
+    assert res["style"] == "no-code" and again["cached"] and again["style"] == "coding"
     assert len(claude.calls) == 2
 
 
@@ -372,3 +372,28 @@ def test_skim_goes_into_the_prompt(tmp_path):
 
 def test_meta_to_seconds():
     assert meta.to_seconds("1:02:03") == 3723 and meta.to_seconds("7:52") == 472
+
+
+def test_finder_row_style_is_prior_and_fallback():
+    row = {"videoId": "zE2MJ3_muNQ", "url": "https://www.youtube.com/watch?v=zE2MJ3_muNQ", "kind": "video", "style": "no-code",
+           "durationS": 1169, "durationLabel": "19 min", "long": False, "chapters": 10, "captions": True}
+    claude = FakeClaude(NOCODE)
+    res = run(_pf("zE2MJ3_muNQ", "build chat gpt", claude=claude, row=row))
+    assert "Search's style guess (from the results page): no-code" in claude.calls[0]["messages"][0]["content"]
+    assert res["styleFrom"] == "claude" and res["captions"] is True and res["durationLabel"] == "19 min"
+    assert "CC" in preflight_card(res)["body"]
+    # Claude too slow: the card still says no-code, from the finder's row (not invented), and no editor
+    core.clear_memo()
+    late = run(_pf("zE2MJ3_muNQ", "build chat gpt", claude=FakeClaude(NOCODE, delay=5), row=row, timeout=0.5, late_s=0))
+    assert late["style"] == "no-code" and late["styleFrom"] == "finder" and late["editorNeeded"] is False
+    card = preflight_card(late)
+    assert card["body"].startswith("No-code · 19:29") and card["preflight"]["style"] == "no-code" and card["preflight"]["styleFrom"] == "finder"
+
+
+def test_finder_row_fills_in_when_youtube_is_blocked():
+    row = {"videoId": "kCc8FmEb1nY", "url": "https://www.youtube.com/watch?v=kCc8FmEb1nY", "style": "coding", "durationS": 6980}
+    res = run(_pf("kCc8FmEb1nY", "build an LLM", tr=transport(page_status=429), row=row))
+    assert res["durationS"] == 6980 and res["buildPlan"]["strategy"] == "chapters"  # no chapters: an 8 min window
+    assert res["buildPlan"]["firstChapter"]["window"]
+    other = {"videoId": "MXId-Ae6k_I", "url": "https://www.youtube.com/watch?v=MXId-Ae6k_I", "style": "coding"}
+    assert core.finder_prior(other, "kCc8FmEb1nY") == {}  # a row for another video is ignored

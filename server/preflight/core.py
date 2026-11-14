@@ -7,7 +7,7 @@ Stages (one shared deadline, default 5 s; a stage that misses it is listed in `m
 up to LATE_S more seconds and, if it lands, the filled-in result goes to on_late so the card can be re-sent):
   1. metadata  (~1 s)  oEmbed + watch page (plain fetch, Bright Data Unlocker fallback); chapters
   2. in parallel:
-     - Claude   (~2 s)  claude-haiku-5-5, structured output: kind, topic, goalMatch, first hands-on chapter
+     - Claude   (~2 s)  claude-haiku-5-5, structured output: style, topic, goalMatch, first hands-on chapter
      - tools    (~2-3 s) server.workspace.requirements() on a metadata-level graph (S2), checked locally
   3. buildPlan (deterministic): whole video, or chapter by chapter for long videos (E2's progressive build)
 
@@ -43,13 +43,13 @@ LONG_VIDEO_S = float(os.environ.get("LESSON_LONG_VIDEO_S", str(30 * 60)))
 FIRST_MIN_S, FIRST_MAX_S = 3 * 60, 6 * 60
 FIRST_WINDOW_NO_CHAPTERS_S = 8 * 60
 LOW_MATCH = 0.5
-KINDS = ["coding", "no-code", "conceptual", "other"]
+STYLES = ["coding", "no-code", "conceptual"]  # same vocabulary as the finder rows' `style` (E7)
 
 CLASSIFY_SCHEMA = {
     "type": "object",
     "properties": {
-        "kind": {"type": "string", "enum": KINDS},
-        "kindWhy": {"type": "string"},
+        "style": {"type": "string", "enum": STYLES},
+        "styleWhy": {"type": "string"},
         "topic": {"type": "string"},
         "goalMatch": {
             "type": "object",
@@ -60,21 +60,21 @@ CLASSIFY_SCHEMA = {
         "firstHandsOnChapter": {"type": "integer"},
         "libraries": {"type": "array", "items": {"type": "string"}},
     },
-    "required": ["kind", "kindWhy", "topic", "goalMatch", "firstHandsOnChapter", "libraries"],
+    "required": ["style", "styleWhy", "topic", "goalMatch", "firstHandsOnChapter", "libraries"],
     "additionalProperties": False,
 }
 
 SYSTEM = """You check a YouTube tutorial for a learner BEFORE we turn it into a hands-on lesson.
 You only see its metadata (title, channel, length, description, chapters, tags) and maybe a short note
-from someone who skimmed the video. Judge from that; do not invent content it doesn't support.
+from someone who skimmed the video, and the search's own style guess. Judge from that; do not invent
+content it doesn't support.
 
-kind:
+style:
 - coding: the presenter writes and runs code (any language, notebooks included).
-- no-code: the work happens in GUI / no-code platforms or web apps (Zapier, Botpress, Bubble, ChatGPT's UI,
-  Excel, Notion) with little or no code.
+- no-code: hands-on without code: GUI / no-code platforms and web apps (Zapier, Botpress, Bubble, ChatGPT's
+  UI, Excel, Notion), drag-and-drop, prompting a product, or creative/desktop tools (Blender, Figma, a DAW).
 - conceptual: a lecture or explainer; nothing for the learner to build along.
-- other: hands-on in a non-code creative/desktop tool (Blender, Figma, a DAW, Unity editor), hardware, etc.
-kindWhy: <= 12 words.
+styleWhy: <= 12 words.
 topic: one line, <= 14 words, what the video actually teaches and with what (e.g. "Builds a GPT language
 model from scratch in PyTorch").
 goalMatch.score 0-1: if the learner follows this video, how much of THEIR goal do they achieve? Same
@@ -97,7 +97,7 @@ def _ts(secs: float | None) -> str:
     return youtube.fmt_duration(int(secs)) if secs else "0:00"
 
 
-def _prompt(goal: str, m: dict, skim: dict | None) -> str:
+def _prompt(goal: str, m: dict, skim: dict | None, prior: dict | None = None) -> str:
     chs = m.get("chapters") or []
     lines = [
         f"Learner's goal: {goal or '(none given)'}",
@@ -113,13 +113,16 @@ def _prompt(goal: str, m: dict, skim: dict | None) -> str:
         lines.append("Chapters:\n" + "\n".join(f"{c['index']}. [{_ts(c['start'])}] {c['title']}" for c in chs[:60]))
     else:
         lines.append("Chapters: none")
+    if prior and prior.get("style"):
+        lines.append(f"Search's style guess (from the results page): {prior['style']}")
     if skim:
         lines.append(f"Skim note (Gemini watched it at low fps for the search; score {skim.get('score')}/100): {skim.get('reason', '')}")
     lines.append("Description:\n<description>\n" + (m.get("description") or "(empty)")[:4000] + "\n</description>")
     return "\n".join(lines)
 
 
-async def classify(key: str, goal: str, m: dict, skim: dict | None, *, timeout: float, client=None) -> dict:
+async def classify(key: str, goal: str, m: dict, skim: dict | None, *, timeout: float, client=None,
+                   prior: dict | None = None) -> dict:
     """Claude's read of the metadata. Raises on failure (the caller marks it missing)."""
     if client is None:
         from server.finder import claude as finder_claude
@@ -130,22 +133,22 @@ async def classify(key: str, goal: str, m: dict, skim: dict | None, *, timeout: 
         max_tokens=1200,
         system=SYSTEM,
         output_config={"effort": "low", "format": {"type": "json_schema", "schema": CLASSIFY_SCHEMA}},
-        messages=[{"role": "user", "content": _prompt(goal, m, skim)}],
+        messages=[{"role": "user", "content": _prompt(goal, m, skim, prior)}],
         timeout=timeout,
     )
     if getattr(resp, "stop_reason", None) == "refusal":
         raise RuntimeError("Claude declined")
     text = next((b.text for b in resp.content if getattr(b, "type", "") == "text"), "{}")
     out = json.loads(text)
-    kind = out.get("kind") if out.get("kind") in KINDS else "other"
+    style = out.get("style") if out.get("style") in STYLES else None
     gm = out.get("goalMatch") or {}
     try:
         score = max(0.0, min(1.0, float(gm.get("score", 0))))
     except (TypeError, ValueError):
         score = 0.0
     return {
-        "kind": kind,
-        "kindWhy": str(out.get("kindWhy") or "")[:120],
+        "style": style,
+        "styleWhy": str(out.get("styleWhy") or "")[:120],
         "topic": str(out.get("topic") or "")[:160],
         # E2/S2 shape: score null when there is no goal to compare against
         "goalMatch": {"score": round(score, 2), "note": str(gm.get("note") or "")[:160]} if (goal or "").strip()
@@ -185,6 +188,21 @@ def cached_skim(video_id: str | None, row: dict | None = None, *, cache_dir: Pat
             if isinstance(r, dict) and (hit := from_row(r, data.get("query", ""))):
                 return hit
     return None
+
+
+# --------------------------------------------------------------------------- finder row (E7)
+
+def finder_prior(row: dict | None, video_id: str | None) -> dict:
+    """What the finder already read for this video (E7's row fields): style coding|no-code|conceptual,
+    durationS, durationLabel, long, chapters (a count), captions. {} if no row / another video."""
+    if not row or (video_id and row.get("videoId") not in (None, video_id) and youtube.video_id(row.get("url", "")) != video_id):
+        return {}
+    out = {k: row[k] for k in ("durationS", "durationLabel", "long", "captions", "title", "channel") if row.get(k) not in (None, "")}
+    if row.get("style") in STYLES:
+        out["style"] = row["style"]
+    if isinstance(row.get("chapters"), int):
+        out["chapterCount"] = row["chapters"]
+    return out
 
 
 # --------------------------------------------------------------------------- tools (S2's requirements)
@@ -391,7 +409,14 @@ async def _run(key, url: str, goal: str, *, row, timeout: float, late_s: float, 
             m, notes = {"videoId": vid, "url": youtube.watch_url(vid) if vid else url}, ["metadata timed out"]
         res["notes"] += notes
         res["timings"]["meta"] = round(time.monotonic() - t0, 2)
+        prior = finder_prior(row, vid)
+        for k_row, k_meta in (("durationS", "duration_s"), ("title", "title"), ("channel", "channel")):
+            if prior.get(k_row) and not m.get(k_meta):  # watch page / oEmbed failed: the search row still read it
+                m[k_meta] = prior[k_row]
         _copy_meta(res, m)
+        for k in ("captions", "durationLabel", "long"):
+            if k in prior:
+                res[k] = prior[k]
         if not m.get("title"):
             res["missing"].append("metadata")
 
@@ -409,7 +434,8 @@ async def _run(key, url: str, goal: str, *, row, timeout: float, late_s: float, 
 
         if m.get("title") and (keys.anthropic or claude_client is not None):
             tasks["claude"] = asyncio.create_task(timed("claude", classify(
-                keys.anthropic or "", goal, m, skim, timeout=max(0.5, left(0.1)) + max(0.0, late_s), client=claude_client)))
+                keys.anthropic or "", goal, m, skim, timeout=max(0.5, left(0.1)) + max(0.0, late_s), client=claude_client,
+                prior=prior)))
         elif m.get("title"):
             res["notes"].append("no ANTHROPIC_API_KEY")
         req = _default_requirements() if requirements_fn is True else (requirements_fn or None)
@@ -430,6 +456,8 @@ async def _run(key, url: str, goal: str, *, row, timeout: float, late_s: float, 
                 res["notes"].append(f"{name}: not back within {timeout:g} s")
                 continue
             _merge(res, name, t)
+        if not res.get("style") and prior.get("style"):  # Claude late / failed: the search's own read (real, from E7)
+            res.update(style=prior["style"], styleFrom="finder")
         res["buildPlan"] = build_plan(m, res.pop("_firstHandsOn", None))
         res["editorNeeded"] = _editor_needed(res)
     except Exception as e:
@@ -441,7 +469,7 @@ async def _run(key, url: str, goal: str, *, row, timeout: float, late_s: float, 
             await http.aclose()
     res["partial"] = bool(res["missing"])
     res["timings"]["total"] = round(time.monotonic() - t0, 2)
-    if use_memo and res.get("kind"):
+    if use_memo and res.get("goalMatch"):
         _memo[key] = (time.monotonic(), res)
     if late:
         lt = asyncio.ensure_future(_finish_late(key, dict(res, missing=list(res["missing"]), notes=list(res["notes"]),
@@ -464,7 +492,9 @@ def _merge(res: dict, name: str, t: asyncio.Task) -> bool:
         return False
     if name == "claude":
         c = t.result()
-        res.update({k: c[k] for k in ("kind", "kindWhy", "topic", "goalMatch", "libraries")})
+        res.update({k: c[k] for k in ("topic", "goalMatch", "libraries", "styleWhy")})
+        if c["style"]:
+            res.update(style=c["style"], styleFrom="claude")
         res["_firstHandsOn"] = c["firstHandsOnChapter"]
         return True
     items = t.result() or []
@@ -496,7 +526,7 @@ async def _finish_late(key, res: dict, late: dict[str, asyncio.Task], late_s: fl
         res["partial"] = bool(res["missing"])
         res["late"] = True
         res["timings"] = {**res["timings"], "late": round(time.monotonic() - t0, 2)}
-        if use_memo and res.get("kind"):
+        if use_memo and res.get("goalMatch"):
             _memo[key] = (time.monotonic(), res)
         for cb in _listeners.get(key, []):
             try:
@@ -525,18 +555,18 @@ def _copy_meta(res: dict, m: dict) -> None:
 
 
 def _editor_needed(res: dict) -> bool | None:
-    """S2's answer when we have it, else from the kind (no editor for no-code / conceptual)."""
+    """S2's answer when we have it, else from the style (no editor for no-code / conceptual)."""
     for it in res.get("requirements") or []:
         if it.get("kind") == "editor":
             return bool(it.get("needed"))
-    if res.get("kind"):
-        return res["kind"] == "coding"
+    if res.get("style"):
+        return res["style"] == "coding"
     return None
 
 
 # --------------------------------------------------------------------------- the card
 
-KIND_LABEL = {"coding": "Coding", "no-code": "No-code", "conceptual": "Concepts only", "other": "Hands-on (no code)"}
+STYLE_LABEL = {"coding": "Coding", "no-code": "No-code", "conceptual": "Concepts only"}
 
 
 def needs_line(items: list[dict]) -> str:
@@ -558,11 +588,13 @@ def needs_line(items: list[dict]) -> str:
 def preflight_card(res: dict) -> dict:
     """card {kind: "preflight"}: what the video is, how well it fits the goal, what it needs.
     actions: build / pick_another, plus install when a needed tool is missing (S2's install flow)."""
-    facts = [KIND_LABEL.get(res.get("kind", ""), "")]
+    facts = [STYLE_LABEL.get(res.get("style", ""), "")]
     if res.get("durationS"):
         facts.append(_fmt(res["durationS"]))
     if res.get("chapters"):
         facts.append(f"{len(res['chapters'])} chapters")
+    if res.get("captions"):
+        facts.append("CC")
     if res.get("channel"):
         facts.append(res["channel"])
     lines = [" · ".join(f for f in facts if f)]
@@ -588,7 +620,7 @@ def preflight_card(res: dict) -> dict:
         lines.append(f"Building takes ~{est} s.")
     if res.get("editorNeeded") is False:
         lines.append("No code editor needed for this one.")
-    if res.get("partial") and not res.get("kind"):
+    if res.get("partial") and not res.get("goalMatch"):
         lines.append("I couldn't check this video in time; you can still build it.")
     items = res.get("requirements") or []
     need = needs_line(items)
@@ -608,7 +640,7 @@ def preflight_card(res: dict) -> dict:
         } for it in items],
         "actions": actions,
         "preflight": {
-            "videoId": res.get("videoId"), "url": res.get("url"), "kind": res.get("kind"), "topic": res.get("topic"),
+            "videoId": res.get("videoId"), "url": res.get("url"), "style": res.get("style"), "styleFrom": res.get("styleFrom"), "topic": res.get("topic"),
             "durationS": res.get("durationS"), "chapters": len(res.get("chapters") or []),
             "goalMatch": gm, "buildPlan": plan, "editorNeeded": res.get("editorNeeded"), "partial": res.get("partial", False),
         },
