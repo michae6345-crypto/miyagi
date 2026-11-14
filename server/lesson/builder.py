@@ -14,7 +14,7 @@ from pathlib import Path
 
 import os
 
-from . import claude, gemini, transcript
+from . import claude, gemini, links, transcript
 from .schema import (
     CHECK_TYPES,
     PRECISION_TYPES,
@@ -126,7 +126,12 @@ async def build_lesson(
         claude.set_api_key(anthropic_key)
     t0 = time.time()
     draft = await _video_draft(source_url, vid, goal, refresh=refresh or not cache, detail=detail, write=cache)
-    graph, warnings, adapted_ok, adapt_model = await _adapt(draft, goal, info)
+    known_text, checked = await _known_text(vid), {}
+    bad_urls = await _bad_urls(draft["steps"], known_text, checked)
+    graph, warnings, adapted_ok, adapt_model = await _adapt(draft, goal, info, bad_urls)
+    # the adapt pass may write new links: verify the final text too, and strip what is still dead
+    final_bad = await _bad_urls(graph["steps"], known_text, checked)
+    warnings = warnings + links.strip_bad_urls(graph["steps"], final_bad)
     warnings = list(draft.get("detail_failures") or []) + warnings
     if not adapted_ok:
         warnings = ["adapt pass failed (quota?): checks come from the video draft, not the learner's workdir; not cached, retry with readapt=True"] + warnings
@@ -521,7 +526,32 @@ def rehome_explanations(steps: list[dict]) -> None:
 _STEP_PROBLEM = re.compile(r"^s(\d+)[:/]")
 
 
-async def _adapt(draft: dict, goal: str, info: WorkdirInfo) -> tuple[dict, list[str], bool, str | None]:
+async def _known_text(vid: str) -> str:
+    """What the video itself says: description, chapters and (if fetched) the transcript."""
+    parts = []
+    try:
+        meta = await asyncio.wait_for(transcript.fetch_metadata(vid), 10)
+        parts += [meta.get("description") or "", " ".join(c.get("title", "") for c in meta.get("chapters") or [])]
+    except Exception:  # noqa: BLE001
+        pass
+    p = transcript._cache_path(vid)
+    if p.is_file():
+        try:
+            parts.append(" ".join(ln.get("text", "") for ln in json.loads(p.read_text()).get("transcript") or []))
+        except (OSError, json.JSONDecodeError):
+            pass
+    return "\n".join(parts)
+
+
+async def _bad_urls(steps: list[dict], known_text: str, checked: dict) -> set[str]:
+    try:
+        return await links.find_bad_urls(steps, known_text, checked)
+    except Exception as e:  # noqa: BLE001  link checking must never break a build
+        log.warning("link check failed: %s", e)
+        return set()
+
+
+async def _adapt(draft: dict, goal: str, info: WorkdirInfo, bad_urls: set[str] | None = None) -> tuple[dict, list[str], bool, str | None]:
     """-> (graph, leftover warnings, whether any adapt call succeeded, model that served it).
 
     Round 1 adapts every step. Later rounds re-send only the steps that still have problems (with
@@ -546,7 +576,7 @@ async def _adapt(draft: dict, goal: str, info: WorkdirInfo) -> tuple[dict, list[
             if isinstance(st.get("index"), int):
                 adapted[st["index"]] = st
         graph = normalize_checks(assemble(draft, goal, {"steps": list(adapted.values())}), info.metrics)
-        problems = schema_errors(graph) + lint(graph, info.metrics, known_files)
+        problems = schema_errors(graph) + lint(graph, info.metrics, known_files) + links.url_problems(graph["steps"], bad_urls or set())
         if not problems:
             return graph, [], True, used
         if best is not None and len(problems) >= best[0]:

@@ -74,7 +74,46 @@ def _use_fast() -> bool:
     return _fast_ok and os.environ.get("LESSON_CLAUDE_FAST", "1") != "0"
 
 
+CONCURRENCY = int(os.environ.get("LESSON_CLAUDE_CONCURRENCY", "4"))  # per process: segment + per-step + adapt batches add up
+RATE_RETRIES = 4
+_sems: dict = {}
+
+
+def _sem():
+    import asyncio
+
+    loop = asyncio.get_running_loop()
+    if loop not in _sems:
+        _sems.clear()  # one live loop at a time in practice; don't keep dead loops alive
+        _sems[loop] = asyncio.Semaphore(CONCURRENCY)
+    return _sems[loop]
+
+
 async def _call(mid: str, system: str, prompt: str, *, effort: str, schema: dict | None):
+    """One Claude request: at most CONCURRENCY in flight per process, and 429s (incl. "Number of
+    concurrent requests") retried with backoff, honoring retry-after."""
+    import asyncio
+
+    for attempt in range(RATE_RETRIES + 1):
+        try:
+            async with _sem():
+                return await _call_once(mid, system, prompt, effort=effort, schema=schema)
+        except _RateLimited as e:
+            if attempt == RATE_RETRIES:
+                raise RuntimeError(f"Claude rate-limited after {RATE_RETRIES + 1} attempts: {e}") from e
+            wait = min(30.0, e.retry_after or 2.0 * 2 ** attempt)
+            log.warning("Claude 429 (%s); retrying in %.0fs", str(e)[:80], wait)
+            await asyncio.sleep(wait)
+    raise AssertionError("unreachable")
+
+
+class _RateLimited(Exception):
+    def __init__(self, msg: str, retry_after: float | None):
+        super().__init__(msg)
+        self.retry_after = retry_after
+
+
+async def _call_once(mid: str, system: str, prompt: str, *, effort: str, schema: dict | None):
     global _fast_ok
     output_config: dict = {"effort": effort}
     if schema is not None:
@@ -101,6 +140,13 @@ async def _call(mid: str, system: str, prompt: str, *, effort: str, schema: dict
             log.warning("fast mode unavailable (%s); using standard speed", str(e)[:120])
             async with client().beta.messages.stream(**kwargs) as stream:
                 msg = await stream.get_final_message()
+    except anthropic.RateLimitError as e:
+        ra = None
+        try:
+            ra = float(e.response.headers.get("retry-after"))
+        except (AttributeError, TypeError, ValueError):
+            pass
+        raise _RateLimited(str(e)[:200], ra) from e
     except anthropic.AuthenticationError as e:
         raise RuntimeError(f"Anthropic rejected the API key: {e}") from e
     except anthropic.BadRequestError as e:
