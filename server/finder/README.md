@@ -13,12 +13,25 @@ lesson.build_lesson(rows[0]["url"], goal, workdir)  # rows[0] is always the best
 
 Row = `search.result` (+ extra fields, allowed by the contract):
 `{id, kind: video|blog|notebook|paper|repo, title, meta, score 0-100, reason (<= 12 words), thumbnail?, url,
-source, verified, videoId?, durationS?, channel?, warnings?}`.
+source, scoredBy, watched?, verified, videoId?, durationS?, channel?, prerequisites?, codeNotes?, warnings?}`.
+- `source`: the stage that found the row: `claude`, `youtube`, `brightdata`, `duckduckgo`, `github`, `arxiv` or `gemini-search`.
+- `scoredBy`: `gemini` | `claude` | `keywords`, plus `+gemini-watch` / `+gemini-read` when Gemini watched or read it.
+- `watched`: `watched by Gemini` | `read by Gemini` | `not watched: Gemini quota` (or `overloaded`, `timeout`, `page fetch failed`, …). A row Gemini couldn't watch says so, in its `meta` too; it is never faked.
 Example: `{"id": "yt-unBU1PwCnvQ", "kind": "video", "title": "S5 Solving Linear convection equation using PINNs",
 "meta": "YouTube · SimCom · 22:40 · 314 · 1y ago", "score": 86, "reason": "Clear, 22 min, hands-on, uses PyTorch, explains PINNs for convection", "url": "https://www.youtube.com/watch?v=unBU1PwCnvQ", ...}`
 
-## Pipeline (first result ~2-4 s, done < 20 s)
+## Who does what
+- **Claude searches.** `claude-haiku-5-5` with the server-side `web_search_20250305` tool plans 2-3 searches for the goal and returns its picks with a "why".
+  - Only URLs that appear in the tool's own result blocks count; a URL Claude writes from memory is dropped.
+  - Measured: 5-8 s for 17-26 results. `claude-sonnet-5-5` with `web_search_20260209` took 13.8 s on the same query.
+  - Claude is also the scoring fallback when Gemini returns 429/503 or is slow: it races Gemini after 1 s on the first batch and 3 s after that.
+- **Gemini watches and reads.**
+  - A low-fps skim of the top 3 videos.
+  - A read of the top 3 non-video results (page text via the Bright Data Unlocker, or plain HTTP; Colab notebooks are read from their GitHub `.ipynb`): does the page teach the goal, prerequisites, what code. Its summary becomes the row's `reason`.
+
+## Pipeline (first result ~3-5 s, done < 20 s)
 1. **t = 0, all in parallel:**
+   - **Claude + web search** (above).
    - **YouTube:** the real results page for the query and a topic variant. Goes through the Bright Data Web Unlocker when configured, otherwise direct.
    - **Web:** a written tutorial and a notebook, via the **Bright Data SERP API** (Google) when configured, otherwise DuckDuckGo's HTML endpoint.
    - **GitHub** repository search (Jupyter-language repos become `notebook`) and the **arXiv** API.
@@ -49,7 +62,9 @@ The keys come from the shared `.env` (looked up in `$TUT_ENV`, the repo root, th
 
 | env | use |
 |---|---|
-| `GEMINI_API_KEY` | triage, skim, grounding |
+| `ANTHROPIC_API_KEY` | Claude search + triage fallback (`server.config.get_key("anthropic")` when that module exists) |
+| `FINDER_CLAUDE_MODEL`, `FINDER_CLAUDE_SEARCH_TOOL` | default `claude-haiku-5-5`, `web_search_20250305` |
+| `GEMINI_API_KEY` | triage, skim, page reads, grounding |
 | `BRIGHTDATA_API_KEY`, `BRIGHTDATA_SERP_ZONE` (default `serp_api1`), `BRIGHTDATA_UNLOCKER_ZONE` (default `web_unlocker1`) | SERP + Unlocker; any failure falls back, and an inactive account or missing zone trips a 5-min circuit breaker |
 | `BRIGHTDATA_YT_COMMENTS_DATASET` | Web Scraper API dataset id for YouTube comments |
 | `GITHUB_TOKEN` | optional, raises the GitHub search rate limit |
@@ -58,9 +73,11 @@ The keys come from the shared `.env` (looked up in `$TUT_ENV`, the repo root, th
 Gemini calls use no SDK retries. Each call has its own timeout and a **hedged** fallback (if model 1 is slow, model 2 starts too), and a model that returns 429 is skipped until its quota resets.
 
 ## Tests
-`pytest server/finder/tests`: 13 tests, offline in < 1 s. They replay **recorded real responses** (YouTube results page data, oEmbed, DuckDuckGo, GitHub, arXiv) through an `httpx.MockTransport`. They check:
+`pytest server/finder/tests`: 16 tests, offline in < 1 s. They replay **recorded real responses** (YouTube results page data, oEmbed, DuckDuckGo, GitHub, arXiv) through an `httpx.MockTransport`. They check:
 - every emitted URL came from a source response (none invented);
 - a 404 is dropped;
+- a URL Claude wrote that its search tool never returned is dropped;
+- Claude scores when Gemini returns 429, and the rows say "not watched: Gemini quota";
 - everything returned was streamed;
 - the best video leads;
 - the cache round-trips.

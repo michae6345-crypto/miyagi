@@ -41,6 +41,7 @@ class Ctx:
     keys: Keys
     errors: list[str] = field(default_factory=list)
     used: set[str] = field(default_factory=set)  # which providers actually answered
+    extra: dict = field(default_factory=dict)  # per-provider info for the cache file (e.g. Claude's queries)
 
     def note(self, msg: str) -> None:
         log.info(msg)
@@ -106,6 +107,32 @@ _DDG_RESULT = re.compile(r'<a[^>]+class="result__a"[^>]+href="([^"]+)"[^>]*>(.*?
 _DDG_SNIPPET = re.compile(r'class="result__snippet"[^>]*>(.*?)</a>', re.S)
 _GH_README = re.compile(r"^(https://github\.com/[^/]+/[^/]+)/blob/[^/]+/readme(\.md|\.rst)?$", re.I)
 _TAG = re.compile(r"<[^>]+>")
+
+
+def page_text(html: str, limit: int = 20000) -> str:
+    """Readable text of a page: drops scripts/styles/nav, tags and extra whitespace."""
+    html = re.sub(r"(?is)<(script|style|noscript|svg|nav|footer|header)[^>]*>.*?</\1>", " ", html)
+    html = re.sub(r"(?i)<br\s*/?>|</(p|div|li|h[1-6]|pre|tr)>", "\n", html)
+    text = htmllib.unescape(_TAG.sub(" ", html))
+    text = re.sub(r"[ \t\r\f\v]+", " ", text)
+    text = re.sub(r"\n\s*\n+", "\n", text)
+    return text.strip()[:limit]
+
+
+def notebook_text(raw: str, limit: int = 20000) -> str:
+    """Markdown + code cells of a .ipynb, in order."""
+    import json as _json
+
+    try:
+        nb = _json.loads(raw)
+    except ValueError:
+        return page_text(raw, limit)
+    parts = []
+    for cell in nb.get("cells", []):
+        src = cell.get("source", "")
+        src = "".join(src) if isinstance(src, list) else str(src)
+        parts.append(("# [code]\n" if cell.get("cell_type") == "code" else "") + src)
+    return "\n\n".join(parts)[:limit]
 
 
 def _clean(s: str | None) -> str:
@@ -292,3 +319,42 @@ async def gemini_grounded(ctx: Ctx, query: str) -> list[dict]:
 
     found = await asyncio.gather(*(resolve(u, t) for u, t in uris[:12]))
     return [f for f in found if f]
+
+
+# --------------------------------------------------------------------------- Claude + web search tool
+
+async def claude_search(ctx: Ctx, query: str, *, timeout: float = 11.0, extra_results: int = 4) -> list[dict]:
+    """Claude plans and runs the searches (server-side web_search tool). Only URLs from the tool's
+    result blocks are kept (see claude.search); Claude's own picks lead, with its 'why'."""
+    if not ctx.keys.anthropic:
+        return []
+    from . import claude
+
+    found, info = await claude.search(ctx.keys.anthropic, query, timeout=timeout)
+    ctx.used.add("claude-search")
+    ctx.extra["claude"] = info
+    out, extras = [], 0
+    for r in found:
+        url = r["url"]
+        if skip(url):
+            continue
+        if not r.get("picked"):
+            if extras >= extra_results:
+                continue
+            extras += 1
+        kind = classify(url)
+        if kind == "blog" and r.get("kind") in ("notebook", "paper"):
+            kind = r["kind"]
+        m = _GH_README.match(url)
+        if m:
+            url = m.group(1)
+        out.append({
+            "url": url,
+            "title": r.get("title") or url,
+            "description": r.get("why") or "",
+            "kind": kind,
+            "via": "claude",
+            "indexed": True,  # came from the search tool's results, not from the model's text
+            "claude_pick": bool(r.get("picked")),
+        })
+    return out

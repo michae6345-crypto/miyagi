@@ -27,7 +27,7 @@ from urllib.parse import urlparse
 
 import httpx
 
-from . import brightdata, cache, gemini, sources, youtube
+from . import brightdata, cache, claude, gemini, sources, youtube
 from .env import Keys, resolve_keys
 from .verify import verify
 
@@ -44,6 +44,7 @@ HTTP_TRANSPORT: httpx.AsyncBaseTransport | None = None
 PUBLIC_FIELDS = (
     "id", "kind", "title", "meta", "score", "reason", "thumbnail", "url",
     "source", "videoId", "durationS", "channel", "verified", "warnings",
+    "scoredBy", "watched", "prerequisites", "codeNotes",
 )
 
 
@@ -167,6 +168,7 @@ def heuristic_score(goal: str, c: dict) -> tuple[int, str]:
 
 
 def public(c: dict) -> dict:
+    c["scoredBy"] = c.get("scored_by")
     out = {k: c[k] for k in PUBLIC_FIELDS if c.get(k) not in (None, "", [])}
     return out
 
@@ -174,11 +176,13 @@ def public(c: dict) -> dict:
 # --------------------------------------------------------------------------- the run
 
 class _Run:
-    def __init__(self, query: str, keys: Keys, on_result: OnResult | None, *, skim_top: int, emit_updates: bool):
+    def __init__(self, query: str, keys: Keys, on_result: OnResult | None, *, skim_top: int, emit_updates: bool,
+                 read_top: int = 3):
         self.query = query
         self.keys = keys
         self.on_result = on_result
         self.skim_top = skim_top
+        self.read_top = read_top
         self.emit_updates = emit_updates
         self.t0 = time.monotonic()
         self.seen: set[str] = set()
@@ -191,7 +195,8 @@ class _Run:
         self.plan_used: dict = {}
         self.timings: dict[str, float] = {}
         self.ctx: sources.Ctx | None = None
-        self.skims: dict[str, asyncio.Task] = {}
+        self.skims: dict[str, asyncio.Task] = {}   # top videos: Gemini watches them
+        self.reads: dict[str, asyncio.Task] = {}   # top pages/repos/notebooks: Gemini reads them
 
     def elapsed(self) -> float:
         return time.monotonic() - self.t0
@@ -207,6 +212,7 @@ class _Run:
             "plan": self.plan_used,
             "timings": {k: round(v, 2) for k, v in self.timings.items()},
             "notes": (self.ctx.errors if self.ctx else [])[:20],
+            **({"claude": self.ctx.extra["claude"]} if self.ctx and "claude" in self.ctx.extra else {}),
         }
 
     async def go(self) -> list[dict]:
@@ -249,6 +255,8 @@ class _Run:
         }
         if cache.normalize(topic) != cache.normalize(q):
             jobs["youtube-2"] = sources.youtube_search(self.ctx, f"{topic} tutorial code", limit=6)
+        if self.keys.anthropic:  # primary planner + searcher
+            jobs["claude"] = sources.claude_search(self.ctx, q, timeout=max(4.0, SOURCES_BUDGET_S - 1.5))
         if self.keys.gemini:
             jobs["gemini-search"] = sources.gemini_grounded(self.ctx, q)
         tasks = [asyncio.create_task(self._source(name, coro)) for name, coro in jobs.items()]
@@ -327,34 +335,72 @@ class _Run:
                 return
 
     async def _score_and_emit(self, batch: list[dict]) -> None:
-        scores: dict[str, dict] = {}
-        if self.gemini_ok:
-            # the first batch must land fast (first result < 4 s); later ones can take longer
-            first = not self.cands
-            timeout = max(1.0, 3.7 - self.elapsed()) if first else max(1.0, min(8.0, self.left(margin=5)))
-            scores = await self._score_chunks(batch, timeout=timeout, hedge_after=1.4 if first else 2.5)
+        # the first batch must land fast (first result < 4 s); later ones can take longer
+        first = not self.cands
+        timeout = max(1.0, 3.7 - self.elapsed()) if first else max(1.0, min(8.0, self.left(margin=5)))
+        scores = await self._score_chunks(batch, timeout=timeout, hedge_after=1.4 if first else 2.5)
         await self._emit(batch, scores)
 
     async def _score_chunks(self, items: list[dict], *, timeout: float, hedge_after: float, size: int = 8) -> dict[str, dict]:
-        """Score in parallel chunks (small prompts answer much faster than one big one)."""
+        """Score in parallel chunks (small prompts answer much faster than one big one).
+        Gemini first; a chunk Gemini can't score (429 / overloaded / slow) goes to Claude;
+        only if both fail does it get the labelled keyword score."""
+
+        async def by_gemini(ch: list[dict]) -> dict[str, dict]:
+            r = await gemini.score(self.keys.gemini, self.query, ch, timeout=timeout, hedge_after=hedge_after)
+            return {k: {**v, "by": "gemini"} for k, v in r.items()}
+
+        async def by_claude(ch: list[dict]) -> dict[str, dict]:
+            r = await claude.score(self.keys.anthropic, self.query, ch, system=gemini.SCORE_SYSTEM,
+                                   prompt=gemini.SCORE_PROMPT, timeout=max(2.0, min(9.0, self.left(margin=1.5))))
+            self.ctx.used.add("claude-triage")
+            return {k: {**v, "reason": gemini.short(v["reason"]), "by": "claude"} for k, v in r.items()}
+
+        async def one(ch: list[dict]) -> dict[str, dict]:
+            """Gemini first. If it errors (429/503), or hasn't answered after claude_after s, Claude
+            starts too; the first good answer wins. Keyword scores only if both fail."""
+            tasks: dict[asyncio.Task, str] = {}
+            if self.gemini_ok:
+                tasks[asyncio.create_task(by_gemini(ch))] = "gemini"
+            claude_ok = bool(self.keys.anthropic) and self.left(margin=1.5) > 2
+            claude_after = 1.0 if hedge_after < 2 else 3.0
+            started_claude = False
+            if not tasks and claude_ok:
+                tasks[asyncio.create_task(by_claude(ch))] = "claude"
+                started_claude = True
+            try:
+                while tasks:
+                    wait = claude_after if (claude_ok and not started_claude) else None
+                    done, _ = await asyncio.wait(tasks, timeout=wait, return_when=asyncio.FIRST_COMPLETED)
+                    if not done:  # Gemini is slow: race Claude
+                        tasks[asyncio.create_task(by_claude(ch))] = "claude"
+                        started_claude = True
+                        continue
+                    for t in done:
+                        who = tasks.pop(t)
+                        try:
+                            return t.result()
+                        except Exception as e:
+                            self.ctx.note(f"{who} triage ({len(ch)} items) failed: {type(e).__name__}: {str(e)[:80]}")
+                    if claude_ok and not started_claude:
+                        tasks[asyncio.create_task(by_claude(ch))] = "claude"
+                        started_claude = True
+            finally:
+                for t in tasks:
+                    t.cancel()
+            return {}
+
         chunks = [items[i:i + size] for i in range(0, len(items), size)]
-        res = await asyncio.gather(
-            *(gemini.score(self.keys.gemini, self.query, ch, timeout=timeout, hedge_after=hedge_after) for ch in chunks),
-            return_exceptions=True,
-        )
         out: dict[str, dict] = {}
-        for ch, r in zip(chunks, res):
-            if isinstance(r, Exception):
-                self.ctx.note(f"gemini triage ({len(ch)} items) failed: {type(r).__name__}: {str(r)[:80]}; keyword scores")
-            else:
-                out.update(r)
+        for r in await asyncio.gather(*(one(ch) for ch in chunks)):
+            out.update(r)
         return out
 
     async def _emit(self, batch: list[dict], scores: dict[str, dict]) -> None:
         for c in batch:
             s = scores.get(c["id"])
             if s:
-                c["score"], c["reason"], c["scored_by"] = s["score"], s["reason"] or "Relevant", "gemini"
+                c["score"], c["reason"], c["scored_by"] = s["score"], s["reason"] or "Relevant", s.get("by", "gemini")
             else:
                 c["score"], c["reason"] = heuristic_score(self.query, c)
                 c["scored_by"] = "keywords"
@@ -367,15 +413,55 @@ class _Run:
     # ---- deep pass: skim the top videos (+ Bright Data comments), calibrate all scores
 
     def _start_skims(self) -> None:
-        """Skim the current top videos as soon as they are scored (runs alongside the other sources)."""
-        if not self.gemini_ok or self.left(margin=2) < 3:
+        """Gemini watches the current top videos and reads the top pages as soon as they are scored
+        (runs alongside the other sources)."""
+        if self.left(margin=2) < 3:
             return
-        videos = sorted((c for c in self.cands.values() if c["kind"] == "video"), key=lambda c: -c["score"])
+        ranked = sorted(self.cands.values(), key=lambda c: -c["score"])
+        videos = [c for c in ranked if c["kind"] == "video"]
+        pages = [c for c in ranked if c["kind"] != "video"]
         for v in videos[: self.skim_top]:
             if v["id"] not in self.skims and len(self.skims) < self.skim_top + 1:
                 self.skims[v["id"]] = asyncio.create_task(self._skim(v))
+        for c in pages[: self.read_top]:
+            if c["id"] not in self.reads and len(self.reads) < self.read_top + 1:
+                self.reads[c["id"]] = asyncio.create_task(self._read(c))
+
+    def _not_watched(self, c: dict, why: str) -> None:
+        c["watched"] = f"not {'watched' if c['kind'] == 'video' else 'read'}: {why}"
+
+    async def _read(self, c: dict) -> None:
+        """Gemini reads the page (via the Bright Data Unlocker when configured, else plain HTTP)."""
+        if not self.gemini_ok:
+            return self._not_watched(c, "no Gemini key")
+        url = c["url"]
+        nb = re.match(r"https://colab\.research\.google\.com/github/([^/]+/[^/]+)/blob/(.+?\.ipynb)", url)
+        if nb:  # Colab is a JS app; read the notebook it opens from GitHub instead
+            url = f"https://raw.githubusercontent.com/{nb.group(1)}/{nb.group(2)}"
+        try:
+            if brightdata.available(self.keys) and not nb:
+                html = await brightdata.unlock(self.ctx.client, self.keys, url, timeout=min(8.0, self.left(margin=6)))
+                self.ctx.used.add("brightdata-unlocker")
+            else:
+                r = await self.ctx.client.get(url, timeout=min(6.0, self.left(margin=6)))
+                r.raise_for_status()
+                html = r.text
+        except Exception as e:
+            self.ctx.note(f"read {c['id']}: fetch failed: {type(e).__name__}: {str(e)[:80]}")
+            return self._not_watched(c, "page fetch failed")
+        text = sources.notebook_text(html) if (nb or url.endswith(".ipynb")) else sources.page_text(html)
+        if len(text) < 200:
+            return self._not_watched(c, "page has no readable text")
+        try:
+            c["read"] = await gemini.read(self.keys.gemini, self.query, c, text, timeout=max(1.0, self.left(margin=0.7)))
+            self.ctx.used.add("gemini-read")
+        except Exception as e:
+            self.ctx.note(f"read {c['id']} failed: {type(e).__name__}: {str(e)[:80]}")
+            self._not_watched(c, f"Gemini {gemini.failure(e)}")
 
     async def _skim(self, v: dict) -> None:
+        if not self.gemini_ok:
+            return self._not_watched(v, "no Gemini key")
         warns: list[str] = []
         client = self.ctx.client
         if brightdata.available(self.keys):
@@ -392,6 +478,7 @@ class _Run:
             self.ctx.used.add("gemini-skim")
         except Exception as e:
             self.ctx.note(f"skim {v['videoId']} failed: {type(e).__name__}: {str(e)[:80]}")
+            self._not_watched(v, f"Gemini {gemini.failure(e)}")
 
     async def _deep_pass(self, client: httpx.AsyncClient) -> None:
         if not self.cands:
@@ -403,28 +490,45 @@ class _Run:
             """Second chance for rows that only got a keyword score (Gemini was slow the first time)."""
             nonlocal cal
             items = [c for c in self.cands.values() if c.get("scored_by") == "keywords"]
-            if not self.gemini_ok or not items or self.left(margin=1) < 1.5:
+            if not (self.gemini_ok or self.keys.anthropic) or not items or self.left(margin=1) < 1.5:
                 return
             cal = await self._score_chunks(items, timeout=self.left(margin=1), hedge_after=2.0)
 
         self._start_skims()
-        skims = list(self.skims.values())
+        deep = {**self.skims, **self.reads}
         await calibrate()
-        if skims:
-            _, late = await asyncio.wait(skims, timeout=max(0.1, self.left(margin=0.5)))
+        if deep:
+            _, late = await asyncio.wait(deep.values(), timeout=max(0.1, self.left(margin=0.5)))
             for t in late:
                 t.cancel()
+            for cid, t in deep.items():
+                c = self.cands.get(cid)
+                if t in late and c is not None and not c.get("watched"):
+                    self._not_watched(c, "Gemini ran out of time")
         self.timings["deep"] = self.elapsed()
 
         for c in self.cands.values():
             base = cal.get(c["id"])
             if base:
-                c["score"], c["reason"], c["scored_by"] = base["score"], base["reason"] or c["reason"], "gemini"
+                c["score"], c["reason"], c["scored_by"] = base["score"], base["reason"] or c["reason"], base.get("by", "gemini")
             sk = c.get("skim")
             if sk:  # what the video actually shows outweighs its title
                 c["score"] = round(0.4 * c["score"] + 0.6 * sk["score"])
                 c["reason"] = sk.get("reason") or c["reason"]
-                c["scored_by"] = "gemini+skim"
+                c["scored_by"] = f"{c['scored_by']}+gemini-watch"
+                c["watched"] = "watched by Gemini"
+            rd = c.get("read")
+            if rd:  # what the page actually teaches outweighs its title
+                c["score"] = round(0.4 * c["score"] + 0.6 * rd["score"])
+                if not rd.get("teaches_goal"):
+                    c["score"] = min(c["score"], 45)
+                c["reason"] = rd.get("summary") or c["reason"]
+                c["prerequisites"] = rd.get("prerequisites") or []
+                c["codeNotes"] = rd.get("code") or ""
+                c["scored_by"] = f"{c['scored_by']}+gemini-read"
+                c["watched"] = "read by Gemini"
+            if str(c.get("watched", "")).startswith("not "):
+                c["meta"] = f"{c['meta']} · {c['watched']}"
         if self.emit_updates:
             for k, c in self.cands.items():
                 if before.get(k) != (c["score"], c["reason"]):
