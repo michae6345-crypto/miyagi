@@ -114,3 +114,19 @@ record_metric(f"screen-{lesson_id}", "loss", step, value)  # any numeric signal 
   443 or 5432, so don't count on one. If `--ping` says the TCP connect failed, use a phone hotspot; nothing is lost meanwhile because of the spool.
   ([connection pooling](https://www.tigerdata.com/docs/use-timescale/latest/services/connection-pooling), [finding connection details](https://www.tigerdata.com/docs/integrate/find-connection-details))
 - `stats(conn)` (connection in autocommit) → `{training_metrics: {rows_per_s, total}, learning_events: {...}, chunks, query_ms: {live_curve, stuck_heatmap}}`. This is what `tut stats` prints.
+
+## Stats page (`stats_web.py`): Tiger, visible
+Mount it in the orchestrator (two lines):
+```python
+from server.checks.stats_web import router as stats_router
+app.include_router(stats_router)
+```
+Then open **http://localhost:8787/stats**. For the app: `stats_web.OPEN_STATS_LINK` = `<a href="http://localhost:8787/stats" target="_blank" rel="noopener">Open stats</a>`
+(in Electron: `shell.openExternal("http://localhost:8787/stats")`).
+- Read-only. The page polls `GET /stats/data` every 2 s (optional `?run_id=&lesson_id=&source_id=&metric=`; by default the newest learner run and lesson).
+- Panels, all read from continuous aggregates: the live curve (`metrics_1s`, log scale) with the **same lesson's** tutorial curve dashed and aligned by step,
+  time per step (`time_per_step`), where learners get stuck per 15 s of video (`stuck_heatmap`), check fail rate (`check_fail_rate`), plus ingest rows/s,
+  row totals, chunk count and the measured ms of every panel query.
+- Offline (no URL, unreachable, connection dropped mid-query): `{"online": false, "error", "spool"}`. The page shows
+  **"Tiger offline: N rows spooled, will upload on reconnect"** and blanks every number. It never shows stale or made-up values. After a failed connect
+  it answers "offline" instantly for 10 s, so a 2 s refresh doesn't hammer the network. Chart.js 4.4.1 comes from cdnjs; with no internet the tables still work.
