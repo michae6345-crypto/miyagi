@@ -14,7 +14,7 @@ from pathlib import Path
 import os
 
 from . import claude, gemini, transcript
-from .schema import CHECK_TYPES, PRECISION_TYPES, REPO_ROOT, SCREEN_TYPES, check_problems, echoes_command, lint, schema_errors
+from .schema import CHECK_TYPES, PRECISION_TYPES, REPO_ROOT, SCREEN_TYPES, check_problems, lint, schema_errors, step_check_problems
 from .workdir import WorkdirInfo, scan
 
 log = logging.getLogger("server.lesson")
@@ -203,6 +203,7 @@ async def _video_draft(url: str, vid: str, goal: str, *, refresh: bool, detail: 
     return draft
 
 
+GEMINI_GRACE_S = 8.0  # LESSON_GEMINI_GRACE: how long Gemini may still answer once Claude's draft is ready
 GEMINI_VIDEO_TIMEOUT_S = 45.0  # LESSON_GEMINI_TIMEOUT; past this the Claude transcript path is faster
 
 
@@ -255,28 +256,44 @@ async def _watch(url: str, vid: str, goal: str) -> dict:
         draft["_engine"] = "gemini"
         return draft
 
-    claude_task = asyncio.create_task(claude_draft()) if "claude" in order else None
+    tasks: dict[str, asyncio.Task] = {}
+    if "claude" in order:
+        tasks["claude"] = asyncio.create_task(claude_draft())
+    if "gemini" in order:
+        tasks["gemini"] = asyncio.create_task(gemini_draft())
+    grace = float(os.environ.get("LESSON_GEMINI_GRACE", GEMINI_GRACE_S))
+    claude_ready: dict | None = None
     try:
-        if "gemini" in order:
-            try:
-                return await gemini_draft()
-            except RuntimeError as e:
-                errors.append(f"gemini: {str(e)[:300]}")
-                log.warning("gemini video pass failed: %s", str(e)[:200])
-        if claude_task is not None:
-            try:
-                draft = await claude_task
-            except RuntimeError as e:
-                errors.append(f"claude: {str(e)[:300]}")
-            else:
-                if errors:
-                    draft.setdefault("_notes", []).append("fallback engine: " + " | ".join(errors))
-                return draft
+        pending = set(tasks.values())
+        while pending:
+            timeout = grace if claude_ready is not None else None
+            done, pending = await asyncio.wait(pending, timeout=timeout, return_when=asyncio.FIRST_COMPLETED)
+            if not done:  # Claude is ready and Gemini used up its grace period: don't keep the learner waiting
+                errors.append(f"gemini: still watching {grace:.0f}s after the transcript draft was ready")
+                break
+            for t in done:
+                eng = next(k for k, v in tasks.items() if v is t)
+                try:
+                    draft = t.result()
+                except RuntimeError as e:
+                    errors.append(f"{eng}: {str(e)[:300]}")
+                    log.warning("%s video pass failed: %s", eng, str(e)[:200])
+                    continue
+                if eng == "gemini":
+                    return draft  # it saw the screen: preferred whenever it is in time
+                claude_ready = draft
+            if claude_ready is not None and "gemini" not in tasks:
+                break
+        if claude_ready is not None:
+            if errors:
+                claude_ready.setdefault("_notes", []).append("fallback engine: " + " | ".join(errors))
+            return claude_ready
     finally:
-        if claude_task is not None and not claude_task.done():
-            claude_task.cancel()  # Gemini won: stop paying for the transcript path
-        elif claude_task is not None and not claude_task.cancelled():
-            claude_task.exception()  # mark a failure we didn't need as retrieved
+        for t in tasks.values():
+            if not t.done():
+                t.cancel()  # the loser stops costing money
+            elif not t.cancelled():
+                t.exception()  # mark a failure we didn't need as retrieved
     raise RuntimeError("no engine could build the lesson:\n" + "\n".join(errors))
 
 
@@ -469,6 +486,7 @@ def assemble(draft: dict, goal: str, adapted: dict) -> dict:
                 "hints": [h for h in s.get("hints") or [] if h],
                 "common_mistakes": [m for m in s.get("common_mistakes") or [] if m],
                 **({"run_command": s["run_command"].strip()} if (s.get("run_command") or "").strip() else {}),
+                **({"code": s["code"]} if (s.get("code") or "").strip() else {}),
             }
         )
     return {
@@ -590,7 +608,7 @@ def repair(graph: dict, info: WorkdirInfo) -> dict:
         step["precision_checks"] = step.get("precision_checks", []) + misplaced
         for key, allowed, tag in (("checks", SCREEN_TYPES, "c"), ("precision_checks", PRECISION_TYPES, "p")):
             kept = [c for c in step.get(key, []) if not check_problems(c, allowed, key, info.metrics, set(info.files))
-                    and not (key == "checks" and echoes_command(c, step.get("run_command") or ""))]
+                    and not (key == "checks" and step_check_problems(c, step))]
             if key == "checks" and not kept:
                 kept = fallback_screen_checks(step)
             for j, c in enumerate(kept, 1):  # renumber so ids stay unique and stable

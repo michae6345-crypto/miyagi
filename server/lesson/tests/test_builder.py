@@ -466,3 +466,65 @@ def test_browser_checks_are_not_tied_to_one_browser():
 
 def test_empty_workdir_prompt_asks_for_a_setup_step(tmp_path):
     assert "step 1 must create anything the tutorial assumes" in scan(str(tmp_path / "nope")).summary_for_prompt()
+
+
+# ---- S3 re-run fixes -------------------------------------------------------------
+
+def test_output_check_matching_the_steps_own_code_is_rejected():
+    step = {"id": "s5", "title": "Filter by country", "code": "df[df['Country'] == 'France']",
+            "instructions": "Filter with `df['Country']`.", "targets": [],
+            "checks": [{"id": "s5c1", "type": "screen_contains", "label": "table shown", "pattern": "Country|Customer"}]}
+    assert any("matches the step's own code" in p for p in lint({"steps": [step]}))
+    step["checks"][0]["app"] = "Terminal"  # scoped to where the output appears: fine
+    assert not any("own code" in p for p in lint({"steps": [step]}))
+
+
+def test_notebook_steps_count_code_scoped_output_checks():
+    step = {"id": "s2", "title": "Inspect the data", "run_command": "Run each notebook cell (Shift+Enter)", "code": "df.info()",
+            "targets": [], "checks": [{"id": "s2c1", "type": "screen_contains", "label": "info shown", "app": "Code",
+                                      "pattern": r"RangeIndex:\s*\d+\s+entries"}]}
+    assert lint({"steps": [step]}) == []
+    shell = dict(step, run_command="python inspect.py")  # a real shell step needs output outside the editor
+    assert any("no check on its output" in p for p in lint({"steps": [shell]}))
+
+
+def test_generic_patterns_are_too_weak():
+    from server.lesson.schema import is_weak
+
+    for weak in (r"\*\s*\S+", r"\|\s*/", r"\bmain\b", r"\S+\s+0\.1\.0"):
+        assert is_weak({"type": "screen_contains", "pattern": weak}), weak
+    for ok in ("Successfully rebased", r"RangeIndex:\s*\d+\s+entries", r"(?P<value>\d+)\s+passed", r"Local:\s+http://localhost:\d+", "Traceback|Error:|ERR!"):
+        assert not is_weak({"type": "screen_contains", "pattern": ok}), ok
+    assert not is_weak({"type": "screen_absent", "pattern": "x"})  # absence checks may be broad
+
+
+def test_race_takes_claude_after_a_short_grace(fake, monkeypatch):
+    import time as _t
+
+    monkeypatch.setenv("LESSON_ENGINE", "auto")
+    monkeypatch.setenv("LESSON_GEMINI_GRACE", "0.2")
+
+    async def slow_gemini(url, goal, fps=None):
+        await asyncio.sleep(5)
+
+    monkeypatch.setattr(gemini, "watch_video", slow_gemini)
+    calls = []
+    _claude_fakes(monkeypatch, calls)
+    t0 = _t.time()
+    g = asyncio.run(builder.build_lesson(URL, "x", WORKDIR, refresh=True))
+    assert _t.time() - t0 < 1.5 and g["build"]["model"]["video"].startswith("claude")
+
+
+def test_race_prefers_gemini_when_it_answers_in_time(fake, monkeypatch):
+    monkeypatch.setenv("LESSON_ENGINE", "auto")
+    calls = []
+    _claude_fakes(monkeypatch, calls)
+
+    async def slow_claude_watch(info, goal):
+        await asyncio.sleep(0.3)
+        return json.loads(json.dumps(DRAFT))
+
+    monkeypatch.setattr(claude, "watch_transcript", slow_claude_watch)
+    gemini.last_model = "gemini-4-hydrogen"
+    g = asyncio.run(builder.build_lesson(URL, "x", WORKDIR, refresh=True))
+    assert g["build"]["model"]["video"].startswith("gemini-4-hydrogen")
