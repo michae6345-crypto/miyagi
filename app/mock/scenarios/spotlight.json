@@ -29,10 +29,10 @@
         "wait": 1300,
         "type": "spotlight",
         "payload": {
-          "rect": { "x": 1238, "y": 196, "w": 290, "h": 210 },
-          "caption": "Compare with the exact solution",
-          "app": "Safari",
-          "matched": "u(x, t), β = 30"
+          "rect": { "x": 514, "y": 474, "w": 156, "h": 34 },
+          "caption": "Same flag on both lines",
+          "app": "Code",
+          "matched": "create_graph=True"
         }
       },
       {
