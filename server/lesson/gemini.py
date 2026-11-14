@@ -161,6 +161,27 @@ async def _generate_json(model_id: str, parts: list[types.Part], schema: dict, *
 # Pass 1: watch the whole video
 # --------------------------------------------------------------------------- #
 
+STACK_GUIDE = """Fit the checks to the tutorial's stack: grade what that stack visibly produces.
+- Web / React / JS: the component or function in the editor (app "Code"), the dev server line in the
+  terminal (e.g. "Local:\\s+http://localhost:\\d+"), text the page renders in the browser (app "Google Chrome"
+  or "Safari"), and test-runner counts as a metric (metric "tests_passed", metric_pattern
+  "(?P<value>\\d+)\\s+passed").
+- git / shell / CLI tools: the command's own terminal output, e.g. `git log --oneline` lines
+  "[0-9a-f]+\\s+<commit message>", "On branch \\S+", "Switched to branch", "Initialized empty Git repository".
+- Data / pandas / notebooks: printed results such as a DataFrame's header row of column names, ".shape" output
+  "\\(\\d+,\\s*\\d+\\)", "dtype: \\w+", or a printed statistic as a metric.
+- ML / training: per-epoch or per-step lines (loss, accuracy, val metrics) as metric checks with metric_pattern.
+- Anything else: the most distinctive thing the step makes appear on screen (output text, a file name in the
+  editor tab, a UI label), never a judgement call.
+Every step needs at least one check that passes for ANY learner doing the step with their own names and data:
+tool output ("Successfully rebased", "CONFLICT", "RangeIndex: \\d+ entries", "Compiled successfully", "Finished")
+or API/keyword names ("useState\\(", "groupby\\(", "@app\\.get"). Literals that only exist in the tutorial's demo
+(its branch names, usernames, dataset values, commit messages) go in precision_checks, never as the only check.
+A Terminal check must match the command's OUTPUT, never the command the learner types (that passes on typing):
+for a step that runs something, include one check on what it prints ("Local:\\s+http", "Uvicorn running on",
+"Finished", a test count)."""
+
+
 WATCH_SYSTEM = """You turn a coding tutorial video into an auto-graded lab.
 A learner codes along in their own project; the video pauses at the end of each step
 until machine-checkable checks pass. Be precise about timestamps and about what code is
@@ -170,7 +191,8 @@ WATCH_PROMPT = """Learner's goal: {goal}
 
 Break this tutorial into 4-10 sequential steps a learner can code along with.
 Rules:
-- One step = one concrete thing the learner builds or runs (e.g. "Create the Counter component", "Add the fetch call", "Commit the first change", "Define the model", "Run the tests"). Skip intros, outros, sponsor segments and pure theory unless they end in code or a command.
+- One step = one concrete thing the learner builds or runs (e.g. "Create the Counter component", "Add the fetch call", "Commit the first change", "Define the model", "Run the tests"). Skip intros, outros, sponsor segments and pure theory unless they end in code or a command. A step shorter than ~20 s belongs to its neighbour.
+- The lesson must be playable from an EMPTY folder: if the tutorial starts from code, data or repo state prepared off camera, step 1 sets it up (the link from the description, or exact commands to recreate it, e.g. git init + branches + the conflicting commits, or creating/downloading the CSV).
 - start/end are MM:SS (or H:MM:SS). end is the moment the step's code is complete or its run finished. Steps must not overlap and must be in order.
 - title: imperative, at most 6 words. instructions: at most 2 sentences, concrete.
 - code: transcribe the key lines written in the step exactly as on screen (keep variable names).
@@ -186,17 +208,20 @@ Rules:
     the line EXACTLY as the video's code prints it (copy the print format into expected_output).
     Thresholds: values the tutorial's own run clearly reaches.
   Never use a "visual" check. Every step needs at least one check.
+  {stack_guide}
 - targets: where the learner should look/edit: app ("Code"/"Terminal"), file, and `match` = a short literal
   substring that will be visible on screen, e.g. "function TodoList" or "git merge", plus a caption.
 - explanations: moments (MM:SS) where the presenter explains a concept relevant to the step.
 - hints: a ladder of 2-4 hints, gentlest first (a guiding question -> a pointer -> nearly the answer).
-- common_mistakes: concrete mistakes learners make in this step (e.g. forgetting requires_grad=True on inputs, create_graph=True for second derivatives).
-- libraries: every library used, with the version if shown (pip output, requirements, import of a versioned API); otherwise your best estimate from the API style and upload date, e.g. "torch": "2.x".
+- common_mistakes: concrete mistakes learners make in this step (e.g. forgetting to export the component, committing before staging, mutating a DataFrame copy, skipping optimizer.zero_grad()).
+- libraries: every library used, with the version if shown (pip output, requirements, import of a versioned API); otherwise your best estimate from the API style and upload date, e.g. "react": "18.x".
 """
 
 
 async def watch_video(url: str, goal: str, *, fps: float | None = None) -> dict:
-    parts = [_video_part(url, fps=fps), types.Part(text=WATCH_PROMPT.format(goal=goal))]
+    # 0.5 fps halves the frames of the default 1 fps; long videos otherwise miss the 45 s cap
+    fps = fps if fps is not None else float(os.environ.get("LESSON_GEMINI_FPS", "0.5"))
+    parts = [_video_part(url, fps=fps), types.Part(text=WATCH_PROMPT.format(goal=goal, stack_guide=STACK_GUIDE))]
     return await _generate_json(model(), parts, VIDEO_DRAFT_SCHEMA, system=WATCH_SYSTEM)
 
 
@@ -235,7 +260,9 @@ the learner's SCREEN with on-device OCR (Apple Vision) and evaluates checks lite
 - `precision_checks` (backup, only when the workdir is known): file_contains / file_exists with paths relative
   to the workdir, command_exit_ok with a quick command that exists (small --epochs/--steps flag), metric_* by
   the ::metric:: name the code prints.
-Never emit "visual"."""
+Never emit "visual".
+"""
+ADAPT_SYSTEM += STACK_GUIDE
 
 ADAPT_PROMPT = """Learner's goal: {goal}
 

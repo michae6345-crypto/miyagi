@@ -23,10 +23,13 @@ scripts/miyagi-engine.sh          # LIVE on 0.0.0.0:8787; DEMO=1 scripts/miyagi-
 an **`error` event** with the reason, never canned data. `lesson.building` reports elapsed time while Gemini works (1–2 min for a long video).
 Stubs and fixtures run **only with `DEMO=1`** (or the dev/test flag `ORCH_STUBS`).
 
-The script exports `ORCH_SCREEN=1` (frames ~1/s, OCR only on change, re-evaluate per frame, spotlight via `locate_match`), `ORCH_OPEN_WORKSPACE=1`
-(on `lesson.ready` it runs `open -a "Visual Studio Code" <workdir>`, falling back to `code <workdir>`; on each `step.started` it runs `code -r -g <file>:<line>` for the step's target),
-and `TUT_WORKDIR=demo/pinn-lab` (diffusion starter for the Toscano hero lesson; hero failure lr=1e-1 → coach → 1e-3, see `demo/pinn-lab/README.md`). If Screen Recording is denied, it prints exactly where to grant it.
-The script also sets `ORCH_AUTOSTART=1 ORCH_LESSON_URL=https://www.youtube.com/watch?v=AXXnSzmpyoI`, so the hero lesson is built (real builder) and started at boot.
+The script exports `ORCH_SCREEN=1` (frames ~1/s, OCR only on change, re-evaluate per frame, spotlight via `locate_match`) and
+`ORCH_OPEN_WORKSPACE=1` (on `lesson.ready`: `open -a "Visual Studio Code" <workdir>`, falling back to `code <workdir>`; on each `step.started`: `code -r -g <file>:<line>`).
+**LIVE starts with no lesson:** it waits for the launcher's `learn`. Each lesson gets its own workspace from S2's `server/workspace`
+(`build_workdir(url)` before the build, `prepare(graph, goal)` after it: `~/miyagi/lessons/<slug>` with starter files, shown as "Setting up your project folder"),
+opened with `open_editor` (`code -n <dir> -g <file>`). `TUT_WORKDIR` pins one folder for development. If Screen Recording is denied, the script prints exactly where to grant it.
+**The stage hero is `scripts/miyagi-demo.sh`:** the same engine with `ORCH_HERO_WORKDIR=demo/pinn-lab ORCH_AUTOSTART=1 ORCH_LESSON_URL=AXXnSzmpyoI`
+(E2's cached Toscano lesson; hero failure `lr = 0.3`, see `demo/pinn-lab/README.md`).
 No real screen handy? `TUT_SCREEN_FIXTURE=server/screen/fixtures/vscode_terminal_flat.png` replays a saved VS Code + Terminal screenshot.
 
 `demo/recordings/engine-sample.jsonl` is ~60 s of real engine output (OCR, spotlight rects, live coach card, hint/explain, diagram, green) in
@@ -50,7 +53,7 @@ then a β-curriculum run. It only writes `pinn_convection.py` and refuses to ove
 | `ORCH_SCREEN_INTERVAL_S` | 1.0 | seconds between screen captures |
 | `ORCH_PRECISION` | auto | `auto` (workdir on disk or a `tut run`), `on`, or `off` (screen checks only) |
 | `ORCH_BUILD_TIMEOUT_S` | 300 | a live lesson build taking longer becomes an `error` event |
-| `TUT_WORKDIR` | lesson's `workdir`, else `demo/pinn` | folder the learner works in (watched for saves) |
+| `TUT_WORKDIR` | per lesson: `~/miyagi/lessons/<slug>` | pin the learner's folder (watched for saves); `miyagi-demo.sh` sets `demo/pinn-lab` |
 | `DEMO` | 0 | `1` = serve `demo/cache/` files and canned stubs, never call live APIs (checks stay real) |
 | `ORCH_STUBS` | (empty) | `all` or `lesson,coach,...` = force stubs even if the real module exists |
 | `ORCH_SCREEN` | 1 | start the whole-screen reader (`server.screen`, macOS + Screen Recording permission). `0` = files + `tut run` only |

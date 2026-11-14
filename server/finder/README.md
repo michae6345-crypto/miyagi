@@ -13,28 +13,48 @@ lesson.build_lesson(rows[0]["url"], goal, workdir)  # rows[0] is always the best
 
 Row = `search.result` (+ extra fields, allowed by the contract):
 `{id, kind: video|blog|notebook|paper|repo, title, meta, score 0-100, reason (<= 12 words), thumbnail?, url,
-source, verified, videoId?, durationS?, channel?, warnings?}`.
+source, scoredBy, watched?, verified, videoId?, durationS?, channel?, prerequisites?, codeNotes?, warnings?}`.
+- `source`: the stage that found the row: `claude`, `youtube`, `brightdata`, `duckduckgo`, `github` or `arxiv`.
+- `scoredBy`: `claude` | `gemini` (only when Claude failed) | `keywords`, plus `+gemini-watch` (video) / `+claude-read` (page).
+- `watched`: `watched by Gemini` | `read by Claude` | `not watched: Gemini quota` | `not read: Claude timeout` (or `overloaded`, `page fetch failed`, …). A row that wasn't watched or read says so, in its `meta` too; it is never faked.
 Example: `{"id": "yt-unBU1PwCnvQ", "kind": "video", "title": "S5 Solving Linear convection equation using PINNs",
 "meta": "YouTube · SimCom · 22:40 · 314 · 1y ago", "score": 86, "reason": "Clear, 22 min, hands-on, uses PyTorch, explains PINNs for convection", "url": "https://www.youtube.com/watch?v=unBU1PwCnvQ", ...}`
 
-## Pipeline (first result ~2-4 s, done < 20 s)
+## Who does what (Michael's rule: Gemini only watches YouTube videos; Claude does everything else)
+- **Claude searches.**
+  - `claude-haiku-5-5` with the server-side `web_search_20250305` tool plans 2-3 searches and returns its picks with a "why".
+  - Only URLs that appear in the tool's own result blocks count; a URL Claude writes from memory is dropped.
+  - Measured: 5-8 s for 17-26 results. `claude-sonnet-5-5` with `web_search_20260209` took 13.8 s on the same query.
+- **Claude scores** every candidate: 0-100 plus a reason, in small parallel chunks.
+- **Claude reads** the top 3 non-video results (blogs, notebooks, repos, papers):
+  - Pages are fetched via the Bright Data Unlocker or plain HTTP; Colab notebooks are read from their GitHub `.ipynb`.
+  - It answers: does the page teach the goal, what are the prerequisites, what code does it give.
+  - Its summary becomes the row's `reason`.
+- **Gemini watches** the top 3 YouTube videos: a low-fps skim (same `file_data` URI as server/lesson). That is its only job.
+- **Fallbacks:**
+  - Gemini scores only if Claude fails.
+  - Keyword scores only if both fail; those rows are labelled `scoredBy: keywords`.
+  - Gemini Google Search grounding was removed: Claude's web search covers it, and the key's grounding quota is 0.
+
+## Pipeline (first result ~3-5 s, done < 20 s)
 1. **t = 0, all in parallel:**
+   - **Claude + web search** (above).
    - **YouTube:** the real results page for the query and a topic variant. Goes through the Bright Data Web Unlocker when configured, otherwise direct.
    - **Web:** a written tutorial and a notebook, via the **Bright Data SERP API** (Google) when configured, otherwise DuckDuckGo's HTML endpoint.
    - **GitHub** repository search (Jupyter-language repos become `notebook`) and the **arXiv** API.
-   - **Gemini + Google Search grounding:** only the cited result URLs are used (redirects resolved, titles read), never model-written URLs.
 2. **Verify:**
    - Videos: YouTube **oEmbed** must return 200 (public and embeddable). It also supplies the title, channel and thumbnail.
    - Everything else: an HTTP HEAD/GET must resolve (< 400).
    - Bot-blocked pages (401/403/429) are re-checked through the Unlocker. Without Bright Data they are kept only if a search engine returned them (`verified: "indexed"`).
    - GitHub and arXiv rows come straight from their APIs.
-3. **Triage:** Gemini (flash-lite) scores each batch 0-100 for the learner's goal and writes the reason. Batches go out in parallel chunks of 8.
+3. **Triage:** Claude scores each batch 0-100 for the learner's goal and writes the reason, in parallel chunks (4 for the first batch, 6 after).
    - The first batch waits for the YouTube results so the UI leads with videos.
-   - If Gemini is slow or out of quota, the row gets a keyword score that says so ("Matches pinn, convection, 22 min").
+   - If Claude fails, Gemini scores. If both fail, the row gets a keyword score that says so ("Matches pinn, convection, 22 min").
 4. **Deep pass:**
-   - The top 3 videos get a **low-fps Gemini skim** of the actual YouTube video (0.05 fps, low media resolution, same `file_data` URI as server/lesson). The final score is 40% text, 60% skim, and the skim writes the reason.
+   - The top 3 videos get a **low-fps Gemini skim** of the actual YouTube video (0.05 fps, low media resolution). The final score is 40% text, 60% skim, and the skim writes the reason.
    - With Bright Data, the **YouTube comments** are pulled too, and "outdated / doesn't work" comments feed the skim and show up as `warnings`.
-   - Rows that only got a keyword score get a second Gemini try.
+   - The top 3 non-video results get a **Claude read** of the page. The score is 40% text, 60% read, capped at 45 if the page doesn't teach the goal. The read fills `reason`, `prerequisites` and `codeNotes`.
+   - Rows that only got a keyword score get a second scoring try.
 5. **Rank:** best first, but the best **video** always leads (build_lesson needs a video). The ranked list is cached in `demo/cache/search/<slug>-<hash>.json` (real results; 7-day TTL, `FINDER_CACHE=0` to disable).
 
 ## CLI
@@ -49,18 +69,24 @@ The keys come from the shared `.env` (looked up in `$TUT_ENV`, the repo root, th
 
 | env | use |
 |---|---|
-| `GEMINI_API_KEY` | triage, skim, grounding |
+| `ANTHROPIC_API_KEY` | Claude search, scoring and page reads (`server.config.get_key("anthropic")` when that module exists) |
+| `FINDER_CLAUDE_MODEL`, `FINDER_CLAUDE_SEARCH_TOOL` | default `claude-haiku-5-5`, `web_search_20250305` |
+| `GEMINI_API_KEY` | video skims (and the scoring fallback) |
 | `BRIGHTDATA_API_KEY`, `BRIGHTDATA_SERP_ZONE` (default `serp_api1`), `BRIGHTDATA_UNLOCKER_ZONE` (default `web_unlocker1`) | SERP + Unlocker; any failure falls back, and an inactive account or missing zone trips a 5-min circuit breaker |
 | `BRIGHTDATA_YT_COMMENTS_DATASET` | Web Scraper API dataset id for YouTube comments |
 | `GITHUB_TOKEN` | optional, raises the GitHub search rate limit |
-| `FINDER_MODEL`, `FINDER_SKIM_MODEL`, `FINDER_GROUNDING_MODEL` | comma-separated Gemini fallback chains (default flash-lite only, so server/lesson's `gemini-4-hydrogen` / `gemini-3.8-flash` daily quota is left alone) |
+| `FINDER_MODEL` (Gemini scoring fallback), `FINDER_SKIM_MODEL` | comma-separated Gemini fallback chains (default flash-lite only, so server/lesson's `gemini-4-hydrogen` / `gemini-3.8-flash` daily quota is left alone) |
 
 Gemini calls use no SDK retries. Each call has its own timeout and a **hedged** fallback (if model 1 is slow, model 2 starts too), and a model that returns 429 is skipped until its quota resets.
 
 ## Tests
-`pytest server/finder/tests`: 13 tests, offline in < 1 s. They replay **recorded real responses** (YouTube results page data, oEmbed, DuckDuckGo, GitHub, arXiv) through an `httpx.MockTransport`. They check:
+`pytest server/finder/tests`: 17 tests, offline in < 1 s. They replay **recorded real responses** (YouTube results page data, oEmbed, DuckDuckGo, GitHub, arXiv) through an `httpx.MockTransport`. They check:
 - every emitted URL came from a source response (none invented);
 - a 404 is dropped;
+- a URL Claude wrote that its search tool never returned is dropped;
+- Claude scores and reads while Gemini only skims videos;
+- Gemini scores only when Claude fails;
+- rows say plainly when they weren't watched ("not watched: Gemini quota") or read ("not read: Claude timeout");
 - everything returned was streamed;
 - the best video leads;
 - the cache round-trips.

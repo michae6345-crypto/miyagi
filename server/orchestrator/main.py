@@ -6,7 +6,7 @@
   GET  /events?since=N   recent engine events (debugging)
   POST /debug/pass       force-pass the active step
   POST /debug/goto/{i}   jump to step i
-  POST /debug/lesson     load the canned/demo lesson without searching
+  POST /debug/lesson     DEMO only: load the cached/canned lesson without searching
 
 Run:  python -m server.orchestrator.main      (or uvicorn server.orchestrator.main:app --port 8787)
 """
@@ -31,6 +31,7 @@ from .modules import Modules
 from .screen_bridge import ScreenBridge
 from .session import LessonSession
 from .watcher import Watcher
+from .inputs import Inputs
 from .workspace import Workspace
 
 log = logging.getLogger("orchestrator")
@@ -42,7 +43,8 @@ class Engine:
         self.modules = Modules()
         self.screen = ScreenBridge()
         self.workspace = Workspace()
-        self.session = LessonSession(self.hub.emit, self.modules, screen=self.screen, workspace=self.workspace)
+        self.session = LessonSession(self.hub.emit, self.modules, screen=self.screen, workspace=self.workspace,
+                                     inputs=Inputs())
         self.watcher = Watcher(self.session.on_file_change, interval=config.WATCH_INTERVAL_S)
         self.session.on_workdir = self.watcher.set_root
         self.recorder = recorder.Recorder()

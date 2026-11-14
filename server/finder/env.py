@@ -38,6 +38,7 @@ def _usable(v: str | None) -> str | None:
 class Keys:
     gemini: str | None
     brightdata: str | None
+    anthropic: str | None
     serp_zone: str
     unlocker_zone: str
     github: str | None
@@ -47,13 +48,32 @@ class Keys:
         return bool(self.brightdata)
 
 
+def _shared(name: str) -> str | None:
+    """server.config.get_key (the app's bring-your-own-key store) when that module exists."""
+    try:
+        from server.config import get_key  # type: ignore[import-not-found]
+    except Exception:
+        return None
+    try:
+        return _usable(get_key(name))
+    except Exception:
+        return None
+
+
 def resolve_keys(api_keys: dict | None = None) -> Keys:
-    """api_keys uses the config.keys names ({"gemini": ..., "brightdata": ...}); never logged."""
+    """Order: api_keys (config.keys names) > server.config.get_key > env (.env). Never logged."""
     load_env()
     k = api_keys or {}
+
+    def pick(name: str, *envs: str) -> str | None:
+        if name in k:  # an explicit value (even "") wins, so callers/tests can switch a provider off
+            return _usable(k.get(name))
+        return _shared(name) or next((v for v in (_usable(os.environ.get(e)) for e in envs) if v), None)
+
     return Keys(
-        gemini=_usable(k.get("gemini")) or _usable(os.environ.get("GEMINI_API_KEY")) or _usable(os.environ.get("GOOGLE_API_KEY")),
-        brightdata=_usable(k.get("brightdata")) or _usable(os.environ.get("BRIGHTDATA_API_KEY")),
+        gemini=pick("gemini", "GEMINI_API_KEY", "GOOGLE_API_KEY"),
+        brightdata=pick("brightdata", "BRIGHTDATA_API_KEY"),
+        anthropic=pick("anthropic", "ANTHROPIC_API_KEY"),
         serp_zone=_usable(os.environ.get("BRIGHTDATA_SERP_ZONE")) or "serp_api1",
         unlocker_zone=_usable(os.environ.get("BRIGHTDATA_UNLOCKER_ZONE")) or "web_unlocker1",
         github=_usable(k.get("github")) or _usable(os.environ.get("GITHUB_TOKEN")),
@@ -73,11 +93,6 @@ def triage_models() -> list[str]:
 
 def skim_models() -> list[str]:
     return _chain("FINDER_SKIM_MODEL", "gemini-3.1-flash-lite,gemini-3.5-flash-lite")
-
-
-def grounding_model() -> str:
-    load_env()
-    return os.environ.get("FINDER_GROUNDING_MODEL", "gemini-3.1-flash-lite")
 
 
 CACHE_DIR = ROOT / "demo" / "cache" / "search"

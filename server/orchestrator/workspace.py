@@ -11,6 +11,7 @@ detached; failures are logged, never raised.
 from __future__ import annotations
 
 import logging
+import os
 import re
 import shutil
 import subprocess
@@ -61,6 +62,45 @@ def target_location(workdir: str | Path, step: dict) -> tuple[Path, int] | None:
     return None
 
 
+def _s2():
+    """S2's server.workspace (per-lesson folders + starter files), or None if it isn't installed."""
+    try:
+        import server.workspace as ws
+
+        return ws
+    except Exception:  # noqa: BLE001
+        return None
+
+
+def build_workdir(url: str, goal: str) -> str:
+    """The workdir to hand build_lesson. TUT_WORKDIR pins one folder (dev); otherwise S2 decides
+    (the hero video -> demo/pinn-lab, anything else -> a not-yet-existing path), falling back to
+    config.lesson_workdir."""
+    from . import config
+
+    if os.environ.get("TUT_WORKDIR"):
+        return str(config.default_workdir())
+    ws = _s2()
+    if ws is not None:
+        return ws.build_workdir(url)
+    return str(config.lesson_workdir(url, goal))
+
+
+def prepare(graph: dict, goal: str) -> str | None:
+    """Create/fill the lesson's folder (S2; may call Claude for starter files, 2-25 s, never raises).
+    None when TUT_WORKDIR pins the folder or S2 isn't available."""
+    if os.environ.get("TUT_WORKDIR"):
+        return None
+    ws = _s2()
+    if ws is None:
+        return None
+    try:
+        return str(ws.prepare(graph, goal))
+    except Exception:  # noqa: BLE001
+        log.exception("workspace.prepare failed")
+        return None
+
+
 class Workspace:
     def __init__(self, enabled: bool | None = None, runner=None):
         self.enabled = env_flag("ORCH_OPEN_WORKSPACE", False) if enabled is None else enabled
@@ -80,12 +120,22 @@ class Workspace:
         if not self.enabled or not Path(workdir).is_dir() or self.opened == workdir:
             return
         self.opened = workdir
+        ws = _s2()
+        if ws is not None:  # S2: `code -n <dir> -g <starter file>`, fallback `open -a`
+            ok = ws.open_editor(workdir, ws.open_file_for(Path(workdir)), runner=self.run)
+            log.info("opened workspace %s in VS Code: %s", workdir, ok)
+            return
         ok = False
         if sys.platform == "darwin":
             ok = self.run(["open", "-a", VSCODE_APP, workdir])
         if not ok and (cli := code_cli()):
             ok = self.run([cli, workdir])
         log.info("opened workspace %s in VS Code: %s", workdir, ok)
+
+    def goto(self, path: str, line: int) -> None:
+        cli = code_cli()
+        if self.enabled and cli:
+            self.run([cli, "-r", "-g", f"{path}:{line}"])
 
     def goto_target(self, workdir: str, step: dict) -> None:
         if not self.enabled:

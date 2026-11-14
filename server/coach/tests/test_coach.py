@@ -46,10 +46,10 @@ def assert_offtrack(card: dict) -> None:
     assert set(p) <= {"stepId", "severity", "title", "body", "diff", "citation", "actions", "guidingQuestion"}
     assert p["severity"] in ("warn", "fail")
     assert 0 < len(p["title"].split()) <= 8
-    assert 0 < len(p["body"].split()) <= 34
+    assert 0 < len(p["body"].split()) <= 42  # ~30 by contract; the action sentence is never cut
     assert set(p["actions"]) <= EVENT_ACTIONS
     if "diff" in p:
-        assert p["diff"]["expected"] and isinstance(p["diff"]["yours"], str)
+        assert (p["diff"]["expected"] or p["diff"].get("command")) and isinstance(p["diff"]["yours"], str)
     if "citation" in p:
         assert set(p["citation"]) == {"label", "url"}
     json.dumps(p)  # serializable
@@ -64,7 +64,7 @@ def test_diagnose_pinn_flat_loss_card(replay):
     assert "β" in card["title"] or "beta" in card["title"].lower()
     assert card["citation"]["url"] == "https://arxiv.org/abs/2109.01050"
     assert card["diff"]["file"] == "pinn_convection.py" and card["diff"]["line"] in (39, 40)
-    assert card["diff"]["yours"].endswith("train(model)") and "for beta in" in card["diff"]["expected"]
+    assert card["diff"]["yours"].endswith("train(model)") and card["diff"]["expected"].startswith("for ") and "30" in card["diff"]["expected"]
     assert "apply_fix" in card["actions"]
     assert card["_meta"]["source"] == "replay" and card["_meta"]["model"] == "claude-opus-5-5"
     assert card["_meta"]["route"] == "opus" and card["_meta"]["triage"]["by"] == "rules"
@@ -274,7 +274,8 @@ def test_apply_fix_never_writes(tmp_path, replay):
     patch = coach.apply_fix(card["diff"], f.read_text())
     assert f.read_text() == CODE  # untouched
     assert patch["requires_confirmation"] is True and patch["error"] is None
-    assert "-train(model)" in patch["unified_diff"] and "+for beta in" in patch["unified_diff"]
+    assert "-train(model)" in patch["unified_diff"] and "+for " in patch["unified_diff"]
+    compile(patch["new_text"], "pinn_convection.py", "exec")
     assert "\ntrain(model)\n" not in patch["new_text"]
 
 
@@ -509,3 +510,295 @@ def test_playbook_card_carries_its_guiding_question():
     card = coach.playbook_card(d.STEP, BY_ID["lr_too_high"], d.HIGH_LR_CODE)
     assert card["guidingQuestion"].startswith("What happens to Adam")
     assert coach.hint(d.STEP, 0, coach.public(card))["body"] == card["guidingQuestion"]
+
+
+# ---------- screen understanding: set-of-mark payload, streaming targets, cancel, warm -------------
+
+from server.coach import actions
+from server.coach.screen import ScreenContext, parse_targets_prefix
+from server.coach.tests.screen_case import box_id_containing, make_screen
+
+
+def test_screen_payload_shapes():
+    s = make_screen()
+    assert s.overview().size[0] == 1280 and s.crop().size == (400, 400)
+    content = s.claude_content()
+    assert [b["type"] for b in content] == ["text", "image", "image"]  # instructions before images
+    assert content[1]["source"]["media_type"] == "image/jpeg"
+    assert "Cursor at (990, 585) over [" in s.text() and "(Terminal)" in s.cursor_line()
+    assert [b.id for b in s.boxes] == list(range(1, len(s.boxes) + 1))
+    lr = box_id_containing(s, "lr=0.3")
+    got = s.resolve_targets([{"box_id": lr, "label": "learning rate"}, {"box_id": 999, "label": "x"}, {"box_id": lr, "label": "dup"}])
+    assert len(got) == 1 and got[0]["rect"]["y"] > 0 and got[0]["text"].startswith("optimizer")
+
+
+def test_from_e6_observation():
+    obs = {"scale": 2.0, "screen": {"x": 0, "y": 0, "w": 100, "h": 50}, "app": "Code",
+           "blocks": [{"text": "def loss(self):", "rect": {"x": 10, "y": 10, "w": 60, "h": 12}, "app": "Code"}, {"text": " ", "rect": [0, 0, 1, 1]}]}
+    from PIL import Image
+
+    s = ScreenContext.from_observation(obs, Image.new("RGB", (200, 100)), (20, 15), file="pinn.py", line=33)
+    assert len(s.boxes) == 1 and s.boxes[0].id == 1
+    assert s.cursor_line() == 'Cursor at (20, 15) over [1] "def loss(self):" (Code), line 33 of pinn.py'
+
+
+def test_targets_parse_from_partial_json():
+    assert parse_targets_prefix('{"targets": [{"box_id": 4, "la') is None
+    assert parse_targets_prefix('{"targets": [{"box_id": 4, "label": "lr"}], "playbook_') == [{"box_id": 4, "label": "lr"}]
+    assert parse_targets_prefix('{"title": "x"') is None
+
+
+class _FakeStream:
+    def __init__(self, chunks, final_text, delay=0.0, log=None):
+        self.chunks, self.final_text, self.delay, self.log = chunks, final_text, delay, log if log is not None else []
+
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, *exc):
+        self.log.append("closed")
+
+    def __aiter__(self):
+        return self._gen()
+
+    async def _gen(self):
+        snap = ""
+        for c in self.chunks:
+            await asyncio.sleep(self.delay)
+            snap += c
+            self.log.append(f"chunk:{len(snap)}")
+            yield SimpleNamespace(type="text", text=c, snapshot=snap)
+
+    async def get_final_message(self):
+        return SimpleNamespace(stop_reason="end_turn", model="claude-opus-5-5", content=[SimpleNamespace(type="text", text=self.final_text)],
+                               usage=SimpleNamespace(input_tokens=1, output_tokens=1, cache_read_input_tokens=0, cache_creation_input_tokens=0))
+
+
+def _fake_streaming_client(monkeypatch, stream):
+    seen = {}
+
+    class Msgs:
+        def stream(self, **kw):
+            seen.update(kw)
+            return stream
+
+    fake = SimpleNamespace(beta=SimpleNamespace(messages=Msgs()))
+    fake.with_options = lambda **_: fake
+    monkeypatch.setattr(llm, "get_client", lambda: fake)
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "test")
+    return seen
+
+
+def test_screen_diagnose_streams_targets_first(monkeypatch):
+    s = make_screen()
+    lr = box_id_containing(s, "lr=0.3")
+    body = {"targets": [{"box_id": lr, "label": "learning rate"}], "playbook_id": "lr_too_high", "severity": "warn",
+            "title": "Adam learning rate too high", "body": "Each step overshoots. Lower the learning rate to 1e-3.",
+            "citation_id": "smith2017_clr", "diff_expected": "optimizer = torch.optim.Adam(model.parameters(), lr=1e-3)",
+            "diff_yours": "optimizer = torch.optim.Adam(model.parameters(), lr=0.3)", "diff_file": "pinn_diffusion.py",
+            "diff_line": 38, "actions": ["apply_fix"], "guiding_question": "What happens to Adam's steps?"}
+    text = json.dumps(body)
+    cut = text.index('"playbook_id"')
+    log = []
+    stream = _FakeStream([text[:20], text[20:cut], text[cut:]], text, log=log)
+    seen = _fake_streaming_client(monkeypatch, stream)
+    fired = []
+    common.set_lesson(d.LESSON)
+    card = run(coach.diagnose(d.STEP, d.HIGH_LR_FAILED, d.HIGH_LR_METRICS, d.HIGH_LR_CODE, screen=s,
+                              on_targets=lambda t: fired.append((len(log), t))))
+    assert fired and fired[0][1][0]["boxId"] == lr and fired[0][0] == 2  # after chunk 2 of 3, before the prose
+    assert card["targets"] == fired[0][1]
+    props = list(seen["output_config"]["format"]["schema"]["properties"])
+    assert props[0] == "targets"  # target first in the output
+    user = seen["messages"][0]["content"]
+    assert [b["type"] for b in user] == ["text", "text", "image", "image"]
+
+
+def test_cancel_closes_the_stream(monkeypatch):
+    log = []
+    stream = _FakeStream(['{"targets": [', "]"] + ["x"] * 50, "{}", delay=0.05, log=log)
+    _fake_streaming_client(monkeypatch, stream)
+    common.set_lesson(d.LESSON)
+
+    async def go():
+        task = coach.inflight.start("diagnose", coach.diagnose(d.STEP, d.HIGH_LR_FAILED, d.HIGH_LR_METRICS, d.HIGH_LR_CODE, screen=make_screen()))
+        await asyncio.sleep(0.2)
+        assert coach.inflight.running() == ["diagnose"]
+        assert coach.cancel() == 1
+        with pytest.raises(asyncio.CancelledError):
+            await task
+
+    run(go())
+    assert log[-1] == "closed" and len(log) < 20  # stopped early, HTTP stream closed
+
+
+def test_warm_sends_the_same_prefix(monkeypatch):
+    calls = []
+
+    class Msgs:
+        async def create(self, **kw):
+            calls.append(kw)
+            return SimpleNamespace(usage=SimpleNamespace(cache_creation_input_tokens=4000, cache_read_input_tokens=0))
+
+    async def retrieve(model):
+        return None
+
+    fake = SimpleNamespace(beta=SimpleNamespace(messages=Msgs()), messages=Msgs(), models=SimpleNamespace(retrieve=retrieve))
+    monkeypatch.setattr(llm, "get_client", lambda: fake)
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "test")
+    common.set_lesson(d.LESSON)
+    out = run(coach.warm())
+    assert out["cache"] == [4000, 4000] and len(calls) == 2
+    assert all(c["max_tokens"] == 1 and c["betas"] == [llm.FALLBACK_BETA] and c["thinking"] == {"type": "adaptive"} for c in calls)
+    assert next(iter(calls[1]["output_config"]["format"]["schema"]["properties"])) == "targets"
+
+
+# ---------- "Do it for me" --------------------------------------------------------------------------
+
+def test_do_it_for_me_from_the_diagnosis(replay):
+    common.set_lesson(d.LESSON)
+    run(coach.diagnose(d.STEP, d.HIGH_LR_FAILED, d.HIGH_LR_METRICS, d.HIGH_LR_CODE))
+    p = run(coach.do_it_for_me(d.STEP, "pinn_diffusion.py", d.HIGH_LR_CODE))
+    assert p["requires_confirmation"] and p["_meta"]["via"] == "diagnosis"
+    assert "1e-3" in p["summary"] and p["new_text"] == d.code()
+    assert p["unified_diff"].startswith("--- a/pinn_diffusion.py") and "+optimizer = torch.optim.Adam(model.parameters(), lr=1e-3)" in p["unified_diff"]
+
+
+def test_do_it_for_me_retries_until_it_compiles(monkeypatch):
+    answers = iter([
+        {"summary": "Fix it", "yours": "return self.lossPDE(x_PDE)", "expected": "return self.lossBC(x_BC, y_BC) +", "line": 34},
+        {"summary": "Add the boundary loss to the total", "yours": "return self.lossPDE(x_PDE)", "expected": "return self.lossBC(x_BC, y_BC) + self.lossPDE(x_PDE)", "line": 34},
+    ])
+    users = []
+
+    async def call(**kw):
+        users.append(kw["user_text"])
+        return llm.CallResult(data=next(answers), model="o")
+
+    monkeypatch.setattr(llm, "structured_call", call)
+    common.set_lesson(d.LESSON)
+    p = run(coach.do_it_for_me(d.STEP, "pinn_diffusion.py", d.MISSING_BC_CODE, last_offtrack={}))
+    assert p["_meta"]["via"] == "opus#2" and p["new_text"] == d.code()
+    assert "PREVIOUS ATTEMPT FAILED: patched file would not compile" in users[1]
+
+
+def test_do_it_for_me_gives_up_without_a_safe_patch(monkeypatch):
+    async def call(**kw):
+        return llm.CallResult(data={"summary": "x", "yours": "nope", "expected": "y", "line": 1}, model="o")
+
+    monkeypatch.setattr(llm, "structured_call", call)
+    with pytest.raises(coach.CoachUnavailable, match="no safe patch"):
+        run(coach.do_it_for_me(d.STEP, "pinn_diffusion.py", d.MISSING_BC_CODE, last_offtrack={}))
+
+
+# ---------- "where is X" -------------------------------------------------------------------------------
+
+def test_locate_exact_text_needs_no_model(monkeypatch):
+    async def boom(**kw):
+        raise AssertionError("no model call")
+
+    monkeypatch.setattr(llm, "structured_call", boom)
+    s = make_screen()
+    t = run(coach.locate("optimizer.zero_grad()", s))
+    assert t[0]["text"] == "optimizer.zero_grad()"
+
+
+def test_locate_uses_haiku_for_descriptions(replay):
+    """Recorded live Haiku call over the set-of-mark screen."""
+    s = make_screen()
+    t = run(coach.locate("the learning rate", s))
+    assert t[0]["boxId"] == box_id_containing(s, "lr=0.3")
+
+
+def test_locate_request_shape(monkeypatch):
+    seen = {}
+
+    async def call(**kw):
+        seen.update(kw)
+        return llm.CallResult(data={"box_ids": [999, 3]}, model=kw["model"])
+
+    monkeypatch.setattr(llm, "structured_call", call)
+    t = run(coach.locate("the learning rate", make_screen()))
+    assert seen["model"] == "claude-haiku-5-5" and [b["type"] for b in seen["user_content"]] == ["text", "text", "image", "image"]
+    assert [x["boxId"] for x in t] == [3]  # unknown id dropped
+
+
+def test_locate_without_key_raises():
+    with pytest.raises(coach.CoachUnavailable, match="locate failed"):
+        run(coach.locate("the learning rate", make_screen()))
+
+
+def test_inflight_replaces_previous_task():
+    async def go():
+        a = actions.inflight.start("k", asyncio.sleep(10))
+        b = actions.inflight.start("k", asyncio.sleep(10))
+        await asyncio.sleep(0)
+        assert a.cancelled() or a.cancelling()
+        assert actions.inflight.cancel() == 1 and actions.inflight.running() == []
+        await asyncio.gather(a, b, return_exceptions=True)
+
+    run(go())
+
+
+def test_recorded_screen_diagnosis_points_at_the_lr_line(replay):
+    """Recorded live Opus call with the set-of-mark screen: first target is the optimizer line."""
+    s = make_screen()
+    common.set_lesson(d.LESSON)
+    fired = []
+    card = run(coach.diagnose(d.STEP, d.HIGH_LR_FAILED, d.HIGH_LR_METRICS, d.HIGH_LR_CODE, screen=s, on_targets=fired.append))
+    assert card["targets"][0]["boxId"] == box_id_containing(s, "lr=0.3") and fired == [card["targets"]]
+    assert all(len(t["label"].split()) <= 3 for t in card["targets"])
+
+
+# ---------- E4 integration: cursor, terminal commands, level-2-first ladder, action sentence -------------
+
+def test_cursor_reaches_the_prompt(monkeypatch):
+    seen = {}
+
+    async def call(**kw):
+        seen[kw["purpose"]] = kw["user_text"]
+        if kw["purpose"] == "explain":
+            return llm.CallResult(data={"title": "t", "body": "b", "explanation_index": -1, "citation_id": "none"}, model="o")
+        return llm.CallResult(data={"playbook_id": "lr_too_high", "severity": "warn", "title": "t", "body": "b.", "citation_id": "none",
+                                    "diff_expected": "", "diff_yours": "", "diff_file": "", "diff_line": 0, "diff_command": "",
+                                    "actions": [], "guiding_question": "q?"}, model="o")
+
+    monkeypatch.setattr(llm, "structured_call", call)
+    common.set_lesson(d.LESSON)
+    cur = {"x": 120.4, "y": 609.0, "under": {"text": "optimizer = torch.optim.Adam(model.parameters(), lr=0.3)", "app": "Code", "rect": {}}}
+    run(coach.diagnose(d.STEP, d.HIGH_LR_FAILED, d.HIGH_LR_METRICS, d.HIGH_LR_CODE, cursor=cur))
+    run(coach.explain(d.STEP, "why?", {"cursor": cur}))
+    for purpose in ("diagnose", "explain"):
+        assert 'LEARNER CURSOR: at (120, 609) over "optimizer = torch.optim.Adam(model.parameters(), lr=0.3)" (Code)' in seen[purpose]
+
+
+def test_terminal_fix_travels_as_diff_command(monkeypatch):
+    async def call(**kw):
+        if kw["purpose"] == "triage":
+            return llm.CallResult(data={"route": "opus", "playbook_id": "none", "reason": ""}, model="h")
+        return llm.CallResult(data={"playbook_id": "none", "severity": "fail", "title": "pandas is not installed",
+                                    "body": "The script imports pandas but this venv lacks it. Install it with pip install pandas.",
+                                    "citation_id": "none", "diff_expected": "", "diff_yours": "", "diff_file": "", "diff_line": 0,
+                                    "diff_command": "pip install pandas", "actions": ["apply_fix"], "guiding_question": "Which venv is active?"}, model="o")
+
+    monkeypatch.setattr(llm, "structured_call", call)
+    step = {"id": "p1", "title": "Run it", "instructions": "Run clean.py.", "checks": [{"id": "x", "type": "command_exit_ok", "label": "runs"}]}
+    card = run(coach.diagnose(step, [{"checkId": "x", "status": "fail"}], None, "import pandas as pd", error_text="ModuleNotFoundError: No module named 'pandas'"))
+    assert_offtrack(card)
+    assert card["diff"] == {"expected": "", "yours": "", "command": "pip install pandas"} and "apply_fix" in card["actions"]
+
+
+def test_level0_after_e4_strips_the_diff(replay):
+    """E4 shows the first offtrack as level 2 without diff/apply_fix; level 0 must still be about the issue."""
+    common.set_lesson(d.LESSON)
+    card = coach.public(run(coach.diagnose(d.STEP, d.HIGH_LR_FAILED, d.HIGH_LR_METRICS, d.HIGH_LR_CODE)))
+    shown = {k: v for k, v in card.items() if k != "diff"} | {"actions": [a for a in card["actions"] if a != "apply_fix"]}
+    LAST.clear()  # orchestrator process restarted: only its stored card is left
+    assert coach.hint(d.STEP, 0, shown)["body"] == card["guidingQuestion"]
+    assert "1e-3" in card["body"]  # the fix is stated in words for the diff-less level-2 card
+
+
+def test_level0_for_an_old_card_without_a_question():
+    old = {"stepId": "d6", "title": "Learning rate 0.3 is far too high", "body": "…", "citation": {"label": "x", "url": "https://example.org"}}
+    q = coach.hint(d.STEP, 0, old)["body"]
+    assert q.startswith("Learning rate 0.3 is far too high:") and q.endswith("?")

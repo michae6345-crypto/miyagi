@@ -6,19 +6,26 @@ Flow:
   step start -> step.started, check.updated(pending)*, video.seek(play) + video.play, status watching
   segment end (video.state reaches step.video.end) -> pass if checks already pass,
                                                        else video.pause + spotlight
-  file change / run end / metrics -> checks.evaluate_step -> check.updated (changes only)
-     all pass (and the learner engaged or the segment ended) -> step.passed, then the next
-     step's step.started + video.seek + video.play
-     failing -> don't-nag gate: opens on a run ending with fails, 2 consecutive failing
-     evaluations, or >= IDLE_GATE_S idle after the learner engaged. Until the gate opens
-     a failing check is shown as `pending` (calm UI); once open -> coach.diagnose ->
-     offtrack + spotlight + status offtrack.
+  file save / run end / metrics / screen frames -> checks.evaluate_gate -> check.updated (changes only)
+     PASS needs the checks AND a learner action this step (save, run, keystroke/click); checks
+     passing with no action -> a "Looks done? Confirm" card (step confirm = action + screen).
+     FAILING -> speak only at breakpoints or when stuck (docs/research/screen-understanding.md):
+       breakpoints: a run ends failing; the same failure on two saves in a row
+       stuck: no check progress for STUCK_S, or IDLE_AFTER_ACTION_S idle after the learner acted
+       never within TYPING_GUARD_S of a keystroke (retried on the next tick)
+     Hint ladder per step: 0 title (step.started) -> 1 spotlight (clip ends) -> 2 concept card
+     (offtrack, no fix) -> 3 exact fix + "Do it for me" (offtrack with diff + apply_fix), the last
+     only on a repeat/stuck >= LADDER_MIN_S after level 2. A failing check shows as `pending`
+     until a learner-driven evaluation (save/run/metrics) or the coach has surfaced it.
+  apply_fix ("Do it for me"): refuses while VS Code shows the file unsaved, backs it up, writes the
+     coach's patch (only if it compiles), jumps VS Code there, spotlights it; `undo` restores it.
 """
 
 from __future__ import annotations
 
 import asyncio
 import logging
+import math
 import os
 import re
 import time
@@ -42,6 +49,81 @@ def video_id_from_url(url: str) -> str | None:
     return m.group(1) if m else None
 
 
+class BuildStage(logging.Handler):
+    """Turns the lesson builder's own log lines (server.lesson) into an honest stage label."""
+
+    RULES = [
+        ("lesson cache hit", "Loading the saved lesson"),
+        ("daily quota exhausted", "Gemini is out of quota; trying another model"),
+        ("too slow; switching engine", "Gemini is slow; reading the transcript instead"),
+        ("video pass failed", "Couldn't watch the video; reading the transcript instead"),
+        ("video pass:", "Claude is writing the steps"),
+        ("claude adapt pass", "Fitting the checks to your project"),
+        ("adapt attempt", "Fitting the checks to your project"),
+        ("lesson built", "Finishing up"),
+    ]
+
+    def __init__(self) -> None:
+        super().__init__(level=logging.INFO)
+        self.text = "Gemini is watching the video"
+
+    def emit(self, record: logging.LogRecord) -> None:  # noqa: D401 - logging API
+        try:
+            msg = record.getMessage()
+        except Exception:  # noqa: BLE001
+            return
+        for needle, label in self.RULES:
+            if needle in msg:
+                self.text = label
+                return
+
+    def listening(self):
+        import contextlib
+
+        lg = logging.getLogger("server.lesson")
+
+        @contextlib.contextmanager
+        def cm():
+            old = lg.level
+            if lg.getEffectiveLevel() > logging.INFO:
+                lg.setLevel(logging.INFO)
+            lg.addHandler(self)
+            try:
+                yield self
+            finally:
+                lg.removeHandler(self)
+                lg.setLevel(old)
+
+        return cm()
+
+
+def human_build_error(e: BaseException) -> str:
+    """A message the learner can act on (the raw reason stays in the engine log)."""
+    raw = str(e)
+    low = raw.lower()
+    quota = "quota" in low or "resource_exhausted" in low
+    yt_limited = ("429" in low or "too many requests" in low) and ("transcript" in low or "caption" in low)
+    if quota and yt_limited:  # E2: "no engine could build the lesson" with both causes
+        return ("Couldn't watch this video: Gemini's quota is used up and YouTube is rate-limiting this network. "
+                "Try a lesson that's already built, another network (hotspot), or add a Gemini key in Settings.")
+    if "took over" in low or "no answer within" in low or isinstance(e, TimeoutError):
+        return "Building this lesson is taking too long. Try again, or pick another video."
+    if "quota" in low or "resource_exhausted" in low:
+        return "Gemini's daily quota is used up, so I couldn't watch this video. Try another video or add a key in Settings."
+    if "429" in low or "too many requests" in low or ("rate" in low and "limit" in low):
+        if "transcript" in low or "caption" in low or "youtube" in low:
+            return ("Couldn't get this video's transcript: YouTube is rate-limiting this network. "
+                    "Try another video or the hotspot.")
+        return "The video service is rate-limiting us right now. Try again in a minute, or pick another video."
+    if "only youtube" in low or "youtube sources" in low:
+        return "I can only build lessons from YouTube videos for now. Pick a video result."
+    if "api key" in low or "api_key" in low or "authentication" in low or "401" in low:
+        return "A model API key is missing or invalid. Add it in Settings and try again."
+    if "transcript" in low:
+        return "Couldn't get this video's transcript. Try another video."
+    return f"Couldn't build this lesson: {raw[:160]}"
+
+
 class LessonSession:
     def __init__(
         self,
@@ -53,11 +135,16 @@ class LessonSession:
         advance_delay_s: float | None = None,
         metric_eval_s: float | None = None,
         result_stagger_s: float = 0.06,
-        build_tick_s: float = 0.5,
+        build_tick_s: float = 1.0,
         screen: Any = None,
         seen_interval_s: float = 5.0,
         workspace: Any = None,
+        inputs: Any = None,
     ):
+        self.inputs = inputs  # inputs.Inputs (cursor, last key/click) or None
+        self.last_obs: Any = None
+        self.undo: tuple[Path, str] | None = None
+        self.pending_patch: dict | None = None  # "Do it for me" preview awaiting confirm
         self.workspace = workspace  # workspace.Workspace (opens VS Code) or None
         self.emit = emit
         self.screen = screen  # ScreenBridge / FakeScreen / None
@@ -74,6 +161,7 @@ class LessonSession:
         self.phase = "idle"  # idle | searching | building | active | done
         self.query = ""
         self.results: dict[str, dict] = {}
+        self.build_progress: dict | None = None  # last lesson.building payload while a build runs
         self.graph: dict | None = None
         self.workdir = str(config.default_workdir())
         self.on_workdir: Callable[[str], None] | None = None  # main.py hooks the file watcher here
@@ -93,9 +181,19 @@ class LessonSession:
         self.last_results: list[dict] = []
         self.last_failed: list[dict] = []
         self._eval_error_sent = False
-        self.consecutive_fails = 0
         self.engaged = False  # learner touched files / ran something during this step
-        self.gate_open = False
+        self.gate_open = False  # failing checks are shown as fail (else pending)
+        self.step_t0 = self.clock()
+        self.last_action_t = -1e9  # last save / run start / explicit action (session clock)
+        self.best_pass = 0
+        self.last_progress_t = self.clock()
+        self.last_bp_sig: tuple | None = None
+        self.pending_speak: str | None = None  # deferred by the typing guard
+        self.ladder = 1  # 0 title, 1 spotlight; 2 concept card; 3 exact fix
+        self.spoken_sig: tuple | None = None
+        self.spoken_t = -1e9
+        self.full_card: dict | None = None
+        self.confirm_pending = False
         self.segment_done = False
         self.video_reports = 0
         self.coached_key: Any = None
@@ -229,41 +327,68 @@ class LessonSession:
         await self._build(url, self.query)
 
     async def _build(self, url: str, goal: str) -> None:
+        """Build a lesson with live progress (>= 1 tick/s, stage names from the builder's own log
+        events). Any failure, timeout or cancellation ends with `error` (human wording), a final
+        `lesson.building {failed: true}` and `status idle`, so the app never stays on "building"."""
         self.phase = "building"
         await self._status("thinking")
         done = asyncio.Event()
-
         t0 = self.clock()
+        stage = BuildStage()
+        self.build_progress = {"message": "Starting the lesson builder", "progress": 0.0}
 
         async def ticker() -> None:
-            # Honest progress: the builder reports no stages, so say what's happening and how long
-            # it has taken; progress is a time estimate (a long video can take 1-2 min) that never hits 1.
             expected = float(os.environ.get("ORCH_BUILD_EXPECTED_S", "75"))
             while not done.is_set():
                 el = self.clock() - t0
-                msg = (f"Gemini is watching the video · {int(el) // 60}:{int(el) % 60:02d}" if el >= 1
-                       else "Starting the lesson builder")
-                await self.emit("lesson.building", {"message": msg, "progress": round(min(0.95, el / expected), 2)})
+                msg = f"{stage.text} · {int(el) // 60}:{int(el) % 60:02d}" if el >= 1 else stage.text
+                self.build_progress = {"message": msg, "progress": round(min(0.95, el / expected), 2)}
+                await self.emit("lesson.building", self.build_progress)
                 try:
                     await asyncio.wait_for(done.wait(), self.build_tick_s)
                 except TimeoutError:
                     pass
 
         tick = asyncio.create_task(ticker())
+        from . import workspace as wsmod
+
+        ok = False
         try:
-            graph = await self.m.build_lesson(url, goal, str(config.default_workdir()))
-        except Exception as e:
-            log.exception("build_lesson failed")
+            with stage.listening():
+                graph = await self.m.build_lesson(url, goal, wsmod.build_workdir(url, goal))
             done.set()
             await tick
-            self.phase = "idle"
-            await self.emit("error", {"message": f"Could not build the lesson: {e}"})
-            await self._status("idle")
+            self.build_progress = {"message": "Setting up your project folder", "progress": 0.97}
+            await self.emit("lesson.building", self.build_progress)
+            folder = await asyncio.to_thread(wsmod.prepare, graph, goal)  # S2: starter files (Claude), 0-25 s
+            if folder:
+                graph.setdefault("lesson", {})["workdir"] = folder
+            self.build_progress = None
+            await self.emit("lesson.building", {"message": "Lesson ready", "progress": 1.0})
+            ok = True
+        except BaseException as e:
+            log.exception("build_lesson failed")
+            if isinstance(e, Exception):
+                await self._build_failed(human_build_error(e))
+            raise_after = not isinstance(e, Exception)
+            if raise_after:  # cancelled (engine shutting down / client gone): still tell the app
+                await asyncio.shield(self._build_failed("The lesson build was interrupted. Try again."))
+                raise
             return
-        done.set()
-        await tick
-        await self.emit("lesson.building", {"message": "Lesson ready", "progress": 1.0})
+        finally:
+            done.set()
+            if not tick.done():
+                tick.cancel()
+            if not ok:
+                self.phase = "idle" if self.graph is None else self.phase
         await self.load_graph(graph)
+
+    async def _build_failed(self, message: str) -> None:
+        self.build_progress = None
+        self.phase = "idle" if self.graph is None else "active"
+        await self.emit("error", {"message": message})
+        await self.emit("lesson.building", {"message": message, "progress": 0.0, "failed": True})
+        await self._status("idle" if self.graph is None else "watching")
 
     async def load_graph(self, graph: dict) -> None:
         self.graph = graph
@@ -273,6 +398,7 @@ class LessonSession:
         if self.on_workdir:
             self.on_workdir(new_wd)
         self.m.set_lesson(graph)
+        self._spawn(self.m.warm(), timer=True)  # pre-warm the coach's cached lesson prefix
         await self.emit("lesson.ready", self._lesson_ready_payload())
         if self.workspace is not None:
             self.workspace.open(new_wd)
@@ -324,6 +450,8 @@ class LessonSession:
         else:
             self.segment_done = True
         self._watch_screen_metrics(step)
+        if self.m.has_diagrams() and os.environ.get("ORCH_DIAGRAM_PREFETCH", "1") == "1":
+            self._spawn(self._prefetch_diagram(self.step_gen, step), timer=True)
         if self.workspace is not None:
             self.workspace.goto_target(self.workdir, step)
         await self._status("watching")
@@ -445,6 +573,32 @@ class LessonSession:
     async def goto_step(self, idx: int) -> None:
         await self.start_step(idx)
 
+    # ------------------------------------------------------------------ learner signals
+    def _acted(self) -> None:
+        self.last_action_t = self.clock()
+        self._touch()
+        if self.coaching:  # a real user action makes the pending diagnosis stale: close the stream
+            self.m.cancel_coach()
+
+    def learner_idle_s(self) -> float:
+        own = self.clock() - self.last_action_t
+        v = self.inputs.seconds_since_input() if self.inputs is not None else None
+        return own if v is None else min(own, v)
+
+    def typing(self) -> bool:
+        v = self.inputs.seconds_since_key() if self.inputs is not None else None
+        return v is not None and v < config.TYPING_GUARD_S
+
+    def acted_since_step_start(self) -> bool:
+        if self.last_action_t >= self.step_t0:
+            return True
+        v = self.inputs.seconds_since_input() if self.inputs is not None else None
+        return v is not None and v <= self.clock() - self.step_t0
+
+    @staticmethod
+    def _sig(failed: list[dict]) -> tuple:
+        return tuple(sorted(r.get("checkId", "") for r in failed))
+
     # ------------------------------------------------------------------ evaluation
     async def evaluate(self, trigger: str) -> None:
         """trigger: start | segment | file | run_end | metric | screen | manual"""
@@ -476,18 +630,29 @@ class LessonSession:
                 seen = {r.get("checkId") for r in failed}
                 failed += [r for r in gate.get(other) or [] if r.get("status") == "fail" and r.get("checkId") not in seen]
             self.last_failed = failed
+            n_pass = sum(1 for r in results if r.get("status") == "pass")
+            if n_pass > self.best_pass:
+                self.best_pass, self.last_progress_t = n_pass, self.clock()
             if failed and learner:
-                self.consecutive_fails += 1
-            elif not failed:
-                self.consecutive_fails = 0
-            if failed and (trigger == "run_end" or self.consecutive_fails >= 2):
                 self.gate_open = True
             await self._publish(step, results)
-            if gate.get("passed") and (self.segment_done or self.engaged):
-                await self._pass_step()
+            if gate.get("passed"):
+                if learner or self.acted_since_step_start():
+                    await self._pass_step()
+                elif self.segment_done and not self.confirm_pending:
+                    # the screen says done but we never saw the learner act: ask, don't assert
+                    self.confirm_pending = True
+                    await self.emit("card", {"stepId": step["id"], "kind": "hint", "title": "Looks done?",
+                                             "body": "The checks pass. Confirm and I'll move on.",
+                                             "actions": ["confirm"]})
                 return
-            if failed and self.gate_open:
-                self._maybe_coach(step, failed, ctx)
+            self.confirm_pending = False
+            if failed and trigger in ("file", "run_end"):  # breakpoints
+                sig = self._sig(failed)
+                repeat = sig == self.last_bp_sig
+                self.last_bp_sig = sig
+                if trigger == "run_end" or repeat:
+                    self._consider_speaking("repeat" if repeat else "breakpoint", step, failed, ctx)
 
     async def _publish(self, step: dict, results: list[dict]) -> None:
         for r in results:
@@ -507,23 +672,32 @@ class LessonSession:
             await self.emit("check.updated", payload)
 
     async def tick(self) -> None:
-        """Called ~1/s: opens the idle gate."""
+        """Called ~1/s: idle-after-action, stuck, and typing-deferred speech."""
         step = self.step
-        if step is None or self.passed or self.gate_open or not self.engaged or self.coaching:
-            return
-        if self.clock() - self.last_activity < self.idle_gate_s:
-            return
-        failed = list(self.last_failed)
-        if not failed:
+        if step is None or self.passed or self.coaching or not self.last_failed or not self.engaged:
             return
         async with self._lock:
             if self.step is not step or self.passed:
                 return
+            ctx = self.context()
+            if self.pending_speak and not self.typing():
+                reason, self.pending_speak = self.pending_speak, None
+                self._consider_speaking(reason, step, self.last_failed, ctx)
+                return
+            if self.clock() - self.last_progress_t >= config.STUCK_S:
+                self.last_progress_t = self.clock()  # one "stuck" per window
+                await self._open_gate(step)
+                self._consider_speaking("stuck", step, self.last_failed, ctx)
+            elif self.learner_idle_s() >= self.idle_gate_s:
+                await self._open_gate(step)
+                self._consider_speaking("idle", step, self.last_failed, ctx)
+
+    async def _open_gate(self, step: dict) -> None:
+        if not self.gate_open:
             self.gate_open = True
             await self._publish(step, self.last_results)
-            self._maybe_coach(step, failed, self.context())
 
-    # ------------------------------------------------------------------ coaching
+    # ------------------------------------------------------------------ coaching (hint ladder)
     def _code_excerpt(self, step: dict, limit: int = 6000) -> tuple[str, str | None]:
         files = [t.get("file") for t in step.get("targets") or [] if t.get("file")]
         files += [c.get("file") for c in (step.get("checks") or []) + (step.get("precision_checks") or [])
@@ -544,44 +718,126 @@ class LessonSession:
                     return "\n".join(ls)[:limit], None
         return "", None
 
-    def _maybe_coach(self, step: dict, failed: list[dict], ctx: RunContext) -> None:
-        last = ctx.last_run
-        # one card per run (a run that keeps failing doesn't re-nag); with no run, one per distinct failure set
-        key = (step["id"], "run", last.run_id) if last else (step["id"], tuple(sorted(r.get("checkId", "") for r in failed)))
-        if self.coaching or key == self.coached_key:
+    def _consider_speaking(self, reason: str, step: dict, failed: list[dict], ctx: RunContext) -> None:
+        """reason: breakpoint | repeat | stuck | idle. Decides whether, and at which ladder level, to speak."""
+        if self.coaching or self.passed or not failed:
             return
-        self.coached_key = key
+        if self.typing():
+            self.pending_speak = reason  # never talk over the learner's typing; the tick retries
+            return
+        sig = self._sig(failed)
+        if sig != self.spoken_sig:  # a new problem (or the first one): concept card
+            level = 2
+        elif (self.ladder == 2 and reason in ("repeat", "stuck")
+              and self.clock() - self.spoken_t >= config.LADDER_MIN_S):
+            level = 3  # same failure again / still stuck: the exact fix + "Do it for me"
+        else:
+            return
         self.coaching = True
-        self._spawn(self._coach(self.step_gen, step, failed, ctx))
+        self.spoken_sig, self.spoken_t = sig, self.clock()
+        self._spawn(self._coach(self.step_gen, step, failed, ctx, level))
 
-    async def _coach(self, gen: int, step: dict, failed: list[dict], ctx: RunContext) -> None:
+    def _target_spot(self, target: dict) -> dict | None:
+        r = target.get("rect")
+        if isinstance(r, (list, tuple)) and len(r) == 4:
+            r = {"x": r[0], "y": r[1], "w": r[2], "h": r[3]}
+        if not isinstance(r, dict) or not all(k in r for k in ("x", "y", "w", "h")):
+            return None
+        spot = {"rect": {k: float(r[k]) for k in ("x", "y", "w", "h")}, "caption": target.get("label") or ""}
+        if target.get("text"):
+            spot["matched"] = str(target["text"])[:200]
+        return spot
+
+    async def _screen_for_coach(self, step: dict) -> Any:
+        """E5's ScreenContext: OCR boxes + a screenshot + the cursor (+ the step's file/line), or None."""
+        if not self.screen_active() or self.last_obs is None or not hasattr(self.screen, "screenshot"):
+            return None
+        image = await asyncio.to_thread(self.screen.screenshot)
+        if image is None:
+            return None
+        pos = self.inputs.cursor() if self.inputs is not None else None
+        if pos is None:
+            r = getattr(self.last_obs, "screen", None)
+            pos = (getattr(r, "w", 0) / 2, getattr(r, "h", 0) / 2)
+        extra: dict[str, Any] = {}
+        from .workspace import target_location
+
+        loc = target_location(self.workdir, step)
+        if loc:
+            extra = {"file": str(loc[0]), "line": loc[1]}
+        return self.m.screen_context(self.last_obs, image, pos, **extra)
+
+    def cursor_context(self) -> dict | None:
+        from .inputs import text_under
+
+        pos = self.inputs.cursor() if self.inputs is not None else None
+        if pos is None:
+            return None
+        out: dict[str, Any] = {"x": round(pos[0], 1), "y": round(pos[1], 1)}
+        under = text_under(self.last_obs, *pos) if self.last_obs is not None else None
+        if under:
+            out["under"] = under
+        return out
+
+    async def _coach(self, gen: int, step: dict, failed: list[dict], ctx: RunContext, level: int) -> None:
         try:
-            await self._status("thinking")
-            by_id = {c["id"]: c for c in (step.get("checks") or []) + (step.get("precision_checks") or [])}
-            failed_checks = [{**by_id.get(r.get("checkId"), {}), **r} for r in failed]
-            code, _file = self._code_excerpt(step)
-            tail = ctx.output_tail[-40:] if isinstance(ctx.output_tail, list) else []
-            try:
-                card = await self.m.diagnose(step, failed_checks, ctx.metrics, code, error_text="\n".join(tail))
-            except Exception as e:
-                log.exception("coach.diagnose failed")
-                if gen == self.step_gen:
-                    await self.emit("error", {"message": f"Coach unavailable: {e}"})
-                    await self._status("watching")
-                return
+            card = self.full_card if (level == 3 and self.full_card) else None
+            if card is None:
+                await self._status("thinking")
+                by_id = {c["id"]: c for c in (step.get("checks") or []) + (step.get("precision_checks") or [])}
+                failed_checks = [{**by_id.get(r.get("checkId"), {}), **r} for r in failed]
+                code, _file = self._code_excerpt(step)
+                tail = ctx.output_tail[-40:] if isinstance(ctx.output_tail, list) else []
+                screen = await self._screen_for_coach(step)
+
+                def on_targets(targets: list[dict]) -> None:  # streamed mid-reply: spotlight before the card lands
+                    if gen == self.step_gen and targets and not self.passed:
+                        spot = self._target_spot(targets[0])
+                        if spot:
+                            self._early_spot = True
+                            self._spawn(self._show_spot(spot))
+
+                self._early_spot = False
+                try:
+                    card = await self.m.diagnose(step, failed_checks, ctx.metrics, code, error_text="\n".join(tail),
+                                                 cursor=self.cursor_context(), screen=screen, on_targets=on_targets)
+                except Exception as e:
+                    if gen == self.step_gen:
+                        self.spoken_sig = None  # let a later breakpoint try again
+                        if "cancelled" in str(e):
+                            log.info("diagnosis cancelled: the learner acted")
+                        else:
+                            log.exception("coach.diagnose failed")
+                            await self.emit("error", {"message": f"Coach unavailable: {e}"})
+                        await self._status("watching")
+                    return
             if gen != self.step_gen or self.passed:
                 return
-            card = dict(card)
-            card.setdefault("stepId", step["id"])
-            card.setdefault("severity", "warn")
-            card.setdefault("actions", ["explain", "show_me", "hint"])
-            self.last_offtrack = card
-            await self.emit("offtrack", card)
-            diff = card.get("diff") or {}
+            full = dict(card)
+            full.setdefault("stepId", step["id"])
+            full.setdefault("severity", "warn")
+            full.setdefault("actions", ["explain", "show_me", "hint"])
+            self.full_card = full
+            if level == 2:  # concept: what's wrong and why, not the patch
+                shown = {k: v for k, v in full.items() if k != "diff"}
+                shown["actions"] = [a for a in full["actions"] if a != "apply_fix"] or ["explain", "hint"]
+            else:
+                shown = dict(full)
+                if full.get("diff") and "apply_fix" not in shown["actions"]:
+                    shown["actions"] = [*shown["actions"], "apply_fix"]
+            shown["level"] = level
+            self.ladder = level
+            self.last_offtrack = full
+            await self.emit("offtrack", shown)
+            diff = full.get("diff") or {}
             first = (diff.get("yours") or "").strip().splitlines()[:1]
-            spot = self._locate(re.escape(first[0]), None, card.get("title", "")) if first else None
-            if spot:
-                self.spot_track = (re.escape(first[0]), None, card.get("title", ""))
+            spot = self._locate(re.escape(first[0]), None, full.get("title", "")) if first else None
+            if spot is None and full.get("targets"):  # the coach pointed at screen boxes (set-of-mark)
+                spot = self._target_spot(full["targets"][0])
+            if getattr(self, "_early_spot", False) and spot is None:
+                pass  # the streamed target spotlight is already up
+            elif spot:
+                self.spot_track = (re.escape(first[0]), None, full.get("title", ""))
                 await self._show_spot(spot)
             else:
                 await self._spotlight_target(step)
@@ -594,6 +850,8 @@ class LessonSession:
     async def on_screen(self, obs: Any = None) -> None:
         """A new screen observation (only fires when the screen actually changed)."""
         self._touch()
+        if obs is not None:
+            self.last_obs = obs
         now = self.clock()
         if obs is not None and now - self._last_seen >= self.seen_interval_s:
             self._last_seen = now
@@ -610,7 +868,7 @@ class LessonSession:
             self.screen.set_overlay(rects)
 
     async def on_file_change(self, paths: list[str] | None = None) -> None:
-        self._touch()
+        self._acted()  # a save is a learner action (and a breakpoint)
         if self.step is not None:
             await self.evaluate("file")
 
@@ -631,16 +889,24 @@ class LessonSession:
         if kind == "run_started":
             if in_step:
                 self.engaged = True
+                if ev.get("source") != "screen":
+                    self._acted()  # the learner launched a run
             return
         if kind in ("metric", "metrics"):
             items = ev.get("metrics") or ev.get("items") or [ev]
             for it in items:
                 try:
-                    step_n, name, value = int(it["step"]), str(it["name"]), float(it["value"])
+                    step_n, name = int(it["step"]), str(it["name"])
+                    raw = it.get("value")
+                    value = None if raw is None or it.get("nonfinite") else float(raw)
                 except (KeyError, TypeError, ValueError):
                     continue
+                if value is not None and not math.isfinite(value):
+                    value = None
+                # NaN/inf arrive as None and stay None: a NaN loss must FAIL its metric check, not vanish
                 run.add_metric(step_n, name, value)
-                await self.emit("metric", {"runId": run_id, "step": step_n, "name": name, "value": value})
+                if value is not None:  # the app's live curve only takes finite numbers
+                    await self.emit("metric", {"runId": run_id, "step": step_n, "name": name, "value": value})
             if in_step:
                 self._schedule_metric_eval()
             return
@@ -661,11 +927,13 @@ class LessonSession:
         if self._metric_eval_pending:
             return
         self._metric_eval_pending = True
+        gen = self.step_gen
 
         async def later() -> None:
             await asyncio.sleep(self.metric_eval_s)
             self._metric_eval_pending = False
-            await self.evaluate("metric")
+            if gen == self.step_gen:  # metrics of a step that already passed must not grade the next one
+                await self.evaluate("metric")
 
         self._spawn(later())
 
@@ -689,6 +957,18 @@ class LessonSession:
 
     async def _action(self, kind: str, text: str | None = None) -> None:
         step = self.step
+        if step is not None:
+            self._acted()
+        if kind == "confirm":  # "Apply this fix?" preview, or "Looks done? Confirm"
+            if step is not None and self.pending_patch is not None:
+                await self._apply_patch(step)
+            elif step is not None and self.confirm_pending and not self.passed:
+                self.confirm_pending = False
+                await self._pass_step()
+            return
+        if kind == "undo":
+            await self._undo_fix()
+            return
         if step is None:
             await self.emit("error", {"message": "No lesson is running yet."})
             return
@@ -726,13 +1006,18 @@ class LessonSession:
             return
         if kind == "diagram":
             want = (text or "").strip().lower()
-            if want not in DIAGRAM_KINDS:
+            if want not in DIAGRAM_KINDS and not self.m.has_diagrams():  # stubs (DEMO) pick from the failing checks
                 metric_fail = any(r.get("status") == "fail" and r.get("checkId") in
                                   {c["id"] for c in step.get("checks", []) if c.get("type", "").startswith("metric")}
                                   for r in self.last_results)
                 want = "gradients" if metric_fail or self.last_offtrack else "network"
-            d = await self.m.diagram(want, step, self.context())
+            await self._status("thinking")
+            d = await self.m.diagram(want if want in DIAGRAM_KINDS else None, step, self.context(),
+                                     self._diagram_context(step, None if want in DIAGRAM_KINDS else (text or None)))
+            d = dict(d)
+            d.setdefault("stepId", step["id"])
             await self.emit("diagram", d)
+            await self._status("offtrack" if self.last_offtrack else ("passed" if self.passed else "watching"))
             return
         if kind == "voice_toggle":
             self.voice = not self.voice
@@ -742,6 +1027,22 @@ class LessonSession:
             return
         await self.emit("error", {"message": f"Unknown action: {kind}"})
 
+    def _diagram_context(self, step: dict, question: str | None) -> dict:
+        ctx = self._explain_context()
+        return {"code": ctx.get("code"), "file": ctx.get("file"), "screen": self._screen_lines(),
+                "question": question, "lesson": ctx.get("lesson"),
+                "offtrack": {k: (self.last_offtrack or {}).get(k) for k in ("title", "body")} if self.last_offtrack else None}
+
+    async def _prefetch_diagram(self, gen: int, step: dict) -> None:
+        """Warm S4's diagram cache for this step so the diagram button is instant (errors are ignored)."""
+        await asyncio.sleep(2.0)  # let the step settle (code on screen, video playing)
+        if gen != self.step_gen or not self.m.has_diagrams():
+            return
+        try:
+            await self.m.diagram(None, step, self.context(), self._diagram_context(step, None))
+        except Exception as e:  # noqa: BLE001 - a prefetch must never surface
+            log.info("diagram prefetch skipped: %s", e)
+
     def _explain_context(self) -> dict:
         code, file = self._code_excerpt(self.step) if self.step else ("", None)
         return {
@@ -750,23 +1051,57 @@ class LessonSession:
             "checks": self.last_results,
             "metrics": metrics_summary(self.context().metrics),
             "metrics_summary": self.context().metrics,  # coach (E5) wants the raw series
+            "cursor": self.cursor_context(),  # {x, y, under: {text, app, rect}} in screen points
             "code": code,
             "file": file,
             "offtrack": self.last_offtrack,
         }
 
+    async def _card(self, step: dict, title: str, body: str, kind: str = "hint", **extra: Any) -> None:
+        await self.emit("card", {"stepId": step["id"], "kind": kind, "title": title, "body": body, **extra})
+
     async def _apply_fix(self, step: dict) -> None:
+        """"Do it for me": the learner saw the diff on the offtrack card and pressed the button.
+        Preview -> confirm -> act -> undo; never types into the editor, never presses Return."""
         diff = (self.last_offtrack or {}).get("diff") or {}
+        command = diff.get("command")
         file, yours, expected = diff.get("file"), diff.get("yours"), diff.get("expected")
+        if command:  # terminal fix: stage it on the clipboard, the learner presses Enter (never sent for them)
+            ok = await self._clipboard(command)
+            await self._card(step, "Command copied" if ok else "Run this command",
+                             "Paste it in your terminal (⌘V) and press Enter." if ok else command)
+            if not (file and yours and expected):
+                return  # command-only fix; otherwise continue with the code part below
         if not (file and yours and expected):
-            await self.emit("card", {"stepId": step["id"], "kind": "hint", "title": "No automatic fix",
-                                     "body": "This one needs your hands. Try a hint."})
+            await self._card(step, "No automatic fix", "This one needs your hands. Try a hint.")
             return
         path = Path(file) if Path(file).is_absolute() else Path(self.workdir) / file
+        from .inputs import dirty_files
+
+        if path.name in dirty_files(self.last_obs):  # VS Code has unsaved edits: writing would clobber them
+            await self._card(step, f"Save {path.name} first", "Press ⌘S, then Do it for me again.")
+            return
         try:
             text = path.read_text()
         except OSError as e:
             await self.emit("error", {"message": f"Could not open {file}: {e}"})
+            return
+        if self.m.has_do_it_for_me():  # E5: a minimal, compiling patch -> preview -> confirm -> apply
+            await self._status("thinking")
+            try:
+                p = await self.m.do_it_for_me(step, path.name, text, self.last_offtrack)
+            except Exception as e:
+                await self._card(step, "Fix it by hand", f"I couldn't make a safe patch: {e}")
+                await self._status("offtrack" if self.last_offtrack else "watching")
+                return
+            if not p.get("new_text"):
+                await self._card(step, "Fix it by hand", p.get("summary") or "No safe patch for this one.")
+                return
+            self.pending_patch = {"path": path, "old": text, "new": p["new_text"], "line": p.get("line") or 1,
+                                  "first": (expected or "").strip().splitlines()[:1]}
+            await self._card(step, "Apply this fix?", p.get("summary") or "Here's the change.", kind="answer",
+                             diff=p.get("unified_diff", ""), actions=["confirm"])
+            await self._status("offtrack" if self.last_offtrack else "watching")
             return
         new_text = self.m.propose_fix(diff, text)
         if new_text is not None and path.suffix == ".py":
@@ -776,18 +1111,91 @@ class LessonSession:
                 log.warning("proposed fix for %s does not compile; asking the learner to do it", path.name)
                 new_text = None
         if new_text is None or new_text == text:
-            await self.emit("card", {"stepId": step["id"], "kind": "hint", "title": "Fix it by hand",
-                                     "body": f"Replace `{yours.strip()}` with `{expected.strip()}`."})
+            await self._card(step, "Fix it by hand", f"Replace `{yours.strip()}` with `{expected.strip()}`.")
             return
-        path.write_text(new_text)  # the learner asked for it (apply_fix action)
+        backup_dir = config.REPO_ROOT / "demo" / "runs" / "backups"
+        try:
+            backup_dir.mkdir(parents=True, exist_ok=True)
+            (backup_dir / f"{path.name}.{int(time.time())}.bak").write_text(text)
+        except OSError:
+            log.warning("could not write a backup of %s", path)
+        self.undo = (path, text)
+        path.write_text(new_text)
+        line = next((i for i, (a, b) in enumerate(zip(text.splitlines(), new_text.splitlines()), 1) if a != b), 1)
+        if self.workspace is not None:
+            self.workspace.goto(str(path), line)
+        first = expected.strip().splitlines()[0]
+        spot = self._locate(re.escape(first), None, "Fixed")
+        if spot:
+            await self._show_spot(spot)
+        await self._card(step, "Fix applied", "Re-run to check it. Undo if you'd rather type it yourself.",
+                         kind="answer", actions=["undo"])
         await self.on_file_change([str(path)])
+
+    async def _apply_patch(self, step: dict) -> None:
+        """Confirmed preview: re-check (unsaved edits? file changed since the preview?), back up, write."""
+        from .inputs import dirty_files
+
+        pp, self.pending_patch = self.pending_patch, None
+        path: Path = pp["path"]
+        if path.name in dirty_files(self.last_obs):
+            await self._card(step, f"Save {path.name} first", "Press ⌘S, then Do it for me again.")
+            return
+        try:
+            current = path.read_text()
+        except OSError as e:
+            await self.emit("error", {"message": f"Could not open {path}: {e}"})
+            return
+        if current != pp["old"]:
+            await self._card(step, "The file changed", "You edited it after the preview. Ask again for a fresh fix.")
+            return
+        backup_dir = config.REPO_ROOT / "demo" / "runs" / "backups"
+        try:
+            backup_dir.mkdir(parents=True, exist_ok=True)
+            (backup_dir / f"{path.name}.{int(time.time())}.bak").write_text(current)
+        except OSError:
+            log.warning("could not write a backup of %s", path)
+        self.undo = (path, current)
+        path.write_text(pp["new"])
+        if self.workspace is not None:
+            self.workspace.goto(str(path), int(pp["line"]))
+        if pp["first"]:
+            spot = self._locate(re.escape(pp["first"][0]), None, "Fixed")
+            if spot:
+                await self._show_spot(spot)
+        await self._card(step, "Fix applied", "Re-run to check it. Undo if you'd rather type it yourself.",
+                         kind="answer", actions=["undo"])
+        await self.on_file_change([str(path)])
+
+    async def _undo_fix(self) -> None:
+        step = self.step
+        if self.undo is None or step is None:
+            return
+        path, text = self.undo
+        self.undo = None
+        path.write_text(text)
+        await self._card(step, "Undone", "Your version is back.")
+        await self.on_file_change([str(path)])
+
+    @staticmethod
+    async def _clipboard(text: str) -> bool:
+        try:
+            proc = await asyncio.create_subprocess_exec("pbcopy", stdin=asyncio.subprocess.PIPE)
+            await proc.communicate(text.encode())
+            return proc.returncode == 0
+        except OSError:
+            return False
 
     # ------------------------------------------------------------------ reconnect
     def snapshot(self) -> list[tuple[str, dict]]:
         """Messages that bring a freshly connected client up to date."""
         out: list[tuple[str, dict]] = []
+        if self.phase == "building" and self.build_progress:  # reconnect mid-build: keep the spinner honest
+            out.append(("status", {"state": "thinking"}))
+            out.append(("lesson.building", dict(self.build_progress)))
+            return out
         if self.graph is None:
-            out.append(("status", {"state": self.status}))
+            out.append(("status", {"state": "idle" if self.phase != "searching" else self.status}))
             return out
         out.append(("lesson.ready", self._lesson_ready_payload()))
         step = self.step
@@ -817,7 +1225,10 @@ class LessonSession:
             "engaged": self.engaged,
             "gateOpen": self.gate_open,
             "segmentDone": self.segment_done,
-            "consecutiveFails": self.consecutive_fails,
+            "ladder": self.ladder,
+            "learnerIdleS": round(self.learner_idle_s(), 1),
+            "confirmPending": self.confirm_pending,
+            "cursor": self.cursor_context(),
             "runs": [r.run_id for r in self.step_runs],
             "modules": self.m.describe(),
             "precisionMode": self.precision_mode(),

@@ -17,8 +17,9 @@ from .common import (
     step_brief,
     system_blocks,
 )
-from .diagnose import COACH_SYSTEM, LAST
+from .diagnose import COACH_SYSTEM, LAST, cursor_text, screen_schema
 from .metrics import summarize
+from .screen import TargetStream
 
 log = logging.getLogger("coach.explain")
 
@@ -64,8 +65,11 @@ def video_jump(step: dict, idx: int) -> dict | None:
 
 
 async def explain(step: dict, question: str | None = None, context: dict | None = None) -> dict:
-    """`context` may hold: code_excerpt, metrics_summary, offtrack (last card), lesson."""
+    """`context` may hold: code_excerpt, metrics_summary, offtrack (last card), lesson,
+    screen (ScreenContext: the answer then includes `targets` first, streamed to on_targets),
+    on_targets (callback), cursor ({"x", "y", "under": {"text", "app", "rect"}})."""
     ctx = context or {}
+    screen = ctx.get("screen")
     lesson = ctx.get("lesson") or get_lesson()
     last = ctx.get("offtrack") or LAST.get(step.get("id", ""))
     kind = "answer" if question else "explain"
@@ -85,6 +89,7 @@ async def explain(step: dict, question: str | None = None, context: dict | None 
             f"CURRENT CARD: {last.get('title')} — {last.get('body')}" if last else "",
             f"METRICS:\n{metrics_text}" if ctx.get("metrics_summary") is not None else "",
             f"LEARNER CODE:\n{number_lines(ctx['code_excerpt'], 80)}" if ctx.get("code_excerpt") else "",
+            cursor_text(ctx["cursor"]) if ctx.get("cursor") and screen is None else "",
             f"WEB SOURCES (fetched live):\n{web.sources_text(sources)}" if sources else "",
             f"CITATIONS you may use:\n{citation_menu(lesson, sources)}",
             f"LEARNER ASKS: {about}",
@@ -92,16 +97,24 @@ async def explain(step: dict, question: str | None = None, context: dict | None 
         if x
     )
     det_idx = match_explanation(step, about)
+    schema, content, stream = CARD_SCHEMA, None, None
+    if screen is not None:
+        schema = screen_schema(CARD_SCHEMA)
+        content = [{"type": "text", "text": user}, *screen.claude_content()]
+        user = user + "\n\n" + screen.text()
+        stream = TargetStream(screen, ctx.get("on_targets"))
     try:
         res = await llm.structured_call(
             purpose="explain",
             model=llm.OPUS,
             system=system_blocks(COACH_SYSTEM + EXPLAIN_TASK, lesson),
             user_text=user,
-            schema=CARD_SCHEMA,
+            schema=schema,
             effort="low",
             max_tokens=8000,
             timeout=40.0,
+            user_content=content,
+            on_text=stream,
         )
         d = res.data
         idx = d.get("explanation_index", -1)
@@ -128,5 +141,7 @@ async def explain(step: dict, question: str | None = None, context: dict | None 
         card["videoJump"] = jump
     if cit:
         card["citation"] = cit  # extra field (contract allows additions)
+    if screen is not None and "fallback_reason" not in meta:
+        card["targets"] = stream.fired if stream.fired is not None else screen.resolve_targets(res.data.get("targets"))
     card["_meta"] = meta
     return card

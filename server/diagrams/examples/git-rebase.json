@@ -1,0 +1,153 @@
+{
+  "kind": "graph",
+  "caption": "A commit's hash includes its parent. Rebase replays your commits on 9f3c2d1, so 2d9e4a7 and c81b0f2 become new commits 5c7a1f8 and e04b6d9.",
+  "data": {
+    "title": "Rebase",
+    "layout": "git",
+    "direction": "LR",
+    "nodes": [
+      {
+        "id": "c1",
+        "label": "7b1e9c3",
+        "shape": "commit",
+        "emphasis": false,
+        "detail": "Initial layout",
+        "group": "main",
+        "col": 0,
+        "row": 0
+      },
+      {
+        "id": "c2",
+        "label": "41aa7e0",
+        "shape": "commit",
+        "emphasis": false,
+        "detail": "Add pricing page",
+        "group": "main",
+        "col": 1,
+        "row": 0
+      },
+      {
+        "id": "c3",
+        "label": "9f3c2d1",
+        "shape": "commit",
+        "emphasis": true,
+        "detail": "Fix footer links",
+        "group": "main",
+        "col": 2,
+        "row": 0
+      },
+      {
+        "id": "o1",
+        "label": "2d9e4a7",
+        "shape": "commit",
+        "emphasis": false,
+        "detail": "Add login form",
+        "group": "feature/login (old)",
+        "col": 3,
+        "row": 1
+      },
+      {
+        "id": "o2",
+        "label": "c81b0f2",
+        "shape": "commit",
+        "emphasis": false,
+        "detail": "Add login form v",
+        "group": "feature/login (old)",
+        "col": 4,
+        "row": 1
+      },
+      {
+        "id": "n1",
+        "label": "5c7a1f8",
+        "shape": "commit",
+        "emphasis": true,
+        "detail": "Add login form",
+        "group": "feature/login",
+        "col": 5,
+        "row": 2
+      },
+      {
+        "id": "n2",
+        "label": "e04b6d9",
+        "shape": "commit",
+        "emphasis": true,
+        "detail": "Add login form v",
+        "group": "feature/login",
+        "col": 6,
+        "row": 2
+      }
+    ],
+    "edges": [
+      {
+        "from": "c1",
+        "to": "c2",
+        "style": "solid",
+        "emphasis": false
+      },
+      {
+        "from": "c2",
+        "to": "c3",
+        "style": "solid",
+        "emphasis": false
+      },
+      {
+        "from": "c1",
+        "to": "o1",
+        "style": "solid",
+        "emphasis": false
+      },
+      {
+        "from": "o1",
+        "to": "o2",
+        "style": "solid",
+        "emphasis": false
+      },
+      {
+        "from": "c3",
+        "to": "n1",
+        "style": "solid",
+        "emphasis": true,
+        "label": "new parent"
+      },
+      {
+        "from": "n1",
+        "to": "n2",
+        "style": "solid",
+        "emphasis": false
+      },
+      {
+        "from": "o1",
+        "to": "n1",
+        "style": "dashed",
+        "emphasis": false,
+        "label": "replayed"
+      },
+      {
+        "from": "o2",
+        "to": "n2",
+        "style": "dashed",
+        "emphasis": false,
+        "label": "replayed"
+      }
+    ],
+    "groups": [
+      {
+        "id": "main",
+        "label": "main"
+      },
+      {
+        "id": "feature/login (old)",
+        "label": "feature/login (old)"
+      },
+      {
+        "id": "feature/login",
+        "label": "feature/login"
+      }
+    ],
+    "grid": {
+      "cols": 7,
+      "rows": 3
+    }
+  },
+  "stepId": "s7"
+}

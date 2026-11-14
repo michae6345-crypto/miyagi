@@ -81,6 +81,20 @@ def clamp_words(text: str, limit: int) -> str:
     return cut.rstrip(",;:—-") + "…"
 
 
+def clamp_body(text: str, soft: int = 42) -> str:
+    """Card body (~30 words by contract). Up to `soft` words pass untouched. Beyond that, never drop
+    the last sentence (the action: "Set lr to 1e-3."); shorten the cause in front of it instead."""
+    text = re.sub(r"\s+", " ", (text or "").strip())
+    if len(text.split()) <= soft:
+        return text
+    parts = re.split(r"(?<=[.!?])\s+", text)
+    action = parts[-1] if len(parts) > 1 else ""
+    room = soft - len(action.split())
+    if not action or room < 8:
+        return clamp_words(text, soft)
+    return f"{clamp_words(' '.join(parts[:-1]), room).rstrip('…').rstrip(',;: ')}… {action}"
+
+
 def clamp_title(text: str, limit: int = 8) -> str:
     t = clamp_words(text, limit).rstrip(".…")
     return t

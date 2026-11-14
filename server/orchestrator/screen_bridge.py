@@ -103,6 +103,16 @@ class ScreenBridge:
         if self.reader is not None:
             self.reader.set_overlay_bounds(rects)
 
+    def screenshot(self) -> Any:
+        """A PIL image of the screen (overlay blacked out by E6), or None. Blocking (~20 ms): use a thread."""
+        if self.reader is None or not hasattr(self.reader, "screenshot_pil"):
+            return None
+        try:
+            return self.reader.screenshot_pil()
+        except Exception:  # noqa: BLE001
+            log.exception("screenshot failed")
+            return None
+
     def poke(self) -> None:
         if self.reader is not None and hasattr(self.reader, "poke"):
             self.reader.poke()
@@ -166,6 +176,9 @@ class FakeScreen:
 
     def set_overlay(self, rects: list[dict]) -> None:
         self.overlay = rects
+
+    def screenshot(self) -> Any:
+        return None
 
     def poke(self) -> None:
         pass

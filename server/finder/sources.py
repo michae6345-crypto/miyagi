@@ -1,8 +1,8 @@
 """Real search sources. Each returns raw candidates: dicts with at least url/title/kind/via.
 
 Nothing here invents a URL: every candidate comes from a search index (YouTube's own
-results page, Google via Bright Data SERP, DuckDuckGo, GitHub, arXiv) or from Gemini's
-Google Search grounding metadata (the cited result URLs, not model-written text).
+results page, Google via Bright Data SERP, DuckDuckGo, GitHub, arXiv) or from the result
+blocks of Claude's web search tool (never from model-written text).
 """
 
 from __future__ import annotations
@@ -11,7 +11,6 @@ import asyncio
 import html as htmllib
 import logging
 import re
-import time
 import xml.etree.ElementTree as ET
 from dataclasses import dataclass, field
 from urllib.parse import parse_qs, unquote, urlencode, urlparse
@@ -41,6 +40,7 @@ class Ctx:
     keys: Keys
     errors: list[str] = field(default_factory=list)
     used: set[str] = field(default_factory=set)  # which providers actually answered
+    extra: dict = field(default_factory=dict)  # per-provider info for the cache file (e.g. Claude's queries)
 
     def note(self, msg: str) -> None:
         log.info(msg)
@@ -106,6 +106,32 @@ _DDG_RESULT = re.compile(r'<a[^>]+class="result__a"[^>]+href="([^"]+)"[^>]*>(.*?
 _DDG_SNIPPET = re.compile(r'class="result__snippet"[^>]*>(.*?)</a>', re.S)
 _GH_README = re.compile(r"^(https://github\.com/[^/]+/[^/]+)/blob/[^/]+/readme(\.md|\.rst)?$", re.I)
 _TAG = re.compile(r"<[^>]+>")
+
+
+def page_text(html: str, limit: int = 20000) -> str:
+    """Readable text of a page: drops scripts/styles/nav, tags and extra whitespace."""
+    html = re.sub(r"(?is)<(script|style|noscript|svg|nav|footer|header)[^>]*>.*?</\1>", " ", html)
+    html = re.sub(r"(?i)<br\s*/?>|</(p|div|li|h[1-6]|pre|tr)>", "\n", html)
+    text = htmllib.unescape(_TAG.sub(" ", html))
+    text = re.sub(r"[ \t\r\f\v]+", " ", text)
+    text = re.sub(r"\n\s*\n+", "\n", text)
+    return text.strip()[:limit]
+
+
+def notebook_text(raw: str, limit: int = 20000) -> str:
+    """Markdown + code cells of a .ipynb, in order."""
+    import json as _json
+
+    try:
+        nb = _json.loads(raw)
+    except ValueError:
+        return page_text(raw, limit)
+    parts = []
+    for cell in nb.get("cells", []):
+        src = cell.get("source", "")
+        src = "".join(src) if isinstance(src, list) else str(src)
+        parts.append(("# [code]\n" if cell.get("cell_type") == "code" else "") + src)
+    return "\n\n".join(parts)[:limit]
 
 
 def _clean(s: str | None) -> str:
@@ -242,53 +268,40 @@ def parse_arxiv(xml_text: str) -> list[dict]:
     return out
 
 
-# --------------------------------------------------------------------------- Gemini + Google Search grounding
+# --------------------------------------------------------------------------- Claude + web search tool
 
-_grounding_off_until = 0.0
-
-
-async def gemini_grounded(ctx: Ctx, query: str) -> list[dict]:
-    """Ask Gemini (with the google_search tool) for tutorials; keep ONLY the URLs in the
-    grounding metadata (real Google results), resolve their redirects, read their titles."""
-    global _grounding_off_until
-    if not ctx.keys.gemini or time.monotonic() < _grounding_off_until:
+async def claude_search(ctx: Ctx, query: str, *, timeout: float = 11.0, extra_results: int = 4) -> list[dict]:
+    """Claude plans and runs the searches (server-side web_search tool). Only URLs from the tool's
+    result blocks are kept (see claude.search); Claude's own picks lead, with its 'why'."""
+    if not ctx.keys.anthropic:
         return []
-    from google.genai import types
+    from . import claude
 
-    from .gemini import client
-    from .env import grounding_model
-
-    prompt = (
-        f"Search the web for the best hands-on resources to learn: {query}\n"
-        "Find blog post tutorials, Colab/Jupyter notebooks, GitHub repositories and YouTube video tutorials "
-        "with runnable code. Briefly list them."
-    )
-    try:
-        resp = await client(ctx.keys.gemini).aio.models.generate_content(
-            model=grounding_model(),
-            contents=prompt,
-            config=types.GenerateContentConfig(tools=[types.Tool(google_search=types.GoogleSearch())], temperature=0.2),
-        )
-    except Exception as e:
-        if "429" in str(e) or "RESOURCE_EXHAUSTED" in str(e):
-            _grounding_off_until = time.monotonic() + 600
-        raise
-    ctx.used.add("gemini-search")
-    gm = resp.candidates[0].grounding_metadata if resp.candidates else None
-    chunks = (gm.grounding_chunks if gm else None) or []
-    uris = [(c.web.uri, c.web.title) for c in chunks if c.web and c.web.uri]
-
-    async def resolve(uri: str, title: str) -> dict | None:
-        try:
-            r = await ctx.client.get(uri, timeout=6)
-        except httpx.HTTPError:
-            return None
-        final = str(r.url)
-        if r.status_code >= 400 or skip(final):
-            return None
-        m = re.search(r"<title[^>]*>(.*?)</title>", r.text[:200_000], re.S | re.I)
-        page_title = _clean(m.group(1)) if m else title
-        return {"url": final, "title": page_title or title, "description": "", "kind": classify(final), "via": "gemini-search", "verified": True}
-
-    found = await asyncio.gather(*(resolve(u, t) for u, t in uris[:12]))
-    return [f for f in found if f]
+    found, info = await claude.search(ctx.keys.anthropic, query, timeout=timeout)
+    ctx.used.add("claude-search")
+    ctx.extra["claude"] = info
+    out, extras = [], 0
+    for r in found:
+        url = r["url"]
+        if skip(url):
+            continue
+        if not r.get("picked"):
+            if extras >= extra_results:
+                continue
+            extras += 1
+        kind = classify(url)
+        if kind == "blog" and r.get("kind") in ("notebook", "paper"):
+            kind = r["kind"]
+        m = _GH_README.match(url)
+        if m:
+            url = m.group(1)
+        out.append({
+            "url": url,
+            "title": r.get("title") or url,
+            "description": r.get("why") or "",
+            "kind": kind,
+            "via": "claude",
+            "indexed": True,  # came from the search tool's results, not from the model's text
+            "claude_pick": bool(r.get("picked")),
+        })
+    return out

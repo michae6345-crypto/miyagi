@@ -24,6 +24,33 @@ fix = await coach.fix_outdated(error_text, lesson["libraries"])  # offtrack-shap
 
 `metrics_summary` accepts `RunContext.metrics` (`{name: [(step, value)]}`), a string, or a summary dict.
 
+## Screen understanding (docs/research/screen-understanding.md, build list #7 and #8)
+
+```python
+screen = coach.ScreenContext.from_observation(obs, image, cursor=(x, y), file=ax_file, line=ax_line, element=ax_el)
+await coach.warm()                                   # at start and after set_lesson: TLS + cached prefix (both schemas)
+task = coach.inflight.start("diagnose", coach.diagnose(step, failed, metrics, code, screen=screen,
+                                                       on_targets=lambda t: send_spotlight(t[0]["rect"])))
+coach.cancel()                                       # on any real user action: aborts the stream
+card = await task                                    # offtrack + "targets": [{boxId, label, text, rect}]
+patch = await coach.do_it_for_me(step, file, file_text)   # {file, unified_diff, summary, line, new_text}
+targets = await coach.locate("the learning rate", screen)  # exact text → no model; else Claude Haiku
+```
+
+- **Set-of-mark payload.** The text comes first: context, then "Cursor at (x, y) over [id] "…" (app), line N of file", then the numbered box list. Two JPEGs follow: the whole screen at 1280 px wide with every box outlined, numbered in the margin and the cursor ringed, and a full-resolution 400×400 crop around the cursor. The 120 boxes nearest the cursor are kept. Rects are in screen points with a top-left origin, the same space as `spotlight`.
+- **Targets first.** With a screen, `targets` is the first property in the JSON schema. The reply streams, and `on_targets` fires as soon as that array is complete. Live: targets at 2.9 s of a 4.65 s reply, first text at 1.5 s after `warm()`. Several targets are allowed, each labelled in 3 words or fewer. Unknown ids are dropped. `explain(..., context={"screen": s, "on_targets": cb})` works the same way.
+- **Cancel / warm.** `inflight.start(key, coro)` replaces the previous task under that key, and `cancel()` closes the HTTP stream. `warm()` sends the exact diagnose request shape with `max_tokens=1`; 0 is rejected when an output format is set. Live: the first diagnosis after `warm()` read 4,505 cached tokens.
+- **Do it for me.** It uses the latest diagnosis's diff when that applies cleanly. Otherwise Opus writes a patch, retried once with the reason it failed. The patch is accepted only if `apply_fix` finds the lines and, for Python, the result compiles. Otherwise it raises `CoachUnavailable`. It never writes files. The summary is the card's action sentence ("Lower the learning rate to 1e-3").
+- **locate** asks `claude-haiku-5-5` (effort low) to pick box ids from the same set-of-mark images. Screen and code reading is Claude only; there is no Gemini in `server/coach`.
+- **Computer use** is not used. If icon finding ever needs it, the tool is `computer_toolset_20260801`, because `computer_20251124` returns 400 on Opus 5.5.
+
+## Orchestrator contract notes (E4)
+
+- `diagnose(..., cursor={"x", "y", "under": {"text", "app", "rect"}})` and `explain(..., {"cursor": ...})` tell the coach what the learner points at, when no full `screen` is attached.
+- The body's last sentence states the fix in words ("Set lr to 1e-3 in the Adam optimizer."), because E4 shows the first offtrack as hint level 2 with the diff hidden. Bodies are about 30 words. Up to 42 pass untouched; past that, the cause is shortened and the action sentence is never cut.
+- `diff.command` carries a terminal fix (`pip install pandas`). It can come alone (`expected` empty) or with a code diff. E4 copies it to the clipboard.
+- `hint(step, 0, last_offtrack)` asks the card's `guidingQuestion`, else the playbook entry's, else a question built from the card's title. A cached card from before guiding questions still gets an issue-specific question.
+
 ## Design
 
 - **General, web-grounded** (GENERALITY RULE). `web.py` detects the library and symbol from any error on screen (Python tracebacks, eslint/React, Node, npm, CLI tools). It then fetches the official docs/changelog (`docs_for`) and Stack Overflow / GitHub / Reddit posts (`community_signals`) through Bright Data (SERP restricted to official domains, then Web Unlocker). This runs in parallel with triage and has a 6 s budget. The pages go into the Opus prompt as `[web:N]`, and the card cites the URL it used. When `server.finder.web` (E7) lands, its `docs_for` / `community_signals` are used instead. With no Bright Data keys or a timeout, the coach falls back to playbook and lesson sources.
@@ -39,7 +66,7 @@ fix = await coach.fix_outdated(error_text, lesson["libraries"])  # offtrack-shap
 
 ```bash
 uv venv -p 3.12 .venv && uv pip install -p .venv -e "server[dev]"
-.venv/bin/python -m server.coach demo --json --ladder --explain      # hero: diffusion PINN, lr=1e-1, loss oscillates; live if a key, else replay
+.venv/bin/python -m server.coach demo --json --ladder --explain      # hero: diffusion PINN, lr=0.3, loss oscillates; live if a key, else replay
 .venv/bin/python -m server.coach demo --case diffusion-bc             # also: diffusion-grad, convection
 rm server/coach/fixtures/*.json && .venv/bin/python -m server.coach.tests.record_fixtures   # re-record every fixture live
 .venv/bin/python -m server.coach demo --live --record               # call the API and save fixtures for CI

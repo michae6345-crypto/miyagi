@@ -298,17 +298,85 @@ class Modules:
             except Exception:
                 log.exception("coach.set_lesson failed")
 
+    # -- coach: screen context, streaming targets, cancel, warm-up (E5's screen API)
+    def screen_context(self, obs: Any, image: Any, cursor: tuple[float, float], **extra: Any) -> Any:
+        """coach.ScreenContext from E6's observation + a screenshot, or None if the coach can't take one."""
+        cls = getattr(self.real.get("coach"), "ScreenContext", None) if self._real_fn("coach", "diagnose") else None
+        if cls is None or obs is None or image is None:
+            return None
+        try:
+            names = {f.name for f in dataclasses.fields(cls)} if dataclasses.is_dataclass(cls) else set()
+            return cls.from_observation(obs, image, cursor=cursor,
+                                        **{k: v for k, v in extra.items() if k in names and v not in (None, "")})
+        except Exception:
+            log.exception("coach.ScreenContext failed; diagnosing without the screen")
+            return None
+
+    def cancel_coach(self) -> int:
+        fn = self._real_fn("coach", "cancel")
+        try:
+            return int(fn() or 0) if fn else 0
+        except Exception:
+            log.exception("coach.cancel failed")
+            return 0
+
+    async def warm(self) -> None:
+        fn = self._real_fn("coach", "warm")
+        if fn is not None:
+            try:
+                await _call(fn)
+            except Exception as e:  # warming is best-effort
+                log.warning("coach.warm failed: %s", e)
+
     async def diagnose(self, step: dict, failed_checks: list[dict], metrics: dict, code_excerpt: str,
-                       error_text: str = "") -> dict:
-        """`metrics` is the raw series dict {name: [(step, value)]} (what coach.diagnose expects)."""
+                       error_text: str = "", cursor: dict | None = None, screen: Any = None,
+                       on_targets: Callable[[list[dict]], Any] | None = None) -> dict:
+        """`metrics` is the raw series dict {name: [(step, value)]} (what coach.diagnose expects).
+        Runs as the coach's cancellable "diagnose" task when the coach supports it."""
         cached = self._cache("coach", f"{step['id']}.json")
         if cached:
             return cached
         fn = self._real_fn("coach", "diagnose")
-        kwargs = {"error_text": error_text} if fn is not None and error_text and _accepts(fn, "error_text") else {}
+        kwargs: dict[str, Any] = {}
+        if fn is not None:
+            for name, val in (("error_text", error_text), ("cursor", cursor), ("screen", screen),
+                              ("on_targets", on_targets)):
+                if val and _accepts(fn, name):
+                    kwargs[name] = val
+        inflight = getattr(self.real.get("coach"), "inflight", None) if fn is not None else None
+        if fn is not None and inflight is not None and hasattr(inflight, "start"):
+            try:
+                out = await inflight.start("diagnose", fn(step, failed_checks, metrics, code_excerpt, **kwargs))
+            except asyncio.CancelledError:
+                raise ModuleUnavailable("cancelled: the learner acted") from None
+            except Exception as e:
+                if not self.stubs_allowed("coach"):
+                    raise ModuleUnavailable(f"coach.diagnose failed: {type(e).__name__}: {e}") from e
+                out = await stubs.diagnose(step, failed_checks, metrics, code_excerpt)
+            out = _to_dict(out)
+            meta = out.get("_meta") if isinstance(out, dict) else None
+            if meta:  # where the coach's time went (E5): latency_s, usage.first_text_s, cache reads, triage
+                usage = meta.get("usage") or {}
+                log.info("coach meta: latency_s=%s first_text_s=%s cache_read=%s triage=%s model=%s web=%s",
+                         meta.get("latency_s"), usage.get("first_text_s"), usage.get("cache_read_input_tokens"),
+                         (meta.get("triage") or {}).get("by"), meta.get("model"), len(meta.get("web_sources") or []))
+            return self._public(out)
         out = await self._run("coach", "diagnose", lambda: stubs.diagnose(step, failed_checks, metrics, code_excerpt),
                               step, failed_checks, metrics, code_excerpt, **kwargs)
         return self._public(out)
+
+    def has_do_it_for_me(self) -> bool:
+        return self._real_fn("coach", "do_it_for_me") is not None
+
+    async def do_it_for_me(self, step: dict, file: str, file_text: str, last_offtrack: dict | None) -> dict:
+        """-> {file, unified_diff, summary, line, new_text, requires_confirmation}; ModuleUnavailable if no safe patch."""
+        fn = self._real_fn("coach", "do_it_for_me")
+        if fn is None:
+            raise self._missing("coach", "do_it_for_me")
+        try:
+            return _to_dict(await _call(fn, step, file, file_text, last_offtrack))
+        except Exception as e:
+            raise ModuleUnavailable(f"{getattr(e, 'reason', None) or e}") from e
 
     async def explain(self, step: dict, question: str | None, context: dict) -> dict:
         kind = "answer" if question else "explain"
@@ -340,9 +408,19 @@ class Modules:
         return stubs.apply_fix(diff, file_text) if self.stubs_allowed("coach") else None
 
     # -- diagrams
-    async def diagram(self, kind: str, step: dict | None, ctx: RunContext | None) -> dict:
-        cached = self._cache("diagrams", f"{kind}.json")
+    def has_diagrams(self) -> bool:
+        return self._real_fn("diagrams", "build") is not None
+
+    async def diagram(self, kind: str | None, step: dict | None, ctx: RunContext | None,
+                      context: dict | None = None) -> dict:
+        """S4: server.diagrams.build(step, context) -> {kind, caption, data, stepId}. `kind` is only a
+        preference ("network" | "graph"); DEMO stubs draw network/gradients/heatmap."""
+        stub_kind = kind or "network"
+        cached = self._cache("diagrams", f"{stub_kind}.json")
         if cached:
             return cached
-        return await self._run("diagrams", "build", lambda: stubs.diagrams_build(kind, step, ctx),
-                               kind, step=step, ctx=ctx)
+        ctx_in = dict(context or {})
+        if kind in ("network", "graph"):
+            ctx_in["kind"] = kind
+        return await self._run("diagrams", "build", lambda: stubs.diagrams_build(stub_kind, step, ctx),
+                               step, ctx_in)
