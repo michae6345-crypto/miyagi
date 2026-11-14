@@ -1,103 +1,161 @@
 /**
- * Feature: cards. Coach cards that grow out of the pill:
- *   offtrack  amber: diagnosis, yours-vs-tutorial curve, expected vs yours, checks, Show me / Explain / Apply fix
- *   success   green "Back on track" after a recovered step (auto-hides)
- *   card      explain / hint / answer from the engine, with an optional video jump
+ * Feature: cards. Coach cards that grow out of the pill, in the calm black-island look (mockup 02):
+ *   offtrack  amber: what's wrong in one line, yours-vs-tutorial loss curve (live `metric`),
+ *             expected vs yours, the checks, Show me / Explain / Apply fix.
+ *             After Apply fix it collapses to "Applying the fix": the retrain's curve drops live.
+ *   success   green "Back on track" after a recovered step: now-vs-before curve, auto-hides.
+ *   card      explain / hint / answer from the engine, with an optional video jump.
+ * Copy rule: readable in 2 seconds; body text is clamped to 2–3 lines. No red, no shaking.
  */
-import { motion } from 'motion/react'
+import { AnimatePresence, motion } from 'motion/react'
 import type { ReactNode } from 'react'
 import { useShallow } from 'zustand/react/shallow'
-import { Lightbulb, MessageSquareText, Play, Wand2 } from 'lucide-react'
-import { bridge } from '../../bridge'
-import { cmd } from '../../../../common/wire'
-import { useLesson, useProgress } from '../../core/lesson'
+import { BookOpen, Check, Info, Lightbulb, MessageSquareText, Play, Wand2 } from 'lucide-react'
+import { useLesson, useProgress, type Offtrack as OfftrackPayload } from '../../core/lesson'
 import { defineFeature } from '../../core/registry'
-import { CardButton, CheckList, Chip, CloseButton } from '../../core/ui/atoms'
+import { CardButton, CheckList, CloseButton, Spinner, StatusDot } from '../../core/ui/atoms'
 import { color } from '../../core/theme'
-import { useCards } from './store'
+import { Curve, fmt, Key, plotArray, plotPoints, type Line } from './Curve'
+import { act, jumpTo, SUCCESS_MS, useCards, useSeries } from './store'
 
-function Curve({ yours, tutorial }: { yours: number[]; tutorial: number[] }): ReactNode {
-  const W = 416
-  const H = 62
-  const all = [...yours, ...tutorial]
-  const lo = Math.min(...all)
-  const hi = Math.max(...all)
-  const y = (v: number): number => 4 + ((hi - v) / (hi - lo || 1)) * (H - 8)
-  const path = (v: number[]): string => v.map((p, i) => `${i ? 'L' : 'M'}${((i / (v.length - 1)) * (W - 8)).toFixed(1)},${y(p).toFixed(1)}`).join(' ')
+const OFFTRACK_W = 460
+const CARD_W = 420
+const PAD = 20
+
+// ---------------------------------------------------------------------------
+// Shared pieces
+// ---------------------------------------------------------------------------
+
+/** "Step 6 of 7 · ● Off track ……… reason ✕": the same header line as the expanded pill. */
+function Header({ mark, label, tone, right, step = true }: { mark: ReactNode; label: string; tone: string; right?: ReactNode; step?: boolean }): ReactNode {
+  const { index, total } = useProgress()
   return (
-    <svg width={W} height={H} className="block overflow-visible">
-      <motion.path d={path(tutorial)} fill="none" stroke="rgba(10,132,255,.75)" strokeWidth="1.5" initial={{ pathLength: 0 }} animate={{ pathLength: 1 }} transition={{ duration: 0.6 }} />
-      <motion.path d={path(yours)} fill="none" stroke={color.amber} strokeWidth="2" initial={{ pathLength: 0 }} animate={{ pathLength: 1 }} transition={{ duration: 0.6, delay: 0.1 }} />
-      <circle cx={W - 8} cy={y(yours[yours.length - 1])} r="3.5" fill={color.amber} />
-    </svg>
+    <div className="flex h-[22px] items-center gap-[7px] text-[13px] leading-none">
+      {step && <span style={{ color: color.label }}>Step {index + 1} of {total}</span>}
+      {mark}
+      <span className="font-medium" style={{ color: tone }}>
+        {label}
+      </span>
+      <span className="min-w-[8px] flex-1" />
+      {right && (
+        <span className="truncate text-[12px]" style={{ color: color.faint }}>
+          {right}
+        </span>
+      )}
+      <CloseButton />
+    </div>
   )
 }
 
-function Offtrack(): ReactNode {
-  const s = useLesson(useShallow((x) => ({ o: x.offtrack, checks: x.checks, playing: x.video.playing })))
-  const { index } = useProgress()
-  if (!s.o) return null
-  const o = s.o
-  const act = (kind: 'show_me' | 'explain' | 'apply_fix' | 'hint'): void => {
-    bridge.send(cmd('action', { kind }))
-    if (kind === 'apply_fix') useCards.setState({ offtrackOpen: false })
-  }
+function Title({ children }: { children: ReactNode }): ReactNode {
+  return <div className="mt-[8px] text-[20px] font-semibold leading-[25px] tracking-[-0.015em]">{children}</div>
+}
+
+function Body({ children, lines = 2 }: { children: ReactNode; lines?: number }): ReactNode {
   return (
-    <div className="px-[20px] pb-[16px] pt-[18px]">
-      <div className="flex items-center gap-[8px]">
-        <Chip tone={color.amber}>Off-track</Chip>
-        {o.reason && <span className="truncate text-[13px] text-white/55">{o.reason}</span>}
-        <span className="flex-1" />
-        {!s.playing && (
-          <span className="flex items-center gap-[5px] text-[12px] text-white/55">
-            <span className="h-[6px] w-[6px] rounded-full" style={{ background: color.amber }} /> Video paused
-          </span>
-        )}
-        <CloseButton />
-      </div>
+    <div className="mt-[3px] overflow-hidden text-[14px] leading-[20px]" style={{ color: color.label, display: '-webkit-box', WebkitBoxOrient: 'vertical', WebkitLineClamp: lines }}>
+      {children}
+    </div>
+  )
+}
 
-      <div className="mt-[12px] text-[12px] font-semibold uppercase tracking-[0.06em]" style={{ color: color.amber }}>
-        Step {index + 1} · Something's off
-      </div>
-      <div className="mt-[3px] text-[20px] font-semibold tracking-[-0.015em]">{o.title}</div>
-      <div className="mt-[5px] text-[14px] leading-[20px] text-white/72">{o.body}</div>
+/** Small uppercase caption above a curve, with its legend on the right. */
+function CurveCaption({ label, children }: { label: string; children: ReactNode }): ReactNode {
+  return (
+    <div className="mb-[4px] flex items-center gap-[12px] text-[11px]" style={{ color: color.faint }}>
+      <span className="font-semibold uppercase tracking-[0.06em]">{label}</span>
+      <span className="flex-1" />
+      {children}
+    </div>
+  )
+}
 
-      {o.curve && (
+/** Hairline footer: a quiet left note and right note. */
+function Footer({ left, right }: { left?: ReactNode; right?: ReactNode }): ReactNode {
+  if (!left && !right) return null
+  return (
+    <div className="mt-[14px] flex items-center gap-[10px] border-t pt-[11px] text-[12px]" style={{ borderColor: color.hairline, color: color.faint }}>
+      <span className="flex min-w-0 flex-1 items-center gap-[6px] truncate">{left}</span>
+      {right && <span className="shrink-0">{right}</span>}
+    </div>
+  )
+}
+
+/** Crossfade between views inside one island mode (the container springs to the new height). */
+function Swap({ id, children }: { id: string; children: ReactNode }): ReactNode {
+  return (
+    <AnimatePresence mode="wait" initial={false}>
+      <motion.div
+        key={id}
+        initial={{ opacity: 0, y: 4 }}
+        animate={{ opacity: 1, y: 0, transition: { duration: 0.2, delay: 0.06, ease: 'easeOut' } }}
+        exit={{ opacity: 0, transition: { duration: 0.08 } }}
+      >
+        {children}
+      </motion.div>
+    </AnimatePresence>
+  )
+}
+
+// ---------------------------------------------------------------------------
+// Off-track
+// ---------------------------------------------------------------------------
+
+/** Yours vs tutorial. Live `metric` events when there are any; otherwise the off-track payload's `curve`. */
+function OfftrackCurve({ o }: { o: OfftrackPayload }): ReactNode {
+  const { name, before: run, tutorial } = useSeries(o.curve?.label)
+  const live = run && run.points.length > 1 ? run : undefined
+  const yours = live ? plotPoints(live.points) : o.curve ? plotArray(o.curve.yours) : []
+  if (yours.length < 2) return null
+  const span = live ? live.points[live.points.length - 1].step : 1
+  const ref = tutorial && tutorial.length > 1 ? plotPoints(tutorial) : o.curve ? plotArray(o.curve.tutorial, span) : []
+  const lines: Line[] = [
+    { key: 'yours', pts: yours, stroke: color.amber },
+    { key: 'tutorial', pts: ref, stroke: color.accent, reference: true }
+  ]
+  const lastValue = live?.points[live.points.length - 1].value
+  return (
+    <div className="mt-[14px]" data-curve={live ? 'live' : 'fallback'}>
+      <CurveCaption label={name ?? o.curve?.label ?? 'loss'}>
+        <Key tone={color.amber}>yours</Key>
+        {ref.length > 1 && <Key tone={color.accent}>tutorial</Key>}
+      </CurveCaption>
+      <Curve lines={lines} width={OFFTRACK_W - PAD * 2} height={64} end={{ label: lastValue !== undefined ? fmt(lastValue) : undefined, at: live?.at }} />
+    </div>
+  )
+}
+
+/** Expected vs yours, one mono line each. */
+function Diff({ diff }: { diff: NonNullable<OfftrackPayload['diff']> }): ReactNode {
+  const row = (label: string, tone: string, text: string, top?: boolean): ReactNode => (
+    <div className={`flex items-baseline gap-[12px] px-[12px] py-[7px] ${top ? 'border-t' : ''}`} style={top ? { borderColor: color.hairline } : undefined}>
+      <span className="w-[78px] shrink-0 whitespace-nowrap font-sans text-[10.5px] font-semibold uppercase tracking-[0.06em]" style={{ color: tone }}>
+        {label}
+      </span>
+      <span className="truncate text-white/90">{text}</span>
+    </div>
+  )
+  return (
+    <div className="mt-[12px] overflow-hidden rounded-[12px] font-mono text-[12.5px] leading-[18px]" style={{ background: 'rgba(255,255,255,.06)' }}>
+      {row('Expected', color.green, diff.expected)}
+      {row(diff.line ? `Yours · L${diff.line}` : 'Yours', color.amber, diff.yours, true)}
+    </div>
+  )
+}
+
+function Diagnosis({ o, checks }: { o: OfftrackPayload; checks: ReturnType<typeof useLesson.getState>['checks'] }): ReactNode {
+  return (
+    <div data-card="offtrack" style={{ padding: `16px ${PAD}px 14px` }}>
+      <Header mark={<StatusDot status="offtrack" size={6} />} label="Off track" tone={color.amber} right={o.reason} />
+      <Title>{o.title}</Title>
+      <Body>{o.body}</Body>
+
+      <OfftrackCurve o={o} />
+      {o.diff && <Diff diff={o.diff} />}
+
+      {checks.length > 0 && (
         <div className="mt-[14px]">
-          <div className="mb-[6px] flex items-center gap-[12px] text-[11px] font-medium uppercase tracking-[0.06em] text-white/42">
-            {o.curve.label} · yours vs tutorial
-            <span className="flex-1" />
-            <span className="flex items-center gap-[5px] normal-case tracking-normal">
-              <i className="inline-block h-[2px] w-[10px]" style={{ background: color.amber }} /> yours
-            </span>
-            <span className="flex items-center gap-[5px] normal-case tracking-normal">
-              <i className="inline-block h-[2px] w-[10px]" style={{ background: color.accent }} /> tutorial
-            </span>
-          </div>
-          <Curve yours={o.curve.yours} tutorial={o.curve.tutorial} />
-        </div>
-      )}
-
-      {o.diff && (
-        <div className="mt-[14px] overflow-hidden rounded-[12px] font-mono text-[12.5px]" style={{ background: 'rgba(255,255,255,.05)' }}>
-          <div className="flex items-center gap-[12px] px-[12px] py-[8px]">
-            <span className="w-[62px] shrink-0 text-[10.5px] font-semibold tracking-[0.06em]" style={{ color: color.green }}>
-              EXPECTED
-            </span>
-            <span className="truncate text-white/90">{o.diff.expected}</span>
-          </div>
-          <div className="flex items-center gap-[12px] border-t px-[12px] py-[8px]" style={{ borderColor: 'rgba(255,255,255,.06)' }}>
-            <span className="w-[62px] shrink-0 text-[10.5px] font-semibold tracking-[0.06em]" style={{ color: color.amber }}>
-              YOURS{o.diff.line ? ` · L${o.diff.line}` : ''}
-            </span>
-            <span className="truncate text-white/90">{o.diff.yours}</span>
-          </div>
-        </div>
-      )}
-
-      {s.checks.length > 0 && (
-        <div className="mt-[14px]">
-          <CheckList checks={s.checks} />
+          <CheckList checks={checks} />
         </div>
       )}
 
@@ -109,7 +167,12 @@ function Offtrack(): ReactNode {
         )}
         {o.actions.includes('explain') && (
           <CardButton onClick={() => act('explain')}>
-            <Lightbulb size={14} /> Explain
+            <Info size={14} /> Explain
+          </CardButton>
+        )}
+        {o.actions.includes('hint') && (
+          <CardButton onClick={() => act('hint')}>
+            <Lightbulb size={14} /> Hint
           </CardButton>
         )}
         {o.actions.includes('apply_fix') && (
@@ -118,64 +181,169 @@ function Offtrack(): ReactNode {
           </CardButton>
         )}
       </div>
-      {o.citation && <div className="mt-[10px] truncate text-[12px] text-white/40">Source: {o.citation.label}</div>}
+
+      <Footer
+        left={
+          o.citation && (
+            <>
+              <BookOpen size={12} className="shrink-0" /> <span className="truncate">{o.citation.label}</span>
+            </>
+          )
+        }
+        right="Video waits until all pass"
+      />
     </div>
   )
 }
+
+/** Now (green, live) vs before the fix (amber, dashed). While the retrain hasn't started, only "before". */
+function RetrainCurve({ since, width }: { since?: number; width: number }): ReactNode {
+  const { name, after, before } = useSeries(undefined, since)
+  const lines: Line[] = []
+  if (after && after.points.length > 0) lines.push({ key: 'now', pts: plotPoints(after.points), stroke: color.green })
+  if (before && before.points.length > 1) lines.push({ key: 'before', pts: plotPoints(before.points), stroke: color.amber, reference: true, dashed: true })
+  if (lines.length === 0) return null
+  const lastValue = after?.points[after.points.length - 1]?.value
+  return (
+    <div className="mt-[14px]" data-curve={after ? 'after' : 'before'}>
+      <CurveCaption label={name ?? 'loss'}>
+        {after && <Key tone={color.green}>now</Key>}
+        {before && <Key tone={color.amber} dashed={!!after}>before fix</Key>}
+      </CurveCaption>
+      <Curve
+        lines={after ? lines : [{ ...lines[0], reference: false }]}
+        width={width - PAD * 2}
+        height={64}
+        end={{ label: lastValue !== undefined ? fmt(lastValue) : undefined, at: after?.at }}
+      />
+    </div>
+  )
+}
+
+/** After Apply fix: the card collapses to this until the step passes. */
+function Fixing({ o, checks }: { o: OfftrackPayload; checks: ReturnType<typeof useLesson.getState>['checks'] }): ReactNode {
+  return (
+    <div data-card="fixing" style={{ padding: `16px ${PAD}px 14px` }}>
+      <Header mark={<Spinner size={12} />} label="Applying the fix" tone={color.accent} />
+      {o.diff ? (
+        <div className="mt-[10px] flex items-center gap-[8px] font-mono text-[12.5px] leading-[18px]">
+          <Check size={14} strokeWidth={2.4} className="shrink-0" style={{ color: color.green }} />
+          <span className="truncate text-white/90">{o.diff.expected}</span>
+          {o.diff.line && (
+            <span className="shrink-0 font-sans text-[12px]" style={{ color: color.faint }}>
+              line {o.diff.line}
+            </span>
+          )}
+        </div>
+      ) : (
+        <Title>Re-running your checks</Title>
+      )}
+      <RetrainCurve width={OFFTRACK_W} />
+      {checks.length > 0 && (
+        <div className="mt-[14px]">
+          <CheckList checks={checks} />
+        </div>
+      )}
+      <Footer right="Video resumes when all pass" />
+    </div>
+  )
+}
+
+function Offtrack(): ReactNode {
+  const s = useLesson(useShallow((x) => ({ o: x.offtrack, checks: x.checks })))
+  const fixing = useCards((c) => c.fixing)
+  if (!s.o) return null
+  return <Swap id={fixing ? 'fixing' : 'diagnosis'}>{fixing ? <Fixing o={s.o} checks={s.checks} /> : <Diagnosis o={s.o} checks={s.checks} />}</Swap>
+}
+
+// ---------------------------------------------------------------------------
+// Back on track
+// ---------------------------------------------------------------------------
 
 function Success(): ReactNode {
   const s = useCards((x) => x.success)
+  const { after } = useSeries(undefined, s?.since)
   if (!s) return null
+  const showCurve = !!after && after.points.length > 1
   return (
-    <div className="px-[20px] pb-[18px] pt-[18px]">
-      <div className="flex items-center gap-[8px]">
-        <Chip tone={color.green}>✓ Step {s.index + 1} done</Chip>
-        <span className="flex-1" />
-        <CloseButton />
-      </div>
-      <div className="mt-[10px] text-[20px] font-semibold tracking-[-0.015em]">Back on track.</div>
-      {s.summary && <div className="mt-[4px] text-[14px] leading-[20px] text-white/72">{s.summary}</div>}
-      {s.checks.length > 0 && (
-        <div className="mt-[14px]">
-          <CheckList checks={s.checks} />
-        </div>
+    <div data-card="success" className="relative" style={{ padding: `16px ${PAD}px 14px` }}>
+      <Header mark={<StatusDot status="passed" size={6} />} label={`Step ${s.index + 1} done`} tone={color.green} step={false} />
+      <Title>Back on track.</Title>
+      {s.summary && <Body>{s.summary}</Body>}
+      {showCurve ? (
+        <RetrainCurve since={s.since} width={OFFTRACK_W} />
+      ) : (
+        s.checks.length > 0 && (
+          <div className="mt-[14px]">
+            <CheckList checks={s.checks} />
+          </div>
+        )
       )}
-      <div className="mt-[14px] text-[13px] text-white/45">The video picks up from here.</div>
+      <Footer
+        left={
+          <>
+            <Play size={11} fill="currentColor" className="shrink-0" /> The video picks up from here
+          </>
+        }
+      />
+      {/* Auto-hide countdown: a hairline that drains (transform only). */}
+      <motion.div
+        key={s.at}
+        className="absolute inset-x-0 bottom-0 h-[2px] origin-left"
+        style={{ background: color.green, opacity: 0.45 }}
+        initial={{ scaleX: 1 }}
+        animate={{ scaleX: 0 }}
+        transition={{ duration: SUCCESS_MS / 1000, ease: 'linear' }}
+      />
     </div>
   )
 }
 
+// ---------------------------------------------------------------------------
+// Explain / Hint / Answer
+// ---------------------------------------------------------------------------
+
+const KIND = {
+  explain: { label: 'Explain', Icon: Info, tone: color.accent },
+  hint: { label: 'Hint', Icon: Lightbulb, tone: color.amber },
+  answer: { label: 'Answer', Icon: MessageSquareText, tone: color.accent }
+} as const
+
 function Card(): ReactNode {
   const c = useCards((x) => x.card)
+  const hasStep = useLesson((s) => !!s.stepId)
   if (!c) return null
-  const tone = c.kind === 'hint' ? color.amber : color.accent
-  const Icon = c.kind === 'hint' ? Lightbulb : MessageSquareText
+  const k = KIND[c.kind] ?? KIND.answer
   return (
-    <div className="px-[20px] pb-[16px] pt-[16px]">
-      <div className="flex items-center gap-[8px]">
-        <Icon size={15} style={{ color: tone }} />
-        <span className="text-[12px] font-semibold uppercase tracking-[0.06em]" style={{ color: tone }}>
-          {c.kind === 'explain' ? 'Explain' : c.kind === 'hint' ? 'Hint' : 'Answer'}
-        </span>
-        <span className="flex-1" />
-        <CloseButton />
-      </div>
-      <div className="mt-[8px] text-[18px] font-semibold tracking-[-0.01em]">{c.title}</div>
-      <div className="mt-[4px] text-[14px] leading-[20px] text-white/75">{c.body}</div>
+    <div data-card={c.kind} style={{ padding: `16px ${PAD}px 16px` }}>
+      <Header mark={<k.Icon size={14} style={{ color: k.tone }} />} label={k.label} tone={k.tone} step={false} right={hasStep ? <StepNote /> : undefined} />
+      <div className="mt-[8px] text-[18px] font-semibold leading-[23px] tracking-[-0.01em]">{c.title}</div>
+      <Body lines={3}>{c.body}</Body>
       {c.videoJump && (
         <motion.button
-          className="mt-[12px] flex h-[32px] cursor-pointer items-center gap-[7px] rounded-[10px] px-[12px] text-[13px] font-medium"
+          className="mt-[14px] flex h-[34px] cursor-pointer items-center gap-[8px] rounded-[12px] pl-[6px] pr-[12px] text-[13px] font-medium"
           style={{ background: 'rgba(255,255,255,.09)' }}
-          whileTap={{ scale: 0.95 }}
-          onClick={() => {
-            useLesson.setState({ video: { t: c.videoJump!.t, playing: true, at: Date.now() } })
-            useCards.setState({ card: undefined })
-          }}
+          whileHover={{ scale: 1.02 }}
+          whileTap={{ scale: 0.94 }}
+          transition={{ duration: 0.09 }}
+          onClick={() => jumpTo(c.videoJump!.t)}
         >
-          <Play size={12} fill="currentColor" /> {c.videoJump.label}
+          <span className="grid h-[22px] w-[22px] place-items-center rounded-full" style={{ background: color.accent }}>
+            <Play size={10} fill="currentColor" className="ml-[1px]" />
+          </span>
+          Watch {c.videoJump.label}
         </motion.button>
       )}
     </div>
+  )
+}
+
+function StepNote(): ReactNode {
+  const { index, total } = useProgress()
+  return (
+    <>
+      Step {index + 1} of {total}
+    </>
   )
 }
 
@@ -185,7 +353,7 @@ export default defineFeature({
     {
       id: 'offtrack',
       priority: 70,
-      width: 460,
+      width: OFFTRACK_W,
       useActive: (hover) => {
         const open = useCards((c) => c.offtrackOpen)
         const has = useLesson((s) => !!s.offtrack)
@@ -193,7 +361,7 @@ export default defineFeature({
       },
       Content: Offtrack
     },
-    { id: 'success', priority: 60, width: 420, useActive: () => useCards((c) => !!c.success), Content: Success },
-    { id: 'card', priority: 50, width: 420, useActive: () => useCards((c) => !!c.card), Content: Card }
+    { id: 'success', priority: 60, width: OFFTRACK_W, useActive: () => useCards((c) => !!c.success), Content: Success },
+    { id: 'card', priority: 50, width: CARD_W, useActive: () => useCards((c) => !!c.card), Content: Card }
   ]
 })
