@@ -374,3 +374,17 @@ def test_extract_json_tolerates_fences_and_prose():
     assert claude.extract_json('Here you go: {"steps": []} done') == {"steps": []}
     with pytest.raises(ValueError):
         claude.extract_json("no json here")
+
+
+def test_precision_backup_never_looser_than_screen_check():
+    g = {"steps": [{"id": "s8", "checks": [
+        {"id": "s8c4", "type": "metric_threshold", "label": "loss < 1e-2 by 2000", "metric": "loss", "op": "<", "value": 0.01, "by_step": 2000, "metric_pattern": "x"}],
+        "precision_checks": [
+            {"id": "s8p1", "type": "metric_threshold", "label": "loss low", "metric": "loss", "op": "<=", "value": 0.05},
+            {"id": "s8p2", "type": "metric_threshold", "label": "test", "metric": "test_loss", "op": "<", "value": 0.5},
+            {"id": "s8p3", "type": "metric_threshold", "label": "tight", "metric": "loss", "op": "<", "value": 0.001, "by_step": 1000}]}]}
+    builder.align_precision_metrics(g)
+    p1, p2, p3 = g["steps"][0]["precision_checks"]
+    assert (p1["op"], p1["value"], p1["by_step"]) == ("<", 0.01, 2000)  # tightened to the screen check
+    assert p2["value"] == 0.5 and "by_step" not in p2  # other metric untouched
+    assert (p3["value"], p3["by_step"]) == (0.001, 1000)  # already stricter: kept

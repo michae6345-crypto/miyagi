@@ -397,7 +397,31 @@ def normalize_checks(graph: dict, known_metrics: set[str]) -> dict:
         for c in step["checks"] + step.get("precision_checks", []):
             if c.get("pattern") and looks_like_literal(c["pattern"]):
                 c["pattern"] = literal_pattern(c["pattern"])
-    return complete_metric_checks(graph, known_metrics)
+    complete_metric_checks(graph, known_metrics)
+    return align_precision_metrics(graph)
+
+
+def align_precision_metrics(graph: dict) -> dict:
+    """A precision-mode backup must never be looser than the screen check for the same metric in the
+    same step: in precision mode the gate passes on the backups, so a looser one turns a failing
+    run green (e.g. screen loss < 1e-2 by 2000 but backup loss < 0.05 with no deadline)."""
+    for step in graph["steps"]:
+        screen = {c.get("metric"): c for c in step["checks"] if c.get("type") == "metric_threshold" and c.get("metric")}
+        for c in step.get("precision_checks", []):
+            ref = screen.get(c.get("metric")) if c.get("type") == "metric_threshold" else None
+            if not ref or ref.get("op") is None or c.get("op") is None:
+                continue
+            down = ref["op"] in ("<", "<=")
+            if down != (c["op"] in ("<", "<=")):
+                continue
+            looser_value = c.get("value") is None or (c["value"] > ref["value"] if down else c["value"] < ref["value"])
+            looser_op = ref["op"] in ("<", ">") and c["op"] in ("<=", ">=") and c.get("value") == ref["value"]
+            looser_deadline = ref.get("by_step") is not None and (c.get("by_step") is None or c["by_step"] > ref["by_step"])
+            if looser_value or looser_op or looser_deadline:
+                c.update(op=ref["op"], value=ref["value"], label=ref.get("label", c.get("label")))
+                if ref.get("by_step") is not None:
+                    c["by_step"] = ref["by_step"]
+    return graph
 
 
 def looks_like_literal(p: str) -> bool:
