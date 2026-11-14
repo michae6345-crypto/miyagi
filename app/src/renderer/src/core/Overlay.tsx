@@ -9,7 +9,7 @@ import type { Layout } from '../../../preload/api'
 import { cmd } from '../../../common/wire'
 import { bridge } from '../bridge'
 import { Island } from './Island'
-import { overlayLayers } from './registry'
+import { getOverlayLayers } from './registry'
 import { triggerShortcut, type ActionShortcut } from './shortcuts'
 
 const ISLAND_Z = 50
@@ -19,6 +19,7 @@ export function Overlay({ layout }: { layout: Layout }): ReactNode {
   useReportBounds(root, layout)
   // Global shortcuts arrive from main as a 'shortcut' signal; route them through the shared path.
   useEffect(() => bridge.on('shortcut', (kind) => triggerShortcut(kind as ActionShortcut)), [])
+  const overlayLayers = getOverlayLayers()
   return (
     <div ref={root} className="absolute inset-0 overflow-hidden" style={{ width: layout.width, height: layout.height }}>
       {overlayLayers

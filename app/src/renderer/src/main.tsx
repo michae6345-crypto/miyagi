@@ -7,7 +7,7 @@ import type { Layout } from '../../preload/api'
 import { bridge, isElectron } from './bridge'
 import { dispatch } from './core/bus'
 import { setConnected } from './core/lesson'
-import { featureWindows } from './core/registry' // discovers features/* (their stores subscribe on import)
+import { getFeatureWindows } from './core/registry' // importing it loads features/* (their stores subscribe on import)
 import { Overlay, useClickThrough } from './core/Overlay'
 import { Stage } from './dev/Stage'
 
@@ -36,7 +36,7 @@ function App(): ReactNode {
   const layout = useEngineFeed()
   if (!isElectron) return <Stage openLauncher={route === 'launcher'} />
   if (route === 'overlay') return <ElectronOverlay layout={layout} />
-  const win = featureWindows.find((w) => w.route === route)
+  const win = getFeatureWindows().find((w) => w.route === route)
   if (!win) return <div className="p-4 text-red-400">No feature window for route "{route}"</div>
   return <win.Component layout={layout} />
 }

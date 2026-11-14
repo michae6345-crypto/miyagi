@@ -55,14 +55,31 @@ export function defineFeature(f: Feature): Feature {
 
 const modules = import.meta.glob<{ default: Feature }>('../features/*/index.{ts,tsx}', { eager: true })
 
-export const features: Feature[] = Object.values(modules)
-  .map((m) => m.default)
-  .filter((f): f is Feature => !!f && typeof f.id === 'string')
+/*
+ * Built on first use, NOT at import time: features import this file (defineFeature) and this file
+ * imports every feature, so on a hot reload a feature can be mid-evaluation when we load. Reading
+ * `.default` lazily avoids "Cannot access 'default' before initialization".
+ */
+type Built = { features: Feature[]; islandModes: IslandMode[]; overlayLayers: OverlayLayer[]; featureWindows: FeatureWindow[] }
+let built: Built | undefined
 
-export const islandModes: IslandMode[] = features.flatMap((f) => f.islandModes ?? []).sort((a, b) => b.priority - a.priority)
+function build(): Built {
+  if (built) return built
+  const features = Object.values(modules)
+    .map((m) => m.default)
+    .filter((f): f is Feature => !!f && typeof f.id === 'string')
+  built = {
+    features,
+    islandModes: features.flatMap((f) => f.islandModes ?? []).sort((a, b) => b.priority - a.priority),
+    overlayLayers: features.flatMap((f) => f.overlayLayers ?? []).sort((a, b) => a.z - b.z),
+    featureWindows: features.flatMap((f) => f.windows ?? [])
+  }
+  if (import.meta.env.DEV) console.info(`[tut] features: ${features.map((f) => f.id).join(', ')}`)
+  return built
+}
 
-export const overlayLayers: OverlayLayer[] = features.flatMap((f) => f.overlayLayers ?? []).sort((a, b) => a.z - b.z)
-
-export const featureWindows: FeatureWindow[] = features.flatMap((f) => f.windows ?? [])
-
-if (import.meta.env.DEV) console.info(`[tut] features: ${features.map((f) => f.id).join(', ')}`)
+export const getFeatures = (): Feature[] => build().features
+/** Sorted by priority, highest first. Stable across renders (the island calls each mode's hook in order). */
+export const getIslandModes = (): IslandMode[] => build().islandModes
+export const getOverlayLayers = (): OverlayLayer[] => build().overlayLayers
+export const getFeatureWindows = (): FeatureWindow[] => build().featureWindows

@@ -13,7 +13,7 @@ import desktop from './desktop.png'
 import { bridge, engineMode, STAGE } from '../bridge'
 import { emitUi } from '../core/bus'
 import { useLesson } from '../core/lesson'
-import { featureWindows } from '../core/registry'
+import { getFeatureWindows } from '../core/registry'
 import { triggerShortcut, type ActionShortcut } from '../core/shortcuts'
 import { Overlay } from '../core/Overlay'
 
@@ -51,7 +51,7 @@ export function Stage({ openLauncher = false }: { openLauncher?: boolean }): Rea
     return () => removeEventListener('keydown', onKey)
   }, [])
 
-  const windows = featureWindows.filter((w) => w.stage).sort((a, b) => (a.z ?? 0) - (b.z ?? 0))
+  const windows = getFeatureWindows().filter((w) => w.stage).sort((a, b) => (a.z ?? 0) - (b.z ?? 0))
 
   return (
     <div className="fixed inset-0 overflow-hidden bg-[#08080b]">

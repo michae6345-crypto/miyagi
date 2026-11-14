@@ -10,7 +10,7 @@ import { AnimatePresence, motion } from 'motion/react'
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react'
 import { bridge } from '../bridge'
 import { startBuild, useLesson } from './lesson'
-import { islandModes } from './registry'
+import { getIslandModes } from './registry'
 import { color, pill, spring, springOut } from './theme'
 
 export function Island({ top }: { top: number }): ReactNode {
@@ -22,6 +22,7 @@ export function Island({ top }: { top: number }): ReactNode {
   const passFlash = useLesson((s) => s.passFlash)
 
   // Ask every registered mode whether it wants the island. (Stable array → stable hook order.)
+  const islandModes = getIslandModes()
   const wanted = islandModes.map((m) => m.useActive(hover))
   const mode = islandModes.find((_, i) => wanted[i])
   const isPill = !mode || mode.width === undefined
