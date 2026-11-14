@@ -52,13 +52,43 @@ What every case asserts after ending:
 | new `learn` while a lesson runs | **PASS** | 15.12 card hint · 15.42 spotlight clear · video.pause · lesson.ended `new lesson` · status idle · thinking · search.done · idle · 19.48 lesson.ready (git) · step.started #1 |
 | `end_lesson` while a lesson is being built (extra) | **PASS** | 34.61 status thinking (building) · 37.66 lesson.ended `end_lesson` · status idle. Nothing afterwards: no lesson.ready, progress or error |
 
-**L1 · E4 orchestrator: cards and diagrams already in flight land after the lesson ended.**
-- In `session._action`, `explain` / `ask` / `diagram` await `m.explain` / `m.diagram`, then emit the card or diagram and
+### end_lesson re-run: integration/live fa6bd86 (includes 1d21923 "diagrams never cross lessons; end_lesson idempotent"), 14:40
+
+| case | fc56c0f | fa6bd86 | what changed |
+|---|---|---|---|
+| `end_lesson` over WS, diagram request in flight | FAIL | **PASS** | no diagram after `lesson.ended` anymore (0.48 s lesson.ended, then quiet for 6 s) |
+| `POST /end`, explain request in flight | FAIL | **FAIL** | 7.96 lesson.ended `POST /end` · status idle · **10.60 card explain** ("Timer state driven by an interval") · **10.60 status watching** |
+| new `learn` while a lesson runs | PASS | **PASS** | |
+| `end_lesson` mid-build | PASS | **PASS** | |
+
+**L1 · E4 orchestrator: an explain/ask card in flight lands after the lesson ended (the diagram part is fixed).**
+- `session._action`'s `explain` / `ask` branch awaits `m.explain(...)`, then emits `card` and
   `status watching|offtrack|passed` without checking the lesson is still the same one.
-- `end_lesson` skips the command queue (`main.py`), so it runs while that await is pending.
-- Result: the app gets a card or diagram for a lesson that's gone, and a `status watching` while the engine is idle.
-- Fix: `gen = self.step_gen` before the await, and drop the result and the status update if `gen != self.step_gen`
-  (`end_lesson` already bumps it via `_reset_step_state`). `hint` answers synchronously today, so it didn't show up.
+- The app shows a card for a lesson that's gone and goes back to "watching" while the engine is idle.
+- Fix (same as for diagrams): `gen = self.step_gen` before the await, and drop the card and the status update if
+  `gen != self.step_gen`. Do the same for `hint` if it ever becomes async.
+- Minor: `POST /end` with nothing running still emits `lesson.ended {reason: "POST /end"}` (no lessonId) + `status idle`. That's
+  harmless, but the app may flash its "lesson ended" UI.
+
+### resume: integration/live fa6bd86 (S7), 14:40
+
+Setup for each case: start a lesson, `/debug/pass` to step 2, report `video.state {t: start+7}` (80 s), then disconnect.
+The engine offers the card only when the app returns after ≥ `ORCH_RESUME_AFTER_S` (10 s) to a lesson it already showed.
+
+| case | result | event sequence |
+|---|---|---|
+| reconnect after 12 s away → card → `resume` → `end_lesson` | **PASS** (15/15) | snapshot: `video.pause` · `card resume` "Continue where you left off?" ("React useEffect Cleanup Tutorial · step 2: Toggle Timer in App component", actions `resume`, `end_lesson`), with no step.started, video.seek or video.play. `action resume`: lesson.ready · step.started #2 s2 (same step) · check.updated · `video.seek {t: 80.0, play: true}` (same position) · status watching. `action end_lesson`: spotlight clear · video.pause · lesson.ended `end_lesson` · status idle, then quiet for 3 s; /state idle; a new client sees `[status]` |
+| quick reconnect (2 s blip) | **PASS** | no card: lesson.ready · step.started #2 s2 · check.updated · status watching (continues as designed) |
+| **engine restart while away**, then reconnect | **FAIL** | after the restart `/state` is phase idle, no lesson, no step; the returning app's snapshot is just `status idle`, with no resume card |
+
+**L2 · E4 orchestrator: resume doesn't survive an engine restart.**
+- The lesson, step index, check states and `video_t` live only in `LessonSession` memory.
+- A restart (crash, `scripts/miyagi-engine.sh` re-run, laptop sleep) loses the lesson, so the resume card never comes.
+- Fix:
+  - Persist a small session file on every step change and on each `video.state` (throttled): lesson id or graph path, step
+    index, check states, `video_t`, `seen_lesson`. Put it in e.g. `~/miyagi/session.json` or `demo/runs/session.json`.
+  - On boot, load it, set `awaiting_resume = True` and `seen_lesson`, so the first app connection gets the card.
+  - Delete the file on `end_lesson`.
 
 ## Run 3: Gemini paid, integration/live 4ff1417, 14:23–14:29
 

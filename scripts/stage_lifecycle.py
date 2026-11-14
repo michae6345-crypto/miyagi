@@ -15,6 +15,7 @@ import argparse
 import asyncio
 import json
 import sys
+import os
 import time
 from pathlib import Path
 
@@ -259,36 +260,103 @@ async def run_end(engine: stage.Engine) -> list[Case]:
     return cases
 
 
-async def run_resume(engine: stage.Engine, restart: callable) -> list[Case]:
-    cases: list[Case] = []
+async def _lesson_at_step2(engine: stage.Engine, *, video_offset: float = 7.0) -> dict:
+    """Start a lesson, advance to the 2nd step, report a video position inside it, disconnect.
+    -> {stepId, video_t, lessonId}"""
     async with Client(engine) as c:
-        case = Case("reconnect -> resume card")
-        print(f"\n{C['bold']}{case.name}{C['x']}")
-        case.check("lesson starts", await start_lesson(c) is not None)
+        if await start_lesson(c) is None:
+            return {}
+        i = c.mark()
         httpx.post(f"{engine.http}/debug/pass", timeout=10)  # advance a step
-        await c.wait_for(lambda e: e[1] == "step.started" and e[2].get("index", 0) >= 1, 0, 10)
-        await c.send("video.state", {"t": 80.0, "playing": True})
+        st = await c.wait_for(lambda e: e[1] == "step.started", i, 10)
+        if not st:
+            return {}
+        seg = st[2].get("video") or {}
+        t = float(seg.get("start", 0)) + video_offset
+        await c.send("video.state", {"t": t, "playing": True})
         await asyncio.sleep(1.0)
-        before = engine.state()
-    async with Client(engine, "app2") as c2:
+        lesson = (engine.state().get("lesson") or {}).get("id")
+        return {"stepId": st[2]["stepId"], "video_t": t, "lessonId": lesson, "title": st[2].get("title")}
+
+
+async def _expect_resume(case: Case, engine: stage.Engine, before: dict) -> None:
+    async with Client(engine, "returning-app") as c:
         await asyncio.sleep(2.0)
-        types = [ty for _, ty, _ in c2.events]
-        case.check("reconnect shows a resume card, not an auto-continued step",
-                   any(ty in ("resume", "lesson.resume", "card") and ("resume" in ty or p.get("kind") == "resume")
-                       for _, ty, p in c2.events) and "video.play" not in types, f"snapshot: {types}")
-        case.sequence = seq(c2.events)
-        print(f"      {C['dim']}{case.sequence}{C['x']}")
-        i = c2.mark()
-        await c2.send("resume", {})
-        st = await c2.wait_for(lambda e: e[1] == "step.started", i, 10)
-        seek = await c2.wait_for(lambda e: e[1] == "video.seek", i, 10)
+        types = [ty for _, ty, _ in c.events]
+        card = next((p for _, ty, p in c.events if ty == "card" and p.get("kind") == "resume"), None)
+        case.check("reconnect shows the resume card", card is not None,
+                   f"{card.get('title')!r} · {card.get('body')!r} · actions {card.get('actions')}" if card else f"snapshot: {types}")
+        case.check("…and does not auto-continue (no step.started / video.play / video.seek in the snapshot)",
+                   not ({"step.started", "video.play", "video.seek"} & set(types)), f"snapshot: {types}")
+        case.check("video paused while asking", "video.pause" in types)
+        i = c.mark()
+        await c.send("action", {"kind": "resume"})
+        st = await c.wait_for(lambda e: e[1] == "step.started", i, 10)
+        seek = await c.wait_for(lambda e: e[1] == "video.seek", i, 10)
         case.check("resume -> same step", st is not None and st[2].get("stepId") == before.get("stepId"),
-                   f"{st[2].get('stepId') if st else None} vs {before.get('stepId')}")
-        case.check("resume -> video position kept (~80 s)", seek is not None and abs(seek[2].get("t", 0) - 80) < 5,
-                   f"seek {seek[2] if seek else None}")
-        i = c2.mark()
-        await c2.send("end_lesson", {})
-        await assert_ended(case, c2, engine, i, reason="end_lesson", quiet_s=3)
+                   f"{st[2].get('stepId') if st else None} (was {before.get('stepId')})")
+        case.check(f"resume -> video seeks to the reported position ({before.get('video_t', 0):.0f} s)",
+                   seek is not None and abs(seek[2].get("t", -99) - before.get("video_t", 0)) < 1.5,
+                   f"video.seek {seek[2] if seek else None}")
+        stat = await c.wait_for(lambda e: e[1] == "status" and e[2].get("state") in ("watching", "offtrack"), i, 5)
+        case.check("status back to watching/offtrack", stat is not None)
+        resumed = c.since(i)
+        j = c.mark()
+        await c.send("action", {"kind": "end_lesson"})  # the card's "Start a new lesson" button
+        await assert_ended(case, c, engine, j, reason="end_lesson", quiet_s=3)
+        case.sequence = ("snapshot: " + seq([e for e in c.events[:i]]) + "\n      after resume: " + seq(resumed)
+                         + "\n      after end_lesson: " + seq(c.since(j)))
+        print(f"      {C['dim']}{case.sequence}{C['x']}")
+
+
+async def run_resume(engine: stage.Engine, restart) -> list[Case]:
+    cases: list[Case] = []
+    away = float(os.environ.get("ORCH_RESUME_AFTER_S", "10")) + 2
+
+    case = Case(f"reconnect after {away:.0f} s away -> resume card -> resume -> end_lesson")
+    print(f"\n{C['bold']}{case.name}{C['x']}")
+    before = await _lesson_at_step2(engine)
+    case.check("lesson started and advanced to step 2", bool(before), json.dumps(before))
+    await asyncio.sleep(away)
+    await _expect_resume(case, engine, before)
+    cases.append(case)
+
+    case = Case("quick reconnect (2 s blip) -> just continues, no card")
+    print(f"\n{C['bold']}{case.name}{C['x']}")
+    before = await _lesson_at_step2(engine)
+    case.check("lesson started and advanced to step 2", bool(before), json.dumps(before))
+    await asyncio.sleep(2)
+    async with Client(engine, "blip") as c:
+        await asyncio.sleep(1.5)
+        types = [ty for _, ty, _ in c.events]
+        st = next((p for _, ty, p in c.events if ty == "step.started"), None)
+        case.check("no resume card", not any(ty == "card" and p.get("kind") == "resume" for _, ty, p in c.events), f"{types}")
+        case.check("snapshot continues the same step", st is not None and st.get("stepId") == before.get("stepId"),
+                   f"{types}")
+        case.sequence = seq(c.events)
+        print(f"      {C['dim']}{case.sequence}{C['x']}")
+        httpx.post(f"{engine.http}/end", timeout=10)
+    cases.append(case)
+
+    case = Case("engine restart while away -> resume card")
+    print(f"\n{C['bold']}{case.name}{C['x']}")
+    before = await _lesson_at_step2(engine)
+    case.check("lesson started and advanced to step 2", bool(before), json.dumps(before))
+    restart()
+    await asyncio.sleep(away)
+    st = engine.state()
+    case.check("after restart the engine still has the lesson", bool(st.get("lesson")),
+               f"phase={st.get('phase')} lesson={(st.get('lesson') or {}).get('id')} step={st.get('stepId')}")
+    if st.get("lesson"):
+        await _expect_resume(case, engine, before)
+    else:
+        async with Client(engine, "after-restart") as c:
+            await asyncio.sleep(1.5)
+            case.check("reconnect after restart shows the resume card",
+                       any(ty == "card" and p.get("kind") == "resume" for _, ty, p in c.events),
+                       f"snapshot: {[ty for _, ty, _ in c.events]}")
+            case.sequence = seq(c.events)
+            print(f"      {C['dim']}{case.sequence}{C['x']}")
     cases.append(case)
     return cases
 
@@ -303,7 +371,10 @@ def main() -> None:
     if args.what == "end":
         cases = asyncio.run(run_end(engine))
     else:
-        cases = asyncio.run(run_resume(engine, restart=None))
+        def restart() -> None:
+            engine.stop()
+            engine.ensure(screen=False, open_ws=False, workdir=None)
+        cases = asyncio.run(run_resume(engine, restart=restart))
     print()
     for cs in cases:
         print(f"{C['g'] if cs.passed else C['r']}{'PASS' if cs.passed else 'FAIL'}{C['x']} {cs.name}")
