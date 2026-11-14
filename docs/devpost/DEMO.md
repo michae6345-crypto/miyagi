@@ -15,13 +15,19 @@ Hero: Juan Toscano, *Learning Physics Informed Machine Learning Part 1: PINNs* (
    ```bash
    .venv/bin/python -m server.checks.tiger --ping
    ```
-4. Engine. Start it with **`ORCH_LADDER_MIN_S=0`**. Otherwise the "Do it for me" card can't appear until 20 s after the first
-   card (`server/orchestrator/config.py:117`). Pick **A** (the full flow, with live search) or **B** (lesson already loaded):
+4. Engine. Start it with **`ORCH_LADDER_MIN_S=0 COACH_OFFLINE_FALLBACK=1`**.
+   - `ORCH_LADDER_MIN_S=0`: otherwise the "Do it for me" card can't appear until 20 s after the first card
+     (`server/orchestrator/config.py:117`).
+   - `COACH_OFFLINE_FALLBACK=1`: if Opus can't be reached and the code confidently matches a playbook entry, the coach shows that
+     playbook card, marked `offline: true` (`server/coach/llm.py`). It's off by default because of the no-fake rule, and it does
+     nothing until **E5's PR #1** is merged into `integration/live`.
+
+   Pick **A** (the full flow, with live search) or **B** (lesson already loaded):
    ```bash
-   ORCH_LADDER_MIN_S=0 scripts/miyagi-engine.sh
+   ORCH_LADDER_MIN_S=0 COACH_OFFLINE_FALLBACK=1 scripts/miyagi-engine.sh
    ```
    ```bash
-   ORCH_LADDER_MIN_S=0 scripts/miyagi-demo.sh
+   ORCH_LADDER_MIN_S=0 COACH_OFFLINE_FALLBACK=1 scripts/miyagi-demo.sh
    ```
    B autostarts the hero lesson on `demo/pinn-lab` from E2's cache, with no launcher needed. Everything else (screen, checks, coach)
    is still live.
@@ -76,8 +82,14 @@ unless it's merged, wired, and has passed a live take.
   loaded, so skip to 0:35.
 - No amber after the run: you probably ran plain `python`. Use `tut run python …` so the metrics are exact. Press **⌥H** to force
   the hint card.
-- The network is dead: the LIVE engine shows **no** coach card (`CoachUnavailable`, plus an error toast about once a second). Don't
-  wait. Stop the engine and switch to `scripts/miyagi-offline.sh` (below).
+- The network dies mid-demo:
+  - **Once E5's PR #1 is merged** and the engine runs with `COACH_OFFLINE_FALLBACK=1`, the live engine still shows the "Learning
+    rate is too high" playbook card, 0.9 s after amber (verified offline in rehearsal). There's no "Do it for me" offline, so fix
+    `lr` by hand and carry on. No engine switch is needed.
+  - **Until PR #1 is merged**, the live engine shows **no** coach card (`CoachUnavailable`, plus an error toast about once a
+    second). Don't wait. Stop the engine and switch to `scripts/miyagi-offline.sh` (below).
+- The live coach card's 5–7 s after amber is the rehearsed number. E5's PR #1 should bring it down to about 3.4 s (Opus only), but
+  that hasn't been re-measured live (cost freeze), so keep 5–7 s in the timing until someone measures it.
 
 ---
 
