@@ -1,24 +1,25 @@
 /**
  * Building mode, screen-first (mockup 04, Miyagi brand): the engine's screen reader (Apple Vision OCR)
  * finds the target on screen and sends `spotlight {rect, caption}`. We dim everything to 55% and cut a
- * rounded hole at that rect, edged with a crisp white hairline, with a glass caption beside it. Works
- * over any app; never takes a click except on the voice button.
+ * rounded hole at that rect, edged with a crisp hairline, with a glass caption beside it. Works over
+ * any app; never takes a click except on the voice button.
  *
- * Brand (app/brand/BRAND.md): no glows, no blur on the ring, no blue. The ring is a calm hairline in
- * `color.accent` (white) over a faint `color.onAccent` keyline, so it still reads over light apps.
+ * Brand (app/brand/BRAND.md): no glows, no blur on the ring, no blue. Color only carries state, like the
+ * pill's dot: the hairline is white while Miyagi watches, amber when off track, green when the step
+ * passes (a beat, then it fades). It sits over a faint `color.onAccent` keyline so it reads over light apps.
  *
  * Animation (FRONTEND-HANDOFF → "Dim overlay + spotlight"):
  *   - the dim fades in over 280ms;
  *   - the hole is ONE set of motion values (x, y, w, h) driven by the spring. The mask cut-out and the
  *     ring read those same values, written straight to the SVG attributes every frame: no React
  *     re-render while it moves;
- *   - the ring pulses once in opacity per new target (0.6 → 1 → 0.6, 1.2s), then stays still;
+ *   - the ring pulses once in opacity per new target or state (→ 1 → rest, 1.2s), then stays still;
  *   - reduced motion: no spring, no pulse, crossfades only.
  */
 import { AnimatePresence, animate, motion, useMotionValue, useReducedMotion } from 'motion/react'
 import { useCallback, useEffect, useId, useLayoutEffect, useRef, useState, type ReactNode, type RefObject } from 'react'
 import { Volume2 } from 'lucide-react'
-import { useLesson, type Rect } from '../../core/lesson'
+import { useLesson, useStatus, type Rect, type Status } from '../../core/lesson'
 import { color, font, radius, shadow, spring, text } from '../../core/theme'
 import { toggleVoice, useVoice } from '../voice/store'
 import { hole, holeRadius, placeCaption, type Side } from './place'
@@ -27,11 +28,14 @@ import type { SpotlightMode, SpotlightTarget } from './store'
 const CAPTION_W = 300
 /** Until the caption has been measured (mockup 04: 84). */
 const CAPTION_H_GUESS = 84
-/** The dim is black at 55%: a spec value, not a theme color (see Core requests: a `dim` token). */
-const DIM = { fill: '#000', opacity: 0.55, fade: 0.28 } as const
+/** The dim is black (not a theme color; see Core requests: a `dim` token). 0.66 = Adrian's "more contrast"; the handoff said 55%. */
+const DIM = { fill: '#000', opacity: 0.66, fade: 0.28 } as const
 /** The ring: a crisp hairline (no blur) over a faint dark keyline for contrast on light apps. */
 const RING = { width: 1.5, keyline: 3.5, keylineOpacity: 0.35 } as const
-const PULSE = { rest: 0.6, peak: 1, duration: 1.2 } as const
+const PULSE = { from: 0.45, peak: 1, rest: 0.9, duration: 1.2 } as const
+/** State colors, the same meaning as the pill's dot. Nothing else in the spotlight has color. */
+const RING_COLOR: Record<Status, string> = { watching: color.accent, offtrack: color.amber, passed: color.green }
+const DOT_COLOR: Record<Status, string> = { watching: color.gray, offtrack: color.amber, passed: color.green }
 
 type Props = {
   target?: SpotlightTarget
@@ -54,7 +58,8 @@ function Scene({ target, rect, bounds, mode, showCaption, avoid }: Props & { tar
   const reduced = useReducedMotion() ?? false
   const cut = hole(rect)
   const register = useAnimatedHole(cut, reduced)
-  const pulse = usePulse(`${target.caption}|${Math.round(cut.x)},${Math.round(cut.y)},${Math.round(cut.w)},${Math.round(cut.h)}`, reduced)
+  const status = useStatus()
+  const pulse = usePulse(`${status}|${target.caption}|${Math.round(cut.x)},${Math.round(cut.y)},${Math.round(cut.w)},${Math.round(cut.h)}`, reduced)
   const id = useId().replace(/[^a-zA-Z0-9_-]/g, '')
   // Fallback (cut order): the same hairline, no dim.
   const outline = mode === 'outline'
@@ -81,10 +86,10 @@ function Scene({ target, rect, bounds, mode, showCaption, avoid }: Props & { tar
         {!outline && <rect width="100%" height="100%" fill={DIM.fill} fillOpacity={DIM.opacity} mask={`url(#${id}-hole)`} data-part="dim" />}
         <motion.g style={{ opacity: pulse }} data-part="ring">
           <rect ref={register} data-part="keyline" fill="none" style={{ stroke: color.onAccent }} strokeOpacity={RING.keylineOpacity} strokeWidth={RING.keyline} />
-          <rect ref={register} data-part="hairline" fill="none" style={{ stroke: color.accent }} strokeWidth={RING.width} />
+          <rect ref={register} data-part="hairline" data-status={status} fill="none" style={{ stroke: RING_COLOR[status], transition: 'stroke 240ms ease-out' }} strokeWidth={RING.width} />
         </motion.g>
       </svg>
-      {showCaption && <Caption target={target} hole={cut} bounds={bounds} avoid={avoid} reduced={reduced} />}
+      {showCaption && <Caption target={target} hole={cut} bounds={bounds} avoid={avoid} reduced={reduced} status={status} />}
     </motion.div>
   )
 }
@@ -145,15 +150,15 @@ function useAnimatedHole(to: Rect, reduced: boolean): (el: SVGRectElement | null
   )
 }
 
-/** Ring opacity: one pulse (0.6 → 1 → 0.6 over 1.2s) whenever `key` changes, then still. */
+/** Ring opacity: one pulse (→ 1 → rest over 1.2s) whenever `key` changes, then still. */
 function usePulse(key: string, reduced: boolean) {
-  const pulse = useMotionValue<number>(PULSE.rest)
+  const pulse = useMotionValue<number>(PULSE.from)
   useEffect(() => {
     if (reduced) {
       pulse.jump(PULSE.rest)
       return
     }
-    const run = animate(pulse, [PULSE.rest, PULSE.peak, PULSE.rest], { duration: PULSE.duration, ease: 'easeInOut', times: [0, 0.5, 1] })
+    const run = animate(pulse, [Math.min(pulse.get(), PULSE.from), PULSE.peak, PULSE.rest], { duration: PULSE.duration, ease: 'easeInOut', times: [0, 0.45, 1] })
     return () => run.stop()
   }, [key, reduced, pulse])
   return pulse
@@ -203,7 +208,7 @@ const ENTER: Record<Side, { x: number; y: number }> = {
   inside: { x: 0, y: 0 }
 }
 
-function Caption({ target, hole: cut, bounds, avoid: outside, reduced }: { target: SpotlightTarget; hole: Rect; bounds: Rect; avoid: Rect[]; reduced: boolean }): ReactNode {
+function Caption({ target, hole: cut, bounds, avoid: outside, reduced, status }: { target: SpotlightTarget; hole: Rect; bounds: Rect; avoid: Rect[]; reduced: boolean; status: Status }): ReactNode {
   const voiceOn = useVoice((s) => s.on)
   const index = useLesson((s) => Math.max(0, s.steps.findIndex((x) => x.id === s.stepId)))
   const ref = useRef<HTMLDivElement>(null)
@@ -238,15 +243,18 @@ function Caption({ target, hole: cut, bounds, avoid: outside, reduced }: { targe
     >
       <div className="flex items-center gap-[12px]">
         <div className="min-w-0 flex-1">
-          <div className="truncate" style={{ fontSize: text.xs, color: color.label }}>
-            Step {index + 1}
-            {target.app ? ` · ${target.app}` : ''}
+          <div className="flex items-center gap-[7px]" style={{ fontSize: text.xs, color: color.label }}>
+            <span data-part="dot" className="h-[7px] w-[7px] shrink-0 rounded-full" style={{ background: DOT_COLOR[status], transition: 'background-color 240ms ease-out' }} />
+            <span className="truncate">
+              Step {index + 1}
+              {target.app ? ` · ${target.app}` : ''}
+            </span>
           </div>
           <div className="mt-[2px] font-semibold leading-[20px]" style={{ fontSize: text.sm, color: color.text }}>
             {target.caption}
           </div>
           {code && (
-            <div className="mt-[3px] truncate" style={{ fontFamily: font.mono, fontSize: text.xs, color: color.label }}>
+            <div className="mt-[4px] truncate" style={{ fontFamily: font.mono, fontSize: text.xs, color: color.text, opacity: 0.78 }}>
               {code}
             </div>
           )}

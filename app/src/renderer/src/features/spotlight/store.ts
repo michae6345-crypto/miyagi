@@ -19,15 +19,27 @@ export function spotlightMode(): SpotlightMode {
   return q === 'outline' || q === 'dim' ? q : SPOTLIGHT_MODE
 }
 
+/** On step.passed the ring turns green (status color) for a beat, then the spotlight fades out. */
+export const PASS_HOLD_MS = 900
+
 export const useSpotlight = create<{ target?: SpotlightTarget }>(() => ({ target: undefined }))
-const clear = (): void => useSpotlight.setState({ target: undefined })
+let passTimer: ReturnType<typeof setTimeout> | undefined
+const clear = (): void => {
+  clearTimeout(passTimer)
+  useSpotlight.setState({ target: undefined })
+}
 
 onUi('reset', clear)
 onMessage('lesson.ready', clear)
 onMessage('step.started', clear)
-onMessage('step.passed', clear)
+onMessage('step.passed', () => {
+  if (!useSpotlight.getState().target) return
+  clearTimeout(passTimer)
+  passTimer = setTimeout(clear, PASS_HOLD_MS)
+})
 onMessage('spotlight', (p) => {
   if ('clear' in p) return clear()
+  clearTimeout(passTimer)
   const next = p as SpotlightTarget
   const prev = useSpotlight.getState().target
   // The engine re-sends the same target every screen read; ignore OCR jitter so the hole doesn't wobble.
