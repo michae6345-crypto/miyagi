@@ -239,9 +239,18 @@ class SetupItem(_Model):
     install: SetupInstall
 
 
+class SetupResource(_Model):
+    name: str
+    url: str
+    kind: Literal["repo", "notebook", "gist", "file"]
+
+
 class Setup(_Model):
     editorNeeded: bool
     items: list[SetupItem]
+    editorLabel: str | None = None  # "Cursor"
+    resources: list[SetupResource] | None = None  # files the video links (action download)
+    actionLabels: dict[str, str] | None = None
 
 
 class SetupProgress(_Model):
@@ -303,7 +312,7 @@ class PreflightInfo(_Model):
 
 
 CardAction = Literal["confirm", "undo", "apply_fix", "open_editor", "resume", "end_lesson", "install", "skip_setup",
-                     "open_in_browser", "build", "pick_another"]
+                     "open_in_browser", "build", "pick_another", "download"]
 
 
 class Card(_Model):
@@ -476,7 +485,7 @@ class BuildLesson(_Model):
 
 ActionKind = Literal["back", "explain", "diagram", "show_me", "hint", "voice_toggle", "ask", "apply_fix",
                      "confirm", "undo", "open_editor", "resume", "end_lesson", "install", "skip_setup", "open_in_browser",
-                     "build", "pick_another"]
+                     "build", "pick_another", "download"]
 
 
 class Action(_Model):
