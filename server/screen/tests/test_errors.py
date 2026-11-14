@@ -11,7 +11,7 @@ mac = pytest.mark.skipif(sys.platform != "darwin", reason="macOS capture")
 
 
 @mac
-def test_no_permission_raises_and_never_uses_fixture(monkeypatch):
+def test_no_permission_raises_and_never_uses_fixture(monkeypatch, live_display):
     from server.screen import ScreenPermissionError, macos
     from server.screen.reader import ScreenReader
     monkeypatch.delenv("DEMO", raising=False)
@@ -98,3 +98,26 @@ def test_tiger_retries_with_backoff_and_keeps_points():
     assert w.pending == 2                       # ...but nothing is dropped
     assert w._failures >= 1 and w.status == "invalid" and w.last_error
     assert w._next_try > 0                      # backing off
+
+
+@mac
+def test_sck_failure_is_temporary(monkeypatch, live_display):
+    """A ScreenCaptureKit blip (display asleep) must not disable overlay exclusion for good."""
+    import time as _t
+
+    from server.screen.reader import ScreenReader
+    r = ScreenReader(use_ax=False, use_events=False)
+
+    class Boom:
+        excluded_apps = ()
+
+        def capture(self):
+            raise RuntimeError("display asleep")
+
+    r._sck = Boom()
+    assert r._sck_capture() is None and r._sck_retry_at > _t.time()
+    assert r._sck_capture() is None          # within the retry window: straight to CG, no retry
+    r._sck_retry_at = 0.0
+    from server.screen.sck import SCKCapturer
+    r._sck = SCKCapturer()
+    assert r._sck_capture() is not None and r._sck_retry_at == 0.0   # recovered

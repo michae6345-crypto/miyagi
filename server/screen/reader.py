@@ -52,7 +52,7 @@ class ScreenReader:
         self.ax_reader = None       # server.screen.ax.AXReader once started (None: AX unavailable)
         self.events = None          # server.screen.events.EventTriggers once started
         self._sck = None
-        self._sck_failed = False
+        self._sck_retry_at = 0.0     # after a ScreenCaptureKit failure, use CG until then (sleep/lock blips)
         self._pending_reason = "tick"
         self._force_next = False
         self._last_capture = 0.0
@@ -363,19 +363,22 @@ class ScreenReader:
 
     def _sck_capture(self):
         """ScreenCaptureKit with our overlay excluded; None -> use the CoreGraphics fallback."""
-        if not self.use_sck or self._sck_failed:
+        if not self.use_sck or time.time() < self._sck_retry_at:
             return None
         try:
             if self._sck is None:
                 from .sck import SCKCapturer
                 self._sck = SCKCapturer()
             img, screen, scale = self._sck.capture()
+            self._sck_retry_at = 0.0
             return img, screen, scale, set(self._sck.excluded_apps)
         except ScreenPermissionError:
             raise
         except Exception as e:  # noqa: BLE001
-            log.warning("ScreenCaptureKit failed (%s); falling back to CGDisplayCreateImage + overlay masking", e)
-            self._sck_failed = True
+            if self._sck_retry_at == 0.0:  # log once per failure streak, not per frame
+                log.warning("ScreenCaptureKit failed (%s); using CGDisplayCreateImage + overlay masking, "
+                            "retrying SCK every 30 s", e)
+            self._sck_retry_at = time.time() + 30.0
             return None
 
     def observe_now(self, force: bool = True, trigger: str = "manual") -> ScreenObservation | None:

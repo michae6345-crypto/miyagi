@@ -78,7 +78,7 @@ def test_ocr_latency_reasonable(flat):
     assert flat.ocr_ms < 3000
 
 
-def test_live_capture_is_primary_full_frame_points():
+def test_live_capture_is_primary_full_frame_points(live_display):
     """events.ts: rects are screen POINTS, top-left origin, PRIMARY display's FULL frame
     (y=0 is the very top, menu bar included)."""
     from server.screen import macos
