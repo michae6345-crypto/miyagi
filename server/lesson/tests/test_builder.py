@@ -587,3 +587,31 @@ def test_adapt_retries_only_failing_steps_and_stops_without_progress(fake):
     assert len(fake["adapt"]) == 2  # round 2 made no progress -> stopped, no 3rd round
     assert all(p.startswith("s2") for p in fake["adapt"][1])  # only step 2's problems were re-sent
     assert g["build"]["adapted"] is True and schema_errors(g) == []
+
+
+def test_it_runs_checks_use_the_stacks_own_error_text():
+    def g(cmd):
+        return {"lesson": {"libraries": {}}, "steps": [{"id": "s1", "run_command": cmd, "precision_checks": [], "targets": [],
+                "checks": [{"id": "s1c1", "type": "screen_absent", "label": "no errors", "app": "Terminal", "pattern": "Traceback|Error:|ERR!"}]}]}
+    pats = {cmd: builder.normalize_checks(g(cmd), set())["steps"][0]["checks"][0]["pattern"]
+            for cmd in ("npm run dev", "cargo run", "git rebase main", "python app.py")}
+    assert "ERR!" in pats["npm run dev"] and "Traceback" not in pats["npm run dev"]
+    assert pats["cargo run"].startswith(r"error\[E") and pats["git rebase main"].startswith("fatal:")
+    assert pats["python app.py"] == "Traceback|Error:|ERR!"  # python keeps it
+
+
+def test_adapt_runs_in_parallel_batches(fake, monkeypatch):
+    sizes = []
+
+    async def adapt(goal, steps, summary, feedback=None):
+        sizes.append(len(steps))
+        await asyncio.sleep(0.2)
+        return {"steps": [{"index": s["index"], "checks": [{"type": "screen_contains", "label": "x", "app": "Code", "pattern": "function\\s+App"}],
+                           "targets": []} for s in steps]}
+
+    monkeypatch.setattr(claude, "adapt_checks", adapt)
+    monkeypatch.setattr(builder, "ADAPT_BATCH", 1)
+    import time as _t
+    t0 = _t.time()
+    asyncio.run(builder.build_lesson(URL, "x", WORKDIR, refresh=True))
+    assert sizes[:3] == [1, 1, 1] and _t.time() - t0 < 0.55  # three 0.2 s calls ran concurrently

@@ -23,6 +23,8 @@ from .schema import (
     check_problems,
     is_output_check,
     lint,
+    stack_of,
+    standard_error_pattern,
     schema_errors,
     standard_output_check,
     step_check_problems,
@@ -354,13 +356,33 @@ def _short_reason(err: str) -> str:
     return "error"
 
 
+ADAPT_BATCH = 3  # steps per adapt call; batches run in parallel
+
+
 async def _adapt_call(goal: str, draft: dict, summary: str, feedback: list[str] | None) -> tuple[dict, str]:
-    """The adapt pass is Claude's job (Gemini only watches videos)."""
+    """The adapt pass is Claude's job (Gemini only watches videos). Steps go in parallel batches of
+    ADAPT_BATCH, each with only its own feedback (plus graph-level problems). A batch that fails is
+    left out (those steps keep the draft's checks); if every batch fails, the error is raised."""
     t0 = time.time()
     _emit("adapting", "retry" if feedback else "")
-    out = await claude.adapt_checks(goal, draft["steps"], summary, feedback)
-    log.info("claude adapt pass: %.1fs", time.time() - t0)
-    return out, str(claude.last_model)
+    steps = draft["steps"]
+    batches = [steps[i:i + ADAPT_BATCH] for i in range(0, len(steps), ADAPT_BATCH)] or [[]]
+
+    def fb_for(batch: list[dict]) -> list[str] | None:
+        if not feedback:
+            return feedback
+        ids = {st["index"] for st in batch}
+        return [p for p in feedback if not (m := _STEP_PROBLEM.match(p)) or int(m.group(1)) in ids] or None
+
+    results = await asyncio.gather(*(claude.adapt_checks(goal, b, summary, fb_for(b)) for b in batches), return_exceptions=True)
+    errs = [r for r in results if isinstance(r, BaseException)]
+    if len(errs) == len(results):
+        raise errs[0] if isinstance(errs[0], RuntimeError) else RuntimeError(str(errs[0]))
+    for e in errs:
+        log.warning("adapt batch failed: %s", str(e)[:200])
+    merged = [st for r in results if isinstance(r, dict) for st in r.get("steps") or []]
+    log.info("claude adapt pass: %.1fs (%d batch(es))", time.time() - t0, len(batches))
+    return {"steps": merged}, str(claude.last_model)
 
 
 async def _add_detail(url: str, draft: dict) -> None:
@@ -576,7 +598,13 @@ BROWSER_APPS = {"google chrome", "chrome", "safari", "arc", "firefox", "microsof
 
 def normalize_checks(graph: dict, known_metrics: set[str]) -> dict:
     """Deterministic fixes applied before lint (no model call)."""
+    libs = (graph.get("lesson") or {}).get("libraries") or {}
     for step in graph["steps"]:
+        # "it runs" checks: a Python Traceback never shows up in a Vite/cargo/git terminal
+        stack = stack_of(step, libs if not step.get("run_command") and not step.get("code") else None)
+        for c in step["checks"]:
+            if c.get("type") == "screen_absent" and "Traceback" in (c.get("pattern") or "") and stack and stack != "python":
+                c["pattern"] = standard_error_pattern(stack)
         # The learner's browser is unknown: a browser-scoped check/target matches text in any window instead.
         for item in step["checks"] + step.get("targets", []):
             if (item.get("app") or "").strip().lower() in BROWSER_APPS:

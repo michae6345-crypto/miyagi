@@ -175,6 +175,28 @@ STANDARD_OUTPUTS = [
 ]
 
 
+# What failure looks like in each stack's terminal, for screen_absent "it runs" checks.
+STANDARD_ERRORS = [
+    ("rust", r"\b(cargo|rustc)\b|\.rs\b|\bfn\s+main\b", r"error\[E\d+\]|error:\s"),
+    ("node", r"\b(npm|npx|node|vite|yarn|pnpm|next|react|jsx|tsx)\b", r"ERR!|Error:|error\s+TS\d+"),
+    ("go", r"\bgo\s+(run|build|test)\b|\.go\b", r"panic:|\bFAIL\b"),
+    ("git", r"^\s*git\s|\bgit\s+(init|add|commit|rebase|merge|push|pull|clone|switch|checkout)\b", r"fatal:|error:\s"),
+    ("python", r"\b(python3?|pytest|pip|uvicorn|flask|pandas|import)\b|\.py\b", r"Traceback|Error:"),
+]
+
+
+def stack_of(step: dict, libraries: dict | None = None) -> str | None:
+    text = " ".join([step.get("run_command") or "", step.get("code") or "", " ".join((libraries or {}).keys())])
+    for name, detect, _err in STANDARD_ERRORS:
+        if re.search(detect, text, re.I | re.M):
+            return name
+    return None
+
+
+def standard_error_pattern(stack: str) -> str:
+    return next(err for name, _d, err in STANDARD_ERRORS if name == stack)
+
+
 def standard_output_check(step: dict) -> dict | None:
     """A stack-standard output check for a run step, if its command/code names a known tool."""
     text = " ".join([step.get("run_command") or "", step.get("code") or ""])
