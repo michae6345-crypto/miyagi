@@ -319,6 +319,16 @@ class LessonSession:
                                  "body": f"This lesson works in VS Code. Open the {Path(folder).name} folder there?",
                                  "actions": ["open_editor"]})
 
+    async def _open_in_browser(self, tool: str) -> None:
+        """Open a no-code lesson's web app (the learner pressed its button). Only the lesson's own https URLs."""
+        item = next((it for it in self.reqs or [] if it.get("tool") == tool), None)
+        url = ((item or {}).get("install") or {}).get("url") or ""
+        if not url.startswith("https://"):
+            await self.emit("error", {"message": f"No link to open for {tool or 'that app'}."})
+            return
+        if self.workspace is not None:
+            self.workspace.run(["open", url])  # macOS: the default browser
+
     async def _install(self, tool: str) -> None:
         """Install one setup item (the learner pressed Install), streaming setup.progress lines."""
         from . import workspace as wsmod
@@ -1311,6 +1321,9 @@ class LessonSession:
             self._spawn(self._install((text or "").strip()))
             return
         if kind == "skip_setup":  # the app dismisses the setup card; nothing to undo here
+            return
+        if kind == "open_in_browser":  # text = a web_app setup item's tool id (no-code lessons)
+            await self._open_in_browser((text or "").strip())
             return
         if kind == "voice_toggle":
             self.voice = not self.voice

@@ -180,7 +180,7 @@ class VideoJump(_Model):
 
 
 class SetupInstall(_Model):
-    method: Literal["brew", "brew_cask", "pip", "download", "none"]
+    method: Literal["brew", "brew_cask", "pip", "download", "open", "none"]
     command: str | None = None
     url: str | None = None
 
@@ -188,7 +188,7 @@ class SetupInstall(_Model):
 class SetupItem(_Model):
     tool: str
     label: str
-    kind: Literal["editor", "app", "runtime", "cli", "python_package"]
+    kind: Literal["editor", "app", "runtime", "cli", "python_package", "web_app"]
     why: str
     needed: bool
     installed: bool
@@ -213,7 +213,7 @@ class SetupProgress(_Model):
     version: str | None = None
 
 
-CardAction = Literal["confirm", "undo", "apply_fix", "open_editor", "resume", "end_lesson", "install", "skip_setup"]
+CardAction = Literal["confirm", "undo", "apply_fix", "open_editor", "resume", "end_lesson", "install", "skip_setup", "open_in_browser"]
 
 
 class Card(_Model):
@@ -379,7 +379,7 @@ class BuildLesson(_Model):
 
 
 ActionKind = Literal["back", "explain", "diagram", "show_me", "hint", "voice_toggle", "ask", "apply_fix",
-                     "confirm", "undo", "open_editor", "resume", "end_lesson", "install", "skip_setup"]
+                     "confirm", "undo", "open_editor", "resume", "end_lesson", "install", "skip_setup", "open_in_browser"]
 
 
 class Action(_Model):
