@@ -11,11 +11,13 @@ import { useCallback, useEffect, useLayoutEffect, useRef, useState, type ReactNo
 import { bridge } from '../bridge'
 import { startBuild, useLesson } from './lesson'
 import { getIslandModes } from './registry'
-import { color, pill, spring, springOut } from './theme'
+import { color, pill, shadows, spring, springOut } from './theme'
 
 export function Island({ top }: { top: number }): ReactNode {
   const [hover, setHover] = useState(false)
   const [landing, setLanding] = useState(false)
+  /** The first spring after a landing must start from rest: the one-frame snap leaves a big velocity that made the pill balloon (~540–830px) before settling. */
+  const [justLanded, setJustLanded] = useState(false)
   /** The launcher (its own focusable window) has grown out of the island: hide until it hands back. */
   const [yielded, setYielded] = useState(false)
   const hoverTimer = useRef<ReturnType<typeof setTimeout>>(undefined)
@@ -34,7 +36,9 @@ export function Island({ top }: { top: number }): ReactNode {
         startBuild()
         setYielded(false)
         setLanding(true)
+        setJustLanded(true)
         requestAnimationFrame(() => requestAnimationFrame(() => setLanding(false)))
+        setTimeout(() => setJustLanded(false), 700)
       }),
       bridge.on('launcher:open', () => setYielded(true)),
       bridge.on('launcher:closed', () => setYielded(false))
@@ -84,7 +88,7 @@ export function Island({ top }: { top: number }): ReactNode {
         className="pointer-events-auto relative overflow-hidden text-white"
         style={{
           background: color.island,
-          boxShadow: isPill ? '0 2px 10px rgba(0,0,0,.25)' : '0 24px 60px rgba(0,0,0,.5)',
+          boxShadow: isPill ? shadows.pill : shadows.card,
           transformOrigin: '50% 0%',
           opacity: yielded ? 0 : 1
         }}
@@ -94,7 +98,7 @@ export function Island({ top }: { top: number }): ReactNode {
           height: landing ? pill.height : size.h,
           borderRadius: isPill ? pill.height / 2 : 24
         }}
-        transition={landing ? { duration: 0 } : isPill ? springOut : spring}
+        transition={landing ? { duration: 0 } : { ...(isPill ? springOut : spring), ...(justLanded ? { velocity: 0 } : {}) }}
         onMouseEnter={enter}
         onMouseLeave={leave}
       >

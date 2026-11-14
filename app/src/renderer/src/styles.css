@@ -24,6 +24,11 @@
   font-display: swap;
 }
 
+/*
+ * Base rules live in @layer base: Tailwind v4 utilities are layered, and any UNLAYERED rule beats every
+ * layer. An unlayered `button { font: inherit }` made every button ignore its text-[..]/font-* classes.
+ */
+@layer base {
 html,
 body,
 #root {
@@ -51,4 +56,5 @@ button {
 
 input {
   user-select: text;
+}
 }

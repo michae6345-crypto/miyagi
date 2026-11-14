@@ -8,7 +8,7 @@
  * Features add their own main-process code in src/main/features/<name>.ts (see context.ts).
  * Owner: core.
  */
-import { app, BrowserWindow, globalShortcut, ipcMain, screen, type BrowserWindowConstructorOptions } from 'electron'
+import { app, BrowserWindow, globalShortcut, ipcMain, screen, session, type BrowserWindowConstructorOptions } from 'electron'
 import { join } from 'node:path'
 import { EngineLink } from './engine'
 import type { MainContext, MainFeature } from './context'
@@ -40,7 +40,8 @@ let launcherOpen = false
 let islandSize = { w: 300, h: 34 }
 let actionsRegistered = false
 
-const displayNow = (): Electron.Display => screen.getDisplayNearestPoint(screen.getCursorScreenPoint())
+/** v1: the engine watches the PRIMARY display only (contract: rects are relative to its full frame), so the overlay lives there. */
+const displayNow = (): Electron.Display => screen.getPrimaryDisplay()
 
 function createWindow(route: string, options: BrowserWindowConstructorOptions): BrowserWindow {
   const win = new BrowserWindow({
@@ -163,8 +164,23 @@ function loadFeatures(ctx: MainContext): void {
   }
 }
 
+/**
+ * Packaged builds load the renderer from file://, which sends no Referer, and YouTube's embed then refuses
+ * to play (error 153). Give YouTube's own requests the site as Referer. Dev (http://localhost) is unaffected.
+ * UNVERIFIED until a packaged build runs on the Mac.
+ */
+function youtubeReferer(): void {
+  if (!app.isPackaged) return
+  const urls = ['*://*.youtube.com/*', '*://*.youtube-nocookie.com/*', '*://*.googlevideo.com/*', '*://*.ytimg.com/*']
+  session.defaultSession.webRequest.onBeforeSendHeaders({ urls }, (d, cb) => {
+    if (!d.requestHeaders.Referer) d.requestHeaders.Referer = 'https://miyagi.study/'
+    cb({ requestHeaders: d.requestHeaders })
+  })
+}
+
 app.whenReady().then(() => {
   setupApp(app)
+  youtubeReferer()
   overlay = createCoreWindow('overlay')
   launcher = createCoreWindow('launcher')
 
@@ -194,8 +210,12 @@ app.whenReady().then(() => {
     for (const ev of engine.log) e.sender.send('engine:event', ev)
   })
 
-  ipcMain.on('ui:emit', (_e, signal: string, payload: unknown) => {
+  ipcMain.on('ui:emit', (e, signal: string, payload: unknown) => {
     switch (signal) {
+      case 'video:intent':
+        // core seekVideo(): every OTHER window follows (the sender already set it).
+        forEachWindow((w) => w.webContents !== e.sender && w.webContents.send('ui:video:intent', payload))
+        break
       case 'overlay:interactive':
         overlay.setIgnoreMouseEvents(!payload, { forward: true })
         break

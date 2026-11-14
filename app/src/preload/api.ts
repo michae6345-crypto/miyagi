@@ -5,6 +5,7 @@
  *   main -> launcher : 'launcher:open' {from:{w,h}} (the island's current size: the launcher grows out of it), 'launcher:close'
  *   main -> overlay  : 'launcher:open' (the island hides: the launcher has it), 'launcher:closed' (the island is back)
  *   overlay -> main  : 'island:size' {w,h} (the island's current size, so the launcher can start from it)
+ *   any <-> any      : 'video:intent' (core seekVideo: main relays it to every OTHER window)
  *   launcher -> main : 'launcher:hidden' (closed normally), 'launcher:built' (shrank into the pill)
  *   main -> overlay  : 'pill:receive' (launcher just landed on the pill), 'shortcut' (kind)
  *   any -> main      : 'launcher:toggle' (e.g. clicking the idle pill or "Ask anything")
@@ -23,6 +24,7 @@ export type UiSignal =
   | 'pill:receive'
   | 'launcher:closed'
   | 'island:size'
+  | 'video:intent'
   | 'shortcut'
   | 'overlay:interactive'
   | 'layout'
