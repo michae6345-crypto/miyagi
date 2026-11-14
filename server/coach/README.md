@@ -44,6 +44,22 @@ targets = await coach.locate("the learning rate", screen)  # exact text → no m
 - **locate** asks `claude-haiku-5-5` (effort low) to pick box ids from the same set-of-mark images. Screen and code reading is Claude only; there is no Gemini in `server/coach`.
 - **Computer use** is not used. If icon finding ever needs it, the tool is `computer_toolset_20260801`, because `computer_20251124` returns 400 on Opus 5.5.
 
+## Non-PINN robustness (S9 QA: React / pandas / git)
+
+- **Errors on screen count.** When `error_text` is empty and a `screen` is passed, error and refusal lines visible on screen become the error text: Traceback, `error:`, `fatal:`, "needs merge", CONFLICT, "You must…", "Failed to compile" and so on. Triage then never sends an erroring learner to the "do the step" card, even if Haiku says to.
+- **Web lookups** run only with error text, capped at 3 s.
+- **Prompt rules:**
+  - Trust the error on screen over the lesson's library versions.
+  - The diff is one contiguous block (up to 8 lines) that makes every edit the action sentence asks for.
+  - Never `git add` / `--continue` while conflict markers remain. `_shape` also drops such a command unless the diff itself removes the markers.
+- **`apply_fix`:**
+  - It tolerates OCR'd anchors: it strips gutter line numbers and falls back to whitespace-insensitive matching.
+  - It rejects no-op patches.
+  - It edits `.ipynb` cell by cell (sources only, outputs kept, `indent=1`, magics ignored for the compile check). Excerpts of notebooks are cell sources, not raw JSON.
+- **`do_it_for_me`:**
+  - It returns `{command, …}` for terminal fixes.
+  - It reuses the diagnosis's diff only if it contains every value the action sentence names ("…to `squash`", "…to 1e-3"); otherwise Opus writes the patch.
+
 ## Pointing: Explain / Show me / Hint (pointing.py)
 
 Every coach answer about the screen carries `targets` (`[{boxId, label, text, rect}]`, screen points), or a `where` instruction when the place isn't on screen. There is never a fake target.

@@ -65,7 +65,7 @@ def test_diagnose_pinn_flat_loss_card(replay):
     assert "β" in card["title"] or "beta" in card["title"].lower()
     assert card["citation"]["url"] == "https://arxiv.org/abs/2109.01050"
     assert card["diff"]["file"] == "pinn_convection.py" and card["diff"]["line"] in (39, 40)
-    assert card["diff"]["yours"].endswith("train(model)") and card["diff"]["expected"].startswith("for ") and "30" in card["diff"]["expected"]
+    assert card["diff"]["yours"].endswith("train(model)") and "for " in card["diff"]["expected"] and "30" in card["diff"]["expected"]
     assert "apply_fix" in card["actions"]
     assert card["_meta"]["source"] == "replay" and card["_meta"]["model"] == "claude-opus-5-5"
     assert card["_meta"]["route"] == "opus" and card["_meta"]["triage"]["by"] == "rules"
@@ -1034,3 +1034,102 @@ def test_explain_points_before_the_text_arrives(monkeypatch):
     card = run(coach.explain(step_without_targets(d.STEP), "why does lr matter?", {"screen": make_screen(), "on_targets": lambda t: fired.append(list(order))}))
     assert fired == [["point"]]  # targets reached the app before the Opus text
     assert "lr=0.3" in card["targets"][0]["text"] and card["_meta"]["point_via"] == "haiku"
+
+
+# ---------- S9 QA on React / pandas / git mistakes ------------------------------------------------------
+
+from server.coach.diagnose import (
+    COACH_SYSTEM,
+    _unsafe_git_continue,
+    notebook_code,
+    screen_errors,
+)
+from server.coach.screen import Box
+
+
+def _git_screen() -> ScreenContext:
+    from PIL import Image
+
+    texts = ["pick a1b2c3 Add login", "$ git rebase --continue", "index.js: needs merge",
+             "error: You must edit all merge conflicts and then mark them as resolved using git add"]
+    boxes = [Box(0, t, 900, 450 + 16 * i, 400, 13, app="Terminal") for i, t in enumerate(texts)]
+    return ScreenContext(image=Image.new("RGB", (100, 100)), cursor=(950, 470), boxes=boxes, scale=1.0, app="Terminal").numbered()
+
+
+def test_screen_errors_are_error_text_and_never_template(monkeypatch):
+    seen = {}
+
+    async def call(**kw):
+        seen.setdefault(kw["purpose"], kw["user_text"])
+        if kw["purpose"] == "triage":
+            return llm.CallResult(data={"route": "template", "playbook_id": "none", "reason": "no error output"}, model="h")
+        return llm.CallResult(data={"playbook_id": "none", "severity": "fail", "title": "Conflict markers still in index.js",
+                                    "body": "Git stops because index.js still has conflict markers. Remove them, then git add index.js.",
+                                    "citation_id": "none", "diff_expected": "", "diff_yours": "", "diff_file": "", "diff_line": 0,
+                                    "diff_command": "", "actions": [], "guiding_question": "q?"}, model="o")
+
+    monkeypatch.setattr(llm, "structured_call", call)
+    step = {"id": "g2", "title": "Resolve the conflict", "instructions": "Fix the conflict and continue.",
+            "checks": [{"id": "f", "type": "file_contains", "label": "no markers", "file": "index.js", "pattern": "^(?!<<<<<<<)"}]}
+    s = _git_screen()
+    assert "needs merge" in screen_errors(s) and "You must edit all merge conflicts" in screen_errors(s)
+    card = run(coach.diagnose(step, [{"checkId": "f", "label": "no markers", "status": "fail"}], None, "", screen=s))
+    assert card["_meta"]["route"] == "opus"  # Haiku said template; an error is on screen → overridden
+    assert "needs merge" in seen["triage"] and "needs merge" in seen["diagnose"]
+
+
+def test_prompt_trusts_screen_and_guards_git():
+    assert "Trust what is on screen" in COACH_SYSTEM and "conflict markers" in COACH_SYSTEM
+    conflict = "<<<<<<< HEAD\nconst a = 1;\n=======\nconst a = 2;\n>>>>>>> topic\n"
+    assert _unsafe_git_continue("git add index.js && git rebase --continue", conflict, "", "")
+    assert not _unsafe_git_continue("git add index.js && git rebase --continue", conflict, "<<<<<<< HEAD", "const a = 2;")
+    assert not _unsafe_git_continue("pip install pandas", conflict, "", "")
+
+
+def test_apply_fix_tolerates_ocr_anchors():
+    src = "a = 1\n<<<<<<< HEAD\nb = 2\n=======\nb = 3\n>>>>>>> topic\nc = 4\n"
+    r = coach.apply_fix({"file": "x.py", "yours": "2 <<<<<<< HEAD\n3 b = 2\n4 =======\n5 b = 3\n6 >>>>>>> topic", "expected": "b = 3"}, src)
+    assert r["error"] is None and r["new_text"] == "a = 1\nb = 3\nc = 4\n"
+    r = coach.apply_fix({"file": "y.py", "yours": "x  =  foo( 1,2 )", "expected": "x = foo(1, 3)"}, "x = foo(1, 2)\n")
+    assert r["error"] is None and r["new_text"] == "x = foo(1, 3)\n"
+
+
+def test_apply_fix_rejects_no_op():
+    r = coach.apply_fix({"file": "x.py", "yours": "a = 1", "expected": "a = 1"}, "a = 1\n")
+    assert r["new_text"] is None and r["error"] == "the patch changes nothing"
+
+
+def test_notebook_excerpt_and_cell_patch():
+    nb = {"cells": [{"cell_type": "markdown", "source": ["# Sales\n"]},
+                    {"cell_type": "code", "source": ["import pandas as pd\n", "%matplotlib inline\n", "for k, v in counts.iteritems():\n", "    print(k, v)"],
+                     "outputs": [{"text": "\x1b[31m" * 500}], "execution_count": 3, "metadata": {}}],
+          "metadata": {}, "nbformat": 4, "nbformat_minor": 5}
+    raw = json.dumps(nb)
+    ex = notebook_code(raw)
+    assert ex.startswith("# %% [cell 1]\nimport pandas as pd") and "\x1b" not in ex and "outputs" not in ex
+    r = coach.apply_fix({"file": "clean.ipynb", "yours": "for k, v in counts.iteritems():", "expected": "for k, v in counts.items():"}, raw)
+    assert r["error"] is None
+    out = json.loads(r["new_text"])
+    assert out["cells"][1]["source"][2] == "for k, v in counts.items():\n" and out["cells"][1]["source"][3] == "    print(k, v)"
+    assert out["cells"][1]["outputs"] == nb["cells"][1]["outputs"] and "[cell 1]" in r["unified_diff"]
+
+
+def test_do_it_for_me_command_fix_and_missing_edit(monkeypatch):
+    card = {"title": "pandas missing", "body": "The venv lacks pandas. Install it.", "diff": {"expected": "", "yours": "", "command": "pip install pandas"}}
+    r = run(coach.do_it_for_me(d.STEP, "clean.py", "import pandas\n", card))
+    assert r["command"] == "pip install pandas" and r["new_text"] is None and r["unified_diff"] == ""
+
+    todo = "pick a1 Add login\npick b2 Cleanup\n"
+    card = {"title": "Squash the cleanup", "body": "The cleanup must fold into the previous commit. Change Cleanup's command to `squash`.",
+            "diff": {"yours": "pick a1 Add login", "expected": "pick a1 Add login", "file": "git-rebase-todo"}}
+    users = []
+
+    async def call(**kw):
+        users.append(kw["user_text"])
+        return llm.CallResult(data={"summary": "Squash Cleanup into Add login", "yours": "pick b2 Cleanup", "expected": "squash b2 Cleanup",
+                                    "line": 2, "command": ""}, model="o")
+
+    monkeypatch.setattr(llm, "structured_call", call)
+    r = run(coach.do_it_for_me(d.STEP, "git-rebase-todo", todo, card))
+    assert r["_meta"]["via"] == "opus#1" and r["new_text"] == "pick a1 Add login\nsquash b2 Cleanup\n"
+    assert "PREVIOUS ATTEMPT FAILED" in users[0]  # the diagnosis diff was a no-op that missed `squash`

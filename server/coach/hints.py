@@ -6,6 +6,8 @@ Levels (gentlest first): 0 guiding question → 1 video timestamp → 2 paper �
 from __future__ import annotations
 
 import difflib
+import json
+import re
 import textwrap
 
 from .common import fmt_t, get_lesson
@@ -148,13 +150,90 @@ def _splice(lines: list[str], idx: int, n_old: int, expected: str) -> list[str]:
     return lines[:idx] + repl + rest
 
 
+GUTTER = re.compile(r"^\s*\d{1,5}\s{1,4}(?=\S)")
+
+
+def _squash(s: str) -> str:
+    return re.sub(r"\s+", "", s)
+
+
+def _locate_fuzzy(lines: list[str], yours: list[str], hint_line: int | None) -> tuple[int | None, list[str]]:
+    """Find `yours` in `lines`: exact (indent-insensitive), then without OCR gutter numbers,
+    then whitespace-insensitive (OCR spacing). Returns (index, the yours-lines that matched)."""
+    variants = [yours]
+    stripped = [GUTTER.sub("", y) for y in yours]
+    if stripped != yours:
+        variants.append(stripped)
+    for v in variants:
+        if (i := _locate(lines, v, hint_line)) is not None:
+            return i, v
+    for v in variants:
+        want = [_squash(y) for y in v]
+        for i in range(len(lines) - len(want) + 1):
+            if all(_squash(lines[i + k]) == w for k, w in enumerate(want)):
+                return i, v
+    return None, yours
+
+
+def _python_ok(src: str, name: str) -> str | None:
+    """None if `src` compiles; IPython magics/shell lines (%, !) are blanked first."""
+    body = "\n".join("" if ln.lstrip().startswith(("%", "!")) else ln for ln in src.splitlines())
+    try:
+        compile(body, name, "exec")
+    except SyntaxError as e:
+        return f"patched file would not compile: {e.msg} (line {e.lineno})"
+    return None
+
+
+def _patch(text: str, yours: str, expected: str, line: int | None, name: str, python: bool) -> tuple[str | None, str, str | None]:
+    """(new_text, unified_diff, error) for one text buffer."""
+    lines = text.splitlines(keepends=True)
+    if lines and not lines[-1].endswith("\n"):
+        lines[-1] += "\n"
+    y = [ln for ln in yours.strip("\n").splitlines() if ln.strip()]
+    idx, matched = _locate_fuzzy(lines, y, line)
+    if idx is None:
+        return None, "", "learner's lines not found in file"
+    new_lines = _splice(lines, idx, len(matched), expected)
+    if new_lines == lines:
+        return None, "", "the patch changes nothing"
+    candidate = "".join(new_lines)
+    unified = "".join(difflib.unified_diff(lines, new_lines, fromfile=f"a/{name}", tofile=f"b/{name}"))
+    if python and (err := _python_ok(candidate, name)):
+        return None, unified, err
+    return candidate, unified, None
+
+
+def _patch_notebook(nb_text: str, yours: str, expected: str, name: str) -> tuple[str | None, str, str | None]:
+    """Apply the edit inside the code cell that holds `yours`; re-dump the notebook (indent=1)."""
+    try:
+        nb = json.loads(nb_text)
+    except json.JSONDecodeError:
+        return None, "", "notebook is not valid JSON"
+    for i, cell in enumerate(nb.get("cells") or []):
+        if cell.get("cell_type") != "code":
+            continue
+        src = cell.get("source") or ""
+        text = "".join(src) if isinstance(src, list) else src
+        new, unified, err = _patch(text, yours, expected, None, f"{name} [cell {i}]", python=True)
+        if err == "learner's lines not found in file":
+            continue
+        if err:
+            return None, unified, err
+        new = new.rstrip("\n") if not text.endswith("\n") else new
+        cell["source"] = new.splitlines(keepends=True)
+        return json.dumps(nb, indent=1, ensure_ascii=False) + "\n", unified, None
+    return None, "", "learner's lines not found in any notebook cell"
+
+
 def apply_fix(diff: dict, file_text: str | None = None) -> dict:
     """Build a proposed patch for the learner to accept. Never writes to disk.
 
     Returns {"file", "expected", "yours", "unified_diff", "new_text", "error", "requires_confirmation": True}.
     `new_text` is the full file after the change. It is None (and `error` says why) when no
-    file text was given, the learner's lines could not be found, or, for Python, the result
-    does not compile; the app should then show the diff as a "fix it by hand" card.
+    file text was given, the learner's lines could not be found, the patch changes nothing, or,
+    for Python, the result does not compile; the app should then show a "fix it by hand" card.
+    Tolerates OCR'd anchors (gutter line numbers, spacing) and edits notebooks cell by cell.
     """
     expected, yours, file = diff.get("expected", ""), diff.get("yours", ""), diff.get("file", "")
     name = f"{file or 'file'}"
@@ -163,25 +242,10 @@ def apply_fix(diff: dict, file_text: str | None = None) -> dict:
         error = "no file text"
     elif not yours.strip():
         error = "no anchor line to replace"
+    elif name.endswith(".ipynb") or (file_text.lstrip().startswith("{") and '"cells"' in file_text[:20000]):
+        new_text, unified, error = _patch_notebook(file_text, yours, expected, name)
     else:
-        lines = file_text.splitlines(keepends=True)
-        if lines and not lines[-1].endswith("\n"):
-            lines[-1] += "\n"
-        y = [l for l in yours.strip("\n").splitlines() if l.strip()]
-        idx = _locate(lines, y, diff.get("line"))
-        if idx is None:
-            error = "learner's lines not found in file"
-        else:
-            new_lines = _splice(lines, idx, len(y), expected)
-            candidate = "".join(new_lines)
-            unified = "".join(difflib.unified_diff(lines, new_lines, fromfile=f"a/{name}", tofile=f"b/{name}"))
-            if not file or file.endswith(".py"):
-                try:
-                    compile(candidate, name, "exec")
-                except SyntaxError as e:
-                    error = f"patched file would not compile: {e.msg} (line {e.lineno})"
-            if error is None:
-                new_text = candidate
+        new_text, unified, error = _patch(file_text, yours, expected, diff.get("line"), name, python=not file or file.endswith(".py"))
     if not unified:
         unified = "".join(
             difflib.unified_diff(

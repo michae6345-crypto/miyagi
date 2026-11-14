@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
+import re
 from collections.abc import Callable
 from typing import Any
 
@@ -45,7 +47,7 @@ Hard limits:
 - title: 3 to 7 words (hard maximum 8), plain statement of the cause (not a question, no trailing period).
 - body: at most 30 words, at most 2 sentences. Sentence 1: why it fails. Sentence 2: what to do, stated completely in words with the concrete value or name (e.g. "Set lr to 1e-3."), because the diff is often hidden at first.
 - Refer to their code by its real names (variables, functions) when helpful.
-- diff_expected: the smallest replacement for the learner's offending line(s), at most 4 lines, in the learner's style and variable names; "" if no code change applies. If the fix adds training stages, keep the total training budget about the same (split the epochs across stages). diff_yours: the learner's current line(s) copied exactly from the numbered excerpt (without line numbers); "" if none. diff_line: the 1-based line number of diff_yours in the excerpt, 0 if none. diff_file: the file name if known, else "".
+- diff_expected: the smallest replacement for the learner's offending line(s): one contiguous block of at most 8 lines that makes EVERY edit your body's action sentence asks for (if the fix touches two nearby lines, the block covers both), in the learner's style and variable names; "" if no code change applies. If the fix adds training stages, keep the total training budget about the same (split the epochs across stages). diff_yours: the learner's current line(s) copied exactly from the numbered excerpt (without line numbers); "" if none. diff_line: the 1-based line number of diff_yours in the excerpt, 0 if none. diff_file: the file name if known, else "".
 - Ground the card in evidence: WEB SOURCES (official docs, changelogs, Stack Overflow / GitHub issues fetched live for this failure) take precedence over memory for API names, versions and deprecations. If a web source contradicts your memory, trust the source. Prefer official docs over community posts.
 - diff_command: when the fix is a terminal action (install or upgrade a package, add a CLI flag, re-run with an option), that single shell command; else "". It can go with or without a code diff.
 - citation_id: pick one id from the CITATIONS list (web:N, source:..., or a playbook id) only when that source directly supports the card; otherwise "none". Never invent a source.
@@ -53,6 +55,9 @@ Hard limits:
 - severity: "warn" when it runs but the result is off (a metric plateaus, a test count is short, output differs); "fail" when it crashes, errors, or produces nan/inf.
 - actions: include "apply_fix" only when diff_expected is non-empty; include "show_me" when a specific line is implicated.
 - guiding_question: one Socratic question (at most 20 words) about THIS cause that leads the learner to the fix without stating it, e.g. "What happens to Adam's steps when the learning rate is large?". It is the first rung of the hint ladder.
+
+- Trust what is on screen (error text, versions in tracebacks) over the lesson's library versions: the learner may have a newer release than the tutorial.
+- Never put `git add` or `git rebase/merge/cherry-pick --continue` in diff_command while the file still has conflict markers (<<<<<<< ======= >>>>>>>) that your diff does not remove: that would commit the markers. Say to resolve the markers first.
 
 If the evidence is genuinely insufficient, say what to check next instead of guessing.
 
@@ -142,6 +147,46 @@ def template_card(step: dict, failed_checks: list) -> dict:
     }
 
 
+ERROR_LINE = re.compile(
+    r"Traceback|\b\w*Error\b|\berror:|\bfatal:|Failed to compile|needs merge|\bCONFLICT\b|You must|is not defined"
+    r"|cannot find module|command not found|No such file|Permission denied|\bERR!",
+    re.IGNORECASE,
+)
+CONFLICT_MARKERS = re.compile(r"^(<{7}|={7}|>{7})", re.MULTILINE)
+
+
+def screen_errors(screen: ScreenContext, max_lines: int = 12) -> str:
+    """Error / refusal lines visible on screen (terminal, editor problems panel, browser overlay)."""
+    lines = [b.text for b in sorted(screen.boxes, key=lambda b: (b.y, b.x)) if ERROR_LINE.search(b.text)]
+    return "\n".join(lines[-max_lines:])
+
+
+def _unsafe_git_continue(command: str, code: str, yours: str, expected: str) -> bool:
+    if not re.search(r"\bgit\s+add\b|--continue\b", command):
+        return False
+    markers_now = bool(CONFLICT_MARKERS.search(code or ""))
+    resolved_by_diff = bool(CONFLICT_MARKERS.search(yours or "")) and not CONFLICT_MARKERS.search(expected or "")
+    return markers_now and not resolved_by_diff
+
+
+def notebook_code(text: str) -> str:
+    """A Jupyter notebook's JSON → its code cells' source, separated by `# %% [cell N]` markers.
+    Anything else is returned unchanged."""
+    t = (text or "").lstrip()
+    if not (t.startswith("{") and '"cells"' in t[:20000]):
+        return text
+    try:
+        nb = json.loads(t)
+    except json.JSONDecodeError:
+        return text
+    out = []
+    for i, c in enumerate(nb.get("cells") or []):
+        if c.get("cell_type") == "code":
+            src = c.get("source") or ""
+            out.append(f"# %% [cell {i}]\n" + ("".join(src) if isinstance(src, list) else src).rstrip("\n"))
+    return "\n".join(out) if out else text
+
+
 def _title(title: str, pid: str | None) -> str:
     """Over-long titles are not chopped mid-phrase: use the curated title, else trim."""
     title = (title or "").strip().rstrip(".")
@@ -156,6 +201,8 @@ def _shape(data: dict, step: dict, code_excerpt: str, lesson: dict | None, sourc
     expected = (data.get("diff_expected") or "").strip("\n")
     yours = (data.get("diff_yours") or "").strip()
     command = (data.get("diff_command") or "").strip()
+    if command and _unsafe_git_continue(command, code_excerpt, yours, expected):
+        command = ""  # would commit unresolved conflict markers (S9 QA, verified)
     diff = None
     if command and not expected:  # terminal-only fix: the app copies it to the clipboard
         diff = {"expected": "", "yours": "", "command": command}
@@ -220,16 +267,20 @@ async def diagnose(
     for logs; strip them before sending (see `public()`).
     """
     lesson = lesson if lesson is not None else get_lesson()
+    if not error_text.strip() and screen is not None:
+        # screen-first lessons have no captured stderr: an error/refusal visible on screen is the
+        # error text (S9 QA: without it, triage sent git/React failures to the "not done yet" card)
+        error_text = screen_errors(screen)
+    code_excerpt = notebook_code(code_excerpt)  # .ipynb JSON → cell sources (S9 QA)
     metrics_text, flags = summarize(metrics_summary, goals=metric_goals(step))
     if error_text:
         flags |= {"nan"} if "nan" in error_text.lower() else set()
 
-    # live-web grounding runs while triage decides; only Opus uses it
     # live-web grounding runs while triage decides; only Opus uses it. It is worth waiting for only
     # when there is an error message to look up (docs/changelogs); for metric-only failures the
     # search came back unused and cost 2-4 s before Opus could start (rehearsal, s8 lr=0.3).
     lib, sym, query, err = grounding_query(step, failed_checks, error_text, code_excerpt, lesson)
-    web_task = asyncio.create_task(web.gather(lib, sym, query, error=err, timeout=4.0)) if error_text.strip() else None
+    web_task = asyncio.create_task(web.gather(lib, sym, query, error=err, timeout=3.0)) if error_text.strip() else None
     try:
         t = await triage(step, failed_checks, flags, code_excerpt, error_text, use_haiku=use_triage)
         if t.route == "template":
