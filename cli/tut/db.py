@@ -19,12 +19,14 @@ TIME_COLS = ("time", "timestamp")
 ELAPSED_COLS = ("elapsed", "elapsed_s", "wall_time", "seconds")
 
 
-def _connect():
+def _connect(exit_if_missing: bool = True):
     import psycopg
 
     dsn = os.environ.get("TIGER_DATABASE_URL", "")
     if not dsn or "..." in dsn:
-        sys.exit("TIGER_DATABASE_URL is not set (put it in .env)")
+        if exit_if_missing:
+            sys.exit("TIGER_DATABASE_URL is not set (put it in .env)")
+        raise LookupError("TIGER_DATABASE_URL not set")
     return psycopg.connect(dsn, autocommit=True, connect_timeout=10)
 
 
@@ -153,11 +155,23 @@ def _import_curves():
 
 def cmd_stats(args: argparse.Namespace) -> int:
     _server_import()
-    from server.checks.tiger import stats
+    from server.checks.tiger import spool_status, stats
 
-    with _connect() as conn:
+    try:
+        conn = _connect(exit_if_missing=False)
+    except Exception as exc:  # noqa: BLE001  (offline: say so, with the spool backlog)
+        sp = spool_status()
+        why = "TIGER_DATABASE_URL not set" if isinstance(exc, LookupError) else (str(exc).strip().splitlines() or [type(exc).__name__])[0][:100]
+        if args.json:
+            print(json.dumps({"online": False, "error": why, "spooled_rows": sp["rows"], "spool_dir": sp["dir"]}), flush=True)
+        else:
+            print(f"Tiger offline ({why}), {sp['rows']} rows spooled in {sp['dir']}", flush=True)
+        return 1
+    with conn:
         while True:
             st = stats(conn, runs=args.runs)
+            st["online"] = True
+            st["spooled_rows"] = spool_status()["rows"]
             if args.json:
                 print(json.dumps(st), flush=True)
             else:
@@ -165,7 +179,8 @@ def cmd_stats(args: argparse.Namespace) -> int:
                 q = "  ".join(f"{k} {v} ms" if v is not None else f"{k} n/a" for k, v in st["query_ms"].items())
                 print(f"ingest {tm['rows_per_s'] + le['rows_per_s']:.1f} rows/s "
                       f"(metrics {tm['rows_per_s']}/s, events {le['rows_per_s']}/s, last {st['window_s']}s) | "
-                      f"rows {tm['total']:,} + {le['total']:,} | chunks {st['chunks']} | query {q}", flush=True)
+                      f"rows {tm['total']:,} + {le['total']:,} | chunks {st['chunks']} | query {q}"
+                      + (f" | {st['spooled_rows']} rows still spooled" if st["spooled_rows"] else ""), flush=True)
             if not args.watch:
                 return 0
             time.sleep(args.interval)

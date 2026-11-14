@@ -104,14 +104,17 @@ def cmd_run(args: argparse.Namespace) -> int:
 
 
 def report_losses(run_id: str, ingest: IngestSink | None, tiger: TigerSink | None) -> None:
-    """Never lose data silently: say exactly what didn't make it, loudly."""
+    """Never lose data silently: say exactly what didn't make it (loudly), or where it was spooled."""
     if tiger is not None:
+        if tiger.offline and tiger.spool_path:
+            warn(f"Tiger offline: run {run_id} + {tiger.rows_spooled} metrics spooled to {tiger.spool_path}; they upload "
+                 f"when the engine next reaches Tiger (or: python -m server.checks.tiger --flush-spool)")
         if tiger.still_writing:
             warn(f"Tiger Data still writing at exit (deadline hit): up to {tiger.unwritten} of {tiger.received} "
                  f"metrics for run {run_id} may NOT be stored, and the run's exit code/tail may be missing", loud=True)
-        elif tiger.unwritten:
+        elif tiger.unwritten > 0:
             warn(f"{tiger.unwritten} of {tiger.received} metrics for run {run_id} were NOT stored in Tiger Data", loud=True)
-        elif tiger.ok and not tiger.finalized:
+        elif tiger.ok and not tiger.offline and not tiger.finalized:
             warn(f"run {run_id}: exit code/tail not saved to Tiger Data", loud=True)
     if ingest is not None:
         if ingest.still_sending:

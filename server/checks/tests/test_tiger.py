@@ -5,7 +5,9 @@ import logging
 import re
 from pathlib import Path
 
-from server.checks.tiger import TigerWriter, stats
+import pytest
+
+from server.checks.tiger import TigerWriter, main, replay_spool, spool_status, stats
 
 SCHEMA = (Path(__file__).resolve().parents[3] / "shared/contracts/tiger-schema.sql").read_text()
 
@@ -48,6 +50,11 @@ class FakeConn:
         self.closed = True
 
 
+@pytest.fixture(autouse=True)
+def _spool_in_tmp(tmp_path, monkeypatch):
+    monkeypatch.setenv("TUT_SPOOL_DIR", str(tmp_path / "spool"))
+
+
 def writer(conn=None, **kw):
     conn = conn or FakeConn()
     return TigerWriter(dsn="postgres://fake", session_id="sess_t", flush_every=0.05,
@@ -88,30 +95,102 @@ def test_copy_columns_exist_in_contract_schema():
         assert f"MATERIALIZED VIEW IF NOT EXISTS {view} WITH (timescaledb.continuous)" in SCHEMA
 
 
-def test_no_url_is_a_silent_noop(caplog):
+class Flaky:
+    """connect() fails until .up = True; then hands out FakeConns."""
+
+    def __init__(self):
+        self.up = False
+        self.attempts = 0
+        self.conn = FakeConn()
+
+    def __call__(self, dsn):
+        self.attempts += 1
+        if not self.up:
+            raise OSError("connection to server at host:37145 failed: timeout; password=hunter2")
+        return self.conn
+
+
+def test_no_url_spools(tmp_path, caplog):
     caplog.set_level(logging.WARNING)
     w = TigerWriter(dsn="", connect=lambda d: (_ for _ in ()).throw(AssertionError("must not connect")))
     w.record_event("step_started", "l", "s1")
-    w.record_event("step_passed", "l", "s1")
     w.record_metric("r", "loss", 1, 0.1)
     w.flush()
-    assert w.disabled and w.counters()["rows_written"] == 0
+    assert w.counters()["rows_spooled"] == 2 and w.counters()["rows_written"] == 0
+    assert spool_status()["rows"] == 2
     assert sum("TIGER_DATABASE_URL" in r.message for r in caplog.records) == 1
 
 
-def test_db_down_warns_once_and_disables(caplog):
+def test_offline_spools_then_uploads_on_reconnect(caplog):
     caplog.set_level(logging.WARNING)
-
-    def boom(dsn):
-        raise OSError("connection refused")
-
-    w = TigerWriter(dsn="postgres://fake", flush_every=0.05, connect=boom)
+    flaky = Flaky()
+    w = TigerWriter(dsn="postgres://u:hunter2@h:37145/db", flush_every=0.02, connect=flaky, retry_every=0.2)
     for i in range(5):
-        w.record_metric("r", "loss", i, 0.1)
+        w.record_metric("screen-pinn", "loss", i, 1.0 / (i + 1))
+    w.record_event("check_fail", "pinn", "s4", 10.0, {"check_id": "s4c2"})
+    import time as _t
+    _t.sleep(0.1)
+    assert not w.online and spool_status()["rows"] == 6 and w.rows_spooled == 6
+    attempts = flaky.attempts
+    _t.sleep(0.1)
+    assert flaky.attempts == attempts  # waits retry_every between attempts, no hammering
+    flaky.up = True
+    _t.sleep(0.4)  # next retry connects and replays the spool
+    w.record_metric("screen-pinn", "loss", 99, 0.01)
     w.flush()
-    w.record_metric("r", "loss", 9, 0.1)  # after disable: no-op, no new thread work
-    assert w.disabled
-    assert sum("unreachable" in r.message for r in caplog.records) == 1
+    assert w.online and w.rows_replayed == 6 and w.rows_written == 1
+    assert spool_status()["rows"] == 0  # spool file deleted after upload
+    copied_metrics = [r for sql, r in flaky.conn.copied if "training_metrics" in sql]
+    assert [r[2] for r in copied_metrics] == [0, 1, 2, 3, 4, 99]
+    ev = [r for sql, r in flaky.conn.copied if "learning_events" in sql]
+    assert ev[0][5] == "check_fail" and ev[0][8] == "s4c2" and isinstance(ev[0][0], dt.datetime)
+    msgs = " ".join(r.message for r in caplog.records)
+    assert "hunter2" not in msgs and msgs.count("Tiger Data offline") == 1
+
+
+def test_write_failure_mid_session_spools_the_batch():
+    class Breaks(FakeConn):
+        def cursor(self):
+            raise RuntimeError("SSL connection has been closed unexpectedly")
+
+    w = TigerWriter(dsn="postgres://fake", flush_every=0.02, connect=lambda d: Breaks(), retry_every=60)
+    w.record_metric("r", "loss", 1, 0.5)
+    w.flush()
+    assert not w.online and w.rows_spooled == 1 and w.dropped == 0
+
+
+def test_replay_handles_tut_run_spool_with_run_row(tmp_path):
+    d = tmp_path / "spool"
+    d.mkdir()
+    (d / "tut-run_1.jsonl").write_text(
+        json.dumps({"k": "r", "v": {"id": "run_1", "command": "python t.py", "exit_code": 0, "started_at": "2026-11-14T20:00:00+00:00",
+                                    "ended_at": "2026-11-14T20:01:00+00:00", "tail": "ok", "source": "learner"}}) + "\n"
+        + json.dumps({"k": "m", "v": ["2026-11-14T20:00:30+00:00", "run_1", 5, "loss", float("nan")]}) + "\n"
+        + "not json\n")
+
+    class C(FakeConn):
+        def __init__(self):
+            super().__init__()
+            self.sql = []
+
+        def execute(self, sql, params=None):
+            self.sql.append((sql, params))
+
+    c = C()
+    assert replay_spool(c, d) == 2
+    assert c.sql[0][0].startswith("INSERT INTO runs") and c.sql[0][1]["exit_code"] == 0
+    assert isinstance(c.sql[0][1]["ended_at"], dt.datetime)
+    m = [r for sql, r in c.copied if "training_metrics" in sql][0]
+    assert m[1:4] == ("run_1", 5, "loss") and m[4] != m[4]  # NaN survives the round trip
+    assert not list(d.iterdir())
+
+
+def test_ping_unreachable_never_prints_secrets(monkeypatch, capsys):
+    monkeypatch.setenv("TIGER_DATABASE_URL", "postgres://tsdbadmin:hunter2@127.0.0.1:9/tsdb")
+    assert main(["--ping"]) == 1
+    out = capsys.readouterr().out
+    assert "127.0.0.1:9" in out and "NOT REACHABLE" in out and "hint" in out
+    assert "hunter2" not in out and "tsdbadmin" not in out
 
 
 class StatsConn:

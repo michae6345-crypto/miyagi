@@ -10,7 +10,9 @@ unchanged, parses `::metric::` lines (`shared/contracts/metric-protocol.md`), an
 - **Tiger Data** (`TIGER_DATABASE_URL`): a `runs` row (command, start/end, exit code, last 200 lines) and
   `training_metrics` rows inserted with batched `COPY` every second.
 
-If the engine or the DB is down it prints **one** dim warning on stderr and keeps the passthrough
+If Tiger is unreachable, the run row and every metric not yet stored are **spooled** to `~/.miyagi/tiger-spool/tut-<run_id>.jsonl`
+(the engine uploads it when it next reaches Tiger, or run `python -m server.checks.tiger --flush-spool`). Real loss (the spool isn't writable,
+or the deadline hit mid-write) prints a bold **WARNING** with counts. If the engine or the DB is down it prints **one** dim warning on stderr and keeps the passthrough
 (the engine sink keeps retrying and replays `run_started` once the engine comes back). The exit code
 is the child's (signal → 128+n). NaN/inf metrics go to Tiger but are skipped on the wire (invalid JSON for the app).
 
@@ -38,6 +40,8 @@ tut db load-ref curve.csv --lesson pinn --step s5     # run with source='tutoria
 tut db compare <learner_run_id> [--ref <ref_run_id>] [--json]
 tut stats [--watch] [--json]                          # ingest rows/s (last 10 s), row totals, chunks, median query ms
 ```
+Offline, `tut stats` prints `Tiger offline (<reason>), N rows spooled in ~/.miyagi/tiger-spool` and exits 1.
+`python -m server.checks.tiger --ping` proves the connection and schema (no secrets printed); see `server/checks/README.md` for ports and the pooler.
 `tut stats --watch --json` prints one JSON object per second, which the app can show as the on-screen Tiger performance number.
 - `init` runs each statement on its own in autocommit (continuous aggregates can't be created inside a transaction).
   `tiger-extras.sql` turns `metrics_1s`/`stuck_heatmap` into real-time aggregates and adds refresh

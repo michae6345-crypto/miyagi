@@ -1,5 +1,6 @@
 """DB layer against a fake psycopg (no Postgres needed)."""
 import argparse
+import json
 import datetime as dt
 import sys
 import time
@@ -75,7 +76,7 @@ class FakeConn:
 
 
 @pytest.fixture
-def fake_pg(monkeypatch):
+def fake_pg(monkeypatch, tmp_path):
     log: list = []
     state = {"fail_connect": False, "fail_on": None, "dsn": None}
 
@@ -87,6 +88,7 @@ def fake_pg(monkeypatch):
 
     monkeypatch.setitem(sys.modules, "psycopg", types.SimpleNamespace(connect=connect))
     monkeypatch.setenv("TIGER_DATABASE_URL", "postgres://fake/db")
+    monkeypatch.setenv("TUT_SPOOL_DIR", str(tmp_path / "spool"))
     return log, state
 
 
@@ -112,24 +114,32 @@ def test_tiger_sink_writes_run_metrics_and_end(fake_pg):
     assert sink.ok and sink.rows_written == 3
 
 
-def test_tiger_sink_db_down_warns_once_and_drops(fake_pg, capsys):
+def _spooled(tmp_path):
+    out = []
+    for f in sorted((tmp_path / "spool").glob("*.jsonl")):
+        out += [json.loads(line) for line in f.read_text().splitlines()]
+    return out
+
+
+def test_tiger_sink_db_down_spools_everything(fake_pg, tmp_path, capsys):
     _, state = fake_pg
     state["fail_connect"] = True
     sink = TigerSink("postgres://fake/db", {"id": "r", "command": "c", "started_at": None}, flush_every=0.05)
     _run(sink)
-    assert sink.dead and not sink.ok
+    assert sink.offline and not sink.ok and sink.rows_spooled == 3 and sink.unwritten == 0
     assert capsys.readouterr().err.count("Tiger Data unreachable") == 1
-    sink.metric(Metric(1, "loss", 1.0))
-    assert sink.q.qsize() <= 3  # no unbounded growth once dead
+    lines = _spooled(tmp_path)
+    assert lines[0]["k"] == "r" and lines[0]["v"]["exit_code"] == 0 and lines[0]["v"]["tail"] == "tail text"
+    assert [(ln["v"][2], ln["v"][3]) for ln in lines[1:]] == [(0, "loss"), (10, "loss"), (20, "loss")]
 
 
-def test_tiger_sink_write_error_degrades(fake_pg, capsys):
+def test_tiger_sink_write_error_spools(fake_pg, tmp_path, capsys):
     _, state = fake_pg
     state["fail_on"] = "INSERT INTO runs"
     sink = TigerSink("postgres://fake/db", {"id": "r", "command": "c", "started_at": None}, flush_every=0.05)
     _run(sink)
-    assert sink.dead
-    assert "Tiger Data write failed" in capsys.readouterr().err
+    assert sink.offline and sink.rows_spooled == 3 and sink.unwritten == 0
+    assert "spooling to" in capsys.readouterr().err
 
 
 def test_apply_schema_runs_each_statement_separately(fake_pg):
@@ -180,34 +190,58 @@ def test_tut_stats_prints_rate_and_latency(fake_pg, capsys):
 from tut.main import report_losses  # noqa: E402
 
 
-def test_loud_warning_when_db_down(fake_pg, capsys):
+def test_db_down_reports_spool_not_loss(fake_pg, tmp_path, capsys):
     _, state = fake_pg
     state["fail_connect"] = True
     sink = TigerSink("postgres://fake/db", {"id": "r1", "command": "c", "started_at": None}, flush_every=0.05)
     _run(sink, n=4)
     report_losses("r1", None, sink)
     err = capsys.readouterr().err
-    assert "WARNING" in err and "4 of 4 metrics for run r1 were NOT stored" in err
+    assert "4 metrics spooled to" in err and "WARNING" not in err
 
 
-def test_loud_warning_when_deadline_hit(monkeypatch, capsys):
+def test_connect_hang_past_deadline_spools_from_close(monkeypatch, tmp_path, capsys):
     import threading
 
+    monkeypatch.setenv("TUT_SPOOL_DIR", str(tmp_path / "spool"))
     gate = threading.Event()
 
     def slow_connect(dsn, **kw):
-        gate.wait(5)  # DB hangs past the deadline
+        gate.wait(5)  # venue Wi-Fi silently drops the port
         raise OSError("timeout")
 
     monkeypatch.setitem(sys.modules, "psycopg", types.SimpleNamespace(connect=slow_connect))
     sink = TigerSink("postgres://fake/db", {"id": "r2", "command": "c", "started_at": None}, flush_every=0.05)
     sink.start()
     sink.metric(Metric(1, "loss", 0.5))
-    sink.close(time.monotonic() + 0.2)
+    sink.end(0, "t")
+    sink.close(time.monotonic() + 0.7)
     report_losses("r2", None, sink)
     gate.set()
     err = capsys.readouterr().err
-    assert "WARNING" in err and "still writing at exit" in err and "1 of 1" in err
+    assert sink.rows_spooled == 1 and not sink.still_writing
+    assert "spooled to" in err and "NOT" not in err
+    assert [ln["k"] for ln in _spooled(tmp_path)] == ["r", "m"]
+
+
+def test_unspoolable_loss_is_loud(fake_pg, monkeypatch, capsys):
+    _, state = fake_pg
+    state["fail_connect"] = True
+    monkeypatch.setenv("TUT_SPOOL_DIR", "/dev/null/cannot-create")
+    sink = TigerSink("postgres://fake/db", {"id": "r4", "command": "c", "started_at": None}, flush_every=0.05)
+    _run(sink, n=2)
+    report_losses("r4", None, sink)
+    err = capsys.readouterr().err
+    assert "WARNING" in err and "2 of 2 metrics for run r4 were NOT stored" in err
+
+
+def test_tut_stats_offline(fake_pg, tmp_path, capsys):
+    _, state = fake_pg
+    state["fail_connect"] = True
+    (tmp_path / "spool").mkdir()
+    (tmp_path / "spool" / "engine-x.jsonl").write_text('{"k":"m","v":[]}\n' * 7)
+    assert db.cmd_stats(argparse.Namespace(watch=False, interval=1.0, runs=1, json=False)) == 1
+    assert "Tiger offline (connection refused), 7 rows spooled in" in capsys.readouterr().out
 
 
 def test_no_warning_when_everything_stored(fake_pg, capsys):
