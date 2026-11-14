@@ -21,9 +21,9 @@
               {
                 "id": "r1",
                 "kind": "video",
-                "title": "PINNs in PyTorch — Convection Equation",
-                "url": "https://www.youtube.com/watch?v=PINN_TUTORIAL_TBD",
-                "meta": "Video · SciML Lab · 18:40"
+                "title": "Learning PIML Part 1 – PINNs",
+                "url": "https://www.youtube.com/watch?v=AXXnSzmpyoI",
+                "meta": "Video · Juan Toscano · 24:20"
               },
               {
                 "id": "r2",
@@ -47,7 +47,7 @@
               "index": 0,
               "title": "Set up the environment",
               "video": {
-                "videoId": "PINN_TUTORIAL_TBD",
+                "videoId": "AXXnSzmpyoI",
                 "start": 0,
                 "end": 70
               }
@@ -57,7 +57,7 @@
               "index": 1,
               "title": "Sample collocation points",
               "video": {
-                "videoId": "PINN_TUTORIAL_TBD",
+                "videoId": "AXXnSzmpyoI",
                 "start": 70,
                 "end": 125
               }
@@ -67,7 +67,7 @@
               "index": 2,
               "title": "Build the MLP",
               "video": {
-                "videoId": "PINN_TUTORIAL_TBD",
+                "videoId": "AXXnSzmpyoI",
                 "start": 125,
                 "end": 372
               }
@@ -77,7 +77,7 @@
               "index": 3,
               "title": "Define the residual",
               "video": {
-                "videoId": "PINN_TUTORIAL_TBD",
+                "videoId": "AXXnSzmpyoI",
                 "start": 372,
                 "end": 588
               }
@@ -87,7 +87,7 @@
               "index": 4,
               "title": "Write the training loop",
               "video": {
-                "videoId": "PINN_TUTORIAL_TBD",
+                "videoId": "AXXnSzmpyoI",
                 "start": 588,
                 "end": 760
               }
@@ -97,7 +97,7 @@
               "index": 5,
               "title": "Train at β = 30",
               "video": {
-                "videoId": "PINN_TUTORIAL_TBD",
+                "videoId": "AXXnSzmpyoI",
                 "start": 760,
                 "end": 870
               }
@@ -107,7 +107,7 @@
               "index": 6,
               "title": "Fix it with a β curriculum",
               "video": {
-                "videoId": "PINN_TUTORIAL_TBD",
+                "videoId": "AXXnSzmpyoI",
                 "start": 870,
                 "end": 1120
               }
@@ -135,7 +135,7 @@
           "title": "Train at β = 30",
           "instructions": "Run training and watch the loss",
           "video": {
-            "videoId": "PINN_TUTORIAL_TBD",
+            "videoId": "AXXnSzmpyoI",
             "start": 760,
             "end": 870
           },
@@ -376,7 +376,7 @@
           "title": "Compare to the exact solution",
           "instructions": "Plot predicted vs exact u(x, t)",
           "video": {
-            "videoId": "PINN_TUTORIAL_TBD",
+            "videoId": "AXXnSzmpyoI",
             "start": 870,
             "end": 1120
           },
