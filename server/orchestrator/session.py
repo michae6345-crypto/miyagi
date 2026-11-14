@@ -101,7 +101,12 @@ def human_build_error(e: BaseException) -> str:
     """A message the learner can act on (the raw reason stays in the engine log)."""
     raw = str(e)
     low = raw.lower()
-    if "took over" in low or isinstance(e, TimeoutError):
+    quota = "quota" in low or "resource_exhausted" in low
+    yt_limited = ("429" in low or "too many requests" in low) and ("transcript" in low or "caption" in low)
+    if quota and yt_limited:  # E2: "no engine could build the lesson" with both causes
+        return ("Couldn't watch this video: Gemini's quota is used up and YouTube is rate-limiting this network. "
+                "Try a lesson that's already built, another network (hotspot), or add a Gemini key in Settings.")
+    if "took over" in low or "no answer within" in low or isinstance(e, TimeoutError):
         return "Building this lesson is taking too long. Try again, or pick another video."
     if "quota" in low or "resource_exhausted" in low:
         return "Gemini's daily quota is used up, so I couldn't watch this video. Try another video or add a key in Settings."

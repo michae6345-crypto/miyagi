@@ -954,6 +954,9 @@ def test_human_build_errors():
     assert "quota" in human_build_error(RuntimeError("429 RESOURCE_EXHAUSTED daily quota"))
     assert "taking too long" in human_build_error(RuntimeError("building the lesson took over 300s"))
     assert "YouTube videos" in human_build_error(ValueError("only YouTube sources are supported for now: ''"))
+    both = RuntimeError("no engine could build the lesson:\ngemini: Gemini call failed: 429 RESOURCE_EXHAUSTED quota\n"
+                        "claude: no transcript for AXXnSzmpyoI: 429 Too Many Requests")
+    assert "quota is used up and YouTube is rate-limiting" in human_build_error(both)
 
 
 def test_diagram_uses_s4_build_signature_and_question(rig):
