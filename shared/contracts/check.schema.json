@@ -1,0 +1,28 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "check.schema.json",
+  "title": "A machine-checkable step check. A step passes only when ALL its checks pass.",
+  "type": "object",
+  "required": ["id", "type", "label"],
+  "properties": {
+    "id": {"type": "string"},
+    "label": {"type": "string", "description": "shown in the UI checklist, <= 6 words"},
+    "type": {"enum": ["file_exists", "file_contains", "command_exit_ok", "output_contains", "metric_threshold", "metric_trend", "visual"]},
+    "file": {"type": "string", "description": "file_exists / file_contains"},
+    "pattern": {"type": "string", "description": "regex for file_contains / output_contains"},
+    "command": {"type": "string", "description": "command_exit_ok: the command the learner runs via `tut run`"},
+    "metric": {"type": "string", "description": "metric_threshold / metric_trend: name from ::metric:: lines, e.g. loss"},
+    "op": {"enum": ["<", "<=", ">", ">="]},
+    "value": {"type": "number"},
+    "by_step": {"type": "integer", "description": "threshold must hold by this training step"},
+    "trend": {"enum": ["decreasing", "not_flat"], "description": "metric_trend"},
+    "window": {"type": "integer", "description": "metric_trend: number of recent steps to evaluate"},
+    "prompt": {"type": "string", "description": "visual: question for a vision model about a screenshot (use sparingly)"}
+  },
+  "examples": [
+    {"id": "c1", "type": "file_contains", "label": "residual includes β·u_x", "file": "pinn_convection.py", "pattern": "u_t\\s*\\+\\s*\\w*\\s*\\*\\s*u_x"},
+    {"id": "c2", "type": "command_exit_ok", "label": "script runs", "command": "python pinn_convection.py --epochs 1"},
+    {"id": "c3", "type": "metric_threshold", "label": "loss < 1e-2", "metric": "loss", "op": "<", "value": 0.01, "by_step": 4000},
+    {"id": "c4", "type": "metric_trend", "label": "loss still dropping", "metric": "loss", "trend": "not_flat", "window": 1500}
+  ]
+}

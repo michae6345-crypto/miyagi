@@ -1,0 +1,67 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Lesson step graph (produced by server/lesson, consumed by orchestrator + checks)",
+  "type": "object",
+  "required": ["lesson", "sources", "steps"],
+  "properties": {
+    "lesson": {
+      "type": "object",
+      "required": ["id", "title", "goal"],
+      "properties": {
+        "id": {"type": "string"},
+        "title": {"type": "string"},
+        "goal": {"type": "string"},
+        "workdir": {"type": "string", "description": "project folder the learner works in"},
+        "libraries": {"type": "object", "additionalProperties": {"type": "string"}, "description": "library -> version the tutorial used, for outdated-API fixes"}
+      }
+    },
+    "sources": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["id", "kind", "title", "url"],
+        "properties": {
+          "id": {"type": "string"},
+          "kind": {"enum": ["video", "blog", "notebook", "paper", "repo"]},
+          "title": {"type": "string"},
+          "url": {"type": "string"},
+          "videoId": {"type": "string"}
+        }
+      }
+    },
+    "steps": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["id", "index", "title", "instructions", "checks"],
+        "properties": {
+          "id": {"type": "string"},
+          "index": {"type": "integer"},
+          "title": {"type": "string", "description": "<= 6 words"},
+          "instructions": {"type": "string", "description": "<= 2 sentences"},
+          "video": {
+            "type": "object",
+            "required": ["sourceId", "start", "end"],
+            "properties": {"sourceId": {"type": "string"}, "start": {"type": "number"}, "end": {"type": "number"}}
+          },
+          "checks": {"type": "array", "items": {"$ref": "check.schema.json"}},
+          "targets": {
+            "type": "array",
+            "description": "semantic places to spotlight",
+            "items": {
+              "type": "object",
+              "properties": {"file": {"type": "string"}, "match": {"type": "string", "description": "regex or substring identifying the block"}, "caption": {"type": "string"}}
+            }
+          },
+          "explanations": {
+            "type": "array",
+            "description": "moments in the source that explain concepts, for 'he explains this at 7:42'",
+            "items": {"type": "object", "properties": {"topic": {"type": "string"}, "t": {"type": "number"}, "sourceId": {"type": "string"}}}
+          },
+          "hints": {"type": "array", "items": {"type": "string"}, "description": "hint ladder, gentlest first"},
+          "common_mistakes": {"type": "array", "items": {"type": "string"}}
+        }
+      }
+    }
+  }
+}
