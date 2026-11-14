@@ -8,6 +8,7 @@ dependencies = [
   "anthropic>=0.40", "google-genai>=1.0",
   "psycopg[binary]>=3.2",
   "pyobjc-framework-Quartz>=10; sys_platform == 'darwin'", "pyobjc-framework-Vision>=10; sys_platform == 'darwin'",
+  "pyobjc-framework-ApplicationServices>=10; sys_platform == 'darwin'", "pyobjc-framework-ScreenCaptureKit>=10; sys_platform == 'darwin'",
   "rapidfuzz>=3", "pillow>=10",
 ]
 [project.optional-dependencies]
