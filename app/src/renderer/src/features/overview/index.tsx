@@ -10,6 +10,7 @@ import { useLesson, useProgress, useStatus, type Status } from '../../core/lesso
 import { defineFeature } from '../../core/registry'
 import { CheckList, StatusDot, Thumb } from '../../core/ui/atoms'
 import { clock, color } from '../../core/theme'
+import { GoalNote, Instructions, Meta } from './Lines'
 
 function Segments({ total, index, status }: { total: number; index: number; status: Status }): ReactNode {
   const current = status === 'offtrack' ? color.amber : status === 'passed' ? color.green : color.accent
@@ -44,14 +45,17 @@ function Overview(): ReactNode {
             Step {index + 1} of {total} <StatusDot status={status} />
           </div>
           <div className="mt-[2px] truncate text-[20px] font-semibold tracking-[-0.015em]">{s.title}</div>
+          <GoalNote />
           <Segments total={total} index={index} status={status} />
         </div>
       </div>
+      <Instructions />
       {s.checks.length > 0 && (
         <div className="mt-[18px]">
           <CheckList checks={s.checks} />
         </div>
       )}
+      <Meta />
       <div className="mt-[16px] flex items-center justify-between border-t pt-[12px] text-[13px] text-white/45" style={{ borderColor: 'rgba(255,255,255,.08)' }}>
         <span>{footer}</span>
         <span>Ask {bridge.platform.keys.launcher}</span>
