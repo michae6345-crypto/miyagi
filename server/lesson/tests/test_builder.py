@@ -855,3 +855,103 @@ def test_talk_only_parts_are_skipped_not_failed(fake, monkeypatch):
     assert (p["done"], p["skipped"], p["failed"]) == (1, 3, 0)  # the 20-min outro chapter splits into 2 parts and [s["title"] for s in g["steps"]] == ["Write code"]
     assert updates[0] == (False, 1)  # never shows an empty lesson
     assert list(builder.CACHE_DIR.glob("*.json"))  # skipped parts don't block caching
+
+
+def test_failed_background_part_is_retried_as_two_halves(fake, monkeypatch):
+    monkeypatch.setenv("LESSON_ENGINE", "gemini")
+
+    async def meta(vid):
+        return {"video_id": vid, "title": "Long", "description": "", "length_s": 2000,
+                "chapters": [{"t": 0, "title": "a"}, {"t": 300, "title": "b"}, {"t": 1100, "title": "c"}]}
+
+    monkeypatch.setattr(transcript, "fetch_metadata", meta)
+
+    async def clip(url, goal, fps=None, context="", start=None, end=None, media_low=False):
+        if int(start) == 300 and int(end) == 1100:
+            raise RuntimeError("Gemini call failed: no answer")  # the whole 300-1100 part stalls
+        return {"title": "t", "libraries": [], "steps": [{"start": start + 5, "end": start + 60, "title": f"Step {int(start)}", "instructions": "do",
+                                                         "checks": [], "hints": []}]}
+
+    monkeypatch.setattr(gemini, "watch_video", clip)
+
+    async def adapt(goal, steps, summary, feedback=None):
+        return {"steps": [{"index": s["index"], "checks": [{"type": "screen_contains", "label": "x", "app": "Code", "pattern": "some_marker_x"}], "targets": []} for s in steps]}
+
+    monkeypatch.setattr(claude, "adapt_checks", adapt)
+    g = asyncio.run(builder.build_lesson(URL, "x", WORKDIR, refresh=True))
+    assert [s["title"] for s in g["steps"]] == ["Step 0", "Step 300", "Step 700", "Step 1100"]  # halves 300-700, 700-1100
+    assert g["lesson"]["parts"]["failed"] == 0
+
+
+def test_preflight_meta_and_first_hands_on(fake, monkeypatch):
+    monkeypatch.setenv("LESSON_ENGINE", "gemini")
+    fetched = []
+
+    async def meta(vid):
+        fetched.append(vid)
+        return {"video_id": vid, "title": "x", "description": "", "length_s": 1, "chapters": []}
+
+    monkeypatch.setattr(transcript, "fetch_metadata", meta)
+    watched = []
+
+    async def clip(url, goal, fps=None, context="", start=None, end=None, media_low=False):
+        watched.append((int(start), int(end)))
+        return {"title": "t", "libraries": [], "steps": [{"start": start + 5, "end": start + 60, "title": f"S{int(start)}", "instructions": "do", "checks": [], "hints": []}]}
+
+    monkeypatch.setattr(gemini, "watch_video", clip)
+
+    async def adapt(goal, steps, summary, feedback=None):
+        return {"steps": [{"index": s["index"], "checks": [{"type": "screen_contains", "label": "x", "app": "Code", "pattern": "marker_text"}], "targets": []} for s in steps]}
+
+    monkeypatch.setattr(claude, "adapt_checks", adapt)
+    vm = {"title": "Long one", "description": "d", "duration_s": 2400, "firstHandsOn": "7:52",
+          "chapters": [{"start": 0, "title": "intro"}, {"start": 472, "title": "data"}, {"start": 1300, "title": "model"}]}
+    g = asyncio.run(builder.build_lesson(URL, "x", WORKDIR, refresh=True, video_meta=vm))
+    assert watched and min(a for a, _ in watched) == 472  # the 0:00-7:52 intro was never watched
+    p = g["lesson"]["parts"]["list"]
+    assert p[0]["status"] == "skipped" and p[0]["end"] == 472 and g["steps"][0]["video"]["start"] >= 472
+    assert "Long one" == g["lesson"]["title"]
+
+
+def test_localhost_at_sentence_end_is_left_alone():
+    from server.lesson import links
+    assert links._checkable("open http://127.0.0.1:8000.") == set()
+    assert links._checkable("see https://example.com/real.") == {"https://example.com/real"}
+
+
+def test_parts_merge_short_steps_down_to_one():
+    d = {"steps": [_st(0, 30, "Import pandas"), _st(30, 70, "Load the CSV"), _st(70, 400, "Group and sort")]}
+    out = builder.normalize_draft(d, min_step_s=45, min_steps=1)
+    assert [s["title"] for s in out["steps"]] == ["Load the CSV", "Group and sort"]  # 30 s + 40 s folded into one 70 s step
+    assert out["steps"][0]["instructions"] == "Import pandas Load the CSV"
+
+
+def test_mid_length_video_falls_back_to_parts_when_one_pass_fails(fake, monkeypatch):
+    monkeypatch.setenv("LESSON_ENGINE", "auto")
+    monkeypatch.setenv("LESSON_GEMINI_TIMEOUT", "0.3")
+    monkeypatch.setenv("LESSON_GEMINI_MAX_TIMEOUT", "0.3")
+
+    async def meta(vid):
+        return {"video_id": vid, "title": "Rust CLI", "description": "", "length_s": 779, "chapters": []}
+
+    monkeypatch.setattr(transcript, "fetch_metadata", meta)
+
+    async def gemini_watch(url, goal, fps=None, context="", start=None, end=None, media_low=False):
+        if start is None:
+            await asyncio.sleep(5)  # the whole 13-min video: too slow
+        return {"title": "t", "libraries": [], "steps": [{"start": start + 5, "end": start + 120, "title": f"Part at {int(start)}",
+                                                         "instructions": "do", "checks": [], "hints": []}]}
+
+    monkeypatch.setattr(gemini, "watch_video", gemini_watch)  # Claude path stays offline (fails: no transcript)
+
+    async def adapt(goal, steps, summary, feedback=None):
+        return {"steps": [{"index": s["index"], "checks": [{"type": "screen_contains", "label": "x", "app": "Code", "pattern": "fn\\s+main\\("}], "targets": []} for s in steps]}
+
+    monkeypatch.setattr(claude, "adapt_checks", adapt)
+    g = asyncio.run(builder.build_lesson(URL, "x", WORKDIR, refresh=True))
+    assert g["build"]["progressive"] is True and g["lesson"]["parts"]["done"] >= 1 and g["steps"][0]["title"] == "Part at 0"
+
+
+def test_long_failure_suggests_a_shorter_video():
+    msg = builder.human_error("gemini: no answer within 110s | claude: no transcript", {"length_s": 779})
+    assert "Try a shorter video from the same search." in msg.splitlines()[0]

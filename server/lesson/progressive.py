@@ -26,6 +26,8 @@ LONG_VIDEO_S = float(os.environ.get("LESSON_LONG_VIDEO_S", 30 * 60))
 FIRST_MIN_S, FIRST_MAX_S = 3 * 60, 6 * 60  # window 1: small, so the first steps arrive fast (Gemini ~40 s on 6 min)
 WINDOW_MIN_S, WINDOW_TARGET_S, WINDOW_MAX_S = 6 * 60, 12 * 60, 15 * 60
 PARALLEL_WINDOWS = int(os.environ.get("LESSON_PARALLEL_WINDOWS", "3"))
+PART_MIN_STEP_S = 45.0  # parts are cut by time, so their steps run short; fold sub-45 s steps into a neighbour
+MINUTES_PER_STEP = 3.0  # step budget per part (a 12-min part gets at most 4 steps)
 
 
 def clip_cap_s(start: float, end: float, first: bool = True) -> float:
@@ -36,9 +38,17 @@ def clip_cap_s(start: float, end: float, first: bool = True) -> float:
     return 25.0 + 4.0 * minutes if first else 60.0 + 8.0 * minutes
 
 
-def plan_windows(length_s: float, chapters: list[dict]) -> list[tuple[float, float, list[str]]]:
+def plan_windows(length_s: float, chapters: list[dict], first_hands_on: float | None = None) -> list[tuple[float, float, list[str]]]:
     """[(start, end, chapter titles)] covering the video. Chapters are grouped (never split mid-chapter
-    unless one chapter is longer than WINDOW_MAX_S); without chapters, fixed windows."""
+    unless one chapter is longer than WINDOW_MAX_S); without chapters, fixed windows. With
+    first_hands_on (from preflight), everything before it is one "intro" window and part 1 starts there."""
+    if first_hands_on and 60 <= first_hands_on < length_s - 60:
+        later = [c for c in chapters if c["t"] > first_hands_on]
+        rest = plan_windows(length_s - first_hands_on, [{"t": 0, "title": "hands-on"}] + [dict(c, t=c["t"] - first_hands_on) for c in later]
+                            if chapters else [])
+        intro_titles = [c["title"] for c in chapters if c["t"] < first_hands_on]
+        return [(0.0, float(first_hands_on), ["(intro) " + "; ".join(intro_titles)])] + \
+            [(a + first_hands_on, b + first_hands_on, t) for a, b, t in rest]
     spans: list[tuple[float, float, str]] = []
     if len(chapters) >= 3:
         for c, nxt in zip(chapters, chapters[1:] + [{"t": length_s}]):
@@ -112,7 +122,7 @@ async def _window_draft(url: str, vid: str, goal: str, win: tuple, meta: dict, c
                 gemini.watch_video(url, goal, context=context, start=start, end=end, media_low=True), cap)
             if not (raw.get("steps") or []):  # a talk-only part (intro, outro, theory): nothing to code along with
                 return {"steps": [], "_empty": True, "_engine": "gemini", "_built_by": f"{gemini.last_model} (watched the video)"}
-            d = builder.normalize_draft(_absolutize(raw, start, end))
+            d = builder.normalize_draft(_absolutize(raw, start, end), min_step_s=PART_MIN_STEP_S, min_steps=1)
             d["_engine"], d["_built_by"] = "gemini", f"{gemini.last_model} (watched the video)"
             return d
         except TimeoutError:
@@ -124,7 +134,7 @@ async def _window_draft(url: str, vid: str, goal: str, win: tuple, meta: dict, c
             info = await transcript.fetch_video_info(vid)
             part = dict(info, transcript=[ln for ln in info["transcript"] if start - 5 <= ln["t"] <= end + 5],
                         chapters=[c for c in info.get("chapters") or [] if start <= c["t"] < end])
-            d = builder.normalize_draft(_absolutize(await claude.watch_transcript(part, goal), start, end))
+            d = builder.normalize_draft(_absolutize(await claude.watch_transcript(part, goal), start, end), min_step_s=PART_MIN_STEP_S, min_steps=1)
             d["_engine"], d["_built_by"] = "claude", f"{claude.last_model} (transcript via {info['sources'].get('transcript')})"
             return d
         except (RuntimeError, ValueError) as e:
@@ -149,7 +159,9 @@ async def build(source_url: str, vid: str, goal: str, workdir: str, info, meta: 
                 on_update=None, cache: bool = True, t0: float | None = None) -> dict:
     t0 = t0 or time.time()
     engines = builder.engines()
-    windows = plan_windows(float(meta["length_s"]), meta.get("chapters") or [])
+    fho = meta.get("first_hands_on")
+    windows = plan_windows(float(meta["length_s"]), meta.get("chapters") or [], fho)
+    intro = 1 if (windows and windows[0][2] and windows[0][2][0].startswith("(intro)")) else 0
     context = transcript.format_metadata(meta)
     known_text, checked = await builder._known_text(vid), {}
     goal_task = asyncio.ensure_future(goal_match(goal, meta))
@@ -157,8 +169,30 @@ async def build(source_url: str, vid: str, goal: str, workdir: str, info, meta: 
              [f"{gemini._mmss(a)}-{gemini._mmss(b)}" for a, b, _ in windows])
     builder._emit("planning", f"{len(windows)} parts")
 
+    async def draft_for(i: int) -> dict:
+        """A part's draft; a background part that fails is retried once as two half-length clips
+        (long dense clips are where Gemini stalls)."""
+        try:
+            return await _window_draft(source_url, vid, goal, windows[i], meta, context, engines, first=(i == intro))
+        except RuntimeError as e:
+            a, b, titles = windows[i]
+            if i == intro or b - a < 6 * 60:
+                raise
+            log.warning("part %d failed (%s); retrying as two halves", i + 1, str(e)[:100])
+            mid = a + (b - a) / 2
+            halves = await asyncio.gather(
+                *(_window_draft(source_url, vid, goal, w, meta, context, engines, first=False) for w in ((a, mid, titles), (mid, b, titles))),
+                return_exceptions=True)
+            ok = [h for h in halves if isinstance(h, dict)]
+            if not ok:
+                raise RuntimeError(f"{e} | halves: " + " | ".join(str(h)[:120] for h in halves)) from e
+            merged = {**ok[0], "steps": [st for h in ok for st in h.get("steps") or []]}
+            if not merged["steps"]:
+                return {**ok[0], "steps": [], "_empty": True}
+            return builder.normalize_draft(merged, min_step_s=PART_MIN_STEP_S, min_steps=1) | {"_engine": ok[0].get("_engine"), "_built_by": ok[0].get("_built_by")}
+
     async def one(i: int) -> tuple[list[dict], dict]:
-        d = await _window_draft(source_url, vid, goal, windows[i], meta, context, engines, first=(i == 0))
+        d = await draft_for(i)
         if d.get("_empty"):
             return [], {"draft": d, "graph": {"lesson": {}}, "warnings": [], "adapted": True, "adapt_model": None, "empty": True}
         bad = await builder._bad_urls(d["steps"], known_text, checked)
@@ -224,12 +258,16 @@ async def build(source_url: str, vid: str, goal: str, workdir: str, info, meta: 
     sem = asyncio.Semaphore(PARALLEL_WINDOWS)
 
     async def guarded(i: int):
-        if i == 0:
+        if i == intro:  # the first hands-on part never waits for a slot
             return await one(i)
         async with sem:
             return await one(i)
 
-    tasks = [asyncio.ensure_future(guarded(i)) for i in range(len(windows))]
+    async def skipped_intro():
+        return [], {"draft": {}, "graph": {"lesson": {}}, "warnings": [], "adapted": True, "adapt_model": None, "empty": True}
+
+    # an intro before preflight's firstHandsOn is talk: record it as skipped instead of watching it
+    tasks = [asyncio.ensure_future(skipped_intro() if (intro and i == 0) else guarded(i)) for i in range(len(windows))]
     shown_first = False
     try:
         for i, task in enumerate(tasks):
