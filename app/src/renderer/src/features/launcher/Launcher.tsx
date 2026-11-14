@@ -29,7 +29,7 @@ import { cmd } from '../../../../common/wire'
 import { bridge } from '../../bridge'
 import { onUi } from '../../core/bus'
 import { useLesson, useProgress } from '../../core/lesson'
-import { islandModes, type IslandMode } from '../../core/registry'
+import { getIslandModes, type IslandMode } from '../../core/registry'
 import { triggerShortcut } from '../../core/shortcuts'
 import { Kbd, Spinner } from '../../core/ui/atoms'
 import { clock, color, pill, radius, spring, springOut } from '../../core/theme'
@@ -71,8 +71,9 @@ const contentOut: Transition = { duration: 0.08 }
 
 /** Which island mode the island is showing right now (same rule as core/Island, without hover). */
 function useIslandMode(): IslandMode | undefined {
-  const wanted = islandModes.map((m) => m.useActive(false))
-  return islandModes.find((_, i) => wanted[i])
+  const modes = getIslandModes()
+  const wanted = modes.map((m) => m.useActive(false))
+  return modes.find((_, i) => wanted[i])
 }
 
 export function Launcher({ layout }: { layout: Layout }): ReactNode {
@@ -315,7 +316,7 @@ export function Launcher({ layout }: { layout: Layout }): ReactNode {
   }
 
   // What the island will show the moment it takes over again: its own content, drawn on the collapsed panel.
-  const building = islandModes.find((m) => m.id === 'building')
+  const building = getIslandModes().find((m) => m.id === 'building')
   const returnTo = phase === 'building' ? building : islandMode
 
   const minutes = estimateMinutes(results)

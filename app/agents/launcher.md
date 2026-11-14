@@ -1,6 +1,6 @@
 # launcher
 
-**Status:** pass 1 done (notch version), waiting for Adrian's review · **Priority:** P0 · **Port:** 5176 · **Branch:** `adrian/launcher`
+**Status:** pass 1 done (notch version, finished), rebased on `adrian/shell` 0876da5, waiting for Adrian's review · **Priority:** P0 · **Port:** 5176 · **Branch:** `adrian/launcher`
 
 ## Goal
 Launcher born from the notch island (⌥Space; Ctrl+Shift+Space on Windows). **Since Sat ~2 PM (Michael): the island expands down into the launcher and every exit collapses it back into the island; nothing opens mid-screen.** Type what you want to learn → results stream in (it grows down) → Build lesson → it collapses back up into the pill (the signature transition). Pasting a YouTube link skips search. **During a lesson** it becomes "Ask about this step": Enter sends `action {kind:"ask", text}` and the answer comes back as a card.
@@ -50,6 +50,7 @@ Window show/hide/focus is core (`src/main/index.ts`); the shrink target comes fr
 - **Exits all collapse:** Esc / click outside / toggle and ask → back to `from` (pill or card) with that island mode's content fading in, then `launcher:hidden`. Build lesson / link → onto 300×34 with the `building` content, then `launcher:built`. Exit springs end within 1px (`restDelta 1`), so the island is back at ~400ms.
 - Focus uses `preventScroll`: while the panel is still pill-sized it clips its content, and a plain `focus()` scrolled the content up (the title showed cut off).
 - Light dim (`rgba(0,0,0,.18)`), no blur. Placeholder copy is generic ("Search a topic, or paste a YouTube link").
+- Reads island modes through the lazy registry (`getIslandModes()`, core 0876da5). Re-checked all flows on that core: same hand-over, and the Core request 1 overshoot is still there (~952px after the swap).
 - Pressing ⌥Space again *during* a collapse (~400ms) is swallowed: main still thinks the launcher is open until `launcher:hidden`.
 - Shots: 05 open, 06 build, 08 ask and 14 Esc are frame strips; 01–04, 07, 09–13 are states.
 
