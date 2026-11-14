@@ -1,10 +1,11 @@
 """Video metadata + timestamped transcript for the transcript-based (Claude) build path.
 
-Sources, in order:
+Sources, in order (first that works wins; the result is cached in demo/cache/transcripts/):
 1. Bright Data Web Unlocker (BRIGHTDATA_API_KEY + BRIGHTDATA_UNLOCKER_ZONE): the watch page
    (title, description, caption tracks) and the caption track itself.
-2. Otherwise the public watch page over plain HTTPS for metadata, and youtube-transcript-api
-   for captions.
+2. The public watch page over plain HTTPS, then its caption track URL directly.
+3. youtube-transcript-api.
+YouTube rate-limits caption endpoints per IP (429 "Sorry..."), which is what (1) is for.
 No frames: we only use what YouTube publishes as text (captions, title, description, chapters).
 """
 
@@ -27,7 +28,25 @@ _HEADERS = {"User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 14_0) AppleWeb
             "Accept-Language": "en-US,en;q=0.9", "Cookie": "CONSENT=YES+1"}
 
 
+def _cache_path(video_id: str):
+    from .schema import REPO_ROOT
+
+    return REPO_ROOT / "demo" / "cache" / "transcripts" / f"{video_id}.json"
+
+
 async def fetch_video_info(video_id: str) -> dict:
+    p = _cache_path(video_id)
+    if p.is_file():
+        info = json.loads(p.read_text())
+        info.setdefault("sources", {})["cache"] = p.name
+        return info
+    info = await _fetch_video_info(video_id)
+    p.parent.mkdir(parents=True, exist_ok=True)
+    p.write_text(json.dumps(info, indent=1))
+    return info
+
+
+async def _fetch_video_info(video_id: str) -> dict:
     """-> {video_id, title, description, length_s, chapters:[{t,title}], transcript:[{t,text}], sources:{...}, errors:[...]}.
     Raises RuntimeError when no transcript could be obtained (the transcript path can't work without one)."""
     info: dict = {"video_id": video_id, "title": "", "description": "", "length_s": None, "chapters": [], "transcript": [], "sources": {}, "errors": []}
@@ -67,6 +86,12 @@ async def fetch_video_info(video_id: str) -> dict:
             info["sources"]["transcript"] = "brightdata"
         except Exception as e:  # noqa: BLE001
             info["errors"].append(f"brightdata captions: {str(e)[:160]}")
+    if not info["transcript"] and tracks:
+        try:
+            info["transcript"] = await _direct_captions(tracks)
+            info["sources"]["transcript"] = "youtube.com timedtext"
+        except Exception as e:  # noqa: BLE001
+            info["errors"].append(f"timedtext: {str(e)[:160]}")
     if not info["transcript"]:
         try:
             info["transcript"] = await asyncio.to_thread(_yta_transcript, video_id)
@@ -128,13 +153,26 @@ async def _brightdata_get(url: str, key: str, zone: str) -> str:
         return r.text
 
 
-async def _brightdata_captions(tracks: list[dict], key: str, zone: str) -> list[dict]:
+def _best_track(tracks: list[dict]) -> str:
     def rank(tr: dict) -> tuple:
         lang = tr.get("languageCode", "")
         return (not lang.startswith("en"), tr.get("kind") == "asr")  # English first, manual before auto
 
-    base = sorted(tracks, key=rank)[0]["baseUrl"]
-    raw = await _brightdata_get(base + "&fmt=json3", key, zone)
+    return sorted(tracks, key=rank)[0]["baseUrl"] + "&fmt=json3"
+
+
+async def _direct_captions(tracks: list[dict]) -> list[dict]:
+    async with httpx.AsyncClient(headers=_HEADERS, timeout=30, follow_redirects=True) as c:
+        r = await c.get(_best_track(tracks))
+        r.raise_for_status()
+        return _parse_json3(r.text)
+
+
+async def _brightdata_captions(tracks: list[dict], key: str, zone: str) -> list[dict]:
+    return _parse_json3(await _brightdata_get(_best_track(tracks), key, zone))
+
+
+def _parse_json3(raw: str) -> list[dict]:
     out = []
     for ev in json.loads(raw).get("events", []):
         text = "".join(s.get("utf8", "") for s in ev.get("segs") or []).strip()

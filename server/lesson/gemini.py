@@ -205,8 +205,8 @@ Rules:
   substring that will be visible on screen, e.g. "function TodoList" or "git merge", plus a caption.
 - explanations: moments (MM:SS) where the presenter explains a concept relevant to the step.
 - hints: a ladder of 2-4 hints, gentlest first (a guiding question -> a pointer -> nearly the answer).
-- common_mistakes: concrete mistakes learners make in this step (e.g. forgetting requires_grad=True on inputs, create_graph=True for second derivatives).
-- libraries: every library used, with the version if shown (pip output, requirements, import of a versioned API); otherwise your best estimate from the API style and upload date, e.g. "torch": "2.x".
+- common_mistakes: concrete mistakes learners make in this step (e.g. forgetting to export the component, committing before staging, mutating a DataFrame copy, skipping optimizer.zero_grad()).
+- libraries: every library used, with the version if shown (pip output, requirements, import of a versioned API); otherwise your best estimate from the API style and upload date, e.g. "react": "18.x".
 """
 
 

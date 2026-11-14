@@ -177,9 +177,88 @@ API call, a command, a printed result) that are very likely to appear on screen 
 code. Never invent steps the transcript does not cover."""
 
 
+SEGMENT_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "title": {"type": "string"},
+        "libraries": {"type": "array", "items": {"type": "object", "properties": {"name": {"type": "string"}, "version": {"type": "string"}}, "required": ["name", "version"]}},
+        "steps": {"type": "array", "items": {"type": "object", "properties": {
+            "start": {"type": "string", "description": "MM:SS"}, "end": {"type": "string", "description": "MM:SS"},
+            "title": {"type": "string"}, "instructions": {"type": "string"}}, "required": ["start", "end", "title", "instructions"]}},
+    },
+    "required": ["title", "libraries", "steps"],
+}
+
+SEGMENT_PROMPT = """Learner's goal: {goal}
+
+Break this tutorial into 4-10 sequential steps a learner can code along with. Return ONLY the step list.
+- One step = one concrete thing the learner builds or runs. Skip intros, outros, sponsor segments and pure
+  theory unless they end in code or a command. Chapters, when given, are strong hints for boundaries.
+- start/end are MM:SS taken from the transcript: start = where the presenter begins the step, end = where
+  its code is complete or its run finished. In order, no overlaps.
+- title: imperative, at most 6 words. instructions: at most 2 sentences, concrete.
+- libraries: every library/tool used, with the version if mentioned, else your best estimate ("18.x").
+"""
+
+STEP_PROMPT = """Learner's goal: {goal}. Tutorial: "{lesson}". Its steps: {outline}
+
+Fill in step {index}: "{title}" ({start}-{end}). {instructions}
+Transcript of this step (with a little context either side):
+{slice}
+
+Return for THIS step only:
+- file: the file edited (if any); code: the key lines written, as the presenter evidently types them;
+  run_command / expected_output: the command run and what it prints, verbatim if said or obvious.
+- checks: machine-checkable from the learner's SCREEN (OCR of editor, terminal, browser), at least one:
+  screen_contains (app "Code"/"Terminal"/"Google Chrome", SHORT regex < 60 chars for a distinctive fragment,
+  tolerant to spacing), screen_absent (app "Terminal", "Traceback|Error:|ERR!") for "it runs", and
+  metric_threshold / metric_trend for numbers the run prints, with metric_pattern (named group value, plus
+  step when printed per step/epoch). Never "visual".
+{stack_guide}
+- targets: app + a short literal on-screen `match` (e.g. "function Header") + caption.
+- explanations: MM:SS moments in this slice where a concept is explained.
+- hints: 2-4, gentlest first. common_mistakes: concrete ones for this step.
+"""
+
+STEP_DETAIL_SCHEMA = {
+    "type": "object",
+    "properties": {k: v for k, v in VIDEO_DRAFT_SCHEMA["properties"]["steps"]["items"]["properties"].items()
+                   if k in ("file", "code", "run_command", "expected_output", "checks", "targets", "explanations", "hints", "common_mistakes")},
+    "required": ["checks", "hints"],
+}
+DETAIL_CONCURRENCY = 8
+
+
 async def watch_transcript(info: dict, goal: str) -> dict:
-    prompt = gemini.WATCH_PROMPT.format(goal=goal, stack_guide=gemini.STACK_GUIDE) + "\n\n" + TRANSCRIPT_NOTE + "\n\n" + format_for_prompt(info)
-    return await _generate_json(gemini.WATCH_SYSTEM, prompt, VIDEO_DRAFT_SCHEMA, effort=os.environ.get("LESSON_CLAUDE_EFFORT_WATCH", "medium"))
+    """Two phases so a 20-min video builds in well under a minute:
+    1. segment: one small call returns the step list with timestamps;
+    2. detail: one call per step, in parallel, on just that step's transcript slice."""
+    import asyncio
+
+    from .builder import parse_ts
+    from .transcript import _mmss
+
+    effort_seg = os.environ.get("LESSON_CLAUDE_EFFORT_WATCH", "medium")
+    effort_detail = os.environ.get("LESSON_CLAUDE_EFFORT_DETAIL", "low")
+    seg = await _generate_json(gemini.WATCH_SYSTEM, SEGMENT_PROMPT.format(goal=goal) + "\n\n" + TRANSCRIPT_NOTE + "\n\n" + format_for_prompt(info),
+                               SEGMENT_SCHEMA, effort=effort_seg)
+    steps = seg.get("steps") or []
+    outline = "; ".join(f"{i}. {s.get('title')}" for i, s in enumerate(steps, 1))
+    sem = asyncio.Semaphore(DETAIL_CONCURRENCY)
+
+    async def detail(i: int, st: dict) -> dict:
+        a, b = parse_ts(st.get("start")), parse_ts(st.get("end"))
+        lines = [ln for ln in info["transcript"] if a is not None and b is not None and a - 15 <= ln["t"] <= b + 10]
+        prompt = STEP_PROMPT.format(goal=goal, lesson=seg.get("title", ""), outline=outline, index=i, title=st.get("title", ""),
+                                    start=st.get("start"), end=st.get("end"), instructions=st.get("instructions", ""),
+                                    slice="\n".join(f"[{_mmss(ln['t'])}] {ln['text']}" for ln in lines) or "(no transcript lines)",
+                                    stack_guide=gemini.STACK_GUIDE)
+        async with sem:
+            d = await _generate_json(gemini.WATCH_SYSTEM, prompt, STEP_DETAIL_SCHEMA, effort=effort_detail)
+        return {**st, **{k: v for k, v in d.items() if k not in ("start", "end", "title", "instructions")}}
+
+    filled = await asyncio.gather(*(detail(i, st) for i, st in enumerate(steps, 1)))
+    return {"title": seg.get("title", ""), "libraries": seg.get("libraries", []), "steps": list(filled)}
 
 
 async def adapt_checks(goal: str, draft_steps: list[dict], workdir_summary: str, feedback: list[str] | None = None) -> dict:
