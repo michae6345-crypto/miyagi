@@ -1,0 +1,60 @@
+{
+ "guard_replay_d219e52_card": {
+  "apply_error": null,
+  "markers_left": false,
+  "rebase_ok": false,
+  "git": [
+   "CONFLICT (content): Merge conflict in index.js",
+   "error: could not apply 8d7db63... Add logout endpoint"
+  ]
+ },
+ "playbook_entry": {
+  "card": {
+   "stepId": "s5",
+   "severity": "fail",
+   "title": "Squash sits above its parent commit",
+   "body": "A squash folds into the commit right above it, but this one edits code a later commit creates, so it conflicts. Run git rebase --abort, then move the squash under that commit.",
+   "citation": {
+    "label": "Git docs: git rebase (interactive mode)",
+    "url": "https://git-scm.com/docs/git-rebase"
+   },
+   "guidingQuestion": "Which commit does a squash line fold into, and does that commit already contain the code it edits?",
+   "actions": [
+    "explain",
+    "hint"
+   ]
+  },
+  "unsafe_command_in_diff": false,
+  "advice_executed": {
+   "abort_output": "",
+   "redo_output": [
+    "Successfully rebased and updated refs/heads/feature/login."
+   ],
+   "commits": [
+    "Add README",
+    "Add login endpoint",
+    "Add logout endpoint",
+    "Add authentication middleware"
+   ],
+   "in_progress": false,
+   "tip_has_logout": true,
+   "tip_has_markers": false,
+   "tip_cleaned": true,
+   "ok": true
+  }
+ },
+ "matcher_on_git_screens": {
+  "G1": [
+   "git_squash_above_its_commit",
+   0.3
+  ],
+  "G2": [
+   null,
+   0.0
+  ],
+  "G3": [
+   null,
+   0.0
+  ]
+ }
+}
