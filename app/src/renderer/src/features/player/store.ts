@@ -124,6 +124,9 @@ let reportTimer: ReturnType<typeof setInterval> | undefined
 let autoplayTimer: ReturnType<typeof setTimeout> | undefined
 let resumeTimer: ReturnType<typeof setTimeout> | undefined
 let lastReport = ''
+/** When we last asked for a video (load/cue) and when YouTube last showed one (cued/playing/paused). */
+let requestedAt = 0
+let goodAt = 0
 
 const state = (): number => (yt && ready ? yt.getPlayerState() : YTState.UNSTARTED)
 const isRolling = (st: number): boolean => st === YTState.PLAYING || st === YTState.BUFFERING
@@ -169,11 +172,11 @@ function go(videoId: string | undefined, t: number, play: boolean): void {
   if (!yt || !ready) return sync()
   if (id !== loadedId) {
     loadedId = id
+    requestedAt = performance.now()
     if (play) yt.loadVideoById({ videoId: id, startSeconds: t })
     else yt.cueVideoById({ videoId: id, startSeconds: t })
-  } else if (!play && notStarted(state())) {
-    yt.cueVideoById({ videoId: id, startSeconds: t }) // seekTo on a cued video would start playing it
   } else {
+    // If seekTo starts a cued video anyway, onStateChange pauses it again (want.play is false).
     yt.seekTo(t, true)
     if (play) yt.playVideo()
     else yt.pauseVideo()
@@ -182,12 +185,23 @@ function go(videoId: string | undefined, t: number, play: boolean): void {
   sync(true)
 }
 
+/**
+ * Start playback at want.t. Checked against the live player: from a cued/unstarted video,
+ * playVideo() alone ignores the cue position and starts at 0, and seekTo() alone doesn't start it.
+ * seekTo(t) then playVideo() plays from t.
+ */
+function startFromWant(): void {
+  if (!yt) return
+  if (notStarted(state())) yt.seekTo(want.t, true)
+  yt.playVideo()
+}
+
 function setPlay(play: boolean): void {
   want = { ...want, t: now(), play }
   if (!yt || !ready) return sync()
   if (play) {
     if (state() === YTState.ENDED) return sync()
-    yt.playVideo()
+    startFromWant()
     watchAutoplay()
   } else {
     clearTimeout(autoplayTimer)
@@ -202,7 +216,7 @@ function watchAutoplay(): void {
   autoplayTimer = setTimeout(() => {
     if (!yt || !ready || !want.play || isRolling(state())) return
     yt.mute()
-    yt.playVideo()
+    startFromWant()
     setUi({ muted: true })
   }, AUTOPLAY_GRACE_MS)
 }
@@ -227,8 +241,24 @@ function tick(): void {
   if (Math.abs(s.t - t) > 0.04 || !s.duration) sync()
 }
 
+/**
+ * The empty player raises error 2 ("invalid id"), sometimes after our first cue. So error 2 only
+ * counts if no video showed up since we asked for one, 2.5s later. Other errors show at once.
+ */
+function onError(code: number): void {
+  if (code !== 2) return setUi({ error: describeYTError(code) })
+  if (requestedAt && goodAt >= requestedAt) return
+  setTimeout(() => {
+    if (yt && ready && requestedAt && goodAt < requestedAt) setUi({ error: describeYTError(code) })
+  }, 2500)
+}
+
 function onStateChange(st: number): void {
   if (!yt) return
+  if (isRolling(st) || st === YTState.CUED || st === YTState.PAUSED) {
+    goodAt = performance.now()
+    if (usePlayer.getState().error) setUi({ error: undefined })
+  }
   // Our intent wins: seekTo on a cued video starts playback even when we wanted it paused.
   if (st === YTState.PLAYING && !want.play) return yt.pauseVideo()
   if (isRolling(st)) clearTimeout(autoplayTimer)
@@ -255,6 +285,8 @@ export function attachPlayer(host: HTMLElement): () => void {
       // Under file:// (packaged Electron) there's no http(s) origin to give YouTube: see player.md → Notes.
       const vars: Record<string, string | number> = { controls: 0, disablekb: 1, fs: 0, rel: 0, iv_load_policy: 3, playsinline: 1, enablejsapi: 1 }
       if (/^https?:$/.test(location.protocol)) vars.origin = location.origin
+      // Created empty, then everything goes through go(). (Creating it with a videoId and re-cueing
+      // on ready races YouTube's own first cue: the clip then starts at 0 instead of the step start.)
       const player = new YT.Player(inner, {
         width: '100%',
         height: '100%',
@@ -269,7 +301,7 @@ export function attachPlayer(host: HTMLElement): () => void {
             else sync()
           },
           onStateChange: (e) => !dead && onStateChange(e.data),
-          onError: (e) => !dead && setUi({ error: describeYTError(e.data) })
+          onError: (e) => !dead && onError(e.data)
         }
       })
       destroy = () => player.destroy() // even before onReady
@@ -428,4 +460,4 @@ onUi('reset', () => {
 registerWebHandler('player:dock', () => undefined)
 registerWebHandler('player:hover', () => undefined)
 
-if (import.meta.env.DEV && isHost) Object.assign(window, { __player: { player, usePlayer, now } })
+if (import.meta.env.DEV && isHost) Object.assign(window, { __player: { player, usePlayer, now, yt: () => yt } })

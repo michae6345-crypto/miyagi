@@ -154,7 +154,7 @@ function Waiting(): ReactNode {
   const done = checks.filter((c) => c.status === 'pass').length
   const tone = offtrack ? color.amber : color.accent
   return (
-    <motion.div className="pointer-events-none absolute inset-0 grid place-items-center bg-black/60" {...fade}>
+    <motion.div className="pointer-events-none absolute inset-0 grid place-items-center bg-black/55 backdrop-blur-[10px]" {...fade}>
       <motion.div className="flex flex-col items-center px-6 text-center" {...rise}>
         <div className="flex items-center gap-[7px] text-[11px] font-semibold uppercase tracking-[0.08em]" style={{ color: tone }}>
           <span className="h-[6px] w-[6px] rounded-full" style={{ background: tone }} />
@@ -194,7 +194,7 @@ function Waiting(): ReactNode {
 
 function Passed(): ReactNode {
   return (
-    <motion.div className="pointer-events-none absolute inset-0 grid place-items-center bg-black/45" {...fade}>
+    <motion.div className="pointer-events-none absolute inset-0 grid place-items-center bg-black/45 backdrop-blur-[10px]" {...fade}>
       <motion.div className="flex flex-col items-center" {...rise}>
         <div style={{ transform: 'scale(2.1)' }}>
           <CheckIcon status="pass" active={false} />
@@ -207,7 +207,7 @@ function Passed(): ReactNode {
 
 function PausedGlyph(): ReactNode {
   return (
-    <motion.div className="pointer-events-none absolute inset-0 grid place-items-center" {...fade}>
+    <motion.div className="pointer-events-none absolute inset-0 grid place-items-center bg-black/30" {...fade}>
       <div className="grid h-[54px] w-[54px] place-items-center rounded-full bg-black/55">
         <Play size={22} fill="currentColor" strokeWidth={0} className="ml-[3px]" />
       </div>
