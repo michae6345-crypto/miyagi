@@ -19,7 +19,7 @@
  *   - reduced motion: no spring, no pulse, crossfades only.
  */
 import { AnimatePresence, animate, motion, useMotionValue, useReducedMotion } from 'motion/react'
-import { useCallback, useEffect, useId, useLayoutEffect, useRef, useState, type ReactNode, type RefObject } from 'react'
+import { useCallback, useEffect, useId, useLayoutEffect, useRef, useState, type ReactNode, type RefObject, type SVGProps } from 'react'
 import { Volume2 } from 'lucide-react'
 import { useStatus, type Rect } from '../../core/lesson'
 import { color, radius, scrim, shadows, spring, text } from '../../core/theme'
@@ -48,13 +48,21 @@ type Props = {
   showCaption: boolean
   /** UI outside this window the caption must not cover (the lesson player's window), window coordinates. */
   avoid: Rect[]
+  /** The coach's other targets (card/offtrack `targets` beyond the one the spotlight is on), window coordinates. */
+  extras: Extra[]
 }
+
+/** A secondary target: its own cut-out and hairline, slightly quieter than the main one, with a one-line label. */
+export type Extra = { id: string; label: string; rect: Rect }
+/** Secondary targets sit a step below the main one. */
+const EXTRA_RING_OPACITY = 0.7
+const LABEL = { h: 24, gap: 6, maxW: 220 } as const
 
 export function Spotlight({ target, rect, ...rest }: Props): ReactNode {
   return <AnimatePresence>{target && rect && <Scene key="spotlight" target={target} rect={rect} {...rest} />}</AnimatePresence>
 }
 
-function Scene({ target, rect, bounds, mode, showCaption, avoid }: Props & { target: SpotlightTarget; rect: Rect }): ReactNode {
+function Scene({ target, rect, bounds, mode, showCaption, avoid, extras }: Props & { target: SpotlightTarget; rect: Rect }): ReactNode {
   const reduced = useReducedMotion() ?? false
   const cut = hole(rect)
   const register = useAnimatedHole(cut, reduced)
@@ -63,6 +71,9 @@ function Scene({ target, rect, bounds, mode, showCaption, avoid }: Props & { tar
   const id = useId().replace(/[^a-zA-Z0-9_-]/g, '')
   // Fallback (cut order): the same hairline, no dim.
   const outline = mode === 'outline'
+  const more = extras.map((e) => ({ ...e, cut: hole(e.rect), key: `${e.id}:${Math.round(e.rect.x)},${Math.round(e.rect.y)},${Math.round(e.rect.w)},${Math.round(e.rect.h)}` }))
+  // The caption keeps clear of the other targets and their labels too.
+  const keepClear = [...avoid, ...more.map((e) => ({ x: e.cut.x, y: e.cut.y - LABEL.h - LABEL.gap, w: e.cut.w, h: e.cut.h + LABEL.h + LABEL.gap }))]
 
   return (
     <motion.div
@@ -80,6 +91,11 @@ function Scene({ target, rect, bounds, mode, showCaption, avoid }: Props & { tar
               {/* Mask luminance: white keeps the dim, black cuts the hole. */}
               <rect width="100%" height="100%" fill="#fff" />
               <rect ref={register} data-part="hole" fill="#000" />
+              {more.map((e) => (
+                <motion.g key={e.key} initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: DIM.fade }}>
+                  <StaticRect box={e.cut} fill="#000" />
+                </motion.g>
+              ))}
             </mask>
           </defs>
         )}
@@ -88,8 +104,42 @@ function Scene({ target, rect, bounds, mode, showCaption, avoid }: Props & { tar
           <rect ref={register} data-part="keyline" fill="none" style={{ stroke: color.onAccent }} strokeOpacity={RING.keylineOpacity} strokeWidth={RING.keyline} />
           <rect ref={register} data-part="hairline" data-status={status} fill="none" style={{ stroke: color.text }} strokeWidth={RING.width} />
         </motion.g>
+        {more.map((e) => (
+          <motion.g key={e.key} data-part="extra" initial={{ opacity: 0 }} animate={{ opacity: EXTRA_RING_OPACITY }} transition={{ duration: DIM.fade }}>
+            <StaticRect box={e.cut} fill="none" style={{ stroke: color.onAccent }} strokeOpacity={RING.keylineOpacity} strokeWidth={RING.keyline} />
+            <StaticRect box={e.cut} fill="none" style={{ stroke: color.text }} strokeWidth={RING.width} />
+          </motion.g>
+        ))}
       </svg>
-      {showCaption && <Caption target={target} hole={cut} bounds={bounds} avoid={avoid} reduced={reduced} />}
+      {more.map((e) => e.label && <TargetLabel key={e.key} text={e.label} hole={e.cut} bounds={bounds} />)}
+      {showCaption && <Caption target={target} hole={cut} bounds={bounds} avoid={keepClear} reduced={reduced} />}
+    </motion.div>
+  )
+}
+
+/** A rect that doesn't move (secondary targets): same rounding as the main hole. */
+function StaticRect({ box: r, ...rest }: { box: Rect } & SVGProps<SVGRectElement>): ReactNode {
+  const rr = holeRadius(r)
+  return <rect x={r.x} y={r.y} width={r.w} height={r.h} rx={rr} ry={rr} {...rest} />
+}
+
+/** A secondary target's label: one line on the island's black, just above its cut-out (below if there's no room). */
+function TargetLabel({ text: label, hole: cut, bounds }: { text: string; hole: Rect; bounds: Rect }): ReactNode {
+  const above = cut.y - LABEL.gap - LABEL.h
+  const y = above >= bounds.y + 8 ? above : cut.y + cut.h + LABEL.gap
+  const x = Math.max(bounds.x + 8, Math.min(cut.x, bounds.x + bounds.w - LABEL.maxW - 8))
+  return (
+    <motion.div
+      data-ui
+      data-part="label"
+      className="absolute left-0 top-0 truncate px-[9px] font-medium"
+      style={{ x, y, maxWidth: LABEL.maxW, height: LABEL.h, lineHeight: `${LABEL.h}px`, fontSize: text.xs, color: color.text, background: color.island, borderRadius: radius.chip, boxShadow: shadows.card }}
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
+      transition={{ duration: DIM.fade }}
+      title={label}
+    >
+      {label}
     </motion.div>
   )
 }

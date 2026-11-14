@@ -30,6 +30,14 @@ export function toLocal(r: Rect, origin: Point): Rect {
   return { x: r.x - origin.x, y: r.y - origin.y, w: r.w, h: r.h }
 }
 
+/** A rect we can point at: finite numbers and a real size (the engine can send an empty or zero box). */
+export function isUsableRect(r: Partial<Rect> | undefined | null): r is Rect {
+  return !!r && [r.x, r.y, r.w, r.h].every((v) => typeof v === 'number' && Number.isFinite(v)) && r.w! > 0 && r.h! > 0
+}
+
+/** Below this share of the hole on screen it isn't worth a dim: say it on the pill instead. */
+export const MIN_VISIBLE_SHARE = 0.25
+
 export function intersects(a: Rect, b: Rect): boolean {
   return a.x < b.x + b.w && a.x + a.w > b.x && a.y < b.y + b.h && a.y + a.h > b.y
 }
