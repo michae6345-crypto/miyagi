@@ -112,6 +112,17 @@ class ScreenObservation:
         from .match import app_matches
         return [b for b in self.blocks if app is None or app_matches(app, b.app)]
 
+    def lines_by_app(self) -> dict[str, list[str]]:
+        """`{app: [line, ...]}` with Vision's split blocks re-joined into visual rows, in reading
+        order. Pass this as `screen=` to `server.checks.evaluate_step` so regexes see whole lines
+        (`epoch 2500 | loss 2.5e-01` arrives from Vision as 3 blocks). Text outside every known
+        window is under the key ""."""
+        from .match import group_lines
+        out: dict[str, list[str]] = {}
+        for ln in group_lines(self.blocks):
+            out.setdefault(ln.app or "", []).append(ln.text)
+        return out
+
     def to_dict(self, with_blocks: bool = True) -> dict:
         d = {"t": self.t, "app": self.app, "windows": [w.to_dict() for w in self.windows],
              "screen": self.screen.to_dict(), "scale": self.scale, "ocr_ms": round(self.ocr_ms, 1),

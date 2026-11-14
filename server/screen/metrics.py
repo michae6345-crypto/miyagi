@@ -42,6 +42,38 @@ def parse_step(s: str) -> int | None:
     return int(v) if v is not None and v >= 0 else None
 
 
+def _local_extract_metrics(pattern: str, text: str) -> list[tuple[int, float]]:
+    """Fallback with the same contract as `server.checks.extract_metrics` (E3), used until that
+    lands on main: named groups `step`/`value`, last group as value, line order as step."""
+    rx = re.compile(pattern)
+    pts: dict[int, float] = {}
+    order = 0
+    for line in text.splitlines():
+        m = rx.search(line)
+        if not m:
+            continue
+        gd = m.groupdict()
+        raw_v = gd.get("value") if "value" in gd else (m.group(m.lastindex) if m.lastindex else None)
+        v = parse_number(raw_v) if raw_v is not None else None
+        if v is None:
+            continue
+        if gd.get("step") is not None:
+            st = parse_step(gd["step"])
+            if st is None:
+                continue
+        else:
+            st = order
+        order += 1
+        pts[st] = v
+    return sorted(pts.items())
+
+
+try:  # one parser for both the evaluator and the screen reader
+    from server.checks import extract_metrics
+except ImportError:  # E3's PR not merged yet
+    extract_metrics = _local_extract_metrics
+
+
 @dataclass
 class _Series:
     values: dict[int, float] = field(default_factory=dict)  # step -> value
@@ -65,7 +97,8 @@ class TerminalMetricReader:
         self.callback = callback
         self.on_restart = on_restart
         self.tiger = tiger
-        self.patterns: dict[str, re.Pattern] = {}
+        self.patterns: dict[str, str] = {}
+        self._has_step: dict[str, bool] = {}
         for name, p in patterns.items():
             self.add_pattern(name, p)
         self.series: dict[str, _Series] = {}
@@ -76,10 +109,11 @@ class TerminalMetricReader:
         self._lock = threading.Lock()
 
     def add_pattern(self, name: str, pattern: str) -> None:
-        rx = re.compile(pattern, re.IGNORECASE)
-        if "value" not in rx.groupindex:
+        rx = re.compile(pattern)
+        if "value" not in rx.groupindex and not rx.groups:
             raise ValueError(f"metric_pattern for {name!r} needs a (?P<value>...) group: {pattern}")
-        self.patterns[name] = rx
+        self.patterns[name] = pattern
+        self._has_step[name] = "step" in rx.groupindex
 
     def reset(self) -> None:
         """Forget everything seen (e.g. when the lesson moves to a new step)."""
@@ -117,20 +151,16 @@ class TerminalMetricReader:
         restart_votes = 0
         parsed: list[tuple[str, int, float, str]] = []
         for text in lines:
-            for name, rx in self.patterns.items():
-                m = rx.search(text) or rx.search(norm(text))
-                if not m:
+            collapsed = " ".join(text.split())
+            for name, pattern in self.patterns.items():
+                # E3's shared parser, one OCR line at a time, so evaluator and reader agree
+                pts = extract_metrics(pattern, text) or (
+                    extract_metrics(pattern, collapsed) if collapsed != text else [])
+                if not pts:
                     continue
-                value = parse_number(m.group("value"))
-                if value is None:
-                    continue
-                if "step" in rx.groupindex and m.group("step") is not None:
-                    step = parse_step(m.group("step"))
-                else:  # no step group: count occurrences
-                    step = None
-                if step is None and "step" in rx.groupindex:
-                    continue
-                parsed.append((name, step if step is not None else -1, value, text))
+                step, value = pts[-1]
+                # no step group: -1 makes us synthesise a counter for lines new this frame
+                parsed.append((name, int(step) if self._has_step[name] else -1, float(value), text))
 
         # Restart detection: a line that was NOT on screen last frame, reporting a step we've
         # already recorded, with a clearly different value -> the user re-ran training.

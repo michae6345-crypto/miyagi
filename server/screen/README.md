@@ -13,6 +13,7 @@ unsub = reader.subscribe(cb)                  # cb(obs) per new frame; async def
 res = reader.locate_match("def pde_residual", app="Code")   # -> LocateResult{rect, app, matched, score} | None
 rect = reader.locate("def pde_residual")      # -> Rect | None  (rect.to_dict() == {"x","y","w","h"})
 screen_contains(obs, r"u_t\s*\+\s*beta", app="Code")        # for screen_contains / screen_absent checks
+evaluate_step(step, ctx, screen=obs.lines_by_app())          # E3: pass whole rows, not raw blocks
 m = reader.watch_metrics(lesson_id, {"loss": check["metric_pattern"]}, on_metric, app=None,
                          on_restart=lambda run_id: ...)     # on_metric(name, step, value); m.reset() on step change
 answer = await reader.describe("Is this loss curve converging?", region=None)  # Gemini, rate-limited
@@ -24,7 +25,10 @@ reader.poke()                                 # capture now (e.g. right after a 
 - **locate** accepts a substring, a regex, or a multi-line snippet; it is whitespace-insensitive, fuzzy
   (rapidfuzz) for OCR noise, handles long lines cut off by a narrow pane, drops editor line numbers from
   the rect, and unions matching consecutive lines. Pad is 6pt.
-- **metrics**: new terminal lines are parsed each frame, de-duplicated by step. If the learner re-runs
+- **`obs.lines_by_app()`** → `{app: [line, ...]}`: Vision splits a terminal row like
+  `epoch 2500 | loss 2.5e-01` into 3 blocks, so regexes over raw blocks miss it. Give the evaluator this.
+- **metrics**: each OCR row is parsed with E3's shared `server.checks.extract_metrics` (local fallback
+  with the same contract until PR #3 is on main), so the evaluator and the reader agree. New rows are parsed each frame, de-duplicated by step. If the learner re-runs
   training (steps repeat with different values), a restart is detected: `run_id` becomes
   `screen-<lesson>-r2` and `on_restart(run_id)` fires, so curves don't mix runs. Points go to Tiger Data
   `training_metrics` (`run_id = "screen-<lesson>"`) when `TIGER_DATABASE_URL` is a real URL; otherwise

@@ -110,3 +110,8 @@ def test_tiger_writer_disabled_without_real_url():
     assert not TigerWriter("postgres://...").enabled
     assert TigerWriter("postgres://u:p@abc.tsdb.cloud.timescale.com:5432/tsdb").enabled
     TigerWriter("").write("r", [("loss", 1, 0.5)])  # must not raise
+
+
+def test_lines_by_app_rejoins_split_rows():
+    o = obs_of(term_lines([(2500, "2.5020e-01")]) + [blk("return u_t", 350, 500, app="Code")])
+    assert o.lines_by_app() == {"Terminal": ["epoch 2500 loss 2.5020e-01"], "Code": ["return u_t"]}
