@@ -51,6 +51,8 @@ def hint(step: dict, level: int, last_offtrack: dict | None = None) -> dict:
     if level == 0:
         # about THE issue just diagnosed: the card's own question, else the playbook's, else the step's
         q = last.get("guidingQuestion") or (GUIDING_QUESTIONS.get(pid) if pid else None)
+        if not q and last.get("title"):  # an older or cached card without a question: still about THIS issue
+            q = f"{last['title'].rstrip('.')}: what in your code makes that happen, and which value or line would change it?"
         return _card(step, 0, "A question first", q or (hints[0] if hints else f"What does this step need that your code doesn't do yet? ({step.get('instructions', '')})"))
 
     if level == 1:

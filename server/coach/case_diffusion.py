@@ -1,5 +1,5 @@
 """Hero lesson: 1D diffusion PINN (tutorial video AXXnSzmpyoI). Three real learner mistakes;
-the hero moment is mistake 2 (lr=1e-1, loss oscillates).
+the hero moment is mistake 2 (lr=0.3, loss oscillates).
 
 PDE: y_t = y_xx + q(x, t) on x in [-1, 1], t in [0, 1], exact solution y = exp(-t) sin(pi x),
 so q = -exp(-t) (sin(pi x) - pi^2 sin(pi x)). Code follows the tutorial's structure
@@ -112,8 +112,8 @@ _loss = [2.1, 0.62, 0.21, 0.074, 0.031, 0.014, 0.0072, 0.0041, 0.0026, 0.0017, 0
 _err = [1.02, 0.99, 0.98, 0.98, 0.97, 0.97, 0.97, 0.97, 0.97, 0.97, 0.97, 0.97, 0.97, 0.97, 0.97, 0.97, 0.97, 0.97, 0.97, 0.97, 0.97]
 MISSING_BC_METRICS = {"loss": _series(_loss), "rel_l2": _series(_err)}
 
-# ---------- mistake 2 (hero): learning rate too high → loss oscillates ----------------------
-HIGH_LR_CODE = code(lr="1e-1")
+# ---------- mistake 2 (hero): learning rate 0.3, far too high → loss oscillates ----------------------
+HIGH_LR_CODE = code(lr="0.3")
 HIGH_LR_FAILED = [
     {"checkId": "d6b", "label": "loss < 1e-3", "status": "fail", "detail": "loss 0.84 at step 5000, oscillating between 0.3 and 2.4"},
     {"checkId": "d6a", "label": "rel. L2 error < 5%", "status": "fail", "detail": "rel_l2 0.71 at step 5000"},

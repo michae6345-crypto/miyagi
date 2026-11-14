@@ -6,13 +6,13 @@
   },
   "response": {
     "model": "claude-haiku-5-5",
-    "text": "{\"route\": \"playbook\", \"playbook_id\": \"cuda_on_mac\", \"reason\": \"The error is an MPS device failure on a Mac: the script sets device to 'mps' and the MPS backend fails to allocate placeholder storage. The known fix is to switch to CPU or a supported device, which the generic playbook explains, so no learner-specific diagnosis is needed.\"}",
+    "text": "{\"route\": \"playbook\", \"playbook_id\": \"cuda_on_mac\", \"reason\": \"The error is an MPS device failure on a Mac: the script sets device='mps' and the MPS backend cannot allocate the placeholder storage. This is a known Apple-silicon device issue, and the generic fix (use CPU or a supported MPS path) applies without needing the learner's specific code. The failure mode is device selection rather than a PINN loss or training-logic bug, so the playbook covers it.\"}",
     "usage": {
       "input_tokens": 821,
-      "output_tokens": 125,
+      "output_tokens": 163,
       "cache_read_input_tokens": 0,
       "cache_creation_input_tokens": 0
     },
-    "latency_s": 1.89
+    "latency_s": 2.3
   }
 }

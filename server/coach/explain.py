@@ -17,7 +17,7 @@ from .common import (
     step_brief,
     system_blocks,
 )
-from .diagnose import COACH_SYSTEM, LAST, screen_schema
+from .diagnose import COACH_SYSTEM, LAST, cursor_text, screen_schema
 from .metrics import summarize
 from .screen import TargetStream
 
@@ -67,7 +67,7 @@ def video_jump(step: dict, idx: int) -> dict | None:
 async def explain(step: dict, question: str | None = None, context: dict | None = None) -> dict:
     """`context` may hold: code_excerpt, metrics_summary, offtrack (last card), lesson,
     screen (ScreenContext: the answer then includes `targets` first, streamed to on_targets),
-    on_targets (callback)."""
+    on_targets (callback), cursor ({"x", "y", "under": {"text", "app", "rect"}})."""
     ctx = context or {}
     screen = ctx.get("screen")
     lesson = ctx.get("lesson") or get_lesson()
@@ -89,6 +89,7 @@ async def explain(step: dict, question: str | None = None, context: dict | None 
             f"CURRENT CARD: {last.get('title')} — {last.get('body')}" if last else "",
             f"METRICS:\n{metrics_text}" if ctx.get("metrics_summary") is not None else "",
             f"LEARNER CODE:\n{number_lines(ctx['code_excerpt'], 80)}" if ctx.get("code_excerpt") else "",
+            cursor_text(ctx["cursor"]) if ctx.get("cursor") and screen is None else "",
             f"WEB SOURCES (fetched live):\n{web.sources_text(sources)}" if sources else "",
             f"CITATIONS you may use:\n{citation_menu(lesson, sources)}",
             f"LEARNER ASKS: {about}",
