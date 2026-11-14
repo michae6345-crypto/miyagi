@@ -159,6 +159,19 @@ async def build_lesson(
     except RuntimeError as e:
         if goal_task:
             goal_task.cancel()
+        # a mid-length video Gemini couldn't finish in one go: build it in parts (shorter clips are what it handles)
+        if (meta.get("length_s") or 0) > PARTS_FALLBACK_MIN_S and "gemini" in engines():
+            log.warning("one-pass build failed (%s); building in parts", str(e)[:150])
+            _emit("planning", "retrying in parts")
+            try:
+                graph = await progressive.build(source_url, vid, goal, workdir, info, meta, key, on_update=on_update, cache=cache, t0=t0)
+            except RuntimeError as e2:
+                raise RuntimeError(human_error(f"{e}\nparts: {e2}", meta)) from e2
+            if cache and graph["build"]["adapted"] and not graph["lesson"]["parts"]["failed"]:
+                CACHE_DIR.mkdir(parents=True, exist_ok=True)
+                path.write_text(json.dumps(graph, indent=2))
+            _emit("done", f"{time.time() - t0:.0f}s")
+            return graph
         raise RuntimeError(human_error(str(e), meta)) from e
     known_text, checked = await _known_text(vid), {}
     bad_urls = await _bad_urls(draft["steps"], known_text, checked)
@@ -293,7 +306,8 @@ async def _video_draft(url: str, vid: str, goal: str, *, refresh: bool, detail: 
 # (S3 eval: median start error 1 s vs 15 s), so auto prefers it: it gets up to LESSON_GEMINI_TIMEOUT
 # seconds, and the Claude transcript draft (running in parallel from t=0) is used only if Gemini fails
 # or runs out of time. Paid tier: a 20-min video takes Gemini ~35-60 s at 0.5 fps.
-GEMINI_VIDEO_TIMEOUT_S = 75.0
+GEMINI_VIDEO_TIMEOUT_S = 75.0  # preferred limit while a Claude draft is available
+GEMINI_MAX_TIMEOUT_S = 110.0  # LESSON_GEMINI_MAX_TIMEOUT: when Claude has nothing (e.g. no captions), Gemini may keep going
 GEMINI_GRACE_S = GEMINI_VIDEO_TIMEOUT_S  # LESSON_GEMINI_GRACE: extra wait for Gemini once Claude's draft is ready
 
 
@@ -332,9 +346,13 @@ async def _watch(url: str, vid: str, goal: str) -> dict:
         draft["_engine"] = "claude"
         return draft
 
+    pref_cap = float(os.environ.get("LESSON_GEMINI_TIMEOUT", GEMINI_VIDEO_TIMEOUT_S))
+    race_t0 = time.time()
+
     async def gemini_draft() -> dict:
         t0 = time.time()
-        cap = float(os.environ.get("LESSON_GEMINI_TIMEOUT", GEMINI_VIDEO_TIMEOUT_S))
+        # hard limit; the race below takes Claude's draft at pref_cap if one exists
+        cap = max(pref_cap, float(os.environ.get("LESSON_GEMINI_MAX_TIMEOUT", GEMINI_MAX_TIMEOUT_S))) if "claude" in order else pref_cap
         _emit("watching")
         try:
             meta = await asyncio.wait_for(transcript.fetch_metadata(vid), 10)
@@ -366,7 +384,8 @@ async def _watch(url: str, vid: str, goal: str) -> dict:
     try:
         pending = set(tasks.values())
         while pending:
-            timeout = grace if claude_ready is not None else None
+            # once Claude's draft exists, Gemini gets until the preferred cap (and at most `grace` more)
+            timeout = min(grace, max(0.0, race_t0 + pref_cap - time.time())) if claude_ready is not None else None
             done, pending = await asyncio.wait(pending, timeout=timeout, return_when=asyncio.FIRST_COMPLETED)
             if not done:  # Claude is ready and Gemini used up its grace period: don't keep the learner waiting
                 errors.append(f"gemini: still watching {grace:.0f}s after the transcript draft was ready")
@@ -400,6 +419,9 @@ async def _watch(url: str, vid: str, goal: str) -> dict:
             elif not t.cancelled():
                 t.exception()  # mark a failure we didn't need as retrieved
     raise RuntimeError("no engine could build the lesson:\n" + "\n".join(errors))
+
+
+PARTS_FALLBACK_MIN_S = 8 * 60
 
 
 def normalize_video_meta(vm: dict) -> dict:
@@ -437,7 +459,8 @@ def human_error(err: str, meta: dict | None = None) -> str:
         why.append("the video's captions couldn't be read")
     length = (meta or {}).get("length_s")
     head = "Couldn't read this video" + (f" ({gemini._mmss(length)} long)" if length else "")
-    return f"{head}: {'; '.join(why) or 'both engines failed'}.\n(no engine could build the lesson) {err[:600]}"
+    tip = " Try a shorter video from the same search." if (length or 0) > 10 * 60 else ""
+    return f"{head}: {'; '.join(why) or 'both engines failed'}.{tip}\n(no engine could build the lesson) {err[:600]}"
 
 
 def _short_reason(err: str) -> str:

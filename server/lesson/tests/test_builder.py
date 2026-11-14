@@ -924,3 +924,34 @@ def test_parts_merge_short_steps_down_to_one():
     out = builder.normalize_draft(d, min_step_s=45, min_steps=1)
     assert [s["title"] for s in out["steps"]] == ["Load the CSV", "Group and sort"]  # 30 s + 40 s folded into one 70 s step
     assert out["steps"][0]["instructions"] == "Import pandas Load the CSV"
+
+
+def test_mid_length_video_falls_back_to_parts_when_one_pass_fails(fake, monkeypatch):
+    monkeypatch.setenv("LESSON_ENGINE", "auto")
+    monkeypatch.setenv("LESSON_GEMINI_TIMEOUT", "0.3")
+    monkeypatch.setenv("LESSON_GEMINI_MAX_TIMEOUT", "0.3")
+
+    async def meta(vid):
+        return {"video_id": vid, "title": "Rust CLI", "description": "", "length_s": 779, "chapters": []}
+
+    monkeypatch.setattr(transcript, "fetch_metadata", meta)
+
+    async def gemini_watch(url, goal, fps=None, context="", start=None, end=None, media_low=False):
+        if start is None:
+            await asyncio.sleep(5)  # the whole 13-min video: too slow
+        return {"title": "t", "libraries": [], "steps": [{"start": start + 5, "end": start + 120, "title": f"Part at {int(start)}",
+                                                         "instructions": "do", "checks": [], "hints": []}]}
+
+    monkeypatch.setattr(gemini, "watch_video", gemini_watch)  # Claude path stays offline (fails: no transcript)
+
+    async def adapt(goal, steps, summary, feedback=None):
+        return {"steps": [{"index": s["index"], "checks": [{"type": "screen_contains", "label": "x", "app": "Code", "pattern": "fn\\s+main\\("}], "targets": []} for s in steps]}
+
+    monkeypatch.setattr(claude, "adapt_checks", adapt)
+    g = asyncio.run(builder.build_lesson(URL, "x", WORKDIR, refresh=True))
+    assert g["build"]["progressive"] is True and g["lesson"]["parts"]["done"] >= 1 and g["steps"][0]["title"] == "Part at 0"
+
+
+def test_long_failure_suggests_a_shorter_video():
+    msg = builder.human_error("gemini: no answer within 110s | claude: no transcript", {"length_s": 779})
+    assert "Try a shorter video from the same search." in msg.splitlines()[0]
