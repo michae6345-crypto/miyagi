@@ -6,7 +6,7 @@ import { create } from 'zustand'
 import { cmd, type Payload } from '../../../../common/wire'
 import { bridge } from '../../bridge'
 import { onMessage, onUi } from '../../core/bus'
-import { useLesson, type CheckItem } from '../../core/lesson'
+import { seekVideo, useLesson, type CheckItem } from '../../core/lesson'
 
 export type Point = { step: number; value: number }
 /** `seq` = event order of its first point (compared with the off-track's), `at` = when its last point arrived (ms). */
@@ -70,9 +70,9 @@ export function act(kind: 'show_me' | 'explain' | 'apply_fix' | 'hint'): void {
   if (kind === 'apply_fix') set({ fixing: true, offtrackOpen: true })
 }
 
-/** A card's video jump: set the engine-intent video position; the player follows core/lesson.video. */
+/** A card's video jump: core seekVideo sets the intent in every window; the player follows core/lesson.video. */
 export function jumpTo(t: number): void {
-  useLesson.setState({ video: { t, playing: true, at: Date.now() } })
+  seekVideo(t, true)
   closeTop()
 }
 

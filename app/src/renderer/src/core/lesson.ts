@@ -8,6 +8,7 @@ import { create } from 'zustand'
 import { useShallow } from 'zustand/react/shallow'
 import type { CheckStatus, Source, StepSummary, VideoSegment } from '../../../../../shared/contracts/events'
 import type { ConfigStatus, Payload } from '../../../common/wire'
+import { bridge } from '../bridge'
 import { onMessage, onUi } from './bus'
 
 export type CheckItem = { id: string; label: string; status: CheckStatus; detail?: string }
@@ -19,6 +20,12 @@ export type Offtrack = Payload<'offtrack'> & {
   reason?: string
   curve?: { label: string; yours: number[]; tutorial: number[] }
 }
+
+/**
+ * What the video should do, and why: the player follows it. `kind` tells a follower a seek from a pause/play,
+ * and from a jump the app itself asked for (card link, chapter click), even when `t` didn't change.
+ */
+export type VideoIntent = { t: number; playing: boolean; at: number; kind: 'seek' | 'pause' | 'play' | 'jump' }
 
 type LessonState = {
   connected: boolean
@@ -40,7 +47,7 @@ type LessonState = {
   passFlash: number
   lastPassed?: { stepId: string; summary?: string; checks: CheckItem[]; at: number }
   /** What the engine wants the video to do; the player follows it and reports back with video.state. */
-  video: { t: number; playing: boolean; at: number }
+  video: VideoIntent
   engineState?: Payload<'status'>['state']
   seen?: Payload<'screen.seen'>
   keyStatus?: ConfigStatus['payload']
@@ -62,7 +69,7 @@ const blank = {
   offtrack: undefined,
   passFlash: 0,
   lastPassed: undefined,
-  video: { t: 0, playing: false, at: 0 },
+  video: { t: 0, playing: false, at: 0, kind: 'seek' },
   engineState: undefined,
   seen: undefined,
   error: undefined
@@ -79,7 +86,10 @@ export const setConnected = (connected: boolean): void => set({ connected })
 
 onUi('reset', () => set({ ...blank }))
 
-onMessage('lesson.building', (p) => set({ building: true, buildingMessage: p.message, buildingProgress: p.progress }))
+onMessage('lesson.building', (p) =>
+  // failed: the build ended in error (an `error` + status idle follow): drop the building UI.
+  p.failed ? set({ building: false, buildingMessage: undefined, buildingProgress: undefined }) : set({ building: true, buildingMessage: p.message, buildingProgress: p.progress })
+)
 onMessage('lesson.ready', (p) => set({ ...blank, lesson: p.lesson, steps: p.steps, building: true }))
 onMessage('step.started', (p) => {
   const s = get()
@@ -115,9 +125,21 @@ onMessage('step.passed', (p) => {
   })
 })
 onMessage('offtrack', (p) => set({ offtrack: p as Offtrack }))
-onMessage('video.seek', (p) => set({ video: { t: p.t, playing: p.play, at: Date.now() } }))
-onMessage('video.pause', () => set({ video: { ...get().video, playing: false, at: Date.now() } }))
-onMessage('video.play', () => set({ video: { ...get().video, playing: true, at: Date.now() } }))
+onMessage('video.seek', (p) => set({ video: { t: p.t, playing: p.play, at: Date.now(), kind: 'seek' } }))
+onMessage('video.pause', () => set({ video: { ...get().video, playing: false, at: Date.now(), kind: 'pause' } }))
+onMessage('video.play', () => set({ video: { ...get().video, playing: true, at: Date.now(), kind: 'play' } }))
+
+/**
+ * The app itself moves the video (a card's "7:00" link, a chapter click). Sets the intent here AND in every
+ * other window (in Electron the player is its own window), so features never relay it themselves.
+ */
+export function seekVideo(t: number, play = true): void {
+  const video: VideoIntent = { t, playing: play, at: Date.now(), kind: 'jump' }
+  set({ video })
+  bridge.emit('video:intent', video)
+}
+// Another window called seekVideo (main relays it to every window except the sender).
+bridge.on('video:intent', (v) => set({ video: { ...(v as VideoIntent), at: Date.now() } }))
 onMessage('status', (p) => set({ engineState: p.state }))
 onMessage('screen.seen', (p) => set({ seen: p }))
 onMessage('config.status', (p) => set({ keyStatus: p }))

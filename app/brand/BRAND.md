@@ -58,7 +58,9 @@ Each has a `-dark` version (white trunk and pot) for dark backgrounds.
 | Paper | `#F6F6F3` | Brand background: site, Devpost, slides |
 | Pill | `#000000` | The notch pill, always black |
 
-**Rules:** green only ever means passed. Amber only ever means off track. Buttons are ink (on light) or white (on dark), never green and never blue. No purple, no gradients, no neon.
+**Rules:** green only ever means passed. Amber only ever means off track. Buttons are ink (on light) or white (on dark), never green and never blue. No gradients, no neon.
+
+**Pastels for options (Adrian, Sat):** soft pastels add a little color to *options* only: suggestion and quick-action chips, source-kind tiles, the "Best" label. Pink `#F9C5D5`, sky `#C5E4F9`, lilac `#D9D2FF` (deeper: pink `#F4A7BF`, sky `#9CCFF2`), with ink text on them. They never mean status, the UI chrome stays black and white, and no gradients or glow. This is the only exception to "no blue, no purple".
 
 ## Type
 
@@ -103,7 +105,7 @@ fonts/                GoogleSansFlex.woff2, OFL.txt
 
 1. Use the files in this kit. Never redraw the tree, retype the wordmark or pick new colors.
 2. Use the cut for the size: `markLevel(px)` in `theme.ts`, or `<MiyagiMark size={n} />`, which picks it for you.
-3. Green means passed, amber means off track, gray means watching. Nothing else is green or amber. No red.
+3. Green means passed, amber means off track, gray means watching. Nothing else is green or amber. No red. Pastels (`brand.pastel` in `core/theme.ts`) are for options only, never status.
 4. Buttons: ink on light, white on dark. Never system blue, never green.
 5. App text in the system font; brand headings in Google Sans Flex. No Inter.
 6. No gradients, glows, sparkles, emoji or hand-drawn annotations.
