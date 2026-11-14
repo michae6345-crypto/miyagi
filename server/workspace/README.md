@@ -1,4 +1,4 @@
-# server/workspace: one folder per lesson, starter files, VS Code
+# server/workspace: what the lesson needs, one folder per lesson, starter files, VS Code
 
 Every lesson except the demo hero gets its own folder, `~/miyagi/lessons/<slug-of-title>-<hash>/`,
 scaffolded from the lesson's step graph by Claude and opened in VS Code. The hero (Toscano's PINN
@@ -23,6 +23,63 @@ ok = open_editor(wd, open_file_for(wd))      # bool
 | `read_state(path) -> dict \| None` | What `prepare` did: `stack, summary, setup, open_file, files, git, dropped, model, error, seconds`. Kept in `<root>/.miyagi-state/<folder>.json`, so the learner's folder holds only their files. |
 | `build_workdir(url) -> str` | The workdir to hand `build_lesson` before the folder exists. Non-hero lessons get a path that doesn't exist, so the builder plans for a fresh start instead of adapting checks to `demo/pinn-lab`'s files. |
 | `hero_workdir(graph) -> Path \| None` | The hero's folder if `graph` is the hero, else None. |
+
+## Setup check: `requirements()` and `install()` (setup.py)
+
+Before anything opens, find out what the lesson needs and whether this Mac has it.
+
+```python
+from server.workspace import requirements, editor_needed, missing, install, setup_card
+
+items = requirements(graph, workdir=wd)    # read-only; Claude's list cached per lesson, local checks every call
+editor_needed(items)                       # False for Blender / Figma / browser-only lessons
+card = setup_card(items)                   # payload for the proposed card {kind: "setup"}
+res = install(item, workdir=wd, on_line=cb)  # ONLY after the learner tapped Install for that item
+```
+
+- `requirements(lesson, *, workdir=None, client=None) -> list[item]`. `WORKSPACE_REQ_MODEL` (default `claude-haiku-5-5`,
+  structured output) reads the step graph and returns `{editor: {needed, why}, tools: [...]}`. Item 0 is always the editor
+  (`vscode`; for a lesson that doesn't need one, `needed: false` and `why` starts with "No editor needed:").
+  Items: `{tool, label, kind (editor|app|runtime|cli|python_package), why, needed, installed, ok, version, min_version, where,
+  install: {method (brew|brew_cask|pip|download|none), command, url}}`. `ok` = installed and `>= min_version`.
+  Returns `[]` with no key or on API failure (the lesson still runs).
+- Local checks are fast and read-only: `/Applications/<App>.app` then `mdfind kMDItemCFBundleIdentifier == '<id>'` for apps
+  (+ `defaults read .../Info CFBundleShortVersionString`), `which <bin>` + `<bin> --version` for CLIs/runtimes (python = the
+  newest `python3.x` on PATH, since Apple's `/usr/bin/python3` is 3.9), `<python> -c "import <module>"` for Python packages
+  (the lesson's `.venv` if it exists).
+- Install recipes: Homebrew formula/cask from a small catalog (vscode, python, node, git, rust, go, java, docker, blender,
+  figma, unity, jupyter; every name verified with `brew info`) or Claude's validated suggestion; Python packages via pip into the
+  lesson's `.venv`. A pip spec keeps only the name and a `>=` floor (old pins like `pandas<2` have no wheels for current Python).
+  Without Homebrew, the official download URL.
+- `install(item, *, workdir=None, on_line=None) -> {ok, tool, method, error?, url?, version?}`. It runs
+  `brew install [--cask] <name>` (`HOMEBREW_NO_AUTO_UPDATE=1`, stdin closed, so a cask that wants a sudo password fails with
+  that error instead of hanging) or `<workdir>/.venv/bin/python -m pip install <pkg>` (the venv is created with the newest python3 if missing).
+  Output lines stream to `on_line`; afterwards the tool is re-checked. Never installs Homebrew; without it, returns `url`.
+  The argv is rebuilt from method + a validated name: no shell, never a command string from Claude or the app.
+  It is synchronous: run it in a thread and bridge `on_line` with `loop.call_soon_threadsafe`.
+
+### Proposed contract (additive, for E4 / the app)
+
+```ts
+// EngineEvents
+"card": { ...; kind: "explain" | "hint" | "answer" | "setup";
+          actions?: Array<"confirm" | "undo" | "apply_fix" | "open_editor" | "install" | "skip_setup">;
+          setup?: { editorNeeded: boolean; items: SetupItem[] } };
+"setup.progress": { tool: string; line?: string; done?: boolean; ok?: boolean; error?: string; url?: string; version?: string };
+interface SetupItem { tool: string; label: string; kind: "editor" | "app" | "runtime" | "cli" | "python_package"; why: string;
+  needed: boolean; installed: boolean; ok: boolean; version?: string; minVersion?: string;
+  install: { method: "brew" | "brew_cask" | "pip" | "download" | "none"; command?: string; url?: string } }
+// AppCommands "action" kinds: + "open_editor" | "install" (text = tool id; one Install button per missing item) | "skip_setup"
+```
+
+`setup_card(items)` builds this card: `title` "Before you start" / "Ready to go", `body` lists what's missing (plus the
+"No editor needed" line), `actions` = `open_editor` (editor needed and installed) + `install` (something missing) + `skip_setup`.
+For a `download` item the app opens `install.url` instead of sending `install`.
+
+Orchestrator flow: on lesson.ready, run `requirements(graph, workdir=wd)` in a thread and emit the setup card (skip it when
+the list is empty). Don't auto-open VS Code any more. `action install {text: tool}` → `install(item, workdir=wd, on_line=…)` →
+`setup.progress` lines, then `{done, ok, error|version}`, then re-run `requirements` (cached list, fresh checks) and re-emit the card.
+`action open_editor` → `open_editor(wd, open_file_for(wd))`. `action skip_setup` → dismiss.
 
 ## Hero detection
 
@@ -59,6 +116,7 @@ Applied in code after Claude answers:
 .venv/bin/python -m pytest server/workspace -q                         # offline, fake Claude client
 .venv/bin/python -m server.workspace.tests.live_run --fresh            # live: React, git, pandas
 .venv/bin/python -m server.workspace.tests.live_run --open pandas      # + open VS Code
+.venv/bin/python -m server.workspace.tests.live_setup --fresh          # live: what React / pandas / Blender need on this Mac
 ```
 
 Live graphs: React (`demo/cache/lessons/516197461c0dacf3.json`), git basics (`8b6203eb5ec8c6f6.json`), and a
