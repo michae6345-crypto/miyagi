@@ -1,0 +1,214 @@
+"""Resume-or-new across app quits AND engine restarts: progress on disk, offered back, never auto-continued.
+
+    Resumer(session)   # the whole hook (one line in Engine.__init__): it wraps the session's methods
+
+E4's session already freezes a lesson in memory when the app comes back (snapshot(ask_resume=True) ->
+video.pause + card {kind:"resume"}; action resume / end_lesson). This adds:
+  - autosave to ~/miyagi/state on step.started / step.passed / video.state (throttled); cleared on
+    lesson.ended (end_lesson, a new learn, POST /end) and when the last step passes
+  - snapshot() with no lesson in memory but one saved (the engine restarted): spotlight clear,
+    video.pause, status idle, the resume card
+  - resume() with no lesson in memory: reload the cached step graph (no rebuild) at the saved step and
+    seek the video to the saved position; with one in memory: the session's own resume
+  - resume_card(): "<title> · Step 3 of 7 · 12 min ago" for the in-memory case too
+"""
+
+from __future__ import annotations
+
+import logging
+import time
+from collections.abc import Callable
+from typing import Any
+
+from . import store
+
+log = logging.getLogger("sessions")
+
+VIDEO_SAVE_EVERY_S = 3.0
+PROMPT_EVENTS = ("card", "video.pause", "status", "spotlight", "error")  # sending the prompt isn't activity
+
+
+def ago(seconds: float) -> str:
+    s = max(0, int(seconds))
+    if s < 60:
+        return "just now"
+    if s < 3600:
+        return f"{s // 60} min ago"
+    if s < 86400:
+        return f"{s // 3600} h ago"
+    d = s // 86400
+    return "yesterday" if d == 1 else f"{d} days ago"
+
+
+def resume_offer(state: dict, now: float | None = None) -> dict:
+    """The `card {kind:"resume"}` payload for a saved lesson."""
+    now = time.time() if now is None else now
+    idx, n = int(state.get("stepIndex") or 0), int(state.get("stepCount") or 0)
+    parts = [state.get("title") or "Your lesson", f"Step {idx + 1} of {n}" if n else f"Step {idx + 1}"]
+    if state.get("lastActiveAt"):
+        parts.append(ago(now - float(state["lastActiveAt"])))
+    return {"kind": "resume", "title": "Continue where you left off?", "body": " · ".join(parts),
+            "actions": ["resume", "end_lesson"]}
+
+
+def _source_url(graph: dict) -> str | None:
+    srcs = [s for s in graph.get("sources", []) if isinstance(s, dict) and s.get("url")]
+    vids = [s for s in srcs if s.get("kind") == "video"]
+    return (vids or srcs or [{}])[0].get("url") or (graph.get("lesson") or {}).get("sourceUrl")
+
+
+class Resumer:
+    def __init__(self, session: Any, clock: Callable[[], float] = time.time):
+        self.s = session
+        self.clock = clock
+        self.video_t: float | None = None
+        self._playing: bool | None = None
+        self._last_video_save = -1e9
+        self._graph_saved_for: str | None = None
+        self._started_at: dict[str, float] = {}
+        self._last_activity: float | None = None
+        self._emit = session.emit
+        self._video_state = session.video_state
+        self._snapshot = session.snapshot
+        self._resume = session.resume
+        self._resume_card = session.resume_card
+        session.emit = self._emit_and_save
+        session.video_state = self._video_state_and_save
+        session.snapshot = self.snapshot
+        session.resume = self.resume
+        session.resume_card = self.resume_card
+
+    # ------------------------------------------------------------------ autosave
+    def capture(self, step_index: int | None = None) -> dict | None:
+        s = self.s
+        g = s.graph
+        if not g or not s.steps:
+            return None
+        lesson = g.get("lesson") or {}
+        lid = lesson.get("id") or "lesson"
+        idx = max(0, min(s.idx if step_index is None else step_index, len(s.steps) - 1))
+        step = s.steps[idx]
+        if lid not in self._started_at:
+            saved = store.load()
+            self._started_at[lid] = (saved.get("startedAt") if saved and saved.get("lessonId") == lid else None) \
+                or self.clock()
+        here = idx == s.idx
+        return {
+            "lessonId": lid, "sourceUrl": _source_url(g), "title": lesson.get("title") or "Lesson",
+            "stepIndex": idx, "stepCount": len(s.steps), "stepId": step["id"], "stepTitle": step.get("title"),
+            "passedSteps": [st["id"] for st in s.steps[:idx]],
+            "checks": {cid: st.get("status") for cid, st in (s.check_state or {}).items()} if here else {},
+            "videoT": self.video_t if here else None,
+            "workdir": s.workdir, "editorOpen": bool(getattr(s, "editor_open", False)),
+            "startedAt": self._started_at[lid], "lastActiveAt": self._last_activity or self.clock(),
+        }
+
+    def save_now(self, step_index: int | None = None) -> dict | None:
+        st = self.capture(step_index)
+        if st is None:
+            return None
+        graph = self.s.graph if self._graph_saved_for != st["lessonId"] else None
+        try:
+            out = store.save(st, graph)
+        except OSError as e:
+            log.warning("could not save lesson progress: %s", e)
+            return None
+        self._graph_saved_for = st["lessonId"]
+        return out
+
+    async def _emit_and_save(self, type_: str, payload: dict | None = None) -> None:
+        await self._emit(type_, payload)
+        if type_ not in PROMPT_EVENTS:
+            self._last_activity = self.clock()
+        try:
+            if type_ == "step.started":
+                seg = (payload or {}).get("video")
+                self.video_t = seg["start"] if seg else None
+                self.save_now()
+            elif type_ == "step.passed":
+                if (payload or {}).get("nextStepId"):
+                    self.save_now(self.s.idx + 1)  # quit before the advance -> resume on the next step
+                else:
+                    store.clear()  # lesson complete: nothing to resume
+            elif type_ == "lesson.ended":
+                store.clear()
+                self._graph_saved_for = None
+        except Exception:  # noqa: BLE001 - saving must never break the lesson
+            log.exception("autosave failed")
+
+    async def _video_state_and_save(self, t: float, playing: bool) -> None:
+        await self._video_state(t, playing)
+        s = self.s
+        if s.step is None or s.passed or getattr(s, "awaiting_resume", False):
+            return
+        self.video_t = float(t)
+        now = self._last_activity = self.clock()
+        if playing != self._playing or now - self._last_video_save >= VIDEO_SAVE_EVERY_S:
+            self._playing = playing
+            self._last_video_save = now
+            self.save_now()
+
+    # ------------------------------------------------------------------ connections
+    def snapshot(self, ask_resume: bool = False) -> list[tuple[str, dict]]:
+        """What a newly connected app gets. Differs from the session's own snapshot only when no lesson is
+        in memory but one is saved on disk (the engine restarted mid-lesson)."""
+        s = self.s
+        if s.graph is None and s.phase == "idle":
+            state = store.load()
+            if state is not None and store.load_graph(state) is not None:
+                return [("spotlight", {"clear": True}), ("video.pause", {}), ("status", {"state": "idle"}),
+                        ("card", resume_offer(state, self.clock()))]
+        return self._snapshot(ask_resume=ask_resume)
+
+    def resume_card(self) -> dict:
+        st = self.capture()
+        return resume_offer(st, self.clock()) if st else self._resume_card()
+
+    # ------------------------------------------------------------------ resume
+    async def resume(self) -> bool:
+        """action {kind:"resume"}."""
+        s = self.s
+        if s.graph is not None:
+            await self._resume()
+            return True
+        state = store.load()
+        graph = store.load_graph(state) if state else None
+        if state is None or graph is None:
+            store.clear()
+            await s.emit("error", {"message": "That lesson can't be resumed any more. Start a new one."})
+            await s.emit("status", {"state": "idle"})
+            return False
+        idx = max(0, min(int(state["stepIndex"]), len(graph["steps"]) - 1))
+        self._started_at[state["lessonId"]] = state.get("startedAt") or self.clock()
+        self._graph_saved_for = state["lessonId"]
+        editor_open = bool(state.get("editorOpen"))
+        await self._load_without_step0(graph, drop_editor_offer=editor_open)
+        s.editor_open = editor_open
+        await s.start_step(idx)
+        seg = s._segment(s.step) if s.step else None
+        t = state.get("videoT")
+        if seg and isinstance(t, (int, float)) and seg["start"] + 1 < t < seg["end"] - 1:
+            self.video_t = float(t)
+            await s.emit("video.seek", {"t": float(t), "play": True})
+            self.save_now()
+        return True
+
+    async def _load_without_step0(self, graph: dict, drop_editor_offer: bool) -> None:
+        s = self.s
+        wrapped = s.emit
+
+        async def filtered(type_: str, payload: dict | None = None) -> None:
+            if drop_editor_offer and type_ == "card" and "open_editor" in ((payload or {}).get("actions") or []):
+                return
+            await wrapped(type_, payload)
+
+        async def no_step(_idx: int) -> None:
+            return None
+
+        s.emit = filtered
+        s.start_step = no_step  # load_graph ends with start_step(0); resume starts the saved step itself
+        try:
+            await s.load_graph(graph)
+        finally:
+            s.emit = wrapped
+            del s.start_step
