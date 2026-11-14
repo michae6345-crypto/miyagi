@@ -222,6 +222,10 @@ app.whenReady().then(() => {
       case 'island:size':
         islandSize = payload as typeof islandSize
         break
+      case 'island:yield':
+      case 'island:return':
+        send(overlay, signal, payload)
+        break
       case 'launcher:toggle':
         launcherOpen ? closeLauncher() : openLauncher()
         break
@@ -265,7 +269,9 @@ app.whenReady().then(() => {
       if (!signalListeners.has(signal)) signalListeners.set(signal, new Set())
       signalListeners.get(signal)!.add(fn)
     },
-    reportBounds
+    reportBounds,
+    islandSize: () => islandSize,
+    yieldIsland: (on) => send(overlay, on ? 'island:yield' : 'island:return')
   })
 })
 
