@@ -4,12 +4,12 @@ import type { Payload } from '../../../../common/wire'
 import { onMessage, onUi } from '../../core/bus'
 
 /**
- * Extra fields the engine sends on search.result (server/finder/core.py PUBLIC_FIELDS), not in the contract yet.
- *   warnings : up to 3 raw learner comments (≤200 chars) the engine's filter flagged (videos). Quote them, never paraphrase.
- *   verified : true = the link was checked live; 'indexed' = only a search engine returned it. Missing = unknown.
+ * One result row (contract search.result, incl. the finder fields). The launcher uses:
+ *   warnings : up to 3 raw learner comments the engine's filter flagged (videos). Quoted, never paraphrased.
+ *   verified : true = the engine opened the link itself.
+ *   style / long / durationLabel : at most one extra meta segment ("No-code", "1 h 56 min · 30 chapters").
  */
-export type ResultExtras = { warnings?: string[]; verified?: true | 'indexed' }
-export type SearchResult = Payload<'search.result'> & ResultExtras
+export type SearchResult = Payload<'search.result'>
 
 type SearchState = {
   /** The query the results belong to (the input may have moved on). */
