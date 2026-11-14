@@ -1,0 +1,122 @@
+{
+  "lesson": {
+    "id": "stub-pinn-convection",
+    "title": "Train a PINN on the convection equation",
+    "goal": "train a PINN on the convection equation",
+    "workdir": "demo/pinn",
+    "libraries": {"torch": "2.1"}
+  },
+  "sources": [
+    {
+      "id": "src-video",
+      "kind": "video",
+      "title": "Physics-informed neural networks: convection in PyTorch (stub)",
+      "url": "https://www.youtube.com/watch?v=STUB_PINN_VID",
+      "videoId": "STUB_PINN_VID"
+    },
+    {
+      "id": "src-paper",
+      "kind": "paper",
+      "title": "Characterizing possible failure modes in physics-informed neural networks",
+      "url": "https://arxiv.org/abs/2109.01050"
+    }
+  ],
+  "steps": [
+    {
+      "id": "s1",
+      "index": 0,
+      "title": "Create the training script",
+      "instructions": "Create pinn_convection.py in your project folder.",
+      "video": {"sourceId": "src-video", "start": 0, "end": 40},
+      "checks": [
+        {"id": "s1c1", "type": "file_exists", "label": "pinn_convection.py exists", "file": "pinn_convection.py"}
+      ],
+      "targets": [],
+      "hints": ["Make a new file named pinn_convection.py next to requirements.txt."]
+    },
+    {
+      "id": "s2",
+      "index": 1,
+      "title": "Build the MLP",
+      "instructions": "Define a fully connected network with tanh activations that maps (x, t) to u.",
+      "video": {"sourceId": "src-video", "start": 40, "end": 120},
+      "checks": [
+        {"id": "s2c1", "type": "file_contains", "label": "has Linear layers", "file": "pinn_convection.py", "pattern": "nn\\.Linear"},
+        {"id": "s2c2", "type": "file_contains", "label": "uses tanh", "file": "pinn_convection.py", "pattern": "nn\\.Tanh|torch\\.tanh"}
+      ],
+      "targets": [{"file": "pinn_convection.py", "match": "class \\w+\\(nn\\.Module\\)|nn\\.Sequential", "caption": "Two inputs (x, t), one output u"}],
+      "explanations": [{"topic": "why tanh", "t": 95, "sourceId": "src-video"}],
+      "hints": [
+        "What activation keeps second derivatives smooth?",
+        "He builds the network at 1:05.",
+        "Use nn.Sequential(nn.Linear(2, 50), nn.Tanh(), ..., nn.Linear(50, 1))."
+      ]
+    },
+    {
+      "id": "s3",
+      "index": 2,
+      "title": "Sample collocation points",
+      "instructions": "Sample random (x, t) points in the domain and mark them requires_grad.",
+      "video": {"sourceId": "src-video", "start": 120, "end": 200},
+      "checks": [
+        {"id": "s3c1", "type": "file_contains", "label": "samples random points", "file": "pinn_convection.py", "pattern": "torch\\.rand"},
+        {"id": "s3c2", "type": "file_contains", "label": "points require grad", "file": "pinn_convection.py", "pattern": "requires_grad"}
+      ],
+      "targets": [{"file": "pinn_convection.py", "match": "torch\\.rand", "caption": "x in [0, 2π], t in [0, 1]"}],
+      "hints": ["The residual needs derivatives with respect to the inputs.", "Call .requires_grad_(True) on the sampled tensors."]
+    },
+    {
+      "id": "s4",
+      "index": 3,
+      "title": "Write the PDE residual",
+      "instructions": "Use autograd for u_t and u_x, then return u_t + β·u_x.",
+      "video": {"sourceId": "src-video", "start": 200, "end": 310},
+      "checks": [
+        {"id": "s4c1", "type": "file_contains", "label": "computes u_t with autograd", "file": "pinn_convection.py", "pattern": "autograd\\.grad"},
+        {"id": "s4c2", "type": "file_contains", "label": "residual includes β·u_x", "file": "pinn_convection.py", "pattern": "u_t\\s*\\+\\s*\\w*\\s*\\*\\s*u_x"}
+      ],
+      "targets": [{"file": "pinn_convection.py", "match": "def pde_residual", "caption": "Write the residual · u_t + β·u_x"}],
+      "explanations": [{"topic": "autograd for derivatives", "t": 240, "sourceId": "src-video"}],
+      "hints": [
+        "Which two derivatives appear in the convection equation?",
+        "He writes the residual at 3:40.",
+        "Section 2 of the paper states the PDE.",
+        "return u_t + beta * u_x"
+      ],
+      "common_mistakes": ["u_t - beta * u_x (wrong sign)", "forgetting create_graph=True"]
+    },
+    {
+      "id": "s5",
+      "index": 4,
+      "title": "Train at β = 1",
+      "instructions": "Run the script with tut run and watch the loss fall.",
+      "video": {"sourceId": "src-video", "start": 310, "end": 380},
+      "checks": [
+        {"id": "s5c1", "type": "command_exit_ok", "label": "script runs", "command": "python pinn_convection.py --beta 1"},
+        {"id": "s5c2", "type": "metric_threshold", "label": "loss < 1e-2", "metric": "loss", "op": "<", "value": 0.01}
+      ],
+      "targets": [{"file": "pinn_convection.py", "match": "def train|for epoch", "caption": "Run: tut run python pinn_convection.py --beta 1"}],
+      "hints": ["Run it through the wrapper: tut run python pinn_convection.py --beta 1"]
+    },
+    {
+      "id": "s6",
+      "index": 5,
+      "title": "Scale up to β = 30",
+      "instructions": "Train at β = 30 until the loss drops below 1e-2.",
+      "video": {"sourceId": "src-video", "start": 380, "end": 480},
+      "checks": [
+        {"id": "s6c1", "type": "metric_trend", "label": "loss still dropping", "metric": "loss", "trend": "not_flat", "window": 1500},
+        {"id": "s6c2", "type": "metric_threshold", "label": "loss < 1e-2", "metric": "loss", "op": "<", "value": 0.01, "by_step": 4000}
+      ],
+      "targets": [{"file": "pinn_convection.py", "match": "def train|for epoch", "caption": "Add a β curriculum here"}],
+      "explanations": [{"topic": "curriculum regularization", "t": 455, "sourceId": "src-video"}],
+      "hints": [
+        "Does the loss plateau? What makes β = 30 harder than β = 1?",
+        "He explains the failure at 7:35.",
+        "Krishnapriyan et al. (NeurIPS 2021) train with a β curriculum.",
+        "for beta in [1, 5, 10, 20, 30]: train(model, beta, epochs)"
+      ],
+      "common_mistakes": ["training directly at β = 30", "lowering the learning rate instead of a curriculum"]
+    }
+  ]
+}
