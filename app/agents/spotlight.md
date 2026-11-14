@@ -28,10 +28,10 @@ overlayLayers: spotlight (z 10)
 **First pass (no spec from Adrian yet):** build to the mockups in `docs/mockups/` (01–05 are the target look; 06–07 are earlier explorations to restyle in the Apple look) and the animation + placement spec in `docs/FRONTEND-HANDOFF.md`. Don't spend time on colors (Adrian's theme comes later). Adrian reviews after this pass and writes his spec here for pass 2.
 
 ## Core requests
-1. **Overlay on the primary display (v1).** The engine v1 watches the primary display only, but the overlay window covers the display nearest the cursor at startup (`displayNow()` in `src/main/index.ts`). If the cursor is on a second display when the app starts, the spotlight is drawn nowhere. Simplest fix: put the overlay on `screen.getPrimaryDisplay()` (later: one overlay per display). The layer is already ready for either: each window converts with its own `layout.origin`, draws only if the hole touches it, and the caption goes to the window holding most of the target.
+1. ~~**Overlay on the primary display (v1).**~~ **Done in core**: the overlay and launcher open on the primary display. No spotlight change needed (the layer converts with `layout.origin`).
 2. **A hook for the overlay's other UI rects** (the same set core already reports as `overlay.bounds`), e.g. `useUiRects()` from `core/Overlay.tsx`, so the caption can stay clear of the shortcut bar / pill / cards, **plus the player window's live rect** (it's its own window in Electron and the user can drag it). Local workarounds: `useOtherUi()` in `Spotlight.tsx` reads `[data-hit],[data-ui]` from the DOM every 400ms, and `index.tsx` avoids the player's default dock rect via `features/player/dock.ts` (a read-only import of the player's pure helper).
-3. **Theme token** `dim` (black at 0.55). It's a local constant in `Spotlight.tsx` for now. (The light-accent request is gone: the brand made `color.accent` white.)
-4. (dev) Vite doesn't see a new `mock/scenarios/*.json` until the dev server restarts (`mock/` is outside the Vite root). Worth a line in `agents/README.md` for the other agents.
+3. ~~**Theme token** `dim`~~ **Done in core**: `scrim.spotlight` (`rgba(0,0,0,.66)`, Adrian's value) in `core/theme.ts`; the spotlight now uses it (measured: 66% dim, unchanged).
+4. ~~(dev) Vite doesn't see a new `mock/scenarios/*.json` until the dev server restarts~~ **Done in core**: documented for all agents (`da6ea3f`).
 
 ## Notes
 **Adrian's feedback ("sleek, more contrast, a little color"), shots `agents/shots/spotlight-state-*.png`:**
