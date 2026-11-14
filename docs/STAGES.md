@@ -31,6 +31,70 @@ protocol, one stage at a time, and prints what each stage did. Nothing in it cal
 - **Logs:** every search/build appends a JSON record to `demo/runs/stage-results.jsonl`. The engine log is
   `demo/runs/stage-engine-<port>.log`. Both are gitignored.
 
+## Soak: 10 topics back to back, integration/live 9f89e04, Gemini paid, 14:44–15:07
+
+Run with `.venv/bin/python scripts/stage_soak.py [--open] [--only "topic[=pinned url]"]`. One LIVE engine on :8790 with default
+models and empty caches. Per topic it does `learn` → `build_lesson`(the finder's final #1, or the pinned URL) → waits for
+`lesson.ready` (fails on > 120 s with no event at all) → waits for the setup card → `end_lesson`, and asserts a clean idle
+before the next topic. Records go to `demo/runs/stage-soak.jsonl`.
+
+The first pass ran with ORCH_OPEN_WORKSPACE=0, so the engine sends no setup card. The setup column comes from a second pass with
+`--open`: same lessons from cache, and VS Code still opens only on the learner's `open_editor`.
+
+| # | topic | search first · done (videos) | pick (kind, length) | build path | "fitting checks" starts at | full lesson | steps | builtBy | setup card (2nd pass) | end_lesson |
+|---|---|---|---|---|---|---|---|---|---|---|
+| 1 | build an LLM from scratch (pinned Karpathy kCc8FmEb1nY) | 3.5 · 18.3 s (17) | "Let's build GPT: from scratch, in code, spelled out." (video, 1:56:20) | Gemini timed out; transcript failed | — | **FAILED 75.0 s**: "Building this lesson is taking too long. Try again, or pick another video." | — | — | — | clean |
+| 2 | react useEffect cleanup | 4.2 · 12.0 s (17) | "React useEffect Cleanup Function" (video, 5:38) | Gemini watched + Claude adapted | 34.1 s | **OK 45.6 s** | 5 | gemini | editor ✓ · vscode, node, chrome (missing) | clean |
+| 3 | pandas groupby | 3.5 · 14.4 s (15) | "Mastering Pandas .groupby() in 10 Minutes!" (video, 10:27) | Gemini + Claude | 50.1 s | **OK 62.9 s** | 10 | gemini | editor ✓ · vscode, python, pandas/numpy/ipykernel (missing) | clean |
+| 4 | git rebase interactive | 3.5 · 15.7 s (18) | "git interactive rebase - Undo, Edit & Squash…" (video, 7:52) | Gemini + Claude | 50.1 s | **OK 57.7 s** | 5 | gemini | "Ready to go" · vscode, git | clean |
+| 5 | fastapi crud api | 5.2 · 18.3 s (22) | "How to Build a FastAPI SQLite REST API in Python \| CRUD" (video, 14:26) | Gemini + Claude | 57.1 s | **OK 62.9 s** | 7 | gemini | editor ✓ · vscode, python, fastapi/uvicorn/sqlalchemy/pydantic (missing) | clean |
+| 6 | rust cli with clap | 4.4 · 17.5 s (12) | "Build a Rust CLI Tool from Scratch (clap, serde, anyhow)" (video, 12:59) | Gemini timed out; transcript failed | — | **FAILED 75.0 s, twice** (same message as #1) | — | — | — | clean |
+| 6b | rust cli with clap, pinned the 5:46 video (fD9ptABVQbI) | (cached) | "Rust Command Line Argument Parsing (A Better Way With Clap)" (video, 5:46) | Gemini + Claude | 37.2 s | **OK 46.6 s** | 5 | gemini | editor ✓ · vscode, rust (missing) | clean |
+| 7 | docker compose for a node app | 3.5 · 16.3 s (23) | "Docker Compose Full Stack App: React, Node.js & PostgreSQL" (video, 9:20) | Gemini + Claude | 43.1 s ("Steps ready") | **OK 61.4 s** | 8 | gemini | editor ✓ · vscode, docker (missing), node | clean |
+| 8 | make an AI agent with no code | 4.0 · 14.2 s (23) | "How to Build Your First AI Agent in Claude Code (It Runs Your Week)" (video, 19:23) | Gemini + Claude | 50.1 s | **OK 57.9 s** | 9 | gemini | **no editor** (`editorNeeded: false`, no open_editor button) · claude-desktop (missing), claude-code | clean |
+| 9 | linear regression in numpy | 4.5 · 14.7 s (18) | "Linear Regression FROM SCRATCH (no scikit-learn, just math)" (video, 10:24) | Gemini + Claude | 58.1 s | **OK 79.1 s** | 7 | gemini | editor ✓ · vscode, python, ipykernel/numpy/pandas/matplotlib (missing) | clean |
+| 10 | css flexbox layout | 3.5 · 20.5 s (13) | "Learn CSS Flexbox in 20 Minutes (Course)" (video, 20:37) | Gemini + Claude | 49.1 s | **OK 57.4 s** | 10 | gemini | "Ready to go" · vscode | clean |
+
+**Totals:**
+- 8 of 10 topics built: 45–79 s to the full lesson, every one Gemini-watched (`gemini-4-hydrogen`) and Claude-adapted (`claude-opus-5-5`).
+- No crash, no hang over 120 s.
+- No wrong-topic lesson: every lesson title and its steps name the topic's terms, e.g. rebase steps "Edit / Split / Squash".
+- No PINN leak; every workdir is under `~/miyagi/lessons/<slug>`.
+- 10 of 10 `end_lesson` calls were clean.
+- Search: 3.5–5.2 s to the first row, 12–20.5 s done, 12–23 videos per topic.
+- No preflight card exists on integration/live yet.
+
+### Bugs from the soak
+
+**S1 · E2 lesson: any video Gemini can't finish in 75 s fails to build, and nothing falls back.**
+- Karpathy (1:56:20) and the rust pick (12:59, a dense code-along) both died at exactly 75.0 s, rust twice:
+  - `gemini video pass failed: no answer within 75s`
+  - the transcript path had already failed: `brightdata captions: Bright Data returned an empty body; timedtext: Client error '429 Too Many Requests'`
+- A 5:46 rust video built in 46.6 s, and a 20:37 CSS video in 57.4 s, so duration alone doesn't predict the failure.
+- Fix:
+  - Once the Claude transcript draft has failed, let Gemini keep going up to `ORCH_BUILD_TIMEOUT_S` instead of the 75 s race cap
+    (`GEMINI_VIDEO_TIMEOUT_S`).
+  - For videos over ~30 min, use a lower fps or a segmented pass.
+  - When it still fails, the error should suggest the finder's next shorter video, not just "pick another video".
+- Owner: E2 (the E4 message is fine).
+
+**S2 · E7 finder / ranking: the pick for "no code" is a Claude Code video.**
+- "make an AI agent with no code" picked "How to Build Your First AI Agent in Claude Code" (score 93) over "From Zero to Your
+  First AI Agent in 25 Minutes (No Coding)" (91) and "Build Your First AI Agent in 20 Minutes (No Coding)" (91).
+- The lesson itself works (no editor; the setup card needs Claude Desktop + Claude Code), so this is a judgment call, not a crash.
+- Suggest: boost results whose title or skim matches the "no code" constraint.
+
+**S3 · E4 orchestrator (minor): the "Steps ready" stage is almost never visible.**
+- `steps_ready` is replaced by `adapting` within the same second, so the 1 s ticker showed "Steps ready" in 1 of 8 builds.
+- The app has no "first steps" moment: the learner waits 45–79 s for everything.
+- Suggest: emit a `lesson.building` the moment the stage changes, and optionally send the draft step titles early.
+
+**S4 · E4 orchestrator (minor): `lesson.builtBy` isn't in `lesson.ready`.** The app's `lesson.ready` payload has only
+id/title/sources, so the app can't show "watched the video" vs "read the transcript". Add `builtBy` to the payload, which is a
+contract-safe new field.
+
+**Note:** setup check items are what's missing on *this* Mac (no chrome, docker, rust, pandas, etc.), which is correct behavior.
+
 ## Lifecycle: end lesson and resume
 
 `.venv/bin/python scripts/stage_lifecycle.py end|resume` runs each case on the :8790 engine with an app-like WebSocket client, records every event and asserts the cleanup. Lessons come from the builders' caches, so each start takes seconds. Results are appended to `demo/runs/stage-lifecycle.jsonl`.
