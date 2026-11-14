@@ -894,3 +894,63 @@ def test_command_plus_code_fix_stages_command_then_previews_code(rig, monkeypatc
     run(go())
     assert staged == ["pip install pandas"]
     assert [c["title"] for c in rig.of("card")][-2:] == ["Command copied", "Apply this fix?"]
+
+
+class RealClock:
+    def __call__(self) -> float:
+        import time as _t
+
+        return _t.monotonic()
+
+
+def test_build_progress_ticks_with_real_stages_then_fails_humanly(tmp_path, monkeypatch):
+    import logging as _logging
+
+    monkeypatch.setenv("TUT_WORKDIR", str(tmp_path))
+    rig = Rig(tmp_path)
+    rig.s.clock = RealClock()
+    rig.s.build_tick_s = 0.05
+    lesson_log = _logging.getLogger("server.lesson")
+
+    async def slow_failing_build(url, goal, workdir):
+        await asyncio.sleep(0.12)
+        lesson_log.warning("gemini video pass too slow; switching engine")
+        await asyncio.sleep(0.12)
+        raise RuntimeError("Could not retrieve a transcript: 429 Client Error: Too Many Requests (youtube)")
+
+    rig.s.m.build_lesson = slow_failing_build
+    snaps = []
+
+    async def go():
+        task = asyncio.create_task(rig.s.learn_url("https://www.youtube.com/watch?v=abcdefghijk"))
+        await asyncio.sleep(0.08)
+        snaps.append(rig.s.snapshot())  # an app reconnecting mid-build
+        await task
+
+    run(go())
+    building = rig.of("lesson.building")
+    assert len(building) >= 4  # ticks while the build runs
+    assert any("reading the transcript instead" in b["message"] for b in building)
+    assert building[-1]["failed"] is True and "rate-limiting" in building[-1]["message"]
+    assert "YouTube is rate-limiting this network" in rig.of("error")[-1]["message"]
+    assert rig.of("status")[-1] == {"state": "idle"} and rig.s.phase == "idle"
+    assert [t for t, _ in snaps[0]] == ["status", "lesson.building"] and snaps[0][0][1] == {"state": "thinking"}
+    assert rig.s.snapshot() == [("status", {"state": "idle"})]
+
+
+def test_build_success_still_loads_the_lesson(rig):
+    async def build(url, goal, workdir):
+        return stubs.load_fixture_lesson()
+
+    rig.s.m.build_lesson = build
+    run(rig.s.learn_url("https://www.youtube.com/watch?v=abcdefghijk"))
+    assert rig.of("lesson.building")[-1] == {"message": "Lesson ready", "progress": 1.0}
+    assert rig.of("lesson.ready") and rig.s.phase == "active"
+
+
+def test_human_build_errors():
+    from server.orchestrator.session import human_build_error
+
+    assert "quota" in human_build_error(RuntimeError("429 RESOURCE_EXHAUSTED daily quota"))
+    assert "taking too long" in human_build_error(RuntimeError("building the lesson took over 300s"))
+    assert "YouTube videos" in human_build_error(ValueError("only YouTube sources are supported for now: ''"))

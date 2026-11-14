@@ -49,6 +49,76 @@ def video_id_from_url(url: str) -> str | None:
     return m.group(1) if m else None
 
 
+class BuildStage(logging.Handler):
+    """Turns the lesson builder's own log lines (server.lesson) into an honest stage label."""
+
+    RULES = [
+        ("lesson cache hit", "Loading the saved lesson"),
+        ("daily quota exhausted", "Gemini is out of quota; trying another model"),
+        ("too slow; switching engine", "Gemini is slow; reading the transcript instead"),
+        ("video pass failed", "Couldn't watch the video; reading the transcript instead"),
+        ("video pass:", "Claude is writing the steps"),
+        ("claude adapt pass", "Fitting the checks to your project"),
+        ("adapt attempt", "Fitting the checks to your project"),
+        ("lesson built", "Finishing up"),
+    ]
+
+    def __init__(self) -> None:
+        super().__init__(level=logging.INFO)
+        self.text = "Gemini is watching the video"
+
+    def emit(self, record: logging.LogRecord) -> None:  # noqa: D401 - logging API
+        try:
+            msg = record.getMessage()
+        except Exception:  # noqa: BLE001
+            return
+        for needle, label in self.RULES:
+            if needle in msg:
+                self.text = label
+                return
+
+    def listening(self):
+        import contextlib
+
+        lg = logging.getLogger("server.lesson")
+
+        @contextlib.contextmanager
+        def cm():
+            old = lg.level
+            if lg.getEffectiveLevel() > logging.INFO:
+                lg.setLevel(logging.INFO)
+            lg.addHandler(self)
+            try:
+                yield self
+            finally:
+                lg.removeHandler(self)
+                lg.setLevel(old)
+
+        return cm()
+
+
+def human_build_error(e: BaseException) -> str:
+    """A message the learner can act on (the raw reason stays in the engine log)."""
+    raw = str(e)
+    low = raw.lower()
+    if "took over" in low or isinstance(e, TimeoutError):
+        return "Building this lesson is taking too long. Try again, or pick another video."
+    if "quota" in low or "resource_exhausted" in low:
+        return "Gemini's daily quota is used up, so I couldn't watch this video. Try another video or add a key in Settings."
+    if "429" in low or "too many requests" in low or ("rate" in low and "limit" in low):
+        if "transcript" in low or "caption" in low or "youtube" in low:
+            return ("Couldn't get this video's transcript: YouTube is rate-limiting this network. "
+                    "Try another video or the hotspot.")
+        return "The video service is rate-limiting us right now. Try again in a minute, or pick another video."
+    if "only youtube" in low or "youtube sources" in low:
+        return "I can only build lessons from YouTube videos for now. Pick a video result."
+    if "api key" in low or "api_key" in low or "authentication" in low or "401" in low:
+        return "A model API key is missing or invalid. Add it in Settings and try again."
+    if "transcript" in low:
+        return "Couldn't get this video's transcript. Try another video."
+    return f"Couldn't build this lesson: {raw[:160]}"
+
+
 class LessonSession:
     def __init__(
         self,
@@ -60,7 +130,7 @@ class LessonSession:
         advance_delay_s: float | None = None,
         metric_eval_s: float | None = None,
         result_stagger_s: float = 0.06,
-        build_tick_s: float = 0.5,
+        build_tick_s: float = 1.0,
         screen: Any = None,
         seen_interval_s: float = 5.0,
         workspace: Any = None,
@@ -86,6 +156,7 @@ class LessonSession:
         self.phase = "idle"  # idle | searching | building | active | done
         self.query = ""
         self.results: dict[str, dict] = {}
+        self.build_progress: dict | None = None  # last lesson.building payload while a build runs
         self.graph: dict | None = None
         self.workdir = str(config.default_workdir())
         self.on_workdir: Callable[[str], None] | None = None  # main.py hooks the file watcher here
@@ -251,21 +322,23 @@ class LessonSession:
         await self._build(url, self.query)
 
     async def _build(self, url: str, goal: str) -> None:
+        """Build a lesson with live progress (>= 1 tick/s, stage names from the builder's own log
+        events). Any failure, timeout or cancellation ends with `error` (human wording), a final
+        `lesson.building {failed: true}` and `status idle`, so the app never stays on "building"."""
         self.phase = "building"
         await self._status("thinking")
         done = asyncio.Event()
-
         t0 = self.clock()
+        stage = BuildStage()
+        self.build_progress = {"message": "Starting the lesson builder", "progress": 0.0}
 
         async def ticker() -> None:
-            # Honest progress: the builder reports no stages, so say what's happening and how long
-            # it has taken; progress is a time estimate (a long video can take 1-2 min) that never hits 1.
             expected = float(os.environ.get("ORCH_BUILD_EXPECTED_S", "75"))
             while not done.is_set():
                 el = self.clock() - t0
-                msg = (f"Gemini is watching the video · {int(el) // 60}:{int(el) % 60:02d}" if el >= 1
-                       else "Starting the lesson builder")
-                await self.emit("lesson.building", {"message": msg, "progress": round(min(0.95, el / expected), 2)})
+                msg = f"{stage.text} · {int(el) // 60}:{int(el) % 60:02d}" if el >= 1 else stage.text
+                self.build_progress = {"message": msg, "progress": round(min(0.95, el / expected), 2)}
+                await self.emit("lesson.building", self.build_progress)
                 try:
                     await asyncio.wait_for(done.wait(), self.build_tick_s)
                 except TimeoutError:
@@ -274,24 +347,43 @@ class LessonSession:
         tick = asyncio.create_task(ticker())
         from . import workspace as wsmod
 
+        ok = False
         try:
-            graph = await self.m.build_lesson(url, goal, wsmod.build_workdir(url, goal))
-        except Exception as e:
-            log.exception("build_lesson failed")
+            with stage.listening():
+                graph = await self.m.build_lesson(url, goal, wsmod.build_workdir(url, goal))
             done.set()
             await tick
-            self.phase = "idle"
-            await self.emit("error", {"message": f"Could not build the lesson: {e}"})
-            await self._status("idle")
+            self.build_progress = {"message": "Setting up your project folder", "progress": 0.97}
+            await self.emit("lesson.building", self.build_progress)
+            folder = await asyncio.to_thread(wsmod.prepare, graph, goal)  # S2: starter files (Claude), 0-25 s
+            if folder:
+                graph.setdefault("lesson", {})["workdir"] = folder
+            self.build_progress = None
+            await self.emit("lesson.building", {"message": "Lesson ready", "progress": 1.0})
+            ok = True
+        except BaseException as e:
+            log.exception("build_lesson failed")
+            if isinstance(e, Exception):
+                await self._build_failed(human_build_error(e))
+            raise_after = not isinstance(e, Exception)
+            if raise_after:  # cancelled (engine shutting down / client gone): still tell the app
+                await asyncio.shield(self._build_failed("The lesson build was interrupted. Try again."))
+                raise
             return
-        done.set()
-        await tick
-        await self.emit("lesson.building", {"message": "Setting up your project folder", "progress": 0.97})
-        folder = await asyncio.to_thread(wsmod.prepare, graph, goal)  # S2: starter files (Claude), 0-25 s
-        if folder:
-            graph.setdefault("lesson", {})["workdir"] = folder
-        await self.emit("lesson.building", {"message": "Lesson ready", "progress": 1.0})
+        finally:
+            done.set()
+            if not tick.done():
+                tick.cancel()
+            if not ok:
+                self.phase = "idle" if self.graph is None else self.phase
         await self.load_graph(graph)
+
+    async def _build_failed(self, message: str) -> None:
+        self.build_progress = None
+        self.phase = "idle" if self.graph is None else "active"
+        await self.emit("error", {"message": message})
+        await self.emit("lesson.building", {"message": message, "progress": 0.0, "failed": True})
+        await self._status("idle" if self.graph is None else "watching")
 
     async def load_graph(self, graph: dict) -> None:
         self.graph = graph
@@ -1070,8 +1162,12 @@ class LessonSession:
     def snapshot(self) -> list[tuple[str, dict]]:
         """Messages that bring a freshly connected client up to date."""
         out: list[tuple[str, dict]] = []
+        if self.phase == "building" and self.build_progress:  # reconnect mid-build: keep the spinner honest
+            out.append(("status", {"state": "thinking"}))
+            out.append(("lesson.building", dict(self.build_progress)))
+            return out
         if self.graph is None:
-            out.append(("status", {"state": self.status}))
+            out.append(("status", {"state": "idle" if self.phase != "searching" else self.status}))
             return out
         out.append(("lesson.ready", self._lesson_ready_payload()))
         step = self.step
