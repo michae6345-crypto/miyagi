@@ -11,24 +11,29 @@ import { Waypoints } from 'lucide-react'
 import { color } from '../../core/theme'
 import { CloseButton } from '../../core/ui/atoms'
 import { useDiagram } from './store'
+import { Graph } from './Graph'
+import { Heatmap, type HeatmapData } from './Heatmap'
+import { DiagramTabs, titleOf } from './Tabs'
+import type { GraphDiagramData } from '../../../../../../shared/contracts/events'
 
 export function DiagramView(): ReactNode {
   const d = useDiagram((s) => s.diagram)
   if (!d) return null
-  const title = d.kind === 'network' ? 'Architecture' : d.kind === 'gradients' ? 'Gradient flow' : 'Solution'
+  const title = titleOf(d)
   return (
     <div className="px-[20px] pb-[16px] pt-[16px]">
       <div className="flex items-center gap-[8px]">
         <Waypoints size={15} style={{ color: color.accent }} />
         <span className="text-[14px] font-semibold">Intuition</span>
-        <span className="text-[13px] text-white/45">· {title}</span>
+        <DiagramTabs fallback={<span className="text-[13px] text-white/45">· {title}</span>} />
         <span className="flex-1" />
         <CloseButton />
       </div>
       <div className="mt-[10px]">
         {d.kind === 'network' && <Network data={d.data as Record<string, unknown>} />}
         {d.kind === 'gradients' && <Gradients data={d.data as Record<string, unknown>} />}
-        {d.kind === 'heatmap' && <div className="grid h-[180px] place-items-center text-[13px] text-white/40">heatmap (coming)</div>}
+        {d.kind === 'heatmap' && <Heatmap data={d.data as HeatmapData} />}
+        {d.kind === 'graph' && <Graph data={d.data as GraphDiagramData} />}
       </div>
       <div className="mt-[8px] text-center text-[14px] leading-[20px] text-white/80">{d.caption}</div>
     </div>
