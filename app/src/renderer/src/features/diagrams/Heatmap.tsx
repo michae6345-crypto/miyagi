@@ -1,13 +1,13 @@
 /**
  * kind "heatmap": predicted (and exact, when sent) field u(x,t) on a canvas. t runs left to right, x bottom to top.
- * Monochrome on the island: a value ramp from `fill.thumb` (low) to `color.text` (high), one scale shared by
- * both panels. Hover a panel for the value under the pointer. Panels sweep in along t (350 ms, 30 ms stagger).
+ * One hue, a tad of color (Adrian, Sat): a value ramp from `fill.thumb` (low) to sky, the Diagram tone (high), one
+ * scale shared by both panels. Hover a panel for the value under the pointer. Panels sweep in along t (350 ms, 30 ms stagger).
  * Data orientation follows the engine (server/orchestrator/stubs.py): grid[tIndex][xIndex]; a transposed
  * grid ([x][t]) is accepted too. Empty or malformed data renders nothing (never a placeholder).
  */
 import { motion } from 'motion/react'
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
-import { color, fill } from '../../core/theme'
+import { actionTone, color, fill } from '../../core/theme'
 
 export type HeatmapData = { x: number[]; t: number[]; predicted: number[][]; exact?: number[][] }
 
@@ -27,7 +27,7 @@ const hex = (h: string): [number, number, number] => {
   return [0, 2, 4].map((i) => parseInt(m.slice(i, i + 2), 16)) as [number, number, number]
 }
 const LOW = hex(fill.thumb)
-const HIGH = hex(color.text)
+const HIGH = hex(actionTone.diagram)
 const ramp = (f: number): [number, number, number] => [0, 1, 2].map((i) => Math.round(LOW[i] + (HIGH[i] - LOW[i]) * f)) as [number, number, number]
 
 const num = (v: number): string => {
