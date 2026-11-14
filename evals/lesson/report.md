@@ -7,7 +7,21 @@ Each video got a fresh empty workdir, i.e. a learner starting from scratch. Engi
 Re-run: `python evals/lesson/run.py --src <checkout>`. Raw graphs are in `results/<id>.json`, automatic grades in `results/grades.json`,
 build logs in `results/<id>.log` (gitignored; per-pass timings are quoted below). Transcripts were used for spot checks but are not committed.
 
-## Latest (`4ceb5de`): localhost/link fixes, vague-setup lint, progressive long videos
+## Latest (`dec3653`): Gemini billing returns 402; localhost fix verified
+
+Runs (both with `--saved-captions`):
+- `results-dec3653-default/`: all 5 with defaults.
+- `results-dec3653-claude/`: fastapi-rest and pandas-30min only, `LESSON_ENGINE=claude`.
+
+- **Gemini's billing has stopped working: every Gemini call returns `HTTP 402 Payment Required`**, on both `gemini-4-hydrogen` and `gemini-3.7-flash`. Billing on the key needs fixing (out of credit or turned off); this is ops, not E2.
+- **The builder doesn't fail fast on 402.** `gemini._classify` treats it as a temporary error, so `auto` keeps retrying until the 75 s cap before using Claude's draft (which was ready at ~15 s).
+  - Every default build took 82–90 s instead of ~30 s, and all five ended up Claude-built.
+  - The progressive pandas build took **191 s**, and its first part was ready only after 65.5 s.
+  - Fix: classify 402 like 401/403 (fatal for the whole process, as `auth`) so the race takes Claude's draft immediately. Report "Gemini billing: 402" in the build's human-readable error.
+- **The localhost fix works.** FastAPI s1 now ends "…and open http://127.0.0.1:8000." on both paths (the URL sits right before the period), and there are no link warnings.
+- **The progressive step budget is untested on Gemini** because of the 402. The Claude-built progressive pandas has 11 steps (was 19) over 4/4 parts; Claude single-pass has 8.
+
+## Run on `4ceb5de`: localhost/link fixes, vague-setup lint, progressive long videos
 
 Two runs, one after the other, both with `--saved-captions`:
 - `results-4ceb5de-default/`: defaults, Gemini preferred.
