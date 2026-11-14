@@ -6,39 +6,63 @@
   "segments": {
     "spotlight_tour": [
       {
-        "wait": 120,
+        "wait": 100,
+        "type": "spotlight",
+        "payload": {
+          "rect": { "x": 2400, "y": 300, "w": 220, "h": 18 },
+          "caption": "Open the terminal tab",
+          "app": "Code"
+        }
+      },
+      {
+        "wait": 800,
+        "type": "card",
+        "payload": {
+          "stepId": "s5",
+          "kind": "hint",
+          "title": "Follow the loss",
+          "body": "The optimizer sets the step. Watch the loss fall.",
+          "targets": [
+            { "boxId": 1, "label": "optimizer", "text": "torch.optim.Adam", "rect": { "x": 100, "y": 563, "w": 380, "h": 18 } },
+            { "boxId": 2, "label": "loss", "text": "loss 1.248e+00", "rect": { "x": 70, "y": 714, "w": 420, "h": 85 } },
+            { "boxId": 3, "label": "create_graph", "text": "create_graph=True", "rect": { "x": 514, "y": 474, "w": 156, "h": 34 } }
+          ]
+        }
+      },
+      {
+        "wait": 100,
         "type": "spotlight",
         "payload": {
           "rect": { "x": 100, "y": 563, "w": 380, "h": 18 },
           "caption": "Start with the optimizer",
           "app": "Code",
-          "matched": "torch.optim.Adam(…, lr=1e-3)"
+          "matched": "torch.optim.Adam"
         }
       },
       {
-        "wait": 1300,
+        "wait": 1200,
+        "type": "spotlight",
+        "payload": {
+          "rect": { "x": 101, "y": 564, "w": 380, "h": 18 },
+          "caption": "Start with the optimizer",
+          "app": "Code",
+          "matched": "torch.optim.Adam"
+        }
+      },
+      {
+        "wait": 1000,
+        "type": "spotlight",
+        "payload": { "clear": true }
+      },
+      {
+        "wait": 150,
         "type": "spotlight",
         "payload": {
           "rect": { "x": 70, "y": 714, "w": 420, "h": 85 },
           "caption": "Watch the loss fall",
           "app": "Code",
-          "matched": "loss 1.248e+00 → 9.120e-03"
+          "matched": "loss 1.248e+00"
         }
-      },
-      {
-        "wait": 1300,
-        "type": "spotlight",
-        "payload": {
-          "rect": { "x": 514, "y": 474, "w": 156, "h": 34 },
-          "caption": "Same flag on both lines",
-          "app": "Code",
-          "matched": "create_graph=True"
-        }
-      },
-      {
-        "wait": 1300,
-        "type": "spotlight",
-        "payload": { "clear": true }
       }
     ]
   }
