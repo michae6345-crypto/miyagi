@@ -16,6 +16,21 @@ def start() -> dict:
     return c
 
 
+def current() -> dict | None:
+    return _counter.get()
+
+
+def add_tokens(model: str, input_tokens: int | None, output_tokens: int | None) -> None:
+    """Accumulate token usage per model (output includes thinking where the API reports it so)."""
+    c = _counter.get()
+    if c is None:
+        return
+    t = c.setdefault("tokens", {}).setdefault(model, {"input": 0, "output": 0, "calls": 0})
+    t["input"] += int(input_tokens or 0)
+    t["output"] += int(output_tokens or 0)
+    t["calls"] += 1
+
+
 def count(kind: str) -> None:
     c = _counter.get()
     if c is not None:
