@@ -1,6 +1,6 @@
 # shortcut-bar
 
-**Status:** v1 built · pass 2 · **Priority:** P1 · **Port:** 5179 · **Branch:** `adrian/shortcut-bar`
+**Status:** pass 2 functional items done (spinner, press, voice, diagram state); tile restyle is UI polish's (`adrian/consistency`), merge pending · **Priority:** P1 · **Port:** 5179 · **Branch:** `adrian/shortcut-bar`
 
 ## Goal
 The bar at the bottom during a lesson: an Ask field (opens the launcher in ask mode) and Back · Explain · Diagram · Show me · Hint · Voice. It must never look dead: a pressed action shows a spinner until the engine answers (Michael's P0-2: "pressing them feels dead").
@@ -28,5 +28,15 @@ The bar at the bottom during a lesson: an Ask field (opens the launcher in ask m
 ## Test
 `npm run dev:web -- --port 5179` → `http://localhost:5179/?scenario=full`, Alt+E / Alt+D / Alt+S / Alt+H.
 
+## Pass 2 (functional), Sat
+- **Never look dead** (`Busy.tsx`): `<Glyph kind tone>` swaps the tile's glyph for the core `Spinner` (same size, the glyph's color) while `useThinking() && usePressed().kind === kind`, with one guard: the thinking spell must start ≤ 6 s after the press (or already be running at the press). Show me / Back are answered by `video.seek`, which doesn't clear `usePressed`, so without it a later coach run would spin a stale tile. `role="status"` + `data-busy` on the spinner.
+- **Press** (`press.ts`): one module-level `onUi('shortcut')` listener (claimed or not) → the matching tile scales to 0.94 for 90 ms. Covers bar clicks, global keys (Overlay routes them through `triggerShortcut`), stage keys and the launcher's chips (same window in the stage). A second press restarts the timer.
+- **Voice** (`Equalizer.tsx`): `useVoiceTile()` reads `on` / `speaking` from `features/voice/store.ts` (both exist on `adrian/shell`). On = the neutral "lit" tile + `aria-pressed`; speaking = three bars (scaleY from the bottom, transform only) in the glyph's place. `level` (0..1) is read defensively: the voice agent hasn't exported it yet; when it lands the bars follow it instead of looping. Reduced motion: still bars.
+- **Diagram** open state: `useDiagram(d => d.open)` (diagrams store on `adrian/shell`) → lit + `aria-pressed`. ⌥D while open is claimed by the diagrams store (closes it), and still dips the tile.
+- **Mock** (`mock/scenarios/shortcut-bar.json`, merged into `full`): Explain / Hint / Diagram / Show me at steps 4–6 send `status thinking`, then the existing answer after 1.2–2 s, then `status watching` (step 4) / `offtrack` (step 6). Spotlight's Hint at step 5 is untouched.
+- **Left for UI polish** (theirs): pastel tiles, MiyagiMark + Kbd in the Ask field, removing `blue`, tokens for the remaining rgba literals. When it lands: merge `origin/adrian/shell`, pass the tile's glyph color as `tone` (ink on pastel), keep the voice tile neutral.
+
 ## Core requests
-_None yet._ (Global shortcut registration is core: `src/main/index.ts`.)
+1. **Cross-window press (Electron).** The launcher is its own window: its Explain / Hint chips call `triggerShortcut` there, so the overlay's bar gets neither the 90 ms dip nor `usePressed` (no spinner on the bar tile for a chip press). Route chips through main to the overlay's `'shortcut'` signal (the same path as global keys), or broadcast `usePressed`. Works in the browser stage (one window).
+2. **When a press is spent.** Clear `usePressed` when the thinking spell after it ends (`thinking` → anything else) and on `video.seek` (Show me / Back answers). Then the 6 s guard in `Busy.tsx` can go.
+3. (Global shortcut registration is core: `src/main/index.ts`.)
