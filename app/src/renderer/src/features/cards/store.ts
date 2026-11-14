@@ -121,7 +121,8 @@ export function cardAct(kind: CardAction, text?: string): void {
     if (get().installs[text]?.running) return
     setInstall(text, { running: true, line: undefined, error: undefined })
   }
-  if (get().pending && !PER_ITEM.has(kind)) return // one answer at a time
+  // One answer at a time; Skip / Pick another always work (they just end the card).
+  if (get().pending && !PER_ITEM.has(kind) && !CLOSE_NOW.has(kind)) return
   sendAction(kind, text)
   if (PER_ITEM.has(kind)) return
   if (CLOSE_NOW.has(kind)) {
