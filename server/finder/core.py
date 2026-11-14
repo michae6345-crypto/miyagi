@@ -31,7 +31,7 @@ from urllib.parse import urlparse
 
 import httpx
 
-from . import brightdata, cache, claude, gemini, sources, youtube
+from . import brightdata, cache, claude, env, gemini, sources, youtube
 from .env import Keys, resolve_keys
 from .verify import verify
 
@@ -182,18 +182,17 @@ def _short_err(e: BaseException) -> str:
     return (f"Bright Data HTTP {m.group(1)}: " if m and m.group(1) else "Bright Data: ") + (m.group(2) if m else msg)[:70]
 
 
-LONG_S = 45 * 60
-
-
 def video_fields(c: dict) -> None:
-    """durationLabel ('1 h 56 min · 30 chapters') and the long flag (> 45 min) for video rows."""
+    """durationLabel ('1 h 56 min · 30 chapters') and the long flag for video rows. 'long' uses the
+    lesson builder's own threshold (LESSON_LONG_VIDEO_S, 30 min), above which it builds progressively,
+    so the result list and the build agree."""
     if c["kind"] != "video" or not c.get("duration_s"):
         return
     label = youtube.duration_label(c["duration_s"])
-    c["long"] = c["duration_s"] > LONG_S
+    c["long"] = c["duration_s"] > env.long_video_s()
     if c["long"]:
         ch = c.get("chapters") or 0
-        label += f" · {ch} chapters, builds chapter by chapter" if ch >= 5 else " · no chapters"
+        label += f" · {ch} chapters, builds chapter by chapter" if ch >= 5 else " · no chapters, builds part by part"
     c["durationLabel"] = label
 
 
@@ -457,7 +456,7 @@ class _Run:
         """The model's score, then the ranking rules (deterministic, so the UI can explain them):
         - for a coding goal, a no-code resource is capped at 35 and a conceptual one at 60
           ("build an LLM" is not "use ChatGPT" or "build a Zapier bot");
-        - long videos (> 45 min) with chapters get +3 (followable), without chapters -5;
+        - long videos (> LESSON_LONG_VIDEO_S, 30 min) with chapters get +3 (followable), without chapters -5;
           captions +1."""
         s = c.get("raw", 0)
         style = c.get("style")

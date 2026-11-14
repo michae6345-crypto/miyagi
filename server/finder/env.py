@@ -95,4 +95,13 @@ def skim_models() -> list[str]:
     return _chain("FINDER_SKIM_MODEL", "gemini-3.1-flash-lite,gemini-3.5-flash-lite")
 
 
+def long_video_s() -> float:
+    """Same setting as server/lesson (progressive build above it): LESSON_LONG_VIDEO_S, default 30 min."""
+    load_env()
+    try:
+        return float(os.environ.get("LESSON_LONG_VIDEO_S", 30 * 60))
+    except ValueError:
+        return 30 * 60
+
+
 CACHE_DIR = ROOT / "demo" / "cache" / "search"

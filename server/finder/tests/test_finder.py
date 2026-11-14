@@ -413,3 +413,13 @@ def test_no_code_video_never_leads_a_coding_goal(offline, monkeypatch):
     assert trap_row["score"] <= 35 and trap_row["style"] == "no-code"
     assert rows[0]["kind"] == "video" and rows[0]["style"] == "coding" and rows[0]["id"] != trap_row["id"]
     assert all("durationLabel" in r for r in rows if r["kind"] == "video")
+
+
+def test_long_flag_matches_lesson_builder(monkeypatch):
+    c = {"kind": "video", "duration_s": 35 * 60, "chapters": 8}
+    search_mod.video_fields(c)
+    assert c["long"] and "8 chapters" in c["durationLabel"]  # 35 min > 30 min default
+    monkeypatch.setenv("LESSON_LONG_VIDEO_S", str(40 * 60))
+    c = {"kind": "video", "duration_s": 35 * 60}
+    search_mod.video_fields(c)
+    assert c["long"] is False and c["durationLabel"] == "35 min"
