@@ -1,5 +1,5 @@
 """PII scrubbing + private apps. Applied to every OCR block and AX text before it leaves the reader
-(observations, coach payloads, Gemini, Tiger)."""
+(observations, coach payloads, Claude vision, Tiger)."""
 from __future__ import annotations
 
 import os

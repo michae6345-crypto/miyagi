@@ -48,18 +48,36 @@ def test_demo_mode_replays_fixture_and_labels_it(monkeypatch):
 
 
 def test_describe_errors_instead_of_fake_answers(monkeypatch):
-    monkeypatch.delenv("GEMINI_API_KEY", raising=False)
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    monkeypatch.setenv("GEMINI_API_KEY", "must-not-be-used")
     d = Describer()
     assert d.key_status == "missing"
     with pytest.raises(DescribeError) as ei:
-        asyncio.run(d.describe(b"jpeg", "q", ("q",)))
-    assert ei.value.reason == "missing_key"
-    monkeypatch.setenv("GEMINI_API_KEY", "from-env")
+        asyncio.run(d.describe(b"jpeg", "q", "ctx", ("q",)))
+    assert ei.value.reason == "missing_key" and "Anthropic" in ei.value.detail
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "from-env")
     assert d.key_status == "env"
     d.set_key("from-app")
     assert d.key_status == "ok"
     d.set_key(None)
     assert d.key_status == "env"
+
+
+def test_invalid_key_is_reported(monkeypatch):
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-invalid-test-key")
+    d = Describer(min_interval=0)
+    with pytest.raises(DescribeError) as ei:
+        asyncio.run(d.describe(b"\xff\xd8\xff", "q", "ctx", ("q2",)))
+    assert ei.value.reason in ("invalid_key", "unavailable")  # unavailable when offline
+    if ei.value.reason == "invalid_key":
+        assert d.key_status == "invalid"
+
+
+def test_parse_ids():
+    from server.screen.describe import parse_ids
+    assert parse_ids("12, 3", 20) == [11, 2]
+    assert parse_ids("none", 5) == [] and parse_ids("99", 5) == []
+    assert parse_ids("Line 2 (and 2)", 5) == [1]
 
 
 def test_tiger_status_states(monkeypatch):

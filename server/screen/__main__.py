@@ -4,7 +4,8 @@
     python -m server.screen locate "def pde_residual" [--app Code] [--out locate.png]
     python -m server.screen metrics 'epoch\\s+(?P<step>\\d+).*?loss\\s+(?P<value>[0-9.eE+-]+)' [--lesson demo]
     python -m server.screen bench [-n 10]
-    python -m server.screen describe "Is the loss converging?"
+    python -m server.screen describe "Is the loss converging?"     # Claude Opus 5.5
+    python -m server.screen where "the Run button"                 # Claude Haiku 5.5
     python -m server.screen fixture NAME [--apps Code Terminal]   # save a privacy-safe fixture PNG
 
 Every command takes --image PATH to run on a saved screenshot instead of the live screen.
@@ -135,6 +136,19 @@ def cmd_describe(args) -> None:
         sys.exit(2)
 
 
+def cmd_where(args) -> None:
+    from .describe import DescribeError
+    from .reader import ScreenReader
+    r = ScreenReader(fixture=args.image)
+    r.observe_now(force=True)
+    try:
+        res = asyncio.run(r.where(args.target, args.app))
+    except DescribeError as e:
+        print(f"where failed ({e.reason}): {e.detail}", file=sys.stderr)
+        sys.exit(2)
+    print(json.dumps(res.to_dict(), indent=2) if res else "NOT FOUND")
+
+
 def cmd_fixture(args) -> None:
     """Compose a fixture from ONLY the named apps' windows (nothing else on screen leaks in)."""
     from PIL import Image
@@ -227,6 +241,10 @@ def main(argv=None) -> None:
     de = sub.add_parser("describe")
     de.add_argument("question")
     de.set_defaults(fn=cmd_describe)
+    wh = sub.add_parser("where")
+    wh.add_argument("target")
+    wh.add_argument("--app")
+    wh.set_defaults(fn=cmd_where)
     fx = sub.add_parser("fixture")
     fx.add_argument("name")
     fx.add_argument("--apps", nargs="+", default=["Code", "Terminal"])

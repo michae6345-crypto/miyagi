@@ -7,7 +7,8 @@
     reader.subscribe(cb)                     # cb(obs) on every new observation
     rect = reader.locate("def pde_residual", app="Code")   # -> Rect(x,y,w,h) in screen points
     reader.watch_metrics("pinn", {"loss": r"epoch\\s+(?P<step>\\d+).*?loss\\s+(?P<value>[0-9.eE+-]+)"}, cb)
-    text = await reader.describe("Is the loss curve converging?")
+    text = await reader.describe("Is the loss curve converging?")   # Claude only
+    res = await reader.where("the Run button")
 
 Pure helpers (no pyobjc, usable on Linux): `server.screen.match.screen_contains/locate_match`,
 `server.screen.metrics.TerminalMetricReader`, the types in `server.screen.types`.

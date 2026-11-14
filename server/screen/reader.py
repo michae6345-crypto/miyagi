@@ -193,16 +193,17 @@ class ScreenReader:
             except Exception:
                 log.exception("on_error callback failed")
 
-    def set_keys(self, gemini: str | None = None, tiger_url: str | None = None) -> dict[str, str]:
-        """BYOK from the app's `config.keys` ({gemini, tigerUrl}). Empty/None = keep using .env.
+    def set_keys(self, anthropic: str | None = None, tiger_url: str | None = None, **_ignored) -> dict[str, str]:
+        """BYOK from the app's `config.keys` ({anthropic, tigerUrl}; other keys are ignored here:
+        the screen reader never uses Gemini). Empty/None = keep using .env.
         Returns the screen reader's part of `config.status`."""
-        self._describer.set_key(gemini)
+        self._describer.set_key(anthropic)
         self._tiger_writer().set_url(tiger_url)
         return self.key_status()
 
     def key_status(self) -> dict[str, str]:
-        """{"gemini": KeyState, "tigerUrl": KeyState} (events.ts KeyState: ok|missing|invalid|env)."""
-        return {"gemini": self._describer.key_status, "tigerUrl": self._tiger_writer().status}
+        """{"anthropic": KeyState, "tigerUrl": KeyState} (events.ts KeyState: ok|missing|invalid|env)."""
+        return {"anthropic": self._describer.key_status, "tigerUrl": self._tiger_writer().status}
 
     def _tiger_writer(self) -> TigerWriter:
         if self._tiger is None:
@@ -268,17 +269,58 @@ class ScreenReader:
             elif reader in self._metric_readers:
                 self._metric_readers.remove(reader)
 
-    async def describe(self, question: str, region=None) -> str:
-        """Ask Gemini about the current screen (or a region of it, in points). Rate-limited.
-        Raises DescribeError (reason: missing_key | invalid_key | no_image | unavailable)."""
+    async def _vision_input(self, region=None) -> tuple[bytes, str, ScreenObservation]:
+        """JPEG (1280 wide, cursor ringed) + a text context (frontmost app, cursor, what's under it)."""
         try:
             img = await asyncio.to_thread(self.screenshot_pil, region)
         except Exception as e:
             raise DescribeError("no_image", str(e)[:200]) from e
-        if img is None:
+        obs = self.latest()
+        if img is None or obs is None:
             raise DescribeError("no_image", self.last_error or "nothing captured yet")
-        key = (question, Rect.from_any(region).rounded() if region else None, self._frame)
-        return await self._describer.describe(to_jpeg(img), question, key)
+        live = obs.source == "live"  # a replayed screenshot has no meaningful cursor
+        ctx = await asyncio.to_thread(self.cursor_context, obs) if live else {}
+        origin = (obs.screen.x, obs.screen.y)
+        if region is not None:
+            r = Rect.from_any(region).clamp(obs.screen)
+            origin = (r.x, r.y)
+        jpeg = to_jpeg(img, cursor=(ctx["x"], ctx["y"]) if live else None, scale=obs.scale, origin=origin)
+        lines = [f"Frontmost app: {obs.app}."]
+        if live:
+            lines.append(f"Cursor at ({ctx['x']:.0f}, {ctx['y']:.0f}) points, over app {ctx.get('app')!r}.")
+        if ctx.get("editor_line"):
+            lines.append(f"Cursor is on editor line {ctx['editor_line']}: {ctx.get('editor_line_text')!r}.")
+        elif ctx.get("ocr_line"):
+            lines.append(f"Text under the cursor: {ctx['ocr_line']!r}.")
+        if ctx.get("ax"):
+            a = ctx["ax"]
+            lines.append(f"UI element under the cursor: role={a.get('role')} title={a.get('title')!r}.")
+        if obs.ax and obs.ax.get("document"):
+            lines.append(f"Open file: {obs.ax['document']} (unsaved changes: {obs.ax.get('dirty')}).")
+        return jpeg, "\n".join(lines), obs
+
+    async def describe(self, question: str, region=None) -> str:
+        """Ask Claude (claude-opus-5-5) about the current screen, or a region of it in points.
+        Rate-limited. Raises DescribeError (reason: missing_key | invalid_key | no_image | refused |
+        unavailable). No other provider is ever used."""
+        jpeg, context, obs = await self._vision_input(region)
+        key = (question, Rect.from_any(region).rounded() if region else None, obs.frame)
+        return await self._describer.describe(jpeg, question, context, key)
+
+    async def where(self, target: str, app: str | None = None) -> M.LocateResult | None:
+        """Quick visual "where is X" with Claude (claude-haiku-5-5), for targets text matching can't
+        resolve ("the run button", "the cell with the loss plot"). Set-of-mark: Claude picks among the
+        numbered OCR lines, so the rect is exact. Try `locate()` first: it's free and instant."""
+        jpeg, context, obs = await self._vision_input()
+        lines = [ln for ln in M.group_lines(obs.blocks_in(app)) if ln.text.strip()][:400]
+        if not lines:
+            return None
+        ids = await self._describer.where(jpeg, target, [ln.text for ln in lines], context,
+                                          (target, app, obs.frame))
+        if not ids:
+            return None
+        best = lines[ids[0]]
+        return M.LocateResult(best.rect.pad(6).clamp(obs.screen), best.app, best.text, 100.0, [best])
 
     # ------------------------------------------------------------------ capture + OCR
 

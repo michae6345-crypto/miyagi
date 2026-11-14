@@ -16,7 +16,8 @@ screen_contains(obs, r"u_t\s*\+\s*beta", app="Code")        # for screen_contain
 evaluate_step(step, ctx, screen=obs.lines_by_app())          # E3: pass whole rows, not raw blocks
 m = reader.watch_metrics(lesson_id, {"loss": check["metric_pattern"]}, on_metric, app=None,
                          on_restart=lambda run_id: ...)     # on_metric(name, step, value); m.reset() on step change
-answer = await reader.describe("Is this loss curve converging?", region=None)  # Gemini, rate-limited
+answer = await reader.describe("Is this loss curve converging?", region=None)  # Claude Opus 5.5, rate-limited
+res = await reader.where("the Run button")            # Claude Haiku 5.5 picks among numbered OCR lines -> exact rect
 reader.poke()                                 # capture now (e.g. right after a run ended)
 ```
 
@@ -33,11 +34,13 @@ reader.poke()                                 # capture now (e.g. right after a 
   `screen-<lesson>-r2` and `on_restart(run_id)` fires, so curves don't mix runs. Points go to Tiger Data
   `training_metrics` (`run_id = "screen-<lesson>"`) when `TIGER_DATABASE_URL` is a real URL; otherwise
   it logs once and carries on.
-- **env**: loads `TUT_ENV` (default `/Users/tripi/sand hacks/sandhacks-tutor/.env`). `GEMINI_API_KEY`
-  for describe, `GEMINI_VISION_MODEL` (default `gemini-3.8-flash`), `TUT_SCREEN_FIXTURE=path.png` to
+- **env**: loads `TUT_ENV` (default `/Users/tripi/sand hacks/sandhacks-tutor/.env`).
+  `ANTHROPIC_API_KEY` for describe/where (Claude only: the screen is never sent to Gemini),
+  `TUT_SCREEN_COACH_MODEL` / `TUT_SCREEN_QUICK_MODEL` (defaults `claude-opus-5-5` / `claude-haiku-5-5`), `TUT_SCREEN_FIXTURE=path.png` to
   replay a saved screenshot instead of the live screen.
 - **permission**: the app running the engine needs *System Settings › Privacy & Security › Screen &
-  System Audio Recording*. Without it the reader prints exactly that and falls back to the fixture PNGs.
+  System Audio Recording*. Without it capture raises `ScreenPermissionError` (see `reader.status` / `on_error`);
+  fixture PNGs are used only when asked for (`TUT_SCREEN_FIXTURE`, `--image`) or under `DEMO=1`.
 - **perf** (M5 Pro, 3456×2234 Retina, accurate mode, language correction off): capture ~17 ms;
   OCR ~100–220 ms per frame warm depending on how much text is on screen, ~250–350 ms on the first
   frame (Vision warm-up). Static screens aren't re-OCR'd.
@@ -48,7 +51,8 @@ python -m server.screen watch [--app Terminal] [--json]      # frontmost app + O
 python -m server.screen locate "def pde_residual" --out locate.png [--all]   # rect + PNG with it drawn
 python -m server.screen metrics 'epoch\s+(?P<step>\d+).*?loss\s+(?P<value>[0-9.eE+-]+)'
 python -m server.screen bench -n 8                           # capture + OCR latency
-python -m server.screen describe "what is on screen?"
+python -m server.screen describe "what is on screen?"           # Claude Opus 5.5
+python -m server.screen where "the Run button"                   # Claude Haiku 5.5, set-of-mark
 python -m server.screen fixture NAME --apps Code Terminal --titles pinn   # compose a fixture from only those windows
 python -m server.screen --image server/screen/fixtures/vscode_terminal_flat.png locate "beta * u_x"
 ```
