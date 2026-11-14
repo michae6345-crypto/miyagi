@@ -41,6 +41,8 @@ class Client:
         self.t0 = time.monotonic()
         self.ws = None
         self._task: asyncio.Task | None = None
+        self._preflight_answered = False
+        self.preflights: list = []
 
     async def __aenter__(self):
         self.ws = await websockets.connect(self.engine.ws, max_size=8 * 2**20, ping_interval=None)
@@ -52,15 +54,25 @@ class Client:
             self._task.cancel()
         await self.ws.close()
 
+    auto_build = True  # answer S8's preflight card with action build (once per pick), like a learner pressing "Build"
+
     async def _read(self):
         try:
             async for raw in self.ws:
                 m = json.loads(raw)
-                self.events.append((time.monotonic() - self.t0, m.get("type"), m.get("payload", {})))
+                ev = (time.monotonic() - self.t0, m.get("type"), m.get("payload", {}))
+                self.events.append(ev)
+                if (self.auto_build and ev[1] == "card" and ev[2].get("kind") == "preflight"
+                        and not self._preflight_answered):
+                    self._preflight_answered = True
+                    self.preflights.append(ev)
+                    await self.send("action", {"kind": "build"})
         except websockets.ConnectionClosed:
             pass
 
     async def send(self, type_: str, payload: dict | None = None):
+        if type_ in ("learn_url", "build_lesson", "learn"):
+            self._preflight_answered = False
         await self.ws.send(json.dumps({"type": type_, "payload": payload or {}}))
 
     def mark(self) -> int:

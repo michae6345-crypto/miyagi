@@ -31,6 +31,89 @@ protocol, one stage at a time, and prints what each stage did. Nothing in it cal
 - **Logs:** every search/build appends a JSON record to `demo/runs/stage-results.jsonl`. The engine log is
   `demo/runs/stage-engine-<port>.log`. Both are gitignored.
 
+## Actions QA: Explain / Show me / Hint / Diagram / Back (integration/live 3123eb6, 15:21–15:40)
+
+Run with `.venv/bin/python scripts/stage_actions.py --screen fixture|real [--only <lesson>]`. It uses one LIVE engine on :8790
+with ORCH_SCREEN=1. Each lesson is started from cache; the S8 preflight card is answered with `build`, as a learner would.
+
+At step 1 and step 2 it sends `explain`, `show_me`, `hint` ×3, `diagram` and `back`, one at a time, and records every event for 8 s.
+Before the actions it reports `video.state` inside the clip, so the segment timer can't fire mid-test.
+
+Pass criteria:
+- Something visible within 1 s: status thinking, a spotlight with a rect, a video.seek, or the card itself.
+- The result within 6 s: a card (explain, hint), a diagram (diagram), or a video.seek (show_me, back).
+- Every spotlight rect is non-empty and on the 1728×1117 display.
+- At most one card per action, and the 3 hints differ.
+- No `error` event.
+- After `end_lesson`, nothing else for 8 s.
+
+**Screens:**
+- **fixture**: `TUT_SCREEN_FIXTURE=server/screen/fixtures/vscode_terminal_flat.png`, i.e. VS Code with `pinn_convection.py` plus a Terminal.
+- **real**: the desktop. Code is not visible, but E6's capture fails here anyway (A-1).
+
+**Lessons:**
+- PINN hero (AXXnSzmpyoI)
+- React useEffect (V8FvyuObouc)
+- "notebook": linear regression in numpy (Jj7WD71qQWE, a Jupyter lesson). It stands in for an LLM notebook lesson: both short LLM
+  videos tried (NiZdkwx9t5Q 11:00, vXg6XwI3fts 14:09) failed to build with "Couldn't read this video (… long): YouTube is
+  rate-limiting caption downloads on this network; Gemini didn't finish watching in time" (soak bug S1, E2).
+- PINN convection (unBU1PwCnvQ), fixture only, because its targets (`class PINN(nn.Module):`) are the code in the fixture. This tests
+  spotlight rects.
+
+| lesson | screen | step | explain | show_me | hint 1 / 2 / 3 | diagram | back | end_lesson |
+|---|---|---|---|---|---|---|---|---|
+| PINN hero | fixture | 1 · 2 | ✓ thinking 0 s → card 3.0 s · 2.8 s | ✓ seek 0 s (target not on screen → no spot) | ✓ cards 0 s, all different | ✓ thinking 0 s → `graph` 0 s (prefetched) | ✓ seek 0 s | ✓ |
+| React useEffect | fixture | 1 · 2 | ✓ card 2.7 s · 2.4 s | ✓ seek 0 s | ✓ | ✓ `graph` 0 s | ✓ | ✓ |
+| notebook (lin. reg.) | fixture | 1 · 2 | ✓ card 2.8 s · 2.6 s | ✓ seek 0 s | ✓ | ✓ `graph` 0 s | ✓ | ✓ |
+| PINN convection | fixture | 1 · 2 | ✓ card 2.7 s · 2.8 s | ✓ seek 0 s + **spotlight 328,252 175×27** (step 1; step 2's target isn't on the fixture) | ✓ | ✓ `network` 0 s | ✓ | ✓ |
+| PINN hero | real | 1 · 2 | ✓ | ✓ seek only | ✓ | ✓ | ✓ | ✓ |
+| React useEffect | real | 1 · 2 | ✓ | ✓ seek only | ✓ | ✓ | ✓ | ✓ |
+| notebook (lin. reg.) | real | 1 · 2 | ✓ | ✓ seek only | ✓ | ✓ | ✓ | ✓ |
+
+**Totals:** fixture 45/45 + 15/15 PASS, real 45/45 PASS.
+- No duplicate cards and no `error`.
+- Nothing after `end_lesson`.
+- The one spotlight sent was on-screen and non-empty.
+
+So the engine answers every action at once. The "dead" feeling comes from what the learner can and can't see:
+
+**A-1 · E6 screen (+ E4): on this Mac the screen reader sees nothing, and nobody is told.**
+- `server/screen/macos.capture_main_display()` → `Quartz.CGDisplayCreateImage(CGMainDisplayID())` returns `None` on every frame
+  in the engine process: `ScreenUnavailableError: display returned no image (asleep, locked, or switching Spaces?)`.
+- Meanwhile `screencapture -x` from the same shell captures the screen fine (7 MB PNG), the session is unlocked, and
+  `CGPreflightScreenCaptureAccess()` is True.
+- `CGDisplayCreateImage` is deprecated on macOS 15+, and this Mac runs Darwin 25.
+- Result on the real screen: Show me never spotlights (every `locate_match` raises), screen checks stay "waiting for screen",
+  and diagrams and explain cards get no screen context.
+- **E4:** the app gets no `error` or screen status, `/state` reports `screen: true`, and the log prints a traceback per frame.
+- Fix:
+  - **E6:** capture via ScreenCaptureKit (`SCScreenshotManager`), or fall back to `screencapture -x -t png` when
+    CGDisplayCreateImage returns None.
+  - **E4:** when `reader.status` is `error` / `no_permission`, tell the app once (an error card "Miyagi can't see your screen
+    right now"), and make `show_me` say why there's no spotlight.
+
+**A-2 · E5 coach: the hint ladder feels canned.**
+- Three presses give levels 0 → 1 → **3**; level 2 ("paper") is skipped every time.
+- Level 0, titled "A question first", is an instruction, not a question: "In the first cell, import numpy as np, pandas as pd, and
+  matplotlib.pyplot as plt."
+- Level 1 is a template that reads oddly: "The tutorial covers Linear model f(x) = wx + b here." / "The tutorial covers Returning a
+  cleanup arrow function from useEffect to prevent unmounted state updates here."
+- Titles are the same three strings on every step ("A question first", "Rewatch this part", "Compare with the tutorial"), so
+  consecutive presses look identical at a glance.
+- Fix:
+  - Make level 0 an actual question about the step's check.
+  - Write level 1 as a sentence with the jump time ("Rewatch 0:44, where he writes f(x) = wx + b").
+  - Include level 2 or renumber.
+  - Use step-specific titles.
+
+**A-3 · E4 orchestrator (minor): a raw prefix in the human build error.** The new E2 wording reaches the app as
+`lesson.build_lesson failed: RuntimeError: Couldn't read this video (11:00 long): …`. `human_build_error` doesn't match it, so the
+module/exception prefix leaks. Strip `<module>.<fn> failed: <Exc>:` before showing it.
+
+**Not engine-side (for the app, Adrian):** the engine sends `card` within 0–3 s and `diagram` (kind `graph` / `network`)
+instantly for every action. If the app still looks dead, check that it renders `card.kind` hint/explain with `videoJump`, the
+`diagram` kind `graph` (new in the contract), and `video.seek` while the video panel is hidden.
+
 ## Soak: 10 topics back to back, integration/live 9f89e04, Gemini paid, 14:44–15:07
 
 Run with `.venv/bin/python scripts/stage_soak.py [--open] [--only "topic[=pinned url]"]`. One LIVE engine on :8790 with default

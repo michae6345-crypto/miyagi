@@ -129,7 +129,9 @@ async def soak_topic(engine: stage.Engine, spec: str) -> dict:
         rec["stages"] = stages
         steps_ready = next((t for t, s in stages if s.startswith("Steps ready")), None)
         rec["first_steps_s"] = steps_ready
-        rec["preflight"] = [s for _, s in stages if s.startswith("card ")] or None
+        rec["preflight"] = [{"t": round(t - tb, 1), "title": p.get("title"), "body": (p.get("body") or "")[:200],
+                             "warning": p.get("warning"), "style": (p.get("preflight") or {}).get("style")}
+                            for t, ty, p in c.since(j) if ty == "card" and p.get("kind") == "preflight"] or None
         errors = [p.get("message") for _, ty, p in c.since(j) if ty == "error"]
         rec["errors"] = errors
         if not hit or hit[1] != "lesson.ready":

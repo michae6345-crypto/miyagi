@@ -465,6 +465,8 @@ async def cmd_build(engine: Engine, target: str, goal: str, timeout: float) -> d
     last_msg = ""
     last_print = -1
     stages: list[str] = []
+    preflights: list[dict] = []
+    answered = False
     while True:
         msg = await recv(ws, max(1.0, timeout - (time.monotonic() - t0)))
         if msg is None:
@@ -490,6 +492,17 @@ async def cmd_build(engine: Engine, target: str, goal: str, timeout: float) -> d
             if p.get("failed"):
                 errors.append(p.get("message", "")) if not errors else None
                 break
+        elif t == "card" and p.get("kind") == "preflight":  # S8: the pick is checked BEFORE building
+            pf = p.get("preflight") or {}
+            print(f"{C['m']}{rel(t0)} preflight card{C['x']} {p.get('title')!r} · {p.get('body', '')[:160]!r}"
+                  + (f" {C['y']}warning: {p['warning']}{C['x']}" if p.get("warning") else "")
+                  + f" {C['dim']}style={pf.get('style')} actions={p.get('actions')}{C['x']}")
+            preflights.append({"t": round(time.monotonic() - t0, 1), "title": p.get("title"), "body": p.get("body"),
+                               "warning": p.get("warning"), "style": pf.get("style")})
+            if not answered:  # a later preflight card replaces the first: answer once
+                answered = True
+                await ws.send(json.dumps({"type": "action", "payload": {"kind": "build"}}))
+                print(f"{C['dim']}{rel(t0)} > action build{C['x']}")
         elif t == "lesson.ready":
             ready = p
             print(f"{C['g']}{rel(t0)} lesson.ready {p['lesson'].get('title')!r} · {len(p['steps'])} steps{C['x']}")
@@ -511,7 +524,7 @@ async def cmd_build(engine: Engine, target: str, goal: str, timeout: float) -> d
     path = "?"
     if "lesson cache hit" in eng_log:
         path = "cache"
-    rec: dict = {"stage": "build", "stages": stages, "target": target, "url": url or (picked or {}).get("url"), "goal": goal,
+    rec: dict = {"stage": "build", "stages": stages, "preflight": preflights, "target": target, "url": url or (picked or {}).get("url"), "goal": goal,
                  "build_s": round(build_s, 1), "ok": bool(ready), "errors": errors,
                  "engine_log_errors": [ln for ln in eng_log.splitlines()
                                        if re.search(r"ERROR|Traceback|failed|429|quota", ln)][:15]}
