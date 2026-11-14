@@ -83,8 +83,9 @@ if (!flag('--no-install')) {
 
 const ports = JSON.parse(readFileSync(join(dir, 'app/agents/ports.json'), 'utf8'))
 const port = ports[name] ?? 5199
+const scenario = existsSync(join(dir, 'app/mock/scenarios', `${name}.json`)) ? name : 'full'
 console.log(`
 Done. Next:
   1. Open a Claude Code session in: ${dir}
-  2. Kickoff: "Read app/CLAUDE.md and app/agents/${name}.md, then build it. Stage: npm run dev:web -- --port ${port} → http://localhost:${port}/?scenario=${name}"
+  2. Kickoff: "Read app/CLAUDE.md and app/agents/${name}.md, then build it. Stage: npm run dev:web -- --port ${port} → http://localhost:${port}/?scenario=${scenario}"
 `)
