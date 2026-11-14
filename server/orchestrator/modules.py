@@ -1,0 +1,195 @@
+"""The orchestrator's view of the other engine modules, behind one small interface.
+
+Resolution per module (lesson, checks, coach, finder, diagrams):
+  1. DEMO=1            -> demo/cache/ files first, then stubs (never a live API)
+  2. ORCH_STUBS=all|lesson,coach,...  -> force the stub for those modules
+  3. otherwise         -> the real function if `server.<module>` exports it, else the stub
+A real function that raises is logged and falls back to the stub, so a flaky API
+never kills the demo.
+"""
+
+from __future__ import annotations
+
+import dataclasses
+import importlib
+import inspect
+import json
+import logging
+import os
+from collections.abc import Callable
+from pathlib import Path
+from typing import Any
+
+from . import stubs
+from .config import DEMO_CACHE, demo_mode
+from .context import RunContext
+
+log = logging.getLogger("orchestrator.modules")
+
+MODULES = ("lesson", "checks", "coach", "finder", "diagrams")
+
+
+async def _call(fn: Callable, *args, **kwargs) -> Any:
+    out = fn(*args, **kwargs)
+    if inspect.isawaitable(out):
+        out = await out
+    return out
+
+
+def _to_dict(obj: Any) -> Any:
+    if isinstance(obj, dict):
+        return obj
+    if dataclasses.is_dataclass(obj) and not isinstance(obj, type):
+        return dataclasses.asdict(obj)
+    if hasattr(obj, "model_dump"):
+        return obj.model_dump(exclude_none=True)
+    return obj
+
+
+def _read_json(path: Path) -> Any | None:
+    try:
+        return json.loads(path.read_text())
+    except (OSError, ValueError):
+        return None
+
+
+class Modules:
+    def __init__(self, *, demo: bool | None = None, force_stubs: str | None = None):
+        self.demo = demo_mode() if demo is None else demo
+        forced = os.environ.get("ORCH_STUBS", "") if force_stubs is None else force_stubs
+        forced_set = {m.strip() for m in forced.split(",") if m.strip()}
+        if "all" in forced_set:
+            forced_set = set(MODULES)
+        self.real: dict[str, Any] = {}
+        for name in MODULES:
+            if name in forced_set:
+                continue
+            try:
+                self.real[name] = importlib.import_module(f"server.{name}")
+            except Exception as e:  # pragma: no cover - import errors in sibling modules
+                log.warning("server.%s failed to import (%s); using stub", name, e)
+
+    # -- helpers
+    def _real_fn(self, module: str, attr: str) -> Callable | None:
+        if self.demo and module != "checks":
+            return None
+        mod = self.real.get(module)
+        fn = getattr(mod, attr, None) if mod else None
+        return fn if callable(fn) else None
+
+    def describe(self) -> dict[str, str]:
+        out = {}
+        probes = {"lesson": "build_lesson", "checks": "evaluate_step", "coach": "diagnose",
+                  "finder": "search", "diagrams": "build"}
+        for m, attr in probes.items():
+            if self.demo and m != "checks":
+                out[m] = "demo-cache"
+            else:
+                out[m] = "real" if self._real_fn(m, attr) else "stub"
+        return out
+
+    def _cache(self, *parts: str) -> Any | None:
+        if not self.demo:
+            return None
+        return _read_json(DEMO_CACHE.joinpath(*parts))
+
+    async def _try_real(self, module: str, attr: str, *args, **kwargs) -> tuple[bool, Any]:
+        fn = self._real_fn(module, attr)
+        if fn is None:
+            return False, None
+        try:
+            return True, await _call(fn, *args, **kwargs)
+        except Exception:
+            log.exception("server.%s.%s failed; falling back to stub", module, attr)
+            return False, None
+
+    # -- finder
+    async def search(self, query: str) -> list[dict]:
+        cached = self._cache("search.json")
+        if cached is None and self.demo and (DEMO_CACHE / "search").is_dir():
+            files = sorted((DEMO_CACHE / "search").glob("*.json"))
+            cached = _read_json(files[0]) if files else None
+        if cached is not None:
+            return list(cached.get("results", cached) if isinstance(cached, dict) else cached)
+        ok, out = await self._try_real("finder", "search", query)
+        if ok and out is not None:
+            return [_to_dict(r) for r in out]
+        return await stubs.search(query)
+
+    # -- lesson
+    async def build_lesson(self, source_url: str, goal: str, workdir: str) -> dict:
+        if self.demo:
+            cached = self._cache("lesson.json")
+            if cached is None and (DEMO_CACHE / "lessons").is_dir():
+                files = sorted((DEMO_CACHE / "lessons").glob("*.json"), key=lambda p: p.stat().st_mtime, reverse=True)
+                cached = _read_json(files[0]) if files else None
+            if cached is not None:
+                return cached
+        ok, out = await self._try_real("lesson", "build_lesson", source_url, goal, workdir)
+        if ok and out:
+            return _to_dict(out)
+        return await stubs.build_lesson(source_url, goal, workdir)
+
+    # -- checks (always local: the demo is a real run)
+    def make_context(self, ctx: RunContext) -> Any:
+        mod = self.real.get("checks")
+        cls = getattr(mod, "RunContext", None) if mod else None
+        if cls is None or cls is RunContext:
+            return ctx
+        try:
+            params = inspect.signature(cls).parameters
+            candidates = {"workdir": ctx.workdir, "last_run": ctx.last_run, "metrics": ctx.metrics,
+                          "exit_code": ctx.exit_code, "output_tail": ctx.output_tail,
+                          "command": ctx.command, "runs": ctx.runs}
+            return cls(**{k: v for k, v in candidates.items() if k in params})
+        except Exception:
+            log.exception("could not build server.checks.RunContext; passing ours")
+            return ctx
+
+    def evaluate_step(self, step: dict, ctx: RunContext) -> list[dict]:
+        fn = self._real_fn("checks", "evaluate_step")
+        if fn is not None:
+            try:
+                return [_to_dict(r) for r in fn(step, self.make_context(ctx))]
+            except Exception:
+                log.exception("server.checks.evaluate_step failed; using stub evaluator")
+        return stubs.evaluate_step(step, ctx)
+
+    # -- coach
+    async def diagnose(self, step: dict, failed_checks: list[dict], metrics_summary: dict, code_excerpt: str) -> dict:
+        cached = self._cache("coach", f"{step['id']}.json")
+        if cached:
+            return cached
+        ok, out = await self._try_real("coach", "diagnose", step, failed_checks, metrics_summary, code_excerpt)
+        if ok and out:
+            return _to_dict(out)
+        return await stubs.diagnose(step, failed_checks, metrics_summary, code_excerpt)
+
+    async def explain(self, step: dict, question: str | None, context: dict) -> dict:
+        kind = "answer" if question else "explain"
+        cached = self._cache("cards", f"{step['id']}-{kind}.json")
+        if cached:
+            return cached
+        ok, out = await self._try_real("coach", "explain", step, question, context)
+        if ok and out:
+            return _to_dict(out)
+        return await stubs.explain(step, question, context)
+
+    async def hint(self, step: dict, level: int) -> dict:
+        cached = self._cache("cards", f"{step['id']}-hint{level}.json")
+        if cached:
+            return cached
+        ok, out = await self._try_real("coach", "hint", step, level)
+        if ok and out:
+            return _to_dict(out)
+        return stubs.hint(step, level)
+
+    # -- diagrams
+    async def diagram(self, kind: str, step: dict | None, ctx: RunContext | None) -> dict:
+        cached = self._cache("diagrams", f"{kind}.json")
+        if cached:
+            return cached
+        ok, out = await self._try_real("diagrams", "build", kind, step=step, ctx=ctx)
+        if ok and out:
+            return _to_dict(out)
+        return await stubs.diagrams_build(kind, step, ctx)
