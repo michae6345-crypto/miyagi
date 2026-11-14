@@ -23,7 +23,7 @@ from .schema import schema_errors
 log = logging.getLogger("server.lesson")
 
 LONG_VIDEO_S = float(os.environ.get("LESSON_LONG_VIDEO_S", 30 * 60))
-FIRST_MIN_S, FIRST_MAX_S = 5 * 60, 10 * 60  # window 1: small, so the first steps arrive fast
+FIRST_MIN_S, FIRST_MAX_S = 3 * 60, 6 * 60  # window 1: small, so the first steps arrive fast (Gemini ~40 s on 6 min)
 WINDOW_MIN_S, WINDOW_TARGET_S, WINDOW_MAX_S = 6 * 60, 12 * 60, 15 * 60
 PARALLEL_WINDOWS = int(os.environ.get("LESSON_PARALLEL_WINDOWS", "3"))
 
@@ -208,41 +208,41 @@ async def build(source_url: str, vid: str, goal: str, workdir: str, info, meta: 
         except Exception as e:  # noqa: BLE001  a UI callback must never break a build
             log.warning("on_update failed: %s", e)
 
-    # 1. the first window that builds becomes the first thing the learner sees
-    first = 0
-    while first < len(windows):
-        try:
-            res = await one(first)
-        except RuntimeError as e:
-            absorb(first, e)
-            first += 1
-            continue
-        absorb(first, res)
-        log.info("first part ready in %.1fs (%d steps)", time.time() - t0, len(steps))
-        builder._emit("first_steps", f"{len(steps)} steps")
-        await emit(complete=False)
-        break
-    if not steps:
-        goal_task.cancel()
-        raise RuntimeError("; ".join(p.get("error", "") for p in parts if p.get("error")) or "no part of the video could be read")
-
-    # 2. the rest in parallel, appended in time order
+    # All parts start now (part 1 outside the limit, so it never waits); results are absorbed strictly
+    # in time order, so the first part that builds is the first thing the learner sees and later steps
+    # are only ever appended.
     sem = asyncio.Semaphore(PARALLEL_WINDOWS)
 
     async def guarded(i: int):
+        if i == 0:
+            return await one(i)
         async with sem:
             return await one(i)
 
-    rest = list(range(first + 1, len(windows)))
-    tasks = {i: asyncio.ensure_future(guarded(i)) for i in rest}
-    for i in rest:
-        try:
-            res = await tasks[i]
-        except RuntimeError as e:
-            res = e
-        if absorb(i, res):
-            builder._emit("more_steps", f"part {i + 1}/{len(windows)}")
+    tasks = [asyncio.ensure_future(guarded(i)) for i in range(len(windows))]
+    shown_first = False
+    try:
+        for i, task in enumerate(tasks):
+            try:
+                res = await task
+            except RuntimeError as e:
+                res = e
+            if not absorb(i, res):
+                continue
+            if not shown_first:
+                shown_first = True
+                log.info("first part ready in %.1fs (%d steps)", time.time() - t0, len(steps))
+                builder._emit("first_steps", f"{len(steps)} steps")
+            else:
+                builder._emit("more_steps", f"part {i + 1}/{len(windows)}")
             await emit(complete=False)
+    finally:
+        for t in tasks:
+            if not t.done():
+                t.cancel()
+    if not steps:
+        goal_task.cancel()
+        raise RuntimeError("; ".join(p.get("error", "") for p in parts if p.get("error")) or "no part of the video could be read")
 
     try:
         await asyncio.wait_for(asyncio.shield(goal_task), 5)
