@@ -237,6 +237,9 @@ class LessonSession:
         self.last_results: list[dict] = []
         self.last_failed: list[dict] = []
         self._recent_cards: dict[tuple, float] = {}
+        self._coach_error_sent = False  # "Coach unavailable" at most once per step
+        self._coach_backoff = 0.0
+        self._coach_retry_at = 0.0
         self._eval_error_sent = False
         self.engaged = False  # learner touched files / ran something during this step
         self.gate_open = False  # failing checks are shown as fail (else pending)
@@ -1180,6 +1183,8 @@ class LessonSession:
         """reason: breakpoint | repeat | stuck | idle. Decides whether, and at which ladder level, to speak."""
         if self.coaching or self.passed or not failed:
             return
+        if self.clock() < self._coach_retry_at:
+            return  # the coach failed recently (e.g. offline): wait before trying again
         if self.typing():
             self.pending_speak = reason  # never talk over the learner's typing; the tick retries
             return
@@ -1261,14 +1266,19 @@ class LessonSession:
                                                  cursor=self.cursor_context(), screen=screen, on_targets=on_targets)
                 except Exception as e:
                     if gen == self.step_gen:
-                        self.spoken_sig = None  # let a later breakpoint try again
+                        self.spoken_sig = None  # a later breakpoint may try again...
                         if "cancelled" in str(e):
                             log.info("diagnosis cancelled: the learner acted")
-                        else:
-                            log.exception("coach.diagnose failed")
-                            await self.emit("error", {"message": f"Coach unavailable: {e}"})
+                        else:  # ...but back off (offline: no error storm), and say it once per step
+                            self._coach_backoff = min(120.0, max(15.0, self._coach_backoff * 2))
+                            self._coach_retry_at = self.clock() + self._coach_backoff
+                            log.warning("coach.diagnose failed (%s); retry in %.0fs", e, self._coach_backoff)
+                            if not self._coach_error_sent:
+                                self._coach_error_sent = True
+                                await self.emit("error", {"message": f"Coach unavailable: {e}"})
                         await self._status("watching")
                     return
+                self._coach_backoff, self._coach_retry_at = 0.0, 0.0
             if gen != self.step_gen or self.passed:
                 return
             full = dict(card)

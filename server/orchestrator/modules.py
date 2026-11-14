@@ -55,6 +55,13 @@ def _accepts(fn: Callable, name: str) -> bool:
     return name in params or any(p.kind is p.VAR_KEYWORD for p in params.values())
 
 
+def _video_id(url: str) -> str | None:
+    import re
+
+    m = re.search(r"(?:v=|youtu\.be/|/embed/|/shorts/)([A-Za-z0-9_-]{6,})", url or "")
+    return m.group(1) if m else None
+
+
 def _read_json(path: Path) -> Any | None:
     try:
         return json.loads(path.read_text())
@@ -89,8 +96,12 @@ class Modules:
     def stubs_allowed(self, module: str) -> bool:
         return self.demo or module in self.forced
 
+    # modules that run for real even with DEMO=1: checks (the demo run is real) and coach (E5 handles DEMO=1
+    # itself: offline playbook cards instead of failing, e.g. the hero's lr_too_high card)
+    DEMO_REAL = ("checks", "coach")
+
     def _real_fn(self, module: str, attr: str) -> Callable | None:
-        if module in self.forced or (self.demo and module != "checks"):
+        if module in self.forced or (self.demo and module not in self.DEMO_REAL):
             return None
         mod = self.real.get(module)
         fn = getattr(mod, attr, None) if mod else None
@@ -223,14 +234,22 @@ class Modules:
     async def build_lesson(self, source_url: str, goal: str, workdir: str, on_progress: Any = None,
                            on_update: Any = None) -> dict:
         if self.demo:
-            cached = self._cache("lesson.json")
-            if cached is None and (DEMO_CACHE / "lessons").is_dir():
-                files = sorted((DEMO_CACHE / "lessons").glob("*.json"), key=lambda p: p.stat().st_mtime, reverse=True)
-                cached = _read_json(files[0]) if files else None
-            if cached is not None:
-                return cached
+            # ORCH_LESSON > a cached lesson for the PICKED video > lesson.json > the newest cache > stub
             if (g := self._lesson_file()) is not None:
                 return g
+            files = sorted((DEMO_CACHE / "lessons").glob("*.json"), key=lambda p: p.stat().st_mtime, reverse=True) \
+                if (DEMO_CACHE / "lessons").is_dir() else []
+            vid = _video_id(source_url)
+            if vid:
+                for f in files:
+                    g = _read_json(f)
+                    if g and any(s.get("videoId") == vid or vid in (s.get("url") or "") for s in g.get("sources", [])):
+                        return g
+            cached = self._cache("lesson.json")
+            if cached is None and files:
+                cached = _read_json(files[0])
+            if cached is not None:
+                return cached
             return await stubs.build_lesson(source_url, goal, workdir)
         fn = self._real_fn("lesson", "build_lesson")
         kwargs = {}

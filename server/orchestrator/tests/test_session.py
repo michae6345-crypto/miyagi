@@ -602,7 +602,7 @@ def test_demo_mode_falls_back_to_stubs(rig, monkeypatch, tmp_path):
 
     run(go())
     assert len(r2.of("search.result")) == 3
-    assert r2.of("offtrack")[0]["title"] == "Loss plateaued at large β"
+    assert r2.of("offtrack")[0]["title"] != "Loss plateaued at large β"  # E5's own DEMO card, not the old stub
 
 
 def test_vscode_opens_only_after_the_learner_says_yes(tmp_path, monkeypatch):
@@ -1542,3 +1542,51 @@ def test_install_once_per_tool_and_pip_waits_for_the_lesson_folder(tmp_path, mon
 
     run(go())
     assert calls == [("torch", str(tmp_path))]  # once, into the lesson's folder (its .venv), not the engine's
+
+
+def test_offline_coach_errors_once_per_step_and_backs_off(rig):
+    calls = []
+
+    async def failing(step, failed, metrics, code, **kw):
+        calls.append(1)
+        raise RuntimeError("coach.diagnose failed: CoachUnavailable: diagnose: connection error")
+
+    rig.s.m.diagnose = failing
+
+    async def go():
+        await _to_step(rig, 5)
+        rig.write("beta = 30\n")
+        await rig.run("r1", PLATEAU)  # breakpoint -> fails
+        for _ in range(60):  # a minute of idle ticks
+            rig.clock.t += 1
+            await rig.s.tick()
+            await rig.settle()
+
+    run(go())
+    assert len([e for e in rig.of("error") if "Coach unavailable" in e["message"]]) == 1
+    assert 2 <= len(calls) <= 4  # retried with backoff (15 s, 30 s...), not every second
+
+
+def test_demo_lesson_follows_the_picked_video(tmp_path, monkeypatch):
+    import json as _json
+    import os as _os
+
+    from server.orchestrator import modules as modules_mod
+
+    cache = tmp_path / "cache"
+    (cache / "lessons").mkdir(parents=True)
+    hero = stubs.load_fixture_lesson()
+    hero["sources"][0]["videoId"] = "AXXnSzmpyoI"
+    hero["lesson"]["id"] = "hero"
+    other = stubs.load_fixture_lesson()
+    other["sources"][0]["videoId"] = "reactVIDEO1"
+    other["lesson"]["id"] = "react"
+    (cache / "lessons" / "a.json").write_text(_json.dumps(hero))
+    (cache / "lessons" / "b.json").write_text(_json.dumps(other))
+    _os.utime(cache / "lessons" / "b.json", (2e9, 2e9))  # react is the newest file
+    monkeypatch.setattr(modules_mod, "DEMO_CACHE", cache)
+    monkeypatch.delenv("ORCH_LESSON", raising=False)
+    m = Modules(demo=True, force_stubs="")
+    g = run(m.build_lesson("https://www.youtube.com/watch?v=AXXnSzmpyoI", "", str(tmp_path)))
+    assert g["lesson"]["id"] == "hero"
+    assert m._real_fn("coach", "diagnose") is not None  # E5's coach runs under DEMO (its own offline playbook)
