@@ -36,7 +36,7 @@ flowchart LR
 | 2 | **Preflight.** Metadata + Claude's read + an early tool check, then card `kind: "preflight"`. | S8 (`server/preflight`) | ≤ 5 s hard; a late part re-sends the card within +3 s | cold 3.4–5.0 s; late tool list at 5.3–7.0 s |
 | 3 | **Confirm.** The learner presses `build`, or `pick_another` to go back to the results they already have. | Adrian (card UI), E4 | — | — |
 | 4 | **Progressive build.** Videos ≤ 30 min are built whole. Longer ones are built window by window: window 1 is chapters from 0:00 grouped to 3–6 min, and the rest are appended in time order, 3 windows in parallel. | E2 (`server/lesson`) | whole ≤ 60 s; window 1 ≤ 45 s | whole 44–69 s (Run 3); E2: Gemini ~40 s on 6 min |
-| 5 | **Setup card.** `requirements()` → card `kind: "setup"`. `install` / `open_editor` / `open_in_browser` run only on the learner's yes. No editor for no-code or conceptual lessons. | S2 (`server/workspace`) | ≤ 1 s if preflight warmed it, else ≤ 5 s | cold ~3.7–5.9 s, cached 0.03 s |
+| 5 | **Setup card.** `requirements()` → card `kind: "setup"`. `install` / `open_editor` / `open_in_browser` run only on the learner's yes. No editor for no-code or conceptual lessons. | S2 (`server/workspace`) | ≤ 1 s (preflight warms it, #28) | cold ~3.7–5.9 s, warmed by preflight 0.01 s |
 | 6 | **Run.** Screen checks, metrics and the coach. | E3 / E5 / E6, wired by E4 | check verdict ≤ 1 s after a save | — |
 | 7 | **End / resume.** `end_lesson` is idempotent and cancels in-flight work. On reconnect: "Continue where you left off?" | E4 (end), S7 (resume) | `lesson.ended` ≤ 0.5 s | — |
 
@@ -110,6 +110,6 @@ long / chapters / captions`, and the preflight additions:
 - **E2:** progressive builds already map to `lesson.ready {complete:false}` + `lesson.updated` (in #17). Optionally accept preflight's
   metadata (chapters, duration, description) to skip the second watch-page fetch, and start window 1 at
   `buildPlan.firstHandsOn` when the intro is long.
-- **S2:** the real lesson's `requirements()` is cold again because its cache key is the lesson id, not
-  `preflight-<videoId>`. Either reuse the preflight items when the build is done, or key on the video URL.
+- **S2:** done in #28. `requirements()` caches by video id, so the preflight warms the real lesson's setup card
+  (checked live: 0.01 s, no Claude call). #22 (`web_app` items) is merged, so no-code cards show "Botpress (web)".
 - **E7:** prefetching 3 preflights costs 3 haiku calls per search (~1–2 k tokens each); keep `top=3`.
