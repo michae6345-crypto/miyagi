@@ -881,3 +881,33 @@ def test_failed_background_part_is_retried_as_two_halves(fake, monkeypatch):
     g = asyncio.run(builder.build_lesson(URL, "x", WORKDIR, refresh=True))
     assert [s["title"] for s in g["steps"]] == ["Step 0", "Step 300", "Step 700", "Step 1100"]  # halves 300-700, 700-1100
     assert g["lesson"]["parts"]["failed"] == 0
+
+
+def test_preflight_meta_and_first_hands_on(fake, monkeypatch):
+    monkeypatch.setenv("LESSON_ENGINE", "gemini")
+    fetched = []
+
+    async def meta(vid):
+        fetched.append(vid)
+        return {"video_id": vid, "title": "x", "description": "", "length_s": 1, "chapters": []}
+
+    monkeypatch.setattr(transcript, "fetch_metadata", meta)
+    watched = []
+
+    async def clip(url, goal, fps=None, context="", start=None, end=None, media_low=False):
+        watched.append((int(start), int(end)))
+        return {"title": "t", "libraries": [], "steps": [{"start": start + 5, "end": start + 60, "title": f"S{int(start)}", "instructions": "do", "checks": [], "hints": []}]}
+
+    monkeypatch.setattr(gemini, "watch_video", clip)
+
+    async def adapt(goal, steps, summary, feedback=None):
+        return {"steps": [{"index": s["index"], "checks": [{"type": "screen_contains", "label": "x", "app": "Code", "pattern": "marker_text"}], "targets": []} for s in steps]}
+
+    monkeypatch.setattr(claude, "adapt_checks", adapt)
+    vm = {"title": "Long one", "description": "d", "duration_s": 2400, "firstHandsOn": "7:52",
+          "chapters": [{"start": 0, "title": "intro"}, {"start": 472, "title": "data"}, {"start": 1300, "title": "model"}]}
+    g = asyncio.run(builder.build_lesson(URL, "x", WORKDIR, refresh=True, video_meta=vm))
+    assert watched and min(a for a, _ in watched) == 472  # the 0:00-7:52 intro was never watched
+    p = g["lesson"]["parts"]["list"]
+    assert p[0]["status"] == "skipped" and p[0]["end"] == 472 and g["steps"][0]["video"]["start"] >= 472
+    assert "Long one" == g["lesson"]["title"]

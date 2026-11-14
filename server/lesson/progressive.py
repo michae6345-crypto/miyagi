@@ -36,9 +36,17 @@ def clip_cap_s(start: float, end: float, first: bool = True) -> float:
     return 25.0 + 4.0 * minutes if first else 60.0 + 8.0 * minutes
 
 
-def plan_windows(length_s: float, chapters: list[dict]) -> list[tuple[float, float, list[str]]]:
+def plan_windows(length_s: float, chapters: list[dict], first_hands_on: float | None = None) -> list[tuple[float, float, list[str]]]:
     """[(start, end, chapter titles)] covering the video. Chapters are grouped (never split mid-chapter
-    unless one chapter is longer than WINDOW_MAX_S); without chapters, fixed windows."""
+    unless one chapter is longer than WINDOW_MAX_S); without chapters, fixed windows. With
+    first_hands_on (from preflight), everything before it is one "intro" window and part 1 starts there."""
+    if first_hands_on and 60 <= first_hands_on < length_s - 60:
+        later = [c for c in chapters if c["t"] > first_hands_on]
+        rest = plan_windows(length_s - first_hands_on, [{"t": 0, "title": "hands-on"}] + [dict(c, t=c["t"] - first_hands_on) for c in later]
+                            if chapters else [])
+        intro_titles = [c["title"] for c in chapters if c["t"] < first_hands_on]
+        return [(0.0, float(first_hands_on), ["(intro) " + "; ".join(intro_titles)])] + \
+            [(a + first_hands_on, b + first_hands_on, t) for a, b, t in rest]
     spans: list[tuple[float, float, str]] = []
     if len(chapters) >= 3:
         for c, nxt in zip(chapters, chapters[1:] + [{"t": length_s}]):
@@ -149,7 +157,9 @@ async def build(source_url: str, vid: str, goal: str, workdir: str, info, meta: 
                 on_update=None, cache: bool = True, t0: float | None = None) -> dict:
     t0 = t0 or time.time()
     engines = builder.engines()
-    windows = plan_windows(float(meta["length_s"]), meta.get("chapters") or [])
+    fho = meta.get("first_hands_on")
+    windows = plan_windows(float(meta["length_s"]), meta.get("chapters") or [], fho)
+    intro = 1 if (windows and windows[0][2] and windows[0][2][0].startswith("(intro)")) else 0
     context = transcript.format_metadata(meta)
     known_text, checked = await builder._known_text(vid), {}
     goal_task = asyncio.ensure_future(goal_match(goal, meta))
@@ -161,10 +171,10 @@ async def build(source_url: str, vid: str, goal: str, workdir: str, info, meta: 
         """A part's draft; a background part that fails is retried once as two half-length clips
         (long dense clips are where Gemini stalls)."""
         try:
-            return await _window_draft(source_url, vid, goal, windows[i], meta, context, engines, first=(i == 0))
+            return await _window_draft(source_url, vid, goal, windows[i], meta, context, engines, first=(i == intro))
         except RuntimeError as e:
             a, b, titles = windows[i]
-            if i == 0 or b - a < 6 * 60:
+            if i == intro or b - a < 6 * 60:
                 raise
             log.warning("part %d failed (%s); retrying as two halves", i + 1, str(e)[:100])
             mid = a + (b - a) / 2
@@ -246,12 +256,16 @@ async def build(source_url: str, vid: str, goal: str, workdir: str, info, meta: 
     sem = asyncio.Semaphore(PARALLEL_WINDOWS)
 
     async def guarded(i: int):
-        if i == 0:
+        if i == intro:  # the first hands-on part never waits for a slot
             return await one(i)
         async with sem:
             return await one(i)
 
-    tasks = [asyncio.ensure_future(guarded(i)) for i in range(len(windows))]
+    async def skipped_intro():
+        return [], {"draft": {}, "graph": {"lesson": {}}, "warnings": [], "adapted": True, "adapt_model": None, "empty": True}
+
+    # an intro before preflight's firstHandsOn is talk: record it as skipped instead of watching it
+    tasks = [asyncio.ensure_future(skipped_intro() if (intro and i == 0) else guarded(i)) for i in range(len(windows))]
     shown_first = False
     try:
         for i, task in enumerate(tasks):

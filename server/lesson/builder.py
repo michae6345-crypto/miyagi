@@ -84,6 +84,7 @@ async def build_lesson(
     cache: bool = True,
     on_progress=None,
     on_update=None,
+    video_meta: dict | None = None,
 ) -> dict:
     """Return a step graph that validates against shared/contracts/step-graph.schema.json.
 
@@ -98,6 +99,8 @@ async def build_lesson(
     on_update(graph, complete): long videos (> LESSON_LONG_VIDEO_S, 30 min) are built progressively:
       part 1 first (complete=False), then each later part appended in time order, then complete=True.
       Step ids never change once sent. The return value is always the complete graph.
+    video_meta: what preflight (S8) already knows, to skip a watch-page fetch: {title?, description?,
+      length_s|duration_s?, chapters?: [{t|start|startSeconds, title}], firstHandsOn?: seconds}.
     refresh: rebuild everything (new video pass). readapt: reuse the cached video draft, redo only
     the cheap adapt pass (e.g. after the workdir changed or an adapt pass ran out of quota).
     detail: per-step clip pass at 2 fps (costs one request per step; off by default on the free tier).
@@ -133,10 +136,12 @@ async def build_lesson(
     t0 = time.time()
     from . import progressive
 
-    try:
-        meta = await asyncio.wait_for(transcript.fetch_metadata(vid), 10)
-    except Exception:  # noqa: BLE001  without metadata we can't plan parts; build in one go
-        meta = {}
+    meta = normalize_video_meta(video_meta) if video_meta else {}
+    if not meta.get("length_s"):
+        try:
+            meta = {**await asyncio.wait_for(transcript.fetch_metadata(vid), 10), **{k: v for k, v in meta.items() if v}}
+        except Exception:  # noqa: BLE001  without metadata we can't plan parts; build in one go
+            pass
     if (meta.get("length_s") or 0) > progressive.LONG_VIDEO_S and "gemini" in engines():
         try:
             graph = await progressive.build(source_url, vid, goal, workdir, info, meta, key, on_update=on_update, cache=cache, t0=t0)
@@ -395,6 +400,25 @@ async def _watch(url: str, vid: str, goal: str) -> dict:
             elif not t.cancelled():
                 t.exception()  # mark a failure we didn't need as retrieved
     raise RuntimeError("no engine could build the lesson:\n" + "\n".join(errors))
+
+
+def normalize_video_meta(vm: dict) -> dict:
+    """Preflight's metadata -> the shape transcript.fetch_metadata returns (+ first_hands_on)."""
+    chapters = []
+    for c in vm.get("chapters") or []:
+        t = parse_ts(c.get("t", c.get("start", c.get("startSeconds", c.get("time")))))
+        if t is not None:
+            chapters.append({"t": t, "title": c.get("title") or ""})
+    chapters.sort(key=lambda c: c["t"])
+    length = vm.get("length_s") or vm.get("duration_s") or vm.get("lengthSeconds") or vm.get("duration")
+    length = parse_ts(length) if isinstance(length, str) else length
+    out = {"title": vm.get("title") or "", "description": vm.get("description") or "", "length_s": length,
+           "chapters": chapters if len(chapters) >= 3 else []}
+    fho = vm.get("firstHandsOn", vm.get("first_hands_on"))
+    fho = parse_ts(fho) if isinstance(fho, str) else fho
+    if isinstance(fho, (int, float)):
+        out["first_hands_on"] = float(fho)
+    return out
 
 
 def human_error(err: str, meta: dict | None = None) -> str:
