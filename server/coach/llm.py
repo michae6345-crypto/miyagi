@@ -31,6 +31,19 @@ FALLBACK_BETA = "server-side-fallback-2026-07-01"
 
 FIXTURES_DIR = Path(__file__).parent / "fixtures"
 
+# Cost policy (Michael): Opus writes only the diagnosis card; everything else is Haiku.
+# Override per purpose with COACH_MODEL_<PURPOSE>, e.g. COACH_MODEL_EXPLAIN=claude-opus-5-5.
+MODELS = {"diagnose": OPUS}
+
+
+def model_for(purpose: str) -> str:
+    return os.environ.get(f"COACH_MODEL_{purpose.upper()}") or MODELS.get(purpose, HAIKU)
+
+
+def cached_system(text: str) -> list[dict]:
+    """A one-block system prompt marked for prompt caching (short prompts just won't cache)."""
+    return [{"type": "text", "text": text, "cache_control": {"type": "ephemeral"}}]
+
 
 class CoachLLMError(RuntimeError):
     """Any failure to get a usable structured answer from the model.
