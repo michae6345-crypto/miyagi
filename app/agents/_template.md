@@ -23,7 +23,7 @@ islandModes / overlayLayers / windows: …
 `npm run dev:web -- --port <port>` → `http://localhost:<port>/?scenario=<name>`
 
 ## Adrian's spec
-_TBD: Adrian fills this in._
+**First pass (no spec from Adrian yet):** build to the mockups in `docs/mockups/` (01–05 are the target look; 06–07 are earlier explorations to restyle in the Apple look) and the animation + placement spec in `docs/FRONTEND-HANDOFF.md`. Don't spend time on colors (Adrian's theme comes later). Adrian reviews after this pass and writes his spec here for pass 2.
 
 ## Core requests
 _None yet._

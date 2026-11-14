@@ -32,5 +32,13 @@ npm run dev:web -- --port <your port>              # ports: agents/ports.json �
 ```
 The browser stage runs the mock inline (no server needed): `?scenario=<name>` picks `mock/scenarios/<name>.json` (`full` = everything merged). Ctrl+K opens the launcher; Alt+E/D/S/H/V and Alt+← are the shortcuts; Esc dismisses. Electron (`npm run dev`) can't run on Adrian's Windows laptop (Smart App Control); Michael checks Electron on the Mac.
 
-## Git
-Commit small and often on `adrian/<feature>`. Push, then open a PR to `main` titled `<feature>: …` with a short test plan. Rebase on `main` after each sync (`git pull --rebase origin main`). Never commit `.env`, keys, `node_modules`, `out/`, `dist/`.
+## Git and review
+Commit small and often on `adrian/<feature>`. **Don't push or open a PR until Adrian has reviewed your pass**; the integrator pushes after review (PRs then target `main`, or `adrian/shell` until that's merged). Never commit `.env`, keys, `node_modules`, `out/`, `dist/`.
+
+## When you finish a pass, report
+1. What works, and what's left (update **Status** in your brief).
+2. How to see it: the stage URL with your port and scenario, and which keys/clicks to press.
+3. Screenshots in `app/agents/shots/<feature>-*.png` (they help Adrian review fast).
+4. Your **Core requests**, if any.
+
+If the Browser pane is hidden, animations freeze (0 frames). Check state through the DOM, and say what you couldn't see.
