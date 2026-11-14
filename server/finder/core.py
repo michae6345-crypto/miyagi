@@ -48,7 +48,7 @@ HTTP_TRANSPORT: httpx.AsyncBaseTransport | None = None
 PUBLIC_FIELDS = (
     "id", "kind", "title", "meta", "score", "reason", "thumbnail", "url",
     "source", "videoId", "durationS", "channel", "verified", "warnings",
-    "scoredBy", "watched", "prerequisites", "codeNotes",
+    "scoredBy", "watched", "prerequisites", "codeNotes", "comments",
 )
 
 
@@ -169,6 +169,14 @@ def heuristic_score(goal: str, c: dict) -> tuple[int, str]:
     if c.get("duration_s"):
         reason += f", {round(c['duration_s'] / 60)} min"
     return gemini.clamp(round(s)), reason
+
+
+def _short_err(e: BaseException) -> str:
+    msg = str(e)
+    if isinstance(e, asyncio.TimeoutError) or "timed out" in msg.lower() or "ReadTimeout" in type(e).__name__:
+        return "Bright Data timeout"
+    m = re.search(r"Bright Data comments(?: -> HTTP (\d+))?: ?(.*)", msg)
+    return (f"Bright Data HTTP {m.group(1)}: " if m and m.group(1) else "Bright Data: ") + (m.group(2) if m else msg)[:70]
 
 
 def public(c: dict) -> dict:
@@ -440,25 +448,37 @@ class _Run:
             self._not_watched(c, f"Claude {claude.failure(e)}")
 
     async def _skim(self, v: dict) -> None:
-        if not self.gemini_ok:
-            return self._not_watched(v, "no Gemini key")
-        warns: list[str] = []
-        client = self.ctx.client
-        if brightdata.available(self.keys):
+        """Gemini watches the video while Bright Data pulls its comments (in parallel: the
+        comments dataset takes 5-10 s, too slow to wait for before the skim)."""
+
+        async def comments() -> None:
+            if not brightdata.comments_available(self.keys):
+                if self.keys.has_brightdata:
+                    v["comments"] = "comments not read: " + (brightdata.comments_error or brightdata.last_error or "Bright Data unavailable")[:80]
+                return
             try:
-                recs = await brightdata.youtube_comments(client, self.keys, v["url"], timeout=min(6.0, self.left(margin=8)))
-                warns = youtube.warning_comments(youtube.parse_comments(recs))
+                recs = await brightdata.youtube_comments(self.ctx.client, self.keys, v["url"], timeout=max(1.0, min(10.0, self.left(margin=1.0))))
+                parsed = youtube.parse_comments(recs)
+                warns = youtube.warning_comments(parsed)
                 self.ctx.used.add("brightdata-comments")
+                v["comments"] = f"{len(parsed)} comments read via Bright Data" + (f", {len(warns)} warn of problems" if warns else "")
                 if warns:
                     v["warnings"] = warns[:3]
             except Exception as e:
-                self.ctx.note(f"comments for {v['videoId']} failed: {str(e)[:100]}")
-        try:
-            v["skim"] = await gemini.skim(self.keys.gemini, self.query, v, warns, timeout=max(1.0, self.left(margin=0.7)))
-            self.ctx.used.add("gemini-skim")
-        except Exception as e:
-            self.ctx.note(f"skim {v['videoId']} failed: {type(e).__name__}: {str(e)[:80]}")
-            self._not_watched(v, f"Gemini {gemini.failure(e)}")
+                self.ctx.note(f"comments for {v['videoId']} failed: {type(e).__name__}: {str(e)[:100]}")
+                v["comments"] = "comments not read: " + _short_err(e)
+
+        async def watch() -> None:
+            if not self.gemini_ok:
+                return self._not_watched(v, "no Gemini key")
+            try:
+                v["skim"] = await gemini.skim(self.keys.gemini, self.query, v, [], timeout=max(1.0, self.left(margin=0.7)))
+                self.ctx.used.add("gemini-skim")
+            except Exception as e:
+                self.ctx.note(f"skim {v['videoId']} failed: {type(e).__name__}: {str(e)[:80]}")
+                self._not_watched(v, f"Gemini {gemini.failure(e)}")
+
+        await asyncio.gather(comments(), watch())
 
     async def _deep_pass(self, client: httpx.AsyncClient) -> None:
         if not self.cands:
@@ -483,6 +503,8 @@ class _Run:
                 t.cancel()
             for cid, t in deep.items():
                 c = self.cands.get(cid)
+                if t in late and c is not None and c["kind"] == "video" and not c.get("comments") and self.keys.has_brightdata:
+                    c["comments"] = "comments not read: Bright Data timeout"
                 if t in late and c is not None and not c.get("watched"):
                     self._not_watched(c, f"{'Gemini' if c['kind'] == 'video' else 'Claude'} ran out of time")
         self.timings["deep"] = self.elapsed()

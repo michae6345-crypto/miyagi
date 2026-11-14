@@ -15,7 +15,7 @@ from __future__ import annotations
 
 from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, TypeAdapter
+from pydantic import BaseModel, ConfigDict, Field, TypeAdapter
 
 # ---------- shared shapes ----------
 StepStatus = Literal["locked", "active", "passed", "failed"]
@@ -66,6 +66,7 @@ class SearchDone(_Model):
 class LessonBuilding(_Model):
     message: str
     progress: float  # 0..1
+    failed: bool | None = None  # the build ended in error; drop the building UI
 
 
 class LessonInfo(_Model):
@@ -213,10 +214,52 @@ class HeatmapDiagram(_Model):
     exact: list[list[float]] | None = None
 
 
+class GraphNode(_Model):
+    id: str
+    label: str
+    detail: str | None = None
+    group: str | None = None
+    shape: Literal["box", "round", "circle", "data", "commit"]
+    emphasis: bool
+    col: float
+    row: float
+
+
+class GraphEdge(_Model):
+    model_config = ConfigDict(extra="allow", populate_by_name=True)
+    from_: str = Field(alias="from")
+    to: str
+    label: str | None = None
+    style: Literal["solid", "dashed"]
+    emphasis: bool
+    order: int | None = None  # sequence layouts only
+
+
+class GraphGrid(_Model):
+    cols: int
+    rows: int
+
+
+class GraphGroup(_Model):
+    id: str
+    label: str
+
+
+class GraphDiagram(_Model):
+    title: str
+    layout: Literal["flow", "sequence", "tree", "data", "architecture", "git"]
+    direction: Literal["LR", "TB"]
+    grid: GraphGrid
+    nodes: list[GraphNode]
+    edges: list[GraphEdge]
+    groups: list[GraphGroup] | None = None
+
+
 class Diagram(_Model):
-    kind: Literal["network", "gradients", "heatmap"]
+    kind: Literal["network", "gradients", "heatmap", "graph"]
     caption: str
-    data: NetworkDiagram | GradientsDiagram | HeatmapDiagram
+    stepId: str | None = None
+    data: NetworkDiagram | GradientsDiagram | HeatmapDiagram | GraphDiagram
 
 
 class Speak(_Model):
@@ -341,7 +384,7 @@ class AppMessage(BaseModel):
 
 def _dump(model: Any) -> dict:
     if isinstance(model, BaseModel):
-        return model.model_dump(mode="json", exclude_none=True)
+        return model.model_dump(mode="json", exclude_none=True, by_alias=True)
     return model
 
 

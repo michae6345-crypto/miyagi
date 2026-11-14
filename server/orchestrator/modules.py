@@ -220,7 +220,7 @@ class Modules:
             log.warning("ORCH_LESSON=%s could not be read", p)
         return g
 
-    async def build_lesson(self, source_url: str, goal: str, workdir: str) -> dict:
+    async def build_lesson(self, source_url: str, goal: str, workdir: str, on_progress: Any = None) -> dict:
         if self.demo:
             cached = self._cache("lesson.json")
             if cached is None and (DEMO_CACHE / "lessons").is_dir():
@@ -237,6 +237,8 @@ class Modules:
             from server.config import get_key
 
             kwargs["api_key"] = get_key("gemini")
+        if fn is not None and on_progress is not None and _accepts(fn, "on_progress"):
+            kwargs["on_progress"] = on_progress  # E2: stage ids for the launcher's progress line
         timeout = float(os.environ.get("ORCH_BUILD_TIMEOUT_S", "300"))
         try:
             return await asyncio.wait_for(

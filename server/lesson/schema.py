@@ -70,14 +70,11 @@ def lint(graph: dict, known_metrics: set[str] | None = None, known_files: set[st
         v = step.get("video")
         if v and not (0 <= v.get("start", 0) < v.get("end", 0)):
             problems.append(f"{sid}: video.start must be < video.end")
+        for c in checks:
+            problems += [f"{sid}/{c.get('id', '?')}: {p}" for p in step_check_problems(c, step)]
         cmd = (step.get("run_command") or "").strip()
-        if cmd:
-            for c in step.get("checks", []):
-                if echoes_command(c, cmd):
-                    problems.append(f"{sid}/{c.get('id', '?')}: Terminal pattern matches the command the learner types "
-                                    f"(`{cmd[:60]}`), so it passes before anything runs; match the command's output instead")
-            if not any(is_output_check(c, cmd) for c in checks):
-                problems.append(f"{sid}: runs `{cmd[:60]}` but has no check on its output (what it prints, a count, a metric)")
+        if cmd and not any(is_output_check(c, step) for c in checks):
+            problems.append(f"{sid}: runs `{cmd[:60]}` but has no check on its output (what it prints, a count, a metric)")
         for key, allowed in (("checks", SCREEN_TYPES), ("precision_checks", PRECISION_TYPES)):
             for c in step.get(key, []):
                 cid = c.get("id", "?")
@@ -88,20 +85,114 @@ def lint(graph: dict, known_metrics: set[str] | None = None, known_files: set[st
     return problems
 
 
-def echoes_command(c: dict, cmd: str) -> bool:
-    """A screen check on the terminal whose pattern already matches the typed command line."""
-    if c.get("type") != "screen_contains" or c.get("app") not in (None, "Terminal", "iTerm2") or not c.get("pattern") or not cmd:
-        return False
+TERMINAL_APPS = (None, "Terminal", "iTerm2")
+_NOTEBOOK = re.compile(r"\bcells?\b|shift\s*\+\s*enter|run\s+all|notebook|jupyter|colab", re.I)
+_BACKTICKS = re.compile(r"`([^`]+)`")
+
+
+def _search(pattern: str, text: str) -> bool:
     try:
-        return re.search(c["pattern"], cmd) is not None
+        return bool(text) and re.search(pattern, text, re.M) is not None
     except re.error:
         return False
 
 
-def is_output_check(c: dict, cmd: str) -> bool:
+def is_notebook_step(step: dict) -> bool:
+    return bool(_NOTEBOOK.search(step.get("run_command") or ""))
+
+
+def code_texts(step: dict) -> list[str]:
+    """What the learner TYPES in this step: its code, backticked code in the instructions, Code targets."""
+    out = [step.get("code") or ""]
+    out += _BACKTICKS.findall(step.get("instructions") or "")
+    out += [t.get("match") or "" for t in step.get("targets") or [] if t.get("app") in (None, "Code")]
+    return [t for t in out if t]
+
+
+def echoes_command(c: dict, cmd: str) -> bool:
+    """A screen check on the terminal whose pattern already matches the typed command line."""
+    if c.get("type") != "screen_contains" or c.get("app") not in TERMINAL_APPS or not c.get("pattern") or not cmd:
+        return False
+    if _NOTEBOOK.search(cmd):  # "run each cell" is an instruction, not a typed command
+        return False
+    return _search(c["pattern"], cmd)
+
+
+def echoes_code(c: dict, step: dict) -> bool:
+    """An output check with no app scope (any window, the editor included) that matches the code the
+    learner types, so it passes as soon as the code is visible (e.g. `Country` for df['Country'])."""
+    if c.get("type") != "screen_contains" or c.get("app") is not None or not c.get("pattern"):
+        return False
+    return any(_search(c["pattern"], t) for t in code_texts(step))
+
+
+def literal_strength(pattern: str) -> tuple[int, int]:
+    """(weakest, strongest) count of literal letters/digits over the pattern's top-level alternatives."""
+    alts, depth, cur, i = [], 0, "", 0
+    while i < len(pattern):
+        ch = pattern[i]
+        if ch == "\\" and i + 1 < len(pattern):
+            cur += pattern[i:i + 2]
+            i += 2
+            continue
+        if ch in "([":
+            depth += 1
+        elif ch in ")]":
+            depth -= 1
+        if ch == "|" and depth == 0:
+            alts.append(cur)
+            cur = ""
+        else:
+            cur += ch
+        i += 1
+    alts.append(cur)
+
+    def lits(a: str) -> int:
+        a = re.sub(r"\(\?(?:P<\w+>|[:=!]|<[=!]|[aiLmsux-]+\))", "(", a)  # group syntax / inline flags
+        a = re.sub(r"\[(?:\\.|[^\]])*\]", "", a)  # character classes
+        a = re.sub(r"\{\d*,?\d*\}", "", a)  # counted quantifiers
+        a = re.sub(r"\\[sSdDwWbBAZ]", "", a)  # class escapes
+        a = re.sub(r"\\(.)", r"\1", a)  # escaped literal
+        return sum(ch.isalnum() for ch in a)
+
+    counts = [lits(a) for a in alts] or [0]
+    return min(counts), max(counts)
+
+
+MIN_LITERAL_ALT, MIN_LITERAL_BEST = 3, 5
+
+
+def is_weak(c: dict) -> bool:
+    """Too generic to mean anything: e.g. `\\*\\s*\\S+`, `\\bmain\\b`, `\\S+\\s+0\\.1\\.0`."""
+    if c.get("type") != "screen_contains" or not c.get("pattern"):
+        return False
+    weakest, best = literal_strength(c["pattern"])
+    return weakest < MIN_LITERAL_ALT or best < MIN_LITERAL_BEST
+
+
+def step_check_problems(c: dict, step: dict) -> list[str]:
+    out = []
+    cmd = (step.get("run_command") or "").strip()
+    if echoes_command(c, cmd):
+        out.append(f"Terminal pattern matches the command the learner types (`{cmd[:60]}`), so it passes before "
+                   "anything runs; match the command's output instead")
+    if echoes_code(c, step):
+        out.append("pattern with no app scope matches the step's own code, so it passes when the code is merely visible; "
+                   "scope it to the app that shows the output or match text only the output contains")
+    if is_weak(c):
+        out.append(f"pattern {c['pattern']!r} is too generic (each alternative needs >= {MIN_LITERAL_ALT} literal "
+                   f"letters/digits and the best >= {MIN_LITERAL_BEST}); match a distinctive word of the output or code")
+    return out
+
+
+def is_output_check(c: dict, step: dict) -> bool:
     if c.get("type", "").startswith("metric_"):
         return True
-    return c.get("type") == "screen_contains" and c.get("app") not in ("Code",) and not echoes_command(c, cmd)
+    if c.get("type") != "screen_contains" or step_check_problems(c, step):
+        return False
+    if c.get("app") == "Code":  # notebook output is rendered inside the editor
+        return is_notebook_step(step) and not any(_search(c["pattern"], t) for t in code_texts(step))
+    return True
 
 
 def check_problems(c: dict, allowed: list[str], where: str, known_metrics=None, known_files=None) -> list[str]:

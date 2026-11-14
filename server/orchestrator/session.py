@@ -63,11 +63,43 @@ class BuildStage(logging.Handler):
         ("lesson built", "Finishing up"),
     ]
 
+    STAGE_LABELS = {  # E2's build_lesson(on_progress=...) stage ids (server.lesson.builder.STAGES)
+        "cache_hit": "Loading the saved lesson",
+        "watching": "Gemini is watching the video",
+        "reading_transcript": "Reading the transcript",
+        "writing_steps": "Claude is writing the steps",
+        "steps_ready": "Steps ready",
+        "adapting": "Fitting the checks to your project",
+        "done": "Finishing up",
+    }
+    SWITCH_LABELS = {
+        "quota": "Gemini is out of quota; using the transcript",
+        "slow": "Gemini is slow; using the transcript",
+        "key": "No Gemini key; using the transcript",
+        "error": "Couldn't watch the video; using the transcript",
+    }
+
     def __init__(self) -> None:
         super().__init__(level=logging.INFO)
         self.text = "Gemini is watching the video"
+        self.structured = False  # once the builder reports stages, ignore log matching
 
-    def emit(self, record: logging.LogRecord) -> None:  # noqa: D401 - logging API
+    def on_progress(self, stage: str, message: str = "") -> None:
+        """E2's progress callback: honest, stable stage ids."""
+        self.structured = True
+        msg = (message or "").strip()
+        if stage == "engine_switch":
+            self.text = self.SWITCH_LABELS.get(msg, "Switching to the transcript")
+        elif stage == "steps_ready":
+            self.text = "Steps ready (from the video)" if msg == "gemini" else "Steps ready (from the transcript)"
+        elif stage == "adapting" and msg == "retry":
+            self.text = "Fitting the checks to your project (second pass)"
+        elif stage in self.STAGE_LABELS:
+            self.text = self.STAGE_LABELS[stage]
+
+    def emit(self, record: logging.LogRecord) -> None:  # noqa: D401 - logging API (fallback for older builders)
+        if self.structured:
+            return
         try:
             msg = record.getMessage()
         except Exception:  # noqa: BLE001
@@ -355,7 +387,8 @@ class LessonSession:
         ok = False
         try:
             with stage.listening():
-                graph = await self.m.build_lesson(url, goal, wsmod.build_workdir(url, goal))
+                graph = await self.m.build_lesson(url, goal, wsmod.build_workdir(url, goal),
+                                                  on_progress=stage.on_progress)
             done.set()
             await tick
             self.build_progress = {"message": "Setting up your project folder", "progress": 0.97}
