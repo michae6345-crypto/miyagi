@@ -1,0 +1,101 @@
+/**
+ * Miyagi design tokens: the brand kit (app/brand/BRAND.md, app/brand/code/theme.ts) mapped onto the
+ * names the app already uses. Change colors HERE, never in feature code.
+ *
+ * Brand rules (BRAND.md):
+ *  - Green only ever means passed. Amber only ever means off track. Gray means watching. No red.
+ *  - Buttons are white on dark (ink on light). Never system blue, never green.
+ *  - No gradients, glows, purple, neon, sparkles or emoji. The sparkle is replaced by the small tree.
+ *  - App text in the system font (SF Pro / Segoe). Brand font (Google Sans Flex) only for brand moments. No Inter.
+ */
+import type { Transition } from 'motion/react'
+
+/** The one spring used everywhere. */
+export const spring: Transition = { type: 'spring', stiffness: 420, damping: 34, mass: 0.9 }
+/** Collapse is the reverse, slightly faster. */
+export const springOut: Transition = { type: 'spring', stiffness: 420, damping: 38, mass: 0.9 }
+
+/** Brand palette, verbatim from the kit. */
+export const brand = {
+  paper: '#F6F6F3',
+  surface: '#FFFFFF',
+  surface2: '#EFEFEA',
+  ink: '#141414',
+  inkMuted: '#66665F',
+  inkFaint: '#8F8F88',
+  pass: '#30D158',
+  passDeep: '#1F9B45',
+  passText: '#1C8A3C',
+  passTint: 'rgba(48,209,88,0.14)',
+  offTrack: '#FFB020',
+  offTrackTint: 'rgba(255,176,32,0.12)',
+  watching: '#8E8E93',
+  pill: '#000000'
+} as const
+
+/** The overlay follows macOS: dark HUD glass by default, light when the system is light. */
+export const hud = {
+  dark: { glass: 'rgba(28,28,30,0.72)', text: '#F4F4F5', muted: 'rgba(255,255,255,0.6)', hairline: 'rgba(255,255,255,0.12)', button: '#F4F4F5', buttonText: '#141414' },
+  light: { glass: 'rgba(255,255,255,0.78)', text: '#141414', muted: 'rgba(0,0,0,0.55)', hairline: 'rgba(0,0,0,0.10)', button: '#141414', buttonText: '#F6F6F3' }
+} as const
+
+/**
+ * What components use (dark HUD). `accent` is the "active / interactive" color and is WHITE
+ * (it used to be system blue): progress, focus, selected, primary buttons. Pair a white fill with `onAccent` text.
+ */
+export const color = {
+  accent: hud.dark.button,
+  onAccent: hud.dark.buttonText,
+  /** Off track. Nothing else is amber. */
+  amber: brand.offTrack,
+  amberTint: brand.offTrackTint,
+  /** Passed. Nothing else is green. */
+  green: brand.pass,
+  greenDeep: brand.passDeep,
+  greenTint: brand.passTint,
+  /** Watching (status dot). */
+  gray: brand.watching,
+  text: hud.dark.text,
+  label: hud.dark.muted,
+  faint: 'rgba(255,255,255,.42)',
+  hairline: hud.dark.hairline,
+  /** The notch pill and the island: always black. */
+  island: brand.pill,
+  /** Panels on the dark HUD. CSS can't blur other apps in Electron, so this is more opaque than the kit's .72. */
+  glass: 'rgba(28,28,30,.90)'
+} as const
+
+export const font = {
+  /** Everything inside the app. */
+  ui: '-apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI Variable Text", "Segoe UI", system-ui, sans-serif',
+  /** Brand moments only (wordmark is an outlined SVG, so rarely needed in the app). */
+  brand: '"Google Sans Flex", system-ui, sans-serif',
+  mono: 'ui-monospace, "SF Mono", Menlo, Consolas, monospace'
+} as const
+
+export const text = { xs: 13, sm: 15, md: 20, lg: 28 } as const
+export const radius = { chip: 14, card: 20, island: 24, pill: 17, launcher: 28 } as const
+export const shadow = '0 20px 60px rgba(0,0,0,.45)'
+
+/** Copy from the brand kit. */
+export const copy = {
+  name: 'Miyagi',
+  oneLiner: 'Turn any tutorial into an auto-graded lab.',
+  launcherPlaceholder: 'Ask Miyagi anything',
+  passed: 'Good. Now the next one.'
+} as const
+
+/** Which bonsai cut to use at which size (see core/ui/Mark.tsx). */
+export const markLevel = (px: number): 'small' | 'icon' | 'full' => (px <= 32 ? 'small' : px <= 140 ? 'icon' : 'full')
+
+/** Pill geometry. Collapsed pill is ~300×34; cards grow downward from its center. */
+export const pill = { height: 34, landingWidth: 300, maxCardWidth: 520 } as const
+
+/** Launcher: top edge at 22% of the screen height, 720 wide. */
+export const launcher = { topRatio: 0.22, width: 720 } as const
+
+/** "0:00" style timestamps. */
+export function clock(t: number): string {
+  const s = Math.max(0, Math.round(t))
+  return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`
+}

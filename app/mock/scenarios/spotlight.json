@@ -1,0 +1,45 @@
+{
+  "name": "spotlight",
+  "on": {
+    "action:hint@step5": "spotlight_tour"
+  },
+  "segments": {
+    "spotlight_tour": [
+      {
+        "wait": 120,
+        "type": "spotlight",
+        "payload": {
+          "rect": { "x": 100, "y": 563, "w": 380, "h": 18 },
+          "caption": "Start with the optimizer",
+          "app": "Code",
+          "matched": "torch.optim.Adam(…, lr=1e-3)"
+        }
+      },
+      {
+        "wait": 1300,
+        "type": "spotlight",
+        "payload": {
+          "rect": { "x": 70, "y": 714, "w": 420, "h": 85 },
+          "caption": "Watch the loss fall",
+          "app": "Code",
+          "matched": "loss 1.248e+00 → 9.120e-03"
+        }
+      },
+      {
+        "wait": 1300,
+        "type": "spotlight",
+        "payload": {
+          "rect": { "x": 514, "y": 474, "w": 156, "h": 34 },
+          "caption": "Same flag on both lines",
+          "app": "Code",
+          "matched": "create_graph=True"
+        }
+      },
+      {
+        "wait": 1300,
+        "type": "spotlight",
+        "payload": { "clear": true }
+      }
+    ]
+  }
+}

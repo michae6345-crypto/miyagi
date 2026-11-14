@@ -1,0 +1,53 @@
+import './styles.css'
+import { StrictMode, useEffect, useState, type ReactNode } from 'react'
+import { createRoot } from 'react-dom/client'
+import { MotionConfig } from 'motion/react'
+import type { Layout } from '../../preload/api'
+import { bridge, isElectron } from './bridge'
+import { dispatch } from './core/bus'
+import { setConnected } from './core/lesson'
+import { getFeatureWindows } from './core/registry' // importing it loads features/* (their stores subscribe on import)
+import { Overlay, useClickThrough } from './core/Overlay'
+import { Stage } from './dev/Stage'
+
+/**
+ * Electron loads index.html#/<route>: 'overlay' (core) or a feature window route ('launcher', …).
+ * In a browser (npm run dev:web) every route shows the stage; #/launcher opens the launcher on load.
+ */
+const route = location.hash.replace(/^#\/?/, '') || (isElectron ? 'overlay' : 'stage')
+
+function useEngineFeed(): Layout {
+  const [layout, setLayout] = useState<Layout>({ origin: { x: 0, y: 0 }, width: innerWidth, height: innerHeight, workArea: { x: 0, y: 0, width: innerWidth, height: innerHeight } })
+  useEffect(() => {
+    const offs = [bridge.onEvent(dispatch), bridge.onStatus(setConnected), bridge.on('layout', (l) => setLayout(l as Layout))]
+    bridge.ready()
+    return () => offs.forEach((off) => off())
+  }, [])
+  return layout
+}
+
+function ElectronOverlay({ layout }: { layout: Layout }): ReactNode {
+  useClickThrough()
+  return <Overlay layout={layout} />
+}
+
+function App(): ReactNode {
+  const layout = useEngineFeed()
+  if (!isElectron) return <Stage openLauncher={route === 'launcher'} />
+  if (route === 'overlay') return <ElectronOverlay layout={layout} />
+  const win = getFeatureWindows().find((w) => w.route === route)
+  if (!win) return <div className="p-4 text-red-400">No feature window for route "{route}"</div>
+  return <win.Component layout={layout} />
+}
+
+document.documentElement.dataset.route = isElectron ? route : 'stage'
+// Reuse the root if Vite re-runs this module (dependency re-optimization in dev).
+const container = document.getElementById('root')! as HTMLElement & { __root?: ReturnType<typeof createRoot> }
+container.__root ??= createRoot(container)
+container.__root.render(
+  <StrictMode>
+    <MotionConfig reducedMotion="user">
+      <App />
+    </MotionConfig>
+  </StrictMode>
+)
