@@ -4,14 +4,15 @@ import type { Layout } from '../../../../preload/api'
 import { notify, useLesson } from '../../core/lesson'
 import { defineFeature } from '../../core/registry'
 import { dockRect } from '../player/dock'
-import { hole, isUsableRect, MIN_VISIBLE_SHARE, overlapShare, toLocal } from './place'
-import { Spotlight } from './Spotlight'
+import { hole, isUsableRect, MIN_VISIBLE_SHARE, overlapShare, sameRect, toLocal } from './place'
+import { Spotlight, type Extra } from './Spotlight'
 import { spotlightMode, useSpotlight } from './store'
 
 const mode = spotlightMode()
 
 function SpotlightLayer({ layout }: { layout: Layout }): ReactNode {
   const t = useSpotlight((s) => s.target)
+  const targets = useSpotlight((s) => s.targets)
   const screen = { x: 0, y: 0, w: layout.width, h: layout.height }
   const wa = layout.workArea
   // Engine rects are screen points from the primary display's top-left; this window starts at layout.origin
@@ -27,6 +28,14 @@ function SpotlightLayer({ layout }: { layout: Layout }): ReactNode {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [t])
 
+  // The coach's other targets (card.targets / offtrack.targets), minus the one the spotlight is on.
+  const extras: Extra[] = here
+    ? targets
+        .filter((x) => !(t && sameRect(x.rect, t.rect, 12)))
+        .map((x) => ({ id: String(x.boxId), label: x.label, rect: toLocal(x.rect, layout.origin) }))
+        .filter((x) => overlapShare(hole(x.rect), screen) >= MIN_VISIBLE_SHARE)
+    : []
+
   // In Electron the lesson player is its own window (docked right 40%), so the overlay DOM can't see it:
   // keep the caption off it using the player's own dock math. (In the stage it's also in the DOM.)
   const lessonOn = useLesson((s) => !!s.lesson)
@@ -36,6 +45,7 @@ function SpotlightLayer({ layout }: { layout: Layout }): ReactNode {
     <Spotlight
       target={here && t}
       rect={here}
+      extras={extras}
       bounds={{ x: wa.x, y: wa.y, w: wa.width, h: wa.height }}
       avoid={avoid}
       mode={mode}
