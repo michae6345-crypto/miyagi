@@ -156,7 +156,7 @@ function Steps({ scroller }: { scroller: RefObject<HTMLDivElement | null> }): Re
   const fresh = steps.filter((s) => !atOpen.current!.has(s.id)).map((s) => s.id)
 
   const cur = steps.findIndex((s) => s.id === stepId)
-  const timeW = steps.some((s) => (s.video?.start ?? 0) >= 3600) ? 50 : steps.some((s) => s.video) ? 38 : 0
+  const timeW = useTimeWidth(steps, complete)
   useKeepInView(scroller, stepId, checks.length)
 
   const part = parts && parts.total > 1 ? `Part ${Math.min(parts.total, parts.done + parts.failed + 1)} of ${parts.total}` : undefined
@@ -170,6 +170,18 @@ function Steps({ scroller }: { scroller: RefObject<HTMLDivElement | null> }): Re
       <AnimatePresence>{(!complete || pendingNext) && <PendingRow key="pending" waiting={pendingNext} part={part} timeW={timeW} />}</AnimatePresence>
     </div>
   )
+}
+
+/**
+ * Width of the time column. A lesson that is still building is a long video, so it reserves room for
+ * "1:02:00" up front; the width only ever grows, so appended steps never shift the titles of rows on screen.
+ */
+function useTimeWidth(steps: StepSummary[], complete: boolean): number {
+  const widest = useRef(0)
+  const timed = steps.some((s) => s.video)
+  const w = !timed ? 0 : !complete || steps.some((s) => (s.video?.start ?? 0) >= 3600) ? 50 : 38
+  widest.current = Math.max(widest.current, w)
+  return widest.current
 }
 
 /** Keep the current step (and its checks) in view inside the list, without scrolling anything outside it. */
