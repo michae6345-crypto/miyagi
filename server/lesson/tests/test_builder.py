@@ -101,6 +101,12 @@ def fake(monkeypatch, tmp_path):
         return "dead" not in url
 
     monkeypatch.setattr(_links, "_resolves", no_net_resolve)
+    from server.lesson import progressive as _prog
+
+    async def fake_goal_match(goal, meta):
+        return {"score": 0.9, "note": "fake"}
+
+    monkeypatch.setattr(_prog, "goal_match", fake_goal_match)
     monkeypatch.setattr(builder, "CACHE_DIR", tmp_path)
     monkeypatch.setattr(builder, "RAW_DIR", tmp_path / "raw")
     calls["responses"] = responses
@@ -730,3 +736,122 @@ def test_claude_429_is_retried_with_backoff(monkeypatch):
         await asyncio.gather(*(claude._call("m", "s", "p", effort="low", schema=None) for _ in range(12)))
     asyncio.run(many())
     assert n["max"] <= claude.CONCURRENCY
+
+
+# ---- long videos: progressive build -------------------------------------------------
+from server.lesson import progressive  # noqa: E402
+
+
+def test_plan_windows_groups_chapters_and_splits_long_ones():
+    ch = [{"t": 0, "title": "intro"}, {"t": 120, "title": "data"}, {"t": 420, "title": "baseline"},
+          {"t": 900, "title": "attention"}, {"t": 2700, "title": "transformer"}, {"t": 3300, "title": "outro"}]
+    w = progressive.plan_windows(3500, ch)
+    assert w[0][0] == 0 and w[0][1] <= progressive.FIRST_MAX_S  # small first part
+    assert all(b > a for a, b, _ in w) and w[-1][1] == 3500
+    assert all(w[k][1] == w[k + 1][0] for k in range(len(w) - 1))  # contiguous, no gaps
+    assert all(b - a <= progressive.WINDOW_MAX_S + 1 for a, b, _ in w[1:])  # the 30-min chapter got split
+    nochap = progressive.plan_windows(7000, [])
+    assert nochap[0][1] == 480 and nochap[-1][1] == 7000
+
+
+def test_progressive_build_emits_part_one_then_appends_in_order(fake, monkeypatch, tmp_path):
+    monkeypatch.setenv("LESSON_ENGINE", "gemini")
+    chapters = [{"t": 0, "title": "setup"}, {"t": 400, "title": "part two"}, {"t": 1200, "title": "part three"}, {"t": 2000, "title": "part four"}]
+
+    async def meta(vid):
+        return {"video_id": vid, "title": "Long tutorial", "description": "", "length_s": 2600, "chapters": chapters}
+
+    monkeypatch.setattr(transcript, "fetch_metadata", meta)
+    delays = {0: 0.0, 400: 0.3, 1200: 0.05, 2000: 0.1}  # part 3 finishes before part 2
+
+    async def clip(url, goal, fps=None, context="", start=None, end=None, media_low=False):
+        await asyncio.sleep(delays[int(start)])
+        if int(start) == 2000:
+            raise RuntimeError("Gemini call failed: 503 UNAVAILABLE")
+        rel = int(start) == 1200  # this one answers with clip-relative times
+        a = 10 if rel else start + 10
+        return {"title": "t", "libraries": [], "steps": [
+            {"start": a, "end": a + 100, "title": f"Step at {int(start)} A", "instructions": "do", "checks": [], "hints": []},
+            {"start": a + 100, "end": a + 200, "title": f"Step at {int(start)} B", "instructions": "do", "checks": [], "hints": []}]}
+
+    monkeypatch.setattr(gemini, "watch_video", clip)
+
+    async def adapt(goal, steps, summary, feedback=None):
+        return {"steps": [{"index": s["index"], "checks": [{"type": "screen_contains", "label": "x", "app": "Code",
+                                                            "pattern": f"step_{s['index']}_marker"}], "targets": []} for s in steps]}
+
+    monkeypatch.setattr(claude, "adapt_checks", adapt)
+    updates = []
+    g = asyncio.run(builder.build_lesson(URL, "learn it", WORKDIR, refresh=True,
+                                         on_update=lambda graph, complete: updates.append((complete, [s["title"] for s in graph["steps"]]))))
+    assert updates[0] == (False, ["Step at 0 A", "Step at 0 B"])  # part 1 alone, first
+    titles = [s["title"] for s in g["steps"]]
+    assert titles == ["Step at 0 A", "Step at 0 B", "Step at 400 A", "Step at 400 B", "Step at 1200 A", "Step at 1200 B"]
+    for seen_complete, seen in updates:  # ids are stable: every update extends the previous one
+        assert titles[:len(seen)] == seen
+    assert updates[-1][0] is True and g["lesson"]["complete"] is True
+    assert [s["id"] for s in g["steps"]] == [f"s{i}" for i in range(1, 7)] and g["steps"][4]["checks"][0]["id"] == "s5c1"
+    assert g["steps"][4]["video"]["start"] == 1210  # clip-relative 10 s shifted to absolute
+    assert g["lesson"]["parts"]["failed"] == 1 and any("part 4" in w for w in g["build"]["warnings"])
+    assert g["lesson"]["goalMatch"]["score"] == 0.9 and schema_errors(g) == []
+    assert not list(builder.CACHE_DIR.glob("*.json"))  # a part failed: not cached
+
+
+def test_human_error_says_what_to_do():
+    msg = builder.human_error("no engine could build the lesson:\ngemini: 429 RESOURCE_EXHAUSTED quota\nclaude: no transcript: timedtext 429", {"length_s": 6980})
+    first = msg.splitlines()[0]
+    assert first.startswith("Couldn't read this video (1:56:20 long): Gemini's quota is used up; YouTube is rate-limiting")
+    assert "no engine could build the lesson" in msg and "taking too long" not in msg
+
+
+def test_local_and_backticked_urls_are_left_alone(fake):
+    from server.lesson import links
+    steps = [{"id": "s1", "instructions": "Run `uvicorn main:app --reload` and open http://127.0.0.1:8000/docs in your browser.",
+              "hints": ["Try http://localhost:8000/items?item=apple"]},
+             {"id": "s2", "instructions": "From a second terminal, run `curl -X POST 'https://dead.example/items?item=apple'` to add an item."}]
+    assert links.urls_in_steps(steps) == set()
+    s = [{"id": "s3", "instructions": "Clone https://github.com/x/dead-repo and run `git clone https://github.com/x/dead-repo`."}]
+    links.strip_bad_urls(s, {"https://github.com/x/dead-repo"})
+    assert s[0]["instructions"] == "Clone and run `git clone https://github.com/x/dead-repo`."
+
+
+def test_vague_setup_catches_initialize_but_accepts_code():
+    from server.lesson.schema import vague_setup
+    st = {"instructions": "Initialize a git repo with a main branch and a feature branch whose commits change index.js."}
+    assert vague_setup(st)
+    assert not vague_setup(dict(st, code="git init\ngit checkout -b feature/login"))
+
+
+def test_error_text_follows_the_lessons_stack_without_run_command():
+    g = {"lesson": {"libraries": {"react": "18.x", "vite": "5.x"}}, "steps": [{"id": "s3", "precision_checks": [], "targets": [],
+         "code": "export default function Header() {}",
+         "checks": [{"id": "s3c1", "type": "screen_absent", "label": "x", "app": "Terminal", "pattern": "Traceback|Error:|ERR!"}]}]}
+    assert "Traceback" not in builder.normalize_checks(g, set())["steps"][0]["checks"][0]["pattern"]
+
+
+def test_talk_only_parts_are_skipped_not_failed(fake, monkeypatch):
+    monkeypatch.setenv("LESSON_ENGINE", "gemini")
+
+    async def meta(vid):
+        return {"video_id": vid, "title": "Long", "description": "", "length_s": 2400,
+                "chapters": [{"t": 0, "title": "intro"}, {"t": 300, "title": "code"}, {"t": 1200, "title": "outro"}]}
+
+    monkeypatch.setattr(transcript, "fetch_metadata", meta)
+
+    async def clip(url, goal, fps=None, context="", start=None, end=None, media_low=False):
+        if int(start) != 300:
+            return {"title": "t", "libraries": [], "steps": []}  # intro / outro: nothing hands-on
+        return {"title": "t", "libraries": [], "steps": [{"start": 310, "end": 600, "title": "Write code", "instructions": "do", "checks": [], "hints": []}]}
+
+    monkeypatch.setattr(gemini, "watch_video", clip)
+
+    async def adapt(goal, steps, summary, feedback=None):
+        return {"steps": [{"index": s["index"], "checks": [{"type": "screen_contains", "label": "x", "app": "Code", "pattern": "write_code_here"}], "targets": []} for s in steps]}
+
+    monkeypatch.setattr(claude, "adapt_checks", adapt)
+    updates = []
+    g = asyncio.run(builder.build_lesson(URL, "x", WORKDIR, refresh=True, on_update=lambda gr, c: updates.append((c, len(gr["steps"])))))
+    p = g["lesson"]["parts"]
+    assert (p["done"], p["skipped"], p["failed"]) == (1, 3, 0)  # the 20-min outro chapter splits into 2 parts and [s["title"] for s in g["steps"]] == ["Write code"]
+    assert updates[0] == (False, 1)  # never shows an empty lesson
+    assert list(builder.CACHE_DIR.glob("*.json"))  # skipped parts don't block caching

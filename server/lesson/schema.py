@@ -253,13 +253,17 @@ def is_output_check(c: dict, step: dict) -> bool:
     return True
 
 
-_SETUP_VERB = re.compile(r"\b(clone|download|grab|get|fetch|put|place|copy|use)\b[^.]*\b(repo(sitory)?|dataset|csv|data|project|starter|example|file)s?\b", re.I)
-_CONCRETE = re.compile(r"https?://|`[^`]+`|\bgit\s+\w+|\b(npm|npx|pip|curl|wget|cargo|mkdir|touch|echo)\b", re.I)
+_SETUP_VERB = re.compile(r"\b(clone|download|grab|get|fetch|put|place|copy|use|initiali[sz]e|init|set\s*up|create|make|prepare)\b"
+                         r"[^.]*\b(repo(sitory)?|dataset|csv|data|project|starter|example|file|branch(es)?|commits?|folder|app)s?\b", re.I)
+_CONCRETE = re.compile(r"https?://|`[^`]+`|\bgit\s+(init|clone|checkout|switch|add|commit|branch|merge|rebase|push|pull)\b"
+                       r"|\b(npm|npx|pip|curl|wget|cargo|mkdir|touch|echo)\s+\S", re.I)
 
 
 def vague_setup(step: dict) -> bool:
     """Step 1 tells the learner to obtain the tutorial's code/data without saying how (no URL, no command)."""
     text = step.get("instructions") or ""
+    if (step.get("code") or "").strip():  # the exact commands/files are in the step's code
+        return False
     return bool(_SETUP_VERB.search(text)) and not _CONCRETE.search(text)
 
 
