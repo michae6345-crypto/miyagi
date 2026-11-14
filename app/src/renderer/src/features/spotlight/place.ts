@@ -49,16 +49,19 @@ export function holeRadius(r: Rect): number {
 
 const clamp = (v: number, lo: number, hi: number): number => (hi < lo ? lo : Math.min(hi, Math.max(lo, v)))
 
+type Placed = Point & { side: Side }
+
 /**
  * Where the caption goes, in window coordinates. `target` is the hole, `bounds` the usable area
- * (the work area: no menu bar, dock or taskbar).
+ * (the work area: no menu bar, dock or taskbar), `avoid` our other overlay UI (shortcut bar, pill, cards).
  *   1. right of the hole, top-aligned with its first line (FRONTEND-HANDOFF → Placement)
  *   2. flipped to the left when the right side would run off-screen
  *   3. below / above the hole when it's too wide for either side (a full-width terminal)
  *   4. last resort: inside the hole's top-right corner
- * Always clamped so it stays fully on screen (top and bottom edges included).
+ * Always clamped so it stays fully on screen (top and bottom edges included). The first spot that
+ * fits AND doesn't cover other UI wins; if none is free, the first that fits is nudged above what it hits.
  */
-export function placeCaption(target: Rect, size: { w: number; h: number }, bounds: Rect): Point & { side: Side } {
+export function placeCaption(target: Rect, size: { w: number; h: number }, bounds: Rect, avoid: Rect[] = []): Placed {
   const left = bounds.x + EDGE_MARGIN
   const top = bounds.y + EDGE_MARGIN
   const right = bounds.x + bounds.w - EDGE_MARGIN
@@ -67,18 +70,34 @@ export function placeCaption(target: Rect, size: { w: number; h: number }, bound
   const alongX = clamp(target.x, left, right - size.w)
 
   const rx = target.x + target.w + CAPTION_GAP
-  if (rx + size.w <= right) return { x: rx, y: sideY, side: 'right' }
   const lx = target.x - CAPTION_GAP - size.w
-  if (lx >= left) return { x: lx, y: sideY, side: 'left' }
   const by = target.y + target.h + CAPTION_GAP / 2
-  if (by + size.h <= bottom) return { x: alongX, y: by, side: 'below' }
   const ay = target.y - CAPTION_GAP / 2 - size.h
-  if (ay >= top) return { x: alongX, y: ay, side: 'above' }
-  return {
+  const inside: Placed = {
     x: clamp(target.x + target.w - size.w - 12, left, right - size.w),
     y: clamp(target.y + 12, top, bottom - size.h),
     side: 'inside'
   }
+  const candidates: Array<Placed | false> = [
+    rx + size.w <= right && { x: rx, y: sideY, side: 'right' },
+    lx >= left && { x: lx, y: sideY, side: 'left' },
+    by + size.h <= bottom && { x: alongX, y: by, side: 'below' },
+    ay >= top && { x: alongX, y: ay, side: 'above' }
+  ]
+  const fitting = candidates.filter((p): p is Placed => !!p)
+  // Covering the target is worse than nudging away from other UI, so `inside` is only for "nothing fits".
+  if (!fitting.length) return inside
+
+  const hits = (p: Placed): Rect | undefined => avoid.find((o) => intersects({ x: p.x, y: p.y, w: size.w, h: size.h }, grow(o, 8)))
+  const free = fitting.find((p) => !hits(p))
+  if (free) return free
+  const p = fitting[0]
+  const o = hits(p)!
+  return { ...p, y: clamp(o.y - 8 - size.h, top, bottom - size.h) }
+}
+
+function grow(r: Rect, by: number): Rect {
+  return { x: r.x - by, y: r.y - by, w: r.w + by * 2, h: r.h + by * 2 }
 }
 
 /** Share of `a`'s area that lies inside `b` (0–1). */

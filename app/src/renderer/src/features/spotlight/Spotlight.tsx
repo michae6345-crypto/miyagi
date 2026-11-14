@@ -13,7 +13,7 @@
  *   - reduced motion: no spring, no pulse, crossfades only.
  */
 import { AnimatePresence, animate, motion, useMotionValue, useReducedMotion } from 'motion/react'
-import { useCallback, useEffect, useId, useLayoutEffect, useRef, useState, type ReactNode } from 'react'
+import { useCallback, useEffect, useId, useLayoutEffect, useRef, useState, type ReactNode, type RefObject } from 'react'
 import { Volume2 } from 'lucide-react'
 import { useLesson, type Rect } from '../../core/lesson'
 import { color, radius, shadow, spring } from '../../core/theme'
@@ -159,6 +159,41 @@ function usePulse(key: string, reduced: boolean) {
   return glow
 }
 
+/**
+ * The overlay's other UI (shortcut bar, pill, cards: everything marked data-hit / data-ui, the same set
+ * core reports as overlay.bounds), in window coordinates, so the caption doesn't slide under it.
+ * Read from the DOM every 400ms; state changes only when something moved.
+ * Local workaround: see "Core requests" in agents/spotlight.md.
+ */
+function useOtherUi(caption: RefObject<HTMLElement | null>): Rect[] {
+  const [rects, setRects] = useState<Rect[]>([])
+  useLayoutEffect(() => {
+    let last = ''
+    const read = (): void => {
+      const mine = caption.current?.parentElement // the spotlight scene
+      const root = mine?.parentElement // the overlay root
+      if (!mine || !root) return
+      const box = root.getBoundingClientRect()
+      if (!box.width) return
+      const k = root.offsetWidth / box.width // undo the browser stage's CSS scale (1 in Electron)
+      const next = Array.from(root.querySelectorAll<HTMLElement>('[data-hit],[data-ui]'))
+        .filter((el) => !mine.contains(el))
+        .map((el) => el.getBoundingClientRect())
+        .filter((r) => r.width > 1 && r.height > 1)
+        .map((r) => ({ x: Math.round((r.left - box.left) * k), y: Math.round((r.top - box.top) * k), w: Math.round(r.width * k), h: Math.round(r.height * k) }))
+      const key = JSON.stringify(next)
+      if (key !== last) {
+        last = key
+        setRects(next)
+      }
+    }
+    read()
+    const id = setInterval(read, 400)
+    return () => clearInterval(id)
+  }, [caption])
+  return rects
+}
+
 /** Slide-in direction: from the hole toward where the caption lands. */
 const ENTER: Record<Side, { x: number; y: number }> = {
   right: { x: -8, y: 0 },
@@ -185,7 +220,8 @@ function Caption({ target, hole: cut, bounds, reduced }: { target: SpotlightTarg
     return () => ro.disconnect()
   }, [])
 
-  const at = placeCaption(cut, { w: CAPTION_W, h: height }, bounds)
+  const avoid = useOtherUi(ref)
+  const at = placeCaption(cut, { w: CAPTION_W, h: height }, bounds, avoid)
   const from = reduced ? { x: 0, y: 0 } : ENTER[at.side]
   const code = target.code ?? target.matched
 
