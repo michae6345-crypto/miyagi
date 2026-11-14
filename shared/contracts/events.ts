@@ -43,7 +43,7 @@ export interface EngineEvents {
   "video.pause": {};
   "video.play": {};
   "card": { stepId?: string; kind: "explain" | "hint" | "answer"; title: string; body: string; videoJump?: { t: number; label: string };
-            actions?: Array<"confirm" | "undo" | "apply_fix">;    // buttons on the card -> send `action {kind}`
+            actions?: Array<"confirm" | "undo" | "apply_fix" | "open_editor">;    // buttons on the card -> send `action {kind}`
             diff?: string;               // unified diff to preview ("Apply this fix?" -> confirm)
             targets?: Array<{ boxId: number; label: string; text: string; rect: { x: number; y: number; w: number; h: number } }>;
             guidingQuestion?: string };
@@ -60,6 +60,8 @@ export interface EngineEvents {
   "speak": { audioUrl: string; text: string };
   "metric": { runId: string; step: number; name: string; value: number };   // live curve feed
   "status": { state: "idle" | "watching" | "offtrack" | "passed" | "thinking" };
+  /** the lesson was ended (end_lesson, a new learn, or POST /end): clear the pill, video, spotlight and cards */
+  "lesson.ended": { lessonId?: string; reason: string };
   "error": { message: string };
 }
 
@@ -80,8 +82,9 @@ export interface AppCommands {
   "learn": { query: string };                       // launcher text
   "learn_url": { url: string };                     // pasted YouTube link
   "build_lesson": { resultIds: string[] };
-  "action": { kind: "back" | "explain" | "diagram" | "show_me" | "hint" | "voice_toggle" | "ask" | "apply_fix" | "confirm" | "undo"; text?: string };  // confirm: "Looks done?" card; undo: revert the last "Do it for me"
+  "action": { kind: "back" | "explain" | "diagram" | "show_me" | "hint" | "voice_toggle" | "ask" | "apply_fix" | "confirm" | "undo" | "open_editor"; text?: string };  // open_editor: the learner accepted "Open VS Code?"  // confirm: "Looks done?" card; undo: revert the last "Do it for me"
   "video.state": { t: number; playing: boolean };   // player reports its position
+  "end_lesson": {};                                  // stop everything; the engine answers lesson.ended + status idle
   "overlay.bounds": { rects: Array<{ x: number; y: number; w: number; h: number }> };
   /** Bring-your-own-key (like cue): sent on every connect from the app's Settings. Engine uses these over its .env, keeps them in memory only, never logs them. */
   "config.keys": { anthropic?: string; gemini?: string; brightdata?: string; elevenlabs?: string; tigerUrl?: string };
