@@ -24,7 +24,8 @@ export function describePlatform(os: string): PlatformInfo {
   const mac = os === 'darwin' || os === 'mac'
   return {
     os: mac ? 'mac' : 'win',
-    pillTop: mac ? 6 : 8,
+    // Mac: sit just UNDER the hardware notch (notch/menu bar is ~37pt on notched MacBook Pros), not behind it.
+    pillTop: mac ? 40 : 8,
     keys: mac
       ? { launcher: '⌥Space', back: '⌥←', explain: '⌥E', diagram: '⌥D', show_me: '⌥S', hint: '⌥H', voice_toggle: '⌥V' }
       : // Alt+Space is the Windows system menu: never bind it there.
