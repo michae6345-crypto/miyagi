@@ -1330,3 +1330,56 @@ def test_missing_term_bonus_needs_its_own_context():
     # a git todo list "lacks an IC/BC loss term", which says nothing: the PINN entry must not score on it
     _, conf = match("pick 1a2b3c4 Add login\n", set(), "")
     assert conf == 0.0
+
+
+# ---------- S11 re-check: hero takes where lr=0.3 makes the loss sit flat; passing-run output tails -------
+
+def _flat_hero_loss() -> dict:
+    """S11's take: 18.18, 15.03, then flat at 17.32 for steps 200-2499 with a few blips."""
+    vals = [18.18, 15.03] + [17.32] * 23
+    for i, v in ((6, 17.39), (13, 17.73), (19, 17.39)):
+        vals[i] = v
+    return {"loss": [(i * 100, v) for i, v in enumerate(vals)]}
+
+
+HERO_TAIL = "\n".join(f'step {s} | loss 17.3204\n::metric:: {{"step": {s}, "name": "test_loss", "value": 17.32}}' for s in range(2000, 2500, 100))
+
+
+def test_flat_high_loss_with_high_lr_is_lr_too_high():
+    flags = summarize(_flat_hero_loss(), goals={"loss": "down"})[1]
+    assert "plateau" in flags
+    mode, conf = match(d.HIGH_LR_CODE, flags, HERO_TAIL)
+    assert mode.id == "lr_too_high" and conf >= 0.6  # the offline stage fallback threshold
+    # without a β in the code the convection entry can't win; with a normal lr a plateau isn't "lr too high"
+    mode, _ = match(d.code(), flags, "")
+    assert mode is None or mode.id != "lr_too_high"
+    assert all(m.id != "pinn_convection_large_beta" for m in [match(d.HIGH_LR_CODE, flags, "")[0]])
+
+
+def test_offline_fallback_covers_the_flat_hero_take(monkeypatch):
+    _client_raising(monkeypatch, _conn_error)
+    monkeypatch.setenv("COACH_OFFLINE_FALLBACK", "1")
+    common.set_lesson(d.LESSON)
+    card = run(coach.diagnose(d.STEP, d.HIGH_LR_FAILED, _flat_hero_loss(), d.HIGH_LR_CODE, error_text=HERO_TAIL))
+    assert card["offline"] is True and card["_meta"]["playbook_id"] == "lr_too_high" and card["severity"] == "warn"
+
+
+def test_passing_run_tail_is_not_an_error(monkeypatch):
+    calls, seen = [], {}
+
+    async def gather(*a, **kw):
+        calls.append(a)
+        return []
+
+    async def call(**kw):
+        seen[kw["purpose"]] = kw["user_text"]
+        return llm.CallResult(data={"playbook_id": "lr_too_high", "severity": "warn", "title": "t", "body": "b. Set lr to 1e-3.",
+                                    "citation_id": "none", "diff_expected": "", "diff_yours": "", "diff_file": "", "diff_line": 0,
+                                    "diff_command": "", "actions": [], "guiding_question": "q?"}, model="o")
+
+    monkeypatch.setattr(web, "gather", gather)
+    monkeypatch.setattr(llm, "structured_call", call)
+    common.set_lesson(d.LESSON)
+    run(coach.diagnose(d.STEP, d.HIGH_LR_FAILED, _flat_hero_loss(), d.HIGH_LR_CODE, error_text=HERO_TAIL))
+    assert calls == []  # no Bright Data round trips for metric lines
+    assert "THE ERROR MESSAGE" not in seen["diagnose"] and "step 2400 | loss 17.3204" in seen["diagnose"]  # still shown as context

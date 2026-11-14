@@ -157,6 +157,14 @@ ERROR_LINE = re.compile(
     r"|cannot find module|command not found|No such file|Permission denied|\bERR!",
     re.IGNORECASE,
 )
+# Is an output tail an error? Stricter than ERROR_LINE: case-sensitive, so ML metric names like
+# `rel_error 0.3` / `val_error` in a passing run's log don't count (S11: hero tail = metric lines).
+ERROR_SIGNATURE = re.compile(
+    r"Traceback \(most recent call last\)|^\s*[\w.]*(?:Error|Exception|Warning)\b:|(?:^|\s)(?:error|fatal):\s"
+    r"|^\s*\d+:\d+\s+error\s|\bERR!|Failed to compile|\bCONFLICT\b|needs merge|You must|is not defined"
+    r"|command not found|No such file or directory|Permission denied|Segmentation fault|Killed\b",
+    re.MULTILINE,
+)
 CONFLICT_MARKERS = re.compile(r"^(<{7}|={7}|>{7})", re.MULTILINE)
 
 
@@ -319,20 +327,23 @@ async def diagnose(
     metrics_text, flags = summarize(metrics_summary, goals=metric_goals(step))
     if error_text:
         flags |= {"nan"} if "nan" in error_text.lower() else set()
+    # the orchestrator passes the run's output tail even when it exited 0 ("step N | loss …",
+    # ::metric:: lines): that is context, not an error (S11). Only an error signature makes it one.
+    has_error = bool(ERROR_SIGNATURE.search(error_text or ""))
 
     # live-web grounding runs while triage decides; only Opus uses it. It is worth waiting for only
     # when there is an error message to look up (docs/changelogs); for metric-only failures the
     # search came back unused and cost 2-4 s before Opus could start (rehearsal, s8 lr=0.3).
-    lib, sym, query, err = grounding_query(step, failed_checks, error_text, code_excerpt, lesson)
+    lib, sym, query, err = grounding_query(step, failed_checks, error_text if has_error else "", code_excerpt, lesson)
     # S9 re-run: 6/8 cards waited the full cap for generic hits; self-explaining errors skip it
-    wants_web = error_text.strip() and not SELF_EXPLAINING.search(error_text)
+    wants_web = has_error and not SELF_EXPLAINING.search(error_text)
     web_task = asyncio.create_task(web.gather(lib, sym, query, error=err, timeout=1.5)) if wants_web else None
     try:
         t = await triage(step, failed_checks, flags, code_excerpt, error_text, use_haiku=use_triage)
         if t.route == "template":
             card = template_card(step, failed_checks)
         elif t.route == "playbook" and t.playbook_id:
-            card = playbook_card(step, BY_ID[t.playbook_id], code_excerpt, severity="fail" if error_text else "warn")
+            card = playbook_card(step, BY_ID[t.playbook_id], code_excerpt, severity="fail" if has_error else "warn")
         else:
             sources = await web_task if web_task is not None else []
             card = await _opus(step, failed_checks, metrics_text, flags, code_excerpt, error_text, lesson, effort, sources, screen, on_targets, cursor)
@@ -369,7 +380,7 @@ def grounding_query(step: dict, failed_checks: list, error_text: str, code: str,
 async def _opus(step, failed_checks, metrics_text, flags, code_excerpt, error_text, lesson, effort, sources=None, screen=None, on_targets=None, cursor=None) -> dict:
     sources = sources or []
     file = _target_file(step)
-    key_error = web.error_line(error_text) if error_text else ""
+    key_error = web.error_line(error_text) if ERROR_SIGNATURE.search(error_text or "") else ""
     user = "\n\n".join(
         x for x in [
             f"CURRENT STEP:\n{step_brief(step)}",
@@ -411,14 +422,14 @@ async def _opus(step, failed_checks, metrics_text, flags, code_excerpt, error_te
             # live: only a network outage, only when opted in, only a confident match on their code
             if e.kind == "connection" and llm.offline_fallback() and mode and conf >= 0.6:
                 log.warning("opus unreachable (%s); offline playbook card %s (conf %.1f)", e, mode.id, conf)
-                card = playbook_card(step, mode, code_excerpt, severity="fail" if error_text else "warn")
+                card = playbook_card(step, mode, code_excerpt, severity="fail" if ERROR_SIGNATURE.search(error_text or "") else "warn")
                 card["offline"] = True  # additive public field: the app may badge it "offline"
                 card["_meta"].update(fallback_reason=str(e), confidence=round(conf, 2))
                 return card
             raise llm.CoachUnavailable(f"diagnosis unavailable: {e}") from e
         log.warning("opus diagnose failed (%s); DEMO=1 so using the offline playbook card", e)
         if mode and conf >= 0.4:
-            card = playbook_card(step, mode, code_excerpt, severity="fail" if error_text else "warn")
+            card = playbook_card(step, mode, code_excerpt, severity="fail" if ERROR_SIGNATURE.search(error_text or "") else "warn")
         else:
             card = template_card(step, failed_checks)
         card["_meta"]["fallback_reason"] = str(e)

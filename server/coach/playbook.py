@@ -62,6 +62,8 @@ class FailureMode:
     code_absent: tuple[str, ...] = ()  # regexes whose absence is a signal
     metric_signals: tuple[str, ...] = ()  # "plateau" | "diverging" | "nan"
     error_patterns: tuple[str, ...] = ()  # regexes over error/output text
+    requires: tuple[str, ...] = ()  # code regexes that must ALL match, else the entry scores 0
+    context_signals: tuple[str, ...] = ()  # metric flags that count only when a code pattern matched
     card_title: str = ""
     card_body: str = ""
     diff_expected: str = ""
@@ -124,6 +126,7 @@ PLAYBOOK: tuple[FailureMode, ...] = (
         ),
         citation_id="krishnapriyan2021",
         code_patterns=(r"\bbeta\b|β", r"[uf]_t\b|du_dt|\but\b", r"[uf]_x\b|du_dx|\bux\b"),
+        requires=(r"\bbeta\b|β",),  # no β in the code → not this failure (S11: the lr=0.3 hero scored 0.5 here)
         metric_signals=("plateau",),
         card_title="Known PINN failure at large β",
         card_body=(
@@ -210,7 +213,11 @@ PLAYBOOK: tuple[FailureMode, ...] = (
     FailureMode(
         id="lr_too_high",
         name="Learning rate too high: loss oscillates or explodes",
-        symptoms="Loss oscillates (jumps up and down without settling), rises, or becomes nan/inf; error metrics never settle.",
+        symptoms=(
+            "Loss oscillates (jumps up and down without settling), rises, or becomes nan/inf; or, with "
+            "saturating activations (tanh, sigmoid), it drops once then sits flat at a high value; error "
+            "metrics never settle."
+        ),
         cause=(
             "The step size is too large for the loss curvature, so each update overshoots "
             "the minimum: the iterate bounces across the valley (oscillation) or grows (divergence)."
@@ -219,6 +226,8 @@ PLAYBOOK: tuple[FailureMode, ...] = (
         citation_id="smith2017_clr",
         code_patterns=(r"lr\s*=\s*(?:[1-9]\d*(?:\.\d*)?|0?\.[1-9]|[1-9](?:\.\d+)?e-0?1)\b",),
         metric_signals=("diverging", "nan", "noisy"),
+        # a high lr can also saturate tanh units: loss stalls high and flat (S11: hero lr=0.3 takes)
+        context_signals=("plateau",),
         error_patterns=(r"\bnan\b", r"\binf\b"),
         card_title="Learning rate is too high",
         card_body=(
@@ -329,6 +338,8 @@ def match(
     best: FailureMode | None = None
     best_score = 0.0
     for m in PLAYBOOK:
+        if m.requires and not all(_search(p, code_excerpt) for p in m.requires):
+            continue
         score = 0.0
         if m.error_patterns and any(_search(p, error_text) for p in m.error_patterns):
             score += 0.6
@@ -339,7 +350,7 @@ def match(
         if m.code_absent and code_excerpt and (hits or not m.code_patterns):
             # the thing this entry says is missing: absent → evidence for; present → evidence against
             score += 0.3 if all(not _search(p, code_excerpt) for p in m.code_absent) else -0.5
-        if m.metric_signals and flags & set(m.metric_signals):
+        if (m.metric_signals and flags & set(m.metric_signals)) or (m.context_signals and hits and flags & set(m.context_signals)):
             score += 0.4
         if score > best_score:
             best, best_score = m, score
