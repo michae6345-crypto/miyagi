@@ -156,6 +156,7 @@ def test_search_replay_without_gemini(offline):
 
 
 def test_search_replay_claude_scores_gemini_watches(offline, monkeypatch):
+    monkeypatch.setenv("FINDER_SKIM_TOP", "3")  # the skim is opt-in
     monkeypatch.setenv("GEMINI_API_KEY", "test-gemini")
     monkeypatch.setenv("ANTHROPIC_API_KEY", "test-anthropic")
 
@@ -239,6 +240,7 @@ def test_claude_search_keeps_only_tool_result_urls(monkeypatch):
 
 
 def test_rows_say_plainly_when_not_watched_or_read(offline, monkeypatch):
+    monkeypatch.setenv("FINDER_SKIM_TOP", "3")  # the skim is opt-in
     monkeypatch.setenv("GEMINI_API_KEY", "test-gemini")
     monkeypatch.setenv("ANTHROPIC_API_KEY", "test-anthropic")
 
@@ -268,6 +270,7 @@ def test_rows_say_plainly_when_not_watched_or_read(offline, monkeypatch):
 
 
 def test_gemini_scores_only_when_claude_fails(offline, monkeypatch):
+    monkeypatch.setenv("FINDER_GEMINI_FALLBACK", "1")  # the Gemini scoring fallback is opt-in
     monkeypatch.setenv("GEMINI_API_KEY", "test-gemini")
     monkeypatch.setenv("ANTHROPIC_API_KEY", "test-anthropic")
 
@@ -423,3 +426,30 @@ def test_long_flag_matches_lesson_builder(monkeypatch):
     c = {"kind": "video", "duration_s": 35 * 60}
     search_mod.video_fields(c)
     assert c["long"] is False and c["durationLabel"] == "35 min"
+
+
+def test_gemini_is_not_called_by_default(offline, monkeypatch):
+    """Michael: Gemini only for what the product needs (the lesson builder), never for extras."""
+    monkeypatch.setenv("GEMINI_API_KEY", "test-gemini")
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "test-anthropic")
+    monkeypatch.delenv("FINDER_SKIM_TOP", raising=False)
+    monkeypatch.delenv("FINDER_GEMINI_FALLBACK", raising=False)
+
+    async def gemini_must_not_run(*a, **kw):
+        raise AssertionError("Gemini was called with the default settings")
+
+    async def claude_down(*a, **kw):
+        raise RuntimeError("anthropic 529 overloaded")
+
+    async def no_source(ctx, q, **kw):
+        return []
+
+    monkeypatch.setattr(gemini, "skim", gemini_must_not_run)
+    monkeypatch.setattr(gemini, "score", gemini_must_not_run)
+    monkeypatch.setattr(claude, "score", claude_down)
+    monkeypatch.setattr(claude, "read", claude_down)
+    monkeypatch.setattr(sources, "claude_search", no_source)
+    rows = asyncio.run(search("train a PINN on the convection equation", use_cache=False))
+    _check_rows(rows)
+    assert not any(r.get("watched", "").endswith("by Gemini") or "Gemini" in r.get("watched", "") for r in rows)
+    assert {r["scoredBy"] for r in rows} == {"keywords"}  # Claude down + no Gemini fallback -> labelled keywords
