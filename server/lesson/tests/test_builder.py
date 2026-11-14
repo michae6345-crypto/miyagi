@@ -78,6 +78,15 @@ def fake(monkeypatch, tmp_path):
     monkeypatch.setattr(gemini, "watch_video", watch_video)
     monkeypatch.setattr(gemini, "step_detail", step_detail)
     monkeypatch.setattr(gemini, "adapt_checks", adapt_checks)
+    monkeypatch.setenv("LESSON_ENGINE", "gemini")  # tests never reach a real API; Claude tests opt in
+
+    async def offline(*a, **k):
+        raise RuntimeError("offline test: no real Claude/transcript calls")
+
+    from server.lesson import claude as _claude, transcript as _transcript
+    monkeypatch.setattr(_claude, "watch_transcript", offline)
+    monkeypatch.setattr(_claude, "adapt_checks", offline)
+    monkeypatch.setattr(_transcript, "fetch_video_info", offline)
     monkeypatch.setattr(builder, "CACHE_DIR", tmp_path)
     monkeypatch.setattr(builder, "RAW_DIR", tmp_path / "raw")
     calls["responses"] = responses
@@ -286,6 +295,7 @@ def _claude_fakes(monkeypatch, calls):
 
 
 def test_claude_takes_over_when_gemini_fails(fake, monkeypatch):
+    monkeypatch.setenv("LESSON_ENGINE", "auto")
     async def gemini_down(*a, **k):
         raise RuntimeError("Gemini call failed on ['gemini-4-hydrogen']: 429 RESOURCE_EXHAUSTED PerDay")
 
@@ -309,6 +319,7 @@ def test_engine_env_forces_claude(fake, monkeypatch):
 
 
 def test_both_engines_failing_raises_with_both_errors(fake, monkeypatch):
+    monkeypatch.setenv("LESSON_ENGINE", "auto")
     async def gemini_down(*a, **k):
         raise RuntimeError("gemini quota")
 

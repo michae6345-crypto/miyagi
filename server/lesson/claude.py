@@ -85,7 +85,8 @@ async def _call(mid: str, system: str, prompt: str, *, effort: str, schema: dict
     except anthropic.AuthenticationError as e:
         raise RuntimeError(f"Anthropic rejected the API key: {e}") from e
     except anthropic.BadRequestError as e:
-        if schema is not None and "too complex" in str(e).lower():
+        msg_l = str(e).lower()
+        if schema is not None and "schema" in msg_l and ("too complex" in msg_l or "too many" in msg_l or "contains too" in msg_l):
             raise _SchemaTooComplex from e
         raise RuntimeError(f"Claude call failed (400): {str(e)[:300]}") from e
     except anthropic.APIStatusError as e:  # 4xx/5xx after the SDK's own retries
