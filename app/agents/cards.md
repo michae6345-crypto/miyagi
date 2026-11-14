@@ -1,6 +1,6 @@
 # cards
 
-**Status:** pass 1 done (Apple restyle, live curve, generic for any metric), rebased on core e1b117b, waiting for Adrian's review. Nothing half-done is hidden behind a flag. · **Priority:** P0 · **Port:** 5177 · **Branch:** `adrian/cards`
+**Status:** pass 1 done (Apple restyle, live curve, generic for any metric), rebased on core 8374d75 (player merged), waiting for Adrian's review. Nothing half-done is hidden behind a flag. · **Priority:** P0 · **Port:** 5177 · **Branch:** `adrian/cards`
 
 ## Goal
 Coach cards that grow out of the pill. **Off-track** (amber): what's wrong in ≤12 words, the yours-vs-tutorial loss curve, "expected vs yours", the checks, and Show me / Explain / Apply fix. **Back on track** (green) after a recovered step; auto-hides. **Explain / Hint / Answer** cards from the engine, with an optional "jump to 7:00" video link. Calm: no shaking, no red.
