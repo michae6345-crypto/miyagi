@@ -114,6 +114,35 @@ module/exception prefix leaks. Strip `<module>.<fn> failed: <Exc>:` before showi
 instantly for every action. If the app still looks dead, check that it renders `card.kind` hint/explain with `videoJump`, the
 `diagram` kind `graph` (new in the contract), and `video.seek` while the video panel is hidden.
 
+### Actions re-check after the fixes, OFFLINE (cost freeze): integration/live 085c832, 15:50–15:56
+
+Both checks made zero API calls. Keys were blanked, HTTP(S) went to a dead proxy, and the engine ran DEMO=1 with
+`ORCH_STUBS=coach,diagrams,finder,lesson`. The cached React lesson was autostarted from `ORCH_LESSON`, so there was no
+search, preflight or build.
+
+**E5 hint ladder (4a646bd): PASS on 8 lesson-steps.** `.venv/bin/python scripts/stage_hints.py` calls `server.coach.hint()`
+directly on the cached PINN hero, React, linear-regression and convection lessons, steps 1 and 2, levels 0–3.
+- Level 0 is a question, e.g. "Which sampling library is needed for collocation points?" or "How do you build a 2D space-time
+  grid from 1D tensors in PyTorch?".
+- Level 1 reads "Rewatch 2:44, where the tutorial shows purpose of pyDOE and Latin Hypercube Sampling.", with
+  `videoJump {t: 164, label: "Rewatch 2:44"}`.
+- Three presses give levels 0 → 1 → **2** ("Key idea").
+- Titles are step-specific ("Question · Install pyDOE and import…").
+- No level repeats another.
+- Nit (E5): when level 0 is built from a check label, it reads "Does your output show “Imports numpy as np” yet? If not, what
+  step produces it?". A check label isn't program output; better: "Have you imported numpy as np yet?".
+
+**E4 screen-down notice (27c1804): PASS, with one timing FAIL.** Real screen; E6's capture still returns no image on 085c832.
+- On a lesson start with a dead screen, the app gets one `error`, "Miyagi can't see your screen right now, so screen checks and
+  Show me are paused.", at 13.5 s. It's sent once in 50 s (no repeat).
+- **FAIL:** `show_me` sends `video.seek` + `video.play` at 0 s, but the "I can't see your screen" card only arrives at **8.5 s**.
+  `_show_where()` first runs `locate`, which tries a fresh capture and blocks ~8.5 s before "locate failed".
+- Fix (E4): in `show_me`, check `screen_down_reason()` *before* `_show_where()` and send the card at once. Or have the screen
+  bridge's `locate` return None immediately while `reader.status` is `error`.
+
+**E6 capture is still dead on this Mac.** `capture_main_display()` raises `ScreenUnavailableError` on 085c832, the same as
+before; see A-1.
+
 ## Soak: 10 topics back to back, integration/live 9f89e04, Gemini paid, 14:44–15:07
 
 Run with `.venv/bin/python scripts/stage_soak.py [--open] [--only "topic[=pinned url]"]`. One LIVE engine on :8790 with default
