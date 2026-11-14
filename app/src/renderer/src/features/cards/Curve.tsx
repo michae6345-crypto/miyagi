@@ -1,9 +1,9 @@
 /**
- * The loss curve on the coach cards. No axes, no grid: one primary line ("yours") with a live dot
+ * The metric curve on the coach cards. No axes, no grid: one primary line ("yours") with a live dot
  * and its value, plus faint reference lines (tutorial, before the fix).
  *
- * Units: live `metric` values are drawn on a log10 scale (a plateau vs a drop only reads in log).
- * The mock's optional `offtrack.curve` arrays are already in plot units (log10), so they're used as-is.
+ * Works for any numeric metric, going up or down (loss, accuracy, error count…): points are raw
+ * values, and the chart picks ONE scale for all its lines (see `logScale`).
  */
 import { motion } from 'motion/react'
 import { useEffect, useId, useState, type ReactNode } from 'react'
@@ -21,13 +21,12 @@ export type Line = {
   dashed?: boolean
 }
 
-/** Live points → plot units (log10 when every value is positive). */
+/** Live points → [step, value]. */
 export function plotPoints(points: Point[]): XY[] {
-  const log = points.every((p) => p.value > 0)
-  return points.map((p) => [p.step, log ? Math.log10(p.value) : p.value])
+  return points.map((p) => [p.step, p.value])
 }
 
-/** Index-spaced values (the mock's offtrack.curve) spread across [0, span]. */
+/** Index-spaced values (an `offtrack.curve` array) spread across [0, span]. */
 export function plotArray(values: number[], span = 1): XY[] {
   const n = Math.max(1, values.length - 1)
   return values.map((v, i) => [(i / n) * span, v])
@@ -40,6 +39,15 @@ export function fmt(v: number): string {
   if (a >= 0.01 && a < 1000) return String(Number(v.toPrecision(2)))
   const [m, e] = v.toExponential(1).split('e')
   return `${m}e${Number(e)}`
+}
+
+/**
+ * Log scale only when every value is positive and they span more than ~1.5 decades
+ * (a loss falling from 1 to 1e-4); otherwise linear (accuracy 0.6 → 0.95, an error count 12 → 0).
+ */
+export function logScale(values: number[]): boolean {
+  if (values.length < 2 || values.some((v) => !(v > 0))) return false
+  return Math.max(...values) / Math.min(...values) >= 30
 }
 
 const LIVE_MS = 1600
@@ -69,15 +77,17 @@ export function Curve({ lines, width, height = 64, end }: { lines: Line[]; width
   if (drawn.length === 0) return null
 
   const all = drawn.flatMap((l) => l.pts)
+  const log = logScale(all.map((p) => p[1]))
+  const ty = (v: number): number => (log ? Math.log10(v) : v)
   const xMax = Math.max(...all.map((p) => p[0]), 1e-9)
   const xMin = Math.min(...all.map((p) => p[0]))
-  const yLo = Math.min(...all.map((p) => p[1]))
-  const yHi = Math.max(...all.map((p) => p[1]))
+  const yLo = Math.min(...all.map((p) => ty(p[1])))
+  const yHi = Math.max(...all.map((p) => ty(p[1])))
   const padT = end?.label ? 16 : 5
   const padB = 5
   const padR = 6
   const X = (x: number): number => ((x - xMin) / (xMax - xMin || 1)) * (width - padR - 2) + 2
-  const Y = (y: number): number => padT + ((yHi - y) / (yHi - yLo || 1)) * (height - padT - padB)
+  const Y = (v: number): number => padT + ((yHi - ty(v)) / (yHi - yLo || 1)) * (height - padT - padB)
   const d = (pts: XY[]): string => pts.map((p, i) => `${i ? 'L' : 'M'}${X(p[0]).toFixed(1)},${Y(p[1]).toFixed(1)}`).join(' ')
 
   const [primary, ...refs] = drawn
@@ -87,7 +97,7 @@ export function Curve({ lines, width, height = 64, end }: { lines: Line[]; width
   const area = `${d(primary.pts)} L${ex.toFixed(1)},${height} L${X(primary.pts[0][0]).toFixed(1)},${height} Z`
 
   return (
-    <svg width={width} height={height} className="block overflow-visible">
+    <svg width={width} height={height} className="block overflow-visible" data-scale={log ? 'log' : 'linear'}>
       <defs>
         <linearGradient id={gradId} x1="0" y1="0" x2="0" y2="1">
           <stop offset="0%" stopColor={primary.stroke} stopOpacity={0.22} />

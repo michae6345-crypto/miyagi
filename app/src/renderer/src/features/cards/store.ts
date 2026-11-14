@@ -9,9 +9,9 @@ import { onMessage, onUi } from '../../core/bus'
 import { useLesson, type CheckItem } from '../../core/lesson'
 
 export type Point = { step: number; value: number }
-/** `start` = when its first point arrived, `at` = when its last one did (ms). */
-export type Run = { runId: string; points: Point[]; start: number; at: number }
-/** One metric (e.g. "loss"): the current run, and the run before it (e.g. before the fix). */
+/** `seq` = event order of its first point (compared with the off-track's), `at` = when its last point arrived (ms). */
+export type Run = { runId: string; points: Point[]; seq: number; at: number }
+/** One metric (any name the engine sends): the current run, and the run before it (e.g. before the fix). */
 export type Series = { run: Run; before?: Run }
 
 /** runId the engine may use for the tutorial's reference curve (open question 4 in FRONTEND-HANDOFF). */
@@ -31,8 +31,8 @@ type CardsState = {
   /** An explain card or a diagram opened on top of the off-track card: closing it brings the off-track card back. */
   resume: boolean
   /** When the latest off-track fired: a run that starts after it is "after the fix". */
-  offtrackAt?: number
-  /** "Back on track". `since` = when the step went off-track (so the curve can split before/after). */
+  offtrackSeq?: number
+  /** "Back on track". `since` = the off-track's event order (so the curve can split before/after). */
   success?: { index: number; total: number; summary?: string; checks: CheckItem[]; at: number; since?: number }
   card?: Payload<'card'>
   /** Live `metric` events, by metric name. */
@@ -41,7 +41,7 @@ type CardsState = {
   tutorial: Record<string, Point[]>
 }
 
-const blank: CardsState = { offtrackOpen: false, fixing: false, recovered: false, resume: false, offtrackAt: undefined, success: undefined, card: undefined, metrics: {}, tutorial: {} }
+const blank: CardsState = { offtrackOpen: false, fixing: false, recovered: false, resume: false, offtrackSeq: undefined, success: undefined, card: undefined, metrics: {}, tutorial: {} }
 export const useCards = create<CardsState>(() => ({ ...blank }))
 const set = useCards.setState
 const get = useCards.getState
@@ -60,7 +60,9 @@ function append(run: Run, p: Point): Run {
   return { ...run, points, at: Date.now() }
 }
 
-const newRun = (runId: string, p: Point): Run => ({ runId, points: [p], start: Date.now(), at: Date.now() })
+/** Event order for metric runs and off-tracks: a run is "after the fix" if it started after the off-track. */
+let seq = 0
+const newRun = (runId: string, p: Point): Run => ({ runId, points: [p], seq: ++seq, at: Date.now() })
 
 /** A card button → `action {kind}`. Apply fix collapses the off-track card into the "applying the fix" view. */
 export function act(kind: 'show_me' | 'explain' | 'apply_fix' | 'hint'): void {
@@ -87,18 +89,18 @@ onUi('reset', () => {
 })
 onUi('dismiss', closeTop)
 onMessage('lesson.ready', () => set({ ...blank }))
-onMessage('step.started', () => set({ offtrackOpen: false, fixing: false, recovered: false, resume: false, offtrackAt: undefined, card: undefined }))
-onMessage('offtrack', () => set({ offtrackOpen: true, fixing: false, recovered: true, resume: false, offtrackAt: Date.now(), card: undefined, success: undefined }))
+onMessage('step.started', () => set({ offtrackOpen: false, fixing: false, recovered: false, resume: false, offtrackSeq: undefined, card: undefined }))
+onMessage('offtrack', () => set({ offtrackOpen: true, fixing: false, recovered: true, resume: false, offtrackSeq: ++seq, card: undefined, success: undefined }))
 onMessage('card', (p) => set({ card: p, resume: over(), offtrackOpen: false }))
 onMessage('diagram', () => set({ card: undefined, resume: over(), offtrackOpen: false }))
 onMessage('step.passed', (p) => {
-  const { recovered, offtrackAt } = get()
+  const { recovered, offtrackSeq } = get()
   set({ offtrackOpen: false, fixing: false, resume: false })
   if (!recovered) return
   const lesson = useLesson.getState()
   const index = lesson.steps.findIndex((x) => x.id === p.stepId)
   const summary = (p as typeof p & { summary?: string }).summary
-  set({ success: { index, total: lesson.steps.length, summary, checks: lesson.checks, at: Date.now(), since: offtrackAt } })
+  set({ success: { index, total: lesson.steps.length, summary, checks: lesson.checks, at: Date.now(), since: offtrackSeq } })
   clearTimeout(successTimer)
   successTimer = setTimeout(() => set({ success: undefined }), SUCCESS_MS)
 })
@@ -131,17 +133,23 @@ onMessage('metric', (p) => {
 })
 
 /**
- * The series a card should draw: the metric named by the off-track curve's label, else "loss",
- * else the first one. `after` = the run that started after the off-track (the retrain), if any;
- * `before` = the run it replaced (or the current run, while the retrain hasn't started yet).
+ * The series a card should draw: the metric named `label` (the off-track curve's label) if it
+ * streams, else the most recently updated one. `after` = the run that started after the off-track
+ * (the re-run), if any; `before` = the run it replaced (or the current run, until the re-run starts).
  */
 export function useSeries(label?: string, since?: number): { name?: string; series?: Series; tutorial?: Point[]; after?: Run; before?: Run } {
   const metrics = useCards((c) => c.metrics)
   const tutorial = useCards((c) => c.tutorial)
-  const offtrackAt = useCards((c) => since ?? c.offtrackAt)
-  const name = label && metrics[label] ? label : metrics.loss ? 'loss' : Object.keys(metrics)[0]
+  const offtrackSeq = useCards((c) => since ?? c.offtrackSeq)
+  const name = label && metrics[label] ? label : latest(metrics)
   const series = name ? metrics[name] : undefined
-  const after = series && offtrackAt !== undefined && series.run.start >= offtrackAt ? series.run : undefined
+  const after = series && offtrackSeq !== undefined && series.run.seq > offtrackSeq ? series.run : undefined
   const before = after ? series?.before : series?.run
-  return { name, series, tutorial: tutorial[name ?? label ?? 'loss'], after, before }
+  return { name, series, tutorial: name ? tutorial[name] : undefined, after, before }
+}
+
+function latest(metrics: Record<string, Series>): string | undefined {
+  let best: string | undefined
+  for (const [k, v] of Object.entries(metrics)) if (!best || v.run.at > metrics[best].run.at) best = k
+  return best
 }

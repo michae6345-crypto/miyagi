@@ -26,6 +26,156 @@
     ],
     "metrics_flat": [
       {
+        "wait": 0,
+        "type": "metric",
+        "payload": {
+          "runId": "tutorial",
+          "step": 0,
+          "name": "loss",
+          "value": 1
+        }
+      },
+      {
+        "wait": 0,
+        "type": "metric",
+        "payload": {
+          "runId": "tutorial",
+          "step": 500,
+          "name": "loss",
+          "value": 0.1384
+        }
+      },
+      {
+        "wait": 0,
+        "type": "metric",
+        "payload": {
+          "runId": "tutorial",
+          "step": 1000,
+          "name": "loss",
+          "value": 0.02862
+        }
+      },
+      {
+        "wait": 0,
+        "type": "metric",
+        "payload": {
+          "runId": "tutorial",
+          "step": 1500,
+          "name": "loss",
+          "value": 0.008154
+        }
+      },
+      {
+        "wait": 0,
+        "type": "metric",
+        "payload": {
+          "runId": "tutorial",
+          "step": 2000,
+          "name": "loss",
+          "value": 0.002999
+        }
+      },
+      {
+        "wait": 0,
+        "type": "metric",
+        "payload": {
+          "runId": "tutorial",
+          "step": 2500,
+          "name": "loss",
+          "value": 0.001352
+        }
+      },
+      {
+        "wait": 0,
+        "type": "metric",
+        "payload": {
+          "runId": "tutorial",
+          "step": 3000,
+          "name": "loss",
+          "value": 0.0007164
+        }
+      },
+      {
+        "wait": 0,
+        "type": "metric",
+        "payload": {
+          "runId": "tutorial",
+          "step": 3500,
+          "name": "loss",
+          "value": 0.000432
+        }
+      },
+      {
+        "wait": 0,
+        "type": "metric",
+        "payload": {
+          "runId": "tutorial",
+          "step": 4000,
+          "name": "loss",
+          "value": 0.0002887
+        }
+      },
+      {
+        "wait": 0,
+        "type": "metric",
+        "payload": {
+          "runId": "tutorial",
+          "step": 4500,
+          "name": "loss",
+          "value": 0.0002094
+        }
+      },
+      {
+        "wait": 0,
+        "type": "metric",
+        "payload": {
+          "runId": "tutorial",
+          "step": 5000,
+          "name": "loss",
+          "value": 0.0001622
+        }
+      },
+      {
+        "wait": 0,
+        "type": "metric",
+        "payload": {
+          "runId": "tutorial",
+          "step": 5500,
+          "name": "loss",
+          "value": 0.0001323
+        }
+      },
+      {
+        "wait": 0,
+        "type": "metric",
+        "payload": {
+          "runId": "tutorial",
+          "step": 6000,
+          "name": "loss",
+          "value": 0.0001124
+        }
+      },
+      {
+        "wait": 0,
+        "type": "metric",
+        "payload": {
+          "runId": "tutorial",
+          "step": 6500,
+          "name": "loss",
+          "value": 0.0000988
+        }
+      },
+      {
+        "wait": 0,
+        "type": "metric",
+        "payload": {
+          "runId": "tutorial",
+          "step": 7000,
+          "name": "loss",
+          "value": 0.00008913
+        }
+      },
+      {
         "wait": 2200,
         "type": "metric",
         "payload": {

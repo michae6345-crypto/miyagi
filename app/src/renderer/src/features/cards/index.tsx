@@ -1,11 +1,12 @@
 /**
  * Feature: cards. Coach cards that grow out of the pill, in the calm black-island look (mockup 02):
- *   offtrack  amber: what's wrong in one line, yours-vs-tutorial loss curve (live `metric`),
- *             expected vs yours, the checks, Show me / Explain / Apply fix.
- *             After Apply fix it collapses to "Applying the fix": the retrain's curve drops live.
+ *   offtrack  amber: what's wrong in one line, yours-vs-tutorial curve of the live `metric`,
+ *             expected vs yours (`offtrack.diff`), the checks, Show me / Explain / Apply fix.
+ *             After Apply fix it collapses to "Applying the fix": the re-run's curve draws live.
  *   success   green "Back on track" after a recovered step: now-vs-before curve, auto-hides.
  *   card      explain / hint / answer from the engine, with an optional video jump.
  * Copy rule: readable in 2 seconds; body text is clamped to 2–3 lines. No red, no shaking.
+ * Generality: every label comes from the data (metric name, check labels, step titles).
  */
 import { motion } from 'motion/react'
 import type { ReactNode } from 'react'
@@ -60,10 +61,10 @@ function Body({ children, lines = 2 }: { children: ReactNode; lines?: number }):
 }
 
 /** Small uppercase caption above a curve, with its legend on the right. */
-function CurveCaption({ label, children }: { label: string; children: ReactNode }): ReactNode {
+function CurveCaption({ label, children }: { label?: string; children: ReactNode }): ReactNode {
   return (
     <div className="mb-[4px] flex items-center gap-[12px] text-[11px]" style={{ color: color.faint }}>
-      <span className="font-semibold uppercase tracking-[0.06em]">{label}</span>
+      {label && <span className="truncate font-semibold uppercase tracking-[0.06em]">{label}</span>}
       <span className="flex-1" />
       {children}
     </div>
@@ -98,14 +99,17 @@ function Swap({ id, children }: { id: string; children: ReactNode }): ReactNode 
 // Off-track
 // ---------------------------------------------------------------------------
 
-/** Yours vs tutorial. Live `metric` events when there are any; otherwise the off-track payload's `curve`. */
+/**
+ * Yours vs tutorial. Live `metric` events when there are any (the tutorial line = runId "tutorial");
+ * otherwise both lines come from the off-track payload's optional `curve`. The two sources are never
+ * mixed on one chart, since they may not share units.
+ */
 function OfftrackCurve({ o }: { o: OfftrackPayload }): ReactNode {
   const { name, before: run, tutorial } = useSeries(o.curve?.label)
   const live = run && run.points.length > 1 ? run : undefined
   const yours = live ? plotPoints(live.points) : o.curve ? plotArray(o.curve.yours) : []
   if (yours.length < 2) return null
-  const span = live ? live.points[live.points.length - 1].step : 1
-  const ref = tutorial && tutorial.length > 1 ? plotPoints(tutorial) : o.curve ? plotArray(o.curve.tutorial, span) : []
+  const ref = live ? (tutorial && tutorial.length > 1 ? plotPoints(tutorial) : []) : o.curve ? plotArray(o.curve.tutorial) : []
   const lines: Line[] = [
     { key: 'yours', pts: yours, stroke: color.amber },
     { key: 'tutorial', pts: ref, stroke: color.accent, reference: true }
@@ -113,7 +117,7 @@ function OfftrackCurve({ o }: { o: OfftrackPayload }): ReactNode {
   const lastValue = live?.points[live.points.length - 1].value
   return (
     <div className="mt-[14px]" data-curve={live ? 'live' : 'fallback'}>
-      <CurveCaption label={name ?? o.curve?.label ?? 'loss'}>
+      <CurveCaption label={live ? name : o.curve?.label}>
         <Key tone={color.amber}>yours</Key>
         {ref.length > 1 && <Key tone={color.accent}>tutorial</Key>}
       </CurveCaption>
@@ -193,9 +197,9 @@ function Diagnosis({ o, checks }: { o: OfftrackPayload; checks: ReturnType<typeo
   )
 }
 
-/** Now (green, live) vs before the fix (amber, dashed). While the retrain hasn't started, only "before". */
-function RetrainCurve({ since, width }: { since?: number; width: number }): ReactNode {
-  const { name, after, before } = useSeries(undefined, since)
+/** Now (green, live) vs before the fix (amber, dashed). Until the new run starts, only "before". */
+function AfterCurve({ label, since, width }: { label?: string; since?: number; width: number }): ReactNode {
+  const { name, after, before } = useSeries(label, since)
   const lines: Line[] = []
   if (after && after.points.length > 0) lines.push({ key: 'now', pts: plotPoints(after.points), stroke: color.green })
   if (before && before.points.length > 1) lines.push({ key: 'before', pts: plotPoints(before.points), stroke: color.amber, reference: true, dashed: true })
@@ -203,7 +207,7 @@ function RetrainCurve({ since, width }: { since?: number; width: number }): Reac
   const lastValue = after?.points[after.points.length - 1]?.value
   return (
     <div className="mt-[14px]" data-curve={after ? 'after' : 'before'}>
-      <CurveCaption label={name ?? 'loss'}>
+      <CurveCaption label={name}>
         {after && <Key tone={color.green}>now</Key>}
         {before && <Key tone={color.amber} dashed={!!after}>before fix</Key>}
       </CurveCaption>
@@ -235,7 +239,7 @@ function Fixing({ o, checks }: { o: OfftrackPayload; checks: ReturnType<typeof u
       ) : (
         <Title>Re-running your checks</Title>
       )}
-      <RetrainCurve width={OFFTRACK_W} />
+      <AfterCurve label={o.curve?.label} width={OFFTRACK_W} />
       {checks.length > 0 && (
         <div className="mt-[14px]">
           <CheckList checks={checks} />
@@ -268,7 +272,7 @@ function Success(): ReactNode {
       <Title>Back on track.</Title>
       {s.summary && <Body>{s.summary}</Body>}
       {showCurve ? (
-        <RetrainCurve since={s.since} width={OFFTRACK_W} />
+        <AfterCurve since={s.since} width={OFFTRACK_W} />
       ) : (
         s.checks.length > 0 && (
           <div className="mt-[14px]">
