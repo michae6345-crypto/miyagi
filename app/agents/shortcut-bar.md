@@ -1,6 +1,6 @@
 # shortcut-bar
 
-**Status:** pass 2 functional items done (spinner, press, voice, diagram state); tile restyle is UI polish's (`adrian/consistency`), merge pending · **Priority:** P1 · **Port:** 5179 · **Branch:** `adrian/shortcut-bar`
+**Status:** pass 2 functional items done and checked in the stage (spinner, press, voice, diagram state); tile restyle is UI polish's (`adrian/consistency`), merge pending · **Priority:** P1 · **Port:** 5179 · **Branch:** `adrian/shortcut-bar`
 
 ## Goal
 The bar at the bottom during a lesson: an Ask field (opens the launcher in ask mode) and Back · Explain · Diagram · Show me · Hint · Voice. It must never look dead: a pressed action shows a spinner until the engine answers (Michael's P0-2: "pressing them feels dead").
@@ -34,6 +34,8 @@ The bar at the bottom during a lesson: an Ask field (opens the launcher in ask m
 - **Voice** (`Equalizer.tsx`): `useVoiceTile()` reads `on` / `speaking` from `features/voice/store.ts` (both exist on `adrian/shell`). On = the neutral "lit" tile + `aria-pressed`; speaking = three bars (scaleY from the bottom, transform only) in the glyph's place. `level` (0..1) is read defensively: the voice agent hasn't exported it yet; when it lands the bars follow it instead of looping. Reduced motion: still bars.
 - **Diagram** open state: `useDiagram(d => d.open)` (diagrams store on `adrian/shell`) → lit + `aria-pressed`. ⌥D while open is claimed by the diagrams store (closes it), and still dips the tile.
 - **Mock** (`mock/scenarios/shortcut-bar.json`, merged into `full`): Explain / Hint / Diagram / Show me at steps 4–6 send `status thinking`, then the existing answer after 1.2–2 s, then `status watching` (step 4) / `offtrack` (step 6). Spotlight's Hint at step 5 is untouched.
+- **Checked in the stage** (headless Chrome over CDP, `?scenario=full&engine=ws://127.0.0.1:9`): Alt+E / Alt+H / Alt+D spin only the pressed tile from `status thinking` until the answer; press dip samples 1 → 0.94 at ~90 ms → 1 at ~180 ms for both a key and a click; a Show me press 10 s old does not spin on a later thinking; a press while already thinking spins until idle; Diagram `aria-pressed` true while open, false after Esc; Voice on → lit, speaking → bars move. Not checked: Electron (cross-window, see Core request 1), real ElevenLabs audio driving `speaking`.
+- **Shots:** `agents/shots/shortcut-bar-{explain-thinking,hint-thinking,explain-answered,diagram-open,voice-on,voice-speaking}.png`.
 - **Left for UI polish** (theirs): pastel tiles, MiyagiMark + Kbd in the Ask field, removing `blue`, tokens for the remaining rgba literals. When it lands: merge `origin/adrian/shell`, pass the tile's glyph color as `tone` (ink on pastel), keep the voice tile neutral.
 
 ## Core requests
