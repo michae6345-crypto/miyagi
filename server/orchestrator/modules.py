@@ -353,7 +353,14 @@ class Modules:
                 if not self.stubs_allowed("coach"):
                     raise ModuleUnavailable(f"coach.diagnose failed: {type(e).__name__}: {e}") from e
                 out = await stubs.diagnose(step, failed_checks, metrics, code_excerpt)
-            return self._public(_to_dict(out))
+            out = _to_dict(out)
+            meta = out.get("_meta") if isinstance(out, dict) else None
+            if meta:  # where the coach's time went (E5): latency_s, usage.first_text_s, cache reads, triage
+                usage = meta.get("usage") or {}
+                log.info("coach meta: latency_s=%s first_text_s=%s cache_read=%s triage=%s model=%s web=%s",
+                         meta.get("latency_s"), usage.get("first_text_s"), usage.get("cache_read_input_tokens"),
+                         (meta.get("triage") or {}).get("by"), meta.get("model"), len(meta.get("web_sources") or []))
+            return self._public(out)
         out = await self._run("coach", "diagnose", lambda: stubs.diagnose(step, failed_checks, metrics, code_excerpt),
                               step, failed_checks, metrics, code_excerpt, **kwargs)
         return self._public(out)

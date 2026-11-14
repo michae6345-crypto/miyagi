@@ -25,9 +25,10 @@ Stubs and fixtures run **only with `DEMO=1`** (or the dev/test flag `ORCH_STUBS`
 
 The script exports `ORCH_SCREEN=1` (frames ~1/s, OCR only on change, re-evaluate per frame, spotlight via `locate_match`) and
 `ORCH_OPEN_WORKSPACE=1` (on `lesson.ready`: `open -a "Visual Studio Code" <workdir>`, falling back to `code <workdir>`; on each `step.started`: `code -r -g <file>:<line>`).
-**LIVE starts with no lesson:** it waits for the launcher's `learn`. Each lesson gets its own workspace, `~/miyagi/lessons/<goal-slug>`
-(`MIYAGI_LESSONS` sets the root; `TUT_WORKDIR` pins one folder). If Screen Recording is denied, the script prints exactly where to grant it.
-**The stage hero is `scripts/miyagi-demo.sh`:** the same engine with `TUT_WORKDIR=demo/pinn-lab ORCH_AUTOSTART=1 ORCH_LESSON_URL=AXXnSzmpyoI`
+**LIVE starts with no lesson:** it waits for the launcher's `learn`. Each lesson gets its own workspace from S2's `server/workspace`
+(`build_workdir(url)` before the build, `prepare(graph, goal)` after it: `~/miyagi/lessons/<slug>` with starter files, shown as "Setting up your project folder"),
+opened with `open_editor` (`code -n <dir> -g <file>`). `TUT_WORKDIR` pins one folder for development. If Screen Recording is denied, the script prints exactly where to grant it.
+**The stage hero is `scripts/miyagi-demo.sh`:** the same engine with `ORCH_HERO_WORKDIR=demo/pinn-lab ORCH_AUTOSTART=1 ORCH_LESSON_URL=AXXnSzmpyoI`
 (E2's cached Toscano lesson; hero failure `lr = 0.3`, see `demo/pinn-lab/README.md`).
 No real screen handy? `TUT_SCREEN_FIXTURE=server/screen/fixtures/vscode_terminal_flat.png` replays a saved VS Code + Terminal screenshot.
 

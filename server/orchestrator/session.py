@@ -272,8 +272,10 @@ class LessonSession:
                     pass
 
         tick = asyncio.create_task(ticker())
+        from . import workspace as wsmod
+
         try:
-            graph = await self.m.build_lesson(url, goal, str(config.lesson_workdir(url, goal)))
+            graph = await self.m.build_lesson(url, goal, wsmod.build_workdir(url, goal))
         except Exception as e:
             log.exception("build_lesson failed")
             done.set()
@@ -284,6 +286,10 @@ class LessonSession:
             return
         done.set()
         await tick
+        await self.emit("lesson.building", {"message": "Setting up your project folder", "progress": 0.97})
+        folder = await asyncio.to_thread(wsmod.prepare, graph, goal)  # S2: starter files (Claude), 0-25 s
+        if folder:
+            graph.setdefault("lesson", {})["workdir"] = folder
         await self.emit("lesson.building", {"message": "Lesson ready", "progress": 1.0})
         await self.load_graph(graph)
 

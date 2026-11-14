@@ -621,7 +621,8 @@ def test_workspace_opens_vscode_and_jumps_to_target(tmp_path, monkeypatch):
         await rig.settle()
 
     run(go())
-    assert calls[0][:3] == ["open", "-a", "Visual Studio Code"] and calls[0][3] == str(tmp_path)
+    first = calls[0]  # S2's open_editor: `code -n <dir> [-g <file>]`, or `open -a "Visual Studio Code" <dir>`
+    assert (first[1:3] == ["-n", str(tmp_path.resolve())]) or (first[:3] == ["open", "-a", "Visual Studio Code"])
     gotos = [c for c in calls if "-g" in c]
     assert gotos and gotos[-1][-1] == f"{tmp_path / 'pinn_convection.py'}:4"
 
