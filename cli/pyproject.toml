@@ -1,0 +1,20 @@
+[project]
+name = "tut"
+version = "0.1.0"
+description = "tut run: run a command, stream it live, and report ::metric:: lines to the engine and Tiger Data"
+requires-python = ">=3.11"
+dependencies = ["psycopg[binary]>=3.2"]
+
+[project.optional-dependencies]
+dev = ["pytest>=8"]
+
+[project.scripts]
+tut = "tut.main:main"
+
+[build-system]
+requires = ["setuptools>=69"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["tut*"]
