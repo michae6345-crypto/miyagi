@@ -54,7 +54,7 @@ class BuildStage(logging.Handler):
 
     RULES = [
         ("lesson cache hit", "Loading the saved lesson"),
-        ("daily quota exhausted", "Gemini is out of quota; trying another model"),
+        ("daily quota exhausted", "Gemini is at its limit; trying another model"),
         ("too slow; switching engine", "Gemini is slow; reading the transcript instead"),
         ("video pass failed", "Couldn't watch the video; reading the transcript instead"),
         ("video pass:", "Claude is writing the steps"),
@@ -73,7 +73,7 @@ class BuildStage(logging.Handler):
         "done": "Finishing up",
     }
     SWITCH_LABELS = {
-        "quota": "Gemini is out of quota; using the transcript",
+        "quota": "Gemini is rate-limited; using the transcript",
         "slow": "Gemini is slow; using the transcript",
         "key": "No Gemini key; using the transcript",
         "error": "Couldn't watch the video; using the transcript",
@@ -136,12 +136,12 @@ def human_build_error(e: BaseException) -> str:
     quota = "quota" in low or "resource_exhausted" in low
     yt_limited = ("429" in low or "too many requests" in low) and ("transcript" in low or "caption" in low)
     if quota and yt_limited:  # E2: "no engine could build the lesson" with both causes
-        return ("Couldn't watch this video: Gemini's quota is used up and YouTube is rate-limiting this network. "
-                "Try a lesson that's already built, another network (hotspot), or add a Gemini key in Settings.")
+        return ("Couldn't watch this video: Gemini is rate-limited and YouTube is rate-limiting this network. "
+                "Try again in a minute, a lesson that's already built, or another network (hotspot).")
     if "took over" in low or "no answer within" in low or isinstance(e, TimeoutError):
         return "Building this lesson is taking too long. Try again, or pick another video."
     if "quota" in low or "resource_exhausted" in low:
-        return "Gemini's daily quota is used up, so I couldn't watch this video. Try another video or add a key in Settings."
+        return "Gemini is rate-limited right now, so I couldn't watch this video. Try again in a minute or pick another video."
     if "429" in low or "too many requests" in low or ("rate" in low and "limit" in low):
         if "transcript" in low or "caption" in low or "youtube" in low:
             return ("Couldn't get this video's transcript: YouTube is rate-limiting this network. "

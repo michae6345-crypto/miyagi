@@ -951,12 +951,12 @@ def test_build_success_still_loads_the_lesson(rig):
 def test_human_build_errors():
     from server.orchestrator.session import human_build_error
 
-    assert "quota" in human_build_error(RuntimeError("429 RESOURCE_EXHAUSTED daily quota"))
+    assert "rate-limited" in human_build_error(RuntimeError("429 RESOURCE_EXHAUSTED daily quota"))
     assert "taking too long" in human_build_error(RuntimeError("building the lesson took over 300s"))
     assert "YouTube videos" in human_build_error(ValueError("only YouTube sources are supported for now: ''"))
     both = RuntimeError("no engine could build the lesson:\ngemini: Gemini call failed: 429 RESOURCE_EXHAUSTED quota\n"
                         "claude: no transcript for AXXnSzmpyoI: 429 Too Many Requests")
-    assert "quota is used up and YouTube is rate-limiting" in human_build_error(both)
+    assert "Gemini is rate-limited and YouTube is rate-limiting" in human_build_error(both)
 
 
 def test_diagram_uses_s4_build_signature_and_question(rig):
@@ -998,7 +998,7 @@ def test_build_stage_labels_come_from_on_progress(tmp_path, monkeypatch):
     run(rig.s.learn_url("https://www.youtube.com/watch?v=abcdefghijk"))
     msgs = [b["message"] for b in rig.of("lesson.building")]
     for label in ("Gemini is watching the video", "Claude is writing the steps",
-                  "Gemini is out of quota; using the transcript", "Steps ready (from the transcript)",
+                  "Gemini is rate-limited; using the transcript", "Steps ready (from the transcript)",
                   "Fitting the checks to your project"):
         assert any(m.startswith(label) for m in msgs), label
     assert rig.of("lesson.ready")
