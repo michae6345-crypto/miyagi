@@ -263,6 +263,26 @@ class LessonSession:
                 continue
             await asyncio.wait(pending)
 
+    def _prefetch_voice(self) -> None:
+        """Synthesize every step's spoken line ahead of time (only while voice is on: it costs TTS credits)."""
+        if not self.graph:
+            return
+        lines = [self.m.voice_line("step.started", self._step_started_payload(st)) for st in self.steps]
+        self._spawn(self.m.prefetch_voice([ln for ln in lines if ln]), timer=True)
+
+    def _say(self, kind: str, payload: dict) -> None:
+        """Voice (when toggled on): speak this event in the background, never over the learner's typing."""
+        if not self.voice or self.typing():
+            return
+        gen = self.step_gen
+
+        async def go() -> None:
+            s = await self.m.speak_event(kind, payload)
+            if s and (gen == self.step_gen or kind == "step.passed"):
+                await self.emit("speak", s)
+
+        self._spawn(go(), timer=True)
+
     async def _status(self, state: str) -> None:
         self.status = state
         await self.emit("status", {"state": state})
@@ -432,6 +452,8 @@ class LessonSession:
             self.on_workdir(new_wd)
         self.m.set_lesson(graph)
         self._spawn(self.m.warm(), timer=True)  # pre-warm the coach's cached lesson prefix
+        if self.voice:
+            self._prefetch_voice()
         await self.emit("lesson.ready", self._lesson_ready_payload())
         if self.workspace is not None:
             self.workspace.open(new_wd)
@@ -470,7 +492,9 @@ class LessonSession:
         self.phase = "active"
         self._reset_step_state()
         step = self.steps[idx]
-        await self.emit("step.started", self._step_started_payload(step))
+        started = self._step_started_payload(step)
+        await self.emit("step.started", started)
+        self._say("step.started", started)
         for c in self.display_checks(step):
             self.check_state[c["id"]] = {"label": c.get("label", c["id"]), "status": "pending", "detail": None}
             await self.emit("check.updated", {"stepId": step["id"], "checkId": c["id"],
@@ -579,6 +603,7 @@ class LessonSession:
         if nxt:
             payload["nextStepId"] = nxt
         await self.emit("step.passed", payload)
+        self._say("step.passed", payload)
         await self._status("passed")
         await self.emit("spotlight", {"clear": True})
         if nxt:
@@ -862,6 +887,7 @@ class LessonSession:
             self.ladder = level
             self.last_offtrack = full
             await self.emit("offtrack", shown)
+            self._say("offtrack", shown)
             diff = full.get("diff") or {}
             first = (diff.get("yours") or "").strip().splitlines()[:1]
             spot = self._locate(re.escape(first[0]), None, full.get("title", "")) if first else None
@@ -1054,6 +1080,8 @@ class LessonSession:
             return
         if kind == "voice_toggle":
             self.voice = not self.voice
+            if self.voice:
+                self._prefetch_voice()
             return
         if kind == "apply_fix":
             await self._apply_fix(step)

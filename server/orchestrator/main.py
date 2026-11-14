@@ -141,6 +141,13 @@ async def lifespan(_app: FastAPI):
 
 app = FastAPI(title="sandhacks-tutor engine", lifespan=lifespan)
 
+try:  # E5 voice: GET /tts/<hash>.mp3 for `speak.audioUrl` (relative: the app prefixes ENGINE_HTTP)
+    from server.coach import voice as _voice
+
+    app.include_router(_voice.router)
+except Exception as _e:  # noqa: BLE001
+    log.warning("voice routes unavailable: %s", _e)
+
 
 @app.websocket("/")
 async def ws_endpoint(ws: WebSocket) -> None:

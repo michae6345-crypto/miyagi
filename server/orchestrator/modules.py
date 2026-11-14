@@ -367,6 +367,41 @@ class Modules:
                               step, failed_checks, metrics, code_excerpt, **kwargs)
         return self._public(out)
 
+    # -- voice (E5: ElevenLabs behind server.coach.voice; fills the existing `speak` event)
+    def _voice(self) -> Any:
+        if self.demo or "coach" in self.forced:
+            return None
+        return getattr(self.real.get("coach"), "voice", None)
+
+    async def speak_event(self, kind: str, payload: dict) -> dict | None:
+        """-> {audioUrl, text} or None (no key, failure: logged once by the coach)."""
+        v = self._voice()
+        fn = getattr(v, "speak_event", None) if v is not None else None
+        if fn is None:
+            return None
+        try:
+            return _to_dict(await _call(fn, kind, payload)) or None
+        except Exception as e:  # voice must never break the lesson
+            log.warning("voice.speak_event failed: %s", e)
+            return None
+
+    def voice_line(self, kind: str, payload: dict) -> str | None:
+        v = self._voice()
+        fn = getattr(v, "line_for", None) if v is not None else None
+        try:
+            return fn(kind, payload) if fn else None
+        except Exception:  # noqa: BLE001
+            return None
+
+    async def prefetch_voice(self, lines: list[str]) -> None:
+        v = self._voice()
+        fn = getattr(v, "prefetch", None) if v is not None else None
+        if fn is not None:
+            try:
+                await _call(fn, lines)
+            except Exception as e:
+                log.warning("voice.prefetch failed: %s", e)
+
     def has_do_it_for_me(self) -> bool:
         return self._real_fn("coach", "do_it_for_me") is not None
 

@@ -1002,3 +1002,38 @@ def test_build_stage_labels_come_from_on_progress(tmp_path, monkeypatch):
                   "Fitting the checks to your project"):
         assert any(m.startswith(label) for m in msgs), label
     assert rig.of("lesson.ready")
+
+
+def test_voice_speaks_step_offtrack_and_pass_only_when_on_and_not_typing(tmp_path, monkeypatch):
+    monkeypatch.setenv("TUT_WORKDIR", str(tmp_path))
+    rig = Rig(tmp_path, with_inputs=True)
+    said, prefetched = [], []
+
+    async def speak_event(kind, payload):
+        said.append(kind)
+        return {"audioUrl": f"/tts/{kind}.mp3", "text": kind}
+
+    async def prefetch(lines):
+        prefetched.extend(lines)
+
+    rig.s.m.speak_event = speak_event
+    rig.s.m.prefetch_voice = prefetch
+    rig.s.m.voice_line = lambda kind, p: f"Step {p['index'] + 1}: {p['title']}."
+
+    async def go():
+        await rig.start_lesson()
+        assert not said  # voice is off by default
+        await rig.s.action("voice_toggle")
+        await rig.settle()
+        await asyncio.sleep(0)
+        assert len(prefetched) == 6 and prefetched[0] == "Step 1: Create the training script."
+        rig.clock.t += 5
+        await rig.save("# s1\n")  # pass s1 -> step.passed + step.started(s2)
+        await asyncio.sleep(0.05)
+        rig.inputs.key()  # typing: nothing is spoken
+        await rig.s.goto_step(2)
+        await asyncio.sleep(0.05)
+
+    run(go())
+    assert said == ["step.passed", "step.started"]
+    assert [p["audioUrl"] for p in rig.of("speak")] == ["/tts/step.passed.mp3", "/tts/step.started.mp3"]
