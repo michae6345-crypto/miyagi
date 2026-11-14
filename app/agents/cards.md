@@ -1,6 +1,6 @@
 # cards
 
-**Status:** pass 1 done (Apple restyle + live curve), waiting for Adrian's review · **Priority:** P0 · **Port:** 5177 · **Branch:** `adrian/cards`
+**Status:** pass 1 done (Apple restyle, live curve, generic for any metric), rebased on core 0876da5, waiting for Adrian's review. Nothing half-done is hidden behind a flag. · **Priority:** P0 · **Port:** 5177 · **Branch:** `adrian/cards`
 
 ## Goal
 Coach cards that grow out of the pill. **Off-track** (amber): what's wrong in ≤12 words, the yours-vs-tutorial loss curve, "expected vs yours", the checks, and Show me / Explain / Apply fix. **Back on track** (green) after a recovered step; auto-hides. **Explain / Hint / Answer** cards from the engine, with an optional "jump to 7:00" video link. Calm: no shaking, no red.
@@ -31,7 +31,7 @@ Screenshots: `agents/shots/cards-*.png` (offtrack, offtrack-stage, explain, hint
 **First pass (no spec from Adrian yet):** build to the mockups in `docs/mockups/` (01–05 are the target look; 06–07 are earlier explorations to restyle in the Apple look) and the animation + placement spec in `docs/FRONTEND-HANDOFF.md`. Don't spend time on colors (Adrian's theme comes later). Adrian reviews after this pass and writes his spec here for pass 2.
 
 ## Core requests
-1. **HMR on feature files** (small, not blocking): editing a file under `features/cards/` logs `Cannot access 'default' before initialization` from `core/registry.ts` (the eager `import.meta.glob`) and the update doesn't apply until a full reload. Suggest `if (import.meta.hot) import.meta.hot.accept(() => location.reload())` in `registry.ts`, or a note in CLAUDE.md to reload after edits.
+1. ~~**HMR on feature files**~~: fixed in core 0876da5 (lazy registry).
 2. **Island sizes / timing: no change needed.** Off-track is 460 wide × ~472 tall, "Applying the fix" ~313, "Back on track" ~251, explain/hint 420 wide. All fit under `maxCardWidth` 520.
 3. *(FYI, nothing to do now)* Metrics live in `features/cards/store.ts` (`useCards(s => s.metrics)`, `useSeries()`), readable by other features (e.g. the overview card could show the live loss). If several features end up needing them, move them into `core/lesson.ts` later.
 
