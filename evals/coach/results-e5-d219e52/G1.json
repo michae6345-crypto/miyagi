@@ -1,0 +1,240 @@
+{
+ "id": "G1",
+ "topic": "git",
+ "step": "s5",
+ "mistake": "Changed the FIRST todo line to `squash` instead of the Cleanup line",
+ "truth": "squash melds a commit into the one above it; the first line has none → `cannot 'squash' without a previous commit`. Fix: line 1 back to `pick`, `squash` on the Cleanup line, then `git rebase --continue`.",
+ "ocr": {
+  "blocks": 106,
+  "ms": 285,
+  "lines_by_app": {
+   "": 2,
+   "Terminal": 8,
+   "Code": 51
+  }
+ },
+ "cursor": {
+  "xy": [
+   378.0,
+   138.2
+  ],
+  "on": "squash 1194326 Add README"
+ },
+ "gate_before": {
+  "passed": false,
+  "via": null,
+  "passed_screen_only": false,
+  "checks": [
+   "s5c1 pass: seen in Code: 'squash 1194326'",
+   "s5c2 fail: not seen in Terminal",
+   "s5c3 pass: not showing in Terminal"
+  ],
+  "precision": [
+   "s5p1 pending: run `tut run test ! -d .git/rebase-merge`",
+   "s5p2 pending: run `tut run ! git log --oneline -5 | grep -q 'authentication middleware'`",
+   "s5p3 pending: run `tut run git log -1 --format=%s | grep -q 'Add README'`"
+  ]
+ },
+ "fires": true,
+ "fires_screen_only": true,
+ "inputs": {
+  "code_from": "screen OCR (Code)",
+  "code_chars": 1746,
+  "target_location": null,
+  "cursor_under": "squash 1194326 Add README"
+ },
+ "warm_s": 1.77,
+ "card_s": 7.39,
+ "targets_s": 5.29,
+ "card": {
+  "stepId": "s5",
+  "severity": "fail",
+  "title": "Squash placed on the first commit",
+  "body": "Git refuses 'squash' on the first todo line because there is no previous commit to meld into. Change line 1 back to pick and put squash on the a9db680 Cleanup line instead.",
+  "actions": [
+   "explain",
+   "show_me",
+   "hint",
+   "apply_fix"
+  ],
+  "guidingQuestion": "Which commit would the first line in the todo list be melded into?",
+  "diff": {
+   "expected": "pick 1194326 Add README\npick 7a428b4 Add login endpoint\npick 8d7db63 Add logout endpoint\nsquash a9db680 Cleanup",
+   "yours": "squash 1194326 Add README",
+   "file": "git-rebase-todo",
+   "line": 7
+  },
+  "citation": {
+   "label": "Git Interactive Rebase: Edit, Split, Squash, Delete, and Reorder Commits",
+   "url": "https://www.youtube.com/watch?v=42392W7SgnE"
+  },
+  "targets": [
+   {
+    "boxId": 27,
+    "label": "squash on first",
+    "text": "squash 1194326 Add README",
+    "rect": {
+     "x": 316.5,
+     "y": 130.5,
+     "w": 178.3,
+     "h": 15.1
+    }
+   },
+   {
+    "boxId": 34,
+    "label": "cleanup commit",
+    "text": "pick a9db680 Cleanup",
+    "rect": {
+     "x": 316.5,
+     "y": 185.5,
+     "w": 143.2,
+     "h": 13.0
+    }
+   },
+   {
+    "boxId": 18,
+    "label": "error message",
+    "text": "error: cannot",
+    "rect": {
+     "x": 949.4,
+     "y": 82.8,
+     "w": 98.0,
+     "h": 15.2
+    }
+   }
+  ]
+ },
+ "meta": {
+  "route": "opus",
+  "triage": {
+   "route": "opus",
+   "by": "haiku",
+   "reason": "The failure is a git rebase todo-file step where the excerpt is garbled and the learner's actual terminal state (wrong commit list, 'error: cannot' output, unclear editor state) depends on their specific repository, so no known playbook or generic template hint clearly applies."
+  },
+  "model": "claude-opus-5-5",
+  "latency_s": 4.34,
+  "playbook_id": null,
+  "web_sources": [
+   "https://stackoverflow.com/questions/25706216/what-does-a-cannot-find-symbol-or-cannot-resolve-symbol-error-mean",
+   "https://stackoverflow.com/questions/37152845/error-cannot-stat-upon-git-pull"
+  ],
+  "usage": {
+   "input_tokens": 7700,
+   "output_tokens": 332,
+   "cache_read_input_tokens": 7770,
+   "cache_creation_input_tokens": 0,
+   "first_text_s": 1.85
+  }
+ },
+ "diagnosis_auto": true,
+ "targets": {
+  "n": 3,
+  "any": true,
+  "first": true,
+  "texts": [
+   "squash 1194326 Add README",
+   "pick a9db680 Cleanup",
+   "error: cannot"
+  ],
+  "labels": [
+   "squash on first",
+   "cleanup commit",
+   "error message"
+  ]
+ },
+ "hint3": {
+  "title": "Here's the change",
+  "diff": {
+   "expected": "pick 1194326 Add README\npick 7a428b4 Add login endpoint\npick 8d7db63 Add logout endpoint\nsquash a9db680 Cleanup",
+   "yours": "squash 1194326 Add README",
+   "file": "git-rebase-todo",
+   "line": 7
+  }
+ },
+ "orchestrator_resolves_file": false,
+ "patch": {
+  "file": "git-rebase-todo",
+  "unified_diff": "--- a/git-rebase-todo\n+++ b/git-rebase-todo\n@@ -1,4 +1,7 @@\n-squash 1194326 Add README\n+pick 1194326 Add README\n+pick 7a428b4 Add login endpoint\n+pick 8d7db63 Add logout endpoint\n+squash a9db680 Cleanup\n pick 7a428b4 Add login endpoint\n pick 8d7db63 Add logout endpoint\n pick a9db680 Cleanup\n",
+  "summary": "Change line 1 back to pick and put squash on the a9db680 Cleanup line…",
+  "line": 7,
+  "requires_confirmation": true,
+  "_meta": {
+   "via": "diagnosis"
+  },
+  "s": 0.0,
+  "changed_lines": 5
+ },
+ "check_after": {
+  "in_progress": true,
+  "commits": [
+   "Add README",
+   "Add login endpoint",
+   "Add logout endpoint",
+   "Cleanup",
+   "Add authentication middleware"
+  ],
+  "log": [
+   "# wrote .git/rebase-merge/git-rebase-todo",
+   "learner@MacBook-Pro git-rebase-lab % git rebase --continue",
+   "[detached HEAD ec688dc] Add logout endpoint",
+   " Date: Sat Nov 14 10:00:00 2026 -0800",
+   " 1 file changed, 4 insertions(+)",
+   "Auto-merging index.js",
+   "CONFLICT (content): Merge conflict in index.js",
+   "",
+   "",
+   "",
+   "",
+   "",
+   "error: could not apply 7a428b4... Add login endpoint",
+   "hint: Resolve all conflicts manually, mark them as resolved with",
+   "hint: \"git add/rm <conflicted_files>\", then run \"git rebase --continue\".",
+   "hint: You can instead skip this commit: run \"git rebase --skip\".",
+   "hint: To abort and get back to the state before \"git rebase\", run \"git rebase --abort\".",
+   "hint: Disable this message with \"git config set advice.mergeConflict false\"",
+   "Could not apply 7a428b4... Add login endpoint"
+  ],
+  "ok": false,
+  "why": "history not as intended",
+  "terminal": [
+   "# wrote .git/rebase-merge/git-rebase-todo",
+   "learner@MacBook-Pro git-rebase-lab % git rebase --continue",
+   "[detached HEAD ec688dc] Add logout endpoint",
+   " Date: Sat Nov 14 10:00:00 2026 -0800",
+   " 1 file changed, 4 insertions(+)",
+   "Auto-merging index.js",
+   "CONFLICT (content): Merge conflict in index.js",
+   "",
+   "",
+   "",
+   "",
+   "",
+   "error: could not apply 7a428b4... Add login endpoint",
+   "hint: Resolve all conflicts manually, mark them as resolved with",
+   "hint: \"git add/rm <conflicted_files>\", then run \"git rebase --continue\".",
+   "hint: You can instead skip this commit: run \"git rebase --skip\".",
+   "hint: To abort and get back to the state before \"git rebase\", run \"git rebase --abort\".",
+   "hint: Disable this message with \"git config set advice.mergeConflict false\"",
+   "Could not apply 7a428b4... Add login endpoint"
+  ],
+  "index_after": "const express = require('express');\nconst app = express();\napp.use(express.json());\n\napp.post('/login', (req, res) => {\n  console.log('DEBUG: LOGIN', req.body);\n  res.json({ ok: true });\n});\n\n<<<<<<< HEAD\napp.post('/logout', (req, res) => {\n  res.json({ ok: true });\n});\n\n=======\n>>>>>>> 7a428b4 (Add login endpoint)\napp.listen(3000, () => console.log('Server running on port 3000'));\n"
+ },
+ "gate_after": {
+  "passed": false,
+  "via": null,
+  "failed": [
+   "s5c2 Rebase succeeded: not seen in Terminal",
+   "s5c3 No rebase conflicts: still showing 'CONFLICT' in Terminal"
+  ]
+ },
+ "spotlight": {
+  "via": "diff.yours",
+  "rect": {
+   "x": 310.5,
+   "y": 124.5,
+   "w": 190.3,
+   "h": 27.1
+  },
+  "on_line": true
+ }
+}

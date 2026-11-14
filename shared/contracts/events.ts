@@ -12,7 +12,7 @@ export type SourceKind = "video" | "blog" | "notebook" | "paper" | "repo";
 
 export interface VideoSegment { videoId: string; start: number; end: number } // seconds
 export interface Source { id: string; kind: SourceKind; title: string; url: string; meta?: string; videoId?: string }
-export interface StepSummary { id: string; index: number; title: string; video?: VideoSegment }
+export interface StepSummary { id: string; index: number; title: string; video?: VideoSegment | null }   // null/absent: no video (a "lesson" mode lesson)
 
 // ---------- Engine -> App events ----------
 export interface EngineEvents {
@@ -24,13 +24,14 @@ export interface EngineEvents {
                      prerequisites?: string[]; codeNotes?: string; comments?: string };
   "search.done": { total: number };
   "lesson.building": { message: string; progress: number; failed?: boolean; elapsedS?: number };   // message = the stage (changes only with the stage); elapsedS = seconds since the build started (the 1 s heartbeat)   // progress 0..1 for the launcher; ~1/s while building; failed: true = the build ended in error (an `error` + status idle follow): drop the building UI
-  "lesson.ready": { lesson: { id: string; title: string; sources: Source[]; complete?: boolean; builtBy?: "gemini" | "claude" | "mixed" | "unknown";
-                              goalMatch?: { score: number | null; note: string } }; steps: StepSummary[] };   // complete false = a long video is still building (see lesson.updated)
+  "lesson.ready": { lesson: { id: string; title: string; sources: Source[]; complete?: boolean; builtBy?: "gemini" | "claude" | "mixed" | "chapters" | "unknown"; provisional?: boolean;
+                              goalMatch?: { score: number | null; note: string };
+                              mode?: "video" | "lesson" }; steps: StepSummary[] };   // mode "lesson" ("Just teach me"): no video, no player events; the editor is full screen and each step spotlights where to type   // complete false = a long video is still building (see lesson.updated)
   /** a long video's next part was built: new steps APPENDED (ids never change, earlier steps never edited) */
   "lesson.updated": { steps: StepSummary[]; complete: boolean; parts?: { done: number; failed: number; total: number } };
-  "step.started": { stepId: string; index: number; title: string; instructions: string; video?: VideoSegment };
+  "step.started": { stepId: string; index: number; title: string; instructions: string; video?: VideoSegment | null };   // video null/absent: no player for this step
   "check.updated": { stepId: string; checkId: string; label: string; status: CheckStatus; detail?: string };
-  "step.passed": { stepId: string; nextStepId?: string; pending?: boolean };   // pending: no next step YET (the next part is still building); the engine continues on lesson.updated
+  "step.passed": { stepId: string; nextStepId?: string; pending?: boolean; skipped?: boolean };   // skipped: the learner pressed Skip (action skip_step): not a pass, never green  // pending: no next step YET (the next part is still building); the engine continues on lesson.updated
   "offtrack": {
     stepId: string;
     severity: "warn" | "fail";
@@ -44,19 +45,23 @@ export interface EngineEvents {
     guidingQuestion?: string;  // a Socratic nudge to show under the body
   };
   /** Screen-first: rect is in screen POINTS, TOP-LEFT origin (Electron convention), relative to the PRIMARY display's FULL frame (y=0 is the very top, menu bar included). v1 watches the primary display only. Same convention for overlay.bounds. */
-  "spotlight": { rect: { x: number; y: number; w: number; h: number }; caption: string; app?: string; matched?: string } | { clear: true };
+  "spotlight": { rect: { x: number; y: number; w: number; h: number }; caption: string; app?: string; matched?: string; snippet?: string } | { clear: true };   // snippet: code to type there (lesson mode / Show me), shown monospace under the caption
   /** What the engine currently sees (debug HUD / optional). */
   "screen.seen": { app: string; summary: string; t: number };
   "video.seek": { t: number; play: boolean };
   "video.pause": {};
   "video.play": {};
   "card": { stepId?: string; kind: "explain" | "hint" | "answer" | "resume" | "setup" | "preflight"; title: string; body: string; videoJump?: { t: number; label: string };
-            actions?: Array<"confirm" | "undo" | "apply_fix" | "open_editor" | "resume" | "end_lesson" | "install" | "skip_setup" | "open_in_browser" | "build" | "pick_another">;    // buttons on the card -> send `action {kind}`
+            actions?: Array<"confirm" | "undo" | "apply_fix" | "open_editor" | "resume" | "end_lesson" | "install" | "skip_setup" | "open_in_browser" | "build" | "pick_another" | "download" | "skip_step" | "check_step">;    // buttons on the card -> send `action {kind}`
             items?: SetupItem[];          // kind "preflight": early tool check (a second card of the same kind replaces the first)
             warning?: string;             // kind "preflight": shown in amber when the video doesn't fit the goal (goalMatch.score < 0.5)
             recommended?: "build" | "pick_another";   // which button to make primary
             preflight?: PreflightInfo;    // kind "preflight": what the picked video is, before anything is built
-            setup?: { editorNeeded: boolean; items: SetupItem[] };   // kind "setup": what the lesson needs on this Mac (one Install button per missing item -> action install {text: tool})
+            where?: string;               // coach (E5): where to go when the place isn't on screen ("Open app.py in Cursor"); shown without a dim
+            setup?: { editorNeeded: boolean; items: SetupItem[];
+                      editorLabel?: string | null;                       // "Cursor": the open_editor button reads "Open Cursor"
+                      resources?: Array<{ name: string; url: string; kind: "repo" | "notebook" | "gist" | "file" }>;   // files the video links (action download)
+                      actionLabels?: { [action: string]: string } };     // button labels, e.g. download: "Download tutorial files"   // kind "setup": what the lesson needs on this Mac (one Install button per missing item -> action install {text: tool})
             diff?: string;               // unified diff to preview ("Apply this fix?" -> confirm)
             targets?: Array<{ boxId: number; label: string; text: string; rect: { x: number; y: number; w: number; h: number } }>;
             guidingQuestion?: string };
@@ -97,7 +102,8 @@ export interface PreflightInfo {
   buildPlan: { strategy: "whole" | "chapters"; estSecondsToFirstSteps: number;
                firstChapter: { index: number; lastIndex: number; title: string; start: number; end: number; window?: boolean } | null;
                firstHandsOn?: { index: number; title: string; start: number };
-               windows?: number };
+               windows?: number;
+               skippedIntro?: { start: number; end: number } };   // a talk-only intro part 1 skips (seconds)
   editorNeeded?: boolean | null; partial: boolean;
 }
 
@@ -115,10 +121,10 @@ export interface GraphDiagramData {
 
 // ---------- App -> Engine commands ----------
 export interface AppCommands {
-  "learn": { query: string };                       // launcher text
+  "learn": { query: string; mode?: "video" | "lesson" };   // launcher text; mode "lesson" = "Just teach me": no video search, a text lesson built for the goal (default "video")
   "learn_url": { url: string };                     // pasted YouTube link
   "build_lesson": { resultIds: string[] };
-  "action": { kind: "back" | "explain" | "diagram" | "show_me" | "hint" | "voice_toggle" | "ask" | "apply_fix" | "confirm" | "undo" | "open_editor" | "resume" | "end_lesson" | "install" | "skip_setup" | "open_in_browser" | "build" | "pick_another"; text?: string };  // build / pick_another: the preflight card  // install / open_in_browser: text = setup item tool id  // resume / end_lesson: the "Continue where you left off?" card  // open_editor: the learner accepted "Open VS Code?"  // confirm: "Looks done?" card; undo: revert the last "Do it for me"
+  "action": { kind: "back" | "explain" | "diagram" | "show_me" | "hint" | "voice_toggle" | "ask" | "apply_fix" | "confirm" | "undo" | "open_editor" | "resume" | "end_lesson" | "install" | "skip_setup" | "open_in_browser" | "build" | "pick_another" | "download" | "skip_step" | "check_step"; text?: string };  // check_step: "Can I move on?" -> the engine re-runs the checks now and Claude judges the screen; replies with check.updated + step.passed, or a card saying what is missing  // skip_step: leave the current step unfinished and start the next one  // download: the video's linked files -> <lesson folder>/tutorial/  // build / pick_another: the preflight card  // install / open_in_browser: text = setup item tool id  // resume / end_lesson: the "Continue where you left off?" card  // open_editor: the learner accepted "Open VS Code?"  // confirm: "Looks done?" card; undo: revert the last "Do it for me"
   "video.state": { t: number; playing: boolean };   // player reports its position
   "end_lesson": {};                                  // stop everything; the engine answers lesson.ended + status idle
   "overlay.bounds": { rects: Array<{ x: number; y: number; w: number; h: number }> };

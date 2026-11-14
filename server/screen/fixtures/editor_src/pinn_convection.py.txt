@@ -1,0 +1,115 @@
+"""Physics-informed neural network for the 1D convection equation.
+
+    u_t + beta * u_x = 0,   x in [0, 2*pi],   t in [0, 1]
+    u(x, 0) = sin(x),       periodic boundary
+
+The network takes (x, t) and returns u. The loss is the PDE residual on
+collocation points plus the initial-condition error.
+"""
+import math
+
+import torch
+from torch import nn
+
+BETA = 30.0
+N_COLLOCATION = 2000
+N_INITIAL = 256
+EPOCHS = 5000
+LEARNING_RATE = 1e-3
+
+
+class MLP(nn.Module):
+    def __init__(self, width: int = 64, depth: int = 4):
+        super().__init__()
+        layers = [nn.Linear(2, width), nn.Tanh()]
+        for _ in range(depth - 1):
+            layers += [nn.Linear(width, width), nn.Tanh()]
+        layers.append(nn.Linear(width, 1))
+        self.net = nn.Sequential(*layers)
+
+    def forward(self, x, t):
+        return self.net(torch.cat([x, t], dim=1))
+
+
+def sample_collocation(n: int):
+    x = torch.rand(n, 1) * 2 * math.pi
+    t = torch.rand(n, 1)
+    x.requires_grad_(True)
+    t.requires_grad_(True)
+    return x, t
+
+
+def sample_initial(n: int):
+    x = torch.linspace(0, 2 * math.pi, n).reshape(-1, 1)
+    t = torch.zeros_like(x)
+    return x, t, torch.sin(x)
+
+
+def pde_residual(model, x, t, beta=BETA):
+    u = model(x, t)
+    ones = torch.ones_like(u)
+    u_t = torch.autograd.grad(u, t, ones, create_graph=True)[0]
+    u_x = torch.autograd.grad(u, x, ones, create_graph=True)[0]
+    return u_t + beta * u_x
+
+
+def initial_loss(model, x0, t0, u0):
+    return torch.mean((model(x0, t0) - u0) ** 2)
+
+
+def boundary_loss(model, n: int = 128):
+    t = torch.rand(n, 1)
+    left = model(torch.zeros_like(t), t)
+    right = model(torch.full_like(t, 2 * math.pi), t)
+    return torch.mean((left - right) ** 2)
+
+
+def total_loss(model, xc, tc, x0, t0, u0):
+    r = pde_residual(model, xc, tc)
+    loss_pde = torch.mean(r ** 2)
+    loss_ic = initial_loss(model, x0, t0, u0)
+    loss_bc = boundary_loss(model)
+    return loss_pde + 100.0 * loss_ic + loss_bc, loss_pde, loss_ic
+
+
+def train(epochs: int = EPOCHS, lr: float = LEARNING_RATE, seed: int = 0):
+    torch.manual_seed(seed)
+    model = MLP()
+    opt = torch.optim.Adam(model.parameters(), lr=lr)
+    xc, tc = sample_collocation(N_COLLOCATION)
+    x0, t0, u0 = sample_initial(N_INITIAL)
+    history = []
+    for epoch in range(epochs + 1):
+        opt.zero_grad()
+        loss, loss_pde, loss_ic = total_loss(model, xc, tc, x0, t0, u0)
+        loss.backward()
+        opt.step()
+        if epoch % 100 == 0:
+            history.append(loss.item())
+            print(f"epoch {epoch:5d} | loss {loss.item():.4e} | pde {loss_pde.item():.3e}")
+    return model, history
+
+
+def evaluate(model, nx: int = 256, nt: int = 100):
+    x = torch.linspace(0, 2 * math.pi, nx)
+    t = torch.linspace(0, 1, nt)
+    xx, tt = torch.meshgrid(x, t, indexing="ij")
+    with torch.no_grad():
+        u = model(xx.reshape(-1, 1), tt.reshape(-1, 1)).reshape(nx, nt)
+    exact = torch.sin(xx - BETA * tt)
+    err = torch.linalg.norm(u - exact) / torch.linalg.norm(exact)
+    return u, exact, err.item()
+
+
+def curriculum(betas=(1.0, 5.0, 10.0, 20.0, 30.0)):
+    model = None
+    for beta in betas:
+        print(f"curriculum stage beta={beta}")
+        model, _ = train(epochs=1000)
+    return model
+
+
+if __name__ == "__main__":
+    model, history = train()
+    _, _, rel_err = evaluate(model)
+    print(f"relative L2 error: {rel_err:.3e}")

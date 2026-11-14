@@ -42,7 +42,9 @@ def _retry_after(err: Exception) -> float:
 
 def _mark(model: str, e: Exception, now: float) -> None:
     msg = str(e)
-    if "429" in msg or "RESOURCE_EXHAUSTED" in msg:
+    if "402" in msg or "prepayment credits" in msg:  # prepaid billing ran out: nothing works until a top-up
+        _exhausted[model], _why[model] = now + 3600, "credits depleted"
+    elif "429" in msg or "RESOURCE_EXHAUSTED" in msg:
         _exhausted[model], _why[model] = now + min(_retry_after(e), 3600), "quota"
     elif "503" in msg or "UNAVAILABLE" in msg:
         _exhausted[model], _why[model] = now + 4, "overloaded"  # transient: retry soon
@@ -272,6 +274,8 @@ def failure(e: BaseException) -> str:
     msg = str(e)
     if isinstance(e, asyncio.TimeoutError) or "did not answer" in msg:
         return "timeout"
+    if "402" in msg or "prepayment credits" in msg or "credits depleted" in msg:
+        return "credits depleted"
     if "429" in msg or "RESOURCE_EXHAUSTED" in msg or "(quota)" in msg:
         return "quota"
     if "503" in msg or "UNAVAILABLE" in msg or "overloaded" in msg:

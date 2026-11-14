@@ -33,7 +33,8 @@ def _checkable(text: str) -> set[str]:
     """URLs worth checking: not inside a backticked command (that's what the learner types), and not
     the learner's own dev server (localhost etc. is never up at build time)."""
     text = _BACKTICKED.sub(" ", text or "")
-    return {u.rstrip(".,;:!?") for u in URL_RE.findall(text) if not _LOCAL.match(u)}
+    urls = (u.rstrip(".,;:!?") for u in URL_RE.findall(text))  # strip sentence punctuation BEFORE the local test
+    return {u for u in urls if not _LOCAL.match(u)}
 
 
 def urls_in_steps(steps: list[dict]) -> set[str]:

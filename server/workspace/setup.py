@@ -27,6 +27,7 @@ from pathlib import Path
 
 from jsonschema import Draft202012Validator
 
+from . import editor as _editor
 from . import paths
 from .scaffold import _extract_json, _reply_text, make_client
 
@@ -42,6 +43,8 @@ _VER = re.compile(r"(\d+(?:\.\d+){0,3})")
 # Known tools: how to find them and how to install them. Claude's ids are mapped onto these;
 # anything else is checked generically (`which <bin>` / `import <module>`).
 CATALOG: dict[str, dict] = {
+    "cursor": {"label": "Cursor", "kind": "editor", "bundle": "com.todesktop.230313mzl4w4u92", "app": "Cursor",
+               "bin": "cursor", "cask": "cursor", "url": "https://cursor.com/downloads"},
     "vscode": {"label": "Visual Studio Code", "kind": "editor", "bundle": "com.microsoft.VSCode", "app": "Visual Studio Code",
                "bin": "code", "cask": "visual-studio-code", "url": "https://code.visualstudio.com/download"},
     "python": {"label": "Python 3", "kind": "runtime", "bin": "python3", "formula": "python@3.12", "url": "https://www.python.org/downloads/macos/"},
@@ -141,12 +144,102 @@ Go only by the video's steps above (what the learner typed when searching is not
 Runner = Callable[[list[str]], tuple[int, str]]
 
 
+TIMEOUT = 124  # _run's exit code for "timed out" (the output so far is returned)
+PY_CHECK_TIMEOUT = float(os.environ.get("MIYAGI_PY_CHECK_TIMEOUT", "45"))  # cold torch/matplotlib imports: 5-20 s
+
+
 def _run(argv: list[str], timeout: float = 8.0) -> tuple[int, str]:
     try:
         r = subprocess.run(argv, capture_output=True, text=True, timeout=timeout, check=False, stdin=subprocess.DEVNULL)
+    except subprocess.TimeoutExpired as e:
+        partial = e.stdout.decode(errors="replace") if isinstance(e.stdout, bytes) else (e.stdout or "")
+        return TIMEOUT, partial
     except (OSError, subprocess.SubprocessError) as e:
         return 127, str(e)
     return r.returncode, (r.stdout or "") + (r.stderr or "")
+
+
+# One interpreter imports every package in turn (no parallel cold imports), printing a line per package as
+# it goes, so a timeout still keeps the packages already checked. A module that exists but fails to
+# import for another reason is installed-but-broken, not missing (reinstalling wouldn't help).
+_PY_PROBE = """
+import importlib, importlib.metadata as md, json, sys
+for i, (cands, dist) in enumerate(json.loads(sys.argv[1])):
+    r = {"i": i, "ok": False}
+    for m in cands:
+        try:
+            mod = importlib.import_module(m)
+        except ModuleNotFoundError:
+            continue
+        except Exception as e:
+            r = {"i": i, "ok": True, "mod": m, "ver": "", "broken": type(e).__name__ + ": " + str(e)[:120]}
+            break
+        r = {"i": i, "ok": True, "mod": m, "ver": str(getattr(mod, "__version__", "") or "")}
+        break
+    if r["ok"] and not r.get("ver") and dist:
+        try:
+            r["ver"] = md.version(dist)
+        except Exception:
+            pass
+    print(json.dumps(r), flush=True)
+"""
+# pip name -> import names, for the common mismatches (the import name Claude gives is tried first).
+IMPORT_ALIASES = {
+    "pydoe": ["pyDOE", "pydoe"], "pydoe2": ["pyDOE2", "pydoe2"], "scikit-learn": ["sklearn"], "pillow": ["PIL"],
+    "opencv-python": ["cv2"], "opencv-python-headless": ["cv2"], "beautifulsoup4": ["bs4"], "pyyaml": ["yaml"],
+    "python-dotenv": ["dotenv"], "scikit-image": ["skimage"], "pytorch": ["torch"], "tensorflow-cpu": ["tensorflow"],
+}
+_MOD = re.compile(r"[A-Za-z_][\w.]*")
+
+
+def import_candidates(item: dict) -> list[str]:
+    """Import names to try: Claude's import_name, its lowercase, known aliases of the pip name, the pip name
+    as a module (dashes -> underscores) and its lowercase. pyDOE's current release installs `pydoe`."""
+    cat = CATALOG.get(item.get("tool", ""), {})
+    pip = re.split(r"[\[<>=!~ ;]", (item.get("pip_name") or cat.get("pip") or item.get("tool") or "").strip())[0]
+    base = [item.get("import_name") or "", cat.get("module") or ""]
+    base += IMPORT_ALIASES.get(pip.lower(), []) + IMPORT_ALIASES.get((item.get("tool") or "").lower(), [])
+    base += [pip.replace("-", "_"), (item.get("tool") or "").replace("-", "_")]
+    out: list[str] = []
+    for m in base:
+        for v in (m, m.lower()):
+            if v and _MOD.fullmatch(v) and v not in out:
+                out.append(v)
+    return out[:8]
+
+
+def check_python_packages(items: list[dict], py: str | None, *, run: Runner = _run, timeout: float | None = None) -> None:
+    """Fill installed / version / ok on python_package items with ONE interpreter run. A package the probe
+    didn't reach before the timeout is unknown (installed=None, ok=None, unknown=True), never "missing"."""
+    if not items:
+        return
+    if not py:
+        for it in items:
+            it.update(installed=False, version="", where="", ok=False)
+        return
+    payload = [[import_candidates(it), re.split(r"[\[<>=!~ ;]", it.get("pip_name") or it.get("tool") or "")[0]] for it in items]
+    code, out = (run([py, "-c", _PY_PROBE, json.dumps(payload)], timeout=timeout or PY_CHECK_TIMEOUT)
+                 if run is _run else run([py, "-c", _PY_PROBE, json.dumps(payload)]))
+    seen: dict[int, dict] = {}
+    for line in (out or "").splitlines():
+        try:
+            r = json.loads(line)
+        except ValueError:
+            continue
+        if isinstance(r, dict) and isinstance(r.get("i"), int):
+            seen[r["i"]] = r
+    for i, it in enumerate(items):
+        r = seen.get(i)
+        if r is None:  # probe timed out / crashed before this one: we don't know
+            it.update(installed=None, version="", where=py, ok=None, unknown=True,
+                      detail="timed out checking (cold import); try again" if code == TIMEOUT else "couldn't check")
+            continue
+        version = _version(r.get("ver") or "")
+        it.update(installed=bool(r["ok"]), version=version, where=py, import_name=r.get("mod") or it.get("import_name", ""),
+                  ok=bool(r["ok"]) and meets(version, it.get("min_version", "")))
+        it.pop("unknown", None)
+        if r.get("broken"):
+            it["detail"] = "installed but fails to import: " + r["broken"]
 
 
 def _version(text: str) -> str:
@@ -207,13 +300,8 @@ def check(item: dict, *, workdir: Path | str | None = None, run: Runner = _run) 
         item.update(installed=True, version="", where=cat.get("url") or _https(item.get("url", "")), ok=True)
         return item
     if kind == "python_package":
-        py = venv_python(workdir) or best_python()
-        mod = item.get("import_name") or cat.get("module") or item["tool"]
-        if py and re.fullmatch(r"[A-Za-z_][\w.]*", mod):
-            code, out = run([py, "-c", f"import {mod} as m; print(getattr(m, '__version__', ''))"])
-            installed = code == 0
-            version = _version(out.strip().splitlines()[-1]) if installed and out.strip() else ""
-            where = py
+        check_python_packages([item], venv_python(workdir) or best_python(), run=run)
+        return item
     else:
         if cat.get("bundle") or kind in ("app", "editor"):
             app = find_app(cat.get("bundle", ""), cat.get("app", item.get("label", "")), run)
@@ -282,9 +370,22 @@ def _lesson_json(graph: dict) -> str:
     return json.dumps(slim, indent=1)[:50_000]
 
 
-def _cache_file(graph: dict) -> Path:
+def cache_key(graph: dict) -> str:
+    """Keyed by the VIDEO when there is one: the prompt never sees the learner's goal, so the tool list
+    depends only on the video. S8's preflight (lesson id "preflight-<videoId>", one step per chapter)
+    therefore warms the cache that the real lesson's setup card reads. Else the lesson id / first URL."""
+    for src in graph.get("sources") or []:
+        if vid := (src.get("videoId") or paths.video_id(src.get("url", ""))):
+            return f"video-{vid}"
     meta = paths.lesson_meta(graph)
-    key = hashlib.sha1((meta.get("id") or paths.primary_url(graph) or json.dumps(graph, sort_keys=True)[:4000]).encode()).hexdigest()[:12]
+    if (m := re.fullmatch(r"preflight-([\w-]{6,})", meta.get("id") or "")) and m.group(1) != "url":
+        return f"video-{m.group(1)}"
+    basis = meta.get("id") or paths.primary_url(graph) or json.dumps(graph, sort_keys=True)[:4000]
+    return "lesson-" + hashlib.sha1(basis.encode()).hexdigest()[:12]
+
+
+def _cache_file(graph: dict) -> Path:
+    key = re.sub(r"[^A-Za-z0-9_-]", "_", cache_key(graph))
     return paths.lessons_root() / ".miyagi-state" / "requirements" / f"{key}.json"
 
 
@@ -318,18 +419,18 @@ def _https(url: str) -> str:
 
 
 def _canonical(tool: str) -> str:
-    t = re.sub(r"\s+", " ", (tool or "").strip().lower())
+    t = re.sub(r"[\s_-]+", " ", (tool or "").strip().lower())  # "openai-agent-builder" == "OpenAI Agent Builder"
     return ALIASES.get(t, t.replace(" ", "-"))
 
 
 def _items(raw: dict) -> list[dict]:
     ed = raw.get("editor") or {}
     items = [{
-        "tool": "vscode", "label": CATALOG["vscode"]["label"], "kind": "editor", "needed": bool(ed.get("needed")),
+        "tool": (eid := _editor.editor_id()), "label": CATALOG[eid]["label"], "kind": "editor", "needed": bool(ed.get("needed")),
         "why": (ed.get("why") or "") if ed.get("needed") else "No editor needed: " + _lower_first(ed.get("why") or "this lesson doesn't edit code files."),
         "min_version": "",
     }]
-    seen = {"vscode"}
+    seen = {"vscode", "cursor"}  # the editor is item 0 only (Cursor when installed, MIYAGI_EDITOR overrides)
     for t in (raw.get("tools") or [])[:20]:
         tool = _canonical(t.get("tool", ""))
         if not tool or tool in seen or not re.fullmatch(r"[a-z0-9][a-z0-9._+@\-]{0,40}", tool):
@@ -377,8 +478,13 @@ def requirements(lesson: dict, *, workdir: Path | str | None = None, client=None
         cache.write_text(json.dumps(raw, indent=1))
     items = _items(raw)
     brew = brew_path()
+    pys = [it for it in items if it["kind"] == "python_package"]
     with ThreadPoolExecutor(max_workers=8) as ex:
-        list(ex.map(lambda it: check(it, workdir=workdir, run=run), items))
+        futs = [ex.submit(check, it, workdir=workdir, run=run) for it in items if it["kind"] != "python_package"]
+        if pys:  # one interpreter, packages imported one after another (cold imports in parallel time out)
+            futs.append(ex.submit(check_python_packages, pys, venv_python(workdir) or best_python(), run=run))
+        for f in futs:
+            f.result()
     for it in items:
         it["install"] = {k: v for k, v in recipe(it, brew).items() if k != "package"}
     return items
@@ -389,8 +495,13 @@ def editor_needed(items: list[dict]) -> bool:
 
 
 def missing(items: list[dict]) -> list[dict]:
-    """Needed items that aren't installed or are too old."""
-    return [it for it in items if it["needed"] and not it.get("ok")]
+    """Needed items that aren't installed or are too old (items we couldn't check are not "missing")."""
+    return [it for it in items if it["needed"] and not it.get("ok") and not it.get("unknown")]
+
+
+def unknown(items: list[dict]) -> list[dict]:
+    """Items whose check didn't finish (e.g. a cold torch import past the timeout)."""
+    return [it for it in items if it.get("unknown")]
 
 
 # --------------------------------------------------------------------------- install()
@@ -475,7 +586,7 @@ def _last_error(text: str) -> str:
 
 # --------------------------------------------------------------------------- card payload (proposal)
 
-def setup_card(items: list[dict], *, step_id: str | None = None) -> dict:
+def setup_card(items: list[dict], *, step_id: str | None = None, resources: list[dict] | None = None) -> dict:
     """The proposed `card {kind: "setup"}` payload for the app (see README: contract proposal)."""
     miss = missing(items)
     need_ed = editor_needed(items)
@@ -485,22 +596,36 @@ def setup_card(items: list[dict], *, step_id: str | None = None) -> dict:
         body = "Missing: " + ", ".join(it["label"] for it in miss) + ". Install now?"
     elif web and not need_ed:
         body = "Nothing to install."
+    elif unknown(items):
+        body = "Nothing missing so far."
     else:
         body = "You have everything this lesson needs."
+    if unk := unknown(items):
+        body += " Still checking " + ", ".join(it["label"] for it in unk) + " (first import is slow)."
     if web:
         body += " In your browser: " + ", ".join(it["label"] for it in web) + "."
     if not need_ed and ed:
         body += " " + ed["why"]
+    elif need_ed and ed and ed.get("installed"):
+        body += f" Open the lesson folder in {ed['label']}?"
+    if resources:  # find_resources(): the video links its own code/notebooks/data
+        body += f" The video links its materials ({', '.join(r['name'] for r in resources[:3])}{'…' if len(resources) > 3 else ''}): download them?"
     actions = ((["open_editor"] if need_ed and ed and ed.get("installed") else []) + (["open_in_browser"] if web else [])
-               + (["install"] if miss else []) + ["skip_setup"])
+               + (["download"] if resources else []) + (["install"] if miss else []) + ["skip_setup"])
     card = {
         "kind": "setup", "title": "Before you start" if miss else "Ready to go", "body": body,
         "actions": actions,
         "setup": {
             "editorNeeded": need_ed,
+            "editor": ed["tool"] if ed else None,          # "cursor" | "vscode"
+            "editorLabel": ed["label"] if ed else None,    # "Cursor": the open_editor button reads "Open Cursor"
+            "resources": [{"name": r["name"], "url": r["url"], "kind": r["kind"]} for r in resources or []],
+            "actionLabels": {"open_editor": f"Open {ed['label']}" if ed else "Open editor", "open_in_browser": "Open in browser",
+                             "download": "Download tutorial files",
+                             "install": "Install", "skip_setup": "Skip"},
             "items": [{
                 "tool": it["tool"], "label": it["label"], "kind": it["kind"], "why": it["why"], "needed": it["needed"],
-                "installed": it.get("installed", False), "ok": it.get("ok", False), "version": it.get("version") or None,
+                "installed": it.get("installed", False), "ok": it.get("ok", False), "unknown": bool(it.get("unknown")), "version": it.get("version") or None,
                 "minVersion": it.get("min_version") or None,
                 "install": {"method": it["install"]["method"], "command": it["install"]["command"] or None, "url": it["install"]["url"] or None},
             } for it in items],

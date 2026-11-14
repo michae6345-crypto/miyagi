@@ -166,16 +166,35 @@ async def fetch(kind: str, url: str) -> str | None:
     if not cfg:
         return None
     key, serp_zone, unlocker_zone = cfg
+    body = ""
     try:
         async with httpx.AsyncClient(timeout=15.0) as client:
-            body = await _bd_request(client, key, serp_zone if kind == "serp" else unlocker_zone, url)
+            for attempt in range(2):  # live: Bright Data sometimes answers 200 with an empty body; retry once
+                body = await _bd_request(client, key, serp_zone if kind == "serp" else unlocker_zone, url)
+                if _usable(kind, body):
+                    break
+                log.info("bright data %s: empty/invalid body (attempt %d)", kind, attempt + 1)
+                await asyncio.sleep(0.2)
     except httpx.HTTPError as e:
         log.info("bright data %s failed for %s: %s", kind, url, e)
+        return None
+    if not _usable(kind, body):
         return None
     if wd := os.environ.get("COACH_RECORD_DIR"):
         Path(wd).mkdir(parents=True, exist_ok=True)
         (Path(wd) / f"{_fixture(kind, url)}.json").write_text(json.dumps({"url": url, "body": body[:200_000]}, ensure_ascii=False) + "\n")
     return body
+
+
+def _usable(kind: str, body: str) -> bool:
+    if not body or not body.strip():
+        return False
+    if kind == "serp":
+        try:
+            json.loads(body)
+        except json.JSONDecodeError:
+            return "<html" in body[:2000].lower()  # HTML SERP is parsed by the link fallback
+    return True
 
 
 def serp_url(query: str) -> str:
@@ -225,7 +244,10 @@ def _focus(text: str, terms: list[str], limit: int) -> str:
 async def _docs_for(library: str, symbol: str = "", *, error: str = "", max_pages: int = 1) -> list[dict]:
     domains = OFFICIAL_DOMAINS.get(library, [])
     site = " OR ".join(f"site:{d.split('/')[0]}" for d in domains)
-    q = " ".join(x for x in [library, symbol, f'"{error}"' if error and len(error) < 120 else "", site or "documentation"] if x)
+    # docs pages don't contain error text: search library + symbol (live: quoting the error → 0 hits);
+    # with no symbol, fall back to the error's distinctive words
+    words = symbol or " ".join(re.findall(r"[A-Za-z_][\w.]{2,}", error or "")[:6])
+    q = " ".join(x for x in [library, words, site or "documentation"] if x)
     raw = await fetch("serp", serp_url(q))
     if not raw:
         return []
@@ -259,14 +281,16 @@ async def gather(library: str, symbol: str, query: str, *, error: str = "", time
         return []
     tasks = []
     if library:
-        tasks.append(docs_for(library, symbol, error=error))
+        tasks.append(asyncio.ensure_future(docs_for(library, symbol, error=error)))
     if query:
-        tasks.append(community_signals(query))
-    try:
-        results = await asyncio.wait_for(asyncio.gather(*tasks, return_exceptions=True), timeout)
-    except TimeoutError:
-        log.info("web grounding timed out after %.1fs", timeout)
-        return []
+        tasks.append(asyncio.ensure_future(community_signals(query)))
+    # keep whatever finished in time (one slow SERP must not sink the other result)
+    done, pending = await asyncio.wait(tasks, timeout=timeout)
+    for t in pending:
+        t.cancel()
+    if pending:
+        log.info("web grounding: %d of %d lookups still running after %.1fs; using the rest", len(pending), len(tasks), timeout)
+    results = [t.exception() or t.result() for t in tasks if t in done and not t.cancelled()]
     seen, out = set(), []
     for r in results:
         if isinstance(r, BaseException):

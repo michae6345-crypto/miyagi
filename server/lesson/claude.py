@@ -14,13 +14,17 @@ import os
 import anthropic
 from jsonschema import Draft202012Validator
 
-from . import gemini
+from . import cost, gemini
 from .schema import ADAPTED_SCHEMA, VIDEO_DRAFT_SCHEMA
 from .transcript import format_for_prompt
 
 log = logging.getLogger("server.lesson")
 
 DEFAULT_MODEL = "claude-opus-5-5"
+# Cheapest model that holds quality per job; Opus only when a quality check fails (escalation).
+ROLE_MODELS = {"segment": "claude-sonnet-5-5", "detail": "claude-haiku-5-5", "adapt": "claude-haiku-5-5", "judge": "claude-haiku-5-5",
+               "escalate": "claude-opus-5-5"}
+ESCALATION_MODEL = "claude-opus-5-5"
 last_model: str | None = None  # model that served the most recent successful call (for build.model)
 _client: anthropic.AsyncAnthropic | None = None
 _override_key: str | None = None
@@ -32,9 +36,19 @@ def set_api_key(key: str | None) -> None:
     _override_key, _client = key or None, None
 
 
-def model() -> str:
+def model(role: str | None = None) -> str:
+    """LESSON_CLAUDE_MODEL forces one model for everything; else LESSON_CLAUDE_MODEL_<ROLE> or ROLE_MODELS."""
     gemini._load_env()
-    return os.environ.get("LESSON_CLAUDE_MODEL", DEFAULT_MODEL)
+    if os.environ.get("LESSON_CLAUDE_MODEL"):
+        return os.environ["LESSON_CLAUDE_MODEL"]
+    if role is None:
+        return DEFAULT_MODEL
+    return os.environ.get(f"LESSON_CLAUDE_MODEL_{role.upper()}", ROLE_MODELS.get(role, DEFAULT_MODEL))
+
+
+def escalation_model() -> str:
+    gemini._load_env()
+    return os.environ.get("LESSON_CLAUDE_MODEL_ESCALATE", ESCALATION_MODEL)
 
 
 def client() -> anthropic.AsyncAnthropic:
@@ -97,6 +111,7 @@ async def _call(mid: str, system: str, prompt: str, *, effort: str, schema: dict
     for attempt in range(RATE_RETRIES + 1):
         try:
             async with _sem():
+                cost.count("claude_calls")
                 return await _call_once(mid, system, prompt, effort=effort, schema=schema)
         except _RateLimited as e:
             if attempt == RATE_RETRIES:
@@ -125,20 +140,22 @@ async def _call_once(mid: str, system: str, prompt: str, *, effort: str, schema:
         messages=[{"role": "user", "content": prompt}],
         thinking={"type": "adaptive"},
         output_config=output_config,
-        betas=["server-side-fallback-2026-07-01"],
-        fallbacks="default",  # on a policy decline, the API re-runs on a fallback model
     )
-    fast = _use_fast()
+    # server-side refusal fallback: Opus/Sonnet only (Haiku 5.5 has none); fast mode: Opus 5.5 only
+    if "haiku" not in mid:
+        kwargs.update(betas=["server-side-fallback-2026-07-01"], fallbacks="default")
+    fast = _use_fast() and mid.startswith("claude-opus-5-5")
+    api = client().beta.messages if "betas" in kwargs else client().messages
     try:
         try:
-            async with client().beta.messages.stream(**kwargs, **({"speed": "fast"} if fast else {})) as stream:
+            async with api.stream(**kwargs, **({"speed": "fast"} if fast else {})) as stream:
                 msg = await stream.get_final_message()
         except (anthropic.RateLimitError, anthropic.BadRequestError) as e:
             if not fast or (isinstance(e, anthropic.BadRequestError) and "speed" not in str(e).lower() and "fast" not in str(e).lower()):
                 raise
             _fast_ok = False  # fast mode has its own rate limit; fall back to standard speed
             log.warning("fast mode unavailable (%s); using standard speed", str(e)[:120])
-            async with client().beta.messages.stream(**kwargs) as stream:
+            async with api.stream(**kwargs) as stream:
                 msg = await stream.get_final_message()
     except anthropic.RateLimitError as e:
         ra = None
@@ -158,6 +175,8 @@ async def _call_once(mid: str, system: str, prompt: str, *, effort: str, schema:
         raise RuntimeError(f"Claude call failed ({e.status_code}): {str(e)[:300]}") from e
     except anthropic.APIConnectionError as e:
         raise RuntimeError(f"Claude unreachable: {e}") from e
+    u = getattr(msg, "usage", None)
+    cost.add_tokens(getattr(msg, "model", None) or mid, getattr(u, "input_tokens", 0), getattr(u, "output_tokens", 0))
     if msg.stop_reason == "refusal":
         raise RuntimeError(f"Claude declined: {getattr(msg, 'stop_details', None)}")
     if msg.stop_reason == "max_tokens":
@@ -182,11 +201,33 @@ def extract_json(text: str) -> dict:
     return obj
 
 
-async def _generate_json(system: str, prompt: str, schema: dict, *, effort: str = "high", structured: bool = True) -> dict:
+async def _generate_json(system: str, prompt: str, schema: dict, *, effort: str = "high", structured: bool = True,
+                         role: str | None = None, escalate: bool = True, check=None) -> dict:
+    """Run on the role's (cheap) model; if the reply fails validation or `check(obj)` returns a problem,
+    retry once on the escalation model (Opus)."""
+    mid = model(role)
+    try:
+        obj = await _generate_json_on(mid, system, prompt, schema, effort=effort, structured=structured)
+        problem = check(obj) if check else None
+    except RuntimeError as e:
+        if not escalate or mid == escalation_model() or "rejected the API key" in str(e) or "rate-limited" in str(e):
+            raise
+        problem = str(e)[:160]
+    if not problem:
+        return obj
+    if not escalate or mid == escalation_model():
+        raise RuntimeError(f"{mid}: {problem}")
+    log.info("%s output failed a quality check (%s); escalating to %s", mid, problem, escalation_model())
+    obj = await _generate_json_on(escalation_model(), system, prompt, schema, effort=effort, structured=structured)
+    if check and (p2 := check(obj)):
+        raise RuntimeError(f"{escalation_model()}: {p2}")
+    return obj
+
+
+async def _generate_json_on(mid: str, system: str, prompt: str, schema: dict, *, effort: str, structured: bool) -> dict:
     """Structured output when the API accepts the schema; otherwise (\"Schema is too complex\") the
     schema goes in the prompt and the reply is validated client-side, with one corrective retry."""
     global last_model
-    mid = model()
     key = json.dumps(schema, sort_keys=True)
     if structured and key not in _schema_too_complex:
         try:
@@ -291,8 +332,16 @@ async def watch_transcript(info: dict, goal: str) -> dict:
 
     effort_seg = os.environ.get("LESSON_CLAUDE_EFFORT_WATCH", "medium")
     effort_detail = os.environ.get("LESSON_CLAUDE_EFFORT_DETAIL", "low")
+    def seg_ok(o: dict) -> str | None:
+        st = o.get("steps") or []
+        if not 2 <= len(st) <= 14:
+            return f"{len(st)} steps"
+        if any(parse_ts(s.get("start")) is None or parse_ts(s.get("end")) is None for s in st):
+            return "unparseable timestamps"
+        return None
+
     seg = await _generate_json(gemini.WATCH_SYSTEM, SEGMENT_PROMPT.format(goal=goal) + "\n\n" + TRANSCRIPT_NOTE + "\n\n" + format_for_prompt(info),
-                               SEGMENT_SCHEMA, effort=effort_seg)
+                               SEGMENT_SCHEMA, effort=effort_seg, role="segment", check=seg_ok)
     steps = seg.get("steps") or []
     outline = "; ".join(f"{i}. {s.get('title')}" for i, s in enumerate(steps, 1))
     sem = asyncio.Semaphore(DETAIL_CONCURRENCY)
@@ -306,7 +355,8 @@ async def watch_transcript(info: dict, goal: str) -> dict:
                                     stack_guide=gemini.STACK_GUIDE)
         async with sem:
             # too many optional fields for structured output: skip the guaranteed 400, validate client-side
-            d = await _generate_json(gemini.WATCH_SYSTEM, prompt, STEP_DETAIL_SCHEMA, effort=effort_detail, structured=False)
+            d = await _generate_json(gemini.WATCH_SYSTEM, prompt, STEP_DETAIL_SCHEMA, effort=effort_detail, structured=False,
+                                     role="detail", check=lambda o: None if o.get("checks") else "no checks")
         return {**st, **{k: v for k, v in d.items() if k not in ("start", "end", "title", "instructions")}}
 
     filled = await asyncio.gather(*(detail(i, st) for i, st in enumerate(steps, 1)))
@@ -314,4 +364,7 @@ async def watch_transcript(info: dict, goal: str) -> dict:
 
 
 async def adapt_checks(goal: str, draft_steps: list[dict], workdir_summary: str, feedback: list[str] | None = None) -> dict:
-    return await _generate_json(gemini.ADAPT_SYSTEM, gemini.adapt_prompt(goal, draft_steps, workdir_summary, feedback), ADAPTED_SCHEMA, effort=os.environ.get("LESSON_CLAUDE_EFFORT_ADAPT", "low"), structured=False)
+    # round 1 on the cheap model; a retry round (lint feedback = the quality check failed) goes to Opus
+    return await _generate_json(gemini.ADAPT_SYSTEM, gemini.adapt_prompt(goal, draft_steps, workdir_summary, feedback), ADAPTED_SCHEMA,
+                                effort=os.environ.get("LESSON_CLAUDE_EFFORT_ADAPT", "low"), structured=False,
+                                role="adapt" if not feedback else "escalate")

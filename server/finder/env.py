@@ -95,4 +95,34 @@ def skim_models() -> list[str]:
     return _chain("FINDER_SKIM_MODEL", "gemini-3.1-flash-lite,gemini-3.5-flash-lite")
 
 
+def skim_top() -> int:
+    """How many top videos Gemini skims. Default 0 (off): Gemini is reserved for the lesson builder.
+    FINDER_SKIM_TOP=3 turns it back on; FINDER_SKIMS=0/1 is an on/off alias (0 always wins)."""
+    load_env()
+    if os.environ.get("FINDER_SKIMS", "").strip() == "0":
+        return 0
+    try:
+        n = int(os.environ.get("FINDER_SKIM_TOP", "") or 0)
+    except ValueError:
+        n = 0
+    if n == 0 and os.environ.get("FINDER_SKIMS", "").strip() == "1":
+        n = 3
+    return max(0, n)
+
+
+def gemini_fallback() -> bool:
+    """Gemini scores rows only if Claude fails AND FINDER_GEMINI_FALLBACK=1 (default off, same reason)."""
+    load_env()
+    return os.environ.get("FINDER_GEMINI_FALLBACK", "0") == "1"
+
+
+def long_video_s() -> float:
+    """Same setting as server/lesson (progressive build above it): LESSON_LONG_VIDEO_S, default 30 min."""
+    load_env()
+    try:
+        return float(os.environ.get("LESSON_LONG_VIDEO_S", 30 * 60))
+    except ValueError:
+        return 30 * 60
+
+
 CACHE_DIR = ROOT / "demo" / "cache" / "search"

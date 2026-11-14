@@ -4,10 +4,14 @@
     python -m server.screen locate "def pde_residual" [--app Code] [--out locate.png]
     python -m server.screen metrics 'epoch\\s+(?P<step>\\d+).*?loss\\s+(?P<value>[0-9.eE+-]+)' [--lesson demo]
     python -m server.screen bench [-n 10]
-    python -m server.screen describe "Is the loss converging?"
+    python -m server.screen describe "Is the loss converging?"     # Claude Opus 5.5
+    python -m server.screen where "the Run button"                 # Claude Haiku 5.5
     python -m server.screen fixture NAME [--apps Code Terminal]   # save a privacy-safe fixture PNG
+    python -m server.screen line pinn_demo/pinn_convection.py 47 [--out line.png]   # editor row rect
+    python -m server.screen anchor "def pde_residual(" [--file path] [--out anchor.png]
 
-Every command takes --image PATH to run on a saved screenshot instead of the live screen.
+Every command takes --image PATH to run on a saved screenshot instead of the live screen
+(`line`/`anchor` also take a recorded `<name>.ocr.json`).
 """
 from __future__ import annotations
 
@@ -22,6 +26,9 @@ from pathlib import Path
 
 def _obs(args):
     from .reader import ScreenReader, observe_image
+    if args.image and args.image.endswith(".json"):
+        from .types import ScreenObservation
+        return ScreenObservation.from_dict(json.loads(Path(args.image).read_text())), None
     if args.image:
         return observe_image(args.image), None
     r = ScreenReader()
@@ -135,6 +142,19 @@ def cmd_describe(args) -> None:
         sys.exit(2)
 
 
+def cmd_where(args) -> None:
+    from .describe import DescribeError
+    from .reader import ScreenReader
+    r = ScreenReader(fixture=args.image)
+    r.observe_now(force=True)
+    try:
+        res = asyncio.run(r.where(args.target, args.app))
+    except DescribeError as e:
+        print(f"where failed ({e.reason}): {e.detail}", file=sys.stderr)
+        sys.exit(2)
+    print(json.dumps(res.to_dict(), indent=2) if res else "NOT FOUND")
+
+
 def cmd_fixture(args) -> None:
     """Compose a fixture from ONLY the named apps' windows (nothing else on screen leaks in)."""
     from PIL import Image
@@ -167,6 +187,81 @@ def cmd_fixture(args) -> None:
     print(f"saved {png} with {len(wins)} windows")
 
 
+def _draw_line_loc(args, loc, reader) -> None:
+    if not args.out:
+        return
+    from PIL import ImageDraw
+
+    from . import macos
+    if args.image and args.image.endswith(".json"):
+        png = args.image.removesuffix(".ocr.json").removesuffix(".json") + ".png"
+        if not Path(png).exists():
+            return
+        pil, s = macos.cgimage_to_pil(macos.load_cgimage(png)), 2.0
+    elif args.image:
+        pil, s = macos.cgimage_to_pil(macos.load_cgimage(args.image)), 2.0
+    else:
+        pil, s = reader.screenshot_pil(), reader.latest().scale
+    d = ImageDraw.Draw(pil)
+    for r, col in ((loc.pane, (0, 160, 255)), (loc.rect, (255, 40, 40)), (loc.match_rect, (255, 200, 0))):
+        if r is not None:
+            d.rectangle([r.x * s, r.y * s, r.x2 * s, r.y2 * s], outline=col, width=max(2, int(2 * s)))
+    pil.save(args.out)
+    print(f"saved {Path(args.out).resolve()}")
+
+
+def cmd_line(args) -> None:
+    from .lines import locate_line
+    obs, reader = _obs(args)
+    loc = reader.locate_line(args.file, args.line, args.app, obs=obs) if reader else locate_line(
+        obs, args.file, args.line, args.app)
+    print(json.dumps(loc.to_dict(), indent=2))
+    _draw_line_loc(args, loc, reader)
+    sys.exit(0 if loc else 1)
+
+
+def cmd_anchor(args) -> None:
+    from .lines import locate_anchor
+    from .reader import _read_text
+    obs, reader = _obs(args)
+    loc = reader.locate_anchor(args.text, args.app, args.file) if reader else locate_anchor(
+        obs, args.text, args.app, args.file, _read_text(args.file))
+    print(json.dumps(loc.to_dict(), indent=2))
+    _draw_line_loc(args, loc, reader)
+    sys.exit(0 if loc else 1)
+
+
+def cmd_ax(args) -> None:
+    """AX spike: what the accessibility tree gives for the frontmost app, every 0.5 s."""
+    from . import ax
+    if not ax.trusted(prompt=args.prompt):
+        print(ax.AX_HELP)
+        sys.exit(1)
+    end = time.time() + args.seconds
+    while time.time() < end:
+        snap = ax.snapshot()
+        if snap is not None:
+            d = snap.to_dict()
+            print(json.dumps(d, default=str)[: args.width], flush=True)
+            if snap.editor:
+                print(f"  caret line {snap.editor.caret_line}: {snap.editor.line_text(snap.editor.caret_line)!r}  "
+                      f"rect={snap.editor.line_rect}  text_len={len(snap.editor.text)}  read={snap.read_ms:.0f}ms")
+        time.sleep(0.5)
+
+
+def cmd_cursor(args) -> None:
+    """Print the cursor context (what's under the mouse) every 0.5 s."""
+    from .reader import ScreenReader
+    r = ScreenReader(use_events=False)
+    r._start_sensors()
+    r.observe_now(force=True)
+    end = time.time() + args.seconds
+    while time.time() < end:
+        print(json.dumps(r.cursor_context()), flush=True)
+        time.sleep(0.5)
+    r.stop()
+
+
 def main(argv=None) -> None:
     p = argparse.ArgumentParser(prog="python -m server.screen")
     p.add_argument("--image", help="run on a saved screenshot instead of the live screen")
@@ -196,11 +291,35 @@ def main(argv=None) -> None:
     de = sub.add_parser("describe")
     de.add_argument("question")
     de.set_defaults(fn=cmd_describe)
+    wh = sub.add_parser("where")
+    wh.add_argument("target")
+    wh.add_argument("--app")
+    wh.set_defaults(fn=cmd_where)
     fx = sub.add_parser("fixture")
     fx.add_argument("name")
     fx.add_argument("--apps", nargs="+", default=["Code", "Terminal"])
     fx.add_argument("--titles", nargs="*", help="only windows whose title contains one of these")
     fx.set_defaults(fn=cmd_fixture)
+    axp = sub.add_parser("ax")
+    axp.add_argument("--seconds", type=float, default=10)
+    axp.add_argument("--width", type=int, default=600)
+    axp.add_argument("--prompt", action="store_true", help="show the macOS Accessibility prompt")
+    axp.set_defaults(fn=cmd_ax)
+    cu = sub.add_parser("cursor")
+    cu.add_argument("--seconds", type=float, default=10)
+    cu.set_defaults(fn=cmd_cursor)
+    li = sub.add_parser("line", help="full-width rect of an editor line (VS Code / Cursor)")
+    li.add_argument("file")
+    li.add_argument("line", type=int)
+    li.add_argument("--app")
+    li.add_argument("--out", help="save a PNG with the pane (blue) and the line (red) drawn")
+    li.set_defaults(fn=cmd_line)
+    an = sub.add_parser("anchor", help="the editor line containing TEXT")
+    an.add_argument("text")
+    an.add_argument("--file", help="the file (on disk) the anchor is in: resolves off-screen anchors")
+    an.add_argument("--app")
+    an.add_argument("--out")
+    an.set_defaults(fn=cmd_anchor)
     args = p.parse_args(argv)
     args.fn(args)
 

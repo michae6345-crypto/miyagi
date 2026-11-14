@@ -5,5 +5,6 @@
 """
 
 from .builder import build_lesson, cache_key
+from .textlesson import build_text_lesson
 
-__all__ = ["build_lesson", "cache_key"]
+__all__ = ["build_lesson", "build_text_lesson", "cache_key"]

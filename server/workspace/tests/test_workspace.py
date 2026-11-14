@@ -248,26 +248,8 @@ def test_non_hero_cached_lessons_are_not_hero():
 
 # --------------------------------------------------------------------------- editor
 
-def test_open_editor_uses_code_cli_then_falls_back(monkeypatch, tmp_path):
-    (tmp_path / "main.py").write_text("")
-    calls = []
-    monkeypatch.setattr("server.workspace.editor.code_cli", lambda: "/bin/code")
-    assert open_editor(tmp_path, "main.py", runner=lambda a: calls.append(a) or True)
-    assert calls == [["/bin/code", "-n", str(tmp_path.resolve()), "-g", str((tmp_path / "main.py").resolve())]]
-
-    calls.clear()
-    monkeypatch.setattr("server.workspace.editor.sys.platform", "darwin")
-    ok = open_editor(tmp_path, "main.py", runner=lambda a: calls.append(a) or a[0] == "open")
-    assert ok and calls[1][:3] == ["open", "-a", "Visual Studio Code"]
-
-    monkeypatch.setattr("server.workspace.editor.code_cli", lambda: None)
-    calls.clear()
-    assert open_editor(tmp_path, "missing.py", runner=lambda a: calls.append(a) or True)
-    assert calls == [["open", "-a", "Visual Studio Code", str(tmp_path.resolve())]]
-
-
 def test_open_editor_missing_folder(tmp_path):
-    assert open_editor(tmp_path / "nope", runner=lambda a: True) is False
+    assert open_editor(tmp_path / "nope", runner=lambda a: True, editor={"id": "vscode", "label": "VS Code", "app": "Visual Studio Code", "cli": "/x/code"}) is False
 
 
 def test_slug_and_hash_are_stable():

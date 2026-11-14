@@ -97,8 +97,8 @@ async def triage(
         try:
             res = await llm.structured_call(
                 purpose="triage",
-                model=llm.HAIKU,
-                system=[{"type": "text", "text": TRIAGE_SYSTEM}],
+                model=llm.model_for("triage"),
+                system=llm.cached_system(TRIAGE_SYSTEM),
                 user_text=user,
                 schema=TRIAGE_SCHEMA,
                 effort="low",
@@ -110,6 +110,8 @@ async def triage(
             route = d.get("route", "opus")
             if route == "playbook" and not pid:
                 route = "opus"
+            if route == "template" and error_text.strip():
+                route = "opus"  # an error is on screen: the learner did act; "do the step" would be wrong (S9 G2)
             return Triage(route, pid, d.get("reason", ""), "haiku")
         except llm.CoachLLMError:
             pass

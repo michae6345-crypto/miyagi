@@ -31,6 +31,7 @@ class FakeMac:
 
     def __init__(self, bins=None, apps=None, modules=None):
         self.bins, self.apps, self.modules = bins or {}, apps or {}, modules or {}
+        self.hang_from: set[int] = set()
         self.argv: list[list[str]] = []
 
     def which(self, name):
@@ -47,15 +48,21 @@ class FakeMac:
             return 0, "4.2.1\n"
         if argv[-1] == "--version":
             return 0, f"version v{self.bins[Path(argv[0]).name]}\n"
-        if len(argv) == 3 and argv[1] == "-c":
-            mod = argv[2].split()[1]
-            return (0, self.modules[mod] + "\n") if mod in self.modules else (1, f"ModuleNotFoundError: {mod}")
+        if len(argv) == 4 and argv[1] == "-c":  # the batched import probe: one JSON line per package
+            lines = []
+            for i, (cands, _dist) in enumerate(json.loads(argv[3])):
+                if i in self.hang_from:
+                    return 124, "\n".join(lines)  # timed out here
+                hit = next((m for m in cands if m in self.modules), None)
+                lines.append(json.dumps({"i": i, "ok": True, "mod": hit, "ver": self.modules[hit]} if hit else {"i": i, "ok": False}))
+            return 0, "\n".join(lines)
         return 1, ""
 
 
 @pytest.fixture(autouse=True)
 def _env(monkeypatch, tmp_path):
     monkeypatch.setenv("MIYAGI_LESSONS_DIR", str(tmp_path / "lessons"))
+    monkeypatch.setattr("server.workspace.editor.editor_id", lambda: "vscode")  # hermetic: not this Mac's editors
 
 
 @pytest.fixture
@@ -248,3 +255,70 @@ def test_pip_requirement_drops_old_pins():
     assert S.pip_requirement("scikit-learn") == "scikit-learn"
     assert S.pip_requirement("uvicorn[standard]>=0.30") == "uvicorn[standard]>=0.30"
     assert S.pip_requirement("pkg && curl evil") == "" and S.pip_requirement("-e .") == ""
+
+
+def test_preflight_warms_the_real_lessons_cache(mac):
+    """S8's preflight graph and the real lesson share a video: one Claude call, not two."""
+    real = load("pandas_pokemon.json")
+    pre = {"lesson": {"id": "preflight-vmEHCJofslg", "title": real["lesson"]["title"]},
+           "sources": [{"id": "src1", "kind": "video", "title": "t", "url": "https://youtu.be/vmEHCJofslg"}],
+           "steps": [{"id": "c1", "index": 1, "title": "Loading data", "instructions": "", "checks": []}]}
+    fc = FakeClient(reqs_reply(tools=[tool("pandas", "python_package", import_name="pandas", pip_name="pandas")]))
+    assert [it["tool"] for it in requirements(pre, client=fc, run=mac.run)] == ["vscode", "pandas"]
+    again = FakeClient()
+    assert [it["tool"] for it in requirements(real, client=again, run=mac.run)] == ["vscode", "pandas"]
+    assert len(fc.calls) == 1 and again.calls == []
+    assert S.cache_key(pre) == S.cache_key(real) == "video-vmEHCJofslg"
+    assert S.cache_key({"lesson": {"id": "preflight-vmEHCJofslg"}, "sources": [{"url": ""}]}) == "video-vmEHCJofslg"
+    other = load("git_rebase.json")  # no video id -> lesson-keyed
+    assert S.cache_key(other).startswith("lesson-")
+
+
+def test_hyphenated_ids_hit_the_catalog():
+    for raw in ("openai-agent-builder", "OpenAI Agent Builder", "openai_platform", "google-sheets", "Zapier Agents", "node.js", "visual-studio-code"):
+        assert S._canonical(raw) in S.CATALOG, raw
+    assert S._canonical("some new tool") == "some-new-tool"
+
+
+def test_import_candidates_cover_renamed_modules():
+    pydoe = tool("pydoe", "python_package", import_name="pyDOE", pip_name="pyDOE")
+    assert S.import_candidates(pydoe)[:2] == ["pyDOE", "pydoe"]
+    assert "sklearn" in S.import_candidates(tool("scikit-learn", "python_package", pip_name="scikit-learn>=1.0"))
+    assert S.import_candidates(tool("evil", "python_package", import_name="os; rm -rf")) == ["evil"]
+
+
+def test_pydoe_installed_as_lowercase_module_is_found(mac):
+    """S11's stage repro: current pyDOE on PyPI installs `pydoe`; `import pyDOE` fails."""
+    mac.bins = {"python3.12": "3.12.4"}
+    mac.modules = {"pydoe": "0.9.5", "torch": "2.5.1"}
+    mac.apps = {"com.microsoft.VSCode": "/Applications/Visual Studio Code.app"}
+    fc = FakeClient(reqs_reply(tools=[tool("pyDOE", "python_package", import_name="pyDOE", pip_name="pyDOE"),
+                                      tool("torch", "python_package", import_name="torch", pip_name="torch")]))
+    items = requirements(load("pandas_pokemon.json"), client=fc, run=mac.run)
+    pd = next(it for it in items if it["tool"] == "pydoe")
+    assert pd["installed"] and pd["ok"] and pd["import_name"] == "pydoe" and missing(items) == []
+    probes = [a for a in mac.argv if len(a) == 4 and a[1] == "-c"]
+    assert len(probes) == 1  # one interpreter for all packages
+
+
+def test_cold_import_timeout_is_unknown_not_missing(mac):
+    mac.bins = {"python3.12": "3.12.4"}
+    mac.modules = {"numpy": "2.1.0"}
+    mac.hang_from = {1, 2}  # torch and matplotlib still importing when the timeout hits
+    mac.apps = {"com.microsoft.VSCode": "/Applications/Visual Studio Code.app"}
+    fc = FakeClient(reqs_reply(tools=[tool(n, "python_package", import_name=n, pip_name=n) for n in ("numpy", "torch", "matplotlib")]))
+    items = requirements(load("pandas_pokemon.json"), client=fc, run=mac.run)
+    by = {it["tool"]: it for it in items}
+    assert by["numpy"]["ok"] and by["torch"]["unknown"] and by["torch"]["installed"] is None
+    assert missing(items) == [] and [it["tool"] for it in S.unknown(items)] == ["torch", "matplotlib"]
+    card = setup_card(items)
+    assert "install" not in card["actions"] and "Still checking torch, matplotlib" in card["body"]
+
+
+def test_real_probe_against_this_python():
+    """The probe script itself, run for real: json is importable, a made-up module isn't."""
+    import sys as _sys
+    items = [tool("json", "python_package", import_name="json", pip_name=""),
+             tool("no-such-mod-xyz", "python_package", import_name="no_such_mod_xyz", pip_name="no-such-mod-xyz")]
+    S.check_python_packages(items, _sys.executable)
+    assert items[0]["installed"] is True and items[1]["installed"] is False and not items[1].get("unknown")

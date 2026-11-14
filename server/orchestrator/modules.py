@@ -73,6 +73,14 @@ class ModuleUnavailable(RuntimeError):
     """A real module is missing or failed and stubs aren't allowed (live mode)."""
 
 
+
+def _progressive_fn(name: str) -> Callable[..., Any] | None:
+    try:
+        from server.lesson import progressive
+    except Exception:  # noqa: BLE001 - E2 not installed / older builder
+        return None
+    return getattr(progressive, name, None)
+
 class Modules:
     def __init__(self, *, demo: bool | None = None, force_stubs: str | None = None):
         self.demo = demo_mode() if demo is None else demo
@@ -232,7 +240,7 @@ class Modules:
         return g
 
     async def build_lesson(self, source_url: str, goal: str, workdir: str, on_progress: Any = None,
-                           on_update: Any = None) -> dict:
+                           on_update: Any = None, video_meta: dict | None = None) -> dict:
         if self.demo:
             # ORCH_LESSON > a cached lesson for the PICKED video > lesson.json > the newest cache > stub
             if (g := self._lesson_file()) is not None:
@@ -259,15 +267,104 @@ class Modules:
             kwargs["api_key"] = get_key("gemini")
         if fn is not None and on_progress is not None and _accepts(fn, "on_progress"):
             kwargs["on_progress"] = on_progress  # E2: stage ids for the launcher's progress line
+        if fn is not None and video_meta and _accepts(fn, "video_meta"):
+            kwargs["video_meta"] = video_meta  # S8's preflight (duration, chapters, firstHandsOn): part 1 skips the intro
+        first_part = asyncio.Event()
         if fn is not None and on_update is not None and _accepts(fn, "on_update"):
-            kwargs["on_update"] = on_update  # E2: long videos build progressively (first part, then appended parts)
+            async def on_update_marked(graph: Any, complete: bool) -> None:  # E2: long videos build progressively
+                first_part.set()
+                await _call(on_update, graph, complete)
+
+            kwargs["on_update"] = on_update_marked
+        # The timeout only covers the wait for the FIRST steps: once part 1 of a long video has arrived the
+        # learner is working, and later parts may take minutes (Karpathy: complete at ~400 s).
+        timeout = float(os.environ.get("ORCH_BUILD_TIMEOUT_S", "300"))
+        task = asyncio.ensure_future(self._run("lesson", "build_lesson",
+                                               lambda: stubs.build_lesson(source_url, goal, workdir),
+                                               source_url, goal, workdir, **kwargs))
+        waiter = asyncio.ensure_future(first_part.wait())
+        try:
+            done, _ = await asyncio.wait({task, waiter}, timeout=timeout, return_when=asyncio.FIRST_COMPLETED)
+            if not done:
+                task.cancel()
+                raise ModuleUnavailable(f"building the lesson took over {timeout:.0f}s")
+            return await task  # finished, or part 1 is in: no hard cut for the rest
+        except asyncio.CancelledError:
+            task.cancel()
+            raise
+        finally:
+            waiter.cancel()
+
+    # -- "Just teach me": a lesson with no video (E2's build_text_lesson; Claude only, no Gemini)
+    async def build_text_lesson(self, goal: str, workdir: str, on_update: Any = None, on_progress: Any = None) -> dict:
+        if self.demo:  # DEMO: a cached "lesson" mode lesson, else the fixture without its video
+            files = sorted((DEMO_CACHE / "lessons").glob("*.json"), key=lambda p: p.stat().st_mtime, reverse=True) \
+                if (DEMO_CACHE / "lessons").is_dir() else []
+            for f in files:
+                g = _read_json(f)
+                if g and (g.get("lesson") or {}).get("mode") == "lesson":
+                    return g
+            return await stubs.build_text_lesson(goal, workdir)
+        fn = self._real_fn("lesson", "build_text_lesson")
+        kwargs = {"on_update": on_update} if fn is not None and on_update is not None and _accepts(fn, "on_update") else {}
+        if fn is not None and on_progress is not None:
+            if _accepts(fn, "on_progress"):
+                kwargs["on_progress"] = on_progress
+            else:  # E2: the text builder reports stages through the same callback slot build_lesson sets
+                try:
+                    from server.lesson import builder as _b
+
+                    _b._progress.set(on_progress)
+                except Exception:  # noqa: BLE001
+                    pass
         timeout = float(os.environ.get("ORCH_BUILD_TIMEOUT_S", "300"))
         try:
-            return await asyncio.wait_for(
-                self._run("lesson", "build_lesson", lambda: stubs.build_lesson(source_url, goal, workdir),
-                          source_url, goal, workdir, **kwargs), timeout)
-        except asyncio.TimeoutError as e:
+            return await asyncio.wait_for(self._run("lesson", "build_text_lesson",
+                                                    lambda: stubs.build_text_lesson(goal, workdir),
+                                                    goal, workdir, **kwargs), timeout)
+        except TimeoutError as e:
             raise ModuleUnavailable(f"building the lesson took over {timeout:.0f}s") from e
+
+    # -- E5's Claude step judge (Haiku): the Check button and checks the machine can't see
+    def make_step_judge(self) -> Any:
+        """A coach.StepJudge per lesson, or None (no coach / stubbed)."""
+        if "coach" in self.forced:
+            return None
+        mod = self.real.get("coach")
+        cls = getattr(mod, "StepJudge", None) if mod else None
+        try:
+            return cls() if cls else None
+        except Exception:  # noqa: BLE001
+            log.exception("StepJudge() failed")
+            return None
+
+    async def judge_step(self, step: dict, screen: Any = None, files: dict | None = None, *, check_results: Any = None,
+                         focused_app: str = "", lesson: dict | None = None) -> dict | None:
+        fn = self._real_fn("coach", "judge_step")
+        if fn is None:
+            return None
+        return await fn(step, screen, files, check_results=check_results, focused_app=focused_app, lesson=lesson)
+
+    # -- E2 lazy long-video parts: later parts are built only as the learner nears them
+    def lesson_needs_more(self, graph: dict, step_index: int) -> bool:
+        """DEMO never builds more (cost freeze: no Gemini calls); LIVE asks E2's progressive.needs_more."""
+        if self.demo or "lesson" in self.forced:
+            return False
+        fn = _progressive_fn("needs_more")
+        if fn is None:
+            return False
+        try:
+            return bool(fn(graph, step_index))
+        except Exception:
+            log.exception("progressive.needs_more failed")
+            return False
+
+    async def extend_lesson(self, graph: dict, on_update: Any = None) -> dict:
+        """E2: build the NEXT pending part (one Gemini call) and return the new graph."""
+        fn = _progressive_fn("extend")
+        if fn is None:
+            raise ModuleUnavailable("server.lesson.progressive.extend is not available")
+        return _to_dict(await fn(graph, on_update=on_update))
 
     # -- checks (always real unless forced: the demo run is a real run)
     def make_context(self, ctx: RunContext) -> Any:
@@ -418,6 +515,16 @@ class Modules:
         return _to_dict(await mod.preflight(url, goal, row=row, on_late=on_late,
                                             api_keys={k: get_key(k) for k in KEY_ENV}))
 
+    def preflight_video_meta(self, res: dict | None) -> dict | None:
+        """S8 -> E2: duration / chapters / firstHandsOn in the shape build_lesson(video_meta=) expects."""
+        mod = self._preflight_mod()
+        fn = getattr(mod, "video_meta", None) if mod is not None else None
+        try:
+            return fn(res) if (fn and res) else None
+        except Exception:  # noqa: BLE001
+            log.exception("preflight.video_meta failed")
+            return None
+
     def preflight_card(self, res: dict) -> dict:
         return _to_dict(self._preflight_mod().preflight_card(res))
 
@@ -491,12 +598,28 @@ class Modules:
                               step, question, context)
         return self._public(out)
 
-    async def hint(self, step: dict, level: int, last_offtrack: dict | None = None) -> dict:
+    def has_pointing(self) -> bool:
+        return self._real_fn("coach", "show_me") is not None
+
+    async def show_me(self, step: dict, screen: Any, last_offtrack: dict | None) -> dict | None:
+        """E5: {targets, caption, where} for "where do I work now?", or None without the coach."""
+        fn = self._real_fn("coach", "show_me")
+        if fn is None:
+            return None
+        try:
+            return self._public(await _call(fn, step, screen, last_offtrack))
+        except Exception:  # noqa: BLE001 - pointing never blocks Show me
+            log.exception("coach.show_me failed")
+            return None
+
+    async def hint(self, step: dict, level: int, last_offtrack: dict | None = None, screen: Any = None) -> dict:
         cached = self._cache("cards", f"{step['id']}-hint{level}.json")
         if cached:
             return cached
         fn = self._real_fn("coach", "hint")
         kwargs = {"last_offtrack": last_offtrack} if fn is not None and _accepts(fn, "last_offtrack") else {}
+        if fn is not None and screen is not None and _accepts(fn, "screen"):
+            kwargs["screen"] = screen  # E5: exact-match pointing (targets) or `where` when the code isn't on screen
         out = await self._run("coach", "hint", lambda: stubs.hint(step, level), step, level, **kwargs)
         return self._public(out)
 

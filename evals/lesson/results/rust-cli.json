@@ -1,0 +1,772 @@
+{
+ "meta": {
+  "id": "rust-cli",
+  "url": "https://www.youtube.com/watch?v=5UA9UWWAagc",
+  "goal": "build a command-line tool in Rust with cargo that parses arguments",
+  "src": "/private/tmp/claude-501/-Users-tripi-sand-hacks-sandhacks-tutor--claude-worktrees-lesson-eval-fe1fb1/e71fa444-540f-45b2-90e3-d8ca490665c3/scratchpad/src",
+  "engine_env": "auto",
+  "wall_s": 174.3,
+  "workdir": "(fresh empty temp dir)",
+  "model": {
+   "video": "claude-opus-5-5 (transcript via youtube-transcript-api)",
+   "adapt": "claude-opus-5-5"
+  },
+  "path": "claude",
+  "fallback_notes": [],
+  "length_s": 1689
+ },
+ "graph": {
+  "lesson": {
+   "id": "lesson-afa52251",
+   "title": "Code Your Own CLI With Rust: a Better `ls` with clap, tabled and serde",
+   "goal": "build a command-line tool in Rust with cargo that parses arguments",
+   "libraries": {
+    "clap": "4.5.39 (features = [\"derive\"])",
+    "owo-colors": "4.x",
+    "strum": "0.27.x (derive)",
+    "tabled": "0.19.x",
+    "chrono": "0.4.x",
+    "serde": "1.x (features = [\"derive\"])",
+    "serde_json": "1.x"
+   },
+   "workdir": "/var/folders/2g/b60087014tq94njh6r4zdmhm0000gn/T/lesson-eval-rust-cli-qr7ke9hj"
+  },
+  "sources": [
+   {
+    "id": "src1",
+    "kind": "video",
+    "title": "Code Your Own CLI With Rust: a Better `ls` with clap, tabled and serde",
+    "url": "https://www.youtube.com/watch?v=5UA9UWWAagc",
+    "videoId": "5UA9UWWAagc"
+   }
+  ],
+  "steps": [
+   {
+    "id": "s1",
+    "index": 1,
+    "title": "Create project and parse arguments",
+    "instructions": "Run `cargo new best_ls`, add clap with the derive feature, and define a `Cli` struct deriving `Parser` with `path: Option<PathBuf>` in src/main.rs. Call `Cli::parse()` in main and run `cargo run -- -h` to see the generated help.",
+    "video": {
+     "sourceId": "src1",
+     "start": 18.0,
+     "end": 194.0
+    },
+    "checks": [
+     {
+      "id": "s1c1",
+      "type": "screen_contains",
+      "label": "Cli derives Parser",
+      "app": "Code",
+      "pattern": "derive\\(.{0,20}Parser"
+     },
+     {
+      "id": "s1c2",
+      "type": "screen_contains",
+      "label": "Cli::parse called",
+      "app": "Code",
+      "pattern": "Cli::parse\\(\\)"
+     },
+     {
+      "id": "s1c3",
+      "type": "screen_contains",
+      "label": "Help shows usage",
+      "app": "Terminal",
+      "pattern": "Usage:\\s*best_ls"
+     }
+    ],
+    "precision_checks": [
+     {
+      "id": "s1p1",
+      "type": "file_contains",
+      "label": "clap dependency added",
+      "file": "best_ls/Cargo.toml",
+      "pattern": "clap"
+     },
+     {
+      "id": "s1p2",
+      "type": "file_contains",
+      "label": "Cli derives Parser",
+      "file": "best_ls/src/main.rs",
+      "pattern": "derive\\(.*Parser"
+     }
+    ],
+    "targets": [
+     {
+      "app": "Code",
+      "file": "src/main.rs",
+      "match": "struct Cli",
+      "caption": "Argument struct parsed by clap"
+     },
+     {
+      "app": "Terminal",
+      "match": "cargo run -- -h",
+      "caption": "Pass args after --"
+     }
+    ],
+    "explanations": [
+     {
+      "topic": "Adding clap with the derive feature",
+      "t": 52.0,
+      "sourceId": "src1"
+     },
+     {
+      "topic": "Using -- to pass arguments to cargo run",
+      "t": 152.0,
+      "sourceId": "src1"
+     },
+     {
+      "topic": "Auto-generated usage/arguments/options help",
+      "t": 173.0,
+      "sourceId": "src1"
+     }
+    ],
+    "hints": [
+     "Which trait has to be derived for your struct to get a `parse()` method?",
+     "Add `#[derive(Parser)]` and `use clap::Parser;`, and make sure Cargo.toml enables `features = [\"derive\"]`.",
+     "In Cargo.toml write `clap = { version = \"4.5.39\", features = [\"derive\"] }`, then run `cargo run -- -h`."
+    ],
+    "common_mistakes": [
+     "Forgetting the `derive` feature on clap, so `#[derive(Parser)]` fails to compile",
+     "Running `cargo run -h`, which shows cargo's help instead of your program's",
+     "Not importing `std::path::PathBuf`"
+    ]
+   },
+   {
+    "id": "s2",
+    "index": 2,
+    "title": "Add version and about metadata",
+    "instructions": "Annotate `Cli` with `#[command(version, about, long_about = \"best ls command ever\")]`. Run it with `--version` and then with `-h`.",
+    "video": {
+     "sourceId": "src1",
+     "start": 204.0,
+     "end": 268.0
+    },
+    "checks": [
+     {
+      "id": "s2c1",
+      "type": "screen_contains",
+      "label": "command attribute added",
+      "app": "Code",
+      "pattern": "command\\(\\s*version"
+     },
+     {
+      "id": "s2c2",
+      "type": "screen_contains",
+      "label": "Version printed",
+      "app": "Terminal",
+      "pattern": "best_ls\\s*0\\.1\\.0"
+     }
+    ],
+    "precision_checks": [
+     {
+      "id": "s2p1",
+      "type": "file_contains",
+      "label": "long_about set",
+      "file": "best_ls/src/main.rs",
+      "pattern": "long_about"
+     }
+    ],
+    "targets": [
+     {
+      "app": "Code",
+      "file": "src/main.rs",
+      "match": "long_about",
+      "caption": "Text shown in the long help"
+     }
+    ],
+    "explanations": [
+     {
+      "topic": "command(version) adds a --version flag",
+      "t": 219.0,
+      "sourceId": "src1"
+     },
+     {
+      "topic": "long_about shown in the help output",
+      "t": 263.0,
+      "sourceId": "src1"
+     }
+    ],
+    "hints": [
+     "clap reads extra CLI metadata from an attribute placed above the struct.",
+     "Use `#[command(...)]` and list `version` and `about` inside it.",
+     "`#[command(version, about, long_about = \"best ls command ever\")]`"
+    ],
+    "common_mistakes": [
+     "Using `#[clap(...)]` from older tutorials instead of `#[command(...)]`",
+     "Putting the attribute on the field instead of the struct"
+    ]
+   },
+   {
+    "id": "s3",
+    "index": 3,
+    "title": "Read path with default fallback",
+    "instructions": "Set `let path = cli.path.unwrap_or(PathBuf::from(\".\"));` and print `path.display()`. Run once with `long_path` and once without an argument.",
+    "video": {
+     "sourceId": "src1",
+     "start": 292.0,
+     "end": 366.0
+    },
+    "checks": [
+     {
+      "id": "s3c1",
+      "type": "screen_contains",
+      "label": "unwrap_or default path",
+      "app": "Code",
+      "pattern": "unwrap_or\\(\\s*PathBuf::from"
+     },
+     {
+      "id": "s3c2",
+      "type": "screen_contains",
+      "label": "Path argument echoed",
+      "app": "Terminal",
+      "pattern": "long_path"
+     }
+    ],
+    "precision_checks": [
+     {
+      "id": "s3p1",
+      "type": "file_contains",
+      "label": "Default path fallback",
+      "file": "best_ls/src/main.rs",
+      "pattern": "unwrap_or\\(\\s*PathBuf::from"
+     }
+    ],
+    "targets": [
+     {
+      "app": "Code",
+      "file": "src/main.rs",
+      "match": "let path",
+      "caption": "Default to the current directory"
+     }
+    ],
+    "explanations": [
+     {
+      "topic": "Option path defaults to '.' when no argument is given",
+      "t": 330.0,
+      "sourceId": "src1"
+     }
+    ],
+    "hints": [
+     "`cli.path` is an Option, so what do you want to happen when it is None?",
+     "Use `unwrap_or` and give it a `PathBuf` that points to the current directory.",
+     "`let path = cli.path.unwrap_or(PathBuf::from(\".\"));` followed by `println!(\"{}\", path.display());`"
+    ],
+    "common_mistakes": [
+     "Printing a PathBuf with `{}` directly instead of using `.display()`",
+     "Using `unwrap()`, which panics when no path is given"
+    ]
+   },
+   {
+    "id": "s4",
+    "index": 4,
+    "title": "Handle missing paths in red",
+    "instructions": "Match on `fs::exists(&path)` and print \"Path does not exist\" in red with owo-colors when missing, or \"Error reading directory\" if it cannot be checked.",
+    "video": {
+     "sourceId": "src1",
+     "start": 369.0,
+     "end": 490.0
+    },
+    "checks": [
+     {
+      "id": "s4c1",
+      "type": "screen_contains",
+      "label": "Uses exists check",
+      "app": "Code",
+      "pattern": "exists\\(\\s*&?path"
+     },
+     {
+      "id": "s4c2",
+      "type": "screen_contains",
+      "label": "Red error text",
+      "app": "Code",
+      "pattern": "\\.red\\(\\)"
+     },
+     {
+      "id": "s4c3",
+      "type": "screen_contains",
+      "label": "Missing path reported",
+      "app": "Terminal",
+      "pattern": "Path\\s*does\\s*not\\s*exist"
+     }
+    ],
+    "precision_checks": [
+     {
+      "id": "s4p1",
+      "type": "file_contains",
+      "label": "owo-colors dependency",
+      "file": "best_ls/Cargo.toml",
+      "pattern": "owo-colors"
+     },
+     {
+      "id": "s4p2",
+      "type": "file_contains",
+      "label": "Uses OwoColorize",
+      "file": "best_ls/src/main.rs",
+      "pattern": "OwoColorize"
+     }
+    ],
+    "targets": [
+     {
+      "app": "Code",
+      "file": "src/main.rs",
+      "match": "does_exist",
+      "caption": "Branch on whether the path exists"
+     },
+     {
+      "app": "Code",
+      "file": "Cargo.toml",
+      "match": "owo-colors",
+      "caption": "Colors crate dependency"
+     }
+    ],
+    "explanations": [
+     {
+      "topic": "exists returns Ok only if existence can be verified",
+      "t": 510.0,
+      "sourceId": "src1"
+     },
+     {
+      "topic": "Running the debug binary from target/debug",
+      "t": 483.0,
+      "sourceId": "src1"
+     }
+    ],
+    "hints": [
+     "The existence check returns a Result<bool>, so you need two layers of branching.",
+     "Use `if let Ok(does_exist) = fs::exists(&path)` and then branch on `does_exist`.",
+     "Add owo-colors, `use owo_colors::OwoColorize;`, then `println!(\"{}\", \"Path does not exist\".red());`"
+    ],
+    "common_mistakes": [
+     "Forgetting `use owo_colors::OwoColorize;`, so `.red()` is not found",
+     "Ignoring the Err case of the existence check"
+    ]
+   },
+   {
+    "id": "s5",
+    "index": 5,
+    "title": "List directory file names",
+    "instructions": "Write `fn get_files(path: &Path) -> Vec<String>` using `fs::read_dir`, pushing each entry's file name. Loop over it in main and print each name, then run `cargo run`.",
+    "video": {
+     "sourceId": "src1",
+     "start": 542.0,
+     "end": 693.0
+    },
+    "checks": [
+     {
+      "id": "s5c1",
+      "type": "screen_contains",
+      "label": "get_files function",
+      "app": "Code",
+      "pattern": "fn\\s*get_files"
+     },
+     {
+      "id": "s5c2",
+      "type": "screen_contains",
+      "label": "Uses read_dir",
+      "app": "Code",
+      "pattern": "read_dir\\("
+     },
+     {
+      "id": "s5c3",
+      "type": "screen_contains",
+      "label": "Files listed",
+      "app": "Terminal",
+      "pattern": "Cargo\\.toml"
+     }
+    ],
+    "precision_checks": [
+     {
+      "id": "s5p1",
+      "type": "file_contains",
+      "label": "get_files defined",
+      "file": "best_ls/src/main.rs",
+      "pattern": "fn\\s+get_files"
+     }
+    ],
+    "targets": [
+     {
+      "app": "Code",
+      "file": "src/main.rs",
+      "match": "fn get_files",
+      "caption": "Reads the directory entries"
+     }
+    ],
+    "explanations": [
+     {
+      "topic": "Iterating read_dir entries, each of which is a Result",
+      "t": 617.0,
+      "sourceId": "src1"
+     }
+    ],
+    "hints": [
+     "Which std::fs function returns an iterator over a directory's entries?",
+     "`fs::read_dir(path)` gives a Result of entries, and each entry is also a Result.",
+     "Push `file.file_name().into_string().unwrap_or(\"unknown name\".into())` into a Vec and return it."
+    ],
+    "common_mistakes": [
+     "Passing `path` instead of `&path` to get_files",
+     "Forgetting that file_name() returns an OsString, which needs into_string()"
+    ]
+   },
+   {
+    "id": "s6",
+    "index": 6,
+    "title": "Collect file metadata into structs",
+    "instructions": "Define `FileEntry` (name, e_type, len_bytes, modified) and `EntryType` (File, Dir) deriving strum's `Display`, fill them from `fs::metadata` in `map_data`, and debug-print the Vec.",
+    "video": {
+     "sourceId": "src1",
+     "start": 696.0,
+     "end": 1036.0
+    },
+    "checks": [
+     {
+      "id": "s6c1",
+      "type": "screen_contains",
+      "label": "FileEntry struct",
+      "app": "Code",
+      "pattern": "struct\\s*FileEntry"
+     },
+     {
+      "id": "s6c2",
+      "type": "screen_contains",
+      "label": "Uses fs::metadata",
+      "app": "Code",
+      "pattern": "metadata\\("
+     },
+     {
+      "id": "s6c3",
+      "type": "screen_contains",
+      "label": "Metadata printed",
+      "app": "Terminal",
+      "pattern": "len_bytes:\\s*\\d+"
+     }
+    ],
+    "precision_checks": [
+     {
+      "id": "s6p1",
+      "type": "file_contains",
+      "label": "EntryType enum",
+      "file": "best_ls/src/main.rs",
+      "pattern": "enum\\s+EntryType"
+     },
+     {
+      "id": "s6p2",
+      "type": "file_contains",
+      "label": "strum dependency",
+      "file": "best_ls/Cargo.toml",
+      "pattern": "strum"
+     }
+    ],
+    "targets": [
+     {
+      "app": "Code",
+      "file": "src/main.rs",
+      "match": "struct FileEntry",
+      "caption": "Holds per-file metadata"
+     },
+     {
+      "app": "Code",
+      "file": "src/main.rs",
+      "match": "fn map_data",
+      "caption": "Extracted metadata mapping"
+     }
+    ],
+    "explanations": [
+     {
+      "topic": "Enum for file vs directory type",
+      "t": 751.0,
+      "sourceId": "src1"
+     },
+     {
+      "topic": "strum Display derive for printing enums",
+      "t": 780.0,
+      "sourceId": "src1"
+     },
+     {
+      "topic": "Bug: metadata must use file.path(), not the dir path",
+      "t": 979.0,
+      "sourceId": "src1"
+     }
+    ],
+    "hints": [
+     "The metadata has to come from the entry itself, not from the directory you are listing.",
+     "Use `fs::metadata(&file.path())` and check `meta.is_dir()` to decide the type.",
+     "Set `len_bytes: meta.len()` and debug-print with `{:#?}` or `{:?}`."
+    ],
+    "common_mistakes": [
+     "Calling `fs::metadata(path)` on the parent directory, so every row shows the same data",
+     "Naming a field `type`, which is a reserved keyword (use `e_type`)",
+     "Forgetting `use strum::Display;`"
+    ]
+   },
+   {
+    "id": "s7",
+    "index": 7,
+    "title": "Render a coloured table",
+    "instructions": "Derive `Tabled` on FileEntry, build `Table::new(get_files(&path))` with `Style::rounded()`, colour columns and the header row, and rename headers with `#[tabled(rename = ...)]`.",
+    "video": {
+     "sourceId": "src1",
+     "start": 1049.0,
+     "end": 1290.0
+    },
+    "checks": [
+     {
+      "id": "s7c1",
+      "type": "screen_contains",
+      "label": "Table::new used",
+      "app": "Code",
+      "pattern": "Table::new\\("
+     },
+     {
+      "id": "s7c2",
+      "type": "screen_contains",
+      "label": "Rounded style",
+      "app": "Code",
+      "pattern": "Style::rounded"
+     },
+     {
+      "id": "s7c3",
+      "type": "screen_contains",
+      "label": "Renamed headers shown",
+      "app": "Terminal",
+      "pattern": "Size\\s*B"
+     }
+    ],
+    "precision_checks": [
+     {
+      "id": "s7p1",
+      "type": "file_contains",
+      "label": "tabled dependency",
+      "file": "best_ls/Cargo.toml",
+      "pattern": "tabled"
+     },
+     {
+      "id": "s7p2",
+      "type": "file_contains",
+      "label": "Headers renamed",
+      "file": "best_ls/src/main.rs",
+      "pattern": "tabled\\(rename"
+     }
+    ],
+    "targets": [
+     {
+      "app": "Code",
+      "file": "src/main.rs",
+      "match": "Table::new",
+      "caption": "Build the table from entries"
+     },
+     {
+      "app": "Code",
+      "file": "src/main.rs",
+      "match": "tabled(rename",
+      "caption": "Custom column headers"
+     }
+    ],
+    "explanations": [
+     {
+      "topic": "tabled crate prints structs as an ASCII table",
+      "t": 1055.0,
+      "sourceId": "src1"
+     },
+     {
+      "topic": "Targeting columns/rows with colours",
+      "t": 1180.0,
+      "sourceId": "src1"
+     },
+     {
+      "topic": "Renaming columns with #[tabled(rename)]",
+      "t": 1264.0,
+      "sourceId": "src1"
+     }
+    ],
+    "hints": [
+     "The struct needs one more derive before Table::new will accept it.",
+     "Add `Tabled` to the derive list, then `let mut table = Table::new(get_files(&path));`.",
+     "Use `table.with(Style::rounded())` and `table.modify(Columns::first(), Color::FG_BRIGHT_CYAN)`."
+    ],
+    "common_mistakes": [
+     "Not deriving Tabled on FileEntry (and leaving EntryType without Display)",
+     "Forgetting `let mut` on the table before calling with/modify",
+     "Enabling colours without the `ansi` feature of tabled"
+    ]
+   },
+   {
+    "id": "s8",
+    "index": 8,
+    "title": "Format modified date with chrono",
+    "instructions": "In map_data, convert `meta.modified()` into `DateTime<Utc>` and format it into `modified`, falling back to an empty string.",
+    "video": {
+     "sourceId": "src1",
+     "start": 1294.0,
+     "end": 1436.0
+    },
+    "checks": [
+     {
+      "id": "s8c1",
+      "type": "screen_contains",
+      "label": "DateTime<Utc> conversion",
+      "app": "Code",
+      "pattern": "DateTime<\\s*Utc\\s*>"
+     },
+     {
+      "id": "s8c2",
+      "type": "screen_contains",
+      "label": "date formatted",
+      "app": "Code",
+      "pattern": "\\.format\\("
+     },
+     {
+      "id": "s8c3",
+      "type": "screen_contains",
+      "label": "Date shown in table",
+      "app": "Terminal",
+      "pattern": "(Mon|Tue|Wed|Thu|Fri|Sat|Sun)\\s*\\w{3}\\s*\\d{1,2}\\s*20\\d\\d"
+     }
+    ],
+    "precision_checks": [
+     {
+      "id": "s8p1",
+      "type": "file_contains",
+      "label": "chrono dependency",
+      "file": "best_ls/Cargo.toml",
+      "pattern": "chrono"
+     }
+    ],
+    "targets": [
+     {
+      "app": "Code",
+      "file": "src/main.rs",
+      "match": "meta.modified()",
+      "caption": "Last modified time"
+     }
+    ],
+    "explanations": [
+     {
+      "topic": "modified() returns Result<SystemTime>; chrono converts it",
+      "t": 1348.0,
+      "sourceId": "src1"
+     },
+     {
+      "topic": "strftime-style format specifiers",
+      "t": 1396.0,
+      "sourceId": "src1"
+     }
+    ],
+    "hints": [
+     "`meta.modified()` returns a Result, so handle both cases.",
+     "A SystemTime can be turned into a chrono `DateTime<Utc>` with `.into()`.",
+     "Write `let date: DateTime<Utc> = modi.into();` then `format!(\"{}\", date.format(\"%a %b %e %Y\"))`."
+    ],
+    "common_mistakes": [
+     "Using `mod` as a variable name (it is a keyword)",
+     "Missing `use chrono::{DateTime, Utc};`",
+     "Omitting the type annotation, so `.into()` cannot infer DateTime<Utc>"
+    ]
+   },
+   {
+    "id": "s9",
+    "index": 9,
+    "title": "Add a --json output flag",
+    "instructions": "Add `#[arg(short, long)] json: bool` to Cli, derive `Serialize` on FileEntry and EntryType, and move the table into `print_table`. When `cli.json` is set print `serde_json::to_string(&get_files(&path))`, then run `cargo run -- -j`.",
+    "video": {
+     "sourceId": "src1",
+     "start": 1449.0,
+     "end": 1640.0
+    },
+    "checks": [
+     {
+      "id": "s9c1",
+      "type": "screen_contains",
+      "label": "json flag with arg",
+      "app": "Code",
+      "pattern": "arg\\(\\s*short,\\s*long"
+     },
+     {
+      "id": "s9c2",
+      "type": "screen_contains",
+      "label": "serde_json used",
+      "app": "Code",
+      "pattern": "serde_json::to_string"
+     },
+     {
+      "id": "s9c3",
+      "type": "screen_contains",
+      "label": "JSON printed",
+      "app": "Terminal",
+      "pattern": "len_bytes\\W{1,3}\\d+"
+     },
+     {
+      "id": "s9c4",
+      "type": "screen_absent",
+      "label": "No compile errors",
+      "app": "Terminal",
+      "pattern": "error\\[E\\d+\\]|panicked"
+     }
+    ],
+    "precision_checks": [
+     {
+      "id": "s9p1",
+      "type": "file_contains",
+      "label": "serde_json dependency",
+      "file": "best_ls/Cargo.toml",
+      "pattern": "serde_json"
+     },
+     {
+      "id": "s9p2",
+      "type": "command_exit_ok",
+      "label": "JSON run succeeds",
+      "command": "cd best_ls && cargo run -q -- -j"
+     }
+    ],
+    "targets": [
+     {
+      "app": "Code",
+      "file": "src/main.rs",
+      "match": "if cli.json",
+      "caption": "Choose JSON or table output"
+     },
+     {
+      "app": "Terminal",
+      "match": "-j",
+      "caption": "Run with the short flag"
+     }
+    ],
+    "explanations": [
+     {
+      "topic": "clap arg with short and long variants",
+      "t": 1482.0,
+      "sourceId": "src1"
+     },
+     {
+      "topic": "serde Serialize + serde_json for JSON output",
+      "t": 1537.0,
+      "sourceId": "src1"
+     }
+    ],
+    "hints": [
+     "A bool field in Cli only becomes a flag once you give it an `#[arg]` attribute.",
+     "Use `#[arg(short, long)]` so both -j and --json work, and derive `Serialize` on both types.",
+     "`println!(\"{}\", serde_json::to_string(&get_files(&path)).unwrap_or(\"cannot parse json\".to_string()));`"
+    ],
+    "common_mistakes": [
+     "Deriving Serialize on FileEntry but not on EntryType",
+     "Adding serde without the `derive` feature",
+     "Using `cli.path` after moving it into `path`, which causes a borrow/move error"
+    ]
+   }
+  ],
+  "build": {
+   "adapted": true,
+   "model": {
+    "video": "claude-opus-5-5 (transcript via youtube-transcript-api)",
+    "adapt": "claude-opus-5-5"
+   },
+   "seconds": 174.3,
+   "workdir_metrics": [],
+   "workdir_fp": "4b6a045d960a",
+   "community_signals": 0,
+   "warnings": []
+  }
+ },
+ "error": null
+}

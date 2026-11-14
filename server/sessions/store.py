@@ -20,7 +20,7 @@ log = logging.getLogger("sessions")
 
 VERSION = 1
 STATE_FIELDS = ("lessonId", "sourceUrl", "title", "stepIndex", "stepCount", "stepId", "stepTitle", "passedSteps",
-                "checks", "videoT", "workdir", "editorOpen", "startedAt", "lastActiveAt")
+                "skippedSteps", "checks", "videoT", "workdir", "editorOpen", "startedAt", "lastActiveAt")
 
 
 def state_dir() -> Path:

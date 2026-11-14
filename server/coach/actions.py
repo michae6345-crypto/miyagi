@@ -18,7 +18,7 @@ from typing import Any
 
 from . import llm
 from .common import clamp_words, get_lesson, number_lines, step_brief, system_blocks
-from .diagnose import LAST
+from .diagnose import LAST, notebook_code
 from .hints import apply_fix
 from .screen import ScreenContext
 
@@ -59,13 +59,14 @@ inflight = Inflight()
 
 # ---------- "Do it for me" ------------------------------------------------------------------------
 
-PATCH_SYSTEM = """You write the smallest code change that fixes the learner's current tutorial step, for a "Do it for me" button. The learner previews it before it is applied.
-- Change as few lines as possible; keep the learner's names and style; no unrelated edits, no comments about the change.
-- yours: the exact contiguous line(s) to replace, copied from the numbered file (without line numbers).
+PATCH_SYSTEM = """You write the smallest change that fixes the learner's current tutorial step, for a "Do it for me" button. The learner previews it before it is applied.
+- Make EVERY edit the diagnosis asks for (if it says to change two things, change both) in one contiguous block; keep the learner's names and style; no unrelated edits, no comments about the change.
+- yours: the exact contiguous line(s) to replace, copied from the numbered file (without the line numbers).
 - expected: the replacement line(s), with the same indentation as in the file.
 - line: 1-based line number of the first line of `yours`.
+- command: if the fix is a terminal action instead (install a package, `git rebase --abort`), that one shell command and yours/expected ""; else "". Never `git add` / `--continue` while conflict markers remain.
 - summary: one line, at most 12 words, imperative ("Lower Adam's learning rate to 1e-3").
-- The result must be valid code (Python must compile)."""
+- The result must be valid code (Python must compile) and must actually change something."""
 
 PATCH_SCHEMA = {
     "type": "object",
@@ -74,8 +75,9 @@ PATCH_SCHEMA = {
         "yours": {"type": "string"},
         "expected": {"type": "string"},
         "line": {"type": "integer"},
+        "command": {"type": "string"},
     },
-    "required": ["summary", "yours", "expected", "line"],
+    "required": ["summary", "yours", "expected", "line", "command"],
     "additionalProperties": False,
 }
 
@@ -92,25 +94,46 @@ def _result(file: str, patch: dict, summary: str, line: int | None, via: str) ->
     }
 
 
+def _command_result(command: str, summary: str, via: str) -> dict:
+    """A terminal fix: nothing to write; the app copies `command` (it never runs it)."""
+    return {"file": None, "unified_diff": "", "summary": clamp_words(summary, 14).rstrip("."), "line": None,
+            "new_text": None, "command": command, "requires_confirmation": True, "_meta": {"via": via}}
+
+
 def _action_sentence(card: dict) -> str:
     """The card body's last sentence is its action ("Lower the learning rate to 1e-3")."""
     sentences = [x.strip() for x in re.split(r"(?<=[.!?])\s+", card.get("body", "")) if x.strip()]
     return sentences[-1] if sentences else card.get("title", "Apply the suggested fix")
 
 
-async def do_it_for_me(step: dict, file: str, file_text: str, last_offtrack: dict | None = None, *, lesson: dict | None = None) -> dict:
-    """A minimal patch that compiles: {file, unified_diff, summary, line, new_text, requires_confirmation}.
+def missing_edits(action: str, expected: str) -> list[str]:
+    """Values the action sentence asks for ("…to 1e-3", "…to `squash`") that the patch doesn't contain.
+    S9 G1: the card said two edits, the diff made one, and the rebase 'succeeded' with nothing squashed."""
+    wanted = re.findall(r"`([^`]+)`", action) + re.findall(r"\bto\s+([\w.+\-=/]+[\w)])", action)
+    exp = expected.lower()
+    stop = {"the", "a", "an", "it", "be", "use", "your", "their", "make", "keep", "match"}
+    return [w for w in dict.fromkeys(wanted) if w.lower() not in stop and w.lower() not in exp]
 
-    Uses the latest diagnosis's diff when it applies cleanly; otherwise asks Opus for one (up to two
-    tries, the second told why the first failed). Never writes files. Raises `CoachUnavailable`.
+
+async def do_it_for_me(step: dict, file: str, file_text: str, last_offtrack: dict | None = None, *, lesson: dict | None = None) -> dict:
+    """A minimal patch that compiles: {file, unified_diff, summary, line, new_text, requires_confirmation},
+    or a terminal fix {command, summary, file: None, new_text: None} when that is the fix.
+
+    Reuses the latest diagnosis's diff when it applies cleanly AND makes every edit its action
+    sentence names; otherwise asks Opus (up to two tries, the second told why the first failed).
+    Rejects no-op patches. Never writes files or runs commands. Raises `CoachUnavailable`.
     """
     last = last_offtrack or LAST.get(step.get("id", "")) or {}
+    action = _action_sentence(last) if last else ""
     error = ""
     if diff := last.get("diff"):
+        if diff.get("command") and not diff.get("expected"):
+            return _command_result(diff["command"], action or "Run this command", "diagnosis")
         p = apply_fix({**diff, "file": file}, file_text)
-        if p["error"] is None:
-            return _result(file, p, _action_sentence(last), diff.get("line"), "diagnosis")
-        error = p["error"]
+        missing = missing_edits(action, diff.get("expected", "")) if p["error"] is None else []
+        if p["error"] is None and not missing:
+            return _result(file, p, action, diff.get("line"), "diagnosis")
+        error = p["error"] or f"the diagnosis's diff misses part of the fix: {', '.join(missing)}"
 
     lesson = lesson if lesson is not None else get_lesson()
     for attempt in range(2):
@@ -120,23 +143,26 @@ async def do_it_for_me(step: dict, file: str, file_text: str, last_offtrack: dic
                 f"CURRENT STEP:\n{step_brief(step)}",
                 f"DIAGNOSIS: {last.get('title')} — {last.get('body')}" if last else "",
                 f"PREVIOUS ATTEMPT FAILED: {error}" if error else "",
-                f"FILE {file}, numbered:\n{number_lines(file_text, 400)}",
+                f"FILE {file}, numbered:\n{number_lines(notebook_code(file_text), 400)}",
                 "Write the patch.",
             ]
             if x
         )
         try:
             res = await llm.structured_call(
-                purpose="do_it_for_me", model=llm.OPUS, system=system_blocks(PATCH_SYSTEM, lesson),
+                purpose="do_it_for_me", model=llm.model_for("do_it_for_me"), system=system_blocks(PATCH_SYSTEM, lesson),
                 user_text=user, schema=PATCH_SCHEMA, effort="low", max_tokens=8000, timeout=40.0,
             )
         except llm.CoachLLMError as e:
             raise llm.CoachUnavailable(f"could not write a patch: {e}") from e
         d = res.data
+        if (d.get("command") or "").strip() and not (d.get("expected") or "").strip():
+            return _command_result(d["command"].strip(), d["summary"], f"opus#{attempt + 1}")
         p = apply_fix({"yours": d["yours"], "expected": d["expected"], "line": d.get("line"), "file": file}, file_text)
-        if p["error"] is None:
+        missing = missing_edits(action, d["expected"]) if p["error"] is None else []
+        if p["error"] is None and not missing:
             return _result(file, p, d["summary"], d.get("line"), f"opus#{attempt + 1}")
-        error = p["error"]
+        error = p["error"] or f"the patch misses part of the fix: {', '.join(missing)}"
         log.info("do_it_for_me attempt %d rejected: %s", attempt + 1, error)
     raise llm.CoachUnavailable(f"no safe patch: {error}")
 
@@ -179,7 +205,7 @@ async def locate(query: str, screen: ScreenContext, *, use_model: bool = True) -
     ask = f'Find: "{query}"'
     try:
         res = await llm.structured_call(
-            purpose="locate", model=llm.HAIKU, system=[{"type": "text", "text": LOCATE_SYSTEM}],
+            purpose="locate", model=llm.model_for("locate"), system=llm.cached_system(LOCATE_SYSTEM),
             user_text=f"{ask}\n\n{screen.text()}", user_content=[{"type": "text", "text": ask}, *screen.claude_content()],
             schema=LOCATE_SCHEMA, effort="low", max_tokens=2000, timeout=10.0,
         )

@@ -31,9 +31,30 @@ FALLBACK_BETA = "server-side-fallback-2026-07-01"
 
 FIXTURES_DIR = Path(__file__).parent / "fixtures"
 
+# Cost policy (Michael): Opus writes only the diagnosis card; everything else is Haiku.
+# Override per purpose with COACH_MODEL_<PURPOSE>, e.g. COACH_MODEL_EXPLAIN=claude-opus-5-5.
+MODELS = {"diagnose": OPUS}
+
+
+def model_for(purpose: str) -> str:
+    return os.environ.get(f"COACH_MODEL_{purpose.upper()}") or MODELS.get(purpose, HAIKU)
+
+
+def cached_system(text: str) -> list[dict]:
+    """A one-block system prompt marked for prompt caching (short prompts just won't cache)."""
+    return [{"type": "text", "text": text, "cache_control": {"type": "ephemeral"}}]
+
 
 class CoachLLMError(RuntimeError):
-    """Any failure to get a usable structured answer from the model."""
+    """Any failure to get a usable structured answer from the model.
+
+    `kind`: "connection" (network/proxy down, timeout) | "api" (HTTP error) | "refusal" | "no_key"
+    | "replay" | "bad_output".
+    """
+
+    def __init__(self, msg: str, kind: str = "api"):
+        super().__init__(msg)
+        self.kind = kind
 
 
 class CoachUnavailable(RuntimeError):
@@ -53,6 +74,12 @@ class OutdatedFixUnavailable(CoachUnavailable):
 
 def demo_mode() -> bool:
     return os.environ.get("DEMO", "").strip() == "1"
+
+
+def offline_fallback() -> bool:
+    """COACH_OFFLINE_FALLBACK=1: on a *connection* failure in live mode, a confident playbook match
+    on the learner's own code may stand in (labelled offline). Off by default (no-fake rule)."""
+    return os.environ.get("COACH_OFFLINE_FALLBACK", "").strip() == "1"
 
 
 @dataclass
@@ -176,6 +203,7 @@ async def structured_call(
     timeout: float = 45.0,
     user_content: list[dict] | None = None,
     on_text: Callable[[str, str], Any] | None = None,
+    thinking: dict | None = None,
 ) -> CallResult:
     """One Messages call that must return JSON matching `schema`.
 
@@ -189,19 +217,19 @@ async def structured_call(
     if replay_dir:
         hit = _replay(purpose, user_text, Path(replay_dir))
         if hit is None:
-            raise CoachLLMError(f"no fixture for {purpose} in {replay_dir}")
+            raise CoachLLMError(f"no fixture for {purpose} in {replay_dir}", "replay")
         if on_text is not None:
             full = json.dumps(hit.data, ensure_ascii=False)
             await _maybe_await(on_text(full, full))
         return hit
 
     if not has_credentials():
-        raise CoachLLMError("no ANTHROPIC_API_KEY")
+        raise CoachLLMError("no ANTHROPIC_API_KEY", "no_key")
 
     import anthropic
 
     client = get_client().with_options(timeout=timeout)
-    api, kwargs = _request(client, model, system, user_content or user_text, schema, effort, max_tokens)
+    api, kwargs = _request(client, model, system, user_content or user_text, schema, effort, max_tokens, thinking)
     t0 = time.monotonic()
     ttft = None
     try:
@@ -218,18 +246,18 @@ async def structured_call(
     except anthropic.APIStatusError as e:
         raise CoachLLMError(f"{purpose}: API {e.status_code}: {e.message}") from e
     except anthropic.APIConnectionError as e:
-        raise CoachLLMError(f"{purpose}: connection error") from e
+        raise CoachLLMError(f"{purpose}: connection error", "connection") from e
     latency = time.monotonic() - t0
 
     if resp.stop_reason in ("refusal", "max_tokens"):
-        raise CoachLLMError(f"{purpose}: stop_reason={resp.stop_reason}")
+        raise CoachLLMError(f"{purpose}: stop_reason={resp.stop_reason}", "refusal" if resp.stop_reason == "refusal" else "bad_output")
     text = next((b.text for b in resp.content if b.type == "text"), None)
     if not text:
-        raise CoachLLMError(f"{purpose}: no text block")
+        raise CoachLLMError(f"{purpose}: no text block", "bad_output")
     try:
         data = json.loads(text)
     except json.JSONDecodeError as e:
-        raise CoachLLMError(f"{purpose}: invalid JSON") from e
+        raise CoachLLMError(f"{purpose}: invalid JSON", "bad_output") from e
 
     u = resp.usage
     usage = {
@@ -248,14 +276,14 @@ async def structured_call(
     return res
 
 
-def _request(client, model: str, system: list[dict], content: Any, schema: dict, effort: str, max_tokens: int):
+def _request(client, model: str, system: list[dict], content: Any, schema: dict, effort: str, max_tokens: int, thinking: dict | None = None):
     """The one place a coach request is shaped (warm() must send the same prefix to hit the cache)."""
     kwargs: dict[str, Any] = {
         "model": model,
         "max_tokens": max_tokens,
         "system": system,
         "messages": [{"role": "user", "content": content}],
-        "thinking": {"type": "adaptive"},
+        "thinking": thinking or {"type": "adaptive"},  # Haiku pointing passes {"type": "disabled"} for speed
         "output_config": {"effort": effort, "format": {"type": "json_schema", "schema": schema}},
     }
     if model == OPUS:  # server-side refusal fallback: on a policy decline the API reruns on a fallback model

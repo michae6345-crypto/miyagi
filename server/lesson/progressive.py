@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import asyncio
 import copy
+import json
 import logging
 import os
 import time
@@ -24,8 +25,11 @@ log = logging.getLogger("server.lesson")
 
 LONG_VIDEO_S = float(os.environ.get("LESSON_LONG_VIDEO_S", 30 * 60))
 FIRST_MIN_S, FIRST_MAX_S = 3 * 60, 6 * 60  # window 1: small, so the first steps arrive fast (Gemini ~40 s on 6 min)
+FIRST_HARD_MAX_S = 8 * 60  # a part 1 still under FIRST_MIN_S may take one more chapter, up to this
 WINDOW_MIN_S, WINDOW_TARGET_S, WINDOW_MAX_S = 6 * 60, 12 * 60, 15 * 60
 PARALLEL_WINDOWS = int(os.environ.get("LESSON_PARALLEL_WINDOWS", "3"))
+PART_MIN_STEP_S = 45.0  # parts are cut by time, so their steps run short; fold sub-45 s steps into a neighbour
+MINUTES_PER_STEP = 3.0  # step budget per part (a 12-min part gets at most 4 steps)
 
 
 def clip_cap_s(start: float, end: float, first: bool = True) -> float:
@@ -36,9 +40,17 @@ def clip_cap_s(start: float, end: float, first: bool = True) -> float:
     return 25.0 + 4.0 * minutes if first else 60.0 + 8.0 * minutes
 
 
-def plan_windows(length_s: float, chapters: list[dict]) -> list[tuple[float, float, list[str]]]:
+def plan_windows(length_s: float, chapters: list[dict], first_hands_on: float | None = None) -> list[tuple[float, float, list[str]]]:
     """[(start, end, chapter titles)] covering the video. Chapters are grouped (never split mid-chapter
-    unless one chapter is longer than WINDOW_MAX_S); without chapters, fixed windows."""
+    unless one chapter is longer than WINDOW_MAX_S); without chapters, fixed windows. With
+    first_hands_on (from preflight), everything before it is one "intro" window and part 1 starts there."""
+    if first_hands_on and 60 <= first_hands_on < length_s - 60:
+        later = [c for c in chapters if c["t"] > first_hands_on]
+        rest = plan_windows(length_s - first_hands_on, [{"t": 0, "title": "hands-on"}] + [dict(c, t=c["t"] - first_hands_on) for c in later]
+                            if chapters else [])
+        intro_titles = [c["title"] for c in chapters if c["t"] < first_hands_on]
+        return [(0.0, float(first_hands_on), ["(intro) " + "; ".join(intro_titles)])] + \
+            [(a + first_hands_on, b + first_hands_on, t) for a, b, t in rest]
     spans: list[tuple[float, float, str]] = []
     if len(chapters) >= 3:
         for c, nxt in zip(chapters, chapters[1:] + [{"t": length_s}]):
@@ -62,7 +74,9 @@ def plan_windows(length_s: float, chapters: list[dict]) -> list[tuple[float, flo
     cur: list[tuple[float, float, str]] = []
     for sp in spans:
         lo, hi = (FIRST_MIN_S, FIRST_MAX_S) if not windows else (WINDOW_MIN_S, WINDOW_MAX_S)
-        if cur and (sp[1] - cur[0][0] > hi) and (cur[-1][1] - cur[0][0] >= min(lo, 60)):
+        cur_len, with_next = (cur[-1][1] - cur[0][0]) if cur else 0.0, sp[1] - (cur[0][0] if cur else sp[0])
+        too_short_first = not windows and cur_len < lo and with_next <= FIRST_HARD_MAX_S  # don't ship a 1-step part 1
+        if cur and with_next > hi and cur_len >= min(lo, 60) and not too_short_first:
             windows.append((cur[0][0], cur[-1][1], [c[2] for c in cur if c[2]]))
             cur = []
         cur.append(sp)
@@ -112,7 +126,7 @@ async def _window_draft(url: str, vid: str, goal: str, win: tuple, meta: dict, c
                 gemini.watch_video(url, goal, context=context, start=start, end=end, media_low=True), cap)
             if not (raw.get("steps") or []):  # a talk-only part (intro, outro, theory): nothing to code along with
                 return {"steps": [], "_empty": True, "_engine": "gemini", "_built_by": f"{gemini.last_model} (watched the video)"}
-            d = builder.normalize_draft(_absolutize(raw, start, end))
+            d = builder.normalize_draft(_absolutize(raw, start, end), min_step_s=PART_MIN_STEP_S, min_steps=1)
             d["_engine"], d["_built_by"] = "gemini", f"{gemini.last_model} (watched the video)"
             return d
         except TimeoutError:
@@ -124,7 +138,7 @@ async def _window_draft(url: str, vid: str, goal: str, win: tuple, meta: dict, c
             info = await transcript.fetch_video_info(vid)
             part = dict(info, transcript=[ln for ln in info["transcript"] if start - 5 <= ln["t"] <= end + 5],
                         chapters=[c for c in info.get("chapters") or [] if start <= c["t"] < end])
-            d = builder.normalize_draft(_absolutize(await claude.watch_transcript(part, goal), start, end))
+            d = builder.normalize_draft(_absolutize(await claude.watch_transcript(part, goal), start, end), min_step_s=PART_MIN_STEP_S, min_steps=1)
             d["_engine"], d["_built_by"] = "claude", f"{claude.last_model} (transcript via {info['sources'].get('transcript')})"
             return d
         except (RuntimeError, ValueError) as e:
@@ -145,11 +159,54 @@ def _renumber(steps: list[dict], first_index: int) -> list[dict]:
     return out
 
 
+async def _draft_for(ctx: dict, i: int) -> dict:
+    """A part's draft; a non-first part that fails is retried once as two half-length clips
+    (long dense clips are where Gemini stalls)."""
+    windows, intro = ctx["windows"], ctx["intro"]
+    args = (ctx["url"], ctx["vid"], ctx["goal"])
+    try:
+        return await _window_draft(*args, windows[i], ctx["meta"], ctx["context"], ctx["engines"], first=(i == intro))
+    except RuntimeError as e:
+        a, b, titles = windows[i]
+        if i == intro or b - a < 6 * 60 or "budget" in str(e) or "unavailable" in str(e):
+            raise
+        log.warning("part %d failed (%s); retrying as two halves", i + 1, str(e)[:100])
+        mid = a + (b - a) / 2
+        halves = await asyncio.gather(
+            *(_window_draft(*args, w, ctx["meta"], ctx["context"], ctx["engines"], first=False) for w in ((a, mid, titles), (mid, b, titles))),
+            return_exceptions=True)
+        ok = [h for h in halves if isinstance(h, dict)]
+        if not ok:
+            raise RuntimeError(f"{e} | halves: " + " | ".join(str(h)[:120] for h in halves)) from e
+        merged = {**ok[0], "steps": [st for h in ok for st in h.get("steps") or []]}
+        if not merged["steps"]:
+            return {**ok[0], "steps": [], "_empty": True}
+        return builder.normalize_draft(merged, min_step_s=PART_MIN_STEP_S, min_steps=1) | {"_engine": ok[0].get("_engine"), "_built_by": ok[0].get("_built_by")}
+
+
+async def _build_part(ctx: dict, i: int) -> tuple[list[dict], dict]:
+    """Draft (Gemini clip, or Claude on the transcript slice) + adapt + link checks for part i."""
+    d = await _draft_for(ctx, i)
+    if d.get("_empty"):
+        return [], {"draft": d, "graph": {"lesson": {}}, "warnings": [], "adapted": True, "adapt_model": None, "empty": True}
+    bad = await builder._bad_urls(d["steps"], ctx["known_text"], ctx["checked"])
+    g, warns, ok, adapt_model = await builder._adapt(d, ctx["goal"], ctx["info"], bad)
+    warns += links.strip_bad_urls(g["steps"], await builder._bad_urls(g["steps"], ctx["known_text"], ctx["checked"]))
+    return g["steps"], {"draft": d, "graph": g, "warnings": warns, "adapted": ok, "adapt_model": adapt_model}
+
+
+def lazy_parts() -> bool:
+    """LESSON_LAZY_PARTS=1 (default): build only part 1 now; later parts via extend() as the learner nears them."""
+    return os.environ.get("LESSON_LAZY_PARTS", "1") != "0"
+
+
 async def build(source_url: str, vid: str, goal: str, workdir: str, info, meta: dict, key: str, *,
                 on_update=None, cache: bool = True, t0: float | None = None) -> dict:
     t0 = t0 or time.time()
     engines = builder.engines()
-    windows = plan_windows(float(meta["length_s"]), meta.get("chapters") or [])
+    fho = meta.get("first_hands_on")
+    windows = plan_windows(float(meta["length_s"]), meta.get("chapters") or [], fho)
+    intro = 1 if (windows and windows[0][2] and windows[0][2][0].startswith("(intro)")) else 0
     context = transcript.format_metadata(meta)
     known_text, checked = await builder._known_text(vid), {}
     goal_task = asyncio.ensure_future(goal_match(goal, meta))
@@ -157,14 +214,11 @@ async def build(source_url: str, vid: str, goal: str, workdir: str, info, meta: 
              [f"{gemini._mmss(a)}-{gemini._mmss(b)}" for a, b, _ in windows])
     builder._emit("planning", f"{len(windows)} parts")
 
+    ctx = {"url": source_url, "vid": vid, "goal": goal, "windows": windows, "meta": meta, "context": context,
+           "engines": engines, "info": info, "known_text": known_text, "checked": checked, "intro": intro}
+
     async def one(i: int) -> tuple[list[dict], dict]:
-        d = await _window_draft(source_url, vid, goal, windows[i], meta, context, engines, first=(i == 0))
-        if d.get("_empty"):
-            return [], {"draft": d, "graph": {"lesson": {}}, "warnings": [], "adapted": True, "adapt_model": None, "empty": True}
-        bad = await builder._bad_urls(d["steps"], known_text, checked)
-        g, warns, ok, adapt_model = await builder._adapt(d, goal, info, bad)
-        warns += links.strip_bad_urls(g["steps"], await builder._bad_urls(g["steps"], known_text, checked))
-        return g["steps"], {"draft": d, "graph": g, "warnings": warns, "adapted": ok, "adapt_model": adapt_model}
+        return await _build_part(ctx, i)
 
     steps: list[dict] = []
     parts: list[dict] = [{"start": a, "end": b, "chapters": t, "status": "pending"} for a, b, t in windows]
@@ -224,12 +278,29 @@ async def build(source_url: str, vid: str, goal: str, workdir: str, info, meta: 
     sem = asyncio.Semaphore(PARALLEL_WINDOWS)
 
     async def guarded(i: int):
-        if i == 0:
+        if i == intro:  # the first hands-on part never waits for a slot
             return await one(i)
         async with sem:
             return await one(i)
 
-    tasks = [asyncio.ensure_future(guarded(i)) for i in range(len(windows))]
+    async def skipped_intro():
+        return [], {"draft": {}, "graph": {"lesson": {}}, "warnings": [], "adapted": True, "adapt_model": None, "empty": True}
+
+    # an intro before preflight's firstHandsOn is talk: record it as skipped instead of watching it
+    lazy = lazy_parts()
+    if lazy:  # one part at a time, in order, until one has steps; the rest wait for extend()
+        tasks = []
+        for i in range(len(windows)):
+            t = asyncio.ensure_future(skipped_intro() if (intro and i == 0) else one(i))
+            tasks.append(t)
+            try:
+                res = await asyncio.shield(t)
+            except RuntimeError:
+                continue
+            if res[0]:
+                break
+    else:
+        tasks = [asyncio.ensure_future(skipped_intro() if (intro and i == 0) else guarded(i)) for i in range(len(windows))]
     shown_first = False
     try:
         for i, task in enumerate(tasks):
@@ -258,12 +329,91 @@ async def build(source_url: str, vid: str, goal: str, workdir: str, info, meta: 
         await asyncio.wait_for(asyncio.shield(goal_task), 5)
     except Exception:  # noqa: BLE001
         pass
-    g = graph_now(complete=True)
+    complete = not any(p["status"] == "pending" for p in parts)
+    g = graph_now(complete=complete)
+    g["build"]["cache_key"] = key
     errs = schema_errors(g)
     if errs:
         raise RuntimeError("step graph failed contract validation:\n" + "\n".join(errs))
-    await emit(complete=True)
+    if complete:
+        await emit(complete=True)
     return g
+
+
+_locks: dict[str, asyncio.Lock] = {}
+LOOKAHEAD_STEPS = int(os.environ.get("LESSON_PARTS_LOOKAHEAD", "2"))
+
+
+def needs_more(graph: dict, current_step_index: int, lookahead: int | None = None) -> bool:
+    """True when parts are pending and the learner is within `lookahead` steps of the last built one."""
+    lesson = graph.get("lesson") or {}
+    pending = any(p.get("status") == "pending" for p in (lesson.get("parts") or {}).get("list") or [])
+    last = max((s.get("index", 0) for s in graph.get("steps") or []), default=0)
+    return pending and last - current_step_index < (LOOKAHEAD_STEPS if lookahead is None else lookahead)
+
+
+async def extend(graph: dict, *, parts: int = 1, on_update=None, cache: bool = True) -> dict:
+    """Build the next pending part(s) of a lazily built long-video lesson and append their steps.
+    Stateless: everything comes from the graph (survives restarts / cached lessons). Returns the new
+    graph (the input isn't modified); calls on_update(graph, complete) when steps were added."""
+    from .workdir import scan
+
+    lesson = graph["lesson"]
+    lock = _locks.setdefault(lesson.get("id", ""), asyncio.Lock())
+    async with lock:  # parts must be appended in order: one extend at a time per lesson
+        g = copy.deepcopy(graph)
+        L = g["lesson"]
+        plist = L.get("parts", {}).get("list") or []
+        pending = [i for i, p in enumerate(plist) if p.get("status") == "pending"]
+        if not pending:
+            L["complete"] = True
+            return g
+        src = g["sources"][0]
+        vid, url, goal, workdir = src.get("videoId"), src["url"], L.get("goal", ""), L.get("workdir", ".")
+        try:
+            meta = await asyncio.wait_for(transcript.fetch_metadata(vid), 10)
+        except Exception:  # noqa: BLE001
+            meta = {"title": L.get("title", ""), "description": "", "length_s": plist[-1]["end"], "chapters": []}
+        windows = [(p["start"], p["end"], p.get("chapters") or []) for p in plist]
+        ctx = {"url": url, "vid": vid, "goal": goal, "windows": windows, "meta": meta, "context": transcript.format_metadata(meta),
+               "engines": builder.engines(), "info": scan(workdir), "known_text": await builder._known_text(vid), "checked": {},
+               "intro": -1}  # no part is "first" any more: generous caps, halves retry
+        added = 0
+        for i in pending[:max(1, parts)]:
+            try:
+                new_steps, extra = await _build_part(ctx, i)
+            except RuntimeError as e:
+                plist[i]["status"], plist[i]["error"] = "failed", str(e)[:300]
+                g["build"].setdefault("warnings", []).append(f"part {i + 1} failed: {str(e)[:160]}")
+                continue
+            if extra.get("empty"):
+                plist[i]["status"] = "skipped"
+                continue
+            last = max((s.get("index", 0) for s in g["steps"]), default=0)
+            g["steps"] += _renumber(new_steps, last + 1)
+            plist[i]["status"] = "done"
+            added += len(new_steps)
+            eng = extra["draft"].get("_engine", "unknown")
+            if L.get("builtBy") not in (eng, "mixed"):
+                L["builtBy"] = "mixed"
+            g["build"].setdefault("warnings", []).extend(f"part {i + 1}: {w}" for w in extra["warnings"])
+            for k, v in extra["graph"]["lesson"].get("libraries", {}).items():
+                L.setdefault("libraries", {}).setdefault(k, v)
+        L["parts"].update(done=sum(p["status"] == "done" for p in plist), failed=sum(p["status"] == "failed" for p in plist),
+                          skipped=sum(p["status"] == "skipped" for p in plist))
+        L["complete"] = not any(p["status"] == "pending" for p in plist)
+        errs = schema_errors(g)
+        if errs:
+            raise RuntimeError("step graph failed contract validation:\n" + "\n".join(errs))
+        if cache and g["build"].get("cache_key") and not L["parts"]["failed"]:
+            builder.CACHE_DIR.mkdir(parents=True, exist_ok=True)
+            (builder.CACHE_DIR / f"{g['build']['cache_key']}.json").write_text(json.dumps(g, indent=2))
+        builder._emit("more_steps", f"part {pending[0] + 1}/{len(plist)}")
+        if on_update and (added or L["complete"]):
+            r = on_update(g, L["complete"])
+            if asyncio.iscoroutine(r):
+                await r
+        return g
 
 
 GOAL_SCHEMA = {"type": "object", "properties": {"score": {"type": "number"}, "note": {"type": "string"}}, "required": ["score", "note"]}
@@ -277,7 +427,7 @@ async def goal_match(goal: str, meta: dict) -> dict:
               "Score 0..1 how well following this video achieves what they asked (1 = exactly, 0.5 = related but a "
               "different project/tool, 0 = unrelated). note: one short sentence a learner would understand.")
     try:
-        r = await asyncio.wait_for(claude._generate_json("You judge whether a tutorial fits a learner's goal.", prompt, GOAL_SCHEMA, effort="low"), 30)
+        r = await asyncio.wait_for(claude._generate_json("You judge whether a tutorial fits a learner's goal.", prompt, GOAL_SCHEMA, effort="low", role="judge", escalate=False), 30)
         return {"score": max(0.0, min(1.0, float(r.get("score", 0)))), "note": str(r.get("note", ""))[:200]}
     except Exception as e:  # noqa: BLE001
         return {"score": None, "note": f"not scored ({str(e)[:80]})"}

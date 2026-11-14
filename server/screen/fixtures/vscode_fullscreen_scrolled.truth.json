@@ -1,0 +1,221 @@
+{
+ "geometry": {
+  "text_left": 376.0,
+  "text_right": 1604,
+  "gutter_right": 350.0,
+  "top": 57,
+  "bottom": 795.0,
+  "line_h": 18.0,
+  "visible": [
+   44,
+   84
+  ]
+ },
+ "lines": {
+  "44": {
+   "y": 57.0,
+   "h": 18.0,
+   "text": "    t = torch.zeros_like(x)"
+  },
+  "45": {
+   "y": 75.0,
+   "h": 18.0,
+   "text": "    return x, t, torch.sin(x)"
+  },
+  "46": {
+   "y": 93.0,
+   "h": 18.0,
+   "text": ""
+  },
+  "47": {
+   "y": 111.0,
+   "h": 18.0,
+   "text": ""
+  },
+  "48": {
+   "y": 129.0,
+   "h": 18.0,
+   "text": "def pde_residual(model, x, t, beta=BETA):"
+  },
+  "49": {
+   "y": 147.0,
+   "h": 18.0,
+   "text": "    u = model(x, t)"
+  },
+  "50": {
+   "y": 165.0,
+   "h": 18.0,
+   "text": "    ones = torch.ones_like(u)"
+  },
+  "51": {
+   "y": 183.0,
+   "h": 18.0,
+   "text": "    u_t = torch.autograd.grad(u, t, ones, create_graph=True)[0]"
+  },
+  "52": {
+   "y": 201.0,
+   "h": 18.0,
+   "text": "    u_x = torch.autograd.grad(u, x, ones, create_graph=True)[0]"
+  },
+  "53": {
+   "y": 219.0,
+   "h": 18.0,
+   "text": "    return u_t + beta * u_x"
+  },
+  "54": {
+   "y": 237.0,
+   "h": 18.0,
+   "text": ""
+  },
+  "55": {
+   "y": 255.0,
+   "h": 18.0,
+   "text": ""
+  },
+  "56": {
+   "y": 273.0,
+   "h": 18.0,
+   "text": "def initial_loss(model, x0, t0, u0):"
+  },
+  "57": {
+   "y": 291.0,
+   "h": 18.0,
+   "text": "    return torch.mean((model(x0, t0) - u0) ** 2)"
+  },
+  "58": {
+   "y": 309.0,
+   "h": 18.0,
+   "text": ""
+  },
+  "59": {
+   "y": 327.0,
+   "h": 18.0,
+   "text": ""
+  },
+  "60": {
+   "y": 345.0,
+   "h": 18.0,
+   "text": "def boundary_loss(model, n: int = 128):"
+  },
+  "61": {
+   "y": 363.0,
+   "h": 18.0,
+   "text": "    t = torch.rand(n, 1)"
+  },
+  "62": {
+   "y": 381.0,
+   "h": 18.0,
+   "text": "    left = model(torch.zeros_like(t), t)"
+  },
+  "63": {
+   "y": 399.0,
+   "h": 18.0,
+   "text": "    right = model(torch.full_like(t, 2 * math.pi), t)"
+  },
+  "64": {
+   "y": 417.0,
+   "h": 18.0,
+   "text": "    return torch.mean((left - right) ** 2)"
+  },
+  "65": {
+   "y": 435.0,
+   "h": 18.0,
+   "text": ""
+  },
+  "66": {
+   "y": 453.0,
+   "h": 18.0,
+   "text": ""
+  },
+  "67": {
+   "y": 471.0,
+   "h": 18.0,
+   "text": "def total_loss(model, xc, tc, x0, t0, u0):"
+  },
+  "68": {
+   "y": 489.0,
+   "h": 18.0,
+   "text": "    r = pde_residual(model, xc, tc)"
+  },
+  "69": {
+   "y": 507.0,
+   "h": 18.0,
+   "text": "    loss_pde = torch.mean(r ** 2)"
+  },
+  "70": {
+   "y": 525.0,
+   "h": 18.0,
+   "text": "    loss_ic = initial_loss(model, x0, t0, u0)"
+  },
+  "71": {
+   "y": 543.0,
+   "h": 18.0,
+   "text": "    loss_bc = boundary_loss(model)"
+  },
+  "72": {
+   "y": 561.0,
+   "h": 18.0,
+   "text": "    return loss_pde + 100.0 * loss_ic + loss_bc, loss_pde, loss_ic"
+  },
+  "73": {
+   "y": 579.0,
+   "h": 18.0,
+   "text": ""
+  },
+  "74": {
+   "y": 597.0,
+   "h": 18.0,
+   "text": ""
+  },
+  "75": {
+   "y": 615.0,
+   "h": 18.0,
+   "text": "def train(epochs: int = EPOCHS, lr: float = LEARNING_RATE, seed: int = 0):"
+  },
+  "76": {
+   "y": 633.0,
+   "h": 18.0,
+   "text": "    torch.manual_seed(seed)"
+  },
+  "77": {
+   "y": 651.0,
+   "h": 18.0,
+   "text": "    model = MLP()"
+  },
+  "78": {
+   "y": 669.0,
+   "h": 18.0,
+   "text": "    opt = torch.optim.Adam(model.parameters(), lr=lr)"
+  },
+  "79": {
+   "y": 687.0,
+   "h": 18.0,
+   "text": "    xc, tc = sample_collocation(N_COLLOCATION)"
+  },
+  "80": {
+   "y": 705.0,
+   "h": 18.0,
+   "text": "    x0, t0, u0 = sample_initial(N_INITIAL)"
+  },
+  "81": {
+   "y": 723.0,
+   "h": 18.0,
+   "text": "    history = []"
+  },
+  "82": {
+   "y": 741.0,
+   "h": 18.0,
+   "text": "    for epoch in range(epochs + 1):"
+  },
+  "83": {
+   "y": 759.0,
+   "h": 18.0,
+   "text": "        opt.zero_grad()"
+  },
+  "84": {
+   "y": 777.0,
+   "h": 18.0,
+   "text": "        loss, loss_pde, loss_ic = total_loss(model, xc, tc, x0, t0, u0)"
+  }
+ }
+}

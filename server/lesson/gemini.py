@@ -15,6 +15,7 @@ warnings.filterwarnings("ignore", category=SyntaxWarning)  # SDK docstring escap
 from google import genai
 from google.genai import types
 
+from . import cost
 from .schema import ADAPTED_SCHEMA, DETAIL_SCHEMA, VIDEO_DRAFT_SCHEMA, standard_outputs_for_prompt
 
 log = logging.getLogger("server.lesson")
@@ -99,10 +100,35 @@ MAX_RATE_WAIT_S = 45.0
 _exhausted: set[str] = set()  # models whose daily quota is gone, skipped for the rest of the process
 
 
+# Circuit breaker: billing/auth failures are the same for every model and every call, so Gemini is
+# marked down for LESSON_GEMINI_COOLDOWN_S and calls fail instantly (the build goes to Claude at once).
+COOLDOWN_S = float(os.environ.get("LESSON_GEMINI_COOLDOWN_S", "300"))
+_down_until = 0.0
+_down_reason = ""
+
+
+def is_down() -> str | None:
+    """The reason Gemini is unavailable right now, or None."""
+    import time as _t
+
+    return _down_reason if _t.time() < _down_until else None
+
+
+def mark_down(reason: str, seconds: float | None = None) -> None:
+    import time as _t
+
+    global _down_until, _down_reason
+    _down_until, _down_reason = _t.time() + (COOLDOWN_S if seconds is None else seconds), reason
+    log.warning("Gemini marked unavailable for %.0fs: %s", COOLDOWN_S if seconds is None else seconds, reason)
+
+
 def _classify(e: Exception) -> tuple[str, float]:
-    """-> (kind, wait_seconds). kind: 'daily'/'gone' (skip model), 'rate' (wait, same model), 'busy', 'other'."""
+    """-> (kind, wait_seconds). kind: 'billing'/'auth' (fatal), 'daily'/'gone' (skip model), 'rate' (wait), 'busy', 'other'."""
     msg = str(e)
     code = getattr(e, "code", None)
+    low = msg.lower()
+    if code == 402 or "402" in msg[:20] or "payment required" in low or "prepayment" in low or "credits are depleted" in low or "billing" in low:
+        return "billing", 0.0
     if code in (401, 403) or "PERMISSION_DENIED" in msg or "UNAUTHENTICATED" in msg or "API_KEY_INVALID" in msg:
         return "auth", 0.0
     if code == 404 or "NOT_FOUND" in msg:
@@ -125,14 +151,20 @@ async def _generate_json(model_id: str, parts: list[types.Part], schema: dict, *
         temperature=0.2,
         media_resolution=types.MediaResolution.MEDIA_RESOLUTION_LOW if media_low else None,
     )
+    if (why := is_down()) is not None:
+        raise RuntimeError(f"Gemini unavailable: {why}")
     chain = [m for m in dict.fromkeys([model_id, *fallback_models()]) if m not in _exhausted]
     last: Exception | None = None
     for mid in chain:
         for attempt in range(retries + 1):
             try:
+                cost.count("gemini_calls")
                 resp = await client().aio.models.generate_content(model=mid, contents=types.Content(role="user", parts=parts), config=cfg)
                 if mid != model_id:
                     log.warning("used fallback model %s (wanted %s)", mid, model_id)
+                um = getattr(resp, "usage_metadata", None)
+                cost.add_tokens(mid, getattr(um, "prompt_token_count", 0),
+                                (getattr(um, "candidates_token_count", 0) or 0) + (getattr(um, "thoughts_token_count", 0) or 0))
                 out = json.loads(resp.text or "")
                 global last_model
                 last_model = mid
@@ -143,7 +175,11 @@ async def _generate_json(model_id: str, parts: list[types.Part], schema: dict, *
             except Exception as e:  # noqa: BLE001  network / 429 / 5xx
                 last = e
                 kind, wait = _classify(e)
+                if kind == "billing":  # every model and every call will fail the same way: stop now
+                    mark_down("billing: 402 Payment Required (Gemini credits are used up)")
+                    raise RuntimeError(f"Gemini unavailable: billing: 402 Payment Required ({str(e)[:160]})") from e
                 if kind == "auth":  # bad/blocked key: every model will fail the same way
+                    mark_down("the Gemini API key was rejected")
                     raise RuntimeError(f"Gemini rejected the API key: {str(e)[:200]}") from e
                 if kind in ("daily", "gone"):
                     _exhausted.add(mid)
@@ -230,13 +266,22 @@ def _mmss(t: float) -> str:
 
 async def watch_video(url: str, goal: str, *, fps: float | None = None, context: str = "",
                       start: float | None = None, end: float | None = None, media_low: bool = False) -> dict:
-    """Watch the whole video, or only [start, end) seconds of it (a clip, for long videos)."""
+    """Watch the whole video, or only [start, end) seconds of it (a clip, for long videos).
+    Each call takes one unit of today's Gemini budget (budget.py); none left -> RuntimeError at once."""
+    from . import budget
+
+    if (why := is_down()) is not None:
+        raise RuntimeError(f"Gemini unavailable: {why}")
+    if not budget.try_take(f"{url} {start or ''}-{end or ''}"):
+        raise RuntimeError(f"Gemini skipped: {budget.exhausted_message()}")
     # 0.5 fps halves the frames of the default 1 fps; long videos otherwise miss the cap
     fps = fps if fps is not None else float(os.environ.get("LESSON_GEMINI_FPS", "0.5"))
     prompt = WATCH_PROMPT.format(goal=goal, stack_guide=STACK_GUIDE)
     if start is not None and end is not None:
+        budget = max(1, min(6, round((end - start) / 60 / 3)))
         prompt += (f"\n\nYou are watching ONE PART of a longer video: {_mmss(start)} to {_mmss(end)}. Break only this "
-                   f"part into steps (1-6 of them). Give every timestamp (start, end, explanations) as the time in the FULL "
+                   f"part into at most {budget} step(s): group small related actions (import + load, count + group + sort) "
+                   f"into one step; zero steps if this part is only talk. Give every timestamp (start, end, explanations) as the time in the FULL "
                    f"video, between {_mmss(start)} and {_mmss(end)}. Earlier parts are covered separately: don't add a "
                    f"setup step for things built before {_mmss(start)} unless this part needs them and never shows them.")
     if context:  # title/description/chapters: the video alone never shows the repo/data links

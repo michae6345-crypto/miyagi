@@ -6,13 +6,13 @@
   },
   "response": {
     "model": "claude-haiku-5-5",
-    "text": "{\"route\": \"playbook\", \"playbook_id\": \"none\", \"reason\": \"The failure is a React rules-of-hooks lint error: useEffect is called inside a conditional. None of the listed playbooks cover React hooks, so no known playbook applies. The learner has written code (not merely skipped the step), and the fix depends on their specific component logic, so escalating to opus is the appropriate route.\"}",
+    "text": "{\"route\": \"playbook\", \"playbook_id\": \"none\", \"reason\": \"The lint error is a React rules-of-hooks violation: useEffect is called inside a conditional, which is a well-known React mistake with a generic fix (move the hook to the top level and guard the fetch inside the effect). None of the listed playbooks cover React hooks, so no playbook matches this failure; it is not a missing step, and the fix depends on the learner's specific component logic, so opus is the appropriate helper.\"}",
     "usage": {
       "input_tokens": 973,
-      "output_tokens": 128,
+      "output_tokens": 160,
       "cache_read_input_tokens": 0,
       "cache_creation_input_tokens": 0
     },
-    "latency_s": 1.95
+    "latency_s": 1.38
   }
 }

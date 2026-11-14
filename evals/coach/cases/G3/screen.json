@@ -1,0 +1,32 @@
+{
+ "screen": {
+  "x": 0.0,
+  "y": 0.0,
+  "w": 1728.0,
+  "h": 1117.0
+ },
+ "scale": 2.0,
+ "app": "Code",
+ "windows": [
+  {
+   "app": "Terminal",
+   "title": "git-rebase-lab — -zsh — 108×70",
+   "rect": {
+    "x": 944,
+    "y": 33,
+    "w": 784,
+    "h": 1084
+   }
+  },
+  {
+   "app": "Code",
+   "title": "index.js — git-rebase-lab",
+   "rect": {
+    "x": 0,
+    "y": 33,
+    "w": 940,
+    "h": 1084
+   }
+  }
+ ]
+}

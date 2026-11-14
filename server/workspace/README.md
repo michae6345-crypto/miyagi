@@ -1,4 +1,4 @@
-# server/workspace: what the lesson needs, one folder per lesson, starter files, VS Code
+# server/workspace: what the lesson needs, one folder per lesson, starter files, Cursor / VS Code
 
 Every lesson except the demo hero gets its own folder, `~/miyagi/lessons/<slug-of-title>-<hash>/`,
 scaffolded from the lesson's step graph by Claude and opened in VS Code. The hero (Toscano's PINN
@@ -43,7 +43,8 @@ res = install(item, workdir=wd, on_line=cb)  # ONLY after the learner tapped Ins
   Items: `{tool, label, kind (editor|app|runtime|cli|python_package|web_app), why, needed, installed, ok, version, min_version, where,
   install: {method (brew|brew_cask|pip|download|open|none), command, url}}`. `web_app` items (OpenAI Platform,
   Botpress, Zapier, Google Sheets, ...) are always `ok`, method `open` + an https URL, and never count as missing. `ok` = installed and `>= min_version`.
-  Returns `[]` with no key or on API failure (the lesson still runs).
+  Returns `[]` with no key or on API failure (the lesson still runs). Claude's list is cached by **video id** (the prompt
+  never sees the goal), so S8's preflight (`preflight-<videoId>`) warms the real lesson's setup card.
 - Local checks are fast and read-only: `/Applications/<App>.app` then `mdfind kMDItemCFBundleIdentifier == '<id>'` for apps
   (+ `defaults read .../Info CFBundleShortVersionString`), `which <bin>` + `<bin> --version` for CLIs/runtimes (python = the
   newest `python3.x` on PATH, since Apple's `/usr/bin/python3` is 3.9), `<python> -c "import <module>"` for Python packages
@@ -93,6 +94,77 @@ Orchestrator flow: on lesson.ready, run `requirements(graph, workdir=wd)` in a t
 the list is empty). Don't auto-open VS Code any more. `action install {text: tool}` → `install(item, workdir=wd, on_line=…)` →
 `setup.progress` lines, then `{done, ok, error|version}`, then re-run `requirements` (cached list, fresh checks) and re-emit the card.
 `action open_editor` → `open_editor(wd, open_file_for(wd))`. `action skip_setup` → dismiss.
+
+## Editor: Cursor or VS Code, frontmost, room for the video (editor.py)
+
+- **Which editor:** `MIYAGI_EDITOR=cursor|code` if that one is installed, else Cursor (`com.todesktop.230313mzl4w4u92`,
+  `cursor` CLI), else VS Code (`com.microsoft.VSCode`, `code`). Detection: `/Applications/<App>.app`, else `mdfind` by
+  bundle id; the CLI is found on PATH or inside the .app. `preferred_editor()`, `installed_editors()`, `editor_label()`
+  ("Cursor"), and `goto_argv(file, line)` → `[<cli>, "-r", "-g", "file:line"]` for step jumps.
+- **The setup card names it:** item 0 is `cursor` or `vscode` (`brew install --cask cursor` if Cursor is wanted but missing);
+  `card.setup.editor`, `card.setup.editorLabel` ("Cursor"), `card.setup.actionLabels.open_editor` ("Open Cursor"), and the body
+  asks "Open the lesson folder in Cursor?".
+- **`open_editor_report(path, file)`** → `{opened, editor, label, command, frontmost, ax_trusted, arrange, unfullscreened?, arranged?, frame?}`
+  (`open_editor` = its `opened`).
+
+| | without Accessibility (always) | with Accessibility (`AXIsProcessTrusted`) and `MIYAGI_ARRANGE` ≠ 0 |
+|---|---|---|
+| open | `<cli> -n <dir> -g <file>`, fallback `open -a <App> <dir> <file>` | same |
+| front | `open -a <App>`: the editor is frontmost; macOS switches away from a full-screen app to the editor's window | same |
+| full screen | the app you were in stays full screen in its own space | its focused window leaves full screen (`AXFullScreen=false`). It is never closed or quit |
+| layout | the editor keeps its own size | the editor's window moves to the left 60% of the screen's visible area (`MIYAGI_EDITOR_FRACTION`), so the video docked on the right 40% stays visible |
+
+The Accessibility part runs in a background thread (it waits up to 8 s for the editor's window), so `open_editor` returns
+right away. "The app you were in" = the owner of the frontmost normal window that isn't our overlay (`Miyagi`,
+`miyagi-overlay`, `Electron`; `MIYAGI_OVERLAY_APPS`) or the editor itself. Trust is read through ctypes, with no prompt; window
+moves use `pyobjc-framework-ApplicationServices` (added to `server/pyproject.toml`). Keeping the overlay above full-screen
+spaces is the app's job (Electron `setVisibleOnAllWorkspaces(true, {visibleOnFullScreen: true})`).
+
+### "Just teach me" mode: full screen, and where to type
+
+- `open_editor(path, file, fullscreen=True)` opens Cursor/VS Code as usual (CLI, then `open -a` so it's frontmost). With
+  Accessibility, a background thread then sets `AXFullScreen=true` on the editor's window, instead of the left-60% layout.
+  Without Accessibility, `report["fullscreen"]` = "skipped: Accessibility not granted (the learner can press Ctrl+Cmd+F)" and
+  the editor stays a normal frontmost window. AppleScript keystrokes or menu clicks need the same permission, so there is no
+  permission-free full screen.
+- `editor_line_rect(file, line) -> {x, y, w, h, line, source: "ax"} | None`, in top-left global screen points. The technique is
+  E6's (server/screen/ax.py): turn the Electron AX tree on once per process (`AXManualAccessibility`); read the focused hidden
+  textarea's text, caret (`AXSelectedTextRange`) and rect (it sits on the caret line); map the 500-line AX page to file lines;
+  shift by whole lines. That's a handful of AX reads, no tree walk.
+- It returns None without Accessibility, while the tree is being built (first call per editor process; ask again after ~1 s),
+  when another file is in front (`AXDocument`), when the caret is off-screen, or when the line is outside the window. Then
+  use OCR locate. Folding and word wrap shift lines, so treat the result as a hint to cross-check.
+- Without Accessibility (or when AX can't see the line), `editor_line_rect` falls back to E6's screen reader
+  (`server.screen.locate_line`, PR #9; imported only if present) and returns its full-width row with `source: "screen"`.
+  `editor_line_location(file, line)` returns the full answer: `{rect, source: "ax"|"screen"|None, reason, direction?,
+  visible_lines?, line_height?}`. When `direction` is "up"/"down", jump with `goto_argv()` and ask again.
+
+## Download the tutorial's own materials (resources.py)
+
+```python
+found = find_resources(graph)                 # [{name, url, kind, fetch}]: cheap, cached per video
+saved = download_resources(graph)             # ONLY when the learner presses Download
+download_summary(saved)                       # "Saved … to ~/miyagi/lessons/<slug>/tutorial." | NO_RESOURCES
+```
+
+- **Where links come from:** the video description (watch page, fetched once per video and cached in
+  `.miyagi-state/resources/`, or passed as `description=`), plus non-video `sources[]` in the step graph.
+- **Kept:** GitHub repos → zip from `codeload.github.com` (no git, so no hooks; a `/tree/<ref>` link keeps its ref);
+  GitHub `blob`/raw file links; Colab notebooks (GitHub-backed → raw `.ipynb`; Drive-backed → Drive download, named
+  from the server's filename); gists (API); direct `.csv .tsv .json .jsonl .parquet .xlsx .txt .ipynb .py .zip .r .sql .md`;
+  Google Drive files and Sheets (CSV export). A file inside a repo that's already being downloaded is skipped. At most 8.
+- **Ignored:** socials, playlists, papers, sponsors, personal sites.
+- **Safety:** each download ≤ `MIYAGI_DOWNLOAD_MAX_MB` (50). A web page where a file was expected (sign-in or Drive
+  confirmation) counts as an error, with the link to open instead. Zips are extracted with no symlinks, no `..`, no `.git/`,
+  ≤ 5000 files and ≤ 4×50 MB. Files are written `rw-r--r--`. **Nothing downloaded is run, imported or installed.**
+- **Returns:** `[{name, url, kind, path, bytes|files, cached?}]` or `{…, path: None, error}`; `[]` →
+  `NO_RESOURCES` ("No downloadable code linked from this video"). A second press reuses what's already there.
+- `setup_card(items, resources=found)` adds the `download` action, `setup.resources`, and
+  `setup.actionLabels.download` ("Download tutorial files").
+
+Live: Karpathy `kCc8FmEb1nY` → `gpt-dev.ipynb` (the Colab, 39 cells), `karpathy-ng-video-lecture` (5 files),
+`karpathy-nanoGPT` (26 files) in 2.2 s. The cached React lesson's video links only nodejs.org, code.visualstudio.com and
+react.dev → "No downloadable code linked from this video". `python -m server.workspace.tests.live_resources --fresh`.
 
 ## Hero detection
 

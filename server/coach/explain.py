@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import re
 
@@ -17,9 +18,9 @@ from .common import (
     step_brief,
     system_blocks,
 )
-from .diagnose import COACH_SYSTEM, LAST, cursor_text, screen_schema
+from .diagnose import COACH_SYSTEM, LAST, cursor_text
 from .metrics import summarize
-from .screen import TargetStream
+from .pointing import point
 
 log = logging.getLogger("coach.explain")
 
@@ -64,10 +65,22 @@ def video_jump(step: dict, idx: int) -> dict | None:
     return None
 
 
+async def _point_and_notify(step, screen, about, last, on_targets) -> dict:
+    p = await point(step, screen, about=about, last=last)
+    if p["targets"] and on_targets is not None:
+        r = on_targets(p["targets"])
+        if hasattr(r, "__await__"):
+            await r
+    return p
+
+
 async def explain(step: dict, question: str | None = None, context: dict | None = None) -> dict:
     """`context` may hold: code_excerpt, metrics_summary, offtrack (last card), lesson,
-    screen (ScreenContext: the answer then includes `targets` first, streamed to on_targets),
-    on_targets (callback), cursor ({"x", "y", "under": {"text", "app", "rect"}})."""
+    screen (ScreenContext), on_targets (callback), cursor ({"x", "y", "under": {"text", "app", "rect"}}).
+
+    With a screen, pointing runs in parallel with the Opus text: `on_targets(targets)` fires as soon
+    as they are known (exact match ~0 ms, Haiku ~1 s), and the card carries `targets`, or `where`
+    when the place isn't on screen. Opus itself gets text only, so the explanation is not slowed."""
     ctx = context or {}
     screen = ctx.get("screen")
     lesson = ctx.get("lesson") or get_lesson()
@@ -75,11 +88,16 @@ async def explain(step: dict, question: str | None = None, context: dict | None 
     kind = "answer" if question else "explain"
     about = question or (f"Why? (about the card: {last.get('title')} — {last.get('body')})" if last else f"Explain the idea behind this step: {step.get('title')}")
 
+    point_task = None
+    if screen is not None:
+        point_about = question or (last and f"{last.get('title')}: the code it is about") or f"the code for this step: {step.get('instructions', '')}"
+        point_task = asyncio.create_task(_point_and_notify(step, screen, point_about, last, ctx.get("on_targets")))
+
     metrics_text, _ = summarize(ctx.get("metrics_summary"))
     if question:  # ground a free question in live docs/community pages
         libs = ((lesson or {}).get("lesson") or {}).get("libraries") or {}
         lib, sym = web.detect(question, ctx.get("code_excerpt", ""), libs)
-        sources = await web.gather(lib, sym, question, timeout=6.0)
+        sources = await web.gather(lib, sym, question, timeout=4.0)
     else:  # "why?" about the card: reuse what diagnose() already fetched
         sources = ((last or {}).get("_meta") or {}).get("web_sources") or []
     user = "\n\n".join(
@@ -97,24 +115,16 @@ async def explain(step: dict, question: str | None = None, context: dict | None 
         if x
     )
     det_idx = match_explanation(step, about)
-    schema, content, stream = CARD_SCHEMA, None, None
-    if screen is not None:
-        schema = screen_schema(CARD_SCHEMA)
-        content = [{"type": "text", "text": user}, *screen.claude_content()]
-        user = user + "\n\n" + screen.text()
-        stream = TargetStream(screen, ctx.get("on_targets"))
     try:
         res = await llm.structured_call(
             purpose="explain",
-            model=llm.OPUS,
+            model=llm.model_for("explain"),
             system=system_blocks(COACH_SYSTEM + EXPLAIN_TASK, lesson),
             user_text=user,
-            schema=schema,
+            schema=CARD_SCHEMA,
             effort="low",
             max_tokens=8000,
             timeout=40.0,
-            user_content=content,
-            on_text=stream,
         )
         d = res.data
         idx = d.get("explanation_index", -1)
@@ -130,6 +140,8 @@ async def explain(step: dict, question: str | None = None, context: dict | None 
         meta = {"web_sources": [x["url"] for x in sources], "model": res.model, "latency_s": round(res.latency_s, 2), "usage": res.usage, "source": res.source}
     except llm.CoachLLMError as e:
         if not llm.demo_mode():
+            if point_task is not None:
+                point_task.cancel()
             raise llm.CoachUnavailable(f"explanation unavailable: {e}") from e
         log.warning("explain failed (%s); DEMO=1 so using the offline card", e)
         idx = det_idx
@@ -141,7 +153,11 @@ async def explain(step: dict, question: str | None = None, context: dict | None 
         card["videoJump"] = jump
     if cit:
         card["citation"] = cit  # extra field (contract allows additions)
-    if screen is not None and "fallback_reason" not in meta:
-        card["targets"] = stream.fired if stream.fired is not None else screen.resolve_targets(res.data.get("targets"))
+    if point_task is not None:
+        p = await point_task
+        card["targets"] = p["targets"]
+        if p["where"]:
+            card["where"] = p["where"]
+        meta["point_via"] = p["via"]
     card["_meta"] = meta
     return card

@@ -154,6 +154,7 @@ def run(coro):
 
 
 async def _pf(vid: str, goal: str, *, claude=None, req=None, timeout=5.0, tr=None, keys=KEYS, **kw):
+    kw.setdefault("lesson_cache", False)  # hermetic: no real demo/cache/lessons lookup unless a test passes one
     async with httpx.AsyncClient(transport=tr or transport()) as http:
         return await preflight(f"https://www.youtube.com/watch?v={vid}", goal, timeout=timeout, keys=keys, http=http,
                                claude_client=claude or FakeClaude(CODING), requirements_fn=req, **kw)
@@ -191,13 +192,23 @@ def test_build_plan_mirrors_e2_window_1():
     assert build_plan(short)["strategy"] == "whole" and build_plan(short)["firstChapter"] is None
     assert build_plan({"duration_s": 29 * 60, "chapters": []})["strategy"] == "whole"  # E2: progressive only > 30 min
     m = {"duration_s": 6980, "chapters": parse_chapters(KARPATHY_DESC, 6980)}
-    p = build_plan(m, 1)
-    assert p["strategy"] == "chapters"
+    p = build_plan(m, None)
+    assert p["strategy"] == "chapters" and "skippedIntro" not in p
     fc = p["firstChapter"]
     # E2's plan_windows: window 1 = chapters from 0:00 grouped to 3-6 min; a 7:52 intro is a window on its own
     assert (fc["index"], fc["lastIndex"], fc["start"], fc["end"]) == (0, 0, 0, 472)
+    # with the first hands-on chapter at 7:52, E2 skips the intro and part 1 starts there (E2 1411782)
+    p = build_plan(m, 1)
     assert p["firstHandsOn"] == {"index": 1, "title": "reading and exploring the data", "start": 472}
-    assert 30 < p["estSecondsToFirstSteps"] < 50
+    assert p["skippedIntro"] == {"start": 0, "end": 472}
+    fc = p["firstChapter"]
+    # part 1 under 3 min takes one more chapter while <= 8 min (E2 d701162): 7:52-14:27, not a 96 s part
+    assert (fc["index"], fc["lastIndex"], fc["start"], fc["end"]) == (1, 2, 472, 867) and fc["title"] == "reading and exploring the data"
+    assert 30 <= p["estSecondsToFirstSteps"] < 50
+    # a hands-on chapter at 22:11 would skip real work: not trusted, no skip
+    late = build_plan(m, 4)
+    assert "skippedIntro" not in late and late["firstChapter"]["start"] == 0
+    assert "skippedIntro" not in build_plan(m, 0)  # < 1 min: nothing to skip
     short_chapters = {"duration_s": 3600, "chapters": parse_chapters("0:00 a\n1:00 b\n2:30 c\n4:00 d\n20:00 e", 3600)}
     fc = build_plan(short_chapters)["firstChapter"]
     assert (fc["start"], fc["end"], fc["lastIndex"]) == (0, 240, 2)  # grouped until >= 3 min (same as E2 plan_windows)
@@ -226,7 +237,7 @@ def test_coding_long_video_card():
     assert card["actions"] == ["build", "pick_another", "install"]  # torch missing
     assert "Coding · 1:56:20 · 7 chapters · Andrej Karpathy" in card["body"]
     assert "Needs: Visual Studio Code ✓ Python 3 ✓ PyTorch ✗" in card["body"]
-    assert "Long video: I'll build 0:00–7:52 first" in card["body"] and "Hands-on starts at 7:52" in card["body"]
+    assert "Long video: skipping the 7:52 intro, I'll build 7:52–14:27 first" in card["body"]
     assert "warning" not in card
     assert card["preflight"]["goalMatch"]["score"] == 0.92 and card["items"][2]["install"]["method"] == "pip"
 
@@ -314,7 +325,7 @@ def test_prefetch_then_pick_hits_memo():
 
     async def go():
         async with httpx.AsyncClient(transport=transport()) as http:
-            kw = dict(keys=KEYS, http=http, claude_client=claude, requirements_fn=None)  # noqa: C408
+            kw = dict(keys=KEYS, http=http, claude_client=claude, requirements_fn=None, lesson_cache=False)  # noqa: C408
             tasks = prefetch(rows, "build an LLM", **kw)
             assert len(tasks) == 2  # only the videos
             res = await preflight(rows[2]["url"], "Build an  LLM", **kw)  # while prefetch runs: shares it
@@ -397,3 +408,92 @@ def test_finder_row_fills_in_when_youtube_is_blocked():
     assert res["buildPlan"]["firstChapter"]["window"]
     other = {"videoId": "MXId-Ae6k_I", "url": "https://www.youtube.com/watch?v=MXId-Ae6k_I", "style": "coding"}
     assert core.finder_prior(other, "kCc8FmEb1nY") == {}  # a row for another video is ignored
+
+
+def test_video_meta_for_e2():
+    from server.preflight import video_meta
+
+    res = run(_pf("kCc8FmEb1nY", "build an LLM", req=lambda g: REQ_CODING))
+    vm = video_meta(res)
+    assert vm["duration_s"] == 6980 and vm["title"].startswith("Let's build GPT") and "Generatively" in vm["description"]
+    assert vm["chapters"][1] == {"start": 472, "title": "reading and exploring the data"} and len(vm["chapters"]) == 7
+    assert vm["firstHandsOn"] == 472  # = buildPlan.skippedIntro.end, the part E2 builds first
+    short = run(_pf("MXId-Ae6k_I", "react todo", claude=FakeClaude(REACT)))
+    assert "firstHandsOn" not in video_meta(short)
+    assert video_meta({"url": "x"}) is None
+
+
+def test_mirror_matches_e2_part_1_rules():
+    chs = parse_chapters("0:00 a\n1:00 b\n7:00 c\n9:00 d\n40:00 e", 3600)
+    # a (1 min) + b (6 min) = 7 min > 6 min cap, but a alone is < 3 min and 7 <= 8: take b
+    assert core._mirror_first(3600, chs) == (0.0, 420.0, ["a", "b"])
+    chs = parse_chapters("0:00 a\n1:00 b\n10:00 c\n12:00 d", 3600)
+    assert core._mirror_first(3600, chs) == (0.0, 60.0, ["a"])  # a + b = 10 min > 8: a stays alone
+    chs = parse_chapters("0:00 long\n40:00 b\n50:00 c", 3600)
+    a, b, titles = core._mirror_first(3600, chs)  # a 40 min chapter is split into ~12 min spans first
+    assert (a, b) == (0.0, 600.0) and titles == ["long (1/4)"]
+
+
+COLAB_REQ = [
+    {"tool": "vscode", "label": "Visual Studio Code", "kind": "editor", "needed": False, "installed": True, "ok": True,
+     "why": "No editor needed: the video uses Google Colab.", "install": {"method": "none", "command": "", "url": ""}},
+    {"tool": "google_colab", "label": "Google Colab", "kind": "web_app", "needed": True, "installed": True, "ok": True,
+     "why": "", "install": {"method": "open", "command": "", "url": "https://colab.research.google.com"}},
+]
+
+
+def test_coding_lesson_always_gets_the_editor():
+    """Stage rehearsal (S11): a Colab-based coding video still runs locally in VS Code, so never 'No code editor'."""
+    seen = {}
+
+    def req(graph):
+        seen.update(graph)
+        return [dict(i) for i in COLAB_REQ]
+
+    res = run(_pf("kCc8FmEb1nY", "build an LLM", req=req))
+    card = preflight_card(res)
+    assert res["editorNeeded"] is True and "No code editor" not in card["body"]
+    assert "Needs: Visual Studio Code ✓" in card["body"]
+    assert "LOCALLY in VS Code" in seen["steps"][0]["instructions"]  # S2 is told how Miyagi runs lessons
+
+
+def test_cached_lesson_is_ready_instantly_and_checked_for_real():
+    real = {"lesson": {"id": "lesson-x", "title": "PINN"}, "sources": [{"kind": "video", "videoId": "kCc8FmEb1nY"}],
+            "steps": [{"index": i, "title": f"s{i}"} for i in range(5)]}
+    got = {}
+
+    def req(graph, *, workdir=None):
+        got.update(graph=graph, workdir=workdir)
+        return REQ_CODING
+
+    hit = {"graph": real, "file": "abc.json", "steps": 5, "workdir": "/tmp/pinn-lab"}
+    res = run(_pf("kCc8FmEb1nY", "build an LLM", req=req, lesson_cache=lambda u, g: hit))
+    assert got["graph"] is real and got["workdir"] == "/tmp/pinn-lab"  # the setup card's exact check, not the light graph
+    assert res["buildPlan"]["cached"] and res["buildPlan"]["estSecondsToFirstSteps"] == 0
+    body = preflight_card(res)["body"]
+    assert "Built before: ready instantly (5 steps)." in body and "Long video" not in body and "Building takes" not in body
+    assert res["cachedLesson"] == {"file": "abc.json", "steps": 5, "workdir": "/tmp/pinn-lab"}
+    core.clear_memo()
+    miss = run(_pf("kCc8FmEb1nY", "build an LLM", req=req, lesson_cache=lambda u, g: None))
+    assert "cached" not in miss["buildPlan"] and "cachedLesson" not in miss
+
+
+def test_memo_hit_rechecks_the_lesson_cache():
+    """Prefetched before the first build, picked again after it: the card must say 'ready instantly'."""
+    state = {"hit": None}
+
+    async def go():
+        async with httpx.AsyncClient(transport=transport()) as http:
+            kw = dict(keys=KEYS, http=http, claude_client=FakeClaude(CODING), requirements_fn=None,  # noqa: C408
+                      lesson_cache=lambda u, g: state["hit"])
+            first = await preflight("https://www.youtube.com/watch?v=kCc8FmEb1nY", "build an LLM", **kw)
+            state["hit"] = {"graph": {}, "file": "abc.json", "steps": 5, "workdir": "/tmp/w"}  # the build ran
+            again = await preflight("https://www.youtube.com/watch?v=kCc8FmEb1nY", "build an LLM", **kw)
+            state["hit"] = None  # cache cleared
+            third = await preflight("https://www.youtube.com/watch?v=kCc8FmEb1nY", "build an LLM", **kw)
+            return first, again, third
+
+    first, again, third = run(go())
+    assert "cached" not in first["buildPlan"] and first["buildPlan"]["estSecondsToFirstSteps"] > 0
+    assert again["cached"] and again["buildPlan"]["cached"] and "ready instantly (5 steps)" in preflight_card(again)["body"]
+    assert "cached" not in third["buildPlan"] and third["buildPlan"]["estSecondsToFirstSteps"] == first["buildPlan"]["estSecondsToFirstSteps"]

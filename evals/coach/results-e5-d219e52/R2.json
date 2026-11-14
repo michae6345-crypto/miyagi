@@ -1,0 +1,197 @@
+{
+ "id": "R2",
+ "topic": "react",
+ "step": "s3",
+ "mistake": "Kept the s1 name `interval` but the cleanup calls `clearInterval(intervalId)`",
+ "truth": "`intervalId` is not defined (eslint no-undef → Failed to compile). Fix: use the same name, e.g. `const intervalId = setInterval(...)` or `clearInterval(interval)`.",
+ "ocr": {
+  "blocks": 82,
+  "ms": 197,
+  "lines_by_app": {
+   "": 2,
+   "Code": 39,
+   "Google Chrome": 8,
+   "Terminal": 11
+  }
+ },
+ "cursor": {
+  "xy": [
+   1072.0,
+   658.0
+  ],
+  "on": "  Line 14:21:  'intervalId' is not defined  no-undef"
+ },
+ "gate_before": {
+  "passed": true,
+  "via": "precision",
+  "passed_screen_only": false,
+  "checks": [
+   "s3c1 pass: seen in Code: 'clearInterval('",
+   "s3c2 pass: seen in Terminal: 'webpack compiled'",
+   "s3c3 fail: still showing 'Failed to compile' in Terminal"
+  ],
+  "precision": [
+   "s3p1 pass: found in src/Components/Timer.js:14",
+   "s3p2 pass: found in src/Components/Timer.js:12"
+  ]
+ },
+ "fires": false,
+ "fires_screen_only": true,
+ "forced": true,
+ "inputs": {
+  "code_from": "src/Components/Timer.js",
+  "code_chars": 442,
+  "target_location": [
+   "/var/folders/2g/b60087014tq94njh6r4zdmhm0000gn/T/coach-eval-wiy5zbga/R2/demo-app/src/Components/Timer.js",
+   14
+  ],
+  "cursor_under": "Line 14:21:"
+ },
+ "warm_s": 1.9,
+ "card_s": 6.25,
+ "targets_s": 4.4,
+ "card": {
+  "stepId": "s3",
+  "severity": "fail",
+  "title": "Interval variable name mismatch",
+  "body": "The interval ID is stored in interval on line 7, but the cleanup on line 14 calls clearInterval(intervalId), which does not exist. Rename the line 7 variable to intervalId.",
+  "actions": [
+   "explain",
+   "show_me",
+   "hint",
+   "apply_fix"
+  ],
+  "guidingQuestion": "Which name did you give setInterval's return value, and which name does clearInterval receive?",
+  "diff": {
+   "expected": "    const intervalId = setInterval(() => {",
+   "yours": "const interval = setInterval(() => {",
+   "file": "src/Components/Timer.js",
+   "line": 7
+  },
+  "targets": [
+   {
+    "boxId": 36,
+    "label": "declared name",
+    "text": "const interval = setInterval(()={",
+    "rect": {
+     "x": 344.1,
+     "y": 238.5,
+     "w": 261.2,
+     "h": 15.1
+    }
+   },
+   {
+    "boxId": 55,
+    "label": "undefined name",
+    "text": "clearInterval(intervalld);",
+    "rect": {
+     "x": 359.2,
+     "y": 364.0,
+     "w": 185.9,
+     "h": 15.1
+    }
+   },
+   {
+    "boxId": 71,
+    "label": "eslint error",
+    "text": "'intervalld' is not defined",
+    "rect": {
+     "x": 1117.7,
+     "y": 650.0,
+     "w": 190.9,
+     "h": 15.2
+    }
+   }
+  ]
+ },
+ "meta": {
+  "route": "opus",
+  "triage": {
+   "route": "opus",
+   "by": "haiku",
+   "reason": "The learner's code is specific: they declared the timer as `const interval` but reference `intervalId` (and the error mentions `intervalld`), so the cleanup never gets the id. No known playbook covers this naming mistake, and the learner has attempted the step, so it isn't a template case."
+  },
+  "model": "claude-opus-5-5",
+  "latency_s": 3.23,
+  "playbook_id": null,
+  "web_sources": [
+   "https://react.dev/learn/react-compiler",
+   "https://stackoverflow.com/questions/72187687/getting-webpack-compiled-with-1-error-when-npm-starts",
+   "https://stackoverflow.com/questions/43350631/webpack-compilation-error"
+  ],
+  "usage": {
+   "input_tokens": 6753,
+   "output_tokens": 299,
+   "cache_read_input_tokens": 7204,
+   "cache_creation_input_tokens": 0,
+   "first_text_s": 1.02
+  }
+ },
+ "diagnosis_auto": false,
+ "targets": {
+  "n": 3,
+  "any": true,
+  "first": true,
+  "texts": [
+   "const interval = setInterval(()={",
+   "clearInterval(intervalld);",
+   "'intervalld' is not defined"
+  ],
+  "labels": [
+   "declared name",
+   "undefined name",
+   "eslint error"
+  ]
+ },
+ "hint3": {
+  "title": "Here's the change",
+  "diff": {
+   "expected": "    const intervalId = setInterval(() => {",
+   "yours": "const interval = setInterval(() => {",
+   "file": "src/Components/Timer.js",
+   "line": 7
+  }
+ },
+ "orchestrator_resolves_file": true,
+ "patch": {
+  "file": "Timer.js",
+  "unified_diff": "--- a/Timer.js\n+++ b/Timer.js\n@@ -4,7 +4,7 @@\n   const [seconds, setSeconds] = useState(0);\n \n   useEffect(() => {\n-    const interval = setInterval(() => {\n+    const intervalId = setInterval(() => {\n       console.log('Interval running');\n       setSeconds((prev) => prev + 1);\n     }, 1000);\n",
+  "summary": "Rename the line 7 variable to intervalId",
+  "line": 7,
+  "requires_confirmation": true,
+  "_meta": {
+   "via": "diagnosis"
+  },
+  "s": 0.0,
+  "changed_lines": 2
+ },
+ "check_after": {
+  "ok": true,
+  "active_after_mount": 1,
+  "seconds_after_3_ticks": 3,
+  "active_after_unmount": 0,
+  "console": [
+   "Interval running   Timer.js",
+   "Interval running   Timer.js",
+   "Interval running   Timer.js",
+   "clean up called   Timer.js"
+  ],
+  "error": null,
+  "no_undef": []
+ },
+ "gate_after": {
+  "passed": true,
+  "via": "checks",
+  "failed": []
+ },
+ "spotlight": {
+  "via": "diff.yours",
+  "rect": {
+   "x": 338.1,
+   "y": 232.5,
+   "w": 273.2,
+   "h": 27.1
+  },
+  "on_line": true
+ }
+}

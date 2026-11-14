@@ -17,10 +17,12 @@ from .common import get_lesson, set_lesson, system_blocks
 from .diagnose import diagnose, playbook_card, public
 from .explain import explain
 from .hints import apply_fix, hint
+from .judge import StepJudge, judge_step
 from .llm import CoachUnavailable, OutdatedFixUnavailable, set_keys
 from .metrics import summarize as summarize_metrics
 from .outdated import fix_outdated
 from .playbook import match as match_playbook
+from .pointing import point, show_me
 from .screen import Box, ScreenContext
 from .triage import triage
 
@@ -47,6 +49,7 @@ __all__ = [
     "CoachUnavailable",
     "OutdatedFixUnavailable",
     "ScreenContext",
+    "StepJudge",
     "apply_fix",
     "cancel",
     "diagnose",
@@ -55,12 +58,15 @@ __all__ = [
     "fix_outdated",
     "hint",
     "inflight",
+    "judge_step",
     "locate",
     "match_playbook",
     "playbook_card",
+    "point",
     "public",
     "set_keys",
     "set_lesson",
+    "show_me",
     "summarize_metrics",
     "triage",
     "voice",

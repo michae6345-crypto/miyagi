@@ -26,6 +26,7 @@ from __future__ import annotations
 import asyncio
 import contextvars
 import copy
+import hashlib
 import logging
 import math
 import os
@@ -85,6 +86,7 @@ class BuildStage(logging.Handler):
         "slow": "Gemini is slow; using the transcript",
         "key": "No Gemini key; using the transcript",
         "error": "Couldn't watch the video; using the transcript",
+        "budget": "Today's Gemini budget is used up — reading the transcript instead",
     }
 
     def __init__(self) -> None:
@@ -139,12 +141,17 @@ class BuildStage(logging.Handler):
 
 def human_build_error(e: BaseException) -> str:
     """A message the learner can act on (the raw reason stays in the engine log)."""
-    raw = str(e)
+    # strip our own wrapper ("lesson.build_lesson failed: RuntimeError: ...") so only the builder's words remain
+    raw = re.sub(r"^\s*[\w.]+ failed: [\w.]+: ", "", str(e))
     first = raw.strip().splitlines()[0].strip() if raw.strip() else ""
+    if first.lower().startswith(("couldn't read this video", "couldn't build", "couldn't watch")) and len(first) < 400:
+        return first  # E2's learner-facing sentence (e.g. Gemini credits used up + YouTube blocking transcripts)
     if ("no engine could build the lesson" in raw.lower() and "no engine could build" not in first.lower()
             and len(first) < 300):
         return first  # E2: a learner-facing first line, then the raw detail (which stays in the log)
     low = raw.lower()
+    if "gemini budget" in low:  # E2's daily cap (LESSON_GEMINI_DAILY_CAP) and the transcript path failed too
+        return "Today's Gemini budget is used up, and I couldn't read this video's transcript. Try another video."
     quota = "quota" in low or "resource_exhausted" in low
     yt_limited = ("429" in low or "too many requests" in low) and ("transcript" in low or "caption" in low)
     if quota and yt_limited:  # E2: "no engine could build the lesson" with both causes
@@ -166,6 +173,64 @@ def human_build_error(e: BaseException) -> str:
     if "transcript" in low:
         return "Couldn't get this video's transcript. Try another video."
     return f"Couldn't build this lesson: {raw[:160]}"
+
+
+def notebook_sources(text: str) -> str | None:
+    """A Jupyter notebook's JSON -> its code cells' source with `# %% [cell N]` markers (N = index among all
+    cells, E5's numbering), outputs dropped. Cutting the raw JSON leaves invalid JSON and mostly outputs, so
+    excerpts are cut after this. None if the text isn't valid notebook JSON."""
+    import json
+
+    try:
+        nb = json.loads(text)
+    except ValueError:
+        return None
+    if not isinstance(nb, dict) or not isinstance(nb.get("cells"), list):
+        return None
+    out = []
+    for i, c in enumerate(nb["cells"]):
+        if not isinstance(c, dict) or c.get("cell_type") != "code":
+            continue
+        src = c.get("source") or ""
+        src = "".join(src) if isinstance(src, list) else str(src)
+        out.append(f"# %% [cell {i}]\n" + src.rstrip("\n"))
+    return "\n".join(out) if out else "# (notebook: no code cells)"
+
+
+def is_provisional(graph: dict | None) -> bool:
+    """E2's quick-start placeholder (built from the chapter list after 8 s): replaced, never extended."""
+    if not graph:
+        return False
+    lesson = graph.get("lesson") or {}
+    return bool(lesson.get("provisional") or lesson.get("builtBy") == "chapters"
+                or any(st.get("provisional") for st in graph.get("steps") or []))
+
+
+CODE_APP_NAMES = {"code", "vs code", "vscode", "visual studio code", "cursor"}
+
+
+def is_notebook_lesson(graph: dict) -> bool:
+    """A lesson done in a notebook (Colab / Jupyter), often in a browser rather than an editor."""
+    blob = " ".join([str((graph.get("lesson") or {}).get(k) or "") for k in ("title", "goal")]
+                    + [s.get("url") or "" for s in graph.get("sources", [])]).lower()
+    if "colab" in blob or "jupyter" in blob:
+        return True
+    for st in graph.get("steps", []):
+        text = f"{st.get('title', '')} {st.get('instructions', '')}".lower()
+        if "colab" in text or "jupyter" in text:
+            return True
+        for x in (st.get("targets") or []) + (st.get("checks") or []) + (st.get("precision_checks") or []):
+            if str(x.get("file") or "").endswith(".ipynb"):
+                return True
+    return False
+
+
+def unscope_editor_apps(graph: dict) -> None:
+    """Screen checks/targets scoped to VS Code also accept any app (the notebook may be open in a browser)."""
+    for st in graph.get("steps", []):
+        for x in (st.get("targets") or []) + (st.get("checks") or []):
+            if str(x.get("app") or "").strip().lower() in CODE_APP_NAMES:
+                x.pop("app", None)
 
 
 class LessonSession:
@@ -202,20 +267,29 @@ class LessonSession:
         self.metric_eval_s = config.METRIC_EVAL_INTERVAL_S if metric_eval_s is None else metric_eval_s
         self.result_stagger_s = result_stagger_s
         self.build_tick_s = build_tick_s
+        self.ready_hold_s = float(os.environ.get("ORCH_READY_HOLD_S", "1.5"))
+        self.check_wait_s = float(os.environ.get("ORCH_CHECK_WAIT_S", "1.2"))  # check_step: wait for a fresh frame
 
         self.phase = "idle"  # idle | searching | building | active | done
         self.query = ""
         self.results: dict[str, dict] = {}
         self.build_progress: dict | None = None  # last lesson.building payload while a build runs
+        self.notebook_lesson = False  # Colab / Jupyter lesson: the browser counts as the workspace
         self._build_task: asyncio.Task | None = None
         self._quiet_cancel = False
         self.editor_open = False  # VS Code opened for this lesson (only after the learner said yes)
         self.awaiting_resume = False  # "Continue where you left off?" shown: the lesson is frozen until answered
         self.reqs: list[dict] | None = None  # S2's setup items for this lesson
+        self.resources: list[dict] = []  # S2: files the video links (download button)
         self.waiting_more = False  # passed the last built step of a long video that's still building
+        self.skipped_steps: list[str] = []
+        self._parts_building = False  # build_lesson itself is still adding parts (non-lazy long video)
+        self._extend_task: asyncio.Task | None = None  # E2 lazy parts: the next part being built
+        self._extend_failed = False  # extend raised for this lesson: don't retry on every step
         self.pending_pick: dict | None = None  # S8: the picked result awaiting build / pick_another
         self._installing: set[str] = set()  # tools being installed right now (one install per tool)
         self._deferred_installs: list[dict] = []  # pip installs chosen before the lesson folder existed
+        self._download_after_build = False  # "Download tutorial files" pressed on the preflight card
         self._setup_card: dict | None = None  # the last setup card sent (re-sent with install status)
         self.graph: dict | None = None
         self.workdir = str(config.default_workdir())
@@ -223,6 +297,10 @@ class LessonSession:
         self.idx = -1
         self.runs: dict[str, RunInfo] = {}
         self.video_t: float | None = None  # last position the player reported
+        self.video_playing = False
+        self.judge: Any = None  # E5's StepJudge (made per lesson in load_graph), None without the coach
+        self._screen_down_since: float | None = None
+        self._screen_notice_sent = False
         self.voice = False
         self.status = "idle"
         self._lock = asyncio.Lock()
@@ -237,6 +315,8 @@ class LessonSession:
         self.last_results: list[dict] = []
         self.last_failed: list[dict] = []
         self._recent_cards: dict[tuple, float] = {}
+        self._offtrack_key: tuple | None = None  # (step, level, title) of the last offtrack sent
+        self._action_spot = False  # a spotlight from show_me / hint / explain is up
         self._coach_error_sent = False  # "Coach unavailable" at most once per step
         self._coach_backoff = 0.0
         self._coach_retry_at = 0.0
@@ -254,6 +334,11 @@ class LessonSession:
         self.spoken_t = -1e9
         self.full_card: dict | None = None
         self.confirm_pending = False
+        self.confirm_check_ids: list[str] = []  # E5 judge's "Looks done?": the checks `confirm` passes
+        self.judged_pass: set[str] = set()  # checks E5's judge saw done on screen (count as passed)
+        self._judging = False
+        self._stuck_card_sent = False
+        self.segment_end_t: float | None = None
         self.segment_done = False
         self.video_reports = 0
         self.coached_key: Any = None
@@ -268,6 +353,8 @@ class LessonSession:
         self.step_gen = getattr(self, "step_gen", 0) + 1  # invalidates stale timers/coach results
 
     async def emit(self, type_: str, payload: dict | None = None) -> None:
+        if type_.startswith("video.") and self.lesson_mode:
+            return  # "Just teach me": there is no player
         ep = _EPOCH.get()
         if ep is not None and ep != self.lesson_epoch and type_ not in ALWAYS_SENT:
             log.info("dropped stale %s (lesson epoch %s, now %s)", type_, ep, self.lesson_epoch)
@@ -320,19 +407,23 @@ class LessonSession:
     async def _setup_card_task(self, graph: dict, folder: str) -> None:
         from . import workspace as wsmod
 
-        items = await asyncio.to_thread(wsmod.requirements, graph, folder)  # 3-6 s the first time, cached
-        if items:  # S2: what this lesson needs, what's installed, install recipes
+        items, found = await asyncio.gather(  # what it needs (3-6 s first time, cached) + the video's own files
+            asyncio.to_thread(wsmod.requirements, graph, folder), asyncio.to_thread(wsmod.find_resources, graph))
+        self.resources = found
+        if items:  # S2: what this lesson needs, what's installed, install recipes (+ "Download tutorial files")
             self.reqs = items
-            card = wsmod.setup_card(items)
+            card = wsmod.setup_card(items, resources=found)
             if card:
                 self._setup_card = card
                 await self.emit("card", card)
+            await self._maybe_pass_setup_step()  # an install step for tools that are already here
             return
         # no setup check available (module missing, no key): a plain offer, only for editor lessons
         if not wsmod.needs_editor(graph):
             return
-        await self.emit("card", {"kind": "hint", "title": "Open VS Code?",
-                                 "body": f"This lesson works in VS Code. Open the {Path(folder).name} folder there?",
+        label = wsmod.editor_label()  # S2: Cursor when that's the learner's editor
+        await self.emit("card", {"kind": "hint", "title": f"Open {label}?",
+                                 "body": f"This lesson works in {label}. Open the {Path(folder).name} folder there?",
                                  "actions": ["open_editor"]})
 
     async def _open_in_browser(self, tool: str) -> None:
@@ -474,6 +565,11 @@ class LessonSession:
         return (self.graph or {}).get("steps", [])
 
     @property
+    def lesson_mode(self) -> bool:
+        """A "Just teach me" lesson: no video, the editor full screen, each step spotlights where to type."""
+        return ((self.graph or {}).get("lesson") or {}).get("mode") == "lesson"
+
+    @property
     def step(self) -> dict | None:
         if self.phase in ("active", "done") and 0 <= self.idx < len(self.steps):
             return self.steps[self.idx]
@@ -532,7 +628,10 @@ class LessonSession:
         return {"videoId": vid, "start": float(v.get("start", 0)), "end": float(v.get("end", 0))}
 
     # ------------------------------------------------------------------ search + build
-    async def learn(self, query: str) -> None:
+    async def learn(self, query: str, mode: str | None = None) -> None:
+        if mode == "lesson":  # "Just teach me": no video search, a text lesson for the goal
+            await self.learn_text(query)
+            return
         if self.graph is not None or self.phase == "building":
             await self.end_lesson("new lesson")  # a new search cleanly ends the current lesson
         self.phase = "searching"
@@ -613,19 +712,25 @@ class LessonSession:
         pick, self.pending_pick = self.pending_pick, None
         if pick is None:
             return
-        await self._run_build(pick["url"], self.query)
+        await self._run_build(pick["url"], self.query, video_meta=self.m.preflight_video_meta(pick.get("preflight")))
 
     async def _pick_another(self) -> None:
+        """Back to the result list: re-send the last search's rows (never searches again), then idle."""
         self.pending_pick = None
         self.phase = "idle"
-        await self._status("idle")  # the app shows its result list again
+        for r in self.results.values():
+            await self.emit("search.result", r)
+        if self.results:
+            await self.emit("search.done", {"total": len(self.results)})
+        await self._status("idle")  # the app reopens the launcher on the result list
 
-    async def _run_build(self, url: str, goal: str) -> None:
+    async def _run_build(self, url: str, goal: str, video_meta: dict | None = None, *,
+                         factory: Callable[[], Awaitable[None]] | None = None) -> None:
         """Builds run as their own task so end_lesson / a new learn can cancel them mid-flight."""
         if self.graph is not None:
             await self.end_lesson("new lesson")
         await self.cancel_build()
-        task = asyncio.ensure_future(self._build(url, goal))
+        task = asyncio.ensure_future(factory() if factory is not None else self._build(url, goal, video_meta))
         self._build_task = task
         try:
             await task
@@ -686,13 +791,15 @@ class LessonSession:
         self.editor_open = False
         self.awaiting_resume = False
         self.waiting_more = False
+        self._extend_task, self._extend_failed = None, False
+        self._download_after_build = False
         if had_lesson:
             await self.emit("spotlight", {"clear": True})
             await self.emit("video.pause", {})
         await self.emit("lesson.ended", {**({"lessonId": lesson_id} if lesson_id else {}), "reason": reason})
         await self._status("idle")
 
-    async def _build(self, url: str, goal: str) -> None:
+    async def _build(self, url: str, goal: str, video_meta: dict | None = None) -> None:
         """Build a lesson with live progress (>= 1 tick/s, stage names from the builder's own log
         events). Any failure, timeout or cancellation ends with `error` (human wording), a final
         `lesson.building {failed: true}` and `status idle`, so the app never stays on "building"."""
@@ -704,7 +811,7 @@ class LessonSession:
         self.build_progress = {"message": "Starting the lesson builder", "progress": 0.0}
 
         async def ticker() -> None:
-            expected = float(os.environ.get("ORCH_BUILD_EXPECTED_S", "60"))  # E2: fresh builds ~42-75 s
+            expected = float(os.environ.get("ORCH_BUILD_EXPECTED_S", "45"))  # E2: first steps ~25-58 s (long videos: part 1)
             while not done.is_set():
                 el = self.clock() - t0
                 # message = the stage only (changes when the stage does); the timer travels in elapsedS
@@ -721,10 +828,15 @@ class LessonSession:
 
         ok = False
         progressive = {"loaded": False}
+        updates = asyncio.Lock()  # E2's quick-start timer and the build call on_update from different tasks
 
         async def on_update(g: dict, complete: bool) -> None:
+            async with updates:  # one at a time, in order: the real lesson must never overtake the placeholder
+                await on_update_locked(g, complete)
+
+        async def on_update_locked(g: dict, complete: bool) -> None:
             """E2, long videos (> 30 min): the first part's steps arrive first -> start the lesson now;
-            later parts append steps -> lesson.updated."""
+            later parts append steps -> lesson.updated. Quick start: a provisional placeholder is REPLACED."""
             if not progressive["loaded"]:
                 progressive["loaded"] = True
                 done.set()
@@ -737,16 +849,32 @@ class LessonSession:
                 self.build_progress = None
                 await self.emit("lesson.building", {"message": "First steps ready; the rest builds while you work",
                                                     "progress": 1.0})
+                await asyncio.sleep(self.ready_hold_s)  # let the "ready" moment be seen before the lesson UI
                 await self.load_graph(first)
+                return
+            if is_provisional(self.graph) and not is_provisional(g):
+                await self._replace_provisional(g, complete)  # E2 quick start: the real lesson replaces s1
                 return
             await self._extend_lesson(g, complete)
 
         try:
-            with stage.listening():
-                graph = await self.m.build_lesson(url, goal, wsmod.build_workdir(url, goal),
-                                                  on_progress=stage.on_progress, on_update=on_update)
-            if progressive["loaded"]:  # already running: make sure every part made it in, then done
-                await self._extend_lesson(graph, True)
+            self._parts_building = True
+            try:
+                with stage.listening():
+                    graph = await self.m.build_lesson(url, goal, wsmod.build_workdir(url, goal),
+                                                      on_progress=stage.on_progress, on_update=on_update,
+                                                      video_meta=video_meta)
+            finally:
+                self._parts_building = False
+            # E2 lazy parts: a long video comes back with complete=false and later parts "pending"
+            complete = (graph.get("lesson") or {}).get("complete") is not False
+            if progressive["loaded"]:  # already running: make sure every built part made it in
+                async with updates:
+                    if is_provisional(self.graph) and not is_provisional(graph):
+                        await self._replace_provisional(graph, complete)
+                    else:
+                        await self._extend_lesson(graph, complete)
+                self._maybe_extend()
                 ok = True
                 return
             done.set()
@@ -758,6 +886,7 @@ class LessonSession:
                 graph.setdefault("lesson", {})["workdir"] = folder
             self.build_progress = None
             await self.emit("lesson.building", {"message": "Lesson ready", "progress": 1.0})
+            await asyncio.sleep(self.ready_hold_s)  # let the "ready" moment be seen before the lesson UI
             ok = True
         except BaseException as e:
             if isinstance(e, Exception) and progressive["loaded"] and self.graph is not None:
@@ -783,6 +912,185 @@ class LessonSession:
                 self.phase = "idle" if self.graph is None else self.phase
         await self.load_graph(graph)
 
+    # ---------------------------------------------------------- "Just teach me" (no video)
+    async def learn_text(self, goal: str) -> None:
+        if self.graph is not None or self.phase in ("building", "searching"):
+            await self.end_lesson("new lesson")
+        self.query = goal
+        self.results, self.pending_pick = {}, None
+        await self._run_build("", goal, factory=lambda: self._build_text(goal))
+
+    @staticmethod
+    def _as_text_lesson(g: dict) -> dict:
+        new = copy.deepcopy(g)
+        new.setdefault("lesson", {})["mode"] = "lesson"
+        for st in new.get("steps", []):
+            st.pop("video", None)
+        return new
+
+    async def _build_text(self, goal: str) -> None:
+        """E2's build_text_lesson: step 1 arrives first (on_update) and the lesson starts on it; the rest are
+        appended (lesson.updated). Same progress / failure handling as a video build, minus the player."""
+        self.phase = "building"
+        await self._status("thinking")
+        t0 = self.clock()
+        state = {"text": "Planning your lesson", "loaded": False}
+        done = asyncio.Event()
+
+        async def ticker() -> None:
+            p = 0.05
+            while not done.is_set():
+                p = min(0.9, p + 0.02)
+                self.build_progress = {"message": state["text"], "progress": round(p, 2),
+                                       "elapsedS": int(self.clock() - t0)}
+                await self.emit("lesson.building", self.build_progress)
+                try:
+                    await asyncio.wait_for(done.wait(), self.build_tick_s)
+                except TimeoutError:
+                    pass
+
+        tick = asyncio.create_task(ticker())
+        from . import workspace as wsmod
+
+        async def start(g: dict) -> None:
+            state["loaded"] = True
+            done.set()
+            self.build_progress = {"message": "Setting up your project folder", "progress": 0.97}
+            await self.emit("lesson.building", self.build_progress)
+            first = self._as_text_lesson(g)
+            folder = state.get("folder") or await asyncio.to_thread(wsmod.prepare, first, goal)  # S2: folder + starters
+            if folder:
+                first["lesson"]["workdir"] = folder
+            self.build_progress = None
+            await self.emit("lesson.building", {"message": "Lesson ready", "progress": 1.0})
+            await asyncio.sleep(self.ready_hold_s)
+            await self.load_graph(first)
+
+        async def on_update(g: dict, complete: bool) -> None:
+            if not state["loaded"]:
+                state["text"] = "Writing the first step"
+                await start(g)
+                return
+            await self._extend_lesson(self._as_text_lesson(g), complete)
+
+        labels = {"planning": "Planning your lesson", "first_steps": "Writing the first step",
+                  "more_steps": "Writing the next steps", "cache_hit": "Loading the saved lesson"}
+
+        def on_progress(stage: str, message: str = "") -> None:  # E2's stage ids
+            if stage in labels and not state["loaded"]:
+                state["text"] = labels[stage]
+
+        ok = False
+        try:
+            state["text"] = "Setting up your project folder"
+            # S2 first: the builder adapts the steps to the starter files it finds in the lesson folder
+            seed = {"lesson": {"id": "text-" + hashlib.sha1(goal.strip().lower().encode()).hexdigest()[:10],
+                               "title": goal, "goal": goal, "mode": "lesson"}, "steps": [], "sources": []}
+            state["folder"] = await asyncio.to_thread(wsmod.prepare, seed, goal)
+            state["text"] = "Planning your lesson"
+            graph = await self.m.build_text_lesson(goal, state["folder"] or wsmod.build_workdir("", goal),
+                                                   on_update=on_update, on_progress=on_progress)
+            if state["loaded"]:
+                await self._extend_lesson(self._as_text_lesson(graph), True)
+            else:
+                await start(graph)
+            ok = True
+        except BaseException as e:
+            if isinstance(e, Exception) and state["loaded"] and self.graph is not None:
+                log.exception("building the rest of the text lesson failed")
+                await self.emit("error", {"message": "Couldn't write the rest of this lesson; you can finish the steps you have."})
+                await self._extend_lesson({**self.graph, "lesson": {**self.graph.get("lesson", {}), "complete": True}}, True)
+                ok = True
+                return
+            if isinstance(e, Exception):
+                log.exception("build_text_lesson failed")
+                await self._build_failed(human_build_error(e).replace("this video", "this lesson"))
+                return
+            if self._quiet_cancel:
+                raise
+            await asyncio.shield(self._build_failed("The lesson build was interrupted. Try again."))
+            raise
+        finally:
+            done.set()
+            if not tick.done():
+                tick.cancel()
+            if not ok:
+                self.phase = "idle" if self.graph is None else self.phase
+
+    async def _open_editor_full(self, folder: str) -> None:
+        """Lesson mode: the editor IS the lesson, so it opens (full screen) without asking."""
+        if self.workspace is None:
+            return
+        await asyncio.to_thread(self.workspace.open, folder, True, True)
+        self.editor_open = True
+
+    def _snippet(self, step: dict | None) -> dict:
+        code = (step or {}).get("code") or ""
+        return {"snippet": code[:1200]} if self.lesson_mode and code.strip() else {}
+
+    def _type_caption(self, step: dict, target: dict | None = None) -> str:
+        cap = (target or {}).get("caption") or ""
+        if cap:
+            return cap
+        file = self._step_file(step)
+        return f"Type this in {file}" if file else "Type this here"
+
+    async def _lesson_spot(self, gen: int, step: dict, tries: int = 8) -> None:
+        """Lesson mode, step start: box where to type (the target line), dim the rest, caption + snippet.
+        The editor may still be opening: retry for a few seconds; the tracked target then follows the screen."""
+        for _ in range(max(1, tries)):
+            if gen != self.step_gen or self.passed:
+                return
+            if await self._spotlight_target(step):
+                return
+            if (spot := await self._editor_line_spot(step)) is not None:
+                await self._show_spot(spot)
+                return
+            spot = self._window_spot(step, self._type_caption(step))
+            if spot:
+                await self._show_spot({**spot, **self._snippet(step)})
+                return
+            await asyncio.sleep(1.0)
+
+    async def _editor_line_spot(self, step: dict) -> dict | None:
+        """S2: the exact editor line of the step's target (Accessibility, else E6's locate_line). Only with the
+        real screen reader (never in tests: it reads the real editor)."""
+        if getattr(self.screen, "reader", None) is None:
+            return None
+        from . import workspace as wsmod
+
+        loc = wsmod.target_location(self.workdir, step)
+        if loc is None:
+            return None
+        r = await asyncio.to_thread(wsmod.line_rect, loc[0], loc[1])
+        if not r:
+            return None
+        target = next((t for t in step.get("targets") or [] if t.get("match")), None)
+        return {"rect": {k: float(r[k]) for k in ("x", "y", "w", "h")}, "caption": self._type_caption(step, target),
+                "app": "Code", **self._snippet(step)}
+
+    async def _replace_provisional(self, g: dict, complete: bool) -> None:
+        """E2 quick start: the placeholder lesson (one step 'watch and type along', shown after 8 s) is
+        replaced by the real one with the same ids; the learner keeps watching, the checklist becomes real."""
+        if self.graph is None:
+            return
+        new = copy.deepcopy(g)
+        new.setdefault("lesson", {})["workdir"] = self.graph.get("lesson", {}).get("workdir") or self.workdir
+        new["lesson"]["complete"] = bool(complete or new["lesson"].get("complete"))
+        new["lesson"]["provisional"] = False  # the app drops the placeholder on this lesson.ready
+        for st in new.get("steps", []):
+            st.pop("provisional", None)
+        log.info("quick start: the real lesson (%d steps) replaces the placeholder", len(new.get("steps", [])))
+        idx = 0  # the placeholder had one step: the learner restarts on the REAL s1
+        self.graph = new
+        self.m.set_lesson(new)
+        await self.emit("lesson.ready", self._lesson_ready_payload())
+        self.waiting_more = False  # even if they skipped the placeholder: the real s1 starts now
+        if self.steps:
+            seg = self._segment(self.steps[min(idx, len(self.steps) - 1)])
+            keep = self.video_t if (seg and self.video_t is not None and seg["start"] <= self.video_t < seg["end"]) else None
+            await self.start_step(min(idx, len(self.steps) - 1), seek_to=keep)  # keep the video where it is
+
     async def _extend_lesson(self, g: dict, complete: bool) -> None:
         """Append a progressive build's new steps to the running lesson (ids never change, earlier steps are
         never edited) and tell the app; a learner waiting at the end of the built part moves on."""
@@ -795,9 +1103,10 @@ class LessonSession:
         for k in ("parts", "builtBy", "goalMatch"):
             if k in (g.get("lesson") or {}):
                 lesson[k] = copy.deepcopy(g["lesson"][k])
+        was_complete = lesson.get("complete") is True
         lesson["complete"] = bool(complete or (g.get("lesson") or {}).get("complete"))
-        if not new and not complete:
-            return
+        if not new and (not complete or was_complete):
+            return  # nothing changed: no empty lesson.updated
         payload: dict[str, Any] = {"steps": [self._step_summary(st, i) for i, st in
                                              enumerate(self.steps) if st["id"] in {n["id"] for n in new}],
                                    "complete": lesson["complete"]}
@@ -824,8 +1133,14 @@ class LessonSession:
     async def load_graph(self, graph: dict) -> None:
         self.lesson_epoch += 1
         self._bind_epoch()  # this task (the build / autostart) now speaks for the new lesson
+        self.notebook_lesson = is_notebook_lesson(graph)
+        if self.notebook_lesson:
+            unscope_editor_apps(graph)  # Colab/Jupyter in a browser counts, not just VS Code
         self.graph = graph
         self.runs = {}
+        self._extend_failed = False
+        self.skipped_steps = []  # ids the learner skipped (S7 saves them apart from passed steps)
+        self.judge = self.m.make_step_judge()
         new_wd = str(config.resolve_workdir(graph.get("lesson", {}).get("workdir")))
         self.workdir = new_wd
         if self.on_workdir:
@@ -836,10 +1151,15 @@ class LessonSession:
             self._prefetch_voice()
         await self.emit("lesson.ready", self._lesson_ready_payload())
         self.editor_open = False
+        if self.lesson_mode:
+            await self._open_editor_full(new_wd)
         await self.start_step(0)
         await self._offer_editor(graph, new_wd)  # after step.started (the app clears cards on a new step)
         if self._deferred_installs:  # pip installs picked on the preflight card: now there's a lesson .venv
             self._spawn(self._run_deferred_installs())
+        if self._download_after_build:  # "Download tutorial files" on the preflight card
+            self._download_after_build = False
+            self._spawn(self.action("download"))
 
     def _step_summary(self, st: dict, i: int) -> dict:
         summary = {"id": st["id"], "index": st.get("index", i), "title": st["title"]}
@@ -857,7 +1177,7 @@ class LessonSession:
         ]
         steps = [self._step_summary(st, i) for i, st in enumerate(self.steps)]
         info: dict[str, Any] = {"id": lesson.get("id", "lesson"), "title": lesson.get("title", "Lesson"), "sources": sources}
-        for k in ("complete", "builtBy"):  # E2: progressive builds / who watched the video
+        for k in ("complete", "builtBy", "mode", "provisional"):  # E2: progressive builds / who watched the video / no-video lesson
             if k in lesson:
                 info[k] = lesson[k]
         if lesson.get("goalMatch"):
@@ -884,6 +1204,7 @@ class LessonSession:
         started = self._step_started_payload(step)
         await self.emit("step.started", started)
         self._say("step.started", started)
+        self._maybe_extend()  # E2 lazy parts: nearing the last built step -> build the next part now
         self._record("step_started", {"title": step.get("title")}, step)
         for c in self.display_checks(step):
             self.check_state[c["id"]] = {"label": c.get("label", c["id"]), "status": "pending", "detail": None}
@@ -897,6 +1218,7 @@ class LessonSession:
             self._spawn(self._segment_timer(self.step_gen, seg["end"] - seg["start"]), timer=True)
         else:
             self.segment_done = True
+            self.segment_end_t = self.clock()
         self._watch_screen_metrics(step)
         if self.m.has_diagrams() and os.environ.get("ORCH_DIAGRAM_PREFETCH", "1") == "1":
             self._spawn(self._prefetch_diagram(self.step_gen, step), timer=True)
@@ -904,6 +1226,9 @@ class LessonSession:
             self.workspace.goto_target(self.workdir, step)
         await self._status("watching")
         await self.evaluate("start")
+        await self._maybe_pass_setup_step()
+        if self.lesson_mode and not self.passed and self.step is step:
+            self._spawn(self._lesson_spot(self.step_gen, step), timer=True)
 
     def _watch_screen_metrics(self, step: dict) -> None:
         if self.screen is None:
@@ -932,6 +1257,7 @@ class LessonSession:
         if self.segment_done or self.step is None:
             return
         self.segment_done = True
+        self.segment_end_t = self.clock()
         step = self.step
         if not step.get("checks") and not step.get("precision_checks"):
             await self._pass_step()
@@ -960,10 +1286,11 @@ class LessonSession:
             t = tlist[0]
             self.spot_track = (t["match"], t.get("app"), t.get("caption", ""))
         for t in tlist:
-            spot = self._locate(t["match"], t.get("app"), t.get("caption", ""))
+            cap = self._type_caption(step, t) if self.lesson_mode else t.get("caption", "")
+            spot = self._locate(t["match"], t.get("app"), cap)
             if spot:
-                self.spot_track = (t["match"], t.get("app"), t.get("caption", ""))
-                await self._show_spot(spot)
+                self.spot_track = (t["match"], t.get("app"), cap)
+                await self._show_spot({**spot, **self._snippet(step)})
                 return True
         return False
 
@@ -982,9 +1309,12 @@ class LessonSession:
         r, old = spot["rect"], self.spot_rect
         if old and all(abs(r[k] - old[k]) <= 4 for k in ("x", "y", "w", "h")):
             return
+        if any(t.get("match") == match for t in self.step.get("targets") or []):
+            spot = {**spot, **self._snippet(self.step)}  # lesson mode: the step's own target keeps its snippet
         await self._show_spot(spot)
 
-    async def _pass_step(self) -> None:
+    async def _pass_step(self, skipped: bool = False) -> None:
+        """skipped: the learner pressed Skip (action skip_step): move on, but it's not a pass (never green)."""
         step = self.step
         if step is None or self.passed:
             return
@@ -996,19 +1326,80 @@ class LessonSession:
             payload["nextStepId"] = nxt
         if more_coming:
             payload["pending"] = True  # the next part of a long video is still being built
+        if skipped:
+            payload["skipped"] = True
+            self.m.cancel_coach()
+            if step["id"] not in self.skipped_steps:
+                self.skipped_steps.append(step["id"])  # a diagnosis for the step they left is no longer wanted
         await self.emit("step.passed", payload)
-        self._say("step.passed", payload)
-        self._record("step_passed", {"nextStepId": payload.get("nextStepId")}, step)
-        await self._status("passed")
+        if not skipped:
+            self._say("step.passed", payload)
+        self._record("step_skipped" if skipped else "step_passed", {"nextStepId": payload.get("nextStepId")}, step)
+        await self._status("watching" if skipped else "passed")
         await self.emit("spotlight", {"clear": True})
         if nxt:
             self._spawn(self._advance(self.step_gen, self.idx + 1))
+        elif more_coming and not self._more_in_flight():
+            await self._finish_partial(step)  # nothing can build the rest (DEMO / extend failed): finish here
         elif more_coming:
             self.waiting_more = True  # _extend_lesson starts the next step when it arrives
             await self._status("thinking")
+            parts = (self.graph or {}).get("lesson", {}).get("parts") or {}
+            done, total = int(parts.get("done") or 0), int(parts.get("total") or 0)
+            where = f" (part {min(done + 1, total)} of {total})" if total else ""
+            await self._emit_card({"stepId": step["id"], "kind": "hint", "title": "Building the next part…",
+                                   "body": f"The next part of this video is being built{where}. "
+                                           "Keep watching; its steps start here as soon as they're ready."})
+            await self.emit("video.play", {})  # the video keeps playing meanwhile
         else:
             self.phase = "done"
             await self.emit("video.play", {})
+
+    # ---------------------------------------------------------- E2 lazy parts (long videos)
+    def _more_in_flight(self) -> bool:
+        """Is anything building more steps for this lesson (the build itself, or an extend)? Starts an
+        extend if one is due."""
+        self._maybe_extend()
+        return self._parts_building or (self._extend_task is not None and not self._extend_task.done())
+
+    def _maybe_extend(self) -> None:
+        """Near the last built step of a lazily built long video, build the next part in the background
+        (one Gemini call per part the learner actually reaches)."""
+        g = self.graph
+        if (g is None or self._parts_building or self._extend_failed
+                or (self._extend_task is not None and not self._extend_task.done())
+                or (g.get("lesson") or {}).get("complete") is not False):
+            return
+        step = self.step
+        cur = step.get("index", self.idx) if step else self.idx
+        if not self.m.lesson_needs_more(g, cur):
+            return
+        self._extend_task = self._spawn(self._extend_parts(g))
+
+    async def _extend_parts(self, graph: dict) -> None:
+        try:
+            g = await self.m.extend_lesson(copy.deepcopy(graph), on_update=self._extend_lesson)
+        except Exception as e:
+            log.exception("building the next part failed")
+            self._extend_failed = True
+            if self.graph is not None and self.waiting_more and self.step is not None:
+                await self.emit("error", {"message": f"Couldn't build the next part of this video: {human_build_error(e)}"})
+                await self._finish_partial(self.step)
+            return
+        self._extend_task = None
+        if self.graph is None:
+            return
+        await self._extend_lesson(g, (g.get("lesson") or {}).get("complete") is not False)
+        self._maybe_extend()  # a skipped / failed part, or still close to the end: the next one
+
+    async def _finish_partial(self, step: dict) -> None:
+        """The rest of the video can't be built now: the lesson ends at the steps it has."""
+        self.waiting_more = False
+        if self.graph is not None:
+            self.graph.setdefault("lesson", {})["complete"] = True
+        self.phase = "done"
+        await self._status("passed")
+        await self.emit("video.play", {})
 
     async def _advance(self, gen: int, idx: int) -> None:
         await asyncio.sleep(self.advance_delay_s)
@@ -1033,6 +1424,10 @@ class LessonSession:
     def _acted(self) -> None:
         self.last_action_t = self.clock()
         self._touch()
+        if self._action_spot:  # a show_me / hint / explain spotlight: done its job once the learner acts
+            self._action_spot = False
+            self.spot_track = None
+            self._spawn(self.emit("spotlight", {"clear": True}))
         if self.coaching:  # a real user action makes the pending diagnosis stale: close the stream
             self.m.cancel_coach()
 
@@ -1057,8 +1452,8 @@ class LessonSession:
 
     # ------------------------------------------------------------------ evaluation
     async def evaluate(self, trigger: str) -> None:
-        """trigger: start | segment | file | run_end | metric | screen | manual"""
-        learner = trigger in ("file", "run_end", "metric")
+        """trigger: start | segment | file | run_end | metric | screen | manual | check (the learner asked)"""
+        learner = trigger in ("file", "run_end", "metric", "check", "judge")
         if self.awaiting_resume:
             return  # frozen until the learner picks Continue / Start new
         async with self._lock:
@@ -1077,11 +1472,24 @@ class LessonSession:
                     self._eval_error_sent = True
                     await self.emit("error", {"message": f"Check evaluation failed: {e}"})
                 return
+            if gate.get("passed") and gate.get("via") == "precision":
+                # a visible error (a failing screen_absent check, e.g. "Failed to compile" / a Traceback) vetoes
+                # the files-only route: the files can be right while the app on screen is broken
+                kinds = {c["id"]: c.get("type") for c in step.get("checks") or []}
+                if any(r.get("status") == "fail" and kinds.get(r.get("checkId")) == "screen_absent"
+                       for r in gate.get("checks") or []):
+                    gate = {**gate, "passed": False, "via": None}
             shown_list, other = ("precision", "checks") if self._precision_display(step) else ("checks", "precision")
             results = list(gate.get(shown_list) or [])
             if gate.get("passed") and gate.get("via") != shown_list:  # green by the other route: show it green
                 why = "confirmed by your files" if gate.get("via") == "precision" else "confirmed on screen"
                 results = [r if r.get("status") == "pass" else {**r, "status": "pass", "detail": why} for r in results]
+            if self.judged_pass:  # E5's judge saw these done on screen: they count like any pass
+                results = [r if r.get("checkId") not in self.judged_pass or r.get("status") == "pass"
+                           else {**r, "status": "pass", "detail": r.get("judgedDetail") or "Claude saw it on screen"}
+                           for r in results]
+                if not gate.get("passed") and results and all(r.get("status") == "pass" for r in results):
+                    gate = {**gate, "passed": True, "via": "judge"}
             self.last_results = results
             failed = [r for r in results if r.get("status") == "fail"]
             if not gate.get("passed"):
@@ -1134,6 +1542,10 @@ class LessonSession:
     async def tick(self) -> None:
         """Called ~1/s: idle-after-action, stuck, and typing-deferred speech."""
         step = self.step
+        await self._check_screen_health()
+        if step is not None and not self.passed and not self.awaiting_resume:
+            self._maybe_judge(step)
+            await self._maybe_stuck_card(step)
         if (step is None or self.passed or self.coaching or not self.last_failed or not self.engaged
                 or self.awaiting_resume):
             return
@@ -1165,13 +1577,19 @@ class LessonSession:
                   if c.get("file")]
         if not files:
             files = [p.name for p in sorted(Path(self.workdir).glob("*.py"))[:1]] if Path(self.workdir).is_dir() else []
+        from . import workspace as wsmod
+
+        titles = [getattr(w, "title", "") or "" for w in getattr(self.last_obs, "windows", None) or []]
         for f in files:
-            p = Path(self.workdir) / f
-            if p.is_file():
+            p = wsmod.resolve_file(self.workdir, f, titles)  # nested project dirs, .git/rebase-merge, open file
+            if p is not None:
                 try:
-                    return p.read_text(errors="replace")[:limit], f
+                    text = p.read_text(errors="replace")
                 except OSError:
                     continue
+                if p.suffix.lower() == ".ipynb":  # cell sources, then the limit (S9: raw JSON cut = invalid)
+                    text = notebook_sources(text) or text
+                return text[:limit], f
         lines = self._screen_lines() or {}  # screen-first: the code the learner is looking at
         for app in [t.get("app") for t in step.get("targets") or [] if t.get("app")] + ["Code"]:
             for a, ls in lines.items():
@@ -1230,6 +1648,18 @@ class LessonSession:
             extra = {"file": str(loc[0]), "line": loc[1]}
         return self.m.screen_context(self.last_obs, image, pos, **extra)
 
+    def _screen_error_lines(self, n: int = 40) -> list[str]:
+        lines = self._screen_lines() or {}
+        apps = ["Terminal", "iTerm", "Warp"] + (list(self.BROWSER_APPS) if self.notebook_lesson else []) + ["Code", "Cursor"]
+        out: list[str] = []
+        for want in apps:
+            for app, ls in lines.items():
+                if want.lower() in (app or "").lower():
+                    out.extend(ls[-n:])
+            if out:
+                break
+        return out[-n:]
+
     def cursor_context(self) -> dict | None:
         from .inputs import text_under
 
@@ -1251,6 +1681,8 @@ class LessonSession:
                 failed_checks = [{**by_id.get(r.get("checkId"), {}), **r} for r in failed]
                 code, _file = self._code_excerpt(step)
                 tail = ctx.output_tail[-40:] if isinstance(ctx.output_tail, list) else []
+                if not tail:  # screen-first (no `tut run`): what the terminal / notebook shows is the error text
+                    tail = self._screen_error_lines()
                 screen = await self._screen_for_coach(step)
 
                 def on_targets(targets: list[dict]) -> None:  # streamed mid-reply: spotlight before the card lands
@@ -1296,8 +1728,13 @@ class LessonSession:
             shown["level"] = level
             self.ladder = level
             self.last_offtrack = full
-            await self.emit("offtrack", shown)
-            self._say("offtrack", shown)
+            key = (step["id"], level, (full.get("title") or "").strip().lower())
+            if key != self._offtrack_key:  # only a NEW card: new step, higher level or a different diagnosis
+                self._offtrack_key = key  # (re-sending the same one reopens a card the learner just closed)
+                await self.emit("offtrack", shown)
+                self._say("offtrack", shown)
+            else:
+                log.info("same offtrack as before (%s, level %s); not re-sent", step["id"], level)
             self._record("offtrack", {"title": full.get("title"), "level": level,
                                       "check_ids": [r.get("checkId") for r in failed]}, step)
             diff = full.get("diff") or {}
@@ -1414,6 +1851,7 @@ class LessonSession:
             return
         self.video_reports += 1
         self.video_t = t
+        self.video_playing = playing
         seg = self._segment(step)
         if seg and not self.segment_done and t >= seg["end"] - 0.3 and t <= seg["end"] + 5:
             await self._segment_end()
@@ -1450,6 +1888,11 @@ class LessonSession:
         if kind == "pick_another":
             await self._pick_another()
             return
+        if self.step is None and self.pending_pick is not None and kind == "download":
+            self._download_after_build = True  # no lesson folder yet: download into it once it exists
+            await self.emit("card", {"kind": "answer", "title": "Tutorial files",
+                                     "body": "I'll save the video's files in your lesson folder as soon as it's ready."})
+            return
         if self.step is None and self.pending_pick is not None and kind in ("install", "open_in_browser"):
             # the preflight card's tool buttons, before any lesson exists
             if kind == "install":
@@ -1477,6 +1920,11 @@ class LessonSession:
                 await self._apply_patch(step)
             elif step is not None and self.confirm_pending and not self.passed:
                 self.confirm_pending = False
+                for cid in self.confirm_check_ids:  # E5's "Looks done?": the learner vouches for these checks
+                    label = (self.check_state.get(cid) or {}).get("label", cid)
+                    await self.emit("check.updated", {"stepId": step["id"], "checkId": cid, "label": label,
+                                                      "status": "pass", "detail": "You confirmed it"})
+                self.confirm_check_ids = []
                 await self._pass_step()
             return
         if kind == "undo":
@@ -1486,6 +1934,12 @@ class LessonSession:
             await self.emit("error", {"message": "No lesson is running yet."})
             return
         self._touch()
+        if kind == "check_step":  # "Can I move on?"
+            await self._check_step(step)
+            return
+        if kind == "skip_step":  # leave this step unfinished and start the next one
+            await self._pass_step(skipped=True)
+            return
         if kind == "back":
             idx = self.idx
             seg = self._segment(step)
@@ -1501,28 +1955,85 @@ class LessonSession:
             if seg:
                 self.segment_done = False
                 await self.emit("video.seek", {"t": seg["start"], "play": True})
-            await self._spotlight_target(step)
+                await self.emit("video.play", {})
+            gen = self.step_gen
+            quick = await self._show_where(step)  # exact match / window: instant
+            if not quick and (reason := self.screen_down_reason()):  # say why there's no spotlight
+                await self._emit_card({"stepId": step["id"], "kind": "hint", "title": "I can't see your screen",
+                                       "body": self.screen_down_message(reason)})
+                return
+            if quick and self.lesson_mode:
+                return  # the target box + what to type there is the whole answer
+            if self.m.has_pointing():  # E5: the diagnosed line, the step's target, else Haiku (<= 3 s)
+                screen = await self._screen_for_coach(step)
+                r = await self.m.show_me(step, screen, self.last_offtrack) if screen is not None else None
+                if gen != self.step_gen:
+                    return
+                if r and r.get("targets"):
+                    spot = self._target_spot({**r["targets"][0], "label": r.get("caption") or r["targets"][0].get("label")})
+                    if spot:
+                        self._action_spot = True
+                        await self._show_spot({**spot, **self._snippet(step)})
+                        return
+                if r and r.get("where") and not quick:
+                    await self._emit_card({"stepId": step["id"], "kind": "hint", "title": "Where to work",
+                                           "body": r["where"]})
+                    return
+            if not quick and self._can_see():
+                await self._emit_card(self._where_card(step))
             return
         if kind in ("explain", "ask"):
             self._record("question", {"kind": kind, "text": (text or "")[:300]}, step)
-            await self._status("thinking")
+            await self._status("thinking")  # visible at once; the spotlight follows, the card after
             gen = self.step_gen
-            card = await self.m.explain(step, text if kind == "ask" else (text or None), self._explain_context())
+            await self._show_where(step)
+            ctx = self._explain_context()
+            screen = await self._screen_for_coach(step)
+            if screen is not None:
+                ctx["screen"] = screen
+
+                def on_targets(targets: list[dict]) -> None:  # the coach points while it answers
+                    if gen == self.step_gen and targets:
+                        spot = self._target_spot(targets[0])
+                        if spot:
+                            self._action_spot = True
+                            self._spawn(self._show_spot(spot))
+
+                ctx["on_targets"] = on_targets
+            card = await self.m.explain(step, text if kind == "ask" else (text or None), ctx)
             if gen != self.step_gen:
                 return  # the learner moved to another step meanwhile: an answer about the old one would mislead
             card = dict(card)
             card["stepId"] = step["id"]
+            if card.get("targets"):
+                spot = self._target_spot(card["targets"][0])
+                if spot:
+                    self._action_spot = True
+                    await self._show_spot(spot)
             await self._emit_card(card)
             await self._status("offtrack" if self.last_offtrack else ("passed" if self.passed else "watching"))
             return
         if kind == "hint":
             gen = self.step_gen
-            card = dict(await self.m.hint(step, self.hint_level, self.last_offtrack))
+            await self._status("thinking")
+            shown = await self._show_where(step)
+            screen = await self._screen_for_coach(step) if self.m.has_pointing() else None
+            if screen is None and ((not shown and self._can_see()) or self._code_not_visible()):  # say WHERE to go
+                await self._emit_card(self._where_card(step))
+                await self._status("offtrack" if self.last_offtrack else "watching")
+                return
+            card = dict(await self.m.hint(step, self.hint_level, self.last_offtrack, screen=screen))
             if gen != self.step_gen:
                 return
             card["stepId"] = step["id"]
             self.hint_level += 1
+            if card.get("targets"):  # E5 pointed at the exact spot
+                spot = self._target_spot(card["targets"][0])
+                if spot:
+                    self._action_spot = True
+                    await self._show_spot(spot)
             await self._emit_card(card)
+            await self._status("offtrack" if self.last_offtrack else "watching")
             return
         if kind == "diagram":
             want = (text or "").strip().lower()
@@ -1550,6 +2061,14 @@ class LessonSession:
             return
         if kind == "skip_setup":  # the app dismisses the setup card; nothing to undo here
             return
+        if kind == "download":  # S2: the video's linked code / notebooks -> <lesson folder>/tutorial/ (never run)
+            from . import workspace as wsmod
+
+            await self._status("thinking")
+            res, summary = await asyncio.to_thread(wsmod.download_resources, self.graph or {}, self.workdir)
+            await self._emit_card({"stepId": step["id"], "kind": "answer", "title": "Tutorial files", "body": summary})
+            await self._status("offtrack" if self.last_offtrack else ("passed" if self.passed else "watching"))
+            return
         if kind == "open_in_browser":  # text = a web_app setup item's tool id (no-code lessons)
             await self._open_in_browser((text or "").strip())
             return
@@ -1568,6 +2087,92 @@ class LessonSession:
         return {"code": ctx.get("code"), "file": ctx.get("file"), "screen": self._screen_lines(),
                 "question": question, "lesson": ctx.get("lesson"),
                 "offtrack": {k: (self.last_offtrack or {}).get(k) for k in ("title", "body")} if self.last_offtrack else None}
+
+    # ------------------------------------------------------------------ pointing (show_me / hint / explain)
+    BROWSER_APPS = ("Google Chrome", "Safari", "Arc", "Firefox", "Brave Browser", "Microsoft Edge")
+
+    def _work_apps(self, step: dict) -> list[str]:
+        apps = [t.get("app") for t in step.get("targets") or [] if t.get("app")]
+        apps += [c.get("app") for c in step.get("checks") or [] if c.get("app")]
+        if self.notebook_lesson:
+            apps += list(self.BROWSER_APPS) + ["Code", "Cursor", "Jupyter"]
+        return list(dict.fromkeys(apps or ["Code", "Cursor", "Terminal"]))
+
+    def _window_spot(self, step: dict, caption: str) -> dict | None:
+        """The window the learner should work in, when the exact target isn't on screen."""
+        obs = self.last_obs
+        for want in self._work_apps(step):
+            for w in getattr(obs, "windows", None) or []:
+                if want.lower() in (getattr(w, "app", "") or "").lower():
+                    r = w.rect.to_dict() if hasattr(w.rect, "to_dict") else w.rect
+                    return {"rect": {k: float(r[k]) for k in ("x", "y", "w", "h")}, "caption": caption, "app": w.app}
+        return None
+
+    async def _show_where(self, step: dict) -> bool:
+        """Spotlight where to work NOW: the step's target on screen, else its app's window. False = nothing visible."""
+        if await self._spotlight_target(step):
+            self._action_spot = True
+            return True
+        file = self._step_file(step)
+        caption = self._type_caption(step) if self.lesson_mode else (f"Work here: {file}" if file else "Work here")
+        spot = self._window_spot(step, caption)
+        if spot:
+            self._action_spot = True
+            await self._show_spot({**spot, **self._snippet(step)})
+            return True
+        return False
+
+    def _step_file(self, step: dict) -> str | None:
+        for t in step.get("targets") or []:
+            if t.get("file"):
+                return t["file"]
+        for c in (step.get("checks") or []) + (step.get("precision_checks") or []):
+            if c.get("file"):
+                return c["file"]
+        return None
+
+    def _can_see(self) -> bool:
+        """The screen reader is running and has a frame: 'nothing found' then really means 'not on screen'."""
+        return self.screen_active() and self.last_obs is not None
+
+    @staticmethod
+    def _editor_label() -> str:
+        from . import workspace as wsmod
+
+        return wsmod.editor_label()
+
+    def _code_not_visible(self) -> bool:
+        details = " ".join(str(r.get("detail") or "") for r in self.last_results if r.get("status") != "pass").lower()
+        return any(k in details for k in ("not visible", "not on screen", "waiting for screen"))
+
+    def _where_card(self, step: dict) -> dict:
+        """A card that says WHERE to go when I can't see the learner's work."""
+        file = self._step_file(step)
+        if self.notebook_lesson:
+            return {"stepId": step["id"], "kind": "hint", "title": "Open the notebook",
+                    "body": f"Open {file or 'the notebook'} in Colab or Jupyter so I can see it."}
+        untitled = self._untitled_editor()
+        if file and untitled:  # the learner typed into a new, unsaved editor tab: say exactly what to do
+            return {"stepId": step["id"], "kind": "hint", "title": f"Save it as {Path(file).name}",
+                    "body": f"Your code is in an unsaved {untitled} tab. Save it (⌘S) as {Path(file).name} in "
+                            f"{self.workdir} so I can check it."}
+        card: dict[str, Any] = {"stepId": step["id"], "kind": "hint", "title": f"Open {file}" if file else "Show me your code",
+                                "body": (f"Open {file} in {self._editor_label()} so I can see it and point at the right line."
+                                         if file else "Bring your editor to the front so I can see your code.")}
+        from . import workspace as wsmod
+
+        if self.workspace is not None and self.graph is not None and wsmod.needs_editor(self.graph):
+            card["actions"] = ["open_editor"]
+        return card
+
+    def _untitled_editor(self) -> str | None:
+        """The code editor (VS Code / Cursor) showing an unsaved 'Untitled-N' tab, if any."""
+        for w in getattr(self.last_obs, "windows", None) or []:
+            app = (getattr(w, "app", "") or "")
+            title = (getattr(w, "title", "") or "").lstrip("● ")
+            if app.lower() in CODE_APP_NAMES | {"code"} and title.lower().startswith("untitled"):
+                return "Cursor" if app.lower() == "cursor" else "VS Code"
+        return None
 
     def _diagram_step(self, step: dict) -> dict:
         """Step ids repeat across lessons (s1, s2...): namespace the id by lesson so S4's cache can't
@@ -1626,11 +2231,18 @@ class LessonSession:
                              "Paste it in your terminal (⌘V) and press Enter." if ok else command)
             if not (file and yours and expected):
                 return  # command-only fix; otherwise continue with the code part below
+        if not (file and yours and expected) and self.lesson_mode and (step.get("code") or "").strip():
+            await self._type_step_for_them(step)  # "Do it for me" on a lesson step: its code, previewed first
+            return
         if not (file and yours and expected):
             await self._card(step, "No automatic fix", "This one needs your hands. Try a hint.")
             return
-        path = Path(file) if Path(file).is_absolute() else Path(self.workdir) / file
+        from . import workspace as wsmod
         from .inputs import dirty_files
+
+        titles = [getattr(w, "title", "") or "" for w in getattr(self.last_obs, "windows", None) or []]
+        path = wsmod.resolve_file(self.workdir, file, titles) or (Path(file) if Path(file).is_absolute()
+                                                                    else Path(self.workdir) / file)
 
         if path.name in dirty_files(self.last_obs):  # VS Code has unsaved edits: writing would clobber them
             await self._card(step, f"Save {path.name} first", "Press ⌘S, then Do it for me again.")
@@ -1687,6 +2299,211 @@ class LessonSession:
                          kind="answer", actions=["undo"])
         await self.on_file_change([str(path)])
 
+    async def _check_step(self, step: dict) -> None:
+        """"Can I move on?": re-run the checks on a fresh frame now (asking counts as acting, so a pass moves on
+        at once), then E5's Claude judge looks at the screen + files. Done -> step.passed. Not done -> ONE card
+        "Not yet" saying what's missing (<= 12 words), with the spot to fix when the judge gives one. Without the
+        judge (offline / no key) the deterministic checks decide alone."""
+        gen = self.step_gen
+        await self._status("thinking")
+        if self.screen is not None:
+            self.screen.poke()  # a new frame, not one from before their last keystroke
+            if self.check_wait_s:
+                await asyncio.sleep(self.check_wait_s)
+        if gen != self.step_gen:
+            return
+        self.engaged = True
+        await self.evaluate("check")
+        if self.passed or gen != self.step_gen:
+            return
+        code, file = self._code_excerpt(step)
+        try:
+            verdict = await self.m.judge_step(step, screen=self._screen_lines(), files={file: code} if file and code else {},
+                                              check_results=self.last_results, focused_app=self._focused_app(),
+                                              lesson=(self.graph or {}).get("lesson"))
+        except Exception as e:  # noqa: BLE001 - the judge is a bonus
+            log.info("check_step: no judge (%s)", e)
+            verdict = None
+        if gen != self.step_gen or self.passed:
+            return
+        if verdict and verdict.get("done"):
+            for cid, v in (verdict.get("checks") or {}).items():
+                if v.get("verdict") == "done":
+                    self.judged_pass.add(cid)
+            await self.evaluate("check")
+            if not self.passed and gen == self.step_gen:  # the judge says every check is done: trust it
+                await self._pass_step()
+            return
+        missing = (verdict or {}).get("missing") or ""
+        if not missing:
+            labels = [r.get("label") or r.get("checkId") for r in self.last_failed or
+                      [r for r in self.last_results if r.get("status") != "pass"]]
+            missing = ("Still missing: " + "; ".join(str(x) for x in labels[:3])) if labels else "The checks haven't passed yet"
+        body = " ".join(missing.split()[:12])
+        target = (verdict or {}).get("target") or {}
+        if target.get("rect"):
+            await self._show_spot({"rect": target["rect"], "caption": body})
+            self._action_spot = True
+        await self._emit_card({"stepId": step["id"], "kind": "answer", "title": "Not yet", "body": body,
+                               "actions": ["skip_step"]}, window_s=2.0)
+        await self._status("offtrack" if self.last_offtrack else "watching")
+
+    SCREEN_DOWN_S = 5.0  # a Space switch / screen lock is brief: only a lasting failure is reported
+
+    def screen_down_reason(self) -> str | None:
+        fn = getattr(self.screen, "down_reason", None) if self.screen is not None else None
+        try:
+            return fn() if fn else None
+        except Exception:  # noqa: BLE001
+            return None
+
+    @staticmethod
+    def screen_down_message(reason: str) -> str:
+        if reason == "no_permission":
+            return ("Miyagi can't see your screen: allow Screen Recording for it in System Settings → Privacy & "
+                    "Security, then restart Miyagi.")
+        return "Miyagi can't see your screen right now, so screen checks and Show me are paused."
+
+    async def _check_screen_health(self) -> None:
+        """S1: a dead capture was silent (checks stuck on 'waiting for screen'). Tell the app once."""
+        reason = self.screen_down_reason()
+        if reason is None:
+            if self._screen_notice_sent:
+                log.info("screen reader recovered")
+            self._screen_down_since, self._screen_notice_sent = None, False
+            return
+        if self._screen_down_since is None:
+            self._screen_down_since = self.clock()
+        if not self._screen_notice_sent and self.clock() - self._screen_down_since >= self.SCREEN_DOWN_S:
+            self._screen_notice_sent = True
+            log.warning("screen reader down: %s", reason)
+            await self.emit("error", {"message": self.screen_down_message(reason)})
+
+    def _focused_app(self) -> str:
+        return str(getattr(self.last_obs, "app", "") or "")
+
+    def _maybe_judge(self, step: dict) -> None:
+        """E5's StepJudge in the background: when the learner is idle and the deterministic checks can't tell
+        (pending), Claude (Haiku) looks; gates (idle >= 8 s, <= 1 per 20 s, only on change) are E5's."""
+        j = self.judge
+        if j is None or self._judging or not self.last_results:
+            return
+        screen = self._screen_lines()
+        code, file = self._code_excerpt(step)
+        files = {file: code} if file and code else {}
+        try:
+            if not j.should_judge(step, self.last_results, idle_s=self.learner_idle_s(),
+                                  video_playing=self.video_playing and not self.segment_done,
+                                  screen=screen, files=files, focused_app=self._focused_app()):
+                return
+        except Exception:  # noqa: BLE001
+            log.exception("should_judge failed")
+            return
+        self._judging = True
+        self._spawn(self._run_judge(self.step_gen, step, screen, files))
+
+    async def _run_judge(self, gen: int, step: dict, screen: Any, files: dict) -> None:
+        try:
+            j = await self.judge.judge(step, self.last_results, screen=screen, files=files,
+                                       focused_app=self._focused_app(), lesson=(self.graph or {}).get("lesson"))
+        except Exception:  # noqa: BLE001
+            log.exception("step judge failed")
+            j = None
+        finally:
+            self._judging = False
+        if not j or gen != self.step_gen or self.passed:
+            return
+        for ev in j.get("events") or []:
+            p = ev.get("payload") or {}
+            if ev.get("type") == "check.updated" and p.get("status") == "pass" and p.get("checkId"):
+                self.judged_pass.add(p["checkId"])
+        if self.judged_pass:
+            await self.evaluate("judge")
+        card = j.get("card")
+        if card and not self.passed and gen == self.step_gen:
+            if "confirm" in (card.get("actions") or []):
+                self.confirm_pending = True
+                self.confirm_check_ids = list(card.get("checkIds") or [])
+            await self._emit_card(card)
+
+    SETUP_STEP = re.compile(r"\b(install(ing|ation|ed)?|download(ing)?|set\s*-?\s*up|setup)\b", re.I)
+
+    async def _maybe_pass_setup_step(self) -> None:
+        """Never trap the learner on an install step for tools S2's check already found on this Mac."""
+        step = self.step
+        if step is None or self.passed or not self.reqs:
+            return
+        text = f"{step.get('title', '')} {step.get('instructions', '')}"
+        if not self.SETUP_STEP.search(text):
+            return
+        low = text.lower()
+        named = [it for it in self.reqs if any(n and str(n).lower() in low for n in (it.get("label"), it.get("tool")))]
+        items = named or [it for it in self.reqs if it.get("needed")]
+        if not items or not all(it.get("ok") for it in items):
+            return
+        for c in self.display_checks(step):
+            await self.emit("check.updated", {"stepId": step["id"], "checkId": c["id"], "label": c.get("label", c["id"]),
+                                              "status": "pass", "detail": "Already installed"})
+        self._record("step_passed_installed", {"tools": [it.get("tool") for it in items]}, step)
+        await self._pass_step()
+
+    STUCK_CARD_S = 90.0
+
+    async def _maybe_stuck_card(self, step: dict) -> None:
+        """Pending > 90 s after the clip ended and the learner is idle: offer Skip, once per step."""
+        if (self._stuck_card_sent or not self.segment_done or self.segment_end_t is None
+                or self.clock() - self.segment_end_t < self.STUCK_CARD_S or self.learner_idle_s() < self.idle_gate_s):
+            return
+        if self.last_results and all(r.get("status") == "pass" for r in self.last_results):
+            return
+        self._stuck_card_sent = True
+        await self._emit_card({"stepId": step["id"], "kind": "hint", "title": "Stuck on this step?",
+                               "body": "Skip it, or ask for a hint.", "actions": ["skip_step"]})
+
+    async def _type_step_for_them(self, step: dict) -> None:
+        """Lesson mode "Do it for me": E5 places the step's code in the file (preview -> confirm -> apply);
+        a new / empty file just gets the code. Never types into the editor."""
+        from . import workspace as wsmod
+        from .inputs import dirty_files
+
+        file = self._step_file(step) or step.get("file") or ""
+        if not file:
+            await self._card(step, "Type it yourself", step["code"], kind="answer")
+            return
+        titles = [getattr(w, "title", "") or "" for w in getattr(self.last_obs, "windows", None) or []]
+        path = wsmod.resolve_file(self.workdir, file, titles) or (Path(file) if Path(file).is_absolute()
+                                                                    else Path(self.workdir) / file)
+        if path.name in dirty_files(self.last_obs):
+            await self._card(step, f"Save {path.name} first", "Press ⌘S, then Do it for me again.")
+            return
+        try:
+            text = path.read_text() if path.exists() else ""
+        except OSError as e:
+            await self.emit("error", {"message": f"Could not open {file}: {e}"})
+            return
+        code = step["code"].rstrip("\n") + "\n"
+        new_text, summary, line = None, f"Adds this step's code to {path.name}.", 1
+        if not text.strip():
+            new_text = code
+        elif self.m.has_do_it_for_me():
+            await self._status("thinking")
+            try:
+                p = await self.m.do_it_for_me(step, path.name, text, None)
+                new_text, summary, line = p.get("new_text"), p.get("summary") or summary, p.get("line") or 1
+            except Exception as e:  # noqa: BLE001
+                log.info("do_it_for_me (lesson step) failed: %s", e)
+            await self._status("watching")
+        if not new_text or new_text == text:
+            await self._card(step, "Type it yourself", step["code"], kind="answer")
+            return
+        import difflib
+
+        diff = "".join(difflib.unified_diff(text.splitlines(True), new_text.splitlines(True),
+                                            f"a/{path.name}", f"b/{path.name}"))
+        self.pending_patch = {"path": path, "old": text, "new": new_text, "line": line,
+                              "first": code.strip().splitlines()[:1]}
+        await self._card(step, "Type this for you?", summary, kind="answer", diff=diff, actions=["confirm"])
+
     async def _apply_patch(self, step: dict) -> None:
         """Confirmed preview: re-check (unsaved edits? file changed since the preview?), back up, write."""
         from .inputs import dirty_files
@@ -1697,7 +2514,7 @@ class LessonSession:
             await self._card(step, f"Save {path.name} first", "Press ⌘S, then Do it for me again.")
             return
         try:
-            current = path.read_text()
+            current = path.read_text() if (path.exists() or pp["old"]) else ""
         except OSError as e:
             await self.emit("error", {"message": f"Could not open {path}: {e}"})
             return
@@ -1711,6 +2528,7 @@ class LessonSession:
         except OSError:
             log.warning("could not write a backup of %s", path)
         self.undo = (path, current)
+        path.parent.mkdir(parents=True, exist_ok=True)  # lesson mode: a step may create its file
         path.write_text(pp["new"])
         if self.workspace is not None and self.editor_open:
             self.workspace.goto(str(path), int(pp["line"]))
@@ -1804,5 +2622,6 @@ class LessonSession:
             "modules": self.m.describe(),
             "precisionMode": self.precision_mode(),
             "screen": bool(self.screen is not None and getattr(self.screen, "active", False)),
+            "screenDown": self.screen_down_reason(),  # S1: E6 status error / no_permission
             "voice": self.voice,
         }

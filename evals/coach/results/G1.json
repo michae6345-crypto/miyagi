@@ -1,0 +1,217 @@
+{
+ "id": "G1",
+ "topic": "git",
+ "step": "s5",
+ "mistake": "Changed the FIRST todo line to `squash` instead of the Cleanup line",
+ "truth": "squash melds a commit into the one above it; the first line has none → `cannot 'squash' without a previous commit`. Fix: line 1 back to `pick`, `squash` on the Cleanup line, then `git rebase --continue`.",
+ "ocr": {
+  "blocks": 106,
+  "ms": 437,
+  "lines_by_app": {
+   "": 2,
+   "Terminal": 8,
+   "Code": 51
+  }
+ },
+ "cursor": {
+  "xy": [
+   378.0,
+   138.2
+  ],
+  "on": "squash 1194326 Add README"
+ },
+ "gate_before": {
+  "passed": false,
+  "via": null,
+  "passed_screen_only": false,
+  "checks": [
+   "s5c1 pass: seen in Code: 'squash 1194326'",
+   "s5c2 fail: not seen in Terminal",
+   "s5c3 pass: not showing in Terminal"
+  ],
+  "precision": [
+   "s5p1 pending: run `tut run test ! -d .git/rebase-merge`",
+   "s5p2 pending: run `tut run ! git log --oneline -5 | grep -q 'authentication middleware'`",
+   "s5p3 pending: run `tut run git log -1 --format=%s | grep -q 'Add README'`"
+  ]
+ },
+ "fires": true,
+ "fires_screen_only": true,
+ "inputs": {
+  "code_from": "screen OCR (Code)",
+  "code_chars": 1746,
+  "target_location": null,
+  "cursor_under": "squash 1194326 Add README"
+ },
+ "warm_s": 2.02,
+ "card_s": 6.68,
+ "targets_s": 4.72,
+ "card": {
+  "stepId": "s5",
+  "severity": "fail",
+  "title": "Squash placed on the first commit",
+  "body": "squash melds a commit into the one above it, and Add README is first in the todo, so Git reports no previous commit. Set line 1 back to pick and change Cleanup to squash.",
+  "actions": [
+   "explain",
+   "show_me",
+   "hint",
+   "apply_fix"
+  ],
+  "guidingQuestion": "Which commit would Add README merge into when it is the topmost line?",
+  "diff": {
+   "expected": "pick 1194326 Add README",
+   "yours": "squash 1194326 Add README",
+   "file": "git-rebase-todo",
+   "line": 7
+  },
+  "citation": {
+   "label": "Git Interactive Rebase: Edit, Split, Squash, Delete, and Reorder Commits",
+   "url": "https://www.youtube.com/watch?v=42392W7SgnE"
+  },
+  "targets": [
+   {
+    "boxId": 27,
+    "label": "squash on first",
+    "text": "squash 1194326 Add README",
+    "rect": {
+     "x": 316.5,
+     "y": 130.5,
+     "w": 178.3,
+     "h": 15.1
+    }
+   },
+   {
+    "boxId": 34,
+    "label": "cleanup commit",
+    "text": "pick a9db680 Cleanup",
+    "rect": {
+     "x": 316.5,
+     "y": 185.5,
+     "w": 143.2,
+     "h": 13.0
+    }
+   },
+   {
+    "boxId": 18,
+    "label": "rebase error",
+    "text": "error: cannot",
+    "rect": {
+     "x": 949.4,
+     "y": 82.8,
+     "w": 98.0,
+     "h": 15.2
+    }
+   }
+  ]
+ },
+ "meta": {
+  "route": "opus",
+  "triage": {
+   "route": "opus",
+   "by": "haiku",
+   "reason": "The failure is 'Rebase succeeded' not seen in Terminal, and the code excerpt shows a garbled/mixed editor state (todo file with odd content, README.md and index.js tabs visible, multiple commits listed including a squash on the first line). This depends on the learner's specific repo state and what they actually ran, so no known playbook or generic template fits; route to opus."
+  },
+  "model": "claude-opus-5-5",
+  "latency_s": 4.25,
+  "playbook_id": null,
+  "web_sources": [
+   "https://stackoverflow.com/questions/6217156/break-a-previous-commit-into-multiple-commits",
+   "https://stackoverflow.com/questions/2302736/trimming-git-commits-squashing-git-history"
+  ],
+  "usage": {
+   "input_tokens": 7653,
+   "output_tokens": 283,
+   "cache_read_input_tokens": 7585,
+   "cache_creation_input_tokens": 0,
+   "first_text_s": 1.87
+  }
+ },
+ "diagnosis_auto": true,
+ "targets": {
+  "n": 3,
+  "any": true,
+  "first": true,
+  "texts": [
+   "squash 1194326 Add README",
+   "pick a9db680 Cleanup",
+   "error: cannot"
+  ],
+  "labels": [
+   "squash on first",
+   "cleanup commit",
+   "rebase error"
+  ]
+ },
+ "hint3": {
+  "title": "Here's the change",
+  "diff": {
+   "expected": "pick 1194326 Add README",
+   "yours": "squash 1194326 Add README",
+   "file": "git-rebase-todo",
+   "line": 7
+  }
+ },
+ "orchestrator_resolves_file": false,
+ "patch": {
+  "file": "git-rebase-todo",
+  "unified_diff": "--- a/git-rebase-todo\n+++ b/git-rebase-todo\n@@ -1,4 +1,4 @@\n-squash 1194326 Add README\n+pick 1194326 Add README\n pick 7a428b4 Add login endpoint\n pick 8d7db63 Add logout endpoint\n pick a9db680 Cleanup\n",
+  "summary": "Set line 1 back to pick and change Cleanup to squash",
+  "line": 7,
+  "requires_confirmation": true,
+  "_meta": {
+   "via": "diagnosis"
+  },
+  "s": 0.0,
+  "changed_lines": 2
+ },
+ "check_after": {
+  "in_progress": false,
+  "commits": [
+   "Add README",
+   "Add login endpoint",
+   "Add logout endpoint",
+   "Cleanup",
+   "Add authentication middleware"
+  ],
+  "log": [
+   "# wrote .git/rebase-merge/git-rebase-todo",
+   "learner@MacBook-Pro git-rebase-lab % git rebase --continue",
+   "",
+   "",
+   "",
+   "",
+   "",
+   "Successfully rebased and updated refs/heads/feature/login."
+  ],
+  "ok": false,
+  "why": "history not as intended",
+  "terminal": [
+   "# wrote .git/rebase-merge/git-rebase-todo",
+   "learner@MacBook-Pro git-rebase-lab % git rebase --continue",
+   "",
+   "",
+   "",
+   "",
+   "",
+   "Successfully rebased and updated refs/heads/feature/login."
+  ],
+  "index_after": "const express = require('express');\nconst app = express();\napp.use(express.json());\n\napp.post('/login', (req, res) => {\n  console.log('DEBUG: LOGIN', req.body);\n  res.json({ ok: true });\n});\n\napp.post('/logout', (req, res) => {\n  res.json({ ok: true });\n});\n\napp.listen(3000, () => console.log('Server running on port 3000'));\n"
+ },
+ "gate_after": {
+  "passed": false,
+  "via": null,
+  "failed": [
+   "s5c1 Squash keyword in todo: not seen in Code"
+  ]
+ },
+ "spotlight": {
+  "via": "diff.yours",
+  "rect": {
+   "x": 310.5,
+   "y": 124.5,
+   "w": 190.3,
+   "h": 27.1
+  },
+  "on_line": true
+ }
+}

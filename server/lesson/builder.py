@@ -14,7 +14,7 @@ from pathlib import Path
 
 import os
 
-from . import claude, gemini, links, transcript
+from . import budget, claude, gemini, links, transcript
 from .schema import (
     CHECK_TYPES,
     PRECISION_TYPES,
@@ -37,7 +37,7 @@ from .workdir import WorkdirInfo, scan
 #   adapting (fitting checks to the learner's project), done
 #   long videos also: planning (msg = "N parts"), first_steps (part 1 ready), more_steps (msg = "part k/N")
 STAGES = ("cache_hit", "watching", "reading_transcript", "writing_steps", "engine_switch", "steps_ready", "adapting", "done",
-          "planning", "first_steps", "more_steps")
+          "planning", "first_steps", "more_steps", "provisional")
 _progress: contextvars.ContextVar = contextvars.ContextVar("lesson_progress", default=None)
 
 
@@ -71,7 +71,136 @@ _CHECK_FIELDS = {
 }
 
 
+QUICK_START_S = float(os.environ.get("LESSON_QUICK_START_S", "8"))
+
+
 async def build_lesson(
+    source_url: str,
+    goal: str,
+    workdir: str,
+    *,
+    on_update=None,
+    on_progress=None,
+    video_meta: dict | None = None,
+    _prebuild: bool = False,
+    **kw,
+) -> dict:
+    """See _build_lesson_impl. Adds two speed-ups around it:
+    - attaches to a speculative prebuild (prebuild.prebuild) of the same video + workdir, if any;
+    - quick start: when on_update is given and no real steps arrive within LESSON_QUICK_START_S (8 s),
+      a provisional step 1 built from the chapter list is sent (lesson.provisional=True, step.provisional
+      =True); the real steps replace it via on_update (same ids s1, s2, ...), ending with complete=True."""
+    from . import prebuild
+
+    vid = gemini.youtube_id(source_url)
+    if vid and not _prebuild:
+        prebuild.cancel(except_vid=vid)  # a lesson is starting: stop speculating on the other results
+        attached = await prebuild.attach(vid, workdir, on_update, on_progress)
+        if attached is not None:
+            return attached
+    from . import cost
+
+    counter = cost.current() if _prebuild else None
+    counter = counter or cost.start()
+    qs = _QuickStart(on_update, vid, source_url, goal, workdir, video_meta) if (on_update and vid) else None
+    try:
+        g = await _build_lesson_impl(source_url, goal, workdir, on_update=qs.wrapped if qs else on_update,
+                                     on_progress=on_progress, video_meta=video_meta, **kw)
+        if not g.get("build", {}).get("cost") and counter.get("tokens"):
+            g.setdefault("build", {})["cost"] = json.loads(json.dumps(counter))  # model calls + tokens per model
+        if qs:
+            await qs.finish(g)
+        return g
+    finally:
+        if qs:
+            qs.stop()
+
+
+class _QuickStart:
+    def __init__(self, on_update, vid, url, goal, workdir, video_meta):
+        self.on_update, self.vid, self.url, self.goal, self.workdir, self.video_meta = on_update, vid, url, goal, workdir, video_meta
+        self.real_sent = self.final_sent = self.provisional_sent = False
+        self.timer = asyncio.ensure_future(self._fire())
+
+    async def wrapped(self, graph: dict, complete: bool) -> None:
+        self.real_sent = True
+        self.final_sent = self.final_sent or complete
+        self.timer.cancel()
+        r = self.on_update(graph, complete)
+        if asyncio.iscoroutine(r):
+            await r
+
+    async def _fire(self) -> None:
+        await asyncio.sleep(QUICK_START_S)
+        if self.real_sent:
+            return
+        try:
+            meta = normalize_video_meta(self.video_meta) if self.video_meta else {}
+            if not meta.get("title"):
+                meta = {**await asyncio.wait_for(transcript.fetch_metadata(self.vid), 5), **{k: v for k, v in meta.items() if v}}
+            g = provisional_graph(meta, self.vid, self.url, self.goal, self.workdir)
+        except Exception as e:  # noqa: BLE001  quick start is a bonus
+            log.info("quick start skipped: %s", e)
+            return
+        if self.real_sent:
+            return
+        self.provisional_sent = True
+        log.info("quick start: provisional step 1 (%s) sent after %.0fs", g["steps"][0]["title"], QUICK_START_S)
+        _emit("provisional", g["steps"][0]["title"])
+        try:
+            r = self.on_update(g, False)
+            if asyncio.iscoroutine(r):
+                await r
+        except Exception as e:  # noqa: BLE001
+            log.warning("on_update failed: %s", e)
+
+    async def finish(self, graph: dict) -> None:
+        """The app saw a provisional step: make sure it gets the real, complete lesson through on_update too."""
+        self.timer.cancel()
+        if self.provisional_sent and not self.final_sent:
+            await self.wrapped(graph, True)
+
+    def stop(self) -> None:
+        self.timer.cancel()
+
+
+_INTRO = re.compile(r"\b(intro(duction)?|welcome|overview|about|agenda|preview|demo|what we.?ll build)\b", re.I)
+_SETUP_CHAPTER = re.compile(r"\b(install(ing|ation)?|download(ing)?|set\s*-?\s*up|setup|prerequisites?|requirements|getting\s+started|environment)\b", re.I)
+
+
+def provisional_graph(meta: dict, vid: str, url: str, goal: str, workdir: str) -> dict:
+    """Step 1 from the chapter list alone, shown while the video is still being watched."""
+    chapters = meta.get("chapters") or []
+    length = float(meta.get("length_s") or 0) or None
+    start, title = 0.0, ""
+    if meta.get("first_hands_on"):
+        start = float(meta["first_hands_on"])
+        title = next((c["title"] for c in reversed(chapters) if c["t"] <= start), "")
+    elif chapters:
+        # the placeholder is a watch-along step: start at the first hands-on chapter, not an intro or install chapter
+        hands_on = [c for c in chapters if not (_INTRO.search(c["title"]) or _SETUP_CHAPTER.search(c["title"]))]
+        c = hands_on[0] if hands_on else (chapters[1] if len(chapters) > 1 else chapters[0])
+        start, title = float(c["t"]), c["title"]
+    nxt = [c["t"] for c in chapters if c["t"] > start]
+    end = min(nxt[0] if nxt else start + 300, length or start + 300, start + 600)
+    end = max(end, start + 30)
+    label = _clip_words(title or "Follow along with the video", 6)
+    step = {
+        "id": "s1", "index": 1, "title": label, "provisional": True,
+        "instructions": (f"Watch {gemini._mmss(start)}-{gemini._mmss(end)}"
+                         + (f" ({title})" if title else "") + " and type along in your editor; detailed steps are on the way."),
+        "video": {"sourceId": "src1", "start": start, "end": end},
+        "checks": [],  # a watch-along placeholder must never gate (an app-scoped check can wait forever); the real lesson replaces it
+        "targets": [], "explanations": [], "hints": [], "common_mistakes": [],
+    }
+    g = {"lesson": {"id": f"lesson-{cache_key(url, goal, workdir)[:8]}", "title": meta.get("title") or goal or "Tutorial",
+                    "goal": goal, "workdir": workdir, "libraries": {}, "complete": False, "provisional": True, "builtBy": "chapters"},
+         "sources": [{"id": "src1", "kind": "video", "title": meta.get("title") or "Tutorial", "url": url, "videoId": vid}],
+         "steps": [step], "build": {"provisional": True, "warnings": []}}
+    return g
+
+
+async def _build_lesson_impl(
     source_url: str,
     goal: str,
     workdir: str,
@@ -84,6 +213,7 @@ async def build_lesson(
     cache: bool = True,
     on_progress=None,
     on_update=None,
+    video_meta: dict | None = None,
 ) -> dict:
     """Return a step graph that validates against shared/contracts/step-graph.schema.json.
 
@@ -98,6 +228,8 @@ async def build_lesson(
     on_update(graph, complete): long videos (> LESSON_LONG_VIDEO_S, 30 min) are built progressively:
       part 1 first (complete=False), then each later part appended in time order, then complete=True.
       Step ids never change once sent. The return value is always the complete graph.
+    video_meta: what preflight (S8) already knows, to skip a watch-page fetch: {title?, description?,
+      length_s|duration_s?, chapters?: [{t|start|startSeconds, title}], firstHandsOn?: seconds}.
     refresh: rebuild everything (new video pass). readapt: reuse the cached video draft, redo only
     the cheap adapt pass (e.g. after the workdir changed or an adapt pass ran out of quota).
     detail: per-step clip pass at 2 fps (costs one request per step; off by default on the free tier).
@@ -133,11 +265,13 @@ async def build_lesson(
     t0 = time.time()
     from . import progressive
 
-    try:
-        meta = await asyncio.wait_for(transcript.fetch_metadata(vid), 10)
-    except Exception:  # noqa: BLE001  without metadata we can't plan parts; build in one go
-        meta = {}
-    if (meta.get("length_s") or 0) > progressive.LONG_VIDEO_S and "gemini" in engines():
+    meta = normalize_video_meta(video_meta) if video_meta else {}
+    if not meta.get("length_s"):
+        try:
+            meta = {**await asyncio.wait_for(transcript.fetch_metadata(vid), 10), **{k: v for k, v in meta.items() if v}}
+        except Exception:  # noqa: BLE001  without metadata we can't plan parts; build in one go
+            pass
+    if (meta.get("length_s") or 0) > progressive.LONG_VIDEO_S and "gemini" in engines() and not gemini.is_down() and budget.remaining() > 0:
         try:
             graph = await progressive.build(source_url, vid, goal, workdir, info, meta, key, on_update=on_update, cache=cache, t0=t0)
         except RuntimeError as e:
@@ -154,6 +288,19 @@ async def build_lesson(
     except RuntimeError as e:
         if goal_task:
             goal_task.cancel()
+        # a mid-length video Gemini couldn't finish in one go: build it in parts (shorter clips are what it handles)
+        if (meta.get("length_s") or 0) > PARTS_FALLBACK_MIN_S and "gemini" in engines() and not gemini.is_down() and budget.remaining() > 0:
+            log.warning("one-pass build failed (%s); building in parts", str(e)[:150])
+            _emit("planning", "retrying in parts")
+            try:
+                graph = await progressive.build(source_url, vid, goal, workdir, info, meta, key, on_update=on_update, cache=cache, t0=t0)
+            except RuntimeError as e2:
+                raise RuntimeError(human_error(f"{e}\nparts: {e2}", meta)) from e2
+            if cache and graph["build"]["adapted"] and not graph["lesson"]["parts"]["failed"]:
+                CACHE_DIR.mkdir(parents=True, exist_ok=True)
+                path.write_text(json.dumps(graph, indent=2))
+            _emit("done", f"{time.time() - t0:.0f}s")
+            return graph
         raise RuntimeError(human_error(str(e), meta)) from e
     known_text, checked = await _known_text(vid), {}
     bad_urls = await _bad_urls(draft["steps"], known_text, checked)
@@ -288,7 +435,8 @@ async def _video_draft(url: str, vid: str, goal: str, *, refresh: bool, detail: 
 # (S3 eval: median start error 1 s vs 15 s), so auto prefers it: it gets up to LESSON_GEMINI_TIMEOUT
 # seconds, and the Claude transcript draft (running in parallel from t=0) is used only if Gemini fails
 # or runs out of time. Paid tier: a 20-min video takes Gemini ~35-60 s at 0.5 fps.
-GEMINI_VIDEO_TIMEOUT_S = 75.0
+GEMINI_VIDEO_TIMEOUT_S = 75.0  # preferred limit while a Claude draft is available
+GEMINI_MAX_TIMEOUT_S = 110.0  # LESSON_GEMINI_MAX_TIMEOUT: when Claude has nothing (e.g. no captions), Gemini may keep going
 GEMINI_GRACE_S = GEMINI_VIDEO_TIMEOUT_S  # LESSON_GEMINI_GRACE: extra wait for Gemini once Claude's draft is ready
 
 
@@ -327,9 +475,13 @@ async def _watch(url: str, vid: str, goal: str) -> dict:
         draft["_engine"] = "claude"
         return draft
 
+    pref_cap = float(os.environ.get("LESSON_GEMINI_TIMEOUT", GEMINI_VIDEO_TIMEOUT_S))
+    race_t0 = time.time()
+
     async def gemini_draft() -> dict:
         t0 = time.time()
-        cap = float(os.environ.get("LESSON_GEMINI_TIMEOUT", GEMINI_VIDEO_TIMEOUT_S))
+        # hard limit; the race below takes Claude's draft at pref_cap if one exists
+        cap = max(pref_cap, float(os.environ.get("LESSON_GEMINI_MAX_TIMEOUT", GEMINI_MAX_TIMEOUT_S))) if "claude" in order else pref_cap
         _emit("watching")
         try:
             meta = await asyncio.wait_for(transcript.fetch_metadata(vid), 10)
@@ -361,7 +513,8 @@ async def _watch(url: str, vid: str, goal: str) -> dict:
     try:
         pending = set(tasks.values())
         while pending:
-            timeout = grace if claude_ready is not None else None
+            # once Claude's draft exists, Gemini gets until the preferred cap (and at most `grace` more)
+            timeout = min(grace, max(0.0, race_t0 + pref_cap - time.time())) if claude_ready is not None else None
             done, pending = await asyncio.wait(pending, timeout=timeout, return_when=asyncio.FIRST_COMPLETED)
             if not done:  # Claude is ready and Gemini used up its grace period: don't keep the learner waiting
                 errors.append(f"gemini: still watching {grace:.0f}s after the transcript draft was ready")
@@ -397,27 +550,65 @@ async def _watch(url: str, vid: str, goal: str) -> dict:
     raise RuntimeError("no engine could build the lesson:\n" + "\n".join(errors))
 
 
+PARTS_FALLBACK_MIN_S = 8 * 60
+
+
+def normalize_video_meta(vm: dict) -> dict:
+    """Preflight's metadata -> the shape transcript.fetch_metadata returns (+ first_hands_on)."""
+    chapters = []
+    for c in vm.get("chapters") or []:
+        t = parse_ts(c.get("t", c.get("start", c.get("startSeconds", c.get("time")))))
+        if t is not None:
+            chapters.append({"t": t, "title": c.get("title") or ""})
+    chapters.sort(key=lambda c: c["t"])
+    length = vm.get("length_s") or vm.get("duration_s") or vm.get("lengthSeconds") or vm.get("duration")
+    length = parse_ts(length) if isinstance(length, str) else length
+    out = {"title": vm.get("title") or "", "description": vm.get("description") or "", "length_s": length,
+           "chapters": chapters if len(chapters) >= 3 else []}
+    fho = vm.get("firstHandsOn", vm.get("first_hands_on"))
+    fho = parse_ts(fho) if isinstance(fho, str) else fho
+    if isinstance(fho, (int, float)):
+        out["first_hands_on"] = float(fho)
+    return out
+
+
 def human_error(err: str, meta: dict | None = None) -> str:
     """A sentence a learner can act on, followed by the technical detail (the app shows the first line)."""
     e = err.lower()
     why = []
-    if "quota" in e or "resource_exhausted" in e:
+    if "gemini budget" in e:
+        why.append("today's Gemini budget is used up")
+    billing = "402" in e or "payment required" in e or "prepayment" in e or "credits are depleted" in e or "billing" in e
+    if billing:
+        why.append("Gemini credits are used up (top up at ai.studio/projects)")
+    elif "quota" in e or "resource_exhausted" in e:
         why.append("Gemini's quota is used up")
-    if "429" in e and ("timedtext" in e or "transcript" in e or "youtube" in e):
-        why.append("YouTube is rate-limiting caption downloads on this network")
-    if "no answer within" in e:
-        why.append("Gemini didn't finish watching in time")
-    if "api key" in e or "unauthenticated" in e or "permission_denied" in e:
-        why.append("an API key was rejected")
-    if "no transcript" in e and not any("YouTube" in w for w in why):
+    blocked = "429" in e and ("timedtext" in e or "transcript" in e or "youtube" in e or "caption" in e)
+    if blocked:
+        why.append("YouTube is blocking transcripts on this network")
+    elif "no transcript" in e:
         why.append("the video's captions couldn't be read")
+    if "no answer within" in e and not billing:
+        why.append("Gemini didn't finish watching in time")
+    if ("api key" in e or "unauthenticated" in e or "permission_denied" in e) and not billing:
+        why.append("an API key was rejected")
     length = (meta or {}).get("length_s")
     head = "Couldn't read this video" + (f" ({gemini._mmss(length)} long)" if length else "")
-    return f"{head}: {'; '.join(why) or 'both engines failed'}.\n(no engine could build the lesson) {err[:600]}"
+    if billing or blocked:
+        tip = " Try a saved lesson, or switch to your phone hotspot."
+    elif (length or 0) > 10 * 60:
+        tip = " Try a shorter video from the same search."
+    else:
+        tip = ""
+    return f"{head}: {' and '.join(why) or 'both engines failed'}.{tip}\n(no engine could build the lesson) {err[:600]}"
 
 
 def _short_reason(err: str) -> str:
     e = err.lower()
+    if "gemini budget" in e:
+        return "budget"
+    if "402" in e or "payment required" in e or "credits" in e or "billing" in e:
+        return "billing"
     if "429" in e or "quota" in e or "resource_exhausted" in e:
         return "quota"
     if "no answer within" in e or "timeout" in e:
@@ -499,7 +690,7 @@ def parse_ts(v) -> float | None:
     return out
 
 
-def normalize_draft(draft: dict) -> dict:
+def normalize_draft(draft: dict, *, min_step_s: float | None = None, min_steps: int = 3) -> dict:
     """Parse timestamps, order steps, remove overlaps, number them 1..N."""
     steps = []
     for s in draft.get("steps") or []:
@@ -517,7 +708,7 @@ def normalize_draft(draft: dict) -> dict:
     for a, b in zip(steps, steps[1:]):
         if a["end"] > b["start"]:
             a["end"] = max(b["start"], a["start"] + 1)
-    steps = merge_micro_steps(steps)
+    steps = merge_micro_steps(steps, MIN_STEP_S if min_step_s is None else min_step_s, min_steps)
     rehome_explanations(steps)
     for i, s in enumerate(steps, 1):
         s["index"] = i
@@ -696,8 +887,33 @@ def assemble(draft: dict, goal: str, adapted: dict) -> dict:
 BROWSER_APPS = {"google chrome", "chrome", "safari", "arc", "firefox", "microsoft edge", "edge", "brave browser", "brave", "browser"}
 
 
+_SETUP_VERB = re.compile(r"\b(install(ing)?|download(ing)?|set\s*-?\s*up|setup|get|update|upgrade)\b", re.I)
+_TOOLS = {  # tool id -> how it's named
+    "python": r"\bpython\s*3?\b|\bpip\b", "vscode": r"\bvs\s*code\b|visual\s+studio\s+code", "node": r"\bnode(\.?js)?\b|\bnpm\b",
+    "git": r"\bgit\b(?!hub)", "rust": r"\brust(up)?\b|\bcargo\b", "docker": r"\bdocker\b", "java": r"\bjava\b|\bjdk\b",
+    "go": r"\bgolang\b|\bgo\s+(toolchain|compiler)\b",
+}
+_WRITES_CODE = re.compile(r"\b(def|class|function|const|let|fn|import|from|return)\b|=>|\{", re.I)
+_INSTALL_GOAL = re.compile(r"\b(install|set\s*up|setup|configure)\b", re.I)
+
+
+def tag_setup_steps(graph: dict) -> None:
+    """Mark pure install/setup steps (install Python, install VS Code) with setup: true and requires: [tool ids],
+    so the engine can auto-pass them when the tools are already there. Not when the goal is about installing."""
+    lesson = graph.get("lesson") or {}
+    if _INSTALL_GOAL.search(lesson.get("goal") or ""):
+        return
+    for step in graph.get("steps") or []:
+        text = f"{step.get('title', '')} {step.get('instructions', '')}"
+        tools = sorted(t for t, rx in _TOOLS.items() if re.search(rx, text, re.I))
+        code = step.get("code") or ""
+        if tools and _SETUP_VERB.search(step.get("title", "")) and not _WRITES_CODE.search(code):
+            step["setup"], step["requires"] = True, tools
+
+
 def normalize_checks(graph: dict, known_metrics: set[str]) -> dict:
     """Deterministic fixes applied before lint (no model call)."""
+    tag_setup_steps(graph)
     libs = (graph.get("lesson") or {}).get("libraries") or {}
     for step in graph["steps"]:
         # "it runs" checks: a Python Traceback never shows up in a Vite/cargo/git terminal

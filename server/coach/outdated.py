@@ -114,8 +114,8 @@ async def fix_outdated(error_text: str, libraries: dict | list | None = None, *,
     try:
         res = await llm.structured_call(
             purpose="fix_outdated",
-            model=llm.OPUS,
-            system=[{"type": "text", "text": FIX_SYSTEM}],
+            model=llm.model_for("fix_outdated"),
+            system=llm.cached_system(FIX_SYSTEM),
             user_text=user,
             schema=FIX_SCHEMA,
             effort="low",

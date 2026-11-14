@@ -22,7 +22,7 @@ EVENT_ACTIONS = {"explain", "show_me", "apply_fix", "hint"}
 @pytest.fixture(autouse=True)
 def _isolate(monkeypatch):
     for k in ("ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN", "COACH_REPLAY_DIR", "COACH_RECORD_DIR", "BRIGHTDATA_API_KEY",
-              "BRIGHTDATA_SERP_ZONE", "BRIGHTDATA_UNLOCKER_ZONE", "DEMO", "TUT_ENV"):
+              "BRIGHTDATA_SERP_ZONE", "BRIGHTDATA_UNLOCKER_ZONE", "DEMO", "TUT_ENV", "COACH_OFFLINE_FALLBACK"):
         monkeypatch.delenv(k, raising=False)
     monkeypatch.setattr(llm, "_load_env", lambda: None)
     monkeypatch.setattr(llm, "_local_keys", {})
@@ -44,7 +44,7 @@ def run(coro):
 def assert_offtrack(card: dict) -> None:
     """Shape of EngineEvents['offtrack'] in shared/contracts/events.ts."""
     p = coach.public(card)
-    assert set(p) <= {"stepId", "severity", "title", "body", "diff", "citation", "actions", "guidingQuestion"}
+    assert set(p) <= {"stepId", "severity", "title", "body", "diff", "citation", "actions", "guidingQuestion", "offline"}
     assert p["severity"] in ("warn", "fail")
     assert 0 < len(p["title"].split()) <= 8
     assert 0 < len(p["body"].split()) <= 42  # ~30 by contract; the action sentence is never cut
@@ -65,7 +65,7 @@ def test_diagnose_pinn_flat_loss_card(replay):
     assert "β" in card["title"] or "beta" in card["title"].lower()
     assert card["citation"]["url"] == "https://arxiv.org/abs/2109.01050"
     assert card["diff"]["file"] == "pinn_convection.py" and card["diff"]["line"] in (39, 40)
-    assert card["diff"]["yours"].endswith("train(model)") and card["diff"]["expected"].startswith("for ") and "30" in card["diff"]["expected"]
+    assert card["diff"]["yours"].endswith("train(model)") and "for " in card["diff"]["expected"] and "30" in card["diff"]["expected"]
     assert "apply_fix" in card["actions"]
     assert card["_meta"]["source"] == "replay" and card["_meta"]["model"] == "claude-opus-5-5"
     assert card["_meta"]["route"] == "opus" and card["_meta"]["triage"]["by"] == "rules"
@@ -890,3 +890,496 @@ def test_voice_failures_never_raise(monkeypatch, tmp_path, caplog):
 def test_prefetch_step_titles(tts):
     titles = [s["title"] for s in d.LESSON["steps"]] + ["Write the residual"]
     assert run(voice.prefetch(titles)) == len(titles)
+
+
+# ---------- demo rehearsal (S11): latency of metric-only failures, offline stage fallback ----------------
+
+def test_metric_only_failure_never_waits_on_the_web(monkeypatch, replay):
+    calls = []
+
+    async def gather(*a, **kw):
+        calls.append(a)
+        return []
+
+    monkeypatch.setattr(web, "gather", gather)
+    common.set_lesson(d.LESSON)
+    run(coach.diagnose(d.STEP, d.HIGH_LR_FAILED, d.HIGH_LR_METRICS, d.HIGH_LR_CODE))
+    assert calls == []  # hero: no error text → no Bright Data round trips before Opus
+    run(coach.diagnose(d.STEP, d.NO_GRAD_FAILED, None, d.NO_GRAD_CODE, error_text=d.NO_GRAD_ERROR))
+    assert len(calls) == 1  # an error message is still looked up in the docs
+
+
+def _client_raising(monkeypatch, exc):
+    import anthropic
+
+    class Msgs:
+        async def create(self, **kw):
+            raise exc(anthropic)
+
+    fake = SimpleNamespace(beta=SimpleNamespace(messages=Msgs()), messages=Msgs())
+    fake.with_options = lambda **_: fake
+    monkeypatch.setattr(llm, "get_client", lambda: fake)
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "test")
+
+
+def _conn_error(anthropic):
+    return anthropic.APIConnectionError(request=httpx.Request("POST", "https://api.anthropic.com/v1/messages"))
+
+
+def test_offline_fallback_is_opt_in(monkeypatch):
+    _client_raising(monkeypatch, _conn_error)
+    common.set_lesson(d.LESSON)
+    with pytest.raises(coach.CoachUnavailable, match="connection error"):
+        run(coach.diagnose(d.STEP, d.HIGH_LR_FAILED, d.HIGH_LR_METRICS, d.HIGH_LR_CODE))
+    monkeypatch.setenv("COACH_OFFLINE_FALLBACK", "1")
+    card = run(coach.diagnose(d.STEP, d.HIGH_LR_FAILED, d.HIGH_LR_METRICS, d.HIGH_LR_CODE))
+    assert_offtrack(card)
+    pub = coach.public(card)
+    assert pub["offline"] is True and card["_meta"]["route"] == "playbook" and card["_meta"]["playbook_id"] == "lr_too_high"
+    assert "connection error" in card["_meta"]["fallback_reason"] and card["_meta"]["confidence"] >= 0.6
+    assert coach.hint(d.STEP, 0, pub)["body"].startswith("What happens to Adam")
+
+
+def test_offline_fallback_never_covers_other_failures(monkeypatch):
+    monkeypatch.setenv("COACH_OFFLINE_FALLBACK", "1")
+    common.set_lesson(d.LESSON)
+    # an API error (not a network outage) still raises
+    _client_raising(monkeypatch, lambda a: a.InternalServerError("boom", response=httpx.Response(500, request=httpx.Request("POST", "https://x")), body=None))
+    with pytest.raises(coach.CoachUnavailable):
+        run(coach.diagnose(d.STEP, d.HIGH_LR_FAILED, d.HIGH_LR_METRICS, d.HIGH_LR_CODE))
+    # a network outage without a confident match on the learner's code still raises
+    _client_raising(monkeypatch, _conn_error)
+    with pytest.raises(coach.CoachUnavailable):
+        run(coach.diagnose(d.STEP, d.HIGH_LR_FAILED, None, "print('hello')"))
+
+
+# ---------- Explain / Show me / Hint point at the screen (Michael, live) ------------------------------
+
+from server.coach.tests.screen_case import step_without_targets, terminal_only
+
+
+def test_show_me_exact_match_is_instant_and_whole_word(monkeypatch):
+    async def boom(**kw):
+        raise AssertionError("exact match must not call a model")
+
+    monkeypatch.setattr(llm, "structured_call", boom)
+    s = make_screen()
+    r = run(coach.show_me(d.STEP, s))  # step target `def loss` → `def loss(...)`, not `def lossPDE`
+    assert r["targets"][0]["text"].startswith("def loss(self") and r["caption"] == "total loss" and r["where"] is None
+    LAST["d6"] = {"title": "Adam learning rate 0.3 is too high", "diff": {"yours": "optimizer = torch.optim.Adam(model.parameters(), lr=0.3)"}}
+    r = run(coach.show_me(d.STEP, s))  # after a diagnosis: the line to change
+    assert "lr=0.3" in r["targets"][0]["text"]
+
+
+def test_point_uses_haiku_without_thinking(replay):
+    """Recorded live Haiku calls: finds the lr line; with the editor closed, says where to go."""
+    s = make_screen()
+    bare = step_without_targets(d.STEP)
+    p = run(coach.point(bare, s, about="the learning rate setting"))
+    assert p["via"] == "haiku" and "lr=0.3" in p["targets"][0]["text"] and p["where"] is None
+    p = run(coach.point(bare, terminal_only(s), about="the learning rate setting in the code"))
+    assert p["targets"] == [] and "pinn_diffusion.py" in p["where"]
+
+
+def test_point_request_shape_and_fallbacks(monkeypatch):
+    seen = {}
+
+    async def call(**kw):
+        seen.update(kw)
+        return llm.CallResult(data={"box_ids": [999], "where": ""}, model=kw["model"])
+
+    monkeypatch.setattr(llm, "structured_call", call)
+    p = run(coach.point(step_without_targets(d.STEP), make_screen(), about="something"))
+    assert seen["model"] == "claude-haiku-5-5" and seen["thinking"] == {"type": "disabled"} and "user_content" not in seen
+    assert p["targets"] == [] and p["where"] == "Open the code for this step"  # unknown id → no fake target
+    assert run(coach.point(d.STEP, None, about="x"))["where"] == "Open pinn_diffusion.py in your editor"
+
+    async def down(**kw):
+        raise llm.CoachLLMError("x", "connection")
+
+    monkeypatch.setattr(llm, "structured_call", down)
+    p = run(coach.point(step_without_targets(d.STEP), make_screen(), about="something"))
+    assert p["via"] == "fallback" and p["targets"] == [] and p["where"]
+
+
+def test_hint_points_or_says_where_first():
+    card = {"title": "Adam learning rate 0.3 is too high", "guidingQuestion": "What happens to Adam's steps when lr is large?",
+            "diff": {"yours": "optimizer = torch.optim.Adam(model.parameters(), lr=0.3)", "expected": "x", "file": "pinn_diffusion.py"}}
+    s = make_screen()
+    h = coach.hint(d.STEP, 0, card, screen=s)
+    assert h["body"] == card["guidingQuestion"] and "lr=0.3" in h["targets"][0]["text"]
+    h = coach.hint(d.STEP, 0, card, screen=terminal_only(s))  # `$ python pinn_diffusion.py` is not the code
+    assert h["title"] == "Open your code first" and h["body"].startswith("Open pinn_diffusion.py in your editor. Then: What happens")
+    assert h["where"] == "Open pinn_diffusion.py in your editor" and "targets" not in h
+    h = coach.hint(step_without_targets(d.STEP) | {"checks": [{"id": "r", "type": "command_exit_ok", "command": "python train.py"}]}, 1, {}, screen=terminal_only(s))
+    assert h["where"] == "Switch to your terminal and run `python train.py`"
+
+
+def test_explain_points_before_the_text_arrives(monkeypatch):
+    order = []
+
+    async def call(**kw):
+        if kw["purpose"] == "point":
+            await asyncio.sleep(0.05)
+            order.append("point")
+            return llm.CallResult(data={"box_ids": [box_id_containing(make_screen(), "lr=0.3")], "where": ""}, model="h")
+        await asyncio.sleep(0.3)
+        order.append("explain")
+        assert "user_content" not in kw  # Opus gets text only; pointing is Haiku's job
+        return llm.CallResult(data={"title": "Big steps overshoot", "body": "b", "explanation_index": -1, "citation_id": "none"}, model="o")
+
+    monkeypatch.setattr(llm, "structured_call", call)
+    common.set_lesson(d.LESSON)
+    fired = []
+    card = run(coach.explain(step_without_targets(d.STEP), "why does lr matter?", {"screen": make_screen(), "on_targets": lambda t: fired.append(list(order))}))
+    assert fired == [["point"]]  # targets reached the app before the Opus text
+    assert "lr=0.3" in card["targets"][0]["text"] and card["_meta"]["point_via"] == "haiku"
+
+
+# ---------- S9 QA on React / pandas / git mistakes ------------------------------------------------------
+
+from server.coach.diagnose import (
+    COACH_SYSTEM,
+    _unsafe_git_continue,
+    notebook_code,
+    screen_errors,
+)
+from server.coach.screen import Box
+
+
+def _git_screen() -> ScreenContext:
+    from PIL import Image
+
+    texts = ["pick a1b2c3 Add login", "$ git rebase --continue", "index.js: needs merge",
+             "error: You must edit all merge conflicts and then mark them as resolved using git add"]
+    boxes = [Box(0, t, 900, 450 + 16 * i, 400, 13, app="Terminal") for i, t in enumerate(texts)]
+    return ScreenContext(image=Image.new("RGB", (100, 100)), cursor=(950, 470), boxes=boxes, scale=1.0, app="Terminal").numbered()
+
+
+def test_screen_errors_are_error_text_and_never_template(monkeypatch):
+    seen = {}
+
+    async def call(**kw):
+        seen.setdefault(kw["purpose"], kw["user_text"])
+        if kw["purpose"] == "triage":
+            return llm.CallResult(data={"route": "template", "playbook_id": "none", "reason": "no error output"}, model="h")
+        return llm.CallResult(data={"playbook_id": "none", "severity": "fail", "title": "Conflict markers still in index.js",
+                                    "body": "Git stops because index.js still has conflict markers. Remove them, then git add index.js.",
+                                    "citation_id": "none", "diff_expected": "", "diff_yours": "", "diff_file": "", "diff_line": 0,
+                                    "diff_command": "", "actions": [], "guiding_question": "q?"}, model="o")
+
+    monkeypatch.setattr(llm, "structured_call", call)
+    step = {"id": "g2", "title": "Resolve the conflict", "instructions": "Fix the conflict and continue.",
+            "checks": [{"id": "f", "type": "file_contains", "label": "no markers", "file": "index.js", "pattern": "^(?!<<<<<<<)"}]}
+    s = _git_screen()
+    assert "needs merge" in screen_errors(s) and "You must edit all merge conflicts" in screen_errors(s)
+    card = run(coach.diagnose(step, [{"checkId": "f", "label": "no markers", "status": "fail"}], None, "", screen=s))
+    assert card["_meta"]["route"] == "opus"  # Haiku said template; an error is on screen → overridden
+    assert "needs merge" in seen["triage"] and "needs merge" in seen["diagnose"]
+
+
+def test_prompt_trusts_screen_and_guards_git():
+    assert "Trust what is on screen" in COACH_SYSTEM and "conflict markers" in COACH_SYSTEM
+    conflict = "<<<<<<< HEAD\nconst a = 1;\n=======\nconst a = 2;\n>>>>>>> topic\n"
+    assert _unsafe_git_continue("git add index.js && git rebase --continue", conflict, "", "")
+    assert not _unsafe_git_continue("git add index.js && git rebase --continue", conflict, "<<<<<<< HEAD", "const a = 2;")
+    assert not _unsafe_git_continue("pip install pandas", conflict, "", "")
+
+
+def test_apply_fix_tolerates_ocr_anchors():
+    src = "a = 1\n<<<<<<< HEAD\nb = 2\n=======\nb = 3\n>>>>>>> topic\nc = 4\n"
+    r = coach.apply_fix({"file": "x.py", "yours": "2 <<<<<<< HEAD\n3 b = 2\n4 =======\n5 b = 3\n6 >>>>>>> topic", "expected": "b = 3"}, src)
+    assert r["error"] is None and r["new_text"] == "a = 1\nb = 3\nc = 4\n"
+    r = coach.apply_fix({"file": "y.py", "yours": "x  =  foo( 1,2 )", "expected": "x = foo(1, 3)"}, "x = foo(1, 2)\n")
+    assert r["error"] is None and r["new_text"] == "x = foo(1, 3)\n"
+
+
+def test_apply_fix_rejects_no_op():
+    r = coach.apply_fix({"file": "x.py", "yours": "a = 1", "expected": "a = 1"}, "a = 1\n")
+    assert r["new_text"] is None and r["error"] == "the patch changes nothing"
+
+
+def test_notebook_excerpt_and_cell_patch():
+    nb = {"cells": [{"cell_type": "markdown", "source": ["# Sales\n"]},
+                    {"cell_type": "code", "source": ["import pandas as pd\n", "%matplotlib inline\n", "for k, v in counts.iteritems():\n", "    print(k, v)"],
+                     "outputs": [{"text": "\x1b[31m" * 500}], "execution_count": 3, "metadata": {}}],
+          "metadata": {}, "nbformat": 4, "nbformat_minor": 5}
+    raw = json.dumps(nb)
+    ex = notebook_code(raw)
+    assert ex.startswith("# %% [cell 1]\nimport pandas as pd") and "\x1b" not in ex and "outputs" not in ex
+    r = coach.apply_fix({"file": "clean.ipynb", "yours": "for k, v in counts.iteritems():", "expected": "for k, v in counts.items():"}, raw)
+    assert r["error"] is None
+    out = json.loads(r["new_text"])
+    assert out["cells"][1]["source"][2] == "for k, v in counts.items():\n" and out["cells"][1]["source"][3] == "    print(k, v)"
+    assert out["cells"][1]["outputs"] == nb["cells"][1]["outputs"] and "[cell 1]" in r["unified_diff"]
+
+
+def test_do_it_for_me_command_fix_and_missing_edit(monkeypatch):
+    card = {"title": "pandas missing", "body": "The venv lacks pandas. Install it.", "diff": {"expected": "", "yours": "", "command": "pip install pandas"}}
+    r = run(coach.do_it_for_me(d.STEP, "clean.py", "import pandas\n", card))
+    assert r["command"] == "pip install pandas" and r["new_text"] is None and r["unified_diff"] == ""
+
+    todo = "pick a1 Add login\npick b2 Cleanup\n"
+    card = {"title": "Squash the cleanup", "body": "The cleanup must fold into the previous commit. Change Cleanup's command to `squash`.",
+            "diff": {"yours": "pick a1 Add login", "expected": "pick a1 Add login", "file": "git-rebase-todo"}}
+    users = []
+
+    async def call(**kw):
+        users.append(kw["user_text"])
+        return llm.CallResult(data={"summary": "Squash Cleanup into Add login", "yours": "pick b2 Cleanup", "expected": "squash b2 Cleanup",
+                                    "line": 2, "command": ""}, model="o")
+
+    monkeypatch.setattr(llm, "structured_call", call)
+    r = run(coach.do_it_for_me(d.STEP, "git-rebase-todo", todo, card))
+    assert r["_meta"]["via"] == "opus#1" and r["new_text"] == "pick a1 Add login\nsquash b2 Cleanup\n"
+    assert "PREVIOUS ATTEMPT FAILED" in users[0]  # the diagnosis diff was a no-op that missed `squash`
+
+
+# ---------- cost policy: Opus only for the diagnosis card ------------------------------------------------
+
+def test_models_by_purpose(monkeypatch):
+    assert llm.model_for("diagnose") == "claude-opus-5-5"
+    for purpose in ("triage", "point", "locate", "explain", "do_it_for_me", "fix_outdated"):
+        assert llm.model_for(purpose) == "claude-haiku-5-5"
+    monkeypatch.setenv("COACH_MODEL_EXPLAIN", "claude-opus-5-5")
+    assert llm.model_for("explain") == "claude-opus-5-5"
+
+
+def test_live_paths_use_the_policy(monkeypatch, fake_web):
+    used = {}
+
+    async def call(**kw):
+        used[kw["purpose"]] = (kw["model"], all("cache_control" in b for b in kw["system"]))
+        data = {
+            "triage": {"route": "opus", "playbook_id": "none", "reason": ""},
+            "diagnose": {"playbook_id": "none", "severity": "fail", "title": "t", "body": "b. Do x.", "citation_id": "none", "diff_expected": "",
+                         "diff_yours": "", "diff_file": "", "diff_line": 0, "diff_command": "", "actions": [], "guiding_question": "q?"},
+            "explain": {"title": "t", "body": "b", "explanation_index": -1, "citation_id": "none"},
+            "point": {"box_ids": [], "where": "x"},
+            "locate": {"box_ids": []},
+            "do_it_for_me": {"summary": "s", "yours": "a = 1", "expected": "a = 2", "line": 1, "command": ""},
+            "fix_outdated": {"found": False, "title": "", "body": "", "yours": "", "expected": "", "source_index": 0},
+        }[kw["purpose"]]
+        return llm.CallResult(data=data, model=kw["model"])
+
+    monkeypatch.setattr(llm, "structured_call", call)
+    common.set_lesson(g.REACT_LESSON)
+    run(coach.diagnose(g.REACT_STEP, g.REACT_FAILED, None, g.REACT_CODE, error_text=g.REACT_ERROR))
+    run(coach.explain(g.REACT_STEP, "why?", {"screen": make_screen()}))
+    run(coach.locate("nothing like this", make_screen()))
+    run(coach.do_it_for_me(g.REACT_STEP, "a.py", "a = 1\n", last_offtrack={}))
+    run(coach.fix_outdated(g.PANDAS_ERROR, g.PANDAS_LIBS))
+    assert {p: m for p, (m, _) in used.items()} == {
+        "triage": "claude-haiku-5-5", "diagnose": "claude-opus-5-5", "explain": "claude-haiku-5-5", "point": "claude-haiku-5-5",
+        "locate": "claude-haiku-5-5", "do_it_for_me": "claude-haiku-5-5", "fix_outdated": "claude-haiku-5-5"}
+    assert all(cached for _, cached in used.values())  # every system prompt is marked for prompt caching
+
+
+def test_record_fixtures_refuses_without_opt_in(monkeypatch):
+    import runpy
+
+    monkeypatch.delenv("COACH_ALLOW_LIVE", raising=False)
+    monkeypatch.setenv("COACH_RECORD_DIR", "")  # the module sets it on import; monkeypatch restores it afterwards
+    with pytest.raises(SystemExit, match="COACH_ALLOW_LIVE=1"):
+        runpy.run_module("server.coach.tests.record_fixtures", run_name="__main__")
+
+
+# ---------- S9 re-run on d219e52 ---------------------------------------------------------------------------
+
+TODO = "pick 1a2b3c4 Add login endpoint\npick 7a428b4 Add logout\npick 9f8e7d6 Cleanup\nsquash 1194326 Add README\n\n# Rebase 0123..1194326 onto 0123 (4 commands)\n"
+
+
+def test_g1_rewritten_todo_replaces_the_whole_span():
+    """Model rewrote 4 todo lines but anchored on 1: widen to the 4, don't insert 3 duplicate picks."""
+    diff = {"file": ".git/rebase-merge/git-rebase-todo", "yours": "squash 1194326 Add README",
+            "expected": "pick 1a2b3c4 Add login endpoint\npick 7a428b4 Add logout\nsquash 9f8e7d6 Cleanup\npick 1194326 Add README"}
+    r = coach.apply_fix(diff, TODO)
+    assert r["error"] is None
+    body = [ln for ln in r["new_text"].splitlines() if ln and not ln.startswith("#")]
+    assert body == diff["expected"].splitlines()
+
+
+def test_rebase_todo_must_keep_every_commit_once():
+    r = coach.apply_fix({"file": "git-rebase-todo", "yours": "pick 7a428b4 Add logout", "expected": "pick 1a2b3c4 Add login endpoint"}, TODO)
+    assert r["new_text"] is None and "lose or repeat a commit" in r["error"]
+
+
+def test_patch_that_would_duplicate_a_neighbour_is_rejected():
+    src = "a = 1\nb = 2\nc = 3\nd = 4\n"
+    # expected repeats the lines above as context: the span widens over them, nothing is duplicated
+    r = coach.apply_fix({"file": "x.py", "yours": "x = 9", "expected": "a = 1\nb = 2\nx = 10"}, "a = 1\nb = 2\nx = 9\n")
+    assert r["new_text"] == "a = 1\nb = 2\nx = 10\n"
+    # a same-size replacement equal to the two lines above would repeat them → rejected
+    r = coach.apply_fix({"file": "x.py", "yours": "x = 9\ny = 8", "expected": "a = 1\nb = 2"}, "a = 1\nb = 2\nx = 9\ny = 8\n")
+    assert r["new_text"] is None and "duplicate" in r["error"]
+    # a single repeated line next to the span is normal code, not a duplicate
+    r = coach.apply_fix({"file": "x.py", "yours": "c = 3", "expected": "b = 2\nc = 30"}, src)
+    assert r["error"] is None
+
+
+def test_g3_repeated_closing_lines_are_not_duplicates():
+    """S9 false positive: the login route right above ends with the same `res.json(...)` / `});`."""
+    src = "app.post('/login', (req, res) => {\n  res.json({ ok: true });\n});\n<<<<<<< HEAD\n=======\napp.post('/logout', (req, res) => {\n  res.json({ ok: true });\n});\n>>>>>>> topic\n"
+    r = coach.apply_fix({"file": "index.js", "yours": "<<<<<<< HEAD\n=======\napp.post('/logout', (req, res) => {\n  res.json({ ok: true });\n});\n>>>>>>> topic",
+                         "expected": "app.post('/logout', (req, res) => {\n  res.json({ ok: true });\n});"}, src)
+    assert r["error"] is None and "<<<<<<<" not in r["new_text"] and r["new_text"].count("app.post('/logout'") == 1
+
+
+def test_g3_fuzzy_ocr_anchor_maps_onto_real_lines():
+    src = "const app = express();\n<<<<<<< HEAD\napp.post('/logout', (req, res) => {\n  res.json({ ok: true });\n=======\napp.post('/logout', (req, res) => {\n  res.json({ ok: false });\n>>>>>>> topic\n});\n"
+    ocr = "10 <<<<< HEAD\n11\n12 app.post('/logout', (req, res) = {\n13 res. json({ ok: true });\n14 =======\n15 app.post('/logout', (req, res) => {\n16 res.json({ ok: false });\n17 >>>>>>> topic"
+    r = coach.apply_fix({"file": "index.js", "yours": ocr, "expected": "app.post('/logout', (req, res) => {\n  res.json({ ok: true });"}, src)
+    assert r["error"] is None and "<<<<<<<" not in r["new_text"] and ">>>>>>>" not in r["new_text"]
+    assert r["new_text"].count("app.post('/logout'") == 1
+
+
+def _big_notebook() -> str:
+    noisy = [{"output_type": "stream", "name": "stdout", "text": ["\u001b[31m" + "x" * 80 + "\n"] * 60}]
+    nb = {"cells": [{"cell_type": "markdown", "metadata": {}, "source": ["# Sales report\n"]},
+                    {"cell_type": "code", "execution_count": 1, "metadata": {}, "outputs": [],
+                     "source": ["import pandas as pd\n", "df = pd.read_csv('sales.csv')\n", "df.groupby('region', 'month').sum()"]},
+                    {"cell_type": "code", "execution_count": 2, "metadata": {}, "outputs": noisy, "source": ["print(df.head())"]}],
+          "metadata": {"kernelspec": {"name": "python3"}}, "nbformat": 4, "nbformat_minor": 5}
+    return json.dumps(nb, indent=1, sort_keys=True)
+
+
+def test_truncated_notebook_excerpt_still_reaches_the_model(monkeypatch):
+    raw = _big_notebook()
+    cut = raw[:6000]  # what the orchestrator sends
+    with pytest.raises(json.JSONDecodeError):
+        json.loads(cut)
+    ex = notebook_code(cut)
+    assert ex.startswith("# %% [cell 1]\nimport pandas as pd") and "groupby('region', 'month')" in ex and "\u001b" not in ex
+    assert notebook_code(raw[:200]) == "# (notebook: no code cell source within the excerpt)"
+    seen = {}
+
+    async def call(**kw):
+        seen.setdefault(kw["purpose"], kw["user_text"])
+        if kw["purpose"] == "triage":
+            return llm.CallResult(data={"route": "opus", "playbook_id": "none", "reason": ""}, model="h")
+        return llm.CallResult(data={"playbook_id": "none", "severity": "fail", "title": "t", "body": "b. Do x.", "citation_id": "none",
+                                    "diff_expected": "", "diff_yours": "", "diff_file": "", "diff_line": 0, "diff_command": "", "actions": [],
+                                    "guiding_question": "q?"}, model="o")
+
+    monkeypatch.setattr(llm, "structured_call", call)
+    step = {"id": "p2", "title": "Group sales", "instructions": "Sum sales per region and month.", "checks": [{"id": "x", "type": "output_contains", "label": "table"}]}
+    err = "ValueError: level name month is not the name of the index"
+    run(coach.diagnose(step, [{"checkId": "x", "status": "fail"}], None, cut, error_text=err))
+    assert "# %% [cell 1]" in seen["diagnose"] and '"outputs"' not in seen["diagnose"]
+    assert f"THE ERROR MESSAGE (your cause must agree with exactly what it says, for the version that printed it):\n{err}" in seen["diagnose"]
+
+
+def test_web_skips_self_explaining_errors_and_caps_at_1_5s(monkeypatch):
+    calls = []
+
+    async def gather(*a, **kw):
+        calls.append(kw.get("timeout"))
+        return []
+
+    async def call(**kw):
+        if kw["purpose"] == "triage":
+            return llm.CallResult(data={"route": "opus", "playbook_id": "none", "reason": ""}, model="h")
+        return llm.CallResult(data={"playbook_id": "none", "severity": "fail", "title": "t", "body": "b. Do x.", "citation_id": "none",
+                                    "diff_expected": "", "diff_yours": "", "diff_file": "", "diff_line": 0, "diff_command": "", "actions": [],
+                                    "guiding_question": "q?"}, model="o")
+
+    monkeypatch.setattr(web, "gather", gather)
+    monkeypatch.setattr(llm, "structured_call", call)
+    step = {"id": "r1", "title": "Render", "instructions": "Render the list.", "checks": [{"id": "x", "type": "command_exit_ok", "label": "build"}]}
+    run(coach.diagnose(step, [{"checkId": "x", "status": "fail"}], None, "x", error_text="ReferenceError: users is not defined"))
+    run(coach.diagnose(step, [{"checkId": "x", "status": "fail"}], None, "x", error_text="NameError: name 'df' is not defined"))
+    assert calls == []
+    run(coach.diagnose(step, [{"checkId": "x", "status": "fail"}], None, "x", error_text="TypeError: Cannot read properties of undefined (reading 'map')"))
+    assert calls == [1.5]
+
+
+def _conflict_file() -> str:
+    filler = [f"const line{i} = {i};" for i in range(1, 10)]
+    block = ["<<<<<<< HEAD", "=======", "app.post('/logout', (req, res) => {", "  res.json({ ok: true });", "});", "", ">>>>>>> topic"]
+    return "\n".join(filler + block + ["app.listen(3000);"]) + "\n"
+
+
+def test_g3_ocr_dropped_marker_row_uses_gutter_numbers():
+    """S9 G3 re-check: Vision dropped the `=======` row; only its gutter "11" survived."""
+    ocr = "10 <<<<< HEAD\n11\n12 app.post('/logout', (req, res) = {\n13 res. json({ ok: true });\n14 });\n16 >>>>>>> topic"
+    expected = "app.post('/logout', (req, res) => {\n  res.json({ ok: true });\n});"
+    r = coach.apply_fix({"file": "index.js", "yours": ocr, "expected": expected}, _conflict_file())
+    assert r["error"] is None
+    assert not re.search(r"^(<{7}|={7}|>{7})", r["new_text"], re.MULTILINE)
+    assert r["new_text"].count("app.post('/logout'") == 1 and r["new_text"].rstrip().endswith("app.listen(3000);")
+
+
+def test_fuzzy_walk_skips_dropped_marker_rows():
+    ocr = "<<<<< HEAD\napp.post('/logout', (req, res) = {\nres. json({ ok: true });"  # no gutter numbers, `=======` dropped
+    r = coach.apply_fix({"file": "index.js", "yours": ocr, "expected": "app.post('/logout', (req, res) => {\n  res.json({ ok: true });"}, _conflict_file())
+    assert r["error"] is None and "<<<<<<<" not in r["new_text"] and "=======" not in r["new_text"]
+
+
+def test_git_squash_order_playbook_entry():
+    """Finishing G3: a squash moved above the commit whose code it edits → abort and reorder."""
+    todo = "pick 1a2b3c4 Add login endpoint\nsquash 9f8e7d6 Cleanup\npick 8d7db63 Add logout endpoint\n"
+    mode, conf = match(todo, set(), "CONFLICT (content): Merge conflict in index.js")
+    assert mode.id == "git_squash_above_its_commit" and conf >= 0.3
+    card = coach.playbook_card({"id": "g3"}, mode, todo, severity="fail")
+    assert "git rebase --abort" in card["body"] and card["citation"]["url"] == "https://git-scm.com/docs/git-rebase"
+    assert card["guidingQuestion"].endswith("?")
+    assert "git_squash_above_its_commit" in COACH_SYSTEM and "never `git add` + `--continue`" in COACH_SYSTEM
+
+
+def test_missing_term_bonus_needs_its_own_context():
+    # a git todo list "lacks an IC/BC loss term", which says nothing: the PINN entry must not score on it
+    _, conf = match("pick 1a2b3c4 Add login\n", set(), "")
+    assert conf == 0.0
+
+
+# ---------- S11 re-check: hero takes where lr=0.3 makes the loss sit flat; passing-run output tails -------
+
+def _flat_hero_loss() -> dict:
+    """S11's take: 18.18, 15.03, then flat at 17.32 for steps 200-2499 with a few blips."""
+    vals = [18.18, 15.03] + [17.32] * 23
+    for i, v in ((6, 17.39), (13, 17.73), (19, 17.39)):
+        vals[i] = v
+    return {"loss": [(i * 100, v) for i, v in enumerate(vals)]}
+
+
+HERO_TAIL = "\n".join(f'step {s} | loss 17.3204\n::metric:: {{"step": {s}, "name": "test_loss", "value": 17.32}}' for s in range(2000, 2500, 100))
+
+
+def test_flat_high_loss_with_high_lr_is_lr_too_high():
+    flags = summarize(_flat_hero_loss(), goals={"loss": "down"})[1]
+    assert "plateau" in flags
+    mode, conf = match(d.HIGH_LR_CODE, flags, HERO_TAIL)
+    assert mode.id == "lr_too_high" and conf >= 0.6  # the offline stage fallback threshold
+    # without a β in the code the convection entry can't win; with a normal lr a plateau isn't "lr too high"
+    mode, _ = match(d.code(), flags, "")
+    assert mode is None or mode.id != "lr_too_high"
+    assert all(m.id != "pinn_convection_large_beta" for m in [match(d.HIGH_LR_CODE, flags, "")[0]])
+
+
+def test_offline_fallback_covers_the_flat_hero_take(monkeypatch):
+    _client_raising(monkeypatch, _conn_error)
+    monkeypatch.setenv("COACH_OFFLINE_FALLBACK", "1")
+    common.set_lesson(d.LESSON)
+    card = run(coach.diagnose(d.STEP, d.HIGH_LR_FAILED, _flat_hero_loss(), d.HIGH_LR_CODE, error_text=HERO_TAIL))
+    assert card["offline"] is True and card["_meta"]["playbook_id"] == "lr_too_high" and card["severity"] == "warn"
+
+
+def test_passing_run_tail_is_not_an_error(monkeypatch):
+    calls, seen = [], {}
+
+    async def gather(*a, **kw):
+        calls.append(a)
+        return []
+
+    async def call(**kw):
+        seen[kw["purpose"]] = kw["user_text"]
+        return llm.CallResult(data={"playbook_id": "lr_too_high", "severity": "warn", "title": "t", "body": "b. Set lr to 1e-3.",
+                                    "citation_id": "none", "diff_expected": "", "diff_yours": "", "diff_file": "", "diff_line": 0,
+                                    "diff_command": "", "actions": [], "guiding_question": "q?"}, model="o")
+
+    monkeypatch.setattr(web, "gather", gather)
+    monkeypatch.setattr(llm, "structured_call", call)
+    common.set_lesson(d.LESSON)
+    run(coach.diagnose(d.STEP, d.HIGH_LR_FAILED, _flat_hero_loss(), d.HIGH_LR_CODE, error_text=HERO_TAIL))
+    assert calls == []  # no Bright Data round trips for metric lines
+    assert "THE ERROR MESSAGE" not in seen["diagnose"] and "step 2400 | loss 17.3204" in seen["diagnose"]  # still shown as context
