@@ -1134,3 +1134,57 @@ def test_post_end_endpoint(tmp_path, monkeypatch):
         r = client.post("/end")
         assert r.json() == {"ok": True, "ended": None}
         assert main.engine.session.phase == "idle"
+
+
+def test_diagrams_never_cross_lessons(rig):
+    """Same step id in two lessons: S4's cache key gets the lesson id, cache is cleared on end, and a
+    diagram that finishes after the lesson ended is dropped."""
+    seen_ids, cleared = [], []
+    release = asyncio.Event()
+
+    async def build(step, context):
+        seen_ids.append(step["id"])
+        if step["id"].endswith(":slow"):
+            await release.wait()
+        return {"kind": "network", "caption": step["id"], "stepId": step["id"],
+                "data": {"layers": [2, 1], "activation": "tanh", "derivatives": ["u_t"], "residual": "r"}}
+
+    rig.s.m.forced.discard("diagrams")
+    rig.s.m.real["diagrams"] = types.SimpleNamespace(build=build, clear_cache=lambda: cleared.append(1))
+
+    async def go():
+        g1 = stubs.load_fixture_lesson()
+        await rig.s.load_graph(g1)
+        await rig.s.action("diagram", "network")
+        g2 = stubs.load_fixture_lesson()
+        g2["lesson"]["id"] = "other-lesson"
+        await rig.s.end_lesson()
+        await rig.s.load_graph(g2)
+        await rig.s.action("diagram", "network")
+        # a slow diagram that outlives its lesson
+        rig.s.graph["steps"][0]["id"] = "slow"
+        rig.s.idx = 0
+        t = asyncio.create_task(rig.s.action("diagram", "network"))
+        await asyncio.sleep(0.01)
+        await rig.s.end_lesson()
+        release.set()
+        await t
+
+    run(go())
+    assert seen_ids[0] == "stub-pinn-convection:s1" and seen_ids[1] == "other-lesson:s1"
+    assert [d["stepId"] for d in rig.of("diagram")] == ["s1", "s1"]  # the late one was dropped
+    assert len(cleared) == 2
+
+
+def test_end_lesson_is_idempotent(rig):
+    async def go():
+        await rig.start_lesson()
+        await rig.s.end_lesson()
+        await rig.s.end_lesson()
+        await rig.s.end_lesson()
+
+    run(go())
+    ended = rig.of("lesson.ended")
+    assert ended == [{"lessonId": "stub-pinn-convection", "reason": "end_lesson"},
+                     {"reason": "end_lesson"}, {"reason": "end_lesson"}]
+    assert rig.of("status")[-1] == {"state": "idle"} and not rig.of("error")

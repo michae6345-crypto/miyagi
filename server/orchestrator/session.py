@@ -464,6 +464,7 @@ class LessonSession:
             self.screen.unwatch()
         if had_lesson:
             self._record("lesson_ended", {"reason": reason})
+            self.m.clear_diagrams()  # no diagram (or prefetch) may leak into the next lesson
         for t in list(self._timers):
             t.cancel()
         self._reset_step_state()  # bumps step_gen: stale coach/metric/advance tasks become no-ops
@@ -488,7 +489,7 @@ class LessonSession:
         self.build_progress = {"message": "Starting the lesson builder", "progress": 0.0}
 
         async def ticker() -> None:
-            expected = float(os.environ.get("ORCH_BUILD_EXPECTED_S", "75"))
+            expected = float(os.environ.get("ORCH_BUILD_EXPECTED_S", "60"))  # E2: fresh builds ~42-75 s
             while not done.is_set():
                 el = self.clock() - t0
                 msg = f"{stage.text} · {int(el) // 60}:{int(el) % 60:02d}" if el >= 1 else stage.text
@@ -1178,10 +1179,13 @@ class LessonSession:
                                   for r in self.last_results)
                 want = "gradients" if metric_fail or self.last_offtrack else "network"
             await self._status("thinking")
-            d = await self.m.diagram(want if want in DIAGRAM_KINDS else None, step, self.context(),
+            gen, graph = self.step_gen, self.graph
+            d = await self.m.diagram(want if want in DIAGRAM_KINDS else None, self._diagram_step(step), self.context(),
                                      self._diagram_context(step, None if want in DIAGRAM_KINDS else (text or None)))
+            if self.graph is not graph or gen != self.step_gen:
+                return  # the lesson/step changed while drawing: never show it in the wrong place
             d = dict(d)
-            d.setdefault("stepId", step["id"])
+            d["stepId"] = step["id"]
             await self.emit("diagram", d)
             await self._status("offtrack" if self.last_offtrack else ("passed" if self.passed else "watching"))
             return
@@ -1204,13 +1208,19 @@ class LessonSession:
                 "question": question, "lesson": ctx.get("lesson"),
                 "offtrack": {k: (self.last_offtrack or {}).get(k) for k in ("title", "body")} if self.last_offtrack else None}
 
+    def _diagram_step(self, step: dict) -> dict:
+        """Step ids repeat across lessons (s1, s2...): namespace the id by lesson so S4's cache can't
+        hand one lesson's diagram to another."""
+        lesson_id = (self.graph or {}).get("lesson", {}).get("id", "lesson")
+        return {**step, "id": f"{lesson_id}:{step['id']}"}
+
     async def _prefetch_diagram(self, gen: int, step: dict) -> None:
         """Warm S4's diagram cache for this step so the diagram button is instant (errors are ignored)."""
         await asyncio.sleep(2.0)  # let the step settle (code on screen, video playing)
         if gen != self.step_gen or not self.m.has_diagrams():
             return
         try:
-            await self.m.diagram(None, step, self.context(), self._diagram_context(step, None))
+            await self.m.diagram(None, self._diagram_step(step), self.context(), self._diagram_context(step, None))
         except Exception as e:  # noqa: BLE001 - a prefetch must never surface
             log.info("diagram prefetch skipped: %s", e)
 
