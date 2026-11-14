@@ -15,11 +15,27 @@ DEMO_CACHE = REPO_ROOT / "demo" / "cache"
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
-try:  # load .env if present (never committed)
+def env_file() -> Path | None:
+    """TUT_ENV > this checkout's .env > the main checkout's .env (when running in a
+    `.claude/worktrees/<name>` worktree, which has no .env of its own)."""
+    if os.environ.get("TUT_ENV"):
+        return Path(os.environ["TUT_ENV"]).expanduser()
+    if (REPO_ROOT / ".env").exists():
+        return REPO_ROOT / ".env"
+    parts = REPO_ROOT.parts
+    if ".claude" in parts:
+        main = Path(*parts[: parts.index(".claude")]) / ".env"
+        if main.exists():
+            return main
+    return None
+
+
+try:  # load .env if present (never committed); real env vars win
     from dotenv import load_dotenv
 
-    load_dotenv(REPO_ROOT / ".env")
-except Exception:  # pragma: no cover
+    if env_file():
+        load_dotenv(env_file())
+except ImportError:  # pragma: no cover
     pass
 
 
