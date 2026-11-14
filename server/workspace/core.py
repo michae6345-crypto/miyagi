@@ -211,10 +211,14 @@ def _write_readme(folder: Path, graph: dict, goal: str, sc: scaffold.Scaffold) -
     return name
 
 
+GOAL_MATCH_LOW = 0.7  # below this the README shows a heads-up (0.5 "different project/tool" included)
+
+
 def goal_match_note(gm) -> str:
     """A heads-up line when E2's lesson.goalMatch says the video only partly matches the request.
 
-    Accepts a number (0..1, or 0..100) or an object {score?, level?, note?|reason?|explanation?}.
+    E2 sends {"score": 0..1 | null, "note": "<one sentence>"}; null = unknown (no goal / not scored), never low.
+    Also accepts a number (0..1, or 0..100), a level string, or {level?, reason?|explanation?}.
     "" when the match is fine or unknown."""
     if gm is None or gm == "":
         return ""
@@ -232,7 +236,8 @@ def goal_match_note(gm) -> str:
         why = str(gm.get("note") or gm.get("reason") or gm.get("explanation") or gm.get("why") or "").strip()
     if score is not None and score > 1:
         score /= 100
-    low = (score is not None and score < 0.5) or level.strip().lower() in ("low", "none", "poor", "weak", "partial", "mismatch")
+    # E2's rubric: 1 = the video achieves the goal, 0.5 = related but a different project/tool, 0 = unrelated.
+    low = (score is not None and score < GOAL_MATCH_LOW) or level.strip().lower() in ("low", "none", "poor", "weak", "partial", "mismatch")
     if not low:
         return ""
     pct = f" (match {round(score * 100)}%)" if score is not None else ""

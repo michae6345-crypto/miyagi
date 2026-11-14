@@ -88,6 +88,11 @@ def test_readme_leads_with_the_video_topic():
     (0.2, "(match 20%)"), (35, "(match 35%)"), ({"score": 0.3, "note": "It builds support bots, not a ChatGPT clone."}, "not a ChatGPT clone"),
     ({"level": "low"}, "only partly matches"), ("partial", "only partly matches"),
     (0.9, None), ({"score": 0.8, "level": "high"}, None), (None, None), (True, None),
+    # E2's exact shape: {"score": 0..1 | null, "note": "..."}; null = unknown, not low
+    ({"score": 0.5, "note": "Builds support agents in no-code tools, not a ChatGPT clone."}, "(match 50%). Builds support agents"),
+    ({"score": 0.0, "note": "Unrelated to the request."}, "(match 0%)"),
+    ({"score": 1.0, "note": "Exactly what you asked for."}, None),
+    ({"score": None, "note": "no goal given"}, None), ({"score": None, "note": "not scored (timeout)"}, None),
 ])
 def test_goal_match_note(gm, shown):
     note = goal_match_note(gm)

@@ -65,8 +65,9 @@ Both Claude prompts (starter files and requirements) get the video's steps, titl
 (what the learner typed). The scaffold also classifies the lesson (`lesson_kind`: `code | no_code | conceptual`);
 no-code and conceptual lessons never get files, git history or setup commands, whatever Claude returns. The README leads
 with the video's title, shows `<sub>You asked for: …</sub>` when the request differs, and a "Heads-up: this video only
-partly matches what you asked for" line when `lesson.goalMatch` (E2) is low. Accepted shapes: a number (0..1 or 0..100;
-low < 0.5), a string level (`low`/`partial`/`none`/...), or `{score?, level?, note?|reason?|explanation?}`.
+partly matches what you asked for (match N%). <note>" line when `lesson.goalMatch` (E2: `{score: 0..1 | null, note}`;
+1 = achieves the goal, 0.5 = related but a different project/tool, 0 = unrelated) has `score < 0.7`. `score: null` means
+unknown (no goal given / not scored) and shows nothing. Also accepted: a bare number, a level string, `{level, reason}`.
 A reused folder gets its README rewritten (no Claude call), so wording fixes reach existing folders.
 
 ### Proposed contract (additive, for E4 / the app)
