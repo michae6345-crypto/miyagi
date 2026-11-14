@@ -1,0 +1,98 @@
+"""Open the learner's project in VS Code and jump to each step's target.
+
+On lesson.ready: `open -a "Visual Studio Code" <workdir>` (fallback: `code <workdir>`).
+On step.started: `code -r -g <file>:<line>` for the step's first target whose file exists
+(line = first line matching target.match, else 1).
+
+Off unless ORCH_OPEN_WORKSPACE=1 (scripts/miyagi-engine.sh turns it on). Commands run
+detached; failures are logged, never raised.
+"""
+
+from __future__ import annotations
+
+import logging
+import re
+import shutil
+import subprocess
+import sys
+from pathlib import Path
+
+from .config import env_flag
+
+log = logging.getLogger("orchestrator.workspace")
+
+VSCODE_APP = "Visual Studio Code"
+BUNDLED_CLI = "/Applications/Visual Studio Code.app/Contents/Resources/app/bin/code"
+
+
+def code_cli() -> str | None:
+    found = shutil.which("code")
+    if found:
+        return found
+    return BUNDLED_CLI if Path(BUNDLED_CLI).exists() else None
+
+
+def target_location(workdir: str | Path, step: dict) -> tuple[Path, int] | None:
+    """(absolute file, 1-based line) of the step's first target whose file exists."""
+    for t in step.get("targets") or []:
+        f = t.get("file")
+        if not f:
+            continue
+        path = Path(f) if Path(f).is_absolute() else Path(workdir) / f
+        if not path.is_file():
+            continue
+        line = 1
+        match = t.get("match")
+        if match:
+            try:
+                text = path.read_text(errors="replace")
+            except OSError:
+                return path, 1
+            try:
+                rx = re.compile(match)
+                hit = lambda s: rx.search(s) is not None  # noqa: E731
+            except re.error:
+                hit = lambda s: match in s  # noqa: E731
+            for i, ln in enumerate(text.splitlines(), start=1):
+                if hit(ln):
+                    line = i
+                    break
+        return path, line
+    return None
+
+
+class Workspace:
+    def __init__(self, enabled: bool | None = None, runner=None):
+        self.enabled = env_flag("ORCH_OPEN_WORKSPACE", False) if enabled is None else enabled
+        self.run = runner or self._spawn  # injectable for tests
+        self.opened: str | None = None
+
+    @staticmethod
+    def _spawn(argv: list[str]) -> bool:
+        try:
+            subprocess.Popen(argv, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True)
+            return True
+        except OSError as e:
+            log.warning("could not run %s: %s", argv[0], e)
+            return False
+
+    def open(self, workdir: str) -> None:
+        if not self.enabled or not Path(workdir).is_dir() or self.opened == workdir:
+            return
+        self.opened = workdir
+        ok = False
+        if sys.platform == "darwin":
+            ok = self.run(["open", "-a", VSCODE_APP, workdir])
+        if not ok and (cli := code_cli()):
+            ok = self.run([cli, workdir])
+        log.info("opened workspace %s in VS Code: %s", workdir, ok)
+
+    def goto_target(self, workdir: str, step: dict) -> None:
+        if not self.enabled:
+            return
+        loc = target_location(workdir, step)
+        cli = code_cli()
+        if loc is None or cli is None:
+            return
+        path, line = loc
+        self.run([cli, "-r", "-g", f"{path}:{line}"])

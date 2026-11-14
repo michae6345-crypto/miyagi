@@ -3,7 +3,7 @@
     "id": "stub-pinn-convection",
     "title": "Train a PINN on the convection equation",
     "goal": "train a PINN on the convection equation",
-    "workdir": "demo/pinn",
+    "workdir": "demo/pinn-lab",
     "libraries": {
       "torch": "2.1"
     }

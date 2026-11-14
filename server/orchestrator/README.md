@@ -13,17 +13,20 @@ TUT_WORKDIR=/tmp/tut-work .venv/bin/python -m server.orchestrator.main        # 
 .venv/bin/python -m pytest server/orchestrator -q                               # state-machine tests
 ```
 
-### Live mode (watch the real screen)
+### Live mode (the default): `scripts/miyagi-engine.sh`
 
 ```bash
-ENGINE_HOST=0.0.0.0 ORCH_AUTOSTART=1 ORCH_PRECISION=off \
-ORCH_LESSON=server/lesson/fixtures/toscano_pinn_part1.expected.json \
-.venv/bin/python -m server.orchestrator.main
+scripts/miyagi-engine.sh          # LIVE on 0.0.0.0:8787; DEMO=1 scripts/miyagi-engine.sh for cached/canned data
 ```
-The screen reader (E6) starts and the lesson goes live immediately (`ORCH_AUTOSTART`). Every changed frame re-runs `evaluate_gate`, the spotlight
-follows the step's `target.match` on screen, terminal losses are read via `metric_pattern`, and failures go to the live coach. `ENGINE_HOST=0.0.0.0`
-makes it reachable at `ws://<mac>.local:8787`. **macOS permission:** Screen Recording (System Settings › Privacy & Security › Screen & System Audio Recording)
-for the app that launches python (Terminal, iTerm, VS Code…). `.env` comes from `TUT_ENV`, this checkout, or the main checkout.
+**LIVE uses only real modules.** `learn` calls `server.finder.search` (streamed), `build_lesson`/`learn_url` call `server.lesson.build_lesson`
+(Gemini; E2's `demo/cache/lessons/` makes a known video instant), then live screen checks and the real coach. A missing or failing module sends
+an **`error` event** with the reason, never canned data. `lesson.building` reports elapsed time while Gemini works (1–2 min for a long video).
+Stubs and fixtures run **only with `DEMO=1`** (or the dev/test flag `ORCH_STUBS`).
+
+The script exports `ORCH_SCREEN=1` (frames ~1/s, OCR only on change, re-evaluate per frame, spotlight via `locate_match`), `ORCH_OPEN_WORKSPACE=1`
+(on `lesson.ready` it runs `open -a "Visual Studio Code" <workdir>`, falling back to `code <workdir>`; on each `step.started` it runs `code -r -g <file>:<line>` for the step's target),
+and `TUT_WORKDIR=demo/pinn-lab` (starter convection project). If Screen Recording is denied, it prints exactly where to grant it.
+`ORCH_AUTOSTART=1 ORCH_LESSON_URL=<youtube url>` builds and starts a lesson at boot, with no launcher needed.
 No real screen handy? `TUT_SCREEN_FIXTURE=server/screen/fixtures/vscode_terminal_flat.png` replays a saved VS Code + Terminal screenshot.
 
 `demo/recordings/engine-sample.jsonl` is ~60 s of real engine output (OCR, spotlight rects, live coach card, hint/explain, diagram, green) in
@@ -41,23 +44,24 @@ then a β-curriculum run. It only writes `pinn_convection.py` and refuses to ove
 |---|---|---|
 | `ENGINE_PORT` | 8787 | port |
 | `ENGINE_HOST` | 127.0.0.1 | bind address; `0.0.0.0` for LAN access |
-| `ORCH_LESSON` | (none) | step-graph JSON used when live building isn't possible (and by the stub finder) |
-| `ORCH_AUTOSTART` | 0 | `1` = load `ORCH_LESSON` at startup, no launcher needed |
+| `ORCH_LESSON` | (none) | DEMO only: step-graph JSON to use as the lesson |
+| `ORCH_AUTOSTART` | 0 | `1` = start a lesson at boot: `ORCH_LESSON_URL` via the real builder (LIVE) or `ORCH_LESSON` (DEMO) |
+| `ORCH_OPEN_WORKSPACE` | 0 | `1` = open the workdir in VS Code and jump to each step's target |
+| `ORCH_SCREEN_INTERVAL_S` | 1.0 | seconds between screen captures |
 | `ORCH_PRECISION` | auto | `auto` (workdir on disk or a `tut run`), `on`, or `off` (screen checks only) |
-| `ORCH_BUILD_TIMEOUT_S` | 90 | give up on a live lesson build and use the fallback |
+| `ORCH_BUILD_TIMEOUT_S` | 300 | a live lesson build taking longer becomes an `error` event |
 | `TUT_WORKDIR` | lesson's `workdir`, else `demo/pinn` | folder the learner works in (watched for saves) |
-| `DEMO` | 0 | `1` = serve `demo/cache/` files, never call live APIs (falls back to stubs) |
+| `DEMO` | 0 | `1` = serve `demo/cache/` files and canned stubs, never call live APIs (checks stay real) |
 | `ORCH_STUBS` | (empty) | `all` or `lesson,coach,...` = force stubs even if the real module exists |
 | `ORCH_SCREEN` | 1 | start the whole-screen reader (`server.screen`, macOS + Screen Recording permission). `0` = files + `tut run` only |
 | `ORCH_STRICT` | 0 | `1` = raise on any event that doesn't validate against the contract (tests use this) |
 | `ORCH_IDLE_GATE_S` | 5 | idle seconds before the coach may speak |
 | `ORCH_RECORD` | 1 | record every ingest event to `demo/runs/<run_id>.jsonl` (gitignored) |
 
-## Modules: stubs first, real when they land
+## Modules
 
-`modules.py` resolves each module per call: the real `server.<module>.<fn>` if it exists, else the stub in `stubs.py`.
-**If a real function raises, the error is logged and the stub answers instead**, so a flaky API can't take the demo down.
-`GET /health` shows which one is live (`real` / `stub` / `demo-cache`).
+`modules.py` calls the real `server.<module>.<fn>`. In LIVE mode a missing or raising module becomes an `error` event. With `DEMO=1`,
+`demo/cache/` and then `stubs.py` answer instead. `GET /health` shows each module as `real`, `demo`, `stub (ORCH_STUBS)` or `missing`.
 
 | module | what the orchestrator calls |
 |---|---|

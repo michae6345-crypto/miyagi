@@ -58,7 +58,7 @@ def default_workdir() -> Path:
     """Where the learner works, before a lesson tells us otherwise."""
     if os.environ.get("TUT_WORKDIR"):
         return Path(os.environ["TUT_WORKDIR"]).expanduser().resolve()
-    return (REPO_ROOT / "demo" / "pinn").resolve()
+    return (REPO_ROOT / "demo" / "pinn-lab").resolve()
 
 
 def resolve_workdir(lesson_workdir: str | None) -> Path:

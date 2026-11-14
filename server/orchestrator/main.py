@@ -31,6 +31,7 @@ from .modules import Modules
 from .screen_bridge import ScreenBridge
 from .session import LessonSession
 from .watcher import Watcher
+from .workspace import Workspace
 
 log = logging.getLogger("orchestrator")
 
@@ -40,7 +41,8 @@ class Engine:
         self.hub = Hub()
         self.modules = Modules()
         self.screen = ScreenBridge()
-        self.session = LessonSession(self.hub.emit, self.modules, screen=self.screen)
+        self.workspace = Workspace()
+        self.session = LessonSession(self.hub.emit, self.modules, screen=self.screen, workspace=self.workspace)
         self.watcher = Watcher(self.session.on_file_change, interval=config.WATCH_INTERVAL_S)
         self.session.on_workdir = self.watcher.set_root
         self.recorder = recorder.Recorder()
@@ -56,10 +58,11 @@ class Engine:
         self.watcher.start()
         if not self.screen.start(self.session.on_screen):
             self.session.screen = None  # precision mode only (files + tut run)
-        if config.env_flag("ORCH_AUTOSTART") and config.lesson_file():
-            graph = self.modules._lesson_file()
-            if graph:
-                await self.session.load_graph(graph)  # no app needed: the lesson is live from the start
+        if config.env_flag("ORCH_AUTOSTART"):  # no launcher needed: the lesson is live from the start
+            if self.modules.demo and (graph := self.modules._lesson_file()):
+                await self.session.load_graph(graph)
+            elif url := os.environ.get("ORCH_LESSON_URL"):  # real builder (E2's cache makes it instant)
+                self._autostart = asyncio.create_task(self.session.learn_url(url))
         self._ticker = asyncio.create_task(self._tick_loop())
         log.info("engine up: demo=%s modules=%s workdir=%s screen=%s precision=%s", self.modules.demo,
                  self.modules.describe(), self.session.workdir, self.session.screen_active(),
@@ -253,11 +256,17 @@ async def demo_replay(body: dict | None = Body(None)) -> dict:
 
 
 def run() -> None:
+    import argparse
+
     import uvicorn
 
+    ap = argparse.ArgumentParser(description="sandhacks-tutor engine (WS + /ingest)")
+    # ENGINE_HOST=0.0.0.0 / --host 0.0.0.0 lets Adrian's app reach this Mac over the LAN (ws://<mac>.local:8787)
+    ap.add_argument("--host", default=os.environ.get("ENGINE_HOST", "127.0.0.1"))
+    ap.add_argument("--port", type=int, default=config.port())
+    args = ap.parse_args()
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(levelname)s %(message)s")
-    # ENGINE_HOST=0.0.0.0 lets Adrian's app reach this Mac over the LAN (ws://<mac>.local:8787)
-    uvicorn.run(app, host=os.environ.get("ENGINE_HOST", "127.0.0.1"), port=config.port(), log_level="info")
+    uvicorn.run(app, host=args.host, port=args.port, log_level="info")
 
 
 if __name__ == "__main__":

@@ -10,6 +10,7 @@ from __future__ import annotations
 import asyncio
 import importlib
 import logging
+import os
 from collections.abc import Awaitable, Callable
 from typing import Any
 
@@ -43,6 +44,8 @@ class ScreenBridge:
             reader = mod.get_reader()
             if reader is None:
                 return False
+            # ~1 frame/s (OCR still runs only when the screen changed) so a check flips within ~2 s
+            reader.interval = float(os.environ.get("ORCH_SCREEN_INTERVAL_S", "1.0"))
             reader.start()
             self._loop = asyncio.get_running_loop()
             self._unsub = reader.subscribe(on_obs)

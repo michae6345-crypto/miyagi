@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os
 import re
 import time
 from collections.abc import Awaitable, Callable
@@ -33,13 +34,6 @@ log = logging.getLogger("orchestrator.session")
 
 Emit = Callable[[str, dict], Awaitable[None]]
 
-BUILD_MESSAGES = [
-    "Watching the tutorial",
-    "Finding the steps",
-    "Writing checks for each step",
-    "Lining up the video",
-    "Almost ready",
-]
 DIAGRAM_KINDS = ("network", "gradients", "heatmap")
 
 
@@ -62,7 +56,9 @@ class LessonSession:
         build_tick_s: float = 0.5,
         screen: Any = None,
         seen_interval_s: float = 5.0,
+        workspace: Any = None,
     ):
+        self.workspace = workspace  # workspace.Workspace (opens VS Code) or None
         self.emit = emit
         self.screen = screen  # ScreenBridge / FakeScreen / None
         self.seen_interval_s = seen_interval_s
@@ -96,6 +92,7 @@ class LessonSession:
         self.check_state: dict[str, dict] = {}  # what the app was last told, per checkId
         self.last_results: list[dict] = []
         self.last_failed: list[dict] = []
+        self._eval_error_sent = False
         self.consecutive_fails = 0
         self.engaged = False  # learner touched files / ran something during this step
         self.gate_open = False
@@ -207,19 +204,17 @@ class LessonSession:
         self.phase = "searching"
         self.query = query
         await self._status("thinking")
-        try:
-            results = await self.m.search(query)
-        except Exception as e:  # stubs never raise; real ones fall back inside Modules
-            log.exception("search failed")
-            await self.emit("error", {"message": f"Search failed: {e}"})
-            results = []
         self.results = {}
-        for r in results:
-            self.results[r["id"]] = r
-            await self.emit("search.result", r)
-            if self.result_stagger_s:
-                await asyncio.sleep(self.result_stagger_s)
-        await self.emit("search.done", {"total": len(results)})
+        try:
+            async for r in self.m.search(query):  # streamed as the finder produces them
+                self.results[r["id"]] = r
+                await self.emit("search.result", r)
+                if self.result_stagger_s and self.m.demo:
+                    await asyncio.sleep(self.result_stagger_s)
+        except Exception as e:
+            log.exception("search failed")
+            await self.emit("error", {"message": f"Search failed: {e}. Paste a YouTube link instead."})
+        await self.emit("search.done", {"total": len(self.results)})
         self.phase = "idle" if self.graph is None else self.phase
         await self._status("idle")
 
@@ -238,12 +233,17 @@ class LessonSession:
         await self._status("thinking")
         done = asyncio.Event()
 
+        t0 = self.clock()
+
         async def ticker() -> None:
-            i = 0
+            # Honest progress: the builder reports no stages, so say what's happening and how long
+            # it has taken; progress is a time estimate (a long video can take 1-2 min) that never hits 1.
+            expected = float(os.environ.get("ORCH_BUILD_EXPECTED_S", "75"))
             while not done.is_set():
-                msg = BUILD_MESSAGES[min(i, len(BUILD_MESSAGES) - 1)]
-                await self.emit("lesson.building", {"message": msg, "progress": round(min(0.9, 0.1 + 0.18 * i), 2)})
-                i += 1
+                el = self.clock() - t0
+                msg = (f"Gemini is watching the video · {int(el) // 60}:{int(el) % 60:02d}" if el >= 1
+                       else "Starting the lesson builder")
+                await self.emit("lesson.building", {"message": msg, "progress": round(min(0.95, el / expected), 2)})
                 try:
                     await asyncio.wait_for(done.wait(), self.build_tick_s)
                 except TimeoutError:
@@ -274,6 +274,8 @@ class LessonSession:
             self.on_workdir(new_wd)
         self.m.set_lesson(graph)
         await self.emit("lesson.ready", self._lesson_ready_payload())
+        if self.workspace is not None:
+            self.workspace.open(new_wd)
         await self.start_step(0)
 
     def _lesson_ready_payload(self) -> dict:
@@ -322,6 +324,8 @@ class LessonSession:
         else:
             self.segment_done = True
         self._watch_screen_metrics(step)
+        if self.workspace is not None:
+            self.workspace.goto_target(self.workdir, step)
         await self._status("watching")
         await self.evaluate("start")
 
@@ -455,9 +459,11 @@ class LessonSession:
             precision = self.precision_mode()
             try:
                 gate = self.m.evaluate_gate(step, ctx, ctx.screen, precision)
-            except Exception as e:  # pragma: no cover - Modules already falls back
+            except Exception as e:
                 log.exception("evaluate_gate failed")
-                await self.emit("error", {"message": f"Check evaluation failed: {e}"})
+                if not self._eval_error_sent:  # once per step, not once per frame
+                    self._eval_error_sent = True
+                    await self.emit("error", {"message": f"Check evaluation failed: {e}"})
                 return
             shown_list, other = ("precision", "checks") if self._precision_display(step) else ("checks", "precision")
             results = list(gate.get(shown_list) or [])
@@ -555,7 +561,14 @@ class LessonSession:
             failed_checks = [{**by_id.get(r.get("checkId"), {}), **r} for r in failed]
             code, _file = self._code_excerpt(step)
             tail = ctx.output_tail[-40:] if isinstance(ctx.output_tail, list) else []
-            card = await self.m.diagnose(step, failed_checks, ctx.metrics, code, error_text="\n".join(tail))
+            try:
+                card = await self.m.diagnose(step, failed_checks, ctx.metrics, code, error_text="\n".join(tail))
+            except Exception as e:
+                log.exception("coach.diagnose failed")
+                if gen == self.step_gen:
+                    await self.emit("error", {"message": f"Coach unavailable: {e}"})
+                    await self._status("watching")
+                return
             if gen != self.step_gen or self.passed:
                 return
             card = dict(card)
@@ -666,6 +679,15 @@ class LessonSession:
             await self._segment_end()
 
     async def action(self, kind: str, text: str | None = None) -> None:
+        try:
+            await self._action(kind, text)
+        except Exception as e:  # live mode: a missing/failing module is reported, never faked
+            log.exception("action %s failed", kind)
+            await self.emit("error", {"message": f"{kind}: {e}"})
+            if self.step is not None:
+                await self._status("offtrack" if self.last_offtrack else ("passed" if self.passed else "watching"))
+
+    async def _action(self, kind: str, text: str | None = None) -> None:
         step = self.step
         if step is None:
             await self.emit("error", {"message": "No lesson is running yet."})

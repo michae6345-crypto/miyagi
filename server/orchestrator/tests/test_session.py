@@ -348,8 +348,6 @@ def test_runs_from_previous_step_do_not_count(rig):
 
 
 def test_config_keys_status_never_echoes_keys(monkeypatch):
-    import os
-
     from server.orchestrator import main
 
     for var in main.KEY_ENV.values():  # apply_keys writes os.environ; restore it afterwards
@@ -437,22 +435,74 @@ def test_action_without_lesson_is_an_error(rig):
 
 # ---------------------------------------------------------------- resilience
 
-def test_real_module_failure_falls_back_to_stub(rig, monkeypatch):
+def test_live_mode_reports_failures_instead_of_faking(rig):
+    """No DEMO: a failing/missing real module becomes an `error` event, never canned data."""
     def boom(*a, **k):
         raise RuntimeError("api down")
 
     mods = Modules(demo=False, force_stubs="")
     mods.real["coach"] = types.SimpleNamespace(diagnose=boom)
-    mods.real["checks"] = types.SimpleNamespace(evaluate_step=boom)
+    mods.real["finder"] = types.SimpleNamespace()  # not built yet
+    mods.real["diagrams"] = types.SimpleNamespace()
     r2 = Rig(rig.workdir, mods)
 
     async def go():
+        await r2.s.learn("pinn")
+        await r2.s.load_graph(stubs.load_fixture_lesson())  # (lesson content is irrelevant here)
+        await r2.settle()
+        await r2.s.goto_step(5)
+        await r2.settle()
+        r2.write("beta = 30\n")
+        await r2.run("r1", PLATEAU)
+        await r2.s.action("diagram")
+
+    run(go())
+    errors = [e["message"] for e in r2.of("error")]
+    assert any("finder.search isn't available" in m for m in errors)
+    assert any("Coach unavailable: coach.diagnose failed: RuntimeError: api down" in m for m in errors)
+    assert any("diagrams.build isn't available" in m for m in errors)
+    assert r2.of("search.done") == [{"total": 0}] and not r2.of("search.result")
+    assert not r2.of("offtrack") and not r2.of("diagram")
+
+
+def test_demo_mode_falls_back_to_stubs(rig):
+    def boom(*a, **k):
+        raise RuntimeError("api down")
+
+    mods = Modules(demo=True, force_stubs="")
+    mods.real["checks"] = types.SimpleNamespace(evaluate_gate=boom)
+    r2 = Rig(rig.workdir, mods)
+
+    async def go():
+        await r2.s.learn("pinn")
         await _to_step(r2, 5)
         r2.write("beta = 30\n")
         await r2.run("r1", PLATEAU)
 
     run(go())
+    assert len(r2.of("search.result")) == 3
     assert r2.of("offtrack")[0]["title"] == "Loss plateaued at large β"
+
+
+def test_workspace_opens_vscode_and_jumps_to_target(tmp_path, monkeypatch):
+    monkeypatch.setenv("TUT_WORKDIR", str(tmp_path))
+    from server.orchestrator.workspace import Workspace
+
+    calls = []
+    ws = Workspace(enabled=True, runner=lambda argv: calls.append(argv) or True)
+    (tmp_path / "pinn_convection.py").write_text("import torch\n\n\ndef pde_residual(model, x, t, beta):\n    pass\n")
+    rig = Rig(tmp_path)
+    rig.s.workspace = ws
+
+    async def go():
+        await rig.start_lesson()
+        await rig.s.goto_step(3)
+        await rig.settle()
+
+    run(go())
+    assert calls[0][:3] == ["open", "-a", "Visual Studio Code"] and calls[0][3] == str(tmp_path)
+    gotos = [c for c in calls if "-g" in c]
+    assert gotos and gotos[-1][-1] == f"{tmp_path / 'pinn_convection.py'}:4"
 
 
 def test_snapshot_for_reconnect(rig):
@@ -498,7 +548,8 @@ def test_ws_and_ingest_roundtrip(tmp_path, monkeypatch):
                 seen.append(msg["type"])
                 if msg["type"] == "search.done":
                     break
-            assert seen.count("search.result") == 3
+            assert "error" in seen  # live mode: no finder yet -> an honest error, no canned results
+            assert "search.result" not in seen
         r = client.post("/ingest", json=[{"kind": "run_started", "run_id": "x"},
                                           {"kind": "metric", "run_id": "x", "step": 1, "name": "loss", "value": 0.5}])
         assert r.json()["ok"] is True and r.json()["accepted"] == 2

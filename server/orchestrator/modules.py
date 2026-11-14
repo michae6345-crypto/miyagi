@@ -1,11 +1,11 @@
 """The orchestrator's view of the other engine modules, behind one small interface.
 
-Resolution per module (lesson, checks, coach, finder, diagrams):
-  1. DEMO=1            -> demo/cache/ files first, then stubs (never a live API)
-  2. ORCH_STUBS=all|lesson,coach,...  -> force the stub for those modules
-  3. otherwise         -> the real function if `server.<module>` exports it, else the stub
-A real function that raises is logged and falls back to the stub, so a flaky API
-never kills the demo.
+LIVE (default): only the real `server.<module>` functions run. A module that is missing or
+raises becomes a ModuleUnavailable, which the session turns into an `error` event; no
+canned data ever reaches the learner.
+DEMO=1: demo/cache/ files first, then the canned PINN stubs (checks stay real: the demo run is real).
+ORCH_STUBS=all|lesson,coach,...: developer/test flag that forces stubs for those modules.
+
 """
 
 from __future__ import annotations
@@ -17,7 +17,7 @@ import inspect
 import json
 import logging
 import os
-from collections.abc import Callable
+from collections.abc import AsyncIterator, Callable
 from pathlib import Path
 from typing import Any
 
@@ -62,6 +62,10 @@ def _read_json(path: Path) -> Any | None:
         return None
 
 
+class ModuleUnavailable(RuntimeError):
+    """A real module is missing or failed and stubs aren't allowed (live mode)."""
+
+
 class Modules:
     def __init__(self, *, demo: bool | None = None, force_stubs: str | None = None):
         self.demo = demo_mode() if demo is None else demo
@@ -69,18 +73,24 @@ class Modules:
         forced_set = {m.strip() for m in forced.split(",") if m.strip()}
         if "all" in forced_set:
             forced_set = set(MODULES)
+        self.forced = forced_set
         self.real: dict[str, Any] = {}
+        self.import_errors: dict[str, str] = {}
         for name in MODULES:
             if name in forced_set:
                 continue
             try:
                 self.real[name] = importlib.import_module(f"server.{name}")
-            except Exception as e:  # pragma: no cover - import errors in sibling modules
-                log.warning("server.%s failed to import (%s); using stub", name, e)
+            except Exception as e:  # noqa: BLE001 - surfaced through describe() / errors
+                self.import_errors[name] = f"{type(e).__name__}: {e}"
+                log.warning("server.%s failed to import (%s)", name, e)
 
     # -- helpers
+    def stubs_allowed(self, module: str) -> bool:
+        return self.demo or module in self.forced
+
     def _real_fn(self, module: str, attr: str) -> Callable | None:
-        if self.demo and module != "checks":
+        if module in self.forced or (self.demo and module != "checks"):
             return None
         mod = self.real.get(module)
         fn = getattr(mod, attr, None) if mod else None
@@ -91,50 +101,78 @@ class Modules:
         probes = {"lesson": "build_lesson", "checks": "evaluate_gate", "coach": "diagnose",
                   "finder": "search", "diagrams": "build"}
         for m, attr in probes.items():
-            if self.demo and m != "checks":
-                out[m] = "demo-cache"
+            if self._real_fn(m, attr):
+                out[m] = "real"
+            elif self.demo:
+                out[m] = "demo"
+            elif m in self.forced:
+                out[m] = "stub (ORCH_STUBS)"
             else:
-                out[m] = "real" if self._real_fn(m, attr) else "stub"
+                out[m] = "missing"
         return out
+
+    def _missing(self, module: str, attr: str) -> ModuleUnavailable:
+        why = self.import_errors.get(module)
+        if why:
+            return ModuleUnavailable(f"server.{module} failed to import ({why})")
+        return ModuleUnavailable(f"server.{module}.{attr} isn't available yet")
+
+    async def _run(self, module: str, attr: str, stub: Callable[[], Any], *args, **kwargs) -> Any:
+        """Real function, else (only if allowed) the stub, else ModuleUnavailable."""
+        fn = self._real_fn(module, attr)
+        if fn is not None:
+            try:
+                return _to_dict(await _call(fn, *args, **kwargs))
+            except Exception as e:
+                if not self.stubs_allowed(module):
+                    raise ModuleUnavailable(f"{module}.{attr} failed: {type(e).__name__}: {e}") from e
+                log.exception("server.%s.%s failed; DEMO stub instead", module, attr)
+        elif not self.stubs_allowed(module):
+            raise self._missing(module, attr)
+        return await _call(stub)
 
     def _cache(self, *parts: str) -> Any | None:
         if not self.demo:
             return None
         return _read_json(DEMO_CACHE.joinpath(*parts))
 
-    async def _try_real(self, module: str, attr: str, *args, **kwargs) -> tuple[bool, Any]:
-        fn = self._real_fn(module, attr)
-        if fn is None:
-            return False, None
-        try:
-            return True, await _call(fn, *args, **kwargs)
-        except Exception:
-            log.exception("server.%s.%s failed; falling back to stub", module, attr)
-            return False, None
-
     # -- finder
-    async def search(self, query: str) -> list[dict]:
-        cached = self._cache("search.json")
-        if cached is None and self.demo and (DEMO_CACHE / "search").is_dir():
-            files = sorted((DEMO_CACHE / "search").glob("*.json"))
-            cached = _read_json(files[0]) if files else None
-        if cached is not None:
-            return list(cached.get("results", cached) if isinstance(cached, dict) else cached)
-        ok, out = await self._try_real("finder", "search", query)
-        if ok and out is not None:
-            return [_to_dict(r) for r in out]
-        lesson = self._lesson_file()
-        if lesson:  # offer the ORCH_LESSON tutorial so the launcher matches the lesson that gets built
-            kinds = {"video": "YouTube", "paper": "Paper", "notebook": "Notebook", "repo": "Code", "blog": "Article"}
-            return [{"id": f"r{i + 1}", "kind": src.get("kind", "video"), "title": src.get("title", "Tutorial"),
-                     "meta": kinds.get(src.get("kind", ""), "Source"), "score": round(0.95 - 0.1 * i, 2),
-                     "reason": "Best match for your goal" if i == 0 else "Supporting source",
-                     "url": src.get("url", "")}
-                    for i, src in enumerate(lesson.get("sources", [])[:5])]
-        return await stubs.search(query)
+    async def search(self, query: str) -> AsyncIterator[dict]:
+        """Yields search.result payloads (each with "url") as they arrive."""
+        if self.demo:
+            cached = self._cache("search.json")
+            if cached is None and (DEMO_CACHE / "search").is_dir():
+                files = sorted((DEMO_CACHE / "search").glob("*.json"))
+                cached = _read_json(files[0]) if files else None
+            items = (cached.get("results", cached) if isinstance(cached, dict) else cached) if cached else None
+            for r in items or await stubs.search(query):
+                yield r
+            return
+        fn = self._real_fn("finder", "search")
+        if fn is None:
+            if self.stubs_allowed("finder"):
+                for r in await stubs.search(query):
+                    yield r
+                return
+            raise self._missing("finder", "search")
+        try:
+            out = fn(query)
+            if hasattr(out, "__aiter__"):  # streaming finder
+                async for r in out:
+                    yield _to_dict(r)
+                return
+            if inspect.isawaitable(out):
+                out = await out
+            for r in out or []:
+                yield _to_dict(r)
+        except ModuleUnavailable:
+            raise
+        except Exception as e:
+            raise ModuleUnavailable(f"finder.search failed: {type(e).__name__}: {e}") from e
 
     # -- lesson
     def _lesson_file(self) -> dict | None:
+        """ORCH_LESSON (DEMO only)."""
         from .config import lesson_file
 
         p = lesson_file()
@@ -155,41 +193,33 @@ class Modules:
                 return cached
             if (g := self._lesson_file()) is not None:
                 return g
+            return await stubs.build_lesson(source_url, goal, workdir)
         fn = self._real_fn("lesson", "build_lesson")
         kwargs = {}
         if fn is not None and _accepts(fn, "api_key"):
             from server.config import get_key
 
             kwargs["api_key"] = get_key("gemini")
-        timeout = float(os.environ.get("ORCH_BUILD_TIMEOUT_S", "90"))
+        timeout = float(os.environ.get("ORCH_BUILD_TIMEOUT_S", "300"))
         try:
-            ok, out = await asyncio.wait_for(
-                self._try_real("lesson", "build_lesson", source_url, goal, workdir, **kwargs), timeout)
-        except asyncio.TimeoutError:
-            log.warning("build_lesson took over %.0fs; using the fallback lesson", timeout)
-            ok, out = False, None
-        if ok and out:
-            return _to_dict(out)
-        if (g := self._lesson_file()) is not None:
-            return g
-        return await stubs.build_lesson(source_url, goal, workdir)
+            return await asyncio.wait_for(
+                self._run("lesson", "build_lesson", lambda: stubs.build_lesson(source_url, goal, workdir),
+                          source_url, goal, workdir, **kwargs), timeout)
+        except asyncio.TimeoutError as e:
+            raise ModuleUnavailable(f"building the lesson took over {timeout:.0f}s") from e
 
-    # -- checks (always local: the demo is a real run)
+    # -- checks (always real unless forced: the demo run is a real run)
     def make_context(self, ctx: RunContext) -> Any:
         mod = self.real.get("checks")
         cls = getattr(mod, "RunContext", None) if mod else None
         if cls is None or cls is RunContext:
             return ctx
-        try:
-            params = inspect.signature(cls).parameters
-            candidates = {"workdir": ctx.workdir, "last_run": ctx.last_run, "metrics": ctx.metrics,
-                          "exit_code": ctx.exit_code, "output_tail": ctx.output_tail,
-                          "command": ctx.command, "runs": ctx.runs, "running": ctx.running,
-                          "screen": ctx.screen}
-            return cls(**{k: v for k, v in candidates.items() if k in params})
-        except Exception:
-            log.exception("could not build server.checks.RunContext; passing ours")
-            return ctx
+        params = inspect.signature(cls).parameters
+        candidates = {"workdir": ctx.workdir, "last_run": ctx.last_run, "metrics": ctx.metrics,
+                      "exit_code": ctx.exit_code, "output_tail": ctx.output_tail,
+                      "command": ctx.command, "runs": ctx.runs, "running": ctx.running,
+                      "screen": ctx.screen}
+        return cls(**{k: v for k, v in candidates.items() if k in params})
 
     def evaluate_gate(self, step: dict, ctx: RunContext, screen: Any = None, precision_mode: bool = False) -> dict:
         """-> {passed, via: "checks"|"precision"|None, checks: [...], precision: [...]}"""
@@ -201,8 +231,12 @@ class Modules:
                 gate["checks"] = [_to_dict(r) for r in gate.get("checks", [])]
                 gate["precision"] = [_to_dict(r) for r in gate.get("precision", [])]
                 return gate
-            except Exception:
-                log.exception("server.checks.evaluate_gate failed; using stub evaluator")
+            except Exception as e:
+                if not self.stubs_allowed("checks"):
+                    raise ModuleUnavailable(f"checks.evaluate_gate failed: {type(e).__name__}: {e}") from e
+                log.exception("server.checks.evaluate_gate failed; DEMO stub evaluator instead")
+        elif not self.stubs_allowed("checks"):
+            raise self._missing("checks", "evaluate_gate")
         return stubs.evaluate_gate(step, ctx, screen=screen, precision_mode=precision_mode)
 
     def evaluate_step(self, step: dict, ctx: RunContext) -> list[dict]:
@@ -211,7 +245,7 @@ class Modules:
     # -- coach
     def _public(self, card: Any) -> dict:
         card = _to_dict(card)
-        pub = getattr(self.real.get("coach"), "public", None) if not self.demo else None
+        pub = getattr(self.real.get("coach"), "public", None) if "coach" not in self.forced else None
         if callable(pub):
             try:
                 return pub(card)
@@ -235,20 +269,18 @@ class Modules:
             return cached
         fn = self._real_fn("coach", "diagnose")
         kwargs = {"error_text": error_text} if fn is not None and error_text and _accepts(fn, "error_text") else {}
-        ok, out = await self._try_real("coach", "diagnose", step, failed_checks, metrics, code_excerpt, **kwargs)
-        if ok and out:
-            return self._public(out)
-        return await stubs.diagnose(step, failed_checks, metrics, code_excerpt)
+        out = await self._run("coach", "diagnose", lambda: stubs.diagnose(step, failed_checks, metrics, code_excerpt),
+                              step, failed_checks, metrics, code_excerpt, **kwargs)
+        return self._public(out)
 
     async def explain(self, step: dict, question: str | None, context: dict) -> dict:
         kind = "answer" if question else "explain"
         cached = self._cache("cards", f"{step['id']}-{kind}.json")
         if cached:
             return cached
-        ok, out = await self._try_real("coach", "explain", step, question, context)
-        if ok and out:
-            return self._public(out)
-        return await stubs.explain(step, question, context)
+        out = await self._run("coach", "explain", lambda: stubs.explain(step, question, context),
+                              step, question, context)
+        return self._public(out)
 
     async def hint(self, step: dict, level: int, last_offtrack: dict | None = None) -> dict:
         cached = self._cache("cards", f"{step['id']}-hint{level}.json")
@@ -256,28 +288,24 @@ class Modules:
             return cached
         fn = self._real_fn("coach", "hint")
         kwargs = {"last_offtrack": last_offtrack} if fn is not None and _accepts(fn, "last_offtrack") else {}
-        ok, out = await self._try_real("coach", "hint", step, level, **kwargs)
-        if ok and out:
-            return self._public(out)
-        return stubs.hint(step, level)
+        out = await self._run("coach", "hint", lambda: stubs.hint(step, level), step, level, **kwargs)
+        return self._public(out)
 
     def propose_fix(self, diff: dict, file_text: str) -> str | None:
-        """-> the full new file text for an offtrack diff, or None if it can't be placed."""
+        """-> the full new file text for an offtrack diff, or None (then the learner fixes it by hand)."""
         fn = self._real_fn("coach", "apply_fix")
         if fn is not None:
             try:
-                patch = _to_dict(fn(diff, file_text))
-                return patch.get("new_text")
+                return _to_dict(fn(diff, file_text)).get("new_text")
             except Exception:
-                log.exception("coach.apply_fix failed; using the local fallback")
-        return stubs.apply_fix(diff, file_text)
+                log.exception("coach.apply_fix failed")
+                return None
+        return stubs.apply_fix(diff, file_text) if self.stubs_allowed("coach") else None
 
     # -- diagrams
     async def diagram(self, kind: str, step: dict | None, ctx: RunContext | None) -> dict:
         cached = self._cache("diagrams", f"{kind}.json")
         if cached:
             return cached
-        ok, out = await self._try_real("diagrams", "build", kind, step=step, ctx=ctx)
-        if ok and out:
-            return _to_dict(out)
-        return await stubs.diagrams_build(kind, step, ctx)
+        return await self._run("diagrams", "build", lambda: stubs.diagrams_build(kind, step, ctx),
+                               kind, step=step, ctx=ctx)
