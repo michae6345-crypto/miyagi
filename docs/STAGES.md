@@ -1,4 +1,7 @@
-# Stage-by-stage run on 4 non-PINN topics (2026-11-14, ~14:00, venue Wi-Fi)
+# Stage-by-stage runs on 4 non-PINN topics (2026-11-14, venue Wi-Fi)
+
+Two runs: **before** (~14:00, integration/live 2cc33e8) and **after** (~14:15, integration/live 36eaf92: per-lesson
+workspaces, human build errors, Bright Data zones live). The re-run comes first; the original run is kept below it.
 
 `scripts/stage.py` drives the **LIVE** engine (DEMO=0, ORCH_AUTOSTART=0, own port) over the real WebSocket
 protocol, one stage at a time, and prints what each stage did. Nothing in it calls a module directly.
@@ -26,7 +29,121 @@ protocol, one stage at a time, and prints what each stage did. Nothing in it cal
 - **Logs:** every search/build appends a JSON record to `demo/runs/stage-results.jsonl`. The engine log is
   `demo/runs/stage-engine-<port>.log`. Both are gitignored.
 
-## Results
+## Re-run (after): integration/live 36eaf92, 14:15–14:18
+
+Setup:
+- Default config: own LIVE engine on :8790, `--no-screen`, no TUT_WORKDIR, no model overrides. Michael's :8787 engine was not touched.
+- Gemini was at daily quota, as announced. The finder and lesson caches from the first run were moved aside, so every search and
+  build ran live.
+- `stage build 1` = the finder's final rows[0].
+
+### Before / after
+
+| topic | search before (first / done, rows, videos) | search after | build before (default config) | build after (default config) | workdir after | PINN leak before → after |
+|---|---|---|---|---|---|---|
+| react useEffect cleanup | 3.4 / 9.0 s, 28 rows, 10 videos | 4.0 / 17.7 s, 17 rows, 6 videos | OK 82.7 s, 5 steps | **FAILED 5.0 s**: "Couldn't watch this video: Gemini's quota is used up and YouTube is rate-limiting this network…" | n/a (no build) | SEVERE → none |
+| git rebase interactive | 3.7 / 11.7 s, 30 rows, 10 videos | 3.6 / 18.3 s, 26 rows, 8 videos | OK 56.9 s, 10 steps (no `rebase -i` step) | **FAILED 5.5 s**: "Couldn't get this video's transcript: YouTube is rate-limiting this network…" | n/a | workdir → none |
+| pandas groupby tutorial | 3.7 / 5.3 s, 19 rows, **0 videos** (retry 30 rows) | 7.2 / 18.3 s, 24 rows, 8 videos | FAILED 3.2 s (Gemini 429 + transcript blocked) | **FAILED 5.8 s**, same message as git | n/a | workdir → none |
+| train a diffusion model in pytorch | 2.4 / 16.7 s, 37 rows, 11 videos | 6.0 / 18.3 s, 30 rows, **1 video** | FAILED 2.1 s (`Gemini call failed on []: None`) | **FAILED 5.6 s**, same message as git | n/a | SEVERE → none |
+
+**Picked (#1, the finder's best video):**
+- react: "React Hooks Tutorial - 9 - useEffect cleanUp functions" (MJy9SAldcpM)
+- git: "Git Rebase Interactive :: A Practical Example" (tukOm3Afd8s)
+- pandas: "Python Pandas Tutorial 7. Group By (Split Apply Combine)" (Wb2Tp35dZ-I)
+- diffusion: "Train Diffusion Models - Line by line code example" (KiP-q8LkmQ8)
+
+**Why every build failed (engine log), the same chain each time:**
+1. Gemini video pass: `gemini-4-hydrogen`, `gemini-3.7-flash`, `gemini-3.6-flash` and `gemini-3.5-flash` all return 429 RESOURCE_EXHAUSTED.
+   From the second build on, the error is `Gemini call failed on []: None` (all marked exhausted in-process).
+2. Claude transcript path:
+   - `brightdata watch page: Bright Data returned an empty body`
+   - `brightdata captions: Bright Data returned an empty body`
+   - `timedtext: Client error '429 Too Many Requests' for url 'https://www.youtube.com/api/timedtext?...'`
+
+Progress is honest now: the stage names show ("Couldn't watch the video; reading the transcript instead"), and every failure ended
+with `error` + `lesson.building {failed: true}` + idle in ≤ 6 s.
+
+**Workspace fix verified on the cached video drafts.** I restored this morning's raw drafts for react (aKOQtGLT-Yk) and DDPM
+(TgTQE_muXec), so only the adapt pass runs. No model was forced: the default chain fell through to Claude.
+
+| lesson | build | workdir | adapt | leak | checks |
+|---|---|---|---|---|---|
+| react, "useEffect Cleanup with AbortController" | OK 10.7 s, 5 steps | `~/miyagi/lessons/useeffect-cleanup-with-abortcontroller-f5383c` (README.md only) | **claude-opus-5-5** (the old 400 is gone) | none | learner-generic now: `new\s+AbortController\(\)`, `signal\s*:\s*\w+\.signal`, `=>\s*\w+\.abort\(\)` |
+| DDPM, "Implementing DDPM from Scratch" | OK 5.7 s, 4 steps | `~/miyagi/lessons/implementing-ddpm-from-scratch-c10798` | claude-opus-5-5 | none | clean (`q_sample`, `cumprod(`, `datasets.MNIST(`). `T\s*=\s*\d+` is generic. Still no training step, because the draft came from flash-lite |
+
+### Status of the first run's findings
+
+| # | finding | status |
+|---|---|---|
+| F1 | every lesson adapted to `demo/pinn-lab` | **fixed** (verified above) |
+| F2 | build dies when Gemini quota is gone | **still broken**, now with a human error instead of a hang. No flash-lite in the default video chain, and the transcript path is blocked (see A1, A2) |
+| F3 | first streamed row is the default pick; skim scores never reach the app | **still open**: first streamed row was a repo/notebook in 4/4 topics, and the app saw 82 vs the final 90 (react), 78 vs 91 (pandas) |
+| F4 | 0-video search cached | not reproduced. Diffusion returned **1** video (see A3) |
+| F5 | Claude adapt 400 (schema) | **fixed** (claude-opus-5-5 adapted both lessons) |
+| F6 | Gemini daily quota | still the blocker |
+| F7 | 0-view / new video ranked first | not seen this run (the picks have views). Not re-verified |
+| F8 | over-literal checks | **improved** (patterns are structure-level now) |
+| F9 | `learn_url` has no goal | still open |
+| F10 | external pkill | no kill this run |
+| minor | `diagrams: missing` | **fixed** (`diagrams: real`), but see A4 |
+
+### Still broken after the fixes (owners)
+
+**A1 · E2 lesson (+ ops): no build can succeed on this network without Gemini quota.**
+- The transcript fallback's three sources all fail: Bright Data watch page = empty body, Bright Data captions = empty body,
+  direct timedtext = 429.
+- The video chain has no `gemini-3.1-flash-lite` / `gemini-3.5-flash-lite` (it worked at 14:07 today).
+- Once every model is exhausted the error is still `Gemini call failed on []: None`.
+- Fix:
+  - Find out why the unlocker returns empty bodies for youtube.com (zone needs the "premium domains" / YouTube permission? JS
+    rendering?) and log the HTTP status.
+  - Add the lite models as the last fallback.
+  - Name the exhausted models in the error.
+  - For the demo: a paid key, or a phone hotspot (fresh IP for timedtext).
+
+**A2 · E4 orchestrator (human error wording): after the first build, the message drops the Gemini cause.** Builds 2–4 said only
+"YouTube is rate-limiting this network". Gemini was also out, but E2's text was `failed on []: None` with no "quota" in it, so
+`human_build_error` only matched the YouTube branch. Fix: once E2 names the exhausted models (A1), or if E4 also matches
+`failed on []`, say both causes.
+
+**A3 · E7 finder: YouTube search via Bright Data fails, with no direct fallback.**
+- Every search noted `youtube failed: RuntimeError: YouTube results page had no ytInitialData`, and the same for `youtube-2`.
+- A direct `httpx` GET of the same results URL from this network at 14:17 returned 200 with ytInitialData and 12 videos.
+- `sources.youtube_search` only falls back to a direct fetch when the unlocker *raises*, not when it returns a page without
+  ytInitialData.
+- Result: fewer videos (diffusion 11 → 1; they now come only from other providers) and slower searches (done 5–17 s → 18.3 s
+  for all four).
+- Fix: if the unlocker page has no ytInitialData, fetch directly. Prefer the direct fetch first for YouTube since it works here.
+
+**A4 · S4 diagrams + E4 orchestrator: diagram from the wrong lesson, and an off-contract `kind`.**
+- After switching from the react lesson to DDPM, `stage run --send diagram` on DDPM step s1 returned the React diagram ("The
+  function returned from the useEffect callback runs when Home unmounts…").
+- Cause: `server/diagrams/build.py:cache_key` = (step id, hash(code + screen), question, kind). Every lesson has an `s1`, and with no
+  code and no screen yet the hash is the same, so the cache (and the per-step prefetch) collides across lessons.
+- The payload's `kind` is `"graph"`, which isn't in `events.ts` (`"network" | "gradients" | "heatmap"`). Either the contract needs a
+  `contract:` PR or the app will drop or misrender it.
+- Fix: add the lesson id (or the step title + instructions) to the cache key, and clear the cache on `load_graph`. Add `"graph"`
+  to the contract.
+
+**A5 · E7 finder: unresolved Google redirect URLs reach the app.** Bright Data SERP rows come through as
+`https://www.google.com/goto?url=CAES…` with `meta "Blog · google.com"` and `verified: True`. That happened in all 4 searches (3 rows
+in react). Fix: resolve the `goto` redirect (or decode `url=`) before verifying, and drop the row if it can't be resolved.
+
+**A6 · E7 finder: other degradation noted on each search.**
+- Bright Data comment fetches fail with empty messages (`comments for <vid> failed:`).
+- Gemini skims time out at 6–7 s.
+- Claude triage got a 429 rate_limit_error on pandas, and the Gemini triage fallback a 503.
+- Scores fall back to keywords, which is fine, but rows reach the app with pre-skim scores (F3).
+
+**Still open from the first run:**
+- F3 (E4): default pick is the first streamed row, and skim re-scores don't reach the app.
+- F9 (E4): `learn_url` has no goal.
+- The DDPM draft has no training/metric step (E2, flash-lite draft).
+- E6's per-second traceback when the display sleeps was not re-checked (ran with `--no-screen`).
+
+## Before: first run (integration/live 2cc33e8, ~14:00)
+
+### Results
 
 Default config = what `scripts/miyagi-engine.sh` does today (TUT_WORKDIR = `demo/pinn-lab`, E2's default Gemini models).
 "#1" = the finder's final rows[0] (its best video), which is what `stage build 1` sends as `resultIds`.
@@ -62,9 +179,9 @@ Default config = what `scripts/miyagi-engine.sh` does today (TUT_WORKDIR = `demo
 | checks | machine-checkable for react / git / pandas (screen regexes on Code/Terminal/Chrome), but often over-literal (F8); diffusion had no metric check (F8) | E2 lesson (check authoring), E3 checks |
 | gate + coach | **works** (pass → advance in < 0.5 s; fail → offtrack in ~11 s; hint/explain/answer cards live) | E4 / E5 |
 
-## Failures
+### Failures (first run)
 
-### F1 · E4 orchestrator (root cause) + E2 lesson: every lesson is adapted to the PINN workdir — SEVERE
+#### F1 · E4 orchestrator (root cause) + E2 lesson: every lesson is adapted to the PINN workdir — SEVERE
 - **Symptom:** for "react useEffect cleanup" and "train a diffusion model in pytorch", the video's step titles are right, but the
   instructions and checks are rewritten for `pinn_diffusion.py` (collocation points, Latin hypercube, `exact_solution`, IC/BC,
   `class PINN`, loss ≤ 1e-2). git and pandas kept their content, but their engine workdir is still `demo/pinn-lab`: the file watcher,
@@ -82,7 +199,7 @@ Default config = what `scripts/miyagi-engine.sh` does today (TUT_WORKDIR = `demo
   uses react but the workdir is torch-only), ignore the workdir contents (treat it as empty) and add a build warning. Don't demand
   a metric check just because the workdir prints `loss`.
 
-### F2 · E2 lesson: the build dies once the free-tier Gemini models are out of quota (pandas, diffusion)
+#### F2 · E2 lesson: the build dies once the free-tier Gemini models are out of quota (pandas, diffusion)
 - **Exact errors:**
   - pandas: `Could not build the lesson: lesson.build_lesson failed: RuntimeError: no engine could build the lesson: gemini: Gemini call failed on ['gemini-4-hydrogen']: 429 RESOURCE_EXHAUSTED … claude: no transcript for _zsKKcnX-qE: brightdata: BRIGHTDATA_API_KEY/BRIGHTDATA_UNLOCKER_ZONE not set; youtube-transcript-api: Could not retrieve a transcript … YouTube is blocking requests from your IP.`
   - diffusion, one minute later in the same process: `gemini: Gemini call failed on []: None` (3.8/3.7/3.6/3.5-flash were already in the in-process `_exhausted` set).
@@ -97,7 +214,7 @@ Default config = what `scripts/miyagi-engine.sh` does today (TUT_WORKDIR = `demo
     `captionTracks` with plain httpx before trying youtube-transcript-api, which is IP-blocked here.
   - Longer term: a paid Gemini key for the demo.
 
-### F3 · E4 orchestrator (+ E7): the app never gets the finder's final ranking; the default pick is the first streamed row
+#### F3 · E4 orchestrator (+ E7): the app never gets the finder's final ranking; the default pick is the first streamed row
 - **Symptoms:**
   - In 3 of 4 topics the first streamed `search.result` was a repo, blog or notebook (react: `lukakobal/React-84-useEffect-cleanup`;
     pandas: a blog, then a learn-co notebook on the retry; diffusion: `lucidrains/denoising-diffusion-pytorch`). Only git led with a video.
@@ -114,7 +231,7 @@ Default config = what `scripts/miyagi-engine.sh` does today (TUT_WORKDIR = `demo
 - **(E7):** the README says "the first batch waits for the YouTube results so the UI leads with videos", but GitHub rows still
   arrive first (3.4 s, same timestamp as the YouTube rows).
 
-### F4 · E7 finder: a search with 0 videos was cached for 7 days (pandas, 1st try)
+#### F4 · E7 finder: a search with 0 videos was cached for 7 days (pandas, 1st try)
 - **Symptom:**
   - "pandas groupby tutorial" returned 19 rows (blogs and notebooks) and **0 videos**. `providers` lists `youtube` and no note
     explains it.
@@ -127,14 +244,14 @@ Default config = what `scripts/miyagi-engine.sh` does today (TUT_WORKDIR = `demo
   - When the YouTube provider returns 0 videos, add a note and retry once (e.g. with the topic variant).
   - Treat "no video" as a failure, because rows[0] must be a video.
 
-### F5 · E2 lesson: the Claude fallback for the adapt pass always 400s
+#### F5 · E2 lesson: the Claude fallback for the adapt pass always 400s
 - **Exact error:** `adapt pass failed (attempt 2): … claude: Claude call failed (400): … 'invalid_request_error', 'message': 'Schemas contains too many optional parameters (26), which would make grammar compil…'`
 - **Effect:** once the Gemini flash models are out of quota, there is no adapt fallback. The git lesson shipped attempt 1's graph
   with a validator problem left in.
 - **Fix:** simplify the structured-output schema used by `claude.adapt_checks`. Make fields required and nullable instead of
   optional, or split per-check-type schemas, or drop strict tool schema and validate in Python.
 
-### F6 · E2 lesson / ops: daily Gemini quota disappears after ~2 lesson builds
+#### F6 · E2 lesson / ops: daily Gemini quota disappears after ~2 lesson builds
 - **Symptom:**
   - At 14:00 `gemini-3.8-flash` and `gemini-3.7-flash` were already exhausted. After the react and git builds,
     `gemini-3.6-flash`, `gemini-3.5-flash` and `gemini-4-hydrogen` were exhausted too.
@@ -142,7 +259,7 @@ Default config = what `scripts/miyagi-engine.sh` does today (TUT_WORKDIR = `demo
 - **Fix:** F1 and F2 (the retries and the model chain), plus a paid key or several keys for the demo. Cache the demo lessons
   ahead of time.
 
-### F7 · E7 finder: ranks a 0-view, 1-day-old video first, and its content doesn't match the title
+#### F7 · E7 finder: ranks a 0-view, 1-day-old video first, and its content doesn't match the title
 - **Symptom:**
   - The git #1 pick, "Module 11: Interactive Rebasing (git rebase -i) & History Rewriting" (MasterTechTopics, 13:08, 0 views,
     1 day ago), got skim score 98.
@@ -154,7 +271,7 @@ Default config = what `scripts/miyagi-engine.sh` does today (TUT_WORKDIR = `demo
     named in the title.
 - **(E2):** add a build warning when the steps cover < 70 % of the video, or when no step mentions the goal's key term.
 
-### F8 · E2 lesson (check authoring): checks are machine-checkable but over-literal; "train" goals get no metric check
+#### F8 · E2 lesson (check authoring): checks are machine-checkable but over-literal; "train" goals get no metric check
 - **Over-literal patterns:**
   - pandas: `df\.groupby\("Department"\)\["Salary"\]\.mean\(\)` fails on single quotes or a renamed column.
   - pandas: `\.mean\(\)\.sort_values\(ascending=True\)` requires an argument that is the default anyway.
@@ -169,18 +286,18 @@ Default config = what `scripts/miyagi-engine.sh` does today (TUT_WORKDIR = `demo
   - Require a metric check whenever the goal contains train/fit, using the video's own logging.
   - Scope `screen_absent` error checks to new output (E3: only lines that appeared during this step).
 
-### F9 · E4 orchestrator / contract: `learn_url` has no goal
+#### F9 · E4 orchestrator / contract: `learn_url` has no goal
 - **Symptom:** `learn_url {url}` builds with `goal = self.query`, the last `learn` query or `""`. A pasted link after a different
   search gets the wrong goal, which drives step framing and the goal-keyed cache.
 - **Fix:** add an optional `goal` to `learn_url` (additive contract change). Otherwise reset `self.query` on `learn_url` and let
   E2 derive the goal from the video title.
 
-### F10 · infra: the stage engine was killed mid-build by an external `pkill`
+#### F10 · infra: the stage engine was killed mid-build by an external `pkill`
 - **Symptom:** at 14:02:35 the :8790 engine got a clean uvicorn "Shutting down" during the git build. The cause wasn't stage.py:
   the matching pattern was `server.orchestrator.main`. stage.py now launches through `scripts/stage_engine.py`.
 - **Suggestion to all sessions:** kill by port (`lsof -ti tcp:8787 | xargs kill`) instead of `pkill -f`.
 
-### Minor
+#### Minor
 - **E6 screen:** with the display asleep, the screen reader logs a full traceback every second
   (`ScreenUnavailableError: display returned no image (asleep, locked, or switching Spaces?)`). Log it once per state change.
 - **E4:** `diagrams: missing` in `/health` (no `server.diagrams` module on integration/live). The `diagram` action errors in LIVE: `diagram: server.diagrams.build isn't available yet` (verified with `stage run --send diagram`).

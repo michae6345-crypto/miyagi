@@ -463,18 +463,33 @@ async def cmd_build(engine: Engine, target: str, goal: str, timeout: float) -> d
     ready = None
     errors: list[str] = []
     last_msg = ""
+    last_print = -1
+    stages: list[str] = []
     while True:
         msg = await recv(ws, max(1.0, timeout - (time.monotonic() - t0)))
         if msg is None:
+            if errors:  # an error came, but no lesson.building{failed} followed: the app may stay on "building"
+                errors.append("no lesson.building{failed:true} after the error")
+                print(f"{C['y']}{rel(t0)} note: no lesson.building{{failed}} followed the error{C['x']}")
+                break
             errors.append(f"no lesson.ready after {timeout:.0f}s")
             print(f"{C['r']}{rel(t0)} TIMEOUT: no lesson.ready after {timeout:.0f}s{C['x']}")
             break
         t, p = msg.get("type"), msg.get("payload", {})
         if t == "lesson.building":
-            if p.get("message") != last_msg and (int(time.monotonic() - t0) % 10 == 0 or p.get("progress") == 1.0
-                                                  or "Starting" in p.get("message", "")):
-                print(f"{C['dim']}{rel(t0)} building {int(100 * p.get('progress', 0)):3d}% {p.get('message')}{C['x']}")
-            last_msg = p.get("message")
+            # the engine ticks every second ("<stage> · m:ss"); print when the stage itself changes, plus every 15 s
+            stage_txt = re.sub(r"\s*·\s*\d+:\d\d$", "", p.get("message", ""))
+            el = int(time.monotonic() - t0)
+            if stage_txt != last_msg or (el and el % 15 == 0 and el != last_print) or p.get("failed"):
+                print(f"{C['dim']}{rel(t0)} building {int(100 * p.get('progress', 0)):3d}% {p.get('message')}"
+                      + (f" {C['r']}[failed]" if p.get("failed") else "") + C["x"])
+                last_print = el
+                if stage_txt != last_msg:
+                    stages.append(f"{el}s {stage_txt}")
+            last_msg = stage_txt
+            if p.get("failed"):
+                errors.append(p.get("message", "")) if not errors else None
+                break
         elif t == "lesson.ready":
             ready = p
             print(f"{C['g']}{rel(t0)} lesson.ready {p['lesson'].get('title')!r} · {len(p['steps'])} steps{C['x']}")
@@ -482,7 +497,7 @@ async def cmd_build(engine: Engine, target: str, goal: str, timeout: float) -> d
         elif t == "error":
             errors.append(p.get("message", ""))
             print(f"{C['r']}{rel(t0)} error: {p.get('message')}{C['x']}")
-            break
+            timeout = min(timeout, time.monotonic() - t0 + 3)  # the engine follows up with lesson.building{failed}
     build_s = time.monotonic() - t0
     # what the first step looks like to the app (step.started + checklist), briefly
     if ready:
@@ -496,7 +511,7 @@ async def cmd_build(engine: Engine, target: str, goal: str, timeout: float) -> d
     path = "?"
     if "lesson cache hit" in eng_log:
         path = "cache"
-    rec: dict = {"stage": "build", "target": target, "url": url or (picked or {}).get("url"), "goal": goal,
+    rec: dict = {"stage": "build", "stages": stages, "target": target, "url": url or (picked or {}).get("url"), "goal": goal,
                  "build_s": round(build_s, 1), "ok": bool(ready), "errors": errors,
                  "engine_log_errors": [ln for ln in eng_log.splitlines()
                                        if re.search(r"ERROR|Traceback|failed|429|quota", ln)][:15]}
