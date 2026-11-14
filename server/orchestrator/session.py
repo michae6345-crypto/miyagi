@@ -410,6 +410,16 @@ class LessonSession:
         items, found = await asyncio.gather(  # what it needs (3-6 s first time, cached) + the video's own files
             asyncio.to_thread(wsmod.requirements, graph, folder), asyncio.to_thread(wsmod.find_resources, graph))
         self.resources = found
+        if self.lesson_mode:  # the editor is already open: only a card for tools that are really missing
+            self.reqs = items or None
+            miss = [it for it in items or [] if it.get("needed") and not it.get("ok") and it.get("kind") != "editor"]
+            card = wsmod.setup_card(miss) if miss else None
+            if card:
+                card["actions"] = [a for a in card.get("actions") or [] if a != "open_editor"]
+                self._setup_card = card
+                await self.emit("card", card)
+            await self._maybe_pass_setup_step()
+            return
         if items:  # S2: what this lesson needs, what's installed, install recipes (+ "Download tutorial files")
             self.reqs = items
             card = wsmod.setup_card(items, resources=found)
@@ -1046,15 +1056,12 @@ class LessonSession:
             if (spot := await self._editor_line_spot(step)) is not None:
                 await self._show_spot(spot)
                 return
-            spot = self._window_spot(step, self._type_caption(step))
-            if spot:
-                await self._show_spot({**spot, **self._snippet(step)})
-                return
-            await asyncio.sleep(1.0)
+            await asyncio.sleep(1.0)  # no whole-window box: the exact line, or nothing
 
     async def _editor_line_spot(self, step: dict) -> dict | None:
-        """S2: the exact editor line of the step's target (Accessibility, else E6's locate_line). Only with the
-        real screen reader (never in tests: it reads the real editor)."""
+        """S2 + E6: the exact editor line of the step's target (Accessibility, else E6's locate_line on the OCR'd
+        gutter). Scrolled off: jump there (`-g file:line`) and ask once more. Only with the real screen reader
+        (never in tests: it reads the real editor)."""
         if getattr(self.screen, "reader", None) is None:
             return None
         from . import workspace as wsmod
@@ -1062,12 +1069,37 @@ class LessonSession:
         loc = wsmod.target_location(self.workdir, step)
         if loc is None:
             return None
-        r = await asyncio.to_thread(wsmod.line_rect, loc[0], loc[1])
+        path, line = loc
+        where = await asyncio.to_thread(wsmod.line_location, path, line)
+        if not where.get("rect") and (where.get("direction") or where.get("reason") == "not_visible"):
+            if self.workspace is not None and self.editor_open:
+                self.workspace.goto(str(path), line)
+                await asyncio.sleep(0.4)
+                where = await asyncio.to_thread(wsmod.line_location, path, line)
+        r = where.get("rect")
         if not r:
             return None
         target = next((t for t in step.get("targets") or [] if t.get("match")), None)
         return {"rect": {k: float(r[k]) for k in ("x", "y", "w", "h")}, "caption": self._type_caption(step, target),
-                "app": "Code", **self._snippet(step)}
+                **self._snippet(step)}
+
+    def _ensure_step_file(self, step: dict) -> None:
+        """Lesson mode: the step's file exists in the lesson folder before it starts, so step 1 is "type this"
+        (never "mkdir … && touch …" in a terminal)."""
+        from . import workspace as wsmod
+
+        rel = (self._step_file(step) or step.get("file") or "").strip()
+        if not rel or Path(rel).is_absolute() or ".." in Path(rel).parts or not Path(self.workdir).is_dir():
+            return
+        if wsmod.resolve_file(self.workdir, rel) is not None:
+            return
+        p = Path(self.workdir) / rel
+        try:
+            p.parent.mkdir(parents=True, exist_ok=True)
+            p.touch(exist_ok=True)
+            log.info("lesson mode: created %s", p)
+        except OSError as e:
+            log.warning("could not create %s: %s", p, e)
 
     async def _replace_provisional(self, g: dict, complete: bool) -> None:
         """E2 quick start: the placeholder lesson (one step 'watch and type along', shown after 8 s) is
@@ -1222,6 +1254,8 @@ class LessonSession:
         self._watch_screen_metrics(step)
         if self.m.has_diagrams() and os.environ.get("ORCH_DIAGRAM_PREFETCH", "1") == "1":
             self._spawn(self._prefetch_diagram(self.step_gen, step), timer=True)
+        if self.lesson_mode:
+            self._ensure_step_file(step)
         if self.workspace is not None and self.editor_open:  # `code -g` would itself launch VS Code
             self.workspace.goto_target(self.workdir, step)
         await self._status("watching")
@@ -1284,12 +1318,13 @@ class LessonSession:
         tlist = [t for t in step.get("targets") or [] if t.get("match")]
         if tlist and self.spot_track is None:
             t = tlist[0]
-            self.spot_track = (t["match"], t.get("app"), t.get("caption", ""))
+            self.spot_track = (t["match"], None if self.lesson_mode else t.get("app"), t.get("caption", ""))
         for t in tlist:
             cap = self._type_caption(step, t) if self.lesson_mode else t.get("caption", "")
-            spot = self._locate(t["match"], t.get("app"), cap)
+            app = None if self.lesson_mode else t.get("app")  # lesson mode: whichever editor they use
+            spot = self._locate(t["match"], app, cap)
             if spot:
-                self.spot_track = (t["match"], t.get("app"), cap)
+                self.spot_track = (t["match"], app, cap)
                 await self._show_spot({**spot, **self._snippet(step)})
                 return True
         return False
@@ -1597,10 +1632,15 @@ class LessonSession:
                     return "\n".join(ls)[:limit], None
         return "", None
 
+    ACT_GRACE_S = 25.0  # without an edit / run / action, the coach waits this long into a step
+
     def _consider_speaking(self, reason: str, step: dict, failed: list[dict], ctx: RunContext) -> None:
         """reason: breakpoint | repeat | stuck | idle. Decides whether, and at which ladder level, to speak."""
         if self.coaching or self.passed or not failed:
             return
+        if (reason not in ("breakpoint", "repeat") and self.last_action_t < self.step_t0
+                and self.clock() - self.step_t0 < self.ACT_GRACE_S):
+            return  # nothing done yet on this step (no edit, run or action): never "Not yet" on step start
         if self.clock() < self._coach_retry_at:
             return  # the coach failed recently (e.g. offline): wait before trying again
         if self.typing():
@@ -2114,7 +2154,14 @@ class LessonSession:
             self._action_spot = True
             return True
         file = self._step_file(step)
-        caption = self._type_caption(step) if self.lesson_mode else (f"Work here: {file}" if file else "Work here")
+        if self.lesson_mode:  # the exact line (S2 / E6), never the whole editor window
+            spot = await self._editor_line_spot(step)
+            if spot:
+                self._action_spot = True
+                await self._show_spot(spot)
+                return True
+            return False
+        caption = f"Work here: {file}" if file else "Work here"
         spot = self._window_spot(step, caption)
         if spot:
             self._action_spot = True
@@ -2348,7 +2395,7 @@ class LessonSession:
                                "actions": ["skip_step"]}, window_s=2.0)
         await self._status("offtrack" if self.last_offtrack else "watching")
 
-    SCREEN_DOWN_S = 5.0  # a Space switch / screen lock is brief: only a lasting failure is reported
+    SCREEN_DOWN_S = 15.0  # a Space switch / screen lock is brief: only a lasting failure is reported
 
     def screen_down_reason(self) -> str | None:
         fn = getattr(self.screen, "down_reason", None) if self.screen is not None else None
@@ -2359,10 +2406,7 @@ class LessonSession:
 
     @staticmethod
     def screen_down_message(reason: str) -> str:
-        if reason == "no_permission":
-            return ("Miyagi can't see your screen: allow Screen Recording for it in System Settings → Privacy & "
-                    "Security, then restart Miyagi.")
-        return "Miyagi can't see your screen right now, so screen checks and Show me are paused."
+        return "Miyagi can't see your screen. Check Screen Recording in System Settings."
 
     async def _check_screen_health(self) -> None:
         """S1: a dead capture was silent (checks stuck on 'waiting for screen'). Tell the app once."""
@@ -2433,12 +2477,18 @@ class LessonSession:
         step = self.step
         if step is None or self.passed or not self.reqs:
             return
-        text = f"{step.get('title', '')} {step.get('instructions', '')}"
-        if not self.SETUP_STEP.search(text):
-            return
-        low = text.lower()
-        named = [it for it in self.reqs if any(n and str(n).lower() in low for n in (it.get("label"), it.get("tool")))]
-        items = named or [it for it in self.reqs if it.get("needed")]
+        requires = {str(t).lower() for t in step.get("requires") or []}
+        if step.get("setup") and requires:  # E2 tags real setup steps: setup: true, requires: [tool ids]
+            items = [it for it in self.reqs if str(it.get("tool", "")).lower() in requires]
+            if len(items) < len(requires):
+                return  # S2's check doesn't cover every required tool: can't vouch for it
+        else:
+            text = f"{step.get('title', '')} {step.get('instructions', '')}"
+            if not self.SETUP_STEP.search(text):
+                return
+            low = text.lower()
+            named = [it for it in self.reqs if any(n and str(n).lower() in low for n in (it.get("label"), it.get("tool")))]
+            items = named or [it for it in self.reqs if it.get("needed")]
         if not items or not all(it.get("ok") for it in items):
             return
         for c in self.display_checks(step):
@@ -2621,7 +2671,8 @@ class LessonSession:
             "runs": [r.run_id for r in self.step_runs],
             "modules": self.m.describe(),
             "precisionMode": self.precision_mode(),
-            "screen": bool(self.screen is not None and getattr(self.screen, "active", False)),
+            "screen": bool(self.screen is not None and getattr(self.screen, "active", False))
+            and not self.screen_down_reason(),  # false while frames fail (E6 status error / no_permission)
             "screenDown": self.screen_down_reason(),  # S1: E6 status error / no_permission
             "voice": self.voice,
         }

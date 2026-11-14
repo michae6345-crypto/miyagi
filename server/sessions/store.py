@@ -19,7 +19,7 @@ from typing import Any
 log = logging.getLogger("sessions")
 
 VERSION = 1
-STATE_FIELDS = ("lessonId", "sourceUrl", "title", "stepIndex", "stepCount", "stepId", "stepTitle", "passedSteps",
+STATE_FIELDS = ("lessonId", "sourceUrl", "title", "mode", "stepIndex", "stepCount", "stepId", "stepTitle", "passedSteps",
                 "skippedSteps", "checks", "videoT", "workdir", "editorOpen", "startedAt", "lastActiveAt")
 
 

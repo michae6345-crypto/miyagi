@@ -4,7 +4,8 @@
 
 E4's session already freezes a lesson in memory when the app comes back (snapshot(ask_resume=True) ->
 video.pause + card {kind:"resume"}; action resume / end_lesson). This adds:
-  - autosave to ~/miyagi/state on step.started / step.passed / video.state (throttled); cleared on
+  - autosave to ~/miyagi/state on lesson.ready / lesson.updated (graph + progress: video AND "Just teach
+    me" text lessons) and step.started / step.passed (passed + skipped) / video.state (throttled); cleared on
     lesson.ended (end_lesson, a new learn, POST /end) and when the last step passes
   - snapshot() with no lesson in memory but one saved (the engine restarted): spotlight clear,
     video.pause, status idle, the resume card
@@ -44,7 +45,7 @@ def resume_offer(state: dict, now: float | None = None) -> dict:
     """The `card {kind:"resume"}` payload for a saved lesson."""
     now = time.time() if now is None else now
     idx, n = int(state.get("stepIndex") or 0), int(state.get("stepCount") or 0)
-    parts = [state.get("title") or "Your lesson", f"Step {idx + 1} of {n}" if n else f"Step {idx + 1}"]
+    parts = [state.get("title") or "Your lesson", f"step {idx + 1} of {n}" if n else f"step {idx + 1}"]
     if state.get("lastActiveAt"):
         parts.append(ago(now - float(state["lastActiveAt"])))
     return {"kind": "resume", "title": "Continue where you left off?", "body": " · ".join(parts),
@@ -67,6 +68,7 @@ class Resumer:
         self._graph_saved_for: str | None = None
         self._started_at: dict[str, float] = {}
         self._last_activity: float | None = None
+        self._restoring = False  # resume() is reloading: its lesson.ready must not overwrite the saved step
         self._emit = session.emit
         self._video_state = session.video_state
         self._snapshot = session.snapshot
@@ -97,6 +99,7 @@ class Resumer:
         return {
             "lessonId": lid, "sourceUrl": _source_url(g), "title": lesson.get("title") or "Lesson",
             "stepIndex": idx, "stepCount": len(s.steps), "stepId": step["id"], "stepTitle": step.get("title"),
+            "mode": lesson.get("mode") or ("lesson" if not g.get("sources") else "video"),
             "passedSteps": [st["id"] for st in s.steps[:idx] if st["id"] not in skipped],
             "skippedSteps": [st["id"] for st in s.steps[:idx] if st["id"] in skipped],  # Skip: left unfinished
             "checks": {cid: st.get("status") for cid, st in (s.check_state or {}).items()} if here else {},
@@ -105,11 +108,11 @@ class Resumer:
             "startedAt": self._started_at[lid], "lastActiveAt": self._last_activity or self.clock(),
         }
 
-    def save_now(self, step_index: int | None = None) -> dict | None:
+    def save_now(self, step_index: int | None = None, with_graph: bool = False) -> dict | None:
         st = self.capture(step_index)
         if st is None:
             return None
-        graph = self.s.graph if self._graph_saved_for != st["lessonId"] else None
+        graph = self.s.graph if with_graph or self._graph_saved_for != st["lessonId"] else None
         try:
             out = store.save(st, graph)
         except OSError as e:
@@ -123,12 +126,16 @@ class Resumer:
         if type_ not in PROMPT_EVENTS:
             self._last_activity = self.clock()
         try:
-            if type_ == "step.started":
+            if type_ in ("lesson.ready", "lesson.updated"):  # a new / replaced / extended graph: write it now
+                if not self._restoring:
+                    self.save_now(with_graph=True)
+            elif type_ == "step.started":
                 seg = (payload or {}).get("video")
                 self.video_t = seg["start"] if seg else None
                 self.save_now()
             elif type_ == "step.passed":
-                if (payload or {}).get("nextStepId"):
+                p = payload or {}
+                if p.get("nextStepId") or p.get("pending"):
                     self.save_now(self.s.idx + 1)  # quit before the advance -> resume on the next step
                 else:
                     store.clear()  # lesson complete: nothing to resume
@@ -184,33 +191,44 @@ class Resumer:
         self._started_at[state["lessonId"]] = state.get("startedAt") or self.clock()
         self._graph_saved_for = state["lessonId"]
         editor_open = bool(state.get("editorOpen"))
-        await self._load_without_step0(graph, drop_editor_offer=editor_open)
-        s.editor_open = editor_open
         t = state.get("videoT")
-        seg = s._segment(graph["steps"][idx]) if 0 <= idx < len(graph["steps"]) else None
+        seg = s._segment(graph["steps"][idx])
         at = float(t) if seg and isinstance(t, (int, float)) and seg["start"] + 1 < t < seg["end"] - 1 else None
-        await s.start_step(idx, seek_to=at)  # one seek, straight to the saved position (E4)
+        skipped = [x for x in state.get("skippedSteps") or [] if isinstance(x, str)]
+        await self._load_at(graph, idx, at, editor_open, skipped)
         if at is not None:
             self.video_t = at
             self.save_now()
         return True
 
-    async def _load_without_step0(self, graph: dict, drop_editor_offer: bool) -> None:
+    async def _load_at(self, graph: dict, idx: int, seek_to: float | None, editor_open: bool,
+                       skipped: list[str]) -> None:
+        """The session's own load_graph (lesson.ready, editor, workdir, coach) with NO build call, except that
+        its start_step(0) starts the saved step (mid-segment) instead; its editor offer is dropped when the
+        editor was already open."""
         s = self.s
         wrapped = s.emit
+        real_start = s.start_step
 
         async def filtered(type_: str, payload: dict | None = None) -> None:
-            if drop_editor_offer and type_ == "card" and "open_editor" in ((payload or {}).get("actions") or []):
+            if editor_open and type_ == "card" and "open_editor" in ((payload or {}).get("actions") or []):
                 return
             await wrapped(type_, payload)
 
-        async def no_step(_idx: int) -> None:
-            return None
+        async def saved_step(_idx: int, seek_to_: float | None = None) -> None:
+            del s.start_step  # once: later steps start normally
+            s.editor_open = bool(s.editor_open or editor_open)
+            if hasattr(s, "skipped_steps"):  # load_graph just reset it: the saved skips come back
+                s.skipped_steps = list(skipped)
+            await real_start(idx, seek_to=seek_to)
 
         s.emit = filtered
-        s.start_step = no_step  # load_graph ends with start_step(0); resume starts the saved step itself
+        s.start_step = saved_step
+        self._restoring = True
         try:
             await s.load_graph(graph)
         finally:
+            self._restoring = False
             s.emit = wrapped
-            del s.start_step
+            if "start_step" in vars(s):
+                del s.start_step

@@ -108,6 +108,21 @@ def line_rect(path: str | Path, line: int) -> dict | None:
         return None
 
 
+def line_location(path: str | Path, line: int) -> dict:
+    """S2's editor_line_location: {rect | None, source, reason, direction?, ...} (Accessibility, else E6's
+    locate_line). {} when unavailable. Blocking: use a thread."""
+    ws = _s2()
+    fn = getattr(ws, "editor_line_location", None) if ws is not None else None
+    if fn is None:
+        r = line_rect(path, line)
+        return {"rect": r} if r else {}
+    try:
+        return dict(fn(str(path), int(line)) or {})
+    except Exception:  # noqa: BLE001
+        log.exception("editor_line_location failed")
+        return {}
+
+
 def target_location(workdir: str | Path, step: dict) -> tuple[Path, int] | None:
     """(absolute file, 1-based line) of the step's first target whose file exists."""
     for t in step.get("targets") or []:

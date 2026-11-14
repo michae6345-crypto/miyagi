@@ -113,3 +113,19 @@ Tests: `server/screen/tests/test_lines.py` runs on recorded Vision OCR of three 
 full-screen editors: VS Code at the top of a file, VS Code scrolled to lines 44–84, and Cursor at
 14 pt scrolled to 70–115. Each fixture has ground truth for every row; all rows land within 2 pt.
 Regenerate them with `python -m server.screen.tests.make_editor_fixtures`.
+
+## Capture backends and replayd stalls
+Order: **ScreenCaptureKit** (overlay left out of our frames) → **`screencapture`** (Apple's tool;
+overlay text masked via `set_overlay_bounds`) → **CGDisplayCreateImage**. `obs.capture` says which one
+made the frame (`sck` / `cli` / `cg` / `fixture`). `TUT_CAPTURE=cli` skips SCK; `TUT_CAPTURE=cg` is the
+old CG-only path.
+
+Why: on macOS 26, replayd (the daemon behind SCK) sometimes drops a third-party process's connection
+in a loop. Our process then logs `XPC_ERROR_CONNECTION_INTERRUPTED` thousands of times a second, and
+ReplayKit burns ~15% CPU. No SCK completion handler fires, and `CGDisplayCreateImage` (built on SCK)
+blocks 5 s and returns nil. Before this fix that surfaced as `ScreenUnavailableError: display returned
+no image`, and the coach went blind. Apple's `screencapture` uses a private path and keeps working
+(~130–180 ms + ~15 ms decode). It isn't caused by full-screen Spaces or a changing display ID (the main
+display stays ID 1, awake and unlocked). SCK calls now time out after 1.5 s. A stall makes the
+reader use `screencapture` for that same frame, then skip SCK for 10 s, 20 s, … up to 5 min. A
+recovery resets the backoff. An interrupted SCK connection is no longer reported as `no_permission`.

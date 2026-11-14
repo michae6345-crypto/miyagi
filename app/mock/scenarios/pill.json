@@ -5,18 +5,26 @@
   },
   "segments": {
     "pill_intro": [
-      { "wait": 2000, "type": "lesson.building", "payload": { "message": "Watching the tutorial with Gemini", "progress": 0.3 } },
-      { "wait": 2000, "type": "lesson.building", "payload": { "message": "Writing a check for every step", "progress": 0.75 } },
+      { "wait": 1500, "type": "lesson.building", "payload": { "message": "Watching the tutorial", "progress": 0.15, "elapsedS": 1 } },
+      { "wait": 1800, "type": "lesson.building", "payload": { "message": "Watching the tutorial", "progress": 0.15, "elapsedS": 3, "failed": true } },
+      { "wait": 0, "type": "error", "payload": { "message": "Couldn't reach Gemini. Try again." } },
+      { "wait": 0, "type": "status", "payload": { "state": "idle" } },
+      { "wait": 6000, "goto": "pill_build" }
+    ],
+    "pill_build": [
+      { "wait": 0, "type": "lesson.building", "payload": { "message": "Watching the tutorial with Gemini · 0:01", "progress": 0.3, "elapsedS": 1 } },
+      { "wait": 1000, "type": "lesson.building", "payload": { "message": "Watching the tutorial with Gemini · 0:02", "progress": 0.45, "elapsedS": 2 } },
+      { "wait": 1000, "type": "lesson.building", "payload": { "message": "Writing a check for every step", "progress": 0.75, "elapsedS": 3 } },
       {
         "wait": 1600,
         "type": "lesson.ready",
         "payload": {
-          "lesson": { "id": "pill-demo", "title": "PINNs · Convection", "sources": [] },
+          "lesson": { "id": "pill-demo", "title": "PINNs · Convection", "sources": [], "complete": false },
           "steps": [
             { "id": "p1", "index": 0, "title": "Build the MLP" },
             { "id": "p2", "index": 1, "title": "Define the residual" },
             { "id": "p3", "index": 2, "title": "Train at β = 30" },
-            { "id": "p4", "index": 3, "title": "Compare to the exact solution" }
+            { "id": "p4", "index": 3, "title": "Plot the loss" }
           ]
         }
       },
@@ -25,15 +33,18 @@
     "pill_s1": [
       { "wait": 0, "type": "step.started", "payload": { "stepId": "p1", "index": 0, "title": "Build the MLP", "instructions": "A 4×50 tanh MLP from (x, t) to u." } },
       { "wait": 0, "type": "check.updated", "payload": { "stepId": "p1", "checkId": "c1", "label": "Model returns u(x, t)", "status": "pending" } },
-      { "wait": 2500, "type": "check.updated", "payload": { "stepId": "p1", "checkId": "c1", "label": "Model returns u(x, t)", "status": "pass" } },
+      { "wait": 600, "type": "error", "payload": { "message": "Couldn't read the terminal. Retrying." } },
+      { "wait": 6000, "type": "check.updated", "payload": { "stepId": "p1", "checkId": "c1", "label": "Model returns u(x, t)", "status": "pass" } },
       { "wait": 450, "type": "step.passed", "payload": { "stepId": "p1", "nextStepId": "p2" } },
       { "wait": 400, "type": "video.play", "payload": {} },
-      { "wait": 3500, "goto": "pill_s2" }
+      { "wait": 2000, "goto": "pill_s2" }
     ],
     "pill_s2": [
       { "wait": 0, "type": "step.started", "payload": { "stepId": "p2", "index": 1, "title": "Define the residual", "instructions": "Return u_t + β·u_x." } },
       { "wait": 0, "type": "check.updated", "payload": { "stepId": "p2", "checkId": "c1", "label": "Return u_t + β·u_x", "status": "pending" } },
-      { "wait": 3000, "type": "check.updated", "payload": { "stepId": "p2", "checkId": "c1", "label": "Return u_t + β·u_x", "status": "pass" } },
+      { "wait": 1200, "type": "status", "payload": { "state": "thinking" } },
+      { "wait": 2000, "type": "status", "payload": { "state": "watching" } },
+      { "wait": 1500, "type": "check.updated", "payload": { "stepId": "p2", "checkId": "c1", "label": "Return u_t + β·u_x", "status": "pass" } },
       { "wait": 450, "type": "step.passed", "payload": { "stepId": "p2" } },
       { "wait": 250, "goto": "pill_s3" }
     ],
@@ -57,10 +68,33 @@
       { "wait": 4500, "goto": "pill_s4" }
     ],
     "pill_s4": [
-      { "wait": 0, "type": "step.started", "payload": { "stepId": "p4", "index": 3, "title": "Compare to the exact solution", "instructions": "Plot u_pred next to the exact solution." } },
-      { "wait": 0, "type": "check.updated", "payload": { "stepId": "p4", "checkId": "c1", "label": "Relative L2 error < 5e-2", "status": "pending" } },
-      { "wait": 2500, "type": "check.updated", "payload": { "stepId": "p4", "checkId": "c1", "label": "Relative L2 error < 5e-2", "status": "pass" } },
-      { "wait": 450, "type": "step.passed", "payload": { "stepId": "p4" } }
+      { "wait": 0, "type": "step.started", "payload": { "stepId": "p4", "index": 3, "title": "Plot the loss", "instructions": "Plot the training loss on a log scale." } },
+      { "wait": 0, "type": "check.updated", "payload": { "stepId": "p4", "checkId": "c1", "label": "Saves a loss plot", "status": "pending" } },
+      { "wait": 2500, "type": "check.updated", "payload": { "stepId": "p4", "checkId": "c1", "label": "Saves a loss plot", "status": "pass" } },
+      { "wait": 450, "type": "step.passed", "payload": { "stepId": "p4", "pending": true } },
+      { "wait": 400, "type": "video.play", "payload": {} },
+      {
+        "wait": 3600,
+        "type": "lesson.updated",
+        "payload": {
+          "steps": [
+            { "id": "p1", "index": 0, "title": "Build the MLP" },
+            { "id": "p2", "index": 1, "title": "Define the residual" },
+            { "id": "p3", "index": 2, "title": "Train at β = 30" },
+            { "id": "p4", "index": 3, "title": "Plot the loss" },
+            { "id": "p5", "index": 4, "title": "Compare to the exact solution" }
+          ],
+          "complete": true,
+          "parts": { "done": 2, "failed": 0, "total": 2 }
+        }
+      },
+      { "wait": 600, "goto": "pill_s5" }
+    ],
+    "pill_s5": [
+      { "wait": 0, "type": "step.started", "payload": { "stepId": "p5", "index": 4, "title": "Compare to the exact solution", "instructions": "Plot u_pred next to the exact solution." } },
+      { "wait": 0, "type": "check.updated", "payload": { "stepId": "p5", "checkId": "c1", "label": "Relative L2 error < 5e-2", "status": "pending" } },
+      { "wait": 2500, "type": "check.updated", "payload": { "stepId": "p5", "checkId": "c1", "label": "Relative L2 error < 5e-2", "status": "pass" } },
+      { "wait": 450, "type": "step.passed", "payload": { "stepId": "p5" } }
     ]
   }
 }

@@ -82,10 +82,12 @@ The learner's project folder (starter files from their workspace):
 {workdir}
 
 Plan a hands-on lesson of 3-8 steps that reaches the goal from this starting point. Each step adds one
-small, visible piece (a function, a component, a command that prints something). If the folder is empty,
-step 1 creates the project (exact commands). title: imperative, <= 6 words; instructions: <= 2 sentences;
-file: the file the step edits (relative path), or "" for a terminal-only step. libraries: what the lesson
-uses, with current major versions."""
+small, visible piece (a function, a component, a command that prints something).
+The app has already created the lesson folder and opens each file for the learner: never tell them to
+mkdir, cd, touch or create folders, and never write absolute paths; name files relative to the lesson folder
+("in calculator.py"). Use the terminal only for real tool commands (npm create, pip install, running the program).
+title: imperative, <= 6 words; instructions: ONE short action (one sentence); file: the file the step edits
+(relative path), or "" for a terminal-only step. libraries: what the lesson uses, with current major versions."""
 
 STEP_PROMPT = """Learner's goal: {goal}. Lesson: "{lesson}". All steps: {outline}
 
@@ -99,7 +101,8 @@ Code from the earlier steps (already typed):
 {earlier}
 
 {research}
-Return for THIS step only:
+Return for THIS step only (files are relative to the lesson folder, which already exists and is open; no
+mkdir/cd/touch, no absolute paths):
 - code: exactly what to type in this step (only the new/changed lines, correct and runnable with the
   earlier steps' code), file: where it goes;
 - targets: file + `match` = a short literal anchor already in the file or typed in this step (e.g.
@@ -165,7 +168,7 @@ async def build_text_lesson(goal: str, workdir: str, on_update=None, *, cache: b
         return g
 
     research_task = asyncio.ensure_future(_safe_research(goal))
-    summary = info.summary_for_prompt()
+    summary = info.summary_for_prompt().replace(str(info.root), "the lesson folder")
 
     def plan_ok(o: dict) -> str | None:
         n = len(o.get("steps") or [])
@@ -220,7 +223,7 @@ async def build_text_lesson(goal: str, workdir: str, on_update=None, *, cache: b
             return None
 
         d = await claude._generate_json(SYSTEM, prompt, STEP_SCHEMA, effort="low", structured=False, role="detail", check=ok)
-        return _assemble_step(i, sp, d)
+        return sanitize_step(_assemble_step(i, sp, d), workdir)
 
     # 1. step 1 right away (no waiting for research)
     first = await step(1, "", "")
@@ -300,3 +303,48 @@ def _finalize(g: dict, info) -> None:
     g["steps"] = fixed["steps"]
     probs = [p for p in builder.lint(g, info.metrics, set(info.files)) if not re.match(r"^s\d+: video", p)]
     g["build"]["warnings"] += probs
+
+
+_SETUP_CMD = re.compile(r"^\s*(mkdir|touch|cd|md|New-Item|ni|type\s+nul)\b", re.I)
+_SETUP_PHRASE = re.compile(r"\b(mkdir|touch|cd\s+\S|create (a|the|an) (new )?(folder|directory)|in your terminal,? run)\b", re.I)
+_ABS_PATH = re.compile(r"(?<![\w.])(/Users/|/home/|/tmp/|/private/|[A-Z]:\\\\)[^\s`'\"]*")
+
+
+def sanitize_step(step: dict, workdir: str) -> dict:
+    """The engine prepares the folder and opens the file: strip absolute paths and folder-setup commands
+    from what the learner reads, keep one short action, and make sure a check looks for the typed code."""
+    root = str(workdir).rstrip("/")
+    for k in ("instructions", "code"):
+        t = step.get(k) or ""
+        if root:
+            t = t.replace(root + "/", "").replace(root, "the lesson folder")
+        t = _ABS_PATH.sub(lambda m: m.group(0).rsplit("/", 1)[-1], t)
+        step[k] = t
+    code_lines = [ln for ln in (step.get("code") or "").splitlines()]
+    kept = [ln for ln in code_lines if not _SETUP_CMD.match(ln) and not re.match(r"^\s*&&", ln)]
+    kept = [re.sub(r"^\s*(mkdir|touch|cd)\b[^&;]*(&&|;)\s*", "", ln, flags=re.I) for ln in kept]
+    step["code"] = "\n".join(kept).strip("\n")
+    if step.get("run_command") and _SETUP_CMD.match(step["run_command"]):
+        step.pop("run_command")
+    # whole sentences (split at ". " so "calculator.py" stays intact); drop the ones that are folder setup
+    sentences = [x.strip() for x in re.split(r"(?<=[.!?])\s+", step.get("instructions") or "") if x.strip()]
+    sentences = [x for x in sentences if not _SETUP_PHRASE.search(x)]
+    instr = sentences[0] if sentences else ""
+    f = step.get("file") or ""
+    if len(instr) < 8:
+        instr = f"In {f}, type the code below." if f else "Type the code below."
+    step["instructions"] = instr
+    # the check that counts is the typed code in the file; terminal checks for a step that no longer runs anything go
+    if not step.get("run_command"):
+        step["checks"] = [c for c in step["checks"] if c.get("app") not in ("Terminal", "iTerm2")]
+    if f and step["code"].strip() and not any(c.get("type") == "file_contains" for c in step.get("precision_checks") or []):
+        frag = next((ln.strip() for ln in step["code"].splitlines() if len(ln.strip()) >= 6), step["code"].strip())[:60]
+        step.setdefault("precision_checks", []).append({"id": "", "type": "file_contains", "label": "code typed in the file",
+                                                         "file": f, "pattern": builder.literal_pattern(frag)})
+    if not step["checks"] and f and step["code"].strip():
+        frag = next((ln.strip() for ln in step["code"].splitlines() if len(ln.strip()) >= 6), step["code"].strip())[:60]
+        step["checks"] = [{"id": "", "type": "screen_contains", "label": "code typed", "app": "Code", "pattern": builder.literal_pattern(frag)}]
+    for key, tag in (("checks", "c"), ("precision_checks", "p")):
+        for j, c in enumerate(step.get(key) or [], 1):
+            c["id"] = f"{step['id']}{tag}{j}"
+    return step

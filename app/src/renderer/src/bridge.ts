@@ -118,6 +118,10 @@ function createWebBridge(): TutBridge & { mode: () => EngineMode } {
         case 'island:size':
           islandSize = payload as typeof islandSize
           break
+        case 'island:yield':
+        case 'island:return':
+          fire(`ui:${signal}`, payload)
+          break
         case 'launcher:toggle':
           launcherOpen = !launcherOpen
           // One bus in the browser: the launcher opens from the island's shape and the island hides.

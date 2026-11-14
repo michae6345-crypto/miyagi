@@ -1,0 +1,107 @@
+{
+  "name": "overview",
+  "on": {
+    "connect": "ov_intro"
+  },
+  "segments": {
+    "ov_intro": [
+      { "wait": 600, "type": "lesson.building", "payload": { "message": "Watching part 1 of 4 with Gemini", "progress": 0.2 } },
+      {
+        "wait": 1400,
+        "type": "lesson.ready",
+        "payload": {
+          "lesson": {
+            "id": "ov-gpt",
+            "title": "GPT from scratch",
+            "sources": [],
+            "complete": false,
+            "builtBy": "gemini",
+            "goalMatch": { "score": 0.3, "note": "Trains a model from scratch. Your goal was fine-tuning." }
+          },
+          "steps": [
+            { "id": "o1", "index": 0, "title": "Load and encode the text" },
+            { "id": "o2", "index": 1, "title": "Split train and validation" }
+          ]
+        }
+      },
+      { "wait": 500, "goto": "ov_s1" }
+    ],
+    "ov_s1": [
+      {
+        "wait": 0,
+        "type": "step.started",
+        "payload": {
+          "stepId": "o1",
+          "index": 0,
+          "title": "Load and encode the text",
+          "instructions": "Read input.txt, build a vocabulary of its unique characters, map each one to an integer, and encode the whole text as one long tensor of token ids.",
+          "video": { "videoId": "ov", "start": 612, "end": 1105 }
+        }
+      },
+      { "wait": 0, "type": "check.updated", "payload": { "stepId": "o1", "checkId": "c1", "label": "Vocabulary has 65 characters", "status": "pending" } },
+      { "wait": 0, "type": "check.updated", "payload": { "stepId": "o1", "checkId": "c2", "label": "decode(encode(s)) == s", "status": "pending" } },
+      {
+        "wait": 6000,
+        "type": "lesson.updated",
+        "payload": {
+          "steps": [
+            { "id": "o1", "index": 0, "title": "Load and encode the text" },
+            { "id": "o2", "index": 1, "title": "Split train and validation" },
+            { "id": "o3", "index": 2, "title": "Bigram baseline" },
+            { "id": "o4", "index": 3, "title": "One self-attention head" }
+          ],
+          "complete": false,
+          "parts": { "done": 2, "failed": 0, "total": 4 }
+        }
+      },
+      { "wait": 4000, "type": "check.updated", "payload": { "stepId": "o1", "checkId": "c1", "label": "Vocabulary has 65 characters", "status": "pass" } },
+      { "wait": 1200, "type": "check.updated", "payload": { "stepId": "o1", "checkId": "c2", "label": "decode(encode(s)) == s", "status": "pass" } },
+      { "wait": 450, "type": "step.passed", "payload": { "stepId": "o1", "nextStepId": "o2" } },
+      { "wait": 600, "goto": "ov_s2" }
+    ],
+    "ov_s2": [
+      { "wait": 0, "type": "step.started", "payload": { "stepId": "o2", "index": 1, "title": "Split train and validation", "instructions": "Hold out the last 10% of the tokens for validation.", "video": { "videoId": "ov", "start": 1105, "end": 1260 } } },
+      { "wait": 0, "type": "check.updated", "payload": { "stepId": "o2", "checkId": "c1", "label": "Validation is 10% of the data", "status": "pending" } },
+      { "wait": 1500, "type": "check.updated", "payload": { "stepId": "o2", "checkId": "c1", "label": "Validation is 10% of the data", "status": "pass" } },
+      { "wait": 450, "type": "step.passed", "payload": { "stepId": "o2", "nextStepId": "o3" } },
+      { "wait": 400, "goto": "ov_s3" }
+    ],
+    "ov_s3": [
+      { "wait": 0, "type": "step.started", "payload": { "stepId": "o3", "index": 2, "title": "Bigram baseline", "instructions": "An embedding table that maps each token to the logits of the next one.", "video": { "videoId": "ov", "start": 1260, "end": 1990 } } },
+      { "wait": 0, "type": "check.updated", "payload": { "stepId": "o3", "checkId": "c1", "label": "Loss below 2.6", "status": "pending" } },
+      { "wait": 1500, "type": "check.updated", "payload": { "stepId": "o3", "checkId": "c1", "label": "Loss below 2.6", "status": "pass", "detail": "2.49" } },
+      { "wait": 450, "type": "step.passed", "payload": { "stepId": "o3", "nextStepId": "o4" } },
+      { "wait": 400, "goto": "ov_s4" }
+    ],
+    "ov_s4": [
+      { "wait": 0, "type": "step.started", "payload": { "stepId": "o4", "index": 3, "title": "One self-attention head", "instructions": "Keys, queries and values, with a lower-triangular mask so no token sees the future.", "video": { "videoId": "ov", "start": 1990, "end": 2870 } } },
+      { "wait": 0, "type": "check.updated", "payload": { "stepId": "o4", "checkId": "c1", "label": "Future tokens are masked", "status": "pending" } },
+      { "wait": 2000, "type": "check.updated", "payload": { "stepId": "o4", "checkId": "c1", "label": "Future tokens are masked", "status": "pass" } },
+      { "wait": 450, "type": "step.passed", "payload": { "stepId": "o4", "pending": true } },
+      {
+        "wait": 9000,
+        "type": "lesson.updated",
+        "payload": {
+          "steps": [
+            { "id": "o1", "index": 0, "title": "Load and encode the text" },
+            { "id": "o2", "index": 1, "title": "Split train and validation" },
+            { "id": "o3", "index": 2, "title": "Bigram baseline" },
+            { "id": "o4", "index": 3, "title": "One self-attention head" },
+            { "id": "o5", "index": 4, "title": "Multi-head attention" },
+            { "id": "o6", "index": 5, "title": "Feed-forward block" },
+            { "id": "o7", "index": 6, "title": "Residual connections" }
+          ],
+          "complete": false,
+          "parts": { "done": 3, "failed": 0, "total": 4 }
+        }
+      },
+      { "wait": 400, "goto": "ov_s5" }
+    ],
+    "ov_s5": [
+      { "wait": 0, "type": "step.started", "payload": { "stepId": "o5", "index": 4, "title": "Multi-head attention", "instructions": "Run several heads in parallel and concatenate their outputs.", "video": { "videoId": "ov", "start": 2870, "end": 3400 } } },
+      { "wait": 0, "type": "check.updated", "payload": { "stepId": "o5", "checkId": "c1", "label": "Output shape is (B, T, C)", "status": "pending" } },
+      { "wait": 0, "type": "check.updated", "payload": { "stepId": "o5", "checkId": "c2", "label": "Validation loss below 2.2", "status": "pending" } },
+      { "wait": 2000, "type": "check.updated", "payload": { "stepId": "o5", "checkId": "c1", "label": "Output shape is (B, T, C)", "status": "pass" } }
+    ]
+  }
+}

@@ -4,7 +4,7 @@
  */
 import { AnimatePresence, motion } from 'motion/react'
 import type { ReactNode } from 'react'
-import { CircleAlert, FileCode2, FileText, FolderGit2, Newspaper, SearchX } from 'lucide-react'
+import { CircleAlert, CircleStop, FileCode2, FileText, FolderGit2, Newspaper, SearchX } from 'lucide-react'
 import { Thumb } from '../../core/ui/atoms'
 import { brand, clock, color, fill, spring } from '../../core/theme'
 import type { SearchResult } from './store'
@@ -56,7 +56,17 @@ function Tile({ kind, thumbnail }: Pick<SearchResult, 'kind' | 'thumbnail'>): Re
   )
 }
 
-function Text({ title, meta, checked = false, warnings }: { title: string; meta: string; checked?: boolean; warnings?: string[] }): ReactNode {
+/**
+ * At most ONE extra meta segment per row (≤12 words of chrome): a non-coding style first (it changes what the lab
+ * can check), else the duration of a long video. Nothing for an ordinary coding tutorial.
+ */
+export function metaSegment(r: SearchResult): string | undefined {
+  if (r.style === 'no-code') return 'No-code'
+  if (r.style === 'conceptual') return 'Conceptual'
+  if (r.long && r.durationLabel) return r.durationLabel
+}
+
+function Text({ title, meta, extra, checked = false, warnings }: { title: string; meta: string; extra?: string; checked?: boolean; warnings?: string[] }): ReactNode {
   const quote = warnings?.find((w) => w.trim())?.replace(/\s+/g, ' ').trim()
   const more = (warnings?.length ?? 0) - 1
   return (
@@ -64,6 +74,7 @@ function Text({ title, meta, checked = false, warnings }: { title: string; meta:
       <span className="block truncate text-[14px] font-medium leading-[18px] text-white">{title}</span>
       <span className="flex min-w-0 text-[12.5px] leading-[17px]" style={{ color: color.faint }}>
         <span className="truncate">{meta}</span>
+        {extra && <span className="shrink-0 whitespace-pre">{` · ${extra}`}</span>}
         {/* The engine opened this link itself (oEmbed / HTTP / API). Gray: green only means passed. */}
         {checked && (
           <motion.span className="shrink-0 whitespace-pre" initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: 0.2 }}>
@@ -98,12 +109,24 @@ export function ResultRow({ r, best, ...rest }: Slot & { r: SearchResult; best: 
   return (
     <RowShell {...rest}>
       <Tile kind={r.kind} thumbnail={r.thumbnail} />
-      <Text title={r.title} meta={r.meta} checked={r.verified === true} warnings={r.warnings} />
+      <Text title={r.title} meta={r.meta} extra={metaSegment(r)} checked={r.verified === true} warnings={r.warnings} />
       {best && (
         <span className="shrink-0 text-[12.5px] font-medium" style={{ color: brand.pastel.pink }}>
           Best
         </span>
       )}
+    </RowShell>
+  )
+}
+
+/** During a lesson with nothing typed: ending it is the first row, highlighted (Enter ends it, Esc keeps the lesson). */
+export function EndRow({ lessonTitle, onPick }: { lessonTitle?: string; onPick: () => void }): ReactNode {
+  return (
+    <RowShell slot={0} onPick={onPick}>
+      <span className="grid h-[38px] w-[60px] shrink-0 place-items-center rounded-[8px]" style={{ background: fill.tile, color: fill.tileGlyph }}>
+        <CircleStop size={16} strokeWidth={1.6} />
+      </span>
+      <Text title="End lesson" meta={lessonTitle ?? 'Back to idle'} />
     </RowShell>
   )
 }
