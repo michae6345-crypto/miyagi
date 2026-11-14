@@ -2063,30 +2063,66 @@ def test_skip_step_moves_on_without_a_pass(rig):
 
 
 def test_check_step_passes_now_or_says_what_is_missing(rig):
+    """Check button: deterministic checks first, then E5's judge; ONE "Not yet" card (<= 12 words) + spotlight."""
     rig.s.check_wait_s = 0
-    asked = []
+    calls = []
 
-    async def explain(step, question, ctx):
-        asked.append(question)
-        return {"kind": "answer", "title": "Almost", "body": "Add the Tanh layer."}
+    async def judge_step(step, screen=None, files=None, **kw):
+        calls.append(files)
+        return {"done": False, "missing": "Add a Tanh activation after the first Linear layer, then save the file",
+                "checks": {}, "target": {"text": "nn.Linear", "rect": {"x": 10.0, "y": 20.0, "w": 300.0, "h": 18.0}}}
 
-    rig.s.m.explain = explain
+    rig.s.m.judge_step = judge_step
 
     async def go():
         await _to_step(rig, 1)  # s2: Linear + Tanh layers
         rig.write("import torch.nn as nn\nnet = nn.Sequential(nn.Linear(2, 50))\n")
+        n_cards = len(rig.of("card"))
         await rig.s.action("check_step")
         await rig.settle()
-        cards = rig.of("card")
-        assert cards[-2]["title"] == "Not yet" and "uses tanh" in cards[-2]["body"] and cards[-2]["actions"] == ["skip_step"]
-        assert cards[-1]["body"] == "Add the Tanh layer." and asked and "move on" in asked[0]
-        assert not rig.of("step.passed") or rig.of("step.passed")[-1]["stepId"] != "s2"
-        rig.write(S2)  # now done, without a run or any other trigger: asking is enough
+        new = rig.of("card")[n_cards:]
+        assert len(new) == 1 and new[0]["title"] == "Not yet" and new[0]["kind"] == "answer"
+        assert new[0]["actions"] == ["skip_step"] and len(new[0]["body"].split()) <= 12
+        assert rig.of("spotlight")[-1]["rect"]["w"] == 300.0
+        assert calls and "pinn_convection.py" in calls[0]
+        assert all(p["stepId"] != "s2" for p in rig.of("step.passed"))
+        rig.write(S2)  # now done, with no run or other trigger: asking is enough
         await rig.s.action("check_step")
         await rig.settle()
 
     run(go())
     assert rig.of("step.passed")[-1]["stepId"] == "s2" and "skipped" not in rig.of("step.passed")[-1]
+
+
+def test_check_step_judge_can_pass_what_the_machine_cannot_see(rig):
+    rig.s.check_wait_s = 0
+
+    async def judge_step(step, screen=None, files=None, **kw):
+        return {"done": True, "missing": "", "checks": {c["id"]: {"verdict": "done"} for c in rig.s.display_checks(step)}}
+
+    rig.s.m.judge_step = judge_step
+
+    async def go():
+        await _to_step(rig, 1)
+        await rig.s.action("check_step")
+        await rig.settle()
+
+    run(go())
+    assert rig.of("step.passed")[-1]["stepId"] == "s2"
+
+
+def test_check_step_without_a_judge_names_the_failing_checks(rig):
+    rig.s.check_wait_s = 0
+
+    async def go():
+        await _to_step(rig, 1)
+        rig.write("import torch.nn as nn\nnet = nn.Sequential(nn.Linear(2, 50))\n")
+        await rig.s.action("check_step")
+        await rig.settle()
+
+    run(go())
+    card = rig.of("card")[-1]
+    assert card["title"] == "Not yet" and "uses tanh" in card["body"] and card["actions"] == ["skip_step"]
 
 
 def test_provisional_placeholder_is_replaced_even_when_the_real_lesson_races_it(rig, monkeypatch):
@@ -2136,3 +2172,68 @@ def test_provisional_placeholder_is_replaced_even_when_the_real_lesson_races_it(
     assert rig.s.step["title"] == real["steps"][0]["title"] and rig.of("step.started")[-1]["stepId"] == "s1"
     assert [s["id"] for s in rig.s.steps] == [s["id"] for s in real["steps"]]
     assert all(u["steps"] for u in rig.of("lesson.updated"))  # never an empty update
+
+
+
+def test_background_judge_passes_pending_checks_and_looks_done_confirm(rig):
+    """E5's StepJudge on the tick: pending checks it saw done count as passed; a "Looks done?" card's confirm
+    passes the step (its checkIds go green)."""
+    class Judge:
+        def __init__(self, card=None, events=()):
+            self.card, self.events, self.n = card, list(events), 0
+
+        def should_judge(self, step, results, **kw):
+            return self.n == 0
+
+        async def judge(self, step, results, **kw):
+            self.n += 1
+            return {"events": self.events, "card": self.card}
+
+    async def go():
+        await _to_step(rig, 1)
+        rig.write("import torch.nn as nn\nnet = nn.Sequential(nn.Linear(2, 50))\n")
+        await rig.s.on_file_change([str(rig.workdir / "pinn_convection.py")])
+        await rig.settle()
+        failing = [r["checkId"] for r in rig.s.last_results if r.get("status") != "pass"]
+        rig.s.judge = Judge(card={"stepId": "s2", "kind": "answer", "title": "Looks done?", "body": "Tanh is there",
+                                  "actions": ["confirm", "skip_step"], "checkIds": failing})
+        await rig.s.tick()
+        await rig.settle()
+        assert rig.of("card")[-1]["title"] == "Looks done?"
+        await rig.s.action("confirm")
+        await rig.settle()
+
+    run(go())
+    assert rig.of("step.passed")[-1]["stepId"] == "s2"
+    assert any(p.get("detail") == "You confirmed it" for p in rig.of("check.updated"))
+
+
+def test_install_step_passes_when_the_tools_are_already_installed(rig):
+    graph = stubs.load_fixture_lesson()
+    graph["steps"][0].update(title="Guide to Installing Python & VS Code", instructions="Install Python and VS Code.")
+
+    async def go():
+        await rig.s.load_graph(graph)
+        await rig.settle()
+        rig.s.reqs = [{"tool": "python", "label": "Python", "kind": "runtime", "needed": True, "ok": True},
+                      {"tool": "vscode", "label": "VS Code", "kind": "editor", "needed": True, "ok": True}]
+        await rig.s._maybe_pass_setup_step()
+        await rig.settle()
+
+    run(go())
+    assert rig.of("step.passed")[0]["stepId"] == "s1"
+    assert any(p.get("detail") == "Already installed" for p in rig.of("check.updated"))
+
+
+def test_stuck_card_offers_skip_once_after_90s_idle(rig):
+    async def go():
+        await _to_step(rig, 1)
+        await rig.end_segment()
+        rig.clock.t += 95
+        await rig.s.tick()
+        await rig.s.tick()
+        await rig.settle()
+
+    run(go())
+    stuck = [c for c in rig.of("card") if c["title"] == "Stuck on this step?"]
+    assert len(stuck) == 1 and stuck[0]["actions"] == ["skip_step"]

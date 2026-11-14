@@ -315,6 +315,26 @@ class Modules:
         except TimeoutError as e:
             raise ModuleUnavailable(f"building the lesson took over {timeout:.0f}s") from e
 
+    # -- E5's Claude step judge (Haiku): the Check button and checks the machine can't see
+    def make_step_judge(self) -> Any:
+        """A coach.StepJudge per lesson, or None (no coach / stubbed)."""
+        if "coach" in self.forced:
+            return None
+        mod = self.real.get("coach")
+        cls = getattr(mod, "StepJudge", None) if mod else None
+        try:
+            return cls() if cls else None
+        except Exception:  # noqa: BLE001
+            log.exception("StepJudge() failed")
+            return None
+
+    async def judge_step(self, step: dict, screen: Any = None, files: dict | None = None, *, check_results: Any = None,
+                         focused_app: str = "", lesson: dict | None = None) -> dict | None:
+        fn = self._real_fn("coach", "judge_step")
+        if fn is None:
+            return None
+        return await fn(step, screen, files, check_results=check_results, focused_app=focused_app, lesson=lesson)
+
     # -- E2 lazy long-video parts: later parts are built only as the learner nears them
     def lesson_needs_more(self, graph: dict, step_index: int) -> bool:
         """DEMO never builds more (cost freeze: no Gemini calls); LIVE asks E2's progressive.needs_more."""
