@@ -21,9 +21,13 @@ import { readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { defineMainFeature } from '../context'
 import { dockRect } from '../../renderer/src/features/player/dock'
+import { color } from '../../renderer/src/core/theme'
 
-/** Painted before the renderer draws; matches core/theme color.glass on black. */
-const WINDOW_BG = '#1c1d22'
+/**
+ * Painted before the renderer draws: the panel color from core/theme (color.glass), made opaque
+ * (the window isn't transparent, so it can't take an alpha). One source of truth for the brand.
+ */
+const WINDOW_BG = color.glass.replace(/^rgba\(\s*([^,]+),\s*([^,]+),\s*([^,]+),[^)]*\)$/, 'rgb($1,$2,$3)')
 
 function loadBounds(file: string): Rectangle | undefined {
   try {

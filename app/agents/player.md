@@ -13,6 +13,14 @@
 - **Confirmed by Michael:** the player enforces the pause at `video.end` itself (as built). `step.started.index` is 0-based; the player doesn't read it anyway (it uses the order of `lesson.ready.steps`).
 - Screenshots: `agents/shots/player-stage.png` (whole stage, spotlight + caption over the player), `player-waiting.png`, `player-offtrack.png`, `player-passed.png` (the 400ms beat, staged by setting the state), `player-playing.png`. Close-ups hide the spotlight dim so the panel is readable; the real composite dims the player like Electron will.
 
+### Brand pass (Miyagi kit, core `db72ef9`)
+- **No blue:** progress fill, playhead, current-chapter bars and the primary button use `color.accent` (white). Replay step is a white pill with `color.onAccent` text. Chapter times are muted gray, the current one white.
+- **Status colors only for status:** green = done chapters, passed checks and the "Passed" beat; amber = off-track only (waiting label, failed-check dot); gray = watching ("Your turn" label, pending check dots). "Video unavailable" is gray now, not amber (an error isn't off-track).
+- **Passed beat copy:** `copy.passed`, "Good. Now the next one." (green check, no flash).
+- **Header:** `<MiyagiMark size={14} />` on the left, status dot on the right, like the notch pill. No sparkles, glows, gradients or emoji; no inline `rgba`/hex left in the player (white alphas are Tailwind classes, the rest are tokens). The playhead lost its drop shadow.
+- **Electron window background** is derived from `color.glass` (made opaque: `rgb(28,28,30)`), not a hard-coded hex.
+- Screenshots: `player-brand-stage.png` (whole stage, step 4 just passed, the real video playing), `player-brand-waiting.png` (step 7 held at 18:40, gray "Your turn"), `player-brand-offtrack.png` (step 6, amber), `player-brand-passed.png` (the 400ms beat, staged). The close-ups hide the spotlight dim. The pre-brand `player-*.png` shots are kept for comparison.
+
 ### Left / next
 - Electron: docking, header drag, bounds restore, no focus steal, autoplay, `player:intent` relay: all unverified (needs the Mac).
 - The off-track card (centered under the pill, up to 520 wide) covers ~90px of the player's left edge in both the stage and Electron. Pass 2: dock a bit narrower, or shift cards.
