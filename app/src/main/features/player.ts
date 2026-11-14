@@ -65,6 +65,8 @@ export default defineMainFeature({
       webPreferences: { autoplayPolicy: 'no-user-gesture-required' }
     })
     win.setAlwaysOnTop(true, 'floating')
+    // The engine's screen reader must ignore the player, or it reads the tutorial's code as the learner's.
+    ctx.reportBounds(win)
 
     // YouTube links must never open Electron windows.
     win.webContents.setWindowOpenHandler(({ url }) => {
