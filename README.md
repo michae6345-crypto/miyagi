@@ -6,7 +6,7 @@ Press **⌥Space** and a launcher grows out of the MacBook notch. Type what you 
 live web, turns the video into steps with machine-checkable checks, sets up a project folder and opens VS Code. Then it plays the
 video one step at a time. Each step waits until **your own screen** shows the step really works: the code is there, the terminal
 output is right, the loss curve is falling. When a check fails, a Claude Opus coach looks at your actual screen and code and tells
-you what's wrong in about 3 seconds. It gives hints first, the exact fix if you ask, and a "Do it for me" you have to confirm and can undo.
+you what's wrong, with the card landing 2–4 s after your run ends. It gives hints first, the exact fix if you ask, and a "Do it for me" you have to confirm and can undo.
 
 Built at SanD Hacks 2026 (UCSD, Nov 14–15). Devpost write-up: [`docs/devpost/SUBMISSION.md`](docs/devpost/SUBMISSION.md) ·
 demo script: [`docs/devpost/DEMO.md`](docs/devpost/DEMO.md).

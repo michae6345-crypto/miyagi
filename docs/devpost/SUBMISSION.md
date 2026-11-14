@@ -39,7 +39,7 @@ yourself and doesn't let you move on until it really works. Miyagi does that for
    device, plus macOS Accessibility) and spotlights where you should work. When the step's checks pass on your real screen, the
    step turns green and the video resumes on its own.
 6. **Get unstuck.** If a check fails (say, the loss is stuck around 17), the step goes amber and a Claude Opus coach diagnoses the
-   problem from your actual screen and code. It gives one short card with a hint ladder: a guiding question, then the moment in
+   problem from your actual screen and code, with the card landing 2–4 s after the run ends. It gives one short card with a hint ladder: a guiding question, then the moment in
    the video, then the source, then the exact fix. **"Do it for me"** shows a diff preview, applies it only after you confirm, and
    can be undone.
 7. **See it.** **⌥D** draws a diagram for the current step, built by Claude for any topic: React data flow, a git commit graph,
@@ -81,7 +81,8 @@ Real numbers, with where each one comes from:
 | Lesson build, hero (24-min Toscano PINN video, Gemini watched it) | **31.1 s** | `build.seconds` in `demo/cache/lessons/aebc6b8fba02dac5.json` |
 | Lesson build, 5 non-PINN tutorials (React, git, pandas, Rust, FastAPI) | Gemini path **41–50 s**; Claude transcript path 170–179 s on the first run → **29–83 s** after four rounds of fixes | `evals/lesson/report.md` (PR #10) |
 | Lesson quality on those 5 | All schema-valid and lint-clean; 43/43 step titles match the transcript at that time; manual score **8–9/10** on the latest run; no PINN vocabulary leaked | `evals/lesson/report.md` |
-| Coach card after a failed training run | **3.3 s** after the run ends (warm prompt cache) | commit `eb08267` message (coach `_meta` logging) |
+| Coach card after a failed training run | **2–4 s** after the run ends; Opus itself takes 3.1–4.0 s, starting once the check fails (3 rehearsal takes); 3.3 s in an earlier warm-cache run | `docs/REHEARSAL.md` (rehearsal PR, `claude/demo-rehearsal-06521d`); commit `eb08267` |
+| Hero rehearsal, end to end | 3/3 takes passed: amber 16.5–18.8 s after ↵, green 11.6–15.9 s after the fix, video resumes 0.4 s after green | `docs/REHEARSAL.md` |
 | Coach streaming | first text 1.5 s after `warm()`; spotlight targets at 2.9 s of a 4.65 s reply; 4,505 cached prompt tokens read | `server/coach/README.md` |
 | Screen reader (M5 Pro, 3456×2234) | capture ~17 ms; Apple Vision OCR 100–220 ms per frame warm; static screens aren't re-OCR'd | `server/screen/README.md` |
 | Step gate | check passes → next step started within 0.4 s | `docs/STAGES.md` |
@@ -119,7 +120,7 @@ Electron + React + TypeScript + Tailwind + Motion for the overlay, PyTorch for t
 ## Accomplishments that we're proud of
 
 - The hero loop is real end to end: an actual training run, real OCR of the terminal, a statistically tested plateau check, a
-  live Opus diagnosis in 3.3 s that finds `lr = 0.3` by itself, then green, and the video resumes.
+  live Opus diagnosis that lands 2–4 s after the run ends and finds `lr = 0.3` by itself, then green, and the video resumes.
 - No fake data on the live path. A module that fails sends an `error` event with the reason, a search row Gemini didn't watch says
   "not watched: Gemini quota", and Claude can't cite a paper that isn't on a whitelist. Canned data exists only behind `DEMO=1`.
 - It generalizes: 5 tutorials in very different stacks became playable lessons scored 8–9/10, with checks that fit each stack
@@ -132,7 +133,7 @@ Electron + React + TypeScript + Tailwind + Motion for the overlay, PyTorch for t
 - Grading a learner from their **screen** generalizes far better than wiring into one editor. It works in VS Code, Terminal, a
   browser or a notebook, with no extension.
 - Fast models do the cheap parts and Opus does the one hard part. Rules handle triage, Haiku points at the screen, Sonnet draws
-  diagrams and scaffolds, and Opus writes only the diagnosis. Prompt caching plus a warm-up call is what got the coach to 3.3 s.
+  diagrams and scaffolds, and Opus writes only the diagnosis. Prompt caching plus a warm-up call is what lets the card land 2–4 s after the run ends.
 - A noisy loss curve fools naive slope checks about a third of the time. Rank-based trend tests fixed it.
 - Run every stage against topics you didn't design for. Our worst bug only showed up outside the demo.
 
@@ -223,5 +224,6 @@ the demo video) before listing this track.
 - [ ] One live finder run with Bright Data comments: `python -m server.finder "learn physics informed machine learning with PINNs in PyTorch" --refresh -v`. Quote its `comments` line.
 - [ ] ElevenLabs: link the engine file that calls it, or keep it "in progress".
 - [ ] GoDaddy: confirm miyagi.study is registered and where it points.
+- [ ] Rehearsal PR (`claude/demo-rehearsal-06521d`: `scripts/miyagi-offline.sh`, `scripts/rehearse.py`, `demo/cache/coach/s8.json`, `docs/REHEARSAL.md`) merged, since DEMO.md and the numbers table point to it.
 - [ ] Backup demo video recorded (see `docs/devpost/DEMO.md`).
 - [ ] No `.env`, API keys or connection strings in screenshots or the video.
