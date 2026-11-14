@@ -54,16 +54,19 @@ def _regex_accepts(pattern: str, code: str) -> bool | None:
 
 
 def _parses(metric_pattern: str, output: str) -> bool:
-    """True if the pattern extracts at least one numeric (step, value) from the output lines."""
+    """True if the pattern extracts a numeric value (and an int step, when it has that group) from a line."""
     try:
         rx = re.compile(metric_pattern)
     except re.error:
         return False
+    if "value" not in rx.groupindex:
+        return False
     for line in output.splitlines():
         m = rx.search(line)
-        if m and {"step", "value"} <= set(rx.groupindex):
+        if m:
             try:
-                int(m.group("step"))
+                if "step" in rx.groupindex:
+                    int(m.group("step"))
                 float(m.group("value"))
                 return True
             except (TypeError, ValueError):

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 import os
 import re
 import warnings
@@ -15,6 +16,8 @@ from google import genai
 from google.genai import types
 
 from .schema import ADAPTED_SCHEMA, DETAIL_SCHEMA, VIDEO_DRAFT_SCHEMA
+
+log = logging.getLogger("server.lesson")
 
 # Override with LESSON_MODEL / LESSON_FAST_MODEL. Video pass wants the strongest
 # video model; the per-step detail and adapt passes are cheaper.
@@ -83,6 +86,36 @@ def _video_part(url: str, start: float | None = None, end: float | None = None, 
     return types.Part(file_data=types.FileData(file_uri=url), video_metadata=meta)
 
 
+def fallback_models() -> list[str]:
+    """Tried in order when a model is overloaded (503) or out of quota (free tier: per-model daily caps)."""
+    _load_env()
+    raw = os.environ.get("LESSON_FALLBACK_MODELS", "gemini-3.7-flash,gemini-3.6-flash,gemini-3.5-flash")
+    return [m.strip() for m in raw.split(",") if m.strip()]
+
+
+_RETRY_IN = re.compile(r"retry in ([\d.]+)s", re.I)
+MAX_RATE_WAIT_S = 45.0
+_exhausted: set[str] = set()  # models whose daily quota is gone, skipped for the rest of the process
+
+
+def _classify(e: Exception) -> tuple[str, float]:
+    """-> (kind, wait_seconds). kind: 'daily'/'gone' (skip model), 'rate' (wait, same model), 'busy', 'other'."""
+    msg = str(e)
+    code = getattr(e, "code", None)
+    if code in (401, 403) or "PERMISSION_DENIED" in msg or "UNAUTHENTICATED" in msg or "API_KEY_INVALID" in msg:
+        return "auth", 0.0
+    if code == 404 or "NOT_FOUND" in msg:
+        return "gone", 0.0
+    if code == 429 or "RESOURCE_EXHAUSTED" in msg:
+        if "PerDay" in msg or "per day" in msg.lower():
+            return "daily", 0.0
+        m = _RETRY_IN.search(msg)
+        return "rate", float(m.group(1)) + 1 if m else 20.0
+    if code in (500, 503) or "UNAVAILABLE" in msg:
+        return "busy", 3.0
+    return "other", 2.0
+
+
 async def _generate_json(model_id: str, parts: list[types.Part], schema: dict, *, system: str, media_low: bool = False, retries: int = 2) -> dict:
     cfg = types.GenerateContentConfig(
         system_instruction=system,
@@ -91,18 +124,33 @@ async def _generate_json(model_id: str, parts: list[types.Part], schema: dict, *
         temperature=0.2,
         media_resolution=types.MediaResolution.MEDIA_RESOLUTION_LOW if media_low else None,
     )
+    chain = [m for m in dict.fromkeys([model_id, *fallback_models()]) if m not in _exhausted]
     last: Exception | None = None
-    for attempt in range(retries + 1):
-        try:
-            resp = await client().aio.models.generate_content(model=model_id, contents=types.Content(role="user", parts=parts), config=cfg)
-            text = resp.text or ""
-            return json.loads(text)
-        except json.JSONDecodeError as e:
-            last = e
-        except Exception as e:  # network / 429 / 5xx: back off and retry
-            last = e
-            await asyncio.sleep(2 * (attempt + 1))
-    raise RuntimeError(f"Gemini call failed after {retries + 1} attempts: {last}") from last
+    for mid in chain:
+        for attempt in range(retries + 1):
+            try:
+                resp = await client().aio.models.generate_content(model=mid, contents=types.Content(role="user", parts=parts), config=cfg)
+                if mid != model_id:
+                    log.warning("used fallback model %s (wanted %s)", mid, model_id)
+                return json.loads(resp.text or "")
+            except json.JSONDecodeError as e:
+                last = e
+                continue
+            except Exception as e:  # noqa: BLE001  network / 429 / 5xx
+                last = e
+                kind, wait = _classify(e)
+                if kind == "auth":  # bad/blocked key: every model will fail the same way
+                    raise RuntimeError(f"Gemini rejected the API key: {str(e)[:200]}") from e
+                if kind in ("daily", "gone"):
+                    _exhausted.add(mid)
+                    log.warning("%s: %s, trying next model", mid, "daily quota exhausted" if kind == "daily" else "model not available")
+                    break
+                if kind == "rate" and wait > MAX_RATE_WAIT_S:
+                    break
+                if kind == "busy" and attempt == retries:
+                    break
+                await asyncio.sleep(wait * (1 if kind == "rate" else attempt + 1))
+    raise RuntimeError(f"Gemini call failed on {chain}: {str(last)[:300]}") from last
 
 
 # --------------------------------------------------------------------------- #
@@ -118,20 +166,24 @@ WATCH_PROMPT = """Learner's goal: {goal}
 
 Break this tutorial into 4-10 sequential steps a learner can code along with.
 Rules:
-- One step = one concrete thing the learner builds or runs (e.g. "Define the MLP", "Compute the PDE residual with autograd", "Write the training loop", "Train and watch the loss drop"). Skip intros, outros, sponsor segments and pure theory unless they end in code.
+- One step = one concrete thing the learner builds or runs (e.g. "Create the Counter component", "Add the fetch call", "Commit the first change", "Define the model", "Run the tests"). Skip intros, outros, sponsor segments and pure theory unless they end in code or a command.
 - start/end are MM:SS (or H:MM:SS). end is the moment the step's code is complete or its run finished. Steps must not overlap and must be in order.
 - title: imperative, at most 6 words. instructions: at most 2 sentences, concrete.
 - code: transcribe the key lines written in the step exactly as on screen (keep variable names).
-- checks: machine-checkable from the learner's SCREEN (on-device OCR of their editor and terminal). Use
+- checks: machine-checkable from the learner's SCREEN (on-device OCR of their editor, terminal and browser). Use
   * screen_contains with app "Code" (editor) and a SHORT regex (< 60 chars) for a distinctive fragment of
-    the step's code, tolerant to OCR spacing, e.g. "autograd\\.grad\\(" or "def\\s+lossPDE",
-  * screen_absent with app "Terminal" and pattern "Traceback|Error:" for "it runs",
-  * metric_threshold / metric_trend for training steps with a metric_pattern: a regex with named groups
-    step and value that parses the training lines EXACTLY as the video's code prints them
-    (copy the print format into expected_output); thresholds the tutorial's own run clearly reaches.
+    the step's code, tolerant to OCR spacing, e.g. "useState\\(" or "def\\s+handler" or "git\\s+commit\\s+-m",
+  * screen_contains with app "Terminal" (or the browser) for output the step should produce,
+    e.g. "Compiled successfully", "\\d+ passed", "\\[main \\w+\\]", "Listening on",
+  * screen_absent with app "Terminal" and pattern "Traceback|Error:|ERR!" for "it runs",
+  * metric_threshold / metric_trend for any number the tutorial prints and the learner should reach
+    (loss, accuracy, tests passed, build time, latency, error count...), with a metric_pattern: a regex
+    with a named group value (and step when the number is printed per step/epoch/iteration) that parses
+    the line EXACTLY as the video's code prints it (copy the print format into expected_output).
+    Thresholds: values the tutorial's own run clearly reaches.
   Never use a "visual" check. Every step needs at least one check.
 - targets: where the learner should look/edit: app ("Code"/"Terminal"), file, and `match` = a short literal
-  substring that will be visible on screen, e.g. "def lossPDE", plus a caption.
+  substring that will be visible on screen, e.g. "function TodoList" or "git merge", plus a caption.
 - explanations: moments (MM:SS) where the presenter explains a concept relevant to the step.
 - hints: a ladder of 2-4 hints, gentlest first (a guiding question -> a pointer -> nearly the answer).
 - common_mistakes: concrete mistakes learners make in this step (e.g. forgetting requires_grad=True on inputs, create_graph=True for second derivatives).
@@ -172,9 +224,10 @@ the learner's SCREEN with on-device OCR (Apple Vision) and evaluates checks lite
     ("Code" = editor, "Terminal" = terminal). OCR drops/merges spaces and may misread quotes, so match a
     SHORT distinctive fragment (< 60 chars) with \\s* between tokens, avoid quotes, ^/$ anchors and long literals.
     Use screen_absent app "Terminal" pattern "Traceback|Error" for "the script runs".
-  * metric_threshold / metric_trend with `metric` (a name) and `metric_pattern`: a regex with named groups
-    (?P<step>...) and (?P<value>...) that matches ONE printed training line of the learner's code exactly
-    as it prints (for ::metric:: JSON lines, match the JSON keys).
+  * metric_threshold / metric_trend with `metric` (a name) and `metric_pattern`: a regex with a named group
+    (?P<value>...) (plus (?P<step>...) when the number is printed per step/epoch/iteration; required for
+    metric_trend) that matches ONE printed line (training loss, accuracy, "Tests: 12 passed", build time,
+    latency) exactly as the learner's code prints it (for ::metric:: JSON lines, match the JSON keys).
 - `precision_checks` (backup, only when the workdir is known): file_contains / file_exists with paths relative
   to the workdir, command_exit_ok with a quick command that exists (small --epochs/--steps flag), metric_* by
   the ::metric:: name the code prints.

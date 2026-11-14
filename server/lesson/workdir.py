@@ -7,8 +7,13 @@ import re
 from dataclasses import dataclass, field
 from pathlib import Path
 
-SKIP_DIRS = {".git", ".venv", "venv", "env", "node_modules", "__pycache__", ".ipynb_checkpoints", "data", "runs", "wandb", ".mypy_cache", ".pytest_cache"}
-TEXT_EXT = {".py", ".ipynb", ".txt", ".toml", ".cfg", ".yaml", ".yml", ".md", ".sh"}
+SKIP_DIRS = {".git", ".venv", "dist", "build", ".next", "target", "coverage", "venv", "env", "node_modules", "__pycache__", ".ipynb_checkpoints", "data", "runs", "wandb", ".mypy_cache", ".pytest_cache"}
+TEXT_EXT = {
+    ".py", ".ipynb", ".txt", ".toml", ".cfg", ".yaml", ".yml", ".md", ".sh", ".json",
+    ".js", ".jsx", ".ts", ".tsx", ".mjs", ".cjs", ".html", ".css", ".vue", ".svelte",
+    ".go", ".rs", ".java", ".kt", ".rb", ".php", ".c", ".h", ".cpp", ".swift", ".sql",
+}
+SKIP_FILES = {"package-lock.json", "yarn.lock", "pnpm-lock.yaml", "poetry.lock", "uv.lock", "Cargo.lock"}
 MAX_FILES = 40
 MAX_CHARS_PER_FILE = 12_000
 MAX_CHARS_TOTAL = 60_000
@@ -82,7 +87,7 @@ def _walk(root: Path):
         if p.is_dir():
             if p.name not in SKIP_DIRS:
                 yield from _walk(p)
-        elif p.is_file():
+        elif p.is_file() and p.name not in SKIP_FILES:
             yield p
 
 

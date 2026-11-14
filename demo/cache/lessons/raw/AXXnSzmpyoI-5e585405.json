@@ -1,6 +1,6 @@
 {
-  "title": "Learning PINNs in PyTorch: 1D Diffusion Equation",
-  "summary": "Implement and train a Physics-Informed Neural Network (PINN) in PyTorch to solve the time-dependent 1D diffusion PDE using automatic differentiation and Latin Hypercube Sampling.",
+  "title": "Learning PINNs in PyTorch: Diffusion Equation",
+  "summary": "Build and train a Physics-Informed Neural Network (PINN) in PyTorch to solve a time-dependent 1D diffusion PDE using automatic differentiation and Latin Hypercube Sampling.",
   "libraries": [
     {
       "name": "torch",
@@ -24,7 +24,7 @@
     },
     {
       "name": "scikit-learn",
-      "version": "1.0.x"
+      "version": "1.x"
     }
   ],
   "files": [
@@ -33,28 +33,29 @@
   "steps": [
     {
       "start": 143.0,
-      "end": 173.0,
+      "end": 172.0,
       "title": "Install pyDOE and import libraries",
-      "instructions": "Install pyDOE and import PyTorch, Matplotlib, NumPy, and lhs. Configure float32 default dtype, set random seeds to 1234, and select the CUDA or CPU device.",
+      "instructions": "Install pyDOE and import PyTorch, Matplotlib, NumPy, SciPy, and lhs. Set the default dtype to float, fix random seeds to 1234, and select the GPU or CPU device.",
       "file": "DiffusionEquation.ipynb",
-      "code": "!pip install pyDOE\nimport torch\nimport torch.autograd as autograd\nfrom torch import Tensor\nimport torch.nn as nn\nimport torch.optim as optim\nimport numpy as np\nfrom pyDOE import lhs\ntorch.set_default_dtype(torch.float)\ntorch.manual_seed(1234)\nnp.random.seed(1234)\ndevice = torch.device('cuda' if torch.cuda.is_available() else 'cpu')",
+      "code": "!pip install pyDOE; import torch; import torch.autograd as autograd; import torch.nn as nn; import torch.optim as optim; import numpy as np; from pyDOE import lhs; torch.set_default_dtype(torch.float); torch.manual_seed(1234); np.random.seed(1234); device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')",
+      "run_command": "pip install pyDOE",
       "expected_output": "Successfully installed pyDOE-0.3.8",
       "checks": [
         {
           "type": "screen_contains",
-          "label": "pyDOE imported from library",
+          "label": "pyDOE and PyTorch imported",
           "app": "Code",
           "pattern": "from\\s+pyDOE\\s+import\\s+lhs"
         },
         {
           "type": "screen_contains",
-          "label": "Default float dtype set",
+          "label": "Device configured for training",
           "app": "Code",
-          "pattern": "torch\\.set_default_dtype"
+          "pattern": "torch\\.device\\('cuda'"
         },
         {
           "type": "screen_absent",
-          "label": "No errors in terminal",
+          "label": "Imports run without errors",
           "app": "Terminal",
           "pattern": "Traceback|Error:"
         }
@@ -64,23 +65,23 @@
           "app": "Code",
           "file": "DiffusionEquation.ipynb",
           "match": "from pyDOE import lhs",
-          "caption": "Import lhs for Latin Hypercube Sampling and configure PyTorch device and seeds"
+          "caption": "Import lhs for Latin Hypercube Sampling and configure seeds and device"
         }
       ],
       "explanations": [
         {
-          "topic": "Using pyDOE for Latin Hypercube Sampling of collocation points",
+          "topic": "Purpose of pyDOE and Latin Hypercube Sampling",
           "t": 164.0
         }
       ],
       "hints": [
-        "Which package provides Latin Hypercube Sampling for collocation points?",
-        "Use !pip install pyDOE and import lhs from pyDOE alongside torch and numpy.",
-        "Call torch.set_default_dtype(torch.float), set both torch and numpy seeds to 1234, and define device."
+        "Which sampling library is needed for collocation points?",
+        "Run !pip install pyDOE and import lhs from pyDOE.",
+        "Add torch.set_default_dtype(torch.float), manual_seed(1234), and device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')."
       ],
       "common_mistakes": [
         "Forgetting to install pyDOE before importing lhs.",
-        "Leaving PyTorch's default dtype mismatched or forgetting to set random seeds for reproducibility."
+        "Using float64 instead of setting default dtype to torch.float (float32)."
       ],
       "index": 1
     },
@@ -88,27 +89,21 @@
       "start": 173.0,
       "end": 310.0,
       "title": "Generate and plot exact solution",
-      "instructions": "Define f_real(x, t) for the exact diffusion solution and create a 200x100 meshgrid over x in [-1, 1] and t in [0, 1]. Evaluate y_real on the grid and visualize it with plot3D.",
+      "instructions": "Define f_real(x,t) for the exact solution and create a 2D meshgrid over x in [-1,1] and t in [0,1]. Evaluate y_real on the grid and visualize it with plot3D.",
       "file": "DiffusionEquation.ipynb",
-      "code": "def f_real(x,t):\n  return torch.exp(-t)*(torch.sin(np.pi*x))\n\nx=torch.linspace(-1,1,200)\nt=torch.linspace(0,1,100)\nX,T=torch.meshgrid(x,t)\ny_real=f_real(X,T)\nplot3D(x,t,y_real)",
+      "code": "def f_real(x,t): return torch.exp(-t)*(torch.sin(np.pi*x)); x=torch.linspace(-1,1,200); t=torch.linspace(0,1,100); X,T=torch.meshgrid(x,t); y_real=f_real(X,T); plot3D(x,t,y_real)",
       "checks": [
         {
           "type": "screen_contains",
           "label": "Exact solution function defined",
           "app": "Code",
-          "pattern": "def\\s+f_real\\("
+          "pattern": "def\\s+f_real\\(x,\\s*t\\):"
         },
         {
           "type": "screen_contains",
-          "label": "Meshgrid created from x and t",
+          "label": "Meshgrid and plot3D called",
           "app": "Code",
-          "pattern": "torch\\.meshgrid\\(x,\\s*t\\\""
-        },
-        {
-          "type": "screen_absent",
-          "label": "No errors in terminal",
-          "app": "Terminal",
-          "pattern": "Traceback|Error:"
+          "pattern": "X,\\s*T\\s*=\\s*torch\\.meshgrid\\(x,\\s*t\\)"
         }
       ],
       "targets": [
@@ -116,57 +111,45 @@
           "app": "Code",
           "file": "DiffusionEquation.ipynb",
           "match": "def f_real(x,t):",
-          "caption": "Define the analytical solution and generate the 2D space-time grid"
+          "caption": "Define the exact analytical solution and evaluate it over the space-time grid"
         }
       ],
       "explanations": [
         {
-          "topic": "Creating a 2D surface with torch.meshgrid over the problem domain",
-          "t": 262.0
+          "topic": "Domain limits and 2D meshgrid setup",
+          "t": 255.0
         }
       ],
       "hints": [
-        "How do you build a 2D grid from 1D linspace vectors in PyTorch?",
-        "Define f_real(x,t) returning torch.exp(-t)*(torch.sin(np.pi*x)) and call torch.meshgrid(x,t).",
-        "Use torch.linspace(-1,1,200) for x, torch.linspace(0,1,100) for t, evaluate f_real(X,T), and call plot3D(x,t,y_real)."
+        "How do you build a 2D space-time grid from 1D tensors in PyTorch?",
+        "Use torch.linspace(-1,1,200) for x, torch.linspace(0,1,100) for t, and torch.meshgrid(x,t).",
+        "Define def f_real(x,t): return torch.exp(-t)*(torch.sin(np.pi*x)) and call plot3D(x,t,y_real)."
       ],
       "common_mistakes": [
-        "Using numpy functions instead of torch.exp and torch.sin on tensor inputs.",
-        "Swapping the domain intervals [-1, 1] for x and [0, 1] for t."
+        "Using wrong domain bounds instead of [-1, 1] for x and [0, 1] for t.",
+        "Calling numpy functions instead of torch.exp and torch.sin on PyTorch tensors."
       ],
       "index": 2
     },
     {
-      "start": 310.0,
+      "start": 311.0,
       "end": 445.0,
-      "title": "Flatten meshgrid into testing data",
-      "instructions": "Transpose and flatten X, T, and y_real into column vectors using hstack and None indexing to build X_test and y_test. Store the lower and upper domain bounds in lb and ub and print the shapes.",
+      "title": "Flatten grid into testing tensors",
+      "instructions": "Transpose and flatten X, T, and y_real into column vectors X_test and y_test using torch.hstack. Extract lower bound lb and upper bound ub, then print their shapes and values.",
       "file": "DiffusionEquation.ipynb",
-      "code": "X_test=torch.hstack((X.transpose(1,0).flatten()[:,None],T.transpose(1,0).flatten()[:,None]))\ny_test=y_real.transpose(1,0).flatten()[:,None]\nlb=X_test[0]\nub=X_test[-1]\nprint(X_test.shape,y_test.shape)\nprint(lb,ub)",
-      "expected_output": "torch.Size([20000, 2]) torch.Size([20000, 1])\ntensor([-1.,  0.]) tensor([1., 1.])",
+      "code": "X_test=torch.hstack((X.transpose(1,0).flatten()[:,None],T.transpose(1,0).flatten()[:,None])); y_test=y_real.transpose(1,0).flatten()[:,None]; lb=X_test[0]; ub=X_test[-1]; print(X_test.shape,y_test.shape); print(lb,ub)",
+      "expected_output": "torch.Size([20000, 2]) torch.Size([20000, 1]) tensor([-1.,  0.]) tensor([1., 1.])",
       "checks": [
         {
           "type": "screen_contains",
-          "label": "X_test stacked with hstack",
+          "label": "X_test created with hstack",
           "app": "Code",
-          "pattern": "X_test\\s*=\\s*torch\\.hstack"
-        },
-        {
-          "type": "screen_contains",
-          "label": "Upper bound stored in ub",
-          "app": "Code",
-          "pattern": "ub\\s*=\\s*X_test\\[-1\\]"
+          "pattern": "X_test\\s*=\\s*torch\\.hstack\\("
         },
         {
           "type": "output_contains",
-          "label": "Test tensor shapes printed",
-          "pattern": "20000,\\s*2"
-        },
-        {
-          "type": "screen_absent",
-          "label": "No errors in terminal",
-          "app": "Terminal",
-          "pattern": "Traceback|Error:"
+          "label": "Printed expected tensor shapes",
+          "pattern": "torch\\.Size\\(\\[20000,\\s*2\\]\\)\\s+torch\\.Size\\(\\[20000,\\s*1\\]\\)"
         }
       ],
       "targets": [
@@ -174,51 +157,46 @@
           "app": "Code",
           "file": "DiffusionEquation.ipynb",
           "match": "X_test=torch.hstack",
-          "caption": "Flatten the 200x100 grid into (20000, 2) test coordinates and extract bounds"
+          "caption": "Flatten the 2D grids into (20000, 2) and (20000, 1) testing tensors"
         }
       ],
       "explanations": [
         {
-          "topic": "Column-major flattening of meshgrid matrices for a fully connected network",
+          "topic": "Column-major flattening for fully connected networks",
           "t": 319.0
         }
       ],
       "hints": [
-        "Why does a fully connected network need flattened vectors instead of 200x100 matrices?",
-        "Transpose each matrix with .transpose(1,0), flatten it, and add a column axis with [:,None].",
-        "Stack X and T with torch.hstack into X_test, flatten y_real into y_test, and set lb=X_test[0], ub=X_test[-1]."
+        "Why does a fully connected network need flattened vectors instead of 2D matrices?",
+        "Transpose X, T, and y_real with .transpose(1,0), flatten, and add a trailing axis with [:,None].",
+        "Stack X and T with torch.hstack and set lb=X_test[0], ub=X_test[-1]."
       ],
       "common_mistakes": [
-        "Omitting [:,None], which leaves tensors as 1D vectors instead of (20000, 1) columns.",
-        "Forgetting .transpose(1,0) before .flatten() when doing column-major flattening."
+        "Omitting [:,None], which leaves y_test as 1D instead of shape (20000, 1).",
+        "Forgetting .transpose(1,0) before .flatten() when reshaping back later."
       ],
-      "index": 3
+      "index": 3,
+      "terminal_output": "torch.Size([20000, 2]) torch.Size([20000, 1])\ntensor([-1.,  0.]) tensor([1., 1.])"
     },
     {
-      "start": 445.0,
-      "end": 771.0,
-      "title": "Sample initial and boundary points",
-      "instructions": "Extract the initial condition (left_X, left_Y) and both spatial boundaries (bottom_X/Y, top_X/Y) and stack them into X_train and Y_train. Randomly sample Nu=100 points without replacement into X_train_Nu and Y_train_Nu.",
+      "start": 446.0,
+      "end": 770.0,
+      "title": "Build initial and boundary data",
+      "instructions": "Create left_X/left_Y for the initial condition and bottom_X/bottom_Y and top_X/top_Y for the boundary conditions, then stack them into X_train and Y_train. Randomly sample Nu=100 points without replacement into X_train_Nu and Y_train_Nu.",
       "file": "DiffusionEquation.ipynb",
-      "code": "left_X=torch.hstack((X[:,0][:,None],T[:,0][:,None]))\nleft_Y=torch.sin(np.pi*left_X[:,0]).unsqueeze(1)\nbottom_X=torch.hstack((X[-1,:][:,None],T[-1,:][:,None]))\nbottom_Y=torch.zeros(bottom_X.shape[0],1)\ntop_X=torch.hstack((X[0,:][:,None],T[0,:][:,None]))\ntop_Y=torch.zeros(top_X.shape[0],1)\nX_train=torch.vstack([left_X,bottom_X,top_X])\nY_train=torch.vstack([left_Y,bottom_Y,top_Y])\nNu=100\nidx=np.random.choice(X_train.shape[0],Nu,replace=False)\nX_train_Nu=X_train[idx,:]\nY_train_Nu=Y_train[idx,:]",
+      "code": "left_X=torch.hstack((X[:,0][:,None],T[:,0][:,None])); left_Y=torch.sin(np.pi*left_X[:,0]).unsqueeze(1); bottom_X=torch.hstack((X[-1,:][:,None],T[-1,:][:,None])); bottom_Y=torch.zeros(bottom_X.shape[0],1); top_X=torch.hstack((X[0,:][:,None],T[0,:][:,None])); top_Y=torch.zeros(top_X.shape[0],1); X_train=torch.vstack([left_X,bottom_X,top_X]); Y_train=torch.vstack([left_Y,bottom_Y,top_Y]); Nu=100; idx=np.random.choice(X_train.shape[0],Nu,replace=False); X_train_Nu=X_train[idx,:]; Y_train_Nu=Y_train[idx,:]",
       "checks": [
         {
           "type": "screen_contains",
-          "label": "Training tensors stacked with vstack",
+          "label": "Boundary tensors stacked vertically",
           "app": "Code",
-          "pattern": "X_train\\s*=\\s*torch\\.vstack"
+          "pattern": "X_train\\s*=\\s*torch\\.vstack\\("
         },
         {
           "type": "screen_contains",
-          "label": "Boundary points randomly sampled",
+          "label": "Nu training points sampled",
           "app": "Code",
-          "pattern": "np\\.random\\.choice"
-        },
-        {
-          "type": "screen_absent",
-          "label": "No errors in terminal",
-          "app": "Terminal",
-          "pattern": "Traceback|Error:"
+          "pattern": "X_train_Nu\\s*=\\s*X_train\\[idx,\\s*:\\]"
         }
       ],
       "targets": [
@@ -226,109 +204,107 @@
           "app": "Code",
           "file": "DiffusionEquation.ipynb",
           "match": "X_train=torch.vstack",
-          "caption": "Combine IC and BC points and randomly sample Nu=100 training points"
+          "caption": "Combine initial and boundary conditions and sample Nu=100 points"
         }
       ],
       "explanations": [
         {
-          "topic": "Mapping initial and boundary conditions to edges of the domain grid",
-          "t": 447.0
+          "topic": "Initial condition edge extraction",
+          "t": 453.0
+        },
+        {
+          "topic": "Boundary conditions at x=-1 and x=1",
+          "t": 545.0
         }
       ],
       "hints": [
-        "Which rows or columns of X and T correspond to t=0, x=-1, and x=1?",
-        "Slice [:,0] for t=0, [0,:] for x=-1, and [-1,:] for x=1, then vertically stack them with torch.vstack.",
-        "Sample Nu=100 indices using np.random.choice(X_train.shape[0], Nu, replace=False) and index X_train and Y_train."
+        "Which slices of X and T correspond to t=0, x=1, and x=-1?",
+        "Use X[:,0] for t=0, X[-1,:] for bottom, and X[0,:] for top, then vstack them.",
+        "Sample Nu=100 indices via np.random.choice(X_train.shape[0], Nu, replace=False)."
       ],
       "common_mistakes": [
-        "Calling .unsqueeze(1) or [:,None] inconsistently, causing a dimension mismatch in torch.vstack.",
-        "Sampling with replace=True or using torch.hstack instead of torch.vstack when combining boundaries."
+        "Using torch.hstack instead of torch.vstack when combining left, bottom, and top points.",
+        "Forgetting .unsqueeze(1) on left_Y so its shape matches bottom_Y and top_Y.",
+        "Setting replace=True when sampling unique boundary points."
       ],
       "index": 4
     },
     {
       "start": 771.0,
-      "end": 902.0,
-      "title": "Sample collocation points and move tensors",
-      "instructions": "Generate Nf=10000 collocation points inside [lb, ub] with lhs(2, Nf) and stack them with X_train_Nu. Cast the training/testing tensors to float, create the zero tensor f_hat, and move everything to device.",
+      "end": 901.0,
+      "title": "Sample collocation points with LHS",
+      "instructions": "Generate Nf=10000 collocation points across [lb, ub] using lhs(2, Nf) and stack them with X_train_Nu. Cast training tensors to float, move them to device, and create the zero target tensor f_hat.",
       "file": "DiffusionEquation.ipynb",
-      "code": "Nf=10000\nX_train_Nf=lb+(ub-lb)*lhs(2,Nf)\nX_train_Nf=torch.vstack((X_train_Nf,X_train_Nu))\n\nX_train_Nu=X_train_Nu.float().to(device)\nY_train_Nu=Y_train_Nu.float().to(device)\nX_train_Nf=X_train_Nf.float().to(device)\nf_hat=torch.zeros(X_train_Nf.shape[0],1).to(device)\nX_test=X_test.float().to(device)\ny_test=y_test.float().to(device)",
+      "code": "Nf=10000; X_train_Nf=lb+(ub-lb)*lhs(2,Nf); X_train_Nf=torch.vstack((X_train_Nf,X_train_Nu)); X_train_Nu=X_train_Nu.float().to(device); X_train_Nf=X_train_Nf.float().to(device); Y_train_Nu=Y_train_Nu.float().to(device); f_hat=torch.zeros(X_train_Nf.shape[0],1).to(device)",
       "checks": [
         {
           "type": "screen_contains",
-          "label": "Collocation points sampled with lhs",
+          "label": "Collocation points generated with lhs",
           "app": "Code",
-          "pattern": "lhs\\(2,\\s*Nf\\\""
+          "pattern": "lhs\\(2,\\s*Nf\\)|lhs\\(2,Nf\\),\\s*X_train_Nu"
         },
         {
           "type": "screen_contains",
-          "label": "Zero target f_hat created",
+          "label": "Tensors moved to device",
           "app": "Code",
-          "pattern": "f_hat\\s*=\\s*torch\\.zeros"
-        },
-        {
-          "type": "screen_absent",
-          "label": "No errors in terminal",
-          "app": "Terminal",
-          "pattern": "Traceback|Error:"
+          "pattern": "f_hat\\s*=\\s*torch\\.zeros\\(X_train_Nf\\.shape\\[0\\]"
         }
       ],
       "targets": [
         {
           "app": "Code",
           "file": "DiffusionEquation.ipynb",
-          "match": "X_train_Nf=lb+(ub-lb)*lhs(2,Nf)",
-          "caption": "Sample 10000 collocation points and move all tensors to device"
+          "match": "lhs(2,Nf)",
+          "caption": "Sample 10000 collocation points and move training data and f_hat to device"
         }
       ],
       "explanations": [
         {
-          "topic": "Scaling Latin Hypercube samples to the domain and creating f_hat zeros",
-          "t": 785.0
+          "topic": "Latin Hypercube Sampling for collocation points",
+          "t": 772.0
+        },
+        {
+          "topic": "Why f_hat is a tensor of zeros",
+          "t": 898.0
         }
       ],
       "hints": [
-        "How do you scale unit-cube samples from lhs(2, Nf) to your [lb, ub] domain?",
-        "Compute lb + (ub - lb) * lhs(2, Nf) and stack X_train_Nu onto X_train_Nf with torch.vstack.",
-        "Create f_hat = torch.zeros(X_train_Nf.shape[0], 1).to(device) and move X_train_Nu, Y_train_Nu, X_train_Nf, X_test, and y_test to device."
+        "How do you map lhs(2, Nf) from [0,1] into [lb, ub]?",
+        "Compute lb + (ub - lb) * lhs(2, Nf) and vstack with X_train_Nu.",
+        "Convert X_train_Nu, X_train_Nf, Y_train_Nu with .float().to(device) and set f_hat=torch.zeros(X_train_Nf.shape[0],1).to(device)."
       ],
       "common_mistakes": [
-        "Forgetting to convert X_train_Nf (which becomes float64 from numpy lhs) with .float() before passing it to the model.",
-        "Forgetting to move f_hat or X_test/y_test to the same device as the model."
+        "Forgetting to append X_train_Nu to X_train_Nf.",
+        "Leaving lhs output as double (float64) without calling .float() before passing to the network.",
+        "Creating f_hat on CPU instead of moving it to device."
       ],
       "index": 5
     },
     {
       "start": 902.0,
       "end": 1096.0,
-      "title": "Implement the FCN PINN class",
-      "instructions": "Define class FCN(nn.Module) with Tanh activations, Xavier weight initialization, and a forward pass over layers. Implement lossBC, lossPDE using autograd.grad for u_t and u_xx, and total loss.",
+      "title": "Define the FCN neural network",
+      "instructions": "Implement the FCN(nn.Module) class with Tanh activations, MSELoss, Xavier weight initialization, and a forward pass. Add lossBC, lossPDE using torch.autograd.grad with create_graph=True for second derivatives, and a combined loss method.",
       "file": "DiffusionEquation.ipynb",
-      "code": "class FCN(nn.Module):\n  def __init__(self,layers):\n    super().__init__()\n    self.activation = nn.Tanh()\n    self.loss_function = nn.MSELoss(reduction ='mean')\n    self.linears = nn.ModuleList([nn.Linear(layers[i], layers[i+1]) for i in range(len(layers)-1)])\n    for i in range(len(layers)-1):\n      nn.init.xavier_normal_(self.linears[i].weight.data, gain=1.0)\n      nn.init.zeros_(self.linears[i].bias.data)\n  def forward(self,x):\n    if torch.is_tensor(x) != True:\n      x = torch.from_numpy(x)\n    a = x.float()\n    for i in range(len(layers)-2):\n      z = self.linears[i](a)\n      a = self.activation(z)\n    a = self.linears[-1](a)\n    return a\n  def lossBC(self,x_BC,y_BC):\n    loss_BC=self.loss_function(self.forward(x_BC),y_BC)\n    return loss_BC\n  def lossPDE(self,x_PDE):\n    g=x_PDE.clone()\n    g.requires_grad=True\n    f=self.forward(g)\n    f_x_t = autograd.grad(f,g,torch.ones([g.shape[0], 1]).to(device), retain_graph=True, create_graph=True)[0]\n    f_xx_tt = autograd.grad(f_x_t,g,torch.ones(g.shape).to(device), create_graph=True)[0]\n    f_t=f_x_t[:,[1]]\n    f_xx=f_xx_tt[:,[0]]\n    f=f_t-f_xx+ torch.exp(-g[:, 1:])* (torch.sin(np.pi * g[:, 0:1]) - np.pi ** 2 * torch.sin(np.pi * g[:, 0:1]))\n    return self.loss_function(f,f_hat)\n  def loss(self,x_BC,y_BC,x_PDE):\n    loss_bc=self.lossBC(x_BC,y_BC)\n    loss_pde=self.lossPDE(x_PDE)\n    return loss_bc+loss_pde",
+      "code": "class FCN(nn.Module):\n    def __init__(self,layers):\n        super().__init__()\n        self.activation = nn.Tanh()\n        self.loss_function = nn.MSELoss(reduction ='mean')\n        self.linears = nn.ModuleList([nn.Linear(layers[i], layers[i+1]) for i in range(len(layers)-1)])\n        for i in range(len(layers)-1):\n            nn.init.xavier_normal_(self.linears[i].weight.data, gain=1.0)\n            nn.init.zeros_(self.linears[i].bias.data)\n    def forward(self,x):\n        if torch.is_tensor(x) != True:\n            x = torch.from_numpy(x)\n        a = x.float()\n        for i in range(len(layers)-2):\n            z = self.linears[i](a)\n            a = self.activation(z)\n        a = self.linears[-1](a)\n        return a\n    def lossBC(self,x_BC,y_BC):\n        loss_BC=self.loss_function(self.forward(x_BC),y_BC)\n        return loss_BC\n    def lossPDE(self,x_PDE):\n        g=x_PDE.clone()\n        g.requires_grad=True\n        f=self.forward(g)\n        f_x_t = autograd.grad(f,g,torch.ones([g.shape[0],1]).to(device), retain_graph=True, create_graph=True)[0]\n        f_xx_tt = autograd.grad(f_x_t,g,torch.ones([g.shape[0],1]).to(device), create_graph=True)[0]\n        f_t=f_x_t[:,[1]]\n        f_xx=f_xx_tt[:,[0]]\n        f_hat = f_t - f_xx +torch.exp(-g[:,[1]]) * (torch.sin(np.pi * g[:,[0]]) - np.pi ** 2 * torch.sin(np.pi * g[:,[0]]))\n        return self.loss_function(f,f_hat)\n\n    def loss(self,x_BC,y_BC,x_PDE):\n        loss_bc=self.lossBC(x_BC,y_BC)\n        loss_pde=self.lossPDE(x_PDE)\n        return loss_bc+loss_pde",
       "checks": [
         {
           "type": "screen_contains",
-          "label": "FCN class inherits nn.Module",
+          "label": "FCN class defined",
           "app": "Code",
-          "pattern": "class\\s+FCN\\(nn\\.Module\\\""
+          "pattern": "class\\s+FCN\\(nn\\.Module\\):"
         },
         {
           "type": "screen_contains",
-          "label": "PDE loss method defined",
+          "label": "PDE loss uses autograd.grad",
           "app": "Code",
-          "pattern": "def\\s+lossPDE"
+          "pattern": "def\\s+lossPDE\\(self,"
         },
         {
           "type": "screen_contains",
-          "label": "Second derivative graph enabled",
+          "label": "create_graph=True for higher derivatives",
           "app": "Code",
           "pattern": "create_graph\\s*=\\s*True"
-        },
-        {
-          "type": "screen_absent",
-          "label": "No errors in terminal",
-          "app": "Terminal",
-          "pattern": "Traceback|Error:"
         }
       ],
       "targets": [
@@ -336,60 +312,101 @@
           "app": "Code",
           "file": "DiffusionEquation.ipynb",
           "match": "def lossPDE",
-          "caption": "Compute PDE derivatives via autograd.grad and combine BC and PDE losses"
+          "caption": "Compute PDE derivatives via autograd.grad and evaluate the physics loss"
         }
       ],
       "explanations": [
         {
-          "topic": "Architecture, Xavier initialization, and forward pass of FCN",
-          "t": 916.0
+          "topic": "FCN architecture, Xavier init, and forward pass",
+          "t": 915.0
         },
         {
-          "topic": "Computing u_t and u_xx with autograd.grad in lossPDE",
-          "t": 992.0
+          "topic": "Boundary loss and PDE residual via autograd",
+          "t": 970.0
         }
       ],
       "hints": [
-        "How do you differentiate the network output with respect to its inputs x and t?",
-        "Clone x_PDE with requires_grad=True, run self.forward(g), and call autograd.grad twice with create_graph=True.",
-        "Extract f_t = f_x_t[:,[1]] and f_xx = f_xx_tt[:,[0]], assemble the residual f, and return self.loss_function(f, f_hat)."
+        "How do you compute first and second derivatives of the network output with respect to (x, t)?",
+        "Clone x_PDE, set g.requires_grad=True, and call autograd.grad twice with create_graph=True.",
+        "Extract f_t = f_x_t[:,[1]] and f_xx = f_xx_tt[:,[0]], compute the residual f, and return self.loss_function(f, f_hat)."
       ],
       "common_mistakes": [
-        "Forgetting g.requires_grad=True before calling self.forward(g).",
-        "Omitting retain_graph=True or create_graph=True on the first autograd.grad call, which breaks second-order differentiation.",
-        "Applying self.activation to the final linear layer in forward()."
+        "Forgetting create_graph=True on autograd.grad, which breaks backpropagation through second derivatives.",
+        "Forgetting g.requires_grad=True on the cloned collocation tensor.",
+        "Swapping column indices 0 (x) and 1 (t) when slicing f_x_t and f_xx_tt."
       ],
       "index": 6
     },
     {
-      "start": 1096.0,
-      "end": 1413.0,
-      "title": "Instantiate PINN and run training",
-      "instructions": "Instantiate FCN with layers [2, 32, 64, 1], move it to device, and create an Adam optimizer with lr=1e-3. Train for 20000 iterations and print training and testing losses every 2000 steps.",
+      "start": 1097.0,
+      "end": 1201.0,
+      "title": "Instantiate PINN and Adam optimizer",
+      "instructions": "Define layers = np.array([2,32,64,1]), instantiate PINN = FCN(layers) on device, and print the model. Create the Adam optimizer with lr=1e-3 and amsgrad=False.",
       "file": "DiffusionEquation.ipynb",
-      "code": "layers=np.array([2,32,64,1])\nPINN=FCN(layers)\nPINN.to(device)\nprint(PINN)\n\noptimizer=torch.optim.Adam(PINN.parameters(),lr=1e-3,amsgrad=False)\nfor i in range(20000):\n  loss=PINN.loss(X_train_Nu,Y_train_Nu,X_train_Nf)\n  optimizer.zero_grad()\n  loss.backward()\n  optimizer.step()\n  if i%(20000/10)==0:\n    with torch.no_grad():\n      test_loss=PINN.lossBC(X_test,y_test)\n    print(\"training:\",loss,\"Testing\",test_loss)",
-      "expected_output": "training: tensor(0.1915, device='cuda:0', grad_fn=<AddBackward0>) Testing tensor(0.1785, device='cuda:0')\ntraining: tensor(0.0369, device='cuda:0', grad_fn=<AddBackward0>) Testing tensor(0.0394, device='cuda:0')\ntraining: tensor(1.1714e-05, device='cuda:0', grad_fn=<AddBackward0>) Testing tensor(0.0363, device='cuda:0')",
+      "code": "layers=np.array([2,32,64,1]); PINN=FCN(layers); PINN.to(device); print(PINN); optimizer=torch.optim.Adam(PINN.parameters(),lr=1e-3,amsgrad=False)",
+      "expected_output": "FCN( (activation): Tanh() (loss_function): MSELoss() (linears): ModuleList( (0): Linear(in_features=2, out_features=32, bias=True) (1): Linear(in_features=32, out_features=64, bias=True) (2): Linear(in_features=64, out_features=1, bias=True) ) )",
       "checks": [
         {
           "type": "screen_contains",
-          "label": "PINN instantiated with FCN",
+          "label": "PINN instantiated with layers",
           "app": "Code",
-          "pattern": "PINN\\s*=\\s*FCN\\(layers\\\""
+          "pattern": "PINN\\s*=\\s*FCN\\(layers\\)|PINN\\.to\\(device\\)"
+        }
+      ],
+      "targets": [
+        {
+          "app": "Code",
+          "file": "DiffusionEquation.ipynb",
+          "match": "PINN=FCN(layers)",
+          "caption": "Build the FCN instance on device and initialize the Adam optimizer"
+        }
+      ],
+      "explanations": [
+        {
+          "topic": "Input/output dimensions of the PINN architecture",
+          "t": 1114.0
+        }
+      ],
+      "hints": [
+        "What must the first and last numbers in layers be?",
+        "Use np.array([2,32,64,1]) since the inputs are (x, t) and the output is y.",
+        "Instantiate optimizer = torch.optim.Adam(PINN.parameters(), lr=1e-3, amsgrad=False)."
+      ],
+      "common_mistakes": [
+        "Using a positive exponent in lr=1e3 instead of lr=1e-3.",
+        "Forgetting to call PINN.to(device) before creating the optimizer or running training."
+      ],
+      "index": 7
+    },
+    {
+      "start": 1202.0,
+      "end": 1415.0,
+      "title": "Train the network and log loss",
+      "instructions": "Move X_test and y_test to device as floats, then run the 10000-step training loop calling PINN.loss, optimizer.zero_grad, loss.backward, and optimizer.step. Every 1000 steps, evaluate test_loss under torch.no_grad() and print both losses.",
+      "file": "DiffusionEquation.ipynb",
+      "code": "X_test=X_test.float().to(device); y_test=y_test.float().to(device); for i in range(10000): loss=PINN.loss(X_train_Nu,Y_train_Nu,X_train_Nf); optimizer.zero_grad(); loss.backward(); optimizer.step(); if i%(10000/10)==0: with torch.no_grad(): test_loss=PINN.lossBC(X_test,y_test); print(\"training:\",loss,\"/Testing\",test_loss)",
+      "expected_output": "training: tensor(1.1915, device='cuda:0', grad_fn=<AddBackward0>) /Testing tensor(0.1785, device='cuda:0') training: tensor(0.0159, device='cuda:0', grad_fn=<AddBackward0>) /Testing tensor(0.0364, device='cuda:0') training: tensor(1.1714e-05, device='cuda:0', grad_fn=<AddBackward0>) /Testing tensor(0.0345, device='cuda:0')",
+      "checks": [
+        {
+          "type": "screen_contains",
+          "label": "Training loop computes loss and steps",
+          "app": "Code",
+          "pattern": "loss\\s*=\\s*PINN\\.loss\\(X_train_Nu"
         },
         {
           "type": "screen_contains",
-          "label": "Training loop uses Adam optimizer",
+          "label": "Test loss evaluated without gradients",
           "app": "Code",
-          "pattern": "torch\\.optim\\.Adam"
+          "pattern": "with\\s+torch\\.no_grad\\(\\):"
         },
         {
           "type": "output_contains",
-          "label": "Training loss drops below 0.001",
-          "pattern": "training:\\s*tensor\\([^\\n]*(e-0|0\\.00[0-9])"
+          "label": "Training and testing losses printed",
+          "pattern": "training:\\s*tensor\\(.*?/Testing\\s+tensor\\("
         },
         {
           "type": "screen_absent",
-          "label": "No errors in terminal",
+          "label": "Training completes without errors",
           "app": "Terminal",
           "pattern": "Traceback|Error:"
         }
@@ -398,57 +415,46 @@
         {
           "app": "Code",
           "file": "DiffusionEquation.ipynb",
-          "match": "for i in range(20000):",
-          "caption": "Set up Adam optimizer and run the 20000-iteration training loop"
+          "match": "loss=PINN.loss",
+          "caption": "Execute the Adam optimization loop and log training and testing loss"
         }
       ],
       "explanations": [
         {
-          "topic": "Choosing input/output layer sizes and configuring Adam optimizer",
-          "t": 1113.0
-        },
-        {
-          "topic": "Evaluating test loss inside torch.no_grad() during training",
+          "topic": "Using torch.no_grad() when logging test loss",
           "t": 1340.0
         }
       ],
       "hints": [
-        "What must the first and last entries of the layers array be?",
-        "Set layers=np.array([2,32,64,1]), instantiate PINN=FCN(layers).to(device), and configure Adam with lr=1e-3.",
-        "In the loop, call optimizer.zero_grad(), loss.backward(), and optimizer.step(), logging test_loss inside with torch.no_grad()."
+        "Did you move X_test and y_test to device before logging test_loss?",
+        "Call loss = PINN.loss(X_train_Nu, Y_train_Nu, X_train_Nf), zero_grad(), backward(), and step().",
+        "Wrap test_loss = PINN.lossBC(X_test, y_test) inside with torch.no_grad(): and print both losses."
       ],
       "common_mistakes": [
-        "Passing a negative learning rate like lr=1e-3 typoed as -3.",
-        "Forgetting optimizer.zero_grad() before loss.backward(), which accumulates gradients across steps.",
-        "Evaluating test_loss without torch.no_grad()."
+        "Forgetting to move X_test and y_test to device before evaluating test_loss.",
+        "Omitting optimizer.zero_grad(), causing gradients to accumulate across iterations.",
+        "Forgetting with torch.no_grad(): during test evaluation."
       ],
-      "index": 7
+      "index": 8,
+      "terminal_output": "training: tensor(1.1915, device='cuda:0', grad_fn=<AddBackward0>) /Testing tensor(0.1705, device='cuda:0')",
+      "printed_metrics": [
+        "loss",
+        "test_loss"
+      ]
     },
     {
-      "start": 1413.0,
-      "end": 1455.0,
-      "title": "Evaluate model and plot predictions",
-      "instructions": "Compute predictions y1 = PINN(X_test) and reshape x1, t1, y1, and y_test back into 100x200 transposed matrices on CPU. Call plot3D_Matrix to compare the PINN solution against the exact solution.",
+      "start": 1416.0,
+      "end": 1443.0,
+      "title": "Evaluate and plot predicted solution",
+      "instructions": "Run y1 = PINN(X_test) on the full test grid, reshape the space, time, predicted, and exact arrays back to (100, 200) on CPU, and plot the prediction with plot3D_Matrix.",
       "file": "DiffusionEquation.ipynb",
-      "code": "y1=PINN(X_test)\nx1=X_test[:,0]\nt1=X_test[:,1]\narr_x1=x1.reshape(shape=[100,200]).transpose(1,0).detach().cpu()\narr_T1=t1.reshape(shape=[100,200]).transpose(1,0).detach().cpu()\narr_y1=y1.reshape(shape=[100,200]).transpose(1,0).detach().cpu()\narr_y_test=y_test.reshape(shape=[100,200]).transpose(1,0).detach().cpu()\nplot3D_Matrix(arr_x1,arr_T1,arr_y1)\nplot3D_Matrix(X,T,y_real)",
+      "code": "y1=PINN(X_test); x1=X_test[:,0]; t1=X_test[:,1]; arr_x1=x1.reshape(shape=[100,200]).transpose(1,0).detach().cpu(); arr_t1=t1.reshape(shape=[100,200]).transpose(1,0).detach().cpu(); arr_y1=y1.reshape(shape=[100,200]).transpose(1,0).detach().cpu(); arr_y_real=y_test.reshape(shape=[100,200]).transpose(1,0).detach().cpu(); plot3D_Matrix(arr_x1,arr_t1,arr_y1)",
       "checks": [
         {
           "type": "screen_contains",
-          "label": "Model evaluated on X_test",
+          "label": "Predictions computed on X_test",
           "app": "Code",
-          "pattern": "y1\\s*=\\s*PINN\\(X_test\\\""
-        },
-        {
-          "type": "screen_contains",
-          "label": "Predictions plotted with plot3D_Matrix",
-          "app": "Code",
-          "pattern": "plot3D_Matrix\\(arr_x1"
-        },
-        {
-          "type": "screen_absent",
-          "label": "No errors in terminal",
-          "app": "Terminal",
-          "pattern": "Traceback|Error:"
+          "pattern": "y1\\s*=\\s*PINN\\(X_test\\)|plot3D_Matrix\\(arr_x1"
         }
       ],
       "targets": [
@@ -456,25 +462,25 @@
           "app": "Code",
           "file": "DiffusionEquation.ipynb",
           "match": "y1=PINN(X_test)",
-          "caption": "Evaluate the trained PINN on X_test, reshape outputs, and plot"
+          "caption": "Predict across the domain, reshape to 2D matrices, and visualize results"
         }
       ],
       "explanations": [
         {
-          "topic": "Reshaping flattened prediction vectors back to 2D matrices for plotting",
+          "topic": "Reshaping vector predictions back into 2D matrices",
           "t": 1420.0
         }
       ],
       "hints": [
-        "How do you convert the 20000-element GPU tensor y1 back into a plottable 2D grid?",
-        "Reshape each vector to [100,200], transpose(1,0), and call .detach().cpu().",
-        "Run plot3D_Matrix(arr_x1, arr_T1, arr_y1) and compare with plot3D_Matrix(X, T, y_real)."
+        "How do you turn the 20000-element prediction vector back into a 2D plot grid?",
+        "Reshape each tensor to [100, 200], transpose(1,0), and call .detach().cpu().",
+        "Call plot3D_Matrix(arr_x1, arr_t1, arr_y1) and compare with plot3D_Matrix(X, T, y_real)."
       ],
       "common_mistakes": [
-        "Forgetting .detach().cpu() before plotting a GPU tensor with gradients attached.",
-        "Reshaping to [200,100] instead of [100,200] before transposing."
+        "Reshaping to [200, 100] instead of [100, 200] before transposing.",
+        "Forgetting .detach().cpu() before plotting GPU tensors with Matplotlib."
       ],
-      "index": 8
+      "index": 9
     }
   ]
 }
