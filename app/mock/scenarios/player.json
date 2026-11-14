@@ -1,0 +1,29 @@
+{
+  "name": "player",
+  "on": {
+    "action:back@step4": "player_back_step4",
+    "action:back@step6": "player_back_step6"
+  },
+  "segments": {
+    "player_back_step4": [
+      {
+        "wait": 100,
+        "type": "video.seek",
+        "payload": {
+          "t": 372,
+          "play": true
+        }
+      }
+    ],
+    "player_back_step6": [
+      {
+        "wait": 100,
+        "type": "video.seek",
+        "payload": {
+          "t": 760,
+          "play": true
+        }
+      }
+    ]
+  }
+}
