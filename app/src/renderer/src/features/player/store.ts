@@ -21,7 +21,7 @@ import { cmd } from '../../../../common/wire'
 import { bridge, isElectron, registerWebHandler } from '../../bridge'
 import { onMessage, onUi } from '../../core/bus'
 import { useLesson } from '../../core/lesson'
-import { describeYTError, loadYouTube, resolveVideoId, YTState, PLACEHOLDER_VIDEO_ID, type YTPlayer } from './youtube'
+import { describeYTError, isYouTubeId, loadYouTube, resolveVideoId, YTState, type YTPlayer } from './youtube'
 
 /** Why the video is paused. 'gate' = we stopped at the step's end; 'engine' = video.pause. */
 export type PausedBy = 'gate' | 'engine' | 'user' | 'ended'
@@ -30,7 +30,7 @@ type PlayerState = {
   /** The YouTube player exists and answered onReady. */
   ready: boolean
   videoId?: string
-  /** True when the lesson's id is the placeholder and we play the stand-in. */
+  /** True when the lesson's video id isn't a real YouTube id and we play the stand-in. */
   standIn: boolean
   title?: string
   t: number
@@ -169,7 +169,7 @@ function report(periodic = false): void {
 function go(videoId: string | undefined, t: number, play: boolean): void {
   const id = resolveVideoId(videoId ?? want.videoId)
   want = { videoId: id, t, play }
-  if (videoId !== undefined) setUi({ standIn: videoId === PLACEHOLDER_VIDEO_ID, error: undefined })
+  if (videoId !== undefined) setUi({ standIn: !isYouTubeId(videoId), error: undefined })
   if (!play) clearTimeout(autoplayTimer)
   if (!yt || !ready) return sync()
   if (id !== loadedId) {
@@ -384,9 +384,9 @@ export const player = {
 
 onMessage('lesson.ready', (p) => {
   clearTimeout(resumeTimer)
-  setUi({ pausedBy: undefined, resuming: false, error: undefined, standIn: false, title: undefined })
-  // Cue the first clip so the player is warm when the first step starts.
+  // Cue the first clip so the player is warm when the first step starts (go() sets standIn).
   const first = p.steps.find((s) => s.video)?.video
+  setUi({ pausedBy: undefined, resuming: false, error: undefined, title: undefined, ...(first ? {} : { standIn: false }) })
   if (first) go(first.videoId, first.start, false)
 })
 

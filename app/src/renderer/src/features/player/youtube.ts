@@ -3,16 +3,20 @@
  * https://developers.google.com/youtube/iframe_api_reference
  */
 
-/** The mock (and the engine, until the tutorial is picked) uses this placeholder id. */
-export const PLACEHOLDER_VIDEO_ID = 'PINN_TUTORIAL_TBD'
 /**
- * Any real, embeddable public video stands in for the placeholder (one place to change it).
- * 3Blue1Brown, "But what is a neural network?" (~19 min, so the mock's 0–18:40 step times fit).
+ * Plays when the lesson's video id isn't a real YouTube id (the mock and the engine use a placeholder
+ * until the tutorial is picked). One place to change it. Any real, embeddable public video works;
+ * this one is 18:40 long, so the mock's step times (0–18:40) fit.
  */
 export const STAND_IN_VIDEO_ID = 'aircAruvnKk'
 
+/** YouTube video ids are 11 characters of [A-Za-z0-9_-]. Anything else is a placeholder. */
+export function isYouTubeId(id: string | undefined): id is string {
+  return !!id && /^[\w-]{11}$/.test(id)
+}
+
 export function resolveVideoId(id: string | undefined): string {
-  return !id || id === PLACEHOLDER_VIDEO_ID ? STAND_IN_VIDEO_ID : id
+  return isYouTubeId(id) ? id : STAND_IN_VIDEO_ID
 }
 
 export const YTState = { UNSTARTED: -1, ENDED: 0, PLAYING: 1, PAUSED: 2, BUFFERING: 3, CUED: 5 } as const
