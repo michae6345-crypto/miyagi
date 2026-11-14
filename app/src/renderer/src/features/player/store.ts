@@ -135,7 +135,8 @@ const notStarted = (st: number): boolean => st === YTState.CUED || st === YTStat
 /** Current position. A cued video reports 0, so fall back to where we cued it. */
 function now(): number {
   if (!yt || !ready || notStarted(state())) return want.t
-  return yt.getCurrentTime()
+  const ct = yt.getCurrentTime()
+  return Number.isFinite(ct) ? ct : want.t
 }
 
 function sync(changed = false): void {
@@ -144,7 +145,8 @@ function sync(changed = false): void {
     ready,
     t: now(),
     duration: yt && ready ? yt.getDuration() || 0 : 0,
-    playing: isRolling(st),
+    // Buffering after we asked for a pause (a seek, then video.pause) is not "playing" for the UI or the engine.
+    playing: st === YTState.PLAYING || (st === YTState.BUFFERING && want.play),
     videoId: want.videoId,
     title: (yt && ready && yt.getVideoData?.()?.title) || usePlayer.getState().title
   })
