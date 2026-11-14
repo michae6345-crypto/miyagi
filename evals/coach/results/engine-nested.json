@@ -1,0 +1,387 @@
+{
+ "layout": "nested",
+ "workdir": "/var/folders/2g/b60087014tq94njh6r4zdmhm0000gn/T/engine-eval-nmwj5sww/lesson",
+ "marks": {
+  "connected": 2.59,
+  "step.started": 2.59,
+  "segment end": 2.59,
+  "save #1": 2.59
+ },
+ "file_after": "import React, { useState } from 'react';\n\nfunction Timer() {\n  const [seconds, setSeconds] = useState(0);\n\n  useEffect(() => {\n    const interval = setInterval(() => {\n      console.log('Interval running');\n      setSeconds((prev) => prev + 1);\n    }, 1000);\n  }, []);\n\n  return <h1>Seconds: {seconds}</h1>;\n}\n\nexport default Timer;\n",
+ "events": [
+  {
+   "type": "lesson.ready",
+   "payload": {
+    "lesson": {
+     "id": "lesson-6e88be47",
+     "title": "React useEffect Hook Cleanup",
+     "sources": [
+      {
+       "id": "src1",
+       "kind": "video",
+       "title": "React useEffect Hook Cleanup",
+       "url": "https://www.youtube.com/watch?v=ZipmUa9N7Os",
+       "videoId": "ZipmUa9N7Os"
+      }
+     ]
+    },
+    "steps": [
+     {
+      "id": "s1",
+      "index": 1,
+      "title": "Create the Timer component",
+      "video": {
+       "videoId": "ZipmUa9N7Os",
+       "start": 51.0,
+       "end": 73.0
+      }
+     },
+     {
+      "id": "s2",
+      "index": 2,
+      "title": "Toggle Timer in App component",
+      "video": {
+       "videoId": "ZipmUa9N7Os",
+       "start": 73.0,
+       "end": 165.0
+      }
+     },
+     {
+      "id": "s3",
+      "index": 3,
+      "title": "Return cleanup function in Timer",
+      "video": {
+       "videoId": "ZipmUa9N7Os",
+       "start": 166.0,
+       "end": 236.0
+      }
+     },
+     {
+      "id": "s4",
+      "index": 4,
+      "title": "Run cleanup on state change",
+      "video": {
+       "videoId": "ZipmUa9N7Os",
+       "start": 237.0,
+       "end": 335.0
+      }
+     }
+    ]
+   },
+   "_t": 2.59
+  },
+  {
+   "type": "step.started",
+   "payload": {
+    "stepId": "s1",
+    "index": 1,
+    "title": "Create the Timer component",
+    "instructions": "Create a React app with npx create-react-app demo-app, then start the dev server with npm start. Add src/Components/Timer.js with a seconds state and a useEffect that runs setInterval every 1000ms.",
+    "video": {
+     "videoId": "ZipmUa9N7Os",
+     "start": 51.0,
+     "end": 73.0
+    }
+   },
+   "_t": 2.59
+  },
+  {
+   "type": "check.updated",
+   "payload": {
+    "stepId": "s1",
+    "checkId": "s1c1",
+    "label": "useEffect hook in Timer",
+    "status": "pass",
+    "detail": "confirmed by your files"
+   },
+   "_t": 2.59
+  },
+  {
+   "type": "check.updated",
+   "payload": {
+    "stepId": "s1",
+    "checkId": "s1c2",
+    "label": "setInterval inside effect",
+    "status": "pass",
+    "detail": "confirmed by your files"
+   },
+   "_t": 2.59
+  },
+  {
+   "type": "check.updated",
+   "payload": {
+    "stepId": "s1",
+    "checkId": "s1c3",
+    "label": "Dev server compiled",
+    "status": "pass",
+    "detail": "confirmed by your files"
+   },
+   "_t": 2.59
+  },
+  {
+   "type": "check.updated",
+   "payload": {
+    "stepId": "s1",
+    "checkId": "s1c4",
+    "label": "No compile errors",
+    "status": "pass",
+    "detail": "confirmed by your files"
+   },
+   "_t": 2.59
+  },
+  {
+   "type": "status",
+   "payload": {
+    "state": "watching"
+   },
+   "_t": 2.59
+  },
+  {
+   "type": "card",
+   "payload": {
+    "stepId": "s1",
+    "kind": "hint",
+    "title": "Looks done?",
+    "body": "The checks pass. Confirm and I'll move on.",
+    "actions": [
+     "confirm"
+    ]
+   },
+   "_t": 2.59
+  },
+  {
+   "type": "video.pause",
+   "payload": {},
+   "_t": 2.59
+  },
+  {
+   "type": "spotlight",
+   "payload": {
+    "rect": {
+     "x": 338.1,
+     "y": 232.5,
+     "w": 273.2,
+     "h": 27.1
+    },
+    "caption": "Start the interval inside useEffect with an empty dependency array",
+    "app": "Code",
+    "matched": "const interval = setInterval(()={"
+   },
+   "_t": 3.15
+  },
+  {
+   "type": "status",
+   "payload": {
+    "state": "watching"
+   },
+   "_t": 3.15
+  },
+  {
+   "type": "screen.seen",
+   "payload": {
+    "app": "Code",
+    "summary": "Timer.js - demo-app \u00b7 App.js Timer.js",
+    "t": 1794697573.79881
+   },
+   "_t": 3.15
+  },
+  {
+   "type": "check.updated",
+   "payload": {
+    "stepId": "s1",
+    "checkId": "s1c1",
+    "label": "useEffect hook in Timer",
+    "status": "pass",
+    "detail": "seen in Code: 'useEffect('"
+   },
+   "_t": 3.15
+  },
+  {
+   "type": "check.updated",
+   "payload": {
+    "stepId": "s1",
+    "checkId": "s1c2",
+    "label": "setInterval inside effect",
+    "status": "pass",
+    "detail": "seen in Code: 'setInterval('"
+   },
+   "_t": 3.15
+  },
+  {
+   "type": "check.updated",
+   "payload": {
+    "stepId": "s1",
+    "checkId": "s1c3",
+    "label": "Dev server compiled",
+    "status": "pass",
+    "detail": "seen in Terminal: 'webpack compiled'"
+   },
+   "_t": 3.15
+  },
+  {
+   "type": "step.passed",
+   "payload": {
+    "stepId": "s1",
+    "nextStepId": "s2"
+   },
+   "_t": 3.16
+  },
+  {
+   "type": "status",
+   "payload": {
+    "state": "passed"
+   },
+   "_t": 3.16
+  },
+  {
+   "type": "spotlight",
+   "payload": {
+    "clear": true
+   },
+   "_t": 3.16
+  },
+  {
+   "type": "step.started",
+   "payload": {
+    "stepId": "s2",
+    "index": 2,
+    "title": "Toggle Timer in App component",
+    "instructions": "In src/App.js, import Timer, add a boolean showTimer state initialized to false, and render a Toggle Timer button alongside {showTimer && <Timer/>}. Toggle the timer on and off in Chrome and watch the console keep logging after unmount.",
+    "video": {
+     "videoId": "ZipmUa9N7Os",
+     "start": 73.0,
+     "end": 165.0
+    }
+   },
+   "_t": 3.56
+  },
+  {
+   "type": "check.updated",
+   "payload": {
+    "stepId": "s2",
+    "checkId": "s2c1",
+    "label": "Boolean state toggles Timer",
+    "status": "pending"
+   },
+   "_t": 3.56
+  },
+  {
+   "type": "check.updated",
+   "payload": {
+    "stepId": "s2",
+    "checkId": "s2c2",
+    "label": "Conditional Timer JSX rendered",
+    "status": "pending"
+   },
+   "_t": 3.56
+  },
+  {
+   "type": "check.updated",
+   "payload": {
+    "stepId": "s2",
+    "checkId": "s2c3",
+    "label": "Dev server compiled",
+    "status": "pending"
+   },
+   "_t": 3.56
+  },
+  {
+   "type": "video.seek",
+   "payload": {
+    "t": 73.0,
+    "play": true
+   },
+   "_t": 3.56
+  },
+  {
+   "type": "video.play",
+   "payload": {},
+   "_t": 3.56
+  },
+  {
+   "type": "status",
+   "payload": {
+    "state": "watching"
+   },
+   "_t": 3.56
+  },
+  {
+   "type": "check.updated",
+   "payload": {
+    "stepId": "s2",
+    "checkId": "s2c1",
+    "label": "Boolean state toggles Timer",
+    "status": "pending",
+    "detail": "not seen in Code"
+   },
+   "_t": 3.56
+  },
+  {
+   "type": "check.updated",
+   "payload": {
+    "stepId": "s2",
+    "checkId": "s2c2",
+    "label": "Conditional Timer JSX rendered",
+    "status": "pending",
+    "detail": "not seen in Code"
+   },
+   "_t": 3.56
+  },
+  {
+   "type": "check.updated",
+   "payload": {
+    "stepId": "s2",
+    "checkId": "s2c3",
+    "label": "Dev server compiled",
+    "status": "pass",
+    "detail": "seen in Terminal: 'webpack compiled'"
+   },
+   "_t": 3.56
+  },
+  {
+   "type": "screen.seen",
+   "payload": {
+    "app": "Code",
+    "summary": "Timer.js - demo-app \u00b7 App.js Timer.js",
+    "t": 1794697589.7817888
+   },
+   "_t": 18.85
+  },
+  {
+   "type": "screen.seen",
+   "payload": {
+    "app": "Code",
+    "summary": "Timer.js - demo-app \u00b7 App.js Timer.js",
+    "t": 1794697605.417192
+   },
+   "_t": 34.49
+  },
+  {
+   "type": "screen.seen",
+   "payload": {
+    "app": "Code",
+    "summary": "Timer.js - demo-app \u00b7 App.js Timer.js",
+    "t": 1794697621.0257862
+   },
+   "_t": 50.1
+  },
+  {
+   "type": "screen.seen",
+   "payload": {
+    "app": "Code",
+    "summary": "Timer.js - demo-app \u00b7 App.js Timer.js",
+    "t": 1794697636.830616
+   },
+   "_t": 65.9
+  },
+  {
+   "type": "screen.seen",
+   "payload": {
+    "app": "Code",
+    "summary": "Timer.js - demo-app \u00b7 App.js Timer.js",
+    "t": 1794697652.2893178
+   },
+   "_t": 81.36
+  }
+ ]
+}

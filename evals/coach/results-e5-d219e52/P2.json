@@ -1,0 +1,208 @@
+{
+ "id": "P2",
+ "topic": "pandas",
+ "step": "s3",
+ "mistake": "`df.groupby(\"Department\", \"Experience_Years\")`: two strings instead of one list",
+ "truth": "The second positional argument is `level`, so pandas looks for an index level named Experience_Years → ValueError. Fix: `df.groupby([\"Department\", \"Experience_Years\"])`.",
+ "ocr": {
+  "blocks": 85,
+  "ms": 223,
+  "lines_by_app": {
+   "": 2,
+   "Code": 55,
+   "Terminal": 4
+  }
+ },
+ "cursor": {
+  "xy": [
+   388.0,
+   288.8
+  ],
+  "on": "grouped = df.groupby(\"Department\", \"Experience_Years\")[\"Salary\"].mean()"
+ },
+ "before_check": [
+  {
+   "source": "import pandas as pd\nimport numpy as np",
+   "count": 1,
+   "error": null,
+   "text": ""
+  },
+  {
+   "source": "np.random.seed(42)\ndata = {\n    \"Department\": np.random.choice([\"Engineering\", \"Marketing\", \"Sales\", \"HR\"], 50),\n    \"Employee\": [f\"Emp_{i}\" for i in range(1, 51)],\n    \"Salary\": np.random.randint(40000, 120000, 50),\n    \"Experience_Years\": np.random.randint(1, 20, 50),\n}\ndf = pd.DataFrame(data)\ndf.head()",
+   "count": 2,
+   "error": null,
+   "text": "    Department Employee  Salary  Experience_Years\n0        Sales    Emp_1   75773                 1\n1           HR    Emp_2  107435                 7\n2  Engineering    Emp_3   96886                 9\n3        Sales    Emp_4  106803                 1\n4        Sales    Emp_5   71551                12"
+  },
+  {
+   "source": "avg_salary = df.groupby(\"Department\")[\"Salary\"].mean()\navg_salary.head(2)",
+   "count": 3,
+   "error": null,
+   "text": "Department\nEngineering    87925.60\nHR             78798.25\nName: Salary, dtype: float64"
+  },
+  {
+   "source": "avg_salary.sort_values()",
+   "count": 4,
+   "error": null,
+   "text": "Department\nHR             78798.250000\nMarketing      81935.545455\nSales          84124.846154\nEngineering    87925.600000\nName: Salary, dtype: float64"
+  },
+  {
+   "source": "avg_salary.reset_index()",
+   "count": 5,
+   "error": null,
+   "text": "    Department        Salary\n0  Engineering  87925.600000\n1           HR  78798.250000\n2    Marketing  81935.545455\n3        Sales  84124.846154"
+  },
+  {
+   "source": "grouped = df.groupby(\"Department\", \"Experience_Years\")[\"Salary\"].mean()\ngrouped.head(10)",
+   "count": 6,
+   "error": "ValueError: level name Experience_Years is not the name of the index",
+   "text": "---------------------------------------------------------------------------\nValueError                                Traceback (most recent call last)\nCell In[6], line 1\n----> 1 grouped = df.groupby(\"Department\", \"Experience_Years\")[\"Salary\"].mean()\n      2 grouped.head(10)\n\nFile ~/miyagi/lessons/pandas-groupby/.venv/lib/python3.12/site-packages/pandas/util/_decorators.py:335, in deprecate_nonkeyword_arguments.<locals>.decorate.<locals>.wrapper(*args, **kwargs)\n    329 if len(args) > num_allow_args:\n    330     warnings.warn(\n    331         msg.format(arguments=_format_argument_list(allow_args)),\n    332         klass,\n    333         stacklevel=find_stack_level(),\n    334     )\n--> 335 return func(*args, **kwargs)\n\nFile ~/miyagi/lessons/pandas-groupby/.venv/lib/python3.12/site-packages/pandas/core/frame.py:13788, in DataFrame.groupby(self, by, level, as_index, sort, group_keys, observed, dropna)\n  13784 \n  13785         if level is None and by is None:\n  13786             raise TypeError(\"You have to supply one of 'by' and 'level'\")\n  13787 \n> 13788         return DataFrameGroupBy(\n  13789             obj=self,\n  13790             keys=by,\n  13791             level=level,\n\nFile ~/miyagi/lessons/pandas-groupby/.venv/lib/python3.12/site-packages/pandas/core/groupby/groupby.py:849, in GroupBy.__init__(self, obj, keys, level, grouper, exclusions, selection, as_index, sort, group_keys, observed, dropna)\n    846 self.dropna = dropna\n    848 if grouper is None:\n--> 849     grouper, exclusions, obj = get_grouper(\n    850         obj,\n    851         keys,\n    852         level=level,\n    853         sort=sort,\n    854         observed=observed,\n    855         dropna=self.dropna,\n    856     )\n    858 self.observed = observed\n    859 self.obj = obj\n\nFile ~/miyagi/lessons/pandas-groupby/.venv/lib/python3.12/site-packages/pandas/core/groupby/grouper.py:813, in get_grouper(obj, key, level, sort, observed, validate, dropna)\n    811 if isinstance(level, str):\n    812     if obj.index.name != level:\n--> 813         raise ValueError(f\"level name {level} is not the name of the index\")\n    814 elif level > 0 or level < -1:\n    815     raise ValueError(\"level > 0 or level < -1 only valid with MultiIndex\")\n\nValueError: level name Experience_Years is not the name of the index"
+  }
+ ],
+ "gate_before": {
+  "passed": false,
+  "via": null,
+  "passed_screen_only": false,
+  "checks": [
+   "s3c1 fail: not seen in Code",
+   "s3c2 fail: not seen in Code",
+   "s3c3 fail: still showing 'ValueError' in Code"
+  ],
+  "precision": [
+   "s3p1 fail: pattern not found in groupby.ipynb"
+  ]
+ },
+ "fires": true,
+ "fires_screen_only": true,
+ "inputs": {
+  "code_from": "groupby.ipynb",
+  "code_chars": 6000,
+  "target_location": [
+   "/var/folders/2g/b60087014tq94njh6r4zdmhm0000gn/T/coach-eval-wiy5zbga/P2/pandas-groupby/groupby.ipynb",
+   1
+  ],
+  "cursor_under": "grouped = df.groupby(\"Department\", \"Experience_Years\") [\"Salary\"] -mean()"
+ },
+ "warm_s": 1.68,
+ "card_s": 5.38,
+ "targets_s": 3.49,
+ "card": {
+  "stepId": "s3",
+  "severity": "fail",
+  "title": "Columns passed as separate arguments",
+  "body": "groupby treats the second string \"Experience_Years\" as the axis argument, not a second key, so the call fails. Wrap both names in a list: [\"Department\", \"Experience_Years\"].",
+  "actions": [
+   "explain",
+   "show_me",
+   "hint",
+   "apply_fix"
+  ],
+  "guidingQuestion": "How does groupby know that two strings are both grouping keys rather than separate parameters?",
+  "diff": {
+   "expected": "grouped = df.groupby([\"Department\", \"Experience_Years\"])[\"Salary\"].mean()",
+   "yours": "",
+   "file": "groupby.ipynb"
+  },
+  "targets": [
+   {
+    "boxId": 33,
+    "label": "groupby columns",
+    "text": "grouped = df.groupby(\"Department\", \"Experience_Years\") [\"Salary\"] -mean()",
+    "rect": {
+     "x": 326.5,
+     "y": 281.0,
+     "w": 499.8,
+     "h": 17.7
+    }
+   },
+   {
+    "boxId": 35,
+    "label": "error",
+    "text": "ValueError",
+    "rect": {
+     "x": 326.5,
+     "y": 346.4,
+     "w": 72.8,
+     "h": 15.1
+    }
+   }
+  ]
+ },
+ "meta": {
+  "route": "opus",
+  "triage": {
+   "route": "opus",
+   "by": "haiku",
+   "reason": "The failure is a ValueError from groupby ('You have to supply one of by and level') and the code excerpt does not show the groupby cell, so the cause depends on the learner's specific code that I cannot see; no known playbook clearly fits and the step is not simply unstarted."
+  },
+  "model": "claude-opus-5-5",
+  "latency_s": 3.29,
+  "playbook_id": null,
+  "web_sources": [
+   "https://pandas.pydata.org/docs/reference/api/pandas.to_numeric.html",
+   "https://stackoverflow.com/questions/39653812/how-to-sort-group-a-pandas-data-frame-by-class-label-or-any-specific-column",
+   "https://stackoverflow.com/questions/27900975/syntax-issue-with-python-groupby-using-a-variable-mixed-with-a-list-or-string"
+  ],
+  "usage": {
+   "input_tokens": 9809,
+   "output_tokens": 292,
+   "cache_read_input_tokens": 10900,
+   "cache_creation_input_tokens": 0,
+   "first_text_s": 1.0
+  }
+ },
+ "diagnosis_auto": false,
+ "targets": {
+  "n": 2,
+  "any": true,
+  "first": true,
+  "texts": [
+   "grouped = df.groupby(\"Department\", \"Experience_Years\") [\"Salary\"] -mean()",
+   "ValueError"
+  ],
+  "labels": [
+   "groupby columns",
+   "error"
+  ]
+ },
+ "hint3": {
+  "title": "Here's the change",
+  "diff": {
+   "expected": "grouped = df.groupby([\"Department\", \"Experience_Years\"])[\"Salary\"].mean()",
+   "yours": "",
+   "file": "groupby.ipynb"
+  }
+ },
+ "orchestrator_resolves_file": true,
+ "patch": {
+  "file": "groupby.ipynb",
+  "unified_diff": "--- a/groupby.ipynb [cell 5]\n+++ b/groupby.ipynb [cell 5]\n@@ -1,2 +1,2 @@\n-grouped = df.groupby(\"Department\", \"Experience_Years\")[\"Salary\"].mean()\n+grouped = df.groupby([\"Department\", \"Experience_Years\"])[\"Salary\"].mean()\n grouped.head(10)\n",
+  "summary": "Wrap groupby column names in a list",
+  "line": 22,
+  "requires_confirmation": true,
+  "_meta": {
+   "via": "opus#1"
+  },
+  "s": 2.44,
+  "changed_lines": 2
+ },
+ "check_after": {
+  "ok": true,
+  "error": null,
+  "output": "Department   Experience_Years\nEngineering  1                    51534.0\n             2                   109479.0\n             3                   112409.0\n             5                   111211.0\n             7                   101869.5\n             9                    96886.0\n             11                  109092.0\n             14                   41016.0\n             19                   "
+ },
+ "gate_after": {
+  "passed": true,
+  "via": "checks",
+  "failed": []
+ },
+ "spotlight": {
+  "via": "coach target[0]",
+  "rect": {
+   "x": 326.5,
+   "y": 281.0,
+   "w": 499.8,
+   "h": 17.7
+  },
+  "on_line": true
+ }
+}

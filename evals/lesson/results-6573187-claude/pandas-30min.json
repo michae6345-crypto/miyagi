@@ -1,0 +1,1116 @@
+{
+ "meta": {
+  "id": "pandas-30min",
+  "url": "https://www.youtube.com/watch?v=EXIgjIBu4EU",
+  "goal": "load a CSV with pandas, then select, filter, clean and group the data",
+  "src": "/private/tmp/claude-501/-Users-tripi-sand-hacks-sandhacks-tutor--claude-worktrees-lesson-eval-fe1fb1/e71fa444-540f-45b2-90e3-d8ca490665c3/scratchpad/src6",
+  "engine_env": "claude",
+  "captions": "saved by an earlier run (results/); live fetch failed: no transcript for EXIgjIBu4EU: brightdata watch page: Bright Data returned an empty body; brightdata captions: Bright Data returned an empty body; timedtext: Cl",
+  "wall_s": 63.2,
+  "workdir": "(fresh empty temp dir)",
+  "model": {
+   "video": "claude-opus-5-5 (transcript via saved captions (eval))",
+   "adapt": "claude-opus-5-5"
+  },
+  "path": "claude",
+  "fallback_notes": [],
+  "length_s": 1836
+ },
+ "graph": {
+  "lesson": {
+   "id": "lesson-03e4cf8b",
+   "title": "Load, Select, Filter, Clean and Group CSV Data with Pandas",
+   "goal": "load a CSV with pandas, then select, filter, clean and group the data",
+   "libraries": {
+    "pandas": "2.x",
+    "uv": "0.x",
+    "jupyter (VS Code Python extension)": "latest"
+   },
+   "builtBy": "claude",
+   "workdir": "/var/folders/2g/b60087014tq94njh6r4zdmhm0000gn/T/lesson-eval-pandas-30min-56k2y5ay"
+  },
+  "sources": [
+   {
+    "id": "src1",
+    "kind": "video",
+    "title": "Load, Select, Filter, Clean and Group CSV Data with Pandas",
+    "url": "https://www.youtube.com/watch?v=EXIgjIBu4EU",
+    "videoId": "EXIgjIBu4EU"
+   }
+  ],
+  "steps": [
+   {
+    "id": "s1",
+    "index": 1,
+    "title": "Install pandas and load orders.csv",
+    "instructions": "Run `uv init .` then `uv add pandas`, download orders.csv from https://github.com/techwithtim/PanadasTutorial into the folder, and in main.py import pandas as pd, read it with pd.read_csv and print(df). Run `uv run main.py` to see the [40 rows x 9 columns] summary.",
+    "video": {
+     "sourceId": "src1",
+     "start": 42.0,
+     "end": 252.0
+    },
+    "checks": [
+     {
+      "id": "s1c1",
+      "type": "screen_contains",
+      "label": "read_csv in editor",
+      "app": "Code",
+      "pattern": "read_csv\\s*\\("
+     },
+     {
+      "id": "s1c2",
+      "type": "screen_contains",
+      "label": "pandas imported as pd",
+      "app": "Code",
+      "pattern": "import\\s*pandas\\s*as\\s*pd"
+     },
+     {
+      "id": "s1c3",
+      "type": "screen_contains",
+      "label": "DataFrame printed",
+      "app": "Terminal",
+      "pattern": "\\d+\\s*rows\\s*[x\u00d7]\\s*\\d+\\s*columns"
+     },
+     {
+      "id": "s1c4",
+      "type": "screen_absent",
+      "label": "Runs without errors",
+      "app": "Terminal",
+      "pattern": "Traceback|Error:"
+     }
+    ],
+    "precision_checks": [
+     {
+      "id": "s1p1",
+      "type": "file_exists",
+      "label": "orders.csv downloaded",
+      "file": "orders.csv"
+     },
+     {
+      "id": "s1p2",
+      "type": "file_contains",
+      "label": "main.py reads CSV",
+      "file": "main.py",
+      "pattern": "read_csv\\("
+     },
+     {
+      "id": "s1p3",
+      "type": "file_contains",
+      "label": "pandas dependency added",
+      "file": "pyproject.toml",
+      "pattern": "pandas"
+     },
+     {
+      "id": "s1p4",
+      "type": "command_exit_ok",
+      "label": "main.py runs",
+      "command": "uv run main.py"
+     }
+    ],
+    "targets": [
+     {
+      "app": "Code",
+      "file": "main.py",
+      "match": "import pandas as pd",
+      "caption": "Import pandas with the conventional pd alias"
+     },
+     {
+      "app": "Code",
+      "file": "main.py",
+      "match": "read_csv",
+      "caption": "Load orders.csv into a DataFrame"
+     },
+     {
+      "app": "Terminal",
+      "match": "rows x",
+      "caption": "Printed DataFrame summary: rows x columns"
+     }
+    ],
+    "explanations": [
+     {
+      "topic": "Creating a virtual environment with uv init and uv add",
+      "t": 68.0,
+      "sourceId": "src1"
+     },
+     {
+      "topic": "Why import pandas as pd",
+      "t": 114.0,
+      "sourceId": "src1"
+     },
+     {
+      "topic": "DataFrame vs Series",
+      "t": 124.0,
+      "sourceId": "src1"
+     },
+     {
+      "topic": "CSV files and two-dimensional data",
+      "t": 146.0,
+      "sourceId": "src1"
+     },
+     {
+      "topic": "pd.read_csv loads a CSV into a DataFrame",
+      "t": 211.0,
+      "sourceId": "src1"
+     }
+    ],
+    "hints": [
+     "Install pandas first (pip install pandas, or `uv init .` then `uv add pandas`), and put orders.csv in the same folder as main.py.",
+     "In main.py, import pandas as pd, then call pd.read_csv with the CSV file name and store the result in df.",
+     "Print df and run the file with `uv run main.py`; you should see a table ending with a rows x columns summary.",
+     "Full code: `import pandas as pd`, `df = pd.read_csv('orders.csv')`, `print(df)`."
+    ],
+    "common_mistakes": [
+     "orders.csv is not in the folder the script is run from, which causes a FileNotFoundError.",
+     "Running `python main.py` outside the uv environment, which causes ModuleNotFoundError: No module named 'pandas'.",
+     "Typing `uv pandas` instead of `uv add pandas`.",
+     "Misspelling the function as pd.readcsv or pd.read_CSV.",
+     "Naming the script pandas.py, which shadows the pandas library."
+    ],
+    "run_command": "uv run main.py",
+    "code": "import pandas as pd\n\ndf = pd.read_csv('orders.csv')\nprint(df)"
+   },
+   {
+    "id": "s2",
+    "index": 2,
+    "title": "Load the CSV in a notebook",
+    "instructions": "Create notebook.ipynb (VS Code: New Jupyter Notebook): in cell 1 import pandas as pd and set df = pd.read_csv('orders.csv'). In cell 2 run print(df).",
+    "video": {
+     "sourceId": "src1",
+     "start": 506.0,
+     "end": 659.0
+    },
+    "checks": [
+     {
+      "id": "s2c1",
+      "type": "screen_contains",
+      "label": "read_csv call in notebook",
+      "app": "Code",
+      "pattern": "read_csv\\s*\\("
+     },
+     {
+      "id": "s2c2",
+      "type": "screen_contains",
+      "label": "print(df) cell written",
+      "app": "Code",
+      "pattern": "print\\s*\\(\\s*df\\s*\\)"
+     },
+     {
+      "id": "s2c3",
+      "type": "screen_contains",
+      "label": "DataFrame printed in output",
+      "app": "Code",
+      "pattern": "\\d+\\s*rows\\s*[x\u00d7]\\s*\\d+\\s*columns"
+     },
+     {
+      "id": "s2c4",
+      "type": "screen_absent",
+      "label": "No errors running cells",
+      "app": "Code",
+      "pattern": "Traceback|FileNotFoundError|ModuleNotFoundError"
+     }
+    ],
+    "precision_checks": [
+     {
+      "id": "s2p1",
+      "type": "file_exists",
+      "label": "Notebook created",
+      "file": "notebook.ipynb"
+     },
+     {
+      "id": "s2p2",
+      "type": "file_contains",
+      "label": "Notebook reads CSV",
+      "file": "notebook.ipynb",
+      "pattern": "read_csv"
+     }
+    ],
+    "targets": [
+     {
+      "app": "Code",
+      "file": "notebook.ipynb",
+      "match": "import pandas as pd",
+      "caption": "First cell: import pandas and load orders.csv"
+     },
+     {
+      "app": "Code",
+      "file": "notebook.ipynb",
+      "match": "print(df)",
+      "caption": "Second cell: print the DataFrame independently"
+     }
+    ],
+    "explanations": [
+     {
+      "topic": "Why use a Jupyter notebook instead of a .py file for pandas",
+      "t": 511.0,
+      "sourceId": "src1"
+     },
+     {
+      "topic": "Creating a notebook via Ctrl/Cmd+Shift+P \u2192 New Jupyter Notebook",
+      "t": 534.0,
+      "sourceId": "src1"
+     },
+     {
+      "topic": "Installing the VS Code Python extension for notebook support",
+      "t": 570.0,
+      "sourceId": "src1"
+     },
+     {
+      "topic": "Cells run independently; choosing a Python kernel",
+      "t": 601.0,
+      "sourceId": "src1"
+     },
+     {
+      "topic": "Running, executing above/below, deleting cells, and clearing outputs",
+      "t": 634.0,
+      "sourceId": "src1"
+     }
+    ],
+    "hints": [
+     "Open the command palette (Ctrl+Shift+P / Cmd+Shift+P), run \"New Jupyter Notebook\", and save it as notebook.ipynb in the same folder as orders.csv.",
+     "In the first cell write `import pandas as pd` and `df = pd.read_csv('orders.csv')`, then run it and pick a Python interpreter/kernel when prompted.",
+     "Add a new cell below and write `print(df)`; run just that cell to see the table.",
+     "If you get ModuleNotFoundError, the selected kernel doesn't have pandas: switch kernels or `pip install pandas` into that environment."
+    ],
+    "common_mistakes": [
+     "Saving the notebook in a different folder than orders.csv, causing FileNotFoundError.",
+     "Selecting a Python kernel/interpreter that doesn't have pandas installed.",
+     "Running the print cell before running the cell that defines df (NameError: name 'df' is not defined).",
+     "Not having the VS Code Python/Jupyter extension, so the New Jupyter Notebook command is missing.",
+     "Naming the file without the .ipynb extension so it opens as a plain text file."
+    ],
+    "run_command": "Run cell 1, then run cell 2 (Run Cell button / Shift+Enter in the notebook)",
+    "code": "# cell 1\nimport pandas as pd\ndf = pd.read_csv('orders.csv')\n\n# cell 2\nprint(df)"
+   },
+   {
+    "id": "s3",
+    "index": 3,
+    "title": "Explore the DataFrame",
+    "instructions": "In new cells of main.ipynb run `df.head()`, `df.tail()`, `df.info()`, `df.describe()`, `df.columns` and `df.index`. Note the number of entries and columns that info() reports.",
+    "video": {
+     "sourceId": "src1",
+     "start": 660.0,
+     "end": 803.0
+    },
+    "checks": [
+     {
+      "id": "s3c1",
+      "type": "screen_contains",
+      "label": "info() output shown",
+      "app": "Code",
+      "pattern": "RangeIndex:\\s*\\d+\\s*entries"
+     },
+     {
+      "id": "s3c2",
+      "type": "screen_contains",
+      "label": "Column count printed",
+      "app": "Code",
+      "pattern": "Data\\s*columns\\s*\\(total\\s*\\d+\\s*columns"
+     },
+     {
+      "id": "s3c3",
+      "type": "screen_contains",
+      "label": "Index range printed",
+      "app": "Code",
+      "pattern": "RangeIndex\\(start=\\d+"
+     },
+     {
+      "id": "s3c4",
+      "type": "screen_contains",
+      "label": "describe() called",
+      "app": "Code",
+      "pattern": "\\.describe\\(\\)"
+     },
+     {
+      "id": "s3c5",
+      "type": "screen_absent",
+      "label": "No errors",
+      "app": "Code",
+      "pattern": "Traceback|NameError"
+     }
+    ],
+    "precision_checks": [
+     {
+      "id": "s3p1",
+      "type": "file_contains",
+      "label": "Notebook calls info()",
+      "file": "main.ipynb",
+      "pattern": "\\.info\\(\\)"
+     },
+     {
+      "id": "s3p2",
+      "type": "file_contains",
+      "label": "Notebook calls describe()",
+      "file": "main.ipynb",
+      "pattern": "\\.describe\\(\\)"
+     }
+    ],
+    "targets": [
+     {
+      "app": "Code",
+      "file": "main.ipynb",
+      "match": "df.head()",
+      "caption": "Preview the first five rows"
+     },
+     {
+      "app": "Code",
+      "file": "main.ipynb",
+      "match": "df.info()",
+      "caption": "Summary of entries, columns and dtypes"
+     },
+     {
+      "app": "Code",
+      "file": "main.ipynb",
+      "match": "df.describe()",
+      "caption": "Descriptive statistics table"
+     },
+     {
+      "app": "Code",
+      "file": "main.ipynb",
+      "match": "df.index",
+      "caption": "The row index as a RangeIndex"
+     }
+    ],
+    "explanations": [
+     {
+      "topic": "head() shows the first five rows",
+      "t": 669.0,
+      "sourceId": "src1"
+     },
+     {
+      "topic": "tail() shows the last five rows",
+      "t": 695.0,
+      "sourceId": "src1"
+     },
+     {
+      "topic": "info(): entry count, column count, dtypes",
+      "t": 706.0,
+      "sourceId": "src1"
+     },
+     {
+      "topic": "Why text columns show as object dtype",
+      "t": 727.0,
+      "sourceId": "src1"
+     },
+     {
+      "topic": "describe() generates descriptive statistics",
+      "t": 742.0,
+      "sourceId": "src1"
+     },
+     {
+      "topic": "columns lists the column names",
+      "t": 774.0,
+      "sourceId": "src1"
+     },
+     {
+      "topic": "index is a RangeIndex: start 0, stop 40, step 1",
+      "t": 784.0,
+      "sourceId": "src1"
+     }
+    ],
+    "hints": [
+     "Each of these goes in its own new cell below the one where you loaded df.",
+     "head() and tail() are methods, so they need parentheses. columns and index are attributes, so they don't.",
+     "df.info() prints 'RangeIndex: N entries' and 'Data columns (total N columns)'. Check these match your CSV (40 and 9 for orders.csv).",
+     "If you get a NameError on df, re-run the cell that calls pd.read_csv first."
+    ],
+    "common_mistakes": [
+     "Writing df.columns() or df.index(), which raises TypeError because they are attributes, not methods.",
+     "Forgetting the parentheses on df.info, which shows the bound method instead of the summary.",
+     "Running the cells after a kernel restart without re-running the import and read_csv cells, which raises NameError: name 'df' is not defined.",
+     "Expecting text columns to show as str. pandas reports them as object."
+    ],
+    "run_command": "Run each notebook cell (Shift+Enter)",
+    "code": "df.head()\ndf.tail()\ndf.info()\ndf.describe()\ndf.columns\ndf.index"
+   },
+   {
+    "id": "s4",
+    "index": 4,
+    "title": "Select columns and rows",
+    "instructions": "Select a Series with `df['Country']` and a sub-DataFrame with two columns like `df[['Country', 'Product']]`. Select rows by position with `df.iloc[10]` and read a value from that row.",
+    "video": {
+     "sourceId": "src1",
+     "start": 804.0,
+     "end": 1025.0
+    },
+    "checks": [
+     {
+      "id": "s4c1",
+      "type": "screen_contains",
+      "label": "Series output shown",
+      "app": "Code",
+      "pattern": "Name:\\s*\\w+.{0,40}dtype:\\s*\\w+|Length:\\s*\\d+"
+     },
+     {
+      "id": "s4c2",
+      "type": "screen_absent",
+      "label": "Cells run without errors",
+      "app": "Code",
+      "pattern": "Traceback|KeyError|IndexError"
+     }
+    ],
+    "precision_checks": [
+     {
+      "id": "s4p1",
+      "type": "file_contains",
+      "label": "Notebook uses iloc",
+      "file": "main.ipynb",
+      "pattern": "\\.iloc\\["
+     },
+     {
+      "id": "s4p2",
+      "type": "file_contains",
+      "label": "Country column selected",
+      "file": "main.ipynb",
+      "pattern": "Country"
+     }
+    ],
+    "targets": [
+     {
+      "app": "Code",
+      "file": "main.ipynb",
+      "match": "df['Country']",
+      "caption": "Select one column as a Series"
+     },
+     {
+      "app": "Code",
+      "file": "main.ipynb",
+      "match": "df[['Country', 'Product']]",
+      "caption": "Select two columns as a DataFrame"
+     },
+     {
+      "app": "Code",
+      "file": "main.ipynb",
+      "match": "df.iloc[10]",
+      "caption": "Select the row at position 10"
+     }
+    ],
+    "explanations": [
+     {
+      "topic": "Selecting one column returns a pandas Series",
+      "t": 838.0,
+      "sourceId": "src1"
+     },
+     {
+      "topic": "A list of columns returns a new DataFrame, not a Series",
+      "t": 907.0,
+      "sourceId": "src1"
+     },
+     {
+      "topic": "iloc selects rows by integer position",
+      "t": 939.0,
+      "sourceId": "src1"
+     },
+     {
+      "topic": "A row can be indexed by position or by column name",
+      "t": 1012.0,
+      "sourceId": "src1"
+     }
+    ],
+    "hints": [
+     "Run df.columns first so you know the exact column names. Spelling and capitals matter.",
+     "Use single brackets with one column name to get a Series. Use double brackets, a list of names, to get a DataFrame.",
+     "Use df.iloc[n] to get row n, counting from 0.",
+     "Chain a column name onto the row to read one value: df.iloc[10]['Country']."
+    ],
+    "common_mistakes": [
+     "Writing df['Country', 'Product'] with single brackets, which raises a KeyError. You need df[['Country', 'Product']].",
+     "Misspelling a column name or using the wrong case, e.g. 'country' instead of 'Country'.",
+     "Writing df.iloc(10) with parentheses instead of square brackets.",
+     "Forgetting that iloc starts counting at 0, so df.iloc[10] is the 11th row.",
+     "Using an iloc position at or beyond the number of rows, which raises an IndexError."
+    ],
+    "run_command": "Run each notebook cell (Shift+Enter)",
+    "code": "df.columns\ndf['Country']\nlen(df['Country'])\nset(df['Country'])\ndf[['Country', 'Product']]\ndf.iloc[0]\ndf.iloc[10]\nlist(df.iloc[10])\ndf.iloc[10][0]\ndf.iloc[10]['Country']"
+   },
+   {
+    "id": "s5",
+    "index": 5,
+    "title": "Filter with boolean conditions",
+    "instructions": "Filter rows with a condition such as `df[df['Category'] == 'Electronics']`, then combine two conditions with `&` and `|`, each in parentheses. Try a numeric filter like `df[df['Quantity'] > 2]`.",
+    "video": {
+     "sourceId": "src1",
+     "start": 1046.0,
+     "end": 1204.0
+    },
+    "checks": [
+     {
+      "id": "s5c1",
+      "type": "screen_contains",
+      "label": "Filtered table shown",
+      "app": "Code",
+      "pattern": "\\d+\\s*rows\\s*[x\u00d7]\\s*\\d+\\s*columns|Category|Quantity"
+     },
+     {
+      "id": "s5c2",
+      "type": "screen_absent",
+      "label": "Cell runs without errors",
+      "app": "Code",
+      "pattern": "Traceback|KeyError|TypeError|ValueError"
+     },
+     {
+      "type": "screen_contains",
+      "label": "table printed",
+      "app": "Code",
+      "pattern": "\\d+\\s*rows\\s*[x\u00d7]\\s*\\d+\\s*columns|dtype:\\s*\\w+|RangeIndex:\\s*\\d+",
+      "id": "s5c3"
+     }
+    ],
+    "precision_checks": [
+     {
+      "id": "s5p1",
+      "type": "file_contains",
+      "label": "Electronics filter saved",
+      "file": "main.ipynb",
+      "pattern": "Electronics"
+     },
+     {
+      "id": "s5p2",
+      "type": "file_contains",
+      "label": "Quantity filter saved",
+      "file": "main.ipynb",
+      "pattern": "Quantity.{0,10}>"
+     }
+    ],
+    "targets": [
+     {
+      "app": "Code",
+      "file": "main.ipynb",
+      "match": "== 'Electronics'",
+      "caption": "Filter rows where Category equals Electronics"
+     },
+     {
+      "app": "Code",
+      "file": "main.ipynb",
+      "match": "&",
+      "caption": "Combine two conditions with &, each in parentheses"
+     },
+     {
+      "app": "Code",
+      "file": "main.ipynb",
+      "match": "> 2",
+      "caption": "Numeric filter on Quantity"
+     }
+    ],
+    "explanations": [
+     {
+      "topic": "Boolean mask filtering: df[df[col] == value]",
+      "t": 1070.0,
+      "sourceId": "src1"
+     },
+     {
+      "topic": "Wrong column gives an empty table",
+      "t": 1082.0,
+      "sourceId": "src1"
+     },
+     {
+      "topic": "Use single & (not 'and') and wrap conditions in parentheses",
+      "t": 1099.0,
+      "sourceId": "src1"
+     },
+     {
+      "topic": "Use single | for OR",
+      "t": 1137.0,
+      "sourceId": "src1"
+     },
+     {
+      "topic": "Numeric comparisons >, <, <=, !=",
+      "t": 1167.0,
+      "sourceId": "src1"
+     }
+    ],
+    "hints": [
+     "Inside df[...], put a condition that compares a column to a value, like df['Category'] == 'Electronics'.",
+     "If you get an empty table, check that you're comparing the right column; the presenter first used 'Product' by mistake.",
+     "To combine conditions, wrap each in parentheses and join with & (AND) or | (OR): df[(cond1) & (cond2)].",
+     "For numbers, use comparison operators directly: df[df['Quantity'] > 2]."
+    ],
+    "common_mistakes": [
+     "Using Python's 'and'/'or' instead of & and |, which raises 'The truth value of a Series is ambiguous'.",
+     "Forgetting parentheses around each condition when combining with & or |.",
+     "Filtering on the wrong column (e.g. Product instead of Category), which returns an empty DataFrame.",
+     "Misspelling a column name or a value's case ('electronics' vs 'Electronics'), which causes a KeyError or no matches.",
+     "Writing df['Category'] == 'Electronics' without wrapping it in df[...], which shows True/False values instead of rows."
+    ],
+    "run_command": "Run the notebook cell (Shift+Enter)",
+    "code": "df[df['Category'] == 'Electronics']\ndf[(df['Category'] == 'Electronics') & (df['Country'] == 'USA')]\ndf[(df['Category'] == 'Electronics') | (df['Country'] == 'USA')]\ndf[df['Quantity'] > 20]\ndf[df['Quantity'] > 2]"
+   },
+   {
+    "id": "s6",
+    "index": 6,
+    "title": "Filter with string and isin methods",
+    "instructions": "In notebook.ipynb filter rows with `df[df['CustomerName'].str.startswith('A')]` and `.str.endswith('a')`. Filter with `df[df['Country'].isin([...])]` and negate it with `~`.",
+    "video": {
+     "sourceId": "src1",
+     "start": 1206.0,
+     "end": 1320.0
+    },
+    "checks": [
+     {
+      "id": "s6c1",
+      "type": "screen_contains",
+      "label": "str.startswith used",
+      "app": "Code",
+      "pattern": "str\\s*\\.\\s*startswith\\("
+     },
+     {
+      "id": "s6c2",
+      "type": "screen_contains",
+      "label": "str.endswith used",
+      "app": "Code",
+      "pattern": "str\\s*\\.\\s*endswith\\("
+     },
+     {
+      "id": "s6c3",
+      "type": "screen_contains",
+      "label": "isin negated with tilde",
+      "app": "Code",
+      "pattern": "~\\s*df\\s*\\[.{0,40}isin\\("
+     },
+     {
+      "id": "s6c4",
+      "type": "screen_contains",
+      "label": "Filtered table displayed",
+      "app": "Code",
+      "pattern": "\\d+\\s*rows\\s*[x\u00d7]\\s*\\d+\\s*columns"
+     },
+     {
+      "id": "s6c5",
+      "type": "screen_absent",
+      "label": "No errors",
+      "app": "Code",
+      "pattern": "Traceback|KeyError|NameError"
+     }
+    ],
+    "precision_checks": [
+     {
+      "id": "s6p1",
+      "type": "file_contains",
+      "label": "Notebook uses isin",
+      "file": "notebook.ipynb",
+      "pattern": "isin\\("
+     }
+    ],
+    "targets": [
+     {
+      "app": "Code",
+      "file": "notebook.ipynb",
+      "match": "str.startswith",
+      "caption": "String method filter on CustomerName"
+     },
+     {
+      "app": "Code",
+      "file": "notebook.ipynb",
+      "match": ".isin(",
+      "caption": "Membership filter on Country"
+     },
+     {
+      "app": "Code",
+      "file": "notebook.ipynb",
+      "match": "~df",
+      "caption": "Tilde reverses the isin condition"
+     }
+    ],
+    "explanations": [
+     {
+      "topic": "endswith is case-sensitive: 'A' vs 'a'",
+      "t": 1249.0,
+      "sourceId": "src1"
+     },
+     {
+      "topic": "Using the .str accessor for string methods on a column",
+      "t": 1258.0,
+      "sourceId": "src1"
+     },
+     {
+      "topic": "isin replaces long combined OR conditions",
+      "t": 1287.0,
+      "sourceId": "src1"
+     },
+     {
+      "topic": "~ negates a boolean mask (NOT in list)",
+      "t": 1297.0,
+      "sourceId": "src1"
+     }
+    ],
+    "hints": [
+     "String methods on a column go through the .str accessor, e.g. df['col'].str.something('A').",
+     "Wrap the condition in df[...] so it filters rows: df[df['CustomerName'].str.startswith('A')].",
+     "For membership, pass a list: df[df['Country'].isin(['USA', 'Sweden', 'Brazil'])].",
+     "To get rows NOT in the list, put ~ in front of the mask: df[~df['Country'].isin([...])]."
+    ],
+    "common_mistakes": [
+     "Calling .startswith directly on the Series without .str (AttributeError).",
+     "Using uppercase 'A' with endswith and getting an empty result. Matching is case-sensitive.",
+     "Passing separate strings to isin instead of a single list.",
+     "Using 'not' or '!' instead of ~ to negate the mask.",
+     "Forgetting the outer df[...], which shows a True/False Series instead of rows."
+    ],
+    "run_command": "Run each notebook cell (Shift+Enter)",
+    "code": "df[df['CustomerName'].str.startswith('A')]\ndf[df['CustomerName'].str.endswith('a')]\ndf[df['Country'].isin(['USA', 'Sweden', 'Brazil'])]\ndf[~df['Country'].isin(['USA', 'Sweden', 'Brazil'])]"
+   },
+   {
+    "id": "s7",
+    "index": 7,
+    "title": "Update values with loc",
+    "instructions": "Update values with `df.loc[condition, 'Column'] = value`, e.g. replace 'USA' with 'United States'. Uppercase a column with `df['Country'] = df['Country'].str.upper()`.",
+    "video": {
+     "sourceId": "src1",
+     "start": 1323.0,
+     "end": 1546.0
+    },
+    "checks": [
+     {
+      "id": "s7c1",
+      "type": "screen_contains",
+      "label": "Uppercases a column",
+      "app": "Code",
+      "pattern": "str\\s*\\.\\s*upper\\(\\)"
+     },
+     {
+      "id": "s7c2",
+      "type": "screen_contains",
+      "label": "Series output printed",
+      "app": "Code",
+      "pattern": "dtype:\\s*\\w+|\\d+\\s*rows\\s*[x\u00d7]\\s*\\d+\\s*columns"
+     },
+     {
+      "id": "s7c3",
+      "type": "screen_absent",
+      "label": "No errors",
+      "app": "Code",
+      "pattern": "Traceback|KeyError|SyntaxError"
+     }
+    ],
+    "precision_checks": [
+     {
+      "id": "s7p1",
+      "type": "file_contains",
+      "label": "Notebook uses str.upper",
+      "file": "notebook.ipynb",
+      "pattern": "str\\.upper\\(\\)"
+     }
+    ],
+    "targets": [
+     {
+      "app": "Code",
+      "file": "notebook.ipynb",
+      "match": "df.loc[",
+      "caption": "loc selects rows by condition and a column to update"
+     },
+     {
+      "app": "Code",
+      "file": "notebook.ipynb",
+      "match": ".str.upper()",
+      "caption": "Uppercase every value in the column"
+     }
+    ],
+    "explanations": [
+     {
+      "topic": "loc locates by label/condition vs iloc by index position",
+      "t": 1347.0,
+      "sourceId": "src1"
+     },
+     {
+      "topic": "loc with a condition returns a DataFrame, since several rows may match",
+      "t": 1389.0,
+      "sourceId": "src1"
+     },
+     {
+      "topic": "Adding a column after the comma to assign a new value",
+      "t": 1399.0,
+      "sourceId": "src1"
+     },
+     {
+      "topic": "Bulk-replacing USA with United States",
+      "t": 1457.0,
+      "sourceId": "src1"
+     },
+     {
+      "topic": "Reassigning a column with .str.upper()",
+      "t": 1510.0,
+      "sourceId": "src1"
+     }
+    ],
+    "hints": [
+     "Pass two things to loc: a row condition, then a column name, separated by a comma.",
+     "The pattern is df.loc[df['Col'] == value, 'TargetCol'] = new_value.",
+     "For the whole column use df['Country'] = df['Country'].str.upper(), then display df['Country'] to check."
+    ],
+    "common_mistakes": [
+     "Using parentheses df.loc(...) instead of square brackets df.loc[...].",
+     "Chained assignment like df[df['Country']=='USA']['Country'] = ... which doesn't update df (SettingWithCopyWarning).",
+     "Wrong column name (e.g. 'ProductName' instead of 'Product') creates a new column instead of updating.",
+     "Calling .upper() without .str, or not assigning the result back to df['Country'].",
+     "Filtering for 'United States' after uppercasing, which returns no rows."
+    ],
+    "run_command": "Run the notebook cells (Shift+Enter)",
+    "code": "df.loc[df['CustomerName'] == 'Anna ...', 'Product'] = 'Tim'\ndf.loc[df['CustomerName'] == 'Anna ...']\n\ndf.loc[df['Country'] == 'USA', 'Country'] = 'United States'\ndf[df['Country'] == 'USA']\ndf[df['Country'] == 'United States']\n\ndf['Country'] = df['Country'].str.upper()\ndf['Country']"
+   },
+   {
+    "id": "s8",
+    "index": 8,
+    "title": "Drop rows and clean data",
+    "instructions": "Drop a row with `df = df.drop(<index>)` and check with `df.tail()`, then reload your CSV with pd.read_csv. Try `df.dropna()`, `df.fillna({...}, inplace=True)` and `df.rename(columns={...}, inplace=True)`.",
+    "video": {
+     "sourceId": "src1",
+     "start": 1548.0,
+     "end": 1673.0
+    },
+    "checks": [
+     {
+      "id": "s8c1",
+      "type": "screen_contains",
+      "label": "drop() called",
+      "app": "Code",
+      "pattern": "df\\s*\\.\\s*drop\\(\\s*\\d+"
+     },
+     {
+      "id": "s8c2",
+      "type": "screen_contains",
+      "label": "rename columns written",
+      "app": "Code",
+      "pattern": "rename\\(\\s*columns\\s*=\\s*\\{"
+     },
+     {
+      "id": "s8c3",
+      "type": "screen_contains",
+      "label": "fillna with inplace",
+      "app": "Code",
+      "pattern": "fillna\\(.{0,60}inplace\\s*=\\s*True"
+     },
+     {
+      "id": "s8c4",
+      "type": "screen_contains",
+      "label": "Table output displayed",
+      "app": "Code",
+      "pattern": "\\d+\\s*rows\\s*[x\u00d7]\\s*\\d+\\s*columns"
+     },
+     {
+      "id": "s8c5",
+      "type": "screen_absent",
+      "label": "Cells run without errors",
+      "app": "Code",
+      "pattern": "Traceback|KeyError|NameError"
+     }
+    ],
+    "precision_checks": [
+     {
+      "id": "s8p1",
+      "type": "file_contains",
+      "label": "Notebook renames OrderID",
+      "file": "notebook.ipynb",
+      "pattern": "Order\\s*ID"
+     }
+    ],
+    "targets": [
+     {
+      "app": "Code",
+      "file": "notebook.ipynb",
+      "match": "df.drop(",
+      "caption": "Drop a row by index and reassign df"
+     },
+     {
+      "app": "Code",
+      "file": "notebook.ipynb",
+      "match": "df.tail()",
+      "caption": "Confirm the row is gone"
+     },
+     {
+      "app": "Code",
+      "file": "notebook.ipynb",
+      "match": "df.fillna",
+      "caption": "Fill missing values in place"
+     },
+     {
+      "app": "Code",
+      "file": "notebook.ipynb",
+      "match": "df.rename",
+      "caption": "Rename a column"
+     }
+    ],
+    "explanations": [
+     {
+      "topic": "df.drop removes a row by index label",
+      "t": 1558.0,
+      "sourceId": "src1"
+     },
+     {
+      "topic": "dropna removes rows containing null/NA values",
+      "t": 1598.0,
+      "sourceId": "src1"
+     },
+     {
+      "topic": "fillna replaces missing values instead of removing them",
+      "t": 1618.0,
+      "sourceId": "src1"
+     },
+     {
+      "topic": "inplace=True modifies the existing DataFrame instead of returning a new one",
+      "t": 1634.0,
+      "sourceId": "src1"
+     },
+     {
+      "topic": "Renaming columns with rename(columns=...)",
+      "t": 1656.0,
+      "sourceId": "src1"
+     }
+    ],
+    "hints": [
+     "drop takes an index label; assign the result back: df = df.drop(39).",
+     "Use df.tail() to see the last rows and confirm the index you dropped is missing.",
+     "fillna and rename accept a dict: {'OrderID': 0} and columns={'OrderID': 'Order ID'}.",
+     "Add inplace=True so fillna/rename change df itself; then display df to see the new header."
+    ],
+    "common_mistakes": [
+     "Calling df.drop(39) without reassigning df, so the row is still there.",
+     "Running df.drop(39) twice, causing a KeyError because index 39 no longer exists.",
+     "Forgetting inplace=True (or reassignment) so fillna/rename have no lasting effect.",
+     "Writing rename({'OrderID': 'Order ID'}) without columns=, which renames index labels instead of columns.",
+     "Misspelling the original column name (e.g. 'OrderId'), so rename silently does nothing."
+    ],
+    "run_command": "Run each notebook cell (Shift+Enter)",
+    "code": "df = df.drop(39)\ndf.tail()\n\n# reload the CSV\ndf = pd.read_csv('orders.csv')\n\ndf.dropna()\n\ndf.fillna({'OrderID': 0}, inplace=True)\n\ndf.rename(columns={'OrderID': 'Order ID'}, inplace=True)\ndf"
+   },
+   {
+    "id": "s9",
+    "index": 9,
+    "title": "Analyze, group and save data",
+    "instructions": "Run `value_counts()` on a column, `groupby(...)[...].sum()` and `sort_values(..., ascending=False)`, then save with `df.to_csv('new_file.csv', index=False)`.",
+    "video": {
+     "sourceId": "src1",
+     "start": 1680.0,
+     "end": 1809.0
+    },
+    "checks": [
+     {
+      "id": "s9c1",
+      "type": "screen_contains",
+      "label": "value_counts used",
+      "app": "Code",
+      "pattern": "value_counts\\(\\s*\\)"
+     },
+     {
+      "id": "s9c2",
+      "type": "screen_contains",
+      "label": "groupby sum written",
+      "app": "Code",
+      "pattern": "groupby\\(.{1,30}\\)\\s*\\[.{1,30}\\]\\s*\\.\\s*sum\\("
+     },
+     {
+      "id": "s9c3",
+      "type": "screen_contains",
+      "label": "sort_values used",
+      "app": "Code",
+      "pattern": "sort_values\\("
+     },
+     {
+      "id": "s9c4",
+      "type": "screen_contains",
+      "label": "Series result printed",
+      "app": "Code",
+      "pattern": "dtype:\\s*\\w+"
+     },
+     {
+      "id": "s9c5",
+      "type": "screen_contains",
+      "label": "Saved with to_csv",
+      "app": "Code",
+      "pattern": "to_csv\\("
+     },
+     {
+      "id": "s9c6",
+      "type": "screen_absent",
+      "label": "No errors in output",
+      "app": "Code",
+      "pattern": "Traceback|KeyError|AttributeError|NameError"
+     }
+    ],
+    "precision_checks": [
+     {
+      "id": "s9p1",
+      "type": "file_exists",
+      "label": "new_file.csv saved",
+      "file": "new_file.csv"
+     }
+    ],
+    "targets": [
+     {
+      "app": "Code",
+      "file": "notebook (.ipynb)",
+      "match": "value_counts()",
+      "caption": "Count occurrences of each value"
+     },
+     {
+      "app": "Code",
+      "file": "notebook (.ipynb)",
+      "match": "groupby",
+      "caption": "Sum a column per group"
+     },
+     {
+      "app": "Code",
+      "file": "notebook (.ipynb)",
+      "match": "sort_values",
+      "caption": "Sort rows, highest first"
+     },
+     {
+      "app": "Code",
+      "file": "notebook (.ipynb)",
+      "match": "to_csv",
+      "caption": "Save the cleaned DataFrame to CSV"
+     }
+    ],
+    "explanations": [
+     {
+      "topic": "value_counts gives a count of every distinct value in a column",
+      "t": 1700.0,
+      "sourceId": "src1"
+     },
+     {
+      "topic": "groupby works like SQL GROUP BY; summing Price per Country",
+      "t": 1716.0,
+      "sourceId": "src1"
+     },
+     {
+      "topic": "sort_values with ascending=False sorts descending",
+      "t": 1755.0,
+      "sourceId": "src1"
+     },
+     {
+      "topic": "to_csv saves the modified DataFrame; index=False omits the index column",
+      "t": 1784.0,
+      "sourceId": "src1"
+     }
+    ],
+    "hints": [
+     "Call value_counts() on a single column, e.g. df['Country'].",
+     "For groupby, pick the column to group by, then select the column to aggregate and call .sum().",
+     "sort_values takes the column name and ascending=False for largest-first.",
+     "df.to_csv('new_file.csv', index=False) writes the file next to your notebook; check the file browser."
+    ],
+    "common_mistakes": [
+     "Calling df.value_counts() on the whole DataFrame instead of one column",
+     "Writing df.groupby('Country').sum()['Price'] on columns with non-numeric data, causing errors or messy output",
+     "Using sort_values without ascending=False and expecting the most expensive first",
+     "Typing df.2csv or to.csv instead of to_csv",
+     "Forgetting index=False so an extra unnamed index column appears in the saved CSV",
+     "Misspelled column names (case-sensitive) causing KeyError"
+    ],
+    "run_command": "Run each notebook cell (Shift+Enter)",
+    "code": "df['Country'].value_counts()\n\ndf.groupby('Country')['Price'].sum()\n\ndf.sort_values('Price', ascending=False)\n\ndf.to_csv('new_file.csv', index=False)"
+   }
+  ],
+  "build": {
+   "adapted": true,
+   "model": {
+    "video": "claude-opus-5-5 (transcript via saved captions (eval))",
+    "adapt": "claude-opus-5-5"
+   },
+   "seconds": 63.1,
+   "workdir_metrics": [],
+   "workdir_fp": "d8c7b40688ec",
+   "community_signals": 0,
+   "warnings": []
+  }
+ },
+ "error": null
+}

@@ -1,0 +1,469 @@
+{
+ "meta": {
+  "id": "git-rebase",
+  "url": "https://www.youtube.com/watch?v=DkWDHzmMvyg",
+  "goal": "rebase a feature branch onto main with git and resolve the conflicts",
+  "src": "/private/tmp/claude-501/-Users-tripi-sand-hacks-sandhacks-tutor--claude-worktrees-lesson-eval-fe1fb1/e71fa444-540f-45b2-90e3-d8ca490665c3/scratchpad/src4",
+  "engine_env": "auto",
+  "captions": "saved by an earlier run (results/); live fetch failed: no transcript for DkWDHzmMvyg: brightdata watch page: Bright Data returned an empty body; brightdata captions: Bright Data returned an empty body; timedtext: Cl",
+  "wall_s": 28.8,
+  "workdir": "(fresh empty temp dir)",
+  "model": {
+   "video": "claude-opus-5-5 (transcript via saved captions (eval))",
+   "adapt": "claude-opus-5-5"
+  },
+  "path": "claude",
+  "fallback_notes": [],
+  "length_s": 584
+ },
+ "graph": {
+  "lesson": {
+   "id": "lesson-477722c6",
+   "title": "Rebase a Feature Branch onto Main and Resolve Conflicts",
+   "goal": "rebase a feature branch onto main with git and resolve the conflicts",
+   "libraries": {
+    "git": "2.x",
+    "vim": "9.x"
+   },
+   "workdir": "/var/folders/2g/b60087014tq94njh6r4zdmhm0000gn/T/lesson-eval-git-rebase-mivtb5nf"
+  },
+  "sources": [
+   {
+    "id": "src1",
+    "kind": "video",
+    "title": "Rebase a Feature Branch onto Main and Resolve Conflicts",
+    "url": "https://www.youtube.com/watch?v=DkWDHzmMvyg",
+    "videoId": "DkWDHzmMvyg"
+   }
+  ],
+  "steps": [
+   {
+    "id": "s1",
+    "index": 1,
+    "title": "Set up repo and rebase cleanly",
+    "instructions": "In the empty workdir run `git init`, create and commit a file on main, then `git switch -c feature/login` and commit a change there. Switch back to main, commit a change to a different file, switch to `feature/login`, run `git rebase main`, then run `git log --oneline --graph --all` to see the linear history.",
+    "video": {
+     "sourceId": "src1",
+     "start": 131.0,
+     "end": 202.0
+    },
+    "checks": [
+     {
+      "id": "s1c1",
+      "type": "screen_contains",
+      "label": "Rebase succeeded",
+      "app": "Terminal",
+      "pattern": "Successfully\\s*rebased\\s*and\\s*updated"
+     },
+     {
+      "id": "s1c2",
+      "type": "screen_contains",
+      "label": "Repo initialized",
+      "app": "Terminal",
+      "pattern": "Initialized\\s*empty\\s*Git\\s*repository"
+     },
+     {
+      "id": "s1c3",
+      "type": "screen_contains",
+      "label": "Feature branch created",
+      "app": "Terminal",
+      "pattern": "Switched\\s*to\\s*a\\s*new\\s*branch"
+     }
+    ],
+    "precision_checks": [
+     {
+      "id": "s1p1",
+      "type": "command_exit_ok",
+      "label": "Repo exists",
+      "command": "git rev-parse --git-dir"
+     },
+     {
+      "id": "s1p2",
+      "type": "command_exit_ok",
+      "label": "Feature is based on main",
+      "command": "git merge-base --is-ancestor main feature/login"
+     }
+    ],
+    "targets": [
+     {
+      "app": "Terminal",
+      "match": "Successfully rebased",
+      "caption": "The feature commits are replayed on top of main"
+     },
+     {
+      "app": "Terminal",
+      "match": "Switched to a new branch",
+      "caption": "Feature branch created"
+     }
+    ],
+    "explanations": [
+     {
+      "topic": "Rebase sets commits aside and reapplies them on the latest main",
+      "t": 146.0,
+      "sourceId": "src1"
+     },
+     {
+      "topic": "Why it's called rebasing: new base commit",
+      "t": 159.0,
+      "sourceId": "src1"
+     },
+     {
+      "topic": "Linear history and fast-forward merges",
+      "t": 189.0,
+      "sourceId": "src1"
+     }
+    ],
+    "hints": [
+     "Run git rebase main while you are on the feature branch, not on main.",
+     "The commit on main must touch a different file from the one on feature/login, otherwise you'll get a conflict.",
+     "Check which branch you are on with git status before you rebase.",
+     "Use git log --oneline --graph --all to confirm the feature commit now comes after main's latest commit."
+    ],
+    "common_mistakes": [
+     "Running git rebase main while still on main, which does nothing.",
+     "Editing the same file on both branches, which causes a conflict in this step.",
+     "Forgetting to git add before committing, so the commit fails with 'nothing to commit'.",
+     "Not making any commit on main before creating the branch, so main has no history to branch from."
+    ],
+    "run_command": "git rebase main",
+    "code": "git init\ngit add . && git commit -m \"initial commit\"\ngit switch -c feature/login\ngit commit -am \"feature work\"\ngit switch main\ngit commit -am \"main change\"\ngit switch feature/login\ngit rebase main\ngit log --oneline --graph --all"
+   },
+   {
+    "id": "s2",
+    "index": 2,
+    "title": "Check branch isn't pushed",
+    "instructions": "Run `git branch -a` to list local and remote branches. Confirm your feature branch has no `remotes/` entry, which means it is safe to rebase.",
+    "video": {
+     "sourceId": "src1",
+     "start": 202.0,
+     "end": 277.0
+    },
+    "checks": [
+     {
+      "id": "s2c1",
+      "type": "screen_contains",
+      "label": "Branch list printed",
+      "app": "Terminal",
+      "pattern": "\\*\\s*\\S+[\\s\\S]{0,200}(main|master)|(main|master)[\\s\\S]{0,200}\\*\\s*\\S+"
+     },
+     {
+      "id": "s2c2",
+      "type": "screen_absent",
+      "label": "No git errors",
+      "app": "Terminal",
+      "pattern": "fatal:|not\\s*a\\s*git\\s*repository"
+     }
+    ],
+    "precision_checks": [
+     {
+      "id": "s2p1",
+      "type": "command_exit_ok",
+      "label": "Branch not pushed",
+      "command": "test -z \"$(git branch -r)\""
+     }
+    ],
+    "targets": [
+     {
+      "app": "Terminal",
+      "match": "main",
+      "caption": "The branch list has no remotes/ entry for the feature branch"
+     }
+    ],
+    "explanations": [
+     {
+      "topic": "Golden rule: never rebase commits you've already pushed",
+      "t": 209.0,
+      "sourceId": "src1"
+     },
+     {
+      "topic": "Rebasing changes commit hashes, so local and remote no longer match",
+      "t": 223.0,
+      "sourceId": "src1"
+     },
+     {
+      "topic": "git merge keeps hashes the same and never rewrites history",
+      "t": 254.0,
+      "sourceId": "src1"
+     },
+     {
+      "topic": "Use git branch -a to see whether the feature branch exists on the remote",
+      "t": 263.0,
+      "sourceId": "src1"
+     }
+    ],
+    "hints": [
+     "Use the git branch command with a flag that also shows remote branches.",
+     "Run `git branch -a` inside your repository.",
+     "In the output, look for a line like `remotes/origin/<your-feature-branch>`. If there isn't one, the branch hasn't been pushed and is safe to rebase."
+    ],
+    "common_mistakes": [
+     "Running plain `git branch`, which shows only local branches and so can't tell you whether the feature branch was pushed.",
+     "Seeing `remotes/origin/<feature>` and rebasing anyway, which rewrites hashes that teammates may already have pulled.",
+     "Running the command outside the repository folder and getting `fatal: not a git repository`.",
+     "Assuming a branch is unpushed without running `git fetch` first when the remote branch list may be out of date."
+    ],
+    "run_command": "git branch -a"
+   },
+   {
+    "id": "s3",
+    "index": 3,
+    "title": "Create conflicts and start rebase",
+    "instructions": "Make three commits on `feature/login`: the first and third edit the same lines that two new commits on main also change, and the second touches an unrelated file. Run `git rebase main`, then `git status` to see the paused rebase.",
+    "video": {
+     "sourceId": "src1",
+     "start": 328.0,
+     "end": 378.0
+    },
+    "checks": [
+     {
+      "id": "s3c1",
+      "type": "screen_contains",
+      "label": "Rebase hit a conflict",
+      "app": "Terminal",
+      "pattern": "CONFLICT\\s*\\(content\\)"
+     },
+     {
+      "id": "s3c2",
+      "type": "screen_contains",
+      "label": "Rebase in progress",
+      "app": "Terminal",
+      "pattern": "rebase\\s*in\\s*progress|currently\\s*rebasing"
+     },
+     {
+      "id": "s3c3",
+      "type": "screen_contains",
+      "label": "Conflicted file listed",
+      "app": "Terminal",
+      "pattern": "both\\s*modified"
+     }
+    ],
+    "precision_checks": [
+     {
+      "id": "s3p1",
+      "type": "command_exit_ok",
+      "label": "Rebase directory exists",
+      "command": "test -d .git/rebase-merge -o -d .git/rebase-apply"
+     }
+    ],
+    "targets": [
+     {
+      "app": "Terminal",
+      "match": "CONFLICT",
+      "caption": "The first feature commit conflicts with main"
+     },
+     {
+      "app": "Terminal",
+      "match": "rebase in progress",
+      "caption": "git status shows the rebase is paused"
+     }
+    ],
+    "explanations": [
+     {
+      "topic": "Rebase reapplies feature commits one by one, so each can conflict",
+      "t": 313.0,
+      "sourceId": "src1"
+     },
+     {
+      "topic": "Feature branch's base commit vs. two newer commits on main",
+      "t": 333.0,
+      "sourceId": "src1"
+     },
+     {
+      "topic": "Rebase pauses on conflict; status shows which commit and how many remain",
+      "t": 365.0,
+      "sourceId": "src1"
+     },
+     {
+      "topic": "Fixing rebase conflicts works like merge conflicts",
+      "t": 378.0,
+      "sourceId": "src1"
+     }
+    ],
+    "hints": [
+     "Make sure main has new commits that edit the same lines as your feature commits, otherwise the rebase finishes cleanly.",
+     "Check out your feature branch before running `git rebase main`.",
+     "After the conflict appears, run `git status` to see 'rebase in progress' and the unmerged file.",
+     "Look for the 'Last command done' and 'Next commands to do' lines in the status output. They show the remaining commits."
+    ],
+    "common_mistakes": [
+     "Running `git rebase main` while on main instead of the feature branch.",
+     "Making the conflicting edits on different lines, so Git auto-merges and no conflict appears.",
+     "Forgetting to commit the changes on main before rebasing.",
+     "Panicking and running `git rebase --abort` before inspecting `git status`."
+    ],
+    "run_command": "git rebase main && git status"
+   },
+   {
+    "id": "s4",
+    "index": 4,
+    "title": "Resolve conflict and continue",
+    "instructions": "Open the conflicted file, remove the `<<<<<<<`, `=======` and `>>>>>>>` markers while keeping the correct code, then `git add` the file. Run `git rebase --continue`, and in Vim press Esc and type `:wq` to keep the commit message.",
+    "video": {
+     "sourceId": "src1",
+     "start": 378.0,
+     "end": 454.0
+    },
+    "checks": [
+     {
+      "id": "s4c1",
+      "type": "screen_absent",
+      "label": "No conflict markers left",
+      "app": "Code",
+      "pattern": "<<<<<<<|>>>>>>>"
+     },
+     {
+      "id": "s4c2",
+      "type": "screen_contains",
+      "label": "Rebase moved on",
+      "app": "Terminal",
+      "pattern": "detached\\s*HEAD\\s*[0-9a-f]+|Successfully\\s*rebased|CONFLICT[\\s\\S]*CONFLICT"
+     }
+    ],
+    "precision_checks": [
+     {
+      "id": "s4p1",
+      "type": "command_exit_ok",
+      "label": "No unmerged files",
+      "command": "test -z \"$(git diff --name-only --diff-filter=U)\" || git status | grep -q 'could not apply'"
+     }
+    ],
+    "targets": [
+     {
+      "app": "Code",
+      "match": "=======",
+      "caption": "Remove the conflict markers and keep the correct code"
+     },
+     {
+      "app": "Terminal",
+      "match": "rebase --continue",
+      "caption": "Continue the rebase instead of committing"
+     }
+    ],
+    "explanations": [
+     {
+      "topic": "Rebase uses git rebase --continue instead of commit",
+      "t": 407.0,
+      "sourceId": "src1"
+     },
+     {
+      "topic": "Saving and quitting Vim with :wq keeps the commit message",
+      "t": 429.0,
+      "sourceId": "src1"
+     }
+    ],
+    "hints": [
+     "Open each file listed as conflicted (git status shows 'both modified').",
+     "Delete the <<<<<<<, ======= and >>>>>>> lines, keeping only the code that should stay, then save.",
+     "Run git add on every fixed file, then git rebase --continue.",
+     "When Vim opens, press Escape, type :wq and press Enter."
+    ],
+    "common_mistakes": [
+     "Leaving a conflict marker line (e.g. =======) in the file.",
+     "Running git commit instead of git rebase --continue.",
+     "Forgetting to git add the resolved file before continuing.",
+     "Getting stuck in Vim by typing :wq without pressing Escape first, or typing into insert mode."
+    ],
+    "run_command": "git rebase --continue",
+    "code": "git add <conflicted-file>\ngit rebase --continue\n# in Vim: Esc, then :wq"
+   },
+   {
+    "id": "s5",
+    "index": 5,
+    "title": "Finish the rebase",
+    "instructions": "Resolve the conflict in the last commit the same way, `git add` the file and run `git rebase --continue` again. Then run `git status` to confirm you are no longer rebasing.",
+    "video": {
+     "sourceId": "src1",
+     "start": 454.0,
+     "end": 492.0
+    },
+    "checks": [
+     {
+      "id": "s5c1",
+      "type": "screen_contains",
+      "label": "Rebase completed",
+      "app": "Terminal",
+      "pattern": "Successfully\\s*rebased"
+     },
+     {
+      "id": "s5c2",
+      "type": "screen_contains",
+      "label": "Clean working tree",
+      "app": "Terminal",
+      "pattern": "nothing\\s*to\\s*commit"
+     }
+    ],
+    "precision_checks": [
+     {
+      "id": "s5p1",
+      "type": "command_exit_ok",
+      "label": "No rebase in progress",
+      "command": "test ! -d .git/rebase-merge -a ! -d .git/rebase-apply"
+     },
+     {
+      "id": "s5p2",
+      "type": "command_exit_ok",
+      "label": "Feature is based on main",
+      "command": "git merge-base --is-ancestor main feature/login"
+     }
+    ],
+    "targets": [
+     {
+      "app": "Terminal",
+      "match": "Successfully rebased",
+      "caption": "Git confirms the rebase finished"
+     },
+     {
+      "app": "Terminal",
+      "match": "nothing to commit",
+      "caption": "git status shows a normal, clean branch"
+     }
+    ],
+    "explanations": [
+     {
+      "topic": "Non-conflicting commits are applied automatically",
+      "t": 458.0,
+      "sourceId": "src1"
+     },
+     {
+      "topic": "Last commit conflicts again; resolve and continue",
+      "t": 470.0,
+      "sourceId": "src1"
+     },
+     {
+      "topic": "Using git status to confirm the rebase is over",
+      "t": 485.0,
+      "sourceId": "src1"
+     }
+    ],
+    "hints": [
+     "After the middle commit applies on its own, Git stops again at the last commit. Fix that conflict the same way you fixed the first one.",
+     "Open the conflicting file and remove every <<<<<<<, ======= and >>>>>>> marker. Keep the content you want.",
+     "Stage the file with git add <file>, then run git rebase --continue. Save and close the commit message editor.",
+     "Run git status. It should say 'On branch ...' and should no longer mention a rebase in progress."
+    ],
+    "common_mistakes": [
+     "Running git rebase --continue before running git add on the resolved file.",
+     "Leaving conflict markers in the file, then staging and committing them.",
+     "Running git commit instead of git rebase --continue during the rebase.",
+     "Not closing the commit message editor (e.g. Vim :wq), so the rebase never continues.",
+     "Running git rebase --skip by accident, which drops the last commit."
+    ],
+    "run_command": "git status",
+    "code": "# resolve the conflict markers in the conflicting file, then:\ngit add <conflicting-file>\ngit rebase --continue\ngit status"
+   }
+  ],
+  "build": {
+   "adapted": true,
+   "model": {
+    "video": "claude-opus-5-5 (transcript via saved captions (eval))",
+    "adapt": "claude-opus-5-5"
+   },
+   "seconds": 28.8,
+   "workdir_metrics": [],
+   "workdir_fp": "923362d0e2ed",
+   "community_signals": 0,
+   "warnings": []
+  }
+ },
+ "error": null
+}
