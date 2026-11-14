@@ -445,6 +445,8 @@ class LessonSession:
         else:
             self.segment_done = True
         self._watch_screen_metrics(step)
+        if self.m.has_diagrams() and os.environ.get("ORCH_DIAGRAM_PREFETCH", "1") == "1":
+            self._spawn(self._prefetch_diagram(self.step_gen, step), timer=True)
         if self.workspace is not None:
             self.workspace.goto_target(self.workdir, step)
         await self._status("watching")
@@ -999,13 +1001,18 @@ class LessonSession:
             return
         if kind == "diagram":
             want = (text or "").strip().lower()
-            if want not in DIAGRAM_KINDS:
+            if want not in DIAGRAM_KINDS and not self.m.has_diagrams():  # stubs (DEMO) pick from the failing checks
                 metric_fail = any(r.get("status") == "fail" and r.get("checkId") in
                                   {c["id"] for c in step.get("checks", []) if c.get("type", "").startswith("metric")}
                                   for r in self.last_results)
                 want = "gradients" if metric_fail or self.last_offtrack else "network"
-            d = await self.m.diagram(want, step, self.context())
+            await self._status("thinking")
+            d = await self.m.diagram(want if want in DIAGRAM_KINDS else None, step, self.context(),
+                                     self._diagram_context(step, None if want in DIAGRAM_KINDS else (text or None)))
+            d = dict(d)
+            d.setdefault("stepId", step["id"])
             await self.emit("diagram", d)
+            await self._status("offtrack" if self.last_offtrack else ("passed" if self.passed else "watching"))
             return
         if kind == "voice_toggle":
             self.voice = not self.voice
@@ -1014,6 +1021,22 @@ class LessonSession:
             await self._apply_fix(step)
             return
         await self.emit("error", {"message": f"Unknown action: {kind}"})
+
+    def _diagram_context(self, step: dict, question: str | None) -> dict:
+        ctx = self._explain_context()
+        return {"code": ctx.get("code"), "file": ctx.get("file"), "screen": self._screen_lines(),
+                "question": question, "lesson": ctx.get("lesson"),
+                "offtrack": {k: (self.last_offtrack or {}).get(k) for k in ("title", "body")} if self.last_offtrack else None}
+
+    async def _prefetch_diagram(self, gen: int, step: dict) -> None:
+        """Warm S4's diagram cache for this step so the diagram button is instant (errors are ignored)."""
+        await asyncio.sleep(2.0)  # let the step settle (code on screen, video playing)
+        if gen != self.step_gen or not self.m.has_diagrams():
+            return
+        try:
+            await self.m.diagram(None, step, self.context(), self._diagram_context(step, None))
+        except Exception as e:  # noqa: BLE001 - a prefetch must never surface
+            log.info("diagram prefetch skipped: %s", e)
 
     def _explain_context(self) -> dict:
         code, file = self._code_excerpt(self.step) if self.step else ("", None)

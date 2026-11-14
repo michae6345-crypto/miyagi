@@ -954,3 +954,25 @@ def test_human_build_errors():
     assert "quota" in human_build_error(RuntimeError("429 RESOURCE_EXHAUSTED daily quota"))
     assert "taking too long" in human_build_error(RuntimeError("building the lesson took over 300s"))
     assert "YouTube videos" in human_build_error(ValueError("only YouTube sources are supported for now: ''"))
+
+
+def test_diagram_uses_s4_build_signature_and_question(rig):
+    calls = []
+
+    async def build(step, context):
+        calls.append(context)
+        return {"kind": "network", "caption": "c", "stepId": step["id"],
+                "data": {"layers": [2, 32, 1], "activation": "tanh", "derivatives": ["u_t"], "residual": "r"}}
+
+    rig.s.m.forced.discard("diagrams")
+    rig.s.m.real["diagrams"] = types.SimpleNamespace(build=build)
+
+    async def go():
+        await _to_step(rig, 3)
+        await rig.s.action("diagram", "why do we need autograd here?")
+        await rig.s.action("diagram", "network")
+
+    run(go())
+    assert calls[0]["question"] == "why do we need autograd here?" and "kind" not in calls[0]
+    assert calls[1]["kind"] == "network" and calls[1]["question"] is None
+    assert [d["stepId"] for d in rig.of("diagram")] == ["s4", "s4"]

@@ -408,9 +408,19 @@ class Modules:
         return stubs.apply_fix(diff, file_text) if self.stubs_allowed("coach") else None
 
     # -- diagrams
-    async def diagram(self, kind: str, step: dict | None, ctx: RunContext | None) -> dict:
-        cached = self._cache("diagrams", f"{kind}.json")
+    def has_diagrams(self) -> bool:
+        return self._real_fn("diagrams", "build") is not None
+
+    async def diagram(self, kind: str | None, step: dict | None, ctx: RunContext | None,
+                      context: dict | None = None) -> dict:
+        """S4: server.diagrams.build(step, context) -> {kind, caption, data, stepId}. `kind` is only a
+        preference ("network" | "graph"); DEMO stubs draw network/gradients/heatmap."""
+        stub_kind = kind or "network"
+        cached = self._cache("diagrams", f"{stub_kind}.json")
         if cached:
             return cached
-        return await self._run("diagrams", "build", lambda: stubs.diagrams_build(kind, step, ctx),
-                               kind, step=step, ctx=ctx)
+        ctx_in = dict(context or {})
+        if kind in ("network", "graph"):
+            ctx_in["kind"] = kind
+        return await self._run("diagrams", "build", lambda: stubs.diagrams_build(stub_kind, step, ctx),
+                               step, ctx_in)
