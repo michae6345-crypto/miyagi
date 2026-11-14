@@ -13,7 +13,7 @@ lesson.build_lesson(rows[0]["url"], goal, workdir)  # rows[0] is always the best
 
 Row = `search.result` (+ extra fields, allowed by the contract):
 `{id, kind: video|blog|notebook|paper|repo, title, meta, score 0-100, reason (<= 12 words), thumbnail?, url,
-source, scoredBy, watched?, verified, videoId?, durationS?, channel?, prerequisites?, codeNotes?, warnings?}`.
+source, scoredBy, watched?, comments?, verified, videoId?, durationS?, channel?, prerequisites?, codeNotes?, warnings?}`.
 - `source`: the stage that found the row: `claude`, `youtube`, `brightdata`, `duckduckgo`, `github` or `arxiv`.
 - `scoredBy`: `claude` | `gemini` (only when Claude failed) | `keywords`, plus `+gemini-watch` (video) / `+claude-read` (page).
 - `watched`: `watched by Gemini` | `read by Claude` | `not watched: Gemini quota` | `not read: Claude timeout` (or `overloaded`, `page fetch failed`, …). A row that wasn't watched or read says so, in its `meta` too; it is never faked.
@@ -31,6 +31,10 @@ Example: `{"id": "yt-unBU1PwCnvQ", "kind": "video", "title": "S5 Solving Linear 
   - It answers: does the page teach the goal, what are the prerequisites, what code does it give.
   - Its summary becomes the row's `reason`.
 - **Gemini watches** the top 3 YouTube videos: a low-fps skim (same `file_data` URI as server/lesson). That is its only job.
+- **Bright Data is the live-web layer:**
+  - The **SERP API** (Google) runs the web searches. Organic results plus Google's video results; `google.com/goto` links are resolved to the real page; a target failure (the API returns 200 with `x-brd-status-code: 502`) falls back to DuckDuckGo for that query.
+  - The **Web Unlocker** fetches the pages Claude reads, and re-checks bot-blocked URLs. YouTube is never sent through it: watch pages hang there.
+  - The **YouTube comments** dataset (Web Scraper API) pulls each top video's comments in parallel with the Gemini skim, within a 10 s cap. The row's `comments` says what happened ("40 comments read via Bright Data, 5 warn of problems", "comments not read: Bright Data timeout", "…: dead_page: No comments exists on the video"). A 401/402/403/404 from the dataset trips only the comments breaker, never SERP or the Unlocker.
 - **Fallbacks:**
   - Gemini scores only if Claude fails.
   - Keyword scores only if both fail; those rows are labelled `scoredBy: keywords`.
@@ -80,12 +84,13 @@ The keys come from the shared `.env` (looked up in `$TUT_ENV`, the repo root, th
 Gemini calls use no SDK retries. Each call has its own timeout and a **hedged** fallback (if model 1 is slow, model 2 starts too), and a model that returns 429 is skipped until its quota resets.
 
 ## Tests
-`pytest server/finder/tests`: 17 tests, offline in < 1 s. They replay **recorded real responses** (YouTube results page data, oEmbed, DuckDuckGo, GitHub, arXiv) through an `httpx.MockTransport`. They check:
+`pytest server/finder/tests`: 20 tests, offline in < 1 s. They replay **recorded real responses** (YouTube results page data, oEmbed, DuckDuckGo, GitHub, arXiv) through an `httpx.MockTransport`. They check:
 - every emitted URL came from a source response (none invented);
 - a 404 is dropped;
 - a URL Claude wrote that its search tool never returned is dropped;
 - Claude scores and reads while Gemini only skims videos;
 - Gemini scores only when Claude fails;
+- Bright Data target failures are errors, `goto` links resolve, SERP video results are kept, and comment failures are labelled and only trip their own breaker;
 - rows say plainly when they weren't watched ("not watched: Gemini quota") or read ("not read: Claude timeout");
 - everything returned was streamed;
 - the best video leads;

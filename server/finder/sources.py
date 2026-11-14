@@ -78,19 +78,11 @@ def skip(url: str) -> bool:
 async def youtube_search(ctx: Ctx, query: str, limit: int = 10) -> list[dict]:
     params = {"search_query": query, "hl": "en"}  # (the "videos only" sp filter made relevance worse)
     url = "https://www.youtube.com/results?" + urlencode(params)
-    page, via = None, "youtube"
-    if brightdata.available(ctx.keys):
-        try:
-            page = await brightdata.unlock(ctx.client, ctx.keys, url, timeout=10)
-            ctx.used.add("brightdata-unlocker")
-            via = "brightdata"
-        except Exception as e:
-            ctx.note(f"bright data unlocker (youtube) failed: {e}")
-    if page is None:
-        r = await ctx.client.get(url, timeout=8)
-        r.raise_for_status()
-        page = r.text
-        ctx.used.add("youtube")
+    # Always direct: YouTube pages through the Web Unlocker hang (0 bytes at 60 s, measured Sat 15:10).
+    r = await ctx.client.get(url, timeout=8)
+    r.raise_for_status()
+    page, via = r.text, "youtube"
+    ctx.used.add("youtube")
     data = youtube.initial_data(page)
     if not data:
         raise RuntimeError("YouTube results page had no ytInitialData")
@@ -184,9 +176,10 @@ async def web_search(ctx: Ctx, query: str, limit: int = 8) -> list[dict]:
             h = {**h, "title": t.group(1)}
         if skip(h["url"]):
             continue
-        out.append({**h, "kind": classify(h["url"]), "via": via, "indexed": True})
-        if len(out) >= limit:
-            break
+        kind = classify(h["url"])
+        if kind != "video" and sum(1 for o in out if o["kind"] != "video") >= limit:
+            continue  # Google's video results come after the organic ones; keep them
+        out.append({**h, "kind": kind, "via": via, "indexed": True})
     return out
 
 
