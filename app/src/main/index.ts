@@ -189,6 +189,9 @@ app.whenReady().then(() => {
   const ok = globalShortcut.register(platform.accelerators.launcher, () => (launcherOpen ? closeLauncher() : openLauncher()))
   if (!ok) console.warn(`[tut] launcher shortcut ${platform.accelerators.launcher} is taken`)
 
+  // Always-available kill switch: ⌥Q (Mac) / Alt+Q (Windows) quits the overlay.
+  if (!globalShortcut.register('Alt+Q', () => app.quit())) console.warn('[tut] quit shortcut Alt+Q is taken')
+
   screen.on('display-metrics-changed', () => {
     for (const w of [overlay, launcher]) {
       w.setBounds(overlayBounds(screen.getDisplayMatching(w.getBounds())))
