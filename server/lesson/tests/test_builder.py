@@ -418,3 +418,51 @@ def test_adapt_pass_is_claude_even_when_gemini_watched(fake, monkeypatch):
     claude.last_model = "claude-opus-5-5"
     g = asyncio.run(builder.build_lesson(URL, "anything", WORKDIR, refresh=True))
     assert g["build"]["adapted"] is True and g["build"]["model"]["adapt"] == "claude-opus-5-5"
+
+
+# ---- S3 eval fixes -------------------------------------------------------------
+
+def _st(start, end, title, **kw):
+    return {"start": start, "end": end, "title": title, "instructions": title, "checks": kw.pop("checks", []), "hints": [], **kw}
+
+
+def test_micro_steps_merge_and_explanations_rehome():
+    draft = {"steps": [
+        _st("0:10", "1:00", "Init repo", explanations=[{"topic": "staging", "t": "1:40"}]),
+        _st("1:00", "1:12", "Check status", checks=[{"type": "screen_contains", "label": "status", "app": "Terminal", "pattern": "On branch"}]),
+        _st("1:12", "3:00", "Stage and commit", explanations=[{"topic": "init", "t": "0:30"}]),
+        _st("3:00", "5:00", "Create a branch"),
+        _st("5:00", "7:00", "Merge it"),
+    ]}
+    d = builder.normalize_draft(draft)
+    titles = [s["title"] for s in d["steps"]]
+    assert titles == ["Init repo", "Stage and commit", "Create a branch", "Merge it"]  # 12 s step folded into its predecessor
+    assert d["steps"][0]["end"] == 72 and d["steps"][0]["checks"][0]["pattern"] == "On branch"
+    assert [e["topic"] for e in d["steps"][0]["explanations"]] == ["init"]  # t=0:30 belongs to step 1
+    assert [e["topic"] for e in d["steps"][1]["explanations"]] == ["staging"]  # t=1:40 belongs to step 2
+
+
+def test_terminal_check_that_matches_the_typed_command_is_rejected():
+    from server.lesson.schema import echoes_command
+
+    step = {"id": "s3", "title": "Query items", "run_command": "curl 'localhost:8000/items?limit=5'",
+            "checks": [{"id": "s3c1", "type": "screen_contains", "label": "limit", "app": "Terminal", "pattern": r"items\?limit=\d+"}]}
+    probs = lint({"steps": [step]})
+    assert any("matches the command the learner types" in p for p in probs)
+    assert any("no check on its output" in p for p in probs)
+    assert echoes_command(step["checks"][0], step["run_command"])
+    step["checks"].append({"id": "s3c2", "type": "screen_contains", "label": "json", "app": "Terminal", "pattern": r'"items":\s*\['})
+    assert not any("no check on its output" in p for p in lint({"steps": [step]}))
+
+
+def test_browser_checks_are_not_tied_to_one_browser():
+    g = {"steps": [{"id": "s1", "checks": [{"id": "s1c1", "type": "screen_contains", "label": "x", "app": "Google Chrome", "pattern": "Hello"},
+                                          {"id": "s1c2", "type": "screen_contains", "label": "y", "app": "Code", "pattern": "App"}],
+                    "precision_checks": [], "targets": [{"app": "Safari", "match": "Hello", "caption": "page"}]}]}
+    builder.normalize_checks(g, set())
+    s = g["steps"][0]
+    assert "app" not in s["checks"][0] and s["checks"][1]["app"] == "Code" and "app" not in s["targets"][0]
+
+
+def test_empty_workdir_prompt_asks_for_a_setup_step(tmp_path):
+    assert "step 1 must create anything the tutorial assumes" in scan(str(tmp_path / "nope")).summary_for_prompt()

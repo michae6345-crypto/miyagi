@@ -70,6 +70,14 @@ def lint(graph: dict, known_metrics: set[str] | None = None, known_files: set[st
         v = step.get("video")
         if v and not (0 <= v.get("start", 0) < v.get("end", 0)):
             problems.append(f"{sid}: video.start must be < video.end")
+        cmd = (step.get("run_command") or "").strip()
+        if cmd:
+            for c in step.get("checks", []):
+                if echoes_command(c, cmd):
+                    problems.append(f"{sid}/{c.get('id', '?')}: Terminal pattern matches the command the learner types "
+                                    f"(`{cmd[:60]}`), so it passes before anything runs; match the command's output instead")
+            if not any(is_output_check(c, cmd) for c in checks):
+                problems.append(f"{sid}: runs `{cmd[:60]}` but has no check on its output (what it prints, a count, a metric)")
         for key, allowed in (("checks", SCREEN_TYPES), ("precision_checks", PRECISION_TYPES)):
             for c in step.get(key, []):
                 cid = c.get("id", "?")
@@ -78,6 +86,22 @@ def lint(graph: dict, known_metrics: set[str] | None = None, known_files: set[st
                 seen_ids.add(cid)
                 problems += [f"{sid}/{cid}: {p}" for p in check_problems(c, allowed, key, known_metrics, known_files)]
     return problems
+
+
+def echoes_command(c: dict, cmd: str) -> bool:
+    """A screen check on the terminal whose pattern already matches the typed command line."""
+    if c.get("type") != "screen_contains" or c.get("app") not in (None, "Terminal", "iTerm2") or not c.get("pattern") or not cmd:
+        return False
+    try:
+        return re.search(c["pattern"], cmd) is not None
+    except re.error:
+        return False
+
+
+def is_output_check(c: dict, cmd: str) -> bool:
+    if c.get("type", "").startswith("metric_"):
+        return True
+    return c.get("type") == "screen_contains" and c.get("app") not in ("Code",) and not echoes_command(c, cmd)
 
 
 def check_problems(c: dict, allowed: list[str], where: str, known_metrics=None, known_files=None) -> list[str]:

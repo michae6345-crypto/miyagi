@@ -136,13 +136,13 @@ def extract_json(text: str) -> dict:
     return obj
 
 
-async def _generate_json(system: str, prompt: str, schema: dict, *, effort: str = "high") -> dict:
+async def _generate_json(system: str, prompt: str, schema: dict, *, effort: str = "high", structured: bool = True) -> dict:
     """Structured output when the API accepts the schema; otherwise (\"Schema is too complex\") the
     schema goes in the prompt and the reply is validated client-side, with one corrective retry."""
     global last_model
     mid = model()
     key = json.dumps(schema, sort_keys=True)
-    if key not in _schema_too_complex:
+    if structured and key not in _schema_too_complex:
         try:
             msg, text = await _call(mid, system, prompt, effort=effort, schema=schema)
             last_model = getattr(msg, "model", None) or mid
@@ -197,6 +197,9 @@ Break this tutorial into 4-10 sequential steps a learner can code along with. Re
 - start/end are MM:SS taken from the transcript: start = where the presenter begins the step, end = where
   its code is complete or its run finished. In order, no overlaps.
 - title: imperative, at most 6 words. instructions: at most 2 sentences, concrete.
+- A step shorter than ~20 s belongs to its neighbour.
+- The lesson must be playable from an EMPTY folder: if the tutorial starts from code, data or repo state
+  prepared off camera, step 1 sets it up (a link from the description, or exact commands/files to recreate it).
 - libraries: every library/tool used, with the version if mentioned, else your best estimate ("18.x").
 """
 
@@ -254,7 +257,8 @@ async def watch_transcript(info: dict, goal: str) -> dict:
                                     slice="\n".join(f"[{_mmss(ln['t'])}] {ln['text']}" for ln in lines) or "(no transcript lines)",
                                     stack_guide=gemini.STACK_GUIDE)
         async with sem:
-            d = await _generate_json(gemini.WATCH_SYSTEM, prompt, STEP_DETAIL_SCHEMA, effort=effort_detail)
+            # too many optional fields for structured output: skip the guaranteed 400, validate client-side
+            d = await _generate_json(gemini.WATCH_SYSTEM, prompt, STEP_DETAIL_SCHEMA, effort=effort_detail, structured=False)
         return {**st, **{k: v for k, v in d.items() if k not in ("start", "end", "title", "instructions")}}
 
     filled = await asyncio.gather(*(detail(i, st) for i, st in enumerate(steps, 1)))
@@ -262,4 +266,4 @@ async def watch_transcript(info: dict, goal: str) -> dict:
 
 
 async def adapt_checks(goal: str, draft_steps: list[dict], workdir_summary: str, feedback: list[str] | None = None) -> dict:
-    return await _generate_json(gemini.ADAPT_SYSTEM, gemini.adapt_prompt(goal, draft_steps, workdir_summary, feedback), ADAPTED_SCHEMA, effort=os.environ.get("LESSON_CLAUDE_EFFORT_ADAPT", "low"))
+    return await _generate_json(gemini.ADAPT_SYSTEM, gemini.adapt_prompt(goal, draft_steps, workdir_summary, feedback), ADAPTED_SCHEMA, effort=os.environ.get("LESSON_CLAUDE_EFFORT_ADAPT", "low"), structured=False)

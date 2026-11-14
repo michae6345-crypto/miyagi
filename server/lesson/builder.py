@@ -14,7 +14,7 @@ from pathlib import Path
 import os
 
 from . import claude, gemini, transcript
-from .schema import CHECK_TYPES, PRECISION_TYPES, REPO_ROOT, SCREEN_TYPES, check_problems, lint, schema_errors
+from .schema import CHECK_TYPES, PRECISION_TYPES, REPO_ROOT, SCREEN_TYPES, check_problems, echoes_command, lint, schema_errors
 from .workdir import WorkdirInfo, scan
 
 log = logging.getLogger("server.lesson")
@@ -349,10 +349,59 @@ def normalize_draft(draft: dict) -> dict:
     for a, b in zip(steps, steps[1:]):
         if a["end"] > b["start"]:
             a["end"] = max(b["start"], a["start"] + 1)
+    steps = merge_micro_steps(steps)
+    rehome_explanations(steps)
     for i, s in enumerate(steps, 1):
         s["index"] = i
     draft["steps"] = steps
     return draft
+
+
+MIN_STEP_S = 20.0  # shorter steps pause the video every few seconds; fold them into a neighbour
+_LIST_FIELDS = ("checks", "precision_checks", "targets", "explanations", "hints", "common_mistakes")
+
+
+def merge_micro_steps(steps: list[dict], min_s: float = MIN_STEP_S, min_steps: int = 3) -> list[dict]:
+    steps = [dict(s) for s in steps]
+    while len(steps) > min_steps:
+        short = [i for i, s in enumerate(steps) if s["end"] - s["start"] < min_s]
+        if not short:
+            break
+        i = short[0]
+        j = i - 1 if i > 0 else i + 1  # into the previous step (it usually set this one up), else the next
+        a, b = sorted((i, j))
+        x, y = steps[a], steps[b]
+        keep = x if x["end"] - x["start"] >= y["end"] - y["start"] else y
+        merged = {**y, **x, "start": x["start"], "end": y["end"], "title": keep.get("title", "")}
+        merged["instructions"] = " ".join(t for t in (x.get("instructions"), y.get("instructions")) if t)
+        for k in ("code", "expected_output", "terminal_output"):
+            vals = [v for v in (x.get(k), y.get(k)) if v]
+            if vals:
+                merged[k] = "\n".join(vals)
+        merged["run_command"] = y.get("run_command") or x.get("run_command")
+        for k in _LIST_FIELDS:
+            seen, out = set(), []
+            for v in (x.get(k) or []) + (y.get(k) or []):
+                key = json.dumps(v, sort_keys=True)
+                if key not in seen:
+                    seen.add(key)
+                    out.append(v)
+            merged[k] = out
+        steps[a:b + 1] = [merged]
+    return steps
+
+
+def rehome_explanations(steps: list[dict]) -> None:
+    """Each explanation goes to the step whose time range contains it (else the nearest), in time order."""
+    pool = [e for s in steps for e in s.get("explanations") or []]
+    for s in steps:
+        s["explanations"] = []
+    for e in pool:
+        t = e["t"]
+        best = min(steps, key=lambda s: 0 if s["start"] <= t < s["end"] else min(abs(t - s["start"]), abs(t - s["end"])))
+        best["explanations"].append(e)
+    for s in steps:
+        s["explanations"].sort(key=lambda e: e["t"])
 
 
 # --------------------------------------------------------------------------- #
@@ -419,6 +468,7 @@ def assemble(draft: dict, goal: str, adapted: dict) -> dict:
                 "explanations": [{"topic": e["topic"], "t": e["t"], "sourceId": "src1"} for e in s.get("explanations") or []],
                 "hints": [h for h in s.get("hints") or [] if h],
                 "common_mistakes": [m for m in s.get("common_mistakes") or [] if m],
+                **({"run_command": s["run_command"].strip()} if (s.get("run_command") or "").strip() else {}),
             }
         )
     return {
@@ -428,9 +478,16 @@ def assemble(draft: dict, goal: str, adapted: dict) -> dict:
     }
 
 
+BROWSER_APPS = {"google chrome", "chrome", "safari", "arc", "firefox", "microsoft edge", "edge", "brave browser", "brave", "browser"}
+
+
 def normalize_checks(graph: dict, known_metrics: set[str]) -> dict:
     """Deterministic fixes applied before lint (no model call)."""
     for step in graph["steps"]:
+        # The learner's browser is unknown: a browser-scoped check/target matches text in any window instead.
+        for item in step["checks"] + step.get("targets", []):
+            if (item.get("app") or "").strip().lower() in BROWSER_APPS:
+                item.pop("app")
         for c in step["checks"] + step.get("precision_checks", []):
             if c.get("pattern") and looks_like_literal(c["pattern"]):
                 c["pattern"] = literal_pattern(c["pattern"])
@@ -532,7 +589,8 @@ def repair(graph: dict, info: WorkdirInfo) -> dict:
         step["checks"] = [c for c in step.get("checks", []) if c not in misplaced]
         step["precision_checks"] = step.get("precision_checks", []) + misplaced
         for key, allowed, tag in (("checks", SCREEN_TYPES, "c"), ("precision_checks", PRECISION_TYPES, "p")):
-            kept = [c for c in step.get(key, []) if not check_problems(c, allowed, key, info.metrics, set(info.files))]
+            kept = [c for c in step.get(key, []) if not check_problems(c, allowed, key, info.metrics, set(info.files))
+                    and not (key == "checks" and echoes_command(c, step.get("run_command") or ""))]
             if key == "checks" and not kept:
                 kept = fallback_screen_checks(step)
             for j, c in enumerate(kept, 1):  # renumber so ids stay unique and stable
