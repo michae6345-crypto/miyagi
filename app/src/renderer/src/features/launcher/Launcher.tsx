@@ -405,6 +405,8 @@ export function Launcher({ layout }: { layout: Layout }): ReactNode {
 
         <motion.div
           ref={content}
+          // flow-root: the first section's top margin must not collapse through, or the measured height comes up short and the panel clips the footer.
+          className="flow-root"
           style={{ width: WIDTH, marginLeft: `calc(50% - ${WIDTH / 2}px)` }}
           initial={{ opacity: 0, y: 4 }}
           animate={exiting ? { opacity: 0, y: 0, transition: contentOut } : { opacity: 1, y: 0, transition: contentIn }}
