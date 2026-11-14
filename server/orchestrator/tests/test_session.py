@@ -1467,3 +1467,37 @@ def test_end_lesson_clears_a_pending_pick(rig):
     # the late card for the abandoned pick must not show up after lesson.ended
     types_ = rig.types()
     assert "card" not in types_[types_.index("lesson.ended"):]
+
+
+def test_hint_presses_do_not_stack_identical_cards(rig):
+    async def go():
+        await _to_step(rig, 5)
+        for _ in range(6):  # key repeat: the ladder tops out and returns the same last card
+            await rig.s.action("hint")
+        rig.clock.t += 20
+        await rig.s.action("hint")  # later, the same card may be shown again
+
+    run(go())
+    titles = [c["title"] for c in rig.of("card")]
+    assert titles == ["Hint 1 of 4", "Hint 2 of 4", "Hint 3 of 4", "Hint 4 of 4", "Hint 4 of 4"]
+
+
+def test_explain_answer_for_a_previous_step_is_dropped(rig):
+    gate = asyncio.Event()
+
+    async def slow_explain(step, question, context):
+        await gate.wait()
+        return {"stepId": step["id"], "kind": "explain", "title": "Why the check wants X", "body": "b"}
+
+    rig.s.m.explain = slow_explain
+
+    async def go():
+        await _to_step(rig, 0)
+        t = asyncio.create_task(rig.s.action("explain"))
+        await asyncio.sleep(0.01)
+        await rig.s.goto_step(1)  # the learner moved on to s2
+        gate.set()
+        await t
+
+    run(go())
+    assert not rig.of("card")

@@ -233,6 +233,7 @@ class LessonSession:
         self.check_state: dict[str, dict] = {}  # what the app was last told, per checkId
         self.last_results: list[dict] = []
         self.last_failed: list[dict] = []
+        self._recent_cards: dict[tuple, float] = {}
         self._eval_error_sent = False
         self.engaged = False  # learner touched files / ran something during this step
         self.gate_open = False  # failing checks are shown as fail (else pending)
@@ -1438,17 +1439,23 @@ class LessonSession:
         if kind in ("explain", "ask"):
             self._record("question", {"kind": kind, "text": (text or "")[:300]}, step)
             await self._status("thinking")
+            gen = self.step_gen
             card = await self.m.explain(step, text if kind == "ask" else (text or None), self._explain_context())
+            if gen != self.step_gen:
+                return  # the learner moved to another step meanwhile: an answer about the old one would mislead
             card = dict(card)
-            card.setdefault("stepId", step["id"])
-            await self.emit("card", card)
+            card["stepId"] = step["id"]
+            await self._emit_card(card)
             await self._status("offtrack" if self.last_offtrack else ("passed" if self.passed else "watching"))
             return
         if kind == "hint":
+            gen = self.step_gen
             card = dict(await self.m.hint(step, self.hint_level, self.last_offtrack))
-            card.setdefault("stepId", step["id"])
+            if gen != self.step_gen:
+                return
+            card["stepId"] = step["id"]
             self.hint_level += 1
-            await self.emit("card", card)
+            await self._emit_card(card)
             return
         if kind == "diagram":
             want = (text or "").strip().lower()
@@ -1524,6 +1531,18 @@ class LessonSession:
             "file": file,
             "offtrack": self.last_offtrack,
         }
+
+    async def _emit_card(self, card: dict, window_s: float = 15.0) -> None:
+        """Send a card unless the same one (step + kind + level + title + body) went out moments ago: repeated
+        key presses or overlapping triggers must not stack identical cards."""
+        sig = (card.get("stepId"), card.get("kind"), card.get("level"), card.get("title"), card.get("body"))
+        now = self.clock()
+        last = self._recent_cards.get(sig)
+        if last is not None and now - last < window_s:
+            log.info("dropped duplicate card %r", card.get("title"))
+            return
+        self._recent_cards[sig] = now
+        await self.emit("card", card)
 
     async def _card(self, step: dict, title: str, body: str, kind: str = "hint", **extra: Any) -> None:
         await self.emit("card", {"stepId": step["id"], "kind": kind, "title": title, "body": body, **extra})
