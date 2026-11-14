@@ -174,7 +174,8 @@ def cmd_stats(args: argparse.Namespace) -> int:
 def cmd_compare(args: argparse.Namespace) -> int:
     compare_to_reference = _import_curves()
     with _connect() as conn:
-        res = compare_to_reference(conn, args.learner_run, metric=args.metric, tutorial_run_id=args.ref)
+        res = compare_to_reference(conn, args.learner_run, metric=args.metric, tutorial_run_id=args.ref,
+                                   lesson_id=args.lesson, step_id=args.step)
     if args.json:
         print(json.dumps(res, default=str, indent=2))
         return 0
@@ -217,6 +218,8 @@ def add_db_parser(sub) -> None:
     c = dsub.add_parser("compare", help="learner curve vs tutorial curve via metrics_1s")
     c.add_argument("learner_run")
     c.add_argument("--ref", help="tutorial run id (default: best match for the learner run's lesson/step)")
+    c.add_argument("--lesson", help="lesson id (needed for screen-<lesson> runs without a runs row)")
+    c.add_argument("--step", help="step id (prefers that step's reference curve)")
     c.add_argument("--metric", default="loss")
     c.add_argument("--last", type=int, default=15, help="rows to print")
     c.add_argument("--json", action="store_true")

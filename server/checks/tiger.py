@@ -86,10 +86,8 @@ class TigerWriter:
         if self.disabled:
             return
         try:
-            v = float(value)
+            v = math.nan if value is None else float(value)  # NaN/inf are stored: divergence is a signal
         except (TypeError, ValueError):
-            return
-        if not math.isfinite(v):
             return
         self._ensure_thread()
         self._put(self._metrics, (time or _now(), run_id, int(step), name, v))

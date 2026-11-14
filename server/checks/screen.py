@@ -114,6 +114,9 @@ _NUM = re.compile(r"[-+]?(?:\d+\.?\d*|\.\d+)(?:[eE][-+]?\d+)?")
 
 def _ocr_float(s: str) -> float | None:
     """OCR-tolerant float: 'O.25' → 0.25, '1,234' → 1234, '2.5e-0З' fails → None."""
+    low = s.strip().lower()
+    if low.lstrip("+-") in ("nan", "inf", "infinity"):
+        return float(low)  # divergence must reach the evaluator, not be skipped
     s = s.strip().replace("O", "0").replace("o", "0").replace(",", "").replace("—", "-").replace("−", "-")
     m = _NUM.search(s)
     try:

@@ -116,6 +116,21 @@ def test_run_streams_and_posts_to_ingest(engine):
     assert len(posts) <= 15  # batched (~5/s), not one POST per line
 
 
+NAN_TRAIN = r"""
+for s in range(5): print(f'::metric:: {{"step": {s}, "name": "loss", "value": {0.5 / (s + 1)}}}', flush=True)
+print('::metric:: {"step": 5, "name": "loss", "value": nan}', flush=True)
+"""
+
+
+def test_nan_metric_is_forwarded_as_null_nonfinite(engine):
+    url, posts = engine
+    p = tut("run", "--engine", url, sys.executable, "-c", NAN_TRAIN)
+    assert p.returncode == 0
+    metrics = [e for b in posts for e in b if e["kind"] == "metric"]
+    assert len(metrics) == 6
+    assert metrics[-1]["value"] is None and metrics[-1]["nonfinite"] == "nan" and metrics[-1]["step"] == 5
+
+
 def test_run_survives_engine_down():
     p = tut("run", "--engine", "http://127.0.0.1:9/ingest", sys.executable, "-c", FAKE_TRAIN)
     assert p.returncode == 0

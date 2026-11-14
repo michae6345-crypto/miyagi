@@ -146,9 +146,11 @@ def test_trend_decreasing():
     assert status(c, RunContext(running=True, command="x", metrics={"loss": rising})) == "fail"
 
 
-def test_trend_ignores_nan_and_handles_negative_values():
-    pts = [(s, -1.0 - s / 500) for s in range(0, 2000, 50)] + [(2000, float("nan"))]
+def test_trend_handles_negative_values_and_fails_on_trailing_nan():
+    pts = [(s, -1.0 - s / 500) for s in range(0, 2000, 50)]
     assert status(TREND, RunContext(running=True, command="x", metrics={"loss": pts})) == "pass"
+    pts.append((2000, float("nan")))
+    assert status(TREND, RunContext(running=True, command="x", metrics={"loss": pts})) == "fail"
 
 
 # ---------------------------------------------------------------- visual
@@ -270,3 +272,64 @@ def test_precision_mode_is_an_extra_route_to_green(wd):
     g = evaluate_gate(PSTEP, ctx, precision_mode=True)
     assert g["passed"] and g["via"] == "precision"
     assert not evaluate_gate({**PSTEP, "precision_checks": []}, ctx, precision_mode=True)["passed"]
+
+
+# ---------------------------------------------------------------- seed sweeps (QA audit)
+def _flat(seed, noise, every, n=4000, level=0.25):
+    rng = random.Random(seed)
+    return [(s, level * (1 + rng.gauss(0, noise))) for s in range(0, n + 1, every)]
+
+
+def _decay(seed, noise, every, n=4000):
+    """Loss still clearly improving: halves every ~700 steps (≈ 4x over a 1500-step window)."""
+    rng = random.Random(seed)
+    return [(s, (0.25 * math.exp(-s / 1000) + 1e-3) * (1 + rng.gauss(0, noise))) for s in range(0, n + 1, every)]
+
+
+def _sweep(trend, gen, noise, every, seeds=200):
+    c = {**TREND, "trend": trend}
+    return sum(evaluate_check(c, RunContext(running=True, command="x", metrics={"loss": gen(sd, noise, every)}))["status"] == "pass"
+               for sd in range(seeds))
+
+
+@pytest.mark.parametrize("trend", ["not_flat", "decreasing"])
+@pytest.mark.parametrize("noise", [0.03, 0.10, 0.20])
+@pytest.mark.parametrize("every", [10, 50])
+def test_noisy_flat_curves_rarely_pass(trend, noise, every):
+    # was 61/300 (not_flat) and 72/300 (decreasing) at 10% noise; Mann-Kendall p<0.01 gate → ≤ ~1%
+    assert _sweep(trend, _flat, noise, every) <= 4  # ≤ 2% of 200 seeds
+
+
+@pytest.mark.parametrize("trend", ["not_flat", "decreasing"])
+@pytest.mark.parametrize("noise", [0.03, 0.10])
+@pytest.mark.parametrize("every", [10, 50])
+def test_clearly_dropping_curves_pass(trend, noise, every):
+    assert _sweep(trend, _decay, noise, every) >= 196  # ≥ 98%
+
+
+def test_dense_plateau_with_tiny_drift_fails():
+    """Thousands of points make a 0.6% drift 'significant'; the effect-size gate still says plateau."""
+    rng = random.Random(7)
+    pts = [(s, (0.2504 - 0.0014 * s / 4000) * (1 + rng.gauss(0, 0.01))) for s in range(0, 4001)]
+    r = evaluate_check(TREND, RunContext(running=True, command="x", metrics={"loss": pts}))
+    assert r["status"] == "fail" and "plateau" in r["detail"]
+
+
+# ---------------------------------------------------------------- divergence (QA audit)
+@pytest.mark.parametrize("bad", [float("nan"), float("inf"), None])
+def test_divergence_fails_instead_of_grading_stale_values(bad):
+    good = [(s, 0.25 * math.exp(-s / 500)) for s in range(0, 3000, 50)]  # would pass both checks
+    diverged = good + [(3000, bad)]
+    thr = {"id": "c3", "type": "metric_threshold", "label": "loss small", "metric": "loss", "op": "<", "value": 0.01}
+    for c in (TREND, thr):
+        assert status(c, RunContext(running=True, command="x", metrics={"loss": good})) == "pass"
+        r = evaluate_check(c, RunContext(running=True, command="x", metrics={"loss": diverged}))
+        assert r["status"] == "fail" and "diverged" in r["detail"], r
+
+
+def test_divergence_from_screen_text():
+    c = {"id": "m", "type": "metric_trend", "label": "loss dropping", "trend": "not_flat", "window": 1000,
+         "metric_pattern": r"it (?P<step>\d+) loss (?P<value>\S+)"}
+    lines = [f"it {s} loss {0.25 * 0.99 ** (s / 10):.5f}" for s in range(0, 2000, 50)] + ["it 2000 loss nan"]
+    r = evaluate_check(c, RunContext(output_tail=lines, running=True, command="x"))
+    assert r["status"] == "fail" and "diverged" in r["detail"]

@@ -174,3 +174,44 @@ def test_tut_stats_prints_rate_and_latency(fake_pg, capsys):
     assert db.cmd_stats(args) == 0
     out = capsys.readouterr().out
     assert "rows/s" in out and "live_curve" in out and " ms" in out
+
+
+# ---------------------------------------------------------------- no silent loss (QA audit)
+from tut.main import report_losses  # noqa: E402
+
+
+def test_loud_warning_when_db_down(fake_pg, capsys):
+    _, state = fake_pg
+    state["fail_connect"] = True
+    sink = TigerSink("postgres://fake/db", {"id": "r1", "command": "c", "started_at": None}, flush_every=0.05)
+    _run(sink, n=4)
+    report_losses("r1", None, sink)
+    err = capsys.readouterr().err
+    assert "WARNING" in err and "4 of 4 metrics for run r1 were NOT stored" in err
+
+
+def test_loud_warning_when_deadline_hit(monkeypatch, capsys):
+    import threading
+
+    gate = threading.Event()
+
+    def slow_connect(dsn, **kw):
+        gate.wait(5)  # DB hangs past the deadline
+        raise OSError("timeout")
+
+    monkeypatch.setitem(sys.modules, "psycopg", types.SimpleNamespace(connect=slow_connect))
+    sink = TigerSink("postgres://fake/db", {"id": "r2", "command": "c", "started_at": None}, flush_every=0.05)
+    sink.start()
+    sink.metric(Metric(1, "loss", 0.5))
+    sink.close(time.monotonic() + 0.2)
+    report_losses("r2", None, sink)
+    gate.set()
+    err = capsys.readouterr().err
+    assert "WARNING" in err and "still writing at exit" in err and "1 of 1" in err
+
+
+def test_no_warning_when_everything_stored(fake_pg, capsys):
+    sink = TigerSink("postgres://fake/db", {"id": "r3", "command": "c", "started_at": None}, flush_every=0.05)
+    _run(sink)
+    report_losses("r3", None, sink)
+    assert "WARNING" not in capsys.readouterr().err

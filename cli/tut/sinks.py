@@ -21,9 +21,13 @@ from .metrics import Metric
 MAX_METRICS_PER_NAME_PER_POST = 50
 
 
-def warn(msg: str) -> None:
+def warn(msg: str, loud: bool = False) -> None:
+    """One-line notice on stderr: dim by default; loud (bold yellow WARNING) for data loss."""
+    if loud:
+        msg = f"WARNING: {msg}"
+    style = "\x1b[1;33m" if loud else "\x1b[2m"
     try:
-        sys.stderr.write(f"\x1b[2m[tut] {msg}\x1b[0m\n" if sys.stderr.isatty() else f"[tut] {msg}\n")
+        sys.stderr.write(f"{style}[tut] {msg}\x1b[0m\n" if sys.stderr.isatty() else f"[tut] {msg}\n")
         sys.stderr.flush()
     except Exception:  # noqa: BLE001, S110
         pass
@@ -53,6 +57,7 @@ class IngestSink:
         self._ended: dict | None = None
         self._warned = False
         self._down_until = 0.0
+        self.unsent = 0  # events still undelivered when the sender stopped
         self._stop = threading.Event()
         self._thread = threading.Thread(target=self._loop, name="tut-ingest", daemon=True)
 
@@ -61,10 +66,14 @@ class IngestSink:
         self._thread.start()
 
     def metric(self, m: Metric) -> None:
+        ev = {"kind": "metric", "run_id": self.run_id, "step": m.step, "name": m.name, "value": m.value}
         if not m.finite:
-            return  # NaN/inf isn't valid JSON for the app; it's still stored in Tiger
+            # NaN/inf isn't valid JSON, but divergence must reach the evaluator:
+            # value null + nonfinite "nan"|"inf"|"-inf" (the evaluator treats None as NaN).
+            ev["value"] = None
+            ev["nonfinite"] = "nan" if m.value != m.value else ("inf" if m.value > 0 else "-inf")
         with self._lock:
-            self._metrics.append({"kind": "metric", "run_id": self.run_id, "step": m.step, "name": m.name, "value": m.value})
+            self._metrics.append(ev)
 
     def output(self, line: str) -> None:
         with self._lock:
@@ -80,6 +89,10 @@ class IngestSink:
         self._stop.set()
         self._thread.join(timeout=max(0.0, deadline - time.monotonic()))
 
+    @property
+    def still_sending(self) -> bool:
+        return self._thread.is_alive()
+
     # ------------------------------------------------------------
     def _take(self) -> list[dict]:
         with self._lock:
@@ -92,7 +105,9 @@ class IngestSink:
             for e in metrics:
                 by_name[e["name"]].append(e)
             for pts in by_name.values():
-                events.extend(_thin(pts, MAX_METRICS_PER_NAME_PER_POST))
+                kept = _thin(pts, MAX_METRICS_PER_NAME_PER_POST)
+                bad = [e for e in pts if e["value"] is None and e not in kept]
+                events.extend(kept + bad[-1:])  # never thin away a divergence
         if lines:
             events.append({"kind": "output", "run_id": self.run_id, "lines": lines})
         if ended:
@@ -139,6 +154,7 @@ class IngestSink:
                     pending = [e for e in pending if e["kind"] != "output"][-5000:] + [
                         e for e in pending if e["kind"] == "output"][-50:]
             if stopping:
+                self.unsent = len(pending)
                 return
 
 
@@ -152,6 +168,8 @@ class TigerSink:
         self.q: queue.Queue = queue.Queue()
         self.ok = False
         self.dead = False
+        self.finalized = False  # runs row got exit_code/ended_at/tail
+        self.received = 0
         self.rows_written = 0
         self._ended: dict | None = None
         self._stop = threading.Event()
@@ -161,6 +179,7 @@ class TigerSink:
         self._thread.start()
 
     def metric(self, m: Metric) -> None:
+        self.received += 1
         if self.dead:
             return
         self.q.put((dt.datetime.now(dt.timezone.utc), self.run["id"], m.step, m.name, m.value))
@@ -172,6 +191,14 @@ class TigerSink:
     def close(self, deadline: float) -> None:
         self._stop.set()
         self._thread.join(timeout=max(0.0, deadline - time.monotonic()))
+
+    @property
+    def still_writing(self) -> bool:
+        return self._thread.is_alive()
+
+    @property
+    def unwritten(self) -> int:
+        return self.received - self.rows_written
 
     def _drain(self) -> list[tuple]:
         rows = []
@@ -222,6 +249,7 @@ class TigerSink:
                         "lesson_id=COALESCE(lesson_id, %s), step_id=COALESCE(step_id, %s) WHERE id=%s",
                         (e["exit_code"], e["ended_at"], e["tail"], e["lesson_id"], e["step_id"], r["id"]),
                     )
+                    self.finalized = True
         except Exception as exc:  # noqa: BLE001
             warn(f"Tiger Data write failed ({str(exc).strip().splitlines()[0][:160]}); continuing without it")
             self.ok = False

@@ -62,7 +62,7 @@ def test_record_event_and_metric_copy_rows():
                    time=t0 + dt.timedelta(seconds=30))
     w.record_event("step_passed", "pinn", "s4", 260.0, time=t0 + dt.timedelta(seconds=95.5))
     w.record_metric("screen-pinn", "loss", 1200, 0.2504)
-    w.record_metric("screen-pinn", "loss", 1300, float("nan"))  # dropped
+    w.record_metric("screen-pinn", "loss", 1300, float("nan"))  # kept: divergence is a signal
     w.record_metric("screen-pinn", "acc", 1, "not a number")    # dropped
     w.flush()
     events = [r for sql, r in conn.copied if "learning_events" in sql]
@@ -71,8 +71,9 @@ def test_record_event_and_metric_copy_rows():
     fail = events[1]
     assert fail[1:5] == ("pinn", "s4", None, 230.5) and fail[7] == "sess_t" and fail[8] == "s4c2"
     assert json.loads(events[2][6]) == {"duration_s": 95.5}  # filled in from step_started
-    assert [(m[1], m[2], m[3], m[4]) for m in metrics] == [("screen-pinn", 1200, "loss", 0.2504)]
-    assert w.counters()["rows_written"] == 4 and conn.closed
+    assert [(m[1], m[2], m[3]) for m in metrics] == [("screen-pinn", 1200, "loss"), ("screen-pinn", 1300, "loss")]
+    assert metrics[0][4] == 0.2504 and metrics[1][4] != metrics[1][4]  # NaN
+    assert w.counters()["rows_written"] == 5 and conn.closed
 
 
 def test_copy_columns_exist_in_contract_schema():

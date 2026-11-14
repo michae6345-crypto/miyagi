@@ -20,7 +20,7 @@ from . import __version__
 from .env import load_dotenv
 from .metrics import parse_metric
 from .runner import run_pty
-from .sinks import IngestSink, TigerSink
+from .sinks import IngestSink, TigerSink, warn
 
 DEFAULT_INGEST = "http://localhost:8787/ingest"
 
@@ -69,7 +69,6 @@ def cmd_run(args: argparse.Namespace) -> int:
                                 "command": command, "started_at": started_at})
         tiger.start()
     elif not args.no_db and not os.environ.get("TUT_QUIET"):
-        from .sinks import warn
         warn("TIGER_DATABASE_URL not set; metrics not stored in Tiger Data")
 
     n_metrics = 0
@@ -96,12 +95,30 @@ def cmd_run(args: argparse.Namespace) -> int:
     if tiger:
         tiger.end(code, "\n".join(tail), lesson_id, step_id)
         tiger.close(deadline)
+    report_losses(run_id, ingest, tiger)
     if args.verbose:
-        from .sinks import warn
         warn(f"run {run_id}: exit {code}, {n_metrics} metrics"
              + (f", tiger rows {tiger.rows_written}" if tiger else "")
              + (f", engine {'ok' if ingest.started_sent else 'down'}" if ingest else ""))
     return code
+
+
+def report_losses(run_id: str, ingest: IngestSink | None, tiger: TigerSink | None) -> None:
+    """Never lose data silently: say exactly what didn't make it, loudly."""
+    if tiger is not None:
+        if tiger.still_writing:
+            warn(f"Tiger Data still writing at exit (deadline hit): up to {tiger.unwritten} of {tiger.received} "
+                 f"metrics for run {run_id} may NOT be stored, and the run's exit code/tail may be missing", loud=True)
+        elif tiger.unwritten:
+            warn(f"{tiger.unwritten} of {tiger.received} metrics for run {run_id} were NOT stored in Tiger Data", loud=True)
+        elif tiger.ok and not tiger.finalized:
+            warn(f"run {run_id}: exit code/tail not saved to Tiger Data", loud=True)
+    if ingest is not None:
+        if ingest.still_sending:
+            warn(f"engine still receiving at exit (deadline hit): the end of run {run_id} may not reach the tutor", loud=True)
+        elif ingest.unsent:
+            loud = ingest.started_sent  # the engine was up at some point: a partial run is real loss
+            warn(f"{ingest.unsent} events for run {run_id} were not delivered to the engine", loud=loud)
 
 
 def build_parser() -> argparse.ArgumentParser:
