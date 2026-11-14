@@ -56,3 +56,20 @@ python -m server.screen --image server/screen/fixtures/vscode_terminal_flat.png 
 ## Tests
 `pytest server/screen/tests`: pure logic runs anywhere; `test_fixtures.py` runs real Vision OCR on
 the two fixture screenshots (VS Code + Terminal, flat loss at β=30 vs. dropping loss), macOS only.
+
+## AX, cursor, events (PR "screen: ax + cursor + events")
+- **AX (`ax.py`)**: exact VS Code/Terminal state. Needs **Accessibility** for the app that runs the engine,
+  and in VS Code `"editor.accessibilitySupport": "on"`. `reader.ax_reader.latest()` gives an `AXSnapshot`:
+  `editor` (buffer page, caret, `caret_line`, `line_rect`, `rect_for_line(n)`, `line_at_y(y)`),
+  `document`, `dirty`, `terminal_lines`, and `under_mouse`. AX text of at least 100 chars is merged into `obs.text()`/`lines_by_app()`.
+- **Cursor**: `obs.cursor`, `obs.under_cursor`, `reader.cursor_context()` →
+  `{x, y, app, window, ocr_line, ocr_rect, ax, caret_line, editor_line, editor_line_text, editor_line_rect}`.
+- **Triggers**: click / typing_pause / scroll_stop / app_switch / AX changes → capture (>= 1.5 s apart,
+  hash-gated OCR); `obs.trigger` says which. `reader.events.typing_recently()` for the don't-nag gate.
+- **Overlay exclusion**: ScreenCaptureKit leaves out `com.github.Electron` (dev overlay), names matching
+  `miyagi|sandhacks`, `TUT_OVERLAY_BUNDLES`, our pid, and password managers/Messages. `obs.overlay_excluded`.
+- **Privacy**: emails, SSNs, phone and card numbers are redacted in OCR and AX text.
+```bash
+python -m server.screen ax --seconds 20 [--prompt]   # AX spike: frontmost app's editor/terminal state
+python -m server.screen cursor --seconds 20          # what's under the mouse
+```

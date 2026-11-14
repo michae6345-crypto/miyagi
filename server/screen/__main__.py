@@ -167,6 +167,37 @@ def cmd_fixture(args) -> None:
     print(f"saved {png} with {len(wins)} windows")
 
 
+def cmd_ax(args) -> None:
+    """AX spike: what the accessibility tree gives for the frontmost app, every 0.5 s."""
+    from . import ax
+    if not ax.trusted(prompt=args.prompt):
+        print(ax.AX_HELP)
+        sys.exit(1)
+    end = time.time() + args.seconds
+    while time.time() < end:
+        snap = ax.snapshot()
+        if snap is not None:
+            d = snap.to_dict()
+            print(json.dumps(d, default=str)[: args.width], flush=True)
+            if snap.editor:
+                print(f"  caret line {snap.editor.caret_line}: {snap.editor.line_text(snap.editor.caret_line)!r}  "
+                      f"rect={snap.editor.line_rect}  text_len={len(snap.editor.text)}  read={snap.read_ms:.0f}ms")
+        time.sleep(0.5)
+
+
+def cmd_cursor(args) -> None:
+    """Print the cursor context (what's under the mouse) every 0.5 s."""
+    from .reader import ScreenReader
+    r = ScreenReader(use_events=False)
+    r._start_sensors()
+    r.observe_now(force=True)
+    end = time.time() + args.seconds
+    while time.time() < end:
+        print(json.dumps(r.cursor_context()), flush=True)
+        time.sleep(0.5)
+    r.stop()
+
+
 def main(argv=None) -> None:
     p = argparse.ArgumentParser(prog="python -m server.screen")
     p.add_argument("--image", help="run on a saved screenshot instead of the live screen")
@@ -201,6 +232,14 @@ def main(argv=None) -> None:
     fx.add_argument("--apps", nargs="+", default=["Code", "Terminal"])
     fx.add_argument("--titles", nargs="*", help="only windows whose title contains one of these")
     fx.set_defaults(fn=cmd_fixture)
+    axp = sub.add_parser("ax")
+    axp.add_argument("--seconds", type=float, default=10)
+    axp.add_argument("--width", type=int, default=600)
+    axp.add_argument("--prompt", action="store_true", help="show the macOS Accessibility prompt")
+    axp.set_defaults(fn=cmd_ax)
+    cu = sub.add_parser("cursor")
+    cu.add_argument("--seconds", type=float, default=10)
+    cu.set_defaults(fn=cmd_cursor)
     args = p.parse_args(argv)
     args.fn(args)
 
