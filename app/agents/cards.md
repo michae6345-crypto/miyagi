@@ -25,7 +25,7 @@ islandModes: offtrack (70), success (60), card (50)
 ## Test
 `npm run dev:web -- --port 5177` → `http://localhost:5177/?scenario=full`. Ctrl+K → type anything → Enter → Enter builds the lesson. Alt+E / Alt+H at step 4 or 6 → explain / hint card. About 30 s in, step 6 goes off-track (loss curve is live). Alt+E there → explain with a video jump; Esc returns to the off-track card. Apply fix → "Applying the fix" (the loss drops live) → "Back on track" → auto-hides. Esc dismisses; the HUD's Reset restarts.
 `?scenario=offtrack` checks the fallback (no `metric` events: the curve comes from `offtrack.curve`, the success card shows the checks instead of a curve). `?scenario=cards` alone does nothing (it only overrides segments of the full run).
-Screenshots: `agents/shots/cards-*.png` (offtrack, offtrack-stage, explain, hint, fixing-1/2, success).
+Screenshots: `agents/shots/cards-*.png` (offtrack, offtrack-stage, explain, hint, fixing-1/2, success, generic-accuracy).
 
 ## Adrian's spec
 **First pass (no spec from Adrian yet):** build to the mockups in `docs/mockups/` (01–05 are the target look; 06–07 are earlier explorations to restyle in the Apple look) and the animation + placement spec in `docs/FRONTEND-HANDOFF.md`. Don't spend time on colors (Adrian's theme comes later). Adrian reviews after this pass and writes his spec here for pass 2.
@@ -43,13 +43,15 @@ Screenshots: `agents/shots/cards-*.png` (offtrack, offtrack-stage, explain, hint
 - **Explain / Hint / Answer** (`data-card="explain|hint|answer"`): icon + label + "Step N of M", title, body clamped to 3 lines. A title that only repeats the label ("Hint") is dropped and the body becomes the headline. The video jump ("Watch 14:30 · why it fails") sets `core/lesson.video` and closes the card.
 - **Back to off-track**: an explain card or a diagram opened over the off-track card returns to it when closed (Esc / ✕ / video jump), so the demo goes Off-track → Explain → Esc → Apply fix without hovering the pill.
 
-**Live curve (`metric`)**
+**Live curve (`metric`), generic for any metric**
 - `store.ts` keeps one series per metric name: the current run plus the run before it. A new run starts when `runId` changes or `step` goes backwards (the learner re-ran the script). Runs are thinned past 400 points.
-- Values are drawn on a log10 scale when all are positive. The mock's `offtrack.curve` arrays are already log10, so they're used as-is.
-- Tutorial reference: `metric` with `runId:"tutorial"` if the engine sends it, else `offtrack.curve.tutorial` (open question 4 for Michael; both work).
-- "Before / after the fix" = runs that started before / after the latest `offtrack`, so it also works when the learner fixes the code themself and re-runs.
+- Which metric: the one named by `offtrack.curve.label` if it streams, else the most recently updated one. The caption is the metric's `name` (never a hardcoded label).
+- Scale: one scale per chart, picked from all its lines: log10 only when every value is positive and they span ≥ 30× (a loss falling 1 → 1e-4); otherwise linear (accuracy rising 0.6 → 0.95, an error count falling to 0). Higher values plot higher.
+- Tutorial reference: `metric` with `runId:"tutorial"` (the mock streams it). Without live data, both lines come from the optional `offtrack.curve` arrays; the two sources are never mixed on one chart (their units may differ).
+- "Before / after the fix" = runs that started before / after the latest `offtrack` (by event order, not time), so it also works when the learner fixes the code themself and re-runs.
+- No PINN / β / loss strings in UI code: everything shown comes from the payloads (`offtrack.title/body/diff/reason/citation`, check labels, metric names). Checked with `cards-generic-accuracy.png` (a synthetic "val accuracy" off-track).
 
-**Mock (`mock/scenarios/cards.json`)**: overrides `after_step5` → `step6` + `metrics_flat` (26 points, epochs 0–7,000, flat at 0.25, ends just before the off-track fires), and adds `action:apply_fix@step6` → `fix` + `metrics_drop` (β curriculum 1→30, five saw-tooth stages ending at 6.08e-4, ends just before the loss check passes). Nothing else. If another feature's scenario (sorted after "cards") also overrides `after_step5`, the stream stops: keep that segment to this file.
+**Mock (`mock/scenarios/cards.json`)**: overrides `after_step5` → `step6` + `metrics_flat` (the tutorial's reference run as `runId:"tutorial"`, then 26 points, epochs 0–7,000, flat at 0.25, ending just before the off-track fires), and adds `action:apply_fix@step6` → `fix` + `metrics_drop` (β curriculum 1→30, five saw-tooth stages ending at 6.08e-4, ends just before the loss check passes). Nothing else. If another feature's scenario (sorted after "cards") also overrides `after_step5`, the stream stops: keep that segment to this file.
 
 **Not in the contract (mock-only extras, read leniently):** `offtrack.reason`, `offtrack.curve`, `step.passed.summary`. Ask Michael to add them, or the cards simply hide those bits.
 
