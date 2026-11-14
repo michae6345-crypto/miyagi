@@ -12,7 +12,7 @@ export type SourceKind = "video" | "blog" | "notebook" | "paper" | "repo";
 
 export interface VideoSegment { videoId: string; start: number; end: number } // seconds
 export interface Source { id: string; kind: SourceKind; title: string; url: string; meta?: string; videoId?: string }
-export interface StepSummary { id: string; index: number; title: string; video?: VideoSegment }
+export interface StepSummary { id: string; index: number; title: string; video?: VideoSegment | null }   // null/absent: no video (a "lesson" mode lesson)
 
 // ---------- Engine -> App events ----------
 export interface EngineEvents {
@@ -25,10 +25,11 @@ export interface EngineEvents {
   "search.done": { total: number };
   "lesson.building": { message: string; progress: number; failed?: boolean; elapsedS?: number };   // message = the stage (changes only with the stage); elapsedS = seconds since the build started (the 1 s heartbeat)   // progress 0..1 for the launcher; ~1/s while building; failed: true = the build ended in error (an `error` + status idle follow): drop the building UI
   "lesson.ready": { lesson: { id: string; title: string; sources: Source[]; complete?: boolean; builtBy?: "gemini" | "claude" | "mixed" | "unknown";
-                              goalMatch?: { score: number | null; note: string } }; steps: StepSummary[] };   // complete false = a long video is still building (see lesson.updated)
+                              goalMatch?: { score: number | null; note: string };
+                              mode?: "video" | "lesson" }; steps: StepSummary[] };   // mode "lesson" ("Just teach me"): no video, no player events; the editor is full screen and each step spotlights where to type   // complete false = a long video is still building (see lesson.updated)
   /** a long video's next part was built: new steps APPENDED (ids never change, earlier steps never edited) */
   "lesson.updated": { steps: StepSummary[]; complete: boolean; parts?: { done: number; failed: number; total: number } };
-  "step.started": { stepId: string; index: number; title: string; instructions: string; video?: VideoSegment };
+  "step.started": { stepId: string; index: number; title: string; instructions: string; video?: VideoSegment | null };   // video null/absent: no player for this step
   "check.updated": { stepId: string; checkId: string; label: string; status: CheckStatus; detail?: string };
   "step.passed": { stepId: string; nextStepId?: string; pending?: boolean };   // pending: no next step YET (the next part is still building); the engine continues on lesson.updated
   "offtrack": {
@@ -44,7 +45,7 @@ export interface EngineEvents {
     guidingQuestion?: string;  // a Socratic nudge to show under the body
   };
   /** Screen-first: rect is in screen POINTS, TOP-LEFT origin (Electron convention), relative to the PRIMARY display's FULL frame (y=0 is the very top, menu bar included). v1 watches the primary display only. Same convention for overlay.bounds. */
-  "spotlight": { rect: { x: number; y: number; w: number; h: number }; caption: string; app?: string; matched?: string } | { clear: true };
+  "spotlight": { rect: { x: number; y: number; w: number; h: number }; caption: string; app?: string; matched?: string; snippet?: string } | { clear: true };   // snippet: code to type there (lesson mode / Show me), shown monospace under the caption
   /** What the engine currently sees (debug HUD / optional). */
   "screen.seen": { app: string; summary: string; t: number };
   "video.seek": { t: number; play: boolean };
@@ -120,7 +121,7 @@ export interface GraphDiagramData {
 
 // ---------- App -> Engine commands ----------
 export interface AppCommands {
-  "learn": { query: string };                       // launcher text
+  "learn": { query: string; mode?: "video" | "lesson" };   // launcher text; mode "lesson" = "Just teach me": no video search, a text lesson built for the goal (default "video")
   "learn_url": { url: string };                     // pasted YouTube link
   "build_lesson": { resultIds: string[] };
   "action": { kind: "back" | "explain" | "diagram" | "show_me" | "hint" | "voice_toggle" | "ask" | "apply_fix" | "confirm" | "undo" | "open_editor" | "resume" | "end_lesson" | "install" | "skip_setup" | "open_in_browser" | "build" | "pick_another" | "download"; text?: string };  // download: the video's linked files -> <lesson folder>/tutorial/  // build / pick_another: the preflight card  // install / open_in_browser: text = setup item tool id  // resume / end_lesson: the "Continue where you left off?" card  // open_editor: the learner accepted "Open VS Code?"  // confirm: "Looks done?" card; undo: revert the last "Do it for me"
