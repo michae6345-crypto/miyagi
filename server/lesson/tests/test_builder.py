@@ -548,3 +548,42 @@ def test_progress_callback_reports_stable_stages(fake, monkeypatch):
     seen.clear()
     asyncio.run(builder.build_lesson(URL, "other words", WORKDIR, on_progress=lambda s, m: seen.append((s, m))))
     assert [s for s, _ in seen] == ["cache_hit", "done"]
+
+
+# ---- S3 third-run fixes ----------------------------------------------------------
+
+def test_standard_output_patterns_pass_their_own_lint():
+    from server.lesson.schema import STANDARD_OUTPUTS, is_weak
+
+    for _detect, app, label, pattern in STANDARD_OUTPUTS:
+        assert not is_weak({"type": "screen_contains", "pattern": pattern}), (label, pattern)
+
+
+def test_repair_adds_a_standard_output_check_to_a_run_step():
+    from server.lesson.workdir import WorkdirInfo
+
+    g = {"steps": [
+        {"id": "s7", "title": "Start the dev server", "run_command": "npm run dev",
+         "checks": [{"id": "s7c1", "type": "screen_absent", "label": "no errors", "app": "Terminal", "pattern": "ERR!|Error"}],
+         "precision_checks": [], "targets": []},
+        {"id": "s5", "title": "Filter rows", "run_command": "Run the notebook cell", "code": "df[df['Country'] == 'France']",
+         "checks": [{"id": "s5c1", "type": "screen_contains", "label": "filtered", "app": "Code", "pattern": "Country|Quantity"}],
+         "precision_checks": [], "targets": []},
+    ]}
+    out = builder.repair(g, WorkdirInfo(root="/x", exists=False))
+    s7, s5 = out["steps"]
+    assert s7["checks"][-1]["pattern"] == r"Local:\s+http://localhost:\d+" and s7["checks"][-1]["id"] == "s7c2"
+    assert s5["checks"][-1]["app"] == "Code" and "rows" in s5["checks"][-1]["pattern"]  # notebook: rendered in the editor
+    assert not any("no check on its output" in p for p in lint(out))
+
+
+def test_adapt_retries_only_failing_steps_and_stops_without_progress(fake):
+    good = _good_adapt()
+    bad_step2 = json.loads(json.dumps(good))
+    bad_step2["steps"][1]["checks"][0]["pattern"] = r"(f_xx"  # step 2 broken
+    only2 = {"steps": [bad_step2["steps"][1]]}  # model returns the same broken step again
+    fake["responses"].extend([bad_step2, only2, only2])
+    g = asyncio.run(builder.build_lesson(URL, "x", WORKDIR, refresh=True))
+    assert len(fake["adapt"]) == 2  # round 2 made no progress -> stopped, no 3rd round
+    assert all(p.startswith("s2") for p in fake["adapt"][1])  # only step 2's problems were re-sent
+    assert g["build"]["adapted"] is True and schema_errors(g) == []

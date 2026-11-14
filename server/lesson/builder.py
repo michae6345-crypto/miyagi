@@ -15,7 +15,18 @@ from pathlib import Path
 import os
 
 from . import claude, gemini, transcript
-from .schema import CHECK_TYPES, PRECISION_TYPES, REPO_ROOT, SCREEN_TYPES, check_problems, lint, schema_errors, step_check_problems
+from .schema import (
+    CHECK_TYPES,
+    PRECISION_TYPES,
+    REPO_ROOT,
+    SCREEN_TYPES,
+    check_problems,
+    is_output_check,
+    lint,
+    schema_errors,
+    standard_output_check,
+    step_check_problems,
+)
 from .workdir import WorkdirInfo, scan
 
 # Progress for the UI. Stable stage ids (the app maps them to text; log wording may change):
@@ -473,31 +484,48 @@ def rehome_explanations(steps: list[dict]) -> None:
 # --------------------------------------------------------------------------- #
 
 
+_STEP_PROBLEM = re.compile(r"^s(\d+)[:/]")
+
+
 async def _adapt(draft: dict, goal: str, info: WorkdirInfo) -> tuple[dict, list[str], bool, str | None]:
-    """-> (graph, leftover warnings, whether any adapt call succeeded, model that served it)."""
-    feedback: list[str] | None = None
-    graph = None
-    ok = False
-    used: str | None = None
+    """-> (graph, leftover warnings, whether any adapt call succeeded, model that served it).
+
+    Round 1 adapts every step. Later rounds re-send only the steps that still have problems (with
+    just their feedback), and the loop stops as soon as a round doesn't reduce the problem count,
+    keeping the best graph seen; repair cleans up whatever is left."""
     known_files = set(info.files)
+    adapted: dict[int, dict] = {}
+    used: str | None = None
+    best: tuple[int, dict] | None = None
+    targets = list(draft["steps"])
+    feedback: list[str] | None = None
     for attempt in range(ADAPT_ATTEMPTS):
         try:
-            adapted, used = await _adapt_call(goal, draft, info.summary_for_prompt(), feedback)
-            ok = True
+            out, used = await _adapt_call(goal, {"steps": targets}, info.summary_for_prompt(), feedback)
         except RuntimeError as e:
             log.warning("adapt pass failed (attempt %d): %s", attempt + 1, e)
-            if not ok:  # nothing to improve on; the video draft's checks are the fallback
+            if not adapted:  # nothing to improve on; the video draft's checks are the fallback
                 graph = repair(normalize_checks(assemble(draft, goal, {"steps": []}), info.metrics), info)
                 return graph, lint(graph, info.metrics, known_files), False, None
             break
-        graph = normalize_checks(assemble(draft, goal, adapted), info.metrics)
-        feedback = schema_errors(graph) + lint(graph, info.metrics, known_files)
-        if not feedback:
+        for st in out.get("steps") or []:
+            if isinstance(st.get("index"), int):
+                adapted[st["index"]] = st
+        graph = normalize_checks(assemble(draft, goal, {"steps": list(adapted.values())}), info.metrics)
+        problems = schema_errors(graph) + lint(graph, info.metrics, known_files)
+        if not problems:
             return graph, [], True, used
-        log.info("adapt attempt %d: %d problems, retrying", attempt + 1, len(feedback))
-    # Out of retries: drop checks that are still broken so the graph is at least runnable.
-    graph = repair(graph, info)
-    return graph, lint(graph, info.metrics, known_files), ok, used
+        if best is not None and len(problems) >= best[0]:
+            log.info("adapt attempt %d: %d problems (no better than %d); stopping", attempt + 1, len(problems), best[0])
+            break
+        best = (len(problems), graph)
+        bad = {int(m.group(1)) for p in problems if (m := _STEP_PROBLEM.match(p))}
+        graph_level = [p for p in problems if not _STEP_PROBLEM.match(p)]
+        targets = [st for st in draft["steps"] if graph_level or st["index"] in bad]
+        feedback = problems
+        log.info("adapt attempt %d: %d problems in %d step(s), retrying those", attempt + 1, len(problems), len(targets))
+    graph = repair(best[1] if best else graph, info)
+    return graph, lint(graph, info.metrics, known_files), True, used
 
 
 def assemble(draft: dict, goal: str, adapted: dict) -> dict:
@@ -656,6 +684,10 @@ def repair(graph: dict, info: WorkdirInfo) -> dict:
         for key, allowed, tag in (("checks", SCREEN_TYPES, "c"), ("precision_checks", PRECISION_TYPES, "p")):
             kept = [c for c in step.get(key, []) if not check_problems(c, allowed, key, info.metrics, set(info.files))
                     and not (key == "checks" and step_check_problems(c, step))]
+            if key == "checks" and (step.get("run_command") or "").strip() and not any(is_output_check(c, step) for c in kept):
+                std = standard_output_check(step)  # a run step the model left without an output check
+                if std and not step_check_problems(std, step):
+                    kept.append(std)
             if key == "checks" and not kept:
                 kept = fallback_screen_checks(step)
             for j, c in enumerate(kept, 1):  # renumber so ids stay unique and stable

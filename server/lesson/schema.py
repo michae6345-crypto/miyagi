@@ -161,6 +161,34 @@ def literal_strength(pattern: str) -> tuple[int, int]:
 
 MIN_LITERAL_ALT, MIN_LITERAL_BEST = 3, 5
 
+# Well-known output lines per tool: (detects the tool in a step's command/code, app, label, output regex).
+# Used in the adapt prompt and by repair for run steps the model left without an output check.
+STANDARD_OUTPUTS = [
+    (r"\b(vite|npm\s+run\s+dev|yarn\s+dev|pnpm\s+dev)\b", "Terminal", "dev server running", r"Local:\s+http://localhost:\d+"),
+    (r"\bnext\s+dev\b", "Terminal", "dev server ready", r"(Ready|ready)\s+in|Local:\s+http://localhost:\d+"),
+    (r"\b(jest|vitest|npm\s+(run\s+)?test)\b", "Terminal", "tests passed", r"Tests?:?\s+\d+\s+passed|\d+\s+passed"),
+    (r"\bpytest\b", "Terminal", "tests passed", r"\d+\s+passed"),
+    (r"\bcargo\s+(run|build|test|check)\b", "Terminal", "cargo finished", r"Finished\s+\S*\s*(dev|release|test)"),
+    (r"\b(uvicorn|fastapi\s+(dev|run))\b", "Terminal", "server running", r"Uvicorn\s*running\s*on|Application\s+startup\s+complete"),
+    (r"\bflask\s+run\b", "Terminal", "server running", r"Running\s+on\s+http"),
+    (r"\b(pd\.|pandas|DataFrame|read_csv|df\b)", "Code", "table printed", r"\d+\s*rows\s*[x×]\s*\d+\s*columns|dtype:\s*\w+|RangeIndex:\s*\d+"),
+]
+
+
+def standard_output_check(step: dict) -> dict | None:
+    """A stack-standard output check for a run step, if its command/code names a known tool."""
+    text = " ".join([step.get("run_command") or "", step.get("code") or ""])
+    for detect, app, label, pattern in STANDARD_OUTPUTS:
+        if re.search(detect, text, re.I):
+            if app == "Code" and not is_notebook_step(step):
+                app = "Terminal"  # a script prints the table to the terminal; a notebook renders it in the editor
+            return {"type": "screen_contains", "label": label, "app": app, "pattern": pattern}
+    return None
+
+
+def standard_outputs_for_prompt() -> str:
+    return "\n".join(f"  - {label} ({app}): {pattern}" for _d, app, label, pattern in STANDARD_OUTPUTS)
+
 
 def is_weak(c: dict) -> bool:
     """Too generic to mean anything: e.g. `\\*\\s*\\S+`, `\\bmain\\b`, `\\S+\\s+0\\.1\\.0`."""

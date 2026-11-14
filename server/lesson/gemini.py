@@ -15,7 +15,7 @@ warnings.filterwarnings("ignore", category=SyntaxWarning)  # SDK docstring escap
 from google import genai
 from google.genai import types
 
-from .schema import ADAPTED_SCHEMA, DETAIL_SCHEMA, VIDEO_DRAFT_SCHEMA
+from .schema import ADAPTED_SCHEMA, DETAIL_SCHEMA, VIDEO_DRAFT_SCHEMA, standard_outputs_for_prompt
 
 log = logging.getLogger("server.lesson")
 
@@ -179,7 +179,8 @@ or API/keyword names ("useState\\(", "groupby\\(", "@app\\.get"). Literals that 
 (its branch names, usernames, dataset values, commit messages) go in precision_checks, never as the only check.
 A Terminal check must match the command's OUTPUT, never the command the learner types (that passes on typing):
 for a step that runs something, include one check on what it prints ("Local:\\s+http", "Uvicorn running on",
-"Finished", a test count)."""
+"Finished", a test count). Standard output lines you can use as-is:
+""" + standard_outputs_for_prompt()
 
 
 WATCH_SYSTEM = """You turn a coding tutorial video into an auto-graded lab.
