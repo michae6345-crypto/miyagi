@@ -192,7 +192,8 @@ actually written on screen. Never invent steps the video does not show."""
 
 WATCH_PROMPT = """Learner's goal: {goal}
 
-Break this tutorial into 4-10 sequential steps a learner can code along with.
+Break this tutorial into 4-10 sequential steps a learner can code along with. The steps follow what the VIDEO
+actually teaches; the learner's goal only frames the wording (never add steps the video doesn't show).
 Rules:
 - One step = one concrete thing the learner builds or runs (e.g. "Create the Counter component", "Add the fetch call", "Commit the first change", "Define the model", "Run the tests"). Skip intros, outros, sponsor segments and pure theory unless they end in code or a command. A step shorter than ~20 s belongs to its neighbour.
 - Each step's instructions state any state it depends on that no earlier step created (e.g. "first make two commits on main that change the same line"), so a learner who follows only the instructions gets there.
@@ -222,14 +223,26 @@ Rules:
 """
 
 
-async def watch_video(url: str, goal: str, *, fps: float | None = None, context: str = "") -> dict:
-    # 0.5 fps halves the frames of the default 1 fps; long videos otherwise miss the 45 s cap
+def _mmss(t: float) -> str:
+    t = int(t)
+    return f"{t // 3600}:{t % 3600 // 60:02d}:{t % 60:02d}" if t >= 3600 else f"{t // 60}:{t % 60:02d}"
+
+
+async def watch_video(url: str, goal: str, *, fps: float | None = None, context: str = "",
+                      start: float | None = None, end: float | None = None, media_low: bool = False) -> dict:
+    """Watch the whole video, or only [start, end) seconds of it (a clip, for long videos)."""
+    # 0.5 fps halves the frames of the default 1 fps; long videos otherwise miss the cap
     fps = fps if fps is not None else float(os.environ.get("LESSON_GEMINI_FPS", "0.5"))
     prompt = WATCH_PROMPT.format(goal=goal, stack_guide=STACK_GUIDE)
+    if start is not None and end is not None:
+        prompt += (f"\n\nYou are watching ONE PART of a longer video: {_mmss(start)} to {_mmss(end)}. Break only this "
+                   f"part into steps (1-6 of them). Give every timestamp (start, end, explanations) as the time in the FULL "
+                   f"video, between {_mmss(start)} and {_mmss(end)}. Earlier parts are covered separately: don't add a "
+                   f"setup step for things built before {_mmss(start)} unless this part needs them and never shows them.")
     if context:  # title/description/chapters: the video alone never shows the repo/data links
         prompt += "\n\nAbout this video (from its YouTube page):\n" + context
-    parts = [_video_part(url, fps=fps), types.Part(text=prompt)]
-    return await _generate_json(model(), parts, VIDEO_DRAFT_SCHEMA, system=WATCH_SYSTEM)
+    parts = [_video_part(url, start=start, end=end, fps=fps), types.Part(text=prompt)]
+    return await _generate_json(model(), parts, VIDEO_DRAFT_SCHEMA, system=WATCH_SYSTEM, media_low=media_low)
 
 
 # --------------------------------------------------------------------------- #
