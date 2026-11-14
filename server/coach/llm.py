@@ -11,11 +11,14 @@ Keys (bring-your-own-key): the app's keys via `set_keys()` / `server.config`, el
 
 from __future__ import annotations
 
+import asyncio
 import hashlib
+import inspect
 import json
 import logging
 import os
 import time
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -65,7 +68,7 @@ _client = None
 _client_key: str | None = None
 _local_keys: dict[str, str] = {}
 
-KEY_ENV = {"anthropic": "ANTHROPIC_API_KEY", "brightdata": "BRIGHTDATA_API_KEY"}
+KEY_ENV = {"anthropic": "ANTHROPIC_API_KEY", "brightdata": "BRIGHTDATA_API_KEY", "gemini": "GEMINI_API_KEY"}
 
 
 def _load_env() -> None:
@@ -171,16 +174,25 @@ async def structured_call(
     effort: str = "low",
     max_tokens: int = 8000,
     timeout: float = 45.0,
+    user_content: list[dict] | None = None,
+    on_text: Callable[[str, str], Any] | None = None,
 ) -> CallResult:
     """One Messages call that must return JSON matching `schema`.
 
     `system` is a list of text blocks; put `cache_control` on the last stable one.
+    `user_content` (content blocks, e.g. screen images) replaces `user_text` as the message;
+    `user_text` still keys the fixtures. With `on_text(delta, snapshot)` the reply is streamed
+    and the callback runs on every text delta (sync or async); cancelling the awaiting task
+    closes the stream.
     """
     replay_dir = os.environ.get("COACH_REPLAY_DIR")
     if replay_dir:
         hit = _replay(purpose, user_text, Path(replay_dir))
         if hit is None:
             raise CoachLLMError(f"no fixture for {purpose} in {replay_dir}")
+        if on_text is not None:
+            full = json.dumps(hit.data, ensure_ascii=False)
+            await _maybe_await(on_text(full, full))
         return hit
 
     if not has_credentials():
@@ -189,21 +201,20 @@ async def structured_call(
     import anthropic
 
     client = get_client().with_options(timeout=timeout)
-    kwargs: dict[str, Any] = {
-        "model": model,
-        "max_tokens": max_tokens,
-        "system": system,
-        "messages": [{"role": "user", "content": user_text}],
-        "thinking": {"type": "adaptive"},
-        "output_config": {"effort": effort, "format": {"type": "json_schema", "schema": schema}},
-    }
+    api, kwargs = _request(client, model, system, user_content or user_text, schema, effort, max_tokens)
     t0 = time.monotonic()
+    ttft = None
     try:
-        if model == OPUS:
-            # Server-side refusal fallback: on a policy decline the API reruns on a fallback model.
-            resp = await client.beta.messages.create(betas=[FALLBACK_BETA], fallbacks="default", **kwargs)
+        if on_text is None:
+            resp = await api.create(**kwargs)
         else:
-            resp = await client.messages.create(**kwargs)
+            async with api.stream(**kwargs) as stream:
+                async for event in stream:
+                    if getattr(event, "type", "") == "text":
+                        if ttft is None:
+                            ttft = time.monotonic() - t0
+                        await _maybe_await(on_text(event.text, event.snapshot))
+                resp = await stream.get_final_message()
     except anthropic.APIStatusError as e:
         raise CoachLLMError(f"{purpose}: API {e.status_code}: {e.message}") from e
     except anthropic.APIConnectionError as e:
@@ -227,9 +238,61 @@ async def structured_call(
         "cache_read_input_tokens": getattr(u, "cache_read_input_tokens", 0) or 0,
         "cache_creation_input_tokens": getattr(u, "cache_creation_input_tokens", 0) or 0,
     }
+    if ttft is not None:
+        usage["first_text_s"] = round(ttft, 2)
     res = CallResult(data=data, model=resp.model, usage=usage, latency_s=latency, source="live")
     log.info("%s %s %.2fs usage=%s", purpose, resp.model, latency, usage)
     record_dir = os.environ.get("COACH_RECORD_DIR")
     if record_dir:
         _record(Path(record_dir), purpose, model, user_text, text, res)
     return res
+
+
+def _request(client, model: str, system: list[dict], content: Any, schema: dict, effort: str, max_tokens: int):
+    """The one place a coach request is shaped (warm() must send the same prefix to hit the cache)."""
+    kwargs: dict[str, Any] = {
+        "model": model,
+        "max_tokens": max_tokens,
+        "system": system,
+        "messages": [{"role": "user", "content": content}],
+        "thinking": {"type": "adaptive"},
+        "output_config": {"effort": effort, "format": {"type": "json_schema", "schema": schema}},
+    }
+    if model == OPUS:  # server-side refusal fallback: on a policy decline the API reruns on a fallback model
+        return client.beta.messages, {"betas": [FALLBACK_BETA], "fallbacks": "default", **kwargs}
+    return client.messages, kwargs
+
+
+async def _maybe_await(x: Any) -> None:
+    if inspect.isawaitable(x):
+        await x
+
+
+async def warm(requests: list[dict] | None = None) -> dict:
+    """Open the TLS connection, then pre-warm the prompt cache for each request shape.
+
+    `requests`: [{"model", "system", "schema", "effort"}], the same values the real call will use
+    (the cached prefix includes the output format). Best effort: never raises; returns timings.
+    """
+    out: dict[str, Any] = {}
+    if not has_credentials():
+        return {"skipped": "no key"}
+    client = get_client()
+    t0 = time.monotonic()
+    try:
+        await client.models.retrieve(OPUS)
+        out["tls_s"] = round(time.monotonic() - t0, 2)
+    except Exception as e:  # noqa: BLE001 - warm-up is best effort
+        out["tls_error"] = type(e).__name__
+
+    async def one(r: dict) -> Any:
+        # max_tokens=1: writes the cached prefix for one output token (0 is rejected with output_config.format)
+        api, kwargs = _request(client, r.get("model", OPUS), r["system"], "warm", r["schema"], r.get("effort", "low"), 1)
+        return await api.create(**kwargs)
+
+    t0 = time.monotonic()
+    results = await asyncio.gather(*(one(r) for r in requests or []), return_exceptions=True)
+    if requests:
+        out["cache_s"] = round(time.monotonic() - t0, 2)
+        out["cache"] = [type(r).__name__ if isinstance(r, BaseException) else getattr(r.usage, "cache_creation_input_tokens", 0) + getattr(r.usage, "cache_read_input_tokens", 0) for r in results]
+    return out

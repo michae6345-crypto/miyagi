@@ -19,6 +19,7 @@ from server.coach import case_diffusion as d
 from server.coach import common, web
 from server.coach.diagnose import LAST
 from server.coach.tests import generic_cases as g
+from server.coach.tests.screen_case import make_screen
 
 
 def show(name: str, card: dict | None) -> None:
@@ -40,6 +41,11 @@ async def main() -> None:
     LAST.clear()
     show("diffusion/high-lr", await coach.diagnose(d.STEP, d.HIGH_LR_FAILED, d.HIGH_LR_METRICS, d.HIGH_LR_CODE))
     show("diffusion/no-grad", await coach.diagnose(d.STEP, d.NO_GRAD_FAILED, None, d.NO_GRAD_CODE, error_text=d.NO_GRAD_ERROR))
+
+    LAST.clear()
+    screen = make_screen()
+    show("diffusion/high-lr+screen", card := await coach.diagnose(d.STEP, d.HIGH_LR_FAILED, d.HIGH_LR_METRICS, d.HIGH_LR_CODE, screen=screen))
+    print("    targets:", [(t["boxId"], t["label"], t["text"][:40]) for t in card["targets"]])
 
     LAST.clear()
     common.set_lesson(cv.LESSON)
