@@ -179,7 +179,7 @@
         "wait": 2200,
         "type": "metric",
         "payload": {
-          "runId": "screen-pinn",
+          "runId": "screen-pinn-convection",
           "step": 0,
           "name": "loss",
           "value": 1.05
@@ -189,7 +189,7 @@
         "wait": 200,
         "type": "metric",
         "payload": {
-          "runId": "screen-pinn",
+          "runId": "screen-pinn-convection",
           "step": 280,
           "name": "loss",
           "value": 0.5937
@@ -199,7 +199,7 @@
         "wait": 200,
         "type": "metric",
         "payload": {
-          "runId": "screen-pinn",
+          "runId": "screen-pinn-convection",
           "step": 560,
           "name": "loss",
           "value": 0.3968
@@ -209,7 +209,7 @@
         "wait": 200,
         "type": "metric",
         "payload": {
-          "runId": "screen-pinn",
+          "runId": "screen-pinn-convection",
           "step": 840,
           "name": "loss",
           "value": 0.3123
@@ -219,7 +219,7 @@
         "wait": 200,
         "type": "metric",
         "payload": {
-          "runId": "screen-pinn",
+          "runId": "screen-pinn-convection",
           "step": 1120,
           "name": "loss",
           "value": 0.2777
@@ -229,7 +229,7 @@
         "wait": 200,
         "type": "metric",
         "payload": {
-          "runId": "screen-pinn",
+          "runId": "screen-pinn-convection",
           "step": 1400,
           "name": "loss",
           "value": 0.2626
@@ -239,7 +239,7 @@
         "wait": 200,
         "type": "metric",
         "payload": {
-          "runId": "screen-pinn",
+          "runId": "screen-pinn-convection",
           "step": 1680,
           "name": "loss",
           "value": 0.2547
@@ -249,7 +249,7 @@
         "wait": 200,
         "type": "metric",
         "payload": {
-          "runId": "screen-pinn",
+          "runId": "screen-pinn-convection",
           "step": 1960,
           "name": "loss",
           "value": 0.252
@@ -259,7 +259,7 @@
         "wait": 200,
         "type": "metric",
         "payload": {
-          "runId": "screen-pinn",
+          "runId": "screen-pinn-convection",
           "step": 2240,
           "name": "loss",
           "value": 0.2521
@@ -269,7 +269,7 @@
         "wait": 200,
         "type": "metric",
         "payload": {
-          "runId": "screen-pinn",
+          "runId": "screen-pinn-convection",
           "step": 2520,
           "name": "loss",
           "value": 0.2511
@@ -279,7 +279,7 @@
         "wait": 200,
         "type": "metric",
         "payload": {
-          "runId": "screen-pinn",
+          "runId": "screen-pinn-convection",
           "step": 2800,
           "name": "loss",
           "value": 0.2497
@@ -289,7 +289,7 @@
         "wait": 200,
         "type": "metric",
         "payload": {
-          "runId": "screen-pinn",
+          "runId": "screen-pinn-convection",
           "step": 3080,
           "name": "loss",
           "value": 0.2503
@@ -299,7 +299,7 @@
         "wait": 200,
         "type": "metric",
         "payload": {
-          "runId": "screen-pinn",
+          "runId": "screen-pinn-convection",
           "step": 3360,
           "name": "loss",
           "value": 0.2513
@@ -309,7 +309,7 @@
         "wait": 200,
         "type": "metric",
         "payload": {
-          "runId": "screen-pinn",
+          "runId": "screen-pinn-convection",
           "step": 3640,
           "name": "loss",
           "value": 0.2503
@@ -319,7 +319,7 @@
         "wait": 200,
         "type": "metric",
         "payload": {
-          "runId": "screen-pinn",
+          "runId": "screen-pinn-convection",
           "step": 3920,
           "name": "loss",
           "value": 0.2495
@@ -329,7 +329,7 @@
         "wait": 200,
         "type": "metric",
         "payload": {
-          "runId": "screen-pinn",
+          "runId": "screen-pinn-convection",
           "step": 4200,
           "name": "loss",
           "value": 0.2507
@@ -339,7 +339,7 @@
         "wait": 200,
         "type": "metric",
         "payload": {
-          "runId": "screen-pinn",
+          "runId": "screen-pinn-convection",
           "step": 4480,
           "name": "loss",
           "value": 0.2512
@@ -349,7 +349,7 @@
         "wait": 200,
         "type": "metric",
         "payload": {
-          "runId": "screen-pinn",
+          "runId": "screen-pinn-convection",
           "step": 4760,
           "name": "loss",
           "value": 0.2499
@@ -359,7 +359,7 @@
         "wait": 200,
         "type": "metric",
         "payload": {
-          "runId": "screen-pinn",
+          "runId": "screen-pinn-convection",
           "step": 5040,
           "name": "loss",
           "value": 0.2497
@@ -369,7 +369,7 @@
         "wait": 200,
         "type": "metric",
         "payload": {
-          "runId": "screen-pinn",
+          "runId": "screen-pinn-convection",
           "step": 5320,
           "name": "loss",
           "value": 0.2511
@@ -379,7 +379,7 @@
         "wait": 200,
         "type": "metric",
         "payload": {
-          "runId": "screen-pinn",
+          "runId": "screen-pinn-convection",
           "step": 5600,
           "name": "loss",
           "value": 0.2509
@@ -389,7 +389,7 @@
         "wait": 200,
         "type": "metric",
         "payload": {
-          "runId": "screen-pinn",
+          "runId": "screen-pinn-convection",
           "step": 5880,
           "name": "loss",
           "value": 0.2496
@@ -399,7 +399,7 @@
         "wait": 200,
         "type": "metric",
         "payload": {
-          "runId": "screen-pinn",
+          "runId": "screen-pinn-convection",
           "step": 6160,
           "name": "loss",
           "value": 0.2501
@@ -409,7 +409,7 @@
         "wait": 200,
         "type": "metric",
         "payload": {
-          "runId": "screen-pinn",
+          "runId": "screen-pinn-convection",
           "step": 6440,
           "name": "loss",
           "value": 0.2513
@@ -419,7 +419,7 @@
         "wait": 200,
         "type": "metric",
         "payload": {
-          "runId": "screen-pinn",
+          "runId": "screen-pinn-convection",
           "step": 6720,
           "name": "loss",
           "value": 0.2504
@@ -429,7 +429,7 @@
         "wait": 200,
         "type": "metric",
         "payload": {
-          "runId": "screen-pinn",
+          "runId": "screen-pinn-convection",
           "step": 7000,
           "name": "loss",
           "value": 0.2495
@@ -441,7 +441,7 @@
         "wait": 400,
         "type": "metric",
         "payload": {
-          "runId": "screen-pinn",
+          "runId": "screen-pinn-convection",
           "step": 0,
           "name": "loss",
           "value": 1
@@ -451,7 +451,7 @@
         "wait": 140,
         "type": "metric",
         "payload": {
-          "runId": "screen-pinn",
+          "runId": "screen-pinn-convection",
           "step": 292,
           "name": "loss",
           "value": 0.002566
@@ -461,7 +461,7 @@
         "wait": 140,
         "type": "metric",
         "payload": {
-          "runId": "screen-pinn",
+          "runId": "screen-pinn-convection",
           "step": 583,
           "name": "loss",
           "value": 0.0001936
@@ -471,7 +471,7 @@
         "wait": 140,
         "type": "metric",
         "payload": {
-          "runId": "screen-pinn",
+          "runId": "screen-pinn-convection",
           "step": 875,
           "name": "loss",
           "value": 0.00006268
@@ -481,7 +481,7 @@
         "wait": 140,
         "type": "metric",
         "payload": {
-          "runId": "screen-pinn",
+          "runId": "screen-pinn-convection",
           "step": 1167,
           "name": "loss",
           "value": 0.00003841
@@ -491,7 +491,7 @@
         "wait": 140,
         "type": "metric",
         "payload": {
-          "runId": "screen-pinn",
+          "runId": "screen-pinn-convection",
           "step": 1458,
           "name": "loss",
           "value": 0.002205
@@ -501,7 +501,7 @@
         "wait": 140,
         "type": "metric",
         "payload": {
-          "runId": "screen-pinn",
+          "runId": "screen-pinn-convection",
           "step": 1750,
           "name": "loss",
           "value": 0.00034
@@ -511,7 +511,7 @@
         "wait": 140,
         "type": "metric",
         "payload": {
-          "runId": "screen-pinn",
+          "runId": "screen-pinn-convection",
           "step": 2042,
           "name": "loss",
           "value": 0.000151
@@ -521,7 +521,7 @@
         "wait": 140,
         "type": "metric",
         "payload": {
-          "runId": "screen-pinn",
+          "runId": "screen-pinn-convection",
           "step": 2333,
           "name": "loss",
           "value": 0.0001062
@@ -531,7 +531,7 @@
         "wait": 140,
         "type": "metric",
         "payload": {
-          "runId": "screen-pinn",
+          "runId": "screen-pinn-convection",
           "step": 2625,
           "name": "loss",
           "value": 0.00009113
@@ -541,7 +541,7 @@
         "wait": 140,
         "type": "metric",
         "payload": {
-          "runId": "screen-pinn",
+          "runId": "screen-pinn-convection",
           "step": 2917,
           "name": "loss",
           "value": 0.00299
@@ -551,7 +551,7 @@
         "wait": 140,
         "type": "metric",
         "payload": {
-          "runId": "screen-pinn",
+          "runId": "screen-pinn-convection",
           "step": 3208,
           "name": "loss",
           "value": 0.0006239
@@ -561,7 +561,7 @@
         "wait": 140,
         "type": "metric",
         "payload": {
-          "runId": "screen-pinn",
+          "runId": "screen-pinn-convection",
           "step": 3500,
           "name": "loss",
           "value": 0.0003148
@@ -571,7 +571,7 @@
         "wait": 140,
         "type": "metric",
         "payload": {
-          "runId": "screen-pinn",
+          "runId": "screen-pinn-convection",
           "step": 3792,
           "name": "loss",
           "value": 0.000234
@@ -581,7 +581,7 @@
         "wait": 140,
         "type": "metric",
         "payload": {
-          "runId": "screen-pinn",
+          "runId": "screen-pinn-convection",
           "step": 4083,
           "name": "loss",
           "value": 0.0002057
@@ -591,7 +591,7 @@
         "wait": 140,
         "type": "metric",
         "payload": {
-          "runId": "screen-pinn",
+          "runId": "screen-pinn-convection",
           "step": 4375,
           "name": "loss",
           "value": 0.004211
@@ -601,7 +601,7 @@
         "wait": 140,
         "type": "metric",
         "payload": {
-          "runId": "screen-pinn",
+          "runId": "screen-pinn-convection",
           "step": 4667,
           "name": "loss",
           "value": 0.001082
@@ -611,7 +611,7 @@
         "wait": 140,
         "type": "metric",
         "payload": {
-          "runId": "screen-pinn",
+          "runId": "screen-pinn-convection",
           "step": 4958,
           "name": "loss",
           "value": 0.0006005
@@ -621,7 +621,7 @@
         "wait": 140,
         "type": "metric",
         "payload": {
-          "runId": "screen-pinn",
+          "runId": "screen-pinn-convection",
           "step": 5250,
           "name": "loss",
           "value": 0.0004644
@@ -631,7 +631,7 @@
         "wait": 140,
         "type": "metric",
         "payload": {
-          "runId": "screen-pinn",
+          "runId": "screen-pinn-convection",
           "step": 5542,
           "name": "loss",
           "value": 0.0004154
@@ -641,7 +641,7 @@
         "wait": 140,
         "type": "metric",
         "payload": {
-          "runId": "screen-pinn",
+          "runId": "screen-pinn-convection",
           "step": 5833,
           "name": "loss",
           "value": 0.004352
@@ -651,7 +651,7 @@
         "wait": 140,
         "type": "metric",
         "payload": {
-          "runId": "screen-pinn",
+          "runId": "screen-pinn-convection",
           "step": 6125,
           "name": "loss",
           "value": 0.001371
@@ -661,7 +661,7 @@
         "wait": 140,
         "type": "metric",
         "payload": {
-          "runId": "screen-pinn",
+          "runId": "screen-pinn-convection",
           "step": 6417,
           "name": "loss",
           "value": 0.0008306
@@ -671,7 +671,7 @@
         "wait": 140,
         "type": "metric",
         "payload": {
-          "runId": "screen-pinn",
+          "runId": "screen-pinn-convection",
           "step": 6708,
           "name": "loss",
           "value": 0.0006685
@@ -681,7 +681,7 @@
         "wait": 140,
         "type": "metric",
         "payload": {
-          "runId": "screen-pinn",
+          "runId": "screen-pinn-convection",
           "step": 7000,
           "name": "loss",
           "value": 0.000608

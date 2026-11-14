@@ -2,7 +2,8 @@
  * Feature: cards. Coach cards that grow out of the pill, in the calm black-island look (mockup 02):
  *   offtrack  amber: what's wrong in one line, yours-vs-tutorial curve of the live `metric`,
  *             expected vs yours (`offtrack.diff`), the checks, Show me / Explain / Apply fix.
- *             After Apply fix it collapses to "Applying the fix": the re-run's curve draws live.
+ *             After Apply fix it collapses to "Waiting for the fix": the line the code should read
+ *             (the engine may or may not write it), and the re-run's curve drawing live.
  *   success   green "Back on track" after a recovered step: now-vs-before curve, auto-hides.
  *   card      explain / hint / answer from the engine, with an optional video jump.
  * Copy rule: readable in 2 seconds; body text is clamped to 2–3 lines. No red, no shaking.
@@ -11,7 +12,7 @@
 import { motion } from 'motion/react'
 import type { ReactNode } from 'react'
 import { useShallow } from 'zustand/react/shallow'
-import { BookOpen, Check, Info, Lightbulb, MessageSquareText, Play, Wand2 } from 'lucide-react'
+import { BookOpen, Info, Lightbulb, MessageSquareText, Play, Wand2 } from 'lucide-react'
 import { useLesson, useProgress, type Offtrack as OfftrackPayload } from '../../core/lesson'
 import { defineFeature } from '../../core/registry'
 import { CardButton, CheckList, CloseButton, Spinner, StatusDot } from '../../core/ui/atoms'
@@ -126,8 +127,8 @@ function OfftrackCurve({ o }: { o: OfftrackPayload }): ReactNode {
   )
 }
 
-/** Expected vs yours, one mono line each. */
-function Diff({ diff }: { diff: NonNullable<OfftrackPayload['diff']> }): ReactNode {
+/** Expected vs yours, one mono line each (`expectedOnly`: just the expected line). */
+function Diff({ diff, expectedOnly }: { diff: NonNullable<OfftrackPayload['diff']>; expectedOnly?: boolean }): ReactNode {
   const row = (label: string, tone: string, text: string, top?: boolean): ReactNode => (
     <div className={`flex items-baseline gap-[12px] px-[12px] py-[7px] ${top ? 'border-t' : ''}`} style={top ? { borderColor: color.hairline } : undefined}>
       <span className="w-[78px] shrink-0 whitespace-nowrap font-sans text-[10.5px] font-semibold uppercase tracking-[0.06em]" style={{ color: tone }}>
@@ -139,7 +140,7 @@ function Diff({ diff }: { diff: NonNullable<OfftrackPayload['diff']> }): ReactNo
   return (
     <div className="mt-[12px] overflow-hidden rounded-[12px] font-mono text-[12.5px] leading-[18px]" style={{ background: 'rgba(255,255,255,.06)' }}>
       {row('Expected', color.green, diff.expected)}
-      {row(diff.line ? `Yours · L${diff.line}` : 'Yours', color.amber, diff.yours, true)}
+      {!expectedOnly && row(diff.line ? `Yours · L${diff.line}` : 'Yours', color.amber, diff.yours, true)}
     </div>
   )
 }
@@ -221,24 +222,21 @@ function AfterCurve({ label, since, width }: { label?: string; since?: number; w
   )
 }
 
-/** After Apply fix: the card collapses to this until the step passes. */
+/**
+ * After Apply fix: the card collapses to this until the step passes. The engine writes the file only
+ * when it knows the project folder, so this never claims the fix is applied: it shows the line the
+ * code should read and leaves the change to the learner if it isn't there yet.
+ */
 function Fixing({ o, checks }: { o: OfftrackPayload; checks: ReturnType<typeof useLesson.getState>['checks'] }): ReactNode {
+  const where = o.diff?.line ? `Line ${o.diff.line}${o.diff.file ? ` of ${o.diff.file}` : ''} should read` : 'Your code should read'
   return (
     <div data-card="fixing" style={{ padding: `16px ${PAD}px 14px` }}>
-      <Header mark={<Spinner size={12} />} label="Applying the fix" tone={color.accent} />
-      {o.diff ? (
-        <div className="mt-[10px] flex items-center gap-[8px] font-mono text-[12.5px] leading-[18px]">
-          <Check size={14} strokeWidth={2.4} className="shrink-0" style={{ color: color.green }} />
-          <span className="truncate text-white/90">{o.diff.expected}</span>
-          {o.diff.line && (
-            <span className="shrink-0 font-sans text-[12px]" style={{ color: color.faint }}>
-              line {o.diff.line}
-            </span>
-          )}
-        </div>
-      ) : (
-        <Title>Re-running your checks</Title>
-      )}
+      <Header mark={<Spinner size={12} />} label="Waiting for the fix" tone={color.accent} />
+      <div className="mt-[8px] text-[17px] font-semibold leading-[22px] tracking-[-0.01em]">{o.diff ? where : 'Make the fix, then re-run'}</div>
+      {o.diff && <Diff diff={o.diff} expectedOnly />}
+      <div className="mt-[8px] text-[13px] leading-[18px]" style={{ color: color.label }}>
+        {o.diff ? 'Not in your file yet? Make the change, then re-run.' : 'Your checks re-run as soon as it changes.'}
+      </div>
       <AfterCurve label={o.curve?.label} width={OFFTRACK_W} />
       {checks.length > 0 && (
         <div className="mt-[14px]">
