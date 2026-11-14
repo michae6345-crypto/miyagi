@@ -5,7 +5,7 @@ from __future__ import annotations
 import logging
 import re
 
-from . import llm
+from . import llm, web
 from .common import (
     citation_menu,
     clamp_title,
@@ -72,6 +72,12 @@ async def explain(step: dict, question: str | None = None, context: dict | None 
     about = question or (f"Why? (about the card: {last.get('title')} — {last.get('body')})" if last else f"Explain the idea behind this step: {step.get('title')}")
 
     metrics_text, _ = summarize(ctx.get("metrics_summary"))
+    if question:  # ground a free question in live docs/community pages
+        libs = ((lesson or {}).get("lesson") or {}).get("libraries") or {}
+        lib, sym = web.detect(question, ctx.get("code_excerpt", ""), libs)
+        sources = await web.gather(lib, sym, question, timeout=6.0)
+    else:  # "why?" about the card: reuse what diagnose() already fetched
+        sources = ((last or {}).get("_meta") or {}).get("web_sources") or []
     user = "\n\n".join(
         x
         for x in [
@@ -79,7 +85,8 @@ async def explain(step: dict, question: str | None = None, context: dict | None 
             f"CURRENT CARD: {last.get('title')} — {last.get('body')}" if last else "",
             f"METRICS:\n{metrics_text}" if ctx.get("metrics_summary") is not None else "",
             f"LEARNER CODE:\n{number_lines(ctx['code_excerpt'], 80)}" if ctx.get("code_excerpt") else "",
-            f"CITATIONS you may use:\n{citation_menu(lesson)}",
+            f"WEB SOURCES (fetched live):\n{web.sources_text(sources)}" if sources else "",
+            f"CITATIONS you may use:\n{citation_menu(lesson, sources)}",
             f"LEARNER ASKS: {about}",
         ]
         if x
@@ -106,8 +113,8 @@ async def explain(step: dict, question: str | None = None, context: dict | None 
             "title": clamp_title(d.get("title", "")),
             "body": clamp_words(d.get("body", ""), 64),
         }
-        cit = resolve_citation(d.get("citation_id"), lesson)
-        meta = {"model": res.model, "latency_s": round(res.latency_s, 2), "usage": res.usage, "source": res.source}
+        cit = resolve_citation(d.get("citation_id"), lesson, sources)
+        meta = {"web_sources": [x["url"] for x in sources], "model": res.model, "latency_s": round(res.latency_s, 2), "usage": res.usage, "source": res.source}
     except llm.CoachLLMError as e:
         log.warning("explain failed (%s); deterministic card", e)
         idx = det_idx

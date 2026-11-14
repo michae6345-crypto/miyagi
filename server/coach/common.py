@@ -46,22 +46,25 @@ def system_blocks(instructions: str, lesson: dict | None) -> list[dict]:
     ]
 
 
-def allowed_citations(lesson: dict | None) -> dict[str, dict[str, str]]:
+def allowed_citations(lesson: dict | None, sources: list[dict] | None = None) -> dict[str, dict[str, str]]:
+    """Whitelist: playbook papers/docs, the lesson's own sources, and this call's live web sources."""
     cites = dict(CITATIONS)
     for src in (lesson or {}).get("sources", []):
         if src.get("url"):
             cites[f"source:{src['id']}"] = {"label": src.get("title", src["url"]), "url": src["url"]}
+    for i, s in enumerate(sources or []):
+        cites[f"web:{i}"] = {"label": s.get("title") or s["url"], "url": s["url"]}
     return cites
 
 
-def citation_menu(lesson: dict | None) -> str:
-    return "\n".join(f"- {cid}: {c['label']} <{c['url']}>" for cid, c in allowed_citations(lesson).items())
+def citation_menu(lesson: dict | None, sources: list[dict] | None = None) -> str:
+    return "\n".join(f"- {cid}: {c['label']} <{c['url']}>" for cid, c in allowed_citations(lesson, sources).items())
 
 
-def resolve_citation(cid: str | None, lesson: dict | None) -> dict | None:
+def resolve_citation(cid: str | None, lesson: dict | None, sources: list[dict] | None = None) -> dict | None:
     if not cid or cid == "none":
         return None
-    c = allowed_citations(lesson).get(cid)
+    c = allowed_citations(lesson, sources).get(cid)
     return {"label": c["label"], "url": c["url"]} if c else None
 
 

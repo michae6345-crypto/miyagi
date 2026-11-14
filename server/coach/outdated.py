@@ -1,52 +1,32 @@
-"""fix_outdated(): the tutorial's code broke on a newer library → find the official fix.
+"""fix_outdated(): code from a tutorial broke on a newer library/tool → the official fix.
 
-1. Offline table of well-known removals (instant, no network).
-2. Bright Data SERP (Google, official domains only) → Web Unlocker fetch of the top
-   doc/changelog pages → Claude reads them and proposes the fix, citing one fetched URL.
+Works for any error text seen on screen (Python, JS/TS, CLI tools):
+1. a small offline table of well-known removals (instant, no network);
+2. detect (library, symbol) from the error → live web: official docs/changelog
+   (`web.docs_for`) + community posts (`web.community_signals`) → Claude proposes the fix
+   using ONLY those pages and cites one of them.
 
 Returns an offtrack-shaped dict (title, body, diff, citation, actions, severity) the
-orchestrator can send as-is after adding `stepId`; None when nothing trustworthy found.
+orchestrator can send after adding `stepId`; None when nothing trustworthy was found.
 """
 
 from __future__ import annotations
 
-import html
 import json
 import logging
-import os
 import re
-from urllib.parse import quote_plus, urlparse
 
-import httpx
-
-from . import llm
+from . import llm, web
 from .common import clamp_title, clamp_words
 
 log = logging.getLogger("coach.outdated")
 
-BRIGHTDATA_URL = "https://api.brightdata.com/request"
-
-OFFICIAL_DOMAINS: dict[str, list[str]] = {
-    "torch": ["pytorch.org", "github.com/pytorch"],
-    "numpy": ["numpy.org"],
-    "pandas": ["pandas.pydata.org"],
-    "scikit-learn": ["scikit-learn.org"],
-    "sklearn": ["scikit-learn.org"],
-    "scipy": ["docs.scipy.org", "scipy.org"],
-    "matplotlib": ["matplotlib.org"],
-    "tensorflow": ["tensorflow.org"],
-    "jax": ["jax.readthedocs.io", "docs.jax.dev"],
-    "transformers": ["huggingface.co"],
-    "deepxde": ["deepxde.readthedocs.io"],
-}
-
-# (error regex, library, title, body, yours, expected, source label, source url)
-KNOWN: list[tuple[str, str, str, str, str, str, str, str]] = [
+# (error regex, title, body, yours, expected, source label, source url)
+KNOWN: list[tuple[str, str, str, str, str, str, str]] = [
     (
         r"module 'numpy' has no attribute '(float|int|bool|object)'",
-        "numpy",
         "np.float was removed in NumPy 1.24",
-        "The tutorial predates NumPy 1.24, which removed the np.float/np.int aliases. Use the builtin float/int, or np.float64.",
+        "NumPy 1.24 removed the np.float/np.int aliases the tutorial uses. Use the builtin float/int, or np.float64.",
         "np.float",
         "float  # or np.float64",
         "NumPy 1.24 release notes",
@@ -54,7 +34,6 @@ KNOWN: list[tuple[str, str, str, str, str, str, str, str]] = [
     ),
     (
         r"'DataFrame' object has no attribute 'append'",
-        "pandas",
         "DataFrame.append was removed in pandas 2.0",
         "pandas 2.0 removed DataFrame.append. Collect the rows and combine them once with pd.concat.",
         "df = df.append(row, ignore_index=True)",
@@ -65,21 +44,14 @@ KNOWN: list[tuple[str, str, str, str, str, str, str, str]] = [
 ]
 
 
-def _known(error_text: str) -> dict | None:
-    for rx, lib, title, body, yours, expected, label, url in KNOWN:
-        if re.search(rx, error_text):
-            return _payload(title, body, yours, expected, {"label": label, "url": url}, via="known")
-    return None
-
-
-def _payload(title: str, body: str, yours: str, expected: str, citation: dict, via: str) -> dict:
+def _payload(title: str, body: str, yours: str, expected: str, citation: dict, via: str, **meta) -> dict:
     out = {
         "severity": "fail",
         "title": clamp_title(title),
         "body": clamp_words(body, 34),
         "citation": citation,
         "actions": ["explain", "hint"],
-        "_meta": {"route": "fix_outdated", "via": via},
+        "_meta": {"route": "fix_outdated", "via": via, **meta},
     }
     if expected:
         out["diff"] = {"expected": expected, "yours": yours}
@@ -87,54 +59,11 @@ def _payload(title: str, body: str, yours: str, expected: str, citation: dict, v
     return out
 
 
-def _bd_config() -> tuple[str, str, str] | None:
-    llm._load_env()
-    key = os.environ.get("BRIGHTDATA_API_KEY")
-    serp = os.environ.get("BRIGHTDATA_SERP_ZONE")
-    unlocker = os.environ.get("BRIGHTDATA_UNLOCKER_ZONE")
-    return (key, serp, unlocker) if key and serp and unlocker else None
-
-
-async def _bd_request(client: httpx.AsyncClient, key: str, zone: str, url: str) -> str:
-    r = await client.post(
-        BRIGHTDATA_URL,
-        headers={"Authorization": f"Bearer {key}", "Content-Type": "application/json"},
-        json={"zone": zone, "url": url, "format": "raw"},
-    )
-    r.raise_for_status()
-    return r.text
-
-
-def _allowed(url: str, domains: list[str]) -> bool:
-    p = urlparse(url)
-    host, path = p.netloc.lower(), p.path.lstrip("/").lower()
-    for d in domains:
-        dhost, _, dpath = d.lower().partition("/")
-        if (host == dhost or host.endswith("." + dhost)) and path.startswith(dpath):
-            return True
-    return False
-
-
-def _serp_links(raw: str) -> list[str]:
-    try:
-        data = json.loads(raw)
-        return [o.get("link") or o.get("url") for o in data.get("organic", []) if o.get("link") or o.get("url")]
-    except (json.JSONDecodeError, AttributeError):
-        return re.findall(r'href="(https?://[^"]+)"', raw)
-
-
-def _text(page: str, limit: int = 6000) -> str:
-    page = re.sub(r"(?is)<(script|style|nav|header|footer)[^>]*>.*?</\1>", " ", page)
-    page = re.sub(r"(?s)<[^>]+>", " ", page)
-    return re.sub(r"\s+", " ", html.unescape(page)).strip()[:limit]
-
-
-def _error_line(error_text: str) -> str:
-    lines = [l.strip() for l in error_text.strip().splitlines() if l.strip()]
-    for l in reversed(lines):
-        if re.match(r"^\w*(Error|Exception|Warning)\b", l):
-            return l[:200]
-    return (lines[-1] if lines else error_text)[:200]
+def _known(error_text: str) -> dict | None:
+    for rx, title, body, yours, expected, label, url in KNOWN:
+        if re.search(rx, error_text):
+            return _payload(title, body, yours, expected, {"label": label, "url": url}, via="known")
+    return None
 
 
 FIX_SCHEMA = {
@@ -151,48 +80,31 @@ FIX_SCHEMA = {
     "additionalProperties": False,
 }
 
-FIX_SYSTEM = """A tutorial's code fails on the learner's newer library version. Using ONLY the official documentation pages provided, state the fix.
-- found=false if the pages do not clearly document the change; never guess.
-- title <= 8 words naming what changed; body <= 30 words: what changed and in which version, then what to write instead.
-- yours: the old call as written in the error/code; expected: the replacement (<= 3 lines).
-- source_index: 0-based index of the page that documents it."""
+FIX_SYSTEM = """Code copied from a tutorial fails because the learner has a newer version of a library, framework or CLI tool (any language). Using ONLY the web pages provided, state the fix.
+- found=false if the pages do not clearly document this change or fix; never guess from memory.
+- Prefer an official docs/changelog page as the source; use a community page (Stack Overflow, GitHub issue) only if no official page covers it.
+- title: 3 to 7 words naming what changed. body: at most 30 words: what changed (and in which version, if the page says), then what to write instead.
+- yours: the old code as it appears in the error or the learner's code; expected: the replacement, at most 3 lines, same language and style. Both "" if the fix is not a code change (e.g. a CLI flag or config).
+- source_index: 0-based index of the page that documents the fix."""
 
 
-async def fix_outdated(error_text: str, libraries: dict | list | None = None) -> dict | None:
-    """`libraries`: {name: tutorial_version} from the step graph, or a list of names."""
+async def fix_outdated(error_text: str, libraries: dict | list | None = None, *, code: str = "", command: str = "") -> dict | None:
+    """`libraries`: {name: tutorial_version} from the step graph, or a list of names (may be empty)."""
     if hit := _known(error_text):
         return hit
-    cfg = _bd_config()
-    if not cfg:
-        log.info("fix_outdated: no Bright Data config; skipping web search")
-        return None
-    key, serp_zone, unlocker_zone = cfg
-    libs = list(libraries.keys()) if isinstance(libraries, dict) else list(libraries or [])
-    err = _error_line(error_text)
-    lib = next((l for l in libs if l.lower() in error_text.lower()), libs[0] if libs else "")
-    domains = OFFICIAL_DOMAINS.get(lib.lower(), [f"pypi.org/project/{lib}"] if lib else [])
-    site = " OR ".join(f"site:{d.split('/')[0]}" for d in domains)
-    query = f'{lib} "{err}" deprecated removed changelog {site}'.strip()
-    serp_url = f"https://www.google.com/search?q={quote_plus(query)}&brd_json=1&num=10"
-
-    try:
-        async with httpx.AsyncClient(timeout=25.0) as client:
-            links = [u for u in _serp_links(await _bd_request(client, key, serp_zone, serp_url)) if not domains or _allowed(u, domains)][:2]
-            pages = []
-            for u in links:
-                try:
-                    pages.append((u, _text(await _bd_request(client, key, unlocker_zone, u))))
-                except httpx.HTTPError as e:
-                    log.info("unlocker fetch failed for %s: %s", u, e)
-    except httpx.HTTPError as e:
-        log.warning("fix_outdated: Bright Data error %s", e)
-        return None
+    lib, sym = web.detect(error_text, code, libraries, command)
+    line = web.error_line(error_text)
+    pages = await web.gather(lib, sym, f"{lib} {line}".strip(), error=line, timeout=12.0)
     if not pages:
+        log.info("fix_outdated: no web pages for lib=%r sym=%r", lib, sym)
         return None
-
-    versions = json.dumps(libraries, sort_keys=True) if isinstance(libraries, dict) else ", ".join(libs)
-    user = f"Tutorial library versions: {versions}\nError:\n{error_text[-1500:]}\n\n" + "\n\n".join(
-        f"[{i}] {u}\n{t}" for i, (u, t) in enumerate(pages)
+    versions = json.dumps(libraries, sort_keys=True) if isinstance(libraries, dict) else ", ".join(libraries or [])
+    user = (
+        f"Library/tool: {lib or 'unknown'} (symbol: {sym or 'unknown'}); tutorial versions: {versions or 'unknown'}\n"
+        f"Error seen on screen:\n{error_text[-1500:]}\n"
+        + (f"\nLearner code excerpt:\n{code[:2000]}\n" if code else "")
+        + "\nPAGES:\n"
+        + web.sources_text(pages)
     )
     try:
         res = await llm.structured_call(
@@ -208,7 +120,12 @@ async def fix_outdated(error_text: str, libraries: dict | list | None = None) ->
         log.warning("fix_outdated: model failed %s", e)
         return None
     d = res.data
-    if not d.get("found") or not (0 <= d.get("source_index", -1) < len(pages)):
+    i = d.get("source_index", -1)
+    if not d.get("found") or not (0 <= i < len(pages)):
         return None
-    url = pages[d["source_index"]][0]
-    return _payload(d["title"], d["body"], d.get("yours", ""), d.get("expected", ""), {"label": urlparse(url).netloc + urlparse(url).path, "url": url}, via="brightdata")
+    src = pages[i]
+    return _payload(
+        d["title"], d["body"], d.get("yours", ""), d.get("expected", ""),
+        {"label": src.get("title") or src["url"], "url": src["url"]},
+        via="web", library=lib, symbol=sym, source_kind=src.get("kind"), model=res.model,
+    )

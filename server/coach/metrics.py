@@ -26,15 +26,26 @@ def _fmt(x: float) -> str:
     return f"{x:.3g}"
 
 
-def series_flags(points: Series) -> set[str]:
+_UP_HINTS = ("acc", "score", "pass", "f1", "auc", "precision", "recall", "reward", "psnr", "bleu", "iou", "throughput")
+
+
+def default_goal(name: str) -> str:
+    """"up" for metrics that should grow (accuracy, tests passed...), else "down" (loss, errors, time)."""
+    return "up" if any(h in name.lower() for h in _UP_HINTS) else "down"
+
+
+def series_flags(points: Series, goal: str = "down") -> set[str]:
+    """Flags for one series. goal "down": lower is better; "up": higher is better."""
     flags: set[str] = set()
     vals = [float(v) for _, v in points]
     if not vals:
         return flags
     if any(not math.isfinite(v) for v in vals):
         return {"nan", "diverging"}
+    if goal == "up":  # mirror so the same rules apply
+        vals = [-v for v in vals]
     first, last, lo = vals[0], vals[-1], min(vals)
-    if len(vals) >= 4 and last > max(first, 1e-12) * 1.5 and last > lo * 3:
+    if len(vals) >= 4 and last - lo > max(abs(lo), abs(first), 1e-12) * 0.5 and last > first:
         flags.add("diverging")
     if len(vals) >= 6:
         tail = vals[len(vals) // 2 :]
@@ -49,8 +60,13 @@ def series_flags(points: Series) -> set[str]:
     return flags
 
 
-def summarize(metrics: Any) -> tuple[str, set[str]]:
-    """Return (summary text, flags) for the prompt and the triage."""
+def summarize(metrics: Any, goals: dict[str, str] | None = None) -> tuple[str, set[str]]:
+    """Return (summary text, flags) for the prompt and the triage.
+
+    `goals` ({metric: "down"|"up"}, from the step's checks) picks which series drive the
+    global flags and their direction; without it, loss-like names drive them.
+    """
+    goals = goals or {}
     if metrics is None:
         return "no metrics recorded", set()
     if isinstance(metrics, str):
@@ -65,8 +81,8 @@ def summarize(metrics: Any) -> tuple[str, set[str]]:
             pts = [(int(s), float(v)) for s, v in metrics[name]]
             if not pts:
                 continue
-            f = series_flags(pts)
-            if name == "loss" or name.endswith("/loss") or name.startswith("loss"):
+            f = series_flags(pts, goals.get(name) or default_goal(name))
+            if name in goals or (not goals and (name == "loss" or name.endswith("/loss") or name.startswith("loss"))):
                 flags |= f
             vals = [v for _, v in pts]
             lines.append(
