@@ -32,6 +32,8 @@ const set = useSearch.setState
 const get = useSearch.getState
 
 export const startSearch = (query: string): void => set({ ...blank, query, pending: true })
+/** A pasted link replaces the lesson and the old results with it. */
+export const clearResults = (): void => set({ ...blank })
 export const setLauncherOpen = (open: boolean): void => {
   if (get().open !== open) set({ open })
 }

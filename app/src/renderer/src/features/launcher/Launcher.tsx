@@ -40,7 +40,7 @@ import { OptionButton, Spinner } from '../../core/ui/atoms'
 import { color, copy, fill, launcher as launcherTheme, pill, radius, scrim, shadows, spring, springOut } from '../../core/theme'
 import { Action, Chip, Hint, Rise } from './parts'
 import { EndRow, LinkRow, MessageRow, ResultRow, ROW_H, SkeletonRow } from './Rows'
-import { setLauncherOpen, startSearch, useSearch } from './store'
+import { clearResults, setLauncherOpen, startSearch, useSearch } from './store'
 import { chipTones } from './tint'
 import { parseYouTube } from './youtube'
 
@@ -113,6 +113,8 @@ export function Launcher({ layout }: { layout: Layout }): ReactNode {
   const islandMode = useIslandMode()
   const reduce = useReducedMotion()
   const input = useRef<HTMLInputElement>(null)
+  /** The row Build last sent, so reopening (the preflight card's "Pick another") highlights the next one. */
+  const lastPick = useRef<string | undefined>(undefined)
   /** Per-row entrance delays (see delayFor). */
   const delays = useRef(new Map<string, number>())
   const lastEntry = useRef(0)
@@ -141,7 +143,11 @@ export function Launcher({ layout }: { layout: Layout }): ReactNode {
         setFrom(f && f.w > 0 && f.h > 0 ? { w: Math.round(f.w), h: Math.round(f.h) } : PILL)
         setMode(useLesson.getState().lesson ? 'ask' : 'search')
         delays.current.clear()
-        setSel(0)
+        // Results stay after Build until a new learn / learn_url. Reopened after a pick ("Pick another"), the
+        // highlight starts on the next row, so Enter doesn't rebuild the same tutorial.
+        const rows = useSearch.getState().results.slice(0, MAX_ROWS)
+        const picked = lastPick.current ? rows.findIndex((r) => r.id === lastPick.current) : -1
+        setSel(picked >= 0 && rows.length > 1 ? (picked + 1) % rows.length : 0)
         setHandoff(true)
         setGen((g) => g + 1)
         setPhase('open')
@@ -247,6 +253,7 @@ export function Launcher({ layout }: { layout: Layout }): ReactNode {
   // ---- actions --------------------------------------------------------------------------------
 
   const learn = (q: string): void => {
+    lastPick.current = undefined
     startSearch(q)
     delays.current.clear()
     setSel(0)
@@ -255,10 +262,14 @@ export function Launcher({ layout }: { layout: Layout }): ReactNode {
 
   const build = (i = selIndex): void => {
     if (phaseRef.current !== 'open') return
-    if (link) bridge.send(cmd('learn_url', { url: link.url }))
-    else {
+    if (link) {
+      lastPick.current = undefined
+      clearResults()
+      bridge.send(cmd('learn_url', { url: link.url }))
+    } else {
       if (!visible.length) return
       const first = visible[Math.min(i, visible.length - 1)].id
+      lastPick.current = first
       bridge.send(cmd('build_lesson', { resultIds: [first, ...results.map((r) => r.id).filter((id) => id !== first)] }))
     }
     setPhase('building')
