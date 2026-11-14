@@ -608,15 +608,16 @@
   ],
   "build": {
     "adapted": true,
-    "models": {
-      "video": "gemini-4-hydrogen",
-      "detail+adapt": "gemini-3.6-flash"
-    },
     "seconds": 256.5,
     "workdir_metrics": [
       "loss",
       "test_loss"
     ],
-    "warnings": []
+    "warnings": [],
+    "workdir_fp": "f9f98a4894d9",
+    "model": {
+      "video": "gemini-4-hydrogen (watched the video)",
+      "adapt": "gemini-3.6-flash"
+    }
   }
 }

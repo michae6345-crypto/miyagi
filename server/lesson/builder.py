@@ -74,11 +74,13 @@ async def build_lesson(
     info = scan(workdir)
     key = cache_key(source_url, goal, workdir, info)
     path = CACHE_DIR / f"{key}.json"
-    if cache and path.is_file() and not (refresh or readapt):
-        graph = json.loads(path.read_text())
-        graph["lesson"]["workdir"] = workdir
-        log.info("lesson cache hit %s", path.name)
-        return graph
+    if cache and not (refresh or readapt):
+        hit = path if path.is_file() else find_cached(vid, workdir, info)
+        if hit:
+            graph = json.loads(hit.read_text())
+            graph["lesson"]["workdir"] = workdir
+            log.info("lesson cache hit %s%s", hit.name, "" if hit == path else " (same video + workdir, different goal wording)")
+            return graph
 
     if api_key:
         gemini.set_api_key(api_key)
@@ -99,6 +101,7 @@ async def build_lesson(
         "model": {"video": draft.get("_built_by", "unknown"), "adapt": adapt_model},
         "seconds": round(time.time() - t0, 1),
         "workdir_metrics": sorted(info.metrics),
+        "workdir_fp": workdir_fingerprint(workdir, info),
         "community_signals": n_signals,
         "warnings": warnings,
     }
@@ -145,6 +148,12 @@ async def add_community_mistakes(graph: dict, source_url: str) -> int:
     return added
 
 
+def workdir_fingerprint(workdir: str, info: WorkdirInfo) -> str:
+    """Folder name + file names + printed ::metric:: names (not contents, not the absolute path)."""
+    name = Path(workdir).expanduser().resolve().name
+    return hashlib.sha256(json.dumps([name, sorted(info.files), sorted(info.metrics)]).encode()).hexdigest()[:12]
+
+
 def cache_key(source_url: str, goal: str, workdir: str, info: WorkdirInfo | None = None) -> str:
     vid = gemini.youtube_id(source_url) or source_url
     norm_goal = " ".join(goal.lower().split())
@@ -152,6 +161,26 @@ def cache_key(source_url: str, goal: str, workdir: str, info: WorkdirInfo | None
     info = info or scan(workdir)
     fingerprint = [sorted(info.files), sorted(info.metrics)]
     return hashlib.sha256(json.dumps([vid, norm_goal, name, fingerprint]).encode()).hexdigest()[:16]
+
+
+def find_cached(vid: str, workdir: str, info: WorkdirInfo) -> Path | None:
+    """Goal-agnostic fallback: the launcher passes the learner's free-text query as the goal, so an
+    exact-goal miss falls back to the newest cached lesson for the same video adapted to the same
+    workdir layout (step framing barely depends on the goal wording)."""
+    if not CACHE_DIR.is_dir():
+        return None
+    fp = workdir_fingerprint(workdir, info)
+    best: tuple[float, Path] | None = None
+    for p in CACHE_DIR.glob("*.json"):
+        try:
+            g = json.loads(p.read_text())
+        except (OSError, json.JSONDecodeError):
+            continue
+        if (g.get("sources") or [{}])[0].get("videoId") == vid and (g.get("build") or {}).get("workdir_fp") == fp:
+            m = p.stat().st_mtime
+            if best is None or m > best[0]:
+                best = (m, p)
+    return best[1] if best else None
 
 
 # --------------------------------------------------------------------------- #

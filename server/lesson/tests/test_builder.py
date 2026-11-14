@@ -348,3 +348,11 @@ def test_parse_chapters():
     ch = transcript.parse_chapters(desc)
     assert [c["t"] for c in ch] == [0, 21, 109, 3723] and ch[1]["title"] == "Configuring Git with 'git config'"
     assert transcript.parse_chapters("0:30 a\n1:00 b\n2:00 c") == []  # YouTube needs a 0:00 start
+
+
+def test_cache_hit_ignores_goal_wording_for_same_video_and_workdir(fake):
+    g = asyncio.run(builder.build_lesson(URL, "train a PINN", WORKDIR))
+    assert g["build"]["workdir_fp"]
+    watched = fake["watch"]
+    g2 = asyncio.run(builder.build_lesson(URL, "how do physics informed nets work?", WORKDIR))
+    assert fake["watch"] == watched and g2["steps"] == g["steps"]
