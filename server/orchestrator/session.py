@@ -196,6 +196,15 @@ def notebook_sources(text: str) -> str | None:
     return "\n".join(out) if out else "# (notebook: no code cells)"
 
 
+def is_provisional(graph: dict | None) -> bool:
+    """E2's quick-start placeholder (built from the chapter list after 8 s): replaced, never extended."""
+    if not graph:
+        return False
+    lesson = graph.get("lesson") or {}
+    return bool(lesson.get("provisional") or lesson.get("builtBy") == "chapters"
+                or any(st.get("provisional") for st in graph.get("steps") or []))
+
+
 CODE_APP_NAMES = {"code", "vs code", "vscode", "visual studio code", "cursor"}
 
 
@@ -800,10 +809,15 @@ class LessonSession:
 
         ok = False
         progressive = {"loaded": False}
+        updates = asyncio.Lock()  # E2's quick-start timer and the build call on_update from different tasks
 
         async def on_update(g: dict, complete: bool) -> None:
+            async with updates:  # one at a time, in order: the real lesson must never overtake the placeholder
+                await on_update_locked(g, complete)
+
+        async def on_update_locked(g: dict, complete: bool) -> None:
             """E2, long videos (> 30 min): the first part's steps arrive first -> start the lesson now;
-            later parts append steps -> lesson.updated."""
+            later parts append steps -> lesson.updated. Quick start: a provisional placeholder is REPLACED."""
             if not progressive["loaded"]:
                 progressive["loaded"] = True
                 done.set()
@@ -819,7 +833,7 @@ class LessonSession:
                 await asyncio.sleep(self.ready_hold_s)  # let the "ready" moment be seen before the lesson UI
                 await self.load_graph(first)
                 return
-            if (self.graph or {}).get("lesson", {}).get("provisional") and not (g.get("lesson") or {}).get("provisional"):
+            if is_provisional(self.graph) and not is_provisional(g):
                 await self._replace_provisional(g, complete)  # E2 quick start: the real lesson replaces s1
                 return
             await self._extend_lesson(g, complete)
@@ -836,10 +850,11 @@ class LessonSession:
             # E2 lazy parts: a long video comes back with complete=false and later parts "pending"
             complete = (graph.get("lesson") or {}).get("complete") is not False
             if progressive["loaded"]:  # already running: make sure every built part made it in
-                if (self.graph or {}).get("lesson", {}).get("provisional") and not (graph.get("lesson") or {}).get("provisional"):
-                    await self._replace_provisional(graph, complete)
-                else:
-                    await self._extend_lesson(graph, complete)
+                async with updates:
+                    if is_provisional(self.graph) and not is_provisional(graph):
+                        await self._replace_provisional(graph, complete)
+                    else:
+                        await self._extend_lesson(graph, complete)
                 self._maybe_extend()
                 ok = True
                 return
@@ -1010,11 +1025,16 @@ class LessonSession:
         new = copy.deepcopy(g)
         new.setdefault("lesson", {})["workdir"] = self.graph.get("lesson", {}).get("workdir") or self.workdir
         new["lesson"]["complete"] = bool(complete or new["lesson"].get("complete"))
-        idx = max(0, self.idx)
+        new["lesson"]["provisional"] = False  # the app drops the placeholder on this lesson.ready
+        for st in new.get("steps", []):
+            st.pop("provisional", None)
+        log.info("quick start: the real lesson (%d steps) replaces the placeholder", len(new.get("steps", [])))
+        idx = 0  # the placeholder had one step: the learner restarts on the REAL s1
         self.graph = new
         self.m.set_lesson(new)
         await self.emit("lesson.ready", self._lesson_ready_payload())
-        if self.steps and not self.passed:
+        self.waiting_more = False  # even if they skipped the placeholder: the real s1 starts now
+        if self.steps:
             seg = self._segment(self.steps[min(idx, len(self.steps) - 1)])
             keep = self.video_t if (seg and self.video_t is not None and seg["start"] <= self.video_t < seg["end"]) else None
             await self.start_step(min(idx, len(self.steps) - 1), seek_to=keep)  # keep the video where it is
@@ -1031,9 +1051,10 @@ class LessonSession:
         for k in ("parts", "builtBy", "goalMatch"):
             if k in (g.get("lesson") or {}):
                 lesson[k] = copy.deepcopy(g["lesson"][k])
+        was_complete = lesson.get("complete") is True
         lesson["complete"] = bool(complete or (g.get("lesson") or {}).get("complete"))
-        if not new and not complete:
-            return
+        if not new and (not complete or was_complete):
+            return  # nothing changed: no empty lesson.updated
         payload: dict[str, Any] = {"steps": [self._step_summary(st, i) for i, st in
                                              enumerate(self.steps) if st["id"] in {n["id"] for n in new}],
                                    "complete": lesson["complete"]}

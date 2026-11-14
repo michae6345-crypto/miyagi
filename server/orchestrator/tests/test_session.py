@@ -2087,3 +2087,52 @@ def test_check_step_passes_now_or_says_what_is_missing(rig):
 
     run(go())
     assert rig.of("step.passed")[-1]["stepId"] == "s2" and "skipped" not in rig.of("step.passed")[-1]
+
+
+def test_provisional_placeholder_is_replaced_even_when_the_real_lesson_races_it(rig, monkeypatch):
+    """Live bug (calculator lesson): E2's quick-start timer sent the placeholder from its own task; the real
+    7-step lesson arrived while the placeholder was still being prepared and was APPENDED (s2..s7), so the
+    learner stayed on a placeholder install step forever. The real lesson must replace it: fresh lesson.ready,
+    the real s1 starts, and no empty lesson.updated."""
+    import json
+    import time as _t
+
+    from server.orchestrator import workspace as wsmod
+
+    real = stubs.load_fixture_lesson()
+    real["lesson"]["builtBy"] = "gemini"
+
+    def slow_prepare(graph, goal):
+        _t.sleep(0.15)  # S2 writing starter files
+        return None
+
+    monkeypatch.setattr(wsmod, "prepare", slow_prepare)
+    placeholder = json.loads(json.dumps(real))
+    placeholder["steps"] = [{"id": "s1", "index": 1, "title": "Guide to Installing Python & VS", "instructions": "i",
+                             "video": real["steps"][0]["video"], "provisional": True,
+                             "checks": [{"id": "s1c1", "type": "screen_absent", "label": "No errors",
+                                         "pattern": "Traceback", "app": "Terminal"}]}]
+    placeholder["lesson"].update(provisional=True, complete=False, builtBy="chapters")
+
+    async def build(url, goal, workdir, on_update=None, **kw):
+        timer = asyncio.create_task(on_update(placeholder, False))  # E2's _QuickStart._fire, another task
+        await asyncio.sleep(0.02)
+        await on_update(json.loads(json.dumps(real)), True)  # the real lesson, while the placeholder prepares
+        pending.append(timer)  # build_lesson returns while the placeholder is still being set up
+        return json.loads(json.dumps(real))
+
+    pending: list = []
+
+    rig.s.m.build_lesson = build
+
+    async def go():
+        await rig.s.learn_url("https://www.youtube.com/watch?v=abcdefghijk")
+        await rig.settle()
+
+    run(go())
+    readies = rig.of("lesson.ready")
+    assert [len(r["steps"]) for r in readies] == [1, len(real["steps"])]
+    assert readies[-1]["lesson"]["provisional"] is False and readies[-1]["lesson"]["builtBy"] == "gemini"
+    assert rig.s.step["title"] == real["steps"][0]["title"] and rig.of("step.started")[-1]["stepId"] == "s1"
+    assert [s["id"] for s in rig.s.steps] == [s["id"] for s in real["steps"]]
+    assert all(u["steps"] for u in rig.of("lesson.updated"))  # never an empty update
