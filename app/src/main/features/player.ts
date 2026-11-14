@@ -11,7 +11,6 @@
  * Handles (bridge.invoke from any window):
  *   player:dock    snap back to the right 40% (and save that)
  *   player:hover   (on: boolean) focusable while hovered
- *   player:intent  ({t, play}) a card's video jump from another window → broadcast to the player window
  *
  * UNVERIFIED: written and typechecked on Windows, where Smart App Control blocks electron.exe.
  * Check on the Mac: docking, drag by the header, bounds restore, no focus steal, autoplay.
@@ -110,7 +109,6 @@ export default defineMainFeature({
     ctx.handle('player:hover', (on) => {
       if (!win.isDestroyed()) win.setFocusable(!!on)
     })
-    ctx.handle('player:intent', (intent) => ctx.broadcast('player:intent', intent))
   }
 })
 
