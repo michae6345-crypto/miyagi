@@ -38,6 +38,9 @@ OnResult = Callable[[dict], Awaitable[None]]
 SOURCES_BUDGET_S = 12.0   # stop waiting for slow sources
 DEADLINE_S = 19.0         # everything (skim + calibration) must be done by then
 CACHE_TTL_S = float(os.environ.get("FINDER_CACHE_TTL", 7 * 24 * 3600))
+# tests swap in an httpx.MockTransport that replays recorded real responses
+HTTP_TRANSPORT: httpx.AsyncBaseTransport | None = None
+
 PUBLIC_FIELDS = (
     "id", "kind", "title", "meta", "score", "reason", "thumbnail", "url",
     "source", "videoId", "durationS", "channel", "verified", "warnings",
@@ -209,7 +212,8 @@ class _Run:
     async def go(self) -> list[dict]:
         limits = httpx.Limits(max_connections=40, max_keepalive_connections=20)
         async with httpx.AsyncClient(headers=sources.BROWSER_HEADERS, follow_redirects=True, limits=limits,
-                                     cookies={"CONSENT": "YES+1"}, timeout=8) as client:
+                                     cookies={"CONSENT": "YES+1"}, timeout=8,
+                                     transport=HTTP_TRANSPORT) as client:
             self.ctx = sources.Ctx(client=client, keys=self.keys)
             worker = asyncio.create_task(self._triage_worker())
             try:
@@ -259,8 +263,10 @@ class _Run:
             raw = await coro
         except Exception as e:
             self.ctx.note(f"{name} failed: {type(e).__name__}: {str(e)[:120]}")
+            self.timings[f"{name}_failed"] = self.elapsed()
+            if name == "youtube":
+                self.timings["youtube"] = self.elapsed()
             return
-        self.timings[name] = self.elapsed()
         fresh = []
         for c in raw:
             c = normalize_arxiv(c)
@@ -287,7 +293,8 @@ class _Run:
         log.info("%s: %d raw, %d new, %d verified (%.1fs)", name, len(raw), len(fresh), len(ok), self.elapsed())
         if ok:
             self.pending.extend(ok)
-            self.pending_evt.set()
+        self.timings[name] = self.elapsed()  # set after verification: the first batch waits for "youtube"
+        self.pending_evt.set()
 
     async def _verify(self, c: dict) -> dict | None:
         try:
@@ -303,6 +310,8 @@ class _Run:
         while "youtube" not in self.timings and self.elapsed() < 2.0 and not self.sources_done:
             await asyncio.sleep(0.05)
         while True:
+            if self.sources_done and not self.pending:
+                return
             await self.pending_evt.wait()
             self.pending_evt.clear()
             if self.cands:  # after the first batch, coalesce sources that land close together

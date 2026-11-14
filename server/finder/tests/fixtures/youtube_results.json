@@ -1,0 +1,1232 @@
+{
+ "contents": [
+  {
+   "videoRenderer": {
+    "videoId": "unBU1PwCnvQ",
+    "thumbnail": {
+     "thumbnails": [
+      {
+       "url": "https://i.ytimg.com/vi/unBU1PwCnvQ/hq720.jpg?sqp=-oaymwEcCOgCEMoBSFXyq4qpAw4IARUAAIhCGAFwAcABBg==&rs=AOn4CLCGjaWmjsbL6HUaVCubybxZCsxWLQ",
+       "width": 360,
+       "height": 202
+      },
+      {
+       "url": "https://i.ytimg.com/vi/unBU1PwCnvQ/hq720.jpg?sqp=-oaymwEcCNAFEJQDSFXyq4qpAw4IARUAAIhCGAFwAcABBg==&rs=AOn4CLCMhtVGVP4GLV6quwDGNoX9bwlK7A",
+       "width": 720,
+       "height": 404
+      }
+     ]
+    },
+    "title": {
+     "runs": [
+      {
+       "text": "S5 Solving Linear convection equation using PINNs"
+      }
+     ],
+     "accessibility": {
+      "accessibilityData": {
+       "label": "S5 Solving Linear convection equation using PINNs 22 minutes"
+      }
+     }
+    },
+    "publishedTimeText": {
+     "simpleText": "1y ago"
+    },
+    "lengthText": {
+     "accessibility": {
+      "accessibilityData": {
+       "label": "22 minutes, 40 seconds"
+      }
+     },
+     "simpleText": "22:40"
+    },
+    "viewCountText": {
+     "simpleText": "314 views"
+    },
+    "ownerText": {
+     "runs": [
+      {
+       "text": "SimCom",
+       "navigationEndpoint": {
+        "clickTrackingParams": "CN0CENwwGAEiEwiAkLG1tIiYAxWpB1kCHYOgFA3KAQTrOje5",
+        "commandMetadata": {
+         "webCommandMetadata": {
+          "url": "/@SimCom-mi9jm",
+          "webPageType": "WEB_PAGE_TYPE_CHANNEL",
+          "rootVe": 3611,
+          "apiUrl": "/youtubei/v1/browse"
+         }
+        },
+        "browseEndpoint": {
+         "browseId": "UCfKfDLhMKXXnAXR3AhZ4ODg",
+         "canonicalBaseUrl": "/@SimCom-mi9jm"
+        }
+       }
+      }
+     ]
+    },
+    "shortViewCountText": {
+     "accessibility": {
+      "accessibilityData": {
+       "label": "314 views"
+      }
+     },
+     "simpleText": "314"
+    },
+    "detailedMetadataSnippets": [
+     {
+      "snippetText": {
+       "runs": [
+        {
+         "text": "... one linear "
+        },
+        {
+         "text": "convection equation",
+         "bold": true
+        },
+        {
+         "text": " using physics infog neural network so this is the governing "
+        },
+        {
+         "text": "equation",
+         "bold": true
+        },
+        {
+         "text": " for one-dimensional linear ..."
+        }
+       ]
+      },
+      "snippetHoverText": {
+       "runs": [
+        {
+         "text": "Automatic captions"
+        }
+       ]
+      },
+      "maxOneLine": false,
+      "snippetTimestamp": {
+       "accessibility": {
+        "accessibilityData": {
+         "label": "10 seconds ... one linear <b>convection equation</b> using physics infog neural network so this is the governing <b>equation</b> for one-dimensional linear&nbsp;..."
+        }
+       },
+       "simpleText": "0:10"
+      },
+      "timestampEndpoint": {
+       "clickTrackingParams": "CN0CENwwGAEiEwiAkLG1tIiYAxWpB1kCHYOgFA3KAQTrOje5",
+       "commandMetadata": {
+        "webCommandMetadata": {
+         "url": "/watch?v=unBU1PwCnvQ&t=10s",
+         "webPageType": "WEB_PAGE_TYPE_WATCH",
+         "rootVe": 3832
+        }
+       },
+       "watchEndpoint": {
+        "videoId": "unBU1PwCnvQ",
+        "startTimeSeconds": 10,
+        "watchEndpointSupportedOnesieConfig": {
+         "html5PlaybackOnesieConfig": {
+          "commonConfig": {
+           "url": "https://rr3---sn-jxopj-n5oe.googlevideo.com/initplayback?source=youtube&oeis=1&c=WEB&oad=3200&ovd=3200&oaad=11000&oavd=11000&ocs=700&oewis=1&oputc=1&epbp=1&msp=1&odepv=1&id=ba7054d4fc029ef4&ip=69.196.40.197&osts=10&initcwndbps=3591625&mt=1794691497&oweuc="
+          }
+         }
+        }
+       }
+      }
+     }
+    ]
+   }
+  },
+  {
+   "videoRenderer": {
+    "videoId": "-zrY7P2dVC4",
+    "thumbnail": {
+     "thumbnails": [
+      {
+       "url": "https://i.ytimg.com/vi/-zrY7P2dVC4/hq720.jpg?sqp=-oaymwEcCOgCEMoBSFXyq4qpAw4IARUAAIhCGAFwAcABBg==&rs=AOn4CLBiVU5N7Q6IKBPE1D10VIF7gsl0IQ",
+       "width": 360,
+       "height": 202
+      },
+      {
+       "url": "https://i.ytimg.com/vi/-zrY7P2dVC4/hq720.jpg?sqp=-oaymwEcCNAFEJQDSFXyq4qpAw4IARUAAIhCGAFwAcABBg==&rs=AOn4CLA3nQsCqiTdGuasMrlDowyJqfk3Tg",
+       "width": 720,
+       "height": 404
+      }
+     ]
+    },
+    "title": {
+     "runs": [
+      {
+       "text": "Physics Informed Neural Networks (PINNs) [Physics Informed Machine Learning]"
+      }
+     ],
+     "accessibility": {
+      "accessibilityData": {
+       "label": "Physics Informed Neural Networks (PINNs) [Physics Informed Machine Learning] 34 minutes"
+      }
+     }
+    },
+    "publishedTimeText": {
+     "simpleText": "2y ago"
+    },
+    "lengthText": {
+     "accessibility": {
+      "accessibilityData": {
+       "label": "34 minutes, 32 seconds"
+      }
+     },
+     "simpleText": "34:32"
+    },
+    "viewCountText": {
+     "simpleText": "238,298 views"
+    },
+    "ownerText": {
+     "runs": [
+      {
+       "text": "Steve Brunton",
+       "navigationEndpoint": {
+        "clickTrackingParams": "CMYCENwwGAIiEwiAkLG1tIiYAxWpB1kCHYOgFA3KAQTrOje5",
+        "commandMetadata": {
+         "webCommandMetadata": {
+          "url": "/@Eigensteve",
+          "webPageType": "WEB_PAGE_TYPE_CHANNEL",
+          "rootVe": 3611,
+          "apiUrl": "/youtubei/v1/browse"
+         }
+        },
+        "browseEndpoint": {
+         "browseId": "UCm5mt-A4w61lknZ9lCsZtBw",
+         "canonicalBaseUrl": "/@Eigensteve"
+        }
+       }
+      }
+     ]
+    },
+    "shortViewCountText": {
+     "accessibility": {
+      "accessibilityData": {
+       "label": "238 thousand views"
+      }
+     },
+     "simpleText": "238K"
+    },
+    "detailedMetadataSnippets": [
+     {
+      "snippetText": {
+       "runs": [
+        {
+         "text": "This video introduces PINNs, or Physics Informed Neural Networks. PINNs are a simple modification of a neural network that adds ..."
+        }
+       ]
+      },
+      "snippetHoverText": {
+       "runs": [
+        {
+         "text": "From the video description"
+        }
+       ]
+      },
+      "maxOneLine": true
+     }
+    ]
+   }
+  },
+  {
+   "videoRenderer": {
+    "videoId": "ktzIzmZRPZ8",
+    "thumbnail": {
+     "thumbnails": [
+      {
+       "url": "https://i.ytimg.com/vi/ktzIzmZRPZ8/hq720.jpg?sqp=-oaymwEcCOgCEMoBSFXyq4qpAw4IARUAAIhCGAFwAcABBg==&rs=AOn4CLDlwZdtoUWDMC8FDa4mIY6YLfKsLw",
+       "width": 360,
+       "height": 202
+      },
+      {
+       "url": "https://i.ytimg.com/vi/ktzIzmZRPZ8/hq720.jpg?sqp=-oaymwEcCNAFEJQDSFXyq4qpAw4IARUAAIhCGAFwAcABBg==&rs=AOn4CLAszo5x0AOKjSqMvFIbUUmcW9tvvA",
+       "width": 720,
+       "height": 404
+      }
+     ]
+    },
+    "title": {
+     "runs": [
+      {
+       "text": "How to Solve Heat Equation with Physics-Informed Neural Nets | Direct Problem | PINNs Course Part 1"
+      }
+     ],
+     "accessibility": {
+      "accessibilityData": {
+       "label": "How to Solve Heat Equation with Physics-Informed Neural Nets | Direct Problem | PINNs Course Part 1 17 minutes"
+      }
+     }
+    },
+    "publishedTimeText": {
+     "simpleText": "3mo ago"
+    },
+    "lengthText": {
+     "accessibility": {
+      "accessibilityData": {
+       "label": "17 minutes, 43 seconds"
+      }
+     },
+     "simpleText": "17:43"
+    },
+    "viewCountText": {
+     "simpleText": "479 views"
+    },
+    "ownerText": {
+     "runs": [
+      {
+       "text": "Ardavan Borzou",
+       "navigationEndpoint": {
+        "clickTrackingParams": "CJ8CENwwGAUiEwiAkLG1tIiYAxWpB1kCHYOgFA3KAQTrOje5",
+        "commandMetadata": {
+         "webCommandMetadata": {
+          "url": "/@ArdavanBorzou",
+          "webPageType": "WEB_PAGE_TYPE_CHANNEL",
+          "rootVe": 3611,
+          "apiUrl": "/youtubei/v1/browse"
+         }
+        },
+        "browseEndpoint": {
+         "browseId": "UCTWks5-uiWGTSDXXk-5f2xQ",
+         "canonicalBaseUrl": "/@ArdavanBorzou"
+        }
+       }
+      }
+     ]
+    },
+    "shortViewCountText": {
+     "accessibility": {
+      "accessibilityData": {
+       "label": "479 views"
+      }
+     },
+     "simpleText": "479"
+    },
+    "detailedMetadataSnippets": [
+     {
+      "snippetText": {
+       "runs": [
+        {
+         "text": "Get the free Jupyter notebook for this video: https://notebooks.compu-flair.com/pinns-part1 Abstract: When a single ..."
+        }
+       ]
+      },
+      "snippetHoverText": {
+       "runs": [
+        {
+         "text": "From the video description"
+        }
+       ]
+      },
+      "maxOneLine": true
+     }
+    ]
+   }
+  },
+  {
+   "videoRenderer": {
+    "videoId": "TKHe-Staifs",
+    "thumbnail": {
+     "thumbnails": [
+      {
+       "url": "https://i.ytimg.com/vi/TKHe-Staifs/hq720.jpg?sqp=-oaymwEcCOgCEMoBSFXyq4qpAw4IARUAAIhCGAFwAcABBg==&rs=AOn4CLA1AyWnkwwRYnlTGJOOP4kdcvm9UQ",
+       "width": 360,
+       "height": 202
+      },
+      {
+       "url": "https://i.ytimg.com/vi/TKHe-Staifs/hq720.jpg?sqp=-oaymwEcCNAFEJQDSFXyq4qpAw4IARUAAIhCGAFwAcABBg==&rs=AOn4CLCCPxG-4lyGqijkFs9HLSQKSglYjg",
+       "width": 720,
+       "height": 404
+      }
+     ]
+    },
+    "title": {
+     "runs": [
+      {
+       "text": "S8 Solving Burgers equation and Lid driven cavity using PINNs"
+      }
+     ],
+     "accessibility": {
+      "accessibilityData": {
+       "label": "S8 Solving Burgers equation and Lid driven cavity using PINNs 24 minutes"
+      }
+     }
+    },
+    "publishedTimeText": {
+     "simpleText": "1y ago"
+    },
+    "lengthText": {
+     "accessibility": {
+      "accessibilityData": {
+       "label": "24 minutes, 7 seconds"
+      }
+     },
+     "simpleText": "24:07"
+    },
+    "viewCountText": {
+     "simpleText": "583 views"
+    },
+    "ownerText": {
+     "runs": [
+      {
+       "text": "SimCom",
+       "navigationEndpoint": {
+        "clickTrackingParams": "CIMCENwwGAciEwiAkLG1tIiYAxWpB1kCHYOgFA3KAQTrOje5",
+        "commandMetadata": {
+         "webCommandMetadata": {
+          "url": "/@SimCom-mi9jm",
+          "webPageType": "WEB_PAGE_TYPE_CHANNEL",
+          "rootVe": 3611,
+          "apiUrl": "/youtubei/v1/browse"
+         }
+        },
+        "browseEndpoint": {
+         "browseId": "UCfKfDLhMKXXnAXR3AhZ4ODg",
+         "canonicalBaseUrl": "/@SimCom-mi9jm"
+        }
+       }
+      }
+     ]
+    },
+    "shortViewCountText": {
+     "accessibility": {
+      "accessibilityData": {
+       "label": "583 views"
+      }
+     },
+     "simpleText": "583"
+    },
+    "detailedMetadataSnippets": [
+     {
+      "snippetText": {
+       "runs": [
+        {
+         "text": "Unlock the power of Physics-Informed Neural Networks (PINNs) to solve classic CFD problems! In this video, we demonstrate ..."
+        }
+       ]
+      },
+      "snippetHoverText": {
+       "runs": [
+        {
+         "text": "From the video description"
+        }
+       ]
+      },
+      "maxOneLine": false
+     }
+    ]
+   }
+  },
+  {
+   "videoRenderer": {
+    "videoId": "ISykCxLPIGw",
+    "thumbnail": {
+     "thumbnails": [
+      {
+       "url": "https://i.ytimg.com/vi/ISykCxLPIGw/hq720.jpg?sqp=-oaymwEcCOgCEMoBSFXyq4qpAw4IARUAAIhCGAFwAcABBg==&rs=AOn4CLAo0avefjY2sLu_Se7sdZYKyXFmxA",
+       "width": 360,
+       "height": 202
+      },
+      {
+       "url": "https://i.ytimg.com/vi/ISykCxLPIGw/hq720.jpg?sqp=-oaymwEcCNAFEJQDSFXyq4qpAw4IARUAAIhCGAFwAcABBg==&rs=AOn4CLDTSwaG0RSaDc0lj9bAYKzzY6l_iw",
+       "width": 720,
+       "height": 404
+      }
+     ]
+    },
+    "title": {
+     "runs": [
+      {
+       "text": "Parametric PINNs Explained | Train Once, Solve for Any Parameter"
+      }
+     ],
+     "accessibility": {
+      "accessibilityData": {
+       "label": "Parametric PINNs Explained | Train Once, Solve for Any Parameter 19 minutes"
+      }
+     }
+    },
+    "publishedTimeText": {
+     "simpleText": "2mo ago"
+    },
+    "lengthText": {
+     "accessibility": {
+      "accessibilityData": {
+       "label": "19 minutes, 8 seconds"
+      }
+     },
+     "simpleText": "19:08"
+    },
+    "viewCountText": {
+     "simpleText": "3,516 views"
+    },
+    "ownerText": {
+     "runs": [
+      {
+       "text": "CompuFlair",
+       "navigationEndpoint": {
+        "clickTrackingParams": "COoBENwwGAgiEwiAkLG1tIiYAxWpB1kCHYOgFA3KAQTrOje5",
+        "commandMetadata": {
+         "webCommandMetadata": {
+          "url": "/@CompuFlair",
+          "webPageType": "WEB_PAGE_TYPE_CHANNEL",
+          "rootVe": 3611,
+          "apiUrl": "/youtubei/v1/browse"
+         }
+        },
+        "browseEndpoint": {
+         "browseId": "UC_5mZLVxZpHgGUVI-hdbn8Q",
+         "canonicalBaseUrl": "/@CompuFlair"
+        }
+       }
+      }
+     ]
+    },
+    "shortViewCountText": {
+     "accessibility": {
+      "accessibilityData": {
+       "label": "3.5 thousand views"
+      }
+     },
+     "simpleText": "3.5K"
+    },
+    "detailedMetadataSnippets": [
+     {
+      "snippetText": {
+       "runs": [
+        {
+         "text": "Get the free Jupyter notebook for this video: https://notebooks.compu-flair.com/pinns-part2 ..."
+        }
+       ]
+      },
+      "snippetHoverText": {
+       "runs": [
+        {
+         "text": "From the video description"
+        }
+       ]
+      },
+      "maxOneLine": true
+     }
+    ]
+   }
+  },
+  {
+   "videoRenderer": {
+    "videoId": "vUy2b-5tSno",
+    "thumbnail": {
+     "thumbnails": [
+      {
+       "url": "https://i.ytimg.com/vi/vUy2b-5tSno/hq720.jpg?sqp=-oaymwEcCOgCEMoBSFXyq4qpAw4IARUAAIhCGAFwAcABBg==&rs=AOn4CLCFTjftfdMVObHB3LEUobVQGtrTRg",
+       "width": 360,
+       "height": 202
+      },
+      {
+       "url": "https://i.ytimg.com/vi/vUy2b-5tSno/hq720.jpg?sqp=-oaymwEcCNAFEJQDSFXyq4qpAw4IARUAAIhCGAFwAcABBg==&rs=AOn4CLB-fI8df7lbMeuE_SUHUAwgNIUTNA",
+       "width": 720,
+       "height": 404
+      }
+     ]
+    },
+    "title": {
+     "runs": [
+      {
+       "text": "Physics Informed Neural Net Simply Explained with an Example [PINNs Direct Problem]"
+      }
+     ],
+     "accessibility": {
+      "accessibilityData": {
+       "label": "Physics Informed Neural Net Simply Explained with an Example [PINNs Direct Problem] 15 minutes"
+      }
+     }
+    },
+    "publishedTimeText": {
+     "simpleText": "3mo ago"
+    },
+    "lengthText": {
+     "accessibility": {
+      "accessibilityData": {
+       "label": "15 minutes, 3 seconds"
+      }
+     },
+     "simpleText": "15:03"
+    },
+    "viewCountText": {
+     "simpleText": "7,410 views"
+    },
+    "ownerText": {
+     "runs": [
+      {
+       "text": "CompuFlair",
+       "navigationEndpoint": {
+        "clickTrackingParams": "CNABENwwGAkiEwiAkLG1tIiYAxWpB1kCHYOgFA3KAQTrOje5",
+        "commandMetadata": {
+         "webCommandMetadata": {
+          "url": "/@CompuFlair",
+          "webPageType": "WEB_PAGE_TYPE_CHANNEL",
+          "rootVe": 3611,
+          "apiUrl": "/youtubei/v1/browse"
+         }
+        },
+        "browseEndpoint": {
+         "browseId": "UC_5mZLVxZpHgGUVI-hdbn8Q",
+         "canonicalBaseUrl": "/@CompuFlair"
+        }
+       }
+      }
+     ]
+    },
+    "shortViewCountText": {
+     "accessibility": {
+      "accessibilityData": {
+       "label": "7.4 thousand views"
+      }
+     },
+     "simpleText": "7.4K"
+    },
+    "detailedMetadataSnippets": [
+     {
+      "snippetText": {
+       "runs": [
+        {
+         "text": "Get the free Jupyter notebook for this video: https://notebooks.compu-flair.com/pinns-part1 In this video, viewers will learn the core ..."
+        }
+       ]
+      },
+      "snippetHoverText": {
+       "runs": [
+        {
+         "text": "From the video description"
+        }
+       ]
+      },
+      "maxOneLine": true
+     }
+    ]
+   }
+  },
+  {
+   "videoRenderer": {
+    "videoId": "0FHOODCRMlA",
+    "thumbnail": {
+     "thumbnails": [
+      {
+       "url": "https://i.ytimg.com/vi/0FHOODCRMlA/hq720.jpg?sqp=-oaymwE2COgCEMoBSFXyq4qpAygIARUAAIhCGAFwAcABBvABAfgB_gmAAtAFigIMCAAQARhYIGEoZTAP&rs=AOn4CLCnzzGmk1kPjqOGtGDyAnZH5BBGyQ",
+       "width": 360,
+       "height": 202
+      },
+      {
+       "url": "https://i.ytimg.com/vi/0FHOODCRMlA/hq720.jpg?sqp=-oaymwE2CNAFEJQDSFXyq4qpAygIARUAAIhCGAFwAcABBvABAfgB_gmAAtAFigIMCAAQARhYIGEoZTAP&rs=AOn4CLDjFt9mJqomnsSAFofsj8-cSb908w",
+       "width": 720,
+       "height": 404
+      }
+     ]
+    },
+    "title": {
+     "runs": [
+      {
+       "text": "PINN Training using Biobjective Optimization || Fokker-Planck equation using PINNs || Aug 19,2022"
+      }
+     ],
+     "accessibility": {
+      "accessibilityData": {
+       "label": "PINN Training using Biobjective Optimization || Fokker-Planck equation using PINNs || Aug 19,2022 2 hours, 1 minute"
+      }
+     }
+    },
+    "publishedTimeText": {
+     "simpleText": "3y ago"
+    },
+    "lengthText": {
+     "accessibility": {
+      "accessibilityData": {
+       "label": "2 hours, 1 minute, 20 seconds"
+      }
+     },
+     "simpleText": "2:01:20"
+    },
+    "viewCountText": {
+     "simpleText": "473 views"
+    },
+    "ownerText": {
+     "runs": [
+      {
+       "text": "CRUNCH Group: Home of Math + Machine Learning + X",
+       "navigationEndpoint": {
+        "clickTrackingParams": "CH8Q3DAYDCITCICQsbW0iJgDFakHWQIdg6AUDcoBBOs6N7k=",
+        "commandMetadata": {
+         "webCommandMetadata": {
+          "url": "/@CrunchGroup",
+          "webPageType": "WEB_PAGE_TYPE_CHANNEL",
+          "rootVe": 3611,
+          "apiUrl": "/youtubei/v1/browse"
+         }
+        },
+        "browseEndpoint": {
+         "browseId": "UC2ZZB80udkRvWQ4N3a8DOKQ",
+         "canonicalBaseUrl": "/@CrunchGroup"
+        }
+       }
+      }
+     ]
+    },
+    "shortViewCountText": {
+     "accessibility": {
+      "accessibilityData": {
+       "label": "473 views"
+      }
+     },
+     "simpleText": "473"
+    },
+    "detailedMetadataSnippets": [
+     {
+      "snippetText": {
+       "runs": [
+        {
+         "text": "Speakers, institutes & titles 1. Kathrin Klamroth, Matthias Ehrhardt, University of Wuppertal , "
+        },
+        {
+         "text": "PINN Training",
+         "bold": true
+        },
+        {
+         "text": " using Biobjective ..."
+        }
+       ]
+      },
+      "snippetHoverText": {
+       "runs": [
+        {
+         "text": "From the video description"
+        }
+       ]
+      },
+      "maxOneLine": false
+     }
+    ]
+   }
+  },
+  {
+   "videoRenderer": {
+    "videoId": "vU4O13RKejE",
+    "thumbnail": {
+     "thumbnails": [
+      {
+       "url": "https://i.ytimg.com/vi/vU4O13RKejE/hq720.jpg?sqp=-oaymwE2COgCEMoBSFXyq4qpAygIARUAAIhCGAFwAcABBvABAfgB_gmAAtAFigIMCAAQARhSIFwoZTAP&rs=AOn4CLCrnA5RmlSmhvlOEz5p_Mri9o-q6w",
+       "width": 360,
+       "height": 202
+      },
+      {
+       "url": "https://i.ytimg.com/vi/vU4O13RKejE/hq720.jpg?sqp=-oaymwE2CNAFEJQDSFXyq4qpAygIARUAAIhCGAFwAcABBvABAfgB_gmAAtAFigIMCAAQARhSIFwoZTAP&rs=AOn4CLDJm62kCqH15MBLe5Z6xdjBpV4g_Q",
+       "width": 720,
+       "height": 404
+      }
+     ]
+    },
+    "title": {
+     "runs": [
+      {
+       "text": "071 HeatTransfer Convection Correlations"
+      }
+     ],
+     "accessibility": {
+      "accessibilityData": {
+       "label": "071 HeatTransfer Convection Correlations 12 minutes, 42 seconds"
+      }
+     }
+    },
+    "publishedTimeText": {
+     "simpleText": "11d ago"
+    },
+    "lengthText": {
+     "accessibility": {
+      "accessibilityData": {
+       "label": "12 minutes, 42 seconds"
+      }
+     },
+     "simpleText": "12:42"
+    },
+    "viewCountText": {
+     "simpleText": "4 views"
+    },
+    "ownerText": {
+     "runs": [
+      {
+       "text": "CGRedPen",
+       "navigationEndpoint": {
+        "clickTrackingParams": "CHgQ3DAYDSITCICQsbW0iJgDFakHWQIdg6AUDcoBBOs6N7k=",
+        "commandMetadata": {
+         "webCommandMetadata": {
+          "url": "/@CGomadurai",
+          "webPageType": "WEB_PAGE_TYPE_CHANNEL",
+          "rootVe": 3611,
+          "apiUrl": "/youtubei/v1/browse"
+         }
+        },
+        "browseEndpoint": {
+         "browseId": "UC1cTM1TQpxAppCJy4dre36g",
+         "canonicalBaseUrl": "/@CGomadurai"
+        }
+       }
+      }
+     ]
+    },
+    "shortViewCountText": {
+     "accessibility": {
+      "accessibilityData": {
+       "label": "4 views"
+      }
+     },
+     "simpleText": "4"
+    },
+    "detailedMetadataSnippets": [
+     {
+      "snippetText": {
+       "runs": [
+        {
+         "text": "This lesson explains #ConvectionCorrelations: #DittusBoelter, #SiederTate, flat-plate correlations and #NaturalConvection with ..."
+        }
+       ]
+      },
+      "snippetHoverText": {
+       "runs": [
+        {
+         "text": "From the video description"
+        }
+       ]
+      },
+      "maxOneLine": false
+     }
+    ]
+   }
+  },
+  {
+   "videoRenderer": {
+    "videoId": "H94Yhcp5ptE",
+    "thumbnail": {
+     "thumbnails": [
+      {
+       "url": "https://i.ytimg.com/vi/H94Yhcp5ptE/hq720.jpg?sqp=-oaymwEcCOgCEMoBSFXyq4qpAw4IARUAAIhCGAFwAcABBg==&rs=AOn4CLBoyLFm6mhWniBqjaeq50lmusWagQ",
+       "width": 360,
+       "height": 202
+      },
+      {
+       "url": "https://i.ytimg.com/vi/H94Yhcp5ptE/hq720.jpg?sqp=-oaymwEcCNAFEJQDSFXyq4qpAw4IARUAAIhCGAFwAcABBg==&rs=AOn4CLA05gOrNarBjc8hp2sKBm6uXNTTDg",
+       "width": 720,
+       "height": 404
+      }
+     ]
+    },
+    "title": {
+     "runs": [
+      {
+       "text": "S6 Solving 1 D Heat Equation Using PINNs"
+      }
+     ],
+     "accessibility": {
+      "accessibilityData": {
+       "label": "S6 Solving 1 D Heat Equation Using PINNs 20 minutes"
+      }
+     }
+    },
+    "publishedTimeText": {
+     "simpleText": "1y ago"
+    },
+    "lengthText": {
+     "accessibility": {
+      "accessibilityData": {
+       "label": "20 minutes, 45 seconds"
+      }
+     },
+     "simpleText": "20:45"
+    },
+    "viewCountText": {
+     "simpleText": "131 views"
+    },
+    "ownerText": {
+     "runs": [
+      {
+       "text": "SimCom",
+       "navigationEndpoint": {
+        "clickTrackingParams": "CHEQ3DAYDiITCICQsbW0iJgDFakHWQIdg6AUDcoBBOs6N7k=",
+        "commandMetadata": {
+         "webCommandMetadata": {
+          "url": "/@SimCom-mi9jm",
+          "webPageType": "WEB_PAGE_TYPE_CHANNEL",
+          "rootVe": 3611,
+          "apiUrl": "/youtubei/v1/browse"
+         }
+        },
+        "browseEndpoint": {
+         "browseId": "UCfKfDLhMKXXnAXR3AhZ4ODg",
+         "canonicalBaseUrl": "/@SimCom-mi9jm"
+        }
+       }
+      }
+     ]
+    },
+    "shortViewCountText": {
+     "accessibility": {
+      "accessibilityData": {
+       "label": "131 views"
+      }
+     },
+     "simpleText": "131"
+    },
+    "detailedMetadataSnippets": [
+     {
+      "snippetText": {
+       "runs": [
+        {
+         "text": "... we solve linear "
+        },
+        {
+         "text": "convection equation",
+         "bold": true
+        },
+        {
+         "text": " we observe some advantage and maybe once we completed all these basic equations like ..."
+        }
+       ]
+      },
+      "snippetHoverText": {
+       "runs": [
+        {
+         "text": "Automatic captions"
+        }
+       ]
+      },
+      "maxOneLine": false,
+      "snippetTimestamp": {
+       "accessibility": {
+        "accessibilityData": {
+         "label": "13 minutes, 1 second ... we solve linear <b>convection equation</b> we observe some advantage and maybe once we completed all these basic equations like&nbsp;..."
+        }
+       },
+       "simpleText": "13:01"
+      },
+      "timestampEndpoint": {
+       "clickTrackingParams": "CHEQ3DAYDiITCICQsbW0iJgDFakHWQIdg6AUDcoBBOs6N7k=",
+       "commandMetadata": {
+        "webCommandMetadata": {
+         "url": "/watch?v=H94Yhcp5ptE&t=781s",
+         "webPageType": "WEB_PAGE_TYPE_WATCH",
+         "rootVe": 3832
+        }
+       },
+       "watchEndpoint": {
+        "videoId": "H94Yhcp5ptE",
+        "startTimeSeconds": 781,
+        "watchEndpointSupportedOnesieConfig": {
+         "html5PlaybackOnesieConfig": {
+          "commonConfig": {
+           "url": "https://rr3---sn-jxopj-n5oe.googlevideo.com/initplayback?source=youtube&oeis=1&c=WEB&oad=3200&ovd=3200&oaad=11000&oavd=11000&ocs=700&oewis=1&oputc=1&epbp=1&msp=1&odepv=1&id=1fde1885ca79a6d1&ip=69.196.40.197&osts=781&initcwndbps=3591625&mt=1794691497&oweuc="
+          }
+         }
+        }
+       }
+      }
+     }
+    ]
+   }
+  },
+  {
+   "videoRenderer": {
+    "videoId": "yhiGEpyC_v0",
+    "thumbnail": {
+     "thumbnails": [
+      {
+       "url": "https://i.ytimg.com/vi/yhiGEpyC_v0/hq720.jpg?sqp=-oaymwE2COgCEMoBSFXyq4qpAygIARUAAIhCGAFwAcABBvABAfgB_gmAAtAFigIMCAAQARhxIEEocjAP&rs=AOn4CLDo4j4fClggy1fIdsP7ns6QAw_Fpg",
+       "width": 360,
+       "height": 202
+      },
+      {
+       "url": "https://i.ytimg.com/vi/yhiGEpyC_v0/hq720.jpg?sqp=-oaymwE2CNAFEJQDSFXyq4qpAygIARUAAIhCGAFwAcABBvABAfgB_gmAAtAFigIMCAAQARhxIEEocjAP&rs=AOn4CLCRXJN853Qpqv5nZ9xBOf5eQRQtYQ",
+       "width": 720,
+       "height": 404
+      }
+     ]
+    },
+    "title": {
+     "runs": [
+      {
+       "text": "Physics-Informed Neural Networks (PINNs) for Heat Equation in MATLAB | Deep Learning PDE Solver"
+      }
+     ],
+     "accessibility": {
+      "accessibilityData": {
+       "label": "Physics-Informed Neural Networks (PINNs) for Heat Equation in MATLAB | Deep Learning PDE Solver 8 minutes, 30 seconds"
+      }
+     }
+    },
+    "publishedTimeText": {
+     "simpleText": "3w ago"
+    },
+    "lengthText": {
+     "accessibility": {
+      "accessibilityData": {
+       "label": "8 minutes, 30 seconds"
+      }
+     },
+     "simpleText": "8:30"
+    },
+    "viewCountText": {
+     "simpleText": "36 views"
+    },
+    "ownerText": {
+     "runs": [
+      {
+       "text": "WiredWhite",
+       "navigationEndpoint": {
+        "clickTrackingParams": "CGoQ3DAYDyITCICQsbW0iJgDFakHWQIdg6AUDcoBBOs6N7k=",
+        "commandMetadata": {
+         "webCommandMetadata": {
+          "url": "/@wiredwhite",
+          "webPageType": "WEB_PAGE_TYPE_CHANNEL",
+          "rootVe": 3611,
+          "apiUrl": "/youtubei/v1/browse"
+         }
+        },
+        "browseEndpoint": {
+         "browseId": "UC3zKCK_hj0sqpVnBy7eFl5w",
+         "canonicalBaseUrl": "/@wiredwhite"
+        }
+       }
+      }
+     ]
+    },
+    "shortViewCountText": {
+     "accessibility": {
+      "accessibilityData": {
+       "label": "36 views"
+      }
+     },
+     "simpleText": "36"
+    },
+    "detailedMetadataSnippets": [
+     {
+      "snippetText": {
+       "runs": [
+        {
+         "text": "In this video, explore how to build and "
+        },
+        {
+         "text": "train",
+         "bold": true
+        },
+        {
+         "text": " a Physics-Informed Neural Network ("
+        },
+        {
+         "text": "PINN",
+         "bold": true
+        },
+        {
+         "text": ") in MATLAB to solve the one-dimensional ..."
+        }
+       ]
+      },
+      "snippetHoverText": {
+       "runs": [
+        {
+         "text": "From the video description"
+        }
+       ]
+      },
+      "maxOneLine": false
+     }
+    ]
+   }
+  },
+  {
+   "videoRenderer": {
+    "videoId": "QybOx27-im4",
+    "thumbnail": {
+     "thumbnails": [
+      {
+       "url": "https://i.ytimg.com/vi/QybOx27-im4/hq720.jpg?sqp=-oaymwE2COgCEMoBSFXyq4qpAygIARUAAIhCGAFwAcABBvABAfgB_gmAAtAFigIMCAAQARhaIGEoZTAP&rs=AOn4CLA_HNDZETcvuHFIo8l4eksmsZvMSQ",
+       "width": 360,
+       "height": 202
+      },
+      {
+       "url": "https://i.ytimg.com/vi/QybOx27-im4/hq720.jpg?sqp=-oaymwE2CNAFEJQDSFXyq4qpAygIARUAAIhCGAFwAcABBvABAfgB_gmAAtAFigIMCAAQARhaIGEoZTAP&rs=AOn4CLBfG0fG5PtKfltfOC-uXjpmhqf7EQ",
+       "width": 720,
+       "height": 404
+      }
+     ]
+    },
+    "title": {
+     "runs": [
+      {
+       "text": "050 Dimensional Analysis for Forced Convection"
+      }
+     ],
+     "accessibility": {
+      "accessibilityData": {
+       "label": "050 Dimensional Analysis for Forced Convection 13 minutes, 58 seconds"
+      }
+     }
+    },
+    "publishedTimeText": {
+     "simpleText": "12d ago"
+    },
+    "lengthText": {
+     "accessibility": {
+      "accessibilityData": {
+       "label": "13 minutes, 58 seconds"
+      }
+     },
+     "simpleText": "13:58"
+    },
+    "viewCountText": {
+     "simpleText": "5 views"
+    },
+    "ownerText": {
+     "runs": [
+      {
+       "text": "CGRedPen",
+       "navigationEndpoint": {
+        "clickTrackingParams": "CGMQ3DAYECITCICQsbW0iJgDFakHWQIdg6AUDcoBBOs6N7k=",
+        "commandMetadata": {
+         "webCommandMetadata": {
+          "url": "/@CGomadurai",
+          "webPageType": "WEB_PAGE_TYPE_CHANNEL",
+          "rootVe": 3611,
+          "apiUrl": "/youtubei/v1/browse"
+         }
+        },
+        "browseEndpoint": {
+         "browseId": "UC1cTM1TQpxAppCJy4dre36g",
+         "canonicalBaseUrl": "/@CGomadurai"
+        }
+       }
+      }
+     ]
+    },
+    "shortViewCountText": {
+     "accessibility": {
+      "accessibilityData": {
+       "label": "5 views"
+      }
+     },
+     "simpleText": "5"
+    },
+    "detailedMetadataSnippets": [
+     {
+      "snippetText": {
+       "runs": [
+        {
+         "text": "DimensionalAnalysisForForcedConvection #DimensionalAnalysis #BuckinghamPiTheorem #DimensionlessNumbers ..."
+        }
+       ]
+      },
+      "snippetHoverText": {
+       "runs": [
+        {
+         "text": "From the video description"
+        }
+       ]
+      },
+      "maxOneLine": false
+     }
+    ]
+   }
+  },
+  {
+   "videoRenderer": {
+    "videoId": "1AyAia_NZhQ",
+    "thumbnail": {
+     "thumbnails": [
+      {
+       "url": "https://i.ytimg.com/vi/1AyAia_NZhQ/hq720.jpg?sqp=-oaymwEcCOgCEMoBSFXyq4qpAw4IARUAAIhCGAFwAcABBg==&rs=AOn4CLDQNLsr__8QDTvarYCKjgqb__rGGg",
+       "width": 360,
+       "height": 202
+      },
+      {
+       "url": "https://i.ytimg.com/vi/1AyAia_NZhQ/hq720.jpg?sqp=-oaymwEcCNAFEJQDSFXyq4qpAw4IARUAAIhCGAFwAcABBg==&rs=AOn4CLCXaHCIxDqcI4lRGisD9GVDq0UuRg",
+       "width": 720,
+       "height": 404
+      }
+     ]
+    },
+    "title": {
+     "runs": [
+      {
+       "text": "Physics Informed Neural Networks explained for beginners | From scratch implementation and code"
+      }
+     ],
+     "accessibility": {
+      "accessibilityData": {
+       "label": "Physics Informed Neural Networks explained for beginners | From scratch implementation and code 57 minutes"
+      }
+     }
+    },
+    "publishedTimeText": {
+     "simpleText": "1y ago"
+    },
+    "lengthText": {
+     "accessibility": {
+      "accessibilityData": {
+       "label": "57 minutes"
+      }
+     },
+     "simpleText": "57:00"
+    },
+    "viewCountText": {
+     "simpleText": "52,572 views"
+    },
+    "ownerText": {
+     "runs": [
+      {
+       "text": "Vizuara",
+       "navigationEndpoint": {
+        "clickTrackingParams": "CFwQ3DAYESITCICQsbW0iJgDFakHWQIdg6AUDcoBBOs6N7k=",
+        "commandMetadata": {
+         "webCommandMetadata": {
+          "url": "/@vizuara",
+          "webPageType": "WEB_PAGE_TYPE_CHANNEL",
+          "rootVe": 3611,
+          "apiUrl": "/youtubei/v1/browse"
+         }
+        },
+        "browseEndpoint": {
+         "browseId": "UCdEov4L0bpJ_h6W3sJxkfUA",
+         "canonicalBaseUrl": "/@vizuara"
+        }
+       }
+      }
+     ]
+    },
+    "shortViewCountText": {
+     "accessibility": {
+      "accessibilityData": {
+       "label": "52 thousand views"
+      }
+     },
+     "simpleText": "52K"
+    },
+    "detailedMetadataSnippets": [
+     {
+      "snippetText": {
+       "runs": [
+        {
+         "text": "Teaching your neural network to \"respect\" Physics As universal function approximators, neural networks can learn to fit any ..."
+        }
+       ]
+      },
+      "snippetHoverText": {
+       "runs": [
+        {
+         "text": "From the video description"
+        }
+       ]
+      },
+      "maxOneLine": false
+     }
+    ]
+   }
+  }
+ ]
+}

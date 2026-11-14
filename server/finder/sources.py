@@ -102,10 +102,9 @@ async def youtube_search(ctx: Ctx, query: str, limit: int = 10) -> list[dict]:
 
 # --------------------------------------------------------------------------- web search
 
-_DDG_RESULT = re.compile(
-    r'<a[^>]+class="result__a"[^>]+href="([^"]+)"[^>]*>(.*?)</a>.*?(?:class="result__snippet"[^>]*>(.*?)</a>)?',
-    re.S,
-)
+_DDG_RESULT = re.compile(r'<a[^>]+class="result__a"[^>]+href="([^"]+)"[^>]*>(.*?)</a>', re.S)
+_DDG_SNIPPET = re.compile(r'class="result__snippet"[^>]*>(.*?)</a>', re.S)
+_GH_README = re.compile(r"^(https://github\.com/[^/]+/[^/]+)/blob/[^/]+/readme(\.md|\.rst)?$", re.I)
 _TAG = re.compile(r"<[^>]+>")
 
 
@@ -127,7 +126,8 @@ def parse_ddg(page: str) -> list[dict]:
             href = unquote(q.get("uddg", [""])[0])
         if not href.startswith("http"):
             continue
-        out.append({"url": href, "title": _clean(m.group(2)), "description": _clean(m.group(3))})
+        sn = _DDG_SNIPPET.search(block)
+        out.append({"url": href, "title": _clean(m.group(2)), "description": _clean(sn.group(1)) if sn else ""})
     return out
 
 
@@ -150,6 +150,12 @@ async def web_search(ctx: Ctx, query: str, limit: int = 8) -> list[dict]:
         ctx.used.add("duckduckgo")
     out = []
     for h in hits:
+        m = _GH_README.match(h["url"])
+        if m:  # a repo's README page is the repo
+            h = {**h, "url": m.group(1)}
+        t = re.match(r"GitHub - ([\w.\-]+/[\w.\-]+)", h.get("title", ""))
+        if t:  # "GitHub - owner/repo: description" -> "owner/repo"
+            h = {**h, "title": t.group(1)}
         if skip(h["url"]):
             continue
         out.append({**h, "kind": classify(h["url"]), "via": via, "indexed": True})

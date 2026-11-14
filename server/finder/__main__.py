@@ -9,23 +9,26 @@ import argparse
 import asyncio
 import json
 import logging
+import os
 import sys
 import time
 
 from . import cache
-from .search import search
+from .core import search
 
 
 def main() -> None:
     ap = argparse.ArgumentParser(prog="python -m server.finder", description=__doc__.splitlines()[0])
     ap.add_argument("query", nargs="+")
     ap.add_argument("--refresh", action="store_true", help="ignore demo/cache/search and search live")
-    ap.add_argument("--no-cache", action="store_true", help="don't read or write the cache")
+    ap.add_argument("--no-cache", action="store_true", help="don't read or write the cache (live search)")
     ap.add_argument("--json", action="store_true", help="print the final list as JSON")
     ap.add_argument("-v", "--verbose", action="store_true")
     args = ap.parse_args()
     logging.basicConfig(level=logging.INFO if args.verbose else logging.WARNING, format="%(name)s: %(message)s", stream=sys.stderr)
     query = " ".join(args.query)
+    if args.no_cache:
+        os.environ["FINDER_CACHE"] = "0"  # neither read nor write demo/cache/search
     t0 = time.monotonic()
 
     async def on_result(r: dict) -> None:
