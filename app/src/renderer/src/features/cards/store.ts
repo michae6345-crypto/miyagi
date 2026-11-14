@@ -4,6 +4,7 @@
  */
 import { create } from 'zustand'
 import type { Payload } from '../../../../common/wire'
+import { bridge } from '../../bridge'
 import { onMessage, onUi } from '../../core/bus'
 import { sendAction } from '../../core/shortcuts'
 import { seekVideo, useLesson, type CheckItem } from '../../core/lesson'
@@ -41,12 +42,21 @@ type CardsState = {
   tutorial: Record<string, Point[]>
   /** Setup installs in flight, by tool id: the latest `setup.progress` line, or the failure once it ends. */
   installs: Record<string, Install>
+  /**
+   * A card button whose answer we're waiting for (download, open_editor, build, confirm…). The card stays up
+   * so its button can show the spinner (never look dead); it closes when the engine answers or after PENDING_MS.
+   */
+  pending?: { kind: CardAction; at: number; sawThinking: boolean }
+  /** What the finder said about each result (style, captions…), by videoId and url: the preflight card's meta line. */
+  results: Record<string, ResultMeta>
 }
+
+export type ResultMeta = Pick<Payload<'search.result'>, 'style' | 'captions' | 'chapters' | 'durationS'>
 
 /** One setup item's install: running (Install button disabled, spinner + latest line) until done. */
 export type Install = { running: boolean; line?: string; error?: string }
 
-const blank: CardsState = { offtrackOpen: false, fixing: false, recovered: false, resume: false, offtrackSeq: undefined, success: undefined, card: undefined, metrics: {}, tutorial: {}, installs: {} }
+const blank: CardsState = { offtrackOpen: false, fixing: false, recovered: false, resume: false, offtrackSeq: undefined, success: undefined, card: undefined, metrics: {}, tutorial: {}, installs: {}, pending: undefined, results: {} }
 export const useCards = create<CardsState>(() => ({ ...blank }))
 const set = useCards.setState
 const get = useCards.getState
@@ -92,9 +102,18 @@ export function act(kind: 'show_me' | 'explain' | 'apply_fix' | 'hint'): void {
 /** Every button kind an engine card can carry (card.actions). */
 export type CardAction = NonNullable<Payload<'card'>['actions']>[number]
 
+/** Buttons that end the card right away. Every other kind waits for the engine with a spinner on the button. */
+const CLOSE_NOW = new Set<CardAction>(['pick_another', 'skip_setup'])
+/** Buttons that act on one row of the card (install / open a setup item): the card stays, no pending state. */
+const PER_ITEM = new Set<CardAction>(['install', 'open_in_browser'])
+/** Longest a card waits on its pressed button before it closes anyway (the engine may never say "thinking"). */
+const PENDING_MS = 10_000
+let pendingTimer: ReturnType<typeof setTimeout> | undefined
+
 /**
- * A button on an engine card → `action {kind}` (install: text = the setup item's tool id).
- * The card closes on click; the engine answers with the next card or event.
+ * A button on an engine card → `action {kind}` (install / open_in_browser: text = the setup item's tool id).
+ * pick_another / skip_setup close the card; the rest keep it up, the pressed button spinning, until the
+ * engine answers (next card or event, status leaves "thinking") or PENDING_MS passes.
  */
 export function cardAct(kind: CardAction, text?: string): void {
   if (kind === 'install' && text !== undefined) {
@@ -102,14 +121,52 @@ export function cardAct(kind: CardAction, text?: string): void {
     if (get().installs[text]?.running) return
     setInstall(text, { running: true, line: undefined, error: undefined })
   }
+  // One answer at a time; Skip / Pick another always work (they just end the card).
+  if (get().pending && !PER_ITEM.has(kind) && !CLOSE_NOW.has(kind)) return
   sendAction(kind, text)
-  if (kind !== 'install') set({ card: undefined })
+  if (PER_ITEM.has(kind)) return
+  if (CLOSE_NOW.has(kind)) {
+    closeCard()
+    // "Pick another": back to the results in the launcher (the launcher keeps them).
+    if (kind === 'pick_another') bridge.emit('launcher:toggle')
+    return
+  }
+  const at = Date.now()
+  set({ pending: { kind, at, sawThinking: false } })
+  clearTimeout(pendingTimer)
+  pendingTimer = setTimeout(() => {
+    if (get().pending?.at === at) closeCard()
+  }, PENDING_MS)
+}
+
+function closeCard(): void {
+  clearTimeout(pendingTimer)
+  set({ card: undefined, pending: undefined })
 }
 
 function setInstall(tool: string, patch: Partial<Install>): void {
   const installs = get().installs
   set({ installs: { ...installs, [tool]: { ...(installs[tool] ?? { running: false }), ...patch } } })
 }
+
+// The engine answered the pressed card button: "thinking" came and went.
+onMessage('status', (p) => {
+  const pending = get().pending
+  if (!pending) return
+  if (p.state === 'thinking') set({ pending: { ...pending, sawThinking: true } })
+  else if (pending.sawThinking) closeCard()
+})
+// Build on the preflight card: the lesson is being built, so the card is done.
+onMessage('lesson.building', () => {
+  if (get().card?.kind === 'preflight') closeCard()
+})
+// The finder's facts about each result, for the preflight card's meta line (style, captions…).
+onMessage('search.result', (p) => {
+  const meta: ResultMeta = { style: p.style, captions: p.captions, chapters: p.chapters, durationS: p.durationS }
+  const results = { ...get().results }
+  for (const key of [p.videoId, p.url]) if (key) results[key] = meta
+  set({ results })
+})
 
 /** Install progress: lines while it runs, then {done, ok, error}. A re-sent setup card with the item ok flips the row to a check. */
 onMessage('setup.progress', (p) => {
@@ -131,19 +188,34 @@ function closeTop(): void {
   // ✕ on the off-track card itself (nothing on top of it): remember it, so a re-send stays closed.
   if (!s.card && !s.success && offtrack) dismissed = sig(offtrack)
   const back = s.resume && !!offtrack
-  set({ card: undefined, success: undefined, resume: false, offtrackOpen: back })
+  clearTimeout(pendingTimer)
+  set({ card: undefined, success: undefined, resume: false, offtrackOpen: back, pending: undefined })
 }
 const over = (): boolean => get().offtrackOpen || get().resume
 
-onUi('reset', () => {
+onUi('reset', (p) => {
   clearTimeout(successTimer)
+  clearTimeout(pendingTimer)
   dismissed = undefined
-  set({ ...blank })
+  // scope "lesson" (lesson.ended): a new search may be in flight, so keep what the finder said about its results.
+  const keep = (p as { scope?: string } | undefined)?.scope === 'lesson'
+  set({ ...blank, results: keep ? get().results : {} })
+})
+// ⌥H while the off-track card is closed brings it back (claimed: no new hint request). Open, ⌥H asks for a hint.
+onUi('shortcut', (kind) => {
+  if (kind !== 'hint') return
+  const s = get()
+  if (!useLesson.getState().offtrack || s.offtrackOpen || s.card || s.success) return
+  dismissed = undefined
+  set({ offtrackOpen: true })
+  return true
 })
 onUi('dismiss', closeTop)
 onMessage('lesson.ready', () => {
   dismissed = undefined
-  set({ ...blank })
+  clearTimeout(pendingTimer)
+  // Keep what the finder said about the results: a preflight card may still be up for the next pick.
+  set({ ...blank, results: get().results })
 })
 // A card with buttons survives step.started when it's for this step or for no step
 // (e.g. "Open VS Code?" or "Continue where you left off?"); plain cards are cleared as before.
@@ -160,16 +232,17 @@ onMessage('offtrack', (p) => {
     return
   }
   dismissed = undefined
-  set({ offtrackOpen: true, fixing: false, recovered: true, resume: false, offtrackSeq: ++seq, card: undefined, success: undefined })
+  set({ offtrackOpen: true, fixing: false, recovered: true, resume: false, offtrackSeq: ++seq, card: undefined, pending: undefined, success: undefined })
 })
 // "Apply this fix?" (a diff to confirm) replaces the "Waiting for the fix" view, so `fixing` ends here.
 onMessage('card', (p) => {
   // A re-sent setup card: rows that are installed now drop their install state.
   const ok = new Set((p.setup?.items ?? []).filter((x) => x.ok).map((x) => x.tool))
   if (ok.size) set({ installs: Object.fromEntries(Object.entries(get().installs).filter(([t]) => !ok.has(t))) })
-  set({ card: p, resume: over(), offtrackOpen: false, ...(p.diff ? { fixing: false } : {}) })
+  clearTimeout(pendingTimer)
+  set({ card: p, pending: undefined, resume: over(), offtrackOpen: false, ...(p.diff ? { fixing: false } : {}) })
 })
-onMessage('diagram', () => set({ card: undefined, resume: over(), offtrackOpen: false }))
+onMessage('diagram', () => set({ card: undefined, pending: undefined, resume: over(), offtrackOpen: false }))
 onMessage('step.passed', (p) => {
   const { recovered, offtrackSeq } = get()
   set({ offtrackOpen: false, fixing: false, resume: false })

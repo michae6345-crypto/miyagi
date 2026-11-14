@@ -14,7 +14,30 @@
 import { motion } from 'motion/react'
 import type { ReactNode } from 'react'
 import { useShallow } from 'zustand/react/shallow'
-import { BookOpen, Check, Code2, Download, History, Lightbulb, MessageCircle, MessageSquareText, Play, Undo2, Wrench, type LucideIcon } from 'lucide-react'
+import {
+  BookOpen,
+  Check,
+  Code2,
+  Download,
+  ExternalLink,
+  File,
+  FileCode2,
+  FolderGit2,
+  Hammer,
+  History,
+  Lightbulb,
+  ListChecks,
+  MapPin,
+  MessageCircle,
+  MessageSquareText,
+  NotebookText,
+  Play,
+  Search,
+  Undo2,
+  Wrench,
+  type LucideIcon
+} from 'lucide-react'
+import type { PreflightInfo } from '../../../../../../shared/contracts/events'
 import type { Payload } from '../../../../common/wire'
 import { bridge } from '../../bridge'
 import { useLesson, useProgress, useThinking, type Offtrack as OfftrackPayload } from '../../core/lesson'
@@ -88,14 +111,21 @@ function Footer({ left, right }: { left?: ReactNode; right?: ReactNode }): React
   )
 }
 
-/** A spinner shaped like a lucide icon, so it can stand in for a button's icon. */
-const SpinIcon = ((p: { size?: number }) => <Spinner size={p.size ?? 13} c={color.onAccent} />) as unknown as LucideIcon
+/** A spinner shaped like a lucide icon, so it can stand in for a button's icon (ink on white/pastel, text on quiet). */
+const spinIcon = (c: string): LucideIcon => ((p: { size?: number }) => <Spinner size={p.size ?? 13} c={c} />) as unknown as LucideIcon
+const SpinInk = spinIcon(color.onAccent)
+const SpinText = spinIcon(color.text)
 
-/** Never look dead: while the engine thinks about the action this button sent, its icon is a spinner. */
-function useBusyIcon(): (kind: string, icon?: LucideIcon) => LucideIcon | undefined {
+/**
+ * Never look dead: while the engine thinks about the action this button sent (core rule:
+ * `useThinking() && usePressed().kind === kind`), or while a card waits on its pressed button, the icon spins.
+ * `quiet` = the button has a quiet fill (light spinner) instead of white / pastel (ink spinner).
+ */
+function useBusyIcon(): (kind: string, icon?: LucideIcon, quiet?: boolean) => LucideIcon | undefined {
   const thinking = useThinking()
   const pressed = usePressed((p) => p.kind)
-  return (kind, icon) => (thinking && pressed === kind ? SpinIcon : icon)
+  const pending = useCards((c) => c.pending?.kind)
+  return (kind, icon, quiet) => ((thinking && pressed === kind) || pending === kind ? (quiet ? SpinText : SpinInk) : icon)
 }
 
 /** A neutral (non-primary) card action: same shape as PrimaryButton, quiet fill. */
@@ -114,6 +144,34 @@ function QuietButton({ label, icon: I, onClick }: { label: string; icon?: Lucide
       {I && <I size={13} strokeWidth={1.8} className="shrink-0" />}
       {label}
     </motion.button>
+  )
+}
+
+/** The engine's Socratic nudge, under the body (off-track and engine cards alike). */
+function Question({ text }: { text: string }): ReactNode {
+  return (
+    <div data-question className="mt-[6px] text-[13px] leading-[18px]" style={{ color: color.label }}>
+      {text}
+    </div>
+  )
+}
+
+/** A label that opens its URL outside the overlay (window.open; Electron's main hands https to the browser). */
+function LinkText({ label, url }: { label: string; url?: string }): ReactNode {
+  if (!url) return <span className="truncate">{label}</span>
+  return (
+    <a
+      href={url}
+      data-link
+      className="cursor-pointer truncate underline-offset-2 hover:underline"
+      style={{ color: 'inherit' }}
+      onClick={(e) => {
+        e.preventDefault()
+        window.open(url, '_blank', 'noopener,noreferrer')
+      }}
+    >
+      {label}
+    </a>
   )
 }
 
@@ -188,6 +246,7 @@ function Diagnosis({ o, checks }: { o: OfftrackPayload; checks: ReturnType<typeo
       <Header mark={<StatusDot status="offtrack" size={6} />} label="Off track" tone={color.amber} step={false} />
       <Title>{o.title}</Title>
       <Body>{o.body}</Body>
+      {o.guidingQuestion && <Question text={o.guidingQuestion} />}
 
       <OfftrackCurve o={o} />
       {o.diff && <Diff diff={o.diff} />}
@@ -211,7 +270,7 @@ function Diagnosis({ o, checks }: { o: OfftrackPayload; checks: ReturnType<typeo
       {o.citation && (
         <div className="mt-[12px] flex items-center gap-[7px] text-[12px]" style={{ color: color.faint }}>
           <BookOpen size={12} className="shrink-0" style={{ color: kindTone.paper }} />
-          <span className="truncate">{o.citation.label}</span>
+          <LinkText label={o.citation.label} url={o.citation.url} />
         </div>
       )}
     </div>
@@ -339,7 +398,7 @@ const KIND: Record<EngineCard['kind'], { label: string; Icon: LucideIcon; tone?:
   resume: { label: 'Continue?', Icon: History },
   setup: { label: 'Setup', Icon: Wrench },
   // Contract sync (integration/live): the cards agent gives it a real view.
-  preflight: { label: 'Before you build', Icon: Wrench }
+  preflight: { label: 'Before you build', Icon: ListChecks }
 }
 
 function KindTile({ k }: { k: (typeof KIND)[EngineCard['kind']] }): ReactNode {
@@ -361,9 +420,29 @@ const ACTION: Partial<Record<CardAction, { label: string; Icon?: LucideIcon; pri
   apply_fix: { label: 'Do it for me', Icon: Wrench, primary: true },
   open_editor: { label: 'Open VS Code', Icon: Code2, primary: true },
   resume: { label: 'Continue', Icon: Play, primary: true },
+  build: { label: 'Build', Icon: Hammer, primary: true },
+  pick_another: { label: 'Pick another', Icon: Search },
+  download: { label: 'Download', Icon: Download },
   undo: { label: 'Undo', Icon: Undo2 },
   end_lesson: { label: 'Start a new lesson' },
   skip_setup: { label: 'Skip' }
+}
+
+/** The engine names some buttons itself: setup.actionLabels ("Download tutorial files"), setup.editorLabel ("Open Cursor"). */
+function actionLabel(c: EngineCard, a: CardAction): string {
+  const custom = c.setup?.actionLabels?.[a]
+  if (custom) return custom
+  if (a === 'open_editor' && c.setup?.editorLabel) return `Open ${c.setup.editorLabel}`
+  return ACTION[a]!.label
+}
+
+/**
+ * The one white primary: the preflight card's `recommended`, else the first primary kind, else the only
+ * button (a lone Download is primary; next to anything else it stays quiet).
+ */
+function primaryOf(c: EngineCard, known: CardAction[]): CardAction | undefined {
+  if (c.kind === 'preflight' && c.recommended && known.includes(c.recommended)) return c.recommended
+  return known.find((a) => ACTION[a]!.primary) ?? (known.length === 1 ? known[0] : undefined)
 }
 
 /** A unified diff as monospace lines: + white, - muted and struck, context faint. Headers dropped. */
@@ -390,6 +469,16 @@ function UnifiedDiff({ diff }: { diff: string }): ReactNode {
   )
 }
 
+/**
+ * One setup row's button (contract SetupItem.install): method "download" opens its URL here (nothing to
+ * send), "open" (a web app) asks the engine to open it (open_in_browser), the rest install (install {text: tool}).
+ */
+function itemAct(x: NonNullable<EngineCard['setup']>['items'][number]): void {
+  if (x.install.method === 'download' && x.install.url) window.open(x.install.url, '_blank', 'noopener,noreferrer')
+  else if (x.install.method === 'open') cardAct('open_in_browser', x.tool)
+  else cardAct('install', x.tool)
+}
+
 /** Setup card: one row per needed item, Install on the missing ones (action install {text: tool}). */
 function SetupItems({ setup }: { setup: NonNullable<EngineCard['setup']> }): ReactNode {
   const installs = useCards((s) => s.installs)
@@ -412,13 +501,14 @@ function SetupItems({ setup }: { setup: NonNullable<EngineCard['setup']> }): Rea
                 <Spinner size={12} c={color.faint} /> Installing…
               </span>
             )}
-            {!x.ok && !run?.running && (
+            {!x.ok && !run?.running && x.install.method !== 'none' && (
               <button
                 className="flex cursor-pointer items-center gap-[5px] rounded-full px-[10px] py-[3px] text-[12px] font-medium"
                 style={{ background: fill.button, color: color.text }}
-                onClick={() => cardAct('install', x.tool)}
+                onClick={() => itemAct(x)}
               >
-                <Download size={12} /> {run?.error ? 'Retry' : 'Install'}
+                {x.install.method === 'download' || x.install.method === 'open' ? <ExternalLink size={12} /> : <Download size={12} />}{' '}
+                {x.install.method === 'download' ? 'Get it' : x.install.method === 'open' ? 'Open' : run?.error ? 'Retry' : 'Install'}
               </button>
             )}
           </div>
@@ -428,21 +518,103 @@ function SetupItems({ setup }: { setup: NonNullable<EngineCard['setup']> }): Rea
   )
 }
 
-function CardActions({ actions }: { actions: CardAction[] }): ReactNode {
+function CardActions({ card, actions }: { card: EngineCard; actions: CardAction[] }): ReactNode {
+  const busy = useBusyIcon()
   const known = actions.filter((a) => ACTION[a])
   if (known.length === 0) return null
-  const primary = known.find((a) => ACTION[a]!.primary)
-  const busy = useBusyIcon()
+  const primary = primaryOf(card, known)
   // Quiet actions on the left, the one white primary on the right.
   return (
     <div className="mt-[16px] flex flex-wrap items-center gap-[8px]">
       {known
         .filter((a) => a !== primary)
         .map((a) => (
-          <QuietButton key={a} label={ACTION[a]!.label} icon={ACTION[a]!.Icon} onClick={() => cardAct(a)} />
+          <QuietButton key={a} label={actionLabel(card, a)} icon={busy(a, ACTION[a]!.Icon, true)} onClick={() => cardAct(a)} />
         ))}
       <span className="flex-1" />
-      {primary && <PrimaryButton label={ACTION[primary]!.label} icon={busy(primary, ACTION[primary]!.Icon)} onClick={() => cardAct(primary)} />}
+      {primary && <PrimaryButton label={actionLabel(card, primary)} icon={busy(primary, ACTION[primary]!.Icon)} onClick={() => cardAct(primary)} />}
+    </div>
+  )
+}
+
+const STYLE: Record<NonNullable<PreflightInfo['style']>, string> = { coding: 'Coding', 'no-code': 'No code', conceptual: 'Conceptual' }
+
+/** 1120 s -> "19 min", 6960 s -> "1 h 56 min". */
+function minutes(s: number): string {
+  const m = Math.round(s / 60)
+  return m < 60 ? `${m} min` : `${Math.floor(m / 60)} h${m % 60 ? ` ${m % 60} min` : ''}`
+}
+
+/**
+ * Preflight (before anything is built): one meta line (style · length · chapters · captions), what the
+ * lesson needs, and the engine's warning in amber when the video doesn't fit the goal.
+ * Captions come from the finder's result for the same video (preflight doesn't carry them).
+ */
+function Preflight({ card }: { card: EngineCard }): ReactNode {
+  const results = useCards((s) => s.results)
+  const p = card.preflight
+  const r = (p?.videoId && results[p.videoId]) || (p?.url && results[p.url]) || undefined
+  const style = p?.style ?? r?.style
+  const length = p?.durationS ?? r?.durationS
+  const chapters = p?.chapters ?? r?.chapters
+  const meta = [
+    style && STYLE[style],
+    length !== undefined && minutes(length),
+    chapters !== undefined && (chapters === 0 ? 'No chapters' : `${chapters} chapter${chapters === 1 ? '' : 's'}`),
+    r?.captions !== undefined && (r.captions ? 'Captions' : 'No captions')
+  ].filter((x): x is string => !!x)
+  const needs = (card.items ?? []).filter((x) => x.needed)
+  const missing = needs.filter((x) => !x.ok).length
+  return (
+    <div data-preflight className="mt-[12px] flex flex-col gap-[6px] text-[13px] leading-[18px]">
+      {meta.length > 0 && <div style={{ color: color.label }}>{meta.join(' · ')}</div>}
+      {needs.length > 0 && (
+        <div className="truncate" style={{ color: color.label }} title={needs.map((x) => x.label).join(', ')}>
+          <span style={{ color: color.faint }}>Needs </span>
+          {needs.map((x) => x.label).join(', ')}
+          {missing > 0 && <span style={{ color: color.faint }}> · {missing} to install</span>}
+        </div>
+      )}
+      {card.warning && <div style={{ color: color.amber }}>{card.warning}</div>}
+    </div>
+  )
+}
+
+type Resource = NonNullable<NonNullable<EngineCard['setup']>['resources']>[number]
+const RESOURCE_ICON: Record<Resource['kind'], LucideIcon> = { repo: FolderGit2, notebook: NotebookText, gist: FileCode2, file: File }
+
+/** The files the video links (what the Download button fetches): name + kind, one row each. */
+function Resources({ resources }: { resources: Resource[] }): ReactNode {
+  if (resources.length === 0) return null
+  return (
+    <div data-resources className="mt-[10px] flex flex-col gap-[2px] text-[13px]">
+      {resources.map((x) => {
+        const I = RESOURCE_ICON[x.kind] ?? File
+        return (
+          <div key={x.url} className="flex h-[26px] items-center gap-[8px]" title={x.url}>
+            <I size={13} strokeWidth={1.8} className="shrink-0" style={{ color: color.label }} />
+            <span className="min-w-0 truncate">{x.name}</span>
+            <span className="shrink-0 text-[12px]" style={{ color: color.faint }}>
+              {x.kind}
+            </span>
+          </div>
+        )
+      })}
+    </div>
+  )
+}
+
+/**
+ * Where to go when the place isn't on screen ("Open app.py in Cursor"): one line and an Open button
+ * (action open_editor), so "code not visible" always says what to do.
+ */
+function Where({ text }: { text: string }): ReactNode {
+  const busy = useBusyIcon()
+  return (
+    <div data-where className="mt-[12px] flex items-center gap-[10px] rounded-[12px] py-[6px] pl-[12px] pr-[6px]" style={{ background: fill.field }}>
+      <MapPin size={13} strokeWidth={1.8} className="shrink-0" style={{ color: color.label }} />
+      <span className="min-w-0 flex-1 truncate text-[13px]">{text}</span>
+      <QuietButton label="Open" icon={busy('open_editor', ExternalLink, true)} onClick={() => cardAct('open_editor')} />
     </div>
   )
 }
@@ -473,14 +645,12 @@ function Card(): ReactNode {
               <Body lines={3}>{c.body}</Body>
             </>
           )}
-          {c.guidingQuestion && (
-            <div className="mt-[6px] text-[13px] leading-[18px]" style={{ color: color.label }}>
-              {c.guidingQuestion}
-            </div>
-          )}
+          {c.guidingQuestion && <Question text={c.guidingQuestion} />}
         </div>
         <CloseButton />
       </div>
+      {c.kind === 'preflight' && <Preflight card={c} />}
+      {c.where && <Where text={c.where} />}
       {c.videoJump && (
         <div className="mt-[14px] flex">
           <OptionButton action="watch" label={`Watch ${c.videoJump.label}`} onClick={() => jumpTo(c.videoJump!.t)} />
@@ -488,7 +658,9 @@ function Card(): ReactNode {
       )}
       {c.diff && <UnifiedDiff diff={c.diff} />}
       {c.setup && <SetupItems setup={c.setup} />}
-      <CardActions actions={actions} />
+      {c.setup?.resources && <Resources resources={c.setup.resources} />}
+      {/* The where line has its own Open button: don't repeat it below. */}
+      <CardActions card={c} actions={c.where ? actions.filter((a) => a !== 'open_editor') : actions} />
     </div>
   )
 }
