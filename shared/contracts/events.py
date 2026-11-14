@@ -179,12 +179,21 @@ class VideoJump(_Model):
     label: str
 
 
-CardAction = Literal["confirm", "undo", "apply_fix", "open_editor"]
+class ResumeInfo(_Model):
+    lessonId: str
+    title: str
+    stepIndex: int
+    stepCount: int
+    stepTitle: str | None = None
+    lastActiveAt: float | None = None  # unix seconds
+
+
+CardAction = Literal["confirm", "undo", "apply_fix", "open_editor", "resume", "end_lesson"]  # end_lesson -> send the end_lesson command
 
 
 class Card(_Model):
     stepId: str | None = None
-    kind: Literal["explain", "hint", "answer"]
+    kind: Literal["explain", "hint", "answer", "resume"]
     title: str
     body: str
     videoJump: VideoJump | None = None
@@ -192,6 +201,7 @@ class Card(_Model):
     diff: str | None = None  # unified diff preview ("Apply this fix?")
     targets: list[Target] | None = None
     guidingQuestion: str | None = None
+    resume: ResumeInfo | None = None  # kind "resume" only
 
 
 class NetworkDiagram(_Model):
@@ -343,7 +353,7 @@ class BuildLesson(_Model):
 
 
 ActionKind = Literal["back", "explain", "diagram", "show_me", "hint", "voice_toggle", "ask", "apply_fix",
-                     "confirm", "undo", "open_editor"]
+                     "confirm", "undo", "open_editor", "resume"]
 
 
 class Action(_Model):
