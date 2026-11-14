@@ -13,6 +13,8 @@ The take follows docs/devpost/DEMO.md:
 Every beat is timed; the JSON report goes to --out (default: the scratch folder).
 
 It never touches demo/pinn-lab itself, never talks to another engine's port, and kills only the engine it spawned.
+Cost: a live take makes ~11 Anthropic calls and 3 Bright Data requests (no Gemini: the lesson is cached); --offline takes
+cost nothing (bogus keys behind a dead proxy).
 """
 
 from __future__ import annotations

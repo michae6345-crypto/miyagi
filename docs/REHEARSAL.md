@@ -4,7 +4,8 @@ Rehearsed on 2026-11-14 on the stage Mac with `scripts/rehearse.py`, on `integra
 includes E4's fixes for the bugs this rehearsal found and S8's preflight card. An earlier batch on 9f89e04 gave the
 same picture; see the end of §1. Re-checked on **bb8feb2** (the head when this PR was opened): one live take and the
 offline take both PASS (58.5 s / 47.7 s). The one change: Build → `lesson.ready` now takes **1.5 s** instead of
-0.02 s (the "ready hold" in 31c5f4b).
+0.02 s (the "ready hold" in 31c5f4b). On **292561d** (with E5's 96d12b8), zero-cost takes only (cost freeze): DEMO=1
+offline PASS (53.4 s); LIVE offline with `COACH_OFFLINE_FALLBACK=1` gets no card (§2).
 
 The script plays the app over the WebSocket: it reports the playhead like the player does, and it runs the learner's
 code with `tut run`. It starts its own engine on **:8797** (never :8787) on a **temp copy** of `demo/pinn-lab`, spools
@@ -16,6 +17,11 @@ Tiger data into the take's own folder, and turns off the engine's real-keyboard 
 ```bash
 .venv/bin/python scripts/rehearse.py --offline --demo --fix manual                     # the offline take
 ```
+
+**Cost:** one live take makes about 11 Anthropic calls (2 coach warm-up, 2 Sonnet diagrams, 1 Opus diagnosis, the rest
+preflight), 3 Bright Data requests and no Gemini calls (the lesson is cached). `--offline` takes cost nothing: the keys are
+bogus and every request dies at the dead proxy. During the cost freeze, run only `--offline` takes (with or without
+`--demo`).
 
 **What a take does** (the order of `docs/devpost/DEMO.md`): pre-fill sections 1–7 with `lr = 0.3` → `learn` the stage
 query → pick the Toscano row → preflight card → Build → `lesson.ready` → `POST /debug/goto/7` (s8, "Train the network and
@@ -52,16 +58,19 @@ and saturate the tanh units, so loss stalls near 17.35 with periodic spikes. Set
 
 **Where the coach's time goes** (engine log, all 4 takes): run fails → ~1 s to the next tick → **two Bright Data
 requests, 1.2–3.1 s** → **Opus 3.1–3.4 s** (prompt cache hit, 9658 tokens) → card. Every take logged `web=0`: none of
-the Bright Data results reached the card. DEMO.md's "about 3 s" is the Opus part only. The fix (skip web for
-metric-only failures) has been sent to E5.
+the Bright Data results reached the card. DEMO.md's "about 3 s" is the Opus part only. E5 made the coach skip web
+lookups when there's no error text (96d12b8, merged), **but in the engine it doesn't take effect**. The engine passes the
+run's output tail as `error_text` even for a clean run, so the coach still searches, now with queries built from
+`::metric::` lines (seen in the 292561d offline log). Sent to E5 and E4. Until it's fixed, expect 5–7 s, not 3.4 s.
+Re-measuring live waits for the cost freeze.
 
 **Typing delays the card.** The engine reads the Mac's real keyboard idle time. It never speaks within 2 s of a
 keystroke, and keys in the last 3 s block the idle trigger. In takes where someone was typing on this Mac, the card
 came **17–18 s after the run ended** instead of 2–4 s. On stage: **hands off the keyboard after ↵.**
 
 **The preflight card contradicts the stage for the hero:** "Building takes ~66 s" (it takes 0.02 s, cached) and "No
-code editor needed … Needs: google_colab (web)", then VS Code opens. Sent to S8. Until it's fixed, don't read those
-lines out.
+code editor needed … Needs: google_colab (web)", then VS Code opens. S8 fixed both in PR #42 ("Built before: ready
+instantly (9 steps)", editor needed); not merged or re-checked here yet. Until then, don't read those lines out.
 
 **Earlier batch on 9f89e04** (no preflight yet): 3/3 PASS, takes of 44–50 s; card 5.1–6.9 s after amber; green
 11.6–15.9 s. Before that, 4 exploratory takes using the real keyboard reader: 4/4 PASS.
@@ -86,8 +95,14 @@ every take spooled.
 | The video itself | needs YouTube | needs YouTube: narrate over the card |
 
 So with no network: the cached search, cached lesson, checks, `tut run` and the Tiger spool all work. A live coach
-can't: E5's coach raises on a connection error unless `DEMO=1`, so **if the network dies mid-demo, the LIVE engine shows
-no card**. Switch to `scripts/miyagi-offline.sh`.
+can't, so **if the network dies mid-demo, the LIVE engine shows no card**. Switch to `scripts/miyagi-offline.sh`.
+
+**`COACH_OFFLINE_FALLBACK=1` (E5, 96d12b8) doesn't rescue the hero yet.** Re-run on 292561d: LIVE engine, network dead,
+with the flag set. Still no card after 90 s; the same "connection error", with retries at +15/+31/+60 s. Reproduced
+directly against the coach with that run's own metrics: the `lr = 0.3` loss sat **flat** at 17.32 (flags `{plateau}`).
+`lr_too_high` only counts noisy/diverging/NaN losses, so it scores 0.3, and the best match is the convection
+`pinn_convection_large_beta` at 0.5, under the 0.6 bar, so the coach raises. It only fires on takes whose loss happens to
+bounce (some of today's did, most sat flat). Sent to E5. Don't rely on it on stage; the DEMO=1 cached card is deterministic.
 
 Under DEMO=1 the engine now calls E5's coach (E4's fix), which would itself fall back to the playbook, but only after
 Opus fails. With a dead proxy that's instant; on a half-dead network it means waiting out the timeouts (6 s web lookup,
@@ -105,7 +120,9 @@ newest cached lesson. Both are fixed in 3123eb6, and `miyagi-offline.sh` pins `O
 3. **The learner's Python, inside the lesson folder.** On this Mac `python` doesn't exist and `python3` has no torch.
    A `.venv` in `demo/pinn-lab` is git-ignored and skipped by the watcher and E2's cache key. S2's setup check looks
    there first: with it, the setup card says "You have everything this lesson needs" (measured). Use **`pyDOE==0.3.8`**
-   (the lesson's version): today's pyDOE installs as `pydoe`, and S2 then reports pyDOE missing (sent to S2).
+   (the lesson's version): today's pyDOE installs as `pydoe`, and S2 then reports pyDOE missing. S2's PR #41 fixes that
+   (and treats slow first imports as "still checking"); after it merges the pin is optional, but it still makes the card
+   faster.
    ```bash
    uv venv --python 3.12 demo/pinn-lab/.venv && uv pip install --python demo/pinn-lab/.venv/bin/python torch numpy scipy matplotlib scikit-learn "pyDOE==0.3.8" -e cli
    ```
@@ -182,7 +199,8 @@ newest cached lesson. Both are fixed in 3123eb6, and `miyagi-offline.sh` pins `O
 | Owner | Bug | Status |
 |---|---|---|
 | E4 | DEMO=1 coach used the convection β stub; DEMO=1 loaded the newest cached lesson; the offline coach error repeated every tick (43 in 88 s) | fixed in 3123eb6, re-verified here |
-| E5 | No playbook fallback on a connection error in live mode; the web lookup adds 1.2–3.9 s before Opus and is never used (`web=0`) | sent |
-| S8 | Hero preflight card: "Building takes ~66 s" (cached: 0.02 s), "No code editor needed / google_colab" (it's a VS Code lesson) | sent |
-| S2 | Setup check reports pyDOE missing when the current pyDOE (module `pydoe`) is installed; cold imports time out at 8 s | sent |
+| E5 | No playbook fallback on a connection error in live mode; the web lookup adds 1.2–3.9 s before Opus and is never used (`web=0`) | 96d12b8 merged (opt-in `COACH_OFFLINE_FALLBACK=1`, skip web without error text); two follow-ups sent: the flat-plateau hero doesn't reach 0.6, and the engine's `error_text` is the clean output tail |
+| E4 | Passes the run's output tail as `error_text` even when the run exited 0 with no error, so the coach searches the web on `::metric::` lines | sent |
+| S8 | Hero preflight card: "Building takes ~66 s" (cached: 0.02 s), "No code editor needed / google_colab" (it's a VS Code lesson) | fixed in PR #42 (not merged yet) |
+| S2 | Setup check reports pyDOE missing when the current pyDOE (module `pydoe`) is installed; cold imports time out at 8 s | fixed in PR #41 (not merged yet) |
 | S6 | DEMO.md timings and fixes: the first card has no Do it for me; the step jump; `python` missing on this Mac; the offline fallback | sent |
