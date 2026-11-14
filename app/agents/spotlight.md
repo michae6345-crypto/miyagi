@@ -1,6 +1,6 @@
 # spotlight
 
-**Status:** pass 1 done (awaiting Adrian's review) · **Priority:** P0 · **Port:** 5178 · **Branch:** `adrian/spotlight`
+**Status:** pass 1 + Miyagi brand pass done (awaiting Adrian's review) · **Priority:** P0 · **Port:** 5178 · **Branch:** `adrian/spotlight`
 
 ## Goal
 Screen-first building mode: the engine's screen reader finds where you should work (in any app) and sends a rectangle. We dim the screen to 55%, cut a rounded glowing hole there (it springs when the target moves; the glow pulses once, then stays still), and put a small glass caption beside it with a voice button.
@@ -29,11 +29,23 @@ overlayLayers: spotlight (z 10)
 
 ## Core requests
 1. **Overlay on the primary display (v1).** The engine v1 watches the primary display only, but the overlay window covers the display nearest the cursor at startup (`displayNow()` in `src/main/index.ts`). If the cursor is on a second display when the app starts, the spotlight is drawn nowhere. Simplest fix: put the overlay on `screen.getPrimaryDisplay()` (later: one overlay per display). The layer is already ready for either: each window converts with its own `layout.origin`, draws only if the hole touches it, and the caption goes to the window holding most of the target.
-2. **A hook for the overlay's other UI rects** (the same set core already reports as `overlay.bounds`), e.g. `useUiRects()` from `core/Overlay.tsx`, so the caption can stay clear of the shortcut bar / pill / cards. Local workaround: `useOtherUi()` in `Spotlight.tsx` reads `[data-hit],[data-ui]` from the DOM every 400ms.
-3. **Theme tokens** `dim` (black at 0.55) and a light accent (ring + code text). For now: `DIM` is a local constant and the light/soft accents are `color-mix()` of `color.accent`, so Adrian's theme already carries through.
+2. **A hook for the overlay's other UI rects** (the same set core already reports as `overlay.bounds`), e.g. `useUiRects()` from `core/Overlay.tsx`, so the caption can stay clear of the shortcut bar / pill / cards, **plus the player window's live rect** (it's its own window in Electron and the user can drag it). Local workarounds: `useOtherUi()` in `Spotlight.tsx` reads `[data-hit],[data-ui]` from the DOM every 400ms, and `index.tsx` avoids the player's default dock rect via `features/player/dock.ts` (a read-only import of the player's pure helper).
+3. **Theme token** `dim` (black at 0.55). It's a local constant in `Spotlight.tsx` for now. (The light-accent request is gone: the brand made `color.accent` white.)
 4. (dev) Vite doesn't see a new `mock/scenarios/*.json` until the dev server restarts (`mock/` is outside the Vite root). Worth a line in `agents/README.md` for the other agents.
 
 ## Notes
+**Adrian's feedback ("sleek, more contrast, a little color"), shots `agents/shots/spotlight-state-*.png`:**
+- Color only carries state, the same meaning as the pill's dot and the cards: the hairline is **white** while Miyagi watches, **amber** when off track, **green** when the step passes. The ring re-pulses on each state change, and on `step.passed` it holds green for 900ms (`PASS_HOLD_MS` in `store.ts`) before fading out. A 7px status dot (gray / amber / green) leads the caption's first line.
+- More contrast: the dim is 66% (was 55%), the ring rests at 0.9 opacity (was 0.6), and the code line is bright mono at 78% (was muted).
+- Still on brand: no new hue, no glow, no gradient. If Adrian wants a decorative accent color beyond the status colors, that's a brand-kit change (`core/theme.ts`).
+
+**Brand pass (Miyagi kit, `app/brand/BRAND.md`), shots `agents/shots/spotlight-brand-*.png`:**
+- The blurred blue glow ring is gone. The ring is a crisp 1.5px white hairline (`color.accent`) over a faint `color.onAccent` keyline at 0.35, so it still reads over light apps. No SVG filters. It still springs with the cut-out and pulses once in opacity (0.6 → 1 → 0.6).
+- The outline fallback uses the same hairline (no dim).
+- Caption: system font on the brand scale (13 / 15), title in `color.text`, code in muted white mono (`color.label`, `font.mono`). The voice button is white on dark when on (`color.accent` fill, `color.onAccent` icon) and quiet glass when off (`color.hairline` fill, `color.label` icon). No blues, `color-mix` accents or hard-coded colors left, except the dim's black (Core request 3) and the mask's luminance white/black.
+- With the lesson player now docked on the right, the caption keeps off it. Step 4's caption therefore sits **below** the residual block instead of to its right (mockup 04 predates the docked player). When every ideal spot is covered, it slides along the hole to the nearest free spot (≤160pt), or takes the least-covered spot, so it never jumps across the screen. The tour's third stop moved to `create_graph=True` (lines 20–21), which now flips left because of the player.
+- The `spotlight-0*.png` shots are pre-brand (blue glow); the `spotlight-brand-*` set replaces them.
+
 **Pass 1 (what works, all checked in the stage at 1600×1000 with headless Chrome; shots in `agents/shots/spotlight-*.png`):**
 - **Dim + cut-out:** black at 55%, fades in over 280ms (container opacity). Rounded hole (r 12) = target + 8pt padding, grown to at least 44×30 around its center. Step 4's rect lands at 60,411 690×124, exactly mockup 04's cut-out.
 - **Spring:** the hole is ONE set of motion values (x, y, w, h) sprung with the shared spring; the mask cut-out, glow and ring all read them (attributes written per frame, no React re-render). Retargeting mid-flight keeps velocity. Measured: ~240ms to land (`spotlight-06-spring-mid.png` is a real mid-flight frame).
@@ -45,7 +57,7 @@ overlayLayers: spotlight (z 10)
 - **Click-through:** the layer is `pointer-events: none`; only the voice button takes the pointer. The dim itself is not `data-ui`, so the engine's OCR still reads the screen under it.
 - **Reduced motion:** no spring, no pulse, no caption slide; crossfades only.
 
-**How to see it:** `npm run dev:web -- --port 5178` → `http://localhost:5178/?scenario=full`. Ctrl+K, type anything, Enter, Enter → step 4's spotlight ~1s after the lesson builds. Step 5 starts ~14s in: press **Alt+H** within its first ~2s to play the tour (`mock/scenarios/spotlight.json`: optimizer line → loss table → the video's heatmap, which flips the caption left → clear). Add `&spotlight=outline` for the fallback.
+**How to see it:** `npm run dev:web -- --port 5178` → `http://localhost:5178/?scenario=full`. Ctrl+K, type anything, Enter, Enter → step 4's spotlight ~1s after the lesson builds. Step 5 starts ~14s in: press **Alt+H** within its first ~2s to play the tour (`mock/scenarios/spotlight.json`: optimizer line → loss table → `create_graph=True`, which flips the caption left of the docked player → clear). Add `&spotlight=outline` for the fallback.
 
 **For Adrian (decisions / tuning):**
 - Mockup 04 reads darker than the spec's 55% (≈72% measured on its pixels); one constant, `DIM.opacity` in `Spotlight.tsx`.

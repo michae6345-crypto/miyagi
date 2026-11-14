@@ -1,7 +1,9 @@
-/** Feature: spotlight (screen-first). Dim + rounded glowing cut-out at the engine's rect + caption. */
+/** Feature: spotlight (screen-first). Dim + rounded cut-out with a hairline ring at the engine's rect + caption. */
 import type { ReactNode } from 'react'
 import type { Layout } from '../../../../preload/api'
+import { useLesson } from '../../core/lesson'
 import { defineFeature } from '../../core/registry'
+import { dockRect } from '../player/dock'
 import { hole, intersects, overlapShare, toLocal } from './place'
 import { Spotlight } from './Spotlight'
 import { spotlightMode, useSpotlight } from './store'
@@ -19,7 +21,12 @@ function SpotlightLayer({ layout }: { layout: Layout }): ReactNode {
   const here = cut && intersects(cut, screen) ? local : undefined
   // A target straddling two displays: the caption goes where most of it is.
   const showCaption = !!cut && overlapShare(cut, screen) >= 0.5
-  return <Spotlight target={here && t} rect={here} bounds={{ x: wa.x, y: wa.y, w: wa.width, h: wa.height }} mode={mode} showCaption={showCaption} />
+  // In Electron the lesson player is its own window (docked right 40%), so the overlay DOM can't see it:
+  // keep the caption off it using the player's own dock math. (In the stage it's also in the DOM.)
+  const lessonOn = useLesson((s) => !!s.lesson)
+  const dock = lessonOn ? dockRect(wa) : undefined
+  const avoid = dock ? [{ x: dock.x, y: dock.y, w: dock.width, h: dock.height }] : []
+  return <Spotlight target={here && t} rect={here} bounds={{ x: wa.x, y: wa.y, w: wa.width, h: wa.height }} avoid={avoid} mode={mode} showCaption={showCaption} />
 }
 
 export default defineFeature({ id: 'spotlight', overlayLayers: [{ id: 'spotlight', z: 10, Component: SpotlightLayer }] })

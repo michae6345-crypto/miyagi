@@ -16,6 +16,8 @@ export const HOLE_RADIUS = 12
 export const CAPTION_GAP = 22
 export const EDGE_MARGIN = 16
 export const CAPTION_TOP_OFFSET = 21
+/** How far the caption may slide along the hole to get clear of other UI before it settles for covering a little of it. */
+export const MAX_SLIDE = 160
 
 /**
  * Contract (shared/contracts/events.ts): rects are screen POINTS, top-left origin (Electron
@@ -59,8 +61,11 @@ type Placed = Point & { side: Side }
  *   2. flipped to the left when the right side would run off-screen
  *   3. below / above the hole when it's too wide for either side (a full-width terminal)
  *   4. last resort: inside the hole's top-right corner
- * Always clamped so it stays fully on screen (top and bottom edges included). The first spot that
- * fits AND doesn't cover other UI wins; if none is free, the first that fits is nudged above what it hits.
+ * Always clamped so it stays fully on screen (top and bottom edges included). Other UI it must not
+ * cover (`avoid`, ignored where it overlaps the target itself):
+ *   - the first of 1–3 whose spot is free wins;
+ *   - else the free spot nearest to one of them, sliding it along its edge of the hole (≤ MAX_SLIDE);
+ *   - else (nothing free nearby) the one that covers the least, so it stays next to the target.
  */
 export function placeCaption(target: Rect, size: { w: number; h: number }, bounds: Rect, avoid: Rect[] = []): Placed {
   const left = bounds.x + EDGE_MARGIN
@@ -89,12 +94,31 @@ export function placeCaption(target: Rect, size: { w: number; h: number }, bound
   // Covering the target is worse than nudging away from other UI, so `inside` is only for "nothing fits".
   if (!fitting.length) return inside
 
-  const hits = (p: Placed): Rect | undefined => avoid.find((o) => intersects({ x: p.x, y: p.y, w: size.w, h: size.h }, grow(o, 8)))
-  const free = fitting.find((p) => !hits(p))
+  // Our other UI, slightly grown; plus the hole itself so sliding never covers the target.
+  const blockers = [...avoid.filter((o) => !intersects(o, target)).map((o) => grow(o, 8)), grow(target, 4)]
+  const covered = (x: number, y: number): number => blockers.reduce((sum, b) => sum + overlapArea({ x, y, w: size.w, h: size.h }, b), 0)
+
+  const free = fitting.find((p) => !covered(p.x, p.y))
   if (free) return free
-  const p = fitting[0]
-  const o = hits(p)!
-  return { ...p, y: clamp(o.y - 8 - size.h, top, bottom - size.h) }
+
+  let best: { p: Placed; d: number } | undefined
+  for (const p of fitting) {
+    for (let d = 4; d <= MAX_SLIDE && (!best || d < best.d); d += 4) {
+      const y = [p.y - d, p.y + d].find((y) => y >= top && y + size.h <= bottom && !covered(p.x, y))
+      if (y !== undefined) {
+        best = { p: { ...p, y }, d }
+        break
+      }
+    }
+  }
+  if (best) return best.p
+  return fitting.reduce((a, b) => (covered(b.x, b.y) < covered(a.x, a.y) ? b : a))
+}
+
+function overlapArea(a: Rect, b: Rect): number {
+  const w = Math.min(a.x + a.w, b.x + b.w) - Math.max(a.x, b.x)
+  const h = Math.min(a.y + a.h, b.y + b.h) - Math.max(a.y, b.y)
+  return w > 0 && h > 0 ? w * h : 0
 }
 
 function grow(r: Rect, by: number): Rect {
@@ -103,9 +127,7 @@ function grow(r: Rect, by: number): Rect {
 
 /** Share of `a`'s area that lies inside `b` (0–1). */
 export function overlapShare(a: Rect, b: Rect): number {
-  const w = Math.min(a.x + a.w, b.x + b.w) - Math.max(a.x, b.x)
-  const h = Math.min(a.y + a.h, b.y + b.h) - Math.max(a.y, b.y)
-  return w > 0 && h > 0 && a.w * a.h > 0 ? (w * h) / (a.w * a.h) : 0
+  return a.w * a.h > 0 ? overlapArea(a, b) / (a.w * a.h) : 0
 }
 
 /** OCR jitter: the engine re-reads the screen every ~2s and boxes wobble by a point or two. */
