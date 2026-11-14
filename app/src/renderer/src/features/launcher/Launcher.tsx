@@ -41,7 +41,7 @@ import { color, copy, pill, radius, spring, springOut } from '../../core/theme'
 import { Action, Chip, Hint, Rise } from './parts'
 import { LinkRow, MessageRow, ResultRow, ROW_H, SkeletonRow } from './Rows'
 import { setLauncherOpen, startSearch, useSearch } from './store'
-import { tint } from './tint'
+import { chipTones, pastel, tint } from './tint'
 import { parseYouTube } from './youtube'
 
 type Phase = 'closed' | 'open' | 'closing' | 'building' | 'sending'
@@ -452,13 +452,13 @@ export function Launcher({ layout }: { layout: Layout }): ReactNode {
 
           {mode === 'ask' ? (
             <Rise key="ask" i={2} className="flex flex-wrap gap-[8px] px-[20px] pt-[12px]">
-              <Chip icon={BookOpen} label="Explain this step" kbd={bridge.platform.keys.explain} onClick={() => quick('explain')} />
-              <Chip icon={Lightbulb} label="Give me a hint" kbd={bridge.platform.keys.hint} onClick={() => quick('hint')} />
+              <Chip icon={BookOpen} label="Explain this step" kbd={bridge.platform.keys.explain} tone={pastel.sky} onClick={() => quick('explain')} />
+              <Chip icon={Lightbulb} label="Give me a hint" kbd={bridge.platform.keys.hint} tone={pastel.pink} onClick={() => quick('hint')} />
             </Rise>
           ) : view === 'idle' ? (
             <Rise key="try" i={2} className="flex flex-wrap gap-[8px] px-[20px] pt-[12px]">
-              {SUGGESTIONS.map((s) => (
-                <Chip key={s.label} icon={s.icon} label={s.label} onClick={() => suggest(s.label)} />
+              {SUGGESTIONS.map((s, i) => (
+                <Chip key={s.label} icon={s.icon} label={s.label} tone={chipTones[i % chipTones.length]} onClick={() => suggest(s.label)} />
               ))}
             </Rise>
           ) : (
