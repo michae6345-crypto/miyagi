@@ -1,6 +1,6 @@
 # diagrams
 
-**Status:** v1 (network + gradients) · pass 2 · **Priority:** P1 · **Port:** 5180 · **Branch:** `adrian/diagrams`
+**Status:** pass 2 functional pieces done (graph: all 6 layouts · heatmap canvas · tabs) · styling of `Diagram.tsx` (network/gradients colors, PINN literals, caption clamp) is the UI-polish session's (`adrian/consistency`); merge it in when it lands · **Priority:** P1 · **Port:** 5180 · **Branch:** `adrian/diagrams`
 
 ## Goal
 Intuition diagrams that morph out of the pill (⌥D). The generic **graph** is the one that matters most: it's the only diagram any non-PINN lesson gets (React, git, pandas, diffusion). Michael P1-4.
@@ -30,5 +30,17 @@ Intuition diagrams that morph out of the pill (⌥D). The generic **graph** is t
 ## Test
 `npm run dev:web -- --port 5180` → `http://localhost:5180/?scenario=diagrams`, Alt+D. Restart the dev server after adding the scenario file.
 
+## Pass 2 notes (diagrams agent)
+- **Files:** `Graph.tsx` (kind graph), `Heatmap.tsx` (kind heatmap), `Tabs.tsx` (tabs + `titleOf`), `store.ts` (per-step `byKind` / `kinds`, `showKind`). `Diagram.tsx` only got wiring lines (imports, `titleOf`, `<DiagramTabs fallback>`, the two kind branches).
+- **graph, layered (flow · data · architecture · tree):** LR columns are sized to their labels (canvas-measured), S-curves between columns, edge labels on the curve with a black backing; a one-row chain (pandas) puts edge labels above the arrows and lets details wrap to 2 lines. TB (trees): curves down, back edges (child → parent callbacks) arc on the right. Groups named in `groups` draw as a faint cluster with their label. Text shrinks to 10 px, then truncates; the full label and detail are in the hover title.
+- **graph, sequence:** participants on top, dashed lifelines, one arrow per message by `order`, self-calls as a small loop.
+- **graph, git:** rendered as a vertical log (like `git log --graph`), not horizontal lanes: lanes are columns on the left, hash + message + branch tag (at each lane's newest commit) on the right. Reason: horizontal lanes put commit labels in the band every cross-lane curve must cross (labels got cut in the rebase example), and 12 commits don't fit 600 px across. Lines fork into the child's lane right after the parent (or merge right before the child); dashed copy edges leave between lanes and point at the copy from the side. Emphasized commits are filled white.
+- **heatmap:** canvas, t left → right, x bottom → top (engine order `grid[t][x]`, a transposed `[x][t]` grid is accepted). Predicted and exact side by side on one shared scale, from `fill.thumb` to `color.text` (no hues); 8-step scale with min/max; hover shows `t · x · values`. Malformed or empty data renders nothing (no placeholder).
+- **Tabs:** only when the engine sent more than one kind for the same step (payload `stepId`, else the lesson's current step). Neutral chrome, the selected tab slides on the one spring.
+- **Motion:** edges draw in 350 ms, 30 ms stagger by rank / message order; dashed edges draw through a mask (pathLength can't animate a dashed stroke); heatmap panels sweep in along t.
+- **Caption:** left to `Diagram.tsx` (polish). Engine graph captions run to ~200 characters (2 lines at 600 px), so a 1-line clamp would cut most of them: suggest `line-clamp-2` with the full text on hover.
+- **Mock:** `?scenario=diagrams`: Alt+D shows flow (React effect), then Alt+D/Esc closes; the next Alt+D shows sequence (login), tree (components), data (pandas), architecture (cache, with groups), git (rebase), then network + heatmap with tabs, and loops. Flow, data and git are the engine's live examples verbatim (`server/diagrams/examples/`); sequence, tree and architecture are hand-made to `layout.py`'s rules.
+- **Shots:** `agents/shots/diagrams-{flow,sequence,tree,data,architecture,git,git-12,heatmap,heatmap-hover,heatmap-single,tabs-network}.png`.
+
 ## Core requests
-_None yet._
+_None._ (The contract already has `GraphDiagramData`, and `events.py` has `GraphDiagram` on `main` and `integration/live`, so graph payloads reach the app.)
