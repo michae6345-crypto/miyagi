@@ -12,6 +12,7 @@ import time
 from collections.abc import Callable
 from pathlib import Path
 
+from . import lines as L
 from . import match as M
 from .describe import DescribeError, Describer, to_jpeg
 from .metrics import TerminalMetricReader, TigerWriter
@@ -248,6 +249,68 @@ class ScreenReader:
     def locate_match(self, match: str, app: str | None = None) -> M.LocateResult | None:
         obs = self.latest() or self.observe_now(force=True)
         return M.locate_match(obs, match, app) if obs else None
+
+    # ------------------------------------------------------------------ editor lines ("just teach me")
+
+    def locate_line(self, file: str | None, line: int, app: str | None = None,
+                    obs: ScreenObservation | None = None) -> L.LineLocation:
+        """Where file line `line` of `file` is in VS Code / Cursor: a full-width row rect of the editor
+        text area, or (falsy result) `rect=None` with `visible_lines`, `direction` and `reason` so the
+        caller can scroll there (`cursor -g file:line`) and ask again. OCR of a fresh frame (<= 1 s old),
+        cross-checked with the AX editor state when Accessibility is granted."""
+        obs = obs or self._fresh_obs()
+        loc = L.locate_line(obs, file, line, app) if obs else L.LineLocation(file, line, reason="no_editor")
+        if obs is None or obs.source == "live":
+            ed, doc = self._ax_editor()
+            loc = L.merge_ax(loc, ed, doc, file, line)
+        return loc
+
+    def locate_anchor(self, text: str, app: str | None = None, file: str | None = None) -> L.LineLocation:
+        """The editor line containing `text` (e.g. "def pde_residual("), as in `locate_line`, plus
+        `match_rect` (the text itself) and `line` (its file line number). If the anchor is scrolled
+        off screen, `line` + `direction` still come from the AX buffer, or from `file` on disk."""
+        obs = self._fresh_obs()
+        live = obs is None or obs.source == "live"
+        ed, doc = self._ax_editor() if live else (None, None)
+        if ed is not None and (file is None or L.same_file(doc, file)):
+            n = L.ax_anchor_line(ed, text)
+            if n is not None:
+                loc = self.locate_line(file or doc, n, app, obs=obs)
+                if loc and obs is not None:
+                    ocr = L.locate_anchor(obs, text, app, file or doc)
+                    if ocr.line == n:
+                        loc.match_rect = ocr.match_rect
+                return loc
+        if obs is None:
+            return L.LineLocation(file, None, reason="no_editor")
+        return L.locate_anchor(obs, text, app, file, _read_text(file))
+
+    def _fresh_obs(self, max_age: float = 1.0) -> ScreenObservation | None:
+        obs = self.latest()
+        if obs is not None and (time.time() - obs.t <= max_age or obs.source != "live"):
+            return obs
+        try:
+            return self.observe_now(force=True, trigger="locate") or self.latest()
+        except Exception:
+            if obs is not None:
+                return obs
+            raise
+
+    def _ax_editor(self):
+        """(EditorState, document) of the focused editor via AX, or (None, None)."""
+        if sys.platform != "darwin" or not self.use_ax:
+            return None, None
+        try:
+            snap = self.ax_reader.latest() if self.ax_reader is not None and self.ax_reader.available else None
+            if snap is None or time.time() - snap.t > 1.0:
+                from . import ax
+                snap = ax.snapshot() if ax.trusted() else None
+        except Exception as e:  # noqa: BLE001
+            log.debug("AX editor read failed: %s", e)
+            return None, None
+        if snap is None or snap.editor is None:
+            return None, None
+        return snap.editor, snap.document
 
     def contains(self, pattern: str, app: str | None = None) -> bool:
         obs = self.latest()
@@ -555,6 +618,16 @@ def _redact_ax(d: dict) -> dict:
             return [walk(x) for x in v]
         return v
     return walk(d)
+
+
+def _read_text(file: str | None) -> str | None:
+    if not file or not os.path.isfile(file):
+        return None
+    try:
+        with open(file, encoding="utf-8", errors="replace") as f:
+            return f.read()
+    except OSError:
+        return None
 
 
 def load_fixture(path: str):

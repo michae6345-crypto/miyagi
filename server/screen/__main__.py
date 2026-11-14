@@ -7,8 +7,11 @@
     python -m server.screen describe "Is the loss converging?"     # Claude Opus 5.5
     python -m server.screen where "the Run button"                 # Claude Haiku 5.5
     python -m server.screen fixture NAME [--apps Code Terminal]   # save a privacy-safe fixture PNG
+    python -m server.screen line pinn_demo/pinn_convection.py 47 [--out line.png]   # editor row rect
+    python -m server.screen anchor "def pde_residual(" [--file path] [--out anchor.png]
 
-Every command takes --image PATH to run on a saved screenshot instead of the live screen.
+Every command takes --image PATH to run on a saved screenshot instead of the live screen
+(`line`/`anchor` also take a recorded `<name>.ocr.json`).
 """
 from __future__ import annotations
 
@@ -23,6 +26,9 @@ from pathlib import Path
 
 def _obs(args):
     from .reader import ScreenReader, observe_image
+    if args.image and args.image.endswith(".json"):
+        from .types import ScreenObservation
+        return ScreenObservation.from_dict(json.loads(Path(args.image).read_text())), None
     if args.image:
         return observe_image(args.image), None
     r = ScreenReader()
@@ -181,6 +187,50 @@ def cmd_fixture(args) -> None:
     print(f"saved {png} with {len(wins)} windows")
 
 
+def _draw_line_loc(args, loc, reader) -> None:
+    if not args.out:
+        return
+    from PIL import ImageDraw
+
+    from . import macos
+    if args.image and args.image.endswith(".json"):
+        png = args.image.removesuffix(".ocr.json").removesuffix(".json") + ".png"
+        if not Path(png).exists():
+            return
+        pil, s = macos.cgimage_to_pil(macos.load_cgimage(png)), 2.0
+    elif args.image:
+        pil, s = macos.cgimage_to_pil(macos.load_cgimage(args.image)), 2.0
+    else:
+        pil, s = reader.screenshot_pil(), reader.latest().scale
+    d = ImageDraw.Draw(pil)
+    for r, col in ((loc.pane, (0, 160, 255)), (loc.rect, (255, 40, 40)), (loc.match_rect, (255, 200, 0))):
+        if r is not None:
+            d.rectangle([r.x * s, r.y * s, r.x2 * s, r.y2 * s], outline=col, width=max(2, int(2 * s)))
+    pil.save(args.out)
+    print(f"saved {Path(args.out).resolve()}")
+
+
+def cmd_line(args) -> None:
+    from .lines import locate_line
+    obs, reader = _obs(args)
+    loc = reader.locate_line(args.file, args.line, args.app, obs=obs) if reader else locate_line(
+        obs, args.file, args.line, args.app)
+    print(json.dumps(loc.to_dict(), indent=2))
+    _draw_line_loc(args, loc, reader)
+    sys.exit(0 if loc else 1)
+
+
+def cmd_anchor(args) -> None:
+    from .lines import locate_anchor
+    from .reader import _read_text
+    obs, reader = _obs(args)
+    loc = reader.locate_anchor(args.text, args.app, args.file) if reader else locate_anchor(
+        obs, args.text, args.app, args.file, _read_text(args.file))
+    print(json.dumps(loc.to_dict(), indent=2))
+    _draw_line_loc(args, loc, reader)
+    sys.exit(0 if loc else 1)
+
+
 def cmd_ax(args) -> None:
     """AX spike: what the accessibility tree gives for the frontmost app, every 0.5 s."""
     from . import ax
@@ -258,6 +308,18 @@ def main(argv=None) -> None:
     cu = sub.add_parser("cursor")
     cu.add_argument("--seconds", type=float, default=10)
     cu.set_defaults(fn=cmd_cursor)
+    li = sub.add_parser("line", help="full-width rect of an editor line (VS Code / Cursor)")
+    li.add_argument("file")
+    li.add_argument("line", type=int)
+    li.add_argument("--app")
+    li.add_argument("--out", help="save a PNG with the pane (blue) and the line (red) drawn")
+    li.set_defaults(fn=cmd_line)
+    an = sub.add_parser("anchor", help="the editor line containing TEXT")
+    an.add_argument("text")
+    an.add_argument("--file", help="the file (on disk) the anchor is in: resolves off-screen anchors")
+    an.add_argument("--app")
+    an.add_argument("--out")
+    an.set_defaults(fn=cmd_anchor)
     args = p.parse_args(argv)
     args.fn(args)
 

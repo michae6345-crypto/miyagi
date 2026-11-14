@@ -162,5 +162,20 @@ class ScreenObservation:
             d["blocks"] = [b.to_dict() for b in self.blocks]
         return d
 
+    @staticmethod
+    def from_dict(d: dict) -> ScreenObservation:
+        """Inverse of `to_dict()` (recorded observations: offline tests, replays)."""
+        cur = d.get("cursor")
+        return ScreenObservation(
+            t=float(d.get("t", 0.0)), app=d.get("app", ""),
+            windows=[Window(w["app"], w.get("title", ""), Rect.from_any(w["rect"])) for w in d.get("windows", [])],
+            blocks=[Block(b["text"], Rect.from_any(b["rect"]), float(b.get("confidence", 1.0)), b.get("app"),
+                          b.get("window")) for b in d.get("blocks", [])],
+            screen=Rect.from_any(d["screen"]) if d.get("screen") else Rect(0, 0, 0, 0),
+            scale=float(d.get("scale", 1.0)), ocr_ms=float(d.get("ocr_ms", 0.0)), frame=int(d.get("frame", 0)),
+            source=d.get("source", "recorded"), cursor=(cur["x"], cur["y"]) if cur else None,
+            under_cursor=d.get("under_cursor"), ax=d.get("ax"), trigger=d.get("trigger", "tick"),
+            overlay_excluded=bool(d.get("overlay_excluded", False)))
+
 
 __all__ = ["Block", "Rect", "ScreenObservation", "Window", "asdict"]

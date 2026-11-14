@@ -77,3 +77,39 @@ the two fixture screenshots (VS Code + Terminal, flat loss at β=30 vs. dropping
 python -m server.screen ax --seconds 20 [--prompt]   # AX spike: frontmost app's editor/terminal state
 python -m server.screen cursor --seconds 20          # what's under the mouse
 ```
+
+## Editor lines: where to type ("Just teach me")
+```python
+from server.screen import locate_line, locate_anchor
+loc = locate_line("pinn_demo/pinn_convection.py", 48)          # LineLocation, truthy when on screen
+loc.rect            # Rect: full-width row of the editor text area (points, top-left, primary display)
+loc.visible_lines   # (first, last) file lines visible in that editor pane
+loc.direction       # "up" / "down" when the line is scrolled off (rect None): scroll, then ask again
+loc.reason          # None | no_editor | file_not_active | not_visible | not_found
+loc = locate_anchor("def pde_residual(", file="pinn_demo/pinn_convection.py")
+loc.line, loc.rect, loc.match_rect   # its file line, the full row, and the anchor text itself
+```
+- **OCR** (always): finds the line-number gutter (a right-aligned column of increasing integers),
+  fits row centres and line height, and fills rows Vision didn't number (it skips lone digits
+  1–9, and blank lines have no text) up to the breadcrumbs above and the panel below. Width: from
+  the code's left edge to the minimap. Works for full-screen windows (no menu-bar offset) and any
+  font size; the terminal panel's `epoch 100, 200, …` column is rejected (wrong spacing).
+- **The right file**: the breadcrumb above the pane, else the window title. Tabs don't count
+  (inactive tabs are listed too). Another file in front gives `reason="file_not_active"`.
+- **Off-screen anchors**: from the AX buffer when Accessibility is granted (unsaved text too), or
+  from `file` on disk; `line` + `direction` come back with `rect=None`.
+- **AX** (when granted): the focused file, exact buffer text, and the caret-line rect. A row that
+  agrees with OCR within half a line takes AX's y (`source="ax+ocr"`). If they disagree, OCR wins
+  (folding and word wrap break AX's extrapolation from the caret). AX alone is used only when OCR
+  finds no editor. **AX is not verified live yet** (no Accessibility grant on the dev Mac).
+- `obs=` runs on a given observation (pure, any OS); without it the live reader uses a frame at
+  most 1 s old.
+```bash
+python -m server.screen line pinn_demo/pinn_convection.py 48 --out line.png
+python -m server.screen --image server/screen/fixtures/cursor_fullscreen_bigfont.ocr.json line x.py 100
+python -m server.screen anchor "def pde_residual(" --file pinn_demo/pinn_convection.py
+```
+Tests: `server/screen/tests/test_lines.py` runs on recorded Vision OCR of three rendered
+full-screen editors: VS Code at the top of a file, VS Code scrolled to lines 44–84, and Cursor at
+14 pt scrolled to 70–115. Each fixture has ground truth for every row; all rows land within 2 pt.
+Regenerate them with `python -m server.screen.tests.make_editor_fixtures`.
