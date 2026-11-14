@@ -220,3 +220,36 @@ def test_judge_step_ignores_gates_and_never_raises(monkeypatch):
 
     monkeypatch.setattr(llm, "structured_call", down)
     assert run(coach.judge_step(S1, SCREEN)) is None
+
+
+# ---------- S1 actions QA: the hint ladder must not read canned ------------------------------------------
+
+NB_STEP = {"id": "n1", "title": "Import the libraries", "instructions": "In the first cell, import numpy, pandas and matplotlib.",
+           "video": {"sourceId": "yt", "start": 44, "end": 90},
+           "explanations": [{"topic": "Linear model f(x) = wx + b", "t": 44, "sourceId": "yt"}],
+           "checks": [{"id": "n1a", "type": "file_contains", "label": "numpy imported", "file": "lesson.ipynb", "pattern": "import numpy"}],
+           "hints": ["In the first cell, import numpy as np, pandas as pd, and matplotlib.pyplot as plt."]}
+
+
+def test_three_presses_give_three_different_rungs():
+    common.set_lesson({"lesson": {}, "sources": [], "steps": [NB_STEP]})
+    ladder = [coach.hint(NB_STEP, i, {}) for i in range(3)]
+    assert [h["level"] for h in ladder] == [0, 1, 2]  # level 2 is no longer skipped without a paper
+    assert len({h["title"] for h in ladder}) == 3 and all("Import the libraries" in h["title"] for h in ladder)
+    q = ladder[0]["body"]
+    assert q.endswith("?") and "lesson.ipynb" in q and not q.startswith("In the first cell")  # a question, not the instruction
+    assert ladder[1]["body"] == "Rewatch 0:44, where the tutorial shows linear model f(x) = wx + b."
+    assert ladder[1]["videoJump"] == {"t": 44.0, "label": "Rewatch 0:44"}
+    assert ladder[2]["title"].startswith("Key idea") and ladder[2]["body"] == NB_STEP["hints"][0]
+    assert coach.hint(NB_STEP, 3, {})["title"].startswith("Compare with the tutorial · ")
+
+
+def test_level0_questions_by_check_type():
+    for check, want in [
+        ({"id": "a", "type": "file_exists", "label": "calc.py exists", "file": "calc.py"}, "Is calc.py in your lesson folder yet"),
+        ({"id": "b", "type": "command_exit_ok", "label": "runs", "command": "npm test"}, "What happens when you run `npm test`"),
+        ({"id": "c", "type": "metric_threshold", "label": "loss < 1e-2", "metric": "loss"}, "Is loss heading toward “loss < 1e-2”"),
+        ({"id": "d", "type": "visual", "label": "chart shows two lines"}, "What would you point at on screen to show “chart shows two lines”"),
+    ]:
+        h = coach.hint({"id": "x", "title": "T", "checks": [check]}, 0, {})
+        assert h["body"].startswith(want) and h["body"].endswith("?")
