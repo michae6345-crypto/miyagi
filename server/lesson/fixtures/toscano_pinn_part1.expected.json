@@ -159,7 +159,7 @@
           "type": "screen_contains",
           "label": "bounds recorded",
           "app": "Code",
-          "pattern": "ub\\s*=",
+          "pattern": "lb\\s*,\\s*ub\\s*=|ub\\s*=\\s*x_test\\[",
           "id": "s3c2"
         }
       ],
