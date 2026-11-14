@@ -7,6 +7,36 @@ Each video got a fresh empty workdir, i.e. a learner starting from scratch. Engi
 Re-run: `python evals/lesson/run.py --src <checkout>`. Raw graphs are in `results/<id>.json`, automatic grades in `results/grades.json`,
 build logs in `results/<id>.log` (gitignored; per-pass timings are quoted below). Transcripts were used for spot checks but are not committed.
 
+## Third run (`38f85bc`): fixes for the 4 remaining issues
+
+Same setup as the second run below: Gemini at its daily quota and YouTube refusing caption requests, so this used `--saved-captions` and only the Claude path ran. Results are in `results-38f85bc/`.
+
+| Lesson | Time (9d5fbb9) | Steps | Adapt rounds (problems left after each) | Leftover warnings | Manual /10 |
+|---|---|---|---|---|---|
+| react-useeffect | 45 s (20 s) | 9 | 3 (10 → 6 → 5) | s7 `npm run dev` has no output check | 8.5 |
+| git-rebase | 29 s (18 s) | 5 | 1 (clean) | – | 8 |
+| pandas-30min | **108 s** (49 s) | 9 | 3 (13 → 6 → 7) | s5, s6, s8 "notebook cell" steps have no output check | 8 |
+| rust-cli | **115 s** (72 s) | 8 | 3 (4 → 1 → 2) | – | 9 |
+| fastapi-rest | 43 s (22 s) | 8 | 3 (5 → 2 → 3) | – | 9 |
+
+**What the fixes changed:**
+- **Fixed:** React's any-window "Subtract" / "Change color" checks that passed on the editor are gone. The grader finds 0 any-window checks matching the learner's code.
+- **Fixed:** the vague patterns are gone (`\*\s*\S+`, `\|\s*/`, `\bmain\b`, `\S+\s+0\.1\.0`). The git lesson still starts with the practice-repo setup step and uses only real git output.
+- **Regression: the lint and the model don't converge.** 4/5 lessons use all 3 adapt rounds, and the problem count stops falling after round 2. Each round regenerates every step: 25–29 s for pandas and Rust, ~10 s for the others. The build then falls back to `repair` anyway. Net effect: +11 to +59 s per lesson compared with 9d5fbb9.
+- **Not fixed: notebook steps still lack a real output check.** pandas s5 `Country|Quantity|Category`, s6 `CustomerName` and s8 `Order\s+ID` are scoped to `Code`. They match the cell's own code (`df['Country']`, `rename(columns={'OrderID': 'Order ID'})`), so they correctly don't count as output. But the model never offers a printed-DataFrame pattern instead, so each of these steps ships with a warning and a check that passes from the code alone.
+- **Untested:** Gemini's 8 s grace period. Gemini failed instantly on quota, so the race never ran.
+
+**Next fixes (ranked):**
+1. **Make the adapt loop converge or stop early** (`builder._adapt`, `ADAPT_ATTEMPTS`).
+   - Send only the failing steps back, not the whole graph; that is most of the 25–29 s per round.
+   - Stop retrying when a round doesn't reduce the problem count, and let `repair` handle the rest.
+   - This would bring pandas and Rust back to ~50–60 s.
+2. **Fill in the output check deterministically when the model doesn't.** In `repair`, add a stack-standard output check to any run step left without one:
+   - Vite: `Local:\s+http://localhost:\d+` for `npm run dev`.
+   - pandas notebook: `\d+\s*rows\s*[x×]\s*\d+\s*columns|dtype:\s*\w+|Name:\s*\w+`.
+   - pytest: `\d+\s+passed`; cargo: `Finished`; uvicorn: `Uvicorn\s*running\s*on`.
+   - Adding the same list to the adapt prompt should also stop the loop from asking for them 3 times.
+
 ## Re-run on E2's fixes (`9d5fbb9`), 2026-11-14 ~14:40 PST
 
 The same 5 videos with the same goals, a fresh empty workdir and `cache=False`. Results are in `results-9d5fbb9/`.
