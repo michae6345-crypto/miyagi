@@ -528,3 +528,23 @@ def test_race_prefers_gemini_when_it_answers_in_time(fake, monkeypatch):
     gemini.last_model = "gemini-4-hydrogen"
     g = asyncio.run(builder.build_lesson(URL, "x", WORKDIR, refresh=True))
     assert g["build"]["model"]["video"].startswith("gemini-4-hydrogen")
+
+
+def test_progress_callback_reports_stable_stages(fake, monkeypatch):
+    monkeypatch.setenv("LESSON_ENGINE", "auto")
+
+    async def gemini_down(*a, **k):
+        raise RuntimeError("Gemini call failed: 429 RESOURCE_EXHAUSTED PerDay")
+
+    monkeypatch.setattr(gemini, "watch_video", gemini_down)
+    calls = []
+    _claude_fakes(monkeypatch, calls)
+    seen = []
+    asyncio.run(builder.build_lesson(URL, "x", WORKDIR, refresh=True, on_progress=lambda s, m: seen.append((s, m))))
+    stages = [s for s, _ in seen]
+    assert set(stages) <= set(builder.STAGES)
+    assert ("engine_switch", "quota") in seen and ("steps_ready", "claude") in seen
+    assert stages[-1] == "done" and "adapting" in stages and "reading_transcript" in stages and "writing_steps" in stages
+    seen.clear()
+    asyncio.run(builder.build_lesson(URL, "other words", WORKDIR, on_progress=lambda s, m: seen.append((s, m))))
+    assert [s for s, _ in seen] == ["cache_hit", "done"]

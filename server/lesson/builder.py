@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import contextvars
 import copy
 import hashlib
 import json
@@ -16,6 +17,25 @@ import os
 from . import claude, gemini, transcript
 from .schema import CHECK_TYPES, PRECISION_TYPES, REPO_ROOT, SCREEN_TYPES, check_problems, lint, schema_errors, step_check_problems
 from .workdir import WorkdirInfo, scan
+
+# Progress for the UI. Stable stage ids (the app maps them to text; log wording may change):
+#   cache_hit, watching (Gemini watches the video), reading_transcript, writing_steps (Claude),
+#   engine_switch (Gemini failed/slow -> transcript path; message says why), steps_ready (message = engine),
+#   adapting (fitting checks to the learner's project), done
+STAGES = ("cache_hit", "watching", "reading_transcript", "writing_steps", "engine_switch", "steps_ready", "adapting", "done")
+_progress: contextvars.ContextVar = contextvars.ContextVar("lesson_progress", default=None)
+
+
+def _emit(stage: str, message: str = "") -> None:
+    cb = _progress.get()
+    if cb is None:
+        return
+    try:
+        r = cb(stage, message)
+        if asyncio.iscoroutine(r):
+            asyncio.ensure_future(r)
+    except Exception as e:  # noqa: BLE001  a UI callback must never break a build
+        log.debug("progress callback failed: %s", e)
 
 log = logging.getLogger("server.lesson")
 
@@ -47,6 +67,7 @@ async def build_lesson(
     api_key: str | None = None,
     anthropic_key: str | None = None,
     cache: bool = True,
+    on_progress=None,
 ) -> dict:
     """Return a step graph that validates against shared/contracts/step-graph.schema.json.
 
@@ -57,6 +78,7 @@ async def build_lesson(
     video's transcript + title/description/chapters. build.model records which model did what.
     If both fail the error is raised, never papered over with made-up steps.
     api_key / anthropic_key: the app's bring-your-own keys (config.keys.gemini / .anthropic).
+    on_progress(stage, message): optional callback (sync or async) with a stage id from STAGES.
     refresh: rebuild everything (new video pass). readapt: reuse the cached video draft, redo only
     the cheap adapt pass (e.g. after the workdir changed or an adapt pass ran out of quota).
     detail: per-step clip pass at 2 fps (costs one request per step; off by default on the free tier).
@@ -68,6 +90,7 @@ async def build_lesson(
     project layout gets checks adapted to it). A graph whose adapt pass failed is returned
     with build.adapted=False and is NOT cached (the video draft is, so a retry is cheap).
     """
+    _progress.set(on_progress)  # also clears a callback left by an earlier build in the same task
     vid = gemini.youtube_id(source_url)
     if not vid:
         raise ValueError(f"only YouTube sources are supported for now: {source_url!r}")
@@ -80,6 +103,8 @@ async def build_lesson(
             graph = json.loads(hit.read_text())
             graph["lesson"]["workdir"] = workdir
             log.info("lesson cache hit %s%s", hit.name, "" if hit == path else " (same video + workdir, different goal wording)")
+            _emit("cache_hit", hit.name)
+            _emit("done", hit.name)
             return graph
 
     if api_key:
@@ -110,10 +135,12 @@ async def build_lesson(
         raise RuntimeError("step graph failed contract validation:\n" + "\n".join(errs))
     if not adapted_ok or not cache:
         log.warning("lesson built in %.1fs; not cached (%s)", time.time() - t0, "adapt pass failed" if not adapted_ok else "cache=False")
+        _emit("done", f"{time.time() - t0:.0f}s")
         return graph
     CACHE_DIR.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(graph, indent=2))
     log.info("lesson built in %.1fs -> %s (%d warnings)", time.time() - t0, path, len(warnings))
+    _emit("done", f"{time.time() - t0:.0f}s")
     return graph
 
 
@@ -225,7 +252,9 @@ async def _watch(url: str, vid: str, goal: str) -> dict:
 
     async def claude_draft() -> dict:
         t0 = time.time()
+        _emit("reading_transcript")
         info = await transcript.fetch_video_info(vid)
+        _emit("writing_steps", f"{len(info.get('transcript') or [])} transcript lines")
         last: Exception | None = None
         for _attempt in range(2):
             try:
@@ -243,6 +272,7 @@ async def _watch(url: str, vid: str, goal: str) -> dict:
     async def gemini_draft() -> dict:
         t0 = time.time()
         cap = float(os.environ.get("LESSON_GEMINI_TIMEOUT", GEMINI_VIDEO_TIMEOUT_S))
+        _emit("watching")
         try:
             raw = await asyncio.wait_for(gemini.watch_video(url, goal), cap)
         except TimeoutError as e:
@@ -270,6 +300,7 @@ async def _watch(url: str, vid: str, goal: str) -> dict:
             done, pending = await asyncio.wait(pending, timeout=timeout, return_when=asyncio.FIRST_COMPLETED)
             if not done:  # Claude is ready and Gemini used up its grace period: don't keep the learner waiting
                 errors.append(f"gemini: still watching {grace:.0f}s after the transcript draft was ready")
+                _emit("engine_switch", "slow")
                 break
             for t in done:
                 eng = next(k for k, v in tasks.items() if v is t)
@@ -278,13 +309,17 @@ async def _watch(url: str, vid: str, goal: str) -> dict:
                 except RuntimeError as e:
                     errors.append(f"{eng}: {str(e)[:300]}")
                     log.warning("%s video pass failed: %s", eng, str(e)[:200])
+                    if eng == "gemini" and "claude" in tasks:
+                        _emit("engine_switch", _short_reason(str(e)))
                     continue
                 if eng == "gemini":
+                    _emit("steps_ready", "gemini")
                     return draft  # it saw the screen: preferred whenever it is in time
                 claude_ready = draft
             if claude_ready is not None and "gemini" not in tasks:
                 break
         if claude_ready is not None:
+            _emit("steps_ready", "claude")
             if errors:
                 claude_ready.setdefault("_notes", []).append("fallback engine: " + " | ".join(errors))
             return claude_ready
@@ -297,9 +332,21 @@ async def _watch(url: str, vid: str, goal: str) -> dict:
     raise RuntimeError("no engine could build the lesson:\n" + "\n".join(errors))
 
 
+def _short_reason(err: str) -> str:
+    e = err.lower()
+    if "429" in e or "quota" in e or "resource_exhausted" in e:
+        return "quota"
+    if "no answer within" in e or "timeout" in e:
+        return "slow"
+    if "api key" in e or "401" in e or "403" in e:
+        return "key"
+    return "error"
+
+
 async def _adapt_call(goal: str, draft: dict, summary: str, feedback: list[str] | None) -> tuple[dict, str]:
     """The adapt pass is Claude's job (Gemini only watches videos)."""
     t0 = time.time()
+    _emit("adapting", "retry" if feedback else "")
     out = await claude.adapt_checks(goal, draft["steps"], summary, feedback)
     log.info("claude adapt pass: %.1fs", time.time() - t0)
     return out, str(claude.last_model)
