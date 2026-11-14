@@ -200,6 +200,8 @@ Break this tutorial into 4-10 sequential steps a learner can code along with. Re
 - A step shorter than ~20 s belongs to its neighbour.
 - The lesson must be playable from an EMPTY folder: if the tutorial starts from code, data or repo state
   prepared off camera, step 1 sets it up (a link from the description, or exact commands/files to recreate it).
+- Each step's instructions state any state it depends on that no earlier step created (e.g. "first make two
+  commits on main that change the same line"), so a learner who follows only the instructions gets there.
 - libraries: every library/tool used, with the version if mentioned, else your best estimate ("18.x").
 """
 
