@@ -1182,3 +1182,97 @@ def test_record_fixtures_refuses_without_opt_in(monkeypatch):
     monkeypatch.setenv("COACH_RECORD_DIR", "")  # the module sets it on import; monkeypatch restores it afterwards
     with pytest.raises(SystemExit, match="COACH_ALLOW_LIVE=1"):
         runpy.run_module("server.coach.tests.record_fixtures", run_name="__main__")
+
+
+# ---------- S9 re-run on d219e52 ---------------------------------------------------------------------------
+
+TODO = "pick 1a2b3c4 Add login endpoint\npick 7a428b4 Add logout\npick 9f8e7d6 Cleanup\nsquash 1194326 Add README\n\n# Rebase 0123..1194326 onto 0123 (4 commands)\n"
+
+
+def test_g1_rewritten_todo_replaces_the_whole_span():
+    """Model rewrote 4 todo lines but anchored on 1: widen to the 4, don't insert 3 duplicate picks."""
+    diff = {"file": ".git/rebase-merge/git-rebase-todo", "yours": "squash 1194326 Add README",
+            "expected": "pick 1a2b3c4 Add login endpoint\npick 7a428b4 Add logout\nsquash 9f8e7d6 Cleanup\npick 1194326 Add README"}
+    r = coach.apply_fix(diff, TODO)
+    assert r["error"] is None
+    body = [ln for ln in r["new_text"].splitlines() if ln and not ln.startswith("#")]
+    assert body == diff["expected"].splitlines()
+
+
+def test_rebase_todo_must_keep_every_commit_once():
+    r = coach.apply_fix({"file": "git-rebase-todo", "yours": "pick 7a428b4 Add logout", "expected": "pick 1a2b3c4 Add login endpoint"}, TODO)
+    assert r["new_text"] is None and "lose or repeat a commit" in r["error"]
+
+
+def test_patch_that_would_duplicate_a_neighbour_is_rejected():
+    src = "a = 1\nb = 2\nc = 3\nd = 4\n"
+    r = coach.apply_fix({"file": "x.py", "yours": "c = 3", "expected": "a = 1\nc = 30"}, src)  # `a = 1` isn't adjacent to the span
+    assert r["new_text"] is None or r["new_text"].count("a = 1") == 1
+
+
+def test_g3_fuzzy_ocr_anchor_maps_onto_real_lines():
+    src = "const app = express();\n<<<<<<< HEAD\napp.post('/logout', (req, res) => {\n  res.json({ ok: true });\n=======\napp.post('/logout', (req, res) => {\n  res.json({ ok: false });\n>>>>>>> topic\n});\n"
+    ocr = "10 <<<<< HEAD\n11\n12 app.post('/logout', (req, res) = {\n13 res. json({ ok: true });\n14 =======\n15 app.post('/logout', (req, res) => {\n16 res.json({ ok: false });\n17 >>>>>>> topic"
+    r = coach.apply_fix({"file": "index.js", "yours": ocr, "expected": "app.post('/logout', (req, res) => {\n  res.json({ ok: true });"}, src)
+    assert r["error"] is None and "<<<<<<<" not in r["new_text"] and ">>>>>>>" not in r["new_text"]
+    assert r["new_text"].count("app.post('/logout'") == 1
+
+
+def _big_notebook() -> str:
+    noisy = [{"output_type": "stream", "name": "stdout", "text": ["\u001b[31m" + "x" * 80 + "\n"] * 60}]
+    nb = {"cells": [{"cell_type": "markdown", "metadata": {}, "source": ["# Sales report\n"]},
+                    {"cell_type": "code", "execution_count": 1, "metadata": {}, "outputs": [],
+                     "source": ["import pandas as pd\n", "df = pd.read_csv('sales.csv')\n", "df.groupby('region', 'month').sum()"]},
+                    {"cell_type": "code", "execution_count": 2, "metadata": {}, "outputs": noisy, "source": ["print(df.head())"]}],
+          "metadata": {"kernelspec": {"name": "python3"}}, "nbformat": 4, "nbformat_minor": 5}
+    return json.dumps(nb, indent=1, sort_keys=True)
+
+
+def test_truncated_notebook_excerpt_still_reaches_the_model(monkeypatch):
+    raw = _big_notebook()
+    cut = raw[:6000]  # what the orchestrator sends
+    with pytest.raises(json.JSONDecodeError):
+        json.loads(cut)
+    ex = notebook_code(cut)
+    assert ex.startswith("# %% [cell 1]\nimport pandas as pd") and "groupby('region', 'month')" in ex and "\u001b" not in ex
+    assert notebook_code(raw[:200]) == "# (notebook: no code cell source within the excerpt)"
+    seen = {}
+
+    async def call(**kw):
+        seen.setdefault(kw["purpose"], kw["user_text"])
+        if kw["purpose"] == "triage":
+            return llm.CallResult(data={"route": "opus", "playbook_id": "none", "reason": ""}, model="h")
+        return llm.CallResult(data={"playbook_id": "none", "severity": "fail", "title": "t", "body": "b. Do x.", "citation_id": "none",
+                                    "diff_expected": "", "diff_yours": "", "diff_file": "", "diff_line": 0, "diff_command": "", "actions": [],
+                                    "guiding_question": "q?"}, model="o")
+
+    monkeypatch.setattr(llm, "structured_call", call)
+    step = {"id": "p2", "title": "Group sales", "instructions": "Sum sales per region and month.", "checks": [{"id": "x", "type": "output_contains", "label": "table"}]}
+    err = "ValueError: level name month is not the name of the index"
+    run(coach.diagnose(step, [{"checkId": "x", "status": "fail"}], None, cut, error_text=err))
+    assert "# %% [cell 1]" in seen["diagnose"] and '"outputs"' not in seen["diagnose"]
+    assert f"THE ERROR MESSAGE (your cause must agree with exactly what it says, for the version that printed it):\n{err}" in seen["diagnose"]
+
+
+def test_web_skips_self_explaining_errors_and_caps_at_1_5s(monkeypatch):
+    calls = []
+
+    async def gather(*a, **kw):
+        calls.append(kw.get("timeout"))
+        return []
+
+    async def call(**kw):
+        if kw["purpose"] == "triage":
+            return llm.CallResult(data={"route": "opus", "playbook_id": "none", "reason": ""}, model="h")
+        return llm.CallResult(data={"playbook_id": "none", "severity": "fail", "title": "t", "body": "b. Do x.", "citation_id": "none",
+                                    "diff_expected": "", "diff_yours": "", "diff_file": "", "diff_line": 0, "diff_command": "", "actions": [],
+                                    "guiding_question": "q?"}, model="o")
+
+    monkeypatch.setattr(web, "gather", gather)
+    monkeypatch.setattr(llm, "structured_call", call)
+    step = {"id": "r1", "title": "Render", "instructions": "Render the list.", "checks": [{"id": "x", "type": "command_exit_ok", "label": "build"}]}
+    run(coach.diagnose(step, [{"checkId": "x", "status": "fail"}], None, "x", error_text="ReferenceError: users is not defined"))
+    run(coach.diagnose(step, [{"checkId": "x", "status": "fail"}], None, "x", error_text="NameError: name 'df' is not defined"))
+    assert calls == []
+    run(coach.diagnose(step, [{"checkId": "x", "status": "fail"}], None, "x", error_text="TypeError: Cannot read properties of undefined (reading 'map')"))
+    assert calls == [1.5]

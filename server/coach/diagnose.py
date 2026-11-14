@@ -147,6 +147,11 @@ def template_card(step: dict, failed_checks: list) -> dict:
     }
 
 
+SELF_EXPLAINING = re.compile(
+    r"NameError|ReferenceError|is not defined|no-undef|SyntaxError|IndentationError|Unexpected token"
+    r"|unexpected indent|unterminated|missing \)|Unexpected end of input",
+    re.IGNORECASE,
+)
 ERROR_LINE = re.compile(
     r"Traceback|\b\w*Error\b|\berror:|\bfatal:|Failed to compile|needs merge|\bCONFLICT\b|You must|is not defined"
     r"|cannot find module|command not found|No such file|Permission denied|\bERR!",
@@ -169,22 +174,61 @@ def _unsafe_git_continue(command: str, code: str, yours: str, expected: str) -> 
     return markers_now and not resolved_by_diff
 
 
+_SOURCE = re.compile(r'"source"\s*:\s*\[')
+_CELL_TYPE = re.compile(r'"cell_type"\s*:\s*"(\w+)"')
+_JSON_STR = re.compile(r'"(?:[^"\\]|\\.)*"')
+
+
+def _cell_sources_tolerant(t: str) -> list[tuple[int, str]]:
+    """Code-cell sources from notebook JSON that may be cut off mid-way (the orchestrator sends
+    the first 6000 chars): scan each `"source": [...]` array string by string, stop at the cut."""
+    out: list[tuple[int, str]] = []
+    marks = [m.end() for m in _SOURCE.finditer(t)]
+    types = [(m.start(), m.group(1)) for m in _CELL_TYPE.finditer(t)]
+    prev_end = 0
+    for n, pos in enumerate(marks):
+        # nbformat writes keys sorted, so a cell's "cell_type" precedes its "source": take the last
+        # one after the previous source array (else the first one after this array)
+        before = [ty for p, ty in types if prev_end <= p < pos]
+        after = [ty for p, ty in types if p > pos and (n + 1 >= len(marks) or p < marks[n + 1])]
+        ctype = before[-1] if before else (after[0] if after else "code")
+        parts, i = [], pos
+        while True:
+            m = re.compile(r"\s*(,)?\s*").match(t, i)
+            i = m.end()
+            if i >= len(t) or t[i] == "]":
+                break
+            sm = _JSON_STR.match(t, i)
+            if not sm:  # the cut fell inside this string: keep what we have of it
+                tail = t[i + 1:] if t[i] == '"' else ""
+                parts.append(tail.encode().decode("unicode_escape", errors="ignore") if "\\" in tail else tail)
+                i = len(t)
+                break
+            try:
+                parts.append(json.loads(sm.group(0)))
+            except json.JSONDecodeError:
+                break
+            i = sm.end()
+        prev_end = i
+        if ctype == "code" and parts:
+            out.append((n, "".join(parts)))
+    return out
+
+
 def notebook_code(text: str) -> str:
     """A Jupyter notebook's JSON → its code cells' source, separated by `# %% [cell N]` markers.
-    Anything else is returned unchanged."""
+    Works on truncated JSON too. Anything that isn't a notebook is returned unchanged."""
     t = (text or "").lstrip()
-    if not (t.startswith("{") and '"cells"' in t[:20000]):
+    if not (t.startswith("{") and ('"cells"' in t[:20000] or '"cell_type"' in t[:20000])):
         return text
     try:
         nb = json.loads(t)
+        cells = [(i, "".join(c.get("source") or []) if isinstance(c.get("source"), list) else (c.get("source") or ""))
+                 for i, c in enumerate(nb.get("cells") or []) if c.get("cell_type") == "code"]
     except json.JSONDecodeError:
-        return text
-    out = []
-    for i, c in enumerate(nb.get("cells") or []):
-        if c.get("cell_type") == "code":
-            src = c.get("source") or ""
-            out.append(f"# %% [cell {i}]\n" + ("".join(src) if isinstance(src, list) else src).rstrip("\n"))
-    return "\n".join(out) if out else text
+        cells = _cell_sources_tolerant(t)
+    out = [f"# %% [cell {i}]\n" + src.rstrip("\n") for i, src in cells]
+    return "\n".join(out) if out else "# (notebook: no code cell source within the excerpt)"
 
 
 def _title(title: str, pid: str | None) -> str:
@@ -280,7 +324,9 @@ async def diagnose(
     # when there is an error message to look up (docs/changelogs); for metric-only failures the
     # search came back unused and cost 2-4 s before Opus could start (rehearsal, s8 lr=0.3).
     lib, sym, query, err = grounding_query(step, failed_checks, error_text, code_excerpt, lesson)
-    web_task = asyncio.create_task(web.gather(lib, sym, query, error=err, timeout=3.0)) if error_text.strip() else None
+    # S9 re-run: 6/8 cards waited the full cap for generic hits; self-explaining errors skip it
+    wants_web = error_text.strip() and not SELF_EXPLAINING.search(error_text)
+    web_task = asyncio.create_task(web.gather(lib, sym, query, error=err, timeout=1.5)) if wants_web else None
     try:
         t = await triage(step, failed_checks, flags, code_excerpt, error_text, use_haiku=use_triage)
         if t.route == "template":
@@ -323,6 +369,7 @@ def grounding_query(step: dict, failed_checks: list, error_text: str, code: str,
 async def _opus(step, failed_checks, metrics_text, flags, code_excerpt, error_text, lesson, effort, sources=None, screen=None, on_targets=None, cursor=None) -> dict:
     sources = sources or []
     file = _target_file(step)
+    key_error = web.error_line(error_text) if error_text else ""
     user = "\n\n".join(
         x for x in [
             f"CURRENT STEP:\n{step_brief(step)}",
@@ -330,6 +377,8 @@ async def _opus(step, failed_checks, metrics_text, flags, code_excerpt, error_te
             f"METRICS (summary of the learner's latest run):\n{metrics_text}"
             + (f"\nauto-detected: {', '.join(sorted(flags))}" if flags else ""),
             f"ERROR / OUTPUT TAIL:\n{error_text[-2000:]}" if error_text else "ERROR / OUTPUT TAIL: (none)",
+            f"THE ERROR MESSAGE (your cause must agree with exactly what it says, for the version that printed it):\n{key_error}"
+            if key_error else "",
             f"LEARNER CODE ({file or 'excerpt'}), numbered:\n{number_lines(code_excerpt) or '(not available)'}",
             f"WEB SOURCES (fetched live for this failure):\n{web.sources_text(sources)}" if sources else "WEB SOURCES: (none available)",
             f"CITATIONS you may use (id: source):\n{citation_menu(lesson, sources)}",

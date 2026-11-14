@@ -151,28 +151,80 @@ def _splice(lines: list[str], idx: int, n_old: int, expected: str) -> list[str]:
 
 
 GUTTER = re.compile(r"^\s*\d{1,5}\s{1,4}(?=\S)")
+GUTTER_ONLY = re.compile(r"^\s*\d{1,5}\s*$")  # an OCR'd empty line: just its line number
+FUZZY_MIN = 0.8
 
 
 def _squash(s: str) -> str:
     return re.sub(r"\s+", "", s)
 
 
-def _locate_fuzzy(lines: list[str], yours: list[str], hint_line: int | None) -> tuple[int | None, list[str]]:
-    """Find `yours` in `lines`: exact (indent-insensitive), then without OCR gutter numbers,
-    then whitespace-insensitive (OCR spacing). Returns (index, the yours-lines that matched)."""
-    variants = [yours]
-    stripped = [GUTTER.sub("", y) for y in yours]
-    if stripped != yours:
-        variants.append(stripped)
-    for v in variants:
+def _ratio(a: str, b: str) -> float:
+    a, b = _squash(GUTTER.sub("", a)), _squash(b)
+    if a == b:
+        return 1.0
+    return difflib.SequenceMatcher(None, a, b, autojunk=False).ratio() if a and b else 0.0
+
+
+def _locate_span(lines: list[str], yours: list[str], hint_line: int | None) -> tuple[int, int] | None:
+    """File span [start, end) holding `yours`: exact (indent-insensitive), then without OCR gutter
+    numbers, then line-by-line fuzzy (OCR errors like `<<<<<` for `<<<<<<<`, `=` for `=>`)."""
+    yours = [y for y in yours if not GUTTER_ONLY.match(y)]
+    if not yours:
+        return None
+    for v in (yours, [GUTTER.sub("", y) for y in yours]):
         if (i := _locate(lines, v, hint_line)) is not None:
-            return i, v
-    for v in variants:
-        want = [_squash(y) for y in v]
-        for i in range(len(lines) - len(want) + 1):
-            if all(_squash(lines[i + k]) == w for k, w in enumerate(want)):
-                return i, v
-    return None, yours
+            return i, i + len(v)
+    best, best_score = None, 0.0
+    for s0 in range(len(lines)):
+        if _ratio(yours[0], lines[s0]) < FUZZY_MIN:
+            continue
+        j, total = s0, 0.0
+        for y in yours:
+            while j < len(lines) and not lines[j].strip() and _squash(y):  # blank file lines OCR dropped
+                j += 1
+            if j >= len(lines) or (r := _ratio(y, lines[j])) < FUZZY_MIN:
+                break
+            total += r
+            j += 1
+        else:
+            if total > best_score:
+                best, best_score = (s0, j), total
+    return best
+
+
+def _widen(lines: list[str], start: int, end: int, expected: str) -> tuple[int, int]:
+    """If `expected` rewrites more lines than `yours` covered and its extra lines already sit right
+    next to the span, include them (S9 G1: 1 todo line replaced by 4 → three duplicated picks)."""
+    exp = [ln.strip() for ln in expected.splitlines() if ln.strip()]
+    if len(exp) <= end - start:
+        return start, end
+
+    def related(line: str) -> bool:  # an expected line rewrites it (`pick abc Cleanup` → `squash abc Cleanup`)
+        t = line.strip()
+        return bool(t) and any(t == e or _ratio(t, e) >= 0.7 for e in exp)
+
+    while start > 0 and related(lines[start - 1]) and end - start < len(exp):
+        start -= 1
+    while end < len(lines) and related(lines[end]) and end - start < len(exp):
+        end += 1
+    return start, end
+
+
+def _duplicates_neighbours(lines: list[str], start: int, end: int, expected: str, reach: int = 3) -> list[str]:
+    near = {ln.strip() for ln in lines[max(0, start - reach):start] + lines[end:end + reach] if len(ln.strip()) > 3}
+    return [ln.strip() for ln in expected.splitlines() if ln.strip() in near and len(ln.strip()) > 3]
+
+
+def _rebase_todo_error(old: str, new: str) -> str | None:
+    """git-rebase-todo: every commit must still appear exactly once."""
+    def hashes(t: str) -> list[str]:
+        return [p[1] for ln in t.splitlines() if (p := ln.split()) and len(p) > 1 and not ln.lstrip().startswith("#") and p[0] not in ("exec", "x", "break", "label", "reset")]
+
+    a, b = hashes(old), hashes(new)
+    if sorted(a) != sorted(b) or len(set(b)) != len(b):
+        return "the rebase todo would lose or repeat a commit"
+    return None
 
 
 def _python_ok(src: str, name: str) -> str | None:
@@ -191,14 +243,20 @@ def _patch(text: str, yours: str, expected: str, line: int | None, name: str, py
     if lines and not lines[-1].endswith("\n"):
         lines[-1] += "\n"
     y = [ln for ln in yours.strip("\n").splitlines() if ln.strip()]
-    idx, matched = _locate_fuzzy(lines, y, line)
-    if idx is None:
+    span = _locate_span(lines, y, line)
+    if span is None:
         return None, "", "learner's lines not found in file"
-    new_lines = _splice(lines, idx, len(matched), expected)
+    start, end = _widen(lines, *span, expected)
+    todo = name.rsplit("/", 1)[-1] == "git-rebase-todo"  # judged by the stricter commit check below
+    if not todo and (dup := _duplicates_neighbours(lines, start, end, expected)):
+        return None, "", f"the patch would duplicate lines already next to it: {dup[0][:60]}"
+    new_lines = _splice(lines, start, end - start, expected)
     if new_lines == lines:
         return None, "", "the patch changes nothing"
     candidate = "".join(new_lines)
     unified = "".join(difflib.unified_diff(lines, new_lines, fromfile=f"a/{name}", tofile=f"b/{name}"))
+    if todo and (err := _rebase_todo_error(text, candidate)):
+        return None, unified, err
     if python and (err := _python_ok(candidate, name)):
         return None, unified, err
     return candidate, unified, None

@@ -53,15 +53,16 @@ targets = await coach.locate("the learning rate", screen)  # exact text → no m
 ## Non-PINN robustness (S9 QA: React / pandas / git)
 
 - **Errors on screen count.** When `error_text` is empty and a `screen` is passed, error and refusal lines visible on screen become the error text: Traceback, `error:`, `fatal:`, "needs merge", CONFLICT, "You must…", "Failed to compile" and so on. Triage then never sends an erroring learner to the "do the step" card, even if Haiku says to.
-- **Web lookups** run only with error text, capped at 3 s.
+- **Web lookups** run only with error text that isn't self-explaining (NameError, ReferenceError, no-undef and SyntaxError skip it), capped at 1.5 s. The error line itself goes into the prompt as "THE ERROR MESSAGE (your cause must agree with exactly what it says…)".
 - **Prompt rules:**
   - Trust the error on screen over the lesson's library versions.
   - The diff is one contiguous block (up to 8 lines) that makes every edit the action sentence asks for.
   - Never `git add` / `--continue` while conflict markers remain. `_shape` also drops such a command unless the diff itself removes the markers.
 - **`apply_fix`:**
-  - It tolerates OCR'd anchors: it strips gutter line numbers and falls back to whitespace-insensitive matching.
+  - It tolerates OCR'd anchors: it strips gutter line numbers and gutter-only lines, then maps each line fuzzily (difflib ratio ≥ 0.8). That covers OCR errors like `<<<<<` for `<<<<<<<` and `=` for `=>`.
+  - When `expected` rewrites more lines than `yours` covers, the span widens over neighbours that `expected` rewrites (similarity ≥ 0.7). A patch that would duplicate an adjacent line is rejected. A `git-rebase-todo` patch must keep every commit hash exactly once.
   - It rejects no-op patches.
-  - It edits `.ipynb` cell by cell (sources only, outputs kept, `indent=1`, magics ignored for the compile check). Excerpts of notebooks are cell sources, not raw JSON.
+  - It edits `.ipynb` cell by cell (sources only, outputs kept, `indent=1`, magics ignored for the compile check). Excerpts of notebooks are cell sources, not raw JSON, even when the orchestrator truncates the JSON at 6000 characters.
 - **`do_it_for_me`:**
   - It returns `{command, …}` for terminal fixes.
   - It reuses the diagnosis's diff only if it contains every value the action sentence names ("…to `squash`", "…to 1e-3"); otherwise Opus writes the patch.
