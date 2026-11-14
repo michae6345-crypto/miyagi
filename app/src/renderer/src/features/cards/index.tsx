@@ -363,7 +363,12 @@ const ACTION: Partial<Record<CardAction, { label: string; Icon?: LucideIcon; pri
   resume: { label: 'Continue', Icon: Play, primary: true },
   undo: { label: 'Undo', Icon: Undo2 },
   end_lesson: { label: 'Start a new lesson' },
-  skip_setup: { label: 'Skip' }
+  skip_setup: { label: 'Skip' },
+  // Preflight card ("this is a 9-min coding video…"): Build starts the lesson, Pick another reopens the results.
+  build: { label: 'Build lesson', Icon: Play, primary: true },
+  pick_another: { label: 'Pick another' },
+  download: { label: 'Download', Icon: Download },
+  open_in_browser: { label: 'Open in browser', Icon: BookOpen }
 }
 
 /** A unified diff as monospace lines: + white, - muted and struck, context faint. Headers dropped. */
