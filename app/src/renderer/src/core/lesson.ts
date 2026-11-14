@@ -62,7 +62,11 @@ type LessonState = {
   seen?: Payload<'screen.seen'>
   keyStatus?: ConfigStatus['payload']
   error?: { message: string; at: number }
+  /** One short line for the pill (~5 s): engine errors, offline, an off-screen spotlight caption. See notify(). */
+  notice?: Notice
 }
+
+export type Notice = { text: string; tone: 'error' | 'info'; at: number }
 
 const blank = {
   lesson: undefined,
@@ -86,7 +90,8 @@ const blank = {
   video: { t: 0, playing: false, at: 0, kind: 'seek' },
   engineState: undefined,
   seen: undefined,
-  error: undefined
+  error: undefined,
+  notice: undefined
 } satisfies Partial<LessonState>
 
 export const useLesson = create<LessonState>(() => ({ connected: false, ...blank }))
@@ -180,7 +185,16 @@ bridge.on('video:intent', (v) => set({ video: { ...(v as VideoIntent), at: Date.
 onMessage('status', (p) => set({ engineState: p.state }))
 onMessage('screen.seen', (p) => set({ seen: p }))
 onMessage('config.status', (p) => set({ keyStatus: p }))
-onMessage('error', (p) => set({ error: { message: p.message, at: Date.now() } }))
+onMessage('error', (p) => set({ error: { message: p.message, at: Date.now() }, notice: { text: p.message, tone: 'error', at: Date.now() } }))
+
+/**
+ * Show one short line on the pill for ~5 s (the pill feature renders `notice`). For anything the learner must
+ * see but that has no card: "Add an ElevenLabs key in Settings", a spotlight caption whose rect is off-screen.
+ * Engine `error` events land here too (audit P1-2). Keep it under ~8 words.
+ */
+export function notify(text: string, tone: Notice['tone'] = 'info'): void {
+  set({ notice: { text, tone, at: Date.now() } })
+}
 
 // ---------------------------------------------------------------------------
 // Derived hooks

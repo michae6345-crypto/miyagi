@@ -3,30 +3,32 @@
 **Status:** new · **Priority:** P2 · **Port:** 5184 · **Branch:** `adrian/drawer`
 
 ## Goal
-A slim tab on the right edge (vertically centered, 6px from the edge). Click → a lesson drawer slides in: all steps as done / current / locked, the current step's checks, and the lesson's sources (video, notebook, paper).
+A slim tab on the right edge (vertically centered, 6px from the edge). Click → a lesson drawer slides in: every step as done / current / locked, the current step's checks, and the lesson's sources. With long videos (Michael: Karpathy's 2-hour GPT video) the steps arrive part by part, so the drawer is where you see what's coming.
 
 ## Owns
 - `app/src/renderer/src/features/drawer/`
+- `app/mock/scenarios/drawer.json` (a long lesson: `lesson.ready` with `complete:false`, then two `lesson.updated`)
 
-## Contract
-- **In** (engine → app): from `core/lesson`: lesson (title, sources), steps, passed, stepId, checks
-- **Out** (app → engine): none (there is no "jump to step" command yet; add a Core request if you want one)
+## Contract (read from `core/lesson`)
+- `lesson` (title, sources, `builtBy` → `builtByLabel()`), `steps`, `passed`, `stepId`, `checks`, `complete`, `parts`, `pendingNext`
+- **`lesson.updated`** replaces `steps` (ids stable, new steps appended): new rows fade in; existing rows must not re-animate.
+- `complete === false` → a last quiet row "More steps coming" (with `parts` → "Part 2 of 5"); `pendingNext` → "Next part is still building".
+- Sources: one row each with its kind tile (`theme.kindTone`: notebook/repo sky, paper pink, blog lilac; video = thumbnail). Click opens the URL (`window.open`; main denies new windows and opens https externally).
+- Click a step row with `video` → `seekVideo(step.video.start)` (core). There is no "jump to step" command: ask under Core requests if you want one.
+- **Out:** none.
 
-## Plugs in as
-overlayLayers: drawer (z 40); the tab and the drawer are marked `data-hit`
+## Adrian's spec (pass 1, from his feedback on the other features)
+- Black glass panel (`color.glass`), white text, system font, `radius.card`. The tab: 4×40 white at `fill.track`, `data-hit`.
+- States: done = check (core `CheckIcon`, white), current = white, locked = `color.faint`. Green only for the passed tick on the current step's checks (core `CheckList`). No amber unless off track.
+- Labels only; step titles from the data. ≤12 words of chrome copy.
+- Never covers the spotlight target: when a `spotlight` rect intersects the drawer, slide it closed.
+- The one spring; transform/opacity only.
 
 ## Done when
-- Matches the Apple look
-- Never covers the spotlight target
+- Steps, checks, sources; part-by-part updates without re-animating; never covers the spotlight
 
 ## Test
-`npm run dev:web -- --port 5184` → `http://localhost:5184/?scenario=full` (or `?scenario=drawer` once you add `mock/scenarios/drawer.json`)
-
-## Adrian's spec
-**First pass (no spec from Adrian yet):** build to the mockups in `docs/mockups/` (01–05 are the target look; 06–07 are earlier explorations to restyle in the Apple look) and the animation + placement spec in `docs/FRONTEND-HANDOFF.md`. Don't spend time on colors (Adrian's theme comes later). Adrian reviews after this pass and writes his spec here for pass 2.
+`npm run dev:web -- --port 5184` → `http://localhost:5184/?scenario=drawer`. Restart the dev server after adding the folder and the scenario.
 
 ## Core requests
 _None yet._
-
-## Notes
--
