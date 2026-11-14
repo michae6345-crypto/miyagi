@@ -6,7 +6,7 @@
  * values, and the chart picks ONE scale for all its lines (see `logScale`).
  */
 import { motion } from 'motion/react'
-import { useEffect, useId, useState, type ReactNode } from 'react'
+import { useEffect, useState, type ReactNode } from 'react'
 import { color } from '../../core/theme'
 import type { Point } from './store'
 
@@ -67,11 +67,11 @@ function useLive(at?: number): boolean {
 }
 
 /**
- * lines[0] is the primary line: drawn last (on top), with an area fill, the end dot and `end.label`.
+ * lines[0] is the primary line: drawn last (on top), with the end dot and `end.label`. No fills,
+ * gradients or glows (brand).
  * `end.at` = when its last point arrived; while recent, the dot breathes (live).
  */
 export function Curve({ lines, width, height = 64, end }: { lines: Line[]; width: number; height?: number; end?: { label?: string; at?: number } }): ReactNode {
-  const gradId = useId()
   const live = useLive(end?.at)
   const drawn = lines.filter((l) => l.pts.length > 0)
   if (drawn.length === 0) return null
@@ -94,17 +94,9 @@ export function Curve({ lines, width, height = 64, end }: { lines: Line[]; width
   const last = primary.pts[primary.pts.length - 1]
   const ex = X(last[0])
   const ey = Y(last[1])
-  const area = `${d(primary.pts)} L${ex.toFixed(1)},${height} L${X(primary.pts[0][0]).toFixed(1)},${height} Z`
 
   return (
     <svg width={width} height={height} className="block overflow-visible" data-scale={log ? 'log' : 'linear'}>
-      <defs>
-        <linearGradient id={gradId} x1="0" y1="0" x2="0" y2="1">
-          <stop offset="0%" stopColor={primary.stroke} stopOpacity={0.22} />
-          <stop offset="100%" stopColor={primary.stroke} stopOpacity={0} />
-        </linearGradient>
-      </defs>
-
       {refs.map((l) =>
         l.dashed ? (
           <motion.path
@@ -136,7 +128,6 @@ export function Curve({ lines, width, height = 64, end }: { lines: Line[]; width
         )
       )}
 
-      <motion.path d={area} fill={`url(#${gradId})`} stroke="none" initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: 0.5, delay: 0.25 }} />
       <motion.path
         key={primary.key}
         d={d(primary.pts)}

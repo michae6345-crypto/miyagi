@@ -4,19 +4,21 @@
  *             expected vs yours (`offtrack.diff`), the checks, Show me / Explain / Apply fix.
  *             After Apply fix it collapses to "Waiting for the fix": the line the code should read
  *             (the engine may or may not write it), and the re-run's curve drawing live.
- *   success   green "Back on track" after a recovered step: now-vs-before curve, auto-hides.
+ *   success   green, "Good. Now the next one." after a recovered step: now-vs-before curve, auto-hides.
  *   card      explain / hint / answer from the engine, with an optional video jump.
  * Copy rule: readable in 2 seconds; body text is clamped to 2–3 lines. No red, no shaking.
  * Generality: every label comes from the data (metric name, check labels, step titles).
+ * Brand (app/brand/BRAND.md): amber ONLY = off track, green ONLY = passed, everything else neutral
+ * white / muted. Buttons white on dark. No blue, gradients, glows, sparkles or emoji.
  */
 import { motion } from 'motion/react'
 import type { ReactNode } from 'react'
 import { useShallow } from 'zustand/react/shallow'
-import { BookOpen, Info, Lightbulb, MessageSquareText, Play, Wand2 } from 'lucide-react'
+import { BookOpen, Info, Lightbulb, MessageSquareText, Play, Wrench } from 'lucide-react'
 import { useLesson, useProgress, type Offtrack as OfftrackPayload } from '../../core/lesson'
 import { defineFeature } from '../../core/registry'
 import { CardButton, CheckList, CloseButton, Spinner, StatusDot } from '../../core/ui/atoms'
-import { color } from '../../core/theme'
+import { color, copy } from '../../core/theme'
 import { Curve, fmt, Key, plotArray, plotPoints, type Line } from './Curve'
 import { act, jumpTo, SUCCESS_MS, useCards, useSeries } from './store'
 
@@ -113,14 +115,14 @@ function OfftrackCurve({ o }: { o: OfftrackPayload }): ReactNode {
   const ref = live ? (tutorial && tutorial.length > 1 ? plotPoints(tutorial) : []) : o.curve ? plotArray(o.curve.tutorial) : []
   const lines: Line[] = [
     { key: 'yours', pts: yours, stroke: color.amber },
-    { key: 'tutorial', pts: ref, stroke: color.accent, reference: true }
+    { key: 'tutorial', pts: ref, stroke: color.label, reference: true }
   ]
   const lastValue = live?.points[live.points.length - 1].value
   return (
     <div className="mt-[14px]" data-curve={live ? 'live' : 'fallback'}>
       <CurveCaption label={live ? name : o.curve?.label}>
         <Key tone={color.amber}>yours</Key>
-        {ref.length > 1 && <Key tone={color.accent}>tutorial</Key>}
+        {ref.length > 1 && <Key tone={color.label}>tutorial</Key>}
       </CurveCaption>
       <Curve lines={lines} width={OFFTRACK_W - PAD * 2} height={64} end={{ label: lastValue !== undefined ? fmt(lastValue) : undefined, at: live?.at }} />
     </div>
@@ -139,7 +141,7 @@ function Diff({ diff, expectedOnly }: { diff: NonNullable<OfftrackPayload['diff'
   )
   return (
     <div className="mt-[12px] overflow-hidden rounded-[12px] font-mono text-[12.5px] leading-[18px]" style={{ background: 'rgba(255,255,255,.06)' }}>
-      {row('Expected', color.green, diff.expected)}
+      {row('Expected', color.label, diff.expected)}
       {!expectedOnly && row(diff.line ? `Yours · L${diff.line}` : 'Yours', color.amber, diff.yours, true)}
     </div>
   )
@@ -179,7 +181,7 @@ function Diagnosis({ o, checks }: { o: OfftrackPayload; checks: ReturnType<typeo
         )}
         {o.actions.includes('apply_fix') && (
           <CardButton primary onClick={() => act('apply_fix')}>
-            <Wand2 size={14} /> Apply fix
+            <Wrench size={14} /> Apply fix
           </CardButton>
         )}
       </div>
@@ -198,19 +200,23 @@ function Diagnosis({ o, checks }: { o: OfftrackPayload; checks: ReturnType<typeo
   )
 }
 
-/** Now (green, live) vs before the fix (amber, dashed). Until the new run starts, only "before". */
-function AfterCurve({ label, since, width }: { label?: string; since?: number; width: number }): ReactNode {
+/**
+ * Now vs before the fix (muted, dashed). Until the new run starts, only "before".
+ * "now" is white while waiting and green only once the step has passed (green ONLY means passed).
+ */
+function AfterCurve({ label, since, width, passed }: { label?: string; since?: number; width: number; passed?: boolean }): ReactNode {
   const { name, after, before } = useSeries(label, since)
+  const now = passed ? color.green : color.text
   const lines: Line[] = []
-  if (after && after.points.length > 0) lines.push({ key: 'now', pts: plotPoints(after.points), stroke: color.green })
-  if (before && before.points.length > 1) lines.push({ key: 'before', pts: plotPoints(before.points), stroke: color.amber, reference: true, dashed: true })
+  if (after && after.points.length > 0) lines.push({ key: 'now', pts: plotPoints(after.points), stroke: now })
+  if (before && before.points.length > 1) lines.push({ key: 'before', pts: plotPoints(before.points), stroke: color.label, reference: true, dashed: true })
   if (lines.length === 0) return null
   const lastValue = after?.points[after.points.length - 1]?.value
   return (
     <div className="mt-[14px]" data-curve={after ? 'after' : 'before'}>
       <CurveCaption label={name}>
-        {after && <Key tone={color.green}>now</Key>}
-        {before && <Key tone={color.amber} dashed={!!after}>before fix</Key>}
+        {after && <Key tone={now}>now</Key>}
+        {before && <Key tone={color.label} dashed={!!after}>before fix</Key>}
       </CurveCaption>
       <Curve
         lines={after ? lines : [{ ...lines[0], reference: false }]}
@@ -231,11 +237,11 @@ function Fixing({ o, checks }: { o: OfftrackPayload; checks: ReturnType<typeof u
   const where = o.diff?.line ? `Line ${o.diff.line}${o.diff.file ? ` of ${o.diff.file}` : ''} should read` : 'Your code should read'
   return (
     <div data-card="fixing" style={{ padding: `16px ${PAD}px 14px` }}>
-      <Header mark={<Spinner size={12} />} label="Waiting for the fix" tone={color.accent} />
-      <div className="mt-[8px] text-[17px] font-semibold leading-[22px] tracking-[-0.01em]">{o.diff ? where : 'Make the fix, then re-run'}</div>
+      <Header mark={<Spinner size={12} />} label="Waiting for the fix" tone={color.text} />
+      <div className="mt-[8px] text-[17px] font-semibold leading-[22px] tracking-[-0.01em]">{o.diff ? where : 'Make the fix, then rerun'}</div>
       {o.diff && <Diff diff={o.diff} expectedOnly />}
       <div className="mt-[8px] text-[13px] leading-[18px]" style={{ color: color.label }}>
-        {o.diff ? 'Not in your file yet? Make the change, then re-run.' : 'Your checks re-run as soon as it changes.'}
+        {o.diff ? 'Not in your file yet? Make the change, then rerun.' : 'Your checks rerun as soon as it changes.'}
       </div>
       <AfterCurve label={o.curve?.label} width={OFFTRACK_W} />
       {checks.length > 0 && (
@@ -267,10 +273,10 @@ function Success(): ReactNode {
   return (
     <div data-card="success" className="relative" style={{ padding: `16px ${PAD}px 14px` }}>
       <Header mark={<StatusDot status="passed" size={6} />} label={`Step ${s.index + 1} done`} tone={color.green} step={false} />
-      <Title>Back on track.</Title>
+      <Title>{copy.passed}</Title>
       {s.summary && <Body>{s.summary}</Body>}
       {showCurve ? (
-        <AfterCurve since={s.since} width={OFFTRACK_W} />
+        <AfterCurve since={s.since} width={OFFTRACK_W} passed />
       ) : (
         s.checks.length > 0 && (
           <div className="mt-[14px]">
@@ -303,9 +309,9 @@ function Success(): ReactNode {
 // ---------------------------------------------------------------------------
 
 const KIND = {
-  explain: { label: 'Explain', Icon: Info, tone: color.accent },
-  hint: { label: 'Hint', Icon: Lightbulb, tone: color.amber },
-  answer: { label: 'Answer', Icon: MessageSquareText, tone: color.accent }
+  explain: { label: 'Explain', Icon: Info, tone: color.label },
+  hint: { label: 'Hint', Icon: Lightbulb, tone: color.label },
+  answer: { label: 'Answer', Icon: MessageSquareText, tone: color.label }
 } as const
 
 function Card(): ReactNode {
@@ -335,7 +341,7 @@ function Card(): ReactNode {
           transition={{ duration: 0.09 }}
           onClick={() => jumpTo(c.videoJump!.t)}
         >
-          <span className="grid h-[22px] w-[22px] place-items-center rounded-full" style={{ background: color.accent }}>
+          <span className="grid h-[22px] w-[22px] place-items-center rounded-full" style={{ background: color.accent, color: color.onAccent }}>
             <Play size={10} fill="currentColor" className="ml-[1px]" />
           </span>
           Watch {c.videoJump.label}
