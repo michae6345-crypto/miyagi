@@ -3,9 +3,9 @@
  * becomes the core Spinner.
  *
  * Rule (CLAUDE.md "Keys and actions"): `useThinking() && usePressed().kind === kind`, plus one guard: the
- * thinking must have started around the press. Show me / Back are answered by a video.seek, which does not
- * clear `usePressed`, so without the guard a later coach run (also `status thinking`) would spin the Show me
- * tile minutes after it was pressed.
+ * thinking must have started around the press. Show me is answered by a video.seek, which does not clear
+ * `usePressed`, so without the guard a later coach run (also `status thinking`) would spin the Show me tile
+ * minutes after it was pressed. (Back and Voice never set `usePressed`: core.)
  */
 import { motion } from 'motion/react'
 import type { ReactNode } from 'react'

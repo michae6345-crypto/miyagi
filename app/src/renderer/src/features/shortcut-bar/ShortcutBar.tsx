@@ -16,6 +16,7 @@ import { Kbd } from '../../core/ui/atoms'
 import { MiyagiMark } from '../../core/ui/Mark'
 import { actionTone, color, fill, shadow, spring, type OptionAction } from '../../core/theme'
 import { useDiagram } from '../diagrams/store'
+import { toggleVoice } from '../voice/store'
 import { Glyph } from './Busy'
 import { Equalizer, useVoiceTile } from './Equalizer'
 import { PRESS_MS, PRESS_SCALE, usePress } from './press'
@@ -86,7 +87,7 @@ export function ShortcutBar({ bottom }: { bottom: number }): ReactNode {
                   whileHover={{ backgroundColor: fill.field }}
                   whileTap={{ scale: PRESS_SCALE }}
                   transition={{ duration: PRESS_MS / 1000 }}
-                  onClick={() => triggerShortcut(kind)}
+                  onClick={() => (kind === 'voice_toggle' ? toggleVoice() : triggerShortcut(kind))}
                 >
                   <span className="grid h-[30px] w-[30px] place-items-center rounded-[9px]" style={tile}>
                     <Glyph kind={kind} tone={tile.color} size={16}>

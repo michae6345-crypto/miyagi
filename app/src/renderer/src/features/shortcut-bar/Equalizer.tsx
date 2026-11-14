@@ -1,7 +1,7 @@
 /**
  * The Voice tile while voice audio plays: three bars in the glyph's place.
- * Reads the voice store: `speaking` drives it; `level` (0..1, from the voice agent's AnalyserNode, optional)
- * makes the bars follow the audio, otherwise they loop. Transform only (scaleY from the bottom), no glow.
+ * Reads the voice store: `speaking` drives it; `level` (0..1 while speaking, from the voice player's meter) makes
+ * the bars follow the audio; when it can't be measured (undefined) they loop. Transform only (scaleY), no glow.
  */
 import { motion, useReducedMotion } from 'motion/react'
 import type { ReactNode } from 'react'
@@ -22,8 +22,7 @@ export function useVoiceTile(): { on: boolean; speaking: boolean } {
 }
 
 export function Equalizer({ tone, size = 19 }: { tone: string; size?: number }): ReactNode {
-  // `level` lands with the voice agent's pass 2; read it without depending on its type until then.
-  const level = useVoice((v) => (v as { level?: number }).level)
+  const level = useVoice((v) => v.level)
   const still = useReducedMotion()
   const bar = size <= 16 ? 2.5 : 3
   return (
