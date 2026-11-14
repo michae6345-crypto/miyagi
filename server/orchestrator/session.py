@@ -667,7 +667,8 @@ class LessonSession:
             p["video"] = seg
         return p
 
-    async def start_step(self, idx: int) -> None:
+    async def start_step(self, idx: int, seek_to: float | None = None) -> None:
+        """seek_to: resume mid-segment (a restored session) instead of from the segment's start."""
         if not (0 <= idx < len(self.steps)):
             return
         self.idx = idx
@@ -684,7 +685,8 @@ class LessonSession:
                                               "label": c.get("label", c["id"]), "status": "pending"})
         seg = self._segment(step)
         if seg:
-            await self.emit("video.seek", {"t": seg["start"], "play": True})
+            t0 = seg["start"] if seek_to is None or not (seg["start"] <= seek_to < seg["end"]) else float(seek_to)
+            await self.emit("video.seek", {"t": t0, "play": True})
             await self.emit("video.play", {})
             self._spawn(self._segment_timer(self.step_gen, seg["end"] - seg["start"]), timer=True)
         else:

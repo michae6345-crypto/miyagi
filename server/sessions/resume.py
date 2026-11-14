@@ -184,12 +184,12 @@ class Resumer:
         editor_open = bool(state.get("editorOpen"))
         await self._load_without_step0(graph, drop_editor_offer=editor_open)
         s.editor_open = editor_open
-        await s.start_step(idx)
-        seg = s._segment(s.step) if s.step else None
         t = state.get("videoT")
-        if seg and isinstance(t, (int, float)) and seg["start"] + 1 < t < seg["end"] - 1:
-            self.video_t = float(t)
-            await s.emit("video.seek", {"t": float(t), "play": True})
+        seg = s._segment(graph["steps"][idx]) if 0 <= idx < len(graph["steps"]) else None
+        at = float(t) if seg and isinstance(t, (int, float)) and seg["start"] + 1 < t < seg["end"] - 1 else None
+        await s.start_step(idx, seek_to=at)  # one seek, straight to the saved position (E4)
+        if at is not None:
+            self.video_t = at
             self.save_now()
         return True
 
