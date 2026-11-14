@@ -17,7 +17,7 @@ import { brand, color, fill, kindTone, radius, shadow, spring, springOut } from 
 import { CheckIcon, CheckList, Spinner, Thumb } from '../../core/ui/atoms'
 import { parseYouTube, thumbnailFor } from '../launcher/youtube'
 import { TAB } from './geometry'
-import { closeDrawer, toggleDrawer } from './store'
+import { closeDrawer, isWebLink, openSource, toggleDrawer } from './store'
 
 type StepStatus = 'done' | 'current' | 'locked'
 
@@ -331,7 +331,7 @@ function PendingRow({ waiting, part, timeW }: { waiting: boolean; part?: string;
 const KIND_ICON: Record<Exclude<SourceKind, 'video'>, LucideIcon> = { repo: FolderGit2, notebook: FileCode2, paper: FileText, blog: Newspaper }
 
 function SourceRow({ source }: { source: Source }): ReactNode {
-  const link = /^https?:\/\//i.test(source.url) ? source.url : undefined
+  const link = isWebLink(source.url) ? source.url : undefined
   return (
     <button
       type="button"
@@ -340,8 +340,7 @@ function SourceRow({ source }: { source: Source }): ReactNode {
       style={hoverVar}
       disabled={!link}
       onMouseDown={(e) => e.preventDefault()}
-      // Electron: main denies the new window and opens https links in the default browser.
-      onClick={() => link && window.open(link, '_blank', 'noopener,noreferrer')}
+      onClick={() => link && openSource(link)}
     >
       <KindTile source={source} />
       <span className="min-w-0 flex-1">
