@@ -7,6 +7,79 @@ Each video got a fresh empty workdir, i.e. a learner starting from scratch. Engi
 Re-run: `python evals/lesson/run.py --src <checkout>`. Raw graphs are in `results/<id>.json`, automatic grades in `results/grades.json`,
 build logs in `results/<id>.log` (gitignored; per-pass timings are quoted below). Transcripts were used for spot checks but are not committed.
 
+## Gemini path vs Claude path (`e2582e8`, Gemini paid tier)
+
+Gemini billing is on now, so `gemini-4-hydrogen` answers. Four runs on the same code (`e2582e8`) with default models:
+
+| Folder | Setup | What it shows |
+|---|---|---|
+| `results-e2582e8-race/` | default `auto` race, `--saved-captions` | what the demo does today |
+| `results-e2582e8-gemini45/` | `LESSON_ENGINE=gemini`, default 45 s cap | **4/5 fail** with "no answer within 45s"; only git (9:44) finishes |
+| `results-e2582e8-gemini300/` | `LESSON_ENGINE=gemini`, cap raised to 300 s | Gemini's real speed and quality |
+| `results-e2582e8-race-gemfirst/` | `auto`, `LESSON_GEMINI_TIMEOUT=75`, `LESSON_GEMINI_GRACE=60`, `--saved-captions` | a race that prefers Gemini |
+
+In every Gemini run the adapt pass (writing checks for the learner's workdir) is Claude, as designed.
+
+### Per-stage timing and race winner
+
+| Lesson | Claude video pass | Gemini video pass | Total, default race (winner) | Total, Gemini-first race (winner) | Total, Gemini only |
+|---|---|---|---|---|---|
+| react-useeffect (19:51) | 16.0 s | 44.1 s / 40.0 s | 50.0 s (**Claude**) | 53.9 s (**Gemini**) | 63.3 s |
+| git-rebase (9:44) | 13.1 s | 35.4 s / 33.8 s | 30.4 s (**Claude**) | 41.7 s (**Gemini**) | 42.9 s |
+| pandas-30min (30:36) | 13.0 s | 54.6 s / 58.3 s | 41.7 s (**Claude**) | 73.8 s (**Gemini**) | 67.0 s |
+| rust-cli (28:09) | 22.9 s | 50.3 s / 45.8 s | 47.1 s (**Claude**) | 74.0 s (**Gemini**) | 61.4 s |
+| fastapi-rest (15:16) | 20.9 s | 53.3 s / 41.4 s | 75.5 s (**Claude**) | 57.0 s (**Gemini**) | 70.5 s |
+
+- **With today's defaults, Gemini never wins: 0/5.** Claude's draft is ready at 13–23 s and Gemini then gets only 8 s more. Gemini on 0.5 fps needs 34–58 s.
+- **With `LESSON_GEMINI_TIMEOUT=75 LESSON_GEMINI_GRACE=60`, Gemini wins 5/5.** Total time is 42–74 s, against 30–76 s for the Claude-won race, and Claude's draft is still computed in parallel as a fallback.
+- Each adapt pass adds 7–20 s on either path.
+
+### Quality, side by side
+
+Scores are my manual read: Claude = default race; Gemini = the Gemini-only run, with the Gemini-first race read for git and pandas.
+
+| Lesson | Score Claude / Gemini | Checks | Real-output matches | Step starts vs chapter marks (median, within 10 s) | Notes |
+|---|---|---|---|---|---|
+| react | 8.5 / 8 | 32 / 19 | 8/10 / 2/2 | 0 s, 8/9 / 1 s, 8/9 | Gemini: s3 repeats s2's checks with no `[]` check, so s3 passes immediately. s7/s8 have one check each. |
+| git | 8 / **5.5** | 15 / 14 | 10/14 / 6/11 | 25 s / 41 s (covers only the hands-on part) | Gemini, **in both Gemini runs**: step 1 says "Clone the example repository", but the video links no repo. It brings back `DEFAULT_USER\s*=` and `app\.post\(.{0,2}/login`. Claude: step 1 gives commands to rebuild the repo. |
+| pandas | 9 / 7.5 | 33 / 18 | 3/3 / 4/4 | 0 s, 5/8 / 1 s, 6/9 | Gemini: says "Put orders.csv from the tutorial repository" with **no URL** (Claude gives the link from the description). s3 has an alternative `…\|print\(df\)` that passes on code. s7–s9 have no output check. |
+| rust | 9 / 9 | 41 / 30 | 14/23 / 5/13 | no chapters; same starts ±2 s | Gemini reads exact versions off the screen (owo-colors 4.2.1, tabled 0.20.0, chrono 0.4.41) and the real project name `bestls`. |
+| fastapi | 9 / 9 | 34 / 22 | 16/18 / 9/10 | **15 s**, 4/8 / **1 s**, 5/9 | Gemini timestamps are much closer to the chapters. It reads the on-screen pins (fastapi 0.94.0, pydantic 1.10.5) and adds an install step. |
+
+**What Gemini does better:**
+- Step boundaries are as good or better: median 1 s from the chapter marks, against up to 15 s for the transcript path.
+- It reads what is only on screen: exact versions, project and file names.
+- It covers the video more fully: 77–82 % against 71–81 %.
+
+**What Gemini does worse:**
+- **It can't see the video description**, so the setup step can't include the dataset or repo link (pandas), and it invents a repo to clone when there isn't one (git).
+- It copies demo literals visible on screen into the checks, which the adapt pass doesn't fully remove (git s3).
+- Its checks are thinner, about 40 % fewer per lesson. Notebook steps get no `run_command`, so the output-check rule never fires (pandas s7–s9).
+
+### Verdict: is the Gemini path good enough to be the default?
+
+**Yes, for code-on-screen tutorials like the demo, once the race is set to prefer Gemini.**
+- React, Rust and FastAPI score 8–9 on Gemini. That is level with Claude, with better timestamps and on-screen details, in 54–74 s.
+- **With today's defaults, the demo will never use Gemini**, even with billing on, because Claude always finishes first.
+- The minimum change is `LESSON_GEMINI_TIMEOUT=75 LESSON_GEMINI_GRACE=60`, measured above: Gemini won 5/5.
+
+**Not yet for arbitrary tutorials whose starting state is off camera.** git and pandas drop to 5.5 and 7.5 because Gemini never sees the description, and a "clone the example repository" step with no repo can't be followed. Fixes 2–3 below close that gap.
+
+### Fixes, ranked (sent to E2)
+1. **Make `auto` prefer Gemini** (`builder._watch`, builder.py:256; `GEMINI_GRACE_S` / `GEMINI_VIDEO_TIMEOUT_S`, :244–245).
+   - Wait for Gemini up to ~75 s and use the Claude draft only if Gemini fails or times out.
+   - Claude already runs in parallel, so a Gemini failure costs nothing extra.
+   - Measured with env overrides: Gemini 5/5, 42–74 s.
+2. **Give Gemini the text metadata too** (`gemini.watch_video`, gemini.py:225: `parts = [_video_part(...), WATCH_PROMPT]`).
+   - Add the title, description and chapter list as a text part, like the Claude prompt has (`transcript.format_for_prompt` without the transcript).
+   - Fetch the watch-page metadata separately from captions; it loaded fine while captions were 429ing.
+   - This fixes the missing dataset link (pandas) and the starting-state context (git).
+3. **Lint the setup step.** Flag a step 1 that says clone/download/"from the tutorial repository" without a URL or the exact commands. "Clone the example repository" appeared in 2/2 Gemini git builds. The fix is either the link from the description or recreate commands, which the Claude draft already has and could be reused.
+4. **Demo literals still pass through from Gemini drafts.** `DEFAULT_USER\s*=` and `/login` came back in both Gemini git builds. Treat identifiers that only exist in the tutorial's off-camera starting state (not created by any lesson step's instructions) as `precision_checks` material, not screen gates.
+5. **Thin Gemini checks.**
+   - Give notebook steps a `run_command` (or treat `.ipynb` steps as run steps) so the standard-output rule fires.
+   - Flag consecutive steps with identical check sets: React s3 duplicates s2, so s3 passes instantly.
+
 ## Fourth run (`e2582e8`): adapt loop converges, standard output checks
 
 Same setup again (`--saved-captions`, Claude path only; Gemini still at quota). Results are in `results-e2582e8/`.
