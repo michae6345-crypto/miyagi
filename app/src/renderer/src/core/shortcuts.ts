@@ -4,14 +4,50 @@
  *   1. emitUi('shortcut', kind): features react locally and may claim it (return true)
  *   2. if nobody claimed it, send action {kind} to the engine
  */
+import { create } from 'zustand'
 import type { ShortcutKind } from '../../../main/platform'
+import type { AppCommands } from '../../../../../shared/contracts/events'
 import { cmd } from '../../../common/wire'
 import { bridge } from '../bridge'
-import { emitUi } from './bus'
+import { emitUi, onMessage, onUi } from './bus'
+import { stopBuild, useLesson } from './lesson'
 
 export type ActionShortcut = Exclude<ShortcutKind, 'launcher'>
+export type ActionKind = AppCommands['action']['kind']
+
+/**
+ * The last action the learner sent (shortcut, bar click, card button). With useThinking() from core/lesson it
+ * puts the spinner on the button that was pressed: `thinking && pressed === kind`. Cleared when the engine
+ * answers with something visible (card, offtrack, diagram, spotlight) or the lesson resets.
+ */
+export const usePressed = create<{ kind?: ActionKind; at: number }>(() => ({ kind: undefined, at: 0 }))
+const clearPressed = (): void => usePressed.setState({ kind: undefined, at: Date.now() })
+// video.seek is Show me's answer.
+for (const t of ['card', 'offtrack', 'diagram', 'spotlight', 'video.seek', 'lesson.ended'] as const) onMessage(t, clearPressed)
+onUi('reset', clearPressed)
+// A press is spent when the thinking spell after it ends, whatever the engine answered (or didn't).
+let thinkingSincePress = false
+onMessage('status', (p) => {
+  if (p.state === 'thinking') thinkingSincePress = true
+  else if (thinkingSincePress) {
+    thinkingSincePress = false
+    clearPressed()
+  }
+})
+
+/** Send action {kind} to the engine and remember it as pressed. Use this for every action button. */
+/** Actions the engine never "thinks" about: they must not leave a stale pressed kind for a later spinner. */
+const INSTANT = new Set<ActionKind>(['voice_toggle', 'back'])
+
+export function sendAction(kind: ActionKind, text?: string): void {
+  thinkingSincePress = useLesson.getState().engineState === 'thinking'
+  usePressed.setState(INSTANT.has(kind) ? { kind: undefined, at: Date.now() } : { kind, at: Date.now() })
+  // Pick another (preflight card): no build is running any more; the launcher reopens on the same results.
+  if (kind === 'pick_another') stopBuild()
+  bridge.send(cmd('action', text === undefined ? { kind } : { kind, text }))
+}
 
 export function triggerShortcut(kind: ActionShortcut): void {
   if (emitUi('shortcut', kind)) return
-  bridge.send(cmd('action', { kind }))
+  sendAction(kind)
 }

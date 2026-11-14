@@ -13,7 +13,7 @@ export const HOLE_PAD = 8
 export const HOLE_MIN = { w: 44, h: 30 } as const
 export const HOLE_RADIUS = 12
 /** Caption: gap to the hole, distance kept from the screen edges, offset from the hole's top (mockup 04: 21). */
-export const CAPTION_GAP = 22
+export const CAPTION_GAP = 8
 export const EDGE_MARGIN = 16
 export const CAPTION_TOP_OFFSET = 21
 /** How far the caption may slide along the hole to get clear of other UI before it settles for covering a little of it. */
@@ -29,6 +29,14 @@ export const MAX_SLIDE = 160
 export function toLocal(r: Rect, origin: Point): Rect {
   return { x: r.x - origin.x, y: r.y - origin.y, w: r.w, h: r.h }
 }
+
+/** A rect we can point at: finite numbers and a real size (the engine can send an empty or zero box). */
+export function isUsableRect(r: Partial<Rect> | undefined | null): r is Rect {
+  return !!r && [r.x, r.y, r.w, r.h].every((v) => typeof v === 'number' && Number.isFinite(v)) && r.w! > 0 && r.h! > 0
+}
+
+/** Below this share of the hole on screen it isn't worth a dim: say it on the pill instead. */
+export const MIN_VISIBLE_SHARE = 0.25
 
 export function intersects(a: Rect, b: Rect): boolean {
   return a.x < b.x + b.w && a.x + a.w > b.x && a.y < b.y + b.h && a.y + a.h > b.y
