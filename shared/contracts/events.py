@@ -239,9 +239,18 @@ class SetupItem(_Model):
     install: SetupInstall
 
 
+class SetupResource(_Model):
+    name: str
+    url: str
+    kind: Literal["repo", "notebook", "gist", "file"]
+
+
 class Setup(_Model):
     editorNeeded: bool
     items: list[SetupItem]
+    editorLabel: str | None = None  # "Cursor"
+    resources: list[SetupResource] | None = None  # files the video links (action download)
+    actionLabels: dict[str, str] | None = None
 
 
 class SetupProgress(_Model):
@@ -274,12 +283,18 @@ class HandsOn(_Model):
     start: float
 
 
+class SkippedIntro(_Model):
+    start: float
+    end: float
+
+
 class BuildPlan(_Model):
     strategy: Literal["whole", "chapters"]
     estSecondsToFirstSteps: float
     firstChapter: PreflightChapter | None = None  # the window E2 builds first
     firstHandsOn: HandsOn | None = None  # Claude: first chapter where the learner does something
     windows: int | None = None
+    skippedIntro: "SkippedIntro | None" = None  # a talk-only intro part 1 skips
 
 
 class PreflightInfo(_Model):
@@ -297,7 +312,7 @@ class PreflightInfo(_Model):
 
 
 CardAction = Literal["confirm", "undo", "apply_fix", "open_editor", "resume", "end_lesson", "install", "skip_setup",
-                     "open_in_browser", "build", "pick_another"]
+                     "open_in_browser", "build", "pick_another", "download"]
 
 
 class Card(_Model):
@@ -315,6 +330,7 @@ class Card(_Model):
     warning: str | None = None  # kind "preflight": the video doesn't fit the goal (goalMatch < 0.5)
     recommended: Literal["build", "pick_another"] | None = None
     preflight: PreflightInfo | None = None  # kind "preflight"
+    where: str | None = None  # coach: where to go when the place isn't on screen (no dim)
 
 
 class NetworkDiagram(_Model):
@@ -469,7 +485,7 @@ class BuildLesson(_Model):
 
 ActionKind = Literal["back", "explain", "diagram", "show_me", "hint", "voice_toggle", "ask", "apply_fix",
                      "confirm", "undo", "open_editor", "resume", "end_lesson", "install", "skip_setup", "open_in_browser",
-                     "build", "pick_another"]
+                     "build", "pick_another", "download"]
 
 
 class Action(_Model):

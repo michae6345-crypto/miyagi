@@ -14,7 +14,7 @@ import type { Layout } from '../../../../preload/api'
 import { bridge, isElectron } from '../../bridge'
 import { useLesson, useProgress, useStatus } from '../../core/lesson'
 import { clock, color, copy, radius, shadow, spring } from '../../core/theme'
-import { CheckIcon, Spinner, StatusDot } from '../../core/ui/atoms'
+import { CheckIcon, PrimaryButton, Spinner, StatusDot } from '../../core/ui/atoms'
 import { MiyagiMark } from '../../core/ui/Mark'
 import { dockRect } from './dock'
 import { attachPlayer, inGate, player, usePlayer } from './store'
@@ -162,12 +162,12 @@ function Waiting(): ReactNode {
   return (
     <motion.div className="pointer-events-none absolute inset-0 grid place-items-center bg-black/55 backdrop-blur-[10px]" {...fade}>
       <motion.div className="flex flex-col items-center px-6 text-center" {...rise}>
-        <div className="flex items-center gap-[7px] text-[11px] font-semibold uppercase tracking-[0.08em]" style={{ color: tone }}>
-          <span className="h-[6px] w-[6px] rounded-full" style={{ background: tone }} />
-          {offtrack ? 'Something’s off' : 'Your turn'}
+        {/* One line, the status dot beside it (amber off track, gray watching). No eyebrow. */}
+        <div className="flex items-center gap-[8px] text-[19px] font-semibold leading-tight">
+          <span className="h-[7px] w-[7px] shrink-0 rounded-full" style={{ background: tone }} />
+          Waiting for your checks
         </div>
-        <div className="mt-[8px] text-[19px] font-semibold leading-tight">Waiting for your checks</div>
-        {checks.length > 0 ? (
+        {checks.length > 0 && (
           <div className="mt-[10px] flex items-center gap-[8px] text-[13px]" style={{ color: color.label }}>
             <span className="flex gap-[4px]">
               {checks.map((c) => (
@@ -182,18 +182,10 @@ function Waiting(): ReactNode {
             </span>
             {done} of {checks.length} pass
           </div>
-        ) : (
-          <div className="mt-[10px] text-[13px]" style={{ color: color.label }}>
-            The video continues when they pass.
-          </div>
         )}
-        <button
-          className="pointer-events-auto mt-[16px] flex h-[30px] cursor-pointer items-center gap-[6px] rounded-full px-[13px] text-[13px] font-semibold hover:opacity-90"
-          style={{ background: color.accent, color: color.onAccent }}
-          onClick={() => player.replayStep()}
-        >
-          <RotateCcw size={13} strokeWidth={1.9} /> Replay step
-        </button>
+        <div className="pointer-events-auto mt-[16px]">
+          <PrimaryButton label="Replay step" icon={RotateCcw} onClick={() => player.replayStep()} />
+        </div>
       </motion.div>
     </motion.div>
   )
@@ -339,7 +331,7 @@ function SourceLine(): ReactNode {
     <div className="mt-[10px]">
       <div className="truncate text-[15px] font-semibold">{source?.title ?? title ?? 'Tutorial'}</div>
       <div className="truncate text-[12px]" style={{ color: color.faint }}>
-        {standIn ? `Stand-in video${title ? `: ${title}` : ''} (the lesson’s video id is a placeholder)` : (source?.meta ?? '')}
+        {standIn ? (title ? `${title} · stand-in video` : 'Stand-in video') : (source?.meta ?? '')}
       </div>
     </div>
   )

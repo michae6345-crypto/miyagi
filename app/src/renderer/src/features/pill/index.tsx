@@ -1,7 +1,7 @@
 /**
  * Feature: pill. The island's pill-sized states (34px tall, width hugs content), to mockup 01 + the
  * Miyagi brand (app/brand/BRAND.md): always black and white, the bonsai as a one-color glyph on the left
- * (it shows its colors once the island opens), the status on the right.
+ * (monochrome everywhere in the app), the status on the right.
  *   idle      no lesson yet: "[bonsai] Ask Miyagi ⌥Space" (click opens the launcher)
  *   building  between Build lesson and the first step: lesson.building message + spinner + progress line
  *   compact   during a lesson: "[bonsai] Step 4 · Define the residual  ◔ ●" (ring = steps done, dot = status)

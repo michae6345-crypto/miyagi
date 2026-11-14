@@ -5,8 +5,8 @@
  *     The user can drag it by its header and resize it; its bounds are saved and restored.
  *   - Hidden until lesson.ready, then shown with showInactive() so it never takes focus from the editor.
  *     Not focusable, except while the pointer is over it (renderer → player:hover).
- *   - Floats above normal windows ('floating') but below the overlay ('screen-saver'), so the dim,
- *     spotlight and cards draw over it.
+ *   - Floats at the overlay's level ('screen-saver', one step below it), so the dim, spotlight and cards
+ *     still draw over it, and on macOS it shows over full-screen apps on every Space (type 'panel').
  *
  * Handles (bridge.invoke from any window):
  *   player:dock    snap back to the right 40% (and save that)
@@ -68,7 +68,7 @@ export default defineMainFeature({
       backgroundColor: WINDOW_BG,
       webPreferences: { autoplayPolicy: 'no-user-gesture-required' }
     })
-    win.setAlwaysOnTop(true, 'floating')
+    ctx.raise(win, -1)
     // The engine's screen reader must ignore the player, or it reads the tutorial's code as the learner's.
     ctx.reportBounds(win)
 
@@ -95,7 +95,7 @@ export default defineMainFeature({
     const reveal = (): void => {
       if (win.isDestroyed() || win.isVisible()) return
       win.showInactive()
-      win.setAlwaysOnTop(true, 'floating')
+      ctx.raise(win, -1)
     }
     ctx.engine.onEvent((e) => {
       if (e.type === 'lesson.ready') reveal()
@@ -113,3 +113,4 @@ export default defineMainFeature({
     ctx.handle('player:intent', (intent) => ctx.broadcast('player:intent', intent))
   }
 })
+

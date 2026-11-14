@@ -4,9 +4,11 @@
  * rounded hole at that rect, edged with a crisp hairline, with a glass caption beside it. Works over
  * any app; never takes a click except on the voice button.
  *
- * Brand (app/brand/BRAND.md): no glows, no blur on the ring, no blue. Color only carries state, like the
- * pill's dot: the hairline is white while Miyagi watches, amber when off track, green when the step
- * passes (a beat, then it fades). It sits over a faint `color.onAccent` keyline so it reads over light apps.
+ * Brand (app/brand/BRAND.md) + Adrian ("less like AI slop, more precise"): the cut-out is edged by ONE white
+ * hairline, whatever the state (the pill and the card already carry status color), over a faint
+ * `color.onAccent` keyline so it reads over light apps. The caption is one line on the island's black,
+ * flush beside the cut-out: no eyebrow, no dot, no code (the card has the diff). The speaker shows only while
+ * voice is on (tap to turn it off).
  *
  * Animation (FRONTEND-HANDOFF → "Dim overlay + spotlight"):
  *   - the dim fades in over 280ms;
@@ -19,23 +21,21 @@
 import { AnimatePresence, animate, motion, useMotionValue, useReducedMotion } from 'motion/react'
 import { useCallback, useEffect, useId, useLayoutEffect, useRef, useState, type ReactNode, type RefObject } from 'react'
 import { Volume2 } from 'lucide-react'
-import { useLesson, useStatus, type Rect, type Status } from '../../core/lesson'
-import { color, font, radius, scrim, shadow, spring, text } from '../../core/theme'
+import { useStatus, type Rect } from '../../core/lesson'
+import { color, radius, scrim, shadows, spring, text } from '../../core/theme'
 import { toggleVoice, useVoice } from '../voice/store'
 import { hole, holeRadius, placeCaption, type Side } from './place'
 import type { SpotlightMode, SpotlightTarget } from './store'
 
-const CAPTION_W = 300
-/** Until the caption has been measured (mockup 04: 84). */
-const CAPTION_H_GUESS = 84
+/** The caption hugs its one line, up to this width. */
+const CAPTION_MAX_W = 360
+/** Until the caption has been measured. */
+const CAPTION_GUESS = { w: 280, h: 44 }
 /** The dim: `scrim.spotlight` (black at .66, Adrian's "more contrast"; the handoff said 55%), fading in over 280ms. */
 const DIM = { fill: scrim.spotlight, fade: 0.28 } as const
 /** The ring: a crisp hairline (no blur) over a faint dark keyline for contrast on light apps. */
-const RING = { width: 1.5, keyline: 3.5, keylineOpacity: 0.35 } as const
+const RING = { width: 1, keyline: 3, keylineOpacity: 0.35 } as const
 const PULSE = { from: 0.45, peak: 1, rest: 0.9, duration: 1.2 } as const
-/** State colors, the same meaning as the pill's dot. Nothing else in the spotlight has color. */
-const RING_COLOR: Record<Status, string> = { watching: color.accent, offtrack: color.amber, passed: color.green }
-const DOT_COLOR: Record<Status, string> = { watching: color.gray, offtrack: color.amber, passed: color.green }
 
 type Props = {
   target?: SpotlightTarget
@@ -86,10 +86,10 @@ function Scene({ target, rect, bounds, mode, showCaption, avoid }: Props & { tar
         {!outline && <rect width="100%" height="100%" fill={DIM.fill} mask={`url(#${id}-hole)`} data-part="dim" />}
         <motion.g style={{ opacity: pulse }} data-part="ring">
           <rect ref={register} data-part="keyline" fill="none" style={{ stroke: color.onAccent }} strokeOpacity={RING.keylineOpacity} strokeWidth={RING.keyline} />
-          <rect ref={register} data-part="hairline" data-status={status} fill="none" style={{ stroke: RING_COLOR[status], transition: 'stroke 240ms ease-out' }} strokeWidth={RING.width} />
+          <rect ref={register} data-part="hairline" data-status={status} fill="none" style={{ stroke: color.text }} strokeWidth={RING.width} />
         </motion.g>
       </svg>
-      {showCaption && <Caption target={target} hole={cut} bounds={bounds} avoid={avoid} reduced={reduced} status={status} />}
+      {showCaption && <Caption target={target} hole={cut} bounds={bounds} avoid={avoid} reduced={reduced} />}
     </motion.div>
   )
 }
@@ -208,17 +208,16 @@ const ENTER: Record<Side, { x: number; y: number }> = {
   inside: { x: 0, y: 0 }
 }
 
-function Caption({ target, hole: cut, bounds, avoid: outside, reduced, status }: { target: SpotlightTarget; hole: Rect; bounds: Rect; avoid: Rect[]; reduced: boolean; status: Status }): ReactNode {
+function Caption({ target, hole: cut, bounds, avoid: outside, reduced }: { target: SpotlightTarget; hole: Rect; bounds: Rect; avoid: Rect[]; reduced: boolean }): ReactNode {
   const voiceOn = useVoice((s) => s.on)
-  const index = useLesson((s) => Math.max(0, s.steps.findIndex((x) => x.id === s.stepId)))
   const ref = useRef<HTMLDivElement>(null)
-  const [height, setHeight] = useState(CAPTION_H_GUESS)
+  const [size, setSize] = useState<{ w: number; h: number }>(CAPTION_GUESS)
 
-  // Measure the real height (captions wrap) so the bottom-edge clamp is exact.
+  // Measure the real size (the caption hugs its line) so it sits exactly beside the cut-out.
   useLayoutEffect(() => {
     const el = ref.current
     if (!el) return
-    const measure = (): void => setHeight(el.offsetHeight)
+    const measure = (): void => setSize((s) => (s.w === el.offsetWidth && s.h === el.offsetHeight ? s : { w: el.offsetWidth, h: el.offsetHeight }))
     measure()
     const ro = new ResizeObserver(measure)
     ro.observe(el)
@@ -226,51 +225,35 @@ function Caption({ target, hole: cut, bounds, avoid: outside, reduced, status }:
   }, [])
 
   const inOverlay = useOtherUi(ref)
-  const at = placeCaption(cut, { w: CAPTION_W, h: height }, bounds, [...inOverlay, ...outside])
+  const at = placeCaption(cut, size, bounds, [...inOverlay, ...outside])
   const from = reduced ? { x: 0, y: 0 } : ENTER[at.side]
-  const code = target.code ?? target.matched
 
   return (
     <motion.div
       ref={ref}
       data-ui
       data-side={at.side}
-      className="absolute left-0 top-0 border px-[18px] py-[14px]"
-      style={{ width: CAPTION_W, borderRadius: radius.card, background: color.glass, borderColor: color.hairline, boxShadow: shadow, backdropFilter: 'blur(30px) saturate(1.4)' }}
+      className="absolute left-0 top-0 flex items-center gap-[10px] py-[11px] pl-[16px] pr-[11px]"
+      style={{ maxWidth: CAPTION_MAX_W, borderRadius: radius.chip, background: color.island, boxShadow: shadows.card }}
       initial={{ opacity: 0, x: at.x + from.x, y: at.y + from.y }}
       animate={{ opacity: 1, x: at.x, y: at.y }}
       transition={reduced ? { duration: 0.2 } : { ...spring, opacity: { duration: 0.2 } }}
     >
-      <div className="flex items-center gap-[12px]">
-        <div className="min-w-0 flex-1">
-          <div className="flex items-center gap-[7px]" style={{ fontSize: text.xs, color: color.label }}>
-            <span data-part="dot" className="h-[7px] w-[7px] shrink-0 rounded-full" style={{ background: DOT_COLOR[status], transition: 'background-color 240ms ease-out' }} />
-            <span className="truncate">
-              Step {index + 1}
-              {target.app ? ` · ${target.app}` : ''}
-            </span>
-          </div>
-          <div className="mt-[2px] font-semibold leading-[20px]" style={{ fontSize: text.sm, color: color.text }}>
-            {target.caption}
-          </div>
-          {code && (
-            <div className="mt-[4px] truncate" style={{ fontFamily: font.mono, fontSize: text.xs, color: color.text, opacity: 0.78 }}>
-              {code}
-            </div>
-          )}
-        </div>
-        {/* Brand: white on dark when on (accent fill + onAccent icon), quiet glass when off. Never blue. */}
+      <div className="min-w-0 truncate font-medium leading-[22px]" style={{ fontSize: text.sm, color: color.text }} title={target.caption}>
+        {target.caption}
+      </div>
+      {/* Only while voice is on: white, like every toggle that's on. Tap to turn it off. */}
+      {voiceOn && (
         <button
           data-hit
-          className="pointer-events-auto grid h-[34px] w-[34px] shrink-0 cursor-pointer place-items-center rounded-full"
-          style={{ background: voiceOn ? color.accent : color.hairline, color: voiceOn ? color.onAccent : color.label }}
+          className="pointer-events-auto grid h-[24px] w-[24px] shrink-0 cursor-pointer place-items-center rounded-full"
+          style={{ background: color.accent, color: color.onAccent }}
           onClick={toggleVoice}
-          aria-label={voiceOn ? 'Voice on' : 'Voice off'}
-          aria-pressed={voiceOn}
+          aria-label="Turn voice off"
         >
-          <Volume2 size={16} />
+          <Volume2 size={13} />
         </button>
-      </div>
+      )}
     </motion.div>
   )
 }

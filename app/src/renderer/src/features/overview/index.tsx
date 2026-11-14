@@ -8,8 +8,8 @@ import { useShallow } from 'zustand/react/shallow'
 import { bridge } from '../../bridge'
 import { useLesson, useProgress, useStatus, type Status } from '../../core/lesson'
 import { defineFeature } from '../../core/registry'
-import { CheckList, StatusDot, Thumb } from '../../core/ui/atoms'
-import { clock, color } from '../../core/theme'
+import { CheckList, Kbd, StatusDot, Thumb } from '../../core/ui/atoms'
+import { clock, color, fill } from '../../core/theme'
 import { Gear } from './Gear'
 import { GoalNote, Instructions, Meta } from './Lines'
 
@@ -19,15 +19,18 @@ function Segments({ total, index, status }: { total: number; index: number; stat
     <div className="mt-[10px] flex gap-[5px]">
       {/* lesson.updated appends steps: existing segments keep their key and state; only the new ones fade in. */}
       <AnimatePresence initial={false}>
-      {Array.from({ length: total }, (_, i) => (
-        <motion.div
-          key={i}
-          className="h-[3px] flex-1 rounded-full"
-          initial={{ opacity: 0 }}
-          animate={{ opacity: 1, background: i < index ? 'rgba(255,255,255,.88)' : i === index ? current : 'rgba(255,255,255,.18)' }}
-          transition={{ duration: 0.3 }}
-        />
-      ))}
+      {Array.from({ length: total }, (_, i) => {
+        const bg = i < index ? color.text : i === index ? current : fill.track
+        return (
+          <motion.div
+            key={i}
+            className="h-[3px] flex-1 rounded-full"
+            initial={{ opacity: 0, backgroundColor: bg }}
+            animate={{ opacity: 1, backgroundColor: bg }}
+            transition={{ duration: 0.3 }}
+          />
+        )
+      })}
       </AnimatePresence>
     </div>
   )
@@ -38,12 +41,15 @@ function Overview(): ReactNode {
   const { index, total } = useProgress()
   const status = useStatus()
   const start = s.video ? clock(s.video.start) : undefined
+  const end = s.video ? clock(s.video.end) : undefined
+  // One short fact, no sentence: where the video waits (or that this step passed).
+  const footer = status === 'passed' ? 'Passed' : end ? `Video waits at ${end}` : undefined
   return (
     <div className="px-[22px] pb-[16px] pt-[20px]">
       <div className="flex gap-[16px]">
         <Thumb w={120} h={68} time={start} />
         <div className="min-w-0 flex-1 pt-[2px]">
-          <div className="flex items-center gap-[7px] text-[13px] text-white/55">
+          <div className="flex items-center gap-[7px] text-[13px]" style={{ color: color.label }}>
             Step {index + 1} of {total} <StatusDot status={status} />
           </div>
           <div className="mt-[2px] truncate text-[20px] font-semibold tracking-[-0.015em]">{s.title}</div>
@@ -58,9 +64,12 @@ function Overview(): ReactNode {
         </div>
       )}
       <Meta />
-      <div className="mt-[16px] flex items-center justify-between border-t pt-[12px] text-[13px] text-white/45" style={{ borderColor: 'rgba(255,255,255,.08)' }}>
-        <span>Ask {bridge.platform.keys.launcher}</span>
-        <Gear />
+      <div className="mt-[16px] flex items-center justify-between gap-[8px] border-t pt-[12px] text-[13px]" style={{ borderColor: fill.rule, color: color.faint }}>
+        <span className="truncate">{footer}</span>
+        <span className="flex shrink-0 items-center gap-[8px]" style={{ color: color.label }}>
+          Ask <Kbd>{bridge.platform.keys.launcher}</Kbd>
+          <Gear />
+        </span>
       </div>
     </div>
   )
