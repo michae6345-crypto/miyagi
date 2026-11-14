@@ -30,7 +30,8 @@ export interface EngineEvents {
     body: string;              // <= ~30 words
     diff?: { expected: string; yours: string; file?: string; line?: number };
     citation?: { label: string; url: string };
-    actions: Array<"explain" | "show_me" | "apply_fix" | "hint">;
+    actions: Array<"explain" | "show_me" | "apply_fix" | "hint">;   // apply_fix = "Do it for me" (only at level 3)
+    level?: 2 | 3;             // hint ladder: 2 = concept (no fix yet), 3 = exact fix + diff + apply_fix
   };
   /** Screen-first: rect is in screen POINTS, TOP-LEFT origin (Electron convention), relative to the PRIMARY display's FULL frame (y=0 is the very top, menu bar included). v1 watches the primary display only. Same convention for overlay.bounds. */
   "spotlight": { rect: { x: number; y: number; w: number; h: number }; caption: string; app?: string; matched?: string } | { clear: true };
@@ -39,7 +40,8 @@ export interface EngineEvents {
   "video.seek": { t: number; play: boolean };
   "video.pause": {};
   "video.play": {};
-  "card": { stepId?: string; kind: "explain" | "hint" | "answer"; title: string; body: string; videoJump?: { t: number; label: string } };
+  "card": { stepId?: string; kind: "explain" | "hint" | "answer"; title: string; body: string; videoJump?: { t: number; label: string };
+            actions?: Array<"confirm" | "undo" | "apply_fix"> };   // buttons on the card -> send `action {kind}`
   "diagram": {
     kind: "network" | "gradients" | "heatmap";
     caption: string;
@@ -59,7 +61,7 @@ export interface AppCommands {
   "learn": { query: string };                       // launcher text
   "learn_url": { url: string };                     // pasted YouTube link
   "build_lesson": { resultIds: string[] };
-  "action": { kind: "back" | "explain" | "diagram" | "show_me" | "hint" | "voice_toggle" | "ask" | "apply_fix"; text?: string };
+  "action": { kind: "back" | "explain" | "diagram" | "show_me" | "hint" | "voice_toggle" | "ask" | "apply_fix" | "confirm" | "undo"; text?: string };  // confirm: "Looks done?" card; undo: revert the last "Do it for me"
   "video.state": { t: number; playing: boolean };   // player reports its position
   "overlay.bounds": { rects: Array<{ x: number; y: number; w: number; h: number }> };
   /** Bring-your-own-key (like cue): sent on every connect from the app's Settings. Engine uses these over its .env, keeps them in memory only, never logs them. */

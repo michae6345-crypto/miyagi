@@ -31,6 +31,7 @@ from .modules import Modules
 from .screen_bridge import ScreenBridge
 from .session import LessonSession
 from .watcher import Watcher
+from .inputs import Inputs
 from .workspace import Workspace
 
 log = logging.getLogger("orchestrator")
@@ -42,7 +43,8 @@ class Engine:
         self.modules = Modules()
         self.screen = ScreenBridge()
         self.workspace = Workspace()
-        self.session = LessonSession(self.hub.emit, self.modules, screen=self.screen, workspace=self.workspace)
+        self.session = LessonSession(self.hub.emit, self.modules, screen=self.screen, workspace=self.workspace,
+                                     inputs=Inputs())
         self.watcher = Watcher(self.session.on_file_change, interval=config.WATCH_INTERVAL_S)
         self.session.on_workdir = self.watcher.set_root
         self.recorder = recorder.Recorder()

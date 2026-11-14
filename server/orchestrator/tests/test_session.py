@@ -10,6 +10,7 @@ import pytest
 
 from server.orchestrator import stubs
 from server.orchestrator.hub import Hub
+from server.orchestrator.inputs import FakeInputs
 from server.orchestrator.modules import Modules
 from server.orchestrator.screen_bridge import FakeScreen
 from server.orchestrator.session import LessonSession
@@ -27,14 +28,17 @@ class Clock:
 class Rig:
     """A session wired to a strict (contract-validating) hub, with a recorded event log."""
 
-    def __init__(self, workdir: Path, modules: Modules | None = None, screen: FakeScreen | None = None):
+    def __init__(self, workdir: Path, modules: Modules | None = None, screen: FakeScreen | None = None,
+                 with_inputs: bool = False):
         self.hub = Hub(strict=True)
         self.clock = Clock()
+        self.inputs = FakeInputs(self.clock) if with_inputs else None
         self.workdir = workdir
         self.screen = screen
         self.s = LessonSession(self.hub.emit, modules or Modules(demo=False, force_stubs="all"),
                                clock=self.clock, idle_gate_s=5, advance_delay_s=0, metric_eval_s=0,
-                               result_stagger_s=0, build_tick_s=0.01, screen=screen, seen_interval_s=0)
+                               result_stagger_s=0, build_tick_s=0.01, screen=screen, seen_interval_s=0,
+                               inputs=self.inputs)
 
     @property
     def events(self) -> list[dict]:
@@ -160,7 +164,7 @@ def test_file_check_passes_and_advances(rig):
     assert rig.s.step["id"] == "s2"
 
 
-def test_already_done_step_waits_for_segment_end(rig):
+def test_done_without_any_learner_action_asks_to_confirm(rig):
     rig.write("# already here\n")
 
     async def go():
@@ -168,11 +172,15 @@ def test_already_done_step_waits_for_segment_end(rig):
         assert rig.s.step["id"] == "s1"  # checks pass, but the clip is still playing
         assert rig.of("check.updated")[-1]["status"] == "pass"
         assert not rig.of("step.passed")
-        await rig.end_segment()
+        await rig.end_segment()  # screen says done, but nobody did anything: ask, don't assert
+        assert not rig.of("step.passed")
+        assert rig.of("card")[-1]["title"] == "Looks done?" and rig.of("card")[-1]["actions"] == ["confirm"]
+        await rig.s.action("confirm")
+        await rig.settle()
 
     run(go())
     assert rig.of("step.passed")[0]["stepId"] == "s1"
-    assert "video.pause" not in rig.types()
+    assert "video.pause" in rig.types()  # gated at the clip's end until the learner confirms
 
 
 def test_spotlight_on_segment_end_uses_screen_rect(tmp_path, monkeypatch):
@@ -199,11 +207,13 @@ def test_spotlight_on_segment_end_uses_screen_rect(tmp_path, monkeypatch):
 def test_screen_checks_pass_from_ocr_and_watch_metric_patterns(tmp_path, monkeypatch):
     monkeypatch.setenv("TUT_WORKDIR", str(tmp_path / "nowhere"))  # no workdir: pure screen mode
     screen = FakeScreen()
-    rig = Rig(tmp_path, screen=screen)
+    rig = Rig(tmp_path, screen=screen, with_inputs=True)
 
     async def go():
         await rig.start_lesson()
         await rig.end_segment()
+        rig.clock.t += 1
+        rig.inputs.key()  # the learner types; the screen changes
         screen.text["Code"] = ["pinn_convection.py — sandbox"]
         await rig.s.on_screen(types.SimpleNamespace(app="Code", t=1.0))
         await rig.settle()
@@ -250,11 +260,9 @@ def test_single_failure_does_not_nag_second_does(rig):
         return first, rig.since(m)
 
     first, second = run(go())
-    assert not [e for e in first if e["type"] == "offtrack"]
-    assert all(e["payload"]["status"] != "fail" for e in first if e["type"] == "check.updated")
-    assert [e["payload"]["status"] for e in second if e["type"] == "check.updated"] == ["fail", "fail"]
-    off = [e["payload"] for e in second if e["type"] == "offtrack"]
-    assert len(off) == 1 and off[0]["stepId"] == "s2"
+    assert not [e for e in first if e["type"] == "offtrack"]  # one failing save: a breakpoint, but no nagging
+    off = [e["payload"] for e in second if e["type"] == "offtrack"]  # same failure saved twice: speak
+    assert len(off) == 1 and off[0]["stepId"] == "s2" and off[0]["level"] == 2
     assert [e["payload"]["state"] for e in second if e["type"] == "status"][-1] == "offtrack"
 
 
@@ -288,7 +296,7 @@ def test_idle_gate_needs_engagement(rig):
     assert not rig.of("offtrack")
 
 
-def test_hero_plateau_then_curriculum(rig):
+def test_hero_ladder_concept_then_exact_fix_then_green(rig):
     rig.s.screen = FakeScreen()
     rig.s.screen.text["Code"] = ["def train(model):", "    beta = 30", "    for epoch in range(4000):"]
 
@@ -298,24 +306,68 @@ def test_hero_plateau_then_curriculum(rig):
         rig.write("def train(model):\n    beta = 30\n    for epoch in range(4000):\n        pass\n")
         await rig.end_segment()
         m = rig.mark()
-        await rig.run("r-plateau", PLATEAU)
-        plateau = rig.since(m)
+        await rig.run("r-plateau", PLATEAU)  # run ends failing: breakpoint -> level 2 concept card
+        first = rig.since(m)
+        rig.clock.t += 25
+        m = rig.mark()
+        await rig.run("r-plateau-again", PLATEAU)  # same failure again -> level 3 exact fix
+        second = rig.since(m)
         m = rig.mark()
         await rig.run("r-curriculum", CONVERGE)
-        return plateau, rig.since(m)
+        return first, second, rig.since(m)
 
-    plateau, fixed = run(go())
-    off = [e["payload"] for e in plateau if e["type"] == "offtrack"]
-    assert len(off) == 1
+    first, second, fixed = run(go())
+    off = [e["payload"] for e in first if e["type"] == "offtrack"]
+    assert len(off) == 1 and off[0]["level"] == 2
+    assert "diff" not in off[0] and "apply_fix" not in off[0]["actions"]
     assert off[0]["citation"]["url"] == "https://arxiv.org/abs/2109.01050"
-    assert off[0]["diff"]["yours"] == "beta = 30" and off[0]["diff"]["line"] == 2
-    spot = [e["payload"] for e in plateau if e["type"] == "spotlight"][-1]
-    assert spot["matched"] == "    beta = 30" and spot["caption"] == off[0]["title"]
-    assert any(e["type"] == "metric" for e in plateau)
+    assert any(e["type"] == "metric" for e in first)
+    off3 = [e["payload"] for e in second if e["type"] == "offtrack"]
+    assert len(off3) == 1 and off3[0]["level"] == 3 and "apply_fix" in off3[0]["actions"]
+    assert off3[0]["diff"]["yours"] == "beta = 30" and off3[0]["diff"]["line"] == 2
+    spot = [e["payload"] for e in second if e["type"] == "spotlight"][-1]
+    assert spot["matched"] == "    beta = 30" and spot["caption"] == off3[0]["title"]
     passed = [e["payload"] for e in fixed if e["type"] == "step.passed"]
     assert passed == [{"stepId": "s6"}]  # last step: no nextStepId
     assert rig.s.phase == "done"
     assert fixed[-1]["type"] == "video.play"
+
+
+def test_typing_guard_defers_speech_until_the_learner_stops(tmp_path, monkeypatch):
+    monkeypatch.setenv("TUT_WORKDIR", str(tmp_path))
+    rig = Rig(tmp_path, with_inputs=True)
+
+    async def go():
+        await _to_step(rig, 5)
+        rig.write("beta = 30\n")
+        rig.inputs.key()  # typing right as the run ends
+        await rig.run("r1", PLATEAU)
+        assert not rig.of("offtrack")
+        rig.clock.t += 1
+        rig.inputs.key()
+        await rig.s.tick()
+        assert not rig.of("offtrack")  # still typing
+        rig.clock.t += 2.5
+        await rig.s.tick()  # stopped typing: the deferred breakpoint speaks
+        await rig.settle()
+
+    run(go())
+    assert len(rig.of("offtrack")) == 1
+
+
+def test_stuck_escalates_to_the_exact_fix(rig):
+    async def go():
+        await _to_step(rig, 5)
+        rig.write("def train():\n    beta = 30\n")
+        await rig.run("r1", PLATEAU)
+        assert rig.s.ladder == 2
+        rig.clock.t += 60  # no progress for a minute
+        await rig.s.tick()
+        await rig.settle()
+
+    run(go())
+    levels = [p["level"] for p in rig.of("offtrack")]
+    assert levels == [2, 3]
 
 
 def test_same_failure_is_coached_once(rig):
@@ -426,6 +478,72 @@ def test_apply_fix_never_writes_code_that_does_not_compile(rig):
     run(go())
     assert "beta = 30" in (rig.workdir / "pinn_convection.py").read_text()
     assert rig.of("card")[-1]["title"] == "Fix it by hand"
+
+
+def test_do_it_for_me_refuses_unsaved_file_then_applies_and_undoes(rig):
+    async def go():
+        await _to_step(rig, 5)
+        original = "def train():\n    beta = 30\n    pass\n"
+        rig.write(original)
+        await rig.run("r1", PLATEAU)
+        dirty = types.SimpleNamespace(windows=[types.SimpleNamespace(title="● pinn_convection.py — pinn-lab")], blocks=[])
+        rig.s.last_obs = dirty
+        await rig.s.action("apply_fix")
+        assert rig.of("card")[-1]["title"] == "Save pinn_convection.py first"
+        assert (rig.workdir / "pinn_convection.py").read_text() == original
+        rig.s.last_obs = types.SimpleNamespace(windows=[types.SimpleNamespace(title="pinn_convection.py — pinn-lab")],
+                                               blocks=[])
+        await rig.s.action("apply_fix")
+        await rig.settle()
+        assert "for beta in" in (rig.workdir / "pinn_convection.py").read_text()
+        assert rig.of("card")[-1]["title"] == "Fix applied" and rig.of("card")[-1]["actions"] == ["undo"]
+        await rig.s.action("undo")
+        await rig.settle()
+        assert (rig.workdir / "pinn_convection.py").read_text() == original
+
+    run(go())
+
+
+def test_terminal_fix_is_staged_on_the_clipboard_never_run(rig, monkeypatch):
+    staged = []
+
+    async def fake_clip(text):
+        staged.append(text)
+        return True
+
+    monkeypatch.setattr(LessonSession, "_clipboard", staticmethod(fake_clip))
+
+    async def go():
+        await _to_step(rig, 5)
+        rig.s.last_offtrack = {"stepId": "s6", "diff": {"command": "pip install pyDOE", "expected": "", "yours": ""}}
+        await rig.s.action("apply_fix")
+
+    run(go())
+    assert staged == ["pip install pyDOE"] and rig.of("card")[-1]["title"] == "Command copied"
+
+
+def test_cursor_and_text_under_it_reach_the_coach(tmp_path, monkeypatch):
+    monkeypatch.setenv("TUT_WORKDIR", str(tmp_path))
+    rig = Rig(tmp_path, with_inputs=True)
+    seen = {}
+
+    async def diagnose(step, failed, metrics, code, error_text="", cursor=None):
+        seen["cursor"] = cursor
+        return {"stepId": step["id"], "severity": "warn", "title": "t", "body": "b", "actions": ["hint"]}
+
+    rig.s.m.diagnose = diagnose
+    rect = types.SimpleNamespace(x=90.0, y=200.0, w=300.0, h=18.0, to_dict=lambda: {"x": 90, "y": 200, "w": 300, "h": 18})
+    rig.s.last_obs = types.SimpleNamespace(windows=[], blocks=[types.SimpleNamespace(text="    beta = 30", app="Code",
+                                                                                      rect=rect)])
+
+    async def go():
+        await _to_step(rig, 5)
+        rig.write("beta = 30\n")
+        rig.inputs.move(120, 208)
+        await rig.run("r1", PLATEAU)
+
+    run(go())
+    assert seen["cursor"]["x"] == 120 and seen["cursor"]["under"]["text"] == "    beta = 30"
 
 
 def test_action_without_lesson_is_an_error(rig):
@@ -644,3 +762,19 @@ def test_streaming_finder_rows_arrive_before_search_finishes(rig):
     assert arrived_before_end == [1]
     assert [r["id"] for r in rig2.of("search.result")] == ["a", "b"] and rig2.of("search.done") == [{"total": 2}]
     assert built == ["https://www.youtube.com/watch?v=AXXnSzmpyoI"]
+
+
+def test_pending_metric_eval_does_not_grade_the_next_step(rig):
+    """A metric evaluation queued during step N's run must not pass step N+1 (no learner action there yet)."""
+    async def go():
+        await _to_step(rig, 4)
+        await rig.end_segment()
+        rig.s.metric_eval_s = 0.05
+        await rig.s.ingest({"kind": "run_started", "run_id": "r1"})
+        await rig.s.ingest({"kind": "metric", "run_id": "r1",
+                            "metrics": [{"step": s, "name": "loss", "value": v} for s, v in CONVERGE]})
+        await rig.s.evaluate("metric")  # s5 passes now; the queued eval fires after s6 started
+        await rig.settle()
+
+    run(go())
+    assert [p["stepId"] for p in rig.of("step.passed")] == ["s5"]

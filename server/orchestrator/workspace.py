@@ -87,6 +87,11 @@ class Workspace:
             ok = self.run([cli, workdir])
         log.info("opened workspace %s in VS Code: %s", workdir, ok)
 
+    def goto(self, path: str, line: int) -> None:
+        cli = code_cli()
+        if self.enabled and cli:
+            self.run([cli, "-r", "-g", f"{path}:{line}"])
+
     def goto_target(self, workdir: str, step: dict) -> None:
         if not self.enabled:
             return

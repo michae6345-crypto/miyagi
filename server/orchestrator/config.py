@@ -89,8 +89,11 @@ def precision_setting() -> str:
     return v if v in ("auto", "on", "off") else "auto"
 
 
-# Timings (seconds). Overridable for tests.
-IDLE_GATE_S = float(os.environ.get("ORCH_IDLE_GATE_S", "5"))
+# Timings (seconds). Overridable for tests. Speech policy: docs/research/screen-understanding.md §4.
+IDLE_GATE_S = float(os.environ.get("ORCH_IDLE_GATE_S", "3"))  # idle after the learner acted
+STUCK_S = float(os.environ.get("ORCH_STUCK_S", "50"))  # no check progress for this long
+TYPING_GUARD_S = float(os.environ.get("ORCH_TYPING_GUARD_S", "2"))  # never speak within this of a keystroke
+LADDER_MIN_S = float(os.environ.get("ORCH_LADDER_MIN_S", "20"))  # concept card -> exact fix, at the earliest
 ADVANCE_DELAY_S = float(os.environ.get("ORCH_ADVANCE_DELAY_S", "0.4"))
 METRIC_EVAL_INTERVAL_S = float(os.environ.get("ORCH_METRIC_EVAL_S", "0.5"))
 WATCH_INTERVAL_S = float(os.environ.get("ORCH_WATCH_S", "0.5"))

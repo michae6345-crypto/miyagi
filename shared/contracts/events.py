@@ -276,7 +276,8 @@ class BuildLesson(_Model):
     resultIds: list[str]
 
 
-ActionKind = Literal["back", "explain", "diagram", "show_me", "hint", "voice_toggle", "ask", "apply_fix"]
+ActionKind = Literal["back", "explain", "diagram", "show_me", "hint", "voice_toggle", "ask", "apply_fix",
+                     "confirm", "undo"]
 
 
 class Action(_Model):

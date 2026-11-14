@@ -299,13 +299,15 @@ class Modules:
                 log.exception("coach.set_lesson failed")
 
     async def diagnose(self, step: dict, failed_checks: list[dict], metrics: dict, code_excerpt: str,
-                       error_text: str = "") -> dict:
+                       error_text: str = "", cursor: dict | None = None) -> dict:
         """`metrics` is the raw series dict {name: [(step, value)]} (what coach.diagnose expects)."""
         cached = self._cache("coach", f"{step['id']}.json")
         if cached:
             return cached
         fn = self._real_fn("coach", "diagnose")
         kwargs = {"error_text": error_text} if fn is not None and error_text and _accepts(fn, "error_text") else {}
+        if fn is not None and cursor and _accepts(fn, "cursor"):
+            kwargs["cursor"] = cursor  # {x, y, under: {text, app, rect}}: what the learner is pointing at
         out = await self._run("coach", "diagnose", lambda: stubs.diagnose(step, failed_checks, metrics, code_excerpt),
                               step, failed_checks, metrics, code_excerpt, **kwargs)
         return self._public(out)
