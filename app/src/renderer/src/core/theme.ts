@@ -30,7 +30,13 @@ export const brand = {
   offTrack: '#FFB020',
   offTrackTint: 'rgba(255,176,32,0.12)',
   watching: '#8E8E93',
-  pill: '#000000'
+  pill: '#000000',
+  /**
+   * Pastels for OPTIONS only (Adrian, Sat: "4 · Pastel"): suggestion / quick-action chips, source-kind tiles,
+   * the "Best" label. Ink text on them. They never mean status (green = passed, amber = off track stay as is),
+   * and the chrome stays black and white. No gradients or glow.
+   */
+  pastel: { pink: '#F9C5D5', sky: '#C5E4F9', lilac: '#D9D2FF', pinkDeep: '#F4A7BF', skyDeep: '#9CCFF2' }
 } as const
 
 /** The overlay follows macOS: dark HUD glass by default, light when the system is light. */
@@ -77,6 +83,30 @@ export const text = { xs: 13, sm: 15, md: 20, lg: 28 } as const
 export const radius = { chip: 14, card: 20, island: 24, pill: 17, launcher: 28 } as const
 export const shadow = '0 20px 60px rgba(0,0,0,.45)'
 
+/** The island's two shadows. Anything that hands over to the island (the launcher) must match them exactly. */
+export const shadows = { pill: '0 2px 10px rgba(0,0,0,.25)', card: '0 24px 60px rgba(0,0,0,.5)' } as const
+
+/** Neutral fills on the black island / dark HUD: white at low alphas, nothing else (brand: no extra hues). */
+export const fill = {
+  field: 'rgba(255,255,255,.06)',
+  fieldBorder: 'rgba(255,255,255,.09)',
+  chip: 'rgba(255,255,255,.05)',
+  chipHover: 'rgba(255,255,255,.1)',
+  chipBorder: 'rgba(255,255,255,.08)',
+  chipText: 'rgba(255,255,255,.72)',
+  highlight: 'rgba(255,255,255,.07)',
+  tile: 'rgba(255,255,255,.06)',
+  tileGlyph: 'rgba(255,255,255,.55)',
+  skeleton: 'rgba(255,255,255,.06)',
+  rule: 'rgba(255,255,255,.08)',
+  /** A keycap sitting on a white (accent) button. */
+  onAccentKey: 'rgba(0,0,0,.1)',
+  clear: 'rgba(255,255,255,0)'
+} as const
+
+/** Screen dims behind surfaces. */
+export const scrim = { spotlight: 'rgba(0,0,0,.55)', launcher: 'rgba(0,0,0,.22)' } as const
+
 /** Copy from the brand kit. */
 export const copy = {
   name: 'Miyagi',
@@ -91,8 +121,8 @@ export const markLevel = (px: number): 'small' | 'icon' | 'full' => (px <= 32 ? 
 /** Pill geometry. Collapsed pill is ~300×34; cards grow downward from its center. */
 export const pill = { height: 34, landingWidth: 300, maxCardWidth: 520 } as const
 
-/** Launcher: top edge at 22% of the screen height, 720 wide. */
-export const launcher = { topRatio: 0.22, width: 720 } as const
+/** Launcher: grows out of the notch island, 640 wide (topRatio is a leftover from the mid-screen version). */
+export const launcher = { width: 640, topRatio: 0.22 } as const
 
 /** "0:00" style timestamps. */
 export function clock(t: number): string {
