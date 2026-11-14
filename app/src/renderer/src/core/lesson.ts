@@ -101,6 +101,8 @@ const get = useLesson.getState
 
 /** Called by the launcher when "Build lesson" fires (before the engine answers). */
 export const startBuild = (): void => set({ building: true })
+/** The build was called off before it started (preflight "Pick another"): drop the building pill. */
+export const stopBuild = (): void => set({ building: false, buildingMessage: undefined, buildingProgress: undefined, buildingElapsed: undefined })
 export const setConnected = (connected: boolean): void => {
   // (Re)connected: the engine's snapshot is the truth (after an engine restart it's just "idle"),
   // so drop the lesson this window was showing before the snapshot refills it.

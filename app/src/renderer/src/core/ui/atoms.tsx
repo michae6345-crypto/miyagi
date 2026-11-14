@@ -44,7 +44,8 @@ export function ProgressRing({ fraction, size = 15, stroke = 2 }: { fraction: nu
 }
 
 /** Spinning arc for "working on it". */
-export function Spinner({ size = 18, c = color.accent }: { size?: number; c?: string }): ReactNode {
+/** `track`: the ring under the arc. Default white 14% (dark surfaces); on a pastel or white tile pass fill.onAccentKey. */
+export function Spinner({ size = 18, c = color.accent, track = fill.trackSoft }: { size?: number; c?: string; track?: string }): ReactNode {
   return (
     <motion.svg
       width={size}
@@ -54,7 +55,7 @@ export function Spinner({ size = 18, c = color.accent }: { size?: number; c?: st
       animate={{ rotate: 360 }}
       transition={{ repeat: Infinity, duration: 1, ease: 'linear' }}
     >
-      <circle cx="9" cy="9" r="7.5" fill="none" stroke={fill.trackSoft} strokeWidth="1.6" />
+      <circle cx="9" cy="9" r="7.5" fill="none" stroke={track} strokeWidth="1.6" />
       <path d="M9 1.5 A7.5 7.5 0 0 1 16.5 9" fill="none" stroke={c} strokeWidth="1.6" strokeLinecap="round" />
     </motion.svg>
   )
