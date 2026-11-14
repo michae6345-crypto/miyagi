@@ -16,3 +16,17 @@ SELECT add_continuous_aggregate_policy('stuck_heatmap',
 
 -- find the tutorial reference run for a lesson step quickly
 CREATE INDEX IF NOT EXISTS runs_source_step ON runs (source, lesson_id, step_id, started_at DESC);
+
+-- GENERALITY RULE aggregates: real-time + refreshed (dashboards and `tut stats` see fresh rows)
+ALTER MATERIALIZED VIEW time_per_step SET (timescaledb.materialized_only = false);
+SELECT add_continuous_aggregate_policy('time_per_step',
+  start_offset => INTERVAL '30 days', end_offset => INTERVAL '1 hour',
+  schedule_interval => INTERVAL '1 minute', if_not_exists => TRUE);
+ALTER MATERIALIZED VIEW check_fail_rate SET (timescaledb.materialized_only = false);
+SELECT add_continuous_aggregate_policy('check_fail_rate',
+  start_offset => INTERVAL '30 days', end_offset => INTERVAL '1 hour',
+  schedule_interval => INTERVAL '1 minute', if_not_exists => TRUE);
+ALTER MATERIALIZED VIEW learner_progress SET (timescaledb.materialized_only = false);
+SELECT add_continuous_aggregate_policy('learner_progress',
+  start_offset => INTERVAL '7 days', end_offset => INTERVAL '1 minute',
+  schedule_interval => INTERVAL '30 seconds', if_not_exists => TRUE);

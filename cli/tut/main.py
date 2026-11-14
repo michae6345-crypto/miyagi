@@ -4,6 +4,7 @@
     tut db init                       # apply shared/contracts/tiger-schema.sql (+ cli/sql/tiger-extras.sql)
     tut db load-ref curve.csv ...     # load a tutorial reference curve as a run with source='tutorial'
     tut db compare <learner_run_id>   # learner vs tutorial curve through the metrics_1s continuous aggregate
+    tut stats [--watch] [--json]      # Tiger ingest rows/sec + query latency (ms)
 """
 from __future__ import annotations
 
@@ -121,8 +122,9 @@ def build_parser() -> argparse.ArgumentParser:
     r.add_argument("cmd", nargs=argparse.REMAINDER)
     r.set_defaults(func=cmd_run)
 
-    from .db import add_db_parser
+    from .db import add_db_parser, add_stats_parser
     add_db_parser(sub)
+    add_stats_parser(sub)
     return p
 
 

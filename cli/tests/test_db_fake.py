@@ -68,7 +68,7 @@ class FakeConn:
         if self.fail_on and self.fail_on in sql:
             raise RuntimeError(f"boom on {self.fail_on}")
         self.log.append(("sql", sql, params))
-        return FakeResult(("2.17.0",) if "extversion" in sql else None)
+        return FakeResult(("2.17.0",) if "extversion" in sql else (7,))
 
     def cursor(self):
         return FakeCursor(self.log)
@@ -157,3 +157,20 @@ def test_load_ref_inserts_tutorial_run_and_refreshes(fake_pg, tmp_path, capsys):
     assert rows[0][0] < rows[1][0] < rows[2][0]  # 1 s apart → separate metrics_1s buckets
     assert "refresh_continuous_aggregate('metrics_1s'" in sql[-1][1]
     assert "loaded 3 points" in capsys.readouterr().out
+
+
+def test_apply_schema_includes_generality_aggregates(fake_pg):
+    log, _ = fake_pg
+    db.apply_schema(db._connect(), ROOT)
+    sqls = " ".join(e[1] for e in log)
+    for view in ("time_per_step", "check_fail_rate", "learner_progress"):
+        assert f"MATERIALIZED VIEW IF NOT EXISTS {view}" in sqls
+        assert f"add_continuous_aggregate_policy('{view}'" in sqls
+    assert "ADD COLUMN IF NOT EXISTS session_id" in sqls
+
+
+def test_tut_stats_prints_rate_and_latency(fake_pg, capsys):
+    args = argparse.Namespace(watch=False, interval=1.0, runs=2, json=False)
+    assert db.cmd_stats(args) == 0
+    out = capsys.readouterr().out
+    assert "rows/s" in out and "live_curve" in out and " ms" in out

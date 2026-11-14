@@ -9,6 +9,7 @@ import os
 import re
 import secrets
 import sys
+import time
 from pathlib import Path
 
 from .env import repo_root
@@ -136,13 +137,38 @@ def cmd_load_ref(args: argparse.Namespace) -> int:
     return 0
 
 
-def _import_curves():
+def _server_import():
+    """server.checks.* is the single source for SQL/stats; make the repo importable."""
     root = _root()
     if str(root) not in sys.path:
         sys.path.insert(0, str(root))
-    from server.checks.curves import compare_to_reference  # single source for the SQL
+
+
+def _import_curves():
+    _server_import()
+    from server.checks.curves import compare_to_reference
 
     return compare_to_reference
+
+
+def cmd_stats(args: argparse.Namespace) -> int:
+    _server_import()
+    from server.checks.tiger import stats
+
+    with _connect() as conn:
+        while True:
+            st = stats(conn, runs=args.runs)
+            if args.json:
+                print(json.dumps(st), flush=True)
+            else:
+                tm, le = st["training_metrics"], st["learning_events"]
+                q = "  ".join(f"{k} {v} ms" if v is not None else f"{k} n/a" for k, v in st["query_ms"].items())
+                print(f"ingest {tm['rows_per_s'] + le['rows_per_s']:.1f} rows/s "
+                      f"(metrics {tm['rows_per_s']}/s, events {le['rows_per_s']}/s, last {st['window_s']}s) | "
+                      f"rows {tm['total']:,} + {le['total']:,} | chunks {st['chunks']} | query {q}", flush=True)
+            if not args.watch:
+                return 0
+            time.sleep(args.interval)
 
 
 def cmd_compare(args: argparse.Namespace) -> int:
@@ -159,6 +185,15 @@ def cmd_compare(args: argparse.Namespace) -> int:
         print(f"  step {p['step']:>7}  learner {p['learner']:.4g}  tutorial {tut:>9}  gap(decades) {gap}")
     print(res["summary"])
     return 0
+
+
+def add_stats_parser(sub) -> None:
+    s = sub.add_parser("stats", help="Tiger Data ingest rows/sec and query latency (ms)")
+    s.add_argument("--watch", "-w", action="store_true", help="refresh every --interval seconds")
+    s.add_argument("--interval", type=float, default=1.0)
+    s.add_argument("--runs", type=int, default=5, help="timed runs per query (median reported)")
+    s.add_argument("--json", action="store_true", help="one JSON object per line (for the app)")
+    s.set_defaults(func=cmd_stats)
 
 
 def add_db_parser(sub) -> None:
