@@ -120,6 +120,33 @@ right away. "The app you were in" = the owner of the frontmost normal window tha
 moves use `pyobjc-framework-ApplicationServices` (added to `server/pyproject.toml`). Keeping the overlay above full-screen
 spaces is the app's job (Electron `setVisibleOnAllWorkspaces(true, {visibleOnFullScreen: true})`).
 
+## Download the tutorial's own materials (resources.py)
+
+```python
+found = find_resources(graph)                 # [{name, url, kind, fetch}]: cheap, cached per video
+saved = download_resources(graph)             # ONLY when the learner presses Download
+download_summary(saved)                       # "Saved … to ~/miyagi/lessons/<slug>/tutorial." | NO_RESOURCES
+```
+
+- **Where links come from:** the video description (watch page, fetched once per video and cached in
+  `.miyagi-state/resources/`, or passed as `description=`), plus non-video `sources[]` in the step graph.
+- **Kept:** GitHub repos → zip from `codeload.github.com` (no git, so no hooks; a `/tree/<ref>` link keeps its ref);
+  GitHub `blob`/raw file links; Colab notebooks (GitHub-backed → raw `.ipynb`; Drive-backed → Drive download, named
+  from the server's filename); gists (API); direct `.csv .tsv .json .jsonl .parquet .xlsx .txt .ipynb .py .zip .r .sql .md`;
+  Google Drive files and Sheets (CSV export). A file inside a repo that's already being downloaded is skipped. At most 8.
+- **Ignored:** socials, playlists, papers, sponsors, personal sites.
+- **Safety:** each download ≤ `MIYAGI_DOWNLOAD_MAX_MB` (50). A web page where a file was expected (sign-in or Drive
+  confirmation) counts as an error, with the link to open instead. Zips are extracted with no symlinks, no `..`, no `.git/`,
+  ≤ 5000 files and ≤ 4×50 MB. Files are written `rw-r--r--`. **Nothing downloaded is run, imported or installed.**
+- **Returns:** `[{name, url, kind, path, bytes|files, cached?}]` or `{…, path: None, error}`; `[]` →
+  `NO_RESOURCES` ("No downloadable code linked from this video"). A second press reuses what's already there.
+- `setup_card(items, resources=found)` adds the `download` action, `setup.resources`, and
+  `setup.actionLabels.download` ("Download tutorial files").
+
+Live: Karpathy `kCc8FmEb1nY` → `gpt-dev.ipynb` (the Colab, 39 cells), `karpathy-ng-video-lecture` (5 files),
+`karpathy-nanoGPT` (26 files) in 2.2 s. The cached React lesson's video links only nodejs.org, code.visualstudio.com and
+react.dev → "No downloadable code linked from this video". `python -m server.workspace.tests.live_resources --fresh`.
+
 ## Hero detection
 
 A lesson is the hero if its `lesson.id` is one of the cached hero ids (`lesson-aebc6b8f`,
