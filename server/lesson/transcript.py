@@ -146,10 +146,18 @@ def _brightdata_config() -> tuple[str, str] | None:
     return (key, zone) if key and zone else None
 
 
+BRIGHTDATA_CAP_S = float(os.environ.get("LESSON_BRIGHTDATA_TIMEOUT", "25"))  # per attempt; YouTube via the Unlocker can hang ~60 s
+
+
 async def _brightdata_get(url: str, key: str, zone: str) -> str:
-    async with httpx.AsyncClient(timeout=60) as c:
-        r = await c.post(BRIGHTDATA_ENDPOINT, headers={"Authorization": f"Bearer {key}"}, json={"zone": zone, "url": url, "format": "raw"})
+    async with httpx.AsyncClient(timeout=BRIGHTDATA_CAP_S) as c:
+        r = await asyncio.wait_for(
+            c.post(BRIGHTDATA_ENDPOINT, headers={"Authorization": f"Bearer {key}"}, json={"zone": zone, "url": url, "format": "raw"}),
+            BRIGHTDATA_CAP_S,
+        )
         r.raise_for_status()
+        if not r.content:  # observed: 200 with an empty body for youtube.com watch pages
+            raise RuntimeError("Bright Data returned an empty body")
         return r.text
 
 
