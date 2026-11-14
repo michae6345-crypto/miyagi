@@ -165,6 +165,7 @@ class _QuickStart:
 
 
 _INTRO = re.compile(r"\b(intro(duction)?|welcome|overview|about|agenda|preview|demo|what we.?ll build)\b", re.I)
+_SETUP_CHAPTER = re.compile(r"\b(install(ing|ation)?|download(ing)?|set\s*-?\s*up|setup|prerequisites?|requirements|getting\s+started|environment)\b", re.I)
 
 
 def provisional_graph(meta: dict, vid: str, url: str, goal: str, workdir: str) -> dict:
@@ -176,7 +177,9 @@ def provisional_graph(meta: dict, vid: str, url: str, goal: str, workdir: str) -
         start = float(meta["first_hands_on"])
         title = next((c["title"] for c in reversed(chapters) if c["t"] <= start), "")
     elif chapters:
-        c = chapters[1] if len(chapters) > 1 and _INTRO.search(chapters[0]["title"]) else chapters[0]
+        # the placeholder is a watch-along step: start at the first hands-on chapter, not an intro or install chapter
+        hands_on = [c for c in chapters if not (_INTRO.search(c["title"]) or _SETUP_CHAPTER.search(c["title"]))]
+        c = hands_on[0] if hands_on else (chapters[1] if len(chapters) > 1 else chapters[0])
         start, title = float(c["t"]), c["title"]
     nxt = [c["t"] for c in chapters if c["t"] > start]
     end = min(nxt[0] if nxt else start + 300, length or start + 300, start + 600)
@@ -187,8 +190,7 @@ def provisional_graph(meta: dict, vid: str, url: str, goal: str, workdir: str) -
         "instructions": (f"Watch {gemini._mmss(start)}-{gemini._mmss(end)}"
                          + (f" ({title})" if title else "") + " and type along in your editor; detailed steps are on the way."),
         "video": {"sourceId": "src1", "start": start, "end": end},
-        "checks": [{"id": "s1c1", "type": "screen_absent", "label": "no errors so far", "app": "Terminal",
-                    "pattern": r"Traceback|Error:|ERR!|fatal:|error\[E\d+\]"}],
+        "checks": [],  # a watch-along placeholder must never gate (an app-scoped check can wait forever); the real lesson replaces it
         "targets": [], "explanations": [], "hints": [], "common_mistakes": [],
     }
     g = {"lesson": {"id": f"lesson-{cache_key(url, goal, workdir)[:8]}", "title": meta.get("title") or goal or "Tutorial",
@@ -885,8 +887,33 @@ def assemble(draft: dict, goal: str, adapted: dict) -> dict:
 BROWSER_APPS = {"google chrome", "chrome", "safari", "arc", "firefox", "microsoft edge", "edge", "brave browser", "brave", "browser"}
 
 
+_SETUP_VERB = re.compile(r"\b(install(ing)?|download(ing)?|set\s*-?\s*up|setup|get|update|upgrade)\b", re.I)
+_TOOLS = {  # tool id -> how it's named
+    "python": r"\bpython\s*3?\b|\bpip\b", "vscode": r"\bvs\s*code\b|visual\s+studio\s+code", "node": r"\bnode(\.?js)?\b|\bnpm\b",
+    "git": r"\bgit\b(?!hub)", "rust": r"\brust(up)?\b|\bcargo\b", "docker": r"\bdocker\b", "java": r"\bjava\b|\bjdk\b",
+    "go": r"\bgolang\b|\bgo\s+(toolchain|compiler)\b",
+}
+_WRITES_CODE = re.compile(r"\b(def|class|function|const|let|fn|import|from|return)\b|=>|\{", re.I)
+_INSTALL_GOAL = re.compile(r"\b(install|set\s*up|setup|configure)\b", re.I)
+
+
+def tag_setup_steps(graph: dict) -> None:
+    """Mark pure install/setup steps (install Python, install VS Code) with setup: true and requires: [tool ids],
+    so the engine can auto-pass them when the tools are already there. Not when the goal is about installing."""
+    lesson = graph.get("lesson") or {}
+    if _INSTALL_GOAL.search(lesson.get("goal") or ""):
+        return
+    for step in graph.get("steps") or []:
+        text = f"{step.get('title', '')} {step.get('instructions', '')}"
+        tools = sorted(t for t, rx in _TOOLS.items() if re.search(rx, text, re.I))
+        code = step.get("code") or ""
+        if tools and _SETUP_VERB.search(step.get("title", "")) and not _WRITES_CODE.search(code):
+            step["setup"], step["requires"] = True, tools
+
+
 def normalize_checks(graph: dict, known_metrics: set[str]) -> dict:
     """Deterministic fixes applied before lint (no model call)."""
+    tag_setup_steps(graph)
     libs = (graph.get("lesson") or {}).get("libraries") or {}
     for step in graph["steps"]:
         # "it runs" checks: a Python Traceback never shows up in a Vite/cargo/git terminal
