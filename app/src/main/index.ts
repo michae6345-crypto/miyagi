@@ -28,6 +28,10 @@ const platform = describePlatform(process.platform)
 const engine = new EngineLink(process.env.ENGINE_URL ?? 'ws://localhost:8787', process.env.DEMO === '1' ? (process.env.SCENARIO ?? 'full') : undefined)
 
 const windows = new Set<BrowserWindow>()
+/** Feature windows whose rects join the overlay's overlay.bounds report (ctx.reportBounds). */
+const reported = new Set<BrowserWindow>()
+type R = { x: number; y: number; w: number; h: number }
+let overlayRects: R[] = []
 const signalListeners = new Map<string, Set<(payload?: unknown) => void>>()
 let overlay: BrowserWindow
 let launcher: BrowserWindow
@@ -126,6 +130,27 @@ function registerActionShortcuts(): void {
   }
 }
 
+/** overlay.bounds = the overlay's own UI rects + every visible reported feature window (screen points). */
+function sendBounds(): void {
+  const extra = [...reported]
+    .filter((w) => !w.isDestroyed() && w.isVisible())
+    .map((w) => {
+      const b = w.getBounds()
+      return { x: b.x, y: b.y, w: b.width, h: b.height }
+    })
+  engine.send({ type: 'overlay.bounds', payload: { rects: [...overlayRects, ...extra] } })
+}
+
+function reportBounds(win: BrowserWindow): void {
+  reported.add(win)
+  for (const ev of ['move', 'resize', 'show', 'hide'] as const) win.on(ev as 'move', sendBounds)
+  win.on('closed', () => {
+    reported.delete(win)
+    sendBounds()
+  })
+  sendBounds()
+}
+
 function loadFeatures(ctx: MainContext): void {
   const mods = import.meta.glob<{ default: MainFeature }>('./features/*.ts', { eager: true })
   for (const [path, mod] of Object.entries(mods)) {
@@ -153,7 +178,13 @@ app.whenReady().then(() => {
   })
   engine.onStatus((c) => forEachWindow((w) => w.webContents.send('engine:status', c)))
 
-  ipcMain.on('engine:cmd', (_e, cmd) => engine.send(cmd))
+  ipcMain.on('engine:cmd', (_e, cmd) => {
+    if (cmd?.type === 'overlay.bounds') {
+      overlayRects = cmd.payload?.rects ?? []
+      return sendBounds()
+    }
+    engine.send(cmd)
+  })
 
   ipcMain.on('ui:ready', (e) => {
     const win = BrowserWindow.fromWebContents(e.sender)
@@ -213,7 +244,8 @@ app.whenReady().then(() => {
     onSignal: (signal, fn) => {
       if (!signalListeners.has(signal)) signalListeners.set(signal, new Set())
       signalListeners.get(signal)!.add(fn)
-    }
+    },
+    reportBounds
   })
 })
 

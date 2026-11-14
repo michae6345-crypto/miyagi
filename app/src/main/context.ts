@@ -40,6 +40,12 @@ export type MainContext = {
   broadcast(channel: string, payload?: unknown): void
   /** Listen to bridge.emit(signal, payload) from any window (core signals included). */
   onSignal(signal: string, fn: (payload?: unknown) => void): void
+  /**
+   * Include this window's rect in `overlay.bounds` while it's visible, so the engine's screen reader
+   * ignores it (e.g. the player: otherwise OCR reads the tutorial's code in the video as the learner's).
+   * Re-sent automatically when the window moves, resizes, shows or hides.
+   */
+  reportBounds(win: BrowserWindow): void
 }
 
 export type MainFeature = { id: string; setup(ctx: MainContext): void }
