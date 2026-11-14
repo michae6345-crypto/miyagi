@@ -93,7 +93,7 @@ export function Launcher({ layout }: { layout: Layout }): ReactNode {
   const [sel, setSel] = useState(0)
 
   const search = useSearch(useShallow((s) => ({ query: s.query, results: s.results, pending: s.pending, done: s.done, error: s.error })))
-  const lesson = useLesson(useShallow((s) => ({ connected: s.connected, stepTitle: s.stepTitle, hasStep: !!s.stepId, title: s.lesson?.title })))
+  const lesson = useLesson(useShallow((s) => ({ connected: s.connected, stepTitle: s.stepTitle, hasStep: !!s.stepId, hasLesson: !!s.lesson, title: s.lesson?.title })))
   const progress = useProgress()
   const islandMode = useIslandMode()
   const reduce = useReducedMotion()
@@ -252,6 +252,12 @@ export function Launcher({ layout }: { layout: Layout }): ReactNode {
     setPhase('sending')
   }
 
+  /** During a lesson, Tab flips between asking about this step and starting a new lesson. */
+  const switchMode = (): void => {
+    if (!lesson.hasLesson || phaseRef.current !== 'open') return
+    setMode((m) => (m === 'ask' ? 'search' : 'ask'))
+  }
+
   const quick = (kind: 'explain' | 'hint'): void => {
     close()
     triggerShortcut(kind)
@@ -276,6 +282,10 @@ export function Launcher({ layout }: { layout: Layout }): ReactNode {
       e.preventDefault()
       if (!e.nativeEvent.isComposing) submit()
       return
+    }
+    if (e.key === 'Tab') {
+      e.preventDefault() // focus stays in the field either way
+      return switchMode()
     }
     if (view !== 'results') return
     if (e.key === 'ArrowDown') {
@@ -329,7 +339,7 @@ export function Launcher({ layout }: { layout: Layout }): ReactNode {
       : mode === 'ask'
         ? 'The answer appears in the island'
         : {
-            idle: 'Press ↵ to search · or paste a YouTube link',
+            idle: lesson.hasLesson ? 'A new lesson replaces this one' : 'Press ↵ to search · or paste a YouTube link',
             link: link?.start ? `Builds a lesson from ${clock(link.start)} on · each step auto-checked` : 'Builds a lesson straight from this video',
             searching: 'Finding the best tutorial…',
             results: `${minutes ? `about ${minutes} min · ` : ''}each step auto-checked`,
@@ -374,9 +384,15 @@ export function Launcher({ layout }: { layout: Layout }): ReactNode {
           initial={{ opacity: 0, y: 4 }}
           animate={exiting ? { opacity: 0, y: 0, transition: contentOut } : { opacity: 1, y: 0, transition: contentIn }}
         >
-          <div className="px-[28px] pt-[26px] text-center text-[22px] font-semibold leading-[28px] tracking-[-0.01em]">
+          <motion.div
+            key={mode}
+            className="px-[28px] pt-[26px] text-center text-[22px] font-semibold leading-[28px] tracking-[-0.01em]"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            transition={{ duration: 0.15 }}
+          >
             {mode === 'ask' ? 'Ask about this step' : 'What do you want to learn?'}
-          </div>
+          </motion.div>
           {mode === 'ask' && (
             <div className="mt-[4px] truncate px-[40px] text-center text-[13px]" style={{ color: color.faint }}>
               {lesson.hasStep ? (
@@ -462,6 +478,18 @@ export function Launcher({ layout }: { layout: Layout }): ReactNode {
               {offline && <WifiOff size={13} strokeWidth={1.8} className="shrink-0" />}
               <span className="truncate">{hint}</span>
             </span>
+            {lesson.hasLesson && (
+              <button
+                type="button"
+                tabIndex={-1}
+                className="flex h-[36px] shrink-0 cursor-pointer items-center gap-[8px] rounded-[18px] pl-[12px] pr-[6px] text-[13px] font-medium text-white/75 hover:text-white"
+                onMouseDown={(e) => e.preventDefault()}
+                onClick={switchMode}
+              >
+                {mode === 'ask' ? 'New lesson' : 'Ask about this step'}
+                <Kbd className="!h-[22px] !rounded-[11px]">⇥</Kbd>
+              </button>
+            )}
             <motion.button
               type="button"
               tabIndex={-1}
