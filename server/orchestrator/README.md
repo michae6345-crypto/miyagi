@@ -25,7 +25,7 @@ Stubs and fixtures run **only with `DEMO=1`** (or the dev/test flag `ORCH_STUBS`
 
 The script exports `ORCH_SCREEN=1` (frames ~1/s, OCR only on change, re-evaluate per frame, spotlight via `locate_match`), `ORCH_OPEN_WORKSPACE=1`
 (on `lesson.ready` it runs `open -a "Visual Studio Code" <workdir>`, falling back to `code <workdir>`; on each `step.started` it runs `code -r -g <file>:<line>` for the step's target),
-and `TUT_WORKDIR=demo/pinn-lab` (starter convection project). If Screen Recording is denied, it prints exactly where to grant it.
+and `TUT_WORKDIR=demo/pinn-lab` (diffusion starter for the Toscano hero lesson). If Screen Recording is denied, it prints exactly where to grant it.
 `ORCH_AUTOSTART=1 ORCH_LESSON_URL=<youtube url>` builds and starts a lesson at boot, with no launcher needed.
 No real screen handy? `TUT_SCREEN_FIXTURE=server/screen/fixtures/vscode_terminal_flat.png` replays a saved VS Code + Terminal screenshot.
 
