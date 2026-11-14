@@ -20,7 +20,7 @@ import { AnimatePresence, animate, motion, useMotionValue, useReducedMotion } fr
 import { useCallback, useEffect, useId, useLayoutEffect, useRef, useState, type ReactNode, type RefObject } from 'react'
 import { Volume2 } from 'lucide-react'
 import { useLesson, useStatus, type Rect, type Status } from '../../core/lesson'
-import { color, font, radius, shadow, spring, text } from '../../core/theme'
+import { color, font, radius, scrim, shadow, spring, text } from '../../core/theme'
 import { toggleVoice, useVoice } from '../voice/store'
 import { hole, holeRadius, placeCaption, type Side } from './place'
 import type { SpotlightMode, SpotlightTarget } from './store'
@@ -28,8 +28,8 @@ import type { SpotlightMode, SpotlightTarget } from './store'
 const CAPTION_W = 300
 /** Until the caption has been measured (mockup 04: 84). */
 const CAPTION_H_GUESS = 84
-/** The dim is black (not a theme color; see Core requests: a `dim` token). 0.66 = Adrian's "more contrast"; the handoff said 55%. */
-const DIM = { fill: '#000', opacity: 0.66, fade: 0.28 } as const
+/** The dim: `scrim.spotlight` (black at .66, Adrian's "more contrast"; the handoff said 55%), fading in over 280ms. */
+const DIM = { fill: scrim.spotlight, fade: 0.28 } as const
 /** The ring: a crisp hairline (no blur) over a faint dark keyline for contrast on light apps. */
 const RING = { width: 1.5, keyline: 3.5, keylineOpacity: 0.35 } as const
 const PULSE = { from: 0.45, peak: 1, rest: 0.9, duration: 1.2 } as const
@@ -83,7 +83,7 @@ function Scene({ target, rect, bounds, mode, showCaption, avoid }: Props & { tar
             </mask>
           </defs>
         )}
-        {!outline && <rect width="100%" height="100%" fill={DIM.fill} fillOpacity={DIM.opacity} mask={`url(#${id}-hole)`} data-part="dim" />}
+        {!outline && <rect width="100%" height="100%" fill={DIM.fill} mask={`url(#${id}-hole)`} data-part="dim" />}
         <motion.g style={{ opacity: pulse }} data-part="ring">
           <rect ref={register} data-part="keyline" fill="none" style={{ stroke: color.onAccent }} strokeOpacity={RING.keylineOpacity} strokeWidth={RING.keyline} />
           <rect ref={register} data-part="hairline" data-status={status} fill="none" style={{ stroke: RING_COLOR[status], transition: 'stroke 240ms ease-out' }} strokeWidth={RING.width} />
