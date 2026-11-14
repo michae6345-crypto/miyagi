@@ -1,6 +1,6 @@
 """python -m server.coach demo [--live | --replay] [--record] [--json]
 
-Runs a learner mistake (default: diffusion PINN without the IC/BC loss term) through diagnose() and prints the card.
+Runs a learner mistake (default: the hero, diffusion PINN with lr=1e-1) through diagnose() and prints the card.
 Default: live API if ANTHROPIC_API_KEY is set, otherwise the recorded fixture.
 --record writes the live response to server/coach/fixtures/ for CI replay.
 """
@@ -81,10 +81,10 @@ async def demo(args) -> None:
 
 
 CASES = {
-    "diffusion": {"lesson": case_diffusion.LESSON, "step": case_diffusion.STEP, "failed": case_diffusion.MISSING_BC_FAILED,
-                  "metrics": case_diffusion.MISSING_BC_METRICS, "code": case_diffusion.MISSING_BC_CODE},
-    "diffusion-lr": {"lesson": case_diffusion.LESSON, "step": case_diffusion.STEP, "failed": case_diffusion.HIGH_LR_FAILED,
-                     "metrics": case_diffusion.HIGH_LR_METRICS, "code": case_diffusion.HIGH_LR_CODE},
+    "diffusion": {"lesson": case_diffusion.LESSON, "step": case_diffusion.STEP, "failed": case_diffusion.HIGH_LR_FAILED,
+                  "metrics": case_diffusion.HIGH_LR_METRICS, "code": case_diffusion.HIGH_LR_CODE},
+    "diffusion-bc": {"lesson": case_diffusion.LESSON, "step": case_diffusion.STEP, "failed": case_diffusion.MISSING_BC_FAILED,
+                     "metrics": case_diffusion.MISSING_BC_METRICS, "code": case_diffusion.MISSING_BC_CODE},
     "diffusion-grad": {"lesson": case_diffusion.LESSON, "step": case_diffusion.STEP, "failed": case_diffusion.NO_GRAD_FAILED,
                        "code": case_diffusion.NO_GRAD_CODE, "error": case_diffusion.NO_GRAD_ERROR},
     "convection": {"lesson": case_convection.LESSON, "step": case_convection.STEP, "failed": case_convection.FAILED_CHECKS,
@@ -100,7 +100,7 @@ def main() -> None:
     g.add_argument("--live", action="store_true", help="force a live API call")
     g.add_argument("--replay", action="store_true", help="force the recorded fixture")
     d.add_argument("--record", action="store_true", help="save live responses as fixtures")
-    d.add_argument("--case", choices=sorted(CASES), default="diffusion", help="which learner mistake to run (default: diffusion, missing IC/BC loss)")
+    d.add_argument("--case", choices=sorted(CASES), default="diffusion", help="which learner mistake to run (default: diffusion = hero, lr=1e-1 oscillating loss)")
     d.add_argument("--json", action="store_true", help="also print the raw offtrack payload")
     d.add_argument("--ladder", action="store_true", help="also print the hint ladder")
     d.add_argument("--explain", action="store_true", help="also run explain() for the card")

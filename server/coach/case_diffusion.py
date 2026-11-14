@@ -1,4 +1,5 @@
-"""Hero lesson: 1D diffusion PINN (tutorial video AXXnSzmpyoI). Three real learner mistakes.
+"""Hero lesson: 1D diffusion PINN (tutorial video AXXnSzmpyoI). Three real learner mistakes;
+the hero moment is mistake 2 (lr=1e-1, loss oscillates).
 
 PDE: y_t = y_xx + q(x, t) on x in [-1, 1], t in [0, 1], exact solution y = exp(-t) sin(pi x),
 so q = -exp(-t) (sin(pi x) - pi^2 sin(pi x)). Code follows the tutorial's structure
@@ -104,22 +105,22 @@ def _series(vals):
     return [(i * 250, v) for i, v in enumerate(vals)]
 
 
-# ---------- mistake 1 (hero): IC/BC loss computed but never added --------------------------
+# ---------- mistake 1: IC/BC loss computed but never added --------------------------
 MISSING_BC_CODE = code(total_loss="return self.lossPDE(x_PDE)")
 MISSING_BC_FAILED = [{"checkId": "d6a", "label": "rel. L2 error < 5%", "status": "fail", "detail": "rel_l2 0.97 at step 5000"}]
 _loss = [2.1, 0.62, 0.21, 0.074, 0.031, 0.014, 0.0072, 0.0041, 0.0026, 0.0017, 0.0012, 0.00091, 0.00074, 0.00062, 0.00053, 0.00047, 0.00042, 0.00039, 0.00037, 0.00035, 0.00034]
 _err = [1.02, 0.99, 0.98, 0.98, 0.97, 0.97, 0.97, 0.97, 0.97, 0.97, 0.97, 0.97, 0.97, 0.97, 0.97, 0.97, 0.97, 0.97, 0.97, 0.97, 0.97]
 MISSING_BC_METRICS = {"loss": _series(_loss), "rel_l2": _series(_err)}
 
-# ---------- mistake 2: learning rate too high → divergence ---------------------------------
-HIGH_LR_CODE = code(lr="0.5")
+# ---------- mistake 2 (hero): learning rate too high → loss oscillates ----------------------
+HIGH_LR_CODE = code(lr="1e-1")
 HIGH_LR_FAILED = [
-    {"checkId": "d6b", "label": "loss < 1e-3", "status": "fail", "detail": "loss 3.1e+04 at step 1250"},
-    {"checkId": "d6a", "label": "rel. L2 error < 5%", "status": "fail", "detail": "rel_l2 nan"},
+    {"checkId": "d6b", "label": "loss < 1e-3", "status": "fail", "detail": "loss 0.84 at step 5000, oscillating between 0.3 and 2.4"},
+    {"checkId": "d6a", "label": "rel. L2 error < 5%", "status": "fail", "detail": "rel_l2 0.71 at step 5000"},
 ]
 HIGH_LR_METRICS = {
-    "loss": _series([2.1, 9.8, 41.0, 310.0, 2900.0, 31000.0]),
-    "rel_l2": _series([1.02, 1.6, 3.9, 12.0, 85.0, float("nan")]),
+    "loss": _series([2.1, 0.92, 1.71, 0.64, 2.38, 0.55, 1.46, 0.31, 1.93, 0.48, 2.12, 0.62, 1.37, 0.39, 1.88, 0.57, 2.05, 0.44, 1.52, 0.36, 0.84]),
+    "rel_l2": _series([1.02, 0.88, 0.95, 0.74, 1.06, 0.69, 0.91, 0.62, 0.98, 0.66, 1.01, 0.71, 0.86, 0.6, 0.97, 0.68, 0.99, 0.63, 0.9, 0.61, 0.71]),
 }
 
 # ---------- mistake 3: collocation points without requires_grad → autograd error -----------
@@ -132,5 +133,5 @@ NO_GRAD_ERROR = """Traceback (most recent call last):
 RuntimeError: One of the differentiated Tensors does not require grad"""
 NO_GRAD_FAILED = [{"checkId": "d6b", "label": "loss < 1e-3", "status": "fail", "detail": "run crashed"}]
 
-# defaults used by `python -m server.coach demo`
-CODE, FAILED_CHECKS, METRICS = MISSING_BC_CODE, MISSING_BC_FAILED, MISSING_BC_METRICS
+# defaults used by `python -m server.coach demo` (the hero)
+CODE, FAILED_CHECKS, METRICS = HIGH_LR_CODE, HIGH_LR_FAILED, HIGH_LR_METRICS

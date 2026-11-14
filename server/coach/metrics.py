@@ -48,15 +48,16 @@ def series_flags(points: Series, goal: str = "down") -> set[str]:
     if len(vals) >= 4 and last - lo > max(abs(lo), abs(first), 1e-12) * 0.5 and last > first:
         flags.add("diverging")
     if len(vals) >= 6:
+        # oscillation: the metric moves the wrong way often and by a lot (not just float noise)
+        diffs = [b - a for a, b in itertools.pairwise(vals)]
+        ups = [d for d in diffs if d > 0]
+        if len(ups) / len(diffs) > 0.3 and max(ups) > 0.2 * max(abs(v) for v in vals[len(vals) // 2 :]):
+            flags.add("noisy")
         tail = vals[len(vals) // 2 :]
         start = tail[0]
         rel = (start - tail[-1]) / max(abs(start), 1e-12)
-        if rel < 0.1 and abs(tail[-1]) > 1e-3 and "diverging" not in flags:
+        if rel < 0.1 and abs(tail[-1]) > 1e-3 and not flags & {"diverging", "noisy"}:
             flags.add("plateau")
-        diffs = [b - a for a, b in itertools.pairwise(vals)]
-        ups = sum(d > 0 for d in diffs)
-        if len(diffs) >= 6 and ups / len(diffs) > 0.4 and "plateau" not in flags:
-            flags.add("noisy")
     return flags
 
 

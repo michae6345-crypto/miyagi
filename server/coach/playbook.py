@@ -205,20 +205,22 @@ PLAYBOOK: tuple[FailureMode, ...] = (
     ),
     FailureMode(
         id="lr_too_high",
-        name="Learning rate too high: loss explodes",
-        symptoms="Loss rises, oscillates wildly, or becomes nan/inf within the first few hundred steps.",
-        cause="Step size overshoots the minimum; updates grow instead of shrink.",
-        fix="Lower the learning rate ~10x (Adam: start near 1e-3), or run an LR range test.",
+        name="Learning rate too high: loss oscillates or explodes",
+        symptoms="Loss oscillates (jumps up and down without settling), rises, or becomes nan/inf; error metrics never settle.",
+        cause=(
+            "The step size is too large for the loss curvature, so each update overshoots "
+            "the minimum: the iterate bounces across the valley (oscillation) or grows (divergence)."
+        ),
+        fix="Lower the learning rate ~10x (Adam: start near 1e-3), or run an LR range test; a decaying schedule also damps oscillation.",
         citation_id="smith2017_clr",
         code_patterns=(r"lr\s*=\s*(?:[1-9]\d*(?:\.\d*)?|0?\.[1-9]|[1-9](?:\.\d+)?e-0?1)\b",),
-        metric_signals=("diverging", "nan"),
+        metric_signals=("diverging", "nan", "noisy"),
         error_patterns=(r"\bnan\b", r"\binf\b"),
         card_title="Learning rate is too high",
         card_body=(
-            "Each update overshoots, so the loss grows instead of shrinking. Drop the "
-            "learning rate about 10x; for Adam, 1e-3 is a safe start."
+            "Each update overshoots the minimum, so the loss bounces or grows instead of "
+            "settling. Lower the learning rate about 10x; for Adam, 1e-3 is a safe start."
         ),
-        diff_expected="optimizer = torch.optim.Adam(model.parameters(), lr=1e-3)",
         diff_yours_hint=r"^.*\blr\s*=.*$",
         tags=("optimization",),
     ),
@@ -251,6 +253,17 @@ PLAYBOOK: tuple[FailureMode, ...] = (
 )
 
 BY_ID: dict[str, FailureMode] = {m.id: m for m in PLAYBOOK}
+
+# guiding question (hint level 0) per entry: Socratic, about the cause, never the answer
+GUIDING_QUESTIONS: dict[str, str] = {
+    "pinn_missing_ic_bc": "Many functions satisfy the PDE. What information tells the network which one you want?",
+    "pinn_convection_large_beta": "Large β is the hard version of this PDE. Could the network learn an easier β first and carry those weights forward?",
+    "pinn_loss_imbalance": "Look at each loss term separately. Is one of them barely moving?",
+    "missing_zero_grad": "What happens to .grad between two calls to loss.backward()?",
+    "cuda_on_mac": "Which GPU does this laptop actually have, and what does PyTorch call it?",
+    "lr_too_high": "What happens to Adam's steps when the learning rate is large compared with the curvature of the loss?",
+    "pinn_inputs_no_grad": "How does autograd know it should track derivatives with respect to x and t?",
+}
 
 
 def playbook_text() -> str:
@@ -290,8 +303,9 @@ def match(
         if m.code_patterns:
             hits = sum(_search(p, code_excerpt) for p in m.code_patterns)
             score += 0.3 * hits / len(m.code_patterns)
-        if m.code_absent and code_excerpt and all(not _search(p, code_excerpt) for p in m.code_absent):
-            score += 0.3
+        if m.code_absent and code_excerpt:
+            # the thing this entry says is missing: absent → evidence for; present → evidence against
+            score += 0.3 if all(not _search(p, code_excerpt) for p in m.code_absent) else -0.5
         if m.metric_signals and flags & set(m.metric_signals):
             score += 0.4
         if score > best_score:

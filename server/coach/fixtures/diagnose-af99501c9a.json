@@ -6,13 +6,13 @@
   },
   "response": {
     "model": "claude-opus-5-5",
-    "text": "{\"playbook_id\":\"pinn_missing_ic_bc\",\"severity\":\"warn\",\"title\":\"Total loss omits the boundary term\",\"body\":\"loss returns only lossPDE, and the residual alone has infinitely many solutions, so rel_l2 stays near 0.97. Return self.lossBC(x_BC, y_BC) + self.lossPDE(x_PDE).\",\"citation_id\":\"raissi2019\",\"diff_expected\":\"        return self.lossBC(x_BC, y_BC) + self.lossPDE(x_PDE)\",\"diff_yours\":\"        return self.lossPDE(x_PDE)\",\"diff_file\":\"pinn_diffusion.py\",\"diff_line\":34,\"actions\":[\"explain\",\"show_me\",\"apply_fix\"]}",
+    "text": "{\"playbook_id\":\"pinn_missing_ic_bc\",\"severity\":\"warn\",\"title\":\"Total loss omits the boundary term\",\"body\":\"Your loss returns only lossPDE, and the residual alone admits infinitely many solutions, so rel_l2 stays near 0.97. Add lossBC(x_BC, y_BC) to the returned total.\",\"citation_id\":\"raissi2019\",\"diff_expected\":\"        return self.lossBC(x_BC, y_BC) + self.lossPDE(x_PDE)\",\"diff_yours\":\"        return self.lossPDE(x_PDE)\",\"diff_file\":\"pinn_diffusion.py\",\"diff_line\":34,\"guiding_question\":\"Which conditions pick one unique solution of y_t = y_xx + q, and does your loss see them?\",\"actions\":[\"explain\",\"show_me\",\"apply_fix\",\"hint\"]}",
     "usage": {
       "input_tokens": 2252,
-      "output_tokens": 248,
-      "cache_read_input_tokens": 4070,
-      "cache_creation_input_tokens": 0
+      "output_tokens": 283,
+      "cache_read_input_tokens": 0,
+      "cache_creation_input_tokens": 4236
     },
-    "latency_s": 3.17
+    "latency_s": 4.68
   }
 }

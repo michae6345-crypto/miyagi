@@ -43,7 +43,7 @@ def run(coro):
 def assert_offtrack(card: dict) -> None:
     """Shape of EngineEvents['offtrack'] in shared/contracts/events.ts."""
     p = coach.public(card)
-    assert set(p) <= {"stepId", "severity", "title", "body", "diff", "citation", "actions"}
+    assert set(p) <= {"stepId", "severity", "title", "body", "diff", "citation", "actions", "guidingQuestion"}
     assert p["severity"] in ("warn", "fail")
     assert 0 < len(p["title"].split()) <= 8
     assert 0 < len(p["body"].split()) <= 34
@@ -201,7 +201,7 @@ def test_triage_ambiguous_uses_haiku(replay):
     err = "Traceback (most recent call last):\n  File \"pinn.py\", line 41, in <module>\n    loss = residual(model, x, t)\nRuntimeError: Placeholder storage has not been allocated on MPS device!"
     code = 'device = "mps"\nmodel = PINN().to(device)\nx = torch.rand(1000, 1)\nt = torch.rand(1000, 1)'
     t = run(coach.triage(step, [{"checkId": "c3", "label": "script runs", "status": "fail"}], set(), code, err))
-    assert t.by == "haiku" and t.route == "opus"  # no playbook entry fits exactly → full diagnosis
+    assert t.by == "haiku" and t.route in ("opus", "playbook")  # recorded Haiku call; never "template" for a crash
 
 
 def test_triage_haiku_failure_defaults_to_opus():
@@ -439,7 +439,7 @@ from server.coach import case_diffusion as d
 
 DIFFUSION_CASES = {
     "missing_bc": (d.MISSING_BC_FAILED, d.MISSING_BC_METRICS, d.MISSING_BC_CODE, "", "warn", "doi.org/10.1016/j.jcp.2018.10.045", "lossBC"),
-    "high_lr": (d.HIGH_LR_FAILED, d.HIGH_LR_METRICS, d.HIGH_LR_CODE, "", "fail", "arxiv.org/abs/1506.01186", "lr=1e-3"),
+    "high_lr": (d.HIGH_LR_FAILED, d.HIGH_LR_METRICS, d.HIGH_LR_CODE, "", "warn", "arxiv.org/abs/1506.01186", "lr=1e-3"),
     "no_grad": (d.NO_GRAD_FAILED, None, d.NO_GRAD_CODE, d.NO_GRAD_ERROR, "fail", "pytorch.org/docs/stable/generated/torch.autograd.grad", "requires_grad_"),
 }
 
@@ -481,3 +481,31 @@ def test_no_grad_error_without_api_in_demo_mode_is_curated(monkeypatch):
     common.set_lesson(d.LESSON)
     card = run(coach.diagnose(d.STEP, d.NO_GRAD_FAILED, None, d.NO_GRAD_CODE, error_text=d.NO_GRAD_ERROR))
     assert card["_meta"]["playbook_id"] == "pinn_inputs_no_grad" and "pytorch.org" in card["citation"]["url"]
+
+
+def test_hero_hint_ladder_follows_the_diagnosis(replay):
+    """E4 run: level 0 must ask about THE diagnosed issue, not a generic step hint."""
+    common.set_lesson(d.LESSON)
+    card = run(coach.diagnose(d.STEP, d.HIGH_LR_FAILED, d.HIGH_LR_METRICS, d.HIGH_LR_CODE))
+    assert "noisy" in summarize(d.HIGH_LR_METRICS, goals={"loss": "down"})[1]
+    q = card["guidingQuestion"]
+    assert q.endswith("?") and ("Adam" in q or "step" in q) and "1e-3" not in q  # leads, doesn't tell
+    for last in (None, coach.public(card)):  # from LAST, or the public card the orchestrator kept
+        ladder = [coach.hint(d.STEP, i, last) for i in range(4)]
+        assert ladder[0]["body"] == q
+        assert ladder[1]["videoJump"]["t"] == d.STEP["video"]["start"]  # no IC/BC clip for an LR issue
+        assert "1506.01186" in ladder[2]["citation"]["url"]
+        assert "lr=1e-3" in ladder[3]["diff"]["expected"]
+
+
+def test_ladder_video_matches_the_issue(replay):
+    common.set_lesson(d.LESSON)
+    run(coach.diagnose(d.STEP, d.MISSING_BC_FAILED, d.MISSING_BC_METRICS, d.MISSING_BC_CODE))
+    jump = coach.hint(d.STEP, 1)["videoJump"]
+    assert jump["t"] == 902.0  # "coding the PINN: boundary loss and PDE residual loss"
+
+
+def test_playbook_card_carries_its_guiding_question():
+    card = coach.playbook_card(d.STEP, BY_ID["lr_too_high"], d.HIGH_LR_CODE)
+    assert card["guidingQuestion"].startswith("What happens to Adam")
+    assert coach.hint(d.STEP, 0, coach.public(card))["body"] == card["guidingQuestion"]

@@ -44,10 +44,10 @@ def _tokens(s: str) -> set[str]:
     return {w for w in re.findall(r"[a-zA-Zβ_]+", (s or "").lower()) if w not in _STOP and len(w) > 1}
 
 
-def match_explanation(step: dict, text: str) -> int:
-    """Index of the step explanation whose topic best overlaps `text`, or -1."""
+def match_explanation(step: dict, text: str, min_overlap: int = 1) -> int:
+    """Index of the step explanation whose topic best overlaps `text` (>= min_overlap words), or -1."""
     q = _tokens(text)
-    best, best_i = 0, -1
+    best, best_i = min_overlap - 1, -1
     for i, e in enumerate(step.get("explanations") or []):
         overlap = len(q & _tokens(e.get("topic", "")))
         if overlap > best:

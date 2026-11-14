@@ -6,13 +6,13 @@
   },
   "response": {
     "model": "claude-haiku-5-5",
-    "text": "{\"route\": \"playbook\", \"playbook_id\": \"none\", \"reason\": \"The lint error is React's rules-of-hooks violation: useEffect is called inside a conditional. This is a common, well-known React mistake, but none of the listed playbook ids (PINN, zero_grad, CUDA on Mac, learning rate, requires_grad) covers it, so no playbook applies. The learner has written code rather than skipped the step, so template does not fit either, and the fix depends on how the learner wants the enabled flag to behave, so this goes to opus.\"}",
+    "text": "{\"route\": \"playbook\", \"playbook_id\": \"none\", \"reason\": \"The failure is a React rules-of-hooks lint error: useEffect is called inside a conditional. None of the listed playbooks (PINN, zero_grad, CUDA on Mac, learning rate, requires_grad) covers React hooks, so no known playbook applies. The learner's code is specific, so this needs a tailored explanation rather than a template or a generic playbook fix.\"}",
     "usage": {
-      "input_tokens": 968,
-      "output_tokens": 179,
+      "input_tokens": 973,
+      "output_tokens": 149,
       "cache_read_input_tokens": 0,
       "cache_creation_input_tokens": 0
     },
-    "latency_s": 2.29
+    "latency_s": 2.28
   }
 }
