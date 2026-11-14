@@ -39,9 +39,14 @@ type CardsState = {
   metrics: Record<string, Series>
   /** The tutorial's reference curve, if the engine streams it as runId "tutorial". */
   tutorial: Record<string, Point[]>
+  /** Setup installs in flight, by tool id: the latest `setup.progress` line, or the failure once it ends. */
+  installs: Record<string, Install>
 }
 
-const blank: CardsState = { offtrackOpen: false, fixing: false, recovered: false, resume: false, offtrackSeq: undefined, success: undefined, card: undefined, metrics: {}, tutorial: {} }
+/** One setup item's install: running (Install button disabled, spinner + latest line) until done. */
+export type Install = { running: boolean; line?: string; error?: string }
+
+const blank: CardsState = { offtrackOpen: false, fixing: false, recovered: false, resume: false, offtrackSeq: undefined, success: undefined, card: undefined, metrics: {}, tutorial: {}, installs: {} }
 export const useCards = create<CardsState>(() => ({ ...blank }))
 const set = useCards.setState
 const get = useCards.getState
@@ -78,9 +83,26 @@ export type CardAction = NonNullable<Payload<'card'>['actions']>[number]
  * The card closes on click; the engine answers with the next card or event.
  */
 export function cardAct(kind: CardAction, text?: string): void {
+  if (kind === 'install' && text !== undefined) {
+    // One install per tool: a double click can't start a second one.
+    if (get().installs[text]?.running) return
+    setInstall(text, { running: true, line: undefined, error: undefined })
+  }
   bridge.send(cmd('action', text === undefined ? { kind } : { kind, text }))
   if (kind !== 'install') set({ card: undefined })
 }
+
+function setInstall(tool: string, patch: Partial<Install>): void {
+  const installs = get().installs
+  set({ installs: { ...installs, [tool]: { ...(installs[tool] ?? { running: false }), ...patch } } })
+}
+
+/** Install progress: lines while it runs, then {done, ok, error}. A re-sent setup card with the item ok flips the row to a check. */
+onMessage('setup.progress', (p) => {
+  if (p.done) setInstall(p.tool, { running: false, line: undefined, error: p.ok === false ? (p.error ?? 'Install failed') : undefined })
+  else if (p.line) setInstall(p.tool, { running: true, line: p.line })
+  else setInstall(p.tool, { running: true })
+})
 
 /** A card's video jump: core seekVideo sets the intent in every window; the player follows core/lesson.video. */
 export function jumpTo(t: number): void {
@@ -110,7 +132,12 @@ onMessage('step.started', (p) => {
 })
 onMessage('offtrack', () => set({ offtrackOpen: true, fixing: false, recovered: true, resume: false, offtrackSeq: ++seq, card: undefined, success: undefined }))
 // "Apply this fix?" (a diff to confirm) replaces the "Waiting for the fix" view, so `fixing` ends here.
-onMessage('card', (p) => set({ card: p, resume: over(), offtrackOpen: false, ...(p.diff ? { fixing: false } : {}) }))
+onMessage('card', (p) => {
+  // A re-sent setup card: rows that are installed now drop their install state.
+  const ok = new Set((p.setup?.items ?? []).filter((x) => x.ok).map((x) => x.tool))
+  if (ok.size) set({ installs: Object.fromEntries(Object.entries(get().installs).filter(([t]) => !ok.has(t))) })
+  set({ card: p, resume: over(), offtrackOpen: false, ...(p.diff ? { fixing: false } : {}) })
+})
 onMessage('diagram', () => set({ card: undefined, resume: over(), offtrackOpen: false }))
 onMessage('step.passed', (p) => {
   const { recovered, offtrackSeq } = get()
