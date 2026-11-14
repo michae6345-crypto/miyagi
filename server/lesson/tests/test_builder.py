@@ -256,3 +256,95 @@ def test_detail_failures_become_warnings(fake, monkeypatch):
     monkeypatch.setattr(gemini, "step_detail", flaky)
     g = asyncio.run(builder.build_lesson(URL, "train a PINN", WORKDIR, refresh=True, detail=True))
     assert sum(w.startswith(("s1: clip", "s2: clip", "s3: clip")) for w in g["build"]["warnings"]) == 3
+
+
+# ---- Claude (transcript) path -------------------------------------------------
+from server.lesson import claude, transcript  # noqa: E402
+
+INFO = {"video_id": "AXXnSzmpyoI", "title": "PINNs", "description": "", "length_s": 1460, "chapters": [],
+        "transcript": [{"t": 902.0, "text": "now let's code the PINN"}], "sources": {"transcript": "youtube-transcript-api"}, "errors": []}
+
+
+def _claude_fakes(monkeypatch, calls):
+    async def fetch(vid):
+        calls.append("transcript")
+        return INFO
+
+    async def watch_transcript(info, goal):
+        calls.append("claude-watch")
+        claude.last_model = "claude-opus-5-5"
+        return json.loads(json.dumps(DRAFT))
+
+    async def claude_adapt(goal, steps, summary, feedback=None):
+        calls.append("claude-adapt")
+        claude.last_model = "claude-opus-5-5"
+        return _good_adapt()
+
+    monkeypatch.setattr(transcript, "fetch_video_info", fetch)
+    monkeypatch.setattr(claude, "watch_transcript", watch_transcript)
+    monkeypatch.setattr(claude, "adapt_checks", claude_adapt)
+
+
+def test_claude_takes_over_when_gemini_fails(fake, monkeypatch):
+    async def gemini_down(*a, **k):
+        raise RuntimeError("Gemini call failed on ['gemini-4-hydrogen']: 429 RESOURCE_EXHAUSTED PerDay")
+
+    monkeypatch.setattr(gemini, "watch_video", gemini_down)
+    monkeypatch.setattr(gemini, "adapt_checks", gemini_down)
+    calls = []
+    _claude_fakes(monkeypatch, calls)
+    g = asyncio.run(builder.build_lesson(URL, "train a PINN", WORKDIR, refresh=True, detail=True))
+    assert calls == ["transcript", "claude-watch", "claude-adapt"]
+    assert g["build"]["model"] == {"video": "claude-opus-5-5 (transcript via youtube-transcript-api)", "adapt": "claude-opus-5-5"}
+    assert g["build"]["adapted"] is True and schema_errors(g) == []
+    assert fake["detail"] == 0  # clip pass needs a model that sees the video
+
+
+def test_engine_env_forces_claude(fake, monkeypatch):
+    monkeypatch.setenv("LESSON_ENGINE", "claude")
+    calls = []
+    _claude_fakes(monkeypatch, calls)
+    asyncio.run(builder.build_lesson(URL, "train a PINN", WORKDIR, refresh=True))
+    assert fake["watch"] == 0 and calls[:2] == ["transcript", "claude-watch"]
+
+
+def test_both_engines_failing_raises_with_both_errors(fake, monkeypatch):
+    async def gemini_down(*a, **k):
+        raise RuntimeError("gemini quota")
+
+    async def no_transcript(vid):
+        raise RuntimeError("no transcript for AXXnSzmpyoI")
+
+    monkeypatch.setattr(gemini, "watch_video", gemini_down)
+    monkeypatch.setattr(transcript, "fetch_video_info", no_transcript)
+    with pytest.raises(RuntimeError) as ei:
+        asyncio.run(builder.build_lesson(URL, "train a PINN", WORKDIR, refresh=True))
+    assert "gemini quota" in str(ei.value) and "no transcript" in str(ei.value)
+
+
+def test_strict_schema_closes_every_object():
+    from server.lesson.schema import VIDEO_DRAFT_SCHEMA
+
+    s = claude.strict_schema(VIDEO_DRAFT_SCHEMA)
+    objs = []
+
+    def walk(n):
+        if isinstance(n, dict):
+            if n.get("type") == "object":
+                objs.append(n)
+            for v in n.values():
+                walk(v)
+        elif isinstance(n, list):
+            for v in n:
+                walk(v)
+
+    walk(s)
+    assert objs and all(o["additionalProperties"] is False for o in objs)
+    assert "additionalProperties" not in VIDEO_DRAFT_SCHEMA  # original untouched
+
+
+def test_parse_chapters():
+    desc = "Learn git!\n00:00 Intro\n00:21 Configuring Git with 'git config'\n1:49 git init\n1:02:03 Outro\nnot a chapter 5:00"
+    ch = transcript.parse_chapters(desc)
+    assert [c["t"] for c in ch] == [0, 21, 109, 3723] and ch[1]["title"] == "Configuring Git with 'git config'"
+    assert transcript.parse_chapters("0:30 a\n1:00 b\n2:00 c") == []  # YouTube needs a 0:00 start

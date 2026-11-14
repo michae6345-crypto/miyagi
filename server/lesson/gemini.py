@@ -93,6 +93,7 @@ def fallback_models() -> list[str]:
     return [m.strip() for m in raw.split(",") if m.strip()]
 
 
+last_model: str | None = None  # model that served the most recent successful call (for build.model)
 _RETRY_IN = re.compile(r"retry in ([\d.]+)s", re.I)
 MAX_RATE_WAIT_S = 45.0
 _exhausted: set[str] = set()  # models whose daily quota is gone, skipped for the rest of the process
@@ -132,7 +133,10 @@ async def _generate_json(model_id: str, parts: list[types.Part], schema: dict, *
                 resp = await client().aio.models.generate_content(model=mid, contents=types.Content(role="user", parts=parts), config=cfg)
                 if mid != model_id:
                     log.warning("used fallback model %s (wanted %s)", mid, model_id)
-                return json.loads(resp.text or "")
+                out = json.loads(resp.text or "")
+                global last_model
+                last_model = mid
+                return out
             except json.JSONDecodeError as e:
                 last = e
                 continue
@@ -248,7 +252,7 @@ Keep labels <= 6 words. You may tighten `instructions` to mention the learner's 
 {feedback}"""
 
 
-async def adapt_checks(goal: str, draft_steps: list[dict], workdir_summary: str, feedback: list[str] | None = None) -> dict:
+def adapt_prompt(goal: str, draft_steps: list[dict], workdir_summary: str, feedback: list[str] | None = None) -> str:
     fb = ""
     if feedback:
         fb = "\nYour previous answer had these problems; fix all of them:\n- " + "\n- ".join(feedback[:40])
@@ -259,5 +263,9 @@ async def adapt_checks(goal: str, draft_steps: list[dict], workdir_summary: str,
         ],
         indent=1,
     )
-    prompt = ADAPT_PROMPT.format(goal=goal, steps=steps_txt, workdir=workdir_summary, feedback=fb)
+    return ADAPT_PROMPT.format(goal=goal, steps=steps_txt, workdir=workdir_summary, feedback=fb)
+
+
+async def adapt_checks(goal: str, draft_steps: list[dict], workdir_summary: str, feedback: list[str] | None = None) -> dict:
+    prompt = adapt_prompt(goal, draft_steps, workdir_summary, feedback)
     return await _generate_json(model(fast=True), [types.Part(text=prompt)], ADAPTED_SCHEMA, system=ADAPT_SYSTEM)

@@ -1,0 +1,164 @@
+"""Video metadata + timestamped transcript for the transcript-based (Claude) build path.
+
+Sources, in order:
+1. Bright Data Web Unlocker (BRIGHTDATA_API_KEY + BRIGHTDATA_UNLOCKER_ZONE): the watch page
+   (title, description, caption tracks) and the caption track itself.
+2. Otherwise the public watch page over plain HTTPS for metadata, and youtube-transcript-api
+   for captions.
+No frames: we only use what YouTube publishes as text (captions, title, description, chapters).
+"""
+
+from __future__ import annotations
+
+import asyncio
+import json
+import logging
+import os
+import re
+
+import httpx
+
+log = logging.getLogger("server.lesson")
+
+WATCH_URL = "https://www.youtube.com/watch?v={vid}&hl=en"
+BRIGHTDATA_ENDPOINT = "https://api.brightdata.com/request"
+_CHAPTER = re.compile(r"^\s*(?:\(|\[)?((?:\d{1,2}:)?\d{1,2}:\d{2})(?:\)|\])?\s*[-–:|]?\s*(.+?)\s*$", re.M)
+_HEADERS = {"User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 14_0) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Safari/605.1.15",
+            "Accept-Language": "en-US,en;q=0.9", "Cookie": "CONSENT=YES+1"}
+
+
+async def fetch_video_info(video_id: str) -> dict:
+    """-> {video_id, title, description, length_s, chapters:[{t,title}], transcript:[{t,text}], sources:{...}, errors:[...]}.
+    Raises RuntimeError when no transcript could be obtained (the transcript path can't work without one)."""
+    info: dict = {"video_id": video_id, "title": "", "description": "", "length_s": None, "chapters": [], "transcript": [], "sources": {}, "errors": []}
+    page = None
+    bd = _brightdata_config()
+    if bd:
+        try:
+            page = await _brightdata_get(WATCH_URL.format(vid=video_id), *bd)
+            info["sources"]["metadata"] = "brightdata"
+        except Exception as e:  # noqa: BLE001  fall back to a direct fetch
+            info["errors"].append(f"brightdata watch page: {str(e)[:160]}")
+    else:
+        info["errors"].append("brightdata: BRIGHTDATA_API_KEY/BRIGHTDATA_UNLOCKER_ZONE not set")
+    if page is None:
+        try:
+            async with httpx.AsyncClient(headers=_HEADERS, timeout=30, follow_redirects=True) as c:
+                r = await c.get(WATCH_URL.format(vid=video_id))
+                r.raise_for_status()
+                page = r.text
+                info["sources"]["metadata"] = "youtube.com"
+        except Exception as e:  # noqa: BLE001
+            info["errors"].append(f"watch page: {str(e)[:160]}")
+
+    player = _player_response(page) if page else None
+    tracks = []
+    if player:
+        vd = player.get("videoDetails") or {}
+        info["title"] = vd.get("title", "")
+        info["description"] = vd.get("shortDescription", "")
+        info["length_s"] = int(vd["lengthSeconds"]) if str(vd.get("lengthSeconds", "")).isdigit() else None
+        info["chapters"] = parse_chapters(info["description"])
+        tracks = (((player.get("captions") or {}).get("playerCaptionsTracklistRenderer") or {}).get("captionTracks")) or []
+
+    if bd and tracks:
+        try:
+            info["transcript"] = await _brightdata_captions(tracks, *bd)
+            info["sources"]["transcript"] = "brightdata"
+        except Exception as e:  # noqa: BLE001
+            info["errors"].append(f"brightdata captions: {str(e)[:160]}")
+    if not info["transcript"]:
+        try:
+            info["transcript"] = await asyncio.to_thread(_yta_transcript, video_id)
+            info["sources"]["transcript"] = "youtube-transcript-api"
+        except Exception as e:  # noqa: BLE001
+            info["errors"].append(f"youtube-transcript-api: {str(e)[:200]}")
+    if not info["transcript"]:
+        raise RuntimeError(f"no transcript for {video_id}: " + "; ".join(info["errors"]))
+    return info
+
+
+def parse_chapters(description: str) -> list[dict]:
+    from .builder import parse_ts  # local import: builder imports this module
+
+    out = []
+    for ts, title in _CHAPTER.findall(description or ""):
+        t = parse_ts(ts)
+        if t is not None:
+            out.append({"t": t, "title": title})
+    # YouTube only treats it as a chapter list if it starts at 0:00 and has >= 3 entries
+    return out if len(out) >= 3 and out[0]["t"] == 0 else []
+
+
+def format_for_prompt(info: dict, max_chars: int = 120_000) -> str:
+    lines = [f"Title: {info['title']}"]
+    if info.get("length_s"):
+        lines.append(f"Length: {_mmss(info['length_s'])}")
+    if info.get("chapters"):
+        lines.append("Chapters (from the description):")
+        lines += [f"  {_mmss(c['t'])} {c['title']}" for c in info["chapters"]]
+    desc = (info.get("description") or "").strip()
+    if desc:
+        lines.append("Description:\n" + desc[:3000])
+    lines.append("Transcript (start time, then the spoken text):")
+    body = "\n".join(f"[{_mmss(s['t'])}] {s['text']}" for s in info["transcript"])
+    if len(body) > max_chars:  # very long videos: keep it whole rather than silently cut, but warn
+        log.warning("transcript is %d chars (> %d); sending it whole", len(body), max_chars)
+    lines.append(body)
+    return "\n".join(lines)
+
+
+def _mmss(t: float) -> str:
+    t = int(t)
+    return f"{t // 3600}:{t % 3600 // 60:02d}:{t % 60:02d}" if t >= 3600 else f"{t // 60}:{t % 60:02d}"
+
+
+def _brightdata_config() -> tuple[str, str] | None:
+    from .gemini import _load_env
+
+    _load_env()
+    key, zone = os.environ.get("BRIGHTDATA_API_KEY"), os.environ.get("BRIGHTDATA_UNLOCKER_ZONE")
+    return (key, zone) if key and zone else None
+
+
+async def _brightdata_get(url: str, key: str, zone: str) -> str:
+    async with httpx.AsyncClient(timeout=60) as c:
+        r = await c.post(BRIGHTDATA_ENDPOINT, headers={"Authorization": f"Bearer {key}"}, json={"zone": zone, "url": url, "format": "raw"})
+        r.raise_for_status()
+        return r.text
+
+
+async def _brightdata_captions(tracks: list[dict], key: str, zone: str) -> list[dict]:
+    def rank(tr: dict) -> tuple:
+        lang = tr.get("languageCode", "")
+        return (not lang.startswith("en"), tr.get("kind") == "asr")  # English first, manual before auto
+
+    base = sorted(tracks, key=rank)[0]["baseUrl"]
+    raw = await _brightdata_get(base + "&fmt=json3", key, zone)
+    out = []
+    for ev in json.loads(raw).get("events", []):
+        text = "".join(s.get("utf8", "") for s in ev.get("segs") or []).strip()
+        if text:
+            out.append({"t": ev.get("tStartMs", 0) / 1000.0, "text": text})
+    if not out:
+        raise RuntimeError("empty caption track")
+    return out
+
+
+def _yta_transcript(video_id: str) -> list[dict]:
+    from youtube_transcript_api import YouTubeTranscriptApi
+
+    fetched = YouTubeTranscriptApi().fetch(video_id, languages=("en", "en-US", "en-GB"))
+    return [{"t": float(s.start), "text": s.text.replace("\n", " ").strip()} for s in fetched if s.text.strip()]
+
+
+def _player_response(html: str) -> dict | None:
+    i = html.find("ytInitialPlayerResponse")
+    if i < 0:
+        return None
+    j = html.find("{", i)
+    try:
+        obj, _ = json.JSONDecoder().raw_decode(html, j)
+        return obj
+    except (ValueError, json.JSONDecodeError):
+        return None
