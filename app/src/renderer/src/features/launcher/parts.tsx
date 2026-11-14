@@ -1,6 +1,7 @@
 /**
  * Feature: launcher. Small pieces of the panel: the staggered section entrance, the chips, and the
- * footer actions (text + keycap, Spotlight-style; no filled buttons).
+ * footer actions (text + keycap, Spotlight-style). The primary action is the brand's button when it can act:
+ * white on the dark island with ink text (color.accent / color.onAccent); otherwise a quiet label.
  *
  * Colors are set inline on buttons: styles.css's unlayered `button { color: inherit }` beats
  * Tailwind's layered text-* utilities on <button>.
@@ -36,7 +37,7 @@ export function Chip({ icon: I, label, kbd, onClick }: { icon: LucideIcon; label
       tabIndex={-1}
       className={`flex h-[30px] cursor-pointer items-center gap-[7px] whitespace-nowrap rounded-full border pl-[11px] text-[13px] ${kbd ? 'pr-[4px]' : 'pr-[13px]'}`}
       style={{ backgroundColor: tint.chip, borderColor: tint.chipBorder, color: tint.chipText }}
-      whileHover={{ backgroundColor: tint.chipHover, color: '#fff' }}
+      whileHover={{ backgroundColor: tint.chipHover, color: color.text }}
       whileTap={{ scale: 0.97 }}
       transition={{ duration: 0.12 }}
       onMouseDown={(e) => e.preventDefault()}
@@ -49,7 +50,17 @@ export function Chip({ icon: I, label, kbd, onClick }: { icon: LucideIcon; label
   )
 }
 
-/** A footer action: label + keycap. White when it can act, faint when it can't. */
+/** A passive key hint in the footer, e.g. "Choose ↑↓": same shape as an Action, not clickable. */
+export function Hint({ label, keycap }: { label: string; keycap: string }): ReactNode {
+  return (
+    <span className="flex h-[30px] shrink-0 items-center gap-[8px] whitespace-nowrap pl-[10px] pr-[4px] text-[13px]" style={{ color: color.faint }}>
+      {label}
+      <Kbd className="!h-[22px] !min-w-[24px] !justify-center !rounded-full !px-[6px] !text-[12px]">{keycap}</Kbd>
+    </span>
+  )
+}
+
+/** A footer action: label + keycap. `strong` + enabled = the white primary button; otherwise text, faint when it can't act. */
 export function Action({
   label,
   keycap,
@@ -63,21 +74,32 @@ export function Action({
   strong?: boolean
   onClick: () => void
 }): ReactNode {
+  const solid = strong && enabled
   return (
     <motion.button
       type="button"
       tabIndex={-1}
       disabled={!enabled}
-      className={`flex h-[30px] shrink-0 cursor-pointer items-center gap-[8px] whitespace-nowrap rounded-[8px] pl-[8px] pr-[4px] text-[13px] disabled:cursor-default ${strong ? 'font-medium' : ''}`}
-      style={{ color: enabled ? (strong ? '#fff' : color.label) : color.faint, backgroundColor: 'rgba(255,255,255,0)' }}
-      whileHover={enabled ? { backgroundColor: tint.chip, color: '#fff' } : undefined}
+      className={`flex h-[30px] shrink-0 cursor-pointer items-center gap-[8px] whitespace-nowrap rounded-full pr-[4px] text-[13px] disabled:cursor-default ${solid ? 'pl-[12px]' : 'pl-[10px]'} ${strong ? 'font-medium' : ''}`}
+      initial={false}
+      animate={{
+        backgroundColor: solid ? color.accent : tint.clear,
+        color: solid ? color.onAccent : enabled ? color.label : color.faint
+      }}
+      whileHover={enabled ? (solid ? { scale: 1.03 } : { backgroundColor: tint.chip, color: color.text }) : undefined}
       whileTap={enabled ? { scale: 0.97 } : undefined}
-      transition={{ duration: 0.12 }}
+      transition={{ duration: 0.14 }}
       onMouseDown={(e) => e.preventDefault()}
       onClick={onClick}
     >
       {label}
-      <Kbd className="!h-[22px] !min-w-[24px] !justify-center !px-[6px] !text-[12px]">{keycap}</Kbd>
+      {solid ? (
+        <span className="grid h-[22px] min-w-[24px] place-items-center rounded-full px-[6px] text-[12px]" style={{ background: tint.onAccentKey, color: color.onAccent }}>
+          {keycap}
+        </span>
+      ) : (
+        <Kbd className="!h-[22px] !min-w-[24px] !justify-center !rounded-full !px-[6px] !text-[12px]">{keycap}</Kbd>
+      )}
     </motion.button>
   )
 }
