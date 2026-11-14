@@ -14,7 +14,7 @@
 import { motion } from 'motion/react'
 import { useId, useMemo, type ReactNode } from 'react'
 import type { GraphDiagramData } from '../../../../../../shared/contracts/events'
-import { brand, color, fill, font } from '../../core/theme'
+import { alpha, brand, color, fill, font } from '../../core/theme'
 
 type Node = GraphDiagramData['nodes'][number]
 type Edge = GraphDiagramData['edges'][number]
@@ -33,12 +33,6 @@ const LH = 12.5
 const ACCENT = brand.pastel.skyDeep
 /** Categorical washes (groups, git lanes), in order. */
 const PASTELS = [brand.pastel.sky, brand.pastel.lilac, brand.pastel.pink] as const
-/** A token hex at alpha a. */
-export function tint(hex: string, a: number): string {
-  const m = hex.replace('#', '')
-  const [r, g, b] = [0, 2, 4].map((i) => parseInt(m.slice(i, i + 2), 16))
-  return `rgba(${r},${g},${b},${a})`
-}
 
 // ---------------------------------------------------------------------------------------------- text
 
@@ -421,7 +415,7 @@ function git(g: GraphDiagramData): Scene {
     base.order = Math.min(ka, kb) + i * 0.01
     // a line takes the color of the branch it leads into
     const tone = b.tone ?? ACCENT
-    const stroke = base.strong ? tone : tint(tone, 0.5)
+    const stroke = base.strong ? tone : alpha(tone, 0.5)
     const down = kb > ka ? 1 : -1
     if (base.dashed && a.x !== b.x) {
       // original → copy: leave between the lanes, enter the copy from its side
@@ -489,8 +483,8 @@ export function Graph({ data }: { data: GraphDiagramData }): ReactNode {
     <svg key={sig} width={W * scale} height={H * scale} viewBox={`0 ${scene.minY} ${W} ${H}`} className="mx-auto block overflow-visible" style={{ fontFamily: font.ui }}>
       {scene.groups.map((g) => (
         <motion.g key={`g-${g.id}`} initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: 0.2 }}>
-          <rect x={g.x} y={g.y} width={g.w} height={g.h} rx={12} fill={tint(g.tone, 0.1)} />
-          <text x={g.x + 10} y={g.y + 15} fill={tint(g.tone, 0.85)} fontSize={LABEL}>
+          <rect x={g.x} y={g.y} width={g.w} height={g.h} rx={12} fill={alpha(g.tone, 0.1)} />
+          <text x={g.x + 10} y={g.y + 15} fill={alpha(g.tone, 0.85)} fontSize={LABEL}>
             {g.label}
           </text>
         </motion.g>
@@ -557,8 +551,8 @@ function NodeBox({ b }: { b: Box }): ReactNode {
   const strong = !!n.emphasis
   const stroke = strong ? ACCENT : color.label
   const sw = strong ? 1.6 : 1.2
-  const wash = tint(ACCENT, 0.12)
-  const dfill = strong ? tint(ACCENT, 0.85) : color.faint
+  const wash = alpha(ACCENT, 0.12)
+  const dfill = strong ? alpha(ACCENT, 0.85) : color.faint
   if (b.kind === 'circle') {
     return (
       <>
@@ -607,7 +601,7 @@ function Commit({ b }: { b: Box }): ReactNode {
   const tone = b.tone ?? ACCENT
   return (
     <>
-      <circle cx={x} cy={y} r={b.hx} fill={strong ? tone : color.island} stroke={strong ? tone : tint(tone, 0.75)} strokeWidth={1.5} />
+      <circle cx={x} cy={y} r={b.hx} fill={strong ? tone : color.island} stroke={strong ? tone : alpha(tone, 0.75)} strokeWidth={1.5} />
       <text x={c.hashX} y={y + 3.8} fill={strong ? color.text : color.faint} fontSize={c.hash.size} fontFamily={font.mono}>
         {c.hash.text}
       </text>
@@ -618,7 +612,7 @@ function Commit({ b }: { b: Box }): ReactNode {
       )}
       {c.tag && (
         <>
-          <rect x={c.tag.x} y={y - 8} width={c.tag.w} height={16} rx={4} fill={tint(tone, 0.14)} />
+          <rect x={c.tag.x} y={y - 8} width={c.tag.w} height={16} rx={4} fill={alpha(tone, 0.14)} />
           <text x={c.tag.x + 6} y={y + 3.6} fill={tone} fontSize={LABEL} fontFamily={font.mono}>
             {c.tag.text}
           </text>
