@@ -100,6 +100,7 @@ class LessonInfo(_Model):
     complete: bool | None = None  # False: a long video is still building (lesson.updated follows)
     builtBy: Literal["gemini", "claude", "mixed", "unknown"] | None = None
     goalMatch: GoalMatch | None = None
+    mode: Literal["video", "lesson"] | None = None  # "lesson": no video ("Just teach me")
 
 
 class LessonReady(_Model):
@@ -191,6 +192,7 @@ class SpotlightTarget(_Model):
     caption: str
     app: str | None = None
     matched: str | None = None
+    snippet: str | None = None  # code to type at the rect (lesson mode / Show me)
 
 
 class SpotlightClear(_Model):
@@ -473,6 +475,7 @@ EngineEventType = Literal[
 # ---------- App -> Engine commands ----------
 class Learn(_Model):
     query: str
+    mode: Literal["video", "lesson"] | None = None  # "lesson" = "Just teach me": no video search
 
 
 class LearnUrl(_Model):

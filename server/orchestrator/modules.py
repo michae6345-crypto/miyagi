@@ -295,6 +295,26 @@ class Modules:
         finally:
             waiter.cancel()
 
+    # -- "Just teach me": a lesson with no video (E2's build_text_lesson; Claude only, no Gemini)
+    async def build_text_lesson(self, goal: str, workdir: str, on_update: Any = None) -> dict:
+        if self.demo:  # DEMO: a cached "lesson" mode lesson, else the fixture without its video
+            files = sorted((DEMO_CACHE / "lessons").glob("*.json"), key=lambda p: p.stat().st_mtime, reverse=True) \
+                if (DEMO_CACHE / "lessons").is_dir() else []
+            for f in files:
+                g = _read_json(f)
+                if g and (g.get("lesson") or {}).get("mode") == "lesson":
+                    return g
+            return await stubs.build_text_lesson(goal, workdir)
+        fn = self._real_fn("lesson", "build_text_lesson")
+        kwargs = {"on_update": on_update} if fn is not None and on_update is not None and _accepts(fn, "on_update") else {}
+        timeout = float(os.environ.get("ORCH_BUILD_TIMEOUT_S", "300"))
+        try:
+            return await asyncio.wait_for(self._run("lesson", "build_text_lesson",
+                                                    lambda: stubs.build_text_lesson(goal, workdir),
+                                                    goal, workdir, **kwargs), timeout)
+        except TimeoutError as e:
+            raise ModuleUnavailable(f"building the lesson took over {timeout:.0f}s") from e
+
     # -- E2 lazy long-video parts: later parts are built only as the learner nears them
     def lesson_needs_more(self, graph: dict, step_index: int) -> bool:
         """DEMO never builds more (cost freeze: no Gemini calls); LIVE asks E2's progressive.needs_more."""

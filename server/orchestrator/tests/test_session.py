@@ -1936,3 +1936,114 @@ def test_gemini_budget_stage_and_error_wording():
     assert st.text == "Today's Gemini budget is used up — reading the transcript instead"
     assert human_build_error(RuntimeError("no engine: gemini budget exhausted; transcript 429")).startswith(
         "Today's Gemini budget is used up")
+
+
+def _text_lesson():
+    """E2's build_text_lesson shape: lesson.mode "lesson", steps with code + file + targets, no video."""
+    return {"lesson": {"id": "lesson-calc", "title": "Build a calculator", "goal": "build a calculator in Python",
+                       "mode": "lesson", "complete": True, "builtBy": "claude"},
+            "sources": [{"id": "src1", "kind": "blog", "title": "Python docs", "url": "https://docs.python.org/3/"}],
+            "steps": [
+                {"id": "s1", "index": 1, "title": "Write add()", "instructions": "Define add(a, b).", "file": "calc.py",
+                 "code": "def add(a, b):\n    return a + b\n",
+                 "targets": [{"app": "Code", "file": "calc.py", "match": "# add goes here", "caption": "Type add() here"}],
+                 "checks": [], "precision_checks": [{"id": "s1p1", "type": "file_contains", "label": "has add()",
+                                                     "file": "calc.py", "pattern": r"def add\("}]},
+                {"id": "s2", "index": 2, "title": "Write sub()", "instructions": "Define sub(a, b).", "file": "calc.py",
+                 "code": "def sub(a, b):\n    return a - b\n",
+                 "targets": [{"app": "Code", "file": "calc.py", "match": "def add"}],
+                 "checks": [], "precision_checks": [{"id": "s2p1", "type": "file_contains", "label": "has sub()",
+                                                     "file": "calc.py", "pattern": r"def sub\("}]}]}
+
+
+def _lesson_rig(tmp_path, monkeypatch, build):
+    monkeypatch.setenv("TUT_WORKDIR", str(tmp_path))
+    monkeypatch.delenv("DEMO", raising=False)
+    from server.orchestrator.workspace import Workspace
+
+    screen = FakeScreen()
+    rig = Rig(tmp_path, screen=screen)
+    calls: list = []
+    rig.s.workspace = Workspace(enabled=False, runner=lambda argv: calls.append(argv) or True)
+    rig.s.m.build_text_lesson = build
+    return rig, screen, calls
+
+
+def test_just_teach_me_lesson_mode_has_no_video_and_spotlights_where_to_type(tmp_path, monkeypatch):
+    """learn {mode: "lesson"}: no search, no player events, the editor opens (unasked: it IS the lesson),
+    and each step boxes the exact place to type with the code as the caption's snippet."""
+    searched = []
+
+    async def build(goal, workdir, on_update=None):
+        g = _text_lesson()
+        first = {**g, "steps": g["steps"][:1], "lesson": {**g["lesson"], "complete": False}}
+        await on_update(first, False)  # step 1 first: the lesson starts on it
+        await on_update(g, True)
+        return g
+
+    rig, screen, calls = _lesson_rig(tmp_path, monkeypatch, build)
+
+    async def search(q):
+        searched.append(q)
+        yield {}
+
+    rig.s.m.search = search
+    (tmp_path / "calc.py").write_text("# add goes here\n")
+    screen.text["Code"] = ["calc.py", "# add goes here"]
+
+    async def go():
+        await rig.s.learn("build a calculator in Python", mode="lesson")
+        await rig.settle()
+        await asyncio.sleep(0.05)
+
+    run(go())
+    assert not searched and not rig.of("search.result")
+    ready = rig.of("lesson.ready")[0]
+    assert ready["lesson"]["mode"] == "lesson" and all("video" not in s for s in ready["steps"])
+    assert "video" not in rig.of("step.started")[0]
+    assert not [t for t in rig.types() if t.startswith("video.")]
+    assert [s["id"] for s in rig.of("lesson.updated")[0]["steps"]] == ["s2"]
+    assert calls and rig.s.editor_open  # opened without an "Open VS Code?" card
+    spot = rig.of("spotlight")[-1]
+    assert spot["caption"] == "Type add() here" and spot["snippet"] == "def add(a, b):\n    return a + b\n"
+    assert spot["matched"] == "# add goes here"
+
+
+def test_lesson_mode_do_it_for_me_previews_the_step_code_then_applies(tmp_path, monkeypatch):
+    async def build(goal, workdir, on_update=None):
+        return _text_lesson()
+
+    rig, screen, calls = _lesson_rig(tmp_path, monkeypatch, build)
+
+    async def go():
+        await rig.s.learn("build a calculator in Python", mode="lesson")
+        await rig.settle()
+        await rig.s.action("apply_fix")  # no offtrack yet: "Do it for me" types this step's code (new file)
+        await rig.settle()
+        card = rig.of("card")[-1]
+        assert card["title"] == "Type this for you?" and card["actions"] == ["confirm"] and "+def add(a, b):" in card["diff"]
+        assert not (tmp_path / "calc.py").exists()  # nothing written before the learner confirms
+        await rig.s.action("confirm")
+        await rig.settle()
+
+    run(go())
+    assert (tmp_path / "calc.py").read_text() == "def add(a, b):\n    return a + b\n"
+    assert rig.of("step.passed")[0]["stepId"] == "s1"  # the checks gate as usual
+
+
+def test_lesson_mode_build_failure_is_an_error_not_a_video_message(tmp_path, monkeypatch):
+    async def build(goal, workdir, on_update=None):
+        raise RuntimeError("lesson.build_text_lesson failed: RuntimeError: Couldn't build this lesson: no Anthropic key")
+
+    rig, _, _ = _lesson_rig(tmp_path, monkeypatch, build)
+    run(rig.s.learn("anything", mode="lesson"))
+    assert rig.of("lesson.building")[-1].get("failed") is True
+    assert rig.of("error")[-1]["message"].startswith("Couldn't build this lesson")
+    assert rig.s.phase == "idle"
+
+
+def test_demo_text_lesson_is_the_fixture_without_video(monkeypatch, tmp_path):
+    monkeypatch.setattr("server.orchestrator.modules.DEMO_CACHE", tmp_path)  # no cached lessons
+    m = Modules(demo=True)
+    g = run(m.build_text_lesson("x", str(tmp_path)))
+    assert g["lesson"]["mode"] == "lesson" and all("video" not in s for s in g["steps"])

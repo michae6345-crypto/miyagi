@@ -274,12 +274,17 @@ class Workspace:
             log.warning("could not run %s: %s", argv[0], e)
             return False
 
-    def open(self, workdir: str, force: bool = False) -> None:
-        """force: the learner asked for it (the "Open VS Code?" card), so ignore the auto-open flag."""
+    def open(self, workdir: str, force: bool = False, full: bool = False) -> None:
+        """force: the learner asked for it (the "Open VS Code?" card), so ignore the auto-open flag.
+        full: "Just teach me" lessons: the editor fills the screen (no video to dock beside it)."""
         if not (self.enabled or force) or not Path(workdir).is_dir() or self.opened == workdir:
             return
         self.opened = workdir
         ws = _s2()
+        if ws is not None and full and hasattr(ws, "open_editor_report"):
+            ok = self._open_full(ws, workdir)
+            log.info("opened workspace %s full screen: %s", workdir, ok)
+            return
         if ws is not None:  # S2: `code -n <dir> -g <starter file>`, fallback `open -a`
             ok = ws.open_editor(workdir, ws.open_file_for(Path(workdir)), runner=self.run)
             log.info("opened workspace %s in VS Code: %s", workdir, ok)
@@ -290,6 +295,26 @@ class Workspace:
         if not ok and (cli := code_cli()):
             ok = self.run([cli, workdir])
         log.info("opened workspace %s in VS Code: %s", workdir, ok)
+
+    def _open_full(self, ws, workdir: str) -> bool:
+        """S2 opens the editor; then, with Accessibility, S2's arrange() sizes its window to the WHOLE visible
+        screen (fraction 1.0). Not a macOS full-screen Space: the overlay must stay on top of it."""
+        try:
+            from server.workspace import editor as ed
+        except Exception:  # noqa: BLE001
+            ed = None
+        editor = ed.preferred_editor() if ed is not None else None
+        prev = ed.frontmost_app(skip={editor["app"]}) if (ed is not None and editor) else None
+        rep = ws.open_editor_report(workdir, ws.open_file_for(Path(workdir)), runner=self.run,
+                                    arrange_windows=False, previous=prev)
+        real = self.run == self._spawn  # tests inject a runner: never move real windows from a test
+        if (rep.get("opened") and real and ed is not None and editor and rep.get("ax_trusted")
+                and os.environ.get("MIYAGI_ARRANGE", "1") != "0"):
+            import threading
+
+            threading.Thread(target=ed.arrange, args=(editor, prev, rep), kwargs={"fraction": 1.0},
+                             daemon=True, name="miyagi-arrange-full").start()
+        return bool(rep.get("opened"))
 
     def goto(self, path: str, line: int) -> None:
         argv = goto_argv(path, line)
