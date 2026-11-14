@@ -174,3 +174,11 @@ def test_react_cached_lesson_graph_sources_are_scanned():
     g = load("516197461c0dacf3.json")
     g["sources"].append({"id": "src2", "kind": "repo", "title": "code", "url": "https://github.com/someone/react-food"})
     assert [r["name"] for r in find_resources(g, description="")] == ["someone-react-food"]
+
+
+def test_hero_downloads_go_to_lessons_root_not_the_repo(tmp_path):
+    from server.workspace.paths import HERO_WORKDIR_DEFAULT
+    hero = load("aebc6b8fba02dac5.json")
+    c = transport({"https://ex.com/d.csv": httpx.Response(200, text="a\n")}, [])
+    out = download_resources(hero, folder=HERO_WORKDIR_DEFAULT, client=c, description="https://ex.com/d.csv")
+    assert out[0]["path"].startswith(str(tmp_path / "lessons")) and not (HERO_WORKDIR_DEFAULT / "tutorial").exists()

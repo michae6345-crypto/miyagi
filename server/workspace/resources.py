@@ -291,6 +291,9 @@ def download_resources(lesson: dict, *, folder: Path | str | None = None, descri
         if not found:
             return []
         base = Path(folder).expanduser() if folder else paths.lessons_root() / paths.folder_name(lesson)
+        hero = paths.hero_workdir(lesson)
+        if hero is not None and base.resolve() == hero:  # never drop downloads into the repo's demo folder
+            base = paths.lessons_root() / paths.folder_name(lesson)
         out = base / "tutorial"
         out.mkdir(parents=True, exist_ok=True)
         results = [_download_one(r, out, c) for r in found]
