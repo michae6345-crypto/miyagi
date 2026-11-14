@@ -14,6 +14,7 @@ import { EngineLink } from './engine'
 import type { MainContext, MainFeature } from './context'
 import {
   describePlatform,
+  followSpaces,
   launcherGlassOptions,
   overlayBounds,
   overlayWindowOptions,
@@ -46,6 +47,8 @@ const displayNow = (): Electron.Display => screen.getPrimaryDisplay()
 function createWindow(route: string, options: BrowserWindowConstructorOptions): BrowserWindow {
   const win = new BrowserWindow({
     show: false,
+    // A panel on macOS, like the core windows, so it can sit over full-screen apps.
+    ...(platform.os === 'mac' ? { type: 'panel' } : {}),
     ...options,
     webPreferences: {
       preload: join(__dirname, '../preload/index.js'),
@@ -58,6 +61,8 @@ function createWindow(route: string, options: BrowserWindowConstructorOptions): 
   })
   windows.add(win)
   win.on('closed', () => windows.delete(win))
+  // Every Miyagi window follows the learner across Spaces and over full-screen apps (Michael, Sat).
+  followSpaces(win)
   if (!app.isPackaged) {
     // Pipe renderer warnings/errors into the terminal (overlay windows have no visible devtools).
     win.webContents.on('console-message', (...args: unknown[]) => {
@@ -274,6 +279,7 @@ app.whenReady().then(() => {
       signalListeners.get(signal)!.add(fn)
     },
     reportBounds,
+    raise,
     islandSize: () => islandSize,
     yieldIsland: (on) => send(overlay, on ? 'island:yield' : 'island:return')
   })

@@ -27,6 +27,7 @@ const KNOWN = new Set<string>([
   'search.done',
   'lesson.building',
   'lesson.ready',
+  'lesson.updated',
   'lesson.ended',
   'step.started',
   'check.updated',
@@ -43,6 +44,7 @@ const KNOWN = new Set<string>([
   'status',
   'error',
   'screen.seen',
+  'setup.progress',
   'config.status'
 ] satisfies (keyof EngineEvents | 'config.status')[])
 

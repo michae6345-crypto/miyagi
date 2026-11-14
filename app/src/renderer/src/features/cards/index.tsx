@@ -317,7 +317,9 @@ const KIND: Record<EngineCard['kind'], { label: string; Icon: LucideIcon; tone: 
   hint: { label: 'Hint', Icon: Lightbulb, tone: color.label },
   answer: { label: 'Answer', Icon: MessageSquareText, tone: color.label },
   resume: { label: 'Continue?', Icon: History, tone: color.label },
-  setup: { label: 'Setup', Icon: Wrench, tone: color.label }
+  setup: { label: 'Setup', Icon: Wrench, tone: color.label },
+  // Contract sync (integration/live): the cards agent gives it a real view.
+  preflight: { label: 'Before you build', Icon: Wrench, tone: color.label }
 }
 
 /** Button per card action. At most one white primary per card: the first primary kind present. */
