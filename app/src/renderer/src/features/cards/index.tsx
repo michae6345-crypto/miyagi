@@ -7,7 +7,7 @@
  *   card      explain / hint / answer from the engine, with an optional video jump.
  * Copy rule: readable in 2 seconds; body text is clamped to 2–3 lines. No red, no shaking.
  */
-import { AnimatePresence, motion } from 'motion/react'
+import { motion } from 'motion/react'
 import type { ReactNode } from 'react'
 import { useShallow } from 'zustand/react/shallow'
 import { BookOpen, Check, Info, Lightbulb, MessageSquareText, Play, Wand2 } from 'lucide-react'
@@ -81,19 +81,16 @@ function Footer({ left, right }: { left?: ReactNode; right?: ReactNode }): React
   )
 }
 
-/** Crossfade between views inside one island mode (the container springs to the new height). */
+/**
+ * Swap views inside one island mode: the new view fades in rising 4px while the container springs
+ * to its height. No exit animation on purpose: the swap never waits on a frame (a hidden window
+ * draws none), so state and DOM always agree.
+ */
 function Swap({ id, children }: { id: string; children: ReactNode }): ReactNode {
   return (
-    <AnimatePresence mode="wait" initial={false}>
-      <motion.div
-        key={id}
-        initial={{ opacity: 0, y: 4 }}
-        animate={{ opacity: 1, y: 0, transition: { duration: 0.2, delay: 0.06, ease: 'easeOut' } }}
-        exit={{ opacity: 0, transition: { duration: 0.08 } }}
-      >
-        {children}
-      </motion.div>
-    </AnimatePresence>
+    <motion.div key={id} initial={{ opacity: 0, y: 4 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.2, delay: 0.06, ease: 'easeOut' }}>
+      {children}
+    </motion.div>
   )
 }
 
@@ -314,11 +311,19 @@ function Card(): ReactNode {
   const hasStep = useLesson((s) => !!s.stepId)
   if (!c) return null
   const k = KIND[c.kind] ?? KIND.answer
+  // A title that only repeats the header ("Hint") is dropped: the body becomes the headline.
+  const redundant = !c.title || c.title.trim().toLowerCase() === k.label.toLowerCase()
   return (
     <div data-card={c.kind} style={{ padding: `16px ${PAD}px 16px` }}>
       <Header mark={<k.Icon size={14} style={{ color: k.tone }} />} label={k.label} tone={k.tone} step={false} right={hasStep ? <StepNote /> : undefined} />
-      <div className="mt-[8px] text-[18px] font-semibold leading-[23px] tracking-[-0.01em]">{c.title}</div>
-      <Body lines={3}>{c.body}</Body>
+      {redundant ? (
+        <div className="mt-[8px] text-[16px] font-medium leading-[22px] tracking-[-0.01em]">{c.body}</div>
+      ) : (
+        <>
+          <div className="mt-[8px] text-[18px] font-semibold leading-[23px] tracking-[-0.01em]">{c.title}</div>
+          <Body lines={3}>{c.body}</Body>
+        </>
+      )}
       {c.videoJump && (
         <motion.button
           className="mt-[14px] flex h-[34px] cursor-pointer items-center gap-[8px] rounded-[12px] pl-[6px] pr-[12px] text-[13px] font-medium"

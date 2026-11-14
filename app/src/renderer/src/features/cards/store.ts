@@ -28,6 +28,8 @@ type CardsState = {
   fixing: boolean
   /** The current step went off-track at some point → show "Back on track" when it passes. */
   recovered: boolean
+  /** An explain card or a diagram opened on top of the off-track card: closing it brings the off-track card back. */
+  resume: boolean
   /** When the latest off-track fired: a run that starts after it is "after the fix". */
   offtrackAt?: number
   /** "Back on track". `since` = when the step went off-track (so the curve can split before/after). */
@@ -39,7 +41,7 @@ type CardsState = {
   tutorial: Record<string, Point[]>
 }
 
-const blank: CardsState = { offtrackOpen: false, fixing: false, recovered: false, offtrackAt: undefined, success: undefined, card: undefined, metrics: {}, tutorial: {} }
+const blank: CardsState = { offtrackOpen: false, fixing: false, recovered: false, resume: false, offtrackAt: undefined, success: undefined, card: undefined, metrics: {}, tutorial: {} }
 export const useCards = create<CardsState>(() => ({ ...blank }))
 const set = useCards.setState
 const get = useCards.getState
@@ -69,22 +71,29 @@ export function act(kind: 'show_me' | 'explain' | 'apply_fix' | 'hint'): void {
 /** A card's video jump: set the engine-intent video position; the player follows core/lesson.video. */
 export function jumpTo(t: number): void {
   useLesson.setState({ video: { t, playing: true, at: Date.now() } })
-  set({ card: undefined })
+  closeTop()
 }
+
+/** Close the card on top; if it opened over the off-track card, that card comes back. */
+function closeTop(): void {
+  const back = get().resume && !!useLesson.getState().offtrack
+  set({ card: undefined, success: undefined, resume: false, offtrackOpen: back })
+}
+const over = (): boolean => get().offtrackOpen || get().resume
 
 onUi('reset', () => {
   clearTimeout(successTimer)
   set({ ...blank })
 })
-onUi('dismiss', () => set({ offtrackOpen: false, success: undefined, card: undefined }))
+onUi('dismiss', closeTop)
 onMessage('lesson.ready', () => set({ ...blank }))
-onMessage('step.started', () => set({ offtrackOpen: false, fixing: false, recovered: false, offtrackAt: undefined, card: undefined }))
-onMessage('offtrack', () => set({ offtrackOpen: true, fixing: false, recovered: true, offtrackAt: Date.now(), card: undefined, success: undefined }))
-onMessage('card', (p) => set({ card: p, offtrackOpen: false }))
-onMessage('diagram', () => set({ card: undefined, offtrackOpen: false }))
+onMessage('step.started', () => set({ offtrackOpen: false, fixing: false, recovered: false, resume: false, offtrackAt: undefined, card: undefined }))
+onMessage('offtrack', () => set({ offtrackOpen: true, fixing: false, recovered: true, resume: false, offtrackAt: Date.now(), card: undefined, success: undefined }))
+onMessage('card', (p) => set({ card: p, resume: over(), offtrackOpen: false }))
+onMessage('diagram', () => set({ card: undefined, resume: over(), offtrackOpen: false }))
 onMessage('step.passed', (p) => {
   const { recovered, offtrackAt } = get()
-  set({ offtrackOpen: false, fixing: false })
+  set({ offtrackOpen: false, fixing: false, resume: false })
   if (!recovered) return
   const lesson = useLesson.getState()
   const index = lesson.steps.findIndex((x) => x.id === p.stepId)
