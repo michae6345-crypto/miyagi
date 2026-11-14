@@ -157,8 +157,30 @@ async def build(source_url: str, vid: str, goal: str, workdir: str, info, meta: 
              [f"{gemini._mmss(a)}-{gemini._mmss(b)}" for a, b, _ in windows])
     builder._emit("planning", f"{len(windows)} parts")
 
+    async def draft_for(i: int) -> dict:
+        """A part's draft; a background part that fails is retried once as two half-length clips
+        (long dense clips are where Gemini stalls)."""
+        try:
+            return await _window_draft(source_url, vid, goal, windows[i], meta, context, engines, first=(i == 0))
+        except RuntimeError as e:
+            a, b, titles = windows[i]
+            if i == 0 or b - a < 6 * 60:
+                raise
+            log.warning("part %d failed (%s); retrying as two halves", i + 1, str(e)[:100])
+            mid = a + (b - a) / 2
+            halves = await asyncio.gather(
+                *(_window_draft(source_url, vid, goal, w, meta, context, engines, first=False) for w in ((a, mid, titles), (mid, b, titles))),
+                return_exceptions=True)
+            ok = [h for h in halves if isinstance(h, dict)]
+            if not ok:
+                raise RuntimeError(f"{e} | halves: " + " | ".join(str(h)[:120] for h in halves)) from e
+            merged = {**ok[0], "steps": [st for h in ok for st in h.get("steps") or []]}
+            if not merged["steps"]:
+                return {**ok[0], "steps": [], "_empty": True}
+            return builder.normalize_draft(merged) | {"_engine": ok[0].get("_engine"), "_built_by": ok[0].get("_built_by")}
+
     async def one(i: int) -> tuple[list[dict], dict]:
-        d = await _window_draft(source_url, vid, goal, windows[i], meta, context, engines, first=(i == 0))
+        d = await draft_for(i)
         if d.get("_empty"):
             return [], {"draft": d, "graph": {"lesson": {}}, "warnings": [], "adapted": True, "adapt_model": None, "empty": True}
         bad = await builder._bad_urls(d["steps"], known_text, checked)

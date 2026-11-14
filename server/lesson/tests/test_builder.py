@@ -855,3 +855,29 @@ def test_talk_only_parts_are_skipped_not_failed(fake, monkeypatch):
     assert (p["done"], p["skipped"], p["failed"]) == (1, 3, 0)  # the 20-min outro chapter splits into 2 parts and [s["title"] for s in g["steps"]] == ["Write code"]
     assert updates[0] == (False, 1)  # never shows an empty lesson
     assert list(builder.CACHE_DIR.glob("*.json"))  # skipped parts don't block caching
+
+
+def test_failed_background_part_is_retried_as_two_halves(fake, monkeypatch):
+    monkeypatch.setenv("LESSON_ENGINE", "gemini")
+
+    async def meta(vid):
+        return {"video_id": vid, "title": "Long", "description": "", "length_s": 2000,
+                "chapters": [{"t": 0, "title": "a"}, {"t": 300, "title": "b"}, {"t": 1100, "title": "c"}]}
+
+    monkeypatch.setattr(transcript, "fetch_metadata", meta)
+
+    async def clip(url, goal, fps=None, context="", start=None, end=None, media_low=False):
+        if int(start) == 300 and int(end) == 1100:
+            raise RuntimeError("Gemini call failed: no answer")  # the whole 300-1100 part stalls
+        return {"title": "t", "libraries": [], "steps": [{"start": start + 5, "end": start + 60, "title": f"Step {int(start)}", "instructions": "do",
+                                                         "checks": [], "hints": []}]}
+
+    monkeypatch.setattr(gemini, "watch_video", clip)
+
+    async def adapt(goal, steps, summary, feedback=None):
+        return {"steps": [{"index": s["index"], "checks": [{"type": "screen_contains", "label": "x", "app": "Code", "pattern": "some_marker_x"}], "targets": []} for s in steps]}
+
+    monkeypatch.setattr(claude, "adapt_checks", adapt)
+    g = asyncio.run(builder.build_lesson(URL, "x", WORKDIR, refresh=True))
+    assert [s["title"] for s in g["steps"]] == ["Step 0", "Step 300", "Step 700", "Step 1100"]  # halves 300-700, 700-1100
+    assert g["lesson"]["parts"]["failed"] == 0
