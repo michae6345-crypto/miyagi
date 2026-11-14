@@ -92,17 +92,16 @@ Live cards (14 Nov, cold, this network):
 
 ## Contract (additive, one PR)
 
-All lifecycle contract changes go in the one combined `contract:` PR (#17, branch `contract/end-lesson`).
-It already has `end_lesson` + `lesson.ended`, the resume card, the setup card + `setup.progress`, the no-code
-`web_app` items + `open_in_browser`, `lesson.updated` for progressive builds, and the finder's
-`search.result.style / durationLabel / long / chapters / captions`. The preflight additions are one commit
-(eca1022) on branch `contract/preflight`, directly on top of `contract/end-lesson` 9c1d620, so they
-fast-forward:
+All lifecycle contract changes go in one combined `contract:` PR. #17 (end_lesson, resume, setup card) merged
+at 22:54. Everything after it is in **#29** (`contract/progressive-nocode-extras`): `web_app` items +
+`open_in_browser`, `lesson.updated` for progressive builds, the finder's `search.result.style / durationLabel /
+long / chapters / captions`, and the preflight additions:
 
 - card `kind: "preflight"`, plus optional fields `items?: SetupItem[]`, `warning?`, `recommended?`, `preflight?: PreflightInfo`
-- `PreflightInfo.style` uses `search.result.style`'s vocabulary (coding / no-code / conceptual) plus
-  `styleFrom: claude | finder`, and `goalMatch` has `lesson.goalMatch`'s shape
 - action kinds `build` and `pick_another` (also on the card's `actions`)
+- `PreflightInfo.style` uses `search.result.style`'s vocabulary (coding / no-code / conceptual) plus
+  `styleFrom: claude | finder`. `goalMatch` has `lesson.goalMatch`'s shape. The rename from the first draft's
+  `kind` is one fast-forward commit, bbc4195 on branch `contract/preflight-style`, on top of #29's head.
 
 ## Open items
 

@@ -640,7 +640,7 @@ def preflight_card(res: dict) -> dict:
         } for it in items],
         "actions": actions,
         "preflight": {
-            "videoId": res.get("videoId"), "url": res.get("url"), "style": res.get("style"), "topic": res.get("topic"),
+            "videoId": res.get("videoId"), "url": res.get("url"), "style": res.get("style"), "styleFrom": res.get("styleFrom"), "topic": res.get("topic"),
             "durationS": res.get("durationS"), "chapters": len(res.get("chapters") or []),
             "goalMatch": gm, "buildPlan": plan, "editorNeeded": res.get("editorNeeded"), "partial": res.get("partial", False),
         },

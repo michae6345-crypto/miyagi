@@ -387,7 +387,7 @@ def test_finder_row_style_is_prior_and_fallback():
     late = run(_pf("zE2MJ3_muNQ", "build chat gpt", claude=FakeClaude(NOCODE, delay=5), row=row, timeout=0.5, late_s=0))
     assert late["style"] == "no-code" and late["styleFrom"] == "finder" and late["editorNeeded"] is False
     card = preflight_card(late)
-    assert card["body"].startswith("No-code · 19:29") and card["preflight"]["style"] == "no-code"
+    assert card["body"].startswith("No-code · 19:29") and card["preflight"]["style"] == "no-code" and card["preflight"]["styleFrom"] == "finder"
 
 
 def test_finder_row_fills_in_when_youtube_is_blocked():
