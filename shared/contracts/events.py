@@ -227,10 +227,18 @@ class PreflightChapter(_Model):
     window: bool | None = None  # a time window (the video has no chapters)
 
 
+class HandsOn(_Model):
+    index: int
+    title: str
+    start: int
+
+
 class BuildPlan(_Model):
     strategy: Literal["whole", "chapters"]
     estSecondsToFirstSteps: int
-    firstChapter: PreflightChapter | None = None
+    firstChapter: PreflightChapter | None = None  # the window E2 builds first
+    firstHandsOn: HandsOn | None = None  # Claude: first chapter where the learner does something
+    windows: int | None = None  # build windows in all (when E2's planner ran)
 
 
 class PreflightInfo(_Model):

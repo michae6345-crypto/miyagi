@@ -87,7 +87,9 @@ export interface PreflightInfo {
   topic?: string; durationS?: number; chapters: number;
   goalMatch?: { score: number | null; note: string };      // score 0..1, null when there was no goal
   buildPlan: { strategy: "whole" | "chapters"; estSecondsToFirstSteps: number;
-               firstChapter: { index: number; lastIndex: number; title: string; start: number; end: number; window?: boolean } | null };
+               firstChapter: { index: number; lastIndex: number; title: string; start: number; end: number; window?: boolean } | null;   // the window E2 builds first
+               firstHandsOn?: { index: number; title: string; start: number };   // Claude: first chapter where the learner does something
+               windows?: number };                                               // how many build windows in all (when E2's planner ran)
   editorNeeded?: boolean | null; partial: boolean;
 }
 
