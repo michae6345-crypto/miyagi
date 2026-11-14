@@ -660,3 +660,21 @@ def test_notebook_cells_get_a_run_command():
                        {"index": 2, "start": 60, "end": 120, "title": "Read along", "instructions": "Listen.", "checks": []}]}
     g = builder.assemble(draft, "x", {"steps": []})
     assert g["steps"][0]["run_command"] == builder.NOTEBOOK_RUN and "run_command" not in g["steps"][1]
+
+
+def test_built_by_and_claude_first_switch(fake, monkeypatch):
+    g = asyncio.run(builder.build_lesson(URL, "x", WORKDIR, refresh=True))
+    assert g["lesson"]["builtBy"] == "gemini"
+    monkeypatch.setenv("LESSON_ENGINE", "auto")
+    monkeypatch.setenv("LESSON_PREFER", "claude")
+    monkeypatch.setenv("LESSON_GEMINI_TIMEOUT", "30")
+
+    async def slow_gemini(url, goal, fps=None, **kw):
+        await asyncio.sleep(9)  # longer than the 8 s Claude-first grace... but the test must stay fast:
+
+    monkeypatch.setenv("LESSON_GEMINI_GRACE", "0.2")  # explicit env still wins over the preset
+    monkeypatch.setattr(gemini, "watch_video", slow_gemini)
+    calls = []
+    _claude_fakes(monkeypatch, calls)
+    g = asyncio.run(builder.build_lesson(URL, "x", WORKDIR, refresh=True))
+    assert g["lesson"]["builtBy"] == "claude"

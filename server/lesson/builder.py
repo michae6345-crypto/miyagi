@@ -132,6 +132,7 @@ async def build_lesson(
         warnings = ["adapt pass failed (quota?): checks come from the video draft, not the learner's workdir; not cached, retry with readapt=True"] + warnings
     n_signals = await add_community_mistakes(graph, source_url)
     graph["lesson"]["id"] = f"lesson-{key[:8]}"
+    graph["lesson"]["builtBy"] = draft.get("_engine", "unknown")  # "gemini" = watched the video; "claude" = read the transcript
     graph["lesson"]["workdir"] = workdir
     graph["sources"] = [{"id": "src1", "kind": "video", "title": draft.get("title") or "Tutorial", "url": source_url, "videoId": vid}]
     graph["build"] = {
@@ -313,7 +314,9 @@ async def _watch(url: str, vid: str, goal: str) -> dict:
         tasks["claude"] = asyncio.create_task(claude_draft())
     if "gemini" in order:
         tasks["gemini"] = asyncio.create_task(gemini_draft())
-    grace = float(os.environ.get("LESSON_GEMINI_GRACE", GEMINI_GRACE_S))
+    # LESSON_PREFER=claude goes back to Claude-first: Gemini only gets a short grace once Claude is ready
+    default_grace = 8.0 if os.environ.get("LESSON_PREFER", "gemini").strip().lower() == "claude" else GEMINI_GRACE_S
+    grace = float(os.environ.get("LESSON_GEMINI_GRACE", default_grace))
     claude_ready: dict | None = None
     try:
         pending = set(tasks.values())
