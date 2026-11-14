@@ -21,6 +21,10 @@ def repo_root() -> Path | None:
 
 
 def load_dotenv() -> Path | None:
+    """Load the first .env found: $TUT_ENV, then cwd and up, the repo root, the main checkout (from a worktree)."""
+    explicit = os.environ.get("TUT_ENV")
+    if explicit and Path(explicit).expanduser().is_file():
+        return _load(Path(explicit).expanduser())
     starts = [Path.cwd().resolve()]
     root = repo_root()
     if root:
@@ -29,8 +33,10 @@ def load_dotenv() -> Path | None:
         if root.parent.name == "worktrees" and root.parent.parent.name == ".claude":
             starts.append(root.parent.parent.parent)
     path = find_upwards(".env", starts)
-    if not path:
-        return None
+    return _load(path) if path else None
+
+
+def _load(path: Path) -> Path:
     for raw in path.read_text().splitlines():
         line = raw.strip()
         if not line or line.startswith("#") or "=" not in line:
