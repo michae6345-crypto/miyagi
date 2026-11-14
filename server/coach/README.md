@@ -67,6 +67,25 @@ targets = await coach.locate("the learning rate", screen)  # exact text → no m
   - It returns `{command, …}` for terminal fixes.
   - It reuses the diagnosis's diff only if it contains every value the action sentence names ("…to `squash`", "…to 1e-3"); otherwise Opus writes the patch.
 
+## Step judge (judge.py)
+
+Deterministic checks sometimes can't see that the learner is done: visual or setup steps, or a file outside the workdir. `StepJudge` asks Haiku, check by check, from the screen text and the workspace files.
+
+```python
+judge = coach.StepJudge()                       # one per session; per-step rate limit + change detection inside
+if judge.should_judge(step, check_results, idle_s=idle, video_playing=playing, screen=obs, files=files, focused_app=app):
+    j = await judge.judge(step, check_results, screen=obs, files=files, focused_app=app)   # None if unavailable
+    for ev in j["events"]: emit(ev["type"], ev["payload"])     # check.updated status "pass", detail "Claude saw it on screen: …"
+    if j["card"]: emit("card", j["card"])
+```
+
+- **Gate:** a check is not yet passed, the learner has been idle at least 8 s, the video isn't playing, at most one judgment per 20 s per step, and only when the screen text or the files changed.
+- **Passing checks:** a check the machine still has as `pending` passes when Claude says done with confidence ≥ 0.8.
+- **Disagreement:** if a deterministic check says `fail` while Claude says done (confidence ≥ 0.6), Claude never overrules it. You get the card `{kind: "answer", title: "Looks done?", body: ≤12 words, actions: ["confirm", "skip_step"], checkIds}` instead.
+- **Ahead of the lesson:** if the learner is already on a later step, the card is `{title: "Already ahead?", actions: ["skip_step"], targetStepId}`. An earlier step on screen gives no card.
+- **Setup steps:** these are judged done when the tool is visibly open or installed.
+- **Inputs:** `screen` may be an E6 `ScreenObservation` (`lines_by_app`), a `ScreenContext`, a `{app: [lines]}` dict or plain text. `files` is `{path: text}`, notebooks become cell sources.
+
 ## Pointing: Explain / Show me / Hint (pointing.py)
 
 Every coach answer about the screen carries `targets` (`[{boxId, label, text, rect}]`, screen points), or a `where` instruction when the place isn't on screen. There is never a fake target.
