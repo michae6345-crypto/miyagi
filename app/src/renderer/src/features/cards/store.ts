@@ -3,9 +3,9 @@
  * The off-track payload itself lives in core/lesson; core doesn't keep metrics, so they live here.
  */
 import { create } from 'zustand'
-import { cmd, type Payload } from '../../../../common/wire'
-import { bridge } from '../../bridge'
+import type { Payload } from '../../../../common/wire'
 import { onMessage, onUi } from '../../core/bus'
+import { sendAction } from '../../core/shortcuts'
 import { seekVideo, useLesson, type CheckItem } from '../../core/lesson'
 
 export type Point = { step: number; value: number }
@@ -85,7 +85,7 @@ const newRun = (runId: string, p: Point): Run => ({ runId, points: [p], seq: ++s
 
 /** A card button → `action {kind}`. Apply fix collapses the off-track card into the "applying the fix" view. */
 export function act(kind: 'show_me' | 'explain' | 'apply_fix' | 'hint'): void {
-  bridge.send(cmd('action', { kind }))
+  sendAction(kind)
   if (kind === 'apply_fix') set({ fixing: true, offtrackOpen: true })
 }
 
@@ -102,7 +102,7 @@ export function cardAct(kind: CardAction, text?: string): void {
     if (get().installs[text]?.running) return
     setInstall(text, { running: true, line: undefined, error: undefined })
   }
-  bridge.send(cmd('action', text === undefined ? { kind } : { kind, text }))
+  sendAction(kind, text)
   if (kind !== 'install') set({ card: undefined })
 }
 

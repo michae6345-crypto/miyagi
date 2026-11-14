@@ -14,12 +14,14 @@
 import { motion } from 'motion/react'
 import type { ReactNode } from 'react'
 import { useShallow } from 'zustand/react/shallow'
-import { BookOpen, Check, Code2, Download, History, Info, Lightbulb, MessageSquareText, Play, Undo2, Wrench, type LucideIcon } from 'lucide-react'
+import { BookOpen, Check, Code2, Download, History, Lightbulb, MessageCircle, MessageSquareText, Play, Undo2, Wrench, type LucideIcon } from 'lucide-react'
 import type { Payload } from '../../../../common/wire'
-import { useLesson, useProgress, type Offtrack as OfftrackPayload } from '../../core/lesson'
+import { bridge } from '../../bridge'
+import { useLesson, useProgress, useThinking, type Offtrack as OfftrackPayload } from '../../core/lesson'
 import { defineFeature } from '../../core/registry'
-import { CardButton, CheckList, CloseButton, Spinner, StatusDot } from '../../core/ui/atoms'
-import { color, copy } from '../../core/theme'
+import { usePressed } from '../../core/shortcuts'
+import { CheckList, CloseButton, OptionButton, PrimaryButton, Spinner, StatusDot } from '../../core/ui/atoms'
+import { actionTone, color, copy, fill, kindTone } from '../../core/theme'
 import { Curve, fmt, Key, plotArray, plotPoints, type Line } from './Curve'
 import { act, cardAct, jumpTo, SUCCESS_MS, useCards, useSeries, type CardAction } from './store'
 
@@ -86,6 +88,35 @@ function Footer({ left, right }: { left?: ReactNode; right?: ReactNode }): React
   )
 }
 
+/** A spinner shaped like a lucide icon, so it can stand in for a button's icon. */
+const SpinIcon = ((p: { size?: number }) => <Spinner size={p.size ?? 13} c={color.onAccent} />) as unknown as LucideIcon
+
+/** Never look dead: while the engine thinks about the action this button sent, its icon is a spinner. */
+function useBusyIcon(): (kind: string, icon?: LucideIcon) => LucideIcon | undefined {
+  const thinking = useThinking()
+  const pressed = usePressed((p) => p.kind)
+  return (kind, icon) => (thinking && pressed === kind ? SpinIcon : icon)
+}
+
+/** A neutral (non-primary) card action: same shape as PrimaryButton, quiet fill. */
+function QuietButton({ label, icon: I, onClick }: { label: string; icon?: LucideIcon; onClick: () => void }): ReactNode {
+  return (
+    <motion.button
+      type="button"
+      className="flex h-[30px] shrink-0 cursor-pointer items-center gap-[7px] whitespace-nowrap rounded-full px-[13px] text-[13px] font-medium"
+      style={{ backgroundColor: fill.button, color: color.text }}
+      whileHover={{ backgroundColor: fill.chipHover }}
+      whileTap={{ scale: 0.97 }}
+      transition={{ duration: 0.12 }}
+      onMouseDown={(e) => e.preventDefault()}
+      onClick={onClick}
+    >
+      {I && <I size={13} strokeWidth={1.8} className="shrink-0" />}
+      {label}
+    </motion.button>
+  )
+}
+
 /**
  * Swap views inside one island mode: the new view fades in rising 4px while the container springs
  * to its height. No exit animation on purpose: the swap never waits on a frame (a hidden window
@@ -119,13 +150,10 @@ function OfftrackCurve({ o }: { o: OfftrackPayload }): ReactNode {
     { key: 'tutorial', pts: ref, stroke: color.label, reference: true }
   ]
   const lastValue = live?.points[live.points.length - 1].value
+  // No legend row: amber is yours (off track), the muted line is the tutorial. Name the metric on hover only.
   return (
-    <div className="mt-[14px]" data-curve={live ? 'live' : 'fallback'}>
-      <CurveCaption label={live ? name : o.curve?.label}>
-        <Key tone={color.amber}>yours</Key>
-        {ref.length > 1 && <Key tone={color.label}>tutorial</Key>}
-      </CurveCaption>
-      <Curve lines={lines} width={OFFTRACK_W - PAD * 2} height={64} end={{ label: lastValue !== undefined ? fmt(lastValue) : undefined, at: live?.at }} />
+    <div className="mt-[12px]" data-curve={live ? 'live' : 'fallback'} title={live ? name : o.curve?.label}>
+      <Curve lines={lines} width={OFFTRACK_W - PAD * 2} height={44} end={{ label: lastValue !== undefined ? fmt(lastValue) : undefined, at: live?.at }} />
     </div>
   )
 }
@@ -134,69 +162,58 @@ function OfftrackCurve({ o }: { o: OfftrackPayload }): ReactNode {
 function Diff({ diff, expectedOnly }: { diff: NonNullable<OfftrackPayload['diff']>; expectedOnly?: boolean }): ReactNode {
   const row = (label: string, tone: string, text: string, top?: boolean): ReactNode => (
     <div className={`flex items-baseline gap-[12px] px-[12px] py-[7px] ${top ? 'border-t' : ''}`} style={top ? { borderColor: color.hairline } : undefined}>
-      <span className="w-[78px] shrink-0 whitespace-nowrap font-sans text-[10.5px] font-semibold uppercase tracking-[0.06em]" style={{ color: tone }}>
+      <span className="w-[72px] shrink-0 whitespace-nowrap font-sans text-[12px] font-medium" style={{ color: tone }}>
         {label}
       </span>
-      <span className="truncate text-white/90">{text}</span>
+      <span className="truncate" style={{ color: color.text }}>
+        {text}
+      </span>
     </div>
   )
   return (
-    <div className="mt-[12px] overflow-hidden rounded-[12px] font-mono text-[12.5px] leading-[18px]" style={{ background: 'rgba(255,255,255,.06)' }}>
-      {row('Expected', color.label, diff.expected)}
-      {!expectedOnly && row(diff.line ? `Yours · L${diff.line}` : 'Yours', color.amber, diff.yours, true)}
+    <div className="mt-[12px] overflow-hidden rounded-[12px] font-mono text-[12.5px] leading-[18px]" style={{ background: fill.field }}>
+      {row('expected', color.label, diff.expected)}
+      {!expectedOnly && row(diff.line ? `yours · L${diff.line}` : 'yours', color.amber, diff.yours, true)}
     </div>
   )
 }
 
 function Diagnosis({ o, checks }: { o: OfftrackPayload; checks: ReturnType<typeof useLesson.getState>['checks'] }): ReactNode {
+  const busy = useBusyIcon()
+  const keys = bridge.platform.keys
+  // Precise: only what's failing (with your value), not the checks that already pass.
+  const failing = checks.filter((c) => c.status === 'fail')
   return (
-    <div data-card="offtrack" style={{ padding: `16px ${PAD}px 14px` }}>
-      <Header mark={<StatusDot status="offtrack" size={6} />} label="Off track" tone={color.amber} right={o.reason} />
+    <div data-card="offtrack" style={{ padding: `16px ${PAD}px 16px` }}>
+      <Header mark={<StatusDot status="offtrack" size={6} />} label="Off track" tone={color.amber} step={false} />
       <Title>{o.title}</Title>
       <Body>{o.body}</Body>
 
       <OfftrackCurve o={o} />
       {o.diff && <Diff diff={o.diff} />}
 
-      {checks.length > 0 && (
-        <div className="mt-[14px]">
-          <CheckList checks={checks} />
+      {failing.length > 0 && (
+        <div className="mt-[12px]">
+          <CheckList checks={failing} />
         </div>
       )}
 
-      <div className="mt-[16px] flex gap-[8px]">
-        {o.actions.includes('show_me') && (
-          <CardButton onClick={() => act('show_me')}>
-            <Play size={13} fill="currentColor" /> Show me
-          </CardButton>
-        )}
-        {o.actions.includes('explain') && (
-          <CardButton onClick={() => act('explain')}>
-            <Info size={14} /> Explain
-          </CardButton>
-        )}
-        {o.actions.includes('hint') && (
-          <CardButton onClick={() => act('hint')}>
-            <Lightbulb size={14} /> Hint
-          </CardButton>
-        )}
-        {o.actions.includes('apply_fix') && (
-          <CardButton primary onClick={() => act('apply_fix')}>
-            <Wrench size={14} /> Apply fix
-          </CardButton>
-        )}
+      {/* Options in their pastels (same color as everywhere else), the one primary on the right. */}
+      <div className="mt-[16px] flex flex-wrap items-center gap-[8px]">
+        {o.actions.includes('show_me') && <OptionButton action="show_me" label="Show me" kbd={keys.show_me} icon={busy('show_me')} onClick={() => act('show_me')} />}
+        {o.actions.includes('explain') && <OptionButton action="explain" label="Explain" kbd={keys.explain} icon={busy('explain')} onClick={() => act('explain')} />}
+        {o.actions.includes('hint') && <OptionButton action="hint" label="Hint" kbd={keys.hint} icon={busy('hint')} onClick={() => act('hint')} />}
+        <span className="flex-1" />
+        {o.actions.includes('apply_fix') && <PrimaryButton label="Apply fix" icon={busy('apply_fix', Wrench)} onClick={() => act('apply_fix')} />}
       </div>
 
-      <Footer
-        left={
-          o.citation && (
-            <>
-              <BookOpen size={12} className="shrink-0" /> <span className="truncate">{o.citation.label}</span>
-            </>
-          )
-        }
-        right="Video waits until all pass"
-      />
+      {/* The source behind the fix, as a paper (pink kind tone, like the launcher's tiles). No other footer copy. */}
+      {o.citation && (
+        <div className="mt-[12px] flex items-center gap-[7px] text-[12px]" style={{ color: color.faint }}>
+          <BookOpen size={12} className="shrink-0" style={{ color: kindTone.paper }} />
+          <span className="truncate">{o.citation.label}</span>
+        </div>
+      )}
     </div>
   )
 }
@@ -245,12 +262,11 @@ function Fixing({ o, checks }: { o: OfftrackPayload; checks: ReturnType<typeof u
         {o.diff ? 'Not in your file yet? Make the change, then rerun.' : 'Your checks rerun as soon as it changes.'}
       </div>
       <AfterCurve label={o.curve?.label} width={OFFTRACK_W} />
-      {checks.length > 0 && (
-        <div className="mt-[14px]">
-          <CheckList checks={checks} />
+      {checks.some((c) => c.status !== 'pass') && (
+        <div className="mt-[12px]">
+          <CheckList checks={checks.filter((c) => c.status !== 'pass')} />
         </div>
       )}
-      <Footer right="Video resumes when all pass" />
     </div>
   )
 }
@@ -311,15 +327,32 @@ function Success(): ReactNode {
 
 type EngineCard = Payload<'card'>
 
-/** Header per card kind. Typed against the contract so a new kind fails here, not at runtime. */
-const KIND: Record<EngineCard['kind'], { label: string; Icon: LucideIcon; tone: string }> = {
-  explain: { label: 'Explain', Icon: Info, tone: color.label },
-  hint: { label: 'Hint', Icon: Lightbulb, tone: color.label },
-  answer: { label: 'Answer', Icon: MessageSquareText, tone: color.label },
-  resume: { label: 'Continue?', Icon: History, tone: color.label },
-  setup: { label: 'Setup', Icon: Wrench, tone: color.label },
+/**
+ * Header per card kind: a small icon tile instead of a text eyebrow. The options that made the card keep
+ * their pastel (Explain sky, Hint pink, same as their buttons); the rest are neutral tiles.
+ * Typed against the contract so a new kind fails here, not at runtime.
+ */
+const KIND: Record<EngineCard['kind'], { label: string; Icon: LucideIcon; tone?: string }> = {
+  explain: { label: 'Explain', Icon: MessageSquareText, tone: actionTone.explain },
+  hint: { label: 'Hint', Icon: Lightbulb, tone: actionTone.hint },
+  answer: { label: 'Answer', Icon: MessageCircle },
+  resume: { label: 'Continue?', Icon: History },
+  setup: { label: 'Setup', Icon: Wrench },
   // Contract sync (integration/live): the cards agent gives it a real view.
-  preflight: { label: 'Before you build', Icon: Wrench, tone: color.label }
+  preflight: { label: 'Before you build', Icon: Wrench }
+}
+
+function KindTile({ k }: { k: (typeof KIND)[EngineCard['kind']] }): ReactNode {
+  return (
+    <span
+      className="grid h-[24px] w-[24px] shrink-0 place-items-center rounded-[7px]"
+      style={k.tone ? { background: k.tone, color: color.onAccent } : { background: fill.tile, color: color.text }}
+      aria-label={k.label}
+      title={k.label}
+    >
+      <k.Icon size={13} strokeWidth={1.9} />
+    </span>
+  )
 }
 
 /** Button per card action. At most one white primary per card: the first primary kind present. */
@@ -338,7 +371,7 @@ function UnifiedDiff({ diff }: { diff: string }): ReactNode {
   const lines = diff.split(/\r?\n/).filter((l) => l && !l.startsWith('+++') && !l.startsWith('---') && !l.startsWith('@@') && !l.startsWith('diff '))
   const shown = lines.slice(0, 14)
   return (
-    <div data-diff className="mt-[12px] overflow-hidden rounded-[12px] py-[6px] font-mono text-[12px] leading-[18px]" style={{ background: 'rgba(255,255,255,.06)' }}>
+    <div data-diff className="mt-[12px] overflow-hidden rounded-[12px] py-[6px] font-mono text-[12px] leading-[18px]" style={{ background: fill.field }}>
       {shown.map((l, i) => {
         const add = l.startsWith('+')
         const del = l.startsWith('-')
@@ -380,7 +413,11 @@ function SetupItems({ setup }: { setup: NonNullable<EngineCard['setup']> }): Rea
               </span>
             )}
             {!x.ok && !run?.running && (
-              <button className="flex cursor-pointer items-center gap-[5px] rounded-[9px] px-[9px] py-[3px] text-[12px] font-medium" style={{ background: 'rgba(255,255,255,.09)' }} onClick={() => cardAct('install', x.tool)}>
+              <button
+                className="flex cursor-pointer items-center gap-[5px] rounded-full px-[10px] py-[3px] text-[12px] font-medium"
+                style={{ background: fill.button, color: color.text }}
+                onClick={() => cardAct('install', x.tool)}
+              >
                 <Download size={12} /> {run?.error ? 'Retry' : 'Install'}
               </button>
             )}
@@ -395,72 +432,64 @@ function CardActions({ actions }: { actions: CardAction[] }): ReactNode {
   const known = actions.filter((a) => ACTION[a])
   if (known.length === 0) return null
   const primary = known.find((a) => ACTION[a]!.primary)
+  const busy = useBusyIcon()
+  // Quiet actions on the left, the one white primary on the right.
   return (
-    <div className="mt-[16px] flex gap-[8px]">
-      {known.map((a) => {
-        const { label, Icon } = ACTION[a]!
-        return (
-          <CardButton key={a} primary={a === primary} onClick={() => cardAct(a)}>
-            {Icon && <Icon size={14} />} {label}
-          </CardButton>
-        )
-      })}
+    <div className="mt-[16px] flex flex-wrap items-center gap-[8px]">
+      {known
+        .filter((a) => a !== primary)
+        .map((a) => (
+          <QuietButton key={a} label={ACTION[a]!.label} icon={ACTION[a]!.Icon} onClick={() => cardAct(a)} />
+        ))}
+      <span className="flex-1" />
+      {primary && <PrimaryButton label={ACTION[primary]!.label} icon={busy(primary, ACTION[primary]!.Icon)} onClick={() => cardAct(primary)} />}
     </div>
   )
 }
 
 function Card(): ReactNode {
   const c = useCards((x) => x.card)
-  const hasStep = useLesson((s) => !!s.stepId)
   if (!c) return null
   const k = KIND[c.kind] ?? KIND.answer
   const actions = c.actions ?? []
   // A title that only repeats the header ("Hint") is dropped: the body becomes the headline.
   const redundant = !c.title || c.title.trim().toLowerCase() === k.label.toLowerCase()
+  // A title that only repeats the kind ("Hint") is dropped: the body becomes the headline (clamped to 2 lines).
   return (
     <div data-card={c.kind} style={{ padding: `16px ${PAD}px 16px` }}>
-      <Header mark={<k.Icon size={14} style={{ color: k.tone }} />} label={k.label} tone={k.tone} step={false} right={hasStep ? <StepNote /> : undefined} />
-      {redundant ? (
-        <div className="mt-[8px] text-[16px] font-medium leading-[22px] tracking-[-0.01em]">{c.body}</div>
-      ) : (
-        <>
-          <div className="mt-[8px] text-[18px] font-semibold leading-[23px] tracking-[-0.01em]">{c.title}</div>
-          <Body lines={3}>{c.body}</Body>
-        </>
-      )}
+      <div className="flex items-start gap-[10px]">
+        <KindTile k={k} />
+        <div className="min-w-0 flex-1 pt-[1px]">
+          {redundant ? (
+            <div
+              className="overflow-hidden text-[16px] font-medium leading-[22px] tracking-[-0.01em]"
+              style={{ display: '-webkit-box', WebkitBoxOrient: 'vertical', WebkitLineClamp: 2 }}
+            >
+              {c.body}
+            </div>
+          ) : (
+            <>
+              <div className="text-[17px] font-semibold leading-[22px] tracking-[-0.01em]">{c.title}</div>
+              <Body lines={3}>{c.body}</Body>
+            </>
+          )}
+          {c.guidingQuestion && (
+            <div className="mt-[6px] text-[13px] leading-[18px]" style={{ color: color.label }}>
+              {c.guidingQuestion}
+            </div>
+          )}
+        </div>
+        <CloseButton />
+      </div>
       {c.videoJump && (
-        <motion.button
-          className="mt-[14px] flex h-[34px] cursor-pointer items-center gap-[8px] rounded-[12px] pl-[6px] pr-[12px] text-[13px] font-medium"
-          style={{ background: 'rgba(255,255,255,.09)' }}
-          whileHover={{ scale: 1.02 }}
-          whileTap={{ scale: 0.94 }}
-          transition={{ duration: 0.09 }}
-          onClick={() => jumpTo(c.videoJump!.t)}
-        >
-          <span className="grid h-[22px] w-[22px] place-items-center rounded-full" style={{ background: color.accent, color: color.onAccent }}>
-            <Play size={10} fill="currentColor" className="ml-[1px]" />
-          </span>
-          Watch {c.videoJump.label}
-        </motion.button>
-      )}
-      {c.guidingQuestion && (
-        <div className="mt-[10px] text-[13px] italic leading-[18px]" style={{ color: color.label }}>
-          {c.guidingQuestion}
+        <div className="mt-[14px] flex">
+          <OptionButton action="watch" label={`Watch ${c.videoJump.label}`} onClick={() => jumpTo(c.videoJump!.t)} />
         </div>
       )}
       {c.diff && <UnifiedDiff diff={c.diff} />}
       {c.setup && <SetupItems setup={c.setup} />}
       <CardActions actions={actions} />
     </div>
-  )
-}
-
-function StepNote(): ReactNode {
-  const { index, total } = useProgress()
-  return (
-    <>
-      Step {index + 1} of {total}
-    </>
   )
 }
 
