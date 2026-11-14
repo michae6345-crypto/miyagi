@@ -7,7 +7,37 @@ Each video got a fresh empty workdir, i.e. a learner starting from scratch. Engi
 Re-run: `python evals/lesson/run.py --src <checkout>`. Raw graphs are in `results/<id>.json`, automatic grades in `results/grades.json`,
 build logs in `results/<id>.log` (gitignored; per-pass timings are quoted below). Transcripts were used for spot checks but are not committed.
 
-## Latest (`e721457`): link verification, Claude concurrency cap and 429 backoff
+## Latest (`4ceb5de`): localhost/link fixes, vague-setup lint, progressive long videos
+
+Two runs, one after the other, both with `--saved-captions`:
+- `results-4ceb5de-default/`: defaults, Gemini preferred.
+- `results-4ceb5de-claude/`: `LESSON_ENGINE=claude`.
+
+| Lesson | Default: builtBy, total | Claude only: total | Score default / Claude | Checks default / Claude | goalMatch |
+|---|---|---|---|---|---|
+| react-useeffect | gemini, 49 s | 35 s | 8.5 / 9 | 20 / 28 | 0.95 |
+| git-rebase | gemini, 57 s | 24 s | 8 / 8 | 11 / 15 | 0.95 |
+| pandas-30min | gemini, 62 s, **first part ready in 19.8 s**, 4/4 parts done | 34 s | 8.5 / 9 | 51 (19 steps) / 37 (9 steps) | 0.88 / 0.85 |
+| rust-cli | gemini, 48 s | 30 s | 9 / 9 | 38 / 45 | 0.85 |
+| fastapi-rest | gemini, 65 s | 29 s | 9 / **8.5** | 29 / 34 | 0.95 |
+
+**What the fixes did:**
+- **Gemini's git setup is back, and it works.** `step.code` has a full script. I ran it in a temp folder: it builds `main` and `feature/login` from the same base, and `git rebase main` stops at "CONFLICT (content): Merge conflict in index.js", as the lesson expects.
+- **Per-stack error text now covers steps without a run command.** There are no Python `Traceback` checks in React on either path.
+- **Gemini FastAPI instructions read cleanly.** Its localhost mentions survive, and every lesson-visible URL resolves (only the PanadasTutorial repo, 200).
+- **Progressive build works.** pandas (30:36) is split into 4 parts by chapter, and the first steps are playable after 19.8 s instead of after the whole build.
+- `lesson.goalMatch` looks sensible: 0.85–0.95 for all five.
+
+**Still wrong:**
+1. **A localhost URL at the end of a sentence is still stripped** (`links._checkable`).
+   - Claude FastAPI s1 now ends "Start it with `uvicorn main:app --reload` and **open .**", and build.warnings says "removed a link that does not resolve (http://127.0.0.1:8000)".
+   - Cause: `_LOCAL.match(u)` runs on the raw match `http://127.0.0.1:8000.`, trailing period included, so `(:\d+)?(/|$)` fails. The period is only removed afterwards by `rstrip`.
+   - Reproduced: `_checkable('open http://127.0.0.1:8000.')` returns `{'http://127.0.0.1:8000'}`. The same URL followed by " in your browser" or "/docs." is correctly ignored.
+   - Fix: `rstrip(".,;:!?")` before testing `_LOCAL`.
+2. **Splitting long videos doubles the step count.** pandas went from 9 steps to 19. Some are 29–40 s micro-steps (s2 "Import pandas", s14 "Delete a row", s16–s18 count / group / sort as three steps). Each passes the 20 s merge rule, but 19 steps for a 30-min video is a lot of pausing. Consider merging adjacent steps across part boundaries, or a per-part step budget.
+3. **Gemini checks are still thinner** (11–38 vs 15–45 per lesson). E2 says this isn't done yet.
+
+## Run on `e721457`: link verification, Claude concurrency cap and 429 backoff
 
 Two runs, one after the other, both with `--saved-captions`:
 - `results-e721457-default/`: defaults, which now prefer Gemini.
