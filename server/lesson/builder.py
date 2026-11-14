@@ -203,52 +203,70 @@ async def _video_draft(url: str, vid: str, goal: str, *, refresh: bool, detail: 
     return draft
 
 
+GEMINI_VIDEO_TIMEOUT_S = 45.0  # LESSON_GEMINI_TIMEOUT; past this the Claude transcript path is faster
+
+
 def engines() -> list[str]:
+    """Video-pass engines in order. Rule: Gemini only ever *watches* the video; Claude does
+    everything else (transcript drafts, the adapt pass, check writing)."""
     gemini._load_env()
     e = os.environ.get("LESSON_ENGINE", "auto").strip().lower()
     return {"gemini": ["gemini"], "claude": ["claude"]}.get(e, ["gemini", "claude"])
 
 
 async def _watch(url: str, vid: str, goal: str) -> dict:
-    """First engine that returns a usable step list wins; errors from all engines are raised together."""
-    errors = []
-    info = None
-    for eng in engines():
-        for _attempt in range(2):
-            try:
-                if eng == "gemini":
-                    raw = await gemini.watch_video(url, goal)
-                    built_by = f"{gemini.last_model} (watched the video)"
-                else:
-                    info = info or await transcript.fetch_video_info(vid)
-                    raw = await claude.watch_transcript(info, goal)
-                    built_by = f"{claude.last_model} (transcript via {info['sources'].get('transcript')})"
-                draft = normalize_draft(raw)
-            except ValueError as e:  # unusable timestamps / no steps: ask the same engine again
-                errors.append(f"{eng}: unusable step list ({e})")
-                continue
-            except RuntimeError as e:  # quota / outage / no key / no transcript: next engine
-                errors.append(f"{eng}: {str(e)[:300]}")
-                log.warning("%s video pass failed: %s", eng, str(e)[:200])
-                break
-            draft["_built_by"] = built_by
-            draft["_engine"] = eng
-            if eng != engines()[0]:
-                draft.setdefault("_notes", []).append("fallback engine: " + " | ".join(errors))
-            return draft
+    """Gemini watches the video, capped at LESSON_GEMINI_TIMEOUT seconds (429/503/slow -> move on);
+    the transcript is fetched in parallel so the Claude path starts immediately if needed.
+    Errors from every engine are raised together; nothing is made up."""
+    errors: list[str] = []
+    order = engines()
+    info_task = asyncio.create_task(transcript.fetch_video_info(vid)) if "claude" in order else None
+    try:
+        for eng in order:
+            attempts = 1 if eng == "gemini" else 2
+            for _attempt in range(attempts):
+                t0 = time.time()
+                try:
+                    if eng == "gemini":
+                        cap = float(os.environ.get("LESSON_GEMINI_TIMEOUT", GEMINI_VIDEO_TIMEOUT_S))
+                        raw = await asyncio.wait_for(gemini.watch_video(url, goal), cap)
+                        built_by = f"{gemini.last_model} (watched the video)"
+                    else:
+                        info = await info_task
+                        raw = await claude.watch_transcript(info, goal)
+                        built_by = f"{claude.last_model} (transcript via {info['sources'].get('transcript')})"
+                    draft = normalize_draft(raw)
+                except ValueError as e:  # unusable timestamps / no steps
+                    errors.append(f"{eng}: unusable step list ({e})")
+                    continue
+                except TimeoutError:
+                    errors.append(f"{eng}: no answer within {time.time() - t0:.0f}s")
+                    log.warning("%s video pass too slow; switching engine", eng)
+                    break
+                except RuntimeError as e:  # quota / outage / no key / no transcript
+                    errors.append(f"{eng}: {str(e)[:300]}")
+                    log.warning("%s video pass failed: %s", eng, str(e)[:200])
+                    break
+                log.info("%s video pass: %.1fs", eng, time.time() - t0)
+                draft["_built_by"] = built_by
+                draft["_engine"] = eng
+                if errors:
+                    draft.setdefault("_notes", []).append("fallback engine: " + " | ".join(errors))
+                return draft
+    finally:
+        if info_task and not info_task.done():
+            info_task.cancel()
+        elif info_task and info_task.done() and not info_task.cancelled():
+            info_task.exception()  # retrieved, so an unused failure isn't logged as "never retrieved"
     raise RuntimeError("no engine could build the lesson:\n" + "\n".join(errors))
 
 
 async def _adapt_call(goal: str, draft: dict, summary: str, feedback: list[str] | None) -> tuple[dict, str]:
-    errors = []
-    for eng in engines():
-        try:
-            if eng == "gemini":
-                return await gemini.adapt_checks(goal, draft["steps"], summary, feedback), str(gemini.last_model)
-            return await claude.adapt_checks(goal, draft["steps"], summary, feedback), str(claude.last_model)
-        except RuntimeError as e:
-            errors.append(f"{eng}: {str(e)[:200]}")
-    raise RuntimeError("; ".join(errors))
+    """The adapt pass is Claude's job (Gemini only watches videos)."""
+    t0 = time.time()
+    out = await claude.adapt_checks(goal, draft["steps"], summary, feedback)
+    log.info("claude adapt pass: %.1fs", time.time() - t0)
+    return out, str(claude.last_model)
 
 
 async def _add_detail(url: str, draft: dict) -> None:

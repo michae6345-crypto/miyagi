@@ -7,6 +7,8 @@ from pathlib import Path
 
 import pytest
 
+from server.lesson import claude  # noqa: E402
+
 from server.lesson import builder, gemini
 from server.lesson.precision import report
 from server.lesson.schema import lint, schema_errors
@@ -85,7 +87,7 @@ def fake(monkeypatch, tmp_path):
 
     from server.lesson import claude as _claude, transcript as _transcript
     monkeypatch.setattr(_claude, "watch_transcript", offline)
-    monkeypatch.setattr(_claude, "adapt_checks", offline)
+    monkeypatch.setattr(_claude, "adapt_checks", adapt_checks)  # the adapt pass is Claude's
     monkeypatch.setattr(_transcript, "fetch_video_info", offline)
     monkeypatch.setattr(builder, "CACHE_DIR", tmp_path)
     monkeypatch.setattr(builder, "RAW_DIR", tmp_path / "raw")
@@ -178,7 +180,7 @@ def test_adapt_failure_falls_back_to_draft_and_says_so(fake, monkeypatch):
     async def boom(*a, **k):
         raise RuntimeError("429 RESOURCE_EXHAUSTED per day")
 
-    monkeypatch.setattr(gemini, "adapt_checks", boom)
+    monkeypatch.setattr(claude, "adapt_checks", boom)
     draft = json.loads(json.dumps(DRAFT))
     draft["steps"][0]["checks"] = [{"type": "screen_contains", "label": "residual", "app": "Code", "pattern": r"f_t\s*-\s*f_xx"},
                                    {"type": "file_contains", "label": "residual", "file": "pinn_diffusion.py", "pattern": "f_t"}]
@@ -190,7 +192,7 @@ def test_adapt_failure_falls_back_to_draft_and_says_so(fake, monkeypatch):
     assert [c["type"] for c in pinn["checks"]] == ["screen_contains"] and [c["type"] for c in pinn["precision_checks"]] == ["file_contains"]
 
     # readapt reuses the cached video draft: no new watch call
-    monkeypatch.setattr(gemini, "adapt_checks", lambda *a, **k: _async(_good_adapt()))
+    monkeypatch.setattr(claude, "adapt_checks", lambda *a, **k: _async(_good_adapt()))
     watched = fake["watch"]
     g2 = asyncio.run(builder.build_lesson(URL, "train a PINN", WORKDIR, readapt=True))
     assert g2["build"]["adapted"] is True and fake["watch"] == watched
@@ -388,3 +390,31 @@ def test_precision_backup_never_looser_than_screen_check():
     assert (p1["op"], p1["value"], p1["by_step"]) == ("<", 0.01, 2000)  # tightened to the screen check
     assert p2["value"] == 0.5 and "by_step" not in p2  # other metric untouched
     assert (p3["value"], p3["by_step"]) == (0.001, 1000)  # already stricter: kept
+
+
+def test_slow_gemini_hands_over_to_claude_within_the_cap(fake, monkeypatch):
+    monkeypatch.setenv("LESSON_ENGINE", "auto")
+    monkeypatch.setenv("LESSON_GEMINI_TIMEOUT", "0.2")
+
+    async def slow_gemini(url, goal, fps=None):
+        await asyncio.sleep(5)
+
+    monkeypatch.setattr(gemini, "watch_video", slow_gemini)
+    calls = []
+    _claude_fakes(monkeypatch, calls)
+    import time as _t
+    t0 = _t.time()
+    g = asyncio.run(builder.build_lesson(URL, "anything", WORKDIR, refresh=True))
+    assert _t.time() - t0 < 2
+    assert g["build"]["model"]["video"].startswith("claude-opus-5-5 (transcript")
+    assert calls[:2] == ["transcript", "claude-watch"]
+
+
+def test_adapt_pass_is_claude_even_when_gemini_watched(fake, monkeypatch):
+    def gemini_adapt_must_not_run(*a, **k):
+        raise AssertionError("Gemini must only watch videos")
+
+    monkeypatch.setattr(gemini, "adapt_checks", gemini_adapt_must_not_run)
+    claude.last_model = "claude-opus-5-5"
+    g = asyncio.run(builder.build_lesson(URL, "anything", WORKDIR, refresh=True))
+    assert g["build"]["adapted"] is True and g["build"]["model"]["adapt"] == "claude-opus-5-5"

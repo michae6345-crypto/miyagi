@@ -66,22 +66,41 @@ def strict_schema(schema: dict) -> dict:
 _schema_too_complex: set[str] = set()  # schema fingerprints the API rejected for structured output
 
 
+_fast_ok = True  # flips off for the process if fast mode is rate-limited or unavailable
+
+
+def _use_fast() -> bool:
+    gemini._load_env()
+    return _fast_ok and os.environ.get("LESSON_CLAUDE_FAST", "1") != "0"
+
+
 async def _call(mid: str, system: str, prompt: str, *, effort: str, schema: dict | None):
+    global _fast_ok
     output_config: dict = {"effort": effort}
     if schema is not None:
         output_config["format"] = {"type": "json_schema", "schema": strict_schema(schema)}
+    kwargs = dict(
+        model=mid,
+        max_tokens=32000,
+        system=system,
+        messages=[{"role": "user", "content": prompt}],
+        thinking={"type": "adaptive"},
+        output_config=output_config,
+        betas=["server-side-fallback-2026-07-01"],
+        fallbacks="default",  # on a policy decline, the API re-runs on a fallback model
+    )
+    fast = _use_fast()
     try:
-        async with client().beta.messages.stream(
-            model=mid,
-            max_tokens=32000,
-            system=system,
-            messages=[{"role": "user", "content": prompt}],
-            thinking={"type": "adaptive"},
-            output_config=output_config,
-            betas=["server-side-fallback-2026-07-01"],
-            fallbacks="default",  # on a policy decline, the API re-runs on a fallback model
-        ) as stream:
-            msg = await stream.get_final_message()
+        try:
+            async with client().beta.messages.stream(**kwargs, **({"speed": "fast"} if fast else {})) as stream:
+                msg = await stream.get_final_message()
+        except (anthropic.RateLimitError, anthropic.BadRequestError) as e:
+            if not fast or (isinstance(e, anthropic.BadRequestError) and "speed" not in str(e).lower() and "fast" not in str(e).lower()):
+                raise
+            _fast_ok = False  # fast mode has its own rate limit; fall back to standard speed
+            log.warning("fast mode unavailable (%s); using standard speed", str(e)[:120])
+            async with client().beta.messages.stream(**kwargs) as stream:
+                msg = await stream.get_final_message()
     except anthropic.AuthenticationError as e:
         raise RuntimeError(f"Anthropic rejected the API key: {e}") from e
     except anthropic.BadRequestError as e:
@@ -159,9 +178,9 @@ code. Never invent steps the transcript does not cover."""
 
 
 async def watch_transcript(info: dict, goal: str) -> dict:
-    prompt = gemini.WATCH_PROMPT.format(goal=goal) + "\n\n" + TRANSCRIPT_NOTE + "\n\n" + format_for_prompt(info)
-    return await _generate_json(gemini.WATCH_SYSTEM, prompt, VIDEO_DRAFT_SCHEMA, effort="high")
+    prompt = gemini.WATCH_PROMPT.format(goal=goal, stack_guide=gemini.STACK_GUIDE) + "\n\n" + TRANSCRIPT_NOTE + "\n\n" + format_for_prompt(info)
+    return await _generate_json(gemini.WATCH_SYSTEM, prompt, VIDEO_DRAFT_SCHEMA, effort=os.environ.get("LESSON_CLAUDE_EFFORT_WATCH", "medium"))
 
 
 async def adapt_checks(goal: str, draft_steps: list[dict], workdir_summary: str, feedback: list[str] | None = None) -> dict:
-    return await _generate_json(gemini.ADAPT_SYSTEM, gemini.adapt_prompt(goal, draft_steps, workdir_summary, feedback), ADAPTED_SCHEMA, effort="medium")
+    return await _generate_json(gemini.ADAPT_SYSTEM, gemini.adapt_prompt(goal, draft_steps, workdir_summary, feedback), ADAPTED_SCHEMA, effort=os.environ.get("LESSON_CLAUDE_EFFORT_ADAPT", "low"))
