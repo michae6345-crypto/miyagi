@@ -13,6 +13,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import re
+from typing import Any
 
 from . import llm
 from .screen import ScreenContext
@@ -40,8 +41,15 @@ def _first_line(text: str) -> str:
     return next((ln.strip() for ln in (text or "").splitlines() if ln.strip()), "")
 
 
+FILE_NAME = re.compile(r"\b([\w.-]+\.(?:py|ipynb|js|jsx|ts|tsx|html|css|md|json|txt|csv|sh|rs|go|java|c|cpp|rb))\b")
+UNTITLED = re.compile(r"\bUntitled-?\d*\b(?:\.\w+)?")
+EDITORS = {"code": "VS Code", "visual studio code": "VS Code", "cursor": "Cursor", "pycharm": "PyCharm", "xcode": "Xcode",
+           "sublime text": "Sublime Text", "zed": "Zed", "textedit": "TextEdit", "idle": "IDLE", "jupyterlab": "JupyterLab"}
+
+
 def step_file(step: dict, last: dict | None = None) -> str:
-    """The file this step is about: the diagnosis's diff, the step's target, or a file check."""
+    """The file this step is about: the diagnosis's diff, the step's target, a file check, else a
+    file name mentioned in the step's own instructions/title ("Save it as calculator.py")."""
     if (last or {}).get("diff", {}).get("file"):
         return last["diff"]["file"]
     for t in step.get("targets") or []:
@@ -50,20 +58,61 @@ def step_file(step: dict, last: dict | None = None) -> str:
     for c in step.get("checks") or []:
         if c.get("file"):
             return c["file"]
-    return ""
+    m = FILE_NAME.search(f"{step.get('instructions', '')} {step.get('title', '')}")
+    return m.group(1) if m else ""
 
 
 def step_command(step: dict) -> str:
     return next((c.get("command", "") for c in step.get("checks") or [] if c.get("command")), "")
 
 
-def where_hint(step: dict, last: dict | None = None) -> str:
-    """Where to go when the place is not on screen. Honest and specific, no model."""
+def editor_state(screen: Any) -> dict:
+    """What the screen says about the editor: {app, file, unsaved, untitled} (empty dict if no editor).
+
+    Reads window titles (E6 `windows[].title`), title boxes and the first lines of each app's text:
+    VS Code shows `Untitled-1 — Visual Studio Code`, `● calc.py — project` (● = unsaved changes)."""
+    if screen is None:
+        return {}
+    rows: list[tuple[str, str]] = []  # (app, text)
+    for w in getattr(screen, "windows", None) or []:
+        rows.append((getattr(w, "app", "") or "", getattr(w, "title", "") or ""))
+    if hasattr(screen, "boxes"):
+        rows += [(b.app, b.text) for b in screen.boxes if b.role in ("AXTitle", "AXWindow") or UNTITLED.search(b.text)]
+        rows += [(b.app, b.text) for b in screen.boxes[:40]]
+    elif hasattr(screen, "lines_by_app"):
+        rows += [(a, ln) for a, ls in screen.lines_by_app().items() for ln in ls[:5]]
+    elif isinstance(screen, dict):
+        rows += [(str(a), str(ln)) for a, ls in screen.items() if isinstance(ls, list) for ln in ls[:5]]
+    focused = (getattr(screen, "app", "") or "").lower()
+    editors = [(a, t) for a, t in rows if a.lower() in EDITORS]
+    if not editors:
+        return {}
+    editors.sort(key=lambda r: r[0].lower() != focused)  # the focused editor first
+    app = editors[0][0]
+    texts = [t for a, t in editors if a == app]
+    untitled = next((m.group(0) for t in texts if (m := UNTITLED.search(t))), "")
+    file = next((m.group(1) for t in texts if (m := FILE_NAME.search(t))), "")
+    return {"app": EDITORS[app.lower()], "file": "" if untitled else file, "untitled": untitled,
+            "unsaved": bool(untitled) or any(t.lstrip().startswith("●") for t in texts)}
+
+
+def where_hint(step: dict, last: dict | None = None, screen: Any = None) -> str:
+    """Where to go when the place is not on screen. Reads the screen when given: names the actual
+    editor and what it shows (Michael: VS Code on Untitled-1 got "open the lesson file in your editor")."""
     f = step_file(step, last)
+    name = f.rsplit("/", 1)[-1] if f else ""
+    ed = editor_state(screen)
+    if ed and name:
+        if ed["untitled"]:
+            return f"You're in {ed['app']} on an unsaved file. Save it as {name} in the lesson folder"
+        if ed["file"] and ed["file"] != name:
+            return f"You're in {ed['app']} on {ed['file']}. Open {name} from the lesson folder"
+        if ed["file"] == name and ed["unsaved"]:
+            return f"{name} is open in {ed['app']} with unsaved changes. Save it"
     if f.endswith(".ipynb"):
         return f"Open {f} in Jupyter or Colab"
     if f:
-        return f"Open {f} in your editor"
+        return f"Open {f} in {ed['app']}" if ed else f"Open {f} in your editor"
     if cmd := step_command(step):
         return f"Switch to your terminal and run `{cmd}`"
     return "Open the code for this step"
@@ -127,11 +176,11 @@ async def point(
 ) -> dict:
     """Targets for `about` (what the coach is saying), or a `where` instruction. Never raises."""
     if screen is None or not screen.boxes:
-        return {"targets": [], "where": where_hint(step, last), "via": "no-screen"}
+        return {"targets": [], "where": where_hint(step, last, screen), "via": "no-screen"}
     if t := deterministic_targets(step, screen, last):
         return {"targets": t, "where": None, "via": "exact"}
     if not use_model:
-        return {"targets": [], "where": where_hint(step, last), "via": "none"}
+        return {"targets": [], "where": where_hint(step, last, screen), "via": "none"}
     user = (
         f"STEP: {step.get('title', '')}: {step.get('instructions', '')}\n"
         f"FILE: {step_file(step, last) or 'unknown'}\n"
@@ -148,9 +197,13 @@ async def point(
         )
     except (llm.CoachLLMError, TimeoutError) as e:
         log.info("point: model unavailable (%s); where-only", e)
-        return {"targets": [], "where": where_hint(step, last), "via": "fallback"}
+        return {"targets": [], "where": where_hint(step, last, screen), "via": "fallback"}
     targets = screen.resolve_targets([{"box_id": i, "label": _short(about)} for i in res.data.get("box_ids", [])[:3]])
-    where = None if targets else ((res.data.get("where") or "").strip() or where_hint(step, last))
+    if targets:
+        where = None
+    else:  # the screen-derived instruction (names the real editor + file) beats Haiku's generic one
+        det = where_hint(step, last, screen)
+        where = det if editor_state(screen) and step_file(step, last) else ((res.data.get("where") or "").strip() or det)
     return {"targets": targets, "where": where, "via": "haiku"}
 
 

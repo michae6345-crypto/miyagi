@@ -57,7 +57,7 @@ def hint(step: dict, level: int, last_offtrack: dict | None = None, screen: Scre
     if targets:
         card["targets"] = targets
         return card
-    card["where"] = where_hint(step, last)
+    card["where"] = where_hint(step, last, screen)
     if card["level"] <= 1 and not code_visible(step, screen, "", last):
         card["title"] = "Open your code first"
         card["body"] = f"{card['where']}. Then: {card['body']}"

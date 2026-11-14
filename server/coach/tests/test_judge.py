@@ -142,3 +142,81 @@ def test_judge_never_raises(monkeypatch):
 
 def test_exported():
     assert coach.StepJudge is StepJudge and llm.model_for("judge") == "claude-haiku-5-5"
+
+
+# ---------- the Check button + reading the editor state (Michael: VS Code on Untitled-1) ----------------
+
+from types import SimpleNamespace
+
+from PIL import Image
+
+from server.coach.pointing import editor_state, where_hint
+from server.coach.screen import Box, ScreenContext
+
+CALC = {"id": "k2", "title": "Create the calculator file", "instructions": "Create a new file and save it as calculator.py in the lesson folder.",
+        "checks": [{"id": "k2a", "type": "visual", "label": "calculator.py saved"}]}
+
+
+def _vscode_untitled() -> ScreenContext:
+    boxes = [Box(0, "Untitled-1 — Visual Studio Code", 300, 8, 260, 14, source="ax", app="Code", role="AXTitle"),
+             Box(0, "def add(a, b):", 60, 80, 120, 13, app="Code"), Box(0, "return a + b", 80, 95, 100, 13, app="Code")]
+    return ScreenContext(image=Image.new("RGB", (10, 10)), cursor=(100, 90), boxes=boxes, scale=1.0, app="Code").numbered()
+
+
+def test_where_reads_the_editor_state():
+    assert where_hint(CALC, None, _vscode_untitled()) == "You're in VS Code on an unsaved file. Save it as calculator.py in the lesson folder"
+    obs = SimpleNamespace(app="Code", windows=[SimpleNamespace(app="Code", title="● calc.py — calculator")],
+                          lines_by_app=lambda: {"Code": ["def add(a, b):"]})
+    assert editor_state(obs) == {"app": "VS Code", "file": "calc.py", "untitled": "", "unsaved": True}
+    assert where_hint(CALC, None, obs) == "You're in VS Code on calc.py. Open calculator.py from the lesson folder"
+    no_editor = {"Terminal": ["$ ls"]}
+    assert where_hint(CALC, None, no_editor) == "Open calculator.py in your editor"  # file named only in the instructions
+
+
+def test_hint_and_point_use_the_editor_state(monkeypatch):
+    h = coach.hint(CALC, 0, {}, screen=_vscode_untitled())
+    assert h["where"].startswith("You're in VS Code on an unsaved file") and h["title"] == "Open your code first"
+
+    async def call(**kw):
+        return llm.CallResult(data={"box_ids": [], "where": "Open the lesson file in your editor, such as VS Code, first"}, model="h")
+
+    monkeypatch.setattr(llm, "structured_call", call)
+    p = run(coach.point(CALC, _vscode_untitled(), about="the calculator file"))
+    assert p["where"] == "You're in VS Code on an unsaved file. Save it as calculator.py in the lesson folder"
+
+
+def test_judge_step_not_done_says_what_and_where(monkeypatch):
+    seen = {}
+    fake(monkeypatch, {"checks": [{"check_id": "k2a", "verdict": "not_done", "confidence": 0.9, "reason": "file is still Untitled-1",
+                                   "evidence": "Untitled-1 — Visual Studio Code"}],
+                       "on_step_id": "", "summary": "code typed in an unsaved tab", "missing": "Save the Untitled-1 tab as calculator.py"}, seen)
+    r = run(coach.judge_step(CALC, _vscode_untitled()))
+    assert r["done"] is False and r["missing"] == "Save the Untitled-1 tab as calculator.py"
+    assert r["checks"] == {"k2a": {"verdict": "not_done", "reason": "file is still Untitled-1", "evidence": "Untitled-1 — Visual Studio Code"}}
+    assert r["where"] == "You're in VS Code on an unsaved file. Save it as calculator.py in the lesson folder"
+    assert "EDITOR ON SCREEN: VS Code showing an unsaved Untitled-1" in seen["user_text"] and "EXPECTED FILE: calculator.py" in seen["user_text"]
+
+
+def test_judge_step_done_points_at_the_evidence(monkeypatch):
+    fake(monkeypatch, {"checks": [{"check_id": "c3", "verdict": "done", "confidence": 0.9, "reason": "add is defined", "evidence": "def add(a, b):"}],
+                       "on_step_id": "", "summary": "add() defined", "missing": ""})
+    r = run(coach.judge_step(S3, _vscode_untitled(), check_results=[{"checkId": "c3", "status": "pending"}]))
+    assert r["done"] is True and r["missing"] == "" and r["where"] is None
+    assert r["target"]["text"] == "def add(a, b):" and set(r["target"]["rect"]) == {"x", "y", "w", "h"}
+
+
+def test_judge_step_unsure_and_machine_pass(monkeypatch):
+    fake(monkeypatch, {"checks": [{"check_id": "c3", "verdict": "done", "confidence": 0.4, "reason": "maybe", "evidence": ""}],
+                       "on_step_id": "", "summary": "", "missing": "add() not visible"})
+    r = run(coach.judge_step(S3, SCREEN))
+    assert r["checks"]["c3"]["verdict"] == "unsure" and r["done"] is False and r["missing"] == "add() not visible"
+    r = run(coach.judge_step(S3, SCREEN, check_results=[{"checkId": "c3", "status": "pass"}]))
+    assert r["done"] is True  # the machine already passed it
+
+
+def test_judge_step_ignores_gates_and_never_raises(monkeypatch):
+    async def down(**kw):
+        raise llm.CoachLLMError("x", "connection")
+
+    monkeypatch.setattr(llm, "structured_call", down)
+    assert run(coach.judge_step(S1, SCREEN)) is None

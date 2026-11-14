@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import hashlib
 import logging
+import re
 import time
 from collections.abc import Callable
 from typing import Any
@@ -25,6 +26,7 @@ from typing import Any
 from . import llm
 from .common import clamp_words, get_lesson
 from .diagnose import notebook_code
+from .pointing import deterministic_targets, editor_state, step_file, where_hint
 
 log = logging.getLogger("coach.judge")
 
@@ -38,7 +40,8 @@ JUDGE_SYSTEM = """You judge whether a learner has completed a step of a tutorial
 - Setup / install steps (install Python, VS Code, a package, create a folder or file) are done when the tool is visibly open or installed (e.g. a VS Code window, `python --version` / `pip show` output, the folder in a file tree).
 - confidence: 0..1, how sure you are of the verdict. evidence: the exact on-screen text or file line you relied on (short). reason: one line.
 - on_step_id: if the screen clearly shows the learner working on ANOTHER step of this lesson (e.g. already writing functions while the lesson is still on setup), that step's id; else "".
-- summary: at most 12 words, what you saw that matters ("calc.py defines add() and subtract(); tests pass")."""
+- summary: at most 12 words, what you saw that matters ("calc.py defines add() and subtract(); tests pass").
+- missing: at most 12 words, what is still left to do for this step, using the real app and file names from the screen (e.g. "Save the Untitled-1 tab as calculator.py"); "" if nothing."""
 
 JUDGE_SCHEMA = {
     "type": "object",
@@ -60,8 +63,9 @@ JUDGE_SCHEMA = {
         },
         "on_step_id": {"type": "string"},
         "summary": {"type": "string"},
+        "missing": {"type": "string"},
     },
-    "required": ["checks", "on_step_id", "summary"],
+    "required": ["checks", "on_step_id", "summary", "missing"],
     "additionalProperties": False,
 }
 
@@ -102,6 +106,95 @@ def _sig(*parts: str) -> str:
 
 # ---------- the judge -----------------------------------------------------------------------------------
 
+async def _ask(step: dict, check_results: list[dict] | None, screen: Any, files: dict[str, str] | None,
+               focused_app: str, lesson: dict | None):
+    """One Haiku judgment → (data, result, checks, status_by_id, steps), or None when unavailable."""
+    sid = step.get("id", "")
+    scr, fil = screen_text(screen, focused_app), files_text(files)
+    lesson = lesson if lesson is not None else get_lesson()
+    status = {r.get("checkId"): r for r in check_results or []}
+    checks = [c for c in step.get("checks") or [] if c.get("id")]
+    steps = [s for s in (lesson or {}).get("steps") or [] if s.get("id")]
+    ed, expected = editor_state(screen), step_file(step)
+    editor = (f"{ed['app']} showing " + (f"an unsaved {ed['untitled']}" if ed["untitled"] else (ed["file"] or "an unknown file"))
+              + (" (unsaved changes)" if ed["unsaved"] and not ed["untitled"] else "")) if ed else ""
+    user = "\n\n".join(x for x in [
+        f"CURRENT STEP ({sid}): {step.get('title', '')}\n{step.get('instructions', '')}",
+        "CHECKS (id: label [machine status]):\n" + "\n".join(
+            f"- {c['id']}: {c.get('label', '')} [{status.get(c['id'], {}).get('status', 'pending')}]" for c in checks),
+        f"EXPECTED FILE: {expected}" if expected else "",
+        f"EDITOR ON SCREEN: {editor}" if editor else "",
+        "OTHER STEPS OF THIS LESSON:\n" + "\n".join(f"- {s['id']}: {s.get('title', '')}" for s in steps if s["id"] != sid) if len(steps) > 1 else "",
+        f"SCREEN NOW:\n{scr}" if scr else "SCREEN NOW: (not available)",
+        f"WORKSPACE FILES:\n{fil}" if fil else "",
+        "Judge each check.",
+    ] if x)
+    try:
+        res = await llm.structured_call(
+            purpose="judge", model=llm.model_for("judge"), system=llm.cached_system(JUDGE_SYSTEM),
+            user_text=user, schema=JUDGE_SCHEMA, effort="low", max_tokens=2000, timeout=15.0,
+        )
+    except llm.CoachLLMError as e:
+        log.info("judge: unavailable (%s)", e)
+        return None
+    log.info("judge %s %s %.2fs usage=%s", sid, res.model, res.latency_s, res.usage)
+    return res.data, res, checks, status, steps
+
+
+def _meta(res: llm.CallResult) -> dict:
+    return {"model": res.model, "latency_s": round(res.latency_s, 2), "usage": res.usage}
+
+
+def _box_for(screen: Any, text: str) -> dict | None:
+    """The on-screen box showing `text` (evidence), as {text, rect}, when the screen has boxes."""
+    n = re.sub(r"\s+", " ", text or "").strip().lower()
+    if not n or not hasattr(screen, "boxes"):
+        return None
+    for b in screen.boxes:
+        t = re.sub(r"\s+", " ", b.text).strip().lower()
+        if n in t or (len(t) > 8 and t in n):
+            return {"text": b.text, "rect": b.rect()}
+    return None
+
+
+async def judge_step(step: dict, screen: Any = None, files: dict[str, str] | None = None, *,
+                     check_results: list[dict] | None = None, focused_app: str = "", lesson: dict | None = None) -> dict | None:
+    """The "Check" button (action check_step): judge now, no idle/rate gates (the learner asked).
+
+    → {"checks": {id: {"verdict": "done"|"not_done"|"unsure", "reason", "evidence"}}, "done": bool,
+       "missing": "<=12 words", "where": str | None, "target": {"text", "rect"} | None, "_meta"}
+    `done` = every check passed by the machine or judged done by Claude (confidence >= 0.6).
+    None only when the model is unavailable.
+    """
+    asked = await _ask(step, check_results, screen, files, focused_app, lesson)
+    if asked is None:
+        return None
+    data, res, checks, status, _steps = asked
+    by_id = {c["id"] for c in checks}
+    out: dict[str, dict] = {}
+    for v in data.get("checks") or []:
+        if v.get("check_id") in by_id:
+            verdict = {"done": "done", "not_done": "not_done"}.get(v.get("verdict"), "unsure")
+            if verdict == "done" and float(v.get("confidence") or 0) < LOOKS_DONE_CONFIDENCE:
+                verdict = "unsure"
+            out[v["check_id"]] = {"verdict": verdict, "reason": v.get("reason", ""), "evidence": v.get("evidence", "")}
+    for cid in by_id - out.keys():
+        out[cid] = {"verdict": "unsure", "reason": "not judged", "evidence": ""}
+    done = bool(checks) and all(status.get(c["id"], {}).get("status") == "pass" or out[c["id"]]["verdict"] == "done" for c in checks)
+    missing = "" if done else clamp_words(data.get("missing") or next((o["reason"] for o in out.values() if o["verdict"] != "done"), ""), 12).rstrip(".")
+    where = None
+    if not done and (editor_state(screen) or step_file(step)):
+        where = where_hint(step, None, screen)
+    target = None
+    if hasattr(screen, "boxes"):
+        ev = next((o["evidence"] for o in out.values() if o["evidence"] and (o["verdict"] == "done") == done), "")
+        target = _box_for(screen, ev)
+        if target is None and not done and (t := deterministic_targets(step, screen)):
+            target = {"text": t[0]["text"], "rect": t[0]["rect"]}
+    return {"checks": out, "done": done, "missing": missing, "where": where, "target": target, "_meta": _meta(res)}
+
+
+
 class StepJudge:
     def __init__(self, *, min_interval_s: float = 20.0, idle_s: float = 8.0, clock: Callable[[], float] = time.monotonic):
         self.min_interval_s, self.idle_s, self.clock = min_interval_s, idle_s, clock
@@ -125,32 +218,13 @@ class StepJudge:
                     focused_app: str = "", lesson: dict | None = None) -> dict | None:
         """{"checks": [...], "events": [check.updated...], "card": {...} | None, "summary", "_meta"}, or None."""
         sid = step.get("id", "")
-        scr, fil = screen_text(screen, focused_app), files_text(files)
         self._last_t[sid] = self.clock()
-        self._last_sig[sid] = _sig(scr, fil)
-        lesson = lesson if lesson is not None else get_lesson()
-        status = {r.get("checkId"): r for r in check_results or []}
-        checks = [c for c in step.get("checks") or [] if c.get("id")]
-        steps = [s for s in (lesson or {}).get("steps") or [] if s.get("id")]
-        user = "\n\n".join(x for x in [
-            f"CURRENT STEP ({sid}): {step.get('title', '')}\n{step.get('instructions', '')}",
-            "CHECKS (id: label [machine status]):\n" + "\n".join(
-                f"- {c['id']}: {c.get('label', '')} [{status.get(c['id'], {}).get('status', 'pending')}]" for c in checks),
-            "OTHER STEPS OF THIS LESSON:\n" + "\n".join(f"- {s['id']}: {s.get('title', '')}" for s in steps if s["id"] != sid) if len(steps) > 1 else "",
-            f"SCREEN NOW:\n{scr}" if scr else "SCREEN NOW: (not available)",
-            f"WORKSPACE FILES:\n{fil}" if fil else "",
-            "Judge each check.",
-        ] if x)
-        try:
-            res = await llm.structured_call(
-                purpose="judge", model=llm.model_for("judge"), system=llm.cached_system(JUDGE_SYSTEM),
-                user_text=user, schema=JUDGE_SCHEMA, effort="low", max_tokens=2000, timeout=15.0,
-            )
-        except llm.CoachLLMError as e:
-            log.info("judge: unavailable (%s)", e)
+        self._last_sig[sid] = _sig(screen_text(screen, focused_app), files_text(files))
+        asked = await _ask(step, check_results, screen, files, focused_app, lesson)
+        if asked is None:
             return None
-        log.info("judge %s %s %.2fs usage=%s", sid, res.model, res.latency_s, res.usage)
-        return self._decide(step, checks, status, steps, res.data) | {"_meta": {"model": res.model, "latency_s": round(res.latency_s, 2), "usage": res.usage}}
+        data, res, checks, status, steps = asked
+        return self._decide(step, checks, status, steps, data) | {"_meta": _meta(res)}
 
     def _decide(self, step: dict, checks: list[dict], status: dict, steps: list[dict], data: dict) -> dict:
         sid = step.get("id", "")

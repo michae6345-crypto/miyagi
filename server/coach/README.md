@@ -84,6 +84,8 @@ if judge.should_judge(step, check_results, idle_s=idle, video_playing=playing, s
 - **Disagreement:** if a deterministic check says `fail` while Claude says done (confidence ≥ 0.6), Claude never overrules it. You get the card `{kind: "answer", title: "Looks done?", body: ≤12 words, actions: ["confirm", "skip_step"], checkIds}` instead.
 - **Ahead of the lesson:** if the learner is already on a later step, the card is `{title: "Already ahead?", actions: ["skip_step"], targetStepId}`. An earlier step on screen gives no card.
 - **Setup steps:** these are judged done when the tool is visibly open or installed.
+- **Check button** (action `check_step`): `await coach.judge_step(step, screen, files, check_results=...)` runs the same judgment with no gates. It returns `{checks: {id: {verdict: done|not_done|unsure, reason, evidence}}, done, missing (≤12 words), where, target: {text, rect} | None}`.
+- **Reading the editor.** `pointing.editor_state(screen)` reads window titles and boxes: the real app name, the open file, an unsaved `Untitled-N`, and the `●` unsaved marker. The step's expected file comes from its checks or targets, or from its instructions ("save it as calculator.py"). `where` then says exactly what to do: "You're in VS Code on an unsaved file. Save it as calculator.py in the lesson folder". Pointing and hints use this too, and it overrides Haiku's generic `where`.
 - **Inputs:** `screen` may be an E6 `ScreenObservation` (`lines_by_app`), a `ScreenContext`, a `{app: [lines]}` dict or plain text. `files` is `{path: text}`, notebooks become cell sources.
 
 ## Pointing: Explain / Show me / Hint (pointing.py)
