@@ -357,24 +357,34 @@ function UnifiedDiff({ diff }: { diff: string }): ReactNode {
 
 /** Setup card: one row per needed item, Install on the missing ones (action install {text: tool}). */
 function SetupItems({ setup }: { setup: NonNullable<EngineCard['setup']> }): ReactNode {
+  const installs = useCards((s) => s.installs)
   const items = setup.items.filter((x) => x.needed)
   if (items.length === 0) return null
   return (
     <div className="mt-[12px] flex flex-col gap-[6px] text-[13px]">
-      {items.map((x) => (
-        <div key={x.tool} className="flex h-[28px] items-center gap-[8px]">
-          <span style={{ color: x.ok ? color.text : color.faint }}>{x.ok ? <Check size={13} /> : '·'}</span>
-          <span className="truncate">{x.label}</span>
-          <span className="min-w-0 flex-1 truncate text-[12px]" style={{ color: color.faint }}>
-            {x.ok ? x.version : x.why}
-          </span>
-          {!x.ok && (
-            <button className="flex cursor-pointer items-center gap-[5px] rounded-[9px] px-[9px] py-[3px] text-[12px] font-medium" style={{ background: 'rgba(255,255,255,.09)' }} onClick={() => cardAct('install', x.tool)}>
-              <Download size={12} /> Install
-            </button>
-          )}
-        </div>
-      ))}
+      {items.map((x) => {
+        const run = x.ok ? undefined : installs[x.tool]
+        const detail = x.ok ? x.version : run?.running ? (run.line ?? 'Installing…') : (run?.error ?? x.why)
+        return (
+          <div key={x.tool} className="flex h-[28px] items-center gap-[8px]">
+            <span style={{ color: x.ok ? color.text : color.faint }}>{x.ok ? <Check size={13} /> : '·'}</span>
+            <span className="truncate">{x.label}</span>
+            <span className="min-w-0 flex-1 truncate text-[12px]" style={{ color: run?.error ? color.text : color.faint }} title={detail}>
+              {detail}
+            </span>
+            {!x.ok && run?.running && (
+              <span className="flex items-center gap-[6px] px-[9px] py-[3px] text-[12px] font-medium" style={{ color: color.faint }} aria-disabled>
+                <Spinner size={12} c={color.faint} /> Installing…
+              </span>
+            )}
+            {!x.ok && !run?.running && (
+              <button className="flex cursor-pointer items-center gap-[5px] rounded-[9px] px-[9px] py-[3px] text-[12px] font-medium" style={{ background: 'rgba(255,255,255,.09)' }} onClick={() => cardAct('install', x.tool)}>
+                <Download size={12} /> {run?.error ? 'Retry' : 'Install'}
+              </button>
+            )}
+          </div>
+        )
+      })}
     </div>
   )
 }
