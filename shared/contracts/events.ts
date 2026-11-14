@@ -90,7 +90,8 @@ export interface SetupItem {
 /** card kind "preflight" (server/preflight, <= 5 s after the pick, BEFORE build): build -> the lesson build starts; pick_another -> back to the results */
 export interface PreflightInfo {
   videoId?: string; url: string;
-  kind?: "coding" | "no-code" | "conceptual" | "other";   // absent = Claude didn't answer in time (partial)
+  style?: "coding" | "no-code" | "conceptual";   // same vocabulary as search.result.style (E7); absent = unknown in time
+  styleFrom?: "claude" | "finder";               // finder = Claude was late, the picked row's style was used
   topic?: string; durationS?: number; chapters: number;
   goalMatch?: { score: number | null; note: string };      // score 0..1, null when there was no goal
   buildPlan: { strategy: "whole" | "chapters"; estSecondsToFirstSteps: number;
