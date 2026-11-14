@@ -37,7 +37,7 @@ Need a core change (a new field in `core/lesson.ts`, a new bus event, a new npm 
 npm run typecheck                                  # must pass before every commit
 npm run dev:web -- --port <your port>              # ports: agents/ports.json → http://localhost:<port>/?scenario=<feature>
 ```
-The browser stage runs the mock inline (no server needed): `?scenario=<name>` picks `mock/scenarios/<name>.json` (`full` = everything merged). Ctrl+K opens the launcher; Alt+E/D/S/H/V and Alt+← are the shortcuts; Esc dismisses. Electron (`npm run dev`) can't run on Adrian's Windows laptop (Smart App Control); Michael checks Electron on the Mac.
+**Restart the dev server after adding a new feature folder or a new `mock/scenarios/*.json` file** (Vite caches the folder scans; otherwise your new scenario or feature silently doesn't load). The browser stage runs the mock inline (no server needed): `?scenario=<name>` picks `mock/scenarios/<name>.json` (`full` = everything merged). Ctrl+K opens the launcher; Alt+E/D/S/H/V and Alt+← are the shortcuts; Esc dismisses. Electron (`npm run dev`) can't run on Adrian's Windows laptop (Smart App Control); Michael checks Electron on the Mac.
 
 ## Git and review
 Commit small and often on `adrian/<feature>`. **Don't push or open a PR until Adrian has reviewed your pass**; the integrator pushes after review (PRs then target `main`, or `adrian/shell` until that's merged). Never commit `.env`, keys, `node_modules`, `out/`, `dist/`.
