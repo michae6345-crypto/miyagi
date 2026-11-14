@@ -266,7 +266,14 @@ def _mmss(t: float) -> str:
 
 async def watch_video(url: str, goal: str, *, fps: float | None = None, context: str = "",
                       start: float | None = None, end: float | None = None, media_low: bool = False) -> dict:
-    """Watch the whole video, or only [start, end) seconds of it (a clip, for long videos)."""
+    """Watch the whole video, or only [start, end) seconds of it (a clip, for long videos).
+    Each call takes one unit of today's Gemini budget (budget.py); none left -> RuntimeError at once."""
+    from . import budget
+
+    if (why := is_down()) is not None:
+        raise RuntimeError(f"Gemini unavailable: {why}")
+    if not budget.try_take(f"{url} {start or ''}-{end or ''}"):
+        raise RuntimeError(f"Gemini skipped: {budget.exhausted_message()}")
     # 0.5 fps halves the frames of the default 1 fps; long videos otherwise miss the cap
     fps = fps if fps is not None else float(os.environ.get("LESSON_GEMINI_FPS", "0.5"))
     prompt = WATCH_PROMPT.format(goal=goal, stack_guide=STACK_GUIDE)

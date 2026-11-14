@@ -14,7 +14,7 @@ from pathlib import Path
 
 import os
 
-from . import claude, gemini, links, transcript
+from . import budget, claude, gemini, links, transcript
 from .schema import (
     CHECK_TYPES,
     PRECISION_TYPES,
@@ -269,7 +269,7 @@ async def _build_lesson_impl(
             meta = {**await asyncio.wait_for(transcript.fetch_metadata(vid), 10), **{k: v for k, v in meta.items() if v}}
         except Exception:  # noqa: BLE001  without metadata we can't plan parts; build in one go
             pass
-    if (meta.get("length_s") or 0) > progressive.LONG_VIDEO_S and "gemini" in engines() and not gemini.is_down():
+    if (meta.get("length_s") or 0) > progressive.LONG_VIDEO_S and "gemini" in engines() and not gemini.is_down() and budget.remaining() > 0:
         try:
             graph = await progressive.build(source_url, vid, goal, workdir, info, meta, key, on_update=on_update, cache=cache, t0=t0)
         except RuntimeError as e:
@@ -287,7 +287,7 @@ async def _build_lesson_impl(
         if goal_task:
             goal_task.cancel()
         # a mid-length video Gemini couldn't finish in one go: build it in parts (shorter clips are what it handles)
-        if (meta.get("length_s") or 0) > PARTS_FALLBACK_MIN_S and "gemini" in engines() and not gemini.is_down():
+        if (meta.get("length_s") or 0) > PARTS_FALLBACK_MIN_S and "gemini" in engines() and not gemini.is_down() and budget.remaining() > 0:
             log.warning("one-pass build failed (%s); building in parts", str(e)[:150])
             _emit("planning", "retrying in parts")
             try:
@@ -574,6 +574,8 @@ def human_error(err: str, meta: dict | None = None) -> str:
     """A sentence a learner can act on, followed by the technical detail (the app shows the first line)."""
     e = err.lower()
     why = []
+    if "gemini budget" in e:
+        why.append("today's Gemini budget is used up")
     billing = "402" in e or "payment required" in e or "prepayment" in e or "credits are depleted" in e or "billing" in e
     if billing:
         why.append("Gemini credits are used up (top up at ai.studio/projects)")
@@ -601,6 +603,10 @@ def human_error(err: str, meta: dict | None = None) -> str:
 
 def _short_reason(err: str) -> str:
     e = err.lower()
+    if "gemini budget" in e:
+        return "budget"
+    if "402" in e or "payment required" in e or "credits" in e or "billing" in e:
+        return "billing"
     if "429" in e or "quota" in e or "resource_exhausted" in e:
         return "quota"
     if "no answer within" in e or "timeout" in e:
