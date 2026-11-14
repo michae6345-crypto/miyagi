@@ -2,7 +2,7 @@
  * Feature: overview. Hovering the pill morphs it into the step card (mockup 02):
  * thumbnail, "Step 4 of 7", segmented progress, live checks, footer.
  */
-import { motion } from 'motion/react'
+import { AnimatePresence, motion } from 'motion/react'
 import type { ReactNode } from 'react'
 import { useShallow } from 'zustand/react/shallow'
 import { bridge } from '../../bridge'
@@ -17,15 +17,18 @@ function Segments({ total, index, status }: { total: number; index: number; stat
   const current = status === 'offtrack' ? color.amber : status === 'passed' ? color.green : color.accent
   return (
     <div className="mt-[10px] flex gap-[5px]">
+      {/* lesson.updated appends steps: existing segments keep their key and state; only the new ones fade in. */}
+      <AnimatePresence initial={false}>
       {Array.from({ length: total }, (_, i) => (
         <motion.div
           key={i}
           className="h-[3px] flex-1 rounded-full"
-          initial={false}
-          animate={{ background: i < index ? 'rgba(255,255,255,.88)' : i === index ? current : 'rgba(255,255,255,.18)' }}
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1, background: i < index ? 'rgba(255,255,255,.88)' : i === index ? current : 'rgba(255,255,255,.18)' }}
           transition={{ duration: 0.3 }}
         />
       ))}
+      </AnimatePresence>
     </div>
   )
 }
