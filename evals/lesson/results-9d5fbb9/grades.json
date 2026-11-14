@@ -1,0 +1,1977 @@
+[
+ {
+  "id": "react-useeffect",
+  "path": "claude",
+  "model": {
+   "video": "claude-opus-5-5 (transcript via saved captions (eval))",
+   "adapt": "claude-opus-5-5"
+  },
+  "wall_s": 20.4,
+  "error": null,
+  "flags": [],
+  "schema_errors": [],
+  "lint": [],
+  "steps": 7,
+  "titles": [
+   "Set up counter component",
+   "Update title on every render",
+   "Depend on count, add subtract",
+   "Add color state dependency",
+   "Track window size with listener",
+   "Return a cleanup function",
+   "Add second useEffect for title"
+  ],
+  "build_warnings": [],
+  "ranges": [
+   [
+    119.0,
+    203.0
+   ],
+   [
+    205.0,
+    348.0
+   ],
+   [
+    351.0,
+    442.0
+   ],
+   [
+    445.0,
+    595.0
+   ],
+   [
+    693.0,
+    950.0
+   ],
+   [
+    951.0,
+    1049.0
+   ],
+   [
+    1051.0,
+    1130.0
+   ]
+  ],
+  "ranges_ordered": true,
+  "ranges_inside_video": true,
+  "coverage": 0.76,
+  "length_s": 1191,
+  "checks": [
+   {
+    "step": "s1",
+    "id": "s1c1",
+    "type": "screen_contains",
+    "app": "Code",
+    "pattern": "useEffect",
+    "metric_pattern": null,
+    "issues": [],
+    "grounded_in_transcript": false
+   },
+   {
+    "step": "s1",
+    "id": "s1c2",
+    "type": "screen_contains",
+    "app": "Code",
+    "pattern": "useState\\(\\s*0\\s*\\)",
+    "metric_pattern": null,
+    "issues": [],
+    "grounded_in_transcript": false
+   },
+   {
+    "step": "s1",
+    "id": "s1c3",
+    "type": "screen_contains",
+    "app": "Code",
+    "pattern": "set\\w+\\(\\s*\\(?\\w+\\)?\\s*=>\\s*\\w+\\s*\\+\\s*1",
+    "metric_pattern": null,
+    "issues": [],
+    "grounded_in_transcript": null
+   },
+   {
+    "step": "s1",
+    "id": "s1c4",
+    "type": "screen_contains",
+    "app": "Terminal",
+    "pattern": "Local:\\s+http://localhost:\\d+",
+    "metric_pattern": null,
+    "issues": [],
+    "matches_real_output": true
+   },
+   {
+    "step": "s1",
+    "id": "s1c5",
+    "type": "screen_contains",
+    "app": null,
+    "pattern": "Count:?\\s*-?\\d+",
+    "metric_pattern": null,
+    "issues": [],
+    "any_window": true
+   },
+   {
+    "step": "s2",
+    "id": "s2c1",
+    "type": "screen_contains",
+    "app": "Code",
+    "pattern": "useEffect\\(\\s*\\(\\s*\\)\\s*=>",
+    "metric_pattern": null,
+    "issues": [],
+    "grounded_in_transcript": false
+   },
+   {
+    "step": "s2",
+    "id": "s2c2",
+    "type": "screen_contains",
+    "app": "Code",
+    "pattern": "document\\.title\\s*=",
+    "metric_pattern": null,
+    "issues": [],
+    "grounded_in_transcript": true
+   },
+   {
+    "step": "s2",
+    "id": "s2c3",
+    "type": "screen_absent",
+    "app": "Terminal",
+    "pattern": "Error:|ERR!",
+    "metric_pattern": null,
+    "issues": [],
+    "matches_real_output": true
+   },
+   {
+    "step": "s3",
+    "id": "s3c1",
+    "type": "screen_contains",
+    "app": "Code",
+    "pattern": "\\[\\s*count\\s*\\]\\s*\\)",
+    "metric_pattern": null,
+    "issues": [],
+    "grounded_in_transcript": true
+   },
+   {
+    "step": "s3",
+    "id": "s3c2",
+    "type": "screen_contains",
+    "app": "Code",
+    "pattern": "set\\w+\\(\\s*\\(?\\w+\\)?\\s*=>\\s*\\w+\\s*-\\s*1",
+    "metric_pattern": null,
+    "issues": [],
+    "grounded_in_transcript": null
+   },
+   {
+    "step": "s3",
+    "id": "s3c3",
+    "type": "screen_contains",
+    "app": null,
+    "pattern": "(?i)subtract",
+    "metric_pattern": null,
+    "issues": [
+     "any-window check also matches the code the learner types (passes from the editor alone)"
+    ],
+    "any_window": true
+   },
+   {
+    "step": "s3",
+    "id": "s3c4",
+    "type": "screen_absent",
+    "app": "Terminal",
+    "pattern": "Error:|ERR!",
+    "metric_pattern": null,
+    "issues": [],
+    "matches_real_output": true
+   },
+   {
+    "step": "s4",
+    "id": "s4c1",
+    "type": "screen_contains",
+    "app": "Code",
+    "pattern": "\\[\\s*color\\s*,\\s*setColor\\s*\\]",
+    "metric_pattern": null,
+    "issues": [],
+    "grounded_in_transcript": true
+   },
+   {
+    "step": "s4",
+    "id": "s4c2",
+    "type": "screen_contains",
+    "app": "Code",
+    "pattern": "\\[\\s*count\\s*,\\s*color\\s*\\]",
+    "metric_pattern": null,
+    "issues": [],
+    "grounded_in_transcript": true
+   },
+   {
+    "step": "s4",
+    "id": "s4c3",
+    "type": "screen_contains",
+    "app": "Code",
+    "pattern": "style=\\{\\{\\s*color",
+    "metric_pattern": null,
+    "issues": [],
+    "grounded_in_transcript": true
+   },
+   {
+    "step": "s4",
+    "id": "s4c4",
+    "type": "screen_contains",
+    "app": null,
+    "pattern": "(?i)change\\s*colou?r",
+    "metric_pattern": null,
+    "issues": [
+     "any-window check also matches the code the learner types (passes from the editor alone)"
+    ],
+    "any_window": true
+   },
+   {
+    "step": "s5",
+    "id": "s5c1",
+    "type": "screen_contains",
+    "app": "Code",
+    "pattern": "useState\\(\\s*window\\.innerWidth",
+    "metric_pattern": null,
+    "issues": [],
+    "grounded_in_transcript": true
+   },
+   {
+    "step": "s5",
+    "id": "s5c2",
+    "type": "screen_contains",
+    "app": "Code",
+    "pattern": "addEventListener\\(\\s*.resize",
+    "metric_pattern": null,
+    "issues": [],
+    "grounded_in_transcript": true
+   },
+   {
+    "step": "s5",
+    "id": "s5c3",
+    "type": "screen_contains",
+    "app": "Code",
+    "pattern": "\\}\\s*,\\s*\\[\\s*\\]\\s*\\)",
+    "metric_pattern": null,
+    "issues": [
+     "too short to be distinctive"
+    ],
+    "grounded_in_transcript": null
+   },
+   {
+    "step": "s5",
+    "id": "s5c4",
+    "type": "screen_contains",
+    "app": null,
+    "pattern": "\\d+\\s*px",
+    "metric_pattern": null,
+    "issues": [
+     "too short to be distinctive"
+    ],
+    "any_window": true
+   },
+   {
+    "step": "s6",
+    "id": "s6c1",
+    "type": "screen_contains",
+    "app": "Code",
+    "pattern": "removeEventListener\\(\\s*.resize",
+    "metric_pattern": null,
+    "issues": [],
+    "grounded_in_transcript": true
+   },
+   {
+    "step": "s6",
+    "id": "s6c2",
+    "type": "screen_contains",
+    "app": "Code",
+    "pattern": "return\\s*\\(\\s*\\)\\s*=>",
+    "metric_pattern": null,
+    "issues": [],
+    "grounded_in_transcript": true
+   },
+   {
+    "step": "s6",
+    "id": "s6c3",
+    "type": "screen_absent",
+    "app": "Terminal",
+    "pattern": "Error:|ERR!",
+    "metric_pattern": null,
+    "issues": [],
+    "matches_real_output": true
+   },
+   {
+    "step": "s7",
+    "id": "s7c1",
+    "type": "screen_contains",
+    "app": "Code",
+    "pattern": "document\\.title\\s*=.{0,30}\\$\\{\\s*width",
+    "metric_pattern": null,
+    "issues": [],
+    "grounded_in_transcript": true
+   },
+   {
+    "step": "s7",
+    "id": "s7c2",
+    "type": "screen_contains",
+    "app": "Code",
+    "pattern": "\\[\\s*width\\s*,\\s*height\\s*\\]",
+    "metric_pattern": null,
+    "issues": [],
+    "grounded_in_transcript": true
+   },
+   {
+    "step": "s7",
+    "id": "s7c3",
+    "type": "screen_absent",
+    "app": "Terminal",
+    "pattern": "Error:|ERR!",
+    "metric_pattern": null,
+    "issues": [],
+    "matches_real_output": true
+   }
+  ],
+  "n_checks": 26,
+  "n_metric": 0,
+  "n_generic": 0,
+  "n_issues": 4,
+  "real_output_verified": "5/5",
+  "code_checks_grounded": "11/14",
+  "steps_without_specific_check": [],
+  "steps_grounded": "7/7",
+  "leakage": [],
+  "auto_score": 9.4,
+  "canned_across_lessons": []
+ },
+ {
+  "id": "git-rebase",
+  "path": "claude",
+  "model": {
+   "video": "claude-opus-5-5 (transcript via saved captions (eval))",
+   "adapt": "claude-opus-5-5"
+  },
+  "wall_s": 17.6,
+  "error": null,
+  "flags": [
+   "explanation timestamps outside their step: ['s3']"
+  ],
+  "schema_errors": [],
+  "lint": [],
+  "steps": 5,
+  "titles": [
+   "Set up repo and diverged branches",
+   "Check the branch isn't pushed",
+   "Start rebase and hit conflict",
+   "Resolve conflict and stage file",
+   "Continue rebase past commit two"
+  ],
+  "build_warnings": [],
+  "ranges": [
+   [
+    131.0,
+    202.0
+   ],
+   [
+    202.0,
+    277.0
+   ],
+   [
+    328.0,
+    378.0
+   ],
+   [
+    378.0,
+    407.0
+   ],
+   [
+    407.0,
+    492.0
+   ]
+  ],
+  "ranges_ordered": true,
+  "ranges_inside_video": true,
+  "coverage": 0.53,
+  "length_s": 584,
+  "checks": [
+   {
+    "step": "s1",
+    "id": "s1c1",
+    "type": "screen_contains",
+    "app": "Terminal",
+    "pattern": "Initialized\\s*empty\\s*Git\\s*repository",
+    "metric_pattern": null,
+    "issues": [],
+    "matches_real_output": false
+   },
+   {
+    "step": "s1",
+    "id": "s1c2",
+    "type": "screen_contains",
+    "app": "Terminal",
+    "pattern": "Switched\\s*to\\s*a\\s*new\\s*branch",
+    "metric_pattern": null,
+    "issues": [],
+    "matches_real_output": true
+   },
+   {
+    "step": "s1",
+    "id": "s1c3",
+    "type": "screen_contains",
+    "app": "Terminal",
+    "pattern": "\\|\\s*/",
+    "metric_pattern": null,
+    "issues": [
+     "too short to be distinctive"
+    ],
+    "matches_real_output": false
+   },
+   {
+    "step": "s1",
+    "id": "s1c4",
+    "type": "screen_absent",
+    "app": "Terminal",
+    "pattern": "fatal:",
+    "metric_pattern": null,
+    "issues": [],
+    "matches_real_output": false
+   },
+   {
+    "step": "s2",
+    "id": "s2c1",
+    "type": "screen_contains",
+    "app": "Terminal",
+    "pattern": "\\*\\s*\\S+",
+    "metric_pattern": null,
+    "issues": [
+     "too short to be distinctive"
+    ],
+    "matches_real_output": true
+   },
+   {
+    "step": "s2",
+    "id": "s2c2",
+    "type": "screen_contains",
+    "app": "Terminal",
+    "pattern": "\\bmain\\b",
+    "metric_pattern": null,
+    "issues": [],
+    "matches_real_output": true
+   },
+   {
+    "step": "s2",
+    "id": "s2c3",
+    "type": "screen_absent",
+    "app": "Terminal",
+    "pattern": "fatal:|not a git repository",
+    "metric_pattern": null,
+    "issues": [],
+    "matches_real_output": false
+   },
+   {
+    "step": "s3",
+    "id": "s3c1",
+    "type": "screen_contains",
+    "app": "Terminal",
+    "pattern": "CONFLICT\\s*\\(content\\)",
+    "metric_pattern": null,
+    "issues": [],
+    "matches_real_output": true
+   },
+   {
+    "step": "s3",
+    "id": "s3c2",
+    "type": "screen_contains",
+    "app": "Terminal",
+    "pattern": "rebase\\s*in\\s*progress|currently\\s*rebasing",
+    "metric_pattern": null,
+    "issues": [],
+    "matches_real_output": true
+   },
+   {
+    "step": "s3",
+    "id": "s3c3",
+    "type": "screen_contains",
+    "app": "Terminal",
+    "pattern": "both\\s*modified",
+    "metric_pattern": null,
+    "issues": [],
+    "matches_real_output": false
+   },
+   {
+    "step": "s4",
+    "id": "s4c1",
+    "type": "screen_contains",
+    "app": "Terminal",
+    "pattern": "Changes\\s*to\\s*be\\s*committed",
+    "metric_pattern": null,
+    "issues": [],
+    "matches_real_output": false
+   },
+   {
+    "step": "s4",
+    "id": "s4c2",
+    "type": "screen_absent",
+    "app": "Code",
+    "pattern": "<<<<<<<|>>>>>>>",
+    "metric_pattern": null,
+    "issues": []
+   },
+   {
+    "step": "s5",
+    "id": "s5c1",
+    "type": "screen_contains",
+    "app": "Terminal",
+    "pattern": "Successfully\\s*rebased",
+    "metric_pattern": null,
+    "issues": [],
+    "matches_real_output": true
+   },
+   {
+    "step": "s5",
+    "id": "s5c2",
+    "type": "screen_contains",
+    "app": "Terminal",
+    "pattern": "On\\s*branch\\s*\\S+",
+    "metric_pattern": null,
+    "issues": [],
+    "matches_real_output": true
+   },
+   {
+    "step": "s5",
+    "id": "s5c3",
+    "type": "screen_contains",
+    "app": "Terminal",
+    "pattern": "working\\s*tree\\s*clean",
+    "metric_pattern": null,
+    "issues": [],
+    "matches_real_output": true
+   },
+   {
+    "step": "s5",
+    "id": "s5c4",
+    "type": "screen_absent",
+    "app": "Code",
+    "pattern": "<<<<<<<|>>>>>>>",
+    "metric_pattern": null,
+    "issues": []
+   }
+  ],
+  "n_checks": 16,
+  "n_metric": 0,
+  "n_generic": 0,
+  "n_issues": 2,
+  "real_output_verified": "8/14",
+  "code_checks_grounded": "0/0",
+  "steps_without_specific_check": [],
+  "steps_grounded": "5/5",
+  "leakage": [],
+  "auto_score": 8.0,
+  "canned_across_lessons": []
+ },
+ {
+  "id": "pandas-30min",
+  "path": "claude",
+  "model": {
+   "video": "claude-opus-5-5 (transcript via saved captions (eval))",
+   "adapt": "claude-opus-5-5"
+  },
+  "wall_s": 48.6,
+  "error": null,
+  "flags": [],
+  "schema_errors": [],
+  "lint": [
+   "s2: runs `Run Cell 1, then Run Cell 2 (select a Python kernel when pro` but has no check on its output (what it prints, a count, a metric)",
+   "s4: runs `Run each notebook cell (Shift+Enter)` but has no check on its output (what it prints, a count, a metric)",
+   "s5: runs `Run the notebook cell (Shift+Enter)` but has no check on its output (what it prints, a count, a metric)",
+   "s6: runs `Run each notebook cell (Shift+Enter)` but has no check on its output (what it prints, a count, a metric)",
+   "s7: runs `Run each notebook cell (Shift+Enter)` but has no check on its output (what it prints, a count, a metric)",
+   "s8: runs `Run the notebook cells (Shift+Enter)` but has no check on its output (what it prints, a count, a metric)",
+   "s9: runs `Run each notebook cell (Shift+Enter)` but has no check on its output (what it prints, a count, a metric)"
+  ],
+  "steps": 9,
+  "titles": [
+   "Install pandas and load orders.csv",
+   "Load data in a Jupyter notebook",
+   "Explore the DataFrame",
+   "Select columns and rows",
+   "Filter rows with boolean conditions",
+   "Use string and isin filters",
+   "Update and delete rows",
+   "Clean data and rename columns",
+   "Analyze, group and save data"
+  ],
+  "build_warnings": [
+   "s2: runs `Run Cell 1, then Run Cell 2 (select a Python kernel when pro` but has no check on its output (what it prints, a count, a metric)",
+   "s4: runs `Run each notebook cell (Shift+Enter)` but has no check on its output (what it prints, a count, a metric)",
+   "s5: runs `Run the notebook cell (Shift+Enter)` but has no check on its output (what it prints, a count, a metric)",
+   "s6: runs `Run each notebook cell (Shift+Enter)` but has no check on its output (what it prints, a count, a metric)",
+   "s7: runs `Run each notebook cell (Shift+Enter)` but has no check on its output (what it prints, a count, a metric)",
+   "s8: runs `Run the notebook cells (Shift+Enter)` but has no check on its output (what it prints, a count, a metric)",
+   "s9: runs `Run each notebook cell (Shift+Enter)` but has no check on its output (what it prints, a count, a metric)"
+  ],
+  "ranges": [
+   [
+    42.0,
+    252.0
+   ],
+   [
+    506.0,
+    659.0
+   ],
+   [
+    660.0,
+    804.0
+   ],
+   [
+    804.0,
+    1026.0
+   ],
+   [
+    1046.0,
+    1204.0
+   ],
+   [
+    1206.0,
+    1320.0
+   ],
+   [
+    1323.0,
+    1576.0
+   ],
+   [
+    1578.0,
+    1674.0
+   ],
+   [
+    1680.0,
+    1809.0
+   ]
+  ],
+  "ranges_ordered": true,
+  "ranges_inside_video": true,
+  "coverage": 0.81,
+  "length_s": 1836,
+  "checks": [
+   {
+    "step": "s1",
+    "id": "s1c1",
+    "type": "screen_contains",
+    "app": "Code",
+    "pattern": "import\\s+pandas\\s+as\\s+pd",
+    "metric_pattern": null,
+    "issues": [],
+    "grounded_in_transcript": true
+   },
+   {
+    "step": "s1",
+    "id": "s1c2",
+    "type": "screen_contains",
+    "app": "Code",
+    "pattern": "read_csv\\(",
+    "metric_pattern": null,
+    "issues": [],
+    "grounded_in_transcript": false
+   },
+   {
+    "step": "s1",
+    "id": "s1c3",
+    "type": "screen_contains",
+    "app": "Terminal",
+    "pattern": "\\d+\\s*rows\\s*x\\s*\\d+\\s*columns",
+    "metric_pattern": null,
+    "issues": [],
+    "matches_real_output": true
+   },
+   {
+    "step": "s1",
+    "id": "s1c4",
+    "type": "screen_absent",
+    "app": "Terminal",
+    "pattern": "Traceback|Error:",
+    "metric_pattern": null,
+    "issues": [],
+    "generic": true,
+    "matches_real_output": true
+   },
+   {
+    "step": "s1",
+    "id": "s1c5",
+    "type": "metric_threshold",
+    "app": null,
+    "pattern": null,
+    "metric_pattern": "(?P<value>\\d+)\\s*rows\\s*x\\s*\\d+\\s*columns",
+    "issues": [],
+    "matches_real_output": true
+   },
+   {
+    "step": "s2",
+    "id": "s2c1",
+    "type": "screen_contains",
+    "app": "Code",
+    "pattern": "read_csv\\(",
+    "metric_pattern": null,
+    "issues": [],
+    "grounded_in_transcript": false
+   },
+   {
+    "step": "s2",
+    "id": "s2c2",
+    "type": "screen_contains",
+    "app": "Code",
+    "pattern": "print\\(\\s*df\\s*\\)",
+    "metric_pattern": null,
+    "issues": [],
+    "grounded_in_transcript": true
+   },
+   {
+    "step": "s2",
+    "id": "s2c3",
+    "type": "screen_contains",
+    "app": "Code",
+    "pattern": "\\d+\\s*rows\\s*x\\s*\\d+\\s*columns",
+    "metric_pattern": null,
+    "issues": [],
+    "grounded_in_transcript": true
+   },
+   {
+    "step": "s2",
+    "id": "s2c4",
+    "type": "screen_absent",
+    "app": "Code",
+    "pattern": "Traceback|FileNotFoundError|ModuleNotFoundError",
+    "metric_pattern": null,
+    "issues": []
+   },
+   {
+    "step": "s3",
+    "id": "s3c1",
+    "type": "screen_contains",
+    "app": "Code",
+    "pattern": "RangeIndex:\\s*\\d+\\s*entries",
+    "metric_pattern": null,
+    "issues": [],
+    "grounded_in_transcript": true
+   },
+   {
+    "step": "s3",
+    "id": "s3c2",
+    "type": "screen_contains",
+    "app": "Code",
+    "pattern": "total\\s*\\d+\\s*columns",
+    "metric_pattern": null,
+    "issues": [],
+    "grounded_in_transcript": true
+   },
+   {
+    "step": "s3",
+    "id": "s3c3",
+    "type": "screen_contains",
+    "app": "Code",
+    "pattern": "\\.describe\\(\\)",
+    "metric_pattern": null,
+    "issues": [],
+    "grounded_in_transcript": true
+   },
+   {
+    "step": "s3",
+    "id": "s3c4",
+    "type": "metric_threshold",
+    "app": null,
+    "pattern": null,
+    "metric_pattern": "RangeIndex:\\s*(?P<value>\\d+)\\s*entries",
+    "issues": [],
+    "matches_real_output": true
+   },
+   {
+    "step": "s4",
+    "id": "s4c1",
+    "type": "screen_contains",
+    "app": "Code",
+    "pattern": "df\\[\\s*\\[",
+    "metric_pattern": null,
+    "issues": [
+     "too short to be distinctive"
+    ],
+    "grounded_in_transcript": null
+   },
+   {
+    "step": "s4",
+    "id": "s4c2",
+    "type": "screen_contains",
+    "app": "Code",
+    "pattern": "\\.iloc\\[\\s*\\d+",
+    "metric_pattern": null,
+    "issues": [],
+    "grounded_in_transcript": true
+   },
+   {
+    "step": "s4",
+    "id": "s4c3",
+    "type": "screen_contains",
+    "app": "Code",
+    "pattern": "dtype:\\s*\\w+",
+    "metric_pattern": null,
+    "issues": [],
+    "grounded_in_transcript": false
+   },
+   {
+    "step": "s4",
+    "id": "s4c4",
+    "type": "screen_absent",
+    "app": "Code",
+    "pattern": "Traceback|KeyError|IndexError",
+    "metric_pattern": null,
+    "issues": []
+   },
+   {
+    "step": "s5",
+    "id": "s5c1",
+    "type": "screen_contains",
+    "app": "Code",
+    "pattern": "df\\[\\s*\\(?\\s*df\\[",
+    "metric_pattern": null,
+    "issues": [],
+    "grounded_in_transcript": null
+   },
+   {
+    "step": "s5",
+    "id": "s5c2",
+    "type": "screen_contains",
+    "app": "Code",
+    "pattern": "\\)\\s*[&|]\\s*\\(",
+    "metric_pattern": null,
+    "issues": [
+     "too short to be distinctive"
+    ],
+    "grounded_in_transcript": null
+   },
+   {
+    "step": "s5",
+    "id": "s5c3",
+    "type": "screen_contains",
+    "app": "Code",
+    "pattern": "Category|Country|Quantity",
+    "metric_pattern": null,
+    "issues": [],
+    "grounded_in_transcript": true
+   },
+   {
+    "step": "s5",
+    "id": "s5c4",
+    "type": "screen_absent",
+    "app": "Code",
+    "pattern": "Traceback|KeyError|TypeError|ValueError",
+    "metric_pattern": null,
+    "issues": []
+   },
+   {
+    "step": "s6",
+    "id": "s6c1",
+    "type": "screen_contains",
+    "app": "Code",
+    "pattern": "\\.str\\.startswith\\(",
+    "metric_pattern": null,
+    "issues": [],
+    "grounded_in_transcript": false
+   },
+   {
+    "step": "s6",
+    "id": "s6c2",
+    "type": "screen_contains",
+    "app": "Code",
+    "pattern": "\\.isin\\(",
+    "metric_pattern": null,
+    "issues": [],
+    "grounded_in_transcript": false
+   },
+   {
+    "step": "s6",
+    "id": "s6c3",
+    "type": "screen_contains",
+    "app": "Code",
+    "pattern": "\\[\\s*~",
+    "metric_pattern": null,
+    "issues": [
+     "too short to be distinctive"
+    ],
+    "grounded_in_transcript": null
+   },
+   {
+    "step": "s6",
+    "id": "s6c4",
+    "type": "screen_contains",
+    "app": "Code",
+    "pattern": "Country|Customer",
+    "metric_pattern": null,
+    "issues": [],
+    "grounded_in_transcript": true
+   },
+   {
+    "step": "s6",
+    "id": "s6c5",
+    "type": "screen_absent",
+    "app": "Code",
+    "pattern": "Traceback|AttributeError|KeyError",
+    "metric_pattern": null,
+    "issues": []
+   },
+   {
+    "step": "s7",
+    "id": "s7c1",
+    "type": "screen_contains",
+    "app": "Code",
+    "pattern": "\\.loc\\[",
+    "metric_pattern": null,
+    "issues": [
+     "too short to be distinctive"
+    ],
+    "grounded_in_transcript": null
+   },
+   {
+    "step": "s7",
+    "id": "s7c2",
+    "type": "screen_contains",
+    "app": "Code",
+    "pattern": "\\.str\\.upper\\(\\)",
+    "metric_pattern": null,
+    "issues": [],
+    "grounded_in_transcript": true
+   },
+   {
+    "step": "s7",
+    "id": "s7c3",
+    "type": "screen_contains",
+    "app": "Code",
+    "pattern": "\\.drop\\(",
+    "metric_pattern": null,
+    "issues": [],
+    "grounded_in_transcript": true
+   },
+   {
+    "step": "s7",
+    "id": "s7c4",
+    "type": "screen_contains",
+    "app": "Code",
+    "pattern": "dtype:\\s*object",
+    "metric_pattern": null,
+    "issues": [],
+    "grounded_in_transcript": false
+   },
+   {
+    "step": "s7",
+    "id": "s7c5",
+    "type": "screen_absent",
+    "app": "Code",
+    "pattern": "Traceback|KeyError|NameError",
+    "metric_pattern": null,
+    "issues": []
+   },
+   {
+    "step": "s8",
+    "id": "s8c1",
+    "type": "screen_contains",
+    "app": "Code",
+    "pattern": "rename\\(\\s*columns\\s*=",
+    "metric_pattern": null,
+    "issues": [],
+    "grounded_in_transcript": true
+   },
+   {
+    "step": "s8",
+    "id": "s8c2",
+    "type": "screen_contains",
+    "app": "Code",
+    "pattern": "(fillna|dropna)\\(",
+    "metric_pattern": null,
+    "issues": [],
+    "grounded_in_transcript": false
+   },
+   {
+    "step": "s8",
+    "id": "s8c3",
+    "type": "screen_contains",
+    "app": "Code",
+    "pattern": "\\d+\\s*rows\\s*[\u00d7x]\\s*\\d+\\s*columns",
+    "metric_pattern": null,
+    "issues": [],
+    "grounded_in_transcript": true
+   },
+   {
+    "step": "s8",
+    "id": "s8c4",
+    "type": "screen_absent",
+    "app": "Code",
+    "pattern": "Traceback|KeyError|NameError|TypeError",
+    "metric_pattern": null,
+    "issues": []
+   },
+   {
+    "step": "s9",
+    "id": "s9c1",
+    "type": "screen_contains",
+    "app": "Code",
+    "pattern": "value_counts\\(",
+    "metric_pattern": null,
+    "issues": [],
+    "grounded_in_transcript": false
+   },
+   {
+    "step": "s9",
+    "id": "s9c2",
+    "type": "screen_contains",
+    "app": "Code",
+    "pattern": "groupby\\(",
+    "metric_pattern": null,
+    "issues": [],
+    "grounded_in_transcript": false
+   },
+   {
+    "step": "s9",
+    "id": "s9c3",
+    "type": "screen_contains",
+    "app": "Code",
+    "pattern": "to_csv\\(",
+    "metric_pattern": null,
+    "issues": [],
+    "grounded_in_transcript": false
+   },
+   {
+    "step": "s9",
+    "id": "s9c4",
+    "type": "screen_contains",
+    "app": "Code",
+    "pattern": "dtype:\\s*(int|float)64",
+    "metric_pattern": null,
+    "issues": [],
+    "grounded_in_transcript": false
+   },
+   {
+    "step": "s9",
+    "id": "s9c5",
+    "type": "screen_absent",
+    "app": "Code",
+    "pattern": "Traceback|KeyError",
+    "metric_pattern": null,
+    "issues": []
+   }
+  ],
+  "n_checks": 40,
+  "n_metric": 2,
+  "n_generic": 1,
+  "n_issues": 4,
+  "real_output_verified": "4/4",
+  "code_checks_grounded": "13/24",
+  "steps_without_specific_check": [],
+  "steps_grounded": "9/9",
+  "leakage": [],
+  "auto_score": 9.2,
+  "canned_across_lessons": []
+ },
+ {
+  "id": "rust-cli",
+  "path": "claude",
+  "model": {
+   "video": "claude-opus-5-5 (transcript via saved captions (eval))",
+   "adapt": "claude-opus-5-5"
+  },
+  "wall_s": 72.3,
+  "error": null,
+  "flags": [],
+  "schema_errors": [],
+  "lint": [],
+  "steps": 8,
+  "titles": [
+   "Create project and parse path argument",
+   "Add version and about metadata",
+   "Validate path with colored errors",
+   "Write get_files to list names",
+   "Collect file metadata into FileEntry",
+   "Render a styled colored table",
+   "Format modified dates with chrono",
+   "Add --json output flag"
+  ],
+  "build_warnings": [],
+  "ranges": [
+   [
+    16.0,
+    204.0
+   ],
+   [
+    204.0,
+    286.0
+   ],
+   [
+    286.0,
+    492.0
+   ],
+   [
+    492.0,
+    696.0
+   ],
+   [
+    696.0,
+    1038.0
+   ],
+   [
+    1038.0,
+    1294.0
+   ],
+   [
+    1294.0,
+    1448.0
+   ],
+   [
+    1448.0,
+    1651.0
+   ]
+  ],
+  "ranges_ordered": true,
+  "ranges_inside_video": true,
+  "coverage": 0.97,
+  "length_s": 1689,
+  "checks": [
+   {
+    "step": "s1",
+    "id": "s1c1",
+    "type": "screen_contains",
+    "app": "Code",
+    "pattern": "derive\\(\\s*Parser",
+    "metric_pattern": null,
+    "issues": [],
+    "grounded_in_transcript": true
+   },
+   {
+    "step": "s1",
+    "id": "s1c2",
+    "type": "screen_contains",
+    "app": "Code",
+    "pattern": "::parse\\(\\s*\\)",
+    "metric_pattern": null,
+    "issues": [],
+    "grounded_in_transcript": true
+   },
+   {
+    "step": "s1",
+    "id": "s1c3",
+    "type": "screen_contains",
+    "app": "Terminal",
+    "pattern": "Usage:\\s*\\S+\\s*\\[PATH\\]",
+    "metric_pattern": null,
+    "issues": [],
+    "matches_real_output": false
+   },
+   {
+    "step": "s1",
+    "id": "s1c4",
+    "type": "screen_contains",
+    "app": "Terminal",
+    "pattern": "-h,\\s*--help",
+    "metric_pattern": null,
+    "issues": [],
+    "matches_real_output": false
+   },
+   {
+    "step": "s1",
+    "id": "s1c5",
+    "type": "screen_absent",
+    "app": "Terminal",
+    "pattern": "error\\[E\\d+\\]|could not compile",
+    "metric_pattern": null,
+    "issues": [],
+    "matches_real_output": true
+   },
+   {
+    "step": "s2",
+    "id": "s2c1",
+    "type": "screen_contains",
+    "app": "Code",
+    "pattern": "command\\(\\s*version",
+    "metric_pattern": null,
+    "issues": [],
+    "grounded_in_transcript": true
+   },
+   {
+    "step": "s2",
+    "id": "s2c2",
+    "type": "screen_contains",
+    "app": "Code",
+    "pattern": "long_about\\s*=",
+    "metric_pattern": null,
+    "issues": [],
+    "grounded_in_transcript": false
+   },
+   {
+    "step": "s2",
+    "id": "s2c3",
+    "type": "screen_contains",
+    "app": "Terminal",
+    "pattern": "-V,\\s*--version",
+    "metric_pattern": null,
+    "issues": [],
+    "matches_real_output": false
+   },
+   {
+    "step": "s2",
+    "id": "s2c4",
+    "type": "screen_contains",
+    "app": "Terminal",
+    "pattern": "\\S+\\s+0\\.1\\.0",
+    "metric_pattern": null,
+    "issues": [
+     "too short to be distinctive"
+    ],
+    "matches_real_output": false
+   },
+   {
+    "step": "s2",
+    "id": "s2c5",
+    "type": "screen_absent",
+    "app": "Terminal",
+    "pattern": "error\\[E\\d+\\]|could not compile",
+    "metric_pattern": null,
+    "issues": [],
+    "matches_real_output": true
+   },
+   {
+    "step": "s3",
+    "id": "s3c1",
+    "type": "screen_contains",
+    "app": "Code",
+    "pattern": "unwrap_or\\(\\s*PathBuf::from",
+    "metric_pattern": null,
+    "issues": [],
+    "grounded_in_transcript": false
+   },
+   {
+    "step": "s3",
+    "id": "s3c2",
+    "type": "screen_contains",
+    "app": "Code",
+    "pattern": "exists\\(\\s*&?\\s*\\w+",
+    "metric_pattern": null,
+    "issues": [],
+    "grounded_in_transcript": true
+   },
+   {
+    "step": "s3",
+    "id": "s3c3",
+    "type": "screen_contains",
+    "app": "Code",
+    "pattern": "\\.red\\(\\)",
+    "metric_pattern": null,
+    "issues": [
+     "too short to be distinctive"
+    ],
+    "grounded_in_transcript": null
+   },
+   {
+    "step": "s3",
+    "id": "s3c4",
+    "type": "screen_contains",
+    "app": "Terminal",
+    "pattern": "(?i)path\\s*does\\s*not\\s*exist",
+    "metric_pattern": null,
+    "issues": [],
+    "matches_real_output": false
+   },
+   {
+    "step": "s3",
+    "id": "s3c5",
+    "type": "screen_absent",
+    "app": "Terminal",
+    "pattern": "error\\[E\\d+\\]|could not compile",
+    "metric_pattern": null,
+    "issues": [],
+    "matches_real_output": true
+   },
+   {
+    "step": "s4",
+    "id": "s4c1",
+    "type": "screen_contains",
+    "app": "Code",
+    "pattern": "fn\\s+get_files\\s*\\(",
+    "metric_pattern": null,
+    "issues": [],
+    "grounded_in_transcript": false
+   },
+   {
+    "step": "s4",
+    "id": "s4c2",
+    "type": "screen_contains",
+    "app": "Code",
+    "pattern": "read_dir\\s*\\(",
+    "metric_pattern": null,
+    "issues": [],
+    "grounded_in_transcript": false
+   },
+   {
+    "step": "s4",
+    "id": "s4c3",
+    "type": "screen_contains",
+    "app": "Terminal",
+    "pattern": "Cargo\\.toml",
+    "metric_pattern": null,
+    "issues": [],
+    "matches_real_output": false
+   },
+   {
+    "step": "s4",
+    "id": "s4c4",
+    "type": "screen_absent",
+    "app": "Terminal",
+    "pattern": "error\\[E\\d+\\]|could not compile|panicked",
+    "metric_pattern": null,
+    "issues": [],
+    "matches_real_output": true
+   },
+   {
+    "step": "s5",
+    "id": "s5c1",
+    "type": "screen_contains",
+    "app": "Code",
+    "pattern": "struct\\s+FileEntry",
+    "metric_pattern": null,
+    "issues": [],
+    "grounded_in_transcript": false
+   },
+   {
+    "step": "s5",
+    "id": "s5c2",
+    "type": "screen_contains",
+    "app": "Code",
+    "pattern": "enum\\s+EntryType",
+    "metric_pattern": null,
+    "issues": [],
+    "grounded_in_transcript": true
+   },
+   {
+    "step": "s5",
+    "id": "s5c3",
+    "type": "screen_contains",
+    "app": "Code",
+    "pattern": "metadata\\(",
+    "metric_pattern": null,
+    "issues": [],
+    "grounded_in_transcript": true
+   },
+   {
+    "step": "s5",
+    "id": "s5c4",
+    "type": "screen_contains",
+    "app": "Terminal",
+    "pattern": "FileEntry\\s*\\{",
+    "metric_pattern": null,
+    "issues": [],
+    "matches_real_output": false
+   },
+   {
+    "step": "s5",
+    "id": "s5c5",
+    "type": "screen_contains",
+    "app": "Terminal",
+    "pattern": "len_bytes:\\s*\\d+",
+    "metric_pattern": null,
+    "issues": [],
+    "matches_real_output": false
+   },
+   {
+    "step": "s5",
+    "id": "s5c6",
+    "type": "screen_absent",
+    "app": "Terminal",
+    "pattern": "error\\[E\\d+\\]|could not compile",
+    "metric_pattern": null,
+    "issues": [],
+    "matches_real_output": true
+   },
+   {
+    "step": "s6",
+    "id": "s6c1",
+    "type": "screen_contains",
+    "app": "Code",
+    "pattern": "derive\\(.*Tabled",
+    "metric_pattern": null,
+    "issues": [],
+    "grounded_in_transcript": true
+   },
+   {
+    "step": "s6",
+    "id": "s6c2",
+    "type": "screen_contains",
+    "app": "Code",
+    "pattern": "Table::new\\(",
+    "metric_pattern": null,
+    "issues": [],
+    "grounded_in_transcript": true
+   },
+   {
+    "step": "s6",
+    "id": "s6c3",
+    "type": "screen_contains",
+    "app": "Code",
+    "pattern": "Style::rounded\\(\\)",
+    "metric_pattern": null,
+    "issues": [],
+    "grounded_in_transcript": true
+   },
+   {
+    "step": "s6",
+    "id": "s6c4",
+    "type": "screen_contains",
+    "app": "Code",
+    "pattern": "modify\\(\\s*(Columns|Rows)::",
+    "metric_pattern": null,
+    "issues": [],
+    "grounded_in_transcript": true
+   },
+   {
+    "step": "s6",
+    "id": "s6c5",
+    "type": "screen_contains",
+    "app": "Terminal",
+    "pattern": "Size\\s*B",
+    "metric_pattern": null,
+    "issues": [],
+    "matches_real_output": false
+   },
+   {
+    "step": "s6",
+    "id": "s6c6",
+    "type": "screen_absent",
+    "app": "Terminal",
+    "pattern": "error\\[E\\d+\\]|could not compile|panicked",
+    "metric_pattern": null,
+    "issues": [],
+    "matches_real_output": true
+   },
+   {
+    "step": "s7",
+    "id": "s7c1",
+    "type": "screen_contains",
+    "app": "Code",
+    "pattern": "\\.modified\\(\\)",
+    "metric_pattern": null,
+    "issues": [],
+    "grounded_in_transcript": true
+   },
+   {
+    "step": "s7",
+    "id": "s7c2",
+    "type": "screen_contains",
+    "app": "Code",
+    "pattern": "DateTime\\s*<\\s*Utc",
+    "metric_pattern": null,
+    "issues": [],
+    "grounded_in_transcript": true
+   },
+   {
+    "step": "s7",
+    "id": "s7c3",
+    "type": "screen_contains",
+    "app": "Code",
+    "pattern": "\\.format\\(",
+    "metric_pattern": null,
+    "issues": [],
+    "grounded_in_transcript": true
+   },
+   {
+    "step": "s7",
+    "id": "s7c4",
+    "type": "screen_contains",
+    "app": "Terminal",
+    "pattern": "(Mon|Tue|Wed|Thu|Fri|Sat|Sun)\\s*[A-Z][a-z]{2}\\s*\\d{1,2}\\s*\\d{4}",
+    "metric_pattern": null,
+    "issues": [],
+    "matches_real_output": false
+   },
+   {
+    "step": "s7",
+    "id": "s7c5",
+    "type": "screen_absent",
+    "app": "Terminal",
+    "pattern": "error\\[E\\d+\\]|could not compile|panicked",
+    "metric_pattern": null,
+    "issues": [],
+    "matches_real_output": true
+   },
+   {
+    "step": "s8",
+    "id": "s8c1",
+    "type": "screen_contains",
+    "app": "Code",
+    "pattern": "json\\s*:\\s*bool",
+    "metric_pattern": null,
+    "issues": [],
+    "grounded_in_transcript": true
+   },
+   {
+    "step": "s8",
+    "id": "s8c2",
+    "type": "screen_contains",
+    "app": "Code",
+    "pattern": "Serialize",
+    "metric_pattern": null,
+    "issues": [],
+    "grounded_in_transcript": true
+   },
+   {
+    "step": "s8",
+    "id": "s8c3",
+    "type": "screen_contains",
+    "app": "Code",
+    "pattern": "serde_json::to_string",
+    "metric_pattern": null,
+    "issues": [],
+    "grounded_in_transcript": false
+   },
+   {
+    "step": "s8",
+    "id": "s8c4",
+    "type": "screen_contains",
+    "app": "Terminal",
+    "pattern": "\\[\\{.{0,3}name.{0,3}:",
+    "metric_pattern": null,
+    "issues": [],
+    "matches_real_output": false
+   },
+   {
+    "step": "s8",
+    "id": "s8c5",
+    "type": "screen_absent",
+    "app": "Terminal",
+    "pattern": "error\\[E\\d+\\]|could not compile|panicked",
+    "metric_pattern": null,
+    "issues": [],
+    "matches_real_output": true
+   }
+  ],
+  "n_checks": 41,
+  "n_metric": 0,
+  "n_generic": 0,
+  "n_issues": 2,
+  "real_output_verified": "8/19",
+  "code_checks_grounded": "15/21",
+  "steps_without_specific_check": [],
+  "steps_grounded": "8/8",
+  "leakage": [],
+  "auto_score": 8.7,
+  "canned_across_lessons": []
+ },
+ {
+  "id": "fastapi-rest",
+  "path": "claude",
+  "model": {
+   "video": "claude-opus-5-5 (transcript via saved captions (eval))",
+   "adapt": "claude-opus-5-5"
+  },
+  "wall_s": 22.3,
+  "error": null,
+  "flags": [],
+  "schema_errors": [],
+  "lint": [],
+  "steps": 8,
+  "titles": [
+   "Install FastAPI and run hello world",
+   "Add POST endpoint to create items",
+   "Add GET item by ID endpoint",
+   "Raise 404 with HTTPException",
+   "List items with limit query parameter",
+   "Use Pydantic Item model for requests",
+   "Add response models to routes",
+   "Explore interactive docs"
+  ],
+  "build_warnings": [],
+  "ranges": [
+   [
+    46.0,
+    124.0
+   ],
+   [
+    141.0,
+    221.0
+   ],
+   [
+    221.0,
+    305.0
+   ],
+   [
+    326.0,
+    406.0
+   ],
+   [
+    406.0,
+    500.0
+   ],
+   [
+    503.0,
+    634.0
+   ],
+   [
+    637.0,
+    686.0
+   ],
+   [
+    701.0,
+    800.0
+   ]
+  ],
+  "ranges_ordered": true,
+  "ranges_inside_video": true,
+  "coverage": 0.76,
+  "length_s": 916,
+  "checks": [
+   {
+    "step": "s1",
+    "id": "s1c1",
+    "type": "screen_contains",
+    "app": "Code",
+    "pattern": "=\\s*FastAPI\\(\\)",
+    "metric_pattern": null,
+    "issues": [],
+    "grounded_in_transcript": true
+   },
+   {
+    "step": "s1",
+    "id": "s1c2",
+    "type": "screen_contains",
+    "app": "Code",
+    "pattern": "\\.get\\(\\s*.?/",
+    "metric_pattern": null,
+    "issues": [
+     "too short to be distinctive"
+    ],
+    "grounded_in_transcript": null
+   },
+   {
+    "step": "s1",
+    "id": "s1c3",
+    "type": "screen_contains",
+    "app": "Terminal",
+    "pattern": "Uvicorn\\s*running\\s*on",
+    "metric_pattern": null,
+    "issues": [],
+    "matches_real_output": true
+   },
+   {
+    "step": "s1",
+    "id": "s1c4",
+    "type": "screen_absent",
+    "app": "Terminal",
+    "pattern": "Traceback|Error:",
+    "metric_pattern": null,
+    "issues": [],
+    "generic": true,
+    "matches_real_output": true
+   },
+   {
+    "step": "s2",
+    "id": "s2c1",
+    "type": "screen_contains",
+    "app": "Code",
+    "pattern": "\\.post\\(\\s*.?/items",
+    "metric_pattern": null,
+    "issues": [],
+    "grounded_in_transcript": true
+   },
+   {
+    "step": "s2",
+    "id": "s2c2",
+    "type": "screen_contains",
+    "app": "Code",
+    "pattern": "def\\s+\\w+\\(\\s*\\w+\\s*:\\s*str",
+    "metric_pattern": null,
+    "issues": [],
+    "grounded_in_transcript": null
+   },
+   {
+    "step": "s2",
+    "id": "s2c3",
+    "type": "screen_contains",
+    "app": "Terminal",
+    "pattern": "POST\\s*/items\\S*\\s*HTTP/1\\.1\\S*\\s*200",
+    "metric_pattern": null,
+    "issues": [],
+    "matches_real_output": true
+   },
+   {
+    "step": "s2",
+    "id": "s2c4",
+    "type": "screen_absent",
+    "app": "Terminal",
+    "pattern": "Traceback|Method Not Allowed",
+    "metric_pattern": null,
+    "issues": [],
+    "matches_real_output": true
+   },
+   {
+    "step": "s3",
+    "id": "s3c1",
+    "type": "screen_contains",
+    "app": "Code",
+    "pattern": "/items/\\{\\w+\\}",
+    "metric_pattern": null,
+    "issues": [],
+    "grounded_in_transcript": true
+   },
+   {
+    "step": "s3",
+    "id": "s3c2",
+    "type": "screen_contains",
+    "app": "Code",
+    "pattern": "def\\s+\\w+\\(\\s*\\w+\\s*:\\s*int",
+    "metric_pattern": null,
+    "issues": [],
+    "grounded_in_transcript": null
+   },
+   {
+    "step": "s3",
+    "id": "s3c3",
+    "type": "screen_contains",
+    "app": "Terminal",
+    "pattern": "GET\\s*/items/\\d+\\s*HTTP/1\\.1\\S*\\s*200",
+    "metric_pattern": null,
+    "issues": [],
+    "matches_real_output": true
+   },
+   {
+    "step": "s3",
+    "id": "s3c4",
+    "type": "screen_absent",
+    "app": "Terminal",
+    "pattern": "Traceback|Internal Server Error",
+    "metric_pattern": null,
+    "issues": [],
+    "matches_real_output": true
+   },
+   {
+    "step": "s4",
+    "id": "s4c1",
+    "type": "screen_contains",
+    "app": "Code",
+    "pattern": "import.*HTTPException",
+    "metric_pattern": null,
+    "issues": [],
+    "grounded_in_transcript": true
+   },
+   {
+    "step": "s4",
+    "id": "s4c2",
+    "type": "screen_contains",
+    "app": "Code",
+    "pattern": "HTTPException\\(\\s*status_code\\s*=\\s*404",
+    "metric_pattern": null,
+    "issues": [],
+    "grounded_in_transcript": false
+   },
+   {
+    "step": "s4",
+    "id": "s4c3",
+    "type": "screen_contains",
+    "app": "Terminal",
+    "pattern": "detail\\W{1,4}\\w",
+    "metric_pattern": null,
+    "issues": [],
+    "matches_real_output": true
+   },
+   {
+    "step": "s4",
+    "id": "s4c4",
+    "type": "screen_contains",
+    "app": "Terminal",
+    "pattern": "HTTP/1\\.1\\S*\\s*404",
+    "metric_pattern": null,
+    "issues": [],
+    "matches_real_output": true
+   },
+   {
+    "step": "s4",
+    "id": "s4c5",
+    "type": "screen_absent",
+    "app": "Terminal",
+    "pattern": "Traceback|Internal Server Error",
+    "metric_pattern": null,
+    "issues": [],
+    "matches_real_output": true
+   },
+   {
+    "step": "s5",
+    "id": "s5c1",
+    "type": "screen_contains",
+    "app": "Code",
+    "pattern": "\\.get\\(\\s*.?/items.?\\s*[,)]",
+    "metric_pattern": null,
+    "issues": [],
+    "grounded_in_transcript": true
+   },
+   {
+    "step": "s5",
+    "id": "s5c2",
+    "type": "screen_contains",
+    "app": "Code",
+    "pattern": "\\w+\\s*:\\s*int\\s*=\\s*\\d+",
+    "metric_pattern": null,
+    "issues": [
+     "too short to be distinctive"
+    ],
+    "grounded_in_transcript": null
+   },
+   {
+    "step": "s5",
+    "id": "s5c3",
+    "type": "screen_contains",
+    "app": "Terminal",
+    "pattern": "GET\\s*/items\\?\\S*\\s*HTTP/1\\.1\\S*\\s*200",
+    "metric_pattern": null,
+    "issues": [],
+    "matches_real_output": false
+   },
+   {
+    "step": "s5",
+    "id": "s5c4",
+    "type": "screen_absent",
+    "app": "Terminal",
+    "pattern": "Traceback|Internal Server Error",
+    "metric_pattern": null,
+    "issues": [],
+    "matches_real_output": true
+   },
+   {
+    "step": "s6",
+    "id": "s6c1",
+    "type": "screen_contains",
+    "app": "Code",
+    "pattern": "from\\s*pydantic\\s*import.*BaseModel",
+    "metric_pattern": null,
+    "issues": [],
+    "grounded_in_transcript": true
+   },
+   {
+    "step": "s6",
+    "id": "s6c2",
+    "type": "screen_contains",
+    "app": "Code",
+    "pattern": "class\\s+\\w+\\(\\s*BaseModel\\s*\\)",
+    "metric_pattern": null,
+    "issues": [],
+    "grounded_in_transcript": true
+   },
+   {
+    "step": "s6",
+    "id": "s6c3",
+    "type": "screen_contains",
+    "app": "Code",
+    "pattern": "\\w+\\s*:\\s*bool\\s*=\\s*False",
+    "metric_pattern": null,
+    "issues": [],
+    "grounded_in_transcript": true
+   },
+   {
+    "step": "s6",
+    "id": "s6c4",
+    "type": "screen_contains",
+    "app": "Terminal",
+    "pattern": ":\\s*false\\s*\\}",
+    "metric_pattern": null,
+    "issues": [],
+    "matches_real_output": true
+   },
+   {
+    "step": "s6",
+    "id": "s6c5",
+    "type": "screen_absent",
+    "app": "Terminal",
+    "pattern": "Traceback|Internal Server Error",
+    "metric_pattern": null,
+    "issues": [],
+    "matches_real_output": true
+   },
+   {
+    "step": "s7",
+    "id": "s7c1",
+    "type": "screen_contains",
+    "app": "Code",
+    "pattern": "response_model\\s*=\\s*\\w+",
+    "metric_pattern": null,
+    "issues": [],
+    "grounded_in_transcript": false
+   },
+   {
+    "step": "s7",
+    "id": "s7c2",
+    "type": "screen_contains",
+    "app": "Code",
+    "pattern": "response_model\\s*=\\s*(list|List)\\[",
+    "metric_pattern": null,
+    "issues": [],
+    "grounded_in_transcript": true
+   },
+   {
+    "step": "s7",
+    "id": "s7c3",
+    "type": "screen_contains",
+    "app": "Terminal",
+    "pattern": "Uvicorn\\s*running\\s*on|startup\\s*complete",
+    "metric_pattern": null,
+    "issues": [],
+    "matches_real_output": true
+   },
+   {
+    "step": "s7",
+    "id": "s7c4",
+    "type": "screen_absent",
+    "app": "Terminal",
+    "pattern": "Traceback|Error:",
+    "metric_pattern": null,
+    "issues": [],
+    "generic": true,
+    "matches_real_output": true
+   },
+   {
+    "step": "s8",
+    "id": "s8c1",
+    "type": "screen_contains",
+    "app": null,
+    "pattern": "OAS\\s*3|openapi\\.json|Try\\s*it\\s*out",
+    "metric_pattern": null,
+    "issues": [],
+    "any_window": true
+   },
+   {
+    "step": "s8",
+    "id": "s8c2",
+    "type": "screen_contains",
+    "app": null,
+    "pattern": "Response\\s*body|Server\\s*response",
+    "metric_pattern": null,
+    "issues": [],
+    "any_window": true
+   },
+   {
+    "step": "s8",
+    "id": "s8c3",
+    "type": "screen_contains",
+    "app": "Terminal",
+    "pattern": "GET\\s*/(docs|openapi\\.json)\\s*HTTP/1\\.1\\S*\\s*200",
+    "metric_pattern": null,
+    "issues": [],
+    "matches_real_output": false
+   },
+   {
+    "step": "s8",
+    "id": "s8c4",
+    "type": "screen_absent",
+    "app": "Terminal",
+    "pattern": "Traceback|Internal Server Error",
+    "metric_pattern": null,
+    "issues": [],
+    "matches_real_output": true
+   }
+  ],
+  "n_checks": 34,
+  "n_metric": 0,
+  "n_generic": 2,
+  "n_issues": 2,
+  "real_output_verified": "15/17",
+  "code_checks_grounded": "9/11",
+  "steps_without_specific_check": [],
+  "steps_grounded": "8/8",
+  "leakage": [],
+  "auto_score": 9.3,
+  "canned_across_lessons": []
+ }
+]

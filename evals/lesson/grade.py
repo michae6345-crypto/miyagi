@@ -190,7 +190,13 @@ def grade_lesson(rec: dict, vid: dict, transcript: dict | None) -> dict:
             elif rx.search(""):
                 row["issues"].append("matches the empty string (always passes)")
             if c["type"].startswith("screen_"):
-                if c.get("app") not in SCREEN_APPS:
+                if c.get("app") is None:  # since E2 9d5fbb9 browser checks drop `app` = match in any window
+                    row["any_window"] = True
+                    typed = " ".join(re.findall(r"`([^`]+)`", s.get("instructions", "")) +
+                                     [t.get("match", "") for t in s.get("targets") or [] if t.get("app") in ("Code", "Cursor")])
+                    if c["type"] == "screen_contains" and rx is not None and typed and rx.search(typed):
+                        row["issues"].append("any-window check also matches the code the learner types (passes from the editor alone)")
+                elif c.get("app") not in SCREEN_APPS:
                     row["issues"].append(f"app {c.get('app')!r} unknown to the screen module")
                 elif c.get("app") not in allowed_apps:
                     row["issues"].append(f"app {c.get('app')!r} unlikely for this stack")
@@ -281,6 +287,8 @@ def grade_all(out: Path, videos: list[dict]) -> list[dict]:
             res.append({"id": v["id"], "auto_score": 0.0, "error": "not built"})
             continue
         tp = out / f"{v['id']}.transcript.json"
+        if not tp.is_file():  # captions can be rate-limited (429); reuse the ones fetched for the baseline run
+            tp = Path(__file__).resolve().parent / "results" / f"{v['id']}.transcript.json"
         res.append(grade_lesson(json.loads(p.read_text()), v, json.loads(tp.read_text()) if tp.is_file() else None))
     # canned content: the same hint / mistake text appearing in more than one lesson
     seen: dict[str, set[str]] = {}

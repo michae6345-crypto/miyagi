@@ -7,7 +7,46 @@ Each video got a fresh empty workdir, i.e. a learner starting from scratch. Engi
 Re-run: `python evals/lesson/run.py --src <checkout>`. Raw graphs are in `results/<id>.json`, automatic grades in `results/grades.json`,
 build logs in `results/<id>.log` (gitignored; per-pass timings are quoted below). Transcripts were used for spot checks but are not committed.
 
-## Scores
+## Re-run on E2's fixes (`9d5fbb9`), 2026-11-14 ~14:40 PST
+
+The same 5 videos with the same goals, a fresh empty workdir and `cache=False`. Results are in `results-9d5fbb9/`.
+Two things outside the builder were down during this run:
+- **Gemini** was at its daily quota: 429 on all 4 models.
+- **YouTube** returned 429 on caption requests from this IP. `BRIGHTDATA_API_KEY` is set in `.env`, but `BRIGHTDATA_UNLOCKER_ZONE` is empty, so there was no fallback route.
+
+A strict live run therefore failed on both engines, and each failure was reported honestly; nothing was made up. To still measure the Claude path and the fixes, this run used `--saved-captions evals/lesson/results`.
+That option feeds the real captions fetched by the first run (same day), plus the live title, description and chapters from the watch page. Each graph records this in `meta.captions`. **The Gemini path at 9d5fbb9 is untested.**
+
+| Lesson | Time to lesson (was) | Steps (was) | Manual /10 (was) | What changed |
+|---|---|---|---|---|
+| react-useeffect | **20 s** (50 s, Gemini) | 7 (9) | **8.5** (8) | **Setup:** step 1 sets up Vite (`npm create vite@latest`) and has a `Local:\s+http://localhost:\d+` check. **Still wrong:** two any-window checks pass on the editor alone (`(?i)subtract`, `change\s*colou?r`). |
+| git-rebase | **18 s** (41 s, Gemini) | 5 (8) | **8** (5.5) | **Now playable:** step 1 builds the practice repo (`git init -b main`, `feature/login`, conflicting commits on `app.txt`), with checks `Initialized empty Git repository` and `Switched to a new branch`. **Fixed:** demo literals are gone (`CONFLICT \(content\)`, `Successfully rebased`, `working tree clean`), and the theory is attached as explanations (coverage 17 % → 53 %). **Weak spots:** s2 `\*\s*\S+` / `\bmain\b` and s1 `\|\s*/`. |
+| pandas-30min | **49 s** (179 s) | 9 (9) | **8.5** (8.5) | **Setup:** step 1 links the real dataset repo (github.com/techwithtim/PanadasTutorial, from the description, HTTP 200). **Fixed:** "40 entries" → `> 0`. **Still wrong:** two "table displayed" checks match the code itself (`Category\|Country\|Quantity`, `Country\|Customer`), and 7 lint warnings are false positives (below). |
+| rust-cli | **72 s** (174 s) | 8 (9) | **9** (8) | **Better:** every step has `error\[E\d+\]\|could not compile`, the `long_path` echo check is gone, and output checks are real (`-h,\s*--help`, `-V,\s*--version`, `FileEntry\s*\{`, `\[\{.{0,3}name`). |
+| fastapi-rest | **22 s** (170 s) | 8 (8) | **9** (8) | **Better:** curl-echo checks are replaced by uvicorn access-log lines, e.g. `POST\s*/items\S*\s*HTTP/1\.1\S*\s*200` and `HTTP/1\.1\S*\s*404`. Terminal checks match real output 15/17 (was 6/11). |
+
+All 5 builds are schema-valid and lint-clean, with no PINN leakage. All 5 of the previous fixes landed and show in the output.
+
+### Remaining fixes after 9d5fbb9 (ranked)
+1. **Output checks that pass on the code itself.**
+   - Two kinds remain:
+     - React s3 `(?i)subtract` and s4 `(?i)change\s*colou?r`: app-less, so they match in any window, including the editor showing `subtractCount` / `changeColor`.
+     - pandas s5 `Category|Country|Quantity` and s6 `Country|Customer`: scoped to `Code`, labelled "Filtered table displayed", but `df['Country']` is in the cell.
+   - Fix: generalize the run_command-echo lint to the code the learner types. Reject an output check whose pattern matches `step.code`, the backticked code in the instructions, or a `Code` target's `match`.
+   - This matters most for app-less checks, now that "any window" includes the editor.
+2. **The race still waits for Gemini after Claude has finished.** Rust's Claude video pass finished at 20.9 s, but the build waited until Gemini timed out at 45 s.
+   - Once Claude has a valid draft, give Gemini a short grace period (e.g. 5–10 s) or take Claude immediately. Rust would go from 72 s to ~50 s.
+   - Rust's adapt took 27 s, with lint retries.
+3. **The notebook lint is a false positive.** "runs X but has no check on its output" fired on 7 pandas steps whose `run_command` is "Run each notebook cell (Shift+Enter)", and stayed in `build.warnings`.
+   - Notebook output appears in the editor (`Code`), so a Code-scoped output check (`dtype:`, `rows x columns`, `RangeIndex`) should count.
+   - "Run the cell" isn't a shell command and shouldn't be treated as one.
+4. **Minimum specificity for generic checks.** Examples: `\*\s*\S+` (any `*`), `\|\s*/`, `\bmain\b` (git) and `\S+\s+0\.1\.0` (rust).
+   - These are learner-generic but almost always true. Require ≥4 literal alphanumerics, or one real tool keyword, per screen pattern.
+5. **Ops, not E2: set `BRIGHTDATA_UNLOCKER_ZONE`.** With Gemini on a free-tier daily cap and YouTube rate-limiting caption requests, the Claude path has no captions and neither engine can build.
+   - The Bright Data key is already in `.env`; only the Unlocker zone name is missing.
+   - Until it's set, a fresh lesson on the demo machine can fail on both engines; cached lessons still work.
+
+## Scores (first run, 47dba31)
 
 | Lesson | Stack | Video | Path (video / adapt) | Time to lesson | Steps | Checks (metric) | Auto | **Manual /10** |
 |---|---|---|---|---|---|---|---|---|
