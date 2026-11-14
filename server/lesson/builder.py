@@ -11,7 +11,9 @@ import re
 import time
 from pathlib import Path
 
-from . import gemini
+import os
+
+from . import claude, gemini, transcript
 from .schema import CHECK_TYPES, PRECISION_TYPES, REPO_ROOT, SCREEN_TYPES, check_problems, lint, schema_errors
 from .workdir import WorkdirInfo, scan
 
@@ -43,12 +45,18 @@ async def build_lesson(
     readapt: bool = False,
     detail: bool = False,
     api_key: str | None = None,
+    anthropic_key: str | None = None,
+    cache: bool = True,
 ) -> dict:
     """Return a step graph that validates against shared/contracts/step-graph.schema.json.
 
     Each step has screen-first `checks` (screen_* / metric_* with metric_pattern) and, as an
     extra field, `precision_checks` (file_* / command_* / ::metric:: backups for `tut run`).
-    api_key: the app's bring-your-own Gemini key (config.keys.gemini); falls back to .env.
+    Engines (LESSON_ENGINE=auto|gemini|claude, default auto): Gemini watches the video directly;
+    if every Gemini model fails (quota, outage, no key), Claude builds the same graph from the
+    video's transcript + title/description/chapters. build.model records which model did what.
+    If both fail the error is raised, never papered over with made-up steps.
+    api_key / anthropic_key: the app's bring-your-own keys (config.keys.gemini / .anthropic).
     refresh: rebuild everything (new video pass). readapt: reuse the cached video draft, redo only
     the cheap adapt pass (e.g. after the workdir changed or an adapt pass ran out of quota).
     detail: per-step clip pass at 2 fps (costs one request per step; off by default on the free tier).
@@ -66,17 +74,21 @@ async def build_lesson(
     info = scan(workdir)
     key = cache_key(source_url, goal, workdir, info)
     path = CACHE_DIR / f"{key}.json"
-    if path.is_file() and not (refresh or readapt):
-        graph = json.loads(path.read_text())
-        graph["lesson"]["workdir"] = workdir
-        log.info("lesson cache hit %s", path.name)
-        return graph
+    if cache and not (refresh or readapt):
+        hit = path if path.is_file() else find_cached(vid, workdir, info)
+        if hit:
+            graph = json.loads(hit.read_text())
+            graph["lesson"]["workdir"] = workdir
+            log.info("lesson cache hit %s%s", hit.name, "" if hit == path else " (same video + workdir, different goal wording)")
+            return graph
 
     if api_key:
         gemini.set_api_key(api_key)
+    if anthropic_key:
+        claude.set_api_key(anthropic_key)
     t0 = time.time()
-    draft = await _video_draft(source_url, vid, goal, refresh=refresh, detail=detail)
-    graph, warnings, adapted_ok = await _adapt(draft, goal, info)
+    draft = await _video_draft(source_url, vid, goal, refresh=refresh or not cache, detail=detail, write=cache)
+    graph, warnings, adapted_ok, adapt_model = await _adapt(draft, goal, info)
     warnings = list(draft.get("detail_failures") or []) + warnings
     if not adapted_ok:
         warnings = ["adapt pass failed (quota?): checks come from the video draft, not the learner's workdir; not cached, retry with readapt=True"] + warnings
@@ -86,17 +98,18 @@ async def build_lesson(
     graph["sources"] = [{"id": "src1", "kind": "video", "title": draft.get("title") or "Tutorial", "url": source_url, "videoId": vid}]
     graph["build"] = {
         "adapted": adapted_ok,
-        "models": {"video": gemini.model(), "detail+adapt": gemini.model(fast=True)},
+        "model": {"video": draft.get("_built_by", "unknown"), "adapt": adapt_model},
         "seconds": round(time.time() - t0, 1),
         "workdir_metrics": sorted(info.metrics),
+        "workdir_fp": workdir_fingerprint(workdir, info),
         "community_signals": n_signals,
         "warnings": warnings,
     }
     errs = schema_errors(graph)
     if errs:
         raise RuntimeError("step graph failed contract validation:\n" + "\n".join(errs))
-    if not adapted_ok:
-        log.warning("lesson built in %.1fs WITHOUT adapt pass; not cached", time.time() - t0)
+    if not adapted_ok or not cache:
+        log.warning("lesson built in %.1fs; not cached (%s)", time.time() - t0, "adapt pass failed" if not adapted_ok else "cache=False")
         return graph
     CACHE_DIR.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(graph, indent=2))
@@ -135,6 +148,12 @@ async def add_community_mistakes(graph: dict, source_url: str) -> int:
     return added
 
 
+def workdir_fingerprint(workdir: str, info: WorkdirInfo) -> str:
+    """Folder name + file names + printed ::metric:: names (not contents, not the absolute path)."""
+    name = Path(workdir).expanduser().resolve().name
+    return hashlib.sha256(json.dumps([name, sorted(info.files), sorted(info.metrics)]).encode()).hexdigest()[:12]
+
+
 def cache_key(source_url: str, goal: str, workdir: str, info: WorkdirInfo | None = None) -> str:
     vid = gemini.youtube_id(source_url) or source_url
     norm_goal = " ".join(goal.lower().split())
@@ -144,34 +163,92 @@ def cache_key(source_url: str, goal: str, workdir: str, info: WorkdirInfo | None
     return hashlib.sha256(json.dumps([vid, norm_goal, name, fingerprint]).encode()).hexdigest()[:16]
 
 
+def find_cached(vid: str, workdir: str, info: WorkdirInfo) -> Path | None:
+    """Goal-agnostic fallback: the launcher passes the learner's free-text query as the goal, so an
+    exact-goal miss falls back to the newest cached lesson for the same video adapted to the same
+    workdir layout (step framing barely depends on the goal wording)."""
+    if not CACHE_DIR.is_dir():
+        return None
+    fp = workdir_fingerprint(workdir, info)
+    best: tuple[float, Path] | None = None
+    for p in CACHE_DIR.glob("*.json"):
+        try:
+            g = json.loads(p.read_text())
+        except (OSError, json.JSONDecodeError):
+            continue
+        if (g.get("sources") or [{}])[0].get("videoId") == vid and (g.get("build") or {}).get("workdir_fp") == fp:
+            m = p.stat().st_mtime
+            if best is None or m > best[0]:
+                best = (m, p)
+    return best[1] if best else None
+
+
 # --------------------------------------------------------------------------- #
 # Pass 1: video -> draft (cached per video+goal)
 # --------------------------------------------------------------------------- #
 
 
-async def _video_draft(url: str, vid: str, goal: str, *, refresh: bool, detail: bool) -> dict:
+async def _video_draft(url: str, vid: str, goal: str, *, refresh: bool, detail: bool, write: bool = True) -> dict:
     gh = hashlib.sha256(" ".join(goal.lower().split()).encode()).hexdigest()[:8]
     raw_path = RAW_DIR / f"{vid}-{gh}.json"
     if raw_path.is_file() and not refresh:
         return json.loads(raw_path.read_text())
 
-    last_err = None
-    for _ in range(2):
-        draft = await gemini.watch_video(url, goal)
-        try:
-            draft = normalize_draft(draft)
-            break
-        except ValueError as e:  # unusable timestamps / no steps: ask again
-            last_err = e
-            log.warning("video draft rejected: %s", e)
-    else:
-        raise RuntimeError(f"Gemini returned no usable step list: {last_err}")
-
-    if detail:
+    draft = await _watch(url, vid, goal)
+    if detail and draft.get("_engine") == "gemini":  # clips need a model that sees the video
         await _add_detail(url, draft)
-    RAW_DIR.mkdir(parents=True, exist_ok=True)
-    raw_path.write_text(json.dumps(draft, indent=2))
+    if write:
+        RAW_DIR.mkdir(parents=True, exist_ok=True)
+        raw_path.write_text(json.dumps(draft, indent=2))
     return draft
+
+
+def engines() -> list[str]:
+    gemini._load_env()
+    e = os.environ.get("LESSON_ENGINE", "auto").strip().lower()
+    return {"gemini": ["gemini"], "claude": ["claude"]}.get(e, ["gemini", "claude"])
+
+
+async def _watch(url: str, vid: str, goal: str) -> dict:
+    """First engine that returns a usable step list wins; errors from all engines are raised together."""
+    errors = []
+    info = None
+    for eng in engines():
+        for _attempt in range(2):
+            try:
+                if eng == "gemini":
+                    raw = await gemini.watch_video(url, goal)
+                    built_by = f"{gemini.last_model} (watched the video)"
+                else:
+                    info = info or await transcript.fetch_video_info(vid)
+                    raw = await claude.watch_transcript(info, goal)
+                    built_by = f"{claude.last_model} (transcript via {info['sources'].get('transcript')})"
+                draft = normalize_draft(raw)
+            except ValueError as e:  # unusable timestamps / no steps: ask the same engine again
+                errors.append(f"{eng}: unusable step list ({e})")
+                continue
+            except RuntimeError as e:  # quota / outage / no key / no transcript: next engine
+                errors.append(f"{eng}: {str(e)[:300]}")
+                log.warning("%s video pass failed: %s", eng, str(e)[:200])
+                break
+            draft["_built_by"] = built_by
+            draft["_engine"] = eng
+            if eng != engines()[0]:
+                draft.setdefault("_notes", []).append("fallback engine: " + " | ".join(errors))
+            return draft
+    raise RuntimeError("no engine could build the lesson:\n" + "\n".join(errors))
+
+
+async def _adapt_call(goal: str, draft: dict, summary: str, feedback: list[str] | None) -> tuple[dict, str]:
+    errors = []
+    for eng in engines():
+        try:
+            if eng == "gemini":
+                return await gemini.adapt_checks(goal, draft["steps"], summary, feedback), str(gemini.last_model)
+            return await claude.adapt_checks(goal, draft["steps"], summary, feedback), str(claude.last_model)
+        except RuntimeError as e:
+            errors.append(f"{eng}: {str(e)[:200]}")
+    raise RuntimeError("; ".join(errors))
 
 
 async def _add_detail(url: str, draft: dict) -> None:
@@ -246,30 +323,31 @@ def normalize_draft(draft: dict) -> dict:
 # --------------------------------------------------------------------------- #
 
 
-async def _adapt(draft: dict, goal: str, info: WorkdirInfo) -> tuple[dict, list[str], bool]:
-    """-> (graph, leftover warnings, whether any adapt call succeeded)."""
+async def _adapt(draft: dict, goal: str, info: WorkdirInfo) -> tuple[dict, list[str], bool, str | None]:
+    """-> (graph, leftover warnings, whether any adapt call succeeded, model that served it)."""
     feedback: list[str] | None = None
     graph = None
     ok = False
+    used: str | None = None
     known_files = set(info.files)
     for attempt in range(ADAPT_ATTEMPTS):
         try:
-            adapted = await gemini.adapt_checks(goal, draft["steps"], info.summary_for_prompt(), feedback)
+            adapted, used = await _adapt_call(goal, draft, info.summary_for_prompt(), feedback)
             ok = True
         except RuntimeError as e:
             log.warning("adapt pass failed (attempt %d): %s", attempt + 1, e)
             if not ok:  # nothing to improve on; the video draft's checks are the fallback
                 graph = repair(normalize_checks(assemble(draft, goal, {"steps": []}), info.metrics), info)
-                return graph, lint(graph, info.metrics, known_files), False
+                return graph, lint(graph, info.metrics, known_files), False, None
             break
         graph = normalize_checks(assemble(draft, goal, adapted), info.metrics)
         feedback = schema_errors(graph) + lint(graph, info.metrics, known_files)
         if not feedback:
-            return graph, [], True
+            return graph, [], True, used
         log.info("adapt attempt %d: %d problems, retrying", attempt + 1, len(feedback))
     # Out of retries: drop checks that are still broken so the graph is at least runnable.
     graph = repair(graph, info)
-    return graph, lint(graph, info.metrics, known_files), ok
+    return graph, lint(graph, info.metrics, known_files), ok, used
 
 
 def assemble(draft: dict, goal: str, adapted: dict) -> dict:

@@ -10,6 +10,7 @@ import argparse
 import asyncio
 import json
 import logging
+import os
 import sys
 from pathlib import Path
 
@@ -25,6 +26,8 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--workdir", default=".", help="learner's project folder (checks are adapted to it)")
     ap.add_argument("--refresh", action="store_true", help="ignore the cache and call Gemini again")
     ap.add_argument("--readapt", action="store_true", help="reuse the cached video draft, redo only the adapt pass")
+    ap.add_argument("--no-cache", action="store_true", help="don't read or write demo/cache (e.g. to compare engines)")
+    ap.add_argument("--engine", choices=["auto", "gemini", "claude"], help="override LESSON_ENGINE")
     ap.add_argument("--detail", action="store_true", help="per-step clip pass at 2 fps (one extra request per step)")
     ap.add_argument("--graph", help="score an existing graph JSON instead of building one")
     ap.add_argument("--report", metavar="EXPECTED", help="print a precision report against a hand-written graph (fixtures/*.json)")
@@ -39,7 +42,9 @@ def main(argv: list[str] | None = None) -> int:
     elif a.url:
         if not a.goal:
             ap.error("--goal is required when building a lesson")
-        graph = asyncio.run(build_lesson(a.url, a.goal, a.workdir, refresh=a.refresh, readapt=a.readapt, detail=a.detail))
+        if a.engine:
+            os.environ["LESSON_ENGINE"] = a.engine
+        graph = asyncio.run(build_lesson(a.url, a.goal, a.workdir, refresh=a.refresh, readapt=a.readapt, detail=a.detail, cache=not a.no_cache))
     else:
         ap.error("give a YouTube URL or --graph FILE")
 

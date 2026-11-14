@@ -1,0 +1,566 @@
+{
+  "lesson": {
+    "id": "lesson-8032bf0c",
+    "title": "PINNs for 1D Linear Convection Equation",
+    "goal": "train a PINN on the convection equation",
+    "libraries": {
+      "torch": "2.x",
+      "numpy": "1.x",
+      "matplotlib": "3.x"
+    },
+    "workdir": "demo/pinn-lab"
+  },
+  "sources": [
+    {
+      "id": "src1",
+      "kind": "video",
+      "title": "PINNs for 1D Linear Convection Equation",
+      "url": "https://www.youtube.com/watch?v=unBU1PwCnvQ",
+      "videoId": "unBU1PwCnvQ"
+    }
+  ],
+  "steps": [
+    {
+      "id": "s1",
+      "index": 1,
+      "title": "Import libraries and define PINN",
+      "instructions": "Define the PINN neural network architecture in pinn_convection.py using linear layers and Tanh activations.",
+      "video": {
+        "sourceId": "src1",
+        "start": 385.0,
+        "end": 477.0
+      },
+      "checks": [
+        {
+          "id": "s1c1",
+          "type": "screen_contains",
+          "label": "PINN class defined",
+          "app": "Code",
+          "pattern": "class\\s+PINN\\(nn\\.Module\\):"
+        },
+        {
+          "id": "s1c2",
+          "type": "screen_contains",
+          "label": "Neural network layers defined",
+          "app": "Code",
+          "pattern": "self\\.net"
+        }
+      ],
+      "precision_checks": [
+        {
+          "id": "s1p1",
+          "type": "file_contains",
+          "label": "PINN class in file",
+          "file": "pinn_convection.py",
+          "pattern": "class\\s+PINN"
+        },
+        {
+          "id": "s1p2",
+          "type": "file_contains",
+          "label": "Tanh activation used",
+          "file": "pinn_convection.py",
+          "pattern": "nn\\.Tanh"
+        }
+      ],
+      "targets": [
+        {
+          "app": "Code",
+          "file": "pinn_convection.py",
+          "match": "class PINN(nn.Module):",
+          "caption": "Define the PINN architecture"
+        }
+      ],
+      "explanations": [
+        {
+          "topic": "Setting random seeds for consistent weight initialization and optimization",
+          "t": 421.0,
+          "sourceId": "src1"
+        }
+      ],
+      "hints": [
+        "Start by importing torch, torch.nn, numpy, and matplotlib.pyplot.",
+        "Fix the random seeds with torch.manual_seed(42) and np.random.seed(42).",
+        "Use nn.ModuleList() inside PINN.__init__ to stack Linear and Tanh layers, ending with a Linear output layer."
+      ],
+      "common_mistakes": [
+        "Putting a Tanh activation after the final output Linear layer, which restricts output values to (-1, 1).",
+        "Using a plain Python list instead of nn.ModuleList(), which prevents PyTorch from tracking layer parameters."
+      ]
+    },
+    {
+      "id": "s2",
+      "index": 2,
+      "title": "Implement the physics loss function",
+      "instructions": "Implement pde_residual in pinn_convection.py using torch.autograd.grad to calculate du_dt and du_dx.",
+      "video": {
+        "sourceId": "src1",
+        "start": 478.0,
+        "end": 596.0
+      },
+      "checks": [
+        {
+          "id": "s2c1",
+          "type": "screen_contains",
+          "label": "pde_residual function defined",
+          "app": "Code",
+          "pattern": "def\\s+pde_residual\\("
+        },
+        {
+          "id": "s2c2",
+          "type": "screen_contains",
+          "label": "Autograd grad computed",
+          "app": "Code",
+          "pattern": "torch\\.autograd\\.grad\\("
+        }
+      ],
+      "precision_checks": [
+        {
+          "id": "s2p1",
+          "type": "file_contains",
+          "label": "Autograd gradient in file",
+          "file": "pinn_convection.py",
+          "pattern": "torch\\.autograd\\.grad"
+        },
+        {
+          "id": "s2p2",
+          "type": "file_contains",
+          "label": "create_graph enabled",
+          "file": "pinn_convection.py",
+          "pattern": "create_graph\\s*=\\s*True"
+        }
+      ],
+      "targets": [
+        {
+          "app": "Code",
+          "file": "pinn_convection.py",
+          "match": "def pde_residual(",
+          "caption": "Implement the convection PDE residual"
+        }
+      ],
+      "explanations": [
+        {
+          "topic": "Enabling requires_grad on x_pde and t_pde to compute PDE derivatives",
+          "t": 485.0,
+          "sourceId": "src1"
+        },
+        {
+          "topic": "Using grad_outputs and create_graph=True in torch.autograd.grad",
+          "t": 528.0,
+          "sourceId": "src1"
+        },
+        {
+          "topic": "Computing and squaring the PDE residual du/dt + c * du/dx",
+          "t": 573.0,
+          "sourceId": "src1"
+        }
+      ],
+      "hints": [
+        "Call requires_grad_(True) on both x_pde and t_pde before passing them to the model.",
+        "Concatenate x_pde and t_pde along dim=1 to pass (x, t) pairs into the model.",
+        "Use torch.autograd.grad(u, t_pde, grad_outputs=torch.ones_like(u), create_graph=True)[0] for each partial derivative."
+      ],
+      "common_mistakes": [
+        "Forgetting requires_grad_(True) on x_pde and t_pde, causing autograd.grad to raise a RuntimeError.",
+        "Omitting create_graph=True, which prevents backpropagation through the PDE residual loss during training.",
+        "Forgetting [0] after torch.autograd.grad(), which returns a tuple instead of a tensor."
+      ]
+    },
+    {
+      "id": "s3",
+      "index": 3,
+      "title": "Write the PINN training loop",
+      "instructions": "Implement sample_points in pinn_convection.py to sample random domain points with autograd gradient tracking.",
+      "video": {
+        "sourceId": "src1",
+        "start": 597.0,
+        "end": 718.0
+      },
+      "checks": [
+        {
+          "id": "s3c1",
+          "type": "screen_contains",
+          "label": "sample_points defined",
+          "app": "Code",
+          "pattern": "def\\s+sample_points\\("
+        },
+        {
+          "id": "s3c2",
+          "type": "screen_contains",
+          "label": "Gradient tracking enabled",
+          "app": "Code",
+          "pattern": "requires_grad"
+        }
+      ],
+      "precision_checks": [
+        {
+          "id": "s3p1",
+          "type": "file_contains",
+          "label": "requires_grad in sample_points",
+          "file": "pinn_convection.py",
+          "pattern": "requires_grad"
+        },
+        {
+          "id": "s3p2",
+          "type": "command_exit_ok",
+          "label": "Script runs without errors",
+          "command": "python3 pinn_convection.py --epochs 10"
+        }
+      ],
+      "targets": [
+        {
+          "app": "Code",
+          "file": "pinn_convection.py",
+          "match": "def sample_points(",
+          "caption": "Sample collocation points for training"
+        }
+      ],
+      "explanations": [
+        {
+          "topic": "Evaluating the model at t=0 with torch.zeros_like(x_ic) for initial condition loss",
+          "t": 625.0,
+          "sourceId": "src1"
+        },
+        {
+          "topic": "Combining IC and PDE losses and computing parameter gradients with total_loss.backward()",
+          "t": 674.0,
+          "sourceId": "src1"
+        }
+      ],
+      "hints": [
+        "Clear gradients at the start of every epoch using optimizer.zero_grad().",
+        "Pass torch.cat((x_ic, torch.zeros_like(x_ic)), dim=1) to evaluate u at t=0.",
+        "Sample x_pde and t_pde uniformly over their min/max bounds using torch.rand(num_pde_points, 1)."
+      ],
+      "common_mistakes": [
+        "Forgetting optimizer.zero_grad(), causing gradients to accumulate across epochs.",
+        "Misaligning tensor shapes between x_ic and torch.zeros_like(x_ic) when calling torch.cat."
+      ]
+    },
+    {
+      "id": "s4",
+      "index": 4,
+      "title": "Configure domain and run training",
+      "instructions": "Run pinn_convection.py with beta=1.0 in the terminal to train the PINN model.",
+      "video": {
+        "sourceId": "src1",
+        "start": 719.0,
+        "end": 1003.0
+      },
+      "checks": [
+        {
+          "id": "s4c1",
+          "type": "screen_contains",
+          "label": "Training epoch printed",
+          "app": "Terminal",
+          "pattern": "epoch\\s+\\d+"
+        },
+        {
+          "id": "s4c2",
+          "type": "screen_absent",
+          "label": "No terminal errors",
+          "app": "Terminal",
+          "pattern": "Traceback|Error|NotImplementedError"
+        },
+        {
+          "id": "s4c3",
+          "type": "metric_threshold",
+          "label": "Training loss decreases below threshold",
+          "metric": "loss",
+          "op": "<",
+          "value": 0.1,
+          "by_step": 3900,
+          "metric_pattern": "step\\W+(?P<step>\\d+)\\W+name\\W+loss\\W+value\\W+(?P<value>[0-9.eE+-]+)"
+        }
+      ],
+      "precision_checks": [
+        {
+          "id": "s4p1",
+          "type": "command_exit_ok",
+          "label": "Train model with beta 1",
+          "command": "python3 pinn_convection.py --beta 1.0 --epochs 500"
+        },
+        {
+          "id": "s4p2",
+          "type": "metric_threshold",
+          "label": "Loss drops below threshold",
+          "metric": "loss",
+          "op": "<",
+          "value": 0.1,
+          "by_step": 400
+        }
+      ],
+      "targets": [
+        {
+          "app": "Terminal",
+          "match": "python pinn_convection.py",
+          "caption": "Train the PINN on the convection equation"
+        }
+      ],
+      "explanations": [
+        {
+          "topic": "Sampling initial condition points and 10,000 PDE collocation points across the domain",
+          "t": 780.0,
+          "sourceId": "src1"
+        },
+        {
+          "topic": "First-order Adam optimizer vs quasi-second-order L-BFGS in PINNs",
+          "t": 852.0,
+          "sourceId": "src1"
+        }
+      ],
+      "hints": [
+        "Reshape torch.linspace(x_min, x_max, num_ic_points) with .view(-1, 1) so it is a column tensor.",
+        "Initialize Adam with torch.optim.Adam(model.parameters(), lr=learning_rate).",
+        "Compute the analytical solution at t=1.0 using np.exp(-10 * (x - c * 1.0)**2) to verify the PINN curve."
+      ],
+      "common_mistakes": [
+        "Passing a 1D tensor instead of shape (N, 1) for x_ic, which breaks torch.cat along dim=1.",
+        "Forgetting to switch the model to model.eval() and torch.no_grad() when evaluating predictions for plotting."
+      ]
+    },
+    {
+      "id": "s5",
+      "index": 5,
+      "title": "Test negative convection speed",
+      "instructions": "Run pinn_convection.py with --beta -1.0 in the terminal to evaluate training with negative convection velocity.",
+      "video": {
+        "sourceId": "src1",
+        "start": 1004.0,
+        "end": 1030.0
+      },
+      "checks": [
+        {
+          "id": "s5c1",
+          "type": "screen_contains",
+          "label": "Beta -1 logged in terminal",
+          "app": "Terminal",
+          "pattern": "beta\\s+-1"
+        },
+        {
+          "id": "s5c2",
+          "type": "screen_absent",
+          "label": "No terminal errors",
+          "app": "Terminal",
+          "pattern": "Traceback|Error|NotImplementedError"
+        },
+        {
+          "id": "s5c3",
+          "type": "metric_threshold",
+          "label": "Negative beta loss drops",
+          "metric": "loss",
+          "op": "<",
+          "value": 0.1,
+          "by_step": 400,
+          "metric_pattern": "step\\W+(?P<step>\\d+)\\W+name\\W+loss\\W+value\\W+(?P<value>[0-9.eE+-]+)"
+        }
+      ],
+      "precision_checks": [
+        {
+          "id": "s5p1",
+          "type": "command_exit_ok",
+          "label": "Train model with beta -1",
+          "command": "python3 pinn_convection.py --beta -1.0 --epochs 500"
+        },
+        {
+          "id": "s5p2",
+          "type": "metric_threshold",
+          "label": "Negative beta loss drops",
+          "metric": "loss",
+          "op": "<",
+          "value": 0.1,
+          "by_step": 400
+        }
+      ],
+      "targets": [
+        {
+          "app": "Terminal",
+          "match": "beta -1",
+          "caption": "Train PINN with negative convection speed"
+        }
+      ],
+      "explanations": [
+        {
+          "topic": "Checking whether PINNs are sensitive to wave propagation direction unlike numerical upwinding",
+          "t": 996.0,
+          "sourceId": "src1"
+        }
+      ],
+      "hints": [
+        "Update the convection speed variable from c = 1.0 to c = -1.0.",
+        "Make sure the analytical solution formula also uses the variable c rather than a hardcoded +1.0."
+      ],
+      "common_mistakes": [
+        "Changing c to -1.0 for training while leaving the analytical comparison hardcoded to c = 1.0."
+      ]
+    },
+    {
+      "id": "s6",
+      "index": 6,
+      "title": "Train on sharper Gaussian IC",
+      "instructions": "Run pinn_convection.py with --beta 2.0 to test model training under higher convection speeds.",
+      "video": {
+        "sourceId": "src1",
+        "start": 1031.0,
+        "end": 1115.0
+      },
+      "checks": [
+        {
+          "id": "s6c1",
+          "type": "screen_contains",
+          "label": "Beta 2 logged in terminal",
+          "app": "Terminal",
+          "pattern": "beta\\s+2"
+        },
+        {
+          "id": "s6c2",
+          "type": "screen_absent",
+          "label": "No terminal errors",
+          "app": "Terminal",
+          "pattern": "Traceback|Error|NotImplementedError"
+        },
+        {
+          "id": "s6c3",
+          "type": "metric_threshold",
+          "label": "Higher beta loss drops",
+          "metric": "loss",
+          "op": "<",
+          "value": 0.1,
+          "by_step": 400,
+          "metric_pattern": "step\\W+(?P<step>\\d+)\\W+name\\W+loss\\W+value\\W+(?P<value>[0-9.eE+-]+)"
+        }
+      ],
+      "precision_checks": [
+        {
+          "id": "s6p1",
+          "type": "command_exit_ok",
+          "label": "Train model with beta 2",
+          "command": "python3 pinn_convection.py --beta 2.0 --epochs 500"
+        },
+        {
+          "id": "s6p2",
+          "type": "metric_threshold",
+          "label": "Higher beta loss drops",
+          "metric": "loss",
+          "op": "<",
+          "value": 0.1,
+          "by_step": 400
+        }
+      ],
+      "targets": [
+        {
+          "app": "Terminal",
+          "match": "beta 2",
+          "caption": "Train PINN with higher convection speed"
+        }
+      ],
+      "explanations": [
+        {
+          "topic": "How PINNs capture sharp Gaussian pulses without fine-grid discretization errors",
+          "t": 1065.0,
+          "sourceId": "src1"
+        }
+      ],
+      "hints": [
+        "Set hidden_dim = 30 and restore c = 1.0 with domain bounds -1.0 to 2.0.",
+        "Use beta = 500 in both u_ic and the analytical solution formula."
+      ],
+      "common_mistakes": [
+        "Updating the IC to exp(-500*x^2) while leaving the analytical comparison curve at -10."
+      ]
+    },
+    {
+      "id": "s7",
+      "index": 7,
+      "title": "Compare with non-dimensionalized PINN",
+      "instructions": "Run a full training run of pinn_convection.py for 4000 epochs to verify convergence.",
+      "video": {
+        "sourceId": "src1",
+        "start": 1116.0,
+        "end": 1299.0
+      },
+      "checks": [
+        {
+          "id": "s7c1",
+          "type": "screen_contains",
+          "label": "Epoch 3900 reached in terminal",
+          "app": "Terminal",
+          "pattern": "epoch\\s+3900"
+        },
+        {
+          "id": "s7c2",
+          "type": "screen_absent",
+          "label": "No terminal errors",
+          "app": "Terminal",
+          "pattern": "Traceback|Error|NotImplementedError"
+        },
+        {
+          "id": "s7c3",
+          "type": "metric_trend",
+          "label": "Loss decreases over epochs",
+          "metric": "loss",
+          "trend": "decreasing",
+          "window": 5,
+          "metric_pattern": "step\\W+(?P<step>\\d+)\\W+name\\W+loss\\W+value\\W+(?P<value>[0-9.eE+-]+)"
+        }
+      ],
+      "precision_checks": [
+        {
+          "id": "s7p1",
+          "type": "command_exit_ok",
+          "label": "Run full training verification",
+          "command": "python3 pinn_convection.py --beta 1.0 --epochs 1000"
+        },
+        {
+          "id": "s7p2",
+          "type": "metric_trend",
+          "label": "Loss decreases over epochs",
+          "metric": "loss",
+          "trend": "decreasing",
+          "window": 5
+        }
+      ],
+      "targets": [
+        {
+          "app": "Terminal",
+          "match": "epoch 3900",
+          "caption": "Verify full PINN training convergence"
+        }
+      ],
+      "explanations": [
+        {
+          "topic": "Defining characteristic scales L_c, T_c, and U_c to normalize variables",
+          "t": 1223.0,
+          "sourceId": "src1"
+        },
+        {
+          "topic": "Comparing dimensional and non-dimensionalized PINN predictions at t=1.0",
+          "t": 1265.0,
+          "sourceId": "src1"
+        }
+      ],
+      "hints": [
+        "Set L_c = 1.0 / np.sqrt(beta) and T_c = L_c / c so the non-dimensional wave speed becomes 1.0.",
+        "Divide the dimensional x and t bounds by L_c and T_c respectively.",
+        "Use u_ic_nd = torch.exp(-x_ic_nd**2) since beta is absorbed into L_c."
+      ],
+      "common_mistakes": [
+        "Forgetting to rescale the non-dimensional evaluation coordinates (x / L_c, t / T_c) when comparing against the dimensional analytical solution at t=1.0.",
+        "Keeping beta in u_ic_nd = torch.exp(-x_ic_nd**2) after already scaling x by 1/sqrt(beta)."
+      ]
+    }
+  ],
+  "build": {
+    "adapted": true,
+    "model": {
+      "video": "gemini-4-hydrogen (watched the video)",
+      "adapt": "gemini-3.6-flash"
+    },
+    "seconds": 166.0,
+    "workdir_metrics": [
+      "loss"
+    ],
+    "workdir_fp": "bc26b9821c3e",
+    "community_signals": 0,
+    "warnings": []
+  }
+}

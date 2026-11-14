@@ -16,6 +16,17 @@ the loss off terminal lines. The precision-mode backups (`file_*`, `command_exit
 ALL `checks` pass and these can't be evaluated without a known workdir / `tut run`. Targets carry `app` +
 a short on-screen `match` ("def lossPDE"). Extra top-level `build` = models, timing, leftover warnings.
 
+## Engines
+`LESSON_ENGINE=auto` (default) | `gemini` | `claude` (CLI: `--engine`).
+- **Gemini** (primary) watches the YouTube URL directly.
+- **Claude** (`claude-opus-5-5`, adaptive thinking, JSON-schema structured output, server-side refusal
+  fallback) takes over when every Gemini model fails (quota, outage, missing key). It builds the same draft
+  from the video's **timestamped transcript + title, description and chapters** (`transcript.py`: Bright Data
+  Web Unlocker when `BRIGHTDATA_UNLOCKER_ZONE` is set, else the public watch page + `youtube-transcript-api`;
+  no frames). The adapt pass falls back the same way.
+- `build.model = {"video": "...", "adapt": "..."}` records which model did what. If both engines fail, the
+  error (with both causes) is raised; nothing is made up.
+
 ## Pipeline
 1. **Watch** (`gemini.watch_video`): the public YouTube URL goes straight to Gemini as `file_data`
    with structured JSON output: steps with MM:SS bounds, titles, instructions, the code written,
@@ -54,7 +65,7 @@ python -m server.lesson "https://www.youtube.com/watch?v=AXXnSzmpyoI" \
   --report server/lesson/fixtures/toscano_pinn_part1.expected.json > graph.json
 ```
 Graph → stdout, precision report → stderr. `--refresh` ignores all caches, `--readapt` redoes only the adapt
-pass, `--detail` turns on step 2,
+pass, `--detail` turns on step 2, `--engine` picks the engine, `--no-cache` neither reads nor writes `demo/cache`,
 `--graph FILE` scores an existing graph.
 
 ## Precision report (`precision.py`)
