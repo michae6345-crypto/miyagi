@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+from collections.abc import Callable
 from typing import Any
 
 from . import llm, web
@@ -29,6 +30,7 @@ from .playbook import (
     offending_line,
     playbook_text,
 )
+from .screen import TARGETS_RULES, TARGETS_SCHEMA, ScreenContext, TargetStream
 from .triage import triage
 
 log = logging.getLogger("coach.diagnose")
@@ -55,6 +57,7 @@ If the evidence is genuinely insufficient, say what to check next instead of gue
 DOMAIN PLAYBOOK (curated ML failure modes; only one source of knowledge among many, use an entry only when the evidence fits):
 
 {playbook_text()}
+{TARGETS_RULES}
 """
 
 OFFTRACK_SCHEMA = {
@@ -194,8 +197,15 @@ async def diagnose(
     lesson: dict | None = None,
     use_triage: bool = True,
     effort: str = "low",
+    screen: ScreenContext | None = None,
+    on_targets: Callable[[list[dict]], Any] | None = None,
 ) -> dict:
     """Return an `offtrack` payload for the failed step.
+
+    With `screen` (a set-of-mark ScreenContext) Opus also sees the screen and returns
+    `targets` first: [{boxId, label, text, rect}] in screen points. The reply is streamed and
+    `on_targets(targets)` fires the moment that array is complete, before the rest of the card,
+    so the spotlight can move early. Cancel the awaiting task to abort (stream is closed).
 
     Extra keys starting with `_` (e.g. `_meta`: route, model, latency, usage) are
     for logs; strip them before sending (see `public()`).
@@ -216,7 +226,7 @@ async def diagnose(
             card = playbook_card(step, BY_ID[t.playbook_id], code_excerpt, severity="fail" if error_text else "warn")
         else:
             sources = await web_task
-            card = await _opus(step, failed_checks, metrics_text, flags, code_excerpt, error_text, lesson, effort, sources)
+            card = await _opus(step, failed_checks, metrics_text, flags, code_excerpt, error_text, lesson, effort, sources, screen, on_targets)
     finally:
         if not web_task.done():
             web_task.cancel()
@@ -247,7 +257,7 @@ def grounding_query(step: dict, failed_checks: list, error_text: str, code: str,
     return "", "", f"{title} {step.get('title', '')} {labels}".strip(), ""
 
 
-async def _opus(step, failed_checks, metrics_text, flags, code_excerpt, error_text, lesson, effort, sources=None) -> dict:
+async def _opus(step, failed_checks, metrics_text, flags, code_excerpt, error_text, lesson, effort, sources=None, screen=None, on_targets=None) -> dict:
     sources = sources or []
     file = _target_file(step)
     user = "\n\n".join(
@@ -263,16 +273,24 @@ async def _opus(step, failed_checks, metrics_text, flags, code_excerpt, error_te
             "Write the card.",
         ]
     )
+    schema, content, stream = OFFTRACK_SCHEMA, None, None
+    if screen is not None:
+        schema = screen_schema(OFFTRACK_SCHEMA)
+        content = [{"type": "text", "text": user}, *screen.claude_content()]
+        user = user + "\n\n" + screen.text()  # fixture key covers the screen text, not the pixels
+        stream = TargetStream(screen, on_targets)
     try:
         res = await llm.structured_call(
             purpose="diagnose",
             model=llm.OPUS,
             system=system_blocks(COACH_SYSTEM, lesson),
             user_text=user,
-            schema=OFFTRACK_SCHEMA,
+            schema=schema,
             effort=effort,
             max_tokens=8000,
             timeout=40.0,
+            user_content=content,
+            on_text=stream,
         )
     except llm.CoachLLMError as e:
         if not llm.demo_mode():
@@ -286,9 +304,23 @@ async def _opus(step, failed_checks, metrics_text, flags, code_excerpt, error_te
         card["_meta"]["fallback_reason"] = str(e)
         return card
     card = _shape(res.data, step, code_excerpt, lesson, sources)
+    if screen is not None:
+        card["targets"] = stream.fired if stream.fired is not None else screen.resolve_targets(res.data.get("targets"))
+        if stream.fired is None and on_targets is not None and card["targets"]:
+            await llm._maybe_await(on_targets(card["targets"]))
+        card["_meta"]["screen"] = {"boxes": len(screen.boxes), "cursor": list(screen.cursor)}
     card["_meta"]["web_sources"] = sources  # full dicts; explain() reuses them
     card["_meta"].update(model=res.model, latency_s=round(res.latency_s, 2), usage=res.usage, source=res.source)
     return card
+
+
+def screen_schema(base: dict) -> dict:
+    """Same schema with `targets` as the FIRST property, so it streams before the prose."""
+    return {
+        **base,
+        "properties": {"targets": TARGETS_SCHEMA, **base["properties"]},
+        "required": ["targets", *base["required"]],
+    }
 
 
 def public(payload: dict) -> dict:

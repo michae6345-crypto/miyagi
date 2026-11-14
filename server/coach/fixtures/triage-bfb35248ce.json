@@ -6,13 +6,13 @@
   },
   "response": {
     "model": "claude-haiku-5-5",
-    "text": "{\"route\": \"playbook\", \"playbook_id\": \"cuda_on_mac\", \"reason\": \"The learner is on a Mac and the error is an MPS device failure; the known playbook for Mac device issues (use MPS or CPU correctly) matches this situation, and a generic explanation fits. Note the error mentions MPS storage, which is close to the cuda_on_mac playbook's device guidance, though it is not a CUDA call, so there is some uncertainty.\"}",
+    "text": "{\"route\": \"playbook\", \"playbook_id\": \"cuda_on_mac\", \"reason\": \"The error is an MPS device failure on a Mac: the script sets device to 'mps' and the MPS backend fails to allocate placeholder storage. The known fix is to switch to CPU or a supported device, which the generic playbook explains, so no learner-specific diagnosis is needed.\"}",
     "usage": {
       "input_tokens": 821,
-      "output_tokens": 152,
+      "output_tokens": 125,
       "cache_read_input_tokens": 0,
       "cache_creation_input_tokens": 0
     },
-    "latency_s": 2.03
+    "latency_s": 1.89
   }
 }
