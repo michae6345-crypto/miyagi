@@ -357,6 +357,9 @@ function KindTile({ k }: { k: (typeof KIND)[EngineCard['kind']] }): ReactNode {
 
 /** Button per card action. At most one white primary per card: the first primary kind present. */
 const ACTION: Partial<Record<CardAction, { label: string; Icon?: LucideIcon; primary?: boolean }>> = {
+  // Step controls ("Not yet" / "Looks done?" / "Stuck on this step?" cards).
+  check_step: { label: 'Check again', Icon: Check },
+  skip_step: { label: 'Skip step', Icon: SkipForward },
   confirm: { label: 'Yes', Icon: Check, primary: true },
   apply_fix: { label: 'Do it for me', Icon: Wrench, primary: true },
   open_editor: { label: 'Open VS Code', Icon: Code2, primary: true },
@@ -364,8 +367,6 @@ const ACTION: Partial<Record<CardAction, { label: string; Icon?: LucideIcon; pri
   undo: { label: 'Undo', Icon: Undo2 },
   end_lesson: { label: 'Start a new lesson' },
   skip_setup: { label: 'Skip' },
-  check_step: { label: 'Check again', Icon: Check },
-  skip_step: { label: 'Skip step', Icon: SkipForward },
   // Preflight card ("this is a 9-min coding video…"): Build starts the lesson, Pick another reopens the results.
   build: { label: 'Build lesson', Icon: Play, primary: true },
   pick_another: { label: 'Pick another' },
