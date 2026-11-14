@@ -939,12 +939,13 @@ class LessonSession:
         Preview -> confirm -> act -> undo; never types into the editor, never presses Return."""
         diff = (self.last_offtrack or {}).get("diff") or {}
         command = diff.get("command")
-        if command:  # terminal fix: stage it on the clipboard, the learner presses Enter
+        file, yours, expected = diff.get("file"), diff.get("yours"), diff.get("expected")
+        if command:  # terminal fix: stage it on the clipboard, the learner presses Enter (never sent for them)
             ok = await self._clipboard(command)
             await self._card(step, "Command copied" if ok else "Run this command",
                              "Paste it in your terminal (⌘V) and press Enter." if ok else command)
-            return
-        file, yours, expected = diff.get("file"), diff.get("yours"), diff.get("expected")
+            if not (file and yours and expected):
+                return  # command-only fix; otherwise continue with the code part below
         if not (file and yours and expected):
             await self._card(step, "No automatic fix", "This one needs your hands. Try a hint.")
             return

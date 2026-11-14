@@ -865,3 +865,31 @@ def test_do_it_for_me_previews_then_applies_on_confirm(rig):
 
     run(go())
     assert rig.of("card")[-1]["title"] == "The file changed"
+
+
+def test_command_plus_code_fix_stages_command_then_previews_code(rig, monkeypatch):
+    staged = []
+
+    async def fake_clip(text):
+        staged.append(text)
+        return True
+
+    monkeypatch.setattr(LessonSession, "_clipboard", staticmethod(fake_clip))
+
+    async def do_it_for_me(step, file, text, last):
+        return {"file": file, "unified_diff": "-import pandas\n+import pandas as pd\n", "summary": "Alias pandas.",
+                "line": 1, "new_text": text.replace("import pandas", "import pandas as pd")}
+
+    rig.s.m.has_do_it_for_me = lambda: True
+    rig.s.m.do_it_for_me = do_it_for_me
+
+    async def go():
+        await _to_step(rig, 5)
+        rig.write("import pandas\n")
+        rig.s.last_offtrack = {"stepId": "s6", "diff": {"command": "pip install pandas", "file": "pinn_convection.py",
+                                                         "yours": "import pandas", "expected": "import pandas as pd"}}
+        await rig.s.action("apply_fix")
+
+    run(go())
+    assert staged == ["pip install pandas"]
+    assert [c["title"] for c in rig.of("card")][-2:] == ["Command copied", "Apply this fix?"]
