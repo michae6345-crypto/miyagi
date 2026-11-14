@@ -52,6 +52,9 @@ _FILE = {
 SCAFFOLD_SCHEMA = {
     "type": "object",
     "properties": {
+        "lesson_kind": {"type": "string", "enum": ["code", "no_code", "conceptual"],
+                        "description": "code: the learner writes code/text files; no_code: the work happens in web apps or "
+                                       "desktop apps (Botpress, Zapier, Figma, Blender, Excel); conceptual: watching/explaining only"},
         "stack": {"type": "string", "description": "e.g. python, node/react, git, rust, sql"},
         "summary": {"type": "string", "description": "one sentence: what the starter folder contains and why"},
         "setup": {"type": "array", "items": {"type": "string"},
@@ -82,7 +85,7 @@ SCAFFOLD_SCHEMA = {
             "additionalProperties": False,
         },
     },
-    "required": ["stack", "summary", "setup", "open_file", "files", "git"],
+    "required": ["lesson_kind", "stack", "summary", "setup", "open_file", "files", "git"],
     "additionalProperties": False,
 }
 
@@ -91,14 +94,16 @@ app then walks them through the tutorial's steps and checks their work. Your job
 starting point: what has to be on disk before step 1 so the learner can follow along. You never
 write the lesson's solution."""
 
-PROMPT = """Learner's goal: {goal}
-
-Lesson (step graph built from the tutorial, JSON):
+PROMPT = """Lesson (step graph built from the tutorial video, JSON):
 {lesson_json}
 
 Return the starter folder for this lesson as JSON.
 
 Rules:
+- Go only by the video's steps above. What the learner typed when searching is not part of the lesson.
+- lesson_kind: "code" only if the steps have the learner write code or text files. If the work happens in
+  web apps or other desktop apps (no-code builders, Zapier, Botpress, Figma, Blender, spreadsheets), it is
+  "no_code"; if it only explains ideas, "conceptual". For no_code and conceptual: no files, no git, no setup.
 - Derive the language and tooling from the steps, targets, checks and libraries (any topic: Python,
   pandas, React, git, Rust, SQL, ...). Never assume a topic the lesson doesn't show.
 - Only what step 1 needs to begin, plus files later steps edit but never create. Use the exact
@@ -128,6 +133,7 @@ Rules:
 
 @dataclass
 class Scaffold:
+    lesson_kind: str = "code"  # code | no_code | conceptual
     stack: str = ""
     summary: str = ""
     setup: list[str] = field(default_factory=list)
@@ -215,11 +221,19 @@ def _is_text_name(p: str) -> bool:
 def vet(raw: dict, graph: dict) -> tuple[Scaffold, list[str]]:
     """Apply the safety and no-solution rules. Returns the cleaned scaffold and the leak
     messages (for one corrective round trip)."""
+    kind = raw.get("lesson_kind") if raw.get("lesson_kind") in ("code", "no_code", "conceptual") else "code"
     sc = Scaffold(
+        lesson_kind=kind,
         stack=str(raw.get("stack") or ""),
         summary=str(raw.get("summary") or ""),
         setup=[str(x) for x in raw.get("setup") or [] if str(x).strip()][:8],
     )
+    if kind != "code":  # no-code / conceptual lessons never get files, git history or setup commands
+        n = len(raw.get("files") or []) + len((raw.get("git") or {}).get("ops") or [])
+        if n:
+            sc.dropped.append(f"{n} file(s)/git op(s): a {kind.replace('_', '-')} lesson gets no starter files")
+        sc.setup = []
+        return sc, []
     creates = learner_creates(graph)
     projects = learner_projects(graph)
     leak_msgs: list[str] = []
@@ -316,7 +330,7 @@ def make_client():
 def _lesson_for_prompt(graph: dict) -> str:
     keep_step = ("index", "title", "instructions", "targets", "checks", "precision_checks", "common_mistakes")
     slim = {
-        "lesson": {k: v for k, v in (graph.get("lesson") or {}).items() if k in ("title", "goal", "libraries")},
+        "lesson": {k: v for k, v in (graph.get("lesson") or {}).items() if k in ("title", "libraries")},
         "sources": [{k: s.get(k) for k in ("kind", "title", "url")} for s in graph.get("sources") or []],
         "steps": [{k: s[k] for k in keep_step if k in s} for s in graph.get("steps") or []],
     }
@@ -381,8 +395,7 @@ def generate(graph: dict, goal: str, client=None) -> Scaffold:
     client = client if client is not None else make_client()
     if client is None:
         return Scaffold(error="no Anthropic key (config.keys.anthropic / ANTHROPIC_API_KEY): README only")
-    prompt = PROMPT.format(
-        goal=goal or (graph.get("lesson") or {}).get("goal", ""),
+    prompt = PROMPT.format(  # the learner's goal text is deliberately left out: the video decides
         lesson_json=_lesson_for_prompt(graph),
         max_files=MAX_FILES,
         max_kb=MAX_FILE_BYTES // 1000,

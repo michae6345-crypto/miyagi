@@ -1,0 +1,477 @@
+{
+  "lesson": {
+    "id": "lesson-6bec8b3a",
+    "title": "Build AI Customer Support Agents Across Three Platforms",
+    "goal": "build chat gpt",
+    "libraries": {
+      "ChatGPT": "5.1",
+      "OpenAI Agent Builder": "Beta",
+      "Botpress": "Webchat v3.4",
+      "Zapier Agents": "Beta"
+    },
+    "workdir": "/Users/tripi/miyagi/lessons/_new"
+  },
+  "sources": [
+    {
+      "id": "src1",
+      "kind": "video",
+      "title": "Build AI Customer Support Agents Across Three Platforms",
+      "url": "https://www.youtube.com/watch?v=zE2MJ3_muNQ",
+      "videoId": "zE2MJ3_muNQ"
+    }
+  ],
+  "steps": [
+    {
+      "id": "s1",
+      "index": 1,
+      "title": "Create OpenAI FAQ Support Agent",
+      "instructions": "Open OpenAI Agent Builder, create a new workflow, drag an Agent block onto the canvas, and name it (e.g. FAQ Support Agent). Ask ChatGPT for a Markdown support prompt and paste it into the Instructions field.",
+      "video": {
+        "sourceId": "src1",
+        "start": 70.0,
+        "end": 146.0
+      },
+      "checks": [
+        {
+          "id": "s1c1",
+          "type": "screen_contains",
+          "label": "Workflow open in Agent Builder",
+          "pattern": "Agent\\s*Builder"
+        }
+      ],
+      "precision_checks": [],
+      "targets": [
+        {
+          "match": "Agent",
+          "caption": "Drag an Agent block from the Core panel onto the canvas"
+        },
+        {
+          "match": "Instructions",
+          "caption": "Paste the ChatGPT-generated Markdown prompt into Instructions"
+        }
+      ],
+      "explanations": [
+        {
+          "topic": "Agent Builder canvas and node categories",
+          "t": 89.0,
+          "sourceId": "src1"
+        },
+        {
+          "topic": "Using ChatGPT to generate structured Markdown prompts",
+          "t": 112.0,
+          "sourceId": "src1"
+        }
+      ],
+      "hints": [
+        "Open the Agents section in the left sidebar of the OpenAI Platform and click Open Agent Builder.",
+        "Connect the Start block to your new Agent block and rename it in the right-hand settings panel.",
+        "Ask ChatGPT for a single-block Markdown prompt with a Role Definition and 3 User message / Agent response examples, then paste it into Instructions."
+      ],
+      "common_mistakes": [
+        "Forgetting to connect the Start node to the Agent block on the canvas.",
+        "Writing vague instructions instead of including role boundaries and example responses."
+      ],
+      "code": "I'm building a customer support agent for a SaaS company using OpenAI Agents Builder. The agent needs to answer questions about features, pricing, and billing"
+    },
+    {
+      "id": "s2",
+      "index": 2,
+      "title": "Attach PDF and test OpenAI agent",
+      "instructions": "Click the plus icon next to Tools, select File search, and upload your product documentation PDF. Click Preview to test a pricing question, then click Publish to create a production version.",
+      "video": {
+        "sourceId": "src1",
+        "start": 146.0,
+        "end": 219.0
+      },
+      "checks": [
+        {
+          "id": "s2c1",
+          "type": "screen_contains",
+          "label": "Agent previewed or published",
+          "pattern": "Searched\\s*files|Published"
+        }
+      ],
+      "precision_checks": [],
+      "targets": [
+        {
+          "match": "Tools",
+          "caption": "Click + in Tools and choose File search to upload your PDF"
+        },
+        {
+          "match": "Preview",
+          "caption": "Open Preview at the top of the canvas to chat with the agent"
+        }
+      ],
+      "explanations": [
+        {
+          "topic": "OpenAI Agent Builder limitations and MCP connectors",
+          "t": 185.0,
+          "sourceId": "src1"
+        }
+      ],
+      "hints": [
+        "Click the + icon in the Tools row of the Agent settings panel.",
+        "Choose File search, upload your PDF, wait for indexing to finish, and click Attach.",
+        "Use the play-shaped Preview button at the top to ask a question from your PDF, then click Publish."
+      ],
+      "common_mistakes": [
+        "Closing the upload modal before clicking Attach after the PDF finishes uploading.",
+        "Testing before the vector store has finished processing."
+      ]
+    },
+    {
+      "id": "s3",
+      "index": 3,
+      "title": "Set up Botpress bot and knowledge",
+      "instructions": "Sign in to Botpress, click Create Bot, and complete the 4-step wizard with your bot name, Customer Support goal, website URL, and product PDF. Once Botpress Studio opens, rename the default AutonomousNode to Main_Support_Agent.",
+      "video": {
+        "sourceId": "src1",
+        "start": 250.0,
+        "end": 340.0
+      },
+      "checks": [
+        {
+          "id": "s3c1",
+          "type": "screen_contains",
+          "label": "Autonomous node in Studio",
+          "pattern": "Autonomous\\s*Node|Main_Support_Agent"
+        }
+      ],
+      "precision_checks": [],
+      "targets": [
+        {
+          "match": "Create Bot",
+          "caption": "Start a new bot from your Botpress workspace"
+        },
+        {
+          "match": "Search Knowledge",
+          "caption": "Verify the Autonomous Node can query your Knowledge Base"
+        }
+      ],
+      "explanations": [
+        {
+          "topic": "How Botpress Autonomous Nodes reason dynamically",
+          "t": 316.0,
+          "sourceId": "src1"
+        },
+        {
+          "topic": "How Botpress RAG retrieves relevant chunks",
+          "t": 386.0,
+          "sourceId": "src1"
+        }
+      ],
+      "hints": [
+        "Click + Create Bot in the Botpress dashboard to launch the setup wizard.",
+        "Select Customer Support as the goal, provide your website URL for personality, and upload your PDF in step 4.",
+        "Click Train agent, continue into Botpress Studio, and click the AutonomousNode title to rename it Main_Support_Agent."
+      ],
+      "common_mistakes": [
+        "Skipping the Knowledge upload step in the wizard and leaving the bot without product context.",
+        "Leaving the node name generic instead of naming it clearly before adding transitions."
+      ]
+    },
+    {
+      "id": "s4",
+      "index": 4,
+      "title": "Connect WhatsApp and test Botpress emulator",
+      "instructions": "Open Explore Hub in the integrations panel to browse or connect channels like WhatsApp and inspect per-node LLM options under Advanced settings. Open the Emulator tab on the right and test knowledge-base questions.",
+      "video": {
+        "sourceId": "src1",
+        "start": 444.0,
+        "end": 550.0
+      },
+      "checks": [
+        {
+          "id": "s4c1",
+          "type": "screen_contains",
+          "label": "Emulator conversation ran",
+          "pattern": "Conversation\\s*Started|Waiting\\s*for\\s*User\\s*Input"
+        }
+      ],
+      "precision_checks": [],
+      "targets": [
+        {
+          "match": "Explore Hub",
+          "caption": "Open Botpress Hub to install WhatsApp or other integrations"
+        },
+        {
+          "match": "Emulator",
+          "caption": "Switch to the Emulator tab to test live responses"
+        }
+      ],
+      "explanations": [
+        {
+          "topic": "Per-node LLM model selection and zero token markup",
+          "t": 479.0,
+          "sourceId": "src1"
+        }
+      ],
+      "hints": [
+        "Use the left sidebar integrations icon and click Find more on the Hub to locate WhatsApp.",
+        "Click the Emulator tab in the top-right panel of Botpress Studio.",
+        "Send a greeting or ask about trials and cancellation to confirm answers come from your Knowledge Base."
+      ],
+      "common_mistakes": [
+        "Inspecting the Inspector tab instead of switching to the Emulator tab to chat.",
+        "Forgetting to enable or index knowledge sources in Knowledge Bases before testing."
+      ]
+    },
+    {
+      "id": "s5",
+      "index": 5,
+      "title": "Create Zapier AI agent with prompt",
+      "instructions": "Go to Agents in Zapier, click New agent, and choose Start from scratch. Ask ChatGPT for a Zapier-optimized prompt that handles FAQs and demo lead capture, then paste it into Copilot's Describe your workflow field.",
+      "video": {
+        "sourceId": "src1",
+        "start": 579.0,
+        "end": 649.0
+      },
+      "checks": [
+        {
+          "id": "s5c1",
+          "type": "screen_contains",
+          "label": "Copilot filled instructions",
+          "pattern": "Filled\\s*out\\s*instructions"
+        }
+      ],
+      "precision_checks": [],
+      "targets": [
+        {
+          "match": "Describe your workflow",
+          "caption": "Paste the Zapier-optimized ChatGPT prompt into Copilot"
+        },
+        {
+          "match": "Instructions to follow",
+          "caption": "Review the instructions generated by Zapier Copilot"
+        }
+      ],
+      "explanations": [
+        {
+          "topic": "Zapier Agents as action-first automation engines",
+          "t": 642.0,
+          "sourceId": "src1"
+        }
+      ],
+      "hints": [
+        "Select Agents (Beta) in Zapier's left navigation bar and click + New agent.",
+        "Pick Start from scratch so Copilot prompts you to describe your workflow.",
+        "Generate an action-oriented Markdown prompt in ChatGPT mentioning Google Sheets demo capture, paste it in, and click Start building."
+      ],
+      "common_mistakes": [
+        "Using a generic chatbot prompt that does not tell Zapier when to switch into lead-capture mode.",
+        "Confusing Copilot's setup chat on the left with the live user test preview."
+      ],
+      "code": "I'm building an AI agent in Zapier that: Answers customer questions about pricing and features, Detects when a user wants to request a demo"
+    },
+    {
+      "id": "s6",
+      "index": 6,
+      "title": "Add Zapier knowledge, Sheets, and test",
+      "instructions": "Click Add knowledge source to upload your product PDF, then click Add tool to attach Google Sheets Create Spreadsheet Row. Add an On demand trigger and test booking a demo in the agent chat.",
+      "video": {
+        "sourceId": "src1",
+        "start": 649.0,
+        "end": 705.0
+      },
+      "checks": [
+        {
+          "id": "s6c1",
+          "type": "screen_contains",
+          "label": "Google Sheets row tool",
+          "pattern": "Create\\s*Spreadsheet\\s*Row"
+        },
+        {
+          "id": "s6c2",
+          "type": "screen_contains",
+          "label": "On demand trigger set",
+          "pattern": "On\\s*demand"
+        },
+        {
+          "id": "s6c3",
+          "type": "screen_contains",
+          "label": "Demo booking tested",
+          "pattern": "Action\\s*Complete|Demo\\s*Request"
+        }
+      ],
+      "precision_checks": [],
+      "targets": [
+        {
+          "match": "Add knowledge source",
+          "caption": "Choose Upload File to attach your product PDF"
+        },
+        {
+          "match": "Add trigger",
+          "caption": "Set the Trigger to On demand before testing"
+        }
+      ],
+      "explanations": [],
+      "hints": [
+        "Scroll down the Configure pane to Knowledge sources and upload your PDF.",
+        "Under Tools this agent can use, click + Add tool, search Google Sheets, and select Create Spreadsheet Row.",
+        "Click Add a trigger to start the agent, choose On demand, and reply with a demo request to verify the Sheets action runs."
+      ],
+      "common_mistakes": [
+        "Trying to test the Zapier agent before adding an On demand trigger.",
+        "Selecting a Google Sheets spreadsheet that lacks column headers when running Create Spreadsheet Row."
+      ]
+    },
+    {
+      "id": "s7",
+      "index": 7,
+      "title": "Build Botpress lead capture and table",
+      "instructions": "In Botpress Studio, add a Standard Node named Collect_Lead_Info with Person Name and Email Address cards stored in workflow.lead_name and workflow.lead_email. Create a LeadsTable with Name and Email columns, then add an Insert Record card mapping those variables.",
+      "video": {
+        "sourceId": "src1",
+        "start": 762.0,
+        "end": 831.0
+      },
+      "checks": [
+        {
+          "id": "s7c1",
+          "type": "screen_contains",
+          "label": "Capture cards added",
+          "pattern": "Person\\s*Name|Email\\s*Address"
+        },
+        {
+          "id": "s7c2",
+          "type": "screen_contains",
+          "label": "Insert Record card added",
+          "pattern": "Insert\\s*Record"
+        }
+      ],
+      "precision_checks": [],
+      "targets": [
+        {
+          "match": "Add Card",
+          "caption": "Add Person Name, Email Address, and Insert Record cards"
+        },
+        {
+          "match": "New Table",
+          "caption": "Create a table with Name and Email columns"
+        }
+      ],
+      "explanations": [],
+      "hints": [
+        "Right-click the canvas in Botpress Studio to add a Standard Node and rename it Collect_Lead_Info.",
+        "Add Person Name and Email Address cards and create variables named lead_name and lead_email in Store result in.",
+        "Open Tables in the left sidebar, create LeadsTable with Name and Email columns, then add an Insert Record card referencing {{workflow.lead_name}} and {{workflow.lead_email}}."
+      ],
+      "common_mistakes": [
+        "Placing the Insert Record card above the name and email capture cards instead of after them.",
+        "Forgetting to create the Name and Email columns in LeadsTable before configuring Insert Record."
+      ],
+      "code": "{{workflow.lead_name}} {{workflow.lead_email}}"
+    },
+    {
+      "id": "s8",
+      "index": 8,
+      "title": "Add transition condition and test leads",
+      "instructions": "Add a Transition card to Main_Support_Agent with the condition event.preview?.toLowerCase().includes('demo') and wire it to Collect_Lead_Info and End. Test typing demo in the Emulator and verify the saved row in LeadsTable.",
+      "video": {
+        "sourceId": "src1",
+        "start": 832.0,
+        "end": 919.0
+      },
+      "checks": [
+        {
+          "id": "s8c1",
+          "type": "screen_contains",
+          "label": "Lead variables captured",
+          "pattern": "Captured\\s*variable"
+        },
+        {
+          "id": "s8c2",
+          "type": "screen_contains",
+          "label": "Row saved in table",
+          "pattern": "Created\\s*At|Updated\\s*At"
+        }
+      ],
+      "precision_checks": [],
+      "targets": [
+        {
+          "match": "Condition",
+          "caption": "Enter the JavaScript condition in the Transition card"
+        },
+        {
+          "match": "Emulator",
+          "caption": "Send demo in the Emulator to trigger lead capture"
+        }
+      ],
+      "explanations": [],
+      "hints": [
+        "Click + Add Card on Main_Support_Agent and search for Transition under Flow Logic.",
+        "Paste event.preview?.toLowerCase().includes('demo') into the Condition field and drag a connector from that card to Collect_Lead_Info.",
+        "Connect Collect_Lead_Info to End, test 'demo' in the Emulator, and check LeadsTable in the Tables tab."
+      ],
+      "common_mistakes": [
+        "Leaving the Transition card disconnected from Collect_Lead_Info.",
+        "Omitting ?. or .toLowerCase() in the Condition expression."
+      ],
+      "code": "event.preview?.toLowerCase().includes('demo')"
+    },
+    {
+      "id": "s9",
+      "index": 9,
+      "title": "Publish and configure Botpress Webchat",
+      "instructions": "Click Publish and Publish changes to make your Botpress agent live. Open Webchat Deploy Settings to copy the website embed script tags, and customize Display Name and Bot Description under Bot Identity.",
+      "video": {
+        "sourceId": "src1",
+        "start": 932.0,
+        "end": 990.0
+      },
+      "checks": [
+        {
+          "id": "s9c1",
+          "type": "screen_contains",
+          "label": "Publish your updated workflow to deploy",
+          "app": "Code",
+          "pattern": "Publish\\s*changes"
+        }
+      ],
+      "precision_checks": [],
+      "targets": [
+        {
+          "match": "Publish changes",
+          "caption": "Publish your updated workflow to deploy Webchat"
+        },
+        {
+          "match": "Deploy Settings",
+          "caption": "Copy the script tags to embed the chat widget"
+        }
+      ],
+      "explanations": [
+        {
+          "topic": "Monitoring conversations, users, and LLM analytics",
+          "t": 990.0,
+          "sourceId": "src1"
+        },
+        {
+          "topic": "Production checklist: cost, autonomous nodes, RAG, and deployment",
+          "t": 1041.0,
+          "sourceId": "src1"
+        }
+      ],
+      "hints": [
+        "Use the Publish button in the top-right corner of Botpress Studio and confirm Publish changes.",
+        "Navigate to Webchat -> Deploy Settings in the dashboard sidebar to view the embed script tags.",
+        "Open Webchat -> Bot Identity to update the Display Name and description shown in the widget header."
+      ],
+      "common_mistakes": [
+        "Editing the workflow after publishing without clicking Publish changes again.",
+        "Copying only one of the two script tags from Deploy Settings."
+      ]
+    }
+  ],
+  "build": {
+    "adapted": true,
+    "model": {
+      "video": "gemini-4-hydrogen (watched the video)",
+      "adapt": "claude-opus-5-5"
+    },
+    "seconds": 65.1,
+    "workdir_metrics": [],
+    "workdir_fp": "ce81718481d5",
+    "community_signals": 0,
+    "warnings": []
+  }
+}

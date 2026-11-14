@@ -49,6 +49,13 @@ def prepare(lesson: dict, goal: str = "", *, root: Path | None = None, client=No
     state = read_state(folder)
     if state and state.get("scaffolded") and not state.get("error"):
         log.info("reusing lesson folder %s", folder)
+        # README is ours and cheap: rewrite it so wording fixes reach existing folders (no Claude call).
+        sc = scaffold.Scaffold(lesson_kind=state.get("lesson_kind") or "code", stack=state.get("stack") or "",
+                               summary=state.get("summary") or "", setup=state.get("setup") or [])
+        sc.files = {f: "" for f in state.get("files") or [] if (folder / f).is_file()}
+        sc.git_init = bool((state.get("git") or {}).get("init"))
+        sc.git_ops = [{"op": "commit"}] * int((state.get("git") or {}).get("commits") or 0)
+        _write_readme(folder, lesson, goal, sc)
         return folder
 
     t0 = time.monotonic()
@@ -60,13 +67,14 @@ def prepare(lesson: dict, goal: str = "", *, root: Path | None = None, client=No
         "created": time.strftime("%Y-%m-%dT%H:%M:%S"),
         "lesson_id": paths.lesson_meta(lesson).get("id"),
         "title": paths.lesson_meta(lesson).get("title"),
+        "lesson_kind": sc.lesson_kind,
         "stack": sc.stack,
         "summary": sc.summary,
         "setup": sc.setup,
         "open_file": sc.open_file,
         "files": written,
         "readme": readme,
-        "git": {"init": sc.git_init, "ops": len(sc.git_ops)},
+        "git": {"init": sc.git_init, "ops": len(sc.git_ops), "commits": sum(op["op"] == "commit" for op in sc.git_ops)},
         "dropped": sc.dropped,
         "model": sc.model,
         "error": sc.error,
@@ -147,11 +155,15 @@ def _write_readme(folder: Path, graph: dict, goal: str, sc: scaffold.Scaffold) -
     """README.md (MIYAGI.md if the lesson itself has the learner write README.md)."""
     meta = paths.lesson_meta(graph)
     name = "MIYAGI.md" if "README.md" in scaffold.learner_creates(graph) else "README.md"
-    title = meta.get("title") or goal or "Lesson"
-    lines = [f"# {title}", ""]
-    if goal or meta.get("goal"):
-        lines += [f"Goal: {goal or meta.get('goal')}", ""]
     srcs = [s for s in graph.get("sources") or [] if s.get("url")]
+    # The video's own topic leads; what the learner typed is only context.
+    title = meta.get("title") or (srcs[0].get("title") if srcs else "") or "Lesson"
+    lines = [f"# {title}", ""]
+    asked = (goal or meta.get("goal") or "").strip()
+    if asked and asked.lower() not in title.lower():
+        lines += [f"<sub>You asked for: {asked}</sub>", ""]
+    if note := goal_match_note(meta.get("goalMatch")):
+        lines += [f"> {note}", ""]
     if srcs:
         lines += ["## Tutorial", ""] + [f"- [{s.get('title') or s['url']}]({s['url']})" for s in srcs] + [""]
     steps = graph.get("steps") or []
@@ -179,9 +191,16 @@ def _write_readme(folder: Path, graph: dict, goal: str, sc: scaffold.Scaffold) -
         if data:
             lines += ["", "Data files here are small samples with the tutorial's columns, not the original dataset."]
         lines.append("")
+    elif sc.lesson_kind == "no_code":
+        line = "Nothing to set up here: this lesson happens in the apps the video uses{}, not in code files."
+        named = line.format(f" ({sc.stack})" if sc.stack else "")
+        lines += [line.format("") if scaffold.leaks(name, named, graph) else named, ""]
+    elif sc.lesson_kind == "conceptual":
+        lines += ["Nothing to set up here: this lesson explains ideas; there is no code to write.", ""]
     elif not sc.error:
         lines += ["The folder starts empty: step 1 creates the project.", ""]
-    lines += ["_Prepared by miyagi. Starter files only; every step is yours to write._", ""]
+    lines += ["_Prepared by miyagi. Starter files only; every step is yours to write._" if sc.lesson_kind == "code"
+              else "_Prepared by miyagi._", ""]
     # Nothing in the README may pass an editor screen check on its own: drop any line that would.
     lines = [ln for ln in lines if not ln.strip() or ln.startswith("#") or not scaffold.leaks(name, ln, graph)]
     text = "\n".join(lines)
@@ -190,6 +209,39 @@ def _write_readme(folder: Path, graph: dict, goal: str, sc: scaffold.Scaffold) -
         return None
     _write(folder, name, text, overwrite=True)
     return name
+
+
+GOAL_MATCH_LOW = 0.7  # below this the README shows a heads-up (0.5 "different project/tool" included)
+
+
+def goal_match_note(gm) -> str:
+    """A heads-up line when E2's lesson.goalMatch says the video only partly matches the request.
+
+    E2 sends {"score": 0..1 | null, "note": "<one sentence>"}; null = unknown (no goal / not scored), never low.
+    Also accepts a number (0..1, or 0..100), a level string, or {level?, reason?|explanation?}.
+    "" when the match is fine or unknown."""
+    if gm is None or gm == "":
+        return ""
+    score, level, why = None, "", ""
+    if isinstance(gm, bool):
+        return ""
+    if isinstance(gm, (int, float)):
+        score = float(gm)
+    elif isinstance(gm, str):
+        level = gm
+    elif isinstance(gm, dict):
+        raw = gm.get("score", gm.get("value"))
+        score = float(raw) if isinstance(raw, (int, float)) and not isinstance(raw, bool) else None
+        level = str(gm.get("level") or gm.get("match") or "")
+        why = str(gm.get("note") or gm.get("reason") or gm.get("explanation") or gm.get("why") or "").strip()
+    if score is not None and score > 1:
+        score /= 100
+    # E2's rubric: 1 = the video achieves the goal, 0.5 = related but a different project/tool, 0 = unrelated.
+    low = (score is not None and score < GOAL_MATCH_LOW) or level.strip().lower() in ("low", "none", "poor", "weak", "partial", "mismatch")
+    if not low:
+        return ""
+    pct = f" (match {round(score * 100)}%)" if score is not None else ""
+    return f"Heads-up: this video only partly matches what you asked for{pct}." + (f" {why}" if why else "")
 
 
 def _ours(p: Path) -> bool:

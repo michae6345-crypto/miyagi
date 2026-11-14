@@ -19,6 +19,7 @@ LESSONS = {
     "react": REPO_ROOT / "demo/cache/lessons/516197461c0dacf3.json",
     "pandas": Path(__file__).parent / "fixtures/pandas_pokemon.json",
     "blender": Path(__file__).parent / "fixtures/blender_donut.json",
+    "support": Path(__file__).parent / "fixtures/nocode_support_agents.json",
 }
 
 

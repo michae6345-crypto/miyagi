@@ -5,9 +5,9 @@
     res = install(item, on_line=print)         # ONLY after the learner confirms; Homebrew or pip in the lesson venv
 
 Items: {tool, label, kind, why, needed, installed, ok, version, min_version, install: {method, command, url}}
-  kind: editor | app | runtime | cli | python_package
+  kind: editor | app | runtime | cli | python_package | web_app (nothing to install; install.method "open" + url)
   installed: present on this Mac; ok: installed and new enough (min_version)
-  install.method: brew | brew_cask | pip | download | none. `command` is for display only: install() rebuilds
+  install.method: brew | brew_cask | pip | download | open | none. `command` is for display only: install() rebuilds
   the argv from method + a validated package name and never runs a string from Claude or the app.
 """
 
@@ -33,7 +33,7 @@ from .scaffold import _extract_json, _reply_text, make_client
 log = logging.getLogger("server.workspace")
 
 DEFAULT_MODEL = "claude-haiku-5-5"
-KINDS = ["editor", "app", "runtime", "cli", "python_package"]
+KINDS = ["editor", "app", "runtime", "cli", "python_package", "web_app"]
 _PKG = re.compile(r"^[A-Za-z0-9][A-Za-z0-9@._+\-/]{0,80}$")  # brew formula/cask, pip requirement name
 _PIP_NAME = re.compile(r"^([A-Za-z0-9][A-Za-z0-9._\-]{0,80})(\[[A-Za-z0-9_,\-]+\])?")
 _PIP_FLOOR = re.compile(r">=\s*([0-9][0-9.]*)")
@@ -59,11 +59,20 @@ CATALOG: dict[str, dict] = {
               "url": "https://www.figma.com/downloads/"},
     "unity": {"label": "Unity Hub", "kind": "app", "bundle": "com.unity3d.unityhub", "app": "Unity Hub", "cask": "unity-hub",
               "url": "https://unity.com/download"},
+    # Web apps: nothing to install; the card links to them ("Open in browser").
+    "openai-platform": {"label": "OpenAI Platform", "kind": "web_app", "url": "https://platform.openai.com"},
+    "chatgpt": {"label": "ChatGPT", "kind": "web_app", "url": "https://chatgpt.com"},
+    "botpress": {"label": "Botpress", "kind": "web_app", "url": "https://app.botpress.cloud"},
+    "zapier": {"label": "Zapier", "kind": "web_app", "url": "https://zapier.com/app/home"},
+    "google-sheets": {"label": "Google Sheets", "kind": "web_app", "url": "https://sheets.google.com"},
     "jupyter": {"label": "Jupyter", "kind": "python_package", "module": "jupyter", "pip": "jupyter", "url": "https://jupyter.org/install"},
 }
 ALIASES = {
     "visual-studio-code": "vscode", "visual studio code": "vscode", "code": "vscode", "vs code": "vscode",
     "python3": "python", "cpython": "python", "nodejs": "node", "node.js": "node", "cargo": "rust", "rustc": "rust",
+    "openai": "openai-platform", "openai agent builder": "openai-platform", "agent builder": "openai-platform",
+    "openai platform": "openai-platform", "botpress studio": "botpress", "zapier agents": "zapier",
+    "sheets": "google-sheets", "google sheets": "google-sheets",
     "golang": "go", "jdk": "java", "openjdk": "java", "docker desktop": "docker", "unity hub": "unity",
 }
 
@@ -94,7 +103,7 @@ REQ_SCHEMA = {
                     "pip_name": {"type": "string", "description": "python_package: bare pip package name (scikit-learn), else \"\""},
                     "brew": {"type": "string", "description": "Homebrew formula or cask name if one exists, else \"\""},
                     "brew_cask": {"type": "boolean"},
-                    "url": {"type": "string", "description": "official download/install page"},
+                    "url": {"type": "string", "description": "web_app: the app's https URL; otherwise the official download page"},
                 },
                 "required": ["tool", "kind", "why", "needed", "min_version", "binary", "import_name", "pip_name", "brew", "brew_cask", "url"],
                 "additionalProperties": False,
@@ -112,9 +121,12 @@ PROMPT = """Lesson (step graph built from the tutorial, JSON):
 {lesson_json}
 
 List what this lesson needs on a Mac.
-- editor: needed=true only if the learner writes code or text files (a code editor such as VS Code).
-  needed=false when the work happens in another app (Blender, Figma, Unity, Excel, a DAW), in a web
-  page/online tool, or only in a terminal; say so in "why".
+Go only by the video's steps above (what the learner typed when searching is not part of the lesson).
+- editor: needed=true only if the steps have the learner write code or text files (a code editor such as
+  VS Code). needed=false for no-code lessons (Botpress, Zapier, OpenAI's web tools, Figma, Blender, Unity,
+  spreadsheets, a DAW), for conceptual videos, and for terminal-only lessons; say so in "why".
+- web apps the steps use in the browser (OpenAI Platform, ChatGPT, Botpress, Zapier, Google Sheets, ...):
+  kind "web_app" with their https URL; nothing to install.
 - tools: runtimes (python, node, rust, go, java), CLIs (git, docker, ffmpeg, ...), desktop apps (blender,
   figma, docker), and the Python packages the steps import (torch, pandas, numpy, ...). Use lesson.libraries
   for versions. Do not list the editor here, npm packages the project's package.json installs, or
@@ -191,6 +203,9 @@ def check(item: dict, *, workdir: Path | str | None = None, run: Runner = _run) 
     """Fill installed / version / ok on an item. Read-only, a few seconds at most."""
     kind, cat = item["kind"], CATALOG.get(item["tool"], {})
     installed, version, where = False, "", ""
+    if kind == "web_app":  # nothing to install or check locally
+        item.update(installed=True, version="", where=cat.get("url") or _https(item.get("url", "")), ok=True)
+        return item
     if kind == "python_package":
         py = venv_python(workdir) or best_python()
         mod = item.get("import_name") or cat.get("module") or item["tool"]
@@ -221,7 +236,9 @@ def check(item: dict, *, workdir: Path | str | None = None, run: Runner = _run) 
 def recipe(item: dict, brew: str | None) -> dict:
     """{method, package, command, url}: Homebrew when it exists, pip for Python packages, else the download page."""
     cat = CATALOG.get(item["tool"], {})
-    url = cat.get("url") or item.get("url") or ""
+    url = cat.get("url") or _https(item.get("url", ""))
+    if item["kind"] == "web_app":
+        return {"method": "open", "package": "", "command": "", "url": url}
     if item["kind"] == "python_package":
         pkg = pip_requirement(item.get("pip_name") or cat.get("pip") or item["tool"])
         if pkg:
@@ -258,7 +275,7 @@ def venv_python(workdir: Path | str | None) -> str | None:
 def _lesson_json(graph: dict) -> str:
     keep = ("index", "title", "instructions", "targets", "checks", "precision_checks")
     slim = {
-        "lesson": {k: v for k, v in (graph.get("lesson") or {}).items() if k in ("title", "goal", "libraries")},
+        "lesson": {k: v for k, v in (graph.get("lesson") or {}).items() if k in ("title", "libraries")},
         "sources": [{k: s.get(k) for k in ("kind", "title", "url")} for s in graph.get("sources") or []],
         "steps": [{k: s[k] for k in keep if k in s} for s in graph.get("steps") or []],
     }
@@ -277,7 +294,7 @@ def _ask_claude(graph: dict, client) -> dict:
     kw = dict(model=model, max_tokens=4000, system=SYSTEM, messages=msgs)  # noqa: C408
     try:
         msg = client.messages.create(**kw, output_config={"format": {"type": "json_schema", "schema": REQ_SCHEMA}})
-    except Exception as e:  # noqa: BLE001 - structured output unsupported -> schema in the prompt
+    except Exception as e:
         if "schema" not in str(e).lower() and "output_config" not in str(e).lower():
             raise
         msgs = [{"role": "user", "content": msgs[0]["content"] + "\n\nReply with ONE JSON object matching:\n" + json.dumps(REQ_SCHEMA)}]
@@ -290,7 +307,14 @@ def _ask_claude(graph: dict, client) -> dict:
 
 
 def _lower_first(t: str) -> str:
-    return t if t[:2].isupper() else t[:1].lower() + t[1:]
+    first = t.split(" ", 1)[0]
+    common = {"All", "The", "This", "These", "Everything", "Every", "Each", "Work", "Steps", "It", "You", "No", "Only", "Nothing"}
+    return t[:1].lower() + t[1:] if first in common else t  # keep proper nouns: "Blender is ..."
+
+
+def _https(url: str) -> str:
+    url = (url or "").strip()
+    return url if re.fullmatch(r"https://[A-Za-z0-9.-]+\.[A-Za-z]{2,}(/[^\s\"'<>]*)?", url) else ""
 
 
 def _canonical(tool: str) -> str:
@@ -306,13 +330,15 @@ def _items(raw: dict) -> list[dict]:
         "min_version": "",
     }]
     seen = {"vscode"}
-    for t in (raw.get("tools") or [])[:15]:
+    for t in (raw.get("tools") or [])[:20]:
         tool = _canonical(t.get("tool", ""))
         if not tool or tool in seen or not re.fullmatch(r"[a-z0-9][a-z0-9._+@\-]{0,40}", tool):
             continue
         seen.add(tool)
         cat = CATALOG.get(tool, {})
         kind = cat.get("kind") or (t.get("kind") if t.get("kind") in KINDS else "cli")
+        if kind == "web_app" and not (cat.get("url") or _https(t.get("url", ""))):
+            continue  # a web app we can't link to is no use on the card
         if kind == "editor":
             continue
         items.append({
@@ -381,6 +407,9 @@ def install(item: dict, *, workdir: Path | str | None = None, on_line: Callable[
     brew = brew_path()
     r = recipe(item, brew)
     out = {"tool": item["tool"], "method": r["method"], "ok": False}
+    if r["method"] == "open":
+        out.update(error="a web app: nothing to install, open it in the browser", url=r["url"])
+        return out
     if r["method"] in ("download", "none"):
         out.update(error="Homebrew isn't installed; download it from the official page" if r["url"] else "no installer known",
                    url=r["url"])
@@ -451,13 +480,19 @@ def setup_card(items: list[dict], *, step_id: str | None = None) -> dict:
     miss = missing(items)
     need_ed = editor_needed(items)
     ed = next((it for it in items if it["kind"] == "editor"), None)
+    web = [it for it in items if it["kind"] == "web_app"]
     if miss:
         body = "Missing: " + ", ".join(it["label"] for it in miss) + ". Install now?"
+    elif web and not need_ed:
+        body = "Nothing to install."
     else:
         body = "You have everything this lesson needs."
+    if web:
+        body += " In your browser: " + ", ".join(it["label"] for it in web) + "."
     if not need_ed and ed:
         body += " " + ed["why"]
-    actions = (["open_editor"] if need_ed and ed and ed.get("installed") else []) + (["install"] if miss else []) + ["skip_setup"]
+    actions = ((["open_editor"] if need_ed and ed and ed.get("installed") else []) + (["open_in_browser"] if web else [])
+               + (["install"] if miss else []) + ["skip_setup"])
     card = {
         "kind": "setup", "title": "Before you start" if miss else "Ready to go", "body": body,
         "actions": actions,
