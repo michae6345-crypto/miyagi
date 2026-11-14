@@ -78,6 +78,26 @@ What works well:
 - Diffs are minimal.
 - The prompt cache works: 7–10.7k cached tokens read per call.
 
+## Re-run against E5's fixes (PR #1 @ `d219e52`, merged locally onto integration/live)
+
+Same 9 cases and harness. Records: [`results-e5-d219e52/`](results-e5-d219e52/). The gate is unchanged, because those fixes are E4's, so **fires stays 5/9**.
+
+| Case | Before | After `d219e52` |
+|---|---|---|
+| **G2** | FAIL: template card, 0-line patch | **PASS**: Opus "Edited index.js was never staged… Run git add index.js, then git rebase --continue", sent as a command fix. The rebase finishes and the debug line is gone from history. It cites the right Stack Overflow answer |
+| **G1** | FAIL: diff fixed only line 1, nothing squashed | **REGRESSION**: `expected` is now the 4 rewritten todo lines, but `yours` is still only line 1. Applying it duplicates three picks (a 7-line todo), and `git rebase --continue` stops in a CONFLICT (`could not apply 7a428b4... Add login endpoint`) |
+| **G3** | PARTIAL / FAIL | No `diff.command` any more, so nothing pastes the markers in ✓. `yours` is now the whole OCR'd block with gutter numbers and OCR errors (`(req, res) = {`, `res. json`), so still "no safe patch". The advice still says "keep the logout route", which causes a 2nd conflict |
+| **P1, P2** | patch only via a 2nd Opus call | **Unchanged**. `session._code_excerpt` cuts the `.ipynb` at 6000 chars, so the JSON no longer parses and `notebook_code` returns it unchanged. Verified: the full P1 file → 443 chars of cell sources; the 6000-char cut → raw JSON. P1's `expected` came back JSON-escaped and `yours` was empty again |
+| **P3** | patch via a 2nd Opus call | ✓ The card's own diff now applies inside the notebook cell (notebook-aware `apply_fix`) |
+| **P2** | says `axis` | still says `axis` |
+| **R3** | 9.8 s card | 6.3 s card |
+| **R1** | template (no error on screen) | unchanged; this is a gate issue, since nothing errors |
+
+After the fixes:
+- **Diagnosis:** 6 right, 2 partial, 1 wrong (R1, forced). **Line:** 8/9. **Patch correct after re-run:** 7/9 (G1 and G3 fail).
+- **Latency:** pre-Opus time is now 2.0–3.1 s, worst card 7.4 s (was 9.8). But web grounding now runs on every case, because screen errors feed it, and 6 of 8 cards hit the 3 s cap. So the median card is 6.9 s (was 6.7).
+- **Web sources:** on-topic for git. Still generic for React and pandas ("webpack compiled with 1 error", generic TypeError Q&A).
+
 ## Cases
 
 Every output on screen is real:

@@ -199,7 +199,7 @@ async def run_case(case: C.Case, work: Path) -> dict:
         except coach.CoachUnavailable as e:
             patch = {"error": e.reason, "s": round(time.perf_counter() - t1, 2)}
     out["patch"] = patch
-    command = diff.get("command")
+    command = diff.get("command") or (patch or {}).get("command")  # do_it_for_me may return a command fix
 
     # ---- apply + re-run the real check
     if case.topic == "react":

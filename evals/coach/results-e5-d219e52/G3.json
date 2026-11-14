@@ -1,0 +1,225 @@
+{
+ "id": "G3",
+ "topic": "git",
+ "step": "s5",
+ "mistake": "Moved `Cleanup` above `Add logout endpoint` to squash it into the login commit → CONFLICT, then ran `git rebase --continue` with the markers still in index.js",
+ "truth": "Cleanup edits the logout route, which does not exist yet at that point → conflict; continuing without resolving fails ('needs merge'). Fix: `git rebase --abort` and squash Cleanup where it was (right under Add logout endpoint), or resolve the markers and `git add index.js`.",
+ "ocr": {
+  "blocks": 61,
+  "ms": 190,
+  "lines_by_app": {
+   "": 2,
+   "Code": 25,
+   "Terminal": 16
+  }
+ },
+ "cursor": {
+  "xy": [
+   360.0,
+   299.0
+  ],
+  "on": "<<<<<<< HEAD"
+ },
+ "gate_before": {
+  "passed": false,
+  "via": null,
+  "passed_screen_only": false,
+  "checks": [
+   "s5c1 fail: not seen in Code",
+   "s5c2 fail: not seen in Terminal",
+   "s5c3 fail: still showing 'CONFLICT' in Terminal"
+  ],
+  "precision": [
+   "s5p1 pending: run `tut run test ! -d .git/rebase-merge`",
+   "s5p2 pending: run `tut run ! git log --oneline -5 | grep -q 'authentication middleware'`",
+   "s5p3 pending: run `tut run git log -1 --format=%s | grep -q 'Add README'`"
+  ]
+ },
+ "fires": true,
+ "fires_screen_only": true,
+ "inputs": {
+  "code_from": "screen OCR (Code)",
+  "code_chars": 522,
+  "target_location": null,
+  "cursor_under": "<<<<< HEAD"
+ },
+ "warm_s": 1.8,
+ "card_s": 6.91,
+ "targets_s": 4.5,
+ "card": {
+  "stepId": "s5",
+  "severity": "fail",
+  "title": "Unresolved conflict markers in index.js",
+  "body": "git rebase --continue refuses because index.js still contains the <<<<<<< HEAD, ======= and >>>>>>> a9db680 markers. Delete the three marker lines, keep the logout route, save, then git add index.js and continue.",
+  "actions": [
+   "explain",
+   "show_me",
+   "hint",
+   "apply_fix"
+  ],
+  "guidingQuestion": "Which lines in index.js are Git's markers rather than code you want to keep?",
+  "diff": {
+   "expected": "app.post('/logout', (req, res) => {\n  res.json({ ok: true });\n});",
+   "yours": "10 <<<<< HEAD\n11\n12 app.post('/logout', (req, res) = {\n13 res. json({ ok: true });\n14 });\n15\n16 >>>>>>> a9db680 (Cleanup)",
+   "file": "index.js",
+   "line": 16
+  },
+  "citation": {
+   "label": "Git Interactive Rebase: Edit, Split, Squash, Delete, and Reorder Commits",
+   "url": "https://www.youtube.com/watch?v=42392W7SgnE"
+  },
+  "targets": [
+   {
+    "boxId": 44,
+    "label": "conflict start",
+    "text": "<<<<< HEAD",
+    "rect": {
+     "x": 316.5,
+     "y": 291.0,
+     "w": 87.9,
+     "h": 15.2
+    }
+   },
+   {
+    "boxId": 56,
+    "label": "conflict end",
+    "text": ">>>>>>> a9db680 (Cleanup)",
+    "rect": {
+     "x": 316.5,
+     "y": 401.5,
+     "w": 178.3,
+     "h": 12.7
+    }
+   },
+   {
+    "boxId": 39,
+    "label": "needs merge",
+    "text": "index.js: needs merge",
+    "rect": {
+     "x": 949.4,
+     "y": 248.5,
+     "w": 153.2,
+     "h": 12.6
+    }
+   }
+  ]
+ },
+ "meta": {
+  "route": "opus",
+  "triage": {
+   "route": "opus",
+   "by": "haiku",
+   "reason": "The learner is stuck on a rebase with a real merge conflict in index.js that depends on their specific code (conflicting logout route and debug login line), so it is not a simple unfinished step nor a known generic failure mode; it needs case-specific help."
+  },
+  "model": "claude-opus-5-5",
+  "latency_s": 4.94,
+  "playbook_id": null,
+  "web_sources": [],
+  "usage": {
+   "input_tokens": 5628,
+   "output_tokens": 399,
+   "cache_read_input_tokens": 7770,
+   "cache_creation_input_tokens": 0,
+   "first_text_s": 2.08
+  }
+ },
+ "diagnosis_auto": true,
+ "targets": {
+  "n": 3,
+  "any": true,
+  "first": true,
+  "texts": [
+   "<<<<< HEAD",
+   ">>>>>>> a9db680 (Cleanup)",
+   "index.js: needs merge"
+  ],
+  "labels": [
+   "conflict start",
+   "conflict end",
+   "needs merge"
+  ]
+ },
+ "hint3": {
+  "title": "Here's the change",
+  "diff": {
+   "expected": "app.post('/logout', (req, res) => {\n  res.json({ ok: true });\n});",
+   "yours": "10 <<<<< HEAD\n11\n12 app.post('/logout', (req, res) = {\n13 res. json({ ok: true });\n14 });\n15\n16 >>>>>>> a9db680 (Cleanup)",
+   "file": "index.js",
+   "line": 16
+  }
+ },
+ "orchestrator_resolves_file": true,
+ "patch": {
+  "error": "no safe patch: learner's lines not found in file",
+  "s": 4.1
+ },
+ "check_after": {
+  "in_progress": true,
+  "commits": [
+   "Add README",
+   "Add login endpoint",
+   "Add logout endpoint",
+   "Cleanup",
+   "Add authentication middleware"
+  ],
+  "log": [
+   "learner@MacBook-Pro git-rebase-lab % git rebase --continue",
+   "index.js: needs merge",
+   "You must edit all merge conflicts and then",
+   "mark them as resolved using git add",
+   "learner@MacBook-Pro git-rebase-lab % git rebase --continue",
+   "index.js: needs merge",
+   "You must edit all merge conflicts and then",
+   "mark them as resolved using git add",
+   "learner@MacBook-Pro git-rebase-lab % git rebase --continue",
+   "index.js: needs merge",
+   "You must edit all merge conflicts and then",
+   "mark them as resolved using git add",
+   "learner@MacBook-Pro git-rebase-lab % git rebase --continue",
+   "index.js: needs merge",
+   "You must edit all merge conflicts and then",
+   "mark them as resolved using git add"
+  ],
+  "ok": false,
+  "recovered_by_abort": false,
+  "why": "not finished / markers left",
+  "terminal": [
+   "learner@MacBook-Pro git-rebase-lab % git rebase --continue",
+   "index.js: needs merge",
+   "You must edit all merge conflicts and then",
+   "mark them as resolved using git add",
+   "learner@MacBook-Pro git-rebase-lab % git rebase --continue",
+   "index.js: needs merge",
+   "You must edit all merge conflicts and then",
+   "mark them as resolved using git add",
+   "learner@MacBook-Pro git-rebase-lab % git rebase --continue",
+   "index.js: needs merge",
+   "You must edit all merge conflicts and then",
+   "mark them as resolved using git add",
+   "learner@MacBook-Pro git-rebase-lab % git rebase --continue",
+   "index.js: needs merge",
+   "You must edit all merge conflicts and then",
+   "mark them as resolved using git add"
+  ],
+  "index_after": "const express = require('express');\nconst app = express();\napp.use(express.json());\n\napp.post('/login', (req, res) => {\n  console.log('DEBUG: LOGIN', req.body);\n  res.json({ ok: true });\n});\n\n<<<<<<< HEAD\n=======\napp.post('/logout', (req, res) => {\n  res.json({ ok: true });\n});\n\n>>>>>>> a9db680 (Cleanup)\napp.listen(3000, () => console.log('Server running on port 3000'));\n"
+ },
+ "gate_after": {
+  "passed": false,
+  "via": null,
+  "failed": [
+   "s5c1 Squash keyword in todo: not seen in Code",
+   "s5c2 Rebase succeeded: not seen in Terminal",
+   "s5c3 No rebase conflicts: still showing 'CONFLICT' in Terminal"
+  ]
+ },
+ "spotlight": {
+  "via": "diff.yours",
+  "rect": {
+   "x": 310.5,
+   "y": 285.0,
+   "w": 99.9,
+   "h": 27.2
+  },
+  "on_line": true
+ }
+}
