@@ -311,7 +311,9 @@ function Success(): ReactNode {
 const KIND = {
   explain: { label: 'Explain', Icon: Info, tone: color.label },
   hint: { label: 'Hint', Icon: Lightbulb, tone: color.label },
-  answer: { label: 'Answer', Icon: MessageSquareText, tone: color.label }
+  answer: { label: 'Answer', Icon: MessageSquareText, tone: color.label },
+  resume: { label: 'Continue?', Icon: Play, tone: color.label },
+  setup: { label: 'Setup', Icon: Wrench, tone: color.label }
 } as const
 
 function Card(): ReactNode {
