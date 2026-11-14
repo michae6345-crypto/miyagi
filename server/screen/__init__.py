@@ -12,8 +12,16 @@
 Pure helpers (no pyobjc, usable on Linux): `server.screen.match.screen_contains/locate_match`,
 `server.screen.metrics.TerminalMetricReader`, the types in `server.screen.types`.
 """
+from .describe import DescribeError
 from .match import LocateResult, locate, locate_match, screen_contains
-from .types import Block, Rect, ScreenObservation, Window
+from .types import (
+    PERMISSION_HELP,
+    Block,
+    Rect,
+    ScreenObservation,
+    ScreenPermissionError,
+    Window,
+)
 
 
 def get_reader():
@@ -27,10 +35,13 @@ def observe_image(path: str, overlay=None):
 
 
 __all__ = [
+    "PERMISSION_HELP",
     "Block",
+    "DescribeError",
     "LocateResult",
     "Rect",
     "ScreenObservation",
+    "ScreenPermissionError",
     "Window",
     "get_reader",
     "locate",

@@ -13,9 +13,9 @@ from collections.abc import Callable
 from pathlib import Path
 
 from . import match as M
-from .describe import Describer, to_jpeg
+from .describe import DescribeError, Describer, to_jpeg
 from .metrics import TerminalMetricReader, TigerWriter
-from .types import Block, Rect, ScreenObservation, Window
+from .types import Block, Rect, ScreenObservation, ScreenPermissionError, Window
 
 log = logging.getLogger("server.screen")
 
@@ -44,7 +44,12 @@ class ScreenReader:
         self.interval = interval
         self.max_age = max_age
         self.diff_pixels = diff_pixels
+        # Fixtures are used ONLY when asked for explicitly (arg / TUT_SCREEN_FIXTURE), or under
+        # DEMO=1 as a fallback when capture is impossible. Never silently otherwise.
         self.fixture = fixture or os.environ.get("TUT_SCREEN_FIXTURE") or None
+        self.demo = os.environ.get("DEMO", "") not in ("", "0", "false", "False")
+        self.last_error: str | None = None   # why the last capture failed (None = healthy)
+        self._error_cbs: list[Callable[[Exception | None], object]] = []
         self.ocr_ms_history: list[float] = []
         self._latest: ScreenObservation | None = None
         self._latest_image = None
@@ -89,10 +94,62 @@ class ScreenReader:
             t0 = time.time()
             try:
                 self.observe_now(force=False)
-            except Exception:
-                log.exception("screen capture/OCR failed")
+            except Exception as e:
+                if not isinstance(e, ScreenPermissionError):
+                    log.exception("screen capture/OCR failed")
             self._wake.wait(max(0.05, self.interval - (time.time() - t0)))
             self._wake.clear()
+
+    # ------------------------------------------------------------------ health / errors / keys
+
+    @property
+    def status(self) -> str:
+        """ok | no_permission | error | fixture | idle (nothing captured yet)."""
+        if self.last_error:
+            return "no_permission" if self.last_error.startswith("no_permission") else "error"
+        if self._latest is None:
+            return "idle"
+        return "fixture" if self._latest.source != "live" else "ok"
+
+    def on_error(self, cb: Callable[[Exception | None], object]) -> Callable[[], None]:
+        """cb(exc) when capture starts failing (e.g. ScreenPermissionError: tell the user what to
+        grant), cb(None) when it recovers. Called on transitions only, from the reader thread."""
+        self._error_cbs.append(cb)
+        return lambda: self._error_cbs.remove(cb) if cb in self._error_cbs else None
+
+    def _set_error(self, e: Exception | None) -> None:
+        from . import macos
+        msg = None if e is None else (
+            f"no_permission: {macos.PERMISSION_HELP}" if isinstance(e, macos.ScreenPermissionError)
+            else f"{e.__class__.__name__}: {e}")
+        if msg == self.last_error:
+            return
+        self.last_error = msg
+        if e is not None:
+            log.error("screen reader: %s", msg)
+        else:
+            log.info("screen reader recovered")
+        for cb in list(self._error_cbs):
+            try:
+                cb(e)
+            except Exception:
+                log.exception("on_error callback failed")
+
+    def set_keys(self, gemini: str | None = None, tiger_url: str | None = None) -> dict[str, str]:
+        """BYOK from the app's `config.keys` ({gemini, tigerUrl}). Empty/None = keep using .env.
+        Returns the screen reader's part of `config.status`."""
+        self._describer.set_key(gemini)
+        self._tiger_writer().set_url(tiger_url)
+        return self.key_status()
+
+    def key_status(self) -> dict[str, str]:
+        """{"gemini": KeyState, "tigerUrl": KeyState} (events.ts KeyState: ok|missing|invalid|env)."""
+        return {"gemini": self._describer.key_status, "tigerUrl": self._tiger_writer().status}
+
+    def _tiger_writer(self) -> TigerWriter:
+        if self._tiger is None:
+            self._tiger = TigerWriter()
+        return self._tiger
 
     # ------------------------------------------------------------------ public API
 
@@ -137,9 +194,8 @@ class ScreenReader:
                       on_restart: Callable[[str], None] | None = None) -> TerminalMetricReader:
         """Start reading metrics off the screen for a lesson. Returns the reader (call `.reset()`
         on a step change; `unwatch_metrics(reader)` to stop)."""
-        if self._tiger is None:
-            self._tiger = TigerWriter()
-        r = TerminalMetricReader(lesson_id, patterns, callback, app=app, tiger=self._tiger, on_restart=on_restart)
+        r = TerminalMetricReader(lesson_id, patterns, callback, app=app, tiger=self._tiger_writer(),
+                                 on_restart=on_restart)
         with self._lock:
             self._metric_readers.append(r)
             obs = self._latest
@@ -155,41 +211,56 @@ class ScreenReader:
                 self._metric_readers.remove(reader)
 
     async def describe(self, question: str, region=None) -> str:
-        """Ask Gemini about the current screen (or a region of it, in points). Rate-limited."""
-        img = await asyncio.to_thread(self.screenshot_pil, region)
+        """Ask Gemini about the current screen (or a region of it, in points). Rate-limited.
+        Raises DescribeError (reason: missing_key | invalid_key | no_image | unavailable)."""
+        try:
+            img = await asyncio.to_thread(self.screenshot_pil, region)
+        except Exception as e:
+            raise DescribeError("no_image", str(e)[:200]) from e
         if img is None:
-            return "(no screen image available)"
+            raise DescribeError("no_image", self.last_error or "nothing captured yet")
         key = (question, Rect.from_any(region).rounded() if region else None, self._frame)
         return await self._describer.describe(to_jpeg(img), question, key)
 
     # ------------------------------------------------------------------ capture + OCR
 
     def _grab(self):
-        """-> (cgimage, screen_rect, scale, windows) from the live display or a fixture."""
+        """-> (cgimage, screen_rect, scale, windows, fixture_app, source).
+
+        Live capture, unless a fixture was asked for explicitly. Without Screen Recording
+        permission this RAISES ScreenPermissionError (and reports it via last_error/on_error);
+        it only substitutes a fixture under DEMO=1, and then marks the observation's source.
+        """
         from . import macos
-        if not self.fixture:
-            if macos.has_permission():
-                try:
-                    f = macos.capture_main_display()
-                    return f.image, f.screen, f.scale, macos.list_windows(f.screen), None
-                except macos.ScreenPermissionError:
-                    pass
+        if self.fixture:
+            img, screen, scale, windows, app = load_fixture(self.fixture)
+            return img, screen, scale, windows, app, f"fixture:{Path(self.fixture).name}"
+        try:
+            if not macos.has_permission():
+                raise macos.ScreenPermissionError(macos.PERMISSION_HELP)
+            f = macos.capture_main_display()
+        except macos.ScreenPermissionError:
             if not self._permission_warned:
                 print(macos.PERMISSION_HELP, file=sys.stderr)
-                print("Falling back to fixture screenshots in server/screen/fixtures/.", file=sys.stderr)
                 self._permission_warned = True
             fixtures = sorted(FIXTURES_DIR.glob("*.png"))
-            if not fixtures:
-                raise macos.ScreenPermissionError(macos.PERMISSION_HELP)
-            self.fixture = str(fixtures[0])
-        img, screen, scale, windows, app = load_fixture(self.fixture)
-        return img, screen, scale, windows, app
+            if self.demo and fixtures:
+                log.warning("DEMO=1 and no Screen Recording permission: replaying %s", fixtures[0].name)
+                img, screen, scale, windows, app = load_fixture(str(fixtures[0]))
+                return img, screen, scale, windows, app, f"fixture:{fixtures[0].name}"
+            raise
+        return f.image, f.screen, f.scale, macos.list_windows(f.screen), None, "live"
 
     def observe_now(self, force: bool = True) -> ScreenObservation | None:
         """Capture + OCR synchronously. With force=False, skips OCR when nothing changed."""
         from . import macos
         with self._capture_lock:
-            img, screen, scale, windows, fixture_app = self._grab()
+            try:
+                img, screen, scale, windows, fixture_app, source = self._grab()
+            except Exception as e:
+                self._set_error(e)
+                raise
+            self._set_error(None)
             with self._lock:
                 overlay = list(self._overlay)
             layout = tuple((w.app, w.title, w.rect) for w in windows)
@@ -208,7 +279,7 @@ class ScreenReader:
             self._frame += 1
             obs = ScreenObservation(t=time.time(), app=fixture_app or macos.frontmost_app(windows),
                                     windows=windows, blocks=blocks, screen=screen, scale=scale,
-                                    ocr_ms=ms, frame=self._frame)
+                                    ocr_ms=ms, frame=self._frame, source=source)
             self.ocr_ms_history = (self.ocr_ms_history + [ms])[-50:]
             with self._lock:
                 self._latest, self._latest_image = obs, img
@@ -315,7 +386,7 @@ def observe_image(path: str, overlay=None) -> ScreenObservation:
     blocks = M.drop_inside(blocks, [Rect.from_any(r) for r in (overlay or [])])
     blocks = M.reading_order(M.assign_windows(blocks, windows))
     return ScreenObservation(t=time.time(), app=app, windows=windows, blocks=blocks, screen=screen,
-                             scale=scale, ocr_ms=ms, frame=1)
+                             scale=scale, ocr_ms=ms, frame=1, source=f"fixture:{Path(path).name}")
 
 
 _READER: ScreenReader | None = None

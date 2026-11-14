@@ -12,6 +12,7 @@ import os
 import re
 import threading
 import time
+from collections import deque
 from collections.abc import Callable
 from dataclasses import dataclass, field
 
@@ -209,19 +210,42 @@ class TerminalMetricReader:
 # ---------------------------------------------------------------------- Tiger Data
 
 class TigerWriter:
-    """Writes metric points to Tiger Data `training_metrics`. Never raises; disables itself
-    after repeated failures (the demo must not die because the DB is down)."""
+    """Writes metric points to Tiger Data `training_metrics` on one background worker.
+
+    Never raises into the caller. On failure it keeps the points (bounded buffer) and retries
+    with exponential backoff (1s, 2s, 4s ... capped at 60s), so a DB blip loses nothing and a
+    dead DB never blocks the screen loop. `status` is a KeyState for `config.status.tigerUrl`.
+    """
+
+    MAX_BUFFER = 20000
+    MAX_BACKOFF = 60.0
 
     def __init__(self, url: str | None = None):
-        self.url = url if url is not None else os.environ.get("TIGER_DATABASE_URL", "")
+        self._byok = url  # None -> TIGER_DATABASE_URL from env
         self._conn = None
         self._failures = 0
-        self._warned = False
+        self._next_try = 0.0
+        self._last_ok = False
+        self.last_error: str | None = None
+        self._buf: deque[tuple[float, str, int, str, float]] = deque(maxlen=self.MAX_BUFFER)
         self._lock = threading.Lock()
+        self._wake = threading.Event()
+        self._worker: threading.Thread | None = None
+        self._warned = False
+
+    # ------------------------------------------------------------------ config / status
 
     @property
-    def enabled(self) -> bool:
-        return self._valid_url() and self._failures < 5
+    def url(self) -> str:
+        return self._byok if self._byok is not None else os.environ.get("TIGER_DATABASE_URL", "")
+
+    def set_url(self, url: str | None) -> None:
+        """BYOK: use this Tiger URL instead of the engine's .env (None/"" = back to env)."""
+        with self._lock:
+            self._byok = url or None
+            self._reset_conn()
+            self._failures, self._next_try, self._last_ok, self.last_error = 0, 0.0, False, None
+        self._wake.set()
 
     def _valid_url(self) -> bool:
         from urllib.parse import urlparse
@@ -231,31 +255,105 @@ class TigerWriter:
             return False
         return bool(host) and "..." not in self.url and host.strip(".") != ""
 
-    def _connect(self):
-        import psycopg
-        if self._conn is None or self._conn.closed:
-            self._conn = psycopg.connect(self.url, autocommit=True, connect_timeout=5)
-        return self._conn
+    @property
+    def enabled(self) -> bool:
+        return self._valid_url()
+
+    @property
+    def status(self) -> str:
+        """KeyState from events.ts: ok | missing | invalid | env.
+        missing = no URL; invalid = placeholder URL or the last attempt failed;
+        ok = app-provided URL (and not failing); env = .env URL (and not failing)."""
+        if not self.url:
+            return "missing"
+        if not self._valid_url() or self._failures > 0:
+            return "invalid"
+        return "ok" if self._byok else "env"
+
+    @property
+    def pending(self) -> int:
+        return len(self._buf)
+
+    def check(self, timeout: float = 5.0) -> str:
+        """Synchronously try `SELECT 1` and return the resulting status (for config.keys)."""
+        if not self._valid_url():
+            return self.status
+        try:
+            import psycopg
+            with psycopg.connect(self.url, connect_timeout=int(timeout)) as c:
+                c.execute("SELECT 1")
+            self._failures, self.last_error = 0, None
+        except Exception as e:  # noqa: BLE001
+            self._failures = max(1, self._failures)
+            self.last_error = str(e)[:200]
+        return self.status
+
+    # ------------------------------------------------------------------ writes
 
     def write(self, run_id: str, points: list[tuple[str, int, float]]) -> None:
-        if not self.enabled:
+        if not self._valid_url():
             if not self._warned:
-                log.warning("TIGER_DATABASE_URL not set (or failing); screen metrics not persisted")
+                log.warning("Tiger URL missing or placeholder (status=%s); screen metrics not persisted", self.status)
                 self._warned = True
             return
-        threading.Thread(target=self._write, args=(run_id, list(points), time.time()), daemon=True).start()
-
-    def _write(self, run_id: str, points, t: float) -> None:
+        t = time.time()
         with self._lock:
+            self._buf.extend((t, run_id, step, name, value) for name, step, value in points)
+            if self._worker is None or not self._worker.is_alive():
+                self._worker = threading.Thread(target=self._run, name="tiger-writer", daemon=True)
+                self._worker.start()
+        self._wake.set()
+
+    def flush(self, timeout: float = 10.0) -> bool:
+        """Block until the buffer is empty (tests / shutdown). True if everything was written."""
+        end = time.time() + timeout
+        while self._buf and time.time() < end:
+            self._wake.set()
+            time.sleep(0.05)
+        return not self._buf
+
+    def _reset_conn(self) -> None:
+        try:
+            if self._conn is not None:
+                self._conn.close()
+        except Exception:  # noqa: BLE001, S110
+            pass
+        self._conn = None
+
+    def _run(self) -> None:
+        while True:
+            self._wake.wait(timeout=5)
+            self._wake.clear()
+            if not self._buf:
+                continue
+            delay = self._next_try - time.time()
+            if delay > 0:
+                time.sleep(min(delay, 1.0))
+                self._wake.set()
+                continue
+            with self._lock:
+                batch = list(self._buf)
             try:
-                conn = self._connect()
-                with conn.cursor() as cur:
+                import psycopg
+                if self._conn is None or self._conn.closed:
+                    self._conn = psycopg.connect(self.url, autocommit=True, connect_timeout=5)
+                with self._conn.cursor() as cur:
                     cur.executemany(
                         "INSERT INTO training_metrics (time, run_id, step, name, value) "
-                        "VALUES (to_timestamp(%s), %s, %s, %s, %s)",
-                        [(t, run_id, step, name, value) for name, step, value in points])
-                self._failures = 0
+                        "VALUES (to_timestamp(%s), %s, %s, %s, %s)", batch)
+                with self._lock:
+                    for _ in range(min(len(batch), len(self._buf))):
+                        self._buf.popleft()
+                if self._failures:
+                    log.info("Tiger writes recovered after %d failures", self._failures)
+                self._failures, self._next_try, self.last_error = 0, 0.0, None
             except Exception as e:  # noqa: BLE001
                 self._failures += 1
-                self._conn = None
-                log.warning("Tiger write failed (%d/5): %s", self._failures, e)
+                self.last_error = str(e)[:200]
+                backoff = min(self.MAX_BACKOFF, 2 ** (self._failures - 1))
+                self._next_try = time.time() + backoff
+                self._reset_conn()
+                log.warning("Tiger write failed (%d, retry in %.0fs, %d pending): %s",
+                            self._failures, backoff, len(self._buf), self.last_error)
+            if self._buf:
+                self._wake.set()

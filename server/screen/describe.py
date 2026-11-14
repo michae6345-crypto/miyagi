@@ -2,6 +2,7 @@
 
 Rate-limited: at most one call every `min_interval` seconds; a repeat of the same
 (question, region) inside `cache_ttl` returns the cached answer.
+Failures raise `DescribeError`; nothing is ever returned as a fake answer.
 """
 from __future__ import annotations
 
@@ -22,6 +23,21 @@ SYSTEM = ("You are looking at a learner's screen while they follow a coding tuto
           "If the screenshot doesn't show enough to answer, say so.")
 
 
+class DescribeError(RuntimeError):
+    """describe() could not produce an answer. `reason`: missing_key | invalid_key | no_image |
+    unavailable (every model failed / timed out)."""
+
+    def __init__(self, reason: str, detail: str = ""):
+        super().__init__(f"{reason}: {detail}" if detail else reason)
+        self.reason = reason
+        self.detail = detail
+
+
+def _is_key_error(e: Exception) -> bool:
+    s = str(e).lower()
+    return any(k in s for k in ("api key not valid", "api_key_invalid", "permission_denied", "unauthenticated"))
+
+
 class Describer:
     def __init__(self, min_interval: float = 4.0, cache_ttl: float = 15.0, model: str | None = None):
         self.min_interval = min_interval
@@ -31,15 +47,40 @@ class Describer:
         self._cache: dict[tuple, tuple[float, str]] = {}
         self._lock = asyncio.Lock()
         self._client = None
+        self._byok: str | None = None     # key handed over by the app (config.keys)
+        self._key_invalid = False
+
+    # ------------------------------------------------------------------ keys
+
+    def set_key(self, key: str | None) -> None:
+        """BYOK: use this Gemini key instead of GEMINI_API_KEY from .env (None/"" = back to env)."""
+        self._byok = key or None
+        self._client = None
+        self._key_invalid = False
+        self._cache.clear()
+
+    def _key(self) -> str:
+        return self._byok or os.environ.get("GEMINI_API_KEY", "")
+
+    @property
+    def key_status(self) -> str:
+        """KeyState from events.ts: ok | missing | invalid | env."""
+        if not self._key():
+            return "missing"
+        if self._key_invalid:
+            return "invalid"
+        return "ok" if self._byok else "env"
 
     def _get_client(self):
         if self._client is None:
-            key = os.environ.get("GEMINI_API_KEY", "")
+            key = self._key()
             if not key:
-                return None
+                raise DescribeError("missing_key", "no Gemini key (config.keys.gemini or GEMINI_API_KEY)")
             from google import genai
             self._client = genai.Client(api_key=key)
         return self._client
+
+    # ------------------------------------------------------------------ call
 
     async def describe(self, jpeg: bytes, question: str, cache_key: tuple) -> str:
         now = time.time()
@@ -47,15 +88,13 @@ class Describer:
         if hit and now - hit[0] < self.cache_ttl:
             return hit[1]
         client = self._get_client()
-        if client is None:
-            return "(describe unavailable: GEMINI_API_KEY is not set)"
         async with self._lock:
             wait = self.min_interval - (time.time() - self._last_call)
             if wait > 0:
                 await asyncio.sleep(wait)
             self._last_call = time.time()
             from google.genai import types
-            text, err = None, None
+            text, errors = None, []
             for model in [self.model] + [m for m in FALLBACK_MODELS if m != self.model]:
                 try:
                     resp = await asyncio.wait_for(client.aio.models.generate_content(
@@ -64,14 +103,20 @@ class Describer:
                         config=types.GenerateContentConfig(system_instruction=SYSTEM, temperature=0.2),
                     ), timeout=CALL_TIMEOUT)
                     text = (resp.text or "").strip()
+                    if not text:
+                        raise RuntimeError("empty response")
                     if model != self.model:
                         log.warning("describe: %s unavailable, answered by %s", self.model, model)
                     break
-                except Exception as e:  # noqa: BLE001  (503 / 404 / timeout -> next model)
-                    err = e
-                    log.warning("Gemini describe via %s failed: %s", model, str(e)[:160] or e.__class__.__name__)
+                except Exception as e:
+                    if _is_key_error(e):
+                        self._key_invalid = True
+                        raise DescribeError("invalid_key", str(e)[:200]) from e
+                    errors.append(f"{model}: {str(e)[:120] or e.__class__.__name__}")
+                    log.warning("Gemini describe via %s failed: %s", model, errors[-1])
             if text is None:
-                return f"(describe failed: {err.__class__.__name__})"
+                raise DescribeError("unavailable", "; ".join(errors))
+        self._key_invalid = False
         self._cache[cache_key] = (time.time(), text)
         return text
 
