@@ -1,0 +1,49 @@
+/* Miyagi tokens as CSS variables. Light = Paper (site, Devpost, light overlay). Dark = macOS HUD overlay. */
+@font-face {
+  font-family: "Google Sans Flex";
+  src: url("../fonts/GoogleSansFlex.woff2") format("woff2");
+  font-weight: 400 700;
+  font-display: swap;
+}
+
+:root {
+  --m-paper: #f6f6f3;
+  --m-surface: #ffffff;
+  --m-surface-2: #efefea;
+  --m-ink: #141414;
+  --m-ink-muted: #66665f;
+  --m-ink-faint: #8f8f88;
+  --m-hairline: rgba(0, 0, 0, .08);
+
+  --m-pass: #30d158;
+  --m-pass-deep: #1f9b45;
+  --m-pass-text: #1c8a3c;
+  --m-pass-tint: rgba(48, 209, 88, .14);
+  --m-off-track: #ffb020;
+  --m-off-track-tint: rgba(255, 176, 32, .12);
+  --m-watching: #8e8e93;
+  --m-pill: #000000;
+
+  --m-glass: rgba(255, 255, 255, .78);
+  --m-text: #141414;
+  --m-muted: rgba(0, 0, 0, .55);
+  --m-button: #141414;
+  --m-button-text: #f6f6f3;
+
+  --m-font-brand: "Google Sans Flex", system-ui, sans-serif;
+  --m-font-ui: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI Variable Text", "Segoe UI", system-ui, sans-serif;
+  --m-font-mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+
+  --m-text-xs: 13px; --m-text-sm: 15px; --m-text-md: 20px; --m-text-lg: 28px;
+  --m-radius-chip: 14px; --m-radius-card: 20px; --m-radius-launcher: 28px; --m-radius-pill: 17px;
+  --m-shadow-card: 0 20px 60px rgba(0, 0, 0, .45);
+}
+
+[data-theme="dark"], .m-dark {
+  --m-glass: rgba(28, 28, 30, .72);
+  --m-text: #f4f4f5;
+  --m-muted: rgba(255, 255, 255, .6);
+  --m-hairline: rgba(255, 255, 255, .12);
+  --m-button: #f4f4f5;
+  --m-button-text: #141414;
+}

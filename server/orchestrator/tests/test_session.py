@@ -1134,3 +1134,111 @@ def test_post_end_endpoint(tmp_path, monkeypatch):
         r = client.post("/end")
         assert r.json() == {"ok": True, "ended": None}
         assert main.engine.session.phase == "idle"
+
+
+def test_diagrams_never_cross_lessons(rig):
+    """Same step id in two lessons: S4's cache key gets the lesson id, cache is cleared on end, and a
+    diagram that finishes after the lesson ended is dropped."""
+    seen_ids, cleared = [], []
+    release = asyncio.Event()
+
+    async def build(step, context):
+        seen_ids.append(step["id"])
+        if step["id"].endswith(":slow"):
+            await release.wait()
+        return {"kind": "network", "caption": step["id"], "stepId": step["id"],
+                "data": {"layers": [2, 1], "activation": "tanh", "derivatives": ["u_t"], "residual": "r"}}
+
+    rig.s.m.forced.discard("diagrams")
+    rig.s.m.real["diagrams"] = types.SimpleNamespace(build=build, clear_cache=lambda: cleared.append(1))
+
+    async def go():
+        g1 = stubs.load_fixture_lesson()
+        await rig.s.load_graph(g1)
+        await rig.s.action("diagram", "network")
+        g2 = stubs.load_fixture_lesson()
+        g2["lesson"]["id"] = "other-lesson"
+        await rig.s.end_lesson()
+        await rig.s.load_graph(g2)
+        await rig.s.action("diagram", "network")
+        # a slow diagram that outlives its lesson
+        rig.s.graph["steps"][0]["id"] = "slow"
+        rig.s.idx = 0
+        t = asyncio.create_task(rig.s.action("diagram", "network"))
+        await asyncio.sleep(0.01)
+        await rig.s.end_lesson()
+        release.set()
+        await t
+
+    run(go())
+    assert seen_ids[0] == "stub-pinn-convection:s1" and seen_ids[1] == "other-lesson:s1"
+    assert [d["stepId"] for d in rig.of("diagram")] == ["s1", "s1"]  # the late one was dropped
+    assert len(cleared) == 2
+
+
+def test_end_lesson_is_idempotent(rig):
+    async def go():
+        await rig.start_lesson()
+        await rig.s.end_lesson()
+        await rig.s.end_lesson()
+        await rig.s.end_lesson()
+
+    run(go())
+    ended = rig.of("lesson.ended")
+    assert ended == [{"lessonId": "stub-pinn-convection", "reason": "end_lesson"},
+                     {"reason": "end_lesson"}, {"reason": "end_lesson"}]
+    assert rig.of("status")[-1] == {"state": "idle"} and not rig.of("error")
+
+
+def test_returning_app_gets_resume_card_and_lesson_is_frozen(rig):
+    async def go():
+        await _to_step(rig, 3)
+        await rig.s.video_state(250.0, True)
+        snap = rig.s.snapshot(ask_resume=True)
+        assert [t for t, _ in snap] == ["video.pause", "card"]
+        card = snap[1][1]
+        assert card["kind"] == "resume" and card["actions"] == ["resume", "end_lesson"]
+        assert card["title"] == "Continue where you left off?" and "Write the PDE residual" in card["body"]
+        m = rig.mark()
+        await rig.save("u_t + beta * u_x\nautograd.grad\n")  # frozen: nothing is graded while undecided
+        assert not [e for e in rig.since(m) if e["type"] in ("check.updated", "step.passed", "offtrack")]
+        assert [t for t, _ in rig.s.snapshot()] == ["video.pause", "card"]  # still undecided
+        m = rig.mark()
+        await rig.s.action("resume")
+        return rig.since(m)
+
+    ev = run(go())
+    types_ = [e["type"] for e in ev]
+    assert types_[:2] == ["lesson.ready", "step.started"]
+    seek = [e["payload"] for e in ev if e["type"] == "video.seek"][-1]
+    assert seek["t"] == 250.0
+    assert not rig.s.awaiting_resume
+
+
+def test_resume_card_start_new_ends_the_lesson(rig):
+    async def go():
+        await rig.start_lesson()
+        rig.s.snapshot(ask_resume=True)
+        await rig.s.action("end_lesson")
+
+    run(go())
+    assert rig.of("lesson.ended")[-1]["reason"] == "end_lesson" and rig.s.graph is None
+    assert rig.s.snapshot(ask_resume=True) == [("status", {"state": "idle"})]
+
+
+def test_engine_asks_to_resume_only_when_the_app_comes_back(tmp_path, monkeypatch):
+    monkeypatch.setenv("TUT_WORKDIR", str(tmp_path))
+    import time as _time
+
+    from server.orchestrator.main import Engine
+
+    e = Engine()
+    e.session.graph = stubs.load_fixture_lesson()
+    assert e.app_returning() is False  # never shown to an app (e.g. the demo's autostart)
+    e.mark_lesson_seen()
+    e.last_client_gone = _time.monotonic() - 2
+    assert e.app_returning() is False  # a 2 s network blip: just continue
+    e.last_client_gone = _time.monotonic() - 30
+    assert e.app_returning() is True  # the app was closed and reopened
+    e.session.graph["lesson"]["id"] = "a-different-lesson"
+    assert e.app_returning() is False

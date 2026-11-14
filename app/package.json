@@ -1,0 +1,47 @@
+{
+  "name": "miyagi-overlay",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Miyagi: turn any tutorial into an auto-graded lab",
+  "main": "./out/main/index.js",
+  "scripts": {
+    "dev": "electron-vite dev",
+    "dev:web": "vite --config vite.web.config.ts",
+    "mock": "tsx mock/replay.ts",
+    "dev:all": "concurrently -k -n mock,app -c magenta,cyan \"npm:mock\" \"npm:dev\"",
+    "web:all": "concurrently -k -n mock,web -c magenta,cyan \"npm run mock\" \"npm run dev:web -- --open /?engine=socket\"",
+    "build": "electron-vite build",
+    "typecheck": "tsc --noEmit -p tsconfig.node.json && tsc --noEmit -p tsconfig.web.json",
+    "dist:mac": "electron-vite build && electron-builder --mac --dir",
+    "dist:win": "electron-vite build && electron-builder --win --dir",
+    "feature": "node scripts/feature.mjs"
+  },
+  "dependencies": {
+    "lucide-react": "^1.73.0",
+    "motion": "^14.14.0",
+    "react": "^19.3.1",
+    "react-dom": "^19.3.1",
+    "ws": "^8.23.0",
+    "zustand": "^5.1.0"
+  },
+  "devDependencies": {
+    "@tailwindcss/vite": "^4.3.5",
+    "@types/node": "^26.6.6",
+    "@types/react": "^19.3.0",
+    "@types/react-dom": "^19.3.0",
+    "@types/ws": "^8.18.2",
+    "@vitejs/plugin-react": "^6.3.0",
+    "concurrently": "^10.0.7",
+    "electron": "^45.3.2",
+    "electron-builder": "^26.18.0",
+    "electron-vite": "^6.0.0",
+    "tailwindcss": "^4.3.5",
+    "tsx": "^4.23.15",
+    "typescript": "^7.0.2",
+    "vite": "^8.3.8"
+  },
+  "allowScripts": {
+    "esbuild@0.28.2": true,
+    "electron-winstaller": false
+  }
+}

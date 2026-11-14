@@ -461,6 +461,14 @@ class Modules:
     def has_diagrams(self) -> bool:
         return self._real_fn("diagrams", "build") is not None
 
+    def clear_diagrams(self) -> None:
+        fn = self._real_fn("diagrams", "clear_cache")
+        if fn is not None:
+            try:
+                fn()
+            except Exception:  # noqa: BLE001
+                log.exception("diagrams.clear_cache failed")
+
     async def diagram(self, kind: str | None, step: dict | None, ctx: RunContext | None,
                       context: dict | None = None) -> dict:
         """S4: server.diagrams.build(step, context) -> {kind, caption, data, stepId}. `kind` is only a

@@ -9,7 +9,8 @@
       "vite": "4.4.9",
       "node": "20.8.0"
     },
-    "workdir": "react-lab"
+    "workdir": "react-lab",
+    "builtBy": "gemini"
   },
   "sources": [
     {
