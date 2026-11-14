@@ -34,7 +34,7 @@ reader.poke()                                 # capture now (e.g. right after a 
   `training_metrics` (`run_id = "screen-<lesson>"`) when `TIGER_DATABASE_URL` is a real URL; otherwise
   it logs once and carries on.
 - **env**: loads `TUT_ENV` (default `/Users/tripi/sand hacks/sandhacks-tutor/.env`). `GEMINI_API_KEY`
-  for describe, `GEMINI_VISION_MODEL` (default `gemini-2.5-flash`), `TUT_SCREEN_FIXTURE=path.png` to
+  for describe, `GEMINI_VISION_MODEL` (default `gemini-3.8-flash`), `TUT_SCREEN_FIXTURE=path.png` to
   replay a saved screenshot instead of the live screen.
 - **permission**: the app running the engine needs *System Settings › Privacy & Security › Screen &
   System Audio Recording*. Without it the reader prints exactly that and falls back to the fixture PNGs.

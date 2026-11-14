@@ -76,3 +76,28 @@ def test_metric_reader_flat_vs_dropping(flat, drop):
 def test_ocr_latency_reasonable(flat):
     # first call includes Vision model warm-up; generous bound so CI on slower Macs passes
     assert flat.ocr_ms < 3000
+
+
+def test_live_capture_is_primary_full_frame_points():
+    """events.ts: rects are screen POINTS, top-left origin, PRIMARY display's FULL frame
+    (y=0 is the very top, menu bar included)."""
+    from server.screen import macos
+    if not macos.has_permission():
+        pytest.skip("no Screen Recording permission")
+    from AppKit import NSScreen
+    f = macos.capture_main_display()
+    full = NSScreen.screens()[0].frame()  # primary display, full frame incl. menu bar
+    assert (f.screen.x, f.screen.y) == (0, 0)
+    assert (f.screen.w, f.screen.h) == (full.size.width, full.size.height)
+    import Quartz
+    assert Quartz.CGImageGetHeight(f.image) == round(f.screen.h * f.scale)  # menu bar is in the image
+
+
+def test_rect_origin_is_top_left(flat):
+    # the VS Code title bar (window y=33) must come out near the top, the terminal's last
+    # lines near the bottom: i.e. Vision's bottom-left boxes were flipped.
+    from server.screen import locate
+    top = locate(flat, "pinn_demo", app="Code")
+    bottom = locate(flat, "loss 2.5057e-01", app="Terminal")
+    assert top is not None and top.y < 60
+    assert bottom is not None and bottom.y > 1000

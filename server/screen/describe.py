@@ -13,7 +13,10 @@ import time
 
 log = logging.getLogger("server.screen.describe")
 
-DEFAULT_MODEL = os.environ.get("GEMINI_VISION_MODEL", "gemini-2.5-flash")
+DEFAULT_MODEL = os.environ.get("GEMINI_VISION_MODEL", "gemini-3.8-flash")
+# tried in order when the primary is overloaded (503), retired (404) or slow
+FALLBACK_MODELS = ["gemini-3.1-flash-lite", "gemini-3.5-flash"]
+CALL_TIMEOUT = float(os.environ.get("GEMINI_VISION_TIMEOUT", "12"))
 SYSTEM = ("You are looking at a learner's screen while they follow a coding tutorial. "
           "Answer the question about the screenshot concisely (<= 3 sentences). "
           "If the screenshot doesn't show enough to answer, say so.")
@@ -52,16 +55,23 @@ class Describer:
                 await asyncio.sleep(wait)
             self._last_call = time.time()
             from google.genai import types
-            try:
-                resp = await client.aio.models.generate_content(
-                    model=self.model,
-                    contents=[types.Part.from_bytes(data=jpeg, mime_type="image/jpeg"), question],
-                    config=types.GenerateContentConfig(system_instruction=SYSTEM, temperature=0.2),
-                )
-                text = (resp.text or "").strip()
-            except Exception as e:  # noqa: BLE001
-                log.warning("Gemini describe failed: %s", e)
-                return f"(describe failed: {e.__class__.__name__})"
+            text, err = None, None
+            for model in [self.model] + [m for m in FALLBACK_MODELS if m != self.model]:
+                try:
+                    resp = await asyncio.wait_for(client.aio.models.generate_content(
+                        model=model,
+                        contents=[types.Part.from_bytes(data=jpeg, mime_type="image/jpeg"), question],
+                        config=types.GenerateContentConfig(system_instruction=SYSTEM, temperature=0.2),
+                    ), timeout=CALL_TIMEOUT)
+                    text = (resp.text or "").strip()
+                    if model != self.model:
+                        log.warning("describe: %s unavailable, answered by %s", self.model, model)
+                    break
+                except Exception as e:  # noqa: BLE001  (503 / 404 / timeout -> next model)
+                    err = e
+                    log.warning("Gemini describe via %s failed: %s", model, str(e)[:160] or e.__class__.__name__)
+            if text is None:
+                return f"(describe failed: {err.__class__.__name__})"
         self._cache[cache_key] = (time.time(), text)
         return text
 
