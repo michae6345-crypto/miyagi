@@ -2047,3 +2047,16 @@ def test_demo_text_lesson_is_the_fixture_without_video(monkeypatch, tmp_path):
     m = Modules(demo=True)
     g = run(m.build_text_lesson("x", str(tmp_path)))
     assert g["lesson"]["mode"] == "lesson" and all("video" not in s for s in g["steps"])
+
+
+def test_skip_step_moves_on_without_a_pass(rig):
+    async def go():
+        await rig.start_lesson()
+        await rig.s.action("skip_step")
+        await rig.settle()
+
+    run(go())
+    assert rig.of("step.passed")[0] == {"stepId": "s1", "nextStepId": "s2", "skipped": True}
+    assert rig.of("step.started")[-1]["stepId"] == "s2"
+    assert not any(p["status"] == "pass" for p in rig.of("check.updated"))  # never green
+    assert {"state": "passed"} not in rig.of("status")

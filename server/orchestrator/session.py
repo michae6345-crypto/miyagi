@@ -1098,7 +1098,7 @@ class LessonSession:
         ]
         steps = [self._step_summary(st, i) for i, st in enumerate(self.steps)]
         info: dict[str, Any] = {"id": lesson.get("id", "lesson"), "title": lesson.get("title", "Lesson"), "sources": sources}
-        for k in ("complete", "builtBy", "mode"):  # E2: progressive builds / who watched the video / no-video lesson
+        for k in ("complete", "builtBy", "mode", "provisional"):  # E2: progressive builds / who watched the video / no-video lesson
             if k in lesson:
                 info[k] = lesson[k]
         if lesson.get("goalMatch"):
@@ -1231,7 +1231,8 @@ class LessonSession:
             spot = {**spot, **self._snippet(self.step)}  # lesson mode: the step's own target keeps its snippet
         await self._show_spot(spot)
 
-    async def _pass_step(self) -> None:
+    async def _pass_step(self, skipped: bool = False) -> None:
+        """skipped: the learner pressed Skip (action skip_step): move on, but it's not a pass (never green)."""
         step = self.step
         if step is None or self.passed:
             return
@@ -1243,10 +1244,14 @@ class LessonSession:
             payload["nextStepId"] = nxt
         if more_coming:
             payload["pending"] = True  # the next part of a long video is still being built
+        if skipped:
+            payload["skipped"] = True
+            self.m.cancel_coach()  # a diagnosis for the step they left is no longer wanted
         await self.emit("step.passed", payload)
-        self._say("step.passed", payload)
-        self._record("step_passed", {"nextStepId": payload.get("nextStepId")}, step)
-        await self._status("passed")
+        if not skipped:
+            self._say("step.passed", payload)
+        self._record("step_skipped" if skipped else "step_passed", {"nextStepId": payload.get("nextStepId")}, step)
+        await self._status("watching" if skipped else "passed")
         await self.emit("spotlight", {"clear": True})
         if nxt:
             self._spawn(self._advance(self.step_gen, self.idx + 1))
@@ -1824,6 +1829,9 @@ class LessonSession:
             await self.emit("error", {"message": "No lesson is running yet."})
             return
         self._touch()
+        if kind == "skip_step":  # leave this step unfinished and start the next one
+            await self._pass_step(skipped=True)
+            return
         if kind == "back":
             idx = self.idx
             seg = self._segment(step)
