@@ -1,0 +1,22 @@
+{
+  "screen": {
+    "x": 0,
+    "y": 0,
+    "w": 1728,
+    "h": 1117
+  },
+  "scale": 2.0,
+  "app": "Code",
+  "windows": [
+    {
+      "app": "Code",
+      "title": "pinn_convection.py \u2014 pinn_demo",
+      "rect": {
+        "x": 0,
+        "y": 0,
+        "w": 1728,
+        "h": 1117
+      }
+    }
+  ]
+}
