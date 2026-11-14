@@ -1,7 +1,9 @@
 # Stage-by-stage runs on 4 non-PINN topics (2026-11-14, venue Wi-Fi)
 
-Two runs: **before** (~14:00, integration/live 2cc33e8) and **after** (~14:15, integration/live 36eaf92: per-lesson
-workspaces, human build errors, Bright Data zones live). The re-run comes first; the original run is kept below it.
+Three runs, newest first:
+- **Gemini paid** (14:23–14:29, integration/live 4ff1417: billing on, same key).
+- **after** (~14:15, 36eaf92: per-lesson workspaces, human build errors, Bright Data zones live).
+- **before** (~14:00, 2cc33e8).
 
 `scripts/stage.py` drives the **LIVE** engine (DEMO=0, ORCH_AUTOSTART=0, own port) over the real WebSocket
 protocol, one stage at a time, and prints what each stage did. Nothing in it calls a module directly.
@@ -28,6 +30,76 @@ protocol, one stage at a time, and prints what each stage did. Nothing in it cal
   PDE, collocation, Latin-hypercube, exact_solution, IC/BC, the hero video ids, a `demo/pinn` workdir).
 - **Logs:** every search/build appends a JSON record to `demo/runs/stage-results.jsonl`. The engine log is
   `demo/runs/stage-engine-<port>.log`. Both are gitignored.
+
+## Run 3: Gemini paid, integration/live 4ff1417, 14:23–14:29
+
+Setup:
+- Own LIVE engine on :8790, `--no-screen`.
+- **E2's default models, no env overrides**, no TUT_WORKDIR. Michael's :8787 engine was not touched.
+- Every earlier finder and lesson cache in this worktree was moved aside, so every search and build ran live.
+- Picked = the finder's final rows[0] (`stage build 1`).
+
+### Before / after / Gemini paid
+
+| topic | search: before / after / **paid** (first row · done · videos) | build: before / after / **paid** | steps (paid) | PINN leak (paid) |
+|---|---|---|---|---|
+| react useEffect cleanup | 3.4 s · 9.0 s · 10 / 4.0 · 17.7 · 6 / **3.9 · 12.2 · 23** | OK 82.7 s (PINN-poisoned) / FAILED 5.0 s / **OK 44.3 s** | 4 | none |
+| git rebase interactive | 3.7 · 11.7 · 10 / 3.6 · 18.3 · 8 / **3.0 · 12.4 · 10** | OK 56.9 s (not about `rebase -i`) / FAILED 5.5 s / **OK 69.1 s** | 5 | none |
+| pandas groupby tutorial | 3.7 · 5.3 · **0** / 7.2 · 18.3 · 8 / **3.1 · 13.3 · 18** | FAILED 3.2 s / FAILED 5.8 s / **OK 50.9 s** | 8 | none |
+| train a diffusion model in pytorch | 2.4 · 16.7 · 11 / 6.0 · 18.3 · 1 / **3.1 · 13.3 · 16** | FAILED 2.1 s / FAILED 5.6 s / **FAILED 45.0 s** ("taking too long") | — | — |
+
+### Gemini paid: per topic
+
+Every build that worked took the same path: **Gemini watched the video** (`gemini-4-hydrogen`) and **Claude fit the checks** (`claude-opus-5-5`, two passes). The Claude transcript path, which races Gemini, failed on every build within ~5 s: Bright Data returns an empty body for both the watch page and the captions, and `timedtext` returns 429.
+
+Per-stage seconds come from the `lesson.building` stage changes: *watching* → *fitting the checks* → *second pass* → *setting up the project folder* → *ready*.
+
+| topic | search first · done | picked video | build | watching | fit checks | 2nd pass | project folder | result | steps | checks |
+|---|---|---|---|---|---|---|---|---|---|---|
+| react useEffect cleanup | 3.9 s · 12.2 s (36 rows) | "useEffect with Clean Up in React \| React JS Tutorial" (Rapid Tutor, 6:02, ZipmUa9N7Os) | gemini + claude adapt | 33.1 s | 4.0 s | 4.7 s | 2.5 s | **OK 44.3 s** | 4 | screen regexes on Code (`setInterval\(`, `clearInterval\(`, `return\s*\(\)\s*=>`, `setSeconds\(\s*0\s*\)`) + Terminal `Compiled successfully` |
+| git rebase interactive | 3.0 s · 12.4 s (30 rows) | "git interactive rebase - Undo, Edit & Squash git commits with a single command" (Philomatics, 7:52, 42392W7SgnE) | gemini + claude adapt | 34.0 s | 6.0 s | 10.2 s | **18.9 s** | **OK 69.1 s** | 5 | Terminal OCR of git's own output (`Waiting for your editor`, `Stopped at [0-9a-f]+`, `Successfully rebased`, `Unstaged changes after reset`) + `squash [0-9a-f]{5,}` in the todo file. Now really about `rebase -i` |
+| pandas groupby tutorial | 3.1 s · 13.3 s (36 rows) | "Mastering Pandas .groupby() in 10 Minutes!" (Onur Baltaci, 10:27, _zsKKcnX-qE) | gemini + claude adapt | 36.1 s | 7.0 s | 5.5 s | 2.3 s | **OK 50.9 s** | 8 | learner-generic Code regexes (`groupby\(\s*\[`, `groupby\(.*\.agg\(`, `apply\(\s*lambda`, `\.dt\.month`) + output shapes (`dtype:\s*float64`) |
+| train a diffusion model in pytorch | 3.1 s · 13.3 s (47 rows) | #1 "Coding a Diffusion Model From Scratch in PyTorch (DDPM)" (28:30, TgTQE_muXec). Also tried #3, "Diffusion Models \| PyTorch Implementation" (22:26, TBCRlnwJtZU) | gemini (timed out); claude transcript failed | 45.0 s → cut | — | — | — | **FAILED 45.0 s** both times | — | — |
+
+**Diffusion's exact error.**
+- App message: `error: "Building this lesson is taking too long. Try again, or pick another video."`, then
+  `lesson.building {failed: true}`.
+- Engine log: `server.lesson WARNING claude video pass failed: no transcript for TgTQE_muXec: brightdata watch page: Bright Data returned an empty body; brightdata captions: Bright Data returned an empty body; timedtext: Client error '429 Too Many Requests'` (at 5 s),
+  then `server.lesson WARNING gemini video pass failed: no answer within 45s`.
+- Search's other video candidates for this topic are 22–224 min long, so on this network no diffusion lesson can be built
+  right now.
+
+### Still broken (Gemini paid)
+
+**P1 · E2 lesson: long videos (≳ 20 min) can never build here.**
+- `server/lesson/builder.py`: `GEMINI_VIDEO_TIMEOUT_S = 45.0` caps Gemini's video pass. The comment says "past this the Claude
+  transcript path is faster", but that path dies in ~5 s on this network, and the cap still kills Gemini at 45 s.
+- The working builds needed 33–36 s to watch 6–10 min videos, so 22–28 min videos need more.
+- Fix:
+  - Only enforce the cap while the Claude draft is still alive (or ready). Once Claude has failed, let Gemini run up to
+    `ORCH_BUILD_TIMEOUT_S` (300 s).
+  - Scale the cap with `durationS` (the finder already knows it).
+  - Or lower `LESSON_GEMINI_FPS` further for long videos.
+- Owner: E2. The error message is fine (E4).
+
+**P2 · E2 lesson / Bright Data: the transcript path is dead on this network.** Every build: `Bright Data returned an empty body`
+(watch page and captions), then `timedtext` 429. The paid key makes Gemini carry every build alone. Fix: see A1 (log the
+unlocker's HTTP status; the zone may need YouTube or JS rendering enabled).
+
+**P3 · E4 orchestrator: "Setting up your project folder" took 18.9 s on git** (2.3–2.5 s on the others). That's S2's Claude
+starter files. Worth a cap, or doing it after `lesson.ready` so the learner can start watching.
+
+**Fixed since the last run:**
+- **A3:** the YouTube search fallback works again. No `youtube failed` notes; 10–23 videos per topic.
+- **A5:** no `google.com/goto` URLs in any result.
+
+**Still open:**
+- **F3 (E4):** the app still only sees pre-skim scores (react #1: 82 seen vs 93 final; git: 85 vs 94), and the default pick is the
+  first streamed row.
+- **F9 (E4):** `learn_url` has no goal.
+- **A4 (S4/E4): reproduced on 4ff1417.** `stage run --send diagram` on the pandas lesson's step s1 returned the *React* diagram
+  ("Timer mounts once, and the effect starts setInterval…") from two lessons earlier, with `kind: "graph"`. The cache key
+  needs the lesson id, and `"graph"` isn't in the contract.
 
 ## Re-run (after): integration/live 36eaf92, 14:15–14:18
 
