@@ -49,7 +49,7 @@ Each has a `-dark` version (white trunk and pot) for dark backgrounds.
 
 | Token | Hex | Meaning |
 |---|---|---|
-| Pass green | `#30D158` | Passed. The light on the i. The bonsai's pads. Nothing else. |
+| Pass green | `#30D158` | Passed. The light on the i. The bonsai's pads on the app icon and external brand surfaces. Nothing else. |
 | Pass deep | `#1F9B45` | Pad undersides and back pads, pressed states |
 | Pass text | `#1C8A3C` | Green text on light backgrounds |
 | Off-track amber | `#FFB020` | A check failed. Calm: no red, no shaking. |
@@ -71,6 +71,7 @@ Each has a `-dark` version (white trunk and pot) for dark backgrounds.
 The overlay should feel like a first-party Apple feature (Spotlight, Dynamic Island), not a chatbot. Michael's frontend handoff is the spec for layout and motion; this kit sets the look:
 
 - Glass follows macOS: dark HUD glass by default, light when the system is light. Tokens in `code/theme.ts` (`hud.dark`, `hud.light`).
+- **Inside the app the tree is monochrome** (Adrian, Sat): a white silhouette on dark, ink on light (`<MiyagiMark />` does this by default). The green pads appear only on the app icon and external brand surfaces (site, Devpost, slides), so in the overlay green means passed without exception.
 - The notch pill is always black, with the small tree on the left and the status dot on the right: gray watching, amber off track, green passed.
 - The launcher input shows the small tree where the mockup had a sparkle, with the placeholder "Ask Miyagi anything".
 - One spring everywhere: stiffness 420, damping 34, mass 0.9. Radii 14 / 20 / 28.
