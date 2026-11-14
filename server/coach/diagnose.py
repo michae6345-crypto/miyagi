@@ -225,8 +225,11 @@ async def diagnose(
         flags |= {"nan"} if "nan" in error_text.lower() else set()
 
     # live-web grounding runs while triage decides; only Opus uses it
+    # live-web grounding runs while triage decides; only Opus uses it. It is worth waiting for only
+    # when there is an error message to look up (docs/changelogs); for metric-only failures the
+    # search came back unused and cost 2-4 s before Opus could start (rehearsal, s8 lr=0.3).
     lib, sym, query, err = grounding_query(step, failed_checks, error_text, code_excerpt, lesson)
-    web_task = asyncio.create_task(web.gather(lib, sym, query, error=err, timeout=6.0))
+    web_task = asyncio.create_task(web.gather(lib, sym, query, error=err, timeout=4.0)) if error_text.strip() else None
     try:
         t = await triage(step, failed_checks, flags, code_excerpt, error_text, use_haiku=use_triage)
         if t.route == "template":
@@ -234,10 +237,10 @@ async def diagnose(
         elif t.route == "playbook" and t.playbook_id:
             card = playbook_card(step, BY_ID[t.playbook_id], code_excerpt, severity="fail" if error_text else "warn")
         else:
-            sources = await web_task
+            sources = await web_task if web_task is not None else []
             card = await _opus(step, failed_checks, metrics_text, flags, code_excerpt, error_text, lesson, effort, sources, screen, on_targets, cursor)
     finally:
-        if not web_task.done():
+        if web_task is not None and not web_task.done():
             web_task.cancel()
     card["_meta"]["triage"] = {"route": t.route, "by": t.by, "reason": t.reason}
     LAST[card["stepId"]] = card
@@ -303,10 +306,17 @@ async def _opus(step, failed_checks, metrics_text, flags, code_excerpt, error_te
             on_text=stream,
         )
     except llm.CoachLLMError as e:
+        mode, conf = match(code_excerpt, flags, error_text)
         if not llm.demo_mode():
+            # live: only a network outage, only when opted in, only a confident match on their code
+            if e.kind == "connection" and llm.offline_fallback() and mode and conf >= 0.6:
+                log.warning("opus unreachable (%s); offline playbook card %s (conf %.1f)", e, mode.id, conf)
+                card = playbook_card(step, mode, code_excerpt, severity="fail" if error_text else "warn")
+                card["offline"] = True  # additive public field: the app may badge it "offline"
+                card["_meta"].update(fallback_reason=str(e), confidence=round(conf, 2))
+                return card
             raise llm.CoachUnavailable(f"diagnosis unavailable: {e}") from e
         log.warning("opus diagnose failed (%s); DEMO=1 so using the offline playbook card", e)
-        mode, conf = match(code_excerpt, flags, error_text)
         if mode and conf >= 0.4:
             card = playbook_card(step, mode, code_excerpt, severity="fail" if error_text else "warn")
         else:

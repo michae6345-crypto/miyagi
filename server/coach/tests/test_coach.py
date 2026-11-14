@@ -22,7 +22,7 @@ EVENT_ACTIONS = {"explain", "show_me", "apply_fix", "hint"}
 @pytest.fixture(autouse=True)
 def _isolate(monkeypatch):
     for k in ("ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN", "COACH_REPLAY_DIR", "COACH_RECORD_DIR", "BRIGHTDATA_API_KEY",
-              "BRIGHTDATA_SERP_ZONE", "BRIGHTDATA_UNLOCKER_ZONE", "DEMO", "TUT_ENV"):
+              "BRIGHTDATA_SERP_ZONE", "BRIGHTDATA_UNLOCKER_ZONE", "DEMO", "TUT_ENV", "COACH_OFFLINE_FALLBACK"):
         monkeypatch.delenv(k, raising=False)
     monkeypatch.setattr(llm, "_load_env", lambda: None)
     monkeypatch.setattr(llm, "_local_keys", {})
@@ -44,7 +44,7 @@ def run(coro):
 def assert_offtrack(card: dict) -> None:
     """Shape of EngineEvents['offtrack'] in shared/contracts/events.ts."""
     p = coach.public(card)
-    assert set(p) <= {"stepId", "severity", "title", "body", "diff", "citation", "actions", "guidingQuestion"}
+    assert set(p) <= {"stepId", "severity", "title", "body", "diff", "citation", "actions", "guidingQuestion", "offline"}
     assert p["severity"] in ("warn", "fail")
     assert 0 < len(p["title"].split()) <= 8
     assert 0 < len(p["body"].split()) <= 42  # ~30 by contract; the action sentence is never cut
@@ -890,3 +890,64 @@ def test_voice_failures_never_raise(monkeypatch, tmp_path, caplog):
 def test_prefetch_step_titles(tts):
     titles = [s["title"] for s in d.LESSON["steps"]] + ["Write the residual"]
     assert run(voice.prefetch(titles)) == len(titles)
+
+
+# ---------- demo rehearsal (S11): latency of metric-only failures, offline stage fallback ----------------
+
+def test_metric_only_failure_never_waits_on_the_web(monkeypatch, replay):
+    calls = []
+
+    async def gather(*a, **kw):
+        calls.append(a)
+        return []
+
+    monkeypatch.setattr(web, "gather", gather)
+    common.set_lesson(d.LESSON)
+    run(coach.diagnose(d.STEP, d.HIGH_LR_FAILED, d.HIGH_LR_METRICS, d.HIGH_LR_CODE))
+    assert calls == []  # hero: no error text → no Bright Data round trips before Opus
+    run(coach.diagnose(d.STEP, d.NO_GRAD_FAILED, None, d.NO_GRAD_CODE, error_text=d.NO_GRAD_ERROR))
+    assert len(calls) == 1  # an error message is still looked up in the docs
+
+
+def _client_raising(monkeypatch, exc):
+    import anthropic
+
+    class Msgs:
+        async def create(self, **kw):
+            raise exc(anthropic)
+
+    fake = SimpleNamespace(beta=SimpleNamespace(messages=Msgs()), messages=Msgs())
+    fake.with_options = lambda **_: fake
+    monkeypatch.setattr(llm, "get_client", lambda: fake)
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "test")
+
+
+def _conn_error(anthropic):
+    return anthropic.APIConnectionError(request=httpx.Request("POST", "https://api.anthropic.com/v1/messages"))
+
+
+def test_offline_fallback_is_opt_in(monkeypatch):
+    _client_raising(monkeypatch, _conn_error)
+    common.set_lesson(d.LESSON)
+    with pytest.raises(coach.CoachUnavailable, match="connection error"):
+        run(coach.diagnose(d.STEP, d.HIGH_LR_FAILED, d.HIGH_LR_METRICS, d.HIGH_LR_CODE))
+    monkeypatch.setenv("COACH_OFFLINE_FALLBACK", "1")
+    card = run(coach.diagnose(d.STEP, d.HIGH_LR_FAILED, d.HIGH_LR_METRICS, d.HIGH_LR_CODE))
+    assert_offtrack(card)
+    pub = coach.public(card)
+    assert pub["offline"] is True and card["_meta"]["route"] == "playbook" and card["_meta"]["playbook_id"] == "lr_too_high"
+    assert "connection error" in card["_meta"]["fallback_reason"] and card["_meta"]["confidence"] >= 0.6
+    assert coach.hint(d.STEP, 0, pub)["body"].startswith("What happens to Adam")
+
+
+def test_offline_fallback_never_covers_other_failures(monkeypatch):
+    monkeypatch.setenv("COACH_OFFLINE_FALLBACK", "1")
+    common.set_lesson(d.LESSON)
+    # an API error (not a network outage) still raises
+    _client_raising(monkeypatch, lambda a: a.InternalServerError("boom", response=httpx.Response(500, request=httpx.Request("POST", "https://x")), body=None))
+    with pytest.raises(coach.CoachUnavailable):
+        run(coach.diagnose(d.STEP, d.HIGH_LR_FAILED, d.HIGH_LR_METRICS, d.HIGH_LR_CODE))
+    # a network outage without a confident match on the learner's code still raises
+    _client_raising(monkeypatch, _conn_error)
+    with pytest.raises(coach.CoachUnavailable):
+        run(coach.diagnose(d.STEP, d.HIGH_LR_FAILED, None, "print('hello')"))
