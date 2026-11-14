@@ -1,6 +1,6 @@
 # voice
 
-**Status:** pass 3 done: system voice, no ElevenLabs (stage check pending) · **Priority:** P2 · **Port:** 5181 · **Branch:** `adrian/voice`
+**Status:** pass 3 done: system voice, no ElevenLabs (speech checked in Electron's Chromium; stage run skipped at Adrian's call, Mac not checked) · **Priority:** P2 · **Port:** 5181 · **Branch:** `adrian/voice`
 
 ## Goal
 Optional voice (⌥V): Miyagi reads its own lines aloud. The shortcut bar's Voice tile shows an equalizer while it talks.
