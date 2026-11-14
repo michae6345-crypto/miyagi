@@ -97,6 +97,7 @@ export interface PreflightInfo {
   buildPlan: { strategy: "whole" | "chapters"; estSecondsToFirstSteps: number;
                firstChapter: { index: number; lastIndex: number; title: string; start: number; end: number; window?: boolean } | null;
                firstHandsOn?: { index: number; title: string; start: number };
+               skippedIntro?: { start: number; end: number };   // E2 skips this talk-only intro (not watched); part 1 starts at end
                windows?: number };
   editorNeeded?: boolean | null; partial: boolean;
 }

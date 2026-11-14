@@ -268,6 +268,11 @@ class PreflightChapter(_Model):
     window: bool | None = None  # a time window (the video has no chapters)
 
 
+class SkippedIntro(_Model):
+    start: float
+    end: float
+
+
 class HandsOn(_Model):
     index: int
     title: str
@@ -279,6 +284,7 @@ class BuildPlan(_Model):
     estSecondsToFirstSteps: float
     firstChapter: PreflightChapter | None = None  # the window E2 builds first
     firstHandsOn: HandsOn | None = None  # Claude: first chapter where the learner does something
+    skippedIntro: SkippedIntro | None = None  # E2 skips this talk-only intro (not watched); part 1 starts at its end
     windows: int | None = None
 
 
