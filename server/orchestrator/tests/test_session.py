@@ -1343,7 +1343,9 @@ def test_s2_setup_card_install_and_open_editor_gate(tmp_path, monkeypatch):
     prog = rig.of("setup.progress")
     assert prog[0]["line"].startswith("Installing") and {"tool": "pandas", "line": "Collecting pandas"} in prog
     assert prog[-1] == {"tool": "pandas", "done": True, "ok": True, "version": "2.2.3"}
-    assert rig.of("card")[-1]["title"] == "Ready to go"
+    last = rig.of("card")[-1]
+    assert last["title"] == "Ready to go" and last["body"] == "pandas installed ✓"  # the row flipped, status on the card
+    assert any(c["body"].startswith("Installing pandas") for c in rig.of("card"))
     assert not calls  # never opened VS Code
 
 
@@ -1503,3 +1505,40 @@ def test_explain_answer_for_a_previous_step_is_dropped(rig):
 
     run(go())
     assert not rig.of("card")
+
+
+def test_install_once_per_tool_and_pip_waits_for_the_lesson_folder(tmp_path, monkeypatch):
+    monkeypatch.setenv("TUT_WORKDIR", str(tmp_path))
+    from server.orchestrator import workspace as wsmod
+
+    calls = []
+    release = __import__("threading").Event()
+
+    def fake_install(item, folder, on_line):
+        calls.append((item["tool"], folder))
+        release.wait(2)
+        return {"ok": True, "tool": item["tool"]}
+
+    monkeypatch.setattr(wsmod, "install", fake_install)
+    monkeypatch.setattr(wsmod, "requirements", lambda graph, folder: [])
+    pip_item = {"tool": "torch", "label": "PyTorch", "kind": "python_package", "why": "w", "needed": True,
+                "installed": False, "ok": False, "install": {"method": "pip", "command": "pip install torch", "url": None}}
+    rig = Rig(tmp_path)
+
+    async def go():
+        # on the preflight card (no lesson yet): the pip install waits for the lesson folder
+        rig.s.pending_pick = {"url": "u", "row": None, "card": {"kind": "preflight", "title": "t", "body": "b",
+                                                                "actions": ["build", "install"], "items": [pip_item]}}
+        await rig.s.action("install", "torch")
+        await rig.settle()
+        assert not calls and rig.of("card")[-1]["body"].startswith("PyTorch will be installed into this lesson's own")
+        rig.s.pending_pick = None
+        await rig.s.load_graph(stubs.load_fixture_lesson())  # the lesson (and its folder) now exists
+        await asyncio.sleep(0.05)
+        await rig.s.action("install", "torch")  # double click while it's running: ignored
+        await rig.s.action("install", "torch")
+        release.set()
+        await asyncio.sleep(0.1)
+
+    run(go())
+    assert calls == [("torch", str(tmp_path))]  # once, into the lesson's folder (its .venv), not the engine's

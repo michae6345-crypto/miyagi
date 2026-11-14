@@ -214,6 +214,9 @@ class LessonSession:
         self.reqs: list[dict] | None = None  # S2's setup items for this lesson
         self.waiting_more = False  # passed the last built step of a long video that's still building
         self.pending_pick: dict | None = None  # S8: the picked result awaiting build / pick_another
+        self._installing: set[str] = set()  # tools being installed right now (one install per tool)
+        self._deferred_installs: list[dict] = []  # pip installs chosen before the lesson folder existed
+        self._setup_card: dict | None = None  # the last setup card sent (re-sent with install status)
         self.graph: dict | None = None
         self.workdir = str(config.default_workdir())
         self.on_workdir: Callable[[str], None] | None = None  # main.py hooks the file watcher here
@@ -306,6 +309,7 @@ class LessonSession:
         """Ask before opening VS Code or installing anything (S2's setup card), in the background so the
         first step isn't delayed. Lessons that don't happen in an editor never get an open_editor button."""
         self.reqs = None
+        self._setup_card = None
         if self.workspace is None or not getattr(self.workspace, "enabled", False):
             return
         self._spawn(self._setup_card_task(graph, folder))
@@ -318,6 +322,7 @@ class LessonSession:
             self.reqs = items
             card = wsmod.setup_card(items)
             if card:
+                self._setup_card = card
                 await self.emit("card", card)
             return
         # no setup check available (module missing, no key): a plain offer, only for editor lessons
@@ -337,35 +342,83 @@ class LessonSession:
         if self.workspace is not None:
             self.workspace.run(["open", url])  # macOS: the default browser
 
-    async def _install(self, tool: str) -> None:
-        """Install one setup item (the learner pressed Install), streaming setup.progress lines."""
+    async def _install(self, tool: str, item: dict | None = None) -> None:
+        """Install one setup item (the learner pressed Install). One install per tool at a time. Progress goes
+        out as setup.progress AND as the (re-sent) setup/preflight card's body, so it's visible either way.
+        pip installs go into the LESSON's own .venv (S2: <lesson folder>/.venv), never the engine's or the
+        system's Python; on the preflight card (no lesson folder yet) they wait until the lesson exists."""
         from . import workspace as wsmod
 
-        item = next((it for it in self.reqs or [] if it.get("tool") == tool), None)
+        if item is None:
+            items = list(self.reqs or []) + list(((self.pending_pick or {}).get("card") or {}).get("items") or [])
+            item = next((it for it in items if it.get("tool") == tool), None)
         if item is None:
             await self.emit("setup.progress", {"tool": tool or "?", "done": True, "ok": False,
                                                "error": "Unknown tool for this lesson"})
             return
-        loop = asyncio.get_running_loop()
-        ep = self.lesson_epoch
+        label = item.get("label") or tool
+        if tool in self._installing:
+            log.info("install %s already running; ignoring the repeat", tool)
+            return
+        if (item.get("install") or {}).get("method") == "pip" and self.graph is None:
+            if all(d.get("tool") != tool for d in self._deferred_installs):
+                self._deferred_installs.append(item)
+            await self._install_status(f"{label} will be installed into this lesson's own Python environment "
+                                       "as soon as the lesson is built.")
+            return
+        self._installing.add(tool)
+        try:
+            loop = asyncio.get_running_loop()
+            ep = self.lesson_epoch
+            last_shown = [0.0]
 
-        def on_line(line: str) -> None:  # installer thread -> loop
-            if ep == self.lesson_epoch:
-                loop.call_soon_threadsafe(lambda: self._spawn(self.emit("setup.progress", {"tool": tool, "line": str(line)[:300]})))
+            def on_line(line: str) -> None:  # installer thread -> loop
+                if ep != self.lesson_epoch:
+                    return
+                text = str(line).strip()[:300]
 
-        await self.emit("setup.progress", {"tool": tool, "line": f"Installing {item.get('label', tool)}…"})
-        res = await asyncio.to_thread(wsmod.install, item, self.workdir, on_line)
-        done = {"tool": tool, "done": True, "ok": bool(res.get("ok"))}
-        for k in ("error", "url", "version"):
-            if res.get(k):
-                done[k] = str(res[k])
-        await self.emit("setup.progress", done)
-        items = await asyncio.to_thread(wsmod.requirements, self.graph or {}, self.workdir)  # cached list, fresh checks
-        if items:
-            self.reqs = items
-            card = wsmod.setup_card(items)
-            if card:
-                await self.emit("card", card)
+                def deliver() -> None:
+                    self._spawn(self.emit("setup.progress", {"tool": tool, "line": text}))
+                    now = self.clock()
+                    if text and now - last_shown[0] >= 1.0:  # the card body: at most one update a second
+                        last_shown[0] = now
+                        self._spawn(self._install_status(f"Installing {label}… {text[:120]}"))
+
+                loop.call_soon_threadsafe(deliver)
+
+            await self.emit("setup.progress", {"tool": tool, "line": f"Installing {label}…"})
+            await self._install_status(f"Installing {label}…")
+            res = await asyncio.to_thread(wsmod.install, item, self.workdir, on_line)
+            done = {"tool": tool, "done": True, "ok": bool(res.get("ok"))}
+            for k in ("error", "url", "version"):
+                if res.get(k):
+                    done[k] = str(res[k])
+            await self.emit("setup.progress", done)
+            if res.get("ok"):
+                status = f"{label} installed ✓"
+            else:
+                reason = (str(res.get("error") or "unknown error").strip().splitlines() or ["unknown error"])[-1]
+                status = f"{label} failed: {reason[:160]}"
+            if self.graph is not None:  # re-check so the row flips to installed
+                fresh = await asyncio.to_thread(wsmod.requirements, self.graph, self.workdir)
+                if fresh:
+                    self.reqs = fresh
+                    self._setup_card = wsmod.setup_card(fresh)
+            await self._install_status(status)
+        finally:
+            self._installing.discard(tool)
+
+    async def _install_status(self, text: str) -> None:
+        """Re-send the card the learner is looking at (setup or preflight) with the install status as its body."""
+        base = (self.pending_pick or {}).get("card") if self.pending_pick else self._setup_card
+        if not base:
+            return
+        await self.emit("card", {**base, "body": text})
+
+    async def _run_deferred_installs(self) -> None:
+        items, self._deferred_installs = self._deferred_installs, []
+        for it in items:
+            await self._install(it.get("tool", ""), item=it)
 
     async def _open_editor(self) -> None:
         if self.workspace is None or self.graph is None:
@@ -626,6 +679,7 @@ class LessonSession:
         self.graph, self.idx, self.phase, self.runs = None, -1, "idle", {}
         self.pending_patch, self.undo, self.build_progress = None, None, None
         self.pending_pick = None
+        self._deferred_installs, self._setup_card = [], None
         self.editor_open = False
         self.awaiting_resume = False
         self.waiting_more = False
@@ -781,6 +835,8 @@ class LessonSession:
         self.editor_open = False
         await self.start_step(0)
         await self._offer_editor(graph, new_wd)  # after step.started (the app clears cards on a new step)
+        if self._deferred_installs:  # pip installs picked on the preflight card: now there's a lesson .venv
+            self._spawn(self._run_deferred_installs())
 
     def _step_summary(self, st: dict, i: int) -> dict:
         summary = {"id": st["id"], "index": st.get("index", i), "title": st["title"]}
