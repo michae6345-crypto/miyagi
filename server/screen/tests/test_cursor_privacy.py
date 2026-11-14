@@ -64,9 +64,14 @@ def test_triggers_are_debounced(tmp_path):
     fx = str(__import__("pathlib").Path(__file__).resolve().parent.parent / "fixtures" / "vscode_terminal_flat.png")
     r = ScreenReader(fixture=fx, debounce=0.6, interval=30)
     seen = []
-    r.subscribe(lambda o: seen.append((time.time(), o.trigger)))
+    # (when the capture STARTED, trigger): the debounce spaces capture starts; the first OCR is
+    # slower (Vision warm-up), so completion times can be closer together than the debounce
+    r.subscribe(lambda o: seen.append((time.time() - o.ocr_ms / 1000, o.trigger)))
     r.start()
-    time.sleep(0.8)
+    deadline = time.time() + 10   # let the start capture finish first (slow OCR under load)
+    while not seen and time.time() < deadline:
+        time.sleep(0.05)
+    time.sleep(0.1)
     for _ in range(5):            # a burst of 5 clicks -> leading capture + one coalesced trailing capture
         r.poke("click", force=True)
         time.sleep(0.05)
