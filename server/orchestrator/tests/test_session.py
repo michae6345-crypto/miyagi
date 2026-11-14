@@ -1399,3 +1399,71 @@ def test_e2_learner_facing_first_error_line():
     e = RuntimeError("Couldn't read this video (1:56:20 long): Gemini's quota is used up.\n"
                      "(no engine could build the lesson) gemini: 429 ...")
     assert human_build_error(e) == "Couldn't read this video (1:56:20 long): Gemini's quota is used up."
+
+
+def _fake_preflight(prefetched):
+    async def preflight(url, goal, row=None, on_late=None, api_keys=None):
+        res = {"url": url, "kind": "no-code", "chapters": 0, "partial": True,
+               "buildPlan": {"strategy": "whole", "estSecondsToFirstSteps": 40, "firstChapter": None}}
+        if on_late:
+            asyncio.get_running_loop().call_later(0.02, on_late, {**res, "partial": False,
+                                                                   "goalMatch": {"score": 0.2, "note": "no-code bots"}})
+        return res
+
+    def card(res):
+        c = {"kind": "preflight", "title": "No-code video" + ("" if res["partial"] else " (checked)"), "body": "b",
+             "actions": ["build", "pick_another"], "preflight": res}
+        if res.get("goalMatch"):
+            c["warning"], c["recommended"] = "This video isn't about building an LLM.", "pick_another"
+        return c
+
+    return types.SimpleNamespace(preflight=preflight, preflight_card=card,
+                                 prefetch=lambda rows, goal, **kw: prefetched.append((len(rows), goal)))
+
+
+def test_preflight_before_build_then_build_or_pick_another(rig):
+    prefetched, built = [], []
+    rig.s.m._preflight_mod = lambda: _fake_preflight(prefetched)
+
+    async def build(url, goal, workdir, **kw):
+        built.append(url)
+        return stubs.load_fixture_lesson()
+
+    rig.s.m.build_lesson = build
+
+    async def go():
+        await rig.s.learn("build chat gpt")
+        assert prefetched == [(3, "build chat gpt")]
+        await rig.s.build_lesson(["r1"])
+        assert not built and rig.s.phase == "preflight"
+        cards = [c for c in rig.of("card") if c["kind"] == "preflight"]
+        assert cards and cards[0]["actions"] == ["build", "pick_another"]
+        await asyncio.sleep(0.05)  # the late, complete answer replaces the partial card
+        late = [c for c in rig.of("card") if c["kind"] == "preflight"][-1]
+        assert late["warning"] and late["recommended"] == "pick_another"
+        assert [t for t, _ in rig.s.snapshot()] == ["status", "card"]  # a reconnecting app sees the same card
+        await rig.s.action("pick_another")
+        assert rig.s.pending_pick is None and rig.s.phase == "idle" and rig.of("status")[-1] == {"state": "idle"}
+        await rig.s.build_lesson(["r1"])
+        await rig.s.action("build")
+        await rig.settle()
+
+    run(go())
+    assert built == [stubs.SEARCH_RESULTS[0]["url"]]
+    assert rig.of("lesson.ready") and rig.s.phase == "active"
+
+
+def test_end_lesson_clears_a_pending_pick(rig):
+    rig.s.m._preflight_mod = lambda: _fake_preflight([])
+
+    async def go():
+        await rig.s.learn_url("https://www.youtube.com/watch?v=abcdefghijk")
+        assert rig.s.pending_pick is not None
+        await rig.s.end_lesson()
+        await asyncio.sleep(0.05)
+
+    run(go())
+    assert rig.s.pending_pick is None and rig.of("lesson.ended")
+    # the late card for the abandoned pick must not show up after lesson.ended
+    types_ = rig.types()
+    assert "card" not in types_[types_.index("lesson.ended"):]

@@ -50,8 +50,12 @@ export interface EngineEvents {
   "video.seek": { t: number; play: boolean };
   "video.pause": {};
   "video.play": {};
-  "card": { stepId?: string; kind: "explain" | "hint" | "answer" | "resume" | "setup"; title: string; body: string; videoJump?: { t: number; label: string };
-            actions?: Array<"confirm" | "undo" | "apply_fix" | "open_editor" | "resume" | "end_lesson" | "install" | "skip_setup" | "open_in_browser">;    // buttons on the card -> send `action {kind}`
+  "card": { stepId?: string; kind: "explain" | "hint" | "answer" | "resume" | "setup" | "preflight"; title: string; body: string; videoJump?: { t: number; label: string };
+            actions?: Array<"confirm" | "undo" | "apply_fix" | "open_editor" | "resume" | "end_lesson" | "install" | "skip_setup" | "open_in_browser" | "build" | "pick_another">;    // buttons on the card -> send `action {kind}`
+            items?: SetupItem[];          // kind "preflight": early tool check (a second card of the same kind replaces the first)
+            warning?: string;             // kind "preflight": shown in amber when the video doesn't fit the goal (goalMatch.score < 0.5)
+            recommended?: "build" | "pick_another";   // which button to make primary
+            preflight?: PreflightInfo;    // kind "preflight": what the picked video is, before anything is built
             setup?: { editorNeeded: boolean; items: SetupItem[] };   // kind "setup": what the lesson needs on this Mac (one Install button per missing item -> action install {text: tool})
             diff?: string;               // unified diff to preview ("Apply this fix?" -> confirm)
             targets?: Array<{ boxId: number; label: string; text: string; rect: { x: number; y: number; w: number; h: number } }>;
@@ -83,6 +87,19 @@ export interface SetupItem {
   install: { method: "brew" | "brew_cask" | "pip" | "download" | "open" | "none"; command?: string; url?: string };  // web_app: method "open" + https url (nothing to install)
 }
 
+/** card kind "preflight" (server/preflight, <= 5 s after the pick, BEFORE build): build -> the lesson build starts; pick_another -> back to the results */
+export interface PreflightInfo {
+  videoId?: string; url: string;
+  kind?: "coding" | "no-code" | "conceptual" | "other";   // absent = Claude didn't answer in time (partial)
+  topic?: string; durationS?: number; chapters: number;
+  goalMatch?: { score: number | null; note: string };      // score 0..1, null when there was no goal
+  buildPlan: { strategy: "whole" | "chapters"; estSecondsToFirstSteps: number;
+               firstChapter: { index: number; lastIndex: number; title: string; start: number; end: number; window?: boolean } | null;
+               firstHandsOn?: { index: number; title: string; start: number };
+               windows?: number };
+  editorNeeded?: boolean | null; partial: boolean;
+}
+
 /** kind "graph": nodes on a fixed grid (the app maps (col,row) to pixels); reference renderer: server/diagrams/render_svg.py */
 export interface GraphDiagramData {
   title: string;
@@ -100,7 +117,7 @@ export interface AppCommands {
   "learn": { query: string };                       // launcher text
   "learn_url": { url: string };                     // pasted YouTube link
   "build_lesson": { resultIds: string[] };
-  "action": { kind: "back" | "explain" | "diagram" | "show_me" | "hint" | "voice_toggle" | "ask" | "apply_fix" | "confirm" | "undo" | "open_editor" | "resume" | "end_lesson" | "install" | "skip_setup" | "open_in_browser"; text?: string };  // install / open_in_browser: text = setup item tool id  // resume / end_lesson: the "Continue where you left off?" card  // open_editor: the learner accepted "Open VS Code?"  // confirm: "Looks done?" card; undo: revert the last "Do it for me"
+  "action": { kind: "back" | "explain" | "diagram" | "show_me" | "hint" | "voice_toggle" | "ask" | "apply_fix" | "confirm" | "undo" | "open_editor" | "resume" | "end_lesson" | "install" | "skip_setup" | "open_in_browser" | "build" | "pick_another"; text?: string };  // build / pick_another: the preflight card  // install / open_in_browser: text = setup item tool id  // resume / end_lesson: the "Continue where you left off?" card  // open_editor: the learner accepted "Open VS Code?"  // confirm: "Looks done?" card; undo: revert the last "Do it for me"
   "video.state": { t: number; playing: boolean };   // player reports its position
   "end_lesson": {};                                  // stop everything; the engine answers lesson.ended + status idle
   "overlay.bounds": { rects: Array<{ x: number; y: number; w: number; h: number }> };

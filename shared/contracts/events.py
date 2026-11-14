@@ -253,12 +253,54 @@ class SetupProgress(_Model):
     version: str | None = None
 
 
-CardAction = Literal["confirm", "undo", "apply_fix", "open_editor", "resume", "end_lesson", "install", "skip_setup", "open_in_browser"]
+class PreflightGoalMatch(_Model):
+    score: float | None = None  # 0..1; None when there was no goal
+    note: str
+
+
+class PreflightChapter(_Model):
+    index: int
+    lastIndex: int
+    title: str
+    start: float
+    end: float
+    window: bool | None = None  # a time window (the video has no chapters)
+
+
+class HandsOn(_Model):
+    index: int
+    title: str
+    start: float
+
+
+class BuildPlan(_Model):
+    strategy: Literal["whole", "chapters"]
+    estSecondsToFirstSteps: float
+    firstChapter: PreflightChapter | None = None  # the window E2 builds first
+    firstHandsOn: HandsOn | None = None  # Claude: first chapter where the learner does something
+    windows: int | None = None
+
+
+class PreflightInfo(_Model):
+    videoId: str | None = None
+    url: str
+    kind: Literal["coding", "no-code", "conceptual", "other"] | None = None  # None = Claude didn't answer in time
+    topic: str | None = None
+    durationS: float | None = None
+    chapters: int = 0
+    goalMatch: PreflightGoalMatch | None = None
+    buildPlan: BuildPlan
+    editorNeeded: bool | None = None
+    partial: bool = False
+
+
+CardAction = Literal["confirm", "undo", "apply_fix", "open_editor", "resume", "end_lesson", "install", "skip_setup",
+                     "open_in_browser", "build", "pick_another"]
 
 
 class Card(_Model):
     stepId: str | None = None
-    kind: Literal["explain", "hint", "answer", "resume", "setup"]  # resume: "Continue where you left off?"
+    kind: Literal["explain", "hint", "answer", "resume", "setup", "preflight"]  # resume: "Continue where you left off?"
     title: str
     body: str
     videoJump: VideoJump | None = None
@@ -267,6 +309,10 @@ class Card(_Model):
     targets: list[Target] | None = None
     guidingQuestion: str | None = None
     setup: Setup | None = None  # kind "setup"
+    items: list[SetupItem] | None = None  # kind "preflight": early tool check
+    warning: str | None = None  # kind "preflight": the video doesn't fit the goal (goalMatch < 0.5)
+    recommended: Literal["build", "pick_another"] | None = None
+    preflight: PreflightInfo | None = None  # kind "preflight"
 
 
 class NetworkDiagram(_Model):
@@ -420,7 +466,8 @@ class BuildLesson(_Model):
 
 
 ActionKind = Literal["back", "explain", "diagram", "show_me", "hint", "voice_toggle", "ask", "apply_fix",
-                     "confirm", "undo", "open_editor", "resume", "end_lesson", "install", "skip_setup", "open_in_browser"]
+                     "confirm", "undo", "open_editor", "resume", "end_lesson", "install", "skip_setup", "open_in_browser",
+                     "build", "pick_another"]
 
 
 class Action(_Model):

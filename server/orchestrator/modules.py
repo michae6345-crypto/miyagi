@@ -370,6 +370,38 @@ class Modules:
                               step, failed_checks, metrics, code_excerpt, **kwargs)
         return self._public(out)
 
+    # -- preflight (S8): what the picked video is, how well it fits, what it needs, before building
+    def _preflight_mod(self) -> Any:
+        if self.demo or "lesson" in self.forced:
+            return None
+        try:
+            return importlib.import_module("server.preflight")
+        except Exception:  # noqa: BLE001
+            return None
+
+    def has_preflight(self) -> bool:
+        return self._preflight_mod() is not None
+
+    def prefetch_preflight(self, rows: list[dict], goal: str) -> None:
+        mod = self._preflight_mod()
+        if mod is not None:
+            try:
+                from server.config import KEY_ENV, get_key
+
+                mod.prefetch(rows, goal, api_keys={k: get_key(k) for k in KEY_ENV})
+            except Exception:  # noqa: BLE001 - a prefetch must never surface
+                log.exception("preflight prefetch failed")
+
+    async def preflight(self, url: str, goal: str, row: dict | None, on_late: Any) -> dict:
+        from server.config import KEY_ENV, get_key
+
+        mod = self._preflight_mod()
+        return _to_dict(await mod.preflight(url, goal, row=row, on_late=on_late,
+                                            api_keys={k: get_key(k) for k in KEY_ENV}))
+
+    def preflight_card(self, res: dict) -> dict:
+        return _to_dict(self._preflight_mod().preflight_card(res))
+
     # -- learning events -> Tiger (E3's server.checks.tiger: non-blocking queue + offline spool)
     def record(self, kind: str, lesson_id: str | None, step_id: str | None, video_t: float | None = None,
                payload: dict | None = None, source_id: str | None = None) -> None:

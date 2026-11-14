@@ -96,7 +96,7 @@ class Engine:
             if self.modules.demo and (graph := self.modules._lesson_file()):
                 await self.session.load_graph(graph)
             elif url := os.environ.get("ORCH_LESSON_URL"):  # real builder (E2's cache makes it instant)
-                self._autostart = asyncio.create_task(self.session.learn_url(url))
+                self._autostart = asyncio.create_task(self.session.learn_url(url, skip_preflight=True))
         self._ticker = asyncio.create_task(self._tick_loop())
         log.info("engine up: demo=%s modules=%s workdir=%s screen=%s precision=%s", self.modules.demo,
                  self.modules.describe(), self.session.workdir, self.session.screen_active(),

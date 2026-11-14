@@ -213,6 +213,7 @@ class LessonSession:
         self.awaiting_resume = False  # "Continue where you left off?" shown: the lesson is frozen until answered
         self.reqs: list[dict] | None = None  # S2's setup items for this lesson
         self.waiting_more = False  # passed the last built step of a long video that's still building
+        self.pending_pick: dict | None = None  # S8: the picked result awaiting build / pick_another
         self.graph: dict | None = None
         self.workdir = str(config.default_workdir())
         self.on_workdir: Callable[[str], None] | None = None  # main.py hooks the file watcher here
@@ -491,6 +492,8 @@ class LessonSession:
             log.exception("search failed")
             await self.emit("error", {"message": f"Search failed: {e}. Paste a YouTube link instead."})
         await self.emit("search.done", {"total": len(self.results)})
+        if self.results and self.m.has_preflight():  # S8: preflight the top videos now, so the pick is instant
+            self.m.prefetch_preflight(list(self.results.values()), self.query)
         self.phase = "idle" if self.graph is None else self.phase
         await self._status("idle")
 
@@ -499,10 +502,66 @@ class LessonSession:
         if not picked and self.results:
             picked = [next(iter(self.results.values()))]
         url = picked[0].get("url", "") if picked else ""
-        await self._run_build(url, self.query)
+        await self._pick(url, picked[0] if picked else None)
 
-    async def learn_url(self, url: str) -> None:
-        await self._run_build(url, self.query)
+    async def learn_url(self, url: str, skip_preflight: bool = False) -> None:
+        if skip_preflight:  # e.g. the demo's autostart: no learner pick to confirm
+            await self._run_build(url, self.query)
+            return
+        await self._pick(url, None)
+
+    async def _pick(self, url: str, row: dict | None) -> None:
+        """S8 pipeline: pick -> PREFLIGHT card (kind, length, goal match, tools; <= 5 s) -> the learner presses
+        build (or pick_another). Without the preflight module: build right away, as before."""
+        if not self.m.has_preflight():
+            await self._run_build(url, self.query)
+            return
+        if self.graph is not None or self.building():
+            await self.end_lesson("new lesson")
+        self.pending_pick = {"url": url, "row": row}
+        self.phase = "preflight"
+        await self._status("thinking")
+        pick = self.pending_pick
+
+        def on_late(res: dict) -> None:  # the full answer after a partial card: replace it while still pending
+            if self.pending_pick is pick:
+                pick["preflight"] = res
+                self._spawn(self._show_preflight(pick, res))
+
+        try:
+            res = await self.m.preflight(url, self.query, row, on_late)
+        except Exception as e:  # preflight never raises by contract; if it does, don't block the learner
+            log.exception("preflight failed")
+            res = None
+            await self.emit("error", {"message": f"Couldn't check this video first ({e}); building it anyway."})
+        if self.pending_pick is not pick:
+            return  # ended / replaced meanwhile
+        if res is None:
+            self.pending_pick = None
+            await self._run_build(url, self.query)
+            return
+        pick["preflight"] = res
+        await self._show_preflight(pick, res)
+        await self._status("idle")
+
+    async def _show_preflight(self, pick: dict, res: dict) -> None:
+        if self.pending_pick is not pick:
+            return
+        card = self.m.preflight_card(res)
+        self.reqs = list(card.get("items") or res.get("items") or []) or self.reqs  # Install on this card uses S2's flow
+        pick["card"] = card
+        await self.emit("card", card)
+
+    async def _build_pick(self) -> None:
+        pick, self.pending_pick = self.pending_pick, None
+        if pick is None:
+            return
+        await self._run_build(pick["url"], self.query)
+
+    async def _pick_another(self) -> None:
+        self.pending_pick = None
+        self.phase = "idle"
+        await self._status("idle")  # the app shows its result list again
 
     async def _run_build(self, url: str, goal: str) -> None:
         """Builds run as their own task so end_lesson / a new learn can cancel them mid-flight."""
@@ -565,6 +624,7 @@ class LessonSession:
         self._reset_step_state()  # bumps step_gen: stale coach/metric/advance tasks become no-ops
         self.graph, self.idx, self.phase, self.runs = None, -1, "idle", {}
         self.pending_patch, self.undo, self.build_progress = None, None, None
+        self.pending_pick = None
         self.editor_open = False
         self.awaiting_resume = False
         self.waiting_more = False
@@ -1316,6 +1376,19 @@ class LessonSession:
         if kind == "end_lesson":  # the resume card's "Start a new lesson"
             await self.end_lesson("end_lesson")
             return
+        if kind == "build":  # preflight card: build the picked video
+            await self._build_pick()
+            return
+        if kind == "pick_another":
+            await self._pick_another()
+            return
+        if self.step is None and self.pending_pick is not None and kind in ("install", "open_in_browser"):
+            # the preflight card's tool buttons, before any lesson exists
+            if kind == "install":
+                self._spawn(self._install((text or "").strip()))
+            else:
+                await self._open_in_browser((text or "").strip())
+            return
         token = _EPOCH.set(self.lesson_epoch)  # a card that finishes after end_lesson is dropped
         try:
             await self._action(kind, text)
@@ -1600,6 +1673,8 @@ class LessonSession:
             return [("video.pause", {}), ("card", self.resume_card())]
         if self.awaiting_resume and self.graph is not None:  # still undecided: show the question again
             return [("video.pause", {}), ("card", self.resume_card())]
+        if self.pending_pick is not None and self.pending_pick.get("card"):  # preflight card awaiting build / pick_another
+            return [("status", {"state": "idle"}), ("card", self.pending_pick["card"])]
         if self.phase == "building" and self.build_progress:  # reconnect mid-build: keep the spinner honest
             out.append(("status", {"state": "thinking"}))
             out.append(("lesson.building", dict(self.build_progress)))
