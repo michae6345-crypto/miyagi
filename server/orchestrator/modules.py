@@ -155,6 +155,43 @@ class Modules:
                     yield r
                 return
             raise self._missing("finder", "search")
+        if _accepts(fn, "on_result"):  # E7: rows arrive through on_result while the search runs
+            from server.config import KEY_ENV, get_key
+
+            queue: asyncio.Queue = asyncio.Queue()
+            kwargs = {"api_keys": {k: get_key(k) for k in KEY_ENV}} if _accepts(fn, "api_keys") else {}
+
+            async def on_result(row: Any) -> None:
+                await queue.put(_to_dict(row))
+
+            task = asyncio.ensure_future(_call(fn, query, on_result=on_result, **kwargs))
+            seen: set = set()
+            try:
+                while True:
+                    getter = asyncio.ensure_future(queue.get())
+                    done, _ = await asyncio.wait({getter, task}, return_when=asyncio.FIRST_COMPLETED)
+                    if getter in done:
+                        row = getter.result()
+                        if row.get("id") not in seen:
+                            seen.add(row.get("id"))
+                            yield row
+                        continue
+                    getter.cancel()
+                    final = task.result()  # raises if the search failed
+                    while not queue.empty():
+                        row = queue.get_nowait()
+                        if row.get("id") not in seen:
+                            seen.add(row.get("id"))
+                            yield row
+                    for row in final or []:  # anything that only came back in the final list
+                        row = _to_dict(row)
+                        if row.get("id") not in seen:
+                            seen.add(row.get("id"))
+                            yield row
+                    return
+            except Exception as e:
+                task.cancel()
+                raise ModuleUnavailable(f"finder.search failed: {type(e).__name__}: {e}") from e
         try:
             out = fn(query)
             if hasattr(out, "__aiter__"):  # streaming finder

@@ -465,7 +465,10 @@ def test_live_mode_reports_failures_instead_of_faking(rig):
     assert not r2.of("offtrack") and not r2.of("diagram")
 
 
-def test_demo_mode_falls_back_to_stubs(rig):
+def test_demo_mode_falls_back_to_stubs(rig, monkeypatch, tmp_path):
+    from server.orchestrator import modules as modules_mod
+
+    monkeypatch.setattr(modules_mod, "DEMO_CACHE", tmp_path / "no-cache")
     def boom(*a, **k):
         raise RuntimeError("api down")
 
@@ -537,6 +540,7 @@ def test_ws_and_ingest_roundtrip(tmp_path, monkeypatch):
 
     main.engine.session.result_stagger_s = 0
     main.engine.recorder.enabled = False
+    monkeypatch.setitem(main.engine.modules.real, "finder", types.SimpleNamespace())  # no network in tests
     with TestClient(main.app) as client:
         with client.websocket_connect("/") as ws:
             first = ws.receive_json()
@@ -548,7 +552,7 @@ def test_ws_and_ingest_roundtrip(tmp_path, monkeypatch):
                 seen.append(msg["type"])
                 if msg["type"] == "search.done":
                     break
-            assert "error" in seen  # live mode: no finder yet -> an honest error, no canned results
+            assert "error" in seen  # live mode: finder unavailable -> an honest error, no canned results
             assert "search.result" not in seen
         r = client.post("/ingest", json=[{"kind": "run_started", "run_id": "x"},
                                           {"kind": "metric", "run_id": "x", "step": 1, "name": "loss", "value": 0.5}])
@@ -606,3 +610,37 @@ def test_spotlight_follows_target_and_precision_off(tmp_path, monkeypatch):
     run(go())
     ys = [p["rect"]["y"] for p in rig.of("spotlight") if "rect" in p]
     assert ys == [120.0, 140.0]
+
+
+def test_streaming_finder_rows_arrive_before_search_finishes(rig):
+    """E7's finder streams rows through on_result; they reach the app before the search returns."""
+    arrived_before_end = []
+
+    async def search(query, on_result=None, api_keys=None):
+        await on_result({"id": "a", "kind": "video", "title": "A", "meta": "m", "score": 0.9, "reason": "r",
+                         "url": "https://www.youtube.com/watch?v=AXXnSzmpyoI"})
+        await asyncio.sleep(0.05)
+        arrived_before_end.append(len(rig2.of("search.result")))
+        await on_result({"id": "b", "kind": "paper", "title": "B", "meta": "m", "score": 0.5, "reason": "r", "url": "u"})
+        return [{"id": "a"}, {"id": "b"}]
+
+    mods = Modules(demo=False, force_stubs="lesson,coach,diagrams")
+    mods.real["finder"] = types.SimpleNamespace(search=search)
+    rig2 = Rig(rig.workdir, mods)
+    built = []
+
+    async def fake_build(url, goal, workdir):
+        built.append(url)
+        return stubs.load_fixture_lesson()
+
+    mods.build_lesson = fake_build
+
+    async def go():
+        await rig2.s.learn("pinn")
+        await rig2.s.build_lesson(["a"])
+        await rig2.settle()
+
+    run(go())
+    assert arrived_before_end == [1]
+    assert [r["id"] for r in rig2.of("search.result")] == ["a", "b"] and rig2.of("search.done") == [{"total": 2}]
+    assert built == ["https://www.youtube.com/watch?v=AXXnSzmpyoI"]
