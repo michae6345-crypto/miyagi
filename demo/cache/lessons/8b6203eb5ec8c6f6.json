@@ -642,7 +642,7 @@
   "build": {
     "adapted": true,
     "model": {
-      "video": "unknown",
+      "video": "gemini-4-hydrogen (watched the video)",
       "adapt": "gemini-3.6-flash"
     },
     "seconds": 46.0,
