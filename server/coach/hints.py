@@ -64,19 +64,50 @@ def hint(step: dict, level: int, last_offtrack: dict | None = None, screen: Scre
     return card
 
 
+def _short(step: dict, n: int = 4) -> str:
+    words = (step.get("title") or "this step").split()
+    return " ".join(words[:n]) + ("…" if len(words) > n else "")
+
+
+def _lc(s: str) -> str:
+    s = (s or "").strip().rstrip(".")
+    return s[:1].lower() + s[1:] if s[:2] != s[:2].upper() else s
+
+
+def _check_question(step: dict) -> str | None:
+    """A real question about the step's first check (S1: level 0 used to be an instruction)."""
+    for c in step.get("checks") or []:
+        label, f, t = c.get("label", ""), c.get("file", ""), c.get("type", "")
+        if t == "file_exists" and f:
+            return f"Is {f} in your lesson folder yet, saved under exactly that name?"
+        if t == "file_contains" and f:
+            return f"Where in {f} should “{label}” go, and is it there yet?"
+        if t == "command_exit_ok" and c.get("command"):
+            return f"What happens when you run `{c['command']}`, and what does the last line say?"
+        if t in ("output_contains", "screen_contains"):
+            return f"Does your output show “{label}” yet? If not, what step produces it?"
+        if t in ("metric_threshold", "metric_trend") and c.get("metric"):
+            return f"Is {c['metric']} heading toward “{label}”, and what would move it there?"
+        if label:
+            return f"What would you point at on screen to show “{label}” is done?"
+    return None
+
+
 def _hint(step: dict, level: int, last_offtrack: dict | None = None) -> dict:
     level = max(0, min(int(level), 3))
     last = last_offtrack or LAST.get(step.get("id", "")) or {}
     pid = (last.get("_meta") or {}).get("playbook_id") or _pid_from_citation(last)
     mode = BY_ID.get(pid) if pid else None
     hints = step.get("hints") or []
+    short = _short(step)
 
     if level == 0:
-        # about THE issue just diagnosed: the card's own question, else the playbook's, else the step's
+        # about THE issue just diagnosed: the card's own question, else the playbook's, else the step's check
         q = last.get("guidingQuestion") or (GUIDING_QUESTIONS.get(pid) if pid else None)
         if not q and last.get("title"):  # an older or cached card without a question: still about THIS issue
             q = f"{last['title'].rstrip('.')}: what in your code makes that happen, and which value or line would change it?"
-        return _card(step, 0, "A question first", q or (hints[0] if hints else f"What does this step need that your code doesn't do yet? ({step.get('instructions', '')})"))
+        q = q or next((h for h in hints if h.strip().endswith("?")), None) or _check_question(step)
+        return _card(step, 0, f"Question · {short}", q or f"What does “{step.get('title', 'this step')}” need that your work doesn't show yet?")
 
     if level == 1:
         # the moment in the video about THIS issue; else the step's own segment
@@ -85,10 +116,14 @@ def _hint(step: dict, level: int, last_offtrack: dict | None = None) -> dict:
         idx = match_explanation(step, about, min_overlap=2) if last else (0 if exps else -1)
         if idx >= 0 and exps[idx].get("t") is not None:
             e = exps[idx]
-            return _card(step, 1, "Rewatch this part", f"The tutorial covers {e.get('topic', 'this')} here.", videoJump={"t": float(e["t"]), "label": f"Explained at {fmt_t(e['t'])}"})
+            t = fmt_t(e["t"])
+            return _card(step, 1, f"Rewatch {t} · {short}", f"Rewatch {t}, where the tutorial shows {_lc(e.get('topic', 'this part'))}.",
+                         videoJump={"t": float(e["t"]), "label": f"Rewatch {t}"})
         v = step.get("video") or {}
         if v.get("start") is not None:
-            return _card(step, 1, "Rewatch this step", "Watch how the tutorial runs this step and compare its settings with yours.", videoJump={"t": float(v["start"]), "label": f"Step starts at {fmt_t(v['start'])}"})
+            t = fmt_t(v["start"])
+            return _card(step, 1, f"Rewatch {t} · {short}", f"Rewatch from {t}, where the tutorial does “{step.get('title', 'this step')}”, and compare it with yours.",
+                         videoJump={"t": float(v["start"]), "label": f"Rewatch {t}"})
         return _hint(step, 2, last)
 
     if level == 2:
@@ -96,17 +131,23 @@ def _hint(step: dict, level: int, last_offtrack: dict | None = None) -> dict:
         if not cit:
             paper = next((s for s in (get_lesson() or {}).get("sources", []) if s.get("kind") == "paper"), None)
             cit = {"label": paper["title"], "url": paper["url"]} if paper else None
-        if not cit:
-            return _hint(step, 3, last)
-        body = PAPER_NOTES.get(mode.id, mode.fix) if mode else "The linked source explains this in more depth."
-        return _card(step, 2, "What the source says", body, citation={"label": cit["label"], "url": cit["url"]})
+        if cit:
+            body = PAPER_NOTES.get(mode.id, mode.fix) if mode else "The linked source explains this in more depth."
+            return _card(step, 2, f"What the source says · {short}", body, citation={"label": cit["label"], "url": cit["url"]})
+        # no source: still a real rung, the idea behind the step (S1: level 2 was skipped every time)
+        cause = mode.cause if mode else next(iter(re.split(r"(?<=[.!?])\s+", last.get("body", "")) if last.get("body") else []), "")
+        idea = cause or (hints[1] if len(hints) > 1 else "") or (hints[0] if hints and not hints[0].strip().endswith("?") else "")
+        if not idea:
+            labels = [c.get("label") for c in step.get("checks") or [] if c.get("label")]
+            idea = f"This step is done when {', '.join(labels)}." if labels else step.get("instructions", "")
+        return _card(step, 2, f"Key idea · {short}", idea)
 
     diff = last.get("diff")
     if not diff and mode and mode.diff_expected:
         diff = {"expected": mode.diff_expected, "yours": ""}
     if not diff:
-        return _card(step, 3, "Compare with the tutorial", hints[-1] if hints else step.get("instructions", ""))
-    return _card(step, 3, "Here's the change", "Review it first; nothing changes until you accept.", diff=diff, actions=["apply_fix"])
+        return _card(step, 3, f"Compare with the tutorial · {short}", hints[-1] if hints else step.get("instructions", ""))
+    return _card(step, 3, f"The fix · {short}", "Review it first; nothing changes until you accept.", diff=diff, actions=["apply_fix"])
 
 
 def _indent(line: str) -> str:
