@@ -746,7 +746,7 @@ def test_plan_windows_groups_chapters_and_splits_long_ones():
     ch = [{"t": 0, "title": "intro"}, {"t": 120, "title": "data"}, {"t": 420, "title": "baseline"},
           {"t": 900, "title": "attention"}, {"t": 2700, "title": "transformer"}, {"t": 3300, "title": "outro"}]
     w = progressive.plan_windows(3500, ch)
-    assert w[0][0] == 0 and w[0][1] <= progressive.FIRST_MAX_S  # small first part
+    assert w[0][0] == 0 and w[0][1] <= progressive.FIRST_HARD_MAX_S  # small first part (a too-short one takes 1 more chapter)
     assert all(b > a for a, b, _ in w) and w[-1][1] == 3500
     assert all(w[k][1] == w[k + 1][0] for k in range(len(w) - 1))  # contiguous, no gaps
     assert all(b - a <= progressive.WINDOW_MAX_S + 1 for a, b, _ in w[1:])  # the 30-min chapter got split
@@ -955,3 +955,75 @@ def test_mid_length_video_falls_back_to_parts_when_one_pass_fails(fake, monkeypa
 def test_long_failure_suggests_a_shorter_video():
     msg = builder.human_error("gemini: no answer within 110s | claude: no transcript", {"length_s": 779})
     assert "Try a shorter video from the same search." in msg.splitlines()[0]
+
+
+def test_a_too_short_part_one_takes_one_more_chapter():
+    ch = [{"t": 0, "title": "intro"}, {"t": 472, "title": "reading data"}, {"t": 568, "title": "tokenization"},
+          {"t": 867, "title": "data loader"}, {"t": 1331, "title": "bigram"}]
+    w = progressive.plan_windows(6980, ch, 472)  # Karpathy: hands-on starts at 7:52
+    assert (w[0][1], w[1][0], w[1][1]) == (472, 472, 867)  # part 1 = 7:52-14:27, not a 96 s 7:52-9:28
+
+
+# ---- speed: prebuild + quick start ---------------------------------------------------
+from server.lesson import prebuild  # noqa: E402
+
+
+def _slow_gemini(fake, delay):
+    async def watch(url, goal, fps=None, **kw):
+        fake["watch"] += 1
+        await asyncio.sleep(delay)
+        return json.loads(json.dumps(DRAFT))
+    return watch
+
+
+def test_build_attaches_to_a_running_prebuild(fake, monkeypatch):
+    monkeypatch.setattr(gemini, "watch_video", _slow_gemini(fake, 0.3))
+    monkeypatch.setattr(prebuild, "_jobs", {})
+
+    async def scenario():
+        assert prebuild.prebuild(URL, "learn", WORKDIR) is True
+        await asyncio.sleep(0.1)  # the learner clicks Build while it's still watching
+        stages = []
+        g = await builder.build_lesson(URL, "learn", WORKDIR, refresh=True, on_progress=lambda s, m: stages.append(s))
+        return g, stages
+
+    g, stages = asyncio.run(scenario())
+    assert fake["watch"] == 1 and len(g["steps"]) == 3  # one video pass, shared
+    assert "watching" in stages  # replayed from the prebuild
+
+
+def test_prebuild_cap_and_cancel_on_lesson_start(fake, monkeypatch):
+    monkeypatch.setattr(gemini, "watch_video", _slow_gemini(fake, 0.5))
+    monkeypatch.setattr(prebuild, "_jobs", {})
+
+    async def scenario():
+        a = prebuild.prebuild("https://youtu.be/aaaaaaaaaaa", "x", WORKDIR)
+        b = prebuild.prebuild("https://youtu.be/bbbbbbbbbbb", "x", WORKDIR)
+        c = prebuild.prebuild("https://youtu.be/ccccccccccc", "x", WORKDIR)  # over the cap of 2
+        await asyncio.sleep(0.05)
+        n = prebuild.cancel(except_vid="aaaaaaaaaaa")
+        await asyncio.sleep(0.05)
+        return a, b, c, n, prebuild._jobs["bbbbbbbbbbb"].task.cancelled()
+
+    assert asyncio.run(scenario()) == (True, True, False, 1, True)
+
+
+def test_quick_start_sends_a_provisional_step_then_the_real_lesson(fake, monkeypatch):
+    monkeypatch.setattr(builder, "QUICK_START_S", 0.1)
+    monkeypatch.setattr(gemini, "watch_video", _slow_gemini(fake, 0.4))
+    vm = {"title": "React basics", "duration_s": 1200, "chapters": [{"start": 0, "title": "Introduction"},
+          {"start": 101, "title": "Installation"}, {"start": 168, "title": "New project"}]}
+    updates = []
+    g = asyncio.run(builder.build_lesson(URL, "x", WORKDIR, refresh=True, video_meta=vm,
+                                         on_update=lambda gr, c: updates.append((c, gr["lesson"].get("provisional"), gr["steps"][0]))))
+    first, last = updates[0], updates[-1]
+    assert first[0] is False and first[1] is True and first[2]["title"] == "Installation"  # skips the intro chapter
+    assert first[2]["video"] == {"sourceId": "src1", "start": 101.0, "end": 168.0} and first[2]["id"] == "s1"
+    assert last[0] is True and not last[1] and last[2]["id"] == "s1" and g["lesson"]["complete"] is True
+
+
+def test_no_provisional_step_when_real_steps_are_fast(fake, monkeypatch):
+    monkeypatch.setattr(builder, "QUICK_START_S", 0.3)
+    updates = []
+    asyncio.run(builder.build_lesson(URL, "x", WORKDIR, refresh=True, on_update=lambda gr, c: updates.append(c)))
+    assert updates == []  # short video, no provisional: the return value is the lesson, as before

@@ -37,7 +37,7 @@ from .workdir import WorkdirInfo, scan
 #   adapting (fitting checks to the learner's project), done
 #   long videos also: planning (msg = "N parts"), first_steps (part 1 ready), more_steps (msg = "part k/N")
 STAGES = ("cache_hit", "watching", "reading_transcript", "writing_steps", "engine_switch", "steps_ready", "adapting", "done",
-          "planning", "first_steps", "more_steps")
+          "planning", "first_steps", "more_steps", "provisional")
 _progress: contextvars.ContextVar = contextvars.ContextVar("lesson_progress", default=None)
 
 
@@ -71,7 +71,128 @@ _CHECK_FIELDS = {
 }
 
 
+QUICK_START_S = float(os.environ.get("LESSON_QUICK_START_S", "8"))
+
+
 async def build_lesson(
+    source_url: str,
+    goal: str,
+    workdir: str,
+    *,
+    on_update=None,
+    on_progress=None,
+    video_meta: dict | None = None,
+    _prebuild: bool = False,
+    **kw,
+) -> dict:
+    """See _build_lesson_impl. Adds two speed-ups around it:
+    - attaches to a speculative prebuild (prebuild.prebuild) of the same video + workdir, if any;
+    - quick start: when on_update is given and no real steps arrive within LESSON_QUICK_START_S (8 s),
+      a provisional step 1 built from the chapter list is sent (lesson.provisional=True, step.provisional
+      =True); the real steps replace it via on_update (same ids s1, s2, ...), ending with complete=True."""
+    from . import prebuild
+
+    vid = gemini.youtube_id(source_url)
+    if vid and not _prebuild:
+        prebuild.cancel(except_vid=vid)  # a lesson is starting: stop speculating on the other results
+        attached = await prebuild.attach(vid, workdir, on_update, on_progress)
+        if attached is not None:
+            return attached
+    qs = _QuickStart(on_update, vid, source_url, goal, workdir, video_meta) if (on_update and vid) else None
+    try:
+        g = await _build_lesson_impl(source_url, goal, workdir, on_update=qs.wrapped if qs else on_update,
+                                     on_progress=on_progress, video_meta=video_meta, **kw)
+        if qs:
+            await qs.finish(g)
+        return g
+    finally:
+        if qs:
+            qs.stop()
+
+
+class _QuickStart:
+    def __init__(self, on_update, vid, url, goal, workdir, video_meta):
+        self.on_update, self.vid, self.url, self.goal, self.workdir, self.video_meta = on_update, vid, url, goal, workdir, video_meta
+        self.real_sent = self.final_sent = self.provisional_sent = False
+        self.timer = asyncio.ensure_future(self._fire())
+
+    async def wrapped(self, graph: dict, complete: bool) -> None:
+        self.real_sent = True
+        self.final_sent = self.final_sent or complete
+        self.timer.cancel()
+        r = self.on_update(graph, complete)
+        if asyncio.iscoroutine(r):
+            await r
+
+    async def _fire(self) -> None:
+        await asyncio.sleep(QUICK_START_S)
+        if self.real_sent:
+            return
+        try:
+            meta = normalize_video_meta(self.video_meta) if self.video_meta else {}
+            if not meta.get("title"):
+                meta = {**await asyncio.wait_for(transcript.fetch_metadata(self.vid), 5), **{k: v for k, v in meta.items() if v}}
+            g = provisional_graph(meta, self.vid, self.url, self.goal, self.workdir)
+        except Exception as e:  # noqa: BLE001  quick start is a bonus
+            log.info("quick start skipped: %s", e)
+            return
+        if self.real_sent:
+            return
+        self.provisional_sent = True
+        log.info("quick start: provisional step 1 (%s) sent after %.0fs", g["steps"][0]["title"], QUICK_START_S)
+        _emit("provisional", g["steps"][0]["title"])
+        try:
+            r = self.on_update(g, False)
+            if asyncio.iscoroutine(r):
+                await r
+        except Exception as e:  # noqa: BLE001
+            log.warning("on_update failed: %s", e)
+
+    async def finish(self, graph: dict) -> None:
+        """The app saw a provisional step: make sure it gets the real, complete lesson through on_update too."""
+        self.timer.cancel()
+        if self.provisional_sent and not self.final_sent:
+            await self.wrapped(graph, True)
+
+    def stop(self) -> None:
+        self.timer.cancel()
+
+
+_INTRO = re.compile(r"\b(intro(duction)?|welcome|overview|about|agenda|preview|demo|what we.?ll build)\b", re.I)
+
+
+def provisional_graph(meta: dict, vid: str, url: str, goal: str, workdir: str) -> dict:
+    """Step 1 from the chapter list alone, shown while the video is still being watched."""
+    chapters = meta.get("chapters") or []
+    length = float(meta.get("length_s") or 0) or None
+    start, title = 0.0, ""
+    if meta.get("first_hands_on"):
+        start = float(meta["first_hands_on"])
+        title = next((c["title"] for c in reversed(chapters) if c["t"] <= start), "")
+    elif chapters:
+        c = chapters[1] if len(chapters) > 1 and _INTRO.search(chapters[0]["title"]) else chapters[0]
+        start, title = float(c["t"]), c["title"]
+    nxt = [c["t"] for c in chapters if c["t"] > start]
+    end = min(nxt[0] if nxt else start + 300, length or start + 300, start + 600)
+    end = max(end, start + 30)
+    label = _clip_words(title or "Follow along with the video", 6)
+    step = {
+        "id": "s1", "index": 1, "title": label, "provisional": True,
+        "instructions": (f"Watch {gemini._mmss(start)}-{gemini._mmss(end)}"
+                         + (f" ({title})" if title else "") + " and type along in your editor; detailed steps are on the way."),
+        "video": {"sourceId": "src1", "start": start, "end": end},
+        "checks": [{"id": "s1c1", "type": "screen_absent", "label": "no errors so far", "app": "Terminal",
+                    "pattern": r"Traceback|Error:|ERR!|fatal:|error\[E\d+\]"}],
+        "targets": [], "explanations": [], "hints": [], "common_mistakes": [],
+    }
+    g = {"lesson": {"id": f"lesson-{cache_key(url, goal, workdir)[:8]}", "title": meta.get("title") or goal or "Tutorial",
+                    "goal": goal, "workdir": workdir, "libraries": {}, "complete": False, "provisional": True, "builtBy": "chapters"},
+         "sources": [{"id": "src1", "kind": "video", "title": meta.get("title") or "Tutorial", "url": url, "videoId": vid}],
+         "steps": [step], "build": {"provisional": True, "warnings": []}}
+    return g
+
+
+async def _build_lesson_impl(
     source_url: str,
     goal: str,
     workdir: str,

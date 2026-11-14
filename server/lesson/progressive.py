@@ -24,6 +24,7 @@ log = logging.getLogger("server.lesson")
 
 LONG_VIDEO_S = float(os.environ.get("LESSON_LONG_VIDEO_S", 30 * 60))
 FIRST_MIN_S, FIRST_MAX_S = 3 * 60, 6 * 60  # window 1: small, so the first steps arrive fast (Gemini ~40 s on 6 min)
+FIRST_HARD_MAX_S = 8 * 60  # a part 1 still under FIRST_MIN_S may take one more chapter, up to this
 WINDOW_MIN_S, WINDOW_TARGET_S, WINDOW_MAX_S = 6 * 60, 12 * 60, 15 * 60
 PARALLEL_WINDOWS = int(os.environ.get("LESSON_PARALLEL_WINDOWS", "3"))
 PART_MIN_STEP_S = 45.0  # parts are cut by time, so their steps run short; fold sub-45 s steps into a neighbour
@@ -72,7 +73,9 @@ def plan_windows(length_s: float, chapters: list[dict], first_hands_on: float | 
     cur: list[tuple[float, float, str]] = []
     for sp in spans:
         lo, hi = (FIRST_MIN_S, FIRST_MAX_S) if not windows else (WINDOW_MIN_S, WINDOW_MAX_S)
-        if cur and (sp[1] - cur[0][0] > hi) and (cur[-1][1] - cur[0][0] >= min(lo, 60)):
+        cur_len, with_next = (cur[-1][1] - cur[0][0]) if cur else 0.0, sp[1] - (cur[0][0] if cur else sp[0])
+        too_short_first = not windows and cur_len < lo and with_next <= FIRST_HARD_MAX_S  # don't ship a 1-step part 1
+        if cur and with_next > hi and cur_len >= min(lo, 60) and not too_short_first:
             windows.append((cur[0][0], cur[-1][1], [c[2] for c in cur if c[2]]))
             cur = []
         cur.append(sp)
