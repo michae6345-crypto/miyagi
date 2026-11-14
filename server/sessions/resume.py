@@ -93,10 +93,12 @@ class Resumer:
             self._started_at[lid] = (saved.get("startedAt") if saved and saved.get("lessonId") == lid else None) \
                 or self.clock()
         here = idx == s.idx
+        skipped = set(getattr(s, "skipped_steps", None) or [])
         return {
             "lessonId": lid, "sourceUrl": _source_url(g), "title": lesson.get("title") or "Lesson",
             "stepIndex": idx, "stepCount": len(s.steps), "stepId": step["id"], "stepTitle": step.get("title"),
-            "passedSteps": [st["id"] for st in s.steps[:idx]],
+            "passedSteps": [st["id"] for st in s.steps[:idx] if st["id"] not in skipped],
+            "skippedSteps": [st["id"] for st in s.steps[:idx] if st["id"] in skipped],  # Skip: left unfinished
             "checks": {cid: st.get("status") for cid, st in (s.check_state or {}).items()} if here else {},
             "videoT": self.video_t if here else None,
             "workdir": s.workdir, "editorOpen": bool(getattr(s, "editor_open", False)),

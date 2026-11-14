@@ -281,6 +281,7 @@ class LessonSession:
         self.reqs: list[dict] | None = None  # S2's setup items for this lesson
         self.resources: list[dict] = []  # S2: files the video links (download button)
         self.waiting_more = False  # passed the last built step of a long video that's still building
+        self.skipped_steps: list[str] = []
         self._parts_building = False  # build_lesson itself is still adding parts (non-lazy long video)
         self._extend_task: asyncio.Task | None = None  # E2 lazy parts: the next part being built
         self._extend_failed = False  # extend raised for this lesson: don't retry on every step
@@ -1087,6 +1088,7 @@ class LessonSession:
         self.graph = graph
         self.runs = {}
         self._extend_failed = False
+        self.skipped_steps = []  # ids the learner skipped (S7 saves them apart from passed steps)
         new_wd = str(config.resolve_workdir(graph.get("lesson", {}).get("workdir")))
         self.workdir = new_wd
         if self.on_workdir:
@@ -1268,7 +1270,9 @@ class LessonSession:
             payload["pending"] = True  # the next part of a long video is still being built
         if skipped:
             payload["skipped"] = True
-            self.m.cancel_coach()  # a diagnosis for the step they left is no longer wanted
+            self.m.cancel_coach()
+            if step["id"] not in self.skipped_steps:
+                self.skipped_steps.append(step["id"])  # a diagnosis for the step they left is no longer wanted
         await self.emit("step.passed", payload)
         if not skipped:
             self._say("step.passed", payload)
