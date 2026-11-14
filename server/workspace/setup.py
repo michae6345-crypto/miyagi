@@ -491,7 +491,7 @@ def _last_error(text: str) -> str:
 
 # --------------------------------------------------------------------------- card payload (proposal)
 
-def setup_card(items: list[dict], *, step_id: str | None = None) -> dict:
+def setup_card(items: list[dict], *, step_id: str | None = None, resources: list[dict] | None = None) -> dict:
     """The proposed `card {kind: "setup"}` payload for the app (see README: contract proposal)."""
     miss = missing(items)
     need_ed = editor_needed(items)
@@ -509,8 +509,10 @@ def setup_card(items: list[dict], *, step_id: str | None = None) -> dict:
         body += " " + ed["why"]
     elif need_ed and ed and ed.get("installed"):
         body += f" Open the lesson folder in {ed['label']}?"
+    if resources:  # find_resources(): the video links its own code/notebooks/data
+        body += f" The video links its materials ({', '.join(r['name'] for r in resources[:3])}{'…' if len(resources) > 3 else ''}): download them?"
     actions = ((["open_editor"] if need_ed and ed and ed.get("installed") else []) + (["open_in_browser"] if web else [])
-               + (["install"] if miss else []) + ["skip_setup"])
+               + (["download"] if resources else []) + (["install"] if miss else []) + ["skip_setup"])
     card = {
         "kind": "setup", "title": "Before you start" if miss else "Ready to go", "body": body,
         "actions": actions,
@@ -518,7 +520,9 @@ def setup_card(items: list[dict], *, step_id: str | None = None) -> dict:
             "editorNeeded": need_ed,
             "editor": ed["tool"] if ed else None,          # "cursor" | "vscode"
             "editorLabel": ed["label"] if ed else None,    # "Cursor": the open_editor button reads "Open Cursor"
+            "resources": [{"name": r["name"], "url": r["url"], "kind": r["kind"]} for r in resources or []],
             "actionLabels": {"open_editor": f"Open {ed['label']}" if ed else "Open editor", "open_in_browser": "Open in browser",
+                             "download": "Download tutorial files",
                              "install": "Install", "skip_setup": "Skip"},
             "items": [{
                 "tool": it["tool"], "label": it["label"], "kind": it["kind"], "why": it["why"], "needed": it["needed"],
