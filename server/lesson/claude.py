@@ -12,6 +12,7 @@ import logging
 import os
 
 import anthropic
+from jsonschema import Draft202012Validator
 
 from . import gemini
 from .schema import ADAPTED_SCHEMA, VIDEO_DRAFT_SCHEMA
@@ -62,9 +63,13 @@ def strict_schema(schema: dict) -> dict:
     return s
 
 
-async def _generate_json(system: str, prompt: str, schema: dict, *, effort: str = "high") -> dict:
-    global last_model
-    mid = model()
+_schema_too_complex: set[str] = set()  # schema fingerprints the API rejected for structured output
+
+
+async def _call(mid: str, system: str, prompt: str, *, effort: str, schema: dict | None):
+    output_config: dict = {"effort": effort}
+    if schema is not None:
+        output_config["format"] = {"type": "json_schema", "schema": strict_schema(schema)}
     try:
         async with client().beta.messages.stream(
             model=mid,
@@ -72,13 +77,17 @@ async def _generate_json(system: str, prompt: str, schema: dict, *, effort: str 
             system=system,
             messages=[{"role": "user", "content": prompt}],
             thinking={"type": "adaptive"},
-            output_config={"effort": effort, "format": {"type": "json_schema", "schema": strict_schema(schema)}},
+            output_config=output_config,
             betas=["server-side-fallback-2026-07-01"],
             fallbacks="default",  # on a policy decline, the API re-runs on a fallback model
         ) as stream:
             msg = await stream.get_final_message()
     except anthropic.AuthenticationError as e:
         raise RuntimeError(f"Anthropic rejected the API key: {e}") from e
+    except anthropic.BadRequestError as e:
+        if schema is not None and "too complex" in str(e).lower():
+            raise _SchemaTooComplex from e
+        raise RuntimeError(f"Claude call failed (400): {str(e)[:300]}") from e
     except anthropic.APIStatusError as e:  # 4xx/5xx after the SDK's own retries
         raise RuntimeError(f"Claude call failed ({e.status_code}): {str(e)[:300]}") from e
     except anthropic.APIConnectionError as e:
@@ -87,9 +96,57 @@ async def _generate_json(system: str, prompt: str, schema: dict, *, effort: str 
         raise RuntimeError(f"Claude declined: {getattr(msg, 'stop_details', None)}")
     if msg.stop_reason == "max_tokens":
         raise RuntimeError("Claude output hit max_tokens (incomplete JSON)")
-    text = next((b.text for b in msg.content if b.type == "text"), "")
-    last_model = getattr(msg, "model", None) or mid
-    return json.loads(text)
+    return msg, next((b.text for b in msg.content if b.type == "text"), "")
+
+
+class _SchemaTooComplex(Exception):
+    pass
+
+
+def extract_json(text: str) -> dict:
+    """The JSON object in a reply (tolerates a ```json fence or a sentence around it)."""
+    t = text.strip()
+    if t.startswith("```"):
+        t = t.split("\n", 1)[1] if "\n" in t else t
+        t = t.rsplit("```", 1)[0]
+    start = t.find("{")
+    if start < 0:
+        raise ValueError("no JSON object in the reply")
+    obj, _ = json.JSONDecoder().raw_decode(t, start)
+    return obj
+
+
+async def _generate_json(system: str, prompt: str, schema: dict, *, effort: str = "high") -> dict:
+    """Structured output when the API accepts the schema; otherwise (\"Schema is too complex\") the
+    schema goes in the prompt and the reply is validated client-side, with one corrective retry."""
+    global last_model
+    mid = model()
+    key = json.dumps(schema, sort_keys=True)
+    if key not in _schema_too_complex:
+        try:
+            msg, text = await _call(mid, system, prompt, effort=effort, schema=schema)
+            last_model = getattr(msg, "model", None) or mid
+            return json.loads(text)
+        except _SchemaTooComplex:
+            _schema_too_complex.add(key)
+            log.info("structured output schema too complex for the API; using prompt-described JSON + client validation")
+
+    validator = Draft202012Validator(schema)
+    ask = (prompt + "\n\nReply with ONE JSON object (no prose, no code fence) that validates against this JSON Schema:\n"
+           + json.dumps(schema))
+    errors: list[str] = []
+    for _attempt in range(2):
+        msg, text = await _call(mid, system, ask, effort=effort, schema=None)
+        try:
+            obj = extract_json(text)
+            errors = [f"{'/'.join(map(str, e.absolute_path)) or '<root>'}: {e.message}" for e in validator.iter_errors(obj)]
+        except ValueError as e:
+            errors = [f"not valid JSON: {e}"]
+        if not errors:
+            last_model = getattr(msg, "model", None) or mid
+            return obj
+        ask = ask + "\n\nYour previous reply was invalid; fix these and reply with the full JSON object again:\n- " + "\n- ".join(errors[:20])
+    raise RuntimeError("Claude reply did not match the schema: " + "; ".join(errors[:5]))
 
 
 TRANSCRIPT_NOTE = """You cannot see the video. You get its title, description, chapter list and the

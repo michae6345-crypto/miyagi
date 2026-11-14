@@ -356,3 +356,10 @@ def test_cache_hit_ignores_goal_wording_for_same_video_and_workdir(fake):
     watched = fake["watch"]
     g2 = asyncio.run(builder.build_lesson(URL, "how do physics informed nets work?", WORKDIR))
     assert fake["watch"] == watched and g2["steps"] == g["steps"]
+
+
+def test_extract_json_tolerates_fences_and_prose():
+    assert claude.extract_json('```json\n{"a": 1}\n```') == {"a": 1}
+    assert claude.extract_json('Here you go: {"steps": []} done') == {"steps": []}
+    with pytest.raises(ValueError):
+        claude.extract_json("no json here")
