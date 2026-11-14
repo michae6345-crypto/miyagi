@@ -164,3 +164,40 @@ def test_research_cites_only_tool_result_urls_and_resumes_pause_turn(monkeypatch
     assert "Notes part 1" in r["notes"] and "Notes part 2" in r["notes"]
     assert len(sent) == 2 and sent[1]["messages"][1]["role"] == "assistant"  # the paused turn was sent back as-is
     assert sent[0]["tools"][0]["type"] == "web_search_20260209"
+
+
+def test_setup_noise_and_absolute_paths_are_stripped():
+    wd = "/Users/tripi/miyagi/lessons/_new"
+    step = {"id": "s1", "index": 1, "title": "Create calculator.py", "file": "calculator.py",
+            "instructions": f"In your terminal run: mkdir -p {wd} && cd {wd} && touch calculator.py. Then define add in calculator.py.",
+            "code": f"mkdir -p {wd}\ncd {wd}\ntouch calculator.py\ndef add(a, b):\n    return a + b",
+            "run_command": f"mkdir -p {wd} && cd {wd}",
+            "checks": [{"id": "s1c1", "type": "screen_contains", "label": "dir made", "app": "Terminal", "pattern": "calculator"}],
+            "precision_checks": [], "targets": [{"file": "calculator.py", "match": "def add(", "caption": "here", "app": "Code"}],
+            "hints": ["h"], "common_mistakes": [], "explanations": []}
+    s = textlesson.sanitize_step(step, wd)
+    blob = json.dumps(s)
+    assert "/Users/" not in blob and "mkdir" not in blob and "touch" not in blob and "_new" not in blob
+    assert s["instructions"] == "Then define add in calculator.py." and s["code"] == "def add(a, b):\n    return a + b"
+    assert "run_command" not in s and s["checks"][0]["app"] == "Code"  # the Terminal check is gone
+    fc = s["precision_checks"][0]
+    assert fc["type"] == "file_contains" and fc["file"] == "calculator.py" and fc["id"] == "s1p1"
+    import re as _re
+    assert _re.search(fc["pattern"], "def add(a,  b):")  # spacing-tolerant literal
+
+
+def test_prompts_never_see_the_absolute_workdir(fake_claude, tmp_path, monkeypatch):
+    fake_claude["lesson"] = LESSONS["build a calculator in Python"]
+    seen = []
+    orig = claude._generate_json
+
+    async def spy(system, prompt, schema, **kw):
+        seen.append(prompt)
+        return await orig(system, prompt, schema, **kw)
+
+    monkeypatch.setattr(claude, "_generate_json", spy)
+    wd = tmp_path / "lessons" / "_new"
+    wd.mkdir(parents=True)
+    (wd / "calculator.py").write_text("")
+    asyncio.run(textlesson.build_text_lesson("build a calculator in Python", str(wd)))
+    assert seen and all(str(wd) not in p for p in seen)
