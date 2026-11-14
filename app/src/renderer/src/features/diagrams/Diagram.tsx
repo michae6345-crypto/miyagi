@@ -2,7 +2,8 @@
  * Intuition diagrams (the server sends the data; we only render).
  *   network   : the real model's layers + autograd arrows to u_t, u_x → residual
  *   gradients : gradient norm per layer over training (shows the PINN failure)
- *   heatmap   : predicted vs exact u(x,t)  (TODO F4: canvas)
+ *   heatmap   : predicted vs exact field on a canvas (Heatmap.tsx)
+ *   graph     : any topic's nodes + edges, every layout family (Graph.tsx); tabs when a step has several kinds (Tabs.tsx)
  * Lines draw in (pathLength, 350ms, 30ms stagger per layer).
  * Look: a sky tile (Diagram's option tone, same as its button) and the title; neutral lines; the
  * highlighted series in sky (understand), never amber (amber only means off track). Every label from the data.
@@ -13,24 +14,30 @@ import { Waypoints } from 'lucide-react'
 import { actionTone, color, fill } from '../../core/theme'
 import { CloseButton } from '../../core/ui/atoms'
 import { useDiagram } from './store'
+import { Graph } from './Graph'
+import { Heatmap, type HeatmapData } from './Heatmap'
+import { DiagramTabs, titleOf } from './Tabs'
+import type { GraphDiagramData } from '../../../../../../shared/contracts/events'
 
 export function DiagramView(): ReactNode {
   const d = useDiagram((s) => s.diagram)
   if (!d) return null
-  const title = d.kind === 'network' ? 'Architecture' : d.kind === 'gradients' ? 'Gradient flow' : 'Solution'
+  const title = titleOf(d)
   return (
     <div className="px-[20px] pb-[16px] pt-[16px]">
       <div className="flex items-center gap-[10px]">
         <span className="grid h-[24px] w-[24px] place-items-center rounded-[7px]" style={{ background: actionTone.diagram, color: color.onAccent }}>
           <Waypoints size={13} strokeWidth={1.9} />
         </span>
-        <span className="text-[14px] font-semibold">{title}</span>
+        <DiagramTabs fallback={<span className="text-[14px] font-semibold">{title}</span>} />
         <span className="flex-1" />
         <CloseButton />
       </div>
       <div className="mt-[10px]">
         {d.kind === 'network' && <Network data={d.data as Record<string, unknown>} />}
         {d.kind === 'gradients' && <Gradients data={d.data as Record<string, unknown>} />}
+        {d.kind === 'heatmap' && <Heatmap data={d.data as HeatmapData} />}
+        {d.kind === 'graph' && <Graph data={d.data as GraphDiagramData} />}
       </div>
       {d.caption && (
         <div
