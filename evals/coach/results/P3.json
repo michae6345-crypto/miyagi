@@ -1,0 +1,233 @@
+{
+ "id": "P3",
+ "topic": "pandas",
+ "step": "s4",
+ "mistake": "`.agg({\"Salary\": [mean, max, min], ...})`: bare names instead of strings",
+ "truth": "`mean` is not a Python name (max/min are builtins) → NameError. Fix: quote them: `[\"mean\", \"max\", \"min\"]`, `[\"mean\", \"count\"]`.",
+ "ocr": {
+  "blocks": 60,
+  "ms": 182,
+  "lines_by_app": {
+   "": 2,
+   "Code": 39,
+   "Terminal": 5
+  }
+ },
+ "cursor": {
+  "xy": [
+   388.0,
+   425.8
+  ],
+  "on": "agg_result = df.groupby(\"Department\").agg({\"Salary\": [mean, max, min], \"Experience_Years\": [mean, count]})"
+ },
+ "before_check": [
+  {
+   "source": "import pandas as pd\nimport numpy as np",
+   "count": 1,
+   "error": null,
+   "text": ""
+  },
+  {
+   "source": "np.random.seed(42)\ndata = {\n    \"Department\": np.random.choice([\"Engineering\", \"Marketing\", \"Sales\", \"HR\"], 50),\n    \"Employee\": [f\"Emp_{i}\" for i in range(1, 51)],\n    \"Salary\": np.random.randint(40000, 120000, 50),\n    \"Experience_Years\": np.random.randint(1, 20, 50),\n}\ndf = pd.DataFrame(data)\ndf.head()",
+   "count": 2,
+   "error": null,
+   "text": "    Department Employee  Salary  Experience_Years\n0        Sales    Emp_1   75773                 1\n1           HR    Emp_2  107435                 7\n2  Engineering    Emp_3   96886                 9\n3        Sales    Emp_4  106803                 1\n4        Sales    Emp_5   71551                12"
+  },
+  {
+   "source": "avg_salary = df.groupby(\"Department\")[\"Salary\"].mean()\navg_salary.head(2)",
+   "count": 3,
+   "error": null,
+   "text": "Department\nEngineering    87925.60\nHR             78798.25\nName: Salary, dtype: float64"
+  },
+  {
+   "source": "avg_salary.sort_values()",
+   "count": 4,
+   "error": null,
+   "text": "Department\nHR             78798.250000\nMarketing      81935.545455\nSales          84124.846154\nEngineering    87925.600000\nName: Salary, dtype: float64"
+  },
+  {
+   "source": "avg_salary.reset_index()",
+   "count": 5,
+   "error": null,
+   "text": "    Department        Salary\n0  Engineering  87925.600000\n1           HR  78798.250000\n2    Marketing  81935.545455\n3        Sales  84124.846154"
+  },
+  {
+   "source": "grouped = df.groupby([\"Department\", \"Experience_Years\"])[\"Salary\"].mean()\ngrouped.head(10)",
+   "count": 6,
+   "error": null,
+   "text": "Department   Experience_Years\nEngineering  1                    51534.0\n             2                   109479.0\n             3                   112409.0\n             5                   111211.0\n             7                   101869.5\n             9                    96886.0\n             11                  109092.0\n             14                   41016.0\n             19                   43890.0\nHR           1                    85758.0\nName: Salary, dtype: float64"
+  },
+  {
+   "source": "agg_result = df.groupby(\"Department\").agg({\"Salary\": [mean, max, min], \"Experience_Years\": [mean, count]})\nagg_result",
+   "count": 7,
+   "error": "NameError: name 'mean' is not defined",
+   "text": "---------------------------------------------------------------------------\nNameError                                 Traceback (most recent call last)\nCell In[7], line 1\n----> 1 agg_result = df.groupby(\"Department\").agg({\"Salary\": [mean, max, min], \"Experience_Years\": [mean, count]})\n      2 agg_result\n\nNameError: name 'mean' is not defined"
+  }
+ ],
+ "gate_before": {
+  "passed": true,
+  "via": "precision",
+  "passed_screen_only": false,
+  "checks": [
+   "s4c1 fail: not seen in Code",
+   "s4c2 fail: not seen in Code",
+   "s4c3 fail: still showing 'Traceback' in Code"
+  ],
+  "precision": [
+   "s4p1 pass: found in groupby.ipynb:332"
+  ]
+ },
+ "fires": false,
+ "fires_screen_only": true,
+ "forced": true,
+ "inputs": {
+  "code_from": "groupby.ipynb",
+  "code_chars": 6000,
+  "target_location": [
+   "/var/folders/2g/b60087014tq94njh6r4zdmhm0000gn/T/coach-eval-lz7idi8m/P3/pandas-groupby/groupby.ipynb",
+   332
+  ],
+  "cursor_under": "agg_result = df. groupby(\"Department\") . agg (f\"Salary\": [mean, max,"
+ },
+ "warm_s": 1.84,
+ "card_s": 6.69,
+ "targets_s": 4.19,
+ "card": {
+  "stepId": "s4",
+  "severity": "fail",
+  "title": "Aggregation names passed unquoted",
+  "body": "Python looks up mean, max, min and count as variables, and mean is undefined, so the cell raises NameError. Quote each one as a string: \"mean\", \"max\", \"min\", \"count\".",
+  "actions": [
+   "explain",
+   "show_me",
+   "hint",
+   "apply_fix"
+  ],
+  "guidingQuestion": "How does Python interpret a bare word like mean that was never assigned?",
+  "diff": {
+   "expected": "agg_result = df.groupby(\"Department\").agg({\"Salary\": [\"mean\", \"max\", \"min\"], \"Experience_Years\": [\"mean\", \"count\"]})",
+   "yours": "agg_result = df.groupby(\"Department\").agg({\"Salary\": [mean, max, min], \"Experience_Years\": [mean, count]})",
+   "file": "groupby.ipynb"
+  },
+  "citation": {
+   "label": "Mastering Pandas groupby() in Python",
+   "url": "https://www.youtube.com/watch?v=_zsKKcnX-qE"
+  },
+  "targets": [
+   {
+    "boxId": 43,
+    "label": "unquoted names",
+    "text": "agg_result = df. groupby(\"Department\") . agg (f\"Salary\": [mean, max,",
+    "rect": {
+     "x": 326.5,
+     "y": 416.5,
+     "w": 452.1,
+     "h": 17.7
+    }
+   },
+   {
+    "boxId": 53,
+    "label": "NameError",
+    "text": "NameError: name 'mean' is not defined",
+    "rect": {
+     "x": 326.5,
+     "y": 567.3,
+     "w": 263.7,
+     "h": 15.2
+    }
+   },
+   {
+    "boxId": 45,
+    "label": "count unquoted",
+    "text": "count]})",
+    "rect": {
+     "x": 1012.2,
+     "y": 419.1,
+     "w": 60.3,
+     "h": 12.8
+    }
+   }
+  ]
+ },
+ "meta": {
+  "route": "opus",
+  "triage": {
+   "route": "opus",
+   "by": "haiku",
+   "reason": "The failed checks show the groupby agg step is absent from the code and a Traceback is still present, but no error output is given and the notebook excerpt is truncated. Whether this is an unwritten step or a hidden error depends on the learner's specific code, so the correct helper cannot be determined confidently from the provided evidence."
+  },
+  "model": "claude-opus-5-5",
+  "latency_s": 4.45,
+  "playbook_id": null,
+  "web_sources": [
+   "https://github.com/vivek-bombatkar/Databricks-Apache-Spark-2X-Certified-Developer",
+   "https://www.reddit.com/r/datascience/comments/wo2mgw/please_help_me_understand_why_sql_is_important/"
+  ],
+  "usage": {
+   "input_tokens": 7985,
+   "output_tokens": 395,
+   "cache_read_input_tokens": 10715,
+   "cache_creation_input_tokens": 0,
+   "first_text_s": 1.56
+  }
+ },
+ "diagnosis_auto": true,
+ "targets": {
+  "n": 3,
+  "any": true,
+  "first": true,
+  "texts": [
+   "agg_result = df. groupby(\"Department\") . agg (f\"Salary\": [mean, max,",
+   "NameError: name 'mean' is not defined",
+   "count]})"
+  ],
+  "labels": [
+   "unquoted names",
+   "NameError",
+   "count unquoted"
+  ]
+ },
+ "hint3": {
+  "title": "Here's the change",
+  "diff": {
+   "expected": "agg_result = df.groupby(\"Department\").agg({\"Salary\": [\"mean\", \"max\", \"min\"], \"Experience_Years\": [\"mean\", \"count\"]})",
+   "yours": "agg_result = df.groupby(\"Department\").agg({\"Salary\": [mean, max, min], \"Experience_Years\": [mean, count]})",
+   "file": "groupby.ipynb"
+  }
+ },
+ "orchestrator_resolves_file": true,
+ "patch": {
+  "file": "groupby.ipynb",
+  "unified_diff": "--- a/groupby.ipynb\n+++ b/groupby.ipynb\n@@ -335,7 +335,7 @@\n     }\n    ],\n    \"source\": [\n-    \"agg_result = df.groupby(\\\"Department\\\").agg({\\\"Salary\\\": [mean, max, min], \\\"Experience_Years\\\": [mean, count]})\\n\",\n+    \"agg_result = df.groupby(\\\"Department\\\").agg({\\\"Salary\\\": [\\\"mean\\\", \\\"max\\\", \\\"min\\\"], \\\"Experience_Years\\\": [\\\"mean\\\", \\\"count\\\"]})\\n\",\n     \"agg_result\"\n    ]\n   }\n",
+  "summary": "Quote aggregation function names as strings in agg()",
+  "line": 338,
+  "requires_confirmation": true,
+  "_meta": {
+   "via": "opus#1"
+  },
+  "s": 3.02,
+  "changed_lines": 2
+ },
+ "check_after": {
+  "ok": true,
+  "error": null,
+  "output": "                   Salary                Experience_Years      \n                     mean     max    min             mean count\nDepartment                                                     \nEngineering  87925.600000  112409  41016         7.800000    10\nHR           78798.250000  117189  48571         9.437500    16\nMarketing    81935.545455  118953  49268         7.545455    11\nSales        841"
+ },
+ "gate_after": {
+  "passed": true,
+  "via": "precision",
+  "failed": [
+   "s4c1 Calls groupby agg: not seen in Code"
+  ]
+ },
+ "spotlight": {
+  "via": "diff.yours",
+  "rect": {
+   "x": 323.0,
+   "y": 513.5,
+   "w": 810.7,
+   "h": 27.2
+  },
+  "on_line": true
+ }
+}

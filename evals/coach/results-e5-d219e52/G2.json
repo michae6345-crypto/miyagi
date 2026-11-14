@@ -1,0 +1,203 @@
+{
+ "id": "G2",
+ "topic": "git",
+ "step": "s3",
+ "mistake": "At the `edit` stop, removed the debug line in index.js but ran `git rebase --continue` without `git add`",
+ "truth": "The edit is unstaged; git refuses with the (misleading) 'You must edit all merge conflicts ... using git add'. There is no conflict. Fix: `git add index.js` then `git rebase --continue`.",
+ "ocr": {
+  "blocks": 40,
+  "ms": 151,
+  "lines_by_app": {
+   "": 2,
+   "Code": 18,
+   "Terminal": 11
+  }
+ },
+ "cursor": {
+  "xy": [
+   1012.0,
+   240.2
+  ],
+  "on": "You must edit all merge conflicts and then"
+ },
+ "gate_before": {
+  "passed": false,
+  "via": null,
+  "passed_screen_only": false,
+  "checks": [
+   "s3c1 pass: seen in Terminal: 'Stopped at'",
+   "s3c2 fail: not seen in Terminal",
+   "s3c3 pass: not showing in Terminal"
+  ],
+  "precision": [
+   "s3p1 pending: run `tut run ! git log -p main..feature/login -- index.js | grep -q '^+.*DEBUG: LOGIN'`",
+   "s3p2 pending: run `tut run test ! -d .git/rebase-merge`"
+  ]
+ },
+ "fires": true,
+ "fires_screen_only": true,
+ "inputs": {
+  "code_from": "screen OCR (Code)",
+  "code_chars": 362,
+  "target_location": null,
+  "cursor_under": "You must edit all merge conflicts and then"
+ },
+ "warm_s": 1.84,
+ "card_s": 7.01,
+ "targets_s": 4.94,
+ "card": {
+  "stepId": "s3",
+  "severity": "fail",
+  "title": "Edited index.js was never staged",
+  "body": "git rebase --continue refuses because the changes to index.js are unstaged, so Git treats the paused commit as unresolved. Run git add index.js, then git rebase --continue.",
+  "actions": [
+   "explain",
+   "hint",
+   "apply_fix"
+  ],
+  "guidingQuestion": "What does Git need you to do with index.js before it will continue the rebase?",
+  "diff": {
+   "expected": "",
+   "yours": "",
+   "command": "git add index.js && git rebase --continue"
+  },
+  "citation": {
+   "label": "complains even when all merge conflicts have been resolved",
+   "url": "https://stackoverflow.com/questions/8523776/git-rebase-continue-complains-even-when-all-merge-conflicts-have-been-resolved"
+  },
+  "targets": [
+   {
+    "boxId": 33,
+    "label": "continue too early",
+    "text": "learner@MacBook-Pro git-rebase-lab % git rebase --continue",
+    "rect": {
+     "x": 949.4,
+     "y": 218.4,
+     "w": 409.4,
+     "h": 12.6
+    }
+   },
+   {
+    "boxId": 36,
+    "label": "needs git add",
+    "text": "mark them as resolved using git add",
+    "rect": {
+     "x": 949.4,
+     "y": 248.5,
+     "w": 251.2,
+     "h": 12.6
+    }
+   },
+   {
+    "boxId": 25,
+    "label": "index.js",
+    "text": "index.js",
+    "rect": {
+     "x": 62.8,
+     "y": 148.1,
+     "w": 42.7,
+     "h": 12.6
+    }
+   }
+  ]
+ },
+ "meta": {
+  "route": "opus",
+  "triage": {
+   "route": "opus",
+   "by": "haiku",
+   "reason": "The error 'You must edit all merge conflicts and then' points to unresolved conflicts in the learner's rebase, which depends on their specific repo state and code. No known playbook covers git rebase conflicts, and the learner has already started the step, so the plain template hint is not enough."
+  },
+  "model": "claude-opus-5-5",
+  "latency_s": 3.88,
+  "playbook_id": null,
+  "web_sources": [
+   "https://stackoverflow.com/questions/8523776/git-rebase-continue-complains-even-when-all-merge-conflicts-have-been-resolved",
+   "https://stackoverflow.com/questions/14410421/git-rebase-merge-conflict-cannot-continue"
+  ],
+  "usage": {
+   "input_tokens": 5113,
+   "output_tokens": 260,
+   "cache_read_input_tokens": 7770,
+   "cache_creation_input_tokens": 0,
+   "first_text_s": 1.38
+  }
+ },
+ "diagnosis_auto": true,
+ "targets": {
+  "n": 3,
+  "any": true,
+  "first": true,
+  "texts": [
+   "learner@MacBook-Pro git-rebase-lab % git rebase --continue",
+   "mark them as resolved using git add",
+   "index.js"
+  ],
+  "labels": [
+   "continue too early",
+   "needs git add",
+   "index.js"
+  ]
+ },
+ "hint3": {
+  "title": "Here's the change",
+  "diff": {
+   "expected": "",
+   "yours": "",
+   "command": "git add index.js && git rebase --continue"
+  }
+ },
+ "orchestrator_resolves_file": false,
+ "patch": null,
+ "check_after": {
+  "in_progress": false,
+  "commits": [
+   "Add README and login endpoint",
+   "Add logout endpoint",
+   "Cleanup",
+   "Add authentication middleware"
+  ],
+  "log": [
+   "learner@MacBook-Pro git-rebase-lab % git add index.js",
+   "learner@MacBook-Pro git-rebase-lab % git rebase --continue",
+   "[detached HEAD 1a5d1f8] Add README and login endpoint",
+   " Date: Sat Nov 14 10:00:00 2026 -0800",
+   " 2 files changed, 7 insertions(+)",
+   " create mode 100644 README.md",
+   "",
+   "",
+   "",
+   "Successfully rebased and updated refs/heads/feature/login."
+  ],
+  "ok": true,
+  "why": "rebase finished; debug line gone from history",
+  "terminal": [
+   "learner@MacBook-Pro git-rebase-lab % git add index.js",
+   "learner@MacBook-Pro git-rebase-lab % git rebase --continue",
+   "[detached HEAD 1a5d1f8] Add README and login endpoint",
+   " Date: Sat Nov 14 10:00:00 2026 -0800",
+   " 2 files changed, 7 insertions(+)",
+   " create mode 100644 README.md",
+   "",
+   "",
+   "",
+   "Successfully rebased and updated refs/heads/feature/login."
+  ],
+  "index_after": "const express = require('express');\nconst app = express();\napp.use(express.json());\n\napp.post('/login', (req, res) => {\n  res.json({ ok: true });\n});\n\napp.post('/logout', (req, res) => {\n  res.json({ ok: true });\n});\n\napp.listen(3000, () => console.log('Server running on port 3000'));\n"
+ },
+ "gate_after": {
+  "passed": true,
+  "via": "checks",
+  "failed": []
+ },
+ "spotlight": {
+  "via": "coach target[0]",
+  "rect": {
+   "x": 949.4,
+   "y": 218.4,
+   "w": 409.4,
+   "h": 12.6
+  },
+  "on_line": true
+ }
+}
