@@ -2,7 +2,7 @@
  * Feature: overview. Hovering the pill morphs it into the step card (mockup 02):
  * thumbnail, "Step 4 of 7", segmented progress, live checks, footer.
  */
-import { motion } from 'motion/react'
+import { AnimatePresence, motion } from 'motion/react'
 import type { ReactNode } from 'react'
 import { useShallow } from 'zustand/react/shallow'
 import { bridge } from '../../bridge'
@@ -10,20 +10,28 @@ import { useLesson, useProgress, useStatus, type Status } from '../../core/lesso
 import { defineFeature } from '../../core/registry'
 import { CheckList, Kbd, StatusDot, Thumb } from '../../core/ui/atoms'
 import { clock, color, fill } from '../../core/theme'
+import { Gear } from './Gear'
+import { GoalNote, Instructions, Meta } from './Lines'
 
 function Segments({ total, index, status }: { total: number; index: number; status: Status }): ReactNode {
   const current = status === 'offtrack' ? color.amber : status === 'passed' ? color.green : color.accent
   return (
     <div className="mt-[10px] flex gap-[5px]">
-      {Array.from({ length: total }, (_, i) => (
-        <motion.div
-          key={i}
-          className="h-[3px] flex-1 rounded-full"
-          initial={false}
-          animate={{ backgroundColor: i < index ? color.text : i === index ? current : fill.track }}
-          transition={{ duration: 0.3 }}
-        />
-      ))}
+      {/* lesson.updated appends steps: existing segments keep their key and state; only the new ones fade in. */}
+      <AnimatePresence initial={false}>
+      {Array.from({ length: total }, (_, i) => {
+        const bg = i < index ? color.text : i === index ? current : fill.track
+        return (
+          <motion.div
+            key={i}
+            className="h-[3px] flex-1 rounded-full"
+            initial={{ opacity: 0, backgroundColor: bg }}
+            animate={{ opacity: 1, backgroundColor: bg }}
+            transition={{ duration: 0.3 }}
+          />
+        )
+      })}
+      </AnimatePresence>
     </div>
   )
 }
@@ -45,18 +53,22 @@ function Overview(): ReactNode {
             Step {index + 1} of {total} <StatusDot status={status} />
           </div>
           <div className="mt-[2px] truncate text-[20px] font-semibold tracking-[-0.015em]">{s.title}</div>
+          <GoalNote />
           <Segments total={total} index={index} status={status} />
         </div>
       </div>
+      <Instructions />
       {s.checks.length > 0 && (
         <div className="mt-[18px]">
           <CheckList checks={s.checks} />
         </div>
       )}
+      <Meta />
       <div className="mt-[16px] flex items-center justify-between gap-[8px] border-t pt-[12px] text-[13px]" style={{ borderColor: fill.rule, color: color.faint }}>
         <span className="truncate">{footer}</span>
         <span className="flex shrink-0 items-center gap-[8px]" style={{ color: color.label }}>
           Ask <Kbd>{bridge.platform.keys.launcher}</Kbd>
+          <Gear />
         </span>
       </div>
     </div>
