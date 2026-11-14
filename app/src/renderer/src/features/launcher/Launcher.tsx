@@ -11,19 +11,18 @@
  *                                    (card {kind:'answer'}, cards feature) then grows out of the island.
  * The island hides itself while the launcher has it (core), so the two never show at once.
  *
- * Two modes, picked on open:
+ * Two modes, picked on open (Tab flips them during a lesson):
  *   search : learn {query} → rows stream in → Build lesson. A pasted YouTube link skips the search
- *            (one row, Enter sends learn_url {url}).
+ *            (one row, Enter sends learn_url {url}). Idle shows a few suggestions; one click searches.
  *   ask    : a lesson exists → "Ask about this step" → action {kind:'ask', text}.
  *
- * Look (pass 2): light spills out of the notch behind the panel; a slow aurora glows behind the title;
- * a comet of light runs around the search field (brighter while typing, brightest while searching);
- * idle shows suggestion chips; the primary button is lit when it can act and a quiet ghost when it can't.
- * All decoration lives in the content layer, so the collapsed panel is pure island black (./Glow.tsx).
+ * Look: the island's own language. Black, white text at the theme's label/faint levels, low-alpha
+ * white fills, one hairline rule; the accent only for the caret and the best result. Footer actions
+ * are label + keycap (Spotlight-style), not filled buttons.
  *
  * Motion: one spring for the shape (width, height, radius together, like the island's own cards);
- * content crossfades (out 80ms; in after 60ms), its sections rising a beat apart. Rows enter y 8 → 0 at
- * least 40ms apart; one highlight glides between them. Reduced motion: crossfades only.
+ * content crossfades (out 80ms; in after 60ms), its sections settling a beat apart. Rows enter
+ * y 6 → 0 at least 40ms apart; one highlight glides between them. Reduced motion: crossfades only.
  */
 import { AnimatePresence, motion, useReducedMotion, type HTMLMotionProps, type TargetAndTransition, type Transition } from 'motion/react'
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, type ClipboardEvent, type KeyboardEvent, type ReactNode } from 'react'
@@ -36,37 +35,37 @@ import { onUi } from '../../core/bus'
 import { useLesson, useProgress } from '../../core/lesson'
 import { getIslandModes, type IslandMode } from '../../core/registry'
 import { triggerShortcut } from '../../core/shortcuts'
-import { Kbd, ProgressRing, Spinner } from '../../core/ui/atoms'
+import { Spinner } from '../../core/ui/atoms'
 import { clock, color, pill, radius, spring, springOut } from '../../core/theme'
-import { Ambient, AuroraField, Chip, PrimaryButton, Rise } from './Glow'
+import { Action, Chip, Rise } from './parts'
 import { LinkRow, MessageRow, ResultRow, ROW_H, SkeletonRow } from './Rows'
 import { setLauncherOpen, startSearch, useSearch, type SearchResult } from './store'
-import { tint, violet } from './tint'
+import { tint } from './tint'
 import { parseYouTube } from './youtube'
 
 type Phase = 'closed' | 'open' | 'closing' | 'building' | 'sending'
 type Mode = 'search' | 'ask'
 type View = 'idle' | 'link' | 'searching' | 'results' | 'empty' | 'error'
 type Size = { w: number; h: number }
-/** What Enter (and the button) would do right now. Mirrors submit(). */
-type Action = 'ask' | 'build' | 'search' | 'searching' | 'none'
+/** What Enter (and the footer action) would do right now. Mirrors submit(). */
+type Act = 'ask' | 'build' | 'search' | 'searching' | 'none'
 
 /** Launcher width when grown out of the notch (theme.launcher.width is still the old 720: see Core requests). */
 const WIDTH = 640
 const MAX_ROWS = 4
 const SKELETONS = 3
 /** "Top results" label block above the rows. */
-const LABEL_H = 34
+const LABEL_H = 32
 /** Minimum gap between two rows' entrances, in seconds. */
 const STAGGER = 0.04
 /** The pill core's island lands on after Build lesson. */
 const PILL: Size = { w: pill.landingWidth, h: pill.height }
 
 /** Idle suggestions: example asks across fields (never the demo lesson's topic). One click searches. */
-const SUGGESTIONS: { icon: LucideIcon; tone: string; label: string }[] = [
-  { icon: Bot, tone: color.accent, label: 'Fine-tune an LLM' },
-  { icon: Aperture, tone: color.amber, label: 'Build a ray tracer' },
-  { icon: Waves, tone: violet, label: 'Train a diffusion model' }
+const SUGGESTIONS: { icon: LucideIcon; label: string }[] = [
+  { icon: Bot, label: 'Fine-tune an LLM' },
+  { icon: Aperture, label: 'Build a ray tracer' },
+  { icon: Waves, label: 'Train a diffusion model' }
 ]
 
 const isPillSized = (s: Size): boolean => s.h <= pill.height + 1
@@ -107,23 +106,9 @@ export function Launcher({ layout }: { layout: Layout }): ReactNode {
   const [question, setQuestion] = useState('')
   const [sel, setSel] = useState(0)
 
-  const search = useSearch(
-    useShallow((s) => ({
-      query: s.query,
-      results: s.results,
-      pending: s.pending,
-      done: s.done,
-      error: s.error
-    }))
-  )
+  const search = useSearch(useShallow((s) => ({ query: s.query, results: s.results, pending: s.pending, done: s.done, error: s.error })))
   const lesson = useLesson(
-    useShallow((s) => ({
-      connected: s.connected,
-      stepTitle: s.stepTitle,
-      hasStep: !!s.stepId,
-      hasLesson: !!s.lesson,
-      title: s.lesson?.title
-    }))
+    useShallow((s) => ({ connected: s.connected, stepTitle: s.stepTitle, hasStep: !!s.stepId, hasLesson: !!s.lesson, title: s.lesson?.title }))
   )
   const progress = useProgress()
   const islandMode = useIslandMode()
@@ -271,11 +256,7 @@ export function Launcher({ layout }: { layout: Layout }): ReactNode {
     else {
       if (!visible.length) return
       const first = visible[Math.min(i, visible.length - 1)].id
-      bridge.send(
-        cmd('build_lesson', {
-          resultIds: [first, ...results.map((r) => r.id).filter((id) => id !== first)]
-        })
-      )
+      bridge.send(cmd('build_lesson', { resultIds: [first, ...results.map((r) => r.id).filter((id) => id !== first)] }))
     }
     setPhase('building')
   }
@@ -353,12 +334,7 @@ export function Launcher({ layout }: { layout: Layout }): ReactNode {
   // ---- motion targets -------------------------------------------------------------------------
 
   const exiting = phase === 'closing' || phase === 'building' || phase === 'sending'
-  const grown: TargetAndTransition = {
-    width: WIDTH,
-    height: contentH || from.h,
-    borderRadius: radius.launcher,
-    boxShadow: tint.panelShadow
-  }
+  const grown: TargetAndTransition = { width: WIDTH, height: contentH || from.h, borderRadius: radius.launcher, boxShadow: tint.cardShadow }
   /** Reduced motion: crossfade at full size. Exit targets keep every key (a dropped key ends the animation early). */
   const faded = { ...grown, opacity: 0 }
   let target: TargetAndTransition = { ...grown, opacity: 1 }
@@ -379,7 +355,7 @@ export function Launcher({ layout }: { layout: Layout }): ReactNode {
   const offline = !lesson.connected
   const inlineError = view === 'results' && search.error
   const typed = (mode === 'ask' ? question : query).trim()
-  const action: Action =
+  const act: Act =
     mode === 'ask'
       ? typed
         ? 'ask'
@@ -394,37 +370,21 @@ export function Launcher({ layout }: { layout: Layout }): ReactNode {
               ? 'build'
               : 'searching'
   const busy = search.pending && mode === 'search' && view !== 'link'
-  const buttonLabel = {
-    ask: 'Ask',
-    build: 'Build lesson',
-    search: 'Search',
-    searching: 'Searching',
-    none: mode === 'ask' ? 'Ask' : 'Search'
-  }[action]
-  const hint: ReactNode = offline ? (
-    'Engine offline · reconnecting…'
-  ) : inlineError ? (
-    search.error
-  ) : mode === 'ask' ? (
-    'The answer appears in the island'
-  ) : view === 'idle' && lesson.hasLesson ? (
-    'A new lesson replaces this one'
-  ) : view === 'idle' ? (
-    <>
-      <Kbd className="!h-[20px] !rounded-[6px] !px-[6px] !text-[11px]">↵</Kbd>
-      <span>to search</span>
-      <span className="opacity-40">·</span>
-      <span>or paste a YouTube link</span>
-    </>
-  ) : (
-    {
-      link: link?.start ? `Builds a lesson from ${clock(link.start)} on · each step auto-checked` : 'Builds a lesson straight from this video',
-      searching: 'Finding the best tutorial…',
-      results: `${minutes ? `about ${minutes} min · ` : ''}each step auto-checked`,
-      empty: 'Try other words, or paste a YouTube link',
-      error: 'Press ↵ to try again'
-    }[view]
-  )
+  const actLabel = { ask: 'Ask', build: 'Build lesson', search: 'Search', searching: 'Searching…', none: mode === 'ask' ? 'Ask' : 'Search' }[act]
+  const hint = offline
+    ? 'Engine offline · reconnecting…'
+    : inlineError
+      ? search.error
+      : mode === 'ask'
+        ? 'The answer appears in the island'
+        : {
+            idle: lesson.hasLesson ? 'A new lesson replaces this one' : 'Paste a YouTube link to skip the search',
+            link: link?.start ? `Builds a lesson from ${clock(link.start)} on · each step auto-checked` : 'Builds a lesson straight from this video',
+            searching: 'Finding the best tutorial…',
+            results: `${minutes ? `About ${minutes} min · ` : ''}each step auto-checked`,
+            empty: 'Try other words, or paste a YouTube link',
+            error: 'Press ↵ to try again'
+          }[view]
   const label = {
     idle: '',
     link: 'YouTube link',
@@ -436,29 +396,19 @@ export function Launcher({ layout }: { layout: Layout }): ReactNode {
 
   return (
     <div key={gen} className="absolute inset-0" style={{ width: layout.width, height: layout.height }} data-launcher={phase}>
-      {/* A dim, with light spilling down out of the notch; click anywhere outside to collapse back into the island. */}
+      {/* A light dim; click anywhere outside to collapse back into the island. */}
       <motion.div
         className="absolute inset-0"
         style={{ background: tint.dim }}
         initial={{ opacity: 0 }}
         animate={{ opacity: phase === 'open' ? 1 : 0 }}
-        transition={{
-          duration: phase === 'open' ? 0.2 : 0.24,
-          ease: 'easeOut'
-        }}
+        transition={{ duration: phase === 'open' ? 0.16 : 0.24, ease: 'easeOut' }}
         onClick={close}
-      >
-        <div className="pointer-events-none absolute inset-0" style={{ background: tint.notchGlow }} />
-      </motion.div>
+      />
 
       <motion.div
         className="absolute left-1/2 overflow-hidden text-white"
-        style={{
-          top: bridge.platform.pillTop,
-          x: '-50%',
-          background: color.island,
-          transformOrigin: '50% 0%'
-        }}
+        style={{ top: bridge.platform.pillTop, x: '-50%', background: color.island, transformOrigin: '50% 0%' }}
         initial={reduce ? faded : { ...shapeOf(from), opacity: 1 }}
         animate={target}
         transition={transition}
@@ -475,153 +425,86 @@ export function Launcher({ layout }: { layout: Layout }): ReactNode {
 
         <motion.div
           ref={content}
-          className="relative"
           style={{ width: WIDTH, marginLeft: `calc(50% - ${WIDTH / 2}px)` }}
           initial={{ opacity: 0, y: 4 }}
           animate={exiting ? { opacity: 0, y: 0, transition: contentOut } : { opacity: 1, y: 0, transition: contentIn }}
         >
-          <Ambient />
-
           {/* Title, and (ask mode) where you are in the lesson. */}
-          <Rise i={0} className="px-[28px] pt-[28px] text-center">
+          <Rise i={0} className="px-[28px] pt-[24px] text-center">
             <motion.div key={mode} initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: 0.15 }}>
-              <div
-                className="text-[26px] font-semibold leading-[32px] tracking-[-0.022em]"
-                style={{
-                  backgroundImage: tint.title,
-                  WebkitBackgroundClip: 'text',
-                  backgroundClip: 'text',
-                  color: 'transparent'
-                }}
-              >
+              <div className="text-[22px] font-semibold leading-[28px] tracking-[-0.015em] text-white">
                 {mode === 'ask' ? 'Ask about this step' : 'What do you want to learn?'}
               </div>
-              {mode === 'ask' ? (
-                <div className="mt-[10px] flex justify-center">
-                  <span
-                    className="inline-flex h-[28px] max-w-full items-center gap-[8px] whitespace-nowrap rounded-full border px-[12px] text-[12.5px]"
-                    style={{
-                      background: tint.chip,
-                      borderColor: tint.chipBorder,
-                      color: color.faint
-                    }}
-                  >
-                    {lesson.hasStep ? (
-                      <>
-                        <ProgressRing fraction={progress.total ? progress.index / progress.total : 0} size={13} stroke={2} />
-                        <span>
-                          Step {progress.index + 1} of {progress.total}
-                        </span>
-                        <span className="opacity-50">·</span>
-                        <span className="truncate" style={{ color: color.label }}>
-                          {lesson.stepTitle}
-                        </span>
-                      </>
-                    ) : (
-                      <span className="truncate">{lesson.title}</span>
-                    )}
-                  </span>
-                </div>
-              ) : (
-                <div className="mt-[6px] text-[14px] leading-[20px]" style={{ color: color.faint }}>
-                  Any tutorial, turned into a hands-on lab that checks your work.
+              {mode === 'ask' && (
+                <div className="mt-[4px] truncate px-[12px] text-[13px]" style={{ color: color.faint }}>
+                  {lesson.hasStep ? (
+                    <>
+                      Step {progress.index + 1} of {progress.total} · <span style={{ color: color.label }}>{lesson.stepTitle}</span>
+                    </>
+                  ) : (
+                    lesson.title
+                  )}
                 </div>
               )}
             </motion.div>
           </Rise>
 
-          {/* The field, wrapped in its running light. */}
-          <Rise i={1} className="mx-[20px] mt-[20px]">
-            <AuroraField live={typed.length > 0} busy={busy}>
-              <div className="flex h-[56px] items-center gap-[12px] pl-[16px] pr-[8px]">
-                <motion.span
-                  className="grid shrink-0 place-items-center"
-                  style={{
-                    color: tint.accentText,
-                    filter: `drop-shadow(0 0 6px ${color.accent})`
-                  }}
-                  animate={busy ? { rotate: 360, scale: 1 } : { rotate: 0, scale: [1, 1.14, 1] }}
-                  transition={
-                    busy
-                      ? {
-                          rotate: {
-                            duration: 1.4,
-                            repeat: Infinity,
-                            ease: 'linear'
-                          }
-                        }
-                      : {
-                          rotate: { duration: 0.3 },
-                          scale: {
-                            duration: 2.8,
-                            repeat: Infinity,
-                            ease: 'easeInOut'
-                          }
-                        }
-                  }
-                >
-                  {mode === 'ask' ? <MessageCircle size={19} strokeWidth={1.7} /> : <Sparkles size={19} strokeWidth={1.7} />}
-                </motion.span>
-                <input
-                  ref={input}
-                  value={mode === 'ask' ? question : query}
-                  onChange={(e) => (mode === 'ask' ? setQuestion(e.target.value) : setQuery(e.target.value))}
-                  onKeyDown={onKey}
-                  onPaste={onPaste}
-                  readOnly={phase !== 'open'}
-                  placeholder={mode === 'ask' ? 'Ask anything about this step…' : 'Search a topic, or paste a YouTube link'}
-                  spellCheck={false}
-                  autoComplete="off"
-                  aria-label={mode === 'ask' ? 'Ask about this step' : 'What do you want to learn?'}
-                  className="h-full min-w-0 flex-1 bg-transparent text-[18px] tracking-[-0.005em] text-white outline-none placeholder:text-white/30"
-                  style={{ caretColor: color.accent }}
-                />
-                {/* Decorative until voice queries land (see Notes). */}
-                <span className="grid h-[36px] w-[36px] shrink-0 place-items-center rounded-full text-white/40" style={{ background: tint.ghost }}>
-                  <Mic size={16} strokeWidth={1.7} />
-                </span>
-              </div>
-            </AuroraField>
+          <Rise i={1} className="mx-[20px] mt-[16px]">
+            <div
+              className="flex h-[52px] items-center gap-[12px] rounded-[14px] border px-[16px]"
+              style={{ background: tint.field, borderColor: tint.fieldBorder }}
+            >
+              <span className="grid w-[17px] shrink-0 place-items-center" style={{ color: color.label }}>
+                {busy ? (
+                  <Spinner size={16} c={color.label} />
+                ) : mode === 'ask' ? (
+                  <MessageCircle size={17} strokeWidth={1.6} />
+                ) : (
+                  <Sparkles size={17} strokeWidth={1.6} />
+                )}
+              </span>
+              <input
+                ref={input}
+                value={mode === 'ask' ? question : query}
+                onChange={(e) => (mode === 'ask' ? setQuestion(e.target.value) : setQuery(e.target.value))}
+                onKeyDown={onKey}
+                onPaste={onPaste}
+                readOnly={phase !== 'open'}
+                placeholder={mode === 'ask' ? 'Ask anything about this step…' : 'Search a topic, or paste a YouTube link'}
+                spellCheck={false}
+                autoComplete="off"
+                aria-label={mode === 'ask' ? 'Ask about this step' : 'What do you want to learn?'}
+                className="h-full min-w-0 flex-1 bg-transparent text-[17px] text-white outline-none placeholder:text-white/30"
+                style={{ caretColor: color.accent }}
+              />
+              {/* Decorative until voice queries land (see Notes). */}
+              <Mic size={16} strokeWidth={1.6} className="shrink-0" style={{ color: color.faint }} />
+            </div>
           </Rise>
 
           {mode === 'ask' ? (
-            <Rise key="ask" i={2} className="flex flex-wrap gap-[8px] px-[20px] pt-[14px]">
-              <Chip icon={BookOpen} tone={color.accent} label="Explain this step" kbd={bridge.platform.keys.explain} onClick={() => quick('explain')} />
-              <Chip icon={Lightbulb} tone={color.amber} label="Give me a hint" kbd={bridge.platform.keys.hint} onClick={() => quick('hint')} />
+            <Rise key="ask" i={2} className="flex flex-wrap gap-[8px] px-[20px] pt-[12px]">
+              <Chip icon={BookOpen} label="Explain this step" kbd={bridge.platform.keys.explain} onClick={() => quick('explain')} />
+              <Chip icon={Lightbulb} label="Give me a hint" kbd={bridge.platform.keys.hint} onClick={() => quick('hint')} />
             </Rise>
           ) : view === 'idle' ? (
-            <Rise key="try" i={2} className="flex items-center gap-[8px] px-[20px] pt-[14px]">
-              <span className="pl-[6px] pr-[4px] text-[11px] font-semibold uppercase tracking-[0.08em]" style={{ color: color.faint }}>
-                Try
-              </span>
+            <Rise key="try" i={2} className="flex flex-wrap gap-[8px] px-[20px] pt-[12px]">
               {SUGGESTIONS.map((s) => (
-                <Chip key={s.label} icon={s.icon} tone={s.tone} label={s.label} onClick={() => suggest(s.label)} />
+                <Chip key={s.label} icon={s.icon} label={s.label} onClick={() => suggest(s.label)} />
               ))}
             </Rise>
           ) : (
             slots > 0 && (
               <div>
-                <div
-                  className="flex items-end gap-[8px] px-[30px] pb-[7px] text-[11px] font-semibold uppercase tracking-[0.08em]"
-                  style={{ height: LABEL_H, color: color.faint }}
-                >
+                <div className="flex items-end gap-[8px] px-[30px] pb-[6px] text-[12px] font-medium" style={{ height: LABEL_H, color: color.faint }}>
                   {label}
-                  {search.pending && view !== 'link' && <Spinner size={11} />}
                 </div>
-                <div className="relative mx-[16px]" style={{ height: slots * ROW_H }}>
+                <div className="relative mx-[20px]" style={{ height: slots * ROW_H }}>
                   <motion.div
-                    className="pointer-events-none absolute inset-x-0 top-0 rounded-[14px] border"
-                    style={{
-                      height: ROW_H,
-                      background: tint.highlight,
-                      borderColor: tint.highlightBorder,
-                      boxShadow: tint.highlightGlow
-                    }}
+                    className="pointer-events-none absolute inset-x-0 top-0 rounded-[12px]"
+                    style={{ height: ROW_H, background: tint.highlight }}
                     initial={false}
-                    animate={{
-                      y: Math.max(0, highlight) * ROW_H,
-                      opacity: highlight >= 0 ? 1 : 0
-                    }}
+                    animate={{ y: Math.max(0, highlight) * ROW_H, opacity: highlight >= 0 ? 1 : 0 }}
                     transition={spring}
                   />
                   <AnimatePresence initial={false}>
@@ -634,7 +517,6 @@ export function Launcher({ layout }: { layout: Layout }): ReactNode {
                           delay={delayFor(r.id)}
                           r={r}
                           best={i === 0 || /best/i.test(r.reason)}
-                          selected={i === highlight}
                           onHover={() => setSel(i)}
                           onPick={() => build(i)}
                         />
@@ -652,38 +534,21 @@ export function Launcher({ layout }: { layout: Layout }): ReactNode {
             )
           )}
 
-          {/* Footer: what happens next, and the one button that does it. */}
+          {/* Footer: what happens next, and the keys that do it. */}
           <Rise i={3}>
-            <div className="mx-[20px] mt-[18px] h-px" style={{ background: tint.divider }} />
-            <div className="flex items-center gap-[12px] py-[14px] pl-[26px] pr-[16px]">
-              <span
-                className="flex min-w-0 flex-1 items-center gap-[7px] text-[13px]"
-                style={{
-                  color: offline || inlineError ? color.amber : color.faint
-                }}
-              >
+            <div className="mt-[16px] h-px" style={{ background: tint.rule }} />
+            <div className="flex h-[48px] items-center gap-[4px] pl-[24px] pr-[12px]">
+              <span className="flex min-w-0 flex-1 items-center gap-[7px] text-[13px]" style={{ color: offline || inlineError ? color.amber : color.faint }}>
                 {offline && <WifiOff size={13} strokeWidth={1.8} className="shrink-0" />}
-                <span className="flex min-w-0 items-center gap-[6px] overflow-hidden text-ellipsis whitespace-nowrap">{hint}</span>
+                <span className="truncate">{hint}</span>
               </span>
               {lesson.hasLesson && (
-                <button
-                  type="button"
-                  tabIndex={-1}
-                  className="flex h-[38px] shrink-0 cursor-pointer items-center gap-[8px] rounded-[19px] pl-[12px] pr-[6px] text-[13px] font-medium text-white/65 transition-colors duration-150 hover:bg-white/5 hover:text-white"
-                  onMouseDown={(e) => e.preventDefault()}
-                  onClick={switchMode}
-                >
-                  {mode === 'ask' ? 'New lesson' : 'Ask about this step'}
-                  <Kbd className="!h-[24px] !rounded-full !px-[9px]">⇥</Kbd>
-                </button>
+                <>
+                  <Action label={mode === 'ask' ? 'New lesson' : 'Back to step'} keycap="⇥" enabled onClick={switchMode} />
+                  <span className="mx-[4px] h-[16px] w-px shrink-0" style={{ background: tint.rule }} />
+                </>
               )}
-              <PrimaryButton
-                label={buttonLabel}
-                solid={action === 'ask' || action === 'build' || action === 'search'}
-                busy={action === 'searching'}
-                sheen={action === 'build'}
-                onClick={submit}
-              />
+              <Action label={actLabel} keycap="↵" enabled={act === 'ask' || act === 'build' || act === 'search'} strong onClick={submit} />
             </div>
           </Rise>
         </motion.div>
