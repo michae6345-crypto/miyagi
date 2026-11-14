@@ -38,7 +38,9 @@ class WorkdirInfo:
 
     def summary_for_prompt(self) -> str:
         if not self.exists or not self.files:
-            return f"The learner's workdir ({self.root}) is empty or does not exist yet: they will create files from scratch."
+            return (f"The learner's workdir ({self.root}) is empty or does not exist yet: they start from scratch, so "
+                    "step 1 must create anything the tutorial assumes (files, data, repo state) and later checks must not "
+                    "depend on files or names the learner was never told to create.")
         parts = [f"Workdir: {self.root}", "Files: " + ", ".join(self.files)]
         if self.metrics:
             parts.append("Metric names printed via ::metric:: lines: " + ", ".join(sorted(self.metrics)))

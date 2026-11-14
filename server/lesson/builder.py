@@ -14,7 +14,7 @@ from pathlib import Path
 import os
 
 from . import claude, gemini, transcript
-from .schema import CHECK_TYPES, PRECISION_TYPES, REPO_ROOT, SCREEN_TYPES, check_problems, lint, schema_errors
+from .schema import CHECK_TYPES, PRECISION_TYPES, REPO_ROOT, SCREEN_TYPES, check_problems, echoes_command, lint, schema_errors
 from .workdir import WorkdirInfo, scan
 
 log = logging.getLogger("server.lesson")
@@ -215,49 +215,68 @@ def engines() -> list[str]:
 
 
 async def _watch(url: str, vid: str, goal: str) -> dict:
-    """Gemini watches the video, capped at LESSON_GEMINI_TIMEOUT seconds (429/503/slow -> move on);
-    the transcript is fetched in parallel so the Claude path starts immediately if needed.
-    Errors from every engine are raised together; nothing is made up."""
-    errors: list[str] = []
+    """Video pass. In auto mode Gemini (watching the video, capped at LESSON_GEMINI_TIMEOUT) races the
+    Claude transcript path, which starts at t=0: Gemini's draft wins if it arrives in time (it sees the
+    screen); otherwise Claude's is used, usually already finished. Errors from every engine are raised
+    together; nothing is made up."""
     order = engines()
-    info_task = asyncio.create_task(transcript.fetch_video_info(vid)) if "claude" in order else None
+    errors: list[str] = []
+
+    async def claude_draft() -> dict:
+        t0 = time.time()
+        info = await transcript.fetch_video_info(vid)
+        last: Exception | None = None
+        for _attempt in range(2):
+            try:
+                draft = normalize_draft(await claude.watch_transcript(info, goal))
+                break
+            except ValueError as e:  # unusable timestamps / no steps: ask again
+                last = e
+        else:
+            raise RuntimeError(f"unusable step list ({last})")
+        log.info("claude video pass: %.1fs", time.time() - t0)
+        draft["_built_by"] = f"{claude.last_model} (transcript via {info['sources'].get('transcript')})"
+        draft["_engine"] = "claude"
+        return draft
+
+    async def gemini_draft() -> dict:
+        t0 = time.time()
+        cap = float(os.environ.get("LESSON_GEMINI_TIMEOUT", GEMINI_VIDEO_TIMEOUT_S))
+        try:
+            raw = await asyncio.wait_for(gemini.watch_video(url, goal), cap)
+        except TimeoutError as e:
+            raise RuntimeError(f"no answer within {cap:.0f}s") from e
+        try:
+            draft = normalize_draft(raw)
+        except ValueError as e:
+            raise RuntimeError(f"unusable step list ({e})") from e
+        log.info("gemini video pass: %.1fs", time.time() - t0)
+        draft["_built_by"] = f"{gemini.last_model} (watched the video)"
+        draft["_engine"] = "gemini"
+        return draft
+
+    claude_task = asyncio.create_task(claude_draft()) if "claude" in order else None
     try:
-        for eng in order:
-            attempts = 1 if eng == "gemini" else 2
-            for _attempt in range(attempts):
-                t0 = time.time()
-                try:
-                    if eng == "gemini":
-                        cap = float(os.environ.get("LESSON_GEMINI_TIMEOUT", GEMINI_VIDEO_TIMEOUT_S))
-                        raw = await asyncio.wait_for(gemini.watch_video(url, goal), cap)
-                        built_by = f"{gemini.last_model} (watched the video)"
-                    else:
-                        info = await info_task
-                        raw = await claude.watch_transcript(info, goal)
-                        built_by = f"{claude.last_model} (transcript via {info['sources'].get('transcript')})"
-                    draft = normalize_draft(raw)
-                except ValueError as e:  # unusable timestamps / no steps
-                    errors.append(f"{eng}: unusable step list ({e})")
-                    continue
-                except TimeoutError:
-                    errors.append(f"{eng}: no answer within {time.time() - t0:.0f}s")
-                    log.warning("%s video pass too slow; switching engine", eng)
-                    break
-                except RuntimeError as e:  # quota / outage / no key / no transcript
-                    errors.append(f"{eng}: {str(e)[:300]}")
-                    log.warning("%s video pass failed: %s", eng, str(e)[:200])
-                    break
-                log.info("%s video pass: %.1fs", eng, time.time() - t0)
-                draft["_built_by"] = built_by
-                draft["_engine"] = eng
+        if "gemini" in order:
+            try:
+                return await gemini_draft()
+            except RuntimeError as e:
+                errors.append(f"gemini: {str(e)[:300]}")
+                log.warning("gemini video pass failed: %s", str(e)[:200])
+        if claude_task is not None:
+            try:
+                draft = await claude_task
+            except RuntimeError as e:
+                errors.append(f"claude: {str(e)[:300]}")
+            else:
                 if errors:
                     draft.setdefault("_notes", []).append("fallback engine: " + " | ".join(errors))
                 return draft
     finally:
-        if info_task and not info_task.done():
-            info_task.cancel()
-        elif info_task and info_task.done() and not info_task.cancelled():
-            info_task.exception()  # retrieved, so an unused failure isn't logged as "never retrieved"
+        if claude_task is not None and not claude_task.done():
+            claude_task.cancel()  # Gemini won: stop paying for the transcript path
+        elif claude_task is not None and not claude_task.cancelled():
+            claude_task.exception()  # mark a failure we didn't need as retrieved
     raise RuntimeError("no engine could build the lesson:\n" + "\n".join(errors))
 
 
@@ -330,10 +349,59 @@ def normalize_draft(draft: dict) -> dict:
     for a, b in zip(steps, steps[1:]):
         if a["end"] > b["start"]:
             a["end"] = max(b["start"], a["start"] + 1)
+    steps = merge_micro_steps(steps)
+    rehome_explanations(steps)
     for i, s in enumerate(steps, 1):
         s["index"] = i
     draft["steps"] = steps
     return draft
+
+
+MIN_STEP_S = 20.0  # shorter steps pause the video every few seconds; fold them into a neighbour
+_LIST_FIELDS = ("checks", "precision_checks", "targets", "explanations", "hints", "common_mistakes")
+
+
+def merge_micro_steps(steps: list[dict], min_s: float = MIN_STEP_S, min_steps: int = 3) -> list[dict]:
+    steps = [dict(s) for s in steps]
+    while len(steps) > min_steps:
+        short = [i for i, s in enumerate(steps) if s["end"] - s["start"] < min_s]
+        if not short:
+            break
+        i = short[0]
+        j = i - 1 if i > 0 else i + 1  # into the previous step (it usually set this one up), else the next
+        a, b = sorted((i, j))
+        x, y = steps[a], steps[b]
+        keep = x if x["end"] - x["start"] >= y["end"] - y["start"] else y
+        merged = {**y, **x, "start": x["start"], "end": y["end"], "title": keep.get("title", "")}
+        merged["instructions"] = " ".join(t for t in (x.get("instructions"), y.get("instructions")) if t)
+        for k in ("code", "expected_output", "terminal_output"):
+            vals = [v for v in (x.get(k), y.get(k)) if v]
+            if vals:
+                merged[k] = "\n".join(vals)
+        merged["run_command"] = y.get("run_command") or x.get("run_command")
+        for k in _LIST_FIELDS:
+            seen, out = set(), []
+            for v in (x.get(k) or []) + (y.get(k) or []):
+                key = json.dumps(v, sort_keys=True)
+                if key not in seen:
+                    seen.add(key)
+                    out.append(v)
+            merged[k] = out
+        steps[a:b + 1] = [merged]
+    return steps
+
+
+def rehome_explanations(steps: list[dict]) -> None:
+    """Each explanation goes to the step whose time range contains it (else the nearest), in time order."""
+    pool = [e for s in steps for e in s.get("explanations") or []]
+    for s in steps:
+        s["explanations"] = []
+    for e in pool:
+        t = e["t"]
+        best = min(steps, key=lambda s: 0 if s["start"] <= t < s["end"] else min(abs(t - s["start"]), abs(t - s["end"])))
+        best["explanations"].append(e)
+    for s in steps:
+        s["explanations"].sort(key=lambda e: e["t"])
 
 
 # --------------------------------------------------------------------------- #
@@ -400,6 +468,7 @@ def assemble(draft: dict, goal: str, adapted: dict) -> dict:
                 "explanations": [{"topic": e["topic"], "t": e["t"], "sourceId": "src1"} for e in s.get("explanations") or []],
                 "hints": [h for h in s.get("hints") or [] if h],
                 "common_mistakes": [m for m in s.get("common_mistakes") or [] if m],
+                **({"run_command": s["run_command"].strip()} if (s.get("run_command") or "").strip() else {}),
             }
         )
     return {
@@ -409,9 +478,16 @@ def assemble(draft: dict, goal: str, adapted: dict) -> dict:
     }
 
 
+BROWSER_APPS = {"google chrome", "chrome", "safari", "arc", "firefox", "microsoft edge", "edge", "brave browser", "brave", "browser"}
+
+
 def normalize_checks(graph: dict, known_metrics: set[str]) -> dict:
     """Deterministic fixes applied before lint (no model call)."""
     for step in graph["steps"]:
+        # The learner's browser is unknown: a browser-scoped check/target matches text in any window instead.
+        for item in step["checks"] + step.get("targets", []):
+            if (item.get("app") or "").strip().lower() in BROWSER_APPS:
+                item.pop("app")
         for c in step["checks"] + step.get("precision_checks", []):
             if c.get("pattern") and looks_like_literal(c["pattern"]):
                 c["pattern"] = literal_pattern(c["pattern"])
@@ -513,7 +589,8 @@ def repair(graph: dict, info: WorkdirInfo) -> dict:
         step["checks"] = [c for c in step.get("checks", []) if c not in misplaced]
         step["precision_checks"] = step.get("precision_checks", []) + misplaced
         for key, allowed, tag in (("checks", SCREEN_TYPES, "c"), ("precision_checks", PRECISION_TYPES, "p")):
-            kept = [c for c in step.get(key, []) if not check_problems(c, allowed, key, info.metrics, set(info.files))]
+            kept = [c for c in step.get(key, []) if not check_problems(c, allowed, key, info.metrics, set(info.files))
+                    and not (key == "checks" and echoes_command(c, step.get("run_command") or ""))]
             if key == "checks" and not kept:
                 kept = fallback_screen_checks(step)
             for j, c in enumerate(kept, 1):  # renumber so ids stay unique and stable

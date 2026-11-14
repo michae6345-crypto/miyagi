@@ -27,6 +27,15 @@ a short on-screen `match` ("def lossPDE"). Extra top-level `build` = models, tim
 - `build.model = {"video": "...", "adapt": "..."}` records which model did what. If both engines fail, the
   error (with both causes) is raised; nothing is made up.
 
+## Lesson shape rules (from S3's 5-tutorial eval)
+- Playable from an empty folder: step 1 sets up any code/data/repo state the tutorial prepared off camera.
+- Every step has at least one check any learner passes with their own names/data (tool output, API names);
+  demo-only literals go to `precision_checks`.
+- Terminal checks must match a command's output, never the typed command (lint + repair); steps that run
+  something need an output check.
+- Steps shorter than 20 s merge into a neighbour; explanations live in the step whose time range holds them.
+- Browser checks carry no `app` (the learner's browser is unknown), so they match text in any window.
+
 ## Pipeline
 1. **Watch** (`gemini.watch_video`): the public YouTube URL goes straight to Gemini as `file_data`
    with structured JSON output: steps with MM:SS bounds, titles, instructions, the code written,
