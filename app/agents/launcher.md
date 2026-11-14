@@ -1,6 +1,6 @@
 # launcher
 
-**Status:** brand pass done + learner warnings / "Link checked" on results (Data for Good), rebased on `adrian/shell` 3958bad, waiting for Adrian's review · **Priority:** P0 · **Port:** 5176 · **Branch:** `adrian/launcher`
+**Status:** brand pass + learner warnings / "Link checked" + Adrian's pastel options palette, on `adrian/shell` 3da59cd, waiting for Adrian's review · **Priority:** P0 · **Port:** 5176 · **Branch:** `adrian/launcher`
 
 ## Goal
 Launcher born from the notch island (⌥Space; Ctrl+Shift+Space on Windows). **Since Sat ~2 PM (Michael): the island expands down into the launcher and every exit collapses it back into the island; nothing opens mid-screen.** Type what you want to learn → results stream in (it grows down) → Build lesson → it collapses back up into the pill (the signature transition). Pasting a YouTube link skips search. **During a lesson** it becomes "Ask about this step": Enter sends `action {kind:"ask", text}` and the answer comes back as a card.
@@ -42,10 +42,17 @@ Launcher born from the notch island (⌥Space; Ctrl+Shift+Space on Windows). **S
 2. **`core/Island.tsx`: no content crossfade on the landing frame** (lower priority, not seen in the stage). If `lesson.building` hasn't reached the overlay window when `pill:receive` arrives (Electron windows are separate; a slow engine), the island switches idle → building at the swap and "Learn anything" fades out for 80ms under the just-landed pill. Suggest: when `pill:receive` changes the mode, show the new content at full opacity with no exit/enter for that one change.
 3. **`core/theme.ts` tokens** for the neutral fills now in `features/launcher/tint.ts` (white at low alphas on the black island: field fill/border, chip fill/hover/border/text, row highlight, icon tile/glyph, skeleton, footer rule, backdrop dim; ink at .1 for the keycap on the white button). Also export the island's two **shadows** (pill `'0 2px 10px rgba(0,0,0,.25)'`, card `'0 24px 60px rgba(0,0,0,.5)'`, both hard-coded in Island.tsx) as tokens: the launcher must match them exactly to hand over invisibly.
 4. **`core/theme.ts`: `launcher` = `{ width: 640 }`** (the notch launcher; `topRatio` is gone). The launcher uses a local `WIDTH = 640` until then.
+6. **`core/theme.ts` + `BRAND.md`: the options palette** (Adrian's "4 · Pastel"): `pink #F9C5D5`, `sky #C5E4F9`, `lilac #D9D2FF`, `pinkDeep #F4A7BF`, `skyDeep #9CCFF2`. Lives in `features/launcher/tint.ts` (`pastel`) until then; the coordinating session is adding it.
 5. *(Optional)* **Live island size during a collapse.** The launcher collapses to the `from` size it got at open. If the island's size changes while the launcher is open (e.g. the step changes), the island reappears at its new size and springs there. Fine for now; if it shows, main could re-send `{from}` with `launcher:close`.
 
 ## Notes
 Window show/hide/focus is core (`src/main/index.ts`); the shrink target comes from `bridge.platform.pillTop` + `theme.pill`.
+
+**Pastel options (Sat afternoon, Adrian picked "4 · Pastel" from six live previews by the UI polish session: "a little color… especially for the options").**
+- Suggestion chips: solid pastel, cycling pink / sky / lilac, border = fill, ink text and icon; hover brightness 1.06, tap .97. Ask-mode chips: Explain sky, Hint pink; their keycaps are ink at 10% with ink text.
+- Non-video result tiles by kind: notebook / repo sky-deep, paper pink-deep, blog lilac (fill = the tone at 16%, glyph = the tone). Video thumbnails unchanged. The "Best" label is pastel pink.
+- Everything else stays black and white (row highlight, field, footer, the white tree); no gradients or glow. Checked headless: computed colors match the spec exactly; no console errors.
+- Shots: `agents/shots/launcher-pastel-01-idle.png`, `-02-results.png`, `-03-ask.png`.
 
 **Learner warnings + "Link checked" (Sat ~3 PM, Adrian via the Miyagi progress status session; Bright Data "Data for Good" track).**
 - The engine already sends two extra fields on `search.result` (server/finder/core.py `PUBLIC_FIELDS`), typed locally as `ResultExtras` in `store.ts` (the contract is untouched): `warnings?: string[]` (up to 3 raw YouTube comments ≤200 chars, matched by a regex that also catches "error"/"version", so false positives happen) and `verified?: true | 'indexed'`.
