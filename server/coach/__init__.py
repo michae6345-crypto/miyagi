@@ -3,7 +3,11 @@
 Orchestrator usage:
     from server import coach
     coach.set_lesson(step_graph)                       # once per lesson (prompt-cache prefix)
-    card = await coach.diagnose(step, failed, metrics, code, error_text=tail)
+    coach.set_keys(config_keys)                      # optional: app-provided keys (BYOK)
+    try:
+        card = await coach.diagnose(step, failed, metrics, code, error_text=tail)
+    except coach.CoachUnavailable as e:              # outside DEMO=1 there is no canned card
+        ...  # show e.reason
     ws.send({"type": "offtrack", "payload": coach.public(card)})
 """
 
@@ -11,12 +15,15 @@ from .common import set_lesson
 from .diagnose import diagnose, playbook_card, public
 from .explain import explain
 from .hints import apply_fix, hint
+from .llm import CoachUnavailable, OutdatedFixUnavailable, set_keys
 from .metrics import summarize as summarize_metrics
 from .outdated import fix_outdated
 from .playbook import match as match_playbook
 from .triage import triage
 
 __all__ = [
+    "CoachUnavailable",
+    "OutdatedFixUnavailable",
     "apply_fix",
     "diagnose",
     "explain",
@@ -25,6 +32,7 @@ __all__ = [
     "match_playbook",
     "playbook_card",
     "public",
+    "set_keys",
     "set_lesson",
     "summarize_metrics",
     "triage",

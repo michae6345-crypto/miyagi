@@ -137,10 +137,9 @@ def configured() -> bool:
 
 
 def _bd_config() -> tuple[str, str, str] | None:
-    llm._load_env()
-    key = os.environ.get("BRIGHTDATA_API_KEY")
-    serp = os.environ.get("BRIGHTDATA_SERP_ZONE")
-    unlocker = os.environ.get("BRIGHTDATA_UNLOCKER_ZONE")
+    key = llm.get_key("brightdata")
+    serp = llm.get_key("BRIGHTDATA_SERP_ZONE")
+    unlocker = llm.get_key("BRIGHTDATA_UNLOCKER_ZONE")
     return (key, serp, unlocker) if key and serp and unlocker else None
 
 

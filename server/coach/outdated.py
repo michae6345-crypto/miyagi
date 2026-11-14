@@ -89,15 +89,20 @@ FIX_SYSTEM = """Code copied from a tutorial fails because the learner has a newe
 
 
 async def fix_outdated(error_text: str, libraries: dict | list | None = None, *, code: str = "", command: str = "") -> dict | None:
-    """`libraries`: {name: tutorial_version} from the step graph, or a list of names (may be empty)."""
+    """`libraries`: {name: tutorial_version} from the step graph, or a list of names (may be empty).
+
+    Returns the fix, or None when the docs were read and none of them documents a fix.
+    Raises `OutdatedFixUnavailable` (with `.reason`) when it could not search or read at all.
+    """
     if hit := _known(error_text):
         return hit
+    if not web.configured():
+        raise llm.OutdatedFixUnavailable("web search not configured (Bright Data key and SERP/Unlocker zones)")
     lib, sym = web.detect(error_text, code, libraries, command)
     line = web.error_line(error_text)
     pages = await web.gather(lib, sym, f"{lib} {line}".strip(), error=line, timeout=12.0)
     if not pages:
-        log.info("fix_outdated: no web pages for lib=%r sym=%r", lib, sym)
-        return None
+        raise llm.OutdatedFixUnavailable(f"no docs or community pages found for {lib or 'unknown library'} {sym}".strip())
     versions = json.dumps(libraries, sort_keys=True) if isinstance(libraries, dict) else ", ".join(libraries or [])
     user = (
         f"Library/tool: {lib or 'unknown'} (symbol: {sym or 'unknown'}); tutorial versions: {versions or 'unknown'}\n"
@@ -117,11 +122,11 @@ async def fix_outdated(error_text: str, libraries: dict | list | None = None, *,
             max_tokens=6000,
         )
     except llm.CoachLLMError as e:
-        log.warning("fix_outdated: model failed %s", e)
-        return None
+        raise llm.OutdatedFixUnavailable(f"could not read the docs: {e}") from e
     d = res.data
     i = d.get("source_index", -1)
     if not d.get("found") or not (0 <= i < len(pages)):
+        log.info("fix_outdated: pages fetched but none documents a fix for %s %s", lib, sym)
         return None
     src = pages[i]
     return _payload(

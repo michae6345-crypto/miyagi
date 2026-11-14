@@ -23,6 +23,7 @@ from .metrics import summarize
 from .playbook import (
     BY_ID,
     CITATIONS,
+    GUIDING_QUESTIONS,
     FailureMode,
     match,
     offending_line,
@@ -47,6 +48,7 @@ Hard limits:
 - playbook_id: the matching playbook entry id, or "none" if no entry fits. Do not force a match: if the evidence does not fit an entry, diagnose from first principles.
 - severity: "warn" when it runs but the result is off (a metric plateaus, a test count is short, output differs); "fail" when it crashes, errors, or produces nan/inf.
 - actions: include "apply_fix" only when diff_expected is non-empty; include "show_me" when a specific line is implicated.
+- guiding_question: one Socratic question (at most 20 words) about THIS cause that leads the learner to the fix without stating it, e.g. "What happens to Adam's steps when the learning rate is large?". It is the first rung of the hint ladder.
 
 If the evidence is genuinely insufficient, say what to check next instead of guessing.
 
@@ -67,6 +69,7 @@ OFFTRACK_SCHEMA = {
         "diff_yours": {"type": "string"},
         "diff_file": {"type": "string"},
         "diff_line": {"type": "integer"},
+        "guiding_question": {"type": "string"},
         "actions": {
             "type": "array",
             "items": {"type": "string", "enum": ["explain", "show_me", "apply_fix", "hint"]},
@@ -74,7 +77,7 @@ OFFTRACK_SCHEMA = {
     },
     "required": [
         "playbook_id", "severity", "title", "body", "citation_id",
-        "diff_expected", "diff_yours", "diff_file", "diff_line", "actions",
+        "diff_expected", "diff_yours", "diff_file", "diff_line", "actions", "guiding_question",
     ],
     "additionalProperties": False,
 }
@@ -111,6 +114,7 @@ def playbook_card(step: dict, mode: FailureMode, code_excerpt: str = "", severit
         "body": mode.card_body,
         **({"diff": diff} if diff else {}),
         "citation": {"label": c["label"], "url": c["url"]},
+        **({"guidingQuestion": GUIDING_QUESTIONS[mode.id]} if mode.id in GUIDING_QUESTIONS else {}),
         "actions": order_actions(["show_me"] if line else [], has_diff=bool(diff)),
         "_meta": {"route": "playbook", "playbook_id": mode.id},
     }
@@ -171,6 +175,8 @@ def _shape(data: dict, step: dict, code_excerpt: str, lesson: dict | None, sourc
         "actions": order_actions(data.get("actions") or [], has_diff=bool(diff)),
         "_meta": {"route": "opus", "playbook_id": pid if pid in BY_ID else None},
     }
+    if q := (data.get("guiding_question") or "").strip():
+        out["guidingQuestion"] = clamp_words(q, 24)
     if diff:
         out["diff"] = diff
     if cit:
@@ -269,7 +275,9 @@ async def _opus(step, failed_checks, metrics_text, flags, code_excerpt, error_te
             timeout=40.0,
         )
     except llm.CoachLLMError as e:
-        log.warning("opus diagnose failed (%s); using playbook fallback", e)
+        if not llm.demo_mode():
+            raise llm.CoachUnavailable(f"diagnosis unavailable: {e}") from e
+        log.warning("opus diagnose failed (%s); DEMO=1 so using the offline playbook card", e)
         mode, conf = match(code_excerpt, flags, error_text)
         if mode and conf >= 0.4:
             card = playbook_card(step, mode, code_excerpt, severity="fail" if error_text else "warn")

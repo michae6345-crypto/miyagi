@@ -48,15 +48,16 @@ def series_flags(points: Series, goal: str = "down") -> set[str]:
     if len(vals) >= 4 and last - lo > max(abs(lo), abs(first), 1e-12) * 0.5 and last > first:
         flags.add("diverging")
     if len(vals) >= 6:
+        # oscillation: the metric moves the wrong way often and by a lot (not just float noise)
+        diffs = [b - a for a, b in itertools.pairwise(vals)]
+        ups = [d for d in diffs if d > 0]
+        if len(ups) / len(diffs) > 0.3 and max(ups) > 0.2 * max(abs(v) for v in vals[len(vals) // 2 :]):
+            flags.add("noisy")
         tail = vals[len(vals) // 2 :]
         start = tail[0]
         rel = (start - tail[-1]) / max(abs(start), 1e-12)
-        if rel < 0.1 and abs(tail[-1]) > 1e-3 and "diverging" not in flags:
+        if rel < 0.1 and abs(tail[-1]) > 1e-3 and not flags & {"diverging", "noisy"}:
             flags.add("plateau")
-        diffs = [b - a for a, b in itertools.pairwise(vals)]
-        ups = sum(d > 0 for d in diffs)
-        if len(diffs) >= 6 and ups / len(diffs) > 0.4 and "plateau" not in flags:
-            flags.add("noisy")
     return flags
 
 
@@ -91,11 +92,30 @@ def summarize(metrics: Any, goals: dict[str, str] | None = None) -> tuple[str, s
                 + (f" [{', '.join(sorted(f))}]" if f else "")
             )
         flags |= _imbalance(metrics)
+        flags |= _loss_vs_error(metrics)
         return "\n".join(lines) or "no metrics recorded", flags
     if isinstance(metrics, dict):
         text = json.dumps(metrics, sort_keys=True, default=str)
         return summarize(text)[0], {str(f) for f in metrics.get("flags", [])} | summarize(text)[1]
     return str(metrics), set()
+
+
+_ERR_NAMES = ("err", "l2", "rel", "mse_exact", "mae", "accuracy_gap")
+
+
+def _loss_vs_error(metrics: dict) -> set[str]:
+    """Training loss fell a lot but the error vs. the true/reference answer did not → wrong solution."""
+    def drop(pts) -> float | None:
+        if not pts or len(pts) < 4:
+            return None
+        a, b = float(pts[0][1]), float(pts[-1][1])
+        return (a - b) / abs(a) if a else None
+
+    loss_drop = max((d for n, p in metrics.items() if "loss" in n.lower() and (d := drop(p)) is not None), default=None)
+    err_drop = [d for n, p in metrics.items() if "loss" not in n.lower() and any(e in n.lower() for e in _ERR_NAMES) and (d := drop(p)) is not None]
+    if loss_drop is not None and err_drop and loss_drop > 0.9 and max(err_drop) < 0.3:
+        return {"low_loss_wrong_solution"}
+    return set()
 
 
 def _imbalance(metrics: dict) -> set[str]:

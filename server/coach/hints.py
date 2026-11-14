@@ -10,21 +10,15 @@ import textwrap
 
 from .common import fmt_t, get_lesson
 from .diagnose import LAST
-from .playbook import BY_ID, CITATIONS
+from .explain import match_explanation
+from .playbook import BY_ID, CITATIONS, GUIDING_QUESTIONS
 
 LEVELS = ("question", "video", "paper", "diff")
 
-QUESTIONS: dict[str, str] = {
-    "pinn_convection_large_beta": "β=30 is the hard version of this PDE. Could the network learn an easier β first and carry those weights forward?",
-    "pinn_loss_imbalance": "Look at each loss term separately. Is one of them barely moving?",
-    "missing_zero_grad": "What happens to .grad between two calls to loss.backward()?",
-    "cuda_on_mac": "Which GPU does this laptop actually have, and what does PyTorch call it?",
-    "lr_too_high": "If each step overshoots, what single number controls how far it steps?",
-    "pinn_inputs_no_grad": "How does autograd know it should track derivatives with respect to x and t?",
-}
 
 
 PAPER_NOTES: dict[str, str] = {
+    "pinn_missing_ic_bc": "Raissi et al. train PINNs on the sum of two terms: the misfit to the initial/boundary data and the PDE residual. The data term is what fixes which solution the network learns.",
     "pinn_convection_large_beta": "Krishnapriyan et al. show PINNs fail on convection once β is large, and fix it with curriculum regularization: solve small β first, then raise it step by step.",
     "pinn_loss_imbalance": "Wang, Teng & Perdikaris show the residual's gradients can swamp the boundary terms, and rebalance the loss weights during training.",
     "lr_too_high": "Smith's LR range test: sweep the learning rate upward for a few hundred steps and pick one just below where the loss starts to rise.",
@@ -33,6 +27,12 @@ PAPER_NOTES: dict[str, str] = {
 
 def _card(step: dict, level: int, title: str, body: str, **extra) -> dict:
     return {"stepId": step.get("id"), "kind": "hint", "title": title, "body": body, "level": level, "levelName": LEVELS[level], **extra}
+
+
+def _pid_from_citation(card: dict) -> str | None:
+    """Recover the playbook entry from a public card (no `_meta`) via its citation URL."""
+    url = (card.get("citation") or {}).get("url")
+    return next((m.id for m in BY_ID.values() if url and CITATIONS[m.citation_id]["url"] == url), None)
 
 
 def hint(step: dict, level: int, last_offtrack: dict | None = None) -> dict:
@@ -44,22 +44,26 @@ def hint(step: dict, level: int, last_offtrack: dict | None = None) -> dict:
     """
     level = max(0, min(int(level), 3))
     last = last_offtrack or LAST.get(step.get("id", "")) or {}
-    pid = (last.get("_meta") or {}).get("playbook_id")
+    pid = (last.get("_meta") or {}).get("playbook_id") or _pid_from_citation(last)
     mode = BY_ID.get(pid) if pid else None
     hints = step.get("hints") or []
 
     if level == 0:
-        q = QUESTIONS.get(pid) if pid else None
+        # about THE issue just diagnosed: the card's own question, else the playbook's, else the step's
+        q = last.get("guidingQuestion") or (GUIDING_QUESTIONS.get(pid) if pid else None)
         return _card(step, 0, "A question first", q or (hints[0] if hints else f"What does this step need that your code doesn't do yet? ({step.get('instructions', '')})"))
 
     if level == 1:
-        exps = [e for e in step.get("explanations") or [] if e.get("t") is not None]
-        if exps:
-            e = exps[0]
+        # the moment in the video about THIS issue; else the step's own segment
+        exps = step.get("explanations") or []
+        about = " ".join(str(last.get(k, "")) for k in ("title", "body", "guidingQuestion"))
+        idx = match_explanation(step, about, min_overlap=2) if last else (0 if exps else -1)
+        if idx >= 0 and exps[idx].get("t") is not None:
+            e = exps[idx]
             return _card(step, 1, "Rewatch this part", f"The tutorial covers {e.get('topic', 'this')} here.", videoJump={"t": float(e["t"]), "label": f"Explained at {fmt_t(e['t'])}"})
         v = step.get("video") or {}
         if v.get("start") is not None:
-            return _card(step, 1, "Rewatch this step", hints[1] if len(hints) > 1 else "Watch how the tutorial does this step.", videoJump={"t": float(v["start"]), "label": f"Step starts at {fmt_t(v['start'])}"})
+            return _card(step, 1, "Rewatch this step", "Watch how the tutorial runs this step and compare its settings with yours.", videoJump={"t": float(v["start"]), "label": f"Step starts at {fmt_t(v['start'])}"})
         return hint(step, 2, last)
 
     if level == 2:

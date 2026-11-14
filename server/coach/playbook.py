@@ -34,6 +34,10 @@ CITATIONS: dict[str, dict[str, str]] = {
         "label": "Smith, Cyclical Learning Rates (LR range test), WACV 2017",
         "url": "https://arxiv.org/abs/1506.01186",
     },
+    "raissi2019": {
+        "label": "Raissi, Perdikaris & Karniadakis, J. Comput. Phys. 2019",
+        "url": "https://doi.org/10.1016/j.jcp.2018.10.045",
+    },
     "torch_autograd_grad": {
         "label": "PyTorch docs: torch.autograd.grad",
         "url": "https://pytorch.org/docs/stable/generated/torch.autograd.grad.html",
@@ -63,6 +67,39 @@ class FailureMode:
 
 PLAYBOOK: tuple[FailureMode, ...] = (
     FailureMode(
+        id="pinn_missing_ic_bc",
+        name="PINN total loss is missing the initial/boundary-condition term",
+        symptoms=(
+            "Any PINN (heat/diffusion, Burgers, wave, ...): the training loss drops nicely, "
+            "but the error against the exact or reference solution stays high (or the "
+            "plotted solution has the wrong shape or offset); or the loss plateaus."
+        ),
+        cause=(
+            "The PDE residual alone does not determine the solution: infinitely many "
+            "functions satisfy the equation. The initial and boundary conditions pick the "
+            "unique one, so a loss without the IC/BC term (or with it computed but never "
+            "added to the total) trains toward the wrong function."
+        ),
+        fix=(
+            "Make the total loss the sum of the IC/BC data loss and the PDE residual loss "
+            "(e.g. loss = loss_bc + loss_pde) and check both terms are logged and decreasing."
+        ),
+        citation_id="raissi2019",
+        code_patterns=(r"autograd\.grad",),
+        # the IC/BC loss term appears in a sum (either side of "+"); its absence is the signal
+        code_absent=(
+            r"(?i)\w*(?:loss_?(?:bc|ic|bnd|boundary|init)|(?:bc|ic|bnd|boundary|init\w*)_?loss)\w*\s*(?:\([^)]*\))?\s*\+",
+            r"(?i)\+\s*[\w.]*(?:loss_?(?:bc|ic|bnd|boundary|init)|(?:bc|ic|bnd|boundary|init\w*)_?loss)",
+        ),
+        metric_signals=("low_loss_wrong_solution",),
+        card_title="Loss has no boundary-condition term",
+        card_body=(
+            "The PDE residual alone is satisfied by many functions; the initial and "
+            "boundary conditions pick the right one. Add the IC/BC loss to the total."
+        ),
+        tags=("pinn",),
+    ),
+    FailureMode(
         id="pinn_convection_large_beta",
         name="PINN on convection fails at large beta",
         symptoms=(
@@ -86,15 +123,10 @@ PLAYBOOK: tuple[FailureMode, ...] = (
         metric_signals=("plateau",),
         card_title="Known PINN failure at large β",
         card_body=(
-            "At β=30 the residual makes the loss landscape hard to optimize, so "
+            "At large β the residual makes the loss landscape hard to optimize, so "
             "training stalls. Train at small β first, then warm-start while raising "
-            "β to 30."
+            "β to the target."
         ),
-        diff_expected=(
-            "for beta in [1.0, 5.0, 10.0, 20.0, 30.0]:  # curriculum on β, warm-started\n"
-            "    train(model, epochs=1000)"
-        ),
-        diff_yours_hint=r"^\s*train\(model.*\)\s*$",
         tags=("pinn", "convection", "curriculum"),
     ),
     FailureMode(
@@ -173,20 +205,22 @@ PLAYBOOK: tuple[FailureMode, ...] = (
     ),
     FailureMode(
         id="lr_too_high",
-        name="Learning rate too high: loss explodes",
-        symptoms="Loss rises, oscillates wildly, or becomes nan/inf within the first few hundred steps.",
-        cause="Step size overshoots the minimum; updates grow instead of shrink.",
-        fix="Lower the learning rate ~10x (Adam: start near 1e-3), or run an LR range test.",
+        name="Learning rate too high: loss oscillates or explodes",
+        symptoms="Loss oscillates (jumps up and down without settling), rises, or becomes nan/inf; error metrics never settle.",
+        cause=(
+            "The step size is too large for the loss curvature, so each update overshoots "
+            "the minimum: the iterate bounces across the valley (oscillation) or grows (divergence)."
+        ),
+        fix="Lower the learning rate ~10x (Adam: start near 1e-3), or run an LR range test; a decaying schedule also damps oscillation.",
         citation_id="smith2017_clr",
         code_patterns=(r"lr\s*=\s*(?:[1-9]\d*(?:\.\d*)?|0?\.[1-9]|[1-9](?:\.\d+)?e-0?1)\b",),
-        metric_signals=("diverging", "nan"),
+        metric_signals=("diverging", "nan", "noisy"),
         error_patterns=(r"\bnan\b", r"\binf\b"),
         card_title="Learning rate is too high",
         card_body=(
-            "Each update overshoots, so the loss grows instead of shrinking. Drop the "
-            "learning rate about 10x; for Adam, 1e-3 is a safe start."
+            "Each update overshoots the minimum, so the loss bounces or grows instead of "
+            "settling. Lower the learning rate about 10x; for Adam, 1e-3 is a safe start."
         ),
-        diff_expected="optimizer = torch.optim.Adam(model.parameters(), lr=1e-3)",
         diff_yours_hint=r"^.*\blr\s*=.*$",
         tags=("optimization",),
     ),
@@ -197,10 +231,17 @@ PLAYBOOK: tuple[FailureMode, ...] = (
             "RuntimeError: One of the differentiated Tensors does not require grad, "
             "when computing u_x / u_t with torch.autograd.grad."
         ),
-        cause="autograd can only differentiate u w.r.t. x and t if they were created with requires_grad=True.",
+        cause=(
+            "autograd can only differentiate u with respect to x and t if those input "
+            "tensors require grad and u was computed from them (not from a detached copy)."
+        ),
         fix="Create collocation points with requires_grad=True (or call .requires_grad_()).",
         citation_id="torch_autograd_grad",
-        error_patterns=(r"does not require grad",),
+        error_patterns=(
+            r"does not require grad",
+            r"element 0 of tensors does not require grad",
+            r"One of the differentiated Tensors appears to not have been used in the graph",
+        ),
         card_title="x and t need requires_grad",
         card_body=(
             "To take u_x and u_t, autograd needs x and t marked as differentiable. "
@@ -212,6 +253,17 @@ PLAYBOOK: tuple[FailureMode, ...] = (
 )
 
 BY_ID: dict[str, FailureMode] = {m.id: m for m in PLAYBOOK}
+
+# guiding question (hint level 0) per entry: Socratic, about the cause, never the answer
+GUIDING_QUESTIONS: dict[str, str] = {
+    "pinn_missing_ic_bc": "Many functions satisfy the PDE. What information tells the network which one you want?",
+    "pinn_convection_large_beta": "Large β is the hard version of this PDE. Could the network learn an easier β first and carry those weights forward?",
+    "pinn_loss_imbalance": "Look at each loss term separately. Is one of them barely moving?",
+    "missing_zero_grad": "What happens to .grad between two calls to loss.backward()?",
+    "cuda_on_mac": "Which GPU does this laptop actually have, and what does PyTorch call it?",
+    "lr_too_high": "What happens to Adam's steps when the learning rate is large compared with the curvature of the loss?",
+    "pinn_inputs_no_grad": "How does autograd know it should track derivatives with respect to x and t?",
+}
 
 
 def playbook_text() -> str:
@@ -251,8 +303,9 @@ def match(
         if m.code_patterns:
             hits = sum(_search(p, code_excerpt) for p in m.code_patterns)
             score += 0.3 * hits / len(m.code_patterns)
-        if m.code_absent and code_excerpt and all(not _search(p, code_excerpt) for p in m.code_absent):
-            score += 0.3
+        if m.code_absent and code_excerpt:
+            # the thing this entry says is missing: absent → evidence for; present → evidence against
+            score += 0.3 if all(not _search(p, code_excerpt) for p in m.code_absent) else -0.5
         if m.metric_signals and flags & set(m.metric_signals):
             score += 0.4
         if score > best_score:
