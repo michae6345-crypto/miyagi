@@ -1206,8 +1206,23 @@ def test_rebase_todo_must_keep_every_commit_once():
 
 def test_patch_that_would_duplicate_a_neighbour_is_rejected():
     src = "a = 1\nb = 2\nc = 3\nd = 4\n"
-    r = coach.apply_fix({"file": "x.py", "yours": "c = 3", "expected": "a = 1\nc = 30"}, src)  # `a = 1` isn't adjacent to the span
-    assert r["new_text"] is None or r["new_text"].count("a = 1") == 1
+    # expected repeats the lines above as context: the span widens over them, nothing is duplicated
+    r = coach.apply_fix({"file": "x.py", "yours": "x = 9", "expected": "a = 1\nb = 2\nx = 10"}, "a = 1\nb = 2\nx = 9\n")
+    assert r["new_text"] == "a = 1\nb = 2\nx = 10\n"
+    # a same-size replacement equal to the two lines above would repeat them → rejected
+    r = coach.apply_fix({"file": "x.py", "yours": "x = 9\ny = 8", "expected": "a = 1\nb = 2"}, "a = 1\nb = 2\nx = 9\ny = 8\n")
+    assert r["new_text"] is None and "duplicate" in r["error"]
+    # a single repeated line next to the span is normal code, not a duplicate
+    r = coach.apply_fix({"file": "x.py", "yours": "c = 3", "expected": "b = 2\nc = 30"}, src)
+    assert r["error"] is None
+
+
+def test_g3_repeated_closing_lines_are_not_duplicates():
+    """S9 false positive: the login route right above ends with the same `res.json(...)` / `});`."""
+    src = "app.post('/login', (req, res) => {\n  res.json({ ok: true });\n});\n<<<<<<< HEAD\n=======\napp.post('/logout', (req, res) => {\n  res.json({ ok: true });\n});\n>>>>>>> topic\n"
+    r = coach.apply_fix({"file": "index.js", "yours": "<<<<<<< HEAD\n=======\napp.post('/logout', (req, res) => {\n  res.json({ ok: true });\n});\n>>>>>>> topic",
+                         "expected": "app.post('/logout', (req, res) => {\n  res.json({ ok: true });\n});"}, src)
+    assert r["error"] is None and "<<<<<<<" not in r["new_text"] and r["new_text"].count("app.post('/logout'") == 1
 
 
 def test_g3_fuzzy_ocr_anchor_maps_onto_real_lines():
@@ -1298,3 +1313,20 @@ def test_fuzzy_walk_skips_dropped_marker_rows():
     ocr = "<<<<< HEAD\napp.post('/logout', (req, res) = {\nres. json({ ok: true });"  # no gutter numbers, `=======` dropped
     r = coach.apply_fix({"file": "index.js", "yours": ocr, "expected": "app.post('/logout', (req, res) => {\n  res.json({ ok: true });"}, _conflict_file())
     assert r["error"] is None and "<<<<<<<" not in r["new_text"] and "=======" not in r["new_text"]
+
+
+def test_git_squash_order_playbook_entry():
+    """Finishing G3: a squash moved above the commit whose code it edits → abort and reorder."""
+    todo = "pick 1a2b3c4 Add login endpoint\nsquash 9f8e7d6 Cleanup\npick 8d7db63 Add logout endpoint\n"
+    mode, conf = match(todo, set(), "CONFLICT (content): Merge conflict in index.js")
+    assert mode.id == "git_squash_above_its_commit" and conf >= 0.3
+    card = coach.playbook_card({"id": "g3"}, mode, todo, severity="fail")
+    assert "git rebase --abort" in card["body"] and card["citation"]["url"] == "https://git-scm.com/docs/git-rebase"
+    assert card["guidingQuestion"].endswith("?")
+    assert "git_squash_above_its_commit" in COACH_SYSTEM and "never `git add` + `--continue`" in COACH_SYSTEM
+
+
+def test_missing_term_bonus_needs_its_own_context():
+    # a git todo list "lacks an IC/BC loss term", which says nothing: the PINN entry must not score on it
+    _, conf = match("pick 1a2b3c4 Add login\n", set(), "")
+    assert conf == 0.0

@@ -242,9 +242,19 @@ def _widen(lines: list[str], start: int, end: int, expected: str) -> tuple[int, 
     return start, end
 
 
-def _duplicates_neighbours(lines: list[str], start: int, end: int, expected: str, reach: int = 3) -> list[str]:
-    near = {ln.strip() for ln in lines[max(0, start - reach):start] + lines[end:end + reach] if len(ln.strip()) > 3}
-    return [ln.strip() for ln in expected.splitlines() if ln.strip() in near and len(ln.strip()) > 3]
+def _duplicates_neighbours(lines: list[str], start: int, end: int, expected: str) -> list[str]:
+    """Lines the patch would repeat: a contiguous run of >= 2 lines where expected's first lines equal
+    the lines right above the span, or its last lines equal the lines right below. Single repeated
+    lines (`});`, `return x;`, `res.json(...)`) are normal code (S9: false positive on G3)."""
+    exp = [ln.strip() for ln in expected.splitlines() if ln.strip()]
+    above = [ln.strip() for ln in lines[:start] if ln.strip()]
+    below = [ln.strip() for ln in lines[end:] if ln.strip()]
+    for k in range(len(exp), 1, -1):
+        if len(above) >= k and exp[:k] == above[-k:]:
+            return exp[:k]
+        if len(below) >= k and exp[-k:] == below[:k]:
+            return exp[-k:]
+    return []
 
 
 def _rebase_todo_error(old: str, new: str) -> str | None:

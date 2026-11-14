@@ -42,6 +42,10 @@ CITATIONS: dict[str, dict[str, str]] = {
         "label": "PyTorch docs: torch.autograd.grad",
         "url": "https://pytorch.org/docs/stable/generated/torch.autograd.grad.html",
     },
+    "git_rebase_docs": {
+        "label": "Git docs: git rebase (interactive mode)",
+        "url": "https://git-scm.com/docs/git-rebase",
+    },
 }
 
 
@@ -250,12 +254,40 @@ PLAYBOOK: tuple[FailureMode, ...] = (
         diff_expected="x = x.clone().requires_grad_(True)\nt = t.clone().requires_grad_(True)",
         tags=("pinn", "pytorch"),
     ),
+    FailureMode(
+        id="git_squash_above_its_commit",
+        name="Interactive rebase: squash/fixup placed above the commit whose code it edits",
+        symptoms=(
+            "During `git rebase -i`, a squash/fixup (or a reordered pick) stops with a CONFLICT in code "
+            "that only a later commit introduces; after resolving and `git rebase --continue`, the next "
+            "pick fails again (\"could not apply <sha>...\")."
+        ),
+        cause=(
+            "A squash/fixup is applied on top of the commit directly above it in the todo list. Moved above "
+            "the commit that creates the code it changes, its changes have nothing to apply to, and every "
+            "manual resolution pushes the conflict into the next pick."
+        ),
+        fix=(
+            "Don't resolve it commit by commit: `git rebase --abort`, run `git rebase -i` again, and put the "
+            "squash/fixup line directly below the commit it amends (never `git add` + `--continue` while "
+            "conflict markers remain)."
+        ),
+        citation_id="git_rebase_docs",
+        code_patterns=(r"(?m)^(squash|fixup|s|f)\s+[0-9a-f]{7,}",),
+        card_title="Squash sits above its parent commit",
+        card_body=(
+            "A squash folds into the commit right above it, but this one edits code a later commit creates, "
+            "so it conflicts. Run git rebase --abort, then move the squash under that commit."
+        ),
+        tags=("git",),
+    ),
 )
 
 BY_ID: dict[str, FailureMode] = {m.id: m for m in PLAYBOOK}
 
 # guiding question (hint level 0) per entry: Socratic, about the cause, never the answer
 GUIDING_QUESTIONS: dict[str, str] = {
+    "git_squash_above_its_commit": "Which commit does a squash line fold into, and does that commit already contain the code it edits?",
     "pinn_missing_ic_bc": "Many functions satisfy the PDE. What information tells the network which one you want?",
     "pinn_convection_large_beta": "Large β is the hard version of this PDE. Could the network learn an easier β first and carry those weights forward?",
     "pinn_loss_imbalance": "Look at each loss term separately. Is one of them barely moving?",
@@ -300,10 +332,11 @@ def match(
         score = 0.0
         if m.error_patterns and any(_search(p, error_text) for p in m.error_patterns):
             score += 0.6
+        hits = sum(_search(p, code_excerpt) for p in m.code_patterns) if m.code_patterns else 0
         if m.code_patterns:
-            hits = sum(_search(p, code_excerpt) for p in m.code_patterns)
             score += 0.3 * hits / len(m.code_patterns)
-        if m.code_absent and code_excerpt:
+        # "X is missing" only means something in the entry's own context (PINN code, a training loop)
+        if m.code_absent and code_excerpt and (hits or not m.code_patterns):
             # the thing this entry says is missing: absent → evidence for; present → evidence against
             score += 0.3 if all(not _search(p, code_excerpt) for p in m.code_absent) else -0.5
         if m.metric_signals and flags & set(m.metric_signals):
