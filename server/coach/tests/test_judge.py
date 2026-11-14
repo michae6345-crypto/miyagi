@@ -170,7 +170,7 @@ def test_where_reads_the_editor_state():
     assert editor_state(obs) == {"app": "VS Code", "file": "calc.py", "untitled": "", "unsaved": True}
     assert where_hint(CALC, None, obs) == "You're in VS Code on calc.py. Open calculator.py from the lesson folder"
     no_editor = {"Terminal": ["$ ls"]}
-    assert where_hint(CALC, None, no_editor) == "Open calculator.py in your editor"  # file named only in the instructions
+    assert where_hint(CALC, None, no_editor) == "Create calculator.py in the lesson folder"  # a creation step, file named only in the instructions
 
 
 def test_hint_and_point_use_the_editor_state(monkeypatch):
@@ -253,3 +253,32 @@ def test_level0_questions_by_check_type():
     ]:
         h = coach.hint({"id": "x", "title": "T", "checks": [check]}, 0, {})
         assert h["body"].startswith(want) and h["body"].endswith("?")
+
+
+
+# ---------- Michael's live calculator screenshot: a step not started yet ------------------------------------
+
+CALC1 = {"id": "q1", "title": "Create calculator.py", "instructions": "Create a new file named calculator.py and print a welcome message with print().",
+         "checks": [{"id": "q1a", "type": "file_exists", "label": "calculator.py created", "file": "calculator.py"}],
+         "hints": ["How do you display text on screen and ask the user for input in Python?"]}
+
+
+def test_not_started_is_a_plain_instruction_not_an_offtrack(monkeypatch):
+    async def boom(**kw):
+        raise AssertionError("no model for a step that hasn't started")
+
+    monkeypatch.setattr(llm, "structured_call", boom)
+    card = run(coach.diagnose(CALC1, [{"checkId": "q1a", "label": "calculator.py created", "status": "fail"}], None, ""))
+    assert card["notStarted"] is True and card["title"] == "Start: Create calculator.py"
+    assert card["body"] == "Create calculator.py in the lesson folder, then print a welcome message with print()."
+    assert not card["body"].endswith("?")
+
+
+def test_hint_after_a_not_started_card_is_the_instruction():
+    nudge = {"stepId": "q1", "title": "Not yet: calculator.py created", "body": "How do you display text…?", "_meta": {"route": "template"}}
+    h = coach.hint(CALC1, 0, nudge)  # the live bug: "Not yet: calculator.py created: what in your code makes that happen…"
+    assert h["title"] == "Start · Create calculator.py"
+    assert h["body"] == "Create calculator.py in the lesson folder, then print a welcome message with print()."
+    h = coach.hint(CALC1, 0, nudge, screen=_vscode_untitled())  # reads the screen: the unsaved tab
+    assert h["body"] == "You're in VS Code on an unsaved file. Save it as calculator.py in the lesson folder, then print a welcome message with print()."
+    assert "Not yet:" not in coach.hint(CALC1, 1, nudge)["body"]

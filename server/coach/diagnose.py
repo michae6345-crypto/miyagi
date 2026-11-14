@@ -131,18 +131,19 @@ def playbook_card(step: dict, mode: FailureMode, code_excerpt: str = "", severit
     }
 
 
-def template_card(step: dict, failed_checks: list) -> dict:
-    """Learner hasn't done the step yet: restate it with the gentlest hint. No model call."""
-    hints = step.get("hints") or []
-    first = failed_checks[0] if failed_checks else {}
-    label = first.get("label") if isinstance(first, dict) else str(first)
-    body = hints[0] if hints else step.get("instructions", "")
+def template_card(step: dict, failed_checks: list, screen: Any = None) -> dict:
+    """The learner hasn't started the step yet: NOT an off-track. One plain instruction from the step
+    itself (Michael: "Not yet: calculator.py created" + a Socratic question read as a wrong diagnosis).
+    `notStarted: true` tells the orchestrator to show it as a nudge, not an `offtrack`. No model call."""
+    from .pointing import start_instruction
+
     return {
         "stepId": step.get("id", ""),
         "severity": "warn",
-        "title": clamp_title(f"Not yet: {label}" if label else step.get("title", "Step not done yet")),
-        "body": clamp_words(body, 30),
+        "title": clamp_title(f"Start: {step.get('title', 'this step')}"),
+        "body": clamp_words(start_instruction(step, screen), 30),
         "actions": order_actions(["show_me"] if step.get("targets") else [], has_diff=False),
+        "notStarted": True,
         "_meta": {"route": "template"},
     }
 
@@ -341,7 +342,7 @@ async def diagnose(
     try:
         t = await triage(step, failed_checks, flags, code_excerpt, error_text, use_haiku=use_triage)
         if t.route == "template":
-            card = template_card(step, failed_checks)
+            card = template_card(step, failed_checks, screen)
         elif t.route == "playbook" and t.playbook_id:
             card = playbook_card(step, BY_ID[t.playbook_id], code_excerpt, severity="fail" if has_error else "warn")
         else:
