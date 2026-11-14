@@ -282,9 +282,22 @@ def _lesson_json(graph: dict) -> str:
     return json.dumps(slim, indent=1)[:50_000]
 
 
-def _cache_file(graph: dict) -> Path:
+def cache_key(graph: dict) -> str:
+    """Keyed by the VIDEO when there is one: the prompt never sees the learner's goal, so the tool list
+    depends only on the video. S8's preflight (lesson id "preflight-<videoId>", one step per chapter)
+    therefore warms the cache that the real lesson's setup card reads. Else the lesson id / first URL."""
+    for src in graph.get("sources") or []:
+        if vid := (src.get("videoId") or paths.video_id(src.get("url", ""))):
+            return f"video-{vid}"
     meta = paths.lesson_meta(graph)
-    key = hashlib.sha1((meta.get("id") or paths.primary_url(graph) or json.dumps(graph, sort_keys=True)[:4000]).encode()).hexdigest()[:12]
+    if (m := re.fullmatch(r"preflight-([\w-]{6,})", meta.get("id") or "")) and m.group(1) != "url":
+        return f"video-{m.group(1)}"
+    basis = meta.get("id") or paths.primary_url(graph) or json.dumps(graph, sort_keys=True)[:4000]
+    return "lesson-" + hashlib.sha1(basis.encode()).hexdigest()[:12]
+
+
+def _cache_file(graph: dict) -> Path:
+    key = re.sub(r"[^A-Za-z0-9_-]", "_", cache_key(graph))
     return paths.lessons_root() / ".miyagi-state" / "requirements" / f"{key}.json"
 
 

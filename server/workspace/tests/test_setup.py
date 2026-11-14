@@ -248,3 +248,20 @@ def test_pip_requirement_drops_old_pins():
     assert S.pip_requirement("scikit-learn") == "scikit-learn"
     assert S.pip_requirement("uvicorn[standard]>=0.30") == "uvicorn[standard]>=0.30"
     assert S.pip_requirement("pkg && curl evil") == "" and S.pip_requirement("-e .") == ""
+
+
+def test_preflight_warms_the_real_lessons_cache(mac):
+    """S8's preflight graph and the real lesson share a video: one Claude call, not two."""
+    real = load("pandas_pokemon.json")
+    pre = {"lesson": {"id": "preflight-vmEHCJofslg", "title": real["lesson"]["title"]},
+           "sources": [{"id": "src1", "kind": "video", "title": "t", "url": "https://youtu.be/vmEHCJofslg"}],
+           "steps": [{"id": "c1", "index": 1, "title": "Loading data", "instructions": "", "checks": []}]}
+    fc = FakeClient(reqs_reply(tools=[tool("pandas", "python_package", import_name="pandas", pip_name="pandas")]))
+    assert [it["tool"] for it in requirements(pre, client=fc, run=mac.run)] == ["vscode", "pandas"]
+    again = FakeClient()
+    assert [it["tool"] for it in requirements(real, client=again, run=mac.run)] == ["vscode", "pandas"]
+    assert len(fc.calls) == 1 and again.calls == []
+    assert S.cache_key(pre) == S.cache_key(real) == "video-vmEHCJofslg"
+    assert S.cache_key({"lesson": {"id": "preflight-vmEHCJofslg"}, "sources": [{"url": ""}]}) == "video-vmEHCJofslg"
+    other = load("git_rebase.json")  # no video id -> lesson-keyed
+    assert S.cache_key(other).startswith("lesson-")
