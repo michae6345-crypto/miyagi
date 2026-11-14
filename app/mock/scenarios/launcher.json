@@ -1,0 +1,41 @@
+{
+  "name": "launcher",
+  "on": {
+    "action:ask@step4": "ask_step4",
+    "action:ask@step6": "ask_step6"
+  },
+  "segments": {
+    "ask_step4": [
+      {
+        "wait": 650,
+        "type": "card",
+        "payload": {
+          "stepId": "s4",
+          "kind": "answer",
+          "title": "Why create_graph=True?",
+          "body": "The loss needs gradients of u_t and u_x too. create_graph keeps their graph, so backward() can train through the residual.",
+          "videoJump": {
+            "t": 452,
+            "label": "7:32 · create_graph"
+          }
+        }
+      }
+    ],
+    "ask_step6": [
+      {
+        "wait": 650,
+        "type": "card",
+        "payload": {
+          "stepId": "s6",
+          "kind": "answer",
+          "title": "Why does the loss go flat?",
+          "body": "At β = 30 the residual is easiest to satisfy with a flat u. The net gets stuck there. Start at a small β and raise it step by step.",
+          "videoJump": {
+            "t": 870,
+            "label": "14:30 · large β"
+          }
+        }
+      }
+    ]
+  }
+}
