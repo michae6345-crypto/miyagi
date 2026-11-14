@@ -7,7 +7,41 @@ Each video got a fresh empty workdir, i.e. a learner starting from scratch. Engi
 Re-run: `python evals/lesson/run.py --src <checkout>`. Raw graphs are in `results/<id>.json`, automatic grades in `results/grades.json`,
 build logs in `results/<id>.log` (gitignored; per-pass timings are quoted below). Transcripts were used for spot checks but are not committed.
 
-## Latest (`6573187`): Gemini is the default, both paths compared
+## Latest (`e721457`): link verification, Claude concurrency cap and 429 backoff
+
+Two runs, one after the other, both with `--saved-captions`:
+- `results-e721457-default/`: defaults, which now prefer Gemini.
+- `results-e721457-claude/`: `LESSON_ENGINE=claude`.
+
+| Lesson | Default: builtBy, total (Gemini pass) | Claude only: total | Score default / Claude | Checks (per step) default / Claude |
+|---|---|---|---|---|
+| react-useeffect | gemini, 47 s (36 s) | 29 s | 8.5 / 8.5 | 20 (1–4) / 25 (2–6) |
+| git-rebase | gemini, 45 s (38 s) | 21 s | **6.5** / 8 | 14 (2–3) / 17 (3–4) |
+| pandas-30min | gemini, 65 s (54 s) | 34 s | 9 / 9 | 29 (2–5) / 38 (2–7) |
+| rust-cli | gemini, 45 s (36 s) | 28 s | 9 / 9 | 29 (2–5) / 42 (5–6) |
+| fastapi-rest | gemini, 54 s (40 s) | 24 s | **7.5** / 8.5 | 26 (2–4) / 33 (3–5) |
+
+**What works:**
+- `lesson.builtBy` is set correctly on every graph.
+- No 429s at all, even with 5 builds in parallel. The concurrency cap and backoff work.
+- Gemini builds are faster than at 6573187 (45–65 s, was 46–94 s), and Claude-only is 21–34 s.
+- No made-up links. My grader's URL check finds only the real PanadasTutorial repo (200).
+
+**New problems, ranked:**
+1. **Regression: the link checker strips the learner's own localhost URLs and leaves broken sentences** (`links.py`).
+   - FastAPI on Gemini, s1: "Run the server with `uvicorn main:app --reload` and **openin your browser**."
+   - FastAPI on Gemini, s2: "From a second terminal, run **`curl -X POST ''`** to add an item."
+   - On the Claude path it silently dropped the FastAPI hints that contained `http://127.0.0.1:8000/...`.
+   - The learner's dev server is never up at build time, so `localhost`, `127.0.0.1`, `0.0.0.0`, `[::1]` and `*.localhost` must be exempt. Never cut a URL out of a backticked command; drop the whole sentence or keep it.
+2. **Gemini's git step 1 is vague again.**
+   - It says: "Initialize a git repo with a main branch and a local feature branch (e.g. feature/login) whose commits change index.js and package.json differently from main". `step.code` is empty and there are no commands, so the learner has to design the conflicting history themselves.
+   - The setup lint only fires on clone/download/get/put wording, so "initialize" slipped through. At 6573187 the same lesson had a working setup script; this varies run to run.
+   - Fixes: require a backticked command or `code` in any step-1 setup that creates state. Or, simpler, reuse the Claude draft's step-1 setup, which is computed in parallel anyway and gave exact commands in every Claude run.
+3. **Python `Traceback` in React on the Claude path.** s3, s4 and s7 have `screen_absent Terminal 'Traceback|Error:|ERR!'`. These steps have no `run_command`, so the per-stack swap seems to key off the run command. Key it off the lesson's stack (libraries/files) instead.
+4. **Gemini checks are still thinner:** 14–29 per lesson against 17–42, and Gemini React s4 has a single check.
+   - The adapt pass only sees Gemini's draft for those steps. Give it the Claude draft's code and checks for the overlapping time range as extra context; that draft is already computed in parallel.
+
+## Gemini is the default (`6573187`): both paths compared
 
 E2 changed four things:
 - `auto` now waits up to 75 s for Gemini.
