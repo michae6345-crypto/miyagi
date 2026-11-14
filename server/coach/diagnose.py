@@ -346,7 +346,7 @@ async def _opus(step, failed_checks, metrics_text, flags, code_excerpt, error_te
     try:
         res = await llm.structured_call(
             purpose="diagnose",
-            model=llm.OPUS,
+            model=llm.model_for("diagnose"),
             system=system_blocks(COACH_SYSTEM, lesson),
             user_text=user,
             schema=schema,

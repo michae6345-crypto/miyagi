@@ -150,7 +150,7 @@ async def do_it_for_me(step: dict, file: str, file_text: str, last_offtrack: dic
         )
         try:
             res = await llm.structured_call(
-                purpose="do_it_for_me", model=llm.OPUS, system=system_blocks(PATCH_SYSTEM, lesson),
+                purpose="do_it_for_me", model=llm.model_for("do_it_for_me"), system=system_blocks(PATCH_SYSTEM, lesson),
                 user_text=user, schema=PATCH_SCHEMA, effort="low", max_tokens=8000, timeout=40.0,
             )
         except llm.CoachLLMError as e:
@@ -205,7 +205,7 @@ async def locate(query: str, screen: ScreenContext, *, use_model: bool = True) -
     ask = f'Find: "{query}"'
     try:
         res = await llm.structured_call(
-            purpose="locate", model=llm.HAIKU, system=[{"type": "text", "text": LOCATE_SYSTEM}],
+            purpose="locate", model=llm.model_for("locate"), system=llm.cached_system(LOCATE_SYSTEM),
             user_text=f"{ask}\n\n{screen.text()}", user_content=[{"type": "text", "text": ask}, *screen.claude_content()],
             schema=LOCATE_SCHEMA, effort="low", max_tokens=2000, timeout=10.0,
         )

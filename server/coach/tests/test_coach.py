@@ -1133,3 +1133,52 @@ def test_do_it_for_me_command_fix_and_missing_edit(monkeypatch):
     r = run(coach.do_it_for_me(d.STEP, "git-rebase-todo", todo, card))
     assert r["_meta"]["via"] == "opus#1" and r["new_text"] == "pick a1 Add login\nsquash b2 Cleanup\n"
     assert "PREVIOUS ATTEMPT FAILED" in users[0]  # the diagnosis diff was a no-op that missed `squash`
+
+
+# ---------- cost policy: Opus only for the diagnosis card ------------------------------------------------
+
+def test_models_by_purpose(monkeypatch):
+    assert llm.model_for("diagnose") == "claude-opus-5-5"
+    for purpose in ("triage", "point", "locate", "explain", "do_it_for_me", "fix_outdated"):
+        assert llm.model_for(purpose) == "claude-haiku-5-5"
+    monkeypatch.setenv("COACH_MODEL_EXPLAIN", "claude-opus-5-5")
+    assert llm.model_for("explain") == "claude-opus-5-5"
+
+
+def test_live_paths_use_the_policy(monkeypatch, fake_web):
+    used = {}
+
+    async def call(**kw):
+        used[kw["purpose"]] = (kw["model"], all("cache_control" in b for b in kw["system"]))
+        data = {
+            "triage": {"route": "opus", "playbook_id": "none", "reason": ""},
+            "diagnose": {"playbook_id": "none", "severity": "fail", "title": "t", "body": "b. Do x.", "citation_id": "none", "diff_expected": "",
+                         "diff_yours": "", "diff_file": "", "diff_line": 0, "diff_command": "", "actions": [], "guiding_question": "q?"},
+            "explain": {"title": "t", "body": "b", "explanation_index": -1, "citation_id": "none"},
+            "point": {"box_ids": [], "where": "x"},
+            "locate": {"box_ids": []},
+            "do_it_for_me": {"summary": "s", "yours": "a = 1", "expected": "a = 2", "line": 1, "command": ""},
+            "fix_outdated": {"found": False, "title": "", "body": "", "yours": "", "expected": "", "source_index": 0},
+        }[kw["purpose"]]
+        return llm.CallResult(data=data, model=kw["model"])
+
+    monkeypatch.setattr(llm, "structured_call", call)
+    common.set_lesson(g.REACT_LESSON)
+    run(coach.diagnose(g.REACT_STEP, g.REACT_FAILED, None, g.REACT_CODE, error_text=g.REACT_ERROR))
+    run(coach.explain(g.REACT_STEP, "why?", {"screen": make_screen()}))
+    run(coach.locate("nothing like this", make_screen()))
+    run(coach.do_it_for_me(g.REACT_STEP, "a.py", "a = 1\n", last_offtrack={}))
+    run(coach.fix_outdated(g.PANDAS_ERROR, g.PANDAS_LIBS))
+    assert {p: m for p, (m, _) in used.items()} == {
+        "triage": "claude-haiku-5-5", "diagnose": "claude-opus-5-5", "explain": "claude-haiku-5-5", "point": "claude-haiku-5-5",
+        "locate": "claude-haiku-5-5", "do_it_for_me": "claude-haiku-5-5", "fix_outdated": "claude-haiku-5-5"}
+    assert all(cached for _, cached in used.values())  # every system prompt is marked for prompt caching
+
+
+def test_record_fixtures_refuses_without_opt_in(monkeypatch):
+    import runpy
+
+    monkeypatch.delenv("COACH_ALLOW_LIVE", raising=False)
+    monkeypatch.setenv("COACH_RECORD_DIR", "")  # the module sets it on import; monkeypatch restores it afterwards
+    with pytest.raises(SystemExit, match="COACH_ALLOW_LIVE=1"):
+        runpy.run_module("server.coach.tests.record_fixtures", run_name="__main__")

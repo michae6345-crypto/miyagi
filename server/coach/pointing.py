@@ -140,7 +140,7 @@ async def point(
     try:
         res = await asyncio.wait_for(
             llm.structured_call(
-                purpose="point", model=llm.HAIKU, system=[{"type": "text", "text": POINT_SYSTEM}],
+                purpose="point", model=llm.model_for("point"), system=llm.cached_system(POINT_SYSTEM),
                 user_text=user, schema=POINT_SCHEMA, effort="low", max_tokens=1000, timeout=timeout,
                 thinking={"type": "disabled"},
             ),

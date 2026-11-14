@@ -97,8 +97,8 @@ async def triage(
         try:
             res = await llm.structured_call(
                 purpose="triage",
-                model=llm.HAIKU,
-                system=[{"type": "text", "text": TRIAGE_SYSTEM}],
+                model=llm.model_for("triage"),
+                system=llm.cached_system(TRIAGE_SYSTEM),
                 user_text=user,
                 schema=TRIAGE_SCHEMA,
                 effort="low",
