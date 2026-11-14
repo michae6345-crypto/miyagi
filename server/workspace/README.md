@@ -40,8 +40,9 @@ res = install(item, workdir=wd, on_line=cb)  # ONLY after the learner tapped Ins
 - `requirements(lesson, *, workdir=None, client=None) -> list[item]`. `WORKSPACE_REQ_MODEL` (default `claude-haiku-5-5`,
   structured output) reads the step graph and returns `{editor: {needed, why}, tools: [...]}`. Item 0 is always the editor
   (`vscode`; for a lesson that doesn't need one, `needed: false` and `why` starts with "No editor needed:").
-  Items: `{tool, label, kind (editor|app|runtime|cli|python_package), why, needed, installed, ok, version, min_version, where,
-  install: {method (brew|brew_cask|pip|download|none), command, url}}`. `ok` = installed and `>= min_version`.
+  Items: `{tool, label, kind (editor|app|runtime|cli|python_package|web_app), why, needed, installed, ok, version, min_version, where,
+  install: {method (brew|brew_cask|pip|download|open|none), command, url}}`. `web_app` items (OpenAI Platform,
+  Botpress, Zapier, Google Sheets, ...) are always `ok`, method `open` + an https URL, and never count as missing. `ok` = installed and `>= min_version`.
   Returns `[]` with no key or on API failure (the lesson still runs).
 - Local checks are fast and read-only: `/Applications/<App>.app` then `mdfind kMDItemCFBundleIdentifier == '<id>'` for apps
   (+ `defaults read .../Info CFBundleShortVersionString`), `which <bin>` + `<bin> --version` for CLIs/runtimes (python = the
@@ -58,22 +59,34 @@ res = install(item, workdir=wd, on_line=cb)  # ONLY after the learner tapped Ins
   The argv is rebuilt from method + a validated name: no shell, never a command string from Claude or the app.
   It is synchronous: run it in a thread and bridge `on_line` with `loop.call_soon_threadsafe`.
 
+### The video decides, not the search text
+
+Both Claude prompts (starter files and requirements) get the video's steps, title and libraries, never `lesson.goal`
+(what the learner typed). The scaffold also classifies the lesson (`lesson_kind`: `code | no_code | conceptual`);
+no-code and conceptual lessons never get files, git history or setup commands, whatever Claude returns. The README leads
+with the video's title, shows `<sub>You asked for: …</sub>` when the request differs, and a "Heads-up: this video only
+partly matches what you asked for (match N%). <note>" line when `lesson.goalMatch` (E2: `{score: 0..1 | null, note}`;
+1 = achieves the goal, 0.5 = related but a different project/tool, 0 = unrelated) has `score < 0.7`. `score: null` means
+unknown (no goal given / not scored) and shows nothing. Also accepted: a bare number, a level string, `{level, reason}`.
+A reused folder gets its README rewritten (no Claude call), so wording fixes reach existing folders.
+
 ### Proposed contract (additive, for E4 / the app)
 
 ```ts
 // EngineEvents
 "card": { ...; kind: "explain" | "hint" | "answer" | "setup";
-          actions?: Array<"confirm" | "undo" | "apply_fix" | "open_editor" | "install" | "skip_setup">;
+          actions?: Array<"confirm" | "undo" | "apply_fix" | "open_editor" | "open_in_browser" | "install" | "skip_setup">;
           setup?: { editorNeeded: boolean; items: SetupItem[] } };
 "setup.progress": { tool: string; line?: string; done?: boolean; ok?: boolean; error?: string; url?: string; version?: string };
-interface SetupItem { tool: string; label: string; kind: "editor" | "app" | "runtime" | "cli" | "python_package"; why: string;
+interface SetupItem { tool: string; label: string; kind: "editor" | "app" | "runtime" | "cli" | "python_package" | "web_app"; why: string;
   needed: boolean; installed: boolean; ok: boolean; version?: string; minVersion?: string;
-  install: { method: "brew" | "brew_cask" | "pip" | "download" | "none"; command?: string; url?: string } }
+  install: { method: "brew" | "brew_cask" | "pip" | "download" | "open" | "none"; command?: string; url?: string } }
 // AppCommands "action" kinds: + "open_editor" | "install" (text = tool id; one Install button per missing item) | "skip_setup"
+// "open_in_browser" can be handled by the app alone: open each web_app item's install.url (or one link per item).
 ```
 
 `setup_card(items)` builds this card: `title` "Before you start" / "Ready to go", `body` lists what's missing (plus the
-"No editor needed" line), `actions` = `open_editor` (editor needed and installed) + `install` (something missing) + `skip_setup`.
+"No editor needed" line), `actions` = `open_editor` (editor needed and installed) + `open_in_browser` (web apps) + `install` (something missing) + `skip_setup`.
 For a `download` item the app opens `install.url` instead of sending `install`.
 
 Orchestrator flow: on lesson.ready, run `requirements(graph, workdir=wd)` in a thread and emit the setup card (skip it when

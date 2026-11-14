@@ -25,14 +25,25 @@ def _norm(url: str) -> str:
     return u.rstrip("/").lower()
 
 
+_BACKTICKED = re.compile(r"`[^`]*`")
+_LOCAL = re.compile(r"^https?://(localhost|127\.\d+\.\d+\.\d+|0\.0\.0\.0|\[::1\]|[^/:]+\.localhost|[^/:]+\.local|10\.\d+\.\d+\.\d+|192\.168\.\d+\.\d+)(:\d+)?(/|$)", re.I)
+
+
+def _checkable(text: str) -> set[str]:
+    """URLs worth checking: not inside a backticked command (that's what the learner types), and not
+    the learner's own dev server (localhost etc. is never up at build time)."""
+    text = _BACKTICKED.sub(" ", text or "")
+    return {u.rstrip(".,;:!?") for u in URL_RE.findall(text) if not _LOCAL.match(u)}
+
+
 def urls_in_steps(steps: list[dict]) -> set[str]:
     out: set[str] = set()
     for s in steps:
         for f in _TEXT_FIELDS:
-            out |= {u.rstrip(".,;:!?") for u in URL_RE.findall(s.get(f) or "")}
+            out |= _checkable(s.get(f) or "")
         for f in _LIST_FIELDS:
             for item in s.get(f) or []:
-                out |= {u.rstrip(".,;:!?") for u in URL_RE.findall(item if isinstance(item, str) else "")}
+                out |= _checkable(item if isinstance(item, str) else "")
     return out
 
 
@@ -59,6 +70,16 @@ async def find_bad_urls(steps: list[dict], known_text: str, checked: dict[str, b
     return {u for u in urls_in_steps(steps) if checked.get(u) is False}
 
 
+def _strip_outside_backticks(text: str, url: str) -> str:
+    out, last = [], 0
+    for m in _BACKTICKED.finditer(text):
+        out.append(re.sub(r"\s*\(?\s*" + re.escape(url) + r"\s*\)?", " ", text[last:m.start()]))
+        out.append(m.group(0))
+        last = m.end()
+    out.append(re.sub(r"\s*\(?\s*" + re.escape(url) + r"\s*\)?", " ", text[last:]))
+    return "".join(out)
+
+
 def url_problems(steps: list[dict], bad: set[str]) -> list[str]:
     out = []
     for s in steps:
@@ -75,13 +96,13 @@ def strip_bad_urls(steps: list[dict], bad: set[str]) -> list[str]:
     for s in steps:
         text = s.get("instructions") or ""
         for u in bad:
-            if u in text:
-                text = re.sub(r"\s*\(?\s*" + re.escape(u) + r"\s*\)?", "", text)
+            if u in _BACKTICKED.sub(" ", text):  # never cut into a backticked command
+                text = _strip_outside_backticks(text, u)
                 warnings.append(f"{s.get('id', '?')}: removed a link that does not resolve ({u})")
-        s["instructions"] = re.sub(r"\s{2,}", " ", text).strip()
+        s["instructions"] = re.sub(r"[ \t]{2,}", " ", text).strip()
         for f in _LIST_FIELDS:
             items = s.get(f) or []
-            kept = [i for i in items if not any(u in i for u in bad)]
+            kept = [i for i in items if not any(u in _BACKTICKED.sub(" ", i) for u in bad)]
             if len(kept) != len(items):
                 warnings.append(f"{s.get('id', '?')}: dropped {len(items) - len(kept)} {f} with a dead link")
             s[f] = kept

@@ -27,6 +27,18 @@ BUNDLED_CLI = "/Applications/Visual Studio Code.app/Contents/Resources/app/bin/c
 
 
 def code_cli() -> str | None:
+    """The editor CLI for `-g file:line` jumps: S2's choice when available (e.g. Cursor when installed), so the
+    jumps go to the same editor open_editor opened; else VS Code's `code`."""
+    ws = _s2()
+    editor = getattr(ws, "editor", None) if ws is not None else None
+    fn = getattr(editor, "code_cli", None) if editor is not None else None
+    if fn is not None:
+        try:
+            cli = fn()
+            if cli:
+                return cli
+        except Exception:  # noqa: BLE001
+            pass
     found = shutil.which("code")
     if found:
         return found

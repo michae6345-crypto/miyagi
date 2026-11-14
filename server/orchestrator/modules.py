@@ -55,6 +55,13 @@ def _accepts(fn: Callable, name: str) -> bool:
     return name in params or any(p.kind is p.VAR_KEYWORD for p in params.values())
 
 
+def _video_id(url: str) -> str | None:
+    import re
+
+    m = re.search(r"(?:v=|youtu\.be/|/embed/|/shorts/)([A-Za-z0-9_-]{6,})", url or "")
+    return m.group(1) if m else None
+
+
 def _read_json(path: Path) -> Any | None:
     try:
         return json.loads(path.read_text())
@@ -89,8 +96,12 @@ class Modules:
     def stubs_allowed(self, module: str) -> bool:
         return self.demo or module in self.forced
 
+    # modules that run for real even with DEMO=1: checks (the demo run is real) and coach (E5 handles DEMO=1
+    # itself: offline playbook cards instead of failing, e.g. the hero's lr_too_high card)
+    DEMO_REAL = ("checks", "coach")
+
     def _real_fn(self, module: str, attr: str) -> Callable | None:
-        if module in self.forced or (self.demo and module != "checks"):
+        if module in self.forced or (self.demo and module not in self.DEMO_REAL):
             return None
         mod = self.real.get(module)
         fn = getattr(mod, attr, None) if mod else None
@@ -220,16 +231,25 @@ class Modules:
             log.warning("ORCH_LESSON=%s could not be read", p)
         return g
 
-    async def build_lesson(self, source_url: str, goal: str, workdir: str, on_progress: Any = None) -> dict:
+    async def build_lesson(self, source_url: str, goal: str, workdir: str, on_progress: Any = None,
+                           on_update: Any = None) -> dict:
         if self.demo:
-            cached = self._cache("lesson.json")
-            if cached is None and (DEMO_CACHE / "lessons").is_dir():
-                files = sorted((DEMO_CACHE / "lessons").glob("*.json"), key=lambda p: p.stat().st_mtime, reverse=True)
-                cached = _read_json(files[0]) if files else None
-            if cached is not None:
-                return cached
+            # ORCH_LESSON > a cached lesson for the PICKED video > lesson.json > the newest cache > stub
             if (g := self._lesson_file()) is not None:
                 return g
+            files = sorted((DEMO_CACHE / "lessons").glob("*.json"), key=lambda p: p.stat().st_mtime, reverse=True) \
+                if (DEMO_CACHE / "lessons").is_dir() else []
+            vid = _video_id(source_url)
+            if vid:
+                for f in files:
+                    g = _read_json(f)
+                    if g and any(s.get("videoId") == vid or vid in (s.get("url") or "") for s in g.get("sources", [])):
+                        return g
+            cached = self._cache("lesson.json")
+            if cached is None and files:
+                cached = _read_json(files[0])
+            if cached is not None:
+                return cached
             return await stubs.build_lesson(source_url, goal, workdir)
         fn = self._real_fn("lesson", "build_lesson")
         kwargs = {}
@@ -239,6 +259,8 @@ class Modules:
             kwargs["api_key"] = get_key("gemini")
         if fn is not None and on_progress is not None and _accepts(fn, "on_progress"):
             kwargs["on_progress"] = on_progress  # E2: stage ids for the launcher's progress line
+        if fn is not None and on_update is not None and _accepts(fn, "on_update"):
+            kwargs["on_update"] = on_update  # E2: long videos build progressively (first part, then appended parts)
         timeout = float(os.environ.get("ORCH_BUILD_TIMEOUT_S", "300"))
         try:
             return await asyncio.wait_for(
@@ -366,6 +388,38 @@ class Modules:
         out = await self._run("coach", "diagnose", lambda: stubs.diagnose(step, failed_checks, metrics, code_excerpt),
                               step, failed_checks, metrics, code_excerpt, **kwargs)
         return self._public(out)
+
+    # -- preflight (S8): what the picked video is, how well it fits, what it needs, before building
+    def _preflight_mod(self) -> Any:
+        if self.demo or "lesson" in self.forced:
+            return None
+        try:
+            return importlib.import_module("server.preflight")
+        except Exception:  # noqa: BLE001
+            return None
+
+    def has_preflight(self) -> bool:
+        return self._preflight_mod() is not None
+
+    def prefetch_preflight(self, rows: list[dict], goal: str) -> None:
+        mod = self._preflight_mod()
+        if mod is not None:
+            try:
+                from server.config import KEY_ENV, get_key
+
+                mod.prefetch(rows, goal, api_keys={k: get_key(k) for k in KEY_ENV})
+            except Exception:  # noqa: BLE001 - a prefetch must never surface
+                log.exception("preflight prefetch failed")
+
+    async def preflight(self, url: str, goal: str, row: dict | None, on_late: Any) -> dict:
+        from server.config import KEY_ENV, get_key
+
+        mod = self._preflight_mod()
+        return _to_dict(await mod.preflight(url, goal, row=row, on_late=on_late,
+                                            api_keys={k: get_key(k) for k in KEY_ENV}))
+
+    def preflight_card(self, res: dict) -> dict:
+        return _to_dict(self._preflight_mod().preflight_card(res))
 
     # -- learning events -> Tiger (E3's server.checks.tiger: non-blocking queue + offline spool)
     def record(self, kind: str, lesson_id: str | None, step_id: str | None, video_t: float | None = None,

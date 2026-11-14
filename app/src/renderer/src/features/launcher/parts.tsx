@@ -3,15 +3,13 @@
  * footer actions (text + keycap, Spotlight-style). The primary action is the brand's button when it can act:
  * white on the dark island with ink text (color.accent / color.onAccent); otherwise a quiet label.
  *
- * Colors are set inline on buttons: styles.css's unlayered `button { color: inherit }` beats
- * Tailwind's layered text-* utilities on <button>.
+ * Colors are set inline on buttons because they animate (hover, enabled ↔ disabled).
  */
 import { motion, useReducedMotion } from 'motion/react'
 import type { ReactNode } from 'react'
 import type { LucideIcon } from 'lucide-react'
 import { Kbd } from '../../core/ui/atoms'
-import { color, spring } from '../../core/theme'
-import { tint } from './tint'
+import { color, fill, spring } from '../../core/theme'
 
 /** One section of the panel settling into place a beat after the one above it. */
 export function Rise({ i, children, className = '' }: { i: number; children: ReactNode; className?: string }): ReactNode {
@@ -31,8 +29,7 @@ export function Rise({ i, children, className = '' }: { i: number; children: Rea
 
 /**
  * A rounded chip: a suggestion to search, or a quick action. With `tone` it's a solid pastel option (fill and border in
- * the tone, ink text and icon); without, a quiet neutral chip. Colors are inline: styles.css's unlayered
- * `button { color: inherit }` beats Tailwind's text-* utilities on buttons.
+ * the tone, ink text and icon); without, a quiet neutral chip. Colors are inline because they animate on hover.
  */
 export function Chip({ icon: I, label, kbd, tone, onClick }: { icon: LucideIcon; label: string; kbd?: string; tone?: string; onClick: () => void }): ReactNode {
   const ink = color.onAccent
@@ -41,8 +38,8 @@ export function Chip({ icon: I, label, kbd, tone, onClick }: { icon: LucideIcon;
       type="button"
       tabIndex={-1}
       className={`flex h-[30px] cursor-pointer items-center gap-[7px] whitespace-nowrap rounded-full border pl-[11px] text-[13px] ${tone ? 'font-medium' : ''} ${kbd ? 'pr-[4px]' : 'pr-[13px]'}`}
-      style={tone ? { backgroundColor: tone, borderColor: tone, color: ink, filter: 'brightness(1)' } : { backgroundColor: tint.chip, borderColor: tint.chipBorder, color: tint.chipText }}
-      whileHover={tone ? { filter: 'brightness(1.06)' } : { backgroundColor: tint.chipHover, color: color.text }}
+      style={tone ? { backgroundColor: tone, borderColor: tone, color: ink, filter: 'brightness(1)' } : { backgroundColor: fill.chip, borderColor: fill.chipBorder, color: fill.chipText }}
+      whileHover={tone ? { filter: 'brightness(1.06)' } : { backgroundColor: fill.chipHover, color: color.text }}
       whileTap={{ scale: 0.97 }}
       transition={{ duration: 0.12 }}
       onMouseDown={(e) => e.preventDefault()}
@@ -52,7 +49,7 @@ export function Chip({ icon: I, label, kbd, tone, onClick }: { icon: LucideIcon;
       {label}
       {kbd &&
         (tone ? (
-          <span className="inline-flex h-[22px] items-center rounded-full px-[8px] text-[11px] font-medium" style={{ background: tint.onAccentKey, color: ink }}>
+          <span className="inline-flex h-[22px] items-center rounded-full px-[8px] text-[11px] font-medium" style={{ background: fill.onAccentKey, color: ink }}>
             {kbd}
           </span>
         ) : (
@@ -95,10 +92,10 @@ export function Action({
       className={`flex h-[30px] shrink-0 cursor-pointer items-center gap-[8px] whitespace-nowrap rounded-full pr-[4px] text-[13px] disabled:cursor-default ${solid ? 'pl-[12px]' : 'pl-[10px]'} ${strong ? 'font-medium' : ''}`}
       initial={false}
       animate={{
-        backgroundColor: solid ? color.accent : tint.clear,
+        backgroundColor: solid ? color.accent : fill.clear,
         color: solid ? color.onAccent : enabled ? color.label : color.faint
       }}
-      whileHover={enabled ? (solid ? { scale: 1.03 } : { backgroundColor: tint.chip, color: color.text }) : undefined}
+      whileHover={enabled ? (solid ? { scale: 1.03 } : { backgroundColor: fill.chip, color: color.text }) : undefined}
       whileTap={enabled ? { scale: 0.97 } : undefined}
       transition={{ duration: 0.14 }}
       onMouseDown={(e) => e.preventDefault()}
@@ -106,7 +103,7 @@ export function Action({
     >
       {label}
       {solid ? (
-        <span className="grid h-[22px] min-w-[24px] place-items-center rounded-full px-[6px] text-[12px]" style={{ background: tint.onAccentKey, color: color.onAccent }}>
+        <span className="grid h-[22px] min-w-[24px] place-items-center rounded-full px-[6px] text-[12px]" style={{ background: fill.onAccentKey, color: color.onAccent }}>
           {keycap}
         </span>
       ) : (

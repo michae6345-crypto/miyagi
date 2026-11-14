@@ -6,10 +6,10 @@ import { AnimatePresence, motion } from 'motion/react'
 import type { ReactNode } from 'react'
 import { CircleAlert, FileCode2, FileText, FolderGit2, Newspaper, SearchX } from 'lucide-react'
 import { Thumb } from '../../core/ui/atoms'
-import { clock, color, spring } from '../../core/theme'
+import { brand, clock, color, fill, spring } from '../../core/theme'
 import type { SearchResult } from './store'
 import { thumbnailFor, type YouTubeLink } from './youtube'
-import { alpha, kindTone, pastel, tint } from './tint'
+import { alpha, kindTone } from './tint'
 
 /** Fixed, so a row that gains a learner line later never moves its neighbours or the highlight. */
 export const ROW_H = 64
@@ -49,7 +49,7 @@ function Tile({ kind, thumbnail }: Pick<SearchResult, 'kind' | 'thumbnail'>): Re
   return (
     <span
       className="grid h-[38px] w-[60px] shrink-0 place-items-center rounded-[8px]"
-      style={tone ? { background: alpha(tone, 0.16), color: tone } : { background: tint.icon, color: tint.iconGlyph }}
+      style={tone ? { background: alpha(tone, 0.16), color: tone } : { background: fill.tile, color: fill.tileGlyph }}
     >
       <I size={16} strokeWidth={1.6} />
     </span>
@@ -100,7 +100,7 @@ export function ResultRow({ r, best, ...rest }: Slot & { r: SearchResult; best: 
       <Tile kind={r.kind} thumbnail={r.thumbnail} />
       <Text title={r.title} meta={r.meta} checked={r.verified === true} warnings={r.warnings} />
       {best && (
-        <span className="shrink-0 text-[12.5px] font-medium" style={{ color: pastel.pink }}>
+        <span className="shrink-0 text-[12.5px] font-medium" style={{ color: brand.pastel.pink }}>
           Best
         </span>
       )}
@@ -129,10 +129,10 @@ export function SkeletonRow({ slot }: { slot: number }): ReactNode {
       exit={gone}
       transition={{ duration: 1.4, repeat: Infinity, ease: 'easeInOut', delay: slot * 0.12 }}
     >
-      <span className="h-[38px] w-[60px] shrink-0 rounded-[8px]" style={{ background: tint.skeleton }} />
+      <span className="h-[38px] w-[60px] shrink-0 rounded-[8px]" style={{ background: fill.skeleton }} />
       <span className="flex flex-1 flex-col gap-[8px]">
-        <span className="h-[10px] rounded-full" style={{ width: `${52 - slot * 9}%`, background: tint.skeleton }} />
-        <span className="h-[8px] rounded-full" style={{ width: `${30 + slot * 6}%`, background: tint.skeleton }} />
+        <span className="h-[10px] rounded-full" style={{ width: `${52 - slot * 9}%`, background: fill.skeleton }} />
+        <span className="h-[8px] rounded-full" style={{ width: `${30 + slot * 6}%`, background: fill.skeleton }} />
       </span>
     </motion.div>
   )
@@ -152,7 +152,7 @@ export function MessageRow({ tone, title, detail }: { tone: 'empty' | 'error'; t
     >
       <span
         className="grid h-[38px] w-[60px] shrink-0 place-items-center rounded-[8px]"
-        style={{ background: tint.icon, color: tone === 'error' ? color.text : tint.iconGlyph }}
+        style={{ background: fill.tile, color: tone === 'error' ? color.text : fill.tileGlyph }}
       >
         <I size={17} strokeWidth={1.6} />
       </span>

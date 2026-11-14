@@ -35,7 +35,9 @@ from .workdir import WorkdirInfo, scan
 #   cache_hit, watching (Gemini watches the video), reading_transcript, writing_steps (Claude),
 #   engine_switch (Gemini failed/slow -> transcript path; message says why), steps_ready (message = engine),
 #   adapting (fitting checks to the learner's project), done
-STAGES = ("cache_hit", "watching", "reading_transcript", "writing_steps", "engine_switch", "steps_ready", "adapting", "done")
+#   long videos also: planning (msg = "N parts"), first_steps (part 1 ready), more_steps (msg = "part k/N")
+STAGES = ("cache_hit", "watching", "reading_transcript", "writing_steps", "engine_switch", "steps_ready", "adapting", "done",
+          "planning", "first_steps", "more_steps")
 _progress: contextvars.ContextVar = contextvars.ContextVar("lesson_progress", default=None)
 
 
@@ -81,6 +83,7 @@ async def build_lesson(
     anthropic_key: str | None = None,
     cache: bool = True,
     on_progress=None,
+    on_update=None,
 ) -> dict:
     """Return a step graph that validates against shared/contracts/step-graph.schema.json.
 
@@ -92,6 +95,9 @@ async def build_lesson(
     If both fail the error is raised, never papered over with made-up steps.
     api_key / anthropic_key: the app's bring-your-own keys (config.keys.gemini / .anthropic).
     on_progress(stage, message): optional callback (sync or async) with a stage id from STAGES.
+    on_update(graph, complete): long videos (> LESSON_LONG_VIDEO_S, 30 min) are built progressively:
+      part 1 first (complete=False), then each later part appended in time order, then complete=True.
+      Step ids never change once sent. The return value is always the complete graph.
     refresh: rebuild everything (new video pass). readapt: reuse the cached video draft, redo only
     the cheap adapt pass (e.g. after the workdir changed or an adapt pass ran out of quota).
     detail: per-step clip pass at 2 fps (costs one request per step; off by default on the free tier).
@@ -125,7 +131,30 @@ async def build_lesson(
     if anthropic_key:
         claude.set_api_key(anthropic_key)
     t0 = time.time()
-    draft = await _video_draft(source_url, vid, goal, refresh=refresh or not cache, detail=detail, write=cache)
+    from . import progressive
+
+    try:
+        meta = await asyncio.wait_for(transcript.fetch_metadata(vid), 10)
+    except Exception:  # noqa: BLE001  without metadata we can't plan parts; build in one go
+        meta = {}
+    if (meta.get("length_s") or 0) > progressive.LONG_VIDEO_S and "gemini" in engines():
+        try:
+            graph = await progressive.build(source_url, vid, goal, workdir, info, meta, key, on_update=on_update, cache=cache, t0=t0)
+        except RuntimeError as e:
+            raise RuntimeError(human_error(str(e), meta)) from e
+        if cache and graph["build"]["adapted"] and not graph["lesson"]["parts"]["failed"]:
+            CACHE_DIR.mkdir(parents=True, exist_ok=True)
+            path.write_text(json.dumps(graph, indent=2))
+        _emit("done", f"{time.time() - t0:.0f}s")
+        return graph
+
+    goal_task = asyncio.ensure_future(progressive.goal_match(goal, meta)) if meta.get("title") else None
+    try:
+        draft = await _video_draft(source_url, vid, goal, refresh=refresh or not cache, detail=detail, write=cache)
+    except RuntimeError as e:
+        if goal_task:
+            goal_task.cancel()
+        raise RuntimeError(human_error(str(e), meta)) from e
     known_text, checked = await _known_text(vid), {}
     bad_urls = await _bad_urls(draft["steps"], known_text, checked)
     graph, warnings, adapted_ok, adapt_model = await _adapt(draft, goal, info, bad_urls)
@@ -140,6 +169,12 @@ async def build_lesson(
     graph["lesson"]["builtBy"] = draft.get("_engine", "unknown")  # "gemini" = watched the video; "claude" = read the transcript
     graph["lesson"]["workdir"] = workdir
     graph["sources"] = [{"id": "src1", "kind": "video", "title": draft.get("title") or "Tutorial", "url": source_url, "videoId": vid}]
+    graph["lesson"]["complete"] = True
+    if goal_task is not None:
+        try:
+            graph["lesson"]["goalMatch"] = await asyncio.wait_for(goal_task, 10)
+        except Exception:  # noqa: BLE001
+            pass
     graph["build"] = {
         "adapted": adapted_ok,
         "model": {"video": draft.get("_built_by", "unknown"), "adapt": adapt_model},
@@ -360,6 +395,25 @@ async def _watch(url: str, vid: str, goal: str) -> dict:
             elif not t.cancelled():
                 t.exception()  # mark a failure we didn't need as retrieved
     raise RuntimeError("no engine could build the lesson:\n" + "\n".join(errors))
+
+
+def human_error(err: str, meta: dict | None = None) -> str:
+    """A sentence a learner can act on, followed by the technical detail (the app shows the first line)."""
+    e = err.lower()
+    why = []
+    if "quota" in e or "resource_exhausted" in e:
+        why.append("Gemini's quota is used up")
+    if "429" in e and ("timedtext" in e or "transcript" in e or "youtube" in e):
+        why.append("YouTube is rate-limiting caption downloads on this network")
+    if "no answer within" in e:
+        why.append("Gemini didn't finish watching in time")
+    if "api key" in e or "unauthenticated" in e or "permission_denied" in e:
+        why.append("an API key was rejected")
+    if "no transcript" in e and not any("YouTube" in w for w in why):
+        why.append("the video's captions couldn't be read")
+    length = (meta or {}).get("length_s")
+    head = "Couldn't read this video" + (f" ({gemini._mmss(length)} long)" if length else "")
+    return f"{head}: {'; '.join(why) or 'both engines failed'}.\n(no engine could build the lesson) {err[:600]}"
 
 
 def _short_reason(err: str) -> str:
@@ -647,7 +701,7 @@ def normalize_checks(graph: dict, known_metrics: set[str]) -> dict:
     libs = (graph.get("lesson") or {}).get("libraries") or {}
     for step in graph["steps"]:
         # "it runs" checks: a Python Traceback never shows up in a Vite/cargo/git terminal
-        stack = stack_of(step, libs if not step.get("run_command") and not step.get("code") else None)
+        stack = stack_of(step) or stack_of({}, libs)  # the step's own command/code, else the lesson's stack
         for c in step["checks"]:
             if c.get("type") == "screen_absent" and "Traceback" in (c.get("pattern") or "") and stack and stack != "python":
                 c["pattern"] = standard_error_pattern(stack)

@@ -12,7 +12,7 @@ from server.finder.sources import BROWSER_HEADERS
 Q = "train a PINN on the convection equation"
 OUT = Path(__file__).parent / "fixtures"
 KEEP = {"videoId", "title", "lengthText", "viewCountText", "shortViewCountText", "publishedTimeText", "ownerText",
-        "detailedMetadataSnippets", "thumbnail"}
+        "detailedMetadataSnippets", "thumbnail", "badges", "expandableMetadata"}
 
 
 def main() -> None:

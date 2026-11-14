@@ -602,7 +602,7 @@ def test_demo_mode_falls_back_to_stubs(rig, monkeypatch, tmp_path):
 
     run(go())
     assert len(r2.of("search.result")) == 3
-    assert r2.of("offtrack")[0]["title"] == "Loss plateaued at large β"
+    assert r2.of("offtrack")[0]["title"] != "Loss plateaued at large β"  # E5's own DEMO card, not the old stub
 
 
 def test_vscode_opens_only_after_the_learner_says_yes(tmp_path, monkeypatch):
@@ -781,7 +781,7 @@ def test_streaming_finder_rows_arrive_before_search_finishes(rig):
     rig2 = Rig(rig.workdir, mods)
     built = []
 
-    async def fake_build(url, goal, workdir, on_progress=None):
+    async def fake_build(url, goal, workdir, on_progress=None, **kw):
         built.append(url)
         return stubs.load_fixture_lesson()
 
@@ -945,7 +945,7 @@ def test_build_progress_ticks_with_real_stages_then_fails_humanly(tmp_path, monk
     rig.s.build_tick_s = 0.05
     lesson_log = _logging.getLogger("server.lesson")
 
-    async def slow_failing_build(url, goal, workdir, on_progress=None):
+    async def slow_failing_build(url, goal, workdir, on_progress=None, **kw):
         await asyncio.sleep(0.12)
         lesson_log.warning("gemini video pass too slow; switching engine")
         await asyncio.sleep(0.12)
@@ -972,7 +972,7 @@ def test_build_progress_ticks_with_real_stages_then_fails_humanly(tmp_path, monk
 
 
 def test_build_success_still_loads_the_lesson(rig):
-    async def build(url, goal, workdir, on_progress=None):
+    async def build(url, goal, workdir, on_progress=None, **kw):
         return stubs.load_fixture_lesson()
 
     rig.s.m.build_lesson = build
@@ -1020,7 +1020,7 @@ def test_build_stage_labels_come_from_on_progress(tmp_path, monkeypatch):
     rig.s.clock = RealClock()
     rig.s.build_tick_s = 0.03
 
-    async def build(url, goal, workdir, on_progress=None):
+    async def build(url, goal, workdir, on_progress=None, **kw):
         for stage, msg in [("watching", ""), ("reading_transcript", ""), ("writing_steps", "212 transcript lines"),
                            ("engine_switch", "quota"), ("steps_ready", "claude"), ("adapting", ""), ("done", "41.2")]:
             on_progress(stage, msg)
@@ -1030,10 +1030,12 @@ def test_build_stage_labels_come_from_on_progress(tmp_path, monkeypatch):
     rig.s.m.build_lesson = build
     run(rig.s.learn_url("https://www.youtube.com/watch?v=abcdefghijk"))
     msgs = [b["message"] for b in rig.of("lesson.building")]
-    for label in ("Gemini is watching the video", "Claude is writing the steps",
-                  "Gemini is rate-limited; using the transcript", "Steps ready (from the transcript)",
-                  "Fitting the checks to your project"):
-        assert any(m.startswith(label) for m in msgs), label
+    for label in ("Watching the video", "Writing the steps",
+                  "Gemini is rate-limited; using the transcript", "Fitting the checks to your project"):
+        assert label in msgs, label
+    beats = [b for b in rig.of("lesson.building") if "elapsedS" in b]
+    assert len(beats) > len(set(b["message"] for b in beats))  # heartbeats repeat the stage text unchanged
+    assert all(b["message"] == b["message"].split(" · ")[0] for b in beats)  # no timer in the text
     assert rig.of("lesson.ready")
 
 
@@ -1096,7 +1098,7 @@ def test_learning_events_are_recorded_for_tiger_stats(rig):
 def test_end_lesson_mid_build_is_quiet_and_complete(rig):
     started = asyncio.Event()
 
-    async def slow_build(url, goal, workdir, on_progress=None):
+    async def slow_build(url, goal, workdir, on_progress=None, **kw):
         started.set()
         await asyncio.sleep(30)
 
@@ -1341,5 +1343,250 @@ def test_s2_setup_card_install_and_open_editor_gate(tmp_path, monkeypatch):
     prog = rig.of("setup.progress")
     assert prog[0]["line"].startswith("Installing") and {"tool": "pandas", "line": "Collecting pandas"} in prog
     assert prog[-1] == {"tool": "pandas", "done": True, "ok": True, "version": "2.2.3"}
-    assert rig.of("card")[-1]["title"] == "Ready to go"
+    last = rig.of("card")[-1]
+    assert last["title"] == "Ready to go" and last["body"] == "pandas installed ✓"  # the row flipped, status on the card
+    assert any(c["body"].startswith("Installing pandas") for c in rig.of("card"))
     assert not calls  # never opened VS Code
+
+
+def test_long_video_builds_progressively(rig):
+    """E2's on_update: start on part 1, append later parts, wait (not finish) at the end of the built part."""
+    full = stubs.load_fixture_lesson()
+    part2_go = asyncio.Event()
+
+    def graph_with(n, complete):
+        g = json.loads(json.dumps(full))
+        g["steps"] = g["steps"][:n]
+        g["lesson"]["complete"] = complete
+        g["lesson"]["parts"] = {"done": 1 if n < 3 else 2, "failed": 0, "total": 2, "list": []}
+        return g
+
+    async def build(url, goal, workdir, on_progress=None, on_update=None, **kw):
+        await on_update(graph_with(2, False), False)
+        await part2_go.wait()
+        await on_update(graph_with(3, False), False)
+        await on_update(graph_with(3, True), True)
+        return graph_with(3, True)
+
+    rig.s.m.build_lesson = build
+
+    async def go():
+        t = asyncio.create_task(rig.s.learn_url("https://www.youtube.com/watch?v=abcdefghijk"))
+        for _ in range(50):
+            await asyncio.sleep(0.01)
+            if rig.of("lesson.ready"):
+                break
+        ready = rig.of("lesson.ready")[0]
+        assert len(ready["steps"]) == 2 and ready["lesson"]["complete"] is False
+        await rig.s.force_pass()  # s1
+        await rig.settle()
+        await rig.s.force_pass()  # s2: the last BUILT step
+        await rig.settle()
+        assert rig.of("step.passed")[-1] == {"stepId": "s2", "pending": True}
+        assert rig.s.phase == "active" and rig.s.waiting_more
+        part2_go.set()
+        await t
+        await rig.settle()
+
+    import json
+    run(go())
+    upd = rig.of("lesson.updated")
+    assert [s["id"] for s in upd[0]["steps"]] == ["s3"] and upd[0]["complete"] is False
+    assert upd[-1]["complete"] is True
+    assert rig.of("step.started")[-1]["stepId"] == "s3" and not rig.s.waiting_more
+    assert len(rig.of("lesson.ready")) == 1  # never re-loaded
+
+
+def test_e2_learner_facing_first_error_line():
+    from server.orchestrator.session import human_build_error
+
+    e = RuntimeError("Couldn't read this video (1:56:20 long): Gemini's quota is used up.\n"
+                     "(no engine could build the lesson) gemini: 429 ...")
+    assert human_build_error(e) == "Couldn't read this video (1:56:20 long): Gemini's quota is used up."
+
+
+def _fake_preflight(prefetched):
+    async def preflight(url, goal, row=None, on_late=None, api_keys=None):
+        res = {"url": url, "kind": "no-code", "chapters": 0, "partial": True,
+               "buildPlan": {"strategy": "whole", "estSecondsToFirstSteps": 40, "firstChapter": None}}
+        if on_late:
+            asyncio.get_running_loop().call_later(0.02, on_late, {**res, "partial": False,
+                                                                   "goalMatch": {"score": 0.2, "note": "no-code bots"}})
+        return res
+
+    def card(res):
+        c = {"kind": "preflight", "title": "No-code video" + ("" if res["partial"] else " (checked)"), "body": "b",
+             "actions": ["build", "pick_another"], "preflight": res}
+        if res.get("goalMatch"):
+            c["warning"], c["recommended"] = "This video isn't about building an LLM.", "pick_another"
+        return c
+
+    return types.SimpleNamespace(preflight=preflight, preflight_card=card,
+                                 prefetch=lambda rows, goal, **kw: prefetched.append((len(rows), goal)))
+
+
+def test_preflight_before_build_then_build_or_pick_another(rig):
+    prefetched, built = [], []
+    rig.s.m._preflight_mod = lambda: _fake_preflight(prefetched)
+
+    async def build(url, goal, workdir, **kw):
+        built.append(url)
+        return stubs.load_fixture_lesson()
+
+    rig.s.m.build_lesson = build
+
+    async def go():
+        await rig.s.learn("build chat gpt")
+        assert prefetched == [(3, "build chat gpt")]
+        await rig.s.build_lesson(["r1"])
+        assert not built and rig.s.phase == "preflight"
+        cards = [c for c in rig.of("card") if c["kind"] == "preflight"]
+        assert cards and cards[0]["actions"] == ["build", "pick_another"]
+        await asyncio.sleep(0.05)  # the late, complete answer replaces the partial card
+        late = [c for c in rig.of("card") if c["kind"] == "preflight"][-1]
+        assert late["warning"] and late["recommended"] == "pick_another"
+        assert [t for t, _ in rig.s.snapshot()] == ["status", "card"]  # a reconnecting app sees the same card
+        await rig.s.action("pick_another")
+        assert rig.s.pending_pick is None and rig.s.phase == "idle" and rig.of("status")[-1] == {"state": "idle"}
+        await rig.s.build_lesson(["r1"])
+        await rig.s.action("build")
+        await rig.settle()
+
+    run(go())
+    assert built == [stubs.SEARCH_RESULTS[0]["url"]]
+    assert rig.of("lesson.ready") and rig.s.phase == "active"
+
+
+def test_end_lesson_clears_a_pending_pick(rig):
+    rig.s.m._preflight_mod = lambda: _fake_preflight([])
+
+    async def go():
+        await rig.s.learn_url("https://www.youtube.com/watch?v=abcdefghijk")
+        assert rig.s.pending_pick is not None
+        await rig.s.end_lesson()
+        await asyncio.sleep(0.05)
+
+    run(go())
+    assert rig.s.pending_pick is None and rig.of("lesson.ended")
+    # the late card for the abandoned pick must not show up after lesson.ended
+    types_ = rig.types()
+    assert "card" not in types_[types_.index("lesson.ended"):]
+
+
+def test_hint_presses_do_not_stack_identical_cards(rig):
+    async def go():
+        await _to_step(rig, 5)
+        for _ in range(6):  # key repeat: the ladder tops out and returns the same last card
+            await rig.s.action("hint")
+        rig.clock.t += 20
+        await rig.s.action("hint")  # later, the same card may be shown again
+
+    run(go())
+    titles = [c["title"] for c in rig.of("card")]
+    assert titles == ["Hint 1 of 4", "Hint 2 of 4", "Hint 3 of 4", "Hint 4 of 4", "Hint 4 of 4"]
+
+
+def test_explain_answer_for_a_previous_step_is_dropped(rig):
+    gate = asyncio.Event()
+
+    async def slow_explain(step, question, context):
+        await gate.wait()
+        return {"stepId": step["id"], "kind": "explain", "title": "Why the check wants X", "body": "b"}
+
+    rig.s.m.explain = slow_explain
+
+    async def go():
+        await _to_step(rig, 0)
+        t = asyncio.create_task(rig.s.action("explain"))
+        await asyncio.sleep(0.01)
+        await rig.s.goto_step(1)  # the learner moved on to s2
+        gate.set()
+        await t
+
+    run(go())
+    assert not rig.of("card")
+
+
+def test_install_once_per_tool_and_pip_waits_for_the_lesson_folder(tmp_path, monkeypatch):
+    monkeypatch.setenv("TUT_WORKDIR", str(tmp_path))
+    from server.orchestrator import workspace as wsmod
+
+    calls = []
+    release = __import__("threading").Event()
+
+    def fake_install(item, folder, on_line):
+        calls.append((item["tool"], folder))
+        release.wait(2)
+        return {"ok": True, "tool": item["tool"]}
+
+    monkeypatch.setattr(wsmod, "install", fake_install)
+    monkeypatch.setattr(wsmod, "requirements", lambda graph, folder: [])
+    pip_item = {"tool": "torch", "label": "PyTorch", "kind": "python_package", "why": "w", "needed": True,
+                "installed": False, "ok": False, "install": {"method": "pip", "command": "pip install torch", "url": None}}
+    rig = Rig(tmp_path)
+
+    async def go():
+        # on the preflight card (no lesson yet): the pip install waits for the lesson folder
+        rig.s.pending_pick = {"url": "u", "row": None, "card": {"kind": "preflight", "title": "t", "body": "b",
+                                                                "actions": ["build", "install"], "items": [pip_item]}}
+        await rig.s.action("install", "torch")
+        await rig.settle()
+        assert not calls and rig.of("card")[-1]["body"].startswith("PyTorch will be installed into this lesson's own")
+        rig.s.pending_pick = None
+        await rig.s.load_graph(stubs.load_fixture_lesson())  # the lesson (and its folder) now exists
+        await asyncio.sleep(0.05)
+        await rig.s.action("install", "torch")  # double click while it's running: ignored
+        await rig.s.action("install", "torch")
+        release.set()
+        await asyncio.sleep(0.1)
+
+    run(go())
+    assert calls == [("torch", str(tmp_path))]  # once, into the lesson's folder (its .venv), not the engine's
+
+
+def test_offline_coach_errors_once_per_step_and_backs_off(rig):
+    calls = []
+
+    async def failing(step, failed, metrics, code, **kw):
+        calls.append(1)
+        raise RuntimeError("coach.diagnose failed: CoachUnavailable: diagnose: connection error")
+
+    rig.s.m.diagnose = failing
+
+    async def go():
+        await _to_step(rig, 5)
+        rig.write("beta = 30\n")
+        await rig.run("r1", PLATEAU)  # breakpoint -> fails
+        for _ in range(60):  # a minute of idle ticks
+            rig.clock.t += 1
+            await rig.s.tick()
+            await rig.settle()
+
+    run(go())
+    assert len([e for e in rig.of("error") if "Coach unavailable" in e["message"]]) == 1
+    assert 2 <= len(calls) <= 4  # retried with backoff (15 s, 30 s...), not every second
+
+
+def test_demo_lesson_follows_the_picked_video(tmp_path, monkeypatch):
+    import json as _json
+    import os as _os
+
+    from server.orchestrator import modules as modules_mod
+
+    cache = tmp_path / "cache"
+    (cache / "lessons").mkdir(parents=True)
+    hero = stubs.load_fixture_lesson()
+    hero["sources"][0]["videoId"] = "AXXnSzmpyoI"
+    hero["lesson"]["id"] = "hero"
+    other = stubs.load_fixture_lesson()
+    other["sources"][0]["videoId"] = "reactVIDEO1"
+    other["lesson"]["id"] = "react"
+    (cache / "lessons" / "a.json").write_text(_json.dumps(hero))
+    (cache / "lessons" / "b.json").write_text(_json.dumps(other))
+    _os.utime(cache / "lessons" / "b.json", (2e9, 2e9))  # react is the newest file
+    monkeypatch.setattr(modules_mod, "DEMO_CACHE", cache)
+    monkeypatch.delenv("ORCH_LESSON", raising=False)
+    m = Modules(demo=True, force_stubs="")
+    g = run(m.build_lesson("https://www.youtube.com/watch?v=AXXnSzmpyoI", "", str(tmp_path)))
+    assert g["lesson"]["id"] == "hero"
+    assert m._real_fn("coach", "diagnose") is not None  # E5's coach runs under DEMO (its own offline playbook)

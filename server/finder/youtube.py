@@ -60,6 +60,14 @@ def parse_duration(s: str | None) -> int | None:
     return secs
 
 
+def duration_label(secs: int | None) -> str | None:
+    """'22 min', '1 h 56 min'."""
+    if not secs:
+        return None
+    h, m = divmod(round(secs / 60), 60)
+    return f"{h} h {m} min" if h and m else (f"{h} h" if h else f"{m} min")
+
+
 def fmt_duration(secs: int | None) -> str | None:
     if not secs:
         return None
@@ -82,6 +90,10 @@ def parse_search(data: dict, limit: int = 12) -> list[dict]:
         seen.add(vid)
         snippet = " ".join(_text(s.get("snippetText", {})) for s in v.get("detailedMetadataSnippets", []) or [])
         thumbs = (v.get("thumbnail") or {}).get("thumbnails") or []
+        badges = [((b.get("metadataBadgeRenderer") or {}).get("label") or "") for b in (v.get("badges") or [])]
+        em = v.get("expandableMetadata") or {}
+        chapters = {_text(m.get("title") or {}) for m in _walk(em, "macroMarkersListItemRenderer")}
+        summary = _text(((em.get("expandableMetadataRenderer") or {}).get("header") or {}).get("collapsedTitle") or {})
         out.append({
             "videoId": vid,
             "url": watch_url(vid),
@@ -90,7 +102,9 @@ def parse_search(data: dict, limit: int = 12) -> list[dict]:
             "duration_s": secs,
             "views": _text(v.get("shortViewCountText") or v.get("viewCountText") or {}),
             "published": _text(v.get("publishedTimeText") or {}),
-            "description": snippet or _text(v.get("descriptionSnippet") or {}),
+            "description": " ".join(x for x in (summary, snippet or _text(v.get("descriptionSnippet") or {})) if x)[:900],
+            "chapters": len(chapters - {""}),
+            "captions": "CC" in badges,
             "thumbnail": thumbs[-1]["url"].split("?")[0] if thumbs else f"https://i.ytimg.com/vi/{vid}/hqdefault.jpg",
         })
         if len(out) >= limit:
@@ -127,6 +141,11 @@ def parse_watch(html: str) -> dict:
     m = re.search(r'"viewCount":"(\d+)"', html)
     if m:
         out["views"] = f"{human_count(int(m.group(1)))} views"
+    chapters = set(re.findall(r'"chapterRenderer":\{"title":\{"simpleText":"((?:[^"\\]|\\.)*)"', html))
+    if chapters:
+        out["chapters"] = len(chapters)
+    if '"captionTracks"' in html:
+        out["captions"] = True
     m = re.search(r'"uploadDate":"([\d-]+)', html) or re.search(r'"publishDate":"([\d-]+)', html)
     if m:
         out["published"] = m.group(1)

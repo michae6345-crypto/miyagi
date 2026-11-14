@@ -105,7 +105,8 @@ export const fill = {
 } as const
 
 /** Screen dims behind surfaces. */
-export const scrim = { spotlight: 'rgba(0,0,0,.55)', launcher: 'rgba(0,0,0,.22)' } as const
+/** Screen dims behind surfaces. spotlight .66: Adrian asked for more contrast than the spec's .55. */
+export const scrim = { spotlight: 'rgba(0,0,0,.66)', launcher: 'rgba(0,0,0,.22)' } as const
 
 /** Copy from the brand kit. */
 export const copy = {

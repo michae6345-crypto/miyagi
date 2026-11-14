@@ -49,6 +49,7 @@ PUBLIC_FIELDS = (
     "id", "kind", "title", "meta", "score", "reason", "thumbnail", "url",
     "source", "videoId", "durationS", "channel", "verified", "warnings",
     "scoredBy", "watched", "prerequisites", "codeNotes", "comments",
+    "style", "durationLabel", "long", "chapters", "captions",
 )
 
 
@@ -133,7 +134,9 @@ def make_meta(c: dict) -> str:
     kind = c["kind"]
     host = urlparse(c["url"]).netloc.removeprefix("www.")
     if kind == "video":
-        bits = ["YouTube", c.get("channel"), youtube.fmt_duration(c.get("duration_s")), c.get("views"), c.get("published")]
+        bits = ["YouTube", c.get("channel"), youtube.fmt_duration(c.get("duration_s")),
+                f"chapters: {c['chapters']}" if c.get("chapters") else None, "CC" if c.get("captions") else None,
+                c.get("views"), c.get("published")]
     elif c.get("via") == "github":
         stars = c.get("stars")
         bits = ["GitHub", f"★ {youtube.human_count(stars)}" if stars is not None else None, c.get("language"),
@@ -179,6 +182,21 @@ def _short_err(e: BaseException) -> str:
     return (f"Bright Data HTTP {m.group(1)}: " if m and m.group(1) else "Bright Data: ") + (m.group(2) if m else msg)[:70]
 
 
+LONG_S = 45 * 60
+
+
+def video_fields(c: dict) -> None:
+    """durationLabel ('1 h 56 min · 30 chapters') and the long flag (> 45 min) for video rows."""
+    if c["kind"] != "video" or not c.get("duration_s"):
+        return
+    label = youtube.duration_label(c["duration_s"])
+    c["long"] = c["duration_s"] > LONG_S
+    if c["long"]:
+        ch = c.get("chapters") or 0
+        label += f" · {ch} chapters, builds chapter by chapter" if ch >= 5 else " · no chapters"
+    c["durationLabel"] = label
+
+
 def public(c: dict) -> dict:
     c["scoredBy"] = c.get("scored_by")
     out = {k: c[k] for k in PUBLIC_FIELDS if c.get(k) not in (None, "", [])}
@@ -207,6 +225,7 @@ class _Run:
         self.plan_used: dict = {}
         self.timings: dict[str, float] = {}
         self.ctx: sources.Ctx | None = None
+        self.goal_votes: list[bool] = []  # scorer's goal_is_coding per answer
         self.skims: dict[str, asyncio.Task] = {}   # top videos: Gemini watches them
         self.reads: dict[str, asyncio.Task] = {}   # top pages/repos/notebooks: Gemini reads them
 
@@ -349,33 +368,60 @@ class _Run:
         first = not self.cands
         timeout = 4.5 if first else max(1.5, min(9.0, self.left(margin=5)))
         # small chunks in parallel: Claude answers ~4 items much faster than 8+
-        scores = await self._score_chunks(batch, timeout=timeout, hedge_after=2.5, size=4 if first else 6)
+        scores = await self._score_chunks(batch, timeout=timeout, hedge_after=2.5, size=4 if first else 6,
+                                          race_after=3.0 if first else None)
         await self._emit(batch, scores)
 
-    async def _score_chunks(self, items: list[dict], *, timeout: float, hedge_after: float, size: int = 8) -> dict[str, dict]:
+    async def _score_chunks(self, items: list[dict], *, timeout: float, hedge_after: float, size: int = 8,
+                            race_after: float | None = None) -> dict[str, dict]:
         """Score in parallel chunks (small prompts answer much faster than one big one).
         Gemini first; a chunk Gemini can't score (429 / overloaded / slow) goes to Claude;
         only if both fail does it get the labelled keyword score."""
 
+        async def by_claude(ch: list[dict]) -> dict[str, dict]:
+            r = await claude.score(self.keys.anthropic, self.query, ch, system=gemini.SCORE_SYSTEM,
+                                   prompt=gemini.SCORE_PROMPT, timeout=max(1.5, min(timeout, self.left(margin=1.5))))
+            self.ctx.used.add("claude-triage")
+            return {k: {**v, "reason": gemini.short(v["reason"]), "by": "claude"} for k, v in r.items()}
+
+        async def by_gemini(ch: list[dict]) -> dict[str, dict]:
+            r = await gemini.score(self.keys.gemini, self.query, ch, timeout=max(1.5, min(5.0, self.left(margin=1.5))),
+                                   hedge_after=hedge_after)
+            self.ctx.used.add("gemini-triage-fallback")
+            return {k: {**v, "by": "gemini"} for k, v in r.items()}
+
         async def one(ch: list[dict]) -> dict[str, dict]:
-            """Claude scores. Gemini only steps in if Claude fails (its quota is kept for video skims);
-            keyword scores only if both fail."""
-            if self.keys.anthropic and self.left(margin=1.5) > 1.5:
-                try:
-                    r = await claude.score(self.keys.anthropic, self.query, ch, system=gemini.SCORE_SYSTEM,
-                                           prompt=gemini.SCORE_PROMPT, timeout=max(1.5, min(timeout, self.left(margin=1.5))))
-                    self.ctx.used.add("claude-triage")
-                    return {k: {**v, "reason": gemini.short(v["reason"]), "by": "claude"} for k, v in r.items()}
-                except Exception as e:
-                    self.ctx.note(f"claude triage ({len(ch)} items) failed: {type(e).__name__}: {str(e)[:80]}")
-            if self.gemini_ok and self.left(margin=1.5) > 1.5:
-                try:
-                    r = await gemini.score(self.keys.gemini, self.query, ch, timeout=max(1.5, min(5.0, self.left(margin=1.5))),
-                                           hedge_after=hedge_after)
-                    self.ctx.used.add("gemini-triage-fallback")
-                    return {k: {**v, "by": "gemini"} for k, v in r.items()}
-                except Exception as e:
-                    self.ctx.note(f"gemini triage fallback ({len(ch)} items) failed: {type(e).__name__}: {str(e)[:80]}")
+            """Claude scores. Gemini steps in only if Claude fails, or (first batch only, so the first
+            rows land fast) if Claude hasn't answered after `race_after` s; first answer wins.
+            Keyword scores only if both fail."""
+            claude_ok = bool(self.keys.anthropic) and self.left(margin=1.5) > 1.5
+            gemini_ok = self.gemini_ok and self.left(margin=1.5) > 1.5
+            tasks: dict[asyncio.Task, str] = {}
+            if claude_ok:
+                tasks[asyncio.create_task(by_claude(ch))] = "claude"
+            elif gemini_ok:
+                tasks[asyncio.create_task(by_gemini(ch))] = "gemini"
+            gemini_started = not claude_ok
+            try:
+                while tasks:
+                    wait = race_after if (race_after and gemini_ok and not gemini_started) else None
+                    done, _ = await asyncio.wait(tasks, timeout=wait, return_when=asyncio.FIRST_COMPLETED)
+                    if not done:
+                        tasks[asyncio.create_task(by_gemini(ch))] = "gemini"
+                        gemini_started = True
+                        continue
+                    for t in done:
+                        who = tasks.pop(t)
+                        try:
+                            return t.result()
+                        except Exception as e:
+                            self.ctx.note(f"{who} triage ({len(ch)} items) failed: {type(e).__name__}: {str(e)[:80]}")
+                    if gemini_ok and not gemini_started:
+                        tasks[asyncio.create_task(by_gemini(ch))] = "gemini"
+                        gemini_started = True
+            finally:
+                for t in tasks:
+                    t.cancel()
             return {}
 
         chunks = [items[i:i + size] for i in range(0, len(items), size)]
@@ -388,15 +434,43 @@ class _Run:
         for c in batch:
             s = scores.get(c["id"])
             if s:
-                c["score"], c["reason"], c["scored_by"] = s["score"], s["reason"] or "Relevant", s.get("by", "gemini")
+                c["raw"], c["reason"], c["scored_by"] = s["score"], s["reason"] or "Relevant", s.get("by", "gemini")
+                if s.get("style"):
+                    c["style"] = s["style"]
+                self.goal_votes.append(bool(s.get("goal_is_coding")))
             else:
-                c["score"], c["reason"] = heuristic_score(self.query, c)
+                c["raw"], c["reason"] = heuristic_score(self.query, c)
                 c["scored_by"] = "keywords"
+            video_fields(c)
+            c["score"] = self._adjusted(c)
         for c in sorted(batch, key=lambda c: -c["score"]):
             self.cands[c["id"]] = c
             if "first_result" not in self.timings:
                 self.timings["first_result"] = self.elapsed()
             await _safe(self.on_result, public(c))
+
+    @property
+    def goal_coding(self) -> bool:
+        return bool(self.goal_votes) and sum(self.goal_votes) * 2 >= len(self.goal_votes)
+
+    def _adjusted(self, c: dict) -> int:
+        """The model's score, then the ranking rules (deterministic, so the UI can explain them):
+        - for a coding goal, a no-code resource is capped at 35 and a conceptual one at 60
+          ("build an LLM" is not "use ChatGPT" or "build a Zapier bot");
+        - long videos (> 45 min) with chapters get +3 (followable), without chapters -5;
+          captions +1."""
+        s = c.get("raw", 0)
+        style = c.get("style")
+        if self.goal_coding and style == "no-code":
+            s = min(s, 35)
+        elif self.goal_coding and style == "conceptual":
+            s = min(s, 60)
+        if c["kind"] == "video":
+            if c.get("long"):
+                s += 3 if (c.get("chapters") or 0) >= 5 else -5
+            if c.get("captions"):
+                s += 1
+        return max(0, min(100, s))
 
     # ---- deep pass: skim the top videos (+ Bright Data comments), calibrate all scores
 
@@ -512,11 +586,17 @@ class _Run:
         for c in self.cands.values():
             base = cal.get(c["id"])
             if base:
-                c["score"], c["reason"], c["scored_by"] = base["score"], base["reason"] or c["reason"], base.get("by", "gemini")
+                c["raw"], c["reason"], c["scored_by"] = base["score"], base["reason"] or c["reason"], base.get("by", "gemini")
+                if base.get("style"):
+                    c["style"] = base["style"]
+                self.goal_votes.append(bool(base.get("goal_is_coding")))
+            c["score"] = c.get("raw", c.get("score", 0))  # merge on the model's own scale; rules re-applied below
             sk = c.get("skim")
             if sk:  # what the video actually shows outweighs its title
                 c["score"] = round(0.4 * c["score"] + 0.6 * sk["score"])
                 c["reason"] = sk.get("reason") or c["reason"]
+                if sk.get("style"):
+                    c["style"] = sk["style"]  # Gemini saw the screen: its call wins
                 c["scored_by"] = f"{c['scored_by']}+gemini-watch"
                 c["watched"] = "watched by Gemini"
             rd = c.get("read")
@@ -529,6 +609,9 @@ class _Run:
                 c["codeNotes"] = rd.get("code") or ""
                 c["scored_by"] = f"{c['scored_by']}+claude-read"
                 c["watched"] = "read by Claude"
+            c["raw"] = c["score"]
+            video_fields(c)
+            c["score"] = self._adjusted(c)
             if str(c.get("watched", "")).startswith("not "):
                 c["meta"] = f"{c['meta']} · {c['watched']}"
         if self.emit_updates:
@@ -539,6 +622,8 @@ class _Run:
     def _ranked(self) -> list[dict]:
         ranked = sorted(self.cands.values(), key=lambda c: -c["score"])
         vids = [c for c in ranked if c["kind"] == "video"]
+        if self.goal_coding:  # coding goal: lead with the best coding video when there is one
+            vids = [c for c in vids if c.get("style") == "coding"] + [c for c in vids if c.get("style") != "coding"]
         if vids and ranked[0] is not vids[0]:  # build_lesson needs a video: the best video goes first
             ranked.remove(vids[0])
             ranked.insert(0, vids[0])

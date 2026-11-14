@@ -44,9 +44,9 @@ class FakeClient:
         return SimpleNamespace(stop_reason="end_turn", content=[SimpleNamespace(type="text", text=json.dumps(reply))])
 
 
-def reply(files=(), *, stack="python", setup=(), open_file="", git=None) -> dict:
+def reply(files=(), *, stack="python", setup=(), open_file="", git=None, kind="code") -> dict:
     return {
-        "stack": stack, "summary": "starter", "setup": list(setup), "open_file": open_file,
+        "lesson_kind": kind, "stack": stack, "summary": "starter", "setup": list(setup), "open_file": open_file,
         "files": [{"path": p, "content": c} for p, c in files],
         "git": git or {"init": False, "default_branch": "", "ops": []},
     }

@@ -157,6 +157,8 @@ def heuristic_plan(query: str) -> dict:
 
 # --------------------------------------------------------------------------- triage
 
+STYLES = ["coding", "no-code", "conceptual"]
+
 SCORE_SCHEMA = {
     "type": "object",
     "properties": {
@@ -164,20 +166,39 @@ SCORE_SCHEMA = {
             "type": "array",
             "items": {
                 "type": "object",
-                "properties": {"id": {"type": "string"}, "score": {"type": "integer"}, "reason": {"type": "string"}},
-                "required": ["id", "score", "reason"],
+                "properties": {
+                    "id": {"type": "string"},
+                    "score": {"type": "integer"},
+                    "reason": {"type": "string"},
+                    "style": {"type": "string", "enum": STYLES},
+                },
+                "required": ["id", "score", "reason", "style"],
             },
-        }
+        },
+        "goal_is_coding": {"type": "boolean"},
     },
-    "required": ["items"],
+    "required": ["items", "goal_is_coding"],
 }
 
 SCORE_SYSTEM = """You rank learning resources for one learner. Be strict and honest; only use the information given.
-Score 0-100 = how well this resource gets THIS learner to their goal by coding along:
-exact topic match (not a neighbouring topic), hands-on runnable code, clear and current libraries, sensible length.
-A theory-only paper or an off-topic result scores low; an exact-match code-along tutorial scores high.
-reason: at most 12 words, concrete, mention a caveat if any (length, old library, off-topic, theory only).
-Examples: "Clear, 18 min, but uses old PyTorch, will patch" / "Exact topic, Colab notebook, runs in minutes" / "Heat equation, not convection; close enough to adapt"."""
+
+First decide what the goal really asks for. goal_is_coding = true when the learner wants to BUILD, implement,
+train or code something (e.g. "build chat gpt" = implement a GPT-style language model in code, NOT use ChatGPT;
+"build an LLM" = write the model and training code, NOT call an API or use a no-code tool).
+
+Score 0-100 = how well this resource gets THIS learner to that goal by following along:
+1. Topic match decides most of the score. A resource that only shares keywords ("ChatGPT", "AI", "agent", "LLM")
+   but teaches a different thing (using ChatGPT, prompt tips, no-code bots, news, a product demo) is NOT a match:
+   score it 0-30, however popular or polished.
+2. Then: hands-on runnable code, clear, current libraries, sensible length (a long course is fine if it is
+   structured, e.g. has chapters).
+3. A page that only lists, embeds or links to someone else's tutorial (course aggregators like Class Central,
+   link roundups, a Kaggle page pointing at a video) is not the tutorial itself: score it 40 at most.
+style: "coding" (writes and runs real code), "no-code" (Zapier, Botpress, GPT builders, drag-and-drop, prompting a
+product), or "conceptual" (explains ideas, no code to follow).
+reason: at most 12 words. Start with WHY it matches (or doesn't), then a caveat if any.
+Examples: "Implements GPT from scratch in PyTorch; 2 hours, chapters" / "No-code Zapier bots, not building an LLM" /
+"Explains transformers conceptually; no code to follow"."""
 
 SCORE_PROMPT = """Learner's goal: {goal}
 
@@ -196,7 +217,9 @@ async def score(key: str, goal: str, cands: list[dict], *, timeout: float = 7.0,
         key, triage_models(), [types.Part(text=SCORE_PROMPT.format(goal=goal, items=json.dumps(items, ensure_ascii=False)))],
         SCORE_SCHEMA, system=SCORE_SYSTEM, timeout=timeout, hedge_after=hedge_after,
     )
-    return {i["id"]: {"score": clamp(i.get("score")), "reason": short(i.get("reason", ""))} for i in out.get("items", []) if i.get("id")}
+    goal_coding = bool(out.get("goal_is_coding"))
+    return {i["id"]: {"score": clamp(i.get("score")), "reason": short(i.get("reason", "")), "style": i.get("style"),
+                      "goal_is_coding": goal_coding} for i in out.get("items", []) if i.get("id")}
 
 
 # --------------------------------------------------------------------------- video skim
@@ -209,13 +232,19 @@ SKIM_SCHEMA = {
         "hands_on": {"type": "boolean"},
         "library": {"type": "string"},
         "outdated": {"type": "boolean"},
+        "style": {"type": "string", "enum": STYLES},
     },
-    "required": ["score", "reason", "hands_on", "outdated"],
+    "required": ["score", "reason", "hands_on", "outdated", "style"],
 }
 
 SKIM_SYSTEM = """You skim a tutorial video (sparse frames + audio) to judge if it fits a learner's goal.
-Score 0-100 as: exact topic, the presenter writes and runs real code on screen, clear, current libraries.
-reason: at most 12 words, concrete (length, library, caveat), e.g. "Clear, 18 min, but uses old PyTorch, will patch".
+Score 0-100. Topic match first: if the goal is to build/implement something and the video only USES a product
+(ChatGPT, a no-code bot builder, Zapier...) or just talks about it, score 0-30.
+Then: the presenter writes and runs real code on screen, clear, current libraries.
+style: "coding" (real code written and run on screen), "no-code" (tools, drag-and-drop, prompting a product),
+or "conceptual" (slides/talking, no code to follow).
+reason: at most 12 words; say WHY it matches first, then length/library/caveat,
+e.g. "Implements GPT in PyTorch on screen, 2 h, clear chapters".
 outdated: true if the code uses clearly old APIs (e.g. TensorFlow 1.x sessions) or viewers report it no longer works."""
 
 SKIM_PROMPT = """Learner's goal: {goal}

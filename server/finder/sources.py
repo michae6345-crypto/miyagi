@@ -79,15 +79,18 @@ async def youtube_search(ctx: Ctx, query: str, limit: int = 10) -> list[dict]:
     params = {"search_query": query, "hl": "en"}  # (the "videos only" sp filter made relevance worse)
     url = "https://www.youtube.com/results?" + urlencode(params)
     # Always direct: YouTube pages through the Web Unlocker hang (0 bytes at 60 s, measured Sat 15:10).
-    r = await ctx.client.get(url, timeout=8)
-    r.raise_for_status()
-    page, via = r.text, "youtube"
+    vids: list[dict] = []
+    for _attempt in range(2):  # YouTube now and then serves a results page without video rows
+        r = await ctx.client.get(url, timeout=8)
+        r.raise_for_status()
+        data = youtube.initial_data(r.text)
+        vids = youtube.parse_search(data, limit=limit) if data else []
+        if vids:
+            break
+    via = "youtube"
     ctx.used.add("youtube")
-    data = youtube.initial_data(page)
-    if not data:
-        raise RuntimeError("YouTube results page had no ytInitialData")
     out = []
-    for v in youtube.parse_search(data, limit=limit):
+    for v in vids:
         out.append({**v, "kind": "video", "via": via})
     return out
 

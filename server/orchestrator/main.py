@@ -49,6 +49,13 @@ class Engine:
                                      inputs=Inputs())
         self.watcher = Watcher(self.session.on_file_change, interval=config.WATCH_INTERVAL_S)
         self.session.on_workdir = self.watcher.set_root
+        try:  # S7: progress saved to ~/miyagi/state; "Continue where you left off?" survives an engine restart
+            from server.sessions import Resumer
+
+            self.resumer = Resumer(self.session)
+        except Exception as e:  # noqa: BLE001
+            log.warning("saved-session resume unavailable: %s", e)
+            self.resumer = None
         self.recorder = recorder.Recorder()
         self._ticker: asyncio.Task | None = None
         self._replays: set[asyncio.Task] = set()
@@ -89,13 +96,21 @@ class Engine:
             if self.modules.demo and (graph := self.modules._lesson_file()):
                 await self.session.load_graph(graph)
             elif url := os.environ.get("ORCH_LESSON_URL"):  # real builder (E2's cache makes it instant)
-                self._autostart = asyncio.create_task(self.session.learn_url(url))
+                self._autostart = asyncio.create_task(self.session.learn_url(url, skip_preflight=True))
         self._ticker = asyncio.create_task(self._tick_loop())
         log.info("engine up: demo=%s modules=%s workdir=%s screen=%s precision=%s", self.modules.demo,
                  self.modules.describe(), self.session.workdir, self.session.screen_active(),
                  config.precision_setting())
 
+    def save_progress(self) -> None:
+        if self.resumer is not None and self.session.graph is not None and not self.session.awaiting_resume:
+            try:
+                self.resumer.save_now()
+            except Exception:  # noqa: BLE001
+                log.exception("saving lesson progress failed")
+
     async def stop(self) -> None:
+        self.save_progress()
         await self.watcher.stop()
         self.screen.stop()
         if self._ticker:
@@ -226,6 +241,7 @@ async def ws_endpoint(ws: WebSocket) -> None:
         engine.hub.clients.discard(ws)
         if not engine.hub.clients:
             engine.last_client_gone = time.monotonic()
+            engine.save_progress()  # the app left: keep the exact video position (autosave is throttled)
         task.cancel()
 
 
@@ -258,7 +274,19 @@ async def end_lesson() -> dict:
 
 @app.get("/state")
 async def state() -> dict:
-    return engine.session.state()
+    st = engine.session.state()
+    if engine.session.graph is None and engine.session.phase == "idle" and engine.resumer is not None:
+        try:  # S7: a lesson saved before an engine restart, waiting for the learner's Continue / Start new
+            from server.sessions import store
+
+            saved = store.load()
+            graph = store.load_graph(saved) if saved else None
+            if graph is not None:
+                st.update({"phase": "awaiting_resume", "lesson": graph.get("lesson"),
+                           "saved": {k: saved.get(k) for k in ("stepIndex", "stepCount", "stepId", "videoT", "lastActiveAt")}})
+        except Exception:  # noqa: BLE001
+            log.exception("reading saved session failed")
+    return st
 
 
 @app.get("/health")
