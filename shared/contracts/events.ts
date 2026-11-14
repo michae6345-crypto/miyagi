@@ -42,8 +42,8 @@ export interface EngineEvents {
   "video.seek": { t: number; play: boolean };
   "video.pause": {};
   "video.play": {};
-  "card": { stepId?: string; kind: "explain" | "hint" | "answer"; title: string; body: string; videoJump?: { t: number; label: string };
-            actions?: Array<"confirm" | "undo" | "apply_fix" | "open_editor">;    // buttons on the card -> send `action {kind}`
+  "card": { stepId?: string; kind: "explain" | "hint" | "answer" | "resume"; title: string; body: string; videoJump?: { t: number; label: string };
+            actions?: Array<"confirm" | "undo" | "apply_fix" | "open_editor" | "resume" | "end_lesson">;    // buttons on the card -> send `action {kind}`
             diff?: string;               // unified diff to preview ("Apply this fix?" -> confirm)
             targets?: Array<{ boxId: number; label: string; text: string; rect: { x: number; y: number; w: number; h: number } }>;
             guidingQuestion?: string };
@@ -82,7 +82,7 @@ export interface AppCommands {
   "learn": { query: string };                       // launcher text
   "learn_url": { url: string };                     // pasted YouTube link
   "build_lesson": { resultIds: string[] };
-  "action": { kind: "back" | "explain" | "diagram" | "show_me" | "hint" | "voice_toggle" | "ask" | "apply_fix" | "confirm" | "undo" | "open_editor"; text?: string };  // open_editor: the learner accepted "Open VS Code?"  // confirm: "Looks done?" card; undo: revert the last "Do it for me"
+  "action": { kind: "back" | "explain" | "diagram" | "show_me" | "hint" | "voice_toggle" | "ask" | "apply_fix" | "confirm" | "undo" | "open_editor" | "resume" | "end_lesson"; text?: string };  // resume / end_lesson: the "Continue where you left off?" card  // open_editor: the learner accepted "Open VS Code?"  // confirm: "Looks done?" card; undo: revert the last "Do it for me"
   "video.state": { t: number; playing: boolean };   // player reports its position
   "end_lesson": {};                                  // stop everything; the engine answers lesson.ended + status idle
   "overlay.bounds": { rects: Array<{ x: number; y: number; w: number; h: number }> };

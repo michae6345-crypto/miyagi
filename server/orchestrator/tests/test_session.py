@@ -1188,3 +1188,57 @@ def test_end_lesson_is_idempotent(rig):
     assert ended == [{"lessonId": "stub-pinn-convection", "reason": "end_lesson"},
                      {"reason": "end_lesson"}, {"reason": "end_lesson"}]
     assert rig.of("status")[-1] == {"state": "idle"} and not rig.of("error")
+
+
+def test_returning_app_gets_resume_card_and_lesson_is_frozen(rig):
+    async def go():
+        await _to_step(rig, 3)
+        await rig.s.video_state(250.0, True)
+        snap = rig.s.snapshot(ask_resume=True)
+        assert [t for t, _ in snap] == ["video.pause", "card"]
+        card = snap[1][1]
+        assert card["kind"] == "resume" and card["actions"] == ["resume", "end_lesson"]
+        assert card["title"] == "Continue where you left off?" and "Write the PDE residual" in card["body"]
+        m = rig.mark()
+        await rig.save("u_t + beta * u_x\nautograd.grad\n")  # frozen: nothing is graded while undecided
+        assert not [e for e in rig.since(m) if e["type"] in ("check.updated", "step.passed", "offtrack")]
+        assert [t for t, _ in rig.s.snapshot()] == ["video.pause", "card"]  # still undecided
+        m = rig.mark()
+        await rig.s.action("resume")
+        return rig.since(m)
+
+    ev = run(go())
+    types_ = [e["type"] for e in ev]
+    assert types_[:2] == ["lesson.ready", "step.started"]
+    seek = [e["payload"] for e in ev if e["type"] == "video.seek"][-1]
+    assert seek["t"] == 250.0
+    assert not rig.s.awaiting_resume
+
+
+def test_resume_card_start_new_ends_the_lesson(rig):
+    async def go():
+        await rig.start_lesson()
+        rig.s.snapshot(ask_resume=True)
+        await rig.s.action("end_lesson")
+
+    run(go())
+    assert rig.of("lesson.ended")[-1]["reason"] == "end_lesson" and rig.s.graph is None
+    assert rig.s.snapshot(ask_resume=True) == [("status", {"state": "idle"})]
+
+
+def test_engine_asks_to_resume_only_when_the_app_comes_back(tmp_path, monkeypatch):
+    monkeypatch.setenv("TUT_WORKDIR", str(tmp_path))
+    import time as _time
+
+    from server.orchestrator.main import Engine
+
+    e = Engine()
+    e.session.graph = stubs.load_fixture_lesson()
+    assert e.app_returning() is False  # never shown to an app (e.g. the demo's autostart)
+    e.mark_lesson_seen()
+    e.last_client_gone = _time.monotonic() - 2
+    assert e.app_returning() is False  # a 2 s network blip: just continue
+    e.last_client_gone = _time.monotonic() - 30
+    assert e.app_returning() is True  # the app was closed and reopened
+    e.session.graph["lesson"]["id"] = "a-different-lesson"
+    assert e.app_returning() is False

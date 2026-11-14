@@ -18,6 +18,7 @@ import asyncio
 import contextlib
 import logging
 import os
+import time
 from typing import Any
 
 from fastapi import Body, FastAPI, WebSocket, WebSocketDisconnect
@@ -44,13 +45,36 @@ class Engine:
         self.modules = Modules()
         self.screen = ScreenBridge()
         self.workspace = Workspace()
-        self.session = LessonSession(self.hub.emit, self.modules, screen=self.screen, workspace=self.workspace,
+        self.session = LessonSession(self._emit, self.modules, screen=self.screen, workspace=self.workspace,
                                      inputs=Inputs())
         self.watcher = Watcher(self.session.on_file_change, interval=config.WATCH_INTERVAL_S)
         self.session.on_workdir = self.watcher.set_root
         self.recorder = recorder.Recorder()
         self._ticker: asyncio.Task | None = None
         self._replays: set[asyncio.Task] = set()
+        self.last_client_gone: float | None = None
+        self.seen_lesson: str | None = None  # lesson id an app has already been shown
+
+    def _lesson_id(self) -> str | None:
+        return (self.session.graph or {}).get("lesson", {}).get("id")
+
+    def mark_lesson_seen(self) -> None:
+        if self._lesson_id():
+            self.seen_lesson = self._lesson_id()
+
+    def app_returning(self) -> bool:
+        """The app reconnects after being away (>= ORCH_RESUME_AFTER_S with no client) to a lesson it had
+        already shown: offer "Continue / Start new". A first connection (e.g. the demo's autostart) or a
+        quick network blip just continues."""
+        if self.hub.clients or self.last_client_gone is None or not self._lesson_id():
+            return False
+        away = time.monotonic() - self.last_client_gone
+        return self.seen_lesson == self._lesson_id() and away >= float(os.environ.get("ORCH_RESUME_AFTER_S", "10"))
+
+    async def _emit(self, type_: str, payload: dict | None = None) -> None:
+        if type_ == "lesson.ready" and self.hub.clients:
+            self.seen_lesson = ((payload or {}).get("lesson") or {}).get("id")
+        await self.hub.emit(type_, payload)
 
     async def ingest(self, ev: dict) -> None:
         self.recorder.record(ev)
@@ -162,9 +186,10 @@ except Exception as _e:  # noqa: BLE001
 @app.websocket("/")
 async def ws_endpoint(ws: WebSocket) -> None:
     await ws.accept()
-    for type_, payload in engine.session.snapshot():
+    for type_, payload in engine.session.snapshot(ask_resume=engine.app_returning()):
         await engine.hub.send_to(ws, type_, payload)
     engine.hub.clients.add(ws)
+    engine.mark_lesson_seen()
     queue: asyncio.Queue[dict] = asyncio.Queue()
 
     async def worker() -> None:
@@ -199,6 +224,8 @@ async def ws_endpoint(ws: WebSocket) -> None:
         log.exception("websocket error")
     finally:
         engine.hub.clients.discard(ws)
+        if not engine.hub.clients:
+            engine.last_client_gone = time.monotonic()
         task.cancel()
 
 
