@@ -98,6 +98,16 @@ After the fixes:
 - **Latency:** pre-Opus time is now 2.0–3.1 s, worst card 7.4 s (was 9.8). But web grounding now runs on every case, because screen errors feed it, and 6 of 8 cards hit the 3 s cap. So the median card is 6.9 s (was 6.7).
 - **Web sources:** on-topic for git. Still generic for React and pandas ("webpack compiled with 1 error", generic TypeError Q&A).
 
+### Offline re-check on E5's `03f1a9f` (cost freeze: no model calls)
+
+The saved cards from both runs were replayed through the new deterministic code (`apply_fix`, `notebook_code`), then checked with real git and nbclient. Record: [`results-e5-d219e52/offline-03f1a9f.json`](results-e5-d219e52/offline-03f1a9f.json).
+
+- **G1 fixed.** The 4-line diff now replaces the 4 todo lines it rewrites (pick/pick/pick/squash Cleanup). The rebase completes with Cleanup squashed into the logout commit: README, login, logout, middleware.
+- **G3, first-run card** (anchor `10 <<<<< HEAD`, expected = the logout route): now safely rejected ("would duplicate lines already next to it"). That's right, because that diff was wrong.
+- **G3, d219e52 card** (the whole OCR'd block): still "learner's lines not found". Vision drops the `=======` row entirely (only its gutter number `11` survives), so 5 OCR lines face 6 file lines and contiguous fuzzy mapping fails. The gutter numbers (10, 12, 13, 14, 16) give the exact file lines; using them, or taking the conflict region straight from the file, would anchor it.
+- **Notebooks:** `notebook_code` now turns the orchestrator's 6000-char cut into cell sources (no raw JSON). But the **cell with the mistake is not in it** for P1, P2 or P3. In sorted-keys JSON the outputs come before the source, and the mistake cell's source starts at char 20,160 / 13,869 / 9,630. Only passing the whole `.ipynb` (E4) fixes this. When a card has a plain `yours` (P1 first run, P3 both runs), the notebook-aware `apply_fix` patches the cell and the notebook re-executes cleanly. P2's cards had an empty `yours` in both runs.
+- **Untested under the freeze:** the error-line prompt (P2's `axis`) and the 1.5 s web cap / skip.
+
 ## Cases
 
 Every output on screen is real:

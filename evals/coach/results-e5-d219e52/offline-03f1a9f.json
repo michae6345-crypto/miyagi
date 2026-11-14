@@ -1,0 +1,64 @@
+{
+ "G1": {
+  "apply_error": null,
+  "ok": true,
+  "why": "rebase finished, Cleanup squashed, README/login kept",
+  "commits": [
+   "Add README",
+   "Add login endpoint",
+   "Add logout endpoint",
+   "Add authentication middleware"
+  ]
+ },
+ "G3_run1": {
+  "apply_error": "the patch would duplicate lines already next to it: app.post('/logout', (req, res) => {"
+ },
+ "G3_d219e52": {
+  "apply_error": "learner's lines not found in file"
+ },
+ "P1": {
+  "excerpt": "cells",
+  "excerpt_chars": 373,
+  "mistake_in_excerpt": false,
+  "run1": {
+   "yours_empty": false,
+   "apply_error": null,
+   "ok": true,
+   "err": null
+  },
+  "d219e52": {
+   "yours_empty": true,
+   "apply_error": "no anchor line to replace"
+  }
+ },
+ "P2": {
+  "excerpt": "cells",
+  "excerpt_chars": 500,
+  "mistake_in_excerpt": false,
+  "run1": {
+   "yours_empty": true,
+   "apply_error": "no anchor line to replace"
+  },
+  "d219e52": {
+   "yours_empty": true,
+   "apply_error": "no anchor line to replace"
+  }
+ },
+ "P3": {
+  "excerpt": "cells",
+  "excerpt_chars": 500,
+  "mistake_in_excerpt": false,
+  "run1": {
+   "yours_empty": false,
+   "apply_error": null,
+   "ok": true,
+   "err": null
+  },
+  "d219e52": {
+   "yours_empty": false,
+   "apply_error": null,
+   "ok": true,
+   "err": null
+  }
+ }
+}
