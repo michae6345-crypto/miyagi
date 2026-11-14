@@ -78,15 +78,17 @@ export function createPlayer(report: PlayerReport): { attach(): () => void; warm
     }
 
     let level = 0
+    let shown = 0
+    const buf = new Uint8Array(analyser?.fftSize ?? 0)
     const tick = (): void => {
       if (id !== seq || !analyser) return
-      const buf = new Uint8Array(analyser.fftSize)
       analyser.getByteTimeDomainData(buf)
       let sum = 0
       for (const v of buf) sum += ((v - 128) / 128) ** 2
-      // Fast attack, slow release, in 0.05 steps so the bar re-renders only when it visibly moves.
+      // Fast attack, slow release, in 0.05 steps: the store only changes when the bar would visibly move.
       level = Math.max(Math.min(1, Math.sqrt(sum / buf.length) * 4), level * 0.8)
-      report({ speaking: true, level: Math.round(level * 20) / 20 })
+      const q = Math.round(level * 20) / 20
+      if (q !== shown) report({ speaking: true, level: (shown = q) })
     }
 
     el.onplaying = () => {
