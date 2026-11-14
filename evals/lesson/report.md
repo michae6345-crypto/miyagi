@@ -7,6 +7,28 @@ Each video got a fresh empty workdir, i.e. a learner starting from scratch. Engi
 Re-run: `python evals/lesson/run.py --src <checkout>`. Raw graphs are in `results/<id>.json`, automatic grades in `results/grades.json`,
 build logs in `results/<id>.log` (gitignored; per-pass timings are quoted below). Transcripts were used for spot checks but are not committed.
 
+## Fourth run (`e2582e8`): adapt loop converges, standard output checks
+
+Same setup again (`--saved-captions`, Claude path only; Gemini still at quota). Results are in `results-e2582e8/`.
+
+| Lesson | Time (38f85bc / 9d5fbb9) | Adapt rounds (problems left → steps re-sent) | Leftover warnings | Run steps with an output check | Manual /10 |
+|---|---|---|---|---|---|
+| react-useeffect | 53 s (45 / 20) | 3 (12 in 8 → 7 in 5 → 5 in 3) | 0 | 1/1 (`Local:\s+http://localhost:\d+`) | 8.5 |
+| git-rebase | 29 s (29 / 18) | 2 (1 → 1, stopped) | 0 | 5/5 | 8 |
+| pandas-30min | **47 s** (108 / 49) | 3 (11 in 5 → 1 in 1 → 2, stopped, kept the best) | **0** (was 3) | **9/9**: notebook steps use `rows x columns` / `RangeIndex:` / `Name:…dtype:` in Code | **9** |
+| rust-cli | **83 s** (115 / 72) | 2 (4 in 3 → done) | 0 | 9/9 (`Finished\s+\S*\s*(dev\|release\|test)` + program output) | 9 |
+| fastapi-rest | 40 s (43 / 22) | 3 (7 in 4 → 2 in 1 → 2, stopped) | 0 | 8/8 (uvicorn access-log lines) | 9 |
+
+- **Both fixes work.** Leftover `build.warnings` went from 4 to 0, and every step with a `run_command` has an output check. Re-sending only the failing steps makes later rounds take 1.5–8.6 s instead of 25–29 s, and the "no better, stop" rule fired in 3 lessons.
+- The checks are the strongest of the four runs. Real-output matches: FastAPI 15/16, Rust 16/24, git 8/11, React 4/4, pandas 4/4. The grader finds 0 vague or code-echo checks.
+- **Time is still above 9d5fbb9** (+0 to +33 s). The first adapt round now does most of the work (Rust 33.6 s, pandas 12.8 s, React 11.2 s). React still needed all 3 rounds because the problem count kept dropping (12 → 7 → 5).
+- **The git lesson's structure varies between runs.** This time s1 includes a clean warm-up rebase and s3 asks the learner to build the conflicting commits. s3 doesn't say to make the two matching commits on `main` first, so the instruction is incomplete. Each version is coherent on its own, but it changes from run to run.
+
+**Small remaining fixes:**
+1. **Speed up the first adapt round.** Adapt the steps in parallel batches, the way the video pass already works, instead of one call for the whole graph. Round 1 is now the slowest piece (Rust 34 s).
+2. **Use a stack-specific error pattern.** React s2, s3 and s7 use `screen_absent Terminal 'Traceback|Error:|ERR!'`. Python's `Traceback` never appears in a Vite terminal. Harmless, but use the stack's own error text instead (e.g. `error\[E` for Rust, `fatal:` for git, `ERR!|Error:` for npm).
+3. **Still untested live:** the Gemini path and the 8 s grace period, until the Gemini quota resets.
+
 ## Third run (`38f85bc`): fixes for the 4 remaining issues
 
 Same setup as the second run below: Gemini at its daily quota and YouTube refusing caption requests, so this used `--saved-captions` and only the Claude path ran. Results are in `results-38f85bc/`.
