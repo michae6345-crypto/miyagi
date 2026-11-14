@@ -96,13 +96,18 @@ def skim_models() -> list[str]:
 
 
 def skim_top() -> int:
-    """How many top videos Gemini skims. Default 0 (off): Gemini is reserved for the lesson builder;
-    set FINDER_SKIM_TOP=3 to turn the skim back on."""
+    """How many top videos Gemini skims. Default 0 (off): Gemini is reserved for the lesson builder.
+    FINDER_SKIM_TOP=3 turns it back on; FINDER_SKIMS=0/1 is an on/off alias (0 always wins)."""
     load_env()
-    try:
-        return max(0, int(os.environ.get("FINDER_SKIM_TOP", "0")))
-    except ValueError:
+    if os.environ.get("FINDER_SKIMS", "").strip() == "0":
         return 0
+    try:
+        n = int(os.environ.get("FINDER_SKIM_TOP", "") or 0)
+    except ValueError:
+        n = 0
+    if n == 0 and os.environ.get("FINDER_SKIMS", "").strip() == "1":
+        n = 3
+    return max(0, n)
 
 
 def gemini_fallback() -> bool:

@@ -453,3 +453,14 @@ def test_gemini_is_not_called_by_default(offline, monkeypatch):
     _check_rows(rows)
     assert not any(r.get("watched", "").endswith("by Gemini") or "Gemini" in r.get("watched", "") for r in rows)
     assert {r["scoredBy"] for r in rows} == {"keywords"}  # Claude down + no Gemini fallback -> labelled keywords
+
+
+@pytest.mark.parametrize("skims,top,expected", [(None, None, 0), ("0", "3", 0), ("1", None, 3), (None, "2", 2), ("1", "5", 5)])
+def test_skim_switches(monkeypatch, skims, top, expected):
+    monkeypatch.setattr(env, "_loaded", True)
+    for k, v in (("FINDER_SKIMS", skims), ("FINDER_SKIM_TOP", top)):
+        if v is None:
+            monkeypatch.delenv(k, raising=False)
+        else:
+            monkeypatch.setenv(k, v)
+    assert env.skim_top() == expected
