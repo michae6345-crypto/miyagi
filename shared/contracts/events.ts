@@ -18,7 +18,7 @@ export interface StepSummary { id: string; index: number; title: string; video?:
 export interface EngineEvents {
   "search.result": { id: string; kind: SourceKind; title: string; meta: string; score: number; reason: string; thumbnail?: string };
   "search.done": { total: number };
-  "lesson.building": { message: string; progress: number };   // 0..1, for the launcher spinner
+  "lesson.building": { message: string; progress: number; failed?: boolean };   // progress 0..1 for the launcher; ~1/s while building; failed: true = the build ended in error (an `error` + status idle follow): drop the building UI
   "lesson.ready": { lesson: { id: string; title: string; sources: Source[] }; steps: StepSummary[] };
   "step.started": { stepId: string; index: number; title: string; instructions: string; video?: VideoSegment };
   "check.updated": { stepId: string; checkId: string; label: string; status: CheckStatus; detail?: string };
@@ -48,17 +48,31 @@ export interface EngineEvents {
             targets?: Array<{ boxId: number; label: string; text: string; rect: { x: number; y: number; w: number; h: number } }>;
             guidingQuestion?: string };
   "diagram": {
-    kind: "network" | "gradients" | "heatmap";
+    kind: "network" | "gradients" | "heatmap" | "graph";
     caption: string;
+    stepId?: string;
     data:
       | { layers: number[]; activation: string; derivatives: string[]; residual: string }            // network
       | { layers: string[]; epochs: number[]; norms: number[][] }                                     // gradients: norms[layer][epochIdx]
-      | { x: number[]; t: number[]; predicted: number[][]; exact?: number[][] };                     // heatmap
+      | { x: number[]; t: number[]; predicted: number[][]; exact?: number[][] }                      // heatmap
+      | GraphDiagramData;                                                                             // graph (any topic; server/diagrams)
   };
   "speak": { audioUrl: string; text: string };
   "metric": { runId: string; step: number; name: string; value: number };   // live curve feed
   "status": { state: "idle" | "watching" | "offtrack" | "passed" | "thinking" };
   "error": { message: string };
+}
+
+/** kind "graph": nodes on a fixed grid (the app maps (col,row) to pixels); reference renderer: server/diagrams/render_svg.py */
+export interface GraphDiagramData {
+  title: string;
+  layout: "flow" | "sequence" | "tree" | "data" | "architecture" | "git";
+  direction: "LR" | "TB";
+  grid: { cols: number; rows: number };
+  nodes: Array<{ id: string; label: string; detail?: string; group?: string;
+                 shape: "box" | "round" | "circle" | "data" | "commit"; emphasis: boolean; col: number; row: number }>;
+  edges: Array<{ from: string; to: string; label?: string; style: "solid" | "dashed"; emphasis: boolean; order?: number }>;  // order: sequence only
+  groups?: Array<{ id: string; label: string }>;
 }
 
 // ---------- App -> Engine commands ----------
