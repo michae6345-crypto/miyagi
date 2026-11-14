@@ -1,0 +1,14 @@
+{
+  "_note": "Hand-authored stand-in for a recorded response (no API key was available when written). Re-record with: python -m server.coach demo --live --record",
+  "purpose": "explain",
+  "request": {
+    "model": "claude-opus-5-5",
+    "user": "(demo case)"
+  },
+  "response": {
+    "model": "claude-opus-5-5",
+    "text": "{\"title\": \"Why large β is hard for a PINN\", \"body\": \"The network must fit a wave moving at speed β using only the residual u_t + βu_x. As β grows, that term makes the loss landscape sharp and ill-conditioned, so the optimizer settles on a smooth, nearly constant u. Solving small β first gives it a good starting point to bend toward the steep wave.\", \"explanation_index\": 0, \"citation_id\": \"krishnapriyan2021\"}",
+    "usage": {},
+    "latency_s": 0.0
+  }
+}
