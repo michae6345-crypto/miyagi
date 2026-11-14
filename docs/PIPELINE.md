@@ -81,6 +81,8 @@ listed in `missing`, and if it lands later it arrives through `on_late`.
 | `items` ("Needs: VS Code ✓ Python 3 ✓ torch ✗") | S2's `server.workspace.requirements()` on a metadata-level step graph (lesson id `preflight-<videoId>`) |
 | `buildPlan {strategy whole\|chapters, firstChapter, firstHandsOn, skippedIntro, estSecondsToFirstSteps}` | E2's `plan_windows(length, chapters, first_hands_on)` (local mirror when it isn't importable). A talk-only intro of 1–10 min is skipped, and part 1 starts at the first hands-on chapter |
 | `warning`, `recommended: "pick_another"` | when `goalMatch.score < 0.5` |
+| "Built before: ready instantly (N steps)", `buildPlan.cached` | E2's own cache lookup (`cache_key` / `find_cached` on E4's `build_workdir`); the tool check then runs on that real graph and folder |
+| `editorNeeded` | always true for coding (lessons run locally in VS Code, even when the video uses Colab); S2's answer otherwise |
 
 Live cards (14 Nov, cold, this network):
 
