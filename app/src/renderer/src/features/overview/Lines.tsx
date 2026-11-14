@@ -16,7 +16,7 @@ export function Instructions(): ReactNode {
   const text = useLesson((s) => s.instructions.trim())
   if (!text) return null
   return (
-    <div className="mt-[16px] line-clamp-2 text-[15px] leading-[20px]" style={{ color: color.label }} title={text}>
+    <div className="mt-[16px] line-clamp-2 text-[14px] leading-[20px]" style={{ color: color.label }} title={text}>
       {text}
     </div>
   )
