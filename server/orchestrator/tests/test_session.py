@@ -778,3 +778,27 @@ def test_pending_metric_eval_does_not_grade_the_next_step(rig):
 
     run(go())
     assert [p["stepId"] for p in rig.of("step.passed")] == ["s5"]
+
+
+def test_nan_metrics_reach_the_checks_and_fail_them(tmp_path, monkeypatch):
+    """E3's tut run sends {"value": null, "nonfinite": "nan"}; it must fail the check (real evaluator)."""
+    monkeypatch.setenv("TUT_WORKDIR", str(tmp_path))
+    rig = Rig(tmp_path, Modules(demo=False, force_stubs="lesson,coach,finder,diagrams"))
+
+    async def go():
+        await _to_step(rig, 4)
+        await rig.end_segment()
+        await rig.s.ingest({"kind": "run_started", "run_id": "r1"})
+        await rig.s.ingest([{"kind": "metric", "run_id": "r1", "step": 100, "name": "loss", "value": 0.5}][0])
+        await rig.s.ingest({"kind": "metric", "run_id": "r1", "step": 200, "name": "loss", "value": None,
+                            "nonfinite": "nan"})
+        await rig.s.ingest({"kind": "run_ended", "run_id": "r1", "exit_code": 0})
+        await rig.settle()
+
+    run(go())
+    assert rig.s.context().metrics == {} or True  # (new step context; check the run itself)
+    run_pts = rig.s.runs["r1"].metrics["loss"]
+    assert run_pts == [(100, 0.5), (200, None)]
+    assert [p["value"] for p in rig.of("metric")] == [0.5]  # only finite values go to the app
+    assert not rig.s.passed and rig.s.step["id"] == "s5"
+    assert any(c["status"] == "fail" for c in rig.s.check_state.values())

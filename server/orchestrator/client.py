@@ -1,8 +1,8 @@
 """Tiny CLI test client for the engine.
 
   python -m server.orchestrator.client                     # connect and print events
-  python -m server.orchestrator.client --learn "train a PINN on the convection equation"
-  python -m server.orchestrator.client --autopilot         # scripted happy path + hero, end to end
+  python -m server.orchestrator.client --learn "how to use git rebase"
+  python -m server.orchestrator.client --autopilot --learn "pinn"   # DEMO tool: needs a DEMO=1 engine (canned PINN lesson)
 
 --autopilot plays a fake learner against the REAL state machine: it reports video
 positions like the player would, writes the canned PINN solution into the engine's
@@ -258,7 +258,9 @@ async def main_async(args) -> None:
         if sys.stdin.isatty() and not args.autopilot:
             tasks.append(asyncio.create_task(stdin_loop()))
         if args.autopilot:
-            await send("learn", {"query": args.learn or "train a PINN on the convection equation"})
+            if not args.learn:
+                raise SystemExit("--autopilot needs --learn <query> (and a DEMO=1 engine: it plays the canned PINN lesson)")
+            await send("learn", {"query": args.learn})
             done = asyncio.create_task(pilot.done.wait())
             await asyncio.wait([done, tasks[0]], return_when=asyncio.FIRST_COMPLETED, timeout=args.timeout)
             await asyncio.sleep(0.5)

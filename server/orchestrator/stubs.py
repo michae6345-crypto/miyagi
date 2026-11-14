@@ -152,6 +152,8 @@ def _eval_check(check: dict, ctx: RunContext) -> dict:
 def _eval_threshold(check: dict, ctx: RunContext) -> dict:
     run = ctx.last_run
     pts = ctx.metrics.get(check["metric"], [])
+    if any(v is None for _, v in pts):
+        return _res(check, "fail", f"{check['metric']} became NaN/inf")
     if not pts:
         return _res(check, "pending", "waiting for metrics")
     op = _OPS[check.get("op", "<")]
@@ -169,6 +171,8 @@ def _eval_threshold(check: dict, ctx: RunContext) -> dict:
 
 def _eval_trend(check: dict, ctx: RunContext) -> dict:
     pts = ctx.metrics.get(check["metric"], [])
+    if any(v is None for _, v in pts):
+        return _res(check, "fail", f"{check['metric']} became NaN/inf")
     window = int(check.get("window") or 500)
     if len(pts) < 5:
         return _res(check, "pending", "waiting for metrics")

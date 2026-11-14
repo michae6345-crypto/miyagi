@@ -3,6 +3,7 @@
 #
 #   scripts/miyagi-engine.sh                 # ws://<this-mac>.local:8787 and ws://localhost:8787
 #   scripts/miyagi-engine.sh --port 8788     # extra args go to the engine (--host/--port)
+#   scripts/miyagi-demo.sh                   # the PINN hero lesson, autostarted on demo/pinn-lab
 #   DEMO=1 scripts/miyagi-engine.sh          # cached/canned demo data instead of live APIs
 #
 # Keys come from the shared .env (TUT_ENV, else this checkout's .env, else the main checkout's)
@@ -26,11 +27,9 @@ export ENGINE_HOST="${ENGINE_HOST:-0.0.0.0}"
 export ENGINE_PORT="${ENGINE_PORT:-8787}"
 export ORCH_SCREEN="${ORCH_SCREEN:-1}"
 export ORCH_OPEN_WORKSPACE="${ORCH_OPEN_WORKSPACE:-1}"
-export TUT_WORKDIR="${TUT_WORKDIR:-$ROOT/demo/pinn-lab}"
-# Hero lesson: Toscano, "Learning Physics Informed Machine Learning Part 1 - PINNs" (1D diffusion), built with the
-# real lesson builder at boot (E2's cache makes it instant). The launcher (learn / learn_url) can still switch lessons.
-export ORCH_LESSON_URL="${ORCH_LESSON_URL:-https://www.youtube.com/watch?v=AXXnSzmpyoI}"
-export ORCH_AUTOSTART="${ORCH_AUTOSTART:-1}"
+# LIVE: no lesson until the launcher sends `learn`; each lesson gets its own workspace under ~/miyagi/lessons.
+# (The PINN hero with demo/pinn-lab autostarted is scripts/miyagi-demo.sh.)
+export ORCH_AUTOSTART="${ORCH_AUTOSTART:-0}"
 
 # --- macOS Screen Recording permission (the screen reader needs it) ---------------------
 if [ "$(uname)" = "Darwin" ] && [ "$ORCH_SCREEN" = "1" ]; then
@@ -63,5 +62,5 @@ fi
 
 HOSTNAME_LOCAL="$(scutil --get LocalHostName 2>/dev/null || hostname -s).local"
 echo "[miyagi] engine: ws://localhost:$ENGINE_PORT  ·  LAN: ws://$HOSTNAME_LOCAL:$ENGINE_PORT"
-echo "[miyagi] workspace: $TUT_WORKDIR   mode: $([ "${DEMO:-0}" = "1" ] && echo DEMO || echo LIVE)"
+echo "[miyagi] workspace: ${TUT_WORKDIR:-per lesson in ~/miyagi/lessons}   mode: $([ "${DEMO:-0}" = "1" ] && echo DEMO || echo LIVE)   autostart: $ORCH_AUTOSTART"
 exec "$PY" -m server.orchestrator.main --host "$ENGINE_HOST" --port "$ENGINE_PORT" "$@"

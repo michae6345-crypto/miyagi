@@ -25,6 +25,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import math
 import os
 import re
 import time
@@ -271,7 +272,7 @@ class LessonSession:
 
         tick = asyncio.create_task(ticker())
         try:
-            graph = await self.m.build_lesson(url, goal, str(config.default_workdir()))
+            graph = await self.m.build_lesson(url, goal, str(config.lesson_workdir(url, goal)))
         except Exception as e:
             log.exception("build_lesson failed")
             done.set()
@@ -739,11 +740,17 @@ class LessonSession:
             items = ev.get("metrics") or ev.get("items") or [ev]
             for it in items:
                 try:
-                    step_n, name, value = int(it["step"]), str(it["name"]), float(it["value"])
+                    step_n, name = int(it["step"]), str(it["name"])
+                    raw = it.get("value")
+                    value = None if raw is None or it.get("nonfinite") else float(raw)
                 except (KeyError, TypeError, ValueError):
                     continue
+                if value is not None and not math.isfinite(value):
+                    value = None
+                # NaN/inf arrive as None and stay None: a NaN loss must FAIL its metric check, not vanish
                 run.add_metric(step_n, name, value)
-                await self.emit("metric", {"runId": run_id, "step": step_n, "name": name, "value": value})
+                if value is not None:  # the app's live curve only takes finite numbers
+                    await self.emit("metric", {"runId": run_id, "step": step_n, "name": name, "value": value})
             if in_step:
                 self._schedule_metric_eval()
             return

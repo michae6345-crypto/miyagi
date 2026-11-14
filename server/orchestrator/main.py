@@ -6,7 +6,7 @@
   GET  /events?since=N   recent engine events (debugging)
   POST /debug/pass       force-pass the active step
   POST /debug/goto/{i}   jump to step i
-  POST /debug/lesson     load the canned/demo lesson without searching
+  POST /debug/lesson     DEMO only: load the cached/canned lesson without searching
 
 Run:  python -m server.orchestrator.main      (or uvicorn server.orchestrator.main:app --port 8787)
 """

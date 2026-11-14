@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import re
 import sys
 from pathlib import Path
 
@@ -54,11 +55,31 @@ def port() -> int:
     return int(os.environ.get("ENGINE_PORT", "8787"))
 
 
+LESSONS_ROOT = Path(os.environ.get("MIYAGI_LESSONS", "~/miyagi/lessons")).expanduser()
+
+
 def default_workdir() -> Path:
-    """Where the learner works, before a lesson tells us otherwise."""
+    """Where the engine looks before any lesson exists: TUT_WORKDIR, else the lessons root
+    (never a demo folder: LIVE lessons get their own workspace, see lesson_workdir)."""
     if os.environ.get("TUT_WORKDIR"):
         return Path(os.environ["TUT_WORKDIR"]).expanduser().resolve()
-    return (REPO_ROOT / "demo" / "pinn-lab").resolve()
+    return LESSONS_ROOT
+
+
+def _slug(text: str) -> str:
+    return re.sub(r"[^a-z0-9]+", "-", (text or "").lower()).strip("-")[:48] or "lesson"
+
+
+def lesson_workdir(url: str, goal: str) -> Path:
+    """The learner's project folder for a new lesson: TUT_WORKDIR (e.g. the hero's demo/pinn-lab)
+    or ~/miyagi/lessons/<goal or video slug>, created if missing. (S2's server/workspace.prepare
+    replaces this once it lands.)"""
+    if os.environ.get("TUT_WORKDIR"):
+        return default_workdir()
+    vid = re.search(r"(?:v=|youtu\.be/|/embed/|/shorts/)([A-Za-z0-9_-]{6,})", url or "")
+    path = LESSONS_ROOT / _slug(goal or (vid.group(1) if vid else url))
+    path.mkdir(parents=True, exist_ok=True)
+    return path
 
 
 def resolve_workdir(lesson_workdir: str | None) -> Path:
