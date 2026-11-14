@@ -1,6 +1,6 @@
 # Frontend handoff (Adrian): the overlay app
 
-**You own:** `app/` (the Electron overlay) and `vscode-ext/` (a small VS Code extension).
+**You own:** `app/` (the Electron overlay). **Update Sat 1 PM: the VS Code extension is DROPPED.** The engine now watches the whole screen (Apple Vision text recognition) and sends `spotlight` as a screen rectangle; you just draw it. Works over any app.
 **You don't own:** `server/`, `cli/` (engine: me) or `finder/`, `diagrams data`, `demo/` (third teammate).
 **Mockups:** `visuals/apple/01–05` (the target look) and `visuals/mockups/` (earlier explorations, including the off-track and success states).
 **Overall plan:** `PLAN.md`.
@@ -30,8 +30,7 @@ Electron runs on both. Adrian can build on Windows and Michael runs it on the Ma
 | Show on all desktops / over fullscreen | `setVisibleOnAllWorkspaces(true,{visibleOnFullScreen:true})` | Not needed (no-op) |
 | Always-on-top level | `'screen-saver'` | `'screen-saver'` works; also `skipTaskbar: true` |
 | Font | `-apple-system` (SF Pro) | `"Segoe UI Variable"`. **Or bundle Inter for both** so spacing matches exactly |
-| Permissions | Accessibility (window bounds); Screen Recording if we screenshot | None |
-| VS Code window bounds | `get-windows` npm package | Same package works |
+| Permissions | None for the app (the engine needs Screen Recording) | None |
 | Click-through overlay | `setIgnoreMouseEvents(true,{forward:true})` | Same |
 
 **Keeping the Mac look right while developing on Windows:**
@@ -46,21 +45,16 @@ Electron runs on both. Adrian can build on Windows and Michael runs it on the Ma
 | **Launcher** | Centered, ~740×460 | ⌥Space toggles it; Esc or losing focus hides it. Input, streaming results, "Build lesson". Background dims/blurs behind it. | 03 |
 | **Shortcut bar** | Bottom-center, ~740×80 | "Ask anything" field plus Back / Explain / Diagram / Show me / Hint / Voice, with their shortcuts. Only visible during a lesson. | 04 |
 | **Card / diagram popup** | Under the pill | Coach cards (amber off-track, green success) and diagrams. Auto-hides; pinnable. | 05 |
-| **Dim overlay** | Full screen | Transparent black at ~55% with a **hole** over the VS Code window. Click-through (`setIgnoreMouseEvents(true, {forward:true})`) so the user can still type. | 04 |
+| **Dim overlay** | Full screen | Transparent black at ~55% with a rounded **hole at the `spotlight.rect`** the engine sends (screen points). Click-through (`setIgnoreMouseEvents(true, {forward:true})`) so the user can still type. | 04 |
 | **Lesson player** | Right half of the screen (or docked) | YouTube IFrame Player API, chapter list = our steps. **We need to control the video** (pause / seek / resume), so it lives in our window, not the user's browser. | 04 right side |
 
 **Flags on every overlay window:** `frame:false, transparent:true, hasShadow:false, resizable:false, alwaysOnTop:true` → `setAlwaysOnTop(true,'screen-saver')`, `setVisibleOnAllWorkspaces(true,{visibleOnFullScreen:true})`. **Do NOT call `setContentProtection(true)`.** We want the overlay to show up in the demo recording.
 
-## The spotlight: how to make it pixel-perfect
-Don't guess pixel coordinates from screenshots. Two layers:
-1. **Outside VS Code:** the dim overlay cuts a hole at the VS Code window's bounds. Get the bounds with the `get-windows` npm package; it's a polling loop and cheap.
-2. **Inside VS Code:** `vscode-ext/` uses **editor decorations**:
-   - the non-target lines at `opacity: 0.35`;
-   - the target range with a soft border and background;
-   - a one-line caption via an `after` decoration ("Write the residual · u_t + β·u_x").
-   - `editor.revealRange` scrolls the target into view.
-
-This is native, exact and robust. The extension talks to the app over a local WebSocket (`ws://localhost:8788`).
+## The spotlight (screen-first, no extension)
+- The engine's screen reader finds the target text on screen (Apple Vision OCR gives each line's box) and sends `spotlight {rect, caption}` in **screen points**.
+- You draw the full-screen dim with a rounded cut-out at that rect (one SVG mask path, animated with the spring) and place the caption beside it.
+- **Report your own UI's position:** send `overlay.bounds {rects}` whenever the pill, cards or shortcut bar move, so the engine's OCR ignores our own UI.
+- Multi-display: use `screen.getAllDisplays()`; rects are relative to the primary display's top-left. Retina is already handled (points, not pixels).
 
 ## The contract with the engine (WebSocket `ws://localhost:8787`)
 **Server → app events:**
@@ -70,7 +64,8 @@ step.started        {stepId, title, instructions, video:{start,end}}
 check.updated       {stepId, checkId, label, status:"pending|pass|fail", detail?}
 step.passed         {stepId}
 offtrack            {stepId, severity:"warn|fail", title, body, diff?, actions:["explain","show_me","apply_fix"]}
-spotlight           {file, startLine, endLine, caption}   → forward to vscode-ext
+spotlight           {rect:{x,y,w,h}, caption} | {clear:true}   → screen points; draw the cut-out
+overlay.bounds      (app → engine) {rects[]}   → so OCR ignores our UI
 video.seek          {t, play:boolean}
 video.pause         {}
 diagram             {kind:"network|gradients|heatmap", data:{...}, caption}
@@ -122,6 +117,12 @@ Framer Motion everywhere. **Default spring: `{type:'spring', stiffness:420, damp
 
 **Performance rules:** only animate `transform` and `opacity` (plus the pill's size via a transform-friendly wrapper); target 60fps; never call `setBounds` during an animation; preload every window at startup and toggle `show()`/`hide()` + opacity so nothing cold-starts during the demo.
 
+## Settings: bring your own keys (like cue)
+- A small Apple-style **Settings sheet** (⌘, or the gear in the expanded pill; also shown on first run): fields for **Anthropic** and **Gemini** (required), **Bright Data** (optional; without it you paste a YouTube link instead of searching), **ElevenLabs** (optional voice), **Tiger Data URL** (optional).
+- Store them **encrypted with Electron `safeStorage`** (macOS Keychain / Windows DPAPI) in `app.getPath('userData')`. Never in plain text, never in the repo, never logged.
+- On every WebSocket connect, send `config.keys {...}`; the engine replies `config.status` with ok / missing / invalid / env per key. Show a green dot per key and a "Test" button.
+- If a key is empty, the engine falls back to its own `.env` (shown as "env"). That's how the demo Mac runs.
+
 ## Keyboard shortcuts (global; Windows: launcher is Ctrl+Shift+Space)
 ⌥Space ask/launcher · ⌥← back (rewind the step) · ⌥E explain more · ⌥D diagram · ⌥S show me (play the step's clip) · ⌥H hint · ⌥V voice toggle · Esc hide card.
 
@@ -141,14 +142,14 @@ Keep each one minimal: one caption line, no axes clutter.
 - **Copy rule:** any card should be readable in 2 seconds, with at most about 12 words of body text.
 
 ## macOS permissions (do this early; it eats time)
-- **Accessibility:** needed by `get-windows` for window bounds.
+- **Screen Recording:** granted to the terminal running the engine (not the app).
 - **Screen Recording:** only if we take screenshots.
 - Running unsigned from `npm run dev` is fine. No Apple developer account needed.
 
 ## Your Claude sessions (each in its own git worktree / branch)
 - **F1 Shell:** windows, flags, global shortcuts, the WebSocket client, the mock replay.
 - **F2 Components:** pill, launcher, shortcut bar, cards (match mockups 01–04).
-- **F3 Spotlight:** dim overlay + `vscode-ext` decorations.
+- **F3 Spotlight:** full-screen dim overlay with an animated cut-out at `spotlight.rect`, plus `overlay.bounds` reporting.
 - **F4 Player + voice + diagrams:** YouTube IFrame gating, audio playback, the 3 diagram components.
 
 ## Milestones
@@ -159,4 +160,4 @@ Keep each one minimal: one caption line, no axes clutter.
 - **9:00 AM:** freeze. Demo mode = mock replay of the final run, as a safety net.
 
 ## Cut order if you're behind
-Voice → heatmap diagram → dim overlay (keep the VS Code decorations) → the pill's hover expansion. **Never cut** the launcher, the pill status, the off-track card or video gating.
+Voice → heatmap diagram → dim overlay (fall back to a glowing outline at the rect) → the pill's hover expansion. **Never cut** the launcher, the pill status, the off-track card or video gating.
