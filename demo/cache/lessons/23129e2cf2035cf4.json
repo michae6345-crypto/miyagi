@@ -1,0 +1,563 @@
+{
+  "lesson": {
+    "id": "lesson-23129e2c",
+    "title": "React Basics: Building Reusable Components with Vite",
+    "goal": "learn React basics by building components",
+    "libraries": {
+      "react": "18.2.0",
+      "react-dom": "18.2.0",
+      "vite": "4.4.9",
+      "node": "20.8.0"
+    },
+    "workdir": "/private/tmp/claude-501/-Users-tripi-sand-hacks-sandhacks-tutor--claude-worktrees-michael-lesson-135f28/a6d94223-e634-4a84-8594-7bbb9c0311ce/scratchpad/react-lab"
+  },
+  "sources": [
+    {
+      "id": "src1",
+      "kind": "video",
+      "title": "React Basics: Building Reusable Components with Vite",
+      "url": "https://www.youtube.com/watch?v=hn80mWvP-9g",
+      "videoId": "hn80mWvP-9g"
+    }
+  ],
+  "steps": [
+    {
+      "id": "s1",
+      "index": 1,
+      "title": "Scaffold and run Vite React app",
+      "instructions": "Open a project folder in VS Code, launch the integrated terminal, and run npm create vite@latest choosing my-react-app, React, and JavaScript. Change into my-react-app, run npm install, and start the dev server with npm run dev.",
+      "video": {
+        "sourceId": "src1",
+        "start": 170.0,
+        "end": 295.0
+      },
+      "checks": [
+        {
+          "id": "s1c1",
+          "type": "screen_contains",
+          "label": "Vite dev server ready",
+          "app": "Terminal",
+          "pattern": "ready\\s+in"
+        },
+        {
+          "id": "s1c2",
+          "type": "screen_contains",
+          "label": "Localhost URL displayed",
+          "app": "Terminal",
+          "pattern": "localhost:"
+        },
+        {
+          "id": "s1c3",
+          "type": "screen_absent",
+          "label": "No terminal errors",
+          "app": "Terminal",
+          "pattern": "ERR!|Failed\\s+to\\s+compile"
+        }
+      ],
+      "precision_checks": [
+        {
+          "id": "s1p1",
+          "type": "file_exists",
+          "label": "package.json created",
+          "file": "my-react-app/package.json"
+        }
+      ],
+      "targets": [
+        {
+          "app": "Terminal",
+          "match": "npm run dev",
+          "caption": "Start the Vite development server inside my-react-app"
+        }
+      ],
+      "explanations": [
+        {
+          "topic": "Using Vite instead of create-react-app",
+          "t": 215.0,
+          "sourceId": "src1"
+        },
+        {
+          "topic": "Restarting the Vite dev server",
+          "t": 301.0,
+          "sourceId": "src1"
+        }
+      ],
+      "hints": [
+        "Make sure you opened the integrated terminal inside your project folder before scaffolding.",
+        "After npm create vite@latest finishes, run cd my-react-app before running npm install.",
+        "Run npm run dev and open the printed http://localhost:5173/ URL in your browser."
+      ],
+      "common_mistakes": [
+        "Running npm install or npm run dev in the parent folder instead of cd my-react-app.",
+        "Selecting TypeScript instead of JavaScript when prompted for a variant."
+      ]
+    },
+    {
+      "id": "s2",
+      "index": 2,
+      "title": "Clean up sample App component",
+      "instructions": "Delete the sample code inside function App() and remove unused imports at the top of src/App.jsx. Delete src/App.css if present.",
+      "video": {
+        "sourceId": "src1",
+        "start": 517.0,
+        "end": 546.0
+      },
+      "checks": [
+        {
+          "id": "s2c1",
+          "type": "screen_contains",
+          "label": "App function defined",
+          "app": "Code",
+          "pattern": "function\\s+App"
+        },
+        {
+          "id": "s2c2",
+          "type": "screen_contains",
+          "label": "App exported as default",
+          "app": "Code",
+          "pattern": "export\\s+default\\s+App"
+        },
+        {
+          "id": "s2c3",
+          "type": "screen_absent",
+          "label": "Sample useState removed",
+          "app": "Code",
+          "pattern": "useState\\(0\\)"
+        }
+      ],
+      "precision_checks": [
+        {
+          "id": "s2p1",
+          "type": "file_contains",
+          "label": "App exported as default",
+          "file": "my-react-app/src/App.jsx",
+          "pattern": "export\\s+default\\s+App"
+        }
+      ],
+      "targets": [
+        {
+          "app": "Code",
+          "file": "src/App.jsx",
+          "match": "export default App",
+          "caption": "Keep only the empty App function and default export"
+        }
+      ],
+      "explanations": [
+        {
+          "topic": "Role of App.jsx as the root component",
+          "t": 440.0,
+          "sourceId": "src1"
+        }
+      ],
+      "hints": [
+        "Remove the entire body of function App() so the starter counter disappears.",
+        "Delete the four import lines at the top of src/App.jsx as well.",
+        "Leave export default App at the bottom and delete src/App.css."
+      ],
+      "common_mistakes": [
+        "Accidentally deleting export default App, which breaks the import in main.jsx.",
+        "Leaving unused imports for App.css after deleting the stylesheet file."
+      ]
+    },
+    {
+      "id": "s3",
+      "index": 3,
+      "title": "Create and render Header component",
+      "instructions": "Create src/Header.jsx defining a Header function that returns <header><h1>My website</h1></header> and exports Header as default. Import Header into src/App.jsx and return <Header/>.",
+      "video": {
+        "sourceId": "src1",
+        "start": 555.0,
+        "end": 699.0
+      },
+      "checks": [
+        {
+          "id": "s3c1",
+          "type": "screen_contains",
+          "label": "Header imported in App",
+          "app": "Code",
+          "pattern": "import\\s+Header"
+        },
+        {
+          "id": "s3c2",
+          "type": "screen_contains",
+          "label": "Header component rendered",
+          "app": "Code",
+          "pattern": "<Header"
+        }
+      ],
+      "precision_checks": [
+        {
+          "id": "s3p1",
+          "type": "file_exists",
+          "label": "Header file exists",
+          "file": "my-react-app/src/Header.jsx"
+        },
+        {
+          "id": "s3p2",
+          "type": "file_contains",
+          "label": "Header imported in App",
+          "file": "my-react-app/src/App.jsx",
+          "pattern": "import\\s+Header"
+        }
+      ],
+      "targets": [
+        {
+          "app": "Code",
+          "file": "src/App.jsx",
+          "match": "<Header/>",
+          "caption": "Import and render the Header component inside App"
+        }
+      ],
+      "explanations": [
+        {
+          "topic": "Returning a single root element from a component",
+          "t": 613.0,
+          "sourceId": "src1"
+        },
+        {
+          "topic": "Self-closing component tag shorthand",
+          "t": 689.0,
+          "sourceId": "src1"
+        }
+      ],
+      "hints": [
+        "Component file and function names should start with an uppercase letter: Header.jsx and function Header().",
+        "Make sure src/Header.jsx ends with export default Header and is saved.",
+        "In src/App.jsx, add import Header from './Header.jsx' and return <Header/> inside App()."
+      ],
+      "common_mistakes": [
+        "Using lowercase <header/> instead of <Header/> in App.jsx, which renders an HTML header tag instead of your component.",
+        "Forgetting to save Header.jsx before checking the browser."
+      ]
+    },
+    {
+      "id": "s4",
+      "index": 4,
+      "title": "Add navigation links to Header",
+      "instructions": "Inside src/Header.jsx, add a <nav> element containing a <ul> with four <li><a href=\"#\">...</a></li> items for Home, About, Services, and Contact. Add an <hr> element after </nav>.",
+      "video": {
+        "sourceId": "src1",
+        "start": 700.0,
+        "end": 783.0
+      },
+      "checks": [
+        {
+          "id": "s4c1",
+          "type": "screen_contains",
+          "label": "Nav element added",
+          "app": "Code",
+          "pattern": "<nav>"
+        },
+        {
+          "id": "s4c2",
+          "type": "screen_contains",
+          "label": "Anchor link for Home",
+          "app": "Code",
+          "pattern": "Home"
+        },
+        {
+          "id": "s4c3",
+          "type": "screen_contains",
+          "label": "Horizontal rule added",
+          "app": "Code",
+          "pattern": "<hr"
+        }
+      ],
+      "precision_checks": [
+        {
+          "id": "s4p1",
+          "type": "file_contains",
+          "label": "Nav element in Header",
+          "file": "my-react-app/src/Header.jsx",
+          "pattern": "<nav>"
+        }
+      ],
+      "targets": [
+        {
+          "app": "Code",
+          "file": "src/Header.jsx",
+          "match": "<nav>",
+          "caption": "Add navigation list and horizontal rule inside header"
+        }
+      ],
+      "explanations": [
+        {
+          "topic": "Nesting children elements inside a single parent <header>",
+          "t": 617.0,
+          "sourceId": "src1"
+        }
+      ],
+      "hints": [
+        "Place <nav> and <hr></hr> inside the existing <header>...</header> wrapper.",
+        "Wrap each link text inside <a href=\"#\">...</a> nested within <li>...</li>.",
+        "Ensure all tags are properly closed in JSX, including <hr></hr> or <hr />."
+      ],
+      "common_mistakes": [
+        "Placing <hr> outside the <header> element, causing a JSX multiple-root-elements error.",
+        "Writing an unclosed <hr> tag instead of <hr></hr> or <hr /> in JSX."
+      ]
+    },
+    {
+      "id": "s5",
+      "index": 5,
+      "title": "Create the Footer component",
+      "instructions": "Create src/Footer.jsx with a Footer function that returns <footer><p>&copy; Your website name</p></footer>. Export Footer as the default export.",
+      "video": {
+        "sourceId": "src1",
+        "start": 811.0,
+        "end": 884.0
+      },
+      "checks": [
+        {
+          "id": "s5c1",
+          "type": "screen_contains",
+          "label": "Footer function defined",
+          "app": "Code",
+          "pattern": "function\\s+Footer"
+        },
+        {
+          "id": "s5c2",
+          "type": "screen_contains",
+          "label": "Copyright text added",
+          "app": "Code",
+          "pattern": "Your\\s+website\\s+name"
+        },
+        {
+          "id": "s5c3",
+          "type": "screen_contains",
+          "label": "Footer exported as default",
+          "app": "Code",
+          "pattern": "export\\s+default\\s+Footer"
+        }
+      ],
+      "precision_checks": [
+        {
+          "id": "s5p1",
+          "type": "file_exists",
+          "label": "Footer file exists",
+          "file": "my-react-app/src/Footer.jsx"
+        }
+      ],
+      "targets": [
+        {
+          "app": "Code",
+          "file": "src/Footer.jsx",
+          "match": "function Footer()",
+          "caption": "Define and export the Footer component"
+        }
+      ],
+      "explanations": [],
+      "hints": [
+        "Create a new file named Footer.jsx inside the src folder.",
+        "Return a single <footer> element containing a <p> tag with &copy; Your website name.",
+        "Add export default Footer at the bottom of the file."
+      ],
+      "common_mistakes": [
+        "Forgetting the semicolon in the HTML entity &copy;.",
+        "Forgetting export default Footer, preventing App.jsx from importing it."
+      ]
+    },
+    {
+      "id": "s6",
+      "index": 6,
+      "title": "Render Footer inside a fragment",
+      "instructions": "Import Footer in src/App.jsx and place <Footer/> below <Header/>. Wrap both components in a React fragment <>...</> so App returns a single enclosing tag.",
+      "video": {
+        "sourceId": "src1",
+        "start": 885.0,
+        "end": 948.0
+      },
+      "checks": [
+        {
+          "id": "s6c1",
+          "type": "screen_contains",
+          "label": "Footer imported in App",
+          "app": "Code",
+          "pattern": "import\\s+Footer"
+        },
+        {
+          "id": "s6c2",
+          "type": "screen_contains",
+          "label": "Footer component rendered",
+          "app": "Code",
+          "pattern": "<Footer"
+        },
+        {
+          "id": "s6c3",
+          "type": "screen_contains",
+          "label": "Wrapped in JSX fragment",
+          "app": "Code",
+          "pattern": "<>"
+        }
+      ],
+      "precision_checks": [
+        {
+          "id": "s6p1",
+          "type": "file_contains",
+          "label": "Footer component rendered",
+          "file": "my-react-app/src/App.jsx",
+          "pattern": "<Footer"
+        }
+      ],
+      "targets": [
+        {
+          "app": "Code",
+          "file": "src/App.jsx",
+          "match": "<>",
+          "caption": "Wrap sibling components in an empty JSX fragment"
+        }
+      ],
+      "explanations": [
+        {
+          "topic": "Fixing adjacent JSX elements error with fragments",
+          "t": 910.0,
+          "sourceId": "src1"
+        }
+      ],
+      "hints": [
+        "Returning <Header/> and <Footer/> side by side without a parent causes a Babel syntax error.",
+        "Enclose both <Header/> and <Footer/> inside an empty tag pair <> and </>.",
+        "Check that import Footer from './Footer.jsx' is present at the top of App.jsx."
+      ],
+      "common_mistakes": [
+        "Returning adjacent JSX elements (<Header/> and <Footer/>) without wrapping them in <>...</>.",
+        "Typing an extra opening <> instead of closing with </>."
+      ]
+    },
+    {
+      "id": "s7",
+      "index": 7,
+      "title": "Display dynamic year in Footer",
+      "instructions": "Edit src/Footer.jsx to embed {new Date().getFullYear()} inside the <p> element between &copy; and Your website name.",
+      "video": {
+        "sourceId": "src1",
+        "start": 950.0,
+        "end": 990.0
+      },
+      "checks": [
+        {
+          "id": "s7c1",
+          "type": "screen_contains",
+          "label": "getFullYear method called",
+          "app": "Code",
+          "pattern": "getFullYear"
+        }
+      ],
+      "precision_checks": [
+        {
+          "id": "s7p1",
+          "type": "file_contains",
+          "label": "Dynamic year in Footer",
+          "file": "my-react-app/src/Footer.jsx",
+          "pattern": "getFullYear"
+        }
+      ],
+      "targets": [
+        {
+          "app": "Code",
+          "file": "src/Footer.jsx",
+          "match": "getFullYear()",
+          "caption": "Embed JavaScript inside JSX using curly braces"
+        }
+      ],
+      "explanations": [
+        {
+          "topic": "Inserting JavaScript inside JSX return with curly braces",
+          "t": 956.0,
+          "sourceId": "src1"
+        }
+      ],
+      "hints": [
+        "Use curly braces {} inside JSX whenever you want to evaluate JavaScript.",
+        "Call new Date().getFullYear() inside the curly braces.",
+        "Your paragraph line should read: <p>&copy; {new Date().getFullYear()} Your website name</p>."
+      ],
+      "common_mistakes": [
+        "Omitting curly braces so new Date().getFullYear() renders as literal text.",
+        "Omitting parentheses on Date() or getFullYear()."
+      ]
+    },
+    {
+      "id": "s8",
+      "index": 8,
+      "title": "Create and render Food component",
+      "instructions": "Create src/Food.jsx defining food1 and food2 constants, returning a <ul> with Apple, {food1}, and {food2.toUpperCase()}, and export Food. Import and render <Food/> between <Header/> and <Footer/> in src/App.jsx.",
+      "video": {
+        "sourceId": "src1",
+        "start": 993.0,
+        "end": 1160.0
+      },
+      "checks": [
+        {
+          "id": "s8c1",
+          "type": "screen_contains",
+          "label": "Food function defined",
+          "app": "Code",
+          "pattern": "function\\s+Food"
+        },
+        {
+          "id": "s8c2",
+          "type": "screen_contains",
+          "label": "food1 variable embedded",
+          "app": "Code",
+          "pattern": "food1"
+        },
+        {
+          "id": "s8c3",
+          "type": "screen_contains",
+          "label": "toUpperCase method called",
+          "app": "Code",
+          "pattern": "toUpperCase"
+        },
+        {
+          "id": "s8c4",
+          "type": "screen_contains",
+          "label": "Food exported as default",
+          "app": "Code",
+          "pattern": "export\\s+default\\s+Food"
+        }
+      ],
+      "precision_checks": [
+        {
+          "id": "s8p1",
+          "type": "file_exists",
+          "label": "Food file exists",
+          "file": "my-react-app/src/Food.jsx"
+        }
+      ],
+      "targets": [
+        {
+          "app": "Code",
+          "file": "src/Food.jsx",
+          "match": "food2.toUpperCase()",
+          "caption": "Use JS variables and string methods inside JSX curly braces"
+        }
+      ],
+      "explanations": [
+        {
+          "topic": "Writing JavaScript outside return vs curly braces inside return",
+          "t": 1033.0,
+          "sourceId": "src1"
+        }
+      ],
+      "hints": [
+        "Declare const food1 = \"Orange\"; and const food2 = \"Banana\"; above the return statement.",
+        "Import Food from './Food.jsx' in App.jsx and place <Food/> between <Header/> and <Footer/>.",
+        "Wrap food1 and food2.toUpperCase() in {} inside their <li> tags."
+      ],
+      "common_mistakes": [
+        "Writing <li>food1</li> without curly braces, which prints the literal word food1.",
+        "Misspelling toUpperCase() or forgetting the trailing parentheses ()."
+      ]
+    }
+  ],
+  "build": {
+    "adapted": true,
+    "models": {
+      "video": "gemini-4-hydrogen",
+      "detail+adapt": "gemini-3.6-flash"
+    },
+    "seconds": 77.5,
+    "workdir_metrics": [],
+    "warnings": []
+  }
+}

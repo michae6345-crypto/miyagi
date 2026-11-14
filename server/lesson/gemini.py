@@ -102,6 +102,8 @@ def _classify(e: Exception) -> tuple[str, float]:
     """-> (kind, wait_seconds). kind: 'daily'/'gone' (skip model), 'rate' (wait, same model), 'busy', 'other'."""
     msg = str(e)
     code = getattr(e, "code", None)
+    if code in (401, 403) or "PERMISSION_DENIED" in msg or "UNAUTHENTICATED" in msg or "API_KEY_INVALID" in msg:
+        return "auth", 0.0
     if code == 404 or "NOT_FOUND" in msg:
         return "gone", 0.0
     if code == 429 or "RESOURCE_EXHAUSTED" in msg:
@@ -137,6 +139,8 @@ async def _generate_json(model_id: str, parts: list[types.Part], schema: dict, *
             except Exception as e:  # noqa: BLE001  network / 429 / 5xx
                 last = e
                 kind, wait = _classify(e)
+                if kind == "auth":  # bad/blocked key: every model will fail the same way
+                    raise RuntimeError(f"Gemini rejected the API key: {str(e)[:200]}") from e
                 if kind in ("daily", "gone"):
                     _exhausted.add(mid)
                     log.warning("%s: %s, trying next model", mid, "daily quota exhausted" if kind == "daily" else "model not available")

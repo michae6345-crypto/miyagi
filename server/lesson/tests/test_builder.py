@@ -176,6 +176,7 @@ def test_adapt_failure_falls_back_to_draft_and_says_so(fake, monkeypatch):
     monkeypatch.setattr(gemini, "watch_video", lambda *a, **k: _async(draft))
     g = asyncio.run(builder.build_lesson(URL, "train a PINN", WORKDIR, refresh=True))
     assert g["build"]["adapted"] is False and g["build"]["warnings"][0].startswith("adapt pass failed")
+    assert not (builder.CACHE_DIR / f"{builder.cache_key(URL, 'train a PINN', WORKDIR)}.json").exists()  # not cached
     pinn = g["steps"][1]
     assert [c["type"] for c in pinn["checks"]] == ["screen_contains"] and [c["type"] for c in pinn["precision_checks"]] == ["file_contains"]
 
@@ -196,6 +197,7 @@ def test_classify_quota_errors():
     assert kind == "rate" and 20 < wait < 22
     assert gemini._classify(RuntimeError("503 UNAVAILABLE high demand"))[0] == "busy"
     assert gemini._classify(RuntimeError("404 NOT_FOUND no longer available to new users"))[0] == "gone"
+    assert gemini._classify(RuntimeError("403 PERMISSION_DENIED"))[0] == "auth"
 
 
 def test_precision_metric_check_is_promoted_with_protocol_pattern():
@@ -217,3 +219,40 @@ def test_literal_code_pasted_as_regex_is_escaped():
         assert not builder.looks_like_literal(ok), ok
     p = builder.literal_pattern("lhs(2, Nf)")
     assert re.search(p, "torch.from_numpy(lhs(2, Nf))") and re.search(p, "lhs(2,Nf)")
+
+
+def test_community_signals_attach_to_the_right_step(monkeypatch):
+    import sys
+    import types as pytypes
+
+    mod = pytypes.ModuleType("server.finder.web")
+
+    async def community_signals(url):
+        return [{"t": "16:40", "text": "create_graph=True is required or the 2nd derivative is None", "source": "YouTube comments"},
+                {"timestamp": 5, "text": "ignored: before any step"}, {"t": 970}]
+
+    mod.community_signals = community_signals
+    monkeypatch.setitem(sys.modules, "server.finder.web", mod)
+    g = {"steps": [{"id": "s1", "video": {"start": 902, "end": 1096}, "common_mistakes": []}]}
+    assert asyncio.run(builder.add_community_mistakes(g, URL)) == 1
+    assert g["steps"][0]["common_mistakes"] == ["create_graph=True is required or the 2nd derivative is None (at 16:40, YouTube comments)"]
+
+
+def test_cache_key_tracks_workdir_layout_not_contents(tmp_path):
+    a = tmp_path / "proj"
+    a.mkdir()
+    (a / "main.py").write_text("print(1)")
+    k1 = builder.cache_key(URL, "goal", str(a))
+    (a / "main.py").write_text("print(2)  # learner edit")
+    assert builder.cache_key(URL, "goal", str(a)) == k1
+    (a / "util.py").write_text("")
+    assert builder.cache_key(URL, "goal", str(a)) != k1
+
+
+def test_detail_failures_become_warnings(fake, monkeypatch):
+    async def flaky(url, start, end, title, fps=2.0):
+        raise RuntimeError("503 UNAVAILABLE")
+
+    monkeypatch.setattr(gemini, "step_detail", flaky)
+    g = asyncio.run(builder.build_lesson(URL, "train a PINN", WORKDIR, refresh=True, detail=True))
+    assert sum(w.startswith(("s1: clip", "s2: clip", "s3: clip")) for w in g["build"]["warnings"]) == 3

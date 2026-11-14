@@ -53,14 +53,18 @@ async def build_lesson(
     the cheap adapt pass (e.g. after the workdir changed or an adapt pass ran out of quota).
     detail: per-step clip pass at 2 fps (costs one request per step; off by default on the free tier).
 
-    Cached at demo/cache/lessons/<hash>.json; the cache wins unless refresh=True, so the
-    demo never waits on Gemini. The hash covers the video, the goal and the workdir *name*
-    (not its absolute path or contents, so the cache survives other laptops and edits).
+    Cached at demo/cache/lessons/<hash>.json; the cache wins unless refresh/readapt, so the
+    demo never waits on Gemini. The hash covers the video, the goal, the workdir folder name and
+    a fingerprint of its file names + printed ::metric:: names (not the absolute path or file
+    contents, so the cache survives other laptops and the learner's edits, but a different
+    project layout gets checks adapted to it). A graph whose adapt pass failed is returned
+    with build.adapted=False and is NOT cached (the video draft is, so a retry is cheap).
     """
     vid = gemini.youtube_id(source_url)
     if not vid:
         raise ValueError(f"only YouTube sources are supported for now: {source_url!r}")
-    key = cache_key(source_url, goal, workdir)
+    info = scan(workdir)
+    key = cache_key(source_url, goal, workdir, info)
     path = CACHE_DIR / f"{key}.json"
     if path.is_file() and not (refresh or readapt):
         graph = json.loads(path.read_text())
@@ -72,10 +76,11 @@ async def build_lesson(
         gemini.set_api_key(api_key)
     t0 = time.time()
     draft = await _video_draft(source_url, vid, goal, refresh=refresh, detail=detail)
-    info = scan(workdir)
     graph, warnings, adapted_ok = await _adapt(draft, goal, info)
+    warnings = list(draft.get("detail_failures") or []) + warnings
     if not adapted_ok:
-        warnings = ["adapt pass failed (quota?): checks come from the video draft, not the learner's workdir; rerun with readapt=True"] + warnings
+        warnings = ["adapt pass failed (quota?): checks come from the video draft, not the learner's workdir; not cached, retry with readapt=True"] + warnings
+    n_signals = await add_community_mistakes(graph, source_url)
     graph["lesson"]["id"] = f"lesson-{key[:8]}"
     graph["lesson"]["workdir"] = workdir
     graph["sources"] = [{"id": "src1", "kind": "video", "title": draft.get("title") or "Tutorial", "url": source_url, "videoId": vid}]
@@ -84,22 +89,59 @@ async def build_lesson(
         "models": {"video": gemini.model(), "detail+adapt": gemini.model(fast=True)},
         "seconds": round(time.time() - t0, 1),
         "workdir_metrics": sorted(info.metrics),
+        "community_signals": n_signals,
         "warnings": warnings,
     }
     errs = schema_errors(graph)
     if errs:
         raise RuntimeError("step graph failed contract validation:\n" + "\n".join(errs))
+    if not adapted_ok:
+        log.warning("lesson built in %.1fs WITHOUT adapt pass; not cached", time.time() - t0)
+        return graph
     CACHE_DIR.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(graph, indent=2))
     log.info("lesson built in %.1fs -> %s (%d warnings)", time.time() - t0, path, len(warnings))
     return graph
 
 
-def cache_key(source_url: str, goal: str, workdir: str) -> str:
+async def add_community_mistakes(graph: dict, source_url: str) -> int:
+    """Attach timestamped community reports (YouTube comments, Stack Overflow, Reddit, GitHub issues)
+    from server.finder.web.community_signals (E7) to the step they happened in, as common_mistakes.
+    Optional: skipped silently until that module exists or if it fails. Accepts items shaped like
+    {"t"|"timestamp": seconds or "MM:SS", "text"|"mistake": str, "source"?: str, "url"?: str}."""
+    try:
+        from server.finder.web import community_signals  # type: ignore[import-not-found]
+    except ImportError:
+        return 0
+    try:
+        res = community_signals(source_url)
+        items = (await res if asyncio.iscoroutine(res) else res) or []
+    except Exception as e:  # noqa: BLE001  live-web enrichment must never break a build
+        log.warning("community_signals failed: %s", e)
+        return 0
+    added = 0
+    for it in items:
+        t = parse_ts(it.get("t", it.get("timestamp")))
+        text = (it.get("text") or it.get("mistake") or "").strip()
+        if t is None or not text:
+            continue
+        for step in graph["steps"]:
+            v = step.get("video") or {}
+            if v.get("start", 0) <= t < v.get("end", 0):
+                src = f", {it['source']}" if it.get("source") else ""
+                step.setdefault("common_mistakes", []).append(f"{text[:200]} (at {int(t) // 60}:{int(t) % 60:02d}{src})")
+                added += 1
+                break
+    return added
+
+
+def cache_key(source_url: str, goal: str, workdir: str, info: WorkdirInfo | None = None) -> str:
     vid = gemini.youtube_id(source_url) or source_url
     norm_goal = " ".join(goal.lower().split())
     name = Path(workdir).expanduser().resolve().name
-    return hashlib.sha256(json.dumps([vid, norm_goal, name]).encode()).hexdigest()[:16]
+    info = info or scan(workdir)
+    fingerprint = [sorted(info.files), sorted(info.metrics)]
+    return hashlib.sha256(json.dumps([vid, norm_goal, name, fingerprint]).encode()).hexdigest()[:16]
 
 
 # --------------------------------------------------------------------------- #
@@ -139,8 +181,9 @@ async def _add_detail(url: str, draft: dict) -> None:
         async with sem:
             try:
                 d = await gemini.step_detail(url, step["start"], step["end"], step["title"])
-            except Exception as e:  # detail is an enhancement; never fail the build on it
+            except Exception as e:  # noqa: BLE001  detail is an enhancement; never fail the build on it
                 log.warning("detail pass failed for step %s: %s", step["index"], e)
+                draft.setdefault("detail_failures", []).append(f"s{step['index']}: clip pass failed ({str(e)[:120]})")
                 return
         if len(d.get("code") or "") > len(step.get("code") or ""):
             step["code"] = d["code"]

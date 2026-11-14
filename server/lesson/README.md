@@ -32,8 +32,10 @@ a short on-screen `match` ("def lossPDE"). Extra top-level `build` = models, tim
    file checks to `precision_checks`, drops what's still broken, falls back to a literal screen match of the
    step's target, and lists anything left in `build.warnings`. Metric checks on `::metric::` names the workdir
    really prints get the protocol `metric_pattern` filled in deterministically (`complete_metric_checks`).
-5. **Cache**: `demo/cache/lessons/<hash>.json`, hash = (video id, normalized goal, workdir folder name),
-   so the cache survives other laptops and learner edits. The video-only draft is cached in
+5. **Cache**: `demo/cache/lessons/<hash>.json`, hash = (video id, normalized goal, workdir folder name,
+   fingerprint of its file names + printed `::metric::` names), so the cache survives other laptops and
+   learner edits but re-adapts when the project layout changes. A graph whose adapt pass failed comes
+   back with `build.adapted=false` and a leading warning and is **not** cached. The video-only draft is cached in
    `demo/cache/lessons/raw/` so re-adapting to a new workdir costs one cheap text call.
 
 Models: `LESSON_MODEL` (video pass, default `gemini-4-hydrogen`), `LESSON_FAST_MODEL`

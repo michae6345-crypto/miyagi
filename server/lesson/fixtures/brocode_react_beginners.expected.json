@@ -1,0 +1,212 @@
+{
+  "_notes": "Hand-written expected graph for precision reports. Step bounds = the video's chapter marks (chapter start -> next chapter start); intros, theory-only chapters and outros are not steps. Checks are the screen evidence a grader would expect; no `solution` code (presenter's exact code not transcribed), so the report measures segmentation and check types for this fixture.",
+  "lesson": {
+    "id": "expected-brocode_react_beginners",
+    "title": "React tutorial for beginners",
+    "goal": "learn React basics by building components",
+    "libraries": {
+      "react": "18.x",
+      "vite": "4.x"
+    }
+  },
+  "sources": [
+    {
+      "id": "src1",
+      "kind": "video",
+      "title": "React tutorial for beginners",
+      "url": "https://www.youtube.com/watch?v=hn80mWvP-9g",
+      "videoId": "hn80mWvP-9g"
+    }
+  ],
+  "steps": [
+    {
+      "id": "s1",
+      "index": 1,
+      "title": "Install Node and VS Code",
+      "instructions": "Install Node.js and confirm it works in the terminal.",
+      "video": {
+        "sourceId": "src1",
+        "start": 101,
+        "end": 168
+      },
+      "checks": [
+        {
+          "type": "screen_contains",
+          "label": "node installed",
+          "app": "Terminal",
+          "pattern": "v\\d+\\.\\d+",
+          "id": "s1c1"
+        }
+      ],
+      "targets": [],
+      "hints": [],
+      "common_mistakes": []
+    },
+    {
+      "id": "s2",
+      "index": 2,
+      "title": "Create a Vite React project",
+      "instructions": "Scaffold a React project with Vite, install dependencies and start the dev server.",
+      "video": {
+        "sourceId": "src1",
+        "start": 168,
+        "end": 300
+      },
+      "checks": [
+        {
+          "type": "screen_contains",
+          "label": "vite project created",
+          "app": "Terminal",
+          "pattern": "npm\\s+create\\s+vite|create-vite",
+          "id": "s2c1"
+        },
+        {
+          "type": "screen_contains",
+          "label": "dev server running",
+          "app": "Terminal",
+          "pattern": "localhost:\\d+",
+          "id": "s2c2"
+        }
+      ],
+      "targets": [],
+      "hints": [],
+      "common_mistakes": []
+    },
+    {
+      "id": "s3",
+      "index": 3,
+      "title": "Restart the dev server",
+      "instructions": "Stop the dev server and start it again with npm run dev.",
+      "video": {
+        "sourceId": "src1",
+        "start": 300,
+        "end": 336
+      },
+      "checks": [
+        {
+          "type": "screen_contains",
+          "label": "npm run dev",
+          "app": "Terminal",
+          "pattern": "npm\\s+run\\s+dev",
+          "id": "s3c1"
+        }
+      ],
+      "targets": [],
+      "hints": [],
+      "common_mistakes": []
+    },
+    {
+      "id": "s4",
+      "index": 4,
+      "title": "Edit the App component",
+      "instructions": "Open App.jsx and return your own JSX from the App component.",
+      "video": {
+        "sourceId": "src1",
+        "start": 493,
+        "end": 554
+      },
+      "checks": [
+        {
+          "type": "screen_contains",
+          "label": "App component",
+          "app": "Code",
+          "pattern": "function\\s+App\\(",
+          "id": "s4c1"
+        }
+      ],
+      "targets": [],
+      "hints": [],
+      "common_mistakes": []
+    },
+    {
+      "id": "s5",
+      "index": 5,
+      "title": "Create a Header component",
+      "instructions": "Create Header.jsx with a header element, export it and render it in App.",
+      "video": {
+        "sourceId": "src1",
+        "start": 554,
+        "end": 810
+      },
+      "checks": [
+        {
+          "type": "screen_contains",
+          "label": "Header defined",
+          "app": "Code",
+          "pattern": "function\\s+Header\\(",
+          "id": "s5c1"
+        },
+        {
+          "type": "screen_contains",
+          "label": "Header rendered",
+          "app": "Code",
+          "pattern": "<Header\\s*/>",
+          "id": "s5c2"
+        }
+      ],
+      "targets": [],
+      "hints": [],
+      "common_mistakes": []
+    },
+    {
+      "id": "s6",
+      "index": 6,
+      "title": "Create a Footer component",
+      "instructions": "Create Footer.jsx with a footer showing the current year and render it in App.",
+      "video": {
+        "sourceId": "src1",
+        "start": 810,
+        "end": 992
+      },
+      "checks": [
+        {
+          "type": "screen_contains",
+          "label": "Footer defined",
+          "app": "Code",
+          "pattern": "function\\s+Footer\\(",
+          "id": "s6c1"
+        },
+        {
+          "type": "screen_contains",
+          "label": "Footer rendered",
+          "app": "Code",
+          "pattern": "<Footer\\s*/>",
+          "id": "s6c2"
+        }
+      ],
+      "targets": [],
+      "hints": [],
+      "common_mistakes": []
+    },
+    {
+      "id": "s7",
+      "index": 7,
+      "title": "Create a Food component",
+      "instructions": "Create Food.jsx that renders a list of foods and render it in App.",
+      "video": {
+        "sourceId": "src1",
+        "start": 992,
+        "end": 1162
+      },
+      "checks": [
+        {
+          "type": "screen_contains",
+          "label": "Food defined",
+          "app": "Code",
+          "pattern": "function\\s+Food\\(",
+          "id": "s7c1"
+        },
+        {
+          "type": "screen_contains",
+          "label": "Food rendered",
+          "app": "Code",
+          "pattern": "<Food\\s*/>",
+          "id": "s7c2"
+        }
+      ],
+      "targets": [],
+      "hints": [],
+      "common_mistakes": []
+    }
+  ]
+}
