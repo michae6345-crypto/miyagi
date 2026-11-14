@@ -382,3 +382,34 @@ def test_brightdata_target_failure_is_an_error(monkeypatch):
 
     with pytest.raises(brightdata.BrightDataError, match="target HTTP 502"):
         asyncio.run(go())
+
+
+def test_no_code_video_never_leads_a_coding_goal(offline, monkeypatch):
+    """Michael's live run: a no-code 'AI agents with Zapier' video was offered for 'build an LLM'."""
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "test-anthropic")
+    vids = youtube.parse_search(YT)
+    trap = vids[0]["videoId"]  # pretend the first (most popular) video is the keyword-sharing no-code one
+
+    async def claude_score(key, goal, cands, **kw):
+        out = {}
+        for c in cands:
+            if c["id"] == f"yt-{trap}":
+                out[c["id"]] = {"score": 95, "reason": "Shares keywords only, no-code tool", "style": "no-code", "goal_is_coding": True}
+            else:
+                out[c["id"]] = {"score": 70, "reason": "Implements it in code", "style": "coding", "goal_is_coding": True}
+        return out
+
+    async def nothing(*a, **kw):
+        raise RuntimeError("off in this test")
+
+    async def no_source(ctx, q, **kw):
+        return []
+
+    monkeypatch.setattr(claude, "score", claude_score)
+    monkeypatch.setattr(claude, "read", nothing)
+    monkeypatch.setattr(sources, "claude_search", no_source)
+    rows = asyncio.run(search("build an LLM from scratch", use_cache=False))
+    trap_row = next(r for r in rows if r["id"] == f"yt-{trap}")
+    assert trap_row["score"] <= 35 and trap_row["style"] == "no-code"
+    assert rows[0]["kind"] == "video" and rows[0]["style"] == "coding" and rows[0]["id"] != trap_row["id"]
+    assert all("durationLabel" in r for r in rows if r["kind"] == "video")
