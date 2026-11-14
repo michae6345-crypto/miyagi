@@ -42,8 +42,9 @@ export interface EngineEvents {
   "video.seek": { t: number; play: boolean };
   "video.pause": {};
   "video.play": {};
-  "card": { stepId?: string; kind: "explain" | "hint" | "answer" | "resume"; title: string; body: string; videoJump?: { t: number; label: string };
-            actions?: Array<"confirm" | "undo" | "apply_fix" | "open_editor" | "resume" | "end_lesson">;    // buttons on the card -> send `action {kind}`
+  "card": { stepId?: string; kind: "explain" | "hint" | "answer" | "resume" | "setup"; title: string; body: string; videoJump?: { t: number; label: string };
+            actions?: Array<"confirm" | "undo" | "apply_fix" | "open_editor" | "resume" | "end_lesson" | "install" | "skip_setup">;    // buttons on the card -> send `action {kind}`
+            setup?: { editorNeeded: boolean; items: SetupItem[] };   // kind "setup": what the lesson needs on this Mac (one Install button per missing item -> action install {text: tool})
             diff?: string;               // unified diff to preview ("Apply this fix?" -> confirm)
             targets?: Array<{ boxId: number; label: string; text: string; rect: { x: number; y: number; w: number; h: number } }>;
             guidingQuestion?: string };
@@ -60,9 +61,18 @@ export interface EngineEvents {
   "speak": { audioUrl: string; text: string };
   "metric": { runId: string; step: number; name: string; value: number };   // live curve feed
   "status": { state: "idle" | "watching" | "offtrack" | "passed" | "thinking" };
+  /** install progress for one setup item (action install): lines while it runs, then {done, ok, error|version|url} */
+  "setup.progress": { tool: string; line?: string; done?: boolean; ok?: boolean; error?: string; url?: string; version?: string };
   /** the lesson was ended (end_lesson, a new learn, or POST /end): clear the pill, video, spotlight and cards */
   "lesson.ended": { lessonId?: string; reason: string };
   "error": { message: string };
+}
+
+/** one tool a lesson needs (server/workspace setup check). For install.method "download" the app opens install.url instead of sending `install`. */
+export interface SetupItem {
+  tool: string; label: string; kind: "editor" | "app" | "runtime" | "cli" | "python_package"; why: string;
+  needed: boolean; installed: boolean; ok: boolean; version?: string; minVersion?: string;
+  install: { method: "brew" | "brew_cask" | "pip" | "download" | "none"; command?: string; url?: string };
 }
 
 /** kind "graph": nodes on a fixed grid (the app maps (col,row) to pixels); reference renderer: server/diagrams/render_svg.py */
@@ -82,7 +92,7 @@ export interface AppCommands {
   "learn": { query: string };                       // launcher text
   "learn_url": { url: string };                     // pasted YouTube link
   "build_lesson": { resultIds: string[] };
-  "action": { kind: "back" | "explain" | "diagram" | "show_me" | "hint" | "voice_toggle" | "ask" | "apply_fix" | "confirm" | "undo" | "open_editor" | "resume" | "end_lesson"; text?: string };  // resume / end_lesson: the "Continue where you left off?" card  // open_editor: the learner accepted "Open VS Code?"  // confirm: "Looks done?" card; undo: revert the last "Do it for me"
+  "action": { kind: "back" | "explain" | "diagram" | "show_me" | "hint" | "voice_toggle" | "ask" | "apply_fix" | "confirm" | "undo" | "open_editor" | "resume" | "end_lesson" | "install" | "skip_setup"; text?: string };  // install: text = setup item tool id  // resume / end_lesson: the "Continue where you left off?" card  // open_editor: the learner accepted "Open VS Code?"  // confirm: "Looks done?" card; undo: revert the last "Do it for me"
   "video.state": { t: number; playing: boolean };   // player reports its position
   "end_lesson": {};                                  // stop everything; the engine answers lesson.ended + status idle
   "overlay.bounds": { rects: Array<{ x: number; y: number; w: number; h: number }> };

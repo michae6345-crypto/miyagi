@@ -124,19 +124,40 @@ def needs_editor(graph: dict) -> bool:
     return files
 
 
-def requirements(graph: dict, folder: str) -> dict | None:
-    """S2's requirements check, if server.workspace provides one:
-    {needs_editor: bool, title?, summary?, items?: [{name, installed, install?}]}. Else None."""
+def requirements(graph: dict, folder: str) -> list[dict] | None:
+    """S2's setup check: the lesson's tools, each checked on this Mac (read-only; Claude haiku, cached per
+    lesson). None when S2's module isn't available; [] when it couldn't tell (no key / error). Blocking: run
+    it in a thread."""
     ws = _s2()
     fn = getattr(ws, "requirements", None) if ws is not None else None
     if fn is None:
         return None
     try:
-        out = fn(graph, folder)
-        return dict(out) if out else None
+        return list(fn(graph, workdir=folder) or [])
     except Exception:  # noqa: BLE001
         log.exception("workspace.requirements failed")
-        return None
+        return []
+
+
+def setup_card(items: list[dict]) -> dict | None:
+    ws = _s2()
+    fn = getattr(ws, "setup_card", None) if ws is not None else None
+    return fn(items) if fn else None
+
+
+def editor_needed(items: list[dict]) -> bool:
+    ws = _s2()
+    fn = getattr(ws, "editor_needed", None) if ws is not None else None
+    return bool(fn(items)) if fn else any(it.get("kind") == "editor" and it.get("needed") for it in items)
+
+
+def install(item: dict, folder: str, on_line) -> dict:
+    """S2: brew / brew --cask / pip into <folder>/.venv. ONLY after the learner said yes. Blocking."""
+    ws = _s2()
+    fn = getattr(ws, "install", None) if ws is not None else None
+    if fn is None:
+        return {"ok": False, "tool": item.get("tool"), "error": "installer not available"}
+    return dict(fn(item, workdir=folder, on_line=on_line))
 
 
 class Workspace:

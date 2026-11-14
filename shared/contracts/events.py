@@ -179,12 +179,46 @@ class VideoJump(_Model):
     label: str
 
 
-CardAction = Literal["confirm", "undo", "apply_fix", "open_editor", "resume", "end_lesson"]
+class SetupInstall(_Model):
+    method: Literal["brew", "brew_cask", "pip", "download", "none"]
+    command: str | None = None
+    url: str | None = None
+
+
+class SetupItem(_Model):
+    tool: str
+    label: str
+    kind: Literal["editor", "app", "runtime", "cli", "python_package"]
+    why: str
+    needed: bool
+    installed: bool
+    ok: bool
+    version: str | None = None
+    minVersion: str | None = None
+    install: SetupInstall
+
+
+class Setup(_Model):
+    editorNeeded: bool
+    items: list[SetupItem]
+
+
+class SetupProgress(_Model):
+    tool: str
+    line: str | None = None
+    done: bool | None = None
+    ok: bool | None = None
+    error: str | None = None
+    url: str | None = None
+    version: str | None = None
+
+
+CardAction = Literal["confirm", "undo", "apply_fix", "open_editor", "resume", "end_lesson", "install", "skip_setup"]
 
 
 class Card(_Model):
     stepId: str | None = None
-    kind: Literal["explain", "hint", "answer", "resume"]  # resume: "Continue where you left off?"
+    kind: Literal["explain", "hint", "answer", "resume", "setup"]  # resume: "Continue where you left off?"
     title: str
     body: str
     videoJump: VideoJump | None = None
@@ -192,6 +226,7 @@ class Card(_Model):
     diff: str | None = None  # unified diff preview ("Apply this fix?")
     targets: list[Target] | None = None
     guidingQuestion: str | None = None
+    setup: Setup | None = None  # kind "setup"
 
 
 class NetworkDiagram(_Model):
@@ -319,13 +354,14 @@ ENGINE_EVENTS: dict[str, Any] = {
     "status": Status,
     "error": Error,
     "lesson.ended": LessonEnded,
+    "setup.progress": SetupProgress,
     "config.status": ConfigStatus,
 }
 
 EngineEventType = Literal[
     "search.result", "search.done", "lesson.building", "lesson.ready", "step.started",
     "check.updated", "step.passed", "offtrack", "spotlight", "video.seek", "video.pause",
-    "video.play", "card", "diagram", "speak", "metric", "status", "error", "screen.seen", "config.status", "lesson.ended",
+    "video.play", "card", "diagram", "speak", "metric", "status", "error", "screen.seen", "config.status", "lesson.ended", "setup.progress",
 ]
 
 
@@ -343,7 +379,7 @@ class BuildLesson(_Model):
 
 
 ActionKind = Literal["back", "explain", "diagram", "show_me", "hint", "voice_toggle", "ask", "apply_fix",
-                     "confirm", "undo", "open_editor", "resume", "end_lesson"]
+                     "confirm", "undo", "open_editor", "resume", "end_lesson", "install", "skip_setup"]
 
 
 class Action(_Model):
