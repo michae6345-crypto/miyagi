@@ -31,7 +31,7 @@ overlayLayers: spotlight (z 10)
 1. ~~**Overlay on the primary display (v1).**~~ **Done in core**: the overlay and launcher open on the primary display. No spotlight change needed (the layer converts with `layout.origin`).
 2. **A hook for the overlay's other UI rects** (the same set core already reports as `overlay.bounds`), e.g. `useUiRects()` from `core/Overlay.tsx`, so the caption can stay clear of the shortcut bar / pill / cards, **plus the player window's live rect** (it's its own window in Electron and the user can drag it). Local workarounds: `useOtherUi()` in `Spotlight.tsx` reads `[data-hit],[data-ui]` from the DOM every 400ms, and `index.tsx` avoids the player's default dock rect via `features/player/dock.ts` (a read-only import of the player's pure helper).
 3. ~~**Theme token** `dim`~~ **Done in core**: `scrim.spotlight` (`rgba(0,0,0,.66)`, Adrian's value) in `core/theme.ts`; the spotlight now uses it (measured: 66% dim, unchanged).
-4. (dev) Vite doesn't see a new `mock/scenarios/*.json` until the dev server restarts (`mock/` is outside the Vite root). Worth a line in `agents/README.md` for the other agents.
+4. ~~(dev) Vite doesn't see a new `mock/scenarios/*.json` until the dev server restarts~~ **Done in core**: documented for all agents (`da6ea3f`).
 
 ## Notes
 **Adrian's feedback ("sleek, more contrast, a little color"), shots `agents/shots/spotlight-state-*.png`:**
