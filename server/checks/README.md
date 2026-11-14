@@ -74,3 +74,20 @@ on the `metrics_1s` continuous aggregate (set it up with `tut db init` / `tut db
 
 ## Tests
 `python -m pytest server/checks -p no:asyncio`. They include a flat PINN loss that must FAIL `not_flat` and a dropping one that must PASS.
+
+## Tiger writers (`tiger.py`): the time-series memory of every session
+```python
+from server.checks.tiger import record_event, record_metric
+record_event("step_started", lesson_id, step_id, video_t)                       # every transition:
+record_event("check_fail", lesson_id, step_id, video_t, {"check_id": "s4c2", "detail": "..."})
+record_event("step_passed", lesson_id, step_id, video_t)   # duration_s filled in from the matching step_started
+record_metric(f"screen-{lesson_id}", "loss", step, value)  # any numeric signal (loss, tests passing, build ms, ...)
+```
+- Kinds: `step_started | check_pass | check_fail | offtrack | fix_applied | question | step_passed`. `check_id` from the payload goes in its own column.
+  Every row carries `session_id` (`$TUT_SESSION_ID` or random per engine process).
+- Non-blocking: an in-memory queue, with a daemon thread `COPY`ing batches every 0.5 s. Without `TIGER_DATABASE_URL`, or with the DB down, it logs one warning and becomes a no-op.
+  `get_writer().flush()` on shutdown; `get_writer().counters()` gives in-process rows written and flush ms.
+- Continuous aggregates (`shared/contracts/tiger-schema.sql`, real-time + refresh policies in `cli/sql/tiger-extras.sql`):
+  `metrics_1s` (live curves), `time_per_step` (avg/min/max seconds per step), `check_fail_rate` (fails/passes/evaluations per check),
+  `stuck_heatmap` (offtrack + check_fail per 15 s of video), `learner_progress` (per session per minute: steps/checks passed, fails, offtracks; take a running sum for cumulative progress).
+- `stats(conn)` (connection in autocommit) → `{training_metrics: {rows_per_s, total}, learning_events: {...}, chunks, query_ms: {live_curve, stuck_heatmap}}`. This is what `tut stats` prints.

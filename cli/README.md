@@ -36,7 +36,9 @@ The child gets `TUT_RUN_ID` in its environment.
 tut db init                                           # shared/contracts/tiger-schema.sql + cli/sql/tiger-extras.sql
 tut db load-ref curve.csv --lesson pinn --step s5     # run with source='tutorial'
 tut db compare <learner_run_id> [--ref <ref_run_id>] [--json]
+tut stats [--watch] [--json]                          # ingest rows/s (last 10 s), row totals, chunks, median query ms
 ```
+`tut stats --watch --json` prints one JSON object per second, which the app can show as the on-screen Tiger performance number.
 - `init` runs each statement on its own in autocommit (continuous aggregates can't be created inside a transaction).
   `tiger-extras.sql` turns `metrics_1s`/`stuck_heatmap` into real-time aggregates and adds refresh
   policies. Without that, `WITH NO DATA` caggs stay empty on TimescaleDB ≥ 2.13.
