@@ -32,7 +32,7 @@ export interface EngineEvents {
     citation?: { label: string; url: string };
     actions: Array<"explain" | "show_me" | "apply_fix" | "hint">;
   };
-  /** Screen-first: rect is in macOS screen POINTS (top-left origin of the primary display), from the engine's screen reader. */
+  /** Screen-first: rect is in screen POINTS, TOP-LEFT origin (Electron convention), relative to the PRIMARY display's FULL frame (y=0 is the very top, menu bar included). v1 watches the primary display only. Same convention for overlay.bounds. */
   "spotlight": { rect: { x: number; y: number; w: number; h: number }; caption: string; app?: string; matched?: string } | { clear: true };
   /** What the engine currently sees (debug HUD / optional). */
   "screen.seen": { app: string; summary: string; t: number };
@@ -66,7 +66,7 @@ export interface AppCommands {
   "config.keys": { anthropic?: string; gemini?: string; brightdata?: string; elevenlabs?: string; tigerUrl?: string };
 }
 // Engine -> app answer to config.keys: which keys are present and valid (never echo the keys themselves)
-export interface KeyStatusEvent { "config.status": { anthropic: KeyState; gemini: KeyState; brightdata: KeyState; elevenlabs: KeyState; tiger: KeyState } }
+export interface KeyStatusEvent { "config.status": { anthropic: KeyState; gemini: KeyState; brightdata: KeyState; elevenlabs: KeyState; tigerUrl: KeyState } } // same key names as config.keys
 export type KeyState = "ok" | "missing" | "invalid" | "env";   // "env" = falling back to the engine's .env
 
 export type EngineMessage = { [K in keyof EngineEvents]: { type: K; payload: EngineEvents[K] } }[keyof EngineEvents];

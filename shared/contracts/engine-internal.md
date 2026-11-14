@@ -52,3 +52,16 @@ The product watches **your whole screen** during a lesson and teaches you, in an
 - Routes the `action` commands (back / explain / diagram / show_me / hint / voice_toggle / ask / apply_fix).
 - `DEMO=1` → replays `demo/cache/` results so the demo never depends on live APIs.
 - **Starts with stubs for every module** (return canned data) so the app can connect within the first hour.
+
+## GENERALITY RULE (Sat ~1:40 PM, Michael): nothing is PINN-specific
+PINN-on-convection is only the demo lesson. Every module must work for ANY tutorial (web dev, React, data science, Blender, a CLI tool...).
+- **Bright Data = the live-web layer for every lesson:**
+  - finder: real search for any query;
+  - **docs grounding:** fetch the official docs/changelog page for each step's library or API;
+  - **community signals:** the tutorial's YouTube comments, plus Stack Overflow / Reddit / GitHub issues for "doesn't work anymore" and common mistakes at specific timestamps;
+  - outdated-API fixes for any library error seen on screen.
+- **Tiger Data = the time-series memory of every session:**
+  - `learning_events` for EVERY state transition (step_started, check_pass/fail, offtrack, fix_applied, question, step_passed) with `video_t`;
+  - `training_metrics` for ANY numeric signal the lesson defines via `metric_pattern` (loss, accuracy, test pass count, build time, latency, error count...);
+  - continuous aggregates for time-per-step, fail rate per check, a stuck heatmap per video timestamp across all learners, and the learner's progress over time.
+- The lesson builder derives `metric_pattern`s and checks from the tutorial itself; nothing about PINNs or loss is hardcoded outside the demo cache.
