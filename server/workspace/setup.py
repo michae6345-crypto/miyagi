@@ -27,6 +27,7 @@ from pathlib import Path
 
 from jsonschema import Draft202012Validator
 
+from . import editor as _editor
 from . import paths
 from .scaffold import _extract_json, _reply_text, make_client
 
@@ -42,6 +43,8 @@ _VER = re.compile(r"(\d+(?:\.\d+){0,3})")
 # Known tools: how to find them and how to install them. Claude's ids are mapped onto these;
 # anything else is checked generically (`which <bin>` / `import <module>`).
 CATALOG: dict[str, dict] = {
+    "cursor": {"label": "Cursor", "kind": "editor", "bundle": "com.todesktop.230313mzl4w4u92", "app": "Cursor",
+               "bin": "cursor", "cask": "cursor", "url": "https://cursor.com/downloads"},
     "vscode": {"label": "Visual Studio Code", "kind": "editor", "bundle": "com.microsoft.VSCode", "app": "Visual Studio Code",
                "bin": "code", "cask": "visual-studio-code", "url": "https://code.visualstudio.com/download"},
     "python": {"label": "Python 3", "kind": "runtime", "bin": "python3", "formula": "python@3.12", "url": "https://www.python.org/downloads/macos/"},
@@ -338,11 +341,11 @@ def _canonical(tool: str) -> str:
 def _items(raw: dict) -> list[dict]:
     ed = raw.get("editor") or {}
     items = [{
-        "tool": "vscode", "label": CATALOG["vscode"]["label"], "kind": "editor", "needed": bool(ed.get("needed")),
+        "tool": (eid := _editor.editor_id()), "label": CATALOG[eid]["label"], "kind": "editor", "needed": bool(ed.get("needed")),
         "why": (ed.get("why") or "") if ed.get("needed") else "No editor needed: " + _lower_first(ed.get("why") or "this lesson doesn't edit code files."),
         "min_version": "",
     }]
-    seen = {"vscode"}
+    seen = {"vscode", "cursor"}  # the editor is item 0 only (Cursor when installed, MIYAGI_EDITOR overrides)
     for t in (raw.get("tools") or [])[:20]:
         tool = _canonical(t.get("tool", ""))
         if not tool or tool in seen or not re.fullmatch(r"[a-z0-9][a-z0-9._+@\-]{0,40}", tool):
@@ -504,6 +507,8 @@ def setup_card(items: list[dict], *, step_id: str | None = None) -> dict:
         body += " In your browser: " + ", ".join(it["label"] for it in web) + "."
     if not need_ed and ed:
         body += " " + ed["why"]
+    elif need_ed and ed and ed.get("installed"):
+        body += f" Open the lesson folder in {ed['label']}?"
     actions = ((["open_editor"] if need_ed and ed and ed.get("installed") else []) + (["open_in_browser"] if web else [])
                + (["install"] if miss else []) + ["skip_setup"])
     card = {
@@ -511,6 +516,10 @@ def setup_card(items: list[dict], *, step_id: str | None = None) -> dict:
         "actions": actions,
         "setup": {
             "editorNeeded": need_ed,
+            "editor": ed["tool"] if ed else None,          # "cursor" | "vscode"
+            "editorLabel": ed["label"] if ed else None,    # "Cursor": the open_editor button reads "Open Cursor"
+            "actionLabels": {"open_editor": f"Open {ed['label']}" if ed else "Open editor", "open_in_browser": "Open in browser",
+                             "install": "Install", "skip_setup": "Skip"},
             "items": [{
                 "tool": it["tool"], "label": it["label"], "kind": it["kind"], "why": it["why"], "needed": it["needed"],
                 "installed": it.get("installed", False), "ok": it.get("ok", False), "version": it.get("version") or None,

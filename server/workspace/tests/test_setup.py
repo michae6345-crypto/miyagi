@@ -56,6 +56,7 @@ class FakeMac:
 @pytest.fixture(autouse=True)
 def _env(monkeypatch, tmp_path):
     monkeypatch.setenv("MIYAGI_LESSONS_DIR", str(tmp_path / "lessons"))
+    monkeypatch.setattr("server.workspace.editor.editor_id", lambda: "vscode")  # hermetic: not this Mac's editors
 
 
 @pytest.fixture

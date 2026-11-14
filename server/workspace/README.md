@@ -1,4 +1,4 @@
-# server/workspace: what the lesson needs, one folder per lesson, starter files, VS Code
+# server/workspace: what the lesson needs, one folder per lesson, starter files, Cursor / VS Code
 
 Every lesson except the demo hero gets its own folder, `~/miyagi/lessons/<slug-of-title>-<hash>/`,
 scaffolded from the lesson's step graph by Claude and opened in VS Code. The hero (Toscano's PINN
@@ -94,6 +94,31 @@ Orchestrator flow: on lesson.ready, run `requirements(graph, workdir=wd)` in a t
 the list is empty). Don't auto-open VS Code any more. `action install {text: tool}` → `install(item, workdir=wd, on_line=…)` →
 `setup.progress` lines, then `{done, ok, error|version}`, then re-run `requirements` (cached list, fresh checks) and re-emit the card.
 `action open_editor` → `open_editor(wd, open_file_for(wd))`. `action skip_setup` → dismiss.
+
+## Editor: Cursor or VS Code, frontmost, room for the video (editor.py)
+
+- **Which editor:** `MIYAGI_EDITOR=cursor|code` if that one is installed, else Cursor (`com.todesktop.230313mzl4w4u92`,
+  `cursor` CLI), else VS Code (`com.microsoft.VSCode`, `code`). Detection: `/Applications/<App>.app`, else `mdfind` by
+  bundle id; the CLI is found on PATH or inside the .app. `preferred_editor()`, `installed_editors()`, `editor_label()`
+  ("Cursor"), and `goto_argv(file, line)` → `[<cli>, "-r", "-g", "file:line"]` for step jumps.
+- **The setup card names it:** item 0 is `cursor` or `vscode` (`brew install --cask cursor` if Cursor is wanted but missing);
+  `card.setup.editor`, `card.setup.editorLabel` ("Cursor"), `card.setup.actionLabels.open_editor` ("Open Cursor"), and the body
+  asks "Open the lesson folder in Cursor?".
+- **`open_editor_report(path, file)`** → `{opened, editor, label, command, frontmost, ax_trusted, arrange, unfullscreened?, arranged?, frame?}`
+  (`open_editor` = its `opened`).
+
+| | without Accessibility (always) | with Accessibility (`AXIsProcessTrusted`) and `MIYAGI_ARRANGE` ≠ 0 |
+|---|---|---|
+| open | `<cli> -n <dir> -g <file>`, fallback `open -a <App> <dir> <file>` | same |
+| front | `open -a <App>`: the editor is frontmost; macOS switches away from a full-screen app to the editor's window | same |
+| full screen | the app you were in stays full screen in its own space | its focused window leaves full screen (`AXFullScreen=false`). It is never closed or quit |
+| layout | the editor keeps its own size | the editor's window moves to the left 60% of the screen's visible area (`MIYAGI_EDITOR_FRACTION`), so the video docked on the right 40% stays visible |
+
+The Accessibility part runs in a background thread (it waits up to 8 s for the editor's window), so `open_editor` returns
+right away. "The app you were in" = the owner of the frontmost normal window that isn't our overlay (`Miyagi`,
+`miyagi-overlay`, `Electron`; `MIYAGI_OVERLAY_APPS`) or the editor itself. Trust is read through ctypes, with no prompt; window
+moves use `pyobjc-framework-ApplicationServices` (added to `server/pyproject.toml`). Keeping the overlay above full-screen
+spaces is the app's job (Electron `setVisibleOnAllWorkspaces(true, {visibleOnFullScreen: true})`).
 
 ## Hero detection
 
