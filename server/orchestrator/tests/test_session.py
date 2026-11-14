@@ -39,6 +39,7 @@ class Rig:
                                clock=self.clock, idle_gate_s=5, advance_delay_s=0, metric_eval_s=0,
                                result_stagger_s=0, build_tick_s=0.01, screen=screen, seen_interval_s=0,
                                inputs=self.inputs)
+        self.s.ready_hold_s = 0
 
     @property
     def events(self) -> list[dict]:
@@ -1658,3 +1659,69 @@ def test_notebook_lesson_screen_checks_accept_the_browser(rig):
     assert rig.s.notebook_lesson
     assert all("app" not in c for st in rig.s.steps for c in st["checks"])
     assert all("app" not in t for st in rig.s.steps for t in st.get("targets") or [])
+
+
+def test_same_offtrack_is_not_resent(rig):
+    """A step that keeps failing the same way must not reopen the card the learner closed."""
+    async def same(step, failed, metrics, code, **kw):
+        return {"stepId": step["id"], "severity": "warn", "title": "Learning rate too high", "body": "b",
+                "actions": ["hint"]}
+
+    rig.s.m.diagnose = same
+
+    async def go():
+        await _to_step(rig, 5)
+        rig.write("lr = 0.3\n")
+        await rig.run("r1", PLATEAU)  # level 2
+        rig.s.spoken_sig = None  # e.g. the failure set changed: the ladder speaks again at level 2
+        await rig.run("r2", PLATEAU)
+        rig.clock.t += 25
+        await rig.run("r3", PLATEAU)  # same failure again -> level 3: that IS new
+
+    run(go())
+    assert [p["level"] for p in rig.of("offtrack")] == [2, 3]
+
+
+def test_build_timeout_only_until_the_first_part(monkeypatch):
+    monkeypatch.setenv("ORCH_BUILD_TIMEOUT_S", "0.2")
+    mods = Modules(demo=False, force_stubs="")
+    got = []
+
+    async def build(url, goal, workdir, on_update=None):
+        await on_update({"steps": []}, False)  # part 1 quickly
+        await asyncio.sleep(0.5)  # the rest takes longer than the timeout: must NOT be cut
+        return {"lesson": {"id": "x"}, "steps": []}
+
+    mods.real["lesson"] = types.SimpleNamespace(build_lesson=build)
+    out = run(mods.build_lesson("https://www.youtube.com/watch?v=abcdefghijk", "", "/tmp",
+                                on_update=lambda g, c: got.append(c)))
+    assert out["lesson"]["id"] == "x" and got == [False]
+
+    async def slow(url, goal, workdir, on_update=None):
+        await asyncio.sleep(1)
+
+    mods.real["lesson"] = types.SimpleNamespace(build_lesson=slow)
+    with pytest.raises(Exception, match="took over"):
+        run(mods.build_lesson("https://www.youtube.com/watch?v=abcdefghijk", "", "/tmp", on_update=lambda g, c: None))
+
+
+def test_visible_error_vetoes_the_files_only_route(tmp_path, monkeypatch):
+    """S9: CRA shows 'Failed to compile' while every file check passes -> not green, the coach gets it."""
+    monkeypatch.setenv("TUT_WORKDIR", str(tmp_path))
+    screen = FakeScreen()
+    rig = Rig(tmp_path, screen=screen)
+    g = stubs.load_fixture_lesson()
+    g["steps"][0]["checks"].append({"id": "s1c9", "type": "screen_absent", "label": "No compile errors",
+                                    "pattern": "Failed to compile", "app": "Code"})
+
+    async def go():
+        await rig.s.load_graph(g)
+        await rig.settle()
+        await rig.end_segment()
+        screen.text["Code"] = ["pinn_convection.py", "Failed to compile."]
+        await rig.save("# file exists\n")  # precision (file_exists) passes...
+
+    run(go())
+    assert not rig.of("step.passed")  # ...but the visible error vetoes it
+    shown = {c["checkId"]: c["status"] for c in rig.of("check.updated")}
+    assert shown["s1c9"] == "fail"

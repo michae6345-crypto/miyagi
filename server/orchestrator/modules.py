@@ -261,15 +261,31 @@ class Modules:
             kwargs["on_progress"] = on_progress  # E2: stage ids for the launcher's progress line
         if fn is not None and video_meta and _accepts(fn, "video_meta"):
             kwargs["video_meta"] = video_meta  # S8's preflight (duration, chapters, firstHandsOn): part 1 skips the intro
+        first_part = asyncio.Event()
         if fn is not None and on_update is not None and _accepts(fn, "on_update"):
-            kwargs["on_update"] = on_update  # E2: long videos build progressively (first part, then appended parts)
+            async def on_update_marked(graph: Any, complete: bool) -> None:  # E2: long videos build progressively
+                first_part.set()
+                await _call(on_update, graph, complete)
+
+            kwargs["on_update"] = on_update_marked
+        # The timeout only covers the wait for the FIRST steps: once part 1 of a long video has arrived the
+        # learner is working, and later parts may take minutes (Karpathy: complete at ~400 s).
         timeout = float(os.environ.get("ORCH_BUILD_TIMEOUT_S", "300"))
+        task = asyncio.ensure_future(self._run("lesson", "build_lesson",
+                                               lambda: stubs.build_lesson(source_url, goal, workdir),
+                                               source_url, goal, workdir, **kwargs))
+        waiter = asyncio.ensure_future(first_part.wait())
         try:
-            return await asyncio.wait_for(
-                self._run("lesson", "build_lesson", lambda: stubs.build_lesson(source_url, goal, workdir),
-                          source_url, goal, workdir, **kwargs), timeout)
-        except asyncio.TimeoutError as e:
-            raise ModuleUnavailable(f"building the lesson took over {timeout:.0f}s") from e
+            done, _ = await asyncio.wait({task, waiter}, timeout=timeout, return_when=asyncio.FIRST_COMPLETED)
+            if not done:
+                task.cancel()
+                raise ModuleUnavailable(f"building the lesson took over {timeout:.0f}s")
+            return await task  # finished, or part 1 is in: no hard cut for the rest
+        except asyncio.CancelledError:
+            task.cancel()
+            raise
+        finally:
+            waiter.cancel()
 
     # -- checks (always real unless forced: the demo run is a real run)
     def make_context(self, ctx: RunContext) -> Any:

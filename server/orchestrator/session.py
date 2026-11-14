@@ -229,6 +229,7 @@ class LessonSession:
         self.metric_eval_s = config.METRIC_EVAL_INTERVAL_S if metric_eval_s is None else metric_eval_s
         self.result_stagger_s = result_stagger_s
         self.build_tick_s = build_tick_s
+        self.ready_hold_s = float(os.environ.get("ORCH_READY_HOLD_S", "1.5"))
 
         self.phase = "idle"  # idle | searching | building | active | done
         self.query = ""
@@ -265,6 +266,7 @@ class LessonSession:
         self.last_results: list[dict] = []
         self.last_failed: list[dict] = []
         self._recent_cards: dict[tuple, float] = {}
+        self._offtrack_key: tuple | None = None  # (step, level, title) of the last offtrack sent
         self._action_spot = False  # a spotlight from show_me / hint / explain is up
         self._coach_error_sent = False  # "Coach unavailable" at most once per step
         self._coach_backoff = 0.0
@@ -766,6 +768,7 @@ class LessonSession:
                 self.build_progress = None
                 await self.emit("lesson.building", {"message": "First steps ready; the rest builds while you work",
                                                     "progress": 1.0})
+                await asyncio.sleep(self.ready_hold_s)  # let the "ready" moment be seen before the lesson UI
                 await self.load_graph(first)
                 return
             await self._extend_lesson(g, complete)
@@ -788,6 +791,7 @@ class LessonSession:
                 graph.setdefault("lesson", {})["workdir"] = folder
             self.build_progress = None
             await self.emit("lesson.building", {"message": "Lesson ready", "progress": 1.0})
+            await asyncio.sleep(self.ready_hold_s)  # let the "ready" moment be seen before the lesson UI
             ok = True
         except BaseException as e:
             if isinstance(e, Exception) and progressive["loaded"] and self.graph is not None:
@@ -1120,6 +1124,13 @@ class LessonSession:
                     self._eval_error_sent = True
                     await self.emit("error", {"message": f"Check evaluation failed: {e}"})
                 return
+            if gate.get("passed") and gate.get("via") == "precision":
+                # a visible error (a failing screen_absent check, e.g. "Failed to compile" / a Traceback) vetoes
+                # the files-only route: the files can be right while the app on screen is broken
+                kinds = {c["id"]: c.get("type") for c in step.get("checks") or []}
+                if any(r.get("status") == "fail" and kinds.get(r.get("checkId")) == "screen_absent"
+                       for r in gate.get("checks") or []):
+                    gate = {**gate, "passed": False, "via": None}
             shown_list, other = ("precision", "checks") if self._precision_display(step) else ("checks", "precision")
             results = list(gate.get(shown_list) or [])
             if gate.get("passed") and gate.get("via") != shown_list:  # green by the other route: show it green
@@ -1339,8 +1350,13 @@ class LessonSession:
             shown["level"] = level
             self.ladder = level
             self.last_offtrack = full
-            await self.emit("offtrack", shown)
-            self._say("offtrack", shown)
+            key = (step["id"], level, (full.get("title") or "").strip().lower())
+            if key != self._offtrack_key:  # only a NEW card: new step, higher level or a different diagnosis
+                self._offtrack_key = key  # (re-sending the same one reopens a card the learner just closed)
+                await self.emit("offtrack", shown)
+                self._say("offtrack", shown)
+            else:
+                log.info("same offtrack as before (%s, level %s); not re-sent", step["id"], level)
             self._record("offtrack", {"title": full.get("title"), "level": level,
                                       "check_ids": [r.get("checkId") for r in failed]}, step)
             diff = full.get("diff") or {}
