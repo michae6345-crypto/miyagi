@@ -199,7 +199,7 @@ class TigerWriter:
             host = urlparse(self.url).hostname or ""
         except ValueError:
             return False
-        return bool(host) and "..." not in self.url and not host.strip(".") == ""
+        return bool(host) and "..." not in self.url and host.strip(".") != ""
 
     def _connect(self):
         import psycopg
