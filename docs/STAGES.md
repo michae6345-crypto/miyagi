@@ -31,6 +31,35 @@ protocol, one stage at a time, and prints what each stage did. Nothing in it cal
 - **Logs:** every search/build appends a JSON record to `demo/runs/stage-results.jsonl`. The engine log is
   `demo/runs/stage-engine-<port>.log`. Both are gitignored.
 
+## Lifecycle: end lesson and resume
+
+`.venv/bin/python scripts/stage_lifecycle.py end|resume` runs each case on the :8790 engine with an app-like WebSocket client, records every event and asserts the cleanup. Lessons come from the builders' caches, so each start takes seconds. Results are appended to `demo/runs/stage-lifecycle.jsonl`.
+
+### end_lesson: integration/live fc56c0f, 14:35
+
+What every case asserts after ending:
+- `lesson.ended` arrives with the right `reason`, followed by `status idle`.
+- `spotlight {clear}` and `video.pause` are sent.
+- For 3–6 s afterwards, no diagram, card, offtrack, check, step or video event arrives.
+- `/state` shows phase idle, no lesson and no step.
+- A newly connected client's snapshot is only `[status]`.
+- A fresh lesson starts afterwards at step index 0 with pending checks.
+
+| case | result | event sequence (relative to the client's start) |
+|---|---|---|
+| `end_lesson` over WS, diagram request in flight | **FAIL** (1 of 9 checks) | 0.14 card hint · 0.17 status thinking · 0.47 spotlight clear · 0.47 video.pause · 0.47 lesson.ended `end_lesson` · 0.47 status idle · **3.92 diagram** ("Timer renders, then the effect runs once") · **3.92 status watching** · 7.58 lesson.ready (fresh) · step.started #1 · check.updated ×2 · video.seek · video.play · status watching |
+| `curl -X POST :8790/end`, explain request in flight | **FAIL** (1 of 10 checks) | 7.64 status thinking · 7.94 spotlight clear · video.pause · lesson.ended `POST /end` · status idle · **10.91 card explain** ("Timer state with an interval effect") · **10.91 status watching**. POST /end with nothing running: `{"ok": true, "ended": null}` (it emits another lesson.ended + idle, which is harmless). Then a fresh lesson.ready + step.started #1 |
+| new `learn` while a lesson runs | **PASS** | 15.12 card hint · 15.42 spotlight clear · video.pause · lesson.ended `new lesson` · status idle · thinking · search.done · idle · 19.48 lesson.ready (git) · step.started #1 |
+| `end_lesson` while a lesson is being built (extra) | **PASS** | 34.61 status thinking (building) · 37.66 lesson.ended `end_lesson` · status idle. Nothing afterwards: no lesson.ready, progress or error |
+
+**L1 · E4 orchestrator: cards and diagrams already in flight land after the lesson ended.**
+- In `session._action`, `explain` / `ask` / `diagram` await `m.explain` / `m.diagram`, then emit the card or diagram and
+  `status watching|offtrack|passed` without checking the lesson is still the same one.
+- `end_lesson` skips the command queue (`main.py`), so it runs while that await is pending.
+- Result: the app gets a card or diagram for a lesson that's gone, and a `status watching` while the engine is idle.
+- Fix: `gen = self.step_gen` before the await, and drop the result and the status update if `gen != self.step_gen`
+  (`end_lesson` already bumps it via `_reset_step_state`). `hint` answers synchronously today, so it didn't show up.
+
 ## Run 3: Gemini paid, integration/live 4ff1417, 14:23–14:29
 
 Setup:
