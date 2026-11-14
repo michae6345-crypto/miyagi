@@ -11,23 +11,17 @@ import objc
 import Quartz
 import Vision
 
-from .types import Block, Rect, Window
+from .types import PERMISSION_HELP, Block, Rect, ScreenPermissionError, Window
 
 # Apps whose windows are never "the learner's work" (menu bar extras etc.).
 _IGNORED_OWNERS = {"Window Server", "Dock", "Control Center", "SystemUIServer", "Notification Center",
                    "Spotlight", "WindowManager", "TextInputMenuAgent", "Wallpaper"}
 
 
-class ScreenPermissionError(RuntimeError):
-    pass
 
 
-PERMISSION_HELP = (
-    "Screen capture is blocked. Grant Screen Recording permission:\n"
-    "  System Settings > Privacy & Security > Screen & System Audio Recording >\n"
-    "  enable the app that runs the engine (Terminal / iTerm2 / Visual Studio Code / Claude),\n"
-    "  then quit and reopen that app."
-)
+class ScreenUnavailableError(RuntimeError):
+    """Permission is fine but the display gave no image right now (sleep / lock); retry later."""
 
 
 @dataclass
@@ -62,7 +56,9 @@ def capture_main_display() -> Frame:
     t = time.time()
     img = Quartz.CGDisplayCreateImage(Quartz.CGMainDisplayID())
     if img is None:
-        raise ScreenPermissionError(PERMISSION_HELP)
+        if not has_permission():
+            raise ScreenPermissionError(PERMISSION_HELP)
+        raise ScreenUnavailableError("display returned no image (asleep, locked, or switching Spaces?)")
     screen = main_display_bounds()
     scale = Quartz.CGImageGetWidth(img) / screen.w if screen.w else 1.0
     return Frame(img, screen, scale, t)

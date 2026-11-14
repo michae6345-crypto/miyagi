@@ -126,8 +126,13 @@ def cmd_bench(args) -> None:
 def cmd_describe(args) -> None:
     from .reader import ScreenReader
     r = ScreenReader(fixture=args.image)
+    from .describe import DescribeError
     r.observe_now(force=True)
-    print(asyncio.run(r.describe(args.question)))
+    try:
+        print(asyncio.run(r.describe(args.question)))
+    except DescribeError as e:
+        print(f"describe failed ({e.reason}): {e.detail}", file=sys.stderr)
+        sys.exit(2)
 
 
 def cmd_fixture(args) -> None:

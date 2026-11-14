@@ -7,6 +7,20 @@ from __future__ import annotations
 
 from dataclasses import asdict, dataclass, field
 
+PERMISSION_HELP = (
+    "Screen capture is blocked. Grant Screen Recording permission:\n"
+    "  System Settings > Privacy & Security > Screen & System Audio Recording >\n"
+    "  enable the app that runs the engine (Terminal / iTerm2 / Visual Studio Code / Claude),\n"
+    "  then quit and reopen that app."
+)
+
+
+class ScreenPermissionError(RuntimeError):
+    """The process may not capture the screen (macOS Screen Recording permission missing)."""
+
+    def __init__(self, msg: str = PERMISSION_HELP):
+        super().__init__(msg)
+
 
 @dataclass(frozen=True)
 class Rect:
@@ -102,6 +116,7 @@ class ScreenObservation:
     scale: float = 1.0            # backing scale factor of the frame (pixels per point)
     ocr_ms: float = 0.0           # how long OCR took for this frame
     frame: int = 0                # monotonically increasing frame counter
+    source: str = "live"          # "live", or "fixture:<file>" (explicit/DEMO replay; never silent)
 
     def text(self, app: str | None = None) -> str:
         """All OCR text, one block per line; optionally only the blocks inside `app`'s windows."""
@@ -126,7 +141,7 @@ class ScreenObservation:
     def to_dict(self, with_blocks: bool = True) -> dict:
         d = {"t": self.t, "app": self.app, "windows": [w.to_dict() for w in self.windows],
              "screen": self.screen.to_dict(), "scale": self.scale, "ocr_ms": round(self.ocr_ms, 1),
-             "frame": self.frame}
+             "frame": self.frame, "source": self.source}
         if with_blocks:
             d["blocks"] = [b.to_dict() for b in self.blocks]
         return d
