@@ -81,6 +81,9 @@ def fake(monkeypatch, tmp_path):
     monkeypatch.setattr(gemini, "step_detail", step_detail)
     monkeypatch.setattr(gemini, "adapt_checks", adapt_checks)
     monkeypatch.setenv("LESSON_ENGINE", "gemini")  # tests never reach a real API; Claude tests opt in
+    monkeypatch.setenv("LESSON_LAZY_PARTS", "0")  # eager by default in tests; lazy tests opt in
+    monkeypatch.setenv("LESSON_GEMINI_USAGE_FILE", str(tmp_path / "gemini_usage.json"))  # never ~/miyagi
+    monkeypatch.setenv("LESSON_GEMINI_DAILY_CAP", "1000")
 
     async def offline(*a, **k):
         raise RuntimeError("offline test: no real Claude/transcript calls")
@@ -1119,3 +1122,65 @@ def test_token_usage_is_recorded_per_model():
     cost.add_tokens("claude-haiku-5-5", 1200, 300)
     cost.add_tokens("claude-haiku-5-5", 800, 200)
     assert c["tokens"]["claude-haiku-5-5"] == {"input": 2000, "output": 500, "calls": 2}
+
+
+# ---- spend guard + lazy parts -----------------------------------------------------------
+from server.lesson import budget  # noqa: E402
+
+_REAL_WATCH = gemini.watch_video
+
+
+def test_daily_budget_persists_and_blocks_gemini(tmp_path, monkeypatch):
+    monkeypatch.setenv("LESSON_GEMINI_USAGE_FILE", str(tmp_path / "u.json"))
+    monkeypatch.setenv("LESSON_GEMINI_DAILY_CAP", "2")
+    monkeypatch.setattr(gemini, "_down_until", 0.0)
+    assert budget.remaining() == 2 and budget.try_take("a") and budget.try_take("b") and not budget.try_take("c")
+    assert json.loads((tmp_path / "u.json").read_text())["video_calls"] == 2  # survives a restart
+    with pytest.raises(RuntimeError, match="Gemini budget is used up"):  # the real watch_video checks it first
+        asyncio.run(gemini.watch_video(URL, "x"))
+    (tmp_path / "u.json").write_text(json.dumps({"date": "2000-01-01", "video_calls": 99}))
+    assert budget.remaining() == 2  # a new day resets it
+
+
+def test_budget_exhausted_build_goes_to_claude_and_says_so(fake, monkeypatch, tmp_path):
+    monkeypatch.setenv("LESSON_ENGINE", "auto")
+    monkeypatch.setenv("LESSON_GEMINI_DAILY_CAP", "0")
+    monkeypatch.setattr(gemini, "watch_video", _REAL_WATCH)  # the real one: it checks the budget first
+    calls = []
+    _claude_fakes(monkeypatch, calls)
+    seen = []
+    g = asyncio.run(builder.build_lesson(URL, "x", WORKDIR, refresh=True, on_progress=lambda s, m: seen.append((s, m))))
+    assert g["lesson"]["builtBy"] == "claude" and ("engine_switch", "budget") in seen
+
+
+def test_long_video_builds_part_one_then_extends_on_demand(fake, monkeypatch):
+    from server.lesson import progressive
+    monkeypatch.setenv("LESSON_LAZY_PARTS", "1")
+    chapters = [{"t": 0, "title": "setup"}, {"t": 400, "title": "two"}, {"t": 1200, "title": "three"}, {"t": 2000, "title": "four"}]
+
+    async def meta(vid):
+        return {"video_id": vid, "title": "Long", "description": "", "length_s": 2600, "chapters": chapters}
+
+    monkeypatch.setattr(transcript, "fetch_metadata", meta)
+    watched = []
+
+    async def clip(url, goal, fps=None, context="", start=None, end=None, media_low=False):
+        watched.append(int(start))
+        return {"title": "t", "libraries": [], "steps": [{"start": start + 10, "end": start + 200, "title": f"Step {int(start)}", "instructions": "do", "checks": [], "hints": []}]}
+
+    monkeypatch.setattr(gemini, "watch_video", clip)
+
+    async def adapt(goal, steps, summary, feedback=None):
+        return {"steps": [{"index": s["index"], "checks": [{"type": "screen_contains", "label": "x", "app": "Code", "pattern": "marker_text"}], "targets": []} for s in steps]}
+
+    monkeypatch.setattr(claude, "adapt_checks", adapt)
+    g = asyncio.run(builder.build_lesson(URL, "x", WORKDIR, refresh=True))
+    assert watched == [0] and [s["title"] for s in g["steps"]] == ["Step 0"] and g["lesson"]["complete"] is False
+    assert [p["status"] for p in g["lesson"]["parts"]["list"]] == ["done", "pending", "pending", "pending"]
+    assert progressive.needs_more(g, current_step_index=1)  # learner is on the last built step
+    ups = []
+    g2 = asyncio.run(progressive.extend(g, on_update=lambda gr, c: ups.append(c)))
+    assert watched == [0, 400] and [s["id"] for s in g2["steps"]] == ["s1", "s2"] and g2["steps"][1]["checks"][0]["id"] == "s2c1"
+    assert ups == [False] and g["steps"] != g2["steps"]  # input untouched, new graph returned
+    g3 = asyncio.run(progressive.extend(g2, parts=5))
+    assert g3["lesson"]["complete"] is True and len(g3["steps"]) == 4 and not progressive.needs_more(g3, 4)
