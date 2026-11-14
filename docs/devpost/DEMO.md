@@ -53,18 +53,23 @@ Hero: Juan Toscano, *Learning Physics Informed Machine Learning Part 1: PINNs* (
 | Time | Do | Say |
 |---|---|---|
 | **0:00** | Nothing on screen but VS Code. | "YouTube tutorials can't tell whether you actually got it. Miyagi can. It turns any tutorial into an auto-graded lab." |
-| **0:10** | Press **⌥Space**. The launcher grows out of the notch. Type exactly: **`learn physics informed machine learning with PINNs in PyTorch`** and press **↵**. | "I ask Miyagi anything. It searches the live web: Claude with web search, Bright Data's Google SERP, YouTube, GitHub and arXiv." |
-| **0:15** | Rows stream in (first one in about 3–4 s). Point at a row's reason and any comment warning. | "Claude scores every result. Gemini actually skims the top videos, and Bright Data pulls the comments, so a video people say is broken gets flagged." |
-| **0:25** | **↑/↓** to *Learning Physics Informed Machine Learning Part 1* (Toscano), then **↵**. The panel morphs into the pill: "Building lesson…" | "Gemini watches the whole 24-minute video and turns it into steps, each with checks a machine can grade from my screen. This one's cached; cold, it took 31 seconds." |
-| **0:35** | `lesson.ready` (0.02 s from the cache). VS Code opens `demo/pinn-lab`. The lesson starts at s1. Switch to the second terminal tab and press **↵** on the `debug/goto/7` line: the video jumps to s8's clip, plays it, then pauses. The spotlight dims the screen around the training code. | "Each step plays one clip, then waits for me. Miyagi reads my whole screen with Apple Vision on the device, so it knows exactly where I should be working. Let's skip ahead to training." |
-| **0:50** | In the VS Code terminal type **`tut run python pinn_diffusion.py`** and press **↵**. The loss prints and sits around 17. | "I'm training with learning rate 0.3." |
-| **1:07** | Pill pulses **amber** (16.5–18.8 s after ↵). The check fails at step 2000, about 3 s before the run ends. | "The check reads my loss and tests whether it's actually improving, statistically. It isn't." |
-| **1:13** | The coach card appears 5–7 s after amber (2–4 s after the run ends): *"Learning rate 0.3 is far too high… Set lr to 1e-3."* The spotlight lands on `lr=0.3`. This first card is a level-2 hint (Explain / Show me / Hint), **no fix button yet**. | "Claude Opus looks at my real screen and code and diagnoses it: about 3–4 seconds of model time. Nothing in it is scripted." |
-| **1:20** | Press **⌘S** once. Within 1 s the level-3 card adds **Do it for me**. Click it: the preview shows `lr=0.3` → `lr=1e-3`. Click **Confirm**. (Or just type **`lr = 1e-3`** and **⌘S**.) | "Hints come before answers. If I want, it shows the exact diff, applies it only when I confirm, and I can undo it." |
-| **1:25** | Run **`tut run python pinn_diffusion.py`** again. The loss drops under 1e-2 by step 1000 (green in 12–16 s; talk over it). | "Every check, every failure and every metric streams into Tiger Data: hypertables plus continuous aggregates. That gives a creator a stuck heatmap over their own video." |
-| **1:40** | The step turns **green**. The video **resumes by itself** 0.4 s later. | "Green. The video moves on only when my code works." |
-| **1:45** | Press **⌥D**. A diagram of the step's network appears. | "Need intuition? Claude draws a diagram for whatever step you're on, for any topic." |
-| **1:52** | — | "Miyagi: any tutorial, any topic, graded from your real screen. Built on Claude, Gemini, Bright Data and Tiger Data." |
+| **0:08** | Press **⌥Space**. The launcher grows out of the notch. Type exactly: **`learn physics informed machine learning with PINNs in PyTorch`** and press **↵**. | "I ask Miyagi anything. It searches the live web: Claude with web search, Bright Data's Google SERP, YouTube, GitHub and arXiv." |
+| **0:13** | Rows stream in (first one in about 3–4 s). Point at a row's reason and any comment warning. | "Claude scores every result, and Bright Data pulls the comments of the top videos, so a video people say is broken gets flagged." |
+| **0:20** | **↑/↓** to *Learning Physics Informed Machine Learning Part 1* (Toscano), then **↵**. The **preflight card** appears within 5 s: style, length, chapters, tools needed. Click **Build**. The panel morphs into the pill. | "Before building anything, Miyagi tells me what this video really is and what I need installed. Then Gemini watches the whole 24-minute video and turns it into steps with checks a machine can grade from my screen. This one's cached; cold, it took 31 seconds." |
+| **0:30** | `lesson.ready` (0.02 s from the cache). VS Code opens `demo/pinn-lab`. The lesson starts at s1. Switch to the second terminal tab and press **↵** on the `debug/goto/7` line: the video jumps to s8's clip, plays it, then pauses. The spotlight dims the screen around the training code. | "Each step plays one clip, then waits for me. Miyagi reads my whole screen with Apple Vision on the device, so it knows exactly where I should be working. Let's skip ahead to training." |
+| **0:45** | In the VS Code terminal type **`tut run python pinn_diffusion.py`** and press **↵**. The loss prints and sits around 17. | "I'm training with learning rate 0.3." |
+| **1:02** | Pill pulses **amber** (16.5–18.8 s after ↵). The check fails at step 2000, about 3 s before the run ends. | "The check reads my loss and tests whether it's actually improving, statistically. It isn't." |
+| **1:08** | The coach card appears 5–7 s after amber (2–4 s after the run ends): *"Learning rate 0.3 is far too high… Set lr to 1e-3."* The spotlight lands on `lr=0.3`. This first card is a level-2 hint (Explain / Show me / Hint), **no fix button yet**. | "Claude Opus looks at my real screen and code and diagnoses it: about 3–4 seconds of model time. Nothing in it is scripted." |
+| **1:14** | Press **⌘S** once. Within 1 s the level-3 card adds **Do it for me**. Click it: the preview shows `lr=0.3` → `lr=1e-3`. Click **Confirm**. (Or just type **`lr = 1e-3`** and **⌘S**.) | "Hints come before answers. If I want, it shows the exact diff, applies it only when I confirm, and I can undo it." |
+| **1:18** | Run **`tut run python pinn_diffusion.py`** again. The loss drops under 1e-2 by step 1000 (green in 12–16 s; talk over it). | "Every check, every failure and every metric streams into Tiger Data: hypertables plus continuous aggregates. That gives a creator a stuck heatmap over their own video." |
+| **1:33** | The step turns **green**. The video **resumes by itself** 0.4 s later. | "Green. The video moves on only when my code works." |
+| **1:36** | **Just teach me beat (20 s): only if it has landed and been rehearsed. Otherwise press ⌥D instead** (a diagram of the step's network). ⌥Space, choose **Just teach me**, type **`build a calculator`**, ↵. The editor opens full screen, step 1 appears, and Miyagi boxes the line to type. | "No video needed: say 'just teach me', and Claude researches the official docs, writes the lesson, and shows me exactly where to type." (⌥D instead: "Need intuition? Claude draws a diagram for whatever step you're on.") |
+| **1:56** | — | "Miyagi: any tutorial, any topic, graded from your real screen. Built on Claude, Gemini, Bright Data and Tiger Data." |
+
+**Just teach me status (check before the freeze):** the builder (`build_text_lesson`, commit `f438b88`) and the full-screen
+editor with Accessibility line boxes (commit `12c1b26`) exist only on unmerged branches, with offline tests. As of `integration/live`
+`292561d` the launcher and engine don't call them, so there's no "Just teach me" option to choose yet. Don't put it on stage
+unless it's merged, wired, and has passed a live take.
 
 **If something stalls live:**
 - The search is slow or empty: press **Esc**, then restart with `scripts/miyagi-demo.sh` (option B). The lesson is already
@@ -126,8 +131,16 @@ spotlight. With Accessibility granted we also read VS Code's live buffer and car
 scored 8–9/10, with no PINN leakage (`evals/lesson/report.md`). Diagrams work for git graphs, React data flow and pandas groupby
 (`server/diagrams/examples/`).
 
-**"What does Gemini do vs Claude?"** Gemini watches YouTube: the full-video lesson pass and the search skim. Claude does
-everything that reads text, code or screens: search, scoring, the transcript lesson path, the coach, diagrams and scaffolding.
+**"What does Gemini do vs Claude?"** Gemini watches YouTube, and only for the lesson the learner picked (the finder's skim is off
+by default to save cost). Claude does everything that reads text, code or screens: search, scoring, preflight, the transcript
+lesson path, the coach, diagrams and scaffolding. In the lesson builder it's Haiku/Sonnet first, and Opus only when a quality check fails.
+
+**"What did it cost / how do you control spend?"** An unsupervised test sweep drained our prepaid Gemini credit (about $20,
+team-reported), so we added a billing fast-fail, turned the skims off, tiered the Claude models, and logged per-model tokens on every
+build (`build.cost`). A daily Gemini cap (25 video calls) is written but not merged yet.
+
+**"Is there a no-video mode?"** "Just teach me" is in progress: Claude researches with web search and the docs and writes the
+lesson itself, and the editor opens full screen with the exact line boxed. It has offline tests and isn't wired into the app yet.
 
 **"What's Bright Data for?"** The SERP API runs the web search, the Web Scraper API pulls YouTube comments that flag outdated
 tutorials, and the Web Unlocker fetches pages Claude reads and the docs the coach cites.

@@ -25,27 +25,52 @@ yourself and doesn't let you move on until it really works. Miyagi does that for
 
 ## What it does
 
+Miyagi has **two ways to learn**:
+- **Watch a video** (shipped, below): Miyagi finds a real tutorial, checks it in a preflight card, builds a lesson from the video,
+  and gates the video step by step.
+- **Just teach me** (**in progress**, not merged yet): no video. Claude researches the topic with web search and the official docs
+  and writes the lesson itself. The editor opens full screen and Miyagi boxes exactly where to type. Details below.
+
+**Watch a video:**
+
 1. **Ask.** Press **⌥Space**. A launcher grows out of the MacBook notch. Type what you want to learn, e.g. *"learn physics informed
    machine learning with PINNs in PyTorch"*.
-2. **Find.** Miyagi searches the live web for real tutorials (YouTube, blogs, notebooks, repos, papers). Claude scores every
-   candidate, Gemini skims the top videos, and Bright Data pulls each top video's comments so videos people say "don't work
-   anymore" get flagged. The first result shows up in about 3–4 s.
-3. **Build a lesson.** Miyagi turns the chosen video into a step-by-step lesson. Each step has a video clip and checks a machine can
+2. **Find.** Miyagi searches the live web for real tutorials (YouTube, blogs, notebooks, repos, papers): Claude with web search
+   plus the Bright Data SERP API. Claude scores every candidate, and Bright Data pulls the comments of the top 3 videos so videos
+   people say "don't work anymore" get flagged. Every row shows its style (coding / no-code / conceptual) and length. The first
+   result shows up in about 3–4 s.
+3. **Preflight.** Within 5 s of your pick, a card says what the video actually is: its style, length and chapters, whether it fits
+   your goal, and which tools it needs ("VS Code ✓ Python 3 ✓ torch ✗"). It has two buttons, **Build** or **Pick another**.
+   Nothing is built until you say so. (`server/preflight/`)
+4. **Build a lesson.** Miyagi turns the chosen video into a step-by-step lesson. Each step has a video clip and checks a machine can
    grade: regexes over what is on your screen, plus loss/accuracy thresholds and trends read off your terminal. Gemini watches the
-   YouTube video directly, and a Claude path that reads the transcript races it.
-4. **Set up.** It creates a project folder with starter files and opens VS Code. The starter files are guarded so that none of them
+   YouTube video directly, and a Claude path that reads the transcript races it. Videos over 30 minutes are built progressively,
+   part by part, so the first part is ready while the rest builds. (`server/lesson/progressive.py`)
+5. **Set up.** It creates a project folder with starter files and opens VS Code. The starter files are guarded so that none of them
    already passes a step.
-5. **Follow along.** The video plays one step and then pauses. Miyagi watches your **whole screen** (Apple Vision OCR on the
+6. **Follow along.** The video plays one step and then pauses. Miyagi watches your **whole screen** (Apple Vision OCR on the
    device, plus macOS Accessibility) and spotlights where you should work. When the step's checks pass on your real screen, the
    step turns green and the video resumes on its own.
-6. **Get unstuck.** If a check fails (say, the loss is stuck around 17), the step goes amber and a Claude Opus coach diagnoses the
+7. **Get unstuck.** If a check fails (say, the loss is stuck around 17), the step goes amber and a Claude Opus coach diagnoses the
    problem from your actual screen and code, with the card landing 2–4 s after the run ends. It gives one short card with a hint ladder: a guiding question, then the moment in
    the video, then the source, then the exact fix. **"Do it for me"** shows a diff preview, applies it only after you confirm, and
    can be undone.
-7. **See it.** **⌥D** draws a diagram for the current step, built by Claude for any topic: React data flow, a git commit graph,
+8. **See it.** **⌥D** draws a diagram for the current step, built by Claude for any topic: React data flow, a git commit graph,
    a pandas groupby, a neural net.
-8. **Remember everything.** Every learning event and metric streams into Tiger Data (TimescaleDB hypertables + continuous
+9. **Remember everything.** Every learning event and metric streams into Tiger Data (TimescaleDB hypertables + continuous
    aggregates): time per step, fail rate per check, and a "stuck heatmap" over the video's timeline.
+
+**Just teach me (in progress):**
+- `build_text_lesson(goal, workdir)` (commit `f438b88`, branch `claude/michael-lesson-135f28`) is **Claude only, no Gemini**:
+  - Sonnet plans 3–8 steps from your starter files.
+  - Sonnet with web search and web fetch researches the later steps in parallel. Sources are only URLs the tools returned.
+  - Haiku writes each step: the exact code to type, the target (file + anchor), screen checks and hints. Opus takes over only when
+    a check on its output fails.
+  - Step 1 goes out without waiting for the research.
+- Full-screen editor and `editor_line_rect()` (an exact line rect from macOS Accessibility, for boxing where to type): commit
+  `12c1b26`, branch `claude/workspace-pycheck`.
+- Status: both have **offline tests only**: a Python calculator, a React todo list and a file-renaming CLI, all with faked
+  models. They're **not merged into `integration/live`**, and the launcher and engine don't call them yet.
 
 Nothing in it is PINN-specific. We evaluated the lesson builder on React, git, pandas, Rust and FastAPI tutorials (numbers below).
 
@@ -57,8 +82,9 @@ between all of them.
 
 ```
 Electron overlay (app/) ──WebSocket :8787, shared/contracts/events.ts──▶ engine (server/orchestrator, FastAPI)
-                                                                           ├─ finder     Claude web search + Bright Data SERP/Unlocker/YouTube comments + Gemini video skim
-                                                                           ├─ lesson     Gemini watches the YouTube video ∥ Claude reads the transcript → step graph
+                                                                           ├─ finder     Claude web search + Bright Data SERP/Unlocker/YouTube comments (Gemini skim: off by default)
+                                                                           ├─ preflight  ≤ 5 s card before any build: style, length, goal fit, tools needed
+                                                                           ├─ lesson     Gemini watches the YouTube video ∥ Claude reads the transcript → step graph (long videos: part by part)
                                                                            ├─ workspace  Claude scaffolds ~/miyagi/lessons/<slug>, opens VS Code
                                                                            ├─ screen     ScreenCaptureKit + Apple Vision OCR + Accessibility, on-device
                                                                            ├─ checks     pure evaluator: screen regex, metric threshold/trend (Mann-Kendall + Theil-Sen)
@@ -68,14 +94,20 @@ Electron overlay (app/) ──WebSocket :8787, shared/contracts/events.ts──�
 tut run (cli/) ── POST /ingest ──▶ engine        (optional "precision mode": parses ::metric:: lines from your training script)
 ```
 
-**Model rule:** Claude reads screens and code. Gemini only watches YouTube videos. Two exceptions remain in the code. The finder
-falls back to Gemini scoring only if Claude fails. `server/screen/describe.py` on `integration/live` still has a Gemini path (the
-Claude-only version is in PR #9), but it isn't used in the hero flow.
+**Model rule:** Claude reads screens and code. Gemini only watches YouTube videos, and only for the lesson builder: the finder's
+Gemini skim and its Gemini scoring fallback are **off by default** (`FINDER_SKIM_TOP=0`, `FINDER_GEMINI_FALLBACK=0`, commit
+`b4f3bd2`). One exception remains: `server/screen/describe.py` on `integration/live` still has a Gemini path (the Claude-only
+version is in PR #9), but it isn't used in the hero flow.
+
+**Claude tiers** (commit `d500d03`): in the lesson builder, Sonnet 5.5 segments the video and Haiku 5.5 does per-step detail, check
+adaptation and goal judging. Opus 5.5 runs only when a quality check fails: bad output, wrong step count, a step without checks,
+or a lint-feedback round. The coach's diagnosis stays on Opus.
 
 Real numbers, with where each one comes from:
 
 | What | Measured | Source |
 |---|---|---|
+| Preflight card after the pick | cold **3.4–5.0 s** (hard cap 5 s; a late tool list re-sends the card at 5.3–7.0 s) | `docs/PIPELINE.md` |
 | Search, first result on screen | **2.8–3.7 s**; whole search done in 4.1–14.3 s (4 PINN queries); 2.4–7.2 s to the first row on 4 non-PINN topics | `timings` in `demo/cache/search/*.json`; `docs/STAGES.md` (PR #13) |
 | Claude web search (Haiku 5.5 + `web_search` tool) | 5–8 s for 17–26 results (Sonnet took 13.8 s on the same query) | `server/finder/README.md` |
 | Lesson build, hero (24-min Toscano PINN video, Gemini watched it) | **31.1 s** | `build.seconds` in `demo/cache/lessons/aebc6b8fba02dac5.json` |
@@ -99,6 +131,20 @@ Electron + React + TypeScript + Tailwind + Motion for the overlay, PyTorch for t
   four video models returned `429 RESOURCE_EXHAUSTED` and Google Search grounding returned 429 on every model. We added hedged
   model fallbacks, turned off the SDK's silent retries (they swallowed our timeouts), raced a Claude transcript path against Gemini,
   and cached every lesson draft so a cached video never spends quota. (`E7` quota note; `docs/STAGES.md` F2/F6.)
+- **Cost: an unsupervised test sweep drained our Gemini credit.** A test sweep left running on its own used up the prepaid Gemini
+  credit (about **$20**, a team-reported figure; it isn't in the repo). After that every call returned
+  `402 "prepayment credits are depleted"`, and our code retried it as a transient error until the 75 s cap (commit `15f0efe`).
+  What we added:
+  - A **402 fast-fail**: billing errors mark Gemini down for 5 min, with no retries or fallbacks, so the race takes Claude's draft at
+    once. The learner sees a plain sentence: "Gemini credits are used up…" (`15f0efe`).
+  - **Gemini skims off** in the finder by default (`b4f3bd2`, `c0a3baa`).
+  - **Model tiering**: Haiku/Sonnet first, Opus only when a check on the output fails (`d500d03`).
+  - **`build.cost`** on every lesson: model calls and input/output tokens per model, Claude usage plus Gemini `usage_metadata`
+    including thinking (`d500d03`). These are token counts, not dollars.
+  - Speculative **prebuild is opt-in** (`ORCH_PREBUILD=1`), and the tests blank paid keys (`d500d03`, `bb8feb2`).
+  - A **daily Gemini cap**: `LESSON_GEMINI_DAILY_CAP`, 25 video calls/day by default, persisted in
+    `~/miyagi/state/gemini_usage.json`; when it's used up the Claude transcript path takes over. Long videos also build later
+    parts only on demand. Both are in commit `6eb9aab`, which is **not merged into `integration/live` yet**.
 - **YouTube rate limits.** From the venue network, YouTube returned `429 Too Many Requests` on caption (`timedtext`) requests, so
   with Gemini also out of quota no new lesson could be built. Every failure now ends in under 6 s with a plain-English
   error instead of a hang. (`docs/STAGES.md` re-run.)
@@ -139,6 +185,7 @@ Electron + React + TypeScript + Tailwind + Motion for the overlay, PyTorch for t
 
 ## What's next
 
+- Land **Just teach me** (no-video lessons) in the launcher and the engine, and merge the daily Gemini cap.
 - Voice: ElevenLabs narration of cards (the app side is built; the engine side is in progress).
 - Video-ID–level community warnings at specific timestamps ("this breaks at 12:40 with pandas 2.x").
 - A creator dashboard on the Tiger aggregates: where learners get stuck in *your* video, and which steps take the longest.
@@ -162,8 +209,9 @@ Gemini is the part of Miyagi that **watches YouTube**. `server/lesson/gemini.py`
 straight to Gemini as `file_data`, with structured JSON output. It gets back the steps with MM:SS bounds, the code written in each
 step, draft checks, on-screen targets, explanation timestamps, a hint ladder, common mistakes and library versions. An optional
 `step_detail` pass re-sends each step clipped with `start_offset`/`end_offset` at 2 fps so code on screen is readable.
-`server/finder/gemini.py` does a low-fps skim (0.05 fps, low media resolution) of the top 3 search results, and that skim is 60% of
-the video's final score. The hero lesson was built by `gemini-4-hydrogen` watching the 24-minute video in 31.1 s, recorded in
+Videos over 30 minutes are built progressively, window by window (`server/lesson/progressive.py`). `server/finder/gemini.py` can also do a
+low-fps skim (0.05 fps) of the top 3 search results, but it has been **off by default** since our cost freeze (`FINDER_SKIM_TOP=0`):
+Gemini is spent only on the lesson the learner picked. The hero lesson was built by `gemini-4-hydrogen` watching the 24-minute video in 31.1 s, recorded in
 `build.model` of `demo/cache/lessons/aebc6b8fba02dac5.json`. That cached lesson's adapt pass was also done by Gemini
 (`gemini-3.6-flash`), before we moved adapt to Claude. Model chains, hedged fallbacks and quota handling: `server/lesson/README.md`,
 `server/finder/README.md`.
@@ -172,8 +220,8 @@ the video's final score. The hero lesson was built by `gemini-4-hydrogen` watchi
 Bright Data is Miyagi's **live-web layer**, and the "good" it does is keeping learners away from tutorials that no longer work.
 - **SERP API** (Google) runs the web searches for written tutorials and notebooks, keeps Google's video results, and resolves
   `google.com/goto` links. `server/finder/brightdata.py`, `server/finder/sources.py`.
-- **Web Scraper API, YouTube comments dataset:** each top video's comments are pulled in parallel with the Gemini skim (10 s cap).
-  Comments like "outdated" or "doesn't work" become row `warnings` and feed the skim score. `server/finder/brightdata.py`
+- **Web Scraper API, YouTube comments dataset:** the comments of the top 3 videos are pulled within a 10 s cap.
+  Comments like "outdated" or "doesn't work" become row `warnings`. `server/finder/brightdata.py`
   (`BRIGHTDATA_YT_COMMENTS_DATASET`).
 - **Web Unlocker** fetches the pages Claude reads and re-checks bot-blocked URLs (`server/finder/verify.py`). For the lesson
   builder it fetches YouTube watch pages and captions when the direct route is rate-limited (`server/lesson/transcript.py`).

@@ -8,6 +8,12 @@ video one step at a time. Each step waits until **your own screen** shows the st
 output is right, the loss curve is falling. When a check fails, a Claude Opus coach looks at your actual screen and code and tells
 you what's wrong, with the card landing 2–4 s after your run ends. It gives hints first, the exact fix if you ask, and a "Do it for me" you have to confirm and can undo.
 
+Two ways to learn:
+- **Watch a video:** search, then a preflight card (what the video is and what it needs), then a lesson built from the video, then
+  the video gated step by step. Long videos build part by part.
+- **Just teach me** (**in progress**, not merged): no video. Claude researches with web search and the official docs and writes
+  the lesson itself, and the editor opens full screen with the exact place to type boxed.
+
 Built at SanD Hacks 2026 (UCSD, Nov 14–15). Devpost write-up: [`docs/devpost/SUBMISSION.md`](docs/devpost/SUBMISSION.md) ·
 demo script: [`docs/devpost/DEMO.md`](docs/devpost/DEMO.md).
 
@@ -50,15 +56,16 @@ flowchart LR
   VSC -. "captured" .-> Screen
   Tut -- "POST /ingest" --> Orch
   Orch --> Finder["server/finder"]
+  Orch --> Pre["server/preflight"]
+  Pre -- "what the video is, tools needed" --> Claude
   Orch --> Lesson["server/lesson"]
   Orch --> WS["server/workspace"]
   Orch --> Checks["server/checks<br/>pure evaluator"]
   Orch --> Coach["server/coach"]
   Orch --> Diag["server/diagrams"]
   Finder -- "web search, scoring, page reads" --> Claude[("Claude<br/>Opus / Sonnet / Haiku 5.5")]
-  Finder -- "skim top videos" --> Gemini[("Gemini")]
   Finder -- "SERP, Unlocker, YouTube comments" --> BD[("Bright Data")]
-  Lesson -- "watch the YouTube video" --> Gemini
+  Lesson -- "watch the YouTube video" --> Gemini[("Gemini")]
   Lesson -- "transcript path (races Gemini)" --> Claude
   Lesson -- "watch page / captions" --> BD
   WS -- "starter files" --> Claude
@@ -75,7 +82,8 @@ flowchart LR
 | `app/` | Electron + React + TypeScript overlay: the notch pill, the ⌥Space launcher, the spotlight (dims the screen around a rect), cards, diagrams, the YouTube player that pauses at each step's end. Speaks only `shared/contracts/events.ts`. |
 | `server/orchestrator/` | The hub (FastAPI on :8787): lesson state machine, don't-nag gate, hint ladder, Do it for me (preview → confirm → apply → undo), `DEMO=1` replay. |
 | `server/finder/` | Real tutorial search; first result in about 3–4 s, best video first. |
-| `server/lesson/` | YouTube video → step graph with screen-gradable checks (`step-graph.schema.json`), cached in `demo/cache/lessons/`. |
+| `server/preflight/` | A card within 5 s of the pick (style, length, goal fit, tools needed) with Build / Pick another; nothing is built before you say so. |
+| `server/lesson/` | YouTube video → step graph (long videos part by part, `progressive.py`) with screen-gradable checks (`step-graph.schema.json`), cached in `demo/cache/lessons/`. |
 | `server/workspace/` | One folder per lesson with Claude-written starter files that never pass a step on their own; opens VS Code. |
 | `server/screen/` | Whole-screen reader: OCR on the device, `locate` → spotlight rect, loss read off the terminal. |
 | `server/checks/` | Pure check evaluator (`screen_contains`, `metric_threshold`, `metric_trend` with Mann-Kendall + Theil-Sen), Tiger writers with an offline spool. |
@@ -85,14 +93,15 @@ flowchart LR
 | `shared/contracts/` | The boundary: WebSocket events, step-graph and check schemas, metric protocol, Tiger schema. |
 | `evals/lesson/`, `docs/STAGES.md` | Lesson builder on 5 non-PINN tutorials; stage-by-stage runs on 4 topics (PRs #10, #13). |
 
-**Model rule:** Claude reads screens and code; Gemini only watches YouTube videos. No fake data on the live path: a module that
+**Model rule:** Claude reads screens and code; Gemini only watches YouTube videos. Cost controls: Haiku/Sonnet first with Opus
+only when a check fails, Gemini skims off, and per-model token counts in every lesson's `build.cost`. No fake data on the live path: a module that
 fails sends an `error` event with the reason, and canned data exists only behind `DEMO=1`.
 
 ## How each sponsor's tech is used
 
 | Sponsor | Used for | Where |
 |---|---|---|
-| **Gemini** | Watches the YouTube video directly (`file_data`, structured JSON) to build the lesson's steps, timestamps, code and draft checks; low-fps skim of the top search results | `server/lesson/gemini.py`, `server/finder/gemini.py` |
+| **Gemini** | Watches the YouTube video directly (`file_data`, structured JSON) to build the lesson's steps, timestamps, code and draft checks; only for the lesson the learner picked (the finder's skim is off by default) | `server/lesson/gemini.py`, `server/finder/gemini.py` |
 | **Bright Data** | SERP API for web search; Web Scraper API for YouTube comments (flags "doesn't work anymore" tutorials); Web Unlocker for pages Claude reads, captions, and the docs the coach cites | `server/finder/brightdata.py`, `sources.py`, `verify.py`; `server/lesson/transcript.py`; `server/coach/web.py` |
 | **Tiger Data** | `training_metrics` + `learning_events` hypertables; continuous aggregates `metrics_1s`, `time_per_step`, `check_fail_rate`, `stuck_heatmap`, `learner_progress`; your curve vs the tutorial's | `shared/contracts/tiger-schema.sql`, `cli/sql/tiger-extras.sql`, `server/checks/tiger.py`, `server/checks/curves.py`, `cli/` |
 | **ElevenLabs** | Voice for cards, **in progress**: the app plays `speak` audio (⌥V) and the keys are plumbed; the engine-side TTS call isn't in the repo yet | `shared/contracts/events.ts` (`speak`), `app/src/renderer/src/features/voice/` |
