@@ -6,13 +6,15 @@ import { AnimatePresence, motion } from 'motion/react'
 import { useEffect, useState, type ReactNode } from 'react'
 import { useShallow } from 'zustand/react/shallow'
 import { AudioLines, Lightbulb, MessageSquareText, RotateCcw, Search, SquarePlay, Waypoints, type LucideIcon } from 'lucide-react'
-import { cmd } from '../../../common/wire'
-import { bridge } from '../bridge'
-import { useLesson } from '../store'
-import { color, spring } from '../theme'
-import type { ShortcutKind } from '../../../main/platform'
+import { bridge } from '../../bridge'
+import { onUi } from '../../core/bus'
+import { useLesson } from '../../core/lesson'
+import { triggerShortcut, type ActionShortcut } from '../../core/shortcuts'
+import { color, spring } from '../../core/theme'
+import { useDiagram } from '../diagrams/store'
+import { useVoice } from '../voice/store'
 
-type Btn = { kind: Exclude<ShortcutKind, 'launcher'>; label: string; icon: LucideIcon }
+type Btn = { kind: ActionShortcut; label: string; icon: LucideIcon }
 
 const BUTTONS: Btn[] = [
   { kind: 'back', label: 'Back', icon: RotateCcw },
@@ -25,23 +27,18 @@ const BUTTONS: Btn[] = [
 
 export const BAR_HEIGHT = 88
 
-/** Run a shortcut from a click (Electron global shortcuts do the same thing in main). */
-export function runShortcut(kind: Btn['kind']): void {
-  const st = useLesson.getState()
-  if (kind === 'voice_toggle') st.toggleVoice()
-  if (kind === 'diagram' && st.diagramOpen) return st.closeDiagram()
-  bridge.send(cmd('action', { kind }))
-}
 
 export function ShortcutBar({ bottom }: { bottom: number }): ReactNode {
-  const s = useLesson(useShallow((x) => ({ on: !!x.lesson, diagramOpen: x.diagramOpen, voiceOn: x.voiceOn, speaking: !!x.lastSpeak })))
+  const on = useLesson((x) => !!x.lesson)
+  const diagramOpen = useDiagram((d) => d.open)
+  const voice = useVoice(useShallow((v) => ({ on: v.on, speaking: v.speaking })))
+  const s = { on, diagramOpen, voiceOn: voice.on, speaking: voice.speaking }
   const [pressed, setPressed] = useState<string>()
 
-  // Global shortcut fired in main (or a key in the browser stage): animate the matching button.
+  // Any shortcut (global key, click, stage key): animate the matching button. Never claims it.
   useEffect(
     () =>
-      bridge.on('shortcut', (kind) => {
-        if (kind === 'voice_toggle') useLesson.getState().toggleVoice()
+      onUi('shortcut', (kind) => {
         setPressed(kind as string)
         setTimeout(() => setPressed(undefined), 90)
       }),
@@ -87,7 +84,7 @@ export function ShortcutBar({ bottom }: { bottom: number }): ReactNode {
                   whileHover={{ background: 'rgba(255,255,255,.06)' }}
                   whileTap={{ scale: 0.94 }}
                   transition={{ duration: 0.09 }}
-                  onClick={() => runShortcut(kind)}
+                  onClick={() => triggerShortcut(kind)}
                 >
                   {blue && s.speaking ? <Equalizer /> : <Icon size={19} strokeWidth={1.6} style={{ color: blue ? color.accent : lit ? color.accent : '#fff' }} />}
                   <span className="mt-[5px] text-[13px] leading-none text-white/90">{label}</span>

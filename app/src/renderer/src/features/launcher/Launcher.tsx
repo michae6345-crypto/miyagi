@@ -9,12 +9,12 @@ import { AnimatePresence, motion } from 'motion/react'
 import { useEffect, useRef, useState, type KeyboardEvent, type ReactNode } from 'react'
 import { useShallow } from 'zustand/react/shallow'
 import { CornerDownLeft, FileCode2, FileText, Mic, Newspaper, Sparkles } from 'lucide-react'
-import type { Layout } from '../../../preload/api'
-import { bridge } from '../bridge'
-import { useLesson, type SearchResult } from '../store'
-import { cmd } from '../../../common/wire'
-import { Spinner, Thumb } from '../ui/atoms'
-import { color, launcher as L, pill, spring } from '../theme'
+import type { Layout } from '../../../../preload/api'
+import { cmd } from '../../../../common/wire'
+import { bridge } from '../../bridge'
+import { Spinner, Thumb } from '../../core/ui/atoms'
+import { color, launcher as L, pill, spring } from '../../core/theme'
+import { startSearch, useSearch, type SearchResult } from './store'
 
 type Phase = 'closed' | 'open' | 'closing' | 'building'
 
@@ -26,7 +26,7 @@ export function Launcher({ layout, openOnMount = false }: { layout: Layout; open
   const [gen, setGen] = useState(0)
   const [query, setQuery] = useState('')
   const [sel, setSel] = useState(0)
-  const search = useLesson(useShallow((s) => s.search))
+  const search = useSearch(useShallow((s) => s))
   const input = useRef<HTMLInputElement>(null)
 
   useEffect(() => bridge.on('launcher:open', () => (setPhase('open'), setGen((g) => g + 1), setSel(0))), [])
@@ -57,7 +57,7 @@ export function Launcher({ layout, openOnMount = false }: { layout: Layout; open
     const q = query.trim()
     if (!q) return
     if (q !== search.query || (!results.length && !search.pending)) {
-      useLesson.getState().startSearch(q)
+      startSearch(q)
       bridge.send(/^https?:\/\/(www\.)?(youtube\.com|youtu\.be)\//.test(q) ? cmd('learn_url', { url: q }) : cmd('learn', { query: q }))
       setSel(0)
     } else build()

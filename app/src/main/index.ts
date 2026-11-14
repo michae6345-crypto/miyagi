@@ -1,13 +1,17 @@
 /**
- * Two preloaded, always-on-top, transparent windows covering the display:
+ * Core main process. Two preloaded, always-on-top, transparent windows covering the display:
  *   overlay  : pill / cards / diagram / shortcut bar / dim + spotlight. Click-through except over controls.
  *   launcher : the Spotlight-style panel. Focusable. Shrinks into the pill on "Build lesson".
  * Both span the whole display, so the launcher can land exactly on the pill's pixels.
  * Nothing is ever resized during an animation; windows are only shown/hidden.
+ *
+ * Features add their own main-process code in src/main/features/<name>.ts (see context.ts).
+ * Owner: core.
  */
-import { app, BrowserWindow, globalShortcut, ipcMain, screen } from 'electron'
+import { app, BrowserWindow, globalShortcut, ipcMain, screen, type BrowserWindowConstructorOptions } from 'electron'
 import { join } from 'node:path'
 import { EngineLink } from './engine'
+import type { MainContext, MainFeature } from './context'
 import {
   describePlatform,
   launcherGlassOptions,
@@ -19,33 +23,36 @@ import {
   type ShortcutKind
 } from './platform'
 import type { Layout, UiSignal } from '../preload/api'
-import { cmd } from '../common/wire'
 
 const platform = describePlatform(process.platform)
 const engine = new EngineLink(process.env.ENGINE_URL ?? 'ws://localhost:8787', process.env.DEMO === '1' ? (process.env.SCENARIO ?? 'full') : undefined)
 
+const windows = new Set<BrowserWindow>()
+const signalListeners = new Map<string, Set<(payload?: unknown) => void>>()
 let overlay: BrowserWindow
 let launcher: BrowserWindow
 let launcherOpen = false
 let actionsRegistered = false
 
-function createWindow(route: 'overlay' | 'launcher'): BrowserWindow {
-  const display = screen.getDisplayNearestPoint(screen.getCursorScreenPoint())
+const displayNow = (): Electron.Display => screen.getDisplayNearestPoint(screen.getCursorScreenPoint())
+
+function createWindow(route: string, options: BrowserWindowConstructorOptions): BrowserWindow {
   const win = new BrowserWindow({
-    ...overlayWindowOptions(overlayBounds(display)),
-    ...(route === 'launcher' ? { focusable: true, ...launcherGlassOptions() } : { focusable: false }),
+    show: false,
+    ...options,
     webPreferences: {
       preload: join(__dirname, '../preload/index.js'),
       sandbox: true,
       contextIsolation: true,
       backgroundThrottling: false,
-      additionalArguments: [`--tut-platform=${encodeURIComponent(JSON.stringify(platform))}`]
+      additionalArguments: [`--tut-platform=${encodeURIComponent(JSON.stringify(platform))}`],
+      ...options.webPreferences
     }
   })
-  raise(win)
-  win.setBounds(overlayBounds(display)) // after raising, so macOS lets it cover the menu bar
+  windows.add(win)
+  win.on('closed', () => windows.delete(win))
   if (!app.isPackaged) {
-    // Pipe renderer warnings/errors into the terminal (the overlay has no visible devtools).
+    // Pipe renderer warnings/errors into the terminal (overlay windows have no visible devtools).
     win.webContents.on('console-message', (...args: unknown[]) => {
       const ev = args[0] as { level?: string | number; message?: string }
       const level = ev.level ?? args[1]
@@ -59,15 +66,30 @@ function createWindow(route: 'overlay' | 'launcher'): BrowserWindow {
   return win
 }
 
+/** The two core windows: full display, transparent, always on top. */
+function createCoreWindow(route: 'overlay' | 'launcher'): BrowserWindow {
+  const bounds = overlayBounds(displayNow())
+  const win = createWindow(route, {
+    ...overlayWindowOptions(bounds),
+    ...(route === 'launcher' ? { focusable: true, ...launcherGlassOptions() } : { focusable: false })
+  })
+  raise(win)
+  win.setBounds(bounds) // after raising, so macOS lets it cover the menu bar
+  return win
+}
+
 function layoutFor(win: BrowserWindow): Layout {
   const b = win.getBounds()
-  const d = screen.getDisplayMatching(b)
-  const wa = d.workArea
+  const wa = screen.getDisplayMatching(b).workArea
   return { origin: { x: b.x, y: b.y }, width: b.width, height: b.height, workArea: { x: wa.x - b.x, y: wa.y - b.y, width: wa.width, height: wa.height } }
 }
 
 function send(win: BrowserWindow | undefined, signal: UiSignal, payload?: unknown): void {
   if (win && !win.isDestroyed()) win.webContents.send(`ui:${signal}`, payload)
+}
+
+function forEachWindow(fn: (w: BrowserWindow) => void): void {
+  for (const w of windows) if (!w.isDestroyed()) fn(w)
 }
 
 function openLauncher(): void {
@@ -89,35 +111,43 @@ function hideLauncher(): void {
   returnFocus(app, overlay)
 }
 
+/** Global action shortcuts go to the overlay renderer, which decides (features may claim them) and tells the engine. */
 function registerActionShortcuts(): void {
   if (actionsRegistered) return
   actionsRegistered = true
   const kinds: Exclude<ShortcutKind, 'launcher'>[] = ['back', 'explain', 'diagram', 'show_me', 'hint', 'voice_toggle']
   for (const kind of kinds) {
-    const ok = globalShortcut.register(platform.accelerators[kind], () => {
-      engine.send(cmd('action', { kind }))
-      send(overlay, 'shortcut', kind)
-    })
+    const ok = globalShortcut.register(platform.accelerators[kind], () => send(overlay, 'shortcut', kind))
     if (!ok) console.warn(`[tut] shortcut ${platform.accelerators[kind]} is taken by another app`)
+  }
+}
+
+function loadFeatures(ctx: MainContext): void {
+  const mods = import.meta.glob<{ default: MainFeature }>('./features/*.ts', { eager: true })
+  for (const [path, mod] of Object.entries(mods)) {
+    try {
+      mod.default?.setup(ctx)
+      console.log(`[tut] main feature: ${mod.default?.id ?? path}`)
+    } catch (err) {
+      console.error(`[tut] main feature ${path} failed`, err)
+    }
   }
 }
 
 app.whenReady().then(() => {
   setupApp(app)
-  overlay = createWindow('overlay')
-  launcher = createWindow('launcher')
+  overlay = createCoreWindow('overlay')
+  launcher = createCoreWindow('launcher')
 
   overlay.setIgnoreMouseEvents(true, { forward: true })
   overlay.once('ready-to-show', () => overlay.showInactive())
   launcher.on('blur', () => closeLauncher())
 
   engine.onEvent((e) => {
-    for (const w of [overlay, launcher]) if (!w.isDestroyed()) w.webContents.send('engine:event', e)
+    forEachWindow((w) => w.webContents.send('engine:event', e))
     if (e.type === 'lesson.ready') registerActionShortcuts()
   })
-  engine.onStatus((c) => {
-    for (const w of [overlay, launcher]) if (!w.isDestroyed()) w.webContents.send('engine:status', c)
-  })
+  engine.onStatus((c) => forEachWindow((w) => w.webContents.send('engine:status', c)))
 
   ipcMain.on('engine:cmd', (_e, cmd) => engine.send(cmd))
 
@@ -129,7 +159,7 @@ app.whenReady().then(() => {
     for (const ev of engine.log) e.sender.send('engine:event', ev)
   })
 
-  ipcMain.on('ui:emit', (_e, signal: UiSignal, payload: unknown) => {
+  ipcMain.on('ui:emit', (_e, signal: string, payload: unknown) => {
     switch (signal) {
       case 'overlay:interactive':
         overlay.setIgnoreMouseEvents(!payload, { forward: true })
@@ -146,6 +176,7 @@ app.whenReady().then(() => {
         hideLauncher()
         break
     }
+    signalListeners.get(signal)?.forEach((fn) => fn(payload))
   })
 
   const ok = globalShortcut.register(platform.accelerators.launcher, () => (launcherOpen ? closeLauncher() : openLauncher()))
@@ -155,6 +186,23 @@ app.whenReady().then(() => {
     for (const w of [overlay, launcher]) {
       w.setBounds(overlayBounds(screen.getDisplayMatching(w.getBounds())))
       send(w, 'layout', layoutFor(w))
+    }
+  })
+
+  loadFeatures({
+    app,
+    platform,
+    engine,
+    overlay,
+    launcher,
+    display: () => screen.getDisplayMatching(overlay.getBounds()),
+    createWindow,
+    overlayOptions: overlayWindowOptions,
+    handle: (channel, fn) => ipcMain.handle(`feat:${channel}`, (_e, ...args) => fn(...args)),
+    broadcast: (channel, payload) => forEachWindow((w) => w.webContents.send(`feat:${channel}`, payload)),
+    onSignal: (signal, fn) => {
+      if (!signalListeners.has(signal)) signalListeners.set(signal, new Set())
+      signalListeners.get(signal)!.add(fn)
     }
   })
 })

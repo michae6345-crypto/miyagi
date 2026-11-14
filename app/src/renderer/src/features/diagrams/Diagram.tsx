@@ -8,12 +8,12 @@
 import { motion } from 'motion/react'
 import type { ReactNode } from 'react'
 import { Waypoints } from 'lucide-react'
-import { useLesson } from '../store'
-import { color } from '../theme'
-import { CloseButton } from './Island'
+import { color } from '../../core/theme'
+import { CloseButton } from '../../core/ui/atoms'
+import { useDiagram } from './store'
 
 export function DiagramView(): ReactNode {
-  const d = useLesson((s) => s.diagram)
+  const d = useDiagram((s) => s.diagram)
   if (!d) return null
   const title = d.kind === 'network' ? 'Architecture' : d.kind === 'gradients' ? 'Gradient flow' : 'Solution'
   return (

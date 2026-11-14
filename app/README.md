@@ -6,37 +6,47 @@ Electron + React + TypeScript + Tailwind + Motion. Screen-first: no VS Code exte
 
 ```bash
 npm install                     # npm 11: if asked, `npm install-scripts approve esbuild`
-npm run web:all                 # mock engine + browser stage → http://localhost:5173  (Ctrl+K opens the launcher)
-npm run dev:web                 # stage alone; with no engine on :8787 it runs the mock inline
+npm run dev:web                 # browser stage, mock runs inline → http://localhost:5173  (Ctrl+K opens the launcher)
+npm run web:all                 # mock server + stage wired to it over a real socket (?engine=socket)
+npm run feature -- new player   # new worktree + branch + scaffold for one feature agent (see agents/)
 npm run mock -- full            # mock engine only: happy | offtrack | full
 npm run dev                     # Electron (ENGINE_URL=…, DEMO=1 replays the scripted run in-process, no network)
 npm run typecheck && npm run build
 npm run dist:mac                # unsigned .app in dist/ (CI does this on every push to main)
 ```
 
-Stage URL options: `?scenario=happy|offtrack|full` · `?engine=inline` · `?os=win` (Windows key labels) · `?clean` (hide the dev HUD) · `#/launcher` (open on load).
+Stage URL options: `?scenario=<any mock/scenarios name>|full` · `?engine=socket` (or `?engine=ws://host:port`) · `--port` for parallel agents · `?os=win` (Windows key labels) · `?clean` (hide the dev HUD) · `#/launcher` (open on load).
 
 > **Windows + Smart App Control:** SAC blocks the unsigned `electron.exe`, so on a SAC machine you design in the browser stage and the Electron shell gets checked on the Mac (CI build or `npm run dev`).
 
 ## Layout of the code
 
+Built for **one agent per feature**: features plug in by folder, so nobody edits a shared list. Rules: `CLAUDE.md`. Outline + briefs: `agents/`.
+
 ```
-src/main/index.ts       windows, global shortcuts, click-through, launcher→pill handoff, IPC relay
-src/main/platform.ts    EVERY Mac/Windows difference (hotkeys, pill y, window flags, glass, focus return)
-src/main/engine.ts      the single engine socket (or DEMO=1 in-process mock), relayed to all windows
-src/preload/            the window.tut bridge (typed in api.ts)
-src/common/wire.ts      parse {type,payload}, cmd('learn', {...}) builder
+src/main/index.ts          core: windows, global shortcuts, click-through, launcher→pill handoff, IPC relay
+src/main/context.ts        what a main-process feature gets (createWindow, handle, broadcast, onSignal, engine.onOpen)
+src/main/features/*.ts     main-process features, auto-discovered
+src/main/platform.ts       EVERY Mac/Windows difference
+src/main/engine.ts         the single engine socket (or DEMO=1 in-process mock), relayed to all windows
+src/preload/               the window.tut bridge (typed in api.ts): engine, UI signals, feature invoke/onFeature
+src/common/wire.ts         parse {type,payload}; cmd('learn', {...}) builder
 src/renderer/src/
-  store.ts              reduces engine messages into lesson state (zustand)
-  bridge.ts             Electron IPC, or browser: local bus + WebSocket + inline-mock fallback
-  overlay/Island.tsx    the Dynamic-Island pill: every state is one morphing black object
-  overlay/ShortcutBar   Ask anything · Back · Explain · Diagram · Show me · Hint · Voice
-  overlay/Spotlight     dim + animated cut-out at the engine's screen rect + caption
-  overlay/Diagram       network · gradients (heatmap TODO)
-  launcher/Launcher     Spotlight-style search, streaming results, Build lesson → shrinks into the pill
-  dev/Stage             browser stage over a fake Mac desktop at the mockups' 1600×1000 coordinates
-  theme.ts              tokens (spring, radii, colors): the theme gets swapped here later
-mock/                   engine.ts (scenario player), replay.ts (ws server), scenarios/*.json (exact wire messages)
+  core/bus.ts              onMessage(type) / onUi('dismiss'|'reset'|'shortcut'): features subscribe here
+  core/lesson.ts           shared lesson state (steps, checks, status, video intent…), read by everyone
+  core/registry.ts         discovers features/*/index.tsx: islandModes, overlayLayers, windows
+  core/Island.tsx          the morphing Dynamic-Island container (modes come from features)
+  core/Overlay.tsx         overlay window: layers + island, overlay.bounds, click-through
+  core/shortcuts.ts        triggerShortcut(kind): features may claim, else → engine
+  core/theme.ts, core/ui/  tokens (spring, colors, radii) and shared atoms
+  features/<name>/         pill · overview · cards · diagrams · launcher · shortcut-bar · spotlight · voice (+ new ones)
+  bridge.ts                Electron IPC, or browser: local bus + inline mock (default) / socket
+  dev/Stage.tsx            browser stage over a fake Mac desktop at the mockups' 1600×1000 coordinates
+mock/engine.ts             scenario player
+mock/scenarios/*.json      exact wire messages; every file is a scenario and all merge into "full"
+mock/replay.ts             ws://localhost:8787 server for the scenarios
+scripts/feature.mjs        npm run feature -- new <name> → worktree + branch + scaffold
+agents/                    the build outline, one brief per feature, ports.json
 ```
 
 ## Windows (Electron)

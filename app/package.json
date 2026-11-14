@@ -9,11 +9,12 @@
     "dev:web": "vite --config vite.web.config.ts",
     "mock": "tsx mock/replay.ts",
     "dev:all": "concurrently -k -n mock,app -c magenta,cyan \"npm:mock\" \"npm:dev\"",
-    "web:all": "concurrently -k -n mock,web -c magenta,cyan \"npm:mock\" \"npm:dev:web\"",
+    "web:all": "concurrently -k -n mock,web -c magenta,cyan \"npm run mock\" \"npm run dev:web -- --open /?engine=socket\"",
     "build": "electron-vite build",
     "typecheck": "tsc --noEmit -p tsconfig.node.json && tsc --noEmit -p tsconfig.web.json",
     "dist:mac": "electron-vite build && electron-builder --mac --dir",
-    "dist:win": "electron-vite build && electron-builder --win --dir"
+    "dist:win": "electron-vite build && electron-builder --win --dir",
+    "feature": "node scripts/feature.mjs"
   },
   "dependencies": {
     "@fontsource-variable/inter": "^5.3.0",

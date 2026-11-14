@@ -1,34 +1,45 @@
-/** The full-screen, click-through overlay: dim + spotlight, the island, the shortcut bar. */
+/**
+ * The full-screen, click-through overlay window: every registered overlay layer, with the
+ * island at z = 50. Also owns overlay.bounds reporting and click-through.
+ *
+ * Owner: core. Features add layers via defineFeature({ overlayLayers }).
+ */
 import { useEffect, useRef, type ReactNode } from 'react'
 import type { Layout } from '../../../preload/api'
 import { cmd } from '../../../common/wire'
 import { bridge } from '../bridge'
-import { useLesson, type Rect } from '../store'
 import { Island } from './Island'
-import { ShortcutBar } from './ShortcutBar'
-import { Spotlight } from './Spotlight'
+import { overlayLayers } from './registry'
+import { triggerShortcut, type ActionShortcut } from './shortcuts'
+
+const ISLAND_Z = 50
 
 export function Overlay({ layout }: { layout: Layout }): ReactNode {
   const root = useRef<HTMLDivElement>(null)
-  const sp = useLesson((s) => s.spotlight)
-  // Engine rects are in screen points; this window starts at layout.origin.
-  const rect: Rect | undefined = sp && { x: sp.rect.x - layout.origin.x, y: sp.rect.y - layout.origin.y, w: sp.rect.w, h: sp.rect.h }
-  const barBottom = layout.height - (layout.workArea.y + layout.workArea.height) + 24
-  useVoice()
   useReportBounds(root, layout)
+  // Global shortcuts arrive from main as a 'shortcut' signal; route them through the shared path.
+  useEffect(() => bridge.on('shortcut', (kind) => triggerShortcut(kind as ActionShortcut)), [])
   return (
     <div ref={root} className="absolute inset-0 overflow-hidden" style={{ width: layout.width, height: layout.height }}>
-      <Spotlight rect={rect} screenW={layout.width} />
+      {overlayLayers
+        .filter((l) => l.z < ISLAND_Z)
+        .map(({ id, Component }) => (
+          <Component key={id} layout={layout} />
+        ))}
       <Island top={bridge.platform.pillTop} />
-      <ShortcutBar bottom={barBottom} />
+      {overlayLayers
+        .filter((l) => l.z >= ISLAND_Z)
+        .map(({ id, Component }) => (
+          <Component key={id} layout={layout} />
+        ))}
     </div>
   )
 }
 
 /**
  * Tell the engine where our own UI is (`overlay.bounds`, screen points) so its screen reader
- * ignores the pill, cards, caption and bar. Sampled every 300ms while anything is visible;
- * sent only when it changes. Elements opt in with data-hit (interactive) or data-ui (display only).
+ * ignores it. Sampled every 300ms; sent only when it changes. Elements opt in with
+ * data-hit (interactive: also stops click-through) or data-ui (display only).
  */
 function useReportBounds(root: React.RefObject<HTMLDivElement | null>, layout: Layout): void {
   useEffect(() => {
@@ -79,22 +90,4 @@ export function useClickThrough(): void {
       document.removeEventListener('mouseleave', out)
     }
   }, [])
-}
-
-/** Play `speak` audio when voice is on. (ElevenLabs URLs come from the engine.) */
-function useVoice(): void {
-  const last = useLesson((s) => s.lastSpeak)
-  const voiceOn = useLesson((s) => s.voiceOn)
-  const audio = useRef<HTMLAudioElement>(undefined)
-  useEffect(() => {
-    if (!last || !voiceOn) return
-    audio.current?.pause()
-    const a = new Audio(last.url)
-    audio.current = a
-    a.onended = () => useLesson.setState({ lastSpeak: undefined })
-    a.play().catch(() => useLesson.setState({ lastSpeak: undefined }))
-  }, [last, voiceOn])
-  useEffect(() => {
-    if (!voiceOn) audio.current?.pause()
-  }, [voiceOn])
 }

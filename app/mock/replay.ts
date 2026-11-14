@@ -3,15 +3,26 @@
  * speaking the exact contract in shared/contracts/events.ts ({type, payload} both ways).
  *
  *   npm run mock                  # scenario "full" (happy path, then off-track)
- *   npm run mock -- happy         # or: happy | offtrack | full
+ *   npm run mock -- happy         # any mock/scenarios/<name>.json, or full (all merged)
  *   PORT=8787 npm run mock -- offtrack
  */
 import { WebSocketServer, type WebSocket } from 'ws'
 import { createMockEngine } from './engine'
-import { scenarios, type ScenarioName } from './scenarios'
+import { readdirSync, readFileSync } from 'node:fs'
+import { join } from 'node:path'
+import { buildScenarios } from './scenarios/build'
+import type { Scenario } from './engine'
 import type { Outgoing } from '../src/common/wire'
 
-const name = (process.argv[2] ?? process.env.SCENARIO ?? 'full') as ScenarioName
+const dir = join(__dirname, 'scenarios')
+const scenarios = buildScenarios(
+  Object.fromEntries(
+    readdirSync(dir)
+      .filter((f) => f.endsWith('.json'))
+      .map((f) => [f.replace(/\.json$/, ''), JSON.parse(readFileSync(join(dir, f), 'utf8')) as Scenario])
+  )
+)
+const name = process.argv[2] ?? process.env.SCENARIO ?? 'full'
 const scenario = scenarios[name]
 if (!scenario) {
   console.error(`Unknown scenario "${name}". Pick one of: ${Object.keys(scenarios).join(', ')}`)

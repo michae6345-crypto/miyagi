@@ -19,7 +19,9 @@ const bridge: TutBridge = {
   send: (cmd) => ipcRenderer.send('engine:cmd', cmd),
   ready: () => ipcRenderer.send('ui:ready'),
   on: (signal: UiSignal, cb) => listen(`ui:${signal}`, cb),
-  emit: (signal: UiSignal, payload) => ipcRenderer.send('ui:emit', signal, payload)
+  emit: (signal: UiSignal, payload) => ipcRenderer.send('ui:emit', signal, payload),
+  invoke: (channel, ...args) => ipcRenderer.invoke(`feat:${channel}`, ...args),
+  onFeature: (channel, cb) => listen(`feat:${channel}`, cb)
 }
 
 contextBridge.exposeInMainWorld('tut', bridge)

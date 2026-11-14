@@ -7,8 +7,10 @@
 import { AnimatePresence, motion } from 'motion/react'
 import type { ReactNode } from 'react'
 import { Volume2 } from 'lucide-react'
-import { useLesson, type Rect } from '../store'
-import { color, spring } from '../theme'
+import { useLesson, type Rect } from '../../core/lesson'
+import { color, spring } from '../../core/theme'
+import { toggleVoice, useVoice } from '../voice/store'
+import { useSpotlight } from './store'
 
 const CAPTION_W = 300
 /** Breathing room around the OCR'd text block. */
@@ -16,8 +18,8 @@ const PAD = 8
 
 /** rect: the target in THIS window's coordinates (already offset by the window's screen origin). */
 export function Spotlight({ rect, screenW }: { rect?: Rect; screenW: number }): ReactNode {
-  const sp = useLesson((s) => s.spotlight)
-  const voiceOn = useLesson((s) => s.voiceOn)
+  const sp = useSpotlight((s) => s.target)
+  const voiceOn = useVoice((s) => s.on)
   const index = useLesson((s) => Math.max(0, s.steps.findIndex((x) => x.id === s.stepId)))
   const r = rect && { x: rect.x - PAD, y: rect.y - PAD, w: rect.w + PAD * 2, h: rect.h + PAD * 2 }
 
@@ -80,7 +82,7 @@ export function Spotlight({ rect, screenW }: { rect?: Rect; screenW: number }): 
                 data-hit
                 className="pointer-events-auto grid h-[34px] w-[34px] shrink-0 cursor-pointer place-items-center rounded-full"
                 style={{ background: voiceOn ? color.accent : 'rgba(10,132,255,.22)', color: voiceOn ? '#fff' : '#6cb2ff' }}
-                onClick={() => useLesson.getState().toggleVoice()}
+                onClick={toggleVoice}
                 aria-label="Voice"
               >
                 <Volume2 size={16} />

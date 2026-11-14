@@ -1,20 +1,23 @@
 /**
- * `npm run dev:web`: every screen over a fake Mac desktop (mockup 01 with the pill painted out),
- * at the mockups' exact 1600×1000 coordinates, scaled to fit the browser window.
+ * `npm run dev:web`: the overlay + every feature window over a fake Mac desktop (mockup 01 with the
+ * pill painted out), at the mockups' exact 1600×1000 coordinates, scaled to fit the browser.
  *
- * Keys: Ctrl+K / Ctrl+Shift+Space / Alt+Space → launcher · Alt+E/D/S/H/V, Alt+← → shortcuts · Esc → hide card
- * URL:  ?os=win (Windows labels) · ?scenario=happy|offtrack|full · ?engine=inline · ?clean (no dev HUD) · #/launcher (open on load)
+ * Keys: Ctrl+K / Ctrl+Shift+Space / Alt+Space → launcher · Alt+E/D/S/H/V, Alt+← → shortcuts · Esc → dismiss
+ * URL:  ?scenario=<name> (any mock/scenarios/*.json; default full) · ?engine=socket (use ws://localhost:8787,
+ *       or ?engine=ws://host:port) · ?os=win · ?clean (hide the dev HUD) · #/launcher (open on load)
  */
 import { useEffect, useState, type ReactNode } from 'react'
 import { RotateCcw } from 'lucide-react'
-import { cmd, devReset } from '../../../common/wire'
+import { devReset } from '../../../common/wire'
 import desktop from './desktop.png'
 import { bridge, engineMode, STAGE } from '../bridge'
-import { useLesson } from '../store'
-import { Overlay } from '../overlay/Overlay'
-import { Launcher } from '../launcher/Launcher'
+import { emitUi } from '../core/bus'
+import { useLesson } from '../core/lesson'
+import { featureWindows } from '../core/registry'
+import { triggerShortcut, type ActionShortcut } from '../core/shortcuts'
+import { Overlay } from '../core/Overlay'
 
-const KEYMAP: Record<string, 'back' | 'explain' | 'diagram' | 'show_me' | 'hint' | 'voice_toggle'> = { ArrowLeft: 'back', KeyE: 'explain', KeyD: 'diagram', KeyS: 'show_me', KeyH: 'hint', KeyV: 'voice_toggle' }
+const KEYMAP: Record<string, ActionShortcut> = { ArrowLeft: 'back', KeyE: 'explain', KeyD: 'diagram', KeyS: 'show_me', KeyH: 'hint', KeyV: 'voice_toggle' }
 
 export function Stage({ openLauncher = false }: { openLauncher?: boolean }): ReactNode {
   const [scale, setScale] = useState(1)
@@ -40,25 +43,30 @@ export function Stage({ openLauncher = false }: { openLauncher?: boolean }): Rea
       }
       if (e.altKey && KEYMAP[e.code] && useLesson.getState().lesson) {
         e.preventDefault()
-        bridge.send(cmd('action', { kind: KEYMAP[e.code] }))
-        bridge.emit('shortcut', KEYMAP[e.code])
-        return
+        return triggerShortcut(KEYMAP[e.code])
       }
-      if (e.key === 'Escape') useLesson.getState().closeCard()
+      if (e.key === 'Escape') emitUi('dismiss')
     }
     addEventListener('keydown', onKey)
     return () => removeEventListener('keydown', onKey)
   }, [])
 
+  const windows = featureWindows.filter((w) => w.stage).sort((a, b) => (a.z ?? 0) - (b.z ?? 0))
+
   return (
     <div className="fixed inset-0 overflow-hidden bg-[#08080b]">
-      <div
-        className="absolute left-1/2 top-1/2 overflow-hidden"
-        style={{ width: STAGE.width, height: STAGE.height, transform: `translate(-50%,-50%) scale(${scale})` }}
-      >
+      <div className="absolute left-1/2 top-1/2 overflow-hidden" style={{ width: STAGE.width, height: STAGE.height, transform: `translate(-50%,-50%) scale(${scale})` }}>
         <img src={desktop} draggable={false} className="absolute inset-0 h-full w-full select-none" />
         <Overlay layout={STAGE} />
-        <Launcher layout={STAGE} />
+        {windows.map(({ route, Component, stage }) =>
+          stage === 'fill' ? (
+            <Component key={route} layout={STAGE} />
+          ) : (
+            <div key={route} className="absolute overflow-hidden" style={{ left: stage!.x, top: stage!.y, width: stage!.w, height: stage!.h }}>
+              <Component layout={{ origin: { x: stage!.x, y: stage!.y }, width: stage!.w, height: stage!.h, workArea: { x: 0, y: 0, width: stage!.w, height: stage!.h } }} />
+            </div>
+          )
+        )}
       </div>
       {!new URLSearchParams(location.search).has('clean') && <DevHud />}
     </div>
@@ -67,17 +75,18 @@ export function Stage({ openLauncher = false }: { openLauncher?: boolean }): Rea
 
 function DevHud(): ReactNode {
   const connected = useLesson((s) => s.connected)
+  const seen = useLesson((s) => s.seen)
   const mode = engineMode()
-  const label = mode === 'inline' ? `inline mock · ${new URLSearchParams(location.search).get('scenario') ?? 'full'}` : mode === 'socket' ? 'ws://localhost:8787' : 'electron'
+  const label = mode === 'inline' ? `inline mock · ${new URLSearchParams(location.search).get('scenario') ?? 'full'}` : mode === 'socket' ? 'engine socket' : 'electron'
   return (
-    <div className="fixed bottom-3 left-3 flex items-center gap-2 rounded-full border border-white/10 bg-black/70 py-1 pl-3 pr-1 text-[12px] text-white/70 backdrop-blur">
-      <span className="h-[7px] w-[7px] rounded-full" style={{ background: connected ? '#30D158' : '#FFB020' }} />
-      <span>{label}</span>
-      <span className="text-white/35">· Ctrl+K launcher · Alt+D diagram · Esc</span>
+    <div className="fixed bottom-3 left-3 flex max-w-[calc(100vw-24px)] items-center gap-2 rounded-full border border-white/10 bg-black/70 py-1 pl-3 pr-1 text-[12px] text-white/70 backdrop-blur">
+      <span className="h-[7px] w-[7px] shrink-0 rounded-full" style={{ background: connected ? '#30D158' : '#FFB020' }} />
+      <span className="shrink-0">{label}</span>
+      <span className="truncate text-white/35">{seen ? `· sees ${seen.app}: ${seen.summary}` : '· Ctrl+K launcher · Alt+D diagram · Esc'}</span>
       <button
-        className="ml-1 flex cursor-pointer items-center gap-1 rounded-full bg-white/10 px-2 py-[3px] hover:bg-white/20"
+        className="ml-1 flex shrink-0 cursor-pointer items-center gap-1 rounded-full bg-white/10 px-2 py-[3px] hover:bg-white/20"
         onClick={() => {
-          useLesson.getState().reset()
+          emitUi('reset')
           bridge.send(devReset)
         }}
       >

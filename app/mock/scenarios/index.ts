@@ -1,16 +1,9 @@
+/** Scenarios for Vite contexts (renderer inline mock, Electron main DEMO=1). replay.ts reads the folder with fs. */
 import type { Scenario } from '../engine'
-import happyJson from './happy.json'
-import offtrackJson from './offtrack.json'
+import { buildScenarios } from './build'
 
-const happy = happyJson as unknown as Scenario
-const offtrack = offtrackJson as unknown as Scenario
+const files = import.meta.glob<Scenario>('./*.json', { eager: true, import: 'default' })
 
-/** happy path, then straight into the off-track hero moment at step 6. */
-const full: Scenario = {
-  name: 'full',
-  on: { ...offtrack.on, ...happy.on, connect: '' },
-  segments: { ...happy.segments, ...offtrack.segments }
-}
-
-export const scenarios = { happy, offtrack, full } satisfies Record<string, Scenario>
-export type ScenarioName = keyof typeof scenarios
+export const scenarios: Record<string, Scenario> = buildScenarios(
+  Object.fromEntries(Object.entries(files).map(([path, s]) => [path.replace(/^.*\/([^/]+)\.json$/, '$1'), s]))
+)

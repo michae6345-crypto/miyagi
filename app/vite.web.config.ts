@@ -16,5 +16,6 @@ export default defineConfig({
       '@': resolve(__dirname, 'src/renderer/src')
     }
   },
-  server: { port: 5173, strictPort: true, fs: { allow: [resolve(__dirname, '..')] } }
+  // Parallel agents: npm run dev:web -- --port 51xx (see agents/README.md). Falls forward if taken.
+  server: { port: Number(process.env.WEB_PORT ?? 5173), strictPort: false, fs: { allow: [resolve(__dirname, '..')] } }
 })

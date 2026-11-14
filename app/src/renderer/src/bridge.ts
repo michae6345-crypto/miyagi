@@ -4,17 +4,24 @@
  *   - Browser (npm run dev:web): a local bus that mimics main's routing, plus a direct
  *     WebSocket to ENGINE_URL. If nothing answers, the mock engine runs inline.
  *
- * Browser query params: ?os=win · ?engine=inline · ?scenario=happy|offtrack|full · ?engine=ws://host:port
+ * Browser: the mock runs INLINE by default (so parallel agents never share a mock server).
+ * Query params: ?engine=socket (ws://localhost:8787) or ?engine=ws://host:port · ?scenario=<name> · ?os=win
  */
 import { parseEngineMessage, type Incoming, type Outgoing } from '../../common/wire'
 import { describePlatform } from '../../main/platform'
 import type { Layout, TutBridge, UiSignal, Unsub } from '../../preload/api'
 import { createMockEngine, type MockEngine } from '../../../mock/engine'
-import { scenarios, type ScenarioName } from '../../../mock/scenarios'
+import { scenarios } from '../../../mock/scenarios'
 
 export type EngineMode = 'electron' | 'socket' | 'inline'
 
 type Cb = (payload?: unknown) => void
+
+/** Browser-stage stand-ins for main-process feature handlers (e.g. settings → localStorage). */
+const webHandlers = new Map<string, (...args: unknown[]) => unknown>()
+export function registerWebHandler(channel: string, fn: (...args: unknown[]) => unknown): void {
+  webHandlers.set(channel, fn)
+}
 
 /** The fake desktop in the browser stage is the 1600×1000 mockup; the Mac menu bar is 32px. */
 export const STAGE: Layout = { origin: { x: 0, y: 0 }, width: 1600, height: 1000, workArea: { x: 0, y: 32, width: 1600, height: 968 } }
@@ -46,8 +53,9 @@ function createWebBridge(): TutBridge & { mode: () => EngineMode } {
   const startInline = (): void => {
     if (inline) return
     mode = 'inline'
-    const name = (params.get('scenario') ?? 'full') as ScenarioName
+    const name = params.get('scenario') ?? 'full'
     inline = createMockEngine(scenarios[name] ?? scenarios.full, dispatch, true)
+    if (!scenarios[name]) console.warn(`[tut] no scenario "${name}"; have: ${Object.keys(scenarios).join(', ')}`)
     console.info(`[tut] no engine answered: running the "${name}" mock inline`)
     setStatus(true)
     inline.start()
@@ -55,7 +63,7 @@ function createWebBridge(): TutBridge & { mode: () => EngineMode } {
   }
 
   const connect = (): void => {
-    const url = params.get('engine')?.startsWith('ws') ? params.get('engine')! : 'ws://localhost:8787'
+    const url = params.get('engine')?.startsWith('ws://') ? params.get('engine')! : 'ws://localhost:8787'
     const sock = new WebSocket(url)
     ws = sock
     const giveUp = setTimeout(() => !everConnected && (sock.close(), startInline()), 900)
@@ -78,8 +86,9 @@ function createWebBridge(): TutBridge & { mode: () => EngineMode } {
     }
   }
 
-  if (params.get('engine') === 'inline') startInline()
-  else connect()
+  const engineParam = params.get('engine')
+  if (engineParam === 'socket' || engineParam?.startsWith('ws://')) connect()
+  else startInline()
 
   let launcherOpen = false
 
@@ -120,7 +129,13 @@ function createWebBridge(): TutBridge & { mode: () => EngineMode } {
           fire('ui:shortcut', payload)
           break
       }
-    }
+    },
+    async invoke<T>(channel: string, ...args: unknown[]): Promise<T> {
+      const fn = webHandlers.get(channel)
+      if (!fn) throw new Error(`[tut] no web handler for "${channel}" (registerWebHandler in the feature)`)
+      return (await fn(...args)) as T
+    },
+    onFeature: (channel, cb) => sub(`feat:${channel}`, cb)
   }
 }
 

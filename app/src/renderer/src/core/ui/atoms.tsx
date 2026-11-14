@@ -1,7 +1,9 @@
 /** Small building blocks shared by the pill, cards, launcher and shortcut bar. */
 import { motion } from 'motion/react'
 import type { ReactNode } from 'react'
-import type { CheckItem, Status } from '../store'
+import { X } from 'lucide-react'
+import type { CheckItem, Status } from '../lesson'
+import { emitUi } from '../bus'
 import { color, spring } from '../theme'
 
 /** Status dot: gray watching · amber off-track · green passed. Pulses twice when it turns amber. */
@@ -162,3 +164,45 @@ export function Thumb({ w, h, time, src }: { w: number; h: number; time?: string
 }
 
 export const hairline = { borderColor: color.hairline } as const
+
+/** Small uppercase status chip, e.g. OFF-TRACK. */
+export function Chip({ tone, children }: { tone: string; children: ReactNode }): ReactNode {
+  return (
+    <span
+      className="inline-flex h-[20px] items-center gap-[5px] rounded-[6px] px-[7px] text-[11px] font-semibold uppercase tracking-[0.04em]"
+      style={{ color: tone, background: `${tone}26` }}
+    >
+      {children}
+    </span>
+  )
+}
+
+/** Card action button. `primary` fills with the tone. */
+export function CardButton({ children, onClick, primary, tone = color.amber }: { children: ReactNode; onClick: () => void; primary?: boolean; tone?: string }): ReactNode {
+  return (
+    <motion.button
+      className="flex h-[36px] flex-1 cursor-pointer items-center justify-center gap-[7px] rounded-[12px] text-[14px] font-semibold"
+      style={primary ? { background: tone, color: '#1a1200' } : { background: 'rgba(255,255,255,.09)', color: '#fff' }}
+      whileHover={{ scale: 1.02 }}
+      whileTap={{ scale: 0.94 }}
+      transition={{ duration: 0.09 }}
+      onClick={onClick}
+    >
+      {children}
+    </motion.button>
+  )
+}
+
+/** Round ✕ that closes whatever card/diagram is open (emits the 'dismiss' UI event, same as Esc). */
+export function CloseButton(): ReactNode {
+  return (
+    <button
+      className="grid h-[22px] w-[22px] cursor-pointer place-items-center rounded-full text-white/60 hover:text-white"
+      style={{ background: 'rgba(255,255,255,.1)' }}
+      onClick={() => emitUi('dismiss')}
+      aria-label="Close"
+    >
+      <X size={12} strokeWidth={2.2} />
+    </button>
+  )
+}

@@ -45,6 +45,13 @@ export type TutBridge = {
   ready(): void
   on(signal: UiSignal, cb: (payload?: unknown) => void): Unsub
   emit(signal: UiSignal, payload?: unknown): void
+  /**
+   * Feature channels. Call a main-process handler a feature registered with ctx.handle('<channel>')
+   * in src/main/features/<name>.ts (browser stage: registerWebHandler in the renderer).
+   */
+  invoke<T = unknown>(channel: string, ...args: unknown[]): Promise<T>
+  /** Messages main sends to windows with ctx.broadcast('<channel>', payload). */
+  onFeature(channel: string, cb: (payload?: unknown) => void): Unsub
 }
 
 declare global {

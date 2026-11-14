@@ -8,7 +8,7 @@
 import WebSocket from 'ws'
 import { parseEngineMessage, type Incoming, type Outgoing } from '../common/wire'
 import { createMockEngine, type MockEngine } from '../../mock/engine'
-import { scenarios, type ScenarioName } from '../../mock/scenarios'
+import { scenarios } from '../../mock/scenarios'
 
 type Listener = (m: Incoming) => void
 type StatusListener = (connected: boolean) => void
@@ -22,13 +22,14 @@ export class EngineLink {
   private queue: string[] = []
   private listeners = new Set<Listener>()
   private statusListeners = new Set<StatusListener>()
+  private openHooks = new Set<() => void>()
   private retry = 500
   /** Re-sent on reconnect so the engine's OCR keeps ignoring our UI. */
   private lastBounds?: Outgoing
 
   constructor(private url: string, demoScenario?: string) {
     if (demoScenario) {
-      const scenario = scenarios[(demoScenario in scenarios ? demoScenario : 'full') as ScenarioName]
+      const scenario = scenarios[demoScenario] ?? scenarios.full
       this.demo = createMockEngine(scenario, (e) => this.dispatch(e))
       this.setConnected(true)
       this.demo.start()
@@ -43,6 +44,12 @@ export class EngineLink {
 
   onStatus(l: StatusListener): void {
     this.statusListeners.add(l)
+  }
+
+  /** Runs on every (re)connect, before queued messages flush. E.g. settings sends config.keys here. */
+  onOpen(fn: () => void): void {
+    this.openHooks.add(fn)
+    if (this.connected) fn()
   }
 
   send(cmd: Outgoing): void {
@@ -60,6 +67,7 @@ export class EngineLink {
     ws.on('open', () => {
       this.retry = 500
       this.setConnected(true)
+      for (const fn of this.openHooks) fn()
       if (this.lastBounds) ws.send(JSON.stringify(this.lastBounds))
       for (const m of this.queue.splice(0)) ws.send(m)
     })
