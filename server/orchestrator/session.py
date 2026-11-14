@@ -85,6 +85,7 @@ class BuildStage(logging.Handler):
         "slow": "Gemini is slow; using the transcript",
         "key": "No Gemini key; using the transcript",
         "error": "Couldn't watch the video; using the transcript",
+        "budget": "Today's Gemini budget is used up — reading the transcript instead",
     }
 
     def __init__(self) -> None:
@@ -148,6 +149,8 @@ def human_build_error(e: BaseException) -> str:
             and len(first) < 300):
         return first  # E2: a learner-facing first line, then the raw detail (which stays in the log)
     low = raw.lower()
+    if "gemini budget" in low:  # E2's daily cap (LESSON_GEMINI_DAILY_CAP) and the transcript path failed too
+        return "Today's Gemini budget is used up, and I couldn't read this video's transcript. Try another video."
     quota = "quota" in low or "resource_exhausted" in low
     yt_limited = ("429" in low or "too many requests" in low) and ("transcript" in low or "caption" in low)
     if quota and yt_limited:  # E2: "no engine could build the lesson" with both causes
@@ -268,6 +271,9 @@ class LessonSession:
         self.reqs: list[dict] | None = None  # S2's setup items for this lesson
         self.resources: list[dict] = []  # S2: files the video links (download button)
         self.waiting_more = False  # passed the last built step of a long video that's still building
+        self._parts_building = False  # build_lesson itself is still adding parts (non-lazy long video)
+        self._extend_task: asyncio.Task | None = None  # E2 lazy parts: the next part being built
+        self._extend_failed = False  # extend raised for this lesson: don't retry on every step
         self.pending_pick: dict | None = None  # S8: the picked result awaiting build / pick_another
         self._installing: set[str] = set()  # tools being installed right now (one install per tool)
         self._deferred_installs: list[dict] = []  # pip installs chosen before the lesson folder existed
@@ -746,6 +752,7 @@ class LessonSession:
         self.editor_open = False
         self.awaiting_resume = False
         self.waiting_more = False
+        self._extend_task, self._extend_failed = None, False
         if had_lesson:
             await self.emit("spotlight", {"clear": True})
             await self.emit("video.pause", {})
@@ -806,15 +813,22 @@ class LessonSession:
             await self._extend_lesson(g, complete)
 
         try:
-            with stage.listening():
-                graph = await self.m.build_lesson(url, goal, wsmod.build_workdir(url, goal),
-                                                  on_progress=stage.on_progress, on_update=on_update,
-                                                  video_meta=video_meta)
-            if progressive["loaded"]:  # already running: make sure every part made it in, then done
+            self._parts_building = True
+            try:
+                with stage.listening():
+                    graph = await self.m.build_lesson(url, goal, wsmod.build_workdir(url, goal),
+                                                      on_progress=stage.on_progress, on_update=on_update,
+                                                      video_meta=video_meta)
+            finally:
+                self._parts_building = False
+            # E2 lazy parts: a long video comes back with complete=false and later parts "pending"
+            complete = (graph.get("lesson") or {}).get("complete") is not False
+            if progressive["loaded"]:  # already running: make sure every built part made it in
                 if (self.graph or {}).get("lesson", {}).get("provisional") and not (graph.get("lesson") or {}).get("provisional"):
-                    await self._replace_provisional(graph, True)
+                    await self._replace_provisional(graph, complete)
                 else:
-                    await self._extend_lesson(graph, True)
+                    await self._extend_lesson(graph, complete)
+                self._maybe_extend()
                 ok = True
                 return
             done.set()
@@ -915,6 +929,7 @@ class LessonSession:
             unscope_editor_apps(graph)  # Colab/Jupyter in a browser counts, not just VS Code
         self.graph = graph
         self.runs = {}
+        self._extend_failed = False
         new_wd = str(config.resolve_workdir(graph.get("lesson", {}).get("workdir")))
         self.workdir = new_wd
         if self.on_workdir:
@@ -973,6 +988,7 @@ class LessonSession:
         started = self._step_started_payload(step)
         await self.emit("step.started", started)
         self._say("step.started", started)
+        self._maybe_extend()  # E2 lazy parts: nearing the last built step -> build the next part now
         self._record("step_started", {"title": step.get("title")}, step)
         for c in self.display_checks(step):
             self.check_state[c["id"]] = {"label": c.get("label", c["id"]), "status": "pending", "detail": None}
@@ -1092,18 +1108,67 @@ class LessonSession:
         await self.emit("spotlight", {"clear": True})
         if nxt:
             self._spawn(self._advance(self.step_gen, self.idx + 1))
+        elif more_coming and not self._more_in_flight():
+            await self._finish_partial(step)  # nothing can build the rest (DEMO / extend failed): finish here
         elif more_coming:
             self.waiting_more = True  # _extend_lesson starts the next step when it arrives
             await self._status("thinking")
             parts = (self.graph or {}).get("lesson", {}).get("parts") or {}
             done, total = int(parts.get("done") or 0), int(parts.get("total") or 0)
             where = f" (part {min(done + 1, total)} of {total})" if total else ""
-            await self._emit_card({"stepId": step["id"], "kind": "hint", "title": "More steps are coming",
-                                   "body": f"The next part of this video is still being built{where}. "
-                                           "It starts here as soon as it's ready."})
+            await self._emit_card({"stepId": step["id"], "kind": "hint", "title": "Building the next part…",
+                                   "body": f"The next part of this video is being built{where}. "
+                                           "Keep watching; its steps start here as soon as they're ready."})
+            await self.emit("video.play", {})  # the video keeps playing meanwhile
         else:
             self.phase = "done"
             await self.emit("video.play", {})
+
+    # ---------------------------------------------------------- E2 lazy parts (long videos)
+    def _more_in_flight(self) -> bool:
+        """Is anything building more steps for this lesson (the build itself, or an extend)? Starts an
+        extend if one is due."""
+        self._maybe_extend()
+        return self._parts_building or (self._extend_task is not None and not self._extend_task.done())
+
+    def _maybe_extend(self) -> None:
+        """Near the last built step of a lazily built long video, build the next part in the background
+        (one Gemini call per part the learner actually reaches)."""
+        g = self.graph
+        if (g is None or self._parts_building or self._extend_failed
+                or (self._extend_task is not None and not self._extend_task.done())
+                or (g.get("lesson") or {}).get("complete") is not False):
+            return
+        step = self.step
+        cur = step.get("index", self.idx) if step else self.idx
+        if not self.m.lesson_needs_more(g, cur):
+            return
+        self._extend_task = self._spawn(self._extend_parts(g))
+
+    async def _extend_parts(self, graph: dict) -> None:
+        try:
+            g = await self.m.extend_lesson(copy.deepcopy(graph), on_update=self._extend_lesson)
+        except Exception as e:
+            log.exception("building the next part failed")
+            self._extend_failed = True
+            if self.graph is not None and self.waiting_more and self.step is not None:
+                await self.emit("error", {"message": f"Couldn't build the next part of this video: {human_build_error(e)}"})
+                await self._finish_partial(self.step)
+            return
+        self._extend_task = None
+        if self.graph is None:
+            return
+        await self._extend_lesson(g, (g.get("lesson") or {}).get("complete") is not False)
+        self._maybe_extend()  # a skipped / failed part, or still close to the end: the next one
+
+    async def _finish_partial(self, step: dict) -> None:
+        """The rest of the video can't be built now: the lesson ends at the steps it has."""
+        self.waiting_more = False
+        if self.graph is not None:
+            self.graph.setdefault("lesson", {})["complete"] = True
+        self.phase = "done"
+        await self._status("passed")
+        await self.emit("video.play", {})
 
     async def _advance(self, gen: int, idx: int) -> None:
         await asyncio.sleep(self.advance_delay_s)

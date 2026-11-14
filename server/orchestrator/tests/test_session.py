@@ -1387,7 +1387,7 @@ def test_long_video_builds_progressively(rig):
         await rig.settle()
         assert rig.of("step.passed")[-1] == {"stepId": "s2", "pending": True}
         more = rig.of("card")[-1]
-        assert more["title"] == "More steps are coming" and "(part 2 of 2)" in more["body"]
+        assert more["title"] == "Building the next part…" and "(part 2 of 2)" in more["body"]
         assert rig.s.phase == "active" and rig.s.waiting_more
         part2_go.set()
         await t
@@ -1872,3 +1872,67 @@ def test_notebook_excerpt_is_cell_sources_not_cut_json(rig):
     rig.write("{not json", "broken.ipynb")  # not parseable: falls back to the raw text, still limited
     code, _ = rig.s._code_excerpt({"targets": [{"file": "broken.ipynb"}]}, limit=5)
     assert code == "{not "
+
+
+def _lazy_graph(n_built: int, pending: int):
+    import json
+
+    g = json.loads(json.dumps(stubs.load_fixture_lesson()))
+    g["steps"] = g["steps"][:n_built]
+    g["lesson"]["complete"] = pending == 0
+    plist = [{"status": "done", "start": 0, "end": 600}] + [{"status": "pending", "start": 600, "end": 1200}] * pending
+    g["lesson"]["parts"] = {"done": 1, "failed": 0, "total": len(plist), "list": plist}
+    return g
+
+
+def test_lazy_long_video_extends_near_the_end_only_once(rig, monkeypatch):
+    """E2 lazy parts: step.started near the last built step -> extend() in the background (one call per part)."""
+    full = stubs.load_fixture_lesson()
+    calls = []
+    monkeypatch.setattr(rig.s.m, "lesson_needs_more",
+                        lambda g, i: any(p["status"] == "pending" for p in g["lesson"]["parts"]["list"])
+                        and max(s.get("index", 0) for s in g["steps"]) - i < 2)
+
+    async def extend(graph, on_update=None):
+        calls.append(len(graph["steps"]))
+        g = _lazy_graph(len(full["steps"]), 1)  # the next part's steps appended (the fixture's s3..)
+        g["lesson"]["parts"]["list"][1]["status"] = "done"
+        g["lesson"]["complete"] = True
+        await on_update(g, True)
+        return g
+
+    monkeypatch.setattr(rig.s.m, "extend_lesson", extend)
+
+    async def go():
+        await rig.s.load_graph(_lazy_graph(2, 1))
+        await rig.settle()
+
+    run(go())
+    assert calls == [2]  # step 0 of 2 built steps is within the lookahead: built once, not per step
+    upd = rig.of("lesson.updated")
+    assert upd[-1]["complete"] is True and len(rig.s.steps) == len(full["steps"])
+
+
+def test_lazy_lesson_without_a_builder_finishes_instead_of_waiting(rig):
+    """DEMO / stubs never build more (no Gemini): the last built step ends the lesson, no endless 'building'."""
+    async def go():
+        await rig.s.load_graph(_lazy_graph(2, 1))
+        await rig.settle()
+        await rig.s.force_pass()
+        await rig.settle()
+        await rig.s.force_pass()
+        await rig.settle()
+
+    run(go())
+    assert rig.s.phase == "done" and not rig.s.waiting_more
+    assert all(c["title"] != "Building the next part…" for c in rig.of("card"))
+
+
+def test_gemini_budget_stage_and_error_wording():
+    from server.orchestrator.session import BuildStage, human_build_error
+
+    st = BuildStage()
+    st.on_progress("engine_switch", "budget")
+    assert st.text == "Today's Gemini budget is used up — reading the transcript instead"
+    assert human_build_error(RuntimeError("no engine: gemini budget exhausted; transcript 429")).startswith(
+        "Today's Gemini budget is used up")

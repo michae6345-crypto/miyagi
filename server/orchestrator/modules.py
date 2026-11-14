@@ -73,6 +73,14 @@ class ModuleUnavailable(RuntimeError):
     """A real module is missing or failed and stubs aren't allowed (live mode)."""
 
 
+
+def _progressive_fn(name: str) -> Callable[..., Any] | None:
+    try:
+        from server.lesson import progressive
+    except Exception:  # noqa: BLE001 - E2 not installed / older builder
+        return None
+    return getattr(progressive, name, None)
+
 class Modules:
     def __init__(self, *, demo: bool | None = None, force_stubs: str | None = None):
         self.demo = demo_mode() if demo is None else demo
@@ -286,6 +294,27 @@ class Modules:
             raise
         finally:
             waiter.cancel()
+
+    # -- E2 lazy long-video parts: later parts are built only as the learner nears them
+    def lesson_needs_more(self, graph: dict, step_index: int) -> bool:
+        """DEMO never builds more (cost freeze: no Gemini calls); LIVE asks E2's progressive.needs_more."""
+        if self.demo or "lesson" in self.forced:
+            return False
+        fn = _progressive_fn("needs_more")
+        if fn is None:
+            return False
+        try:
+            return bool(fn(graph, step_index))
+        except Exception:
+            log.exception("progressive.needs_more failed")
+            return False
+
+    async def extend_lesson(self, graph: dict, on_update: Any = None) -> dict:
+        """E2: build the NEXT pending part (one Gemini call) and return the new graph."""
+        fn = _progressive_fn("extend")
+        if fn is None:
+            raise ModuleUnavailable("server.lesson.progressive.extend is not available")
+        return _to_dict(await fn(graph, on_update=on_update))
 
     # -- checks (always real unless forced: the demo run is a real run)
     def make_context(self, ctx: RunContext) -> Any:
