@@ -1,0 +1,22 @@
+{
+ "run1": {
+  "apply_error": "the patch would duplicate lines already next to it: app.post('/logout', (req, res) => {"
+ },
+ "d219e52": {
+  "apply_error": "the patch would duplicate lines already next to it: res.json({ ok: true });",
+  "anchor_span_lines": [
+   10,
+   16
+  ],
+  "guard_false_positive": "login route's identical res.json line sits 3 lines above the conflict"
+ },
+ "d219e52_without_guard": {
+  "markers_left": false,
+  "rebase_ok": false,
+  "why": "not finished / markers left",
+  "git": [
+   "CONFLICT (content): Merge conflict in index.js",
+   "error: could not apply 8d7db63... Add logout endpoint"
+  ]
+ }
+}
