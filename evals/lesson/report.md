@@ -7,6 +7,46 @@ Each video got a fresh empty workdir, i.e. a learner starting from scratch. Engi
 Re-run: `python evals/lesson/run.py --src <checkout>`. Raw graphs are in `results/<id>.json`, automatic grades in `results/grades.json`,
 build logs in `results/<id>.log` (gitignored; per-pass timings are quoted below). Transcripts were used for spot checks but are not committed.
 
+## Latest (`6573187`): Gemini is the default, both paths compared
+
+E2 changed four things:
+- `auto` now waits up to 75 s for Gemini.
+- Gemini gets the title, length, chapters and description.
+- New lints for setup steps and for steps that repeat the previous step's checks.
+- Notebook steps get a run step.
+
+I ran each path on its own, one after the other, to avoid the 429 contention from last time:
+- `results-6573187-default/`: defaults, no env overrides.
+- `results-6573187-claude/`: `LESSON_ENGINE=claude`.
+
+Both used `--saved-captions` for the Claude transcript. The grader now also **fetches every URL a lesson tells the learner to visit** (`grade.py: _url_status`).
+
+| Lesson | Default: winner, total (Gemini pass) | Claude only: total (Claude pass) | Score default / Claude | Checks | Real-output matches | URLs (status) |
+|---|---|---|---|---|---|---|
+| react-useeffect | **Gemini**, 46 s (36 s) | 56 s (22 s) | 8.5 / 8.5 | 18 / 25 | 2/2 / 3/6 | – |
+| git-rebase | **Gemini**, 48 s (41 s) | 22 s (15 s) | 8 / 8 | 14 / 15 | 9/12 / 9/13 | – |
+| pandas-30min | **Gemini**, 94 s (67 s) | 63 s (27 s) | 9 / 9 | 32 / 37 | 4/4 / 2/2 | PanadasTutorial repo: 200 / 200 |
+| rust-cli | **Gemini**, 65 s (57 s) | 30 s (19 s) | 9 / 9 | 38 / 49 | 11/19 / 19/27 | – |
+| fastapi-rest | **Gemini**, 55 s (43 s) | 26 s (14 s) | 9 / 9 | 24 / 33 | 8/10 / 16/17 | – |
+
+- **The default now uses Gemini 5/5**, with no env overrides. Claude's draft was still computed in parallel and went unused.
+- **Gemini lessons now match Claude's scores.** Last time Gemini scored git 5 and pandas 7.5; now it is 8 and 9.
+  - pandas step 1 links the real dataset repo from the description (HTTP 200).
+  - git step 1 has a full setup script in the step's `code`. **I ran it in a temp folder:** it builds `main` and `feature/login` from the same base, and `git rebase main` then hits a conflict on `index.js`, applies the empty middle commit cleanly, and conflicts again on `package.json`. That is exactly the video's sequence.
+  - No made-up URLs, and no demo literals in the screen checks (`DEFAULT_USER`, `/login`).
+- **Gemini lessons are still slower and a bit thinner.** They take 46–94 s against 22–63 s for Claude-only, and have 18–38 checks against 25–49.
+  - pandas is the slow one: a 67 s Gemini pass plus three adapt rounds of ~9 s.
+  - "fast mode unavailable (429)" fallbacks showed up even with one eval run at a time (5 builds in parallel), which slows the adapt rounds.
+
+**Verdict: yes, the Gemini path is good enough to be the default**, and it now is. A Gemini-watched lesson scores level with the Claude path on all five stacks, with step timing at least as accurate, and nothing it tells the learner to visit is made up.
+
+The cost is about 45–95 s per new lesson, against ~25–60 s on Claude. For the demo, pre-build the hero lesson into the cache and show the build progress for live builds.
+
+**Small remaining items:**
+1. **Show the setup script.** Gemini git step 1 says "run the setup command" and the command exists only in `step.code`. The app must show `code` for setup steps, or the builder should inline it as a backticked block in the instructions.
+2. **Handle Claude 429s.** Retry with backoff, cap concurrent Claude calls, and give Gemini its full timeout once Claude has failed (from the sixth run). Status unknown, and the 429 fast-mode fallbacks still appear.
+3. **Gemini checks are thinner** than Claude's. Still fine at this level, but the second-pass check density (React s6–s8) is worth a look.
+
 ## Sixth run (`4fd6ed8`): parallel adapt batches, per-stack error text, explicit prerequisites
 
 Two runs on this commit:

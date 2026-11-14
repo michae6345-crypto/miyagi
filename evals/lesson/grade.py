@@ -132,6 +132,21 @@ def _rx(p: str):
         return None
 
 
+def _url_status(url: str):
+    """HTTP status of a GET (redirects followed), or the error name. Only the URL is sent."""
+    import urllib.error
+    import urllib.request
+
+    try:
+        req = urllib.request.Request(url, headers={"User-Agent": "lesson-eval/1.0"})
+        with urllib.request.urlopen(req, timeout=10) as r:
+            return r.status
+    except urllib.error.HTTPError as e:
+        return e.code
+    except Exception as e:  # noqa: BLE001
+        return type(e).__name__
+
+
 def _words(s: str) -> set[str]:
     return {w.lower() for w in re.findall(r"[A-Za-z_][A-Za-z0-9_]{3,}", s or "")} - STOP
 
@@ -250,6 +265,15 @@ def grade_lesson(rec: dict, vid: dict, transcript: dict | None) -> dict:
         (s.get("video") or {}).get("start", 0) - 1 <= e.get("t", -1) <= (s.get("video") or {}).get("end", 0) + 1)]
     if bad_expl:
         g["flags"].append(f"explanation timestamps outside their step: {sorted(set(bad_expl))}")
+
+    # --- URLs the learner is told to visit/clone must exist (catches invented repos)
+    lesson_text = " ".join(" ".join([s.get("instructions", "")] + (s.get("hints") or []) + [t.get("caption", "") for t in s.get("targets") or []]) for s in steps)
+    urls = sorted({u.rstrip(".,);'\"`") for u in re.findall(r"https?://[^\s'\"`<>)]+", lesson_text)
+                   if not re.match(r"https?://(localhost|127\.0\.0\.1|0\.0\.0\.0)", u)})
+    g["urls"] = {u: _url_status(u) for u in urls}
+    dead = [u for u, st in g["urls"].items() if not (isinstance(st, int) and st < 400)]
+    if dead:
+        g["flags"].append(f"URLs that do not resolve: {dead}")
 
     # --- leakage
     text = json.dumps({k: v for k, v in graph.items() if k not in ("sources", "build")})

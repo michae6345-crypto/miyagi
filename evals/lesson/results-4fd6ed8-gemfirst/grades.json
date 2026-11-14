@@ -253,6 +253,7 @@
   "code_checks_grounded": "11/17",
   "steps_without_specific_check": [],
   "steps_grounded": "8/8",
+  "urls": {},
   "leakage": [],
   "auto_score": 9.6,
   "canned_across_lessons": []
@@ -268,7 +269,8 @@
   "error": null,
   "flags": [
    "steps cover only 28% of the video",
-   "explanation timestamps outside their step: ['s1']"
+   "explanation timestamps outside their step: ['s1']",
+   "URLs that do not resolve: ['https://github.com/philomatics/git-rebase-example']"
   ],
   "schema_errors": [],
   "lint": [],
@@ -435,6 +437,9 @@
   "code_checks_grounded": "0/0",
   "steps_without_specific_check": [],
   "steps_grounded": "5/5",
+  "urls": {
+   "https://github.com/philomatics/git-rebase-example": 404
+  },
   "leakage": [],
   "auto_score": 7.9,
   "canned_across_lessons": []
@@ -708,6 +713,7 @@
   "code_checks_grounded": "6/14",
   "steps_without_specific_check": [],
   "steps_grounded": "9/9",
+  "urls": {},
   "leakage": [],
   "auto_score": 9.2,
   "canned_across_lessons": []
@@ -1169,6 +1175,7 @@
   "code_checks_grounded": "12/18",
   "steps_without_specific_check": [],
   "steps_grounded": "9/9",
+  "urls": {},
   "leakage": [],
   "auto_score": 9.2,
   "canned_across_lessons": []
@@ -1512,6 +1519,7 @@
   "code_checks_grounded": "7/9",
   "steps_without_specific_check": [],
   "steps_grounded": "9/9",
+  "urls": {},
   "leakage": [],
   "auto_score": 9.3,
   "canned_across_lessons": []
