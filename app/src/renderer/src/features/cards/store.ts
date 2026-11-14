@@ -53,6 +53,20 @@ const get = useCards.getState
 
 let successTimer: ReturnType<typeof setTimeout> | undefined
 
+/**
+ * The off-track the learner closed with ✕. The engine re-sends `offtrack` while the step keeps
+ * failing; an unchanged one must not pop the card back up. It reopens only for a new step, a
+ * higher hint level or a different title (hovering the pill still brings it back; the pill stays amber).
+ */
+type OfftrackSig = { stepId: string; level: number; title: string }
+let dismissed: OfftrackSig | undefined
+const sig = (o: Payload<'offtrack'>): OfftrackSig => ({ stepId: o.stepId, level: o.level ?? 1, title: o.title })
+const stillDismissed = (o: Payload<'offtrack'>): boolean => {
+  if (!dismissed) return false
+  const n = sig(o)
+  return n.stepId === dismissed.stepId && n.level <= dismissed.level && n.title === dismissed.title
+}
+
 /** Thin a run that grew past MAX_POINTS: keep every other point, always keep the newest. */
 function thin(points: Point[]): Point[] {
   if (points.length <= MAX_POINTS) return points
@@ -112,25 +126,42 @@ export function jumpTo(t: number): void {
 
 /** Close the card on top; if it opened over the off-track card, that card comes back. */
 function closeTop(): void {
-  const back = get().resume && !!useLesson.getState().offtrack
+  const s = get()
+  const offtrack = useLesson.getState().offtrack
+  // ✕ on the off-track card itself (nothing on top of it): remember it, so a re-send stays closed.
+  if (!s.card && !s.success && offtrack) dismissed = sig(offtrack)
+  const back = s.resume && !!offtrack
   set({ card: undefined, success: undefined, resume: false, offtrackOpen: back })
 }
 const over = (): boolean => get().offtrackOpen || get().resume
 
 onUi('reset', () => {
   clearTimeout(successTimer)
+  dismissed = undefined
   set({ ...blank })
 })
 onUi('dismiss', closeTop)
-onMessage('lesson.ready', () => set({ ...blank }))
+onMessage('lesson.ready', () => {
+  dismissed = undefined
+  set({ ...blank })
+})
 // A card with buttons survives step.started when it's for this step or for no step
 // (e.g. "Open VS Code?" or "Continue where you left off?"); plain cards are cleared as before.
 onMessage('step.started', (p) => {
   const c = get().card
   const keep = !!c?.actions?.length && (!c.stepId || c.stepId === p.stepId)
+  dismissed = undefined
   set({ offtrackOpen: false, fixing: false, recovered: false, resume: false, offtrackSeq: undefined, card: keep ? c : undefined })
 })
-onMessage('offtrack', () => set({ offtrackOpen: true, fixing: false, recovered: true, resume: false, offtrackSeq: ++seq, card: undefined, success: undefined }))
+onMessage('offtrack', (p) => {
+  // A re-send of the off-track the learner closed: keep the state (amber pill, recovered) but not the card.
+  if (stillDismissed(p)) {
+    set({ recovered: true })
+    return
+  }
+  dismissed = undefined
+  set({ offtrackOpen: true, fixing: false, recovered: true, resume: false, offtrackSeq: ++seq, card: undefined, success: undefined })
+})
 // "Apply this fix?" (a diff to confirm) replaces the "Waiting for the fix" view, so `fixing` ends here.
 onMessage('card', (p) => {
   // A re-sent setup card: rows that are installed now drop their install state.
