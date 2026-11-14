@@ -14,7 +14,7 @@ import os
 import anthropic
 from jsonschema import Draft202012Validator
 
-from . import gemini
+from . import cost, gemini
 from .schema import ADAPTED_SCHEMA, VIDEO_DRAFT_SCHEMA
 from .transcript import format_for_prompt
 
@@ -97,6 +97,7 @@ async def _call(mid: str, system: str, prompt: str, *, effort: str, schema: dict
     for attempt in range(RATE_RETRIES + 1):
         try:
             async with _sem():
+                cost.count("claude_calls")
                 return await _call_once(mid, system, prompt, effort=effort, schema=schema)
         except _RateLimited as e:
             if attempt == RATE_RETRIES:

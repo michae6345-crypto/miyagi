@@ -15,6 +15,7 @@ warnings.filterwarnings("ignore", category=SyntaxWarning)  # SDK docstring escap
 from google import genai
 from google.genai import types
 
+from . import cost
 from .schema import ADAPTED_SCHEMA, DETAIL_SCHEMA, VIDEO_DRAFT_SCHEMA, standard_outputs_for_prompt
 
 log = logging.getLogger("server.lesson")
@@ -130,6 +131,7 @@ async def _generate_json(model_id: str, parts: list[types.Part], schema: dict, *
     for mid in chain:
         for attempt in range(retries + 1):
             try:
+                cost.count("gemini_calls")
                 resp = await client().aio.models.generate_content(model=mid, contents=types.Content(role="user", parts=parts), config=cfg)
                 if mid != model_id:
                     log.warning("used fallback model %s (wanted %s)", mid, model_id)
