@@ -1,11 +1,13 @@
 /**
  * Feature: pill. The island's pill-sized states (34px tall, width hugs content), to mockup 01 + the
- * Miyagi brand (app/brand/BRAND.md): always black, the small bonsai on the left, the status on the right.
+ * Miyagi brand (app/brand/BRAND.md): always black and white, the bonsai as a one-color glyph on the left
+ * (it shows its colors once the island opens), the status on the right.
  *   idle      no lesson yet: "[bonsai] Ask Miyagi ⌥Space" (click opens the launcher)
  *   building  between Build lesson and the first step: lesson.building message + spinner + progress line
  *   compact   during a lesson: "[bonsai] Step 4 · Define the residual  ◔ ●" (ring = steps done, dot = status)
  *
- * Measured from mockup 01 (1×): pad 15 left / 14 right · mark → text 10 · text → ring 15 · ring → dot 9 ·
+ * Measured from mockup 01 (1×): art 15 from the left edge, 11 before the text (= pad 13 + 16px mark box + gap 8) ·
+ * 14 right · text → ring 15 · ring → dot 9 ·
  * 13px medium · "Step 4 ·" in the muted label color, title in the text color.
  * The step-pass moment (check → ring → flash → crossfade) is driven by ./store.ts.
  */
@@ -16,24 +18,23 @@ import { bridge } from '../../bridge'
 import { useLesson } from '../../core/lesson'
 import { defineFeature } from '../../core/registry'
 import { color } from '../../core/theme'
-import { MiyagiMark } from '../../core/ui/Mark'
 import { Kbd, Spinner } from '../../core/ui/atoms'
-import { BuildLine, PillRing, StatusMark, SwapText, type Mark } from './parts'
+import { BuildLine, MonoMark, PillRing, StatusMark, SwapText, type Mark } from './parts'
 import { usePill } from './store'
 
 function Idle(): ReactNode {
   return (
     <button
-      className="group flex h-[34px] cursor-pointer items-center gap-[10px] whitespace-nowrap pl-[15px] pr-[7px]"
+      className="group flex h-[34px] cursor-pointer items-center whitespace-nowrap pl-[13px] pr-[7px]"
       style={{ color: color.text }}
       onClick={() => bridge.emit('launcher:toggle')}
       aria-label="Ask Miyagi: open the launcher"
     >
-      <MiyagiMark size={14} />
+      <MonoMark className="mr-[8px]" />
       {/* Type on the span: styles.css's unlayered `button { font: inherit }` beats Tailwind's text-/font- utilities on <button>. */}
       <span className="text-[13px] font-medium opacity-90 transition-opacity duration-150 group-hover:opacity-100">Ask Miyagi</span>
       {/* Concentric with the pill: 7px inset, fully round (radius 10 inside radius 17). */}
-      <Kbd className="!h-[20px] !rounded-full !px-[8px]">{bridge.platform.keys.launcher}</Kbd>
+      <Kbd className="ml-[10px] !h-[20px] !rounded-full !px-[8px]">{bridge.platform.keys.launcher}</Kbd>
     </button>
   )
 }
@@ -45,8 +46,8 @@ function Building(): ReactNode {
   const kept = usePill((s) => s.buildMessage)
   const text = message ?? kept ?? 'Building your lesson'
   return (
-    <div className="relative flex h-[34px] items-center whitespace-nowrap pl-[15px] pr-[14px] text-[13px] font-medium" style={{ color: color.text }}>
-      <MiyagiMark size={14} className="mr-[10px]" />
+    <div className="relative flex h-[34px] items-center whitespace-nowrap pl-[13px] pr-[14px] text-[13px] font-medium" style={{ color: color.text }}>
+      <MonoMark className="mr-[8px]" />
       <SwapText id={text}>{text}</SwapText>
       {/* Where the ring will be once the lesson starts, so building → compact keeps its shape. */}
       <span className="ml-[15px]">
@@ -96,8 +97,8 @@ function useShown(): Shown & { total: number } {
 function Compact(): ReactNode {
   const s = useShown()
   return (
-    <div className="flex h-[34px] items-center whitespace-nowrap pl-[15px] pr-[14px] text-[13px] font-medium" style={{ color: color.text }} data-step={s.key}>
-      <MiyagiMark size={14} className="mr-[10px]" />
+    <div className="flex h-[34px] items-center whitespace-nowrap pl-[13px] pr-[14px] text-[13px] font-medium" style={{ color: color.text }} data-step={s.key}>
+      <MonoMark className="mr-[8px]" />
       <SwapText id={s.key} className="flex">
         {s.mark === 'done' ? (
           <span>{s.title}</span>

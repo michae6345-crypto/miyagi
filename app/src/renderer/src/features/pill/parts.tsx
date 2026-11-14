@@ -5,11 +5,29 @@
  */
 import { AnimatePresence, motion, useAnimate, useReducedMotion } from 'motion/react'
 import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react'
+import treeSmall from '../../assets/brand/tree-small-dark.svg'
 import { useLesson } from '../../core/lesson'
 import { color, spring } from '../../core/theme'
 import { pulsedOfftrack, ring } from './store'
 
 export type Mark = 'watching' | 'offtrack' | 'passed' | 'check' | 'done'
+
+/**
+ * The bonsai as a one-color template glyph, like a menu-bar icon: white on the black pill. Adrian's call:
+ * the pill is black and white, and the tree shows its colors once the island opens (launcher, cards).
+ * Same file and geometry as MiyagiMark's small cut (the SVG is the mask), so nothing is redrawn.
+ * 16px: the art is ~10.5×12 inside the box, the optical size of mockup 01's icon.
+ */
+export function MonoMark({ size = 16, tone = color.text, className = '' }: { size?: number; tone?: string; className?: string }): ReactNode {
+  const mask = `url("${treeSmall}") center / contain no-repeat`
+  return (
+    <span
+      aria-hidden
+      className={`inline-block shrink-0 ${className}`}
+      style={{ width: size, height: size, backgroundColor: tone, WebkitMask: mask, mask }}
+    />
+  )
+}
 
 /** Lesson progress ring: completed steps / total. Advances on the spring when a step passes. */
 export function PillRing({
