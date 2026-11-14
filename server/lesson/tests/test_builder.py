@@ -977,6 +977,7 @@ def _slow_gemini(fake, delay):
 
 
 def test_build_attaches_to_a_running_prebuild(fake, monkeypatch):
+    monkeypatch.setenv("ORCH_PREBUILD", "1")
     monkeypatch.setattr(gemini, "watch_video", _slow_gemini(fake, 0.3))
     monkeypatch.setattr(prebuild, "_jobs", {})
 
@@ -993,6 +994,7 @@ def test_build_attaches_to_a_running_prebuild(fake, monkeypatch):
 
 
 def test_prebuild_cap_and_cancel_on_lesson_start(fake, monkeypatch):
+    monkeypatch.setenv("ORCH_PREBUILD", "1")
     monkeypatch.setattr(gemini, "watch_video", _slow_gemini(fake, 0.5))
     monkeypatch.setattr(prebuild, "_jobs", {})
 
@@ -1085,3 +1087,35 @@ def test_with_gemini_down_the_build_goes_straight_to_claude(fake, monkeypatch):
     g = asyncio.run(builder.build_lesson(URL, "x", WORKDIR, refresh=True))
     assert _t.time() - t < 2 and g["lesson"]["builtBy"] == "claude"
     monkeypatch.setattr(gemini, "_down_until", 0.0)
+
+
+def test_prebuild_is_opt_in(monkeypatch):
+    monkeypatch.delenv("ORCH_PREBUILD", raising=False)
+    monkeypatch.setattr(prebuild, "_jobs", {})
+    assert prebuild.prebuild(URL, "x", WORKDIR) is False and prebuild._jobs == {}
+
+
+def test_cheap_models_first_and_opus_only_on_a_failed_check(monkeypatch):
+    monkeypatch.delenv("LESSON_CLAUDE_MODEL", raising=False)
+    assert (claude.model("segment"), claude.model("detail"), claude.model("adapt")) == ("claude-sonnet-5-5", "claude-haiku-5-5", "claude-haiku-5-5")
+    used = []
+
+    async def on(mid, system, prompt, schema, *, effort, structured):
+        used.append(mid)
+        return {"steps": []} if mid != "claude-opus-5-5" else {"steps": [{"start": "0:10", "end": "1:00"}, {"start": "1:00", "end": "2:00"}]}
+
+    monkeypatch.setattr(claude, "_generate_json_on", on)
+    ok = lambda o: None if len(o["steps"]) >= 2 else "too few steps"  # noqa: E731
+    out = asyncio.run(claude._generate_json("s", "p", {}, role="segment", check=ok))
+    assert used == ["claude-sonnet-5-5", "claude-opus-5-5"] and len(out["steps"]) == 2
+    used.clear()
+    asyncio.run(claude._generate_json("s", "p", {}, role="detail", check=lambda o: None))
+    assert used == ["claude-haiku-5-5"]  # passed its check: no Opus
+
+
+def test_token_usage_is_recorded_per_model():
+    from server.lesson import cost
+    c = cost.start()
+    cost.add_tokens("claude-haiku-5-5", 1200, 300)
+    cost.add_tokens("claude-haiku-5-5", 800, 200)
+    assert c["tokens"]["claude-haiku-5-5"] == {"input": 2000, "output": 500, "calls": 2}

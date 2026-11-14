@@ -162,6 +162,9 @@ async def _generate_json(model_id: str, parts: list[types.Part], schema: dict, *
                 resp = await client().aio.models.generate_content(model=mid, contents=types.Content(role="user", parts=parts), config=cfg)
                 if mid != model_id:
                     log.warning("used fallback model %s (wanted %s)", mid, model_id)
+                um = getattr(resp, "usage_metadata", None)
+                cost.add_tokens(mid, getattr(um, "prompt_token_count", 0),
+                                (getattr(um, "candidates_token_count", 0) or 0) + (getattr(um, "thoughts_token_count", 0) or 0))
                 out = json.loads(resp.text or "")
                 global last_model
                 last_model = mid
