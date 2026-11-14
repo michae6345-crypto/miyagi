@@ -54,7 +54,13 @@ def lint(graph: dict, known_metrics: set[str] | None = None, known_files: set[st
     """
     problems: list[str] = []
     seen_ids: set[str] = set()
-    for step in graph.get("steps", []):
+    steps = graph.get("steps", [])
+    if known_metrics and steps and not any(c.get("type", "").startswith("metric_") for s in steps for c in s.get("checks", [])):
+        problems.append(
+            f"no metric check: the workdir prints {sorted(known_metrics)}; the training step needs a metric_threshold/metric_trend "
+            "with a metric_pattern that parses those lines"
+        )
+    for step in steps:
         sid = step.get("id", "?")
         if len(step.get("title", "").split()) > 6:
             problems.append(f"{sid}: title longer than 6 words")
@@ -93,12 +99,14 @@ def check_problems(c: dict, allowed: list[str], where: str, known_metrics=None, 
     if t in ("metric_threshold", "metric_trend"):
         mp = c.get("metric_pattern")
         if where == "checks" and not mp:
-            out.append("screen metric check needs `metric_pattern` (regex with (?P<step>...) and (?P<value>...)) to read it off the terminal")
+            out.append("screen metric check needs `metric_pattern` (regex with (?P<value>...), plus (?P<step>...) for trends) to read it off the screen")
         if mp:
             if err := _regex_error(mp):
                 out.append(f"metric_pattern does not compile ({err})")
-            elif not {"step", "value"} <= set(re.compile(mp).groupindex):
-                out.append("metric_pattern must have named groups `step` and `value`")
+            elif "value" not in re.compile(mp).groupindex:
+                out.append("metric_pattern must have a named group `value`")
+            elif t == "metric_trend" and "step" not in re.compile(mp).groupindex:
+                out.append("metric_trend's metric_pattern needs a named group `step` (a trend is over steps)")
         if where == "precision_checks" and known_metrics and c.get("metric") and not _metric_known(c["metric"], known_metrics):
             out.append(f"metric {c['metric']!r} is never printed by the workdir code (known: {sorted(known_metrics)})")
     if t in ("file_exists", "file_contains") and known_files and c.get("file"):
@@ -140,7 +148,7 @@ _CHECK_DRAFT = {
         "type": {"type": "string", "enum": CHECK_TYPES},
         "label": {"type": "string", "description": "<= 6 words, shown in a checklist"},
         "app": {"type": "string", "description": "screen_*: app whose window must show the text, e.g. Code, Terminal"},
-        "metric_pattern": {"type": "string", "description": "regex with named groups step and value that reads the metric off a terminal line"},
+        "metric_pattern": {"type": "string", "description": "regex with named group value (and step when printed per step/epoch) that reads the number off one printed line"},
         "file": {"type": "string"},
         "pattern": {"type": "string", "description": "Python regex"},
         "command": {"type": "string"},
