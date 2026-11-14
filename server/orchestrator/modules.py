@@ -232,7 +232,7 @@ class Modules:
         return g
 
     async def build_lesson(self, source_url: str, goal: str, workdir: str, on_progress: Any = None,
-                           on_update: Any = None) -> dict:
+                           on_update: Any = None, video_meta: dict | None = None) -> dict:
         if self.demo:
             # ORCH_LESSON > a cached lesson for the PICKED video > lesson.json > the newest cache > stub
             if (g := self._lesson_file()) is not None:
@@ -259,6 +259,8 @@ class Modules:
             kwargs["api_key"] = get_key("gemini")
         if fn is not None and on_progress is not None and _accepts(fn, "on_progress"):
             kwargs["on_progress"] = on_progress  # E2: stage ids for the launcher's progress line
+        if fn is not None and video_meta and _accepts(fn, "video_meta"):
+            kwargs["video_meta"] = video_meta  # S8's preflight (duration, chapters, firstHandsOn): part 1 skips the intro
         if fn is not None and on_update is not None and _accepts(fn, "on_update"):
             kwargs["on_update"] = on_update  # E2: long videos build progressively (first part, then appended parts)
         timeout = float(os.environ.get("ORCH_BUILD_TIMEOUT_S", "300"))

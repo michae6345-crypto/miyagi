@@ -1383,6 +1383,8 @@ def test_long_video_builds_progressively(rig):
         await rig.s.force_pass()  # s2: the last BUILT step
         await rig.settle()
         assert rig.of("step.passed")[-1] == {"stepId": "s2", "pending": True}
+        more = rig.of("card")[-1]
+        assert more["title"] == "More steps are coming" and "(part 2 of 2)" in more["body"]
         assert rig.s.phase == "active" and rig.s.waiting_more
         part2_go.set()
         await t
@@ -1590,3 +1592,69 @@ def test_demo_lesson_follows_the_picked_video(tmp_path, monkeypatch):
     g = run(m.build_lesson("https://www.youtube.com/watch?v=AXXnSzmpyoI", "", str(tmp_path)))
     assert g["lesson"]["id"] == "hero"
     assert m._real_fn("coach", "diagnose") is not None  # E5's coach runs under DEMO (its own offline playbook)
+
+
+def _win(app, x=0.0, y=0.0, w=800.0, h=600.0):
+    rect = types.SimpleNamespace(to_dict=lambda: {"x": x, "y": y, "w": w, "h": h})
+    return types.SimpleNamespace(app=app, title=app, rect=rect)
+
+
+def test_show_me_hint_explain_always_point_somewhere(tmp_path, monkeypatch):
+    monkeypatch.setenv("TUT_WORKDIR", str(tmp_path))
+    screen = FakeScreen()
+    rig = Rig(tmp_path, screen=screen)
+
+    async def go():
+        await _to_step(rig, 1)  # s2: target class/nn.Sequential in Code
+        # 1) target visible on screen -> spotlight on it, at once
+        screen.text["Code"] = ["import torch", "net = nn.Sequential("]
+        m = rig.mark()
+        await rig.s.action("show_me")
+        ev1 = rig.since(m)
+        # 2) target not visible, but the editor window is -> spotlight the window
+        screen.text["Code"] = ["unrelated"]
+        rig.s.last_obs = types.SimpleNamespace(windows=[_win("Code", 10, 20, 900, 700)], blocks=[])
+        m = rig.mark()
+        await rig.s.action("hint")
+        ev2 = rig.since(m)
+        # 3) nothing visible at all -> a card that says where to go
+        rig.clock.t += 20  # past the duplicate-card window
+        rig.s.last_obs = types.SimpleNamespace(windows=[], blocks=[])
+        m = rig.mark()
+        await rig.s.action("hint")
+        ev3 = rig.since(m)
+        m = rig.mark()
+        await rig.s.action("explain")
+        ev4 = rig.since(m)
+        return ev1, ev2, ev3, ev4
+
+    ev1, ev2, ev3, ev4 = run(go())
+    t1 = [e["type"] for e in ev1]
+    assert t1[:2] == ["video.seek", "video.play"] and "spotlight" in t1
+    assert [e for e in ev1 if e["type"] == "spotlight"][0]["payload"]["matched"] == "net = nn.Sequential("
+    assert [e["type"] for e in ev2][0] == "status"  # 'thinking' first
+    spot2 = [e["payload"] for e in ev2 if e["type"] == "spotlight"][0]
+    assert spot2["rect"] == {"x": 10.0, "y": 20.0, "w": 900.0, "h": 700.0} and spot2["app"] == "Code"
+    card3 = [e["payload"] for e in ev3 if e["type"] == "card"][0]
+    assert card3["title"] == "Open pinn_convection.py" and "so I can see it" in card3["body"]
+    assert [e["type"] for e in ev4][0] == "status" and any(e["type"] == "card" for e in ev4)
+
+
+def test_hint_says_where_to_go_when_code_is_not_visible(rig):
+    async def go():
+        await _to_step(rig, 1)
+        rig.s.last_results = [{"checkId": "s2c1", "label": "Notebook created", "status": "pending", "detail": "Code not visible"}]
+        rig.s.last_obs = types.SimpleNamespace(windows=[_win("Code")], blocks=[])
+        await rig.s.action("hint")
+
+    run(go())
+    assert rig.of("card")[-1]["title"] == "Open pinn_convection.py"
+
+
+def test_notebook_lesson_screen_checks_accept_the_browser(rig):
+    g = stubs.load_fixture_lesson()
+    g["lesson"]["title"] = "Fine-tune an LLM in Google Colab"
+    run(rig.s.load_graph(g))
+    assert rig.s.notebook_lesson
+    assert all("app" not in c for st in rig.s.steps for c in st["checks"])
+    assert all("app" not in t for st in rig.s.steps for t in st.get("targets") or [])

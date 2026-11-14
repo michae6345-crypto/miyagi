@@ -168,6 +168,33 @@ def human_build_error(e: BaseException) -> str:
     return f"Couldn't build this lesson: {raw[:160]}"
 
 
+CODE_APP_NAMES = {"code", "vs code", "vscode", "visual studio code", "cursor"}
+
+
+def is_notebook_lesson(graph: dict) -> bool:
+    """A lesson done in a notebook (Colab / Jupyter), often in a browser rather than an editor."""
+    blob = " ".join([str((graph.get("lesson") or {}).get(k) or "") for k in ("title", "goal")]
+                    + [s.get("url") or "" for s in graph.get("sources", [])]).lower()
+    if "colab" in blob or "jupyter" in blob:
+        return True
+    for st in graph.get("steps", []):
+        text = f"{st.get('title', '')} {st.get('instructions', '')}".lower()
+        if "colab" in text or "jupyter" in text:
+            return True
+        for x in (st.get("targets") or []) + (st.get("checks") or []) + (st.get("precision_checks") or []):
+            if str(x.get("file") or "").endswith(".ipynb"):
+                return True
+    return False
+
+
+def unscope_editor_apps(graph: dict) -> None:
+    """Screen checks/targets scoped to VS Code also accept any app (the notebook may be open in a browser)."""
+    for st in graph.get("steps", []):
+        for x in (st.get("targets") or []) + (st.get("checks") or []):
+            if str(x.get("app") or "").strip().lower() in CODE_APP_NAMES:
+                x.pop("app", None)
+
+
 class LessonSession:
     def __init__(
         self,
@@ -207,6 +234,7 @@ class LessonSession:
         self.query = ""
         self.results: dict[str, dict] = {}
         self.build_progress: dict | None = None  # last lesson.building payload while a build runs
+        self.notebook_lesson = False  # Colab / Jupyter lesson: the browser counts as the workspace
         self._build_task: asyncio.Task | None = None
         self._quiet_cancel = False
         self.editor_open = False  # VS Code opened for this lesson (only after the learner said yes)
@@ -237,6 +265,7 @@ class LessonSession:
         self.last_results: list[dict] = []
         self.last_failed: list[dict] = []
         self._recent_cards: dict[tuple, float] = {}
+        self._action_spot = False  # a spotlight from show_me / hint / explain is up
         self._coach_error_sent = False  # "Coach unavailable" at most once per step
         self._coach_backoff = 0.0
         self._coach_retry_at = 0.0
@@ -613,19 +642,19 @@ class LessonSession:
         pick, self.pending_pick = self.pending_pick, None
         if pick is None:
             return
-        await self._run_build(pick["url"], self.query)
+        await self._run_build(pick["url"], self.query, video_meta=pick.get("preflight"))
 
     async def _pick_another(self) -> None:
         self.pending_pick = None
         self.phase = "idle"
         await self._status("idle")  # the app shows its result list again
 
-    async def _run_build(self, url: str, goal: str) -> None:
+    async def _run_build(self, url: str, goal: str, video_meta: dict | None = None) -> None:
         """Builds run as their own task so end_lesson / a new learn can cancel them mid-flight."""
         if self.graph is not None:
             await self.end_lesson("new lesson")
         await self.cancel_build()
-        task = asyncio.ensure_future(self._build(url, goal))
+        task = asyncio.ensure_future(self._build(url, goal, video_meta))
         self._build_task = task
         try:
             await task
@@ -692,7 +721,7 @@ class LessonSession:
         await self.emit("lesson.ended", {**({"lessonId": lesson_id} if lesson_id else {}), "reason": reason})
         await self._status("idle")
 
-    async def _build(self, url: str, goal: str) -> None:
+    async def _build(self, url: str, goal: str, video_meta: dict | None = None) -> None:
         """Build a lesson with live progress (>= 1 tick/s, stage names from the builder's own log
         events). Any failure, timeout or cancellation ends with `error` (human wording), a final
         `lesson.building {failed: true}` and `status idle`, so the app never stays on "building"."""
@@ -704,7 +733,7 @@ class LessonSession:
         self.build_progress = {"message": "Starting the lesson builder", "progress": 0.0}
 
         async def ticker() -> None:
-            expected = float(os.environ.get("ORCH_BUILD_EXPECTED_S", "60"))  # E2: fresh builds ~42-75 s
+            expected = float(os.environ.get("ORCH_BUILD_EXPECTED_S", "45"))  # E2: first steps ~25-58 s (long videos: part 1)
             while not done.is_set():
                 el = self.clock() - t0
                 # message = the stage only (changes when the stage does); the timer travels in elapsedS
@@ -744,7 +773,8 @@ class LessonSession:
         try:
             with stage.listening():
                 graph = await self.m.build_lesson(url, goal, wsmod.build_workdir(url, goal),
-                                                  on_progress=stage.on_progress, on_update=on_update)
+                                                  on_progress=stage.on_progress, on_update=on_update,
+                                                  video_meta=video_meta)
             if progressive["loaded"]:  # already running: make sure every part made it in, then done
                 await self._extend_lesson(graph, True)
                 ok = True
@@ -824,6 +854,9 @@ class LessonSession:
     async def load_graph(self, graph: dict) -> None:
         self.lesson_epoch += 1
         self._bind_epoch()  # this task (the build / autostart) now speaks for the new lesson
+        self.notebook_lesson = is_notebook_lesson(graph)
+        if self.notebook_lesson:
+            unscope_editor_apps(graph)  # Colab/Jupyter in a browser counts, not just VS Code
         self.graph = graph
         self.runs = {}
         new_wd = str(config.resolve_workdir(graph.get("lesson", {}).get("workdir")))
@@ -1006,6 +1039,12 @@ class LessonSession:
         elif more_coming:
             self.waiting_more = True  # _extend_lesson starts the next step when it arrives
             await self._status("thinking")
+            parts = (self.graph or {}).get("lesson", {}).get("parts") or {}
+            done, total = int(parts.get("done") or 0), int(parts.get("total") or 0)
+            where = f" (part {min(done + 1, total)} of {total})" if total else ""
+            await self._emit_card({"stepId": step["id"], "kind": "hint", "title": "More steps are coming",
+                                   "body": f"The next part of this video is still being built{where}. "
+                                           "It starts here as soon as it's ready."})
         else:
             self.phase = "done"
             await self.emit("video.play", {})
@@ -1033,6 +1072,10 @@ class LessonSession:
     def _acted(self) -> None:
         self.last_action_t = self.clock()
         self._touch()
+        if self._action_spot:  # a show_me / hint / explain spotlight: done its job once the learner acts
+            self._action_spot = False
+            self.spot_track = None
+            self._spawn(self.emit("spotlight", {"clear": True}))
         if self.coaching:  # a real user action makes the pending diagnosis stale: close the stream
             self.m.cancel_coach()
 
@@ -1501,28 +1544,56 @@ class LessonSession:
             if seg:
                 self.segment_done = False
                 await self.emit("video.seek", {"t": seg["start"], "play": True})
-            await self._spotlight_target(step)
+                await self.emit("video.play", {})
+            if not await self._show_where(step) and self._can_see():
+                await self._emit_card(self._where_card(step))
             return
         if kind in ("explain", "ask"):
             self._record("question", {"kind": kind, "text": (text or "")[:300]}, step)
-            await self._status("thinking")
+            await self._status("thinking")  # visible at once; the spotlight follows, the card after
             gen = self.step_gen
-            card = await self.m.explain(step, text if kind == "ask" else (text or None), self._explain_context())
+            await self._show_where(step)
+            ctx = self._explain_context()
+            screen = await self._screen_for_coach(step)
+            if screen is not None:
+                ctx["screen"] = screen
+
+                def on_targets(targets: list[dict]) -> None:  # the coach points while it answers
+                    if gen == self.step_gen and targets:
+                        spot = self._target_spot(targets[0])
+                        if spot:
+                            self._action_spot = True
+                            self._spawn(self._show_spot(spot))
+
+                ctx["on_targets"] = on_targets
+            card = await self.m.explain(step, text if kind == "ask" else (text or None), ctx)
             if gen != self.step_gen:
                 return  # the learner moved to another step meanwhile: an answer about the old one would mislead
             card = dict(card)
             card["stepId"] = step["id"]
+            if card.get("targets"):
+                spot = self._target_spot(card["targets"][0])
+                if spot:
+                    self._action_spot = True
+                    await self._show_spot(spot)
             await self._emit_card(card)
             await self._status("offtrack" if self.last_offtrack else ("passed" if self.passed else "watching"))
             return
         if kind == "hint":
             gen = self.step_gen
+            await self._status("thinking")
+            shown = await self._show_where(step)
+            if (not shown and self._can_see()) or self._code_not_visible():  # can't see the work: say WHERE to go
+                await self._emit_card(self._where_card(step))
+                await self._status("offtrack" if self.last_offtrack else "watching")
+                return
             card = dict(await self.m.hint(step, self.hint_level, self.last_offtrack))
             if gen != self.step_gen:
                 return
             card["stepId"] = step["id"]
             self.hint_level += 1
             await self._emit_card(card)
+            await self._status("offtrack" if self.last_offtrack else "watching")
             return
         if kind == "diagram":
             want = (text or "").strip().lower()
@@ -1568,6 +1639,71 @@ class LessonSession:
         return {"code": ctx.get("code"), "file": ctx.get("file"), "screen": self._screen_lines(),
                 "question": question, "lesson": ctx.get("lesson"),
                 "offtrack": {k: (self.last_offtrack or {}).get(k) for k in ("title", "body")} if self.last_offtrack else None}
+
+    # ------------------------------------------------------------------ pointing (show_me / hint / explain)
+    BROWSER_APPS = ("Google Chrome", "Safari", "Arc", "Firefox", "Brave Browser", "Microsoft Edge")
+
+    def _work_apps(self, step: dict) -> list[str]:
+        apps = [t.get("app") for t in step.get("targets") or [] if t.get("app")]
+        apps += [c.get("app") for c in step.get("checks") or [] if c.get("app")]
+        if self.notebook_lesson:
+            apps += list(self.BROWSER_APPS) + ["Code", "Cursor", "Jupyter"]
+        return list(dict.fromkeys(apps or ["Code", "Cursor", "Terminal"]))
+
+    def _window_spot(self, step: dict, caption: str) -> dict | None:
+        """The window the learner should work in, when the exact target isn't on screen."""
+        obs = self.last_obs
+        for want in self._work_apps(step):
+            for w in getattr(obs, "windows", None) or []:
+                if want.lower() in (getattr(w, "app", "") or "").lower():
+                    r = w.rect.to_dict() if hasattr(w.rect, "to_dict") else w.rect
+                    return {"rect": {k: float(r[k]) for k in ("x", "y", "w", "h")}, "caption": caption, "app": w.app}
+        return None
+
+    async def _show_where(self, step: dict) -> bool:
+        """Spotlight where to work NOW: the step's target on screen, else its app's window. False = nothing visible."""
+        if await self._spotlight_target(step):
+            self._action_spot = True
+            return True
+        file = self._step_file(step)
+        spot = self._window_spot(step, f"Work here: {file}" if file else "Work here")
+        if spot:
+            self._action_spot = True
+            await self._show_spot(spot)
+            return True
+        return False
+
+    def _step_file(self, step: dict) -> str | None:
+        for t in step.get("targets") or []:
+            if t.get("file"):
+                return t["file"]
+        for c in (step.get("checks") or []) + (step.get("precision_checks") or []):
+            if c.get("file"):
+                return c["file"]
+        return None
+
+    def _can_see(self) -> bool:
+        """The screen reader is running and has a frame: 'nothing found' then really means 'not on screen'."""
+        return self.screen_active() and self.last_obs is not None
+
+    def _code_not_visible(self) -> bool:
+        details = " ".join(str(r.get("detail") or "") for r in self.last_results if r.get("status") != "pass").lower()
+        return any(k in details for k in ("not visible", "not on screen", "waiting for screen"))
+
+    def _where_card(self, step: dict) -> dict:
+        """A card that says WHERE to go when I can't see the learner's work."""
+        file = self._step_file(step)
+        if self.notebook_lesson:
+            return {"stepId": step["id"], "kind": "hint", "title": "Open the notebook",
+                    "body": f"Open {file or 'the notebook'} in Colab or Jupyter so I can see it."}
+        card: dict[str, Any] = {"stepId": step["id"], "kind": "hint", "title": f"Open {file}" if file else "Show me your code",
+                                "body": (f"Open {file} in your editor so I can see it and point at the right line."
+                                         if file else "Bring your editor to the front so I can see your code.")}
+        from . import workspace as wsmod
+
+        if self.workspace is not None and self.graph is not None and wsmod.needs_editor(self.graph):
+            card["actions"] = ["open_editor"]
+        return card
 
     def _diagram_step(self, step: dict) -> dict:
         """Step ids repeat across lessons (s1, s2...): namespace the id by lesson so S4's cache can't
