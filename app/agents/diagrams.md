@@ -1,6 +1,6 @@
 # diagrams
 
-**Status:** pass 2 functional pieces done (graph: all 6 layouts · heatmap canvas · tabs) · styling of `Diagram.tsx` (network/gradients colors, PINN literals, caption clamp) is the UI-polish session's (`adrian/consistency`); merge it in when it lands · **Priority:** P1 · **Port:** 5180 · **Branch:** `adrian/diagrams`
+**Status:** pass 2 done and merged with UI polish (efed46a): graph (all 6 layouts) · heatmap canvas · tabs, under their sky KindTile header with the 2-line caption clamp · **Priority:** P1 · **Port:** 5180 · **Branch:** `adrian/diagrams`
 
 ## Goal
 Intuition diagrams that morph out of the pill (⌥D). The generic **graph** is the one that matters most: it's the only diagram any non-PINN lesson gets (React, git, pandas, diffusion). Michael P1-4.
@@ -36,9 +36,10 @@ Intuition diagrams that morph out of the pill (⌥D). The generic **graph** is t
 - **graph, sequence:** participants on top, dashed lifelines, one arrow per message by `order`, self-calls as a small loop.
 - **graph, git:** rendered as a vertical log (like `git log --graph`), not horizontal lanes: lanes are columns on the left, hash + message + branch tag (at each lane's newest commit) on the right. Reason: horizontal lanes put commit labels in the band every cross-lane curve must cross (labels got cut in the rebase example), and 12 commits don't fit 600 px across. Lines fork into the child's lane right after the parent (or merge right before the child); dashed copy edges leave between lanes and point at the copy from the side. Emphasized commits are filled white.
 - **heatmap:** canvas, t left → right, x bottom → top (engine order `grid[t][x]`, a transposed `[x][t]` grid is accepted). Predicted and exact side by side on one shared scale, from `fill.thumb` to `color.text` (no hues); 8-step scale with min/max; hover shows `t · x · values`. Malformed or empty data renders nothing (no placeholder).
-- **Tabs:** only when the engine sent more than one kind for the same step (payload `stepId`, else the lesson's current step). Neutral chrome, the selected tab slides on the one spring.
+- **Tabs:** only when the engine sent more than one kind for the same step (payload `stepId`, else the lesson's current step). They take the title's place next to the sky KindTile (13 px, selected semibold). Neutral chrome, the selected tab slides on the one spring.
 - **Motion:** edges draw in 350 ms, 30 ms stagger by rank / message order; dashed edges draw through a mask (pathLength can't animate a dashed stroke); heatmap panels sweep in along t.
-- **Caption:** left to `Diagram.tsx` (polish). Engine graph captions run to ~200 characters (2 lines at 600 px), so a 1-line clamp would cut most of them: suggest `line-clamp-2` with the full text on hover.
+- **Color:** after the polish merge, graph emphasis stays full white (Adrian's spec: no pastel on nodes); sky is only the header tile (theirs) and gradients' highlighted series (theirs). Heatmap stays monochrome.
+- **Caption:** `Diagram.tsx` (polish) clamps it to 2 lines in `color.label`, which fits the engine's ~200-character graph captions.
 - **Mock:** `?scenario=diagrams`: Alt+D shows flow (React effect), then Alt+D/Esc closes; the next Alt+D shows sequence (login), tree (components), data (pandas), architecture (cache, with groups), git (rebase), then network + heatmap with tabs, and loops. Flow, data and git are the engine's live examples verbatim (`server/diagrams/examples/`); sequence, tree and architecture are hand-made to `layout.py`'s rules.
 - **Shots:** `agents/shots/diagrams-{flow,sequence,tree,data,architecture,git,git-12,heatmap,heatmap-hover,heatmap-single,tabs-network}.png`.
 

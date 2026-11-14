@@ -21,7 +21,7 @@ export function DiagramTabs({ fallback }: { fallback: ReactNode }): ReactNode {
   const current = useDiagram((s) => s.diagram?.kind)
   if (kinds.length < 2) return fallback
   return (
-    <div className="ml-[4px] flex items-center gap-[2px] rounded-full p-[2px]" style={{ background: fill.field }}>
+    <div className="flex items-center gap-[2px] rounded-full p-[2px]" style={{ background: fill.field }}>
       {kinds.map((k) => {
         const on = k === current
         return (
@@ -29,7 +29,7 @@ export function DiagramTabs({ fallback }: { fallback: ReactNode }): ReactNode {
             key={k}
             data-hit
             onClick={() => showKind(k)}
-            className="relative h-[22px] cursor-pointer rounded-full px-[10px] text-[12px] leading-[22px]"
+            className={`relative h-[24px] cursor-pointer rounded-full px-[11px] text-[13px] leading-[24px] ${on ? 'font-semibold' : ''}`}
             style={{ color: on ? color.text : color.label }}
           >
             {on && <motion.span layoutId="diagram-tab" className="absolute inset-0 rounded-full" style={{ background: fill.chipHover }} transition={spring} />}
