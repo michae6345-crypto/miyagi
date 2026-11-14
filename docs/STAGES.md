@@ -61,7 +61,18 @@ What every case asserts after ending:
 | new `learn` while a lesson runs | PASS | **PASS** | |
 | `end_lesson` mid-build | PASS | **PASS** | |
 
-**L1 · E4 orchestrator: an explain/ask card in flight lands after the lesson ended (the diagram part is fixed).**
+### end_lesson re-run: integration/live 9f89e04 (includes 148433b "lesson epoch"), 14:42: **all 4 PASS**
+
+| case | fc56c0f | fa6bd86 | 9f89e04 |
+|---|---|---|---|
+| `end_lesson` over WS, diagram in flight | FAIL | PASS | **PASS** |
+| `POST /end`, explain in flight | FAIL | FAIL | **PASS**: lesson.ended at 7.96 s, then no card/diagram/status for 6 s; a new client's snapshot is `[status]` |
+| new `learn` while a lesson runs | PASS | PASS | **PASS** |
+| `end_lesson` mid-build | PASS | PASS | **PASS** |
+
+**L1 is fixed by 148433b.** The history is kept below.
+
+**L1 (fixed in 148433b) · E4 orchestrator: an explain/ask card in flight lands after the lesson ended (the diagram part is fixed).**
 - `session._action`'s `explain` / `ask` branch awaits `m.explain(...)`, then emits `card` and
   `status watching|offtrack|passed` without checking the lesson is still the same one.
 - The app shows a card for a lesson that's gone and goes back to "watching" while the engine is idle.
