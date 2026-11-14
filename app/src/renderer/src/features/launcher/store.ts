@@ -3,7 +3,13 @@ import { create } from 'zustand'
 import type { Payload } from '../../../../common/wire'
 import { onMessage, onUi } from '../../core/bus'
 
-export type SearchResult = Payload<'search.result'>
+/**
+ * Extra fields the engine sends on search.result (server/finder/core.py PUBLIC_FIELDS), not in the contract yet.
+ *   warnings : up to 3 raw learner comments (≤200 chars) the engine's filter flagged (videos). Quote them, never paraphrase.
+ *   verified : true = the link was checked live; 'indexed' = only a search engine returned it. Missing = unknown.
+ */
+export type ResultExtras = { warnings?: string[]; verified?: true | 'indexed' }
+export type SearchResult = Payload<'search.result'> & ResultExtras
 
 type SearchState = {
   /** The query the results belong to (the input may have moved on). */
@@ -32,9 +38,20 @@ export const setLauncherOpen = (open: boolean): void => {
 
 onUi('reset', () => set({ ...blank }))
 
-onMessage('search.result', (p) =>
-  set((s) => ({ results: s.results.filter((r) => r.id !== p.id).concat(p), pending: !s.done, error: undefined }))
-)
+onMessage('search.result', (payload) => {
+  const p = payload as SearchResult
+  set((s) => {
+    // The engine may re-send a row (same id) with more fields, e.g. learner warnings: update it in place, same slot.
+    const i = s.results.findIndex((r) => r.id === p.id)
+    if (i >= 0) {
+      const results = s.results.slice()
+      results[i] = { ...results[i], ...p }
+      return { results }
+    }
+    if (!p.title) return s // an update for a row we never received: nothing to show
+    return { results: [...s.results, p], pending: !s.done, error: undefined }
+  })
+})
 onMessage('search.done', (p) => set({ done: true, pending: false, total: p.total }))
 onMessage('error', (p) => {
   const s = get()
