@@ -5,8 +5,8 @@
  *     The user can drag it by its header and resize it; its bounds are saved and restored.
  *   - Hidden until lesson.ready, then shown with showInactive() so it never takes focus from the editor.
  *     Not focusable, except while the pointer is over it (renderer → player:hover).
- *   - Floats above normal windows ('floating') but below the overlay ('screen-saver'), so the dim,
- *     spotlight and cards draw over it.
+ *   - Floats at the overlay's level ('screen-saver', one step below it), so the dim, spotlight and cards
+ *     still draw over it, and on macOS it shows over full-screen apps on every Space (type 'panel').
  *
  * Handles (bridge.invoke from any window):
  *   player:dock    snap back to the right 40% (and save that)
@@ -66,9 +66,10 @@ export default defineMainFeature({
       focusable: false,
       hasShadow: true,
       backgroundColor: WINDOW_BG,
-      webPreferences: { autoplayPolicy: 'no-user-gesture-required' }
+      webPreferences: { autoplayPolicy: 'no-user-gesture-required' },
+      ...(process.platform === 'darwin' ? { type: 'panel' as const } : {})
     })
-    win.setAlwaysOnTop(true, 'floating')
+    float(win)
     // The engine's screen reader must ignore the player, or it reads the tutorial's code as the learner's.
     ctx.reportBounds(win)
 
@@ -95,7 +96,7 @@ export default defineMainFeature({
     const reveal = (): void => {
       if (win.isDestroyed() || win.isVisible()) return
       win.showInactive()
-      win.setAlwaysOnTop(true, 'floating')
+      float(win)
     }
     ctx.engine.onEvent((e) => {
       if (e.type === 'lesson.ready') reveal()
@@ -113,3 +114,12 @@ export default defineMainFeature({
     ctx.handle('player:intent', (intent) => ctx.broadcast('player:intent', intent))
   }
 })
+
+/**
+ * Same raise() as the overlay (Michael, Sat 3 PM: the player must show over full-screen apps), one
+ * relative step below it so the overlay's dim, spotlight and cards stay on top.
+ */
+function float(win: BrowserWindow): void {
+  win.setAlwaysOnTop(true, 'screen-saver', -1)
+  if (process.platform === 'darwin') win.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true, skipTransformProcessType: true })
+}
