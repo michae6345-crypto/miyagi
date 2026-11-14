@@ -781,7 +781,7 @@ def test_streaming_finder_rows_arrive_before_search_finishes(rig):
     rig2 = Rig(rig.workdir, mods)
     built = []
 
-    async def fake_build(url, goal, workdir, on_progress=None):
+    async def fake_build(url, goal, workdir, on_progress=None, **kw):
         built.append(url)
         return stubs.load_fixture_lesson()
 
@@ -945,7 +945,7 @@ def test_build_progress_ticks_with_real_stages_then_fails_humanly(tmp_path, monk
     rig.s.build_tick_s = 0.05
     lesson_log = _logging.getLogger("server.lesson")
 
-    async def slow_failing_build(url, goal, workdir, on_progress=None):
+    async def slow_failing_build(url, goal, workdir, on_progress=None, **kw):
         await asyncio.sleep(0.12)
         lesson_log.warning("gemini video pass too slow; switching engine")
         await asyncio.sleep(0.12)
@@ -972,7 +972,7 @@ def test_build_progress_ticks_with_real_stages_then_fails_humanly(tmp_path, monk
 
 
 def test_build_success_still_loads_the_lesson(rig):
-    async def build(url, goal, workdir, on_progress=None):
+    async def build(url, goal, workdir, on_progress=None, **kw):
         return stubs.load_fixture_lesson()
 
     rig.s.m.build_lesson = build
@@ -1020,7 +1020,7 @@ def test_build_stage_labels_come_from_on_progress(tmp_path, monkeypatch):
     rig.s.clock = RealClock()
     rig.s.build_tick_s = 0.03
 
-    async def build(url, goal, workdir, on_progress=None):
+    async def build(url, goal, workdir, on_progress=None, **kw):
         for stage, msg in [("watching", ""), ("reading_transcript", ""), ("writing_steps", "212 transcript lines"),
                            ("engine_switch", "quota"), ("steps_ready", "claude"), ("adapting", ""), ("done", "41.2")]:
             on_progress(stage, msg)
@@ -1096,7 +1096,7 @@ def test_learning_events_are_recorded_for_tiger_stats(rig):
 def test_end_lesson_mid_build_is_quiet_and_complete(rig):
     started = asyncio.Event()
 
-    async def slow_build(url, goal, workdir, on_progress=None):
+    async def slow_build(url, goal, workdir, on_progress=None, **kw):
         started.set()
         await asyncio.sleep(30)
 
@@ -1343,3 +1343,59 @@ def test_s2_setup_card_install_and_open_editor_gate(tmp_path, monkeypatch):
     assert prog[-1] == {"tool": "pandas", "done": True, "ok": True, "version": "2.2.3"}
     assert rig.of("card")[-1]["title"] == "Ready to go"
     assert not calls  # never opened VS Code
+
+
+def test_long_video_builds_progressively(rig):
+    """E2's on_update: start on part 1, append later parts, wait (not finish) at the end of the built part."""
+    full = stubs.load_fixture_lesson()
+    part2_go = asyncio.Event()
+
+    def graph_with(n, complete):
+        g = json.loads(json.dumps(full))
+        g["steps"] = g["steps"][:n]
+        g["lesson"]["complete"] = complete
+        g["lesson"]["parts"] = {"done": 1 if n < 3 else 2, "failed": 0, "total": 2, "list": []}
+        return g
+
+    async def build(url, goal, workdir, on_progress=None, on_update=None, **kw):
+        await on_update(graph_with(2, False), False)
+        await part2_go.wait()
+        await on_update(graph_with(3, False), False)
+        await on_update(graph_with(3, True), True)
+        return graph_with(3, True)
+
+    rig.s.m.build_lesson = build
+
+    async def go():
+        t = asyncio.create_task(rig.s.learn_url("https://www.youtube.com/watch?v=abcdefghijk"))
+        for _ in range(50):
+            await asyncio.sleep(0.01)
+            if rig.of("lesson.ready"):
+                break
+        ready = rig.of("lesson.ready")[0]
+        assert len(ready["steps"]) == 2 and ready["lesson"]["complete"] is False
+        await rig.s.force_pass()  # s1
+        await rig.settle()
+        await rig.s.force_pass()  # s2: the last BUILT step
+        await rig.settle()
+        assert rig.of("step.passed")[-1] == {"stepId": "s2", "pending": True}
+        assert rig.s.phase == "active" and rig.s.waiting_more
+        part2_go.set()
+        await t
+        await rig.settle()
+
+    import json
+    run(go())
+    upd = rig.of("lesson.updated")
+    assert [s["id"] for s in upd[0]["steps"]] == ["s3"] and upd[0]["complete"] is False
+    assert upd[-1]["complete"] is True
+    assert rig.of("step.started")[-1]["stepId"] == "s3" and not rig.s.waiting_more
+    assert len(rig.of("lesson.ready")) == 1  # never re-loaded
+
+
+def test_e2_learner_facing_first_error_line():
+    from server.orchestrator.session import human_build_error
+
+    e = RuntimeError("Couldn't read this video (1:56:20 long): Gemini's quota is used up.\n"
+                     "(no engine could build the lesson) gemini: 429 ...")
+    assert human_build_error(e) == "Couldn't read this video (1:56:20 long): Gemini's quota is used up."

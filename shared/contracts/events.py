@@ -57,6 +57,11 @@ class SearchResult(_Model):
     score: float
     reason: str
     thumbnail: str | None = None
+    style: Literal["coding", "no-code", "conceptual"] | None = None
+    durationLabel: str | None = None
+    long: bool | None = None
+    chapters: int | None = None
+    captions: bool | None = None
 
 
 class SearchDone(_Model):
@@ -69,15 +74,35 @@ class LessonBuilding(_Model):
     failed: bool | None = None  # the build ended in error; drop the building UI
 
 
+class GoalMatch(_Model):
+    score: float | None = None
+    note: str = ""
+
+
 class LessonInfo(_Model):
     id: str
     title: str
     sources: list[Source]
+    complete: bool | None = None  # False: a long video is still building (lesson.updated follows)
+    builtBy: Literal["gemini", "claude", "mixed", "unknown"] | None = None
+    goalMatch: GoalMatch | None = None
 
 
 class LessonReady(_Model):
     lesson: LessonInfo
     steps: list[StepSummary]
+
+
+class PartsProgress(_Model):
+    done: int
+    failed: int
+    total: int
+
+
+class LessonUpdated(_Model):
+    steps: list[StepSummary]
+    complete: bool
+    parts: PartsProgress | None = None
 
 
 class StepStarted(_Model):
@@ -99,6 +124,7 @@ class CheckUpdated(_Model):
 class StepPassed(_Model):
     stepId: str
     nextStepId: str | None = None
+    pending: bool | None = None  # no next step yet: the next part is still building
 
 
 class OfftrackDiff(_Model):
@@ -338,6 +364,7 @@ ENGINE_EVENTS: dict[str, Any] = {
     "search.done": SearchDone,
     "lesson.building": LessonBuilding,
     "lesson.ready": LessonReady,
+    "lesson.updated": LessonUpdated,
     "step.started": StepStarted,
     "check.updated": CheckUpdated,
     "step.passed": StepPassed,
@@ -361,7 +388,7 @@ ENGINE_EVENTS: dict[str, Any] = {
 EngineEventType = Literal[
     "search.result", "search.done", "lesson.building", "lesson.ready", "step.started",
     "check.updated", "step.passed", "offtrack", "spotlight", "video.seek", "video.pause",
-    "video.play", "card", "diagram", "speak", "metric", "status", "error", "screen.seen", "config.status", "lesson.ended", "setup.progress",
+    "video.play", "card", "diagram", "speak", "metric", "status", "error", "screen.seen", "config.status", "lesson.ended", "setup.progress", "lesson.updated",
 ]
 
 

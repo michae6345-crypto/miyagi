@@ -16,13 +16,18 @@ export interface StepSummary { id: string; index: number; title: string; video?:
 
 // ---------- Engine -> App events ----------
 export interface EngineEvents {
-  "search.result": { id: string; kind: SourceKind; title: string; meta: string; score: number; reason: string; thumbnail?: string };
+  "search.result": { id: string; kind: SourceKind; title: string; meta: string; score: number; reason: string; thumbnail?: string;
+                     style?: "coding" | "no-code" | "conceptual"; durationLabel?: string; long?: boolean;   // finder (E7): what kind of tutorial, "1 h 56 min · 30 chapters", > 45 min
+                     chapters?: number; captions?: boolean };                                              // chapter count; YouTube captions available
   "search.done": { total: number };
   "lesson.building": { message: string; progress: number; failed?: boolean };   // progress 0..1 for the launcher; ~1/s while building; failed: true = the build ended in error (an `error` + status idle follow): drop the building UI
-  "lesson.ready": { lesson: { id: string; title: string; sources: Source[] }; steps: StepSummary[] };
+  "lesson.ready": { lesson: { id: string; title: string; sources: Source[]; complete?: boolean; builtBy?: "gemini" | "claude" | "mixed" | "unknown";
+                              goalMatch?: { score: number | null; note: string } }; steps: StepSummary[] };   // complete false = a long video is still building (see lesson.updated)
+  /** a long video's next part was built: new steps APPENDED (ids never change, earlier steps never edited) */
+  "lesson.updated": { steps: StepSummary[]; complete: boolean; parts?: { done: number; failed: number; total: number } };
   "step.started": { stepId: string; index: number; title: string; instructions: string; video?: VideoSegment };
   "check.updated": { stepId: string; checkId: string; label: string; status: CheckStatus; detail?: string };
-  "step.passed": { stepId: string; nextStepId?: string };
+  "step.passed": { stepId: string; nextStepId?: string; pending?: boolean };   // pending: no next step YET (the next part is still building); the engine continues on lesson.updated
   "offtrack": {
     stepId: string;
     severity: "warn" | "fail";

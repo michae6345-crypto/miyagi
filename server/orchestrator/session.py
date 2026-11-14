@@ -25,6 +25,7 @@ from __future__ import annotations
 
 import asyncio
 import contextvars
+import copy
 import logging
 import math
 import os
@@ -139,6 +140,10 @@ class BuildStage(logging.Handler):
 def human_build_error(e: BaseException) -> str:
     """A message the learner can act on (the raw reason stays in the engine log)."""
     raw = str(e)
+    first = raw.strip().splitlines()[0].strip() if raw.strip() else ""
+    if ("no engine could build the lesson" in raw.lower() and "no engine could build" not in first.lower()
+            and len(first) < 300):
+        return first  # E2: a learner-facing first line, then the raw detail (which stays in the log)
     low = raw.lower()
     quota = "quota" in low or "resource_exhausted" in low
     yt_limited = ("429" in low or "too many requests" in low) and ("transcript" in low or "caption" in low)
@@ -207,6 +212,7 @@ class LessonSession:
         self.editor_open = False  # VS Code opened for this lesson (only after the learner said yes)
         self.awaiting_resume = False  # "Continue where you left off?" shown: the lesson is frozen until answered
         self.reqs: list[dict] | None = None  # S2's setup items for this lesson
+        self.waiting_more = False  # passed the last built step of a long video that's still building
         self.graph: dict | None = None
         self.workdir = str(config.default_workdir())
         self.on_workdir: Callable[[str], None] | None = None  # main.py hooks the file watcher here
@@ -561,6 +567,7 @@ class LessonSession:
         self.pending_patch, self.undo, self.build_progress = None, None, None
         self.editor_open = False
         self.awaiting_resume = False
+        self.waiting_more = False
         if had_lesson:
             await self.emit("spotlight", {"clear": True})
             await self.emit("video.pause", {})
@@ -594,10 +601,35 @@ class LessonSession:
         from . import workspace as wsmod
 
         ok = False
+        progressive = {"loaded": False}
+
+        async def on_update(g: dict, complete: bool) -> None:
+            """E2, long videos (> 30 min): the first part's steps arrive first -> start the lesson now;
+            later parts append steps -> lesson.updated."""
+            if not progressive["loaded"]:
+                progressive["loaded"] = True
+                done.set()
+                self.build_progress = {"message": "Setting up your project folder", "progress": 0.97}
+                await self.emit("lesson.building", self.build_progress)
+                first = copy.deepcopy(g)
+                folder = await asyncio.to_thread(wsmod.prepare, first, goal)
+                if folder:
+                    first.setdefault("lesson", {})["workdir"] = folder
+                self.build_progress = None
+                await self.emit("lesson.building", {"message": "First steps ready; the rest builds while you work",
+                                                    "progress": 1.0})
+                await self.load_graph(first)
+                return
+            await self._extend_lesson(g, complete)
+
         try:
             with stage.listening():
                 graph = await self.m.build_lesson(url, goal, wsmod.build_workdir(url, goal),
-                                                  on_progress=stage.on_progress)
+                                                  on_progress=stage.on_progress, on_update=on_update)
+            if progressive["loaded"]:  # already running: make sure every part made it in, then done
+                await self._extend_lesson(graph, True)
+                ok = True
+                return
             done.set()
             await tick
             self.build_progress = {"message": "Setting up your project folder", "progress": 0.97}
@@ -609,6 +641,12 @@ class LessonSession:
             await self.emit("lesson.building", {"message": "Lesson ready", "progress": 1.0})
             ok = True
         except BaseException as e:
+            if isinstance(e, Exception) and progressive["loaded"] and self.graph is not None:
+                log.exception("building the rest of the lesson failed")  # the lesson keeps its finished parts
+                await self.emit("error", {"message": "Couldn't build the rest of this lesson; you can finish the steps you have."})
+                await self._extend_lesson({**self.graph, "lesson": {**self.graph.get("lesson", {}), "complete": True}}, True)
+                ok = True
+                return
             if isinstance(e, Exception):
                 log.exception("build_lesson failed")
                 await self._build_failed(human_build_error(e))
@@ -625,6 +663,37 @@ class LessonSession:
             if not ok:
                 self.phase = "idle" if self.graph is None else self.phase
         await self.load_graph(graph)
+
+    async def _extend_lesson(self, g: dict, complete: bool) -> None:
+        """Append a progressive build's new steps to the running lesson (ids never change, earlier steps are
+        never edited) and tell the app; a learner waiting at the end of the built part moves on."""
+        if self.graph is None:
+            return
+        known = {st["id"] for st in self.steps}
+        new = [copy.deepcopy(st) for st in g.get("steps", []) if st["id"] not in known]
+        self.graph["steps"].extend(new)
+        lesson = self.graph.setdefault("lesson", {})
+        for k in ("parts", "builtBy", "goalMatch"):
+            if k in (g.get("lesson") or {}):
+                lesson[k] = copy.deepcopy(g["lesson"][k])
+        lesson["complete"] = bool(complete or (g.get("lesson") or {}).get("complete"))
+        if not new and not complete:
+            return
+        payload: dict[str, Any] = {"steps": [self._step_summary(st, i) for i, st in
+                                             enumerate(self.steps) if st["id"] in {n["id"] for n in new}],
+                                   "complete": lesson["complete"]}
+        parts = lesson.get("parts") or {}
+        if parts:
+            payload["parts"] = {k: parts.get(k) for k in ("done", "failed", "total") if k in parts}
+        await self.emit("lesson.updated", payload)
+        if self.waiting_more and self.step is not None:
+            if self.idx + 1 < len(self.steps):
+                self.waiting_more = False
+                await self.start_step(self.idx + 1)
+            elif lesson["complete"]:
+                self.waiting_more = False
+                self.phase = "done"
+                await self.emit("video.play", {})
 
     async def _build_failed(self, message: str) -> None:
         self.build_progress = None
@@ -651,6 +720,13 @@ class LessonSession:
         await self._offer_editor(graph, new_wd)  # a card; VS Code opens only on the learner's yes
         await self.start_step(0)
 
+    def _step_summary(self, st: dict, i: int) -> dict:
+        summary = {"id": st["id"], "index": st.get("index", i), "title": st["title"]}
+        seg = self._segment(st)
+        if seg:
+            summary["video"] = seg
+        return summary
+
     def _lesson_ready_payload(self) -> dict:
         g = self.graph or {}
         lesson = g.get("lesson", {})
@@ -658,15 +734,14 @@ class LessonSession:
             {k: v for k, v in s.items() if k in ("id", "kind", "title", "url", "meta", "videoId")}
             for s in g.get("sources", [])
         ]
-        steps = []
-        for i, s in enumerate(self.steps):
-            summary = {"id": s["id"], "index": s.get("index", i), "title": s["title"]}
-            seg = self._segment(s)
-            if seg:
-                summary["video"] = seg
-            steps.append(summary)
-        return {"lesson": {"id": lesson.get("id", "lesson"), "title": lesson.get("title", "Lesson"), "sources": sources},
-                "steps": steps}
+        steps = [self._step_summary(st, i) for i, st in enumerate(self.steps)]
+        info: dict[str, Any] = {"id": lesson.get("id", "lesson"), "title": lesson.get("title", "Lesson"), "sources": sources}
+        for k in ("complete", "builtBy"):  # E2: progressive builds / who watched the video
+            if k in lesson:
+                info[k] = lesson[k]
+        if lesson.get("goalMatch"):
+            info["goalMatch"] = lesson["goalMatch"]
+        return {"lesson": info, "steps": steps}
 
     # ------------------------------------------------------------------ steps
     def _step_started_payload(self, step: dict) -> dict:
@@ -794,9 +869,12 @@ class LessonSession:
             return
         self.passed = True
         nxt = self.steps[self.idx + 1]["id"] if self.idx + 1 < len(self.steps) else None
-        payload = {"stepId": step["id"]}
+        more_coming = nxt is None and (self.graph or {}).get("lesson", {}).get("complete") is False
+        payload: dict[str, Any] = {"stepId": step["id"]}
         if nxt:
             payload["nextStepId"] = nxt
+        if more_coming:
+            payload["pending"] = True  # the next part of a long video is still being built
         await self.emit("step.passed", payload)
         self._say("step.passed", payload)
         self._record("step_passed", {"nextStepId": payload.get("nextStepId")}, step)
@@ -804,6 +882,9 @@ class LessonSession:
         await self.emit("spotlight", {"clear": True})
         if nxt:
             self._spawn(self._advance(self.step_gen, self.idx + 1))
+        elif more_coming:
+            self.waiting_more = True  # _extend_lesson starts the next step when it arrives
+            await self._status("thinking")
         else:
             self.phase = "done"
             await self.emit("video.play", {})
