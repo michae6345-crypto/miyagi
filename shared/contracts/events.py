@@ -274,12 +274,18 @@ class HandsOn(_Model):
     start: float
 
 
+class SkippedIntro(_Model):
+    start: float
+    end: float
+
+
 class BuildPlan(_Model):
     strategy: Literal["whole", "chapters"]
     estSecondsToFirstSteps: float
     firstChapter: PreflightChapter | None = None  # the window E2 builds first
     firstHandsOn: HandsOn | None = None  # Claude: first chapter where the learner does something
     windows: int | None = None
+    skippedIntro: "SkippedIntro | None" = None  # a talk-only intro part 1 skips
 
 
 class PreflightInfo(_Model):
@@ -315,6 +321,7 @@ class Card(_Model):
     warning: str | None = None  # kind "preflight": the video doesn't fit the goal (goalMatch < 0.5)
     recommended: Literal["build", "pick_another"] | None = None
     preflight: PreflightInfo | None = None  # kind "preflight"
+    where: str | None = None  # coach: where to go when the place isn't on screen (no dim)
 
 
 class NetworkDiagram(_Model):
