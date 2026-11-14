@@ -1,0 +1,454 @@
+{
+  "lesson": {
+    "id": "lesson-237243ed",
+    "title": "Git Interactive Rebase: Edit, Split, Squash, Delete, and Reorder Commits",
+    "goal": "git rebase interactive",
+    "libraries": {
+      "git": "2.x",
+      "express": "4.x"
+    },
+    "builtBy": "gemini",
+    "workdir": "/Users/tripi/miyagi/lessons/_new"
+  },
+  "sources": [
+    {
+      "id": "src1",
+      "kind": "video",
+      "title": "Git Interactive Rebase: Edit, Split, Squash, Delete, and Reorder Commits",
+      "url": "https://www.youtube.com/watch?v=42392W7SgnE",
+      "videoId": "42392W7SgnE"
+    }
+  ],
+  "steps": [
+    {
+      "id": "s1",
+      "index": 1,
+      "title": "Set up repo and check branches",
+      "instructions": "In an empty folder, run git init -b main, commit index.js on main, then create feature/login with four commits (README.md, login endpoint with debug log, logout endpoint, cleanup, empty middleware commit). Run git branch -a to confirm feature/login has no remote branch.",
+      "video": {
+        "sourceId": "src1",
+        "start": 28.0,
+        "end": 79.0
+      },
+      "checks": [
+        {
+          "id": "s1c1",
+          "type": "screen_contains",
+          "label": "Repo initialized",
+          "app": "Terminal",
+          "pattern": "Initialized\\s+empty\\s+Git\\s+repository|Switched\\s+to\\s+a\\s+new\\s+branch"
+        },
+        {
+          "id": "s1c2",
+          "type": "screen_contains",
+          "label": "Branch list shows main",
+          "app": "Terminal",
+          "pattern": "\\*\\s*feature/\\S+|\\s{2}main\\b"
+        },
+        {
+          "id": "s1c3",
+          "type": "screen_absent",
+          "label": "No Git errors",
+          "app": "Terminal",
+          "pattern": "fatal:|error:"
+        }
+      ],
+      "precision_checks": [
+        {
+          "id": "s1p1",
+          "type": "file_exists",
+          "label": "README created",
+          "file": "README.md"
+        },
+        {
+          "id": "s1p2",
+          "type": "file_contains",
+          "label": "index.js has express",
+          "file": "index.js",
+          "pattern": "express"
+        },
+        {
+          "id": "s1p3",
+          "type": "command_exit_ok",
+          "label": "feature/login exists",
+          "command": "git rev-parse --verify feature/login"
+        }
+      ],
+      "targets": [
+        {
+          "app": "Terminal",
+          "match": "git branch -a",
+          "caption": "Verify the feature branch is local and not pushed"
+        }
+      ],
+      "explanations": [
+        {
+          "topic": "Never rebase commits that have already been pushed",
+          "t": 42.0,
+          "sourceId": "src1"
+        },
+        {
+          "topic": "Using git branch -a to check for remote branches",
+          "t": 47.0,
+          "sourceId": "src1"
+        }
+      ],
+      "hints": [
+        "Make sure you are in a fresh folder before running git init.",
+        "Create the base commit on main first, then branch off with git checkout -b feature/login.",
+        "Run git branch -a and verify there is no remotes/origin/feature/login entry."
+      ],
+      "common_mistakes": [
+        "Rebasing a branch that has already been pushed to a shared remote.",
+        "Forgetting to create the four commits on feature/login before starting HEAD~4."
+      ],
+      "run_command": "git branch -a",
+      "code": "git init -b main && printf \"const express = require('express'); const app = express(); const port = 3000; const DEFAULT_USER = 'admin'; app.use(express.json()); app.get('/health', (req, res) => res.send('OK')); app.get('/', (req, res) => res.send('Welcome to the Login App')); app.listen(port, () => console.log('Listening'));\" > index.js && git add index.js && git commit -m \"Add route for welcome message\" && git checkout -b feature/login && printf \"# Interactive Rebase Example\" > README.md && printf \"const express = require('express'); const app = express(); const port = 3000; const DEFAULT_USER = 'admin'; app.use(express.json()); app.get('/health', (req, res) => res.send('OK')); app.get('/', (req, res) => res.send('Welcome to the Login App')); app.post('/login', (req, res) => { console.log('DEBUG: LOGIN REQUEST RECEIVED'); // Debugging block res.send('Login'); }); app.listen(port, () => console.log('Listening'));\" > index.js && git add README.md index.js && git commit -m \"Add README and login endpoint\" && printf \"const express = require('express'); const app = express(); const port = 3000; const DEFAULT_USER = 'admin'; app.use(express.json()); app.get('/health', (req, res) => res.send('OK')); app.get('/', (req, res) => res.send('Welcome to the Login App')); app.post('/login', (req, res) => { res.send('Login'); }); app.post('/logout', (req, res) => { console.log('DEBUG: LOGOUT REQUEST RECEIVED'); res.send('Logout successful'); }); app.listen(port, () => console.log('Listening'));\" > index.js && git add index.js && git commit -m \"Add logout endpoint\" && printf \"const express = require('express'); const app = express(); const port = 3000; const DEFAULT_USER = 'admin'; app.use(express.json()); app.get('/health', (req, res) => res.send('OK')); app.get('/', (req, res) => res.send('Welcome to the Login App')); app.post('/login', (req, res) => { res.send('Login'); }); app.post('/logout', (req, res) => { res.send('Logout successful'); }); app.listen(port, () => console.log('Listening'));\" > index.js && git add index.js && git commit -m \"Minor cleanup for logout route\" && git commit --allow-empty -m \"Add authentication middleware\""
+    },
+    {
+      "id": "s2",
+      "index": 2,
+      "title": "Configure VS Code as Git editor",
+      "instructions": "Run git config --global core.editor \"code --wait\" so Git opens VS Code. Then run git rebase --interactive HEAD~4 on feature/login to open the commit list.",
+      "video": {
+        "sourceId": "src1",
+        "start": 80.0,
+        "end": 132.0
+      },
+      "checks": [
+        {
+          "id": "s2c1",
+          "type": "screen_contains",
+          "label": "Git waits for editor",
+          "app": "Terminal",
+          "pattern": "Waiting\\s+for\\s+your\\s+editor"
+        },
+        {
+          "id": "s2c2",
+          "type": "screen_contains",
+          "label": "Rebase todo opened",
+          "app": "Code",
+          "pattern": "git-rebase-todo|Rebase\\s+[0-9a-f]+\\.\\.[0-9a-f]+\\s+onto"
+        }
+      ],
+      "precision_checks": [
+        {
+          "id": "s2p1",
+          "type": "command_exit_ok",
+          "label": "Editor configured as code",
+          "command": "git config --global core.editor | grep -q code"
+        }
+      ],
+      "targets": [
+        {
+          "app": "Terminal",
+          "match": "core.editor",
+          "caption": "Configure VS Code as Git's editor"
+        },
+        {
+          "app": "Code",
+          "match": "pick",
+          "caption": "Interactive rebase commit list"
+        }
+      ],
+      "explanations": [
+        {
+          "topic": "How HEAD~4 or an ancestor hash selects commits to rebase",
+          "t": 87.0,
+          "sourceId": "src1"
+        },
+        {
+          "topic": "Why rebase opens Vim by default and how to exit with :q!",
+          "t": 108.0,
+          "sourceId": "src1"
+        }
+      ],
+      "hints": [
+        "If Vim opened earlier, press Escape and type :q! then Enter to abort without changes.",
+        "Run git config --global core.editor \"code --wait\" before starting the interactive rebase.",
+        "Run git rebase --interactive HEAD~4 and wait for git-rebase-todo to appear in VS Code."
+      ],
+      "common_mistakes": [
+        "Omitting --wait in core.editor, causing Git to finish immediately before you edit the todo file.",
+        "Running HEAD~4 from main instead of checking out feature/login first."
+      ],
+      "run_command": "git rebase --interactive HEAD~4",
+      "code": "git checkout feature/login && git config --global core.editor \"code --wait\""
+    },
+    {
+      "id": "s3",
+      "index": 3,
+      "title": "Edit commit to remove debug code",
+      "instructions": "In git-rebase-todo, change pick to edit on the login endpoint commit, save and close the tab. Remove the debug console.log from index.js, run git add index.js, then git rebase --continue.",
+      "video": {
+        "sourceId": "src1",
+        "start": 133.0,
+        "end": 235.0
+      },
+      "checks": [
+        {
+          "id": "s3c1",
+          "type": "screen_contains",
+          "label": "Rebase stopped for edit",
+          "app": "Terminal",
+          "pattern": "Stopped\\s+at|Successfully\\s*rebased"
+        },
+        {
+          "id": "s3c2",
+          "type": "screen_contains",
+          "label": "Rebase completed",
+          "app": "Terminal",
+          "pattern": "Successfully\\s*rebased\\s*and\\s*updated"
+        },
+        {
+          "id": "s3c3",
+          "type": "screen_absent",
+          "label": "No rebase conflicts",
+          "app": "Terminal",
+          "pattern": "CONFLICT|fatal:|error:"
+        }
+      ],
+      "precision_checks": [
+        {
+          "id": "s3p1",
+          "type": "command_exit_ok",
+          "label": "Debug logs removed from history",
+          "command": "! git log -p main..feature/login -- index.js | grep -q '^+.*DEBUG: LOGIN'"
+        },
+        {
+          "id": "s3p2",
+          "type": "command_exit_ok",
+          "label": "No rebase in progress",
+          "command": "test ! -d .git/rebase-merge"
+        }
+      ],
+      "targets": [
+        {
+          "app": "Code",
+          "file": "git-rebase-todo",
+          "match": "edit",
+          "caption": "Replace pick with edit on the commit to modify"
+        },
+        {
+          "app": "Terminal",
+          "match": "git rebase --continue",
+          "caption": "Stage the cleaned file and continue the rebase"
+        }
+      ],
+      "explanations": [
+        {
+          "topic": "Why git-rebase-todo lists commits in reverse chronological order",
+          "t": 141.0,
+          "sourceId": "src1"
+        },
+        {
+          "topic": "What the default pick command does",
+          "t": 156.0,
+          "sourceId": "src1"
+        },
+        {
+          "topic": "Why editing a commit does not purge sensitive secrets from Git history",
+          "t": 235.0,
+          "sourceId": "src1"
+        }
+      ],
+      "hints": [
+        "Change only the first line's pick keyword to edit, then save and close git-rebase-todo.",
+        "When Git pauses, remove the debug print and commented lines from index.js and save the file.",
+        "Stage index.js with git add index.js, run git rebase --continue, and close COMMIT_EDITMSG."
+      ],
+      "common_mistakes": [
+        "Saving git-rebase-todo without closing the editor tab, leaving Git waiting.",
+        "Forgetting to run git add index.js before running git rebase --continue."
+      ],
+      "run_command": "git add index.js && git rebase --continue",
+      "code": "edit a7d22de Add README and login endpoint"
+    },
+    {
+      "id": "s4",
+      "index": 4,
+      "title": "Split one commit into two commits",
+      "instructions": "Start git rebase --interactive HEAD~4, mark the README-and-login commit as edit, and close the todo file. Run git reset HEAD~1, commit README.md and index.js separately, then git rebase --continue.",
+      "video": {
+        "sourceId": "src1",
+        "start": 254.0,
+        "end": 332.0
+      },
+      "checks": [
+        {
+          "id": "s4c1",
+          "type": "screen_contains",
+          "label": "Rebase paused for edit",
+          "app": "Terminal",
+          "pattern": "Stopped\\s+at\\s+[0-9a-f]+|detached\\s+HEAD"
+        },
+        {
+          "id": "s4c2",
+          "type": "screen_contains",
+          "label": "Rebase completed",
+          "app": "Terminal",
+          "pattern": "Successfully\\s+rebased\\s+and\\s+updated"
+        },
+        {
+          "id": "s4c3",
+          "type": "screen_absent",
+          "label": "No conflicts or errors",
+          "app": "Terminal",
+          "pattern": "CONFLICT|fatal:|error:"
+        }
+      ],
+      "precision_checks": [
+        {
+          "id": "s4p1",
+          "type": "command_exit_ok",
+          "label": "README commit exists",
+          "command": "git log --oneline feature/login | grep -q 'Add README$'"
+        },
+        {
+          "id": "s4p2",
+          "type": "command_exit_ok",
+          "label": "Login commit exists",
+          "command": "git log --oneline feature/login | grep -q 'Add login endpoint'"
+        }
+      ],
+      "targets": [
+        {
+          "app": "Terminal",
+          "match": "git reset HEAD~1",
+          "caption": "Undo the paused commit, keep changes"
+        },
+        {
+          "app": "Terminal",
+          "match": "git rebase --continue",
+          "caption": "Finish the rebase"
+        }
+      ],
+      "explanations": [
+        {
+          "topic": "Atomic commits and keeping unrelated changes separate",
+          "t": 265.0,
+          "sourceId": "src1"
+        },
+        {
+          "topic": "How git reset HEAD~1 moves committed changes back to working tree",
+          "t": 293.0,
+          "sourceId": "src1"
+        }
+      ],
+      "hints": [
+        "Pause at the first commit again using edit in git-rebase-todo.",
+        "Run git reset HEAD~1, then check git status to see README.md and index.js ready to be committed individually.",
+        "Create one commit for README.md and a second commit for index.js before running git rebase --continue."
+      ],
+      "common_mistakes": [
+        "Using git reset --hard HEAD~1, which deletes the uncommitted changes instead of keeping them.",
+        "Running git commit --amend instead of making two separate commits after git reset HEAD~1."
+      ],
+      "run_command": "git rebase --continue",
+      "code": "git reset HEAD~1 && git add README.md && git commit -m \"Add README\" && git add index.js && git commit -m \"Add login endpoint\""
+    },
+    {
+      "id": "s5",
+      "index": 5,
+      "title": "Squash, delete, and reorder commits",
+      "instructions": "Run git rebase --interactive HEAD~5 and change the cleanup commit from pick to squash, closing the todo and message editors. Then run git rebase --interactive HEAD~4, delete the middleware line, move the README commit below the logout commit, and close the file.",
+      "video": {
+        "sourceId": "src1",
+        "start": 333.0,
+        "end": 389.0
+      },
+      "checks": [
+        {
+          "id": "s5c1",
+          "type": "screen_contains",
+          "label": "Squash keyword in todo",
+          "app": "Code",
+          "pattern": "squash\\s+[0-9a-f]{7}"
+        },
+        {
+          "id": "s5c2",
+          "type": "screen_contains",
+          "label": "Rebase succeeded",
+          "app": "Terminal",
+          "pattern": "Successfully\\s*rebased\\s*and\\s*updated"
+        },
+        {
+          "id": "s5c3",
+          "type": "screen_absent",
+          "label": "No rebase conflicts",
+          "app": "Terminal",
+          "pattern": "CONFLICT|fatal:"
+        }
+      ],
+      "precision_checks": [
+        {
+          "id": "s5p1",
+          "type": "command_exit_ok",
+          "label": "No rebase in progress",
+          "command": "test ! -d .git/rebase-merge"
+        },
+        {
+          "id": "s5p2",
+          "type": "command_exit_ok",
+          "label": "Middleware commit removed",
+          "command": "! git log --oneline -5 | grep -q 'authentication middleware'"
+        },
+        {
+          "id": "s5p3",
+          "type": "command_exit_ok",
+          "label": "README is newest commit",
+          "command": "git log -1 --format=%s | grep -q 'Add README'"
+        }
+      ],
+      "targets": [
+        {
+          "app": "Code",
+          "file": "git-rebase-todo",
+          "match": "squash",
+          "caption": "Squash the cleanup commit into the preceding logout commit"
+        },
+        {
+          "app": "Code",
+          "file": "git-rebase-todo",
+          "match": "Add README",
+          "caption": "Move this line below the logout commit to reorder"
+        }
+      ],
+      "explanations": [
+        {
+          "topic": "How squash merges a commit into the commit above it",
+          "t": 351.0,
+          "sourceId": "src1"
+        },
+        {
+          "topic": "Deleting commits by removing lines and reordering by moving lines",
+          "t": 375.0,
+          "sourceId": "src1"
+        }
+      ],
+      "hints": [
+        "Use HEAD~5 for the squash step because splitting the earlier commit left five commits on feature/login.",
+        "Change pick to squash on Minor cleanup for logout route, then save and close both git-rebase-todo and COMMIT_EDITMSG.",
+        "In the final git rebase --interactive HEAD~4 todo file, delete the Add authentication middleware line and move the Add README line to the bottom."
+      ],
+      "common_mistakes": [
+        "Putting squash on the very first commit in git-rebase-todo, which has no previous commit to squash into.",
+        "Using HEAD~4 instead of HEAD~5 right after splitting a commit into two."
+      ],
+      "run_command": "git rebase --interactive HEAD~4",
+      "code": "pick 50ef5bb Add login endpoint; pick 28939ae Add logout endpoint; pick cacd72e Add README"
+    }
+  ],
+  "build": {
+    "adapted": true,
+    "model": {
+      "video": "gemini-4-hydrogen (watched the video)",
+      "adapt": "claude-opus-5-5"
+    },
+    "seconds": 57.7,
+    "workdir_metrics": [],
+    "workdir_fp": "ce81718481d5",
+    "community_signals": 0,
+    "warnings": []
+  }
+}

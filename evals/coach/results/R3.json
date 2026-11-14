@@ -1,0 +1,192 @@
+{
+ "id": "R3",
+ "topic": "react",
+ "step": "s1",
+ "mistake": "Imported only useState: `import React, { useState } from 'react';` then called useEffect",
+ "truth": "useEffect is not imported (no-undef → Failed to compile). Fix: `import React, { useState, useEffect } from 'react';`",
+ "ocr": {
+  "blocks": 77,
+  "ms": 175,
+  "lines_by_app": {
+   "": 2,
+   "Code": 32,
+   "Google Chrome": 8,
+   "Terminal": 11
+  }
+ },
+ "cursor": {
+  "xy": [
+   391.5,
+   227.0
+  ],
+  "on": "useEffect(() => {"
+ },
+ "gate_before": {
+  "passed": false,
+  "via": null,
+  "passed_screen_only": false,
+  "checks": [
+   "s1c1 pass: seen in Code: 'useEffect('",
+   "s1c2 pass: seen in Code: 'setInterval('",
+   "s1c3 pass: seen in Terminal: 'webpack compiled'",
+   "s1c4 fail: still showing 'Failed to compile' in Terminal"
+  ],
+  "precision": [
+   "s1p1 fail: demo-app/src/Components/Timer.js not found",
+   "s1p2 fail: demo-app/src/Components/Timer.js not found"
+  ]
+ },
+ "fires": true,
+ "fires_screen_only": true,
+ "inputs": {
+  "code_from": "src/Components/Timer.js",
+  "code_chars": 333,
+  "target_location": [
+   "/var/folders/2g/b60087014tq94njh6r4zdmhm0000gn/T/coach-eval-lz7idi8m/R3/demo-app/src/Components/Timer.js",
+   7
+  ],
+  "cursor_under": "useEffect(() = {"
+ },
+ "warm_s": 1.69,
+ "card_s": 9.78,
+ "targets_s": 8.07,
+ "card": {
+  "stepId": "s1",
+  "severity": "fail",
+  "title": "useEffect is used but not imported",
+  "body": "ESLint's no-undef rule stops the build because useEffect is called on line 6 but only useState is imported from 'react'. Add useEffect to the import on line 1.",
+  "actions": [
+   "explain",
+   "show_me",
+   "hint",
+   "apply_fix"
+  ],
+  "guidingQuestion": "Which names does line 1 bring into scope from 'react', and is useEffect among them?",
+  "diff": {
+   "expected": "import React, { useState, useEffect } from 'react';",
+   "yours": "import React, { useState } from 'react';",
+   "file": "src/Components/Timer.js",
+   "line": 1
+  },
+  "targets": [
+   {
+    "boxId": 22,
+    "label": "import line",
+    "text": "{ useState } from 'react';",
+    "rect": {
+     "x": 414.4,
+     "y": 130.5,
+     "w": 185.9,
+     "h": 15.1
+    }
+   },
+   {
+    "boxId": 33,
+    "label": "useEffect call",
+    "text": "useEffect(() = {",
+    "rect": {
+     "x": 329.0,
+     "y": 220.9,
+     "w": 125.6,
+     "h": 12.6
+    }
+   },
+   {
+    "boxId": 65,
+    "label": "eslint error",
+    "text": "'useEffect'",
+    "rect": {
+     "x": 1102.6,
+     "y": 650.1,
+     "w": 80.4,
+     "h": 15.1
+    }
+   }
+  ]
+ },
+ "meta": {
+  "route": "opus",
+  "triage": {
+   "route": "opus",
+   "by": "haiku",
+   "reason": "The excerpt shows a likely compile error (useEffect is used but not imported from 'react') and missing interval cleanup. However, the checks report Timer.js as not found while the excerpt shows the file exists, so the cause depends on the learner's specific project layout and state. No known playbook covers this, so it needs a closer look."
+  },
+  "model": "claude-opus-5-5",
+  "latency_s": 3.73,
+  "playbook_id": null,
+  "web_sources": [],
+  "usage": {
+   "input_tokens": 5784,
+   "output_tokens": 293,
+   "cache_read_input_tokens": 7019,
+   "cache_creation_input_tokens": 0,
+   "first_text_s": 1.58
+  }
+ },
+ "diagnosis_auto": true,
+ "targets": {
+  "n": 3,
+  "any": true,
+  "first": true,
+  "texts": [
+   "{ useState } from 'react';",
+   "useEffect(() = {",
+   "'useEffect'"
+  ],
+  "labels": [
+   "import line",
+   "useEffect call",
+   "eslint error"
+  ]
+ },
+ "hint3": {
+  "title": "Here's the change",
+  "diff": {
+   "expected": "import React, { useState, useEffect } from 'react';",
+   "yours": "import React, { useState } from 'react';",
+   "file": "src/Components/Timer.js",
+   "line": 1
+  }
+ },
+ "orchestrator_resolves_file": true,
+ "patch": {
+  "file": "Timer.js",
+  "unified_diff": "--- a/Timer.js\n+++ b/Timer.js\n@@ -1,4 +1,4 @@\n-import React, { useState } from 'react';\n+import React, { useState, useEffect } from 'react';\n \n function Timer() {\n   const [seconds, setSeconds] = useState(0);\n",
+  "summary": "Add useEffect to the import on line 1",
+  "line": 1,
+  "requires_confirmation": true,
+  "_meta": {
+   "via": "diagnosis"
+  },
+  "s": 0.0,
+  "changed_lines": 2
+ },
+ "check_after": {
+  "ok": true,
+  "active_after_mount": 1,
+  "seconds_after_3_ticks": 3,
+  "active_after_unmount": 1,
+  "console": [
+   "Interval running   Timer.js",
+   "Interval running   Timer.js",
+   "Interval running   Timer.js"
+  ],
+  "error": null,
+  "no_undef": []
+ },
+ "gate_after": {
+  "passed": true,
+  "via": "checks",
+  "failed": []
+ },
+ "spotlight": {
+  "via": "diff.yours",
+  "rect": {
+   "x": 310.5,
+   "y": 124.5,
+   "w": 295.8,
+   "h": 27.1
+  },
+  "on_line": true
+ }
+}
