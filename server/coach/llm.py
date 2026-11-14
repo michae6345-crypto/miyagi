@@ -190,6 +190,7 @@ async def structured_call(
     timeout: float = 45.0,
     user_content: list[dict] | None = None,
     on_text: Callable[[str, str], Any] | None = None,
+    thinking: dict | None = None,
 ) -> CallResult:
     """One Messages call that must return JSON matching `schema`.
 
@@ -215,7 +216,7 @@ async def structured_call(
     import anthropic
 
     client = get_client().with_options(timeout=timeout)
-    api, kwargs = _request(client, model, system, user_content or user_text, schema, effort, max_tokens)
+    api, kwargs = _request(client, model, system, user_content or user_text, schema, effort, max_tokens, thinking)
     t0 = time.monotonic()
     ttft = None
     try:
@@ -262,14 +263,14 @@ async def structured_call(
     return res
 
 
-def _request(client, model: str, system: list[dict], content: Any, schema: dict, effort: str, max_tokens: int):
+def _request(client, model: str, system: list[dict], content: Any, schema: dict, effort: str, max_tokens: int, thinking: dict | None = None):
     """The one place a coach request is shaped (warm() must send the same prefix to hit the cache)."""
     kwargs: dict[str, Any] = {
         "model": model,
         "max_tokens": max_tokens,
         "system": system,
         "messages": [{"role": "user", "content": content}],
-        "thinking": {"type": "adaptive"},
+        "thinking": thinking or {"type": "adaptive"},  # Haiku pointing passes {"type": "disabled"} for speed
         "output_config": {"effort": effort, "format": {"type": "json_schema", "schema": schema}},
     }
     if model == OPUS:  # server-side refusal fallback: on a policy decline the API reruns on a fallback model
