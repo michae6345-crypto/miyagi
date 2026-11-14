@@ -16,6 +16,10 @@
  *            (one row, Enter sends learn_url {url}). Idle shows a few suggestions; one click searches.
  *   ask    : a lesson exists → "Ask about this step" → action {kind:'ask', text}.
  *
+ * Two ways to learn a typed topic (Michael, Sat 3:23 PM): "Watch a video" (the search flow above) or
+ * "Just teach me" (learn {query, mode:"lesson"}: no video, the engine writes the lesson; the panel goes
+ * straight into the building pill). Tab switches while they're offered, Enter picks, ⌘/Ctrl+Enter teaches.
+ *
  * Look: the island's own language. Black, white text at the theme's label/faint levels, low-alpha
  * white fills, one hairline rule; the accent only for the caret and the best result. Footer actions
  * are label + keycap (Spotlight-style), not filled buttons.
@@ -38,7 +42,7 @@ import { triggerShortcut } from '../../core/shortcuts'
 import { MiyagiMark } from '../../core/ui/Mark'
 import { OptionButton, Spinner } from '../../core/ui/atoms'
 import { color, copy, fill, launcher as launcherTheme, pill, radius, scrim, shadows, spring, springOut } from '../../core/theme'
-import { Action, Chip, Hint, Rise } from './parts'
+import { Action, Chip, Hint, HowChoice, Rise, type How } from './parts'
 import { EndRow, LinkRow, MessageRow, ResultRow, ROW_H, SkeletonRow } from './Rows'
 import { clearResults, setLauncherOpen, startSearch, useSearch } from './store'
 import { chipTones } from './tint'
@@ -97,6 +101,8 @@ export function Launcher({ layout }: { layout: Layout }): ReactNode {
     setPhaseState(p)
   }, [])
   const [mode, setMode] = useState<Mode>('search')
+  /** "Watch a video" or "Just teach me" for the topic being typed (Michael's two ways to learn). */
+  const [how, setHow] = useState<How>('video')
   const [from, setFrom] = useState<Size>(PILL)
   /** The island's content is still fading out of the panel (first ~100ms after opening). */
   const [handoff, setHandoff] = useState(false)
@@ -142,6 +148,7 @@ export function Launcher({ layout }: { layout: Layout }): ReactNode {
         const f = (payload as { from?: Size } | undefined)?.from
         setFrom(f && f.w > 0 && f.h > 0 ? { w: Math.round(f.w), h: Math.round(f.h) } : PILL)
         setMode(useLesson.getState().lesson ? 'ask' : 'search')
+        setHow('video')
         delays.current.clear()
         // Results stay after Build until a new learn / learn_url. Reopened after a pick ("Pick another"), the
         // highlight starts on the next row, so Enter doesn't rebuild the same tutorial.
@@ -248,6 +255,12 @@ export function Launcher({ layout }: { layout: Layout }): ReactNode {
   const typed = (mode === 'ask' ? question : query).trim()
   /** During a lesson, with nothing typed: "End lesson" is the first row, highlighted. Typing replaces it. */
   const endRow = lesson.hasLesson && !typed && (mode === 'ask' || view === 'idle')
+  /**
+   * A topic is typed and Enter would start something new (not build a result already listed): offer the two ways
+   * to learn it, "Watch a video" (today's search flow) or "Just teach me" (learn {mode:"lesson"}, no video).
+   */
+  const choosing = mode === 'search' && !link && !!typed && (typed !== search.query || (!results.length && !search.pending))
+  const teachKey = bridge.platform.os === 'mac' ? '⌘↵' : 'Ctrl↵'
   const highlight = view === 'link' ? 0 : view === 'results' ? selIndex : -1
 
   // ---- actions --------------------------------------------------------------------------------
@@ -258,6 +271,28 @@ export function Launcher({ layout }: { layout: Layout }): ReactNode {
     delays.current.clear()
     setSel(0)
     bridge.send(cmd('learn', { query: q }))
+  }
+
+  /**
+   * "Just teach me": no video search. The engine researches the topic and writes a text lesson (lesson.mode "lesson"),
+   * so there are no rows to pick: the panel goes straight into the building pill, like Build lesson.
+   * Only this path sends `mode`: "video" is the contract default, so the video flow's learn stays exactly as it was.
+   */
+  const teach = (q: string): void => {
+    if (phaseRef.current !== 'open') return
+    lastPick.current = undefined
+    clearResults()
+    bridge.send(cmd('learn', { query: q, mode: 'lesson' }))
+    setPhase('building')
+  }
+
+  /** A click on one of the two ways picks it and starts it. */
+  const pick = (h: How): void => {
+    const q = query.trim()
+    if (!q || phaseRef.current !== 'open') return
+    setHow(h)
+    if (h === 'lesson') teach(q)
+    else learn(q)
   }
 
   const build = (i = selIndex): void => {
@@ -312,8 +347,8 @@ export function Launcher({ layout }: { layout: Layout }): ReactNode {
     if (link) return build()
     const q = query.trim()
     if (!q) return
-    if (q !== search.query || (!results.length && !search.pending)) learn(q)
-    else build()
+    if (choosing) return how === 'lesson' ? teach(q) : learn(q)
+    build()
   }
 
   const onKey = (e: KeyboardEvent<HTMLInputElement>): void => {
@@ -324,11 +359,15 @@ export function Launcher({ layout }: { layout: Layout }): ReactNode {
     }
     if (e.key === 'Enter') {
       e.preventDefault()
-      if (!e.nativeEvent.isComposing) submit()
-      return
+      if (e.nativeEvent.isComposing) return
+      // ⌘Enter (Ctrl+Enter on Windows) = "Just teach me" straight away, whichever way is highlighted.
+      if ((e.metaKey || e.ctrlKey) && mode === 'search' && !link && typed) return teach(typed)
+      return submit()
     }
     if (e.key === 'Tab') {
       e.preventDefault() // focus stays in the field either way
+      // While the two ways are offered, Tab switches between them; otherwise it flips ask / new lesson.
+      if (choosing) return setHow((h) => (h === 'video' ? 'lesson' : 'video'))
       return switchMode()
     }
     if (view !== 'results') return
@@ -391,7 +430,14 @@ export function Launcher({ layout }: { layout: Layout }): ReactNode {
               ? 'build'
               : 'searching'
   const busy = search.pending && mode === 'search' && view !== 'link'
-  const actLabel = { end: 'End lesson', ask: 'Ask', build: 'Build lesson', search: 'Search', searching: 'Searching…', none: mode === 'ask' ? 'Ask' : 'Search' }[act]
+  const actLabel = {
+    end: 'End lesson',
+    ask: 'Ask',
+    build: 'Build lesson',
+    search: how === 'lesson' ? 'Teach me' : 'Search',
+    searching: 'Searching…',
+    none: mode === 'ask' ? 'Ask' : 'Search'
+  }[act]
   // The footer is keys, not sentences: only the offline / partial-error notes are words.
   const note = offline ? 'Offline' : inlineError ? search.error : undefined
   /** The best row: the one the engine marks "best", else the first. Only it gets a label. */
@@ -482,7 +528,11 @@ export function Launcher({ layout }: { layout: Layout }): ReactNode {
             </Rise>
           )}
 
-          {mode === 'ask' ? (
+          {choosing ? (
+            <Rise key="how" i={2} className="px-[20px] pt-[12px]">
+              <HowChoice how={how} teachKey={teachKey} onPick={pick} />
+            </Rise>
+          ) : mode === 'ask' ? (
             <Rise key="ask" i={2} className="flex flex-wrap gap-[8px] px-[20px] pt-[12px]">
               <OptionButton action="explain" label="Explain this step" kbd={bridge.platform.keys.explain} onClick={() => quick('explain')} />
               <OptionButton action="hint" label="Give me a hint" kbd={bridge.platform.keys.hint} onClick={() => quick('hint')} />
@@ -540,11 +590,15 @@ export function Launcher({ layout }: { layout: Layout }): ReactNode {
                 {note && <span className="truncate">{note}</span>}
               </span>
               {view === 'results' && visible.length > 1 && <Hint label="Choose" keycap="↑↓" />}
-              {lesson.hasLesson && (
-                <>
-                  <Action label={mode === 'ask' ? 'New lesson' : 'Back to step'} keycap="⇥" enabled onClick={switchMode} />
-                  <span className="mx-[4px] h-[16px] w-px shrink-0" style={{ background: fill.rule }} />
-                </>
+              {choosing ? (
+                <Hint label="Switch" keycap="⇥" />
+              ) : (
+                lesson.hasLesson && (
+                  <>
+                    <Action label={mode === 'ask' ? 'New lesson' : 'Back to step'} keycap="⇥" enabled onClick={switchMode} />
+                    <span className="mx-[4px] h-[16px] w-px shrink-0" style={{ background: fill.rule }} />
+                  </>
+                )
               )}
               <Action label={actLabel} keycap="↵" enabled={act === 'end' || act === 'ask' || act === 'build' || act === 'search'} strong onClick={submit} />
             </div>
