@@ -1851,3 +1851,24 @@ def test_download_tutorial_files(rig, monkeypatch):
     assert rig.of("card")[-1] == {"stepId": "s1", "kind": "answer", "title": "Tutorial files",
                                   "body": "Saved nanoGPT to tutorial/."}
     assert got["folder"] == rig.s.workdir
+
+
+def test_notebook_excerpt_is_cell_sources_not_cut_json(rig):
+    """S9: a big .ipynb (outputs first) cut at 6000 chars was invalid JSON; send its code cells instead."""
+    import json
+
+    big_output = {"output_type": "stream", "name": "stdout", "text": ["x" * 100 + "\n"] * 200}
+    nb = {"cells": [{"cell_type": "markdown", "metadata": {}, "source": ["# PINN\n"]},
+                    {"cell_type": "code", "metadata": {}, "outputs": [big_output], "execution_count": 1,
+                     "source": ["import torch\n", "lr = 0.3\n"]},
+                    {"cell_type": "code", "metadata": {}, "outputs": [], "execution_count": 2,
+                     "source": "opt = torch.optim.Adam(net.parameters(), lr=lr)"}],
+          "metadata": {}, "nbformat": 4, "nbformat_minor": 5}
+    rig.write(json.dumps(nb), "lab.ipynb")
+    code, f = rig.s._code_excerpt({"targets": [{"file": "lab.ipynb"}]})
+    assert f == "lab.ipynb"
+    assert code == ("# %% [cell 1]\nimport torch\nlr = 0.3\n"
+                    "# %% [cell 2]\nopt = torch.optim.Adam(net.parameters(), lr=lr)")
+    rig.write("{not json", "broken.ipynb")  # not parseable: falls back to the raw text, still limited
+    code, _ = rig.s._code_excerpt({"targets": [{"file": "broken.ipynb"}]}, limit=5)
+    assert code == "{not "

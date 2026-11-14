@@ -171,6 +171,28 @@ def human_build_error(e: BaseException) -> str:
     return f"Couldn't build this lesson: {raw[:160]}"
 
 
+def notebook_sources(text: str) -> str | None:
+    """A Jupyter notebook's JSON -> its code cells' source with `# %% [cell N]` markers (N = index among all
+    cells, E5's numbering), outputs dropped. Cutting the raw JSON leaves invalid JSON and mostly outputs, so
+    excerpts are cut after this. None if the text isn't valid notebook JSON."""
+    import json
+
+    try:
+        nb = json.loads(text)
+    except ValueError:
+        return None
+    if not isinstance(nb, dict) or not isinstance(nb.get("cells"), list):
+        return None
+    out = []
+    for i, c in enumerate(nb["cells"]):
+        if not isinstance(c, dict) or c.get("cell_type") != "code":
+            continue
+        src = c.get("source") or ""
+        src = "".join(src) if isinstance(src, list) else str(src)
+        out.append(f"# %% [cell {i}]\n" + src.rstrip("\n"))
+    return "\n".join(out) if out else "# (notebook: no code cells)"
+
+
 CODE_APP_NAMES = {"code", "vs code", "vscode", "visual studio code", "cursor"}
 
 
@@ -1256,9 +1278,12 @@ class LessonSession:
             p = wsmod.resolve_file(self.workdir, f, titles)  # nested project dirs, .git/rebase-merge, open file
             if p is not None:
                 try:
-                    return p.read_text(errors="replace")[:limit], f
+                    text = p.read_text(errors="replace")
                 except OSError:
                     continue
+                if p.suffix.lower() == ".ipynb":  # cell sources, then the limit (S9: raw JSON cut = invalid)
+                    text = notebook_sources(text) or text
+                return text[:limit], f
         lines = self._screen_lines() or {}  # screen-first: the code the learner is looking at
         for app in [t.get("app") for t in step.get("targets") or [] if t.get("app")] + ["Code"]:
             for a, ls in lines.items():
