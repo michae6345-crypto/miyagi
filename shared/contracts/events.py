@@ -179,12 +179,12 @@ class VideoJump(_Model):
     label: str
 
 
-CardAction = Literal["confirm", "undo", "apply_fix", "open_editor"]
+CardAction = Literal["confirm", "undo", "apply_fix", "open_editor", "resume", "end_lesson"]
 
 
 class Card(_Model):
     stepId: str | None = None
-    kind: Literal["explain", "hint", "answer"]
+    kind: Literal["explain", "hint", "answer", "resume"]  # resume: "Continue where you left off?"
     title: str
     body: str
     videoJump: VideoJump | None = None
@@ -343,7 +343,7 @@ class BuildLesson(_Model):
 
 
 ActionKind = Literal["back", "explain", "diagram", "show_me", "hint", "voice_toggle", "ask", "apply_fix",
-                     "confirm", "undo", "open_editor"]
+                     "confirm", "undo", "open_editor", "resume", "end_lesson"]
 
 
 class Action(_Model):
