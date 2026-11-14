@@ -39,6 +39,7 @@ class Source(_Model):
     title: str
     url: str
     meta: str | None = None
+    videoId: str | None = None
 
 
 class StepSummary(_Model):
@@ -57,6 +58,23 @@ class SearchResult(_Model):
     score: float
     reason: str
     thumbnail: str | None = None
+    style: Literal["coding", "no-code", "conceptual"] | None = None
+    durationLabel: str | None = None
+    long: bool | None = None
+    chapters: int | None = None
+    captions: bool | None = None
+    url: str | None = None
+    source: str | None = None
+    videoId: str | None = None
+    durationS: float | None = None
+    channel: str | None = None
+    verified: bool | None = None
+    warnings: list[str] | None = None
+    scoredBy: str | None = None
+    watched: str | None = None
+    prerequisites: list[str] | None = None
+    codeNotes: str | None = None
+    comments: str | None = None
 
 
 class SearchDone(_Model):
@@ -69,15 +87,35 @@ class LessonBuilding(_Model):
     failed: bool | None = None  # the build ended in error; drop the building UI
 
 
+class GoalMatch(_Model):
+    score: float | None = None
+    note: str = ""
+
+
 class LessonInfo(_Model):
     id: str
     title: str
     sources: list[Source]
+    complete: bool | None = None  # False: a long video is still building (lesson.updated follows)
+    builtBy: Literal["gemini", "claude", "mixed", "unknown"] | None = None
+    goalMatch: GoalMatch | None = None
 
 
 class LessonReady(_Model):
     lesson: LessonInfo
     steps: list[StepSummary]
+
+
+class PartsProgress(_Model):
+    done: int
+    failed: int
+    total: int
+
+
+class LessonUpdated(_Model):
+    steps: list[StepSummary]
+    complete: bool
+    parts: PartsProgress | None = None
 
 
 class StepStarted(_Model):
@@ -99,6 +137,7 @@ class CheckUpdated(_Model):
 class StepPassed(_Model):
     stepId: str
     nextStepId: str | None = None
+    pending: bool | None = None  # no next step yet: the next part is still building
 
 
 class OfftrackDiff(_Model):
@@ -106,6 +145,7 @@ class OfftrackDiff(_Model):
     yours: str
     file: str | None = None
     line: int | None = None
+    command: str | None = None  # a terminal fix (clipboard-staged, never run)
 
 
 class Citation(_Model):
@@ -180,7 +220,7 @@ class VideoJump(_Model):
 
 
 class SetupInstall(_Model):
-    method: Literal["brew", "brew_cask", "pip", "download", "none"]
+    method: Literal["brew", "brew_cask", "pip", "download", "open", "none"]
     command: str | None = None
     url: str | None = None
 
@@ -188,7 +228,7 @@ class SetupInstall(_Model):
 class SetupItem(_Model):
     tool: str
     label: str
-    kind: Literal["editor", "app", "runtime", "cli", "python_package"]
+    kind: Literal["editor", "app", "runtime", "cli", "python_package", "web_app"]
     why: str
     needed: bool
     installed: bool
@@ -213,7 +253,7 @@ class SetupProgress(_Model):
     version: str | None = None
 
 
-CardAction = Literal["confirm", "undo", "apply_fix", "open_editor", "resume", "end_lesson", "install", "skip_setup"]
+CardAction = Literal["confirm", "undo", "apply_fix", "open_editor", "resume", "end_lesson", "install", "skip_setup", "open_in_browser"]
 
 
 class Card(_Model):
@@ -298,7 +338,7 @@ class Diagram(_Model):
 
 
 class Speak(_Model):
-    audioUrl: str
+    audioUrl: str  # relative (/tts/<hash>.mp3): resolve against the engine's http origin
     text: str
 
 
@@ -338,6 +378,7 @@ ENGINE_EVENTS: dict[str, Any] = {
     "search.done": SearchDone,
     "lesson.building": LessonBuilding,
     "lesson.ready": LessonReady,
+    "lesson.updated": LessonUpdated,
     "step.started": StepStarted,
     "check.updated": CheckUpdated,
     "step.passed": StepPassed,
@@ -361,7 +402,7 @@ ENGINE_EVENTS: dict[str, Any] = {
 EngineEventType = Literal[
     "search.result", "search.done", "lesson.building", "lesson.ready", "step.started",
     "check.updated", "step.passed", "offtrack", "spotlight", "video.seek", "video.pause",
-    "video.play", "card", "diagram", "speak", "metric", "status", "error", "screen.seen", "config.status", "lesson.ended", "setup.progress",
+    "video.play", "card", "diagram", "speak", "metric", "status", "error", "screen.seen", "config.status", "lesson.ended", "setup.progress", "lesson.updated",
 ]
 
 
@@ -379,7 +420,7 @@ class BuildLesson(_Model):
 
 
 ActionKind = Literal["back", "explain", "diagram", "show_me", "hint", "voice_toggle", "ask", "apply_fix",
-                     "confirm", "undo", "open_editor", "resume", "end_lesson", "install", "skip_setup"]
+                     "confirm", "undo", "open_editor", "resume", "end_lesson", "install", "skip_setup", "open_in_browser"]
 
 
 class Action(_Model):
