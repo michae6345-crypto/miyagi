@@ -12,6 +12,8 @@ from .common import fmt_t, get_lesson
 from .diagnose import LAST
 from .explain import match_explanation
 from .playbook import BY_ID, CITATIONS, GUIDING_QUESTIONS
+from .pointing import code_visible, deterministic_targets, where_hint
+from .screen import ScreenContext
 
 LEVELS = ("question", "video", "paper", "diff")
 
@@ -35,13 +37,32 @@ def _pid_from_citation(card: dict) -> str | None:
     return next((m.id for m in BY_ID.values() if url and CITATIONS[m.citation_id]["url"] == url), None)
 
 
-def hint(step: dict, level: int, last_offtrack: dict | None = None) -> dict:
+def hint(step: dict, level: int, last_offtrack: dict | None = None, screen: ScreenContext | None = None) -> dict:
     """Return a `card` (kind "hint") for `level` (clamped to 0..3).
 
     Level 3 carries `diff` and offers "apply_fix"; the fix is applied only after the
     learner accepts it (see `apply_fix`). Extra fields (`level`, `diff`, `citation`,
     `actions`) are additive to the contract's `card` payload.
+
+    With `screen`, the card also carries `targets` (the line it is about, exact match, no model) or
+    `where` (where to go first); levels 0/1 lead with `where` when the code isn't on screen.
     """
+    card = _hint(step, level, last_offtrack)
+    if screen is None:
+        return card
+    last = last_offtrack or LAST.get(step.get("id", "")) or {}
+    targets = deterministic_targets(step, screen, last)
+    if targets:
+        card["targets"] = targets
+        return card
+    card["where"] = where_hint(step, last)
+    if card["level"] <= 1 and not code_visible(step, screen, "", last):
+        card["title"] = "Open your code first"
+        card["body"] = f"{card['where']}. Then: {card['body']}"
+    return card
+
+
+def _hint(step: dict, level: int, last_offtrack: dict | None = None) -> dict:
     level = max(0, min(int(level), 3))
     last = last_offtrack or LAST.get(step.get("id", "")) or {}
     pid = (last.get("_meta") or {}).get("playbook_id") or _pid_from_citation(last)
@@ -66,7 +87,7 @@ def hint(step: dict, level: int, last_offtrack: dict | None = None) -> dict:
         v = step.get("video") or {}
         if v.get("start") is not None:
             return _card(step, 1, "Rewatch this step", "Watch how the tutorial runs this step and compare its settings with yours.", videoJump={"t": float(v["start"]), "label": f"Step starts at {fmt_t(v['start'])}"})
-        return hint(step, 2, last)
+        return _hint(step, 2, last)
 
     if level == 2:
         cit = last.get("citation") or (CITATIONS[mode.citation_id] if mode else None)
@@ -74,7 +95,7 @@ def hint(step: dict, level: int, last_offtrack: dict | None = None) -> dict:
             paper = next((s for s in (get_lesson() or {}).get("sources", []) if s.get("kind") == "paper"), None)
             cit = {"label": paper["title"], "url": paper["url"]} if paper else None
         if not cit:
-            return hint(step, 3, last)
+            return _hint(step, 3, last)
         body = PAPER_NOTES.get(mode.id, mode.fix) if mode else "The linked source explains this in more depth."
         return _card(step, 2, "What the source says", body, citation={"label": cit["label"], "url": cit["url"]})
 

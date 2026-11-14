@@ -22,7 +22,7 @@ EVENT_ACTIONS = {"explain", "show_me", "apply_fix", "hint"}
 @pytest.fixture(autouse=True)
 def _isolate(monkeypatch):
     for k in ("ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN", "COACH_REPLAY_DIR", "COACH_RECORD_DIR", "BRIGHTDATA_API_KEY",
-              "BRIGHTDATA_SERP_ZONE", "BRIGHTDATA_UNLOCKER_ZONE", "DEMO", "TUT_ENV"):
+              "BRIGHTDATA_SERP_ZONE", "BRIGHTDATA_UNLOCKER_ZONE", "DEMO", "TUT_ENV", "COACH_OFFLINE_FALLBACK"):
         monkeypatch.delenv(k, raising=False)
     monkeypatch.setattr(llm, "_load_env", lambda: None)
     monkeypatch.setattr(llm, "_local_keys", {})
@@ -44,7 +44,7 @@ def run(coro):
 def assert_offtrack(card: dict) -> None:
     """Shape of EngineEvents['offtrack'] in shared/contracts/events.ts."""
     p = coach.public(card)
-    assert set(p) <= {"stepId", "severity", "title", "body", "diff", "citation", "actions", "guidingQuestion"}
+    assert set(p) <= {"stepId", "severity", "title", "body", "diff", "citation", "actions", "guidingQuestion", "offline"}
     assert p["severity"] in ("warn", "fail")
     assert 0 < len(p["title"].split()) <= 8
     assert 0 < len(p["body"].split()) <= 42  # ~30 by contract; the action sentence is never cut
@@ -890,3 +890,147 @@ def test_voice_failures_never_raise(monkeypatch, tmp_path, caplog):
 def test_prefetch_step_titles(tts):
     titles = [s["title"] for s in d.LESSON["steps"]] + ["Write the residual"]
     assert run(voice.prefetch(titles)) == len(titles)
+
+
+# ---------- demo rehearsal (S11): latency of metric-only failures, offline stage fallback ----------------
+
+def test_metric_only_failure_never_waits_on_the_web(monkeypatch, replay):
+    calls = []
+
+    async def gather(*a, **kw):
+        calls.append(a)
+        return []
+
+    monkeypatch.setattr(web, "gather", gather)
+    common.set_lesson(d.LESSON)
+    run(coach.diagnose(d.STEP, d.HIGH_LR_FAILED, d.HIGH_LR_METRICS, d.HIGH_LR_CODE))
+    assert calls == []  # hero: no error text → no Bright Data round trips before Opus
+    run(coach.diagnose(d.STEP, d.NO_GRAD_FAILED, None, d.NO_GRAD_CODE, error_text=d.NO_GRAD_ERROR))
+    assert len(calls) == 1  # an error message is still looked up in the docs
+
+
+def _client_raising(monkeypatch, exc):
+    import anthropic
+
+    class Msgs:
+        async def create(self, **kw):
+            raise exc(anthropic)
+
+    fake = SimpleNamespace(beta=SimpleNamespace(messages=Msgs()), messages=Msgs())
+    fake.with_options = lambda **_: fake
+    monkeypatch.setattr(llm, "get_client", lambda: fake)
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "test")
+
+
+def _conn_error(anthropic):
+    return anthropic.APIConnectionError(request=httpx.Request("POST", "https://api.anthropic.com/v1/messages"))
+
+
+def test_offline_fallback_is_opt_in(monkeypatch):
+    _client_raising(monkeypatch, _conn_error)
+    common.set_lesson(d.LESSON)
+    with pytest.raises(coach.CoachUnavailable, match="connection error"):
+        run(coach.diagnose(d.STEP, d.HIGH_LR_FAILED, d.HIGH_LR_METRICS, d.HIGH_LR_CODE))
+    monkeypatch.setenv("COACH_OFFLINE_FALLBACK", "1")
+    card = run(coach.diagnose(d.STEP, d.HIGH_LR_FAILED, d.HIGH_LR_METRICS, d.HIGH_LR_CODE))
+    assert_offtrack(card)
+    pub = coach.public(card)
+    assert pub["offline"] is True and card["_meta"]["route"] == "playbook" and card["_meta"]["playbook_id"] == "lr_too_high"
+    assert "connection error" in card["_meta"]["fallback_reason"] and card["_meta"]["confidence"] >= 0.6
+    assert coach.hint(d.STEP, 0, pub)["body"].startswith("What happens to Adam")
+
+
+def test_offline_fallback_never_covers_other_failures(monkeypatch):
+    monkeypatch.setenv("COACH_OFFLINE_FALLBACK", "1")
+    common.set_lesson(d.LESSON)
+    # an API error (not a network outage) still raises
+    _client_raising(monkeypatch, lambda a: a.InternalServerError("boom", response=httpx.Response(500, request=httpx.Request("POST", "https://x")), body=None))
+    with pytest.raises(coach.CoachUnavailable):
+        run(coach.diagnose(d.STEP, d.HIGH_LR_FAILED, d.HIGH_LR_METRICS, d.HIGH_LR_CODE))
+    # a network outage without a confident match on the learner's code still raises
+    _client_raising(monkeypatch, _conn_error)
+    with pytest.raises(coach.CoachUnavailable):
+        run(coach.diagnose(d.STEP, d.HIGH_LR_FAILED, None, "print('hello')"))
+
+
+# ---------- Explain / Show me / Hint point at the screen (Michael, live) ------------------------------
+
+from server.coach.tests.screen_case import step_without_targets, terminal_only
+
+
+def test_show_me_exact_match_is_instant_and_whole_word(monkeypatch):
+    async def boom(**kw):
+        raise AssertionError("exact match must not call a model")
+
+    monkeypatch.setattr(llm, "structured_call", boom)
+    s = make_screen()
+    r = run(coach.show_me(d.STEP, s))  # step target `def loss` → `def loss(...)`, not `def lossPDE`
+    assert r["targets"][0]["text"].startswith("def loss(self") and r["caption"] == "total loss" and r["where"] is None
+    LAST["d6"] = {"title": "Adam learning rate 0.3 is too high", "diff": {"yours": "optimizer = torch.optim.Adam(model.parameters(), lr=0.3)"}}
+    r = run(coach.show_me(d.STEP, s))  # after a diagnosis: the line to change
+    assert "lr=0.3" in r["targets"][0]["text"]
+
+
+def test_point_uses_haiku_without_thinking(replay):
+    """Recorded live Haiku calls: finds the lr line; with the editor closed, says where to go."""
+    s = make_screen()
+    bare = step_without_targets(d.STEP)
+    p = run(coach.point(bare, s, about="the learning rate setting"))
+    assert p["via"] == "haiku" and "lr=0.3" in p["targets"][0]["text"] and p["where"] is None
+    p = run(coach.point(bare, terminal_only(s), about="the learning rate setting in the code"))
+    assert p["targets"] == [] and "pinn_diffusion.py" in p["where"]
+
+
+def test_point_request_shape_and_fallbacks(monkeypatch):
+    seen = {}
+
+    async def call(**kw):
+        seen.update(kw)
+        return llm.CallResult(data={"box_ids": [999], "where": ""}, model=kw["model"])
+
+    monkeypatch.setattr(llm, "structured_call", call)
+    p = run(coach.point(step_without_targets(d.STEP), make_screen(), about="something"))
+    assert seen["model"] == "claude-haiku-5-5" and seen["thinking"] == {"type": "disabled"} and "user_content" not in seen
+    assert p["targets"] == [] and p["where"] == "Open the code for this step"  # unknown id → no fake target
+    assert run(coach.point(d.STEP, None, about="x"))["where"] == "Open pinn_diffusion.py in your editor"
+
+    async def down(**kw):
+        raise llm.CoachLLMError("x", "connection")
+
+    monkeypatch.setattr(llm, "structured_call", down)
+    p = run(coach.point(step_without_targets(d.STEP), make_screen(), about="something"))
+    assert p["via"] == "fallback" and p["targets"] == [] and p["where"]
+
+
+def test_hint_points_or_says_where_first():
+    card = {"title": "Adam learning rate 0.3 is too high", "guidingQuestion": "What happens to Adam's steps when lr is large?",
+            "diff": {"yours": "optimizer = torch.optim.Adam(model.parameters(), lr=0.3)", "expected": "x", "file": "pinn_diffusion.py"}}
+    s = make_screen()
+    h = coach.hint(d.STEP, 0, card, screen=s)
+    assert h["body"] == card["guidingQuestion"] and "lr=0.3" in h["targets"][0]["text"]
+    h = coach.hint(d.STEP, 0, card, screen=terminal_only(s))  # `$ python pinn_diffusion.py` is not the code
+    assert h["title"] == "Open your code first" and h["body"].startswith("Open pinn_diffusion.py in your editor. Then: What happens")
+    assert h["where"] == "Open pinn_diffusion.py in your editor" and "targets" not in h
+    h = coach.hint(step_without_targets(d.STEP) | {"checks": [{"id": "r", "type": "command_exit_ok", "command": "python train.py"}]}, 1, {}, screen=terminal_only(s))
+    assert h["where"] == "Switch to your terminal and run `python train.py`"
+
+
+def test_explain_points_before_the_text_arrives(monkeypatch):
+    order = []
+
+    async def call(**kw):
+        if kw["purpose"] == "point":
+            await asyncio.sleep(0.05)
+            order.append("point")
+            return llm.CallResult(data={"box_ids": [box_id_containing(make_screen(), "lr=0.3")], "where": ""}, model="h")
+        await asyncio.sleep(0.3)
+        order.append("explain")
+        assert "user_content" not in kw  # Opus gets text only; pointing is Haiku's job
+        return llm.CallResult(data={"title": "Big steps overshoot", "body": "b", "explanation_index": -1, "citation_id": "none"}, model="o")
+
+    monkeypatch.setattr(llm, "structured_call", call)
+    common.set_lesson(d.LESSON)
+    fired = []
+    card = run(coach.explain(step_without_targets(d.STEP), "why does lr matter?", {"screen": make_screen(), "on_targets": lambda t: fired.append(list(order))}))
+    assert fired == [["point"]]  # targets reached the app before the Opus text
+    assert "lr=0.3" in card["targets"][0]["text"] and card["_meta"]["point_via"] == "haiku"

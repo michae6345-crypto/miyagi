@@ -73,3 +73,15 @@ def make_screen(code: str = HIGH_LR_CODE, cursor: tuple[float, float] | None = N
 
 def box_id_containing(screen: ScreenContext, needle: str) -> int:
     return next(b.id for b in screen.boxes if needle in b.text)
+
+
+def terminal_only(screen: ScreenContext) -> ScreenContext:
+    """The same moment with the editor closed: only the terminal is on screen."""
+    import copy
+
+    return ScreenContext(image=screen.image, cursor=screen.cursor, boxes=[copy.copy(b) for b in screen.boxes if b.app == "Terminal"],
+                         scale=screen.scale, app="Terminal").numbered()
+
+
+def step_without_targets(step: dict) -> dict:
+    return {k: v for k, v in step.items() if k != "targets"}

@@ -19,7 +19,11 @@ from server.coach import case_diffusion as d
 from server.coach import common, web
 from server.coach.diagnose import LAST
 from server.coach.tests import generic_cases as g
-from server.coach.tests.screen_case import make_screen
+from server.coach.tests.screen_case import (
+    make_screen,
+    step_without_targets,
+    terminal_only,
+)
 
 
 def show(name: str, card: dict | None) -> None:
@@ -46,6 +50,9 @@ async def main() -> None:
     screen = make_screen()
     show("diffusion/high-lr+screen", card := await coach.diagnose(d.STEP, d.HIGH_LR_FAILED, d.HIGH_LR_METRICS, d.HIGH_LR_CODE, screen=screen))
     print("    targets:", [(t["boxId"], t["label"], t["text"][:40]) for t in card["targets"]])
+    bare = step_without_targets(d.STEP)
+    for scr, about in ((screen, "the learning rate setting"), (terminal_only(screen), "the learning rate setting in the code")):
+        print(f"point {about!r}:", await coach.point(bare, scr, about=about))
     for q in ("the learning rate", "where the total loss is computed"):
         print(f"locate {q!r}:", [(t["boxId"], t["text"][:40]) for t in await coach.locate(q, screen)])
 

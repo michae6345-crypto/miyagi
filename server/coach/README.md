@@ -44,6 +44,14 @@ targets = await coach.locate("the learning rate", screen)  # exact text → no m
 - **locate** asks `claude-haiku-5-5` (effort low) to pick box ids from the same set-of-mark images. Screen and code reading is Claude only; there is no Gemini in `server/coach`.
 - **Computer use** is not used. If icon finding ever needs it, the tool is `computer_toolset_20260801`, because `computer_20251124` returns 400 on Opus 5.5.
 
+## Pointing: Explain / Show me / Hint (pointing.py)
+
+Every coach answer about the screen carries `targets` (`[{boxId, label, text, rect}]`, screen points), or a `where` instruction when the place isn't on screen. There is never a fake target.
+- `await coach.show_me(step, screen, last_offtrack)` returns `{stepId, targets, caption, where}`. It points at the diagnosed line if there is one, else the step's `targets[].match` (whole word), else Haiku.
+- `coach.hint(step, level, last_offtrack, screen=screen)` stays synchronous and uses an exact match only. Levels 0 and 1 lead with `where` ("Open your code first: Open pinn_diffusion.py in your editor. Then: …") when the code isn't visible. Terminal lines that merely mention the file don't count as the code.
+- `await coach.explain(step, q, {"screen": s, "on_targets": cb})` points in parallel with the Opus text. `cb` fires first: live, at 1.7 s, against a 3.1 s card. Opus gets text only.
+- `await coach.point(step, screen, about=...)` is the shared helper. An exact match takes about 0 ms. Otherwise `claude-haiku-5-5` (thinking disabled, text only, 3 s cap) picks box ids, live in 1.0–1.8 s. If nothing matches, `where` is either derived from the step (file, `.ipynb`, or the terminal command) or Haiku's 12-word instruction.
+
 ## Voice (ElevenLabs track)
 
 `voice.py` speaks short lines only: the step title on `step.started`, the card title on `offtrack`, and "Nice, step passed." on `step.passed`.
@@ -55,6 +63,8 @@ targets = await coach.locate("the learning rate", screen)  # exact text → no m
 - **Gate:** E4 owns it (voice toggled on, and no keystroke in the last 2 s).
 
 ## Orchestrator contract notes (E4)
+- **Latency.** Web grounding runs only when there is an error message to look up, capped at 4 s, and keeps whatever lookups finished in time. A metric-only failure like the hero goes straight to Opus. Live, with Bright Data configured: card in 3.4 s after `warm()`. Rehearsal had measured 7–8 s while it waited on unused searches.
+- **Offline stage fallback (opt-in).** With `COACH_OFFLINE_FALLBACK=1`, if Opus is unreachable (network/proxy down) and the playbook matches the learner's code with confidence ≥ 0.6, `diagnose` returns that playbook card marked `offline: true` (and `_meta.route=playbook`, `fallback_reason`). API errors, refusals and weak matches still raise `CoachUnavailable`. It is off by default because of the no-fake rule.
 
 - `diagnose(..., cursor={"x", "y", "under": {"text", "app", "rect"}})` and `explain(..., {"cursor": ...})` tell the coach what the learner points at, when no full `screen` is attached.
 - The body's last sentence states the fix in words ("Set lr to 1e-3 in the Adam optimizer."), because E4 shows the first offtrack as hint level 2 with the diff hidden. Bodies are about 30 words. Up to 42 pass untouched; past that, the cause is shortened and the action sentence is never cut.

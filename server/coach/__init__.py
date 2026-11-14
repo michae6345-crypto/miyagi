@@ -21,6 +21,7 @@ from .llm import CoachUnavailable, OutdatedFixUnavailable, set_keys
 from .metrics import summarize as summarize_metrics
 from .outdated import fix_outdated
 from .playbook import match as match_playbook
+from .pointing import point, show_me
 from .screen import Box, ScreenContext
 from .triage import triage
 
@@ -58,9 +59,11 @@ __all__ = [
     "locate",
     "match_playbook",
     "playbook_card",
+    "point",
     "public",
     "set_keys",
     "set_lesson",
+    "show_me",
     "summarize_metrics",
     "triage",
     "voice",
