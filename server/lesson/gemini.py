@@ -25,7 +25,7 @@ def _load_env() -> None:
     except ImportError:
         return
     root = Path(__file__).resolve().parents[2]
-    candidates = [root / ".env"]
+    candidates = [Path(p) for p in [os.environ.get("TUT_ENV")] if p] + [root / ".env"]
     # inside a worktree (<main>/.claude/worktrees/<name>) also try the main checkout
     if root.parent.name == "worktrees" and root.parent.parent.name == ".claude":
         candidates.append(root.parents[2] / ".env")
