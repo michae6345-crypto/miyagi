@@ -155,7 +155,12 @@ class ScreenReader:
             try:
                 self.observe_now(force=force, trigger=reason)
             except Exception as e:
-                if not isinstance(e, ScreenPermissionError):
+                if type(e).__name__ == "ScreenUnavailableError":  # asleep/locked/switching Spaces: expected
+                    now = time.time()
+                    if now - getattr(self, "_unavail_logged", 0.0) > 60:
+                        self._unavail_logged = now
+                        log.warning("screen unavailable: %s (retrying quietly)", e)
+                elif not isinstance(e, ScreenPermissionError):
                     log.exception("screen capture/OCR failed")
 
     # ------------------------------------------------------------------ health / errors / keys
