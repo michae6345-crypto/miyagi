@@ -800,7 +800,7 @@ def test_progressive_build_emits_part_one_then_appends_in_order(fake, monkeypatc
 def test_human_error_says_what_to_do():
     msg = builder.human_error("no engine could build the lesson:\ngemini: 429 RESOURCE_EXHAUSTED quota\nclaude: no transcript: timedtext 429", {"length_s": 6980})
     first = msg.splitlines()[0]
-    assert first.startswith("Couldn't read this video (1:56:20 long): Gemini's quota is used up; YouTube is rate-limiting")
+    assert first.startswith("Couldn't read this video (1:56:20 long): Gemini's quota is used up and YouTube is blocking transcripts")
     assert "no engine could build the lesson" in msg and "taking too long" not in msg
 
 
@@ -1027,3 +1027,61 @@ def test_no_provisional_step_when_real_steps_are_fast(fake, monkeypatch):
     updates = []
     asyncio.run(builder.build_lesson(URL, "x", WORKDIR, refresh=True, on_update=lambda gr, c: updates.append(c)))
     assert updates == []  # short video, no provisional: the return value is the lesson, as before
+
+
+# ---- Gemini billing: circuit breaker -------------------------------------------------
+
+def test_billing_error_is_fatal_and_trips_the_breaker(monkeypatch):
+    import time as _t
+
+    monkeypatch.setattr(gemini, "_down_until", 0.0)
+    assert gemini._classify(RuntimeError("402 RESOURCE_EXHAUSTED. Your prepayment credits are depleted."))[0] == "billing"
+    calls = {"n": 0}
+
+    class FakeModels:
+        async def generate_content(self, **kw):
+            calls["n"] += 1
+            raise RuntimeError("402 Payment Required: Your prepayment credits are depleted")
+
+    class FakeClient:
+        class aio:
+            models = FakeModels()
+
+    monkeypatch.setattr(gemini, "client", lambda: FakeClient())
+    t = _t.time()
+    with pytest.raises(RuntimeError, match="402 Payment Required"):
+        asyncio.run(gemini._generate_json("gemini-4-hydrogen", [], {}, system="s"))
+    assert calls["n"] == 1 and _t.time() - t < 1  # no fallback models, no retries, no waiting
+    assert gemini.is_down() and "credits" in gemini.is_down()
+    with pytest.raises(RuntimeError, match="Gemini unavailable"):
+        asyncio.run(gemini._generate_json("gemini-3.8-flash", [], {}, system="s"))
+    assert calls["n"] == 1  # breaker open: not even tried
+    monkeypatch.setattr(gemini, "_down_until", 0.0)
+
+
+def test_billing_error_message_names_the_real_cause():
+    err = ("no engine could build the lesson:\ngemini: Gemini unavailable: billing: 402 Payment Required (Gemini credits are used up)\n"
+           "claude: no transcript for x: timedtext: Client error '429 Too Many Requests'")
+    first = builder.human_error(err, {"length_s": 1227}).splitlines()[0]
+    assert first == ("Couldn't read this video (20:27 long): Gemini credits are used up (top up at ai.studio/projects) and "
+                     "YouTube is blocking transcripts on this network. Try a saved lesson, or switch to your phone hotspot.")
+    assert "in time" not in first
+
+
+def test_with_gemini_down_the_build_goes_straight_to_claude(fake, monkeypatch):
+    import time as _t
+
+    monkeypatch.setenv("LESSON_ENGINE", "auto")
+    monkeypatch.setattr(gemini, "_down_until", _t.time() + 60)
+    monkeypatch.setattr(gemini, "_down_reason", "billing: 402 Payment Required (Gemini credits are used up)")
+
+    async def gemini_watch_uses_breaker(url, goal, **kw):  # the real watch_video -> _generate_json -> breaker
+        return await gemini._generate_json("gemini-4-hydrogen", [], {}, system="s")
+
+    monkeypatch.setattr(gemini, "watch_video", gemini_watch_uses_breaker)
+    calls = []
+    _claude_fakes(monkeypatch, calls)
+    t = _t.time()
+    g = asyncio.run(builder.build_lesson(URL, "x", WORKDIR, refresh=True))
+    assert _t.time() - t < 2 and g["lesson"]["builtBy"] == "claude"
+    monkeypatch.setattr(gemini, "_down_until", 0.0)

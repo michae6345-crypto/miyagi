@@ -100,10 +100,35 @@ MAX_RATE_WAIT_S = 45.0
 _exhausted: set[str] = set()  # models whose daily quota is gone, skipped for the rest of the process
 
 
+# Circuit breaker: billing/auth failures are the same for every model and every call, so Gemini is
+# marked down for LESSON_GEMINI_COOLDOWN_S and calls fail instantly (the build goes to Claude at once).
+COOLDOWN_S = float(os.environ.get("LESSON_GEMINI_COOLDOWN_S", "300"))
+_down_until = 0.0
+_down_reason = ""
+
+
+def is_down() -> str | None:
+    """The reason Gemini is unavailable right now, or None."""
+    import time as _t
+
+    return _down_reason if _t.time() < _down_until else None
+
+
+def mark_down(reason: str, seconds: float | None = None) -> None:
+    import time as _t
+
+    global _down_until, _down_reason
+    _down_until, _down_reason = _t.time() + (COOLDOWN_S if seconds is None else seconds), reason
+    log.warning("Gemini marked unavailable for %.0fs: %s", COOLDOWN_S if seconds is None else seconds, reason)
+
+
 def _classify(e: Exception) -> tuple[str, float]:
-    """-> (kind, wait_seconds). kind: 'daily'/'gone' (skip model), 'rate' (wait, same model), 'busy', 'other'."""
+    """-> (kind, wait_seconds). kind: 'billing'/'auth' (fatal), 'daily'/'gone' (skip model), 'rate' (wait), 'busy', 'other'."""
     msg = str(e)
     code = getattr(e, "code", None)
+    low = msg.lower()
+    if code == 402 or "402" in msg[:20] or "payment required" in low or "prepayment" in low or "credits are depleted" in low or "billing" in low:
+        return "billing", 0.0
     if code in (401, 403) or "PERMISSION_DENIED" in msg or "UNAUTHENTICATED" in msg or "API_KEY_INVALID" in msg:
         return "auth", 0.0
     if code == 404 or "NOT_FOUND" in msg:
@@ -126,6 +151,8 @@ async def _generate_json(model_id: str, parts: list[types.Part], schema: dict, *
         temperature=0.2,
         media_resolution=types.MediaResolution.MEDIA_RESOLUTION_LOW if media_low else None,
     )
+    if (why := is_down()) is not None:
+        raise RuntimeError(f"Gemini unavailable: {why}")
     chain = [m for m in dict.fromkeys([model_id, *fallback_models()]) if m not in _exhausted]
     last: Exception | None = None
     for mid in chain:
@@ -145,7 +172,11 @@ async def _generate_json(model_id: str, parts: list[types.Part], schema: dict, *
             except Exception as e:  # noqa: BLE001  network / 429 / 5xx
                 last = e
                 kind, wait = _classify(e)
+                if kind == "billing":  # every model and every call will fail the same way: stop now
+                    mark_down("billing: 402 Payment Required (Gemini credits are used up)")
+                    raise RuntimeError(f"Gemini unavailable: billing: 402 Payment Required ({str(e)[:160]})") from e
                 if kind == "auth":  # bad/blocked key: every model will fail the same way
+                    mark_down("the Gemini API key was rejected")
                     raise RuntimeError(f"Gemini rejected the API key: {str(e)[:200]}") from e
                 if kind in ("daily", "gone"):
                     _exhausted.add(mid)
