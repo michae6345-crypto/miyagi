@@ -39,12 +39,29 @@ function Idle(): ReactNode {
   )
 }
 
+/**
+ * The stage part of a lesson.building message: drops a trailing timer ("· 0:15", "(0:15)", "· 15s")
+ * and the "Gemini is " lead-in, so "Gemini is watching the video · 0:15" → "Watching the video".
+ */
+function buildingStage(message?: string): string {
+  if (!message) return ''
+  const s = message
+    .replace(/\s*(?:[·•|–—-]\s*)?\(?\d{1,2}:\d{2}(?::\d{2})?\)?\s*$/, '')
+    .replace(/\s*(?:[·•|–—-]\s*)?\(?\d+(?:\.\d+)?\s*s\)?\s*$/, '')
+    .replace(/^\s*gemini\s+is\s+/i, '')
+    .replace(/[\s·•|–—-]+$/, '')
+    .trim()
+  return s ? s[0].toUpperCase() + s.slice(1) : ''
+}
+
 function Building(): ReactNode {
   const { message, progress } = useLesson(
     useShallow((s) => ({ message: s.buildingMessage, progress: s.lesson ? 1 : s.buildingProgress }))
   )
   const kept = usePill((s) => s.buildMessage)
-  const text = message ?? kept ?? 'Building your lesson'
+  // Calm: show only the stage. The text (and so the crossfade + width spring) changes on a real stage change,
+  // never on the timer tick; the progress line carries the motion.
+  const text = buildingStage(message ?? kept) || 'Building your lesson'
   return (
     <div className="relative flex h-[34px] items-center whitespace-nowrap pl-[13px] pr-[14px] text-[13px] font-medium" style={{ color: color.text }}>
       <MonoMark className="mr-[8px]" />
