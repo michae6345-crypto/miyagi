@@ -85,6 +85,29 @@ def resolve_file(workdir: str | Path, rel: str, open_titles: list[str] | None = 
     return None
 
 
+def _accepts_kw(fn, name: str) -> bool:
+    import inspect
+
+    try:
+        return name in inspect.signature(fn).parameters
+    except (TypeError, ValueError):
+        return False
+
+
+def line_rect(path: str | Path, line: int) -> dict | None:
+    """S2: where `line` of `path` is on screen in the open editor ({x, y, w, h, ...}, spotlight space), via
+    Accessibility, else E6's locate_line. None when it can't tell. Blocking (a few AX reads): use a thread."""
+    ws = _s2()
+    fn = getattr(ws, "editor_line_rect", None) if ws is not None else None
+    if fn is None:
+        return None
+    try:
+        return fn(str(path), int(line))
+    except Exception:  # noqa: BLE001
+        log.exception("editor_line_rect failed")
+        return None
+
+
 def target_location(workdir: str | Path, step: dict) -> tuple[Path, int] | None:
     """(absolute file, 1-based line) of the step's first target whose file exists."""
     for t in step.get("targets") or []:
@@ -303,11 +326,15 @@ class Workspace:
             from server.workspace import editor as ed
         except Exception:  # noqa: BLE001
             ed = None
+        real = self.run == self._spawn  # tests inject a runner: never move real windows from a test
+        if real and _accepts_kw(ws.open_editor_report, "fullscreen"):  # S2 (#41): macOS full screen via AX
+            rep = ws.open_editor_report(workdir, ws.open_file_for(Path(workdir)), runner=self.run, fullscreen=True)
+            log.info("full screen editor: %s", rep.get("fullscreen"))
+            return bool(rep.get("opened"))
         editor = ed.preferred_editor() if ed is not None else None
         prev = ed.frontmost_app(skip={editor["app"]}) if (ed is not None and editor) else None
         rep = ws.open_editor_report(workdir, ws.open_file_for(Path(workdir)), runner=self.run,
                                     arrange_windows=False, previous=prev)
-        real = self.run == self._spawn  # tests inject a runner: never move real windows from a test
         if (rep.get("opened") and real and ed is not None and editor and rep.get("ax_trusted")
                 and os.environ.get("MIYAGI_ARRANGE", "1") != "0"):
             import threading

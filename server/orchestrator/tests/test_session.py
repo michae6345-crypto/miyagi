@@ -1451,8 +1451,11 @@ def test_preflight_before_build_then_build_or_pick_another(rig):
         late = [c for c in rig.of("card") if c["kind"] == "preflight"][-1]
         assert late["warning"] and late["recommended"] == "pick_another"
         assert [t for t, _ in rig.s.snapshot()] == ["status", "card"]  # a reconnecting app sees the same card
+        n_results, n_searches = len(rig.of("search.result")), len(prefetched)
         await rig.s.action("pick_another")
         assert rig.s.pending_pick is None and rig.s.phase == "idle" and rig.of("status")[-1] == {"state": "idle"}
+        assert len(rig.of("search.result")) == 2 * n_results and rig.of("search.done")[-1] == {"total": n_results}
+        assert len(prefetched) == n_searches  # the rows were re-sent, not searched again
         await rig.s.build_lesson(["r1"])
         await rig.s.action("build")
         await rig.settle()
@@ -2259,3 +2262,48 @@ def test_dead_screen_is_reported_once_and_show_me_says_why(tmp_path, monkeypatch
     errs = [e["message"] for e in rig.of("error")]
     assert errs == ["Miyagi can't see your screen right now, so screen checks and Show me are paused."]
     assert rig.of("card")[-1]["title"] == "I can't see your screen"
+
+
+def test_where_card_says_save_it_when_the_code_is_in_an_untitled_tab(rig):
+    from types import SimpleNamespace as NS
+
+    async def go():
+        await _to_step(rig, 1)
+        rig.s.last_obs = NS(windows=[NS(app="Code", title="● Untitled-1 — Visual Studio Code")])
+
+    run(go())
+    card = rig.s._where_card(rig.s.step)
+    assert card["title"] == "Save it as pinn_convection.py" and str(rig.workdir) in card["body"]
+
+
+
+def test_preflight_card_actions_download_and_open_in_browser_are_handled(rig, monkeypatch):
+    from server.orchestrator import workspace as wsmod
+
+    rig.s.m._preflight_mod = lambda: _fake_preflight([])
+    opened = []
+    monkeypatch.setattr(wsmod, "download_resources", lambda graph, folder: ([], "Downloaded 0 files."))
+
+    class WS:
+        enabled = False
+
+        def run(self, argv):
+            opened.append(argv)
+            return True
+
+    async def go():
+        await rig.s.learn("build chat gpt")
+        await rig.s.build_lesson(["r1"])
+        rig.s.workspace = WS()
+        rig.s.reqs = [{"tool": "colab", "install": {"url": "https://colab.research.google.com/"}}]
+        await rig.s.action("open_in_browser", "colab")
+        await rig.s.action("download")  # before the lesson exists: queued
+        assert rig.of("card")[-1]["title"] == "Tutorial files"
+        await rig.s.action("build")
+        await rig.settle()
+        await asyncio.sleep(0.05)
+
+    run(go())
+    assert opened[0] == ["open", "https://colab.research.google.com/"]
+    assert rig.of("card")[-1]["title"] == "Tutorial files" and rig.of("card")[-1]["body"] == "Downloaded 0 files."
+    assert not any("Unknown action" in e["message"] for e in rig.of("error"))

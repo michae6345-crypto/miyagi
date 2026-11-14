@@ -289,6 +289,7 @@ class LessonSession:
         self.pending_pick: dict | None = None  # S8: the picked result awaiting build / pick_another
         self._installing: set[str] = set()  # tools being installed right now (one install per tool)
         self._deferred_installs: list[dict] = []  # pip installs chosen before the lesson folder existed
+        self._download_after_build = False  # "Download tutorial files" pressed on the preflight card
         self._setup_card: dict | None = None  # the last setup card sent (re-sent with install status)
         self.graph: dict | None = None
         self.workdir = str(config.default_workdir())
@@ -714,9 +715,14 @@ class LessonSession:
         await self._run_build(pick["url"], self.query, video_meta=self.m.preflight_video_meta(pick.get("preflight")))
 
     async def _pick_another(self) -> None:
+        """Back to the result list: re-send the last search's rows (never searches again), then idle."""
         self.pending_pick = None
         self.phase = "idle"
-        await self._status("idle")  # the app shows its result list again
+        for r in self.results.values():
+            await self.emit("search.result", r)
+        if self.results:
+            await self.emit("search.done", {"total": len(self.results)})
+        await self._status("idle")  # the app reopens the launcher on the result list
 
     async def _run_build(self, url: str, goal: str, video_meta: dict | None = None, *,
                          factory: Callable[[], Awaitable[None]] | None = None) -> None:
@@ -786,6 +792,7 @@ class LessonSession:
         self.awaiting_resume = False
         self.waiting_more = False
         self._extend_task, self._extend_failed = None, False
+        self._download_after_build = False
         if had_lesson:
             await self.emit("spotlight", {"clear": True})
             await self.emit("video.pause", {})
@@ -1036,11 +1043,31 @@ class LessonSession:
                 return
             if await self._spotlight_target(step):
                 return
+            if (spot := await self._editor_line_spot(step)) is not None:
+                await self._show_spot(spot)
+                return
             spot = self._window_spot(step, self._type_caption(step))
             if spot:
                 await self._show_spot({**spot, **self._snippet(step)})
                 return
             await asyncio.sleep(1.0)
+
+    async def _editor_line_spot(self, step: dict) -> dict | None:
+        """S2: the exact editor line of the step's target (Accessibility, else E6's locate_line). Only with the
+        real screen reader (never in tests: it reads the real editor)."""
+        if getattr(self.screen, "reader", None) is None:
+            return None
+        from . import workspace as wsmod
+
+        loc = wsmod.target_location(self.workdir, step)
+        if loc is None:
+            return None
+        r = await asyncio.to_thread(wsmod.line_rect, loc[0], loc[1])
+        if not r:
+            return None
+        target = next((t for t in step.get("targets") or [] if t.get("match")), None)
+        return {"rect": {k: float(r[k]) for k in ("x", "y", "w", "h")}, "caption": self._type_caption(step, target),
+                "app": "Code", **self._snippet(step)}
 
     async def _replace_provisional(self, g: dict, complete: bool) -> None:
         """E2 quick start: the placeholder lesson (one step 'watch and type along', shown after 8 s) is
@@ -1130,6 +1157,9 @@ class LessonSession:
         await self._offer_editor(graph, new_wd)  # after step.started (the app clears cards on a new step)
         if self._deferred_installs:  # pip installs picked on the preflight card: now there's a lesson .venv
             self._spawn(self._run_deferred_installs())
+        if self._download_after_build:  # "Download tutorial files" on the preflight card
+            self._download_after_build = False
+            self._spawn(self.action("download"))
 
     def _step_summary(self, st: dict, i: int) -> dict:
         summary = {"id": st["id"], "index": st.get("index", i), "title": st["title"]}
@@ -1858,6 +1888,11 @@ class LessonSession:
         if kind == "pick_another":
             await self._pick_another()
             return
+        if self.step is None and self.pending_pick is not None and kind == "download":
+            self._download_after_build = True  # no lesson folder yet: download into it once it exists
+            await self.emit("card", {"kind": "answer", "title": "Tutorial files",
+                                     "body": "I'll save the video's files in your lesson folder as soon as it's ready."})
+            return
         if self.step is None and self.pending_pick is not None and kind in ("install", "open_in_browser"):
             # the preflight card's tool buttons, before any lesson exists
             if kind == "install":
@@ -2116,6 +2151,11 @@ class LessonSession:
         if self.notebook_lesson:
             return {"stepId": step["id"], "kind": "hint", "title": "Open the notebook",
                     "body": f"Open {file or 'the notebook'} in Colab or Jupyter so I can see it."}
+        untitled = self._untitled_editor()
+        if file and untitled:  # the learner typed into a new, unsaved editor tab: say exactly what to do
+            return {"stepId": step["id"], "kind": "hint", "title": f"Save it as {Path(file).name}",
+                    "body": f"Your code is in an unsaved {untitled} tab. Save it (⌘S) as {Path(file).name} in "
+                            f"{self.workdir} so I can check it."}
         card: dict[str, Any] = {"stepId": step["id"], "kind": "hint", "title": f"Open {file}" if file else "Show me your code",
                                 "body": (f"Open {file} in {self._editor_label()} so I can see it and point at the right line."
                                          if file else "Bring your editor to the front so I can see your code.")}
@@ -2124,6 +2164,15 @@ class LessonSession:
         if self.workspace is not None and self.graph is not None and wsmod.needs_editor(self.graph):
             card["actions"] = ["open_editor"]
         return card
+
+    def _untitled_editor(self) -> str | None:
+        """The code editor (VS Code / Cursor) showing an unsaved 'Untitled-N' tab, if any."""
+        for w in getattr(self.last_obs, "windows", None) or []:
+            app = (getattr(w, "app", "") or "")
+            title = (getattr(w, "title", "") or "").lstrip("● ")
+            if app.lower() in CODE_APP_NAMES | {"code"} and title.lower().startswith("untitled"):
+                return "Cursor" if app.lower() == "cursor" else "VS Code"
+        return None
 
     def _diagram_step(self, step: dict) -> dict:
         """Step ids repeat across lessons (s1, s2...): namespace the id by lesson so S4's cache can't
