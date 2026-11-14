@@ -35,8 +35,8 @@ def search_tool() -> str:
 
 def client(key: str) -> anthropic.AsyncAnthropic:
     if key not in _clients:
-        # our own deadlines decide; one SDK retry is enough for a transient 5xx
-        _clients[key] = anthropic.AsyncAnthropic(api_key=key, max_retries=1, timeout=30)
+        # no SDK retries: a retried timeout doubles the wait; the finder has its own fallbacks
+        _clients[key] = anthropic.AsyncAnthropic(api_key=key, max_retries=0, timeout=30)
     return _clients[key]
 
 
@@ -127,13 +127,19 @@ SCORE_SCHEMA = {
             "type": "array",
             "items": {
                 "type": "object",
-                "properties": {"id": {"type": "string"}, "score": {"type": "integer"}, "reason": {"type": "string"}},
-                "required": ["id", "score", "reason"],
+                "properties": {
+                    "id": {"type": "string"},
+                    "score": {"type": "integer"},
+                    "reason": {"type": "string"},
+                    "style": {"type": "string", "enum": ["coding", "no-code", "conceptual"]},
+                },
+                "required": ["id", "score", "reason", "style"],
                 "additionalProperties": False,
             },
-        }
+        },
+        "goal_is_coding": {"type": "boolean"},
     },
-    "required": ["items"],
+    "required": ["items", "goal_is_coding"],
     "additionalProperties": False,
 }
 
@@ -156,7 +162,9 @@ async def score(key: str, goal: str, cands: list[dict], *, system: str, prompt: 
         raise RuntimeError("Claude declined to score")
     text = next((b.text for b in resp.content if b.type == "text"), "{}")
     data = json.loads(text)
-    return {i["id"]: {"score": max(0, min(100, int(i.get("score", 0)))), "reason": i.get("reason", "")} for i in data.get("items", []) if i.get("id")}
+    goal_coding = bool(data.get("goal_is_coding"))
+    return {i["id"]: {"score": max(0, min(100, int(i.get("score", 0)))), "reason": i.get("reason", ""), "style": i.get("style"),
+                      "goal_is_coding": goal_coding} for i in data.get("items", []) if i.get("id")}
 
 
 # --------------------------------------------------------------------------- page read (non-video)

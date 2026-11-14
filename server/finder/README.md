@@ -13,8 +13,10 @@ lesson.build_lesson(rows[0]["url"], goal, workdir)  # rows[0] is always the best
 
 Row = `search.result` (+ extra fields, allowed by the contract):
 `{id, kind: video|blog|notebook|paper|repo, title, meta, score 0-100, reason (<= 12 words), thumbnail?, url,
-source, scoredBy, watched?, comments?, verified, videoId?, durationS?, channel?, prerequisites?, codeNotes?, warnings?}`.
+source, scoredBy, watched?, comments?, style?, durationLabel?, long?, chapters?, captions?, verified, videoId?, durationS?, channel?, prerequisites?, codeNotes?, warnings?}`.
 - `source`: the stage that found the row: `claude`, `youtube`, `brightdata`, `duckduckgo`, `github` or `arxiv`.
+- `style` (from Claude's scoring; Gemini's skim overrides it for videos it watched): `coding` | `no-code` | `conceptual`. (`kind` stays the contract's resource type.)
+- `durationLabel`: e.g. "1 h 56 min · 30 chapters, builds chapter by chapter". `long` is true over 45 min; `chapters` and `captions` (CC) come from YouTube's results page and the watch page. `meta` shows "chapters: 30 · CC".
 - `scoredBy`: `claude` | `gemini` (only when Claude failed) | `keywords`, plus `+gemini-watch` (video) / `+claude-read` (page).
 - `watched`: `watched by Gemini` | `read by Claude` | `not watched: Gemini quota` | `not read: Claude timeout` (or `overloaded`, `page fetch failed`, …). A row that wasn't watched or read says so, in its `meta` too; it is never faked.
 Example: `{"id": "yt-unBU1PwCnvQ", "kind": "video", "title": "S5 Solving Linear convection equation using PINNs",
@@ -59,7 +61,9 @@ Example: `{"id": "yt-unBU1PwCnvQ", "kind": "video", "title": "S5 Solving Linear 
    - With Bright Data, the **YouTube comments** are pulled too, and "outdated / doesn't work" comments feed the skim and show up as `warnings`.
    - The top 3 non-video results get a **Claude read** of the page. The score is 40% text, 60% read, capped at 45 if the page doesn't teach the goal. The read fills `reason`, `prerequisites` and `codeNotes`.
    - Rows that only got a keyword score get a second scoring try.
-5. **Rank:** best first, but the best **video** always leads (build_lesson needs a video). The ranked list is cached in `demo/cache/search/<slug>-<hash>.json` (real results; 7-day TTL, `FINDER_CACHE=0` to disable).
+5. **Rank:** best first, but the best **video** always leads (build_lesson needs a video).
+   - **Strict topic match** (Michael's "build chat gpt" run): the rubric says "build an LLM" ≠ using ChatGPT, no-code bots or agents. Keyword-only matches score 0-30, aggregator pages 40 at most, and the reason must say why it matches.
+   - **Deterministic rules on top**, for a coding goal (the scorer reports `goal_is_coding`): no-code is capped at 35 and conceptual at 60. Long videos with ≥ 5 chapters get +3, long ones without chapters -5, captions +1. The lead video is the best **coding** video when there is one. The ranked list is cached in `demo/cache/search/<slug>-<hash>.json` (real results; 7-day TTL, `FINDER_CACHE=0` to disable).
 
 ## CLI
 ```bash
@@ -84,13 +88,14 @@ The keys come from the shared `.env` (looked up in `$TUT_ENV`, the repo root, th
 Gemini calls use no SDK retries. Each call has its own timeout and a **hedged** fallback (if model 1 is slow, model 2 starts too), and a model that returns 429 is skipped until its quota resets.
 
 ## Tests
-`pytest server/finder/tests`: 20 tests, offline in < 1 s. They replay **recorded real responses** (YouTube results page data, oEmbed, DuckDuckGo, GitHub, arXiv) through an `httpx.MockTransport`. They check:
+`pytest server/finder/tests`: 21 tests, offline in < 1 s. They replay **recorded real responses** (YouTube results page data, oEmbed, DuckDuckGo, GitHub, arXiv) through an `httpx.MockTransport`. They check:
 - every emitted URL came from a source response (none invented);
 - a 404 is dropped;
 - a URL Claude wrote that its search tool never returned is dropped;
 - Claude scores and reads while Gemini only skims videos;
 - Gemini scores only when Claude fails;
 - Bright Data target failures are errors, `goto` links resolve, SERP video results are kept, and comment failures are labelled and only trip their own breaker;
+- a no-code video never leads a coding goal (capped at 35);
 - rows say plainly when they weren't watched ("not watched: Gemini quota") or read ("not read: Claude timeout");
 - everything returned was streamed;
 - the best video leads;
