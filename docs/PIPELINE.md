@@ -57,8 +57,8 @@ Eng → card {kind:"preflight", …}    (only if a late part landed: same card, 
       ├─ App → action {kind:"install", text: tool}                → setup.progress … (S2's install flow)
       └─ App → action {kind:"build"}
 Eng → lesson.building {message, progress} ~1/s
-Eng → lesson.ready {lesson, steps}  (long video: window 1's steps, then lesson.ready again with more steps
-                                     as each window lands; step ids never change)
+Eng → lesson.ready {lesson, steps}  (long video: complete:false with window 1's steps, then
+                                     lesson.updated {steps, complete} as each window lands; ids never change)
 Eng → step.started …
 Eng → card {kind:"setup", setup:{editorNeeded, items}, actions:[open_editor|open_in_browser, install, skip_setup]}
       └─ App → action open_editor   → VS Code opens (coding lessons only)
@@ -92,21 +92,23 @@ Live cards (14 Nov, cold, this network):
 
 ## Contract (additive, one PR)
 
-All lifecycle contract changes go in the one combined `contract:` PR (#17, branch `contract/end-lesson`):
-`end_lesson` + `lesson.ended` (E4), the resume card (S7), the setup card + `setup.progress` (S2), and the
-preflight additions. The preflight additions are on branch `contract/preflight-additions` (2 commits on top of
-`contract/end-lesson`), ready to cherry-pick:
+All lifecycle contract changes go in the one combined `contract:` PR (#17, branch `contract/end-lesson`).
+It already has `end_lesson` + `lesson.ended`, the resume card, the setup card + `setup.progress`, the no-code
+`web_app` items + `open_in_browser`, `lesson.updated` for progressive builds, and the finder's
+`search.result.style / durationLabel / long / chapters / captions`. The preflight additions are one commit
+(eca1022) on branch `contract/preflight`, directly on top of `contract/end-lesson` 9c1d620, so they
+fast-forward:
 
-- card `kind: "preflight"` (`preflight.style` uses the finder's coding / no-code / conceptual), plus optional fields `items?: SetupItem[]`, `warning?`, `recommended?`, `preflight?: PreflightInfo`
+- card `kind: "preflight"`, plus optional fields `items?: SetupItem[]`, `warning?`, `recommended?`, `preflight?: PreflightInfo`
+- `PreflightInfo.style` uses `search.result.style`'s vocabulary (coding / no-code / conceptual) plus
+  `styleFrom: claude | finder`, and `goalMatch` has `lesson.goalMatch`'s shape
 - action kinds `build` and `pick_another` (also on the card's `actions`)
-- `SetupItem.kind` `"web_app"`, `install.method` `"open"`, action `open_in_browser` (S2's no-code items, PR #22)
 
 ## Open items
 
 - **E4:** wire preflight between the pick and `_build`, and call `prefetch` on `search.done` (the exact hook is in
   `server/preflight/README.md`).
-- **E2:** progressive `on_update` → re-emit `lesson.ready` with the appended steps. Could be a `lesson.updated`
-  event instead; that would be a contract change, so it would go in the same PR. Optionally accept preflight's
+- **E2:** progressive builds already map to `lesson.ready {complete:false}` + `lesson.updated` (in #17). Optionally accept preflight's
   metadata (chapters, duration, description) to skip the second watch-page fetch, and start window 1 at
   `buildPlan.firstHandsOn` when the intro is long.
 - **S2:** the real lesson's `requirements()` is cold again because its cache key is the lesson id, not
