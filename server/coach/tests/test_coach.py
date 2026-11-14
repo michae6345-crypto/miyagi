@@ -297,3 +297,40 @@ def test_fix_outdated_brightdata_flow(monkeypatch):
     assert calls[0][0] == "serp" and "site%3Apytorch.org" in calls[0][1]
     assert [z for z, _ in calls[1:]] == ["unlock"]  # spam domain filtered out
     assert r["citation"]["url"].startswith("https://pytorch.org/") and r["diff"]["expected"] == "ReduceLROnPlateau(opt)"
+
+
+E4_SRC = '''import torch
+
+def train(model, steps=4000):
+    opt = torch.optim.Adam(model.parameters(), lr=1e-3)
+    beta = 30
+    for epoch in range(steps):
+        x, t = sample_points()
+        loss = pde_residual(model, x, t, beta).pow(2).mean()
+        opt.zero_grad(); loss.backward(); opt.step()
+    return model
+'''
+
+
+def test_apply_fix_renests_block_and_dedents_expected():
+    """E4 integration repro: expected carries its own indent; the loop body must move under the new header."""
+    d = {"file": "pinn.py", "line": 5, "yours": "    beta = 30\n    for epoch in range(steps):",
+         "expected": "    for beta in [1, 5, 10, 20, 30]:\n        for epoch in range(steps // 5):"}
+    r = coach.apply_fix(d, E4_SRC)
+    assert r["error"] is None
+    assert (
+        "    for beta in [1, 5, 10, 20, 30]:\n"
+        "        for epoch in range(steps // 5):\n"
+        "            x, t = sample_points()\n"
+    ) in r["new_text"]
+    assert "\n    return model\n" in r["new_text"]  # code after the block keeps its level
+    compile(r["new_text"], "pinn.py", "exec")
+
+
+def test_apply_fix_refuses_uncompilable_or_unanchored():
+    r = coach.apply_fix({"file": "pinn.py", "yours": "beta = 30", "expected": "for beta in [1, 5]:"}, E4_SRC)
+    assert r["new_text"] is None and "compile" in r["error"] and r["unified_diff"]
+    r = coach.apply_fix({"file": "pinn.py", "yours": "beta = 99", "expected": "beta = 1"}, E4_SRC)
+    assert r["new_text"] is None and "not found" in r["error"]
+    r = coach.apply_fix({"file": "pinn.py", "yours": "", "expected": "beta = 1"}, E4_SRC)
+    assert r["new_text"] is None

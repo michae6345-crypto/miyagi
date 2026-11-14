@@ -6,6 +6,7 @@ Levels (gentlest first): 0 guiding question → 1 video timestamp → 2 paper �
 from __future__ import annotations
 
 import difflib
+import textwrap
 
 from .common import fmt_t, get_lesson
 from .diagnose import LAST
@@ -79,35 +80,93 @@ def hint(step: dict, level: int, last_offtrack: dict | None = None) -> dict:
     return _card(step, 3, "Here's the change", "Review it first; nothing changes until you accept.", diff=diff, actions=["apply_fix"])
 
 
+def _indent(line: str) -> str:
+    return line[: len(line) - len(line.lstrip())]
+
+
+def _locate(lines: list[str], yours: list[str], hint_line: int | None) -> int | None:
+    """Index where every non-empty `yours` line matches consecutive file lines (ignoring indentation)."""
+    want = [y.strip() for y in yours]
+
+    def ok(i: int) -> bool:
+        return i + len(want) <= len(lines) and all(lines[i + k].strip() == w for k, w in enumerate(want))
+
+    if hint_line and ok(hint_line - 1):
+        return hint_line - 1
+    return next((i for i in range(len(lines)) if ok(i)), None)
+
+
+def _splice(lines: list[str], idx: int, n_old: int, expected: str) -> list[str]:
+    """Replace lines[idx:idx+n_old] with `expected`, re-indented, re-nesting the old block body if needed."""
+    base = _indent(lines[idx])
+    exp = textwrap.dedent(expected).strip("\n").splitlines()
+    repl = [(base + e if e.strip() else "") + "\n" for e in exp]
+    rest = lines[idx + n_old :]
+
+    old_last = lines[idx + n_old - 1]
+    new_last = repl[-1] if repl else "\n"
+    if old_last.rstrip().endswith(":") and new_last.rstrip().endswith(":"):
+        # the old header's body follows; move it under the new (possibly deeper) header
+        shift = len(_indent(new_last)) - len(_indent(old_last))
+        old_ind = len(_indent(old_last))
+        body_end = 0
+        for k, l in enumerate(rest):
+            if l.strip() and len(_indent(l)) <= old_ind:
+                break
+            body_end = k + 1
+        if shift > 0:
+            rest = [(" " * shift + l if l.strip() else l) for l in rest[:body_end]] + rest[body_end:]
+        elif shift < 0:
+            rest = [(l[-shift:] if l.strip() and l.startswith(" " * -shift) else l) for l in rest[:body_end]] + rest[body_end:]
+    return lines[:idx] + repl + rest
+
+
 def apply_fix(diff: dict, file_text: str | None = None) -> dict:
     """Build a proposed patch for the learner to accept. Never writes to disk.
 
-    Returns {"file", "expected", "yours", "unified_diff", "new_text", "requires_confirmation": True}.
-    `new_text` is the full file after the change (None if `file_text` was not given or
-    the learner's line could not be located); the app writes it only after the learner clicks accept.
+    Returns {"file", "expected", "yours", "unified_diff", "new_text", "error", "requires_confirmation": True}.
+    `new_text` is the full file after the change. It is None (and `error` says why) when no
+    file text was given, the learner's lines could not be found, or, for Python, the result
+    does not compile; the app should then show the diff as a "fix it by hand" card.
     """
     expected, yours, file = diff.get("expected", ""), diff.get("yours", ""), diff.get("file", "")
-    new_text = None
-    unified = ""
-    if file_text is not None:
+    name = f"{file or 'file'}"
+    new_text, error, unified = None, None, ""
+    if file_text is None:
+        error = "no file text"
+    elif not yours.strip():
+        error = "no anchor line to replace"
+    else:
         lines = file_text.splitlines(keepends=True)
-        idx = None
-        if diff.get("line") and 0 < diff["line"] <= len(lines) and (not yours or lines[diff["line"] - 1].strip() == yours.splitlines()[0].strip()):
-            idx = diff["line"] - 1
-        elif yours:
-            first = yours.splitlines()[0].strip()
-            idx = next((i for i, l in enumerate(lines) if l.strip() == first), None)
-        if idx is not None:
-            indent = lines[idx][: len(lines[idx]) - len(lines[idx].lstrip())]
-            n_old = max(1, len(yours.splitlines())) if yours else 1
-            repl = [indent + l + "\n" for l in expected.splitlines()]
-            new_lines = lines[:idx] + repl + lines[idx + n_old :]
-            new_text = "".join(new_lines)
-            unified = "".join(difflib.unified_diff(lines, new_lines, fromfile=f"a/{file or 'file'}", tofile=f"b/{file or 'file'}"))
+        if lines and not lines[-1].endswith("\n"):
+            lines[-1] += "\n"
+        y = [l for l in yours.strip("\n").splitlines() if l.strip()]
+        idx = _locate(lines, y, diff.get("line"))
+        if idx is None:
+            error = "learner's lines not found in file"
+        else:
+            new_lines = _splice(lines, idx, len(y), expected)
+            candidate = "".join(new_lines)
+            unified = "".join(difflib.unified_diff(lines, new_lines, fromfile=f"a/{name}", tofile=f"b/{name}"))
+            if not file or file.endswith(".py"):
+                try:
+                    compile(candidate, name, "exec")
+                except SyntaxError as e:
+                    error = f"patched file would not compile: {e.msg} (line {e.lineno})"
+            if error is None:
+                new_text = candidate
     if not unified:
         unified = "".join(
             difflib.unified_diff(
-                [l + "\n" for l in yours.splitlines()], [l + "\n" for l in expected.splitlines()], fromfile=f"a/{file or 'file'}", tofile=f"b/{file or 'file'}"
+                [l + "\n" for l in yours.splitlines()], [l + "\n" for l in expected.splitlines()], fromfile=f"a/{name}", tofile=f"b/{name}"
             )
         )
-    return {"file": file, "expected": expected, "yours": yours, "unified_diff": unified, "new_text": new_text, "requires_confirmation": True}
+    return {
+        "file": file,
+        "expected": expected,
+        "yours": yours,
+        "unified_diff": unified,
+        "new_text": new_text,
+        "error": error,
+        "requires_confirmation": True,
+    }
