@@ -45,14 +45,54 @@ def code_cli() -> str | None:
     return BUNDLED_CLI if Path(BUNDLED_CLI).exists() else None
 
 
+SKIP_SEARCH = {"node_modules", ".venv", "venv", "__pycache__", "dist", "build", ".next"}
+
+
+def resolve_file(workdir: str | Path, rel: str, open_titles: list[str] | None = None) -> Path | None:
+    """The real path of a lesson file: workdir/<rel>; git's rebase todo under .git/rebase-merge/; the same
+    file nested one level down (create-react-app's demo-app/src/...); a file the editor has open (its window
+    title) with the same name. None if nothing matches."""
+    wd = Path(workdir)
+    rel = (rel or "").strip()
+    if not rel:
+        return None
+    p = Path(rel) if Path(rel).is_absolute() else wd / rel
+    if p.is_file():
+        return p
+    name = Path(rel).name
+    if name == "git-rebase-todo":
+        for cand in (wd / ".git" / "rebase-merge" / name, wd / ".git" / "rebase-apply" / name):
+            if cand.is_file():
+                return cand
+    if wd.is_dir():
+        try:
+            for child in sorted(wd.iterdir()):
+                if child.is_dir() and child.name not in SKIP_SEARCH and not child.name.startswith("."):
+                    cand = child / rel
+                    if cand.is_file():
+                        return cand
+            hits = [h for h in wd.rglob(name) if not (set(h.relative_to(wd).parts) & SKIP_SEARCH)][:2]
+            if len(hits) == 1:
+                return hits[0]
+        except OSError:
+            pass
+    for title in open_titles or []:  # "● App.js — demo-app" -> App.js
+        t = title.lstrip("● ").split(" — ")[0].split(" - ")[0].strip()
+        if t == name and wd.is_dir():
+            hits = [h for h in wd.rglob(t) if not (set(h.relative_to(wd).parts) & SKIP_SEARCH)][:1]
+            if hits:
+                return hits[0]
+    return None
+
+
 def target_location(workdir: str | Path, step: dict) -> tuple[Path, int] | None:
     """(absolute file, 1-based line) of the step's first target whose file exists."""
     for t in step.get("targets") or []:
         f = t.get("file")
         if not f:
             continue
-        path = Path(f) if Path(f).is_absolute() else Path(workdir) / f
-        if not path.is_file():
+        path = resolve_file(workdir, f)
+        if path is None:
             continue
         line = 1
         match = t.get("match")
@@ -172,6 +212,29 @@ def install(item: dict, folder: str, on_line) -> dict:
     return dict(fn(item, workdir=folder, on_line=on_line))
 
 
+def goto_argv(path: str, line: int) -> list[str] | None:
+    """S2: the jump command for the learner's editor (Cursor if that's theirs), so jumps never launch a
+    second editor; else VS Code's `code -r -g`."""
+    ws = _s2()
+    fn = getattr(ws, "goto_argv", None) if ws is not None else None
+    if fn is not None:
+        try:
+            return fn(path, line)
+        except Exception:  # noqa: BLE001
+            log.exception("workspace.goto_argv failed")
+    cli = code_cli()
+    return [cli, "-r", "-g", f"{path}:{line}"] if cli else None
+
+
+def editor_label() -> str:
+    ws = _s2()
+    fn = getattr(ws, "editor_label", None) if ws is not None else None
+    try:
+        return fn() if fn else "VS Code"
+    except Exception:  # noqa: BLE001
+        return "VS Code"
+
+
 class Workspace:
     def __init__(self, enabled: bool | None = None, runner=None):
         self.enabled = env_flag("ORCH_OPEN_WORKSPACE", False) if enabled is None else enabled
@@ -205,14 +268,15 @@ class Workspace:
         log.info("opened workspace %s in VS Code: %s", workdir, ok)
 
     def goto(self, path: str, line: int) -> None:
-        cli = code_cli()
-        if cli:
-            self.run([cli, "-r", "-g", f"{path}:{line}"])
+        argv = goto_argv(path, line)
+        if argv:
+            self.run(argv)
 
     def goto_target(self, workdir: str, step: dict) -> None:
         loc = target_location(workdir, step)
-        cli = code_cli()
-        if loc is None or cli is None:
+        if loc is None:
             return
         path, line = loc
-        self.run([cli, "-r", "-g", f"{path}:{line}"])
+        argv = goto_argv(str(path), line)
+        if argv:
+            self.run(argv)

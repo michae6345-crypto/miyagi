@@ -436,6 +436,16 @@ class Modules:
         return _to_dict(await mod.preflight(url, goal, row=row, on_late=on_late,
                                             api_keys={k: get_key(k) for k in KEY_ENV}))
 
+    def preflight_video_meta(self, res: dict | None) -> dict | None:
+        """S8 -> E2: duration / chapters / firstHandsOn in the shape build_lesson(video_meta=) expects."""
+        mod = self._preflight_mod()
+        fn = getattr(mod, "video_meta", None) if mod is not None else None
+        try:
+            return fn(res) if (fn and res) else None
+        except Exception:  # noqa: BLE001
+            log.exception("preflight.video_meta failed")
+            return None
+
     def preflight_card(self, res: dict) -> dict:
         return _to_dict(self._preflight_mod().preflight_card(res))
 
@@ -509,12 +519,28 @@ class Modules:
                               step, question, context)
         return self._public(out)
 
-    async def hint(self, step: dict, level: int, last_offtrack: dict | None = None) -> dict:
+    def has_pointing(self) -> bool:
+        return self._real_fn("coach", "show_me") is not None
+
+    async def show_me(self, step: dict, screen: Any, last_offtrack: dict | None) -> dict | None:
+        """E5: {targets, caption, where} for "where do I work now?", or None without the coach."""
+        fn = self._real_fn("coach", "show_me")
+        if fn is None:
+            return None
+        try:
+            return self._public(await _call(fn, step, screen, last_offtrack))
+        except Exception:  # noqa: BLE001 - pointing never blocks Show me
+            log.exception("coach.show_me failed")
+            return None
+
+    async def hint(self, step: dict, level: int, last_offtrack: dict | None = None, screen: Any = None) -> dict:
         cached = self._cache("cards", f"{step['id']}-hint{level}.json")
         if cached:
             return cached
         fn = self._real_fn("coach", "hint")
         kwargs = {"last_offtrack": last_offtrack} if fn is not None and _accepts(fn, "last_offtrack") else {}
+        if fn is not None and screen is not None and _accepts(fn, "screen"):
+            kwargs["screen"] = screen  # E5: exact-match pointing (targets) or `where` when the code isn't on screen
         out = await self._run("coach", "hint", lambda: stubs.hint(step, level), step, level, **kwargs)
         return self._public(out)
 

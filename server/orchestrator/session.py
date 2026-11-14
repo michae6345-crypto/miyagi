@@ -362,8 +362,9 @@ class LessonSession:
         # no setup check available (module missing, no key): a plain offer, only for editor lessons
         if not wsmod.needs_editor(graph):
             return
-        await self.emit("card", {"kind": "hint", "title": "Open VS Code?",
-                                 "body": f"This lesson works in VS Code. Open the {Path(folder).name} folder there?",
+        label = wsmod.editor_label()  # S2: Cursor when that's the learner's editor
+        await self.emit("card", {"kind": "hint", "title": f"Open {label}?",
+                                 "body": f"This lesson works in {label}. Open the {Path(folder).name} folder there?",
                                  "actions": ["open_editor"]})
 
     async def _open_in_browser(self, tool: str) -> None:
@@ -644,7 +645,7 @@ class LessonSession:
         pick, self.pending_pick = self.pending_pick, None
         if pick is None:
             return
-        await self._run_build(pick["url"], self.query, video_meta=pick.get("preflight"))
+        await self._run_build(pick["url"], self.query, video_meta=self.m.preflight_video_meta(pick.get("preflight")))
 
     async def _pick_another(self) -> None:
         self.pending_pick = None
@@ -1219,9 +1220,12 @@ class LessonSession:
                   if c.get("file")]
         if not files:
             files = [p.name for p in sorted(Path(self.workdir).glob("*.py"))[:1]] if Path(self.workdir).is_dir() else []
+        from . import workspace as wsmod
+
+        titles = [getattr(w, "title", "") or "" for w in getattr(self.last_obs, "windows", None) or []]
         for f in files:
-            p = Path(self.workdir) / f
-            if p.is_file():
+            p = wsmod.resolve_file(self.workdir, f, titles)  # nested project dirs, .git/rebase-merge, open file
+            if p is not None:
                 try:
                     return p.read_text(errors="replace")[:limit], f
                 except OSError:
@@ -1284,6 +1288,18 @@ class LessonSession:
             extra = {"file": str(loc[0]), "line": loc[1]}
         return self.m.screen_context(self.last_obs, image, pos, **extra)
 
+    def _screen_error_lines(self, n: int = 40) -> list[str]:
+        lines = self._screen_lines() or {}
+        apps = ["Terminal", "iTerm", "Warp"] + (list(self.BROWSER_APPS) if self.notebook_lesson else []) + ["Code", "Cursor"]
+        out: list[str] = []
+        for want in apps:
+            for app, ls in lines.items():
+                if want.lower() in (app or "").lower():
+                    out.extend(ls[-n:])
+            if out:
+                break
+        return out[-n:]
+
     def cursor_context(self) -> dict | None:
         from .inputs import text_under
 
@@ -1305,6 +1321,8 @@ class LessonSession:
                 failed_checks = [{**by_id.get(r.get("checkId"), {}), **r} for r in failed]
                 code, _file = self._code_excerpt(step)
                 tail = ctx.output_tail[-40:] if isinstance(ctx.output_tail, list) else []
+                if not tail:  # screen-first (no `tut run`): what the terminal / notebook shows is the error text
+                    tail = self._screen_error_lines()
                 screen = await self._screen_for_coach(step)
 
                 def on_targets(targets: list[dict]) -> None:  # streamed mid-reply: spotlight before the card lands
@@ -1561,7 +1579,24 @@ class LessonSession:
                 self.segment_done = False
                 await self.emit("video.seek", {"t": seg["start"], "play": True})
                 await self.emit("video.play", {})
-            if not await self._show_where(step) and self._can_see():
+            gen = self.step_gen
+            quick = await self._show_where(step)  # exact match / window: instant
+            if self.m.has_pointing():  # E5: the diagnosed line, the step's target, else Haiku (<= 3 s)
+                screen = await self._screen_for_coach(step)
+                r = await self.m.show_me(step, screen, self.last_offtrack) if screen is not None else None
+                if gen != self.step_gen:
+                    return
+                if r and r.get("targets"):
+                    spot = self._target_spot({**r["targets"][0], "label": r.get("caption") or r["targets"][0].get("label")})
+                    if spot:
+                        self._action_spot = True
+                        await self._show_spot(spot)
+                        return
+                if r and r.get("where") and not quick:
+                    await self._emit_card({"stepId": step["id"], "kind": "hint", "title": "Where to work",
+                                           "body": r["where"]})
+                    return
+            if not quick and self._can_see():
                 await self._emit_card(self._where_card(step))
             return
         if kind in ("explain", "ask"):
@@ -1599,15 +1634,21 @@ class LessonSession:
             gen = self.step_gen
             await self._status("thinking")
             shown = await self._show_where(step)
-            if (not shown and self._can_see()) or self._code_not_visible():  # can't see the work: say WHERE to go
+            screen = await self._screen_for_coach(step) if self.m.has_pointing() else None
+            if screen is None and ((not shown and self._can_see()) or self._code_not_visible()):  # say WHERE to go
                 await self._emit_card(self._where_card(step))
                 await self._status("offtrack" if self.last_offtrack else "watching")
                 return
-            card = dict(await self.m.hint(step, self.hint_level, self.last_offtrack))
+            card = dict(await self.m.hint(step, self.hint_level, self.last_offtrack, screen=screen))
             if gen != self.step_gen:
                 return
             card["stepId"] = step["id"]
             self.hint_level += 1
+            if card.get("targets"):  # E5 pointed at the exact spot
+                spot = self._target_spot(card["targets"][0])
+                if spot:
+                    self._action_spot = True
+                    await self._show_spot(spot)
             await self._emit_card(card)
             await self._status("offtrack" if self.last_offtrack else "watching")
             return
@@ -1702,6 +1743,12 @@ class LessonSession:
         """The screen reader is running and has a frame: 'nothing found' then really means 'not on screen'."""
         return self.screen_active() and self.last_obs is not None
 
+    @staticmethod
+    def _editor_label() -> str:
+        from . import workspace as wsmod
+
+        return wsmod.editor_label()
+
     def _code_not_visible(self) -> bool:
         details = " ".join(str(r.get("detail") or "") for r in self.last_results if r.get("status") != "pass").lower()
         return any(k in details for k in ("not visible", "not on screen", "waiting for screen"))
@@ -1713,7 +1760,7 @@ class LessonSession:
             return {"stepId": step["id"], "kind": "hint", "title": "Open the notebook",
                     "body": f"Open {file or 'the notebook'} in Colab or Jupyter so I can see it."}
         card: dict[str, Any] = {"stepId": step["id"], "kind": "hint", "title": f"Open {file}" if file else "Show me your code",
-                                "body": (f"Open {file} in your editor so I can see it and point at the right line."
+                                "body": (f"Open {file} in {self._editor_label()} so I can see it and point at the right line."
                                          if file else "Bring your editor to the front so I can see your code.")}
         from . import workspace as wsmod
 
@@ -1781,8 +1828,12 @@ class LessonSession:
         if not (file and yours and expected):
             await self._card(step, "No automatic fix", "This one needs your hands. Try a hint.")
             return
-        path = Path(file) if Path(file).is_absolute() else Path(self.workdir) / file
+        from . import workspace as wsmod
         from .inputs import dirty_files
+
+        titles = [getattr(w, "title", "") or "" for w in getattr(self.last_obs, "windows", None) or []]
+        path = wsmod.resolve_file(self.workdir, file, titles) or (Path(file) if Path(file).is_absolute()
+                                                                    else Path(self.workdir) / file)
 
         if path.name in dirty_files(self.last_obs):  # VS Code has unsaved edits: writing would clobber them
             await self._card(step, f"Save {path.name} first", "Press ⌘S, then Do it for me again.")

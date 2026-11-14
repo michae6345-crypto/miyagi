@@ -626,7 +626,7 @@ def test_vscode_opens_only_after_the_learner_says_yes(tmp_path, monkeypatch):
         await asyncio.sleep(0.05)  # the setup card is computed in the background
         assert not calls  # nothing opened, not even `code -g`
         card = rig.of("card")[0]
-        assert card["title"] == "Open VS Code?" and card["actions"] == ["open_editor"]
+        assert card["title"] == f"Open {wsmod.editor_label()}?" and card["actions"] == ["open_editor"]  # Cursor if installed
         await rig.s.action("open_editor")
 
     run(go())
@@ -1725,3 +1725,63 @@ def test_visible_error_vetoes_the_files_only_route(tmp_path, monkeypatch):
     assert not rig.of("step.passed")  # ...but the visible error vetoes it
     shown = {c["checkId"]: c["status"] for c in rig.of("check.updated")}
     assert shown["s1c9"] == "fail"
+
+
+def test_resolve_file_nested_rebase_todo_and_open_title(tmp_path):
+    from server.orchestrator.workspace import resolve_file
+
+    (tmp_path / "demo-app" / "src").mkdir(parents=True)
+    (tmp_path / "demo-app" / "src" / "App.js").write_text("x")
+    (tmp_path / ".git" / "rebase-merge").mkdir(parents=True)
+    (tmp_path / ".git" / "rebase-merge" / "git-rebase-todo").write_text("pick abc")
+    assert resolve_file(tmp_path, "src/App.js") == tmp_path / "demo-app" / "src" / "App.js"
+    assert resolve_file(tmp_path, "git-rebase-todo") == tmp_path / ".git" / "rebase-merge" / "git-rebase-todo"
+    assert resolve_file(tmp_path, "nothing.py") is None
+
+
+def test_coach_gets_screen_error_text_without_tut_run(tmp_path, monkeypatch):
+    monkeypatch.setenv("TUT_WORKDIR", str(tmp_path))
+    screen = FakeScreen()
+    rig = Rig(tmp_path, screen=screen)
+    seen = {}
+
+    async def diagnose(step, failed, metrics, code, error_text="", **kw):
+        seen["error_text"] = error_text
+        return {"stepId": step["id"], "severity": "warn", "title": "t", "body": "b", "actions": ["hint"]}
+
+    rig.s.m.diagnose = diagnose
+
+    async def go():
+        await rig.start_lesson()
+        await rig.end_segment()
+        screen.text["Terminal"] = ["$ git rebase main", "error: cannot rebase: You have unstaged changes."]
+        await rig.save("# a\n")  # s1 passes
+        await rig.end_segment()
+        await rig.save("# a\nimport torch\n")
+        await rig.save("# a\nimport torch\n# still\n")  # same failure twice -> coach
+
+    run(go())
+    assert "You have unstaged changes" in seen.get("error_text", "")
+
+
+def test_show_me_uses_e5_pointing(rig):
+    rig.s.m.has_pointing = lambda: True
+
+    async def show_me(step, screen, last):
+        return {"targets": [{"boxId": 1, "label": "here", "text": "net = ...", "rect": {"x": 5, "y": 6, "w": 7, "h": 8}}],
+                "caption": "Build the MLP here", "where": None}
+
+    rig.s.m.show_me = show_me
+
+    async def fake_screen(step):
+        return object()
+
+    rig.s._screen_for_coach = fake_screen
+
+    async def go():
+        await _to_step(rig, 1)
+        await rig.s.action("show_me")
+
+    run(go())
+    spot = rig.of("spotlight")[-1]
+    assert spot["rect"] == {"x": 5.0, "y": 6.0, "w": 7.0, "h": 8.0} and spot["caption"] == "Build the MLP here"

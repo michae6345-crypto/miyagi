@@ -56,6 +56,7 @@ export interface EngineEvents {
             warning?: string;             // kind "preflight": shown in amber when the video doesn't fit the goal (goalMatch.score < 0.5)
             recommended?: "build" | "pick_another";   // which button to make primary
             preflight?: PreflightInfo;    // kind "preflight": what the picked video is, before anything is built
+            where?: string;               // coach (E5): where to go when the place isn't on screen ("Open app.py in Cursor"); shown without a dim
             setup?: { editorNeeded: boolean; items: SetupItem[] };   // kind "setup": what the lesson needs on this Mac (one Install button per missing item -> action install {text: tool})
             diff?: string;               // unified diff to preview ("Apply this fix?" -> confirm)
             targets?: Array<{ boxId: number; label: string; text: string; rect: { x: number; y: number; w: number; h: number } }>;
@@ -97,7 +98,8 @@ export interface PreflightInfo {
   buildPlan: { strategy: "whole" | "chapters"; estSecondsToFirstSteps: number;
                firstChapter: { index: number; lastIndex: number; title: string; start: number; end: number; window?: boolean } | null;
                firstHandsOn?: { index: number; title: string; start: number };
-               windows?: number };
+               windows?: number;
+               skippedIntro?: { start: number; end: number } };   // a talk-only intro part 1 skips (seconds)
   editorNeeded?: boolean | null; partial: boolean;
 }
 
