@@ -260,16 +260,18 @@ export function Launcher({ layout, openOnMount = false }: { layout: Layout; open
     borderColor: tint.clear,
     boxShadow: tint.pillShadow
   }
+  /** Reduced motion: crossfade only. Keep every key of the open target (a dropped key settles instantly and ends the animation early). */
+  const fadeOut = { ...panelOpen, opacity: 0 }
   let target: TargetAndTransition = panelOpen
   let transition: Transition = spring
   if (phase === 'closing') {
-    target = { opacity: 0, scale: 0.96, y: -8 }
+    target = { ...panelOpen, opacity: 0, scale: 0.96, y: -8 }
     transition = { duration: 0.14, ease: 'easeIn' }
   } else if (phase === 'building') {
-    target = reduce ? { opacity: 0 } : { ...onPill, opacity: 1 }
+    target = reduce ? fadeOut : { ...onPill, opacity: 1 }
     transition = reduce ? { duration: 0.2 } : spring
   } else if (phase === 'sending') {
-    target = reduce ? { opacity: 0 } : { ...onPill, opacity: 0 }
+    target = reduce ? fadeOut : { ...onPill, opacity: 0 }
     transition = reduce ? { duration: 0.2 } : { ...spring, opacity: { duration: 0.16, delay: 0.2, ease: 'easeIn' } }
   }
 
@@ -396,7 +398,7 @@ export function Launcher({ layout, openOnMount = false }: { layout: Layout; open
                   {Array.from({ length: skeletons }, (_, k) => (
                     <SkeletonRow key={`sk${visible.length + k}`} slot={visible.length + k} />
                   ))}
-                  {view === 'empty' && <MessageRow key="empty" tone="empty" title={`Nothing found for “${search.query}”`} detail="Try other words, or paste a YouTube link." />}
+                  {view === 'empty' && <MessageRow key="empty" tone="empty" title={`Nothing found for “${search.query}”`} detail="No video, notebook or paper matched." />}
                   {view === 'error' && <MessageRow key="error" tone="error" title="Couldn't search right now" detail={search.error ?? ''} />}
                 </AnimatePresence>
               </div>
