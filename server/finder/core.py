@@ -365,7 +365,8 @@ class _Run:
     async def _score_and_emit(self, batch: list[dict]) -> None:
         # the first batch must land fast (first result < 4 s); later ones can take longer
         first = not self.cands
-        timeout = 4.5 if first else max(1.5, min(9.0, self.left(margin=5)))
+        # first batch: Claude gets 7 s (Gemini races it after 3 s when it can); later batches more
+        timeout = 7.0 if first else max(1.5, min(9.0, self.left(margin=5)))
         # small chunks in parallel: Claude answers ~4 items much faster than 8+
         scores = await self._score_chunks(batch, timeout=timeout, hedge_after=2.5, size=4 if first else 6,
                                           race_after=3.0 if first else None)
