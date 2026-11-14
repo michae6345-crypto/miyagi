@@ -25,8 +25,11 @@ for (const t of ['card', 'offtrack', 'diagram', 'spotlight', 'lesson.ended'] as 
 onUi('reset', clearPressed)
 
 /** Send action {kind} to the engine and remember it as pressed. Use this for every action button. */
+/** Actions the engine never "thinks" about: they must not leave a stale pressed kind for a later spinner. */
+const INSTANT = new Set<ActionKind>(['voice_toggle', 'back'])
+
 export function sendAction(kind: ActionKind, text?: string): void {
-  usePressed.setState({ kind, at: Date.now() })
+  usePressed.setState(INSTANT.has(kind) ? { kind: undefined, at: Date.now() } : { kind, at: Date.now() })
   bridge.send(cmd('action', text === undefined ? { kind } : { kind, text }))
 }
 

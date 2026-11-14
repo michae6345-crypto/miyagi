@@ -3,9 +3,9 @@
  * The off-track payload itself lives in core/lesson; core doesn't keep metrics, so they live here.
  */
 import { create } from 'zustand'
-import { cmd, type Payload } from '../../../../common/wire'
-import { bridge } from '../../bridge'
+import type { Payload } from '../../../../common/wire'
 import { onMessage, onUi } from '../../core/bus'
+import { sendAction } from '../../core/shortcuts'
 import { seekVideo, useLesson, type CheckItem } from '../../core/lesson'
 
 export type Point = { step: number; value: number }
@@ -39,14 +39,33 @@ type CardsState = {
   metrics: Record<string, Series>
   /** The tutorial's reference curve, if the engine streams it as runId "tutorial". */
   tutorial: Record<string, Point[]>
+  /** Setup installs in flight, by tool id: the latest `setup.progress` line, or the failure once it ends. */
+  installs: Record<string, Install>
 }
 
-const blank: CardsState = { offtrackOpen: false, fixing: false, recovered: false, resume: false, offtrackSeq: undefined, success: undefined, card: undefined, metrics: {}, tutorial: {} }
+/** One setup item's install: running (Install button disabled, spinner + latest line) until done. */
+export type Install = { running: boolean; line?: string; error?: string }
+
+const blank: CardsState = { offtrackOpen: false, fixing: false, recovered: false, resume: false, offtrackSeq: undefined, success: undefined, card: undefined, metrics: {}, tutorial: {}, installs: {} }
 export const useCards = create<CardsState>(() => ({ ...blank }))
 const set = useCards.setState
 const get = useCards.getState
 
 let successTimer: ReturnType<typeof setTimeout> | undefined
+
+/**
+ * The off-track the learner closed with ✕. The engine re-sends `offtrack` while the step keeps
+ * failing; an unchanged one must not pop the card back up. It reopens only for a new step, a
+ * higher hint level or a different title (hovering the pill still brings it back; the pill stays amber).
+ */
+type OfftrackSig = { stepId: string; level: number; title: string }
+let dismissed: OfftrackSig | undefined
+const sig = (o: Payload<'offtrack'>): OfftrackSig => ({ stepId: o.stepId, level: o.level ?? 1, title: o.title })
+const stillDismissed = (o: Payload<'offtrack'>): boolean => {
+  if (!dismissed) return false
+  const n = sig(o)
+  return n.stepId === dismissed.stepId && n.level <= dismissed.level && n.title === dismissed.title
+}
 
 /** Thin a run that grew past MAX_POINTS: keep every other point, always keep the newest. */
 function thin(points: Point[]): Point[] {
@@ -66,7 +85,7 @@ const newRun = (runId: string, p: Point): Run => ({ runId, points: [p], seq: ++s
 
 /** A card button → `action {kind}`. Apply fix collapses the off-track card into the "applying the fix" view. */
 export function act(kind: 'show_me' | 'explain' | 'apply_fix' | 'hint'): void {
-  bridge.send(cmd('action', { kind }))
+  sendAction(kind)
   if (kind === 'apply_fix') set({ fixing: true, offtrackOpen: true })
 }
 
@@ -78,9 +97,26 @@ export type CardAction = NonNullable<Payload<'card'>['actions']>[number]
  * The card closes on click; the engine answers with the next card or event.
  */
 export function cardAct(kind: CardAction, text?: string): void {
-  bridge.send(cmd('action', text === undefined ? { kind } : { kind, text }))
+  if (kind === 'install' && text !== undefined) {
+    // One install per tool: a double click can't start a second one.
+    if (get().installs[text]?.running) return
+    setInstall(text, { running: true, line: undefined, error: undefined })
+  }
+  sendAction(kind, text)
   if (kind !== 'install') set({ card: undefined })
 }
+
+function setInstall(tool: string, patch: Partial<Install>): void {
+  const installs = get().installs
+  set({ installs: { ...installs, [tool]: { ...(installs[tool] ?? { running: false }), ...patch } } })
+}
+
+/** Install progress: lines while it runs, then {done, ok, error}. A re-sent setup card with the item ok flips the row to a check. */
+onMessage('setup.progress', (p) => {
+  if (p.done) setInstall(p.tool, { running: false, line: undefined, error: p.ok === false ? (p.error ?? 'Install failed') : undefined })
+  else if (p.line) setInstall(p.tool, { running: true, line: p.line })
+  else setInstall(p.tool, { running: true })
+})
 
 /** A card's video jump: core seekVideo sets the intent in every window; the player follows core/lesson.video. */
 export function jumpTo(t: number): void {
@@ -90,27 +126,49 @@ export function jumpTo(t: number): void {
 
 /** Close the card on top; if it opened over the off-track card, that card comes back. */
 function closeTop(): void {
-  const back = get().resume && !!useLesson.getState().offtrack
+  const s = get()
+  const offtrack = useLesson.getState().offtrack
+  // ✕ on the off-track card itself (nothing on top of it): remember it, so a re-send stays closed.
+  if (!s.card && !s.success && offtrack) dismissed = sig(offtrack)
+  const back = s.resume && !!offtrack
   set({ card: undefined, success: undefined, resume: false, offtrackOpen: back })
 }
 const over = (): boolean => get().offtrackOpen || get().resume
 
 onUi('reset', () => {
   clearTimeout(successTimer)
+  dismissed = undefined
   set({ ...blank })
 })
 onUi('dismiss', closeTop)
-onMessage('lesson.ready', () => set({ ...blank }))
+onMessage('lesson.ready', () => {
+  dismissed = undefined
+  set({ ...blank })
+})
 // A card with buttons survives step.started when it's for this step or for no step
 // (e.g. "Open VS Code?" or "Continue where you left off?"); plain cards are cleared as before.
 onMessage('step.started', (p) => {
   const c = get().card
   const keep = !!c?.actions?.length && (!c.stepId || c.stepId === p.stepId)
+  dismissed = undefined
   set({ offtrackOpen: false, fixing: false, recovered: false, resume: false, offtrackSeq: undefined, card: keep ? c : undefined })
 })
-onMessage('offtrack', () => set({ offtrackOpen: true, fixing: false, recovered: true, resume: false, offtrackSeq: ++seq, card: undefined, success: undefined }))
+onMessage('offtrack', (p) => {
+  // A re-send of the off-track the learner closed: keep the state (amber pill, recovered) but not the card.
+  if (stillDismissed(p)) {
+    set({ recovered: true })
+    return
+  }
+  dismissed = undefined
+  set({ offtrackOpen: true, fixing: false, recovered: true, resume: false, offtrackSeq: ++seq, card: undefined, success: undefined })
+})
 // "Apply this fix?" (a diff to confirm) replaces the "Waiting for the fix" view, so `fixing` ends here.
-onMessage('card', (p) => set({ card: p, resume: over(), offtrackOpen: false, ...(p.diff ? { fixing: false } : {}) }))
+onMessage('card', (p) => {
+  // A re-sent setup card: rows that are installed now drop their install state.
+  const ok = new Set((p.setup?.items ?? []).filter((x) => x.ok).map((x) => x.tool))
+  if (ok.size) set({ installs: Object.fromEntries(Object.entries(get().installs).filter(([t]) => !ok.has(t))) })
+  set({ card: p, resume: over(), offtrackOpen: false, ...(p.diff ? { fixing: false } : {}) })
+})
 onMessage('diagram', () => set({ card: undefined, resume: over(), offtrackOpen: false }))
 onMessage('step.passed', (p) => {
   const { recovered, offtrackSeq } = get()

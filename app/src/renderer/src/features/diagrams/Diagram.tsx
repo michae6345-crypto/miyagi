@@ -2,13 +2,16 @@
  * Intuition diagrams (the server sends the data; we only render).
  *   network   : the real model's layers + autograd arrows to u_t, u_x → residual
  *   gradients : gradient norm per layer over training (shows the PINN failure)
- *   heatmap   : predicted vs exact u(x,t)  (TODO F4: canvas)
+ *   heatmap   : predicted vs exact field on a canvas (Heatmap.tsx)
+ *   graph     : any topic's nodes + edges, every layout family (Graph.tsx); tabs when a step has several kinds (Tabs.tsx)
  * Lines draw in (pathLength, 350ms, 30ms stagger per layer).
+ * Look: a sky tile (Diagram's option tone, same as its button) and the title; neutral lines; the
+ * highlighted series in sky (understand), never amber (amber only means off track). Every label from the data.
  */
 import { motion } from 'motion/react'
 import type { ReactNode } from 'react'
 import { Waypoints } from 'lucide-react'
-import { color } from '../../core/theme'
+import { actionTone, color, fill } from '../../core/theme'
 import { CloseButton } from '../../core/ui/atoms'
 import { useDiagram } from './store'
 import { Graph } from './Graph'
@@ -22,10 +25,11 @@ export function DiagramView(): ReactNode {
   const title = titleOf(d)
   return (
     <div className="px-[20px] pb-[16px] pt-[16px]">
-      <div className="flex items-center gap-[8px]">
-        <Waypoints size={15} style={{ color: color.accent }} />
-        <span className="text-[14px] font-semibold">Intuition</span>
-        <DiagramTabs fallback={<span className="text-[13px] text-white/45">· {title}</span>} />
+      <div className="flex items-center gap-[10px]">
+        <span className="grid h-[24px] w-[24px] place-items-center rounded-[7px]" style={{ background: actionTone.diagram, color: color.onAccent }}>
+          <Waypoints size={13} strokeWidth={1.9} />
+        </span>
+        <DiagramTabs fallback={<span className="text-[14px] font-semibold">{title}</span>} />
         <span className="flex-1" />
         <CloseButton />
       </div>
@@ -35,7 +39,14 @@ export function DiagramView(): ReactNode {
         {d.kind === 'heatmap' && <Heatmap data={d.data as HeatmapData} />}
         {d.kind === 'graph' && <Graph data={d.data as GraphDiagramData} />}
       </div>
-      <div className="mt-[8px] text-center text-[14px] leading-[20px] text-white/80">{d.caption}</div>
+      {d.caption && (
+        <div
+          className="mt-[8px] overflow-hidden text-center text-[14px] leading-[20px]"
+          style={{ color: color.label, display: '-webkit-box', WebkitBoxOrient: 'vertical', WebkitLineClamp: 2 }}
+        >
+          {d.caption}
+        </div>
+      )}
     </div>
   )
 }
@@ -43,11 +54,12 @@ export function DiagramView(): ReactNode {
 const draw = (i: number) => ({ initial: { pathLength: 0, opacity: 0 }, animate: { pathLength: 1, opacity: 1 }, transition: { duration: 0.35, delay: i * 0.03 } })
 
 function Network({ data }: { data: Record<string, unknown> }): ReactNode {
-  const layers = (data.layers as number[]) ?? [2, 50, 50, 50, 50, 1]
-  const act = (data.activation as string) ?? 'tanh'
-  const inputs = (data.inputs as string[]) ?? ['x', 't']
-  const derivs = (data.derivatives as string[]) ?? ['u_t', 'u_x']
-  const residual = (data.residual as string) ?? 'residual'
+  // Generality: everything comes from the data (no demo-lesson defaults).
+  const layers = (data.layers as number[]) ?? []
+  const act = (data.activation as string) ?? ''
+  const inputs = (data.inputs as string[]) ?? []
+  const derivs = (data.derivatives as string[]) ?? []
+  const residual = (data.residual as string) ?? ''
   const W = 600
   const H = 196
   const netW = 420
@@ -59,6 +71,7 @@ function Network({ data }: { data: Record<string, unknown> }): ReactNode {
     return 82 - ((shown - 1) * gap) / 2 + i * gap
   }
   const ux = netW + 50
+  if (layers.length < 2) return null
   return (
     <svg width={W} height={H} className="mx-auto block overflow-visible">
       {/* edges */}
@@ -70,7 +83,7 @@ function Network({ data }: { data: Record<string, unknown> }): ReactNode {
             <motion.path
               key={`${li}-${i}-${j}`}
               d={`M${colX[li]},${nodeY(n, i)} L${colX[li + 1]},${nodeY(layers[li + 1], j)}`}
-              stroke="rgba(255,255,255,.12)"
+              stroke={color.hairline}
               strokeWidth="1"
               {...draw(li)}
             />
@@ -81,7 +94,7 @@ function Network({ data }: { data: Record<string, unknown> }): ReactNode {
       {layers.map((n, li) =>
         nodesOf(n).map((i, k) =>
           i === 'dots' ? (
-            <text key={`${li}-d`} x={colX[li]} y={nodeY(n, k) + 4} textAnchor="middle" fill="rgba(255,255,255,.4)" fontSize="12">
+            <text key={`${li}-d`} x={colX[li]} y={nodeY(n, k) + 4} textAnchor="middle" fill={color.faint} fontSize="12">
               ⋮
             </text>
           ) : (
@@ -90,8 +103,8 @@ function Network({ data }: { data: Record<string, unknown> }): ReactNode {
               cx={colX[li]}
               cy={nodeY(n, i)}
               r={li === 0 || li === layers.length - 1 ? 13 : 8}
-              fill="#000"
-              stroke={li === layers.length - 1 ? color.accent : 'rgba(255,255,255,.75)'}
+              fill={color.island}
+              stroke={li === layers.length - 1 ? color.accent : fill.chipText}
               strokeWidth="1.3"
               initial={{ scale: 0 }}
               animate={{ scale: 1 }}
@@ -101,20 +114,20 @@ function Network({ data }: { data: Record<string, unknown> }): ReactNode {
         )
       )}
       {inputs.map((name, i) => (
-        <text key={name} x={colX[0]} y={nodeY(layers[0], i) + 4} textAnchor="middle" fill="#fff" fontSize="12" fontStyle="italic">
+        <text key={name} x={colX[0]} y={nodeY(layers[0], i) + 4} textAnchor="middle" fill={color.text} fontSize="12" fontStyle="italic">
           {name}
         </text>
       ))}
-      <text x={colX[colX.length - 1]} y={nodeY(1, 0) + 4} textAnchor="middle" fill="#fff" fontSize="12" fontStyle="italic">
-        {(data.output as string) ?? 'u'}
+      <text x={colX[colX.length - 1]} y={nodeY(1, 0) + 4} textAnchor="middle" fill={color.text} fontSize="12" fontStyle="italic">
+        {(data.output as string) ?? ''}
       </text>
       {/* labels */}
       {layers.map((n, li) => (
         <g key={`l${li}`}>
-          <text x={colX[li]} y={172} textAnchor="middle" fill="#fff" fontSize="12" fontWeight="600">
+          <text x={colX[li]} y={172} textAnchor="middle" fill={color.text} fontSize="12" fontWeight="600">
             {n}
           </text>
-          <text x={colX[li]} y={187} textAnchor="middle" fill="rgba(255,255,255,.45)" fontSize="10.5">
+          <text x={colX[li]} y={187} textAnchor="middle" fill={color.faint} fontSize="10.5">
             {li === 0 ? 'inputs' : li === layers.length - 1 ? 'output' : act}
           </text>
         </g>
@@ -132,22 +145,31 @@ function Network({ data }: { data: Record<string, unknown> }): ReactNode {
               fill="none"
               {...draw(layers.length + 1)}
             />
-            <rect x={ux + 34} y={y - 13} width={58} height={26} rx={8} fill="#000" stroke="rgba(255,255,255,.35)" />
-            <text x={ux + 63} y={y + 4} textAnchor="middle" fill="#fff" fontSize="12" fontFamily="ui-monospace, monospace">
+            <rect x={ux + 34} y={y - 13} width={58} height={26} rx={8} fill={color.island} stroke={fill.ring} />
+            <text x={ux + 63} y={y + 4} textAnchor="middle" fill={color.text} fontSize="12" fontFamily="ui-monospace, monospace">
               {name}
             </text>
           </g>
         )
       })}
-      <motion.rect x={ux + 20} y={68} width={92} height={28} rx={14} fill={color.accent} initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 0.35 }} />
-      <text x={ux + 66} y={86} textAnchor="middle" fill={color.onAccent} fontSize="11.5" fontFamily="ui-monospace, monospace">
-        {residual.length > 13 ? 'residual' : residual}
-      </text>
-      <text x={ux + 66} y={187} textAnchor="middle" fill="rgba(255,255,255,.45)" fontSize="10.5">
-        → 0 · residual
-      </text>
+      {/* The combined output: an outline, not a filled pill (a filled white pill reads as a button). */}
+      {residual && (
+        <>
+          <motion.rect x={ux + 20} y={68} width={92} height={28} rx={14} fill={color.island} stroke={color.text} initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 0.35 }} />
+          <text x={ux + 66} y={86} textAnchor="middle" fill={color.text} fontSize="11.5" fontFamily="ui-monospace, monospace">
+            {residual.length > 13 ? `${residual.slice(0, 12)}…` : residual}
+          </text>
+        </>
+      )}
     </svg>
   )
+}
+
+/** "5k epochs" from the data's epoch axis (or "end" when there is none). */
+function xEndFrom(epochs: unknown): string {
+  const last = Array.isArray(epochs) ? Number(epochs[epochs.length - 1]) : NaN
+  if (!Number.isFinite(last)) return 'end'
+  return `${last >= 1000 ? `${+(last / 1000).toFixed(1)}k` : last} epochs`
 }
 
 function Gradients({ data }: { data: Record<string, unknown> }): ReactNode {
@@ -162,27 +184,30 @@ function Gradients({ data }: { data: Record<string, unknown> }): ReactNode {
   const hi = Math.max(...flat)
   const x = (i: number, n: number): number => pad.l + (i / Math.max(1, n - 1)) * (W - pad.l - pad.r)
   const y = (v: number): number => pad.t + ((hi - v) / (hi - lo || 1)) * (H - pad.t - pad.b)
-  // Off-track layers (vanishing gradients) in amber; the rest neutral. Brand: no other colors.
-  const tone = (i: number): string => (i < 2 ? color.amber : i < 3 ? color.label : color.accent)
+  // The highlighted layers (data.highlight, default the first two) in sky; the rest neutral. Amber only means off track.
+  const hot = (data.highlight as number[]) ?? [0, 1]
+  const tone = (i: number): string => (hot.includes(i) ? actionTone.diagram : i < 3 ? color.label : color.text)
   return (
     <svg width={W} height={H} className="mx-auto block overflow-visible">
-      <line x1={pad.l} x2={W - pad.r} y1={H - pad.b} y2={H - pad.b} stroke="rgba(255,255,255,.12)" />
-      <text x={pad.l} y={H - 6} fill="rgba(255,255,255,.4)" fontSize="10.5">
-        start
+      <line x1={pad.l} x2={W - pad.r} y1={H - pad.b} y2={H - pad.b} stroke={color.hairline} />
+      <text x={pad.l} y={H - 6} fill={color.faint} fontSize="10.5">
+        {(data.xStart as string) ?? 'start'}
       </text>
-      <text x={W - pad.r} y={H - 6} textAnchor="end" fill="rgba(255,255,255,.4)" fontSize="10.5">
-        5k epochs
+      <text x={W - pad.r} y={H - 6} textAnchor="end" fill={color.faint} fontSize="10.5">
+        {(data.xEnd as string) ?? xEndFrom(data.epochs)}
       </text>
-      <text x={pad.l - 8} y={pad.t + 8} textAnchor="end" fill="rgba(255,255,255,.4)" fontSize="10.5">
-        |∇|
-      </text>
+      {typeof data.yLabel === 'string' && (
+        <text x={pad.l - 8} y={pad.t + 8} textAnchor="end" fill={color.faint} fontSize="10.5">
+          {data.yLabel}
+        </text>
+      )}
       {logs.map((row, li) => (
         <g key={li}>
           <motion.path
             d={row.map((v, i) => `${i ? 'L' : 'M'}${x(i, row.length).toFixed(1)},${y(v).toFixed(1)}`).join(' ')}
             fill="none"
             stroke={tone(li)}
-            strokeWidth={li < 2 ? 2.2 : 1.5}
+            strokeWidth={hot.includes(li) ? 2.2 : 1.5}
             {...draw(li)}
           />
           <text x={W - pad.r + 6} y={y(row[row.length - 1]) + 4} fill={tone(li)} fontSize="11" fontWeight="600">
