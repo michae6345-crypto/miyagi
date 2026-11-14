@@ -1,6 +1,6 @@
 """python -m server.coach demo [--live | --replay] [--record] [--json]
 
-Runs the hero case (PINN, convection, β=30, flat loss) through diagnose() and prints the card.
+Runs a learner mistake (default: diffusion PINN without the IC/BC loss term) through diagnose() and prints the card.
 Default: live API if ANTHROPIC_API_KEY is set, otherwise the recorded fixture.
 --record writes the live response to server/coach/fixtures/ for CI replay.
 """
@@ -13,9 +13,8 @@ import json
 import os
 import textwrap
 
-from . import llm
+from . import case_convection, case_diffusion, llm
 from .common import set_lesson
-from .demo_case import CODE, FAILED_CHECKS, LESSON, METRICS, STEP
 from .diagnose import diagnose, public
 from .explain import explain
 from .hints import hint
@@ -57,8 +56,10 @@ async def demo(args) -> None:
         print(f"(replaying recorded fixture from {os.environ['COACH_REPLAY_DIR']}; use --live with ANTHROPIC_API_KEY for a real call)\n")
     if args.record:
         os.environ["COACH_RECORD_DIR"] = str(llm.FIXTURES_DIR)
-    set_lesson(LESSON)
-    card = await diagnose(STEP, FAILED_CHECKS, METRICS, CODE)
+    c = CASES[args.case]
+    STEP, METRICS = c["step"], c.get("metrics")
+    set_lesson(c["lesson"])
+    card = await diagnose(STEP, c["failed"], METRICS, c["code"], error_text=c.get("error", ""))
     meta = card.get("_meta", {})
     _print_card(card)
     print(f"\nroute={meta.get('route')} triage={meta.get('triage', {}).get('by')} model={meta.get('model', '-')} "
@@ -79,6 +80,18 @@ async def demo(args) -> None:
         print(f"\nexplain card: {c['title']} — {c['body']}" + (f"  → {c['videoJump']['label']}" if c.get("videoJump") else ""))
 
 
+CASES = {
+    "diffusion": {"lesson": case_diffusion.LESSON, "step": case_diffusion.STEP, "failed": case_diffusion.MISSING_BC_FAILED,
+                  "metrics": case_diffusion.MISSING_BC_METRICS, "code": case_diffusion.MISSING_BC_CODE},
+    "diffusion-lr": {"lesson": case_diffusion.LESSON, "step": case_diffusion.STEP, "failed": case_diffusion.HIGH_LR_FAILED,
+                     "metrics": case_diffusion.HIGH_LR_METRICS, "code": case_diffusion.HIGH_LR_CODE},
+    "diffusion-grad": {"lesson": case_diffusion.LESSON, "step": case_diffusion.STEP, "failed": case_diffusion.NO_GRAD_FAILED,
+                       "code": case_diffusion.NO_GRAD_CODE, "error": case_diffusion.NO_GRAD_ERROR},
+    "convection": {"lesson": case_convection.LESSON, "step": case_convection.STEP, "failed": case_convection.FAILED_CHECKS,
+                   "metrics": case_convection.METRICS, "code": case_convection.CODE},
+}
+
+
 def main() -> None:
     p = argparse.ArgumentParser(prog="python -m server.coach")
     sub = p.add_subparsers(dest="cmd", required=True)
@@ -87,6 +100,7 @@ def main() -> None:
     g.add_argument("--live", action="store_true", help="force a live API call")
     g.add_argument("--replay", action="store_true", help="force the recorded fixture")
     d.add_argument("--record", action="store_true", help="save live responses as fixtures")
+    d.add_argument("--case", choices=sorted(CASES), default="diffusion", help="which learner mistake to run (default: diffusion, missing IC/BC loss)")
     d.add_argument("--json", action="store_true", help="also print the raw offtrack payload")
     d.add_argument("--ladder", action="store_true", help="also print the hint ladder")
     d.add_argument("--explain", action="store_true", help="also run explain() for the card")

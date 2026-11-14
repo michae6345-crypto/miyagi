@@ -91,11 +91,30 @@ def summarize(metrics: Any, goals: dict[str, str] | None = None) -> tuple[str, s
                 + (f" [{', '.join(sorted(f))}]" if f else "")
             )
         flags |= _imbalance(metrics)
+        flags |= _loss_vs_error(metrics)
         return "\n".join(lines) or "no metrics recorded", flags
     if isinstance(metrics, dict):
         text = json.dumps(metrics, sort_keys=True, default=str)
         return summarize(text)[0], {str(f) for f in metrics.get("flags", [])} | summarize(text)[1]
     return str(metrics), set()
+
+
+_ERR_NAMES = ("err", "l2", "rel", "mse_exact", "mae", "accuracy_gap")
+
+
+def _loss_vs_error(metrics: dict) -> set[str]:
+    """Training loss fell a lot but the error vs. the true/reference answer did not → wrong solution."""
+    def drop(pts) -> float | None:
+        if not pts or len(pts) < 4:
+            return None
+        a, b = float(pts[0][1]), float(pts[-1][1])
+        return (a - b) / abs(a) if a else None
+
+    loss_drop = max((d for n, p in metrics.items() if "loss" in n.lower() and (d := drop(p)) is not None), default=None)
+    err_drop = [d for n, p in metrics.items() if "loss" not in n.lower() and any(e in n.lower() for e in _ERR_NAMES) and (d := drop(p)) is not None]
+    if loss_drop is not None and err_drop and loss_drop > 0.9 and max(err_drop) < 0.3:
+        return {"low_loss_wrong_solution"}
+    return set()
 
 
 def _imbalance(metrics: dict) -> set[str]:

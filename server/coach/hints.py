@@ -15,6 +15,7 @@ from .playbook import BY_ID, CITATIONS
 LEVELS = ("question", "video", "paper", "diff")
 
 QUESTIONS: dict[str, str] = {
+    "pinn_missing_ic_bc": "Many functions satisfy the PDE. What information tells the network which one you want?",
     "pinn_convection_large_beta": "β=30 is the hard version of this PDE. Could the network learn an easier β first and carry those weights forward?",
     "pinn_loss_imbalance": "Look at each loss term separately. Is one of them barely moving?",
     "missing_zero_grad": "What happens to .grad between two calls to loss.backward()?",
@@ -25,6 +26,7 @@ QUESTIONS: dict[str, str] = {
 
 
 PAPER_NOTES: dict[str, str] = {
+    "pinn_missing_ic_bc": "Raissi et al. train PINNs on the sum of two terms: the misfit to the initial/boundary data and the PDE residual. The data term is what fixes which solution the network learns.",
     "pinn_convection_large_beta": "Krishnapriyan et al. show PINNs fail on convection once β is large, and fix it with curriculum regularization: solve small β first, then raise it step by step.",
     "pinn_loss_imbalance": "Wang, Teng & Perdikaris show the residual's gradients can swamp the boundary terms, and rebalance the loss weights during training.",
     "lr_too_high": "Smith's LR range test: sweep the learning rate upward for a few hundred steps and pick one just below where the loss starts to rise.",

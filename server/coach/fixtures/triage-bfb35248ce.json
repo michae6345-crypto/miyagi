@@ -6,13 +6,13 @@
   },
   "response": {
     "model": "claude-haiku-5-5",
-    "text": "{\"route\": \"playbook\", \"playbook_id\": \"cuda_on_mac\", \"reason\": \"The error is an MPS device failure on a Mac-style setup (device set to 'mps'), which matches the known cuda_on_mac failure mode of device mismatch with the Apple GPU backend; a generic explanation of using MPS correctly or falling back to CPU fits this learner without needing their specific code analysis.\"}",
+    "text": "{\"route\": \"opus\", \"playbook_id\": \"none\", \"reason\": \"The error is an MPS-specific runtime failure ('Placeholder storage has not been allocated on MPS device') in the residual computation. The code moves the model to mps but leaves x and t on CPU, but no listed playbook clearly covers this, and the cause depends on the learner's specific code and environment, so it is not safe to route generically.\"}",
     "usage": {
-      "input_tokens": 781,
-      "output_tokens": 135,
+      "input_tokens": 816,
+      "output_tokens": 365,
       "cache_read_input_tokens": 0,
       "cache_creation_input_tokens": 0
     },
-    "latency_s": 2.65
+    "latency_s": 3.07
   }
 }

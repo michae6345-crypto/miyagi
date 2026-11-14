@@ -30,7 +30,7 @@ fix = await coach.fix_outdated(error_text, lesson["libraries"])  # offtrack-shap
 - **Metric flags work for any metric.** Direction comes from the step's checks (`op >` means higher is better). Without a check, names like acc/score/pass count as "up", everything else as "down".
 
 - **Triage first** (`triage.py`). Nothing run yet + only file checks failing → the step's own hint, no model. Exact error signature from the playbook (e.g. CUDA on a Mac) → curated card in milliseconds. Metric failures (the hero case) → Opus directly. Only the ambiguous middle pays for a Haiku call; any doubt goes to Opus.
-- **Playbook** (`playbook.py`): PINN convection at large β → β curriculum (Krishnapriyan et al., NeurIPS 2021, arXiv 2109.01050); PINN loss imbalance (Wang, Teng & Perdikaris); missing `zero_grad()`; CUDA vs MPS on Mac; LR too high; PINN inputs without `requires_grad`. It's in the cached system prompt, used by the deterministic matcher, and is the **offline fallback card** when the API is down, times out or refuses, so the demo never shows a blank.
+- **Playbook** (`playbook.py`): general failure modes, none tied to one demo. PINN total loss missing the IC/BC term (Raissi et al. 2019); PINN loss imbalance (Wang, Teng & Perdikaris); PINN convection at large β → β curriculum (Krishnapriyan et al., NeurIPS 2021); missing `zero_grad()`; CUDA vs MPS on Mac; LR too high; PINN inputs without `requires_grad`. Playbook cards carry no code diffs; only Opus writes diffs, from the learner's actual code. A "low loss but wrong solution" metric flag fires when a loss-like metric falls more than 90% while an error metric (rel_l2, err...) barely moves. It's in the cached system prompt, used by the deterministic matcher, and is the **offline fallback card** when the API is down, times out or refuses, so the demo never shows a blank.
 - **Citations are whitelisted.** The model picks a `citation_id` from the playbook + lesson `sources`; unknown ids are dropped. It can't invent a paper.
 - **Limits enforced in code**: title ≤ 8 words, body clamped near 30 words, `apply_fix` only offered when there is a diff.
 - **API call** (`llm.py`): `claude-opus-5-5`, `thinking: adaptive`, `output_config: {effort: "low", format: json_schema}`, two `cache_control` breakpoints (instructions+playbook, then lesson context rendered with sorted keys), and server-side refusal fallback (`fallbacks: "default"`, beta `server-side-fallback-2026-07-01`). Haiku 5.5 for triage at low effort.
@@ -39,7 +39,9 @@ fix = await coach.fix_outdated(error_text, lesson["libraries"])  # offtrack-shap
 
 ```bash
 uv venv -p 3.12 .venv && uv pip install -p .venv -e "server[dev]"
-.venv/bin/python -m server.coach demo --json --ladder --explain      # live if ANTHROPIC_API_KEY, else replays fixtures
+.venv/bin/python -m server.coach demo --json --ladder --explain      # hero: diffusion PINN without the IC/BC loss; live if a key, else replay
+.venv/bin/python -m server.coach demo --case diffusion-lr             # also: diffusion-grad, convection
+rm server/coach/fixtures/*.json && .venv/bin/python -m server.coach.tests.record_fixtures   # re-record every fixture live
 .venv/bin/python -m server.coach demo --live --record               # call the API and save fixtures for CI
 .venv/bin/python -m pytest server/coach -q                          # no network
 ```

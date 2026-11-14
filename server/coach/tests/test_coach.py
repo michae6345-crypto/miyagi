@@ -10,7 +10,7 @@ import pytest
 
 from server import coach
 from server.coach import common, llm, web
-from server.coach.demo_case import CODE, FAILED_CHECKS, LESSON, METRICS, STEP
+from server.coach.case_convection import CODE, FAILED_CHECKS, LESSON, METRICS, STEP
 from server.coach.diagnose import LAST
 from server.coach.metrics import series_flags, summarize
 from server.coach.playbook import BY_ID, CITATIONS, match
@@ -83,7 +83,7 @@ def test_diagnose_without_api_in_demo_mode_uses_playbook_card(monkeypatch):
     assert card["_meta"]["route"] == "playbook"
     assert card["_meta"]["playbook_id"] == "pinn_convection_large_beta"
     assert "no ANTHROPIC_API_KEY" in card["_meta"]["fallback_reason"]
-    assert card["diff"]["yours"] == "train(model)" and card["diff"]["line"] == 40
+    assert "diff" not in card  # the playbook carries no demo-specific code; only Opus writes diffs
 
 
 def _fake_call(data: dict):
@@ -201,7 +201,7 @@ def test_triage_ambiguous_uses_haiku(replay):
     err = "Traceback (most recent call last):\n  File \"pinn.py\", line 41, in <module>\n    loss = residual(model, x, t)\nRuntimeError: Placeholder storage has not been allocated on MPS device!"
     code = 'device = "mps"\nmodel = PINN().to(device)\nx = torch.rand(1000, 1)\nt = torch.rand(1000, 1)'
     t = run(coach.triage(step, [{"checkId": "c3", "label": "script runs", "status": "fail"}], set(), code, err))
-    assert t.by == "haiku" and t.route == "playbook" and t.playbook_id == "cuda_on_mac"
+    assert t.by == "haiku" and t.route == "opus"  # no playbook entry fits exactly → full diagnosis
 
 
 def test_triage_haiku_failure_defaults_to_opus():
@@ -267,15 +267,15 @@ def test_hint_ladder(replay):
     assert levels[3]["diff"]["yours"].endswith("train(model)") and levels[3]["actions"] == ["apply_fix"]
 
 
-def test_apply_fix_never_writes(tmp_path):
+def test_apply_fix_never_writes(tmp_path, replay):
     f = tmp_path / "pinn_convection.py"
     f.write_text(CODE)
-    card = coach.playbook_card(STEP, BY_ID["pinn_convection_large_beta"], CODE)
+    card = run(coach.diagnose(STEP, FAILED_CHECKS, METRICS, CODE))
     patch = coach.apply_fix(card["diff"], f.read_text())
     assert f.read_text() == CODE  # untouched
-    assert patch["requires_confirmation"] is True
+    assert patch["requires_confirmation"] is True and patch["error"] is None
     assert "-train(model)" in patch["unified_diff"] and "+for beta in" in patch["unified_diff"]
-    assert patch["new_text"].count("train(model, epochs=1000)") == 1 and "\ntrain(model)\n" not in patch["new_text"]
+    assert "\ntrain(model)\n" not in patch["new_text"]
 
 
 # ---------- fix_outdated ----------------------------------------------------------
@@ -431,3 +431,53 @@ def test_metric_direction_from_checks():
     assert summarize({"accuracy": acc_rising}, goals={"accuracy": "up"})[1] == set()
     assert "plateau" in summarize({"accuracy": acc_stuck}, goals={"accuracy": "up"})[1]
     assert "diverging" not in summarize({"tests_passed": acc_rising})[1]  # "pass" → higher is better
+
+
+# ---------- hero lesson: 1D diffusion PINN, three real learner mistakes ----------------------
+
+from server.coach import case_diffusion as d
+
+DIFFUSION_CASES = {
+    "missing_bc": (d.MISSING_BC_FAILED, d.MISSING_BC_METRICS, d.MISSING_BC_CODE, "", "warn", "doi.org/10.1016/j.jcp.2018.10.045", "lossBC"),
+    "high_lr": (d.HIGH_LR_FAILED, d.HIGH_LR_METRICS, d.HIGH_LR_CODE, "", "fail", "arxiv.org/abs/1506.01186", "lr=1e-3"),
+    "no_grad": (d.NO_GRAD_FAILED, None, d.NO_GRAD_CODE, d.NO_GRAD_ERROR, "fail", "pytorch.org/docs/stable/generated/torch.autograd.grad", "requires_grad_"),
+}
+
+
+@pytest.mark.parametrize("name", sorted(DIFFUSION_CASES))
+def test_diffusion_mistakes_get_specific_cited_fixes(name, replay):
+    """Recorded live Opus cards; each diff must turn the learner's code back into the correct code."""
+    failed, metrics, code, err, severity, cite, fix_token = DIFFUSION_CASES[name]
+    common.set_lesson(d.LESSON)
+    card = run(coach.diagnose(d.STEP, failed, metrics, code, error_text=err))
+    assert_offtrack(card)
+    assert card["_meta"]["source"] == "replay" and card["severity"] == severity
+    assert cite in card["citation"]["url"]
+    assert fix_token in card["diff"]["expected"]
+    patch = coach.apply_fix(card["diff"], code)
+    assert patch["error"] is None and patch["new_text"] == d.code()
+
+
+def test_low_loss_but_wrong_solution_is_flagged():
+    _, flags = summarize(d.MISSING_BC_METRICS, goals={"rel_l2": "down", "loss": "down"})
+    assert "low_loss_wrong_solution" in flags and "plateau" in flags
+    assert match(d.MISSING_BC_CODE, flags)[0].id == "pinn_missing_ic_bc"
+    # the same signals on correct code don't get the "term missing" bonus
+    assert match(d.code(), flags)[1] < match(d.MISSING_BC_CODE, flags)[1]
+
+
+def test_diffusion_explain_and_ladder(replay):
+    common.set_lesson(d.LESSON)
+    run(coach.diagnose(d.STEP, d.MISSING_BC_FAILED, d.MISSING_BC_METRICS, d.MISSING_BC_CODE))
+    card = run(coach.explain(d.STEP, None, {"metrics_summary": d.MISSING_BC_METRICS}))
+    assert card["kind"] == "explain" and "videoJump" in card
+    ladder = [coach.hint(d.STEP, i) for i in range(4)]
+    assert ladder[0]["body"].endswith("?") and "doi.org" in ladder[2]["citation"]["url"]
+    assert "lossBC" in ladder[3]["diff"]["expected"]
+
+
+def test_no_grad_error_without_api_in_demo_mode_is_curated(monkeypatch):
+    monkeypatch.setenv("DEMO", "1")
+    common.set_lesson(d.LESSON)
+    card = run(coach.diagnose(d.STEP, d.NO_GRAD_FAILED, None, d.NO_GRAD_CODE, error_text=d.NO_GRAD_ERROR))
+    assert card["_meta"]["playbook_id"] == "pinn_inputs_no_grad" and "pytorch.org" in card["citation"]["url"]

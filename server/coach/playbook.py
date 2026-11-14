@@ -34,6 +34,10 @@ CITATIONS: dict[str, dict[str, str]] = {
         "label": "Smith, Cyclical Learning Rates (LR range test), WACV 2017",
         "url": "https://arxiv.org/abs/1506.01186",
     },
+    "raissi2019": {
+        "label": "Raissi, Perdikaris & Karniadakis, J. Comput. Phys. 2019",
+        "url": "https://doi.org/10.1016/j.jcp.2018.10.045",
+    },
     "torch_autograd_grad": {
         "label": "PyTorch docs: torch.autograd.grad",
         "url": "https://pytorch.org/docs/stable/generated/torch.autograd.grad.html",
@@ -63,6 +67,39 @@ class FailureMode:
 
 PLAYBOOK: tuple[FailureMode, ...] = (
     FailureMode(
+        id="pinn_missing_ic_bc",
+        name="PINN total loss is missing the initial/boundary-condition term",
+        symptoms=(
+            "Any PINN (heat/diffusion, Burgers, wave, ...): the training loss drops nicely, "
+            "but the error against the exact or reference solution stays high (or the "
+            "plotted solution has the wrong shape or offset); or the loss plateaus."
+        ),
+        cause=(
+            "The PDE residual alone does not determine the solution: infinitely many "
+            "functions satisfy the equation. The initial and boundary conditions pick the "
+            "unique one, so a loss without the IC/BC term (or with it computed but never "
+            "added to the total) trains toward the wrong function."
+        ),
+        fix=(
+            "Make the total loss the sum of the IC/BC data loss and the PDE residual loss "
+            "(e.g. loss = loss_bc + loss_pde) and check both terms are logged and decreasing."
+        ),
+        citation_id="raissi2019",
+        code_patterns=(r"autograd\.grad",),
+        # the IC/BC loss term appears in a sum (either side of "+"); its absence is the signal
+        code_absent=(
+            r"(?i)\w*(?:loss_?(?:bc|ic|bnd|boundary|init)|(?:bc|ic|bnd|boundary|init\w*)_?loss)\w*\s*(?:\([^)]*\))?\s*\+",
+            r"(?i)\+\s*[\w.]*(?:loss_?(?:bc|ic|bnd|boundary|init)|(?:bc|ic|bnd|boundary|init\w*)_?loss)",
+        ),
+        metric_signals=("low_loss_wrong_solution",),
+        card_title="Loss has no boundary-condition term",
+        card_body=(
+            "The PDE residual alone is satisfied by many functions; the initial and "
+            "boundary conditions pick the right one. Add the IC/BC loss to the total."
+        ),
+        tags=("pinn",),
+    ),
+    FailureMode(
         id="pinn_convection_large_beta",
         name="PINN on convection fails at large beta",
         symptoms=(
@@ -86,15 +123,10 @@ PLAYBOOK: tuple[FailureMode, ...] = (
         metric_signals=("plateau",),
         card_title="Known PINN failure at large β",
         card_body=(
-            "At β=30 the residual makes the loss landscape hard to optimize, so "
+            "At large β the residual makes the loss landscape hard to optimize, so "
             "training stalls. Train at small β first, then warm-start while raising "
-            "β to 30."
+            "β to the target."
         ),
-        diff_expected=(
-            "for beta in [1.0, 5.0, 10.0, 20.0, 30.0]:  # curriculum on β, warm-started\n"
-            "    train(model, epochs=1000)"
-        ),
-        diff_yours_hint=r"^\s*train\(model.*\)\s*$",
         tags=("pinn", "convection", "curriculum"),
     ),
     FailureMode(
@@ -197,10 +229,17 @@ PLAYBOOK: tuple[FailureMode, ...] = (
             "RuntimeError: One of the differentiated Tensors does not require grad, "
             "when computing u_x / u_t with torch.autograd.grad."
         ),
-        cause="autograd can only differentiate u w.r.t. x and t if they were created with requires_grad=True.",
+        cause=(
+            "autograd can only differentiate u with respect to x and t if those input "
+            "tensors require grad and u was computed from them (not from a detached copy)."
+        ),
         fix="Create collocation points with requires_grad=True (or call .requires_grad_()).",
         citation_id="torch_autograd_grad",
-        error_patterns=(r"does not require grad",),
+        error_patterns=(
+            r"does not require grad",
+            r"element 0 of tensors does not require grad",
+            r"One of the differentiated Tensors appears to not have been used in the graph",
+        ),
         card_title="x and t need requires_grad",
         card_body=(
             "To take u_x and u_t, autograd needs x and t marked as differentiable. "
