@@ -18,10 +18,11 @@ export const EDGE_MARGIN = 16
 export const CAPTION_TOP_OFFSET = 21
 
 /**
- * Engine rects are screen points with (0,0) at the PRIMARY display's top-left (macOS / Quartz,
- * y down, Retina already divided out). The overlay window sits at `origin` in the same space
- * (Electron's screen coordinates are also primary-top-left DIPs), so local = screen − origin.
- * A display left of / above the primary has a negative origin; that just works.
+ * Contract (shared/contracts/events.ts): rects are screen POINTS, top-left origin (Electron
+ * convention), relative to the PRIMARY display's FULL frame (y = 0 is the very top, menu bar
+ * included). The overlay window sits at `origin` in that same space (its bounds are the display's
+ * full frame), so local = screen − origin: the identity on the primary display. A display left of /
+ * above the primary has a negative origin; that just works if the engine ever watches more than one.
  */
 export function toLocal(r: Rect, origin: Point): Rect {
   return { x: r.x - origin.x, y: r.y - origin.y, w: r.w, h: r.h }
