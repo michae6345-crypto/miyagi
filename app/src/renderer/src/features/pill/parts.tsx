@@ -14,7 +14,7 @@ export type Mark = 'watching' | 'offtrack' | 'passed' | 'check' | 'done'
 
 /**
  * The bonsai as a one-color template glyph, like a menu-bar icon: white on the black pill. Adrian's call:
- * the pill is black and white, and the tree shows its colors once the island opens (launcher, cards).
+ * the tree is monochrome everywhere in the app (the green pads are for the app icon and external surfaces).
  * Same file and geometry as MiyagiMark's small cut (the SVG is the mask), so nothing is redrawn.
  * 16px: the art is ~10.5×12 inside the box, the optical size of mockup 01's icon.
  */
