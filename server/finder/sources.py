@@ -157,12 +157,16 @@ async def web_search(ctx: Ctx, query: str, limit: int = 8) -> list[dict]:
     hits: list[dict] = []
     via = "duckduckgo"
     if brightdata.available(ctx.keys):
-        try:
-            hits = await brightdata.google(ctx.client, ctx.keys, query, num=limit + 2)
-            via = "brightdata"
-            ctx.used.add("brightdata-serp")
-        except Exception as e:
-            ctx.note(f"bright data SERP failed: {e}")
+        for attempt in range(2):  # the SERP target fails now and then (502 captcha); one retry usually works
+            try:
+                hits = await brightdata.google(ctx.client, ctx.keys, query, num=limit + 2)
+                via = "brightdata"
+                ctx.used.add("brightdata-serp")
+                break
+            except Exception as e:
+                ctx.note(f"bright data SERP failed (try {attempt + 1}): {e}")
+                if "target HTTP 5" not in str(e):
+                    break
     if not hits:
         r = await ctx.client.post("https://html.duckduckgo.com/html/", data={"q": query, "kl": "us-en"}, timeout=8)
         if r.status_code != 200:
