@@ -98,9 +98,10 @@ class LessonInfo(_Model):
     title: str
     sources: list[Source]
     complete: bool | None = None  # False: a long video is still building (lesson.updated follows)
-    builtBy: Literal["gemini", "claude", "mixed", "unknown"] | None = None
+    builtBy: Literal["gemini", "claude", "mixed", "chapters", "unknown"] | None = None  # chapters = provisional quick start
     goalMatch: GoalMatch | None = None
     mode: Literal["video", "lesson"] | None = None  # "lesson": no video ("Just teach me")
+    provisional: bool | None = None  # True: a placeholder from the chapter list; a fresh lesson.ready replaces it
 
 
 class LessonReady(_Model):
@@ -140,6 +141,7 @@ class StepPassed(_Model):
     stepId: str
     nextStepId: str | None = None
     pending: bool | None = None  # no next step yet: the next part is still building
+    skipped: bool | None = None  # the learner skipped it (action skip_step): not passed, never shown green
 
 
 class OfftrackDiff(_Model):
@@ -314,7 +316,7 @@ class PreflightInfo(_Model):
 
 
 CardAction = Literal["confirm", "undo", "apply_fix", "open_editor", "resume", "end_lesson", "install", "skip_setup",
-                     "open_in_browser", "build", "pick_another", "download"]
+                     "open_in_browser", "build", "pick_another", "download", "skip_step"]
 
 
 class Card(_Model):
@@ -488,7 +490,7 @@ class BuildLesson(_Model):
 
 ActionKind = Literal["back", "explain", "diagram", "show_me", "hint", "voice_toggle", "ask", "apply_fix",
                      "confirm", "undo", "open_editor", "resume", "end_lesson", "install", "skip_setup", "open_in_browser",
-                     "build", "pick_another", "download"]
+                     "build", "pick_another", "download", "skip_step"]
 
 
 class Action(_Model):
