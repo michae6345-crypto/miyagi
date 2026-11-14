@@ -285,7 +285,8 @@ class BuildPlan(_Model):
 class PreflightInfo(_Model):
     videoId: str | None = None
     url: str
-    kind: Literal["coding", "no-code", "conceptual", "other"] | None = None  # None = Claude didn't answer in time
+    style: Literal["coding", "no-code", "conceptual"] | None = None  # search.result.style vocabulary (E7); None = unknown in time
+    styleFrom: Literal["claude", "finder"] | None = None  # finder = Claude was late, the picked row's style was used
     topic: str | None = None
     durationS: float | None = None
     chapters: int = 0
