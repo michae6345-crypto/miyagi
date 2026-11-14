@@ -7,6 +7,39 @@ Each video got a fresh empty workdir, i.e. a learner starting from scratch. Engi
 Re-run: `python evals/lesson/run.py --src <checkout>`. Raw graphs are in `results/<id>.json`, automatic grades in `results/grades.json`,
 build logs in `results/<id>.log` (gitignored; per-pass timings are quoted below). Transcripts were used for spot checks but are not committed.
 
+## Sixth run (`4fd6ed8`): parallel adapt batches, per-stack error text, explicit prerequisites
+
+Two runs on this commit:
+- `results-4fd6ed8-race/`: default `auto` race. Rust, FastAPI and pandas were re-run on their own after the first attempt hit a Claude 429.
+- `results-4fd6ed8-gemfirst/`: `LESSON_GEMINI_TIMEOUT=75 LESSON_GEMINI_GRACE=60`.
+
+Both used `--saved-captions`, since YouTube still blocks caption requests from this machine.
+
+| Lesson | Default race: total (e2582e8) | Video pass + adapt rounds | Gemini-first: total, winner |
+|---|---|---|---|
+| react-useeffect | **36 s** (50 s) | Claude 13.5 s; adapt 5.0 + 5.1 + 4.5 s | 58 s, Gemini (48 s pass) |
+| git-rebase | **29 s** (30 s) | Claude 13.9 s; adapt 3.8 + 2.9 s | 50 s, Gemini (40 s) |
+| pandas-30min | **35 s** (42 s) | Claude 14.6 s; adapt 4.9 + 4.4 + 3.2 s | 64 s, Gemini (38 s) |
+| rust-cli | **37 s** (47 s) | Claude 15.6 s; adapt **5.8** (was 33.6) + 5.4 + 2.6 s | 80 s, Gemini (54 s) |
+| fastapi-rest | **34 s** (76 s) | Claude 14.5 s; adapt 5.0 + 4.6 + 2.1 s | 62 s, Gemini (41 s) |
+
+Gemini-first times are inflated by the rate-limit contention described below.
+
+**What the fixes did:**
+- **Parallel adapt batches work.** Round 1 takes 3.8–5.8 s for every lesson. The default race now builds any of the five in 29–37 s, the fastest of all runs, with 0 leftover warnings.
+- **Per-stack error text works.** React uses `ERR!|Error:|error\s+TS\d+`, Rust uses `error\[E\d+\]`, git uses `fatal:`, and the Python stacks keep `Traceback`.
+- **Prerequisites are better on the Claude path.** git s3 says "create `feature/login` from main with three commits, where the first and third change the same line of `app.txt` that two new main commits also change". There are no demo literals.
+
+**New findings:**
+1. **Gemini made up a URL.** The Gemini-first git step 1 says "Clone https://github.com/philomatics/git-rebase-example (or init a repo where …)". **That URL returns 404.** The channel's GitHub user exists, but the repo doesn't, and the video description links no repo. Every URL in a lesson must come from the description/transcript or be checked live; otherwise drop it.
+2. **A Claude 429 can sink a build.** My first default race ran 10 builds at once (two eval runs in parallel) and hit "Number of concurrent requests" 429s. The Claude video pass failed outright with no backoff, and with Gemini still under its 45 s cap, **rust-cli and fastapi-rest failed on both engines**. A single demo build won't hit this, but the parallel fan-out (segmentation + per-step detail + adapt batches) multiplies concurrent requests.
+   - Fixes: retry 429s with backoff and cap concurrent Claude calls; and when Claude has failed, let Gemini run to its full timeout instead of 45 s.
+3. **The default race still never picks Gemini.** Unchanged since e2582e8: Claude wins 5/5 under the defaults. The Gemini-first env settings won 5/5 again.
+
+**Scores:**
+- Default race (Claude): React 9, git 8, pandas 9, Rust 9, FastAPI 9.
+- Gemini-first: React 8, git **5** (made-up clone URL), pandas 7.5 (still no dataset link), Rust 9, FastAPI 9.
+
 ## Gemini path vs Claude path (`e2582e8`, Gemini paid tier)
 
 Gemini billing is on now, so `gemini-4-hydrogen` answers. Four runs on the same code (`e2582e8`) with default models:
