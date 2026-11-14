@@ -11,14 +11,17 @@ export type CheckStatus = "pending" | "pass" | "fail";
 export type SourceKind = "video" | "blog" | "notebook" | "paper" | "repo";
 
 export interface VideoSegment { videoId: string; start: number; end: number } // seconds
-export interface Source { id: string; kind: SourceKind; title: string; url: string; meta?: string }
+export interface Source { id: string; kind: SourceKind; title: string; url: string; meta?: string; videoId?: string }
 export interface StepSummary { id: string; index: number; title: string; video?: VideoSegment }
 
 // ---------- Engine -> App events ----------
 export interface EngineEvents {
   "search.result": { id: string; kind: SourceKind; title: string; meta: string; score: number; reason: string; thumbnail?: string;
                      style?: "coding" | "no-code" | "conceptual"; durationLabel?: string; long?: boolean;   // finder (E7): what kind of tutorial, "1 h 56 min · 30 chapters", > 45 min
-                     chapters?: number; captions?: boolean };                                              // chapter count; YouTube captions available
+                     chapters?: number; captions?: boolean;                                                // chapter count; YouTube captions available
+                     url?: string; source?: string; videoId?: string; durationS?: number; channel?: string;   // finder extras (all optional)
+                     verified?: boolean; warnings?: string[]; scoredBy?: string; watched?: string;
+                     prerequisites?: string[]; codeNotes?: string; comments?: string };
   "search.done": { total: number };
   "lesson.building": { message: string; progress: number; failed?: boolean };   // progress 0..1 for the launcher; ~1/s while building; failed: true = the build ended in error (an `error` + status idle follow): drop the building UI
   "lesson.ready": { lesson: { id: string; title: string; sources: Source[]; complete?: boolean; builtBy?: "gemini" | "claude" | "mixed" | "unknown";
@@ -33,7 +36,7 @@ export interface EngineEvents {
     severity: "warn" | "fail";
     title: string;             // <= 8 words
     body: string;              // <= ~30 words
-    diff?: { expected: string; yours: string; file?: string; line?: number };
+    diff?: { expected: string; yours: string; file?: string; line?: number; command?: string };   // command: a terminal fix ("Do it for me" copies it to the clipboard)
     citation?: { label: string; url: string };
     actions: Array<"explain" | "show_me" | "apply_fix" | "hint">;   // apply_fix = "Do it for me" (only at level 3)
     level?: 2 | 3;             // hint ladder: 2 = concept (no fix yet), 3 = exact fix + diff + apply_fix
@@ -63,7 +66,7 @@ export interface EngineEvents {
       | { x: number[]; t: number[]; predicted: number[][]; exact?: number[][] }                      // heatmap
       | GraphDiagramData;                                                                             // graph (any topic; server/diagrams)
   };
-  "speak": { audioUrl: string; text: string };
+  "speak": { audioUrl: string; text: string };   // audioUrl is RELATIVE (e.g. /tts/<hash>.mp3): resolve it against the engine's http origin
   "metric": { runId: string; step: number; name: string; value: number };   // live curve feed
   "status": { state: "idle" | "watching" | "offtrack" | "passed" | "thinking" };
   /** install progress for one setup item (action install): lines while it runs, then {done, ok, error|version|url} */

@@ -717,8 +717,8 @@ class LessonSession:
             self._prefetch_voice()
         await self.emit("lesson.ready", self._lesson_ready_payload())
         self.editor_open = False
-        await self._offer_editor(graph, new_wd)  # a card; VS Code opens only on the learner's yes
         await self.start_step(0)
+        await self._offer_editor(graph, new_wd)  # after step.started (the app clears cards on a new step)
 
     def _step_summary(self, st: dict, i: int) -> dict:
         summary = {"id": st["id"], "index": st.get("index", i), "title": st["title"]}

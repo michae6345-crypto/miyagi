@@ -39,6 +39,7 @@ class Source(_Model):
     title: str
     url: str
     meta: str | None = None
+    videoId: str | None = None
 
 
 class StepSummary(_Model):
@@ -62,6 +63,18 @@ class SearchResult(_Model):
     long: bool | None = None
     chapters: int | None = None
     captions: bool | None = None
+    url: str | None = None
+    source: str | None = None
+    videoId: str | None = None
+    durationS: float | None = None
+    channel: str | None = None
+    verified: bool | None = None
+    warnings: list[str] | None = None
+    scoredBy: str | None = None
+    watched: str | None = None
+    prerequisites: list[str] | None = None
+    codeNotes: str | None = None
+    comments: str | None = None
 
 
 class SearchDone(_Model):
@@ -132,6 +145,7 @@ class OfftrackDiff(_Model):
     yours: str
     file: str | None = None
     line: int | None = None
+    command: str | None = None  # a terminal fix (clipboard-staged, never run)
 
 
 class Citation(_Model):
@@ -324,7 +338,7 @@ class Diagram(_Model):
 
 
 class Speak(_Model):
-    audioUrl: str
+    audioUrl: str  # relative (/tts/<hash>.mp3): resolve against the engine's http origin
     text: str
 
 
