@@ -404,6 +404,7 @@ def test_ws_and_ingest_roundtrip(tmp_path, monkeypatch):
     from server.orchestrator import main
 
     main.engine.session.result_stagger_s = 0
+    main.engine.recorder.enabled = False
     with TestClient(main.app) as client:
         with client.websocket_connect("/") as ws:
             first = ws.receive_json()
@@ -420,3 +421,27 @@ def test_ws_and_ingest_roundtrip(tmp_path, monkeypatch):
                                           {"kind": "metric", "run_id": "x", "step": 1, "name": "loss", "value": 0.5}])
         assert r.json() == {"ok": True, "accepted": 2}
         assert client.get("/health").json()["ok"] is True
+
+
+def test_record_then_replay_passes_the_hero_step(rig):
+    from server.orchestrator import recorder
+
+    rec = recorder.Recorder(out_dir=rig.workdir / "runs", enabled=True)
+    rec.record({"kind": "run_started", "run_id": "good", "command": "python pinn_convection.py"})
+    for s, v in CONVERGE:
+        rec.record({"kind": "metric", "run_id": "good", "step": s, "name": "loss", "value": v})
+    rec.record({"kind": "run_ended", "run_id": "good", "exit_code": 0})
+    rec.record({"kind": "metric", "run_id": "x", "replay": True, "step": 1, "name": "loss", "value": 1})
+    path = rig.workdir / "runs" / "good.jsonl"
+    assert len(recorder.load(path)) == len(CONVERGE) + 2
+    assert not (rig.workdir / "runs" / "x.jsonl").exists()  # replays are not re-recorded
+
+    async def go():
+        await _to_step(rig, 5)
+        run_id = await recorder.replay(path, rig.s.ingest, speed=1000)
+        await rig.settle()
+        return run_id
+
+    run_id = run(go())
+    assert run_id.startswith("replay-good")
+    assert rig.of("step.passed")[-1] == {"stepId": "s6"}

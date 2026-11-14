@@ -29,6 +29,7 @@ then a β-curriculum run. It only writes `pinn_convection.py` and refuses to ove
 | `ORCH_STUBS` | (empty) | `all` or `lesson,coach,...` = force stubs even if the real module exists |
 | `ORCH_STRICT` | 0 | `1` = raise on any event that doesn't validate against the contract (tests use this) |
 | `ORCH_IDLE_GATE_S` | 5 | idle seconds before the coach may speak |
+| `ORCH_RECORD` | 1 | record every ingest event to `demo/runs/<run_id>.jsonl` (gitignored) |
 
 ## Modules: stubs first, real when they land
 
@@ -81,4 +82,12 @@ lesson.json  or  lessons/*.json     step graph (newest lessons/*.json wins)
 coach/<stepId>.json                 offtrack payload for that step
 cards/<stepId>-explain.json, cards/<stepId>-answer.json, cards/<stepId>-hint<level>.json
 diagrams/<kind>.json                diagram payload
+runs/<name>.jsonl                   a recorded `tut run` ({"dt", "event"} per line), replayable
 ```
+
+## Recording and replaying training runs (the demo safety net)
+
+Every `/ingest` event is appended to `demo/runs/<run_id>.jsonl`. `POST /demo/replay {"name"?: "<stem>", "speed"?: 1}` feeds a recording
+(from `demo/cache/runs/` first, then `demo/runs/`; the newest one if no name is given) back through the state machine, keeping its original pacing
+and using a fresh run_id, exactly as if the learner had just run it. `GET /demo/runs` lists recordings. From the client, type `runs` or `replay <name>`.
+**Before the 9 AM freeze, copy the good β-curriculum take into `demo/cache/runs/`.**

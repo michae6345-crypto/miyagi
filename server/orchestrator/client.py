@@ -13,7 +13,7 @@ Point the engine at a scratch folder:  TUT_WORKDIR=/tmp/tut-work python -m serve
 
 Interactive commands on stdin while connected:
   learn <query> | url <youtube url> | build [id ...] | hint | explain | ask <q> | diagram [kind]
-  show_me | back | apply_fix | voice | pass | goto <i> | state | quit
+  show_me | back | apply_fix | voice | pass | goto <i> | lesson | runs | replay [name] | state | quit
 """
 
 from __future__ import annotations
@@ -291,7 +291,7 @@ async def handle_line(line: str, send, http: str) -> None:
         await send("action", {"kind": "ask", "text": rest})
     elif cmd == "voice":
         await send("action", {"kind": "voice_toggle"})
-    elif cmd in ("pass", "goto", "state", "lesson"):
+    elif cmd in ("pass", "goto", "state", "lesson", "replay", "runs"):
         async with httpx.AsyncClient() as c:
             if cmd == "pass":
                 r = await c.post(f"{http}/debug/pass")
@@ -299,6 +299,10 @@ async def handle_line(line: str, send, http: str) -> None:
                 r = await c.post(f"{http}/debug/goto/{int(rest or 0)}")
             elif cmd == "lesson":
                 r = await c.post(f"{http}/debug/lesson")
+            elif cmd == "replay":
+                r = await c.post(f"{http}/demo/replay", json={"name": rest} if rest else {})
+            elif cmd == "runs":
+                r = await c.get(f"{http}/demo/runs")
             else:
                 r = await c.get(f"{http}/state")
             print(json.dumps(r.json(), indent=2)[:3000])
@@ -306,7 +310,7 @@ async def handle_line(line: str, send, http: str) -> None:
         raise SystemExit(0)
     else:
         print("commands: learn <q> | url <u> | build [ids] | hint | explain | ask <q> | diagram [kind] | "
-              "show_me | back | apply_fix | voice | pass | goto <i> | lesson | state | quit")
+              "show_me | back | apply_fix | voice | pass | goto <i> | lesson | runs | replay [name] | state | quit")
 
 
 def main() -> None:

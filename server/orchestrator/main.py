@@ -22,7 +22,7 @@ from fastapi import Body, FastAPI, WebSocket, WebSocketDisconnect
 
 from shared.contracts.events import parse_app_message
 
-from . import config
+from . import config, recorder
 from .hub import Hub
 from .modules import Modules
 from .session import LessonSession
@@ -38,7 +38,13 @@ class Engine:
         self.session = LessonSession(self.hub.emit, self.modules)
         self.watcher = Watcher(self.session.on_file_change, interval=config.WATCH_INTERVAL_S)
         self.session.on_workdir = self.watcher.set_root
+        self.recorder = recorder.Recorder()
         self._ticker: asyncio.Task | None = None
+        self._replays: set[asyncio.Task] = set()
+
+    async def ingest(self, ev: dict) -> None:
+        self.recorder.record(ev)
+        await self.session.ingest(ev)
 
     async def start(self) -> None:
         self.watcher.set_root(self.session.workdir)
@@ -143,7 +149,7 @@ async def ingest(body: Any = Body(...)) -> dict:
     n = 0
     for ev in events:
         if isinstance(ev, dict):
-            await engine.session.ingest(ev)
+            await engine.ingest(ev)
             n += 1
     return {"ok": True, "accepted": n}
 
@@ -182,6 +188,25 @@ async def debug_lesson() -> dict:
     graph = await engine.modules.build_lesson("", "", str(config.default_workdir()))
     await engine.session.load_graph(graph)
     return {"ok": True, "lesson": graph.get("lesson")}
+
+
+@app.get("/demo/runs")
+async def demo_runs() -> dict:
+    return {"runs": [str(p.relative_to(config.REPO_ROOT)) for p in recorder.list_recordings()]}
+
+
+@app.post("/demo/replay")
+async def demo_replay(body: dict | None = Body(None)) -> dict:
+    """Replay a recorded `tut run` (default: newest) into the active step. Body: {"name"?, "speed"?}"""
+    body = body or {}
+    path = recorder.find_recording(body.get("name"))
+    if path is None:
+        return {"ok": False, "error": "no recording found in demo/cache/runs or demo/runs"}
+    speed = float(body.get("speed") or recorder.default_speed())
+    task = asyncio.create_task(recorder.replay(path, engine.session.ingest, speed=speed))
+    engine._replays.add(task)
+    task.add_done_callback(engine._replays.discard)
+    return {"ok": True, "replaying": path.name, "speed": speed}
 
 
 def run() -> None:
