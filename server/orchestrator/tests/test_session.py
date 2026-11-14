@@ -2025,7 +2025,7 @@ def test_lesson_mode_do_it_for_me_previews_the_step_code_then_applies(tmp_path, 
         await rig.settle()
         card = rig.of("card")[-1]
         assert card["title"] == "Type this for you?" and card["actions"] == ["confirm"] and "+def add(a, b):" in card["diff"]
-        assert not (tmp_path / "calc.py").exists()  # nothing written before the learner confirms
+        assert (tmp_path / "calc.py").read_text() == ""  # created empty at step start; nothing typed before confirm
         await rig.s.action("confirm")
         await rig.settle()
 
@@ -2254,13 +2254,17 @@ def test_dead_screen_is_reported_once_and_show_me_says_why(tmp_path, monkeypatch
         assert not rig.of("error")
         rig.clock.t += 6
         await rig.s.tick()
+        assert not rig.of("error")  # 6 s: still quiet
+        rig.clock.t += 10
         await rig.s.tick()
+        await rig.s.tick()
+        assert rig.s.state()["screen"] is False
         await rig.s.action("show_me")
         await rig.settle()
 
     run(go())
     errs = [e["message"] for e in rig.of("error")]
-    assert errs == ["Miyagi can't see your screen right now, so screen checks and Show me are paused."]
+    assert errs == ["Miyagi can't see your screen. Check Screen Recording in System Settings."]
     assert rig.of("card")[-1]["title"] == "I can't see your screen"
 
 
@@ -2307,3 +2311,60 @@ def test_preflight_card_actions_download_and_open_in_browser_are_handled(rig, mo
     assert opened[0] == ["open", "https://colab.research.google.com/"]
     assert rig.of("card")[-1]["title"] == "Tutorial files" and rig.of("card")[-1]["body"] == "Downloaded 0 files."
     assert not any("Unknown action" in e["message"] for e in rig.of("error"))
+
+
+
+def test_lesson_mode_no_early_offtrack_no_setup_card_no_window_box(tmp_path, monkeypatch):
+    """Live run (calculator): an offtrack 2.8 s into step 1, an 'Open in Cursor?' setup card, and the whole
+    editor window boxed. Lesson mode: the coach waits for an edit / run / 25 s; no setup card when nothing is
+    missing; only the exact line is boxed."""
+    from types import SimpleNamespace as NS
+
+    from server.orchestrator import workspace as wsmod
+
+    async def build(goal, workdir, on_update=None, **kw):
+        return _text_lesson()
+
+    rig, screen, calls = _lesson_rig(tmp_path, monkeypatch, build)
+    rig.s.workspace.enabled = True
+    monkeypatch.setattr(wsmod, "requirements", lambda graph, folder: [
+        {"tool": "python", "label": "Python", "kind": "runtime", "needed": True, "ok": True},
+        {"tool": "vscode", "label": "VS Code", "kind": "editor", "needed": True, "ok": True}])
+    spoke = []
+    rig.s._consider_speaking = (lambda orig: lambda *a, **k: (spoke.append(a[0]), orig(*a, **k)))(rig.s._consider_speaking)
+
+    async def go():
+        await rig.s.learn("build a calculator", mode="lesson")
+        await rig.settle()
+        await asyncio.sleep(0.05)
+        rig.s.last_obs = NS(windows=[NS(app="Cursor", title="calc.py — lesson",
+                                        rect={"x": 0.0, "y": 33.0, "w": 865.0, "h": 1001.0})])
+        rig.s.engaged = True  # screen frames arrived (lesson mode has no clip to wait for)
+        rig.clock.t += 6  # past the idle gate, inside the 25 s grace
+        await rig.s.tick()
+        await rig.settle()
+        assert "idle" in spoke and not rig.of("offtrack") and not rig.s.coaching
+        await rig.s.action("show_me")
+        await rig.settle()
+
+    run(go())
+    assert (tmp_path / "calc.py").exists()  # the step's file was created: step 1 is "type this"
+    assert not [c for c in rig.of("card") if c.get("kind") == "setup"]
+    assert not [sp for sp in rig.of("spotlight") if sp.get("rect", {}).get("w") == 865.0]
+
+
+
+def test_tagged_setup_step_passes_on_its_required_tools(rig):
+    graph = stubs.load_fixture_lesson()
+    graph["steps"][0].update(title="Get ready", instructions="Open a terminal.", setup=True, requires=["python"])
+
+    async def go():
+        await rig.s.load_graph(graph)
+        await rig.settle()
+        rig.s.reqs = [{"tool": "python", "label": "Python", "kind": "runtime", "needed": True, "ok": True},
+                      {"tool": "node", "label": "Node", "kind": "runtime", "needed": True, "ok": False}]
+        await rig.s._maybe_pass_setup_step()
+        await rig.settle()
+
+    run(go())
+    assert rig.of("step.passed")[0]["stepId"] == "s1"  # node is missing, but this step only requires python
