@@ -318,7 +318,7 @@ async def goal_match(goal: str, meta: dict) -> dict:
               "Score 0..1 how well following this video achieves what they asked (1 = exactly, 0.5 = related but a "
               "different project/tool, 0 = unrelated). note: one short sentence a learner would understand.")
     try:
-        r = await asyncio.wait_for(claude._generate_json("You judge whether a tutorial fits a learner's goal.", prompt, GOAL_SCHEMA, effort="low"), 30)
+        r = await asyncio.wait_for(claude._generate_json("You judge whether a tutorial fits a learner's goal.", prompt, GOAL_SCHEMA, effort="low", role="judge", escalate=False), 30)
         return {"score": max(0.0, min(1.0, float(r.get("score", 0)))), "note": str(r.get("note", ""))[:200]}
     except Exception as e:  # noqa: BLE001
         return {"score": None, "note": f"not scored ({str(e)[:80]})"}

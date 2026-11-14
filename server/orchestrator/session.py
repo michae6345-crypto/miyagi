@@ -139,8 +139,11 @@ class BuildStage(logging.Handler):
 
 def human_build_error(e: BaseException) -> str:
     """A message the learner can act on (the raw reason stays in the engine log)."""
-    raw = str(e)
+    # strip our own wrapper ("lesson.build_lesson failed: RuntimeError: ...") so only the builder's words remain
+    raw = re.sub(r"^\s*[\w.]+ failed: [\w.]+: ", "", str(e))
     first = raw.strip().splitlines()[0].strip() if raw.strip() else ""
+    if first.lower().startswith(("couldn't read this video", "couldn't build", "couldn't watch")) and len(first) < 400:
+        return first  # E2's learner-facing sentence (e.g. Gemini credits used up + YouTube blocking transcripts)
     if ("no engine could build the lesson" in raw.lower() and "no engine could build" not in first.lower()
             and len(first) < 300):
         return first  # E2: a learner-facing first line, then the raw detail (which stays in the log)
@@ -166,6 +169,28 @@ def human_build_error(e: BaseException) -> str:
     if "transcript" in low:
         return "Couldn't get this video's transcript. Try another video."
     return f"Couldn't build this lesson: {raw[:160]}"
+
+
+def notebook_sources(text: str) -> str | None:
+    """A Jupyter notebook's JSON -> its code cells' source with `# %% [cell N]` markers (N = index among all
+    cells, E5's numbering), outputs dropped. Cutting the raw JSON leaves invalid JSON and mostly outputs, so
+    excerpts are cut after this. None if the text isn't valid notebook JSON."""
+    import json
+
+    try:
+        nb = json.loads(text)
+    except ValueError:
+        return None
+    if not isinstance(nb, dict) or not isinstance(nb.get("cells"), list):
+        return None
+    out = []
+    for i, c in enumerate(nb["cells"]):
+        if not isinstance(c, dict) or c.get("cell_type") != "code":
+            continue
+        src = c.get("source") or ""
+        src = "".join(src) if isinstance(src, list) else str(src)
+        out.append(f"# %% [cell {i}]\n" + src.rstrip("\n"))
+    return "\n".join(out) if out else "# (notebook: no code cells)"
 
 
 CODE_APP_NAMES = {"code", "vs code", "vscode", "visual studio code", "cursor"}
@@ -241,6 +266,7 @@ class LessonSession:
         self.editor_open = False  # VS Code opened for this lesson (only after the learner said yes)
         self.awaiting_resume = False  # "Continue where you left off?" shown: the lesson is frozen until answered
         self.reqs: list[dict] | None = None  # S2's setup items for this lesson
+        self.resources: list[dict] = []  # S2: files the video links (download button)
         self.waiting_more = False  # passed the last built step of a long video that's still building
         self.pending_pick: dict | None = None  # S8: the picked result awaiting build / pick_another
         self._installing: set[str] = set()  # tools being installed right now (one install per tool)
@@ -351,10 +377,12 @@ class LessonSession:
     async def _setup_card_task(self, graph: dict, folder: str) -> None:
         from . import workspace as wsmod
 
-        items = await asyncio.to_thread(wsmod.requirements, graph, folder)  # 3-6 s the first time, cached
-        if items:  # S2: what this lesson needs, what's installed, install recipes
+        items, found = await asyncio.gather(  # what it needs (3-6 s first time, cached) + the video's own files
+            asyncio.to_thread(wsmod.requirements, graph, folder), asyncio.to_thread(wsmod.find_resources, graph))
+        self.resources = found
+        if items:  # S2: what this lesson needs, what's installed, install recipes (+ "Download tutorial files")
             self.reqs = items
-            card = wsmod.setup_card(items)
+            card = wsmod.setup_card(items, resources=found)
             if card:
                 self._setup_card = card
                 await self.emit("card", card)
@@ -772,6 +800,9 @@ class LessonSession:
                 await asyncio.sleep(self.ready_hold_s)  # let the "ready" moment be seen before the lesson UI
                 await self.load_graph(first)
                 return
+            if (self.graph or {}).get("lesson", {}).get("provisional") and not (g.get("lesson") or {}).get("provisional"):
+                await self._replace_provisional(g, complete)  # E2 quick start: the real lesson replaces s1
+                return
             await self._extend_lesson(g, complete)
 
         try:
@@ -780,7 +811,10 @@ class LessonSession:
                                                   on_progress=stage.on_progress, on_update=on_update,
                                                   video_meta=video_meta)
             if progressive["loaded"]:  # already running: make sure every part made it in, then done
-                await self._extend_lesson(graph, True)
+                if (self.graph or {}).get("lesson", {}).get("provisional") and not (graph.get("lesson") or {}).get("provisional"):
+                    await self._replace_provisional(graph, True)
+                else:
+                    await self._extend_lesson(graph, True)
                 ok = True
                 return
             done.set()
@@ -817,6 +851,23 @@ class LessonSession:
             if not ok:
                 self.phase = "idle" if self.graph is None else self.phase
         await self.load_graph(graph)
+
+    async def _replace_provisional(self, g: dict, complete: bool) -> None:
+        """E2 quick start: the placeholder lesson (one step 'watch and type along', shown after 8 s) is
+        replaced by the real one with the same ids; the learner keeps watching, the checklist becomes real."""
+        if self.graph is None:
+            return
+        new = copy.deepcopy(g)
+        new.setdefault("lesson", {})["workdir"] = self.graph.get("lesson", {}).get("workdir") or self.workdir
+        new["lesson"]["complete"] = bool(complete or new["lesson"].get("complete"))
+        idx = max(0, self.idx)
+        self.graph = new
+        self.m.set_lesson(new)
+        await self.emit("lesson.ready", self._lesson_ready_payload())
+        if self.steps and not self.passed:
+            seg = self._segment(self.steps[min(idx, len(self.steps) - 1)])
+            keep = self.video_t if (seg and self.video_t is not None and seg["start"] <= self.video_t < seg["end"]) else None
+            await self.start_step(min(idx, len(self.steps) - 1), seek_to=keep)  # keep the video where it is
 
     async def _extend_lesson(self, g: dict, complete: bool) -> None:
         """Append a progressive build's new steps to the running lesson (ids never change, earlier steps are
@@ -1227,9 +1278,12 @@ class LessonSession:
             p = wsmod.resolve_file(self.workdir, f, titles)  # nested project dirs, .git/rebase-merge, open file
             if p is not None:
                 try:
-                    return p.read_text(errors="replace")[:limit], f
+                    text = p.read_text(errors="replace")
                 except OSError:
                     continue
+                if p.suffix.lower() == ".ipynb":  # cell sources, then the limit (S9: raw JSON cut = invalid)
+                    text = notebook_sources(text) or text
+                return text[:limit], f
         lines = self._screen_lines() or {}  # screen-first: the code the learner is looking at
         for app in [t.get("app") for t in step.get("targets") or [] if t.get("app")] + ["Code"]:
             for a, ls in lines.items():
@@ -1677,6 +1731,14 @@ class LessonSession:
             self._spawn(self._install((text or "").strip()))
             return
         if kind == "skip_setup":  # the app dismisses the setup card; nothing to undo here
+            return
+        if kind == "download":  # S2: the video's linked code / notebooks -> <lesson folder>/tutorial/ (never run)
+            from . import workspace as wsmod
+
+            await self._status("thinking")
+            res, summary = await asyncio.to_thread(wsmod.download_resources, self.graph or {}, self.workdir)
+            await self._emit_card({"stepId": step["id"], "kind": "answer", "title": "Tutorial files", "body": summary})
+            await self._status("offtrack" if self.last_offtrack else ("passed" if self.passed else "watching"))
             return
         if kind == "open_in_browser":  # text = a web_app setup item's tool id (no-code lessons)
             await self._open_in_browser((text or "").strip())

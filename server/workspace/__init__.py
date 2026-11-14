@@ -17,12 +17,18 @@ from .editor import (
     preferred_editor,
 )
 from .paths import build_workdir, folder_name, hero_workdir, lessons_root
+from .resources import NO_RESOURCES, download_resources, find_resources
+from .resources import summary as download_summary
 from .setup import editor_needed, install, missing, requirements, setup_card
 
 __all__ = [
+    "NO_RESOURCES",
     "build_workdir",
+    "download_resources",
+    "download_summary",
     "editor_label",
     "editor_needed",
+    "find_resources",
     "folder_name",
     "goto_argv",
     "hero_workdir",

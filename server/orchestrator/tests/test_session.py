@@ -587,6 +587,8 @@ def test_live_mode_reports_failures_instead_of_faking(rig):
 def test_demo_mode_falls_back_to_stubs(rig, monkeypatch, tmp_path):
     from server.orchestrator import modules as modules_mod
 
+    monkeypatch.setenv("DEMO", "1")  # E5's coach then uses its offline playbook (no API call)
+
     monkeypatch.setattr(modules_mod, "DEMO_CACHE", tmp_path / "no-cache")
     def boom(*a, **k):
         raise RuntimeError("api down")
@@ -1785,3 +1787,88 @@ def test_show_me_uses_e5_pointing(rig):
     run(go())
     spot = rig.of("spotlight")[-1]
     assert spot["rect"] == {"x": 5.0, "y": 6.0, "w": 7.0, "h": 8.0} and spot["caption"] == "Build the MLP here"
+
+
+def test_build_error_shows_only_e2s_sentence():
+    from server.orchestrator.session import human_build_error
+
+    e = RuntimeError("lesson.build_lesson failed: RuntimeError: Couldn't read this video (20:27 long): Gemini credits "
+                     "are used up (top up at ai.studio/projects) and YouTube is blocking transcripts on this network. "
+                     "Try a saved lesson, or switch to your phone hotspot.\n(no engine could build the lesson) gemini: 402")
+    out = human_build_error(e)
+    assert out.startswith("Couldn't read this video (20:27 long): Gemini credits are used up")
+    assert "failed:" not in out and "RuntimeError" not in out and "\n" not in out
+
+
+def test_quick_start_provisional_step_is_replaced(rig):
+    real = stubs.load_fixture_lesson()
+
+    def provisional():
+        g = json.loads(json.dumps(real))
+        g["steps"] = [{"id": "s1", "index": 0, "title": "Watch 0:00-0:40 and type along", "instructions": "i",
+                       "video": real["steps"][0]["video"], "provisional": True,
+                       "checks": [{"id": "s1c1", "type": "screen_absent", "label": "No errors", "pattern": "Traceback"}]}]
+        g["lesson"]["provisional"] = True
+        g["lesson"]["complete"] = False
+        return g
+
+    async def build(url, goal, workdir, on_update=None, **kw):
+        await on_update(provisional(), False)
+        await asyncio.sleep(0.02)
+        await on_update(json.loads(json.dumps(real)), True)
+        return json.loads(json.dumps(real))
+
+    rig.s.m.build_lesson = build
+
+    async def go():
+        await rig.s.learn_url("https://www.youtube.com/watch?v=abcdefghijk")
+        await rig.settle()
+
+    import json
+    run(go())
+    readies = rig.of("lesson.ready")
+    assert len(readies) == 2 and len(readies[0]["steps"]) == 1 and len(readies[1]["steps"]) == 6
+    assert rig.of("step.started")[-1]["stepId"] == "s1" and len(rig.s.steps) == 6
+    assert not rig.s.graph["lesson"].get("provisional")
+
+
+def test_download_tutorial_files(rig, monkeypatch):
+    from server.orchestrator import workspace as wsmod
+
+    got = {}
+
+    def fake_download(graph, folder):
+        got["folder"] = folder
+        return [{"name": "nanoGPT", "path": f"{folder}/tutorial/nanoGPT"}], "Saved nanoGPT to tutorial/."
+
+    monkeypatch.setattr(wsmod, "download_resources", fake_download)
+
+    async def go():
+        await rig.start_lesson()
+        await rig.s.action("download")
+
+    run(go())
+    assert rig.of("card")[-1] == {"stepId": "s1", "kind": "answer", "title": "Tutorial files",
+                                  "body": "Saved nanoGPT to tutorial/."}
+    assert got["folder"] == rig.s.workdir
+
+
+def test_notebook_excerpt_is_cell_sources_not_cut_json(rig):
+    """S9: a big .ipynb (outputs first) cut at 6000 chars was invalid JSON; send its code cells instead."""
+    import json
+
+    big_output = {"output_type": "stream", "name": "stdout", "text": ["x" * 100 + "\n"] * 200}
+    nb = {"cells": [{"cell_type": "markdown", "metadata": {}, "source": ["# PINN\n"]},
+                    {"cell_type": "code", "metadata": {}, "outputs": [big_output], "execution_count": 1,
+                     "source": ["import torch\n", "lr = 0.3\n"]},
+                    {"cell_type": "code", "metadata": {}, "outputs": [], "execution_count": 2,
+                     "source": "opt = torch.optim.Adam(net.parameters(), lr=lr)"}],
+          "metadata": {}, "nbformat": 4, "nbformat_minor": 5}
+    rig.write(json.dumps(nb), "lab.ipynb")
+    code, f = rig.s._code_excerpt({"targets": [{"file": "lab.ipynb"}]})
+    assert f == "lab.ipynb"
+    assert code == ("# %% [cell 1]\nimport torch\nlr = 0.3\n"
+                    "# %% [cell 2]\nopt = torch.optim.Adam(net.parameters(), lr=lr)")
+    rig.write("{not json", "broken.ipynb")  # not parseable: falls back to the raw text, still limited
+    code, _ = rig.s._code_excerpt({"targets": [{"file": "broken.ipynb"}]}, limit=5)
+    assert code == "{not "

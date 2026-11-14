@@ -191,10 +191,34 @@ def requirements(graph: dict, folder: str) -> list[dict] | None:
         return []
 
 
-def setup_card(items: list[dict]) -> dict | None:
+def setup_card(items: list[dict], resources: list[dict] | None = None) -> dict | None:
     ws = _s2()
     fn = getattr(ws, "setup_card", None) if ws is not None else None
-    return fn(items) if fn else None
+    if fn is None:
+        return None
+    return fn(items, resources=resources) if resources else fn(items)
+
+
+def find_resources(graph: dict) -> list[dict]:
+    """S2: code / notebooks / data the video links (one watch-page fetch per video, cached). Blocking."""
+    ws = _s2()
+    fn = getattr(ws, "find_resources", None) if ws is not None else None
+    try:
+        return list(fn(graph) or []) if fn else []
+    except Exception:  # noqa: BLE001
+        log.exception("workspace.find_resources failed")
+        return []
+
+
+def download_resources(graph: dict, folder: str) -> tuple[list[dict], str]:
+    """S2: download them into <lesson folder>/tutorial/ (never run). -> (results, one-line summary). Blocking."""
+    ws = _s2()
+    fn = getattr(ws, "download_resources", None) if ws is not None else None
+    if fn is None:
+        return [], "Downloads aren't available."
+    res = list(fn(graph, folder=folder) or [])
+    summ = getattr(ws, "download_summary", None)
+    return res, (summ(res) if summ else f"Downloaded {len(res)} files.")
 
 
 def editor_needed(items: list[dict]) -> bool:

@@ -1,0 +1,137 @@
+{
+ "id": "R1",
+ "topic": "react",
+ "step": "s3",
+ "mistake": "Wrote `return clearInterval(intervalId);`: calls clearInterval during the effect instead of returning a cleanup function",
+ "truth": "clearInterval runs immediately, so the timer never ticks (stays at 0) and nothing is cleaned up on unmount. Fix: `return () => { ...; clearInterval(intervalId); };`",
+ "ocr": {
+  "blocks": 71,
+  "ms": 332,
+  "lines_by_app": {
+   "": 2,
+   "Code": 35,
+   "Google Chrome": 6,
+   "Terminal": 10
+  }
+ },
+ "cursor": {
+  "xy": [
+   406.0,
+   353.5
+  ],
+  "on": "return clearInterval(intervalId);"
+ },
+ "before_check": {
+  "ok": false,
+  "active_after_mount": 0,
+  "seconds_after_3_ticks": 0,
+  "active_after_unmount": 0,
+  "console": [
+   "clean up called   Timer.js"
+  ],
+  "error": null,
+  "no_undef": []
+ },
+ "gate_before": {
+  "passed": true,
+  "via": "checks",
+  "passed_screen_only": true,
+  "checks": [
+   "s3c1 pass: seen in Code: 'clearInterval('",
+   "s3c2 pass: seen in Terminal: 'webpack compiled'",
+   "s3c3 pass: not showing in Terminal"
+  ],
+  "precision": [
+   "s3p1 pass: found in src/Components/Timer.js:13",
+   "s3p2 fail: pattern not found in src/Components/Timer.js"
+  ]
+ },
+ "fires": false,
+ "fires_screen_only": false,
+ "forced": true,
+ "inputs": {
+  "code_from": "src/Components/Timer.js",
+  "code_chars": 421,
+  "target_location": [
+   "/var/folders/2g/b60087014tq94njh6r4zdmhm0000gn/T/coach-eval-wiy5zbga/R1/demo-app/src/Components/Timer.js",
+   13
+  ],
+  "cursor_under": "return clearInterval(intervalld);"
+ },
+ "warm_s": 1.9,
+ "card_s": 0.0,
+ "targets_s": null,
+ "card": {
+  "stepId": "s3",
+  "severity": "warn",
+  "title": "Not yet: Cleanup function returned",
+  "body": "What does setInterval return so you can cancel it later?",
+  "actions": [
+   "explain",
+   "show_me",
+   "hint"
+  ]
+ },
+ "meta": {
+  "route": "template",
+  "triage": {
+   "route": "template",
+   "by": "rules",
+   "reason": "only file checks failing; nothing run yet"
+  },
+  "model": null,
+  "latency_s": null,
+  "playbook_id": null,
+  "web_sources": [],
+  "usage": null
+ },
+ "diagnosis_auto": false,
+ "targets": {
+  "n": 0,
+  "any": false,
+  "first": false,
+  "texts": [],
+  "labels": []
+ },
+ "hint3": {
+  "title": "Compare with the tutorial",
+  "diff": null
+ },
+ "orchestrator_resolves_file": false,
+ "patch": {
+  "file": "Timer.js",
+  "unified_diff": "--- a/Timer.js\n+++ b/Timer.js\n@@ -9,8 +9,10 @@\n       setSeconds((prev) => prev + 1);\n     }, 1000);\n \n-    console.log('clean up called');\n-    return clearInterval(intervalId);\n+    return () => {\n+      clearInterval(intervalId);\n+      console.log('clean up called');\n+    };\n   }, []);\n \n   return <h1>Seconds: {seconds}</h1>;\n",
+  "summary": "Return a cleanup function that clears the interval and logs",
+  "line": 12,
+  "requires_confirmation": true,
+  "_meta": {
+   "via": "opus#1"
+  },
+  "s": 2.77,
+  "changed_lines": 6
+ },
+ "check_after": {
+  "ok": true,
+  "active_after_mount": 1,
+  "seconds_after_3_ticks": 3,
+  "active_after_unmount": 0,
+  "console": [
+   "Interval running   Timer.js",
+   "Interval running   Timer.js",
+   "Interval running   Timer.js",
+   "clean up called   Timer.js"
+  ],
+  "error": null,
+  "no_undef": []
+ },
+ "gate_after": {
+  "passed": true,
+  "via": "checks",
+  "failed": []
+ },
+ "spotlight": {
+  "via": "step target (fallback)",
+  "rect": null,
+  "on_line": false
+ }
+}

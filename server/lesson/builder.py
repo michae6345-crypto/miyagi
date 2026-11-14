@@ -98,10 +98,16 @@ async def build_lesson(
         attached = await prebuild.attach(vid, workdir, on_update, on_progress)
         if attached is not None:
             return attached
+    from . import cost
+
+    counter = cost.current() if _prebuild else None
+    counter = counter or cost.start()
     qs = _QuickStart(on_update, vid, source_url, goal, workdir, video_meta) if (on_update and vid) else None
     try:
         g = await _build_lesson_impl(source_url, goal, workdir, on_update=qs.wrapped if qs else on_update,
                                      on_progress=on_progress, video_meta=video_meta, **kw)
+        if not g.get("build", {}).get("cost") and counter.get("tokens"):
+            g.setdefault("build", {})["cost"] = json.loads(json.dumps(counter))  # model calls + tokens per model
         if qs:
             await qs.finish(g)
         return g
@@ -263,7 +269,7 @@ async def _build_lesson_impl(
             meta = {**await asyncio.wait_for(transcript.fetch_metadata(vid), 10), **{k: v for k, v in meta.items() if v}}
         except Exception:  # noqa: BLE001  without metadata we can't plan parts; build in one go
             pass
-    if (meta.get("length_s") or 0) > progressive.LONG_VIDEO_S and "gemini" in engines():
+    if (meta.get("length_s") or 0) > progressive.LONG_VIDEO_S and "gemini" in engines() and not gemini.is_down():
         try:
             graph = await progressive.build(source_url, vid, goal, workdir, info, meta, key, on_update=on_update, cache=cache, t0=t0)
         except RuntimeError as e:
@@ -281,7 +287,7 @@ async def _build_lesson_impl(
         if goal_task:
             goal_task.cancel()
         # a mid-length video Gemini couldn't finish in one go: build it in parts (shorter clips are what it handles)
-        if (meta.get("length_s") or 0) > PARTS_FALLBACK_MIN_S and "gemini" in engines():
+        if (meta.get("length_s") or 0) > PARTS_FALLBACK_MIN_S and "gemini" in engines() and not gemini.is_down():
             log.warning("one-pass build failed (%s); building in parts", str(e)[:150])
             _emit("planning", "retrying in parts")
             try:
@@ -568,20 +574,29 @@ def human_error(err: str, meta: dict | None = None) -> str:
     """A sentence a learner can act on, followed by the technical detail (the app shows the first line)."""
     e = err.lower()
     why = []
-    if "quota" in e or "resource_exhausted" in e:
+    billing = "402" in e or "payment required" in e or "prepayment" in e or "credits are depleted" in e or "billing" in e
+    if billing:
+        why.append("Gemini credits are used up (top up at ai.studio/projects)")
+    elif "quota" in e or "resource_exhausted" in e:
         why.append("Gemini's quota is used up")
-    if "429" in e and ("timedtext" in e or "transcript" in e or "youtube" in e):
-        why.append("YouTube is rate-limiting caption downloads on this network")
-    if "no answer within" in e:
-        why.append("Gemini didn't finish watching in time")
-    if "api key" in e or "unauthenticated" in e or "permission_denied" in e:
-        why.append("an API key was rejected")
-    if "no transcript" in e and not any("YouTube" in w for w in why):
+    blocked = "429" in e and ("timedtext" in e or "transcript" in e or "youtube" in e or "caption" in e)
+    if blocked:
+        why.append("YouTube is blocking transcripts on this network")
+    elif "no transcript" in e:
         why.append("the video's captions couldn't be read")
+    if "no answer within" in e and not billing:
+        why.append("Gemini didn't finish watching in time")
+    if ("api key" in e or "unauthenticated" in e or "permission_denied" in e) and not billing:
+        why.append("an API key was rejected")
     length = (meta or {}).get("length_s")
     head = "Couldn't read this video" + (f" ({gemini._mmss(length)} long)" if length else "")
-    tip = " Try a shorter video from the same search." if (length or 0) > 10 * 60 else ""
-    return f"{head}: {'; '.join(why) or 'both engines failed'}.{tip}\n(no engine could build the lesson) {err[:600]}"
+    if billing or blocked:
+        tip = " Try a saved lesson, or switch to your phone hotspot."
+    elif (length or 0) > 10 * 60:
+        tip = " Try a shorter video from the same search."
+    else:
+        tip = ""
+    return f"{head}: {' and '.join(why) or 'both engines failed'}.{tip}\n(no engine could build the lesson) {err[:600]}"
 
 
 def _short_reason(err: str) -> str:

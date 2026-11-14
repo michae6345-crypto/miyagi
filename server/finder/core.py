@@ -31,7 +31,7 @@ from urllib.parse import urlparse
 
 import httpx
 
-from . import brightdata, cache, claude, gemini, sources, youtube
+from . import brightdata, cache, claude, env, gemini, sources, youtube
 from .env import Keys, resolve_keys
 from .verify import verify
 
@@ -60,7 +60,7 @@ async def search(
     *,
     use_cache: bool = True,
     refresh: bool = False,
-    skim_top: int = 3,
+    skim_top: int | None = None,
     emit_updates: bool = False,
 ) -> list[dict]:
     """Stream `search.result` payloads (+ "url") through on_result as they are found,
@@ -80,7 +80,8 @@ async def search(
                 await _safe(on_result, r)
             return hit["results"]
 
-    run = _Run(query, resolve_keys(api_keys), on_result, skim_top=skim_top, emit_updates=emit_updates)
+    run = _Run(query, resolve_keys(api_keys), on_result, skim_top=env.skim_top() if skim_top is None else skim_top,
+               emit_updates=emit_updates)
     results = await run.go()
     if results and os.environ.get("FINDER_CACHE", "1") != "0":
         cache.save(query, results, run.info())
@@ -182,18 +183,17 @@ def _short_err(e: BaseException) -> str:
     return (f"Bright Data HTTP {m.group(1)}: " if m and m.group(1) else "Bright Data: ") + (m.group(2) if m else msg)[:70]
 
 
-LONG_S = 45 * 60
-
-
 def video_fields(c: dict) -> None:
-    """durationLabel ('1 h 56 min · 30 chapters') and the long flag (> 45 min) for video rows."""
+    """durationLabel ('1 h 56 min · 30 chapters') and the long flag for video rows. 'long' uses the
+    lesson builder's own threshold (LESSON_LONG_VIDEO_S, 30 min), above which it builds progressively,
+    so the result list and the build agree."""
     if c["kind"] != "video" or not c.get("duration_s"):
         return
     label = youtube.duration_label(c["duration_s"])
-    c["long"] = c["duration_s"] > LONG_S
+    c["long"] = c["duration_s"] > env.long_video_s()
     if c["long"]:
         ch = c.get("chapters") or 0
-        label += f" · {ch} chapters, builds chapter by chapter" if ch >= 5 else " · no chapters"
+        label += f" · {ch} chapters, builds chapter by chapter" if ch >= 5 else " · no chapters, builds part by part"
     c["durationLabel"] = label
 
 
@@ -221,7 +221,10 @@ class _Run:
         self.inflight: list[dict] = []
         self.pending_evt = asyncio.Event()
         self.sources_done = False
-        self.gemini_ok = bool(keys.gemini)
+        self.gemini_ok = bool(keys.gemini)  # for the video skim, only when skim_top > 0
+        self.gemini_fallback = self.gemini_ok and env.gemini_fallback()  # Gemini scoring if Claude fails (opt-in)
+        self.video_top = 3  # top videos that get Bright Data comments
+        self.watching = 0   # videos handed to Gemini so far
         self.plan_used: dict = {}
         self.timings: dict[str, float] = {}
         self.ctx: sources.Ctx | None = None
@@ -366,7 +369,8 @@ class _Run:
     async def _score_and_emit(self, batch: list[dict]) -> None:
         # the first batch must land fast (first result < 4 s); later ones can take longer
         first = not self.cands
-        timeout = 4.5 if first else max(1.5, min(9.0, self.left(margin=5)))
+        # first batch: Claude gets 7 s (Gemini races it after 3 s when it can); later batches more
+        timeout = 7.0 if first else max(1.5, min(9.0, self.left(margin=5)))
         # small chunks in parallel: Claude answers ~4 items much faster than 8+
         scores = await self._score_chunks(batch, timeout=timeout, hedge_after=2.5, size=4 if first else 6,
                                           race_after=3.0 if first else None)
@@ -395,7 +399,7 @@ class _Run:
             rows land fast) if Claude hasn't answered after `race_after` s; first answer wins.
             Keyword scores only if both fail."""
             claude_ok = bool(self.keys.anthropic) and self.left(margin=1.5) > 1.5
-            gemini_ok = self.gemini_ok and self.left(margin=1.5) > 1.5
+            gemini_ok = self.gemini_fallback and self.left(margin=1.5) > 1.5
             tasks: dict[asyncio.Task, str] = {}
             if claude_ok:
                 tasks[asyncio.create_task(by_claude(ch))] = "claude"
@@ -457,7 +461,7 @@ class _Run:
         """The model's score, then the ranking rules (deterministic, so the UI can explain them):
         - for a coding goal, a no-code resource is capped at 35 and a conceptual one at 60
           ("build an LLM" is not "use ChatGPT" or "build a Zapier bot");
-        - long videos (> 45 min) with chapters get +3 (followable), without chapters -5;
+        - long videos (> LESSON_LONG_VIDEO_S, 30 min) with chapters get +3 (followable), without chapters -5;
           captions +1."""
         s = c.get("raw", 0)
         style = c.get("style")
@@ -475,15 +479,17 @@ class _Run:
     # ---- deep pass: skim the top videos (+ Bright Data comments), calibrate all scores
 
     def _start_skims(self) -> None:
-        """Gemini watches the current top videos; Claude reads the top pages. Both start as soon as
-        rows are scored (alongside the other sources)."""
+        """Bright Data reads the top videos' comments (and Gemini skims them when FINDER_SKIM_TOP > 0);
+        Claude reads the top pages. All start as soon as rows are scored (alongside the other sources)."""
         if self.left(margin=2) < 3:
             return
         ranked = sorted(self.cands.values(), key=lambda c: -c["score"])
         videos = [c for c in ranked if c["kind"] == "video"]
         pages = [c for c in ranked if c["kind"] != "video"]
-        for v in videos[: self.skim_top]:
-            if v["id"] not in self.skims and len(self.skims) < self.skim_top + 1:
+        for v in videos[: self.video_top]:
+            if v["id"] not in self.skims and len(self.skims) < self.video_top + 1:
+                v["_watch"] = self.watching < self.skim_top  # Gemini skim is opt-in (FINDER_SKIM_TOP)
+                self.watching += int(v["_watch"])
                 self.skims[v["id"]] = asyncio.create_task(self._skim(v))
         for c in pages[: self.read_top]:
             if c["id"] not in self.reads and len(self.reads) < self.read_top + 1:
@@ -543,6 +549,8 @@ class _Run:
                 v["comments"] = "comments not read: " + _short_err(e)
 
         async def watch() -> None:
+            if not v.get("_watch"):
+                return  # skim off (default): no Gemini call, and no "watched" label on the row
             if not self.gemini_ok:
                 return self._not_watched(v, "no Gemini key")
             try:
@@ -564,7 +572,7 @@ class _Run:
             """Second chance for rows that only got a keyword score (the scorer was slow the first time)."""
             nonlocal cal
             items = [c for c in self.cands.values() if c.get("scored_by") == "keywords"]
-            if not (self.gemini_ok or self.keys.anthropic) or not items or self.left(margin=1) < 1.5:
+            if not (self.gemini_fallback or self.keys.anthropic) or not items or self.left(margin=1) < 1.5:
                 return
             cal = await self._score_chunks(items, timeout=self.left(margin=1), hedge_after=2.0)
 
@@ -579,7 +587,7 @@ class _Run:
                 c = self.cands.get(cid)
                 if t in late and c is not None and c["kind"] == "video" and not c.get("comments") and self.keys.has_brightdata:
                     c["comments"] = "comments not read: Bright Data timeout"
-                if t in late and c is not None and not c.get("watched"):
+                if t in late and c is not None and not c.get("watched") and (c["kind"] != "video" or c.get("_watch")):
                     self._not_watched(c, f"{'Gemini' if c['kind'] == 'video' else 'Claude'} ran out of time")
         self.timings["deep"] = self.elapsed()
 

@@ -1,5 +1,6 @@
 """Speculative pre-builds: start building a lesson before the learner clicks Build.
 
+Opt-in: only active with ORCH_PREBUILD=1 (it spends model calls on videos that may never be picked).
 The orchestrator calls prebuild() for the top 1-2 video results as soon as search.done lands (and
 for the picked video when preflight starts). When the learner clicks Build, build_lesson() attaches
 to the in-flight or finished job instead of starting over: it replays the progress stages and the
@@ -78,6 +79,8 @@ def prebuild(url: str, goal: str, workdir: str, *, video_meta: dict | None = Non
     for this video is running or finished, False if it was skipped (cap reached or not a YouTube URL)."""
     from .gemini import youtube_id
 
+    if os.environ.get("ORCH_PREBUILD", "0") != "1":  # opt-in: speculative builds cost money even when unused
+        return False
     vid = youtube_id(url)
     if not vid:
         return False
