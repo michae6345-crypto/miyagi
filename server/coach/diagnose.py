@@ -269,7 +269,9 @@ async def _opus(step, failed_checks, metrics_text, flags, code_excerpt, error_te
             timeout=40.0,
         )
     except llm.CoachLLMError as e:
-        log.warning("opus diagnose failed (%s); using playbook fallback", e)
+        if not llm.demo_mode():
+            raise llm.CoachUnavailable(f"diagnosis unavailable: {e}") from e
+        log.warning("opus diagnose failed (%s); DEMO=1 so using the offline playbook card", e)
         mode, conf = match(code_excerpt, flags, error_text)
         if mode and conf >= 0.4:
             card = playbook_card(step, mode, code_excerpt, severity="fail" if error_text else "warn")

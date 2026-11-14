@@ -20,9 +20,11 @@ EVENT_ACTIONS = {"explain", "show_me", "apply_fix", "hint"}
 
 @pytest.fixture(autouse=True)
 def _isolate(monkeypatch):
-    for k in ("ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN", "COACH_REPLAY_DIR", "COACH_RECORD_DIR", "BRIGHTDATA_API_KEY"):
+    for k in ("ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN", "COACH_REPLAY_DIR", "COACH_RECORD_DIR", "BRIGHTDATA_API_KEY",
+              "BRIGHTDATA_SERP_ZONE", "BRIGHTDATA_UNLOCKER_ZONE", "DEMO", "TUT_ENV"):
         monkeypatch.delenv(k, raising=False)
     monkeypatch.setattr(llm, "_load_env", lambda: None)
+    monkeypatch.setattr(llm, "_local_keys", {})
     LAST.clear()
     common.set_lesson(LESSON)
     yield
@@ -68,7 +70,14 @@ def test_diagnose_pinn_flat_loss_card(replay):
     assert card["_meta"]["route"] == "opus" and card["_meta"]["triage"]["by"] == "rules"
 
 
-def test_diagnose_without_api_falls_back_to_playbook_card():
+def test_diagnose_without_api_raises_outside_demo():
+    """No-fake rule: no key → CoachUnavailable, never a canned card."""
+    with pytest.raises(coach.CoachUnavailable, match="no ANTHROPIC_API_KEY"):
+        run(coach.diagnose(STEP, FAILED_CHECKS, METRICS, CODE))
+
+
+def test_diagnose_without_api_in_demo_mode_uses_playbook_card(monkeypatch):
+    monkeypatch.setenv("DEMO", "1")
     card = run(coach.diagnose(STEP, FAILED_CHECKS, METRICS, CODE))
     assert_offtrack(card)
     assert card["_meta"]["route"] == "playbook"
@@ -136,7 +145,7 @@ def test_opus_request_shape(monkeypatch):
     assert card["_meta"]["usage"]["cache_read_input_tokens"] == 3000
 
 
-def test_refusal_falls_back(monkeypatch):
+def test_refusal_raises_outside_demo(monkeypatch):
     class FakeBeta:
         async def create(self, **kw):
             return SimpleNamespace(stop_reason="refusal", model=kw["model"], content=[], usage=None)
@@ -145,8 +154,10 @@ def test_refusal_falls_back(monkeypatch):
     fake.with_options = lambda **_: fake
     monkeypatch.setattr(llm, "get_client", lambda: fake)
     monkeypatch.setenv("ANTHROPIC_API_KEY", "test")
-    card = run(coach.diagnose(STEP, FAILED_CHECKS, METRICS, CODE))
-    assert card["_meta"]["route"] == "playbook"
+    with pytest.raises(coach.CoachUnavailable, match="refusal"):
+        run(coach.diagnose(STEP, FAILED_CHECKS, METRICS, CODE))
+    monkeypatch.setenv("DEMO", "1")
+    assert run(coach.diagnose(STEP, FAILED_CHECKS, METRICS, CODE))["_meta"]["route"] == "playbook"
 
 
 def test_lesson_context_is_byte_stable():
@@ -236,7 +247,10 @@ def test_explain_with_video_jump(replay):
     assert card["videoJump"] == {"t": 548.0, "label": "Explained at 9:08"}
 
 
-def test_explain_offline_uses_keyword_jump():
+def test_explain_offline_uses_keyword_jump(monkeypatch):
+    with pytest.raises(coach.CoachUnavailable):
+        run(coach.explain(STEP, "why does large beta make training hard?", {}))
+    monkeypatch.setenv("DEMO", "1")
     card = run(coach.explain(STEP, "why does large beta make training hard?", {}))
     assert card["kind"] == "answer" and card["videoJump"]["t"] == 548.0
 
@@ -271,8 +285,25 @@ def test_fix_outdated_known_offline():
     assert r["citation"]["url"].startswith("https://numpy.org/") and r["diff"]["yours"] == "np.float"
 
 
-def test_fix_outdated_without_brightdata_returns_none():
-    assert run(coach.fix_outdated("TypeError: foo() got an unexpected keyword argument 'bar'", ["torch"])) is None
+def test_fix_outdated_without_brightdata_raises():
+    with pytest.raises(coach.OutdatedFixUnavailable, match="not configured") as e:
+        run(coach.fix_outdated("TypeError: foo() got an unexpected keyword argument 'bar'", ["torch"]))
+    assert e.value.reason
+
+
+def test_fix_outdated_no_pages_raises(fake_web):
+    with pytest.raises(coach.OutdatedFixUnavailable, match="no docs"):
+        run(coach.fix_outdated("Error: obscure failure in zzz-tool", ["zzz-tool"]))
+
+
+def test_byok_keys_win_over_env(monkeypatch):
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "from-env")
+    assert llm.get_key("anthropic") == "from-env"
+    coach.set_keys({"anthropic": "from-app", "brightdata": "postgres://..."})  # placeholder ignored
+    assert llm.get_key("anthropic") == "from-app" and llm.get_key("brightdata") is None
+    assert llm.get_client().api_key == "from-app"
+    coach.set_keys({"anthropic": ""})
+    assert llm.get_key("anthropic") == "from-env" and llm.get_client().api_key == "from-env"
 
 
 E4_SRC = '''import torch

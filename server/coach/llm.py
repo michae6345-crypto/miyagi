@@ -1,8 +1,10 @@
 """Thin wrapper over the Anthropic SDK: structured JSON out, prompt caching,
 record/replay fixtures so tests and the demo never need the network.
 
-Env (loaded from ./.env, then the shared main-checkout .env or $TUT_ENV):
-  ANTHROPIC_API_KEY        normal SDK credential (loaded from .env if present)
+Keys (bring-your-own-key): the app's keys via `set_keys()` / `server.config`, else env
+(./.env, plus the file at $TUT_ENV if set):
+  ANTHROPIC_API_KEY        Anthropic credential
+  DEMO=1                   demo mode: offline playbook cards are allowed when the API fails
   COACH_REPLAY_DIR         read responses from fixtures instead of calling the API
   COACH_RECORD_DIR         write every live response to a fixture file
 """
@@ -28,7 +30,26 @@ FIXTURES_DIR = Path(__file__).parent / "fixtures"
 
 
 class CoachLLMError(RuntimeError):
-    """Any failure to get a usable structured answer (callers fall back to the playbook)."""
+    """Any failure to get a usable structured answer from the model."""
+
+
+class CoachUnavailable(RuntimeError):
+    """The coach could not produce a real answer (no key, API error, refusal...).
+
+    Raised instead of returning a canned card outside DEMO=1. `reason` is safe to show.
+    """
+
+    def __init__(self, reason: str):
+        super().__init__(reason)
+        self.reason = reason
+
+
+class OutdatedFixUnavailable(CoachUnavailable):
+    """fix_outdated() could not search or read the docs (no Bright Data config, fetch/model failure)."""
+
+
+def demo_mode() -> bool:
+    return os.environ.get("DEMO", "").strip() == "1"
 
 
 @dataclass
@@ -41,37 +62,73 @@ class CallResult:
 
 
 _client = None
+_client_key: str | None = None
+_local_keys: dict[str, str] = {}
 
-
-SHARED_ENV = "/Users/tripi/sand hacks/sandhacks-tutor/.env"  # main checkout; worktrees have none
+KEY_ENV = {"anthropic": "ANTHROPIC_API_KEY", "brightdata": "BRIGHTDATA_API_KEY"}
 
 
 def _load_env() -> None:
-    """Local .env first, then the shared one (TUT_ENV overrides its path). Never overrides set vars."""
+    """./.env (searched upward from cwd), then $TUT_ENV if set. Never overrides set vars."""
     try:
         from dotenv import find_dotenv, load_dotenv
     except ImportError:  # pragma: no cover - dotenv is optional at runtime
         return
     if local := find_dotenv(usecwd=True):
         load_dotenv(local)
-    shared = os.environ.get("TUT_ENV", SHARED_ENV)
-    if os.path.isfile(shared):
+    if (shared := os.environ.get("TUT_ENV")) and os.path.isfile(shared):
         load_dotenv(shared)
 
 
+def set_keys(keys: dict) -> None:
+    """Bring-your-own-key: store the app's keys (names as in events.ts `config.keys`).
+
+    Delegates to `server.config.set_app_keys` when that module exists, so every engine
+    module sees the same keys. Keys live in memory only and are never logged.
+    """
+    try:
+        from server.config import set_app_keys  # type: ignore
+    except ImportError:
+        for name, v in (keys or {}).items():
+            v = (v or "").strip()
+            if v and "..." not in v:
+                _local_keys[name] = v
+            else:
+                _local_keys.pop(name, None)
+        return
+    set_app_keys(keys)
+
+
+def get_key(name: str) -> str | None:
+    """App key > environment (.env) > None. `name` is a config.keys name or an env var name."""
+    try:
+        from server.config import get_key as shared_get_key  # type: ignore
+    except ImportError:
+        shared_get_key = None
+    if shared_get_key is not None:
+        if v := shared_get_key(name):
+            return v
+    elif name in _local_keys:
+        return _local_keys[name]
+    _load_env()
+    v = os.environ.get(KEY_ENV.get(name, name), "")
+    return v if v and "..." not in v else None
+
+
 def get_client():
-    global _client
-    if _client is None:
-        _load_env()
+    """AsyncAnthropic bound to the current key; rebuilt when the app sends a new key."""
+    global _client, _client_key
+    key = get_key("anthropic")
+    if _client is None or key != _client_key:
         import anthropic
 
-        _client = anthropic.AsyncAnthropic(max_retries=1, timeout=45.0)
+        _client = anthropic.AsyncAnthropic(api_key=key, max_retries=1, timeout=45.0) if key else anthropic.AsyncAnthropic(max_retries=1, timeout=45.0)
+        _client_key = key
     return _client
 
 
 def has_credentials() -> bool:
-    _load_env()
-    return bool(os.environ.get("ANTHROPIC_API_KEY") or os.environ.get("ANTHROPIC_AUTH_TOKEN"))
+    return bool(get_key("anthropic") or get_key("ANTHROPIC_AUTH_TOKEN"))
 
 
 def _key(purpose: str, user_text: str) -> str:

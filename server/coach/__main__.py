@@ -53,6 +53,7 @@ def _print_card(card: dict) -> None:
 async def demo(args) -> None:
     if args.replay or (not args.live and not llm.has_credentials()):
         os.environ.setdefault("COACH_REPLAY_DIR", str(llm.FIXTURES_DIR))
+        os.environ.setdefault("DEMO", "1")  # replay is demo mode: offline cards allowed
         print(f"(replaying recorded fixture from {os.environ['COACH_REPLAY_DIR']}; use --live with ANTHROPIC_API_KEY for a real call)\n")
     if args.record:
         os.environ["COACH_RECORD_DIR"] = str(llm.FIXTURES_DIR)

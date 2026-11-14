@@ -116,7 +116,9 @@ async def explain(step: dict, question: str | None = None, context: dict | None 
         cit = resolve_citation(d.get("citation_id"), lesson, sources)
         meta = {"web_sources": [x["url"] for x in sources], "model": res.model, "latency_s": round(res.latency_s, 2), "usage": res.usage, "source": res.source}
     except llm.CoachLLMError as e:
-        log.warning("explain failed (%s); deterministic card", e)
+        if not llm.demo_mode():
+            raise llm.CoachUnavailable(f"explanation unavailable: {e}") from e
+        log.warning("explain failed (%s); DEMO=1 so using the offline card", e)
         idx = det_idx
         body = last.get("body") if last else step.get("instructions", "")
         card = {"stepId": step.get("id"), "kind": kind, "title": clamp_title(last.get("title") if last else step.get("title", "")), "body": body}
