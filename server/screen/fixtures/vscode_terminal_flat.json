@@ -1,0 +1,32 @@
+{
+  "screen": {
+    "x": 0.0,
+    "y": 0.0,
+    "w": 1728.0,
+    "h": 1117.0
+  },
+  "scale": 2.0,
+  "app": "Terminal",
+  "windows": [
+    {
+      "app": "Terminal",
+      "title": "tripi \u2014 fake_train.py --flat \u2014 102\u00d744",
+      "rect": {
+        "x": 980.0,
+        "y": 380.0,
+        "w": 740.0,
+        "h": 720.0
+      }
+    },
+    {
+      "app": "Code",
+      "title": "pinn_convection.py \u2014 pinn_demo",
+      "rect": {
+        "x": 0.0,
+        "y": 33.0,
+        "w": 865.0,
+        "h": 1001.0
+      }
+    }
+  ]
+}
