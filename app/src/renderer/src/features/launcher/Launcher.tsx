@@ -37,11 +37,11 @@ import { getIslandModes, type IslandMode } from '../../core/registry'
 import { triggerShortcut } from '../../core/shortcuts'
 import { MiyagiMark } from '../../core/ui/Mark'
 import { Spinner } from '../../core/ui/atoms'
-import { color, copy, pill, radius, spring, springOut } from '../../core/theme'
+import { brand, color, copy, fill, launcher as launcherTheme, pill, radius, scrim, shadows, spring, springOut } from '../../core/theme'
 import { Action, Chip, Hint, Rise } from './parts'
 import { LinkRow, MessageRow, ResultRow, ROW_H, SkeletonRow } from './Rows'
 import { setLauncherOpen, startSearch, useSearch } from './store'
-import { chipTones, pastel, tint } from './tint'
+import { chipTones } from './tint'
 import { parseYouTube } from './youtube'
 
 type Phase = 'closed' | 'open' | 'closing' | 'building' | 'sending'
@@ -51,8 +51,8 @@ type Size = { w: number; h: number }
 /** What Enter (and the footer action) would do right now. Mirrors submit(). */
 type Act = 'ask' | 'build' | 'search' | 'searching' | 'none'
 
-/** Launcher width when grown out of the notch (theme.launcher.width is still the old 720: see Core requests). */
-const WIDTH = 640
+/** Launcher width when grown out of the notch. */
+const WIDTH = launcherTheme.width
 const MAX_ROWS = 4
 const SKELETONS = 3
 /** Minimum gap between two rows' entrances, in seconds. */
@@ -73,7 +73,7 @@ const shapeOf = (s: Size): TargetAndTransition => ({
   width: s.w,
   height: s.h,
   borderRadius: isPillSized(s) ? s.h / 2 : radius.island,
-  boxShadow: isPillSized(s) ? tint.pillShadow : tint.cardShadow
+  boxShadow: isPillSized(s) ? shadows.pill : shadows.card
 })
 
 /** Exits hand the island back once the shape is within a pixel (no waiting on a sub-pixel settle). */
@@ -333,7 +333,7 @@ export function Launcher({ layout }: { layout: Layout }): ReactNode {
   // ---- motion targets -------------------------------------------------------------------------
 
   const exiting = phase === 'closing' || phase === 'building' || phase === 'sending'
-  const grown: TargetAndTransition = { width: WIDTH, height: contentH || from.h, borderRadius: radius.launcher, boxShadow: tint.cardShadow }
+  const grown: TargetAndTransition = { width: WIDTH, height: contentH || from.h, borderRadius: radius.launcher, boxShadow: shadows.card }
   /** Reduced motion: crossfade at full size. Exit targets keep every key (a dropped key ends the animation early). */
   const faded = { ...grown, opacity: 0 }
   let target: TargetAndTransition = { ...grown, opacity: 1 }
@@ -379,7 +379,7 @@ export function Launcher({ layout }: { layout: Layout }): ReactNode {
       {/* A light dim; click anywhere outside to collapse back into the island. */}
       <motion.div
         className="absolute inset-0"
-        style={{ background: tint.dim }}
+        style={{ background: scrim.launcher }}
         initial={{ opacity: 0 }}
         animate={{ opacity: phase === 'open' ? 1 : 0 }}
         transition={{ duration: phase === 'open' ? 0.16 : 0.24, ease: 'easeOut' }}
@@ -421,7 +421,7 @@ export function Launcher({ layout }: { layout: Layout }): ReactNode {
           <Rise i={1} className={`mx-[20px] ${mode === 'ask' ? 'mt-[10px]' : 'mt-[20px]'}`}>
             <div
               className="flex h-[52px] items-center gap-[12px] rounded-[14px] border px-[16px]"
-              style={{ background: tint.field, borderColor: tint.fieldBorder }}
+              style={{ background: fill.field, borderColor: fill.fieldBorder }}
             >
               <span className="grid w-[17px] shrink-0 place-items-center" style={{ color: color.label }}>
                 {busy ? (
@@ -452,8 +452,8 @@ export function Launcher({ layout }: { layout: Layout }): ReactNode {
 
           {mode === 'ask' ? (
             <Rise key="ask" i={2} className="flex flex-wrap gap-[8px] px-[20px] pt-[12px]">
-              <Chip icon={BookOpen} label="Explain this step" kbd={bridge.platform.keys.explain} tone={pastel.sky} onClick={() => quick('explain')} />
-              <Chip icon={Lightbulb} label="Give me a hint" kbd={bridge.platform.keys.hint} tone={pastel.pink} onClick={() => quick('hint')} />
+              <Chip icon={BookOpen} label="Explain this step" kbd={bridge.platform.keys.explain} tone={brand.pastel.sky} onClick={() => quick('explain')} />
+              <Chip icon={Lightbulb} label="Give me a hint" kbd={bridge.platform.keys.hint} tone={brand.pastel.pink} onClick={() => quick('hint')} />
             </Rise>
           ) : view === 'idle' ? (
             <Rise key="try" i={2} className="flex flex-wrap gap-[8px] px-[20px] pt-[12px]">
@@ -467,7 +467,7 @@ export function Launcher({ layout }: { layout: Layout }): ReactNode {
                 <div className="relative mx-[20px]" style={{ height: slots * ROW_H }}>
                   <motion.div
                     className="pointer-events-none absolute inset-x-0 top-0 rounded-[12px]"
-                    style={{ height: ROW_H, background: tint.highlight }}
+                    style={{ height: ROW_H, background: fill.highlight }}
                     initial={false}
                     animate={{ y: Math.max(0, highlight) * ROW_H, opacity: highlight >= 0 ? 1 : 0 }}
                     transition={spring}
@@ -501,7 +501,7 @@ export function Launcher({ layout }: { layout: Layout }): ReactNode {
 
           {/* Footer: the keys that apply right now. Words only when something is wrong. */}
           <Rise i={3}>
-            <div className="mt-[16px] h-px" style={{ background: tint.rule }} />
+            <div className="mt-[16px] h-px" style={{ background: fill.rule }} />
             <div className="flex h-[48px] items-center gap-[4px] pl-[24px] pr-[12px]">
               <span className="flex min-w-0 flex-1 items-center gap-[7px] text-[13px]" style={{ color: color.text }}>
                 {offline && <WifiOff size={13} strokeWidth={1.8} className="shrink-0" />}
@@ -511,7 +511,7 @@ export function Launcher({ layout }: { layout: Layout }): ReactNode {
               {lesson.hasLesson && (
                 <>
                   <Action label={mode === 'ask' ? 'New lesson' : 'Back to step'} keycap="⇥" enabled onClick={switchMode} />
-                  <span className="mx-[4px] h-[16px] w-px shrink-0" style={{ background: tint.rule }} />
+                  <span className="mx-[4px] h-[16px] w-px shrink-0" style={{ background: fill.rule }} />
                 </>
               )}
               <Action label={actLabel} keycap="↵" enabled={act === 'ask' || act === 'build' || act === 'search'} strong onClick={submit} />
