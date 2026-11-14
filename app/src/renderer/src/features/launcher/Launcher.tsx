@@ -27,7 +27,7 @@
 import { AnimatePresence, motion, useReducedMotion, type HTMLMotionProps, type TargetAndTransition, type Transition } from 'motion/react'
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, type ClipboardEvent, type KeyboardEvent, type ReactNode } from 'react'
 import { useShallow } from 'zustand/react/shallow'
-import { Aperture, BookOpen, Bot, Lightbulb, Mic, Waves, WifiOff, type LucideIcon } from 'lucide-react'
+import { Aperture, Bot, Mic, Waves, WifiOff, type LucideIcon } from 'lucide-react'
 import type { Layout } from '../../../../preload/api'
 import { cmd } from '../../../../common/wire'
 import { bridge } from '../../bridge'
@@ -36,8 +36,8 @@ import { useLesson, useProgress } from '../../core/lesson'
 import { getIslandModes, type IslandMode } from '../../core/registry'
 import { triggerShortcut } from '../../core/shortcuts'
 import { MiyagiMark } from '../../core/ui/Mark'
-import { Spinner } from '../../core/ui/atoms'
-import { brand, color, copy, fill, launcher as launcherTheme, pill, radius, scrim, shadows, spring, springOut } from '../../core/theme'
+import { OptionButton, Spinner } from '../../core/ui/atoms'
+import { color, copy, fill, launcher as launcherTheme, pill, radius, scrim, shadows, spring, springOut } from '../../core/theme'
 import { Action, Chip, Hint, Rise } from './parts'
 import { LinkRow, MessageRow, ResultRow, ROW_H, SkeletonRow } from './Rows'
 import { setLauncherOpen, startSearch, useSearch } from './store'
@@ -453,8 +453,8 @@ export function Launcher({ layout }: { layout: Layout }): ReactNode {
 
           {mode === 'ask' ? (
             <Rise key="ask" i={2} className="flex flex-wrap gap-[8px] px-[20px] pt-[12px]">
-              <Chip icon={BookOpen} label="Explain this step" kbd={bridge.platform.keys.explain} tone={brand.pastel.sky} onClick={() => quick('explain')} />
-              <Chip icon={Lightbulb} label="Give me a hint" kbd={bridge.platform.keys.hint} tone={brand.pastel.pink} onClick={() => quick('hint')} />
+              <OptionButton action="explain" label="Explain this step" kbd={bridge.platform.keys.explain} onClick={() => quick('explain')} />
+              <OptionButton action="hint" label="Give me a hint" kbd={bridge.platform.keys.hint} onClick={() => quick('hint')} />
             </Rise>
           ) : view === 'idle' ? (
             <Rise key="try" i={2} className="flex flex-wrap gap-[8px] px-[20px] pt-[12px]">

@@ -25,13 +25,14 @@ export function Equalizer({ tone, size = 19 }: { tone: string; size?: number }):
   // `level` lands with the voice agent's pass 2; read it without depending on its type until then.
   const level = useVoice((v) => (v as { level?: number }).level)
   const still = useReducedMotion()
+  const bar = size <= 16 ? 2.5 : 3
   return (
-    <span className="flex items-end justify-center gap-[3px]" style={{ width: size, height: size }} data-equalizer="">
+    <span className="flex items-end justify-center" style={{ width: size, height: size, gap: bar }} data-equalizer="">
       {BARS.map((b, i) => (
         <motion.i
           key={i}
-          className="block h-full w-[3px] rounded-full"
-          style={{ background: tone, originY: 1 }}
+          className="block h-full rounded-full"
+          style={{ width: bar, background: tone, originY: 1 }}
           initial={{ scaleY: b.rest }}
           animate={{ scaleY: still ? b.rest : level !== undefined ? Math.max(0.2, Math.min(1, b.rest * (0.4 + level))) : b.loop }}
           transition={

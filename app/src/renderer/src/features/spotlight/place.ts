@@ -13,7 +13,7 @@ export const HOLE_PAD = 8
 export const HOLE_MIN = { w: 44, h: 30 } as const
 export const HOLE_RADIUS = 12
 /** Caption: gap to the hole, distance kept from the screen edges, offset from the hole's top (mockup 04: 21). */
-export const CAPTION_GAP = 22
+export const CAPTION_GAP = 8
 export const EDGE_MARGIN = 16
 export const CAPTION_TOP_OFFSET = 21
 /** How far the caption may slide along the hole to get clear of other UI before it settles for covering a little of it. */

@@ -8,8 +8,8 @@ import { useShallow } from 'zustand/react/shallow'
 import { bridge } from '../../bridge'
 import { useLesson, useProgress, useStatus, type Status } from '../../core/lesson'
 import { defineFeature } from '../../core/registry'
-import { CheckList, StatusDot, Thumb } from '../../core/ui/atoms'
-import { clock, color } from '../../core/theme'
+import { CheckList, Kbd, StatusDot, Thumb } from '../../core/ui/atoms'
+import { clock, color, fill } from '../../core/theme'
 
 function Segments({ total, index, status }: { total: number; index: number; status: Status }): ReactNode {
   const current = status === 'offtrack' ? color.amber : status === 'passed' ? color.green : color.accent
@@ -20,7 +20,7 @@ function Segments({ total, index, status }: { total: number; index: number; stat
           key={i}
           className="h-[3px] flex-1 rounded-full"
           initial={false}
-          animate={{ background: i < index ? 'rgba(255,255,255,.88)' : i === index ? current : 'rgba(255,255,255,.18)' }}
+          animate={{ backgroundColor: i < index ? color.text : i === index ? current : fill.track }}
           transition={{ duration: 0.3 }}
         />
       ))}
@@ -34,13 +34,14 @@ function Overview(): ReactNode {
   const status = useStatus()
   const start = s.video ? clock(s.video.start) : undefined
   const end = s.video ? clock(s.video.end) : undefined
-  const footer = status === 'passed' ? 'Passed · the video picks up from here' : end ? `Video continues past ${end} when all pass` : 'Each step is auto-checked'
+  // One short fact, no sentence: where the video waits (or that this step passed).
+  const footer = status === 'passed' ? 'Passed' : end ? `Video waits at ${end}` : undefined
   return (
     <div className="px-[22px] pb-[16px] pt-[20px]">
       <div className="flex gap-[16px]">
         <Thumb w={120} h={68} time={start} />
         <div className="min-w-0 flex-1 pt-[2px]">
-          <div className="flex items-center gap-[7px] text-[13px] text-white/55">
+          <div className="flex items-center gap-[7px] text-[13px]" style={{ color: color.label }}>
             Step {index + 1} of {total} <StatusDot status={status} />
           </div>
           <div className="mt-[2px] truncate text-[20px] font-semibold tracking-[-0.015em]">{s.title}</div>
@@ -52,9 +53,11 @@ function Overview(): ReactNode {
           <CheckList checks={s.checks} />
         </div>
       )}
-      <div className="mt-[16px] flex items-center justify-between border-t pt-[12px] text-[13px] text-white/45" style={{ borderColor: 'rgba(255,255,255,.08)' }}>
-        <span>{footer}</span>
-        <span>Ask {bridge.platform.keys.launcher}</span>
+      <div className="mt-[16px] flex items-center justify-between gap-[8px] border-t pt-[12px] text-[13px]" style={{ borderColor: fill.rule, color: color.faint }}>
+        <span className="truncate">{footer}</span>
+        <span className="flex shrink-0 items-center gap-[8px]" style={{ color: color.label }}>
+          Ask <Kbd>{bridge.platform.keys.launcher}</Kbd>
+        </span>
       </div>
     </div>
   )
