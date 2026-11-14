@@ -1,0 +1,5 @@
+# Deliberate gaps for scripts/check_contract.py: one `category:name  # reason` per line.
+# Categories: event, card.kind, card.action, offtrack.action, action.kind, command, diagram.kind.
+# An entry only silences a finding while the gap exists; the check tells you when an entry is stale.
+# Example:
+#   card.action:open_in_browser  # web_app items open through shell.openExternal, no action is sent
