@@ -85,6 +85,7 @@ class LessonBuilding(_Model):
     message: str
     progress: float  # 0..1
     failed: bool | None = None  # the build ended in error; drop the building UI
+    elapsedS: float | None = None  # seconds since the build started (heartbeat); `message` changes only with the stage
 
 
 class GoalMatch(_Model):

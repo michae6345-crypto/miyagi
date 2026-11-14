@@ -65,7 +65,7 @@ class BuildStage(logging.Handler):
         ("daily quota exhausted", "Gemini is at its limit; trying another model"),
         ("too slow; switching engine", "Gemini is slow; reading the transcript instead"),
         ("video pass failed", "Couldn't watch the video; reading the transcript instead"),
-        ("video pass:", "Claude is writing the steps"),
+        ("video pass:", "Writing the steps"),
         ("claude adapt pass", "Fitting the checks to your project"),
         ("adapt attempt", "Fitting the checks to your project"),
         ("lesson built", "Finishing up"),
@@ -73,10 +73,10 @@ class BuildStage(logging.Handler):
 
     STAGE_LABELS = {  # E2's build_lesson(on_progress=...) stage ids (server.lesson.builder.STAGES)
         "cache_hit": "Loading the saved lesson",
-        "watching": "Gemini is watching the video",
+        "watching": "Watching the video",
         "reading_transcript": "Reading the transcript",
-        "writing_steps": "Claude is writing the steps",
-        "steps_ready": "Steps ready",
+        "writing_steps": "Writing the steps",
+        "steps_ready": "Writing the steps",
         "adapting": "Fitting the checks to your project",
         "done": "Finishing up",
     }
@@ -89,7 +89,7 @@ class BuildStage(logging.Handler):
 
     def __init__(self) -> None:
         super().__init__(level=logging.INFO)
-        self.text = "Gemini is watching the video"
+        self.text = "Watching the video"
         self.structured = False  # once the builder reports stages, ignore log matching
 
     def on_progress(self, stage: str, message: str = "") -> None:
@@ -99,9 +99,9 @@ class BuildStage(logging.Handler):
         if stage == "engine_switch":
             self.text = self.SWITCH_LABELS.get(msg, "Switching to the transcript")
         elif stage == "steps_ready":
-            self.text = "Steps ready (from the video)" if msg == "gemini" else "Steps ready (from the transcript)"
-        elif stage == "adapting" and msg == "retry":
-            self.text = "Fitting the checks to your project (second pass)"
+            self.text = "Fitting the checks to your project"
+        elif stage == "adapting":
+            self.text = "Fitting the checks to your project"
         elif stage in self.STAGE_LABELS:
             self.text = self.STAGE_LABELS[stage]
 
@@ -650,8 +650,9 @@ class LessonSession:
             expected = float(os.environ.get("ORCH_BUILD_EXPECTED_S", "60"))  # E2: fresh builds ~42-75 s
             while not done.is_set():
                 el = self.clock() - t0
-                msg = f"{stage.text} · {int(el) // 60}:{int(el) % 60:02d}" if el >= 1 else stage.text
-                self.build_progress = {"message": msg, "progress": round(min(0.95, el / expected), 2)}
+                # message = the stage only (changes when the stage does); the timer travels in elapsedS
+                self.build_progress = {"message": stage.text, "progress": round(min(0.95, el / expected), 2),
+                                       "elapsedS": round(el, 1)}
                 await self.emit("lesson.building", self.build_progress)
                 try:
                     await asyncio.wait_for(done.wait(), self.build_tick_s)

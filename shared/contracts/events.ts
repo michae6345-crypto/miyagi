@@ -23,7 +23,7 @@ export interface EngineEvents {
                      verified?: boolean; warnings?: string[]; scoredBy?: string; watched?: string;
                      prerequisites?: string[]; codeNotes?: string; comments?: string };
   "search.done": { total: number };
-  "lesson.building": { message: string; progress: number; failed?: boolean };   // progress 0..1 for the launcher; ~1/s while building; failed: true = the build ended in error (an `error` + status idle follow): drop the building UI
+  "lesson.building": { message: string; progress: number; failed?: boolean; elapsedS?: number };   // message = the stage (changes only with the stage); elapsedS = seconds since the build started (the 1 s heartbeat)   // progress 0..1 for the launcher; ~1/s while building; failed: true = the build ended in error (an `error` + status idle follow): drop the building UI
   "lesson.ready": { lesson: { id: string; title: string; sources: Source[]; complete?: boolean; builtBy?: "gemini" | "claude" | "mixed" | "unknown";
                               goalMatch?: { score: number | null; note: string } }; steps: StepSummary[] };   // complete false = a long video is still building (see lesson.updated)
   /** a long video's next part was built: new steps APPENDED (ids never change, earlier steps never edited) */

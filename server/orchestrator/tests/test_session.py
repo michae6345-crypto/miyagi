@@ -1030,10 +1030,12 @@ def test_build_stage_labels_come_from_on_progress(tmp_path, monkeypatch):
     rig.s.m.build_lesson = build
     run(rig.s.learn_url("https://www.youtube.com/watch?v=abcdefghijk"))
     msgs = [b["message"] for b in rig.of("lesson.building")]
-    for label in ("Gemini is watching the video", "Claude is writing the steps",
-                  "Gemini is rate-limited; using the transcript", "Steps ready (from the transcript)",
-                  "Fitting the checks to your project"):
-        assert any(m.startswith(label) for m in msgs), label
+    for label in ("Watching the video", "Writing the steps",
+                  "Gemini is rate-limited; using the transcript", "Fitting the checks to your project"):
+        assert label in msgs, label
+    beats = [b for b in rig.of("lesson.building") if "elapsedS" in b]
+    assert len(beats) > len(set(b["message"] for b in beats))  # heartbeats repeat the stage text unchanged
+    assert all(b["message"] == b["message"].split(" · ")[0] for b in beats)  # no timer in the text
     assert rig.of("lesson.ready")
 
 
