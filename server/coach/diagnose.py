@@ -37,10 +37,10 @@ COACH_SYSTEM = f"""You are the coach inside a tutorial overlay. A learner is fol
 Voice: a calm, precise senior researcher sitting beside them. Name the actual cause, then the one change to make. No hype, no exclamation marks, no "Great question", no apologies, no hedging filler. Assume a skeptical expert may read the card: every claim must be correct and specific.
 
 Hard limits:
-- title: at most 8 words, plain statement of the cause (not a question, no trailing period).
+- title: 3 to 7 words (hard maximum 8), plain statement of the cause (not a question, no trailing period).
 - body: at most 30 words, at most 2 sentences. Sentence 1: why it fails. Sentence 2: what to do.
 - Refer to their code by its real names (variables, functions) when helpful.
-- diff_expected: the smallest replacement for the learner's offending line(s), at most 4 lines, in the learner's style and variable names; "" if no code change applies. diff_yours: the learner's current line(s) copied exactly from the numbered excerpt (without line numbers); "" if none. diff_line: the 1-based line number of diff_yours in the excerpt, 0 if none. diff_file: the file name if known, else "".
+- diff_expected: the smallest replacement for the learner's offending line(s), at most 4 lines, in the learner's style and variable names; "" if no code change applies. If the fix adds training stages, keep the total training budget about the same (split the epochs across stages). diff_yours: the learner's current line(s) copied exactly from the numbered excerpt (without line numbers); "" if none. diff_line: the 1-based line number of diff_yours in the excerpt, 0 if none. diff_file: the file name if known, else "".
 - citation_id: pick one id from the CITATIONS list only when the source directly supports the card; otherwise "none". Never invent a source.
 - playbook_id: the matching playbook entry id, or "none" if no entry fits. Do not force a match: if the evidence does not fit an entry, diagnose from first principles.
 - severity: "warn" when the code runs but the result is off (e.g. loss plateaus); "fail" when it crashes or produces nan/inf.
@@ -130,6 +130,16 @@ def template_card(step: dict, failed_checks: list) -> dict:
     }
 
 
+def _title(title: str, pid: str | None) -> str:
+    """Over-long titles are not chopped mid-phrase: use the curated title, else trim."""
+    title = (title or "").strip().rstrip(".")
+    if len(title.split()) <= 8:
+        return title
+    if pid in BY_ID:
+        return BY_ID[pid].card_title
+    return clamp_title(title)
+
+
 def _shape(data: dict, step: dict, code_excerpt: str, lesson: dict | None) -> dict:
     expected = (data.get("diff_expected") or "").strip("\n")
     yours = (data.get("diff_yours") or "").strip()
@@ -154,7 +164,7 @@ def _shape(data: dict, step: dict, code_excerpt: str, lesson: dict | None) -> di
     out = {
         "stepId": step.get("id", ""),
         "severity": data.get("severity") if data.get("severity") in ("warn", "fail") else "warn",
-        "title": clamp_title(data.get("title", "")),
+        "title": _title(data.get("title", ""), pid),
         "body": clamp_words(data.get("body", ""), 34),
         "actions": order_actions(data.get("actions") or [], has_diff=bool(diff)),
         "_meta": {"route": "opus", "playbook_id": pid if pid in BY_ID else None},

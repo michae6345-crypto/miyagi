@@ -61,8 +61,10 @@ def test_diagnose_pinn_flat_loss_card(replay):
     assert card["severity"] == "warn"  # amber: it runs, it just doesn't learn
     assert "β" in card["title"] or "beta" in card["title"].lower()
     assert card["citation"]["url"] == "https://arxiv.org/abs/2109.01050"
-    assert card["diff"]["line"] == 40 and card["diff"]["file"] == "pinn_convection.py"
+    assert card["diff"]["file"] == "pinn_convection.py" and card["diff"]["line"] in (39, 40)
+    assert card["diff"]["yours"].endswith("train(model)") and "for beta in" in card["diff"]["expected"]
     assert "apply_fix" in card["actions"]
+    assert card["_meta"]["source"] == "replay" and card["_meta"]["model"] == "claude-opus-5-5"
     assert card["_meta"]["route"] == "opus" and card["_meta"]["triage"]["by"] == "rules"
 
 
@@ -111,7 +113,7 @@ def test_opus_request_shape(monkeypatch):
     class FakeBeta:
         async def create(self, **kw):
             seen.update(kw)
-            text = json.loads((llm.FIXTURES_DIR / "diagnose.json").read_text())["response"]["text"]
+            text = json.loads(next(llm.FIXTURES_DIR.glob("diagnose-*.json")).read_text())["response"]["text"]
             return SimpleNamespace(
                 stop_reason="end_turn", model=kw["model"],
                 content=[SimpleNamespace(type="thinking"), SimpleNamespace(type="text", text=text)],
@@ -182,9 +184,12 @@ def test_triage_cuda_error_is_instant_playbook(monkeypatch):
 
 
 def test_triage_ambiguous_uses_haiku(replay):
-    step = {"id": "s3", "title": "Run it", "instructions": "Run the script.",
-            "checks": [{"id": "c3", "type": "output_contains", "label": "prints done", "pattern": "done"}]}
-    t = run(coach.triage(step, [{"checkId": "c3", "status": "fail"}], set(), "print('hi')", "something odd"))
+    """Recorded live Haiku call: an MPS error no regex rule matches."""
+    step = {"id": "s3", "title": "Run training", "instructions": "Run the training script once.",
+            "checks": [{"id": "c3", "type": "command_exit_ok", "label": "script runs", "command": "python pinn.py"}]}
+    err = "Traceback (most recent call last):\n  File \"pinn.py\", line 41, in <module>\n    loss = residual(model, x, t)\nRuntimeError: Placeholder storage has not been allocated on MPS device!"
+    code = 'device = "mps"\nmodel = PINN().to(device)\nx = torch.rand(1000, 1)\nt = torch.rand(1000, 1)'
+    t = run(coach.triage(step, [{"checkId": "c3", "label": "script runs", "status": "fail"}], set(), code, err))
     assert t.by == "haiku" and t.route == "playbook" and t.playbook_id == "cuda_on_mac"
 
 
@@ -245,7 +250,7 @@ def test_hint_ladder(replay):
     assert levels[0]["body"].endswith("?")
     assert levels[1]["videoJump"]["t"] == 548.0
     assert levels[2]["citation"]["url"].endswith("2109.01050")
-    assert levels[3]["diff"]["yours"] == "train(model)" and levels[3]["actions"] == ["apply_fix"]
+    assert levels[3]["diff"]["yours"].endswith("train(model)") and levels[3]["actions"] == ["apply_fix"]
 
 
 def test_apply_fix_never_writes(tmp_path):

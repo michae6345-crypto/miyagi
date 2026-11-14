@@ -23,7 +23,7 @@ from .metrics import summarize
 log = logging.getLogger("coach.explain")
 
 EXPLAIN_TASK = """
-TASK NOW: explain, do not diagnose. Answer the learner's question (or, if there is no question, explain the reason behind the current card) for someone who just watched the tutorial. At most 60 words, plain prose, one idea per sentence, intuition first, then the precise statement. If one of the step's `explanations` moments in the video covers the topic, set explanation_index to its 0-based index in the step's explanations list, else -1. citation_id from the CITATIONS list or "none"."""
+TASK NOW: explain, do not diagnose. Answer the learner's question (or, if there is no question, explain the reason behind the current card) for someone who just watched the tutorial. At most 60 words, plain prose, one idea per sentence, intuition first, then the precise statement (no labels such as "Intuition:"; just the sentences). If one of the step's `explanations` moments in the video covers the topic, set explanation_index to its 0-based index in the step's explanations list, else -1. citation_id from the CITATIONS list or "none"."""
 
 CARD_SCHEMA = {
     "type": "object",

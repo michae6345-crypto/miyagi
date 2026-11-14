@@ -41,4 +41,4 @@ uv venv -p 3.12 .venv && uv pip install -p .venv -e "server[dev]"
 .venv/bin/python -m pytest server/coach -q                          # no network
 ```
 
-Fixtures live in `server/coach/fixtures/`. The current ones are hand-written stand-ins (no key was available when they were made). Re-record them with `--live --record`. Env: `ANTHROPIC_API_KEY`, `BRIGHTDATA_API_KEY`, `BRIGHTDATA_SERP_ZONE`, `BRIGHTDATA_UNLOCKER_ZONE`; `COACH_REPLAY_DIR` / `COACH_RECORD_DIR` for fixtures.
+Fixtures in `server/coach/fixtures/` are recorded live responses (Opus 5.5 diagnose + explain for the demo case, Haiku 5.5 triage for an MPS error), keyed by a hash of the request. Re-record with `--live --record` after changing the demo case. Env: `ANTHROPIC_API_KEY`, `BRIGHTDATA_API_KEY`, `BRIGHTDATA_SERP_ZONE`, `BRIGHTDATA_UNLOCKER_ZONE`; `COACH_REPLAY_DIR` / `COACH_RECORD_DIR` for fixtures.
