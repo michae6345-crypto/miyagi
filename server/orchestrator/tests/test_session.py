@@ -1242,3 +1242,49 @@ def test_engine_asks_to_resume_only_when_the_app_comes_back(tmp_path, monkeypatc
     assert e.app_returning() is True  # the app was closed and reopened
     e.session.graph["lesson"]["id"] = "a-different-lesson"
     assert e.app_returning() is False
+
+
+def test_nothing_from_an_ended_lesson_arrives_after_lesson_ended(rig):
+    """S1's 4 cases: an explain card, a diagram, a coach card and a diagram prefetch that finish after end_lesson."""
+    gate = asyncio.Event()
+
+    async def slow_explain(step, question, context):
+        await gate.wait()
+        return {"stepId": step["id"], "kind": "explain", "title": "late", "body": "late"}
+
+    async def slow_diagnose(step, failed, metrics, code, **kw):
+        await gate.wait()
+        return {"stepId": step["id"], "severity": "warn", "title": "late", "body": "b", "actions": ["hint"]}
+
+    async def slow_build(step, context):
+        await gate.wait()
+        return {"kind": "network", "caption": "late", "stepId": step["id"],
+                "data": {"layers": [2, 1], "activation": "tanh", "derivatives": ["u_t"], "residual": "r"}}
+
+    rig.s.m.explain = slow_explain
+    rig.s.m.diagnose = slow_diagnose
+    rig.s.m.forced.discard("diagrams")
+    rig.s.m.real["diagrams"] = types.SimpleNamespace(build=slow_build, clear_cache=lambda: None)
+
+    async def go():
+        await _to_step(rig, 5)
+        rig.write("beta = 30\n")
+        t_explain = asyncio.create_task(rig.s.action("explain"))
+        t_diagram = asyncio.create_task(rig.s.action("diagram", "network"))
+        await rig.s.ingest({"kind": "run_started", "run_id": "r1"})
+        await rig.s.ingest({"kind": "metric", "run_id": "r1",
+                            "metrics": [{"step": s, "name": "loss", "value": v} for s, v in PLATEAU]})
+        await rig.s.ingest({"kind": "run_ended", "run_id": "r1", "exit_code": 0})  # coach starts (slow)
+        await asyncio.sleep(0.01)
+        m = rig.mark()
+        await rig.s.end_lesson()
+        gate.set()
+        await asyncio.gather(t_explain, t_diagram, return_exceptions=True)
+        await asyncio.sleep(0.05)
+        return rig.since(m)
+
+    after = run(go())
+    types_ = [e["type"] for e in after]
+    assert "lesson.ended" in types_
+    tail = types_[types_.index("lesson.ended") + 1:]
+    assert not [t for t in tail if t in ("card", "diagram", "offtrack", "spotlight", "check.updated", "error")], tail

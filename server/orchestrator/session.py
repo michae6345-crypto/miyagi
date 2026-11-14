@@ -24,6 +24,7 @@ Flow:
 from __future__ import annotations
 
 import asyncio
+import contextvars
 import logging
 import math
 import os
@@ -42,6 +43,12 @@ log = logging.getLogger("orchestrator.session")
 Emit = Callable[[str, dict], Awaitable[None]]
 
 DIAGRAM_KINDS = ("network", "gradients", "heatmap")
+
+# The lesson "epoch" a piece of work belongs to. Every spawned task and every app action captures it when it
+# starts; the session's emit drops events from work whose epoch is no longer current (e.g. a coach card or a
+# diagram that finishes after end_lesson). Unset (None) = not tied to a lesson (end_lesson itself, search...).
+_EPOCH: contextvars.ContextVar[int | None] = contextvars.ContextVar("lesson_epoch", default=None)
+ALWAYS_SENT = {"lesson.ended"}
 
 
 def video_id_from_url(url: str) -> str | None:
@@ -178,7 +185,8 @@ class LessonSession:
         self.undo: tuple[Path, str] | None = None
         self.pending_patch: dict | None = None  # "Do it for me" preview awaiting confirm
         self.workspace = workspace  # workspace.Workspace (opens VS Code) or None
-        self.emit = emit
+        self._emit_raw = emit
+        self.lesson_epoch = 0  # bumped by load_graph and end_lesson
         self.screen = screen  # ScreenBridge / FakeScreen / None
         self.seen_interval_s = seen_interval_s
         self._last_seen = -1e9
@@ -244,9 +252,26 @@ class LessonSession:
         self.spot_rect: dict | None = None
         self.step_gen = getattr(self, "step_gen", 0) + 1  # invalidates stale timers/coach results
 
+    async def emit(self, type_: str, payload: dict | None = None) -> None:
+        ep = _EPOCH.get()
+        if ep is not None and ep != self.lesson_epoch and type_ not in ALWAYS_SENT:
+            log.info("dropped stale %s (lesson epoch %s, now %s)", type_, ep, self.lesson_epoch)
+            return
+        await self._emit_raw(type_, payload or {})
+
+    def _bind_epoch(self) -> None:
+        """Tie the current task's later emits to the current lesson."""
+        _EPOCH.set(self.lesson_epoch)
+
     def _spawn(self, coro, *, timer: bool = False) -> asyncio.Task:
-        """Background work. `timer` tasks (long sleeps) are not awaited by drain()."""
-        t = asyncio.create_task(coro)
+        """Background work, tied to the current lesson epoch. `timer` tasks (long sleeps) are not awaited by drain()."""
+        ep = self.lesson_epoch
+
+        async def bound():
+            _EPOCH.set(ep)
+            return await coro
+
+        t = asyncio.create_task(bound())
         (self._timers if timer else self._tasks).add(t)
         t.add_done_callback(self._task_done)
         return t
@@ -457,6 +482,13 @@ class LessonSession:
     async def end_lesson(self, reason: str = "end_lesson") -> None:
         """Stop everything: cancel the build / diagnosis / timers, clear spotlight + video, record it,
         then `lesson.ended` + `status idle`. Safe to call when nothing is running."""
+        token = _EPOCH.set(None)  # end_lesson's own messages must always go out, whoever calls it
+        try:
+            await self._end_lesson(reason)
+        finally:
+            _EPOCH.reset(token)
+
+    async def _end_lesson(self, reason: str) -> None:
         lesson_id = (self.graph or {}).get("lesson", {}).get("id")
         had_lesson = self.graph is not None
         await self.cancel_build()
@@ -466,8 +498,11 @@ class LessonSession:
         if had_lesson:
             self._record("lesson_ended", {"reason": reason})
             self.m.clear_diagrams()  # no diagram (or prefetch) may leak into the next lesson
-        for t in list(self._timers):
-            t.cancel()
+        self.lesson_epoch += 1  # anything still running for the old lesson can no longer emit
+        me = asyncio.current_task()
+        for t in list(self._timers) + list(self._tasks):
+            if t is not me:
+                t.cancel()
         self._reset_step_state()  # bumps step_gen: stale coach/metric/advance tasks become no-ops
         self.graph, self.idx, self.phase, self.runs = None, -1, "idle", {}
         self.pending_patch, self.undo, self.build_progress = None, None, None
@@ -546,6 +581,8 @@ class LessonSession:
         await self._status("idle" if self.graph is None else "watching")
 
     async def load_graph(self, graph: dict) -> None:
+        self.lesson_epoch += 1
+        self._bind_epoch()  # this task (the build / autostart) now speaks for the new lesson
         self.graph = graph
         self.runs = {}
         new_wd = str(config.resolve_workdir(graph.get("lesson", {}).get("workdir")))
@@ -1143,6 +1180,7 @@ class LessonSession:
         if kind == "end_lesson":  # the resume card's "Start a new lesson"
             await self.end_lesson("end_lesson")
             return
+        token = _EPOCH.set(self.lesson_epoch)  # a card that finishes after end_lesson is dropped
         try:
             await self._action(kind, text)
         except Exception as e:  # live mode: a missing/failing module is reported, never faked
@@ -1150,6 +1188,8 @@ class LessonSession:
             await self.emit("error", {"message": f"{kind}: {e}"})
             if self.step is not None:
                 await self._status("offtrack" if self.last_offtrack else ("passed" if self.passed else "watching"))
+        finally:
+            _EPOCH.reset(token)
 
     async def _action(self, kind: str, text: str | None = None) -> None:
         step = self.step
