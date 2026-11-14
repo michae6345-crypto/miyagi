@@ -13,8 +13,9 @@ import type { StepSummary, VideoSegment } from '../../../../../../shared/contrac
 import type { Layout } from '../../../../preload/api'
 import { bridge, isElectron } from '../../bridge'
 import { useLesson, useProgress, useStatus } from '../../core/lesson'
-import { clock, color, radius, shadow, spring } from '../../core/theme'
+import { clock, color, copy, radius, shadow, spring } from '../../core/theme'
 import { CheckIcon, Spinner, StatusDot } from '../../core/ui/atoms'
+import { MiyagiMark } from '../../core/ui/Mark'
 import { dockRect } from './dock'
 import { attachPlayer, inGate, player, usePlayer } from './store'
 
@@ -72,14 +73,18 @@ function Header(): ReactNode {
   const status = useStatus()
   return (
     <div className="flex h-[44px] shrink-0 items-center gap-[9px] px-[16px]" style={drag}>
-      <StatusDot status={status} />
-      <span className="truncate text-[13px] font-semibold text-white/90">{title ?? 'Lesson'}</span>
+      {/* Like the notch pill: the bonsai on the left, the status dot on the right. */}
+      <MiyagiMark size={14} />
+      <span className="truncate text-[13px] font-semibold" style={{ color: color.text }}>
+        {title ?? 'Lesson'}
+      </span>
       <span className="flex-1" />
       {hasStep && (
         <span className="shrink-0 text-[12px] tabular-nums" style={{ color: color.faint }}>
           Step {index + 1} of {total}
         </span>
       )}
+      <StatusDot status={status} />
       {isElectron && (
         <button
           className="grid h-[24px] w-[24px] cursor-pointer place-items-center rounded-[7px] text-white/55 hover:bg-white/10 hover:text-white"
@@ -152,7 +157,8 @@ function Waiting(): ReactNode {
   const checks = useLesson((s) => s.checks)
   const offtrack = useLesson((s) => !!s.offtrack)
   const done = checks.filter((c) => c.status === 'pass').length
-  const tone = offtrack ? color.amber : color.accent
+  // Amber only for off track; otherwise Miyagi is watching (gray).
+  const tone = offtrack ? color.amber : color.gray
   return (
     <motion.div className="pointer-events-none absolute inset-0 grid place-items-center bg-black/55 backdrop-blur-[10px]" {...fade}>
       <motion.div className="flex flex-col items-center px-6 text-center" {...rise}>
@@ -169,7 +175,7 @@ function Waiting(): ReactNode {
                   key={c.id}
                   className="h-[7px] w-[7px] rounded-full"
                   initial={false}
-                  animate={{ background: c.status === 'pass' ? color.green : c.status === 'fail' ? color.amber : 'rgba(255,255,255,.25)' }}
+                  animate={{ background: c.status === 'pass' ? color.green : c.status === 'fail' ? color.amber : color.faint }}
                   transition={{ duration: 0.25 }}
                 />
               ))}
@@ -182,7 +188,8 @@ function Waiting(): ReactNode {
           </div>
         )}
         <button
-          className="pointer-events-auto mt-[16px] flex h-[30px] cursor-pointer items-center gap-[6px] rounded-full bg-white/12 px-[13px] text-[13px] font-medium text-white/90 hover:bg-white/20"
+          className="pointer-events-auto mt-[16px] flex h-[30px] cursor-pointer items-center gap-[6px] rounded-full px-[13px] text-[13px] font-semibold hover:opacity-90"
+          style={{ background: color.accent, color: color.onAccent }}
           onClick={() => player.replayStep()}
         >
           <RotateCcw size={13} strokeWidth={1.9} /> Replay step
@@ -199,7 +206,7 @@ function Passed(): ReactNode {
         <div style={{ transform: 'scale(2.1)' }}>
           <CheckIcon status="pass" active={false} />
         </div>
-        <div className="mt-[16px] text-[15px] font-semibold">Passed</div>
+        <div className="mt-[16px] text-[15px] font-semibold">{copy.passed}</div>
       </motion.div>
     </motion.div>
   )
@@ -227,7 +234,7 @@ function ErrorState({ message }: { message: string }): ReactNode {
   return (
     <motion.div className="pointer-events-none absolute inset-0 grid place-items-center bg-black/70 px-8 text-center" {...fade}>
       <div>
-        <div className="text-[11px] font-semibold uppercase tracking-[0.08em]" style={{ color: color.amber }}>
+        <div className="text-[11px] font-semibold uppercase tracking-[0.08em]" style={{ color: color.label }}>
           Video unavailable
         </div>
         <div className="mt-[6px] text-[14px] text-white/80">{message}</div>
@@ -306,8 +313,8 @@ function Timeline(): ReactNode {
         return (
           <div
             key={s.id}
-            className="absolute top-[6px] h-[4px] overflow-hidden rounded-full"
-            style={{ left: `calc(${pct(s.video.start)} + 1px)`, width: `calc(${pct(s.video.end - s.video.start)} - 2px)`, background: locked ? 'rgba(255,255,255,.1)' : 'rgba(255,255,255,.24)' }}
+            className={`absolute top-[6px] h-[4px] overflow-hidden rounded-full ${locked ? 'bg-white/10' : 'bg-white/25'}`}
+            style={{ left: `calc(${pct(s.video.start)} + 1px)`, width: `calc(${pct(s.video.end - s.video.start)} - 2px)` }}
           >
             <div className="h-full origin-left" style={{ background: color.accent, transform: `scaleX(${played})` }} />
           </div>
@@ -315,12 +322,12 @@ function Timeline(): ReactNode {
       })}
       {seg && (
         <div
-          className="absolute top-[3px] h-[10px] w-[10px] -translate-x-1/2 rounded-full border-2"
-          style={{ left: pct(seg.end), borderColor: 'rgba(255,255,255,.7)', background: color.glass }}
+          className="absolute top-[3px] h-[10px] w-[10px] -translate-x-1/2 rounded-full border-2 border-white/70"
+          style={{ left: pct(seg.end), background: color.glass }}
           title={`Holds at ${clock(seg.end)}`}
         />
       )}
-      <div className="absolute top-[3px] h-[10px] w-[10px] -translate-x-1/2 rounded-full bg-white shadow" style={{ left: pct(t) }} />
+      <div className="absolute top-[3px] h-[10px] w-[10px] -translate-x-1/2 rounded-full" style={{ left: pct(t), background: color.accent }} />
     </div>
   )
 }
@@ -380,7 +387,7 @@ function Chapter({ step, status, now, playing }: { step: StepSummary; status: Ch
           <Lock size={13} strokeWidth={1.8} className="text-white/30" />
         )}
       </span>
-      <span className="w-[40px] shrink-0 text-[13px] tabular-nums" style={{ color: locked ? color.faint : color.accent }}>
+      <span className="w-[40px] shrink-0 text-[13px] tabular-nums" style={{ color: locked ? color.faint : now ? color.text : color.label }}>
         {v ? clock(v.start) : ''}
       </span>
       <span className={`flex-1 truncate text-[14px] ${now ? 'font-semibold text-white' : locked ? 'text-white/40' : 'text-white/75'}`}>{step.title}</span>
