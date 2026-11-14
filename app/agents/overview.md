@@ -1,6 +1,17 @@
 # overview
 
-**Status:** v1 built · pass 2 · **Priority:** P1 · **Port:** 5175 · **Branch:** `adrian/overview`
+**Status:** pass 2 functional items done (not pushed) · styling waits on UI polish (`adrian/consistency`) · **Priority:** P1 · **Port:** 5175 · **Branch:** `adrian/overview`
+
+### Pass 2 (functional), Sat
+- Done, in new files (`Lines.tsx`, `Gear.tsx`); `index.tsx` only gained wiring lines:
+  - **Instructions** under the header, `color.label`, 15px, clamped to 2 lines (full text in `title`).
+  - **goalMatch note** in amber under the title, only when `score < 0.5` (null score = no goal → hidden).
+  - **Meta row** above the footer, `color.faint`: `builtByLabel()` left; right: "Next part is still building" (`pendingNext`) or "More steps coming" (`complete === false`). Hidden when there's nothing to say.
+  - **Segments**: `lesson.updated` appends; existing segments keep key and state (measured per frame: opacity 1, same color, width just reflows), only new ones fade in (0.3 s).
+  - **Footer**: "Video continues past … when all pass" and the passed/auto-checked prose cut. Left `Ask ⌥Space`, right the **gear** (lucide `Settings` 14px, `color.label` → `color.text` on hover) → `bridge.invoke('settings:open').catch(() => {})`. Checked: no unhandled rejection without a handler.
+- Left for UI polish (theirs, not touched here): the `.88/.18/.08`, `white/55`, `white/45` literals, Ask as `<Kbd>`, current-segment color (white = same as done today). After their merge: match their styling in `Lines.tsx` / `Gear.tsx`.
+- Stage: `http://localhost:5175/?scenario=overview` (long lesson, ~30 s script; hover the pill). Timeline: 0–8 s two steps + "More steps coming"; ~8.5 s `lesson.updated` → 4 segments; ~21–30 s step 4 passed with "Next part is still building"; then 7 steps, step 5 steady. `?scenario=pill` shows a lesson without any of the new fields.
+- Shots: `agents/shots/overview-{long,updated,pending,steady,plain}.png`.
 
 ## Goal
 Hover the pill (150 ms) → it morphs into the step card: what step you're on, what to do now, and which checks pass. It also has the gear that opens Settings.
