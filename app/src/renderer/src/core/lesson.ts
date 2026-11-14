@@ -9,7 +9,7 @@ import { useShallow } from 'zustand/react/shallow'
 import type { CheckStatus, Source, StepSummary, VideoSegment } from '../../../../../shared/contracts/events'
 import type { ConfigStatus, Payload } from '../../../common/wire'
 import { bridge } from '../bridge'
-import { onMessage, onUi } from './bus'
+import { emitUi, onMessage, onUi } from './bus'
 
 export type CheckItem = { id: string; label: string; status: CheckStatus; detail?: string }
 export type Status = 'watching' | 'offtrack' | 'passed'
@@ -27,10 +27,18 @@ export type Offtrack = Payload<'offtrack'> & {
  */
 export type VideoIntent = { t: number; playing: boolean; at: number; kind: 'seek' | 'pause' | 'play' | 'jump' }
 
+/** lesson.ready's lesson: id, title, sources, plus complete / builtBy / goalMatch when the engine sends them. */
+export type LessonInfo = Payload<'lesson.ready'>['lesson']
+
 type LessonState = {
   connected: boolean
-  lesson?: { id: string; title: string; sources: Source[] }
+  lesson?: LessonInfo
   steps: StepSummary[]
+  /** false while a long video is still building part by part (lesson.updated appends steps). */
+  complete: boolean
+  parts?: { done: number; failed: number; total: number }
+  /** step.passed with pending: no next step YET ("Next part is still building"). Cleared by lesson.updated / step.started. */
+  pendingNext: boolean
   stepId?: string
   stepTitle: string
   instructions: string
@@ -41,6 +49,8 @@ type LessonState = {
   building: boolean
   buildingMessage?: string
   buildingProgress?: number
+  /** Seconds since the build started (the 1 s heartbeat). Show it, never animate on it. */
+  buildingElapsed?: number
   /** The active off-track diagnosis (cleared when the step starts or passes). Drives the amber status. */
   offtrack?: Offtrack
   /** Increments on every step.passed: drives the pill's green flash. */
@@ -52,11 +62,18 @@ type LessonState = {
   seen?: Payload<'screen.seen'>
   keyStatus?: ConfigStatus['payload']
   error?: { message: string; at: number }
+  /** One short line for the pill (~5 s): engine errors, offline, an off-screen spotlight caption. See notify(). */
+  notice?: Notice
 }
+
+export type Notice = { text: string; tone: 'error' | 'info'; at: number }
 
 const blank = {
   lesson: undefined,
   steps: [],
+  complete: true,
+  parts: undefined,
+  pendingNext: false,
   stepId: undefined,
   stepTitle: '',
   instructions: '',
@@ -66,13 +83,15 @@ const blank = {
   building: false,
   buildingMessage: undefined,
   buildingProgress: undefined,
+  buildingElapsed: undefined,
   offtrack: undefined,
   passFlash: 0,
   lastPassed: undefined,
   video: { t: 0, playing: false, at: 0, kind: 'seek' },
   engineState: undefined,
   seen: undefined,
-  error: undefined
+  error: undefined,
+  notice: undefined
 } satisfies Partial<LessonState>
 
 export const useLesson = create<LessonState>(() => ({ connected: false, ...blank }))
@@ -82,15 +101,36 @@ const get = useLesson.getState
 
 /** Called by the launcher when "Build lesson" fires (before the engine answers). */
 export const startBuild = (): void => set({ building: true })
-export const setConnected = (connected: boolean): void => set({ connected })
+export const setConnected = (connected: boolean): void => {
+  // (Re)connected: the engine's snapshot is the truth (after an engine restart it's just "idle"),
+  // so drop the lesson this window was showing before the snapshot refills it.
+  if (connected && !get().connected) emitUi('reset', { scope: 'lesson', reason: 'reconnect' })
+  // Dropped mid-build: no `failed` can arrive any more, so drop the building UI too (audit P1-3).
+  if (!connected && get().building) set({ building: false, buildingMessage: undefined, buildingProgress: undefined, buildingElapsed: undefined })
+  // Nothing is thinking on a dead socket.
+  if (!connected && get().engineState === 'thinking') set({ engineState: undefined })
+  set({ connected })
+}
 
 onUi('reset', () => set({ ...blank }))
 
+/**
+ * The engine ended the lesson (end_lesson, a new learn, POST /end): blank every lesson-side store.
+ * scope "lesson" tells the launcher to keep its query and results (a new search may be in flight).
+ */
+onMessage('lesson.ended', (p) => {
+  emitUi('reset', { scope: 'lesson', reason: p.reason })
+})
+
 onMessage('lesson.building', (p) =>
   // failed: the build ended in error (an `error` + status idle follow): drop the building UI.
-  p.failed ? set({ building: false, buildingMessage: undefined, buildingProgress: undefined }) : set({ building: true, buildingMessage: p.message, buildingProgress: p.progress })
+  p.failed
+    ? set({ building: false, buildingMessage: undefined, buildingProgress: undefined, buildingElapsed: undefined })
+    : set({ building: true, buildingMessage: p.message, buildingProgress: p.progress, buildingElapsed: p.elapsedS })
 )
-onMessage('lesson.ready', (p) => set({ ...blank, lesson: p.lesson, steps: p.steps, building: true }))
+onMessage('lesson.ready', (p) => set({ ...blank, lesson: p.lesson, steps: p.steps, complete: p.lesson.complete !== false, building: true }))
+/** A long video's next part: the new step list (ids stable, new steps appended). Rows already shown must not re-animate. */
+onMessage('lesson.updated', (p) => set({ steps: p.steps, complete: p.complete, parts: p.parts, pendingNext: false }))
 onMessage('step.started', (p) => {
   const s = get()
   const pos = s.steps.findIndex((x) => x.id === p.stepId)
@@ -104,6 +144,7 @@ onMessage('step.started', (p) => {
     stepVideo: p.video,
     checks: [],
     passed: Array.from(new Set([...s.passed, ...before])),
+    pendingNext: false,
     offtrack: undefined
   })
 })
@@ -120,6 +161,7 @@ onMessage('step.passed', (p) => {
   set({
     passed: Array.from(new Set([...s.passed, p.stepId])),
     passFlash: s.passFlash + 1,
+    pendingNext: p.pending === true,
     offtrack: undefined,
     lastPassed: { stepId: p.stepId, summary, checks: s.checks, at: Date.now() }
   })
@@ -143,11 +185,33 @@ bridge.on('video:intent', (v) => set({ video: { ...(v as VideoIntent), at: Date.
 onMessage('status', (p) => set({ engineState: p.state }))
 onMessage('screen.seen', (p) => set({ seen: p }))
 onMessage('config.status', (p) => set({ keyStatus: p }))
-onMessage('error', (p) => set({ error: { message: p.message, at: Date.now() } }))
+onMessage('error', (p) => set({ error: { message: p.message, at: Date.now() }, notice: { text: p.message, tone: 'error', at: Date.now() } }))
+
+/**
+ * Show one short line on the pill for ~5 s (the pill feature renders `notice`). For anything the learner must
+ * see but that has no card: "Add an ElevenLabs key in Settings", a spotlight caption whose rect is off-screen.
+ * Engine `error` events land here too (audit P1-2). Keep it under ~8 words.
+ */
+export function notify(text: string, tone: Notice['tone'] = 'info'): void {
+  set({ notice: { text, tone, at: Date.now() } })
+}
 
 // ---------------------------------------------------------------------------
 // Derived hooks
 // ---------------------------------------------------------------------------
+
+/**
+ * The engine is working on a model call (explain, diagram, coach: 2-5 s). Show a small spinner on the pill and
+ * on the button that was pressed, so a shortcut never looks dead (audit P1-7, Michael's P0-2).
+ */
+export function useThinking(): boolean {
+  return useLesson((s) => s.engineState === 'thinking')
+}
+
+/** "Gemini watched this video" style line, from lesson.builtBy (undefined when unknown). */
+export function builtByLabel(by: LessonInfo['builtBy']): string | undefined {
+  return by === 'gemini' ? 'Gemini watched this video' : by === 'claude' ? 'Claude read this tutorial' : by === 'mixed' ? 'Built by Gemini and Claude' : undefined
+}
 
 export function useStatus(): Status {
   return useLesson((s) => (s.offtrack ? 'offtrack' : s.stepId && s.passed.includes(s.stepId) ? 'passed' : 'watching'))

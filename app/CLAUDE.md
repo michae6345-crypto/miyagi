@@ -28,6 +28,12 @@ Need a core change (a new field in `core/lesson.ts`, a new bus event, a new npm 
   - **No blue anywhere else.** `color.accent` is now white: buttons are white on dark (`color.accent` fill + `color.onAccent` text), never blue, green or amber.
   - No gradients, glows, purple, neon, sparkles, emoji or hand-drawn annotations. Every sparkle icon becomes the bonsai: `<MiyagiMark size={14} />` from `core/ui/Mark.tsx` (it picks the right cut for the size). In the app the tree is **monochrome** (white on dark) by default; don't pass `mono={false}`.
   - App text uses the system font (SF Pro / Segoe). No Inter. Copy is calm and short (≤12 words per card); the launcher placeholder is "Ask Miyagi anything"; the passed line is "Good. Now the next one."
+- **Keys and actions (same everywhere):**
+  - Keycaps come from `bridge.platform.keys[kind]` only (⌥E on Mac, Alt+E on Windows). Never type a key label by hand. Pass it as `kbd` to `OptionButton` / `PrimaryButton`, or render `<Kbd>`.
+  - Send every action with `sendAction(kind, text?)` or `triggerShortcut(kind)` (`core/shortcuts.ts`), never `bridge.send(cmd('action', …))` directly: they record the pressed kind.
+  - Never look dead: while `useThinking()` (core/lesson, engine `status thinking`) and `usePressed().kind === <this button's kind>`, swap the button's icon for the core `Spinner`.
+  - A message with no card of its own goes through `notify(text)` (core/lesson), which the pill shows for ~5 s. Engine `error` events land there too.
+  - API keys: only the settings feature touches them (main process, safeStorage). See `agents/settings.md`.
 - Colors, radii, the spring: `core/theme.ts` tokens only (brand palette in `brand`, HUD in `hud`). No new hard-coded colors.
 - **Every surface is born from the notch island and returns to it** (Michael, Sat ~2 PM): the launcher, cards, diagrams, settings. Nothing pops up mid-screen. Surfaces that need typing (launcher, settings) live in their own focusable window but start from the island's exact shape (`launcher:open` carries `{from:{w,h}}`) and collapse back into it.
 - **Nothing PINN-specific** (generality rule): PINN-on-convection is only the demo lesson. Labels come from the data (metric names, check labels, step titles); never hardcode 'loss', 'β' or 'PINN' in UI code.

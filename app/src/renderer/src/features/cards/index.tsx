@@ -14,13 +14,14 @@
 import { motion } from 'motion/react'
 import type { ReactNode } from 'react'
 import { useShallow } from 'zustand/react/shallow'
-import { BookOpen, Info, Lightbulb, MessageSquareText, Play, Wrench } from 'lucide-react'
+import { BookOpen, Check, Code2, Download, History, Info, Lightbulb, MessageSquareText, Play, Undo2, Wrench, type LucideIcon } from 'lucide-react'
+import type { Payload } from '../../../../common/wire'
 import { useLesson, useProgress, type Offtrack as OfftrackPayload } from '../../core/lesson'
 import { defineFeature } from '../../core/registry'
 import { CardButton, CheckList, CloseButton, Spinner, StatusDot } from '../../core/ui/atoms'
 import { color, copy } from '../../core/theme'
 import { Curve, fmt, Key, plotArray, plotPoints, type Line } from './Curve'
-import { act, jumpTo, SUCCESS_MS, useCards, useSeries } from './store'
+import { act, cardAct, jumpTo, SUCCESS_MS, useCards, useSeries, type CardAction } from './store'
 
 const OFFTRACK_W = 460
 const CARD_W = 420
@@ -308,17 +309,102 @@ function Success(): ReactNode {
 // Explain / Hint / Answer
 // ---------------------------------------------------------------------------
 
-const KIND = {
+type EngineCard = Payload<'card'>
+
+/** Header per card kind. Typed against the contract so a new kind fails here, not at runtime. */
+const KIND: Record<EngineCard['kind'], { label: string; Icon: LucideIcon; tone: string }> = {
   explain: { label: 'Explain', Icon: Info, tone: color.label },
   hint: { label: 'Hint', Icon: Lightbulb, tone: color.label },
-  answer: { label: 'Answer', Icon: MessageSquareText, tone: color.label }
-} as const
+  answer: { label: 'Answer', Icon: MessageSquareText, tone: color.label },
+  resume: { label: 'Continue?', Icon: History, tone: color.label },
+  setup: { label: 'Setup', Icon: Wrench, tone: color.label },
+  // Contract sync (integration/live): the cards agent gives it a real view.
+  preflight: { label: 'Before you build', Icon: Wrench, tone: color.label }
+}
+
+/** Button per card action. At most one white primary per card: the first primary kind present. */
+const ACTION: Partial<Record<CardAction, { label: string; Icon?: LucideIcon; primary?: boolean }>> = {
+  confirm: { label: 'Yes', Icon: Check, primary: true },
+  apply_fix: { label: 'Do it for me', Icon: Wrench, primary: true },
+  open_editor: { label: 'Open VS Code', Icon: Code2, primary: true },
+  resume: { label: 'Continue', Icon: Play, primary: true },
+  undo: { label: 'Undo', Icon: Undo2 },
+  end_lesson: { label: 'Start a new lesson' },
+  skip_setup: { label: 'Skip' }
+}
+
+/** A unified diff as monospace lines: + white, - muted and struck, context faint. Headers dropped. */
+function UnifiedDiff({ diff }: { diff: string }): ReactNode {
+  const lines = diff.split(/\r?\n/).filter((l) => l && !l.startsWith('+++') && !l.startsWith('---') && !l.startsWith('@@') && !l.startsWith('diff '))
+  const shown = lines.slice(0, 14)
+  return (
+    <div data-diff className="mt-[12px] overflow-hidden rounded-[12px] py-[6px] font-mono text-[12px] leading-[18px]" style={{ background: 'rgba(255,255,255,.06)' }}>
+      {shown.map((l, i) => {
+        const add = l.startsWith('+')
+        const del = l.startsWith('-')
+        return (
+          <div key={i} className={`truncate whitespace-pre px-[12px] ${del ? 'line-through' : ''}`} style={{ color: add ? color.text : del ? color.label : color.faint }}>
+            {l}
+          </div>
+        )
+      })}
+      {lines.length > shown.length && (
+        <div className="px-[12px]" style={{ color: color.faint }}>
+          +{lines.length - shown.length} more lines
+        </div>
+      )}
+    </div>
+  )
+}
+
+/** Setup card: one row per needed item, Install on the missing ones (action install {text: tool}). */
+function SetupItems({ setup }: { setup: NonNullable<EngineCard['setup']> }): ReactNode {
+  const items = setup.items.filter((x) => x.needed)
+  if (items.length === 0) return null
+  return (
+    <div className="mt-[12px] flex flex-col gap-[6px] text-[13px]">
+      {items.map((x) => (
+        <div key={x.tool} className="flex h-[28px] items-center gap-[8px]">
+          <span style={{ color: x.ok ? color.text : color.faint }}>{x.ok ? <Check size={13} /> : '·'}</span>
+          <span className="truncate">{x.label}</span>
+          <span className="min-w-0 flex-1 truncate text-[12px]" style={{ color: color.faint }}>
+            {x.ok ? x.version : x.why}
+          </span>
+          {!x.ok && (
+            <button className="flex cursor-pointer items-center gap-[5px] rounded-[9px] px-[9px] py-[3px] text-[12px] font-medium" style={{ background: 'rgba(255,255,255,.09)' }} onClick={() => cardAct('install', x.tool)}>
+              <Download size={12} /> Install
+            </button>
+          )}
+        </div>
+      ))}
+    </div>
+  )
+}
+
+function CardActions({ actions }: { actions: CardAction[] }): ReactNode {
+  const known = actions.filter((a) => ACTION[a])
+  if (known.length === 0) return null
+  const primary = known.find((a) => ACTION[a]!.primary)
+  return (
+    <div className="mt-[16px] flex gap-[8px]">
+      {known.map((a) => {
+        const { label, Icon } = ACTION[a]!
+        return (
+          <CardButton key={a} primary={a === primary} onClick={() => cardAct(a)}>
+            {Icon && <Icon size={14} />} {label}
+          </CardButton>
+        )
+      })}
+    </div>
+  )
+}
 
 function Card(): ReactNode {
   const c = useCards((x) => x.card)
   const hasStep = useLesson((s) => !!s.stepId)
   if (!c) return null
   const k = KIND[c.kind] ?? KIND.answer
+  const actions = c.actions ?? []
   // A title that only repeats the header ("Hint") is dropped: the body becomes the headline.
   const redundant = !c.title || c.title.trim().toLowerCase() === k.label.toLowerCase()
   return (
@@ -347,6 +433,14 @@ function Card(): ReactNode {
           Watch {c.videoJump.label}
         </motion.button>
       )}
+      {c.guidingQuestion && (
+        <div className="mt-[10px] text-[13px] italic leading-[18px]" style={{ color: color.label }}>
+          {c.guidingQuestion}
+        </div>
+      )}
+      {c.diff && <UnifiedDiff diff={c.diff} />}
+      {c.setup && <SetupItems setup={c.setup} />}
+      <CardActions actions={actions} />
     </div>
   )
 }

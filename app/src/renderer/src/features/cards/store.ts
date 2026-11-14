@@ -70,6 +70,18 @@ export function act(kind: 'show_me' | 'explain' | 'apply_fix' | 'hint'): void {
   if (kind === 'apply_fix') set({ fixing: true, offtrackOpen: true })
 }
 
+/** Every button kind an engine card can carry (card.actions). */
+export type CardAction = NonNullable<Payload<'card'>['actions']>[number]
+
+/**
+ * A button on an engine card → `action {kind}` (install: text = the setup item's tool id).
+ * The card closes on click; the engine answers with the next card or event.
+ */
+export function cardAct(kind: CardAction, text?: string): void {
+  bridge.send(cmd('action', text === undefined ? { kind } : { kind, text }))
+  if (kind !== 'install') set({ card: undefined })
+}
+
 /** A card's video jump: core seekVideo sets the intent in every window; the player follows core/lesson.video. */
 export function jumpTo(t: number): void {
   seekVideo(t, true)
@@ -89,9 +101,16 @@ onUi('reset', () => {
 })
 onUi('dismiss', closeTop)
 onMessage('lesson.ready', () => set({ ...blank }))
-onMessage('step.started', () => set({ offtrackOpen: false, fixing: false, recovered: false, resume: false, offtrackSeq: undefined, card: undefined }))
+// A card with buttons survives step.started when it's for this step or for no step
+// (e.g. "Open VS Code?" or "Continue where you left off?"); plain cards are cleared as before.
+onMessage('step.started', (p) => {
+  const c = get().card
+  const keep = !!c?.actions?.length && (!c.stepId || c.stepId === p.stepId)
+  set({ offtrackOpen: false, fixing: false, recovered: false, resume: false, offtrackSeq: undefined, card: keep ? c : undefined })
+})
 onMessage('offtrack', () => set({ offtrackOpen: true, fixing: false, recovered: true, resume: false, offtrackSeq: ++seq, card: undefined, success: undefined }))
-onMessage('card', (p) => set({ card: p, resume: over(), offtrackOpen: false }))
+// "Apply this fix?" (a diff to confirm) replaces the "Waiting for the fix" view, so `fixing` ends here.
+onMessage('card', (p) => set({ card: p, resume: over(), offtrackOpen: false, ...(p.diff ? { fixing: false } : {}) }))
 onMessage('diagram', () => set({ card: undefined, resume: over(), offtrackOpen: false }))
 onMessage('step.passed', (p) => {
   const { recovered, offtrackSeq } = get()

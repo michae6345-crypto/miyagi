@@ -152,7 +152,8 @@ export function Launcher({ layout }: { layout: Layout }): ReactNode {
   useEffect(() => {
     const offs = [
       onUi('dismiss', () => void close()),
-      onUi('reset', () => {
+      onUi('reset', (p) => {
+        if ((p as { scope?: string } | undefined)?.scope === 'lesson') return
         setQuery('')
         setQuestion('')
         setSel(0)

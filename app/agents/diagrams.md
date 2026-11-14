@@ -1,35 +1,34 @@
 # diagrams
 
-**Status:** v1 (no heatmap) · **Priority:** P1 · **Port:** 5180 · **Branch:** `adrian/diagrams`
+**Status:** v1 (network + gradients) · pass 2 · **Priority:** P1 · **Port:** 5180 · **Branch:** `adrian/diagrams`
 
 ## Goal
-Intuition diagrams that morph out of the pill (⌥D), mockup 05: **Architecture** (the real model's layers, autograd arrows to u_t and u_x → residual), **Gradient flow** (gradient norm per layer over training: shows why the PINN stalls), **Solution** heatmap (predicted vs exact u(x,t)), and the new generic **Graph** (concepts and how they connect, for any tutorial). Tabs switch between them; lines draw in (350ms, 30ms stagger). Brand: black island, white strokes, amber only for what's off track, green only for passed; pastels only if a node is an *option*.
+Intuition diagrams that morph out of the pill (⌥D). The generic **graph** is the one that matters most: it's the only diagram any non-PINN lesson gets (React, git, pandas, diffusion). Michael P1-4.
 
 ## Owns
 - `app/src/renderer/src/features/diagrams/`
-- `app/mock/scenarios/diagrams.json` (heatmap data)
+- `app/mock/scenarios/diagrams.json` (graph examples + heatmap data)
 
 ## Contract
-- **In** (engine → app): `diagram {kind: network | gradients | heatmap | graph, data, caption, stepId?}`. **`graph` is new (contract PR #14)**: a generic concept graph for ANY tutorial (generality rule): read its exact `data` shape in `shared/contracts/events.ts`
-- **Out** (app → engine): `action {kind:"diagram"}` (via the shortcut)
+- **In:** `diagram {kind: network | gradients | heatmap | graph, data, caption, stepId?}`. Exact shapes in `shared/contracts/events.ts` (`GraphDiagramData`).
+- **graph:** `{title, layout: flow|sequence|tree|data|architecture|git, direction: LR|TB, grid:{cols,rows}, nodes:[{id,label,detail?,group?,shape: box|round|circle|data|commit, emphasis?, col,row}], edges:[{from,to,label?,style: solid|dashed, emphasis?, order?}], groups?:[{id,label}]}`. Map `(col,row)` to pixels on the grid; `order` is for the sequence layout only; groups optional. Reference renderer: `server/diagrams/render_svg.py`; examples: `server/diagrams/examples/*.svg`; spec: `server/diagrams/README.md` (read all three; they're on `origin/integration/live` if not in your checkout: `git show origin/integration/live:server/diagrams/README.md`).
+- **heatmap:** `{x:number[], t:number[], predicted:number[][], exact?:number[][]}` on a canvas, or hide it. Never show "heatmap (coming)".
+- **Out:** `action {kind:"diagram"}` via the shortcut (core).
 
-## Plugs in as
-islandModes: diagram (80, width 640)
+## Adrian's spec (pass 2)
+- Black island, white strokes (`color.text` / `color.label` / `fill.rule`). **Emphasis = white at full strength, others at label alpha.** Amber only for what's off track, green only for passed, nothing else colored. Pastels only if a node is an option (it never is today).
+- **Generality rule:** remove every PINN literal ('5k epochs', '|∇|', '→ 0 · residual', default labels). Labels come from `data`.
+- Gradient chart: layers 0–1 not amber (neutral or sky); the residual pill is an outline, neutral.
+- One caption line, clamped. No axis clutter. Lines draw in (350 ms, 30 ms stagger), the one spring.
+- Tabs only when the engine has sent more than one kind for this step.
+- SVG neutrals → tokens.
 
 ## Done when
-- Network matches mockup 05
-- Heatmap renders on a canvas from `{x, t, predicted, exact}`
-- Tabs
-- One caption line, no axis clutter
+- graph renders every example layout in `server/diagrams/examples/` legibly at 640 wide
+- heatmap renders or is hidden; no PINN strings left in the UI code
 
 ## Test
-`npm run dev:web -- --port 5180` → `http://localhost:5180/?scenario=full` (or `?scenario=diagrams` once you add `mock/scenarios/diagrams.json`)
-
-## Adrian's spec
-**First pass (no spec from Adrian yet):** build to the mockups in `docs/mockups/` (01–05 are the target look; 06–07 are earlier explorations to restyle in the Apple look) and the animation + placement spec in `docs/FRONTEND-HANDOFF.md`. Don't spend time on colors (Adrian's theme comes later). Adrian reviews after this pass and writes his spec here for pass 2.
+`npm run dev:web -- --port 5180` → `http://localhost:5180/?scenario=diagrams`, Alt+D. Restart the dev server after adding the scenario file.
 
 ## Core requests
 _None yet._
-
-## Notes
--
