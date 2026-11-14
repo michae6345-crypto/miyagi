@@ -1,6 +1,6 @@
 # launcher
 
-**Status:** pass 1 done (notch version, finished), rebased on `adrian/shell` 0876da5, waiting for Adrian's review · **Priority:** P0 · **Port:** 5176 · **Branch:** `adrian/launcher`
+**Status:** brand pass done (Miyagi brand kit + Adrian's "no unnecessary writing" cuts), rebased on `adrian/shell` db72ef9, waiting for Adrian's review · **Priority:** P0 · **Port:** 5176 · **Branch:** `adrian/launcher`
 
 ## Goal
 Launcher born from the notch island (⌥Space; Ctrl+Shift+Space on Windows). **Since Sat ~2 PM (Michael): the island expands down into the launcher and every exit collapses it back into the island; nothing opens mid-screen.** Type what you want to learn → results stream in (it grows down) → Build lesson → it collapses back up into the pill (the signature transition). Pasting a YouTube link skips search. **During a lesson** it becomes "Ask about this step": Enter sends `action {kind:"ask", text}` and the answer comes back as a card.
@@ -17,6 +17,7 @@ Launcher born from the notch island (⌥Space; Ctrl+Shift+Space on Windows). **S
 
 ## Done when
 - [x] Grows out of the island's exact shape (`launcher:open {from}`) at `pillTop`, 640 wide, black island look (mockups 01/02/05); grows down as results stream in; results stagger in 40ms; the highlight glides
+- [x] Brand kit (`app/brand/BRAND.md`): bonsai mark in the field, "Ask Miyagi anything", monochrome (white accent, no glow / gradient / extra hues), white primary button with ink text, amber/green unused
 - [x] Build lesson → collapses onto the 300×34 pill rect (hand-back at ~400ms), no flicker *on the launcher side*. The island overshoots right after the swap: Core request 1
 - [x] URL paste → `learn_url`
 - [x] Ask mode during a lesson
@@ -25,8 +26,8 @@ Launcher born from the notch island (⌥Space; Ctrl+Shift+Space on Windows). **S
 
 ## Test
 `npm run dev:web -- --port 5176` → `http://localhost:5176/?scenario=full`
-- **Search + build:** Ctrl+K (the pill grows into the launcher), type anything, Enter (rows stream in, it grows down), ↑↓ or hover, Enter again → it collapses into the pill.
-- **Ask:** once "Step 4 · Define the residual" shows, Ctrl+K → "Ask about this step", type, Enter → it collapses back into the step pill and the answer card grows out. The mock answers at step 4 and step 6 (`mock/scenarios/launcher.json`); the chips send Explain / Hint.
+- **Search + build:** Ctrl+K (the pill grows into the launcher), type anything or click a suggestion chip, Enter (rows stream in, it grows down), ↑↓ or hover, Enter again → it collapses into the pill.
+- **Ask:** once "Step 4 · Define the residual" shows, Ctrl+K → ask mode (a faint step line, placeholder "Ask about this step"; Tab flips to a new lesson and back), type, Enter → it collapses back into the step pill and the answer card grows out. The mock answers at step 4 and step 6 (`mock/scenarios/launcher.json`); the chips send Explain / Hint.
 - **Link:** paste a YouTube link (e.g. `https://www.youtube.com/watch?v=kCc8FmEb1nY&t=1m30s`) → one row, Enter → `learn_url`.
 - **States:** `?scenario=launcher` has no `learn` trigger, so a search stays in flight (skeletons). Answer it from the console: `(await import('/src/core/bus.ts')).dispatch({type:'search.done',payload:{total:0}})` (empty) or `{type:'error',payload:{message:'…'}}` (error).
 - Esc / click outside / Ctrl+K again collapse it back into whatever the island showed (pill or card); the HUD's Reset closes it and clears the field.
@@ -37,12 +38,20 @@ Launcher born from the notch island (⌥Space; Ctrl+Shift+Space on Windows). **S
 ## Core requests
 1. **`core/Island.tsx`: zero the velocity after the landing snap (visible glitch, please fix).** On `pill:receive` the island snaps to 300×34 with `transition={{ duration: 0 }}`. That leaves a huge velocity on the width value, and the next spring launches with it: right after Build lesson the pill balloons to ~826px wide and shrinks back over ~400ms (`shots/launcher-06-build-strip.png`, last frames). **Verified fix** (tried locally, reverted): `transition={landing ? { duration: 0 } : { ...(isPill ? springOut : spring), velocity: 0 }}`. The pill then settles 300 → 256 with no overshoot. A narrower version only zeroes it for the first spring after a landing (a `justLanded` ref), so other interruptions keep their momentum.
 2. **`core/Island.tsx`: no content crossfade on the landing frame** (lower priority, not seen in the stage). If `lesson.building` hasn't reached the overlay window when `pill:receive` arrives (Electron windows are separate; a slow engine), the island switches idle → building at the swap and "Learn anything" fades out for 80ms under the just-landed pill. Suggest: when `pill:receive` changes the mode, show the new content at full opacity with no exit/enter for that one change.
-3. **`core/theme.ts` tokens** for the fills now in `features/launcher/tint.ts`: field fill/border, row highlight fill/border, icon tile, skeleton, backdrop dim, on-accent chip, accent glow. Also export the island's two **shadows** (pill `'0 2px 10px rgba(0,0,0,.25)'`, card `'0 24px 60px rgba(0,0,0,.5)'`, both hard-coded in Island.tsx) as tokens: the launcher must match them exactly to hand over invisibly.
+3. **`core/theme.ts` tokens** for the neutral fills now in `features/launcher/tint.ts` (white at low alphas on the black island: field fill/border, chip fill/hover/border/text, row highlight, icon tile/glyph, skeleton, footer rule, backdrop dim; ink at .1 for the keycap on the white button). Also export the island's two **shadows** (pill `'0 2px 10px rgba(0,0,0,.25)'`, card `'0 24px 60px rgba(0,0,0,.5)'`, both hard-coded in Island.tsx) as tokens: the launcher must match them exactly to hand over invisibly.
 4. **`core/theme.ts`: `launcher` = `{ width: 640 }`** (the notch launcher; `topRatio` is gone). The launcher uses a local `WIDTH = 640` until then.
 5. *(Optional)* **Live island size during a collapse.** The launcher collapses to the `from` size it got at open. If the island's size changes while the launcher is open (e.g. the step changes), the island reappears at its new size and springs there. Fine for now; if it shows, main could re-send `{from}` with `launcher:close`.
 
 ## Notes
 Window show/hide/focus is core (`src/main/index.ts`); the shrink target comes from `bridge.platform.pillTop` + `theme.pill`.
+
+**Brand pass (Sat ~2:30 PM): Miyagi brand kit + Adrian's cuts.** Built on the UI polish session's monochrome pass (5584cf5; it replaced an earlier glow/aurora look Adrian rejected).
+- Rebase note: `adrian/shell` had picked up 34cf806, the UI polish session's first, pre-amend glow commit (prettier-default formatting). The rebase resolved every launcher file to the final monochrome versions (single quotes, no semicolons); `index.tsx`, `store.ts`, `youtube.ts` are unchanged since 3644feb.
+- **Brand:** the bonsai `<MiyagiMark size={17} />` replaces the sparkle in the field (a spinner while searching); placeholder `copy.launcherPlaceholder` ("Ask Miyagi anything"); `color.accent` is white, so the caret and the "Best" label are white; the primary footer action is the brand button (white `color.accent` fill, `color.onAccent` ink text, ink keycap) only when it can act, otherwise a quiet label; error and offline notes are white, never amber (amber = off-track only).
+- **Adrian: "no unnecessary writing; a functional, clear, concise workflow."** No titles: search mode is field → suggestion chips (idle) or rows → footer; ask mode adds one faint line above the field ("Step 4 · Define the residual"), placeholder "Ask about this step", Explain / Hint chips. No "Top results"/"Searching" label (the field's spinner shows searching). The footer is keys only, showing the ones that apply now: "Choose ↑↓" (2+ rows), "New lesson ⇥" / "Back to step ⇥" (during a lesson), and the primary "Search ↵" / "Build lesson ↵" / "Ask ↵". Words appear only when something is wrong ("Offline", a partial-results error). Rows are title + meta; only the best row is labelled ("Best"). The link row is just the video.
+- Kept: suggestion chips (Adrian likes them), Enter searches then Enter builds the highlighted row, Tab toggle, every exit collapsing into the island, the hand-over invariants (exit targets keep every key; `focus({preventScroll})`; single-layer shadows equal to core/Island's).
+- Checked in headless Chrome on the brand core: open from the island (220 wide → 640×159 idle), grow with results (→ 304), build / link → 300×34, ask → the 260×34 step pill, Esc / click outside → the 420×196 answer card, hand-back at ~290–430ms; Tab, chips, button, link paste, empty / error / offline, reduced motion, Reset, arrow clamping; no console errors. Core request 1 (island overshoot after the swap) is still there.
+- Shots: `agents/shots/launcher-brand-*.png` (05 open, 06 build, 08 ask, 14 Esc are frame strips). The older pre-brand shots were removed.
 
 **Pass 1, notch version (Sat afternoon, after the 2 PM direction change):**
 - **Open:** `launcher:open {from:{w,h}}` → the panel starts on that exact shape (top = `pillTop`, centered, black, radius h/2 for a pill or 24 for a card, same shadow) and springs to 640 wide × its content height. The island's own content (whatever island mode is active, e.g. "Learn anything ⌥Space") fades out inside it in 80ms; the launcher's content fades in after 60ms, rising 4px. The core island hides itself meanwhile.

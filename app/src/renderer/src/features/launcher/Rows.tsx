@@ -67,9 +67,11 @@ export function ResultRow({ r, best, ...rest }: Slot & { r: SearchResult; best: 
     <RowShell {...rest}>
       <Tile kind={r.kind} thumbnail={r.thumbnail} />
       <Text title={r.title} meta={r.meta} />
-      <span className="shrink-0 text-[12.5px]" style={{ color: best ? color.accent : color.faint }}>
-        {r.reason}
-      </span>
+      {best && (
+        <span className="shrink-0 text-[12.5px] font-medium" style={{ color: color.accent }}>
+          Best
+        </span>
+      )}
     </RowShell>
   )
 }
@@ -80,9 +82,6 @@ export function LinkRow({ link, onPick }: { link: YouTubeLink; onPick: () => voi
     <RowShell slot={0} onPick={onPick}>
       <Tile kind="video" thumbnail={thumbnailFor(link.videoId)} />
       <Text title="YouTube video" meta={`youtu.be/${link.videoId}${link.start ? ` · from ${clock(link.start)}` : ''}`} />
-      <span className="shrink-0 text-[12.5px]" style={{ color: color.accent }}>
-        Build from link
-      </span>
     </RowShell>
   )
 }
@@ -121,7 +120,7 @@ export function MessageRow({ tone, title, detail }: { tone: 'empty' | 'error'; t
     >
       <span
         className="grid h-[38px] w-[60px] shrink-0 place-items-center rounded-[8px]"
-        style={{ background: tint.icon, color: tone === 'error' ? color.amber : tint.iconGlyph }}
+        style={{ background: tint.icon, color: tone === 'error' ? color.text : tint.iconGlyph }}
       >
         <I size={17} strokeWidth={1.6} />
       </span>

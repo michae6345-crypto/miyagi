@@ -21,6 +21,9 @@ export const tint = {
   skeleton: 'rgba(255,255,255,.06)',
   /** Footer rule (same as the step card's). */
   rule: 'rgba(255,255,255,.08)',
+  /** Keycap on the white primary button (ink at a low alpha). */
+  onAccentKey: 'rgba(0,0,0,.1)',
+  clear: 'rgba(255,255,255,0)',
   /** A light backdrop dim (opacity animates 0 → 1). */
   dim: 'rgba(0,0,0,.22)',
   /** Must equal core/Island.tsx's shadows so the hand-over is invisible: pill-sized, and card-sized. */

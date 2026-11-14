@@ -27,7 +27,7 @@
 import { AnimatePresence, motion, useReducedMotion, type HTMLMotionProps, type TargetAndTransition, type Transition } from 'motion/react'
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, type ClipboardEvent, type KeyboardEvent, type ReactNode } from 'react'
 import { useShallow } from 'zustand/react/shallow'
-import { Aperture, BookOpen, Bot, Lightbulb, MessageCircle, Mic, Sparkles, Waves, WifiOff, type LucideIcon } from 'lucide-react'
+import { Aperture, BookOpen, Bot, Lightbulb, Mic, Waves, WifiOff, type LucideIcon } from 'lucide-react'
 import type { Layout } from '../../../../preload/api'
 import { cmd } from '../../../../common/wire'
 import { bridge } from '../../bridge'
@@ -35,11 +35,12 @@ import { onUi } from '../../core/bus'
 import { useLesson, useProgress } from '../../core/lesson'
 import { getIslandModes, type IslandMode } from '../../core/registry'
 import { triggerShortcut } from '../../core/shortcuts'
+import { MiyagiMark } from '../../core/ui/Mark'
 import { Spinner } from '../../core/ui/atoms'
-import { clock, color, pill, radius, spring, springOut } from '../../core/theme'
-import { Action, Chip, Rise } from './parts'
+import { color, copy, pill, radius, spring, springOut } from '../../core/theme'
+import { Action, Chip, Hint, Rise } from './parts'
 import { LinkRow, MessageRow, ResultRow, ROW_H, SkeletonRow } from './Rows'
-import { setLauncherOpen, startSearch, useSearch, type SearchResult } from './store'
+import { setLauncherOpen, startSearch, useSearch } from './store'
 import { tint } from './tint'
 import { parseYouTube } from './youtube'
 
@@ -54,8 +55,6 @@ type Act = 'ask' | 'build' | 'search' | 'searching' | 'none'
 const WIDTH = 640
 const MAX_ROWS = 4
 const SKELETONS = 3
-/** "Top results" label block above the rows. */
-const LABEL_H = 32
 /** Minimum gap between two rows' entrances, in seconds. */
 const STAGGER = 0.04
 /** The pill core's island lands on after Build lesson. */
@@ -351,7 +350,6 @@ export function Launcher({ layout }: { layout: Layout }): ReactNode {
   const building = getIslandModes().find((m) => m.id === 'building')
   const returnTo = phase === 'building' ? building : islandMode
 
-  const minutes = estimateMinutes(results)
   const offline = !lesson.connected
   const inlineError = view === 'results' && search.error
   const typed = (mode === 'ask' ? question : query).trim()
@@ -371,28 +369,10 @@ export function Launcher({ layout }: { layout: Layout }): ReactNode {
               : 'searching'
   const busy = search.pending && mode === 'search' && view !== 'link'
   const actLabel = { ask: 'Ask', build: 'Build lesson', search: 'Search', searching: 'Searching…', none: mode === 'ask' ? 'Ask' : 'Search' }[act]
-  const hint = offline
-    ? 'Engine offline · reconnecting…'
-    : inlineError
-      ? search.error
-      : mode === 'ask'
-        ? 'The answer appears in the island'
-        : {
-            idle: lesson.hasLesson ? 'A new lesson replaces this one' : 'Paste a YouTube link to skip the search',
-            link: link?.start ? `Builds a lesson from ${clock(link.start)} on · each step auto-checked` : 'Builds a lesson straight from this video',
-            searching: 'Finding the best tutorial…',
-            results: `${minutes ? `About ${minutes} min · ` : ''}each step auto-checked`,
-            empty: 'Try other words, or paste a YouTube link',
-            error: 'Press ↵ to try again'
-          }[view]
-  const label = {
-    idle: '',
-    link: 'YouTube link',
-    searching: 'Searching',
-    results: search.pending ? 'Searching' : 'Top results',
-    empty: 'No results',
-    error: 'Search failed'
-  }[view]
+  // The footer is keys, not sentences: only the offline / partial-error notes are words.
+  const note = offline ? 'Offline' : inlineError ? search.error : undefined
+  /** The best row: the one the engine marks "best", else the first. Only it gets a label. */
+  const bestIndex = Math.max(0, visible.findIndex((r) => /best/i.test(r.reason)))
 
   return (
     <div key={gen} className="absolute inset-0" style={{ width: layout.width, height: layout.height }} data-launcher={phase}>
@@ -429,27 +409,14 @@ export function Launcher({ layout }: { layout: Layout }): ReactNode {
           initial={{ opacity: 0, y: 4 }}
           animate={exiting ? { opacity: 0, y: 0, transition: contentOut } : { opacity: 1, y: 0, transition: contentIn }}
         >
-          {/* Title, and (ask mode) where you are in the lesson. */}
-          <Rise i={0} className="px-[28px] pt-[24px] text-center">
-            <motion.div key={mode} initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: 0.15 }}>
-              <div className="text-[22px] font-semibold leading-[28px] tracking-[-0.015em] text-white">
-                {mode === 'ask' ? 'Ask about this step' : 'What do you want to learn?'}
-              </div>
-              {mode === 'ask' && (
-                <div className="mt-[4px] truncate px-[12px] text-[13px]" style={{ color: color.faint }}>
-                  {lesson.hasStep ? (
-                    <>
-                      Step {progress.index + 1} of {progress.total} · <span style={{ color: color.label }}>{lesson.stepTitle}</span>
-                    </>
-                  ) : (
-                    lesson.title
-                  )}
-                </div>
-              )}
-            </motion.div>
-          </Rise>
+          {/* No title: the placeholder says it. In ask mode, one faint line says where you are. */}
+          {mode === 'ask' && (
+            <Rise key="where" i={0} className="truncate px-[26px] pt-[16px] text-[12.5px] leading-[16px]">
+              <span style={{ color: color.faint }}>{lesson.hasStep ? `Step ${progress.index + 1} · ${lesson.stepTitle}` : lesson.title}</span>
+            </Rise>
+          )}
 
-          <Rise i={1} className="mx-[20px] mt-[16px]">
+          <Rise i={1} className={`mx-[20px] ${mode === 'ask' ? 'mt-[10px]' : 'mt-[20px]'}`}>
             <div
               className="flex h-[52px] items-center gap-[12px] rounded-[14px] border px-[16px]"
               style={{ background: tint.field, borderColor: tint.fieldBorder }}
@@ -457,10 +424,9 @@ export function Launcher({ layout }: { layout: Layout }): ReactNode {
               <span className="grid w-[17px] shrink-0 place-items-center" style={{ color: color.label }}>
                 {busy ? (
                   <Spinner size={16} c={color.label} />
-                ) : mode === 'ask' ? (
-                  <MessageCircle size={17} strokeWidth={1.6} />
                 ) : (
-                  <Sparkles size={17} strokeWidth={1.6} />
+                  // The bonsai where the mockup had a sparkle (brand kit).
+                  <MiyagiMark size={17} />
                 )}
               </span>
               <input
@@ -470,7 +436,7 @@ export function Launcher({ layout }: { layout: Layout }): ReactNode {
                 onKeyDown={onKey}
                 onPaste={onPaste}
                 readOnly={phase !== 'open'}
-                placeholder={mode === 'ask' ? 'Ask anything about this step…' : 'Search a topic, or paste a YouTube link'}
+                placeholder={mode === 'ask' ? 'Ask about this step' : copy.launcherPlaceholder}
                 spellCheck={false}
                 autoComplete="off"
                 aria-label={mode === 'ask' ? 'Ask about this step' : 'What do you want to learn?'}
@@ -495,10 +461,7 @@ export function Launcher({ layout }: { layout: Layout }): ReactNode {
             </Rise>
           ) : (
             slots > 0 && (
-              <div>
-                <div className="flex items-end gap-[8px] px-[30px] pb-[6px] text-[12px] font-medium" style={{ height: LABEL_H, color: color.faint }}>
-                  {label}
-                </div>
+              <div className="pt-[8px]">
                 <div className="relative mx-[20px]" style={{ height: slots * ROW_H }}>
                   <motion.div
                     className="pointer-events-none absolute inset-x-0 top-0 rounded-[12px]"
@@ -516,7 +479,7 @@ export function Launcher({ layout }: { layout: Layout }): ReactNode {
                           slot={i}
                           delay={delayFor(r.id)}
                           r={r}
-                          best={i === 0 || /best/i.test(r.reason)}
+                          best={i === bestIndex}
                           onHover={() => setSel(i)}
                           onPick={() => build(i)}
                         />
@@ -525,7 +488,7 @@ export function Launcher({ layout }: { layout: Layout }): ReactNode {
                       <SkeletonRow key={`sk${visible.length + k}`} slot={visible.length + k} />
                     ))}
                     {view === 'empty' && (
-                      <MessageRow key="empty" tone="empty" title={`Nothing found for “${search.query}”`} detail="No video, notebook or paper matched." />
+                      <MessageRow key="empty" tone="empty" title={`Nothing found for “${search.query}”`} detail="Try other words, or paste a YouTube link." />
                     )}
                     {view === 'error' && <MessageRow key="error" tone="error" title="Couldn't search right now" detail={search.error ?? ''} />}
                   </AnimatePresence>
@@ -534,14 +497,15 @@ export function Launcher({ layout }: { layout: Layout }): ReactNode {
             )
           )}
 
-          {/* Footer: what happens next, and the keys that do it. */}
+          {/* Footer: the keys that apply right now. Words only when something is wrong. */}
           <Rise i={3}>
             <div className="mt-[16px] h-px" style={{ background: tint.rule }} />
             <div className="flex h-[48px] items-center gap-[4px] pl-[24px] pr-[12px]">
-              <span className="flex min-w-0 flex-1 items-center gap-[7px] text-[13px]" style={{ color: offline || inlineError ? color.amber : color.faint }}>
+              <span className="flex min-w-0 flex-1 items-center gap-[7px] text-[13px]" style={{ color: color.text }}>
                 {offline && <WifiOff size={13} strokeWidth={1.8} className="shrink-0" />}
-                <span className="truncate">{hint}</span>
+                {note && <span className="truncate">{note}</span>}
               </span>
+              {view === 'results' && visible.length > 1 && <Hint label="Choose" keycap="↑↓" />}
               {lesson.hasLesson && (
                 <>
                   <Action label={mode === 'ask' ? 'New lesson' : 'Back to step'} keycap="⇥" enabled onClick={switchMode} />
@@ -565,13 +529,4 @@ function IslandContent({ mode, ...motionProps }: { mode: IslandMode } & Pick<HTM
       <Content />
     </motion.div>
   )
-}
-
-/** "about 45 min": ~2.4× the best video's length, rounded to 5. */
-function estimateMinutes(results: SearchResult[]): number | undefined {
-  const v = results.find((r) => r.kind === 'video')
-  const m = v?.meta.match(/(\d+):(\d{2})(?!.*\d+:\d{2})/)
-  if (!m) return
-  const mins = Number(m[1]) + Number(m[2]) / 60
-  return Math.max(5, Math.round((mins * 2.4) / 5) * 5)
 }
