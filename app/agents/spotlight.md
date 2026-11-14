@@ -34,6 +34,11 @@ overlayLayers: spotlight (z 10)
 4. (dev) Vite doesn't see a new `mock/scenarios/*.json` until the dev server restarts (`mock/` is outside the Vite root). Worth a line in `agents/README.md` for the other agents.
 
 ## Notes
+**Adrian's feedback ("sleek, more contrast, a little color"), shots `agents/shots/spotlight-state-*.png`:**
+- Color only carries state, the same meaning as the pill's dot and the cards: the hairline is **white** while Miyagi watches, **amber** when off track, **green** when the step passes. The ring re-pulses on each state change, and on `step.passed` it holds green for 900ms (`PASS_HOLD_MS` in `store.ts`) before fading out. A 7px status dot (gray / amber / green) leads the caption's first line.
+- More contrast: the dim is 66% (was 55%), the ring rests at 0.9 opacity (was 0.6), and the code line is bright mono at 78% (was muted).
+- Still on brand: no new hue, no glow, no gradient. If Adrian wants a decorative accent color beyond the status colors, that's a brand-kit change (`core/theme.ts`).
+
 **Brand pass (Miyagi kit, `app/brand/BRAND.md`), shots `agents/shots/spotlight-brand-*.png`:**
 - The blurred blue glow ring is gone. The ring is a crisp 1.5px white hairline (`color.accent`) over a faint `color.onAccent` keyline at 0.35, so it still reads over light apps. No SVG filters. It still springs with the cut-out and pulses once in opacity (0.6 → 1 → 0.6).
 - The outline fallback uses the same hairline (no dim).
