@@ -6,7 +6,10 @@ import asyncio
 import json
 import os
 import re
+import warnings
 from pathlib import Path
+
+warnings.filterwarnings("ignore", category=SyntaxWarning)  # SDK docstring escapes
 
 from google import genai
 from google.genai import types
@@ -34,18 +37,24 @@ def _load_env() -> None:
             load_dotenv(p, override=False)
 
 
-_client: genai.Client | None = None
+_clients: dict[str, genai.Client] = {}
+_override_key: str | None = None  # bring-your-own-key from the app (config.keys.gemini)
+
+
+def set_api_key(key: str | None) -> None:
+    """Use this key instead of .env (the orchestrator forwards config.keys.gemini). Never logged."""
+    global _override_key
+    _override_key = key or None
 
 
 def client() -> genai.Client:
-    global _client
-    if _client is None:
-        _load_env()
-        key = os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_KEY")
-        if not key:
-            raise RuntimeError("GEMINI_API_KEY is not set (put it in .env at the repo root)")
-        _client = genai.Client(api_key=key)
-    return _client
+    _load_env()
+    key = _override_key or os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_KEY")
+    if not key:
+        raise RuntimeError("GEMINI_API_KEY is not set (app settings, or .env at the repo root / $TUT_ENV)")
+    if key not in _clients:
+        _clients[key] = genai.Client(api_key=key)
+    return _clients[key]
 
 
 def model(fast: bool = False) -> str:
@@ -113,13 +122,16 @@ Rules:
 - start/end are MM:SS (or H:MM:SS). end is the moment the step's code is complete or its run finished. Steps must not overlap and must be in order.
 - title: imperative, at most 6 words. instructions: at most 2 sentences, concrete.
 - code: transcribe the key lines written in the step exactly as on screen (keep variable names).
-- checks: machine-checkable only. Prefer
-  * file_contains with a Python regex that matches the essential code but tolerates whitespace and naming variations (e.g. r"torch\\.autograd\\.grad\\(" or r"nn\\.Linear\\(\\s*\\w+\\s*,"),
-  * command_exit_ok for "the script runs" (e.g. "python pinn.py --epochs 1"),
-  * metric_threshold / metric_trend for training steps, using the loss values the video shows (be conservative: a threshold the tutorial's own run clearly reaches),
-  * output_contains for printed results.
+- checks: machine-checkable from the learner's SCREEN (on-device OCR of their editor and terminal). Use
+  * screen_contains with app "Code" (editor) and a SHORT regex (< 60 chars) for a distinctive fragment of
+    the step's code, tolerant to OCR spacing, e.g. "autograd\\.grad\\(" or "def\\s+lossPDE",
+  * screen_absent with app "Terminal" and pattern "Traceback|Error:" for "it runs",
+  * metric_threshold / metric_trend for training steps with a metric_pattern: a regex with named groups
+    step and value that parses the training lines EXACTLY as the video's code prints them
+    (copy the print format into expected_output); thresholds the tutorial's own run clearly reaches.
   Never use a "visual" check. Every step needs at least one check.
-- targets: where the learner should look/edit (file + a regex or substring for the block, e.g. "def pde_residual" + caption).
+- targets: where the learner should look/edit: app ("Code"/"Terminal"), file, and `match` = a short literal
+  substring that will be visible on screen, e.g. "def lossPDE", plus a caption.
 - explanations: moments (MM:SS) where the presenter explains a concept relevant to the step.
 - hints: a ladder of 2-4 hints, gentlest first (a guiding question -> a pointer -> nearly the answer).
 - common_mistakes: concrete mistakes learners make in this step (e.g. forgetting requires_grad=True on inputs, create_graph=True for second derivatives).
@@ -139,8 +151,9 @@ async def watch_video(url: str, goal: str, *, fps: float | None = None) -> dict:
 
 DETAIL_PROMPT = """This clip is one step of a coding tutorial: "{title}".
 Transcribe exactly the code visible in the editor/notebook at the END of the clip that
-belongs to this step (keep the presenter's variable names and file name). Also list the
-command run, the names of values printed during training, and any library versions shown."""
+belongs to this step (keep the presenter's variable names and file name). Also give the
+command run, any training/progress lines printed (verbatim, they are parsed by regex),
+the names of values printed during training, and any library versions shown."""
 
 
 async def step_detail(url: str, start: float, end: float, title: str, *, fps: float = 2.0) -> dict:
@@ -152,28 +165,33 @@ async def step_detail(url: str, start: float, end: float, title: str, *, fps: fl
 # Pass 2: adapt checks to the learner's real workdir (text only, cheap)
 # --------------------------------------------------------------------------- #
 
-ADAPT_SYSTEM = """You write executable checks for an auto-graded coding lab. A checks engine
-evaluates them literally, so every check must be runnable as written:
-- file / command paths are relative to the learner's workdir;
-- file_contains patterns are Python regexes (re.search, MULTILINE) that match the learner's
-  actual code style, not the tutorial's variable names when they differ;
-- metric names must be ones the learner's code prints via ::metric:: lines;
-- command_exit_ok commands must exist in the workdir and finish quickly (use a small
-  --epochs/--steps flag if the script has one)."""
+ADAPT_SYSTEM = """You write executable checks for an auto-graded coding lab. The engine reads
+the learner's SCREEN with on-device OCR (Apple Vision) and evaluates checks literally:
+- `checks` (screen-first, graded from the screen in any setup):
+  * screen_contains / screen_absent: Python regex (re.search) over the OCR text of windows of `app`
+    ("Code" = editor, "Terminal" = terminal). OCR drops/merges spaces and may misread quotes, so match a
+    SHORT distinctive fragment (< 60 chars) with \\s* between tokens, avoid quotes, ^/$ anchors and long literals.
+    Use screen_absent app "Terminal" pattern "Traceback|Error" for "the script runs".
+  * metric_threshold / metric_trend with `metric` (a name) and `metric_pattern`: a regex with named groups
+    (?P<step>...) and (?P<value>...) that matches ONE printed training line of the learner's code exactly
+    as it prints (for ::metric:: JSON lines, match the JSON keys).
+- `precision_checks` (backup, only when the workdir is known): file_contains / file_exists with paths relative
+  to the workdir, command_exit_ok with a quick command that exists (small --epochs/--steps flag), metric_* by
+  the ::metric:: name the code prints.
+Never emit "visual"."""
 
 ADAPT_PROMPT = """Learner's goal: {goal}
 
-Tutorial steps (from the video), with the tutorial's own code and draft checks:
+Tutorial steps (from the video), with the tutorial's own code, printed output and draft checks:
 {steps}
 
 The learner's workdir:
 {workdir}
 
-For EVERY step (keep the same `index`), rewrite `checks` and `targets` so they run against
-this workdir. Keep the intent of each check. Use the real file names, function names and
-metric names above. If the workdir is empty, use the tutorial's file names and the metric
-name "loss". Keep check labels <= 6 words. You may tighten `instructions` to mention the
-learner's file/function names (<= 2 sentences). No "visual" checks.
+For EVERY step (keep the same `index`), write `checks` (screen-first, at least one per step), `precision_checks`
+(file/command backups; empty list if the workdir is unknown) and `targets` (app + short on-screen `match`
+substring + caption; include `file` when known). Use the learner's real names where they differ from the tutorial.
+Keep labels <= 6 words. You may tighten `instructions` to mention the learner's file/function names (<= 2 sentences).
 {feedback}"""
 
 
@@ -183,7 +201,7 @@ async def adapt_checks(goal: str, draft_steps: list[dict], workdir_summary: str,
         fb = "\nYour previous answer had these problems; fix all of them:\n- " + "\n- ".join(feedback[:40])
     steps_txt = json.dumps(
         [
-            {k: s.get(k) for k in ("index", "title", "instructions", "file", "code", "run_command", "expected_output", "checks", "targets")}
+            {k: s.get(k) for k in ("index", "title", "instructions", "file", "code", "run_command", "expected_output", "terminal_output", "checks", "targets")}
             for s in draft_steps
         ],
         indent=1,

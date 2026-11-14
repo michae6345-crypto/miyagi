@@ -11,10 +11,7 @@ import asyncio
 import json
 import logging
 import sys
-import warnings
 from pathlib import Path
-
-warnings.filterwarnings("ignore", category=SyntaxWarning)  # google-genai types.py
 
 from .builder import build_lesson
 from .precision import format_report, report

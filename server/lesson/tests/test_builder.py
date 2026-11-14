@@ -2,6 +2,7 @@
 
 import asyncio
 import json
+import re
 from pathlib import Path
 
 import pytest
@@ -27,20 +28,30 @@ DRAFT = {
 }
 
 
+MP = r"step\W+(?P<step>\d+)\W+name\W+loss\W+value\W+(?P<value>[0-9.eE+-]+)"
+
+
 def _good_adapt():
     return {"steps": [
-        {"index": 1, "checks": [{"type": "file_contains", "label": "imports torch", "file": "pinn_diffusion.py", "pattern": r"import torch"}], "targets": [{"file": "pinn_diffusion.py", "match": "import torch", "caption": "imports"}]},
-        {"index": 2, "checks": [{"type": "file_contains", "label": "residual", "file": "pinn_diffusion.py", "pattern": r"f_t\s*-\s*f_xx"},
-                                {"type": "command_exit_ok", "label": "script runs", "command": "python pinn_diffusion.py --steps 1"}],
-         "targets": [{"file": "pinn_diffusion.py", "match": "def lossPDE", "caption": "residual"}]},
-        {"index": 3, "checks": [{"type": "metric_threshold", "label": "loss < 1e-2", "metric": "loss", "op": "<", "value": 0.01, "by_step": 2000}], "targets": []},
+        {"index": 1, "checks": [{"type": "screen_contains", "label": "imports torch", "app": "Code", "pattern": r"import\s+torch"}],
+         "precision_checks": [{"type": "file_contains", "label": "imports torch", "file": "pinn_diffusion.py", "pattern": r"import torch"}],
+         "targets": [{"app": "Code", "file": "pinn_diffusion.py", "match": "import torch", "caption": "imports"}]},
+        {"index": 2, "checks": [{"type": "screen_contains", "label": "residual", "app": "Code", "pattern": r"f_t\s*-\s*f_xx"},
+                                {"type": "screen_absent", "label": "no traceback", "app": "Terminal", "pattern": "Traceback"}],
+         "precision_checks": [{"type": "command_exit_ok", "label": "script runs", "command": "python pinn_diffusion.py --steps 1"}],
+         "targets": [{"app": "Code", "match": "def lossPDE", "caption": "residual"}]},
+        {"index": 3, "checks": [{"type": "metric_threshold", "label": "loss < 1e-2", "metric": "loss", "metric_pattern": MP, "op": "<", "value": 0.01, "by_step": 2000}],
+         "precision_checks": [{"type": "metric_threshold", "label": "loss < 1e-2", "metric": "loss", "op": "<", "value": 0.01, "by_step": 2000}],
+         "targets": []},
     ]}
 
 
 def _bad_adapt():
     a = _good_adapt()
     a["steps"][1]["checks"][0]["pattern"] = r"f_t\s*-\s*(f_xx"  # does not compile
-    a["steps"][2]["checks"][0]["metric"] = "train_loss"  # not printed by the workdir
+    a["steps"][2]["checks"][0].pop("metric_pattern")  # screen metric check that can't read the terminal
+    a["steps"][2]["precision_checks"][0]["metric"] = "train_loss"  # not printed by the workdir
+    a["steps"][0]["checks"].append({"type": "file_contains", "label": "wrong list", "file": "pinn_diffusion.py", "pattern": "x"})
     a["steps"][0]["checks"].append({"type": "visual", "label": "looks right", "prompt": "?"})
     return a
 
@@ -96,11 +107,14 @@ def test_build_retries_with_feedback_then_caches(fake):
     assert lint(g, {"loss", "test_loss"}, {"pinn_diffusion.py"}) == []
     assert len(fake["adapt"]) == 2 and fake["adapt"][0] is None
     fb = "\n".join(fake["adapt"][1])
-    assert "does not compile" in fb and "train_loss" in fb and "visual" not in fb  # visual is dropped silently
+    assert "does not compile" in fb and "metric_pattern" in fb and "train_loss" in fb and "not allowed in `checks`" in fb
+    assert "visual" not in fb  # visual is dropped silently
     assert g["sources"][0]["videoId"] == "AXXnSzmpyoI"
     assert g["lesson"]["libraries"]["torch"] == "1.11"
-    assert g["steps"][1]["video"] == {"sourceId": "src1", "start": 902.0, "end": 1096.0}
-    assert [c["id"] for c in g["steps"][1]["checks"]] == ["s2c1", "s2c2"]
+    s2 = g["steps"][1]
+    assert s2["video"] == {"sourceId": "src1", "start": 902.0, "end": 1096.0}
+    assert [c["id"] for c in s2["checks"]] == ["s2c1", "s2c2"] and s2["precision_checks"][0]["id"] == "s2p1"
+    assert s2["targets"][0]["app"] == "Code"
     assert fake["detail"] == 3
 
     # second call: served from cache, no Gemini
@@ -112,9 +126,20 @@ def test_repair_drops_broken_checks_when_retries_run_out(fake):
     fake["responses"].extend([_bad_adapt()] * builder.ADAPT_ATTEMPTS)
     g = asyncio.run(builder.build_lesson(URL, "train a PINN", WORKDIR, refresh=True))
     assert schema_errors(g) == []
-    s2 = g["steps"][1]["checks"]
-    assert [c["type"] for c in s2] == ["command_exit_ok"] and s2[0]["id"] == "s2c1"
-    assert g["build"]["warnings"]  # step 3 lost its only check -> reported, not hidden
+    assert lint(g, {"loss", "test_loss"}, {"pinn_diffusion.py"}) == [s for s in g["build"]["warnings"]]
+    s1, s2, s3 = g["steps"]
+    assert [c["type"] for c in s1["checks"]] == ["screen_contains"]
+    assert [c["id"] for c in s1["precision_checks"]] == ["s1p1", "s1p2"]  # misplaced file_contains moved, not dropped
+    assert [(c["type"], c["id"]) for c in s2["checks"]] == [("screen_absent", "s2c1")]
+    # step 3 lost its only screen check and has no target to fall back on -> reported, not hidden
+    assert s3["checks"] == [] and s3["precision_checks"] == []
+    assert g["build"]["warnings"] == ["s3: no screen checks (every step needs at least one screen_* or metric_* check)"]
+
+
+def test_fallback_screen_check_from_target():
+    step = {"id": "s4", "targets": [{"app": "Code", "match": "def lossPDE(self, x)", "caption": "PDE residual"}]}
+    (c,) = builder.fallback_screen_checks(step)
+    assert c["type"] == "screen_contains" and re.search(c["pattern"], "    def  lossPDE(self, x):")
 
 
 def test_rejects_non_youtube():
@@ -134,3 +159,4 @@ def test_fixture_is_valid_and_self_scores_perfectly():
     assert schema_errors(exp) == []
     r = report(exp, exp, {"loss", "test_loss"}, {"pinn_diffusion.py"})
     assert r["steps"]["f1"] == 1.0 and r["checks"]["regex_accepts_solution"] == 1.0 and r["checks"]["lint_problems"] == 0
+    assert r["checks"]["metric_pattern_parses_output"] == 1.0 and r["checks"]["screen_first_share"] == 1.0

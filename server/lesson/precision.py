@@ -2,9 +2,11 @@
 
 Fixtures (server/lesson/fixtures/*.json) are ordinary step graphs plus, per step, an
 optional `solution` string: the code a correct learner has written by the end of that
-step. Generated `file_contains` regexes are run against it, so "does the check accept
-correct code?" is measured, not eyeballed. An optional `starter` (code before the step)
-measures the opposite: a check that already passes on the starter code is vacuous.
+step. Generated `screen_contains` / `file_contains` regexes are run against it, so "does
+the check accept correct code?" is measured, not eyeballed. An optional `starter` (code
+before the step) measures the opposite: a check that already passes on it is vacuous.
+An optional `sample_output` (terminal lines) measures whether each `metric_pattern`
+actually parses the learner's training output.
 """
 
 from __future__ import annotations
@@ -51,6 +53,24 @@ def _regex_accepts(pattern: str, code: str) -> bool | None:
         return None
 
 
+def _parses(metric_pattern: str, output: str) -> bool:
+    """True if the pattern extracts at least one numeric (step, value) from the output lines."""
+    try:
+        rx = re.compile(metric_pattern)
+    except re.error:
+        return False
+    for line in output.splitlines():
+        m = rx.search(line)
+        if m and {"step", "value"} <= set(rx.groupindex):
+            try:
+                int(m.group("step"))
+                float(m.group("value"))
+                return True
+            except (TypeError, ValueError):
+                continue
+    return False
+
+
 def report(pred: dict, exp: dict, known_metrics: set[str] | None = None, known_files: set[str] | None = None) -> dict:
     ps, es = pred.get("steps", []), exp.get("steps", [])
     matches = align(ps, es)
@@ -63,12 +83,12 @@ def report(pred: dict, exp: dict, known_metrics: set[str] | None = None, known_f
     end_err = [abs(ps[i]["video"]["end"] - es[j]["video"]["end"]) for i, j, _ in matches]
 
     type_hits = type_total = 0
-    accept = accept_total = vacuous = vacuous_total = 0
+    accept = accept_total = vacuous = vacuous_total = mp_ok = mp_total = 0
     per_step = []
     for i, j, iou in matches:
         p, e = ps[i], es[j]
         want = Counter(c["type"] for c in e.get("checks", []))
-        got = Counter(c["type"] for c in p.get("checks", []))
+        got = Counter(c["type"] for c in p.get("checks", []))  # screen-first checks only
         hit = sum(min(n, got[t]) for t, n in want.items())
         type_hits += hit
         type_total += sum(want.values())
@@ -80,7 +100,8 @@ def report(pred: dict, exp: dict, known_metrics: set[str] | None = None, known_f
             "check_types": f"{hit}/{sum(want.values())}",
         }
         sol, starter = e.get("solution"), e.get("starter")
-        pats = [c["pattern"] for c in p.get("checks", []) if c["type"] == "file_contains" and c.get("pattern")]
+        all_checks = p.get("checks", []) + p.get("precision_checks", [])
+        pats = [c["pattern"] for c in all_checks if c["type"] in ("screen_contains", "file_contains") and c.get("pattern")]
         if sol and pats:
             ok = [_regex_accepts(x, sol) for x in pats]
             accept += sum(1 for v in ok if v)
@@ -90,6 +111,13 @@ def report(pred: dict, exp: dict, known_metrics: set[str] | None = None, known_f
             bad = [_regex_accepts(x, starter) for x in pats]
             vacuous += sum(1 for v in bad if v)
             vacuous_total += len(bad)
+        if e.get("sample_output"):
+            mps = [c["metric_pattern"] for c in p.get("checks", []) if c.get("metric_pattern")]
+            parsed = [_parses(mp, e["sample_output"]) for mp in mps]
+            mp_ok += sum(parsed)
+            mp_total += len(parsed)
+            if mps:
+                row["metric_pattern_parses"] = f"{sum(parsed)}/{len(parsed)}"
         per_step.append(row)
 
     exp_libs = set((exp.get("lesson") or {}).get("libraries", {}))
@@ -110,6 +138,9 @@ def report(pred: dict, exp: dict, known_metrics: set[str] | None = None, known_f
             "type_recall": round(type_hits / type_total, 3) if type_total else None,
             "regex_accepts_solution": round(accept / accept_total, 3) if accept_total else None,
             "regex_vacuous_on_starter": round(vacuous / vacuous_total, 3) if vacuous_total else None,
+            "metric_pattern_parses_output": round(mp_ok / mp_total, 3) if mp_total else None,
+            "screen_first_share": round(sum(1 for s in ps for c in s.get("checks", []) if c["type"].startswith(("screen_", "metric_"))) / n_checks, 3) if n_checks else None,
+            "precision_backups": sum(len(s.get("precision_checks", [])) for s in ps),
             "visual_checks": sum(1 for s in ps for c in s.get("checks", []) if c.get("type") == "visual"),
             "lint_problems": len(problems),
         },
@@ -128,13 +159,17 @@ def format_report(r: dict) -> str:
         f"steps     P={s['precision']:.2f} R={s['recall']:.2f} F1={s['f1']:.2f}  ({s['matched']} matched; {s['predicted']} predicted, {s['expected']} expected)",
         f"timing    median |Δstart|={t['median_start_err_s']}s  |Δend|={t['median_end_err_s']}s  " + "  ".join(f"{k}={v}" for k, v in t.items() if k.startswith("starts")),
         f"checks    {c['total']} total, type recall={c['type_recall']}, regex accepts solution={c['regex_accepts_solution']}, "
-        f"vacuous on starter={c['regex_vacuous_on_starter']}, visual={c['visual_checks']}, lint problems={c['lint_problems']}",
+        f"vacuous on starter={c['regex_vacuous_on_starter']}, metric_pattern parses output={c['metric_pattern_parses_output']},",
+        f"          screen-first share={c['screen_first_share']}, precision backups={c['precision_backups']}, visual={c['visual_checks']}, lint problems={c['lint_problems']}",
         f"libraries recall={r['libraries_recall']}   schema valid={r['schema_valid']}",
         "",
         f"{'expected step':32} {'generated step':32} {'IoU':>4} {'Δstart':>7} types  regex",
     ]
     for row in r["per_step"]:
-        lines.append(f"{row['expected'][:32]:32} {row['got'][:32]:32} {row['iou']:>4} {row['d_start_s']:>7} {row['check_types']:>5}  {row.get('regex_accepts_solution', '-')}")
+        lines.append(
+            f"{row['expected'][:32]:32} {row['got'][:32]:32} {row['iou']:>4} {row['d_start_s']:>7} {row['check_types']:>5}  "
+            f"{row.get('regex_accepts_solution', '-')}  {row.get('metric_pattern_parses', '')}"
+        )
     if r["unmatched_expected"]:
         lines.append("missed: " + "; ".join(r["unmatched_expected"]))
     if r["unmatched_predicted"]:

@@ -5,8 +5,16 @@ from server.lesson import build_lesson
 graph = await build_lesson(url, goal="train a PINN on the convection equation", workdir="demo/pinn")
 ```
 
-Returns a graph that validates against `shared/contracts/step-graph.schema.json` (plus an extra
-top-level `build` object with the models used, timing and any leftover warnings).
+Returns a graph that validates against `shared/contracts/step-graph.schema.json`. Optional
+`api_key=` takes the app's bring-your-own Gemini key (`config.keys.gemini`) over `.env`.
+
+**Screen-first checks.** Each step's `checks` are graded from the learner's screen:
+`screen_contains` / `screen_absent` (short OCR-tolerant regex, scoped to an `app` such as "Code" or "Terminal")
+and `metric_threshold` / `metric_trend` with a `metric_pattern` (named groups `step`, `value`) that reads
+the loss off terminal lines. The precision-mode backups (`file_*`, `command_exit_ok`, metrics by
+`::metric::` name) go in an extra per-step **`precision_checks`** list, because a step passes only when
+ALL `checks` pass and these can't be evaluated without a known workdir / `tut run`. Targets carry `app` +
+a short on-screen `match` ("def lossPDE"). Extra top-level `build` = models, timing, leftover warnings.
 
 ## Pipeline
 1. **Watch** (`gemini.watch_video`): the public YouTube URL goes straight to Gemini as `file_data`
@@ -16,9 +24,12 @@ top-level `build` object with the models used, timing and any leftover warnings)
    at 2 fps so on-screen code is legible (default sampling is 1 fps). Runs 4 at a time; failures are non-fatal.
 3. **Adapt** (`gemini.adapt_checks`, text only): rewrites checks/targets against the learner's workdir
    (`workdir.scan` finds files, `log_metric`/`::metric::` names, argparse flags).
-4. **Validate**: jsonschema + `schema.lint` (regex compiles, metric is actually printed, file exists or
-   is a new source file, no `visual`, ≤6-word titles, ≥1 check). Problems are fed back to step 3
-   (3 attempts); checks still broken are dropped and listed in `build.warnings`.
+4. **Validate**: jsonschema + `schema.lint`: regexes compile, screen patterns ≤ 80 chars, every screen metric
+   check has a `metric_pattern` with `step`/`value` groups, `::metric::` names are actually printed, files
+   exist or are new source files, `checks` only hold screen-gradable types, no `visual`, ≤6-word titles,
+   ≥1 screen check per step. Problems are fed back to step 3 (3 attempts). Then `repair` moves misplaced
+   file checks to `precision_checks`, drops what's still broken, falls back to a literal screen match of the
+   step's target, and lists anything left in `build.warnings`.
 5. **Cache**: `demo/cache/lessons/<hash>.json`, hash = (video id, normalized goal, workdir folder name),
    so the cache survives other laptops and learner edits. The video-only draft is cached in
    `demo/cache/lessons/raw/` so re-adapting to a new workdir costs one cheap text call.
@@ -39,9 +50,10 @@ Graph → stdout, precision report → stderr. `--refresh` ignores the cache, `-
 
 ## Precision report (`precision.py`)
 Aligns generated steps to the hand-written ones by time IoU, then reports step P/R/F1, median
-start/end error, check-type recall, **whether each generated `file_contains` regex accepts the
-correct code** (`solution` per fixture step), regexes that already pass on `starter` code (vacuous),
-library recall and lint problems.
+start/end error, check-type recall, **whether each generated `screen_contains`/`file_contains` regex
+accepts the correct code** (`solution` per fixture step), regexes that already pass on `starter` code
+(vacuous), **whether each `metric_pattern` parses real training output** (`sample_output`), the share of
+screen-first checks, library recall and lint problems.
 
 ## Fixtures
 - `fixtures/toscano_pinn_part1.expected.json`: expected graph for Juan Toscano's *Learning PIML Part 1:

@@ -12,7 +12,7 @@ import time
 from pathlib import Path
 
 from . import gemini
-from .schema import CHECK_TYPES, REPO_ROOT, lint, schema_errors
+from .schema import CHECK_TYPES, PRECISION_TYPES, REPO_ROOT, SCREEN_TYPES, check_problems, lint, schema_errors
 from .workdir import WorkdirInfo, scan
 
 log = logging.getLogger("server.lesson")
@@ -23,17 +23,25 @@ ADAPT_ATTEMPTS = 3
 DETAIL_CONCURRENCY = 4
 
 _CHECK_FIELDS = {
+    "screen_contains": ("app", "pattern"),
+    "screen_absent": ("app", "pattern"),
     "file_exists": ("file",),
     "file_contains": ("file", "pattern"),
     "command_exit_ok": ("command",),
     "output_contains": ("pattern",),
-    "metric_threshold": ("metric", "op", "value", "by_step"),
-    "metric_trend": ("metric", "trend", "window"),
+    "metric_threshold": ("metric", "metric_pattern", "op", "value", "by_step"),
+    "metric_trend": ("metric", "metric_pattern", "trend", "window"),
 }
 
 
-async def build_lesson(source_url: str, goal: str, workdir: str, *, refresh: bool = False, detail: bool = True) -> dict:
+async def build_lesson(
+    source_url: str, goal: str, workdir: str, *, refresh: bool = False, detail: bool = True, api_key: str | None = None
+) -> dict:
     """Return a step graph that validates against shared/contracts/step-graph.schema.json.
+
+    Each step has screen-first `checks` (screen_* / metric_* with metric_pattern) and, as an
+    extra field, `precision_checks` (file_* / command_* / ::metric:: backups for `tut run`).
+    api_key: the app's bring-your-own Gemini key (config.keys.gemini); falls back to .env.
 
     Cached at demo/cache/lessons/<hash>.json; the cache wins unless refresh=True, so the
     demo never waits on Gemini. The hash covers the video, the goal and the workdir *name*
@@ -50,6 +58,8 @@ async def build_lesson(source_url: str, goal: str, workdir: str, *, refresh: boo
         log.info("lesson cache hit %s", path.name)
         return graph
 
+    if api_key:
+        gemini.set_api_key(api_key)
     t0 = time.time()
     draft = await _video_draft(source_url, vid, goal, refresh=refresh, detail=detail)
     info = scan(workdir)
@@ -121,7 +131,7 @@ async def _add_detail(url: str, draft: dict) -> None:
                 return
         if len(d.get("code") or "") > len(step.get("code") or ""):
             step["code"] = d["code"]
-        for k in ("file", "run_command"):
+        for k in ("file", "run_command", "terminal_output"):
             if d.get(k) and not step.get(k):
                 step[k] = d[k]
         if d.get("printed_metrics"):
@@ -211,8 +221,14 @@ def assemble(draft: dict, goal: str, adapted: dict) -> dict:
     for s in draft["steps"]:
         i = s["index"]
         a = by_index.get(i) or {}
-        checks = a.get("checks") if a.get("checks") else s.get("checks") or []
+        draft_checks = s.get("checks") or []
+        checks = a.get("checks") or [c for c in draft_checks if c.get("type") in SCREEN_TYPES]
+        precision = a.get("precision_checks") or []
+        if not a:  # adapt pass gave nothing for this step: keep the video draft's file/command checks as backups
+            precision = [c for c in draft_checks if c.get("type") in PRECISION_TYPES and c.get("type") not in SCREEN_TYPES]
         targets = a.get("targets") if a.get("targets") else s.get("targets") or []
+        checks = [c for j, raw in enumerate(checks, 1) if (c := clean_check(raw, f"s{i}c{j}"))]
+        precision = [c for j, raw in enumerate(precision, 1) if (c := clean_check(raw, f"s{i}p{j}"))]
         steps.append(
             {
                 "id": f"s{i}",
@@ -220,8 +236,9 @@ def assemble(draft: dict, goal: str, adapted: dict) -> dict:
                 "title": _clip_words(s.get("title", f"Step {i}"), 6),
                 "instructions": (a.get("instructions") or s.get("instructions") or "").strip(),
                 "video": {"sourceId": "src1", "start": s["start"], "end": s["end"]},
-                "checks": [c for j, raw in enumerate(checks, 1) if (c := clean_check(raw, f"s{i}c{j}"))],
-                "targets": [{k: t[k] for k in ("file", "match", "caption") if t.get(k)} for t in targets if t.get("match")],
+                "checks": checks,
+                "precision_checks": precision,
+                "targets": [{k: t[k] for k in ("app", "file", "match", "caption") if t.get(k)} for t in targets if t.get("match")],
                 "explanations": [{"topic": e["topic"], "t": e["t"], "sourceId": "src1"} for e in s.get("explanations") or []],
                 "hints": [h for h in s.get("hints") or [] if h],
                 "common_mistakes": [m for m in s.get("common_mistakes") or [] if m],
@@ -253,19 +270,31 @@ def clean_check(raw: dict, cid: str) -> dict | None:
 
 
 def repair(graph: dict, info: WorkdirInfo) -> dict:
-    """Deterministically remove checks that lint still rejects."""
+    """Deterministically remove checks that lint still rejects; never leave a step ungradable."""
     g = copy.deepcopy(graph)
     for step in g["steps"]:
-        keep = []
-        for c in step["checks"]:
-            probe = {"steps": [{"id": step["id"], "title": "x", "checks": [c]}]}
-            if not lint(probe, info.metrics, set(info.files)):
-                keep.append(c)
-        step["checks"] = keep
-        # renumber so ids stay unique and stable
-        for j, c in enumerate(step["checks"], 1):
-            c["id"] = f"{step['id']}c{j}"
+        # file_*/command_* placed in the screen list: move them to the backups instead of dropping them
+        misplaced = [c for c in step.get("checks", []) if c.get("type") in PRECISION_TYPES and c.get("type") not in SCREEN_TYPES]
+        step["checks"] = [c for c in step.get("checks", []) if c not in misplaced]
+        step["precision_checks"] = step.get("precision_checks", []) + misplaced
+        for key, allowed, tag in (("checks", SCREEN_TYPES, "c"), ("precision_checks", PRECISION_TYPES, "p")):
+            kept = [c for c in step.get(key, []) if not check_problems(c, allowed, key, info.metrics, set(info.files))]
+            if key == "checks" and not kept:
+                kept = fallback_screen_checks(step)
+            for j, c in enumerate(kept, 1):  # renumber so ids stay unique and stable
+                c["id"] = f"{step['id']}{tag}{j}"
+            step[key] = kept
     return g
+
+
+def fallback_screen_checks(step: dict) -> list[dict]:
+    """Last resort: the step's first target, as a literal on-screen match."""
+    for t in step.get("targets", []):
+        frag = (t.get("match") or "").strip()
+        if 3 <= len(frag):
+            return [{"id": "", "type": "screen_contains", "label": _clip_words(t.get("caption") or frag, 6),
+                     "app": t.get("app") or "Code", "pattern": r"\s*".join(map(re.escape, frag.split()))[:80]}]
+    return []
 
 
 def _clip_words(s: str, n: int) -> str:

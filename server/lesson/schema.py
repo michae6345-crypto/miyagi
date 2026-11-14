@@ -17,9 +17,16 @@ from referencing import Registry, Resource
 REPO_ROOT = Path(__file__).resolve().parents[2]
 CONTRACTS = REPO_ROOT / "shared" / "contracts"
 
-# Check types we let the builder emit. `visual` is in the contract but is not
-# machine-checkable, so the builder never produces it.
-CHECK_TYPES = ["file_exists", "file_contains", "command_exit_ok", "output_contains", "metric_threshold", "metric_trend"]
+# Screen-first (contract change, Sat 1 PM): a step's `checks` are graded from what is on
+# the learner's screen (Apple Vision OCR), so they use screen_* and metric_* (+ metric_pattern).
+# file_*/command_* need a known workdir or `tut run`; they go in the optional per-step
+# `precision_checks` list (extra field, allowed by the contract) so they never block a step
+# in screen mode. `visual` is not machine-checkable, so the builder never emits it.
+SCREEN_TYPES = ["screen_contains", "screen_absent", "metric_threshold", "metric_trend"]
+PRECISION_TYPES = ["file_exists", "file_contains", "command_exit_ok", "output_contains", "metric_threshold", "metric_trend"]
+CHECK_TYPES = sorted(set(SCREEN_TYPES) | set(PRECISION_TYPES))
+SCREEN_APPS = ["Code", "Terminal", "iTerm2", "Google Chrome", "Safari", "Jupyter", "PyCharm", "Cursor"]
+MAX_SCREEN_PATTERN = 80  # long regexes break on OCR noise
 
 
 @lru_cache(maxsize=1)
@@ -43,7 +50,7 @@ def lint(graph: dict, known_metrics: set[str] | None = None, known_files: set[st
     """Semantic problems the JSON schema can't catch: a check must be *runnable*.
 
     known_files / known_metrics come from scanning the learner's workdir; when they
-    are empty (fresh workdir) the corresponding checks are not enforced.
+    are empty (fresh or unknown workdir) the corresponding checks are not enforced.
     """
     problems: list[str] = []
     seen_ids: set[str] = set()
@@ -53,51 +60,59 @@ def lint(graph: dict, known_metrics: set[str] | None = None, known_files: set[st
             problems.append(f"{sid}: title longer than 6 words")
         checks = step.get("checks", [])
         if not checks:
-            problems.append(f"{sid}: no checks (every step needs at least one machine-checkable check)")
+            problems.append(f"{sid}: no screen checks (every step needs at least one screen_* or metric_* check)")
         v = step.get("video")
         if v and not (0 <= v.get("start", 0) < v.get("end", 0)):
             problems.append(f"{sid}: video.start must be < video.end")
-        for c in checks:
-            cid = c.get("id", "?")
-            where = f"{sid}/{cid}"
-            if cid in seen_ids:
-                problems.append(f"{where}: duplicate check id")
-            seen_ids.add(cid)
-            t = c.get("type")
-            if t not in CHECK_TYPES:
-                problems.append(f"{where}: type {t!r} not allowed (use one of {CHECK_TYPES})")
-                continue
-            if t in ("file_exists", "file_contains") and not c.get("file"):
-                problems.append(f"{where}: {t} needs `file`")
-            if t in ("file_contains", "output_contains"):
-                pat = c.get("pattern")
-                if not pat:
-                    problems.append(f"{where}: {t} needs `pattern`")
-                else:
-                    try:
-                        re.compile(pat)
-                    except re.error as e:
-                        problems.append(f"{where}: pattern does not compile ({e})")
-            if t == "command_exit_ok" and not c.get("command"):
-                problems.append(f"{where}: command_exit_ok needs `command`")
-            if t == "metric_threshold":
-                for k in ("metric", "op", "value"):
-                    if c.get(k) is None:
-                        problems.append(f"{where}: metric_threshold needs `{k}`")
-            if t == "metric_trend":
-                for k in ("metric", "trend"):
-                    if c.get(k) is None:
-                        problems.append(f"{where}: metric_trend needs `{k}`")
-            if t in ("metric_threshold", "metric_trend") and known_metrics and c.get("metric"):
-                if not _metric_known(c["metric"], known_metrics):
-                    problems.append(
-                        f"{where}: metric {c['metric']!r} is never printed by the workdir code "
-                        f"(known: {sorted(known_metrics)})"
-                    )
-            if t in ("file_exists", "file_contains") and known_files and c.get("file"):
-                if c["file"] not in known_files and not _creatable(c["file"]):
-                    problems.append(f"{where}: file {c['file']!r} is not in the workdir (files: {sorted(known_files)[:20]})")
+        for key, allowed in (("checks", SCREEN_TYPES), ("precision_checks", PRECISION_TYPES)):
+            for c in step.get(key, []):
+                cid = c.get("id", "?")
+                if cid in seen_ids:
+                    problems.append(f"{sid}/{cid}: duplicate check id")
+                seen_ids.add(cid)
+                problems += [f"{sid}/{cid}: {p}" for p in check_problems(c, allowed, key, known_metrics, known_files)]
     return problems
+
+
+def check_problems(c: dict, allowed: list[str], where: str, known_metrics=None, known_files=None) -> list[str]:
+    out: list[str] = []
+    t = c.get("type")
+    if t not in allowed:
+        return [f"type {t!r} not allowed in `{where}` (use one of {allowed})"]
+    need = {
+        "screen_contains": ("pattern",), "screen_absent": ("pattern",),
+        "file_exists": ("file",), "file_contains": ("file", "pattern"), "command_exit_ok": ("command",),
+        "output_contains": ("pattern",), "metric_threshold": ("metric", "op", "value"), "metric_trend": ("metric", "trend"),
+    }[t]
+    out += [f"{t} needs `{k}`" for k in need if c.get(k) in (None, "")]
+    if c.get("pattern"):
+        if err := _regex_error(c["pattern"]):
+            out.append(f"pattern does not compile ({err})")
+        elif t.startswith("screen_") and len(c["pattern"]) > MAX_SCREEN_PATTERN:
+            out.append(f"screen pattern longer than {MAX_SCREEN_PATTERN} chars; OCR text is noisy, match a short distinctive fragment")
+    if t in ("metric_threshold", "metric_trend"):
+        mp = c.get("metric_pattern")
+        if where == "checks" and not mp:
+            out.append("screen metric check needs `metric_pattern` (regex with (?P<step>...) and (?P<value>...)) to read it off the terminal")
+        if mp:
+            if err := _regex_error(mp):
+                out.append(f"metric_pattern does not compile ({err})")
+            elif not {"step", "value"} <= set(re.compile(mp).groupindex):
+                out.append("metric_pattern must have named groups `step` and `value`")
+        if where == "precision_checks" and known_metrics and c.get("metric") and not _metric_known(c["metric"], known_metrics):
+            out.append(f"metric {c['metric']!r} is never printed by the workdir code (known: {sorted(known_metrics)})")
+    if t in ("file_exists", "file_contains") and known_files and c.get("file"):
+        if c["file"] not in known_files and not _creatable(c["file"]):
+            out.append(f"file {c['file']!r} is not in the workdir (files: {sorted(known_files)[:20]})")
+    return out
+
+
+def _regex_error(p: str) -> str | None:
+    try:
+        re.compile(p)
+    except re.error as e:
+        return str(e)
+    return None
 
 
 def _metric_known(name: str, known: set[str]) -> bool:
@@ -124,6 +139,8 @@ _CHECK_DRAFT = {
     "properties": {
         "type": {"type": "string", "enum": CHECK_TYPES},
         "label": {"type": "string", "description": "<= 6 words, shown in a checklist"},
+        "app": {"type": "string", "description": "screen_*: app whose window must show the text, e.g. Code, Terminal"},
+        "metric_pattern": {"type": "string", "description": "regex with named groups step and value that reads the metric off a terminal line"},
         "file": {"type": "string"},
         "pattern": {"type": "string", "description": "Python regex"},
         "command": {"type": "string"},
@@ -164,13 +181,13 @@ VIDEO_DRAFT_SCHEMA = {
                     "file": {"type": "string", "description": "file edited in this step, if any"},
                     "code": {"type": "string", "description": "the key code written in this step, as seen on screen"},
                     "run_command": {"type": "string", "description": "command run at the end of the step, if any"},
-                    "expected_output": {"type": "string", "description": "what the run prints / the loss value reached, if shown"},
+                    "expected_output": {"type": "string", "description": "terminal lines printed by the run, verbatim as on screen (format matters: checks parse it)"},
                     "checks": {"type": "array", "items": _CHECK_DRAFT},
                     "targets": {
                         "type": "array",
                         "items": {
                             "type": "object",
-                            "properties": {"file": {"type": "string"}, "match": {"type": "string"}, "caption": {"type": "string"}},
+                            "properties": {"app": {"type": "string"}, "file": {"type": "string"}, "match": {"type": "string"}, "caption": {"type": "string"}},
                             "required": ["match", "caption"],
                         },
                     },
@@ -198,6 +215,7 @@ DETAIL_SCHEMA = {
         "file": {"type": "string", "description": "file name visible in the editor tab, if any"},
         "code": {"type": "string", "description": "the code on screen at the end of this clip, transcribed exactly"},
         "run_command": {"type": "string"},
+        "terminal_output": {"type": "string", "description": "training/progress lines visible in the terminal or notebook output, verbatim"},
         "printed_metrics": {"type": "array", "items": {"type": "string"}, "description": "names of values printed during training (loss, etc.)"},
         "library_versions": {
             "type": "array",
@@ -217,13 +235,14 @@ ADAPTED_SCHEMA = {
                 "properties": {
                     "index": {"type": "integer"},
                     "instructions": {"type": "string"},
-                    "checks": {"type": "array", "items": _CHECK_DRAFT},
+                    "checks": {"type": "array", "items": _CHECK_DRAFT, "description": "screen-first: screen_contains / screen_absent / metric_* with metric_pattern"},
+                    "precision_checks": {"type": "array", "items": _CHECK_DRAFT, "description": "backup when the workdir is known: file_* / command_exit_ok / metric_* by ::metric:: name"},
                     "targets": {
                         "type": "array",
                         "items": {
                             "type": "object",
-                            "properties": {"file": {"type": "string"}, "match": {"type": "string"}, "caption": {"type": "string"}},
-                            "required": ["file", "match", "caption"],
+                            "properties": {"app": {"type": "string"}, "file": {"type": "string"}, "match": {"type": "string"}, "caption": {"type": "string"}},
+                            "required": ["match", "caption"],
                         },
                     },
                 },
