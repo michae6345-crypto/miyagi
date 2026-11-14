@@ -44,7 +44,8 @@
             "required": ["sourceId", "start", "end"],
             "properties": {"sourceId": {"type": "string"}, "start": {"type": "number"}, "end": {"type": "number"}}
           },
-          "checks": {"type": "array", "items": {"$ref": "check.schema.json"}},
+          "checks": {"type": "array", "items": {"$ref": "check.schema.json"}, "description": "Screen-gradable only (screen_contains/screen_absent/metric_* with metric_pattern). The step passes when ALL of these pass."},
+          "precision_checks": {"type": "array", "items": {"$ref": "check.schema.json"}, "description": "Optional backup checks (file_*, command_exit_ok, ::metric:: names) used only in precision mode (`tut run` / known workdir). Ids s{n}p{k}. Never block screen mode."},
           "targets": {
             "type": "array",
             "description": "semantic places to spotlight",
