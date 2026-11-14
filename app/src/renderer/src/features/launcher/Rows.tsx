@@ -4,14 +4,14 @@
  */
 import { motion } from 'motion/react'
 import type { ReactNode } from 'react'
-import { CircleAlert, FileCode2, FileText, Newspaper, SearchX } from 'lucide-react'
+import { CircleAlert, FileCode2, FileText, FolderGit2, Newspaper, SearchX } from 'lucide-react'
 import { Thumb } from '../../core/ui/atoms'
 import { clock, color, spring } from '../../core/theme'
 import type { SearchResult } from './store'
 import { thumbnailFor, type YouTubeLink } from './youtube'
 import { tint } from './tint'
 
-export const ROW_H = 64
+export const ROW_H = 60
 
 const enter = { opacity: 0, y: 6 }
 const shown = { opacity: 1, y: 0 }
@@ -24,7 +24,7 @@ function RowShell({ slot, delay = 0, children, onHover, onPick }: Slot & { child
     <motion.button
       type="button"
       tabIndex={-1}
-      className="absolute inset-x-0 flex cursor-pointer items-center gap-[14px] px-[12px] text-left"
+      className="absolute inset-x-0 flex cursor-pointer items-center gap-[14px] px-[10px] text-left"
       style={{ top: slot * ROW_H, height: ROW_H }}
       initial={enter}
       animate={shown}
@@ -40,11 +40,13 @@ function RowShell({ slot, delay = 0, children, onHover, onPick }: Slot & { child
   )
 }
 
-function Icon({ kind }: { kind: SearchResult['kind'] }): ReactNode {
-  const I = kind === 'notebook' || kind === 'repo' ? FileCode2 : kind === 'paper' ? FileText : Newspaper
+/** 60×38: the video's thumbnail, or a neutral tile with the source kind's glyph. */
+function Tile({ kind, thumbnail }: Pick<SearchResult, 'kind' | 'thumbnail'>): ReactNode {
+  if (kind === 'video') return <Thumb w={60} h={38} src={thumbnail} />
+  const I = kind === 'repo' ? FolderGit2 : kind === 'notebook' ? FileCode2 : kind === 'paper' ? FileText : Newspaper
   return (
-    <span className="grid h-[40px] w-[62px] shrink-0 place-items-center rounded-[8px] text-white/70" style={{ background: tint.icon }}>
-      <I size={17} strokeWidth={1.6} />
+    <span className="grid h-[38px] w-[60px] shrink-0 place-items-center rounded-[8px]" style={{ background: tint.icon, color: tint.iconGlyph }}>
+      <I size={16} strokeWidth={1.6} />
     </span>
   )
 }
@@ -52,8 +54,8 @@ function Icon({ kind }: { kind: SearchResult['kind'] }): ReactNode {
 function Text({ title, meta }: { title: string; meta: string }): ReactNode {
   return (
     <span className="min-w-0 flex-1">
-      <span className="block truncate text-[15px] font-medium leading-[20px] text-white">{title}</span>
-      <span className="block truncate text-[13px] leading-[18px]" style={{ color: color.faint }}>
+      <span className="block truncate text-[14px] font-medium leading-[19px] text-white">{title}</span>
+      <span className="block truncate text-[12.5px] leading-[18px]" style={{ color: color.faint }}>
         {meta}
       </span>
     </span>
@@ -63,11 +65,13 @@ function Text({ title, meta }: { title: string; meta: string }): ReactNode {
 export function ResultRow({ r, best, ...rest }: Slot & { r: SearchResult; best: boolean; onHover: () => void; onPick: () => void }): ReactNode {
   return (
     <RowShell {...rest}>
-      {r.kind === 'video' ? <Thumb w={62} h={40} src={r.thumbnail} /> : <Icon kind={r.kind} />}
+      <Tile kind={r.kind} thumbnail={r.thumbnail} />
       <Text title={r.title} meta={r.meta} />
-      <span className="shrink-0 text-[13px]" style={{ color: best ? color.accent : color.faint }}>
-        {r.reason}
-      </span>
+      {best && (
+        <span className="shrink-0 text-[12.5px] font-medium" style={{ color: color.accent }}>
+          Best
+        </span>
+      )}
     </RowShell>
   )
 }
@@ -76,11 +80,8 @@ export function ResultRow({ r, best, ...rest }: Slot & { r: SearchResult; best: 
 export function LinkRow({ link, onPick }: { link: YouTubeLink; onPick: () => void }): ReactNode {
   return (
     <RowShell slot={0} onPick={onPick}>
-      <Thumb w={62} h={40} src={thumbnailFor(link.videoId)} />
+      <Tile kind="video" thumbnail={thumbnailFor(link.videoId)} />
       <Text title="YouTube video" meta={`youtu.be/${link.videoId}${link.start ? ` · from ${clock(link.start)}` : ''}`} />
-      <span className="shrink-0 text-[13px]" style={{ color: color.accent }}>
-        Build from link
-      </span>
     </RowShell>
   )
 }
@@ -89,17 +90,17 @@ export function LinkRow({ link, onPick }: { link: YouTubeLink; onPick: () => voi
 export function SkeletonRow({ slot }: { slot: number }): ReactNode {
   return (
     <motion.div
-      className="absolute inset-x-0 flex items-center gap-[14px] px-[12px]"
+      className="absolute inset-x-0 flex items-center gap-[14px] px-[10px]"
       style={{ top: slot * ROW_H, height: ROW_H }}
       initial={{ opacity: 0 }}
-      animate={{ opacity: [0.45, 1, 0.45] }}
+      animate={{ opacity: [0.5, 1, 0.5] }}
       exit={gone}
       transition={{ duration: 1.4, repeat: Infinity, ease: 'easeInOut', delay: slot * 0.12 }}
     >
-      <span className="h-[40px] w-[62px] shrink-0 rounded-[8px]" style={{ background: tint.skeleton }} />
+      <span className="h-[38px] w-[60px] shrink-0 rounded-[8px]" style={{ background: tint.skeleton }} />
       <span className="flex flex-1 flex-col gap-[8px]">
-        <span className="h-[11px] rounded-full" style={{ width: `${54 - slot * 9}%`, background: tint.skeleton }} />
-        <span className="h-[9px] rounded-full" style={{ width: `${32 + slot * 5}%`, background: tint.skeleton }} />
+        <span className="h-[10px] rounded-full" style={{ width: `${52 - slot * 9}%`, background: tint.skeleton }} />
+        <span className="h-[8px] rounded-full" style={{ width: `${30 + slot * 6}%`, background: tint.skeleton }} />
       </span>
     </motion.div>
   )
@@ -110,15 +111,18 @@ export function MessageRow({ tone, title, detail }: { tone: 'empty' | 'error'; t
   const I = tone === 'error' ? CircleAlert : SearchX
   return (
     <motion.div
-      className="absolute inset-x-0 flex items-center gap-[14px] px-[12px]"
+      className="absolute inset-x-0 flex items-center gap-[14px] px-[10px]"
       style={{ top: 0, height: ROW_H }}
       initial={enter}
       animate={shown}
       exit={gone}
       transition={spring}
     >
-      <span className="grid h-[40px] w-[62px] shrink-0 place-items-center rounded-[8px]" style={{ background: tint.icon, color: tone === 'error' ? color.amber : color.label }}>
-        <I size={18} strokeWidth={1.6} />
+      <span
+        className="grid h-[38px] w-[60px] shrink-0 place-items-center rounded-[8px]"
+        style={{ background: tint.icon, color: tone === 'error' ? color.text : tint.iconGlyph }}
+      >
+        <I size={17} strokeWidth={1.6} />
       </span>
       <Text title={title} meta={detail} />
     </motion.div>
