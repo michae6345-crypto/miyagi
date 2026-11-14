@@ -28,9 +28,12 @@ WINDOW_MIN_S, WINDOW_TARGET_S, WINDOW_MAX_S = 6 * 60, 12 * 60, 15 * 60
 PARALLEL_WINDOWS = int(os.environ.get("LESSON_PARALLEL_WINDOWS", "3"))
 
 
-def clip_cap_s(start: float, end: float) -> float:
-    """Gemini's time budget for a clip grows with its length (8 min -> ~57 s, 15 min -> ~85 s)."""
-    return 25.0 + 4.0 * (end - start) / 60.0
+def clip_cap_s(start: float, end: float, first: bool = True) -> float:
+    """Gemini's time budget for a clip grows with its length. Part 1 is latency-critical (6 min -> ~49 s);
+    later parts build in the background while the learner works, and run in parallel (which slows each
+    call), so they get a generous budget (14 min -> ~172 s)."""
+    minutes = (end - start) / 60.0
+    return 25.0 + 4.0 * minutes if first else 60.0 + 8.0 * minutes
 
 
 def plan_windows(length_s: float, chapters: list[dict]) -> list[tuple[float, float, list[str]]]:
@@ -99,14 +102,16 @@ def _absolutize(raw: dict, start: float, end: float) -> dict:
     return raw
 
 
-async def _window_draft(url: str, vid: str, goal: str, win: tuple, meta: dict, context: str, engines: list[str]) -> dict:
+async def _window_draft(url: str, vid: str, goal: str, win: tuple, meta: dict, context: str, engines: list[str], first: bool = True) -> dict:
     start, end, titles = win
     errors = []
     if "gemini" in engines:
-        cap = clip_cap_s(start, end)
+        cap = clip_cap_s(start, end, first)
         try:
             raw = await asyncio.wait_for(
                 gemini.watch_video(url, goal, context=context, start=start, end=end, media_low=True), cap)
+            if not (raw.get("steps") or []):  # a talk-only part (intro, outro, theory): nothing to code along with
+                return {"steps": [], "_empty": True, "_engine": "gemini", "_built_by": f"{gemini.last_model} (watched the video)"}
             d = builder.normalize_draft(_absolutize(raw, start, end))
             d["_engine"], d["_built_by"] = "gemini", f"{gemini.last_model} (watched the video)"
             return d
@@ -153,7 +158,9 @@ async def build(source_url: str, vid: str, goal: str, workdir: str, info, meta: 
     builder._emit("planning", f"{len(windows)} parts")
 
     async def one(i: int) -> tuple[list[dict], dict]:
-        d = await _window_draft(source_url, vid, goal, windows[i], meta, context, engines)
+        d = await _window_draft(source_url, vid, goal, windows[i], meta, context, engines, first=(i == 0))
+        if d.get("_empty"):
+            return [], {"draft": d, "graph": {"lesson": {}}, "warnings": [], "adapted": True, "adapt_model": None, "empty": True}
         bad = await builder._bad_urls(d["steps"], known_text, checked)
         g, warns, ok, adapt_model = await builder._adapt(d, goal, info, bad)
         warns += links.strip_bad_urls(g["steps"], await builder._bad_urls(g["steps"], known_text, checked))
@@ -170,6 +177,7 @@ async def build(source_url: str, vid: str, goal: str, workdir: str, info, meta: 
                        "builtBy": "gemini" if meta_out["engines"] == {"gemini"} else "claude" if meta_out["engines"] == {"claude"}
                        else "mixed" if meta_out["engines"] else "unknown",
                        "parts": {"done": sum(p["status"] == "done" for p in parts), "failed": sum(p["status"] == "failed" for p in parts),
+                                 "skipped": sum(p["status"] == "skipped" for p in parts),
                                  "total": len(parts), "list": [{k: p[k] for k in ("start", "end", "chapters", "status")} for p in parts]}},
             "sources": [{"id": "src1", "kind": "video", "title": meta.get("title") or "Tutorial", "url": source_url, "videoId": vid}],
             "steps": copy.deepcopy(steps),
@@ -190,7 +198,9 @@ async def build(source_url: str, vid: str, goal: str, workdir: str, info, meta: 
             return False
         new_steps, extra = res
         steps.extend(_renumber(new_steps, len(steps) + 1))
-        parts[i]["status"] = "done"
+        parts[i]["status"] = "skipped" if extra.get("empty") else "done"
+        if extra.get("empty"):
+            return False  # nothing new to show
         meta_out["warnings"] += [f"part {i + 1}: {w}" for w in extra["warnings"]]
         meta_out["adapted"] &= extra["adapted"]
         meta_out["engines"].add(extra["draft"].get("_engine", "unknown"))

@@ -827,3 +827,31 @@ def test_error_text_follows_the_lessons_stack_without_run_command():
          "code": "export default function Header() {}",
          "checks": [{"id": "s3c1", "type": "screen_absent", "label": "x", "app": "Terminal", "pattern": "Traceback|Error:|ERR!"}]}]}
     assert "Traceback" not in builder.normalize_checks(g, set())["steps"][0]["checks"][0]["pattern"]
+
+
+def test_talk_only_parts_are_skipped_not_failed(fake, monkeypatch):
+    monkeypatch.setenv("LESSON_ENGINE", "gemini")
+
+    async def meta(vid):
+        return {"video_id": vid, "title": "Long", "description": "", "length_s": 2400,
+                "chapters": [{"t": 0, "title": "intro"}, {"t": 300, "title": "code"}, {"t": 1200, "title": "outro"}]}
+
+    monkeypatch.setattr(transcript, "fetch_metadata", meta)
+
+    async def clip(url, goal, fps=None, context="", start=None, end=None, media_low=False):
+        if int(start) != 300:
+            return {"title": "t", "libraries": [], "steps": []}  # intro / outro: nothing hands-on
+        return {"title": "t", "libraries": [], "steps": [{"start": 310, "end": 600, "title": "Write code", "instructions": "do", "checks": [], "hints": []}]}
+
+    monkeypatch.setattr(gemini, "watch_video", clip)
+
+    async def adapt(goal, steps, summary, feedback=None):
+        return {"steps": [{"index": s["index"], "checks": [{"type": "screen_contains", "label": "x", "app": "Code", "pattern": "write_code_here"}], "targets": []} for s in steps]}
+
+    monkeypatch.setattr(claude, "adapt_checks", adapt)
+    updates = []
+    g = asyncio.run(builder.build_lesson(URL, "x", WORKDIR, refresh=True, on_update=lambda gr, c: updates.append((c, len(gr["steps"])))))
+    p = g["lesson"]["parts"]
+    assert (p["done"], p["skipped"], p["failed"]) == (1, 3, 0)  # the 20-min outro chapter splits into 2 parts and [s["title"] for s in g["steps"]] == ["Write code"]
+    assert updates[0] == (False, 1)  # never shows an empty lesson
+    assert list(builder.CACHE_DIR.glob("*.json"))  # skipped parts don't block caching
