@@ -10,6 +10,7 @@ import { useLesson, useProgress, useStatus, type Status } from '../../core/lesso
 import { defineFeature } from '../../core/registry'
 import { CheckList, StatusDot, Thumb } from '../../core/ui/atoms'
 import { clock, color } from '../../core/theme'
+import { Gear } from './Gear'
 import { GoalNote, Instructions, Meta } from './Lines'
 
 function Segments({ total, index, status }: { total: number; index: number; status: Status }): ReactNode {
@@ -34,8 +35,6 @@ function Overview(): ReactNode {
   const { index, total } = useProgress()
   const status = useStatus()
   const start = s.video ? clock(s.video.start) : undefined
-  const end = s.video ? clock(s.video.end) : undefined
-  const footer = status === 'passed' ? 'Passed · the video picks up from here' : end ? `Video continues past ${end} when all pass` : 'Each step is auto-checked'
   return (
     <div className="px-[22px] pb-[16px] pt-[20px]">
       <div className="flex gap-[16px]">
@@ -57,8 +56,8 @@ function Overview(): ReactNode {
       )}
       <Meta />
       <div className="mt-[16px] flex items-center justify-between border-t pt-[12px] text-[13px] text-white/45" style={{ borderColor: 'rgba(255,255,255,.08)' }}>
-        <span>{footer}</span>
         <span>Ask {bridge.platform.keys.launcher}</span>
+        <Gear />
       </div>
     </div>
   )
