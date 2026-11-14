@@ -408,6 +408,7 @@ onMessage('step.started', (p) => {
 onMessage('step.passed', (p) => {
   if (p.stepId !== useLesson.getState().stepId) return
   clearTimeout(resumeTimer)
+  if (p.skipped) return // skipped, not passed: no "Passed" beat; step.started seeks to the next clip
   setUi({ resuming: true })
   resumeTimer = setTimeout(() => {
     const s = usePlayer.getState()

@@ -45,6 +45,8 @@ type LessonState = {
   stepVideo?: VideoSegment
   checks: CheckItem[]
   passed: string[]
+  /** Steps the learner skipped (step.passed skipped): done, but never shown green. */
+  skipped: string[]
   /** Between "Build lesson" and the first step.started. */
   building: boolean
   buildingMessage?: string
@@ -80,6 +82,7 @@ const blank = {
   stepVideo: undefined,
   checks: [],
   passed: [],
+  skipped: [],
   building: false,
   buildingMessage: undefined,
   buildingProgress: undefined,
@@ -129,8 +132,20 @@ onMessage('lesson.building', (p) =>
     : set({ building: true, buildingMessage: p.message, buildingProgress: p.progress, buildingElapsed: p.elapsedS })
 )
 onMessage('lesson.ready', (p) => set({ ...blank, lesson: p.lesson, steps: p.steps, complete: p.lesson.complete !== false, building: true }))
-/** A long video's next part: the new step list (ids stable, new steps appended). Rows already shown must not re-animate. */
-onMessage('lesson.updated', (p) => set({ steps: p.steps, complete: p.complete, parts: p.parts, pendingNext: false }))
+/**
+ * A long video's next part: the engine sends only the NEW steps (contract: appended, ids stable), sometimes an
+ * empty list with complete:true. Merge by id (a known id is updated in place) so the list never shrinks.
+ * Rows already shown must not re-animate.
+ */
+onMessage('lesson.updated', (p) =>
+  set((s) => {
+    const incoming = new Map(p.steps.map((x) => [x.id, x]))
+    const kept = s.steps.map((x) => incoming.get(x.id) ?? x)
+    const known = new Set(s.steps.map((x) => x.id))
+    const steps = [...kept, ...p.steps.filter((x) => !known.has(x.id))]
+    return { steps, complete: p.complete, parts: p.parts ?? s.parts, pendingNext: false }
+  })
+)
 onMessage('step.started', (p) => {
   const s = get()
   const pos = s.steps.findIndex((x) => x.id === p.stepId)
@@ -158,6 +173,11 @@ onMessage('check.updated', (p) => {
 onMessage('step.passed', (p) => {
   const s = get()
   const summary = (p as typeof p & { summary?: string }).summary
+  if (p.skipped) {
+    // Skipped, not passed: no green flash, no "Good. Now the next one."
+    set({ passed: Array.from(new Set([...s.passed, p.stepId])), skipped: Array.from(new Set([...s.skipped, p.stepId])), pendingNext: p.pending === true, offtrack: undefined })
+    return
+  }
   set({
     passed: Array.from(new Set([...s.passed, p.stepId])),
     passFlash: s.passFlash + 1,
@@ -214,7 +234,7 @@ export function builtByLabel(by: LessonInfo['builtBy']): string | undefined {
 }
 
 export function useStatus(): Status {
-  return useLesson((s) => (s.offtrack ? 'offtrack' : s.stepId && s.passed.includes(s.stepId) ? 'passed' : 'watching'))
+  return useLesson((s) => (s.offtrack ? 'offtrack' : s.stepId && s.passed.includes(s.stepId) && !s.skipped.includes(s.stepId) ? 'passed' : 'watching'))
 }
 
 /** Position comes from the steps array (robust to 0- or 1-based `index` from the engine). */

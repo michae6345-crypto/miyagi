@@ -14,7 +14,7 @@
 import { motion } from 'motion/react'
 import type { ReactNode } from 'react'
 import { useShallow } from 'zustand/react/shallow'
-import { BookOpen, Check, Code2, Download, History, Lightbulb, MessageCircle, MessageSquareText, Play, Undo2, Wrench, type LucideIcon } from 'lucide-react'
+import { BookOpen, Check, Code2, Download, History, Lightbulb, MessageCircle, MessageSquareText, Play, SkipForward, Undo2, Wrench, type LucideIcon } from 'lucide-react'
 import type { Payload } from '../../../../common/wire'
 import { bridge } from '../../bridge'
 import { useLesson, useProgress, useThinking, type Offtrack as OfftrackPayload } from '../../core/lesson'
@@ -364,6 +364,8 @@ const ACTION: Partial<Record<CardAction, { label: string; Icon?: LucideIcon; pri
   undo: { label: 'Undo', Icon: Undo2 },
   end_lesson: { label: 'Start a new lesson' },
   skip_setup: { label: 'Skip' },
+  check_step: { label: 'Check again', Icon: Check },
+  skip_step: { label: 'Skip step', Icon: SkipForward },
   // Preflight card ("this is a 9-min coding video…"): Build starts the lesson, Pick another reopens the results.
   build: { label: 'Build lesson', Icon: Play, primary: true },
   pick_another: { label: 'Pick another' },
