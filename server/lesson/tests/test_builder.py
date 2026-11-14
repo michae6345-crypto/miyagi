@@ -746,7 +746,7 @@ def test_plan_windows_groups_chapters_and_splits_long_ones():
     ch = [{"t": 0, "title": "intro"}, {"t": 120, "title": "data"}, {"t": 420, "title": "baseline"},
           {"t": 900, "title": "attention"}, {"t": 2700, "title": "transformer"}, {"t": 3300, "title": "outro"}]
     w = progressive.plan_windows(3500, ch)
-    assert w[0][0] == 0 and w[0][1] <= progressive.FIRST_MAX_S  # small first part
+    assert w[0][0] == 0 and w[0][1] <= progressive.FIRST_HARD_MAX_S  # small first part (a too-short one takes 1 more chapter)
     assert all(b > a for a, b, _ in w) and w[-1][1] == 3500
     assert all(w[k][1] == w[k + 1][0] for k in range(len(w) - 1))  # contiguous, no gaps
     assert all(b - a <= progressive.WINDOW_MAX_S + 1 for a, b, _ in w[1:])  # the 30-min chapter got split
@@ -955,3 +955,10 @@ def test_mid_length_video_falls_back_to_parts_when_one_pass_fails(fake, monkeypa
 def test_long_failure_suggests_a_shorter_video():
     msg = builder.human_error("gemini: no answer within 110s | claude: no transcript", {"length_s": 779})
     assert "Try a shorter video from the same search." in msg.splitlines()[0]
+
+
+def test_a_too_short_part_one_takes_one_more_chapter():
+    ch = [{"t": 0, "title": "intro"}, {"t": 472, "title": "reading data"}, {"t": 568, "title": "tokenization"},
+          {"t": 867, "title": "data loader"}, {"t": 1331, "title": "bigram"}]
+    w = progressive.plan_windows(6980, ch, 472)  # Karpathy: hands-on starts at 7:52
+    assert (w[0][1], w[1][0], w[1][1]) == (472, 472, 867)  # part 1 = 7:52-14:27, not a 96 s 7:52-9:28
