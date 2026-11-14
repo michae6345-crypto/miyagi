@@ -2,6 +2,7 @@
 
   WS   /                 events.ts protocol ({type, payload} JSON both ways)
   POST /ingest           `tut run` events (one object, a list, or {"events": [...]})
+  POST /end              end the current lesson (curl -X POST localhost:8787/end)
   GET  /state            session state (debugging, the CLI client's simulator)
   GET  /events?since=N   recent engine events (debugging)
   POST /debug/pass       force-pass the active step
@@ -102,6 +103,8 @@ class Engine:
             await s.video_state(p.t, p.playing)
         elif msg.type == "overlay.bounds":
             s.overlay_bounds([r.model_dump() for r in p.rects])
+        elif msg.type == "end_lesson":
+            await s.end_lesson("end_lesson")
         elif msg.type == "config.keys":
             await self.hub.emit("config.status", apply_keys(p.model_dump()))
 
@@ -181,7 +184,9 @@ async def ws_endpoint(ws: WebSocket) -> None:
             raw = await ws.receive_json()
             if not isinstance(raw, dict):
                 continue
-            if raw.get("type") in ("video.state", "overlay.bounds"):  # frequent + instant: skip the queue
+            if raw.get("type") in ("learn", "learn_url", "build_lesson") and engine.session.building():
+                await engine.session.cancel_build()  # unblock the queue: the new request replaces the build
+            if raw.get("type") in ("video.state", "overlay.bounds", "end_lesson"):  # instant: skip the queue
                 try:
                     await engine.dispatch(raw)
                 except Exception:
@@ -214,6 +219,14 @@ async def ingest(body: Any = Body(...)) -> dict:
     lesson = (engine.session.graph or {}).get("lesson", {})
     # E3's `tut run` tags its Tiger run with these
     return {"ok": True, "accepted": n, "lesson_id": lesson.get("id"), "step_id": st["id"] if st else None}
+
+
+@app.post("/end")
+async def end_lesson() -> dict:
+    """End the current lesson from a terminal:  curl -X POST localhost:8787/end"""
+    lesson = (engine.session.graph or {}).get("lesson", {}).get("id")
+    await engine.session.end_lesson("POST /end")
+    return {"ok": True, "ended": lesson}
 
 
 @app.get("/state")

@@ -101,6 +101,44 @@ def prepare(graph: dict, goal: str) -> str | None:
         return None
 
 
+CODE_APPS = {"code", "vs code", "vscode", "visual studio code", "cursor", "terminal", "iterm", "iterm2"}
+
+
+def needs_editor(graph: dict) -> bool:
+    """Does this lesson happen in a code editor? True if its targets/checks name a code app or a file;
+    False for, e.g., a Blender or Figma tutorial (their targets name those apps and no files)."""
+    apps: set[str] = set()
+    files = False
+    for st in graph.get("steps", []):
+        for t in st.get("targets") or []:
+            apps.add((t.get("app") or "").strip().lower())
+            files = files or bool(t.get("file"))
+        for c in (st.get("checks") or []) + (st.get("precision_checks") or []):
+            apps.add((c.get("app") or "").strip().lower())
+            files = files or c.get("type", "").startswith(("file_", "command_")) or bool(c.get("file"))
+    apps.discard("")
+    if apps & CODE_APPS:
+        return True
+    if apps:  # only non-code apps named (Blender, Figma, ...)
+        return False
+    return files
+
+
+def requirements(graph: dict, folder: str) -> dict | None:
+    """S2's requirements check, if server.workspace provides one:
+    {needs_editor: bool, title?, summary?, items?: [{name, installed, install?}]}. Else None."""
+    ws = _s2()
+    fn = getattr(ws, "requirements", None) if ws is not None else None
+    if fn is None:
+        return None
+    try:
+        out = fn(graph, folder)
+        return dict(out) if out else None
+    except Exception:  # noqa: BLE001
+        log.exception("workspace.requirements failed")
+        return None
+
+
 class Workspace:
     def __init__(self, enabled: bool | None = None, runner=None):
         self.enabled = env_flag("ORCH_OPEN_WORKSPACE", False) if enabled is None else enabled
@@ -116,8 +154,9 @@ class Workspace:
             log.warning("could not run %s: %s", argv[0], e)
             return False
 
-    def open(self, workdir: str) -> None:
-        if not self.enabled or not Path(workdir).is_dir() or self.opened == workdir:
+    def open(self, workdir: str, force: bool = False) -> None:
+        """force: the learner asked for it (the "Open VS Code?" card), so ignore the auto-open flag."""
+        if not (self.enabled or force) or not Path(workdir).is_dir() or self.opened == workdir:
             return
         self.opened = workdir
         ws = _s2()
@@ -134,12 +173,10 @@ class Workspace:
 
     def goto(self, path: str, line: int) -> None:
         cli = code_cli()
-        if self.enabled and cli:
+        if cli:
             self.run([cli, "-r", "-g", f"{path}:{line}"])
 
     def goto_target(self, workdir: str, step: dict) -> None:
-        if not self.enabled:
-            return
         loc = target_location(workdir, step)
         cli = code_cli()
         if loc is None or cli is None:

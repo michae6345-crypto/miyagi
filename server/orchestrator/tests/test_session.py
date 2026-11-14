@@ -605,7 +605,7 @@ def test_demo_mode_falls_back_to_stubs(rig, monkeypatch, tmp_path):
     assert r2.of("offtrack")[0]["title"] == "Loss plateaued at large β"
 
 
-def test_workspace_opens_vscode_and_jumps_to_target(tmp_path, monkeypatch):
+def test_vscode_opens_only_after_the_learner_says_yes(tmp_path, monkeypatch):
     monkeypatch.setenv("TUT_WORKDIR", str(tmp_path))
     from server.orchestrator.workspace import Workspace
 
@@ -619,12 +619,34 @@ def test_workspace_opens_vscode_and_jumps_to_target(tmp_path, monkeypatch):
         await rig.start_lesson()
         await rig.s.goto_step(3)
         await rig.settle()
+        assert not calls  # nothing opened, not even `code -g`
+        card = rig.of("card")[0]
+        assert card["title"] == "Open VS Code?" and card["actions"] == ["open_editor"]
+        await rig.s.action("open_editor")
 
     run(go())
     first = calls[0]  # S2's open_editor: `code -n <dir> [-g <file>]`, or `open -a "Visual Studio Code" <dir>`
     assert (first[1:3] == ["-n", str(tmp_path.resolve())]) or (first[:3] == ["open", "-a", "Visual Studio Code"])
-    gotos = [c for c in calls if "-g" in c]
+    gotos = [c for c in calls if "-g" in c and "-n" not in c]
     assert gotos and gotos[-1][-1] == f"{tmp_path / 'pinn_convection.py'}:4"
+
+
+def test_non_code_lesson_never_offers_vscode(tmp_path, monkeypatch):
+    monkeypatch.setenv("TUT_WORKDIR", str(tmp_path))
+    from server.orchestrator.workspace import Workspace, needs_editor
+
+    graph = stubs.load_fixture_lesson()
+    for st in graph["steps"]:
+        st["targets"] = [{"app": "Blender", "match": "Add Cube", "caption": "add a cube"}]
+        for c in st["checks"]:
+            c["app"] = "Blender"
+        st["precision_checks"] = []
+    assert needs_editor(graph) is False and needs_editor(stubs.load_fixture_lesson()) is True
+    calls = []
+    rig = Rig(tmp_path)
+    rig.s.workspace = Workspace(enabled=True, runner=lambda argv: calls.append(argv) or True)
+    run(rig.s.load_graph(graph))
+    assert not calls and not [c for c in rig.of("card") if c.get("actions") == ["open_editor"]]
 
 
 def test_snapshot_for_reconnect(rig):
@@ -1058,3 +1080,57 @@ def test_learning_events_are_recorded_for_tiger_stats(rig):
     assert {"check_fail", "offtrack", "check_pass", "step_passed", "question"} <= set(kinds)
     fail = next(e for e in events if e[0] == "check_fail")
     assert fail[1] == "s6" and fail[2] in ("s6c1", "s6c2") and fail[3] == "STUB_PINN_VID" and fail[4] == 480.0
+
+
+def test_end_lesson_mid_build_is_quiet_and_complete(rig):
+    started = asyncio.Event()
+
+    async def slow_build(url, goal, workdir, on_progress=None):
+        started.set()
+        await asyncio.sleep(30)
+
+    rig.s.m.build_lesson = slow_build
+
+    async def go():
+        t = asyncio.create_task(rig.s.learn_url("https://www.youtube.com/watch?v=abcdefghijk"))
+        await started.wait()
+        assert rig.s.building()
+        await rig.s.end_lesson()
+        await t  # the build's awaiter returns quietly
+
+    run(go())
+    assert not rig.of("error") and not [b for b in rig.of("lesson.building") if b.get("failed")]
+    assert rig.of("lesson.ended")[-1] == {"reason": "end_lesson"} and rig.of("status")[-1] == {"state": "idle"}
+    assert rig.s.phase == "idle" and not rig.s.building()
+
+
+def test_end_lesson_with_a_lesson_running_and_new_learn_ends_old(rig):
+    recorded = []
+    rig.s.m.record = lambda kind, *a, **k: recorded.append(kind)
+
+    async def go():
+        await rig.start_lesson()
+        await rig.s.end_lesson()
+        assert rig.s.graph is None and rig.s.step is None
+        await rig.start_lesson()
+        await rig.s.learn("something else")  # a new search ends the running lesson first
+
+    run(go())
+    ended = rig.of("lesson.ended")
+    assert ended[0] == {"lessonId": "stub-pinn-convection", "reason": "end_lesson"}
+    assert ended[1] == {"lessonId": "stub-pinn-convection", "reason": "new lesson"}
+    assert {"type": "spotlight", "payload": {"clear": True}} in rig.events and "video.pause" in rig.types()
+    assert recorded.count("lesson_ended") == 2
+
+
+def test_post_end_endpoint(tmp_path, monkeypatch):
+    monkeypatch.setenv("TUT_WORKDIR", str(tmp_path))
+    from fastapi.testclient import TestClient
+
+    from server.orchestrator import main
+
+    main.engine.recorder.enabled = False
+    with TestClient(main.app) as client:
+        r = client.post("/end")
+        assert r.json() == {"ok": True, "ended": None}
+        assert main.engine.session.phase == "idle"

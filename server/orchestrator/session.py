@@ -194,6 +194,9 @@ class LessonSession:
         self.query = ""
         self.results: dict[str, dict] = {}
         self.build_progress: dict | None = None  # last lesson.building payload while a build runs
+        self._build_task: asyncio.Task | None = None
+        self._quiet_cancel = False
+        self.editor_open = False  # VS Code opened for this lesson (only after the learner said yes)
         self.graph: dict | None = None
         self.workdir = str(config.default_workdir())
         self.on_workdir: Callable[[str], None] | None = None  # main.py hooks the file watcher here
@@ -263,6 +266,31 @@ class LessonSession:
                     return
                 continue
             await asyncio.wait(pending)
+
+    async def _offer_editor(self, graph: dict, folder: str) -> None:
+        """Ask before opening VS Code; never ask for lessons that don't happen in an editor."""
+        if self.workspace is None or not getattr(self.workspace, "enabled", False):
+            return
+        from . import workspace as wsmod
+
+        req = wsmod.requirements(graph, folder)  # S2's check (tools needed / installed) when available
+        needs = req.get("needs_editor") if req else wsmod.needs_editor(graph)
+        if not needs:
+            return
+        body = (req or {}).get("summary") or f"This lesson works in VS Code. Open the {Path(folder).name} folder there?"
+        card: dict[str, Any] = {"kind": "hint", "title": (req or {}).get("title") or "Open VS Code?", "body": body,
+                                "actions": ["open_editor"]}
+        if req and req.get("items"):
+            card["requirements"] = req["items"]  # additive: [{name, installed, install?}] from S2
+        await self.emit("card", card)
+
+    async def _open_editor(self) -> None:
+        if self.workspace is None or self.graph is None:
+            return
+        self.workspace.open(self.workdir, force=True)
+        self.editor_open = True
+        if self.step is not None:
+            self.workspace.goto_target(self.workdir, self.step)
 
     def _prefetch_voice(self) -> None:
         """Synthesize every step's spoken line ahead of time (only while voice is on: it costs TTS credits)."""
@@ -362,6 +390,8 @@ class LessonSession:
 
     # ------------------------------------------------------------------ search + build
     async def learn(self, query: str) -> None:
+        if self.graph is not None or self.phase == "building":
+            await self.end_lesson("new lesson")  # a new search cleanly ends the current lesson
         self.phase = "searching"
         self.query = query
         await self._status("thinking")
@@ -384,10 +414,67 @@ class LessonSession:
         if not picked and self.results:
             picked = [next(iter(self.results.values()))]
         url = picked[0].get("url", "") if picked else ""
-        await self._build(url, self.query)
+        await self._run_build(url, self.query)
 
     async def learn_url(self, url: str) -> None:
-        await self._build(url, self.query)
+        await self._run_build(url, self.query)
+
+    async def _run_build(self, url: str, goal: str) -> None:
+        """Builds run as their own task so end_lesson / a new learn can cancel them mid-flight."""
+        if self.graph is not None:
+            await self.end_lesson("new lesson")
+        await self.cancel_build()
+        task = asyncio.ensure_future(self._build(url, goal))
+        self._build_task = task
+        try:
+            await task
+        except asyncio.CancelledError:
+            cur = asyncio.current_task()
+            if cur is not None and cur.cancelling():
+                raise  # we ourselves are being cancelled (shutdown)
+        finally:
+            if self._build_task is task:
+                self._build_task = None
+
+    def building(self) -> bool:
+        return self._build_task is not None and not self._build_task.done()
+
+    async def cancel_build(self) -> None:
+        """Cancel an in-flight build quietly (the caller reports what happens next)."""
+        task = self._build_task
+        if task is None or task.done():
+            return
+        self._quiet_cancel = True
+        task.cancel()
+        try:
+            await task
+        except BaseException:  # noqa: BLE001 - cancelled on purpose
+            pass
+        finally:
+            self._quiet_cancel = False
+
+    async def end_lesson(self, reason: str = "end_lesson") -> None:
+        """Stop everything: cancel the build / diagnosis / timers, clear spotlight + video, record it,
+        then `lesson.ended` + `status idle`. Safe to call when nothing is running."""
+        lesson_id = (self.graph or {}).get("lesson", {}).get("id")
+        had_lesson = self.graph is not None
+        await self.cancel_build()
+        self.m.cancel_coach()
+        if self.screen is not None:
+            self.screen.unwatch()
+        if had_lesson:
+            self._record("lesson_ended", {"reason": reason})
+        for t in list(self._timers):
+            t.cancel()
+        self._reset_step_state()  # bumps step_gen: stale coach/metric/advance tasks become no-ops
+        self.graph, self.idx, self.phase, self.runs = None, -1, "idle", {}
+        self.pending_patch, self.undo, self.build_progress = None, None, None
+        self.editor_open = False
+        if had_lesson:
+            await self.emit("spotlight", {"clear": True})
+            await self.emit("video.pause", {})
+        await self.emit("lesson.ended", {**({"lessonId": lesson_id} if lesson_id else {}), "reason": reason})
+        await self._status("idle")
 
     async def _build(self, url: str, goal: str) -> None:
         """Build a lesson with live progress (>= 1 tick/s, stage names from the builder's own log
@@ -431,14 +518,15 @@ class LessonSession:
             await self.emit("lesson.building", {"message": "Lesson ready", "progress": 1.0})
             ok = True
         except BaseException as e:
-            log.exception("build_lesson failed")
             if isinstance(e, Exception):
+                log.exception("build_lesson failed")
                 await self._build_failed(human_build_error(e))
-            raise_after = not isinstance(e, Exception)
-            if raise_after:  # cancelled (engine shutting down / client gone): still tell the app
-                await asyncio.shield(self._build_failed("The lesson build was interrupted. Try again."))
+                return
+            if self._quiet_cancel:  # end_lesson / a new learn: they report what happens next
                 raise
-            return
+            log.warning("lesson build interrupted")
+            await asyncio.shield(self._build_failed("The lesson build was interrupted. Try again."))
+            raise
         finally:
             done.set()
             if not tick.done():
@@ -466,8 +554,8 @@ class LessonSession:
         if self.voice:
             self._prefetch_voice()
         await self.emit("lesson.ready", self._lesson_ready_payload())
-        if self.workspace is not None:
-            self.workspace.open(new_wd)
+        self.editor_open = False
+        await self._offer_editor(graph, new_wd)  # a card; VS Code opens only on the learner's yes
         await self.start_step(0)
 
     def _lesson_ready_payload(self) -> dict:
@@ -521,7 +609,7 @@ class LessonSession:
         self._watch_screen_metrics(step)
         if self.m.has_diagrams() and os.environ.get("ORCH_DIAGRAM_PREFETCH", "1") == "1":
             self._spawn(self._prefetch_diagram(self.step_gen, step), timer=True)
-        if self.workspace is not None:
+        if self.workspace is not None and self.editor_open:  # `code -g` would itself launch VS Code
             self.workspace.goto_target(self.workdir, step)
         await self._status("watching")
         await self.evaluate("start")
@@ -1097,6 +1185,9 @@ class LessonSession:
             await self.emit("diagram", d)
             await self._status("offtrack" if self.last_offtrack else ("passed" if self.passed else "watching"))
             return
+        if kind == "open_editor":
+            await self._open_editor()
+            return
         if kind == "voice_toggle":
             self.voice = not self.voice
             if self.voice:
@@ -1202,7 +1293,7 @@ class LessonSession:
         self.undo = (path, text)
         path.write_text(new_text)
         line = next((i for i, (a, b) in enumerate(zip(text.splitlines(), new_text.splitlines()), 1) if a != b), 1)
-        if self.workspace is not None:
+        if self.workspace is not None and self.editor_open:
             self.workspace.goto(str(path), line)
         first = expected.strip().splitlines()[0]
         spot = self._locate(re.escape(first), None, "Fixed")
@@ -1238,7 +1329,7 @@ class LessonSession:
             log.warning("could not write a backup of %s", path)
         self.undo = (path, current)
         path.write_text(pp["new"])
-        if self.workspace is not None:
+        if self.workspace is not None and self.editor_open:
             self.workspace.goto(str(path), int(pp["line"]))
         if pp["first"]:
             spot = self._locate(re.escape(pp["first"][0]), None, "Fixed")
