@@ -1,15 +1,16 @@
 # overview
 
-**Status:** pass 2 functional items done (not pushed) · styling waits on UI polish (`adrian/consistency`) · **Priority:** P1 · **Port:** 5175 · **Branch:** `adrian/overview`
+**Status:** pass 2 done and merged with UI polish (`origin/adrian/shell` efed46a + be157ff), not pushed · **Priority:** P1 · **Port:** 5175 · **Branch:** `adrian/overview`
 
 ### Pass 2 (functional), Sat
 - Done, in new files (`Lines.tsx`, `Gear.tsx`); `index.tsx` only gained wiring lines:
-  - **Instructions** under the header, `color.label`, 15px, clamped to 2 lines (full text in `title`).
+  - **Instructions** under the header, `color.label`, 14/20 (UI polish's clamped-caption size), clamped to 2 lines (full text in `title`).
   - **goalMatch note** in amber under the title, only when `score < 0.5` (null score = no goal → hidden).
   - **Meta row** above the footer, `color.faint`: `builtByLabel()` left; right: "Next part is still building" (`pendingNext`) or "More steps coming" (`complete === false`). Hidden when there's nothing to say.
-  - **Segments**: `lesson.updated` appends; existing segments keep key and state (measured per frame: opacity 1, same color, width just reflows), only new ones fade in (0.3 s).
-  - **Footer**: "Video continues past … when all pass" and the passed/auto-checked prose cut. Left `Ask ⌥Space`, right the **gear** (lucide `Settings` 14px, `color.label` → `color.text` on hover) → `bridge.invoke('settings:open').catch(() => {})`. Checked: no unhandled rejection without a handler.
-- Left for UI polish (theirs, not touched here): the `.88/.18/.08`, `white/55`, `white/45` literals, Ask as `<Kbd>`, current-segment color (white = same as done today). After their merge: match their styling in `Lines.tsx` / `Gear.tsx`.
+  - **Segments**: `lesson.updated` appends; existing segments keep key and state (measured per frame: opacity 1, same color, width just reflows), only new ones fade in (0.3 s, opacity only, from their own `fill.track`).
+  - **Footer** (UI polish's): one fact left ("Video waits at 56:40" / "Passed", `color.faint`), right `Ask <Kbd>` and the **gear** (lucide `Settings` 14px, `color.label` → `color.text` on hover) → `bridge.invoke('settings:open').catch(() => {})`. Checked: no unhandled rejection without a handler.
+- Merged UI polish (merge, no rebase): their tokens (`color.text` / `fill.track` segments, `fill.rule` hairline, `color.label` step line), Kbd and footer kept; my pieces were already on tokens (`color.label` / `faint` / `amber` / `text`). No hard-coded colors or keycaps left in `features/overview/`.
+- Open: the current segment is white like the done ones while watching (`color.accent`); a distinct "current" look is a styling call for UI polish / Adrian.
 - Stage: `http://localhost:5175/?scenario=overview` (long lesson, ~30 s script; hover the pill). Timeline: 0–8 s two steps + "More steps coming"; ~8.5 s `lesson.updated` → 4 segments; ~21–30 s step 4 passed with "Next part is still building"; then 7 steps, step 5 steady. `?scenario=pill` shows a lesson without any of the new fields.
 - Shots: `agents/shots/overview-{long,updated,pending,steady,plain}.png`.
 
