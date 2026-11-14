@@ -1,56 +1,54 @@
 /**
- * Feature: voice. Voice on/off, and what the shortcut bar reads while a `speak` clip plays.
+ * Feature: voice (⌥V). When it's on, Miyagi reads its own lines aloud with the computer's voice:
+ *   cards and off-track notes (title, then body) · the step's task when the engine pauses the video for it
+ *   (and right when voice turns on) · the passed line.
+ * The app owns this entirely: the engine's `speak` / ElevenLabs path isn't used, so there's no key and no state to sync.
  *
- *   useVoice(s => s.on)        voice is on (mirrors the engine, which has no echo yet: see Core requests in agents/voice.md)
- *   useVoice(s => s.speaking)  a clip is audible right now
- *   useVoice(s => s.level)     0..1 loudness while speaking; undefined when it can't be measured (animate on your own)
- *   toggleVoice()              for any Voice button: the same path as ⌥V, so the engine hears it too
- *
- * Playback lives in player.ts and runs only in the overlay window (index.tsx attaches it there).
+ *   useVoice(s => s.on)        voice is on
+ *   useVoice(s => s.speaking)  a line is being said right now
+ *   toggleVoice()              for any Voice button: the same path as ⌥V
  */
 import { create } from 'zustand'
 import { onMessage, onUi } from '../../core/bus'
-import { notify, useLesson } from '../../core/lesson'
+import { useLesson } from '../../core/lesson'
 import { triggerShortcut } from '../../core/shortcuts'
-import { createPlayer } from './player'
+import { copy } from '../../core/theme'
+import { createSpeech } from './speech'
 
-type VoiceState = { on: boolean; speaking: boolean; level?: number }
+type VoiceState = { on: boolean; speaking: boolean }
 
-export const useVoice = create<VoiceState>(() => ({ on: false, speaking: false, level: undefined }))
+export const useVoice = create<VoiceState>(() => ({ on: false, speaking: false }))
 
-const player = createPlayer((s) => useVoice.setState(s))
-export const attachPlayer = player.attach
+const speech = createSpeech((speaking) => useVoice.setState({ speaking }))
+export const attachSpeech = speech.attach
 
-/** A Voice button anywhere (shortcut bar, spotlight): runs the ⌥V path so the engine's state follows. */
+/** A Voice button anywhere (shortcut bar, spotlight): runs the ⌥V path. */
 export const toggleVoice = (): void => triggerShortcut('voice_toggle')
 
-const KEY_LINE = { missing: 'Add an ElevenLabs key in Settings', invalid: 'Check your ElevenLabs key in Settings' } as const
+const say = (text?: string): void => {
+  if (useVoice.getState().on && text) speech.say(text)
+}
+const titled = (title: string, body: string): string => (/[.?!:]$/.test(title.trim()) ? `${title} ${body}` : `${title}. ${body}`)
+const task = (): string => useLesson.getState().instructions || useLesson.getState().stepTitle
 
-// Not claimed: the local flip AND action {kind:"voice_toggle"} to the engine, so it starts or stops generating audio.
-// Without a usable ElevenLabs key, claim it and say why instead (turning voice off always works).
+// Claimed: voice is local, the engine has nothing to do for it.
 onUi('shortcut', (kind) => {
   if (kind !== 'voice_toggle') return
-  const on = useVoice.getState().on
-  const key = useLesson.getState().keyStatus?.elevenlabs
-  if (!on && (key === 'missing' || key === 'invalid')) {
-    notify(KEY_LINE[key])
-    return true
-  }
-  if (!on) player.warm()
-  useVoice.setState({ on: !on })
+  const on = !useVoice.getState().on
+  useVoice.setState({ on })
+  if (on) say(task())
+  return true
 })
 
-onMessage('speak', (p) => {
-  if (useVoice.getState().on && p.audioUrl) player.play(p.audioUrl)
-})
+onMessage('card', (p) => say(titled(p.title, p.body)))
+onMessage('offtrack', (p) => say(titled(p.title, p.body)))
+onMessage('step.passed', () => say(copy.passed))
+// The engine stopped the video so the learner can work: say what to do.
+onMessage('video.pause', () => say(task()))
 
-// Lesson ended, dev reset, reconnect: silence. After a reconnect the engine has restarted with voice off, so follow it.
-onUi('reset', (p) => {
-  player.stop()
-  if ((p as { reason?: string } | undefined)?.reason === 'reconnect') useVoice.setState({ on: false })
-})
-
-// Voice off stops the clip at once, wherever `on` was flipped from.
+// Esc, lesson ended, dev reset, reconnect: quiet. `on` stays as the learner set it.
+onUi('dismiss', () => speech.stop())
+onUi('reset', () => speech.stop())
 useVoice.subscribe((s, prev) => {
-  if (prev.on && !s.on) player.stop()
+  if (prev.on && !s.on) speech.stop()
 })

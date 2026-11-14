@@ -17,7 +17,7 @@ import { clock, color, copy, radius, shadow, spring } from '../../core/theme'
 import { CheckIcon, PrimaryButton, Spinner, StatusDot } from '../../core/ui/atoms'
 import { MiyagiMark } from '../../core/ui/Mark'
 import { dockRect } from './dock'
-import { attachPlayer, inGate, player, usePlayer } from './store'
+import { attachPlayer, clipStart, inGate, player, usePlayer } from './store'
 
 /** Frameless window: the header drags it; buttons inside opt out. */
 const drag = { WebkitAppRegion: 'drag' } as CSSProperties
@@ -104,7 +104,7 @@ function Header(): ReactNode {
 // Video + gate states
 // ---------------------------------------------------------------------------
 
-type Mode = 'loading' | 'error' | 'passed' | 'waiting' | 'paused' | undefined
+type Mode = 'loading' | 'error' | 'passed' | 'building' | 'waiting' | 'paused' | undefined
 
 function Video(): ReactNode {
   const host = useRef<HTMLDivElement>(null)
@@ -112,6 +112,8 @@ function Video(): ReactNode {
 
   const p = usePlayer(useShallow((s) => ({ ready: s.ready, playing: s.playing, pausedBy: s.pausedBy, resuming: s.resuming, error: s.error, muted: s.muted })))
   const stepOpen = useLesson((s) => !!s.stepId && !s.passed.includes(s.stepId))
+  // step.passed {pending}: the next part of a long video is still building (not "lesson complete").
+  const pendingNext = useLesson((s) => s.pendingNext)
 
   const mode: Mode = p.error
     ? 'error'
@@ -119,7 +121,9 @@ function Video(): ReactNode {
       ? 'passed'
       : !p.ready
         ? 'loading'
-        : !p.playing && stepOpen && (p.pausedBy === 'gate' || p.pausedBy === 'engine')
+        : !p.playing && pendingNext
+          ? 'building'
+          : !p.playing && stepOpen && (p.pausedBy === 'gate' || p.pausedBy === 'engine')
           ? 'waiting'
           : !p.playing && p.pausedBy === 'user'
             ? 'paused'
@@ -133,6 +137,7 @@ function Video(): ReactNode {
       <AnimatePresence>
         {mode === 'waiting' && <Waiting key="waiting" />}
         {mode === 'passed' && <Passed key="passed" />}
+        {mode === 'building' && <BuildingNext key="building" />}
         {mode === 'paused' && <PausedGlyph key="paused" />}
         {mode === 'loading' && <Loading key="loading" />}
         {mode === 'error' && <ErrorState key="error" message={p.error!} />}
@@ -186,6 +191,26 @@ function Waiting(): ReactNode {
         <div className="pointer-events-auto mt-[16px]">
           <PrimaryButton label="Replay step" icon={RotateCcw} onClick={() => player.replayStep()} />
         </div>
+      </motion.div>
+    </motion.div>
+  )
+}
+
+/** step.passed with pending: the video holds where it is until the engine adds the next part. */
+function BuildingNext(): ReactNode {
+  const parts = useLesson((s) => s.parts)
+  return (
+    <motion.div className="pointer-events-none absolute inset-0 grid place-items-center bg-black/55 backdrop-blur-[10px]" {...fade}>
+      <motion.div className="flex flex-col items-center px-6 text-center" {...rise}>
+        <div className="flex items-center gap-[9px] text-[17px] font-semibold leading-tight">
+          <Spinner size={16} c={color.gray} />
+          Next part is still building
+        </div>
+        {parts && parts.total > 0 && (
+          <div className="mt-[8px] text-[13px] tabular-nums" style={{ color: color.label }}>
+            {parts.done} of {parts.total} parts ready
+          </div>
+        )}
       </motion.div>
     </motion.div>
   )
@@ -258,10 +283,12 @@ function IconButton({ children, onClick, label, disabled }: { children: ReactNod
 function Controls(): ReactNode {
   const p = usePlayer(useShallow((s) => ({ t: s.t, duration: s.duration, playing: s.playing })))
   const seg = useOpenSegment()
-  const held = !p.playing && !!seg && inGate(p.t)
+  const pendingNext = useLesson((s) => s.pendingNext)
+  const held = !p.playing && inGate(p.t)
+  const heldLabel = pendingNext ? 'Opens when the next part is ready' : 'Opens when your checks pass'
   return (
     <div className="mt-[8px] flex h-[32px] items-center gap-[2px]">
-      <IconButton onClick={() => player.toggle()} label={held ? 'Opens when your checks pass' : p.playing ? 'Pause' : 'Play'} disabled={held}>
+      <IconButton onClick={() => player.toggle()} label={held ? heldLabel : p.playing ? 'Pause' : 'Play'} disabled={held}>
         {held ? <Lock size={15} strokeWidth={1.8} /> : p.playing ? <Pause size={16} fill="currentColor" strokeWidth={0} /> : <Play size={16} fill="currentColor" strokeWidth={0} />}
       </IconButton>
       <IconButton onClick={() => player.replayStep()} label="Back to the step’s start">
@@ -271,10 +298,16 @@ function Controls(): ReactNode {
         {clock(p.t)} <span style={{ color: color.faint }}>/ {p.duration ? clock(p.duration) : '–:––'}</span>
       </span>
       <span className="flex-1" />
-      {seg && (
+      {seg ? (
         <span className="flex items-center gap-[5px] text-[12px] tabular-nums" style={{ color: color.faint }} title="The video holds here until the step's checks pass">
           <Lock size={11} strokeWidth={2} /> Checks at {clock(seg.end)}
         </span>
+      ) : (
+        pendingNext && (
+          <span className="text-[12px]" style={{ color: color.faint }}>
+            Next part building
+          </span>
+        )
       )}
     </div>
   )
@@ -301,12 +334,13 @@ function Timeline(): ReactNode {
       {steps.map((s, i) => {
         if (!s.video) return null
         const locked = cur >= 0 ? i > cur && !passed.includes(s.id) : true
-        const played = Math.min(Math.max((t - s.video.start) / (s.video.end - s.video.start), 0), 1)
+        const start = clipStart(s.video)
+        const played = Math.min(Math.max((t - start) / (s.video.end - start), 0), 1)
         return (
           <div
             key={s.id}
             className={`absolute top-[6px] h-[4px] overflow-hidden rounded-full ${locked ? 'bg-white/10' : 'bg-white/25'}`}
-            style={{ left: `calc(${pct(s.video.start)} + 1px)`, width: `calc(${pct(s.video.end - s.video.start)} - 2px)` }}
+            style={{ left: `calc(${pct(start)} + 1px)`, width: `calc(${pct(s.video.end - start)} - 2px)` }}
           >
             <div className="h-full origin-left" style={{ background: color.accent, transform: `scaleX(${played})` }} />
           </div>
@@ -343,19 +377,69 @@ function SourceLine(): ReactNode {
 
 type ChapterStatus = 'done' | 'current' | 'locked'
 
+/**
+ * The lesson's steps. A long video builds part by part: lesson.updated replaces `steps` (ids stable,
+ * new ones appended), so rows are keyed by id and only rows that weren't there before fade in
+ * (AnimatePresence initial={false}: the first list doesn't animate). While the lesson isn't
+ * complete, a quiet last row says more steps are coming.
+ */
 function Chapters(): ReactNode {
-  const { steps, stepId, passed } = useLesson(useShallow((s) => ({ steps: s.steps, stepId: s.stepId, passed: s.passed })))
+  const { steps, stepId, passed, complete, parts } = useLesson(
+    useShallow((s) => ({ steps: s.steps, stepId: s.stepId, passed: s.passed, complete: s.complete, parts: s.parts }))
+  )
   const playing = usePlayer((s) => s.playing)
   const cur = steps.findIndex((s) => s.id === stepId)
+  const list = useRef<HTMLDivElement>(null)
+
+  // Keep the current row in view (long lessons scroll). Only this list scrolls, never the page.
+  useEffect(() => {
+    const box = list.current
+    const row = box?.querySelector<HTMLElement>(`[data-step="${CSS.escape(stepId ?? '')}"]`)
+    if (!box || !row) return
+    const top = row.offsetTop - box.offsetTop
+    if (top < box.scrollTop) box.scrollTo({ top, behavior: 'smooth' })
+    else if (top + row.offsetHeight > box.scrollTop + box.clientHeight) box.scrollTo({ top: top + row.offsetHeight - box.clientHeight, behavior: 'smooth' })
+  }, [stepId])
+
   return (
     <div className="mt-[14px] flex min-h-0 flex-1 flex-col px-[12px] pb-[12px]">
       <div className="px-[10px] pb-[6px] text-[13px] font-semibold text-white/80">Chapters</div>
-      <div className="min-h-0 flex-1 overflow-y-auto">
-        {steps.map((s, i) => {
-          const status: ChapterStatus = passed.includes(s.id) || (cur >= 0 && i < cur) ? 'done' : s.id === stepId ? 'current' : 'locked'
-          return <Chapter key={s.id} step={s} status={status} now={s.id === stepId} playing={playing} />
-        })}
+      <div ref={list} className="relative min-h-0 flex-1 overflow-y-auto">
+        <AnimatePresence initial={false}>
+          {steps.map((s, i) => {
+            const status: ChapterStatus = passed.includes(s.id) || (cur >= 0 && i < cur) ? 'done' : s.id === stepId ? 'current' : 'locked'
+            return (
+              <motion.div key={s.id} data-step={s.id} initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} transition={spring}>
+                <Chapter step={s} status={status} now={s.id === stepId} playing={playing} />
+              </motion.div>
+            )
+          })}
+          {!complete && (
+            <motion.div key="more" layout="position" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={{ duration: 0.25 }}>
+              <MoreComing parts={parts} />
+            </motion.div>
+          )}
+        </AnimatePresence>
       </div>
+    </div>
+  )
+}
+
+/** The quiet last row while a long video is still building. */
+function MoreComing({ parts }: { parts?: { done: number; failed: number; total: number } }): ReactNode {
+  return (
+    <div className="flex h-[38px] w-full items-center gap-[11px] px-[10px]">
+      <span className="grid w-[18px] shrink-0 place-items-center">
+        <Spinner size={13} c={color.gray} />
+      </span>
+      <span className="flex-1 truncate text-[14px]" style={{ color: color.faint }}>
+        More steps coming
+      </span>
+      {parts && parts.total > 0 && (
+        <span className="shrink-0 text-[12px] tabular-nums" style={{ color: color.faint }}>
+          {parts.done} of {parts.total} parts
+        </span>
+      )}
     </div>
   )
 }
@@ -367,7 +451,7 @@ function Chapter({ step, status, now, playing }: { step: StepSummary; status: Ch
     <button
       className={`flex h-[38px] w-full items-center gap-[11px] rounded-[10px] px-[10px] text-left ${now ? 'bg-white/[.08]' : locked || !v ? '' : 'hover:bg-white/[.05]'} ${locked || !v ? 'cursor-default' : 'cursor-pointer'}`}
       disabled={locked || !v}
-      onClick={() => v && player.seek(v.start, true)}
+      onClick={() => v && player.seek(clipStart(v), true)}
       title={locked ? 'Unlocks when you get there' : undefined}
     >
       <span className="grid w-[18px] shrink-0 place-items-center">
@@ -380,7 +464,7 @@ function Chapter({ step, status, now, playing }: { step: StepSummary; status: Ch
         )}
       </span>
       <span className="w-[40px] shrink-0 text-[13px] tabular-nums" style={{ color: locked ? color.faint : now ? color.text : color.label }}>
-        {v ? clock(v.start) : ''}
+        {v ? clock(clipStart(v)) : ''}
       </span>
       <span className={`flex-1 truncate text-[14px] ${now ? 'font-semibold text-white' : locked ? 'text-white/40' : 'text-white/75'}`}>{step.title}</span>
     </button>

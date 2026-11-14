@@ -2,9 +2,13 @@
  * Feature: pill. The island's pill-sized states (34px tall, width hugs content), to mockup 01 + the
  * Miyagi brand (app/brand/BRAND.md): always black and white, the bonsai as a one-color glyph on the left
  * (monochrome everywhere in the app), the status on the right.
- *   idle      no lesson yet: "[bonsai] Ask Miyagi ⌥Space" (click opens the launcher)
+ *   idle      no lesson yet: "[bonsai] Ask Miyagi ⌥Space" (click opens the launcher); "Offline" with no engine
  *   building  between Build lesson and the first step: lesson.building message + spinner + progress line
- *   compact   during a lesson: "[bonsai] Step 4 · Define the residual  ◔ ●" (ring = steps done, dot = status)
+ *   compact   during a lesson: "[bonsai] Step 4 · Define the residual  ◔ ●" (ring = steps done, dot = status);
+ *             "Next part is still building" after a pass while a long video's next part builds
+ *   notice    one line for ~5 s over any of them (engine errors, a failed build, notify()), then back
+ * While the engine is thinking, the bonsai becomes the small spinner (LeadMark). Offline mid-lesson: hollow dot.
+ * Calm: nothing animates unless the state really changed (no timer ticks, no repeats of the same line).
  *
  * Measured from mockup 01 (1×): art 15 from the left edge, 11 before the text (= pad 13 + 16px mark box + gap 8) ·
  * 14 right · text → ring 15 · ring → dot 9 ·
@@ -12,29 +16,31 @@
  * The step-pass moment (check → ring → flash → crossfade) is driven by ./store.ts.
  */
 import { AnimatePresence } from 'motion/react'
-import type { ReactNode } from 'react'
+import { useRef, type ReactNode } from 'react'
 import { useShallow } from 'zustand/react/shallow'
 import { bridge } from '../../bridge'
 import { useLesson } from '../../core/lesson'
 import { defineFeature } from '../../core/registry'
 import { color } from '../../core/theme'
 import { Kbd, Spinner } from '../../core/ui/atoms'
-import { BuildLine, MonoMark, PillRing, StatusMark, SwapText, type Mark } from './parts'
+import { BuildLine, LeadMark, MonoMark, PillRing, StatusMark, SwapText, type Mark } from './parts'
 import { usePill } from './store'
 
 function Idle(): ReactNode {
+  const offline = usePill((s) => s.offline)
   return (
     <button
-      className="group flex h-[34px] cursor-pointer items-center whitespace-nowrap pl-[13px] pr-[7px]"
-      style={{ color: color.text }}
+      className={`group flex h-[34px] cursor-pointer items-center whitespace-nowrap pl-[13px] text-[13px] font-medium ${offline ? 'pr-[16px]' : 'pr-[7px]'}`}
+      style={{ color: offline ? color.label : color.text }}
       onClick={() => bridge.emit('launcher:toggle')}
-      aria-label="Ask Miyagi: open the launcher"
+      aria-label={offline ? 'Offline: Miyagi is not connected' : 'Ask Miyagi: open the launcher'}
     >
-      <MonoMark className="mr-[8px]" />
-      {/* Type on the span: styles.css's unlayered `button { font: inherit }` beats Tailwind's text-/font- utilities on <button>. */}
-      <span className="text-[13px] font-medium opacity-90 transition-opacity duration-150 group-hover:opacity-100">Ask Miyagi</span>
-      {/* Concentric with the pill: 7px inset, fully round (radius 10 inside radius 17). */}
-      <Kbd className="ml-[10px] !h-[20px] !rounded-full !px-[8px]">{bridge.platform.keys.launcher}</Kbd>
+      <LeadMark />
+      <SwapText id={offline ? 'offline' : 'ask'} className="opacity-90 transition-opacity duration-150 group-hover:opacity-100">
+        {offline ? 'Offline' : 'Ask Miyagi'}
+      </SwapText>
+      {/* Concentric with the pill: 7px inset, fully round (radius 10 inside radius 17). Hidden offline: nothing to ask. */}
+      {!offline && <Kbd className="ml-[10px] !h-[20px] !rounded-full !px-[8px]">{bridge.platform.keys.launcher}</Kbd>}
     </button>
   )
 }
@@ -77,12 +83,24 @@ function Building(): ReactNode {
 
 type Shown = { key: string; index: number; title: string; mark: Mark; done: number }
 
+const NEXT_PART = 'Next part is still building'
+
 /** What the pill shows: the engine's step, except during/after a pass, where the pill runs ahead. */
 function useShown(): Shown & { total: number } {
   const l = useLesson(
-    useShallow((s) => ({ stepId: s.stepId, title: s.stepTitle, steps: s.steps, passed: s.passed, offtrack: !!s.offtrack }))
+    useShallow((s) => ({
+      stepId: s.stepId,
+      title: s.stepTitle,
+      steps: s.steps,
+      passed: s.passed,
+      offtrack: !!s.offtrack,
+      // A long video still building: after its last known step there is a next part coming, not the end.
+      morePending: s.pendingNext || !s.complete
+    }))
   )
-  const { celebrating, advanced } = usePill(useShallow((s) => ({ celebrating: s.celebrating, advanced: s.advanced })))
+  const { celebrating, advanced, offline } = usePill(
+    useShallow((s) => ({ celebrating: s.celebrating, advanced: s.advanced, offline: s.offline }))
+  )
   const total = Math.max(1, l.steps.length)
   const at = (id?: string): number => l.steps.findIndex((x) => x.id === id)
   const titleOf = (i: number, fallback = ''): string => l.steps[i]?.title ?? fallback
@@ -92,11 +110,17 @@ function useShown(): Shown & { total: number } {
     const i = at(celebrating)
     return { key: celebrating, index: Math.max(0, i), title: titleOf(i, l.title), mark: 'check', done: i + 1, total }
   }
-  // 2) After a pass, before the engine's step.started: the next step (or the end of the lesson).
+  // 2) After a pass, before the engine's step.started: the next step, the next part still building, or the end.
   if (advanced && advanced.from === l.stepId) {
-    if (!advanced.to || at(advanced.to) < 0) return { key: 'complete', index: total, title: 'Lesson complete', mark: 'done', done: total, total }
-    const j = at(advanced.to)
-    return { key: advanced.to, index: j, title: titleOf(j), mark: 'watching', done: j, total }
+    // lesson.updated may have appended the next step since the pass: look it up now, not at pass time.
+    const to = advanced.to ?? l.steps[at(advanced.from) + 1]?.id
+    if (!to || at(to) < 0) {
+      const i = at(advanced.from)
+      if (l.morePending) return { key: 'pending', index: i + 1, title: NEXT_PART, mark: offline ? 'offline' : 'pending', done: i + 1, total }
+      return { key: 'complete', index: total, title: 'Lesson complete', mark: 'done', done: total, total }
+    }
+    const j = at(to)
+    return { key: to, index: j, title: titleOf(j), mark: offline ? 'offline' : 'watching', done: j, total }
   }
   // 3) Normal: the engine's current step.
   const i = Math.max(0, at(l.stepId))
@@ -105,7 +129,7 @@ function useShown(): Shown & { total: number } {
     key: l.stepId ?? '',
     index: i,
     title: l.title,
-    mark: l.offtrack ? 'offtrack' : passed ? 'passed' : 'watching',
+    mark: offline ? 'offline' : l.offtrack ? 'offtrack' : passed ? 'passed' : 'watching',
     done: i + (passed ? 1 : 0),
     total
   }
@@ -115,9 +139,9 @@ function Compact(): ReactNode {
   const s = useShown()
   return (
     <div className="flex h-[34px] items-center whitespace-nowrap pl-[13px] pr-[14px] text-[13px] font-medium" style={{ color: color.text }} data-step={s.key}>
-      <MonoMark className="mr-[8px]" />
+      <LeadMark />
       <SwapText id={s.key} className="flex">
-        {s.mark === 'done' ? (
+        {s.mark === 'done' || s.mark === 'pending' ? (
           <span>{s.title}</span>
         ) : (
           <>
@@ -126,10 +150,39 @@ function Compact(): ReactNode {
           </>
         )}
       </SwapText>
-      <span className="ml-[15px] flex items-center gap-[9px]">
-        <PillRing fraction={Math.min(1, s.done / s.total)} complete={s.mark === 'done'} />
-        <StatusMark mark={s.mark} />
-      </span>
+      {s.mark === 'pending' ? (
+        // Same shape as the building pill: a part is building, so the spinner sits where the ring was.
+        <span className="ml-[15px]">
+          <Spinner size={16} />
+        </span>
+      ) : (
+        <span className="ml-[15px] flex items-center gap-[9px]">
+          <PillRing fraction={Math.min(1, s.done / s.total)} complete={s.mark === 'done'} />
+          <StatusMark mark={s.mark} />
+        </span>
+      )}
+    </div>
+  )
+}
+
+/** The notice line: the bonsai and one line of text. White for errors too: nothing red, no extra icon. */
+function NoticeLine(): ReactNode {
+  const notice = usePill((s) => s.notice)
+  // While the mode fades out the notice is already gone: keep the last line so the width doesn't collapse.
+  const last = useRef(notice)
+  if (notice) last.current = notice
+  const n = last.current
+  return (
+    <div
+      role={n?.tone === 'error' ? 'alert' : 'status'}
+      className="flex h-[34px] items-center whitespace-nowrap pl-[13px] pr-[16px] text-[13px] font-medium"
+      style={{ color: color.text }}
+      data-notice={n?.tone}
+    >
+      <MonoMark className="mr-[8px]" />
+      <SwapText id={n?.text ?? ''}>
+        <span className="block max-w-[380px] truncate">{n?.text}</span>
+      </SwapText>
     </div>
   )
 }
@@ -139,6 +192,8 @@ export default defineFeature({
   islandModes: [
     { id: 'idle', priority: 0, useActive: () => useLesson((s) => !s.lesson && !s.building), Content: Idle },
     { id: 'building', priority: 1, useActive: () => useLesson((s) => s.building && !s.stepId), Content: Building },
-    { id: 'compact', priority: 2, useActive: () => useLesson((s) => !!s.stepId), Content: Compact }
+    { id: 'compact', priority: 2, useActive: () => useLesson((s) => !!s.stepId), Content: Compact },
+    // Above the pill states, below hover (20) and cards (40+): a card the learner opened stays in front.
+    { id: 'notice', priority: 5, useActive: () => usePill((s) => !!s.notice), Content: NoticeLine }
   ]
 })

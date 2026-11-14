@@ -1,6 +1,7 @@
 {
   "name": "player",
   "on": {
+    "connect": "player_long",
     "action:back@step4": "player_back_step4",
     "action:back@step6": "player_back_step6"
   },
@@ -22,6 +23,466 @@
         "payload": {
           "t": 760,
           "play": true
+        }
+      }
+    ],
+    "player_long": [
+      {
+        "wait": 300,
+        "type": "card",
+        "payload": {
+          "kind": "preflight",
+          "title": "Before you build",
+          "body": "Long video: it builds in three parts.",
+          "preflight": {
+            "videoId": "AXXnSzmpyoI",
+            "url": "https://www.youtube.com/watch?v=AXXnSzmpyoI",
+            "durationS": 1460,
+            "chapters": 0,
+            "partial": true,
+            "buildPlan": {
+              "strategy": "chapters",
+              "estSecondsToFirstSteps": 20,
+              "firstChapter": null,
+              "skippedIntro": {
+                "start": 0,
+                "end": 45
+              }
+            }
+          }
+        }
+      },
+      {
+        "wait": 1200,
+        "type": "lesson.building",
+        "payload": {
+          "message": "Building part 1 of 3",
+          "progress": 0.3
+        }
+      },
+      {
+        "wait": 800,
+        "type": "lesson.ready",
+        "payload": {
+          "lesson": {
+            "id": "long-demo",
+            "title": "A long video, built in parts",
+            "sources": [
+              {
+                "id": "v",
+                "kind": "video",
+                "title": "Learning PIML Part 1 – PINNs",
+                "url": "https://www.youtube.com/watch?v=AXXnSzmpyoI",
+                "meta": "Video · Juan Toscano · 24:20"
+              }
+            ],
+            "complete": false
+          },
+          "steps": [
+            {
+              "id": "L1",
+              "index": 0,
+              "title": "Set up the notebook",
+              "video": {
+                "videoId": "AXXnSzmpyoI",
+                "start": 0,
+                "end": 60
+              }
+            },
+            {
+              "id": "L2",
+              "index": 1,
+              "title": "Build the network",
+              "video": {
+                "videoId": "AXXnSzmpyoI",
+                "start": 60,
+                "end": 150
+              }
+            }
+          ]
+        }
+      },
+      {
+        "wait": 400,
+        "type": "step.started",
+        "payload": {
+          "stepId": "L1",
+          "index": 0,
+          "title": "Set up the notebook",
+          "instructions": "Open the notebook and run the first cell",
+          "video": {
+            "videoId": "AXXnSzmpyoI",
+            "start": 0,
+            "end": 60
+          }
+        }
+      },
+      {
+        "wait": 0,
+        "type": "check.updated",
+        "payload": {
+          "stepId": "L1",
+          "checkId": "c1",
+          "label": "Notebook runs",
+          "status": "pending"
+        }
+      },
+      {
+        "wait": 17500,
+        "type": "check.updated",
+        "payload": {
+          "stepId": "L1",
+          "checkId": "c1",
+          "label": "Notebook runs",
+          "status": "pass"
+        }
+      },
+      {
+        "wait": 400,
+        "type": "step.passed",
+        "payload": {
+          "stepId": "L1",
+          "nextStepId": "L2"
+        }
+      },
+      {
+        "wait": 1500,
+        "type": "step.started",
+        "payload": {
+          "stepId": "L2",
+          "index": 1,
+          "title": "Build the network",
+          "instructions": "Define the network",
+          "video": {
+            "videoId": "AXXnSzmpyoI",
+            "start": 60,
+            "end": 150
+          }
+        }
+      },
+      {
+        "wait": 0,
+        "type": "video.pause",
+        "payload": {}
+      },
+      {
+        "wait": 0,
+        "type": "check.updated",
+        "payload": {
+          "stepId": "L2",
+          "checkId": "c1",
+          "label": "Network builds",
+          "status": "pending"
+        }
+      },
+      {
+        "wait": 2500,
+        "type": "lesson.updated",
+        "payload": {
+          "steps": [
+            {
+              "id": "L1",
+              "index": 0,
+              "title": "Set up the notebook",
+              "video": {
+                "videoId": "AXXnSzmpyoI",
+                "start": 0,
+                "end": 60
+              }
+            },
+            {
+              "id": "L2",
+              "index": 1,
+              "title": "Build the network",
+              "video": {
+                "videoId": "AXXnSzmpyoI",
+                "start": 60,
+                "end": 150
+              }
+            },
+            {
+              "id": "L3",
+              "index": 2,
+              "title": "Write the physics loss",
+              "video": {
+                "videoId": "AXXnSzmpyoI",
+                "start": 150,
+                "end": 260
+              }
+            },
+            {
+              "id": "L4",
+              "index": 3,
+              "title": "Train on the collocation points",
+              "video": {
+                "videoId": "AXXnSzmpyoI",
+                "start": 260,
+                "end": 330
+              }
+            }
+          ],
+          "complete": false,
+          "parts": {
+            "done": 2,
+            "failed": 0,
+            "total": 3
+          }
+        }
+      },
+      {
+        "wait": 2500,
+        "type": "check.updated",
+        "payload": {
+          "stepId": "L2",
+          "checkId": "c1",
+          "label": "Network builds",
+          "status": "pass"
+        }
+      },
+      {
+        "wait": 300,
+        "type": "step.passed",
+        "payload": {
+          "stepId": "L2",
+          "nextStepId": "L3"
+        }
+      },
+      {
+        "wait": 1200,
+        "type": "step.started",
+        "payload": {
+          "stepId": "L3",
+          "index": 2,
+          "title": "Write the physics loss",
+          "instructions": "Write the loss",
+          "video": {
+            "videoId": "AXXnSzmpyoI",
+            "start": 150,
+            "end": 260
+          }
+        }
+      },
+      {
+        "wait": 0,
+        "type": "video.pause",
+        "payload": {}
+      },
+      {
+        "wait": 0,
+        "type": "check.updated",
+        "payload": {
+          "stepId": "L3",
+          "checkId": "c1",
+          "label": "Loss is defined",
+          "status": "pending"
+        }
+      },
+      {
+        "wait": 3000,
+        "type": "check.updated",
+        "payload": {
+          "stepId": "L3",
+          "checkId": "c1",
+          "label": "Loss is defined",
+          "status": "pass"
+        }
+      },
+      {
+        "wait": 300,
+        "type": "step.passed",
+        "payload": {
+          "stepId": "L3",
+          "nextStepId": "L4"
+        }
+      },
+      {
+        "wait": 1200,
+        "type": "step.started",
+        "payload": {
+          "stepId": "L4",
+          "index": 3,
+          "title": "Train on the collocation points",
+          "instructions": "Train for a few epochs",
+          "video": {
+            "videoId": "AXXnSzmpyoI",
+            "start": 260,
+            "end": 330
+          }
+        }
+      },
+      {
+        "wait": 0,
+        "type": "video.pause",
+        "payload": {}
+      },
+      {
+        "wait": 0,
+        "type": "check.updated",
+        "payload": {
+          "stepId": "L4",
+          "checkId": "c1",
+          "label": "Training runs",
+          "status": "pending"
+        }
+      },
+      {
+        "wait": 3000,
+        "type": "check.updated",
+        "payload": {
+          "stepId": "L4",
+          "checkId": "c1",
+          "label": "Training runs",
+          "status": "pass"
+        }
+      },
+      {
+        "wait": 300,
+        "type": "step.passed",
+        "payload": {
+          "stepId": "L4",
+          "pending": true
+        }
+      },
+      {
+        "wait": 7000,
+        "type": "lesson.updated",
+        "payload": {
+          "steps": [
+            {
+              "id": "L1",
+              "index": 0,
+              "title": "Set up the notebook",
+              "video": {
+                "videoId": "AXXnSzmpyoI",
+                "start": 0,
+                "end": 60
+              }
+            },
+            {
+              "id": "L2",
+              "index": 1,
+              "title": "Build the network",
+              "video": {
+                "videoId": "AXXnSzmpyoI",
+                "start": 60,
+                "end": 150
+              }
+            },
+            {
+              "id": "L3",
+              "index": 2,
+              "title": "Write the physics loss",
+              "video": {
+                "videoId": "AXXnSzmpyoI",
+                "start": 150,
+                "end": 260
+              }
+            },
+            {
+              "id": "L4",
+              "index": 3,
+              "title": "Train on the collocation points",
+              "video": {
+                "videoId": "AXXnSzmpyoI",
+                "start": 260,
+                "end": 330
+              }
+            },
+            {
+              "id": "L5",
+              "index": 4,
+              "title": "Compare with the exact solution",
+              "video": {
+                "videoId": "AXXnSzmpyoI",
+                "start": 330,
+                "end": 420
+              }
+            },
+            {
+              "id": "L6",
+              "index": 5,
+              "title": "Try a harder case",
+              "video": {
+                "videoId": "AXXnSzmpyoI",
+                "start": 420,
+                "end": 520
+              }
+            }
+          ],
+          "complete": true,
+          "parts": {
+            "done": 3,
+            "failed": 0,
+            "total": 3
+          }
+        }
+      },
+      {
+        "wait": 600,
+        "type": "step.started",
+        "payload": {
+          "stepId": "L5",
+          "index": 4,
+          "title": "Compare with the exact solution",
+          "instructions": "Plot it against the exact solution",
+          "video": {
+            "videoId": "AXXnSzmpyoI",
+            "start": 330,
+            "end": 420
+          }
+        }
+      },
+      {
+        "wait": 0,
+        "type": "check.updated",
+        "payload": {
+          "stepId": "L5",
+          "checkId": "c1",
+          "label": "Plot matches",
+          "status": "pending"
+        }
+      },
+      {
+        "wait": 4000,
+        "type": "check.updated",
+        "payload": {
+          "stepId": "L5",
+          "checkId": "c1",
+          "label": "Plot matches",
+          "status": "pass"
+        }
+      },
+      {
+        "wait": 300,
+        "type": "step.passed",
+        "payload": {
+          "stepId": "L5",
+          "nextStepId": "L6"
+        }
+      },
+      {
+        "wait": 1500,
+        "type": "step.started",
+        "payload": {
+          "stepId": "L6",
+          "index": 5,
+          "title": "Try a harder case",
+          "instructions": "Change the coefficient and retrain",
+          "video": {
+            "videoId": "AXXnSzmpyoI",
+            "start": 420,
+            "end": 520
+          }
+        }
+      },
+      {
+        "wait": 0,
+        "type": "check.updated",
+        "payload": {
+          "stepId": "L6",
+          "checkId": "c1",
+          "label": "Retrains",
+          "status": "pending"
         }
       }
     ]

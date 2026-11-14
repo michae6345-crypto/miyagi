@@ -159,8 +159,17 @@ export const pill = { height: 34, landingWidth: 300, maxCardWidth: 520 } as cons
 /** Launcher: grows out of the notch island, 640 wide (topRatio is a leftover from the mid-screen version). */
 export const launcher = { width: 640, topRatio: 0.22 } as const
 
-/** "0:00" style timestamps. */
+/** "0:00" style timestamps; "1:02:00" past an hour (long videos build part by part). */
 export function clock(t: number): string {
   const s = Math.max(0, Math.round(t))
-  return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`
+  const h = Math.floor(s / 3600)
+  const m = Math.floor((s % 3600) / 60)
+  const ss = String(s % 60).padStart(2, '0')
+  return h ? `${h}:${String(m).padStart(2, '0')}:${ss}` : `${m}:${ss}`
+}
+
+/** A #RRGGBB token at an alpha, e.g. the kind tiles' 16% pastel wash: alpha(kindTone.paper, 0.16). */
+export function alpha(hex: string, a: number): string {
+  const n = parseInt(hex.slice(1, 7), 16)
+  return `rgba(${(n >> 16) & 255},${(n >> 8) & 255},${n & 255},${a})`
 }
