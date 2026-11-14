@@ -4,16 +4,14 @@
   same key; `inflight.cancel()` aborts everything (call it on any real user action). Cancelling
   closes the streaming HTTP request.
 - `do_it_for_me(step, file, file_text)` → a minimal patch that compiles, for E4 to preview/apply.
-- `locate(query, screen)` → screen targets: exact text match first (no model), else Gemini
-  flash-lite over the set-of-mark screenshot. Opus stays for coaching.
+- `locate(query, screen)` → screen targets: exact text match first (no model), else Claude Haiku
+  over the set-of-mark screenshot. Opus stays for coaching. (Screen/code reading is Claude only.)
 """
 
 from __future__ import annotations
 
 import asyncio
-import json
 import logging
-import os
 import re
 from collections.abc import Coroutine
 from typing import Any
@@ -145,10 +143,14 @@ async def do_it_for_me(step: dict, file: str, file_text: str, last_offtrack: dic
 
 # ---------- "where is X" -----------------------------------------------------------------------------
 
-LOCATE_MODELS = "gemini-3.1-flash-lite,gemini-3.5-flash-lite"  # same chain the finder uses
+LOCATE_SYSTEM = """You ground a short request ("where is X") on a screenshot for a tutorial overlay. The images are the whole screen with numbered boxes and a full-resolution crop around the cursor (red ring); the BOXES list gives each box's text. Answer with the ids of the boxes that are X, best first (at most 3), or [] if X is not visible. Only ids from the list."""
 
-LOCATE_PROMPT = """Find "{query}" on this screen. The images are the whole screen (numbered boxes) and a full-resolution crop around the cursor (red ring). Answer with the ids of the boxes that are it, best first (at most 3), or [] if it is not visible.
-{context}"""
+LOCATE_SCHEMA = {
+    "type": "object",
+    "properties": {"box_ids": {"type": "array", "items": {"type": "integer"}}},
+    "required": ["box_ids"],
+    "additionalProperties": False,
+}
 
 
 def _norm(s: str) -> str:
@@ -165,33 +167,22 @@ def text_matches(query: str, screen: ScreenContext) -> list[int]:
 
 
 async def locate(query: str, screen: ScreenContext, *, use_model: bool = True) -> list[dict]:
-    """Resolve "where is X" to targets [{boxId, label, text, rect}]. Raises CoachUnavailable if it can't ask."""
+    """Resolve "where is X" to targets [{boxId, label, text, rect}].
+
+    Exact text on screen → no model. Otherwise Claude Haiku picks set-of-mark box ids (Opus stays
+    for coaching). Raises CoachUnavailable when it cannot ask the model.
+    """
     if ids := text_matches(query, screen):
         return screen.resolve_targets([{"box_id": i, "label": query[:24]} for i in ids[:3]])
     if not use_model:
         return []
-    key = llm.get_key("gemini")
-    if not key:
-        raise llm.CoachUnavailable("locate needs a Gemini key")
-    from google import genai
-    from google.genai import types
-
-    client = genai.Client(api_key=key)
-    contents = [
-        LOCATE_PROMPT.format(query=query, context=screen.text()),
-        types.Part.from_bytes(data=screen.jpeg(screen.overview()), mime_type="image/jpeg"),
-        types.Part.from_bytes(data=screen.jpeg(screen.crop()), mime_type="image/jpeg"),
-    ]
-    config = types.GenerateContentConfig(
-        response_mime_type="application/json",
-        response_schema={"type": "object", "properties": {"box_ids": {"type": "array", "items": {"type": "integer"}}}, "required": ["box_ids"]},
-    )
-    errors = []
-    for model in [m.strip() for m in os.environ.get("COACH_LOCATE_MODEL", LOCATE_MODELS).split(",") if m.strip()]:
-        try:
-            resp = await asyncio.wait_for(client.aio.models.generate_content(model=model, contents=contents, config=config), 8.0)
-            ids = json.loads(resp.text or "{}").get("box_ids", [])
-            return screen.resolve_targets([{"box_id": i, "label": query[:24]} for i in ids[:3]])
-        except (TimeoutError, json.JSONDecodeError, Exception) as e:  # noqa: BLE001 - try the next model in the chain
-            errors.append(f"{model}: {type(e).__name__}")
-    raise llm.CoachUnavailable(f"locate failed ({'; '.join(errors)})")
+    ask = f'Find: "{query}"'
+    try:
+        res = await llm.structured_call(
+            purpose="locate", model=llm.HAIKU, system=[{"type": "text", "text": LOCATE_SYSTEM}],
+            user_text=f"{ask}\n\n{screen.text()}", user_content=[{"type": "text", "text": ask}, *screen.claude_content()],
+            schema=LOCATE_SCHEMA, effort="low", max_tokens=2000, timeout=10.0,
+        )
+    except llm.CoachLLMError as e:
+        raise llm.CoachUnavailable(f"locate failed: {e}") from e
+    return screen.resolve_targets([{"box_id": i, "label": query[:24]} for i in res.data.get("box_ids", [])[:3]])

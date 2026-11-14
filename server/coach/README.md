@@ -34,14 +34,14 @@ task = coach.inflight.start("diagnose", coach.diagnose(step, failed, metrics, co
 coach.cancel()                                       # on any real user action: aborts the stream
 card = await task                                    # offtrack + "targets": [{boxId, label, text, rect}]
 patch = await coach.do_it_for_me(step, file, file_text)   # {file, unified_diff, summary, line, new_text}
-targets = await coach.locate("the learning rate", screen)  # exact text → no model; else Gemini flash-lite
+targets = await coach.locate("the learning rate", screen)  # exact text → no model; else Claude Haiku
 ```
 
 - **Set-of-mark payload.** The text comes first: context, then "Cursor at (x, y) over [id] "…" (app), line N of file", then the numbered box list. Two JPEGs follow: the whole screen at 1280 px wide with every box outlined, numbered in the margin and the cursor ringed, and a full-resolution 400×400 crop around the cursor. The 120 boxes nearest the cursor are kept. Rects are in screen points with a top-left origin, the same space as `spotlight`.
 - **Targets first.** With a screen, `targets` is the first property in the JSON schema. The reply streams, and `on_targets` fires as soon as that array is complete. Live: targets at 2.9 s of a 4.65 s reply, first text at 1.5 s after `warm()`. Several targets are allowed, each labelled in 3 words or fewer. Unknown ids are dropped. `explain(..., context={"screen": s, "on_targets": cb})` works the same way.
 - **Cancel / warm.** `inflight.start(key, coro)` replaces the previous task under that key, and `cancel()` closes the HTTP stream. `warm()` sends the exact diagnose request shape with `max_tokens=1`; 0 is rejected when an output format is set. Live: the first diagnosis after `warm()` read 4,505 cached tokens.
 - **Do it for me.** It uses the latest diagnosis's diff when that applies cleanly. Otherwise Opus writes a patch, retried once with the reason it failed. The patch is accepted only if `apply_fix` finds the lines and, for Python, the result compiles. Otherwise it raises `CoachUnavailable`. It never writes files. The summary is the card's action sentence ("Lower the learning rate to 1e-3").
-- **locate** uses `COACH_LOCATE_MODEL` (default `gemini-3.1-flash-lite,gemini-3.5-flash-lite`, the finder's chain) with the same set-of-mark images. Live: "the learning rate" → the `lr=1e-1` line in 1.9 s.
+- **locate** asks `claude-haiku-5-5` (effort low) to pick box ids from the same set-of-mark images. Screen and code reading is Claude only; there is no Gemini in `server/coach`.
 - **Computer use** is not used. If icon finding ever needs it, the tool is `computer_toolset_20260801`, because `computer_20251124` returns 400 on Opus 5.5.
 
 ## Design

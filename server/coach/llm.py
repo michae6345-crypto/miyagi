@@ -68,7 +68,7 @@ _client = None
 _client_key: str | None = None
 _local_keys: dict[str, str] = {}
 
-KEY_ENV = {"anthropic": "ANTHROPIC_API_KEY", "brightdata": "BRIGHTDATA_API_KEY", "gemini": "GEMINI_API_KEY"}
+KEY_ENV = {"anthropic": "ANTHROPIC_API_KEY", "brightdata": "BRIGHTDATA_API_KEY"}
 
 
 def _load_env() -> None:

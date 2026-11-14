@@ -694,36 +694,37 @@ def test_do_it_for_me_gives_up_without_a_safe_patch(monkeypatch):
 # ---------- "where is X" -------------------------------------------------------------------------------
 
 def test_locate_exact_text_needs_no_model(monkeypatch):
-    monkeypatch.setattr(llm, "get_key", lambda name: (_ for _ in ()).throw(AssertionError("no model call")))
+    async def boom(**kw):
+        raise AssertionError("no model call")
+
+    monkeypatch.setattr(llm, "structured_call", boom)
     s = make_screen()
     t = run(coach.locate("optimizer.zero_grad()", s))
     assert t[0]["text"] == "optimizer.zero_grad()"
 
 
-def test_locate_uses_gemini_for_descriptions(monkeypatch):
+def test_locate_uses_haiku_for_descriptions(replay):
+    """Recorded live Haiku call over the set-of-mark screen."""
     s = make_screen()
-    lr = box_id_containing(s, "lr=1e-1")
+    t = run(coach.locate("the learning rate", s))
+    assert t[0]["boxId"] == box_id_containing(s, "lr=1e-1")
+
+
+def test_locate_request_shape(monkeypatch):
     seen = {}
 
-    class Models:
-        async def generate_content(self, model, contents, config):
-            seen["model"], seen["n_images"] = model, sum(1 for c in contents if not isinstance(c, str))
-            return SimpleNamespace(text=json.dumps({"box_ids": [lr]}))
+    async def call(**kw):
+        seen.update(kw)
+        return llm.CallResult(data={"box_ids": [999, 3]}, model=kw["model"])
 
-    class FakeClient:
-        def __init__(self, api_key):
-            self.aio = SimpleNamespace(models=Models())
-
-    from google import genai
-
-    monkeypatch.setattr(genai, "Client", FakeClient)
-    monkeypatch.setattr(llm, "get_key", lambda name: "k" if name == "gemini" else None)
-    t = run(coach.locate("the learning rate", s))
-    assert t[0]["boxId"] == lr and seen == {"model": "gemini-3.1-flash-lite", "n_images": 2}
+    monkeypatch.setattr(llm, "structured_call", call)
+    t = run(coach.locate("the learning rate", make_screen()))
+    assert seen["model"] == "claude-haiku-5-5" and [b["type"] for b in seen["user_content"]] == ["text", "text", "image", "image"]
+    assert [x["boxId"] for x in t] == [3]  # unknown id dropped
 
 
-def test_locate_without_gemini_key_raises():
-    with pytest.raises(coach.CoachUnavailable, match="Gemini key"):
+def test_locate_without_key_raises():
+    with pytest.raises(coach.CoachUnavailable, match="locate failed"):
         run(coach.locate("the learning rate", make_screen()))
 
 

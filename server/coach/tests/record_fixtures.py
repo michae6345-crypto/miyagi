@@ -46,6 +46,8 @@ async def main() -> None:
     screen = make_screen()
     show("diffusion/high-lr+screen", card := await coach.diagnose(d.STEP, d.HIGH_LR_FAILED, d.HIGH_LR_METRICS, d.HIGH_LR_CODE, screen=screen))
     print("    targets:", [(t["boxId"], t["label"], t["text"][:40]) for t in card["targets"]])
+    for q in ("the learning rate", "where the total loss is computed"):
+        print(f"locate {q!r}:", [(t["boxId"], t["text"][:40]) for t in await coach.locate(q, screen)])
 
     LAST.clear()
     common.set_lesson(cv.LESSON)
