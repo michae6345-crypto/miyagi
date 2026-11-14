@@ -69,6 +69,7 @@ class LessonSession:
         self.inputs = inputs  # inputs.Inputs (cursor, last key/click) or None
         self.last_obs: Any = None
         self.undo: tuple[Path, str] | None = None
+        self.pending_patch: dict | None = None  # "Do it for me" preview awaiting confirm
         self.workspace = workspace  # workspace.Workspace (opens VS Code) or None
         self.emit = emit
         self.screen = screen  # ScreenBridge / FakeScreen / None
@@ -294,6 +295,7 @@ class LessonSession:
         if self.on_workdir:
             self.on_workdir(new_wd)
         self.m.set_lesson(graph)
+        self._spawn(self.m.warm(), timer=True)  # pre-warm the coach's cached lesson prefix
         await self.emit("lesson.ready", self._lesson_ready_payload())
         if self.workspace is not None:
             self.workspace.open(new_wd)
@@ -470,6 +472,8 @@ class LessonSession:
     def _acted(self) -> None:
         self.last_action_t = self.clock()
         self._touch()
+        if self.coaching:  # a real user action makes the pending diagnosis stale: close the stream
+            self.m.cancel_coach()
 
     def learner_idle_s(self) -> float:
         own = self.clock() - self.last_action_t
@@ -628,6 +632,36 @@ class LessonSession:
         self.spoken_sig, self.spoken_t = sig, self.clock()
         self._spawn(self._coach(self.step_gen, step, failed, ctx, level))
 
+    def _target_spot(self, target: dict) -> dict | None:
+        r = target.get("rect")
+        if isinstance(r, (list, tuple)) and len(r) == 4:
+            r = {"x": r[0], "y": r[1], "w": r[2], "h": r[3]}
+        if not isinstance(r, dict) or not all(k in r for k in ("x", "y", "w", "h")):
+            return None
+        spot = {"rect": {k: float(r[k]) for k in ("x", "y", "w", "h")}, "caption": target.get("label") or ""}
+        if target.get("text"):
+            spot["matched"] = str(target["text"])[:200]
+        return spot
+
+    async def _screen_for_coach(self, step: dict) -> Any:
+        """E5's ScreenContext: OCR boxes + a screenshot + the cursor (+ the step's file/line), or None."""
+        if not self.screen_active() or self.last_obs is None or not hasattr(self.screen, "screenshot"):
+            return None
+        image = await asyncio.to_thread(self.screen.screenshot)
+        if image is None:
+            return None
+        pos = self.inputs.cursor() if self.inputs is not None else None
+        if pos is None:
+            r = getattr(self.last_obs, "screen", None)
+            pos = (getattr(r, "w", 0) / 2, getattr(r, "h", 0) / 2)
+        extra: dict[str, Any] = {}
+        from .workspace import target_location
+
+        loc = target_location(self.workdir, step)
+        if loc:
+            extra = {"file": str(loc[0]), "line": loc[1]}
+        return self.m.screen_context(self.last_obs, image, pos, **extra)
+
     def cursor_context(self) -> dict | None:
         from .inputs import text_under
 
@@ -649,14 +683,27 @@ class LessonSession:
                 failed_checks = [{**by_id.get(r.get("checkId"), {}), **r} for r in failed]
                 code, _file = self._code_excerpt(step)
                 tail = ctx.output_tail[-40:] if isinstance(ctx.output_tail, list) else []
+                screen = await self._screen_for_coach(step)
+
+                def on_targets(targets: list[dict]) -> None:  # streamed mid-reply: spotlight before the card lands
+                    if gen == self.step_gen and targets and not self.passed:
+                        spot = self._target_spot(targets[0])
+                        if spot:
+                            self._early_spot = True
+                            self._spawn(self._show_spot(spot))
+
+                self._early_spot = False
                 try:
                     card = await self.m.diagnose(step, failed_checks, ctx.metrics, code, error_text="\n".join(tail),
-                                                 cursor=self.cursor_context())
+                                                 cursor=self.cursor_context(), screen=screen, on_targets=on_targets)
                 except Exception as e:
-                    log.exception("coach.diagnose failed")
                     if gen == self.step_gen:
                         self.spoken_sig = None  # let a later breakpoint try again
-                        await self.emit("error", {"message": f"Coach unavailable: {e}"})
+                        if "cancelled" in str(e):
+                            log.info("diagnosis cancelled: the learner acted")
+                        else:
+                            log.exception("coach.diagnose failed")
+                            await self.emit("error", {"message": f"Coach unavailable: {e}"})
                         await self._status("watching")
                     return
             if gen != self.step_gen or self.passed:
@@ -680,7 +727,11 @@ class LessonSession:
             diff = full.get("diff") or {}
             first = (diff.get("yours") or "").strip().splitlines()[:1]
             spot = self._locate(re.escape(first[0]), None, full.get("title", "")) if first else None
-            if spot:
+            if spot is None and full.get("targets"):  # the coach pointed at screen boxes (set-of-mark)
+                spot = self._target_spot(full["targets"][0])
+            if getattr(self, "_early_spot", False) and spot is None:
+                pass  # the streamed target spotlight is already up
+            elif spot:
                 self.spot_track = (re.escape(first[0]), None, full.get("title", ""))
                 await self._show_spot(spot)
             else:
@@ -803,8 +854,10 @@ class LessonSession:
         step = self.step
         if step is not None:
             self._acted()
-        if kind == "confirm":  # "Looks done? Confirm"
-            if step is not None and self.confirm_pending and not self.passed:
+        if kind == "confirm":  # "Apply this fix?" preview, or "Looks done? Confirm"
+            if step is not None and self.pending_patch is not None:
+                await self._apply_patch(step)
+            elif step is not None and self.confirm_pending and not self.passed:
                 self.confirm_pending = False
                 await self._pass_step()
             return
@@ -906,6 +959,23 @@ class LessonSession:
         except OSError as e:
             await self.emit("error", {"message": f"Could not open {file}: {e}"})
             return
+        if self.m.has_do_it_for_me():  # E5: a minimal, compiling patch -> preview -> confirm -> apply
+            await self._status("thinking")
+            try:
+                p = await self.m.do_it_for_me(step, path.name, text, self.last_offtrack)
+            except Exception as e:
+                await self._card(step, "Fix it by hand", f"I couldn't make a safe patch: {e}")
+                await self._status("offtrack" if self.last_offtrack else "watching")
+                return
+            if not p.get("new_text"):
+                await self._card(step, "Fix it by hand", p.get("summary") or "No safe patch for this one.")
+                return
+            self.pending_patch = {"path": path, "old": text, "new": p["new_text"], "line": p.get("line") or 1,
+                                  "first": (expected or "").strip().splitlines()[:1]}
+            await self._card(step, "Apply this fix?", p.get("summary") or "Here's the change.", kind="answer",
+                             diff=p.get("unified_diff", ""), actions=["confirm"])
+            await self._status("offtrack" if self.last_offtrack else "watching")
+            return
         new_text = self.m.propose_fix(diff, text)
         if new_text is not None and path.suffix == ".py":
             try:
@@ -931,6 +1001,41 @@ class LessonSession:
         spot = self._locate(re.escape(first), None, "Fixed")
         if spot:
             await self._show_spot(spot)
+        await self._card(step, "Fix applied", "Re-run to check it. Undo if you'd rather type it yourself.",
+                         kind="answer", actions=["undo"])
+        await self.on_file_change([str(path)])
+
+    async def _apply_patch(self, step: dict) -> None:
+        """Confirmed preview: re-check (unsaved edits? file changed since the preview?), back up, write."""
+        from .inputs import dirty_files
+
+        pp, self.pending_patch = self.pending_patch, None
+        path: Path = pp["path"]
+        if path.name in dirty_files(self.last_obs):
+            await self._card(step, f"Save {path.name} first", "Press ⌘S, then Do it for me again.")
+            return
+        try:
+            current = path.read_text()
+        except OSError as e:
+            await self.emit("error", {"message": f"Could not open {path}: {e}"})
+            return
+        if current != pp["old"]:
+            await self._card(step, "The file changed", "You edited it after the preview. Ask again for a fresh fix.")
+            return
+        backup_dir = config.REPO_ROOT / "demo" / "runs" / "backups"
+        try:
+            backup_dir.mkdir(parents=True, exist_ok=True)
+            (backup_dir / f"{path.name}.{int(time.time())}.bak").write_text(current)
+        except OSError:
+            log.warning("could not write a backup of %s", path)
+        self.undo = (path, current)
+        path.write_text(pp["new"])
+        if self.workspace is not None:
+            self.workspace.goto(str(path), int(pp["line"]))
+        if pp["first"]:
+            spot = self._locate(re.escape(pp["first"][0]), None, "Fixed")
+            if spot:
+                await self._show_spot(spot)
         await self._card(step, "Fix applied", "Re-run to check it. Undo if you'd rather type it yourself.",
                          kind="answer", actions=["undo"])
         await self.on_file_change([str(path)])

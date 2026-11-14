@@ -527,7 +527,7 @@ def test_cursor_and_text_under_it_reach_the_coach(tmp_path, monkeypatch):
     rig = Rig(tmp_path, with_inputs=True)
     seen = {}
 
-    async def diagnose(step, failed, metrics, code, error_text="", cursor=None):
+    async def diagnose(step, failed, metrics, code, error_text="", cursor=None, **kw):
         seen["cursor"] = cursor
         return {"stepId": step["id"], "severity": "warn", "title": "t", "body": "b", "actions": ["hint"]}
 
@@ -802,3 +802,66 @@ def test_nan_metrics_reach_the_checks_and_fail_them(tmp_path, monkeypatch):
     assert [p["value"] for p in rig.of("metric")] == [0.5]  # only finite values go to the app
     assert not rig.s.passed and rig.s.step["id"] == "s5"
     assert any(c["status"] == "fail" for c in rig.s.check_state.values())
+
+
+def test_streamed_targets_spotlight_before_the_card(rig):
+    """E5 streams `targets` mid-reply: the spotlight goes up before the offtrack card lands."""
+    async def diagnose(step, failed, metrics, code, on_targets=None, **kw):
+        on_targets([{"boxId": 3, "label": "learning rate", "text": "lr = 0.3",
+                     "rect": {"x": 40, "y": 300, "w": 120, "h": 18}}])
+        await asyncio.sleep(0.01)
+        return {"stepId": step["id"], "severity": "warn", "title": "lr too high", "body": "b", "actions": ["hint"],
+                "targets": [{"boxId": 3, "label": "learning rate", "text": "lr = 0.3",
+                             "rect": {"x": 40, "y": 300, "w": 120, "h": 18}}]}
+
+    rig.s.m.diagnose = diagnose
+
+    async def go():
+        await _to_step(rig, 5)
+        rig.write("lr = 0.3\n")
+        m = rig.mark()
+        await rig.run("r1", PLATEAU)
+        return [e["type"] for e in rig.since(m) if e["type"] in ("spotlight", "offtrack")], rig.of("spotlight")
+
+    order, spots = run(go())
+    assert order[0] == "spotlight" and "offtrack" in order
+    assert spots[-1]["rect"] == {"x": 40.0, "y": 300.0, "w": 120.0, "h": 18.0} and spots[-1]["caption"] == "learning rate"
+    assert rig.of("offtrack")[0]["targets"][0]["text"] == "lr = 0.3"
+
+
+def test_learner_action_cancels_an_in_flight_diagnosis(rig):
+    cancelled = []
+    rig.s.m.cancel_coach = lambda: cancelled.append(1) or 1
+    rig.s.coaching = True
+    run(rig.s.on_file_change([]))
+    assert cancelled == [1]
+
+
+def test_do_it_for_me_previews_then_applies_on_confirm(rig):
+    async def do_it_for_me(step, file, text, last):
+        return {"file": file, "unified_diff": "-lr = 0.3\n+lr = 1e-3\n", "summary": "Lower the learning rate to 1e-3.",
+                "line": 1, "new_text": text.replace("lr = 0.3", "lr = 1e-3"), "requires_confirmation": True}
+
+    rig.s.m.has_do_it_for_me = lambda: True
+    rig.s.m.do_it_for_me = do_it_for_me
+    path = rig.workdir / "pinn_convection.py"
+
+    async def go():
+        await _to_step(rig, 5)
+        rig.write("lr = 0.3\nbeta = 30\n")
+        await rig.run("r1", PLATEAU)
+        await rig.s.action("apply_fix")
+        card = rig.of("card")[-1]
+        assert card["title"] == "Apply this fix?" and card["actions"] == ["confirm"] and "+lr = 1e-3" in card["diff"]
+        assert path.read_text() == "lr = 0.3\nbeta = 30\n"  # nothing written before confirm
+        await rig.s.action("confirm")
+        await rig.settle()
+        assert path.read_text() == "lr = 1e-3\nbeta = 30\n"
+        assert rig.of("card")[-1]["title"] == "Fix applied"
+        # a preview that went stale (learner edited the file) is refused
+        await rig.s.action("apply_fix")
+        rig.write("lr = 1e-3\nbeta = 30\n# edited\n")
+        await rig.s.action("confirm")
+
+    run(go())
+    assert rig.of("card")[-1]["title"] == "The file changed"

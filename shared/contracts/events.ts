@@ -32,6 +32,8 @@ export interface EngineEvents {
     citation?: { label: string; url: string };
     actions: Array<"explain" | "show_me" | "apply_fix" | "hint">;   // apply_fix = "Do it for me" (only at level 3)
     level?: 2 | 3;             // hint ladder: 2 = concept (no fix yet), 3 = exact fix + diff + apply_fix
+    targets?: Array<{ boxId: number; label: string; text: string; rect: { x: number; y: number; w: number; h: number } }>;  // what the coach points at (screen points)
+    guidingQuestion?: string;  // a Socratic nudge to show under the body
   };
   /** Screen-first: rect is in screen POINTS, TOP-LEFT origin (Electron convention), relative to the PRIMARY display's FULL frame (y=0 is the very top, menu bar included). v1 watches the primary display only. Same convention for overlay.bounds. */
   "spotlight": { rect: { x: number; y: number; w: number; h: number }; caption: string; app?: string; matched?: string } | { clear: true };
@@ -41,7 +43,10 @@ export interface EngineEvents {
   "video.pause": {};
   "video.play": {};
   "card": { stepId?: string; kind: "explain" | "hint" | "answer"; title: string; body: string; videoJump?: { t: number; label: string };
-            actions?: Array<"confirm" | "undo" | "apply_fix"> };   // buttons on the card -> send `action {kind}`
+            actions?: Array<"confirm" | "undo" | "apply_fix">;    // buttons on the card -> send `action {kind}`
+            diff?: string;               // unified diff to preview ("Apply this fix?" -> confirm)
+            targets?: Array<{ boxId: number; label: string; text: string; rect: { x: number; y: number; w: number; h: number } }>;
+            guidingQuestion?: string };
   "diagram": {
     kind: "network" | "gradients" | "heatmap";
     caption: string;

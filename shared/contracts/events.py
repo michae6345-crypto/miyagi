@@ -123,6 +123,9 @@ class Offtrack(_Model):
     diff: OfftrackDiff | None = None
     citation: Citation | None = None
     actions: list[OfftrackAction]
+    level: Literal[2, 3] | None = None  # hint ladder: 2 concept, 3 exact fix + Do it for me
+    targets: list[Target] | None = None
+    guidingQuestion: str | None = None
 
 
 class ScreenRect(_Model):
@@ -132,6 +135,13 @@ class ScreenRect(_Model):
     y: float
     w: float
     h: float
+
+
+class Target(_Model):
+    boxId: int | None = None
+    label: str = ""
+    text: str = ""
+    rect: ScreenRect
 
 
 class SpotlightTarget(_Model):
@@ -168,12 +178,19 @@ class VideoJump(_Model):
     label: str
 
 
+CardAction = Literal["confirm", "undo", "apply_fix"]
+
+
 class Card(_Model):
     stepId: str | None = None
     kind: Literal["explain", "hint", "answer"]
     title: str
     body: str
     videoJump: VideoJump | None = None
+    actions: list[CardAction] | None = None  # buttons -> action {kind}
+    diff: str | None = None  # unified diff preview ("Apply this fix?")
+    targets: list[Target] | None = None
+    guidingQuestion: str | None = None
 
 
 class NetworkDiagram(_Model):
