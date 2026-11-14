@@ -235,8 +235,10 @@ async def watch_video(url: str, goal: str, *, fps: float | None = None, context:
     fps = fps if fps is not None else float(os.environ.get("LESSON_GEMINI_FPS", "0.5"))
     prompt = WATCH_PROMPT.format(goal=goal, stack_guide=STACK_GUIDE)
     if start is not None and end is not None:
+        budget = max(1, min(6, round((end - start) / 60 / 3)))
         prompt += (f"\n\nYou are watching ONE PART of a longer video: {_mmss(start)} to {_mmss(end)}. Break only this "
-                   f"part into steps (1-6 of them). Give every timestamp (start, end, explanations) as the time in the FULL "
+                   f"part into at most {budget} step(s): group small related actions (import + load, count + group + sort) "
+                   f"into one step; zero steps if this part is only talk. Give every timestamp (start, end, explanations) as the time in the FULL "
                    f"video, between {_mmss(start)} and {_mmss(end)}. Earlier parts are covered separately: don't add a "
                    f"setup step for things built before {_mmss(start)} unless this part needs them and never shows them.")
     if context:  # title/description/chapters: the video alone never shows the repo/data links

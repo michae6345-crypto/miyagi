@@ -26,6 +26,8 @@ LONG_VIDEO_S = float(os.environ.get("LESSON_LONG_VIDEO_S", 30 * 60))
 FIRST_MIN_S, FIRST_MAX_S = 3 * 60, 6 * 60  # window 1: small, so the first steps arrive fast (Gemini ~40 s on 6 min)
 WINDOW_MIN_S, WINDOW_TARGET_S, WINDOW_MAX_S = 6 * 60, 12 * 60, 15 * 60
 PARALLEL_WINDOWS = int(os.environ.get("LESSON_PARALLEL_WINDOWS", "3"))
+PART_MIN_STEP_S = 45.0  # parts are cut by time, so their steps run short; fold sub-45 s steps into a neighbour
+MINUTES_PER_STEP = 3.0  # step budget per part (a 12-min part gets at most 4 steps)
 
 
 def clip_cap_s(start: float, end: float, first: bool = True) -> float:
@@ -120,7 +122,7 @@ async def _window_draft(url: str, vid: str, goal: str, win: tuple, meta: dict, c
                 gemini.watch_video(url, goal, context=context, start=start, end=end, media_low=True), cap)
             if not (raw.get("steps") or []):  # a talk-only part (intro, outro, theory): nothing to code along with
                 return {"steps": [], "_empty": True, "_engine": "gemini", "_built_by": f"{gemini.last_model} (watched the video)"}
-            d = builder.normalize_draft(_absolutize(raw, start, end))
+            d = builder.normalize_draft(_absolutize(raw, start, end), min_step_s=PART_MIN_STEP_S, min_steps=1)
             d["_engine"], d["_built_by"] = "gemini", f"{gemini.last_model} (watched the video)"
             return d
         except TimeoutError:
@@ -132,7 +134,7 @@ async def _window_draft(url: str, vid: str, goal: str, win: tuple, meta: dict, c
             info = await transcript.fetch_video_info(vid)
             part = dict(info, transcript=[ln for ln in info["transcript"] if start - 5 <= ln["t"] <= end + 5],
                         chapters=[c for c in info.get("chapters") or [] if start <= c["t"] < end])
-            d = builder.normalize_draft(_absolutize(await claude.watch_transcript(part, goal), start, end))
+            d = builder.normalize_draft(_absolutize(await claude.watch_transcript(part, goal), start, end), min_step_s=PART_MIN_STEP_S, min_steps=1)
             d["_engine"], d["_built_by"] = "claude", f"{claude.last_model} (transcript via {info['sources'].get('transcript')})"
             return d
         except (RuntimeError, ValueError) as e:
@@ -187,7 +189,7 @@ async def build(source_url: str, vid: str, goal: str, workdir: str, info, meta: 
             merged = {**ok[0], "steps": [st for h in ok for st in h.get("steps") or []]}
             if not merged["steps"]:
                 return {**ok[0], "steps": [], "_empty": True}
-            return builder.normalize_draft(merged) | {"_engine": ok[0].get("_engine"), "_built_by": ok[0].get("_built_by")}
+            return builder.normalize_draft(merged, min_step_s=PART_MIN_STEP_S, min_steps=1) | {"_engine": ok[0].get("_engine"), "_built_by": ok[0].get("_built_by")}
 
     async def one(i: int) -> tuple[list[dict], dict]:
         d = await draft_for(i)

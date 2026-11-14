@@ -523,7 +523,7 @@ def parse_ts(v) -> float | None:
     return out
 
 
-def normalize_draft(draft: dict) -> dict:
+def normalize_draft(draft: dict, *, min_step_s: float | None = None, min_steps: int = 3) -> dict:
     """Parse timestamps, order steps, remove overlaps, number them 1..N."""
     steps = []
     for s in draft.get("steps") or []:
@@ -541,7 +541,7 @@ def normalize_draft(draft: dict) -> dict:
     for a, b in zip(steps, steps[1:]):
         if a["end"] > b["start"]:
             a["end"] = max(b["start"], a["start"] + 1)
-    steps = merge_micro_steps(steps)
+    steps = merge_micro_steps(steps, MIN_STEP_S if min_step_s is None else min_step_s, min_steps)
     rehome_explanations(steps)
     for i, s in enumerate(steps, 1):
         s["index"] = i

@@ -911,3 +911,16 @@ def test_preflight_meta_and_first_hands_on(fake, monkeypatch):
     p = g["lesson"]["parts"]["list"]
     assert p[0]["status"] == "skipped" and p[0]["end"] == 472 and g["steps"][0]["video"]["start"] >= 472
     assert "Long one" == g["lesson"]["title"]
+
+
+def test_localhost_at_sentence_end_is_left_alone():
+    from server.lesson import links
+    assert links._checkable("open http://127.0.0.1:8000.") == set()
+    assert links._checkable("see https://example.com/real.") == {"https://example.com/real"}
+
+
+def test_parts_merge_short_steps_down_to_one():
+    d = {"steps": [_st(0, 30, "Import pandas"), _st(30, 70, "Load the CSV"), _st(70, 400, "Group and sort")]}
+    out = builder.normalize_draft(d, min_step_s=45, min_steps=1)
+    assert [s["title"] for s in out["steps"]] == ["Load the CSV", "Group and sort"]  # 30 s + 40 s folded into one 70 s step
+    assert out["steps"][0]["instructions"] == "Import pandas Load the CSV"
