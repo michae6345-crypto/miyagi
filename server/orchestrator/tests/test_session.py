@@ -1974,7 +1974,7 @@ def test_just_teach_me_lesson_mode_has_no_video_and_spotlights_where_to_type(tmp
     and each step boxes the exact place to type with the code as the caption's snippet."""
     searched = []
 
-    async def build(goal, workdir, on_update=None):
+    async def build(goal, workdir, on_update=None, **kw):
         g = _text_lesson()
         first = {**g, "steps": g["steps"][:1], "lesson": {**g["lesson"], "complete": False}}
         await on_update(first, False)  # step 1 first: the lesson starts on it
@@ -2010,7 +2010,7 @@ def test_just_teach_me_lesson_mode_has_no_video_and_spotlights_where_to_type(tmp
 
 
 def test_lesson_mode_do_it_for_me_previews_the_step_code_then_applies(tmp_path, monkeypatch):
-    async def build(goal, workdir, on_update=None):
+    async def build(goal, workdir, on_update=None, **kw):
         return _text_lesson()
 
     rig, screen, calls = _lesson_rig(tmp_path, monkeypatch, build)
@@ -2032,7 +2032,7 @@ def test_lesson_mode_do_it_for_me_previews_the_step_code_then_applies(tmp_path, 
 
 
 def test_lesson_mode_build_failure_is_an_error_not_a_video_message(tmp_path, monkeypatch):
-    async def build(goal, workdir, on_update=None):
+    async def build(goal, workdir, on_update=None, **kw):
         raise RuntimeError("lesson.build_text_lesson failed: RuntimeError: Couldn't build this lesson: no Anthropic key")
 
     rig, _, _ = _lesson_rig(tmp_path, monkeypatch, build)
@@ -2237,3 +2237,25 @@ def test_stuck_card_offers_skip_once_after_90s_idle(rig):
     run(go())
     stuck = [c for c in rig.of("card") if c["title"] == "Stuck on this step?"]
     assert len(stuck) == 1 and stuck[0]["actions"] == ["skip_step"]
+
+
+def test_dead_screen_is_reported_once_and_show_me_says_why(tmp_path, monkeypatch):
+    monkeypatch.setenv("TUT_WORKDIR", str(tmp_path))
+    screen = FakeScreen()
+    rig = Rig(tmp_path, screen=screen)
+
+    async def go():
+        await rig.start_lesson()
+        screen.down = "RuntimeError: display returned no image"
+        await rig.s.tick()  # t0: not yet (could be a Space switch)
+        assert not rig.of("error")
+        rig.clock.t += 6
+        await rig.s.tick()
+        await rig.s.tick()
+        await rig.s.action("show_me")
+        await rig.settle()
+
+    run(go())
+    errs = [e["message"] for e in rig.of("error")]
+    assert errs == ["Miyagi can't see your screen right now, so screen checks and Show me are paused."]
+    assert rig.of("card")[-1]["title"] == "I can't see your screen"

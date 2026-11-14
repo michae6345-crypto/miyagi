@@ -296,7 +296,7 @@ class Modules:
             waiter.cancel()
 
     # -- "Just teach me": a lesson with no video (E2's build_text_lesson; Claude only, no Gemini)
-    async def build_text_lesson(self, goal: str, workdir: str, on_update: Any = None) -> dict:
+    async def build_text_lesson(self, goal: str, workdir: str, on_update: Any = None, on_progress: Any = None) -> dict:
         if self.demo:  # DEMO: a cached "lesson" mode lesson, else the fixture without its video
             files = sorted((DEMO_CACHE / "lessons").glob("*.json"), key=lambda p: p.stat().st_mtime, reverse=True) \
                 if (DEMO_CACHE / "lessons").is_dir() else []
@@ -307,6 +307,16 @@ class Modules:
             return await stubs.build_text_lesson(goal, workdir)
         fn = self._real_fn("lesson", "build_text_lesson")
         kwargs = {"on_update": on_update} if fn is not None and on_update is not None and _accepts(fn, "on_update") else {}
+        if fn is not None and on_progress is not None:
+            if _accepts(fn, "on_progress"):
+                kwargs["on_progress"] = on_progress
+            else:  # E2: the text builder reports stages through the same callback slot build_lesson sets
+                try:
+                    from server.lesson import builder as _b
+
+                    _b._progress.set(on_progress)
+                except Exception:  # noqa: BLE001
+                    pass
         timeout = float(os.environ.get("ORCH_BUILD_TIMEOUT_S", "300"))
         try:
             return await asyncio.wait_for(self._run("lesson", "build_text_lesson",

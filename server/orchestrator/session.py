@@ -26,6 +26,7 @@ from __future__ import annotations
 import asyncio
 import contextvars
 import copy
+import hashlib
 import logging
 import math
 import os
@@ -297,6 +298,8 @@ class LessonSession:
         self.video_t: float | None = None  # last position the player reported
         self.video_playing = False
         self.judge: Any = None  # E5's StepJudge (made per lesson in load_graph), None without the coach
+        self._screen_down_since: float | None = None
+        self._screen_notice_sent = False
         self.voice = False
         self.status = "idle"
         self._lock = asyncio.Lock()
@@ -948,7 +951,7 @@ class LessonSession:
             self.build_progress = {"message": "Setting up your project folder", "progress": 0.97}
             await self.emit("lesson.building", self.build_progress)
             first = self._as_text_lesson(g)
-            folder = await asyncio.to_thread(wsmod.prepare, first, goal)  # S2: the lesson's folder + starter files
+            folder = state.get("folder") or await asyncio.to_thread(wsmod.prepare, first, goal)  # S2: folder + starters
             if folder:
                 first["lesson"]["workdir"] = folder
             self.build_progress = None
@@ -963,10 +966,23 @@ class LessonSession:
                 return
             await self._extend_lesson(self._as_text_lesson(g), complete)
 
+        labels = {"planning": "Planning your lesson", "first_steps": "Writing the first step",
+                  "more_steps": "Writing the next steps", "cache_hit": "Loading the saved lesson"}
+
+        def on_progress(stage: str, message: str = "") -> None:  # E2's stage ids
+            if stage in labels and not state["loaded"]:
+                state["text"] = labels[stage]
+
         ok = False
         try:
+            state["text"] = "Setting up your project folder"
+            # S2 first: the builder adapts the steps to the starter files it finds in the lesson folder
+            seed = {"lesson": {"id": "text-" + hashlib.sha1(goal.strip().lower().encode()).hexdigest()[:10],
+                               "title": goal, "goal": goal, "mode": "lesson"}, "steps": [], "sources": []}
+            state["folder"] = await asyncio.to_thread(wsmod.prepare, seed, goal)
             state["text"] = "Planning your lesson"
-            graph = await self.m.build_text_lesson(goal, wsmod.build_workdir("", goal), on_update=on_update)
+            graph = await self.m.build_text_lesson(goal, state["folder"] or wsmod.build_workdir("", goal),
+                                                   on_update=on_update, on_progress=on_progress)
             if state["loaded"]:
                 await self._extend_lesson(self._as_text_lesson(graph), True)
             else:
@@ -1496,6 +1512,7 @@ class LessonSession:
     async def tick(self) -> None:
         """Called ~1/s: idle-after-action, stuck, and typing-deferred speech."""
         step = self.step
+        await self._check_screen_health()
         if step is not None and not self.passed and not self.awaiting_resume:
             self._maybe_judge(step)
             await self._maybe_stuck_card(step)
@@ -1906,6 +1923,10 @@ class LessonSession:
                 await self.emit("video.play", {})
             gen = self.step_gen
             quick = await self._show_where(step)  # exact match / window: instant
+            if not quick and (reason := self.screen_down_reason()):  # say why there's no spotlight
+                await self._emit_card({"stepId": step["id"], "kind": "hint", "title": "I can't see your screen",
+                                       "body": self.screen_down_message(reason)})
+                return
             if quick and self.lesson_mode:
                 return  # the target box + what to type there is the whole answer
             if self.m.has_pointing():  # E5: the diagnosed line, the step's target, else Haiku (<= 3 s)
@@ -2278,6 +2299,37 @@ class LessonSession:
                                "actions": ["skip_step"]}, window_s=2.0)
         await self._status("offtrack" if self.last_offtrack else "watching")
 
+    SCREEN_DOWN_S = 5.0  # a Space switch / screen lock is brief: only a lasting failure is reported
+
+    def screen_down_reason(self) -> str | None:
+        fn = getattr(self.screen, "down_reason", None) if self.screen is not None else None
+        try:
+            return fn() if fn else None
+        except Exception:  # noqa: BLE001
+            return None
+
+    @staticmethod
+    def screen_down_message(reason: str) -> str:
+        if reason == "no_permission":
+            return ("Miyagi can't see your screen: allow Screen Recording for it in System Settings → Privacy & "
+                    "Security, then restart Miyagi.")
+        return "Miyagi can't see your screen right now, so screen checks and Show me are paused."
+
+    async def _check_screen_health(self) -> None:
+        """S1: a dead capture was silent (checks stuck on 'waiting for screen'). Tell the app once."""
+        reason = self.screen_down_reason()
+        if reason is None:
+            if self._screen_notice_sent:
+                log.info("screen reader recovered")
+            self._screen_down_since, self._screen_notice_sent = None, False
+            return
+        if self._screen_down_since is None:
+            self._screen_down_since = self.clock()
+        if not self._screen_notice_sent and self.clock() - self._screen_down_since >= self.SCREEN_DOWN_S:
+            self._screen_notice_sent = True
+            log.warning("screen reader down: %s", reason)
+            await self.emit("error", {"message": self.screen_down_message(reason)})
+
     def _focused_app(self) -> str:
         return str(getattr(self.last_obs, "app", "") or "")
 
@@ -2521,5 +2573,6 @@ class LessonSession:
             "modules": self.m.describe(),
             "precisionMode": self.precision_mode(),
             "screen": bool(self.screen is not None and getattr(self.screen, "active", False)),
+            "screenDown": self.screen_down_reason(),  # S1: E6 status error / no_permission
             "voice": self.voice,
         }
