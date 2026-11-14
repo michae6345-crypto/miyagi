@@ -191,7 +191,10 @@ async def ingest(body: Any = Body(...)) -> dict:
         if isinstance(ev, dict):
             await engine.ingest(ev)
             n += 1
-    return {"ok": True, "accepted": n}
+    st = engine.session.step
+    lesson = (engine.session.graph or {}).get("lesson", {})
+    # E3's `tut run` tags its Tiger run with these
+    return {"ok": True, "accepted": n, "lesson_id": lesson.get("id"), "step_id": st["id"] if st else None}
 
 
 @app.get("/state")

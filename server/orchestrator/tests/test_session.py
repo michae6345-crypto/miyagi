@@ -405,7 +405,23 @@ def test_apply_fix_edits_the_file(rig):
 
     run(go())
     text = (rig.workdir / "pinn_convection.py").read_text()
-    assert "    for beta in [1, 5, 10, 20, 30]:" in text and "beta = 30" not in text
+    assert "    for beta in [1, 5, 10, 20, 30]:  # β curriculum\n        train_stage(model, beta)\n" in text
+    assert "beta = 30" not in text
+
+
+def test_apply_fix_never_writes_code_that_does_not_compile(rig):
+    async def go():
+        await _to_step(rig, 5)
+        rig.write("def train():\n    beta = 30\n    for epoch in range(9):\n        pass\n")
+        await rig.run("r1", PLATEAU)
+        rig.s.last_offtrack["diff"]["expected"] = "for beta in [1, 30]:\n    for epoch in range(3):"
+        rig.s.last_offtrack["diff"]["yours"] = "beta = 30\nfor epoch in range(9):"
+        await rig.s.action("apply_fix")
+        await rig.settle()
+
+    run(go())
+    assert "beta = 30" in (rig.workdir / "pinn_convection.py").read_text()
+    assert rig.of("card")[-1]["title"] == "Fix it by hand"
 
 
 def test_action_without_lesson_is_an_error(rig):
@@ -479,7 +495,7 @@ def test_ws_and_ingest_roundtrip(tmp_path, monkeypatch):
             assert seen.count("search.result") == 3
         r = client.post("/ingest", json=[{"kind": "run_started", "run_id": "x"},
                                           {"kind": "metric", "run_id": "x", "step": 1, "name": "loss", "value": 0.5}])
-        assert r.json() == {"ok": True, "accepted": 2}
+        assert r.json()["ok"] is True and r.json()["accepted"] == 2
         assert client.get("/health").json()["ok"] is True
 
 

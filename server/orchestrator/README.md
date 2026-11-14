@@ -7,7 +7,7 @@ FastAPI app `server.orchestrator.main:app` on **:8787**. It speaks `shared/contr
 
 ```bash
 uv venv --python 3.12 .venv && uv pip install --python .venv/bin/python -e "server[dev]"
-TUT_WORKDIR=/tmp/tut-work .venv/bin/python -m server.orchestrator.main        # engine on :8787
+TUT_WORKDIR=/tmp/tut-work .venv/bin/python -m server.orchestrator.main        # engine on :8787 (ORCH_SCREEN=0 to skip the screen reader)
 .venv/bin/python -m server.orchestrator.client                                  # print events; type `learn pinn`, `build`, `hint`, ...
 .venv/bin/python -m server.orchestrator.client --autopilot --speed 3            # full scripted lesson incl. the β=30 hero loop
 .venv/bin/python -m pytest server/orchestrator -q                               # state-machine tests
@@ -27,6 +27,7 @@ then a β-curriculum run. It only writes `pinn_convection.py` and refuses to ove
 | `TUT_WORKDIR` | lesson's `workdir`, else `demo/pinn` | folder the learner works in (watched for saves) |
 | `DEMO` | 0 | `1` = serve `demo/cache/` files, never call live APIs (falls back to stubs) |
 | `ORCH_STUBS` | (empty) | `all` or `lesson,coach,...` = force stubs even if the real module exists |
+| `ORCH_SCREEN` | 1 | start the whole-screen reader (`server.screen`, macOS + Screen Recording permission). `0` = files + `tut run` only |
 | `ORCH_STRICT` | 0 | `1` = raise on any event that doesn't validate against the contract (tests use this) |
 | `ORCH_IDLE_GATE_S` | 5 | idle seconds before the coach may speak |
 | `ORCH_RECORD` | 1 | record every ingest event to `demo/runs/<run_id>.jsonl` (gitignored) |
@@ -40,25 +41,33 @@ then a β-curriculum run. It only writes `pinn_convection.py` and refuses to ove
 | module | what the orchestrator calls |
 |---|---|
 | lesson | `await build_lesson(source_url, goal, workdir) -> step graph` |
-| checks | `evaluate_step(step, ctx) -> [{checkId, label, status, detail}]`. `ctx` is `context.RunContext` (`workdir`, `last_run`, `exit_code`, `output_tail`, `metrics`, `runs`), or `server.checks.RunContext(**matching fields)` if checks exports one. Only runs started **during the current step** count. |
-| coach | `await diagnose(step, failed_checks, metrics_summary, code_excerpt) -> offtrack payload`; `await explain(step, question, context) -> card`; `hint(step, level) -> card` |
+| checks | `evaluate_gate(step, ctx, screen=lines_by_app, precision_mode=bool) -> {passed, via, checks, precision}`. `ctx` is `server.checks.RunContext(**matching fields)` (workdir, exit_code, output_tail, metrics, command, running, screen), or our `context.RunContext`. Only runs started **during the current step** count; a `tut run` beats the same curve read off the screen. |
+| coach | `set_lesson(graph)`; `await diagnose(step, failed_checks, metrics, code_excerpt, error_text=tail)` → `public(card)` → `offtrack`; `await explain(step, question, context)` → `card`; `hint(step, level, last_offtrack)` → `card`; `apply_fix(diff, file_text)["new_text"]` (written only on the learner's `apply_fix`, and only if it compiles) |
+| screen | `get_reader()`: `start`, `subscribe(on_obs)` → re-evaluate, `locate_match(match, app)` → `spotlight{rect}`, `watch_metrics(lesson_id, {metric: metric_pattern})` → metrics, `set_overlay_bounds` ← `overlay.bounds` |
 | finder | `await search(query) -> [search.result payload + "url"]` (the `url` is what `build_lesson` gets) |
 | diagrams | `await build(kind, step=step, ctx=ctx) -> diagram payload` (`kind` is network, gradients or heatmap) |
 
 Sync and async functions both work, and dicts, dataclasses or pydantic models are all accepted as return values.
 
-## The state machine (`session.py`)
+## The state machine (`session.py`), screen-first
+
+**Two routes to green** (see `step-graph.schema.json`): a step's `checks` are screen-gradable (`screen_contains`, `screen_absent`, and `metric_*` with a
+`metric_pattern` read off the terminal). In **precision mode** (the workdir exists on disk, or a `tut run` happened this step) the step also passes when all
+of its `precision_checks` (file_*, command_exit_ok, ::metric::) pass. The checklist the app sees is `checks`, mirrored green when the other route passes. With
+no screen reader running it's the `precision_checks`, since screen checks could never move. Spotlights are screen rects from `locate_match`; with no
+screen, nothing is spotlighted.
+
 
 - `learn` → `search.result`* → `search.done`. `build_lesson` / `learn_url` → `lesson.building`* → `lesson.ready` → step 0.
 - **Step start:** `step.started`, `check.updated(pending)` per check, `video.seek{start, play:true}` + `video.play`, `status watching`.
 - **Segment end** (`video.state` reaches `step.video.end`; if the player never reports, a wall-clock timer does it): pass right away if the checks
   already pass, otherwise `video.pause` + `spotlight` on the step's first target.
-- **Evaluate** on file save (polling watcher on the workdir), on `run_ended`, and every 0.5 s during a run that is sending metrics. Only *changes* emit `check.updated`.
+- **Evaluate** on every new screen frame (the reader only fires when the screen changed), on file save (polling watcher on the workdir), on `run_ended`, and every 0.5 s while metrics stream in (from `tut run` or OCR'd terminal lines). Only *changes* emit `check.updated`.
   All checks pass (and the learner did something, or the segment ended) → `step.passed{stepId, nextStepId}`, `spotlight{clear}`, then 0.4 s later the next step's
   `step.started` + `video.seek` + `video.play`. On the last step: `step.passed{stepId}` + `video.play`.
 - **Don't-nag gate.** A failing check is shown as `pending` until the gate opens. It opens on a run ending with failures, on 2 consecutive failing
   evaluations, or after 5 s idle once the learner has engaged with the step. Then the engine sends `status thinking` → `coach.diagnose` → `offtrack` + `spotlight`
-  (on `diff.file:line` if given, else the step target) + `status offtrack`. The same failure set on the same run is coached only once.
+  (on the screen rect of `diff.yours` if visible, else the step target) + `status offtrack`. Screen frames count as learner activity only after the step's clip ends. The same failure set on the same run is coached only once.
 - **Actions:**
   - `back` seeks to the start of the step (`text:"prev"` goes back a step).
   - `show_me` replays the clip and turns the spotlight on.
@@ -71,8 +80,11 @@ Sync and async functions both work, and dicts, dataclasses or pydantic models ar
 
 ## HTTP
 
+Also handled on the socket: `overlay.bounds` → screen reader (OCR ignores our own UI); `config.keys` → used over `.env` (process env, never logged) and answered
+with `config.status` (`ok`/`env`/`missing`, never the keys).
+
 `POST /ingest` takes one event, a list of events, or `{"events":[...]}` in the engine-internal.md shapes. A `metric` event can also carry
-`"metrics":[{step,name,value},...]`. Debug routes: `GET /state`, `GET /events?since=N`, `POST /debug/pass`, `POST /debug/goto/{i}`, `POST /debug/lesson`.
+`"metrics":[{step,name,value},...]`. The reply carries `{lesson_id, step_id}` so `tut run` can tag its Tiger run. Debug routes: `GET /state`, `GET /events?since=N`, `POST /debug/pass`, `POST /debug/goto/{i}`, `POST /debug/lesson`.
 
 ## DEMO=1 cache layout (read from `demo/cache/`; any missing file falls back to the stub)
 

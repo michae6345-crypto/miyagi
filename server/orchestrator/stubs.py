@@ -217,7 +217,7 @@ PINN_CITATION = {
     "label": "Krishnapriyan et al., NeurIPS 2021",
     "url": "https://arxiv.org/abs/2109.01050",
 }
-CURRICULUM_LINE = "for beta in [1, 5, 10, 20, 30]:  # β curriculum"
+CURRICULUM_LINE = "for beta in [1, 5, 10, 20, 30]:  # β curriculum\n    train_stage(model, beta)"
 
 
 def _find_line(code: str, pattern: str) -> tuple[int, str] | None:

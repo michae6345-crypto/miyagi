@@ -715,6 +715,12 @@ class LessonSession:
             await self.emit("error", {"message": f"Could not open {file}: {e}"})
             return
         new_text = self.m.propose_fix(diff, text)
+        if new_text is not None and path.suffix == ".py":
+            try:
+                compile(new_text, str(path), "exec")
+            except SyntaxError:
+                log.warning("proposed fix for %s does not compile; asking the learner to do it", path.name)
+                new_text = None
         if new_text is None or new_text == text:
             await self.emit("card", {"stepId": step["id"], "kind": "hint", "title": "Fix it by hand",
                                      "body": f"Replace `{yours.strip()}` with `{expected.strip()}`."})
