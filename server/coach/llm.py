@@ -1,7 +1,7 @@
 """Thin wrapper over the Anthropic SDK: structured JSON out, prompt caching,
 record/replay fixtures so tests and the demo never need the network.
 
-Env:
+Env (loaded from ./.env, then the shared main-checkout .env or $TUT_ENV):
   ANTHROPIC_API_KEY        normal SDK credential (loaded from .env if present)
   COACH_REPLAY_DIR         read responses from fixtures instead of calling the API
   COACH_RECORD_DIR         write every live response to a fixture file
@@ -43,13 +43,20 @@ class CallResult:
 _client = None
 
 
+SHARED_ENV = "/Users/tripi/sand hacks/sandhacks-tutor/.env"  # main checkout; worktrees have none
+
+
 def _load_env() -> None:
+    """Local .env first, then the shared one (TUT_ENV overrides its path). Never overrides set vars."""
     try:
         from dotenv import find_dotenv, load_dotenv
-
-        load_dotenv(find_dotenv(usecwd=True))
     except ImportError:  # pragma: no cover - dotenv is optional at runtime
         return
+    if local := find_dotenv(usecwd=True):
+        load_dotenv(local)
+    shared = os.environ.get("TUT_ENV", SHARED_ENV)
+    if os.path.isfile(shared):
+        load_dotenv(shared)
 
 
 def get_client():
