@@ -156,3 +156,74 @@ def test_cursor_missing_offers_the_cask(monkeypatch):
 
 def test_ax_trusted_is_a_bool():
     assert isinstance(E.ax_trusted(), bool)
+
+
+# --------------------------------------------------------------------------- "Just teach me": full screen
+
+def test_fullscreen_without_accessibility_says_so(tmp_path):
+    calls, run = opener(tmp_path)
+    rep = E.open_editor_report(tmp_path, "main.py", runner=run, editor=CURSOR, trusted=lambda: False, previous=None, fullscreen=True)
+    assert rep["opened"] and rep["frontmost"] and calls[1] == ["open", "-a", "Cursor"]
+    assert rep["fullscreen"].startswith("skipped: Accessibility not granted") and rep["arrange"].startswith("off")
+
+
+def test_fullscreen_with_accessibility(tmp_path, monkeypatch):
+    seen = {}
+    monkeypatch.setattr(E, "make_fullscreen", lambda ed, rep: seen.update(ed=ed["id"]) or rep.update(fullscreen="done"))
+    monkeypatch.setattr(E, "arrange", lambda *a, **k: pytest.fail("no left-60% layout in full-screen mode"))
+    _, run = opener(tmp_path)
+    rep = E.open_editor_report(tmp_path, runner=run, editor=VSCODE, trusted=lambda: True, previous={"pid": 1, "name": "Safari"},
+                               fullscreen=True, wait=True)
+    assert seen == {"ed": "vscode"} and rep["fullscreen"] == "done"
+
+
+def test_make_fullscreen_sets_axfullscreen(monkeypatch):
+    class AXF(FakeAX):
+        def enter_fullscreen(self, w):
+            self.log.append(("enter_fs", w))
+            return True
+    monkeypatch.setattr(E, "find_pid", lambda name: 222)
+    ax, rep = AXF(fullscreen_editor=False), {}
+    E.make_fullscreen(CURSOR, rep, ax=ax, sleep=lambda s: None)
+    assert ax.log == [("enter_fs", "ed")] and rep["fullscreen"] == "done"
+    ax2, rep2 = AXF(fullscreen_editor=True), {}
+    E.make_fullscreen(CURSOR, rep2, ax=ax2, sleep=lambda s: None)
+    assert ax2.log == [] and rep2["fullscreen"].startswith("done (already")
+
+
+# --------------------------------------------------------------------------- editor_line_rect
+
+def snap(tmp_path, **kw):
+    f = tmp_path / "main.py"
+    f.write_text("a\nb\nc\nd\ne\n")
+    base = {"document": f"file://{f}", "caret_line": 3, "line_rect": {"x": 300.0, "y": 400.0, "w": 600.0, "h": 18.0},
+            "line_height": 18.0, "window": {"x": 0.0, "y": 33.0, "w": 1728.0, "h": 1000.0}}
+    base.update(kw)
+    return f, (lambda: base)
+
+
+def test_line_rect_from_caret_anchor(tmp_path):
+    f, s = snap(tmp_path)
+    assert E.editor_line_rect(f, 3, snapshot=s) == {"x": 300.0, "y": 400.0, "w": 600.0, "h": 18.0, "line": 3, "source": "ax"}
+    assert E.editor_line_rect(f, 5, snapshot=s)["y"] == 436.0 and E.editor_line_rect(f, 1, snapshot=s)["y"] == 364.0
+
+
+def test_line_rect_none_cases(tmp_path):
+    f, s = snap(tmp_path)
+    assert E.editor_line_rect(tmp_path / "other.py", 3, snapshot=s) is None          # another file in front
+    assert E.editor_line_rect(f, 400, snapshot=s) is None                            # scrolled out of the window
+    _, off = snap(tmp_path, line_rect=None, line_height=None)
+    assert E.editor_line_rect(f, 3, snapshot=off) is None                            # caret off-screen
+    assert E.editor_line_rect(f, 3, snapshot=lambda: None) is None                   # no Accessibility / no editor
+
+
+def test_line_rect_without_accessibility_is_none(tmp_path, monkeypatch):
+    monkeypatch.setattr(E, "ax_trusted", lambda: False)
+    assert E.editor_line_rect(tmp_path / "main.py", 1) is None
+
+
+def test_page_start_for_big_files(tmp_path):
+    f = tmp_path / "big.py"
+    f.write_text("\n".join(f"line {i}" for i in range(1, 1201)))
+    assert E._page_start("line 501\nline 502\nline 503", f) == 501
+    assert E._page_start("x", tmp_path / "missing.py") == 1
