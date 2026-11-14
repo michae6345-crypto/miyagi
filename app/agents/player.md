@@ -19,7 +19,7 @@
 - **Passed beat copy:** `copy.passed`, "Good. Now the next one." (green check, no flash).
 - **Header:** `<MiyagiMark size={14} />` on the left, status dot on the right, like the notch pill. No sparkles, glows, gradients or emoji; no inline `rgba`/hex left in the player (white alphas are Tailwind classes, the rest are tokens). The playhead lost its drop shadow.
 - **Electron window background** is derived from `color.glass` (made opaque: `rgb(28,28,30)`), not a hard-coded hex.
-- Screenshots: `player-brand-stage.png` (whole stage, step 4 just passed, the real video playing), `player-brand-waiting.png` (step 7 held at 18:40, gray "Your turn"), `player-brand-offtrack.png` (step 6, amber), `player-brand-passed.png` (the 400ms beat, staged). The close-ups hide the spotlight dim. The pre-brand `player-*.png` shots are kept for comparison.
+- Screenshots: `player-brand-stage.png` (whole stage, step 4 just passed, the real video playing), `player-brand-waiting.png` (step 7 held at 18:40, gray "Your turn"), `player-brand-offtrack.png` (step 6, amber), `player-brand-passed.png` (the 400ms beat, staged). The close-ups hide the spotlight dim. (The `player-*.png` shots were re-shot in pass 2.)
 
 ### Pass 2: long videos built part by part (functional)
 - **Chapters grow:** `lesson.updated` replaces `steps` (ids stable, new ones appended). Rows are keyed by step id inside `AnimatePresence initial={false}`, so only new rows fade in; checked in the stage that the existing rows keep their DOM nodes across both updates. While `lesson.complete === false` a quiet last row reads **"More steps coming"** (gray spinner, "2 of 3 parts" when the engine sends `parts`); it fades out when the lesson completes. The current row is kept in view (the list scrolls, never the page).
