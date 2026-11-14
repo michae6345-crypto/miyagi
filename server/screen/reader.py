@@ -9,8 +9,8 @@ import os
 import sys
 import threading
 import time
+from collections.abc import Callable
 from pathlib import Path
-from typing import Callable
 
 from . import match as M
 from .describe import Describer, to_jpeg
@@ -27,7 +27,7 @@ def _load_env() -> None:
     try:
         from dotenv import load_dotenv
         load_dotenv(os.environ.get("TUT_ENV", "/Users/tripi/sand hacks/sandhacks-tutor/.env"), override=False)
-    except Exception:  # noqa: BLE001
+    except Exception:  # noqa: BLE001, S110  (env is optional)
         pass
 
 
@@ -65,7 +65,7 @@ class ScreenReader:
 
     # ------------------------------------------------------------------ lifecycle
 
-    def start(self) -> "ScreenReader":
+    def start(self) -> ScreenReader:
         if self._thread and self._thread.is_alive():
             return self
         self._stop.clear()
@@ -89,7 +89,7 @@ class ScreenReader:
             t0 = time.time()
             try:
                 self.observe_now(force=False)
-            except Exception:  # noqa: BLE001
+            except Exception:
                 log.exception("screen capture/OCR failed")
             self._wake.wait(max(0.05, self.interval - (time.time() - t0)))
             self._wake.clear()
@@ -217,7 +217,7 @@ class ScreenReader:
         for r in readers:
             try:
                 r.feed(obs)
-            except Exception:  # noqa: BLE001
+            except Exception:
                 log.exception("metric reader failed")
         for cb, loop in subs:
             try:
@@ -228,7 +228,7 @@ class ScreenReader:
                         loop.call_soon_threadsafe(cb, obs)
                 else:
                     cb(obs)
-            except Exception:  # noqa: BLE001
+            except Exception:
                 log.exception("screen subscriber failed")
         return obs
 
@@ -329,4 +329,4 @@ def get_reader() -> ScreenReader:
     return _READER
 
 
-__all__ = ["ScreenReader", "get_reader", "observe_image", "load_fixture", "Block", "Window", "Rect"]
+__all__ = ["Block", "Rect", "ScreenReader", "Window", "get_reader", "load_fixture", "observe_image"]

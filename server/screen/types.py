@@ -34,30 +34,30 @@ class Rect:
     def contains_point(self, px: float, py: float) -> bool:
         return self.x <= px <= self.x2 and self.y <= py <= self.y2
 
-    def contains(self, other: "Rect") -> bool:
+    def contains(self, other: Rect) -> bool:
         """True if `other`'s centre lies inside this rect (good enough for OCR boxes)."""
         return self.contains_point(other.cx, other.cy)
 
-    def union(self, other: "Rect") -> "Rect":
+    def union(self, other: Rect) -> Rect:
         x, y = min(self.x, other.x), min(self.y, other.y)
         return Rect(x, y, max(self.x2, other.x2) - x, max(self.y2, other.y2) - y)
 
-    def pad(self, p: float) -> "Rect":
+    def pad(self, p: float) -> Rect:
         return Rect(self.x - p, self.y - p, self.w + 2 * p, self.h + 2 * p)
 
-    def clamp(self, bounds: "Rect") -> "Rect":
+    def clamp(self, bounds: Rect) -> Rect:
         x, y = max(self.x, bounds.x), max(self.y, bounds.y)
         x2, y2 = min(self.x2, bounds.x2), min(self.y2, bounds.y2)
         return Rect(x, y, max(0.0, x2 - x), max(0.0, y2 - y))
 
-    def rounded(self) -> "Rect":
+    def rounded(self) -> Rect:
         return Rect(round(self.x, 1), round(self.y, 1), round(self.w, 1), round(self.h, 1))
 
     def to_dict(self) -> dict:
         return {"x": round(self.x, 1), "y": round(self.y, 1), "w": round(self.w, 1), "h": round(self.h, 1)}
 
     @staticmethod
-    def from_any(r) -> "Rect":
+    def from_any(r) -> Rect:
         if isinstance(r, Rect):
             return r
         if isinstance(r, dict):
@@ -121,4 +121,4 @@ class ScreenObservation:
         return d
 
 
-__all__ = ["Rect", "Window", "Block", "ScreenObservation", "asdict"]
+__all__ = ["Block", "Rect", "ScreenObservation", "Window", "asdict"]

@@ -26,5 +26,15 @@ def observe_image(path: str, overlay=None):
     return _o(path, overlay)
 
 
-__all__ = ["get_reader", "observe_image", "locate", "locate_match", "screen_contains", "LocateResult",
-           "Block", "Rect", "ScreenObservation", "Window"]
+__all__ = [
+    "Block",
+    "LocateResult",
+    "Rect",
+    "ScreenObservation",
+    "Window",
+    "get_reader",
+    "locate",
+    "locate_match",
+    "observe_image",
+    "screen_contains",
+]

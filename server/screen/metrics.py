@@ -12,8 +12,8 @@ import os
 import re
 import threading
 import time
+from collections.abc import Callable
 from dataclasses import dataclass, field
-from typing import Callable
 
 from rapidfuzz import fuzz
 
@@ -58,7 +58,7 @@ class TerminalMetricReader:
     """
 
     def __init__(self, lesson_id: str, patterns: dict[str, str], callback: MetricCallback | None = None,
-                 app: str | None = None, tiger: "TigerWriter | None" = None,
+                 app: str | None = None, tiger: TigerWriter | None = None,
                  on_restart: Callable[[str], None] | None = None):
         self.lesson_id = lesson_id
         self.app = app
@@ -191,7 +191,15 @@ class TigerWriter:
 
     @property
     def enabled(self) -> bool:
-        return bool(self.url) and self._failures < 5
+        return self._valid_url() and self._failures < 5
+
+    def _valid_url(self) -> bool:
+        from urllib.parse import urlparse
+        try:
+            host = urlparse(self.url).hostname or ""
+        except ValueError:
+            return False
+        return bool(host) and "..." not in self.url and not host.strip(".") == ""
 
     def _connect(self):
         import psycopg

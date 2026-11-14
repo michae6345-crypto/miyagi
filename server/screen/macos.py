@@ -41,14 +41,14 @@ class Frame:
 def has_permission() -> bool:
     try:
         return bool(Quartz.CGPreflightScreenCaptureAccess())
-    except Exception:  # very old macOS: just try capturing
+    except Exception:  # noqa: BLE001  (very old macOS: just try capturing)
         return True
 
 
 def request_permission() -> bool:
     try:
         return bool(Quartz.CGRequestScreenCaptureAccess())
-    except Exception:
+    except Exception:  # noqa: BLE001
         return False
 
 
@@ -104,7 +104,7 @@ def frontmost_app(windows: list[Window] | None = None) -> str:
         from AppKit import NSWorkspace
         app = NSWorkspace.sharedWorkspace().frontmostApplication()
         return str(app.localizedName()) if app else ""
-    except Exception:
+    except Exception:  # noqa: BLE001
         return ""
 
 

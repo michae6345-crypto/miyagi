@@ -173,11 +173,11 @@ def line_score(needle: str, hay: str, rx: re.Pattern | None = None) -> float:
 _GUTTER = re.compile(r"^\d{1,5}(?=\D)")  # editor line number glued to the code
 
 
-def _is_gutter(ln: "Line") -> bool:
+def _is_gutter(ln: Line) -> bool:
     return ln.text.strip().isdigit()
 
 
-def _rect_without_gutter(ln: "Line") -> Rect:
+def _rect_without_gutter(ln: Line) -> Rect:
     bs = ln.blocks
     if len(bs) > 1 and bs[0].text.strip().isdigit():
         bs = bs[1:]
@@ -292,6 +292,7 @@ def screen_contains(obs: ScreenObservation, pattern: str, app: str | None = None
             return True
     except re.error:
         rx = None
-    if rx is None or not _REGEX_HINT.search(pattern):
-        return any(line_score(pattern, ln.text) >= fuzzy for ln in group_lines(obs.blocks_in(app)))
-    return False
+    # literal fallback: a pattern with regex characters (`u_t+beta*u_x`) may be meant literally;
+    # those must match exactly (modulo whitespace), plain text may fuzzy-match.
+    need = 100.0 if _REGEX_HINT.search(pattern) else fuzzy
+    return any(line_score(pattern, ln.text) >= need for ln in group_lines(obs.blocks_in(app)))
