@@ -36,7 +36,11 @@ export const setLauncherOpen = (open: boolean): void => {
   if (get().open !== open) set({ open })
 }
 
-onUi('reset', () => set({ ...blank }))
+// A lesson-only reset (engine `lesson.ended`) must not wipe a search the learner is typing.
+onUi('reset', (p) => {
+  if ((p as { scope?: string } | undefined)?.scope === 'lesson') return
+  set({ ...blank })
+})
 
 onMessage('search.result', (payload) => {
   const p = payload as SearchResult

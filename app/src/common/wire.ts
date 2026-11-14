@@ -27,6 +27,7 @@ const KNOWN = new Set<string>([
   'search.done',
   'lesson.building',
   'lesson.ready',
+  'lesson.ended',
   'step.started',
   'check.updated',
   'step.passed',

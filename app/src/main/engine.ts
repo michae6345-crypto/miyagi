@@ -66,6 +66,8 @@ export class EngineLink {
     this.ws = ws
     ws.on('open', () => {
       this.retry = 500
+      // The engine sends a full snapshot on every connect: forget what the old connection said.
+      this.log.length = 0
       this.setConnected(true)
       for (const fn of this.openHooks) fn()
       if (this.lastBounds) ws.send(JSON.stringify(this.lastBounds))
@@ -87,6 +89,8 @@ export class EngineLink {
 
   private dispatch(e: Incoming): void {
     if (e.type === 'lesson.ready') this.log.splice(0, this.log.length, ...this.log.filter((x) => x.type.startsWith('search')))
+    // An ended lesson must not be replayed into a window that (re)loads: keep only the search rows.
+    if (e.type === 'lesson.ended') this.log.splice(0, this.log.length, ...this.log.filter((x) => x.type.startsWith('search')))
     this.log.push(e)
     for (const l of this.listeners) l(e)
   }

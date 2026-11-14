@@ -9,7 +9,7 @@ import { useShallow } from 'zustand/react/shallow'
 import type { CheckStatus, Source, StepSummary, VideoSegment } from '../../../../../shared/contracts/events'
 import type { ConfigStatus, Payload } from '../../../common/wire'
 import { bridge } from '../bridge'
-import { onMessage, onUi } from './bus'
+import { emitUi, onMessage, onUi } from './bus'
 
 export type CheckItem = { id: string; label: string; status: CheckStatus; detail?: string }
 export type Status = 'watching' | 'offtrack' | 'passed'
@@ -82,9 +82,22 @@ const get = useLesson.getState
 
 /** Called by the launcher when "Build lesson" fires (before the engine answers). */
 export const startBuild = (): void => set({ building: true })
-export const setConnected = (connected: boolean): void => set({ connected })
+export const setConnected = (connected: boolean): void => {
+  // (Re)connected: the engine's snapshot is the truth (after an engine restart it's just "idle"),
+  // so drop the lesson this window was showing before the snapshot refills it.
+  if (connected && !get().connected) emitUi('reset', { scope: 'lesson', reason: 'reconnect' })
+  set({ connected })
+}
 
 onUi('reset', () => set({ ...blank }))
+
+/**
+ * The engine ended the lesson (end_lesson, a new learn, POST /end): blank every lesson-side store.
+ * scope "lesson" tells the launcher to keep its query and results (a new search may be in flight).
+ */
+onMessage('lesson.ended', (p) => {
+  emitUi('reset', { scope: 'lesson', reason: p.reason })
+})
 
 onMessage('lesson.building', (p) =>
   // failed: the build ended in error (an `error` + status idle follow): drop the building UI.
