@@ -26,8 +26,8 @@ A **pure function**: no network, no DB, no model calls. It never raises: a malfo
 
 | type | pass | fail | pending |
 |---|---|---|---|
-| `screen_contains` | regex found in the OCR text (scoped to `app` windows if given; also tried with whitespace collapsed, so it survives OCR line wraps) | not seen | no observation, or `app` not on screen |
-| `screen_absent` | regex not in the (scoped) OCR text | still showing (detail quotes it) | no observation, or `app` not on screen |
+| `screen_contains` | regex found in the OCR text (scoped to `app` windows if given; also tried with whitespace collapsed, so it survives OCR line wraps) | not seen; or `app` not on screen once the segment is over (detail: "open Terminal so I can check: …") | no screen reading at all, or `app` not on screen while the segment still plays |
+| `screen_absent` | regex not in the (scoped) OCR text; or `app`/screen not visible once the segment is over (a hidden Terminal can't show a Traceback) | still showing (detail quotes it); only ever when the pattern is actually seen | `app`/screen not visible while the segment still plays |
 | `file_exists` | file present | missing | – |
 | `file_contains` | regex (MULTILINE) found; detail gives `file:line` | file missing / no match / bad regex | – |
 | `command_exit_ok` | the last run of the same script exited 0 | exited ≠ 0 | no run yet, still running, or the last run was a different script (flags may differ) |
@@ -37,6 +37,12 @@ A **pure function**: no network, no DB, no model calls. It never raises: a malfo
 | `visual` | `ctx.visual[id].pass` | `ctx.visual[id]` is false | no verdict supplied (the orchestrator calls the vision model) |
 
 ### Screen-first details (`screen.py`)
+- **Hidden apps never leave a check pending forever.** `RunContext.segment_done` (True once the step's video segment
+  has played; `None` = unknown, treated as done) decides: after the segment, `screen_absent` on a hidden app passes,
+  `screen_contains` on a hidden app fails with "open <app> so I can check: <label>", and a screen-read metric
+  (`metric_pattern` + `app`) whose app is hidden fails with "open <app> so I can read <metric>". A fail is what lets
+  the orchestrator's idle/stuck help fire; `pending` never does. With no screen reading at all, `screen_contains`
+  stays pending (not the learner's fault). Orchestrator wiring: pass `segment_done=session.segment_done` in the context.
 - Accepts a ScreenObservation `{t, app, windows[{app,title,rect}], blocks[{text,rect,confidence,app?}]}` or `{app: [lines]|text}`.
   A block belongs to the frontmost window (first in `windows`) that contains its centre. Rects can be `{x,y,w,h}`/`{x,y,width,height}`/`[x,y,w,h]`.
   `app` matching is a case-insensitive substring. Blocks with confidence < 0.3 are dropped.
