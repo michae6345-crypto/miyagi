@@ -69,8 +69,8 @@ def hint(step: dict, level: int, last_offtrack: dict | None = None) -> dict:
             cit = {"label": paper["title"], "url": paper["url"]} if paper else None
         if not cit:
             return hint(step, 3, last)
-        body = PAPER_NOTES.get(mode.id, mode.fix) if mode else "The source behind this step explains the idea in more depth."
-        return _card(step, 2, "What the paper says", body, citation={"label": cit["label"], "url": cit["url"]})
+        body = PAPER_NOTES.get(mode.id, mode.fix) if mode else "The linked source explains this in more depth."
+        return _card(step, 2, "What the source says", body, citation={"label": cit["label"], "url": cit["url"]})
 
     diff = last.get("diff")
     if not diff and mode and mode.diff_expected:

@@ -9,7 +9,7 @@ from types import SimpleNamespace
 import pytest
 
 from server import coach
-from server.coach import common, llm, outdated
+from server.coach import common, llm, web
 from server.coach.demo_case import CODE, FAILED_CHECKS, LESSON, METRICS, STEP
 from server.coach.diagnose import LAST
 from server.coach.metrics import series_flags, summarize
@@ -275,30 +275,6 @@ def test_fix_outdated_without_brightdata_returns_none():
     assert run(coach.fix_outdated("TypeError: foo() got an unexpected keyword argument 'bar'", ["torch"])) is None
 
 
-def test_fix_outdated_brightdata_flow(monkeypatch):
-    monkeypatch.setattr(outdated, "_bd_config", lambda: ("k", "serp", "unlock"))
-    calls = []
-
-    async def fake_bd(client, key, zone, url):
-        calls.append((zone, url))
-        if zone == "serp":
-            return json.dumps({"organic": [
-                {"link": "https://spam.example.com/fix"},
-                {"link": "https://pytorch.org/docs/stable/generated/torch.optim.lr_scheduler.ReduceLROnPlateau.html"},
-            ]})
-        return "<html><body><p>Deprecated since 2.2: the verbose parameter.</p></body></html>"
-
-    monkeypatch.setattr(outdated, "_bd_request", fake_bd)
-    monkeypatch.setattr(llm, "structured_call", _fake_call({
-        "found": True, "title": "verbose was removed from ReduceLROnPlateau", "body": "PyTorch 2.2 deprecated it. Drop the argument.",
-        "yours": "ReduceLROnPlateau(opt, verbose=True)", "expected": "ReduceLROnPlateau(opt)", "source_index": 0,
-    }))
-    r = run(coach.fix_outdated("TypeError: ReduceLROnPlateau.__init__() got an unexpected keyword argument 'verbose'", {"torch": "2.0"}))
-    assert calls[0][0] == "serp" and "site%3Apytorch.org" in calls[0][1]
-    assert [z for z, _ in calls[1:]] == ["unlock"]  # spam domain filtered out
-    assert r["citation"]["url"].startswith("https://pytorch.org/") and r["diff"]["expected"] == "ReduceLROnPlateau(opt)"
-
-
 E4_SRC = '''import torch
 
 def train(model, steps=4000):
@@ -334,3 +310,93 @@ def test_apply_fix_refuses_uncompilable_or_unanchored():
     assert r["new_text"] is None and "not found" in r["error"]
     r = coach.apply_fix({"file": "pinn.py", "yours": "", "expected": "beta = 1"}, E4_SRC)
     assert r["new_text"] is None
+
+
+# ---------- GENERALITY RULE: non-ML cases, web-grounded ----------------------------------
+
+from server.coach.tests import generic_cases as g
+
+
+@pytest.fixture
+def fake_web(monkeypatch):
+    """Stand-in for Bright Data (SERP + Unlocker) with short excerpts of the real pages."""
+    g.fake_fetch_log().clear()
+    monkeypatch.setattr(web, "fetch", g.fake_fetch)
+    monkeypatch.setattr(web, "configured", lambda: True)
+    return g.fake_fetch_log()
+
+
+@pytest.mark.parametrize(
+    "error,code,libs,command,expected",
+    [
+        ("AttributeError: module 'numpy' has no attribute 'float'", "", None, "", ("numpy", "numpy.float")),
+        (g.PANDAS_ERROR, g.PANDAS_CODE, g.PANDAS_LIBS, "", ("pandas", "Series.iteritems")),
+        (g.REACT_ERROR, g.REACT_CODE, {"react": "18"}, "npm run lint", ("react", "useEffect")),
+        ("Warning: ReactDOM.render is no longer supported in React 18.", "", None, "", ("react-dom", "ReactDOM.render")),
+        ("Error: Cannot find module 'express'", "", None, "node server.js", ("express", "express")),
+        ("npm ERR! code ERESOLVE", "", None, "npm install", ("npm", "")),
+    ],
+)
+def test_detect_library_from_any_error(error, code, libs, command, expected):
+    assert web.detect(error, code, libs, command) == expected
+
+
+def test_react_hooks_error_is_grounded_in_official_docs(fake_web, replay):
+    """Recorded live run: Haiku triage → Opus, grounded in react.dev fetched via the web layer."""
+    common.set_lesson(g.REACT_LESSON)
+    card = run(coach.diagnose(g.REACT_STEP, g.REACT_FAILED, None, g.REACT_CODE, error_text=g.REACT_ERROR))
+    assert_offtrack(card)
+    assert card["severity"] == "fail" and card["_meta"]["route"] == "opus" and card["_meta"]["triage"]["by"] == "haiku"
+    assert card["citation"]["url"] == "https://react.dev/reference/rules/rules-of-hooks"
+    assert "useEffect" in card["title"] + card["body"]
+    serp = [u for k, u in fake_web if k == "serp"]
+    assert any("site%3Areact.dev" in u for u in serp) and any("site%3Astackoverflow.com" in u for u in serp)
+    assert ("unlock", "https://react.dev/reference/rules/rules-of-hooks") in fake_web
+    assert not any("example-blog.com" in u for _, u in fake_web)  # non-official SERP hit filtered out
+    patch = coach.apply_fix(card["diff"], g.REACT_CODE)
+    assert patch["error"] is None and "if (enabled) {" not in patch["new_text"]
+    assert "useEffect(() => {\n    if (!enabled) return;" in patch["new_text"]
+
+
+def test_deprecated_pandas_api_fix_from_web(fake_web, replay):
+    """Recorded live run: pandas 2.0 removed Series.iteritems; fix cites the official release notes."""
+    fix = run(coach.fix_outdated(g.PANDAS_ERROR, g.PANDAS_LIBS, code=g.PANDAS_CODE))
+    assert fix["_meta"]["via"] == "web" and fix["_meta"]["library"] == "pandas"
+    assert fix["citation"]["url"] == "https://pandas.pydata.org/docs/whatsnew/v2.0.0.html"
+    assert fix["diff"]["yours"].strip().endswith("counts.iteritems():") and ".items()" in fix["diff"]["expected"]
+    assert any("site%3Apandas.pydata.org" in u for k, u in fake_web if k == "serp")
+    patch = coach.apply_fix({**fix["diff"], "file": "clean.py"}, g.PANDAS_CODE)
+    assert patch["error"] is None and "counts.items()" in patch["new_text"]
+
+
+def test_web_citations_are_whitelisted(fake_web, monkeypatch):
+    """The model can cite web:N only for sources actually fetched for this call."""
+    seen = {}
+
+    async def call(**kw):
+        seen["user"] = kw["user_text"]
+        if kw["purpose"] == "triage":
+            return llm.CallResult(data={"route": "opus", "playbook_id": "none", "reason": ""}, model="h")
+        return llm.CallResult(data={
+            "playbook_id": "none", "severity": "fail", "title": "Hook inside a condition", "body": "Move it out.",
+            "citation_id": "web:7", "diff_expected": "", "diff_yours": "", "diff_file": "", "diff_line": 0, "actions": [],
+        }, model="o")
+
+    monkeypatch.setattr(llm, "structured_call", call)
+    common.set_lesson(g.REACT_LESSON)
+    card = run(coach.diagnose(g.REACT_STEP, g.REACT_FAILED, None, g.REACT_CODE, error_text=g.REACT_ERROR))
+    assert "citation" not in card  # web:7 does not exist
+    assert "[web:0] (docs) Rules of Hooks" in seen["user"]
+
+
+def test_web_unavailable_degrades_quietly(monkeypatch):
+    monkeypatch.setattr(web, "_bd_config", lambda: None)
+    assert run(web.gather("react", "useEffect", "hook error")) == []
+
+
+def test_metric_direction_from_checks():
+    acc_rising = [(i, v) for i, v in enumerate([0.1, 0.3, 0.5, 0.7, 0.8, 0.9, 0.95])]
+    acc_stuck = [(i, v) for i, v in enumerate([0.1, 0.5, 0.61, 0.62, 0.62, 0.62, 0.62])]
+    assert summarize({"accuracy": acc_rising}, goals={"accuracy": "up"})[1] == set()
+    assert "plateau" in summarize({"accuracy": acc_stuck}, goals={"accuracy": "up"})[1]
+    assert "diverging" not in summarize({"tests_passed": acc_rising})[1]  # "pass" → higher is better
