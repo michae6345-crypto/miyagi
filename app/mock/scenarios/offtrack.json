@@ -244,8 +244,8 @@
           "stepId": "s6",
           "severity": "fail",
           "reason": "loss flat for 5,200 epochs",
-          "title": "Your loss is stuck at 0.25",
-          "body": "Not your bug. Plain PINNs can't fit β = 30. Ramp β up instead.",
+          "title": "Loss is flat at 0.25",
+          "body": "Add a β curriculum, then rerun.",
           "diff": {
             "line": 4,
             "expected": "BETA_SCHEDULE = [1, 5, 10, 20, 30]",
@@ -290,7 +290,9 @@
           "citation": {
             "label": "Krishnapriyan et al. · NeurIPS 2021",
             "url": "https://arxiv.org/abs/2109.01050"
-          }
+          },
+          "level": 3,
+          "guidingQuestion": "What if β started small?"
         }
       },
       {

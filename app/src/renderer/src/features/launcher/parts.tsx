@@ -29,23 +29,35 @@ export function Rise({ i, children, className = '' }: { i: number; children: Rea
   )
 }
 
-/** A quiet rounded chip: a suggestion to search, or a quick action. */
-export function Chip({ icon: I, label, kbd, onClick }: { icon: LucideIcon; label: string; kbd?: string; onClick: () => void }): ReactNode {
+/**
+ * A rounded chip: a suggestion to search, or a quick action. With `tone` it's a solid pastel option (fill and border in
+ * the tone, ink text and icon); without, a quiet neutral chip. Colors are inline: styles.css's unlayered
+ * `button { color: inherit }` beats Tailwind's text-* utilities on buttons.
+ */
+export function Chip({ icon: I, label, kbd, tone, onClick }: { icon: LucideIcon; label: string; kbd?: string; tone?: string; onClick: () => void }): ReactNode {
+  const ink = color.onAccent
   return (
     <motion.button
       type="button"
       tabIndex={-1}
-      className={`flex h-[30px] cursor-pointer items-center gap-[7px] whitespace-nowrap rounded-full border pl-[11px] text-[13px] ${kbd ? 'pr-[4px]' : 'pr-[13px]'}`}
-      style={{ backgroundColor: tint.chip, borderColor: tint.chipBorder, color: tint.chipText }}
-      whileHover={{ backgroundColor: tint.chipHover, color: color.text }}
+      className={`flex h-[30px] cursor-pointer items-center gap-[7px] whitespace-nowrap rounded-full border pl-[11px] text-[13px] ${tone ? 'font-medium' : ''} ${kbd ? 'pr-[4px]' : 'pr-[13px]'}`}
+      style={tone ? { backgroundColor: tone, borderColor: tone, color: ink, filter: 'brightness(1)' } : { backgroundColor: tint.chip, borderColor: tint.chipBorder, color: tint.chipText }}
+      whileHover={tone ? { filter: 'brightness(1.06)' } : { backgroundColor: tint.chipHover, color: color.text }}
       whileTap={{ scale: 0.97 }}
       transition={{ duration: 0.12 }}
       onMouseDown={(e) => e.preventDefault()}
       onClick={onClick}
     >
-      <I size={13} strokeWidth={1.8} className="shrink-0" style={{ color: color.faint }} />
+      <I size={13} strokeWidth={1.8} className="shrink-0" style={{ color: tone ? ink : color.faint }} />
       {label}
-      {kbd && <Kbd className="!h-[22px] !rounded-full !px-[8px] !text-[11px]">{kbd}</Kbd>}
+      {kbd &&
+        (tone ? (
+          <span className="inline-flex h-[22px] items-center rounded-full px-[8px] text-[11px] font-medium" style={{ background: tint.onAccentKey, color: ink }}>
+            {kbd}
+          </span>
+        ) : (
+          <Kbd className="!h-[22px] !rounded-full !px-[8px] !text-[11px]">{kbd}</Kbd>
+        ))}
     </motion.button>
   )
 }
