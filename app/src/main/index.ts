@@ -205,6 +205,10 @@ app.whenReady().then(() => {
   ipcMain.on('ui:ready', (e) => {
     const win = BrowserWindow.fromWebContents(e.sender)
     if (!win) return
+    // A renderer that (re)loads starts closed/click-through. If main still thinks the launcher is open,
+    // its invisible full-screen window would keep the keyboard and every click: hide it.
+    if (win === launcher && launcherOpen) hideLauncher()
+    if (win === overlay) overlay.setIgnoreMouseEvents(true, { forward: true })
     e.sender.send('ui:layout', layoutFor(win))
     e.sender.send('engine:status', engine.connected)
     for (const ev of engine.log) e.sender.send('engine:event', ev)

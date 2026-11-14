@@ -82,13 +82,29 @@ export function useClickThrough(): void {
       on = hit
       bridge.emit('overlay:interactive', hit)
     }
-    const move = (e: MouseEvent): void => set(!!(e.target as Element | null)?.closest?.('[data-hit]'))
+    let x = -1
+    let y = -1
+    const move = (e: MouseEvent): void => {
+      x = e.clientX
+      y = e.clientY
+      set(!!(e.target as Element | null)?.closest?.('[data-hit]'))
+    }
     const out = (): void => set(false)
+    // A control can vanish under a still cursor (card closes, island shrinks): no mousemove fires,
+    // so without this the whole-screen overlay keeps eating every click. Re-check what's under the cursor.
+    const watchdog = setInterval(() => {
+      if (!on) return
+      const el = x < 0 ? null : document.elementFromPoint(x, y)
+      if (!el?.closest?.('[data-hit]')) set(false)
+    }, 250)
     window.addEventListener('mousemove', move)
     document.addEventListener('mouseleave', out)
+    window.addEventListener('blur', out)
     return () => {
+      clearInterval(watchdog)
       window.removeEventListener('mousemove', move)
       document.removeEventListener('mouseleave', out)
+      window.removeEventListener('blur', out)
     }
   }, [])
 }
