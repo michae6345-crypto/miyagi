@@ -70,10 +70,7 @@ async def verify_video(client: httpx.AsyncClient, keys: Keys, cand: dict) -> dic
     }
     if not out.get("duration_s"):
         try:
-            if brightdata.available(keys):
-                page = await brightdata.unlock(client, keys, url, timeout=8)
-            else:
-                page = (await client.get(url, timeout=6)).text
+            page = (await client.get(url, timeout=6)).text  # direct: the Unlocker hangs on YouTube
             out.update({k: v for k, v in youtube.parse_watch(page).items() if v and not out.get(k)})
         except Exception as e:
             log.info("watch page for %s failed: %s", vid, e)
