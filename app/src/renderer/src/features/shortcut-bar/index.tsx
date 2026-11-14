@@ -1,4 +1,4 @@
-/** Feature: shortcut bar. Bottom bar during a lesson: Ask anything + Back / Explain / Diagram / Show me / Hint / Voice. */
+/** Feature: shortcut bar. Bottom bar during a lesson: Ask Miyagi + Back / Explain / Diagram / Show me / Hint / Voice. */
 import type { ReactNode } from 'react'
 import type { Layout } from '../../../../preload/api'
 import { defineFeature } from '../../core/registry'

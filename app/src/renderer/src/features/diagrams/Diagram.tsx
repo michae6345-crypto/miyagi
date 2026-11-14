@@ -135,7 +135,7 @@ function Network({ data }: { data: Record<string, unknown> }): ReactNode {
         )
       })}
       <motion.rect x={ux + 20} y={68} width={92} height={28} rx={14} fill={color.accent} initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 0.35 }} />
-      <text x={ux + 66} y={86} textAnchor="middle" fill="#fff" fontSize="11.5" fontFamily="ui-monospace, monospace">
+      <text x={ux + 66} y={86} textAnchor="middle" fill={color.onAccent} fontSize="11.5" fontFamily="ui-monospace, monospace">
         {residual.length > 13 ? 'residual' : residual}
       </text>
       <text x={ux + 66} y={187} textAnchor="middle" fill="rgba(255,255,255,.45)" fontSize="10.5">
@@ -157,7 +157,8 @@ function Gradients({ data }: { data: Record<string, unknown> }): ReactNode {
   const hi = Math.max(...flat)
   const x = (i: number, n: number): number => pad.l + (i / Math.max(1, n - 1)) * (W - pad.l - pad.r)
   const y = (v: number): number => pad.t + ((hi - v) / (hi - lo || 1)) * (H - pad.t - pad.b)
-  const tone = (i: number): string => (i < 2 ? color.amber : i < 3 ? '#d8c27a' : color.accent)
+  // Off-track layers (vanishing gradients) in amber; the rest neutral. Brand: no other colors.
+  const tone = (i: number): string => (i < 2 ? color.amber : i < 3 ? color.label : color.accent)
   return (
     <svg width={W} height={H} className="mx-auto block overflow-visible">
       <line x1={pad.l} x2={W - pad.r} y1={H - pad.b} y2={H - pad.b} stroke="rgba(255,255,255,.12)" />

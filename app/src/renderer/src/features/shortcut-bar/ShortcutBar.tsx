@@ -1,5 +1,5 @@
 /**
- * Bottom shortcut bar: "Ask anything" + Back / Explain / Diagram / Show me / Hint / Voice.
+ * Bottom shortcut bar: "Ask Miyagi" + Back / Explain / Diagram / Show me / Hint / Voice.
  * Only visible during a lesson. Sits 24px above the dock / taskbar.
  */
 import { AnimatePresence, motion } from 'motion/react'
@@ -67,7 +67,7 @@ export function ShortcutBar({ bottom }: { bottom: number }): ReactNode {
               onClick={() => bridge.emit('launcher:toggle')}
             >
               <Search size={15} className="text-white/55" />
-              <span className="flex-1 text-[15px] text-white/55">Ask anything</span>
+              <span className="flex-1 text-[15px] text-white/55">Ask Miyagi</span>
               <span className="rounded-[7px] px-[7px] py-[3px] text-[11.5px] text-white/55" style={{ background: 'rgba(255,255,255,.1)' }}>
                 {bridge.platform.keys.launcher}
               </span>

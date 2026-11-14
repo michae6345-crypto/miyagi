@@ -17,7 +17,7 @@ Everything Adrian's side has to ship, split so each piece is one Claude session 
 | 9 | **diagrams** | Intuition diagrams out of the pill: network · gradient flow · **heatmap** | island mode 80 | P1 | v1 (no heatmap) | 5180 |
 | 10 | **voice** | `speak` audio (ElevenLabs) on/off, equalizer; optional mic to ask | overlay layer (no UI) | P2 | v1 built | 5181 |
 | 11 | **drawer** | Right-edge tab → lesson drawer: all steps with status, sources | overlay layer z 40 | P2 | new | 5184 |
-| 12 | **theme** | Adrian's colors and type, applied to every token | `core/theme.ts` + `styles.css` | P2 | new | 5185 |
+| 12 | **theme** | Miyagi brand kit (`app/brand/`): tokens in `core/theme.ts`, logo `core/ui/Mark.tsx`, app icon, system font. Each feature applies `BRAND.md` in its own folder | `core/theme.ts` + `styles.css` | P0 | core done; features applying | 5185 |
 | – | **core / shell** | Windows, click-through, shortcuts, engine link, registry, Mac behavior | integrator (this repo's core) | – | built, Mac-unverified | 5173 |
 
 P0 = needed for the 6 PM checkpoint (the happy path end to end) and "never cut" (launcher, pill status, off-track card, video gating). P1 = by 9 PM. P2 = overnight.

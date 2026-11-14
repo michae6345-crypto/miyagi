@@ -1,4 +1,3 @@
-import '@fontsource-variable/inter'
 import './styles.css'
 import { StrictMode, useEffect, useState, type ReactNode } from 'react'
 import { createRoot } from 'react-dom/client'

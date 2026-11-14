@@ -22,7 +22,12 @@ Need a core change (a new field in `core/lesson.ts`, a new bus event, a new npm 
 - Send to the engine: `bridge.send(cmd('<type>', payload))` (`common/wire.ts`). Shortcuts go through `triggerShortcut(kind)` (`core/shortcuts.ts`); return `true` from an `onUi('shortcut')` handler to claim one.
 - Main process: `src/main/features/<feature>.ts` default-exports `defineMainFeature({ id, setup(ctx) })`; see `src/main/context.ts` (createWindow, handle ↔ `bridge.invoke`, broadcast ↔ `bridge.onFeature`, `engine.onOpen`). In the browser stage, stand in for main handlers with `registerWebHandler(channel, fn)` from `bridge.ts`.
 - Interactive overlay elements need `data-hit` (stops click-through); visible-but-passive ones need `data-ui`. Both are reported to the engine as `overlay.bounds` so its screen reader ignores them.
-- Colors, radii, the spring: `core/theme.ts` tokens only. No new hard-coded colors (Adrian is swapping in his own theme).
+- **Brand: read `app/brand/BRAND.md` before touching anything visible** (Miyagi brand kit, its rules are not optional):
+  - Green (`color.green`) ONLY means passed. Amber (`color.amber`) ONLY means off track. Gray = watching. No red.
+  - **No blue anywhere.** `color.accent` is now white: buttons are white on dark (`color.accent` fill + `color.onAccent` text), never blue, green or amber.
+  - No gradients, glows, purple, neon, sparkles, emoji or hand-drawn annotations. Every sparkle icon becomes the bonsai: `<MiyagiMark size={14} />` from `core/ui/Mark.tsx` (it picks the right cut for the size).
+  - App text uses the system font (SF Pro / Segoe). No Inter. Copy is calm and short (≤12 words per card); the launcher placeholder is "Ask Miyagi anything"; the passed line is "Good. Now the next one."
+- Colors, radii, the spring: `core/theme.ts` tokens only (brand palette in `brand`, HUD in `hud`). No new hard-coded colors.
 - **Every surface is born from the notch island and returns to it** (Michael, Sat ~2 PM): the launcher, cards, diagrams, settings. Nothing pops up mid-screen. Surfaces that need typing (launcher, settings) live in their own focusable window but start from the island's exact shape (`launcher:open` carries `{from:{w,h}}`) and collapse back into it.
 - **Nothing PINN-specific** (generality rule): PINN-on-convection is only the demo lesson. Labels come from the data (metric names, check labels, step titles); never hardcode 'loss', 'β' or 'PINN' in UI code.
 - Animation: the one spring `{stiffness 420, damping 34, mass 0.9}`; animate transform/opacity; never resize windows during an animation.

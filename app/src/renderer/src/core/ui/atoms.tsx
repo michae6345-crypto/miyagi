@@ -4,7 +4,7 @@ import type { ReactNode } from 'react'
 import { X } from 'lucide-react'
 import type { CheckItem, Status } from '../lesson'
 import { emitUi } from '../bus'
-import { color, spring } from '../theme'
+import { brand, color, spring } from '../theme'
 
 /** Status dot: gray watching · amber off-track · green passed. Pulses twice when it turns amber. */
 export function StatusDot({ status, size = 7 }: { status: Status; size?: number }): ReactNode {
@@ -69,7 +69,7 @@ export function CheckIcon({ status, active }: { status: CheckItem['status']; act
         <motion.path
           d="M5.2 9.3 L7.8 11.8 L12.9 6.4"
           fill="none"
-          stroke="#04210f"
+          stroke={brand.ink}
           strokeWidth="1.9"
           strokeLinecap="round"
           strokeLinejoin="round"
@@ -139,13 +139,13 @@ export function Thumb({ w, h, time, src }: { w: number; h: number; time?: string
       {src ? (
         <img src={src} className="h-full w-full object-cover" />
       ) : (
-        <div className="absolute inset-0" style={{ background: 'linear-gradient(135deg,#0f1630,#151a33 60%,#1b1636)' }}>
+        <div className="absolute inset-0" style={{ background: '#1C1C1E' }}>
           <div className="absolute left-[9%] top-[18%] h-[5%] w-[38%] rounded-full bg-white/50" />
           <div className="absolute left-[9%] top-[32%] h-[4%] w-[26%] rounded-full bg-white/25" />
           <div className="absolute left-[9%] top-[44%] h-[4%] w-[30%] rounded-full bg-white/25" />
           <div
             className="absolute right-[8%] top-[18%] h-[62%] w-[38%] rounded-[3px]"
-            style={{ background: 'repeating-linear-gradient(135deg,#7a3cff 0 3px,#d9445a 3px 6px)' }}
+            style={{ background: '#3A3A3C' }}
           />
         </div>
       )}
@@ -177,12 +177,12 @@ export function Chip({ tone, children }: { tone: string; children: ReactNode }):
   )
 }
 
-/** Card action button. `primary` fills with the tone. */
-export function CardButton({ children, onClick, primary, tone = color.amber }: { children: ReactNode; onClick: () => void; primary?: boolean; tone?: string }): ReactNode {
+/** Card action button. Brand: buttons are white on dark (never blue, green or amber). `tone` is ignored (kept for older call sites). */
+export function CardButton({ children, onClick, primary }: { children: ReactNode; onClick: () => void; primary?: boolean; tone?: string }): ReactNode {
   return (
     <motion.button
       className="flex h-[36px] flex-1 cursor-pointer items-center justify-center gap-[7px] rounded-[12px] text-[14px] font-semibold"
-      style={primary ? { background: tone, color: '#1a1200' } : { background: 'rgba(255,255,255,.09)', color: '#fff' }}
+      style={primary ? { background: color.accent, color: color.onAccent } : { background: 'rgba(255,255,255,.09)', color: color.text }}
       whileHover={{ scale: 1.02 }}
       whileTap={{ scale: 0.94 }}
       transition={{ duration: 0.09 }}

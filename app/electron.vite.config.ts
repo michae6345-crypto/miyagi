@@ -11,6 +11,6 @@ export default defineConfig({
   renderer: {
     resolve: { alias: { ...alias, '@': resolve(__dirname, 'src/renderer/src') } },
     plugins: [react(), tailwindcss()],
-    server: { fs: { allow: ['..'] } }
+    server: { fs: { allow: [resolve(__dirname, '..')] } }
   }
 })

@@ -1,8 +1,8 @@
 {
-  "name": "tut-overlay",
+  "name": "miyagi-overlay",
   "version": "0.1.0",
   "private": true,
-  "description": "Apple-style overlay that turns any tutorial into an auto-graded lab",
+  "description": "Miyagi: turn any tutorial into an auto-graded lab",
   "main": "./out/main/index.js",
   "scripts": {
     "dev": "electron-vite dev",
@@ -17,7 +17,6 @@
     "feature": "node scripts/feature.mjs"
   },
   "dependencies": {
-    "@fontsource-variable/inter": "^5.3.0",
     "lucide-react": "^1.73.0",
     "motion": "^14.14.0",
     "react": "^19.3.1",
