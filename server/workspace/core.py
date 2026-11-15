@@ -262,6 +262,9 @@ PYTHON_TERMINAL = {
     "python.terminal.activateEnvironment": False,  # also turns off the Python Environments extension's activation
     "terminal.integrated.env.osx": {"PATH": f"{_VENV}/bin:${{env:PATH}}", "VIRTUAL_ENV": _VENV,
                                     "VSCODE_PATH_PREFIX": f"{_VENV}/bin:"},
+    # Desktop test 12: the lesson's .venv sat expanded in the Explorer (about 25 rows of bin/, lib/...), pushing the
+    # lesson's own files to the bottom. Hidden from the Explorer only; the terminal and the kernel still use it.
+    "files.exclude": {"**/.venv": True, "**/__pycache__": True},
 }
 
 
