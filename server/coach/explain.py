@@ -7,7 +7,7 @@ import json
 import logging
 import re
 
-from . import llm, web
+from . import llm, scene, web
 from .common import (
     citation_menu,
     clamp_title,
@@ -154,6 +154,7 @@ async def explain(step: dict, question: str | None = None, context: dict | None 
             f"METRICS:\n{metrics_text}" if ctx.get("metrics_summary") is not None else "",
             f"LEARNER CODE:\n{number_lines(code, 80)}" if code else "",
             cursor_text(ctx["cursor"]) if ctx.get("cursor") and screen is None else "",
+            scene.prompt_line(step.get("id"), files=not teach),  # a Haiku glance < 8 s old, when there is one
             f"WEB SOURCES (fetched live):\n{web.sources_text(sources)}" if sources else "",
             f"CITATIONS you may use:\n{citation_menu(lesson, sources)}",
             f"LEARNER ASKS: {about}",

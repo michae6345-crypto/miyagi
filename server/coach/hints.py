@@ -10,6 +10,7 @@ import json
 import re
 import textwrap
 
+from . import scene
 from .common import clamp_words, fmt_t, get_lesson
 from .diagnose import LAST
 from .explain import match_explanation
@@ -18,6 +19,7 @@ from .pointing import (
     code_question,
     deterministic_targets,
     editor_state,
+    step_file,
     where_hint,
 )
 from .screen import ScreenContext
@@ -66,8 +68,22 @@ def hint(step: dict, level: int, last_offtrack: dict | None = None, screen: Scre
     if targets:
         card["targets"] = targets
         return card
+    if _scene_shows_file(step, screen, last):  # OCR found no exact line, but a glance < 8 s ago saw the file open
+        return card
     card["where"] = where_hint(step, last, screen)  # the Where row (+ Open) says the open step once; the body stays the hint (E6)
     return card
+
+
+def _scene_shows_file(step: dict, screen: ScreenContext | None, last: dict | None) -> bool:
+    """A fresh scene look (coach.scene, < 8 s) saw the step's file as the editor's active tab, and the editor window
+    itself (title / companion extension) doesn't say otherwise (another file, Untitled, unsaved): an "Open <file>" Where
+    row would be wrong."""
+    sc = scene.fresh(step.get("id"))
+    if sc is None or not sc.step_file_open:
+        return False
+    ed = editor_state(screen)
+    name = (step_file(step, last) or "").rsplit("/", 1)[-1]
+    return not ed or (not ed["untitled"] and not ed["unsaved"] and ed["file"] in ("", name))
 
 
 def _short(step: dict, n: int = 4) -> str:

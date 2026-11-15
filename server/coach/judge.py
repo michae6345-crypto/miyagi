@@ -27,7 +27,7 @@ import time
 from collections.abc import Callable
 from typing import Any
 
-from . import llm
+from . import llm, scene
 from .common import clamp_words, get_lesson
 from .diagnose import notebook_code
 from .gate import PeriodicGate, files_signature
@@ -127,6 +127,7 @@ async def _ask(step: dict, check_results: list[dict] | None, screen: Any, files:
         f"EDITOR (from the editor window, not OCR): {editor}" if editor else "EDITOR: unknown; don't claim which file is open",
         "OTHER STEPS OF THIS LESSON:\n" + "\n".join(f"- {s['id']}: {s.get('title', '')}" for s in steps if s["id"] != sid) if len(steps) > 1 else "",
         f"SCREEN NOW:\n{scr}" if scr else "SCREEN NOW: (not available)",
+        scene.prompt_line(sid),  # a Haiku glance < 8 s old (orchestrator/scene_watch.py): context, never evidence
         f"WORKSPACE FILES:\n{fil}" if fil else "",
         "Judge each check.",
     ] if x)

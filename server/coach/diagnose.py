@@ -12,7 +12,7 @@ import time
 from collections.abc import Callable
 from typing import Any
 
-from . import llm, web
+from . import llm, scene, web
 from .common import (
     citation_menu,
     clamp_body,
@@ -474,6 +474,7 @@ async def diagnose(
         # screen-first lessons have no captured stderr: an error/refusal visible on screen is the
         # error text (S9 QA: without it, triage sent git/React failures to the "not done yet" card)
         error_text = screen_errors(screen)
+    error_text = scene.with_error(step.get("id"), error_text)  # an error a Haiku glance saw after a run (no new call)
     code_excerpt = notebook_code(code_excerpt)  # .ipynb JSON → cell sources (S9 QA)
     metrics_text, flags = summarize(metrics_summary, goals=metric_goals(step))
     if error_text:

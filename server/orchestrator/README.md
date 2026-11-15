@@ -59,6 +59,11 @@ then a β-curriculum run. It only writes `pinn_convection.py` and refuses to ove
 | `ORCH_SCREEN` | 1 | start the whole-screen reader (`server.screen`, macOS + Screen Recording permission). `0` = files + `tut run` only |
 | `ORCH_STRICT` | 0 | `1` = raise on any event that doesn't validate against the contract (tests use this) |
 | `ORCH_IDLE_GATE_S` | 5 | idle seconds before the coach may speak |
+| `MIYAGI_SCENE_EVERY_S` | 5 | Haiku scene look ([scene_watch.py](scene_watch.py)): one look this often while a step is active and the screen changed; `0` = off. Off in DEMO / `ORCH_STUBS=coach`, without the real screen reader, and under pytest unless set |
+| `MIYAGI_SCENE_MAX_PER_HOUR` | 720 | hard cap on scene looks in any hour |
+| `MIYAGI_SCENE_STOP_AFTER` | 30 | scene looks stop after this many identical scenes in a row, until a save or a big screen change |
+| `MIYAGI_SCENE_CAP_S` | = every | > every lets a repeated scene back off (PeriodicGate doubling up to this) |
+| `MIYAGI_SCENE_TIMEOUT_S` | 8 | one look's timeout (a slow look is skipped, never retried) |
 | `ORCH_RECORD` | 1 | record every ingest event to `demo/runs/<run_id>.jsonl` (gitignored) |
 
 ## Modules
