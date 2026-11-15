@@ -155,9 +155,10 @@ const CHECK_TONE: Record<CheckSurface, { text: string; label: string; faint: str
 
 /**
  * The step's checks, one row each: the icon, the label (up to two lines, code in mono, the full text on hover), the
- * engine's detail as a faint second line, and ONE status word on the right: Passed (green) · Watching (gray, eye)
- * · Not yet (no hue). Rows only spin while a Check is in flight (useChecking). `surface="glass"` for glass panels
- * (the drawer); the island and its cards are the default.
+ * engine's detail as a faint second line, and ONE status word on the right: Passed (green) · Watching (gray, eye;
+ * the whole row gray, an empty ring, never a spinner or a "!") · Not yet (white, no hue). Rows only spin while a
+ * Check is in flight (useChecking). `surface="glass"` for glass panels (the drawer); the island and its cards are
+ * the default.
  */
 export function CheckList({ checks, surface = 'island' }: { checks: CheckItem[]; surface?: CheckSurface }): ReactNode {
   const checking = useChecking()
@@ -167,7 +168,9 @@ export function CheckList({ checks, surface = 'island' }: { checks: CheckItem[];
     <div className="flex flex-col gap-[11px]">
       {checks.map((c) => {
         const active = checking && c.status !== 'pass'
-        const tone = c.status === 'pass' ? t.label : t.text
+        // Only "Not yet" stands out (white, no hue). Pending is a quiet gray "Watching" row (Michael: a new step's
+        // checks stay pending, with no detail, until the learner starts); passed recedes next to its green word.
+        const tone = c.status === 'fail' ? t.text : t.label
         return (
           // items-start: a two-line label wraps under itself; the icon and the status word stay on line one.
           <div key={c.id} data-check={c.id} data-check-status={c.status} className="flex items-start gap-3 text-[14px] leading-[18px]">
