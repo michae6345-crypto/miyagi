@@ -300,7 +300,14 @@ export function useIslandOffset(card: { id: string; w: number; h: number } | und
   const bounds = { x: wa.x + EDGE, y: top, w: wa.width - EDGE * 2, h: wa.y + wa.height - BAR_CLEARANCE - top }
   const decide = (): Offset => {
     if (!card || !keepOff.length) return AT_NOTCH
-    return placeIsland(notch, [...keepOff, ...chips], bounds, avoid)
+    if (!playerOn) return placeIsland(notch, [...keepOff, ...chips], bounds, avoid)
+    // Video lessons: place from the docked spot (below the notebook toolbar, left of the player) inside the room left
+    // of the dock, so offDock's shift can't push the card back over the cell it talks about (Michael's test 12, item 2).
+    const home = offDock(notch, AT_NOTCH, true, layout)
+    const docked = { ...notch, x: notch.x + home.x, y: notch.y + home.y }
+    const room = { ...bounds, y: docked.y, w: Math.max(w, dockRect(wa).x - DOCK_GAP - bounds.x), h: Math.max(h, bounds.y + bounds.h - docked.y) }
+    const at = placeIsland(docked, [...keepOff, ...chips], room, avoid)
+    return { x: home.x + at.x, y: home.y + at.y }
   }
   const spot = useRef<Spot>(undefined)
   const prev = spot.current
