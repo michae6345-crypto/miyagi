@@ -592,8 +592,6 @@ def test_demo_follows_the_locked_nn_flow(flow):
         await rig.s.action("start")
         await settle(rig)
         assert not rig.s.awaiting_start
-        snap = rig.s.snapshot()  # a reconnect right after Start never brings the sheet back
-        assert not rig.s.awaiting_start and [e for e, _ in snap][:2] == ["lesson.ready", "step.started"]
         # 3. Install -> "numpy installed ✓", and the card goes away by itself
         await rig.s.action("install", "numpy")
         await settle(rig)

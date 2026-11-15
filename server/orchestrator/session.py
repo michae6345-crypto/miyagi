@@ -3263,8 +3263,6 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
             return
         if self.idx > 0:  # Continue / a reconnect at a later step: the app shows no sheet (store.ts step.started)
             return
-        if getattr(self, "_began_epoch", None) == self.lesson_epoch:  # Michael's locked flow: once Start was pressed,
-            return  # a reconnect / lesson.ready replay / back to step 1 never brings the sheet back (same lesson)
         if self._start_hold != self.lesson_epoch:
             self._start_hold, self._hold_t, self._hold_sig = self.lesson_epoch, self.clock(), None
             self._hold_fresh = False
@@ -3305,7 +3303,6 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
         if not self.awaiting_start:
             return
         self._start_hold = None
-        self._began_epoch = self.lesson_epoch  # (_hold_for_sheet: never held again in this lesson)
         now = self.clock()
         if self._hold_fresh:  # step 1 started under the sheet: it really starts now
             self.step_t0 = self.last_progress_t = now
