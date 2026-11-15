@@ -667,16 +667,17 @@ def screen_check_on_file(check: dict, path: str | os.PathLike | None, window_ope
     window exists somewhere (another Space, behind, still opening).
 
     pass when the pattern is in the file; otherwise fail "not in <file> yet", or "Open VS Code so I can check it."
-    only when no lesson window exists at all (the one case where opening the editor is the fix)."""
+    only when no lesson window exists at all AND the file can't be read (live test 3: s2c3 said "Open VS Code so I
+    can check it." while the rows above it said "found in weather.py": a readable file answers the question)."""
     pattern = check.get("pattern")
     if not pattern:
         return _result(check, "fail", "check has no 'pattern'")
     name = os.path.basename(os.fspath(path)) if path else "the lesson file"
-    text = ""
+    text, readable = "", False
     if path:
         try:
             with open(path, encoding="utf-8", errors="replace") as fh:
-                text = fh.read()
+                text, readable = fh.read(), True
         except OSError:
             text = ""
     try:
@@ -685,7 +686,7 @@ def screen_check_on_file(check: dict, path: str | os.PathLike | None, window_ope
         return _result(check, "fail", f"invalid pattern: {exc}")
     if m:
         return _result(check, "pass", f"found in {name}")
-    if not window_open:
+    if not window_open and not readable:
         app = check.get("app")
         return _result(check, "fail", f"Open {_APP_NAMES.get(app, app)} so I can check it." if app
                        else f"not in {name} yet")

@@ -59,7 +59,8 @@ A **pure function**: no network, no DB, no model calls. It never raises: a malfo
 The orchestrator (`LessonSession._settle_checks` / `_need_run`) uses three pure helpers so checks neither un-pass nor false-pass:
 - `screen_check_on_file(check, path, window_open=True)`: a VS Code `screen_contains` graded on the lesson's file on disk,
   for frames that can't show the lesson window (another folder's VS Code window in front, or no editor text). Pass when
-  the pattern is in the file; else "not in <file> yet", or "Open VS Code so I can check it." only when no lesson window exists.
+  the pattern is in the file; else "not in <file> yet", or "Open VS Code so I can check it." only when no lesson window exists
+  and the file can't be read (a readable file answers the question).
 - A `screen_contains` that passed in a step stays passed (latched in the session) unless the editor's text lacks it:
   the VS Code companion's live buffer when it holds unsaved edits of the file, else the file on disk once saved after
   the pass. OCR misreads while the learner types into an unsaved (still empty) file never un-pass it. A hold the
