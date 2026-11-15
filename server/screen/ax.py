@@ -222,6 +222,32 @@ def enable_electron_ax(app_el, pid: int) -> bool:
     return False
 
 
+# t7 (Nov 15, 03:56:31.121): the Run ▷ lookup that switched VS Code's tree on found nothing 2 ms later, and the miss was
+# kept for 6 s ("no Python extension?"); the ▷ was on screen. Chromium fills the tree in over the next seconds, so a
+# lookup that finds nothing then says "settling" (the reader keeps that miss only for a moment and looks again).
+_FILL_S = 8.0       # after AXManualAccessibility goes on, the tree may still be filling in this long
+_SPARSE_NODES = 40  # a walk of a VS Code window that saw fewer nodes than this saw a tree that isn't filled in yet
+_misses: dict[str, str] = {}  # lookup key ("run_button", "ui:<key>") -> why its last lookup found nothing
+
+
+def settling(pid: int) -> bool:
+    """Is `pid`'s AX tree still being switched on or filled in (enabled by this process in the last _FILL_S)?"""
+    t = _enabled_pids.get(pid)
+    return t is None or pid not in _ready_pids or time.time() - t < _FILL_S
+
+
+def _missed(key: str, pid: int | None, seen: int | None) -> None:
+    """Note why `key`'s lookup found nothing: "settling" (the tree is being switched on / filled in, or the walk saw
+    an almost empty tree) or "absent" (VS Code isn't running, or its filled-in tree has no such element)."""
+    filling = pid is not None and (settling(pid) or (seen is not None and seen < _SPARSE_NODES))
+    _misses[key] = "settling" if filling else "absent"
+
+
+def last_miss(key: str = "run_button") -> str | None:
+    """Why the last lookup of `key` found nothing ("settling" / "absent"); None after it found it."""
+    return _misses.get(key)
+
+
 def _page_start(text: str, document: str | None) -> int:
     """1-based file line where VS Code's 500-line AX page starts. Small files: 1. Big files: match the
     page's first lines against the file on disk (pages are aligned to multiples of 500)."""
@@ -374,7 +400,8 @@ _VSCODE_BUNDLES = ("com.microsoft.VSCode", "com.microsoft.VSCodeInsiders", "com.
 
 def _code_app(folder: str | None = None):
     """(pid, window) of VS Code's window for `folder` (its AXDocument inside it), else VS Code's focused window. The
-    frontmost app when it is VS Code, else the running one: the learner may be on Miyagi's drawer. VS Code only."""
+    frontmost app when it is VS Code, else the running one: the learner may be on Miyagi's drawer. VS Code only.
+    (None, None) without VS Code; (pid, None) while its AX tree is being switched on (t7: settling)."""
     front = NSWorkspace.sharedWorkspace().frontmostApplication()
     apps = [front] if front is not None and str(front.bundleIdentifier() or "") in _VSCODE_BUNDLES else []
     if not apps:
@@ -388,7 +415,7 @@ def _code_app(folder: str | None = None):
     app_el = AX.AXUIElementCreateApplication(pid)
     AX.AXUIElementSetMessagingTimeout(app_el, MESSAGING_TIMEOUT)
     if not enable_electron_ax(app_el, pid):
-        return None, None
+        return pid, None
     if folder:
         from urllib.parse import unquote
         root = os.path.realpath(os.path.expanduser(str(folder)))
@@ -411,12 +438,15 @@ def _run_label(el) -> str | None:
 def find_run_button(folder: str | None = None, max_nodes: int = 2500) -> Element | None:
     """VS Code's editor-title Run ▷ ("Run Python File") in the lesson's window (`folder`), even while another app
     (Miyagi's drawer) is in front. Bounded BFS that skips text areas, trees and lists; the element found is kept
-    and only re-checked next time (its rect and label: 3 AX reads instead of a walk). None without one."""
+    and only re-checked next time (its rect and label: 3 AX reads instead of a walk). None without one (last_miss
+    says whether VS Code's tree was still filling in)."""
     pid, win = _code_app(folder)
     if win is None:
+        _missed("run_button", pid, None)
         return None
     el = _run_cache.get("el") if _run_cache.get("pid") == pid else None
     if el is not None and _run_label(el) and (r := rect_of(el)) is not None and r.w > 2 and r.h > 2:
+        _misses.pop("run_button", None)
         return Element(role="AXButton", subrole=None, title=None, value=None, description=_run_label(el), rect=r,
                        app="Code")
     _run_cache.clear()
@@ -430,11 +460,13 @@ def find_run_button(folder: str | None = None, max_nodes: int = 2500) -> Element
         if role == "AXButton":
             if _run_label(el) and (r := rect_of(el)) is not None and r.w > 2 and r.h > 2:
                 _run_cache.update(pid=pid, el=el)
+                _misses.pop("run_button", None)
                 return element_info(el, "Code")
             continue
         if role in _RUN_SKIP_ROLES:
             continue
         queue.extend(attr(el, "AXChildren") or [])
+    _missed("run_button", pid, seen)
     return None
 
 
@@ -544,9 +576,11 @@ def find_ui(key: str, folder: str | None = None, max_nodes: int = 2500) -> Eleme
     roles, test, skip, child = spec
     pid, win = _code_app(folder)
     if win is None:
+        _missed(f"ui:{key}", pid, None)
         return None
     cached = _ui_cache.get(key)
     if cached is not None and cached.get("pid") == pid and (hit := _ui_hit(cached["el"], test, roles, child)) is not None:
+        _misses.pop(f"ui:{key}", None)
         return hit
     _ui_cache.pop(key, None)
     queue, seen = [win], 0
@@ -558,10 +592,12 @@ def find_ui(key: str, folder: str | None = None, max_nodes: int = 2500) -> Eleme
         role = _s(attr(el, "AXRole"))
         if role in roles and (hit := _ui_hit(el, test, roles, child)) is not None:
             _ui_cache[key] = {"pid": pid, "el": el}
+            _misses.pop(f"ui:{key}", None)
             return hit
         if role in skip:
             continue
         queue.extend(attr(el, "AXChildren") or [])
+    _missed(f"ui:{key}", pid, seen)
     return None
 
 def snapshot() -> AXSnapshot | None:
