@@ -1,0 +1,534 @@
+{
+  "name": "complete",
+  "on": {
+    "connect": "step_nn_done",
+    "action:end_lesson@step_nn_done": "complete_end",
+    "learn@step_nn_done": "complete_learn"
+  },
+  "segments": {
+    "step_nn_done": [
+      {
+        "wait": 150,
+        "type": "lesson.ready",
+        "payload": {
+          "lesson": {
+            "id": "lesson-nn-from-scratch",
+            "title": "A neural net from scratch",
+            "sources": [],
+            "complete": true,
+            "builtBy": "claude",
+            "mode": "lesson",
+            "primer": [
+              {
+                "id": "p1",
+                "title": "A neuron holds a number",
+                "body": "Each neuron holds a number between 0 and 1, its activation. The inputs are the data; every other neuron computes its number from the layer before it."
+              },
+              {
+                "id": "p2",
+                "title": "Weights and a bias",
+                "body": "Each connection multiplies the signal by a weight: positive pushes the next neuron up, negative pushes it down. The bias shifts how easily the neuron lights up.",
+                "code": "z = x1 * w1 + x2 * w2 + b"
+              },
+              {
+                "id": "p3",
+                "title": "Sigmoid squishes",
+                "body": "Sigmoid turns any total into a number between 0 and 1, so a neuron's output reads like how active it is.",
+                "code": "1 / (1 + np.exp(-z))"
+              },
+              {
+                "id": "p4",
+                "title": "Learning goes downhill",
+                "body": "The loss says how wrong the outputs are. Backprop finds which way each weight should move to lower it, and each training step moves it a little that way.",
+                "code": "W -= lr * dW"
+              }
+            ],
+            "overview": "We'll build a neural network with nothing but NumPy and teach it XOR: output 1 when exactly one input is 1. First the network and its forward pass, then backprop, then a training loop, and last a test that prints 0 1 1 0.",
+            "build": {
+              "summary": "A 2-4-1 neural network in NumPy that learns XOR.",
+              "outcome": "Run it and the loss falls below 0.001; it prints [0 1 1 0] for the four inputs.",
+              "estMinutes": 14
+            },
+            "flow": [
+              {
+                "label": "Inputs",
+                "detail": "x₁, x₂",
+                "stepIndex": 1
+              },
+              {
+                "label": "Hidden layer",
+                "detail": "σ(X·W1 + b1)",
+                "stepIndex": 1
+              },
+              {
+                "label": "Output",
+                "detail": "σ(h·W2 + b2)",
+                "stepIndex": 1
+              },
+              {
+                "label": "Backprop",
+                "detail": "chain rule",
+                "stepIndex": 2
+              },
+              {
+                "label": "Gradient step",
+                "detail": "W -= lr·dW",
+                "stepIndex": 3
+              }
+            ],
+            "prerequisites": [
+              {
+                "id": "numpy-arrays",
+                "title": "NumPy arrays",
+                "why": "X, y and every weight are arrays.",
+                "status": "unknown"
+              },
+              {
+                "id": "matrix-multiply",
+                "title": "Matrix multiply",
+                "why": "X @ W1 runs every hidden neuron at once.",
+                "status": "unknown"
+              },
+              {
+                "id": "derivatives",
+                "title": "Derivatives",
+                "why": "Backprop multiplies slopes along the network.",
+                "status": "unknown"
+              }
+            ],
+            "learnFirst": [
+              {
+                "title": "NumPy arrays",
+                "minutes": 5,
+                "kind": "read",
+                "covers": "numpy-arrays"
+              },
+              {
+                "title": "Matrix multiplication",
+                "minutes": 6,
+                "kind": "interactive",
+                "covers": "matrix-multiply"
+              }
+            ]
+          },
+          "steps": [
+            {
+              "id": "nn1",
+              "index": 1,
+              "title": "Build the network",
+              "kind": "code",
+              "what": "The XOR data, random weights and a forward pass",
+              "estMinutes": 4
+            },
+            {
+              "id": "nn2",
+              "index": 2,
+              "title": "Backprop",
+              "kind": "code",
+              "what": "A gradient for every weight, with the chain rule",
+              "estMinutes": 3
+            },
+            {
+              "id": "nn3",
+              "index": 3,
+              "title": "Write the training loop",
+              "kind": "code",
+              "what": "A loop that steps every weight downhill 5,000 times",
+              "estMinutes": 3
+            },
+            {
+              "id": "nn4",
+              "index": 4,
+              "title": "Train it",
+              "kind": "run",
+              "what": "Run it and watch the loss fall",
+              "estMinutes": 1
+            },
+            {
+              "id": "nn5",
+              "index": 5,
+              "title": "Test it",
+              "kind": "code",
+              "what": "Print its answers and the weights it learned",
+              "estMinutes": 2
+            },
+            {
+              "id": "nn6",
+              "index": 6,
+              "title": "See what it learned",
+              "kind": "run",
+              "what": "Run it: it answers 0 1 1 0",
+              "estMinutes": 1
+            }
+          ]
+        }
+      },
+      {
+        "wait": 300,
+        "type": "step.started",
+        "payload": {
+          "stepId": "nn6",
+          "index": 6,
+          "title": "See what it learned",
+          "instructions": "Run python3 nn.py in the VS Code terminal",
+          "details": "Run nn.py again and read its answers.",
+          "kind": "run",
+          "what": "Run it: it answers 0 1 1 0",
+          "why": "Your network learned XOR from four examples. The panel on the right is drawn from the weights it printed.",
+          "concepts": [
+            "p1"
+          ],
+          "code": "python3 nn.py",
+          "estMinutes": 1
+        }
+      },
+      {
+        "wait": 0,
+        "type": "check.updated",
+        "payload": {
+          "stepId": "nn6",
+          "checkId": "nn6c1",
+          "label": "It answers 0 1 1 0",
+          "status": "pending"
+        }
+      },
+      {
+        "wait": 0,
+        "type": "status",
+        "payload": {
+          "state": "watching"
+        }
+      },
+      {
+        "wait": 900,
+        "type": "check.updated",
+        "payload": {
+          "stepId": "nn6",
+          "checkId": "nn6c1",
+          "label": "It answers 0 1 1 0",
+          "status": "pass"
+        }
+      },
+      {
+        "wait": 300,
+        "type": "step.passed",
+        "payload": {
+          "stepId": "nn6"
+        }
+      },
+      {
+        "wait": 0,
+        "type": "status",
+        "payload": {
+          "state": "passed"
+        }
+      },
+      {
+        "wait": 0,
+        "type": "diagram",
+        "payload": {
+          "kind": "network",
+          "caption": "Your network answers 0 1 1 0. Drawn from the weights your nn.py printed.",
+          "data": {
+            "layers": [
+              2,
+              4,
+              1
+            ],
+            "activation": "sigmoid",
+            "inputs": [
+              "x₁",
+              "x₂"
+            ],
+            "output": "ŷ",
+            "derivatives": [],
+            "residual": "",
+            "mode": "forward",
+            "frames": [
+              {
+                "epoch": 5000,
+                "loss": 0.00068,
+                "W": [
+                  [
+                    6.391,
+                    0.7232,
+                    3.9586,
+                    1.2408,
+                    6.2565,
+                    0.0464,
+                    4.14,
+                    1.1982
+                  ],
+                  [
+                    9.6246,
+                    -1.4011,
+                    -8.5856,
+                    -2.9598
+                  ]
+                ],
+                "b": [
+                  [
+                    -2.7557,
+                    0.3373,
+                    -6.2448,
+                    -1.8867
+                  ],
+                  [
+                    -2.8973
+                  ]
+                ]
+              }
+            ],
+            "samples": [
+              [
+                0,
+                0
+              ],
+              [
+                0,
+                1
+              ],
+              [
+                1,
+                0
+              ],
+              [
+                1,
+                1
+              ]
+            ],
+            "targets": [
+              0,
+              1,
+              1,
+              0
+            ]
+          },
+          "stepId": "nn6"
+        }
+      },
+      {
+        "wait": 2500,
+        "type": "card",
+        "payload": {
+          "stepId": "nn6",
+          "kind": "complete",
+          "title": "You built a neural net",
+          "body": "A 2-4-1 neural network in NumPy that learns XOR. Loss fell from 0.269 to 0.0009 in your last run.",
+          "actions": [
+            "end_lesson"
+          ],
+          "setup": {
+            "editorNeeded": false,
+            "items": [],
+            "actionLabels": {
+              "end_lesson": "End lesson"
+            }
+          },
+          "skillMap": {
+            "track": "Machine learning",
+            "headline": "You built a neural network from scratch. 7 mastered, 5 up next in Machine learning.",
+            "nodes": [
+              {
+                "id": "numpy-arrays",
+                "label": "NumPy arrays",
+                "state": "mastered",
+                "detail": "X, y and every weight are arrays"
+              },
+              {
+                "id": "neurons-activations",
+                "label": "Neurons & activations",
+                "state": "mastered",
+                "detail": "sigmoid squishes a weighted sum"
+              },
+              {
+                "id": "forward-pass",
+                "label": "Forward pass",
+                "state": "mastered",
+                "detail": "sigmoid(X @ W1 + b1), layer by layer"
+              },
+              {
+                "id": "loss-mse",
+                "label": "Loss (MSE)",
+                "state": "mastered",
+                "detail": "mean((out - y) ** 2)"
+              },
+              {
+                "id": "backpropagation",
+                "label": "Backpropagation",
+                "state": "mastered",
+                "detail": "the chain rule, one layer at a time"
+              },
+              {
+                "id": "training-loop",
+                "label": "Training loop (gradient descent)",
+                "state": "mastered",
+                "detail": "W -= lr * dW, epoch after epoch"
+              },
+              {
+                "id": "symmetry-breaking",
+                "label": "Symmetry breaking (random init)",
+                "state": "mastered",
+                "detail": "random weights, so the neurons differ"
+              },
+              {
+                "id": "lr-optimizers",
+                "label": "Learning rate & optimizers (Adam)",
+                "state": "next",
+                "detail": "how big each step downhill is"
+              },
+              {
+                "id": "mini-batches",
+                "label": "Mini-batches",
+                "state": "next",
+                "detail": "learn from a few examples at a time"
+              },
+              {
+                "id": "classification",
+                "label": "Classification (softmax + cross-entropy)",
+                "state": "next",
+                "detail": "pick one of many classes"
+              },
+              {
+                "id": "pytorch-autograd",
+                "label": "PyTorch autograd",
+                "state": "next",
+                "detail": "backprop done for you"
+              },
+              {
+                "id": "cnns",
+                "label": "CNNs",
+                "state": "next",
+                "detail": "networks that see images"
+              }
+            ],
+            "edges": [
+              {
+                "from": "numpy-arrays",
+                "to": "neurons-activations"
+              },
+              {
+                "from": "neurons-activations",
+                "to": "forward-pass"
+              },
+              {
+                "from": "forward-pass",
+                "to": "loss-mse"
+              },
+              {
+                "from": "loss-mse",
+                "to": "backpropagation"
+              },
+              {
+                "from": "backpropagation",
+                "to": "training-loop"
+              },
+              {
+                "from": "training-loop",
+                "to": "symmetry-breaking"
+              },
+              {
+                "from": "symmetry-breaking",
+                "to": "lr-optimizers"
+              },
+              {
+                "from": "lr-optimizers",
+                "to": "mini-batches"
+              },
+              {
+                "from": "mini-batches",
+                "to": "classification"
+              },
+              {
+                "from": "classification",
+                "to": "pytorch-autograd"
+              },
+              {
+                "from": "pytorch-autograd",
+                "to": "cnns"
+              }
+            ],
+            "cross": [
+              {
+                "track": "Math",
+                "label": "Derivatives (chain rule)",
+                "to": "backpropagation",
+                "note": "backprop multiplies slopes back through the layers"
+              },
+              {
+                "track": "Math",
+                "label": "Matrix multiply",
+                "to": "forward-pass",
+                "note": "X @ W1 runs every hidden neuron at once"
+              }
+            ],
+            "next": [
+              {
+                "title": "Learning rate & optimizers (Adam)",
+                "goal": "implement gradient descent with momentum and Adam from scratch in NumPy"
+              },
+              {
+                "title": "Mini-batches",
+                "goal": "train a model with mini-batch gradient descent in NumPy"
+              },
+              {
+                "title": "Classification (softmax + cross-entropy)",
+                "goal": "build a softmax classifier with cross-entropy loss in NumPy"
+              },
+              {
+                "title": "PyTorch autograd",
+                "goal": "build a neural network in PyTorch"
+              },
+              {
+                "title": "CNNs",
+                "goal": "build a CNN that classifies MNIST digits in PyTorch"
+              }
+            ]
+          }
+        }
+      }
+    ],
+    "complete_end": [
+      {
+        "wait": 150,
+        "type": "lesson.ended",
+        "payload": {
+          "lessonId": "lesson-nn-from-scratch",
+          "reason": "completed"
+        }
+      },
+      {
+        "wait": 0,
+        "type": "status",
+        "payload": {
+          "state": "idle"
+        }
+      }
+    ],
+    "complete_learn": [
+      {
+        "wait": 100,
+        "type": "lesson.ended",
+        "payload": {
+          "lessonId": "lesson-nn-from-scratch",
+          "reason": "new lesson"
+        }
+      },
+      {
+        "wait": 0,
+        "type": "status",
+        "payload": {
+          "state": "thinking"
+        }
+      },
+      {
+        "wait": 150,
+        "type": "lesson.building",
+        "payload": {
+          "message": "Claude is writing your lesson",
+          "progress": 0.3
+        }
+      }
+    ]
+  }
+}
