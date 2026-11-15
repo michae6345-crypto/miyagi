@@ -6,7 +6,7 @@
  * Colors are set inline on buttons because they animate (hover, enabled ↔ disabled).
  */
 import { motion, useReducedMotion } from 'motion/react'
-import type { ReactNode } from 'react'
+import { useRef, type ReactNode } from 'react'
 import { GraduationCap, Play, Square, type LucideIcon } from 'lucide-react'
 import { color, fill, spring } from '../../core/theme'
 
@@ -58,12 +58,20 @@ export type How = 'video' | 'lesson'
  * primary (the footer's "Find videos" / "Teach me" is the one primary): the picked one is a lit chip (brighter fill,
  * ring border, full-white text), the other a quiet chip. Tab switches, Enter picks, ⌘/Ctrl+Enter is "Just teach me".
  * No keycaps on the chips: each key is shown once, in the footer (Michael's audit A19).
+ *
+ * A chip acts on the press, not the release (Michael's desktop test 5: a click on "Just teach me" closed the launcher
+ * and sent nothing, while ⌘Return started the lesson). Between press and release the launcher can be told to close (a
+ * focus change during the press reaches main's blur handler, which sends launcher:close), and the click then found
+ * the panel already closing. Acting on pointerdown starts the lesson first, exactly like the keys; the click that
+ * follows is skipped. A click with no press before it (assistive tech) still picks.
  */
 export function HowChoice({ how, onPick }: { how: How; onPick: (h: How) => void }): ReactNode {
   const options: { id: How; label: string; Icon: LucideIcon }[] = [
     { id: 'video', label: 'Watch a video', Icon: Play },
     { id: 'lesson', label: 'Just teach me', Icon: GraduationCap }
   ]
+  /** The chip a press already picked, so its click doesn't pick (and send learn) a second time. */
+  const pressed = useRef<How | undefined>(undefined)
   return (
     <div className="flex flex-wrap gap-[8px]" role="radiogroup" aria-label="How do you want to learn this?">
       {options.map(({ id, label, Icon }) => {
@@ -85,8 +93,20 @@ export function HowChoice({ how, onPick }: { how: How; onPick: (h: How) => void 
             whileHover={on ? undefined : { backgroundColor: fill.chipHover, color: color.text }}
             whileTap={{ scale: 0.97 }}
             transition={{ duration: 0.14 }}
+            onPointerDown={(e) => {
+              if (e.button !== 0) return
+              pressed.current = id
+              onPick(id)
+            }}
             onMouseDown={(e) => e.preventDefault()}
-            onClick={() => onPick(id)}
+            onClick={() => {
+              if (pressed.current === id) {
+                pressed.current = undefined
+                return
+              }
+              pressed.current = undefined
+              onPick(id)
+            }}
           >
             <Icon size={13} strokeWidth={1.8} className="shrink-0" />
             {label}
