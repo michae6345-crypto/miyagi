@@ -28,6 +28,10 @@ BUNDLED_CLI = "/Applications/Visual Studio Code.app/Contents/Resources/app/bin/c
 # L5: a "Just teach me" lesson's automatic open waits at most this long while Miyagi is the active app (the learner
 # stays in Miyagi's drawer, so "until they leave Miyagi" never came); after it only typing / clicking holds it.
 LESSON_MIYAGI_WAIT_S = float(os.environ.get("ORCH_LESSON_OPEN_GRACE_S", "3"))
+# A video / generated lesson's automatic open (Session._auto_open_editor): the player and overlay stay in front, so
+# "until the learner leaves Miyagi" held VS Code ~30 s (Michael, Nov 15 7:19). Same idea, a shorter grace; typing
+# still holds it (busy()).
+VIDEO_MIYAGI_WAIT_S = float(os.environ.get("ORCH_VIDEO_OPEN_GRACE_S", "1.5"))
 
 
 def code_cli() -> str | None:
@@ -458,13 +462,15 @@ class Workspace:
         return hasattr(ws, "editor") and hasattr(ws.editor, "open_lesson_editor")
 
     def open(self, workdir: str, force: bool = False, full: bool = False, explicit: bool = False,
-             file: str | None = None, busy=None, cancelled=None) -> None:
+             file: str | None = None, busy=None, cancelled=None, miyagi_wait_s: float | None = None) -> None:
         """force: open even though auto-open (ORCH_OPEN_WORKSPACE) is off. full: "Just teach me" (the editor fills the
         screen). explicit: the learner pressed "Open VS Code" (may bring an already-open window forward).
         S2 opens the folder AT MOST ONCE per lesson + folder (`code <folder>`, never `-n`), arranges once, and an
         automatic open waits until the learner isn't in Miyagi's launcher/cards or typing.
         file (L2): the file to show, the step's own; None = S2's starter pick (open_file_for, e.g. README.md).
-        busy / cancelled (L5, real windows only): what holds an automatic open and what drops it (a newer lesson)."""
+        busy / cancelled (L5, real windows only): what holds an automatic open and what drops it (a newer lesson).
+        miyagi_wait_s: how long Miyagi in front holds an automatic open (then only busy() does); None = the default
+        (LESSON_MIYAGI_WAIT_S when full, else until the learner leaves Miyagi)."""
         if not (self.enabled or force) or (self.blocked and not explicit) or not Path(workdir).is_dir():
             return
         if self.run == self._spawn:  # real windows only: tests inject a runner
@@ -472,7 +478,8 @@ class Workspace:
         ws = _s2()
         if ws is not None and self._guarded(ws):
             real = self.run == self._spawn  # tests inject a runner: never touch real windows or real focus
-            holds = {"busy": busy, "cancelled": cancelled, "miyagi_wait_s": LESSON_MIYAGI_WAIT_S if full else None}
+            wait = miyagi_wait_s if miyagi_wait_s is not None else (LESSON_MIYAGI_WAIT_S if full else None)
+            holds = {"busy": busy, "cancelled": cancelled, "miyagi_wait_s": wait}
             ws.editor.open_lesson_editor(
                 workdir, file or ws.open_file_for(Path(workdir)), lesson_id=self._key(), fullscreen=full and real,
                 explicit=explicit, runner=None if (real and not full) else self.run, **(holds if real else {}),
