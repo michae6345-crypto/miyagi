@@ -259,8 +259,8 @@ def test_s1_tells_the_learner_one_concrete_thing(rp):
     assert text and "Run Run" not in text
 
 
-@_xfail("V6", "step 1 sends the learner to make a second venv (`python3 -m venv venv`) next to the lesson's .venv")
 def test_s1_uses_the_lessons_venv_not_a_second_one(rp):
+    """V6 (fixed, venv_steps.py): step 1 sent the learner to make a second venv next to the lesson's .venv."""
     run(rp.start())
     p = rp.started("s1")
     told = " ".join([p["instructions"], p.get("details") or "", p.get("code") or ""])
@@ -284,8 +284,8 @@ def test_s1_passes_once_the_terminal_shows_jupyter_running(rp):
 
     run(go())
     rows = rp.rows("s1")
-    assert {k: r["status"] for k, r in rows.items()} == {"s1c1": "pass", "s1c2": "pass", "s1c3": "pass"}
-    assert rows["s1c1"]["detail"].startswith("seen")
+    assert {"s1c2", "s1c3"} <= set(rows) and all(r["status"] == "pass" for r in rows.values()), rows
+    assert rows["s1c2"]["detail"].startswith("seen")  # (V6 dropped the pip-output row s1c1: the setup card installs)
     assert rp.of("step.passed")[0] == {"stepId": "s1", "nextStepId": "s2"}
     assert rp.started("s2")
 
