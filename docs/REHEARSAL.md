@@ -8,6 +8,11 @@ offline take both PASS (58.5 s / 47.7 s). The one change: Build → `lesson.read
 offline PASS (53.4 s); LIVE offline with `COACH_OFFLINE_FALLBACK=1` gets no card. E5's PR #1 (8301c0c) fixes that:
 verified offline on a throwaway merge, card 0.9 s after amber (§2). On **9f7066a** (skip_step / check_step), zero-cost
 again: DEMO=1 offline PASS (44.3 s, card 0.7 s after amber, green 12.2 s); LIVE offline still no card (PR #1 not merged).
+On **c4e78c7** (E5's PR #1 merged, plus d279748 "calmer coaching"), zero-cost: **both offline takes PASS**. DEMO=1 took
+39.8 s; the LIVE engine with the network dead and `COACH_OFFLINE_FALLBACK=1` took 45.9 s and showed the playbook card. The
+card now comes 8.1–8.4 s after amber: d279748 shows no offtrack in a step's first 20 s (`ORCH_OFFTRACK_GRACE_S`), and these
+takes start the run 0.5 s after the step jump. On stage the run starts ~15 s after the jump and amber comes ~17 s after
+that, so the grace never applies there.
 
 The script plays the app over the WebSocket: it reports the playhead like the player does, and it runs the learner's
 code with `tut run`. It starts its own engine on **:8797** (never :8787) on a **temp copy** of `demo/pinn-lab`, spools
@@ -92,7 +97,7 @@ every take spooled.
 | Checks (files + `tut run` metrics) | ✅ amber at step 2000 | ✅ amber at step 2000 |
 | `tut run` → engine | ✅ | ✅ |
 | Tiger | ✅ spooled (52 metrics/run + engine events) | ✅ spooled |
-| Coach card | ❌ **no card**. One "Coach unavailable" toast, then silent retries at +15 s and +31 s (since E4's fix; before it, 43 errors in 88 s) | ✅ E5's playbook card "Learning rate is too high … for Adam, 1e-3 is a safe start" (Smith 2017), 0.6 s after amber |
+| Coach card | ✅ since c4e78c7 with `COACH_OFFLINE_FALLBACK=1`: E5's playbook card "Learning rate is too high" (before E5's PR #1: ❌ no card, one "Coach unavailable" toast, then retries) | ✅ E5's playbook card "Learning rate is too high … for Adam, 1e-3 is a safe start" (Smith 2017), 0.6 s after amber |
 | Do it for me | ❌ | ❌ no diff offline: **fix it by hand** (`lr = 1e-3`, ⌘S) |
 | Run 2 → green → video event | not reached | ✅ 14.8 s / 0.4 s (48.3 s whole take) |
 | The video itself | needs YouTube | needs YouTube: narrate over the card |
@@ -101,7 +106,7 @@ So with no network: the cached search, cached lesson, checks, `tut run` and the 
 can't, so on 292561d **if the network dies mid-demo, the LIVE engine shows no card**: switch to
 `scripts/miyagi-offline.sh`.
 
-**`COACH_OFFLINE_FALLBACK=1` (E5): fixed on PR #1, not merged yet.** On 292561d (96d12b8) the flag gave no card. The
+**`COACH_OFFLINE_FALLBACK=1` (E5): fixed on PR #1, merged by c4e78c7 (offline take PASS there).** On 292561d (96d12b8) the flag gave no card. The
 `lr = 0.3` loss sat **flat** at 17.32 (flags `{plateau}`), so `lr_too_high` scored 0.3 and the best match was the
 convection `pinn_convection_large_beta` at 0.5, under the 0.6 bar. PR #1 (8301c0c) makes `lr_too_high` count a plateau
 when the code's lr is high, and makes the β entry require a β in the code. Re-checked on a throwaway merge of PR #1 into
@@ -149,7 +154,8 @@ newest cached lesson. Both are fixed in 3123eb6, and `miyagi-offline.sh` pins `O
    ```bash
    ORCH_LADDER_MIN_S=0 COACH_OFFLINE_FALLBACK=1 scripts/miyagi-engine.sh
    ```
-   `COACH_OFFLINE_FALLBACK=1` matters once E5's PR #1 is merged (§2); before that it's harmless.
+   With `COACH_OFFLINE_FALLBACK=1` (E5's PR #1, in integration/live since c4e78c7), a network death mid-demo still gets
+   the playbook card on the live engine (§2).
 6. **App:** `cd app && npm run dev`.
 7. **Cache warm / dry run:** the search cache for the stage query is in `demo/cache/search/` (created Nov 14 13:44;
    7-day TTL, so good until Nov 21). Do one full pass with the app and check the engine log for `cache hit for 'learn
@@ -196,7 +202,7 @@ newest cached lesson. Both are fixed in 3123eb6, and `miyagi-offline.sh` pins `O
 | Run 1 | `command not found: python` / `ModuleNotFoundError` | "Wrong Python, one second." | `source .venv/bin/activate` in `demo/pinn-lab`, run again. |
 | Amber | Nothing amber yet | "It only fails a check once it's decided: by step 2000 or when the run ends. It never nags mid-run." | Wait ~3 s for the end of the run. |
 | Coach card | No card ~10 s after amber | "It never talks while I'm typing." | Take your hands off the keyboard; then ⌥H for a hint card. |
-| Coach card | Network died ("Coach unavailable" toast, or a card marked offline) | "We just lost the network. Same checks, same lesson, offline." | With E5's PR #1 merged and `COACH_OFFLINE_FALLBACK=1`: the playbook card still comes, so fix by hand and carry on. Otherwise stop the engine and run the `miyagi-offline.sh` tab. |
+| Coach card | Network died ("Coach unavailable" toast, or a card marked offline) | "We just lost the network. Same checks, same lesson, offline." | With `COACH_OFFLINE_FALLBACK=1` (c4e78c7+): the playbook card still comes, so fix by hand and carry on. If it doesn't, stop the engine and run the `miyagi-offline.sh` tab. |
 | Do it for me | No button on the card | "First it explains why; the fix comes if I'm still stuck." | ⌘S once, or type `lr = 1e-3` and ⌘S yourself. |
 | Preview | "Save … first" / "The file changed" | "It never overwrites unsaved work." | ⌘S, then Do it for me again. |
 | Run 2 | Not green 20 s after ↵ | "Under 1e-2 by step ~1000 in every rehearsal; this one is slow." | Check `lr = 1e-3` in the file; last resort `curl -X POST localhost:8787/debug/pass`. |
@@ -207,7 +213,7 @@ newest cached lesson. Both are fixed in 3123eb6, and `miyagi-offline.sh` pins `O
 | Owner | Bug | Status |
 |---|---|---|
 | E4 | DEMO=1 coach used the convection β stub; DEMO=1 loaded the newest cached lesson; the offline coach error repeated every tick (43 in 88 s) | fixed in 3123eb6, re-verified here |
-| E5 | No playbook fallback on a connection error in live mode; the web lookup adds 1.2–3.9 s before Opus and is never used (`web=0`); then the flag missed flat-loss takes and passing-run tails counted as errors | fixed on PR #1 (8301c0c), verified offline on a throwaway merge (card 0.9 s after amber, 0 web lookups); not merged; live timing not re-measured (cost freeze) |
+| E5 | No playbook fallback on a connection error in live mode; the web lookup adds 1.2–3.9 s before Opus and is never used (`web=0`); then the flag missed flat-loss takes and passing-run tails counted as errors | fixed (PR #1, 8301c0c), merged by c4e78c7; offline take PASS there; live timing not re-measured (cost freeze) |
 | E4 | Passes the run's output tail as `error_text` even when the run exited 0 | handled on E5's side (PR #1 ignores tails with no error signature); nothing needed from E4 |
 | S8 | Hero preflight card: "Building takes ~66 s" (cached: 0.02 s), "No code editor needed / google_colab" (it's a VS Code lesson) | fixed in PR #42 (not merged yet) |
 | S2 | Setup check reports pyDOE missing when the current pyDOE (module `pydoe`) is installed; cold imports time out at 8 s | fixed in PR #41 (not merged yet) |
