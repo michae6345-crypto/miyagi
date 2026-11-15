@@ -2,7 +2,7 @@
  * The off-track card's evidence panel (layout C, the right column). Two columns, yours | expected, built from
  * whatever the payload has, in this order:
  *   1. the diff, as code: "{file} · L{line}" on its caption, each side kept as written (never wrapped; a long
- *      line scrolls sideways, and the edge that hides text fades out under a chevron that scrolls it), and the
+ *      line scrolls sideways, and the edge that hides text stops under a chevron that scrolls it), and the
  *      lines only the expected side has highlighted
  *   2. each failing check that has a real value of yours (not status text like "not seen in Code") and doesn't
  *      just repeat the diff: its label, then your value | the expected one (read from the label)
@@ -120,22 +120,21 @@ function Cell({ children }: { children: ReactNode }): ReactNode {
   )
 }
 
-/** At an edge that hides code: the chevron's strip (no text under it), then the fade back to full text. */
+/** At an edge that hides code: the chevron's strip, with no text under it. */
 const CUE = 14
-const FADE = 14
 /** Mask alpha, not a visible color: opaque shows the text, transparent hides it. */
 const SHOW = 'black'
 const HIDE = 'transparent'
 
 /**
- * The fade at each edge that hides code: an alpha mask on the scroller, so it draws no color (the text thins out
- * into the panel) and stays put while the code scrolls under it. Clear under the chevron, so the glyph never
- * sits on text. Undefined when the whole line fits.
+ * A hard cut at each edge that hides code: an alpha mask on the scroller with hard stops (no fade: BRAND.md, no
+ * gradients), so it draws no color and stays put while the code scrolls under it. The text stops a chevron's width
+ * from the edge, so the glyph never sits on text. Undefined when the whole line fits.
  */
 function edgeMask(left: boolean, right: boolean): string | undefined {
   if (!left && !right) return undefined
-  const start = left ? `${HIDE} ${CUE}px, ${SHOW} ${CUE + FADE}px` : `${SHOW} 0`
-  const end = right ? `${SHOW} calc(100% - ${CUE + FADE}px), ${HIDE} calc(100% - ${CUE}px)` : `${SHOW} 100%`
+  const start = left ? `${HIDE} ${CUE}px, ${SHOW} ${CUE}px` : `${SHOW} 0`
+  const end = right ? `${SHOW} calc(100% - ${CUE}px), ${HIDE} calc(100% - ${CUE}px)` : `${SHOW} 100%`
   return `linear-gradient(to right, ${start}, ${end})`
 }
 
@@ -167,7 +166,7 @@ function Chevron({ side, bar, onClick }: { side: 'left' | 'right'; bar: number; 
  * One side of the diff as written: whitespace kept, never wrapped (a long line scrolls sideways); `mark` highlights
  * a line. The scrollbar's room is always kept (its track is transparent), so a long line never changes the height.
  * A line wider than the column is never cut without a cue (Michael, desktop test 3: macOS overlay scrollbars stay
- * hidden until you scroll, so the code just stopped at the edge): the edge that hides text fades out under a
+ * hidden until you scroll, so the code just stopped at the edge): the edge that hides text is cut clean under a
  * chevron that scrolls it, and hovering shows the whole side as a tooltip. Trackpad and shift-wheel scroll as usual.
  */
 function Code({ text, mark }: { text: string; mark?: (line: string) => boolean }): ReactNode {
@@ -195,7 +194,7 @@ function Code({ text, mark }: { text: string; mark?: (line: string) => boolean }
   }, [measure, text])
   const scroll = (dir: 1 | -1) => (): void => {
     const el = ref.current
-    el?.scrollBy({ left: dir * Math.max(CUE + FADE, el.clientWidth - CUE - FADE), behavior: reduce ? 'auto' : 'smooth' })
+    el?.scrollBy({ left: dir * Math.max(CUE * 2, el.clientWidth - CUE * 2), behavior: reduce ? 'auto' : 'smooth' })
   }
   const hidden = edges.left || edges.right
   const mask = edgeMask(edges.left, edges.right)
