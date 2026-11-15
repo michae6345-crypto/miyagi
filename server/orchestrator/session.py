@@ -276,6 +276,34 @@ def _use_lesson_venv(graph: dict) -> None:
         log.exception("lesson .venv normalisation failed")
 
 
+_PCT_LABEL = re.compile(r"\s*(?:reaches|is at least|at least|>=|≥|above|over)\s*(?P<v>\d+(?:\.\d+)?)\s*%?\s*$", re.I)
+
+
+def _metric_labels(graph: dict) -> None:
+    """t10: one style for an accuracy check's label: "Training accuracy reaches 0.95" / "Test accuracy at least 95" ->
+    "… at least 95%". In place; only `>=` accuracy checks whose label ends in their own threshold."""
+    for st in graph.get("steps") or []:
+        for c in (st.get("checks") or []) + (st.get("precision_checks") or []) if isinstance(st, dict) else []:
+            label, v = str(c.get("label") or ""), c.get("value")
+            if (c.get("type") != "metric_threshold" or c.get("op") not in (">=", ">") or not isinstance(v, (int, float))
+                    or "acc" not in f"{c.get('metric') or ''} {label}".lower()):
+                continue
+            m = _PCT_LABEL.search(label)
+            if not m or abs(float(m.group("v")) - float(v)) > 1e-9:
+                continue
+            pct = float(v) * 100 if 0 < float(v) <= 1 else float(v)
+            c["label"] = f"{label[:m.start()].rstrip()} at least {pct:g}%"
+
+
+def _refresh_readme(folder: str, graph: dict) -> None:
+    try:
+        from server.workspace.core import refresh_readme
+
+        refresh_readme(folder, graph)
+    except Exception:  # noqa: BLE001
+        log.exception("README refresh failed")
+
+
 def unscope_editor_apps(graph: dict) -> None:
     """Screen checks/targets scoped to VS Code also accept any app (the notebook may be open in a browser)."""
     for st in graph.get("steps", []):
@@ -353,6 +381,7 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
         self.runs: dict[str, RunInfo] = {}
         self.video_t: float | None = None  # last position the player reported
         self.video_playing = False
+        self._play_at: tuple[float, float] | None = None  # t10: (video t, clock) the player last played from; None paused
         self.judge: Any = None  # E5's StepJudge (made per lesson in load_graph), None without the coach
         # VS Code's exact text of the lesson files (companion extension; never in tests: no real screen reader)
         self._buffers = editor_text.EditorBuffers(lambda: getattr(self.screen, "reader", None) is not None)
@@ -438,6 +467,8 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
     async def emit(self, type_: str, payload: dict | None = None) -> None:
         if type_.startswith("video.") and self.lesson_mode:
             return  # "Just teach me": there is no player
+        if type_.startswith("video."):
+            self._track_play(type_, payload or {})
         if type_ == "spotlight" and (payload or {}).get("clear"):
             self.spot_rect, self._spot_caption = None, None  # the next target box goes out again
         elif type_ == "spotlight" and self.awaiting_resume:
@@ -551,10 +582,8 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
                         self._setup_card = card = wsmod.editor_opens(card, items)
                         await self.emit("card", card)
                 await self._auto_open_editor(folder)
-                if found and not missing:  # keep the video's files one tap away
-                    await self.emit("card", {"kind": "hint", "title": "Tutorial files",
-                                             "body": f"The video links {len(found)} file(s). Save them in your lesson folder?",
-                                             "actions": ["download"]})
+                if found and not missing and (card := self._tutorial_files_card(found, folder)):
+                    await self.emit("card", card)  # keep the video's files one tap away
             else:  # something is missing: the setup card (install buttons)
                 card = setup_rows.with_install_all(wsmod.setup_card(items, resources=found))
                 if card:
@@ -564,6 +593,51 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
             return
         if coding:  # no setup check available (module missing, no key): a coding lesson opens its editor
             await self._auto_open_editor(folder)
+
+    TUTORIAL_CARD_MS = 8000  # t10: the Tutorial files card closes itself: it never holds the slot over the step card
+
+    def _tutorial_files_card(self, found: list[dict], folder: str) -> dict | None:
+        """t10: an information card (not a Hint) that names the video's files and where they come from ("The video
+        links its notebook mnist.ipynb (github.com/…)."), only for files the lesson folder doesn't hold yet (tutorial/
+        or the folder itself), once per lesson, gone after 8 s. None: nothing new to offer."""
+        root = Path(folder or self.workdir or "")
+
+        def have(name: str) -> bool:
+            return bool(name) and any((d / name).exists() for d in (root / "tutorial", root))
+
+        new = [r for r in found if isinstance(r, dict) and not have(str(r.get("name") or ""))]
+        key = (self.lesson_epoch, tuple(sorted(str(r.get("url") or r.get("name")) for r in new)))
+        if not new or getattr(self, "_tutorial_card_key", None) == key:
+            return None
+        self._tutorial_card_key = key
+
+        def where(url: str) -> str:
+            m = re.match(r"https?://(?:www\.)?([^/?#]+)(/[^?#]*)?", url or "")
+            if not m:
+                return ""
+            parts = [p for p in (m.group(2) or "").split("/") if p][:2]
+            return "/".join([m.group(1), *parts])
+
+        n = len(new)
+        if n == 1:
+            r = new[0]
+            what = {"notebook": "its finished notebook", "repo": "its finished code", "gist": "its finished code"}.get(
+                str(r.get("kind") or ""), "a file")
+            src = where(str(r.get("url") or ""))
+            body = (f"The video links {what}, {r.get('name')}" + (f" ({src})" if src else "")
+                    + ". Save it to tutorial/ to compare with yours.")
+        else:
+            names = ", ".join(str(r.get("name")) for r in new[:3]) + (" …" if n > 3 else "")
+            src = where(str(new[0].get("url") or ""))
+            body = (f"The video links {n} files: {names}" + (f" ({src})" if src else "")
+                    + ". Save them to tutorial/ to compare with yours.")
+        res = [{"name": str(r.get("name") or ""), "url": str(r.get("url") or ""), "kind": r.get("kind")}
+               for r in new if r.get("kind") in ("repo", "notebook", "gist", "file") and r.get("url")]
+        card: dict[str, Any] = {"kind": "setup", "title": "Tutorial files", "body": body, "actions": ["download"],
+                                "dismissAfterMs": self.TUTORIAL_CARD_MS}
+        if res:
+            card["setup"] = {"editorNeeded": False, "items": [], "resources": res}
+        return card
 
     def _editor_lesson(self, graph: dict, items: list[dict] | None) -> bool:
         """Does this video lesson happen in VS Code (so VS Code opens by itself)? t9 V8: a Jupyter notebook lesson does
@@ -1565,7 +1639,29 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
         if self.lesson_mode and step and (cmd := self._run_command(step)):
             return {"snippet": cmd[:300]}  # a run step's snippet is its command
         code = (step or {}).get("code") or ""
-        return {"snippet": code[:1200]} if self.lesson_mode and code.strip() else {}
+        if not code.strip():
+            return {}
+        # t10: a video lesson's step shows its code too (s2-s6 only said "Run the cell"), never a shell run step's
+        return {"snippet": code[:1200]} if (self.lesson_mode or self._notebook_cell(step)
+                                             or not self._run_command(step)) else {}
+
+    def _notebook_cell(self, step: dict | None) -> str | None:
+        """t10: a notebook step whose content is code for a cell ("Run the cell (Shift+Enter)" + its code) -> the
+        lesson's notebook name (mnist.ipynb), else None. Never a shell step."""
+        if not step:
+            return None
+        code = (step.get("code") or "").strip()
+        lines = [ln for ln in code.splitlines() if ln.strip() and not ln.strip().startswith("#")]
+        if not lines or all(self.SHELL_CMD.match(ln) for ln in lines):
+            return None
+        rc = (step.get("run_command") or "").strip()
+        file = (self._step_file(step) or "").strip()
+        if file.lower().endswith(".ipynb"):
+            return Path(file).name
+        if not (rc and not self.SHELL_CMD.match(rc) and self._NOTEBOOK_RUN.search(rc)):
+            return None
+        nb = str(((self.graph or {}).get("lesson") or {}).get("notebook") or "")
+        return Path(nb).name if nb.lower().endswith(".ipynb") else "your notebook"
 
     TYPE_CAPTION = "Type it here"  # E5: lesson-mode captions are short pointers; the drawer says the whole action
     RUN_CAPTION = "Run it here"
@@ -2365,6 +2461,7 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
         if self.notebook_lesson:
             unscope_editor_apps(graph)  # Colab/Jupyter in a browser counts, not just VS Code
         _use_lesson_venv(graph)  # t9 V6: a video's "python3 -m venv venv && pip3 install …" step uses the lesson's .venv
+        _metric_labels(graph)  # t10: "at least 95%", never "reaches 0.95" beside "at least 95"
         self.graph = graph
         self.runs = {}
         self._extend_failed = False
@@ -2380,6 +2477,7 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
             from . import workspace as wsmod
 
             wsmod.notebook_autosave(new_wd)
+        _refresh_readme(new_wd, graph)  # t10: the README tells the steps as they run (after the .venv / notebook fixes)
         self.m.set_lesson(graph)
         if not stage.on_graph(graph):  # a Demo lesson never calls the coach
             self._spawn(self.m.warm(), timer=True)  # pre-warm the coach's cached lesson prefix
@@ -2489,6 +2587,8 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
         for k in ("action", "todo"):
             if isinstance(step.get(k), str) and step[k].strip():
                 return step[k].strip()
+        if nb := self._notebook_cell(step):  # t10: its code shows under this line (step.started code / snippet)
+            return f"Add a cell with the code below to {nb}, then press Shift+Enter"
         if cmd := self._run_command(step):
             if self.lesson_mode and (f := self._run_button_file(step, cmd)):  # t8: the ▷ the step's box points at
                 return f"Click ▷ to run {f} (or run {cmd.splitlines()[0]} in the terminal)"
@@ -2504,8 +2604,8 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
                 lines = "the lines below" if n > 1 else "the line below"
                 return (f"In {Path(file).name}, type {lines}." if exists
                         else f"Create {Path(file).name}, then type {lines}.")
-            more = " …" if n > 1 else ""  # video lessons: no snippet under it, so name the first line
             line = first if len(first) <= 60 else first[:57] + "…"
+            more = " …" if n > 1 and not line.endswith("…") else ""  # names the first line (t10: never "te… …")
             return (f"In VS Code, type {line}{more} in {Path(file).name}" if exists
                     else f"In VS Code, create {Path(file).name} and type {line}{more}")
         text = " ".join((step.get("instructions") or "").split())
@@ -2546,6 +2646,7 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
         back = self._typing_step_for_empty_run(idx)
         if back is not None:  # "run calculator.py" while calculator.py is still empty: type it first
             idx, empty = back
+        carry = self._clip_runs_into(idx) if seek_to is None and idx == self.idx + 1 else None  # t10: before reset
         self.idx = idx
         self.phase = "active"
         self._reset_step_state()
@@ -2592,7 +2693,11 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
         await self.evaluate("start")
         if seg is not None and not self.passed and self.step is step:
             ahead = any(r.get("status") == "pass" for r in self.last_results)  # already doing it: don't replay
-            if not ahead or resuming:
+            if carry is not None and not ahead:  # t10: the last clip plays to its end, then on into this segment
+                log.info("video plays on from %.0f s into %s's segment (%.0f-%.0f s): no jump", carry, step["id"],
+                         seg["start"], seg["end"])
+                self._spawn(self._segment_timer(self.step_gen, seg["end"] - carry), timer=True)
+            elif not ahead or resuming:
                 t0 = float(seek_to) if resuming else seg["start"]
                 play = not self.typing()  # never start the video over the learner's typing
                 await self.emit("video.seek", {"t": t0, "play": play})
@@ -2651,6 +2756,32 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
         """Called on the loop by the screen bridge for each metric read off the terminal."""
         self._spawn(self.ingest({"kind": "metric", "run_id": run_id, "step": step, "name": name,
                                  "value": value, "source": "screen"}))
+
+    def _track_play(self, type_: str, payload: dict) -> None:
+        """t10: what the engine last told the player (seek / play / pause), so a step change knows where the clip is."""
+        if type_ == "video.seek":
+            t = payload.get("t")
+            self._play_at = (float(t), self.clock()) if payload.get("play") and isinstance(t, (int, float)) else None
+        elif type_ == "video.pause":
+            self._play_at = None
+        elif type_ == "video.play" and self._play_at is None and self.video_t is not None:
+            self._play_at = (float(self.video_t), self.clock())
+
+    def _clip_runs_into(self, idx: int) -> float | None:
+        """t10: the learner passed the current step while its clip still plays (test 10: s4 passed at 3:03, s5 jumped
+        the video to 4:11 and cut 68 s on ReLU / softmax). When that clip runs straight on into step idx's segment, ->
+        where the video is now: it plays on to the end of the clip and into the next segment (no jump forward past what
+        wasn't watched). Else None."""
+        prev, at = self.step, self._play_at
+        if prev is None or at is None or self.segment_done or not (0 <= idx < len(self.steps)):
+            return None
+        a, b = self._segment(prev), self._segment(self.steps[idx])
+        if not a or not b or self.steps[idx] is prev or a["videoId"] != b["videoId"]:
+            return None
+        now = at[0] + max(0.0, self.clock() - at[1])
+        if not (a["start"] - 1 <= now < b["start"]) or abs(b["start"] - a["end"]) > 2.0:
+            return None  # not in that clip any more, or the next segment doesn't start where it ends
+        return now
 
     async def _segment_timer(self, gen: int, duration: float) -> None:
         """Fallback when the player never reports video.state: end the segment by wall clock."""
@@ -4499,6 +4630,7 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
         self._spawn(later())
 
     async def video_state(self, t: float, playing: bool) -> None:
+        self._play_at = (float(t), self.clock()) if playing else None  # t10: where the clip is, even after a pass
         step = self.step
         if step is None or self.passed:
             return
