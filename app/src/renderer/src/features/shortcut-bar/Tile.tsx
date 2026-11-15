@@ -42,7 +42,7 @@ type TileProps = {
   busyKind?: ActionKind
   /** The 90 ms press dip (press.ts), for presses that didn't come from this tile's own click. */
   dip?: boolean
-  /** Diagram open / More menu open: the tile's button stays filled. */
+  /** Diagram open: the tile's button stays filled. */
   lit?: boolean
   /** Toggles (Diagram, Voice): aria-pressed. */
   pressed?: boolean
@@ -106,7 +106,7 @@ function FloatingKey({ text }: { text: string }): ReactNode {
   )
 }
 
-/** A keycap inside a glass surface (the Ask field, the More menu): the core Kbd, in glass colors. */
+/** A keycap inside a glass surface (the Ask field): the core Kbd, in glass colors. */
 export function GlassKey({ text }: { text: string }): ReactNode {
   return (
     <span className="inline-flex h-[22px] items-center whitespace-nowrap rounded-[6px] px-[7px] text-[12px] font-medium" style={{ background: glass.key, color: glass.keyText }}>
