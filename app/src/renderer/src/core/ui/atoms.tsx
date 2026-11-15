@@ -6,14 +6,15 @@ import type { CheckItem, Status } from '../lesson'
 import { emitUi } from '../bus'
 import { actionTone, brand, color, fill, spring, type OptionAction } from '../theme'
 
-/** Status dot: gray watching · amber off-track · green passed. Pulses twice when it turns amber. No glow (brand). */
+/** Status dot: gray watching · white ring off track · green passed. Pulses twice when it goes off track. No glow (brand). */
 export function StatusDot({ status, size = 7 }: { status: Status; size?: number }): ReactNode {
   const c = status === 'offtrack' ? color.amber : status === 'passed' ? color.green : color.gray
+  const ring = status === 'offtrack'
   return (
     <motion.span
       key={status}
       className="inline-block shrink-0 rounded-full"
-      style={{ width: size, height: size, background: c }}
+      style={{ width: size, height: size, background: ring ? 'transparent' : c, boxShadow: ring ? `inset 0 0 0 1.5px ${c}` : undefined }}
       initial={{ scale: 1 }}
       animate={{ scale: status === 'offtrack' ? [1, 1.35, 1, 1.35, 1] : 1 }}
       transition={{ duration: 0.9, ease: 'easeInOut' }}

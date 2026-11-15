@@ -3,7 +3,7 @@
  * names the app already uses. Change colors HERE, never in feature code.
  *
  * Brand rules (BRAND.md):
- *  - Green only ever means passed. Apricot (`color.amber`, the old amber's slot) only ever means off track. Gray means watching. No red.
+ *  - Green only ever means passed. Off track has no hue: a white ring (`color.amber` keeps the old slot's name). Gray means watching. No red.
  *  - Buttons are white on dark (ink on light). Never system blue, never green.
  *  - No gradients, glows, purple, neon, sparkles or emoji. The sparkle is replaced by the small tree.
  *  - App text in the system font (SF Pro / Segoe). Brand font (Google Sans Flex) only for brand moments. No Inter.
@@ -28,12 +28,12 @@ export const brand = {
   passText: '#1C8A3C',
   passTint: 'rgba(48,209,88,0.14)',
   /**
-   * Off track: a soft apricot from the pastel family (Adrian, Sat 4 PM: the kit's amber #FFB020 read as "AI slop").
-   * Still the ONLY meaning of this color. offTrackDeep is for text on a light surface.
+   * Off track has NO hue (Adrian, Sat 5 PM: amber read as "AI slop", then apricot still felt orange). It's white on
+   * the island, drawn as a hollow ring ("Not yet"); offline stays the gray ring. offTrackDeep = ink on a light surface.
    */
-  offTrack: '#FFC4A3',
-  offTrackDeep: '#C8693A',
-  offTrackTint: 'rgba(255,196,163,0.14)',
+  offTrack: '#F4F4F5',
+  offTrackDeep: '#141414',
+  offTrackTint: 'rgba(255,255,255,0.08)',
   watching: '#8E8E93',
   pill: '#000000',
   /**
@@ -57,7 +57,7 @@ export const hud = {
 export const color = {
   accent: hud.dark.button,
   onAccent: hud.dark.buttonText,
-  /** Off track (apricot pastel; the name stays `amber` so call sites don't change). Nothing else uses it. */
+  /** Off track: white, shown as a ring (the name stays `amber` so call sites don't change). */
   amber: brand.offTrack,
   amberTint: brand.offTrackTint,
   /** Passed. Nothing else is green. */

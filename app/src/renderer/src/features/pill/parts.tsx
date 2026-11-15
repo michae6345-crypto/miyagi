@@ -129,9 +129,9 @@ export function StatusMark({ mark }: { mark: Mark }): ReactNode {
         className="absolute inset-0 rounded-full"
         title={mark === 'offline' ? 'Offline' : undefined}
         style={{
-          // Offline: the same dot, hollow. Gray only, no icon.
-          backgroundColor: mark === 'offline' ? 'transparent' : tone,
-          boxShadow: `inset 0 0 0 ${mark === 'offline' ? 1.5 : 0}px ${color.gray}`,
+          // Offline: the same dot, hollow and gray. Off track: hollow and white (no hue, Adrian Sat 5 PM).
+          backgroundColor: mark === 'offline' || mark === 'offtrack' ? 'transparent' : tone,
+          boxShadow: `inset 0 0 0 ${mark === 'offline' || mark === 'offtrack' ? 1.5 : 0}px ${mark === 'offtrack' ? tone : color.gray}`,
           transition: 'background-color .3s ease, box-shadow .3s ease'
         }}
       />

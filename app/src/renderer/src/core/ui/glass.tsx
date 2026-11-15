@@ -18,11 +18,12 @@ import { color, glass, spring } from '../theme'
 /** Status on glass: gray watching, apricot off track, green passed (both deeper on light). */
 export function GlassDot({ status, size = 7 }: { status: Status; size?: number }): ReactNode {
   const c = status === 'offtrack' ? glass.offTrack : status === 'passed' ? glass.pass : color.gray
+  const ring = status === 'offtrack'
   return (
     <motion.span
       key={status}
       className="inline-block shrink-0 rounded-full"
-      style={{ width: size, height: size, background: c }}
+      style={{ width: size, height: size, background: ring ? 'transparent' : c, boxShadow: ring ? `inset 0 0 0 1.5px ${c}` : undefined }}
       initial={{ scale: 1 }}
       animate={{ scale: status === 'offtrack' ? [1, 1.35, 1, 1.35, 1] : 1 }}
       transition={{ duration: 0.9, ease: 'easeInOut' }}

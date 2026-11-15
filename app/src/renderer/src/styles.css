@@ -1,10 +1,10 @@
 @import "tailwindcss";
 
 @theme {
-  /* Miyagi brand (app/brand/BRAND.md). Green = passed, apricot = off track, gray = watching. No blue. */
+  /* Miyagi brand (app/brand/BRAND.md). Green = passed, white ring = off track, gray = watching. No blue. */
   --color-pass: #30D158;
   --color-pass-deep: #1F9B45;
-  --color-offtrack: #FFC4A3;
+  --color-offtrack: #F4F4F5;
   --color-watching: #8E8E93;
   --color-ink: #141414;
   --color-paper: #F6F6F3;
@@ -35,7 +35,7 @@
   --glass-button: #F4F4F5;
   --glass-button-text: #141414;
   --glass-pass: #30D158;
-  --glass-offtrack: #FFC4A3;
+  --glass-offtrack: #F4F4F5;
   --glass-shadow: 0 24px 60px rgba(0, 0, 0, 0.5);
 }
 :root[data-appearance="light"] {
@@ -53,7 +53,7 @@
   --glass-button: #141414;
   --glass-button-text: #F6F6F3;
   --glass-pass: #1C8A3C;
-  --glass-offtrack: #C8693A;
+  --glass-offtrack: #141414;
   --glass-shadow: 0 18px 50px rgba(0, 0, 0, 0.16);
 }
 
