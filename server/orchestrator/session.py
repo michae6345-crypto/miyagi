@@ -54,6 +54,7 @@ from . import box_fit  # t8: row boxes as wide as their text, so the caption bes
 from . import advice_clear  # t8: a Hint / Not yet card goes once the code it is about changed
 from . import run_pointing  # t7: the Run ▷ found once VS Code filled its AX tree; a Not yet in the code boxes the code
 from . import offtrack_targets  # t8: a lesson's Not yet carries the culprit lines as its targets (the card steps off)
+from . import setup_rows  # t9 V12: the setup card's rows stay put while it installs; Install all
 
 log = logging.getLogger("orchestrator.session")
 
@@ -72,7 +73,7 @@ _ANSWERED: contextvars.ContextVar[set[str] | None] = contextvars.ContextVar("act
 ANSWER_EVENTS = {"card", "offtrack", "diagram", "spotlight", "video.seek", "video.play", "step.started", "step.passed",
                  "lesson.ready", "lesson.ended", "lesson.building", "error", "setup.progress"}
 # their effect is outside the engine's events (an app-side toggle, VS Code / a browser opening, a background install)
-QUIET_ACTIONS = {"voice_toggle", "skip_setup", "install", "open_editor", "open_in_browser"}
+QUIET_ACTIONS = {"voice_toggle", "skip_setup", "install", "install_all", "open_editor", "open_in_browser"}
 
 
 def video_id_from_url(url: str) -> str | None:
@@ -530,7 +531,7 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
         if self.lesson_mode:  # the editor is already open: only a card for tools that are really missing
             self.reqs = items or None
             miss = [it for it in items or [] if it.get("needed") and not it.get("ok") and it.get("kind") != "editor"]
-            card = wsmod.setup_card(miss) if miss else None
+            card = setup_rows.with_install_all(wsmod.setup_card(miss)) if miss else None
             if card:
                 card["actions"] = [a for a in card.get("actions") or [] if a != "open_editor"]
                 self._setup_card = card
@@ -544,7 +545,7 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
             if coding:  # t9 V8: VS Code opens on the lesson folder by itself, as the curated lesson's does, alongside
                 # the setup card (which then never offers "Open VS Code"); the learner no longer has to press Open
                 if missing:
-                    card = wsmod.setup_card(items, resources=found)
+                    card = setup_rows.with_install_all(wsmod.setup_card(items, resources=found))
                     if card:
                         self._setup_card = card = wsmod.editor_opens(card, items)
                         await self.emit("card", card)
@@ -554,7 +555,7 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
                                              "body": f"The video links {len(found)} file(s). Save them in your lesson folder?",
                                              "actions": ["download"]})
             else:  # something is missing: the setup card (install buttons)
-                card = wsmod.setup_card(items, resources=found)
+                card = setup_rows.with_install_all(wsmod.setup_card(items, resources=found))
                 if card:
                     self._setup_card = card
                     await self.emit("card", card)
@@ -663,10 +664,15 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
             if self.graph is not None:  # re-check so the row flips to installed
                 fresh = await asyncio.to_thread(wsmod.requirements, self.graph, self.workdir)
                 if fresh:
-                    self.reqs = fresh
+                    self.reqs = full = fresh
                     if self.lesson_mode:  # _setup_card_task's lesson-mode card: tools really missing, never the editor
                         fresh = [it for it in fresh if it.get("needed") and not it.get("ok") and it.get("kind") != "editor"]
-                    self._setup_card = wsmod.setup_card(fresh) if fresh else None
+                    old = self._setup_card
+                    new = wsmod.setup_card(fresh, resources=None if self.lesson_mode else self.resources) if fresh else None
+                    if old and not fresh:  # lesson mode, nothing missing any more: the rows flip, none vanish
+                        new = wsmod.setup_card([it for it in full if it.get("kind") != "editor"])
+                    # t9 V12: the rows it was first sent with, each flipped in place; while Install is left, its body
+                    self._setup_card = setup_rows.with_install_all(setup_rows.carry(old, new, full))
                     if self._setup_card and opened:
                         wsmod.editor_opens(self._setup_card, fresh)
             if res.get("ok") and (item.get("install") or {}).get("method") == "pip" and self.workdir \
@@ -681,6 +687,8 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
                 self._setup_card = None  # nothing pending any more
                 await self.emit("card", {"kind": "setup", "title": status, "body": "", "actions": [],
                                          "dismissAfterMs": 4000})  # the app closes it after 4 s (or the learner does)
+            elif self._setup_rows_card():  # t9 V12: more to install: the same card, this row flipped (or its error)
+                await self.emit("card", self._setup_card)
             else:
                 await self._install_status(status)
         finally:
@@ -689,9 +697,14 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
     async def _install_status(self, text: str) -> None:
         """Re-send the card the learner is looking at (setup or preflight) with the install status as its body."""
         base = (self.pending_pick or {}).get("card") if self.pending_pick else self._setup_card
-        if not base:
-            return
+        if not base or self._setup_rows_card():
+            return  # t9 V12: a setup card with Install left shows progress on its rows (setup.progress); nothing moves
         await self.emit("card", {**base, "body": text})
+
+    def _setup_rows_card(self) -> bool:
+        """t9 V12: the setup card is up and still offers Install (its rows carry the install progress)."""
+        return (not self.pending_pick and self._setup_card is not None
+                and "install" in (self._setup_card.get("actions") or []))
 
     async def _run_deferred_installs(self) -> None:
         items, self._deferred_installs = self._deferred_installs, []
@@ -3452,7 +3465,7 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
     START_ACTIONS = frozenset({"start", "open_editor", "show_me", "hint", "check_step", "skip_step", "run_command",
                                "apply_fix", "confirm", "back", "use_this_folder", "undo",
                                # t6: Install on the setup card left step 1 held; any learner press begins it
-                               "install", "skip_setup", "explain", "diagram", "ask", "download", "open_in_browser",
+                               "install", "install_all", "skip_setup", "explain", "diagram", "ask", "download", "open_in_browser",
                                "retry"})  # they begin a held step
     WORK_TERMINALS = ("terminal", "iterm", "warp")
 
@@ -4591,7 +4604,7 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
 
     # Setup and help presses aren't work on the step: they must not open the check gate or start the
     # off-track clock (live test 01:08: clicking Install showed "Not yet" before the learner typed anything).
-    NOT_WORK_ACTIONS = frozenset({"install", "skip_setup", "open_editor", "open_in_browser", "download",
+    NOT_WORK_ACTIONS = frozenset({"install", "install_all", "skip_setup", "open_editor", "open_in_browser", "download",
                                   "use_this_folder", "voice_toggle", "build", "pick_another",
                                   "explain", "diagram", "show_me", "hint", "ask", "retry", "back"})
 
@@ -4807,6 +4820,9 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
             return
         if kind == "install":  # text = the setup item's tool id (none: the package the card is about)
             self._spawn(missing_module.install(self, text))
+            return
+        if kind == "install_all":  # t9 V12: the setup card's Install all: every missing row, one after another
+            self._spawn(setup_rows.install_all(self))
             return
         if kind == "skip_setup":  # the app dismisses the setup card; nothing to undo here
             self._setup_card = None  # L4: no longer pending (the Start card may go out)
