@@ -219,7 +219,10 @@ async def checks_moved(s: Any) -> None:
     except Exception:  # noqa: BLE001 - the rows alone say what's left
         cmd = ""
     card = up["card"]
-    body = code_gate.not_yet_body("", list(left.values()), sid=str(step.get("id")), cmd=cmd)
+    # t10 (CP15): only the rows the drawer shows: a hidden precision row ("evaluate saved in notebook") read as a chore
+    shown = {r.get("checkId") for r in getattr(s, "last_results", None) or [] if isinstance(r, dict)}
+    rows = [r for cid, r in left.items() if cid in shown] if shown else list(left.values())
+    body = code_gate.not_yet_body("", rows, sid=str(step.get("id")), cmd=cmd)
     acts = [a for a in card.get("actions") or [] if a in ("hint", "show_me", "skip_step", "run_command", "check_step")]
     kind = card.get("kind") if up["what"] == "card" and card.get("kind") else "step"
     again = {"stepId": step.get("id"), "kind": kind, "verdict": "not_done", "title": "Not yet", "body": body,

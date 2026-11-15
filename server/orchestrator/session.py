@@ -3312,6 +3312,7 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
                 await self._status("thinking")
             return
         self.passed = True
+        self._passed_t = self.clock()  # t10: the cue guard (a Check my work aimed at this step lands on the next)
         nxt = self.steps[self.idx + 1]["id"] if self.idx + 1 < len(self.steps) else None
         more_coming = nxt is None and (self.graph or {}).get("lesson", {}).get("complete") is False
         payload: dict[str, Any] = {"stepId": step["id"]}
@@ -3903,6 +3904,13 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
 
     # ------------------------------------------------------------------ coaching (hint ladder)
     def _code_excerpt(self, step: dict, limit: int = 6000) -> tuple[str, str | None]:
+        # t10: a notebook step's code is the learner's notebook (cells + output tails), never the screen: its file is
+        # often the video's Untitled.ipynb, not in the folder, and the screen fallback read "the notebook ends at
+        # model.compile" off an editor scrolled to the top
+        from . import nb_coach
+
+        if (nb := nb_coach.excerpt(self, step, limit)) is not None:
+            return nb
         # a run step's "(terminal)" is a place, not a file: its code is the step's own file (t3: the coach was handed
         # OCR text under "(terminal)" and held it as unconfirmed instead of reading main.py)
         files = [t.get("file") for t in step.get("targets") or [] if self._real_file(t.get("file"))]
@@ -3971,7 +3979,8 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
             self.pending_speak = None
             return
         if not self.learner_started() or (self.clock() - self.step_t0 < self.offtrack_grace_s
-                                          and curated.known_offtrack(self, step, failed) is None):
+                                          and curated.known_offtrack(self, step, failed) is None
+                                          and self._traceback_card(step, ctx, failed) is None):
             # never "off track" before the learner did anything on this step, nor in its first ~20 s (t8: unless it
             # is a known failure of the curated lesson the learner just made: its card is certain and instant)
             return self._speak_note(reason, "held (learner not started / first ~20 s)")
@@ -4000,6 +4009,33 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
         self.coaching = True
         self.spoken_sig, self.spoken_t = sig, self.clock()
         self._spawn(self._coach(self.step_gen, step, failed, ctx, level))
+
+    def _traceback_card(self, step: dict, ctx: RunContext, failed: list[dict],
+                        code: str | None = None) -> dict | None:
+        """t10 (CP5: s2's correct "load_dat is missing the a" took ~13 s through Claude): a deterministic Python
+        traceback (AttributeError with a near-match, NameError, SyntaxError with a line) -> its card now, no model
+        call. The error: the notebook's own error output, else the run's tail, else the screen's error lines."""
+        from . import nb_coach
+
+        about_error = any(re.search(r"error|traceback|exception|exit code|crash", " ".join(
+            str(r.get(k) or "") for k in ("label", "detail", "type", "checkId")), re.I) or
+            str(r.get("checkId") or "").endswith("-ran") for r in failed or [])
+        if not about_error:  # an error row fails: never an old error's card for an unrelated row
+            return None
+        try:
+            nb = nb_coach.notebook_step(self, step)
+            err = nb_coach.notebook_error(self, step) if nb else ""
+            if not err:
+                tail = ctx.output_tail[-40:] if isinstance(getattr(ctx, "output_tail", None), list) else []
+                err = "\n".join(tail or self._screen_error_lines())
+            if not err:
+                return None
+            if code is None:
+                code = self._code_excerpt(step)[0]
+            return nb_coach.traceback_card(step, err, code or "", notebook=nb)
+        except Exception:  # noqa: BLE001 - Claude diagnoses it as before
+            log.exception("traceback card failed")
+            return None
 
     def _speak_note(self, reason: str, outcome: str) -> None:
         """Log a speaking decision (reason -> speak level N / deferred / held (why)), once per step, reason and
@@ -4158,6 +4194,8 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
                 await stale_advice.fresh(self, step)  # VS Code's text this tick, not a 4 s old read's disk fallback
                 code, _file = self._code_excerpt(step)
                 card = curated.known_offtrack(self, step, failed)  # t8: a known failure: no model call
+                if card is None and (card := self._traceback_card(step, ctx, failed, code)) is not None:  # t10: instant
+                    log.info("instant off-track %r for %s (traceback, no model call)", card.get("title"), step["id"])
                 if card is not None:
                     known = True
                     log.info("instant off-track %r for %s (curated, no model call)", card.get("title"), step["id"])
@@ -4201,6 +4239,15 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
                         await self._status("watching")
                     return
                 self._coach_backoff, self._coach_retry_at = 0.0, 0.0
+                from . import nb_coach
+
+                said = " ".join(str(card.get(k) or "") for k in ("title", "body"))
+                if not card.get("hold") and (hits := nb_coach.contradicts(said, step, self.last_results)):
+                    # t10 (CP14): "view_classify cell not written yet" while "view_classify defined" is Passed: the
+                    # checks win; the drawer's rows say what's left, Check my work rebuilds it from them
+                    log.info("diagnosis %r dropped: it asks for code whose check passed (%s)", card.get("title"), hits)
+                    await self._status("watching")  # spoken_sig stays: no re-diagnosis of the same rows each tick
+                    return
                 stale_advice.note(self, step, card, code)  # what it read: its line, gone later, makes it stale
             if gen != self.step_gen or self.passed:
                 return
@@ -4864,7 +4911,8 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
                                                 "Moving on to the next step.")
         elif kind == "check_step" and step is not None:  # replaces the off-track card in the app: keep its buttons
             body = (self.last_offtrack or {}).get("title") or body  # the off-track card may have been covered
-            actions = ((["run_command"] if self._run_command(step) else ["apply_fix"]) if self.lesson_mode else [])
+            actions = ((["run_command"] if self._run_command(step) else ["apply_fix"]) if self.lesson_mode
+                       else ["hint", "show_me"])  # t10: a video lesson's Not yet keeps its teach buttons (Card has no explain)
             actions += ["skip_step"]
         log.info("action %s: nothing to do; notice %r", kind, title)
         await self.emit("card", {**({"stepId": step["id"]} if step else {}), "kind": "answer", "title": title,
@@ -5039,7 +5087,12 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
             if await card_copy.diagnosed_hint(self, step):  # t5: from the diagnosis / Check's "Not yet": line, then fix
                 await self._status("offtrack" if self.last_offtrack else "watching")
                 return
-            shown = await self._show_where(step)
+            off = self.last_offtrack or {}
+            if (not self.lesson_mode and not curated.active(self) and off.get("stepId") == step["id"]
+                    and getattr(self, "spot_rect", None) is not None):  # video lessons only (t8 replay: curated boxes)
+                shown = True  # t10 (CP6): the off-track's fix box stays ("Fix load_dat to load_data"), never the step's
+            else:  # caption ("Load MNIST and normalize pixels") put back over it by the Hint
+                shown = await self._show_where(step)
             screen = await self._screen_for_coach(step) if self.m.has_pointing() else None
             if screen is None and ((not shown and self._can_see()) or self._code_not_visible()):  # say WHERE to go
                 await self._emit_card(self._where_card(step))
@@ -5614,6 +5667,8 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
         if stage.on(self):  # a Demo lesson: Check my work passes the step (a run step runs first)
             await stage.check(self, step)
             return
+        if await self._cue_guard(step):
+            return
         self._checking = getattr(self, "_checking", 0) + 1
         try:
             await self._check_step_now(step)
@@ -5623,6 +5678,38 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
                 later, self._status_after_check = getattr(self, "_status_after_check", None), None
                 if later and self.status == "thinking":
                     await self._status(later)
+
+    CUE_GUARD_S = float(os.environ.get("ORCH_CUE_GUARD_S", "2.0"))  # t10: since step.started (the Demo's is 1.5 s)
+    CUE_GUARD_PASS_S = float(os.environ.get("ORCH_CUE_GUARD_PASS_S", "4.0"))  # since the step before it passed
+
+    async def _cue_guard(self, step: dict) -> bool:
+        """t10 (CP15): in a video lesson a Check my work pressed for the step that just passed lands on the NEW step
+        (1.7 s after step.started, 3.5 s after the pass) and got an instant "Not yet" for code not typed yet. A press
+        that soon is about the step before: say it passed, never judge the new one. True: handled."""
+        if self.lesson_mode or self.idx <= 0 or self.passed:
+            return False
+        now = self.clock()
+        since_start = now - self.step_t0
+        since_pass = now - (getattr(self, "_passed_t", None) or -1e9)
+        if since_pass >= self.CUE_GUARD_PASS_S or since_start >= max(self.CUE_GUARD_S, since_pass):
+            return False  # only right after a PASS moved on (a jump / Back to this step: the press is about it)
+        from . import workspace as wsmod
+
+        f = self._step_file(step)  # the learner already wrote the NEW step's file: the press is about this step
+        p = wsmod.resolve_file(self.workdir, f) if f and not f.endswith(".ipynb") else None
+        try:
+            if p is not None and p.stat().st_mtime > getattr(self, "_step_wall_t0", 0.0) + 0.05:
+                return False
+        except OSError:
+            pass
+        prev = self.steps[self.idx - 1] if 0 < self.idx <= len(self.steps) else {}
+        log.info("check_step %.1fs after %s started (%.1fs after the pass): aimed at %s, no verdict on the new step",
+                 since_start, step.get("id"), since_pass, prev.get("id"))
+        await self._emit_card({"stepId": step["id"], "kind": "answer", "title": f"Step {self.idx} done",
+                               "body": f"“{prev.get('title') or 'That step'}” passed. Now: {step.get('title') or 'the next step'}.",
+                               "dismissAfterMs": 4000}, window_s=0.0)
+        await self._status("watching")
+        return True
 
     async def _check_step_now(self, step: dict) -> None:
         gen = self.step_gen
@@ -5662,6 +5749,23 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
 
         if await stale_advice.check_pressed(self, step):  # the off-track's line is gone from VS Code's text, unsaved:
             return  # "You fixed it / Save nn.py (⌘S)."; saved: forgotten, the rows below say what's left
+        from . import nb_coach
+
+        if nb_coach.running(self, step):  # t10 (CP11): training mid-run: wait for it, never a diagnosis of a half run
+            log.info("check_step: %s's notebook cell is still running: wait card, no judge", step["id"])
+            await self._emit_card({"stepId": step["id"], "kind": "answer", **nb_coach.still_running(step),
+                                   "actions": ["skip_step"]}, window_s=2.0)
+            await self._status("watching", check=True)
+            return
+        if (wait := nb_coach.waiting_card(self, step, self.last_results)) is not None:
+            # t10 (CP12): the code is in (its rows Passed), only a run's output row waits: say that now (~4 s of
+            # screenshot + Haiku judge saved), never "Add model.fit"; advice_clear drops it once the row passes
+            log.info("check_step: %s waits on its run's output only: %r, no judge", step["id"], wait["body"])
+            self._carded_checks |= {r.get("checkId") for r in self.last_failed if r.get("checkId")}
+            await self._emit_card({"stepId": step["id"], "kind": "answer", **wait, "verdict": "not_done",
+                                   "actions": ["hint", "show_me", "skip_step"]}, window_s=2.0)
+            await self._status("watching", check=True)
+            return
         screen, files, exact = self._judge_inputs(step)
         active = None
         if active_job is not None:
@@ -5716,6 +5820,13 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
         rows = [r for r in self.last_results if r.get("status") != "pass"] or self.last_failed
         cmd = self._run_command(step) or self._python3((step.get("run_command") or "").strip())
         body = code_gate.not_yet_body(missing, rows, sid=step["id"], cmd=cmd, forced=bool(missing) and missing != said)
+        title = "Not yet"
+        if hits := nb_coach.contradicts(body, step, self.last_results):  # t10 (CP11/12): "Add model.fit" while
+            fixed = nb_coach.rebuilt(self, step, self.last_results)  # "model.fit called" is Passed: dropped, rebuilt
+            log.info("check_step: Not yet %r asked for code whose check passed (%s): %r", body[:80], hits, fixed["body"])
+            body, verdict = fixed["body"], {**(verdict or {}), "target": None}
+            if fixed["title"] != "Not yet":
+                title = fixed["title"]
         ids = {r.get("checkId") for r in self.last_failed if r.get("checkId")}
         if ids and ids <= self._offtracked_checks and self.last_offtrack:
             await self._status("offtrack", check=True)  # the offtrack card on screen already says what's missing
@@ -5729,8 +5840,10 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
         # it for me) is on every one: running it is the step itself, not the answer (t7: the Demo had no rerun button)
         n = self._not_yet_n[1] + 1 if getattr(self, "_not_yet_n", (None, 0))[0] == self.step_gen else 1
         teach = (["run_command"] if self._run_command(step) else ["apply_fix"] if n > 1 else []) + ["hint", "show_me"]
-        if await self._emit_card({"stepId": step["id"], "kind": "answer", "title": "Not yet", "body": body,
-                                  "actions": (teach if self.lesson_mode else []) + ["skip_step"]}, window_s=2.0):
+        if not self.lesson_mode:  # t10 (CP11, CP15): a video lesson's Not yet had only Skip step; s2's had all three
+            teach = ["hint", "show_me"]  # (the Card contract has no "explain"; the off-track has it)
+        if await self._emit_card({"stepId": step["id"], "kind": "answer", "title": title, "body": body,
+                                  "actions": teach + ["skip_step"]}, window_s=2.0):
             self._not_yet_n = (self.step_gen, n)  # a double press inside 2 s is one "Not yet", not a repeat
         await self._status("offtrack" if self.last_offtrack else "watching", check=True)
 

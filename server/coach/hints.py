@@ -123,6 +123,21 @@ def _check_question(step: dict) -> str | None:
     return "What on screen would show that this step is done?" if step.get("checks") else None
 
 
+def nudge_question(card: dict) -> str:
+    """A question that points the learner where to look, without the card's answer (t10 CP6: "load_dat is missing
+    the a: what in your code makes that happen…" just restated the diagnosis)."""
+    text = " ".join(str(card.get(k) or "") for k in ("title", "body"))
+    if re.search(r"has no attribute|misspel|typo|is missing the|has an extra|should be\b", text, re.I):
+        return "Read the last line of the error: which name can't Python find? Compare its spelling, letter by letter, with the step's code."
+    if re.search(r"isn't defined|not defined|NameError|doesn't know", text, re.I):
+        return "Which name does the error say Python doesn't know, and where in your code is it defined or imported?"
+    if re.search(r"syntax|bracket|indent|parenthes|quote", text, re.I):
+        return "Look at the line the error points to: does every bracket and quote that opens also close?"
+    if re.search(r"still running|wait for", text, re.I):
+        return "What does the last line of the cell's output show right now?"
+    return "Which line or value in your code is behind this, and what does the step's code have there instead?"
+
+
 def _not_started(card: dict | None) -> bool:
     c = card or {}
     return bool(c.get("notStarted") or (c.get("_meta") or {}).get("route") == "template" or str(c.get("title", "")).startswith("Not yet:"))
@@ -152,8 +167,8 @@ def _hint(step: dict, level: int, last_offtrack: dict | None = None) -> dict:
     if level == 0:
         # about THE issue just diagnosed: the card's own question, else the playbook's, else the step's check
         q = last.get("guidingQuestion") or (GUIDING_QUESTIONS.get(pid) if pid else None)
-        if not q and last.get("title"):  # an older or cached card without a question: still about THIS issue
-            q = f"{last['title'].rstrip('.')}: what in your code makes that happen, and which value or line would change it?"
+        if not q and last.get("title"):  # an older or cached card without a question: still about THIS issue,
+            q = nudge_question(last)  # t10 (CP6): a nudge, never the diagnosis restated as a question
         q = q or next((h for h in hints if h.strip().endswith("?")), None) or _check_question(step)
         return _card(step, 0, _titled("Question", short), q or f"What does “{step.get('title', 'this step')}” need that your work doesn't show yet?")
 

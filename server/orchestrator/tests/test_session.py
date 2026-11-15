@@ -2049,6 +2049,8 @@ def test_notebook_excerpt_is_cell_sources_not_cut_json(rig):
     rig.write(json.dumps(nb), "lab.ipynb")
     code, f = rig.s._code_excerpt({"targets": [{"file": "lab.ipynb"}]})
     assert f == "lab.ipynb"
+    assert len(code) < 600  # t10: a cell's output goes as a short tail (3 lines), never the 20 KB of it
+    code = "\n".join(ln for ln in code.split("\n") if not ln.startswith("# [output]"))
     assert code == ("# %% [cell 1]\nimport torch\nlr = 0.3\n"
                     "# %% [cell 2]\nopt = torch.optim.Adam(net.parameters(), lr=lr)")
     rig.write("{not json", "broken.ipynb")  # not parseable: falls back to the raw text, still limited
@@ -2266,7 +2268,7 @@ def test_check_step_passes_now_or_says_what_is_missing(rig):
         await rig.settle()
         new = rig.of("card")[n_cards:]
         assert len(new) == 1 and new[0]["title"] == "Not yet" and new[0]["kind"] == "answer"
-        assert new[0]["actions"] == ["skip_step"]
+        assert new[0]["actions"] == ["hint", "show_me", "skip_step"]  # t10: a video Not yet teaches too
         assert new[0]["body"] == "Add a Tanh activation after the first Linear layer, then save the file."
         assert rig.of("spotlight")[-1]["rect"]["w"] == 300.0
         assert calls and "pinn_convection.py" in calls[0]
@@ -2307,7 +2309,7 @@ def test_check_step_without_a_judge_names_the_failing_checks(rig):
 
     run(go())
     card = rig.of("card")[-1]
-    assert card["title"] == "Not yet" and "uses tanh" in card["body"] and card["actions"] == ["skip_step"]
+    assert card["title"] == "Not yet" and "uses tanh" in card["body"] and card["actions"] == ["hint", "show_me", "skip_step"]
 
 
 def test_provisional_placeholder_is_replaced_even_when_the_real_lesson_races_it(rig, monkeypatch):
