@@ -50,6 +50,10 @@ EDITOR_FRACTION = float(os.environ.get("MIYAGI_EDITOR_FRACTION", "0.6"))
 # "Just teach me" fills the screen with a MAXIMIZED window in the current Space. MIYAGI_FULLSCREEN=native brings back
 # macOS full screen, which moves the window into its own Space (where the overlay and other lesson windows get lost).
 NATIVE_FULLSCREEN = os.environ.get("MIYAGI_FULLSCREEN", "").strip().lower() == "native"
+# The maximized lesson window stops short of the overlay's drawer on the right (app drawer/geometry.ts: a "Just teach me"
+# lesson's PANEL_W_LESSON 384 + its 8 pt inset + an 8 pt gap), so the drawer doesn't cover the editor. MIYAGI_DRAWER_W=0:
+# the full width.
+DRAWER_W = float(os.environ.get("MIYAGI_DRAWER_W", "400"))
 # Our own overlay must never be treated as "the app the learner was in".
 OVERLAY_NAMES = {n.strip().lower() for n in os.environ.get("MIYAGI_OVERLAY_APPS", "Miyagi,miyagi-overlay,Electron").split(",") if n.strip()}
 
@@ -189,6 +193,34 @@ class AX:
                 by_title = win
         return by_title
 
+    def other_lesson_windows(self, pid: int, folder: str) -> list[tuple[str, object]]:
+        """(folder name, window) for each of the app's windows that shows ANOTHER Miyagi lesson folder: its title names
+        a folder under ~/miyagi/lessons (active.vscode_windows' rule). Never a window of the learner's own projects,
+        never one whose active file is inside `folder`."""
+        from .active import lesson_folder_named, parse_title
+
+        root, out = Path(folder).expanduser().resolve(), []
+        for win in self._get(self.A.AXUIElementCreateApplication(pid), "AXWindows") or []:
+            doc = _doc_path(self._get(win, "AXDocument"))
+            if doc is not None and (doc == root or root in doc.parents):
+                continue
+            name = (parse_title(str(self._get(win, "AXTitle") or "")) or {}).get("folder_name")
+            other = lesson_folder_named(name)
+            if other is not None and other != root:
+                out.append((name, win))
+        return out
+
+    def minimize(self, win) -> bool:
+        """Minimize to the Dock (never closed); False when it already was or the app refused."""
+        if self._get(win, "AXMinimized"):
+            return False
+        return self.A.AXUIElementSetAttributeValue(win, "AXMinimized", True) == 0
+
+    def raise_window(self, win) -> bool:
+        """Front window of its app (doesn't activate the app, so it never takes focus from the overlay)."""
+        self.A.AXUIElementSetAttributeValue(win, "AXMain", True)
+        return self.A.AXUIElementPerformAction(win, "AXRaise") == 0
+
     def is_fullscreen(self, win) -> bool:
         return bool(self._get(win, "AXFullScreen"))
 
@@ -234,8 +266,34 @@ def make_fullscreen(editor: dict, report: dict, *, folder: str | None = None, ax
     elif (frame := left_frame(1.0)) is None:
         report["fullscreen"] = "skipped: no screen info"
     else:
+        x, y, w, h = frame
+        frame = (x, y, max(round(w * EDITOR_FRACTION), w - DRAWER_W), h)  # the screen minus the overlay's drawer
         report["fullscreen"] = "done (maximized)" if ax.set_frame(win, *frame) else "failed: the editor refused the new frame"
+    if win is not None and folder:
+        put_away_other_lessons(ax, pid, folder, win, report)
     log.info("full screen %s: %s", Path(folder).name if folder else editor["label"], report["fullscreen"])
+
+
+def put_away_other_lessons(ax, pid: int, folder: str, win, report: dict, *, wait_s: float = 8.0,
+                           sleep=time.sleep) -> None:
+    """A lesson opened: minimize the editor's windows of OTHER Miyagi lesson folders (~/miyagi/lessons/*; never the
+    learner's own projects, never a full-screen window in its own Space), then raise the lesson's window `win` last.
+    win None: wait up to wait_s for the window showing `folder` (a running VS Code returns from `code <folder>` before
+    the window has loaded the folder); nothing happens if none appears. Best effort: report["put_away"] = the folders
+    minimized."""
+    try:
+        deadline = time.monotonic() + wait_s
+        while win is None and (win := ax.folder_window(pid, folder)) is None and time.monotonic() < deadline:
+            sleep(0.3)
+        if win is None:
+            return
+        gone = [name for name, w in ax.other_lesson_windows(pid, folder) if not ax.is_fullscreen(w) and ax.minimize(w)]
+        if gone:
+            report["put_away"] = gone
+            log.info("put away other lesson windows: %s", ", ".join(gone))
+        ax.raise_window(win)
+    except Exception as e:  # noqa: BLE001 - tidying windows must never break opening the lesson
+        log.debug("put away other lesson windows failed: %r", e)
 
 
 def left_frame(fraction: float = EDITOR_FRACTION) -> tuple[float, float, float, float] | None:
@@ -276,8 +334,9 @@ def editor_pid(editor: dict) -> int | None:
 
 
 def arrange(editor: dict, previous: dict | None, report: dict, *, ax=None, wait_s: float = 8.0,
-            fraction: float = EDITOR_FRACTION, sleep=time.sleep) -> None:
-    """With Accessibility: un-fullscreen the previous app's window, put the editor on the left `fraction`."""
+            fraction: float = EDITOR_FRACTION, sleep=time.sleep, folder: str | None = None) -> None:
+    """With Accessibility: un-fullscreen the previous app's window, put the editor on the left `fraction`.
+    folder: the lesson's folder; other lesson folders' windows are then put away (put_away_other_lessons)."""
     try:
         ax = ax or AX()
     except ImportError:
@@ -309,6 +368,8 @@ def arrange(editor: dict, previous: dict | None, report: dict, *, ax=None, wait_
     report["arranged"] = ax.set_frame(win, *frame)
     report["frame"] = [round(v) for v in frame]
     report["arrange"] = "done" if report["arranged"] else "failed: the editor refused the new frame"
+    if folder:
+        put_away_other_lessons(ax, pid, folder, None, report, sleep=sleep)
 
 
 # --------------------------------------------------------------------------- open
@@ -392,10 +453,11 @@ def open_editor_report(path: Path | str, file: str | None = None, *, runner: Run
     elif not report["ax_trusted"]:
         report["arrange"] = "skipped: Accessibility not granted"
     elif wait:
-        arrange(ed, prev, report)
+        arrange(ed, prev, report, folder=str(folder))
     else:
         report["arrange"] = "scheduled"
-        threading.Thread(target=arrange, args=(ed, prev, report), daemon=True, name="miyagi-arrange").start()
+        threading.Thread(target=arrange, args=(ed, prev, report), kwargs={"folder": str(folder)}, daemon=True,
+                         name="miyagi-arrange").start()
     log.info("open_editor %s: %s", folder, {k: v for k, v in report.items() if k != "frame"})
     return report
 
