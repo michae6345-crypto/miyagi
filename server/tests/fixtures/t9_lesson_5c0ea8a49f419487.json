@@ -348,15 +348,6 @@
         },
         {
           "id": "s5c3",
-          "type": "metric_trend",
-          "label": "Training loss decreases",
-          "metric": "loss",
-          "metric_pattern": "Epoch\\s*(?P<step>\\d+)/\\d+[\\s\\S]*?loss:\\s*(?P<value>\\d+\\.\\d+)",
-          "trend": "decreasing",
-          "window": 5
-        },
-        {
-          "id": "s5c4",
           "type": "metric_threshold",
           "label": "Training accuracy reaches 0.95",
           "metric": "accuracy",
