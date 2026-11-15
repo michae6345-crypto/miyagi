@@ -6,11 +6,10 @@
         "confidence": 0.93, "reason": "...", "ms": 910, "api_ms": 860, "cached": False} | None
 
 How:
-1. Candidates = E6's `marks.candidates(obs)` (regions with fixed ids 1-4, OCR lines from id 10; no
-   breadcrumb, tab bar, title bar or hover tooltips) plus a few extras from id 500 that marks.py
-   doesn't have yet: blank editor rows (where a learner types new code), icons on the editor's tab
-   row (the ▷ Run button), the AX run button, and a no-gutter fallback (when Vision misses the line
-   numbers, e.g. a short new file: tab row / breadcrumb / side-panel text dropped, code rows kept).
+1. Candidates = E6's `marks.candidates(obs)`: regions with fixed ids (1 terminal, 2 editor,
+   3 explorer, 4 terminal_menu, 5 run_button), then editor rows from id 10 (code and blank, even
+   when Vision reads no line numbers), then other OCR lines; never the breadcrumb, tab bar, title
+   bar, hover tooltips or a side bar such as Chat. Callers can add `extra` marks (ids from 500).
 2. The frame is cropped to the candidates, downscaled to <= 1280 px wide, and every candidate gets
    a small numbered tag. ONE Haiku request (`claude-haiku-5-5`, thinking off, effort low,
    max_tokens 160) returns strict JSON `{"ids": [...], "confidence": 0..1, "why": "..."}`.
@@ -33,7 +32,6 @@ import asyncio
 import base64
 import hashlib
 import io
-import itertools
 import json
 import logging
 import math
@@ -42,10 +40,9 @@ import re
 import time
 from collections import OrderedDict, deque
 from collections.abc import Iterable, Sequence
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Any
 
-from . import lines as L
 from . import marks as MK
 from . import match as M
 from .types import Block, Rect, ScreenObservation
@@ -62,10 +59,11 @@ CACHE_MAX = 128
 
 SYSTEM = (
     "You choose what a coding tutor highlights on a learner's screen (VS Code on macOS). The screenshot "
-    "has numbered tags: a yellow tag sits just left of a line of text (for code rows it is in the "
-    "line-number gutter), a cyan tag marks a whole region outlined in cyan, a pink tag sits under a "
-    "small toolbar icon. The list gives each tag's id, kind and OCR text; OCR can garble or drop "
-    "characters, so check the image.\n"
+    "has numbered tags: a yellow tag sits just left of a line of text (for editor rows it is in the "
+    "line-number gutter; `blank` rows are empty lines), a cyan tag marks a region outlined in cyan: a "
+    "panel (terminal, editor, explorer) or one control (terminal_menu = the Terminal menu in the menu "
+    "bar, run_button = the Run ▷ button). The list gives each tag's id, kind and OCR text; OCR can "
+    "garble or drop characters, so check the image.\n"
     "Pick the id(s) that exactly match the request. Several ids only for adjacent rows of one block of "
     "code. If the request is where the learner should TYPE code that is not on screen yet, pick the "
     "blank line where it goes. Breadcrumbs, editor tabs and hover tooltips are never the answer. If "
@@ -105,7 +103,7 @@ class Cand:
         if self.kind == "region":
             return "region"
         if self.kind in ("code", "blank"):
-            t = f"code L{self.line}" if self.line else "code"
+            t = f"{self.kind} L{self.line}" if self.line else self.kind
             return t + (", partly under a tooltip" if self.occluded else "")
         if self.kind == "toolbar":
             return "toolbar icon"
@@ -115,12 +113,8 @@ class Cand:
         if self.kind == "region":
             return f"{self.text} region"
         if self.kind == "blank":
-            return f"{self.tag()} (blank line)" if self.line else self.text
+            return f"{self.tag()} (empty line)"
         return f"{self.tag()}: {self.text}"
-
-
-_TAB = re.compile(r"^\W{0,2}[\w.-]+\.[A-Za-z]\w{0,7}(?:\s+(?:\d{1,3}|[•●○xX×✕]))*\W{0,2}$")
-_PANEL_HEADER = re.compile(r"^[A-Z][A-Za-z]{2,20}(?: [A-Z][A-Za-z]{2,20})?$")
 
 
 def _front_window(obs: ScreenObservation, app: str | None):
@@ -131,147 +125,23 @@ def _front_window(obs: ScreenObservation, app: str | None):
     return None
 
 
-@dataclass
-class _Chrome:
-    """The editor window's top chrome when the gutter (and so E6's editor region) is missing."""
-    tab_cy: float
-    tab_h: float
-    tab_left: float
-    tabs_right: float
-    bottom: float                 # bottom of the tab row + breadcrumb
-    side_left: float | None       # left edge of a side panel (Chat, Outline ...) level with the tabs
-    icons: list[Block] = field(default_factory=list)
-
-
-def _chrome(obs: ScreenObservation, win) -> _Chrome | None:
-    """Tab row = the top-most file-name tab in the window's upper quarter; the breadcrumb is the row
-    right under it, starting near the first tab; icons are short blocks right of the tabs."""
-    wb = [b for b in obs.blocks if b.app == win.app and b.window == win.title and b.role != "hover"]
-    upper = win.rect.y + 0.25 * win.rect.h
-    tabs = [b for b in wb if win.rect.y + 4 < b.rect.cy < upper and _TAB.match(b.text.strip())]
-    if not tabs:
-        return None
-    first = min(tabs, key=lambda b: (b.rect.y, b.rect.x))
-    h = first.rect.h
-    row = [b for b in wb if abs(b.rect.cy - first.rect.cy) < 0.6 * h]
-    row_tabs = [b for b in row if _TAB.match(b.text.strip())]
-    left = min(b.rect.x for b in row_tabs)
-    tabs_right = max(b.rect.x2 for b in row_tabs)
-    side = [b for b in row if b.rect.x > win.rect.x + 0.55 * win.rect.w and b.rect.x > tabs_right + 40
-            and _PANEL_HEADER.match(b.text.strip())]
-    side_left = min(b.rect.x for b in side) - 8 if side else None
-    right = side_left if side_left is not None else win.rect.x2
-    icons = [b for b in row if b.rect.x > tabs_right + 16 and b.rect.x2 <= right + 4 and b not in side
-             and not _TAB.match(b.text.strip()) and len(b.text.strip()) <= 8]
-    bottom = max(b.rect.y2 for b in row_tabs)
-    for b in wb:   # breadcrumb: right under the tab row, starting near the first tab
-        if (first.rect.y2 - 2 <= b.rect.y and b.rect.cy < first.rect.y2 + 2.2 * h and left - 12 <= b.rect.x <= left + 60
-                and (M.is_breadcrumb(b.text) or _TAB.match(b.text.strip()) or "›" in b.text or ">" in b.text)):
-            bottom = max(bottom, b.rect.y2)
-    return _Chrome(first.rect.cy, h, left, tabs_right, bottom, side_left, icons)
-
-
-def _blank_rows(obs: ScreenObservation, app: str | None) -> list[Cand]:
-    """Editor rows with no text (where new code gets typed), per pane: inside the file (up to the
-    last numbered / non-empty line) plus the row right after it when it's on screen."""
-    out: list[Cand] = []
-    for pane in L.find_panes(obs, app):
-        texts = {n for n in pane.rows if pane.row_text(n).strip()}
-        last = max(set(pane.measured) | texts) if (pane.measured or texts) else None
-        if last is None:
-            continue
-        for n in sorted(pane.rows):
-            if n > last + 1 or n in texts:
-                continue
-            r = pane.row_rect(n)
-            if r is None:
-                continue
-            r = r.clamp(obs.screen) if obs.screen.w else r
-            out.append(Cand(0, "blank", "", r, line=n, region="editor", occluded=L._under_hover(obs, r)))
-            if len(out) >= 60:
-                return out
-    return out
-
-
 def build_candidates(obs: ScreenObservation, app: str | None = "Code", *, regions: dict | None = None,
                      exclude: Sequence = (), extra: Iterable = ()) -> list[Cand]:
-    """E6's set-of-marks candidates + our extras (blank rows, tab-row icons, no-gutter fallback).
+    """E6's set-of-marks candidates (regions 1-5 incl. the run ▷, editor code/blank rows even without a
+    readable gutter, other OCR lines; never breadcrumb / tab bar / tooltips / side bar) + `extra`.
     `regions`: stabilized region rects (reader.locate_region) or None (computed from `obs`).
     `exclude`: our overlay's rects; lines whose centre is inside are dropped (regions are kept).
-    `extra`: (kind, text, rect) tuples, e.g. ("toolbar", "Run button (Accessibility)", rect)."""
-    base = MK.candidates(obs, None, app, regions=regions)
-    out = [Cand(c.id, c.kind, c.text, c.rect, c.line, c.region, c.occluded) for c in base]
-    have_regions = {c.text for c in out if c.kind == "region"}
-    extras: list[Cand] = []
-    win = _front_window(obs, app)
-    if "editor" in have_regions:
-        extras += _blank_rows(obs, app)
-    ch =_chrome(obs, win) if win is not None else None
-    if ch is not None:
-        for b in ch.icons:
-            extras.append(Cand(0, "toolbar", b.text.strip(), b.rect.pad(2), region="editor_title"))
-    if win is not None and ch is not None and "editor" not in have_regions:
-        out, fallback = _no_gutter(out, obs, win, ch)
-        extras += fallback
-    for kind, text, rect in extra:
-        extras.append(Cand(0, kind, text, Rect.from_any(rect)))
-    nid = EXTRA_ID
-    for c in extras:
-        c.id = nid
-        nid += 1
-    cands = out + extras
+    `extra`: (kind, text, rect) tuples, ids from EXTRA_ID."""
+    cands = [Cand(c.id, c.kind, c.text, c.rect, c.line, c.region, c.occluded)
+             for c in MK.candidates(obs, None, app, regions=regions)]
+    for i, (kind, text, rect) in enumerate(extra):
+        cands.append(Cand(EXTRA_ID + i, kind, text, Rect.from_any(rect)))
     if exclude:
         ex = [Rect.from_any(r) for r in exclude]
         cands = [c for c in cands if c.kind == "region" or not any(r.contains(c.rect) for r in ex)]
     if obs.screen.w:
         cands = [c for c in cands if c.rect.clamp(obs.screen).w > 2 and c.rect.clamp(obs.screen).h > 2]
     return cands
-
-
-def _no_gutter(cands: list[Cand], obs: ScreenObservation, win, ch: _Chrome) -> tuple[list[Cand], list[Cand]]:
-    """No editor region (Vision missed the line numbers): drop the window's title/tab/breadcrumb band
-    and side-panel text, drop an explorer region that reaches into the editor, call the rows in the
-    code column `code` (no line number) and add the blank row under the last one."""
-    status_top = win.rect.y2 - 26
-    right = ch.side_left if ch.side_left is not None else win.rect.x2
-    keep: list[Cand] = []
-    code: list[Cand] = []
-    for c in cands:
-        if c.kind == "region":
-            if c.text == "explorer" and c.rect.x2 > ch.tab_left + 4:
-                continue                       # computed without an editor edge: covers the tabs
-            keep.append(c)
-            continue
-        if not win.rect.contains(c.rect):
-            keep.append(c)
-            continue
-        if c.rect.cy < ch.bottom + 2 or c.rect.cy > status_top:
-            continue                           # title bar / tabs / breadcrumb / status bar
-        if c.rect.x >= right - 4:
-            continue                           # side panel (Chat ...)
-        if c.rect.x >= ch.tab_left - 24:
-            c.kind, c.region = "code", "editor"
-            code.append(c)
-        elif c.region == "explorer" or c.rect.x2 <= ch.tab_left:
-            c.region = "explorer"
-        keep.append(c)
-    blanks: list[Cand] = []
-    if code:
-        code.sort(key=lambda c: c.rect.cy)
-        h = sorted(c.rect.h for c in code)[len(code) // 2]
-        gaps = [b.rect.cy - a.rect.cy for a, b in itertools.pairwise(code) if b.rect.cy - a.rect.cy > 0.8 * h]
-        pitch = 1.35 * h
-        if gaps:
-            g = min(gaps)
-            pitch = g / max(1, round(g / (1.35 * h)))
-        last = code[-1]
-        left = min(c.rect.x for c in code) - 4
-        y = last.rect.cy + pitch - pitch / 2
-        if y + pitch < status_top:
-            w = max(260.0, min(right - left - 20, 520.0))
-            blanks.append(Cand(0, "blank", f"blank line right under `{last.text[:50]}`",
-                               Rect(left, y, w, pitch), region="editor"))
-    return keep, blanks
 
 
 def listing(cands: list[Cand], max_chars: int = 110) -> str:
@@ -281,7 +151,7 @@ def listing(cands: list[Cand], max_chars: int = 110) -> str:
         return (grp, c.rect.x if grp == 1 else 0, c.rect.cy if grp in (1, 2) else c.id, c.id)
     rows = []
     for c in sorted(cands, key=order):
-        t = "(blank line)" if c.kind == "blank" and c.line else c.text
+        t = "(empty line)" if c.kind == "blank" else c.text
         t = t if len(t) <= max_chars else t[: max_chars - 1] + "…"
         rows.append(f"{c.id} [{c.tag()}] {t}")
     return "\n".join(rows)
@@ -372,8 +242,6 @@ def render_marks(frame, cands: list[Cand], obs: ScreenObservation, exclude: Sequ
         else:
             if c.kind == "text":
                 d.rectangle([x1 - 1, y1 - 1, x2 + 1, y2 + 1], outline=(255, 214, 0, 150), width=1)
-            elif c.kind == "blank" and not c.line:
-                d.rectangle([x1, y1, x2, y2], outline=(255, 214, 0, 200), width=1)
             tag(x1 - w - 3, (y1 + y2 - h) / 2, str(c.id), (255, 214, 0, 255))
     buf = io.BytesIO()
     img.save(buf, "JPEG", quality=82)
@@ -687,14 +555,14 @@ NONE_CONF = 0.75     # "nothing on screen matches" must be at least this sure to
 def verdict(rect, res: dict | None, outcome: str, conf: float) -> tuple[dict | None, str]:
     """Combine the engine's own box with a pick -> (rect to show | None, why):
     - pick overlaps the box -> keep the box ("agree"); a confident pick elsewhere -> the pick ("moved"),
-      except a whole region replacing a single row (a region is never more precise than a row);
+      except a whole panel replacing a single row (a panel is never more precise than a row);
     - the model is sure nothing matches (conf >= NONE_CONF) -> None ("none": no box);
     - low confidence, timeout, budget, no key, error -> keep the box ("kept:<outcome>")."""
     box = Rect.from_any(rect).to_dict()
     if res is not None:
         if overlaps(box, res["rect"], 0.3):
             return box, "agree"
-        if res.get("kind") == "region" and box["h"] < 80:
+        if res.get("kind") == "region" and res["rect"]["h"] >= 80 and box["h"] < 80:
             return box, "kept:region"
         return dict(res["rect"]), "moved"
     if outcome == "none" and conf >= NONE_CONF:
@@ -711,21 +579,18 @@ async def confirm_spot(rect, frame, ocr_boxes, intent: str, **kw) -> tuple[dict 
 # ---------------------------------------------------------------------- live
 
 def _live_args(reader, app: str | None) -> dict:
-    regions, extra = {}, []
+    regions = {}
     try:
         for n in MK.REGION_IDS:
             r = reader.locate_region(n, app)
             if r is not None:
                 regions[n] = r
-        run = reader.locate_region("run_button", app)
-        if run is not None:
-            extra.append(("toolbar", "Run button (Accessibility)", run))
     except Exception:
         log.exception("pick_on_screen: regions")
         regions = {}
     desc = getattr(reader, "_describer", None)
     key = desc._key() if desc is not None and hasattr(desc, "_key") else None
-    return {"regions": regions or None, "extra": extra, "api_key": key or None,
+    return {"regions": regions or None, "api_key": key or None,
             "exclude": list(getattr(reader, "_overlay", []) or [])}
 
 

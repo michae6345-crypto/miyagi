@@ -14,6 +14,7 @@ import asyncio
 import base64
 import io
 import json
+import re
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -27,6 +28,7 @@ from server.screen import target as T
 from server.screen.types import Rect, ScreenObservation
 
 FIX = Path(__file__).resolve().parent.parent / "fixtures"
+TAB = re.compile(r"^\W{0,2}[\w.-]+\.[A-Za-z]\w{0,7}(?:\s+(?:\d{1,3}|[•●○xX×✕]))*\W{0,2}$")   # an editor tab
 
 
 def _load(name):
@@ -126,8 +128,8 @@ def _matches(c: T.Cand, truth) -> bool:
         return c.kind in ("code", "blank") and abs(c.rect.cy - cy) <= h / 2
     if kind == "region":
         return c.kind == "region" and c.text == truth[1]
-    r = truth[1]
-    return c.kind != "region" and c.rect.contains_point(r.cx, r.cy)
+    r = truth[1]   # a panel region never counts as this small target; a control region (run ▷) may
+    return c.rect.contains_point(r.cx, r.cy) and (c.kind != "region" or c.rect.w * c.rect.h <= 16 * r.w * r.h)
 
 
 def _truth_id(cands, truth) -> int | None:
@@ -159,7 +161,7 @@ def test_case(name, intent, truth):
             assert not any(c.kind == "region" and c.text == "terminal" for c in cands)
             assert not any(c.region == "terminal" for c in cands)
         if "Run button" in intent:
-            assert not any(c.kind == "toolbar" for c in cands)
+            assert not any(c.kind == "toolbar" or c.text == "run_button" for c in cands)
         return
     tid = _truth_id(cands, truth)
     assert tid is not None, f"target not offered exactly once as a mark:\n{T.listing(cands)}"
@@ -207,7 +209,8 @@ def test_offline_accuracy_report(capsys):
 # ---------------------------------------------------------------------- never offered
 
 @pytest.mark.parametrize("name", ["vscode_window_calc_clean", "vscode_window_calc_hover", "vscode_fullscreen_scrolled",
-                                  "vscode_fullscreen_top", "vscode_terminal_flat", "vscode_lesson_calculator"])
+                                  "vscode_fullscreen_top", "vscode_terminal_flat", "vscode_lesson_calculator",
+                                  "vscode_window_notes_inline_chat"])
 def test_chrome_tooltip_and_side_panel_are_never_marks(name):
     _frame, obs = _load(name)
     cands = T.build_candidates(obs, "Code")
@@ -215,9 +218,9 @@ def test_chrome_tooltip_and_side_panel_are_never_marks(name):
         if c.kind == "region":
             continue
         assert not M.is_breadcrumb(c.text), c
-        assert not (c.kind == "text" and T._TAB.match(c.text.strip()) and c.region != "explorer"), c
-    hover = [b.rect for b in obs.blocks if b.role == "hover"]
-    for h in hover:   # tooltip text never becomes a mark (the row under it may, flagged occluded)
+        assert not (c.kind == "text" and TAB.match(c.text.strip()) and c.region != "explorer"), c
+    hover = [b.rect for b in obs.blocks if b.role in ("hover", "widget")]
+    for h in hover:   # tooltip / inline-chat text never becomes a mark (the row under it may, flagged occluded)
         assert not any(c.kind == "text" and h.contains(c.rect) for c in cands)
     if name == "vscode_lesson_calculator":
         texts = " ".join(c.text for c in cands)
@@ -239,7 +242,6 @@ def test_blank_rows_have_file_line_numbers():
     blanks = {c.line: c for c in T.build_candidates(obs, "Code") if c.kind == "blank"}
     assert {2, 3, 6, 7, 10, 11, 14, 15, 20, 21} <= set(blanks)
     assert abs(blanks[6].rect.cy - (215 + 9)) <= 4
-    assert all(c.id >= T.EXTRA_ID for c in blanks.values())        # E6's ids untouched
 
 
 # ---------------------------------------------------------------------- request, image, answer
@@ -425,3 +427,11 @@ def test_confirm_spot_moves_a_wrong_box_and_keeps_it_when_haiku_is_unavailable()
     assert (rect, why) == (crumb, "kept:no_key")
     rect, why = run(T.confirm_spot(crumb, frame, obs, "x", client=Stub(ans([2]), delay=1), timeout=0.05))
     assert (rect, why) == (crumb, "kept:timeout")
+
+
+@pytest.mark.xfail(strict=True, reason="known gap (E6 marks.py): an EMPTY file has no code row to lay rows out from, "
+                                       "so line 1 under VS Code's inline chat widget is not offered as a mark")
+def test_known_gap_empty_file_line_one_under_inline_chat():
+    _frame, obs = _load("vscode_window_notes_inline_chat")
+    cands = T.build_candidates(obs, "Code")
+    assert _truth_id(cands, row(134)) is not None
