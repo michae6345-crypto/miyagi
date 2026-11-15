@@ -1,0 +1,6 @@
+{
+ "stepId": "nn2",
+ "kind": "answer",
+ "title": "Why out * (1 - out)?",
+ "body": "It's sigmoid's slope. The chain rule multiplies it in wherever the signal went through a sigmoid."
+}

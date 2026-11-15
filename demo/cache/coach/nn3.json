@@ -1,0 +1,16 @@
+{
+ "stepId": "nn3",
+ "severity": "fail",
+ "title": "Loss is stuck at 0.25",
+ "body": "All four hidden neurons start with the same weights, so they get the same update and stay copies. With zeros nothing moves at all. Start W1 and W2 random.",
+ "guidingQuestion": "If every hidden neuron starts the same, can they ever become different?",
+ "citation": {
+  "label": "Goodfellow et al., Deep Learning §8.4 (breaking symmetry)",
+  "url": "https://www.deeplearningbook.org/contents/optimization.html"
+ },
+ "actions": [
+  "explain",
+  "hint",
+  "show_me"
+ ]
+}

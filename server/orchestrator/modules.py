@@ -667,7 +667,10 @@ class Modules:
         """S4: server.diagrams.build(step, context) -> {kind, caption, data, stepId}. `kind` is only a
         preference ("network" | "graph"); DEMO stubs draw network/gradients/heatmap."""
         stub_kind = kind or "network"
-        cached = self._cache("diagrams", f"{stub_kind}.json")
+        # DEMO: a step's own diagram first (diagrams/<step>-<kind>.json; the session namespaces ids as lesson:step),
+        # then the shared one for that kind.
+        sid = str((step or {}).get("id", "")).split(":")[-1]
+        cached = (self._cache("diagrams", f"{sid}-{stub_kind}.json") if sid else None) or self._cache("diagrams", f"{stub_kind}.json")
         if cached:
             return cached
         ctx_in = dict(context or {})

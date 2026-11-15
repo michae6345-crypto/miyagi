@@ -1,0 +1,6 @@
+{
+ "stepId": "nn3",
+ "kind": "answer",
+ "title": "Why lr = 1.0?",
+ "body": "A tiny network with a smooth loss can take big steps. On real data you'd start nearer 0.01."
+}

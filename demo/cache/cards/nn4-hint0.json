@@ -1,0 +1,6 @@
+{
+ "stepId": "nn4",
+ "kind": "hint",
+ "title": "Hint 1 of 2",
+ "body": "forward(X)[1] is the output for all four inputs."
+}

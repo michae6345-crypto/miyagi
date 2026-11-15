@@ -1,0 +1,6 @@
+{
+ "stepId": "nn1",
+ "kind": "hint",
+ "title": "Hint 2 of 2",
+ "body": "forward returns two things: the hidden layer h and the output."
+}

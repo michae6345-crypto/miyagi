@@ -1,0 +1,6 @@
+{
+ "stepId": "nn3",
+ "kind": "explain",
+ "title": "Why zeros can't learn",
+ "body": "All four hidden neurons compute sigmoid(0) = 0.5 and get the same update, so they stay copies. Here the gradient is exactly zero."
+}
