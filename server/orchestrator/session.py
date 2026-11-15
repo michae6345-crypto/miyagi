@@ -249,6 +249,14 @@ def is_notebook_lesson(graph: dict) -> bool:
     return False
 
 
+def is_colab_lesson(graph: dict) -> bool:
+    """A notebook lesson done in Google Colab (a browser), never in VS Code."""
+    blob = " ".join([str((graph.get("lesson") or {}).get(k) or "") for k in ("title", "goal")]
+                    + [s.get("url") or "" for s in graph.get("sources", [])]
+                    + [f"{st.get('title', '')} {st.get('instructions', '')}" for st in graph.get("steps", [])]).lower()
+    return "colab" in blob
+
+
 def unscope_editor_apps(graph: dict) -> None:
     """Screen checks/targets scoped to VS Code also accept any app (the notebook may be open in a browser)."""
     for st in graph.get("steps", []):
@@ -511,13 +519,19 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
                 await self.emit("card", card)
             await self._maybe_pass_setup_step()
             return
-        coding = not self.notebook_lesson and (wsmod.editor_needed(items) if items else wsmod.needs_editor(graph))
+        coding = self._editor_lesson(graph, items)
         if items:  # S2: what this lesson needs, what's installed, install recipes (+ "Download tutorial files")
             self.reqs = items
             missing = [it for it in items if it.get("needed") and not it.get("ok")]
-            if coding and not missing:  # everything's here: open the editor now, no "Ready to go… Open?" card
+            if coding:  # t9 V8: VS Code opens on the lesson folder by itself, as the curated lesson's does, alongside
+                # the setup card (which then never offers "Open VS Code"); the learner no longer has to press Open
+                if missing:
+                    card = wsmod.setup_card(items, resources=found)
+                    if card:
+                        self._setup_card = card = wsmod.editor_opens(card, items)
+                        await self.emit("card", card)
                 await self._auto_open_editor(folder)
-                if found:  # keep the video's files one tap away
+                if found and not missing:  # keep the video's files one tap away
                     await self.emit("card", {"kind": "hint", "title": "Tutorial files",
                                              "body": f"The video links {len(found)} file(s). Save them in your lesson folder?",
                                              "actions": ["download"]})
@@ -530,6 +544,16 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
             return
         if coding:  # no setup check available (module missing, no key): a coding lesson opens its editor
             await self._auto_open_editor(folder)
+
+    def _editor_lesson(self, graph: dict, items: list[dict] | None) -> bool:
+        """Does this video lesson happen in VS Code (so VS Code opens by itself)? t9 V8: a Jupyter notebook lesson does
+        too when the setup check says it needs the editor (test 9: mnist.ipynb in VS Code); a Colab one stays in the
+        browser."""
+        from . import workspace as wsmod
+
+        if self.notebook_lesson:
+            return bool(items) and wsmod.editor_needed(items) and not is_colab_lesson(graph)
+        return wsmod.editor_needed(items) if items else wsmod.needs_editor(graph)
 
     async def _auto_open_editor(self, folder: str) -> None:
         """Coding lesson, nothing missing: open the learner's editor on the lesson folder (S2: VS Code first, the
@@ -626,7 +650,7 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
                         fresh = [it for it in fresh if it.get("needed") and not it.get("ok") and it.get("kind") != "editor"]
                     self._setup_card = wsmod.setup_card(fresh) if fresh else None
                     if self._setup_card and opened:
-                        self._setup_card["actions"] = [a for a in self._setup_card.get("actions") or [] if a != "open_editor"]
+                        wsmod.editor_opens(self._setup_card, fresh)
             if res.get("ok") and (item.get("install") or {}).get("method") == "pip" and self.workdir \
                     and getattr(self.screen, "reader", None) is not None:  # real windows only (never in tests)
                 # E20: Pylance resolved `import requests` before the .venv existed and never looked again: the lesson's
