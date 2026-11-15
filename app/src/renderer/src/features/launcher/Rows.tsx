@@ -8,6 +8,7 @@ import { CircleAlert, CirclePlay, FileCode2, FileText, FolderGit2, Newspaper, Se
 import { MiyagiMark } from '../../core/ui/Mark'
 import { Thumb } from '../../core/ui/atoms'
 import { brand, clock, color, fill, spring } from '../../core/theme'
+import { HOW_LABEL } from './parts'
 import type { SearchResult } from './store'
 import { thumbnailFor, type YouTubeLink } from './youtube'
 import { alpha, kindTone } from './tint'
@@ -123,6 +124,7 @@ export function ResultRow({ r, best, ...rest }: Slot & { r: SearchResult; best: 
 /**
  * The fixed first row of every search: a text lesson Claude researches from the web for what's typed (learn mode
  * "lesson"), no video. A neutral tile with the bonsai: it's Miyagi's own option, not a source kind.
+ * Titled like the chip and the footer (review A18: one name for one action everywhere).
  */
 export function LessonRow({ onHover, onPick }: { onHover: () => void; onPick: () => void }): ReactNode {
   return (
@@ -130,7 +132,7 @@ export function LessonRow({ onHover, onPick }: { onHover: () => void; onPick: ()
       <span className="grid h-[38px] w-[60px] shrink-0 place-items-center rounded-[8px]" style={{ background: fill.tile }}>
         <MiyagiMark size={18} />
       </span>
-      <Text title="Build a lesson from the internet" meta="Claude researches it, no video" />
+      <Text title={HOW_LABEL.lesson} meta="A lesson built from the internet, no video" />
     </RowShell>
   )
 }
