@@ -1561,21 +1561,29 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
         name = m.group(1) if m else (self._step_file(step) or step.get("file") or "")
         if not name or not Path(self.workdir).is_dir():
             return None
-        path = wsmod.resolve_file(self.workdir, name)
-        try:
-            empty = path is None or not path.read_text(errors="replace").strip()
-        except OSError:
-            return None
-        if not empty:
-            return None
-        base = Path(name).name
+        base, shown = Path(name).name, Path(name).name
+        if name.lower().endswith(".ipynb"):  # replay s5->s6: a video's Untitled.ipynb is the learner's mnist.ipynb
+            from server.checks.notebook import find_notebook, read_notebook
+
+            nb_path = find_notebook(self.workdir, [name])  # the step's notebook, else the newest .ipynb in the folder
+            nb = read_notebook(nb_path)
+            if nb is not None and nb.source_text.strip():
+                return None
+            shown = nb_path.name if nb_path is not None else base
+        else:
+            path = wsmod.resolve_file(self.workdir, name)
+            try:
+                if path is not None and path.read_text(errors="replace").strip():
+                    return None
+            except OSError:
+                return None
         for j in range(idx - 1, -1, -1):
             prev = self.steps[j]
             pfile = Path(prev.get("file") or self._step_file(prev) or "").name
             if pfile == base and (prev.get("code") or "").strip() and not self._run_command(prev):
                 self._run_redirected.add(step["id"])
-                log.info("step %s runs %s but it's empty: back to %s", step["id"], base, prev["id"])
-                return j, base
+                log.info("step %s runs %s but it's empty: back to %s", step["id"], shown, prev["id"])
+                return j, shown
         return None
 
     SHELL_CMD = re.compile(r"^\s*(\$\s*)?(python3?|pip3?|uv|npm|npx|node|yarn|pnpm|git|cd|ls|cargo|go|ruby|bash|sh|"
