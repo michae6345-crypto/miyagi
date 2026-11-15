@@ -109,6 +109,22 @@ def search_screen(pattern: str, text: str) -> re.Match[str] | None:
     return rx.search(text) or rx.search(re.sub(r"\s+", " ", text))
 
 
+_PUNCT_GAP = re.compile(r"\s*([.()\[\],])\s*")
+
+
+def search_wrapped(pattern: str, text: str) -> re.Match[str] | None:
+    """search_screen, plus the forms a wrapped code line takes in OCR (t9 V2: VS Code's word wrap read as
+    "…datasets.mnist." / "load_data()"): consecutive lines joined with nothing, and whitespace around . ( ) [ ] ,
+    dropped. For "the code / output is there" checks only: an absent check keeps search_screen (a join must never
+    invent an error)."""
+    m = search_screen(pattern, text)
+    if m or not text:
+        return m
+    rx = re.compile(pattern, re.MULTILINE)
+    lines = [ln.strip() for ln in text.splitlines() if ln.strip()]
+    return rx.search("".join(lines)) or rx.search(_PUNCT_GAP.sub(r"\1", " ".join(lines)))
+
+
 _NUM = re.compile(r"[-+]?(?:\d+\.?\d*|\.\d+)(?:[eE][-+]?\d+)?")
 
 

@@ -178,6 +178,21 @@ def _s2():
         return None
 
 
+def notebook_autosave(workdir: str | Path) -> bool:
+    """t9 V3: a notebook lesson's folder under the lessons root autosaves (server.workspace.core.ensure_notebook_autosave),
+    so the checks read the cells' outputs from the .ipynb. Never the repo's own folders. Never raises."""
+    try:
+        from server.workspace import core, paths
+
+        root, folder = paths.lessons_root().expanduser().resolve(), Path(workdir).expanduser().resolve()
+        if folder == root or root not in folder.parents or not folder.is_dir():
+            return False
+        return core.ensure_notebook_autosave(folder)
+    except Exception:  # noqa: BLE001 - OCR still grades the output
+        log.exception("notebook autosave settings failed")
+        return False
+
+
 def python_terminal_settings(workdir: str | Path) -> bool:
     """A Python lesson folder under the lessons root (a lesson built before t5's fix, opened again): its VS Code
     terminals use the .venv without auto-activation typing into them (server.workspace.core.ensure_python_terminal).

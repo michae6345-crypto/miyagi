@@ -364,6 +364,8 @@ async def vscode_event(body: dict = Body(...)) -> dict:
         from . import box_follow
 
         box_follow.on_visible(engine.session, item)
+    if body.get("type") in ("dirty", "save", "editor", "visible", "command_end", "focus"):
+        engine.session.relayout(f"VS Code {body.get('type')}")  # V9: a cell ran / output / edit: the box re-measures
     if body.get("type") == "explain_selection":  # "Miyagi: Explain this" -> an Explain card in the overlay (selection.py)
         from .selection import explain_from_vscode
 
