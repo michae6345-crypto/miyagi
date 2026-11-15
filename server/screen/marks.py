@@ -7,15 +7,17 @@
 
 Contents:
 - regions, with FIXED ids whether or not they are on screen right now:
-  1 terminal, 2 editor, 3 explorer, 4 terminal_menu (absent ones are just left out);
+  1 terminal, 2 editor, 3 explorer, 4 terminal_menu, 5 run_button (absent ones are just left out);
 - text lines from id 10 up:
-  - first the editor code rows, by file line: full-width row rects from the line-number gutter,
-    with the FILE line number (`line`) and the gutter number left out of the text; rows partly
-    hidden by a hover tooltip have `occluded=True`;
+  - first the editor rows, top to bottom: kind "code" (text) or "blank" (an empty line: where to
+    type), full-width row rects, with the FILE line number (`line`) when the line-number gutter is
+    readable, else line=None (rows laid out from the code's spacing; one blank row after the last);
+    rows partly hidden by a hover tooltip have `occluded=True`;
   - then every other OCR line (terminal output, explorer items, other apps' windows) in reading
     order, Vision's split blocks re-joined.
-Never included: hover tooltips, the breadcrumb row, the editor tab bar / title bar, line-number-only
-blocks, and our own overlay (already masked out of observations).
+Never included: hover tooltips, the breadcrumb row, the editor tab bar / title bar (its run ▷ is
+region 5), a secondary side bar such as Chat, line-number-only blocks, and our own overlay (already
+masked out of observations).
 
 Ids are stable for a given observation (the same `obs` always numbers the same way, whatever the
 intent). Across frames, region ids never change; line ids follow reading order.
@@ -32,14 +34,14 @@ from . import match as M
 from . import regions as R
 from .types import Rect, ScreenObservation
 
-REGION_IDS = {"terminal": 1, "editor": 2, "explorer": 3, "terminal_menu": 4}
+REGION_IDS = {"terminal": 1, "editor": 2, "explorer": 3, "terminal_menu": 4, "run_button": 5}
 FIRST_LINE_ID = 10
 
 
 @dataclass
 class Candidate:
     id: int
-    kind: str                 # "region" | "code" (editor row) | "text" (any other OCR line)
+    kind: str                 # "region" | "code" (editor row) | "blank" (empty editor row) | "text" (other)
     text: str                 # region name for regions; the line's text otherwise
     rect: Rect                # screen points, top-left origin of the primary display
     app: str | None = None
@@ -95,18 +97,16 @@ def candidates(obs: ScreenObservation, intent: str | None = None, app: str | Non
     chrome = _chrome_rows(obs, editor)
     lines: list[Candidate] = []
 
-    # editor code rows (exact rows from the gutter, file line numbers)
+    # editor rows: code and blank, with file line numbers when the gutter is readable
     covered: list[Rect] = []
-    for pane in L.find_panes(obs, app):
-        for n in sorted(pane.rows):
-            r = pane.row_rect(n)
-            text = pane.row_text(n).strip()
-            if r is None or not text:
-                continue
-            r = r.clamp(obs.screen) if obs.screen.w else r
-            lines.append(Candidate(0, "code", text, r, pane.app, line=n, region="editor",
-                                   occluded=L._under_hover(obs, r)))
-        covered.append(Rect(pane.gutter_x - 4, pane.rect.y, pane.text_right - pane.gutter_x + 8, pane.rect.h))
+    for row in R.editor_rows(obs, app):
+        lines.append(Candidate(0, "code" if row.text else "blank", row.text, row.rect, row.app, line=row.line,
+                               region="editor", occluded=L._under_hover(obs, row.rect)))
+    if editor is not None:
+        covered.append(editor)
+    side = R.side_bar(obs, app)
+    if side is not None:
+        covered.append(side)
 
     # every other OCR line
     for ln in M.group_lines(obs.blocks_in(app)):
@@ -119,8 +119,8 @@ def candidates(obs: ScreenObservation, intent: str | None = None, app: str | Non
                        and rects[n].contains(ln.rect)), None)
         lines.append(Candidate(0, "text", text, ln.rect, ln.app, region=region))
 
-    code = sorted((c for c in lines if c.kind == "code"), key=lambda c: (c.rect.x, c.line))
-    rest = sorted((c for c in lines if c.kind != "code"), key=lambda c: (round(c.rect.y / 4), c.rect.x))
+    code = sorted((c for c in lines if c.kind in ("code", "blank")), key=lambda c: (c.rect.x, c.rect.y))
+    rest = sorted((c for c in lines if c.kind not in ("code", "blank")), key=lambda c: (round(c.rect.y / 4), c.rect.x))
     lines = code + rest
     for i, c in enumerate(lines):
         c.id = FIRST_LINE_ID + i
@@ -139,6 +139,8 @@ def _score(intent: str, c: Candidate) -> float:
     words = M.norm(intent)
     if c.kind == "region":
         return 100.0 if c.text.replace("_", " ") in words or c.text in words else 0.0
+    if c.kind == "blank":
+        return 0.0
     return float(fuzz.partial_ratio(M.squash(intent), M.squash(c.text))) if len(M.squash(c.text)) >= 2 else 0.0
 
 
@@ -148,11 +150,14 @@ def listing(cands: list[Candidate], max_chars: int = 120) -> str:
     for c in cands:
         if c.kind == "region":
             tag = "region"
-        elif c.kind == "code":
-            tag = f"code L{c.line}" + (", partly under a tooltip" if c.occluded else "")
+        elif c.kind in ("code", "blank"):
+            tag = (f"{c.kind} L{c.line}" if c.line is not None else c.kind) + (
+                ", partly under a tooltip" if c.occluded else "")
         else:
             tag = f"{c.region or c.app or 'screen'}"
         t = c.text if len(c.text) <= max_chars else c.text[: max_chars - 1] + "…"
+        if c.kind == "blank":
+            t = "(empty line)"
         rows.append(f"{c.id} [{tag}] {t}")
     return "\n".join(rows)
 

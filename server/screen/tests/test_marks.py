@@ -1,4 +1,5 @@
 """Set-of-marks candidates (server.screen.marks) on recorded OCR fixtures. Offline, no API calls."""
+import itertools
 import json
 import sys
 from pathlib import Path
@@ -22,16 +23,18 @@ def _texts(cands):
 def test_regions_have_fixed_ids():
     cs = marks.candidates(_obs("vscode_fullscreen_scrolled"))
     regs = {c.text: c.id for c in cs if c.kind == "region"}
-    assert regs == {"terminal": 1, "editor": 2, "explorer": 3}            # no menu bar in full screen
+    assert regs == {"terminal": 1, "editor": 2, "explorer": 3}            # no menu bar / run icon here
     cs2 = marks.candidates(_obs("vscode_window_calc_clean"))
     assert {c.text: c.id for c in cs2 if c.kind == "region"} == {"editor": 2, "explorer": 3, "terminal_menu": 4}
 
 
 def test_code_rows_carry_file_lines_and_full_width_rects():
     cs = marks.candidates(_obs("vscode_fullscreen_scrolled"))
-    code = [c for c in cs if c.kind == "code"]
-    assert [c.id for c in code] == list(range(10, 10 + len(code)))        # code first, from id 10
-    assert [c.line for c in code] == sorted(c.line for c in code)
+    rows = [c for c in cs if c.kind in ("code", "blank")]
+    assert [c.id for c in rows] == list(range(10, 10 + len(rows)))        # editor rows first, from id 10
+    assert [c.line for c in rows] == list(range(rows[0].line, rows[0].line + len(rows)))   # every line, blanks too
+    code = [c for c in rows if c.kind == "code"]
+    assert all(c.text == "" for c in rows if c.kind == "blank")
     pde = next(c for c in code if c.text.startswith("def pde_residual"))
     assert pde.line == 48 and pde.rect.w > 1000 and pde.region == "editor"
     assert not any(c.text.isdigit() for c in cs)                          # no gutter numbers
@@ -107,3 +110,41 @@ def test_reader_candidates_on_a_fixture():
     term = marks.by_id(cs, 1)
     assert term is not None and term.rect == r.locate_region("terminal")      # same stabilized rect
     assert term.score == 100 and any(c.kind == "code" and c.line == 9 for c in cs)
+
+
+# ---------------------------------------------------------------------- Michael's real screen (scale 1,
+# line numbers unreadable, Chat side bar, Miyagi overlay masked): fixture from the haiku-targeter
+
+CALC = "vscode_lesson_calculator"
+
+
+def test_real_screen_without_a_readable_gutter():
+    from server.screen import regions as R
+    obs = _obs(CALC)
+    assert not any(b.text.strip().isdigit() for b in obs.blocks)          # Vision read no line numbers
+    ed, ex = R.find_region(obs, "editor"), R.find_region(obs, "explorer")
+    assert ed.source == "tabs" and 540 <= ed.rect.x <= 552 and 1505 <= ed.rect.x2 <= 1520   # stops at Chat
+    assert 165 <= ed.rect.y <= 180                                          # below tab + breadcrumb
+    assert ex.rect.x2 <= ed.rect.x                                          # explorer no longer covers the tab
+    run = R.find_region(obs, "run_button")
+    assert run.source == "tab_row_icon" and run.rect.contains_point(1412, 124)
+
+
+def test_real_screen_candidates():
+    cs = marks.candidates(_obs(CALC))
+    t = marks.listing(cs)
+    rows = [c for c in cs if c.kind in ("code", "blank")]
+    assert [c.kind for c in rows] == ["code", "blank", "code", "blank"]      # lines 1-4 (2 and 4 empty)
+    assert all(c.line is None for c in rows) and rows[2].text.startswith("# Step 1")
+    assert all(abs((b.rect.cy - a.rect.cy) - 22.5) < 1.5 for a, b in itertools.pairwise(rows))
+    assert {c.id: c.text for c in cs if c.kind == "region"} == {2: "editor", 3: "explorer", 5: "run_button"}
+    assert "Chat" not in t and "Sessions" not in t and "Tip:" not in t          # side bar left out
+    assert "D •" not in t and "calculator.py X" not in t                          # tab row left out
+    explorer = [c for c in cs if c.region == "explorer"]
+    assert [c.text for c in explorer][-2:] == ["calculator.py", "• README.md"]   # only real explorer items
+    assert "11 [blank] (empty line)" in t and "13 [blank] (empty line)" in t
+
+
+def test_blank_rows_are_never_ranked_by_text():
+    cs = marks.candidates(_obs(CALC), intent="empty line")
+    assert all(c.score == 0 for c in cs if c.kind == "blank")

@@ -1,0 +1,22 @@
+{
+  "screen": {
+    "x": 0,
+    "y": 0,
+    "w": 1728,
+    "h": 1117
+  },
+  "scale": 2.0,
+  "app": "Code",
+  "windows": [
+    {
+      "app": "Code",
+      "title": "notes.py \u2014 help-me-build-a-notes-app-669032",
+      "rect": {
+        "x": 0.0,
+        "y": 33.0,
+        "w": 1320.0,
+        "h": 1000.0
+      }
+    }
+  ]
+}

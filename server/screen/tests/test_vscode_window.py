@@ -249,3 +249,65 @@ def test_frontmost_live_is_cheap():
     for _ in range(20):
         macos.frontmost_window()
     assert (time.perf_counter() - t) / 20 < 0.02           # well under 20 ms a call (measured ~0.3 ms)
+
+
+# ---------------------------------------------------------------------- Michael's notes.py misread:
+# empty notes.py open with VS Code's inline chat over line 1; README.md only in the Explorer
+
+NOTES = "vscode_window_notes_inline_chat"
+
+
+def test_active_file_comes_from_tab_and_breadcrumb_never_the_explorer():
+    w = vscode_window(_obs(NOTES))
+    assert (w.folder, w.file, w.path, w.dirty) == ("help-me-build-a-notes-app-669032", "notes.py", "notes.py", False)
+    assert w.sources["file"] == "tab+breadcrumb"
+
+
+def test_stale_or_missing_title_does_not_change_the_answer():
+    obs = _obs(NOTES)
+    real = obs.windows[0].title
+    for title in ("README.md — help-me-build-a-notes-app-669032", ""):
+        o = _obs(NOTES)
+        o.windows = [Window("Code", title, obs.windows[0].rect)]
+        o.blocks = [Block(b.text, b.rect, b.confidence, b.app, title if b.window == real else b.window, b.role)
+                    for b in o.blocks]
+        w = vscode_window(o)
+        assert w.file == "notes.py", title
+        if title:
+            assert w.sources["title_file"] == "README.md"
+
+
+def test_explorer_rows_alone_never_name_the_file():
+    obs = _obs(NOTES)
+    obs.windows = [Window("Code", "", obs.windows[0].rect)]
+    title = _obs(NOTES).windows[0].title
+    obs.blocks = [Block(b.text, b.rect, b.confidence, b.app, "" if b.window == title else b.window, b.role)
+                  for b in obs.blocks if b.rect.x < 280 or b.rect.y > 140]   # no tab row, no breadcrumb
+    assert vscode_window(obs).file is None                                   # README.md / notes.py rows ignored
+
+
+def test_inline_chat_is_a_widget_not_code():
+    obs = _obs(NOTES)
+    assert obs.widgets() == ["Generate code", "+ Auto | Balance"]
+    assert "Generate code" not in obs.text() and "Balance" not in obs.text()
+    assert M.locate_match(obs, "Generate code") is None
+    assert L.locate_line(obs, "notes.py", 1).occluded
+    from server.screen import marks
+    t = marks.listing(marks.candidates(obs))
+    assert "Generate code" not in t and "Auto" not in t and "README.md" in t
+
+
+@pytest.mark.parametrize("text,widget", [
+    ("Generate code", True), ("+ Auto | Balance", True), ("Ask Copilot", True), ("Accept", True),
+    ("def generate_code():", False), ("# Auto-save the notes", False),
+])
+def test_widget_seeds(text, widget):
+    b = Block(text, Rect(380, 140, 120, 13), 1.0, "Code", "w")
+    assert (M.mark_widgets([b])[0].role == "widget") is widget
+
+
+@mac
+def test_observe_image_attaches_the_editor_info():
+    from server.screen import observe_image
+    obs = observe_image(str(FIX / f"{NOTES}.png"))
+    assert obs.editor["file"] == "notes.py" and obs.editor["folder"] == "help-me-build-a-notes-app-669032"

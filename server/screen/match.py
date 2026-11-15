@@ -9,7 +9,7 @@ from dataclasses import dataclass
 
 from rapidfuzz import fuzz
 
-from .types import Block, Rect, ScreenObservation, Window
+from .types import OVERLAY_ROLES, Block, Rect, ScreenObservation, Window
 
 # ----------------------------------------------------------------- apps
 
@@ -94,6 +94,49 @@ def mark_hovers(blocks: list[Block]) -> list[Block]:
             for i, b in enumerate(blocks)]
 
 
+# VS Code inline chat (Cmd+I) / Copilot inline suggestion widgets: an input zone in the editor with a
+# placeholder ("Generate code", "Ask Copilot", "Ask or edit in context"), a model/mode picker
+# ("Auto", "Balance"), and accept / discard buttons.
+_WIDGET_SEED = re.compile(
+    r"^(?:Generate code|Ask Copilot|Ask or edit|Ask a question|Edit code|Ask Cursor|Plan, search|"
+    r"\+?\s*Auto\b|Auto\s*[|I]\s*Balance|Balance\b|Accept(?: All)?\b|Discard\b|Reject\b|Keep\b|"
+    r"Undo\b.*(?:Accept|Keep)|Inline Chat|Copilot\b|GitHub Copilot\b)", re.IGNORECASE)
+_WIDGET_TOKEN = re.compile(r"^[\s↑↵⏎×xX✕+|·•>⌘^v~.-]{1,6}$")    # send ↑, close ×, chevrons, separators
+
+
+def mark_widgets(blocks: list[Block]) -> list[Block]:
+    """Tag VS Code inline chat / suggestion widgets with role="widget": rows holding a widget seed
+    ("Generate code", "Auto | Balance", "Accept"/"Discard" ...) plus the rows directly above/below
+    them that hold only widget text or button glyphs (↑, ×). Code rows (gutter numbers) never count."""
+    seeds = [b for b in blocks if b.app and b.role == "" and _WIDGET_SEED.search(b.text.strip())]
+    if not seeds:
+        return blocks
+    widget: set[int] = set()
+    for s in seeds:
+        h = s.rect.h
+        band = [s]
+        changed = True
+        while changed:     # rows of the same widget: seeds or bare glyphs within ~1.6 rows
+            changed = False
+            top, bot = min(b.rect.y for b in band), max(b.rect.y2 for b in band)
+            for b in blocks:
+                if b in band or b.app != s.app or b.window != s.window or b.text.strip().isdigit():
+                    continue
+                near = (0 <= b.rect.y - bot < 1.6 * h) or (0 <= top - b.rect.y2 < 1.6 * h)
+                if near and (_WIDGET_SEED.search(b.text.strip()) or _WIDGET_TOKEN.match(b.text)) \
+                        and b.rect.x >= s.rect.x - 60:
+                    band.append(b)
+                    changed = True
+        y1, y2 = min(b.rect.y for b in band) - 2, max(b.rect.y2 for b in band) + 2
+        x1 = min(b.rect.x for b in band) - 30
+        for i, b in enumerate(blocks):   # the whole width of those rows, right of the widget's left edge
+            if b.app == s.app and b.window == s.window and y1 <= b.rect.cy <= y2 and b.rect.x >= x1 \
+                    and not b.text.strip().isdigit():
+                widget.add(i)
+    return [Block(b.text, b.rect, b.confidence, b.app, b.window, "widget") if i in widget and b.role == "" else b
+            for i, b in enumerate(blocks)]
+
+
 def merge_split_words(blocks: list[Block]) -> list[Block]:
     """Join blocks Vision split inside one line of code (`def` | `add(a, b):`; a colour change is
     enough to split): same window and row, touching or a gap under half a line height. Line numbers
@@ -127,8 +170,9 @@ def merge_split_words(blocks: list[Block]) -> list[Block]:
 
 
 def postprocess(blocks: list[Block]) -> list[Block]:
-    """Per-frame clean-up after OCR + window assignment: tag hovers, re-join split code words."""
-    return merge_split_words(mark_hovers(blocks))
+    """Per-frame clean-up after OCR + window assignment: tag hovers and inline widgets, re-join split
+    code words."""
+    return merge_split_words(mark_widgets(mark_hovers(blocks)))
 
 
 def drop_inside(blocks: list[Block], rects: list[Rect]) -> list[Block]:
@@ -167,7 +211,7 @@ def group_lines(blocks: list[Block]) -> list[Line]:
     """
     by_win: dict[tuple, list[Block]] = {}
     for b in blocks:
-        if b.role == "hover":
+        if b.role in OVERLAY_ROLES:
             continue
         by_win.setdefault((b.app, b.window), []).append(b)
     lines: list[Line] = []

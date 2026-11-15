@@ -311,6 +311,9 @@ class ScreenReader:
         obs = self._fresh_obs()
         if name == "run_button":
             rect = self._ax_run_button() if obs is None or obs.source == "live" else None
+            if rect is None and obs is not None:          # the ▷ icon on the tab row, by OCR
+                reg = R.find_region(obs, name, app)
+                rect = reg.rect if reg else None
         elif title is not None:
             rect = self._ax_menu_item(title) if obs is None or obs.source == "live" else None
             if rect is None and obs is not None:
@@ -681,6 +684,7 @@ class ScreenReader:
                                     ocr_ms=ms, frame=self._frame, source=source, trigger=trigger,
                                     overlay_excluded=overlay_excluded,
                                     capture=(self.backend or "") if source == "live" else "fixture")
+            obs.editor = _editor_info(obs)
             if source == "live":
                 self._attach_cursor_and_ax(obs)
             self.ocr_ms_history = (self.ocr_ms_history + [ms])[-50:]
@@ -790,7 +794,7 @@ def repair_code_rows(img, screen: Rect, scale: float, blocks: list[Block], max_r
     """Re-read code rows that came out impossible (`def(a, b):` = the coloured name was dropped):
     OCR just that row, cropped, which Vision reads more reliably than the whole screen. The row is
     replaced only if the second read has the name. At most `max_rows` rows per frame (~20 ms each)."""
-    bad = [b for b in blocks if b.role != "hover" and b.app and _BROKEN_DEF.search(b.text)
+    bad = [b for b in blocks if not b.role and b.app and _BROKEN_DEF.search(b.text)
            and not _GOOD_DEF.search(b.text)][:max_rows]
     if not bad:
         return blocks
@@ -799,7 +803,7 @@ def repair_code_rows(img, screen: Rect, scale: float, blocks: list[Block], max_r
         ocr = macos.ocr_image
     out = list(blocks)
     for b in bad:
-        row = [x for x in out if x.app == b.app and x.window == b.window and x.role != "hover"
+        row = [x for x in out if x.app == b.app and x.window == b.window and not x.role
                and abs(x.rect.cy - b.rect.cy) < 0.5 * b.rect.h and x.rect.x >= b.rect.x - 2]
         right = max(x.rect.x2 for x in row)
         crop = Rect(b.rect.x - 6, b.rect.y - 4, right - b.rect.x + 12, b.rect.h + 8).clamp(screen)
@@ -896,8 +900,20 @@ def observe_image(path: str, overlay=None) -> ScreenObservation:
     blocks = M.drop_inside(blocks, [Rect.from_any(r) for r in (overlay or [])])
     blocks = M.postprocess(M.reading_order(M.assign_windows(blocks, windows)))
     blocks = repair_code_rows(img, screen, scale, blocks)
-    return ScreenObservation(t=time.time(), app=app, windows=windows, blocks=blocks, screen=screen,
-                             scale=scale, ocr_ms=ms, frame=1, source=f"fixture:{Path(path).name}")
+    obs = ScreenObservation(t=time.time(), app=app, windows=windows, blocks=blocks, screen=screen,
+                            scale=scale, ocr_ms=ms, frame=1, source=f"fixture:{Path(path).name}")
+    obs.editor = _editor_info(obs)
+    return obs
+
+
+def _editor_info(obs: ScreenObservation) -> dict | None:
+    try:
+        from .vscode import vscode_window
+        w = vscode_window(obs)
+        return w.to_dict() if w is not None else None
+    except Exception:
+        log.exception("vscode_window failed")
+        return None
 
 
 _READER: ScreenReader | None = None

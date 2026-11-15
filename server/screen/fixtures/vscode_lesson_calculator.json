@@ -1,0 +1,22 @@
+{
+  "screen": {
+    "x": 0,
+    "y": 0,
+    "w": 2000,
+    "h": 1014
+  },
+  "scale": 1.0,
+  "app": "Code",
+  "windows": [
+    {
+      "app": "Code",
+      "title": "calculator.py \u2014 python-calculator-e430dc",
+      "rect": {
+        "x": 113,
+        "y": 62,
+        "w": 1517,
+        "h": 952
+      }
+    }
+  ]
+}
