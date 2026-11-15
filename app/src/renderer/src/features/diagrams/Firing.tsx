@@ -16,12 +16,16 @@
  */
 import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { useReducedMotion } from 'motion/react'
-import { color, fill, font, glass } from '../../core/theme'
-import { WEIGHT_NEG as NEG, WEIGHT_POS as POS } from './NeuralNet'
+import { color, font } from '../../core/theme'
 
-type Ink = { text: string; label: string; faint: string; ring: string }
-const ISLAND: Ink = { text: color.text, label: color.label, faint: color.faint, ring: fill.ring }
-const GLASS: Ink = { text: glass.text, label: glass.label, faint: glass.faint, ring: glass.hairline }
+/**
+ * Mockup 11 (Michael, Sun 2:58 AM): the network sits on its own black card in both appearances (the island color), so
+ * the inks are the island's. The weight-sign blue / brown are diagram-only, like NeuralNet's; status colors never
+ * appear here. Neuron rings at 55% white and card rules at 7-8% white come from the mockup.
+ */
+const POS = '#5CB0F0'
+const NEG = '#D68442'
+const INK = { text: color.text, label: color.label, faint: color.faint, ring: 'rgba(255,255,255,.55)', rule: 'rgba(255,255,255,.07)', edge: 'rgba(255,255,255,.08)' }
 
 export type FiringFrame = { epoch?: number; loss?: number; input?: number[]; W: number[][][]; b?: number[][]; a?: number[][] }
 type RawFrame = { epoch?: number; loss?: number; input?: number[]; W?: unknown; b?: number[][]; a?: number[][] }
@@ -104,7 +108,7 @@ function useClock(run: boolean): number {
     let id = 0
     const start = performance.now()
     const tick = (now: number): void => {
-      setT(now - start)
+      setT(Math.max(0, now - start))
       id = requestAnimationFrame(tick)
     }
     id = requestAnimationFrame(tick)
@@ -113,22 +117,54 @@ function useClock(run: boolean): number {
   return t
 }
 
-/** One firing: light a layer (LIGHT_MS), send pulses to the next (TRAVEL_MS), …, then hold. ≈ 1.6 s for 1-4-4-1. */
+/**
+ * One firing, 1.6 s (mockup 11): layer l lights at LAYER_AT[l] (LIGHT_MS ease-in, then a FLASH_MS ring), pulses leave
+ * layer l at PULSE_AT[l] and take TRAVEL_MS, and from REST_AT the neurons fade back to 14% for the next pass.
+ */
 const FIRE_MS = 1600
-const LIGHT_MS = 120
-const TRAVEL_MS = 300
-/** Train mode: the frames play through in this long, then hold on the last. */
+const LAYER_AT = [0, 380, 720, 1060]
+const PULSE_AT = [100, 440, 780]
+const LIGHT_MS = 140
+const FLASH_MS = 480
+const TRAVEL_MS = 320
+const REST_AT = 1250
+const REST_LEVEL = 0.14
+/** Train mode: the frames play through in this long, then hold on the last. Reduced motion: one frame every 2 s. */
 const TRAIN_MS = 6200
 const TRAIN_HOLD_MS = 2200
+const STILL_STEP_MS = 2000
 /** A new event's weights tween in from what was on screen. */
 const TWEEN_MS = 600
 
-const VW = 380
-const VH = 224
-const R = 13
+const COL = 146
+const ROW = 54
+const R = 17
+const VH = 236
+/** The comet tail, as a share of the edge. */
+const TAIL = 0.42
 
-export function Firing({ data, compact = false }: { data: Record<string, unknown>; compact?: boolean }): ReactNode {
-  const ink = compact ? GLASS : ISLAND
+/** Activation → neuron fill, grey 14 → 244 by |a|^0.8. */
+const greyOf = (v: number): string => {
+  const g = Math.round(14 + 230 * Math.pow(clamp01(Math.abs(v)), 0.8))
+  return `rgb(${g},${g},${g})`
+}
+
+/** Reduced motion: a counter that ticks every STILL_STEP_MS (train frames swap instead of tweening). */
+function useStep(run: boolean): number {
+  const [n, setN] = useState(0)
+  useEffect(() => {
+    if (!run) return
+    const id = setInterval(() => setN((v) => v + 1), STILL_STEP_MS)
+    return () => clearInterval(id)
+  }, [run])
+  return n
+}
+
+/** Mockup beats for 1-4-4-1; other depths spread the last beat evenly. */
+const beat = (arr: number[], l: number, n: number): number => (n <= arr.length ? arr[l] : (arr[arr.length - 1] * l) / Math.max(1, n - 1))
+
+export function Firing({ data }: { data: Record<string, unknown>; compact?: boolean }): ReactNode {
+  const ink = INK
   const raw = (data.frames as RawFrame[]) ?? []
   const given = Array.isArray(data.layers) ? (data.layers as number[]) : undefined
   const frames: FiringFrame[] = raw.flatMap((f) => {
@@ -143,16 +179,23 @@ export function Firing({ data, compact = false }: { data: Record<string, unknown
   const act = squash[(data.activation as string) ?? 'tanh'] ?? squash.tanh
   const reduced = !!useReducedMotion()
   const t = useClock(!reduced && frames.length > 0)
+  const still = useStep(reduced && mode === 'train' && frames.length > 1)
 
   // ---- which frame is on screen ------------------------------------------------------------
   let frame = frames[frames.length - 1]
   let trainP = 1
-  if (frame && mode === 'train' && frames.length > 1 && !reduced) {
-    const local = t % (TRAIN_MS + TRAIN_HOLD_MS)
-    trainP = clamp01(local / TRAIN_MS)
-    const at = trainP * (frames.length - 1)
-    const i = Math.min(frames.length - 2, Math.floor(at))
-    frame = mix(frames[i], frames[i + 1], at - i)
+  if (frame && mode === 'train' && frames.length > 1) {
+    if (reduced) {
+      const i = still % frames.length
+      frame = frames[i]
+      trainP = i / (frames.length - 1)
+    } else {
+      const local = t % (TRAIN_MS + TRAIN_HOLD_MS)
+      trainP = clamp01(local / TRAIN_MS)
+      const at = trainP * (frames.length - 1)
+      const i = Math.min(frames.length - 2, Math.floor(at))
+      frame = mix(frames[i], frames[i + 1], at - i)
+    }
   }
   // A new event: tween from the last frame drawn to the new one.
   const shown = useRef<FiringFrame | undefined>(undefined)
@@ -172,42 +215,69 @@ export function Firing({ data, compact = false }: { data: Record<string, unknown
   const x = frame.input ?? frame.a?.[0] ?? [0]
   const acts = frame.a && frame.a.length === layers.length ? frame.a : forward(frame, layers, x, act)
 
-  // ---- the firing clock: how far the signal has got, and the pulse on the way ---------------
-  let reached = L
-  let pulse: { from: number; p: number } | undefined
+  // ---- the firing clock --------------------------------------------------------------------
+  const local = reduced ? 0 : t % FIRE_MS
+  const rest = reduced ? 1 : 1 - ease((local - REST_AT) / (FIRE_MS - REST_AT)) * (1 - REST_LEVEL)
+  const lit = (l: number): number => (reduced ? 1 : Math.pow(clamp01((local - beat(LAYER_AT, l, L + 1)) / LIGHT_MS), 2) * rest)
+  const flash = (l: number): number => (reduced ? -1 : (local - beat(LAYER_AT, l, L + 1)) / FLASH_MS)
+  const level = (l: number, i: number): number => clamp01(Math.abs(acts[l]?.[i] ?? 0)) * lit(l)
+
+  // ---- geometry: columns COL apart, rows ROW apart, every layer centered --------------------
+  const nameW = (names: unknown[]): number => Math.max(0, ...names.map((v) => String(v ?? '').length)) * 7.4 + R + 10
+  const padL = Math.max(R + 4, Math.ceil(nameW(inNames)))
+  const padR = Math.max(R + 4, Math.ceil(nameW(outNames)))
+  const VW = padL + COL * L + padR
+  const mid = VH / 2 - 6
+  const pos = layers.map((n, l) => {
+    const cx = padL + l * COL
+    const gap = Math.min(ROW, (VH - 40) / Math.max(1, n))
+    return Array.from({ length: n }, (_, i) => ({ x: cx, y: mid + (i - (n - 1) / 2) * gap }))
+  })
+  const maxW = Math.max(1e-6, ...frame.W.flat(2).map(Math.abs))
+
+  // Comet pulses: a dim tail (~42% of the edge) and a bright nose, brightness 0.28 + 0.72·(|w|·a)^0.8. No halo.
+  const pulses: ReactNode[] = []
   if (!reduced) {
-    const local = t % FIRE_MS
-    reached = -1
-    let at = 0
-    for (let l = 0; l <= L; l++) {
-      if (local < at) break
-      reached = l
-      at += LIGHT_MS
-      if (l === L || local < at) break
-      if (local < at + TRAVEL_MS) {
-        pulse = { from: l, p: (local - at) / TRAVEL_MS }
-        break
-      }
-      at += TRAVEL_MS
+    for (let k = 0; k < L; k++) {
+      const p = (local - beat(PULSE_AT, k, L)) / TRAVEL_MS
+      if (p <= 0 || p >= 1 + TAIL) continue
+      frame.W[k]?.forEach((row, i) =>
+        row.forEach((w, j) => {
+          const a = pos[k]?.[i]
+          const b = pos[k + 1]?.[j]
+          if (!a || !b) return
+          const s = Math.pow(Math.min(1, (Math.abs(w) / maxW) * clamp01(Math.abs(acts[k]?.[i] ?? 0))), 0.8)
+          if (s < 0.04) return
+          const head = ease(Math.min(1, p))
+          const tail = Math.max(0, (p > 1 ? 1 : head) - TAIL + Math.max(0, p - 1))
+          if (tail >= head) return
+          const at = (f: number): { x: number; y: number } => ({ x: lerp(a.x, b.x, f), y: lerp(a.y, b.y, f) })
+          const h = at(head)
+          const tl = at(tail)
+          const nose = at(Math.max(tail, head - 0.1))
+          const bright = 0.28 + 0.72 * s
+          const stroke = w >= 0 ? POS : NEG
+          const width = 1.2 + 2.2 * s
+          pulses.push(
+            <g key={`p${k}-${i}-${j}`}>
+              <line x1={tl.x} y1={tl.y} x2={h.x} y2={h.y} stroke={stroke} strokeOpacity={bright * 0.45} strokeWidth={width} strokeLinecap="round" />
+              <line x1={nose.x} y1={nose.y} x2={h.x} y2={h.y} stroke={stroke} strokeOpacity={bright} strokeWidth={width + 0.6} strokeLinecap="round" />
+            </g>
+          )
+        })
+      )
     }
   }
 
-  // ---- geometry: four evenly spaced columns, each layer centered vertically -----------------
-  const padX = 46
-  const top = 14
-  const bottom = VH - 30
-  const pos = layers.map((n, l) => {
-    const cx = padX + (L ? (l * (VW - 2 * padX)) / L : 0)
-    const gap = Math.min(44, (bottom - top) / Math.max(1, n))
-    const mid = (top + bottom) / 2
-    return Array.from({ length: n }, (_, i) => ({ x: cx, y: mid + (i - (n - 1) / 2) * gap }))
-  })
-  const maxW = Math.max(1, ...frame.W.flat(2).map(Math.abs))
-  const bright = (l: number, i: number): number => (l <= reached ? clamp01(Math.abs(acts[l]?.[i] ?? 0)) : 0)
-
   const net = (
-    <svg viewBox={`0 0 ${VW} ${VH}`} width="100%" className="mx-auto block max-w-full" style={{ fontFamily: font.ui, maxWidth: compact ? undefined : 560 }}>
-      {/* Edges */}
+    <svg
+      viewBox={`0 0 ${VW} ${VH}`}
+      width="100%"
+      className="mx-auto block max-w-full"
+      style={{ fontFamily: font.ui, maxWidth: 588 }}
+      role="img"
+      aria-label={`A ${layers.join('-')} neural network firing layer by layer`}
+    >
       {frame.W.map((m, k) =>
         m.flatMap((row, i) =>
           row.map((w, j) => {
@@ -223,58 +293,41 @@ export function Firing({ data, compact = false }: { data: Record<string, unknown
                 x2={b.x}
                 y2={b.y}
                 stroke={w >= 0 ? POS : NEG}
-                strokeOpacity={s < 0.01 ? 0 : 0.12 + 0.78 * s}
-                strokeWidth={0.5 + 3 * s}
+                strokeOpacity={0.1 + 0.62 * s}
+                strokeWidth={0.6 + 3.4 * s}
                 strokeLinecap="round"
               />
             )
           })
         )
       )}
-
-      {/* Pulses travelling to the next layer: brightness ∝ |w| · activation */}
-      {pulse &&
-        frame.W[pulse.from]?.flatMap((row, i) =>
-          row.map((w, j) => {
-            const a = pos[pulse.from]?.[i]
-            const b = pos[pulse.from + 1]?.[j]
-            if (!a || !b) return null
-            const s = Math.min(1, Math.abs(w) / maxW) * clamp01(Math.abs(acts[pulse.from]?.[i] ?? 0))
-            if (s < 0.03) return null
-            const p = ease(pulse.p)
-            return (
-              <circle
-                key={`p${i}-${j}`}
-                cx={lerp(a.x, b.x, p)}
-                cy={lerp(a.y, b.y, p)}
-                r={1.8 + 2.6 * s}
-                fill={w >= 0 ? POS : NEG}
-                opacity={0.3 + 0.7 * s}
-              />
-            )
-          })
-        )}
-
-      {/* Neurons: fill brightness = activation, thin outline */}
+      {pulses}
       {pos.map((col, l) =>
-        col.map((p, i) => (
-          <circle key={`n${l}-${i}`} cx={p.x} cy={p.y} r={R} fill={ink.text} fillOpacity={0.05 + 0.9 * bright(l, i)} stroke={ink.ring} strokeWidth={1} />
-        ))
+        col.map((p, i) => {
+          const f = flash(l)
+          const strength = clamp01(Math.abs(acts[l]?.[i] ?? 0))
+          return (
+            <g key={`n${l}-${i}`}>
+              {f > 0 && f < 1 && strength > 0.05 && (
+                <circle cx={p.x} cy={p.y} r={R + 2 + 7 * ease(f)} fill="none" stroke={ink.text} strokeOpacity={0.45 * (1 - f) * strength} strokeWidth={1.25} />
+              )}
+              <circle cx={p.x} cy={p.y} r={R} fill={greyOf(level(l, i))} stroke={ink.ring} strokeWidth={1.25} />
+            </g>
+          )
+        })
       )}
-
-      {/* Labels, outside the nodes */}
       {pos[0].map((p, i) => (
-        <text key={`in${i}`} x={p.x - R - 7} y={p.y + 4.5} textAnchor="end" fontSize={13} fontStyle="italic" fill={ink.label}>
+        <text key={`in${i}`} x={p.x - R - 8} y={p.y + 4.5} textAnchor="end" fontSize={13} fontStyle="italic" fill={ink.label}>
           {inNames[i] ?? ''}
         </text>
       ))}
       {pos[L].map((p, i) => (
-        <text key={`out${i}`} x={p.x + R + 7} y={p.y + 4.5} fontSize={13} fontStyle="italic" fill={ink.label}>
+        <text key={`out${i}`} x={p.x + R + 8} y={p.y + 4.5} fontSize={13} fontStyle="italic" fill={ink.label}>
           {outNames[i] ?? ''}
         </text>
       ))}
       {pos.slice(1, L).map((col, h) => (
-        <text key={`h${h}`} x={col[0].x} y={VH - 8} textAnchor="middle" fontSize={11} fill={ink.faint}>
+        <text key={`h${h}`} x={col[0].x} y={VH - 6} textAnchor="middle" fontSize={11} fill={ink.faint}>
           hidden {h + 1}
         </text>
       ))}
@@ -282,43 +335,109 @@ export function Firing({ data, compact = false }: { data: Record<string, unknown
   )
 
   const losses = frames.map((f) => f.loss).filter((v): v is number => typeof v === 'number' && Number.isFinite(v))
+  const total = typeof data.epochs === 'number' ? data.epochs : undefined
+  const yhat = acts[L]?.[0]
+  const rawTarget = (frame as { target?: unknown }).target ?? data.target ?? (data.targets as unknown[] | undefined)?.[0]
+  const target = typeof rawTarget === 'number' ? rawTarget : Array.isArray(rawTarget) && typeof rawTarget[0] === 'number' ? (rawTarget[0] as number) : undefined
   const num = { fontVariantNumeric: 'tabular-nums' } as const
+  const key = 'text-[11px] font-semibold uppercase tracking-[.06em]'
+  const val = 'text-[19px] font-semibold leading-[24px] tracking-[-.01em]'
+  const cell = 'mr-[14px] flex flex-col gap-[2px] border-r pr-[14px]'
+  const small = 'ml-[4px] text-[13px] font-medium tracking-normal'
   return (
-    <div data-part="nn-firing">
+    <div data-part="nn-firing" className="rounded-[16px] border px-[16px] py-[14px]" style={{ background: color.island, borderColor: ink.edge, color: ink.text }}>
       {net}
-      {(frame.epoch !== undefined || frame.loss !== undefined) && (
-        <div className="mt-[4px] flex items-center gap-[14px] px-[2px] text-[13px] leading-[18px]" style={num}>
+      {(frame.epoch !== undefined || frame.loss !== undefined || yhat !== undefined) && (
+        <div className="mt-[6px] flex flex-wrap items-stretch gap-y-[8px] border-t pt-[12px]" style={{ ...num, borderColor: ink.rule }}>
           {frame.epoch !== undefined && (
-            <span style={{ color: ink.faint }}>
-              epoch <span style={{ color: ink.text }}>{frame.epoch.toLocaleString('en-US')}</span>
-            </span>
+            <div className={cell} style={{ borderColor: ink.rule }}>
+              <span className={key} style={{ color: ink.faint }}>
+                Epoch
+              </span>
+              <span className={val}>
+                {frame.epoch.toLocaleString('en-US')}
+                {total !== undefined && (
+                  <small className={small} style={{ color: ink.faint }}>
+                    / {total.toLocaleString('en-US')}
+                  </small>
+                )}
+              </span>
+            </div>
           )}
           {frame.loss !== undefined && (
-            <span style={{ color: ink.faint }}>
-              loss <span style={{ color: ink.text, fontWeight: 600 }}>{frame.loss < 0.01 ? frame.loss.toExponential(1) : frame.loss.toFixed(3)}</span>
-            </span>
+            <div className={cell} style={{ borderColor: ink.rule }}>
+              <span className={key} style={{ color: ink.faint }}>
+                Loss
+              </span>
+              <span className={val}>{frame.loss < 0.001 ? frame.loss.toExponential(1) : frame.loss.toFixed(4)}</span>
+            </div>
           )}
-          <span className="flex-1" />
-          {losses.length > 1 && <Sparkline values={losses} upTo={mode === 'train' ? trainP : 1} ink={ink} />}
+          {losses.length > 1 && (
+            <div className="flex min-w-[96px] flex-1 flex-col gap-[2px]">
+              <span className={key} style={{ color: ink.faint }}>
+                Loss over training
+              </span>
+              <Sparkline values={losses} upTo={mode === 'train' ? trainP : 1} />
+            </div>
+          )}
+          {yhat !== undefined && Number.isFinite(yhat) && (
+            <div className="ml-auto flex flex-col items-end gap-[2px] pl-[14px]">
+              <span className={key} style={{ color: ink.faint }}>
+                Prediction
+              </span>
+              <span className={val}>
+                {yhat.toFixed(3)}
+                {target !== undefined && (
+                  <small className={small} style={{ color: ink.faint }}>
+                    target {target.toFixed(3)}
+                  </small>
+                )}
+              </span>
+            </div>
+          )}
         </div>
       )}
+      <div className="mt-[12px] flex flex-wrap items-center gap-x-[14px] gap-y-[4px] text-[12.5px] leading-[1.4]" style={{ color: ink.label }}>
+        <span>
+          <Swatch c={POS} />
+          positive weight
+        </span>
+        <span>
+          <Swatch c={NEG} />
+          negative weight
+        </span>
+        <span>thicker = stronger, brighter = more active</span>
+      </div>
     </div>
   )
 }
 
+function Swatch({ c }: { c: string }): ReactNode {
+  return <span className="mr-[5px] inline-block h-[3px] w-[14px] rounded-[2px] align-[3px]" style={{ background: c }} />
+}
+
 /** The loss so far, falling (log scale so the long tail still reads). */
-function Sparkline({ values, upTo, ink }: { values: number[]; upTo: number; ink: Ink }): ReactNode {
-  const w = 96
-  const h = 20
+function Sparkline({ values, upTo }: { values: number[]; upTo: number }): ReactNode {
+  const w = 170
+  const h = 32
   const logs = values.map((v) => Math.log(Math.max(v, 1e-9)))
   const hi = Math.max(...logs)
   const lo = Math.min(...logs)
   const span = hi - lo || 1
   const n = Math.max(2, Math.round(upTo * (values.length - 1)) + 1)
-  const pts = logs.slice(0, n).map((v, i) => `${((i / (values.length - 1)) * w).toFixed(1)},${(2 + ((hi - v) / span) * (h - 4)).toFixed(1)}`)
+  const pts = logs.slice(0, n).map((v, i) => `${((i / (values.length - 1)) * w).toFixed(1)},${(3 + ((hi - v) / span) * (h - 6)).toFixed(1)}`)
   return (
-    <svg width={w} height={h} viewBox={`0 0 ${w} ${h}`} aria-label="loss" className="shrink-0">
-      <polyline points={pts.join(' ')} fill="none" stroke={ink.text} strokeOpacity={0.8} strokeWidth={1.4} strokeLinejoin="round" strokeLinecap="round" />
+    <svg width="100%" height={h} viewBox={`0 0 ${w} ${h}`} preserveAspectRatio="none" aria-label="loss over training" className="block max-w-[170px]">
+      <polyline
+        points={pts.join(' ')}
+        fill="none"
+        stroke={INK.text}
+        strokeOpacity={0.8}
+        strokeWidth={1.4}
+        strokeLinejoin="round"
+        strokeLinecap="round"
+        vectorEffect="non-scaling-stroke"
+      />
     </svg>
   )
 }

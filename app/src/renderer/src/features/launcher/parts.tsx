@@ -7,7 +7,7 @@
  */
 import { motion, useReducedMotion, type HTMLMotionProps } from 'motion/react'
 import { useRef, type ReactNode } from 'react'
-import { GraduationCap, MessageCircleQuestion, Play, Square, type LucideIcon } from 'lucide-react'
+import { GraduationCap, MessageCircleQuestion, Play, Presentation, Square, type LucideIcon } from 'lucide-react'
 import { bridge } from '../../bridge'
 import { color, fill, spring } from '../../core/theme'
 
@@ -52,11 +52,19 @@ export function Chip({ icon: I, label, onClick }: { icon: LucideIcon; label: str
   )
 }
 
-/** How the learner wants to learn the topic they typed (Michael, "two ways to learn"). */
-export type How = 'video' | 'lesson'
+/**
+ * How the learner wants to learn the topic they typed (Michael, "two ways to learn"), plus "Demo": the staged
+ * neural-net lesson for any topic (learn {mode:"demo"}, the engine's stage.py), for presenting.
+ */
+export type How = 'video' | 'lesson' | 'demo'
+/** Tab's order over the chips. */
+export const HOWS: How[] = ['video', 'lesson', 'demo']
 
-/** The two ways' names: the chips, the footer's primary and its key hint all use these (Michael's review A18). */
-export const HOW_LABEL: Record<How, string> = { video: 'Watch a video', lesson: 'Just teach me' }
+/**
+ * The ways' names: the chips, the footer's primary and its key hint all use these (Michael's review A18). Demo's
+ * primary says "Start demo" (a bare "Demo" button doesn't say what Enter does); "Demo" itself is only on its chip.
+ */
+export const HOW_LABEL: Record<How, string> = { video: 'Watch a video', lesson: 'Just teach me', demo: 'Demo' }
 
 /**
  * A chip that acts on the press, not the release (Michael's desktop test 5: a click on "Just teach me" closed the
@@ -84,20 +92,22 @@ function usePress<T>(onPick: (v: T) => void): (v: T) => Pick<HTMLMotionProps<'bu
 }
 
 /**
- * The two ways to learn, under the query: "Watch a video" (search, preflight, gated player) or "Just teach me"
- * (no video: a text lesson over the full-screen editor).
+ * The ways to learn, under the query: "Watch a video" (search, preflight, gated player), "Just teach me" (no video: a
+ * text lesson over the full-screen editor) and "Demo" (the staged neural-net lesson, for presenting).
  *
  * One model (Michael's review A18): they are buttons. A click (the press, see usePress) starts that way at once; Enter
- * starts the highlighted one, Tab moves the highlight, ⌘/Ctrl+Enter is always "Just teach me". The highlighted one is
- * the default for what's typed (the launcher picks it: "Just teach me" for a goal that reads like building something),
- * and the footer's primary carries its exact name. Monochrome chrome, not pastel options and not a second white
- * primary: the highlighted one is a lit chip (brighter fill, ring border, full-white text), the other a quiet chip.
- * No keycaps on the chips: each key is shown once, in the footer (Michael's audit A19).
+ * starts the highlighted one, Tab / Shift+Tab move the highlight over all three (HOWS), ⌘/Ctrl+Enter is always "Just
+ * teach me". The highlighted one is the default for what's typed (the launcher picks it: "Just teach me" for a goal
+ * that reads like building something, else "Watch a video", never Demo), and the footer's primary carries its name.
+ * Monochrome chrome, not pastel options and not a second white primary: the highlighted one is a lit chip (brighter
+ * fill, ring border, full-white text), the others quiet chips. No keycaps on the chips: each key is shown once, in the
+ * footer (Michael's audit A19).
  */
 export function HowChoice({ how, onPick }: { how: How; onPick: (h: How) => void }): ReactNode {
   const options: { id: How; Icon: LucideIcon }[] = [
     { id: 'video', Icon: Play },
-    { id: 'lesson', Icon: GraduationCap }
+    { id: 'lesson', Icon: GraduationCap },
+    { id: 'demo', Icon: Presentation }
   ]
   const press = usePress(onPick)
   const mod = bridge.platform.os === 'mac' ? 'Meta' : 'Control'

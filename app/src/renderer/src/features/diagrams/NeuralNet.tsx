@@ -45,13 +45,13 @@ const squash: Record<string, (z: number) => number> = {
 
 /** Every layer's activations for one input. */
 function forward(f: Frame, layers: number[], x: number[], act: (z: number) => number): number[][] {
-  const out = [x]
+  const out = [x ?? []]
   for (let l = 0; l < layers.length - 1; l++) {
     const prev = out[l]
     const next: number[] = []
     for (let j = 0; j < layers[l + 1]; j++) {
       let z = f.b[l]?.[j] ?? 0
-      for (let i = 0; i < layers[l]; i++) z += prev[i] * (f.W[l]?.[i * layers[l + 1] + j] ?? 0)
+      for (let i = 0; i < layers[l]; i++) z += (prev[i] ?? 0) * (f.W[l]?.[i * layers[l + 1] + j] ?? 0)
       next.push(act(z))
     }
     out.push(next)
@@ -78,7 +78,7 @@ function useTime(run: boolean): number {
     let id = 0
     start.current = performance.now()
     const tick = (now: number): void => {
-      setT(now - start.current)
+      setT(Math.max(0, now - start.current))  // a rAF timestamp can precede the effect's performance.now()
       id = requestAnimationFrame(tick)
     }
     id = requestAnimationFrame(tick)
@@ -175,6 +175,7 @@ export function NeuralNet({ data, compact = false }: { data: Record<string, unkn
     }
   }
 
+  if (!(sample >= 0 && sample < samples.length)) sample = 0
   const acts = forward(frame, layers, samples[sample], act)
   const shown = (l: number, i: number): number => {
     if (mode !== 'forward' || reduced) return acts[l][i]
@@ -188,11 +189,15 @@ export function NeuralNet({ data, compact = false }: { data: Record<string, unkn
   // Strongest weight on screen sets the scale (so a zero network reads as empty, not as faint lines).
   const maxW = Math.max(1.5, ...frame.W.flat().map(Math.abs))
 
+  // Room for the input names left of the first column and the output name right of the last (13 px text, ~7.4 px a
+  // glyph), so the drawer's compact view scales the whole thing into its width instead of cutting the output off.
+  const padL = Math.max(0, Math.ceil(Math.max(0, ...inputs.map((t) => String(t ?? '').length)) * 7.4 + R + 8 - 40))
+  const padR = Math.max(0, Math.ceil(String(output ?? '').length * 7.4 + R + 8 - (NET_W - (pos[L]?.[0]?.x ?? NET_W - 46)) + 6))
   const net = (
     <svg
       width={compact ? '100%' : W}
       height={compact ? undefined : H}
-      viewBox={`0 0 ${compact ? NET_W : W} ${H}`}
+      viewBox={compact ? `${-padL} 0 ${NET_W + padL + padR} ${H}` : `0 0 ${W} ${H}`}
       className="mx-auto block max-w-full"
       style={{ fontFamily: font.ui }}
     >
@@ -287,7 +292,7 @@ export function NeuralNet({ data, compact = false }: { data: Record<string, unkn
   )
 }
 
-/** Under the drawer's network: epoch · loss while training (or the error going back), then want / gets per sample. */
+/** Under the drawer's network: epoch · loss while training (or the error going back), then want / gets per sample (2 × 2). */
 function CompactReadout(props: {
   ink: Ink
   frame: Frame
@@ -319,7 +324,7 @@ function CompactReadout(props: {
           {Math.abs(err).toFixed(2)}
         </div>
       )}
-      <div className="mt-[4px] grid gap-[4px]" style={{ gridTemplateColumns: `repeat(${Math.min(4, samples.length)}, minmax(0, 1fr))` }}>
+      <div className="mt-[4px] grid gap-[4px]" style={{ gridTemplateColumns: `repeat(${Math.min(2, samples.length)}, minmax(0, 1fr))` }}>
         {samples.map((s, k) => {
           const out = forward(frame, layers, s, act)[layers.length - 1][0]
           return (

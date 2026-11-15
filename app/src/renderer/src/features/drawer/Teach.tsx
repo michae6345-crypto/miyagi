@@ -354,8 +354,16 @@ export function CodeBlock({ code, caption, bleed }: { code: string; caption: str
         </button>
       </div>
       <div className="relative">
-        <pre ref={pre} className="overflow-x-auto whitespace-pre px-[12px] py-[9px] text-[12px] leading-[18px]" style={{ fontFamily: font.mono, color: glass.text, ...thinScroll }}>
-          <code>{shown}</code>
+        {/* Long lines wrap (Michael's test-5 review: comment lines were cut off at the panel edge); a wrapped line's rest
+            hangs 2 characters in, so it never reads as a new, indented line. */}
+        <pre ref={pre} className="overflow-x-auto whitespace-pre-wrap px-[12px] py-[9px] text-[12px] leading-[18px]" style={{ fontFamily: font.mono, color: glass.text, overflowWrap: 'anywhere', ...thinScroll }}>
+          <code>
+            {shown.split(/\r?\n/).map((line, i) => (
+              <span key={i} className="block" style={{ paddingLeft: '2ch', textIndent: '-2ch' }}>
+                {line || ' '}
+              </span>
+            ))}
+          </code>
         </pre>
         {more && (
           <button

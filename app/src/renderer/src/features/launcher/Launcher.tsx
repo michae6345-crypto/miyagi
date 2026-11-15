@@ -29,10 +29,13 @@
  *
  * Two ways to learn a typed topic (Michael, Sat 3:23 PM): "Watch a video" (the search flow above) or
  * "Just teach me" (learn {query, mode:"lesson"}: no video, the engine writes the lesson; the panel goes
- * straight into the building pill). One model (Michael's review A18): the two are buttons. A click starts that way at
- * once; Enter starts the highlighted one, Tab moves the highlight, ⌘/Ctrl+Enter is always "Just teach me". The same
- * two names on the chips, the footer's primary, its key hint and the lesson row. The highlight starts on "Just teach
- * me" when the goal reads like building something (isBuildGoal), on "Watch a video" otherwise.
+ * straight into the building pill). A third chip, "Demo" (learn {query, mode:"demo"}), starts the engine's staged
+ * neural-net lesson whatever is typed (server/orchestrator/stage.py), the same way as "Just teach me"; the chip is the
+ * only place the word appears (its primary says "Start demo"). One model for all three (Michael's review A18): they
+ * are buttons. A click starts that way at once; Enter starts the highlighted one, Tab / Shift+Tab move the highlight
+ * over all three, ⌘/Ctrl+Enter is always "Just teach me". The same two names on the chips, the footer's primary, its
+ * key hint and the lesson row. The highlight starts on "Just teach me" when the goal reads like building something
+ * (isBuildGoal), on "Watch a video" otherwise; never on Demo unless the learner moves it there.
  *
  * Look: born black like the island, it turns to dark HUD glass (color.glass) with a hairline edge as it
  * grows (Michael's audit A18, mockup 03) and back to black as it collapses. White text at the theme's
@@ -61,7 +64,7 @@ import { useCards } from '../cards/store'
 import { findPrimer, useStepDetail } from '../drawer/plan'
 import { hole, isUsableRect, toLocal } from '../spotlight/place'
 import { useSpotlight } from '../spotlight/store'
-import { Action, Chip, EndLink, Hint, HOW_LABEL, HowChoice, QuestionChips, Rise, type How } from './parts'
+import { Action, Chip, EndLink, Hint, HOW_LABEL, HOWS, HowChoice, QuestionChips, Rise, type How } from './parts'
 import { stepQuestions } from './questions'
 import { LessonRow, LinkRow, MessageRow, ResultRow, ResumeRow, ROW_H, SettingsRow, SkeletonRow } from './Rows'
 import { clearResults, markAsked, setLauncherOpen, startSearch, useSearch } from './store'
@@ -73,7 +76,7 @@ type Mode = 'search' | 'ask'
 type View = 'idle' | 'link' | 'searching' | 'results' | 'empty' | 'error'
 type Size = { w: number; h: number }
 /** What Enter (and the footer action) would do right now. Mirrors submit(). */
-type Act = 'settings' | 'resume' | 'ask' | 'build' | 'teach' | 'search' | 'searching' | 'none'
+type Act = 'settings' | 'resume' | 'ask' | 'build' | 'teach' | 'demo' | 'search' | 'searching' | 'none'
 
 /** The footer's End lesson stays armed ("Tap to end") this long for its second click, like the bar's End. */
 const END_ARM_MS = 3000
@@ -168,8 +171,9 @@ export function Launcher({ layout }: { layout: Layout }): ReactNode {
   }, [])
   const [mode, setMode] = useState<Mode>('search')
   /**
-   * "Watch a video" or "Just teach me" for the topic being typed (Michael's two ways to learn), when the learner moved
-   * the highlight (Tab). Unset, the highlight follows what's typed (isBuildGoal). Cleared with the field and on open.
+   * "Watch a video", "Just teach me" or "Demo" for the topic being typed (Michael's two ways to learn, plus Demo), when
+   * the learner moved the highlight (Tab / Shift+Tab). Unset, the highlight follows what's typed (isBuildGoal), so it
+   * never lands on Demo by itself. Cleared with the field and on open.
    */
   const [howPicked, setHowPicked] = useState<How | undefined>(undefined)
   const [from, setFrom] = useState<Size>(PILL)
@@ -446,22 +450,22 @@ export function Launcher({ layout }: { layout: Layout }): ReactNode {
    * so there are no rows to pick: the panel goes straight into the building pill, like Build lesson.
    * Only this path sends `mode`: "video" is the contract default, so the video flow's learn stays exactly as it was.
    */
-  const teach = (q: string): void => {
+  const teach = (q: string, as: 'lesson' | 'demo' = 'lesson'): void => {
     if (phaseRef.current !== 'open') return
     lastPick.current = undefined
     topic.current = q
     clearResults()
-    bridge.send(cmd('learn', { query: q, mode: 'lesson' }))
+    bridge.send(cmd('learn', { query: q, mode: as }))
     setPhase('building')
   }
 
-  /** The two ways are buttons: a click (its press) starts that way at once, whichever is highlighted. */
+  /** The ways are buttons: a click (its press) starts that way at once, whichever is highlighted. */
   const pick = (h: How): void => {
     const q = query.trim()
     if (!q || phaseRef.current !== 'open') return
     setHowPicked(h)
-    if (h === 'lesson') teach(q)
-    else learn(q)
+    if (h === 'video') learn(q)
+    else teach(q, h)
   }
 
   const build = (i = selIndex): void => {
@@ -553,7 +557,7 @@ export function Launcher({ layout }: { layout: Layout }): ReactNode {
     if (onLesson) return teach(goal)
     const q = query.trim()
     if (!q) return
-    if (choosing) return how === 'lesson' ? teach(q) : learn(q)
+    if (choosing) return how === 'video' ? learn(q) : teach(q, how)
     if (retry) return learn(q)
     build()
   }
@@ -589,8 +593,8 @@ export function Launcher({ layout }: { layout: Layout }): ReactNode {
     }
     if (e.key === 'Tab') {
       e.preventDefault() // focus stays in the field either way
-      // While the two ways are offered, Tab moves the highlight between them; otherwise it flips ask / new lesson.
-      if (choosing) return setHowPicked(how === 'video' ? 'lesson' : 'video')
+      // While the ways are offered, Tab (Shift+Tab back) moves the highlight over all three; otherwise it flips ask / new lesson.
+      if (choosing) return setHowPicked(HOWS[(HOWS.indexOf(how) + (e.shiftKey ? HOWS.length - 1 : 1)) % HOWS.length])
       return switchMode()
     }
     // Continue is the only row: ↑↓ have nothing to move to (End lesson is out of the keys' reach on purpose).
@@ -677,7 +681,9 @@ export function Launcher({ layout }: { layout: Layout }): ReactNode {
             : choosing
               ? how === 'lesson'
                 ? 'teach'
-                : 'search'
+                : how === 'demo'
+                  ? 'demo'
+                  : 'search'
               : retry
                 ? 'search'
                 : results.length
@@ -686,7 +692,7 @@ export function Launcher({ layout }: { layout: Layout }): ReactNode {
   const busy = search.pending && mode === 'search' && view !== 'link'
   /**
    * The primary says what Enter does, never a bare "Search" (Michael's audit A19). For the two ways it is the
-   * highlighted way's own name, exactly as on its chip and the lesson row (review A18).
+   * highlighted way's own name, exactly as on its chip and the lesson row (review A18); for Demo, "Start demo".
    */
   const actLabel = {
     settings: 'Settings',
@@ -694,6 +700,8 @@ export function Launcher({ layout }: { layout: Layout }): ReactNode {
     ask: 'Ask',
     build: 'Build lesson',
     teach: HOW_LABEL.lesson,
+    // The one exception to "the chip's own name" (#121): a bare "Demo" button doesn't say what Enter does.
+    demo: 'Start demo',
     search: choosing ? HOW_LABEL.video : 'Try again',
     searching: 'Searching…',
     none: ''
@@ -907,7 +915,7 @@ export function Launcher({ layout }: { layout: Layout }): ReactNode {
                 <>
                   <Hint label="Switch" keycap="⇥" />
                   {/* Each keycap once, here (not inside the chip): ⌘↵ is "Just teach me" whichever way is highlighted; with it highlighted, ↵ already does. */}
-                  {how === 'video' && <Hint label={HOW_LABEL.lesson} keycap={teachKey} />}
+                  {how !== 'lesson' && <Hint label={HOW_LABEL.lesson} keycap={teachKey} />}
                 </>
               )}
               {act === 'none' ? (

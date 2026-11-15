@@ -515,6 +515,10 @@ function actionLabel(c: EngineCard, a: CardAction): string {
  */
 function primaryOf(c: EngineCard, known: CardAction[]): CardAction | undefined {
   if (c.kind === 'preflight' && c.recommended && known.includes(c.recommended)) return c.recommended
+  // A setup card with something still to install: that item's Install is the one white primary (SetupItems lead),
+  // and Open VS Code steps back to a quiet button. Michael's run (Sun 03:13): the white button was Open VS Code, the
+  // NumPy row's Install a small grey one, and the engine only ever got skip_setup.
+  if (c.setup?.items.some((x) => x.needed && !x.ok && x.install.method !== 'none')) return undefined
   // A lone action becomes the primary, except option actions and Try again, which stay pastel / neutral.
   // Skip on a setup card is never the primary (A17): the item's Install is.
   const lone = known.length === 1 && !isOption(known[0]) && known[0] !== 'retry' && known[0] !== 'skip_setup' ? known[0] : undefined
@@ -638,7 +642,7 @@ const useArm = create<{ key?: string; at: number }>(() => ({ at: 0 }))
  * A destructive card action as a quiet text link. The first tap only arms it: the link becomes a real button
  * ("Yes, start over") for ARM_MS, and pressing that acts. A stray click meant for the button next to it does nothing.
  */
-function TwoTap({ armKey, label, onConfirm }: { armKey: string; label: string; onConfirm: () => void }): ReactNode {
+function TwoTap({ armKey, label, armedLabel, onConfirm }: { armKey: string; label: string; armedLabel: string; onConfirm: () => void }): ReactNode {
   const armed = useArm((s) => s.key === armKey)
   useEffect(() => {
     if (!armed) return
@@ -651,7 +655,7 @@ function TwoTap({ armKey, label, onConfirm }: { armKey: string; label: string; o
     return (
       <span data-two-tap="armed" className="mr-[12px] flex">
         <QuietButton
-          label="Yes, start over"
+          label={armedLabel}
           icon={RotateCcw}
           onClick={() => {
             useArm.setState({ key: undefined })
@@ -726,7 +730,7 @@ function CardActions({ card, actions }: { card: EngineCard; actions: CardAction[
         ))}
       {/* "Start a new lesson" discards the save: it sits apart from Continue and needs a second tap (desktop test 3),
           then opens the launcher for the next one (A7). */}
-      {known.includes('end_lesson') && primary !== 'end_lesson' && <TwoTap armKey={`${card.kind}:${card.title}`} label={actionLabel(card, 'end_lesson')} onConfirm={startOver} />}
+      {known.includes('end_lesson') && primary !== 'end_lesson' && <TwoTap armKey={`${card.kind}:${card.title}`} label={actionLabel(card, 'end_lesson')} armedLabel={card.kind === 'resume' ? 'No, start a new lesson' : 'Start over'} onConfirm={startOver} />}
       <span className="flex-1" />
       {primary && <PrimaryButton label={actionLabel(card, primary)} icon={busy(primary, ACTION[primary]!.Icon)} onClick={() => cardAct(primary)} />}
     </div>

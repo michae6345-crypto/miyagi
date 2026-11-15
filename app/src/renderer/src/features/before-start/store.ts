@@ -20,8 +20,13 @@ export function worthASheet(l: Lesson | undefined): boolean {
   return !!(l && (l.build || l.flow?.length || l.prerequisites?.length || l.learnFirst?.length))
 }
 
+/** Every step of a fully built lesson is done (passed or skipped): the sheet has nothing left to say before it. */
+export function lessonDone(s: ReturnType<typeof useLesson.getState> = useLesson.getState()): boolean {
+  return s.complete && s.steps.length > 0 && s.steps.every((x) => s.passed.includes(x.id))
+}
+
 export const openBeforeStart = (): void => {
-  if (worthASheet(useLesson.getState().lesson)) set({ open: true })
+  if (worthASheet(useLesson.getState().lesson)) set({ open: true }) // the drawer's chip: on purpose, even when done
 }
 export const closeBeforeStart = (): void => set({ open: false })
 
@@ -40,6 +45,9 @@ onMessage('step.started', (p) => {
   if (!firstStepSeen && useLesson.getState().steps.findIndex((s) => s.id === p.stepId) > 0) closeBeforeStart()
   firstStepSeen = true
 })
+// Michael's run (Sun 03:19): a sheet left open at step 1 came back over the finished lesson. Once a step passes the
+// lesson is underway, so the sheet goes (the drawer's "Needs" chip can still reopen it on purpose).
+onMessage('step.passed', closeBeforeStart)
 onMessage('card', (p) => {
   if (p.kind === 'resume') closeBeforeStart()
 })
