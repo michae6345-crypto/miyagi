@@ -2437,9 +2437,12 @@ class LessonSession:
 
     # ------------------------------------------------------------------ coaching (hint ladder)
     def _code_excerpt(self, step: dict, limit: int = 6000) -> tuple[str, str | None]:
-        files = [t.get("file") for t in step.get("targets") or [] if t.get("file")]
+        # a run step's "(terminal)" is a place, not a file: its code is the step's own file (t3: the coach was handed
+        # OCR text under "(terminal)" and held it as unconfirmed instead of reading main.py)
+        files = [t.get("file") for t in step.get("targets") or [] if self._real_file(t.get("file"))]
         files += [c.get("file") for c in (step.get("checks") or []) + (step.get("precision_checks") or [])
-                  if c.get("file")]
+                  if self._real_file(c.get("file"))]
+        files += [step["file"]] if self._real_file(step.get("file")) else []
         if not files:
             files = [p.name for p in sorted(Path(self.workdir).glob("*.py"))[:1]] if Path(self.workdir).is_dir() else []
         from . import workspace as wsmod
@@ -3877,22 +3880,22 @@ class LessonSession:
             if code == 0 or (not err and (shows or code is None)):
                 return {**base, "status": "pass", "detail": "ran without errors" if code == 0
                         else "ran and showed the expected output" if shows else "ran in the terminal"}
-            return {**base, "detail": f"the last run stopped with exit code {code}" if code else "the run printed an error"}
+            # a crash or a non-zero exit is a failed run (t3: a SyntaxError run stayed "pending" and nothing explained it)
+            return {**base, "status": "fail",
+                    "detail": f"the last run stopped with exit code {code}" if code else "the run printed an error"}
 
         row = {**base, "status": "pass", "detail": need["ran"]} if need["ran"] else base
-        for run in reversed(self.step_runs):  # tut run / Run it for me: the latest finished run of this command
+        for c in self._ext_commands_ended(need):  # VS Code's shell integration: every run of the command, read once
+            if same(cmd, str(c.get("commandLine") or "")):
+                need["end"] = c  # its exit code beats reading the terminal (below)
+                self._ext_run(c)  # a run of the step: checks grade its output, the coach explains its error
+        for run in reversed(self.step_runs):  # tut run / Run it for me / VS Code: the latest finished run of this command
             if row["status"] == "pass":
                 break
             if run.run_id.startswith("screen-") or run.exit_code is None or not same(cmd, run.command):
                 continue
             row = ended(run.exit_code, run.output_tail)
             break
-        if row["status"] != "pass":  # VS Code's shell integration: its exit code beats reading the terminal
-            for c in self._ext_commands_ended(need):
-                if same(cmd, str(c.get("commandLine") or "")):
-                    need["end"] = c
-            if need["end"] is not None:
-                row = ended(need["end"].get("exitCode"), need["end"].get("outputTail"))
         if row["status"] != "pass" and need["end"] is None and (rows := self._terminal_rows()) is not None:
             n, err, shows = count(cmd, rows, need["expect"])
             now = self.clock()
@@ -3945,6 +3948,84 @@ class LessonSession:
             if here and t >= self._step_wall_t0:
                 found.append(c)
         return found
+
+    def _ext_run(self, c: dict) -> RunInfo | None:
+        """A command_end of the step's command (VS Code's terminal: the learner's run or Run it for me) as a run of
+        the step, once per command: its exit code and output tail grade output_contains / command_exit_ok and the
+        terminal checks the screen can't read, and are the coach's error text. A new one is a breakpoint: a run_end
+        evaluation follows (the coach explains a crash). None once the step is over."""
+        run_id = f"vscode-{c.get('id')}-{c.get('startedAt') or c.get('endedAt') or ''}"
+        if run_id in self.runs or self.step is None or self.passed:
+            return self.runs.get(run_id)
+        tail = c.get("outputTail")
+        lines = [str(x) for x in tail] if isinstance(tail, list) else str(tail or "").splitlines()
+        run = RunInfo(run_id=run_id, command=str(c.get("commandLine") or ""), cwd=str(c.get("cwd") or self.workdir))
+        run.add_output(lines)
+        try:
+            run.exit_code = int(c.get("exitCode"))
+        except (TypeError, ValueError):  # the shell didn't report one: a crash in its output is a failed run
+            out = self._checks_fn("run_output")
+            run.exit_code = 1 if out is not None and out(lines)[0] else 0
+        self.runs[run_id] = run
+        self.step_runs.append(run)
+        self.engaged = True
+        self._acted()  # the learner's run (a breakpoint); a diagnosis of the code before it is stale
+        gen, step, card = self.step_gen, self.step, self._run_for_me_card
+
+        async def run_end() -> None:
+            if card is not None and card[0] == gen == self.step_gen and self._run_for_me_card is card:  # Running it
+                self._run_for_me_card = None  # becomes the result, before the coach's card (that one goes on top)
+                self._record("run_for_me", {"command": card[1][:200], "exit_code": run.exit_code}, step)
+                await self._card(step, f"Ran {card[1].splitlines()[0][:60]}",
+                                 self._run_verdict(run.exit_code, run.output_tail), kind="answer",
+                                 output="\n".join(run.output_tail[-8:]) or "(no output)")
+            for _ in range(20):  # the stale diagnosis _acted cancelled must end first, or the breakpoint is dropped
+                if not self.coaching:
+                    break
+                await asyncio.sleep(0.1)
+            if gen == self.step_gen:
+                await self.evaluate("run_end")
+
+        self._spawn(run_end())
+        return run
+
+    _TB_FILE = re.compile(r'File "([^"]+)", line (\d+)')
+    _RUN_ERR = re.compile(r"^\s*[A-Z][\w.]*(?:Error|Exception)\b.*|.*(?:command not found|No such file or directory"
+                          r"|can't open file).*")
+
+    def _run_verdict(self, code: int | None, lines: list[str]) -> str:
+        """One line for a finished run's card: "It ran without errors.", "It stopped on line 6: SyntaxError: …"
+        (the traceback's last frame in the lesson folder), "It stopped with exit code 2."."""
+        if code == 0:
+            return "It ran without errors."
+        err = next((ln.strip() for ln in reversed(lines) if self._RUN_ERR.match(ln)), "")
+        if not err:
+            return f"It stopped with exit code {code}." if code else "It ran."
+        mine = os.path.realpath(self.workdir)
+        frames = [n for f, n in self._TB_FILE.findall("\n".join(lines))
+                  if os.path.realpath(f) == mine or os.path.realpath(f).startswith(mine + os.sep)]
+        return f"It stopped on line {frames[-1]}: {err[:160]}" if frames else f"It stopped: {err[:160]}"
+
+    _run_for_me_card: tuple[int, str] | None = None  # Run it for me in VS Code's terminal: (step_gen, cmd) until its end
+    EXT_RUN_WAIT_S = 300.0  # how long Run it for me waits for VS Code to report its end (a program waiting for input)
+
+    async def _ext_run_wait(self, gen: int, step: dict, cmd: str, seq: int) -> None:
+        """Run it for me typed into VS Code's terminal: pick up its command_end at once (not on the next frame), so
+        its "Running it" card becomes the result like the subprocess run's ("It stopped on line 6: SyntaxError: …")
+        and the run_end evaluation follows (_ext_run). Stops when the step moves on, or after EXT_RUN_WAIT_S."""
+        same = self._checks_fn("command_matches")
+        last = cmd.strip().splitlines()[-1].strip()
+        probe = {"seq": seq}  # its own read position: _need_run reads the same events with its own
+        deadline = time.monotonic() + self.EXT_RUN_WAIT_S
+        while time.monotonic() < deadline:
+            await asyncio.sleep(0.25)
+            if gen != self.step_gen or self.step is not step or self.passed:
+                return
+            ends = [c for c in self._ext_commands_ended(probe)
+                    if same is None or same(last, str(c.get("commandLine") or ""))]
+            if ends:
+                self._ext_run(ends[-1])  # once per command: a no-op when _need_run took it first
+                return
 
     def _run_missing(self, step: dict) -> str:
         """The run a run step still needs ('' when it ran, or it isn't a run step)."""

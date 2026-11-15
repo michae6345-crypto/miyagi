@@ -459,7 +459,7 @@ async def diagnose(
         error_text = screen.drop_foreign(error_text)
         if code_source == "screen":
             code_excerpt = screen.drop_foreign(code_excerpt)
-    if (held := _hold(step, screen, file_state, code_excerpt, code_source, active_file)) is not None:
+    if (held := _hold(step, screen, file_state, code_excerpt, code_source, active_file, error_text)) is not None:
         return held
     if _empty_code_step(step, code_excerpt, file_state):  # an empty file at a code step: not started, not off track
         card = template_card(step, failed_checks, screen, empty_file=True)
@@ -542,7 +542,8 @@ def _empty_code_step(step: dict, code: str, file_state: dict | None) -> bool:
     return lesson_mode(step) and bool((step.get("code") or "").strip()) and not (code or "").strip() and (step.get("file") or "") != "(terminal)"
 
 
-def _hold(step: dict, screen: Any, file_state: dict | None, code: str, code_source: str, active_file: dict | None = None) -> dict | None:
+def _hold(step: dict, screen: Any, file_state: dict | None, code: str, code_source: str, active_file: dict | None = None,
+          error_text: str = "") -> dict | None:
     from .pointing import editor_state, step_file
 
     sid = step.get("id", "")
@@ -562,7 +563,9 @@ def _hold(step: dict, screen: Any, file_state: dict | None, code: str, code_sour
     if code_source == "screen" and code.strip():
         norm = re.sub(r"\s+", "", code)
         prev, _SCREEN_READS[sid] = _SCREEN_READS.get(sid), norm
-        if prev != norm:
+        # an error to explain (a traceback, "SyntaxError: …") needs no second read of the code: t3 held a run's
+        # SyntaxError as "unconfirmed" on every frame for 20 s
+        if prev != norm and not ERROR_SIGNATURE.search(error_text or ""):
             return card("unconfirmed", "", "")
     else:
         _SCREEN_READS.pop(sid, None)
