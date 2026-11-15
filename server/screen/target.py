@@ -555,7 +555,7 @@ NONE_CONF = 0.75     # "nothing on screen matches" must be at least this sure to
 def verdict(rect, res: dict | None, outcome: str, conf: float) -> tuple[dict | None, str]:
     """Combine the engine's own box with a pick -> (rect to show | None, why):
     - pick overlaps the box -> keep the box ("agree"); a confident pick elsewhere -> the pick ("moved"),
-      except a whole panel replacing a single row (a panel is never more precise than a row);
+      except a whole panel, or a block taller than ~3 lines, replacing a single row (never more precise than a row);
     - the model is sure nothing matches (conf >= NONE_CONF) -> None ("none": no box);
     - low confidence, timeout, budget, no key, error -> keep the box ("kept:<outcome>")."""
     box = Rect.from_any(rect).to_dict()
@@ -564,6 +564,8 @@ def verdict(rect, res: dict | None, outcome: str, conf: float) -> tuple[dict | N
             return box, "agree"
         if res.get("kind") == "region" and res["rect"]["h"] >= 80 and box["h"] < 80:
             return box, "kept:region"
+        if box["h"] < 80 and res["rect"]["h"] > 3 * max(box["h"], 20.0) + 12:  # e.g. 15 merged terminal rows
+            return box, "kept:tall"
         return dict(res["rect"]), "moved"
     if outcome == "none" and conf >= NONE_CONF:
         return None, "none"

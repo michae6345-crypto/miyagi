@@ -2562,7 +2562,7 @@ def test_run_step_boxes_the_vscode_terminal_never_the_breadcrumb(tmp_path, monke
         await rig.s.goto_step(1)  # the run step, terminal not open yet
         await asyncio.sleep(0.05)
         first = dict(rig.of("spotlight")[-1])
-        screen.text["Code"] += [""] * 20 + ["TERMINAL", "tripi@mac lesson % "]  # the learner opened it (⌃`)
+        screen.text["Code"] += [""] * 19 + ["TERMINAL", "tripi@mac lesson % "]  # the learner opened it (⌃`)
         await asyncio.sleep(2.1)
         return first
 
@@ -2572,6 +2572,7 @@ def test_run_step_boxes_the_vscode_terminal_never_the_breadcrumb(tmp_path, monke
     last = rig.of("spotlight")[-1]
     assert last["caption"] == "Run python calc.py in the VS Code terminal" and last["rect"]["y"] == 100.0 + 20 * 22
     assert not [s for s in rig.of("spotlight") if "matched" in s and ">" in s["matched"]]
+    assert last["rect"]["h"] == 20.0  # E8: the prompt line itself (row 22, not the TERMINAL tab), never the panel
 
 
 def test_spotlight_is_steady_one_box_until_it_really_moves(tmp_path, monkeypatch):
