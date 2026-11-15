@@ -48,6 +48,7 @@ from . import ui_targets  # t6: VS Code's real controls (AX) boxed: Terminal, sa
 from . import start_hold  # t6: the Before-you-start hold gates checks only; the step's line on screen
 from .lesson_boxes import LessonBoxes
 from . import quiet_save  # Nov 15: no ⌘S chores, ~1 s freshness, one "You already did" card instead of a cascade
+from . import run_pointing  # t7: the Run ▷ found once VS Code filled its AX tree; a Not yet in the code boxes the code
 
 log = logging.getLogger("orchestrator.session")
 
@@ -1596,8 +1597,8 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
             return None
         r = await asyncio.to_thread(region, "run_button")  # AX: a bounded walk of VS Code's tree, never on the loop
         win = self._editor_window()
-        if not r or win is None:
-            self._run_note("VS Code's Run ▷ isn't on screen (no Python extension?): the terminal box instead")
+        if not r or win is None:  # t7: maybe VS Code is still filling its AX tree (run_pointing looks again)
+            self._run_note("VS Code's Run ▷ isn't found (yet): the terminal box for now")
             return None
         cx, cy = r["x"] + r["w"] / 2, r["y"] + r["h"] / 2
         if (not (win["x"] <= cx <= win["x"] + win["w"] and win["y"] <= cy <= win["y"] + min(160.0, win["h"] * 0.3))
@@ -1791,19 +1792,8 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
             return gen != self.step_gen or self.passed or self._spot_frozen() or self._offtrack_box() == "up"
 
         cmd = self._run_command(step)
-        if cmd:
-            for _ in range(30):  # ~60 s: upgrade "open the terminal" to the Run ▷ / terminal box once it's there
-                if gone() or self._step_ran():  # E17: after a run the box has done its job (_run_box_done)
-                    return
-                spot = await self._run_spot(step, cmd)
-                if gone() or self._step_ran():
-                    return
-                kind = spot.pop("kind", None)
-                if spot:  # E17: the Run ▷ / terminal panel / menu item are where to act; the targeter never moves them
-                    await self._show_spot(spot, steady=True, verify=False)
-                if kind in ("terminal", "run_button"):
-                    return
-                await asyncio.sleep(2.0)
+        if cmd:  # the Run ▷ / terminal / "open the terminal" box; t7: a terminal box becomes the ▷ once it's found
+            await run_pointing.place_run_box(self, gen, step, cmd, gone)
             return
         for i in range(max(1, tries)):
             if gone():
@@ -2426,8 +2416,10 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
                 await self.evaluate("start")  # already done before the clip: ask "Looks done?" now
         # E5: the run caption ("Run it here" on the terminal, or "Open the terminal") goes up whenever the lesson's VS
         # Code window is on screen; the drawer says the command. The Run it card only when no caption can go up
-        # (Run it for me stays on Check's "Not yet" card).
-        spot_up = self._can_see() and self._editor_window() is not None and not self._lesson_window_hidden()
+        # (Run it for me stays on Check's "Not yet" card). t7: a Demo lesson always gets it, beside the ▷ / terminal
+        # box (docs/DEMO.md presses Run it for me on Train it and See what it learned; the box was up, so no button).
+        spot_up = (self._can_see() and self._editor_window() is not None and not self._lesson_window_hidden()
+                   and not stage.on(self))
         if back is not None and self._dirty_step_file(step):  # they typed it: it's just not saved
             await self._emit_card({"stepId": step["id"], "kind": "step", "title": f"Save {empty}",
                                    "body": f"Save {empty} in VS Code (⌘S)."})
@@ -4029,6 +4021,7 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
             async with self._spot_lock():
                 if self.spot_rect is not None:
                     await self.emit("spotlight", {"clear": True})
+        await run_pointing.follow(self)  # t7: a culprit box -> the ▷ once the code changed; that ▷ goes on the rerun
 
     def _maybe_respot(self) -> None:
         """E16: no box up on a lesson step while its VS Code window is in front (the first tries ran under a save
@@ -4589,7 +4582,13 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
         file, where it goes on, never the "where to start" anchor. t5: a fix that is up boxes the line to fix; nothing
         typed yet boxes where the code goes (the file decides, _insert_spot). A run step otherwise: VS Code's Run ▷ or
         the terminal, never a line of its file (Nov 15, nn4: Show me boxed nn.py's last line "Type it here: python3
-        nn.py", and the learner typed the command into nn.py)."""
+        nn.py", and the learner typed the command into nn.py). t7: a run step whose "Not yet" is in the code (stuck
+        loss: W1..W3; a diagnosed line; a NameError) boxes those lines, never the ▷ (run_pointing.culprit_spot)."""
+        if (culprit := await run_pointing.culprit_spot(self, step)) is not None:
+            if culprit:  # ({}: those lines aren't on screen: no box beats "click ▷ again")
+                self._action_spot = True
+                await self._show_spot(culprit, owner="answer")
+            return True
         if self.lesson_mode and self._fix_active() and (fix := await self._change_spot(step)) is not None:
             self._action_spot = True  # t5 (b): the press points at the line to fix: the one box
             await self._show_spot(fix, owner="answer")
