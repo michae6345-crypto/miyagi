@@ -52,6 +52,7 @@ class StepSummary(_Model):
     video: VideoSegment | None = None
     kind: StepKind | None = None  # code = type in the file, run = run a command, read = learn a concept first
     what: str | None = None  # what this step builds, <= 12 words (shown in the step list as the plan)
+    estMinutes: int | None = None  # about how long this step takes, whole minutes ("about 35 min left" = sum over steps not passed)
 
 
 class PrimerItem(_Model):
@@ -61,6 +62,37 @@ class PrimerItem(_Model):
     body: str  # <= 40 words, plain language
     code: str | None = None  # a tiny example
     diagramPrompt: str | None = None  # if set, the app may ask for a picture: action {kind:"diagram", text:"primer:<id>"}
+
+
+# Learn-anything screens (Just teach me; mockups 01 drawer v2, 02 concept panel, 03 "Before you start"). All optional.
+# Concept diagrams are NOT pre-built: the app asks on demand with action {kind:"diagram", text:"<concept title>"}.
+class LessonBuild(_Model):
+    summary: str  # what you'll build, <= 20 words
+    outcome: str  # what the finished result looks like / does, <= 25 words
+    estMinutes: int | None = None  # the whole lesson (= the sum of the steps' estMinutes)
+
+
+class FlowBox(_Model):
+    """One box of the "How it works" diagram (3-6 boxes, left to right)."""
+    label: str  # <= 3 words
+    detail: str | None = None  # a formula or <= 4 words
+    stepIndex: int | None = None  # StepSummary.index of the step that builds this box
+
+
+class Prerequisite(_Model):
+    id: str
+    title: str  # <= 4 words
+    why: str  # <= 12 words
+    status: Literal["passed", "unknown"]  # passed: a lesson completed on this Mac covered it; unknown: not seen yet
+    evidence: str | None = None  # "Passed in Python Calculator"
+
+
+class LearnFirstItem(_Model):
+    """A short mini-lesson for a prerequisite not passed yet."""
+    title: str
+    minutes: int
+    kind: Literal["notebook", "interactive", "video", "read"]
+    covers: str  # Prerequisite.id
 
 
 # ---------- Engine -> App events ----------
@@ -118,6 +150,10 @@ class LessonInfo(_Model):
     provisional: bool | None = None  # True: a placeholder from the chapter list; a fresh lesson.ready replaces it
     primer: list[PrimerItem] | None = None  # "Before you start": the concepts the steps rely on (lesson mode)
     overview: str | None = None  # "What we're building": the project and the plan in plain words, <= 60 words
+    build: LessonBuild | None = None  # learn-anything: what you'll build + the finished result + minutes
+    flow: list[FlowBox] | None = None  # learn-anything: the "How it works" diagram
+    prerequisites: list[Prerequisite] | None = None  # learn-anything: "You'll need" / the "Needs" chip
+    learnFirst: list[LearnFirstItem] | None = None  # learn-anything: mini-lessons for the gaps
 
 
 class LessonReady(_Model):
@@ -149,6 +185,7 @@ class StepStarted(_Model):
     why: str | None = None  # what it means / why it matters, <= 25 words
     concepts: list[str] | None = None  # primer ids this step uses
     code: str | None = None  # the exact code to type (code steps) or command to run (run steps), in full
+    estMinutes: int | None = None  # about how long this step takes ("about 4 min")
 
 
 class CheckUpdated(_Model):
@@ -338,12 +375,17 @@ class PreflightInfo(_Model):
 
 
 CardAction = Literal["confirm", "undo", "apply_fix", "open_editor", "resume", "end_lesson", "install", "skip_setup",
-                     "open_in_browser", "build", "pick_another", "download", "skip_step", "check_step", "use_this_folder", "run_command"]
+                     "open_in_browser", "build", "pick_another", "download", "skip_step", "check_step", "use_this_folder", "run_command",
+                     "retry", "hint", "show_me"]  # retry: "Couldn't reach Claude" card -> action retry; hint / show_me: the off-track card's actions, on a judge "Not yet" card
 
 
 class Card(_Model):
     stepId: str | None = None
-    kind: Literal["explain", "hint", "answer", "resume", "setup", "preflight"]  # resume: "Continue where you left off?"
+    # resume: "Continue where you left off?"; step: a step-control / judge card the engine raises itself ("Run it",
+    # "Save X", "X is still empty", "Wrong folder?", "Looks done?", "Not yet"), never an answer; where: the
+    # where-to-work card ("Open calc.py", "Where to work") when there is no box to draw (Show me, or Hint before the
+    # step's code is on screen). See events.ts.
+    kind: Literal["explain", "hint", "answer", "resume", "setup", "preflight", "step", "where"]
     title: str
     body: str
     videoJump: VideoJump | None = None
@@ -358,6 +400,9 @@ class Card(_Model):
     preflight: PreflightInfo | None = None  # kind "preflight"
     where: str | None = None  # coach: where to go when the place isn't on screen (no dim)
     output: str | None = None  # monospace output block (e.g. "Run it for me")
+    source: Literal["judge"] | None = None  # E5's step judge made it: a step-status card (kind "step"), never an answer
+    verdict: Literal["done", "not_done"] | None = None  # source "judge": the WHOLE step. done = "Looks done?", not_done = "Not yet"
+    checkIds: list[str] | None = None  # source "judge": the checks it is about (done: what Yes vouches for; not_done: still missing)
 
 
 class NetworkDiagram(_Model):
@@ -513,7 +558,8 @@ class BuildLesson(_Model):
 
 ActionKind = Literal["back", "explain", "diagram", "show_me", "hint", "voice_toggle", "ask", "apply_fix",
                      "confirm", "undo", "open_editor", "resume", "end_lesson", "install", "skip_setup", "open_in_browser",
-                     "build", "pick_another", "download", "skip_step", "check_step", "use_this_folder", "run_command"]
+                     "build", "pick_another", "download", "skip_step", "check_step", "use_this_folder", "run_command",
+                     "retry"]
 
 
 class Action(_Model):

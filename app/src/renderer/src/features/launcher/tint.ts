@@ -4,8 +4,10 @@
  */
 import { brand } from '../../core/theme'
 
-/** Suggestion chips cycle through the options pastels, in order. */
-export const chipTones = [brand.pastel.pink, brand.pastel.sky, brand.pastel.lilac] as const
+/*
+ * Topic suggestion chips are neutral (Michael's audit A18): they are example topics, not options, so they never take
+ * the action pastels (theme.actionTone), which mean Explain / Show me / Hint everywhere else.
+ */
 
 /** Result tile tone by source kind (videos keep their thumbnail). */
 export const kindTone: Partial<Record<string, string>> = {

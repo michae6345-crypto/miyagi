@@ -3,8 +3,8 @@
  *
  * The step-pass moment is one gesture (FRONTEND-HANDOFF → "Step passes"):
  *   t = 0      step.passed: the status dot becomes a green check that draws its stroke,
- *              the ring advances on the spring, core flashes the island green (600ms)
- *   t = 560ms  the text crossfades to the next step by itself; the check settles back into a gray dot
+ *              core flashes the island green (600ms)
+ *   t = 560ms  the text and the step count crossfade to the next step by itself; the check settles back into a gray dot
  *   t = 400ms  (player) the video resumes
  * The pill moves on without waiting for the engine's step.started (the mock sends it ~4s later),
  * using step.passed.nextStepId or the next entry in lesson.steps. step.started then just confirms it.
@@ -39,7 +39,6 @@ let holdTimer: ReturnType<typeof setTimeout> | undefined
 const clear = (): void => {
   clearTimeout(holdTimer)
   set({ celebrating: undefined, advanced: undefined, buildMessage: undefined })
-  ring.shown = 0
 }
 
 // A full reset (dev HUD) clears everything. A lesson-scoped one (reconnect, lesson ended) keeps a notice on screen:
@@ -51,7 +50,6 @@ onUi('reset', (p) => {
 onMessage('lesson.ready', () => {
   clearTimeout(holdTimer)
   set({ celebrating: undefined, advanced: undefined })
-  ring.shown = 0
 })
 // A failed build drops its message: the error arrives as a notice instead.
 onMessage('lesson.building', (p) => set({ buildMessage: p.failed ? undefined : p.message }))
@@ -104,12 +102,6 @@ useLesson.subscribe((s, prev) => {
   if (s.notice && s.notice !== prev.notice) showNotice(s.notice)
   if (s.connected !== prev.connected) syncOffline(s.connected)
 })
-
-/**
- * The ring's last drawn value, kept across remounts: when a card covers the pill during a pass,
- * the ring still visibly advances once the pill comes back (instead of appearing already full).
- */
-export const ring = { shown: 0 }
 
 /** Off-track episodes whose amber pulse has been seen, so hover/card remounts don't pulse again. */
 export const pulsedOfftrack = new WeakSet<object>()
