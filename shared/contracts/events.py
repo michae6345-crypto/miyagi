@@ -126,6 +126,7 @@ class StepStarted(_Model):
     title: str
     instructions: str
     video: VideoSegment | None = None
+    details: str | None = None  # the full explanation; `instructions` is one concrete action
 
 
 class CheckUpdated(_Model):
