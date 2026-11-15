@@ -5,6 +5,7 @@ demo/cache/lessons/text-nn-from-scratch.json + its cards and live network diagra
 
     lesson_for(goal)              the curated step graph for a "Just teach me" goal, or None (tight match, no LLM / fine-tune hits)
     prepare_folder(graph)         ~/miyagi/lessons/<slug>/ with nn.py's clean starter (an old attempt is kept in .miyagi-state)
+    forget_saved(graph)           a fresh start drops this lesson's save (an engine restart mid-lesson), so it starts at step 1
     active(session)               this session runs a curated lesson (also after a resume: lesson.curated in the graph)
     prepare_step(session, step)   a run step runs the lesson's .venv python when Miyagi installed NumPy there
     on_step_started / on_step_passed / after_evaluate / on_command_end   the pushed diagrams and the real run's numbers
@@ -150,6 +151,25 @@ def prepare_folder(graph: dict) -> str:
     return str(folder)
 
 
+def forget_saved(graph: dict) -> bool:
+    """Typing the goal again starts the curated lesson over: prepare_folder puts the clean starter back, so a save of
+    THIS lesson (made before an engine restart, its resume card not answered) must not restore a later step onto that
+    blank nn.py. Built lessons don't need this (their files are never reset). The resume card's Continue still goes
+    back to the saved step: it reloads the saved graph and never comes through here. Blocking (file I/O)."""
+    lid = (graph.get("lesson") or {}).get("id")
+    try:
+        from server.sessions import store
+
+        saved = store.load()
+        if lid and saved is not None and saved.get("lessonId") == lid:
+            store.clear()
+            log.info("curated lesson: starting over (dropped the save at step %s)", saved.get("stepIndex"))
+            return True
+    except Exception:  # noqa: BLE001 - never blocks the lesson
+        log.exception("curated lesson: could not drop the old save")
+    return False
+
+
 def _folder_extras(folder: Path, graph: dict) -> None:
     """README, VS Code settings, S2's state file (so S2 never re-scaffolds this folder with Claude) and the setup
     check's requirements (python + numpy, so the "Install NumPy" card needs no Claude call). Best effort."""
@@ -203,8 +223,12 @@ def _folder_extras(folder: Path, graph: dict) -> None:
 # ---------------------------------------------------------------------------------------------------------- steps
 
 def _venv_python(workdir: str | Path) -> Path | None:
-    p = Path(workdir) / ".venv" / "bin" / "python"
-    return p if p.exists() else None
+    """The lesson .venv's python, only when NumPy is installed in it (a .venv without NumPy runs nn.py with python3)."""
+    venv = Path(workdir) / ".venv"
+    p = venv / "bin" / "python"
+    if not p.exists():
+        return None
+    return p if any(venv.glob("lib/python*/site-packages/numpy/__init__.py")) else None
 
 
 def prepare_step(session: Any, step: dict) -> None:
@@ -510,9 +534,12 @@ def _ingest_latest(session: Any) -> bool:
         return False
     st["runs"][fp] = True
     if parsed["losses"]:
+        was = st.get("stuck") and st.get("stuck_step")
         st["losses"] = parsed["losses"]
         st["stuck"] = is_stuck(parsed["losses"])
         st["stuck_step"] = session.step.get("id") if (st["stuck"] and session.step) else None
+        if st["stuck"] and was != st["stuck_step"]:  # just got stuck: the stuck ladder starts at its first hint
+            st["stuck_hints_from"] = int(getattr(session, "hint_level", 0) or 0)
     if parsed["final"]:
         st["final"] = parsed["final"]
     return True
@@ -590,12 +617,15 @@ def _stuck_here(session: Any, step: dict) -> bool:
 
 def hint_card(session: Any, step: dict, level: int) -> dict | None:
     """The step's cached hint ladder (instant; the same every time). On the training step, while the loss is stuck at
-    0.25, the stuck ladder (look at how W1 and W2 start -> start them random). None past the ladder's end: the live
-    coach takes the next hint."""
+    0.25, the stuck ladder (look at how W1 and W2 start -> start them random), from its first hint even when the
+    learner used hints before the run got stuck. None past the ladder's end: the live coach takes the next hint."""
     if not active(session):
         return None
     sid = step.get("id")
-    name = f"{sid}-stuck-hint{level}" if _stuck_here(session, step) else f"{sid}-hint{level}"
+    if _stuck_here(session, step):  # counted from the moment it got stuck (hints used before don't skip the ladder)
+        name = f"{sid}-stuck-hint{max(0, level - int(_state(session).get('stuck_hints_from') or 0))}"
+    else:
+        name = f"{sid}-hint{level}"
     card = _cache_json("cards", f"{name}.json")
     if card is None:
         return None

@@ -1176,6 +1176,7 @@ class LessonSession:
         try:
             self.build_progress = {"message": "Setting up your project folder", "progress": 0.5}
             await self.emit("lesson.building", self.build_progress)
+            await asyncio.to_thread(curated.forget_saved, graph)  # starts at step 1, never a pre-restart save's step
             try:
                 folder = await asyncio.to_thread(curated.prepare_folder, graph)
             except Exception:  # noqa: BLE001 - the lesson still runs in the default folder

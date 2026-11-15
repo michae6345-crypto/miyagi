@@ -362,7 +362,7 @@
     {
      "id": "nn4p1",
      "type": "file_contains",
-     "label": "nn.py has the training loop",
+     "label": "The saved nn.py runs 5,000 epochs",
      "file": "nn.py",
      "pattern": "for\\s+epoch\\s+in\\s+range\\(\\s*5000\\s*\\)"
     },
@@ -488,7 +488,7 @@
     {
      "id": "nn6p1",
      "type": "file_contains",
-     "label": "nn.py prints the predictions",
+     "label": "The saved nn.py prints its answers",
      "file": "nn.py",
      "pattern": "\\(\\s*out\\s*>\\s*0\\.5\\s*\\)\\.astype\\(\\s*int\\s*\\)"
     },

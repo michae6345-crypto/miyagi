@@ -312,7 +312,7 @@ STEPS = [
              "op": "<", "value": 0.01, "metric_pattern": METRIC, "by_step": 4000},
         ],
         precision_checks=[
-            {"id": "nn4p1", "type": "file_contains", "label": "nn.py has the training loop", "file": "nn.py",
+            {"id": "nn4p1", "type": "file_contains", "label": "The saved nn.py runs 5,000 epochs", "file": "nn.py",
              "pattern": r"for\s+epoch\s+in\s+range\(\s*5000\s*\)"},
             {"id": "nn4p2", "type": "metric_threshold", "label": "Your run's loss falls below 0.01", "metric": "loss",
              "op": "<", "value": 0.01, "metric_pattern": METRIC, "by_step": 4000},
@@ -367,7 +367,7 @@ STEPS = [
             {"id": "nn6c1", "type": "screen_contains", "label": "It answers 0 1 1 0", "app": "Terminal", "pattern": XOR_OUT},
         ],
         precision_checks=[
-            {"id": "nn6p1", "type": "file_contains", "label": "nn.py prints the predictions", "file": "nn.py",
+            {"id": "nn6p1", "type": "file_contains", "label": "The saved nn.py prints its answers", "file": "nn.py",
              "pattern": r"\(\s*out\s*>\s*0\.5\s*\)\.astype\(\s*int\s*\)"},
             {"id": "nn6p2", "type": "output_contains", "label": "Your run prints [0 1 1 0]", "pattern": XOR_OUT},
         ],

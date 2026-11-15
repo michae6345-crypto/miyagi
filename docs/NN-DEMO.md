@@ -22,8 +22,10 @@ a lesson as before. `MIYAGI_CURATED=0` turns curated lessons off.
 
 The folder is `~/miyagi/lessons/a-neural-net-from-scratch-<hash>/` (the same every time, so a NumPy installed into its
 `.venv` stays). A fresh start puts the clean `nn.py` back; the previous attempt is kept in
-`~/miyagi/lessons/.miyagi-state/attempts/`. NumPy: the setup card offers to install it into the lesson's `.venv` when
-`python3` doesn't have it; the run steps then say `.venv/bin/python nn.py` (VS Code's terminal doesn't activate the venv).
+`~/miyagi/lessons/.miyagi-state/attempts/`. Typing the goal again always starts at step 1, also after an engine restart
+mid-lesson (that lesson's save is dropped); the resume card's Continue is how to go back to the saved step with your
+`nn.py`. NumPy: the setup card offers to install it into the lesson's `.venv` when `python3` doesn't have it; once NumPy
+is in the `.venv`, the run steps say `.venv/bin/python nn.py` (VS Code's terminal doesn't activate the venv).
 
 ## The six steps (what to do, what appears, what to say)
 
