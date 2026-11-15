@@ -16,6 +16,7 @@ import re
 from typing import Any
 
 from . import llm
+from .common import get_lesson
 from .screen import ScreenContext
 
 log = logging.getLogger("coach.pointing")
@@ -65,6 +66,29 @@ def step_file(step: dict, last: dict | None = None) -> str:
 CREATE_WORDS = re.compile(r"\b(create|make|new file|save (?:it )?as|add a file)\b", re.IGNORECASE)
 
 
+def lesson_mode(step: dict) -> bool:
+    """A "Just teach me" text lesson step: it carries the exact `code` / `run_command`, no video."""
+    lesson = (get_lesson() or {}).get("lesson") or {}
+    return lesson.get("mode") == "lesson" or (("code" in step or "run_command" in step) and not step.get("video"))
+
+
+def first_code_line(step: dict, max_chars: int = 40) -> str:
+    line = next((ln.strip() for ln in (step.get("code") or "").splitlines() if ln.strip() and not ln.strip().startswith("#")), "")
+    line = line.split(";")[0].strip()
+    return line if len(line) <= max_chars else line[: max_chars - 1].rstrip() + "…"
+
+
+def code_question(step: dict) -> str | None:
+    """A question about the step's code, never a quoted check label ("Which line of calculator.py defines add?")."""
+    f = (step.get("file") or step_file(step) or "").rsplit("/", 1)[-1]
+    m = re.search(r"\b(?:def|class|function|const|let|var)\s+(\w+)", step.get("code") or "")
+    if f and m:
+        return f"Which line of {f} defines {m.group(1)}, and is it there yet?"
+    if cmd := (step.get("run_command") or "").strip():
+        return f"What does `{cmd}` print right now?"
+    return None
+
+
 def creates_file(step: dict, name: str) -> bool:
     """Does this step ask the learner to create `name` (vs. edit an existing file)?"""
     if any(c.get("type") == "file_exists" and (c.get("file") or "").endswith(name) for c in step.get("checks") or []):
@@ -74,13 +98,23 @@ def creates_file(step: dict, name: str) -> bool:
 
 
 def start_instruction(step: dict, screen: Any = None) -> str:
-    """One plain instruction to START this step, from its own instructions (Michael: a step not started
-    yet gets "Create calculator.py in the lesson folder, then print a welcome message…", not a question)."""
-    name = (step_file(step) or "").rsplit("/", 1)[-1]
+    """ONE short action to START this step (S9: <=12 words, the file + VS Code, never the raw instructions).
+    Lesson mode: built from the step's own `code` / `run_command`:
+      "In VS Code, type `def add(a, b):` in calculator.py."  /  "Run `python3 calculator.py` in the VS Code terminal."
+    Video lessons: "Create calculator.py in the lesson folder, then print a welcome message…" (Michael)."""
+    ed = editor_state(screen)
+    name = (step.get("file") or step_file(step) or "").rsplit("/", 1)[-1]
+    if lesson_mode(step):
+        if ed and name and (ed.get("untitled") or (ed.get("unsaved") and ed.get("file") == name)):
+            return where_hint(step, None, screen) + "."
+        if line := first_code_line(step):
+            return f"In VS Code, type `{line}` in {name}." if name and name != "(terminal)" else f"In VS Code, type `{line}`."
+        if cmd := (step.get("run_command") or "").strip():
+            return f"Run `{cmd}` in the VS Code terminal."
     instr = re.sub(r"\s+", " ", step.get("instructions") or step.get("title") or "").strip()
     sentences = [x for x in re.split(r"(?<=[.!?])\s+", instr) if x]
     if not (name and creates_file(step, name)):
-        return " ".join(sentences[:2]) or "Start this step"
+        return " ".join(sentences[:1]) or "Start this step"
     first = where_hint(step, None, screen).rstrip(".")
     rest = ""
     for sent in sentences:
@@ -142,6 +176,8 @@ def where_hint(step: dict, last: dict | None = None, screen: Any = None) -> str:
             return f"You're in {ed['app']} on {ed['file']}. Open {name} from the lesson folder"
         if ed["file"] == name and ed["unsaved"]:
             return f"{name} is open in {ed['app']} with unsaved changes. Save it"
+    if name and lesson_mode(step) and name != "(terminal)":  # lesson mode created the file already (S9)
+        return f"Open {name} in VS Code"
     if name and creates_file(step, name):
         return f"Create {name} in the lesson folder" + (f" ({ed['app']} is open)" if ed and not ed["file"] else "")
     if f.endswith(".ipynb"):

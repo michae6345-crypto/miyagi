@@ -36,6 +36,7 @@ from .playbook import (
     offending_line,
     playbook_text,
 )
+from .pointing import lesson_mode
 from .screen import TARGETS_RULES, TARGETS_SCHEMA, ScreenContext, TargetStream
 from .triage import triage
 
@@ -132,6 +133,52 @@ def playbook_card(step: dict, mode: FailureMode, code_excerpt: str = "", severit
         **({"guidingQuestion": GUIDING_QUESTIONS[mode.id]} if mode.id in GUIDING_QUESTIONS else {}),
         "actions": order_actions(["show_me"] if line else [], has_diff=bool(diff)),
         "_meta": {"route": "playbook", "playbook_id": mode.id},
+    }
+
+
+LESSON_MODE_RULE = (
+    'LESSON MODE ("Just teach me"): the learner types this lesson\'s code in VS Code. Make the body\'s LAST '
+    "sentence ONE action of at most 12 words that names the file and VS Code (e.g. \"In VS Code, name the "
+    "function add on line 4 of calculator.py.\"); the first sentence is the why."
+)
+
+
+def _lesson_action(card: dict) -> None:
+    """Lesson mode: the card shows one <=12-word action; the why moves behind Explain (S9 #6)."""
+    sentences = [x.strip() for x in re.split(r"(?<=[.!?])\s+", card.get("body", "")) if x.strip()]
+    if not sentences:
+        return
+    action = clamp_words(sentences[-1], 12)
+    card["why"] = " ".join(sentences[:-1])
+    card["body"] = action if action.endswith((".", "!", "?", "…")) else action + "."
+
+
+def error_card(step: dict, error_text: str, code: str) -> dict:
+    """No model available but an error is visible: name it, from the error itself (S9: `SyntaxError` under
+    `def(a, b):` got the "Start: …" card). Says only what the error and the file show."""
+    key = web.error_line(error_text)
+    etype = (re.search(r"([A-Za-z_]*(?:Error|Exception|Warning))\b", key) or re.search(r"(error|fatal)", key, re.IGNORECASE))
+    etype = etype.group(1) if etype else "Error"
+    files = re.findall(r'File "([^"]+)"', error_text)
+    fname = (files[-1] if files else (step.get("file") or "")).rsplit("/", 1)[-1] or "your file"
+    lines = re.findall(r"\bline (\d+)\b", error_text)
+    n = int(lines[-1]) if lines else None
+    code_lines = (code or "").splitlines()
+    src = code_lines[n - 1].strip() if n and 0 < n <= len(code_lines) else ""
+    msg = key.split(":", 1)[1].strip() if ":" in key else key
+    if etype == "SyntaxError" and re.match(r"def\s*\(", src):
+        body = f"`def` needs a name: line {n} of {fname}."
+    elif n:
+        body = clamp_words(f"{etype} on line {n} of {fname}: {msg}", 12)
+    else:
+        body = clamp_words(f"{etype} in {fname}: {msg}", 12)
+    return {
+        "stepId": step.get("id", ""),
+        "severity": "fail",
+        "title": clamp_title(f"{etype} in {fname}"),
+        "body": body,
+        "actions": order_actions(["show_me"] if n else [], has_diff=False),
+        "_meta": {"route": "error_offline"},
     }
 
 
@@ -471,6 +518,7 @@ async def _opus(step, failed_checks, metrics_text, flags, code_excerpt, error_te
             f"WEB SOURCES (fetched live for this failure):\n{web.sources_text(sources)}" if sources else "WEB SOURCES: (none available)",
             f"CITATIONS you may use (id: source):\n{citation_menu(lesson, sources)}",
             cursor_text(cursor) if cursor and screen is None else "",
+            LESSON_MODE_RULE if lesson_mode(step) else "",
             "Write the card.",
         ] if x
     )
@@ -507,11 +555,15 @@ async def _opus(step, failed_checks, metrics_text, flags, code_excerpt, error_te
         log.warning("opus diagnose failed (%s); DEMO=1 so using the offline playbook card", e)
         if mode and conf >= 0.4:
             card = playbook_card(step, mode, code_excerpt, severity="fail" if ERROR_SIGNATURE.search(error_text or "") else "warn")
+        elif ERROR_SIGNATURE.search(error_text or ""):
+            card = error_card(step, error_text, code_excerpt)  # a visible error is never "not started" (S9)
         else:
             card = template_card(step, failed_checks)
         card["_meta"]["fallback_reason"] = str(e)
         return card
     card = _shape(res.data, step, code_excerpt, lesson, sources)
+    if lesson_mode(step):
+        _lesson_action(card)
     if screen is not None:
         card["targets"] = stream.fired if stream.fired is not None else screen.resolve_targets(res.data.get("targets"))
         if stream.fired is None and on_targets is not None and card["targets"]:

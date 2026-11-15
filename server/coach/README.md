@@ -67,6 +67,16 @@ targets = await coach.locate("the learning rate", screen)  # exact text → no m
   - It returns `{command, …}` for terminal fixes.
   - It reuses the diagnosis's diff only if it contains every value the action sentence names ("…to `squash`", "…to 1e-3"); otherwise Opus writes the patch.
 
+## "Just teach me" text lessons (lesson.mode = "lesson"; S9 copy QA)
+
+Copy rules: at most 12 words, name the file and VS Code (never Cursor), no glued check labels, one action.
+- **Start:** the not-started card and `start_instruction()` give ONE action built from the step's `code` or `run_command`: "In VS Code, type `def add(a, b):` in calculator.py." or "Run `python3 calculator.py` in the VS Code terminal."
+- **Hint after the auto card** moves up a rung instead of repeating it: "Type this" with the step's full `code` and Show me, or "Run this". Video steps get "Step details" (the full instructions).
+- **Questions** never quote a check label. They ask about the code: "Which line of calculator.py defines add, and is it there yet?", "What does `python3 calculator.py` print right now?".
+- **Show me / where:** lesson mode created the file, so it says "Open calculator.py in VS Code".
+- **No model available:** a visible error gets a card that names it (`route: error_offline`), e.g. "`def` needs a name: line 4 of calculator.py." It never gets the not-started card.
+- **Opus cards in lesson mode:** `body` is one action of ≤12 words naming the file and VS Code; `why` holds the reason, for Explain.
+
 ## Zero-cost mode: DEMO=1 or ORCH_STUBS includes the coach
 
 `llm.offline_mode()` is true with `DEMO=1`, or with `ORCH_STUBS=all` or a list naming `coach` (e.g. `lesson,coach`). In that mode nothing paid leaves the coach. Recorded fixtures (`COACH_REPLAY_DIR`) still replay. S11 had counted 19 Claude calls in one DEMO rehearsal take.

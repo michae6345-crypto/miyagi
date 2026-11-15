@@ -24,11 +24,15 @@ SCREEN = {"Code": ["calc.py — calculator", "1 def add(a, b):", "2     return a
 
 @pytest.fixture(autouse=True)
 def _isolate(monkeypatch):
-    for k in ("COACH_REPLAY_DIR", "DEMO", "ORCH_STUBS"):
+    # never reach a paid API from tests: no .env, no keys (the shared .env has real Bright Data keys)
+    monkeypatch.setattr(llm, "_load_env", lambda: None)
+    for k in ("COACH_REPLAY_DIR", "DEMO", "ORCH_STUBS", "ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN", "BRIGHTDATA_API_KEY",
+              "BRIGHTDATA_SERP_ZONE", "BRIGHTDATA_UNLOCKER_ZONE", "ELEVENLABS_API_KEY", "ELEVENLABS_VOICE_ID", "TUT_ENV"):
         monkeypatch.delenv(k, raising=False)
-    from server.coach.diagnose import reset_memo
+    from server.coach.diagnose import LAST, reset_memo
 
     reset_memo()
+    LAST.clear()
     common.set_lesson(LESSON)
     yield
     common.set_lesson(None)
@@ -263,11 +267,13 @@ def test_level0_questions_by_check_type():
     for check, want in [
         ({"id": "a", "type": "file_exists", "label": "calc.py exists", "file": "calc.py"}, "Is calc.py in your lesson folder yet"),
         ({"id": "b", "type": "command_exit_ok", "label": "runs", "command": "npm test"}, "What happens when you run `npm test`"),
-        ({"id": "c", "type": "metric_threshold", "label": "loss < 1e-2", "metric": "loss"}, "Is loss heading toward “loss < 1e-2”"),
-        ({"id": "d", "type": "visual", "label": "chart shows two lines"}, "What would you point at on screen to show “chart shows two lines”"),
+        ({"id": "c", "type": "metric_threshold", "label": "loss < 1e-2", "metric": "loss"}, "Is loss heading the right way"),
+        ({"id": "d", "type": "visual", "label": "chart shows two lines"}, "What on screen would show that this step is done"),
+        ({"id": "e", "type": "output_contains", "label": "add function is written in the"}, "What does the output show"),
     ]:
         h = coach.hint({"id": "x", "title": "T", "checks": [check]}, 0, {})
         assert h["body"].startswith(want) and h["body"].endswith("?")
+        assert "“" not in h["body"] or check["type"] in ("file_exists",)  # never quotes a check label
 
 
 
@@ -289,13 +295,13 @@ def test_not_started_is_a_plain_instruction_not_an_offtrack(monkeypatch):
     assert not card["body"].endswith("?")
 
 
-def test_hint_after_a_not_started_card_is_the_instruction():
+def test_hint_after_a_not_started_card_moves_up_a_rung():
     nudge = {"stepId": "q1", "title": "Not yet: calculator.py created", "body": "How do you display text…?", "_meta": {"route": "template"}}
-    h = coach.hint(CALC1, 0, nudge)  # the live bug: "Not yet: calculator.py created: what in your code makes that happen…"
-    assert h["title"] == "Start · Create calculator.py"
-    assert h["body"] == "Create calculator.py in the lesson folder, then print a welcome message with print()."
-    h = coach.hint(CALC1, 0, nudge, screen=_vscode_untitled())  # reads the screen: the unsaved tab
-    assert h["body"] == "You're in VS Code on an unsaved file. Save it as calculator.py in the lesson folder, then print a welcome message with print()."
+    h = coach.hint(CALC1, 0, nudge)  # the auto card already said "start": Hint gives the full step, never the same line
+    assert h["title"] == "Step details · Create calculator.py"
+    assert h["body"] == CALC1["instructions"] and "Not yet:" not in h["body"]
+    h = coach.hint(CALC1, 0, nudge, screen=_vscode_untitled())  # and says where, from the screen
+    assert h["where"] == "You're in VS Code on an unsaved file. Save it as calculator.py in the lesson folder"
     assert "Not yet:" not in coach.hint(CALC1, 1, nudge)["body"]
 
 
@@ -514,3 +520,92 @@ def test_demo_replay_fixtures_still_work(monkeypatch):
     common.set_lesson(d.LESSON)
     card = run(coach.diagnose(d.STEP, d.HIGH_LR_FAILED, d.HIGH_LR_METRICS, d.HIGH_LR_CODE))
     assert card["_meta"].get("source") == "replay"
+
+
+# ---------- S9 "Just teach me" copy QA (text lessons; zero cost) -------------------------------------------
+
+T1 = {"id": "t1", "title": "Add the add function", "file": "calculator.py",
+      "instructions": "In calculator.py, below the comment, write def add(a, b): that returns a + b, then add print(add(2, 3)) at the bottom.",
+      "code": "def add(a, b):\n    return a + b\n\nprint(add(2, 3))",
+      "checks": [{"id": "t1a", "type": "file_contains", "label": "add function is written in the", "file": "calculator.py", "pattern": r"def add\("}],
+      "targets": [{"file": "calculator.py", "match": "def add", "caption": "add function"}], "hints": []}
+T3 = {"id": "t3", "title": "Run the calculator", "file": "(terminal)", "instructions": "Run the program and check that it prints 5.",
+      "code": "", "run_command": "python3 calculator.py",
+      "checks": [{"id": "t3a", "type": "output_contains", "label": "The add function is still in", "pattern": "5"}], "hints": []}
+TEXT_LESSON = {"lesson": {"id": "calc-text", "title": "Build a calculator", "goal": "calculator", "mode": "lesson"}, "sources": [], "steps": [T1, T3]}
+
+
+def _rules(text: str):
+    assert len(text.split()) <= 12, text
+    assert "Cursor" not in text and "“" not in text, text
+
+
+def test_start_is_one_short_action_from_the_code():
+    common.set_lesson(TEXT_LESSON)
+    from server.coach.pointing import start_instruction
+
+    a = start_instruction(T1)
+    assert a == "In VS Code, type `def add(a, b):` in calculator.py." and "VS Code" in a
+    _rules(a)
+    b = start_instruction(T3)
+    assert b == "Run `python3 calculator.py` in the VS Code terminal."
+    _rules(b)
+    card = run(coach.diagnose(T1, [{"checkId": "t1a", "status": "fail"}], None, ""))
+    assert card["notStarted"] and card["body"] == a  # not the 22-word raw instructions
+
+
+def test_hint_after_the_auto_card_moves_up_and_never_quotes_labels():
+    common.set_lesson(TEXT_LESSON)
+    nudge = {"stepId": "t1", "title": "Start: Add the add function", "notStarted": True}
+    h = coach.hint(T1, 0, nudge)
+    assert h["title"] == "Type this · Add the add function" and h["code"] == T1["code"] and h["actions"] == ["show_me"]
+    _rules(h["body"])
+    assert coach.hint(T3, 0, {"notStarted": True})["title"].startswith("Run this")
+    q = coach.hint(T1, 0, {})["body"]  # no diagnosis yet: a question about the code
+    assert q == "Which line of calculator.py defines add, and is it there yet?"
+    assert "add function is written in the" not in coach.hint(T3, 0, {})["body"]
+    assert coach.hint(T3, 0, {})["body"] == "What does `python3 calculator.py` print right now?"
+
+
+def test_show_me_opens_the_existing_lesson_file():
+    common.set_lesson(TEXT_LESSON)
+    from server.coach.pointing import where_hint
+
+    assert where_hint(T1) == "Open calculator.py in VS Code"  # lesson mode created it: not "Create …"
+    r = run(coach.show_me(T1, None))
+    assert r["where"] == "Open calculator.py in VS Code"
+
+
+def test_offline_visible_syntax_error_names_it(monkeypatch):
+    monkeypatch.setenv("DEMO", "1")
+    common.set_lesson(TEXT_LESSON)
+    code = "# a tiny calculator\n\n# add your functions below\ndef(a, b):\n    return a + b\n"
+    err = 'Traceback (most recent call last):\n  File "/lesson/calculator.py", line 4\n    def(a, b):\n       ^\nSyntaxError: invalid syntax'
+    card = run(coach.diagnose(T1, [{"checkId": "t1a", "status": "fail"}], None, code, error_text=err))
+    assert card["_meta"]["route"] == "error_offline" and "notStarted" not in card
+    assert card["body"] == "`def` needs a name: line 4 of calculator.py." and card["title"] == "SyntaxError in calculator.py"
+    _rules(card["body"])
+    other = run(coach.diagnose(T3, [{"checkId": "t3a", "status": "fail"}], None, "print(ad(2, 3))",
+                               error_text='File "calculator.py", line 1\nNameError: name \'ad\' is not defined'))
+    assert other["body"].startswith("NameError on line 1 of calculator.py") and len(other["body"].split()) <= 12
+
+
+def test_lesson_mode_card_is_one_action_with_the_why_behind_explain(monkeypatch):
+    seen = {}
+
+    async def call(**kw):
+        seen[kw["purpose"]] = kw["user_text"]
+        if kw["purpose"] == "triage":
+            return llm.CallResult(data={"route": "opus", "playbook_id": "none", "reason": ""}, model="h")
+        return llm.CallResult(data={"playbook_id": "none", "severity": "fail", "title": "The function has no name",
+                                    "body": "Python needs a name between def and the parentheses, so line 4 is a syntax error. In VS Code, name the function add on line 4 of calculator.py.",
+                                    "citation_id": "none", "diff_expected": "def add(a, b):", "diff_yours": "def(a, b):", "diff_file": "calculator.py",
+                                    "diff_line": 4, "diff_command": "", "actions": ["apply_fix"], "guiding_question": "q?"}, model="o")
+
+    monkeypatch.setattr(llm, "structured_call", call)
+    common.set_lesson(TEXT_LESSON)
+    card = run(coach.diagnose(T1, [{"checkId": "t1a", "status": "fail"}], None, "def(a, b):\n    return a + b",
+                              error_text="SyntaxError: invalid syntax"))
+    assert card["body"] == "In VS Code, name the function add on line 4 of calculator.py."
+    _rules(card["body"])
+    assert card["why"].startswith("Python needs a name between def") and 'LESSON MODE ("Just teach me")' in seen["diagnose"]
