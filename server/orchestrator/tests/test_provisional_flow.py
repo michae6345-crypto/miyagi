@@ -13,6 +13,12 @@ from server.lesson.tests.test_builder import DRAFT, _good_adapt
 from server.orchestrator.tests.test_session import Rig
 
 URL = "https://www.youtube.com/watch?v=pGOyw_M1mNk"
+
+
+@pytest.fixture(autouse=True)
+def _no_paid_calls(monkeypatch):
+    from server.lesson.tests.conftest import block_network
+    block_network(monkeypatch, http=False)  # E4's tests use in-process HTTP; real API clients still raise
 VM = {"title": "ChatGPT in Python for Beginners", "duration_s": 864,
       "chapters": [{"start": 0, "title": "Step By Step"}, {"start": 38, "title": "Get an API key"},
                    {"start": 300, "title": "Write the chat loop"}, {"start": 700, "title": "Wrap up"}]}

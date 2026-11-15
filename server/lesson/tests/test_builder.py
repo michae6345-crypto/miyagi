@@ -1099,22 +1099,30 @@ def test_prebuild_is_opt_in(monkeypatch):
 
 
 def test_cheap_models_first_and_opus_only_on_a_failed_check(monkeypatch):
-    monkeypatch.delenv("LESSON_CLAUDE_MODEL", raising=False)
+    for k in ("LESSON_CLAUDE_MODEL", "LESSON_ALLOW_OPUS", "LESSON_CLAUDE_MODEL_ESCALATE"):
+        monkeypatch.delenv(k, raising=False)
     assert (claude.model("segment"), claude.model("detail"), claude.model("adapt")) == ("claude-sonnet-5-5", "claude-haiku-5-5", "claude-haiku-5-5")
     used = []
 
     async def on(mid, system, prompt, schema, *, effort, structured):
         used.append(mid)
-        return {"steps": []} if mid != "claude-opus-5-5" else {"steps": [{"start": "0:10", "end": "1:00"}, {"start": "1:00", "end": "2:00"}]}
+        return {"steps": []} if "haiku" in mid else {"steps": [{"start": "0:10", "end": "1:00"}, {"start": "1:00", "end": "2:00"}]}
 
     monkeypatch.setattr(claude, "_generate_json_on", on)
     ok = lambda o: None if len(o["steps"]) >= 2 else "too few steps"  # noqa: E731
-    out = asyncio.run(claude._generate_json("s", "p", {}, role="segment", check=ok))
-    assert used == ["claude-sonnet-5-5", "claude-opus-5-5"] and len(out["steps"]) == 2
+    out = asyncio.run(claude._generate_json("s", "p", {}, role="detail", check=ok))
+    assert used == ["claude-haiku-5-5", "claude-sonnet-5-5"] and len(out["steps"]) == 2  # Haiku -> Sonnet, never Opus
     used.clear()
     asyncio.run(claude._generate_json("s", "p", {}, role="detail", check=lambda o: None))
-    assert used == ["claude-haiku-5-5"]  # passed its check: no Opus
-
+    assert used == ["claude-haiku-5-5"]  # passed its check: no escalation
+    monkeypatch.setenv("LESSON_ALLOW_OPUS", "1")
+    used.clear()
+    async def on2(mid, system, prompt, schema, *, effort, structured):
+        used.append(mid)
+        return {"steps": []} if "opus" not in mid else {"steps": [1, 2]}
+    monkeypatch.setattr(claude, "_generate_json_on", on2)
+    asyncio.run(claude._generate_json("s", "p", {}, role="segment", check=ok))
+    assert used == ["claude-sonnet-5-5", "claude-opus-5-5"]  # Opus only with the explicit opt-in
 
 def test_token_usage_is_recorded_per_model():
     from server.lesson import cost
@@ -1283,3 +1291,29 @@ def test_check_labels_are_complete_plain_phrases():
     c = builder.clean_check({"type": "file_contains", "label": "The add function is still in", "file": "calculator.py",
                              "pattern": r"def\s+add\("}, "s2c1")
     assert c["label"] == "add() is in calculator.py"  # the live label was cut off: rewritten, not trimmed
+
+
+# ---- cost guards ------------------------------------------------------------------------
+
+def test_no_opus_without_explicit_opt_in(monkeypatch):
+    for k in ("LESSON_CLAUDE_MODEL", "LESSON_CLAUDE_MODEL_ESCALATE", "LESSON_ALLOW_OPUS", "LESSON_CLAUDE_FAST"):
+        monkeypatch.delenv(k, raising=False)
+    assert claude.DEFAULT_MODEL == "claude-sonnet-5-5" and claude.model() == "claude-sonnet-5-5"
+    assert claude.escalation_model() == "claude-sonnet-5-5" and claude.model("escalate") == "claude-sonnet-5-5"
+    assert not claude._use_fast()
+    monkeypatch.setenv("LESSON_CLAUDE_MODEL", "claude-opus-5-5")
+    assert claude.model("segment") == "claude-sonnet-5-5"  # an Opus setting without the opt-in is downgraded
+    monkeypatch.setenv("LESSON_ALLOW_OPUS", "1")
+    assert claude.model("segment") == "claude-opus-5-5"
+    monkeypatch.delenv("LESSON_CLAUDE_MODEL")
+    assert claude.escalation_model() == "claude-opus-5-5"
+
+
+def test_tests_cannot_reach_a_real_api():
+    import anthropic
+    import os as _os
+    assert "ANTHROPIC_API_KEY" not in _os.environ and _os.environ.get("LESSON_NO_DOTENV") == "1"
+    with pytest.raises(AssertionError):
+        anthropic.AsyncAnthropic()
+    with pytest.raises(AssertionError):
+        claude.client()
