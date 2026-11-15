@@ -299,6 +299,57 @@ The engine offers the card only when the app returns after ≥ `ORCH_RESUME_AFTE
   - On boot, load it, set `awaiting_resume = True` and `seen_lesson`, so the first app connection gets the card.
   - Delete the file on `end_lesson`.
 
+## "Just teach me" acceptance check (lesson mode), 2026-11-14 16:00–17:30
+
+`scripts/stage_lessonmode.py` (offline, **0 API calls**) runs the real Engine in-process: DEMO=1, finder/lesson/diagrams stubbed,
+the coach real but with no key, and HTTP(S) going to a dead proxy. The screen is the real ScreenReader on rendered VS Code
+screenshots (Apple Vision OCR, local), with the terminal panel open or closed. Each step shows the editor before (held 22 s) and
+after the step's work. Editor commands are recorded, never run, and S2's Accessibility snapshot and real-window wrong-folder
+detector are stubbed out. Lesson: cached `text-c541a8d6` (7-step Python calculator).
+
+Items:
+- (a) one spotlight per step, re-sent only after a > 12 px move, at most one per 2 s
+- (b) run step boxes the terminal panel, or says "Open the terminal: ⌃`"; typing step boxes the target line; never the tab/breadcrumb row
+- (c) no offtrack/auto-card in a step's first 20 s and never two within 8 s (hub: a run step's "Run it" offer is exempt)
+- (d) a run step never starts while its file is empty (hub: Skip twice is the learner's choice)
+- (e) editor opened once, no second `-n`, no Cursor
+- (f) instructions: one sentence, ≤ 10 words, no absolute path or mkdir
+- (g) box clears when VS Code isn't frontmost and comes back on return
+- (h) "Save with ⌘S" when the title shows ●
+- (i) wrong-folder card with open_editor
+- (j) Do it for me / Run it for me on the first help card
+- plus: the screen-down card ≤ 1 s after show_me
+
+| integration/live | terminal | a | b | c | d | e | f | g | h | i | j | screen-down |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| 3875eec | open | FAIL (s7: 2 boxes 0.3 s apart) | PASS | FAIL ("Looks done?" +0 s) | PASS | PASS | PASS | — | — | — | — | PASS |
+| 3875eec | closed | FAIL | FAIL (no "⌃`"; s7 boxes the tab row) | FAIL | FAIL (s2 started on an empty file) | PASS | PASS | — | — | — | — | PASS |
+| 72b6da0 (E4 round 2) | open | PASS | PASS | PASS | PASS | PASS | PASS | FAIL (box never returns) | PASS (2.6 s) | PASS (2.5 s) | PASS | PASS |
+| 054aa06 | open | PASS | PASS | FAIL→exempt ("Run it" offer) | PASS | PASS | PASS | FAIL | PASS (2.2 s) | PASS (1.5 s, S2 detector off) | PASS | PASS |
+| **c3c9019 (last)** | open | PASS | PASS | PASS | PASS | PASS | PASS | **FAIL** | PASS | PASS | PASS | PASS |
+| **c3c9019 (last)** | closed | FAIL* | PASS | PASS | FAIL* | PASS | PASS | — | — | — | PASS | PASS |
+
+\* Harness artifact: when the engine refuses to start the run step on an empty file (E4's save-first redirect back to s1 with
+"calculator.py is still empty", which is correct), the harness's start-wait path still jumps with the debug `goto`. The second jump
+starts s2 (E4 redirects once per run step) and leaves a short s1 row with no box. The fix for next time: wait-path → `skip_step`.
+
+**Open for E4:**
+- (g): `_spot_follows_app` clears the box but doesn't reset `spot_rect` / `_spot_caption`, so `_show_spot(steady=True)` won't
+  re-send the same box when VS Code is frontmost again.
+- s2, s3 and s5 don't advance by themselves within 12 s of the "done" screen.
+- Live build only: crash at `session.py:2123` (`re.escape(first[0])` with no `diff.yours`).
+- Live build only: s1 box on the tab row.
+
+**Live tier** (`scripts/stage_lessonmode_live.py`, needs `--approved`; OFF since 17:20, cost freeze at $84 of a $100 cap):
+- Setup: Claude key, LESSON_ENGINE=claude, Gemini/Google blank; Anthropic SDK hook logs tokens and $ by model and caller; $1 cap per round.
+- Round 1, "build a to-do list app in python": first step at 11.6 s, full lesson at 43.6 s, 6 steps, builtBy claude, **$0.265**.
+  - E5 coach $0.134
+  - E2 research (Sonnet + 4 web searches) $0.117
+  - E2 steps $0.014
+- E2 rule FAIL: typing steps keep Terminal checks (they also carry a run_command), but the instruction only says "type …". The
+  coach then repeated "Program has not been run yet".
+- Topic 2 was stopped seconds after start (no result, spend unrecorded).
+
 ## Run 3: Gemini paid, integration/live 4ff1417, 14:23–14:29
 
 Setup:
