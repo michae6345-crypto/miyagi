@@ -28,6 +28,8 @@
  * Two ways to learn a typed topic (Michael, Sat 3:23 PM): "Watch a video" (the search flow above) or
  * "Just teach me" (learn {query, mode:"lesson"}: no video, the engine writes the lesson; the panel goes
  * straight into the building pill). Tab switches while they're offered, Enter picks, ⌘/Ctrl+Enter teaches.
+ * A third chip, "Demo" (learn {query, mode:"demo"}), starts the engine's staged neural-net lesson whatever is typed
+ * (server/orchestrator/stage.py), the same way as "Just teach me".
  *
  * Look: born black like the island, it turns to dark HUD glass (color.glass) with a hairline edge as it
  * grows (Michael's audit A18, mockup 03) and back to black as it collapses. White text at the theme's
@@ -53,7 +55,7 @@ import { MiyagiMark } from '../../core/ui/Mark'
 import { OptionButton, Spinner } from '../../core/ui/atoms'
 import { color, copy, fill, launcher as launcherTheme, pill, radius, scrim, shadows, spring, springOut } from '../../core/theme'
 import { useCards } from '../cards/store'
-import { Action, Chip, EndLink, Hint, HowChoice, Rise, type How } from './parts'
+import { Action, Chip, EndLink, Hint, HOWS, HowChoice, Rise, type How } from './parts'
 import { LessonRow, LinkRow, MessageRow, ResultRow, ResumeRow, ROW_H, SettingsRow, SkeletonRow } from './Rows'
 import { clearResults, markAsked, setLauncherOpen, startSearch, useSearch } from './store'
 import { parseYouTube } from './youtube'
@@ -63,7 +65,7 @@ type Mode = 'search' | 'ask'
 type View = 'idle' | 'link' | 'searching' | 'results' | 'empty' | 'error'
 type Size = { w: number; h: number }
 /** What Enter (and the footer action) would do right now. Mirrors submit(). */
-type Act = 'settings' | 'resume' | 'ask' | 'build' | 'teach' | 'search' | 'searching' | 'none'
+type Act = 'settings' | 'resume' | 'ask' | 'build' | 'teach' | 'demo' | 'search' | 'searching' | 'none'
 
 /** The footer's End lesson stays armed ("Tap to end") this long for its second click, like the bar's End. */
 const END_ARM_MS = 3000
@@ -410,12 +412,12 @@ export function Launcher({ layout }: { layout: Layout }): ReactNode {
    * so there are no rows to pick: the panel goes straight into the building pill, like Build lesson.
    * Only this path sends `mode`: "video" is the contract default, so the video flow's learn stays exactly as it was.
    */
-  const teach = (q: string): void => {
+  const teach = (q: string, as: 'lesson' | 'demo' = 'lesson'): void => {
     if (phaseRef.current !== 'open') return
     lastPick.current = undefined
     topic.current = q
     clearResults()
-    bridge.send(cmd('learn', { query: q, mode: 'lesson' }))
+    bridge.send(cmd('learn', { query: q, mode: as }))
     setPhase('building')
   }
 
@@ -424,8 +426,8 @@ export function Launcher({ layout }: { layout: Layout }): ReactNode {
     const q = query.trim()
     if (!q || phaseRef.current !== 'open') return
     setHow(h)
-    if (h === 'lesson') teach(q)
-    else learn(q)
+    if (h === 'video') learn(q)
+    else teach(q, h)
   }
 
   const build = (i = selIndex): void => {
@@ -516,7 +518,7 @@ export function Launcher({ layout }: { layout: Layout }): ReactNode {
     if (onLesson) return teach(goal)
     const q = query.trim()
     if (!q) return
-    if (choosing) return how === 'lesson' ? teach(q) : learn(q)
+    if (choosing) return how === 'video' ? learn(q) : teach(q, how)
     if (retry) return learn(q)
     build()
   }
@@ -553,7 +555,7 @@ export function Launcher({ layout }: { layout: Layout }): ReactNode {
     if (e.key === 'Tab') {
       e.preventDefault() // focus stays in the field either way
       // While the two ways are offered, Tab switches between them; otherwise it flips ask / new lesson.
-      if (choosing) return setHow((h) => (h === 'video' ? 'lesson' : 'video'))
+      if (choosing) return setHow((h) => HOWS[(HOWS.indexOf(h) + (e.shiftKey ? HOWS.length - 1 : 1)) % HOWS.length])
       return switchMode()
     }
     // Continue is the only row: ↑↓ have nothing to move to (End lesson is out of the keys' reach on purpose).
@@ -626,7 +628,9 @@ export function Launcher({ layout }: { layout: Layout }): ReactNode {
             : choosing
               ? how === 'lesson'
                 ? 'teach'
-                : 'search'
+                : how === 'demo'
+                  ? 'demo'
+                  : 'search'
               : retry
                 ? 'search'
                 : results.length
@@ -640,6 +644,7 @@ export function Launcher({ layout }: { layout: Layout }): ReactNode {
     ask: 'Ask',
     build: 'Build lesson',
     teach: 'Teach me',
+    demo: 'Start demo',
     search: choosing ? 'Find videos' : 'Try again',
     searching: 'Searching…',
     none: ''
