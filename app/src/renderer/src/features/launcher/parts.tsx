@@ -7,7 +7,7 @@
  */
 import { motion, useReducedMotion } from 'motion/react'
 import { useRef, type ReactNode } from 'react'
-import { GraduationCap, Play, Square, type LucideIcon } from 'lucide-react'
+import { GraduationCap, Play, Presentation, Square, type LucideIcon } from 'lucide-react'
 import { color, fill, spring } from '../../core/theme'
 
 /** One section of the panel settling into place a beat after the one above it. */
@@ -49,8 +49,13 @@ export function Chip({ icon: I, label, onClick }: { icon: LucideIcon; label: str
   )
 }
 
-/** How the learner wants to learn the topic they typed (Michael, "two ways to learn"). */
-export type How = 'video' | 'lesson'
+/**
+ * How the learner wants to learn the topic they typed (Michael, "two ways to learn"), plus "Demo": the staged
+ * neural-net lesson for any topic (learn {mode:"demo"}, the engine's stage.py), for presenting.
+ */
+export type How = 'video' | 'lesson' | 'demo'
+/** Tab's order over the chips. */
+export const HOWS: How[] = ['video', 'lesson', 'demo']
 
 /**
  * The two ways to learn, under the query: "Watch a video" (search, preflight, gated player) or "Just teach me"
@@ -68,7 +73,8 @@ export type How = 'video' | 'lesson'
 export function HowChoice({ how, onPick }: { how: How; onPick: (h: How) => void }): ReactNode {
   const options: { id: How; label: string; Icon: LucideIcon }[] = [
     { id: 'video', label: 'Watch a video', Icon: Play },
-    { id: 'lesson', label: 'Just teach me', Icon: GraduationCap }
+    { id: 'lesson', label: 'Just teach me', Icon: GraduationCap },
+    { id: 'demo', label: 'Demo', Icon: Presentation }
   ]
   /** The chip a press already picked, so its click doesn't pick (and send learn) a second time. */
   const pressed = useRef<How | undefined>(undefined)
