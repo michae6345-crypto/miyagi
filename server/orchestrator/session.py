@@ -41,6 +41,7 @@ from . import config, curated, editor_text, missing_module, perf, scene_watch, s
 from .context import RunContext, RunInfo, metrics_summary
 from .modules import Modules
 from .captions import short_caption
+from . import captions  # V9: a box's caption never restates the code it sits on
 from .card_copy import ran as _ran  # t7: a run in plain words ("Ran nn.py", not "Ran .venv/bin/python nn.py")
 from . import spot_lines  # t5: which editor line a lesson box goes on
 from . import typo_card  # Nov 15: terminal-command typos on run steps, no model call
@@ -2924,8 +2925,54 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
             self._spot_misses = 0
             self._spot_matched = bool(spot.get("matched"))  # a text match _follow_spot may move; a line box it never swaps
             self._spot_sent_seq, self._spot_owner = seq, (owner, gen, self.clock())
-            await self.emit("spotlight", {**spot, "caption": short_caption(self._no_create(spot["caption"]))}  # <= ~8 words
-                            if spot.get("caption") else spot)
+            # V9: the box up's own line, caption and app: _follow_spot moves THAT box (an off-track box included)
+            self._spot_up = (gen, str(spot.get("matched") or ""), spot.get("app"), spot.get("caption") or "")
+            # <= ~8 words, and never the boxed line's own code as a to-do (V9: "Assign fig, axes here" -> "Look here")
+            await self.emit("spotlight", {**spot, "caption": captions.for_line(
+                short_caption(self._no_create(spot["caption"])), spot.get("matched"))} if spot.get("caption") else spot)
+
+
+    RELAYOUT_S = (0.4, 1.2, 2.5)  # V9: re-measure the box this long after a layout change that wasn't a scroll
+
+    def _held_box_track(self) -> tuple | None:
+        """V9 (test 9, video lesson s3): the box up is an off-track / answer box on a line of text (the coach's target),
+        which outranks the step's own tracked target: -> (match, app, caption, owner) of THAT box, so it follows its
+        own line when notebook output appears above it and pushes the code down. (Before, the step's target was
+        re-located and refused under the off-track box every frame: "no step box …: the offtrack box is up", and the
+        off-track box stayed on the old y.) None: no such box, or lesson mode (its line boxes have their own followers)."""
+        if self.lesson_mode or self.spot_rect is None:
+            return None
+        held = self._spot_held_by()
+        up = getattr(self, "_spot_up", None)
+        if held in (None, "step") or not up or up[0] != self.step_gen or not up[1].strip():
+            return None
+        return re.escape(up[1].strip()), up[2], up[3], held
+
+    def relayout(self, why: str) -> None:
+        """V9: the screen's layout may have changed without a scroll (a notebook cell ran and its output pushed the
+        code below it down; a run printed; the companion saw an edit / save / editor change): re-measure the box up a
+        few times over the next RELAYOUT_S (the latest frame's OCR / AX text via _locate: no capture, no model call)
+        and move it with its line. One pass at a time. Video lessons only: lesson mode's line boxes follow by row."""
+        if self.lesson_mode or self.step is None or self.passed or self.spot_rect is None or self._spot_frozen():
+            return
+        if self.spot_track is None and self._held_box_track() is None:
+            return
+        t = getattr(self, "_relayout_task", None)
+        if t is not None and not t.done():
+            return  # the pass running re-measures within 2.5 s anyway
+        gen = self.step_gen
+
+        async def go() -> None:
+            waited = 0.0
+            for d in self.RELAYOUT_S:
+                await asyncio.sleep(d - waited)
+                waited = d
+                if gen != self.step_gen or self.passed or self.spot_rect is None:
+                    return
+                await self._follow_spot(force=True)
+
+        log.debug("box: re-measure after %s (V9)", why)
+        self._relayout_task = self._spawn(go(), timer=True)
 
     def _keep_row_caption(self, spot: dict) -> dict:
         """t8 (nn2, 05:51:20-05:51:31): one line to change got three captions in 11 s ("Finish this function", the
@@ -2947,11 +2994,14 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
         log.info("box on the same row as %r: keeps that caption (not %r)", cap, new)
         return {**spot, "caption": cap}
 
-    async def _follow_spot(self) -> None:
+    async def _follow_spot(self, force: bool = False) -> None:
         """On a new frame: move the spotlight with its target (only if it moved > 4pt). E8: it moves the box that is
         up as that box's owner, never swaps a line / vision box for another text match; E9: the step's anchor is
-        dropped once the step's code is in the file; E6: lesson mode follows VS Code's text only."""
-        if self.spot_track is None or self.passed or self.step is None or self._spot_frozen():
+        dropped once the step's code is in the file; E6: lesson mode follows VS Code's text only.
+        V9: an off-track / answer box on a line follows that line (_held_box_track); `force` (relayout's re-measure)
+        skips the 2 s gap and never counts a miss toward clearing the box."""
+        held = self._held_box_track()
+        if (self.spot_track is None and held is None) or self.passed or self.step is None or self._spot_frozen():
             return
         if self.lesson_mode and self._offtrack_box() == "done":  # t4: the off-track's checks pass: the type box returns
             self.spot_track = None
@@ -2959,20 +3009,28 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
             return
         if self.lesson_mode and self.spot_rect is not None and not getattr(self, "_spot_matched", True):
             return  # the box up is the exact line (gutter / vision), not the tracked text
-        if self.clock() - self._spot_t < self.SPOT_MIN_GAP_S:
+        if not force and self.clock() - self._spot_t < self.SPOT_MIN_GAP_S:
+            if not self.lesson_mode and self.SPOT_MIN_GAP_S > 0:
+                self.relayout("a frame inside the 2 s gap")  # V9: that frame may be the last one (a still screen)
             return  # at most one re-send every 2 s
-        match, app, caption = self.spot_track
-        own = any(t.get("match") == match for t in self.step.get("targets") or [])
-        if self.lesson_mode:
-            app = app or "Code"
-            if own and self._code_progress(self.step) is not None:
-                self.spot_track = None  # E9: "where to start typing" is done once the code is there
-                return
-        owner = "step" if own else (self._spot_held_by() or "step")
+        if held is not None:  # V9: the off-track / answer box up follows its own line, as its owner
+            match, app, caption, owner = held
+            own = False
+        else:
+            match, app, caption = self.spot_track
+            own = any(t.get("match") == match for t in self.step.get("targets") or [])
+            if self.lesson_mode:
+                app = app or "Code"
+                if own and self._code_progress(self.step) is not None:
+                    self.spot_track = None  # E9: "where to start typing" is done once the code is there
+                    return
+            owner = "step" if own else (self._spot_held_by() or "step")
         spot = self._locate(match, app, caption)
         if spot and (self._chrome_hit(spot) or (self.lesson_mode and self._long_hit(spot, match))):
             spot = None
         if not spot:
+            if force:
+                return  # V9: a re-measure that missed (OCR mid-redraw) never takes the box down
             self._spot_misses += 1
             if self.spot_rect is not None and self._spot_misses == 3 and self._spot_rank_ok(owner):
                 self.spot_rect, self._spot_caption, self._spot_t = None, None, self.clock()  # scrolled out of view
@@ -2983,6 +3041,15 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
             return
         if own:
             spot = {**spot, **self._snippet(self.step)}  # lesson mode: the step's own target keeps its snippet
+        if held is not None:
+            log.info("box: %r moved %+.0f pt without a scroll (notebook output / a run above it); it follows its "
+                     "line as the %s box (V9)", caption, float(r["y"]) - float((old or r)["y"]), owner)
+            pin = getattr(self, "_spot_owner", None)
+            await self._show_spot(spot, steady=True, owner=owner)
+            now = getattr(self, "_spot_owner", None)
+            if pin is not None and now is not None and now[:2] == pin[:2]:
+                self._spot_owner = pin  # following never restarts an answer's 10 s pin
+            return
         await self._show_spot(spot, steady=True, owner=owner)
 
     async def _pass_step(self, skipped: bool = False) -> None:
@@ -3762,7 +3829,9 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
             r = {"x": r[0], "y": r[1], "w": r[2], "h": r[3]}
         if not isinstance(r, dict) or not all(k in r for k in ("x", "y", "w", "h")):
             return None
-        spot = {"rect": {k: float(r[k]) for k in ("x", "y", "w", "h")}, "caption": target.get("label") or ""}
+        # V9: the model's label ("Assign fig, axes here") never restates the code the box already sits on
+        spot = {"rect": {k: float(r[k]) for k in ("x", "y", "w", "h")},
+                "caption": captions.for_line(target.get("label") or "", target.get("text")) or ""}
         if target.get("text"):
             spot["matched"] = str(target["text"])[:200]
         return spot
@@ -4343,6 +4412,7 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
             self._tiger_run(run)  # before grading: the step passing on this run must not lose its numbers
             if in_step:
                 await self.evaluate("run_end")
+            self.relayout("a run ended")  # V9: its output may have pushed the boxed line down
             return
 
     def _tiger_run(self, run: RunInfo) -> None:
