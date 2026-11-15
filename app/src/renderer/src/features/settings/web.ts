@@ -57,10 +57,7 @@ function setupWeb(): void {
 
   onMessage('config.status', (p) => {
     lastStatus = p
-    if (!autoOpened && needsKeys(p)) {
-      autoOpened = true
-      openSettings()
-    }
+    // Never opens by itself (Adrian, Sat 5 PM): the learner opens Settings (gear, launcher, ⌘,).
   })
 
   addEventListener('keydown', (e) => {

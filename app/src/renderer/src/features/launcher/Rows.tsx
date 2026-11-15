@@ -5,6 +5,7 @@
 import { AnimatePresence, motion } from 'motion/react'
 import type { ReactNode } from 'react'
 import { CircleAlert, CircleStop, FileCode2, FileText, FolderGit2, Newspaper, SearchX, Settings } from 'lucide-react'
+import { MiyagiMark } from '../../core/ui/Mark'
 import { Thumb } from '../../core/ui/atoms'
 import { brand, clock, color, fill, spring } from '../../core/theme'
 import type { SearchResult } from './store'
@@ -119,6 +120,21 @@ export function ResultRow({ r, best, ...rest }: Slot & { r: SearchResult; best: 
   )
 }
 
+/**
+ * The fixed first row of every search: a text lesson Claude researches from the web for what's typed (learn mode
+ * "lesson"), no video. A neutral tile with the bonsai: it's Miyagi's own option, not a source kind.
+ */
+export function LessonRow({ onHover, onPick }: { onHover: () => void; onPick: () => void }): ReactNode {
+  return (
+    <RowShell slot={0} onHover={onHover} onPick={onPick}>
+      <span className="grid h-[38px] w-[60px] shrink-0 place-items-center rounded-[8px]" style={{ background: fill.tile }}>
+        <MiyagiMark size={18} />
+      </span>
+      <Text title="Build a lesson from the internet" meta="Claude researches it, no video" />
+    </RowShell>
+  )
+}
+
 /** During a lesson with nothing typed: ending it is the first row, highlighted (Enter ends it, Esc keeps the lesson). */
 export function EndRow({ lessonTitle, onPick }: { lessonTitle?: string; onPick: () => void }): ReactNode {
   return (
@@ -174,12 +190,12 @@ export function SkeletonRow({ slot }: { slot: number }): ReactNode {
 }
 
 /** Empty / error: one quiet row with an icon, a title and a detail line. */
-export function MessageRow({ tone, title, detail }: { tone: 'empty' | 'error'; title: string; detail: string }): ReactNode {
+export function MessageRow({ tone, title, detail, slot = 0 }: { tone: 'empty' | 'error'; title: string; detail: string; slot?: number }): ReactNode {
   const I = tone === 'error' ? CircleAlert : SearchX
   return (
     <motion.div
       className="absolute inset-x-0 flex items-center gap-[14px] px-[10px]"
-      style={{ top: 0, height: ROW_H }}
+      style={{ top: slot * ROW_H, height: ROW_H }}
       initial={enter}
       animate={shown}
       exit={gone}

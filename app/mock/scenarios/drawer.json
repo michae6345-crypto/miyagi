@@ -1,10 +1,247 @@
 {
   "name": "drawer",
   "on": {
-    "connect": "step_drawer",
+    "connect": "step_calc",
+    "learn_url@step_calc": "step_drawer",
     "action:hint@step_drawer": "drawer_spotlight"
   },
   "segments": {
+    "step_calc": [
+      {
+        "wait": 150,
+        "type": "lesson.building",
+        "payload": {
+          "message": "Claude is writing your lesson",
+          "progress": 0.6
+        }
+      },
+      {
+        "wait": 500,
+        "type": "lesson.ready",
+        "payload": {
+          "lesson": {
+            "id": "cli-calculator",
+            "title": "A calculator in the terminal",
+            "sources": [],
+            "complete": true,
+            "builtBy": "claude",
+            "mode": "lesson",
+            "overview": "We'll build a calculator you run in the terminal. First two functions, add and subtract, then we run the file to see them work. Next a loop that reads an operator and two numbers, and last multiply and divide, with a friendly message instead of a crash when you divide by zero.",
+            "primer": [
+              {
+                "id": "functions",
+                "title": "Functions",
+                "body": "A function is a named recipe. def add(a, b): takes two inputs, and return hands the answer back.",
+                "code": "def add(a, b):\n    return a + b"
+              },
+              {
+                "id": "input",
+                "title": "Reading input",
+                "body": "input() waits for the user to type a line and gives it back as text. float() turns that text into a number.",
+                "code": "a = float(input(\"First number: \"))"
+              },
+              {
+                "id": "loops",
+                "title": "While loops",
+                "body": "while True: repeats its block forever. break leaves the loop, so the program can stop when the user asks.",
+                "code": "while True:\n    op = input(\"Operator: \")\n    if op == \"q\":\n        break"
+              }
+            ]
+          },
+          "steps": [
+            {
+              "id": "k1",
+              "index": 0,
+              "title": "Add and subtract",
+              "kind": "code",
+              "what": "Two functions that add and subtract two numbers"
+            },
+            {
+              "id": "k2",
+              "index": 1,
+              "title": "Run it",
+              "kind": "run",
+              "what": "Run the file and see 5 and 1"
+            },
+            {
+              "id": "k3",
+              "index": 2,
+              "title": "Read input in a loop",
+              "kind": "code",
+              "what": "A loop that reads an operator and two numbers"
+            },
+            {
+              "id": "k4",
+              "index": 3,
+              "title": "Multiply and divide",
+              "kind": "code",
+              "what": "Multiply, divide, and a safe divide by zero"
+            }
+          ]
+        }
+      },
+      {
+        "wait": 250,
+        "type": "step.started",
+        "payload": {
+          "stepId": "k1",
+          "index": 0,
+          "title": "Add and subtract",
+          "instructions": "Create calculator.py and type these two functions.",
+          "video": null,
+          "kind": "code",
+          "what": "Two functions that add and subtract two numbers",
+          "why": "Each operation gets a name, so the loop later can reuse it instead of repeating the math.",
+          "concepts": [
+            "functions"
+          ],
+          "code": "def add(a, b):\n    return a + b\n\n\ndef subtract(a, b):\n    return a - b\n\n\nprint(add(2, 3))\nprint(subtract(3, 2))"
+        }
+      },
+      {
+        "wait": 0,
+        "type": "check.updated",
+        "payload": {
+          "stepId": "k1",
+          "checkId": "c1",
+          "label": "calculator.py exists",
+          "status": "pending"
+        }
+      },
+      {
+        "wait": 0,
+        "type": "check.updated",
+        "payload": {
+          "stepId": "k1",
+          "checkId": "c2",
+          "label": "add and subtract are defined",
+          "status": "pending"
+        }
+      },
+      {
+        "wait": 1400,
+        "type": "check.updated",
+        "payload": {
+          "stepId": "k1",
+          "checkId": "c1",
+          "label": "calculator.py exists",
+          "status": "pass"
+        }
+      },
+      {
+        "wait": 1200,
+        "type": "check.updated",
+        "payload": {
+          "stepId": "k1",
+          "checkId": "c2",
+          "label": "add and subtract are defined",
+          "status": "pass"
+        }
+      },
+      {
+        "wait": 450,
+        "type": "step.passed",
+        "payload": {
+          "stepId": "k1",
+          "nextStepId": "k2"
+        }
+      },
+      {
+        "wait": 400,
+        "type": "step.started",
+        "payload": {
+          "stepId": "k2",
+          "index": 1,
+          "title": "Run it",
+          "instructions": "Open the terminal in VS Code and run the file.",
+          "video": null,
+          "kind": "run",
+          "what": "Run the file and see 5 and 1",
+          "why": "Running it now proves the functions work before we build on them.",
+          "concepts": [],
+          "code": "python3 calculator.py"
+        }
+      },
+      {
+        "wait": 0,
+        "type": "check.updated",
+        "payload": {
+          "stepId": "k2",
+          "checkId": "c1",
+          "label": "Prints 5, then 1",
+          "status": "pending"
+        }
+      },
+      {
+        "wait": 1600,
+        "type": "check.updated",
+        "payload": {
+          "stepId": "k2",
+          "checkId": "c1",
+          "label": "Prints 5, then 1",
+          "status": "pass",
+          "detail": "5 · 1"
+        }
+      },
+      {
+        "wait": 450,
+        "type": "step.passed",
+        "payload": {
+          "stepId": "k2",
+          "nextStepId": "k3"
+        }
+      },
+      {
+        "wait": 400,
+        "type": "step.started",
+        "payload": {
+          "stepId": "k3",
+          "index": 2,
+          "title": "Read input in a loop",
+          "instructions": "Replace the two print lines at the bottom with this loop.",
+          "video": null,
+          "kind": "code",
+          "what": "A loop that reads an operator and two numbers",
+          "why": "The loop keeps the calculator running, so you can do many sums without starting it again.",
+          "concepts": [
+            "input",
+            "While loops",
+            "functions"
+          ],
+          "code": "while True:\n    op = input(\"Operator (+, -, or q to quit): \")\n    if op == \"q\":\n        break\n    a = float(input(\"First number: \"))\n    b = float(input(\"Second number: \"))\n    if op == \"+\":\n        print(add(a, b))\n    elif op == \"-\":\n        print(subtract(a, b))\n    else:\n        print(\"Unknown operator:\", op)"
+        }
+      },
+      {
+        "wait": 0,
+        "type": "check.updated",
+        "payload": {
+          "stepId": "k3",
+          "checkId": "c1",
+          "label": "The loop asks for an operator",
+          "status": "pending"
+        }
+      },
+      {
+        "wait": 0,
+        "type": "check.updated",
+        "payload": {
+          "stepId": "k3",
+          "checkId": "c2",
+          "label": "Typing q at the operator prompt ends the program without an error",
+          "status": "pending"
+        }
+      },
+      {
+        "wait": 1500,
+        "type": "check.updated",
+        "payload": {
+          "stepId": "k3",
+          "checkId": "c1",
+          "label": "The loop asks for an operator",
+          "status": "pass"
+        }
+      }
+    ],
     "step_drawer": [
       {
         "wait": 150,

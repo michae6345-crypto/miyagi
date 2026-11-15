@@ -25,6 +25,8 @@ export const SUCCESS_MS = 4800
 type CardsState = {
   /** The off-track card is open (it can be dismissed; hovering the pill reopens it). */
   offtrackOpen: boolean
+  /** ✕ was pressed on this off-track: hovering must not reopen it (until a new off-track or step). */
+  offtrackClosed: boolean
   /** Apply fix was pressed: the off-track card collapses to a compact "applying the fix" card until the step passes. */
   fixing: boolean
   /** The current step went off-track at some point → show "Back on track" when it passes. */
@@ -56,8 +58,14 @@ export type ResultMeta = Pick<Payload<'search.result'>, 'style' | 'captions' | '
 /** One setup item's install: running (Install button disabled, spinner + latest line) until done. */
 export type Install = { running: boolean; line?: string; error?: string }
 
-const blank: CardsState = { offtrackOpen: false, fixing: false, recovered: false, resume: false, offtrackSeq: undefined, success: undefined, card: undefined, metrics: {}, tutorial: {}, installs: {}, pending: undefined, results: {} }
+const blank: CardsState = { offtrackOpen: false, offtrackClosed: false, fixing: false, recovered: false, resume: false, offtrackSeq: undefined, success: undefined, card: undefined, metrics: {}, tutorial: {}, installs: {}, pending: undefined, results: {} }
 export const useCards = create<CardsState>(() => ({ ...blank }))
+
+/**
+ * The overlay's width in points (the display in Electron, 1600 in the browser stage), from an invisible
+ * overlay layer (index.tsx). Its own store so lesson resets never touch it. The off-track card sizes from it.
+ */
+export const useOverlayWidth = create<{ w: number }>(() => ({ w: typeof window === 'undefined' ? 1600 : window.innerWidth }))
 const set = useCards.setState
 const get = useCards.getState
 
@@ -66,7 +74,7 @@ let successTimer: ReturnType<typeof setTimeout> | undefined
 /**
  * The off-track the learner closed with ✕. The engine re-sends `offtrack` while the step keeps
  * failing; an unchanged one must not pop the card back up. It reopens only for a new step, a
- * higher hint level or a different title (hovering the pill still brings it back; the pill stays amber).
+ * higher hint level or a different title (hovering the pill still brings it back; the pill keeps its off-track ring).
  */
 type OfftrackSig = { stepId: string; level: number; title: string }
 let dismissed: OfftrackSig | undefined
@@ -186,10 +194,11 @@ function closeTop(): void {
   const s = get()
   const offtrack = useLesson.getState().offtrack
   // ✕ on the off-track card itself (nothing on top of it): remember it, so a re-send stays closed.
-  if (!s.card && !s.success && offtrack) dismissed = sig(offtrack)
+  const closingOfftrack = !s.card && !s.success && !!offtrack
+  if (closingOfftrack) dismissed = sig(offtrack)
   const back = s.resume && !!offtrack
   clearTimeout(pendingTimer)
-  set({ card: undefined, success: undefined, resume: false, offtrackOpen: back, pending: undefined })
+  set({ card: undefined, success: undefined, resume: false, offtrackOpen: back, pending: undefined, ...(closingOfftrack ? { offtrackClosed: true } : {}) })
 }
 const over = (): boolean => get().offtrackOpen || get().resume
 
@@ -223,16 +232,16 @@ onMessage('step.started', (p) => {
   const c = get().card
   const keep = !!c?.actions?.length && (!c.stepId || c.stepId === p.stepId)
   dismissed = undefined
-  set({ offtrackOpen: false, fixing: false, recovered: false, resume: false, offtrackSeq: undefined, card: keep ? c : undefined })
+  set({ offtrackOpen: false, offtrackClosed: false, fixing: false, recovered: false, resume: false, offtrackSeq: undefined, card: keep ? c : undefined })
 })
 onMessage('offtrack', (p) => {
-  // A re-send of the off-track the learner closed: keep the state (amber pill, recovered) but not the card.
+  // A re-send of the off-track the learner closed: keep the state (off-track pill, recovered) but not the card.
   if (stillDismissed(p)) {
     set({ recovered: true })
     return
   }
   dismissed = undefined
-  set({ offtrackOpen: true, fixing: false, recovered: true, resume: false, offtrackSeq: ++seq, card: undefined, pending: undefined, success: undefined })
+  set({ offtrackOpen: true, offtrackClosed: false, fixing: false, recovered: true, resume: false, offtrackSeq: ++seq, card: undefined, pending: undefined, success: undefined })
 })
 // "Apply this fix?" (a diff to confirm) replaces the "Waiting for the fix" view, so `fixing` ends here.
 onMessage('card', (p) => {

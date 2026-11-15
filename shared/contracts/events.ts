@@ -12,7 +12,10 @@ export type SourceKind = "video" | "blog" | "notebook" | "paper" | "repo";
 
 export interface VideoSegment { videoId: string; start: number; end: number } // seconds
 export interface Source { id: string; kind: SourceKind; title: string; url: string; meta?: string; videoId?: string }
-export interface StepSummary { id: string; index: number; title: string; video?: VideoSegment | null }   // null/absent: no video (a "lesson" mode lesson)
+export type StepKind = "code" | "run" | "read";   // code: type in the file · run: run a command · read: learn a concept first
+export interface StepSummary { id: string; index: number; title: string; video?: VideoSegment | null; kind?: StepKind; what?: string }   // what: what this step builds (<= 12 words), the plan line in the step list
+/** "Before you start" concept card (Just teach me): the pre-knowledge the steps rely on. diagramPrompt set = the app may ask for a picture with action {kind:"diagram", text:"primer:<id>"}. */
+export interface PrimerItem { id: string; title: string; body: string; code?: string; diagramPrompt?: string }   // null/absent: no video (a "lesson" mode lesson)
 
 // ---------- Engine -> App events ----------
 export interface EngineEvents {
@@ -26,10 +29,10 @@ export interface EngineEvents {
   "lesson.building": { message: string; progress: number; failed?: boolean; elapsedS?: number };   // message = the stage (changes only with the stage); elapsedS = seconds since the build started (the 1 s heartbeat)   // progress 0..1 for the launcher; ~1/s while building; failed: true = the build ended in error (an `error` + status idle follow): drop the building UI
   "lesson.ready": { lesson: { id: string; title: string; sources: Source[]; complete?: boolean; builtBy?: "gemini" | "claude" | "mixed" | "chapters" | "unknown"; provisional?: boolean;
                               goalMatch?: { score: number | null; note: string };
-                              mode?: "video" | "lesson" }; steps: StepSummary[] };   // mode "lesson" ("Just teach me"): no video, no player events; the editor is full screen and each step spotlights where to type   // complete false = a long video is still building (see lesson.updated)
+                              mode?: "video" | "lesson"; primer?: PrimerItem[]; overview?: string }; steps: StepSummary[] };   // overview: "What we're building" (<= 60 words)   // primer: "Before you start" concepts (lesson mode)   // mode "lesson" ("Just teach me"): no video, no player events; the editor is full screen and each step spotlights where to type   // complete false = a long video is still building (see lesson.updated)
   /** a long video's next part was built: new steps APPENDED (ids never change, earlier steps never edited) */
   "lesson.updated": { steps: StepSummary[]; complete: boolean; parts?: { done: number; failed: number; total: number } };
-  "step.started": { stepId: string; index: number; title: string; instructions: string; video?: VideoSegment | null };   // video null/absent: no player for this step
+  "step.started": { stepId: string; index: number; title: string; instructions: string; video?: VideoSegment | null; details?: string; kind?: StepKind; what?: string; why?: string; concepts?: string[]; code?: string };   // code: the exact code to type / command to run, in full (never truncated)   // what: what you build in this step (<= 12 words); why: what it means (<= 25 words); concepts: primer ids   // instructions: ONE concrete action ("Create calculator.py and type print(…)"); details: the full explanation; video null/absent: no player for this step
   "check.updated": { stepId: string; checkId: string; label: string; status: CheckStatus; detail?: string };
   "step.passed": { stepId: string; nextStepId?: string; pending?: boolean; skipped?: boolean };   // skipped: the learner pressed Skip (action skip_step): not a pass, never green  // pending: no next step YET (the next part is still building); the engine continues on lesson.updated
   "offtrack": {
@@ -52,7 +55,8 @@ export interface EngineEvents {
   "video.pause": {};
   "video.play": {};
   "card": { stepId?: string; kind: "explain" | "hint" | "answer" | "resume" | "setup" | "preflight"; title: string; body: string; videoJump?: { t: number; label: string };
-            actions?: Array<"confirm" | "undo" | "apply_fix" | "open_editor" | "resume" | "end_lesson" | "install" | "skip_setup" | "open_in_browser" | "build" | "pick_another" | "download" | "skip_step" | "check_step">;    // buttons on the card -> send `action {kind}`
+            output?: string;              // monospace output block (e.g. the last lines of "Run it for me")
+            actions?: Array<"confirm" | "undo" | "apply_fix" | "open_editor" | "resume" | "end_lesson" | "install" | "skip_setup" | "open_in_browser" | "build" | "pick_another" | "download" | "skip_step" | "check_step" | "use_this_folder" | "run_command">;    // buttons on the card -> send `action {kind}`
             items?: SetupItem[];          // kind "preflight": early tool check (a second card of the same kind replaces the first)
             warning?: string;             // kind "preflight": shown in amber when the video doesn't fit the goal (goalMatch.score < 0.5)
             recommended?: "build" | "pick_another";   // which button to make primary
@@ -124,7 +128,7 @@ export interface AppCommands {
   "learn": { query: string; mode?: "video" | "lesson" };   // launcher text; mode "lesson" = "Just teach me": no video search, a text lesson built for the goal (default "video")
   "learn_url": { url: string };                     // pasted YouTube link
   "build_lesson": { resultIds: string[] };
-  "action": { kind: "back" | "explain" | "diagram" | "show_me" | "hint" | "voice_toggle" | "ask" | "apply_fix" | "confirm" | "undo" | "open_editor" | "resume" | "end_lesson" | "install" | "skip_setup" | "open_in_browser" | "build" | "pick_another" | "download" | "skip_step" | "check_step"; text?: string };  // check_step: "Can I move on?" -> the engine re-runs the checks now and Claude judges the screen; replies with check.updated + step.passed, or a card saying what is missing  // skip_step: leave the current step unfinished and start the next one  // download: the video's linked files -> <lesson folder>/tutorial/  // build / pick_another: the preflight card  // install / open_in_browser: text = setup item tool id  // resume / end_lesson: the "Continue where you left off?" card  // open_editor: the learner accepted "Open VS Code?"  // confirm: "Looks done?" card; undo: revert the last "Do it for me"
+  "action": { kind: "back" | "explain" | "diagram" | "show_me" | "hint" | "voice_toggle" | "ask" | "apply_fix" | "confirm" | "undo" | "open_editor" | "resume" | "end_lesson" | "install" | "skip_setup" | "open_in_browser" | "build" | "pick_another" | "download" | "skip_step" | "check_step" | "use_this_folder" | "run_command"; text?: string };  // run_command: "Run it for me" on a run step (the engine runs the step's command in the lesson folder, max 10 s, and shows the output)  // use_this_folder: the learner is editing the lesson file in another folder; adopt that folder as the lesson folder (copies only missing files, never overwrites)  // check_step: "Can I move on?" -> the engine re-runs the checks now and Claude judges the screen; replies with check.updated + step.passed, or a card saying what is missing  // skip_step: leave the current step unfinished and start the next one  // download: the video's linked files -> <lesson folder>/tutorial/  // build / pick_another: the preflight card  // install / open_in_browser: text = setup item tool id  // resume / end_lesson: the "Continue where you left off?" card  // open_editor: the learner accepted "Open VS Code?"  // confirm: "Looks done?" card; undo: revert the last "Do it for me"
   "video.state": { t: number; playing: boolean };   // player reports its position
   "end_lesson": {};                                  // stop everything; the engine answers lesson.ended + status idle
   "overlay.bounds": { rects: Array<{ x: number; y: number; w: number; h: number }> };

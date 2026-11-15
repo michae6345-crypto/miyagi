@@ -1,43 +1,22 @@
 /**
  * Feature: cards. Coach cards that grow out of the pill, in the calm black-island look (mockup 02):
- *   offtrack  amber: what's wrong in one line, yours-vs-tutorial curve of the live `metric`,
- *             expected vs yours (`offtrack.diff`), the checks, Show me / Explain / Apply fix.
- *             After Apply fix it collapses to "Waiting for the fix": the line the code should read
+ *   offtrack  layout C (Adrian): ~620 wide, two columns (one below 520). Left: ring + "Not yet", the title,
+ *             the guiding question (or the body), Show me / Explain / Hint (+ "Fix it" at level 3), the
+ *             citation. Right: the evidence panel (Evidence.tsx): yours | expected from the diff, the
+ *             failing checks and the curve, all monochrome. Off track has no hue anywhere.
+ *             After Fix it, it collapses to "Waiting for the fix": the line the code should read
  *             (the engine may or may not write it), and the re-run's curve drawing live.
  *   success   green, "Good. Now the next one." after a recovered step: now-vs-before curve, auto-hides.
  *   card      explain / hint / answer from the engine, with an optional video jump.
  * Copy rule: readable in 2 seconds; body text is clamped to 2–3 lines. No red, no shaking.
  * Generality: every label comes from the data (metric name, check labels, step titles).
- * Brand (app/brand/BRAND.md): amber ONLY = off track, green ONLY = passed, everything else neutral
- * white / muted. Buttons white on dark. No blue, gradients, glows, sparkles or emoji.
+ * Brand (app/brand/BRAND.md): off track has no hue (a white ring), green ONLY = passed, everything else
+ * neutral white / muted. Buttons white on dark. No blue, amber, gradients, glows, sparkles or emoji.
  */
 import { motion } from 'motion/react'
-import type { ReactNode } from 'react'
+import { useEffect, type ReactNode } from 'react'
 import { useShallow } from 'zustand/react/shallow'
-import {
-  BookOpen,
-  Check,
-  Code2,
-  Download,
-  ExternalLink,
-  File,
-  FileCode2,
-  FolderGit2,
-  Hammer,
-  History,
-  Lightbulb,
-  ListChecks,
-  MapPin,
-  MessageCircle,
-  MessageSquareText,
-  NotebookText,
-  Play,
-  Search,
-  SkipForward,
-  Undo2,
-  Wrench,
-  type LucideIcon
-} from 'lucide-react'
+import { BookOpen, Check, Code2, Download, ExternalLink, File, FileCode2, FolderGit2, Hammer, History, Info, Lightbulb, ListChecks, MessageCircle, MessageSquareText, NotebookText, Play, Search, SkipForward, Undo2, Wrench, FolderOpen, type LucideIcon } from 'lucide-react'
 import type { PreflightInfo } from '../../../../../../shared/contracts/events'
 import type { Payload } from '../../../../common/wire'
 import { bridge } from '../../bridge'
@@ -45,13 +24,28 @@ import { useLesson, useProgress, useThinking, type Offtrack as OfftrackPayload }
 import { defineFeature } from '../../core/registry'
 import { usePressed } from '../../core/shortcuts'
 import { CheckList, CloseButton, OptionButton, PrimaryButton, Spinner, StatusDot } from '../../core/ui/atoms'
-import { actionTone, color, copy, fill, kindTone } from '../../core/theme'
-import { Curve, fmt, Key, plotArray, plotPoints, type Line } from './Curve'
-import { act, cardAct, jumpTo, SUCCESS_MS, useCards, useSeries, type CardAction } from './store'
+import { actionTone, color, copy, fill } from '../../core/theme'
+import { Curve, fmt, Key, plotPoints, type Line } from './Curve'
+import { Evidence } from './Evidence'
+import { act, cardAct, jumpTo, SUCCESS_MS, useCards, useOverlayWidth, useSeries, type CardAction } from './store'
 
-const OFFTRACK_W = 460
+/** Layout C: about 620 wide; below NARROW (a small display) the two columns stack. */
+const OFFTRACK_MAX = 620
+const NARROW = 520
+const SUCCESS_W = 460
 const CARD_W = 420
 const PAD = 20
+const COL_GAP = 16
+
+/** The off-track card's width for an overlay this wide (the island keeps 16 px from each edge). */
+const offtrackWidth = (overlay: number): number => Math.max(300, Math.min(OFFTRACK_MAX, overlay - 32))
+const useOfftrackWidth = (): number => offtrackWidth(useOverlayWidth((s) => s.w))
+
+/** An invisible overlay layer that reports the overlay's width (the display in Electron, 1600 in the stage). */
+function WidthProbe({ layout }: { layout: { width: number } }): ReactNode {
+  useEffect(() => useOverlayWidth.setState({ w: layout.width }), [layout.width])
+  return null
+}
 
 // ---------------------------------------------------------------------------
 // Shared pieces
@@ -114,7 +108,7 @@ function Footer({ left, right }: { left?: ReactNode; right?: ReactNode }): React
 
 /** A spinner shaped like a lucide icon, so it can stand in for a button's icon (ink on white/pastel, text on quiet). */
 const spinIcon = (c: string): LucideIcon => ((p: { size?: number }) => <Spinner size={p.size ?? 13} c={c} />) as unknown as LucideIcon
-const SpinInk = spinIcon(color.onAccent)
+const SpinInk = ((p: { size?: number }) => <Spinner size={p.size ?? 13} c={color.onAccent} track={fill.onAccentKey} />) as unknown as LucideIcon
 const SpinText = spinIcon(color.text)
 
 /**
@@ -193,30 +187,6 @@ function Swap({ id, children }: { id: string; children: ReactNode }): ReactNode 
 // Off-track
 // ---------------------------------------------------------------------------
 
-/**
- * Yours vs tutorial. Live `metric` events when there are any (the tutorial line = runId "tutorial");
- * otherwise both lines come from the off-track payload's optional `curve`. The two sources are never
- * mixed on one chart, since they may not share units.
- */
-function OfftrackCurve({ o }: { o: OfftrackPayload }): ReactNode {
-  const { name, before: run, tutorial } = useSeries(o.curve?.label)
-  const live = run && run.points.length > 1 ? run : undefined
-  const yours = live ? plotPoints(live.points) : o.curve ? plotArray(o.curve.yours) : []
-  if (yours.length < 2) return null
-  const ref = live ? (tutorial && tutorial.length > 1 ? plotPoints(tutorial) : []) : o.curve ? plotArray(o.curve.tutorial) : []
-  const lines: Line[] = [
-    { key: 'yours', pts: yours, stroke: color.amber },
-    { key: 'tutorial', pts: ref, stroke: color.label, reference: true }
-  ]
-  const lastValue = live?.points[live.points.length - 1].value
-  // No legend row: amber is yours (off track), the muted line is the tutorial. Name the metric on hover only.
-  return (
-    <div className="mt-[12px]" data-curve={live ? 'live' : 'fallback'} title={live ? name : o.curve?.label}>
-      <Curve lines={lines} width={OFFTRACK_W - PAD * 2} height={44} end={{ label: lastValue !== undefined ? fmt(lastValue) : undefined, at: live?.at }} />
-    </div>
-  )
-}
-
 /** Expected vs yours, one mono line each (`expectedOnly`: just the expected line). */
 function Diff({ diff, expectedOnly }: { diff: NonNullable<OfftrackPayload['diff']>; expectedOnly?: boolean }): ReactNode {
   const row = (label: string, tone: string, text: string, top?: boolean): ReactNode => (
@@ -232,48 +202,64 @@ function Diff({ diff, expectedOnly }: { diff: NonNullable<OfftrackPayload['diff'
   return (
     <div className="mt-[12px] overflow-hidden rounded-[12px] font-mono text-[12.5px] leading-[18px]" style={{ background: fill.field }}>
       {row('expected', color.label, diff.expected)}
-      {!expectedOnly && row(diff.line ? `yours · L${diff.line}` : 'yours', color.amber, diff.yours, true)}
+      {!expectedOnly && row(diff.line ? `yours · L${diff.line}` : 'yours', color.faint, diff.yours, true)}
     </div>
   )
 }
 
+/**
+ * Layout C (Adrian picked "side by side"). Left: ring + "Not yet", the title, the guiding question (or the body),
+ * the options with their keycaps and, at level 3 with apply_fix, the one white "Fix it"; the citation as one faint
+ * line. Right: the evidence panel. Below NARROW the panel drops under the left column.
+ */
 function Diagnosis({ o, checks }: { o: OfftrackPayload; checks: ReturnType<typeof useLesson.getState>['checks'] }): ReactNode {
   const busy = useBusyIcon()
   const keys = bridge.platform.keys
+  const width = useOfftrackWidth()
+  const narrow = width < NARROW
+  const inner = width - PAD * 2
+  const leftW = narrow ? inner : Math.round((inner - COL_GAP) * 0.47)
+  const rightW = narrow ? inner : inner - COL_GAP - leftW
   // Precise: only what's failing (with your value), not the checks that already pass.
   const failing = checks.filter((c) => c.status === 'fail')
+  // "Fix it" = apply_fix, offered at the top of the hint ladder (level 3; no level = an older engine, trust actions).
+  const canFix = o.actions.includes('apply_fix') && (o.level ?? 3) === 3
   return (
-    <div data-card="offtrack" style={{ padding: `16px ${PAD}px 16px` }}>
-      <Header mark={<StatusDot status="offtrack" size={6} />} label="Off track" tone={color.amber} step={false} />
-      <Title>{o.title}</Title>
-      <Body>{o.body}</Body>
-      {o.guidingQuestion && <Question text={o.guidingQuestion} />}
-
-      <OfftrackCurve o={o} />
-      {o.diff && <Diff diff={o.diff} />}
-
-      {failing.length > 0 && (
-        <div className="mt-[12px]">
-          <CheckList checks={failing} />
-        </div>
-      )}
-
-      {/* Options in their pastels (same color as everywhere else), the one primary on the right. */}
-      <div className="mt-[16px] flex flex-wrap items-center gap-[8px]">
-        {o.actions.includes('show_me') && <OptionButton action="show_me" label="Show me" kbd={keys.show_me} icon={busy('show_me')} onClick={() => act('show_me')} />}
-        {o.actions.includes('explain') && <OptionButton action="explain" label="Explain" kbd={keys.explain} icon={busy('explain')} onClick={() => act('explain')} />}
-        {o.actions.includes('hint') && <OptionButton action="hint" label="Hint" kbd={keys.hint} icon={busy('hint')} onClick={() => act('hint')} />}
+    <div data-card="offtrack" data-layout={narrow ? 'stacked' : 'side-by-side'} style={{ width, padding: `16px ${PAD}px 16px` }}>
+      <div className="flex h-[22px] items-center gap-[8px] text-[13px] leading-none">
+        <StatusDot status="offtrack" size={8} />
+        <span style={{ color: color.label }}>Not yet</span>
         <span className="flex-1" />
-        {o.actions.includes('apply_fix') && <PrimaryButton label="Apply fix" icon={busy('apply_fix', Wrench)} onClick={() => act('apply_fix')} />}
+        <CloseButton />
       </div>
 
-      {/* The source behind the fix, as a paper (pink kind tone, like the launcher's tiles). No other footer copy. */}
-      {o.citation && (
-        <div className="mt-[12px] flex items-center gap-[7px] text-[12px]" style={{ color: color.faint }}>
-          <BookOpen size={12} className="shrink-0" style={{ color: kindTone.paper }} />
-          <LinkText label={o.citation.label} url={o.citation.url} />
+      <div className={`mt-[10px] flex ${narrow ? 'flex-col gap-[14px]' : 'items-start'}`} style={narrow ? undefined : { gap: COL_GAP }}>
+        <div className="min-w-0 flex-1" style={narrow ? undefined : { maxWidth: leftW }}>
+          <div className="text-[18px] font-semibold leading-[23px] tracking-[-0.01em]">{o.title}</div>
+          {o.guidingQuestion ? <Question text={o.guidingQuestion} /> : <Body>{o.body}</Body>}
+
+          <div className="mt-[14px] flex flex-wrap items-center gap-[8px]">
+            <OptionButton action="show_me" label="Show me" kbd={keys.show_me} icon={busy('show_me')} onClick={() => act('show_me')} />
+            <OptionButton action="explain" label="Explain" kbd={keys.explain} icon={busy('explain')} onClick={() => act('explain')} />
+            <OptionButton action="hint" label="Hint" kbd={keys.hint} icon={busy('hint')} onClick={() => act('hint')} />
+            {canFix && (
+              <>
+                <span className="flex-1" />
+                <PrimaryButton label="Fix it" icon={busy('apply_fix', Wrench)} onClick={() => act('apply_fix')} />
+              </>
+            )}
+          </div>
+
+          {o.citation && (
+            <div className="mt-[12px] flex min-w-0 items-center gap-[6px] text-[12px]" style={{ color: color.faint }}>
+              <BookOpen size={12} className="shrink-0" />
+              <LinkText label={o.citation.label} url={o.citation.url} />
+            </div>
+          )}
         </div>
-      )}
+
+        <Evidence o={o} failing={failing} width={rightW} />
+      </div>
     </div>
   )
 }
@@ -312,16 +298,17 @@ function AfterCurve({ label, since, width, passed }: { label?: string; since?: n
  * code should read and leaves the change to the learner if it isn't there yet.
  */
 function Fixing({ o, checks }: { o: OfftrackPayload; checks: ReturnType<typeof useLesson.getState>['checks'] }): ReactNode {
+  const width = useOfftrackWidth()
   const where = o.diff?.line ? `Line ${o.diff.line}${o.diff.file ? ` of ${o.diff.file}` : ''} should read` : 'Your code should read'
   return (
-    <div data-card="fixing" style={{ padding: `16px ${PAD}px 14px` }}>
+    <div data-card="fixing" style={{ width, padding: `16px ${PAD}px 14px` }}>
       <Header mark={<Spinner size={12} />} label="Waiting for the fix" tone={color.text} />
       <div className="mt-[8px] text-[17px] font-semibold leading-[22px] tracking-[-0.01em]">{o.diff ? where : 'Make the fix, then rerun'}</div>
       {o.diff && <Diff diff={o.diff} expectedOnly />}
       <div className="mt-[8px] text-[13px] leading-[18px]" style={{ color: color.label }}>
         {o.diff ? 'Not in your file yet? Make the change, then rerun.' : 'Your checks rerun as soon as it changes.'}
       </div>
-      <AfterCurve label={o.curve?.label} width={OFFTRACK_W} />
+      <AfterCurve label={o.curve?.label} width={width} />
       {checks.some((c) => c.status !== 'pass') && (
         <div className="mt-[12px]">
           <CheckList checks={checks.filter((c) => c.status !== 'pass')} />
@@ -353,7 +340,7 @@ function Success(): ReactNode {
       <Title>{copy.passed}</Title>
       {s.summary && <Body>{s.summary}</Body>}
       {showCurve ? (
-        <AfterCurve since={s.since} width={OFFTRACK_W} passed />
+        <AfterCurve since={s.since} width={SUCCESS_W} passed />
       ) : (
         s.checks.length > 0 && (
           <div className="mt-[14px]">
@@ -420,6 +407,10 @@ const ACTION: Partial<Record<CardAction, { label: string; Icon?: LucideIcon; pri
   // Step controls ("Not yet" / "Looks done?" / "Stuck on this step?" cards).
   check_step: { label: 'Check again', Icon: Check },
   skip_step: { label: 'Skip step', Icon: SkipForward },
+  // Wrong-folder card: the learner is editing the lesson file in another folder; adopt that folder (engine copies only missing files).
+  use_this_folder: { label: 'Use this folder', Icon: FolderOpen },
+  // Run steps: the engine runs the step's command in the lesson folder and shows the output.
+  run_command: { label: 'Run it for me', Icon: Play, primary: true },
   confirm: { label: 'Yes', Icon: Check, primary: true },
   apply_fix: { label: 'Do it for me', Icon: Wrench, primary: true },
   open_editor: { label: 'Open VS Code', Icon: Code2, primary: true },
@@ -553,7 +544,7 @@ function minutes(s: number): string {
 
 /**
  * Preflight (before anything is built): one meta line (style · length · chapters · captions), what the
- * lesson needs, and the engine's warning in amber when the video doesn't fit the goal.
+ * lesson needs, and the engine's warning (muted, an Info glyph) when the video doesn't fit the goal.
  * Captions come from the finder's result for the same video (preflight doesn't carry them).
  */
 function Preflight({ card }: { card: EngineCard }): ReactNode {
@@ -581,7 +572,17 @@ function Preflight({ card }: { card: EngineCard }): ReactNode {
           {missing > 0 && <span style={{ color: color.faint }}> · {missing} to install</span>}
         </div>
       )}
-      {card.warning && <div style={{ color: color.amber }}>{card.warning}</div>}
+      {card.warning && <Note text={card.warning} />}
+    </div>
+  )
+}
+
+/** A quiet notice (preflight warning, "not on screen"): muted text with a small Info glyph, no hue. */
+function Note({ text }: { text: string }): ReactNode {
+  return (
+    <div data-note className="flex items-start gap-[7px]" style={{ color: color.label }}>
+      <Info size={13} strokeWidth={1.8} className="mt-[2.5px] shrink-0" />
+      <span className="min-w-0">{text}</span>
     </div>
   )
 }
@@ -618,8 +619,10 @@ function Where({ text }: { text: string }): ReactNode {
   const busy = useBusyIcon()
   return (
     <div data-where className="mt-[12px] flex items-center gap-[10px] rounded-[12px] py-[6px] pl-[12px] pr-[6px]" style={{ background: fill.field }}>
-      <MapPin size={13} strokeWidth={1.8} className="shrink-0" style={{ color: color.label }} />
-      <span className="min-w-0 flex-1 truncate text-[13px]">{text}</span>
+      <Info size={13} strokeWidth={1.8} className="shrink-0" style={{ color: color.label }} />
+      <span className="min-w-0 flex-1 truncate text-[13px]" style={{ color: color.label }}>
+        {text}
+      </span>
       <QuietButton label="Open" icon={busy('open_editor', ExternalLink, true)} onClick={() => cardAct('open_editor')} />
     </div>
   )
@@ -677,10 +680,14 @@ export default defineFeature({
     {
       id: 'offtrack',
       priority: 70,
-      width: OFFTRACK_W,
+      // Read at render time: the overlay's width decides the card's (useActive subscribes, so the island re-renders).
+      get width() {
+        return offtrackWidth(useOverlayWidth.getState().w)
+      },
       useActive: (hover) => {
+        useOverlayWidth((s) => s.w)
         const open = useCards((c) => c.offtrackOpen)
-        const covered = useCards((c) => !!c.card || !!c.success)
+        const covered = useCards((c) => !!c.card || !!c.success || c.offtrackClosed)
         const has = useLesson((s) => !!s.offtrack)
         // Hover peeks at the off-track card only when nothing else is open: with a card up, hovering it must not
         // swap it for the off-track card under the cursor (Michael couldn't click "Open" on a hint card).
@@ -688,7 +695,9 @@ export default defineFeature({
       },
       Content: Offtrack
     },
-    { id: 'success', priority: 60, width: OFFTRACK_W, useActive: () => useCards((c) => !!c.success), Content: Success },
+    { id: 'success', priority: 60, width: SUCCESS_W, useActive: () => useCards((c) => !!c.success), Content: Success },
     { id: 'card', priority: 50, width: CARD_W, useActive: () => useCards((c) => !!c.card), Content: Card }
-  ]
+  ],
+  // Renders nothing: it only reports the overlay's width (see WidthProbe).
+  overlayLayers: [{ id: 'cards-width', z: 1, Component: WidthProbe }]
 })

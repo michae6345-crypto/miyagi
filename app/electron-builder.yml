@@ -1,5 +1,5 @@
 appId: dev.sandhacks.miyagi
-productName: Miyagi
+productName: miyagi
 directories:
   output: dist
   buildResources: build

@@ -98,6 +98,14 @@ export function raise(win: BrowserWindow, relativeLevel = 0): void {
   followSpaces(win)
 }
 
+/**
+ * A held key that means the learner is leaving the launcher: ⌘ or Ctrl (⌘Tab, ⌘Space, Ctrl+→) on macOS;
+ * on Windows also Alt (Alt+Tab) and the Win key (input.meta).
+ */
+export function isLeavingModifier(input: { meta: boolean; control: boolean; alt: boolean }): boolean {
+  return input.meta || input.control || (!isMac() && input.alt)
+}
+
 /** The overlay covers the whole display (including the Mac menu bar, so the pill can hug the notch). */
 export function overlayBounds(display: { bounds: Rect }): Rect {
   return display.bounds

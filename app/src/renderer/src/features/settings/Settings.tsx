@@ -70,7 +70,7 @@ const contentOut: Transition = { duration: 0.08 }
 /** Test's spinner shows at least this long, so a fast answer still reads as "checked". */
 const MIN_SPIN = 450
 
-const NO_ANSWER = 'No answer from Miyagi'
+const NO_ANSWER = 'No answer from miyagi'
 /** Space kept free under the sheet when it would otherwise reach the bottom of the screen. */
 const BOTTOM_MARGIN = 24
 

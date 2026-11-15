@@ -3,6 +3,10 @@
  * current / locked (the current one with its live checks), a quiet "More steps coming" row while a long
  * video is still building part by part, and the lesson's sources.
  *
+ * A "Just teach me" lesson adds, top to bottom (Teach.tsx): what we're building, "Before you start", the plan
+ * (one line per step from steps[].what), and inside the current step the full code to type with Copy, why,
+ * and its concepts.
+ *
  * Appended steps (lesson.updated) fade in; rows already on screen never re-animate: a row only gets an
  * entrance when its id wasn't there when the drawer opened. (AnimatePresence initial={false} would do that
  * too, but it also blocks every motion that mounts later inside those rows, like the green tick drawing in.)
@@ -15,12 +19,15 @@ import type { Source, SourceKind, StepSummary } from '../../../../../../shared/c
 import { builtByLabel, seekVideo, useLesson, useProgress, type CheckItem, type Rect } from '../../core/lesson'
 import { useAppearance } from '../../core/prefs'
 import { alpha, clock, color, glass, kindTone, radius, spring, springOut } from '../../core/theme'
-import { Spinner, Thumb } from '../../core/ui/atoms'
+import { Thumb } from '../../core/ui/atoms'
+import { GlassCheck, GlassSpinner } from '../../core/ui/glass'
 import { parseYouTube, thumbnailFor } from '../launcher/youtube'
 import { TAB } from './geometry'
 import { closeDrawer, isWebLink, openSource, setPanelHeight, toggleDrawer } from './store'
+import { OverviewText, PrimerSection, StepDetail } from './Teach'
 
-type StepStatus = 'done' | 'current' | 'locked'
+/** skipped: the learner pressed Skip. Done, but not passed, so never green. */
+type StepStatus = 'done' | 'skipped' | 'current' | 'locked'
 
 /** Row geometry: icon column, gap, time column. The current step's checks line up with its title. */
 const ROW = { h: 38, padX: 10, icon: 18, gap: 11 } as const
@@ -80,8 +87,11 @@ export function Panel({ rect }: { rect: Rect }): ReactNode {
   const progress = useProgress()
   const scroller = useRef<HTMLDivElement>(null)
   const box = useRef<HTMLDivElement>(null)
-  const by = builtByLabel(lesson?.builtBy)
+  const by = builtByLabel(lesson?.builtBy, lesson?.mode)
   const sources = lesson?.sources ?? []
+  const overview = lesson?.overview?.trim()
+  // A hairline under the header once the list scrolls, so text doesn't run straight into the title.
+  const [scrolled, setScrolled] = useState(false)
   const away = rect.w + 24
   // The panel hugs its content (up to rect.h, then the list scrolls). Report the real height so the
   // spotlight check covers only what's on screen. offsetHeight ignores the slide's transform.
@@ -118,7 +128,10 @@ export function Panel({ rect }: { rect: Rect }): ReactNode {
       exit={{ x: away, opacity: 0, transition: { ...springOut, opacity: { duration: 0.18 } } }}
       transition={{ ...spring, opacity: { duration: 0.18 } }}
     >
-      <div className="flex shrink-0 items-start gap-[12px] px-[18px] pb-[6px] pt-[16px]">
+      <div
+        className="flex shrink-0 items-start gap-[12px] border-b px-[18px] pb-[6px] pt-[16px]"
+        style={{ borderColor: scrolled ? glass.rule : 'transparent', transition: 'border-color 150ms ease-out' }}
+      >
         <div className="min-w-0 flex-1">
           <div className="line-clamp-2 text-[15px] font-semibold leading-[20px]">{lesson?.title ?? ''}</div>
           {by && (
@@ -138,7 +151,19 @@ export function Panel({ rect }: { rect: Rect }): ReactNode {
           <X size={12} strokeWidth={2.2} />
         </button>
       </div>
-      <div ref={scroller} className="relative min-h-0 flex-initial overflow-y-auto px-[8px] pb-[12px]" style={{ scrollbarWidth: 'thin', scrollbarColor: `${glass.track} transparent` }}>
+      <div
+        ref={scroller}
+        className="relative min-h-0 flex-initial overflow-y-auto px-[8px] pb-[12px]"
+        style={{ scrollbarWidth: 'thin', scrollbarColor: `${glass.track} transparent` }}
+        onScroll={(e) => setScrolled(e.currentTarget.scrollTop > 2)}
+      >
+        {overview && (
+          <>
+            <Label>What we're building</Label>
+            <OverviewText text={overview} />
+          </>
+        )}
+        <PrimerSection />
         <Label>{progress.total > 0 && hasStep ? `Step ${progress.index + 1} of ${progress.total}` : 'Steps'}</Label>
         <Steps scroller={scroller} />
         {sources.length > 0 && (
@@ -167,11 +192,12 @@ function Label({ children }: { children: ReactNode }): ReactNode {
 // ---------------------------------------------------------------------------
 
 function Steps({ scroller }: { scroller: RefObject<HTMLDivElement | null> }): ReactNode {
-  const { steps, stepId, passed, checks, complete, parts, pendingNext, instructions } = useLesson(
+  const { steps, stepId, passed, skipped, checks, complete, parts, pendingNext, instructions } = useLesson(
     useShallow((s) => ({
       steps: s.steps,
       stepId: s.stepId,
       passed: s.passed,
+      skipped: s.skipped,
       checks: s.checks,
       complete: s.complete,
       parts: s.parts,
@@ -192,7 +218,13 @@ function Steps({ scroller }: { scroller: RefObject<HTMLDivElement | null> }): Re
   return (
     <div className="flex flex-col">
       {steps.map((s, i) => {
-        const status: StepStatus = passed.includes(s.id) || (cur >= 0 && i < cur) ? 'done' : s.id === stepId ? 'current' : 'locked'
+        const status: StepStatus = skipped.includes(s.id)
+          ? 'skipped'
+          : passed.includes(s.id) || (cur >= 0 && i < cur)
+            ? 'done'
+            : s.id === stepId
+              ? 'current'
+              : 'locked'
         const k = fresh.indexOf(s.id)
         return (
           <StepRow
@@ -268,8 +300,12 @@ function StepRow({
   const v = step.video
   const current = status === 'current'
   const canSeek = status !== 'locked' && !!v
-  const tone = current ? glass.text : status === 'done' ? glass.label : glass.faint
+  // The plan line (steps[].what); the title when the engine sent none.
+  const line = step.what?.trim() || undefined
+  const tone = current ? glass.text : status === 'done' || status === 'skipped' ? glass.label : glass.faint
   const indent = ROW.padX + ROW.icon + ROW.gap + (timeW ? timeW + ROW.gap : 0)
+  // No time column (a "Just teach me" lesson): plan lines wrap to two lines instead of being cut off.
+  const wrap = timeW === 0
   return (
     <motion.div
       data-step={step.id}
@@ -283,41 +319,41 @@ function StepRow({
       <button
         type="button"
         className={`flex w-full items-center rounded-[12px] text-left ${canSeek ? `cursor-pointer ${hoverCls}` : 'cursor-default'}`}
-        style={{ height: ROW.h, paddingLeft: ROW.padX, paddingRight: ROW.padX, gap: ROW.gap, ...hoverVar }}
+        style={{ ...(wrap ? { minHeight: ROW.h, paddingTop: 9, paddingBottom: 9 } : { height: ROW.h }), paddingLeft: ROW.padX, paddingRight: ROW.padX, gap: ROW.gap, ...hoverVar }}
         disabled={!canSeek}
         onMouseDown={(e) => e.preventDefault()}
         onClick={() => v && seekVideo(v.start)}
       >
         <span className="relative grid shrink-0 place-items-center" style={{ width: ROW.icon, height: ROW.icon }}>
-          <motion.span
-            key={status}
-            className="grid place-items-center"
-            initial={mounted ? { opacity: 0, scale: 0.6 } : false}
-            animate={{ opacity: 1, scale: 1 }}
-            transition={spring}
-          >
-            <StepIcon status={status} />
-          </motion.span>
+          {/* initial={false}: icons already there when the drawer opens (or a row appears) don't draw in; a
+              status change does (GlassCheck draws its tick). */}
+          <AnimatePresence initial={false} mode="wait">
+            <motion.span
+              key={status}
+              className="grid place-items-center"
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0, transition: { duration: 0.08 } }}
+              transition={{ duration: 0.15 }}
+            >
+              <StepIcon status={status} />
+            </motion.span>
+          </AnimatePresence>
         </span>
         {timeW > 0 && (
           <span className="shrink-0 text-[12.5px] tabular-nums" style={{ width: timeW, color: tone }}>
             {v ? clock(v.start) : ''}
           </span>
         )}
-        <span className={`min-w-0 flex-1 truncate text-[14px] ${current ? 'font-semibold' : ''}`} style={{ color: tone }}>
-          {step.title}
+        <span
+          className={`min-w-0 flex-1 text-[14px] ${wrap ? 'line-clamp-2 leading-[20px]' : 'truncate'} ${current ? 'font-semibold' : ''}`}
+          style={{ color: tone }}
+          title={line && line !== step.title ? step.title : undefined}
+        >
+          {line ?? step.title}
         </span>
       </button>
-      {instructions && (
-        <div
-          data-part="drawer-instructions"
-          className="line-clamp-3 pb-[10px] text-[13px] leading-[18px]"
-          style={{ paddingLeft: indent, paddingRight: ROW.padX, marginTop: -4, color: glass.label }}
-          title={instructions}
-        >
-          {instructions}
-        </div>
-      )}
+      {current && <StepDetail stepId={step.id} instructions={instructions} planKind={step.kind} indent={indent} padX={ROW.padX} />}
       {checks && checks.length > 0 && (
         <motion.div
           data-part="drawer-checks"
@@ -334,9 +370,19 @@ function StepRow({
   )
 }
 
-/** done = the passed tick (glass.pass) · current = a ring with a dot in the text color · locked = an empty faint ring. */
+/**
+ * done = core GlassCheck (glass.pass) · skipped = a ring with a dash in the label color (never green) ·
+ * current = a ring with a dot in the text color · locked = an empty faint ring.
+ */
 function StepIcon({ status }: { status: StepStatus }): ReactNode {
-  if (status === 'done') return <Tick />
+  if (status === 'done') return <GlassCheck />
+  if (status === 'skipped')
+    return (
+      <svg width="18" height="18" viewBox="0 0 18 18" className="shrink-0">
+        <circle cx="9" cy="9" r="8.2" fill="none" strokeWidth="1.4" style={{ stroke: glass.label }} />
+        <path d="M5.8 9 H12.2" strokeWidth="1.7" strokeLinecap="round" style={{ stroke: glass.label }} />
+      </svg>
+    )
   if (status === 'current')
     return (
       <svg width="18" height="18" viewBox="0 0 18 18" className="shrink-0">
@@ -347,29 +393,7 @@ function StepIcon({ status }: { status: StepStatus }): ReactNode {
   return <Ring />
 }
 
-/**
- * The passed tick on glass: a glass.pass disc with the check knocked out in glass.buttonText (ink on dark,
- * paper on light: the contrast color against a strong fill). `draw` animates it like core CheckIcon.
- */
-function Tick({ draw = false }: { draw?: boolean }): ReactNode {
-  return (
-    <motion.svg width="18" height="18" viewBox="0 0 18 18" className="shrink-0" initial={draw ? { scale: 0.6 } : false} animate={{ scale: 1 }} transition={spring}>
-      <circle cx="9" cy="9" r="9" style={{ fill: glass.pass }} />
-      <motion.path
-        d="M5.2 9.3 L7.8 11.8 L12.9 6.4"
-        fill="none"
-        strokeWidth="1.9"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-        style={{ stroke: glass.buttonText }}
-        initial={draw ? { pathLength: 0 } : false}
-        animate={{ pathLength: 1 }}
-        transition={{ duration: 0.25, ease: 'easeOut', delay: 0.05 }}
-      />
-    </motion.svg>
-  )
-}
-
+/** An empty step / check: a faint ring (core has no glass twin of CheckIcon's pending state). */
 function Ring(): ReactNode {
   return (
     <svg width="18" height="18" viewBox="0 0 18 18" className="shrink-0">
@@ -379,9 +403,9 @@ function Ring(): ReactNode {
 }
 
 /**
- * core CheckList on glass tokens (core's is drawn for the black island: white text, white rings). Same layout:
- * the first pending check spins, a pass draws the tick, a fail is the off-track ring. Local until core takes a
- * surface option (Core request 5).
+ * core CheckList on glass (core's is drawn for the black island: white text, white rings), built from the core
+ * glass atoms (core/ui/glass). Same layout: the first pending check spins, a pass draws the tick, a fail is the
+ * off-track ring. Local until core has a glass CheckList (Core request 5).
  */
 function GlassCheckList({ checks }: { checks: CheckItem[] }): ReactNode {
   const activeId = checks.find((c) => c.status === 'pending')?.id
@@ -391,9 +415,10 @@ function GlassCheckList({ checks }: { checks: CheckItem[] }): ReactNode {
         const active = c.id === activeId
         const tone = c.status === 'pass' ? glass.label : c.status === 'fail' || active ? glass.text : glass.faint
         return (
-          <div key={c.id} data-check={c.id} data-check-status={c.status} className="flex items-center gap-3 text-[14px] leading-[18px]">
+          // items-start + break-words: a long check label wraps under itself (never cut off); the icon stays on line one.
+          <div key={c.id} data-check={c.id} data-check-status={c.status} className="flex items-start gap-3 text-[14px] leading-[18px]">
             {c.status === 'pass' ? (
-              <Tick draw />
+              <GlassCheck />
             ) : c.status === 'fail' ? (
               <svg width="18" height="18" viewBox="0 0 18 18" className="shrink-0">
                 <circle cx="9" cy="9" r="8.2" fill="none" strokeWidth="1.6" style={{ stroke: glass.offTrack }} />
@@ -401,11 +426,11 @@ function GlassCheckList({ checks }: { checks: CheckItem[] }): ReactNode {
                 <circle cx="9" cy="12.8" r="1" style={{ fill: glass.offTrack }} />
               </svg>
             ) : active ? (
-              <Spinner c={glass.text} track={glass.track} />
+              <GlassSpinner c={glass.text} />
             ) : (
               <Ring />
             )}
-            <span className="flex-1 truncate" style={{ color: tone, transition: 'color 200ms ease-out' }}>
+            <span className="min-w-0 flex-1 break-words" style={{ color: tone, transition: 'color 200ms ease-out' }}>
               {c.label}
             </span>
             {c.detail && (
@@ -435,7 +460,7 @@ function PendingRow({ waiting, part, timeW }: { waiting: boolean; part?: string;
     >
       <span className="grid shrink-0 place-items-center" style={{ width: ROW.icon, height: ROW.icon }}>
         {waiting ? (
-          <Spinner size={16} c={glass.label} track={glass.track} />
+          <GlassSpinner size={16} />
         ) : (
           <svg width="18" height="18" viewBox="0 0 18 18" className="shrink-0">
             <circle cx="9" cy="9" r="8.2" fill="none" style={{ stroke: glass.faint }} strokeWidth="1.4" strokeDasharray="2.2 3.2" />

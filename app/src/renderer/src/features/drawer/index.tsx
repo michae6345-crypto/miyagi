@@ -26,7 +26,8 @@ function DrawerLayer({ layout }: { layout: Layout }): ReactNode {
   const on = useLesson((s) => !!s.lesson)
   const open = useDrawer((s) => s.open)
   const panelH = useDrawer((s) => s.panelH)
-  const panel = panelRect(layout)
+  const lessonMode = useLesson((s) => s.lesson?.mode === 'lesson')
+  const panel = panelRect(layout, lessonMode)
   const tab = tabRect(layout)
   // What the drawer covers: open (even while it has yielded) = the panel at its real height, out to the edge;
   // closed = just the tab.
