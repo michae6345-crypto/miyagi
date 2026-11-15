@@ -4,9 +4,11 @@ Hooks in LessonSession (kept tiny for merges):
 - `emit()`: `card_copy.learner_text(self, type_, payload)` for every `card` and `offtrack` (in place, so the voice line
   `_say` reads afterwards is the same text):
   1. No internals: a card never mentions OCR, screen reading, screenshots, model names, check ids / patterns or "the
-     judge". t5 02:21:36 step 10: "Epoch 0 line is garbled in OCR; confirm it reads 'epoch 0…'". Unreadable output
-     becomes "I can't read the terminal yet. Make the terminal panel taller, or press Run it for me."; other internal
-     clauses are dropped.
+     judge". t5 02:21:36 step 10: "Epoch 0 line is garbled in OCR; confirm it reads 'epoch 0…'". On a card about the
+     learner's work (off-track, hint, Not yet / judge / step card), unreadable output becomes "I can't read the
+     terminal yet. Make the terminal panel taller, or press Run it for me."; other internal clauses are dropped. A
+     term the lesson itself uses (an OCR lesson's "OCR", a vision lesson's "bounding box") is the lesson's word, not
+     an internal, and stays. The body is never emptied (Card.body / Offtrack.body are required).
   2. A "Not yet" never says code is missing when the file has it. t5 02:20:57 step 9: "Add the training loop to
      main.py, then rerun python3 main.py…" while main.py had the loop. The step's file (VS Code's buffer, else the
      disk) is read before the wording goes out.
@@ -30,11 +32,14 @@ log = logging.getLogger("orchestrator.card_copy")
 
 TEXT_FIELDS = ("title", "body", "guidingQuestion", "where")
 
-# How Miyagi reads / grades, never shown. A reading failure replaces the whole text with the "can't read" line; any
-# other internal clause is dropped. Kept narrow: "model", "regex", "LLM" are real lesson words (an NN lesson's model).
+# How Miyagi reads / grades, never shown. A reading failure replaces the whole text with the "can't read" line (only on
+# a card about the learner's work: in an answer "unreadable" may be about their code); any other internal clause is
+# dropped. Kept narrow: "model", "regex", "LLM" are real lesson words (an NN lesson's model). A term the lesson's own
+# text uses is exempt (lesson_terms).
 READ_FAIL = re.compile(r"\b(?:OCR(?:'?d|'?s)?|garbled|misread(?:s|ing)?|mis-read|illegible|unreadable)\b", re.I)
 INTERNAL = re.compile(
-    r"\b(?:screen[- ]?(?:reader|reading|text|capture|scrape)s?|on-screen text|screenshots?|accessibility (?:text|tree)"
+    r"\b(?:OCR(?:'?d|'?s)?|screen[- ]?(?:reader|reading|text|capture|scrape)s?|on-screen text|screenshots?"
+    r"|accessibility (?:text|tree)"
     r"|AX tree|set-of-mark|bounding box(?:es)?|vision model|claude[- ](?:haiku|sonnet|opus)[\w.-]*"
     r"|(?:the|my) (?:judge|grader)|check (?:ids?|patterns?|regex(?:es)?|labels?)|checkIds?|pattern[- ]match\w*"
     r"|(?:the )?checks? (?:looks?|search(?:es)?|scans?) for|s\d+[cp]\d+)\b", re.I)
@@ -96,35 +101,98 @@ def cant_read(terminal: bool, run_it: bool, file: str = "") -> str:
     return f"I can't read that part of {file or 'your file'} yet. Save it, then press Check again."
 
 
-def clean(text: Any, *, terminal: bool, run_it: bool, file: str = "") -> Any:
-    """`text` without internals (see READ_FAIL / INTERNAL). Non-strings pass through."""
+def _canon(term: str) -> str:
+    """One form for a term however it is written: "Bounding-Boxes" -> "bounding box", "OCR'd" -> "ocr",
+    "pattern matching" -> "pattern match"."""
+    out = []
+    for w in re.findall(r"[a-z0-9]+(?:'[a-z]+)?", term.lower()):
+        w = re.sub(r"'[a-z]+$", "", w)
+        if len(w) > 4 and w.endswith("ing"):
+            w = w[:-3]
+        elif re.search(r"(?:x|ch|sh|ss)es$", w):
+            w = w[:-2]
+        elif len(w) > 3 and w.endswith("s") and not w.endswith("ss"):
+            w = w[:-1]
+        out.append(w)
+    return " ".join(out)
+
+
+def lesson_terms(s: Any) -> set[str]:
+    """READ_FAIL / INTERNAL terms the lesson's own text uses (title, goal, overview, primer, steps' title /
+    instructions / what / why / code): there they are the lesson's words (an OCR or a face-detection lesson)."""
+    g = getattr(s, "graph", None) or {}
+    lesson = g.get("lesson") or {}
+    parts: list[Any] = [lesson.get(k) for k in ("title", "goal", "overview")]
+    build = lesson.get("build") or {}
+    if isinstance(build, dict):
+        parts += [build.get("summary"), build.get("outcome")]
+    for item in lesson.get("primer") or []:
+        if isinstance(item, dict):
+            parts += [item.get(k) for k in ("title", "body", "code")]
+    for st in g.get("steps") or []:
+        if isinstance(st, dict):
+            parts += [st.get(k) for k in ("title", "instructions", "details", "what", "why", "code")]
+    blob = "\n".join(p for p in parts if isinstance(p, str))
+    return {_canon(m.group(0)) for rx in (READ_FAIL, INTERNAL) for m in rx.finditer(blob)}
+
+
+def _hits(rx: re.Pattern, text: str, allowed: set[str] | frozenset[str]) -> bool:
+    """Does `text` use a term of `rx` that isn't one of the lesson's own words?"""
+    return any(_canon(m.group(0)) not in allowed for m in rx.finditer(text))
+
+
+def clean(text: Any, *, terminal: bool, run_it: bool, file: str = "", allowed: set[str] | frozenset[str] = frozenset(),
+          read_fail: bool = True) -> Any:
+    """`text` without internals (see READ_FAIL / INTERNAL; `allowed`: the lesson's own terms, kept). May return ''
+    when every sentence is internal. Non-strings pass through."""
     if not isinstance(text, str) or not text:
         return text
-    if READ_FAIL.search(text):
+    if read_fail and _hits(READ_FAIL, text, allowed):
         return cant_read(terminal or bool(TERMINAL_WORDS.search(text)), run_it, file)
-    if not INTERNAL.search(text):
+    if not _hits(INTERNAL, text, allowed):
         return text
-    keep = [p for p in re.split(r"(?<=[.!?;])\s+|\s+[—–]\s+", text) if p.strip() and not INTERNAL.search(p)]
+    keep = [p for p in re.split(r"(?<=[.!?;])\s+|\s+[—–]\s+", text) if p.strip() and not _hits(INTERNAL, p, allowed)]
     out = " ".join(keep).strip().rstrip(";").strip()
     return out[:1].upper() + out[1:]
 
 
-def _clean_fields(s: Any, step: dict | None, payload: dict) -> None:
+NOT_DONE_LINE = "This step isn't done yet. Press Hint for a nudge."
+
+
+def _about_work(type_: str, payload: dict) -> bool:
+    """A card about the learner's work (off-track, hint, Not yet / judge / step card): there "garbled" / "unreadable"
+    means Miyagi couldn't read it. In an answer or an explanation those words may be about the learner's code."""
+    return (type_ == "offtrack" or payload.get("kind") in ("hint", "step") or payload.get("source") == "judge"
+            or is_not_yet(payload))
+
+
+def _clean_fields(s: Any, step: dict | None, payload: dict, type_: str = "card") -> None:
     if not any(isinstance(v := payload.get(k), str) and (READ_FAIL.search(v) or INTERNAL.search(v)) for k in TEXT_FIELDS):
         return  # the usual case: nothing to clean
+    allowed = lesson_terms(s)
+    work = _about_work(type_, payload)
     run_step = bool(step is not None and s._run_command(step))
     actions = payload.get("actions") or []
     run_it = "run_command" in actions or (run_step and bool(getattr(s, "lesson_mode", False)))
     file = Path(s._step_file(step) or "").name if step is not None else ""
     for k in TEXT_FIELDS:
         v = payload.get(k)
-        if k != "body" and isinstance(v, str) and READ_FAIL.search(v):  # the body says it; a title stays short
+        if work and k != "body" and isinstance(v, str) and _hits(READ_FAIL, v, allowed):  # the body says it
             new = ("Can't read the terminal" if run_step or TERMINAL_WORDS.search(v) else "Can't read it yet") \
                 if k == "title" else ""
         else:
-            new = clean(v, terminal=run_step, run_it=run_it, file=file)
+            new = clean(v, terminal=run_step, run_it=run_it, file=file, allowed=allowed, read_fail=work)
         if new == v:
             continue
+        if not new and k == "body":  # Card.body / Offtrack.body are required: never popped, never left empty
+            if work and run_step:
+                new = cant_read(True, run_it)
+            elif type_ == "offtrack" or is_not_yet(payload):
+                new = NOT_DONE_LINE
+            else:
+                new = v  # an answer / explanation: its own words beat an empty card
+            if new == v:
+                continue
         log.info("card text: %s %r -> %r (no internals on a card)", k, v, new)
         if new:
             payload[k] = new
@@ -171,7 +239,7 @@ def learner_text(s: Any, type_: str, payload: dict) -> dict:
                 log.info("not yet: %r says code is missing but %s has it; sending %r", payload.get("body"),
                          s._step_file(step), body)
                 payload["body"] = body
-        _clean_fields(s, step if mine else None, payload)
+        _clean_fields(s, step if mine else None, payload, type_)
         if type_ == "card" and mine and is_not_yet(payload):
             s._last_not_yet = {"stepId": step["id"], "gen": s.step_gen, "body": payload.get("body") or ""}
     except Exception:  # noqa: BLE001 - wording is a refinement: the card goes out as it was
