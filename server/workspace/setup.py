@@ -613,7 +613,7 @@ def setup_card(items: list[dict], *, step_id: str | None = None, resources: list
     actions = ((["open_editor"] if need_ed and ed and ed.get("installed") else []) + (["open_in_browser"] if web else [])
                + (["download"] if resources else []) + (["install"] if miss else []) + ["skip_setup"])
     card = {
-        "kind": "setup", "title": "Before you start" if miss else "Ready to go", "body": body,
+        "kind": "setup", "title": "Set up first" if miss else "Ready to go", "body": body,
         "actions": actions,
         "setup": {
             "editorNeeded": need_ed,
