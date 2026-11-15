@@ -779,6 +779,8 @@ class ScreenReader:
         except Exception as e:  # noqa: BLE001
             self._sck_streak += 1
             delay = min(300.0, 10.0 * 2 ** (self._sck_streak - 1))
+            if e.__class__.__name__ == "SCKDeclined":  # t10 R5: a TCC refusal: the fallback for 5 min straight away
+                delay = 300.0
             if self._sck_streak == 1 or self._sck_streak % 5 == 0:  # not a line per frame
                 log.warning("ScreenCaptureKit failed (%s: %s); capturing with screencapture + overlay "
                             "masking, retrying SCK in %.0f s", e.__class__.__name__, e, delay)

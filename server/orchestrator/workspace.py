@@ -90,6 +90,13 @@ def resolve_file(workdir: str | Path, rel: str, open_titles: list[str] | None = 
             hits = [h for h in wd.rglob(t) if not (set(h.relative_to(wd).parts) & SKIP_SEARCH)][:1]
             if hits:
                 return hits[0]
+    if name.lower().endswith(".ipynb"):  # t10 R2: the video's Untitled.ipynb is the learner's notebook (mnist.ipynb),
+        try:  # found as the checks find it (the newest .ipynb in the folder), so the coach / judge read the real cells
+            from server.checks.notebook import find_notebook
+
+            return find_notebook(wd, [rel])
+        except Exception:  # noqa: BLE001
+            return None
     return None
 
 
