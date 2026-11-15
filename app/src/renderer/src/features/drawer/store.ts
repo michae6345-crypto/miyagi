@@ -4,12 +4,19 @@
  */
 import { create } from 'zustand'
 import { onMessage, onUi } from '../../core/bus'
+import { usePressed } from '../../core/shortcuts'
 import { useDiagram } from '../diagrams/store'
 
 export type Side = 'left' | 'right'
 
 type DrawerState = {
   open: boolean
+  /**
+   * The learner asked for the drawer (pressed Diagram, or the handle while it had yielded): it stays out even while a
+   * spotlight box overlaps it, until the step changes or they press another action (Michael's test 11: a fix box on
+   * the code line hid the drawer and the Diagram flyout for ~50 s in a video lesson).
+   */
+  claimed?: boolean
   /**
    * Which screen edge the learner put the drawer on (drag its header sideways; saved). Michael, Nov 15 5:45 AM: things
    * under it (VS Code's Run button, the terminal) couldn't be clicked, and it couldn't be moved.
@@ -57,8 +64,10 @@ export const setDrawerAt = (at: Side): void => {
   if (useDrawer.getState().at !== at) useDrawer.setState({ at })
 }
 
-export const toggleDrawer = (): void => useDrawer.setState((s) => ({ open: !s.open, concept: undefined }))
-export const closeDrawer = (): void => useDrawer.setState({ open: false, concept: undefined })
+export const toggleDrawer = (): void => useDrawer.setState((s) => ({ open: !s.open, concept: undefined, claimed: false }))
+export const closeDrawer = (): void => useDrawer.setState({ open: false, concept: undefined, claimed: false })
+/** The handle was pressed while the drawer had yielded to the spotlight: bring it back and keep it out. */
+export const claimDrawer = (): void => useDrawer.setState({ open: true, claimed: true })
 /** A concept chip was clicked: open the concept panel (the drawer stays open, as a rail). */
 export const openConcept = (id: string): void => useDrawer.setState({ open: true, concept: id })
 /** "Back to step N": the full drawer again. */
@@ -76,14 +85,19 @@ onUi('reset', closeDrawer)
 // A new lesson starts closed (the stage's ?drawer=open keeps it open for review). A "Just teach me" lesson
 // (lesson.mode "lesson") opens it: there's no player and no chapter list, so the drawer is where
 // "Step N of M" and the step's instructions live (Michael, Sat 3:56 PM).
-onMessage('lesson.ready', (p) => useDrawer.setState({ open: startOpen || p.lesson.mode === 'lesson', concept: undefined, peekStep: undefined }))
+onMessage('lesson.ready', (p) => useDrawer.setState({ open: startOpen || p.lesson.mode === 'lesson', concept: undefined, peekStep: undefined, claimed: false }))
 
 // A pushed diagram opens nothing (Michael, Nov 15 7 AM). The learner opened the Diagram flyout: it slides out of the
 // drawer's inner edge, so bring the drawer (as the full panel, not the concept rail) if it was closed.
 useDiagram.subscribe((s, prev) => {
   if (!s.open || prev.open) return
   const d = useDrawer.getState()
-  if (!d.open || d.concept) useDrawer.setState({ open: true, concept: undefined })
+  useDrawer.setState(!d.open || d.concept ? { open: true, concept: undefined, claimed: true } : { claimed: true })
+})
+// The claim ends with the step, or when the learner presses any other action (Show me must still clear the box).
+onMessage('step.started', () => useDrawer.setState({ claimed: false }))
+usePressed.subscribe((s, prev) => {
+  if (s.kind && s.kind !== 'diagram' && s.at !== prev.at && useDrawer.getState().claimed) useDrawer.setState({ claimed: false })
 })
 
 /** http(s) links only; anything else (file:, javascript:, a bare path) is ignored. */

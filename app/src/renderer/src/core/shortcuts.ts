@@ -18,12 +18,14 @@ export type ActionKind = AppCommands['action']['kind']
 /**
  * The last action the learner sent (shortcut, bar click, card button). With useThinking() from core/lesson it
  * puts the spinner on the button that was pressed: `thinking && pressed === kind`. Cleared when the engine
- * answers with something visible (card, offtrack, diagram, spotlight) or the lesson resets.
+ * answers with something visible (card, offtrack, diagram, video.seek) or the lesson resets.
  */
 export const usePressed = create<{ kind?: ActionKind; at: number }>(() => ({ kind: undefined, at: 0 }))
 const clearPressed = (): void => usePressed.setState({ kind: undefined, at: Date.now() })
 // video.seek is Show me's answer.
-for (const t of ['card', 'offtrack', 'diagram', 'spotlight', 'video.seek', 'lesson.ended'] as const) onMessage(t, clearPressed)
+// Not 'spotlight': on Explain the engine sends one 1-89 ms after status thinking, which cleared the press before any
+// spinner showed (Michael's test 11: 6.4 s of nothing). The status check below ends a press that only got a spotlight.
+for (const t of ['card', 'offtrack', 'diagram', 'video.seek', 'lesson.ended'] as const) onMessage(t, clearPressed)
 onUi('reset', clearPressed)
 // A press is spent when the thinking spell after it ends, whatever the engine answered (or didn't).
 let thinkingSincePress = false

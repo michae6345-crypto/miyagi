@@ -39,7 +39,7 @@ import { Flyout } from './Flyout'
 import { conceptRects, panelRect, tabRect } from './geometry'
 import { Selectable, SelectionExplain } from './SelectionExplain'
 import { useRunTuck } from './runTuck'
-import { peekDrawer, setDrawerAt, useDrawer, type Side } from './store'
+import { claimDrawer, peekDrawer, setDrawerAt, useDrawer, type Side } from './store'
 
 /** After the spotlight leaves, wait this long before sliding back (a spotlight tour hops between targets). */
 const RETURN_MS = 700
@@ -68,7 +68,8 @@ function DrawerLayer({ layout }: { layout: Layout }): ReactNode {
   const left = concept ? conceptAt.panel.x : panel.x
   const area: Rect = open ? { x: left, y: panel.y, w: tab.x + tab.w - left, h: concept ? panel.h : Math.min(panel.h, panelH ?? panel.h) } : tab
   const showMe = useSpotlight((s) => s.showMe)
-  const yielding = useYield(useSpotlightOn(area, layout) && (!lessonMode || showMe))
+  const claimed = useDrawer((s) => !!s.claimed)
+  const yielding = useYield(useSpotlightOn(area, layout) && (!lessonMode || showMe) && !claimed)
   const runStep = useRunTuck()
   // A run step whose target the drawer already slid off (or never covered) stays out: no need to tuck it away.
   const tucked = !!runStep && !(center && !under(side))
@@ -79,13 +80,14 @@ function DrawerLayer({ layout }: { layout: Layout }): ReactNode {
   // The lesson-complete panel draws the learner's network itself: the flyout steps away (as the floating card did).
   const completing = useComplete((c) => !!c.card)
   const flyout = useDiagram((s) => s.open && !!s.diagram) && !completing
-  const flyAt = !on || !flyout ? undefined : showPanel && !concept ? { anchor: panel, run: false } : tucked ? { anchor: tab, run: true } : undefined
+  // Yielded or tucked: the flyout comes out of the handle's edge, so a Diagram press always shows something (test 11).
+  const flyAt = !on || !flyout ? undefined : showPanel && !concept ? { anchor: panel, run: false } : tucked || yielding ? { anchor: tab, run: true } : undefined
   return (
     <>
       <AnimatePresence>
         {flyAt && <Flyout key={`flyout-${side}-${flyAt.run ? 'run' : 'panel'}`} layout={layout} side={side} anchor={flyAt.anchor} run={flyAt.run} />}
       </AnimatePresence>
-      <Tab rect={tab} shown={on && !showPanel && (!yielding || tucked)} labeled={lessonMode} onOpen={tucked && runStep ? () => peekDrawer(runStep) : undefined} />
+      <Tab rect={tab} shown={on && !showPanel} labeled={lessonMode} onOpen={tucked && runStep ? () => peekDrawer(runStep) : yielding ? claimDrawer : undefined} />
       <Selectable>
         <AnimatePresence>
           {/* Keyed by side: moving edges slides it out one side and in at the other (transform only). */}

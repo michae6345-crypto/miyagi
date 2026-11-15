@@ -92,6 +92,10 @@ async function readFront(): Promise<{ name: string; bundle: string } | null> {
   return bundle || name ? { name, bundle } : null
 }
 
+/** The last app in front that wasn't miyagi (its bundle id), for returnFocus after the launcher hides. */
+let lastOther = ''
+export const previousApp = (): string | undefined => lastOther || undefined
+
 export default defineMainFeature({
   id: 'front-app',
   setup(ctx) {
@@ -144,6 +148,7 @@ export default defineMainFeature({
         const f = await readFront()
         fails = 0
         if (f) last = f
+        if (f?.bundle && !MIYAGI.bundles.includes(norm(f.bundle)) && !MIYAGI.names.includes(norm(f.name))) lastOther = f.bundle
         publish()
       } catch (err) {
         fails += 1
