@@ -760,7 +760,17 @@ class LessonSession:
 
         self._spawn(go(), timer=True)
 
-    async def _status(self, state: str) -> None:
+    async def _status(self, state: str, *, check: bool = False) -> None:
+        """The app's status pill, sent only when it changes (live test 3: "watching" x16 in 22 s). While Check runs
+        (_check_step: fresh frame, checks, judge) "thinking" stays up until its verdict lands: a cancelled diagnosis
+        or a tick can't flip it to "watching" mid-check (01:20:45: thinking -> watching 1 ms later, the card 4.5 s
+        after). Such a state is kept and applied when the check ends without setting one itself. check: the
+        check's own verdict state."""
+        if getattr(self, "_checking", 0) and not check and state not in ("thinking", "passed", "idle"):
+            self._status_after_check = state
+            return
+        if state == self.status:
+            return
         self.status = state
         await self.emit("status", {"state": state})
 
@@ -2192,6 +2202,32 @@ class LessonSession:
                 held = self._unsaved_holds - self.judged_pass  # green only until the save: never a step pass
                 if not gate.get("passed") and not held and results and all(r.get("status") == "pass" for r in results):
                     gate = {**gate, "passed": True, "via": "judge"}
+            # E1 (live test 3): loose patterns passed print("You rolled:" roll) and a requests.get without
+            # params={"format": "j1"}. A lesson code step's .py file must also compile, and every call / keyword
+            # argument of its code must be in it, read from VS Code's exact text, else the disk (code_gate.py).
+            would_pass, self._code_block, speak_now = bool(gate.get("passed")), None, False
+            cfile = (self._step_file(step) or "") if self.lesson_mode and not self.notebook_lesson else ""
+            if cfile.endswith(".py") and not step.get("setup"):
+                from . import code_gate
+                from . import workspace as wsmod
+
+                if (cpath := wsmod.resolve_file(self.workdir, cfile)) is not None:
+                    await self._buffers.refresh([cpath], self.workdir)
+                    sid, again, btext = step["id"], would_pass or trigger == "check", self._buffers.text(cpath)
+                    # no exact text and the code is unsaved / in another folder: the disk is stale, the save or the
+                    # "Wrong folder?" card decides (both already hold the pass)
+                    stale = btext is None and bool(self._dirty_step_file(step) or self._other_folder(step))
+                    results, code_rows = (results, []) if stale else code_gate.review(
+                        step, results, code_gate.read(cpath, btext), Path(cfile).name,
+                        syntax=again or f"{sid}-syntax" in self.check_state,
+                        whole=again or f"{sid}-code" in self.check_state, shown=self.check_state)
+                    if code_rows:
+                        self._code_block = code_rows[0]
+                        gate = {**gate, "passed": False, "via": None}
+                        if would_pass and (learner or self.acted_since_step_start()):
+                            self.gate_open = self.screen_gate_open = True  # it would have passed now: say why not
+                            speak_now = code_rows[0].get("checkId") == f"{sid}-syntax" and \
+                                (self.check_state.get(f"{sid}-syntax") or {}).get("status") != "fail"
             self._save_file = None if gate.get("passed") else self._save_to_finish(step, results)
             self.last_results = results
             failed = [r for r in results if r.get("status") == "fail"]
@@ -2222,8 +2258,10 @@ class LessonSession:
                 sig = self._sig(failed)
                 repeat = sig == self.last_bp_sig
                 self.last_bp_sig = sig
-                if trigger == "run_end" or repeat:
+                if trigger == "run_end" or repeat or speak_now:  # a new syntax error: the coach explains it now
                     self._consider_speaking("repeat" if repeat else "breakpoint", step, failed, ctx)
+
+    _FILE_DETAIL = re.compile(r"(found in|typed in|confirmed by your files)\b")
 
     async def _publish(self, step: dict, results: list[dict]) -> None:
         screen_ids = {c.get("id") for c in step.get("checks") or [] if c.get("type") == "screen_contains"}
@@ -2235,8 +2273,10 @@ class LessonSession:
             detail = r.get("detail") if shown == r.get("status", "pending") else None  # a masked fail says nothing
             prev = self.check_state.get(cid)
             label = r.get("label") or (prev or {}).get("label") or cid
-            if prev and prev["status"] == shown and prev.get("detail") == detail:
-                continue
+            if prev and prev["status"] == shown and (prev.get("detail") == detail or shown == "pass" and not (
+                    self._FILE_DETAIL.match(detail or "") and not self._FILE_DETAIL.match(prev.get("detail") or ""))):
+                continue  # a row that stays green isn't re-sent for a new detail (live test 3: 20 sends flipping "found
+                # in weather.py" / "seen in VS Code", the drawer jumping 2 px each), except once to say the file has it
             if prev and prev["status"] == "pass" and shown != "pass" and (
                     shown == "pending" or self.clock() - self.step_t0 < self.offtrack_grace_s):
                 continue  # no flip-flop: a pass only turns red for a real failure, after the step's first ~20 s
@@ -3388,8 +3428,20 @@ class LessonSession:
     async def _check_step(self, step: dict) -> None:
         """"Can I move on?": re-run the checks on a fresh frame now (asking counts as acting, so a pass moves on
         at once), then E5's Claude judge looks at the screen + files. Done -> step.passed. Not done -> ONE card
-        "Not yet" saying what's missing (<= 12 words), with the spot to fix when the judge gives one. Without the
-        judge (offline / no key) the deterministic checks decide alone."""
+        "Not yet" saying what's missing in whole sentences (from the failing rows, the step's exact command, a
+        syntax error on its own line), with the spot to fix when the judge gives one. Without the judge (offline /
+        no key) the deterministic checks decide alone. The status stays "thinking" until that verdict (_status)."""
+        self._checking = getattr(self, "_checking", 0) + 1
+        try:
+            await self._check_step_now(step)
+        finally:
+            self._checking -= 1
+            if not self._checking:  # a state another path asked for meanwhile, if the check set none itself
+                later, self._status_after_check = getattr(self, "_status_after_check", None), None
+                if later and self.status == "thinking":
+                    await self._status(later)
+
+    async def _check_step_now(self, step: dict) -> None:
         gen = self.step_gen
         await self._status("thinking")
         if self.screen is not None:  # a new frame, not one from before their last keystroke
@@ -3416,7 +3468,7 @@ class LessonSession:
             return
         if self._save_file:  # every check passes, only the save is missing: say that, no judge (active_job: unread)
             await self._emit_card(editor_text.save_card(step["id"], self._save_file), window_s=2.0)
-            await self._status("watching")
+            await self._status("watching", check=True)
             return
         screen, files, exact = self._judge_inputs(step)
         active = None
@@ -3435,6 +3487,7 @@ class LessonSession:
             verdict = None
         if gen != self.step_gen or self.passed:
             return
+        said = (verdict or {}).get("missing")  # the judge's own words (the engine's below replace them)
         if verdict and verdict.get("done") and self._file_unready(step):
             verdict = {**verdict, "done": False,
                        "missing": (f"Save {d} with ⌘S so I can check it" if (d := self._dirty_step_file(step))
@@ -3444,6 +3497,8 @@ class LessonSession:
                        "missing": f"Save {Path(self._step_file(step) or step.get('file') or '').name} with ⌘S so I can check it"}
         if verdict and verdict.get("done") and (unrun := self._run_missing(step)):
             verdict = {**verdict, "done": False, "missing": unrun}  # the judge saw the code; a run step needs the run
+        if verdict and verdict.get("done") and getattr(self, "_code_block", None):
+            verdict = {**verdict, "done": False}  # E1: a syntax error / a missing piece of the step's code
         if verdict and verdict.get("done"):
             for cid, v in (verdict.get("checks") or {}).items():
                 if v.get("verdict") == "done":
@@ -3452,25 +3507,30 @@ class LessonSession:
             if not self.passed and gen == self.step_gen:  # the judge says every check is done: trust it
                 await self._pass_step()
             return
+        from . import code_gate
+
         missing = (verdict or {}).get("missing") or ""
-        if not missing:
-            labels = [r.get("label") or r.get("checkId") for r in self.last_failed or
-                      [r for r in self.last_results if r.get("status") != "pass"]]
-            missing = ("Still missing: " + "; ".join(str(x) for x in labels[:3])) if labels else "The checks haven't passed yet"
-        body = " ".join(missing.split()[:12])
+        # E19 (live test 3: "Wrap roll in def roll_die(), add a call, fix the print comma…", "run python main.py"
+        # for a python3 step): whole sentences from the rows the drawer shows, the step's exact command
+        rows = [r for r in self.last_results if r.get("status") != "pass"] or self.last_failed
+        cmd = self._run_command(step) or self._python3((step.get("run_command") or "").strip())
+        body = code_gate.not_yet_body(missing, rows, sid=step["id"], cmd=cmd, forced=bool(missing) and missing != said)
         ids = {r.get("checkId") for r in self.last_failed if r.get("checkId")}
         if ids and ids <= self._offtracked_checks and self.last_offtrack:
-            await self._status("offtrack")  # the offtrack card on screen already says what's missing
+            await self._status("offtrack", check=True)  # the offtrack card on screen already says what's missing
             return
         self._carded_checks |= ids
         target = (verdict or {}).get("target") or {}
         if target.get("rect"):
-            await self._show_spot({"rect": target["rect"], "caption": body})
+            await self._show_spot({"rect": target["rect"], "caption": body.split("\n")[0]})
             self._action_spot = True
-        help_action = (["run_command"] if self._run_command(step) else ["apply_fix"]) if self.lesson_mode else []
-        await self._emit_card({"stepId": step["id"], "kind": "answer", "title": "Not yet", "body": body,
-                               "actions": help_action + ["skip_step"]}, window_s=2.0)
-        await self._status("offtrack" if self.last_offtrack else "watching")
+        # teach first: Hint / Show me on the first "Not yet"; Do it for me / Run it for me only on a repeat
+        n = self._not_yet_n[1] + 1 if getattr(self, "_not_yet_n", (None, 0))[0] == self.step_gen else 1
+        teach = ((["run_command"] if self._run_command(step) else ["apply_fix"]) if n > 1 else []) + ["hint", "show_me"]
+        if await self._emit_card({"stepId": step["id"], "kind": "answer", "title": "Not yet", "body": body,
+                                  "actions": (teach if self.lesson_mode else []) + ["skip_step"]}, window_s=2.0):
+            self._not_yet_n = (self.step_gen, n)  # a double press inside 2 s is one "Not yet", not a repeat
+        await self._status("offtrack" if self.last_offtrack else "watching", check=True)
 
     # ------------------------------------------------------------------ check evidence (E3, QA 11-14)
     def _checks_fn(self, name: str) -> Any:

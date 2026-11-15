@@ -2736,7 +2736,7 @@ def test_unsaved_file_says_save_before_any_offtrack_and_judge_cannot_pass_it(tmp
     titles = [c["title"] for c in rig.of("card")]
     assert "Not yet" in titles and "Save calc.py" in titles
     assert any("Save calc.py" in c["body"] for c in rig.of("card") if c["title"] == "Not yet")
-    assert [c for c in rig.of("card") if c["title"] == "Not yet"][0]["actions"] == ["apply_fix", "skip_step"]
+    assert [c for c in rig.of("card") if c["title"] == "Not yet"][0]["actions"] == ["hint", "show_me", "skip_step"]
 
 
 def test_another_lessons_folder_gets_one_calm_card(tmp_path, monkeypatch):
