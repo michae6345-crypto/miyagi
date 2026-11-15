@@ -49,6 +49,8 @@ from . import start_hold  # t6: the Before-you-start hold gates checks only; the
 from . import box_follow  # t7: the type box waits for the step start's jump, then follows every scroll
 from .lesson_boxes import LessonBoxes
 from . import quiet_save  # Nov 15: no ⌘S chores, ~1 s freshness, one "You already did" card instead of a cascade
+from . import box_fit  # t8: row boxes as wide as their text, so the caption beside them fits
+from . import advice_clear  # t8: a Hint / Not yet card goes once the code it is about changed
 from . import run_pointing  # t7: the Run ▷ found once VS Code filled its AX tree; a Not yet in the code boxes the code
 
 log = logging.getLogger("orchestrator.session")
@@ -1645,6 +1647,13 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
         log.info("run step %s: VS Code's terminal panel %s (%s)", step.get("id"), "opened" if ok else "not opened", res)
         return ok
 
+    def _ptr_runs_it(self, step: dict) -> bool:
+        """t8: a run step whose command VS Code's Run ▷ runs on its own (`python3 nn.py`): the ▷ box is the
+        instruction and the ▷'s run opens its own "Python" terminal, so no terminal is opened ahead of it (a zsh opened
+        first made two). When the ▷ isn't found, ui_targets.run_spot still opens the terminal for its box."""
+        cmd = self._run_command(step)
+        return bool(cmd) and self._run_button_file(step, cmd) is not None
+
     async def _ready_run_step(self, gen: int, step: dict) -> None:
         """A run step's start: the lesson window leaves room for Miyagi's drawer (workspace.fit_beside_drawer: its Run ▷
         and VS Code's top-right buttons never under it; full screen / maximized: logged, left), then VS Code's terminal
@@ -1654,6 +1663,8 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
         from . import workspace as wsmod
 
         await asyncio.to_thread(wsmod.fit_beside_drawer, self.workdir)
+        if self._ptr_runs_it(step):
+            return
         for _ in range(6):
             if gen != self.step_gen or self.passed or self._spot_frozen():
                 return
@@ -1951,6 +1962,7 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
         return "done" if ids and not ids & {r.get("checkId") for r in self.last_failed} else "up"
 
     FINISH_CAPTIONS = ("Finish this function", "Finish this class", "Keep typing here")
+    CHANGE_CAPTION = "Change this line"  # t8: _code_progress's "change" row (the coach's own boxes say it too)
 
     def _code_progress(self, step: dict | None) -> dict | None:
         """E9: a lesson code step whose first code line (`def get_weather(city):`) is already in its file -> where the
@@ -2027,7 +2039,11 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
         r = where.get("rect")
         if not r:
             return None
-        return {"rect": {k: float(r[k]) for k in ("x", "y", "w", "h")}, "caption": caption or self._finish_caption(step),
+        rect = box_fit.fit({k: float(r[k]) for k in ("x", "y", "w", "h")}, where.get("text_x2"),
+                           box_fit.line_text(self, step, path, line))  # t8: room for the caption beside it
+        if not caption:  # t8: a line that differs is changed, not finished ("Finish this function" on nn2's sign)
+            caption = self.CHANGE_CAPTION if prog.get("kind") == "change" else self._finish_caption(step)
+        return {"rect": rect, "caption": caption,
                 "app": "Code", **self._snippet(step), "_line": self._line_meta(prog, float(r["h"]))}
 
     def _below_code_spot(self, step: dict) -> dict | None:
@@ -2092,8 +2108,9 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
         if not r:
             return None
         target = next((t for t in step.get("targets") or [] if t.get("match")), None)
-        return {"rect": {k: float(r[k]) for k in ("x", "y", "w", "h")}, "caption": self._type_caption(step, target),
-                **self._snippet(step)}
+        rect = box_fit.fit({k: float(r[k]) for k in ("x", "y", "w", "h")}, where.get("text_x2"),
+                           box_fit.line_text(self, step, path, line))  # t8: room for the caption beside it
+        return {"rect": rect, "caption": self._type_caption(step, target), **self._snippet(step)}
 
     def _ensure_step_file(self, step: dict) -> None:
         """Lesson mode: the step's file exists in the lesson folder before it starts, so step 1 is "type this"
@@ -2549,7 +2566,7 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
         already in the file, it asks for the line where it goes on (or the line that differs) with that line's code,
         never for the whole snippet again."""
         intent, code = spot.get("caption") or "", spot.get("snippet") or ""
-        if intent in (self.TYPE_CAPTION, self.RUN_CAPTION, *self.FINISH_CAPTIONS) and self.step is not None:
+        if intent in (self.TYPE_CAPTION, self.RUN_CAPTION, self.CHANGE_CAPTION, *self.FINISH_CAPTIONS) and self.step is not None:
             intent = self._action_line(self.step)
             prog = self._code_progress(self.step)  # None for a run step
             if prog is not None and prog["kind"] != "done":
@@ -2732,6 +2749,8 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
         if 0 < spot["rect"]["h"] < 12.0:  # E24: a sliver (7.6 pt) is no box: one text row, centred on it
             r0 = spot["rect"]
             spot = {**spot, "rect": {**r0, "y": r0["y"] + r0["h"] / 2 - 10.0, "h": 20.0}}
+        if owner != "answer":  # t8: one line, one caption (a press may still say more: Show me's "Change to: …")
+            spot = self._keep_row_caption(spot)
         sticky = steady and owner != "answer"  # E15: a press re-sends the box it answers with (not twice in 1 s)
         if self._same_box(spot, sticky):
             if (answered := _ANSWERED.get()) is not None:
@@ -2791,6 +2810,26 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
             self._spot_sent_seq, self._spot_owner = seq, (owner, gen, self.clock())
             await self.emit("spotlight", {**spot, "caption": short_caption(self._no_create(spot["caption"]))}  # <= ~8 words
                             if spot.get("caption") else spot)
+
+    def _keep_row_caption(self, spot: dict) -> dict:
+        """t8 (nn2, 05:51:20-05:51:31): one line to change got three captions in 11 s ("Finish this function", the
+        coach's streamed "Change + to - here", the off-track's "Change this line"). A box on the row of the box that is
+        up, both saying what to change there, keeps the caption already on screen."""
+        cur, cap, new = self.spot_rect, self._spot_caption or "", spot.get("caption") or ""
+        if cur is None or not cap or not new or new == cap or not (cap.startswith("Change") and new.startswith("Change")):
+            return spot
+        r = spot.get("rect") or {}
+        try:
+            h = max(float(cur["h"]), float(r["h"]), 1.0)
+            same_row = (abs(float(cur["y"]) + float(cur["h"]) / 2 - float(r["y"]) - float(r["h"]) / 2) < 0.5 * h
+                        and float(r["x"]) < float(cur["x"]) + float(cur["w"])
+                        and float(cur["x"]) < float(r["x"]) + float(r["w"]))
+        except (KeyError, TypeError, ValueError):
+            return spot
+        if not same_row:
+            return spot
+        log.info("box on the same row as %r: keeps that caption (not %r)", cap, new)
+        return {**spot, "caption": cap}
 
     async def _follow_spot(self) -> None:
         """On a new frame: move the spotlight with its target (only if it moved > 4pt). E8: it moves the box that is
@@ -3757,6 +3796,7 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
     # (title, clock, step_gen) of the card in the slot when it is the learner's own: the answer to their press or a
     # card waiting for their Yes (`confirm`). _emit_card sets / clears it, card.closed clears it.
     _card_in_use: tuple[str, float, int] | None = None
+    _advice_up: dict | None = None  # t8 (advice_clear): the Hint / Not yet card in the slot and what it is about
 
     def _learner_card_up(self) -> bool:
         """Is the learner's own card in the slot, and have they not acted since it went up? Then no off-track takes
@@ -3813,6 +3853,7 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
             self._last_card_t = self.clock()
             self._card_in_use = None  # the off-track takes the slot
             await self.emit("offtrack", shown)
+            advice_clear.sent_offtrack(self, step, full, shown)  # t8: it goes once its line is fixed
             self._say("offtrack", shown)
             async with self._lock:  # the coach's verdict: the check rows say "not yet" with it (E1)
                 if gen == self.step_gen and not self.passed:
@@ -3958,6 +3999,7 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
                 self._wf_t = self.clock()
                 self._spawn(self._refresh_wrong_folder(self.step))
             await self.evaluate("screen")
+            await advice_clear.follow(self)  # t8: a Hint / Not yet whose code changed goes (<= ~1 s)
             if self._spot_frozen():  # E7: resume card up / no app connected: no box work, no targeter call
                 if self.spot_rect is not None:  # the card shows instead; after Continue / a reconnect it goes out again
                     await self.emit("spotlight", {"clear": True})
@@ -4611,7 +4653,8 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
             await self._show_spot(fix, owner="answer")
             return True
         if self.lesson_mode and (cmd := self._run_command(step)):
-            await self._ensure_terminal(step)
+            if not self._ptr_runs_it(step):  # t8: the ▷ makes its own terminal (else zsh + "Python")
+                await self._ensure_terminal(step)
             spot = await self._run_spot(step, cmd)
             spot.pop("kind", None)
             if spot:
@@ -4831,6 +4874,7 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
         self._recent_cards[sig] = now
         self._last_card_t = now
         await self.emit("card", card)
+        advice_clear.sent(self, card)  # t8: a Hint / Not yet goes once the code it is about changed
         mine = (not auto and _ANSWERED.get() is not None) or "confirm" in (card.get("actions") or [])
         self._card_in_use = (card.get("title") or "", now, self.step_gen) if mine else None  # (_learner_card_up)
         covers = (card.get("title") == "Not yet" or card.get("verdict") == "not_done"
@@ -4863,6 +4907,7 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
             log.info("card on screen: %s %r", kind or "card", title)
             return
         log.info("card closed (%s): %s %r", by or "?", kind or "card", title)
+        advice_clear.closed(self, title, by)  # t8: a closed card is never cleared (re-shown) later
         if by in ("replaced", "hidden"):  # _emit_card already handled the card the engine put in its place; a covered
             return  # slot shows the same card again (card.shown), so neither lifts a hold
         same = (title or "").strip().casefold()

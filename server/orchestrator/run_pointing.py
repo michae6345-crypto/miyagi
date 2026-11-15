@@ -37,7 +37,7 @@ import time
 from pathlib import Path
 from typing import Any
 
-from . import spot_lines
+from . import box_fit, spot_lines
 
 log = logging.getLogger("orchestrator.session")
 
@@ -295,8 +295,22 @@ async def culprit_spot(s: Any, step: dict) -> dict | None:
     y = float(r1["y"])
     w = max(float(r1["x"]) + float(r1["w"]), float(r2["x"]) + float(r2["w"])) - x
     h = max(float(r1["h"]), float(r2["y"]) + float(r2["h"]) - y)
+    rect = {"x": x, "y": y, "w": w, "h": h}
+    ends = await _text_ends(s, path, first, last)  # t8: as wide as the lines' text (the caption had no room)
+    if ends:
+        rect = box_fit.fit(rect, max(ends), None)
     s._culprit_box = (s.step_gen, c["caption"], c["why"])
-    return {"rect": {"x": x, "y": y, "w": w, "h": h}, "caption": c["caption"], "app": "Code"}
+    return {"rect": rect, "caption": c["caption"], "app": "Code"}
+
+
+async def _text_ends(s: Any, path: Path, first: int, last: int) -> list[float]:
+    """Where the OCR'd text of lines first..last ends on screen (rows whose text was read)."""
+    out = []
+    for n in range(first, last + 1):
+        loc = await asyncio.to_thread(_line_location, s, path, n)
+        if (loc or {}).get("text_x2"):
+            out.append(float(loc["text_x2"]))
+    return out
 
 
 async def follow(s: Any) -> None:

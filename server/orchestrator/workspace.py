@@ -16,6 +16,7 @@ import re
 import shutil
 import subprocess
 import sys
+import threading
 from pathlib import Path
 
 from .config import env_flag
@@ -362,6 +363,26 @@ def goto_argv(path: str, line: int) -> list[str] | None:
     return [cli, "-r", "-g", f"{path}:{line}"] if cli else None
 
 
+def reveal_line(path: str | Path, line: int) -> bool:
+    """t8 (desktop test 8, 05:51:05 / 05:53:38): the step start's `code -r -g` activated VS Code, its Dock icon bounced
+    and the CLI's own icon flashed by it. The companion extension reveals the line instead (POST /open: file + line,
+    preserveFocus) in the window whose folders hold the file, never another window. Blocking (<= ~0.6 s).
+    -> True when that window answered ok; False: no such window (the caller uses the CLI)."""
+    try:
+        from server.workspace import vscode_ext as vx
+    except Exception:  # noqa: BLE001 - no companion module: the CLI
+        return False
+    p = Path(path).expanduser()
+    wins = [w for w in vx.windows() if any(vx._inside(p, f) for f in w.get("folders") or [])]
+    if not wins:
+        return False
+    res = vx.open_file(str(p), int(line), preserve_focus=True, port=int(wins[0]["port"]))
+    ok = isinstance(res, dict) and bool(res.get("ok", True))
+    if ok:
+        log.info("revealed %s:%s through the companion (no code CLI)", p.name, line)
+    return ok
+
+
 def editor_label() -> str:
     ws = _s2()
     fn = getattr(ws, "editor_label", None) if ws is not None else None
@@ -380,6 +401,7 @@ class Workspace:
         self.run = runner or self._spawn  # injectable for tests
         self.opened: str | None = None
         self.lesson_key = ""  # the current lesson's id (session.load_graph): the editor opens once per lesson + folder
+        self.reveal = None  # (path, line) -> revealed? t8: the companion's /open; None = reveal_line on real windows
 
     @staticmethod
     def _spawn(argv: list[str]) -> bool:
@@ -437,7 +459,27 @@ class Workspace:
     def goto(self, path: str, line: int, explicit: bool = False) -> None:
         """Jump to file:line. Automatic jumps (step start, spotlight retries) only run when VS Code is already the
         active app with its window up, so they never steal focus from Miyagi or spawn a window while VS Code is
-        still starting. explicit=True: a learner action (Do it for me)."""
+        still starting. explicit=True: a learner action (Do it for me).
+        t8: an automatic jump goes through the companion extension first (POST /open, preserveFocus, in a thread: no
+        `code` CLI, so VS Code's Dock icon never bounces); the CLI only when no lesson window of it answers."""
+        reveal = self.reveal if self.reveal is not None else (reveal_line if self.run == self._spawn else None)
+        if not explicit and reveal is not None:
+            def go() -> None:
+                try:
+                    if reveal(path, line):
+                        return
+                except Exception:  # noqa: BLE001 - the CLI jump below
+                    log.exception("companion reveal of %s:%s failed", path, line)
+                self._cli_goto(path, line, explicit)
+
+            if self.reveal is not None:  # tests: in line, so they see what ran
+                go()
+            else:
+                threading.Thread(target=go, daemon=True, name="miyagi-goto").start()
+            return
+        self._cli_goto(path, line, explicit)
+
+    def _cli_goto(self, path: str, line: int, explicit: bool = False) -> None:
         ws = _s2()
         if ws is not None and hasattr(getattr(ws, "editor", None), "jump"):
             real = self.run == self._spawn

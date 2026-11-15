@@ -294,7 +294,9 @@ def test_open_once_per_lesson_and_folder_never_dash_n(tmp_path, fresh):
     opens = [c for c in calls if c[0] == VSC["cli"]]
     assert len(opens) == 1 and "-n" not in opens[0] and opens[0][1] == str(tmp_path.resolve())
     # the learner presses "Open VS Code": bring that folder's window forward, still no -n, no second arrange
-    rep = E.open_lesson_editor(tmp_path, "main.py", lesson_id="L1", runner=run, explicit=True, focus=lambda: MIYAGI)
+    # (windows given: 56cb5ca's "the window is gone: open it again" reads the real machine's windows otherwise)
+    rep = E.open_lesson_editor(tmp_path, "main.py", lesson_id="L1", runner=run, explicit=True, focus=lambda: MIYAGI,
+                               windows=lambda: [])
     assert rep["already"] and calls[-1] == [VSC["cli"], str(tmp_path.resolve()), "-g", str((tmp_path / "main.py").resolve())]
     # a new lesson in the same folder: one more open (VS Code focuses the existing window: still no -n)
     E.open_lesson_editor(tmp_path, None, lesson_id="L2", runner=run, focus=lambda: CODE, **kw())
