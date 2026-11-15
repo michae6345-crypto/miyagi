@@ -3351,7 +3351,8 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
             await self.emit("video.play", {})  # the video keeps playing meanwhile
         else:
             self.phase = "done"
-            await self.emit("video.play", {})
+            # t11: pause, never play: the video's outro, credits and end cards played behind the completion panel
+            await self.emit("video.pause", {})
             self._spawn_lesson_end()  # t5: the completion card (its skill count, their run's numbers, End lesson)
 
     def _spawn_lesson_end(self) -> None:

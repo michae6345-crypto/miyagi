@@ -55,6 +55,10 @@ class Notebook:
     errors: list[str] = field(default_factory=list)  # each error output: "NameError: name 'x' is not defined" + traceback
     executed: bool = False  # some code cell ran (an execution_count or an output)
     cells: list[Cell] = field(default_factory=list)  # the code cells, in order
+    # t11: the kernel VS Code saved in the notebook's metadata: kernelspec.display_name (".venv (3.12.16)") and
+    # language_info.version ("3.12.16": written only once VS Code connected a kernel; Miyagi's template has none)
+    kernel: str = ""
+    kernel_version: str = ""
 
     def only(self, indices: list[int] | tuple[int, ...]) -> "Notebook":
         """This notebook as a step's checks see it (t10): every cell's source (the code may be anywhere), but the
@@ -93,6 +97,10 @@ def read_notebook(path: str | os.PathLike | None) -> Notebook | None:
     if not isinstance(data, dict) or not isinstance(data.get("cells"), list):
         return None
     nb = Notebook(path=p)
+    meta = data.get("metadata") if isinstance(data.get("metadata"), dict) else {}
+    spec, info = meta.get("kernelspec"), meta.get("language_info")
+    nb.kernel = str(spec.get("display_name") or "") if isinstance(spec, dict) else ""
+    nb.kernel_version = str(info.get("version") or "") if isinstance(info, dict) else ""
     for cell in data["cells"]:
         if not isinstance(cell, dict):
             continue
@@ -149,20 +157,38 @@ def find_notebook(workdir: str | os.PathLike | None, names: list[str] | tuple[st
     root = Path(workdir)
     if not root.is_dir():
         return None
-    for n in names:
-        n = str(n or "").strip()
-        if n.endswith(".ipynb"):
-            p = Path(n) if os.path.isabs(n) else root / n
-            if p.is_file():
-                return p
-    found = _candidates(root)
-    if not found:
-        return None
-
     def mtime(p: Path) -> float:
         try:
             return p.stat().st_mtime
         except OSError:
             return 0.0
 
+    for n in names:
+        n = str(n or "").strip()
+        if n.endswith(".ipynb"):
+            p = Path(n) if os.path.isabs(n) else root / n
+            if p.is_file():
+                return _instead_of_template(p, root, mtime)
+    found = _candidates(root)
+    if not found:
+        return None
     return max(found, key=mtime)
+
+
+def _untouched(nb: Notebook | None) -> bool:
+    """Miyagi's empty template as made (server.lesson.notebook_steps.empty_notebook): no code typed, nothing ran."""
+    return nb is not None and not nb.executed and not any(c.source.strip() for c in nb.cells)
+
+
+def _instead_of_template(named: Path, root: Path, mtime) -> Path:
+    """t11: the learner made their own notebook (test 11: Untitled.ipynb) and left the lesson's named one (mnist.ipynb)
+    as Miyagi's untouched template: every check read the empty template. Then the newest other .ipynb in the lesson
+    folder that is newer than the template and has code in a cell is the one to read."""
+    if not _untouched(read_notebook(named)):
+        return named
+    t = mtime(named)
+    for p in sorted((p for p in _candidates(root) if p != named and mtime(p) > t), key=mtime, reverse=True):
+        nb = read_notebook(p)
+        if nb is not None and any(c.source.strip() for c in nb.cells):
+            return p
+    return named
