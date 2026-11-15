@@ -13,7 +13,7 @@ scripts/make_nn_demo.py: demo/cache/lessons/text-nn-from-scratch.json + its card
     diagram_for_action / hint_card / explain_card   the Diagram button, the hint ladder and Explain, from the cached files
     send_reference(session)       before a Not yet on the training step: the lesson's own run as the app's "expected"
                                   curve (metric runId "tutorial"), so the card's yours | expected never reads "—"
-    metric_detail(check, losses)  a loss row's detail as the checks module words it ("loss 0.4900 at step 18000,
+    metric_detail(check, losses)  a loss row's detail from the run's last printed loss ("loss 0.4900 at epoch 18000,
                                   need < 0.01"): the app reads yours and the target from it
 
 The off-track coach stays live (real Claude); the hints and Explain come from the files (instant, the same every time).
@@ -542,9 +542,9 @@ _OP_WORD = {"<": "below", "<=": "at most", ">": "above", ">=": "at least"}
 
 def metric_detail(check: dict, losses: list[tuple[int, float]]) -> str | None:
     """A loss row's detail from this run's last printed loss, as nn.py prints it (0.0009, never 9.0e-4): "loss 0.0009,
-    below 0.01" (passed) / "loss 0.4900 at step 18000, need < 0.01" (not yet: the app's Not yet card reads 0.4900 under
-    yours from exactly "<value> at step <n>", Evidence.tsx readingValue, and the label's 0.01 under expected). None:
-    this run printed no loss (a crash: the row says so, never an older run's)."""
+    below 0.01" (passed) / "loss 0.4900 at epoch 18000, need < 0.01" (not yet: nn.py's word; the app's Not yet card
+    reads 0.4900 under yours from "<value> at epoch <n>", Evidence readingValue since adrian/shell PR #137, and the
+    label's 0.01 under expected). None: this run printed no loss (a crash: the row says so, never an older run's)."""
     got = _verdict(check, losses)
     if got is None:
         return None
@@ -553,7 +553,7 @@ def metric_detail(check: dict, losses: list[tuple[int, float]]) -> str | None:
     if ok is None:
         return f"{name} {_fmt(v)} at epoch {e}"
     return (f"{name} {_fmt(v)}, {_OP_WORD.get(op, op)} {target:g}" if ok
-            else f"{name} {_fmt(v)} at step {e}, need {op} {target:g}")
+            else f"{name} {_fmt(v)} at epoch {e}, need {op} {target:g}")
 
 
 # ---------------------------------------------------------------------------------------------------------- math rows
