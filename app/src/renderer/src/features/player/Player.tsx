@@ -6,19 +6,20 @@
  * Browser stage: drawn by an overlay layer at the same dock rect (see index.tsx for why).
  */
 import { AnimatePresence, motion } from 'motion/react'
-import { useEffect, useRef, type CSSProperties, type ReactNode } from 'react'
+import { useEffect, useRef, useState, type CSSProperties, type ReactNode } from 'react'
 import { useShallow } from 'zustand/react/shallow'
-import { Check, Lock, PanelRight, Pause, Play, RotateCcw, SkipBack, SkipForward, Square, VolumeX } from 'lucide-react'
+import { Check, Lock, PanelRight, Pause, Play, RotateCcw, SkipBack, SkipForward, Square, Volume1, Volume2, VolumeX } from 'lucide-react'
 import type { StepSummary, VideoSegment } from '../../../../../../shared/contracts/events'
 import type { Layout } from '../../../../preload/api'
 import { cmd } from '../../../../common/wire'
 import { bridge, isElectron } from '../../bridge'
-import { useLesson, useProgress, useStatus, useThinking } from '../../core/lesson'
+import { useLesson, useStatus, useThinking } from '../../core/lesson'
 import { useAppearance } from '../../core/prefs'
 import { sendAction, usePressed } from '../../core/shortcuts'
 import { clock, color, copy, glass, radius, spring } from '../../core/theme'
 import { Spinner } from '../../core/ui/atoms'
 import { MiyagiMark } from '../../core/ui/Mark'
+import { usePill } from '../pill/store'
 import { dockRect } from './dock'
 import { GlassCheck, GlassDot, GlassPrimary, GlassQuiet, GlassSpinner } from './glass'
 import { attachPlayer, clipStart, inGate, player, usePlayer } from './store'
@@ -79,10 +80,32 @@ export function PlayerPanel({ framed = false }: { framed?: boolean }): ReactNode
   )
 }
 
+/**
+ * The step number the pill shows (Michael's desktop test 9: the header said "Step 1 of 7" while the pill said Step 2).
+ * At a pass the pill moves on by itself (pill store: `celebrating`, then `advanced`) before the engine's step.started;
+ * this reads the same state with the pill's rules, so the two never disagree.
+ */
+function useShownStep(): { n: number; total: number } {
+  const l = useLesson(useShallow((s) => ({ stepId: s.stepId, steps: s.steps })))
+  const { celebrating, advanced } = usePill(useShallow((s) => ({ celebrating: s.celebrating, advanced: s.advanced })))
+  const total = Math.max(1, l.steps.length)
+  const at = (id?: string): number => l.steps.findIndex((x) => x.id === id)
+  const n = (i: number): { n: number; total: number } => ({ n: Math.min(total, Math.max(0, i) + 1), total })
+  // 1) The pill's green check holds the passed step.
+  if (celebrating) return n(at(celebrating))
+  // 2) After a pass, before step.started: the next step (or the last one, when the lesson is done or a part is building).
+  if (advanced && advanced.from === l.stepId) {
+    const to = advanced.to ?? l.steps[at(advanced.from) + 1]?.id
+    return to && at(to) >= 0 ? n(at(to)) : n(at(advanced.from) + 1)
+  }
+  // 3) The engine's current step.
+  return n(at(l.stepId))
+}
+
 function Header(): ReactNode {
   const title = useLesson((s) => s.lesson?.title)
   const hasStep = useLesson((s) => !!s.stepId)
-  const { index, total } = useProgress()
+  const { n, total } = useShownStep()
   const status = useStatus()
   const appearance = useAppearance()
   return (
@@ -95,7 +118,7 @@ function Header(): ReactNode {
       <span className="flex-1" />
       {hasStep && (
         <span className="shrink-0 text-[12px] tabular-nums" style={{ color: glass.faint }}>
-          Step {index + 1} of {total}
+          Step {n} of {total}
         </span>
       )}
       <GlassDot status={status} />
@@ -129,7 +152,7 @@ function Header(): ReactNode {
 // Video + gate states
 // ---------------------------------------------------------------------------
 
-type Mode = 'loading' | 'error' | 'passed' | 'building' | 'waiting' | 'paused' | undefined
+type Mode = 'loading' | 'error' | 'passed' | 'building' | 'setup' | 'waiting' | 'paused' | undefined
 
 function Video(): ReactNode {
   const host = useRef<HTMLDivElement>(null)
@@ -148,6 +171,8 @@ function Video(): ReactNode {
         ? 'loading'
         : !p.playing && pendingNext
           ? 'building'
+          : !p.playing && p.pausedBy === 'setup'
+          ? 'setup'
           : !p.playing && stepOpen && (p.pausedBy === 'gate' || p.pausedBy === 'engine')
           ? 'waiting'
           : !p.playing && p.pausedBy === 'user'
@@ -163,6 +188,7 @@ function Video(): ReactNode {
         {mode === 'waiting' && <Waiting key="waiting" />}
         {mode === 'passed' && <Passed key="passed" />}
         {mode === 'building' && <BuildingNext key="building" />}
+        {mode === 'setup' && <SetupHold key="setup" />}
         {mode === 'paused' && <PausedGlyph key="paused" />}
         {mode === 'loading' && <Loading key="loading" />}
         {mode === 'error' && <ErrorState key="error" message={p.error!} />}
@@ -184,11 +210,17 @@ const fade = { initial: { opacity: 0 }, animate: { opacity: 1 }, exit: { opacity
 /**
  * The waiting / building / passed states sit on the video as frosted glass in the panel's appearance
  * (dark: smoked, light: milky), so they read as part of the panel. Blur + the panel color at 80%.
+ *
+ * `cover`: the gate states (waiting for checks, next part building, setup first, the passed beat). A paused YouTube embed draws its
+ * own chrome over the frame (the title bar, the "More videos" strip), and at 80% it showed through (Michael's desktop
+ * test 9). Two layers of the panel's glass (each ~96% opaque) hide it; the title and channel stay in the source line
+ * under the video.
  */
-function GlassScrim({ children, strength = 0.8 }: { children: ReactNode; strength?: number }): ReactNode {
+function GlassScrim({ children, strength = 0.8, cover = false }: { children: ReactNode; strength?: number; cover?: boolean }): ReactNode {
   return (
     <motion.div className="pointer-events-none absolute inset-0 grid place-items-center backdrop-blur-[10px]" style={{ color: glass.text }} {...fade}>
-      <div className="absolute inset-0" style={{ background: glass.bg, opacity: strength }} />
+      <div className="absolute inset-0" style={{ background: glass.bg, opacity: cover ? 1 : strength }} />
+      {cover && <div className="absolute inset-0" style={{ background: glass.bg }} />}
       <div className="relative">{children}</div>
     </motion.div>
   )
@@ -207,7 +239,7 @@ function Waiting(): ReactNode {
   // Apricot only for off track; otherwise Miyagi is watching (gray).
   const tone = offtrack ? glass.offTrack : color.gray
   return (
-    <GlassScrim>
+    <GlassScrim cover>
       <motion.div className="flex flex-col items-center px-6 text-center" {...rise}>
         {/* One line, the status dot beside it (amber off track, gray watching). No eyebrow. */}
         <div className="flex items-center gap-[8px] text-[19px] font-semibold leading-tight">
@@ -244,7 +276,7 @@ function Waiting(): ReactNode {
 function BuildingNext(): ReactNode {
   const parts = useLesson((s) => s.parts)
   return (
-    <GlassScrim>
+    <GlassScrim cover>
       <motion.div className="flex flex-col items-center px-6 text-center" {...rise}>
         <div className="flex items-center gap-[9px] text-[17px] font-semibold leading-tight">
           <GlassSpinner size={16} />
@@ -260,9 +292,26 @@ function BuildingNext(): ReactNode {
   )
 }
 
+/** A setup card is waiting ("Set up first"): the video holds at the clip's start and plays once setup is done or skipped. */
+function SetupHold(): ReactNode {
+  return (
+    <GlassScrim cover>
+      <motion.div className="flex flex-col items-center px-6 text-center" {...rise}>
+        <div className="flex items-center gap-[8px] text-[17px] font-semibold leading-tight">
+          <span className="h-[7px] w-[7px] shrink-0 rounded-full" style={{ background: color.gray }} />
+          Set up first
+        </div>
+        <div className="mt-[8px] text-[13px]" style={{ color: glass.label }}>
+          The video starts when setup is done.
+        </div>
+      </motion.div>
+    </GlassScrim>
+  )
+}
+
 function Passed(): ReactNode {
   return (
-    <GlassScrim strength={0.7}>
+    <GlassScrim cover>
       <motion.div className="flex flex-col items-center" {...rise}>
         <GlassCheck size={38} />
         <div className="mt-[14px] text-[15px] font-semibold">{copy.passed}</div>
@@ -344,6 +393,8 @@ function Controls(): ReactNode {
       <span className="ml-[6px] text-[13px] tabular-nums" style={{ color: glass.label }}>
         {clock(p.t)} <span style={{ color: glass.faint }}>/ {p.duration ? clock(p.duration) : '–:––'}</span>
       </span>
+      <Volume />
+      <Speed />
       <span className="flex-1" />
       {seg ? (
         <button
@@ -361,6 +412,55 @@ function Controls(): ReactNode {
         )
       )}
     </div>
+  )
+}
+
+/**
+ * The speaker button and a short slider beside it (Michael, Nov 15: the video needed a volume control). The slider opens
+ * while the pointer is on the speaker or the slider, so the row stays compact. Neutral chrome: glass tokens only.
+ */
+function Volume(): ReactNode {
+  const v = usePlayer(useShallow((s) => ({ volume: s.volume, muted: s.muted })))
+  const [open, setOpen] = useState(false)
+  const level = v.muted ? 0 : v.volume
+  const Icon = level === 0 ? VolumeX : level < 50 ? Volume1 : Volume2
+  return (
+    <div className="ml-[4px] flex items-center" onPointerEnter={() => setOpen(true)} onPointerLeave={() => setOpen(false)}>
+      <IconButton onClick={() => player.toggleMute()} label={level === 0 ? 'Unmute' : 'Mute'}>
+        <Icon size={15} strokeWidth={1.8} />
+      </IconButton>
+      <motion.div className="overflow-hidden" initial={false} animate={{ width: open ? 64 : 0, opacity: open ? 1 : 0 }} transition={{ duration: 0.16 }}>
+        <input
+          type="range"
+          min={0}
+          max={100}
+          step={1}
+          value={level}
+          aria-label="Volume"
+          title={`Volume ${level}%`}
+          className="mx-[4px] h-[4px] w-[56px] cursor-pointer"
+          style={{ accentColor: 'var(--glass-text)' }}
+          onChange={(e) => player.setVolume(Number(e.target.value))}
+        />
+      </motion.div>
+    </div>
+  )
+}
+
+/** Playback speed: one chip that steps through 1x, 1.25x, 1.5x, 2x, 0.75x (saved). The step gate still holds at any speed. */
+function Speed(): ReactNode {
+  const rate = usePlayer((s) => s.rate)
+  return (
+    <button
+      type="button"
+      className="ml-[2px] h-[24px] min-w-[38px] cursor-pointer rounded-[7px] px-[6px] text-[12px] font-semibold tabular-nums hover:bg-[var(--glass-field-hover)]"
+      style={{ color: rate === 1 ? glass.faint : glass.text }}
+      onClick={() => player.cycleRate()}
+      title="Playback speed (click to change)"
+      aria-label={`Playback speed ${rate}x`}
+    >
+      {rate}×
+    </button>
   )
 }
 
