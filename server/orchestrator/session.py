@@ -1334,7 +1334,7 @@ class LessonSession:
         if pick is None or self._lesson_window_hidden():  # nothing of the lesson's to pick: no Haiku call
             return None
         spot = {"caption": self._type_caption(step), "app": "Code", **self._snippet(step)}
-        res = await pick(self._spot_intent(spot))  # same question _confirm_spot asks next: answered from the cache
+        res = await pick(self._no_create(self._spot_intent(spot)))  # same question _confirm_spot asks next: answered from the cache
         if not res or res.get("kind") not in ("code", "blank"):
             return None
         log.info("vision spot: %s (%.2f, %s)", res.get("label"), res.get("confidence", 0), res.get("reason"))
@@ -1382,6 +1382,34 @@ class LessonSession:
             log.info("lesson mode: created %s", p)
         except OSError as e:
             log.warning("could not create %s: %s", p, e)
+
+    # L1: Miyagi creates each step's file before the step starts (_ensure_step_file), so "Create nn.py and type …" (a
+    # cached lesson's target caption, E2's action, the model's own wording) must read "In nn.py, type …" once it's there
+    _CREATE_LEAD = re.compile(
+        r"^\s*(?:in (?:vs code|your editor),?\s+)?create\s+(?:(?:a|an|the)\s+(?:(?:new|empty|blank)\s+)*(?:[\w+#-]+\s+)?"
+        r"file\s+(?:(?:called|named)\s+)?)?[`'\"“]?(?P<file>[\w-][\w./-]*\.\w{1,8})[`'\"”]?"
+        r"(?:\s+in\s+(?:the|your)\s+(?:lesson\s+|project\s+)?folder)?"
+        r"(?:(?:\s*,\s*then|\s*,?\s+and(?:\s+then)?|\s*[.;:])\s+(?P<rest>\S.*?))?\s*(?P<end>[.!]?)\s*$", re.I | re.S)
+
+    def _no_create(self, text: str) -> str:
+        """L1: "Create nn.py and type X" / "Create nn.py, then type X" / "Create a file called nn.py and type X" ->
+        "In nn.py, type X" ("… and open it" / a bare "Create nn.py" -> "Open nn.py") when that file is already in the
+        lesson folder. For every learner-facing line (step instructions / details, spotlight captions, the Start card)
+        and the targeter's question (Haiku read "nn.py not yet created" and boxed nothing)."""
+        m = self._CREATE_LEAD.match(text or "")
+        if not m:
+            return text
+        from . import workspace as wsmod
+
+        if not (Path(self.workdir).is_dir() and wsmod.resolve_file(self.workdir, m.group("file")) is not None):
+            return text  # really not there yet: "Create …" is right
+        name, end = Path(m.group("file")).name, m.group("end")
+        rest = re.sub(r"^then\s+", "", m.group("rest") or "", flags=re.I)
+        if not rest or re.match(r"open it\b", rest, re.I):
+            return f"Open {name}{rest[7:]}{end}"
+        if re.match(r"[A-Z][a-z]+\b", rest):  # "Type the …" -> "type the …" (NumPy, VS Code keep their case)
+            rest = rest[0].lower() + rest[1:]
+        return f"In {name}, {rest}{end}"
 
     async def _replace_provisional(self, g: dict, complete: bool) -> None:
         """E2 quick start: the placeholder lesson (one step 'watch and type along', shown after 8 s) is
@@ -1550,8 +1578,8 @@ class LessonSession:
         return " ".join(words[:20]) + ("…" if len(words) > 20 else "")
 
     def _step_started_payload(self, step: dict) -> dict:
-        full = step.get("instructions", "")
-        action = self._action_line(step) or full
+        full = self._no_create(step.get("instructions", ""))  # L1: the file exists by now (_ensure_step_file)
+        action = self._no_create(self._action_line(step) or full)
         p = {"stepId": step["id"], "index": step.get("index", self.idx), "title": step["title"],
              "instructions": action}
         if full and " ".join(full.split()) != action:
@@ -1729,7 +1757,7 @@ class LessonSession:
         if confirm is None:
             return spot
         try:
-            rect = await confirm(spot["rect"], self._spot_intent(spot))
+            rect = await confirm(spot["rect"], self._no_create(self._spot_intent(spot)))
         except Exception:
             log.exception("targeter failed; keeping the located box")
             return spot
@@ -1778,7 +1806,7 @@ class LessonSession:
         self.spot_rect, self._spot_caption, self._spot_t = r, spot.get("caption"), self.clock()
         self._spot_app = spot.get("app") or ("Code" if self.lesson_mode else None)
         self._spot_misses = 0
-        await self.emit("spotlight", spot)
+        await self.emit("spotlight", {**spot, "caption": self._no_create(spot["caption"])} if spot.get("caption") else spot)
 
     async def _follow_spot(self) -> None:
         """On a new frame: move the spotlight with its target (only if it moved > 4pt)."""
@@ -2162,6 +2190,8 @@ class LessonSession:
         if self.typing():
             self.pending_speak = reason  # never talk over the learner's typing; the tick retries
             return self._speak_note(reason, "deferred (typing)")
+        if self._nudge_held(step, ctx):  # L4: "not started" already decided for this step / screen / code: no coach re-run
+            return self._speak_note(reason, "held (not started: the Start card is decided)")
         sig = self._sig(failed)
         if sig != self.spoken_sig:  # a new problem (or the first one): concept card
             level = 2
@@ -2183,6 +2213,69 @@ class LessonSession:
             self._speak_noted = key
             step = self.step
             log.info("speak? %s %s: %s", step["id"] if step else "-", reason, outcome)
+
+    # L4: the not-started nudge ("Start: …" + Do it for me) went out ~20 s after lesson.ready, before VS Code was even
+    # open, and the coach then re-ran every ~1.5 s (thinking -> watching) only to drop the same card again
+    NUDGE_EDITOR_S = 45.0  # the lesson's VS Code window on screen this long, with no edit by the learner
+    _nudge: dict | None = None  # the coach's "not started" card: {gen, fp, card, done}
+    _editor_seen_t: float | None = None  # since when the lesson's VS Code window has been on screen (None: it isn't)
+
+    def _note_editor_seen(self) -> None:
+        """On each new frame: is the lesson's VS Code window on screen, and since when."""
+        if self._editor_window() is None or self._lesson_window_hidden():
+            self._editor_seen_t = None
+        elif self._editor_seen_t is None:
+            self._editor_seen_t = self.clock()
+
+    def _setup_pending(self) -> bool:
+        """A setup card still asks the learner for something: Install (or an install is running), or Open VS Code
+        while the editor isn't on screen yet."""
+        acts = (self._setup_card or {}).get("actions") or []
+        return bool(self._installing) or "install" in acts or ("open_editor" in acts and self._editor_seen_t is None)
+
+    def _nudge_ok(self) -> bool:
+        """May the not-started nudge go out now? Never over a pending setup card, paced like any automatic card, and
+        in lesson mode only once the lesson's VS Code window has been on screen ~45 s with no edit by the learner."""
+        if self._setup_pending() or not self._auto_card_ok():
+            return False
+        if not self.lesson_mode:
+            return True
+        if self._editor_seen_t is None:
+            return False
+        key = self.inputs.seconds_since_key() if self.inputs is not None else None
+        since = max(self._editor_seen_t, self.step_t0, self.last_action_t,
+                    self.clock() - key if key is not None else -1e9)
+        return self.clock() - since >= self.NUDGE_EDITOR_S
+
+    def _nudge_fp(self, step: dict, ctx: RunContext) -> int:
+        """What a "not started" verdict rests on: the learner's code (the file, else the screen) and the editor's text."""
+        lines = getattr(ctx, "screen", None) or {}
+        shown = tuple(ln for app, ls in lines.items() if (app or "").lower() in CODE_APP_NAMES for ln in ls or [])
+        return hash((self._code_excerpt(step)[0], shown))
+
+    def _nudge_held(self, step: dict, ctx: RunContext) -> bool:
+        """The coach already said "not started" for this step, this code and this screen text: don't ask it again (no
+        status flip, no duplicate card). Its Start card goes out once (_nudge_ok); then nothing until something changes."""
+        n = self._nudge
+        if n is None or n["gen"] != self.step_gen or n["fp"] != self._nudge_fp(step, ctx):
+            return False
+        if not n["done"] and self._nudge_ok():
+            self._spawn(self._send_nudge(n))
+        return True
+
+    def _send_nudge(self, n: dict):
+        """-> the _emit_card coroutine; `done` is set at once (sent, or dropped as a duplicate: either way it's said
+        for this step / code / screen), so a second tick can't queue it twice."""
+        n["done"] = True
+        self._carded_checks |= n["ids"]  # the Start card covers these checks (no offtrack on top), once it's up
+        return self._emit_card(n["card"], window_s=120.0, auto=True)
+
+    async def _think_soon(self, gen: int, delay: float = 0.4) -> None:
+        """"thinking" only when the coach really calls a model: a rules-only answer (not started, holds, playbook)
+        comes back in milliseconds and never flips the status."""
+        await asyncio.sleep(delay)
+        if gen == self.step_gen and self.coaching:
+            await self._status("thinking")
 
     def _target_spot(self, target: dict) -> dict | None:
         r = target.get("rect")
@@ -2243,7 +2336,6 @@ class LessonSession:
         try:
             card = self.full_card if (level == 3 and self.full_card) else None
             if card is None:
-                await self._status("thinking")
                 by_id = {c["id"]: c for c in (step.get("checks") or []) + (step.get("precision_checks") or [])}
                 failed_checks = [{**by_id.get(r.get("checkId"), {}), **r} for r in failed]
                 code, _file = self._code_excerpt(step)
@@ -2263,11 +2355,14 @@ class LessonSession:
                             self._spawn(self._show_spot(spot))
 
                 self._early_spot = False
+                think = self._spawn(self._think_soon(gen), timer=True)  # L4: a rules-only answer never shows "thinking"
                 try:
                     card = await self.m.diagnose(step, failed_checks, ctx.metrics, code, error_text="\n".join(tail),
                                                  cursor=self.cursor_context(), screen=screen, on_targets=on_targets,
                                                  file_state=file_state, code_source="file" if _file else "screen")
+                    think.cancel()
                 except Exception as e:
+                    think.cancel()
                     if gen == self.step_gen:
                         self.spoken_sig = None  # a later breakpoint may try again...
                         if "cancelled" in str(e):
@@ -2297,15 +2392,20 @@ class LessonSession:
                 return
             if card.get("notStarted"):  # E5: nothing done yet -> one plain instruction, never amber / "off track"
                 self.spoken_sig = None  # a real diagnosis may follow once they've worked on it
-                self._carded_checks |= ids
                 body = card.get("body") or step.get("instructions", "")
                 if self.lesson_mode or len(body.split()) > 12:  # one action, <= 12 words (the drawer has the rest)
                     body = self._action_line(step)
-                nudge = {"stepId": step["id"], "kind": "hint", "title": card.get("title") or "Start here", "body": body}
+                nudge = {"stepId": step["id"], "kind": "hint", "title": card.get("title") or "Start here",
+                         "body": self._no_create(body)}
                 if self.lesson_mode:
                     nudge["actions"] = ["apply_fix"]
-                await self._emit_card(nudge, window_s=120.0, auto=True)
-                await self._status("watching")
+                # L4: kept for this step / code / screen text (no coach re-run, no status flip); it goes out once the
+                # lesson's VS Code window has been on screen ~45 s untouched and no setup card is pending
+                self._nudge = {"gen": gen, "fp": self._nudge_fp(step, ctx), "card": nudge, "done": False, "ids": ids}
+                if self._nudge_ok():
+                    await self._send_nudge(self._nudge)
+                if self.status != "watching":
+                    await self._status("watching")
                 return
             full = dict(card)
             full.setdefault("stepId", step["id"])
@@ -2369,6 +2469,7 @@ class LessonSession:
         self._touch()
         if obs is not None:
             self.last_obs = obs
+            self._note_editor_seen()  # L4: the Start card waits for the lesson's VS Code window (~45 s on screen)
         now = self.clock()
         if obs is not None and now - self._last_seen >= self.seen_interval_s:
             self._last_seen = now
@@ -2772,6 +2873,7 @@ class LessonSession:
             self._spawn(self._install((text or "").strip()))
             return
         if kind == "skip_setup":  # the app dismisses the setup card; nothing to undo here
+            self._setup_card = None  # L4: no longer pending (the Start card may go out)
             return
         if kind == "download":  # S2: the video's linked code / notebooks -> <lesson folder>/tutorial/ (never run)
             from . import workspace as wsmod

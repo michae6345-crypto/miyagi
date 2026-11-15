@@ -107,6 +107,8 @@ small, visible piece (a function, a component, a command that prints something).
 The app has already created the lesson folder and opens each file for the learner: never tell them to
 mkdir, cd, touch or create folders, and never write absolute paths; name files relative to the lesson folder
 ("in calculator.py"). Use the terminal only for real tool commands (npm create, pip install, running the program).
+The app also creates each step's file (empty) before that step starts: never ask the learner to create a file
+("In calculator.py, type ...", never "Create calculator.py and type ...").
 Order: step 1 is always typing code into a file (never a terminal step); a step that runs a program comes
 AFTER the steps that write that program's code.
 Also teach the ideas, in plain words for a complete beginner:
@@ -158,6 +160,8 @@ or inside; call only names that exist by now. A step either types code or runs a
   something, a screen_contains with app "Terminal" on what it PRINTS (never the typed command);
   precision_checks: file_contains on the same fragment in `file`, command_exit_ok for a quick run;
 {stack_guide}
+- the step's file already exists (the app creates it, empty, before the step starts): captions and hints never
+  ask the learner to create it ("In calculator.py, type ...", never "Create calculator.py and ...");
 - hints: 2-3, gentlest first; common_mistakes: concrete ones for this step."""
 
 
