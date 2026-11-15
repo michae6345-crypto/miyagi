@@ -106,7 +106,9 @@ Code from the earlier steps (already typed):
 
 {research}
 Return for THIS step only (files are relative to the lesson folder, which already exists and is open; no
-mkdir/cd/touch, no absolute paths):
+mkdir/cd/touch, no absolute paths). The code above is already in the files: never re-type or rename anything
+that exists; to change existing code give only the new lines and anchor them to the existing line they go after
+or inside; call only names that exist by now. A step either types code or runs a command, never both:
 - code: exactly what to type in this step (only the new/changed lines, correct and runnable with the
   earlier steps' code), file: where it goes;
 - targets: file + `match` = a short literal anchor already in the file or typed in this step (e.g.
@@ -184,17 +186,20 @@ async def build_text_lesson(goal: str, workdir: str, on_update=None, *, cache: b
     steps_plan = order_plan(plan["steps"])
     outline = "; ".join(f"{i}. {s['title']}" for i, s in enumerate(steps_plan, 1))
     libs = {lb["name"]: lb.get("version", "") for lb in plan.get("libraries") or [] if lb.get("name")}
-    done: dict[int, dict] = {}
+    done: list[dict] = []  # steps in order (a plan step may become two: code, then run)
     sources: list[dict] = []
     warnings: list[str] = []
+    state: dict[str, str] = {}  # file -> its content after the steps so far
 
     def graph_now(complete: bool) -> dict:
-        ordered = [done[i] for i in sorted(done) if all(j in done for j in range(1, i + 1))]
+        ordered = json.loads(json.dumps(done))
+        for k, st in enumerate(ordered, 1):
+            _renumber(st, k)
         g = {"lesson": {"id": f"lesson-{key[5:13]}", "title": plan.get("title") or goal, "goal": goal, "workdir": workdir,
                         "libraries": libs, "mode": "lesson", "complete": complete, "builtBy": "claude"},
              "sources": [{"id": f"src{i}", "kind": "repo" if "github.com/" in s["url"] else "blog", "title": s["title"][:200], "url": s["url"]}
                          for i, s in enumerate(sources, 1)],
-             "steps": json.loads(json.dumps(ordered)),
+             "steps": ordered,
              "build": {"mode": "lesson", "seconds": round(time.time() - t0, 1), "warnings": list(warnings),
                        "model": {"plan": claude.model("segment"), "steps": claude.model("detail"), "research": claude.model(RESEARCH_MODEL_ROLE)}}}
         return g
@@ -209,8 +214,9 @@ async def build_text_lesson(goal: str, workdir: str, on_update=None, *, cache: b
         except Exception as e:  # noqa: BLE001
             log.warning("on_update failed: %s", e)
 
-    async def step(i: int, earlier: str, notes: str) -> dict:
+    async def step(i: int, notes: str) -> list[dict]:
         sp = steps_plan[i - 1]
+        earlier = "\n\n".join(f"# {f}\n{c}" for f, c in state.items() if c.strip())
         prompt = STEP_PROMPT.format(goal=goal, lesson=plan.get("title", ""), outline=outline, index=i, title=sp["title"],
                                     instructions=sp["instructions"], file=sp.get("file") or "(terminal)", workdir=summary,
                                     earlier=earlier or "(none yet)",
@@ -227,27 +233,50 @@ async def build_text_lesson(goal: str, workdir: str, on_update=None, *, cache: b
             return None
 
         d = await claude._generate_json(SYSTEM, prompt, STEP_SCHEMA, effort="low", structured=False, role="detail", check=ok)
-        return shape_step(sanitize_step(_assemble_step(i, sp, d), workdir))
+        problem = consistency_problem(d.get("file") or sp.get("file") or "", d.get("code") or "", d.get("run_command") or "", state)
+        if problem:  # contradicts the file the earlier steps produced: Opus rewrites it, told exactly what's wrong
+            log.info("step %d: %s; rewriting with %s", i, problem, claude.escalation_model())
+            fix = (f"\n\nYour previous answer for this step was wrong: it {problem}. The file already contains the code "
+                   "above. Never re-type something that exists: give only the NEW lines, and put the target anchor on the "
+                   "existing line they go after (or inside). Only call names that exist by now.")
+            try:
+                d2 = await claude._generate_json(SYSTEM, prompt + fix, STEP_SCHEMA, effort="medium", structured=False,
+                                                 role="escalate", escalate=False, check=ok)
+                p2 = consistency_problem(d2.get("file") or sp.get("file") or "", d2.get("code") or "", d2.get("run_command") or "", state)
+                d = d2
+                if p2:
+                    warnings.append(f"step {i}: still {p2}")
+            except RuntimeError as e:
+                warnings.append(f"step {i}: {problem} (rewrite failed: {str(e)[:80]})")
+        st = _assemble_step(i, sp, d)
+        st["expected_output"] = (d.get("expected_output") or "").strip()
+        out = []
+        for part in split_code_and_run(sanitize_step(st, workdir)):
+            part = shape_step(use_python3(part))
+            if not _is_run_step(part):
+                f = part.get("file") or ""
+                state[f] = (state.get(f, "").rstrip("\n") + "\n" + (part.get("code") or "")).lstrip("\n") if f else state.get(f, "")
+                exact_anchor(part, state.get(f, ""))
+            out.append(part)
+        return out
 
     # 1. step 1 right away (no waiting for research)
-    first = await step(1, "", "")
-    done[1] = first
+    done.extend(await step(1, ""))
     log.info("text lesson: step 1 ready in %.1fs", time.time() - t0)
     builder._emit("first_steps", "1 step")
     await emit(False)
 
-    # 2. research (bounded wait), then the rest in parallel, appended in order
+    # 2. research (bounded wait), then the rest one by one: each step is written against the file the
+    #    earlier steps produced, so nothing is re-added, renamed or called before it exists
     try:
         res = await asyncio.wait_for(asyncio.shield(research_task), max(0.0, RESEARCH_WAIT_S - (time.time() - t0)))
     except (asyncio.TimeoutError, TimeoutError):
         res = {"notes": "", "sources": []}
         warnings.append("research took too long; later steps were written without it")
     sources.extend(res.get("sources") or [])
-    earlier = f"# {first.get('file') or ''}\n{first.get('code', '')}"
-    tasks = {i: asyncio.ensure_future(step(i, earlier, res.get("notes", ""))) for i in range(2, len(steps_plan) + 1)}
     for i in range(2, len(steps_plan) + 1):
         try:
-            done[i] = await tasks[i]
+            done.extend(await step(i, res.get("notes", "")))
         except RuntimeError as e:
             warnings.append(f"step {i} ({steps_plan[i - 1]['title']}) failed: {str(e)[:160]}")
             continue
@@ -255,9 +284,6 @@ async def build_text_lesson(goal: str, workdir: str, on_update=None, *, cache: b
         await emit(False)
 
     g = graph_now(True)
-    g["steps"] = [done[i] for i in sorted(done)]
-    for k, s in enumerate(g["steps"], 1):  # renumber if a middle step failed
-        _renumber(s, k)
     link_run_steps(g["steps"])
     _finalize(g, info)
     g["build"]["cost"] = json.loads(json.dumps(counter))
@@ -306,6 +332,13 @@ def _finalize(g: dict, info) -> None:
     builder.normalize_checks(g, info.metrics)
     fixed = builder.repair(g, info)
     g["steps"] = fixed["steps"]
+    for st in g["steps"]:  # a run step always keeps a check on its terminal, even if the model's was too vague
+        if _is_run_step(st) and not st.get("checks"):
+            from .schema import stack_of, standard_error_pattern
+
+            stack = stack_of(st) or stack_of({}, g["lesson"].get("libraries") or {}) or "python"
+            st["checks"] = [{"id": f"{st['id']}c1", "type": "screen_absent", "label": "No errors in the terminal",
+                             "app": "Terminal", "pattern": standard_error_pattern(stack)}]
     probs = [p for p in builder.lint(g, info.metrics, set(info.files)) if not re.match(r"^s\d+: video", p)]
     g["build"]["warnings"] += probs
 
@@ -422,7 +455,7 @@ def shape_step(st: dict) -> dict:
         return st
     f = st.get("file") or ""
     words = text.split()
-    if (not words or len(words) > MAX_WORDS or re.search(r"\bterminal\b", text, re.I) or _RUN_WORD.match(text)):
+    if (not words or len(words) > MAX_WORDS or re.search(r"\b(terminal|run)\b", text, re.I) or _RUN_WORD.match(text)):
         text = f"In {f}, type the code below." if f else "Type the code below."
     elif not text.endswith((".", "!", "?")):
         text += "."
@@ -445,7 +478,124 @@ def link_run_steps(steps: list[dict]) -> None:
             continue
         pc = st.setdefault("precision_checks", [])
         pc[:] = [c for c in pc if c.get("type") != "file_contains"]
+        if (oc := run_output_check(st)) and not any(c.get("pattern") == oc["pattern"] for c in st.get("checks") or []):
+            st.setdefault("checks", []).append(oc)
+            for j, c in enumerate(st["checks"], 1):
+                c["id"] = f"{st['id']}c{j}"
         pc.insert(0, {"id": "", "type": "file_contains", "label": builder.plain_label(f"code is in {f}", {"type": "file_contains", "file": f}), "file": f,
                       "pattern": builder.literal_pattern(frag[:60])})
         for j, c in enumerate(pc, 1):
             c["id"] = f"{st['id']}p{j}"
+
+
+# --------------------------------------------------------------------------- #
+# S11's rehearsal fixes: python3, one action per step, real run checks, exact anchors, no contradictions
+# --------------------------------------------------------------------------- #
+import builtins as _builtins  # noqa: E402
+import keyword as _keyword  # noqa: E402
+import shutil  # noqa: E402
+import sys  # noqa: E402
+
+
+def python_cmd() -> str:
+    """'python3' on macOS / wherever plain `python` is missing (LESSON_PYTHON overrides)."""
+    if os.environ.get("LESSON_PYTHON"):
+        return os.environ["LESSON_PYTHON"]
+    if shutil.which("python") is None and shutil.which("python3") is not None:
+        return "python3"
+    return "python3" if sys.platform == "darwin" else "python"
+
+
+_PY = re.compile(r"(?<![\w./-])python(?![\w.])")
+
+
+def use_python3(st: dict) -> dict:
+    py = python_cmd()
+    if py == "python":
+        return st
+    is_run = _is_run_step(st)  # decide before rewriting (the command and the snippet change together)
+    for k in ("run_command", "instructions"):
+        if st.get(k):
+            st[k] = _PY.sub(py, st[k])
+    if is_run and st.get("code"):
+        st["code"] = _PY.sub(py, st["code"])
+    for c in (st.get("checks") or []) + (st.get("precision_checks") or []):
+        if c.get("command"):
+            c["command"] = _PY.sub(py, c["command"])
+    return st
+
+
+def split_code_and_run(st: dict) -> list[dict]:
+    """A step never carries both code to type and a command to run: split it into a code step, then a run step."""
+    cmd, code, f = (st.get("run_command") or "").strip(), (st.get("code") or "").strip(), (st.get("file") or "").strip()
+    if not (cmd and code and f and code != cmd):
+        return [st]
+    term = lambda c: c.get("app") in ("Terminal", "iTerm2")  # noqa: E731
+    code_step = dict(st, checks=[c for c in st.get("checks") or [] if not term(c)],
+                     precision_checks=[c for c in st.get("precision_checks") or [] if c.get("type") != "command_exit_ok"])
+    code_step.pop("run_command", None)
+    code_step.pop("expected_output", None)
+    run_step = dict(st, id=f"{st['id']}r", title=builder._clip_words(f"Run {os.path.basename(f)}", 6), code=cmd,
+                    checks=[c for c in st.get("checks") or [] if term(c)],
+                    precision_checks=[c for c in st.get("precision_checks") or [] if c.get("type") == "command_exit_ok"],
+                    targets=[], hints=list(st.get("hints") or [])[:1], common_mistakes=[])
+    if not code_step["checks"]:
+        code_step["checks"] = [{"id": "", "type": "screen_contains", "label": "", "app": "Code", "pattern": builder.literal_pattern(
+            next((ln.strip() for ln in code.splitlines() if len(ln.strip()) >= 4), code)[:60])}]
+        code_step["checks"][0]["label"] = builder.plain_label("", code_step["checks"][0])
+    return [code_step, run_step]
+
+
+def run_output_check(st: dict) -> dict | None:
+    """An exact-line check on what the run prints (e.g. '5' for print(add(2, 3)))."""
+    out = [ln.strip() for ln in (st.get("expected_output") or "").splitlines() if ln.strip()]
+    if not out:
+        return None
+    line = out[-1][:80]
+    return {"id": "", "type": "screen_contains", "label": builder._clip_words(f"Prints {line}", 6), "app": "Terminal",
+            "pattern": r"^\s*" + builder.literal_pattern(line) + r"\s*$"}
+
+
+def exact_anchor(st: dict, file_text: str) -> None:
+    """Each code step's target is a literal line that exists in the file after this step (never line 1 by default)."""
+    f, code = st.get("file") or "", st.get("code") or ""
+    lines = [ln.strip() for ln in code.splitlines() if ln.strip() and not ln.strip().startswith(("#", "//"))]
+    if not f or not lines:
+        return
+    ok = [t for t in st.get("targets") or [] if (t.get("match") or "").strip() and t["match"].strip() in file_text]
+    if ok:
+        st["targets"] = [dict(t, file=f, app="Code") for t in ok]
+        return
+    first = lines[0]
+    st["targets"] = [{"app": "Code", "file": f, "match": first, "caption": "type here"}]
+
+
+_DEF = re.compile(r"^\s*(?:async\s+)?(?:def|class)\s+([A-Za-z_]\w*)|^\s*(?:export\s+)?(?:function|const|let|var|class)\s+([A-Za-z_$][\w$]*)", re.M)
+_CALL = re.compile(r"(?<![\w.])([A-Za-z_]\w*)\s*\(")
+_PY_KNOWN = set(dir(_builtins)) | set(_keyword.kwlist) | {"self", "cls", "super", "print", "input"}
+
+
+def _defined(code: str) -> set[str]:
+    return {a or b for a, b in _DEF.findall(code or "")}
+
+
+def consistency_problem(file: str, code: str, run_command: str, state: dict[str, str]) -> str | None:
+    """Does this step contradict the file the earlier steps produced? (re-defines a name already written, or,
+    in Python, calls something that doesn't exist yet)."""
+    if not file or not code.strip() or code.strip() == run_command.strip():
+        return None
+    before = state.get(file, "")
+    again = sorted(_defined(code) & _defined(before))
+    if again:
+        return f"contradicts earlier steps: {', '.join(again)} already written in {file}"
+    if file.endswith(".py"):
+        known = _defined(before) | _defined(code) | _PY_KNOWN
+        imported = set(re.findall(r"^\s*(?:from\s+\S+\s+)?import\s+([\w, ]+)", before + "\n" + code, re.M))
+        known |= {n.strip() for grp in imported for n in grp.split(",") if n.strip()}
+        known |= set(re.findall(r"^\s*([A-Za-z_]\w*)\s*=", before + "\n" + code, re.M))
+        bare = re.sub(r"(\"\"\"|\'\'\')[\s\S]*?\1|\"(?:\\.|[^\"\\])*\"|\'(?:\\.|[^\'\\])*\'", '""', code)  # not inside strings
+        bare = re.sub(r"#.*", "", bare)
+        missing = sorted({n for n in _CALL.findall(bare) if n not in known})
+        if missing:
+            return f"calls {', '.join(missing)}, not written yet in {file}"
+    return None
