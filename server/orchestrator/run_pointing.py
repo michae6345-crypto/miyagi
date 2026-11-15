@@ -37,7 +37,7 @@ import time
 from pathlib import Path
 from typing import Any
 
-from . import spot_lines
+from . import box_fit, spot_lines
 
 log = logging.getLogger("orchestrator.session")
 
@@ -293,6 +293,9 @@ async def culprit_spot(s: Any, step: dict) -> dict | None:
     if rect is None:
         log.info("run step %s: lines %d-%d of %s aren't on screen: no box", step.get("id"), first, last, path.name)
         return {}
+    ends = await _text_ends(s, path, first, last)  # t8: as wide as the lines' text (the caption had no room)
+    if ends:
+        rect = box_fit.fit(rect, max(ends), None)
     s._culprit_box = (s.step_gen, c["caption"], c["why"])
     from . import offtrack_targets  # t8: the Not yet card steps off these lines too (once it is on top again)
 
@@ -328,6 +331,16 @@ async def culprit_target(s: Any, step: dict) -> dict | None:
     from . import offtrack_targets
 
     return offtrack_targets.target(rect, c["caption"], c.get("text", ""))
+
+
+async def _text_ends(s: Any, path: Path, first: int, last: int) -> list[float]:
+    """Where the OCR'd text of lines first..last ends on screen (rows whose text was read)."""
+    out = []
+    for n in range(first, last + 1):
+        loc = await asyncio.to_thread(_line_location, s, path, n)
+        if (loc or {}).get("text_x2"):
+            out.append(float(loc["text_x2"]))
+    return out
 
 
 async def follow(s: Any) -> None:
