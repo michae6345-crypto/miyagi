@@ -15,18 +15,22 @@
  * UNVERIFIED: written and typechecked on Windows, where Smart App Control blocks electron.exe.
  * Check on the Mac: docking, drag by the header, bounds restore, no focus steal, autoplay.
  */
-import { screen, shell, type BrowserWindow, type Rectangle } from 'electron'
+import { nativeTheme, screen, shell, type BrowserWindow, type Rectangle } from 'electron'
 import { readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { defineMainFeature } from '../context'
 import { dockRect } from '../../renderer/src/features/player/dock'
-import { color } from '../../renderer/src/core/theme'
+import { color, hud } from '../../renderer/src/core/theme'
+
+/** rgba(r,g,b,a) → rgb(r,g,b): the window isn't transparent, so its background can't take an alpha. */
+const opaque = (c: string): string => c.replace(/^rgba\(\s*([^,]+),\s*([^,]+),\s*([^,]+),[^)]*\)$/, 'rgb($1,$2,$3)')
 
 /**
- * Painted before the renderer draws: the panel color from core/theme (color.glass), made opaque
- * (the window isn't transparent, so it can't take an alpha). One source of truth for the brand.
+ * Painted before the renderer draws (and under its glass): the player is a glass panel, so it follows
+ * Settings → Appearance. Core main sets nativeTheme.themeSource from the pref, so shouldUseDarkColors is
+ * the resolved appearance. Dark: the glass panel color; light: the kit's light HUD glass. Both from core/theme.
  */
-const WINDOW_BG = color.glass.replace(/^rgba\(\s*([^,]+),\s*([^,]+),\s*([^,]+),[^)]*\)$/, 'rgb($1,$2,$3)')
+const windowBg = (): string => opaque(nativeTheme.shouldUseDarkColors ? color.glass : hud.light.glass)
 
 function loadBounds(file: string): Rectangle | undefined {
   try {
@@ -64,10 +68,16 @@ export default defineMainFeature({
       skipTaskbar: true,
       focusable: false,
       hasShadow: true,
-      backgroundColor: WINDOW_BG,
+      backgroundColor: windowBg(),
       webPreferences: { autoplayPolicy: 'no-user-gesture-required' }
     })
     ctx.raise(win, -1)
+    // Settings → Appearance (or the OS, on "System") changed: repaint the window's own background too.
+    const onTheme = (): void => {
+      if (!win.isDestroyed()) win.setBackgroundColor(windowBg())
+    }
+    nativeTheme.on('updated', onTheme)
+    win.on('closed', () => nativeTheme.off('updated', onTheme))
     // The engine's screen reader must ignore the player, or it reads the tutorial's code as the learner's.
     ctx.reportBounds(win)
 
