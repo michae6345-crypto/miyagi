@@ -640,6 +640,38 @@ function TwoTap({ armKey, label, onConfirm }: { armKey: string; label: string; o
   )
 }
 
+/** The launcher is open (main's signals to this window; the island hides meanwhile). */
+let launcherShown = false
+bridge.on('launcher:open', () => void (launcherShown = true))
+bridge.on('launcher:closed', () => void (launcherShown = false))
+
+/** Main takes no explicit open from a renderer, only launcher:toggle: toggle only while it's closed, so it never closes. */
+function openLauncher(): void {
+  if (!launcherShown) bridge.emit('launcher:toggle')
+}
+
+/** Longest "Yes, start over" waits for the engine to drop a loaded lesson before it lets the launcher be. */
+const START_OVER_WAIT_MS = 4000
+
+/**
+ * "Yes, start over" (Michael's review A7): discard the save, then open the launcher (its input takes the caret on
+ * open) so the next lesson can be typed right away. The launcher picks search or ask from the lesson it sees as it
+ * opens, so a lesson still loaded here opens it only once lesson.ended has blanked it.
+ */
+function startOver(): void {
+  cardAct('end_lesson')
+  // cardAct drops a press while another button on the card waits for the engine: nothing was sent.
+  if (useCards.getState().pending?.kind !== 'end_lesson') return
+  if (!useLesson.getState().lesson) return openLauncher()
+  const t = setTimeout(() => off(), START_OVER_WAIT_MS)
+  const off = useLesson.subscribe((s) => {
+    if (s.lesson) return
+    off()
+    clearTimeout(t)
+    openLauncher()
+  })
+}
+
 function CardActions({ card, actions }: { card: EngineCard; actions: CardAction[] }): ReactNode {
   const busy = useBusyIcon()
   const known = actions.filter((a) => ACTION[a])
@@ -657,8 +689,9 @@ function CardActions({ card, actions }: { card: EngineCard; actions: CardAction[
         .map((a) => (
           <QuietButton key={a} label={actionLabel(card, a)} icon={busy(a, ACTION[a]!.Icon, true)} onClick={() => cardAct(a)} />
         ))}
-      {/* "Start a new lesson" discards the save: it sits apart from Continue and needs a second tap (desktop test 3). */}
-      {known.includes('end_lesson') && primary !== 'end_lesson' && <TwoTap armKey={`${card.kind}:${card.title}`} label={actionLabel(card, 'end_lesson')} onConfirm={() => cardAct('end_lesson')} />}
+      {/* "Start a new lesson" discards the save: it sits apart from Continue and needs a second tap (desktop test 3),
+          then opens the launcher for the next one (A7). */}
+      {known.includes('end_lesson') && primary !== 'end_lesson' && <TwoTap armKey={`${card.kind}:${card.title}`} label={actionLabel(card, 'end_lesson')} onConfirm={startOver} />}
       <span className="flex-1" />
       {primary && <PrimaryButton label={actionLabel(card, primary)} icon={busy(primary, ACTION[primary]!.Icon)} onClick={() => cardAct(primary)} />}
     </div>
