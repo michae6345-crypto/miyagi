@@ -32,6 +32,7 @@ import { Curve, fmt, Key, plotPoints, type Line } from './Curve'
 import { BODY_LINES, Clamp, HEADLINE_LINES } from './Clamp'
 import { Evidence, useHasEvidence } from './Evidence'
 import { shortEditor, useFitLevel } from './fit'
+import { isEditor, useFrontApp } from './front'
 import { act, cardAct, jumpTo, SUCCESS_MS, useCards, useOverlayWidth, useSeries, type CardAction, type Install } from './store'
 
 /** Layout C: about 620 wide; below NARROW (a small display) the two columns stack. */
@@ -125,8 +126,14 @@ function useBusyIcon(): (kind: string, icon?: LucideIcon, quiet?: boolean) => Lu
   const thinking = useThinking()
   const pressed = usePressed((p) => p.kind)
   const pending = useCards((c) => c.pending?.kind)
-  return (kind, icon, quiet) => ((thinking && pressed === kind) || pending === kind ? (quiet ? SpinText : SpinInk) : icon)
+  return (kind, icon, quiet) => ((thinking && pressed === kind && !UNANSWERED.has(kind)) || pending === kind ? (quiet ? SpinText : SpinInk) : icon)
 }
+
+/**
+ * Actions the engine never answers (open_editor just brings the editor forward): their spin is the card's own short
+ * settle (store SETTLE), never a later "thinking" about something else (desktop test 5: Open spun on and on).
+ */
+const UNANSWERED = new Set<string>(['open_editor'])
 
 /**
  * A neutral (non-primary) card action: same shape as PrimaryButton, quiet fill. `compact` (a row that doesn't fit,
@@ -553,8 +560,13 @@ function primaryOf(c: EngineCard, known: CardAction[]): CardAction | undefined {
   // A lone action becomes the primary, except option actions and Try again, which stay pastel / neutral.
   // Skip on a setup card is never the primary (A17): the item's Install is.
   const lone = known.length === 1 && !isOption(known[0]) && known[0] !== 'retry' && known[0] !== 'skip_setup' ? known[0] : undefined
-  return known.find((a) => ACTION[a]!.primary) ?? lone
+  // A setup card with everything ready: "Open <editor>" is never its primary (desktop test 5), it stays quiet.
+  const ready = setupReady(c)
+  return known.find((a) => ACTION[a]!.primary && !(ready && a === 'open_editor')) ?? (ready && lone === 'open_editor' ? undefined : lone)
 }
+
+/** A setup card that says everything is ready ("Ready to go"): every needed item is installed and ok. */
+const setupReady = (c: EngineCard): boolean => c.kind === 'setup' && !!c.setup && c.setup.items.every((x) => !x.needed || x.ok)
 
 /** A unified diff as monospace lines: + white, - muted and struck, context faint. Headers dropped. */
 function UnifiedDiff({ diff }: { diff: string }): ReactNode {
@@ -1024,7 +1036,10 @@ function Card(): ReactNode {
 }
 
 function FullCard({ c, k }: { c: EngineCard; k: Tile }): ReactNode {
-  const actions = c.actions ?? []
+  const front = useFrontApp((f) => f.app)
+  // A ready setup card doesn't offer "Open <editor>" while that editor is the app in front (desktop test 5).
+  const opened = setupReady(c) && isEditor(front, c.setup?.editorLabel)
+  const actions = (c.actions ?? []).filter((a) => !(opened && a === 'open_editor'))
   // A title that only repeats the kind or the tile ("Hint") is dropped: the body becomes the headline.
   // Long bodies fold to a few lines with a "More" that opens them in place (never cut off for good).
   const t = c.title?.trim().toLowerCase()

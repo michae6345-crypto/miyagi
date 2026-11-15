@@ -119,11 +119,30 @@ const PER_ITEM = new Set<CardAction>(['install', 'open_in_browser'])
 /** Longest a card waits on its pressed button before it closes anyway (the engine may never say "thinking"). */
 const PENDING_MS = 10_000
 let pendingTimer: ReturnType<typeof setTimeout> | undefined
+/**
+ * Buttons with no answer to wait for: open_editor brings the editor forward and the engine says nothing back (no
+ * "thinking", no card), so the button spun until PENDING_MS (Michael's desktop test 5). They spin SETTLE_MS, then the
+ * card settles: it closes when that button was its only job (the where card's Open), else it stays for its other buttons.
+ */
+const SETTLE = new Set<CardAction>(['open_editor'])
+const SETTLE_MS = 900
+function settle(kind: CardAction): void {
+  const card = get().card
+  const at = Date.now()
+  set({ pending: { kind, at, sawThinking: false } })
+  clearTimeout(pendingTimer)
+  pendingTimer = setTimeout(() => {
+    if (get().pending?.at !== at) return // answered, replaced or closed meanwhile
+    const rest = (card?.actions ?? []).filter((a) => a !== kind && !CLOSE_NOW.has(a))
+    if (get().card !== card || rest.length > 0) set({ pending: undefined })
+    else closeCard()
+  }, SETTLE_MS)
+}
 
 /**
  * A button on an engine card → `action {kind}` (install / open_in_browser: text = the setup item's tool id).
- * pick_another / skip_setup close the card; the rest keep it up, the pressed button spinning, until the
- * engine answers (next card or event, status leaves "thinking") or PENDING_MS passes.
+ * pick_another / skip_setup close the card; open_editor settles after a short spin (SETTLE); the rest keep it up, the
+ * pressed button spinning, until the engine answers (next card or event, status leaves "thinking") or PENDING_MS passes.
  */
 export function cardAct(kind: CardAction, text?: string): void {
   if (kind === 'install' && text !== undefined) {
@@ -141,6 +160,7 @@ export function cardAct(kind: CardAction, text?: string): void {
     if (kind === 'pick_another') bridge.emit('launcher:toggle')
     return
   }
+  if (SETTLE.has(kind)) return settle(kind)
   const at = Date.now()
   set({ pending: { kind, at, sawThinking: false } })
   clearTimeout(pendingTimer)
