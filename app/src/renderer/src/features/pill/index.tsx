@@ -19,26 +19,53 @@ import { AnimatePresence } from 'motion/react'
 import { useRef, type ReactNode } from 'react'
 import { useShallow } from 'zustand/react/shallow'
 import { bridge } from '../../bridge'
-import { useLesson } from '../../core/lesson'
+import { notify, useLesson } from '../../core/lesson'
 import { defineFeature } from '../../core/registry'
-import { color } from '../../core/theme'
+import { color, copy } from '../../core/theme'
 import { Kbd, Spinner } from '../../core/ui/atoms'
 import { BuildLine, LeadMark, MonoMark, PillRing, StatusMark, SwapText, type Mark } from './parts'
 import { usePill } from './store'
 
+/**
+ * Offline, but the app is bringing its own engine up (main/localEngine.ts, built Mac app): say what's happening.
+ * "Install the engine" copies Michael's one-liner; "Engine didn't start" opens the engine's log.
+ */
+function offlineLabel(state?: string): { text: string; busy: boolean } {
+  if (state === 'installing') return { text: 'Setting up miyagi', busy: true }
+  if (state === 'starting' || state === 'checking') return { text: 'Starting miyagi', busy: true }
+  if (state === 'missing') return { text: 'Install the engine', busy: false }
+  if (state === 'failed') return { text: "Engine didn't start", busy: false }
+  return { text: 'Offline', busy: false }
+}
+
 function Idle(): ReactNode {
   const offline = usePill((s) => s.offline)
+  const local = useLesson((s) => s.localEngine)
+  const off = offlineLabel(local?.state)
+  const click = (): void => {
+    if (offline && local?.state === 'missing') {
+      void bridge.invoke('engine-local:copy').then(() => notify('Install command copied. Paste it in Terminal.')).catch(() => undefined)
+      return
+    }
+    if (offline && local?.state === 'failed') {
+      void bridge.invoke('engine-local:logs').catch(() => undefined)
+      return
+    }
+    bridge.emit('launcher:toggle')
+  }
   return (
     <button
       className={`group flex h-[34px] cursor-pointer items-center whitespace-nowrap pl-[13px] text-[13px] font-medium ${offline ? 'pr-[16px]' : 'pr-[7px]'}`}
       style={{ color: offline ? color.label : color.text }}
-      onClick={() => bridge.emit('launcher:toggle')}
-      aria-label={offline ? 'Offline: miyagi is not connected' : 'ask miyagi: open the launcher'}
+      onClick={click}
+      title={offline ? local?.line : undefined}
+      aria-label={offline ? `${off.text}: miyagi is not connected` : 'ask miyagi: open the launcher'}
     >
       <LeadMark />
-      <SwapText id={offline ? 'offline' : 'ask'} className="opacity-90 transition-opacity duration-150 group-hover:opacity-100">
-        {offline ? 'Offline' : 'ask miyagi'}
+      <SwapText id={offline ? `offline-${local?.state ?? ''}` : 'ask'} className="opacity-90 transition-opacity duration-150 group-hover:opacity-100">
+        {offline ? off.text : copy.ask}
       </SwapText>
+      {offline && off.busy && <span className="ml-[10px] inline-flex"><Spinner size={13} c={color.label} /></span>}
       {/* Concentric with the pill: 7px inset, fully round (radius 10 inside radius 17). Hidden offline: nothing to ask. */}
       {!offline && <Kbd className="ml-[10px] !h-[20px] !rounded-full !px-[8px]">{bridge.platform.keys.launcher}</Kbd>}
     </button>

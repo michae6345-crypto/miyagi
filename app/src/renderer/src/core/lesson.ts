@@ -66,6 +66,8 @@ type LessonState = {
   error?: { message: string; at: number }
   /** One short line for the pill (~5 s): engine errors, offline, an off-screen spotlight caption. See notify(). */
   notice?: Notice
+  /** The engine this app starts on a Mac (main/localEngine.ts): installing, starting, missing, failed… */
+  localEngine?: { state: string; line?: string; logs?: string }
 }
 
 export type Notice = { text: string; tone: 'error' | 'info'; at: number }
@@ -207,6 +209,10 @@ bridge.on('video:intent', (v) => set({ video: { ...(v as VideoIntent), at: Date.
 onMessage('status', (p) => set({ engineState: p.state }))
 onMessage('screen.seen', (p) => set({ seen: p }))
 onMessage('config.status', (p) => set({ keyStatus: p }))
+// The engine this app starts itself (built Mac app). Read once, then follow main's updates.
+bridge.onFeature('engine-local', (p) => useLesson.setState({ localEngine: p as LessonState['localEngine'] }))
+bridge.invoke<LessonState['localEngine']>('engine-local:get').then((p) => p && useLesson.setState({ localEngine: p })).catch(() => undefined)
+
 onMessage('error', (p) => set({ error: { message: p.message, at: Date.now() }, notice: { text: p.message, tone: 'error', at: Date.now() } }))
 
 /**

@@ -50,7 +50,7 @@ const isRequired = (k: KeyName): boolean => REQUIRED.includes(k)
 
 /** Rows shown in the sheet. ElevenLabs is hidden: voice speaks with the computer's own voice now (Adrian, Sat),
  * but the key name stays in storage and in config.keys so the engine contract is unchanged. */
-const SHOWN = KEY_NAMES.filter((k) => k !== 'elevenlabs')
+const SHOWN = KEY_NAMES.filter((k) => k !== 'elevenlabs' && k !== 'gemini') // Gemini is off in this build (Michael's DISTRIBUTION.md ask 2)
 
 const isPillSized = (s: Size): boolean => s.h <= pill.height + 1
 /** The island's shape at a given size: a pill is fully round, a card uses the island's card radius. */

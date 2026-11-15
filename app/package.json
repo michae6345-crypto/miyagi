@@ -12,7 +12,9 @@
     "web:all": "concurrently -k -n mock,web -c magenta,cyan \"npm run mock\" \"npm run dev:web -- --open /?engine=socket\"",
     "build": "electron-vite build",
     "typecheck": "tsc --noEmit -p tsconfig.node.json && tsc --noEmit -p tsconfig.web.json",
-    "dist:mac": "electron-vite build && electron-builder --mac --dir",
+    "bundle:engine": "node scripts/bundle-engine.mjs",
+    "dist:mac": "node scripts/bundle-engine.mjs && electron-vite build && electron-builder --mac --dir",
+    "ship:mac": "bash scripts/ship-mac.sh",
     "dist:win": "electron-vite build && electron-builder --win --dir",
     "feature": "node scripts/feature.mjs"
   },
