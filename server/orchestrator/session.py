@@ -4866,7 +4866,8 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
                 await self._status("offtrack" if self.last_offtrack else "watching")
                 return
             off = self.last_offtrack or {}
-            if off.get("stepId") == step["id"] and getattr(self, "spot_rect", None) is not None:
+            if (not self.lesson_mode and not curated.active(self) and off.get("stepId") == step["id"]
+                    and getattr(self, "spot_rect", None) is not None):  # video lessons only (t8 replay: curated boxes)
                 shown = True  # t10 (CP6): the off-track's fix box stays ("Fix load_dat to load_data"), never the step's
             else:  # caption ("Load MNIST and normalize pixels") put back over it by the Hint
                 shown = await self._show_where(step)
