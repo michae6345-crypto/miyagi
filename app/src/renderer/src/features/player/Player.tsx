@@ -466,6 +466,7 @@ function Chapters(): ReactNode {
             return (
               <motion.div key={s.id} data-step={s.id} initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} transition={spring}>
                 <Chapter step={s} status={status} now={s.id === stepId} playing={playing} />
+                {s.id === stepId && <NowInstructions />}
               </motion.div>
             )
           })}
@@ -495,6 +496,17 @@ function MoreComing({ parts }: { parts?: { done: number; failed: number; total: 
           {parts.done} of {parts.total} parts
         </span>
       )}
+    </div>
+  )
+}
+
+/** Under the current chapter: what to do right now (the step's instructions), so a title alone never leaves you guessing. */
+function NowInstructions(): ReactNode {
+  const text = useLesson((s) => s.instructions)
+  if (!text) return null
+  return (
+    <div className="px-[10px] pb-[8px] pl-[39px] pt-[2px] text-[13px] leading-[1.45]" style={{ color: color.label }}>
+      {text}
     </div>
   )
 }
