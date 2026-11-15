@@ -5,9 +5,10 @@
  *
  * Colors are set inline on buttons because they animate (hover, enabled ↔ disabled).
  */
-import { motion, useReducedMotion } from 'motion/react'
+import { motion, useReducedMotion, type HTMLMotionProps } from 'motion/react'
 import { useRef, type ReactNode } from 'react'
 import { GraduationCap, Play, Square, type LucideIcon } from 'lucide-react'
+import { bridge } from '../../bridge'
 import { color, fill, spring } from '../../core/theme'
 
 /** One section of the panel settling into place a beat after the one above it. */
@@ -28,7 +29,9 @@ export function Rise({ i, children, className = '' }: { i: number; children: Rea
 
 /**
  * A topic suggestion chip: always a quiet neutral chip. Topics are not options, so they never take the action pastels
- * (Michael's audit A18). Colors are inline because they animate on hover.
+ * (Michael's audit A18). A topic is only the "what": a click puts it in the field, and the two ways to learn it come
+ * up with the default highlighted (review A18: a topic click no longer starts a video search at once).
+ * Colors are inline because they animate on hover.
  */
 export function Chip({ icon: I, label, onClick }: { icon: LucideIcon; label: string; onClick: () => void }): ReactNode {
   return (
@@ -52,37 +55,64 @@ export function Chip({ icon: I, label, onClick }: { icon: LucideIcon; label: str
 /** How the learner wants to learn the topic they typed (Michael, "two ways to learn"). */
 export type How = 'video' | 'lesson'
 
+/** The two ways' names: the chips, the footer's primary and its key hint all use these (Michael's review A18). */
+export const HOW_LABEL: Record<How, string> = { video: 'Watch a video', lesson: 'Just teach me' }
+
+/**
+ * A chip that acts on the press, not the release (Michael's desktop test 5: a click on "Just teach me" closed the
+ * launcher and sent nothing, while ⌘Return started the lesson). Between press and release the launcher can be told to
+ * close (a focus change during the press reaches main's blur handler, which sends launcher:close), and the click then
+ * found the panel already closing. Acting on pointerdown starts first, exactly like the keys; the click that follows
+ * is skipped. A click with no press before it (assistive tech) still acts. The caret stays in the field.
+ */
+function usePress<T>(onPick: (v: T) => void): (v: T) => Pick<HTMLMotionProps<'button'>, 'onPointerDown' | 'onMouseDown' | 'onClick'> {
+  /** The chip a press already picked, so its click doesn't act a second time. */
+  const pressed = useRef<T | undefined>(undefined)
+  return (v) => ({
+    onPointerDown: (e) => {
+      if (e.button !== 0) return
+      pressed.current = v
+      onPick(v)
+    },
+    onMouseDown: (e) => e.preventDefault(),
+    onClick: () => {
+      const skip = pressed.current === v
+      pressed.current = undefined
+      if (!skip) onPick(v)
+    }
+  })
+}
+
 /**
  * The two ways to learn, under the query: "Watch a video" (search, preflight, gated player) or "Just teach me"
- * (no video: a text lesson over the full-screen editor). Monochrome chrome, not pastel options and not a second white
- * primary (the footer's "Find videos" / "Teach me" is the one primary): the picked one is a lit chip (brighter fill,
- * ring border, full-white text), the other a quiet chip. Tab switches, Enter picks, ⌘/Ctrl+Enter is "Just teach me".
- * No keycaps on the chips: each key is shown once, in the footer (Michael's audit A19).
+ * (no video: a text lesson over the full-screen editor).
  *
- * A chip acts on the press, not the release (Michael's desktop test 5: a click on "Just teach me" closed the launcher
- * and sent nothing, while ⌘Return started the lesson). Between press and release the launcher can be told to close (a
- * focus change during the press reaches main's blur handler, which sends launcher:close), and the click then found
- * the panel already closing. Acting on pointerdown starts the lesson first, exactly like the keys; the click that
- * follows is skipped. A click with no press before it (assistive tech) still picks.
+ * One model (Michael's review A18): they are buttons. A click (the press, see usePress) starts that way at once; Enter
+ * starts the highlighted one, Tab moves the highlight, ⌘/Ctrl+Enter is always "Just teach me". The highlighted one is
+ * the default for what's typed (the launcher picks it: "Just teach me" for a goal that reads like building something),
+ * and the footer's primary carries its exact name. Monochrome chrome, not pastel options and not a second white
+ * primary: the highlighted one is a lit chip (brighter fill, ring border, full-white text), the other a quiet chip.
+ * No keycaps on the chips: each key is shown once, in the footer (Michael's audit A19).
  */
 export function HowChoice({ how, onPick }: { how: How; onPick: (h: How) => void }): ReactNode {
-  const options: { id: How; label: string; Icon: LucideIcon }[] = [
-    { id: 'video', label: 'Watch a video', Icon: Play },
-    { id: 'lesson', label: 'Just teach me', Icon: GraduationCap }
+  const options: { id: How; Icon: LucideIcon }[] = [
+    { id: 'video', Icon: Play },
+    { id: 'lesson', Icon: GraduationCap }
   ]
-  /** The chip a press already picked, so its click doesn't pick (and send learn) a second time. */
-  const pressed = useRef<How | undefined>(undefined)
+  const press = usePress(onPick)
+  const mod = bridge.platform.os === 'mac' ? 'Meta' : 'Control'
   return (
-    <div className="flex flex-wrap gap-[8px]" role="radiogroup" aria-label="How do you want to learn this?">
-      {options.map(({ id, label, Icon }) => {
+    <div className="flex flex-wrap gap-[8px]" role="group" aria-label="How do you want to learn this?">
+      {options.map(({ id, Icon }) => {
         const on = id === how
         return (
           <motion.button
             key={id}
             type="button"
             tabIndex={-1}
-            role="radio"
-            aria-checked={on}
+            data-how={id}
+            data-default={on || undefined}
+            aria-keyshortcuts={on ? 'Enter' : id === 'lesson' ? `${mod}+Enter` : undefined}
             className="flex h-[30px] cursor-pointer items-center gap-[7px] whitespace-nowrap rounded-full border pl-[11px] pr-[13px] text-[13px] font-medium"
             initial={false}
             animate={
@@ -93,23 +123,10 @@ export function HowChoice({ how, onPick }: { how: How; onPick: (h: How) => void 
             whileHover={on ? undefined : { backgroundColor: fill.chipHover, color: color.text }}
             whileTap={{ scale: 0.97 }}
             transition={{ duration: 0.14 }}
-            onPointerDown={(e) => {
-              if (e.button !== 0) return
-              pressed.current = id
-              onPick(id)
-            }}
-            onMouseDown={(e) => e.preventDefault()}
-            onClick={() => {
-              if (pressed.current === id) {
-                pressed.current = undefined
-                return
-              }
-              pressed.current = undefined
-              onPick(id)
-            }}
+            {...press(id)}
           >
             <Icon size={13} strokeWidth={1.8} className="shrink-0" />
-            {label}
+            {HOW_LABEL[id]}
           </motion.button>
         )
       })}
