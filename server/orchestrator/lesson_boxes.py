@@ -12,12 +12,14 @@ The Haiku targeter "moved" the engine's boxes with confidence 0.7-0.85 every tim
 - (c) _lesson_show_me: Show me on a code step = at most one box on the right line + ALWAYS an answer card.
 - (d) _insert_plan / _insert_spot: the step's box goes where the file says new code goes (spot_lines.insert_line);
   the targeter may move it only when LINE_MOVE_CONF sure and never into a def / block or onto code
-  (_line_move_ok, target.verdict move_conf); a vision pick obeys the same rule (_vision_ok).
+  (_line_move_ok, target.verdict move_conf); a vision pick obeys the same rule (_vision_ok). t4's step-start box
+  (_start_box) takes that row too (_start_line_box) and its Haiku refine obeys the same rule (_refine_start_box).
 
 A mixin: every method runs on the LessonSession (self._show_spot, self._code_progress, ...).
 """
 from __future__ import annotations
 
+import asyncio
 import logging
 import re
 from pathlib import Path
@@ -107,6 +109,36 @@ class LessonBoxes:
         if spot is None and above and (txt := spot_lines.unique_text(lines, above)):
             spot = self._row_spot(step, txt, cap, prog, down=not below)  # the gutter missed (a short file)
         return spot
+
+    async def _start_line_box(self, gen: int, step: dict, plan: dict) -> bool:
+        """t5 (d), t4's _start_box for a step whose new code goes where the file says (_insert_plan): THE row from the
+        file (_insert_spot: Accessibility / gutter, else OCR of the unique line above), shown at once; then
+        _refine_start_box lets the targeter move only an insertion row, only LINE_MOVE_CONF sure, only onto an empty
+        row outside every def / block. Test 5: step 3's start box was a fuzzy OCR hit of `return s * (1 - s)` (line
+        24, inside sigmoid_slope), and Haiku moved step 6's right box (line 43) onto W2's line at 0.8.
+        -> placed (or already up)."""
+        spot = await self._insert_spot(step, plan=plan)
+        if spot is None or gen != self.step_gen or self.passed or self._offtrack_box() == "up" or self._fix_active():
+            return False
+        pane = await asyncio.to_thread(self._code_pane)
+        if gen != self.step_gen or self.passed:
+            return False
+        r = spot["rect"]
+        if pane is not None:  # E3: a code step's line box stays inside the editor pane (never the terminal / Chat)
+            if not self._in_pane(r, pane):
+                return False
+            x, x2 = max(r["x"], pane["x"]), min(r["x"] + r["w"], pane["x"] + pane["w"])
+            r = {**r, "x": x, "w": max(8.0, x2 - x)}
+        spot = {**spot, "rect": r}
+        old = self.spot_rect
+        if old and self._spot_caption == spot.get("caption") and all(
+                abs(r[k] - old[k]) <= self.SPOT_MOVE_PX for k in ("x", "y", "w", "h")):
+            return True  # the same box is already up: no re-send, no second Haiku question
+        await self._show_spot(spot, owner="step")  # at once: not after the ~2 s Haiku check
+        if self.spot_rect is not r:
+            return False
+        await self._refine_start_box(gen, spot, pane)
+        return True
 
     def _row_spot(self, step: dict, text: str, caption: str, prog: dict, down: bool) -> dict | None:
         """The editor row of `text` (a line of the file no other line repeats, OCR'd in VS Code), or the row under it

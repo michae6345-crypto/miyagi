@@ -1596,6 +1596,10 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
         -> placed (or already up)."""
         if self._offtrack_box() == "up" or self._lesson_window_hidden():
             return False
+        if self._fix_active():  # t5 (b): a fix / off-track / Not-yet line is up: _fix_box's box, never this one
+            return False
+        if (plan := self._insert_plan(step)) is not None:  # t5 (d): the file's row (test 5 step 3: a fuzzy OCR hit
+            return await self._start_line_box(gen, step, plan)  # of the anchor boxed line 24 inside sigmoid_slope)
         where = self._start_where(step)
         spot = self._locate(where[0], None, where[1]) if where else None
         app = ((spot or {}).get("app") or "").lower()
@@ -1621,10 +1625,20 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
 
     async def _refine_start_box(self, gen: int, spot: dict, pane: dict | None) -> None:
         """The Haiku targeter (_confirm_spot) checks the start box once it's up: keeps it, moves it (inside the editor
-        pane), or withdraws it when it's sure nothing on screen matches. Never over a box that went up meanwhile."""
-        confirmed = await self._confirm_spot(spot)
+        pane), or withdraws it when it's sure nothing on screen matches. Never over a box that went up meanwhile.
+        t5 (d): a row the file decided (_start_line_box, `_line`) moves only when LINE_MOVE_CONF sure and onto an empty
+        row outside every def / block (_line_move_ok); the line the code goes below is never asked about; Haiku's
+        "nothing matches" never withdraws it (test 5: moves at 0.8-0.85 onto W2's line / into sigmoid_slope)."""
+        line = spot.get("_line")
+        if line is not None and not line.get("move"):
+            return
+        confirmed = await self._confirm_spot(spot, move_conf=self.LINE_MOVE_CONF if line is not None else None)
         if gen != self.step_gen or self.passed or self.spot_rect is not spot["rect"]:
             return  # the step moved on, or another box (the off-track's, Show me, a re-place) is up now
+        if confirmed is None and line is not None:
+            log.info("targeter: no match for %r on line %s; the file's row stands (t5)",
+                     spot.get("caption"), line["line"])
+            return
         if confirmed is None:
             log.info("targeter: no real target for %r; start box withdrawn", spot.get("caption"))
             self.spot_rect, self._spot_caption, self._spot_t = None, None, self.clock()
@@ -1635,6 +1649,10 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
             return  # agreed (or unsure): the deterministic box stands
         if pane is not None and not self._in_pane(r, pane):
             log.info("targeter moved %r out of the editor pane; keeping the start box", spot.get("caption"))
+            return
+        if line is not None and not self._line_move_ok(line, spot["rect"], r):
+            log.info("targeter moved %r off line %s into a block / onto code; keeping the file's row (t5)",
+                     spot.get("caption"), line["line"])
             return
         await self._show_spot(confirmed, owner="step")
 
@@ -2429,6 +2447,10 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
             if gen != self.step_gen or self.passed:  # E3: Haiku answered after the step moved on: no stale box
                 log.info("targeter answered after the step changed; no box for %r", spot.get("caption"))
                 return
+            if confirmed is None and line_meta is not None:  # t5 (d): an empty row has nothing to match: it stands
+                log.info("targeter: no match for %r on line %s; the file's row stands (t5)",
+                         spot.get("caption"), line_meta.get("line"))
+                confirmed = spot
             if confirmed is None:
                 log.info("targeter: no real target for %r; no box", spot.get("caption"))
                 if owner == "step":  # _maybe_respot backs off instead of asking again every RESPOT_S
