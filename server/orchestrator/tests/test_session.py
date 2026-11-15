@@ -482,7 +482,8 @@ def test_actions_route(rig):
     kinds = [e["payload"]["kind"] for e in ev if e["type"] == "diagram"]
     assert kinds == ["gradients", "heatmap"]
     seeks = [e["payload"] for e in ev if e["type"] == "video.seek"]
-    assert seeks == [{"t": 380.0, "play": True}, {"t": 380.0, "play": True}]
+    # 14f55e7: Back opens the previous step (s5, 310-380 s) and plays its clip from its start; Show me then replays it
+    assert seeks == [{"t": 310.0, "play": True}, {"t": 310.0, "play": True}]
     assert rig.s.voice is True
 
 

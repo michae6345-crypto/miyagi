@@ -91,6 +91,24 @@ def test_skip_mid_clip_moves_on_to_the_next_clip(rig):
     assert started["video"]["start"] == 40.0 and "video.seek" in after
 
 
+def test_back_after_a_play_on_still_opens_the_previous_clip(rig):
+    """14f55e7: Back opens the previous step and its clip from its start (a seek backward); play-on never touches it."""
+    async def go():
+        await rig.start_lesson()
+        await rig.s.video_state(20.0, True)
+        await rig.save("# hi\n")  # s2 starts, the clip plays on
+        await rig.s.video_state(45.0, True)
+        m = rig.mark()
+        await rig.s.action("back")
+        await rig.settle()
+        return m
+
+    m = run(go())
+    started, _after = _video_after(rig, m, "s1")
+    assert started["video"]["start"] == 0.0 and rig.s.step["id"] == "s1"
+    assert all(e["payload"]["t"] <= 45.0 for e in rig.since(m) if e["type"] == "video.seek")
+
+
 def _graph() -> dict:
     return copy.deepcopy(json.loads(LESSON.read_text()))
 
