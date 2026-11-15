@@ -131,6 +131,7 @@ def _gate(rows: list[dict]):
 
 async def _start(rig, monkeypatch, checks: list[dict], rows: list[dict], code: str = "") -> dict:  # noqa: F811
     graph = stubs.load_fixture_lesson()
+    graph.setdefault("lesson", {})["notebook"] = "mnist.ipynb"  # t10-flow: the lesson's notebook (an MNIST video)
     for s in graph["steps"]:
         s["file"] = "Untitled.ipynb"  # the video's name: the learner's notebook is mnist.ipynb (find_notebook)
         for t in s.get("targets") or []:
