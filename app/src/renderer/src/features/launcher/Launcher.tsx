@@ -434,7 +434,7 @@ export function Launcher({ layout }: { layout: Layout }): ReactNode {
     end: 'End lesson',
     ask: 'Ask',
     build: 'Build lesson',
-    search: how === 'lesson' ? 'Teach me' : 'Search',
+    search: how === 'lesson' ? 'Start lesson' : 'Search',
     searching: 'Searching…',
     none: mode === 'ask' ? 'Ask' : 'Search'
   }[act]

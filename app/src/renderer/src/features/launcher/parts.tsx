@@ -65,7 +65,7 @@ export type How = 'video' | 'lesson'
 /**
  * The two ways to learn, under the query: "Watch a video" (search, preflight, gated player) or "Just teach me"
  * (no video: a text lesson over the full-screen editor). Monochrome chrome, not pastel options and not a second white
- * primary (the footer's Search / Teach me is the one primary): the picked one is a lit chip (brighter fill, ring
+ * primary (the footer's Search / Start lesson is the one primary): the picked one is a lit chip (brighter fill, ring
  * border, full-white text), the other a quiet chip. Tab switches, Enter picks, ⌘/Ctrl+Enter is "Just teach me".
  */
 export function HowChoice({ how, teachKey, onPick }: { how: How; teachKey: string; onPick: (h: How) => void }): ReactNode {
