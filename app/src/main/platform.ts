@@ -12,7 +12,7 @@ export type ShortcutKind = 'launcher' | 'back' | 'explain' | 'diagram' | 'show_m
 
 export type PlatformInfo = {
   os: 'mac' | 'win'
-  /** Top of the pill, in px from the top of the display. Mac: inside the menu-bar band, around the notch. */
+  /** Top of the pill, in px from the top of the display. Mac: just under the notch / menu-bar band (see pillTopFor). */
   pillTop: number
   /** Labels shown in the UI (⌥E on Mac, Alt+E on Windows). */
   keys: Record<ShortcutKind, string>
@@ -20,12 +20,34 @@ export type PlatformInfo = {
   accelerators: Record<ShortcutKind, string>
 }
 
+/**
+ * Where the pill (and the launcher and every surface born from it) sits, in px from the top of the display.
+ *
+ * Mac: just UNDER the hardware notch (notch/menu bar is ~37pt on notched MacBook Pros), not behind it. Michael's review
+ * A20 asked to anchor it in the menu-bar band (it sits over title bars), but on a notched Mac the band's centre IS the
+ * notch: the pill's words would be hidden behind it, and that is exactly where notch apps live (desktop test 5:
+ * TheBoringNotch expands its panel over the notch on hover, so clicks near it can land on that app). So the default
+ * stays just below the band, and MIYAGI_PILL_TOP (main-process env, px, 0-200) moves it: down (e.g. 56) to keep clear
+ * of a notch app's hover zone, or up (e.g. 4) into the menu bar on a Mac without a notch.
+ * Read only in main; the browser stage (no `process`) always gets the default.
+ */
+function pillTopFor(mac: boolean): number {
+  const fallback = mac ? 40 : 8
+  let raw: string | undefined
+  try {
+    raw = typeof process !== 'undefined' ? process.env?.MIYAGI_PILL_TOP : undefined
+  } catch {
+    raw = undefined
+  }
+  const n = raw === undefined || raw.trim() === '' ? NaN : Number(raw)
+  return Number.isFinite(n) && n >= 0 && n <= 200 ? Math.round(n) : fallback
+}
+
 export function describePlatform(os: string): PlatformInfo {
   const mac = os === 'darwin' || os === 'mac'
   return {
     os: mac ? 'mac' : 'win',
-    // Mac: sit just UNDER the hardware notch (notch/menu bar is ~37pt on notched MacBook Pros), not behind it.
-    pillTop: mac ? 40 : 8,
+    pillTop: pillTopFor(mac),
     // Mac lesson keys are ⌃⌥ (Control+Option), not ⌥ alone (Adrian, Sun 1 AM, after Michael's test): ⌥← is word-left
     // in VS Code and ⌥E/D/S/H/V type characters (⌥E is the accent key), so global ⌥ shortcuts stole the learner's
     // typing. ⌃⌥ combos type nothing. The launcher stays ⌥Space. Windows is unchanged (Ctrl+Alt is AltGr there).
