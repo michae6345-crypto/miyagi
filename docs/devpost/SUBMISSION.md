@@ -81,6 +81,9 @@ You type a goal like *"build a calculator"* and press ⌘↵ (`learn {mode: "les
   URLs those tools returned.
 - Haiku writes each step: the exact code to type, where it goes, the screen checks and hints. Sonnet steps in only when a check on
   that output fails.
+- The lesson opens with an **overview** ("What we're building"), a **"Before you start"** primer and the **plan**; every step
+  says **what** you build and **why**, and gives the **complete code to type**, never truncated (`explain_step` in
+  `textlesson.py`, fields in `shared/contracts/events.ts`). The drawer that shows them is app PR #68 (open).
 - Step 1 is ready before the research finishes.
 - VS Code opens full screen, and each step boxes exactly where to type (commits `f438b88`, `12c1b26`, `716dafe`).
 
@@ -122,8 +125,9 @@ engine: server/orchestrator (FastAPI hub, lesson state machine, don't-nag gate, 
 ```
 
 **Model rule:** Claude reads screens, code and transcripts. Gemini can only ever watch YouTube videos, and it's off in our build.
-Inside Claude we use tiers: Haiku does the routine work, and Sonnet writes the coach's diagnosis and takes over when a quality
-check on cheaper output fails (commit `d500d03`). Opus is never used by default; it needs `LESSON_ALLOW_OPUS=1`.
+Inside Claude we use tiers: Sonnet builds lessons and writes the coach's diagnosis; Haiku does the routine work (search
+scoring, preflight, triage, explaining, the Check judge, locating, the set-of-marks box targeter); Sonnet also takes over when a
+quality check on cheaper output fails (commits `d500d03`, `c7f962b`). Opus is never used by default; it needs `LESSON_ALLOW_OPUS=1`.
 
 **Screen reading.**
 - Capture order: ScreenCaptureKit first, Apple's `/usr/sbin/screencapture` when ScreenCaptureKit stalls (as it does on
@@ -132,6 +136,8 @@ check on cheaper output fails (commit `d500d03`). Opus is never used by default;
   (`server/screen/README.md`).
 - macOS Accessibility gives exact editor line rects.
 - Our own overlay is left out of the captured frames.
+- The VS Code companion extension (`vscode-ext/`) is an optional precision boost (exact file, unsaved edits, the terminal's last
+  command and exit code). Without it every call returns nothing and the engine reads the screen (`server/workspace/vscode_ext.py`).
 
 Measured numbers:
 
@@ -194,8 +200,8 @@ React + TypeScript + Tailwind + Motion; PyTorch for the hero lesson.
   copied, never run.
 
 ## What we learned
-- Grading from the **screen** generalizes better than plugging into one editor. It works in VS Code, the terminal or a notebook,
-  with no extension.
+- Grading from the **screen** generalizes better than plugging into one editor. It works in VS Code, the terminal or a notebook
+  with no extension; our optional VS Code companion only adds precision.
 - Transcripts plus Claude are fast and cheap enough to be the default. Watching the whole video is the fallback.
 - Noisy loss curves fool slope checks; rank-based trend tests don't.
 - Spending needs guardrails from the very first test sweep.
@@ -222,8 +228,8 @@ Bright Data is Miyagi's live-web layer, and its "good" is steering learners away
   "Outdated" and "doesn't work" comments become row `warnings`.
   - Live evidence: "36 comments read via Bright Data" in `demo/cache/search/learn-physics-informed-machine-learning-with-pin-*.json`
     (re-recorded with Bright Data live at 15:17).
-- **Web Unlocker:** the fallback route for YouTube watch pages and captions when the venue network is rate-limited
-  (`server/lesson/transcript.py`), and docs/community pages for the coach (`server/coach/web.py`).
+- **Web Unlocker:** the first route for YouTube captions and the backup for watch pages when YouTube blocks the plain fetch
+  (`server/lesson/transcript.py`), and, with the SERP API, the docs/community pages the coach cites (`server/coach/web.py`).
 
 ### Tiger Data
 Tiger Data is the time-series memory of every session.
@@ -269,11 +275,12 @@ serves. Confirm both.
 ---
 
 ## Before you submit
-- [ ] Repo public: https://github.com/michae6345-crypto/sandhacks-tutor
+- [ ] Repo public: https://github.com/michae6345-crypto/miyagi (moved from `sandhacks-tutor`; private right now)
 - [ ] The app on `integration/live` matches `adrian/shell` (the launcher's two ways to learn and the bottom bar are on `adrian/shell` `10ea9a8`).
 - [ ] Tiger: `python -m server.checks.tiger --ping` on the demo network; paste the numbers in place of "(team-reported)".
 - [ ] GoDaddy: confirm `miyagi.study` is registered and what it serves.
 - [ ] Michael: ElevenLabs / xAI / Vultr: in or out.
-- [ ] Rehearsal PR merged (`scripts/miyagi-offline.sh`, `scripts/rehearse.py`, `docs/REHEARSAL.md`), or drop its references from DEMO.md.
+- [x] Rehearsal PR merged (#43: `scripts/miyagi-offline.sh`, `scripts/rehearse.py`, `docs/REHEARSAL.md`).
+- [ ] App PR #68 (drawer: overview, plan, why, full code) merged into `adrian/shell`, or drop that sentence.
 - [ ] Backup screen recording of both demo paths.
 - [ ] No `.env`, keys or connection strings in screenshots or the video.

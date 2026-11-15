@@ -15,7 +15,7 @@ write the real numbers in.**
 1. **Network:** the phone hotspot. The venue Wi-Fi blocks Tiger's port, and YouTube rate-limits caption requests from it.
 2. **Permissions:** turn on **Screen & System Audio Recording** and **Accessibility** for the terminal app that runs the engine,
    under System Settings › Privacy & Security. Quit and reopen that terminal after granting.
-3. **Engine** (`.env` already has `LESSON_ENGINE=claude-first`):
+3. **Engine** (`.env` already has `LESSON_ENGINE=claude` and `MIYAGI_EDITOR=vscode`):
    ```bash
    ORCH_LADDER_MIN_S=0 COACH_OFFLINE_FALLBACK=1 scripts/miyagi-engine.sh
    ```
@@ -29,8 +29,8 @@ write the real numbers in.**
    ```
 6. **Pre-fill the hero code** in `demo/pinn-lab/pinn_diffusion.py`. This is a local edit: **don't commit it**.
    - Fill sections 1–7 the way the video does: `lr = 0.3`, `steps = 2500`, and keep `report(i, loss, test_loss)`.
-   - The reference solution is `server/lesson/fixtures/diffusion_workdir/pinn_diffusion.py`. The rehearsal PR's
-     `scripts/rehearse.py --prefill demo/pinn-lab` does it automatically once that PR is merged.
+   - The reference solution is `server/lesson/fixtures/diffusion_workdir/pinn_diffusion.py`. Or run
+     `.venv/bin/python scripts/rehearse.py --prefill demo/pinn-lab`, which does it automatically (merged in #43).
    - **Don't add files to `demo/pinn-lab`.** The lesson cache key includes the folder's file names, and a miss means a live build.
 7. **Warm both caches:**
    - Run the path 1 query once and pick Toscano.
@@ -76,12 +76,12 @@ write the real numbers in.**
 ## 60-second fallback (no network at all)
 
 ```bash
-DEMO=1 ORCH_AUTOSTART=1 ORCH_LESSON=demo/cache/lessons/aebc6b8fba02dac5.json TUT_WORKDIR="$PWD/demo/pinn-lab" scripts/miyagi-engine.sh
+scripts/miyagi-offline.sh
 ```
 - The checks, screen reader, `tut run` and Tiger spool all run on the laptop.
 - **Watch the coach card:** under plain `DEMO=1` the rehearsal saw the orchestrator's β-curriculum stub card instead of the
-  `lr_too_high` one. The rehearsal PR's `scripts/miyagi-offline.sh` + `demo/cache/coach/s8.json` fix that, but they **aren't
-  merged**. Until they are, prefer the live engine with `COACH_OFFLINE_FALLBACK=1` (above).
+  `lr_too_high` one. `scripts/miyagi-offline.sh` (above) pins the hero lesson, and `demo/cache/coach/s8.json` serves the right card
+  (both merged in #43).
 - If even the engine won't start, run `cd app && DEMO=1 npm run dev`. It plays a scripted lesson inside Electron, with no engine
   and no network.
 - The video can't play offline. Narrate, or play the backup screen recording.
@@ -128,7 +128,8 @@ only steps 1–2 are stage-safe, and step 2 needs the workaround below.** The bu
 
 **"Two ways to learn: what's the difference?"** Watch a video builds the lesson from a real YouTube tutorial: Claude reads its
 transcript. The video is gated step by step. Just teach me has no
-video: Claude plans the steps, researches the official docs with web search and fetch, and writes the exact code for each step.
+video: Claude writes an overview and a step plan, researches the official docs with web search and fetch, and for each step says
+what you build and why, with the complete code to type.
 Both are graded the same way, from your screen.
 
 **"Is the coach scripted?"** No. Live diagnoses come from `claude-sonnet-5-5` with the failing checks, your metrics, your code and
@@ -139,14 +140,15 @@ a marked-up screenshot (`server/coach/`). Canned cards exist only under `DEMO=1`
 regions from the screen reader, and Apple Vision OCR as the fallback. The overlay dims the rest of the screen to 55%.
 
 **"How do you read the screen?"** ScreenCaptureKit first, then Apple's `screencapture` when ScreenCaptureKit stalls (macOS 26
-does that), then CoreGraphics. OCR runs on the device in 100–220 ms per changed frame, and our own overlay is excluded.
+does that), then CoreGraphics. OCR runs on the device in 100–220 ms per changed frame, and our own overlay is excluded. macOS Accessibility adds VS Code's
+live buffer and caret. The VS Code companion extension is an optional precision boost; without it, Miyagi reads the screen.
 
 **"How do you know the loss is flat, not noisy?"** A Mann-Kendall significance test plus a Theil-Sen effect size of at least 5%.
 Flat noisy curves pass ≤ 3/300 times (it was 61–136).
 
 **"What's Bright Data for?"** The SERP API supplies Google's video results for search, the YouTube comments dataset flags
-tutorials that no longer work (up to 36 comments read per video in our recorded live searches), and the Web Unlocker is the
-fallback route for captions.
+tutorials that no longer work (up to 36 comments read per video in our recorded live searches), the Web Unlocker is the first
+route for captions (and the backup for watch pages), and the coach looks up docs through SERP + Unlocker (`server/coach/web.py`).
 
 **"What's in Tiger?"** `learning_events` and `training_metrics` hypertables plus five continuous aggregates: the live 1 s curve,
 time per step, fail rate per check, a stuck heatmap per 15 s of video, and learner progress. You can see them live at
@@ -162,4 +164,5 @@ per-model token logging.
 **"What if it crashes?"** Every lesson is saved as it's built. A restart offers to resume at the same step with no rebuild.
 
 **"Will it edit my files?"** Only after you click Do it for me and confirm a diff preview. It refuses while the file has unsaved
-changes, writes only code that compiles, can be undone, and never runs terminal commands.
+changes, writes only code that compiles, and can be undone. A fix that's a terminal command is copied to your clipboard, never
+run. The one command Miyagi runs is a run step's own command, when you press Run it for me.

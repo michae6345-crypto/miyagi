@@ -10,14 +10,16 @@ learn**:
   2. A preflight card: what the video is and what you need for it.
   3. A lesson that Claude builds from the video's transcript. (A Gemini path that watches the video itself exists, but it's off in our build to control cost.)
   4. The video, gated step by step.
-- **Just teach me** (⌘↵, Claude only): no video. Claude researches the topic with web search and the official docs, writes the
-  lesson, and opens VS Code full screen.
+- **Just teach me** (⌘↵, Claude only): no video. Claude researches the topic with web search and the official docs, then writes
+  a lesson with an overview, a step plan, what each step builds and why, and the complete code to type. VS Code opens full
+  screen.
 
-Either way, Miyagi watches **your whole screen**. It dims everything except a white box on the exact code line or the VS Code
+Either way, Miyagi reads **your whole screen** (Apple Vision OCR plus macOS Accessibility). It dims everything except a white box on the exact code line or the VS Code
 terminal, and each step waits until your screen shows it really works: the code is there, the output is right, the loss is
 falling. When a check fails, a Claude Sonnet coach reads your actual screen and code and tells you what's wrong: hints first, then
 the exact fix, then a "Do it for me" you confirm and can undo. The bottom bar has **Check**, **Skip step** and **End lesson**,
-and lessons survive an engine restart.
+and lessons survive an engine restart. The VS Code companion extension (`vscode-ext/`) is an optional precision boost;
+without it, Miyagi works from the screen alone.
 
 Built at SanD Hacks 2026 (UCSD, Nov 14–15). Devpost write-up: [`docs/devpost/SUBMISSION.md`](docs/devpost/SUBMISSION.md) ·
 demo script: [`docs/devpost/DEMO.md`](docs/devpost/DEMO.md).
@@ -94,7 +96,7 @@ flowchart LR
 | `server/screen/` | Whole-screen reader: ScreenCaptureKit → `screencapture` (the macOS 26 fallback) → CoreGraphics; Apple Vision OCR on the device; terminal/editor regions → spotlight rect; loss read off the terminal. |
 | `server/sessions/` | Restart-safe lesson saves and the resume card. |
 | `server/checks/` | Pure check evaluator (`screen_contains`, `metric_threshold`, `metric_trend` with Mann-Kendall + Theil-Sen), Tiger writers with an offline spool. |
-| `server/coach/` | Claude Sonnet diagnosis from the real screen (set-of-mark images + cursor), hint ladder, whitelisted citations, Bright Data docs grounding. |
+| `server/coach/` | Claude Sonnet diagnosis from the real screen (set-of-mark images + mouse pointer), hint ladder, whitelisted citations, Bright Data docs grounding. |
 | `server/diagrams/` | ⌥D: a Claude-built diagram for the current step (network, flow, git graph, data, sequence). |
 | `cli/` | `tut run <cmd>`: precision mode for training scripts (`::metric::` lines → engine + Tiger), `tut db`, `tut stats`. |
 | `shared/contracts/` | The boundary: WebSocket events, step-graph and check schemas, metric protocol, Tiger schema. |
@@ -128,7 +130,7 @@ responses. The `server/screen` fixture tests run real Vision OCR and are macOS o
 ## More docs
 
 - `docs/PLAN.md`: the original build plan · `docs/WORKFLOW.md`: branches, worktrees, many Claude sessions
-- `docs/FRONTEND-HANDOFF.md`: the overlay spec · `docs/research/screen-understanding.md`: cursor, OCR and Accessibility research
+- `docs/FRONTEND-HANDOFF.md`: the overlay spec · `docs/research/screen-understanding.md`: mouse pointer, OCR and Accessibility research
 - `app/brand/BRAND.md`: name, voice, logo, color · `docs/PIPELINE.md`: search → preflight → build → setup → run
 
 ## Team
