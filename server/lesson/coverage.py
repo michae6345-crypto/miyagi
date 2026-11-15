@@ -215,7 +215,7 @@ def label_for(d: dict) -> str:
 
 
 def _coverage(pattern: str, code: str, d: dict, defs: list[dict] = ()) -> float:
-    """How much of definition d's key expression `pattern` matches in the step's code (0..1), counting only matches
+    r"""How much of definition d's key expression `pattern` matches in the step's code (0..1), counting only matches
     that are mostly inside it. 0 when the pattern also matches another definition's (`float\(\s*input\(` for both
     `a = float(input())` and `b = float(input())`): one of them typed would pass it."""
     total = _nonspace(d["key"])

@@ -20,6 +20,8 @@ import math
 import re
 from typing import Any
 
+from server.lesson.skillmap import attach_skill_map
+
 log = logging.getLogger("orchestrator.lesson_end")
 
 CARD_DELAY_S = 2.5  # the last step's "Ran python3 main.py" card (its output) stays up this long first
@@ -209,7 +211,7 @@ def evidence(s: Any) -> str | None:
 
 
 def _what(lesson: dict) -> str | None:
-    """What they built, in the lesson's own words ("A two-layer neural network in numpy that learns the XOR function")."""
+    """What they built, in the lesson's own words ("A 1-4-4-1 neural network in NumPy that learns y = sin(x).")."""
     build = lesson.get("build") if isinstance(lesson.get("build"), dict) else {}
     text = " ".join(str(build.get("summary") or "").split())
     if not text and isinstance(lesson.get("overview"), str):
@@ -227,17 +229,21 @@ def card(s: Any) -> dict:
     lesson = (getattr(s, "graph", None) or {}).get("lesson") or {}
     steps = getattr(s, "steps", None) or []
     skipped = [x for x in getattr(s, "skipped_steps", None) or []]
-    lines = [_what(lesson), evidence(s)]
+    proof = evidence(s)
+    lines = [_what(lesson), proof]
     if skipped:  # honest: a skipped step is not a pass
         lines.append(f"You did {len(steps) - len(skipped)} of {len(steps)} steps and skipped {len(skipped)}.")
     body = " ".join(x for x in lines if x) or f"All {len(steps)} steps done."
     step = getattr(s, "step", None)
-    return {**({"stepId": step["id"]} if step else {}), "kind": "step",
-            "title": "Lesson finished" if skipped else title(lesson), "body": body,
-            "actions": ["end_lesson"],
-            # setup.actionLabels is how a card names its own buttons (cards/index.tsx actionLabel); no items, so the
-            # app draws no setup rows: only the label of end_lesson changes ("End lesson", not "Start a new lesson")
-            "setup": {"editorNeeded": False, "items": [], "actionLabels": {"end_lesson": END_LABEL}}}
+    out = {**({"stepId": step["id"]} if step else {}), "kind": "step",
+           "title": "Lesson finished" if skipped else title(lesson), "body": body,
+           "actions": ["end_lesson"],
+           # setup.actionLabels is how a card names its own buttons (cards/index.tsx actionLabel); no items, so the
+           # app draws no setup rows: only the label of end_lesson changes ("End lesson", not "Start a new lesson")
+           "setup": {"editorNeeded": False, "items": [], "actionLabels": {"end_lesson": END_LABEL}}}
+    # mockup 10 "Your skills": card.skillMap (all three senders: send_later, Check / Skip after the end, the reconnect
+    # replay); its headline carries the same real proof as the body. Never raises: no map rather than no card.
+    return attach_skill_map(out, s, evidence=proof)
 
 
 async def send_later(s: Any, gen: int, delay_s: float | None = None) -> None:
