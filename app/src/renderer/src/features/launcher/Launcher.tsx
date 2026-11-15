@@ -634,10 +634,10 @@ export function Launcher({ layout }: { layout: Layout }): ReactNode {
           initial={{ opacity: 0, y: 4 }}
           animate={exiting ? { opacity: 0, y: 0, transition: contentOut } : { opacity: 1, y: 0, transition: contentIn }}
         >
-          {/* No title: the placeholder says it. In ask mode, one faint line says where you are. */}
+          {/* No title: the placeholder says it. In ask mode, one quiet line says where you are (color.label, so it reads: A20). */}
           {mode === 'ask' && (
             <Rise key="where" i={0} className="truncate px-[26px] pt-[16px] text-[12.5px] leading-[16px]">
-              <span style={{ color: color.faint }}>{lesson.hasStep ? `Step ${progress.index + 1} · ${lesson.stepTitle}` : lesson.title}</span>
+              <span style={{ color: color.label }}>{lesson.hasStep ? `Step ${progress.index + 1} · ${lesson.stepTitle}` : lesson.title}</span>
             </Rise>
           )}
 
@@ -773,25 +773,21 @@ export function Launcher({ layout }: { layout: Layout }): ReactNode {
           {/* Footer: the keys that apply right now. Words only when something is wrong. */}
           <Rise i={3}>
             <div className="mt-[16px] h-px" style={{ background: fill.rule }} />
-            <div className="flex h-[48px] items-center gap-[4px] pl-[24px] pr-[12px]">
-              <span className="flex min-w-0 flex-1 items-center gap-[7px] text-[13px]" style={{ color: color.text }}>
+            <div className="flex h-[48px] items-center gap-[4px] pl-[18px] pr-[12px]">
+              {/* Ask ↔ new lesson is navigation, not the action: quiet and on the far left, away from the primary, so a
+                  lesson isn't restarted by accident (Michael's audit A20). */}
+              {lesson.hasLesson && !choosing && <Action label={mode === 'ask' ? 'New lesson' : 'Back to step'} keycap="⇥" enabled onClick={switchMode} />}
+              <span className="flex min-w-0 flex-1 items-center gap-[7px] pl-[6px] text-[13px]" style={{ color: color.text }}>
                 {offline && <WifiOff size={13} strokeWidth={1.8} className="shrink-0" />}
                 {note && <span className="truncate">{note}</span>}
               </span>
               {choices > 1 && <Hint label="Choose" keycap="↑↓" />}
-              {choosing ? (
+              {choosing && (
                 <>
                   <Hint label="Switch" keycap="⇥" />
                   {/* Each keycap once, here (not inside the chip): ⌘↵ teaches whichever way is picked; with "Just teach me" picked, ↵ already does. */}
                   {how === 'video' && <Hint label="Teach me" keycap={teachKey} />}
                 </>
-              ) : (
-                lesson.hasLesson && (
-                  <>
-                    <Action label={mode === 'ask' ? 'New lesson' : 'Back to step'} keycap="⇥" enabled onClick={switchMode} />
-                    <span className="mx-[4px] h-[16px] w-px shrink-0" style={{ background: fill.rule }} />
-                  </>
-                )
               )}
               {act === 'none' ? (
                 // Nothing to do yet: no dimmed primary, just the way out.

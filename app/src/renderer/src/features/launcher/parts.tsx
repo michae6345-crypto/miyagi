@@ -1,14 +1,13 @@
 /**
  * Feature: launcher. Small pieces of the panel: the staggered section entrance, the chips, and the
- * footer actions (text + keycap, Spotlight-style). The primary action is the brand's button when it can act:
- * white on the dark island with ink text (color.accent / color.onAccent); otherwise a quiet label.
+ * footer items (one keycap style; hints keycap first, "esc Close"). The primary action is the brand's button when it
+ * can act: white on the dark panel with ink text (color.accent / color.onAccent), label then keycap; otherwise a quiet label.
  *
  * Colors are set inline on buttons because they animate (hover, enabled ↔ disabled).
  */
 import { motion, useReducedMotion } from 'motion/react'
 import type { ReactNode } from 'react'
 import { GraduationCap, Play, type LucideIcon } from 'lucide-react'
-import { Kbd } from '../../core/ui/atoms'
 import { color, fill, spring } from '../../core/theme'
 
 /** One section of the panel settling into place a beat after the one above it. */
@@ -98,17 +97,35 @@ export function HowChoice({ how, onPick }: { how: How; onPick: (h: How) => void 
   )
 }
 
+/**
+ * The launcher's one keycap (Michael's audit A20): 22px tall, round, 12px glyph, in every footer item. On the dark
+ * panel it is the core keycap's look (fill.key / fill.keyText); on the white primary, ink at 10% (brand).
+ */
+function Keycap({ children, onAccent = false }: { children: ReactNode; onAccent?: boolean }): ReactNode {
+  return (
+    <span
+      className="inline-flex h-[22px] min-w-[24px] shrink-0 items-center justify-center rounded-full px-[6px] text-[12px] font-medium"
+      style={onAccent ? { background: fill.onAccentKey, color: color.onAccent } : { background: fill.key, color: fill.keyText }}
+    >
+      {children}
+    </span>
+  )
+}
+
 /** A passive key hint in the footer, keycap first: "↑↓ Choose", "esc Close". Not clickable. color.label, so it reads (A19). */
 export function Hint({ label, keycap }: { label: string; keycap: string }): ReactNode {
   return (
     <span className="flex h-[30px] shrink-0 items-center gap-[7px] whitespace-nowrap pl-[4px] pr-[10px] text-[13px]" style={{ color: color.label }}>
-      <Kbd className="!h-[22px] !min-w-[24px] !justify-center !rounded-full !px-[6px] !text-[12px]">{keycap}</Kbd>
+      <Keycap>{keycap}</Keycap>
       {label}
     </span>
   )
 }
 
-/** A footer action: label + keycap. `strong` + enabled = the white primary button; otherwise text, faint when it can't act. */
+/**
+ * A footer action. `strong` = the primary slot: label then keycap, the white button when it can act (one per surface),
+ * else a faint label. Otherwise a quiet, clickable hint: keycap first like Hint ("⇥ New lesson"), no fill until hovered.
+ */
 export function Action({
   label,
   keycap,
@@ -128,7 +145,9 @@ export function Action({
       type="button"
       tabIndex={-1}
       disabled={!enabled}
-      className={`flex h-[30px] shrink-0 cursor-pointer items-center gap-[8px] whitespace-nowrap rounded-full pr-[4px] text-[13px] disabled:cursor-default ${solid ? 'pl-[12px]' : 'pl-[10px]'} ${strong ? 'font-medium' : ''}`}
+      className={`flex h-[30px] shrink-0 cursor-pointer items-center whitespace-nowrap rounded-full text-[13px] disabled:cursor-default ${
+        strong ? `gap-[8px] pr-[4px] font-medium ${solid ? 'pl-[12px]' : 'pl-[10px]'}` : 'gap-[7px] pl-[4px] pr-[10px]'
+      }`}
       initial={false}
       animate={{
         backgroundColor: solid ? color.accent : fill.clear,
@@ -140,13 +159,16 @@ export function Action({
       onMouseDown={(e) => e.preventDefault()}
       onClick={onClick}
     >
-      {label}
-      {solid ? (
-        <span className="grid h-[22px] min-w-[24px] place-items-center rounded-full px-[6px] text-[12px]" style={{ background: fill.onAccentKey, color: color.onAccent }}>
-          {keycap}
-        </span>
+      {strong ? (
+        <>
+          {label}
+          <Keycap onAccent={solid}>{keycap}</Keycap>
+        </>
       ) : (
-        <Kbd className="!h-[22px] !min-w-[24px] !justify-center !rounded-full !px-[6px] !text-[12px]">{keycap}</Kbd>
+        <>
+          <Keycap>{keycap}</Keycap>
+          {label}
+        </>
       )}
     </motion.button>
   )
