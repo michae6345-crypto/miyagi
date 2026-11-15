@@ -446,9 +446,10 @@ def test_the_planted_sign_bug_is_the_not_yet(rig):
     async def go():
         await rig.s.learn("build a neural network", mode="demo")
         await settle(rig)
-        await save(rig, RANDOM)
-        await save(rig, "# Backprop" + chr(10) + SIGN_BUG)
-        await save(rig, chr(10))
+        # each step's own code (a Demo step passes only once its code is in nn.py), nn2 with the planted + sign
+        await save(rig, code("nn1"))
+        await save(rig, code("nn2").replace("(1 - h1 ** 2)", "(1 + h1 ** 2)"))
+        await save(rig, code("nn3"))
         assert rig.s.step["id"] == "nn4"
         line = (rig.workdir / "nn.py").read_text().splitlines().index(SIGN_BUG.rstrip(chr(10))) + 1
         await rig.s.action("run_command")
@@ -772,7 +773,7 @@ class FakeCompanion:
         return {"ok": True, "file": str(file), "saved": save, "dirty": False}
 
 
-def _paste(rig: Rig, bufs: FakeBuffers, text: str) -> None:
+def _paste_unsaved(rig: Rig, bufs: FakeBuffers, text: str) -> None:
     """A paste into VS Code, NOT saved: only the buffer has it."""
     disk = (rig.workdir / "nn.py").read_text()
     bufs.buf = (bufs.buf if bufs.buf is not None else disk) + text
@@ -790,14 +791,14 @@ def test_a_paste_passes_without_a_save(rig):
         await rig.s.tick()  # nothing pasted yet: nothing passes
         await settle(rig)
         assert passed(rig) == []
-        _paste(rig, bufs, NN1_ZEROS)
+        _paste_unsaved(rig, bufs, NN1_ZEROS)
         rig.clock.t += 0.5
         await rig.s.tick()  # the 1/s tick (the companion's dirty event does the same, ~0.2 s)
         await settle(rig)
         assert passed(rig) == ["nn1"] and rig.s.step["id"] == "nn2"
         assert (rig.workdir / "nn.py").read_text() == on_disk  # never saved
         from server.orchestrator import quiet_save  # the companion's dirty event: the same pass
-        _paste(rig, bufs, code("nn2"))
+        _paste_unsaved(rig, bufs, code("nn2"))
         quiet_save.on_vscode_event(rig.s, {"type": "dirty", "file": str(rig.workdir / "nn.py")})
         await settle(rig)
         assert passed(rig) == ["nn1", "nn2"] and rig.s.step["id"] == "nn3"
@@ -864,7 +865,7 @@ def test_a_new_take_resets_vs_codes_open_nn_py(rig, monkeypatch):
         await settle(rig)
         starter = curated._starter()
         rig.s._buffers = bufs
-        _paste(rig, bufs, NN1_ZEROS)  # the take's unsaved code in VS Code
+        _paste_unsaved(rig, bufs, NN1_ZEROS)  # the take's unsaved code in VS Code
         comp.calls.clear()
         assert await stage.restart(rig.s)
         await settle(rig)
@@ -873,7 +874,7 @@ def test_a_new_take_resets_vs_codes_open_nn_py(rig, monkeypatch):
         assert bufs.buf == starter and (rig.workdir / "nn.py").read_text() == starter
         assert rig.s.step["id"] == "nn1" and passed(rig) == []
         # a new Demo start from the launcher: the same reset
-        _paste(rig, bufs, code("nn1"))
+        _paste_unsaved(rig, bufs, code("nn1"))
         comp.calls.clear()
         await rig.s.learn("anything", mode="demo")
         await settle(rig)
