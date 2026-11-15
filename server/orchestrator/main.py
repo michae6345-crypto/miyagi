@@ -303,7 +303,12 @@ async def vscode_event(body: dict = Body(...)) -> dict:
     """The VS Code companion (vscode-ext/) posts editor/save/dirty/focus/command_end events; see server.workspace.vscode_ext."""
     from server.workspace import vscode_ext
 
-    vscode_ext.record_event(body)
+    item = vscode_ext.record_event(body)
+    if body.get("type") == "command_end":  # a curated lesson's run: VS Code's exact output grades it (curated.py)
+        from . import curated
+
+        if curated.active(engine.session):
+            engine.session._spawn(curated.on_command_end(engine.session, item))  # never holds up the extension
     if body.get("type") == "explain_selection":  # "Miyagi: Explain this" -> an Explain card in the overlay (selection.py)
         from .selection import explain_from_vscode
 

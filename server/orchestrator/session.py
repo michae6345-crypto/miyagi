@@ -37,7 +37,7 @@ from collections.abc import Awaitable, Callable
 from pathlib import Path
 from typing import Any
 
-from . import config, editor_text, perf, scene_watch, where_row
+from . import config, curated, editor_text, perf, scene_watch, where_row
 from .context import RunContext, RunInfo, metrics_summary
 from .modules import Modules
 from .captions import short_caption
@@ -1162,7 +1162,38 @@ class LessonSession:
             await self.end_lesson("new lesson")
         self.query = goal
         self.results, self.pending_pick = {}, None
+        graph = curated.lesson_for(goal)  # "build a neural network": the curated lesson, instantly (curated.py)
+        if graph is not None:
+            await self._run_build("", goal, factory=lambda: self._load_curated(goal, graph))
+            return
         await self._run_build("", goal, factory=lambda: self._build_text(goal))
+
+    async def _load_curated(self, goal: str, graph: dict) -> None:
+        """A curated "Just teach me" lesson: no build, its folder with a clean starter, then the lesson."""
+        self.phase = "building"
+        await self._status("thinking")
+        ok = False
+        try:
+            self.build_progress = {"message": "Setting up your project folder", "progress": 0.5}
+            await self.emit("lesson.building", self.build_progress)
+            try:
+                folder = await asyncio.to_thread(curated.prepare_folder, graph)
+            except Exception:  # noqa: BLE001 - the lesson still runs in the default folder
+                log.exception("curated lesson folder failed")
+                folder = None
+            graph["lesson"]["workdir"] = folder or str(config.lesson_workdir("", goal))
+            log.info("curated lesson %s for %r in %s", graph["lesson"].get("curated"), goal, graph["lesson"]["workdir"])
+            self.build_progress = None
+            await self.emit("lesson.building", {"message": "Lesson ready", "progress": 1.0})
+            await asyncio.sleep(min(self.ready_hold_s, 0.6))
+            await self.load_graph(graph)
+            ok = True
+        except Exception:
+            log.exception("loading the curated lesson failed")
+            await self._build_failed("Couldn't start this lesson. Try again.")
+        finally:
+            if not ok:
+                self.phase = "idle" if self.graph is None else self.phase
 
     @staticmethod
     def _as_text_lesson(g: dict) -> dict:
@@ -1834,6 +1865,7 @@ class LessonSession:
         step = self.steps[idx]
         if self.lesson_mode:
             self._ensure_step_file(step)  # before the payload: step 1 reads "In calc.py, type …"
+            curated.prepare_step(self, step)  # curated run step: the lesson .venv's python once NumPy is in it
             self._step_wall_t0 = time.time()  # after creating it: only the learner's saves count
             self._term_at_start = tuple(self._vscode_terminal_lines())
         started = self._step_started_payload(step)
@@ -1888,6 +1920,7 @@ class LessonSession:
             await self._emit_card({"stepId": step["id"], "kind": "step", "title": "Run it",
                                    "body": f"Run it in the terminal: {cmd.splitlines()[0]}",
                                    "actions": ["run_command"]})
+        await curated.on_step_started(self, step)  # curated lesson: the step's network in the right-hand panel
         await self._maybe_pass_setup_step()
         if self.lesson_mode and not self.passed and self.step is step:
             self._spawn(self._lesson_spot(self.step_gen, step), timer=True)
@@ -2131,6 +2164,7 @@ class LessonSession:
         await self.emit("step.passed", payload)
         if not skipped:
             self._say("step.passed", payload)
+            await curated.on_step_passed(self, step)  # curated: the training run passed -> their run in the panel
         self._record("step_skipped" if skipped else "step_passed", {"nextStepId": payload.get("nextStepId")}, step)
         await self._status("watching" if skipped else "passed")
         await self.emit("spotlight", {"clear": True})
@@ -2322,6 +2356,7 @@ class LessonSession:
                 self.gate_open = True
                 self.screen_gate_open = self.screen_gate_open or trigger == "check"
             await self._publish(step, results)
+            curated.after_evaluate(self, step, trigger)  # curated lesson: the panel follows the learner's real run
             if gate.get("passed"):
                 if learner or self.acted_since_step_start():
                     await self._pass_step()
@@ -3100,6 +3135,10 @@ class LessonSession:
             await self._status("thinking")  # visible at once; the spotlight follows, the card after
             gen = self.step_gen
             await self._show_where(step)
+            if kind == "explain" and not text and (card := curated.explain_card(self, step)) is not None:
+                await self._emit_card(card)  # curated lesson: the step's own Explain card, instantly
+                await self._status("offtrack" if self.last_offtrack else ("passed" if self.passed else "watching"))
+                return
             ctx = self._explain_context()
             screen = await self._screen_for_coach(step)
             if screen is not None:
@@ -3139,7 +3178,8 @@ class LessonSession:
                 await self._emit_card(self._where_card(step))
                 await self._status("offtrack" if self.last_offtrack else "watching")
                 return
-            card = dict(await self.m.hint(step, self.hint_level, self.last_offtrack, screen=screen))
+            card = curated.hint_card(self, step, self.hint_level) or \
+                dict(await self.m.hint(step, self.hint_level, self.last_offtrack, screen=screen))
             if gen != self.step_gen:
                 return
             card["stepId"] = step["id"]
@@ -3154,6 +3194,9 @@ class LessonSession:
             return
         if kind == "diagram":
             want = (text or "").strip().lower()
+            if (d := curated.diagram_for_action(self, step, want)) is not None:  # curated: its own network, instantly
+                await self.emit("diagram", d)
+                return
             if want not in DIAGRAM_KINDS and not self.m.has_diagrams():  # stubs (DEMO) pick from the failing checks
                 metric_fail = any(r.get("status") == "fail" and r.get("checkId") in
                                   {c["id"] for c in step.get("checks", []) if c.get("type", "").startswith("metric")}
@@ -3333,8 +3376,8 @@ class LessonSession:
     async def _prefetch_diagram(self, gen: int, step: dict) -> None:
         """Warm S4's diagram cache for this step so the diagram button is instant (errors are ignored)."""
         await asyncio.sleep(2.0)  # let the step settle (code on screen, video playing)
-        if gen != self.step_gen or not self.m.has_diagrams():
-            return
+        if gen != self.step_gen or not self.m.has_diagrams() or curated.active(self):
+            return  # a curated lesson's diagrams are its own files: no S4 call
         try:
             await self.m.diagram(None, self._diagram_step(step), self.context(), self._diagram_context(step, None))
         except Exception as e:  # noqa: BLE001 - a prefetch must never surface
@@ -4423,6 +4466,7 @@ class LessonSession:
         """"Run it for me": the step's command in the lesson folder (VS Code's terminal via the companion extension
         when it's up; else a subprocess, 10 s, stdin closed, the lesson's .venv first on PATH). The output goes in a
         card and the run feeds the step's checks with its real exit code / output."""
+        curated.prepare_step(self, step)  # NumPy may have just been installed into the lesson's .venv
         cmd = self._run_command(step) or (step.get("run_command") or "").strip()
         if not cmd:
             await self._card(step, "Nothing to run", "This step has no command.", kind="answer")
@@ -4488,6 +4532,22 @@ class LessonSession:
         except Exception:  # noqa: BLE001
             return 0
 
+    def _metrics_in(self, step: dict, lines: list[str]) -> list[dict]:
+        """The step's metric_pattern readings in a run's output ([{step, name, value}]): a run in VS Code's terminal
+        then feeds its metric checks (e.g. "loss < 0.01 by epoch 4000") from what it printed, not from OCR."""
+        fn = self._checks_fn("extract_metrics")
+        if fn is None or not lines:
+            return []
+        pats = {c["metric"]: c["metric_pattern"] for c in (step.get("checks") or []) + (step.get("precision_checks") or [])
+                if c.get("metric") and c.get("metric_pattern")}
+        out: list[dict] = []
+        for name, pat in pats.items():
+            try:
+                out += [{"step": s, "name": name, "value": v} for s, v in fn(pat, "\n".join(lines))]
+            except Exception:  # noqa: BLE001 - a bad pattern: the screen still reads the curve
+                log.warning("metric_pattern for %s failed on the run output", name)
+        return out
+
     async def _terminal_run_result(self, gen: int, step: dict, cmd: str, seq: int) -> None:
         """Run it for me typed `cmd` into VS Code's terminal (the "Running it" card). When the companion reports it
         ended (command_end), that card's slot gets the result like the subprocess run's card: the exit status and the
@@ -4516,6 +4576,8 @@ class LessonSession:
             return
         await self.ingest({"kind": "run_started", "run_id": run_id, "command": want, "cwd": self.workdir})
         await self.ingest({"kind": "output", "run_id": run_id, "lines": tail})
+        if mx := self._metrics_in(step, tail):  # the step's metric checks grade this run's exact output, not OCR
+            await self.ingest({"kind": "metrics", "run_id": run_id, "metrics": mx})
         key = (gen, code, tuple(tail[-8:]))
         diagnose = crashed and not self.coaching and key != self._run_diag_key
         if diagnose:
