@@ -1,0 +1,6 @@
+{
+ "stepId": "nn2",
+ "kind": "hint",
+ "title": "Hint 2 of 2",
+ "body": "d_h sends d_out back through W2, then multiplies by the hidden layer's slope."
+}

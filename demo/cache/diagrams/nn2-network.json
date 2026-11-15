@@ -1,0 +1,79 @@
+{
+ "kind": "network",
+ "caption": "Backprop: the output's error flows back along the same weights, and each weight gets its share.",
+ "data": {
+  "layers": [
+   2,
+   4,
+   1
+  ],
+  "activation": "sigmoid",
+  "inputs": [
+   "x₁",
+   "x₂"
+  ],
+  "output": "ŷ",
+  "derivatives": [],
+  "residual": "",
+  "mode": "backward",
+  "frames": [
+   {
+    "epoch": 0,
+    "loss": 0.2691,
+    "W": [
+     [
+      0.8821,
+      0.1983,
+      0.4889,
+      1.1152,
+      0.9337,
+      -0.4901,
+      0.4748,
+      -0.0775
+     ],
+     [
+      -0.0912,
+      0.1758,
+      0.0344,
+      0.6871
+     ]
+    ],
+    "b": [
+     [
+      0.0005,
+      -0.0033,
+      -0.0009,
+      -0.01
+     ],
+     [
+      -0.0621
+     ]
+    ]
+   }
+  ],
+  "samples": [
+   [
+    0,
+    0
+   ],
+   [
+    0,
+    1
+   ],
+   [
+    1,
+    0
+   ],
+   [
+    1,
+    1
+   ]
+  ],
+  "targets": [
+   0,
+   1,
+   1,
+   0
+  ]
+ }
+}

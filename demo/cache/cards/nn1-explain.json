@@ -1,0 +1,6 @@
+{
+ "stepId": "nn1",
+ "kind": "explain",
+ "title": "What a neuron does",
+ "body": "It adds its inputs, each times a weight, plus a bias, then sigmoid squishes the total into 0..1. That number is how lit up it is."
+}

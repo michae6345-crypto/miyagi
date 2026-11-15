@@ -1,0 +1,6 @@
+{
+ "stepId": "nn4",
+ "kind": "answer",
+ "title": "What next?",
+ "body": "Swap XOR for real data: more inputs, a bigger hidden layer, and the same four pieces."
+}

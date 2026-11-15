@@ -1,0 +1,6 @@
+{
+ "stepId": "nn1",
+ "kind": "answer",
+ "title": "Sigmoid or ReLU?",
+ "body": "Both work. Sigmoid keeps outputs in 0..1 like XOR's answers, and its slope σ(1 − σ) keeps backprop to one line."
+}

@@ -1,0 +1,6 @@
+{
+ "stepId": "nn3",
+ "kind": "hint",
+ "title": "Hint 1 of 2",
+ "body": "Look at how W1 and W2 start. What does every hidden neuron compute when all its weights are 0?"
+}

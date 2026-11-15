@@ -1,0 +1,6 @@
+{
+ "stepId": "nn2",
+ "kind": "explain",
+ "title": "How backprop assigns blame",
+ "body": "Start at the output: how wrong was it? Each weight into it is blamed by how much it contributed. Then do the same one layer back."
+}

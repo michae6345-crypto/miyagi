@@ -1,0 +1,388 @@
+{
+ "lesson": {
+  "id": "lesson-nn-from-scratch",
+  "title": "A neural net from scratch",
+  "goal": "build a neural net from scratch",
+  "workdir": "demo/nn-lab",
+  "libraries": {
+   "numpy": "2.x"
+  },
+  "mode": "lesson",
+  "complete": true,
+  "builtBy": "claude",
+  "overview": "We'll build a neural network with nothing but NumPy and teach it XOR: output 1 when exactly one input is 1. First the network and its forward pass, then backprop, then a training loop, and last a test that prints 0 1 1 0.",
+  "primer": [
+   {
+    "id": "p1",
+    "title": "A neuron holds a number",
+    "body": "Each neuron holds a number between 0 and 1, its activation. The inputs are the data; every other neuron computes its number from the layer before it."
+   },
+   {
+    "id": "p2",
+    "title": "Weights and a bias",
+    "body": "Each connection multiplies the signal by a weight: positive pushes the next neuron up, negative pushes it down. The bias shifts how easily the neuron lights up.",
+    "code": "z = x1 * w1 + x2 * w2 + b"
+   },
+   {
+    "id": "p3",
+    "title": "Sigmoid squishes",
+    "body": "Sigmoid turns any total into a number between 0 and 1, so a neuron's output reads like how active it is.",
+    "code": "1 / (1 + np.exp(-z))"
+   },
+   {
+    "id": "p4",
+    "title": "Learning goes downhill",
+    "body": "The loss says how wrong the outputs are. Backprop finds which way each weight should move to lower it, and each training step moves it a little that way.",
+    "code": "W -= lr * dW"
+   }
+  ],
+  "build": {
+   "summary": "A 2-4-1 neural network in NumPy that learns XOR.",
+   "outcome": "Run it and the loss falls below 0.001; it prints [0 1 1 0] for the four inputs.",
+   "estMinutes": 12
+  },
+  "flow": [
+   {
+    "label": "Inputs",
+    "detail": "x₁, x₂",
+    "stepIndex": 1
+   },
+   {
+    "label": "Hidden layer",
+    "detail": "σ(X·W1 + b1)",
+    "stepIndex": 1
+   },
+   {
+    "label": "Output",
+    "detail": "σ(h·W2 + b2)",
+    "stepIndex": 1
+   },
+   {
+    "label": "Backprop",
+    "detail": "chain rule",
+    "stepIndex": 2
+   },
+   {
+    "label": "Gradient step",
+    "detail": "W -= lr·dW",
+    "stepIndex": 3
+   }
+  ],
+  "prerequisites": [
+   {
+    "id": "numpy-arrays",
+    "title": "NumPy arrays",
+    "why": "X, y and every weight are arrays.",
+    "status": "unknown"
+   },
+   {
+    "id": "matrix-multiply",
+    "title": "Matrix multiply",
+    "why": "X @ W1 runs every hidden neuron at once.",
+    "status": "unknown"
+   },
+   {
+    "id": "derivatives",
+    "title": "Derivatives",
+    "why": "Backprop multiplies slopes along the network.",
+    "status": "unknown"
+   }
+  ],
+  "learnFirst": [
+   {
+    "title": "NumPy arrays",
+    "minutes": 5,
+    "kind": "read",
+    "covers": "numpy-arrays"
+   },
+   {
+    "title": "Matrix multiplication",
+    "minutes": 6,
+    "kind": "interactive",
+    "covers": "matrix-multiply"
+   }
+  ]
+ },
+ "sources": [],
+ "steps": [
+  {
+   "id": "nn1",
+   "index": 1,
+   "file": "nn.py",
+   "code": "X = np.array([[0, 0], [0, 1], [1, 0], [1, 1]])\ny = np.array([[0], [1], [1], [0]])\n\nnp.random.seed(0)\nW1 = np.random.randn(2, 4) * 0.5\nb1 = np.zeros((1, 4))\nW2 = np.random.randn(4, 1) * 0.5\nb2 = np.zeros((1, 1))\n\ndef sigmoid(z):\n    return 1 / (1 + np.exp(-z))\n\ndef forward(X):\n    h = sigmoid(X @ W1 + b1)\n    return h, sigmoid(h @ W2 + b2)",
+   "explanations": [],
+   "title": "Build the network",
+   "kind": "code",
+   "what": "The data, random weights and a forward pass",
+   "why": "Every guess the network makes is this forward pass: weighted sums squished by sigmoid, one layer at a time.",
+   "concepts": [
+    "p1",
+    "p2",
+    "p3"
+   ],
+   "action": "In nn.py, paste the network under # Step 1",
+   "instructions": "Under # Step 1, add the XOR data, the weights and the forward pass.",
+   "checks": [
+    {
+     "id": "nn1c1",
+     "type": "screen_contains",
+     "label": "The XOR data is in nn.py",
+     "app": "Code",
+     "pattern": "y\\s*=\\s*np\\.array\\(\\[\\[0\\],\\s*\\[1\\]"
+    },
+    {
+     "id": "nn1c2",
+     "type": "screen_contains",
+     "label": "W1 and W2 are created",
+     "app": "Code",
+     "pattern": "W2\\s*=\\s*np\\."
+    },
+    {
+     "id": "nn1c3",
+     "type": "screen_contains",
+     "label": "forward is defined",
+     "app": "Code",
+     "pattern": "def\\s+forward\\(X\\)"
+    }
+   ],
+   "precision_checks": [
+    {
+     "id": "nn1p1",
+     "type": "file_contains",
+     "label": "nn.py defines forward",
+     "file": "nn.py",
+     "pattern": "def forward\\(X\\):"
+    },
+    {
+     "id": "nn1p2",
+     "type": "file_contains",
+     "label": "nn.py has sigmoid",
+     "file": "nn.py",
+     "pattern": "1 / \\(1 \\+ np\\.exp\\(-z\\)\\)"
+    }
+   ],
+   "targets": [
+    {
+     "app": "Code",
+     "file": "nn.py",
+     "match": "# Step 1: the network",
+     "caption": "Paste the network under this line"
+    }
+   ],
+   "hints": [
+    "Use the drawer's Copy button, then paste under # Step 1.",
+    "forward returns two things: the hidden layer h and the output."
+   ],
+   "common_mistakes": [
+    "Pasting above import numpy as np, so np isn't defined yet.",
+    "Losing the indentation inside def forward."
+   ],
+   "estMinutes": 4
+  },
+  {
+   "id": "nn2",
+   "index": 2,
+   "file": "nn.py",
+   "code": "def backward(X, y, h, out):\n    d_out = 2 * (out - y) / len(X) * out * (1 - out)\n    d_h = d_out @ W2.T * h * (1 - h)\n    return h.T @ d_out, d_out.sum(0), X.T @ d_h, d_h.sum(0)",
+   "explanations": [],
+   "title": "Backprop",
+   "kind": "code",
+   "what": "A gradient for every weight, with the chain rule",
+   "why": "The chain rule sends the output's error back one layer at a time, so each weight learns its share of the blame.",
+   "concepts": [
+    "p4"
+   ],
+   "action": "In nn.py, add backward under # Step 2",
+   "instructions": "Under # Step 2, add backward. It returns one gradient per weight.",
+   "checks": [
+    {
+     "id": "nn2c1",
+     "type": "screen_contains",
+     "label": "backward is defined",
+     "app": "Code",
+     "pattern": "def\\s+backward\\("
+    },
+    {
+     "id": "nn2c2",
+     "type": "screen_contains",
+     "label": "The error flows back through W2",
+     "app": "Code",
+     "pattern": "d_h\\s*=\\s*d_out\\s*@\\s*W2\\.T"
+    }
+   ],
+   "precision_checks": [
+    {
+     "id": "nn2p1",
+     "type": "file_contains",
+     "label": "nn.py defines backward",
+     "file": "nn.py",
+     "pattern": "def backward\\(X, y, h, out\\):"
+    }
+   ],
+   "targets": [
+    {
+     "app": "Code",
+     "file": "nn.py",
+     "match": "# Step 2: backprop",
+     "caption": "Add backward under this line"
+    }
+   ],
+   "hints": [
+    "Start at the output: d_out is the error times sigmoid's slope, out * (1 - out).",
+    "d_h sends d_out back through W2, then multiplies by the hidden layer's slope."
+   ],
+   "common_mistakes": [
+    "Writing W2 instead of W2.T, so the shapes don't line up.",
+    "Forgetting the hidden slope h * (1 - h)."
+   ],
+   "estMinutes": 3
+  },
+  {
+   "id": "nn3",
+   "index": 3,
+   "file": "nn.py",
+   "code": "lr = 1.0\nfor epoch in range(5000):\n    h, out = forward(X)\n    dW2, db2, dW1, db1 = backward(X, y, h, out)\n    W2 -= lr * dW2\n    b2 -= lr * db2\n    W1 -= lr * dW1\n    b1 -= lr * db1\n    loss = np.mean((out - y) ** 2)\n    if epoch % 1000 == 0:\n        print(f\"epoch {epoch:4d}  loss {loss:.4f}\")",
+   "explanations": [],
+   "title": "Train",
+   "kind": "code",
+   "what": "A loop that steps every weight downhill 5,000 times",
+   "why": "Each step lowers the loss a little. If the loss stops falling, the network has stopped learning.",
+   "concepts": [
+    "p4"
+   ],
+   "action": "Add the training loop under # Step 3, then run python3 nn.py",
+   "instructions": "Under # Step 3, add the training loop, then run python3 nn.py in the terminal.",
+   "run_command": "python3 nn.py",
+   "checks": [
+    {
+     "id": "nn3c1",
+     "type": "screen_contains",
+     "label": "The loop updates the weights",
+     "app": "Code",
+     "pattern": "W1\\s*-=\\s*lr\\s*\\*\\s*dW1"
+    },
+    {
+     "id": "nn3c2",
+     "type": "screen_absent",
+     "label": "Training runs without errors",
+     "app": "Terminal",
+     "pattern": "Traceback|Error"
+    },
+    {
+     "id": "nn3c3",
+     "type": "metric_threshold",
+     "label": "Loss falls below 0.01",
+     "metric": "loss",
+     "op": "<",
+     "value": 0.01,
+     "metric_pattern": "epoch\\s+(?P<step>\\d+)\\s+loss\\s+(?P<value>[0-9.eE+-]+)",
+     "by_step": 4000
+    }
+   ],
+   "precision_checks": [
+    {
+     "id": "nn3p1",
+     "type": "file_contains",
+     "label": "nn.py has the training loop",
+     "file": "nn.py",
+     "pattern": "for epoch in range\\(5000\\):"
+    },
+    {
+     "id": "nn3p2",
+     "type": "metric_threshold",
+     "label": "Loss falls below 0.01",
+     "metric": "loss",
+     "op": "<",
+     "value": 0.01,
+     "metric_pattern": "epoch\\s+(?P<step>\\d+)\\s+loss\\s+(?P<value>[0-9.eE+-]+)",
+     "by_step": 4000
+    }
+   ],
+   "targets": [
+    {
+     "app": "Code",
+     "file": "nn.py",
+     "match": "# Step 3: train",
+     "caption": "Add the training loop under this line"
+    },
+    {
+     "app": "Terminal",
+     "file": "nn.py",
+     "match": "python3 nn.py",
+     "caption": "Run python3 nn.py and watch the loss"
+    }
+   ],
+   "hints": [
+    "Look at how W1 and W2 start. What does every hidden neuron compute when all its weights are 0?",
+    "Start them random, like the lesson: np.random.randn(2, 4) * 0.5 and np.random.randn(4, 1) * 0.5. Then run again."
+   ],
+   "common_mistakes": [
+    "Starting W1 and W2 at zero: every hidden neuron stays identical and the loss never moves.",
+    "Running before saving, so the old file runs."
+   ],
+   "estMinutes": 3
+  },
+  {
+   "id": "nn4",
+   "index": 4,
+   "file": "nn.py",
+   "code": "print((forward(X)[1] > 0.5).astype(int).ravel())",
+   "explanations": [],
+   "title": "Test it",
+   "kind": "code",
+   "what": "Print what it predicts for all four inputs",
+   "why": "Outputs above 0.5 count as 1, so you can check its answers against XOR.",
+   "concepts": [
+    "p1"
+   ],
+   "action": "Add the print under # Step 4, then run python3 nn.py",
+   "instructions": "Under # Step 4, print the predictions, then run python3 nn.py.",
+   "run_command": "python3 nn.py",
+   "expected_output": "[0 1 1 0]",
+   "checks": [
+    {
+     "id": "nn4c1",
+     "type": "screen_contains",
+     "label": "It predicts 0 1 1 0",
+     "app": "Terminal",
+     "pattern": "\\[0 1 1 0\\]"
+    }
+   ],
+   "precision_checks": [
+    {
+     "id": "nn4p1",
+     "type": "file_contains",
+     "label": "nn.py prints the predictions",
+     "file": "nn.py",
+     "pattern": "> 0\\.5\\)\\.astype\\(int\\)"
+    },
+    {
+     "id": "nn4p2",
+     "type": "output_contains",
+     "label": "The output is [0 1 1 0]",
+     "pattern": "\\[0 1 1 0\\]"
+    }
+   ],
+   "targets": [
+    {
+     "app": "Code",
+     "file": "nn.py",
+     "match": "# Step 4: test it",
+     "caption": "Print the predictions under this line"
+    }
+   ],
+   "hints": [
+    "forward(X)[1] is the output for all four inputs.",
+    "Compare with 0.5 and turn True/False into 1/0 with .astype(int)."
+   ],
+   "common_mistakes": [
+    "Printing forward(X) instead of forward(X)[1], which prints h too."
+   ],
+   "estMinutes": 2
+  }
+ ],
+ "build": {
+  "mode": "lesson",
+  "note": "Written by hand for the offline demo (scripts/make_nn_demo.py), no model call."
+ }
+}
