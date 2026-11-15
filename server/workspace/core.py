@@ -15,10 +15,12 @@ log = logging.getLogger("server.workspace")
 
 STATE_DIR = ".miyagi-state"  # under lessons_root(): one JSON per folder (keeps the learner's folder clean)
 # .vscode/settings.json in each code lesson folder (workspace settings; the learner's own VS Code settings stay as is).
-# accessibilitySupport "off": our AXManualAccessibility read would otherwise flip VS Code into "Screen Reader Optimized"
-# (MIYAGI_VSCODE_ACCESSIBILITY=auto|on writes that instead, empty leaves it out; never "off" while VoiceOver runs).
+# editor.accessibilitySupport is left out by default: our AXManualAccessibility read flips VS Code ("auto") into
+# "Screen Reader Optimized", but "off" makes VS Code 1.146 empty the editor's and terminal's AX text, so Miyagi would
+# fall back to OCR. MIYAGI_VSCODE_ACCESSIBILITY=off|on|auto writes that value (never "off" while VoiceOver runs).
 # window.title: VS Code's macOS default title drops the "●" unsaved marker that the screen code reads.
-VSCODE_A11Y = os.environ.get("MIYAGI_VSCODE_ACCESSIBILITY", "off").strip()
+VSCODE_A11Y = os.environ.get("MIYAGI_VSCODE_ACCESSIBILITY", "").strip().lower()
+VSCODE_A11Y = VSCODE_A11Y if VSCODE_A11Y in ("off", "on", "auto") else ""
 VSCODE_TITLE = "${dirty}${activeEditorShort}${separator}${rootName}${separator}${profileName}"
 
 

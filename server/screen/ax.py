@@ -248,7 +248,7 @@ def read_editor(focused, document: str | None) -> EditorState | None:
     if role not in ("AXTextArea", "AXTextField"):
         return None
     text = attr(focused, "AXValue")
-    if text is None:
+    if not text:  # "" = accessibilitySupport "off" (Monaco/xterm empty their AX text): no line or caret to trust
         return None
     text = str(text)
     sel = selected_range(focused) or (0, 0)

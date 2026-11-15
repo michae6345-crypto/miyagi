@@ -565,7 +565,7 @@ def _ax_editor_snapshot_unsafe() -> dict | None:
     if str(get(focused, "AXRole") or "") not in ("AXTextArea", "AXTextField"):
         return None
     text = get(focused, "AXValue")
-    if text is None:
+    if not text:  # "" = accessibilitySupport "off": Monaco empties its AX text, so caret_line/line_rect would be wrong
         return None
     text = str(text)
     sr = get(focused, "AXSelectedTextRange")

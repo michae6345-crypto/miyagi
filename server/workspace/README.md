@@ -123,7 +123,8 @@ spaces is the app's job (Electron `setVisibleOnAllWorkspaces(true, {visibleOnFul
 ### "Just teach me" mode: full screen, and where to type
 
 - `open_editor(path, file, fullscreen=True)` opens Cursor/VS Code as usual (CLI, then `open -a` so it's frontmost). With
-  Accessibility, a background thread then sets `AXFullScreen=true` on the editor's window, instead of the left-60% layout.
+  Accessibility, a background thread then maximizes the lesson folder's window in the current Space (`MIYAGI_FULLSCREEN=native`:
+  `AXFullScreen=true`, macOS full screen in its own Space), instead of the left-60% layout. `MIYAGI_ARRANGE=0` turns it off.
   Without Accessibility, `report["fullscreen"]` = "skipped: Accessibility not granted (the learner can press Ctrl+Cmd+F)" and
   the editor stays a normal frontmost window. AppleScript keystrokes or menu clicks need the same permission, so there is no
   permission-free full screen.
