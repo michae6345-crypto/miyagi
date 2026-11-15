@@ -62,6 +62,39 @@ def step_file(step: dict, last: dict | None = None) -> str:
     return m.group(1) if m else ""
 
 
+CREATE_WORDS = re.compile(r"\b(create|make|new file|save (?:it )?as|add a file)\b", re.IGNORECASE)
+
+
+def creates_file(step: dict, name: str) -> bool:
+    """Does this step ask the learner to create `name` (vs. edit an existing file)?"""
+    if any(c.get("type") == "file_exists" and (c.get("file") or "").endswith(name) for c in step.get("checks") or []):
+        return True
+    text = f"{step.get('title', '')}. {step.get('instructions', '')}"
+    return bool(name) and name in text and bool(CREATE_WORDS.search(text))
+
+
+def start_instruction(step: dict, screen: Any = None) -> str:
+    """One plain instruction to START this step, from its own instructions (Michael: a step not started
+    yet gets "Create calculator.py in the lesson folder, then print a welcome message…", not a question)."""
+    name = (step_file(step) or "").rsplit("/", 1)[-1]
+    instr = re.sub(r"\s+", " ", step.get("instructions") or step.get("title") or "").strip()
+    sentences = [x for x in re.split(r"(?<=[.!?])\s+", instr) if x]
+    if not (name and creates_file(step, name)):
+        return " ".join(sentences[:2]) or "Start this step"
+    first = where_hint(step, None, screen).rstrip(".")
+    rest = ""
+    for sent in sentences:
+        if name in sent:  # the creation sentence: keep only what comes after "and"/"then"
+            m = re.search(r"\b(?:and|then)\b\s*(.+)$", sent)
+            rest = m.group(1) if m else ""
+        else:
+            rest = rest or sent
+        if rest:
+            break
+    rest = rest.rstrip(".")
+    return f"{first}, then {rest[:1].lower() + rest[1:]}." if rest else f"{first}."
+
+
 def step_command(step: dict) -> str:
     return next((c.get("command", "") for c in step.get("checks") or [] if c.get("command")), "")
 
@@ -109,6 +142,8 @@ def where_hint(step: dict, last: dict | None = None, screen: Any = None) -> str:
             return f"You're in {ed['app']} on {ed['file']}. Open {name} from the lesson folder"
         if ed["file"] == name and ed["unsaved"]:
             return f"{name} is open in {ed['app']} with unsaved changes. Save it"
+    if name and creates_file(step, name):
+        return f"Create {name} in the lesson folder" + (f" ({ed['app']} is open)" if ed and not ed["file"] else "")
     if f.endswith(".ipynb"):
         return f"Open {f} in Jupyter or Colab"
     if f:

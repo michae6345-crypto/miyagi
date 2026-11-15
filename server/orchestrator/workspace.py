@@ -323,8 +323,11 @@ class Workspace:
             ok = self._open_full(ws, workdir)
             log.info("opened workspace %s full screen: %s", workdir, ok)
             return
-        if ws is not None:  # S2: `code -n <dir> -g <starter file>`, fallback `open -a`
-            ok = ws.open_editor(workdir, ws.open_file_for(Path(workdir)), runner=self.run)
+        if ws is not None:  # S2: `code -n <dir> -g <starter file>` (PATH, else the app's bundled CLI), fallback `open -a`
+            # the real engine lets S2 run its own runner: it waits for the CLI's exit code, so a failing `code`
+            # falls back to `open -a "Visual Studio Code" <dir>` (tests inject theirs)
+            runner = None if self.run == self._spawn else self.run
+            ok = ws.open_editor(workdir, ws.open_file_for(Path(workdir)), runner=runner)
             log.info("opened workspace %s in VS Code: %s", workdir, ok)
             return
         ok = False

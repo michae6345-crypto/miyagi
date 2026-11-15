@@ -34,8 +34,12 @@ EDITORS: dict[str, dict] = {
                "bundled_cli": "/Applications/Visual Studio Code.app/Contents/Resources/app/bin/code",
                "cask": "visual-studio-code", "url": "https://code.visualstudio.com/download"},
 }
-PREFERENCE = ["vscode", "cursor"]  # Michael uses VS Code: Cursor only when VS Code is missing
-ENV_NAMES = {"cursor": "cursor", "code": "vscode", "vscode": "vscode", "vs code": "vscode", "visual studio code": "vscode"}
+# Cursor is banned (Michael, Sat 4:15 PM: "permanently ban it from using Cursor"): Miyagi only ever opens, names or
+# offers VS Code. MIYAGI_ALLOW_CURSOR=1 brings Cursor back for someone who wants it.
+ALLOW_CURSOR = os.environ.get("MIYAGI_ALLOW_CURSOR", "").strip() == "1"
+PREFERENCE = ["vscode", "cursor"] if ALLOW_CURSOR else ["vscode"]
+ENV_NAMES = {"code": "vscode", "vscode": "vscode", "vs code": "vscode", "visual studio code": "vscode",
+             **({"cursor": "cursor"} if ALLOW_CURSOR else {})}
 # Kept for older callers (orchestrator fallback).
 VSCODE_APP = EDITORS["vscode"]["app"]
 BUNDLED_CLI = EDITORS["vscode"]["bundled_cli"]

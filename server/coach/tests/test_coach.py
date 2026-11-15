@@ -44,7 +44,7 @@ def run(coro):
 def assert_offtrack(card: dict) -> None:
     """Shape of EngineEvents['offtrack'] in shared/contracts/events.ts."""
     p = coach.public(card)
-    assert set(p) <= {"stepId", "severity", "title", "body", "diff", "citation", "actions", "guidingQuestion", "offline"}
+    assert set(p) <= {"stepId", "severity", "title", "body", "diff", "citation", "actions", "guidingQuestion", "offline", "notStarted"}
     assert p["severity"] in ("warn", "fail")
     assert 0 < len(p["title"].split()) <= 8
     assert 0 < len(p["body"].split()) <= 42  # ~30 by contract; the action sentence is never cut
@@ -181,7 +181,7 @@ def test_triage_not_attempted_is_template_without_llm(monkeypatch):
             "checks": [{"id": "c1", "type": "file_contains", "label": "residual defined", "file": "pinn.py", "pattern": "def residual"}]}
     card = run(coach.diagnose(step, [{"checkId": "c1", "label": "residual defined", "status": "fail"}], None, ""))
     assert_offtrack(card)
-    assert card["_meta"]["route"] == "template" and card["body"] == "Start from u_t + β·u_x."
+    assert card["_meta"]["route"] == "template" and card["notStarted"] is True and card["body"] == "Define residual()."
 
 
 def test_triage_cuda_error_is_instant_playbook(monkeypatch):

@@ -14,7 +14,7 @@ from .common import fmt_t, get_lesson
 from .diagnose import LAST
 from .explain import match_explanation
 from .playbook import BY_ID, CITATIONS, GUIDING_QUESTIONS
-from .pointing import code_visible, deterministic_targets, where_hint
+from .pointing import code_visible, deterministic_targets, start_instruction, where_hint
 from .screen import ScreenContext
 
 LEVELS = ("question", "video", "paper", "diff")
@@ -53,6 +53,9 @@ def hint(step: dict, level: int, last_offtrack: dict | None = None, screen: Scre
     if screen is None:
         return card
     last = last_offtrack or LAST.get(step.get("id", "")) or {}
+    if _not_started(last) and card["level"] == 0:  # the plain instruction already says where, with the screen's names
+        card["body"] = start_instruction(step, screen)
+        return card
     targets = deterministic_targets(step, screen, last)
     if targets:
         card["targets"] = targets
@@ -93,9 +96,18 @@ def _check_question(step: dict) -> str | None:
     return None
 
 
+def _not_started(card: dict | None) -> bool:
+    c = card or {}
+    return bool(c.get("notStarted") or (c.get("_meta") or {}).get("route") == "template" or str(c.get("title", "")).startswith("Not yet:"))
+
+
 def _hint(step: dict, level: int, last_offtrack: dict | None = None) -> dict:
     level = max(0, min(int(level), 3))
     last = last_offtrack or LAST.get(step.get("id", "")) or {}
+    if _not_started(last):  # "you haven't started" is not a diagnosis: nothing to ask questions about yet
+        if level == 0:
+            return _card(step, 0, f"Start · {_short(step)}", start_instruction(step))
+        last = {}
     pid = (last.get("_meta") or {}).get("playbook_id") or _pid_from_citation(last)
     mode = BY_ID.get(pid) if pid else None
     hints = step.get("hints") or []

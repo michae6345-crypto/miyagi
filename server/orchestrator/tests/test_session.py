@@ -40,6 +40,7 @@ class Rig:
                                result_stagger_s=0, build_tick_s=0.01, screen=screen, seen_interval_s=0,
                                inputs=self.inputs)
         self.s.ready_hold_s = 0
+        self.s.offtrack_grace_s = 0  # most tests drive the ladder at once; the grace has its own test
 
     @property
     def events(self) -> list[dict]:
@@ -140,7 +141,7 @@ def test_learn_then_build_streams_happy_path(rig):
     started = rig.of("step.started")[0]
     assert started["stepId"] == "s1" and started["index"] == 0
     after = t[t.index("step.started"):]
-    assert after[:4] == ["step.started", "check.updated", "video.seek", "video.play"]
+    assert after[:2] == ["step.started", "check.updated"] and after.index("video.seek") + 1 == after.index("video.play")
     assert rig.of("video.seek")[0] == {"t": 0.0, "play": True}
 
 
@@ -170,18 +171,38 @@ def test_done_without_any_learner_action_asks_to_confirm(rig):
 
     async def go():
         await rig.start_lesson()
-        assert rig.s.step["id"] == "s1"  # checks pass, but the clip is still playing
+        assert rig.s.step["id"] == "s1"
         assert rig.of("check.updated")[-1]["status"] == "pass"
-        assert not rig.of("step.passed")
-        await rig.end_segment()  # screen says done, but nobody did anything: ask, don't assert
-        assert not rig.of("step.passed")
-        assert rig.of("card")[-1]["title"] == "Looks done?" and rig.of("card")[-1]["actions"] == ["confirm"]
+        assert not rig.of("step.passed")  # screen says done, but nobody did anything: ask, don't assert
+        looks = [c for c in rig.of("card") if c["title"] == "Looks done?"]
+        assert looks and looks[0]["actions"] == ["confirm"]
+        assert "video.seek" not in rig.types()  # already ahead of the clip: the video isn't replayed
         await rig.s.action("confirm")
         await rig.settle()
 
     run(go())
     assert rig.of("step.passed")[0]["stepId"] == "s1"
-    assert "video.pause" in rig.types()  # gated at the clip's end until the learner confirms
+
+
+def test_video_plays_only_when_the_step_needs_it(rig):
+    graph = stubs.load_fixture_lesson()
+    graph["steps"][0].update(title="Install Python and VS Code", setup=True)
+
+    async def go():
+        await rig.s.load_graph(graph)  # s1: setup -> no seek / play
+        await rig.settle()
+        assert "video.seek" not in rig.types() and rig.s.segment_done
+        rig.write("# s1\n")
+        await rig.s.goto_step(1)  # s2 teaches something, but the learner is typing: position it, don't play
+        rig.s.inputs = __import__("server.orchestrator.inputs", fromlist=["FakeInputs"]).FakeInputs(rig.clock)
+        await rig.s.goto_step(1)
+        rig.s.inputs.key()
+        await rig.s.goto_step(1)
+        await rig.settle()
+
+    run(go())
+    seeks = rig.of("video.seek")
+    assert seeks[0] == {"t": 40.0, "play": True} and seeks[-1] == {"t": 40.0, "play": False}
 
 
 def test_spotlight_on_segment_end_uses_screen_rect(tmp_path, monkeypatch):
@@ -608,12 +629,14 @@ def test_demo_mode_falls_back_to_stubs(rig, monkeypatch, tmp_path):
     assert r2.of("offtrack")[0]["title"] != "Loss plateaued at large β"  # E5's own DEMO card, not the old stub
 
 
-def test_vscode_opens_only_after_the_learner_says_yes(tmp_path, monkeypatch):
+def test_coding_lesson_opens_vscode_by_itself_after_lesson_ready(tmp_path, monkeypatch):
+    """Michael: "it needs to open VS Code". A coding lesson with nothing missing opens the editor on its own
+    (after lesson.ready, no "Open…?" card) and jumps to the step's target."""
     monkeypatch.setenv("TUT_WORKDIR", str(tmp_path))
     from server.orchestrator import workspace as wsmod
     from server.orchestrator.workspace import Workspace
 
-    monkeypatch.setattr(wsmod, "requirements", lambda graph, folder: None)  # no S2 check: the plain offer
+    monkeypatch.setattr(wsmod, "requirements", lambda graph, folder: None)  # no S2 check (no key)
 
     calls = []
     ws = Workspace(enabled=True, runner=lambda argv: calls.append(argv) or True)
@@ -623,19 +646,41 @@ def test_vscode_opens_only_after_the_learner_says_yes(tmp_path, monkeypatch):
 
     async def go():
         await rig.start_lesson()
+        await asyncio.sleep(0.05)  # the setup check runs in the background
+        await rig.settle()
         await rig.s.goto_step(3)
         await rig.settle()
-        await asyncio.sleep(0.05)  # the setup card is computed in the background
-        assert not calls  # nothing opened, not even `code -g`
-        card = rig.of("card")[0]
-        assert card["title"] == f"Open {wsmod.editor_label()}?" and card["actions"] == ["open_editor"]  # Cursor if installed
-        await rig.s.action("open_editor")
 
     run(go())
-    first = calls[0]  # S2's open_editor: `code -n <dir> [-g <file>]`, or `open -a "Visual Studio Code" <dir>`
+    first = calls[0]  # S2's open_editor: `code -n <dir> [-g <file>]` (bundled CLI if not on PATH), or `open -a`
     assert (first[1:3] == ["-n", str(tmp_path.resolve())]) or (first[:3] == ["open", "-a", "Visual Studio Code"])
+    assert rig.s.editor_open and not [c for c in rig.of("card") if (c.get("actions") or []) == ["open_editor"]]
+    assert rig.types().index("lesson.ready") < len(rig.types())  # opened after the lesson UI was up
     gotos = [c for c in calls if "-g" in c and "-n" not in c]
     assert gotos and gotos[-1][-1] == f"{tmp_path / 'pinn_convection.py'}:4"
+
+
+def test_setup_card_only_when_a_tool_is_missing(tmp_path, monkeypatch):
+    monkeypatch.setenv("TUT_WORKDIR", str(tmp_path))
+    from server.orchestrator import workspace as wsmod
+    from server.orchestrator.workspace import Workspace
+
+    items = [{"tool": "vscode", "label": "VS Code", "kind": "editor", "needed": True, "ok": True},
+             {"tool": "torch", "label": "PyTorch", "kind": "pip", "needed": True, "ok": False}]
+    monkeypatch.setattr(wsmod, "requirements", lambda graph, folder: items)
+    monkeypatch.setattr(wsmod, "setup_card", lambda its, resources=None: {"kind": "setup", "title": "Before you start",
+                                                                           "body": "PyTorch is missing", "actions": ["install"]})
+    calls = []
+    rig = Rig(tmp_path)
+    rig.s.workspace = Workspace(enabled=True, runner=lambda argv: calls.append(argv) or True)
+
+    async def go():
+        await rig.start_lesson()
+        await asyncio.sleep(0.05)
+        await rig.settle()
+
+    run(go())
+    assert [c for c in rig.of("card") if c["kind"] == "setup"] and not calls and not rig.s.editor_open
 
 
 def test_non_code_lesson_never_offers_vscode(tmp_path, monkeypatch):
@@ -2368,3 +2413,115 @@ def test_tagged_setup_step_passes_on_its_required_tools(rig):
 
     run(go())
     assert rig.of("step.passed")[0]["stepId"] == "s1"  # node is missing, but this step only requires python
+
+
+def test_no_offtrack_in_the_first_20s_of_a_step(rig):
+    rig.s.offtrack_grace_s = 20
+
+    async def go():
+        await _to_step(rig, 5)
+        rig.write("def train(model):\n    beta = 30\n    for epoch in range(4000):\n        pass\n")
+        await rig.end_segment()
+        await rig.run("r1", PLATEAU)  # a real failing run 0 s into the step: still too early
+        assert not rig.of("offtrack")
+        rig.clock.t += 21
+        await rig.run("r2", PLATEAU)
+
+    run(go())
+    assert len(rig.of("offtrack")) == 1
+
+
+def test_not_started_diagnosis_is_a_calm_hint_never_an_offtrack(rig):
+    async def diagnose(step, failed, metrics, code, **kw):
+        return {"notStarted": True, "title": "Start: Write the training loop",
+                "body": "Create the training loop in pinn_convection.py, then run it."}
+
+    rig.s.m.diagnose = diagnose
+
+    async def go():
+        await _to_step(rig, 5)
+        rig.write("# nothing yet\n")
+        await rig.end_segment()
+        await rig.run("r1", PLATEAU)
+
+    run(go())
+    assert not rig.of("offtrack")
+    card = rig.of("card")[-1]
+    assert card["kind"] == "hint" and card["title"] == "Start: Write the training loop"
+    assert {"state": "offtrack"} not in rig.of("status") and rig.of("status")[-1] == {"state": "watching"}
+
+
+def test_not_yet_card_and_offtrack_never_both_for_the_same_check(rig):
+    rig.s.check_wait_s = 0
+    spoke = []
+    rig.s._consider_speaking = (lambda orig: lambda *a, **k: (spoke.append(a[0]), orig(*a, **k)))(rig.s._consider_speaking)
+
+    async def go():
+        await _to_step(rig, 1)  # s2: Linear + Tanh
+        await rig.end_segment()
+        rig.write("import torch.nn as nn\nnet = nn.Sequential(nn.Linear(2, 50))\n")
+        await rig.s.action("check_step")  # "Not yet": uses tanh
+        await rig.settle()
+        for _ in range(2):  # the same failure saved twice: the coach would repeat it as an offtrack
+            await rig.s.on_file_change([str(rig.workdir / "pinn_convection.py")])
+            await rig.settle()
+
+    run(go())
+    assert "repeat" in spoke  # the coach path really ran
+    assert [c["title"] for c in rig.of("card")].count("Not yet") == 1
+    assert not [o for o in rig.of("offtrack") if o["level"] == 2]
+
+
+
+def test_step_started_instructions_are_one_concrete_action(rig):
+    from server.orchestrator.session import LessonSession
+
+    s = rig.s
+    assert s._action_line({"id": "s1", "title": "t", "file": "calculator.py",
+                           "code": "print(\"Calculator\")\nx = 1\n", "instructions": "Long text."}) \
+        == 'Create calculator.py and type print("Calculator") …'
+    (rig.workdir / "calculator.py").write_text("")
+    assert s._action_line({"id": "s1", "title": "t", "file": "calculator.py", "code": "print(1)\n"}) \
+        == "In calculator.py, type print(1)"
+    assert s._action_line({"id": "s2", "title": "t", "instructions": "Add an nn.Tanh after each Linear layer. "
+                                                                     "This keeps the output smooth."}) \
+        == "Add an nn.Tanh after each Linear layer."
+    assert s._action_line({"id": "s3", "title": "t", "action": "Run python calculator.py", "instructions": "x"}) \
+        == "Run python calculator.py"
+    assert LessonSession  # (imported for the type)
+
+    async def go():
+        await rig.start_lesson()
+
+    run(go())
+    st = rig.of("step.started")[0]
+    assert st["instructions"] == "Create pinn_convection.py in your project folder." and "details" not in st
+
+
+def test_open_editor_without_code_on_path(tmp_path, monkeypatch):
+    """Michael's Mac has no `code` on PATH: the app's bundled CLI is used, and if the CLI fails the folder still
+    opens with `open -a "Visual Studio Code" <folder>`."""
+    import sys
+
+    from server.workspace import editor as ed
+
+    fake_cli = tmp_path / "code"
+    fake_cli.write_text("#!/bin/sh\n")
+    monkeypatch.setattr(ed.shutil, "which", lambda name: None)
+    monkeypatch.setitem(ed.EDITORS["vscode"], "bundled_cli", str(fake_cli))
+    assert ed._cli(ed.EDITORS["vscode"]) == str(fake_cli)
+
+    monkeypatch.setattr(sys, "platform", "darwin")
+    folder = tmp_path / "lesson"
+    folder.mkdir()
+    vscode = {"id": "vscode", "label": "Visual Studio Code", "app": "Visual Studio Code", "cli": str(fake_cli)}
+    calls = []
+
+    def runner(argv):  # the CLI fails (exit != 0); `open -a` works
+        calls.append(argv)
+        return argv[0] == "open"
+
+    rep = ed.open_editor_report(folder, editor=vscode, runner=runner, arrange_windows=False, trusted=lambda: False,
+                                previous={})
+    assert rep["opened"] and calls[0][:2] == [str(fake_cli), "-n"]
+    assert calls[1] == ["open", "-a", "Visual Studio Code", str(folder.resolve())]

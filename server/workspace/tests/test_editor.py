@@ -42,7 +42,14 @@ def test_editor_id_and_label_follow_the_preference(monkeypatch):
     assert E.goto_argv("/l/main.py", 7) == ["/opt/homebrew/bin/cursor", "-r", "-g", "/l/main.py:7"]
     monkeypatch.setattr(E, "installed_editors", list)
     monkeypatch.setenv("MIYAGI_EDITOR", "cursor")
-    assert E.editor_id() == "cursor"  # not installed yet: the setup card offers to install Cursor
+    expected = "cursor" if E.ALLOW_CURSOR else "vscode"  # Cursor is banned unless MIYAGI_ALLOW_CURSOR=1
+    assert E.editor_id() == expected
+
+
+def test_cursor_is_banned_by_default():
+    if E.ALLOW_CURSOR:
+        return
+    assert E.PREFERENCE == ["vscode"] and "cursor" not in E.ENV_NAMES
 
 
 def opener(tmp_path, ok=lambda a: True):

@@ -96,8 +96,8 @@ class ScreenBridge:
 
     def locate(self, match: str, app: str | None = None) -> dict | None:
         """-> {rect:{x,y,w,h}, app, matched} or None."""
-        if self.reader is None or not match:
-            return None
+        if self.reader is None or not match or self.down_reason():
+            return None  # capture is failing: a locate would block on a fresh capture for seconds (S1)
         try:
             res = self.reader.locate_match(match, app)
         except Exception:  # noqa: BLE001

@@ -29,7 +29,7 @@ export interface EngineEvents {
                               mode?: "video" | "lesson" }; steps: StepSummary[] };   // mode "lesson" ("Just teach me"): no video, no player events; the editor is full screen and each step spotlights where to type   // complete false = a long video is still building (see lesson.updated)
   /** a long video's next part was built: new steps APPENDED (ids never change, earlier steps never edited) */
   "lesson.updated": { steps: StepSummary[]; complete: boolean; parts?: { done: number; failed: number; total: number } };
-  "step.started": { stepId: string; index: number; title: string; instructions: string; video?: VideoSegment | null };   // video null/absent: no player for this step
+  "step.started": { stepId: string; index: number; title: string; instructions: string; video?: VideoSegment | null; details?: string };   // instructions: ONE concrete action ("Create calculator.py and type print(…)"); details: the full explanation; video null/absent: no player for this step
   "check.updated": { stepId: string; checkId: string; label: string; status: CheckStatus; detail?: string };
   "step.passed": { stepId: string; nextStepId?: string; pending?: boolean; skipped?: boolean };   // skipped: the learner pressed Skip (action skip_step): not a pass, never green  // pending: no next step YET (the next part is still building); the engine continues on lesson.updated
   "offtrack": {
