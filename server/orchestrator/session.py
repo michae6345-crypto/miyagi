@@ -115,11 +115,14 @@ class BuildStage(logging.Handler):
         super().__init__(level=logging.INFO)
         self.text = "Watching the video"
         self.structured = False  # once the builder reports stages, ignore log matching
+        self.cache_hit = False  # E2 answered from its lesson cache (nothing was built: no "ready" moment to linger on)
 
     def on_progress(self, stage: str, message: str = "") -> None:
         """E2's progress callback: honest, stable stage ids."""
         self.structured = True
         msg = (message or "").strip()
+        if stage == "cache_hit":
+            self.cache_hit = True
         if stage == "engine_switch":
             self.text = self.SWITCH_LABELS.get(msg, "Switching to the transcript")
         elif stage == "steps_ready":
@@ -250,6 +253,26 @@ def is_notebook_lesson(graph: dict) -> bool:
             if str(x.get("file") or "").endswith(".ipynb"):
                 return True
     return False
+
+
+def is_colab_lesson(graph: dict) -> bool:
+    """A notebook lesson done in Google Colab (a browser), never in VS Code."""
+    blob = " ".join([str((graph.get("lesson") or {}).get(k) or "") for k in ("title", "goal")]
+                    + [s.get("url") or "" for s in graph.get("sources", [])]
+                    + [f"{st.get('title', '')} {st.get('instructions', '')}" for st in graph.get("steps", [])]).lower()
+    return "colab" in blob
+
+
+def _use_lesson_venv(graph: dict) -> None:
+    """t9 V6 (server/lesson/venv_steps.py): a step that makes a venv / pip-installs the lesson's libraries uses the
+    lesson's .venv instead (cached lessons too). Never breaks a lesson load."""
+    try:
+        from server.lesson.venv_steps import use_lesson_venv
+
+        if changed := use_lesson_venv(graph):
+            log.info("lesson .venv: step(s) %s now use the lesson's .venv (no second venv, no reinstall)", ", ".join(changed))
+    except Exception:  # noqa: BLE001
+        log.exception("lesson .venv normalisation failed")
 
 
 def unscope_editor_apps(graph: dict) -> None:
@@ -514,13 +537,19 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
                 await self.emit("card", card)
             await self._maybe_pass_setup_step()
             return
-        coding = not self.notebook_lesson and (wsmod.editor_needed(items) if items else wsmod.needs_editor(graph))
+        coding = self._editor_lesson(graph, items)
         if items:  # S2: what this lesson needs, what's installed, install recipes (+ "Download tutorial files")
             self.reqs = items
             missing = [it for it in items if it.get("needed") and not it.get("ok")]
-            if coding and not missing:  # everything's here: open the editor now, no "Ready to go… Open?" card
+            if coding:  # t9 V8: VS Code opens on the lesson folder by itself, as the curated lesson's does, alongside
+                # the setup card (which then never offers "Open VS Code"); the learner no longer has to press Open
+                if missing:
+                    card = wsmod.setup_card(items, resources=found)
+                    if card:
+                        self._setup_card = card = wsmod.editor_opens(card, items)
+                        await self.emit("card", card)
                 await self._auto_open_editor(folder)
-                if found:  # keep the video's files one tap away
+                if found and not missing:  # keep the video's files one tap away
                     await self.emit("card", {"kind": "hint", "title": "Tutorial files",
                                              "body": f"The video links {len(found)} file(s). Save them in your lesson folder?",
                                              "actions": ["download"]})
@@ -533,6 +562,16 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
             return
         if coding:  # no setup check available (module missing, no key): a coding lesson opens its editor
             await self._auto_open_editor(folder)
+
+    def _editor_lesson(self, graph: dict, items: list[dict] | None) -> bool:
+        """Does this video lesson happen in VS Code (so VS Code opens by itself)? t9 V8: a Jupyter notebook lesson does
+        too when the setup check says it needs the editor (test 9: mnist.ipynb in VS Code); a Colab one stays in the
+        browser."""
+        from . import workspace as wsmod
+
+        if self.notebook_lesson:
+            return bool(items) and wsmod.editor_needed(items) and not is_colab_lesson(graph)
+        return wsmod.editor_needed(items) if items else wsmod.needs_editor(graph)
 
     async def _auto_open_editor(self, folder: str) -> None:
         """Coding lesson, nothing missing: open the learner's editor on the lesson folder (S2: VS Code first, the
@@ -629,7 +668,7 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
                         fresh = [it for it in fresh if it.get("needed") and not it.get("ok") and it.get("kind") != "editor"]
                     self._setup_card = wsmod.setup_card(fresh) if fresh else None
                     if self._setup_card and opened:
-                        self._setup_card["actions"] = [a for a in self._setup_card.get("actions") or [] if a != "open_editor"]
+                        wsmod.editor_opens(self._setup_card, fresh)
             if res.get("ok") and (item.get("install") or {}).get("method") == "pip" and self.workdir \
                     and getattr(self.screen, "reader", None) is not None:  # real windows only (never in tests)
                 # E20: Pylance resolved `import requests` before the .venv existed and never looked again: the lesson's
@@ -970,10 +1009,12 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
         self.query = query
         await self._status("thinking")
         self.results = {}
+        early: set[str] = set()
         try:
             async for r in self.m.search(query):  # streamed as the finder produces them
                 self.results[r["id"]] = r
                 await self.emit("search.result", r)
+                self._prefetch_early(r, early)
                 if self.result_stagger_s and self.m.demo:
                     await asyncio.sleep(self.result_stagger_s)
         except asyncio.CancelledError:  # a newer learn / pick replaced this search (main.py): not "searching" any more
@@ -987,6 +1028,20 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
             self.m.prefetch_preflight(list(self.results.values()), self.query)
         self.phase = "idle" if self.graph is None else self.phase
         await self._status("idle")
+
+    PREFETCH_EARLY = 3  # S8: video rows preflighted while the search still streams (preflight.prefetch's top=3)
+
+    def _prefetch_early(self, row: dict, early: set[str]) -> None:
+        """S8: the first few video rows get their preflight as they arrive, not at search.done. A live search streams
+        its first rows at ~5 s and ends at ~18 s; a pick before search.done cancels the search (main.py), so the
+        preflight only ran on the pick and its card waited ~3-5 s for Claude. search.done still prefetches the final
+        top 3 (preflight's memo / in-flight share makes a row prefetched here free there)."""
+        if len(early) >= self.PREFETCH_EARLY or row.get("id") in early or not video_id_from_url(row.get("url", "")):
+            return
+        if not self.m.has_preflight():
+            return
+        early.add(row.get("id"))
+        self.m.prefetch_preflight([row], self.query)
 
     async def build_lesson(self, result_ids: list[str]) -> None:
         picked = [self.results[i] for i in result_ids if i in self.results]
@@ -1044,7 +1099,24 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
         card = self.m.preflight_card(res)
         self.reqs = list(card.get("items") or res.get("items") or []) or self.reqs  # Install on this card uses S2's flow
         pick["card"] = card
+        await self._sync_row_captions(res)
         await self.emit("card", card)
+
+    async def _sync_row_captions(self, res: dict) -> None:
+        """V5: the app's preflight line says Captions / No captions from the picked video's search row, whose False only
+        meant "no CC badge" (test 9: "No captions" for a video built from a 181-line transcript). Re-send that row (same
+        id: the app updates it in place) with what preflight knows: True when known, else no claim at all."""
+        vid = res.get("videoId")
+        for row in self.results.values():
+            if not vid or row.get("videoId") != vid or row.get("captions") is (True if res.get("captions") else None):
+                continue
+            if res.get("captions"):
+                row["captions"] = True
+            elif "captions" in row:
+                row.pop("captions")
+            else:
+                continue
+            await self.emit("search.result", row)
 
     async def _build_pick(self) -> None:
         pick, self.pending_pick = self.pending_pick, None
@@ -1141,6 +1213,8 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
         await self.emit("lesson.ended", {**({"lessonId": lesson_id} if lesson_id else {}), "reason": reason})
         await self._status("idle")
 
+    CACHED_READY_HOLD_S = 0.6  # the "Lesson ready" hold for a lesson E2 served from its cache (as _load_curated's)
+
     async def _build(self, url: str, goal: str, video_meta: dict | None = None) -> None:
         """Build a lesson with live progress (>= 1 tick/s, stage names from the builder's own log
         events). Any failure, timeout or cancellation ends with `error` (human wording), a final
@@ -1228,7 +1302,9 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
                 graph.setdefault("lesson", {})["workdir"] = folder
             self.build_progress = None
             await self.emit("lesson.building", {"message": "Lesson ready", "progress": 1.0})
-            await asyncio.sleep(self.ready_hold_s)  # let the "ready" moment be seen before the lesson UI
+            # let the "ready" moment be seen before the lesson UI; a cached lesson had no build to see finish, so it
+            # holds like a curated one (0.6 s): Build -> lesson.ready went 1.5 s -> 0.6 s on a demo re-run
+            await asyncio.sleep(min(self.ready_hold_s, self.CACHED_READY_HOLD_S) if stage.cache_hit else self.ready_hold_s)
             ok = True
         except BaseException as e:
             if isinstance(e, Exception) and progressive["loaded"] and self.graph is not None:
@@ -2170,6 +2246,7 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
         if self.graph is None:
             return
         new = copy.deepcopy(g)
+        _use_lesson_venv(new)
         new.setdefault("lesson", {})["workdir"] = self.graph.get("lesson", {}).get("workdir") or self.workdir
         new["lesson"]["complete"] = bool(complete or new["lesson"].get("complete"))
         new["lesson"]["provisional"] = False  # the app drops the placeholder on this lesson.ready
@@ -2193,6 +2270,7 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
             return
         known = {st["id"] for st in self.steps}
         new = [copy.deepcopy(st) for st in g.get("steps", []) if st["id"] not in known]
+        _use_lesson_venv({"lesson": self.graph.get("lesson") or {}, "steps": new})
         self.graph["steps"].extend(new)
         lesson = self.graph.setdefault("lesson", {})
         for k in ("parts", "builtBy", "goalMatch"):
@@ -2232,6 +2310,7 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
         self.notebook_lesson = is_notebook_lesson(graph)
         if self.notebook_lesson:
             unscope_editor_apps(graph)  # Colab/Jupyter in a browser counts, not just VS Code
+        _use_lesson_venv(graph)  # t9 V6: a video's "python3 -m venv venv && pip3 install …" step uses the lesson's .venv
         self.graph = graph
         self.runs = {}
         self._extend_failed = False
@@ -2327,6 +2406,24 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
         return {"lesson": info, "steps": steps}
 
     # ------------------------------------------------------------------ steps
+    _RUN_VERB = re.compile(r"^(?:run|execute|press|hit|click)\b\s*", re.I)
+    _NOTEBOOK_RUN = re.compile(r"shift\s*\+\s*enter|\bcells?\b", re.I)
+
+    def _run_line(self, step: dict, cmd: str) -> str:
+        """V5: "Run <cmd> in the VS Code terminal" for a shell command. A video build's run_command can be the action in
+        words ("Run the cell (Shift+Enter)", "run python3 app.py"): never "Run Run …", and a notebook cell (Shift+Enter, a
+        cell, a .ipynb step) runs in the notebook, not in the terminal."""
+        verb = self._RUN_VERB.match(cmd)
+        if verb and self.SHELL_CMD.match(cmd[verb.end():]):  # "run python3 app.py": the command is what follows
+            cmd, verb = cmd[verb.end():], None
+        if self.SHELL_CMD.match(cmd) or not (verb or self._NOTEBOOK_RUN.search(cmd)):
+            return f"Run {cmd} in the VS Code terminal"
+        line = (cmd if verb else f"Run {cmd}").rstrip(" .")
+        line = line[0].upper() + line[1:]
+        if self._NOTEBOOK_RUN.search(cmd) or (self._step_file(step) or "").lower().endswith(".ipynb"):
+            return line if re.search(r"\bnotebook\b", line, re.I) else f"{line} in the notebook"
+        return f"{line} in the VS Code terminal"
+
     def _action_line(self, step: dict) -> str:
         """ONE concrete thing to do now, for the app to show under the current chapter: E2's own `action`, else
         "In <file>, type the lines below." (lesson mode: the step's code shows under it; a video lesson has no snippet,
@@ -2337,7 +2434,7 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
         if cmd := self._run_command(step):
             if self.lesson_mode and (f := self._run_button_file(step, cmd)):  # t8: the ▷ the step's box points at
                 return f"Click ▷ to run {f} (or run {cmd.splitlines()[0]} in the terminal)"
-            return f"Run {cmd.splitlines()[0]} in the VS Code terminal"
+            return self._run_line(step, cmd.splitlines()[0].strip())
         code, file = (step.get("code") or "").strip(), (self._step_file(step) or "").strip()
         first = next((ln.strip() for ln in code.splitlines() if ln.strip() and not ln.strip().startswith("#")), "")
         if first and file:
@@ -2371,7 +2468,10 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
                 p[k] = step[k].strip()
         if isinstance(step.get("concepts"), list) and step["concepts"]:
             p["concepts"] = [c for c in step["concepts"] if isinstance(c, str)]
-        exact = self._run_command(step) or (step.get("code") or "").strip()  # the full thing to type / run, never cut
+        rc = self._run_command(step)
+        if rc and not self.SHELL_CMD.match(rc) and (self._RUN_VERB.match(rc) or self._NOTEBOOK_RUN.search(rc)):
+            rc = ""  # V5: "Run the cell (Shift+Enter)" is an action in words, not the code to type or run
+        exact = rc or (step.get("code") or "").strip()  # the full thing to type / run, never cut
         if exact:
             p["code"] = exact
         if isinstance(step.get("estMinutes"), int) and step["estMinutes"] > 0:
@@ -3239,6 +3339,10 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
                 self.last_bp_sig = sig
                 if trigger == "run_end" or repeat or speak_now:  # a new syntax error: the coach explains it now
                     self._consider_speaking("repeat" if repeat else "breakpoint", step, failed, ctx)
+            if (failed and not self.coaching and self._sig(failed) != self.spoken_sig
+                    and curated.known_offtrack(self, step, failed) is not None):
+                # t8: a known failure of the curated lesson (nn2's sign) is said now, not after the idle gate
+                self._consider_speaking("known", step, failed, ctx)
 
     _FILE_DETAIL = re.compile(r"(found in|typed in|confirmed by your files)\b")
 
@@ -3605,8 +3709,10 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
         if self._ask_held():  # the learner asked Miyagi something: no proactive card over (or right after) the answer
             self.pending_speak = None
             return
-        if not self.learner_started() or self.clock() - self.step_t0 < self.offtrack_grace_s:
-            # never "off track" before the learner did anything on this step, nor in its first ~20 s
+        if not self.learner_started() or (self.clock() - self.step_t0 < self.offtrack_grace_s
+                                          and curated.known_offtrack(self, step, failed) is None):
+            # never "off track" before the learner did anything on this step, nor in its first ~20 s (t8: unless it
+            # is a known failure of the curated lesson the learner just made: its card is certain and instant)
             return self._speak_note(reason, "held (learner not started / first ~20 s)")
         if self._editor_state_card(step):  # unsaved file / another lesson's folder: say that, never "off track"
             return self._speak_note(reason, "held (editor-state card instead)")
@@ -3779,6 +3885,10 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
             if missing_module.check_run(self, step, ctx):  # a lesson package isn't installed: Install, no model call
                 return
             card = self.full_card if (level == 3 and self.full_card) else None
+            if card is not None and card is self._known_full and curated.known_offtrack(self, step, failed) is None:
+                log.info("instant off-track %r: its cause is gone from the file; not said again", card.get("title"))
+                return  # t8: e.g. the weights start random now, the stuck run is old: a rerun is next
+            known = False
             if card is None:
                 by_id = {c["id"]: c for c in (step.get("checks") or []) + (step.get("precision_checks") or [])}
                 failed_checks = [{**by_id.get(r.get("checkId"), {}), **r} for r in failed]
@@ -3786,6 +3896,12 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
 
                 await stale_advice.fresh(self, step)  # VS Code's text this tick, not a 4 s old read's disk fallback
                 code, _file = self._code_excerpt(step)
+                card = curated.known_offtrack(self, step, failed)  # t8: a known failure: no model call
+                if card is not None:
+                    known = True
+                    log.info("instant off-track %r for %s (curated, no model call)", card.get("title"), step["id"])
+                    stale_advice.note(self, step, card, code)
+            if card is None:
                 sfile = self._step_file(step) or step.get("file") or _file or ""
                 file_state = {"path": sfile, "saved": not self._dirty_step_file(step),
                               "wrong_folder": bool(self._other_folder(step))} if sfile else None
@@ -3862,6 +3978,7 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
             full.setdefault("severity", "warn")
             full.setdefault("actions", ["explain", "show_me", "hint"])
             self.full_card = full
+            self._known_full = full if known else None  # t8: a curated instant card (its level-3 re-send rechecks it)
             if level == 2:  # concept: what's wrong and why, not the patch
                 shown = {k: v for k, v in full.items() if k != "diff"}
                 shown["actions"] = [a for a in full["actions"] if a != "apply_fix"] or ["explain", "hint"]
@@ -3883,6 +4000,7 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
 
     # E14: a diagnosis that lands while a card just went up, the learner's question is answered, the display sleeps
     # or no app is connected is KEPT and sent when that ends (it was dropped, and a later trigger paid for it again)
+    _known_full: dict | None = None  # t8: full_card when it is a curated instant card (curated.known_offtrack)
     _pending_offtrack: dict | None = None
     _pending_task: asyncio.Task | None = None
     PENDING_OFFTRACK_S = 90.0  # a kept diagnosis older than this is stale: the next trigger diagnoses afresh
@@ -4416,8 +4534,8 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
         except Exception as e:  # live mode: a missing/failing module is reported, never faked
             log.exception("action %s failed", kind)
             if asking and self.step is not None and gen == self.step_gen:  # never a silent failure for a question
-                card = (stage.fallback_answer(self, kind, text) if stage.on(self) else None) or \
-                    self._ask_failed_card(kind, text, e)  # a Demo lesson: the lesson's own answer, never "Couldn't reach"
+                card = (stage.fallback_answer(self, kind, text) if curated.active(self) else None) or \
+                    self._ask_failed_card(kind, text, e)  # the curated / Demo lesson: its own answer, never "Couldn't reach"
                 await self._emit_card(card, window_s=0.0)
             else:
                 await self.emit("error", {"message": f"{kind}: {e}"})
@@ -4610,7 +4728,7 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
                             self._spawn(self._show_spot(spot))
 
                 ctx["on_targets"] = on_targets
-            card = await self.m.explain(step, text if kind == "ask" else (text or None), ctx)
+            card = await self._explain_in_time(step, text if kind == "ask" else (text or None), ctx)
             if gen != self.step_gen:
                 return  # the learner moved to another step meanwhile: an answer about the old one would mislead
             card = dict(card)
@@ -4931,6 +5049,24 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
         """Is a question / explain / hint in flight, or was it answered < ASK_HOLD_S ago? Then no stuck, idle,
         judge or off-track card (QA 11-14: a stuck card released on Enter took the answer's place)."""
         return self._asks_in_flight > 0 or self.clock() < self._ask_hold_until
+
+    # t8 offline: a typed question in the curated / Demo lesson waits at most this long for Claude. On a venue network
+    # that drops packets the coach call sat out its 45 s timeout twice (82 s measured), and every press behind it
+    # (Check my work, Show me, Run it for me) queued for that long. Then the step's own Explain card answers instead.
+    # A live answer takes ~9 s (03:00:33 -> 03:00:41 on test 6).
+    CURATED_ASK_S = float(os.environ.get("MIYAGI_ASK_DEADLINE_S") or 12.0)
+
+    async def _explain_in_time(self, step: dict, question: str | None, ctx: dict) -> dict:
+        """m.explain, cut off after CURATED_ASK_S in the curated / Demo lesson (it has an offline answer)."""
+        call = self.m.explain(step, question, ctx)
+        if not curated.active(self):
+            return await call
+        try:
+            return await asyncio.wait_for(call, self.CURATED_ASK_S)
+        except asyncio.TimeoutError:
+            log.warning("ask: no answer from Claude within %.0fs (network?); the lesson's own answer instead",
+                        self.CURATED_ASK_S)
+            raise ConnectionError(f"connection: no answer within {self.CURATED_ASK_S:.0f}s") from None
 
     def _ask_failed_card(self, kind: str, text: str | None, e: Exception) -> dict:
         """The learner's question failed after the retries: say so in the answer slot, with Try again (`retry`)."""

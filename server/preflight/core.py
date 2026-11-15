@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import asyncio
 import functools
+import hashlib
 import inspect
 import json
 import logging
@@ -162,6 +163,67 @@ async def classify(key: str, goal: str, m: dict, skim: dict | None, *, timeout: 
         "firstHandsOnChapter": int(out.get("firstHandsOnChapter", 0) or 0),
         "libraries": [str(x)[:40] for x in (out.get("libraries") or [])][:8],
     }
+
+
+# --------------------------------------------------------------------------- Claude's read, kept on disk
+# The same (video, goal) always gets the same read, so it is kept like the finder's search cache: a demo re-run (or any
+# pick after an engine restart, when the 10 min memo is gone) shows its card without a Claude call or its ~2-3 s wait.
+CLASSIFY_TTL_S = float(os.environ.get("PREFLIGHT_CACHE_TTL", 7 * 24 * 3600))
+_CLASSIFY_KEYS = ("style", "styleWhy", "topic", "goalMatch", "firstHandsOnChapter", "libraries")
+
+
+def classify_cache_dir() -> Path | None:
+    """PREFLIGHT_CACHE_DIR > demo/cache/preflight (beside the finder's demo/cache/search); PREFLIGHT_CACHE=0: off."""
+    if os.environ.get("PREFLIGHT_CACHE", "1") == "0":
+        return None
+    return Path(os.environ.get("PREFLIGHT_CACHE_DIR") or (CACHE_DIR.parent / "preflight")).expanduser()
+
+
+def _norm_goal(goal: str) -> str:
+    return " ".join((goal or "").lower().split())
+
+
+def _classify_path(root: Path, vid: str, goal: str) -> Path:
+    return root / f"{vid}-{hashlib.sha1(_norm_goal(goal).encode()).hexdigest()[:8]}.json"
+
+
+def classify_cached(root: Path | None, vid: str | None, goal: str) -> dict | None:
+    """Claude's saved read of this video for this goal (classify()'s dict), or None (none / stale / unreadable)."""
+    if root is None or not vid:
+        return None
+    try:
+        data = json.loads(_classify_path(root, vid, goal).read_text())
+    except (OSError, ValueError):
+        return None
+    c = data.get("classify") if isinstance(data, dict) else None
+    if (data.get("videoId") != vid or data.get("goal") != _norm_goal(goal) or not isinstance(c, dict)
+            or any(k not in c for k in _CLASSIFY_KEYS) or time.time() - float(data.get("created") or 0) > CLASSIFY_TTL_S):
+        return None
+    return c
+
+
+def classify_save(root: Path | None, vid: str | None, goal: str, c: dict) -> None:
+    if root is None or not vid or not isinstance(c, dict):
+        return
+    try:
+        p = _classify_path(root, vid, goal)
+        p.parent.mkdir(parents=True, exist_ok=True)
+        tmp = p.with_suffix(f".{os.getpid()}.tmp")
+        tmp.write_text(json.dumps({"videoId": vid, "goal": _norm_goal(goal), "created": int(time.time()),
+                                   "classify": {k: c.get(k) for k in _CLASSIFY_KEYS}}, indent=1))
+        tmp.replace(p)
+    except OSError as e:  # a read-only checkout: no cache, same card
+        log.debug("preflight: couldn't keep Claude's read (%s)", e)
+
+
+async def _classify_kept(root: Path | None, vid: str | None, goal: str, coro) -> dict:
+    c = await coro
+    classify_save(root, vid, goal, c)
+    return c
+
+
+async def _known(c: dict) -> dict:
+    return dict(c)
 
 
 # --------------------------------------------------------------------------- finder skim (cached, no new Gemini call)
@@ -454,6 +516,7 @@ async def preflight(
     lesson_cache: Callable | bool = True,
     use_memo: bool = True,
     cache_dir: Path | None = None,
+    classify_cache: Path | bool | None = None,
 ) -> dict:
     """Everything we can learn about the picked video within `timeout` seconds (hard). Never raises.
 
@@ -462,7 +525,13 @@ async def preflight(
       reply) lands within `late_s` more seconds; re-emit preflight_card(result) then (same card, filled in).
     requirements_fn: True = server.workspace.requirements when importable; None/False = skip; or a callable.
     Results are memoised per (video, goal) for 10 min, and a call while prefetch() is still working on
-    the same video waits for that run instead of starting another."""
+    the same video waits for that run instead of starting another.
+    classify_cache: where Claude's read is kept per (video, goal) (classify_cache_dir()); None = there unless a
+      claude_client is passed (tests), False = never, a Path = that folder."""
+    if classify_cache is None:
+        classify_cache = classify_cache_dir() if claude_client is None else None
+    elif classify_cache is True:
+        classify_cache = classify_cache_dir()
     key = _key(url, goal) if use_memo else object()
     if use_memo:
         if (hit := _memo_get(key)) is not None:
@@ -479,7 +548,7 @@ async def preflight(
         _listeners.setdefault(key, []).append(on_late)
     task = asyncio.ensure_future(_run(key, url, goal, row=row, timeout=timeout, late_s=late_s, keys=keys or resolve_keys(api_keys),
                                       http=http, claude_client=claude_client, requirements_fn=requirements_fn, lesson_cache=lesson_cache,
-                                      use_memo=use_memo, cache_dir=cache_dir))
+                                      use_memo=use_memo, cache_dir=cache_dir, classify_cache=classify_cache or None))
     _inflight[key] = task
     try:
         return await task
@@ -526,7 +595,7 @@ def clear_memo() -> None:
 
 
 async def _run(key, url: str, goal: str, *, row, timeout: float, late_s: float, keys: Keys, http, claude_client,
-               requirements_fn, use_memo: bool, cache_dir, lesson_cache) -> dict:
+               requirements_fn, use_memo: bool, cache_dir, lesson_cache, classify_cache: Path | None = None) -> dict:
     t0 = time.monotonic()
     deadline = t0 + timeout
 
@@ -557,9 +626,13 @@ async def _run(key, url: str, goal: str, *, row, timeout: float, late_s: float, 
             if prior.get(k_row) and not m.get(k_meta):  # watch page / oEmbed failed: the search row still read it
                 m[k_meta] = prior[k_row]
         _copy_meta(res, m)
-        for k in ("captions", "durationLabel", "long"):
+        for k in ("durationLabel", "long"):
             if k in prior:
                 res[k] = prior[k]
+        # V5: captions are True when the finder saw CC, the watch page lists caption tracks or the builder cached a
+        # transcript; a missing CC badge is no proof of "no captions" (auto captions carry none), so never claim False
+        if prior.get("captions") or m.get("captions") or _transcript_cached(vid):
+            res["captions"] = True
         if not m.get("title"):
             res["missing"].append("metadata")
 
@@ -575,10 +648,14 @@ async def _run(key, url: str, goal: str, *, row, timeout: float, late_s: float, 
             finally:
                 res["timings"][name] = round(time.monotonic() - t1, 2)
 
-        if m.get("title") and (keys.anthropic or claude_client is not None):
-            tasks["claude"] = asyncio.create_task(timed("claude", classify(
+        known = classify_cached(classify_cache, vid, goal) if m.get("title") else None
+        if known is not None:  # Claude already read this video for this goal: no call, no wait
+            tasks["claude"] = asyncio.create_task(timed("claude", _known(known)))
+            res["notes"].append("claude: saved read")
+        elif m.get("title") and (keys.anthropic or claude_client is not None):
+            tasks["claude"] = asyncio.create_task(timed("claude", _classify_kept(classify_cache, vid, goal, classify(
                 keys.anthropic or "", goal, m, skim, timeout=max(0.5, left(0.1)) + max(0.0, late_s), client=claude_client,
-                prior=prior)))
+                prior=prior))))
         elif m.get("title"):
             res["notes"].append("no ANTHROPIC_API_KEY")
         req = _default_requirements() if requirements_fn is True else (requirements_fn or None)
@@ -698,6 +775,19 @@ async def _finish_late(key, res: dict, late: dict[str, asyncio.Task], late_s: fl
             _late.pop(key, None)
 
 
+def _transcript_cached(video_id: str | None) -> bool:
+    """A transcript the lesson builder fetched for this video (demo/cache/transcripts/<id>.json, with lines)."""
+    if not video_id:
+        return False
+    try:
+        from server.lesson.transcript import _cache_path
+
+        p = _cache_path(video_id)
+        return p.is_file() and bool((json.loads(p.read_text()) or {}).get("transcript"))
+    except Exception:  # noqa: BLE001
+        return False
+
+
 def _copy_meta(res: dict, m: dict) -> None:
     for src, dst in (("title", "title"), ("channel", "channel"), ("duration_s", "durationS"), ("category", "category"),
                      ("keywords", "keywords"), ("published", "published"), ("thumbnail", "thumbnail"),
@@ -748,6 +838,12 @@ def needs_line(items: list[dict]) -> str:
     return "Needs: " + " ".join(one(it) for it in shown)
 
 
+def _sentence(text: str) -> str:
+    """V5: a body line ends like a sentence (the app may run the lines together into one paragraph)."""
+    text = " ".join((text or "").split())
+    return text if not text or text[-1] in ".!?…" else text + "."
+
+
 def preflight_card(res: dict) -> dict:
     """card {kind: "preflight"}: what the video is, how well it fits the goal, what it needs.
     actions: build / pick_another, plus install when a needed tool is missing (S2's install flow)."""
@@ -758,18 +854,21 @@ def preflight_card(res: dict) -> dict:
         facts.append(f"{len(res['chapters'])} chapters")
     if res.get("captions"):
         facts.append("CC")
-    if res.get("channel"):
-        facts.append(res["channel"])
-    lines = [" · ".join(f for f in facts if f)]
-    if res.get("topic"):
-        lines.append(res["topic"])
+    channel, topic = " ".join((res.get("channel") or "").split()), " ".join((res.get("topic") or "").split())
+    # V5: the app runs body lines together, so "· Kie Codes" + "Codes and trains a…" read "Kie Codes Codes and trains a…":
+    # a topic that opens with the channel's last word takes the channel as its subject ("Kie Codes codes and trains a…")
+    if channel and topic and topic.split()[0].strip(",.:;").lower() == channel.split()[-1].lower():
+        channel, topic = "", f"{channel} {topic[0].lower()}{topic[1:]}"
+    if channel:
+        facts.append(channel)
+    lines = [_sentence(" · ".join(f for f in facts if f)), _sentence(topic)]
     gm = res.get("goalMatch")
     warning = None
     if gm and gm.get("score") is not None and gm["score"] < LOW_MATCH:
         warning = gm.get("note") or "This video may not teach your goal."
-        lines.append("⚠ " + warning)
+        lines.append("⚠ " + _sentence(warning))
     elif gm and gm.get("note"):
-        lines.append(gm["note"])
+        lines.append(_sentence(gm["note"]))
     plan = res.get("buildPlan") or {}
     est = plan.get("estSecondsToFirstSteps")
     if plan.get("cached"):

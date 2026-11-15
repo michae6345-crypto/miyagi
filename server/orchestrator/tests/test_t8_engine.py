@@ -256,7 +256,7 @@ def test_loss_row_reads_the_last_printed_row():
     stuck = [ln.replace(ln.split()[-1], "0.4900") for ln in lines]
     session.step_runs[0].output_tail = stuck
     fail = [{**results[0], "status": "fail", "detail": "loss 0.49 at step 18000, need < 0.01 by step 18000"}]
-    assert curated._loss_rows(session, step, fail)[0]["detail"] == "loss 0.4900 at step 18000, need < 0.01"  # the app's
+    assert curated._loss_rows(session, step, fail)[0]["detail"] == "loss 0.4900 at epoch 18000, need < 0.01"  # the app's
     assert curated._loss_rows(session, step, results)[0]["detail"] == results[0]["detail"]  # verdicts differ: as it was
 
 

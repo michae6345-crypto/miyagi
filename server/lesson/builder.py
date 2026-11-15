@@ -31,6 +31,7 @@ from .schema import (
     step_check_problems,
     value_line,
 )
+from .venv_steps import use_lesson_venv
 from .workdir import WorkdirInfo, scan
 
 # Progress for the UI. Stable stage ids (the app maps them to text; log wording may change):
@@ -334,6 +335,7 @@ async def _build_lesson_impl(
         "community_signals": n_signals,
         "warnings": warnings,
     }
+    use_lesson_venv(graph)  # t9 V6: no second venv / reinstall in a step (Miyagi's setup card fills the lesson's .venv)
     errs = schema_errors(graph)
     if errs:
         raise RuntimeError("step graph failed contract validation:\n" + "\n".join(errs))
