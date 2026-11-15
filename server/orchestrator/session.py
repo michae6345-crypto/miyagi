@@ -3231,9 +3231,9 @@ class LessonSession:
                     r = graded(c, paths)
                     if r.get("status") != "pass" and not (shown or self._lesson_window_open()):
                         r = on_file(c, paths[0], window_open=False)  # no lesson window anywhere: "Open VS Code …"
-                    elif r.get("status") != "pass" and shown is False and not carded:
-                        carded = True
-                        self._editor_state_card(step)  # typing in another lesson's folder: "Wrong folder?" now
+                    elif r.get("status") != "pass" and not carded and self._other_folder(step):
+                        carded = True  # the lesson's file typed in another folder: "Wrong folder?" now, not after 20 s
+                        self._editor_state_card(step)
             if r.get("status") == "pass":
                 self.latched_pass.add(cid)
             elif cid in self.latched_pass:
