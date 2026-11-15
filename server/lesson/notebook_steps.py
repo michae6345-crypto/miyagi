@@ -16,7 +16,7 @@ use_lesson_venv (server/lesson/venv_steps.py). For a Jupyter notebook lesson tha
   names it too;
 - the step that starts a browser Jupyter server (`jupyter notebook` / `jupyter lab`) becomes the real setup: "Select the
   .venv kernel in mnist.ipynb". Its check ids stay (s1c2 now waits for VS Code's kernel picker to read ".venv (Python 3…",
-  s1c3 for no kernel error), its box points at the notebook.
+  s1c3 for no kernel or terminal error), its box points at the notebook.
 Idempotent: a second pass changes nothing. Returns the ids of the steps it changed."""
 
 from __future__ import annotations
@@ -36,7 +36,8 @@ _APP_WORDS = re.compile(r"\bin\s+(?:Jupyter(?:\s+Notebook)?\s+or\s+(?:Google\s+)
 # what VS Code's notebook kernel picker reads with the lesson's .venv selected: ".venv (Python 3.12.16)" (older builds:
 # "Python 3.12.16 ('.venv': venv)"); never the Explorer's bare .venv folder
 KERNEL_PATTERN = r"\.?venv\s*\(\s*Python\s*3|['‘’]\.?venv['‘’]\s*:\s*venv"
-KERNEL_ERRORS = r"Failed\s+to\s+start\s+the\s+[Kk]ernel|[Kk]ernel\s+died|Traceback"
+# the kernel's own errors in VS Code, and the terminal's (the step's old check: a pip / shell error still fails it)
+KERNEL_ERRORS = r"Failed\s+to\s+start\s+the\s+[Kk]ernel|[Kk]ernel\s+died|Traceback|ERROR:|ERR!"
 # a notebook named after what the lesson works on (MNIST -> mnist.ipynb), else notebook.ipynb
 _TOPICS = ("fashion_mnist", "mnist", "cifar10", "cifar", "iris", "titanic", "imdb")
 
@@ -129,7 +130,7 @@ def _setup_step(step: dict, nb: str, libs: list[str]) -> None:
             c.update(label=f"Notebook kernel is {VENV}", pattern=KERNEL_PATTERN)
             c.pop("app", None)
         elif c.get("type") == "screen_absent" and str(c.get("app") or "").lower() == "terminal":
-            c.update(label="No kernel errors", pattern=KERNEL_ERRORS)
+            c.update(label="No kernel or terminal errors", pattern=KERNEL_ERRORS)
             c.pop("app", None)
         checks.append(c)
     step["checks"] = checks
