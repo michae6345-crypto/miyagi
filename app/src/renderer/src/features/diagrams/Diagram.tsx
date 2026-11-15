@@ -16,7 +16,7 @@ import { actionTone, color, fill } from '../../core/theme'
 import { CloseButton } from '../../core/ui/atoms'
 import { useDiagram } from './store'
 import { Graph } from './Graph'
-import { NeuralNet } from './NeuralNet'
+import { NeuralNet, WEIGHT_NEG, WEIGHT_POS } from './NeuralNet'
 import { Heatmap, type HeatmapData } from './Heatmap'
 import { DiagramTabs, titleOf } from './Tabs'
 import type { GraphDiagramData } from '../../../../../../shared/contracts/events'
@@ -67,7 +67,19 @@ function Network({ data }: { data: Record<string, unknown> }): ReactNode {
   const W = 600
   const H = 196
   const netW = 420
-  const colX = layers.map((_, i) => 24 + (i * (netW - 48)) / (layers.length - 1))
+  // Node names sit OUTSIDE the circles (inputs to the left, the output to the right): inside, "X" covered the first
+  // input and "output" overlapped its node (Michael's test 5). Room on the left grows with the longest input name.
+  const short = (t: string): string => (t.length > 12 ? `${t.slice(0, 11)}…` : t)
+  const left = 24 + Math.min(80, Math.max(0, ...inputs.map((t) => short(t).length * 6.6 + 8)))
+  const colX = layers.map((_, i) => left + (i * (netW - 24 - left)) / (layers.length - 1))
+  // Optional real weights (extra field, like NeuralNet's frames): W[l] is layer l → l+1, row-major (from i, to j at
+  // i*n+j). Thickness = |w|, hue = sign (the same blue / brown NeuralNet uses for weights only).
+  const weights = Array.isArray(data.W) ? (data.W as number[][]) : Array.isArray(data.weights) ? (data.weights as number[][]) : undefined
+  const wMax = Math.max(1e-9, ...(weights ?? []).flat().map((v) => Math.abs(Number(v) || 0)))
+  const weightOf = (li: number, i: number, j: number): number | undefined => {
+    const v = weights?.[li]?.[i * layers[li + 1] + j]
+    return typeof v === 'number' && Number.isFinite(v) ? v : undefined
+  }
   const nodesOf = (n: number): (number | 'dots')[] => (n <= 5 ? Array.from({ length: n }, (_, i) => i) : [0, 1, 2, 'dots', 4])
   const nodeY = (count: number, i: number): number => {
     const shown = Math.min(count, 5)
@@ -83,15 +95,19 @@ function Network({ data }: { data: Record<string, unknown> }): ReactNode {
         const a = nodesOf(n).filter((x) => x !== 'dots') as number[]
         const b = nodesOf(layers[li + 1]).filter((x) => x !== 'dots') as number[]
         return a.flatMap((i) =>
-          b.map((j) => (
-            <motion.path
-              key={`${li}-${i}-${j}`}
-              d={`M${colX[li]},${nodeY(n, i)} L${colX[li + 1]},${nodeY(layers[li + 1], j)}`}
-              stroke={color.hairline}
-              strokeWidth="1"
-              {...draw(li)}
-            />
-          ))
+          b.map((j) => {
+            const w = weightOf(li, i, j)
+            return (
+              <motion.path
+                key={`${li}-${i}-${j}`}
+                d={`M${colX[li]},${nodeY(n, i)} L${colX[li + 1]},${nodeY(layers[li + 1], j)}`}
+                stroke={w === undefined ? color.hairline : w >= 0 ? WEIGHT_POS : WEIGHT_NEG}
+                strokeWidth={w === undefined ? 1 : 0.6 + 2.6 * (Math.abs(w) / wMax)}
+                strokeOpacity={w === undefined ? 1 : 0.35 + 0.65 * (Math.abs(w) / wMax)}
+                {...draw(li)}
+              />
+            )
+          })
         )
       })}
       {/* nodes */}
@@ -117,14 +133,28 @@ function Network({ data }: { data: Record<string, unknown> }): ReactNode {
           )
         )
       )}
-      {inputs.map((name, i) => (
-        <text key={name} x={colX[0]} y={nodeY(layers[0], i) + 4} textAnchor="middle" fill={color.text} fontSize="12" fontStyle="italic">
-          {name}
+      {/* One name per input node; a single name for several inputs ("X") sits at the column's middle. */}
+      {inputs.map((name, i) => {
+        const y = inputs.length === 1 && layers[0] > 1 ? 82 : nodeY(layers[0], i)
+        return (
+          <text key={`${name}-${i}`} x={colX[0] - 19} y={y + 4} textAnchor="end" fill={color.text} fontSize="12" fontStyle="italic">
+            {short(name)}
+          </text>
+        )
+      })}
+      {typeof data.output === 'string' && data.output && (
+        // With autograd arrows on the right (derivatives), the short output name stays in its node, clear of them.
+        <text
+          x={colX[colX.length - 1] + (derivs.length ? 0 : 19)}
+          y={82 + 4}
+          textAnchor={derivs.length ? 'middle' : 'start'}
+          fill={color.text}
+          fontSize="12"
+          fontStyle="italic"
+        >
+          {short(data.output)}
         </text>
-      ))}
-      <text x={colX[colX.length - 1]} y={nodeY(1, 0) + 4} textAnchor="middle" fill={color.text} fontSize="12" fontStyle="italic">
-        {(data.output as string) ?? ''}
-      </text>
+      )}
       {/* labels */}
       {layers.map((n, li) => (
         <g key={`l${li}`}>
