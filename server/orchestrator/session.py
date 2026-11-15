@@ -37,7 +37,7 @@ from collections.abc import Awaitable, Callable
 from pathlib import Path
 from typing import Any
 
-from . import config
+from . import config, scene_watch
 from .context import RunContext, RunInfo, metrics_summary
 from .modules import Modules
 
@@ -2226,6 +2226,7 @@ class LessonSession:
         """Called ~1/s: idle-after-action, stuck, and typing-deferred speech."""
         step = self.step
         await self._check_screen_health()
+        await scene_watch.tick(self)  # a Haiku glance at the screen every ~5 s during a step (scene_watch.py)
         if step is not None and not self.passed and not self.awaiting_resume:
             self._maybe_judge(step)
             await self._maybe_stuck_card(step)
@@ -4359,4 +4360,5 @@ class LessonSession:
             and not self.screen_down_reason(),  # false while frames fail (E6 status error / no_permission)
             "screenDown": self.screen_down_reason(),  # S1: E6 status error / no_permission
             "voice": self.voice,
+            "scene": scene_watch.state(self),  # the latest Haiku look + its counters (scene_watch.py)
         }

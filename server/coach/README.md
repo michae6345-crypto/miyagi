@@ -136,6 +136,22 @@ if judge.should_judge(step, check_results, idle_s=idle, video_playing=playing, s
 - **Reading the editor.** `pointing.editor_state(screen)` reads window titles and boxes: the real app name, the open file, an unsaved `Untitled-N`, and the `●` unsaved marker. The step's expected file comes from its checks or targets, or from its instructions ("save it as calculator.py"). `where` then says exactly what to do: "You're in VS Code on an unsaved file. Save it as calculator.py in the lesson folder". Pointing and hints use this too, and it overrides Haiku's generic `where`.
 - **Inputs:** `screen` may be an E6 `ScreenObservation` (`lines_by_app`), a `ScreenContext`, a `{app: [lines]}` dict or plain text. `files` is `{path: text}`, notebooks become cell sources.
 
+## Scene look (scene.py)
+
+Every ~5 s during a lesson step (when the screen changed), the orchestrator's `scene_watch.py` sends Haiku 5.5 one
+downscaled screenshot (<= 1280 px; Miyagi's overlay, other folders' VS Code windows and private apps blacked out) plus
+the step (title, file, code, run command, check labels, what the spotlight points at) and gets strict JSON back:
+`{app, window_title, active_file, step_file_open, step_code_visible, typed_fraction, error_visible, dialog_visible,
+learner_doing, spotlight_target_visible}`. Thinking off, effort low, ~2.1-2.6K tokens in, 50-160 out: ~$0.0003 a look,
+one INFO line each (`scene look s2 812ms img 1280x800 in=2310 out=95 $0.00028 (total $0.0123, 41 looks) | …`).
+
+- `scene.fresh(step_id)` is the latest look when < 8 s old. The judge and Explain add it as one prompt line labelled
+  "context only, not evidence" (Explain in lesson mode leaves the active file out); Hint drops its "Open <file>" Where
+  row when the look saw the step's file as the active tab and the editor window doesn't disagree.
+- `scene.with_error(step_id, text)`: diagnose appends an error a look saw (< 15 s ago, after the step ran something)
+  to its error text when the terminal / OCR text doesn't already have it. No extra call.
+- A look never passes or fails a check. `scene.FakeLook([...])` replaces `look()` in tests (no API).
+
 ## Pointing: Explain / Show me / Hint (pointing.py)
 
 Every coach answer about the screen carries `targets` (`[{boxId, label, text, rect}]`, screen points), or a `where` instruction when the place isn't on screen. There is never a fake target.
