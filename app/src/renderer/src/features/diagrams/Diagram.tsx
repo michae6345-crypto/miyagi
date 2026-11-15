@@ -17,6 +17,7 @@ import { CloseButton } from '../../core/ui/atoms'
 import { useDiagram } from './store'
 import { Graph } from './Graph'
 import { NeuralNet, WEIGHT_NEG, WEIGHT_POS } from './NeuralNet'
+import { Firing, isFiringNetwork } from './Firing'
 import { Heatmap, type HeatmapData } from './Heatmap'
 import { DiagramTabs, titleOf } from './Tabs'
 import type { GraphDiagramData } from '../../../../../../shared/contracts/events'
@@ -37,7 +38,11 @@ export function DiagramView(): ReactNode {
       </div>
       <div className="mt-[10px]">
         {d.kind === 'network' &&
-          ((d.data as Record<string, unknown>).frames ? <NeuralNet data={d.data as Record<string, unknown>} /> : <Network data={d.data as Record<string, unknown>} />)}
+          ((d.data as Record<string, unknown>).frames ? (
+            isFiringNetwork(d.data as Record<string, unknown>) ? <Firing data={d.data as Record<string, unknown>} /> : <NeuralNet data={d.data as Record<string, unknown>} />
+          ) : (
+            <Network data={d.data as Record<string, unknown>} />
+          ))}
         {d.kind === 'gradients' && <Gradients data={d.data as Record<string, unknown>} />}
         {d.kind === 'heatmap' && <Heatmap data={d.data as HeatmapData} />}
         {d.kind === 'graph' && <Graph data={d.data as GraphDiagramData} />}
