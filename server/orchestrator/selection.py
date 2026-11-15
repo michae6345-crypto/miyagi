@@ -9,7 +9,10 @@ Two ways in, one answer:
 
 Both run inside LessonSession.action("explain", text), so: proactive cards wait while the learner's question is
 answered (ASK_KINDS), a failure gets the same "Couldn't reach Claude" card with Try again as a typed question, and
-retry re-sends the same selection (with its file and lines, see remember / recall). The card: kind "explain",
+retry re-sends the same selection (with its file and lines, see remember / recall). One VS Code explanation at a
+time: a press while one is still being answered, or the same selection again within REPEAT_S of its card, is
+dropped (VS Code repeats a held keybinding and shows nothing while Claude thinks, so learners press again; each press
+would otherwise be its own Sonnet call and its own card). The card: kind "explain",
 title "About `<first line of the selection>`", body = the coach's explanation (server/coach/selection.py, Sonnet)
 with the current step as context. Without a lesson it still answers (no step context, no status changes).
 """
@@ -24,7 +27,10 @@ log = logging.getLogger("orchestrator.selection")
 MAX_CHARS = 2000  # the extension cuts at the same length
 TITLE_CHARS = 28
 AROUND_CHARS = 3000
+REPEAT_S = 5.0  # the same VS Code selection again this soon after its card: dropped (a held key / double press)
 _LAST = "_explain_selection"  # session attribute: the last VS Code selection (retry re-sends it with its file/lines)
+_RUNNING = "_explain_selection_task"  # session attribute: the VS Code explanation in flight (asyncio.Task)
+_DONE = "_explain_selection_done"  # session attribute: (text, session.clock()) when its card was shown
 
 NOTHING_SELECTED = {"kind": "answer", "title": "Nothing to explain",
                     "body": "Select the code you want explained in VS Code, then press Control-Command-E "
@@ -104,16 +110,27 @@ def offline_card(step: dict | None, sel: dict) -> dict:
 
 def explain_from_vscode(session: Any, body: dict) -> bool:
     """POST /vscode/event {type: "explain_selection"}: answer in the background (the extension waits 300 ms at most).
-    -> whether an explanation was started (False: nothing selected; a short card says so)."""
+    -> whether an explanation was started (False: nothing selected, and a short card says so; or the press was
+    dropped because one is still being answered or this same selection's card came under REPEAT_S ago). A failed or
+    stale answer shows no card and sets no mark, so pressing again after it calls Claude again."""
     sel = from_vscode(body)
+    running = getattr(session, _RUNNING, None)
+    if running is not None and not running.done():  # its answer is on the way: no second Sonnet call, no second card
+        log.info("explain selection from VS Code: still answering the last one; press dropped")
+        return False
     if not sel["text"].strip():
         step = session.step
         session._spawn(session._emit_card({**({"stepId": step["id"]} if step else {}), **NOTHING_SELECTED}))
         return False
+    done = getattr(session, _DONE, None)
+    if done and done[0] == sel["text"] and session.clock() - done[1] < REPEAT_S:  # just answered: the card is up
+        log.info("explain selection from VS Code: same selection answered %.1fs ago; press dropped",
+                 session.clock() - done[1])
+        return False
     remember(session, sel)
     log.info("explain selection from VS Code: %s:%s-%s (%d chars)", sel.get("relPath") or sel.get("file"),
              sel.get("startLine"), sel.get("endLine"), len(sel["text"]))
-    session._spawn(session.action("explain", sel["text"]))
+    setattr(session, _RUNNING, session._spawn(session.action("explain", sel["text"])))
     return True
 
 
@@ -135,5 +152,6 @@ async def answer(session: Any, step: dict | None, text: str) -> None:
     if step is not None:
         card["stepId"] = step["id"]
     await session._emit_card(card)
+    setattr(session, _DONE, (sel["text"], session.clock()))  # a repeat press right after this card is dropped
     if step is not None:
         await session._status("offtrack" if session.last_offtrack else ("passed" if session.passed else "watching"))

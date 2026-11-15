@@ -27,6 +27,8 @@ right-click the selection → **Miyagi: Explain this**. It is also in the comman
 with an Explain card in Miyagi's overlay ("About `def add(a, b):…`"): Claude (Sonnet) explains the selection, with
 the current lesson step as context, also when no lesson is running. With nothing selected it sends the cursor's line;
 an empty line gets a short "Nothing to explain" card. It only reads the editor, so it works in Restricted Mode.
+One Claude call per question: presses of the same selection under 1 s apart (a held key) count as one here, and the
+engine drops a press while it is still answering, or the same selection again within 5 s of its card.
 
 Neither VS Code nor its built-in extensions bind Ctrl+Cmd+E on macOS (checked against VS Code 1.146's defaults), and
 Miyagi's own global shortcuts use Option (Option+E explains the step). The binding is active while the text editor
@@ -37,14 +39,14 @@ has focus. Change it under Keyboard Shortcuts → "Miyagi: Explain this".
 Package the `.vsix` (`.vscodeignore` keeps the tests out) and install it:
 
 ```bash
-cd vscode-ext && npx @vscode/vsce@3.2.1 package --allow-missing-repository --skip-license --no-dependencies -o dist/miyagi-companion-0.0.2.vsix
-"/Applications/Visual Studio Code.app/Contents/Resources/app/bin/code" --install-extension dist/miyagi-companion-0.0.2.vsix --force
+cd vscode-ext && npx @vscode/vsce@3.2.1 package --allow-missing-repository --skip-license --no-dependencies -o dist/miyagi-companion-0.0.3.vsix
+"/Applications/Visual Studio Code.app/Contents/Resources/app/bin/code" --install-extension dist/miyagi-companion-0.0.3.vsix --force
 ```
 
 Or, from the repo root, copy the folder into VS Code's extensions folder:
 
 ```bash
-rm -rf ~/.vscode/extensions/miyagi.companion-0.0.* && cp -R vscode-ext ~/.vscode/extensions/miyagi.companion-0.0.2
+rm -rf ~/.vscode/extensions/miyagi.companion-0.0.* && cp -R vscode-ext ~/.vscode/extensions/miyagi.companion-0.0.3
 ```
 
 Then reload each open VS Code window: **Cmd+Shift+P → "Developer: Reload Window"**. To check it:
@@ -107,7 +109,7 @@ finishes, and its result is posted as an `action_done` event. The engine's clien
 
 ```jsonc
 {
-  "ok": true, "app": "vscode", "extension": "0.0.2", "vscodeVersion": "1.146.0", "pid": 123, "port": 8791,
+  "ok": true, "app": "vscode", "extension": "0.0.3", "vscodeVersion": "1.146.0", "pid": 123, "port": 8791,
   "folders": ["/Users/me/miyagi/lessons/python-calculator-e430dc"], "workspaceName": "python-calculator-e430dc",
   "file": "/Users/me/miyagi/lessons/python-calculator-e430dc/calculator.py", "relPath": "calculator.py",
   "dirty": true, "languageId": "python", "lineCount": 4,

@@ -3,7 +3,7 @@
   "publisher": "miyagi",
   "displayName": "Miyagi Companion",
   "description": "Lets the Miyagi tutor engine read and drive VS Code exactly (open, highlight, terminal, apply) over a localhost-only HTTP API.",
-  "version": "0.0.2",
+  "version": "0.0.3",
   "private": true,
   "license": "UNLICENSED",
   "icon": "icon.png",

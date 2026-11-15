@@ -12,7 +12,7 @@ const os = require('os');
 const path = require('path');
 const vscode = require('vscode');
 
-const VERSION = '0.0.2';
+const VERSION = '0.0.3';
 const DEFAULT_PORT = 8791;
 const PORT_SPAN = 9;
 const ACTION_DEADLINE_MS = 250; // the engine's client gives up after 300 ms
@@ -24,6 +24,7 @@ const TERMINAL_NAME = 'Miyagi';
 const EXPLAIN_MAX_CHARS = 2000; // "Miyagi: Explain this": the selection sent to the engine (the rest is cut)
 const EXPLAIN_AROUND_LINES = 12; // ...plus this many lines above and below it, so Claude reads it in context
 const EXPLAIN_AROUND_CHARS = 3000;
+const EXPLAIN_REPEAT_MS = 1000; // the same selection again within this of the last press: dropped (a held key)
 const PROPOSED_SCHEME = 'miyagi-proposed';
 const PENDING = Symbol('pending');
 
@@ -40,6 +41,7 @@ const S = {
   proposedEmitter: null,
   dirty: new Map(), // document key -> last isDirty seen
   editorTimer: null,
+  lastExplain: null, // {text, at} of the last "Miyagi: Explain this" press
   log: null,
 };
 
@@ -720,13 +722,19 @@ function selectionPayload(ed) {
 
 // Posts `explain_selection` to the engine, which answers with an Explain card in Miyagi's overlay. Shows nothing in
 // VS Code (no toast, no webview), whatever miyagi.editorUi says; it only reads the editor, so it works in Restricted
-// Mode. An empty line still goes out (text ""): the engine's card says to select something.
+// Mode. An empty line still goes out (text ""): the engine's card says to select something. VS Code repeats a held
+// keybinding, so presses of the same selection under EXPLAIN_REPEAT_MS apart count as one (the engine also drops a
+// press while it is still answering, or right after it answered the same selection).
 function explainSelection() {
   const payload = selectionPayload(vscode.window.activeTextEditor);
   if (!payload) {
     log('explain: no active editor');
     return false;
   }
+  const now = Date.now();
+  const last = S.lastExplain;
+  S.lastExplain = { text: payload.text, at: now };
+  if (last && last.text === payload.text && now - last.at < EXPLAIN_REPEAT_MS) return false;
   log(`explain: ${payload.file}:${payload.startLine}-${payload.endLine} (${payload.text.length} chars)`);
   postEvent('explain_selection', payload);
   return true;
