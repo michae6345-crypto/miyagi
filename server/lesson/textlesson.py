@@ -255,7 +255,7 @@ async def build_text_lesson(goal: str, workdir: str, on_update=None, *, cache: b
         boxes = [dict({k: v for k, v in x.items() if k != "step"}, **({"stepIndex": first[x["step"]]} if x.get("step") in first else {}))
                  for x in flow]  # stepIndex = the built step's index (1-based, as StepSummary.index)
         needs = {"build": b, "flow": boxes, "prerequisites": prereqs, "learnFirst": learn_first}
-        g = {"lesson": {"id": f"lesson-{key[5:13]}", "title": sentence_case(plan.get("title") or goal, goal), "goal": goal, "workdir": workdir,
+        g = {"lesson": {"id": f"lesson-{key[5:13]}", "title": plan.get("title") or goal, "goal": goal, "workdir": workdir,
                         "libraries": libs, "mode": "lesson", "complete": complete, "builtBy": "claude", "primer": primer,
                         **({"overview": overview} if overview else {}), **{k: v for k, v in needs.items() if v}},
              "sources": [{"id": f"src{i}", "kind": "repo" if "github.com/" in s["url"] else "blog", "title": s["title"][:200], "url": s["url"]}
@@ -263,6 +263,7 @@ async def build_text_lesson(goal: str, workdir: str, on_update=None, *, cache: b
              "steps": ordered,
              "build": {"mode": "lesson", "seconds": round(time.time() - t0, 1), "warnings": list(warnings),
                        "model": {"plan": claude.model("segment"), "steps": claude.model("detail"), "research": claude.model(RESEARCH_MODEL_ROLE)}}}
+        g["_title_case"] = "model"  # E11: the plan prompt asks for sentence case; fill_missing re-cases only older caches
         return g
 
     async def emit(complete: bool) -> None:
@@ -841,7 +842,7 @@ def fill_missing(g: dict) -> dict:
     what / why on every step, a sentence-case title. Deterministic, no model call."""
     les = g.get("lesson") or {}
     steps = g.get("steps") or []
-    if les.get("title"):
+    if les.get("title") and g.get("_title_case") != "model":  # only titles cached by an older builder
         les["title"] = sentence_case(les["title"], les.get("goal") or "")
     if not (les.get("overview") or "").strip():
         les["overview"] = overview_fallback(les.get("title") or les.get("goal") or "", steps)
