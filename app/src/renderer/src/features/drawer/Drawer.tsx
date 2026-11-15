@@ -19,7 +19,7 @@ import type { Source, SourceKind, StepSummary } from '../../../../../../shared/c
 import { builtByLabel, seekVideo, useLesson, useProgress, type CheckItem, type Rect } from '../../core/lesson'
 import { useAppearance } from '../../core/prefs'
 import { alpha, clock, color, glass, kindTone, radius, spring, springOut } from '../../core/theme'
-import { Thumb } from '../../core/ui/atoms'
+import { CheckList, Thumb } from '../../core/ui/atoms'
 import { GlassCheck, GlassSpinner } from '../../core/ui/glass'
 import { parseYouTube, thumbnailFor } from '../launcher/youtube'
 import { TAB } from './geometry'
@@ -376,7 +376,7 @@ function StepRow({
           animate={{ opacity: 1 }}
           transition={{ duration: 0.2 }}
         >
-          <GlassCheckList checks={checks} />
+          <CheckList checks={checks} surface="glass" />
         </motion.div>
       )}
     </motion.div>
@@ -406,55 +406,12 @@ function StepIcon({ status }: { status: StepStatus }): ReactNode {
   return <Ring />
 }
 
-/** An empty step / check: a faint ring (core has no glass twin of CheckIcon's pending state). */
+/** An empty (locked) step: a faint ring. */
 function Ring(): ReactNode {
   return (
     <svg width="18" height="18" viewBox="0 0 18 18" className="shrink-0">
       <circle cx="9" cy="9" r="8.2" fill="none" strokeWidth="1.4" style={{ stroke: glass.faint }} />
     </svg>
-  )
-}
-
-/**
- * core CheckList on glass (core's is drawn for the black island: white text, white rings), built from the core
- * glass atoms (core/ui/glass). Same layout: the first pending check spins, a pass draws the tick, a fail is the
- * off-track ring. Local until core has a glass CheckList (Core request 5).
- */
-function GlassCheckList({ checks }: { checks: CheckItem[] }): ReactNode {
-  const activeId = checks.find((c) => c.status === 'pending')?.id
-  return (
-    <div className="flex flex-col gap-[11px]">
-      {checks.map((c) => {
-        const active = c.id === activeId
-        const tone = c.status === 'pass' ? glass.label : c.status === 'fail' || active ? glass.text : glass.faint
-        return (
-          // items-start + break-words: a long check label wraps under itself (never cut off); the icon stays on line one.
-          <div key={c.id} data-check={c.id} data-check-status={c.status} className="flex items-start gap-3 text-[14px] leading-[18px]">
-            {c.status === 'pass' ? (
-              <GlassCheck />
-            ) : c.status === 'fail' ? (
-              <svg width="18" height="18" viewBox="0 0 18 18" className="shrink-0">
-                <circle cx="9" cy="9" r="8.2" fill="none" strokeWidth="1.6" style={{ stroke: glass.offTrack }} />
-                <path d="M9 5 V10" strokeWidth="1.7" strokeLinecap="round" style={{ stroke: glass.offTrack }} />
-                <circle cx="9" cy="12.8" r="1" style={{ fill: glass.offTrack }} />
-              </svg>
-            ) : active ? (
-              <GlassSpinner c={glass.text} />
-            ) : (
-              <Ring />
-            )}
-            <span className="min-w-0 flex-1 break-words" style={{ color: tone, transition: 'color 200ms ease-out' }}>
-              {c.label}
-            </span>
-            {c.detail && (
-              <span className="shrink-0 text-[12px] tabular-nums" style={{ color: c.status === 'fail' ? glass.offTrack : glass.faint }}>
-                {c.detail}
-              </span>
-            )}
-          </div>
-        )
-      })}
-    </div>
   )
 }
 
