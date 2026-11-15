@@ -205,8 +205,13 @@ export function Firing({ data, compact = false }: { data: Record<string, unknown
   const maxW = Math.max(1, ...frame.W.flat(2).map(Math.abs))
   const bright = (l: number, i: number): number => (l <= reached ? clamp01(Math.abs(acts[l]?.[i] ?? 0)) : 0)
 
+  // Room for the italic input / output names outside the end columns (13 px, ~7.4 px a glyph): the whole net scales
+  // into the drawer's width instead of the output name being cut off.
+  const nameW = (names: unknown[]): number => Math.max(0, ...names.map((t) => String(t ?? '').length)) * 7.4 + R + 7
+  const padL = Math.max(0, Math.ceil(nameW(inNames) - padX + 6))
+  const padR = Math.max(0, Math.ceil(nameW(outNames) - padX + 6))
   const net = (
-    <svg viewBox={`0 0 ${VW} ${VH}`} width="100%" className="mx-auto block max-w-full" style={{ fontFamily: font.ui, maxWidth: compact ? undefined : 560 }}>
+    <svg viewBox={`${-padL} 0 ${VW + padL + padR} ${VH}`} width="100%" className="mx-auto block max-w-full" style={{ fontFamily: font.ui, maxWidth: compact ? undefined : 560 }}>
       {/* Edges */}
       {frame.W.map((m, k) =>
         m.flatMap((row, i) =>
