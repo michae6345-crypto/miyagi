@@ -268,9 +268,9 @@ def test_s1_uses_the_lessons_venv_not_a_second_one(rp):
     assert ".venv" in told
 
 
-@_xfail("V1", "the start-of-step evaluation ran before the reader resumed: 'No terminal errors' passed with "
-              "'screen reading is off, so nothing to flag'")
 def test_s1_no_screen_check_passes_before_the_screen_is_read(rp):
+    """V1 (fixed, claude/t9-checks): 'No terminal errors' passed 'screen reading is off, so nothing to flag' before
+    the reader resumed."""
     run(rp.start())
     rows = rp.rows("s1")
     assert rows and all(r["status"] != "pass" for r in rows.values()), rows
