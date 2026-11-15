@@ -5,6 +5,8 @@
  * Options wear their pastel (theme.actionTone): Explain / Diagram sky, Show me lilac, Hint pink, ink glyphs.
  * Back and Voice are neutral chrome (Voice on = glass.button). Step controls after one hairline: Check is the one
  * primary, Skip step / End lesson are quiet. (Adrian picked this over a "More" menu for Back / Skip / End, Sat.)
+ * A card with its own step controls (Yes / Skip step / Can I move on?) quiets Check too; while the launcher is open
+ * the Ask field collapses to the tree, so there's one primary and one ask field on screen (audit A17).
  * The bar is a glass panel: theme.glass tokens, so it follows Settings → Appearance (light / dark).
  * Thinking: the pressed tile's glyph is the Spinner (Busy.tsx). Any trigger dips its tile for 90 ms (press.ts).
  * Voice speaking: the equalizer (Equalizer.tsx). Diagram open: its tile stays lit.
@@ -12,6 +14,7 @@
 import { AnimatePresence, motion } from 'motion/react'
 import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { AudioLines, Check, Lightbulb, MessageSquareText, RotateCcw, SkipForward, Square, SquarePlay, Waypoints, type LucideIcon } from 'lucide-react'
+import { create } from 'zustand'
 import { cmd } from '../../../../common/wire'
 import { bridge, registerWebHandler } from '../../bridge'
 import { useLesson } from '../../core/lesson'
@@ -19,7 +22,9 @@ import { useAppearance } from '../../core/prefs'
 import { sendAction, triggerShortcut, type ActionKind, type ActionShortcut } from '../../core/shortcuts'
 import { MiyagiMark } from '../../core/ui/Mark'
 import { actionTone, copy, glass, spring, type OptionAction } from '../../core/theme'
+import { useCards } from '../cards/store'
 import { useDiagram } from '../diagrams/store'
+import { useSearch } from '../launcher/store'
 import { toggleVoice } from '../voice/store'
 import { Equalizer, useVoiceTile } from './Equalizer'
 import { usePress } from './press'
@@ -102,6 +107,30 @@ function raiseOverlay(): void {
 }
 registerWebHandler('overlay:raise', () => true)
 
+/**
+ * Card buttons that are step controls ("Looks done?" Yes, Skip step, Can I move on?). While a card carries one, the
+ * card owns the step's primary: the bar's Check and Skip step go quiet, so the screen never shows two white
+ * primaries or two Skip buttons at once (Michael's audit A17).
+ */
+const CARD_STEP_ACTIONS = new Set<string>(['confirm', 'skip_step', 'check_step'])
+
+/**
+ * The launcher is open. In the browser stage it lives in this document, so its store says so; in Electron it's its own
+ * window (its store isn't ours), so also follow main's launcher:open / launcher:closed signals to the overlay.
+ */
+const useLauncherSignal = create<{ open: boolean }>(() => ({ open: false }))
+bridge.on('launcher:open', () => useLauncherSignal.setState({ open: true }))
+bridge.on('launcher:closed', () => useLauncherSignal.setState({ open: false }))
+function useLauncherOpen(): boolean {
+  const here = useSearch((s) => s.open)
+  const signal = useLauncherSignal((s) => s.open)
+  return here || signal
+}
+
+/** The Ask field's width, open and collapsed (just the tree, while the launcher is the one ask field on screen). */
+const ASK_W = 196
+const ASK_COLLAPSED_W = 44
+
 export function ShortcutBar({ bottom, lift = 0 }: { bottom: number; lift?: number }): ReactNode {
   const on = useLesson((x) => !!x.lesson)
   const hasStep = useLesson((x) => !!x.stepId)
@@ -112,6 +141,8 @@ export function ShortcutBar({ bottom, lift = 0 }: { bottom: number; lift?: numbe
   const pressed = usePress((p) => p.kind)
   const stepTiles = hasStep ? STEP_BUTTONS : []
   const step = useStepControls()
+  const cardSteps = useCards((c) => !!c.card?.actions?.some((a) => CARD_STEP_ACTIONS.has(a)))
+  const askCollapsed = useLauncherOpen()
 
   return (
     <AnimatePresence>
@@ -131,15 +162,25 @@ export function ShortcutBar({ bottom, lift = 0 }: { bottom: number; lift?: numbe
             className="pointer-events-auto flex items-center gap-[2px] rounded-[24px] border p-[8px]"
             style={{ height: BAR_HEIGHT, background: glass.bg, borderColor: glass.hairline, boxShadow: glass.shadow, backdropFilter: 'blur(30px) saturate(1.4)' }}
           >
-            <button
-              className={`mr-[8px] flex h-[44px] w-[196px] cursor-pointer items-center gap-[9px] whitespace-nowrap rounded-[22px] border pl-[14px] pr-[8px] text-left ${hoverCls}`}
+            {/* While the launcher is open it is the ask field: this one collapses to the tree (no second input). */}
+            <motion.button
+              className={`mr-[8px] flex h-[44px] shrink-0 cursor-pointer items-center gap-[9px] overflow-hidden whitespace-nowrap rounded-[22px] border pl-[14px] pr-[8px] text-left ${hoverCls}`}
               style={{ borderColor: glass.hairline, color: glass.label }}
+              initial={false}
+              animate={{ width: askCollapsed ? ASK_COLLAPSED_W : ASK_W }}
+              transition={spring}
+              aria-label={copy.ask}
+              data-collapsed={askCollapsed ? '' : undefined}
               onClick={() => bridge.emit('launcher:toggle')}
             >
-              <MiyagiMark size={15} tone={appearance === 'light' ? 'light' : 'dark'} />
-              <span className="flex-1 text-[14.5px]">{copy.ask}</span>
-              <GlassKey text={bridge.platform.keys.launcher} />
-            </button>
+              <span className="flex shrink-0">
+                <MiyagiMark size={15} tone={appearance === 'light' ? 'light' : 'dark'} />
+              </span>
+              <motion.span className="flex flex-1 items-center gap-[9px]" initial={false} animate={{ opacity: askCollapsed ? 0 : 1 }} transition={{ duration: 0.12 }} aria-hidden={askCollapsed || undefined}>
+                <span className="flex-1 text-[14.5px]">{copy.ask}</span>
+                <GlassKey text={bridge.platform.keys.launcher} />
+              </motion.span>
+            </motion.button>
             {BUTTONS.map(({ kind, label, icon }) => {
               const voiceOn = kind === 'voice_toggle' && voice.on
               const l = isOption(kind) ? look.option(kind) : voiceOn ? look.primary : look.neutral
@@ -163,9 +204,9 @@ export function ShortcutBar({ bottom, lift = 0 }: { bottom: number; lift?: numbe
             {stepTiles.map(({ id, label, icon, kind, title }) => {
               const shown = id === 'skip' && step.skipping ? 'Skipping…' : id === 'end' && step.armed ? 'Tap to end' : label
               const tip = id === 'end' && step.armed ? 'Tap again to end the lesson' : title
-              return (
-                <Tile key={id} label={shown} icon={icon} look={id === 'check' || (id === 'end' && step.armed) ? look.primary : look.quiet} quiet={id !== 'check' && !(id === 'end' && step.armed)} busyKind={kind} title={tip} onClick={() => step.run(id)} />
-              )
+              // Check is the bar's one primary, unless a card with its own step controls is up (A17): then it's quiet.
+              const primary = (id === 'check' && !cardSteps) || (id === 'end' && step.armed)
+              return <Tile key={id} label={shown} icon={icon} look={primary ? look.primary : look.quiet} quiet={!primary} busyKind={kind} title={tip} onClick={() => step.run(id)} />
             })}
           </div>
         </motion.div>
