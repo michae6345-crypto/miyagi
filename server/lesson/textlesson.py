@@ -39,6 +39,7 @@ PLAN_SCHEMA = {
         "title": {"type": "string"},
         "libraries": {"type": "array", "items": {"type": "object", "properties": {"name": {"type": "string"}, "version": {"type": "string"}},
                                                  "required": ["name", "version"]}},
+        "overview": {"type": "string", "description": "<= 60 words: what we build and the plan, in plain words"},
         "primer": {"type": "array", "description": "3-5 core concepts a beginner needs before the steps", "items": {"type": "object", "properties": {
             "title": {"type": "string"}, "body": {"type": "string"}, "code": {"type": "string"}, "diagramPrompt": {"type": "string"}},
             "required": ["title", "body", "code", "diagramPrompt"]}},
@@ -48,7 +49,7 @@ PLAN_SCHEMA = {
             "concepts": {"type": "array", "items": {"type": "integer"}, "description": "1-based numbers of the primer concepts this step uses"}},
             "required": ["title", "instructions", "file", "what", "why", "concepts"]}},
     },
-    "required": ["title", "libraries", "primer", "steps"],
+    "required": ["title", "overview", "libraries", "primer", "steps"],
 }
 
 STEP_SCHEMA = {
@@ -94,11 +95,13 @@ mkdir, cd, touch or create folders, and never write absolute paths; name files r
 Order: step 1 is always typing code into a file (never a terminal step); a step that runs a program comes
 AFTER the steps that write that program's code.
 Also teach the ideas, in plain words for a complete beginner:
+- overview (<= 60 words): what we're building and the plan, e.g. "We'll build a command-line notes app. First a
+  list to hold notes, then functions to add and show them, then saving them to a file so they survive a restart."
 - primer: 3-5 core concepts the steps rely on (e.g. "What a variable is", "Functions are reusable recipes",
   "Running a .py file"): title <= 6 words; body <= 40 words, no jargon; code: a tiny example (1-3 lines);
   diagramPrompt: one sentence describing a picture that would help, or "" if none would.
-- per step: what (<= 12 words: what they build in this step, e.g. "A function named add that returns a + b"),
-  why (<= 25 words: what it means / why it matters), concepts (numbers of the primer concepts it uses).
+- per step: what (<= 12 words: the plan line for this step, e.g. "A list that holds your notes"),
+  why (<= 25 words: what this part does in the app), concepts (numbers of the primer concepts it uses).
 title: imperative, <= 6 words; instructions: ONE imperative sentence, at most 10 words, no parentheses; say
 "terminal" only for commands and name the file only for code ("Add an add function to calculator.py.",
 "Run your calculator in the terminal."); file: the file the step edits (relative path), or "" for a
@@ -120,7 +123,8 @@ Return for THIS step only (files are relative to the lesson folder, which alread
 mkdir/cd/touch, no absolute paths). The code above is already in the files: never re-type or rename anything
 that exists; to change existing code give only the new lines and anchor them to the existing line they go after
 or inside; call only names that exist by now. A step either types code or runs a command, never both:
-- code: exactly what to type in this step (only the new/changed lines, correct and runnable with the
+- code: the COMPLETE code to type in this step, every line, never "..." or placeholders (only the new lines,
+  correct and runnable with the
   earlier steps' code), file: where it goes;
 - targets: file + `match` = a short literal anchor already in the file or typed in this step (e.g.
   "function add(", "export default App") + caption, so the overlay can box exactly where to type;
@@ -196,6 +200,7 @@ async def build_text_lesson(goal: str, workdir: str, on_update=None, *, cache: b
     plan = await claude._generate_json(SYSTEM, PLAN_PROMPT.format(goal=goal, workdir=summary), PLAN_SCHEMA,
                                        effort="medium", role="segment", check=plan_ok)
     primer = make_primer(plan.get("primer") or [])
+    overview = _words(plan.get("overview") or "", 60)
     steps_plan = order_plan(plan["steps"])
     outline = "; ".join(f"{i}. {s['title']}" for i, s in enumerate(steps_plan, 1))
     libs = {lb["name"]: lb.get("version", "") for lb in plan.get("libraries") or [] if lb.get("name")}
@@ -209,7 +214,8 @@ async def build_text_lesson(goal: str, workdir: str, on_update=None, *, cache: b
         for k, st in enumerate(ordered, 1):
             _renumber(st, k)
         g = {"lesson": {"id": f"lesson-{key[5:13]}", "title": plan.get("title") or goal, "goal": goal, "workdir": workdir,
-                        "libraries": libs, "mode": "lesson", "complete": complete, "builtBy": "claude", "primer": primer},
+                        "libraries": libs, "mode": "lesson", "complete": complete, "builtBy": "claude", "primer": primer,
+                        **({"overview": overview} if overview else {})},
              "sources": [{"id": f"src{i}", "kind": "repo" if "github.com/" in s["url"] else "blog", "title": s["title"][:200], "url": s["url"]}
                          for i, s in enumerate(sources, 1)],
              "steps": ordered,
@@ -239,6 +245,8 @@ async def build_text_lesson(goal: str, workdir: str, on_update=None, *, cache: b
         def ok(o: dict) -> str | None:
             if not ((o.get("code") or "").strip() or (o.get("run_command") or "").strip()):
                 return "no code"
+            if re.search(r"^\s*(\.\.\.|…)\s*$|#\s*\.\.\.|//\s*\.\.\.|\.\.\.\s*(rest|more|etc)", o.get("code") or "", re.M | re.I):
+                return "code has a '...' placeholder instead of the complete code"
             if not o.get("checks"):
                 return "no checks"
             if not any((t.get("match") or "").strip() for t in o.get("targets") or []):
@@ -464,12 +472,15 @@ def shape_step(st: dict) -> dict:
         st["code"] = st["run_command"]  # the snippet is the command to type in the terminal
         if ran:
             st["file"] = ran  # the file it runs (checks look for its code there)
-        st["instructions"] = f"Run your {_noun(ran)} in the terminal."
+        st["instructions"] = "In the terminal, run the command below."
         return st
     f = st.get("file") or ""
-    words = text.split()
-    if (not words or len(words) > MAX_WORDS or re.search(r"\b(terminal|run)\b", text, re.I) or _RUN_WORD.match(text)):
-        text = f"In {f}, type the code below." if f else "Type the code below."
+    code_lines = [ln for ln in (st.get("code") or "").splitlines() if ln.strip()]
+    if code_lines:  # exactly what to do: where to type, and that the snippet below is the whole thing
+        what = "line" if len(code_lines) == 1 else "lines"
+        text = f"In {f}, type the {what} below." if f else f"Type the {what} below."
+    elif not text or len(text.split()) > MAX_WORDS:
+        text = "Read this step, then continue."
     elif not text.endswith((".", "!", "?")):
         text += "."
     st["instructions"] = text[0].upper() + text[1:] if text else text

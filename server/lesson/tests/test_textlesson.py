@@ -223,15 +223,15 @@ def test_step_wording_and_run_step_checks():
     code = textlesson.shape_step({"id": "s1", "file": "calculator.py", "code": "def add(a, b):\n    return a + b",
                                   "instructions": "Open calculator.py (the file on the left) and type this in the VS Code terminal: the add function, carefully.",
                                   "checks": [], "precision_checks": []})
-    assert code["instructions"] == "In calculator.py, type the code below."  # had 'terminal' and a parenthetical
+    assert code["instructions"] == "In calculator.py, type the lines below."  # exact: where, and the snippet is all of it
     short = textlesson.shape_step({"id": "s2", "file": "calculator.py", "code": "x = 1", "instructions": "Add a subtract function (like add).",
                                    "checks": [], "precision_checks": []})
-    assert short["instructions"] == "Add a subtract function." and len(short["instructions"].split()) <= 10
+    assert short["instructions"] == "In calculator.py, type the line below." and len(short["instructions"].split()) <= 10
     run = textlesson.shape_step({"id": "s3", "file": "", "code": "", "run_command": "python calculator.py",
                                  "instructions": "Type this in the VS Code terminal (use python3 on a Mac):",
                                  "checks": [{"id": "s3c1", "type": "screen_contains", "label": "result", "app": "Terminal", "pattern": r"Result:\s*\d"}],
                                  "precision_checks": []})
-    assert run["instructions"] == "Run your calculator in the terminal."  # 'terminal' for the command, no file name
+    assert run["instructions"] == "In the terminal, run the command below."  # 'terminal' for the command, no file name
     assert run["code"] == "python calculator.py" and run["file"] == "calculator.py"
     steps = [code, short, run]
     textlesson.link_run_steps(steps)
