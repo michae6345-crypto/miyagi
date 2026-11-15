@@ -16,6 +16,7 @@ import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { ArrowLeft, AudioLines, Check, Lightbulb, MessageSquareText, RotateCcw, SkipForward, Square, SquarePlay, Waypoints, type LucideIcon } from 'lucide-react'
 import { cmd } from '../../../../common/wire'
 import { bridge, registerWebHandler } from '../../bridge'
+import { emitUi } from '../../core/bus'
 import { useLesson, useProgress } from '../../core/lesson'
 import { useAppearance } from '../../core/prefs'
 import { sendAction, triggerShortcut, type ActionKind, type ActionShortcut } from '../../core/shortcuts'
@@ -56,6 +57,14 @@ const SKIP_LOCK_MS = 1000
 /** End: the first tap arms it ("Tap to end"); a second tap inside this window ends the lesson. No one-tap loss. */
 const END_ARM_MS = 3000
 
+/** After End on a finished lesson: how long to wait for the engine's lesson.ended before closing the lesson UI here. */
+const END_FALLBACK_MS = 1500
+/** Every step of a complete lesson passed (skipped steps count: they're in `passed` too). */
+function lessonDone(): boolean {
+  const s = useLesson.getState()
+  return !!s.lesson && s.complete && s.steps.length > 0 && s.steps.every((x) => s.passed.includes(x.id))
+}
+
 /** Step-control state: the Skip lock and the End confirm, each cleared by its own timer. */
 function useStepControls(): { skipping: boolean; armed: boolean; run: (id: StepBtn['id']) => void } {
   const [skipping, setSkipping] = useState(false)
@@ -72,6 +81,18 @@ function useStepControls(): { skipping: boolean; armed: boolean; run: (id: StepB
       return
     }
     clearTimeout(timers.current.end)
+    // The lesson is finished (every step passed): nothing to lose, so End is one tap. If the engine doesn't answer
+    // with lesson.ended (it ignored end_lesson once a lesson was done, Michael's test 5), close the drawer, cards and
+    // bar here anyway, so the learner is never stuck on a finished lesson.
+    if (lessonDone()) {
+      setArmed(false)
+      const shown = useLesson.getState().lesson
+      bridge.send(cmd('end_lesson', {}))
+      timers.current.end = setTimeout(() => {
+        if (shown && useLesson.getState().lesson === shown) emitUi('reset', { scope: 'lesson', reason: 'end_lesson' })
+      }, END_FALLBACK_MS)
+      return
+    }
     if (!armed) {
       setArmed(true)
       timers.current.end = setTimeout(() => setArmed(false), END_ARM_MS)
