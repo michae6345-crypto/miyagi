@@ -213,6 +213,8 @@ def need_run(s: Any, step: dict, results: list[dict], gate: dict) -> tuple[list[
     try:
         if getattr(s, "lesson_mode", False) or not watching(s):
             return None
+        if not (step.get("code") or "").strip():  # t10-flow's s1 (select the .venv kernel) has no cell to run
+            return None
         file = str(s._step_file(step) or "")
         if not file.lower().endswith(".ipynb"):
             return None
