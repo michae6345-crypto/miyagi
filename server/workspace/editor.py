@@ -16,6 +16,7 @@ from __future__ import annotations
 import ctypes
 import logging
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -306,7 +307,7 @@ def _run(argv: list[str]) -> bool:
 def open_editor_report(path: Path | str, file: str | None = None, *, runner: Runner | None = None,
                        editor: dict | None = None, arrange_windows: bool | None = None, wait: bool = False,
                        trusted: Callable[[], bool] = ax_trusted, previous: dict | None = None,
-                       fullscreen: bool = False) -> dict:
+                       fullscreen: bool = False, reuse_window: bool = False) -> dict:
     """Open the folder in the preferred editor and bring it frontmost; arrange windows when allowed.
 
     fullscreen=True ("Just teach me" mode): the editor goes macOS full screen instead of the left-60% layout
@@ -333,7 +334,8 @@ def open_editor_report(path: Path | str, file: str | None = None, *, runner: Run
     prev = previous if previous is not None else frontmost_app(skip={ed["app"], ed.get("process") or PROCESS_NAMES.get(ed["id"], "")})
     if ed.get("cli"):
         # no `-n`: `code <folder>` focuses the window that already has this folder, and opens one only if none does
-        argv = [ed["cli"], str(folder)] + (["-g", str(target)] if target else [])
+        # reuse_window: the frontmost VS Code window is an older Miyagi lesson folder -> `-r` swaps this folder in
+        argv = [ed["cli"], *(["-r"] if reuse_window else []), str(folder)] + (["-g", str(target)] if target else [])
         report["command"] = " ".join([Path(argv[0]).name, *argv[1:]])
         report["opened"] = run(argv)
     if not report["opened"] and sys.platform == "darwin":
@@ -557,7 +559,19 @@ _opened: dict[tuple[str, str], dict] = {}  # (lesson id, folder) -> {"state": wa
 
 
 def _frontmost() -> tuple[str, str] | None:
-    """(bundle id, name) of the active app. No permission needed."""
+    """(bundle id, name) of the active app, live. NSWorkspace.frontmostApplication goes stale in a process with
+    no AppKit run loop (the uvicorn engine), so ask Launch Services (`lsappinfo`, ~15 ms, no permission)."""
+    try:
+        asn = subprocess.run(["lsappinfo", "front"], capture_output=True, text=True, timeout=2, check=False).stdout.strip()
+        if asn:
+            info = subprocess.run(["lsappinfo", "info", "-only", "bundleID", "-only", "name", asn],
+                                  capture_output=True, text=True, timeout=2, check=False).stdout
+            bid = re.search(r'"CFBundleIdentifier"="([^"]*)"', info)
+            name = re.search(r'"LSDisplayName"="([^"]*)"', info)
+            if bid or name:
+                return (bid.group(1) if bid else "", name.group(1) if name else "")
+    except (OSError, subprocess.SubprocessError):
+        pass
     try:
         import AppKit
     except ImportError:
@@ -605,7 +619,8 @@ def open_state(folder: str | Path, lesson_id: str = "") -> dict | None:
 def open_lesson_editor(folder: str | Path, file: str | None = None, *, lesson_id: str = "", fullscreen: bool = False,
                        explicit: bool = False, runner: Runner | None = None, busy: Callable[[], bool] | None = None,
                        wait_s: float | None = None, background: bool = True, sleep=time.sleep,
-                       focus: Callable[[], tuple[str, str] | None] | None = None, **kw) -> dict:
+                       focus: Callable[[], tuple[str, str] | None] | None = None,
+                       windows: Callable[[], list[dict]] | None = None, reuse: bool | None = None, **kw) -> dict:
     """Open the lesson folder in the editor AT MOST ONCE per (lesson id, folder); idempotent and focus-safe.
 
     - First call: `code <folder> -g <file>` (never `-n`: VS Code focuses a window that already has the folder),
@@ -639,7 +654,9 @@ def open_lesson_editor(folder: str | Path, file: str | None = None, *, lesson_id
 
     def go() -> dict:
         st["state"] = "opening"
-        rep = open_editor_report(key[1], file, runner=runner, fullscreen=fullscreen, **kw)
+        use_r = reuse_lesson_window(key[1], windows=windows) if reuse is None else reuse
+        rep = open_editor_report(key[1], file, runner=runner, fullscreen=fullscreen, reuse_window=use_r, **kw)
+        rep["reused_window"] = use_r
         with _open_lock:
             if rep.get("opened"):
                 st.update(state="open", report=rep)
@@ -667,6 +684,25 @@ def open_lesson_editor(folder: str | Path, file: str | None = None, *, lesson_id
     threading.Thread(target=wait_then_go, daemon=True, name="miyagi-open-editor").start()
     log.info("auto-open of %s deferred: the learner is in Miyagi / typing", Path(key[1]).name)
     return {"opened": False, "deferred": True}
+
+
+def reuse_lesson_window(folder: str | Path, *, windows: Callable[[], list[dict]] | None = None) -> bool:
+    """New lesson: reuse the frontmost VS Code window (`code -r`) only if it shows an OLDER Miyagi lesson folder
+    (under ~/miyagi/lessons) and no window already has this folder. Windows outside the lessons folder are
+    never touched (then a plain `code <folder>` adds or focuses a window)."""
+    from .active import vscode_windows
+
+    try:
+        wins = windows() if windows else vscode_windows()
+    except Exception:  # noqa: BLE001 - window list unavailable: never reuse
+        return False
+    if not wins:
+        return False
+    name = Path(folder).expanduser().resolve().name
+    if any(w.get("folder_name") == name for w in wins):
+        return False  # already open somewhere: plain `code <folder>` focuses it
+    top = wins[0]
+    return bool(top.get("miyagi_lesson")) and top.get("folder_name") != name
 
 
 def jump(path: str | Path, line: int = 1, *, explicit: bool = False, runner: Runner | None = None,
