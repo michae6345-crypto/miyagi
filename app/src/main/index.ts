@@ -43,8 +43,8 @@ const signalListeners = new Map<string, Set<(payload?: unknown) => void>>()
 let overlay: BrowserWindow
 let launcher: BrowserWindow
 let launcherOpen = false
-/** The island's latest size, so the launcher can grow out of its exact shape. */
-let islandSize = { w: 300, h: 34 }
+/** The island's latest size, so the launcher can grow out of its exact shape (dx/dy: a card moved off the spotlight). */
+let islandSize: { w: number; h: number; dx?: number; dy?: number } = { w: 300, h: 34 }
 /** Built app: where main/serve.ts serves the renderer (set before any window is created). */
 let rendererOrigin: string | undefined
 let actionsRegistered = false

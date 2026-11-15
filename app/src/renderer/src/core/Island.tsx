@@ -8,13 +8,15 @@
  */
 import { AnimatePresence, motion } from 'motion/react'
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react'
+import type { Layout } from '../../../preload/api'
 import { bridge } from '../bridge'
 import { onUi } from './bus'
+import { useIslandOffset } from './islandPlace'
 import { startBuild, useLesson } from './lesson'
 import { getIslandModes } from './registry'
 import { color, pill, shadows, spring, springOut } from './theme'
 
-export function Island({ top }: { top: number }): ReactNode {
+export function Island({ top, layout }: { top: number; layout: Layout }): ReactNode {
   const [hover, setHover] = useState(false)
   const [landing, setLanding] = useState(false)
   /** The first spring after a landing must start from rest: the one-frame snap leaves a big velocity that made the pill balloon (~540–830px) before settling. */
@@ -25,12 +27,16 @@ export function Island({ top }: { top: number }): ReactNode {
   /** A leave is pending (the 300ms grace): the outside-move check below doesn't restart it. */
   const leaving = useRef(false)
   const islandEl = useRef<HTMLDivElement>(null)
+  const wrapper = useRef<HTMLDivElement>(null)
   const passFlash = useLesson((s) => s.passFlash)
 
   // Ask every registered mode whether it wants the island. (Stable array → stable hook order.)
   const islandModes = getIslandModes()
   const wanted = islandModes.map((m) => m.useActive(hover))
-  const mode = islandModes.find((_, i) => wanted[i])
+  // Open without the pointer on it: a hover peek must stay under the pointer, so only these cards move (islandPlace.ts).
+  const held = islandModes.map((m) => m.useActive(false))
+  const at = wanted.indexOf(true)
+  const mode = at < 0 ? undefined : islandModes[at]
   const isPill = !mode || mode.width === undefined
 
   // The launcher just shrank onto our exact pixels: appear at its size, then spring to ours.
@@ -71,10 +77,14 @@ export function Island({ top }: { top: number }): ReactNode {
     return () => ro.disconnect()
   }, [active, mode])
 
-  // Tell main (or the browser bus) our current size, so the launcher can grow out of exactly this shape.
+  // An open card steps off the spotlight's hole and the coach's targets (Michael's desktop test 3, item 3). Transform only.
+  const offset = useIslandOffset(mode && !isPill && held[at] ? { id: mode.id, w: size.w, h: size.h } : undefined, top, layout, wrapper)
+
+  // Tell main (or the browser bus) our current size, so the launcher can grow out of exactly this shape, and where we
+  // are (dx/dy from the notch spot: main's click-through poll covers the island there).
   useEffect(() => {
-    if (!landing) bridge.emit('island:size', { w: size.w, h: size.h })
-  }, [size, landing])
+    if (!landing) bridge.emit('island:size', { w: size.w, h: size.h, dx: offset.x, dy: offset.y })
+  }, [size, landing, offset.x, offset.y])
 
   const enter = (): void => {
     clearTimeout(hoverTimer.current)
@@ -116,7 +126,14 @@ export function Island({ top }: { top: number }): ReactNode {
   const { Content } = mode
 
   return (
-    <div className="pointer-events-none absolute inset-x-0 flex justify-center" style={{ top }}>
+    <motion.div
+      ref={wrapper}
+      className="pointer-events-none absolute inset-x-0 flex justify-center"
+      style={{ top }}
+      initial={false}
+      animate={{ x: offset.x, y: offset.y }}
+      transition={spring}
+    >
       <motion.div
         ref={islandEl}
         data-hit
@@ -160,6 +177,6 @@ export function Island({ top }: { top: number }): ReactNode {
           </motion.div>
         </AnimatePresence>
       </motion.div>
-    </div>
+    </motion.div>
   )
 }

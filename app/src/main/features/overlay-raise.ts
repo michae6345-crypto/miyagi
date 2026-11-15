@@ -88,9 +88,10 @@ export default defineMainFeature({
       if (ctx.overlay.isDestroyed()) return clearInterval(timer)
       if (!ctx.overlay.isVisible()) return
       const d = ctx.display().bounds
-      const { w, h } = ctx.islandSize()
-      // The island from its live size (the reported rects lag up to 300 ms while it grows into a card), plus the rest.
-      const island = { x: d.x + d.width / 2 - w / 2, y: d.y + ctx.platform.pillTop, w, h }
+      const { w, h, dx = 0, dy = 0 } = ctx.islandSize()
+      // The island from its live size and place (the reported rects lag up to 300 ms while it grows into a card or
+      // moves off the spotlight: core/islandPlace.ts), plus the rest.
+      const island = { x: d.x + d.width / 2 - w / 2 + dx, y: d.y + ctx.platform.pillTop + dy, w, h }
       const p = screen.getCursorScreenPoint()
       const now = within(p, island) || ctx.overlayRects().some((r) => within(p, r))
       if (now && !grabbed) {

@@ -57,8 +57,9 @@ export type MainContext = {
    * read its current size, start your panel at exactly that rect (top = platform.pillTop, centered), then
    * yieldIsland(true) so it hides; collapse back into its rect and yieldIsland(false) when you close.
    * Renderer side: bridge.emit('island:yield') / bridge.emit('island:return') do the same.
+   * dx/dy: how far an open card has moved from the notch spot to keep off the spotlight (core/islandPlace.ts).
    */
-  islandSize(): { w: number; h: number }
+  islandSize(): { w: number; h: number; dx?: number; dy?: number }
   yieldIsland(on: boolean): void
   /**
    * The overlay window's own visible UI (bar, cards, drawer, island…: every data-hit / data-ui element), in screen
