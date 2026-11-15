@@ -26,6 +26,7 @@ import { CheckList, Thumb, useChecking } from '../../core/ui/atoms'
 import { GlassCheck, GlassSpinner } from '../../core/ui/glass'
 import { parseYouTube, thumbnailFor } from '../launcher/youtube'
 import { HANDLE, TAB } from './geometry'
+import { LiveNetSection } from './LiveNet'
 import { useStepDetail } from './plan'
 import { closeDrawer, isWebLink, openSource, setPanelHeight, toggleDrawer } from './store'
 import { BuildStrip, lessonTopic, minutesLeft, NeedsChip, OverviewText, PrimerSection, StepActions, StepDetail } from './Teach'
@@ -211,6 +212,7 @@ export function Panel({ rect }: { rect: Rect }): ReactNode {
         </div>
         {plan.total > 0 && <ProgressHeader plan={plan} />}
       </div>
+      <LiveNetSection />
       <div
         ref={scroller}
         className="relative min-h-0 flex-initial overflow-y-auto px-[8px] pb-[12px]"
