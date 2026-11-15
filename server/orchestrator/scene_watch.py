@@ -12,9 +12,13 @@ A look runs only when ALL hold:
 - the screen changed since the last look: a newer OCR'd frame (obs.frame) whose text differs (PeriodicGate:
   clocks / dates / percentages and line order ignored), or a step file was saved;
 - the learner isn't typing into Miyagi itself, and no private app (1Password, Messages, …) is frontmost;
-- no look in flight. Budget: PeriodicGate stops after MIYAGI_SCENE_STOP_AFTER (30) looks in a row that saw the same
-  scene, until a save or a big screen change (>= 25% of the lines); a hard cap of MIYAGI_SCENE_MAX_PER_HOUR (720)
-  looks in any hour; a failed look backs off 15 s, 30 s … 5 min; no key turns it off (logged once);
+- no look in flight. Budget (t10: 25 of 37 looks repeated the one before, 27 ran under the video): a repeated answer
+  backs the interval off 5 s, 10 s, 20 s … MIYAGI_SCENE_CAP_S (40); PeriodicGate stops after MIYAGI_SCENE_STOP_AFTER
+  (3) identical answers in a row until the learner does something: a save, a VS Code event, a key / click in the
+  lesson's own apps, an action, or a new step (never a screen change alone: captions change every frame); no look
+  while a video plays and the learner hasn't touched anything since it started; a hard cap of
+  MIYAGI_SCENE_MAX_PER_HOUR (720) looks in any hour; a failed look backs off 15 s, 30 s … 5 min; no key turns it off
+  (logged once);
 - not in demo / offline mode (DEMO=1, ORCH_STUBS=coach), never without the real screen reader (FakeScreen tests:
   off), and not under pytest, unless a fake look is injected (attach(session, look=FakeLook(...), frame=...)) or
   MIYAGI_SCENE_EVERY_S is set explicitly.
@@ -48,6 +52,8 @@ WHERE_AFTER = 2  # looks in a row without the step's file as the active tab -> t
 SPOT_AFTER = 2  # looks in a row without the spotlight's target on screen -> place the spotlight again
 RESPOT_EVERY_S = 15.0  # E16: a look that sees the step's file with no box up places it again, at most this often
 FRAME_MAX_AGE_S = 30.0  # the reader re-OCRs at least every ~15 s while the display is awake
+CAP_S = 40.0  # t10: a repeated answer backs off to this (MIYAGI_SCENE_CAP_S)
+STOP_AFTER = 3  # t10: identical answers in a row before looks stop until the learner acts (MIYAGI_SCENE_STOP_AFTER)
 EDITOR_APPS = {"code", "vs code", "vscode", "visual studio code", "cursor"}
 
 
@@ -76,7 +82,8 @@ class SceneWatch:
         self.injected = look is not None
         self.every_s = _env_float("MIYAGI_SCENE_EVERY_S", 5.0) if every_s is None else float(every_s)
         self.max_per_hour = int(_env_float("MIYAGI_SCENE_MAX_PER_HOUR", 720) if max_per_hour is None else max_per_hour)
-        self.stop_after = max(1, int(_env_float("MIYAGI_SCENE_STOP_AFTER", 30) if stop_after is None else stop_after))
+        self.stop_after = max(1, int(_env_float("MIYAGI_SCENE_STOP_AFTER", STOP_AFTER) if stop_after is None
+                                     else stop_after))
         self._gate: Any = None  # coach.gate.PeriodicGate, made on the first look (no coach import while off)
         self.off_reason: str | None = None  # "no_key" / "offline" / "no coach": off for this process
         self.latest: Any = None
@@ -90,19 +97,21 @@ class SceneWatch:
         self._retry_at = -1e9
         self._epoch: Any = None
         self._gen: Any = None
+        self._play_t: float | None = None  # when the video was first seen playing (no look until the learner acts)
         self._reset_step()
 
     # ------------------------------------------------------------------ gates
     @property
     def gate(self) -> Any:
-        """PeriodicGate: interval MIYAGI_SCENE_EVERY_S (MIYAGI_SCENE_CAP_S > it lets a repeated scene back off), only on a
-        changed screen / saved file, stop after `stop_after` identical scenes until a save or a big screen change."""
+        """PeriodicGate: interval MIYAGI_SCENE_EVERY_S, doubled per repeated answer up to MIYAGI_SCENE_CAP_S (40), only
+        on a changed screen / saved file / learner activity; stopped after `stop_after` identical answers until the
+        learner acts (_activity: a save, a VS Code event, a key / click, an action), never by pixels alone."""
         if self._gate is None:
             from server.coach.gate import PeriodicGate
 
             base = self.every_s if self.every_s > 0 else 5.0
-            self._gate = PeriodicGate(base_s=base, cap_s=max(base, _env_float("MIYAGI_SCENE_CAP_S", base)),
-                                      stop_after=self.stop_after, clock=self.s.clock)
+            self._gate = PeriodicGate(base_s=base, cap_s=max(base, _env_float("MIYAGI_SCENE_CAP_S", CAP_S)),
+                                      stop_after=self.stop_after, clock=self.s.clock, wake_on_screen=False)
         return self._gate
 
     def enabled(self) -> bool:
@@ -171,6 +180,49 @@ class SceneWatch:
             rows += [f"{app}: {ln}" for ln in lines or []]
         return "\n".join(rows)
 
+    def _last_touch_s(self) -> float | None:
+        """Seconds since the learner last did something: an action / save / run, or a key / click in the lesson's own
+        apps (E5 booking: keys in Miyagi or another app don't count). None: never."""
+        s = self.s
+        vals = []
+        acted = getattr(s, "last_action_t", None)
+        if isinstance(acted, (int, float)) and acted > -1e8:
+            vals.append(max(0.0, s.clock() - acted))
+        try:
+            v = s._work_since("input")
+        except Exception:  # noqa: BLE001
+            v = None
+        if isinstance(v, (int, float)):
+            vals.append(max(0.0, float(v)))
+        return min(vals) if vals else None
+
+    def _activity(self) -> dict:
+        """What wakes a stopped look (PeriodicGate `files`): the learner's last touch (whole seconds) and the newest
+        VS Code companion event (save / dirty / editor / focus / command_end; scroll events aren't kept)."""
+        s, out = self.s, {}
+        touch = self._last_touch_s()
+        if touch is not None:
+            out["@touch"] = round(s.clock() - touch)
+        try:
+            from server.workspace import vscode_ext
+
+            ev = vscode_ext.last_event()
+        except Exception:  # noqa: BLE001
+            ev = None
+        if ev:
+            out["@vscode"] = int(ev.get("seq") or 0)
+        return out
+
+    def _watching_video(self, now: float) -> bool:
+        """t10: the video plays and the learner hasn't touched anything since it started: nothing to look at."""
+        if not getattr(self.s, "video_playing", False):
+            self._play_t = None
+            return False
+        if self._play_t is None:
+            self._play_t = now
+        touch = self._last_touch_s()
+        return touch is None or touch >= now - self._play_t
+
     # ------------------------------------------------------------------ the tick
     async def tick(self) -> None:
         s = self.s
@@ -193,7 +245,7 @@ class SceneWatch:
         if self._task is not None and not self._task.done():
             return  # one look in flight at most
         now = s.clock()
-        if now < self._retry_at or (s.video_playing and not s.segment_done):
+        if now < self._retry_at or (s.video_playing and not s.segment_done) or self._watching_video(now):
             return
         if s.screen_down_reason() or self._typing_in_miyagi():
             return  # asleep / locked / capture failing; or the learner is typing into Miyagi
@@ -209,12 +261,13 @@ class SceneWatch:
         gk = s._judge_gate_kwargs(step)
         screen = self._screen_text(obs)
         key = f"{s.lesson_epoch}:{s.step_gen}"
-        if not self.gate.allow(key, screen=screen, files=gk["file_mtimes"], screen_ok=gk["screen_ok"],
+        files = {**(gk["file_mtimes"] or {}), **self._activity()}
+        if not self.gate.allow(key, screen=screen, files=files, screen_ok=gk["screen_ok"],
                                asleep=gk["display_asleep"]):
-            return  # unchanged, too soon, or stopped after the same scene 30 times
+            return  # unchanged, too soon (backed off), or stopped after the same answer 3 times and nobody acted
         if not self._budget(now):
             return
-        self.gate.started(key, screen=screen, files=gk["file_mtimes"])
+        self.gate.started(key, screen=screen, files=files)
         self._key, self._last_frame = key, frame_no
         self._hour.append(now)
         self._task = s._spawn(self._run(s.step_gen, step, key, frame_no))
