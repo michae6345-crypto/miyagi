@@ -16,7 +16,7 @@
  * Avoid rects (Michael's desktop test 9, A3 / A4: the "Not yet" card and the step pill sat over VS Code's kernel
  * picker, top centre). The engine's `screen.avoid` says what is open on top of the learner's app and must stay visible
  * (a quick-pick: kernel picker, command palette, Select Interpreter). An open card steps out of it like out of a
- * spotlight box, and goes back to its own spot when it closes. The one
+ * spotlight box, and goes back to its own spot when it closes; the pill slides along its row beside it. The one
  * exception to "held once shown": a NEW avoid rect moves an open card (the learner opened that picker on purpose), but
  * never while the pointer is on it or just after a press. Nothing is guessed when the engine says nothing: the picker
  * opens top centre, right where every card and the pill are born, and a card moved off that spot for good would sit
@@ -67,6 +67,8 @@ const SAME_BOX_PX = 12
  */
 const HOLDS = new Set(['before-start'])
 
+/** Air between the pill and an avoid rect it slides beside. */
+const PILL_GAP = 12
 /**
  * The engine sends `screen.avoid` only when something changes ({rects: []} = closed). A close that never came is
  * dropped after this long (a picker is open a few seconds, not a minute).
@@ -164,6 +166,22 @@ export function placeIsland(card: Rect, keepOff: Rect[], bounds: Rect, avoid: Re
     }
   }
   return best
+}
+
+/**
+ * The pill's offset beside the avoid rects it overlaps (`pill`: its notch spot, window coordinates): along its own
+ * row to the nearer side that fits (right first on a tie), else just below them. AT_NOTCH when nothing overlaps.
+ */
+export function asidePill(pill: Rect, clear: Rect[], bounds: Rect): Offset {
+  const hits = clear.filter((c) => intersects(pill, c))
+  if (!hits.length) return AT_NOTCH
+  const right = Math.max(...hits.map((c) => c.x + c.w)) + PILL_GAP
+  const left = Math.min(...hits.map((c) => c.x)) - PILL_GAP - pill.w
+  const fits = (x: number): boolean =>
+    x >= bounds.x && x + pill.w <= bounds.x + bounds.w && !clear.some((c) => intersects({ ...pill, x }, c))
+  const xs = [right, left].sort((a, b) => Math.abs(a - pill.x) - Math.abs(b - pill.x))
+  for (const x of xs) if (fits(x)) return { x: Math.round(x - pill.x), y: 0 }
+  return { x: 0, y: Math.round(Math.max(...hits.map((c) => c.y + c.h)) + PILL_GAP - pill.y) }
 }
 
 type OverlayUi = { others: Rect[]; chips: Rect[] }
@@ -313,4 +331,28 @@ export function useIslandOffset(card: { id: string; w: number; h: number } | und
     aside.current = nextAside
   })
   return nextAside?.at ?? base
+}
+
+/**
+ * The pill's offset (desktop test 9, A4: the step pill hid the quick-pick's first row). `pill`: its size while the
+ * island is pill-sized (undefined while a card or a hover peek is open). `peek`: a hover peek is open: it stays where
+ * the pill was, under the pointer. While an avoid rect overlaps the pill's notch spot, the pill slides along its
+ * row beside it (asidePill), and back when it closes; never while `still`.
+ */
+export function usePillOffset(pill: { w: number; h: number } | undefined, peek: boolean, top: number, layout: Layout, still = false): Offset {
+  const clear = useAvoidLocal(layout)
+  const last = useRef<Offset>(AT_NOTCH)
+  let at: Offset
+  if (!pill && !peek) at = AT_NOTCH // a card is open: useIslandOffset places it
+  else if (still || !pill) at = last.current
+  else if (!clear.length) at = AT_NOTCH
+  else {
+    const wa = layout.workArea
+    const notch = { x: (layout.width - pill.w) / 2, y: top, w: pill.w, h: pill.h }
+    at = asidePill(notch, clear, { x: wa.x + EDGE, y: top, w: wa.width - EDGE * 2, h: wa.y + wa.height - top })
+  }
+  useLayoutEffect(() => {
+    last.current = at
+  })
+  return at
 }
