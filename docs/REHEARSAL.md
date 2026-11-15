@@ -1,5 +1,9 @@
 # Hero demo rehearsal: measured timings, offline result, stage checklist
 
+A record of the Nov 14 PINN rehearsal, kept for its numbers. Some steps predate the current build: lessons now grade the
+unsaved code in VS Code (no ⌘S needed to be graded), and the Mac lesson keys are ⌃⌥ (Hint ⌃⌥H, Diagram ⌃⌥D). The current
+run of show is [`docs/DEMO.md`](DEMO.md).
+
 Rehearsed on 2026-11-14 on the stage Mac with `scripts/rehearse.py`, on `integration/live` **3123eb6**. That base
 includes E4's fixes for the bugs this rehearsal found and S8's preflight card. An earlier batch on 9f89e04 gave the
 same picture; see the end of §1. Re-checked on **bb8feb2** (the head when this PR was opened): one live take and the

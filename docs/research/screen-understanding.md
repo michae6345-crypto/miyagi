@@ -320,7 +320,7 @@ Chromium and Electron only build their AX tree when an assistive client asks for
 - **Settle time:** wait about 500 ms the first time (trycua/cua PR #1756, https://github.com/trycua/cua/pull/1756). Without this, VS Code returns an empty or title-bar-only tree.
 - **Set it once per process, not every frame.** Screenpipe found that re-setting the flag on every frame makes Chromium rebuild its tree and can commit "phantom text" into the focused field.
   - Source: https://github.com/screenpipe/screenpipe/blob/main/crates/screenpipe-a11y/src/tree/macos.rs, lines 712-724 and 845-895.
-  - Screenpipe also raises the walk depth to 40 for Code, Cursor, Windsurf and similar forks, because terminal rows sit about 37 levels deep (lines 129-150 and 955-970).
+  - Screenpipe also raises the walk depth to 40 for Code and its forks, because terminal rows sit about 37 levels deep (lines 129-150 and 955-970).
 
 ### What VS Code exposes (from source; not tried live, since this session has no Accessibility grant)
 With `editor.accessibilitySupport: "on"` (or auto-detected), the focused editor is a `role=textbox aria-multiline` div.
@@ -529,12 +529,12 @@ RECOMMENDATIONS FOR MIYAGI
 
 ## Report: editor-deep
 
-TOPIC: Understanding a VS Code / Cursor / Jupyter session from outside, with nothing installed
+TOPIC: Understanding a VS Code / Jupyter session from outside, with nothing installed
 
 Status: I verified everything below against source code (VS Code main, Electron, xterm.js). I did not run any of it live, because this shell does not have Accessibility permission (`AXIsProcessTrusted() == False`). The speeds are estimates, not measurements.
 
 **1. The AX tree is the main source of truth, once you switch it on**
-- Electron apps (VS Code, Cursor) build no AX tree for web content until assistive tech asks for one. An outside app can force it by setting `AXManualAccessibility=true` on the app element. Electron handles this in `shell/browser/mac/electron_application.mm` (~L249-265): it turns on the complete AX mode and fires `OnAccessibilitySupportChanged()`. Docs: https://www.electronjs.org/docs/latest/tutorial/accessibility. Shipping apps do the same: nchudleigh/vimac `ViMac-Swift/Accessibility/AXManualAccessibilityActivator.swift`, and stablyai/orca `native/computer-use-macos/.../main.swift` L1621-1627, which falls back to `AXEnhancedUserInterface`.
+- Electron apps such as VS Code build no AX tree for web content until assistive tech asks for one. An outside app can force it by setting `AXManualAccessibility=true` on the app element. Electron handles this in `shell/browser/mac/electron_application.mm` (~L249-265): it turns on the complete AX mode and fires `OnAccessibilitySupportChanged()`. Docs: https://www.electronjs.org/docs/latest/tutorial/accessibility. Shipping apps do the same: nchudleigh/vimac `ViMac-Swift/Accessibility/AXManualAccessibilityActivator.swift`, and stablyai/orca `native/computer-use-macos/.../main.swift` L1621-1627, which falls back to `AXEnhancedUserInterface`.
 - VS Code passes that event on to its windows (`src/vs/code/electron-main/app.ts` L557-558). With the default `editor.accessibilitySupport: auto`, the editor then counts as "screen reader optimized" (`platform/accessibility/browser/accessibilityService.ts` L145-147).
 - **Catch:** VS Code then shows a sticky prompt, "Screen reader usage detected…" (`contrib/accessibility/browser/accessibilityStatus.ts` L53-66). Clicking **No** writes `editor.accessibilitySupport: "off"` to user settings. In that state the hidden editor text is cleared and never written again (`screenReaderContentSimple.ts` L46-47, L71). On the demo machine, click **Yes** or set `"editor.accessibilitySupport": "on"`. That is a settings change, not an install.
 - What you get once it is on (Monaco, `editor/browser/controller/editContext/native/`):
@@ -545,7 +545,7 @@ Status: I verified everything below against source code (VS Code main, Electron,
   - **Main finding:** that element sits exactly on the cursor line, with `top` = the cursor line's offset, `left` = contentLeft and `height` = lineHeight (`screenReaderSupport.ts` L131-157, L165-173). So its `AXPosition`/`AXSize` is the pixel rect of the current line, and `AXSize.height` is the line height. If the cursor is scrolled out of view, it moves to the top-left instead.
 - The window's `AXDocument` gives the full path of the active file. VS Code calls `setRepresentedFilename(file.fsPath)` whenever the active editor changes (`workbench/electron-browser/window.ts` L476-480).
 - The window `AXTitle` (or `kCGWindowName`) has a leading "●" when the file has unsaved changes. That tells you whether the copy on disk is out of date.
-- Notebooks in VS Code and Cursor: each cell is its own Monaco editor, so the same approach works for the focused cell. Cell outputs live in a webview; reaching them through AX is possible but I have not verified it.
+- Notebooks in VS Code: each cell is its own Monaco editor, so the same approach works for the focused cell. Cell outputs live in a webview; reaching them through AX is possible but I have not verified it.
 
 **2. Comparison**
 
@@ -555,7 +555,7 @@ Status: I verified everything below against source code (VS Code main, Electron,
 | (2) Pixel rect of line N | Current line exact; line N ≈ `y + (N-cur)*h`. Breaks with folding, word wrap, inline widgets | n/a | n/a | Can scroll N into view first | Good: fuzzy-match the expected text, then use its rect |
 | (3) Latest terminal output | VS Code terminal (xterm.js) exposes one element per visible row (`xterm.js src/browser/AccessibilityManager.ts` L68-73) | Log file if the script writes one: best | n/a | n/a | Fine for loss numbers via regex |
 
-- `code -g file:line[:col]` and `-r` are **write-only**: they navigate the editor and report no state (https://code.visualstudio.com/docs/configure/command-line). For Cursor use `cursor -g`. This is the safest "show me" control: jump the user to the line, then spotlight it.
+- `code -g file:line[:col]` and `-r` are **write-only**: they navigate the editor and report no state (https://code.visualstudio.com/docs/configure/command-line). This is the safest "show me" control: jump the user to the line, then spotlight it.
 - Terminal.app: AppleScript `tell application "Terminal" to get history of selected tab of front window` returns the full scrollback (one-time Automation prompt). AX `AXTextArea.AXValue` also works.
 - iTerm2: `contents of current session`.
 - Browser JupyterLab: read the `.ipynb` on disk (only updated on autosave), or the Jupyter server REST API. The token comes from `jupyter server list --json`.
@@ -564,7 +564,7 @@ Status: I verified everything below against source code (VS Code main, Electron,
 ```python
 from ApplicationServices import *; from AppKit import NSWorkspace; import Quartz
 def ax(e,a): err,v=AXUIElementCopyAttributeValue(e,a,None); return v if err==0 else None
-IDS={"com.microsoft.VSCode","com.todesktop.230313mzl4w4u92"}  # Cursor id: from memory, check
+IDS={"com.microsoft.VSCode"}
 pid=next(a.processIdentifier() for a in NSWorkspace.sharedWorkspace().runningApplications() if a.bundleIdentifier() in IDS)
 app=AXUIElementCreateApplication(pid)
 AXUIElementSetAttributeValue(app,"AXManualAccessibility",True)   # once, then wait ~1-2 s
@@ -585,10 +585,10 @@ _,under=AXUIElementCopyElementAtPosition(AXUIElementCreateSystemWide(),m.x,m.y,N
 - Permissions: Accessibility is separate from Screen Recording. It is granted to whichever process is responsible for the engine (the Electron app, or Terminal in dev). AX permission is also needed for clicking and typing, so request it once.
 
 RECOMMENDATIONS FOR MIYAGI
-- **Make AX the main signal for VS Code and Cursor.** Set `AXManualAccessibility` at startup and turn on `editor.accessibilitySupport: "on"` on the demo Mac, so nobody hits the "No" trap. Read file path, dirty flag, unsaved buffer, caret line and current-line rect from AX. Keep OCR as the cross-check and as the fallback when the AX value is empty.
+- **Make AX the main signal for VS Code.** Set `AXManualAccessibility` at startup and turn on `editor.accessibilitySupport: "on"` on the demo Mac, so nobody hits the "No" trap. Read file path, dirty flag, unsaved buffer, caret line and current-line rect from AX. Keep OCR as the cross-check and as the fallback when the AX value is empty.
 - **Spotlight with this order:** AX current-line rect, then the offset formula for line N, then OCR fuzzy-match on the expected line text to confirm it. If line N is off screen, run `code -g path:N` first, wait about 300 ms, then re-read.
 - **Mouse awareness:** use `CGEventGetLocation` plus `AXUIElementCopyElementAtPosition` for UI chrome (buttons, terminal rows, file tree). Inside the editor, map mouse y to a line with the AX anchor and line height. That gives "you're hovering line 42 (`loss = …`)" for free.
 - **Check steps with an owned baseline:** watch the project folder for saves (FSEvents or `watchdog`). On each save, run `git --git-dir ~/.miyagi/shadow.git --work-tree <proj> diff -U0` against a snapshot taken at lesson start, so the user's own repo is never touched. Grade the hunks, not OCR text.
 - **Training loss:** best is to have the lesson's `train.py` also append to `.miyagi/loss.log` and tail it. Next, read VS Code terminal rows via AX, or Terminal.app `history` via AppleScript. Last, OCR a crop of the terminal rect with a `loss[=:]\s*([\d.e+-]+)` regex.
-- **Budget about 3-4 hours for the AX module.** Test early on the actual demo Mac in VS Code and Cursor: no code here was run live.
+- **Budget about 3-4 hours for the AX module.** Test early on the actual demo Mac in VS Code: no code here was run live.
 

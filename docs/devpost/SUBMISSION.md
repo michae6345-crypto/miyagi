@@ -54,12 +54,13 @@ A hand-written lesson served at once, with no build step and no model call to wr
 
 - A "Before you start" sheet shows the plan (input → hidden layer 1 → hidden layer 2 → output → backprop → gradient step) and
   what to know first (NumPy arrays, matrix multiply, derivatives).
-- The drawer's right-hand panel draws the network. Until your first run it shows a preview of the lesson's own network. After
+- Miyagi draws the network live. Until your first run it shows a preview of the lesson's own network. After
   each run that prints losses it shows **your** run: your weights on the edges, the neurons firing, the prediction for
   x = π/2 climbing to its target 1.
 - The planned "Not yet": start every weight at zero and every hidden neuron gets the same update, so the network answers 0 for
   every x. The loss sits at 0.49 (the mean of sin²(x) over the lesson's 50 points), the panel shows eight identical dark
-  neurons, and the card reads **Loss is stuck at 0.49**, with a two-step hint ladder. Start the weights random and the
+  neurons, and the card reads **Loss is stuck at 0.49** (in Just teach me, **All weights start at zero**), with a two-step
+  hint ladder. Start the weights random and the
   lesson's own code goes from loss 0.8187 to 0.0009 by epoch 18,000 (`demo/cache/stage/nn-runs.json`, real NumPy output).
 - The finished lesson ends on a completion panel with the lesson's skill map.
 
@@ -68,13 +69,15 @@ A hand-written lesson served at once, with no build step and no model call to wr
 The third launcher chip sends `learn` with `mode: "demo"` (`server/orchestrator/stage.py`). It loads the same neural-network
 lesson, with the same folder, cards, hints and network panel, and stages it:
 
-- A typing step passes on cue: **Check my work**, a save in the lesson folder, or the presenter's key.
+- A typing step passes by itself about a second after its code is pasted into `nn.py`, unsaved. **Check my work**, a save
+  or the presenter's key also pass it, but only once that step's code is there (the key always does).
 - A run step never runs anything. **Run it for me** shows a recorded run of the lesson's own code, and its loss lines feed the
   live curve and the network panel. The first Train it run is the stuck one when `nn.py` starts any weight at zero.
 - No grading, screen reading or coach calls happen on stage. A typed question that can't reach Claude gets the step's own
   explanation (commit `65024d6`: with Wi-Fi off, 51 "Couldn't reach Claude" cards went to 0).
 - Presenter keys, bound only while a Demo runs: ⌃⌥⌘→ passes the step, ⌃⌥⌘← goes back, ⌃⌥⌘R starts again at step 1 with a
-  clean `nn.py` (`POST /stage/next`, `/stage/back`, `/stage/restart`; `app/src/main/features/presenter.ts` on `adrian/shell`).
+  clean `nn.py` on disk and in VS Code's open tab (`POST /stage/next`, `/stage/back`, `/stage/restart`;
+  `app/src/main/features/presenter.ts` on `adrian/shell`).
 - Every Demo start is a fresh take: step 1 and a clean `nn.py`, never a saved step (commit `a2ff530`).
 - A headless rehearsal plays the whole run of show against a private engine with no paid keys, as a regression gate
   (`scripts/rehearse_demo.py`, `server/tests/demo_rehearsal.py`).
@@ -115,7 +118,7 @@ why, and the complete code to type. Step 1 is ready before the research finishes
   doesn't count as falling (`server/checks/`).
 - **Pointing.** The spotlight dims the screen and draws one white box: on the line to type, or on the real VS Code control to
   use next (the Run ▷ button, the terminal, the file's tab), found through macOS Accessibility (commit `34d525b`). The type
-  box follows when VS Code scrolls (companion 0.0.5, commit `84042f5`).
+  box follows when VS Code scrolls (since companion 0.0.5, commit `84042f5`).
 
 ### The coach: "Not yet" cards and hints
 
@@ -125,6 +128,9 @@ why, and the complete code to type. Step 1 is ready before the research finishes
 - **Hint** climbs a ladder: a guiding question first, then the moment in the video or the source, then the exact fix
   (`server/coach/hints.py`). When a check fails on its own, a Claude Sonnet coach reads your screen and code and writes one
   short card about what's wrong (`server/coach/diagnose.py`).
+- The neural-net lesson's two planted bugs get their **Not yet** card at once, from the lesson's files with no model call:
+  nn2's tanh slope written `1 + h ** 2` ("Wrong sign in the d_h2 tanh slope") and nn4's zero weights ("All weights start
+  at zero") (commits `7cad4ff`, `085271e`). Any other failure goes to the coach.
 - **Do it for me** shows a preview, applies only after you confirm, and can be undone.
 - A run that stops on a missing package offers a one-press Install (commit `01bf965`). Terminal typos get a card without a
   model call (commit `2f20461`).
@@ -155,7 +161,7 @@ engine: server/orchestrator (FastAPI hub, lesson state machine, curated NN lesso
   ├─ coach      Claude step judge, Sonnet diagnosis, hint ladder, Do it for me
   ├─ sessions   restart-safe lesson saves + resume
   └─ Tiger Data learning_events + training_metrics hypertables, continuous aggregates, GET /stats
-VS Code companion (vscode-ext/, 0.0.5): exact editor text, saves, terminal output and exit codes, scrolls
+VS Code companion (vscode-ext/, 0.0.6): exact editor text, saves, terminal output and exit codes, scrolls
 ```
 
 **Model rule.** Claude searches, scores, writes lessons and reads screens, code and transcripts. Gemini only watches YouTube
@@ -167,7 +173,7 @@ scoring, preflight, the Check judge, explaining, locating). Opus is never used b
 (as it does on macOS 26), then CoreGraphics. OCR runs on the device with Apple Vision. Our own overlay is left out of the
 captured frames.
 
-**VS Code companion** (`vscode-ext/`, version 0.0.5). Plain JavaScript with no build step, serving HTTP on 127.0.0.1 only
+**VS Code companion** (`vscode-ext/`, version 0.0.6). Plain JavaScript with no build step, serving HTTP on 127.0.0.1 only
 (port 8791). It gives the engine the open file, unsaved edits, the caret position, what's scrolled into view, and the terminal's last
 command with its output and exit code. It can open a file at a line, run a command in a terminal named "Miyagi", save, and
 apply a fix. It draws nothing in VS Code. It adds one command, **Miyagi: Explain this** (Ctrl+Cmd+E), answered in Miyagi's

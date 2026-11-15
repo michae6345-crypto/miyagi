@@ -6,10 +6,10 @@ lesson: written by hand, served instantly, the same every time (seeded: `np.rand
 
 | Mode | How it starts | What's live |
 |---|---|---|
-| **LIVE** (`scripts/miyagi-engine.sh`) | Launcher → any neural-network goal → **Just teach me** | The off-track coach (Claude). Lesson, hints, Explain and the network diagrams come from `demo/cache` (no build, no build cost). |
-| **DEMO** (`scripts/miyagi-nn-demo.sh`) | Same | Nothing: DEMO=1 also serves the coach's off-track card from `demo/cache/coach/nn4.json`. |
+| **Just teach me** (`scripts/miyagi-engine.sh`) | Launcher → any neural-network goal → **Just teach me** (⌘↵) | Real checks on your code and your runs. Lesson, hints, Explain and the network diagrams come from `demo/cache` (no build, no build cost). The two planted bugs (below) get the lesson's own Not yet card at once, with no model call. Any other failure goes to the coach (Claude). |
+| **Demo** (`scripts/miyagi-engine.sh` or the offline `scripts/miyagi-nn-demo.sh`) | Launcher → anything → the **Demo** chip | The same lesson staged for a talk: each pasted step passes by itself, runs are recorded, and the presenter keys work. Run of show and offline runbook: [`docs/DEMO.md`](DEMO.md). |
 
-Checks are the real ones in both: VS Code's exact editor text (companion extension), else `nn.py` on disk; the run steps
+The rest of this page is the Just teach me lesson. Its checks are the real ones: VS Code's exact editor text (companion extension), else `nn.py` on disk; the run steps
 on what the run printed (VS Code's terminal via the extension, Run it for me, or the screen). Each typing step checks its
 key math, not just that the function exists (t6: step 2 passed with tanh's slope as `1 + h2 ** 2`): step 1 tanh on both
 hidden layers and none on the output, step 2 `d_out = 2 * (out - y) / len(X)` and the slope `(1 - h ** 2)` on both
@@ -36,21 +36,34 @@ either counts.
 
 ## The six steps (what to do, what appears, what to say)
 
-The right-hand panel of the drawer shows a live network at every step (pushed by the engine; `adrian/shell` PR #94).
+The engine pushes a live network for every step as `diagram` events (the app draws them since `adrian/shell` PR #94).
 Until the learner's first run it is a preview of the lesson's own network (`data.preview`: no epoch, no loss, never a
 training run); from the first run on it is their run.
 
 | # | Step | You do | miyagi shows | Say |
 |---|---|---|---|---|
-| 1 | Build the network | Copy, paste under `# The network`. For the story, **change the three weight lines to zeros**: `W1 = np.zeros((1, 4))`, `W2 = np.zeros((4, 4))`, `W3 = np.zeros((4, 1))`. Save. | Panel: a preview of the network you're building, firing (forward pass). Checks go green. | "This is what we're building: x goes in, y comes out. I'll take a shortcut: zeros instead of random weights. The shapes are right, so it passes." |
-| 2 | Backprop | Copy, paste under `# Backprop`, save | Panel: a preview of the error flowing back | "Backprop: the error goes back along the same weights; every weight gets its share of the blame." |
-| 3 | Write the training loop | Copy, paste under `# Training`, save | Panel: a preview of the network the loop starts from, standing still (nothing trains before the run) | |
-| 4 | Train it | Run it (Run it for me, or the command in VS Code's terminal) | Loss 0.4900 on every line → **off track** (live coach). Panel: **loss stuck**, identical dark hidden neurons (all eight at 0), loss 0.4900. ⌥H twice: "look at how W1, W2 and W3 start" → "start them random". | "Every check passed, but the loss never moved. All eight hidden neurons are the same neuron: each outputs tanh(0) = 0, so the network answers 0 for every x." |
-| 4b | | Change the three lines back to `np.random.randn(1, 4)` / `np.random.randn(4, 4)` / `np.random.randn(4, 1) * 0.1`, save, run again (about 0.4 s) | Loss 0.8187 → 0.0009 (epoch 0 → 18000), step passes. Panel: **your run**, weights moving while the loss falls | "Random starts break the tie. Now it learns." |
-| 5 | Test it | Copy, paste under `# Test it`, save | Panel: your run again | |
+| 1 | Build the network | Copy, paste under `# The network`. For the story, **change the three weight lines to zeros**: `W1 = np.zeros((1, 4))`, `W2 = np.zeros((4, 4))`, `W3 = np.zeros((4, 1))`. | Panel: a preview of the network you're building, firing (forward pass). Checks go green. | "This is what we're building: x goes in, y comes out. I'll take a shortcut: zeros instead of random weights. The shapes are right, so it passes." |
+| 2 | Backprop | Copy, paste under `# Backprop` | Panel: a preview of the error flowing back | "Backprop: the error goes back along the same weights; every weight gets its share of the blame." |
+| 3 | Write the training loop | Copy, paste under `# Training` | Panel: a preview of the network the loop starts from, standing still (nothing trains before the run) | |
+| 4 | Train it | Run it (Run it for me, or the command in VS Code's terminal) | Loss 0.4900 on every line → the **Not yet · All weights start at zero** card at once. Panel: **loss stuck**, identical dark hidden neurons (all eight at 0), loss 0.4900. Hint (⌃⌥H) twice: "look at how W1, W2 and W3 start" → "start them random". | "Every check passed, but the loss never moved. All eight hidden neurons are the same neuron: each outputs tanh(0) = 0, so the network answers 0 for every x." |
+| 4b | | Change the three lines back to `np.random.randn(1, 4)` / `np.random.randn(4, 4)` / `np.random.randn(4, 1) * 0.1` and run again (about 0.4 s). miyagi saves `nn.py` before the run. | Loss 0.8187 → 0.0009 (epoch 0 → 18000), step passes. Panel: **your run**, weights moving while the loss falls | "Random starts break the tie. Now it learns." |
+| 5 | Test it | Copy, paste under `# Test it` | Panel: your run again | |
 | 6 | See what it learned | Run it | `[-1.0, 0.0, 1.0]` (its answers for -π/2, 0, π/2) and the weights; the completion card ("Neural networks · 8 skills mastered", loss first → last). Panel: your network answering x = -π/2, 0, π/2, drawn from the weights it printed | "From nothing to a network that draws a sine wave, every step checked." |
 
-⌥D on any step opens the panel's network full size (no engine round trip when the panel has one).
+You never press ⌘S. A typing step is graded from VS Code's unsaved text and passes on its own about a second after its
+code is in, and miyagi saves `nn.py` before a run.
+
+**The two planted bugs.** Both get their Not yet card from the lesson's files at once, with no model call
+(`curated.known_offtrack`):
+- nn2, the tanh slope written `(1 + h2 ** 2)`: **Wrong sign in the d_h2 tanh slope** (or d_h1), with the line to
+  change from + to -.
+- nn4, the zero weights from step 1: the stuck run's **All weights start at zero** card (from
+  `demo/cache/coach/nn4.json`), its box on the W1 to W3 lines.
+
+Anything else that fails goes to the coach (Claude).
+
+The bar's Diagram button (⌃⌥D) shows the step's network. A network the engine already pushed for the step opens with
+no engine round trip.
 
 ## Under the hood
 
@@ -87,11 +100,13 @@ training run); from the first run on it is their run.
   before that may still find a `python3` without it: open a new one, click ▷, or press Run it for me (it runs
   `.venv/bin/python nn.py`).
 - **A different lesson loads on Just teach me**: the goal didn't match (see above), or `MIYAGI_CURATED=0`.
-- **No network on the right**: the app is older than `adrian/shell` PR #94 (pushed diagrams then open as a card).
+- **No network**: press Diagram (⌃⌥D). If none shows, the app is older than `adrian/shell` PR #94.
 
-## DEMO setup (Mac, once)
+## Setup (Mac, once)
 
-1. NumPy for the `python3` the terminal uses: `python3 -c "import numpy"`, else `pip3 install numpy` (Homebrew Python:
-   `brew install numpy`).
-2. `scripts/miyagi-nn-demo.sh` (engine on :8787, DEMO=1, `demo/nn-lab/nn.py` reset, its own state dir wiped each take).
-3. The app from `adrian/shell`. Launcher: **build a neural network**, then **Just teach me**.
+1. Just teach me runs your real code, so it needs NumPy: the setup card installs it into the lesson's `.venv`, or
+   check `python3 -c "import numpy"` and else `pip3 install numpy` (Homebrew Python: `brew install numpy`).
+2. The Demo chip needs no NumPy (its runs are recorded). The offline engine, `scripts/miyagi-nn-demo.sh` (engine on
+   :8787, DEMO=1, `demo/nn-lab/nn.py` reset and its own state dir wiped each take), is for the Demo chip only: its Just
+   teach me keeps the old `demo/nn-lab/nn.py` and doesn't grade it the same way. See [`docs/DEMO.md`](DEMO.md).
+3. The app from `adrian/shell`.

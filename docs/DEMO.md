@@ -18,8 +18,8 @@ day. Section 4 explains what happens underneath. Keep it to yourself.
 
       The neural-net lesson looks and behaves the same on both.
 - [ ] **App.** `cd app && npm run dev`. The pill sits under the notch.
-- [ ] **VS Code companion.** `curl -s 127.0.0.1:8791/health` should answer with `"version":"0.0.5"`. If it doesn't, run
-      `rm -rf ~/.vscode/extensions/miyagi.companion-0.0.* && cp -R vscode-ext ~/.vscode/extensions/miyagi.companion-0.0.5`,
+- [ ] **VS Code companion.** `curl -s 127.0.0.1:8791/health` should answer with `"version":"0.0.6"`. If it doesn't, run
+      `rm -rf ~/.vscode/extensions/miyagi.companion-0.0.* && cp -R vscode-ext ~/.vscode/extensions/miyagi.companion-0.0.6`,
       then ⌘⇧P → Developer: Reload Window.
 - [ ] **Screen Recording.** System Settings › Privacy & Security › Screen & System Audio Recording: turn it on for
       Terminal (or whatever app runs the engine). The engine script warns at startup when it's off.
@@ -71,7 +71,7 @@ lands after the next step started passes nothing, because that step's code isn't
 | No Run it for me button after "Not yet" | That's expected. **Check my work** runs it again, and the second run always learns. |
 | You went one step too far | ⌃⌥⌘← goes back one step. |
 | Anything else is off mid-lesson | ⌃⌥⌘R: step 1, clean `nn.py` on disk and in VS Code. Click **Start the lesson** if the sheet comes back. Say "Let me take that from the top." |
-| VS Code still shows the old code after ⌃⌥⌘R or a new Demo start | The companion didn't answer (check `curl -s 127.0.0.1:8791/health`). ⌘⇧P → File: Revert File. |
+| VS Code still shows the old code after ⌃⌥⌘R or a new Demo start | The companion didn't answer. Check `curl -s 127.0.0.1:8791/health`; if it doesn't answer 0.0.6, reinstall it (section 1), reload the VS Code window, then press ⌃⌥⌘R again. |
 | You need to stop the lesson from a terminal | `curl -X POST localhost:8787/end`. A Demo is never saved, so the next Demo start is step 1 either way. (For a real lesson, plain `/end` keeps the learner's place and `/end?forget=1` starts clean.) |
 | The presenter keys do nothing | They work only in a lesson started from the Demo chip, on the real engine. Another app may be holding them (Rectangle, Magnet). From a terminal: `curl -X POST localhost:8787/stage/next` (or `back`, `restart`). On screen, Check my work and Run it for me do the same job. |
 | VS Code didn't open `nn.py` | Open it yourself. LIVE: `~/miyagi/lessons/a-neural-net-from-scratch-*/nn.py`. Offline engine: `demo/nn-lab/nn.py`. |
