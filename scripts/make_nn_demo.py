@@ -26,11 +26,12 @@ What it writes (all data, no engine code):
                                             right-hand panel and redraws the training ones from the learner's own run.
 
 Diagram payload (kind "network"): data.layers [1, 4, 4, 1], labels {input: ["x"], output: ["y"]}, placement "drawer",
-activation "tanh" (hidden; the output is linear), samples [[x]] for x = -3..3, targets sin(x), mode, frames. A frame:
-    {epoch, loss, input: x, W: [W1 1x4, W2 4x4, W3 4x1], b: [b1[4], b2[4], b3[1]], a: [[x], [4], [4], [y]]}
+activation "tanh" (hidden; the output is linear), samples [[x]] for x = -π/2, 0, π/2, targets sin(x), target sin(π/2),
+mode, frames. A frame:
+    {epoch, loss, input: x, target: sin(x), W: [W1 1x4, W2 4x4, W3 4x1], b: [b1[4], b2[4], b3[1]], a: [[x], [4], [4], [y]]}
 W[k][i][j] is the weight from neuron i of layer k to neuron j of layer k+1; `a` is every neuron's activation for the
-frame's input. Train frames (one per SNAP epochs) cycle their input through the samples; forward frames are the trained
-weights once per sample.
+frame's input. Train frames (one per SNAP epochs) all fire x = π/2, so the panel's prediction climbs to its target 1;
+forward frames are the trained weights once per sample (π/2 last: the frame that stays up).
 
 The story (DEMO's presenter, or any learner who takes the shortcut): step 1 builds the network with W1, W2 and W3 =
 zeros. Every check passes. Step 4 trains: the loss sits at exactly 0.4900 on every line, because every hidden neuron
@@ -143,9 +144,15 @@ for name, w in (("W1", W1), ("b1", b1), ("W2", W2), ("b2", b2), ("W3", W3), ("b3
 
 X = np.linspace(-np.pi, np.pi, N_POINTS).reshape(-1, 1)
 Y = np.sin(X)
-SAMPLES = [[float(x)] for x in range(-3, 4)]  # what the diagrams fire: x = -3 ... 3
-TARGETS = [round(math.sin(s[0]), 4) for s in SAMPLES]
 TEST_X = [-math.pi / 2, 0.0, math.pi / 2]  # step 5 prints the network's answers here: sin = -1, 0, 1
+# What the panel shows: the network's prediction for one x, next to its target sin(x). t6: the train frames cycled
+# x = -3..3 and ended on x = 3 (the edge of [-pi, pi], the trained net's worst point: 0.202 for sin(3) = 0.141), and the
+# app, which shows data.target / targets[0] while it tweens frames, said "Prediction 0.202 target -0.141" (sin(-3)).
+# Now every frame carries its own target, the samples are the test step's three points (the trained net is within
+# 0.012 of sin there), and every training frame fires x = pi/2: the replay's prediction climbs to 1.01, target 1.000.
+SAMPLES = [[round(x, 4)] for x in TEST_X]
+TARGETS = [round(math.sin(s[0]), 4) for s in SAMPLES]
+REST_X = SAMPLES[-1][0]  # pi/2: every training frame's input, and the forward frame that stays up (the last)
 
 
 def r4(a) -> list:
@@ -161,7 +168,7 @@ def fire(W: list[np.ndarray], b: list[np.ndarray], x: float) -> list[list[float]
 
 
 def frame(epoch: int, loss: float, x: float, W: list[np.ndarray], b: list[np.ndarray]) -> dict:
-    return {"epoch": epoch, "loss": round(float(loss), 5), "input": round(float(x), 4),
+    return {"epoch": epoch, "loss": round(float(loss), 5), "input": round(float(x), 4), "target": round(math.sin(x), 4),
             "W": [r4(w) for w in W], "b": [r4(v.ravel()) for v in b], "a": fire(W, b, x)}
 
 
@@ -179,7 +186,7 @@ def train(zero: bool) -> tuple[list[dict], list[tuple[int, float]], dict]:
         out = h2 @ W[2] + b[2]
         loss = np.mean((out - Y) ** 2)
         if epoch % SNAP == 0:  # the weights that made this epoch's loss
-            frames.append(frame(epoch, loss, SAMPLES[len(frames) % len(SAMPLES)][0], W, b))
+            frames.append(frame(epoch, loss, REST_X, W, b))
         if epoch % PRINT_EVERY == 0:
             printed.append((epoch, round(float(loss), 4)))  # what nn.py prints (loss {loss:.4f})
         d_out = 2 * (out - Y) / len(X)
@@ -190,7 +197,7 @@ def train(zero: bool) -> tuple[list[dict], list[tuple[int, float]], dict]:
             W[k] -= LR * dW
             b[k] -= LR * db
     out = np.tanh(np.tanh(X @ W[0] + b[0]) @ W[1] + b[1]) @ W[2] + b[2]
-    frames.append(frame(EPOCHS, np.mean((out - Y) ** 2), SAMPLES[len(frames) % len(SAMPLES)][0], W, b))
+    frames.append(frame(EPOCHS, np.mean((out - Y) ** 2), REST_X, W, b))
     t = np.array(TEST_X).reshape(-1, 1)
     answers = (np.round(np.tanh(np.tanh(t @ W[0] + b[0]) @ W[1] + b[1]) @ W[2] + b[2], 1) + 0.0).ravel().tolist()
     return frames, printed, {"answers": answers, "loss": float(np.mean((out - Y) ** 2)),
@@ -210,7 +217,7 @@ def forward_frames(f: dict) -> list[dict]:
     """The trained network answering every sample: f's weights, once per x."""
     W = [np.array(w) for w in f["W"]]
     b = [np.array(v) for v in f["b"]]
-    return [{**f, "input": s[0], "a": fire(W, b, s[0])} for s in SAMPLES]
+    return [{**f, "input": s[0], "target": round(math.sin(s[0]), 4), "a": fire(W, b, s[0])} for s in SAMPLES]
 
 
 def net(mode: str, frames: list[dict], caption: str) -> dict:
@@ -222,6 +229,7 @@ def net(mode: str, frames: list[dict], caption: str) -> dict:
             "labels": {"input": ["x"], "output": ["y"]}, "placement": "drawer",
             "derivatives": [], "residual": "",  # the contract's network fields (the classic view ignores them here)
             "mode": mode, "frames": frames, "samples": SAMPLES, "targets": TARGETS,
+            "target": round(math.sin(REST_X), 4),  # the app's target while it tweens frames (it drops theirs)
         },
     }
 
@@ -259,7 +267,36 @@ METRIC = r"epoch\s+(?P<step>\d+)\s+loss\s+(?P<value>[0-9Oo.eE+-]+)"  # O: OCR re
 SIN_OUT = r"\[\s*-\s*1\.[0O]\s*,?\s*-?\s*[0O]\.[0O]\s*,?\s*1\.[0O]\s*\]"
 INIT_RX = r"W1\s*=\s*np\.[\s\S]*W2\s*=\s*np\.[\s\S]*W3\s*=\s*np\."
 LOOP_RX = rf"for\s+epoch\s+in\s+range\(\s*{EPOCHS}\s*\)"
-UPDATE_RX = r"W3\s*-=\s*lr\s*\*\s*dW3[\s\S]*W2\s*-=\s*lr\s*\*\s*dW2[\s\S]*W1\s*-=\s*lr\s*\*\s*dW1"
+# The key math of each step, checked exactly (t6: step 2 passed with tanh's slope written 1 + h2 ** 2; the training run
+# then stalled at loss 0.05 and the learner found out two steps later). Spacing-tolerant, in the forms the drawer's code
+# uses (the learner pastes it): a @ W or a.dot(W); h ** 2, h * h or np.square(h).
+
+
+def _mm(a: str, w: str) -> str:
+    return rf"{a}\s*(?:@\s*{w}|\.dot\(\s*{w}\s*\))"
+
+
+def _slope(h: str) -> str:
+    """(1 - h ** 2): tanh's slope at h, with its parentheses (d_h2 @ W2.T * 1 - h1 ** 2 is another number)."""
+    return rf"\(\s*1(?:\.0*)?\s*-\s*(?:{h}\s*\*\*\s*2(?:\.0*)?|{h}\s*\*\s*{h}|np\.square\(\s*{h}\s*\))\s*\)"
+
+
+def _downhill(*names: str) -> str:
+    """Every one of `names` steps downhill (p -= lr * dp, or p = p - lr * dp), in any order. Never += (uphill)."""
+    return r"\A" + "".join(rf"(?=[\s\S]*\b{p}\s*(?:-=|=\s*{p}\s*-)\s*lr\s*\*\s*d{p}\b)" for p in names)
+
+
+# forward: tanh on both hidden layers, a plain sum on the output (no tanh there, so it can answer any number)
+FORWARD_RX = (rf"h1\s*=\s*np\.tanh\(\s*{_mm('X', 'W1')}\s*\+\s*b1\s*\)[\s\S]*"
+              rf"h2\s*=\s*np\.tanh\(\s*{_mm('h1', 'W2')}\s*\+\s*b2\s*\)[\s\S]*"
+              rf"return\s+h1\s*,\s*h2\s*,\s*{_mm('h2', 'W3')}\s*\+\s*b3\b")
+# backward: the output's error (the slope of the mean squared error), then tanh's slope on each hidden layer
+D_OUT_RX = r"d_out\s*=\s*2(?:\.0*)?\s*\*\s*\(\s*out\s*-\s*y\s*\)\s*/\s*(?:len\(\s*X\s*\)|X\.shape\[\s*0\s*\])"
+SLOPE_RX = (rf"d_h2\s*=\s*{_mm('d_out', r'W3\.T')}\s*\*\s*{_slope('h2')}[\s\S]*"
+            rf"d_h1\s*=\s*{_mm('d_h2', r'W2\.T')}\s*\*\s*{_slope('h1')}")
+# the loop: every weight and bias downhill, and the printed loss is the mean squared error
+UPDATE_RX = _downhill("W1", "b1", "W2", "b2", "W3", "b3")
+MSE_RX = r"loss\s*=\s*np\.mean\(\s*\(\s*(?:out\s*-\s*y|y\s*-\s*out)\s*\)\s*\*\*\s*2\s*\)"
 ANSWERS_RX = r"np\.round\(\s*out\s*,\s*1\s*\)"
 WEIGHTS_RX = r"\(\s*[\"']W1[\"']\s*,\s*W1\s*\)[\s\S]*\(\s*[\"']W3[\"']\s*,\s*W3\s*\)"
 
@@ -294,6 +331,8 @@ STEPS = [
              "pattern": INIT_RX},
             {"id": "nn1c3", "type": "screen_contains", "label": "forward() is defined", "app": "Code",
              "pattern": r"def\s+forward\s*\(\s*X\s*\)"},
+            {"id": "nn1c4", "type": "screen_contains", "label": "Hidden layers use tanh, the output doesn't",
+             "app": "Code", "pattern": FORWARD_RX},
         ],
         precision_checks=[
             {"id": "nn1p1", "type": "file_contains", "label": "nn.py has the sine data", "file": "nn.py",
@@ -303,6 +342,8 @@ STEPS = [
             {"id": "nn1p3", "type": "file_contains", "label": "nn.py defines forward with two tanh layers",
              "file": "nn.py",
              "pattern": r"def\s+forward\s*\(\s*X\s*\)\s*:[\s\S]*np\.tanh\([\s\S]*np\.tanh\([\s\S]*@\s*W3"},
+            {"id": "nn1p4", "type": "file_contains", "label": "nn.py's hidden layers use tanh, its output doesn't",
+             "file": "nn.py", "pattern": FORWARD_RX},
         ],
         targets=code_target("nn1", "Paste the network under this line"),
         hints=[
@@ -328,12 +369,20 @@ STEPS = [
              "pattern": r"def\s+backward\s*\("},
             {"id": "nn2c2", "type": "screen_contains", "label": "The error flows back through W3 and W2", "app": "Code",
              "pattern": r"d_h2\s*=\s*d_out\s*@\s*W3\.T[\s\S]*d_h1\s*=\s*d_h2\s*@\s*W2\.T"},
+            {"id": "nn2c3", "type": "screen_contains", "label": "The error starts as 2 * (out - y) / len(X)",
+             "app": "Code", "pattern": D_OUT_RX},
+            {"id": "nn2c4", "type": "screen_contains", "label": "Uses the tanh slope 1 - h² on both layers",
+             "app": "Code", "pattern": SLOPE_RX},
         ],
         precision_checks=[
             {"id": "nn2p1", "type": "file_contains", "label": "nn.py defines backward", "file": "nn.py",
              "pattern": r"def\s+backward\s*\(\s*X\s*,\s*y\s*,\s*h1\s*,\s*h2\s*,\s*out\s*\)\s*:"},
             {"id": "nn2p2", "type": "file_contains", "label": "nn.py sends the error back through W3 and W2",
              "file": "nn.py", "pattern": r"d_h2\s*=\s*d_out\s*@\s*W3\.T[\s\S]*d_h1\s*=\s*d_h2\s*@\s*W2\.T"},
+            {"id": "nn2p3", "type": "file_contains", "label": "nn.py's error starts as 2 * (out - y) / len(X)",
+             "file": "nn.py", "pattern": D_OUT_RX},
+            {"id": "nn2p4", "type": "file_contains", "label": "nn.py uses the tanh slope 1 - h² on both layers",
+             "file": "nn.py", "pattern": SLOPE_RX},
         ],
         targets=code_target("nn2", "Paste backward under this line"),
         hints=[
@@ -358,16 +407,20 @@ STEPS = [
         checks=[
             {"id": "nn3c1", "type": "screen_contains", "label": f"The loop runs {EPOCHS:,} epochs", "app": "Code",
              "pattern": LOOP_RX},
-            {"id": "nn3c2", "type": "screen_contains", "label": "Every weight steps downhill", "app": "Code",
+            {"id": "nn3c2", "type": "screen_contains", "label": "Every weight and bias steps downhill", "app": "Code",
              "pattern": UPDATE_RX},
+            {"id": "nn3c4", "type": "screen_contains", "label": "The loss is the mean squared error", "app": "Code",
+             "pattern": MSE_RX},
             {"id": "nn3c3", "type": "screen_contains", "label": "It prints the loss", "app": "Code",
              "pattern": r"print\(\s*f[\"']epoch"},
         ],
         precision_checks=[
             {"id": "nn3p1", "type": "file_contains", "label": "nn.py has the training loop", "file": "nn.py",
              "pattern": LOOP_RX},
-            {"id": "nn3p2", "type": "file_contains", "label": "nn.py updates W1, W2 and W3", "file": "nn.py",
-             "pattern": UPDATE_RX},
+            {"id": "nn3p2", "type": "file_contains", "label": "nn.py moves every weight and bias downhill",
+             "file": "nn.py", "pattern": UPDATE_RX},
+            {"id": "nn3p4", "type": "file_contains", "label": "nn.py's loss is the mean squared error", "file": "nn.py",
+             "pattern": MSE_RX},
             {"id": "nn3p3", "type": "file_contains", "label": "nn.py prints the loss", "file": "nn.py",
              "pattern": r"print\(\s*f[\"']epoch"},
         ],
@@ -467,7 +520,7 @@ LESSON = {
     "lesson": {
         "id": "lesson-nn-from-scratch",
         "title": "A neural net from scratch",
-        "goal": "build a neural net from scratch",
+        "goal": "build a neural network from scratch",  # the completion title: "You built a neural network"
         "workdir": "demo/nn-lab",
         "libraries": {"numpy": "2.x"},
         "mode": "lesson",

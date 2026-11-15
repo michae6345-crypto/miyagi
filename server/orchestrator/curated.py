@@ -7,7 +7,8 @@ scripts/make_nn_demo.py: demo/cache/lessons/text-nn-from-scratch.json + its card
     prepare_folder(graph)         ~/miyagi/lessons/<slug>/ with nn.py's clean starter (an old attempt is kept in .miyagi-state)
     forget_saved(graph)           a fresh start drops this lesson's save (an engine restart mid-lesson), so it starts at step 1
     active(session)               this session runs a curated lesson (also after a resume: lesson.curated in the graph)
-    prepare_step(session, step)   a run step runs the lesson's .venv python when Miyagi installed NumPy there
+    prepare_step(session, step)   a run step says `python3 nn.py` (the drawer, the ▷ caption, the check row)
+    run_for_me_command(session, step, cmd)   Run it for me runs the lesson .venv's python once NumPy is in it
     on_step_started / on_step_passed / after_evaluate / on_command_end   the pushed diagrams and the real run's numbers
     diagram_for_action / hint_card / explain_card   the Diagram button, the hint ladder and Explain, from the cached files
 
@@ -21,11 +22,11 @@ File): identical hidden neurons when the loss is stuck at STUCK_LOSS, else the l
 and their weights once nn.py prints them; a run that isn't the lesson's own run says the weights drawn are the lesson's).
 
 The payload (data): layers [1, 4, 4, 1], labels {input: ["x"], output: ["y"]}, placement "drawer", activation "tanh"
-(hidden; the output is linear), samples / targets (x and sin(x)), mode, frames. Each frame:
-    {epoch, loss, input: x, W: [W1 1x4, W2 4x4, W3 4x1], b: [b1[4], b2[4], b3[1]], a: [[x], [4], [4], [y]]}
+(hidden; the output is linear), samples / targets (x = -π/2, 0, π/2 and sin(x)), target (sin(π/2) = 1), mode, frames:
+    {epoch, loss, input: x, target: sin(x), W: [W1 1x4, W2 4x4, W3 4x1], b: [b1[4], b2[4], b3[1]], a: [[x], [4], [4], [y]]}
 W[k][i][j] is the weight from neuron i of layer k to neuron j of layer k+1; `a` is every neuron's activation for that
-frame's input (the app fires the neurons from it). Train frames cycle their input through data.samples; forward frames
-are the same weights once per sample.
+frame's input (the app fires the neurons from it). Train frames all fire x = π/2 (the panel's prediction climbs to its
+target 1); forward frames are the same weights once per sample, π/2 last (the frame the app keeps up).
 """
 
 from __future__ import annotations
@@ -273,14 +274,27 @@ def _venv_python(workdir: str | Path) -> Path | None:
 
 
 def prepare_step(session: Any, step: dict) -> None:
-    """A run step's command: `.venv/bin/python nn.py` once the setup card installed NumPy into the lesson's .venv
-    (VS Code's terminal doesn't activate it, and python3 there has no NumPy), else `python3 nn.py`."""
+    """A run step's command is the learner's: `python3 nn.py` (the drawer, "Run python3 nn.py in the VS Code terminal",
+    the "Ran python3 nn.py" row, the completion screen). The lesson folder's VS Code settings put .venv/bin first on
+    PATH in its terminals (server.workspace.core.PYTHON_TERMINAL), so python3 there is the .venv's, and VS Code's ▷
+    runs the .venv's python (python.defaultInterpreterPath); a run of either counts (checks.command_matches). t6: this
+    used to become `.venv/bin/python nn.py` once NumPy was installed; a step saved like that is put back."""
     if not active(session) or not (step.get("run_command") or "").strip():
         return
-    cmd = f".venv/bin/python {FILE}" if _venv_python(session.workdir) else f"python3 {FILE}"
-    if step.get("run_command") != cmd:
+    cmd = f"python3 {FILE}"
+    if step.get("run_command") != cmd and RUN_RX.search(step["run_command"]):
         step["run_command"] = cmd
         step["code"] = cmd
+
+
+def run_for_me_command(session: Any, step: dict, cmd: str) -> str:
+    """What Run it for me types for a run step's `cmd`: `.venv/bin/python nn.py` once the setup card installed NumPy
+    into the lesson's .venv (a terminal VS Code made before that, or restored from an earlier session, may still find
+    a python3 without NumPy), else `cmd` as it is. Only for the lesson's own `python nn.py` run."""
+    if (not active(session) or len((cmd or "").strip().splitlines()) != 1 or not RUN_RX.search(cmd)
+            or _venv_python(session.workdir) is None):
+        return cmd
+    return f".venv/bin/python {FILE}"
 
 
 def _cache_json(*parts: str) -> dict | None:
@@ -401,6 +415,9 @@ def _read_run(session: Any) -> tuple[str, dict] | None:
         parsed = parse_output(_run_lines(run))
         if parsed["losses"] or parsed["final"]:
             return f"{run.run_id}:{len(parsed['losses'])}:{bool(parsed['final'])}", parsed
+    ran = getattr(session, "_step_ran", None)
+    if callable(ran) and not ran():  # t6: loss lines on screen when the step began (a restored terminal) aren't theirs
+        return None
     for run in reversed([r for r in runs if r.run_id.startswith("screen-")]):
         pts = [(int(s), float(v)) for s, v in (run.metrics or {}).get("loss") or [] if v is not None]
         if pts:
@@ -441,8 +458,10 @@ def activations(W: list, b: list, x: float) -> list[list[float]] | None:
 
 
 def _fire(f: dict, x: float) -> dict:
-    """`f` with its input set to x and `a` computed from its own weights (in place)."""
+    """`f` with its input set to x, its target sin(x) (the panel's "Prediction … target …") and `a` computed from its
+    own weights (in place)."""
     f["input"] = round(float(x), 4)
+    f["target"] = round(math.sin(float(x)), 4) + 0.0
     a = activations(f.get("W") or [], f.get("b") or [], x)
     if a is not None:
         f["a"] = a
@@ -477,7 +496,8 @@ def live_frames(ref: list[dict], losses: list[tuple[int, float]], final: dict | 
     every reference frame is theirs (the weights are exact), with their printed losses and, when nn.py printed them,
     their final weights (its `a` recomputed from them). Otherwise one frame per printed epoch with their loss; the
     weights end on theirs when printed (drawn as a straight path from the reference start), else they are the
-    reference's. Each new frame's input cycles through `samples` (data.samples) and its `a` comes from its weights."""
+    reference's. Each new frame fires the reference's own input (x = π/2: the app shows its prediction next to
+    data.target while it tweens frames, so the input never changes under it) and its `a` comes from its weights."""
     ref = [f for f in ref if isinstance(f, dict) and "epoch" in f]
     if not ref:
         return [], False
@@ -501,15 +521,17 @@ def live_frames(ref: list[dict], losses: list[tuple[int, float]], final: dict | 
     last = max(e for e, _ in losses)
     nearest = lambda e: min(ref, key=lambda f: abs(int(f["epoch"]) - e))  # noqa: E731
     start = ref[0]
+    x_ref = ref[-1].get("input")
+    x_ref = float(x_ref) if isinstance(x_ref, (int, float)) else xs[-1]
     frames = []
-    for k, (e, v) in enumerate(losses):
+    for e, v in losses:
         if final:
             t = e / last if last else 1.0
             f = {"epoch": e, "loss": v, "W": _lerp(start["W"], final["W"], t), "b": _lerp(start["b"], final["b"], t)}
         else:
             n = nearest(e)
             f = {"epoch": e, "loss": v, "W": copy.deepcopy(n["W"]), "b": copy.deepcopy(n["b"])}
-        frames.append(_fire(f, xs[k % len(xs)]))
+        frames.append(_fire(f, x_ref))
     return frames, False
 
 
@@ -530,7 +552,7 @@ def _train_caption(losses: list[tuple[int, float]], final: dict | None, same: bo
 
 def _live(session: Any, kind: str) -> dict | None:
     """The diagram drawn from the learner's latest training run: 'train' (weights moving, loss falling), 'forward'
-    (the trained network answering x from -3 to 3) or 'stuck' (identical hidden neurons, their flat loss)."""
+    (the trained network answering -π/2, 0 and π/2) or 'stuck' (identical hidden neurons, their flat loss)."""
     st = _state(session)
     losses, final = st.get("losses") or [], st.get("final")
     if kind == "stuck" or st.get("stuck"):  # a stuck run (also after Skip): the picture is the stuck one
