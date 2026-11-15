@@ -31,11 +31,40 @@ export function showKind(kind: DiagramKind): void {
   if (d) set({ diagram: d })
 }
 
-onUi('reset', () => set({ ...empty }))
-onUi('dismiss', () => set({ open: false }))
+onUi('reset', () => {
+  unhold()
+  set({ ...empty })
+})
+onUi('dismiss', () => {
+  unhold()
+  set({ open: false })
+})
+/**
+ * A diagram the learner asked for (⌥D / the bar's Diagram) is held this long before an automatic card or off-track
+ * may close it (Michael's desktop test: an off-track closed a requested diagram ~5 s in). What arrives meanwhile
+ * waits behind it (cards keep their state; the diagram's higher island priority hides them) and shows when the hold
+ * ends. The learner's own Esc / ⌥D, a new step or a reset still close it at once.
+ */
+export const HOLD_MS = 8000
+/** How long after the request the engine's diagram still counts as the one asked for. */
+const ASKED_WITHIN_MS = 30000
+let requestedAt = 0
+let heldUntil = 0
+let holdTimer: ReturnType<typeof setTimeout> | undefined
+const unhold = (): void => {
+  heldUntil = 0
+  clearTimeout(holdTimer)
+  holdTimer = undefined
+}
+
 // ⌥D while a diagram is open just closes it (claim it, so no new request goes to the engine).
 onUi('shortcut', (kind) => {
-  if (kind !== 'diagram' || !get().open) return
+  if (kind !== 'diagram') return
+  if (!get().open) {
+    requestedAt = Date.now()
+    return
+  }
+  unhold()
   set({ open: false })
   return true
 })
@@ -45,7 +74,27 @@ onMessage('diagram', (p) => {
   const same = s.step === step
   const kinds = same ? (s.kinds.includes(p.kind) ? s.kinds : [...s.kinds, p.kind]) : [p.kind]
   set({ diagram: p, open: true, step, byKind: { ...(same ? s.byKind : {}), [p.kind]: p }, kinds })
+  unhold()
+  if (requestedAt && Date.now() - requestedAt < ASKED_WITHIN_MS) heldUntil = Date.now() + HOLD_MS
+  requestedAt = 0
 })
-onMessage('card', () => set({ open: false }))
-onMessage('offtrack', () => set({ open: false }))
-onMessage('step.started', () => set({ open: false }))
+/** An automatic card / off-track: close the diagram now, or (during a hold) when the hold ends. */
+function autoClose(): void {
+  const left = heldUntil - Date.now()
+  if (get().open && left > 0) {
+    if (!holdTimer)
+      holdTimer = setTimeout(() => {
+        unhold()
+        set({ open: false })
+      }, left)
+    return
+  }
+  unhold()
+  set({ open: false })
+}
+onMessage('card', autoClose)
+onMessage('offtrack', autoClose)
+onMessage('step.started', () => {
+  unhold()
+  set({ open: false })
+})

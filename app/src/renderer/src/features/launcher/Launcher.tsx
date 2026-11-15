@@ -47,7 +47,7 @@ import { OptionButton, Spinner } from '../../core/ui/atoms'
 import { color, copy, fill, launcher as launcherTheme, pill, radius, scrim, shadows, spring, springOut } from '../../core/theme'
 import { Action, Chip, Hint, HowChoice, Rise, type How } from './parts'
 import { EndRow, LessonRow, LinkRow, MessageRow, ResultRow, ROW_H, SettingsRow, SkeletonRow } from './Rows'
-import { clearResults, setLauncherOpen, startSearch, useSearch } from './store'
+import { clearResults, markAsked, setLauncherOpen, startSearch, useSearch } from './store'
 import { chipTones } from './tint'
 import { parseYouTube } from './youtube'
 
@@ -149,7 +149,8 @@ export function Launcher({ layout }: { layout: Layout }): ReactNode {
     (exit: Phase) => {
       if (exit === 'open' || exit === 'closed' || phaseRef.current !== exit) return
       setPhase('closed')
-      if (exit === 'sending') setQuestion('')
+      // A sent question stays in the field until its answer card arrives (Michael's desktop test, item 6): if the ask
+      // fails, ⌥Space reopens with it selected, ready to send again. See the 'answered' effect below.
       bridge.emit(exit === 'building' ? 'launcher:built' : 'launcher:hidden')
     },
     [setPhase]
@@ -200,6 +201,15 @@ export function Launcher({ layout }: { layout: Layout }): ReactNode {
     return () => offs.forEach((off) => off())
   }, [close, setPhase])
 
+  // The answer card for the last question arrived: the field can let the question go.
+  useEffect(
+    () =>
+      useSearch.subscribe((s, prev) => {
+        if (s.answered !== prev.answered) setQuestion('')
+      }),
+    []
+  )
+
   useEffect(() => setLauncherOpen(phase === 'open'), [phase])
 
   useEffect(() => {
@@ -220,7 +230,7 @@ export function Launcher({ layout }: { layout: Layout }): ReactNode {
     if (phase !== 'open') return
     // preventScroll: the panel is still island-sized and clips its content; focusing must not scroll it.
     input.current?.focus({ preventScroll: true })
-    if (mode === 'search') input.current?.select()
+    if (mode === 'search' || useSearch.getState().askPending) input.current?.select()
   }, [phase, gen, mode])
 
   // Main takes the keyboard back when another app grabs it mid-typing (an engine editor jump): the caret goes back
@@ -381,6 +391,7 @@ export function Launcher({ layout }: { layout: Layout }): ReactNode {
     const text = question.trim()
     if (!text || phaseRef.current !== 'open') return
     bridge.send(cmd('action', { kind: 'ask', text }))
+    markAsked()
     setPhase('sending')
   }
 
