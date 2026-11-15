@@ -50,8 +50,9 @@ function forward(f: Frame, layers: number[], x: number[], act: (z: number) => nu
     const prev = out[l]
     const next: number[] = []
     for (let j = 0; j < layers[l + 1]; j++) {
-      let z = f.b[l]?.[j] ?? 0
-      for (let i = 0; i < layers[l]; i++) z += (prev[i] ?? 0) * (f.W[l]?.[i * layers[l + 1] + j] ?? 0)
+      // A frame may carry only epoch / loss (a live run line without weights): missing weights count as 0, never throw.
+      let z = f.b?.[l]?.[j] ?? 0
+      for (let i = 0; i < layers[l]; i++) z += (prev?.[i] ?? 0) * (f.W?.[l]?.[i * layers[l + 1] + j] ?? 0)
       next.push(act(z))
     }
     out.push(next)
@@ -64,8 +65,8 @@ function mix(a: Frame, b: Frame, t: number): Frame {
   return {
     epoch: Math.round(lerp(a.epoch, b.epoch, t)),
     loss: Math.exp(lerp(Math.log(Math.max(a.loss, 1e-9)), Math.log(Math.max(b.loss, 1e-9)), t)),
-    W: a.W.map((row, l) => row.map((v, k) => lerp(v, b.W[l]?.[k] ?? v, t))),
-    b: a.b.map((row, l) => row.map((v, k) => lerp(v, b.b[l]?.[k] ?? v, t)))
+    W: (a.W ?? b.W ?? []).map((row, l) => row.map((v, k) => lerp(v, b.W?.[l]?.[k] ?? v, t))),
+    b: (a.b ?? b.b ?? []).map((row, l) => row.map((v, k) => lerp(v, b.b?.[l]?.[k] ?? v, t)))
   }
 }
 
@@ -176,7 +177,7 @@ export function NeuralNet({ data, compact = false }: { data: Record<string, unkn
   }
 
   if (!(sample >= 0 && sample < samples.length)) sample = 0
-  const acts = forward(frame, layers, samples[sample], act)
+  const acts = forward(frame ?? frames[0], layers, samples[sample] ?? [], act)
   const shown = (l: number, i: number): number => {
     if (mode !== 'forward' || reduced) return acts[l][i]
     if (l > reached) return 0
@@ -187,7 +188,7 @@ export function NeuralNet({ data, compact = false }: { data: Record<string, unkn
   const err = target !== undefined ? y - target : undefined
 
   // Strongest weight on screen sets the scale (so a zero network reads as empty, not as faint lines).
-  const maxW = Math.max(1.5, ...frame.W.flat().map(Math.abs))
+  const maxW = Math.max(1.5, ...(frame.W ?? []).flat().map(Math.abs))
 
   // Room for the input names left of the first column and the output name right of the last (13 px text, ~7.4 px a
   // glyph), so the drawer's compact view scales the whole thing into its width instead of cutting the output off.
@@ -205,7 +206,7 @@ export function NeuralNet({ data, compact = false }: { data: Record<string, unkn
       {pos.slice(0, -1).map((col, l) =>
         col.flatMap((a, i) =>
           pos[l + 1].map((b, j) => {
-            const w = frame.W[l]?.[i * layers[l + 1] + j] ?? 0
+            const w = frame.W?.[l]?.[i * layers[l + 1] + j] ?? 0
             const m = Math.min(1, Math.abs(w) / maxW)
             return (
               <line
@@ -229,7 +230,7 @@ export function NeuralNet({ data, compact = false }: { data: Record<string, unkn
         pos[pulse.back ? pulse.from - 1 : pulse.from].flatMap((a, i) =>
           pos[pulse.back ? pulse.from : pulse.from + 1].map((b, j) => {
             const l = pulse.back ? pulse.from - 1 : pulse.from
-            const w = frame.W[l]?.[i * layers[l + 1] + j] ?? 0
+            const w = frame.W?.[l]?.[i * layers[l + 1] + j] ?? 0
             const m = Math.min(1, Math.abs(w) / maxW)
             const strength = pulse.back ? m : m * acts[l][i]
             if (strength < 0.04) return null
