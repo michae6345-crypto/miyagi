@@ -25,6 +25,7 @@ import { useAppearance } from '../../core/prefs'
 import { alpha, clock, color, glass, kindTone, radius, spring, springOut } from '../../core/theme'
 import { CheckList, Thumb, useChecking } from '../../core/ui/atoms'
 import { GlassCheck, GlassSpinner } from '../../core/ui/glass'
+import { useCards } from '../cards/store'
 import { parseYouTube, thumbnailFor } from '../launcher/youtube'
 import { HANDLE, TAB } from './geometry'
 import { count, lessonOutline, planTotal, useStepDetail, useStepStatuses, type StepStatus } from './plan'
@@ -377,6 +378,7 @@ function Steps({ scroller }: { scroller: RefObject<HTMLDivElement | null> }): Re
 
   // The current step stays current (expanded) even when core still lists it as passed or skipped (after Back).
   const statuses = useStepStatuses()
+  const waitingOnSetup = useWaitingOnSetup()
   const timeW = useTimeWidth(steps, complete)
   // The current step's code arriving after step.started grows the row: keep it in view then too.
   const codeLen = useStepDetail((d) => (d.detail && d.detail.stepId === stepId ? (d.detail.code?.length ?? 0) : -1))
@@ -398,6 +400,7 @@ function Steps({ scroller }: { scroller: RefObject<HTMLDivElement | null> }): Re
             checks={status === 'current' ? checks : undefined}
             instructions={status === 'current' ? instructions : undefined}
             actions={status === 'current' && lessonMode}
+            note={status === 'current' && waitingOnSetup ? 'Waiting on setup' : undefined}
             enterDelay={k < 0 ? undefined : k * 0.04}
           />
         )
@@ -405,6 +408,14 @@ function Steps({ scroller }: { scroller: RefObject<HTMLDivElement | null> }): Re
       <AnimatePresence>{(!complete || pendingNext) && <PendingRow key="pending" waiting={pendingNext} part={part} more={more} timeW={timeW} />}</AnimatePresence>
     </div>
   )
+}
+
+/**
+ * A setup card with something still missing is up (Michael's review A17): until Install or Skip is chosen (and while an
+ * install runs), the current step reads "Waiting on setup". Read-only from the cards store.
+ */
+function useWaitingOnSetup(): boolean {
+  return useCards((c) => c.card?.kind === 'setup' && (c.card.setup?.items ?? c.card.items ?? []).some((x) => x.needed && !x.ok))
 }
 
 /**
@@ -514,6 +525,7 @@ function StepRow({
   checks,
   instructions,
   actions,
+  note,
   enterDelay
 }: {
   step: StepSummary
@@ -526,6 +538,8 @@ function StepRow({
   instructions?: string
   /** The option row (Explain / Diagram / Show me / Hint + Check my work): the current step of a "Just teach me" lesson. */
   actions?: boolean
+  /** A quiet status at the row's end ("Waiting on setup"): faint, no hue. */
+  note?: string
   enterDelay?: number
 }): ReactNode {
   const mounted = useMounted()
@@ -584,6 +598,11 @@ function StepRow({
         >
           {line ?? step.title}
         </span>
+        {note && (
+          <span data-part="drawer-step-note" className="shrink-0 text-[12px]" style={{ color: glass.faint }}>
+            {note}
+          </span>
+        )}
       </button>
       {current && <StepDetail stepId={step.id} instructions={instructions} planKind={step.kind} indent={indent} padX={ROW.padX} />}
       {checks && checks.length > 0 && (
