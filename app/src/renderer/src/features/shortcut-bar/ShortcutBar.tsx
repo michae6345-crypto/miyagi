@@ -13,7 +13,7 @@ import { AnimatePresence, motion } from 'motion/react'
 import type { ReactNode } from 'react'
 import { AudioLines, Check, Lightbulb, MessageSquareText, RotateCcw, SkipForward, Square, SquarePlay, Waypoints, type LucideIcon } from 'lucide-react'
 import { cmd } from '../../../../common/wire'
-import { bridge } from '../../bridge'
+import { bridge, registerWebHandler } from '../../bridge'
 import { useLesson } from '../../core/lesson'
 import { useAppearance } from '../../core/prefs'
 import { sendAction, triggerShortcut, type ActionKind, type ActionShortcut } from '../../core/shortcuts'
@@ -51,7 +51,26 @@ export const BAR_HEIGHT = 74
 
 const isOption = (kind: ActionShortcut): kind is ActionShortcut & OptionAction => kind in actionTone
 
-export function ShortcutBar({ bottom }: { bottom: number }): ReactNode {
+/** Re-raise the overlay at most this often while the pointer comes and goes over the bar. */
+const RAISE_EVERY_MS = 1500
+let lastRaise = 0
+/**
+ * Another app's always-on-top window at the overlay's level (Wispr Flow's "Status") can sit over the bar
+ * (Michael's desktop test, item 8): main moves the overlay back on top (main/features/overlay-raise.ts).
+ */
+function raiseOverlay(): void {
+  const now = Date.now()
+  if (now - lastRaise < RAISE_EVERY_MS) return
+  lastRaise = now
+  try {
+    bridge.invoke('overlay:raise').catch(() => {})
+  } catch {
+    // browser stage without a handler: nothing to raise
+  }
+}
+registerWebHandler('overlay:raise', () => true)
+
+export function ShortcutBar({ bottom, lift = 0 }: { bottom: number; lift?: number }): ReactNode {
   const on = useLesson((x) => !!x.lesson)
   const hasStep = useLesson((x) => !!x.stepId)
   const diagramOpen = useDiagram((d) => d.open)
@@ -68,13 +87,14 @@ export function ShortcutBar({ bottom }: { bottom: number }): ReactNode {
           className="pointer-events-none absolute inset-x-0 flex justify-center"
           style={{ bottom }}
           initial={{ opacity: 0, y: 16 }}
-          animate={{ opacity: 1, y: 0 }}
+          animate={{ opacity: 1, y: -lift }}
           exit={{ opacity: 0, y: 16 }}
           transition={spring}
         >
           <div
             data-hit
             data-shortcut-bar
+            onPointerEnter={raiseOverlay}
             className="pointer-events-auto flex items-center gap-[2px] rounded-[24px] border p-[8px]"
             style={{ height: BAR_HEIGHT, background: glass.bg, borderColor: glass.hairline, boxShadow: glass.shadow, backdropFilter: 'blur(30px) saturate(1.4)' }}
           >
