@@ -197,6 +197,7 @@ def test_end_lesson_clears_the_save_and_new_learn_too():
         await e.s.learn("something else")  # a new lesson ends the old one
         await e.settle()
         assert sessions.load() is None
+        assert store.recent()[0]["lessonId"] == stubs.load_fixture_lesson()["lesson"]["id"]  # E11: on the recent list
 
     run(go())
 

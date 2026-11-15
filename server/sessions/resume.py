@@ -170,6 +170,8 @@ class Resumer:
                     self._pending = saved is not None
                     return
                 self._pending = False
+                if (payload or {}).get("reason") == "new lesson" and (saved := store.load()) is not None:
+                    store.remember(saved)  # E11: a new learn / "Learn X first" replaced it: on the recent list
                 store.clear()
                 self._graph_saved_for = None
         except Exception:  # noqa: BLE001 - saving must never break the lesson

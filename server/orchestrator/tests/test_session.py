@@ -2399,6 +2399,28 @@ def test_before_you_start_holds_the_lesson_until_start_or_an_edit(rig):
     run(go())
 
 
+def test_before_you_start_holds_only_step_one_and_only_with_an_app(rig):
+    async def go():
+        rig.s.has_clients = lambda: False  # no app got lesson.ready (rehearse_boxes, autostart): no sheet, no hold
+        await rig.s.load_graph(_sheet_lesson())
+        await rig.settle()
+        assert not rig.s.awaiting_start
+        await rig.s.end_lesson()
+        rig.s.has_clients = None
+        await rig.s.load_graph(_sheet_lesson())
+        await rig.settle()
+        assert rig.s.awaiting_start
+        await rig.s.start_step(1)  # a restore at a later step: the app closes the sheet on it (store.ts)
+        await rig.settle()
+        assert not rig.s.awaiting_start
+        rig.s.snapshot(ask_resume=True)
+        await rig.s.action("resume")  # Continue at step 2 re-sends lesson.ready, but the app shows no sheet there
+        await rig.settle()
+        assert not rig.s.awaiting_start and rig.s.state()["phase"] == "active"
+
+    run(go())
+
+
 def test_dead_screen_is_reported_once_and_show_me_says_why(tmp_path, monkeypatch):
     monkeypatch.setenv("TUT_WORKDIR", str(tmp_path))
     screen = FakeScreen()

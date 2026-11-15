@@ -110,9 +110,16 @@ class ScreenBridge:
             self._fresh_after = time.time()
             try:
                 ax = getattr(r, "ax_reader", None)
+                for t in (getattr(r, "_thread", None), getattr(ax, "_thread", None)):
+                    if t is not None and t.is_alive():  # a capture / AX read outlived stop()'s join: start() would
+                        t.join(timeout=10)  # return early with the stop flag still set, and the reader would die
                 if getattr(r, "events", None) is not None:
                     r.events = None  # event taps can't be restarted once stopped: the reader makes new ones
                 r.start()
+                stop = getattr(r, "_stop", None)
+                if stop is not None and stop.is_set():  # still stopping: stay paused, the next tick tries again
+                    log.warning("screen reader still stopping; resume retried (%s)", why or "lesson step")
+                    return
                 if ax is not None and hasattr(ax, "start"):
                     ax.start()  # the AX reader restarts in place (its change listeners are kept)
             except Exception:  # noqa: BLE001
@@ -230,7 +237,9 @@ class ScreenBridge:
         """Haiku verifier for a box the engine located itself (server.screen.target.verdict): -> the rect to show (the
         same box, or what Haiku picked instead) or None when Haiku is sure nothing on screen matches. Haiku off /
         unavailable / unsure: the box unchanged."""
-        if self.reader is None or self.paused or self.down_reason() or not env_flag("MIYAGI_VISION_TARGET", True):
+        if self.reader is None or self.down_reason() or not env_flag("MIYAGI_VISION_TARGET", True):
+            return rect
+        if self.paused:  # E7: no lesson step / no app: no Haiku call (no box goes out anyway)
             return rect
         async def ask() -> tuple[dict | None, str]:
             try:

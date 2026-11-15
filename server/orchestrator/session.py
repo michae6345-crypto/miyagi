@@ -413,7 +413,7 @@ class LessonSession:
         if ep is not None and ep != self.lesson_epoch and type_ not in ALWAYS_SENT:
             log.info("dropped stale %s (lesson epoch %s, now %s)", type_, ep, self.lesson_epoch)
             return
-        if type_ == "lesson.ready":
+        if type_ == "lesson.ready" and self._ask_hook(self.has_clients, True):  # no app gets it: no sheet, no hold
             self._hold_for_sheet((payload or {}).get("lesson"))  # E4: the app opens "Before you start" on it
         elif type_ in ("card", "offtrack"):
             self._last_shown_t = self.clock()  # E4: the stuck card keeps a minute away from any other card
@@ -509,9 +509,6 @@ class LessonSession:
         left part of the screen so the player docked on the right stays visible). Runs after lesson.ready and
         waits out typing, so it never steals focus mid-keystroke."""
         if self.workspace is None or self.editor_open:
-            return
-        if self.awaiting_start:  # E4: "Before you start" is up: VS Code comes forward on Start / the first edit
-            self._open_on_start = (self.lesson_epoch, folder)
             return
         for _ in range(20):  # up to ~10 s
             if not self.typing():
@@ -1269,9 +1266,6 @@ class LessonSession:
         """Lesson mode: the editor IS the lesson, so it opens (full screen) without asking."""
         if self.workspace is None or getattr(self.workspace, "blocked", False):  # ORCH_OPEN_WORKSPACE=0: never on its own
             return
-        if self.awaiting_start:  # E4: "Before you start" is up: the editor opens on Start / the first edit
-            self._open_on_start = (self.lesson_epoch, folder)
-            return
         first = self.steps[0] if self.steps else None  # L2: open ON step 1's file (start_step(0) comes next)
         if first is not None:
             self._ensure_step_file(first)
@@ -1737,6 +1731,9 @@ class LessonSession:
         self.idx = idx
         self.phase = "active"
         self._reset_step_state()
+        if idx > 0 and self.awaiting_start:  # the app closes the sheet when the first step isn't step 1 (store.ts):
+            self._start_hold, self._hold_fresh = None, False  # a restore / Continue at a later step is never held
+            log.info("lesson start (step %d started: no Before you start)", idx + 1)
         held = self.awaiting_start  # E4: "Before you start" is up: this step begins on Start / the first edit
         if held:
             self._hold_fresh, self._hold_t, self._hold_sig = True, self.clock(), None
@@ -1765,7 +1762,7 @@ class LessonSession:
         self._watch_screen_metrics(step)
         if self.m.has_diagrams() and os.environ.get("ORCH_DIAGRAM_PREFETCH", "1") == "1":
             self._spawn(self._prefetch_diagram(self.step_gen, step), timer=True)
-        if self.workspace is not None and self.editor_open and not held:  # `code -g` would itself launch VS Code
+        if self.workspace is not None and self.editor_open:  # `code -g` would itself launch VS Code
             self.workspace.goto_target(self.workdir, step, missing="end" if self.lesson_mode else "first")
             if self.lesson_mode:  # L2: that jump needs VS Code in front; the extension shows the step's file anyway
                 self._spawn(self._show_step_file(step), timer=True)
@@ -2282,10 +2279,10 @@ class LessonSession:
         """Called ~1/s: idle-after-action, stuck, and typing-deferred speech."""
         step = self.step
         self._attribute_input()  # E5: the last second's keys / clicks, booked to the app that got them
-        self._sync_screen_soon()  # E3: the reader runs only while a lesson step does, with the app connected
+        self._sync_screen_soon()  # E3: the reader runs only while a lesson step does (and the app hasn't left)
         await self._check_screen_health()
         if not self._clients_ok():
-            return  # E7: no app connected: no scene look, judge, stuck card or coach for nobody
+            return  # E7: the app left: no scene look, judge, stuck card or coach for nobody
         if self.awaiting_start:
             await self._maybe_begin()  # E4: an edit of the step file / typing in the editor starts the held step
             if self.awaiting_start:
@@ -2325,12 +2322,12 @@ class LessonSession:
             await self._publish(step, self.last_results)
 
     # ------------------------------------------------------------------ lesson lifecycle (E3 E4 E5 E7)
-    has_clients: Callable[[], bool] | None = None  # main.py: is an app connected? (None: tests / the CLI: yes)
+    has_clients: Callable[[], bool] | None = None  # main.py: is an app connected now? (None: tests / the CLI: yes)
+    app_left: Callable[[], bool] | None = None  # main.py: no app now, and one was connected before (None: no)
     _start_hold: int | None = None  # lesson epoch held by "Before you start" (E4)
     _hold_fresh = False  # the step began under the sheet: it starts (clock, grace) on Start
     _hold_t = 0.0  # when the hold began (session clock)
     _hold_sig: Any = None  # the step file's text when the hold began (an edit starts the step)
-    _open_on_start: tuple[int, str] | None = None  # (epoch, folder): the editor open deferred by the sheet
     _go_t = -1e9  # Start / Continue: learner_started() counts only what the learner does from then on
     _last_shown_t = -1e9  # the last card / offtrack sent (any kind)
     _screen_task: asyncio.Future | None = None
@@ -2343,13 +2340,17 @@ class LessonSession:
     @property
     def awaiting_start(self) -> bool:
         """A "Just teach me" lesson whose "Before you start" sheet is up (the app opens it on every lesson.ready of a
-        lesson with build / flow / prerequisites / learnFirst): no editor, checks, idle ladder, stuck card or off-track
-        until Start, the first edit of the step file, typing in the lesson's editor, or a step control (E4)."""
+        lesson with build / flow / prerequisites / learnFirst, and keeps it only when the first step.started is step 1):
+        VS Code opens under it as before, but no checks, judge, scene look, box, idle ladder, stuck card or off-track
+        until the learner presses / types in the lesson's editor (the overlay can't take focus, so "Start the lesson"
+        is a click with VS Code in front), edits the step file, presses a step control, or sends action start (E4)."""
         return self._start_hold is not None and self._start_hold == self.lesson_epoch and self.graph is not None
 
     def _hold_for_sheet(self, lesson: dict | None) -> None:
         les = lesson or {}
         if les.get("mode") != "lesson" or not any(les.get(k) for k in ("build", "flow", "prerequisites", "learnFirst")):
+            return
+        if self.idx > 0:  # Continue / a reconnect at a later step: the app shows no sheet (store.ts step.started)
             return
         if self._start_hold != self.lesson_epoch:
             self._start_hold, self._hold_t, self._hold_sig = self.lesson_epoch, self.clock(), None
@@ -2370,20 +2371,22 @@ class LessonSession:
             return None
 
     async def _maybe_begin(self) -> None:
-        """tick, while held: the step file changed on disk, or the learner typed in the lesson's editor / terminal."""
+        """tick, while held: the step file changed on disk, or the learner typed / clicked with the lesson's editor or
+        terminal in front. The app's "Start the lesson" and Esc send nothing, but the overlay can't take focus: they
+        land as a click / key with VS Code (opened under the sheet) in front, so they start the lesson too."""
         sig = self._step_file_sig()
         if self._hold_sig is None:
             self._hold_sig = sig or ""
         elif (sig or "") != self._hold_sig:
             await self._begin("edited the step file")
             return
-        v = self._work_since("key")
+        v = self._work_since("input")
         if v is not None and v < self.clock() - self._hold_t and self._front_now():  # front app known: not a guess
-            await self._begin("typing in the lesson's editor")
+            await self._begin("a key / click in the lesson's editor")
 
     async def _begin(self, why: str) -> None:
-        """The held step begins: VS Code opens (or comes to the step's file), checks run, the spotlight goes up, and
-        the grace / idle / stuck clocks start now (E4)."""
+        """The held step begins: checks run, the spotlight goes up, and the grace / idle / stuck clocks start now (E4).
+        VS Code is already open on the step's file (it opens under the sheet), so nothing moves the learner's cursor."""
         if not self.awaiting_start:
             return
         self._start_hold = None
@@ -2396,18 +2399,8 @@ class LessonSession:
         self._go_t = now
         step = self.step
         log.info("lesson start (%s): %s", why, (step or {}).get("id"))
-        pending, self._open_on_start = self._open_on_start, None
-        if pending is not None and pending[0] == self.lesson_epoch and not self.editor_open:
-            if self.lesson_mode:
-                await self._open_editor_full(pending[1])
-            else:
-                await self._auto_open_editor(pending[1])
         if step is None or self.passed:
             return
-        if self.workspace is not None and self.editor_open:  # focus the step's file
-            self.workspace.goto_target(self.workdir, step, missing="end" if self.lesson_mode else "first")
-            if self.lesson_mode:
-                self._spawn(self._show_step_file(step), timer=True)
         await self.evaluate("start")
         if self.lesson_mode and not self.passed and self.step is step:
             self._spawn(self._lesson_spot(self.step_gen, step), timer=True)
@@ -2436,9 +2429,15 @@ class LessonSession:
             return True
         if app == "miyagi" or app in self.OVERLAY_APPS:
             return False
-        if app in CODE_APP_NAMES or any(t in app for t in self.WORK_TERMINALS):
+        if app in CODE_APP_NAMES:
             return True
         step = self.step
+        if any(t in app for t in self.WORK_TERMINALS):  # "Just teach me" runs in VS Code's own terminal: a Terminal /
+            if not self.lesson_mode:  # iTerm / Warp window is someone's own (a tester's Claude Code) unless the step
+                return True  # names it as its app
+            named = [str(x.get("app") or "").lower() for x in ((step or {}).get("targets") or [])
+                     + ((step or {}).get("checks") or []) if isinstance(x, dict)]
+            return any(a and (a in app or app in a) for a in named)
         apps = [a.lower() for a in (self._work_apps(step) if step is not None else [])]
         return any(a and (a in app or app in a) for a in apps)
 
@@ -2450,20 +2449,34 @@ class LessonSession:
             except Exception:  # noqa: BLE001 - input attribution must never break the tick
                 log.exception("input attribution failed")
 
+    async def on_front_switch(self, app: str) -> None:
+        """main.py's E6 frontmost watcher: the keys before the switch went to the old app, the next ones to this one
+        (E5); then the box follows the switch (on_frontmost), except behind "Continue?" or "Before you start" (E7)."""
+        self._attribute_input()
+        if self.awaiting_resume or self.awaiting_start:
+            return
+        await self.on_frontmost(app)
+
     def _input_was_miyagi(self) -> None:
         """The learner submitted text typed into Miyagi (an ask / explain): those keys weren't lesson work (E5)."""
         fn = getattr(self.inputs, "mark_foreign", None)
         if callable(fn):
             fn()
 
-    def _clients_ok(self) -> bool:
-        fn = self.has_clients
+    @staticmethod
+    def _ask_hook(fn: Callable[[], bool] | None, default: bool) -> bool:
         if fn is None:
-            return True
+            return default
         try:
             return bool(fn())
         except Exception:  # noqa: BLE001
-            return True
+            return default
+
+    def _clients_ok(self) -> bool:
+        """False once the app that was connected has left (E7: no screen reading, looks, judge or cards for nobody).
+        An engine that never had an app (demo autostart, the in-process rehearse_boxes / staging scripts) goes on,
+        as coach-cards' has_client and spotlight's _spot_frozen do."""
+        return not self._ask_hook(self.app_left, False)
 
     def _screen_off_reason(self) -> str | None:
         """Why the screen reader should not run now (E3 / E7), or None."""
@@ -2477,7 +2490,7 @@ class LessonSession:
         now = self.clock()
         if self._no_client_since is None:
             self._no_client_since = now
-        return "no app connected" if now - self._no_client_since >= self.SCREEN_NO_CLIENT_S else None
+        return "the app left" if now - self._no_client_since >= self.SCREEN_NO_CLIENT_S else None
 
     def _sync_screen_soon(self) -> None:
         """Pause / resume the real screen reader to match _screen_off_reason (in a thread: it joins threads)."""
@@ -2884,8 +2897,7 @@ class LessonSession:
 
     async def on_frontmost(self, app: str) -> None:
         """E6's frontmost watcher (app switch / Space swipe, ~0.25 s): clear or re-place the box right away."""
-        self._attribute_input()  # E5: the keys before the switch went to the old app, the next ones to this one
-        if self.step is None or self.passed or self.awaiting_resume or self.awaiting_start:
+        if self.step is None or self.passed:
             return
         await self._spot_follows_app(types.SimpleNamespace(app=app))
 
@@ -3009,6 +3021,7 @@ class LessonSession:
         # so the idle ladder opened the gate and the coach spoke before they touched anything)
         if not self.learner_started():
             self.last_offtrack = None  # made before the learner started (e.g. off a click in another app): not replayed
+            self._pending_offtrack = None  # nor sent later (t3fix-coach-cards' kept diagnosis, E14; unused before it)
         self._go_t = now
         self.gate_open = self.screen_gate_open = False  # shown fails wait for the first edit after Continue
         for cid, st in self.check_state.items():  # re-graded from the file on the next evaluation, not replayed
@@ -3023,7 +3036,7 @@ class LessonSession:
         t = self.video_t if self.video_t is not None else (seg or {}).get("start")
         if seg is not None and t is not None:
             await self.emit("video.seek", {"t": float(t), "play": not self.segment_done})
-        if step is not None and not self.awaiting_start and self.workspace is not None and self.editor_open:
+        if step is not None and self.workspace is not None and self.editor_open:  # (also under the sheet, as start_step)
             self.workspace.goto_target(self.workdir, step, missing="end" if self.lesson_mode else "first")
             if self.lesson_mode:  # Continue: back to the step's file
                 self._spawn(self._show_step_file(step, explicit=True), timer=True)

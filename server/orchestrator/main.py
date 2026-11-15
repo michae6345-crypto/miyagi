@@ -47,7 +47,9 @@ class Engine:
         self.workspace = Workspace()
         self.session = LessonSession(self._emit, self.modules, screen=self.screen, workspace=self.workspace,
                                      inputs=Inputs())
-        self.session.has_clients = lambda: bool(self.hub.clients)  # E7: no app, no screen reading / looks / cards
+        self.session.has_clients = lambda: bool(self.hub.clients)  # E4: only an app shows "Before you start"
+        # E7: the app left: no screen reading / looks / cards (an engine that never had one, e.g. rehearse_boxes, goes on)
+        self.session.app_left = lambda: not self.hub.clients and self.last_client_gone is not None
         self.watcher = Watcher(self.session.on_file_change, interval=config.WATCH_INTERVAL_S)
         self.session.on_workdir = self.watcher.set_root
         try:  # S7: progress saved to ~/miyagi/state; "Continue where you left off?" survives an engine restart
@@ -96,7 +98,7 @@ class Engine:
         if not self.screen.start(self.session.on_screen):
             self.session.screen = None  # precision mode only (files + tut run)
         else:  # E6: app switch / Space swipe within ~0.25 s -> clear (or re-place) the spotlight at once
-            self.screen.watch_frontmost(self.session.on_frontmost)
+            self.screen.watch_frontmost(self.session.on_front_switch)  # (E5: also books the keys to the old app)
         if config.env_flag("ORCH_AUTOSTART"):  # no launcher needed: the lesson is live from the start
             if self.modules.demo and (graph := self.modules._lesson_file()):
                 await self.session.load_graph(graph)

@@ -90,7 +90,7 @@ def save(state: dict, graph: dict | None = None) -> dict:
         prev = load()
         if prev is not None and prev.get("lessonId") != out.get("lessonId"):
             try:  # another lesson replaces this save: keep it on the recent list
-                _remember(prev)
+                remember(prev)
             except OSError as e:
                 log.warning("could not update the recent lessons: %s", e)
         _write_atomic(state_dir() / name, graph)  # 1. the graph, under its own name
@@ -169,7 +169,8 @@ def recent() -> list[dict]:
     return [e for e in data if isinstance(e, dict) and e.get("lessonId")] if isinstance(data, list) else []
 
 
-def _remember(state: dict) -> None:
+def remember(state: dict) -> None:
+    """Put an unfinished lesson's save on the recent list (newest first, one entry per lesson)."""
     entry = {k: state.get(k) for k in RECENT_FIELDS if state.get(k) is not None}
     if not entry.get("lessonId"):
         return
