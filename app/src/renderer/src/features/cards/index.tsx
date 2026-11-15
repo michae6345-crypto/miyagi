@@ -661,7 +661,7 @@ export default defineFeature({
       width: OFFTRACK_W,
       useActive: (hover) => {
         const open = useCards((c) => c.offtrackOpen)
-        const covered = useCards((c) => !!c.card || !!c.success)
+        const covered = useCards((c) => !!c.card || !!c.success || c.offtrackClosed)
         const has = useLesson((s) => !!s.offtrack)
         // Hover peeks at the off-track card only when nothing else is open: with a card up, hovering it must not
         // swap it for the off-track card under the cursor (Michael couldn't click "Open" on a hint card).
