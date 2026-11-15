@@ -66,6 +66,21 @@ def above_bar(frame: tuple[float, float, float, float]) -> tuple[float, float, f
     """(x, y, w, h) with its bottom BAR_CLEARANCE above the visible screen's bottom (never under half its height)."""
     x, y, w, h = frame
     return (x, y, w, max(round(h * 0.5), h - BAR_CLEARANCE))
+
+
+# t10: the overlay's step pill and settings gear sit just under the menu bar (y 40-75 pt on a 1728x1117 display), on
+# top of VS Code's title bar for the whole lesson (the window title and the title-bar icons hidden). The lesson's
+# window starts PILL_CLEARANCE below the visible screen's top instead (and is that much shorter), as it ends
+# BAR_CLEARANCE above the shortcut bar. MIYAGI_PILL_CLEARANCE=0: right under the menu bar.
+PILL_CLEARANCE = float(os.environ.get("MIYAGI_PILL_CLEARANCE", "44"))
+
+
+def below_pill(frame: tuple[float, float, float, float]) -> tuple[float, float, float, float]:
+    """(x, y, w, h) with its top PILL_CLEARANCE below the visible screen's top, the height that much less (never
+    under half of it)."""
+    x, y, w, h = frame
+    clear = max(0.0, min(PILL_CLEARANCE, round(h * 0.5)))
+    return (x, y + clear, w, h - clear)
 # Our own overlay must never be treated as "the app the learner was in".
 OVERLAY_NAMES = {n.strip().lower() for n in os.environ.get("MIYAGI_OVERLAY_APPS", "Miyagi,miyagi-overlay,Electron").split(",") if n.strip()}
 
@@ -288,7 +303,7 @@ def make_fullscreen(editor: dict, report: dict, *, folder: str | None = None, ax
     elif (frame := left_frame(1.0)) is None:
         report["fullscreen"] = "skipped: no screen info"
     else:
-        x, y, w, h = above_bar(frame)
+        x, y, w, h = below_pill(above_bar(frame))  # t10: under the step pill / gear, above the shortcut bar
         frame = (x, y, max(round(w * EDITOR_FRACTION), w - DRAWER_W), h)  # the screen minus the overlay's drawer and bar
         report["fullscreen"] = "done (maximized)" if ax.set_frame(win, *frame) else "failed: the editor refused the new frame"
     if win is not None and folder:
@@ -432,7 +447,8 @@ def arrange(editor: dict, previous: dict | None, report: dict, *, ax=None, wait_
     if frame is None:
         report["arrange"] = "skipped: no screen info"
         return
-    frame = above_bar(frame)  # E22: the shortcut bar spans the bottom middle, over the left 60% too
+    frame = below_pill(above_bar(frame))  # E22: the shortcut bar spans the bottom middle, over the left 60% too;
+    # t10: the step pill and the gear sit under the menu bar, over the window's title bar
     report["arranged"] = ax.set_frame(win, *frame)
     report["frame"] = [round(v) for v in frame]
     report["arrange"] = "done" if report["arranged"] else "failed: the editor refused the new frame"

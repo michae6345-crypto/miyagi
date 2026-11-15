@@ -74,6 +74,12 @@ ANSWER_EVENTS = {"card", "offtrack", "diagram", "spotlight", "video.seek", "vide
                  "lesson.ready", "lesson.ended", "lesson.building", "error", "setup.progress"}
 # their effect is outside the engine's events (an app-side toggle, VS Code / a browser opening, a background install)
 QUIET_ACTIONS = {"voice_toggle", "skip_setup", "install", "install_all", "open_editor", "open_in_browser"}
+# t10: an off-track box is placed from a screen read at most this old (a repeat warning's box went to the line's
+# position in an older read, then jumped 454 pt to where it was on screen)
+OFFTRACK_READ_MAX_AGE_S = float(os.environ.get("ORCH_OFFTRACK_READ_MAX_AGE_S", "1.0"))
+# t10: an automatic VS Code open this soon after the learner's own Build click skips the "Miyagi is in front" grace
+# (Miyagi is in front because they just clicked Build); keystrokes still hold it
+BUILD_OPEN_FOLLOW_S = float(os.environ.get("ORCH_BUILD_OPEN_FOLLOW_S", "3"))
 
 
 def video_id_from_url(url: str) -> str | None:
@@ -527,9 +533,12 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
     async def _setup_card_task(self, graph: dict, folder: str) -> None:
         from . import workspace as wsmod
 
+        cached, self._build_cached = getattr(self, "_build_cached", False), False
         if stage.on_graph(graph):  # a Demo lesson: "Missing: numpy" on every take, no Claude call (stage.requirements)
             items, found = await asyncio.to_thread(stage.requirements, folder), []
         else:
+            if cached and not self.lesson_mode and self._opens_editor(graph):  # t10: a lesson built before: VS Code
+                self._spawn(self._auto_open_editor(folder))  # opens now, not after the setup check (~2.2 s)
             items, found = await asyncio.gather(  # what it needs (3-6 s first time, cached) + the video's own files
                 asyncio.to_thread(wsmod.requirements, graph, folder), asyncio.to_thread(wsmod.find_resources, graph))
         self.resources = found
@@ -579,12 +588,25 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
             return bool(items) and wsmod.editor_needed(items) and not is_colab_lesson(graph)
         return wsmod.editor_needed(items) if items else wsmod.needs_editor(graph)
 
+    def _opens_editor(self, graph: dict) -> bool:
+        """t10: will this lesson open VS Code, told from the lesson alone (before the setup check answers)?"""
+        from . import workspace as wsmod
+
+        return not is_colab_lesson(graph) if self.notebook_lesson else bool(wsmod.needs_editor(graph))
+
     async def _auto_open_editor(self, folder: str) -> None:
         """Coding lesson, nothing missing: open the learner's editor on the lesson folder (S2: VS Code first, the
         left part of the screen so the player docked on the right stays visible). Runs after lesson.ready and
         waits out typing, so it never steals focus mid-keystroke."""
-        if self.workspace is None or self.editor_open:
-            return
+        if self.workspace is None or self.editor_open or getattr(self, "_auto_opening", None) == folder:
+            return  # (t10: an early open for a lesson built before is already on its way)
+        self._auto_opening = folder
+        try:
+            await self._auto_open_editor_now(folder)
+        finally:
+            self._auto_opening = None
+
+    async def _auto_open_editor_now(self, folder: str) -> None:
         for _ in range(20):  # up to ~10 s
             if not self.typing():
                 break
@@ -593,8 +615,12 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
 
         # Miyagi's player / overlay stay in front during a video lesson: hold only a short grace, not until the learner
         # leaves Miyagi (Michael, Nov 15 7:19: VS Code came 30 s late). Typing still holds it (_open_holds' busy).
+        # t10: right after the learner's own Build click, no grace (Miyagi is in front because of that click: Build ->
+        # VS Code took 4.7 s), and only keystrokes hold it (the click itself isn't typing)
+        follows_build = self.clock() - getattr(self, "_build_t0", -1e9) < BUILD_OPEN_FOLLOW_S
         await asyncio.to_thread(self.workspace.open, folder, True, file=self._editor_file(self.step),
-                                miyagi_wait_s=wsmod.VIDEO_MIYAGI_WAIT_S, **self._open_holds())
+                                miyagi_wait_s=0.0 if follows_build else wsmod.VIDEO_MIYAGI_WAIT_S,
+                                **self._open_holds(keys_only=follows_build))
         self.editor_open = True
         self._record("editor_opened", {"auto": True, "folder": Path(folder).name})
         if self.step is not None:
@@ -819,13 +845,16 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
         p = wsmod.resolve_file(self.workdir, rel)
         return str(p) if p is not None and Path(self.workdir).resolve() in p.resolve().parents else None
 
-    def _open_holds(self) -> dict:
+    def _open_holds(self, keys_only: bool = False) -> dict:
         """L5: what holds an AUTOMATIC open of the lesson's editor (S2's waiter thread): a key or click in the last
-        TYPING_GUARD_S, Miyagi's own launcher / ask box included; another lesson (or end_lesson) drops it."""
+        TYPING_GUARD_S, Miyagi's own launcher / ask box included; another lesson (or end_lesson) drops it.
+        keys_only (t10, right after the Build click): a key only."""
         lid, wd, inputs = ((self.graph or {}).get("lesson") or {}).get("id"), self.workdir, self.inputs
 
         def busy() -> bool:
-            v = inputs.seconds_since_input() if inputs is not None else None
+            since = getattr(inputs, "seconds_since_key", None) if keys_only else None
+            since = since or (inputs.seconds_since_input if inputs is not None else None)
+            v = since() if since is not None else None
             return v is not None and v < config.TYPING_GUARD_S
 
         def cancelled() -> bool:
@@ -1248,7 +1277,7 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
         self.phase = "building"
         await self._status("thinking")
         done = asyncio.Event()
-        t0 = self.clock()
+        t0 = self._build_t0 = self.clock()  # t10: the learner's Build click (_auto_open_editor skips its grace)
         stage = BuildStage()
         self.build_progress = {"message": "Starting the lesson builder", "progress": 0.0}
 
@@ -1334,6 +1363,7 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
             await self.emit("lesson.building", {"message": "Lesson ready", "progress": 1.0})
             # let the "ready" moment be seen before the lesson UI; a cached lesson had no build to see finish, so it
             # holds like a curated one (0.6 s): Build -> lesson.ready went 1.5 s -> 0.6 s on a demo re-run
+            self._build_cached = stage.cache_hit  # t10: built before: VS Code opens alongside the setup check
             await asyncio.sleep(min(self.ready_hold_s, self.CACHED_READY_HOLD_S) if stage.cache_hit else self.ready_hold_s)
             ok = True
         except BaseException as e:
@@ -4237,9 +4267,11 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
         cap = cap if self.lesson_mode else ""  # "Change to …" where the step's code is on show; a video keeps its title
         title = self._plain(full.get("title")) or "Look here"  # no markdown on the box (E10)
         spot = await box_follow.diagnosis_spot(self, step, anchor, cap or title) if self.lesson_mode else None  # t7
+        fresh = None
         if spot is None:  # (the file's row, scrolled into view; else OCR of the line on screen)
-            spot = self._locate(re.escape(anchor), None, cap or title) if anchor else None
-        if spot is None and full.get("targets"):  # the coach pointed at screen boxes (set-of-mark): one ON that line
+            fresh = await self._fresh_read()  # t10: what is on screen NOW, never an older frame's line
+            spot = self._locate(re.escape(anchor), None, cap or title) if anchor and fresh is not False else None
+        if spot is None and full.get("targets") and fresh is not False:  # the coach pointed at screen boxes (set-of-mark): one ON that line
             import difflib
 
             squash = re.sub(r"\s+", "", anchor)
@@ -4250,6 +4282,14 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
 
             hit = next((t for t in full["targets"] if on_line(t)), None)
             spot = self._target_spot({**hit, "label": cap or self._plain(hit.get("label")) or title}) if hit else None
+            if spot is not None and fresh:  # t10: the coach's boxes are from ITS read (a repeat warning re-sends an
+                # older card's: test 10's step 6 box went to y=861, then jumped 454 pt to where the line was): only
+                # where the fresh read finds that line now, and no box when it isn't on screen
+                line = next(iter((spot.get("matched") or "").strip().splitlines()), "")
+                now = self._locate(re.escape(line), None, spot.get("caption") or title) if line else None
+                if now is None:
+                    log.info("offtrack box: %r isn't on screen now (the coach's read was older): no box (t10)", line[:40])
+                spot = now
         if getattr(self, "_early_spot", False) and spot is None:
             if self.spot_rect is not None:  # t8: that box is the card's culprit region
                 await offtrack_targets.update(self, self.spot_rect, self._spot_caption or title, anchor)
@@ -4266,6 +4306,19 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
         # t8: the off-track again, with that line as its target (measured after VS Code scrolled there): the app's
         # card steps off it (test 8: no targets, and the nn4 card sat on the W1 line it was about)
         await offtrack_targets.update(self, spot.get("rect"), spot.get("caption") or title, anchor)
+
+    async def _fresh_read(self) -> bool | None:
+        """t10: make the screen's latest read at most OFFTRACK_READ_MAX_AGE_S old (a new capture + OCR, in a thread)
+        before a box is placed from it. True: fresh; False: no read (paused / capture failing); None: this screen
+        can't tell (no fresh(): as before)."""
+        fn = getattr(self.screen, "fresh", None)
+        if fn is None:
+            return None
+        try:
+            return await asyncio.to_thread(fn, OFFTRACK_READ_MAX_AGE_S) is not None
+        except Exception:  # noqa: BLE001 - no fresh read: no box from an old one
+            log.exception("fresh screen read failed")
+            return False
 
     # ------------------------------------------------------------------ inputs
     async def on_screen(self, obs: Any = None) -> None:
