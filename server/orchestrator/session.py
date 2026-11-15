@@ -37,7 +37,7 @@ from collections.abc import Awaitable, Callable
 from pathlib import Path
 from typing import Any
 
-from . import config, curated, editor_text, perf, scene_watch, where_row
+from . import config, curated, editor_text, missing_module, perf, scene_watch, where_row
 from .context import RunContext, RunInfo, metrics_summary
 from .modules import Modules
 from .captions import short_caption
@@ -424,6 +424,8 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
             from . import card_copy
 
             payload = card_copy.learner_text(self, type_, payload)
+        if type_ == "card" and payload:
+            payload = missing_module.setup_without_open(self, payload)  # editor open: Install is the setup card's button
         if self.lesson_mode and type_ in ("card", "offtrack") and payload:
             payload = self._one_box(type_, payload)  # t5 (a): the engine's spotlight is the one box (no card targets)
         if type_ == "card" and where_row.offers_open(payload):  # no "Open nn.py" when nn.py is the active file
@@ -614,6 +616,8 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
                 # E20: Pylance resolved `import requests` before the .venv existed and never looked again: the lesson's
                 # VS Code window selects <folder>/.venv and restarts its Python language server (companion extension)
                 self._spawn(asyncio.to_thread(wsmod.refresh_python, self.workdir), timer=True)
+            if await missing_module.after_install(self, tool, res):  # a run stopped on it: rerun / "Run it again."
+                return
             if res.get("ok") and opened and not self.pending_pick \
                     and "install" not in ((self._setup_card or {}).get("actions") or []):
                 self._setup_card = None  # nothing pending any more
@@ -3381,6 +3385,8 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
         """reason: breakpoint | repeat | stuck | idle. Decides whether, and at which ladder level, to speak."""
         if self.coaching or self.passed or not failed:
             return
+        if missing_module.check_run(self, step, ctx):  # the run stopped on a lesson package: Install, no diagnosis
+            return
         if self._ask_held():  # the learner asked Miyagi something: no proactive card over (or right after) the answer
             self.pending_speak = None
             return
@@ -3553,6 +3559,8 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
 
     async def _coach(self, gen: int, step: dict, failed: list[dict], ctx: RunContext, level: int) -> None:
         try:
+            if missing_module.check_run(self, step, ctx):  # a lesson package isn't installed: Install, no model call
+                return
             card = self.full_card if (level == 3 and self.full_card) else None
             if card is None:
                 by_id = {c["id"]: c for c in (step.get("checks") or []) + (step.get("precision_checks") or [])}
@@ -3632,6 +3640,7 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
                     await self._status("watching")
                 return
             full = dict(card)
+            missing_module.add_command(full, ctx.output_tail or self._screen_error_lines())  # never a bare "install it"
             full.setdefault("stepId", step["id"])
             full.setdefault("severity", "warn")
             full.setdefault("actions", ["explain", "show_me", "hint"])
@@ -4417,8 +4426,8 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
         if kind == "open_editor":
             await self._open_editor_answered()
             return
-        if kind == "install":  # text = the setup item's tool id
-            self._spawn(self._install((text or "").strip()))
+        if kind == "install":  # text = the setup item's tool id (none: the package the card is about)
+            self._spawn(missing_module.install(self, text))
             return
         if kind == "skip_setup":  # the app dismisses the setup card; nothing to undo here
             self._setup_card = None  # L4: no longer pending (the Start card may go out)
@@ -4933,6 +4942,9 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
         if self._save_file:  # every check passes, only the save is missing: say that, no judge (active_job: unread)
             await self._emit_card(editor_text.save_card(step["id"], self._save_file), window_s=2.0)
             await self._status("watching", check=True)
+            return
+        if await missing_module.reoffer(self, step):  # the last run stopped on a lesson package: Install, no judge
+            await self._status("offtrack" if self.last_offtrack else "watching", check=True)
             return
         from . import stale_advice
 
