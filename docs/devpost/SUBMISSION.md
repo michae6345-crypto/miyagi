@@ -304,6 +304,22 @@ repo and speaks only with an ElevenLabs key. Nothing in the repo uses xAI or dep
 
 ---
 
+## Gallery images
+In `docs/devpost/screenshots/`, 3200×2000. Taken on Nov 15 in the browser stage (`npm run dev:web`, mock scenarios
+nndemo, happy, cards and complete) from `adrian/shell` with #129 (drawer side) and #141 (diagram flyout) merged. The mock
+data was patched in two places only: "Cursor" reads "VS Code" with a second package in the setup card, and the completion
+card uses the real engine's "Neural networks" track with 8 skills.
+- `01-launcher.png`: "build a neural network" typed, with the Watch a video / Just teach me / Demo chips.
+- `01b-lesson-sheet.png`: the "Your lesson" sheet (what you'll build, how it works, you'll need) beside the drawer.
+- `02-box.png`: step 4, the box on the residual lines in the editor, with the video paused at "Waiting for your checks".
+- `03-not-yet.png`: "Not yet. Loss is stuck at 0.49", yours 0.4900 against < 0.01, with Explain / Show me / Hint.
+- `05-diagram-flyout.png`: the Diagram flyout out of the drawer's edge: the trained network, epoch 20,000, loss 0.0008.
+- `06-skill-map.png`: the lesson-complete panel, "Neural networks · 8 skills mastered", loss 0.82 → 0.0009.
+- `07-search.png`: Watch a video results for "physics-informed neural networks" (mock results, not live Bright Data).
+- `07b-video-checkpoint.png`: the video panel paused at the 9:48 checkpoint, "Waiting for your checks", 0 of 2 pass.
+- `08-stats.png`: "Step 4 done · Loss 0.82 to 9.0e-4" (now vs before the fix) and the plan at 4 of 6 done.
+- `09-setup-install-all.png`: "Set up this lesson" with VS Code and Python found, two packages and Install all.
+
 ## Before you submit
 - [ ] **[CHECK]** The repo is public at https://github.com/michae6345-crypto/miyagi.
 - [ ] **[CHECK]** The app judges run is `adrian/shell` (the Demo chip, presenter keys and network panel are there, not yet in
