@@ -14,12 +14,16 @@ How each is found (OCR of the frontmost VS Code window):
   to the window's right edge, down to the panel (or the status bar).
 - explorer: the side bar under its "EXPLORER" header (or OUTLINE / TIMELINE / OPEN EDITORS sections),
   from its left edge to the editor's left edge.
-- run_button: the editor-title "Run" action via the AX tree (see reader.locate_region); no OCR.
+- run_button: the editor-title "Run" action: AX when granted (reader), else the ▷ icon on the tab
+  row, which Vision reads as "D" / "D •".
+- without readable line numbers (small text), the editor is laid out from the tab row (left edge),
+  the breadcrumb (top) and a side bar header such as "Chat" on the tab row (right edge).
 
 All rects: screen points, top-left origin of the primary display (same space as locate()).
 """
 from __future__ import annotations
 
+import itertools
 import re
 from dataclasses import dataclass
 
@@ -28,6 +32,11 @@ from . import match as M
 from .types import Block, Rect, ScreenObservation, Window
 
 REGIONS = ("terminal", "editor", "explorer", "run_button", "terminal_menu")
+# a tab: "calculator.py", "calculator.py X", "calculator.py ●", "calculator.py 1" (problem count)
+_TAB = re.compile(r"^[\w.\-]+\.[A-Za-z0-9]{1,6}(?:\s*[xX×●•]|\s+\d{1,2})?$")
+# secondary side bar headers that sit on the editor's tab row (its right edge is the editor's)
+_SIDE_TITLES = {"chat", "copilot", "github copilot", "copilot chat", "outline", "timeline", "sessions"}
+_RUN_ICON = re.compile(r"^[D▷▶⊳►](?:\s|$)")     # Vision reads the run triangle as "D" (+ "•" for the chevron)
 MENU_BAR_H = 40.0          # the macOS menu bar is 24-37 pt (notch Macs: 37)
 _MENUS = ("File", "Edit", "Selection", "View", "Go", "Run", "Terminal", "Window", "Help")
 ALIASES = {"panel": "terminal", "integrated_terminal": "terminal", "sidebar": "explorer", "side_bar": "explorer",
@@ -111,6 +120,10 @@ class _Layout:
     panes: list[L.EditorPane]
     editor_left: float | None
     chrome_bottom: float | None      # bottom of the tab bar + breadcrumb row(s)
+    right_edge: float = 0.0          # editor's right edge (window, or a side bar such as Chat)
+    side_left: float | None = None   # left edge of a secondary side bar on the tab row (Chat ...)
+    tabs: list[Block] = None         # the editor's tab blocks
+    actions: list[Block] = None      # editor-title action icons on the tab row (run ▷ ...)
 
     @property
     def status_top(self) -> float:
@@ -134,6 +147,18 @@ def _layout(obs: ScreenObservation, app: str | None) -> _Layout | None:
     panes = [p for p in L.find_panes(obs, win.app) if p.window == win.title]
     pane = min(panes, key=lambda p: p.gutter_x) if panes else None   # left-most editor group
     editor_left = chrome_bottom = None
+    tabs, tab_row = _tab_row(win, blocks)
+    side_left, actions = _tab_row_extras(tabs, tab_row)
+    if pane is None and tabs:
+        # no readable line numbers (small text, scale 1): the tab row gives the editor's left edge,
+        # the breadcrumb under it the top of the text area
+        editor_left = max(win.rect.x, min(b.rect.x for b in tabs) - 12)
+        th = max(b.rect.h for b in tabs)
+        row_y2 = max(b.rect.y2 for b in tab_row)
+        crumb = [b for b in blocks if row_y2 - 2 <= b.rect.y <= row_y2 + 2.5 * th
+                 and editor_left - 4 <= b.rect.x <= editor_left + 90
+                 and (M.is_breadcrumb(b.text) or _TAB.match(b.text.strip()) or "›" in b.text)]
+        chrome_bottom = max(b.rect.y2 for b in crumb) if crumb else row_y2 + 4
     if pane is not None:
         top = pane.rect.y
         # tab bar / breadcrumb rows: text right above the first code row that starts just left of the
@@ -147,7 +172,42 @@ def _layout(obs: ScreenObservation, app: str | None) -> _Layout | None:
         else:
             editor_left = pane.gutter_x - 20
         editor_left = max(win.rect.x, editor_left)
-    return _Layout(win, blocks, rows, pane, panes, editor_left, chrome_bottom)
+    right = max(p.right_edge for p in panes) if panes else (side_left if side_left is not None else win.rect.x2)
+    if side_left is not None:
+        right = min(right, side_left)
+    return _Layout(win, blocks, rows, pane, panes, editor_left, chrome_bottom, right, side_left, tabs, actions)
+
+
+def _tab_row(win: Window, blocks: list[Block]) -> tuple[list[Block], list[Block]]:
+    """(tab blocks, every block on the tab row). The tab row is the highest row with a file-name
+    tab in the window's top band (explorer entries are file names too, but lower down)."""
+    cands = [b for b in blocks if win.rect.y - 2 <= b.rect.y <= win.rect.y + 140 and _TAB.match(b.text.strip())]
+    if not cands:
+        return [], []
+    first = min(cands, key=lambda b: b.rect.y)
+    row = [b for b in blocks if abs(b.rect.cy - first.rect.cy) < 0.6 * first.rect.h]
+    return sorted((b for b in row if _TAB.match(b.text.strip())), key=lambda b: b.rect.x), row
+
+
+def _tab_row_extras(tabs: list[Block], row: list[Block]) -> tuple[float | None, list[Block]]:
+    """(left edge of a side bar header on the tab row, editor action icons between the tabs and it)."""
+    if not tabs:
+        return None, []
+    tabs_x2 = max(b.rect.x2 for b in tabs)
+    side = [b for b in row if b.rect.x > tabs_x2 and b.text.strip().lower() in _SIDE_TITLES]
+    side_left = min(b.rect.x for b in side) - 14 if side else None
+    acts = [b for b in row if b.rect.x > tabs_x2 + 10 and (side_left is None or b.rect.x2 < side_left)
+            and len(b.text.strip()) <= 6 and not _TAB.match(b.text.strip())]
+    return side_left, sorted(acts, key=lambda b: b.rect.x)
+
+
+def _run_icon(lay: _Layout) -> Region | None:
+    for b in lay.actions or []:
+        if _RUN_ICON.match(b.text.strip()):
+            s = b.rect.h
+            return Region("run_button", Rect(b.rect.x - 5, b.rect.cy - s / 2 - 5, s + 10, s + 10), lay.win.app,
+                          "tab_row_icon")
+    return None
 
 
 def _panel_header(lay: _Layout) -> M.Line | None:
@@ -188,14 +248,19 @@ def _terminal(lay: _Layout) -> Region | None:
         top, src = anchor.rect.y - 6, "prompt"
     left = lay.editor_left if lay.editor_left is not None else anchor.rect.x - 12
     left = max(lay.win.rect.x, min(left, anchor.rect.x - 4))
-    right = max(p.right_edge for p in lay.panes) if lay.panes else lay.win.rect.x2   # panel = editor width
-    r = Rect(left, top, right - left, lay.status_top - top)
+    r = Rect(left, top, lay.right_edge - left, lay.status_top - top)    # the panel is as wide as the editor
     return Region("terminal", r, lay.win.app, src) if r.h > 20 else None
 
 
 def _editor(lay: _Layout) -> Region | None:
     if lay.pane is None:
-        return None
+        if lay.editor_left is None or lay.chrome_bottom is None:
+            return None
+        top = lay.chrome_bottom + 4
+        term = _terminal(lay)
+        bottom = term.rect.y - 2 if term is not None else lay.status_top
+        return Region("editor", Rect(lay.editor_left, top, lay.right_edge - lay.editor_left, bottom - top),
+                      lay.win.app, "tabs")
     pane = lay.pane
     # below the tab bar + breadcrumb (an unread breadcrumb: line 1's row top is the editor's top)
     top = max(lay.chrome_bottom + 4, pane.rect.y - 3) if lay.chrome_bottom is not None else pane.rect.y - 4
@@ -203,8 +268,7 @@ def _editor(lay: _Layout) -> Region | None:
     bottom = term.rect.y - 2 if term is not None else lay.status_top
     bottom = max(bottom, pane.rect.y2) if term is None else bottom
     left = lay.editor_left if lay.editor_left is not None else pane.gutter_x - 20
-    right = max(p.right_edge for p in lay.panes) if lay.panes else lay.win.rect.x2
-    return Region("editor", Rect(left, top, right - left, bottom - top), lay.win.app, "gutter")
+    return Region("editor", Rect(left, top, lay.right_edge - left, bottom - top), lay.win.app, "gutter")
 
 
 def _explorer(lay: _Layout) -> Region | None:
@@ -236,17 +300,77 @@ def find_region(obs: ScreenObservation, name: str, app: str | None = None) -> Re
         if w is None:
             return None
         return Region("terminal", Rect(w.rect.x, w.rect.y + 28, w.rect.w, w.rect.h - 28), w.app, "window")
-    if name == "run_button":
-        return None    # icon only: AX (reader.locate_region) or nothing
-    if menu_title(name) is not None:
-        return find_menu_item(obs, menu_title(name), app)
     lay = _layout(obs, app)
     if lay is None:
         return None
-    reg = {"terminal": _terminal, "editor": _editor, "explorer": _explorer}[name](lay)
+    reg = {"terminal": _terminal, "editor": _editor, "explorer": _explorer, "run_button": _run_icon}[name](lay)
     if reg is not None and obs.screen.w:
         reg.rect = reg.rect.clamp(obs.screen)
     return reg
+
+
+def side_bar(obs: ScreenObservation, app: str | None = None) -> Rect | None:
+    """A secondary side bar right of the editor (Chat / Copilot / Outline), from its tab-row header
+    to the status bar; None if there is none."""
+    lay = _layout(obs, app)
+    if lay is None or lay.side_left is None:
+        return None
+    top = min((b.rect.y for b in lay.tabs), default=lay.win.rect.y) - 8
+    return Rect(lay.side_left, top, lay.win.rect.x2 - lay.side_left, lay.status_top - top)
+
+
+# ---------------------------------------------------------------------- editor rows (for set-of-marks)
+
+@dataclass
+class EditorRow:
+    line: int | None        # 1-based file line (None when the gutter couldn't be read)
+    text: str               # "" for a blank row
+    rect: Rect              # full-width row of the editor text area
+    app: str | None
+
+
+def editor_rows(obs: ScreenObservation, app: str | None = None) -> list[EditorRow]:
+    """Every editor row on screen, blank ones included ("type X here" needs the empty line).
+    With a readable gutter: each visible file line. Without: rows found in the editor region from the
+    code blocks' spacing, blank rows between them and one after the last (line=None)."""
+    lay = _layout(obs, app)
+    if lay is None:
+        return []
+    out: list[EditorRow] = []
+    if lay.panes:
+        for pane in sorted(lay.panes, key=lambda p: p.gutter_x):
+            for n in range(pane.first, pane.last + 1):      # numbers Vision missed are interpolated
+                r = pane.row_rect(n)
+                if r is not None:
+                    out.append(EditorRow(n, pane.row_text(n).strip(), r.clamp(obs.screen) if obs.screen.w else r,
+                                         pane.app))
+        return out
+    ed = _editor(lay)
+    if ed is None:
+        return []
+    inside = [ln for ln in lay.rows if ed.rect.contains(ln.rect) and ln.text.strip()]
+    if not inside:
+        return []
+    inside.sort(key=lambda ln: ln.rect.cy)
+    h = sorted(ln.rect.h for ln in inside)[len(inside) // 2]
+    gaps = [b.rect.cy - a.rect.cy for a, b in itertools.pairwise(inside)]
+    est = 1.3 * h
+    steps = [g / max(1, round(g / est)) for g in gaps if g > 0.5 * est]
+    lh = sorted(steps)[len(steps) // 2] if steps else est
+    left = min(ln.rect.x for ln in inside) - 4
+    right = ed.rect.x2
+
+    def row(cy: float, text: str) -> EditorRow:
+        return EditorRow(None, text, Rect(left, cy - lh / 2, right - left, lh), lay.win.app)
+    for i, ln in enumerate(inside):
+        out.append(row(ln.rect.cy, ln.text.strip()))
+        nxt = inside[i + 1].rect.cy if i + 1 < len(inside) else None
+        k = round((nxt - ln.rect.cy) / lh) if nxt is not None else 2      # one blank row after the last
+        for j in range(1, k):
+            cy = ln.rect.cy + j * lh
+            if cy + lh / 2 <= ed.rect.y2:
+                out.append(row(cy, ""))
+    return out
 
 
 # ---------------------------------------------------------------------- stability

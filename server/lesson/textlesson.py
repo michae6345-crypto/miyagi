@@ -39,11 +39,16 @@ PLAN_SCHEMA = {
         "title": {"type": "string"},
         "libraries": {"type": "array", "items": {"type": "object", "properties": {"name": {"type": "string"}, "version": {"type": "string"}},
                                                  "required": ["name", "version"]}},
+        "primer": {"type": "array", "description": "3-5 core concepts a beginner needs before the steps", "items": {"type": "object", "properties": {
+            "title": {"type": "string"}, "body": {"type": "string"}, "code": {"type": "string"}, "diagramPrompt": {"type": "string"}},
+            "required": ["title", "body", "code", "diagramPrompt"]}},
         "steps": {"type": "array", "items": {"type": "object", "properties": {
-            "title": {"type": "string"}, "instructions": {"type": "string"}, "file": {"type": "string"}},
-            "required": ["title", "instructions", "file"]}},
+            "title": {"type": "string"}, "instructions": {"type": "string"}, "file": {"type": "string"},
+            "what": {"type": "string"}, "why": {"type": "string"},
+            "concepts": {"type": "array", "items": {"type": "integer"}, "description": "1-based numbers of the primer concepts this step uses"}},
+            "required": ["title", "instructions", "file", "what", "why", "concepts"]}},
     },
-    "required": ["title", "libraries", "steps"],
+    "required": ["title", "libraries", "primer", "steps"],
 }
 
 STEP_SCHEMA = {
@@ -88,6 +93,12 @@ mkdir, cd, touch or create folders, and never write absolute paths; name files r
 ("in calculator.py"). Use the terminal only for real tool commands (npm create, pip install, running the program).
 Order: step 1 is always typing code into a file (never a terminal step); a step that runs a program comes
 AFTER the steps that write that program's code.
+Also teach the ideas, in plain words for a complete beginner:
+- primer: 3-5 core concepts the steps rely on (e.g. "What a variable is", "Functions are reusable recipes",
+  "Running a .py file"): title <= 6 words; body <= 40 words, no jargon; code: a tiny example (1-3 lines);
+  diagramPrompt: one sentence describing a picture that would help, or "" if none would.
+- per step: what (<= 12 words: what they build in this step, e.g. "A function named add that returns a + b"),
+  why (<= 25 words: what it means / why it matters), concepts (numbers of the primer concepts it uses).
 title: imperative, <= 6 words; instructions: ONE imperative sentence, at most 10 words, no parentheses; say
 "terminal" only for commands and name the file only for code ("Add an add function to calculator.py.",
 "Run your calculator in the terminal."); file: the file the step edits (relative path), or "" for a
@@ -142,6 +153,7 @@ async def research(goal: str) -> dict:
             msg = await st.get_final_message()
         u = getattr(msg, "usage", None)
         cost.add_tokens(mid, getattr(u, "input_tokens", 0), getattr(u, "output_tokens", 0))
+        log.info("claude research call: model=%s in=%s out=%s", mid, getattr(u, "input_tokens", "?"), getattr(u, "output_tokens", "?"))
         for b in msg.content:
             t = getattr(b, "type", "")
             if t == "web_search_tool_result" and isinstance(getattr(b, "content", None), list):  # an error is an object, not a list
@@ -183,6 +195,7 @@ async def build_text_lesson(goal: str, workdir: str, on_update=None, *, cache: b
     builder._emit("planning", "planning the lesson")
     plan = await claude._generate_json(SYSTEM, PLAN_PROMPT.format(goal=goal, workdir=summary), PLAN_SCHEMA,
                                        effort="medium", role="segment", check=plan_ok)
+    primer = make_primer(plan.get("primer") or [])
     steps_plan = order_plan(plan["steps"])
     outline = "; ".join(f"{i}. {s['title']}" for i, s in enumerate(steps_plan, 1))
     libs = {lb["name"]: lb.get("version", "") for lb in plan.get("libraries") or [] if lb.get("name")}
@@ -196,7 +209,7 @@ async def build_text_lesson(goal: str, workdir: str, on_update=None, *, cache: b
         for k, st in enumerate(ordered, 1):
             _renumber(st, k)
         g = {"lesson": {"id": f"lesson-{key[5:13]}", "title": plan.get("title") or goal, "goal": goal, "workdir": workdir,
-                        "libraries": libs, "mode": "lesson", "complete": complete, "builtBy": "claude"},
+                        "libraries": libs, "mode": "lesson", "complete": complete, "builtBy": "claude", "primer": primer},
              "sources": [{"id": f"src{i}", "kind": "repo" if "github.com/" in s["url"] else "blog", "title": s["title"][:200], "url": s["url"]}
                          for i, s in enumerate(sources, 1)],
              "steps": ordered,
@@ -252,7 +265,7 @@ async def build_text_lesson(goal: str, workdir: str, on_update=None, *, cache: b
         st["expected_output"] = (d.get("expected_output") or "").strip()
         out = []
         for part in split_code_and_run(sanitize_step(st, workdir)):
-            part = shape_step(use_python3(part))
+            part = explain_step(shape_step(use_python3(part)), sp, primer)
             if not _is_run_step(part):
                 f = part.get("file") or ""
                 state[f] = (state.get(f, "").rstrip("\n") + "\n" + (part.get("code") or "")).lstrip("\n") if f else state.get(f, "")
@@ -599,3 +612,70 @@ def consistency_problem(file: str, code: str, run_command: str, state: dict[str,
         if missing:
             return f"calls {', '.join(missing)}, not written yet in {file}"
     return None
+
+
+# --------------------------------------------------------------------------- #
+# Teaching the ideas: "Before you start" primer + per-step kind / what / why / concepts
+# --------------------------------------------------------------------------- #
+
+def _words(text: str, n: int) -> str:
+    """At most n words, cut at a sentence or clause boundary (never mid-phrase)."""
+    t = re.sub(r"\s+", " ", (text or "").strip())
+    if len(t.split()) <= n:
+        return t
+    for parts in (re.split(r"(?<=[.!?])\s+", t), re.split(r"(?<=[,;:])\s+|\s+[—-]\s+", t)):
+        out = ""
+        for p in parts:
+            cand = (out + " " + p).strip() if out else p
+            if len(cand.split()) > n:
+                break
+            out = cand
+        if out:
+            return out.rstrip(",;:—- ") + ("" if out.endswith((".", "!", "?")) else ".")
+    return " ".join(t.split()[:n]).rstrip(",;:") + "."  # one long clause: last resort
+
+
+def make_primer(items: list[dict]) -> list[dict]:
+    out = []
+    for k, it in enumerate(items[:5], 1):
+        title = (it.get("title") or "").strip()
+        body = (it.get("body") or "").strip()
+        if not title or not body:
+            continue
+        p = {"id": f"p{k}", "title": builder._clip_words(title, 6) if len(title.split()) > 6 else title, "body": _words(body, 40)}
+        code = (it.get("code") or "").strip()
+        if code:
+            p["code"] = "\n".join(code.splitlines()[:4])
+        dp = (it.get("diagramPrompt") or "").strip()
+        if dp:
+            p["diagramPrompt"] = _words(dp, 30)
+        out.append(p)
+    return out
+
+
+def step_kind(st: dict) -> str:
+    if _is_run_step(st):
+        return "run"
+    return "code" if (st.get("code") or "").strip() else "read"
+
+
+_RUN_CONCEPT = re.compile(r"\b(run|running|terminal|command|execute)", re.I)
+
+
+def explain_step(st: dict, sp: dict, primer: list[dict]) -> dict:
+    """kind / what (<= 12 words) / why (<= 25 words) / concepts (primer ids) on every step."""
+    st["kind"] = step_kind(st)
+    ids = [p["id"] for p in primer]
+    if st["kind"] == "run":  # a run step split off a code step: its own plain explanation
+        prog = _noun(st.get("file") or "")
+        st["what"] = _words(f"Run your {prog} and see what it prints", 12)
+        st["why"] = _words("Running the file makes the computer follow your code line by line, so you can check it works.", 25)
+        st["concepts"] = [p["id"] for p in primer if _RUN_CONCEPT.search(p["title"] + " " + p["body"])][:2]
+        return st
+    st["what"] = _words(sp.get("what") or st.get("title") or "", 12)
+    st["why"] = _words(sp.get("why") or "", 25) or None
+    if st["why"] is None:
+        st.pop("why")
+    nums = [n for n in sp.get("concepts") or [] if isinstance(n, int)]
+    st["concepts"] = [ids[n - 1] for n in nums if 1 <= n <= len(ids)]
+    return st

@@ -16,6 +16,7 @@ from .actions import do_it_for_me, inflight, locate
 from .common import get_lesson, set_lesson, system_blocks
 from .diagnose import diagnose, playbook_card, public
 from .explain import explain
+from .gate import PeriodicGate
 from .hints import apply_fix, hint
 from .judge import StepJudge, judge_step
 from .llm import CoachUnavailable, OutdatedFixUnavailable, set_keys
@@ -48,6 +49,7 @@ __all__ = [
     "Box",
     "CoachUnavailable",
     "OutdatedFixUnavailable",
+    "PeriodicGate",
     "ScreenContext",
     "StepJudge",
     "apply_fix",

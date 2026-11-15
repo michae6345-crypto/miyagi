@@ -17,7 +17,7 @@ import re
 from dataclasses import dataclass, field
 
 from . import match as M
-from .types import Block, Rect, ScreenObservation
+from .types import OVERLAY_ROLES, Block, Rect, ScreenObservation
 
 EDITOR_APPS = ("Code", "Cursor", "Windsurf", "VSCodium", "Code - Insiders", "Visual Studio Code")
 _NUM = re.compile(r"\d{1,5}")
@@ -51,7 +51,7 @@ class LineLocation:
     match_rect: Rect | None = None
     pane: Rect | None = None          # the editor text area (all visible rows)
     line_height: float | None = None
-    occluded: bool = False            # a hover tooltip covers part of the row: its text may be incomplete
+    occluded: bool = False            # a hover tooltip / inline chat widget covers part of the row
 
     def __bool__(self) -> bool:
         return self.rect is not None
@@ -422,13 +422,16 @@ def locate_line(obs: ScreenObservation, file: str | None, line: int, app: str | 
 
 
 def _under_hover(obs: ScreenObservation, r: Rect) -> bool:
-    hov = [b.rect for b in obs.blocks if b.role == "hover"]
-    if not hov:
-        return False
-    box = hov[0]
-    for h in hov[1:]:
-        box = box.union(h)
-    return box.x < r.x2 and r.x < box.x2 + 8 and box.y - 2 < r.y2 and r.y < box.y2 + 2
+    for role in OVERLAY_ROLES:      # one box per kind of overlay (a hover's blank interior counts too)
+        hov = [b.rect for b in obs.blocks if b.role == role]
+        if not hov:
+            continue
+        box = hov[0]
+        for h in hov[1:]:
+            box = box.union(h)
+        if box.x < r.x2 and r.x < box.x2 + 8 and box.y - 2 < r.y2 and r.y < box.y2 + 2:
+            return True
+    return False
 
 
 def locate_anchor(obs: ScreenObservation, text: str, app: str | None = None, file: str | None = None,

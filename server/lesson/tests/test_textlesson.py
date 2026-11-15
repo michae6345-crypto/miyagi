@@ -335,3 +335,59 @@ def test_contradicting_step_is_rewritten_with_the_problem_spelled_out(fake_claud
     s2 = g["steps"][1]
     assert s2["code"].count("def add") == 0 and "def divide" in s2["code"]
     assert s2["targets"][0]["match"] == "return a + b"  # anchored to the existing line it goes after
+
+
+# ---- "Before you start" primer + kind / what / why / concepts ---------------------------------
+
+def test_primer_and_step_explanations(fake_claude, tmp_path):
+    lesson = json.loads(json.dumps(LESSONS["build a calculator in Python"]))
+    lesson["plan"]["primer"] = [
+        {"title": "Functions are reusable recipes", "body": "A function is a named recipe. You give it inputs, it does the steps and hands back a result with return. "
+                                                            "You can use it again and again without rewriting the steps, which keeps programs short and easy to read and change later on.",
+         "code": "def add(a, b):\n    return a + b", "diagramPrompt": "A box labelled add with two arrows in (a, b) and one arrow out (a + b)."},
+        {"title": "Running a .py file", "body": "Typing python3 calculator.py in the terminal makes the computer read your file top to bottom.",
+         "code": "python3 calculator.py", "diagramPrompt": ""},
+        {"title": "Variables hold values", "body": "A variable is a name for a value, like a labelled jar.", "code": "x = 5", "diagramPrompt": "A jar labelled x containing 5."}]
+    for st, what, why, concepts in zip(lesson["plan"]["steps"],
+                                       ["A function named add that returns a + b", "Subtract, multiply and divide functions", "Code that asks for two numbers and prints the sum"],
+                                       ["Functions let you reuse a calculation instead of writing it again every time you need it.", "", "Programs become useful when they talk to the person using them."],
+                                       [[1], [1], [3, 9]]):
+        st.update(what=what, why=why, concepts=concepts)
+    fake_claude["lesson"] = lesson
+    g = asyncio.run(textlesson.build_text_lesson("build a calculator in Python", str(tmp_path / "w")))
+    pr = g["lesson"]["primer"]
+    assert [p["id"] for p in pr] == ["p1", "p2", "p3"] and all(len(p["title"].split()) <= 6 for p in pr)
+    assert all(len(p["body"].split()) <= 40 for p in pr) and pr[0]["body"].endswith(".")  # cut at a sentence, not mid-phrase
+    assert pr[0]["code"].startswith("def add") and "diagramPrompt" in pr[0] and "diagramPrompt" not in pr[1]
+    kinds = [s["kind"] for s in g["steps"]]
+    assert kinds[0] == "code" and kinds[-1] == "run" and set(kinds) <= {"code", "run", "read"}
+    s1 = g["steps"][0]
+    assert s1["what"] == "A function named add that returns a + b" and s1["concepts"] == ["p1"] and len(s1["why"].split()) <= 25
+    assert "why" not in g["steps"][1]  # nothing given: left out rather than invented
+    assert g["steps"][2]["concepts"] == ["p3"]  # an out-of-range concept number is dropped
+    run = g["steps"][-1]
+    assert run["what"].startswith("Run your calc") and run["concepts"] == ["p2"]  # the "Running a .py file" concept
+    for s in g["steps"]:
+        assert len(s["what"].split()) <= 12 and s["kind"]
+
+
+def test_words_cut_at_boundaries():
+    assert textlesson._words("One two three. Four five six seven.", 4) == "One two three."
+    assert textlesson._words("alpha beta gamma, delta epsilon zeta eta", 4) == "alpha beta gamma."
+    assert textlesson._words("short", 12) == "short"
+
+
+def test_primer_comes_from_the_one_plan_call_on_a_cheap_model(fake_claude, tmp_path, monkeypatch):
+    fake_claude["lesson"] = LESSONS["write a CLI that renames files"]
+    roles = []
+    orig = claude._generate_json
+
+    async def spy(system, prompt, schema, *, role=None, **kw):
+        roles.append((role, schema is textlesson.PLAN_SCHEMA))
+        return await orig(system, prompt, schema, role=role, **kw)
+
+    monkeypatch.setattr(claude, "_generate_json", spy)
+    asyncio.run(textlesson.build_text_lesson("write a CLI that renames files", str(tmp_path / "w")))
+    plans = [r for r in roles if r[1]]
+    assert plans == [("segment", True)]  # one plan call (Sonnet) makes the primer; no extra model call for it
+    assert "primer" in textlesson.PLAN_SCHEMA["required"] and all(r[0] in ("segment", "detail") for r in roles)

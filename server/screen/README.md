@@ -207,6 +207,19 @@ pick = marks.by_id(cs, 10)    # Candidate(id, kind, text, rect, app, line, regio
 - **`intent`:** only adds a `score` and, past `max_lines`, keeps the most relevant lines, still in
   id order.
 
+## Which file is open (`obs.editor`) and inline chat widgets
+- Every observation carries `obs.editor` = `vscode_window(obs)`: {folder, file, path, symbol, dirty,
+  sources}. This is the one answer to "which file is open". The file comes from what's above the
+  editor: the breadcrumb plus the active tab (the one with the close × / dirty ●, or the only tab). The
+  window title is a fallback only, and a disagreeing title is kept in `sources["title_file"]`.
+  **Explorer rows never name the file**: README.md listed in the Explorer is not the open file.
+- VS Code's inline chat / suggestion widgets ("Generate code", "+ Auto | Balance", Accept / Discard,
+  Ask Copilot) get `role="widget"` and are treated like hover tooltips. They are left out of `text()`,
+  `lines_by_app()`, `locate()`, line reading and set-of-marks candidates. `obs.widgets()` has their
+  text, and rows under them are `occluded`.
+- Fixture: `vscode_window_notes_inline_chat` (empty notes.py, inline chat over line 1, README.md in
+  the Explorer). Regenerate one fixture with `python -m server.screen.tests.make_window_fixtures NAME`.
+
 ## Haiku target picker (`target.py`): what to box
 
 ```python

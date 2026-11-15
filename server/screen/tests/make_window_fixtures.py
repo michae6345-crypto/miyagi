@@ -69,12 +69,22 @@ class Spec:
     win: tuple = (0.0, 33.0, 1320.0, 1000.0)     # x, y, w, h (points): below the menu bar
     menu_bar: bool = True
     other_tabs: tuple = ("test_calculator.py",)
+    src: tuple | None = None                       # file lines (default: CALC)
+    explorer: tuple = (("src", 28), ("calculator.py", 44), ("tests", 28), ("test_calculator.py", 44),
+                       ("README.md", 28))          # (name, indent)
+    inline_chat: bool = False                      # VS Code inline chat (Cmd+I) widget over line 1
+    title: str | None = None                       # window title override
     extra: dict = field(default_factory=dict)
 
 
 FIXTURES = [
     Spec("vscode_window_calc_hover", hover=True),
     Spec("vscode_window_calc_clean", dirty=False),
+    # Michael's live misread: empty notes.py open (tab "notes.py ×", breadcrumb "notes.py") with the
+    # inline chat widget over line 1; README.md only in the Explorer
+    Spec("vscode_window_notes_inline_chat", folder="help-me-build-a-notes-app-669032", file="notes.py",
+         crumbs=("notes.py",), dirty=False, caret_line=1, other_tabs=(), src=("",),
+         explorer=(("notes.py", 28), ("README.md", 28)), inline_chat=True),
 ]
 
 MENU = ["Code", "File", "Edit", "Selection", "View", "Go", "Run", "Terminal", "Window", "Help"]
@@ -160,8 +170,9 @@ def render(spec: Spec):
     d.rectangle([P(wx + act_w), P(top_bar), P(ex), P(wy + wh)], fill=C["side"])
     d.text((P(wx + act_w + 20), P(top_bar + 12)), "EXPLORER", font=ui_small, fill=C["dim"])
     d.text((P(wx + act_w + 12), P(top_bar + 38)), spec.folder.upper(), font=ui_small, fill=C["ui"])
-    for i, f in enumerate(["src", "calculator.py", "tests", "test_calculator.py", "README.md"]):
-        d.text((P(wx + act_w + (28 if i in (0, 2, 4) else 44)), P(top_bar + 62 + i * 22)), f, font=ui, fill=C["ui"])
+    for i, (f, indent) in enumerate(spec.explorer):
+        d.text((P(wx + act_w + indent), P(top_bar + 62 + i * 22)), f, font=ui, fill=C["ui"])
+        truth.setdefault("explorer_items", {})[f] = {"x": wx + act_w + indent, "y": top_bar + 62 + i * 22}
 
     # tabs: active tab shows ● when dirty, x otherwise
     tabs_h, crumbs_h = 35, 22
@@ -184,10 +195,11 @@ def render(spec: Spec):
     status_y = wy + wh - 22
     gutter_right = ex + 6 + 5 * font_pt * 0.6 + 8
     code_x = gutter_right + 26
+    src = list(spec.src) if spec.src is not None else CALC
     rows = int((status_y - top) // lh)
     for k in range(rows):
         n = 1 + k
-        if n > len(CALC):
+        if n > len(src):
             break
         y = top + k * lh
         if n == spec.caret_line:
@@ -197,10 +209,10 @@ def render(spec: Spec):
         d.text((P(gutter_right - d.textlength(num, font=mono) / S), P(ty)), num, font=mono,
                fill=C["gut_cur"] if n == spec.caret_line else C["gut"])
         x = code_x
-        for tok, col in _tokens(CALC[n - 1]):
+        for tok, col in _tokens(src[n - 1]):
             d.text((P(x), P(ty)), tok, font=mono, fill=col)
             x += d.textlength(tok, font=mono) / S
-        truth["lines"][str(n)] = {"y": y, "h": lh, "text": CALC[n - 1]}
+        truth["lines"][str(n)] = {"y": y, "h": lh, "text": src[n - 1]}
     truth["editor"] = {"x": ex, "y": top, "w": wx + ww - ex, "h": status_y - top}
 
     # Pylance hover on `add` (line 4): a bordered box BELOW the line, over lines 5-9
@@ -220,6 +232,18 @@ def render(spec: Spec):
         d.text((P(hx + 10), P(hy + 84)), "Add two numbers.", font=ui_small, fill=C["dim"])
         truth["hover"] = {"x": hx, "y": hy, "w": hw, "h": hh}
 
+    # VS Code inline chat (Cmd+I) over line 1: placeholder "Generate code", "+ Auto | Balance", send ↑, close ×
+    if spec.inline_chat:
+        bx, by = code_x - 10, top + 2
+        bw, bh = 640, 64
+        d.rounded_rectangle([P(bx), P(by), P(bx + bw), P(by + bh)], radius=P(6), fill=(37, 37, 38),
+                            outline=(0, 120, 212), width=2)
+        d.text((P(bx + 14), P(by + 10)), "Generate code", font=ui, fill=C["dim"])
+        d.text((P(bx + 14), P(by + 38)), "+   Auto | Balance", font=ui_small, fill=C["dim"])
+        d.text((P(bx + bw - 58), P(by + 36)), "\u2191", font=ui, fill=C["ui"])
+        d.text((P(bx + bw - 28), P(by + 8)), "\u00d7", font=ui, fill=C["ui"])
+        truth["inline_chat"] = {"x": bx, "y": by, "w": bw, "h": bh}
+
     d.rectangle([P(wx), P(status_y), P(wx + ww), P(wy + wh)], fill=C["status"])
     d.text((P(wx + ww - 420), P(status_y + 4)), f"Ln {spec.caret_line}, Col 9    Spaces: 4    UTF-8    LF    Python",
            font=ui_small, fill=(255, 255, 255))
@@ -228,16 +252,20 @@ def render(spec: Spec):
 
 
 def main() -> None:
+    import sys
+
     from server.screen import macos
     from server.screen import match as M
     from server.screen.types import Rect, ScreenObservation, Window
-
+    only = set(sys.argv[1:])        # names to (re)generate; default all
     screen = Rect(0, 0, W, H)
     for spec in FIXTURES:
+        if only and spec.name not in only:
+            continue
         img, truth = render(spec)
         png = FIX / f"{spec.name}.png"
         img.save(png, optimize=True)
-        title = ("● " if spec.dirty else "") + f"{spec.file} — {spec.folder}"
+        title = spec.title or (("● " if spec.dirty else "") + f"{spec.file} — {spec.folder}")
         windows = [Window("Code", title, Rect(*spec.win))]
         (FIX / f"{spec.name}.json").write_text(json.dumps(
             {"screen": screen.to_dict(), "scale": float(S), "app": "Code",

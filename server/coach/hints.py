@@ -10,11 +10,17 @@ import json
 import re
 import textwrap
 
-from .common import fmt_t, get_lesson
+from .common import clamp_words, fmt_t, get_lesson
 from .diagnose import LAST
 from .explain import match_explanation
 from .playbook import BY_ID, CITATIONS, GUIDING_QUESTIONS
-from .pointing import code_visible, deterministic_targets, start_instruction, where_hint
+from .pointing import (
+    code_question,
+    code_visible,
+    deterministic_targets,
+    editor_state,
+    where_hint,
+)
 from .screen import ScreenContext
 
 LEVELS = ("question", "video", "paper", "diff")
@@ -53,8 +59,9 @@ def hint(step: dict, level: int, last_offtrack: dict | None = None, screen: Scre
     if screen is None:
         return card
     last = last_offtrack or LAST.get(step.get("id", "")) or {}
-    if _not_started(last) and card["level"] == 0:  # the plain instruction already says where, with the screen's names
-        card["body"] = start_instruction(step, screen)
+    if _not_started(last) and card["level"] == 0:
+        if (w := where_hint(step, last, screen)) and editor_state(screen):
+            card["where"] = w  # the screen's real names ("You're in VS Code on an unsaved file…")
         return card
     targets = deterministic_targets(step, screen, last)
     if targets:
@@ -78,22 +85,23 @@ def _lc(s: str) -> str:
 
 
 def _check_question(step: dict) -> str | None:
-    """A real question about the step's first check (S1: level 0 used to be an instruction)."""
+    """A real question about the step's work. Never quotes a check label (S9: labels came out glued and
+    truncated: "Does your output show “add function is written in the” yet?")."""
+    if q := code_question(step):
+        return q
     for c in step.get("checks") or []:
-        label, f, t = c.get("label", ""), c.get("file", ""), c.get("type", "")
+        f, t = (c.get("file") or "").rsplit("/", 1)[-1], c.get("type", "")
         if t == "file_exists" and f:
             return f"Is {f} in your lesson folder yet, saved under exactly that name?"
         if t == "file_contains" and f:
-            return f"Where in {f} should “{label}” go, and is it there yet?"
+            return f"Which line of {f} should hold this step's code, and is it there yet?"
         if t == "command_exit_ok" and c.get("command"):
             return f"What happens when you run `{c['command']}`, and what does the last line say?"
         if t in ("output_contains", "screen_contains"):
-            return f"Does your output show “{label}” yet? If not, what step produces it?"
+            return "What does the output show right after you run it?"
         if t in ("metric_threshold", "metric_trend") and c.get("metric"):
-            return f"Is {c['metric']} heading toward “{label}”, and what would move it there?"
-        if label:
-            return f"What would you point at on screen to show “{label}” is done?"
-    return None
+            return f"Is {c['metric']} heading the right way, and what would move it?"
+    return "What on screen would show that this step is done?" if step.get("checks") else None
 
 
 def _not_started(card: dict | None) -> bool:
@@ -105,8 +113,17 @@ def _hint(step: dict, level: int, last_offtrack: dict | None = None) -> dict:
     level = max(0, min(int(level), 3))
     last = last_offtrack or LAST.get(step.get("id", "")) or {}
     if _not_started(last):  # "you haven't started" is not a diagnosis: nothing to ask questions about yet
-        if level == 0:
-            return _card(step, 0, f"Start · {_short(step)}", start_instruction(step))
+        if level == 0:  # the auto card already said "start": Hint moves up a rung, never repeats it (S9)
+            if (step.get("code") or "").strip():
+                f = (step.get("file") or "").rsplit("/", 1)[-1]
+                where = f"in {f} in VS Code" if f and f != "(terminal)" else "in VS Code"
+                return _card(step, 0, f"Type this · {_short(step)}", f"Type exactly this {where}, then save.",
+                             code=step["code"].strip("\n"), actions=["show_me"])
+            if (cmd := (step.get("run_command") or "").strip()):
+                return _card(step, 0, f"Run this · {_short(step)}", f"Run `{cmd}` in the VS Code terminal and read the last line.",
+                             actions=["show_me"])
+            instr = re.sub(r"\s+", " ", step.get("instructions") or "").strip()
+            return _card(step, 0, f"Step details · {_short(step)}", clamp_words(instr, 40) or step.get("title", ""))
         last = {}
     pid = (last.get("_meta") or {}).get("playbook_id") or _pid_from_citation(last)
     mode = BY_ID.get(pid) if pid else None
@@ -149,9 +166,8 @@ def _hint(step: dict, level: int, last_offtrack: dict | None = None) -> dict:
         # no source: still a real rung, the idea behind the step (S1: level 2 was skipped every time)
         cause = mode.cause if mode else next(iter(re.split(r"(?<=[.!?])\s+", last.get("body", "")) if last.get("body") else []), "")
         idea = cause or (hints[1] if len(hints) > 1 else "") or (hints[0] if hints and not hints[0].strip().endswith("?") else "")
-        if not idea:
-            labels = [c.get("label") for c in step.get("checks") or [] if c.get("label")]
-            idea = f"This step is done when {', '.join(labels)}." if labels else step.get("instructions", "")
+        if not idea:  # never glue check labels into prose (S9)
+            idea = step.get("instructions", "") or step.get("title", "")
         return _card(step, 2, f"Key idea · {short}", idea)
 
     diff = last.get("diff")
