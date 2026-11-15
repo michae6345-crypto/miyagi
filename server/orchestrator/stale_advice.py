@@ -171,8 +171,11 @@ async def state(s: Any, step: dict, card: dict | None, anew: bool = False) -> st
     if not ev and not refs:
         return ""
     path = _path(s, step, (card or {}).get("diff") if isinstance((card or {}).get("diff"), dict) else None)
-    if path is None or path.suffix.lower() == ".ipynb":
-        return ""  # a notebook's file is JSON, the coach read its cells: not comparable line by line
+    if (path is not None and path.suffix.lower() == ".ipynb") or \
+            (path is None and _step_name(s, step).lower().endswith(".ipynb")):
+        return _notebook_state(s, step, card, ev, path)
+    if path is None:
+        return ""
     disk = _disk(path)
     buf = await _buffer(s, path, anew)
     if disk is not None and refs:  # "delete … around line 41": what line 41 of the file reads
@@ -188,6 +191,42 @@ async def state(s: Any, step: dict, card: dict | None, anew: bool = False) -> st
     diff = (card or {}).get("diff") if isinstance((card or {}).get("diff"), dict) else {}
     want = [(_norm(x), True) for x in str(diff.get("expected") or "").splitlines() if x.strip()]
     return "unsaved" if all(_has(w, buf) for w in want) else "edited"
+
+
+def _step_name(s: Any, step: dict) -> str:
+    fn = getattr(s, "_step_file", None)
+    try:
+        return str((fn(step) if fn is not None else None) or step.get("file") or "")
+    except Exception:  # noqa: BLE001
+        return str(step.get("file") or "")
+
+
+def _notebook_source(s: Any, step: dict, path: Path | None) -> str | None:
+    """A notebook's cells as text (its file is JSON; the coach read its cells), None when it can't be read."""
+    try:
+        from server.checks.notebook import find_notebook, read_notebook
+
+        if path is None or not path.is_file():
+            path = find_notebook(getattr(s, "workdir", None), [_step_name(s, step)])
+        nb = read_notebook(path)
+        return nb.source_text if nb is not None else None
+    except Exception:  # noqa: BLE001 - can't read it: the card stands
+        log.info("stale_advice: no notebook text for %s", step.get("id"))
+        return None
+
+
+def _notebook_state(s: Any, step: dict, card: dict | None, ev: list[tuple[str, bool]], path: Path | None) -> str:
+    """t11 (s2: "load_dat() should be load_data()" stayed known after the fix passed): a notebook diagnosis is stale
+    when the code it rests on was in the cells (or in what the coach read) and no cell has it now: "gone" (the lesson
+    folder autosaves the notebook, so its cells are VS Code's). Never from a line number (cells have their own)."""
+    if not ev:
+        return ""
+    src = _notebook_source(s, step, path)
+    seen = (getattr(s, "_advice_seen", None) or {}).get(_key(card))
+    ev = [e for e in ev if _has(e, seen) or _has(e, src)]  # it really was in their code (never a misquote)
+    if not ev or src is None or any(_has(e, src) for e in ev):
+        return ""
+    return "gone"
 
 
 def _name(s: Any, step: dict, card: dict | None = None) -> str:

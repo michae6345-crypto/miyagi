@@ -140,15 +140,17 @@ OFF = {"stepId": "nn2", "severity": "fail", "title": "Wrong sign in d_h2 tanh sl
 
 def test_not_yet_offtrack_card_goes_when_stale_advice_forgets_it():
     """t8 05:53:22: stale_advice dropped "All weights start at zero" (gone) and nothing told the app. The off-track card
-    (the app's "Not yet") resting on that diagnosis is cleared: a step card with its words, dismissAfterMs 1."""
+    (the app's "Not yet") resting on that diagnosis is withdrawn. t11: with `offtrack` dismissAfterMs 1 (the app ignores
+    a `card` withdrawal of a card that isn't on screen), and nothing tracks it any more."""
     s = _S({"id": "nn2"})
     s.last_offtrack = OFF
     advice_clear.sent_offtrack(s, s.step, OFF, OFF)
     run(advice_clear.forgotten(s, {**OFF, "title": "Something else"}))
     assert not s.sent
     run(advice_clear.forgotten(s, OFF))
-    assert s.sent == [("card", {"stepId": "nn2", "kind": "step", "title": OFF["title"], "body": OFF["body"],
-                                "dismissAfterMs": 1})]
+    assert s.sent == [("offtrack", {"stepId": "nn2", "severity": "fail", "title": "", "body": "", "actions": [],
+                                    "dismissAfterMs": 1})]
+    assert s._advice_up is None and s._offtrack_up is None
 
 
 def test_hint_resting_on_a_diagnosis_goes_when_its_line_is_fixed(monkeypatch):

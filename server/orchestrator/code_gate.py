@@ -324,6 +324,28 @@ def _period(s: str) -> str:
     return s if not s or s[-1] in ".!?" else s + "."
 
 
+_SHELL_CMD = re.compile(r"^\s*(\$\s*)?(python3?|pip3?|uv|npm|npx|node|yarn|pnpm|git|cd|ls|cargo|go|ruby|bash|sh|"
+                        r"make|pytest|flask|streamlit|jupyter|source|\.)\s")  # as LessonSession.SHELL_CMD (+ source)
+_RUN_VERB = re.compile(r"^(?:run|execute|press|hit|click)\b\s*", re.I)
+_CELL_RUN = re.compile(r"shift\s*\+\s*enter|\bcells?\b|\bnotebook\b", re.I)
+
+
+def ran_part(cmd: str, label: str, detail: str = "") -> str:
+    """The "Ran it" row as a thing to do. A shell command: "run python3 app.py in the terminal". t11 (s5): a video
+    build's run_command can be the action in words ("Run the cell (Shift+Enter)"): never "run Run the cell
+    (Shift+Enter) in the terminal"; a notebook cell runs in the notebook."""
+    cmd = (cmd or "").strip()
+    m = _RUN_VERB.match(cmd)
+    shell = bool(cmd) and bool(_SHELL_CMD.match((cmd[m.end():] if m else cmd) + " "))
+    if not shell and _CELL_RUN.search(f"{cmd} {detail}"):
+        return "run the cell (Shift+Enter)"
+    if not cmd:
+        return label
+    if m and not shell:  # an action in words ("Click Run"): said as it is
+        return cmd[0].lower() + cmd[1:]
+    return f"run {cmd[m.end():] if m else cmd} in the terminal"
+
+
 def not_yet_body(missing: str, rows: list[dict], *, sid: str, cmd: str = "", forced: bool = False) -> str:
     """The "Not yet" card body, from the failing rows the drawer shows (never the judge's free text when a row
     says what's left: "line 7 still needs ..." / the run), whole sentences, the step's exact command; a syntax
@@ -342,7 +364,7 @@ def not_yet_body(missing: str, rows: list[dict], *, sid: str, cmd: str = "", for
             label, detail = str(r.get("label") or r.get("checkId") or ""), str(r.get("detail") or "")
             needs = re.match(r"(?:line (\d+) )?still needs (.+)$", detail)
             if r.get("checkId") == f"{sid}-ran":
-                parts.append(f"run {cmd} in the terminal" if cmd else label)
+                parts.append(ran_part(cmd, label, detail))
             elif needs and r.get("checkId") == f"{sid}-code":
                 parts.append(f"type {needs.group(2)} from the drawer")
             elif needs:

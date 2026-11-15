@@ -4356,6 +4356,7 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
     # card waiting for their Yes (`confirm`). _emit_card sets / clears it, card.closed clears it.
     _card_in_use: tuple[str, float, int] | None = None
     _advice_up: dict | None = None  # t8 (advice_clear): the Hint / Not yet card in the slot and what it is about
+    _offtrack_up: dict | None = None  # t11 (advice_clear): the off-track the app holds, until withdrawn
 
     def _learner_card_up(self) -> bool:
         """Is the learner's own card in the slot, and have they not acted since it went up? Then no off-track takes
@@ -4984,7 +4985,13 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
                     label = (self.check_state.get(cid) or {}).get("label", cid)
                     await self.emit("check.updated", {"stepId": step["id"], "checkId": cid, "label": label,
                                                       "status": "pass", "detail": "You confirmed it"})
+                    self.judged_pass.add(cid)  # (they stay green; t11: the run below may still decide)
                 self.confirm_check_ids = []
+                if (first := self._run_first(step)) is not None:  # t11: a notebook step needs its cell run: Yes
+                    log.info("confirm on %s held: %s", step["id"], first["title"])  # waits, the run passes it
+                    await self._emit_card(first, window_s=0.0)
+                    await self._status("watching")
+                    return
                 await self._pass_step()
             elif step is not None and not self.passed:
                 await self._confirm_stale(step)  # a "Looks done?" that went stale: re-check, never a silent no-op
@@ -5436,7 +5443,7 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
             "cursor": self.cursor_context(),  # {x, y, under: {text, app, rect}} in screen points
             "code": code,
             "file": file,
-            "offtrack": self.last_offtrack,
+            "offtrack": advice_clear.live_offtrack(self),  # t11: never a diagnosis whose checks pass now
         }
 
     CARD_GAP_S = 8.0  # never two automatic cards within 8 s
@@ -5860,6 +5867,17 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
                 return
             # E1: the judge's passes reached rows the code gate fails (a syntax error / a missing piece, e.g. a
             # requests.get without params): the drawer shows them red, so "Not yet", never step.passed
+        else:
+            # t11 (s5, 08:34:24): the cell finished during the ~3 s judge call and "Not yet" went out 0.2 s before
+            # step.passed. The rows as they are now decide: passed -> no card; the cell still running -> wait
+            await self.evaluate("check")
+            if self.passed or gen != self.step_gen:
+                return
+            if nb_coach.running(self, step):
+                await self._emit_card({"stepId": step["id"], "kind": "answer", **nb_coach.still_running(step),
+                                       "actions": ["skip_step"]}, window_s=2.0)
+                await self._status("watching", check=True)
+                return
 
         if await stale_advice.checks_win(self, step, gen):  # every row green: no "Not yet" contradicting them (Bug C)
             return
@@ -6595,6 +6613,12 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
         j = self.judge
         if j is None or self._judging or not self.last_results:
             return
+        if why := self._judge_needless(step):  # t11: wasted Haiku calls (and s3's "Looks done?" 2 s before the pass)
+            if getattr(self, "_judge_skip_why", None) != why:
+                self._judge_skip_why = why
+                log.info("judge %s skipped: %s", step.get("id"), why)
+            return
+        self._judge_skip_why = None
         screen, files, exact = self._judge_inputs(step)
         try:
             if not j.should_judge(step, [r for r in self.last_results if r.get("checkId") != f"{step['id']}-ran"],
@@ -6608,6 +6632,51 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
             return
         self._judging = True
         self._spawn(self._run_judge(self.step_gen, step, screen, files, exact))
+
+    def _only_run_left(self, step: dict) -> bool:
+        """t11: every row but the run's ("Ran the cell") passes, or, in a notebook step, only rows its run grades
+        (printed output, accuracy, no errors) are left: the run decides, never the judge."""
+        ran = f"{step.get('id')}-ran"
+        open_ = [r for r in self.last_results if r.get("status") != "pass" and r.get("checkId") != ran]
+        if not open_:
+            return True
+        from . import nb_coach
+
+        if not nb_coach.notebook_step(self, step):
+            return False
+        by_id = nb_coach._checks_by_id(step)
+        return all(nb_coach._is_output_check({**by_id.get(r.get("checkId"), {}), **r}, r) for r in open_)
+
+    def _judge_needless(self, step: dict) -> str:
+        """t11: why a background judge call would be wasted ("": ask it). An off-track is up (it says what's wrong);
+        only the run's rows are left (_only_run_left); a notebook step's cell is still running."""
+        if self.last_offtrack is not None:
+            return "an off-track is up"
+        if self._only_run_left(step):
+            return "only the run's rows are left"
+        from . import nb_coach
+
+        if nb_coach.notebook_step(self, step) and nb_coach.running(self, step):
+            return "its cell is still running"
+        return ""
+
+    def _run_first(self, step: dict) -> dict | None:
+        """t11: Yes on "Looks done?" in a notebook step whose cell hasn't run since the step began (its "Ran the cell"
+        row isn't green): the card that says so (the run then passes the step), else None."""
+        from . import nb_coach
+
+        if self.lesson_mode or not nb_coach.notebook_step(self, step):
+            return None
+        ran = next((r for r in self.last_results if r.get("checkId") == f"{step['id']}-ran"), None)
+        if ran is None or ran.get("status") == "pass":
+            return None
+        if nb_coach.running(self, step):
+            return {"stepId": step["id"], "kind": "step", **nb_coach.still_running(step)}
+        if ran.get("status") == "fail":
+            return {"stepId": step["id"], "kind": "step", "title": "Not yet",
+                    "body": "The cell stopped with an error. Fix it, then run it again (Shift+Enter)."}
+        return {"stepId": step["id"], "kind": "step", "title": "Run the cell first",
+                "body": "Run the cell (Shift+Enter). I'll move on when it finishes."}
 
     async def _run_judge(self, gen: int, step: dict, screen: Any, files: dict, exact: bool = False) -> None:
         try:
@@ -6634,6 +6703,9 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
         card = j.get("card")
         if card and "confirm" in (card.get("actions") or []) and (dup := self._overridden_defs(step)):
             card = self._dup_card(step, dup)  # T5: never a "Looks done?" while a later copy overrides the step's def
+        if card and "confirm" in (card.get("actions") or []) and self._only_run_left(step):
+            log.info("judge %s: no 'Looks done?': only the run's rows are left (t11)", step.get("id"))
+            card = None  # t11 (s3): the checks / the run pass it in a moment; Yes would skip the cell's run
         if not j.get("done"):
             self.confirm_check_ids = []  # Claude no longer sees the step done: a later Yes re-checks (_confirm_stale)
         if card and not self.passed and gen == self.step_gen:
