@@ -3,17 +3,18 @@
  * Miyagi brand (app/brand/BRAND.md): always black and white, the bonsai as a one-color glyph on the left
  * (monochrome everywhere in the app), the status on the right.
  *   idle      no lesson yet: "[bonsai] ask miyagi ⌥Space" (lowercase, Michael) (click opens the launcher); "Offline" with no engine
- *   building  between Build lesson and the first step: lesson.building message + spinner + progress line
- *   compact   during a lesson: "[bonsai] Step 4 · Define the residual  ◔ ●" (ring = steps done, dot = status);
+ *   building  between Build lesson and the first step: lesson.building message + spinner + progress line;
+ *             once the lesson is set (lesson.ready, before the first step.started) it's static: "Lesson ready ●", no spinner, no line
+ *   compact   during a lesson: "[bonsai] Step 4 · Define the residual  4/8 ●" (count = this step / steps, dot = status);
  *             "Next part is still building" after a pass while a long video's next part builds
  *   notice    one line for ~5 s over any of them (engine errors, a failed build, notify()), then back
  * While the engine is thinking, the bonsai becomes the small spinner (LeadMark). Offline mid-lesson: hollow dot.
  * Calm: nothing animates unless the state really changed (no timer ticks, no repeats of the same line).
  *
  * Measured from mockup 01 (1×): art 15 from the left edge, 11 before the text (= pad 13 + 16px mark box + gap 8) ·
- * 14 right · text → ring 15 · ring → dot 9 ·
+ * 14 right · text → count 15 · count → dot 9 ·
  * 13px medium · "Step 4 ·" in the muted label color, title in the text color.
- * The step-pass moment (check → ring → flash → crossfade) is driven by ./store.ts.
+ * The step-pass moment (check → flash → crossfade) is driven by ./store.ts.
  */
 import { AnimatePresence } from 'motion/react'
 import { useRef, type ReactNode } from 'react'
@@ -23,7 +24,7 @@ import { notify, useLesson } from '../../core/lesson'
 import { defineFeature } from '../../core/registry'
 import { color, copy } from '../../core/theme'
 import { Kbd, Spinner } from '../../core/ui/atoms'
-import { BuildLine, LeadMark, MonoMark, PillRing, StatusMark, SwapText, type Mark } from './parts'
+import { BuildLine, LeadMark, MonoMark, StatusMark, StepCount, SwapText, type Mark } from './parts'
 import { usePill } from './store'
 
 /**
@@ -87,28 +88,29 @@ function buildingStage(message?: string): string {
   return s ? s[0].toUpperCase() + s.slice(1) : ''
 }
 
+/** The building pill once lesson.ready has landed and the first step hasn't started: nothing is working any more. */
+const READY = 'Lesson ready'
+
 function Building(): ReactNode {
-  const { message, progress } = useLesson(
-    useShallow((s) => ({ message: s.buildingMessage, progress: s.lesson ? 1 : s.buildingProgress }))
+  const { message, progress, ready } = useLesson(
+    useShallow((s) => ({ message: s.buildingMessage, progress: s.buildingProgress, ready: !!s.lesson }))
   )
   const kept = usePill((s) => s.buildMessage)
   // Calm: show only the stage. The text (and so the crossfade + width spring) changes on a real stage change,
   // never on the timer tick; the progress line carries the motion.
-  const text = buildingStage(message ?? kept) || 'Building your lesson'
+  const text = ready ? READY : buildingStage(message ?? kept) || 'Building your lesson'
   return (
     <div className="relative flex h-[34px] items-center whitespace-nowrap pl-[13px] pr-[14px] text-[13px] font-medium" style={{ color: color.text }}>
       <MonoMark className="mr-[8px]" />
       <SwapText id={text}>{text}</SwapText>
-      {/* Where the ring will be once the lesson starts, so building → compact keeps its shape. */}
-      <span className="ml-[15px]">
-        <Spinner size={16} />
-      </span>
-      <AnimatePresence>{progress !== undefined && <BuildLine progress={progress} />}</AnimatePresence>
+      {/* Building: the spinner where the count will be. Set (Michael's audit A5): static, the gray dot only, no spinner, no line. */}
+      <span className="ml-[15px] flex items-center">{ready ? <StatusMark mark="watching" /> : <Spinner size={16} />}</span>
+      <AnimatePresence>{!ready && progress !== undefined && <BuildLine progress={progress} />}</AnimatePresence>
     </div>
   )
 }
 
-type Shown = { key: string; index: number; title: string; mark: Mark; done: number }
+type Shown = { key: string; index: number; title: string; mark: Mark }
 
 const NEXT_PART = 'Next part is still building'
 
@@ -135,7 +137,7 @@ function useShown(): Shown & { total: number } {
   // 1) The check is showing: hold the passed step on screen (even if step.started already moved on).
   if (celebrating) {
     const i = at(celebrating)
-    return { key: celebrating, index: Math.max(0, i), title: titleOf(i, l.title), mark: 'check', done: i + 1, total }
+    return { key: celebrating, index: Math.max(0, i), title: titleOf(i, l.title), mark: 'check', total }
   }
   // 2) After a pass, before the engine's step.started: the next step, the next part still building, or the end.
   if (advanced && advanced.from === l.stepId) {
@@ -143,11 +145,11 @@ function useShown(): Shown & { total: number } {
     const to = advanced.to ?? l.steps[at(advanced.from) + 1]?.id
     if (!to || at(to) < 0) {
       const i = at(advanced.from)
-      if (l.morePending) return { key: 'pending', index: i + 1, title: NEXT_PART, mark: offline ? 'offline' : 'pending', done: i + 1, total }
-      return { key: 'complete', index: total, title: 'Lesson complete', mark: 'done', done: total, total }
+      if (l.morePending) return { key: 'pending', index: i + 1, title: NEXT_PART, mark: offline ? 'offline' : 'pending', total }
+      return { key: 'complete', index: total, title: 'Lesson complete', mark: 'done', total }
     }
     const j = at(to)
-    return { key: to, index: j, title: titleOf(j), mark: offline ? 'offline' : 'watching', done: j, total }
+    return { key: to, index: j, title: titleOf(j), mark: offline ? 'offline' : 'watching', total }
   }
   // 3) Normal: the engine's current step.
   const i = Math.max(0, at(l.stepId))
@@ -157,7 +159,6 @@ function useShown(): Shown & { total: number } {
     index: i,
     title: l.title,
     mark: offline ? 'offline' : l.offtrack ? 'offtrack' : passed ? 'passed' : 'watching',
-    done: i + (passed ? 1 : 0),
     total
   }
 }
@@ -178,13 +179,13 @@ function Compact(): ReactNode {
         )}
       </SwapText>
       {s.mark === 'pending' ? (
-        // Same shape as the building pill: a part is building, so the spinner sits where the ring was.
+        // Same shape as the building pill: a part is building, so the spinner sits where the count was.
         <span className="ml-[15px]">
           <Spinner size={16} />
         </span>
       ) : (
         <span className="ml-[15px] flex items-center gap-[9px]">
-          <PillRing fraction={Math.min(1, s.done / s.total)} complete={s.mark === 'done'} />
+          <StepCount n={s.mark === 'done' ? s.total : Math.min(s.total, s.index + 1)} total={s.total} />
           <StatusMark mark={s.mark} />
         </span>
       )}
