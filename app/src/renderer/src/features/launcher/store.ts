@@ -1,4 +1,8 @@
-/** Feature: launcher. Search state: results stream in from the engine; errors land here while a search is live. */
+/**
+ * Feature: launcher. Search state: results stream in from the engine; errors land here while a search is live.
+ * Videos only (Michael, Sat): a search offers YouTube tutorials or "Build a lesson from the internet", never
+ * repos, papers, blogs or notebooks. The engine stops sending those; any that still arrive are dropped here.
+ */
 import { create } from 'zustand'
 import type { Payload } from '../../../../common/wire'
 import { onMessage, onUi } from '../../core/bus'
@@ -55,6 +59,7 @@ onMessage('search.result', (payload) => {
       return { results }
     }
     if (!p.title) return s // an update for a row we never received: nothing to show
+    if (p.kind !== 'video') return s // videos only: the list never shows repos, papers, blogs or notebooks
     return { results: [...s.results, p], pending: !s.done, error: undefined }
   })
 })
