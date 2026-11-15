@@ -290,6 +290,20 @@ class ScreenSeen(_Model):
     t: float
 
 
+class AvoidRect(_Model):
+    """Screen POINTS, TOP-LEFT origin (the spotlight.rect space): a VS Code control Miyagi's UI must not cover."""
+
+    kind: Literal["quickpick"]
+    x: float
+    y: float
+    w: float
+    h: float
+
+
+class ScreenAvoid(_Model):
+    rects: list[AvoidRect]  # [] = nothing to avoid any more (the picker closed): the app clears it
+
+
 class VideoSeek(_Model):
     t: float
     play: bool
@@ -588,6 +602,7 @@ ENGINE_EVENTS: dict[str, Any] = {
     "offtrack": Offtrack,
     "spotlight": TypeAdapter(Spotlight),
     "screen.seen": ScreenSeen,
+    "screen.avoid": ScreenAvoid,
     "video.seek": VideoSeek,
     "video.pause": Empty,
     "video.play": Empty,
@@ -606,6 +621,7 @@ EngineEventType = Literal[
     "search.result", "search.done", "lesson.building", "lesson.ready", "step.started",
     "check.updated", "step.passed", "offtrack", "spotlight", "video.seek", "video.pause",
     "video.play", "card", "diagram", "speak", "metric", "status", "error", "screen.seen", "config.status", "lesson.ended", "setup.progress", "lesson.updated",
+    "screen.avoid",
 ]
 
 
