@@ -228,6 +228,8 @@ async def run_scenario(lesson_path: Path, scenario: str, hold: float) -> dict:
     except Exception:  # noqa: BLE001
         pass
     engine = main.engine
+    # S2's wrong_folder() reads the REAL VS Code windows on this Mac: off, so E4's window-title fallback reads the fixture
+    engine.session._s2_wrong_folder_fn = lambda: None
     rec = Recorder(workdir)
     disk = {"save": scenario == "open"}
 
@@ -472,7 +474,8 @@ def judge(res: dict) -> dict:
         help_cards = [e for e in cards if e["type"] == "offtrack" or (
             e["payload"].get("kind") == "hint" and not re.match(r"(Looks done|I can't see|Save |That's another)",
                                                                 e["payload"].get("title") or ""))]
-        if help_cards and "apply_fix" not in (help_cards[0]["payload"].get("actions") or []):
+        want = {"apply_fix", "run_command"} if kind == "run" else {"apply_fix"}  # Do it for me / Run it for me
+        if help_cards and not want & set(help_cards[0]["payload"].get("actions") or []):
             items.setdefault("j", []).append(f"{sid}: first help card {help_cards[0]['payload'].get('title')!r} "
                                              f"has actions {help_cards[0]['payload'].get('actions')}")
         row["first_help_card"] = (help_cards[0]["payload"].get("title"), help_cards[0]["payload"].get("actions")) if help_cards else None

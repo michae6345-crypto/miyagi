@@ -241,6 +241,8 @@ async def run_topic(topic: str, hold: float, budget: float, spent: float, port: 
     except Exception:  # noqa: BLE001
         pass
     engine = main.engine
+    # S2's wrong_folder() reads the REAL VS Code windows on this Mac: off, so E4's window-title fallback reads the fixture
+    engine.session._s2_wrong_folder_fn = lambda: None
     rec = L.Recorder(workdir)
     engine.workspace.run = lambda argv: (rec.argv.append([str(a) for a in argv]) or True)
     orig_emit = engine.hub.emit
