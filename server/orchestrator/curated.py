@@ -189,6 +189,29 @@ def prepare_folder(graph: dict) -> str:
     return str(folder)
 
 
+def resumable_save(graph: dict) -> str | None:
+    """Nov 15 (Michael: restarts sent him back to step 1): a save of THIS lesson that the learner never ended (an engine
+    restart or a deploy's POST /end mid-lesson; not `stopped` by End / Start new, not finished: that clears it) whose
+    folder still holds nn.py -> that folder: the lesson continues there at the saved step (sessions.Resumer), its nn.py
+    untouched. None: start over (forget_saved + prepare_folder). Blocking (file I/O)."""
+    lid = (graph.get("lesson") or {}).get("id")
+    try:
+        from server.sessions import store
+
+        saved = store.load()
+        if not lid or saved is None or saved.get("lessonId") != lid or saved.get("stopped"):
+            return None
+        folder = saved.get("workdir")
+        if not folder or not (Path(folder) / "nn.py").is_file() or int(saved.get("stepIndex") or 0) < 1:
+            return None
+        log.info("curated lesson: continuing at step %s in %s (a save the learner never ended)",
+                 int(saved["stepIndex"]) + 1, folder)
+        return str(folder)
+    except Exception:  # noqa: BLE001 - never blocks the lesson: it starts over
+        log.exception("curated lesson: could not read the save")
+        return None
+
+
 def forget_saved(graph: dict) -> bool:
     """Typing the goal again starts the curated lesson over: prepare_folder puts the clean starter back, so a save of
     THIS lesson (made before an engine restart, its resume card not answered) must not restore a later step onto that
