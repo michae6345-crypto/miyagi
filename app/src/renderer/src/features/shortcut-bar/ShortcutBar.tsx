@@ -24,7 +24,7 @@ import { MiyagiMark } from '../../core/ui/Mark'
 import { actionTone, copy, glass, spring, type OptionAction } from '../../core/theme'
 import { useCards } from '../cards/store'
 import { useDiagram } from '../diagrams/store'
-import { useSearch } from '../launcher/store'
+import { useLauncherOpen } from '../launcher/store'
 import { toggleVoice } from '../voice/store'
 import { Equalizer, useVoiceTile } from './Equalizer'
 import { usePress } from './press'
@@ -116,21 +116,10 @@ registerWebHandler('overlay:raise', () => true)
 const CARD_STEP_ACTIONS = new Set<string>(['confirm', 'skip_step', 'check_step'])
 
 /**
- * The launcher is open. In the browser stage it lives in this document, so its store says so; in Electron it's its own
- * window (its store isn't ours), so also follow main's launcher:open / launcher:closed signals to the overlay.
+ * The Ask field's width. It keeps it while the launcher is open (only its words fade, so the launcher is the one ask
+ * field on screen): collapsing it made every bar button slide left and back (Michael's tests 2-3, A13).
  */
-const useLauncherSignal = create<{ open: boolean }>(() => ({ open: false }))
-bridge.on('launcher:open', () => useLauncherSignal.setState({ open: true }))
-bridge.on('launcher:closed', () => useLauncherSignal.setState({ open: false }))
-function useLauncherOpen(): boolean {
-  const here = useSearch((s) => s.open)
-  const signal = useLauncherSignal((s) => s.open)
-  return here || signal
-}
-
-/** The Ask field's width, open and collapsed (just the tree, while the launcher is the one ask field on screen). */
 const ASK_W = 196
-const ASK_COLLAPSED_W = 44
 
 export function ShortcutBar({ bottom, lift = 0 }: { bottom: number; lift?: number }): ReactNode {
   const on = useLesson((x) => !!x.lesson)
@@ -167,13 +156,10 @@ export function ShortcutBar({ bottom, lift = 0 }: { bottom: number; lift?: numbe
             className="pointer-events-auto flex items-center gap-[2px] rounded-[24px] border p-[8px]"
             style={{ height: BAR_HEIGHT, background: glass.bg, borderColor: glass.hairline, boxShadow: glass.shadow, backdropFilter: 'blur(30px) saturate(1.4)' }}
           >
-            {/* While the launcher is open it is the ask field: this one collapses to the tree (no second input). */}
+            {/* While the launcher is open it is the ask field: this one keeps its width but shows only the tree (A13). */}
             <motion.button
               className={`mr-[8px] flex h-[44px] shrink-0 cursor-pointer items-center gap-[9px] overflow-hidden whitespace-nowrap rounded-[22px] border pl-[14px] pr-[8px] text-left ${hoverCls}`}
-              style={{ borderColor: glass.hairline, color: glass.label }}
-              initial={false}
-              animate={{ width: askCollapsed ? ASK_COLLAPSED_W : ASK_W }}
-              transition={spring}
+              style={{ width: ASK_W, borderColor: glass.hairline, color: glass.label }}
               aria-label={copy.ask}
               data-collapsed={askCollapsed ? '' : undefined}
               onClick={() => bridge.emit('launcher:toggle')}
