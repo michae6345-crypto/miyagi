@@ -610,6 +610,25 @@ class ConfigKeys(_Model):
     tigerUrl: str | None = None
 
 
+class CardShown(_Model):
+    """card.shown: a `card` / the `offtrack` card became visible in the app's card slot (E14)."""
+
+    stepId: str | None = None
+    title: str = ""
+    kind: str | None = None  # the card's kind, or "offtrack"
+
+
+class CardClosed(_Model):
+    """card.closed: that card left the slot. by: "user" | "replaced" | "timeout" | "hidden" (kept a plain str here so
+    a new reason from the app is logged, not rejected). "user" / "timeout" lift the hold this card (matched by title)
+    caused; "replaced" / "hidden" lift nothing."""
+
+    stepId: str | None = None
+    title: str = ""
+    kind: str | None = None
+    by: str | None = None
+
+
 APP_COMMANDS: dict[str, type[_Model]] = {
     "learn": Learn,
     "learn_url": LearnUrl,
@@ -619,9 +638,12 @@ APP_COMMANDS: dict[str, type[_Model]] = {
     "overlay.bounds": OverlayBounds,
     "config.keys": ConfigKeys,
     "end_lesson": EndLesson,
+    "card.shown": CardShown,
+    "card.closed": CardClosed,
 }
 
-AppCommandType = Literal["learn", "learn_url", "build_lesson", "action", "video.state", "overlay.bounds", "config.keys", "end_lesson"]
+AppCommandType = Literal["learn", "learn_url", "build_lesson", "action", "video.state", "overlay.bounds", "config.keys", "end_lesson",
+                         "card.shown", "card.closed"]
 
 
 class AppMessage(BaseModel):

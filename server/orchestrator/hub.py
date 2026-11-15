@@ -40,6 +40,8 @@ def log_received(type_: str, p: Any) -> None:
     elif type_ == "overlay.bounds":
         log.debug("<- overlay.bounds %d rects", len(p.rects))
         return
+    elif type_ in ("card.shown", "card.closed"):  # E14: what the learner really has on screen
+        line = f"{type_} {p.kind or 'card'} {_clip(p.title)}" + (f" by={p.by}" if getattr(p, "by", None) else "")
     else:  # end_lesson, config.keys (name only)
         line = type_
     log.info("<- %s", line)
@@ -60,6 +62,16 @@ class Hub:
             log.warning("event %s does not match events.ts (%s); sending anyway", type_, e)
         return {"type": type_, "payload": payload}
 
+    def join(self, ws: WebSocket) -> None:
+        self.clients.add(ws)
+        log.info("app connected (%d client%s)", len(self.clients), "" if len(self.clients) == 1 else "s")
+
+    def drop(self, ws: WebSocket, why: str) -> None:
+        """E14: a WebSocket close is logged (an off-track went out to a vanished app and nothing said so)."""
+        if ws in self.clients:
+            self.clients.discard(ws)
+            log.info("app disconnected (%s); %d client%s left", why, len(self.clients), "" if len(self.clients) == 1 else "s")
+
     async def emit(self, type_: str, payload: dict[str, Any] | None = None) -> None:
         msg = self.encode(type_, payload or {})
         self.history.append(msg)
@@ -69,10 +81,10 @@ class Hub:
         for ws in list(self.clients):
             try:
                 await ws.send_json(msg)
-            except Exception:
-                dead.append(ws)
-        for ws in dead:
-            self.clients.discard(ws)
+            except Exception as e:  # noqa: BLE001
+                dead.append((ws, e))
+        for ws, e in dead:
+            self.drop(ws, f"send of {type_} failed: {type(e).__name__}")
 
     async def send_to(self, ws: WebSocket, type_: str, payload: dict) -> None:
         await ws.send_json(self.encode(type_, payload))

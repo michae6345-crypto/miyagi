@@ -158,6 +158,12 @@ export interface AppCommands {
   "overlay.bounds": { rects: Array<{ x: number; y: number; w: number; h: number }> };
   /** Bring-your-own-key (like cue): sent on every connect from the app's Settings. Engine uses these over its .env, keeps them in memory only, never logs them. */
   "config.keys": { anthropic?: string; gemini?: string; brightdata?: string; elevenlabs?: string; tigerUrl?: string };
+  /** What the learner really has on screen (E14: the engine assumed every card it sent was visible). Optional: an app that never sends these keeps today's behaviour.
+   *  card.shown: a `card` or the `offtrack` card became visible in the card slot (not while the sheet / launcher covers the slot or the window is hidden; send it when it shows).
+   *  card.closed: it left the slot. by: "user" (✕ / Esc / a video jump), "replaced" (another card / diagram / off-track took the slot), "timeout" (it closed itself, e.g. a pressed button gave up), "hidden" (the sheet / launcher covered the slot, the window hid).
+   *  title / kind / stepId: copied from the card's payload; kind "offtrack" for the off-track card. On by "user" / "timeout" the engine lifts the off-track hold that this card (matched by title) caused; "replaced" / "hidden" lift nothing (the engine knows what it sent; a covered card shows again). */
+  "card.shown": { stepId?: string; title: string; kind?: string };
+  "card.closed": { stepId?: string; title: string; kind?: string; by: "user" | "replaced" | "timeout" | "hidden" };
 }
 // Engine -> app answer to config.keys: which keys are present and valid (never echo the keys themselves)
 export interface KeyStatusEvent { "config.status": { anthropic: KeyState; gemini: KeyState; brightdata: KeyState; elevenlabs: KeyState; tigerUrl: KeyState } } // same key names as config.keys
