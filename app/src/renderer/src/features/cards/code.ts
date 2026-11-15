@@ -77,3 +77,128 @@ export function readingValue(text: string): string | undefined {
   const m = text.match(/(?:^|\s)([-+]?(?:\d[\d,]*(?:\.\d+)?|\.\d+)(?:e[-+]?\d+)?|[-+]?(?:nan|inf(?:inity)?))\s+at step\s+\d/i)
   return m?.[1]
 }
+
+// ---------------------------------------------------------------------------
+// The diff, one column: your lines (-) then the expected ones (+), the parts that changed inside a line marked
+// ---------------------------------------------------------------------------
+
+/** A piece of a line; `changed` = it differs from the line it's paired with. */
+export type Part = { text: string; changed: boolean }
+/** One row: '-' yours, '+' expected, ' ' both. `parts` only on a line paired with its changed version. */
+export type DiffRow = { sign: '-' | '+' | ' '; text: string; parts?: Part[] }
+
+/** Names, runs of space, and single punctuation: `.json()` is 4 tokens, so a change stops at the right place. */
+const tokens = (s: string): string[] => s.match(/\w+|\s+|[^\w\s]/g) ?? []
+const solid = (s: string): number => s.replace(/\s/g, '').length
+const key = (l: string): string => l.replace(/\s+/g, ' ').trim()
+
+/** Longest common subsequence: which items of a and of b are kept (the k-th kept a pairs with the k-th kept b). */
+function keep<T>(a: T[], b: T[], eq: (x: T, y: T) => boolean): [boolean[], boolean[]] {
+  const n = a.length
+  const m = b.length
+  const dp = Array.from({ length: n + 1 }, () => new Uint16Array(m + 1))
+  for (let i = n - 1; i >= 0; i--) for (let j = m - 1; j >= 0; j--) dp[i][j] = eq(a[i], b[j]) ? dp[i + 1][j + 1] + 1 : Math.max(dp[i + 1][j], dp[i][j + 1])
+  const ka = new Array<boolean>(n).fill(false)
+  const kb = new Array<boolean>(m).fill(false)
+  for (let i = 0, j = 0; i < n && j < m; ) {
+    if (eq(a[i], b[j])) {
+      ka[i++] = true
+      kb[j++] = true
+    } else if (dp[i + 1][j] >= dp[i][j + 1]) i++
+    else j++
+  }
+  return [ka, kb]
+}
+
+/**
+ * A line as parts. Space never stands out on its own: it joins a change only between two changed tokens. One
+ * unchanged character between two changes joins them (`verify=False` → `timeout=10` is one change, not two).
+ */
+function toParts(t: string[], kept: boolean[]): Part[] {
+  const out: Part[] = []
+  const push = (text: string, changed: boolean): void => {
+    const last = out[out.length - 1]
+    if (last && last.changed === changed) last.text += text
+    else out.push({ text, changed })
+  }
+  t.forEach((s, i) => push(s, !kept[i] && (s.trim() !== '' || (i > 0 && !kept[i - 1] && i < t.length - 1 && !kept[i + 1]))))
+  const joined: Part[] = []
+  out.forEach((p, k) => {
+    const gap = !p.changed && p.text.length === 1 && out[k - 1]?.changed && out[k + 1]?.changed
+    const last = joined[joined.length - 1]
+    if (last && (gap || last.changed === p.changed)) last.text += p.text
+    else joined.push({ ...p })
+  })
+  return joined
+}
+
+const MAX_TOKENS = 160
+/** Two versions of one line, as parts with the changes marked. Undefined when they're mostly different lines. */
+function inline(x: string, y: string): [Part[], Part[]] | undefined {
+  const a = tokens(x)
+  const b = tokens(y)
+  if (!a.length || !b.length || a.length > MAX_TOKENS || b.length > MAX_TOKENS) return undefined
+  const [ka, kb] = keep(a, b, (p, q) => p === q)
+  const same = a.reduce((n, s, i) => n + (ka[i] ? solid(s) : 0), 0)
+  if ((2 * same) / Math.max(1, solid(x) + solid(y)) < 0.5) return undefined
+  return [toParts(a, ka), toParts(b, kb)]
+}
+
+/** A run of removed and added lines: each removed line pairs with the next added one that's mostly the same. */
+function hunk(rem: string[], add: string[], rows: DiffRow[]): void {
+  const removed: DiffRow[] = rem.map((text) => ({ sign: '-', text }))
+  const added: DiffRow[] = add.map((text) => ({ sign: '+', text }))
+  let from = 0
+  for (const r of removed) {
+    for (let q = from; q < added.length; q++) {
+      const pair = inline(r.text, added[q].text)
+      if (!pair) continue
+      ;[r.parts, added[q].parts] = pair
+      from = q + 1
+      break
+    }
+  }
+  rows.push(...removed, ...added)
+}
+
+/**
+ * Yours → expected as one column of rows: lines both have (same text, any indentation) as context, then each run
+ * of changes as its removed lines and its added lines, a line and its changed version paired so the change inside
+ * it can be marked (`response = requests.get(url)` → `….json()`: just `.json()`).
+ */
+export function diffLines(yours: string, expected: string): DiffRow[] {
+  const a = yours ? yours.split(/\r?\n/) : []
+  const b = expected ? expected.split(/\r?\n/) : []
+  const rows: DiffRow[] = []
+  // A very long excerpt: no line matching (it's quadratic), just yours then expected.
+  if (a.length * b.length > 10000) {
+    hunk(a, b, rows)
+    return rows
+  }
+  const [ka, kb] = keep(a, b, (x, y) => key(x) === key(y))
+  let i = 0
+  let j = 0
+  while (i < a.length || j < b.length) {
+    const rem: string[] = []
+    const add: string[] = []
+    while (i < a.length && !ka[i]) rem.push(a[i++])
+    while (j < b.length && !kb[j]) add.push(b[j++])
+    hunk(rem, add, rows)
+    if (i >= a.length || j >= b.length) break
+    rows.push({ sign: ' ', text: b[j] })
+    i++
+    j++
+  }
+  return rows
+}
+
+/**
+ * At most `max` rows: context more than a line away from a change goes first, then the tail (`more` = rows cut).
+ * All context (nothing changed) is kept as it is, up to `max`.
+ */
+export function fitRows(rows: DiffRow[], max: number): { rows: DiffRow[]; more: number } {
+  const near = (i: number): boolean => [i - 1, i, i + 1].some((k) => rows[k] && rows[k].sign !== ' ')
+  const changes = rows.some((r) => r.sign !== ' ')
+  const kept = changes ? rows.filter((r, i) => r.sign !== ' ' || near(i)) : rows
+  return { rows: kept.slice(0, max), more: Math.max(0, kept.length - max) }
+}

@@ -1,20 +1,23 @@
 /**
- * The off-track card's evidence panel (layout C, the right column). Two columns, yours | expected, built from
- * whatever the payload has, in this order:
- *   1. the diff, as code: "{file} · L{line}" on its caption, each side kept as written (never wrapped; a long
- *      line scrolls sideways, and the edge that hides text stops under a chevron that scrolls it), and the
- *      lines only the expected side has highlighted
- *   2. each failing check that has a real value of yours (not status text like "not seen in Code") and doesn't
- *      just repeat the diff: its label, then your value | the expected one (read from the label)
+ * The off-track card's evidence panel (layout C, the right column), built from whatever the payload has that is
+ * real code or a real value (status text like "not in weather.py yet" is neither; with nothing left, no panel):
+ *   1. the diff, one column (Michael, review A5: two side-by-side columns couldn't be read): "{file} · L{line}"
+ *      on its caption, your lines (−) then the expected ones (+), lines both have as faint context. A line and its
+ *      changed version are paired and only what changed is marked (`.json()`, `raise_for_status()`): in
+ *      color.text on a neutral chip, the rest faint; a removed part is also struck. Never wrapped: a long line
+ *      scrolls sideways, and the edge that hides text stops under a chevron that scrolls it.
+ *   2. each failing check that has a real value of yours and doesn't just repeat the diff: its label, then
+ *      yours | expected (read from the label), two columns
  *   3. the metric curve: a monochrome sparkline (yours white, tutorial faint) with both end values
- * No color at all (no pastel, no status hue): values in color.text, headers and labels in color.faint.
+ * No color at all (no pastel, no status hue, no red or green for − / +): values in color.text, headers and labels
+ * in color.faint.
  */
 import { ChevronLeft, ChevronRight } from 'lucide-react'
 import { motion, useReducedMotion } from 'motion/react'
-import { useCallback, useLayoutEffect, useRef, useState, type CSSProperties, type ReactNode } from 'react'
+import { useCallback, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from 'react'
 import type { CheckItem, Offtrack } from '../../core/lesson'
 import { color, fill } from '../../core/theme'
-import { isProse, LITERAL, NUMBER, readingValue, readsAsCode } from './code'
+import { diffLines, fitRows, isProse, LITERAL, NUMBER, readingValue, readsAsCode, type DiffRow } from './code'
 import { Curve, fmt, plotArray, plotPoints, type Line } from './Curve'
 import { useSeries } from './store'
 
@@ -118,9 +121,10 @@ function useSpark(o: Offtrack): { lines: Line[]; name?: string; yours?: string; 
   }
 }
 
-function Head({ children }: { children: ReactNode }): ReactNode {
+/** A column head (yours | expected); `top`: under the diff, so it keeps a section's distance from it. */
+function Head({ children, top }: { children: ReactNode; top?: boolean }): ReactNode {
   return (
-    <div className="font-sans text-[11px] font-medium" style={{ color: color.faint }}>
+    <div className={`font-sans text-[11px] font-medium ${top ? 'mt-[12px]' : ''}`} style={{ color: color.faint }}>
       {children}
     </div>
   )
@@ -186,13 +190,13 @@ function Chevron({ side, bar, onClick }: { side: 'left' | 'right'; bar: number; 
 }
 
 /**
- * One side of the diff as written: whitespace kept, never wrapped (a long line scrolls sideways); `mark` highlights
- * a line. The scrollbar's room is always kept (its track is transparent), so a long line never changes the height.
- * A line wider than the column is never cut without a cue (Michael, desktop test 3: macOS overlay scrollbars stay
- * hidden until you scroll, so the code just stopped at the edge): the edge that hides text is cut clean under a
- * chevron that scrolls it, and hovering shows the whole side as a tooltip. Trackpad and shift-wheel scroll as usual.
+ * A sideways scroller for code: whitespace kept, never wrapped (a long line scrolls sideways). The scrollbar's room
+ * is always kept (its track is transparent), so a long line never changes the height. A line wider than the column
+ * is never cut without a cue (Michael, desktop test 3: macOS overlay scrollbars stay hidden until you scroll, so
+ * the code just stopped at the edge): the edge that hides text is cut clean under a chevron that scrolls it, and
+ * hovering shows the whole of it (`title`) as a tooltip. Trackpad and shift-wheel scroll as usual.
  */
-function Code({ text, mark }: { text: string; mark?: (line: string) => boolean }): ReactNode {
+function Scroll({ title, children }: { title: string; children: ReactNode }): ReactNode {
   const ref = useRef<HTMLDivElement>(null)
   const [edges, setEdges] = useState<Edges>(FITS)
   const reduce = useReducedMotion()
@@ -214,7 +218,7 @@ function Code({ text, mark }: { text: string; mark?: (line: string) => boolean }
     ro.observe(el)
     if (el.firstElementChild) ro.observe(el.firstElementChild)
     return () => ro.disconnect()
-  }, [measure, text])
+  }, [measure, title])
   const scroll = (dir: 1 | -1) => (): void => {
     const el = ref.current
     el?.scrollBy({ left: dir * Math.max(CUE * 2, el.clientWidth - CUE * 2), behavior: reduce ? 'auto' : 'smooth' })
@@ -222,32 +226,112 @@ function Code({ text, mark }: { text: string; mark?: (line: string) => boolean }
   const hidden = edges.left || edges.right
   const mask = edgeMask(edges.left, edges.right)
   return (
-    <div className="relative min-w-0" style={{ marginInline: -BLEED }}>
+    <div className="relative min-w-0 flex-1">
       <div
         ref={ref}
         data-code
         data-overflow={hidden ? [edges.left && 'left', edges.right && 'right'].filter(Boolean).join(' ') : undefined}
         className="overflow-x-scroll"
         style={{ ...thinScroll, maskImage: mask, WebkitMaskImage: mask }}
-        title={hidden ? text : undefined}
+        title={hidden ? title : undefined}
         onScroll={measure}
       >
-        <div className="w-max min-w-full whitespace-pre">
-          {text.split(/\r?\n/).map((l, i) => {
-            const hit = mark?.(l) ?? false
-            return (
-              <div key={i} data-mark={hit || undefined} className="rounded-[4px]" style={{ paddingInline: BLEED, background: hit ? fill.highlight : undefined }}>
-                {l || ' '}
-              </div>
-            )
-          })}
-        </div>
+        <div className="w-max min-w-full whitespace-pre">{children}</div>
       </div>
       {edges.left && <Chevron side="left" bar={edges.bar} onClick={scroll(-1)} />}
       {edges.right && <Chevron side="right" bar={edges.bar} onClick={scroll(1)} />}
     </div>
   )
 }
+
+/** The sign gutter: − yours, + expected (a real minus, so it isn't read as a hyphen), nothing on context. */
+const SIGN: Record<DiffRow['sign'], string> = { '-': '−', '+': '+', ' ': NBSP }
+const SIGN_W = 10
+/** A diff longer than this keeps the context next to its changes, then the first rows. */
+const MAX_ROWS = 12
+
+/**
+ * One diff row. Context (both sides have it): faint. A line and its changed version: the rest faint on yours and
+ * muted on expected, only the changed part in color.text on a neutral chip (on yours, also struck). A line with
+ * no counterpart: yours muted and struck, expected in color.text (with a highlighted row when other rows are
+ * around it). `solo`: yours alone (no expected code to compare with), just the lines as written.
+ */
+function DiffLine({ row, solo, mark }: { row: DiffRow; solo?: boolean; mark?: boolean }): ReactNode {
+  const { sign, parts, text } = row
+  const removed = sign === '-'
+  const lone = sign === '+' && !parts && mark
+  const tone = sign === ' ' ? (solo ? color.text : color.faint) : removed ? (parts ? color.faint : color.label) : parts ? color.label : color.text
+  return (
+    <div
+      data-sign={sign === ' ' ? 'same' : removed ? 'removed' : 'added'}
+      data-mark={lone || undefined}
+      className={`rounded-[4px] ${removed && !parts ? 'line-through' : ''}`}
+      style={{ paddingInline: BLEED, color: tone, background: lone ? fill.highlight : undefined }}
+    >
+      {parts
+        ? parts.map((p, k) =>
+            p.changed ? (
+              <span key={k} data-changed className={`rounded-[3px] ${removed ? 'line-through' : ''}`} style={{ color: removed ? color.label : color.text, background: fill.button }}>
+                {p.text}
+              </span>
+            ) : (
+              <span key={k}>{p.text}</span>
+            )
+          )
+        : text || ' '}
+    </div>
+  )
+}
+
+/** The diff as one column: the sign gutter stays put while the code scrolls sideways next to it. */
+function DiffView({ rows, more, solo }: { rows: DiffRow[]; more: number; solo?: boolean }): ReactNode {
+  const whole = rows.map((r) => (solo ? r.text : `${SIGN[r.sign]} ${r.text}`)).join('\n')
+  // Highlight whole new lines only next to other rows (an all-new block needs no highlight).
+  const mark = rows.some((r) => r.sign !== '+')
+  return (
+    <div className="col-span-2 min-w-0" data-diff-view>
+      <div className="flex min-w-0" style={{ marginInline: -BLEED }}>
+        {!solo && (
+          <div aria-hidden className="shrink-0 select-none whitespace-pre" style={{ width: SIGN_W + BLEED, paddingLeft: BLEED, color: color.faint }}>
+            {rows.map((r, i) => (
+              <div key={i}>{SIGN[r.sign]}</div>
+            ))}
+          </div>
+        )}
+        <Scroll title={whole}>
+          {rows.map((r, i) => (
+            <DiffLine key={i} row={r} solo={solo} mark={mark} />
+          ))}
+        </Scroll>
+      </div>
+      {more > 0 && (
+        <div className="font-sans text-[11px]" style={{ color: color.faint }}>
+          {more} more {more === 1 ? 'line' : 'lines'}
+        </div>
+      )}
+    </div>
+  )
+}
+
+/** The diff's caption: "{file} · L{line}", and on the right which sign is whose (only the signs it uses). */
+function DiffCaption({ where, minus, plus }: { where?: string; minus: boolean; plus: boolean }): ReactNode {
+  if (!where && !minus && !plus) return <div className="col-span-2 h-[2px]" />
+  return (
+    <div className="col-span-2 mb-[2px] flex min-w-0 items-center gap-[10px] font-sans text-[11px]" style={{ color: color.faint }}>
+      <span className="min-w-0 flex-1 truncate" title={where}>
+        {where}
+      </span>
+      {minus && <span className="shrink-0">− yours</span>}
+      {plus && <span className="shrink-0">+ expected</span>}
+    </div>
+  )
+}
+
+/** A one-line change's rows: what `reserveDiff` keeps room for. */
+const RESERVE: DiffRow[] = [
+  { sign: '-', text: NBSP },
+  { sign: '+', text: NBSP }
+]
 
 /** What the panel has to show: the diff's real code, the check rows with a real value, the curve. */
 function useContent(o: Offtrack, failing: CheckItem[]): { diff?: Sides; rows: Row[]; spark: ReturnType<typeof useSpark> } {
@@ -268,27 +352,38 @@ export function useHasEvidence(o: Offtrack, failing: CheckItem[]): boolean {
 
 /**
  * Null when the payload has no evidence (see useHasEvidence): the left column then takes the whole card.
- * `reserveDiff`: while the off-track has no diff yet, keep the room a one-line diff takes (an invisible caption +
- * code row at the bottom), so the card doesn't grow when the diff arrives (it usually comes with the level-3 hint).
+ * `reserveDiff`: while the off-track has no diff yet, keep the room a one-line change takes (an invisible caption
+ * and two rows at the bottom), so the card doesn't grow when the diff arrives (it usually comes with the level-3
+ * hint).
  */
 export function Evidence({ o, failing, width, reserveDiff }: { o: Offtrack; failing: CheckItem[]; width: number; reserveDiff?: boolean }): ReactNode {
   const { diff, rows, spark } = useContent(o, failing)
+  const yours = diff?.yours ?? ''
+  const expected = diff?.expected ?? ''
+  // Yours alone (no expected code): your lines as written, nothing to mark.
+  const solo = !!yours && !expected
+  const view = useMemo(
+    () => fitRows(solo ? yours.split(/\r?\n/).map((text): DiffRow => ({ sign: ' ', text })) : diffLines(yours, expected), MAX_ROWS),
+    [yours, expected, solo]
+  )
   if (!diff && rows.length === 0 && !spark) return null
   const where = diff && [diff.file, diff.line ? `L${diff.line}` : undefined].filter(Boolean).join(' · ')
-  // Highlight only what the expected side adds: its lines that yours doesn't have.
-  const yoursLines = new Set(diff ? diff.yours.split(/\r?\n/).map(norm) : [])
-  const added = (l: string): boolean => norm(l) !== '' && !yoursLines.has(norm(l))
+  // The yours | expected heads only above the two-column parts (check values, the curve and its end values).
+  const pairs = rows.length > 0 || !!spark
   return (
     <div data-evidence className="shrink-0 rounded-[14px] font-mono text-[12px] leading-[17px]" style={{ background: fill.field, width, padding: PAD }}>
       <div className="grid grid-cols-2" style={{ columnGap: GAP, rowGap: 2 }}>
-        <Head>yours</Head>
-        <Head>expected</Head>
-
         {diff && (
           <>
-            {where ? <Label title={where}>{where}</Label> : <div className="col-span-2 h-[6px]" />}
-            <Code text={diff.yours} />
-            <Code text={diff.expected} mark={added} />
+            <DiffCaption where={where || undefined} minus={view.rows.some((r) => r.sign === '-')} plus={view.rows.some((r) => r.sign === '+')} />
+            <DiffView rows={view.rows} more={view.more} solo={solo} />
+          </>
+        )}
+
+        {pairs && (
+          <>
+            <Head top={!!diff}>yours</Head>
+            <Head top={!!diff}>expected</Head>
           </>
         )}
 
@@ -318,8 +413,7 @@ export function Evidence({ o, failing, width, reserveDiff }: { o: Offtrack; fail
         {reserveDiff && !o.diff && (
           <div className="invisible contents" aria-hidden data-reserve>
             <Label>{NBSP}</Label>
-            <Code text={NBSP} />
-            <Code text={NBSP} />
+            <DiffView rows={RESERVE} more={0} />
           </div>
         )}
       </div>
