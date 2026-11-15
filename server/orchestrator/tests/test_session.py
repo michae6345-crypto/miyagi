@@ -2644,3 +2644,27 @@ def test_run_step_never_starts_while_its_file_is_empty(tmp_path, monkeypatch):
     run(go())
     assert rig.of("step.started")[-1]["stepId"] == "s1"
     assert rig.of("card")[-1]["title"] == "calc.py is still empty"
+
+
+def test_run_step_uses_e6_terminal_region(tmp_path, monkeypatch):
+    async def build(goal, workdir, on_update=None, **kw):
+        return _run_lesson()
+
+    rig, screen, _ = _lesson_rig(tmp_path, monkeypatch, build)
+    (tmp_path / "calc.py").write_text("print(1)\n")
+    screen.regions = {"editor": {"x": 260.0, "y": 80.0, "w": 900.0, "h": 500.0}}
+
+    async def go():
+        await rig.s.learn("calc", mode="lesson")
+        await rig.settle()
+        await rig.s.goto_step(1)
+        await asyncio.sleep(0.05)
+        first = dict(rig.of("spotlight")[-1])
+        screen.regions["terminal"] = {"x": 260.0, "y": 600.0, "w": 900.0, "h": 240.0}
+        await asyncio.sleep(2.1)
+        return first
+
+    first = run(go())
+    assert first["caption"] == "Open the terminal: ⌃`" and first["rect"]["y"] == 80.0
+    last = rig.of("spotlight")[-1]
+    assert last["caption"] == "Run it in the VS Code terminal" and last["rect"] == {"x": 260.0, "y": 600.0, "w": 900.0, "h": 240.0}
