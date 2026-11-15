@@ -166,6 +166,7 @@ class TigerWriter:
 
     def __init__(self, dsn: str | None = None, session_id: str | None = None, flush_every: float = 0.5,
                  connect: Any = None, spool_dir: str | Path | None = None, retry_every: float = RETRY_S):
+        self._env_dsn = dsn is None  # follows TIGER_DATABASE_URL (see _sync_dsn)
         self.dsn = dsn if dsn is not None else os.environ.get("TIGER_DATABASE_URL", "")
         self.session_id = session_id or os.environ.get("TUT_SESSION_ID") or f"sess_{uuid.uuid4().hex[:10]}"
         self.flush_every = flush_every
@@ -279,6 +280,24 @@ class TigerWriter:
 
         return psycopg.connect(self.dsn, autocommit=True, connect_timeout=CONNECT_TIMEOUT_S)
 
+    def _sync_dsn(self) -> bool:
+        """A writer built from the environment follows TIGER_DATABASE_URL. The app's Settings can send a Tiger URL
+        (config.keys -> os.environ, orchestrator.apply_keys) after this writer started; without this it would keep
+        spooling, or writing to the old service, until the engine restarts. True if the URL changed."""
+        if not self._env_dsn:
+            return False
+        dsn = os.environ.get("TIGER_DATABASE_URL", "")
+        if dsn == self.dsn:
+            return False
+        self.dsn = dsn
+        self.no_url = not dsn or "..." in dsn
+        self.online = False
+        self.last_error = "TIGER_DATABASE_URL not set" if self.no_url else None
+        self._next_retry = 0.0
+        self._warned_offline = False
+        log.info("Tiger Data URL changed (%s)", "cleared" if self.no_url else "connecting")
+        return True
+
     def _go_offline(self, why: str) -> None:
         self.online = False
         self.last_error = why[:200]
@@ -341,6 +360,9 @@ class TigerWriter:
             while True:
                 stopping = self._stop.wait(self.flush_every)
                 ev, me, rs = self._drain()
+                if self._sync_dsn() and conn is not None:
+                    self._close(conn)
+                    conn = None
                 if conn is None and not self.no_url and time.monotonic() >= self._next_retry:
                     conn = self._try_connect()
                 if ev or me or rs:
