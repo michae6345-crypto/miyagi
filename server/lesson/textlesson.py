@@ -162,6 +162,9 @@ or inside; call only names that exist by now. A step either types code or runs a
   (< 60 chars, spacing-tolerant) for a distinctive fragment of this step's code; and, if the step runs
   something, a screen_contains with app "Terminal" on what it PRINTS (never the typed command);
   precision_checks: file_contains on the same fragment in `file`, command_exit_ok for a quick run;
+- every check label: <= 6 words, unique within the step, naming the thing the learner made by its name in the
+  code ("X inputs typed", "y answers typed", "sigmoid() defined"), never a bare call ("array() is typed") or the
+  regex; product names as they are spelled (NumPy, pandas, PyTorch);
 {stack_guide}
 - the step's file already exists (the app creates it, empty, before the step starts): captions and hints never
   ask the learner to create it ("In calculator.py, type ...", never "Create calculator.py and ...");
@@ -321,7 +324,7 @@ async def build_text_lesson(goal: str, workdir: str, on_update=None, *, cache: b
         out = []
         parts = split_code_and_run(sanitize_step(st, workdir))
         for part in parts:
-            part = explain_step(shape_step(use_python3(part)), sp, primer, len(parts))
+            part = builder.tidy_labels(explain_step(shape_step(use_python3(part)), sp, primer, len(parts)))  # step 1 goes out before _finalize
             if not _is_run_step(part):
                 f = part.get("file") or ""
                 before = state.get(f, "")
@@ -799,7 +802,9 @@ Colab Linux Windows Mac Docker Git Pandas Streamlit Vue Svelte Express Tailwind 
 Raspberry Pi Unity Godot Blender Claude Gemini Anthropic English Spanish French I Discord Spotify Stripe Vercel Firebase
 Supabase Slack Twitter Reddit Notion Figma Shopify Twilio Heroku Netlify Telegram Twitch YouTube Minecraft Roblox
 Android Microsoft Kaggle Keras Matplotlib Seaborn Angular Laravel Redis Mongo Prisma Electron Flutter Dart Gmail
-Wordle Tetris""".split())
+Wordle Tetris NumPy pandas PyTorch scikit-learn TensorFlow""".split())
+# check labels (builder.label_case): lowercase -> as the product spells it; the official spelling wins ("pandas")
+CASED = {w.lower(): w for w in sorted(_PROPER, key=lambda w: w[:1].islower())}
 _SMALL = frozenset("a an and as at by for from in into of on or the to vs with".split())
 
 
@@ -855,6 +860,9 @@ def fill_missing(g: dict) -> dict:
             lbl = c.get("label") or ""
             if not 1 <= len(lbl.split()) <= 6 or builder.label_is_cut(lbl, c) or re.match(r"\s*(code|terminal|editor)\s*:", lbl, re.I):
                 c["label"] = builder.plain_label(lbl, c)  # only broken ones: a good label is kept word for word
+            elif builder._FALLBACK_LABEL.match(lbl):  # an older fallback ("array() is typed"): name what was made
+                c["label"] = builder.plain_label("", c)
+        builder.tidy_labels(st)  # unique within the step, product names and code as spelled
         if not (st.get("what") or "").strip():
             st["what"] = _words(st.get("title") or "", 12)
         if not (st.get("why") or "").strip():

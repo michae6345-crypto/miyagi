@@ -344,7 +344,9 @@ The learner's workdir:
 For EVERY step (keep the same `index`), write `checks` (screen-first, at least one per step), `precision_checks`
 (file/command backups; empty list if the workdir is unknown) and `targets` (app + short on-screen `match`
 substring + caption; include `file` when known). Use the learner's real names where they differ from the tutorial.
-Keep labels <= 6 words. You may tighten `instructions` to mention the learner's file/function names (<= 2 sentences).
+Keep labels <= 6 words, unique within a step, naming the thing built by its name in the code ("X inputs typed",
+"y answers typed"; never a bare "array() is typed"); product names as spelled (NumPy, pandas). You may tighten
+`instructions` to mention the learner's file/function names (<= 2 sentences).
 {feedback}"""
 
 

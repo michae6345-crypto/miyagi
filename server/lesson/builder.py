@@ -1081,7 +1081,7 @@ def plain_label(label: str, check: dict) -> str:
     s = _FILLER.sub("", s).strip()
     s = re.sub(r"\b(has|have|is|are)\s+(written|typed|added|defined|present)\b", r"\2", s, flags=re.I)
     if s and not cut and len(s.split()) <= 6 and len(s) >= 4:
-        return s[0].upper() + s[1:]
+        return label_case(s, check)
     # too long, cut off mid-phrase, or empty: write a complete one from the check itself
     t, f, app = check.get("type"), check.get("file") or "", check.get("app")
     pat = check.get("pattern") or ""
@@ -1089,8 +1089,13 @@ def plain_label(label: str, check: dict) -> str:
     words = " ".join(re.sub(r"\\s[+*]?", " ", pat).split())  # `Unknown\s+operator` -> "Unknown operator"
     phrase = words if (re.fullmatch(r"[A-Za-z][A-Za-z0-9 ]{2,30}", words) and len(words.split()) <= 3
                        and words.split()[0].lower() not in _REGEX_WORDS | _KEYWORDS) else ""
-    if t in ("file_contains", "screen_contains") and name and "(" in pat and app != "Terminal":
-        return f"{name}() is in {f}" if f else f"{name}() is typed"
+    code = _pattern_code(pat)
+    made = _made(code) if t in ("file_contains", "screen_contains") and app not in ("Terminal", "iTerm2") else ""
+    if made:  # what the learner made, by its own name: "X = np.array() typed", never "array() is typed"
+        return f"{made} is in {f}" if t == "file_contains" and f else f"{made} typed"
+    call = next((m.group(1) for m in _CALL.finditer(code) if m.group(1).split(".")[-1].lower() not in _REGEX_WORDS | _KEYWORDS), "")
+    if t in ("file_contains", "screen_contains") and (call or name) and "(" in pat and app != "Terminal":
+        return f"{call or name}() is in {f}" if f else f"{call or name}() is typed"  # the called name: np.random.default_rng()
     if t == "file_contains":
         return f"{phrase or 'Code'} is in {f}" if f else f"{phrase or 'Code'} is in the file"
     if t == "screen_contains":
@@ -1107,6 +1112,82 @@ def plain_label(label: str, check: dict) -> str:
         m = check.get("metric") or "metric"
         return f"{m} {check.get('op', '<')} {check.get('value')}" if t == "metric_threshold" and check.get("value") is not None else f"{m} is improving"
     return "Step check"
+
+
+_ASSIGN = re.compile(r"^\s*(?:(?:const|let|var)\s+)?([A-Za-z_]\w*)\s*([-+*/@%]?)=(?!=)\s*(?:([A-Za-z_][\w.]*)\s*\()?")
+_LOOP = re.compile(r"^\s*for\s*\(?\s*(?:(?:const|let|var)\s+)?([A-Za-z_]\w*)\s+(?:in|of)\b")
+_CALL = re.compile(r"([A-Za-z_][\w.]*)\s*\(")
+_FALLBACK_LABEL = re.compile(r"^[A-Za-z_][\w.]*\(\) is (typed|in \S+)$")  # what plain_label wrote before it named the thing made
+
+
+def _pattern_code(pat: str) -> str:
+    """A regex read back as the code it matches, roughly (labels only): `X\\s*=\\s*np\\.array\\(` -> "X = np.array("."""
+    return re.sub(r"\\(.)", r"\1", re.sub(r"\\[sSdDwWbB][*+?]?|(?<!\\)\.[*+?]|[\^$]", " ", pat or ""))
+
+
+def _made(code: str) -> str:
+    """What a code check's pattern makes, by the learner's own name: "X = np.array()", "W2 update", "epoch loop"."""
+    if m := _LOOP.match(code):
+        return f"{m.group(1)} loop"
+    if m := _ASSIGN.match(code):
+        name, op, callee = m.groups()
+        if name.lower() in _REGEX_WORDS | _KEYWORDS:
+            return ""
+        if callee:
+            return f"{name} {op}= {callee}()"
+        return f"{name} update" if op else f"{name} value"
+    return ""
+
+
+def _code_tokens(check: dict) -> list[str]:
+    """Names and literals a check looks for, in order (its pattern read as code, its command, file, metric)."""
+    text = " ".join([_pattern_code(check.get("pattern") or ""), check.get("command") or "", check.get("file") or "", check.get("metric") or ""])
+    return [t.rstrip(".") for t in re.findall(r"[A-Za-z_][\w.]*|\d[\w.]*", text)]
+
+
+def label_case(label: str, check: dict) -> str:
+    """Capitalize a label's first word, except code (nn.py, sigmoid_slope, np.array()) and product names, which keep
+    their spelling anywhere ("NumPy is imported", never "Numpy is imported"; "nn.py runs", never "Nn.py runs")."""
+    from .textlesson import CASED  # textlesson imports this module
+
+    words = (label or "").split(" ")
+    for i, w in enumerate(words):
+        bare = w.strip(".,:;!?()\"'")
+        canon = CASED.get(bare.lower())
+        if i == 0 and bare:
+            toks = _code_tokens(check)
+            assigned = len(words) > 1 and re.fullmatch(r"[-+*/@%]?=", words[1])  # "y = np.array() typed"
+            if re.search(r"[._\d]", bare) or "(" in w or (bare in toks and (len(bare) <= 2 or assigned)):
+                words[i] = w.replace(bare, next((t for t in toks if t.lower() == bare.lower()), bare))  # "Nn.py" -> "nn.py"
+            else:
+                words[i] = w.replace(bare, canon) if canon else w[:1].upper() + w[1:]
+        elif canon and bare[:1].isupper() and bare != canon:  # a lowercase mid-label "numpy" is the module: kept
+            words[i] = w.replace(bare, canon)
+    return " ".join(words)
+
+
+def tidy_labels(step: dict) -> dict:
+    """Labels within a step's checklist are unique and cased: two checks both labelled "array() is typed" get the
+    identifier that tells them apart ("array() is typed (X)", "array() is typed (y)"). Deterministic, no model call."""
+    for key in ("checks", "precision_checks"):
+        checks = step.get(key) or []
+        for c in checks:
+            if c.get("label"):
+                c["label"] = label_case(c["label"], c)
+        groups: dict[str, list[dict]] = {}
+        for c in checks:
+            groups.setdefault((c.get("label") or "").strip().lower(), []).append(c)
+        for lbl, same in groups.items():
+            if not lbl or len(same) < 2:
+                continue
+            toks = [_code_tokens(c) for c in same]
+            said = set(re.findall(r"[\w.]+", lbl))
+            for k, c in enumerate(same):
+                others = {t for j, ts in enumerate(toks) if j != k for t in ts}
+                ident = next((t for t in toks[k] if t not in others and t.lower() not in said), "")
+                if ident or k:
+                    c["label"] = f"{c['label']} ({ident or k + 1})"
+    return step
 
 
 def repair(graph: dict, info: WorkdirInfo) -> dict:
@@ -1129,6 +1210,7 @@ def repair(graph: dict, info: WorkdirInfo) -> dict:
             for j, c in enumerate(kept, 1):  # renumber so ids stay unique and stable
                 c["id"] = f"{step['id']}{tag}{j}"
             step[key] = kept
+        tidy_labels(step)
     return g
 
 
