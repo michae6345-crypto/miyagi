@@ -51,7 +51,7 @@ LESSONS = {
             {"title": "List matching files", "instructions": "Print the files that match the pattern.", "file": "rename.py"},
             {"title": "Rename with a dry run", "instructions": "Rename them, with --dry-run printing old -> new.", "file": "rename.py"}]},
         "steps": [
-            {"file": "rename.py", "code": "import argparse\np = argparse.ArgumentParser()\np.add_argument('folder')\n",
+            {"file": "rename.py", "code": "import argparse\nfrom pathlib import Path\np = argparse.ArgumentParser()\np.add_argument('folder')\n",
              "checks": [{"type": "screen_contains", "label": "argparse set up", "app": "Code", "pattern": r"argparse\.ArgumentParser\("}],
              "targets": [{"file": "rename.py", "match": "import argparse", "caption": "top of the file"}], "hints": ["argparse is in the standard library"]},
             {"file": "rename.py", "code": "for f in sorted(Path(args.folder).glob(args.pattern)):\n    print(f.name)", "run_command": "python rename.py . '*.txt'",
@@ -99,7 +99,8 @@ def test_text_lessons_are_valid_and_arrive_step_by_step(fake_claude, tmp_path, g
     assert g["lesson"]["mode"] == "lesson" and g["lesson"]["complete"] is True and g["lesson"]["builtBy"] == "claude"
     assert updates[0] == (False, 1) and updates[-1][0] is True  # step 1 first, then the rest, then complete
     assert [n for _, n in updates] == sorted(n for _, n in updates)  # steps only ever appended
-    n = len(LESSONS[goal]["plan"]["steps"])
+    n = len(LESSONS[goal]["plan"]["steps"]) + sum(  # a step with code AND a command becomes two
+        1 for x in LESSONS[goal]["steps"] if x.get("run_command") and x.get("file") and x.get("code", "").strip() != x["run_command"])
     assert [s["id"] for s in g["steps"]] == [f"s{i}" for i in range(1, n + 1)]
     for s in g["steps"]:
         assert "video" not in s and s["code"].strip() and s["checks"] and s["hints"]
@@ -116,7 +117,7 @@ def test_research_failure_never_blocks_the_lesson(fake_claude, tmp_path, monkeyp
 
     monkeypatch.setattr(textlesson, "research", boom)
     g = asyncio.run(textlesson.build_text_lesson("build a calculator in Python", str(tmp_path / "w")))
-    assert len(g["steps"]) == 3 and g["sources"] == []
+    assert len(g["steps"]) == 4 and g["sources"] == []  # step 3 had code + a run command: split in two
 
 
 def test_cached_text_lesson_is_reused(fake_claude, tmp_path):
@@ -254,3 +255,83 @@ def test_built_text_lesson_follows_the_rules(fake_claude, tmp_path):
     assert not s1.get("run_command") and "terminal" not in s1["instructions"].lower()
     for s in g["steps"]:
         assert "(" not in s["instructions"] and len(s["instructions"].split()) <= 10, s["instructions"]
+
+
+
+# ---- S11's rehearsal fixes ----------------------------------------------------------------
+
+def test_python3_on_macos(monkeypatch):
+    monkeypatch.delenv("LESSON_PYTHON", raising=False)
+    monkeypatch.setattr(textlesson.shutil, "which", lambda name: None if name == "python" else f"/usr/bin/{name}")
+    st = textlesson.use_python3({"id": "s4", "file": "calculator.py", "code": "python calculator.py", "run_command": "python calculator.py",
+                                 "instructions": "Run python calculator.py.", "checks": [],
+                                 "precision_checks": [{"type": "command_exit_ok", "command": "python calculator.py"}]})
+    assert st["run_command"] == st["code"] == "python3 calculator.py" and st["precision_checks"][0]["command"] == "python3 calculator.py"
+    assert textlesson.use_python3({"id": "s1", "file": "a.py", "code": "import python_helpers", "checks": [], "precision_checks": []})["code"] == "import python_helpers"
+
+
+def test_code_and_run_are_split_and_the_run_step_has_real_checks():
+    st = {"id": "s3", "index": 3, "title": "Print a sum", "file": "calculator.py", "code": "print(add(2, 3))",
+          "run_command": "python3 calculator.py", "expected_output": "5", "instructions": "Type print(add(2, 3)) and run it.",
+          "checks": [{"id": "c", "type": "screen_contains", "label": "x", "app": "Terminal", "pattern": r"\b5\b"}],
+          "precision_checks": [{"id": "p", "type": "command_exit_ok", "label": "runs", "command": "python3 calculator.py"}],
+          "targets": [], "hints": ["h"], "common_mistakes": []}
+    code, run = textlesson.split_code_and_run(st)
+    assert "run_command" not in code and code["code"] == "print(add(2, 3))" and all(c.get("app") != "Terminal" for c in code["checks"])
+    assert run["run_command"] == run["code"] == "python3 calculator.py"
+    steps = [dict(code, id="s3"), dict(textlesson.shape_step(run), id="s4")]
+    textlesson.link_run_steps(steps)
+    r = steps[1]
+    import re
+    fc = r["precision_checks"][0]
+    assert fc["type"] == "file_contains" and re.search(fc["pattern"], "print(add(2, 3))")
+    out = [c for c in r["checks"] if c["pattern"].startswith("^")][0]  # exact stdout line
+    assert re.search(out["pattern"], "$ python3 calculator.py\n5\n", re.M) and not re.search(out["pattern"], "15\n", re.M)
+    from server.lesson.schema import is_weak
+    assert not is_weak(out)  # an exact whole line is specific enough
+
+
+def test_each_code_step_gets_a_literal_anchor():
+    st = {"file": "calculator.py", "code": "def add(a, b):\n    return a + b", "targets": [{"match": "the add function", "caption": "c"}]}
+    textlesson.exact_anchor(st, "def add(a, b):\n    return a + b\n")
+    assert st["targets"] == [{"app": "Code", "file": "calculator.py", "match": "def add(a, b):", "caption": "type here"}]
+    keep = {"file": "calculator.py", "code": "x = 1", "targets": [{"match": "def add(a, b):", "caption": "c"}]}
+    textlesson.exact_anchor(keep, "def add(a, b):\n    return a + b\nx = 1")
+    assert keep["targets"][0]["match"] == "def add(a, b):"  # a real line already: kept
+
+
+def test_contradictions_with_the_file_so_far_are_caught():
+    state = {"calculator.py": "def add(a, b):\n    return a + b\n"}
+    p = textlesson.consistency_problem
+    assert "already written" in p("calculator.py", "def add(x, y):\n    return x + y", "", state)  # re-adds add
+    assert "not written yet" in p("calculator.py", "print(multiply(2, 3))", "", state)  # calls what doesn't exist
+    assert p("calculator.py", "def subtract(a, b):\n    return a - b\nprint(add(2, 3))", "", state) is None
+    assert p("calculator.py", "import math\nprint(math.sqrt(add(2, 2)))", "", state) is None
+
+
+def test_strings_are_not_calls():
+    state = {"calculator.py": "def add(a, b):\n    return a + b\n"}
+    assert textlesson.consistency_problem("calculator.py", 'op = input("Operator (+, -): ")\nprint(add(1, 2))', "", state) is None
+
+
+def test_contradicting_step_is_rewritten_with_the_problem_spelled_out(fake_claude, tmp_path, monkeypatch):
+    lesson = json.loads(json.dumps(LESSONS["build a calculator in Python"]))
+    lesson["steps"][1]["code"] = "def add(a, b):\n    return a + b\ndef divide(a, b):\n    return a / b\n"  # re-adds add
+    fake_claude["lesson"] = lesson
+    orig = claude._generate_json
+    prompts = []
+
+    async def gen(system, prompt, schema, *, role=None, **kw):
+        if role == "escalate":
+            prompts.append(prompt)
+            return {"file": "calc.py", "code": "def divide(a, b):\n    return a / b\n", "hints": ["h"],
+                    "checks": [{"type": "screen_contains", "label": "divide", "app": "Code", "pattern": r"def\s+divide\("}],
+                    "targets": [{"file": "calc.py", "match": "return a + b", "caption": "after add"}]}
+        return await orig(system, prompt, schema, role=role, **kw)
+
+    monkeypatch.setattr(claude, "_generate_json", gen)
+    g = asyncio.run(textlesson.build_text_lesson("build a calculator in Python", str(tmp_path / "w")))
+    assert prompts and "already written" in prompts[0] and "Never re-type" in prompts[0]
+    s2 = g["steps"][1]
+    assert s2["code"].count("def add") == 0 and "def divide" in s2["code"]
+    assert s2["targets"][0]["match"] == "return a + b"  # anchored to the existing line it goes after

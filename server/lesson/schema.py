@@ -224,6 +224,8 @@ def is_weak(c: dict) -> bool:
     """Too generic to mean anything: e.g. `\\*\\s*\\S+`, `\\bmain\\b`, `\\S+\\s+0\\.1\\.0`."""
     if c.get("type") != "screen_contains" or not c.get("pattern"):
         return False
+    if c["pattern"].startswith("^") and c["pattern"].endswith("$"):  # an exact whole line (e.g. a program printing 5)
+        return False
     weakest, best = literal_strength(c["pattern"])
     return weakest < MIN_LITERAL_ALT or best < MIN_LITERAL_BEST
 
