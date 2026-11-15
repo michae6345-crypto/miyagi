@@ -16,11 +16,13 @@ from __future__ import annotations
 import logging
 import re
 import sys
+import time
 from typing import Any
 
 log = logging.getLogger("orchestrator.inputs")
 
 DIRTY_MARK = "●"
+OWN_FRONT_TTL_S = 1.0  # how long a "is Miyagi the active app?" answer is reused (lsappinfo, ~15 ms)
 
 
 class Inputs:
@@ -33,10 +35,28 @@ class Inputs:
                 self.q = Quartz
             except Exception as e:  # noqa: BLE001
                 log.warning("Quartz unavailable (%s); no cursor/idle signals", e)
+        self._own_t, self._own = -1e9, False
 
     @property
     def available(self) -> bool:
         return self.q is not None
+
+    def miyagi_in_front(self) -> bool:
+        """Is Miyagi's own overlay (the launcher, a card's text box) the active app? Keys typed there are a question
+        for Miyagi, not work in the editor (QA 11-14: typing a question held a stuck card, released on Enter).
+        Launch Services via server.workspace.editor (live; NSWorkspace goes stale here), cached OWN_FRONT_TTL_S."""
+        if self.q is None:
+            return False
+        now = time.monotonic()
+        if now - self._own_t >= OWN_FRONT_TTL_S:
+            self._own_t = now
+            try:
+                from server.workspace.editor import miyagi_focused
+
+                self._own = bool(miyagi_focused())
+            except Exception:  # noqa: BLE001
+                self._own = False
+        return self._own
 
     def cursor(self) -> tuple[float, float] | None:
         if self.q is None:
@@ -75,6 +95,10 @@ class FakeInputs:
         self.click_t = -1e9
         self.pos: tuple[float, float] | None = None
         self.available = True
+        self.own_front = False  # tests: Miyagi's launcher / card box is the active app
+
+    def miyagi_in_front(self) -> bool:
+        return self.own_front
 
     def key(self) -> None:
         self.key_t = self.clock()
