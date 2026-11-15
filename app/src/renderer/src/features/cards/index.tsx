@@ -545,6 +545,25 @@ function itemAct(x: NonNullable<EngineCard['setup']>['items'][number]): void {
   else cardAct('install', x.tool)
 }
 
+function itemLabel(x: NonNullable<EngineCard['setup']>['items'][number], run?: Install): string {
+  return x.install.method === 'download' ? 'Get it' : x.install.method === 'open' ? 'Open' : run?.error ? 'Retry' : 'Install'
+}
+
+/** Skip on a setup card (A17): a quiet text link, never a button that competes with Install. */
+function QuietLink({ label, onClick }: { label: string; onClick: () => void }): ReactNode {
+  return (
+    <button
+      type="button"
+      className="h-[30px] shrink-0 cursor-pointer px-[4px] text-[13px]"
+      style={{ color: color.faint }}
+      onMouseDown={(e) => e.preventDefault()}
+      onClick={onClick}
+    >
+      {label}
+    </button>
+  )
+}
+
 /**
  * Setup card: one row per needed item, Install on the missing ones (action install {text: tool}).
  * lead (A17): the card has no other primary, so the first missing item's button is the card's one white primary.
@@ -593,25 +612,6 @@ function SetupItems({ setup, lead }: { setup: NonNullable<EngineCard['setup']>; 
         )
       })}
     </div>
-  )
-}
-
-function itemLabel(x: NonNullable<EngineCard['setup']>['items'][number], run?: Install): string {
-  return x.install.method === 'download' ? 'Get it' : x.install.method === 'open' ? 'Open' : run?.error ? 'Retry' : 'Install'
-}
-
-/** Skip on a setup card (A17): a quiet text link, never a button that competes with Install. */
-function QuietLink({ label, onClick }: { label: string; onClick: () => void }): ReactNode {
-  return (
-    <button
-      type="button"
-      className="h-[30px] shrink-0 cursor-pointer px-[4px] text-[13px]"
-      style={{ color: color.faint }}
-      onMouseDown={(e) => e.preventDefault()}
-      onClick={onClick}
-    >
-      {label}
-    </button>
   )
 }
 
