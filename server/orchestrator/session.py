@@ -1853,7 +1853,8 @@ class LessonSession:
 
     def typing(self) -> bool:
         v = self.inputs.seconds_since_key() if self.inputs is not None else None
-        return v is not None and v < config.TYPING_GUARD_S
+        own = getattr(self.inputs, "miyagi_in_front", None)  # keys typed into Miyagi's own launcher aren't editor work
+        return v is not None and v < config.TYPING_GUARD_S and not (callable(own) and own())
 
     def acted_since_step_start(self) -> bool:
         if self.last_action_t >= self.step_t0:
@@ -2051,6 +2052,9 @@ class LessonSession:
         """reason: breakpoint | repeat | stuck | idle. Decides whether, and at which ladder level, to speak."""
         if self.coaching or self.passed or not failed:
             return
+        if self._ask_held():  # the learner asked Miyagi something: no proactive card over (or right after) the answer
+            self.pending_speak = None
+            return
         if not self.learner_started() or self.clock() - self.step_t0 < self.offtrack_grace_s:
             return  # never "off track" before the learner did anything on this step, nor in its first ~20 s
         if self._editor_state_card(step):  # unsaved file / another lesson's folder: say that, never "off track"
@@ -2212,7 +2216,7 @@ class LessonSession:
             self.ladder = level
             self.last_offtrack = full
             key = (step["id"], level, (full.get("title") or "").strip().lower())
-            if self.clock() - self._last_card_t < self.CARD_GAP_S:  # a card just went up: don't stack another
+            if self.clock() - self._last_card_t < self.CARD_GAP_S or self._ask_held():  # a card just went up / asked
                 self.spoken_sig = None  # try again on the next trigger
                 await self._status("watching")
                 return
@@ -2427,15 +2431,28 @@ class LessonSession:
             else:
                 await self._open_in_browser((text or "").strip())
             return
+        if kind == "retry":  # the "Couldn't reach Claude" card's Try again: the question that failed, once more
+            kind, text = self._last_ask or ("explain", None)
+        asking = kind in self.ASK_KINDS and self.step is not None
+        if asking:  # hold every proactive card until the answer is out (and drop one the typing guard queued)
+            self._last_ask, self.pending_speak = (kind, text), None
+            self._asks_in_flight += 1
+        gen = self.step_gen
         token = _EPOCH.set(self.lesson_epoch)  # a card that finishes after end_lesson is dropped
         try:
             await self._action(kind, text)
         except Exception as e:  # live mode: a missing/failing module is reported, never faked
             log.exception("action %s failed", kind)
-            await self.emit("error", {"message": f"{kind}: {e}"})
+            if asking and self.step is not None and gen == self.step_gen:  # never a silent failure for a question
+                await self._emit_card(self._ask_failed_card(kind, text, e), window_s=0.0)
+            else:
+                await self.emit("error", {"message": f"{kind}: {e}"})
             if self.step is not None:
                 await self._status("offtrack" if self.last_offtrack else ("passed" if self.passed else "watching"))
         finally:
+            if asking:
+                self._asks_in_flight = max(0, self._asks_in_flight - 1)
+                self._ask_hold_until = self.clock() + self.ASK_HOLD_S
             _EPOCH.reset(token)
 
     async def _action(self, kind: str, text: str | None = None) -> None:
@@ -2753,12 +2770,37 @@ class LessonSession:
         }
 
     CARD_GAP_S = 8.0  # never two automatic cards within 8 s
+    ASK_KINDS = ("explain", "ask", "hint")  # the learner asked Miyagi: proactive cards wait for the answer
+    ASK_HOLD_S = 10.0  # ...and for this long after it (or its "Couldn't reach Claude" card) went up
+    _asks_in_flight = 0
+    _ask_hold_until = -1e9
+    _last_ask: tuple[str, str | None] | None = None  # what "retry" re-sends
+
+    def _ask_held(self) -> bool:
+        """Is a question / explain / hint in flight, or was it answered < ASK_HOLD_S ago? Then no stuck, idle,
+        judge or off-track card (QA 11-14: a stuck card released on Enter took the answer's place)."""
+        return self._asks_in_flight > 0 or self.clock() < self._ask_hold_until
+
+    def _ask_failed_card(self, kind: str, text: str | None, e: Exception) -> dict:
+        """The learner's question failed after the retries: say so in the answer slot, with Try again (`retry`)."""
+        msg = str(e)
+        if "connection" in msg.lower():
+            title, why = "Couldn't reach Claude", "Check your connection, then try again."
+        elif "ANTHROPIC_API_KEY" in msg:
+            title, why = "Claude isn't set up", "Add your Anthropic key in Settings, then try again."
+        else:
+            title, why = "Claude couldn't answer", "Try again in a moment."
+        q = " ".join((text or "").split())
+        asked = f"“{q[:60]}{'…' if len(q) > 60 else ''}” didn't get an answer. " if kind == "ask" and q else ""
+        return {"stepId": (self.step or {}).get("id"), "kind": "answer", "title": title, "body": asked + why,
+                "actions": ["retry"]}
 
     def _auto_card_ok(self) -> bool:
         """May the engine show a card nobody asked for right now? Not in a step's first ~20 s, never within 8 s
-        of the last card."""
+        of the last card, never while the learner's own question is being answered."""
         now = self.clock()
-        return now - self.step_t0 >= self.offtrack_grace_s and now - self._last_card_t >= self.CARD_GAP_S
+        return (now - self.step_t0 >= self.offtrack_grace_s and now - self._last_card_t >= self.CARD_GAP_S
+                and not self._ask_held())
 
     async def _emit_card(self, card: dict, window_s: float = 15.0, auto: bool = False) -> bool:
         """Send a card unless the same one (step + kind + level + title + body) went out moments ago: repeated

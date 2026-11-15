@@ -39,6 +39,8 @@ CARD_SCHEMA = {
     "additionalProperties": False,
 }
 
+ASK_WEB_S = 1.0  # web grounding for a typed question: at most ~1 s before the model call starts (was 4 s)
+
 _STOP = {"the", "a", "an", "of", "to", "is", "why", "what", "how", "does", "do", "in", "on", "and", "it", "this", "my", "i", "for", "with"}
 
 
@@ -97,7 +99,7 @@ async def explain(step: dict, question: str | None = None, context: dict | None 
     if question:  # ground a free question in live docs/community pages
         libs = ((lesson or {}).get("lesson") or {}).get("libraries") or {}
         lib, sym = web.detect(question, ctx.get("code_excerpt", ""), libs)
-        sources = await web.gather(lib, sym, question, timeout=4.0)
+        sources = await web.gather(lib, sym, question, timeout=ASK_WEB_S)
     else:  # "why?" about the card: reuse what diagnose() already fetched
         sources = ((last or {}).get("_meta") or {}).get("web_sources") or []
     user = "\n\n".join(
@@ -116,7 +118,7 @@ async def explain(step: dict, question: str | None = None, context: dict | None 
     )
     det_idx = match_explanation(step, about)
     try:
-        res = await llm.structured_call(
+        res = await llm.structured_call_retrying(  # a network blip must not lose the learner's question
             purpose="explain",
             model=llm.model_for("explain"),
             system=system_blocks(COACH_SYSTEM + EXPLAIN_TASK, lesson),
