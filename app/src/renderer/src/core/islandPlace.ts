@@ -3,11 +3,12 @@
  * the "Not yet", setup and Explain cards sat top-centre over the editor's first lines, and the Hint / Show me box and
  * its caption were hidden under the "Not yet" card; test 4: the full off-track card covered lines 6-9 and the box on 8).
  *
- * The island stays at the notch unless an open card (not a hover peek) would overlap the spotlight's hole or the
- * coach's other targets. Then it moves as little as it can to a spot clear of them (a gap's worth of air included):
- * below the hole, or beside it (next to the drawer, say), preferring spots that don't cover the overlay's other UI
- * (drawer, bar, player). If no spot is clear, the one that covers the least. Island.tsx springs it there (transform
- * only) and back to the notch when the card closes, so the card is still born from the notch and returns to it.
+ * The island stays at the notch unless an open card (not a hover peek) would overlap the spotlight's hole, the
+ * coach's other targets, or the spotlight's caption and target labels (Michael's review A4: the caption has to stay
+ * readable). Then it moves as little as it can to a spot clear of them (a gap's worth of air included): below the
+ * hole, or beside it (next to the drawer, say), preferring spots that don't cover the overlay's other UI (drawer, bar,
+ * player). If no spot is clear, the one that covers the least. Island.tsx springs it there (transform only) and back
+ * to the notch when the card closes, so the card is still born from the notch and returns to it.
  *
  * Owner: core.
  */
@@ -35,6 +36,8 @@ const MOVE_COST = 16
 const UI_EVERY_MS = 400
 /** A layer bigger than this share of the screen (a dim, a full-screen hit area) isn't something to step around. */
 const HUGE_SHARE = 0.5
+/** The spotlight's chips (its caption, the coach's target labels): its [data-ui] elements. */
+const CHIPS = '[data-spotlight] [data-ui]'
 
 const clamp = (v: number, lo: number, hi: number): number => Math.min(hi, Math.max(lo, v))
 const grow = (r: Rect, by: number): Rect => ({ x: r.x - by, y: r.y - by, w: r.w + by * 2, h: r.h + by * 2 })
@@ -76,15 +79,22 @@ export function placeIsland(card: Rect, keepOff: Rect[], bounds: Rect, avoid: Re
   return best
 }
 
+type OverlayUi = { others: Rect[]; chips: Rect[] }
+const NO_UI: OverlayUi = { others: NONE, chips: NONE }
+
 /**
- * The overlay's other UI (data-hit / data-ui), window coordinates, minus the island itself and the spotlight scene
- * (its caption already steps around the island: reading it back here would make the two chase each other).
+ * The overlay's UI around the island, window coordinates, read from the DOM every UI_EVERY_MS while `on`:
+ *   - others: everything marked data-hit / data-ui, minus the island itself and the spotlight scene;
+ *   - chips: the spotlight's caption and target labels. The caption steps around the island and springs to its new
+ *     spot, so a chip counts once it's at rest (the same in two reads in a row; the first read is taken as it is).
  */
-function useOtherUi(wrapper: RefObject<HTMLElement | null>, on: boolean): Rect[] {
-  const [rects, setRects] = useState<Rect[]>([])
+function useOverlayUi(wrapper: RefObject<HTMLElement | null>, on: boolean): OverlayUi {
+  const [ui, setUi] = useState<OverlayUi>(NO_UI)
   useLayoutEffect(() => {
     if (!on) return
-    let last = ''
+    let lastOthers = ''
+    let lastChips = ''
+    let seenChips: string | undefined
     const read = (): void => {
       const mine = wrapper.current
       const root = mine?.parentElement // the overlay root
@@ -93,22 +103,36 @@ function useOtherUi(wrapper: RefObject<HTMLElement | null>, on: boolean): Rect[]
       if (!box.width) return
       const k = root.offsetWidth / box.width // undo the browser stage's CSS scale (1 in Electron)
       const screen = root.offsetWidth * root.offsetHeight
-      const next = Array.from(root.querySelectorAll<HTMLElement>('[data-hit],[data-ui]'))
-        .filter((el) => !mine.contains(el) && !el.closest('[data-spotlight]'))
-        .map((el) => el.getBoundingClientRect())
-        .map((r) => ({ x: Math.round((r.left - box.left) * k), y: Math.round((r.top - box.top) * k), w: Math.round(r.width * k), h: Math.round(r.height * k) }))
-        .filter((r) => r.w > 1 && r.h > 1 && r.w * r.h < screen * HUGE_SHARE)
-      const key = JSON.stringify(next)
-      if (key !== last) {
-        last = key
-        setRects(next)
+      const local = (el: Element): Rect => {
+        const r = el.getBoundingClientRect()
+        return { x: Math.round((r.left - box.left) * k), y: Math.round((r.top - box.top) * k), w: Math.round(r.width * k), h: Math.round(r.height * k) }
       }
+      const others = Array.from(root.querySelectorAll<HTMLElement>('[data-hit],[data-ui]'))
+        .filter((el) => !mine.contains(el) && !el.closest('[data-spotlight]'))
+        .map(local)
+        .filter((r) => r.w > 1 && r.h > 1 && r.w * r.h < screen * HUGE_SHARE)
+      const chips = Array.from(root.querySelectorAll<HTMLElement>(CHIPS))
+        .map(local)
+        .filter((r) => r.w > 1 && r.h > 1)
+      const othersKey = JSON.stringify(others)
+      const chipsKey = JSON.stringify(chips)
+      const settled = seenChips === undefined || chipsKey === seenChips
+      seenChips = chipsKey
+      const nextOthers = othersKey !== lastOthers
+      const nextChips = settled && chipsKey !== lastChips
+      if (!nextOthers && !nextChips) return
+      if (nextOthers) lastOthers = othersKey
+      if (nextChips) lastChips = chipsKey
+      setUi((u) => ({ others: nextOthers ? others : u.others, chips: nextChips ? chips : u.chips }))
     }
     read()
     const id = setInterval(read, UI_EVERY_MS)
-    return () => clearInterval(id)
+    return () => {
+      clearInterval(id)
+      setUi(NO_UI)
+    }
   }, [wrapper, on])
-  return on ? rects : NONE
+  return on ? ui : NO_UI
 }
 
 /**
@@ -116,6 +140,10 @@ function useOtherUi(wrapper: RefObject<HTMLElement | null>, on: boolean): Rect[]
  * stay at the notch). `top`: the notch spot's top. `wrapper`: the island's positioning element (its parent is the
  * overlay root). A card that moved stays put when the spotlight clears (no hole left to dodge: a card that jumps
  * while it's read is worse); it goes back to the notch when it closes, or when a new hole leaves the notch clear.
+ *
+ * The caption steps around the island, so the island only reacts to a chip it actually covers: it keeps the chips
+ * it last placed itself around (per card and holes) until a chip at rest is under the spot it's at, and only then
+ * re-places around the chips as they are. A caption that moved away never pulls the card back: the two don't chase.
  */
 export function useIslandOffset(card: { id: string; w: number; h: number } | undefined, top: number, layout: Layout, wrapper: RefObject<HTMLElement | null>): Offset {
   const main = useSpotlight((s) => (s.target && isUsableRect(s.target.rect) ? s.target.rect : undefined))
@@ -129,14 +157,28 @@ export function useIslandOffset(card: { id: string; w: number; h: number } | und
   const w = card?.w ?? 0
   const h = card?.h ?? 0
   const notch = useMemo(() => ({ x: (layout.width - w) / 2, y: top, w, h }), [layout.width, top, w, h])
-  const moving = !!card && keepOff.some((k) => intersects(notch, k))
-  const avoid = useOtherUi(wrapper, moving)
-  const placed = useMemo(() => {
-    if (!moving) return AT_NOTCH
+  const on = !!card && keepOff.length > 0
+  const { others: avoid, chips: live } = useOverlayUi(wrapper, on)
+  // The chips this card last placed itself around, for these holes (a new card or a new hole starts clean).
+  const scope = card && on ? `${card.id}|${JSON.stringify(keepOff)}` : ''
+  const kept = useRef<{ scope: string; chips: Rect[] }>({ scope: '', chips: NONE })
+  const { placed, chips } = useMemo(() => {
+    if (!on) return { placed: AT_NOTCH, chips: NONE }
     const wa = layout.workArea
     const bounds = { x: wa.x + EDGE, y: top, w: wa.width - EDGE * 2, h: wa.y + wa.height - BAR_CLEARANCE - top }
-    return placeIsland(notch, keepOff, bounds, avoid)
-  }, [moving, notch, keepOff, layout.workArea, top, avoid])
+    const place = (around: Rect[]): Offset => placeIsland(notch, [...keepOff, ...around], bounds, avoid)
+    let around = kept.current.scope === scope ? kept.current.chips : NONE
+    let at = place(around)
+    const spot = { x: notch.x + at.x, y: notch.y + at.y, w: notch.w, h: notch.h }
+    if (around !== live && live.some((c) => intersects(spot, c))) {
+      around = live
+      at = place(around)
+    }
+    return { placed: at, chips: around }
+  }, [on, scope, notch, keepOff, layout.workArea, top, avoid, live])
+  useEffect(() => {
+    kept.current = { scope, chips }
+  }, [scope, chips])
   const stuck = useRef<{ id: string; at: Offset }>(undefined)
   const offset = card && !keepOff.length && stuck.current?.id === card.id ? stuck.current.at : placed
   useEffect(() => {
