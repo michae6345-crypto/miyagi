@@ -483,8 +483,11 @@ def _not_visible(check: dict, ctx: RunContext, absent: bool) -> CheckResult:
         return _result(check, "pending", "waiting for screen" if no_screen else f"{app} not open yet")
     if no_screen:
         return _result(check, "pending", "screen reading is off: can't see " + (app or "the screen"))
-    hint = f"open {app} so I can check: {check.get('label') or check.get('id')}" if app else "nothing on screen yet"
+    hint = f"Open {_APP_NAMES.get(app, app)} so I can check it." if app else "nothing on screen yet"
     return _result(check, "fail" if ctx.after_segment and app else "pending", hint)
+
+
+_APP_NAMES = {"Code": "VS Code", "Terminal": "the Terminal", "iTerm2": "iTerm"}  # what the learner calls them
 
 
 def _screen_contains(check: dict, ctx: RunContext) -> CheckResult:

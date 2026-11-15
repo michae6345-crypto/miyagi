@@ -1264,3 +1264,22 @@ def test_claude_first_long_video_uses_the_transcript_not_gemini_parts(fake, monk
     _claude_fakes(monkeypatch, calls)
     g = asyncio.run(builder.build_lesson(URL, "x", WORKDIR, refresh=True))
     assert fake["watch"] == 0 and g["lesson"]["builtBy"] == "claude" and not g["build"].get("progressive")
+
+
+def test_check_labels_are_complete_plain_phrases():
+    fc = {"type": "file_contains", "file": "calculator.py", "pattern": r"def\s+add\(\s*a,\s*b\s*\)"}
+    live = ["The add function is still in calculator.py and returns a + b",
+            "add function is written in the calculator.py file right now", "te", ""]
+    out = [builder.plain_label(x, fc) for x in live]
+    for lbl in out:
+        words = lbl.split()
+        assert 1 <= len(words) <= 6, lbl
+        assert words[-1].lower() not in ("in", "the", "to", "of", "and", "is"), lbl  # never cut mid-phrase
+    assert out[0] == "add() is in calculator.py"
+    assert builder.plain_label("Prints 5 for add(2, 3)", {"type": "screen_contains", "app": "Terminal", "pattern": r"\b5\b"}) == "Prints 5 for add(2, 3)"
+    assert builder.plain_label("the add function is still written", fc) == "Add function written"
+    assert builder.plain_label("It should not show any traceback or error at all in the terminal",
+                               {"type": "screen_absent", "app": "Terminal", "pattern": "Traceback"}) == "No errors in the terminal"
+    c = builder.clean_check({"type": "file_contains", "label": "The add function is still in", "file": "calculator.py",
+                             "pattern": r"def\s+add\("}, "s2c1")
+    assert c["label"] == "add() is in calculator.py"  # the live label was cut off: rewritten, not trimmed
