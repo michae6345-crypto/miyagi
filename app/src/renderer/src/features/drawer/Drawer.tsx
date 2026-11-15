@@ -229,7 +229,9 @@ export function Panel({ rect }: { rect: Rect }): ReactNode {
         )}
         <NeedsChip />
         <PrimerSection />
-        <Label right={plan.total > 0 ? `${plan.done} of ${plan.total} done` : undefined}>{lessonMode ? 'Plan' : 'Steps'}</Label>
+        <Label part="drawer-plan" right={plan.total > 0 ? `${plan.done} of ${plan.total} done` : undefined}>
+          {lessonMode ? 'Plan' : 'Steps'}
+        </Label>
         <Steps scroller={scroller} />
         {sources.length > 0 && (
           <>
@@ -244,9 +246,9 @@ export function Panel({ rect }: { rect: Rect }): ReactNode {
   )
 }
 
-function Label({ children, right }: { children: ReactNode; right?: ReactNode }): ReactNode {
+function Label({ children, right, part }: { children: ReactNode; right?: ReactNode; part?: string }): ReactNode {
   return (
-    <div className="flex items-baseline justify-between gap-[8px] px-[10px] pb-[4px] pt-[14px] text-[12px] leading-[16px]">
+    <div data-part={part} className="flex items-baseline justify-between gap-[8px] px-[10px] pb-[4px] pt-[14px] text-[12px] leading-[16px]">
       <span className="font-semibold" style={{ color: glass.label }}>
         {children}
       </span>
@@ -394,7 +396,8 @@ function useTimeWidth(steps: StepSummary[], complete: boolean): number {
 /**
  * Keep the current step in view inside the list, without scrolling anything outside it (audit A11: its checks were cut
  * off at the bottom).
- *  - The whole step fits: show all of it, from the label above it down to the row after it peeking in.
+ *  - The whole step fits: show all of it, from the label above it down to the row after it peeking in, never stopping
+ *    partway through the overview above the plan (clearOfIntro).
  *  - It's taller than the list: a new step starts at its title (what to type); once a check has a result (or a Check
  *    is running), the checks and the option row under them come up from below the fold.
  */
@@ -427,6 +430,7 @@ function useKeepInView(scroller: RefObject<HTMLDivElement | null>, stepId: strin
     if (step.bottom + 8 - top <= view) {
       if (top < now) target = top
       else if (end > now + view) target = Math.min(top, end - view)
+      if (target !== undefined) target = clearOfIntro(box, at, target, step.bottom + 8 <= view)
     } else if (newStep) {
       target = top
     } else {
@@ -443,6 +447,28 @@ function useKeepInView(scroller: RefObject<HTMLDivElement | null>, stepId: strin
     box.scrollTo({ top: Math.max(0, target), behavior: first.current ? 'auto' : 'smooth' })
     first.current = false
   }, [scroller, stepId, checksKey, settled, checking, codeLen])
+}
+
+/**
+ * Never park the list partway through the text above the plan (what we're building, Needs, Before you start): Michael's
+ * desktop test 3, item 6, the overview's first lines sat cut off under the fixed header. A target inside that intro
+ * becomes 0 when the step still fits from the top (its row-after peek may go), else the next block edge below it,
+ * so the intro is either all there or cleanly scrolled away under the header's hairline. The step's top stays in
+ * view either way: every candidate is at or above the plan label.
+ */
+function clearOfIntro(
+  box: HTMLElement,
+  at: (n: HTMLElement) => { top: number; bottom: number },
+  target: number,
+  fitsFromTop: boolean
+): number {
+  const plan = box.querySelector<HTMLElement>('[data-part="drawer-plan"]')
+  if (!plan) return target
+  const planTop = at(plan).top
+  if (target <= 0 || target >= planTop) return target
+  if (fitsFromTop) return 0
+  const edges = Array.from(box.children, (c) => at(c as HTMLElement).top).filter((t) => t >= target && t <= planTop)
+  return Math.min(planTop, ...edges)
 }
 
 /** True only during a component's first render (so nothing animates just because the drawer opened). */
