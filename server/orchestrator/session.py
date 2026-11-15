@@ -2100,6 +2100,7 @@ class LessonSession:
         loc = target_location(self.workdir, step)
         if loc:
             extra = {"file": str(loc[0]), "line": loc[1]}
+        extra["lesson_folder"] = str(self.workdir or "")  # E5 leaves other projects' VS Code windows out of the coach's view
         return self.m.screen_context(self.last_obs, image, pos, **extra)
 
     def _screen_error_lines(self, n: int = 40) -> list[str]:

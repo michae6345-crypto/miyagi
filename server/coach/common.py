@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import re
+from collections.abc import Callable
 from typing import Any
 
 from .playbook import CITATIONS
@@ -11,19 +12,38 @@ from .playbook import CITATIONS
 ACTIONS_ORDER = ("explain", "show_me", "hint", "apply_fix")
 
 _lesson: dict | None = None
+_lesson_gen = 0
+# Per-lesson coach state keyed by bare step ids ("s3", which every lesson reuses): cleared on every new lesson
+# (QA 11-14: Hint in the calculator lesson quoted the TinyStories lesson's s3 diagnosis).
+_RESETS: list[Callable[[], Any]] = []
+
+
+def on_new_lesson(*clears: Callable[[], Any]) -> None:
+    _RESETS.extend(clears)
 
 
 def set_lesson(graph: dict | None) -> None:
     """Orchestrator calls this once per lesson so every coach call shares a cached prefix."""
-    global _lesson
+    global _lesson, _lesson_gen
     _lesson = graph
+    _lesson_gen += 1
+    for clear in _RESETS:
+        clear()
 
 
 def get_lesson() -> dict | None:
     return _lesson
 
 
-def lesson_context_text(lesson: dict | None) -> str:
+def lesson_gen() -> int:
+    """Bumped by every set_lesson: a call that started under an older lesson must not store state for this one."""
+    return _lesson_gen
+
+
+STEP_KEYS = ("id", "index", "title", "instructions", "checks", "hints", "common_mistakes", "explanations")
+
+
+def lesson_context_text(lesson: dict | None, step_keys: tuple[str, ...] = STEP_KEYS) -> str:
     """Deterministic rendering (sorted keys) so the prompt-cache prefix is byte-stable."""
     if not lesson:
         return "LESSON CONTEXT: (none provided)"
@@ -31,18 +51,18 @@ def lesson_context_text(lesson: dict | None) -> str:
         "lesson": lesson.get("lesson", {}),
         "sources": lesson.get("sources", []),
         "steps": [
-            {k: s.get(k) for k in ("id", "index", "title", "instructions", "checks", "hints", "common_mistakes", "explanations") if s.get(k) is not None}
+            {k: s.get(k) for k in step_keys if s.get(k) is not None}
             for s in lesson.get("steps", [])
         ],
     }
     return "LESSON CONTEXT (the tutorial the learner is following):\n" + json.dumps(slim, sort_keys=True, ensure_ascii=False, indent=1)
 
 
-def system_blocks(instructions: str, lesson: dict | None) -> list[dict]:
+def system_blocks(instructions: str, lesson: dict | None, step_keys: tuple[str, ...] = STEP_KEYS) -> list[dict]:
     """[stable instructions+playbook] [lesson context] — both cache breakpoints."""
     return [
         {"type": "text", "text": instructions, "cache_control": {"type": "ephemeral"}},
-        {"type": "text", "text": lesson_context_text(lesson), "cache_control": {"type": "ephemeral"}},
+        {"type": "text", "text": lesson_context_text(lesson, step_keys), "cache_control": {"type": "ephemeral"}},
     ]
 
 
