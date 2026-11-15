@@ -1,14 +1,18 @@
 /**
  * Building mode, screen-first (mockup 04, Miyagi brand): the engine's screen reader (Apple Vision OCR)
- * finds the target on screen and sends `spotlight {rect, caption}`. We dim everything to 55% and cut a
+ * finds the target on screen and sends `spotlight {rect, caption}`. We dim everything around it and cut a
  * rounded hole at that rect, edged with a crisp hairline, with a glass caption beside it. Works over
  * any app; never takes a click except on the voice button.
  *
+ * Two dims (Michael's audit A6): a text lesson's "type here" target gets the soft one (`scrim.spotlightSoft`), so
+ * the learner's own code and terminal stay readable around it; Show me (and video lessons) keep the strong one
+ * (`scrim.spotlight`). The two crossfade (opacity only) when a target changes kind.
+ *
  * Brand (app/brand/BRAND.md) + Adrian ("less like AI slop, more precise"): the cut-out is edged by ONE white
  * hairline, whatever the state (the pill and the card already carry status color), over a faint
- * `color.onAccent` keyline so it reads over light apps. The caption is up to two lines on the island's black,
- * flush beside the cut-out: no eyebrow, no dot, no code (the card has the diff). The speaker shows only while
- * voice is on (tap to turn it off).
+ * `color.onAccent` keyline so it reads over light apps. The caption is a chip on the island's black, one line when
+ * it fits (two at most), to the right of the cut-out and centered on it (mockup 01; Michael's audit A7): no eyebrow,
+ * no dot, no code (the card has the diff). The speaker shows only while voice is on (tap to turn it off).
  *
  * Animation (FRONTEND-HANDOFF → "Dim overlay + spotlight"):
  *   - the dim fades in over 280ms;
@@ -28,13 +32,13 @@ import { toggleVoice, useVoice } from '../voice/store'
 import { hole, holeRadius, placeCaption, type Side } from './place'
 import type { SpotlightMode, SpotlightTarget } from './store'
 
-/** The caption hugs its text, up to this width, wrapping to at most CAPTION_LINES lines. */
-const CAPTION_MAX_W = 360
+/** The caption chip hugs its text, up to this width, wrapping to at most CAPTION_LINES lines (one is the aim). */
+const CAPTION_MAX_W = 420
 const CAPTION_LINES = 2
-/** Until the caption has been measured. */
-const CAPTION_GUESS = { w: 280, h: 44 }
-/** The dim: `scrim.spotlight` (black at .66, Adrian's "more contrast"; the handoff said 55%), fading in over 280ms. */
-const DIM = { fill: scrim.spotlight, fade: 0.28 } as const
+/** Until the caption has been measured: one line. */
+const CAPTION_GUESS = { w: 240, h: 26 }
+/** The dim: `scrim.spotlight` (black at .66, Adrian's "more contrast") or `scrim.spotlightSoft`, fading in over 280ms. */
+const DIM = { strong: scrim.spotlight, soft: scrim.spotlightSoft, fade: 0.28 } as const
 /** The ring: a crisp hairline (no blur) over a faint dark keyline for contrast on light apps. */
 const RING = { width: 1, keyline: 3, keylineOpacity: 0.35 } as const
 const PULSE = { from: 0.45, peak: 1, rest: 0.9, duration: 1.2 } as const
@@ -46,6 +50,8 @@ type Props = {
   /** Where the caption may go: the window's work area, in window coordinates. */
   bounds: Rect
   mode: SpotlightMode
+  /** The soft dim: a text lesson's "type here" target. false = the strong dim (Show me, video lessons). */
+  soft: boolean
   /** Only one window draws the caption when a target straddles two displays. */
   showCaption: boolean
   /** UI outside this window the caption must not cover (the lesson player's window), window coordinates. */
@@ -64,7 +70,7 @@ export function Spotlight({ target, rect, ...rest }: Props): ReactNode {
   return <AnimatePresence>{target && rect && <Scene key="spotlight" target={target} rect={rect} {...rest} />}</AnimatePresence>
 }
 
-function Scene({ target, rect, bounds, mode, showCaption, avoid, extras }: Props & { target: SpotlightTarget; rect: Rect }): ReactNode {
+function Scene({ target, rect, bounds, mode, soft, showCaption, avoid, extras }: Props & { target: SpotlightTarget; rect: Rect }): ReactNode {
   const reduced = useReducedMotion() ?? false
   const cut = hole(rect)
   const register = useAnimatedHole(cut, reduced)
@@ -102,7 +108,21 @@ function Scene({ target, rect, bounds, mode, showCaption, avoid, extras }: Props
             </mask>
           </defs>
         )}
-        {!outline && <rect width="100%" height="100%" fill={DIM.fill} mask={`url(#${id}-hole)`} data-part="dim" />}
+        {!outline &&
+          (['strong', 'soft'] as const).map((k) => (
+            <motion.rect
+              key={k}
+              width="100%"
+              height="100%"
+              fill={DIM[k]}
+              mask={`url(#${id}-hole)`}
+              data-part="dim"
+              data-dim={k}
+              initial={false}
+              animate={{ opacity: (k === 'soft') === soft ? 1 : 0 }}
+              transition={{ duration: DIM.fade, ease: 'easeOut' }}
+            />
+          ))}
         <motion.g style={{ opacity: pulse }} data-part="ring">
           <rect ref={register} data-part="keyline" fill="none" style={{ stroke: color.onAccent }} strokeOpacity={RING.keylineOpacity} strokeWidth={RING.keyline} />
           <rect ref={register} data-part="hairline" data-status={status} fill="none" style={{ stroke: color.text }} strokeWidth={RING.width} />
@@ -265,7 +285,7 @@ const ENTER: Record<Side, { x: number; y: number }> = {
 function Snippet({ code }: { code: string }): ReactNode {
   return (
     <pre
-      className="mt-[8px] mr-[5px] max-h-[144px] overflow-hidden whitespace-pre rounded-[10px] px-[10px] py-[7px] text-[12.5px] leading-[18px]"
+      className="mb-[3px] mt-[6px] max-h-[144px] overflow-hidden whitespace-pre rounded-[10px] px-[10px] py-[7px] text-[12.5px] leading-[18px]"
       style={{ fontFamily: font.mono, background: fill.field, color: color.text }}
     >
       {code.replace(/\s+$/, '')}
@@ -303,17 +323,17 @@ function Caption({ target, hole: cut, bounds, avoid: outside, reduced }: { targe
       ref={ref}
       data-ui
       data-side={at.side}
-      className="absolute left-0 top-0 py-[11px] pl-[16px] pr-[11px]"
+      className={`absolute left-0 top-0 py-[4px] pl-[11px] ${voiceOn ? 'pr-[4px]' : 'pr-[11px]'}`}
       style={{ maxWidth: CAPTION_MAX_W, borderRadius: radius.chip, background: color.island, boxShadow: shadows.card }}
       initial={{ opacity: 0, x: at.x + from.x, y: at.y + from.y }}
       animate={{ opacity: 1, x: at.x, y: at.y }}
       transition={reduced ? { duration: 0.2 } : { ...spring, opacity: { duration: 0.2 } }}
     >
-      <div className="flex items-start gap-[10px]">
-        {/* Up to two lines, then clamped (Michael: one line cut off "Type this in the VS Code terminal (use python…"). */}
+      <div className="flex items-center gap-[8px]">
+        {/* A one-line chip; up to two lines, then clamped (Michael: one line cut off "Type this in the VS Code terminal (use python…"). */}
         <div
-          className="min-w-0 overflow-hidden font-medium leading-[22px]"
-          style={{ fontSize: text.sm, color: color.text, display: '-webkit-box', WebkitBoxOrient: 'vertical', WebkitLineClamp: CAPTION_LINES }}
+          className="min-w-0 overflow-hidden font-medium leading-[18px]"
+          style={{ fontSize: text.xs, color: color.text, display: '-webkit-box', WebkitBoxOrient: 'vertical', WebkitLineClamp: CAPTION_LINES }}
           title={target.caption}
         >
           {target.caption}
@@ -322,12 +342,12 @@ function Caption({ target, hole: cut, bounds, avoid: outside, reduced }: { targe
         {voiceOn && (
           <button
             data-hit
-            className="pointer-events-auto grid h-[24px] w-[24px] shrink-0 cursor-pointer place-items-center rounded-full"
+            className="pointer-events-auto -my-[1px] grid h-[20px] w-[20px] shrink-0 cursor-pointer place-items-center rounded-full"
             style={{ background: color.accent, color: color.onAccent }}
             onClick={toggleVoice}
             aria-label="Turn voice off"
           >
-            <Volume2 size={13} />
+            <Volume2 size={12} />
           </button>
         )}
       </div>

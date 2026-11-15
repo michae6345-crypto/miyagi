@@ -1,6 +1,6 @@
 /**
- * The pill's small pieces, sized to mockup 01 (measured at 1×: ring 16px / 2.25 stroke, dot 7px).
- * Brand: the ring is the accent (white), green only for passed, amber only for off track, no glows.
+ * The pill's small pieces, sized to mockup 01 (measured at 1×: dot 7px; the step count is 13px text).
+ * Brand: green only for passed, no hue for off track (a white ring), gray watching, no glows.
  * The shared atoms in core/ui stay as they are for the cards; these are tuned for the 34px pill.
  */
 import { AnimatePresence, motion, useAnimate, useReducedMotion } from 'motion/react'
@@ -9,7 +9,7 @@ import treeSmall from '../../assets/brand/tree-small-dark.svg'
 import { useLesson, useThinking } from '../../core/lesson'
 import { color, spring } from '../../core/theme'
 import { Spinner } from '../../core/ui/atoms'
-import { pulsedOfftrack, ring } from './store'
+import { pulsedOfftrack } from './store'
 
 /** offline: a hollow gray dot (no connection). pending: the next part is still building (spinner, no dot). */
 export type Mark = 'watching' | 'offtrack' | 'passed' | 'check' | 'done' | 'offline' | 'pending'
@@ -61,43 +61,27 @@ export function LeadMark(): ReactNode {
   )
 }
 
-/** Lesson progress ring: completed steps / total. Advances on the spring when a step passes. */
-export function PillRing({
-  fraction,
-  complete = false,
-  size = 16,
-  stroke = 2.25
-}: {
-  fraction: number
-  /** The lesson is done: the closed ring turns green. */
-  complete?: boolean
-  size?: number
-  stroke?: number
-}): ReactNode {
-  const r = (size - stroke) / 2
-  // Start from what was last drawn (0 on a fresh lesson → the ring draws in on first appearance).
-  const from = useRef(ring.shown)
-  useEffect(() => {
-    ring.shown = fraction
-  }, [fraction])
-  const on = fraction > 0.001
+/**
+ * Where the learner is: "4/8" (this step / steps) in tabular figures, so the width holds as the digits change.
+ * It replaced the progress ring (Michael's audit A5): at 0 the ring was a hollow circle beside the status dot, and
+ * part-filled it read as a spinner. Muted like the "Step 4 ·" label; the number crossfades in place on a change.
+ */
+export function StepCount({ n, total }: { n: number; total: number }): ReactNode {
+  const label = `${n}/${total}`
   return (
-    <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`} className="shrink-0 -rotate-90">
-      {/* Track: the arc's own color, dimmed (like the Activity rings). */}
-      <circle cx={size / 2} cy={size / 2} r={r} fill="none" stroke={color.accent} strokeOpacity={0.22} strokeWidth={stroke} />
-      <motion.circle
-        cx={size / 2}
-        cy={size / 2}
-        r={r}
-        fill="none"
-        strokeWidth={stroke}
-        strokeLinecap="round"
-        initial={{ pathLength: Math.max(0.001, from.current), opacity: from.current > 0.001 ? 1 : 0, stroke: complete ? color.green : color.accent }}
-        animate={{ pathLength: Math.max(0.001, fraction), opacity: on ? 1 : 0, stroke: complete ? color.green : color.accent }}
-        // A beat after the check pops, so the eye travels check → ring.
-        transition={{ pathLength: { ...spring, delay: 0.08 }, opacity: { duration: 0.15 }, stroke: { duration: 0.4, delay: 0.2 } }}
-      />
-    </svg>
+    <span className="inline-grid shrink-0 tabular-nums leading-[18px]" style={{ color: color.label }} aria-label={`Step ${n} of ${total}`} data-count={label}>
+      <AnimatePresence initial={false}>
+        <motion.span
+          key={label}
+          style={{ gridArea: '1 / 1' }}
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1, transition: { duration: 0.24, ease: 'easeOut', delay: 0.11 } }}
+          exit={{ opacity: 0, transition: { duration: 0.1, ease: 'easeIn' } }}
+        >
+          {label}
+        </motion.span>
+      </AnimatePresence>
+    </span>
   )
 }
 
@@ -168,7 +152,7 @@ export function StatusMark({ mark }: { mark: Mark }): ReactNode {
 
 /**
  * A text slot whose width springs between old and new text, so the island (which hugs its content)
- * grows smoothly and the icon / ring / dot glide instead of jumping. Old text leaves upward, new
+ * grows smoothly and the icon / count / dot glide instead of jumping. Old text leaves upward, new
  * text arrives from below, with almost no overlap (no doubled text mid-swap).
  */
 export function SwapText({ id, children, className = '' }: { id: string; children: ReactNode; className?: string }): ReactNode {

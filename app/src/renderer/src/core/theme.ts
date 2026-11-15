@@ -172,8 +172,12 @@ export const glass = {
   shadow: 'var(--glass-shadow)'
 } as const
 
-/** Screen dims behind surfaces. spotlight .66: Adrian asked for more contrast than the spec's .55. */
-export const scrim = { spotlight: 'rgba(0,0,0,.66)', launcher: 'rgba(0,0,0,.22)' } as const
+/**
+ * Screen dims behind surfaces. spotlight .66: Adrian asked for more contrast than the spec's .55; it's for Show me
+ * (and video lessons). spotlightSoft .16: a text lesson's "type here" target, where the learner's own code and
+ * terminal must stay readable around the hole (Michael's audit A6: at .66 they weren't; at most .2).
+ */
+export const scrim = { spotlight: 'rgba(0,0,0,.66)', spotlightSoft: 'rgba(0,0,0,.16)', launcher: 'rgba(0,0,0,.22)' } as const
 
 /** Copy from the brand kit. */
 export const copy = {
