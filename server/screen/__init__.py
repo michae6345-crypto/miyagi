@@ -11,6 +11,7 @@
     res = await reader.where("the Run button")
     loc = locate_line("pinn_demo/pinn_convection.py", 47)     # LineLocation: .rect / .visible_lines
     loc = locate_anchor("def pde_residual(", file="pinn_demo/pinn_convection.py")
+    rect = locate_region("terminal")    # / "editor" / "explorer" / "run_button": stable spotlight rects
 
 Pure helpers (no pyobjc, usable on Linux): `server.screen.match.screen_contains/locate_match`,
 `server.screen.metrics.TerminalMetricReader`, the types in `server.screen.types`.
@@ -18,6 +19,7 @@ Pure helpers (no pyobjc, usable on Linux): `server.screen.match.screen_contains/
 from .describe import DescribeError
 from .lines import LineLocation
 from .match import LocateResult, locate, locate_match, screen_contains
+from .regions import REGIONS, Region, RegionStabilizer, find_region
 from .types import (
     PERMISSION_HELP,
     Block,
@@ -51,6 +53,15 @@ def locate_anchor(text: str, app: str | None = None, file: str | None = None,
     return get_reader().locate_anchor(text, app, file)
 
 
+def locate_region(name: str, app: str | None = None, obs: ScreenObservation | None = None):
+    """-> Rect | None of "terminal" | "editor" | "explorer" | "run_button". Live (no `obs`): stabilized
+    by the reader (4-pt grid, holds while it moves < 12 pt). With `obs`: one raw frame."""
+    if obs is not None:
+        reg = find_region(obs, name, app)
+        return reg.rect if reg else None
+    return get_reader().locate_region(name, app)
+
+
 def observe_image(path: str, overlay=None):
     from .reader import observe_image as _o
     return _o(path, overlay)
@@ -58,19 +69,24 @@ def observe_image(path: str, overlay=None):
 
 __all__ = [
     "PERMISSION_HELP",
+    "REGIONS",
     "Block",
     "DescribeError",
     "LineLocation",
     "LocateResult",
     "Rect",
+    "Region",
+    "RegionStabilizer",
     "ScreenObservation",
     "ScreenPermissionError",
     "Window",
+    "find_region",
     "get_reader",
     "locate",
     "locate_anchor",
     "locate_line",
     "locate_match",
+    "locate_region",
     "observe_image",
     "screen_contains",
 ]
