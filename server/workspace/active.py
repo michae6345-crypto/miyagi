@@ -105,7 +105,15 @@ def _find_in(folder: Path, name: str) -> Path | None:
 
 
 def _ax_front_document() -> dict | None:
-    """With Accessibility: the frontmost VS Code window's title and file (AXDocument)."""
+    """With Accessibility: the frontmost VS Code window's title and file (AXDocument). Best effort: None on any error."""
+    try:
+        return _ax_front_document_unsafe()
+    except Exception as e:  # noqa: BLE001
+        log.debug("AX front document failed: %r", e)
+        return None
+
+
+def _ax_front_document_unsafe() -> dict | None:
     from . import editor as ed
 
     if not ed.ax_trusted():

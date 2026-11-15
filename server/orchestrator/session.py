@@ -2767,10 +2767,20 @@ class LessonSession:
         if self.passed or gen != self.step_gen:
             return
         code, file = self._code_excerpt(step)
+        # Which file is the learner really on? Read it fresh (extension / AX / title / new-frame OCR), never guess
+        # from screen text (Michael: switched README -> .py, pressed Check, got "you're still on README").
+        active = None
+        reader = getattr(self.screen, "reader", None)
+        if reader is not None and hasattr(reader, "active_file"):
+            folder = (self.graph or {}).get("lesson", {}).get("workdir") or getattr(self, "workdir", None)
+            try:
+                active = await asyncio.to_thread(reader.active_file, True, folder)
+            except Exception as e:  # noqa: BLE001 - best effort; None means "unsure", so nothing claims a file
+                log.info("check_step: active_file unavailable (%s)", e)
         try:
             verdict = await self.m.judge_step(step, screen=self._screen_lines(), files={file: code} if file and code else {},
                                               check_results=self.last_results, focused_app=self._focused_app(),
-                                              lesson=(self.graph or {}).get("lesson"))
+                                              lesson=(self.graph or {}).get("lesson"), active_file=active)
         except Exception as e:  # noqa: BLE001 - the judge is a bonus
             log.info("check_step: no judge (%s)", e)
             verdict = None

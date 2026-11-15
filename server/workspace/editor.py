@@ -431,7 +431,11 @@ def editor_line_location(file: str | Path, line: int, *, snapshot: Callable[[], 
     rect is in top-left global screen points (spotlight space). reason: None | no_editor | file_not_active |
     not_visible | not_found | unavailable. direction "up"/"down" = scrolled off: jump with goto_argv() and ask again."""
     out: dict = {"rect": None, "source": None, "reason": "unavailable", "line": int(line)}
-    snap = snapshot() if snapshot else _ax_editor_snapshot()
+    try:
+        snap = snapshot() if snapshot else _ax_editor_snapshot()
+    except Exception as e:  # noqa: BLE001 - never break a spotlight over an AX read
+        log.debug("editor snapshot failed: %r", e)
+        snap = None
     if snap:
         doc, want = _doc_path(snap.get("document")), Path(file).expanduser().resolve()
         if doc is not None and doc != want:
@@ -474,7 +478,23 @@ def editor_line_rect(file: str | Path, line: int, *, snapshot: Callable[[], dict
     return {**loc["rect"], "line": int(line), "source": loc["source"]}
 
 
+def _pair(v, a: str, b: str) -> tuple[float, float]:
+    """pyobjc hands AX struct values back either as structs (pt.x / r.location) or as plain tuples."""
+    if isinstance(v, (tuple, list)):
+        return float(v[0]), float(v[1])
+    return float(getattr(v, a)), float(getattr(v, b))
+
+
 def _ax_editor_snapshot() -> dict | None:
+    """Best effort: any AX/pyobjc surprise means "no answer" (None), never an exception into a spotlight."""
+    try:
+        return _ax_editor_snapshot_unsafe()
+    except Exception as e:  # noqa: BLE001
+        log.debug("AX editor snapshot failed: %r", e)
+        return None
+
+
+def _ax_editor_snapshot_unsafe() -> dict | None:
     """One-shot AX read of the frontmost editor (the same technique as E6's server/screen/ax.py)."""
     if not ax_trusted():
         return None
@@ -499,7 +519,11 @@ def _ax_editor_snapshot() -> dict | None:
             return None
         ok1, pt = A.AXValueGetValue(p, A.kAXValueCGPointType, None)
         ok2, sv = A.AXValueGetValue(sz, A.kAXValueCGSizeType, None)
-        return {"x": float(pt.x), "y": float(pt.y), "w": float(sv.width), "h": float(sv.height)} if ok1 and ok2 else None
+        if not (ok1 and ok2) or pt is None or sv is None:
+            return None
+        x, y = _pair(pt, "x", "y")
+        w, h = _pair(sv, "width", "height")
+        return {"x": x, "y": y, "w": w, "h": h}
 
     app = A.AXUIElementCreateApplication(pid)
     A.AXUIElementSetMessagingTimeout(app, 0.3)
@@ -522,7 +546,7 @@ def _ax_editor_snapshot() -> dict | None:
     caret = 0
     if sr is not None:
         ok, r = A.AXValueGetValue(sr, A.kAXValueCFRangeType, None)
-        caret = int(r.location) if ok else 0
+        caret = int(_pair(r, "location", "length")[0]) if ok and r is not None else 0  # NSRange or (loc, len)
     document = get(win, "AXDocument")
     start = _page_start(text, _doc_path(document))
     lr = rect(focused)
