@@ -52,6 +52,13 @@ DIAGRAM_KINDS = ("network", "gradients", "heatmap")
 # diagram that finishes after end_lesson). Unset (None) = not tied to a lesson (end_lesson itself, search...).
 _EPOCH: contextvars.ContextVar[int | None] = contextvars.ContextVar("lesson_epoch", default=None)
 ALWAYS_SENT = {"lesson.ended"}
+# The event types an app action has sent so far (set by action(); None outside one). An action that ends without
+# any ANSWER_EVENTS looks dead on screen (status / check.updated alone), so it gets a short notice card instead.
+_ANSWERED: contextvars.ContextVar[set[str] | None] = contextvars.ContextVar("action_answered", default=None)
+ANSWER_EVENTS = {"card", "offtrack", "diagram", "spotlight", "video.seek", "video.play", "step.started", "step.passed",
+                 "lesson.ready", "lesson.ended", "lesson.building", "error", "setup.progress"}
+# their effect is outside the engine's events (an app-side toggle, VS Code / a browser opening, a background install)
+QUIET_ACTIONS = {"voice_toggle", "skip_setup", "install", "open_editor", "open_in_browser"}
 
 
 def video_id_from_url(url: str) -> str | None:
@@ -383,6 +390,8 @@ class LessonSession:
         if ep is not None and ep != self.lesson_epoch and type_ not in ALWAYS_SENT:
             log.info("dropped stale %s (lesson epoch %s, now %s)", type_, ep, self.lesson_epoch)
             return
+        if (answered := _ANSWERED.get()) is not None and not (payload or {}).get("clear"):
+            answered.add(type_)  # a spotlight clear is not an answer
         await self._emit_raw(type_, payload or {})
 
     def _bind_epoch(self) -> None:
@@ -600,6 +609,8 @@ class LessonSession:
     def _say(self, kind: str, payload: dict) -> None:
         """Voice (when toggled on): speak this event in the background, never over the learner's typing."""
         if not self.voice or self.typing():
+            if self.voice:
+                log.info("voice: held %s (typing)", kind)
             return
         gen = self.step_gen
 
@@ -1682,6 +1693,8 @@ class LessonSession:
         old, r = self.spot_rect, spot["rect"]
         if (steady and old and spot.get("caption") == self._spot_caption
                 and all(abs(r[k] - old[k]) <= self.SPOT_MOVE_PX for k in ("x", "y", "w", "h"))):
+            if (answered := _ANSWERED.get()) is not None:
+                answered.add("spotlight")  # a press (Show me): the box already up is the answer, no notice
             return  # the same box again: no re-send (flicker made the overlay feel laggy)
         if steady and self.lesson_mode:
             confirmed = await self._confirm_spot(spot)
@@ -1857,6 +1870,8 @@ class LessonSession:
         return v is not None and v < config.TYPING_GUARD_S and not (callable(own) and own())
 
     def acted_since_step_start(self) -> bool:
+        if getattr(self, "_revisit_gen", None) == self.step_gen:
+            return False  # a step reached by Back: its code may be in the file already; a save / run / Check passes it
         if self.last_action_t >= self.step_t0:
             return True
         v = self.inputs.seconds_since_input() if self.inputs is not None else None
@@ -2056,14 +2071,15 @@ class LessonSession:
             self.pending_speak = None
             return
         if not self.learner_started() or self.clock() - self.step_t0 < self.offtrack_grace_s:
-            return  # never "off track" before the learner did anything on this step, nor in its first ~20 s
+            # never "off track" before the learner did anything on this step, nor in its first ~20 s
+            return self._speak_note(reason, "held (learner not started / first ~20 s)")
         if self._editor_state_card(step):  # unsaved file / another lesson's folder: say that, never "off track"
-            return
+            return self._speak_note(reason, "held (editor-state card instead)")
         if self.clock() < self._coach_retry_at:
-            return  # the coach failed recently (e.g. offline): wait before trying again
+            return self._speak_note(reason, "held (coach failed recently)")  # e.g. offline: wait before trying again
         if self.typing():
             self.pending_speak = reason  # never talk over the learner's typing; the tick retries
-            return
+            return self._speak_note(reason, "deferred (typing)")
         sig = self._sig(failed)
         if sig != self.spoken_sig:  # a new problem (or the first one): concept card
             level = 2
@@ -2071,10 +2087,20 @@ class LessonSession:
               and self.clock() - self.spoken_t >= config.LADDER_MIN_S):
             level = 3  # same failure again / still stuck: the exact fix + "Do it for me"
         else:
-            return
+            return self._speak_note(reason, f"held (already said at level {self.ladder})")
+        self._speak_note(reason, f"speak level {level}")
         self.coaching = True
         self.spoken_sig, self.spoken_t = sig, self.clock()
         self._spawn(self._coach(self.step_gen, step, failed, ctx, level))
+
+    def _speak_note(self, reason: str, outcome: str) -> None:
+        """Log a speaking decision (reason -> speak level N / deferred / held (why)), once per step, reason and
+        outcome: the ~1/s tick re-asks while idle and must not flood the log."""
+        key = (self.step_gen, reason, outcome)
+        if key != getattr(self, "_speak_noted", None):
+            self._speak_noted = key
+            step = self.step
+            log.info("speak? %s %s: %s", step["id"] if step else "-", reason, outcome)
 
     def _target_spot(self, target: dict) -> dict | None:
         r = target.get("rect")
@@ -2440,8 +2466,13 @@ class LessonSession:
             self._asks_in_flight += 1
         gen = self.step_gen
         token = _EPOCH.set(self.lesson_epoch)  # a card that finishes after end_lesson is dropped
+        answered: set[str] = set()
+        answered_token = _ANSWERED.set(answered)
+        gen = self.step_gen
         try:
             await self._action(kind, text)
+            if not answered & ANSWER_EVENTS and kind not in QUIET_ACTIONS and gen == self.step_gen:
+                await self._notice(kind)  # never silence: a press that changed nothing still gets an answer
         except Exception as e:  # live mode: a missing/failing module is reported, never faked
             log.exception("action %s failed", kind)
             if asking and self.step is not None and gen == self.step_gen:  # never a silent failure for a question
@@ -2455,6 +2486,38 @@ class LessonSession:
                 self._asks_in_flight = max(0, self._asks_in_flight - 1)
                 self._ask_hold_until = self.clock() + self.ASK_HOLD_S
             _EPOCH.reset(token)
+            _ANSWERED.reset(answered_token)
+
+    NOTICES = {  # action -> (title, body) when it had nothing to do; check_step's body is the off-track title
+        "back": ("This is the first step", "There's no step before this one."),
+        "confirm": ("Nothing to confirm", "That card is out of date. Press Check to see where this step stands."),
+        "undo": ("Nothing to undo", "There's no fix to undo."),
+        "skip_step": ("Moving on", "This step is already done."),
+        "check_step": ("Not yet", "The checks haven't passed yet."),
+        "show_me": ("Nothing to point at", "I can't find this step's spot on your screen yet."),
+        "apply_fix": ("No fix to apply", "There's no fix for this step yet. Try a hint."),
+        "diagram": ("No diagram", "The lesson changed while I was drawing. Press Diagram again."),
+    }
+
+    async def _notice(self, kind: str) -> None:
+        """A short answer card for an action the engine could not serve (it would otherwise look like a lost click)."""
+        title, body = self.NOTICES.get(kind, ("Nothing to do here", "That doesn't apply to this step right now."))
+        step, actions = self.step, []
+        progress = kind in ("check_step", "skip_step", "confirm")
+        if progress and step is not None and (self._placeholder_hold or step.get("provisional")
+                                              or is_provisional(self.graph)):
+            title, body = "Almost ready", "The full lesson is still being built. Its first step starts here in a moment."
+        elif progress and self.passed:  # the last step, or a long video's next part still building: not "Not yet"
+            title, body = "This step is done", ("That was the last step." if self.phase == "done" else
+                                                "The next part is still being built." if self.waiting_more else
+                                                "Moving on to the next step.")
+        elif kind == "check_step" and step is not None:  # replaces the off-track card in the app: keep its buttons
+            body = (self.last_offtrack or {}).get("title") or body  # the off-track card may have been covered
+            actions = ((["run_command"] if self._run_command(step) else ["apply_fix"]) if self.lesson_mode else [])
+            actions += ["skip_step"]
+        log.info("action %s: nothing to do; notice %r", kind, title)
+        await self.emit("card", {**({"stepId": step["id"]} if step else {}), "kind": "answer", "title": title,
+                                 "body": body, **({"actions": actions} if actions else {})})
 
     async def _action(self, kind: str, text: str | None = None) -> None:
         step = self.step
@@ -2499,8 +2562,9 @@ class LessonSession:
         if kind == "back":
             idx = self.idx
             seg = self._segment(step)
-            if (text or "").strip().lower() in ("prev", "previous") and idx > 0:
-                await self.start_step(idx - 1)
+            if ((text or "").strip().lower() in ("prev", "previous") or not seg) and idx > 0:
+                self._revisit_gen = self.step_gen + 1  # start_step's reset bumps step_gen once: never auto-passed
+                await self.start_step(idx - 1)  # no clip to rewind (a "Just teach me" lesson): the previous step
                 return
             if seg:
                 self.segment_done = False
@@ -2820,6 +2884,8 @@ class LessonSession:
         last = self._recent_cards.get(sig)
         if last is not None and now - last < window_s:
             log.info("dropped duplicate card %r", card.get("title"))
+            if (answered := _ANSWERED.get()) is not None:
+                answered.add("card")  # a press: this very card went out moments ago, so no "Nothing to do" notice
             return False
         self._recent_cards[sig] = now
         self._last_card_t = now

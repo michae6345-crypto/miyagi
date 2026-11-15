@@ -17,6 +17,34 @@ from shared.contracts.events import validate_engine_payload
 log = logging.getLogger("orchestrator.hub")
 
 
+def _clip(text: Any, n: int = 60) -> str:
+    t = " ".join(str(text or "").split())
+    return json.dumps(t[:n] + ("…" if len(t) > n else ""), ensure_ascii=False)
+
+
+def log_received(type_: str, p: Any) -> None:
+    """One INFO line per App->Engine command, the mirror of emit's '->' line: '<- action ask "why does divide…"'.
+    A desktop test can then tell a press that never arrived from one that arrived and did nothing. config.keys is
+    logged by name only (never a key); video.state / overlay.bounds (several a second) go to DEBUG."""
+    if type_ == "action":
+        line = f"action {p.kind}" + (f" {_clip(p.text)}" if p.text else "")
+    elif type_ == "learn":
+        line = f"learn {_clip(p.query)}" + (f" mode={p.mode}" if getattr(p, "mode", None) else "")
+    elif type_ == "learn_url":
+        line = f"learn_url {_clip(p.url, 120)}"
+    elif type_ == "build_lesson":
+        line = f"build_lesson {list(p.resultIds)[:5]}"
+    elif type_ == "video.state":
+        log.debug("<- video.state t=%s playing=%s", p.t, p.playing)
+        return
+    elif type_ == "overlay.bounds":
+        log.debug("<- overlay.bounds %d rects", len(p.rects))
+        return
+    else:  # end_lesson, config.keys (name only)
+        line = type_
+    log.info("<- %s", line)
+
+
 class Hub:
     def __init__(self, strict: bool | None = None, history: int = 500):
         self.clients: set[WebSocket] = set()

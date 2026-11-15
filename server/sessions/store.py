@@ -24,7 +24,8 @@ log = logging.getLogger("sessions")
 
 VERSION = 1
 STATE_FIELDS = ("lessonId", "sourceUrl", "title", "mode", "stepIndex", "stepCount", "stepId", "stepTitle", "passedSteps",
-                "skippedSteps", "checks", "videoT", "workdir", "editorOpen", "startedAt", "lastActiveAt")
+                "skippedSteps", "checks", "videoT", "workdir", "editorOpen", "startedAt", "lastActiveAt",
+                "stopped")  # stopped: kept by the bar's End (sessions/resume.py KEEP_END): restored only by Continue
 
 
 def state_dir() -> Path:
