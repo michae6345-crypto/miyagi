@@ -261,7 +261,29 @@ onMessage('step.passed', (p) => {
     lastPassed: { stepId: p.stepId, summary, checks: s.checks, at: Date.now() }
   })
 })
-onMessage('offtrack', (p) => set({ offtrack: p as Offtrack }))
+/**
+ * A dismissAfterMs this short is the engine withdrawing a card: its culprit lines or diagnosis went away (Michael,
+ * test 8 engine work, integration/live 74e11cd). Not in shared/contracts yet: read it off the payload.
+ */
+export const WITHDRAW_MS = 50
+export const dismissAfter = (p: object): number | undefined => {
+  const ms = (p as { dismissAfterMs?: unknown }).dismissAfterMs
+  return typeof ms === 'number' && ms > 0 ? ms : undefined
+}
+/** Ends the off-track state (the pill's ring and hover peek) for this step, or whatever step it's on. */
+export function clearOfftrack(stepId?: string): void {
+  const o = get().offtrack
+  if (o && (!stepId || o.stepId === stepId)) set({ offtrack: undefined })
+}
+let offtrackTimer: ReturnType<typeof setTimeout> | undefined
+onMessage('offtrack', (p) => {
+  clearTimeout(offtrackTimer)
+  const after = dismissAfter(p)
+  if (after !== undefined && after <= WITHDRAW_MS) return clearOfftrack(p.stepId)
+  const o = p as Offtrack
+  set({ offtrack: o })
+  if (after !== undefined) offtrackTimer = setTimeout(() => get().offtrack === o && set({ offtrack: undefined }), after)
+})
 onMessage('video.seek', (p) => set({ video: { t: p.t, playing: p.play, at: Date.now(), kind: 'seek' } }))
 onMessage('video.pause', () => set({ video: { ...get().video, playing: false, at: Date.now(), kind: 'pause' } }))
 onMessage('video.play', () => set({ video: { ...get().video, playing: true, at: Date.now(), kind: 'play' } }))
