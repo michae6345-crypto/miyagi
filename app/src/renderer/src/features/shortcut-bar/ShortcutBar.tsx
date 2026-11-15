@@ -10,8 +10,8 @@
  * The bar is a glass panel: theme.glass tokens, so it follows Settings → Appearance (light / dark).
  * Thinking: the pressed tile's glyph is the Spinner (Busy.tsx). Any trigger dips its tile for 90 ms (press.ts).
  * Voice speaking: the equalizer (Equalizer.tsx). Diagram open: its tile stays lit.
- * Folded (review A12, fold.ts): a thin handle over the middle of the status bar while the pointer has been off the bar
- * for a few seconds. The pointer on the handle brings it back.
+ * Folded (review A12 / A8, fold.ts + front.ts): a thin handle over the middle of the status bar while the pointer has
+ * been off the bar for a few seconds, or while another app is in front. The pointer on the handle brings it back.
  */
 import { AnimatePresence, motion } from 'motion/react'
 import { useEffect, useRef, useState, type ReactNode } from 'react'
@@ -30,6 +30,7 @@ import { useLauncherOpen } from '../launcher/store'
 import { toggleVoice } from '../voice/store'
 import { Equalizer, useVoiceTile } from './Equalizer'
 import { holdWhile, pointerLeft, reveal, useFold } from './fold'
+import { useFront, wake } from './front'
 import { usePress } from './press'
 import { GlassKey, hoverCls, look, Tile } from './Tile'
 
@@ -202,12 +203,17 @@ export function ShortcutBar({ bottom, dock = 0, lift = 0 }: { bottom: number; do
   // Video lessons keep the replay glyph (Back rewinds the video). Audit A22.
   const textLesson = useLesson((x) => x.lesson?.mode === 'lesson')
   const firstStep = useProgress().index === 0
-  // A12: folded while the pointer has been off it a while.
-  const folded = useFold((f) => f.idle)
+  // A12 / A8: folded while the pointer has been off it a while, or while another app is in front.
+  const idle = useFold((f) => f.idle)
+  const away = useFront((f) => f.away)
+  const folded = idle || away
   const busy = useRef(false)
   busy.current = step.armed || step.skipping
   useEffect(() => holdWhile(() => busy.current), [])
-  const unfold = reveal
+  const unfold = (): void => {
+    if (useFront.getState().away) wake()
+    reveal()
+  }
   const handleBottom = dock + 2
 
   return (

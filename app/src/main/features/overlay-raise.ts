@@ -19,6 +19,12 @@
  *    a grab made here, so main gives the mouse back itself when the pointer leaves them all (unless the renderer
  *    still wants it: its overlay:interactive), or the whole-screen overlay would keep eating clicks.
  *
+ * Review A8. The overlay stayed full size and clickable over other apps. When another app has been in front for a few
+ *    seconds (features/shortcut-bar/front.ts decides, from main/features/front-app.ts), the renderer says
+ *    'overlay:away': the overlay is click-through everywhere, this poll grabs nothing and a renderer hover can't
+ *    take the mouse either. It ends when the renderer says so (a lesson app is in front again, the pointer reached
+ *    the bar's handle) or the pointer rests on the island for REST_MS (main broadcasts 'overlay:wake').
+ *
  * UNVERIFIED: typechecked on Windows, where Smart App Control blocks electron.exe. Check on the Mac.
  */
 import { app, Menu, screen } from 'electron'
@@ -34,6 +40,8 @@ app.setName('miyagi')
 const POLL_MS = 25
 /** Grab the mouse a few px before the pointer reaches a control's edge. */
 const MARGIN = 4
+/** Away (A8): the pointer resting this long on the island wakes the overlay; passing over it doesn't. */
+const REST_MS = 500
 
 type Box = { x: number; y: number; w: number; h: number }
 const within = (p: { x: number; y: number }, r: Box): boolean =>
@@ -80,16 +88,32 @@ export default defineMainFeature({
     let wants = false
     /** This poll stopped ignoring the mouse; the renderer may not know. */
     let grabbed = false
+    /** A8: the learner is in another app; the whole overlay is click-through (the renderer's 'overlay:away'). */
+    let away = false
+    let restSince = 0
     ctx.onSignal('overlay:interactive', (on) => {
       wants = !!on
       // A "no" while the pointer is still inside a rect (a passive chip, the margin) is grabbed again on the next tick.
       // No ping-pong: the renderer only emits on a change, and it already said no.
       if (!wants) grabbed = false
+      // Away: main/index.ts just applied the hover; undo it (this listener runs right after, in the same tick).
+      else if (away && !ctx.overlay.isDestroyed()) ctx.overlay.setIgnoreMouseEvents(true, { forward: true })
+    })
+    ctx.handle('overlay:away', (on) => {
+      const next = !!on
+      if (next === away || ctx.overlay.isDestroyed()) return away
+      away = next
+      restSince = 0
+      grabbed = false
+      if (away) ctx.overlay.setIgnoreMouseEvents(true, { forward: true })
+      else if (wants) ctx.overlay.setIgnoreMouseEvents(false) // the renderer's hover from while away (it only emits changes)
+      return away
     })
     // A reloaded renderer starts click-through (main/index.ts, ui:ready) and has forgotten what it wanted.
     ctx.overlay.webContents.on('did-start-loading', () => {
       wants = false
       grabbed = false
+      away = false
     })
     const timer = setInterval(() => {
       if (ctx.overlay.isDestroyed()) return clearInterval(timer)
@@ -100,6 +124,16 @@ export default defineMainFeature({
       // moves off the spotlight: core/islandPlace.ts), plus the rest.
       const island = { x: d.x + d.width / 2 - w / 2 + dx, y: d.y + ctx.platform.pillTop + dy, w, h }
       const p = screen.getCursorScreenPoint()
+      if (away) {
+        // Grab nothing. The pointer resting on the island (the pill, an open card) asks the renderer to wake (A8).
+        if (!within(p, island)) restSince = 0
+        else if (!restSince) restSince = Date.now()
+        else if (restSince > 0 && Date.now() - restSince >= REST_MS) {
+          restSince = -1 // once per rest
+          ctx.broadcast('overlay:wake')
+        }
+        return
+      }
       const now = within(p, island) || ctx.overlayRects().some((r) => within(p, r))
       if (now && !grabbed) {
         grabbed = true
