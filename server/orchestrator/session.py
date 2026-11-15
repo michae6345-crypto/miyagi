@@ -50,6 +50,7 @@ from . import box_follow  # t7: the type box waits for the step start's jump, th
 from .lesson_boxes import LessonBoxes
 from . import quiet_save  # Nov 15: no ⌘S chores, ~1 s freshness, one "You already did" card instead of a cascade
 from . import run_pointing  # t7: the Run ▷ found once VS Code filled its AX tree; a Not yet in the code boxes the code
+from . import offtrack_targets  # t8: a lesson's Not yet carries the culprit lines as its targets (the card steps off)
 
 log = logging.getLogger("orchestrator.session")
 
@@ -435,6 +436,8 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
             payload = missing_module.setup_without_open(self, payload)  # editor open: Install is the setup card's button
         if self.lesson_mode and type_ in ("card", "offtrack") and payload:
             payload = self._one_box(type_, payload)  # t5 (a): the engine's spotlight is the one box (no card targets)
+            if type_ == "offtrack":  # t8: but the off-track names its culprit lines (the app's card steps off them)
+                payload = await offtrack_targets.attach(self, payload)
         if type_ == "card" and where_row.offers_open(payload):  # no "Open nn.py" when nn.py is the active file
             payload = await where_row.filter_card(self, payload)
             if payload is None:
@@ -443,6 +446,8 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
             answered.add(type_)  # a spotlight clear is not an answer
         if type_ == "offtrack" and payload:  # t7: the card's "expected" column: the curated lesson's own run first
             await curated.send_reference(self)
+        elif type_ == "card":
+            offtrack_targets.carded(self)  # it takes the off-track card's place: no off-track re-send on top of it
         await self._emit_raw(type_, payload or {})
 
     def _bind_epoch(self) -> None:
@@ -2265,6 +2270,8 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
         for k in ("complete", "builtBy", "mode", "provisional"):  # E2: progressive builds / who watched the video / no-video lesson
             if k in lesson:
                 info[k] = lesson[k]
+        if lesson.get("curated"):  # t8: a hand-written lesson (also one saved before builtBy said so): never "Claude wrote"
+            info["builtBy"] = curated.BUILT_BY
         if lesson.get("goalMatch"):
             info["goalMatch"] = lesson["goalMatch"]
         if isinstance(lesson.get("primer"), list) and lesson["primer"]:  # "Before you start" concepts (contract 9fdd9db)
@@ -2310,6 +2317,8 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
             if isinstance(step.get(k), str) and step[k].strip():
                 return step[k].strip()
         if cmd := self._run_command(step):
+            if self.lesson_mode and (f := self._run_button_file(step, cmd)):  # t8: the ▷ the step's box points at
+                return f"Click ▷ to run {f} (or run {cmd.splitlines()[0]} in the terminal)"
             return f"Run {cmd.splitlines()[0]} in the VS Code terminal"
         code, file = (step.get("code") or "").strip(), (self._step_file(step) or "").strip()
         first = next((ln.strip() for ln in code.splitlines() if ln.strip() and not ln.strip().startswith("#")), "")
@@ -3040,7 +3049,9 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
             results = list(gate.get(shown_list) or [])
             if gate.get("passed") and gate.get("via") != shown_list:  # green by the other route: show it green
                 why = "confirmed by your files" if gate.get("via") == "precision" else "confirmed on screen"
-                results = [r if r.get("status") == "pass" else {**r, "status": "pass", "detail": why} for r in results]
+                ran_ids = self._run_row_ids(step)  # t8: a row about the run's output says so, in plain words
+                results = [r if r.get("status") == "pass" else {**r, "status": "pass", "detail": "your run printed it"
+                           if r.get("checkId") in ran_ids else why} for r in results]
             results, gate = self._need_run(step, results, gate)  # a run step needs a run, not just its code
             results, gate = self._defs_once(step, results, gate)  # T5: no later copy of the step's def overriding it
             if gate.get("passed") and (self._dirty_step_file(step) or self._other_folder(step)
@@ -3084,6 +3095,7 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
                             speak_now = code_rows[0].get("checkId") == f"{sid}-syntax" and \
                                 (self.check_state.get(f"{sid}-syntax") or {}).get("status") != "fail"
             self._save_file = None if gate.get("passed") else self._save_to_finish(step, results)
+            results = curated.math_details(self, step, results)  # t8: "needs 1 - h2 ** 2 on line 25, not 1 + h2 ** 2"
             self.last_results = results
             failed = [r for r in results if r.get("status") == "fail"]
             if not gate.get("passed"):
@@ -3118,6 +3130,15 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
                     self._consider_speaking("repeat" if repeat else "breakpoint", step, failed, ctx)
 
     _FILE_DETAIL = re.compile(r"(found in|typed in|confirmed by your files)\b")
+
+    @staticmethod
+    def _run_row_ids(step: dict) -> set:
+        """The step's rows about what a run prints (an output check, a check on the Terminal's text), when the files
+        route grades the run's output too (a precision output check): its pass means the run printed it."""
+        if not any(c.get("type") == "output_contains" for c in step.get("precision_checks") or []):
+            return set()
+        return {c.get("id") for c in step.get("checks") or [] if c.get("type") == "output_contains"
+                or "terminal" in str(c.get("app") or "").lower()}
 
     async def _publish(self, step: dict, results: list[dict]) -> None:
         screen_ids = {c.get("id") for c in step.get("checks") or [] if c.get("type") == "screen_contains"}
@@ -3927,6 +3948,8 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
             hit = next((t for t in full["targets"] if on_line(t)), None)
             spot = self._target_spot({**hit, "label": cap or self._plain(hit.get("label")) or title}) if hit else None
         if getattr(self, "_early_spot", False) and spot is None:
+            if self.spot_rect is not None:  # t8: that box is the card's culprit region
+                await offtrack_targets.update(self, self.spot_rect, self._spot_caption or title, anchor)
             return  # the streamed target spotlight is already up
         if not spot:
             await self._spotlight_target(step)
@@ -3937,6 +3960,9 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
 
         owner = {"owner": "offtrack"} if "owner" in inspect.signature(self._show_spot).parameters else {}
         await self._show_spot(spot, **owner)  # owner: the spotlight cluster's argument, once it has landed
+        # t8: the off-track again, with that line as its target (measured after VS Code scrolled there): the app's
+        # card steps off it (test 8: no targets, and the nn4 card sat on the W1 line it was about)
+        await offtrack_targets.update(self, spot.get("rect"), spot.get("caption") or title, anchor)
 
     # ------------------------------------------------------------------ inputs
     async def on_screen(self, obs: Any = None) -> None:
@@ -4873,6 +4899,7 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
             if not self._carded_checks <= self._offtracked_checks:
                 self.spoken_sig = None  # the diagnosis it held back was never shown: the next save / run may speak
             self._carded_checks = set()
+        await offtrack_targets.card_closed(self)  # t8: the off-track card is on top again: its waiting targets
 
     async def _apply_fix(self, step: dict) -> None:
         """"Do it for me": the learner saw the diff on the offtrack card and pressed the button.
@@ -5324,6 +5351,16 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
         file open answers), so the save rule decides. From this tick's reads (self._buffers): no HTTP here."""
         return [self._buffers.unsaved_text(p) for p in paths]
 
+    def _run_how(self, step: dict, cmd: str) -> str:
+        """The run row's how-to (t8): the ▷ the step's box points at when it runs the command on its own, the terminal
+        too; "Run it for me" only where a button says so (a Demo's Run it card; elsewhere it isn't on screen)."""
+        first = next((ln.strip() for ln in (cmd or "").splitlines() if ln.strip()), "")
+        demo = stage.on(self)
+        if self.lesson_mode and (f := self._run_button_file(step, first)):
+            return f"Click ▷ to run {f}, or press Run it for me" if demo else \
+                f"Click ▷ to run {f} (or run {first} in the terminal)"
+        return f"Run {first} in the terminal" + (" (or press Run it for me)" if demo else "")
+
     def _need_run(self, step: dict, results: list[dict], gate: dict) -> tuple[list[dict], dict]:
         """Lesson mode: a run step ("Run your first output") can't pass on its code alone, it needs a run of its
         command since the step began. Evidence, any one: a `tut run` / Run it for me (subprocess) run; VS Code's
@@ -5351,8 +5388,7 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
         count, same, out = (self._checks_fn(n) for n in ("terminal_runs", "command_matches", "run_output"))
         if not cmd or count is None or same is None or out is None:
             return results, gate
-        base = {"checkId": f"{step['id']}-ran", "label": _ran(cmd), "status": "pending",
-                "detail": "Run it in the terminal (or press Run it for me)"}
+        base = {"checkId": f"{step['id']}-ran", "label": _ran(cmd), "status": "pending", "detail": self._run_how(step, cmd)}
         from . import terminal_run
 
         def ended(code: int | None, lines: Any) -> dict:  # a run that finished: green, or why not

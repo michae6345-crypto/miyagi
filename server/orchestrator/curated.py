@@ -64,6 +64,7 @@ KEY = "nn-from-scratch"
 LESSON_FILE = config.DEMO_CACHE / "lessons" / "text-nn-from-scratch.json"
 STARTER_FILE = config.REPO_ROOT / "demo" / "nn-start.py"
 FILE = "nn.py"
+BUILT_BY = "curated"  # lesson.ready builtBy (contract): written by hand, no model wrote it (the app shows no "… wrote this lesson")
 LAYERS = (1, 4, 4, 1)
 TRAIN_STEP, TEST_STEP = "nn4", "nn6"  # the run steps: training (the stuck moment), and the run that prints the weights
 # All weights 0: every hidden neuron outputs tanh(0) = 0 and gets the same (zero) update, so the output stays 0 for every
@@ -153,6 +154,7 @@ def lesson_for(goal: str, force: bool = False) -> dict | None:
         return None
     g.setdefault("lesson", {})["curated"] = KEY
     g["lesson"]["mode"] = "lesson"
+    g["lesson"]["builtBy"] = BUILT_BY  # t8: hand-written, not "Claude wrote this lesson"
     g["lesson"]["asked"] = str(goal).strip()  # what the learner typed (the lesson keeps its own goal and folder)
     for st in g.get("steps", []):
         st.pop("video", None)
@@ -520,21 +522,182 @@ async def send_reference(session: Any) -> None:
         log.exception("curated: no reference curve")
 
 
-def metric_detail(check: dict, losses: list[tuple[int, float]]) -> str | None:
-    """A loss row's detail from this run's printed losses, in the checks module's words: "loss 0.0009 < 0.01 at step
-    18000" (passed) / "loss 0.4900 at step 18000, need < 0.01" (not yet; the app shows 0.4900 under yours and the
-    label's 0.01 under expected). None: this run printed no loss (a crash: the row says so, never an older run's)."""
+def _verdict(check: dict, losses: list[tuple[int, float]]) -> tuple[int, float, bool | None] | None:
+    """(epoch, loss, passed) of the LAST printed row at or before the check's by_step (test 8: the row said 0.0013, the
+    epoch-14000 value the checks module's 3-point median picked, while nn.py's last line said 0.0009). passed None:
+    the check has no target."""
     if not losses:
         return None
     by = check.get("by_step")
     upto = [(e, v) for e, v in losses if by is None or e <= by] or losses
     e, v = upto[-1]
-    name, op, target = check.get("metric") or "loss", check.get("op") or "<", check.get("value")
+    op, target = check.get("op") or "<", check.get("value")
     if not isinstance(target, (int, float)):
-        return f"{name} {v:.4f} at step {e}"
-    ok = {"<": v < target, "<=": v <= target, ">": v > target, ">=": v >= target}.get(op, False)
-    return (f"{name} {v:.4f} {op} {target:g} at step {e}" if ok
-            else f"{name} {v:.4f} at step {e}, need {op} {target:g}")
+        return e, v, None
+    return e, v, {"<": v < target, "<=": v <= target, ">": v > target, ">=": v >= target}.get(op, False)
+
+
+_OP_WORD = {"<": "below", "<=": "at most", ">": "above", ">=": "at least"}
+
+
+def metric_detail(check: dict, losses: list[tuple[int, float]]) -> str | None:
+    """A loss row's detail from this run's last printed loss, as nn.py prints it (0.0009, never 9.0e-4): "loss 0.0009,
+    below 0.01" (passed) / "loss 0.4900 at step 18000, need < 0.01" (not yet: the app's Not yet card reads 0.4900 under
+    yours from exactly "<value> at step <n>", Evidence.tsx readingValue, and the label's 0.01 under expected). None:
+    this run printed no loss (a crash: the row says so, never an older run's)."""
+    got = _verdict(check, losses)
+    if got is None:
+        return None
+    e, v, ok = got
+    name, op, target = check.get("metric") or "loss", check.get("op") or "<", check.get("value")
+    if ok is None:
+        return f"{name} {_fmt(v)} at epoch {e}"
+    return (f"{name} {_fmt(v)}, {_OP_WORD.get(op, op)} {target:g}" if ok
+            else f"{name} {_fmt(v)} at step {e}, need {op} {target:g}")
+
+
+# ---------------------------------------------------------------------------------------------------------- math rows
+
+# t8 (05:51:25 nn2c4): the tanh-slope row failed on `d_h2 = d_out @ W3.T * (1 + h2 ** 2)` and its detail said "not in
+# nn.py yet", which reads as "you didn't type it". The curated math checks (t6: each step's key math, exact) now say
+# what's wrong and where: "needs 1 - h2 ** 2 on line 25, not 1 + h2 ** 2". "not in nn.py yet" stays only when the code
+# really isn't there. Worded to open like the app's status text ("needs", "still needs": app code.ts isProse), so the
+# Not yet card's evidence never shows the sentence as the learner's code ("yours"). One part per line the check needs:
+# the line it is (matched at the line's start), the right math on it (the check's own pattern for that line), what it
+# should say (the lesson's code), and the bit of a wrong line to quote.
+_SLOPE = r"\(\s*(1(?:\.0*)?\s*[-+](?:[^()]|\([^()]*\))*)\)"  # the slope factor (1 ± …) on a d_h line
+_UPDATE = r"{p}\s*(?:-=|=\s*{p}\s*-)\s*lr\s*\*\s*d{p}\b"
+
+
+def _part(find: str, ok: str, want: str, name: str, focus: str | None = None, bare: str | None = None) -> dict:
+    """find: the line (at its start); ok: the right math on it; want: what it should say; name: the line when it is
+    missing ("b3 -= lr * db3"); focus: the bit of a wrong line to quote (group 1), else what follows its `=` / return;
+    bare: the detail when focus finds nothing ({n} = the line)."""
+    return {"find": re.compile(rf"^\s*(?:{find})"), "ok": re.compile(ok), "want": want, "name": name,
+            "focus": re.compile(focus) if focus else None, "bare": bare}
+
+
+def _slope(h: str, grad: str, w: str) -> dict:
+    return _part(rf"{grad}\s*=(?!=)",
+                 rf"\*\s*\(\s*1(?:\.0*)?\s*-\s*(?:{h}\s*\*\*\s*2(?:\.0*)?|{h}\s*\*\s*{h}|np\.square\(\s*{h}\s*\))\s*\)",
+                 f"1 - {h} ** 2", f"{grad} = {w}", focus=_SLOPE,
+                 bare=f"needs the tanh slope * (1 - {h} ** 2) on line {{n}}")
+
+
+MATH_PARTS: dict[str, list[dict]] = {
+    "nn1c4": [  # Hidden layers use tanh, the output doesn't
+        _part(r"h1\s*=(?!=)", r"h1\s*=\s*np\.tanh\(\s*X\s*(?:@\s*W1|\.dot\(\s*W1\s*\))\s*\+\s*b1\s*\)",
+              "np.tanh(X @ W1 + b1)", "h1 = np.tanh(X @ W1 + b1)"),
+        _part(r"h2\s*=(?!=)", r"h2\s*=\s*np\.tanh\(\s*h1\s*(?:@\s*W2|\.dot\(\s*W2\s*\))\s*\+\s*b2\s*\)",
+              "np.tanh(h1 @ W2 + b2)", "h2 = np.tanh(h1 @ W2 + b2)"),
+        _part(r"return\s+h1\s*,", r"return\s+h1\s*,\s*h2\s*,\s*h2\s*(?:@\s*W3|\.dot\(\s*W3\s*\))\s*\+\s*b3\s*$",
+              "h2 @ W3 + b3", "return h1, h2, h2 @ W3 + b3", focus=r"return\s+h1\s*,\s*h2\s*,\s*(.*\S)"),
+    ],
+    "nn2c2": [  # The error flows back through W3 and W2
+        _part(r"d_h2\s*=(?!=)", r"d_h2\s*=\s*d_out\s*@\s*W3\.T\b", "d_out @ W3.T", "d_h2 = d_out @ W3.T * (1 - h2 ** 2)",
+              focus=r"=\s*([\w.]+\s*(?:@|\.dot\()\s*[\w.]+)"),
+        _part(r"d_h1\s*=(?!=)", r"d_h1\s*=\s*d_h2\s*@\s*W2\.T\b", "d_h2 @ W2.T", "d_h1 = d_h2 @ W2.T * (1 - h1 ** 2)",
+              focus=r"=\s*([\w.]+\s*(?:@|\.dot\()\s*[\w.]+)"),
+    ],
+    "nn2c3": [  # The error starts as 2 * (out - y) / len(X)
+        _part(r"d_out\s*=(?!=)",
+              r"d_out\s*=\s*2(?:\.0*)?\s*\*\s*\(\s*out\s*-\s*y\s*\)\s*/\s*(?:len\(\s*X\s*\)|X\.shape\[\s*0\s*\])",
+              "2 * (out - y) / len(X)", "d_out = 2 * (out - y) / len(X)"),
+    ],
+    "nn2c4": [_slope("h2", "d_h2", "d_out @ W3.T * (1 - h2 ** 2)"),  # Uses the tanh slope 1 - h² on both layers
+              _slope("h1", "d_h1", "d_h2 @ W2.T * (1 - h1 ** 2)")],
+    "nn3c2": [  # Every weight and bias steps downhill
+        _part(rf"{p}\s*(?:[-+*/]=|=\s*{p}\b)", _UPDATE.format(p=p), f"{p} -= lr * d{p}", f"{p} -= lr * d{p}",
+              focus=r"^\s*(.*\S)")
+        for p in ("W3", "b3", "W2", "b2", "W1", "b1")],
+    "nn3c4": [  # The loss is the mean squared error
+        _part(r"loss\s*=(?!=)", r"loss\s*=\s*np\.mean\(\s*\(\s*(?:out\s*-\s*y|y\s*-\s*out)\s*\)\s*\*\*\s*2\s*\)",
+              "np.mean((out - y) ** 2)", "loss = np.mean((out - y) ** 2)"),
+    ],
+}
+MATH_PARTS.update({cid.replace("c", "p", 1): parts for cid, parts in list(MATH_PARTS.items())})  # the files route's
+# rows (precision checks nn2p4 …, shown when VS Code's text isn't read): the same patterns as nn2c4 …
+QUOTE_CHARS = 40  # a quoted bit longer than this is cut at a word (the drawer row is narrow)
+
+
+def _quote(text: str) -> str:
+    t = " ".join(str(text).split())
+    if len(t) <= QUOTE_CHARS:
+        return t
+    return t[:QUOTE_CHARS].rsplit(" ", 1)[0] + " …"
+
+
+def math_detail(check_id: str | None, lines: list[str]) -> str | None:
+    """A curated math row that fails, worded from the file: "needs 1 - h2 ** 2 on line 25, not 1 + h2 ** 2" (the first
+    wrong line), "still needs b3 -= lr * db3" (one of its lines is missing while others are there: code_gate's Not yet
+    body says "add b3 -= lr * db3"). None: not a math row, none of its lines is in the file (the row's own "not in
+    nn.py yet" is true), or every line reads right (it fails for another reason: the row's own detail stands)."""
+    parts = MATH_PARTS.get(str(check_id or ""))
+    if not parts:
+        return None
+    code = [ln.split("#", 1)[0].rstrip() for ln in lines]  # (no `#` in this lesson's math)
+    found, absent = 0, None
+    for part in parts:
+        hits = [(i, ln) for i, ln in enumerate(code, start=1) if part["find"].match(ln)]
+        if not hits:
+            absent = absent or part["name"]
+            continue
+        found += 1
+        if any(part["ok"].search(ln) for _, ln in hits):
+            continue
+        n, ln = hits[0]
+        m = part["focus"].search(ln) if part["focus"] else None
+        if m is None and part["bare"]:
+            return part["bare"].format(n=n)
+        have = m.group(1) if m else re.split(r"^\s*(?:return\b|[\w.]+\s*[-+*/]?=)", ln, maxsplit=1)[-1]
+        return f"needs {part['want']} on line {n}, not {_quote(have)}"
+    if found and absent:
+        return f"still needs {absent}"
+    return None
+
+
+def _loss_rows(session: Any, step: dict, results: list[dict]) -> list[dict]:
+    """The loss row's detail from the run's LAST printed row (metric_detail), when its verdict is the row's."""
+    check = _loss_check(step)
+    if check is None or not any(r.get("checkId") == check.get("id") and r.get("status") in ("pass", "fail")
+                                for r in results):
+        return results
+    got = _read_run(session)
+    losses = got[1]["losses"] if got else []
+    verdict = _verdict(check, losses)
+    detail = metric_detail(check, losses)
+    if verdict is None or verdict[2] is None or detail is None:
+        return results
+    want = "pass" if verdict[2] else "fail"
+    return [{**r, "detail": detail} if r.get("checkId") == check.get("id") and r.get("status") == want else r
+            for r in results]
+
+
+def math_details(session: Any, step: dict, results: list[dict]) -> list[dict]:
+    """session.evaluate: the curated lesson's failing math rows say what's wrong and where (math_detail), from the
+    step's file as VS Code has it (unsaved edits included), else the disk; its loss row reads the run's last printed
+    loss (_loss_rows). Other rows / lessons: as they were."""
+    if not active(session):
+        return results
+    try:
+        results = _loss_rows(session, step, results)
+    except Exception:  # noqa: BLE001 - the row's own detail stands
+        log.exception("curated: no loss row detail")
+    if not any(r.get("status") == "fail" and r.get("checkId") in MATH_PARTS for r in results):
+        return results
+    try:
+        path, lines = session._step_lines(step)
+    except Exception:  # noqa: BLE001 - the rows' own details stand
+        log.exception("curated: no file text for the math rows")
+        return results
+    if path is None or not lines:
+        return results
+    out = []
+    for r in results:
+        if r.get("status") == "fail" and (d := math_detail(r.get("checkId"), lines)):
+            r = {**r, "detail": d}
+        out.append(r)
+    return out
 
 
 def _with_frames(d: dict, frames: list[dict], mode: str | None = None, caption: str | None = None) -> dict:
@@ -673,7 +836,8 @@ def live_frames(ref: list[dict], losses: list[tuple[int, float]], final: dict | 
 
 
 def _fmt(v: float) -> str:
-    return f"{v:.4f}" if v >= 1e-4 else f"{v:.1e}"
+    """A loss as nn.py prints it (f"{loss:.4f}"): 0.0009, never 9.0e-4 (test 8)."""
+    return f"{v:.4f}"
 
 
 def _train_caption(losses: list[tuple[int, float]], final: dict | None, same: bool = True) -> str:

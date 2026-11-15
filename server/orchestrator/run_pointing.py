@@ -221,8 +221,8 @@ def _name_error(s: Any, step: dict, path: Path, lines: list[str], run: Any) -> d
 
 
 def culprit(s: Any, step: dict | None) -> dict | None:
-    """A run step's "Not yet" whose cause is in the code -> {path, first, last, caption, why} (1-based lines of the
-    step's file, VS Code's unsaved text when the companion has it); None: not such a step, nothing fails, or the cause
+    """A run step's "Not yet" whose cause is in the code -> {path, first, last, caption, why, text} (1-based lines of
+    the step's file, VS Code's unsaved text when the companion has it; text: those lines, stripped); None: not such a step, nothing fails, or the cause
     was changed since (a rerun is next)."""
     if (step is None or not getattr(s, "lesson_mode", False) or s.step is not step or s.passed
             or not s._run_command(step)):
@@ -235,7 +235,10 @@ def culprit(s: Any, step: dict | None) -> dict | None:
         return None
     got = (_stuck_lines(lines) if _stuck(s, step) else None) \
         or _named_line(s, step, path, lines, run) or _name_error(s, step, path, lines, run)
-    return {**got, "path": path} if got else None
+    if not got:
+        return None
+    text = "\n".join(ln.strip() for ln in lines[got["first"] - 1:got["last"]] if ln.strip())
+    return {**got, "path": path, "text": text}
 
 
 def _line_location(s: Any, path: Path, line: int) -> dict:
@@ -286,17 +289,45 @@ async def culprit_spot(s: Any, step: dict) -> dict | None:
     if (r1 is None or r2 is None) and await reveal(s, path, (first + last) // 2):
         await asyncio.sleep(REVEAL_WAIT_S)  # measured after VS Code scrolled (t7: a box placed before a scroll stayed)
         r1, r2 = await _rows(s, path, first, last)
-    if r1 is None and r2 is None:
+    rect = _span_rect(r1, r2, first, last)
+    if rect is None:
         log.info("run step %s: lines %d-%d of %s aren't on screen: no box", step.get("id"), first, last, path.name)
         return {}
+    s._culprit_box = (s.step_gen, c["caption"], c["why"])
+    from . import offtrack_targets  # t8: the Not yet card steps off these lines too (once it is on top again)
+
+    await offtrack_targets.update(s, rect, c["caption"], c.get("text", ""))
+    return {"rect": rect, "caption": c["caption"], "app": "Code"}
+
+
+def _span_rect(r1: dict | None, r2: dict | None, first: int, last: int) -> dict | None:
+    """The box over lines first..last from their two rows (one may be missing: it is a row pitch away). None: neither
+    row is on screen."""
+    if r1 is None and r2 is None:
+        return None
     r1 = r1 or {**r2, "y": float(r2["y"]) - float(r2["h"]) * (last - first)}
     r2 = r2 or {**r1, "y": float(r1["y"]) + float(r1["h"]) * (last - first)}
     x = min(float(r1["x"]), float(r2["x"]))
     y = float(r1["y"])
     w = max(float(r1["x"]) + float(r1["w"]), float(r2["x"]) + float(r2["w"])) - x
     h = max(float(r1["h"]), float(r2["y"]) + float(r2["h"]) - y)
-    s._culprit_box = (s.step_gen, c["caption"], c["why"])
-    return {"rect": {"x": x, "y": y, "w": w, "h": h}, "caption": c["caption"], "app": "Code"}
+    return {"x": x, "y": y, "w": w, "h": h}
+
+
+async def culprit_target(s: Any, step: dict) -> dict | None:
+    """t8: the culprit lines as an off-track target ({boxId, label, text, rect}), measured where VS Code shows them
+    NOW (no scroll: lines scrolled off can't be under the card; a later Hint / Show me scrolls and measures them, and
+    offtrack_targets.update sends that). None: no culprit, or not on screen."""
+    c = culprit(s, step)
+    if c is None:
+        return None
+    r1, r2 = await _rows(s, c["path"], c["first"], c["last"])
+    rect = _span_rect(r1, r2, c["first"], c["last"])
+    if rect is None:
+        return None
+    from . import offtrack_targets
+
+    return offtrack_targets.target(rect, c["caption"], c.get("text", ""))
 
 
 async def follow(s: Any) -> None:

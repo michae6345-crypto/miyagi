@@ -160,7 +160,7 @@ class LessonInfo(_Model):
     title: str
     sources: list[Source]
     complete: bool | None = None  # False: a long video is still building (lesson.updated follows)
-    builtBy: Literal["gemini", "claude", "mixed", "chapters", "unknown"] | None = None  # chapters = provisional quick start
+    builtBy: Literal["gemini", "claude", "mixed", "chapters", "unknown", "curated"] | None = None  # chapters = provisional quick start; curated = written by hand (curated.py), no model
     goalMatch: GoalMatch | None = None
     mode: Literal["video", "lesson"] | None = None  # "lesson": no video ("Just teach me")
     provisional: bool | None = None  # True: a placeholder from the chapter list; a fresh lesson.ready replaces it
