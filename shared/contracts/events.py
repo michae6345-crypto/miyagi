@@ -51,6 +51,7 @@ class StepSummary(_Model):
     title: str
     video: VideoSegment | None = None
     kind: StepKind | None = None  # code = type in the file, run = run a command, read = learn a concept first
+    what: str | None = None  # what this step builds, <= 12 words (shown in the step list as the plan)
 
 
 class PrimerItem(_Model):
@@ -116,6 +117,7 @@ class LessonInfo(_Model):
     mode: Literal["video", "lesson"] | None = None  # "lesson": no video ("Just teach me")
     provisional: bool | None = None  # True: a placeholder from the chapter list; a fresh lesson.ready replaces it
     primer: list[PrimerItem] | None = None  # "Before you start": the concepts the steps rely on (lesson mode)
+    overview: str | None = None  # "What we're building": the project and the plan in plain words, <= 60 words
 
 
 class LessonReady(_Model):
@@ -146,6 +148,7 @@ class StepStarted(_Model):
     what: str | None = None  # what you're building in this step, <= 12 words ("A function named add that returns a + b")
     why: str | None = None  # what it means / why it matters, <= 25 words
     concepts: list[str] | None = None  # primer ids this step uses
+    code: str | None = None  # the exact code to type (code steps) or command to run (run steps), in full
 
 
 class CheckUpdated(_Model):

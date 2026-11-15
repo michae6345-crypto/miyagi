@@ -230,8 +230,12 @@ export function useThinking(): boolean {
   return useLesson((s) => s.engineState === 'thinking')
 }
 
-/** "Gemini watched this video" style line, from lesson.builtBy (undefined when unknown). */
-export function builtByLabel(by: LessonInfo['builtBy']): string | undefined {
+/**
+ * "Gemini watched this video" style line, from lesson.builtBy (undefined when unknown).
+ * mode "lesson" ("Just teach me"): Claude wrote the lesson and no tutorial was read, so "Claude wrote this lesson".
+ */
+export function builtByLabel(by: LessonInfo['builtBy'], mode?: LessonInfo['mode']): string | undefined {
+  if (mode === 'lesson' && (by === 'claude' || by === 'unknown' || by == null)) return 'Claude wrote this lesson'
   return by === 'gemini' ? 'Gemini watched this video' : by === 'claude' ? 'Claude read this tutorial' : by === 'mixed' ? 'Built by Gemini and Claude' : undefined
 }
 

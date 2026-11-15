@@ -56,7 +56,7 @@ export function partLine(complete: boolean, pendingNext: boolean): string | unde
 }
 
 export function Meta(): ReactNode {
-  const m = useLesson(useShallow((s) => ({ by: builtByLabel(s.lesson?.builtBy), part: partLine(s.complete, s.pendingNext) })))
+  const m = useLesson(useShallow((s) => ({ by: builtByLabel(s.lesson?.builtBy, s.lesson?.mode), part: partLine(s.complete, s.pendingNext) })))
   if (!m.by && !m.part) return null
   return (
     <div className="mt-[16px] flex items-center justify-between gap-[12px] text-[13px] leading-[17px]" style={{ color: color.faint }}>
