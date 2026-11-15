@@ -16,7 +16,7 @@ import time
 from collections.abc import Awaitable, Callable
 from typing import Any
 
-from . import perf
+from . import bg, perf
 from .config import env_flag
 
 log = logging.getLogger("orchestrator.screen")
@@ -139,7 +139,7 @@ class ScreenBridge:
 
         def cb(new: dict | None, old: dict | None) -> None:  # E6's poller thread
             app = str((new or {}).get("app") or "")
-            loop.call_soon_threadsafe(lambda: asyncio.ensure_future(on_front(app)))
+            loop.call_soon_threadsafe(lambda: bg.spawn(on_front(app)))  # held until done (V13)
 
         try:
             self._front_unsub = r.on_frontmost_change(cb)
