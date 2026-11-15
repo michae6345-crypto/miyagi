@@ -53,7 +53,8 @@ def test_cached_lesson_step1_uses_the_lessons_venv():
     # checks: pip's own output can never show any more; the venv file check looks in .venv
     labels = [c["label"] for c in s1["checks"]]
     assert "Packages installed via pip" not in labels and "Jupyter server running" in labels
-    assert [(c["file"], c["label"]) for c in s1["precision_checks"]] == [(".venv/bin/activate", "Lesson .venv ready")]
+    # t10: the venv file check goes: Miyagi made .venv, so it passed s1 ("confirmed by your files") with no action
+    assert s1["precision_checks"] == []
     assert s1["targets"] == [{"app": "Terminal", "match": "jupyter notebook", "caption": "Run this in the VS Code terminal"}]
     # the notebook steps are untouched
     assert [st for st in g["steps"][1:]] == lesson()["steps"][1:]
@@ -106,7 +107,7 @@ def test_lesson_load_sends_the_venv_step(tmp_path, monkeypatch):
     assert not NEW_VENV.search(sent) and "pip3 install" not in sent, sent
     assert "source .venv/bin/activate && jupyter notebook" in sent
     pending = {p["label"] for p in rig.of("check.updated") if p["stepId"] == "s1"}  # no screen here: the file checks
-    assert pending == {"Lesson .venv ready"}
+    assert pending == {"Jupyter server running", "No terminal errors"}  # t10: no vacuous .venv file check
     s1 = rig.s.graph["steps"][0]
     assert s1["run_command"] == "source .venv/bin/activate && jupyter notebook"
     assert [c["label"] for c in s1["checks"]] == ["Jupyter server running", "No terminal errors"]
