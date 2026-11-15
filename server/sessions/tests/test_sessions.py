@@ -120,12 +120,12 @@ def test_progress_saved_on_step_and_video_and_in_memory_card_uses_it():
 
         e.clock.t += 600  # the app was away 10 min; E4's engine asks to resume (lesson frozen in memory)
         msgs = e.s.snapshot(ask_resume=True)
-        assert [t for t, _ in msgs] == ["video.pause", "card"] and e.s.awaiting_resume
+        assert [t for t, _ in msgs] == ["spotlight", "video.pause", "card"] and e.s.awaiting_resume
         before = (state_dir_of() / "current.json").read_text()
         assert e.r.save_now() is None  # frozen: nothing may overwrite the save (disconnect, stop, player)
         await e.s.video_state(seg["start"] + 30, True)
         assert (state_dir_of() / "current.json").read_text() == before
-        assert msgs[1][1]["body"].endswith("step 2 of %d · 10 min ago" % n)
+        assert msgs[2][1]["body"].endswith("step 2 of %d · 10 min ago" % n)
         for t, p in msgs:
             engine_message(t, p)
         m = e.mark()
@@ -185,7 +185,9 @@ def test_end_lesson_clears_the_save_and_new_learn_too():
         await e.s.load_graph(stubs.load_fixture_lesson())
         await e.settle()
         assert sessions.load() is not None
-        await e.s.end_lesson("end_lesson")
+        await e.s.end_lesson("end_lesson")  # E11: "Start a new lesson" keeps it until another lesson is built
+        assert sessions.load()["stopped"] is True and e.s.snapshot()[-1][0] == "card"
+        await e.s.end_lesson("POST /end")  # a terminal's end clears it
         assert sessions.load() is None and sessions.load_graph() is None
         assert e.s.snapshot() == [("status", {"state": "idle"})]
 
@@ -195,6 +197,7 @@ def test_end_lesson_clears_the_save_and_new_learn_too():
         await e.s.learn("something else")  # a new lesson ends the old one
         await e.settle()
         assert sessions.load() is None
+        assert store.recent()[0]["lessonId"] == stubs.load_fixture_lesson()["lesson"]["id"]  # E11: on the recent list
 
     run(go())
 
@@ -297,15 +300,23 @@ def test_text_lesson_survives_restart_step_3_of_7_with_zero_build_calls():
     run(after())
 
 
-def test_end_lesson_on_the_resume_card_clears_and_goes_idle():
+def test_end_lesson_on_the_resume_card_keeps_it_until_another_lesson_is_built():
     e1 = Engine()
     run(e1.s.load_graph(_text_lesson_7()))
+    old_id = sessions.load()["lessonId"]
     e2 = Engine()
 
     async def go():
         assert e2.s.snapshot()[-1][0] == "card"
-        await e2.s.action("end_lesson")
-        assert sessions.load() is None and e2.s.snapshot() == [("status", {"state": "idle"})]
+        await e2.s.action("end_lesson")  # E11: a stray click on "Start a new lesson" no longer loses it
+        assert e2.s.graph is None and sessions.load()["lessonId"] == old_id
+        assert e2.s.snapshot()[-1][0] == "card"  # still offered by Continue
+        other = stubs.load_fixture_lesson()
+        other["lesson"]["id"] = "another-lesson"
+        await e2.s.load_graph(other)  # a new lesson is built: it replaces the save, the old one goes on the recent list
+        await e2.settle()
+        assert sessions.load()["lessonId"] == "another-lesson"
+        assert store.recent()[0]["lessonId"] == old_id
 
     run(go())
 
@@ -409,9 +420,11 @@ def test_graph_and_progress_commit_together(state_dir):
     store._write_atomic(state_dir / store._graph_name("L2"), g2)  # crash after the graph, before current.json
     assert sessions.load()["lessonId"] == "L1" and sessions.load_graph(sessions.load()) == g1
     sessions.save({"lessonId": "L2", "stepIndex": 0, "stepCount": 1}, g2)
-    assert sorted(p.name for p in state_dir.iterdir()) == ["current.json", "graph-L2.json"]
+    # recent.json: L1, replaced by L2, on the launcher's recent list (E11)
+    assert sorted(p.name for p in state_dir.iterdir()) == ["current.json", "graph-L2.json", "recent.json"]
+    assert [e["lessonId"] for e in store.recent()] == ["L1"]
     sessions.clear()
-    assert list(state_dir.iterdir()) == []
+    assert [p.name for p in state_dir.iterdir()] == ["recent.json"]  # the recent list outlives a clear
 
 
 def test_legacy_graph_file_still_resumes(state_dir):

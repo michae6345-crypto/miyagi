@@ -47,6 +47,9 @@ class Engine:
         self.workspace = Workspace()
         self.session = LessonSession(self._emit, self.modules, screen=self.screen, workspace=self.workspace,
                                      inputs=Inputs())
+        self.session.has_clients = lambda: bool(self.hub.clients)  # E4: only an app shows "Before you start"
+        # E7: the app left: no screen reading / looks / cards (an engine that never had one, e.g. rehearse_boxes, goes on)
+        self.session.app_left = lambda: not self.hub.clients and self.last_client_gone is not None
         self.watcher = Watcher(self.session.on_file_change, interval=config.WATCH_INTERVAL_S)
         self.session.on_workdir = self.watcher.set_root
         # E14: no off-track to an app that left (headless runs that never had an app still get them, e.g. /events)
@@ -97,7 +100,7 @@ class Engine:
         if not self.screen.start(self.session.on_screen):
             self.session.screen = None  # precision mode only (files + tut run)
         else:  # E6: app switch / Space swipe within ~0.25 s -> clear (or re-place) the spotlight at once
-            self.screen.watch_frontmost(self.session.on_frontmost)
+            self.screen.watch_frontmost(self.session.on_front_switch)  # (E5: also books the keys to the old app)
         if config.env_flag("ORCH_AUTOSTART"):  # no launcher needed: the lesson is live from the start
             if self.modules.demo and (graph := self.modules._lesson_file()):
                 await self.session.load_graph(graph)
@@ -150,7 +153,7 @@ class Engine:
         elif msg.type == "overlay.bounds":
             s.overlay_bounds([r.model_dump() for r in p.rects])
         elif msg.type == "end_lesson":  # the bar's / launcher's End: stop for now, the saved progress stays resumable
-            await s.end_lesson("stopped")  # (the resume card's "Start a new lesson" is action end_lesson: discards)
+            await s.end_lesson("stopped")  # (the resume card's "Start a new lesson", action end_lesson, keeps it too)
         elif msg.type == "config.keys":
             await self.hub.emit("config.status", apply_keys(p.model_dump()))
         elif msg.type in ("card.shown", "card.closed"):  # E14: what the learner really has on screen

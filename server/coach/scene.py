@@ -225,10 +225,30 @@ def step_brief(step: dict, *, step_file: str | None = None, run: str | None = No
     if labels:
         out.append("CHECKS:\n" + "\n".join(f"- {x}" for x in labels))
     out.append(f"SPOTLIGHT TARGET: {spot or 'none (answer false)'}")
-    if front_app:
-        out.append(f"FRONTMOST APP (from macOS): {front_app}")
+    if front_app:  # E5: the OS knows; the picture alone read "Code" while the Claude app was in front
+        out.append(f"FRONTMOST APP (from macOS; use it for `app`, and describe learner_doing in this app): {front_app}")
     out.append("Reply with the JSON.")
     return "\n".join(out)
+
+
+def _code_lines(text: str) -> list[str]:
+    return [" ".join(ln.split()) for ln in (text or "").splitlines() if ln.strip() and not ln.strip().startswith("#")]
+
+
+def typed_fraction(code: str, file_text: str) -> float | None:
+    """How much of the step's code is in the file: the share of its code lines (whitespace-normalized, comments left
+    out) found in the file's lines, in order. None when the step has no code. Deterministic (E5: the look guessed 0-40%
+    from the picture and swung between them with no edit)."""
+    want = _code_lines(code)
+    if not want:
+        return None
+    have = _code_lines(file_text)
+    i = hits = 0
+    for ln in want:
+        j = next((k for k in range(i, len(have)) if have[k] == ln), None)
+        if j is not None:
+            hits, i = hits + 1, j + 1
+    return round(hits / len(want), 2)
 
 
 def _xywh(r: Any) -> tuple[float, float, float, float]:
@@ -284,8 +304,10 @@ def _cost(inp: int, out: int) -> float:
 async def look(image: Any, step: dict, *, step_file: str | None = None, run: str | None = None,
                spot: str | None = None, front_app: str = "", mask: Sequence = (), scale: float = 1.0,
                origin: tuple[float, float] = (0.0, 0.0), frame: int | None = None, timeout: float | None = None,
-               client: Any = None) -> Scene:
+               client: Any = None, file_text: str | None = None) -> Scene:
     """One Haiku look at `image` (PIL, the reader's latest frame, overlay already masked) for `step` -> Scene.
+    front_app (macOS's frontmost app) and file_text (the step file's text) are facts: they replace the look's own
+    `app` and `typed_fraction`.
     Raises llm.CoachLLMError: kind "offline" (DEMO / ORCH_STUBS), "no_key", "connection" (incl. timeout), "api",
     "refusal", "bad_output". `client`: an AsyncAnthropic-like stub (tests); default the coach's BYOK client."""
     if client is None and llm.offline_mode():
@@ -339,6 +361,10 @@ async def look(image: Any, step: dict, *, step_file: str | None = None, run: str
         raise llm.CoachLLMError(f"scene: stop_reason={stop}", "refusal" if stop == "refusal" else "bad_output")
     sc = Scene(**parse(data), step_id=step.get("id"), frame=frame, ms=round(ms), input_tokens=inp, output_tokens=out,
                cost_usd=cost)
+    if front_app:
+        sc.app = _text(front_app, 60)
+    if file_text is not None and not run and (frac := typed_fraction(step.get("code") or "", file_text)) is not None:
+        sc.typed_fraction = frac
     log.info("scene look %s %.0fms img %dx%d in=%d out=%d $%.5f (total $%.4f, %d looks) | %s",
              step.get("id"), ms, size[0], size[1], inp, out, cost, _STATS["cost_usd"], _STATS["looks"], sc.brief())
     return sc
@@ -453,5 +479,6 @@ __all__ = [
     "reset_stats",
     "stats",
     "step_brief",
+    "typed_fraction",
     "with_error",
 ]

@@ -402,10 +402,21 @@ class LessonSession:
             return  # "Just teach me": there is no player
         if type_ == "spotlight" and (payload or {}).get("clear"):
             self.spot_rect, self._spot_caption = None, None  # the next target box goes out again
+        elif type_ == "spotlight" and (self.awaiting_resume or self.awaiting_start):
+            # E7: no box (or dim / code popup) behind the "Continue?" card or the "Before you start" sheet; the same
+            # box goes out again once the lesson runs (spot_rect forgotten, so it isn't taken as already shown)
+            self.spot_rect, self._spot_caption = None, None
+            log.info("no box while %s: %r", "Continue? is up" if self.awaiting_resume else "the lesson waits for Start",
+                     (payload or {}).get("caption"))
+            return
         ep = _EPOCH.get()
         if ep is not None and ep != self.lesson_epoch and type_ not in ALWAYS_SENT:
             log.info("dropped stale %s (lesson epoch %s, now %s)", type_, ep, self.lesson_epoch)
             return
+        if type_ == "lesson.ready" and self._ask_hook(self.has_clients, True):  # no app gets it: no sheet, no hold
+            self._hold_for_sheet((payload or {}).get("lesson"))  # E4: the app opens "Before you start" on it
+        elif type_ in ("card", "offtrack"):
+            self._last_shown_t = self.clock()  # E4: the stuck card keeps a minute away from any other card
         if type_ == "card" and where_row.offers_open(payload):  # no "Open nn.py" when nn.py is the active file
             payload = await where_row.filter_card(self, payload)
             if payload is None:
@@ -2035,6 +2046,13 @@ class LessonSession:
         self.idx = idx
         self.phase = "active"
         self._reset_step_state()
+        if idx > 0 and self.awaiting_start:  # the app closes the sheet when the first step isn't step 1 (store.ts):
+            self._start_hold, self._hold_fresh = None, False  # a restore / Continue at a later step is never held
+            log.info("lesson start (step %d started: no Before you start)", idx + 1)
+        held = self.awaiting_start  # E4: "Before you start" is up: this step begins on Start / the first edit
+        if held:
+            self._hold_fresh, self._hold_t, self._hold_sig = True, self.clock(), None
+        self._sync_screen_soon()  # E3: the reader runs again for a lesson step
         step = self.steps[idx]
         if self.lesson_mode:
             self._ensure_step_file(step)  # before the payload: step 1 reads "In calc.py, type …"
@@ -2095,7 +2113,7 @@ class LessonSession:
                                    "actions": ["run_command"]})
         await curated.on_step_started(self, step)  # curated lesson: the step's network in the right-hand panel
         await self._maybe_pass_setup_step()
-        if self.lesson_mode and not self.passed and self.step is step:
+        if self.lesson_mode and not self.passed and self.step is step and not held:  # held: the box comes on Start
             self._spawn(self._lesson_spot(self.step_gen, step), timer=True)
 
     MIN_SEGMENT_S = 3.0
@@ -2599,7 +2617,7 @@ class LessonSession:
 
     def learner_idle_s(self) -> float:
         own = self.clock() - self.last_action_t
-        v = self.inputs.seconds_since_input() if self.inputs is not None else None
+        v = self._work_since("input")  # E5: a click in the Claude app / keys in Miyagi's ask box aren't lesson work
         return own if v is None else min(own, v)
 
     def typing(self) -> bool:
@@ -2612,8 +2630,17 @@ class LessonSession:
             return False  # a step reached by Back: its code may be in the file already; a save / run / Check passes it
         if self.last_action_t >= self.step_t0:
             return True
-        v = self.inputs.seconds_since_input() if self.inputs is not None else None
+        v = self._work_since("input")  # E5: only input in the lesson's own editor / terminal
         return v is not None and v <= self.clock() - self.step_t0
+
+    def _work_since(self, kind: str) -> float | None:
+        """Seconds since the learner's last key / click / either ("input") in the lesson's own editor or terminal
+        (E5: inputs.py books every key and click to the app that got it); None without input signals."""
+        inp = self.inputs
+        if inp is None:
+            return None
+        fn = getattr(inp, f"seconds_since_work_{kind}", None) or getattr(inp, f"seconds_since_{kind}")
+        return fn()
 
     @staticmethod
     def _sig(failed: list[dict]) -> tuple:
@@ -2623,8 +2650,8 @@ class LessonSession:
     async def evaluate(self, trigger: str) -> None:
         """trigger: start | segment | file | run_end | metric | screen | manual | check (the learner asked)"""
         learner = trigger in ("file", "run_end", "metric", "check", "judge") or self._learner_evidence()
-        if self.awaiting_resume:
-            return  # frozen until the learner picks Continue / Start new
+        if self.awaiting_resume or self.awaiting_start:
+            return  # frozen until the learner picks Continue / Start new; held until Start / the first edit (E4)
         async with self._lock:
             step = self.step
             if step is None or self.passed or self.phase != "active":
@@ -2764,10 +2791,19 @@ class LessonSession:
     async def tick(self) -> None:
         """Called ~1/s: idle-after-action, stuck, and typing-deferred speech."""
         step = self.step
+        self._attribute_input()  # E5: the last second's keys / clicks, booked to the app that got them
+        self._sync_screen_soon()  # E3: the reader runs only while a lesson step does (and the app hasn't left)
         await self._check_screen_health()
+        if not self._clients_ok():
+            return  # E7: the app left: no scene look, judge, stuck card or coach for nobody
+        if self.awaiting_start:
+            await self._maybe_begin()  # E4: an edit of the step file / typing in the editor starts the held step
+            if self.awaiting_start:
+                return  # "Before you start" is up: no look, judge, stuck card or idle ladder yet
         await scene_watch.tick(self)  # a Haiku glance at the screen every ~5 s during a step (scene_watch.py)
         if step is not None and not self.passed and not self.awaiting_resume:
-            self._maybe_judge(step)
+            if self._go_t <= self.step_t0 or self.learner_started():  # after Continue: once they work again (E4)
+                self._maybe_judge(step)
             await self._maybe_stuck_card(step)
         if (step is None or self.passed or self.coaching or not self.last_failed or not self.engaged
                 or self.awaiting_resume):
@@ -2791,11 +2827,203 @@ class LessonSession:
     async def _open_gate(self, step: dict, timer: bool = False) -> None:
         """Show failing checks as failed, unmatched screen checks too. A verdict (judge / coach) opens it at once; the
         stuck / idle timer only once the learner did something on this step and its first ~20 s are over (E1)."""
-        if timer and (not self.learner_started() or self.clock() - self.step_t0 < self.offtrack_grace_s):
+        if self.awaiting_start or (timer and (not self.learner_started()
+                                              or self.clock() - self.step_t0 < self.offtrack_grace_s)):
             return
         if not (self.gate_open and self.screen_gate_open):
             self.gate_open = self.screen_gate_open = True
             await self._publish(step, self.last_results)
+
+    # ------------------------------------------------------------------ lesson lifecycle (E3 E4 E5 E7)
+    has_clients: Callable[[], bool] | None = None  # main.py: is an app connected now? (None: tests / the CLI: yes)
+    app_left: Callable[[], bool] | None = None  # main.py: no app now, and one was connected before (None: no)
+    _start_hold: int | None = None  # lesson epoch held by "Before you start" (E4)
+    _hold_fresh = False  # the step began under the sheet: it starts (clock, grace) on Start
+    _hold_t = 0.0  # when the hold began (session clock)
+    _hold_sig: Any = None  # the step file's text when the hold began (an edit starts the step)
+    _go_t = -1e9  # Start / Continue: learner_started() counts only what the learner does from then on
+    _last_shown_t = -1e9  # the last card / offtrack sent (any kind)
+    _screen_task: asyncio.Future | None = None
+    _no_client_since: float | None = None
+    SCREEN_NO_CLIENT_S = 3.0  # no app this long: the reader pauses (a reconnect blip doesn't)
+    START_ACTIONS = frozenset({"start", "open_editor", "show_me", "hint", "check_step", "skip_step", "run_command",
+                               "apply_fix", "confirm", "back", "use_this_folder", "undo"})  # they begin a held step
+    WORK_TERMINALS = ("terminal", "iterm", "warp")
+
+    @property
+    def awaiting_start(self) -> bool:
+        """A "Just teach me" lesson whose "Before you start" sheet is up (the app opens it on every lesson.ready of a
+        lesson with build / flow / prerequisites / learnFirst, and keeps it only when the first step.started is step 1):
+        VS Code opens under it as before, but no checks, judge, scene look, box, idle ladder, stuck card or off-track
+        until the learner presses / types in the lesson's editor (the overlay can't take focus, so "Start the lesson"
+        is a click with VS Code in front), edits the step file, presses a step control, or sends action start (E4)."""
+        return self._start_hold is not None and self._start_hold == self.lesson_epoch and self.graph is not None
+
+    def _hold_for_sheet(self, lesson: dict | None) -> None:
+        les = lesson or {}
+        if les.get("mode") != "lesson" or not any(les.get(k) for k in ("build", "flow", "prerequisites", "learnFirst")):
+            return
+        if self.idx > 0:  # Continue / a reconnect at a later step: the app shows no sheet (store.ts step.started)
+            return
+        if self._start_hold != self.lesson_epoch:
+            self._start_hold, self._hold_t, self._hold_sig = self.lesson_epoch, self.clock(), None
+            self._hold_fresh = False
+            log.info("lesson %s: waiting for Start (Before you start is up)", les.get("id"))
+
+    def _step_file_sig(self) -> Any:
+        step = self.step
+        f = self._step_file(step) if step is not None else None
+        if not f:
+            return None
+        from . import workspace as wsmod
+
+        p = wsmod.resolve_file(self.workdir, f)
+        try:
+            return hashlib.sha1(p.read_bytes()).hexdigest() if p is not None and p.is_file() else None
+        except OSError:
+            return None
+
+    async def _maybe_begin(self) -> None:
+        """tick, while held: the step file changed on disk, or the learner typed / clicked with the lesson's editor or
+        terminal in front. The app's "Start the lesson" and Esc send nothing, but the overlay can't take focus: they
+        land as a click / key with VS Code (opened under the sheet) in front, so they start the lesson too."""
+        sig = self._step_file_sig()
+        if self._hold_sig is None:
+            self._hold_sig = sig or ""
+        elif (sig or "") != self._hold_sig:
+            await self._begin("edited the step file")
+            return
+        v = self._work_since("input")
+        if v is not None and v < self.clock() - self._hold_t and self._front_now():  # front app known: not a guess
+            await self._begin("a key / click in the lesson's editor")
+
+    async def _begin(self, why: str) -> None:
+        """The held step begins: checks run, the spotlight goes up, and the grace / idle / stuck clocks start now (E4).
+        VS Code is already open on the step's file (it opens under the sheet), so nothing moves the learner's cursor."""
+        if not self.awaiting_start:
+            return
+        self._start_hold = None
+        now = self.clock()
+        if self._hold_fresh:  # step 1 started under the sheet: it really starts now
+            self.step_t0 = self.last_progress_t = now
+            if self.segment_done:
+                self.segment_end_t = now
+        self._hold_fresh = False
+        self._go_t = now
+        step = self.step
+        log.info("lesson start (%s): %s", why, (step or {}).get("id"))
+        if step is None or self.passed:
+            return
+        await self.evaluate("start")
+        if self.lesson_mode and not self.passed and self.step is step:
+            self._spawn(self._lesson_spot(self.step_gen, step), timer=True)
+
+    def _front_now(self) -> str:
+        """The app in front now: "Miyagi" while Miyagi's own launcher / ask box has the keyboard, else the window
+        server's frontmost (E6), else the latest frame's; "" when unknown."""
+        own = getattr(self.inputs, "miyagi_in_front", None)
+        if callable(own) and own():
+            return "Miyagi"
+        fm = getattr(getattr(self.screen, "reader", None), "frontmost", None)
+        if callable(fm):
+            try:
+                f = fm()
+                if f and f.get("app"):
+                    return str(f["app"])
+            except Exception:  # noqa: BLE001
+                pass
+        return str(getattr(self.last_obs, "app", "") or "")
+
+    def _work_front(self) -> bool:
+        """Is the app in front one this lesson is done in (its editor, a terminal, the step's own app; a notebook
+        lesson's browser)? Miyagi, a chat app or another browser: no. Unknown: yes (as before E5)."""
+        app = self._front_now().strip().lower()
+        if not app:
+            return True
+        if app == "miyagi" or app in self.OVERLAY_APPS:
+            return False
+        if app in CODE_APP_NAMES:
+            return True
+        step = self.step
+        if any(t in app for t in self.WORK_TERMINALS):  # "Just teach me" runs in VS Code's own terminal: a Terminal /
+            if not self.lesson_mode:  # iTerm / Warp window is someone's own (a tester's Claude Code) unless the step
+                return True  # names it as its app
+            named = [str(x.get("app") or "").lower() for x in ((step or {}).get("targets") or [])
+                     + ((step or {}).get("checks") or []) if isinstance(x, dict)]
+            return any(a and (a in app or app in a) for a in named)
+        apps = [a.lower() for a in (self._work_apps(step) if step is not None else [])]
+        return any(a and (a in app or app in a) for a in apps)
+
+    def _attribute_input(self) -> None:
+        fn = getattr(self.inputs, "attribute", None)
+        if callable(fn) and self.step is not None:  # only a lesson step needs it (no front-app lookups while idle)
+            try:
+                fn(self._work_front())
+            except Exception:  # noqa: BLE001 - input attribution must never break the tick
+                log.exception("input attribution failed")
+
+    async def on_front_switch(self, app: str) -> None:
+        """main.py's E6 frontmost watcher: the keys before the switch went to the old app, the next ones to this one
+        (E5); then the box follows the switch (on_frontmost), except behind "Continue?" or "Before you start" (E7)."""
+        self._attribute_input()
+        if self.awaiting_resume or self.awaiting_start:
+            return
+        await self.on_frontmost(app)
+
+    def _input_was_miyagi(self) -> None:
+        """The learner submitted text typed into Miyagi (an ask / explain): those keys weren't lesson work (E5)."""
+        fn = getattr(self.inputs, "mark_foreign", None)
+        if callable(fn):
+            fn()
+
+    @staticmethod
+    def _ask_hook(fn: Callable[[], bool] | None, default: bool) -> bool:
+        if fn is None:
+            return default
+        try:
+            return bool(fn())
+        except Exception:  # noqa: BLE001
+            return default
+
+    def _clients_ok(self) -> bool:
+        """False once the app that was connected has left (E7: no screen reading, looks, judge or cards for nobody).
+        An engine that never had an app (demo autostart, the in-process rehearse_boxes / staging scripts) goes on,
+        as coach-cards' has_client and spotlight's _spot_frozen do."""
+        return not self._ask_hook(self.app_left, False)
+
+    def _screen_off_reason(self) -> str | None:
+        """Why the screen reader should not run now (E3 / E7), or None."""
+        if self.step is None or self.phase != "active":
+            return "no lesson step"
+        if self.awaiting_resume:
+            return "Continue? is up"
+        if self._clients_ok():
+            self._no_client_since = None
+            return None
+        now = self.clock()
+        if self._no_client_since is None:
+            self._no_client_since = now
+        return "the app left" if now - self._no_client_since >= self.SCREEN_NO_CLIENT_S else None
+
+    def _sync_screen_soon(self) -> None:
+        """Pause / resume the real screen reader to match _screen_off_reason (in a thread: it joins threads)."""
+        scr = self.screen
+        if getattr(scr, "reader", None) is None or not hasattr(scr, "pause") or not hasattr(scr, "resume"):
+            return  # no real reader (tests, ORCH_SCREEN=0)
+        if self._screen_task is not None and not self._screen_task.done():
+            return
+        why = self._screen_off_reason()
+        if (why is not None) == bool(getattr(scr, "paused", False)):
+            return
+        if why is not None:
+            self.last_obs = None  # nothing seen is kept while no step runs (cursor.under, scene, judge)
+            fn, arg = scr.pause, why
+        else:
+            fn, arg = scr.resume, f"step {(self.step or {}).get('id')}"
+        task = asyncio.ensure_future(asyncio.to_thread(fn, arg))
+        task.add_done_callback(lambda t: t.cancelled() or (t.exception() and log.error(
+            "screen %s failed", "pause" if why else "resume", exc_info=t.exception())))
+        self._screen_task = task
 
     # ------------------------------------------------------------------ coaching (hint ladder)
     def _code_excerpt(self, step: dict, limit: int = 6000) -> tuple[str, str | None]:
@@ -2849,11 +3077,13 @@ class LessonSession:
         return False
 
     def learner_started(self) -> bool:
-        """Did the learner do anything on this step: a save, a run, an action, or typing since it started?"""
-        if self.last_action_t >= self.step_t0:
+        """Did the learner do anything on this step (since Start / Continue, when later): a save, a run, an action, or
+        typing in the lesson's own editor / terminal? Keys typed into Miyagi or another app don't count (E5)."""
+        t0 = max(self.step_t0, self._go_t)
+        if self.last_action_t >= t0:
             return True
-        v = self.inputs.seconds_since_key() if self.inputs is not None else None
-        return v is not None and v <= self.clock() - self.step_t0
+        v = self._work_since("key")
+        return v is not None and v <= self.clock() - t0
 
     def _consider_speaking(self, reason: str, step: dict, failed: list[dict], ctx: RunContext) -> None:
         """reason: breakpoint | repeat | stuck | idle. Decides whether, and at which ladder level, to speak."""
@@ -3010,8 +3240,12 @@ class LessonSession:
         return out[-n:]
 
     def cursor_context(self) -> dict | None:
+        """{x, y, under: the OCR line at the pointer}, only while a lesson step runs (E3: idle, on "Continue?" or under
+        "Before you start" the text under the pointer is someone's own chat / mail, and /state is on the LAN)."""
         from .inputs import text_under
 
+        if self.step is None or self.phase != "active" or self.awaiting_resume or self.awaiting_start:
+            return None
         pos = self.inputs.cursor() if self.inputs is not None else None
         if pos is None:
             return None
@@ -3315,7 +3549,8 @@ class LessonSession:
             lines = self._screen_lines() or {}
             summary = " · ".join((lines.get(app) or [])[:2])[:140]
             await self.emit("screen.seen", {"app": app, "summary": summary, "t": float(getattr(obs, "t", 0) or 0)})
-        if self.step is not None:
+        if self.step is not None and not self.awaiting_resume and not self.awaiting_start:
+            # E7 / E4: nothing is graded, carded or boxed behind "Continue?" or "Before you start"
             if self.clock() - self._wf_t >= 2.0:  # S2's wrong_folder: a cheap window read, at most every 2 s
                 self._wf_t = self.clock()
                 self._spawn(self._refresh_wrong_folder(self.step))
@@ -3531,17 +3766,41 @@ class LessonSession:
         self.awaiting_resume = False
         now = self.clock()
         self.last_progress_t = now  # time away doesn't count as being stuck
-        self.last_action_t = max(self.last_action_t, now)
+        # E4: nothing counts as started until the learner works after Continue (was: Continue itself was an action,
+        # so the idle ladder opened the gate and the coach spoke before they touched anything)
+        if not self.learner_started():
+            self.last_offtrack = None  # made before the learner started (e.g. off a click in another app): not replayed
+            self._pending_offtrack = None  # nor sent later (t3fix-coach-cards' kept diagnosis, E14; unused before it)
+        self._go_t = now
+        self.gate_open = self.screen_gate_open = False  # shown fails wait for the first edit after Continue
+        for cid, st in self.check_state.items():  # re-graded from the file on the next evaluation, not replayed
+            if st.get("status") == "fail":
+                self.check_state[cid] = {**st, "status": "pending", "detail": None}
+        self._sync_screen_soon()  # E3: the reader runs again
         for type_, payload in self.snapshot():
             if type_ != "status":
                 await self.emit(type_, payload)
-        seg = self._segment(self.step)
+        step = self.step
+        seg = self._segment(step)
         t = self.video_t if self.video_t is not None else (seg or {}).get("start")
         if seg is not None and t is not None:
             await self.emit("video.seek", {"t": float(t), "play": not self.segment_done})
-        await self._status("offtrack" if self.last_offtrack and not self.passed else "watching")
+        if step is not None and self.workspace is not None and self.editor_open:  # (also under the sheet, as start_step)
+            self.workspace.goto_target(self.workdir, step, missing="end" if self.lesson_mode else "first")
+            if self.lesson_mode:  # Continue: back to the step's file
+                self._spawn(self._show_step_file(step, explicit=True), timer=True)
+        # the checks are re-graded by the next frame / save (the reader runs again), not replayed as they were
+        await self._status("offtrack" if self.last_offtrack and not self.passed and not self.awaiting_start
+                           else "watching")
 
     async def action(self, kind: str, text: str | None = None) -> None:
+        if kind == "start":  # "Start the lesson" on the "Before you start" sheet (E4)
+            await self._begin("Start")
+            return
+        if kind in self.START_ACTIONS and self.awaiting_start:
+            await self._begin(kind)  # a step control pressed: the sheet is closed
+        if kind in self.ASK_KINDS:
+            self._input_was_miyagi()  # E5: the keys just typed went into Miyagi's ask box
         if kind == "resume":
             await self.resume()
             return
@@ -5120,17 +5379,24 @@ class LessonSession:
         await self._pass_step()
 
     STUCK_CARD_S = 90.0
+    STUCK_QUIET_S = 60.0  # no stuck card within a minute of any other card / off-track
 
     async def _maybe_stuck_card(self, step: dict) -> None:
-        """Pending > 90 s after the clip ended and the learner is idle: offer Skip, once per step."""
-        if (self._stuck_card_sent or not self.segment_done or self.segment_end_t is None
-                or self.clock() - self.segment_end_t < self.STUCK_CARD_S or self.learner_idle_s() < self.idle_gate_s):
+        """Pending > 90 s after the clip ended AND after the learner's last action, the learner had started on the step,
+        nothing else is waiting on them (a "Do it for me" preview, "Looks done?") and no card for a minute: offer Hint /
+        Skip, once per step. (E4: it went out behind "Before you start" and over a pending preview.)"""
+        if (self._stuck_card_sent or self.awaiting_start or not self.segment_done or self.segment_end_t is None
+                or self.pending_patch is not None or self.confirm_pending or self._ask_held()
+                or not self.learner_started()):
+            return
+        quiet = min(self.clock() - self.segment_end_t, self.learner_idle_s())  # since the last action, not the start
+        if quiet < self.STUCK_CARD_S or self.clock() - self._last_shown_t < self.STUCK_QUIET_S:
             return
         if self.last_results and all(r.get("status") == "pass" for r in self.last_results):
             return
         self._stuck_card_sent = await self._emit_card({"stepId": step["id"], "kind": "hint", "title": "Need a hand?",
-                                                       "body": "Press Hint for a nudge.", "actions": ["skip_step"]},
-                                                      auto=True)
+                                                       "body": "Press Hint for a nudge.",
+                                                       "actions": ["hint", "skip_step"]}, auto=True)
 
     async def _type_step_for_them(self, step: dict) -> None:
         """Lesson mode "Do it for me": E5 places the step's code in the file (preview -> confirm -> apply);
@@ -5477,9 +5743,10 @@ class LessonSession:
         out: list[tuple[str, dict]] = []
         if ask_resume and self.graph is not None and self.step is not None:
             self.awaiting_resume = True
-            return [("video.pause", {}), ("card", self.resume_card())]
+            self.spot_rect, self._spot_caption = None, None  # E7: the box is cleared with the card, not left behind it
+            return [("spotlight", {"clear": True}), ("video.pause", {}), ("card", self.resume_card())]
         if self.awaiting_resume and self.graph is not None:  # still undecided: show the question again
-            return [("video.pause", {}), ("card", self.resume_card())]
+            return [("spotlight", {"clear": True}), ("video.pause", {}), ("card", self.resume_card())]
         if self.pending_pick is not None and self.pending_pick.get("card"):  # preflight card awaiting build / pick_another
             return [("status", {"state": "idle"}), ("card", self.pending_pick["card"])]
         if self.phase == "building" and self.build_progress:  # reconnect mid-build: keep the spinner honest
@@ -5489,24 +5756,31 @@ class LessonSession:
         if self.graph is None:
             out.append(("status", {"state": "idle" if self.phase != "searching" else self.status}))
             return out
-        out.append(("lesson.ready", self._lesson_ready_payload()))
-        step = self.step
+        ready = self._lesson_ready_payload()
+        out.append(("lesson.ready", ready))
+        step, held = self.step, False
         if step is not None:
+            self._hold_for_sheet(ready.get("lesson"))  # E4: the app opens "Before you start" on this lesson.ready
+            held = self.awaiting_start
             out.append(("step.started", self._step_started_payload(step)))
             for cid, st in self.check_state.items():
                 p = {"stepId": step["id"], "checkId": cid, "label": st["label"], "status": st["status"]}
-                if st.get("detail"):
+                if held and p["status"] == "fail":  # under the sheet: re-graded once the learner starts, not replayed
+                    p["status"] = "pending"
+                    self.check_state[cid] = {**st, "status": "pending", "detail": None}
+                elif st.get("detail"):
                     p["detail"] = st["detail"]
                 out.append(("check.updated", p))
-            if self.last_offtrack and not self.passed:
+            if self.last_offtrack and not self.passed and not held:
                 out.append(("offtrack", self.last_offtrack))
-        out.append(("status", {"state": self.status}))
+        out.append(("status", {"state": "watching" if held and self.status == "offtrack" else self.status}))
         return out
 
     def state(self) -> dict:
         step = self.step
         return {
-            "phase": self.phase,
+            # E7 / E4: the freezes are visible from outside ("active" while "Continue?" or "Before you start" was up)
+            "phase": "awaiting_resume" if self.awaiting_resume else ("ready" if self.awaiting_start else self.phase),
             "status": self.status,
             "workdir": self.workdir,
             "lesson": (self.graph or {}).get("lesson"),
@@ -5527,6 +5801,7 @@ class LessonSession:
             "screen": bool(self.screen is not None and getattr(self.screen, "active", False))
             and not self.screen_down_reason(),  # false while frames fail (E6 status error / no_permission)
             "screenDown": self.screen_down_reason(),  # S1: E6 status error / no_permission
+            "screenPaused": bool(getattr(self.screen, "paused", False)),  # E3: no capture while no lesson step runs
             "voice": self.voice,
             "scene": scene_watch.state(self),  # the latest Haiku look + its counters (scene_watch.py)
         }
