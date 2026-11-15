@@ -157,10 +157,12 @@ def anchor_line(text: str, match: str) -> int | None:
 
 def target_location(workdir: str | Path, step: dict, missing: str = "first") -> tuple[Path, int] | None:
     """(absolute file, 1-based line) of the step's first target whose file exists. missing: where to point when
-    the anchor isn't in the file: "first" (line 1) or "end" (where new code goes: the line after the last)."""
+    the anchor isn't in the file: "first" (line 1) or "end" (where new code goes: the line after the last).
+    t10: never a notebook (a .ipynb's file lines are JSON, not the cells VS Code shows; `-g nb.ipynb:N` would jump
+    into that JSON): the notebook stays open in its own editor."""
     for t in step.get("targets") or []:
         f = t.get("file")
-        if not f:
+        if not f or str(f).lower().endswith(".ipynb"):
             continue
         path = resolve_file(workdir, f)
         if path is None:

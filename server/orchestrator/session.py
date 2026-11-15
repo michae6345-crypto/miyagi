@@ -37,7 +37,7 @@ from collections.abc import Awaitable, Callable
 from pathlib import Path
 from typing import Any
 
-from . import config, curated, editor_text, missing_module, perf, scene_watch, stage, where_row
+from . import config, curated, editor_text, lesson_notebook, missing_module, perf, scene_watch, stage, where_row
 from .context import RunContext, RunInfo, metrics_summary
 from .modules import Modules
 from .captions import short_caption
@@ -280,6 +280,14 @@ def _use_lesson_venv(graph: dict) -> None:
             log.info("lesson .venv: step(s) %s now use the lesson's .venv (no second venv, no reinstall)", ", ".join(changed))
     except Exception:  # noqa: BLE001
         log.exception("lesson .venv normalisation failed")
+    try:  # t10: a Jupyter lesson runs in the lesson's own notebook in VS Code (server/lesson/notebook_steps.py)
+        from server.lesson.notebook_steps import use_lesson_notebook
+
+        if changed := use_lesson_notebook(graph):
+            log.info("lesson notebook: step(s) %s now use %s in VS Code", ", ".join(changed),
+                     (graph.get("lesson") or {}).get("notebook"))
+    except Exception:  # noqa: BLE001
+        log.exception("lesson notebook normalisation failed")
 
 
 _PCT_LABEL = re.compile(r"\s*(?:reaches|is at least|at least|>=|≥|above|over)\s*(?P<v>\d+(?:\.\d+)?)\s*%?\s*$", re.I)
@@ -501,6 +509,7 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
             from . import card_copy
 
             payload = card_copy.learner_text(self, type_, payload)
+            payload = lesson_notebook.learner_card(self, payload)  # t10: mnist.ipynb in VS Code, never Untitled / Colab
         if type_ == "card" and payload:
             payload = missing_module.setup_without_open(self, payload)  # editor open: Install is the setup card's button
         if self.lesson_mode and type_ in ("card", "offtrack") and payload:
@@ -695,10 +704,14 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
         # t10: right after the learner's own Build click, no grace (Miyagi is in front because of that click: Build ->
         # VS Code took 4.7 s), and only keystrokes hold it (the click itself isn't typing)
         follows_build = self.clock() - getattr(self, "_build_t0", -1e9) < BUILD_OPEN_FOLLOW_S
-        await asyncio.to_thread(self.workspace.open, folder, True, file=self._editor_file(self.step),
+        file = self._editor_file(self.step)
+        nb = file if file and file.lower().endswith(".ipynb") else None  # t10: `code -g` is for text files
+        await asyncio.to_thread(self.workspace.open, folder, True, file=None if nb else file,
                                 miyagi_wait_s=0.0 if follows_build else wsmod.VIDEO_MIYAGI_WAIT_S,
                                 **self._open_holds(keys_only=follows_build))
         self.editor_open = True
+        if nb:  # the companion extension opens it in the notebook editor once the lesson's window is up
+            self._spawn(lesson_notebook.open_when_up(self, nb), timer=True)
         self._record("editor_opened", {"auto": True, "folder": Path(folder).name})
         if self.step is not None:
             await asyncio.to_thread(self.workspace.goto_target, self.workdir, self.step)
@@ -866,9 +879,12 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
         if real and await asyncio.to_thread(where_row.reveal, self.workdir, file, line):
             self.editor_open = True  # shown in the lesson's existing window (companion extension): no `code` CLI
             return
+        nb = file if file and file.lower().endswith(".ipynb") else None  # t10: the companion opens a notebook
         await asyncio.to_thread(lambda: self.workspace.open(self.workdir, force=True, explicit=True,  # pressed Open
-                                                            file=file))  # L2: on the step's file, never README.md
+                                                            file=None if nb else file))  # L2: the step's file
         self.editor_open = True
+        if nb:
+            self._spawn(lesson_notebook.open_when_up(self, nb), timer=True)
         if self.step is not None:
             self.workspace.goto_target(self.workdir, self.step, explicit=True)
         if getattr(self.screen, "reader", None) is not None:  # real windows only (never in tests)
@@ -2425,6 +2441,8 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
             return f"Open {name}{rest[7:]}{end}"
         if re.match(r"[A-Z][a-z]+\b", rest):  # "Type the …" -> "type the …" (NumPy, VS Code keep their case)
             rest = rest[0].lower() + rest[1:]
+        if name.lower().endswith(".ipynb") and re.match(r"type\s+(?!(?:it|this|that)\b)", rest):  # t10: a cell
+            rest = "add a cell: " + rest.split(None, 1)[1]
         return f"In {name}, {rest}{end}"
 
     async def _replace_provisional(self, g: dict, complete: bool) -> None:
@@ -2514,6 +2532,7 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
             from . import workspace as wsmod
 
             wsmod.notebook_autosave(new_wd)
+            lesson_notebook.create(self)  # t10: the lesson's notebook (mnist.ipynb) exists before step 1 starts
         _refresh_readme(new_wd, graph)  # t10: the README tells the steps as they run (after the .venv / notebook fixes)
         self.m.set_lesson(graph)
         if not stage.on_graph(graph):  # a Demo lesson never calls the coach
@@ -2643,6 +2662,9 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
                         else f"Create {Path(file).name}, then type {lines}.")
             line = first if len(first) <= 60 else first[:57] + "…"
             more = " …" if n > 1 and not line.endswith("…") else ""  # names the first line (t10: never "te… …")
+            if file.lower().endswith(".ipynb"):  # t10: a notebook gets a cell (Miyagi made the lesson's notebook)
+                return (f"In {Path(file).name}, add a cell: {line}{more}" if exists
+                        else f"In VS Code, create {Path(file).name} and add a cell: {line}{more}")
             return (f"In VS Code, type {line}{more} in {Path(file).name}" if exists
                     else f"In VS Code, create {Path(file).name} and type {line}{more}")
         text = " ".join((step.get("instructions") or "").split())
@@ -5203,14 +5225,21 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
         n = (name or "").strip()
         return bool(n) and not n.startswith("(") and n.lower() not in ("terminal", "the terminal", "shell")
 
+    _ENV_DIRS = {".venv", "venv", "site-packages", "node_modules", "__pycache__"}
+
     def _step_file(self, step: dict) -> str | None:
+        """The file the step is about (its box, the editor's tab). t10: never a file inside a venv / node_modules (s1's
+        `.venv/bin/activate` check opened the activate shell script as the step's file)."""
+        def ok(f: Any) -> bool:
+            return self._real_file(f) and not (set(Path(str(f)).parts) & self._ENV_DIRS)
+
         for t in step.get("targets") or []:
-            if self._real_file(t.get("file")):
+            if ok(t.get("file")):
                 return t["file"]
         for c in (step.get("checks") or []) + (step.get("precision_checks") or []):
-            if self._real_file(c.get("file")):
+            if ok(c.get("file")):
                 return c["file"]
-        if self._real_file(step.get("file")):
+        if ok(step.get("file")):
             return step["file"]
         return None
 
@@ -5248,6 +5277,9 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
         """A card that says WHERE to go when I can't see the learner's work."""
         file = self._step_file(step)
         if self.notebook_lesson:
+            if nb := lesson_notebook.name(self):  # t10: the lesson's notebook, in VS Code (never Colab / a browser Jupyter)
+                return {"stepId": step["id"], "kind": "where", "title": f"Open {nb}",
+                        "body": f"Open {nb} in VS Code so I can see it."}
             return {"stepId": step["id"], "kind": "where", "title": "Open the notebook",
                     "body": f"Open {file or 'the notebook'} in Colab or Jupyter so I can see it."}
         untitled = self._untitled_editor()
