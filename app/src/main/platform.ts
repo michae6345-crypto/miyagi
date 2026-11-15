@@ -5,7 +5,6 @@
  * Only type imports from electron, so the renderer can import describePlatform() too.
  */
 import type { App, BrowserWindow, BrowserWindowConstructorOptions } from 'electron'
-import { execFile } from 'node:child_process'
 
 export type Rect = { x: number; y: number; width: number; height: number }
 
@@ -164,9 +163,13 @@ export function setupApp(app: App): void {
 export function returnFocus(app: App, overlay: BrowserWindow, previousBundle?: string): void {
   if (!isMac()) return
   if (previousBundle) {
-    execFile('open', ['-b', previousBundle], (err) => {
-      if (err) console.warn('[focus] could not reactivate', previousBundle, err.message)
-    })
+    // Loaded here, never at the top: the renderer imports this file (describePlatform), and a top-level
+    // node:child_process import crashed every window at load ("externalized for browser compatibility").
+    void import('node:child_process').then(({ execFile }) =>
+      execFile('open', ['-b', previousBundle], (err) => {
+        if (err) console.warn('[focus] could not reactivate', previousBundle, err.message)
+      })
+    )
     overlay.showInactive()
     raise(overlay)
     return
