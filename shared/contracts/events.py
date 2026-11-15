@@ -381,7 +381,11 @@ CardAction = Literal["confirm", "undo", "apply_fix", "open_editor", "resume", "e
 
 class Card(_Model):
     stepId: str | None = None
-    kind: Literal["explain", "hint", "answer", "resume", "setup", "preflight"]  # resume: "Continue where you left off?"
+    # resume: "Continue where you left off?"; step: a step-control / judge card the engine raises itself ("Run it",
+    # "Save X", "X is still empty", "Wrong folder?", "Looks done?", "Not yet"), never an answer; where: the
+    # where-to-work card ("Open calc.py", "Where to work") when there is no box to draw (Show me, or Hint before the
+    # step's code is on screen). See events.ts.
+    kind: Literal["explain", "hint", "answer", "resume", "setup", "preflight", "step", "where"]
     title: str
     body: str
     videoJump: VideoJump | None = None
@@ -396,7 +400,7 @@ class Card(_Model):
     preflight: PreflightInfo | None = None  # kind "preflight"
     where: str | None = None  # coach: where to go when the place isn't on screen (no dim)
     output: str | None = None  # monospace output block (e.g. "Run it for me")
-    source: Literal["judge"] | None = None  # E5's step judge made it: a step-status card (kind "hint"), never an answer
+    source: Literal["judge"] | None = None  # E5's step judge made it: a step-status card (kind "step"), never an answer
     verdict: Literal["done", "not_done"] | None = None  # source "judge": the WHOLE step. done = "Looks done?", not_done = "Not yet"
     checkIds: list[str] | None = None  # source "judge": the checks it is about (done: what Yes vouches for; not_done: still missing)
 

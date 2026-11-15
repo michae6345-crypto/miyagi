@@ -400,17 +400,22 @@ const KIND: Record<EngineCard['kind'], { label: string; Icon: LucideIcon; tone?:
   resume: { label: 'Continue?', Icon: History },
   setup: { label: 'Setup', Icon: Wrench },
   // Contract sync (integration/live): the cards agent gives it a real view.
-  preflight: { label: 'Before you build', Icon: ListChecks }
+  preflight: { label: 'Before you build', Icon: ListChecks },
+  // integration/live 29d7e0d: the engine names these itself (A15).
+  // step: step-control and step-judge cards ("Looks done?", "Not yet"): a status card, never an option.
+  step: { label: 'Step', Icon: Footprints },
+  // where: Show me's where-to-work card: lilac with the Show me glyph, like its button.
+  where: { label: 'Show me', Icon: SquarePlay, tone: actionTone.show_me }
 }
 
 type Tile = (typeof KIND)[EngineCard['kind']]
 
 /** A run step's card ("Run it for me") and its result (the program's output): a neutral terminal tile. */
 const RUN: Tile = { label: 'Run', Icon: SquareTerminal }
-/** Show me's answer (e.g. "Code not visible" + where): lilac with the Show me glyph, like its button. */
-const SHOW_ME: Tile = { label: 'Show me', Icon: SquarePlay, tone: actionTone.show_me }
-/** Step controls and the step judge ("Looks done?", "Not yet", "Stuck on this step?"): a status card, never an option. */
-const STEP: Tile = { label: 'Step', Icon: Footprints }
+/** Show me's answer (e.g. "Code not visible" + where): the "where" kind's tile. */
+const SHOW_ME: Tile = KIND.where
+/** Step controls and the step judge ("Looks done?", "Not yet", "Stuck on this step?"): the "step" kind's tile. */
+const STEP: Tile = KIND.step
 /** Wrong-folder card (use_this_folder). */
 const FOLDER: Tile = { label: 'Folder', Icon: FolderOpen }
 /** "Apply this fix?" (a diff to confirm): the Do it for me preview. */
@@ -421,13 +426,15 @@ const STEP_ACTIONS: CardAction[] = ['skip_step', 'check_step']
 const ANSWERS: EngineCard['kind'][] = ['explain', 'hint', 'answer']
 
 /**
- * The tile for a card: its kind's, unless what the card is about says otherwise. The contract has no kind for
- * these yet, so: output / run_command = Run; source "judge" or step-control actions = Step; a diff = the fix
- * preview; an answer that came right after Show me (`from`, the pressed action) = Show me.
+ * The tile for a card: its kind's, unless what the card is about says otherwise. The engine now sends kind "step"
+ * and "where" itself (integration/live 29d7e0d); for an older engine the guesses stay: output / run_command = Run;
+ * source "judge" or step-control actions = Step; a diff = the fix preview; an answer that came right after Show me
+ * (`from`, the pressed action) = Show me.
  */
 function tileOf(c: EngineCard, from?: ActionKind): Tile {
   const actions = c.actions ?? []
   if (c.output || actions.includes('run_command') || from === 'run_command') return RUN
+  if (c.kind === 'step' || c.kind === 'where') return KIND[c.kind]
   if (c.source === 'judge') return STEP
   if (actions.includes('use_this_folder')) return FOLDER
   if (actions.some((a) => STEP_ACTIONS.includes(a)) || (from && (STEP_ACTIONS as string[]).includes(from))) return STEP
