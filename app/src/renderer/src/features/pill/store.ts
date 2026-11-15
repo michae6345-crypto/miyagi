@@ -46,12 +46,18 @@ type PillState = {
   resuming: boolean
   /** A saved lesson the engine offers back (its resume card), kept after the learner closes the card: the idle pill's Continue. */
   offer?: SavedOffer
+  /**
+   * Build lesson / Teach me / a pasted link just landed on the pill and the engine hasn't answered yet: the building pill
+   * reads "Planning your lesson…" (Michael's review A20: the pill was blank when a build started). Held through the old
+   * lesson's lesson.ended and its steps; over at the engine's first lesson.building / lesson.ready, or an error.
+   */
+  planning: boolean
 }
 
 /** main/engine.ts LinkInfo (main-only module, so the shape is repeated here). */
 export type LinkInfo = { open: boolean; attempting: boolean; failures: number }
 
-export const usePill = create<PillState>(() => ({ offline: false, undo: false, resuming: false, link: 'pending', retrying: false }))
+export const usePill = create<PillState>(() => ({ offline: false, undo: false, resuming: false, link: 'pending', retrying: false, planning: false }))
 const set = usePill.setState
 
 let holdTimer: ReturnType<typeof setTimeout> | undefined
@@ -68,9 +74,14 @@ onUi('reset', (p) => {
   clear()
   const r = p as { scope?: string; reason?: string } | undefined
   if (r?.scope) {
-    if (r.reason === 'reconnect') set({ offer: undefined })
+    // A new build's learn ends the old lesson (lesson.ended "new lesson"): that reset must not blank the planning pill.
+    if (r.reason === 'reconnect') {
+      set({ offer: undefined })
+      stopPlanning()
+    }
     return
   }
+  stopPlanning()
   hideNotice()
   dropUndo()
   doneResuming()
@@ -91,6 +102,48 @@ for (const t of ['lesson.building', 'lesson.ready', 'step.started'] as const)
     doneResuming()
     if (usePill.getState().offer) set({ offer: undefined })
   })
+
+// ---------------------------------------------------------------------------
+// Planning (review A20): "Planning your lesson…" from the moment the launcher lands on the pill with a build.
+// ---------------------------------------------------------------------------
+
+/** A build the engine never answers doesn't keep the planning pill forever. */
+export const PLANNING_MAX_MS = 30_000
+let planTimer: ReturnType<typeof setTimeout> | undefined
+
+function startPlanning(): void {
+  clearTimeout(planTimer)
+  // A new lesson is on its way: the Undo after End and the saved lesson's Continue are spent.
+  dropUndo()
+  set({ planning: true, offer: undefined })
+  planTimer = setTimeout(stopPlanning, PLANNING_MAX_MS)
+}
+function stopPlanning(): void {
+  clearTimeout(planTimer)
+  if (usePill.getState().planning) set({ planning: false })
+}
+/**
+ * When the launcher last opened, and when the engine last said something about a new build (a stage, or the lesson
+ * set). Not step.started: the lesson in progress can move on while the launcher is open, and a new build always
+ * opens with lesson.building or lesson.ready.
+ */
+let launcherAt = 0
+let heardAt = 0
+bridge.on('launcher:open', () => (launcherAt = Date.now()))
+// The launcher shrank onto the pill with Build lesson, Teach me or a pasted link (core starts the building pill too).
+// Unless the engine already answered during the collapse (a fast engine, the mock): then its words are already there.
+bridge.on('pill:receive', () => {
+  if (launcherAt && heardAt >= launcherAt) return
+  startPlanning()
+})
+// The engine's first word on the build, or its failure (an offline learn fails with an error at once).
+for (const t of ['lesson.building', 'lesson.ready'] as const)
+  onMessage(t, () => {
+    heardAt = Date.now()
+    stopPlanning()
+  })
+onMessage('error', stopPlanning)
+
 onMessage('step.passed', (p) => {
   const { steps } = useLesson.getState()
   const i = steps.findIndex((s) => s.id === p.stepId)
@@ -178,6 +231,8 @@ onMessage('card', doneResuming)
 onMessage('error', doneResuming)
 // "Start a new lesson" on the resume card (action end_lesson) clears the save: no Undo, no Continue for that.
 usePressed.subscribe((s) => {
+  // Pick another (the preflight card): the build is called off (core stopBuild), the launcher reopens.
+  if (s.kind === 'pick_another') return stopPlanning()
   if (s.kind !== 'end_lesson') return
   dropUndo()
   if (usePill.getState().offer) set({ offer: undefined })
@@ -294,7 +349,10 @@ syncOffline()
 useLesson.subscribe((s, prev) => {
   if (s.notice && s.notice !== prev.notice) showNotice(s.notice)
   if (s.connected !== prev.connected) {
-    if (!s.connected) downAt = Date.now()
+    if (!s.connected) {
+      downAt = Date.now()
+      stopPlanning() // dropped mid-build: core drops the building pill too
+    }
     syncOffline()
   }
 })

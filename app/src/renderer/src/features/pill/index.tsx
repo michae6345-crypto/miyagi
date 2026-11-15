@@ -6,10 +6,12 @@
  *             with no engine, once a connect attempt has failed: "[bonsai] Can't reach miyagi · [Retry]" (click tries now,
  *             review A16), or what the app's own engine is doing (setting up, starting, missing, failed);
  *             while the engine offers a saved lesson back: "[bonsai] Continue · <lesson>  2/7 ●" (click resumes it, review A7)
- *   building  between Build lesson and the first step: lesson.building message + spinner + progress line
+ *   building  between Build lesson and the first step: "Planning your lesson…" + spinner from the moment the build is
+ *             sent until the engine's first lesson.building (review A20: it was blank), then its message + spinner + progress line
  *             (the stage's words always in full, at most STAGE_MAX characters, never cut mid-word: desktop test 3, item 9);
  *             once the lesson is set (lesson.ready, before the first step.started) it's static: "Lesson ready ●", no spinner, no line
- *   compact   during a lesson: "[bonsai] Step 4 · Define the residual  4/8 ●" (count = this step / steps, dot = status);
+ *   compact   during a lesson: "[bonsai] Step 4 · Define the residual  4/8 ●" (count = this step / steps, dot = status;
+ *             the step's title from lesson.steps, the same title the drawer has: review A20);
  *             "Next part is still building" after a pass while a long video's next part builds
  *   saved     after End (lesson.ended "stopped"): "[bonsai] Lesson saved · [Undo]" for ~8 s, then idle (review A3)
  *   notice    one line for ~5 s over any of them (engine errors, a failed build, notify()), then back
@@ -207,15 +209,25 @@ function stageLabel(stage: string): string {
 
 /** The building pill once lesson.ready has landed and the first step hasn't started: nothing is working any more. */
 const READY = 'Lesson ready'
+/** From the moment a build is sent until the engine's first lesson.building (Michael's review A20). */
+export const PLANNING = 'Planning your lesson…'
 
 function Building(): ReactNode {
-  const { message, progress, ready } = useLesson(
-    useShallow((s) => ({ message: s.buildingMessage, progress: s.buildingProgress, ready: !!s.lesson }))
+  const { message, progress, lesson, building } = useLesson(
+    useShallow((s) => ({ message: s.buildingMessage, progress: s.buildingProgress, lesson: !!s.lesson, building: s.building }))
   )
   const kept = usePill((s) => s.buildMessage)
+  const planned = usePill((s) => s.planning)
+  const shown = useRef<string>(undefined)
+  // Planning: the pill's own flag (the launcher just landed on it with a build), or, freshly drawn with no build running
+  // yet, the launcher's collapse onto the pill (it draws this content before the engine has said anything).
+  const planning = planned || (!building && !shown.current)
+  const ready = lesson && building && !planning
   // Calm: show only the stage. The text (and so the crossfade) changes on a real stage change, never on the timer
-  // tick; the progress line carries the motion.
-  const stage = ready ? READY : buildingStage(message ?? kept) || 'Building your lesson'
+  // tick; the progress line carries the motion. Leaving (a failed or dropped build) it keeps its last words.
+  const stage =
+    !building && !planning && shown.current ? shown.current : planning ? PLANNING : ready ? READY : buildingStage(message ?? kept) || PLANNING
+  shown.current = stage
   const text = stageLabel(stage)
   return (
     <div
@@ -224,13 +236,14 @@ function Building(): ReactNode {
       title={text !== stage ? stage : undefined}
       className="relative flex h-[34px] items-center whitespace-nowrap pl-[13px] pr-[14px] text-[13px] font-medium"
       style={{ color: color.text }}
+      data-planning={planning || undefined}
     >
       <MonoMark className="mr-[8px]" />
       {/* Never cut mid-word (item 9): the slot is always as wide as the stage's words; the island springs around it. */}
       <FitSwap id={text}>{text}</FitSwap>
       {/* Building: the spinner where the count will be. Set (Michael's audit A5): static, the gray dot only, no spinner, no line. */}
       <span className="ml-[15px] flex items-center">{ready ? <StatusMark mark="watching" /> : <Spinner size={16} />}</span>
-      <AnimatePresence>{!ready && progress !== undefined && <BuildLine progress={progress} />}</AnimatePresence>
+      <AnimatePresence>{!ready && !planning && progress !== undefined && <BuildLine progress={progress} />}</AnimatePresence>
     </div>
   )
 }
@@ -276,13 +289,14 @@ function useShown(): Shown & { total: number } {
     const j = at(to)
     return { key: to, index: j, title: titleOf(j), mark: offline ? 'offline' : 'watching', total }
   }
-  // 3) Normal: the engine's current step.
+  // 3) Normal: the engine's current step, titled from lesson.steps like the drawer and cases 1-2 (review A20: the pill
+  // named steps differently from the drawer); step.started's title only for a step the list doesn't have.
   const i = Math.max(0, at(l.stepId))
   const passed = !!l.stepId && l.passed.includes(l.stepId)
   return {
     key: l.stepId ?? '',
     index: i,
-    title: l.title,
+    title: at(l.stepId) >= 0 ? titleOf(i, l.title) : l.title,
     mark: offline ? 'offline' : l.offtrack ? 'offtrack' : passed ? 'passed' : 'watching',
     total
   }
@@ -370,9 +384,22 @@ function SavedLine(): ReactNode {
 export default defineFeature({
   id: 'pill',
   islandModes: [
-    { id: 'idle', priority: 0, useActive: () => useLesson((s) => !s.lesson && !s.building), Content: Idle },
-    { id: 'building', priority: 1, useActive: () => useLesson((s) => s.building && !s.stepId), Content: Building },
+    // No step and nothing building. Also a lesson that's set but stopped building before its first step (a failed or
+    // dropped build after lesson.ready): no mode covered that, and the island drew nothing (review A20: "blank").
+    { id: 'idle', priority: 0, useActive: () => useLesson((s) => !s.stepId && !s.building), Content: Idle },
     { id: 'compact', priority: 2, useActive: () => useLesson((s) => !!s.stepId), Content: Compact },
+    // Over compact while a new build is being planned (a lesson started from the launcher during another one); otherwise
+    // building (no step yet) and compact (a step) never overlap.
+    {
+      id: 'building',
+      priority: 3,
+      useActive: () => {
+        const planning = usePill((s) => s.planning)
+        const building = useLesson((s) => s.building && !s.stepId)
+        return planning || building
+      },
+      Content: Building
+    },
     // Over the idle pill only (a new lesson building or on screen wins), and never offline: Undo would go nowhere.
     {
       id: 'saved',
