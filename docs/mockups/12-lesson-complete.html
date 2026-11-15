@@ -1,0 +1,601 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Lesson complete</title>
+<!-- Mockup 12: the lesson-complete panel for "Build a neural network". Self-contained: no network requests. -->
+<style>
+/* ---- Miyagi kit (tools/miyagi-kit.css, inlined) ---- */
+/* Miyagi mockup kit: the app's real tokens (app/src/renderer/src/core/theme.ts + app/brand/BRAND.md).
+   Canvas = one 1440x900 Mac screen. Dark HUD glass. Green = passed only, apricot = off track only, gray = watching.
+   Pastels only for options: sky = Explain/Diagram/Watch, lilac = Show me, pink = Hint. Primary = white + ink. */
+:root {
+  --glass: rgba(28,28,30,.92); --glass-solid: #1c1c1e; --text: #F4F4F5; --muted: rgba(255,255,255,.6); --faint: rgba(255,255,255,.42);
+  --hair: rgba(255,255,255,.12); --rule: rgba(255,255,255,.08); --field: rgba(255,255,255,.06); --chip: rgba(255,255,255,.05);
+  --ink: #141414; --white: #F4F4F5; --pass: #30D158; --pass-tint: rgba(48,209,88,.14); --off: #FFC4A3; --off-deep: #C8693A; --off-tint: rgba(255,196,163,.14);
+  --watch: #8E8E93; --sky: #C5E4F9; --sky-deep: #9CCFF2; --lilac: #D9D2FF; --pink: #F9C5D5; --pink-deep: #F4A7BF; --key: rgba(255,255,255,.1);
+  --ui: -apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, sans-serif; --mono: ui-monospace, "SF Mono", Menlo, monospace;
+  --r-chip: 14px; --r-card: 20px; --r-island: 24px; --r-pill: 17px; --r-launcher: 28px;
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; }
+body { width: 1440px; min-height: 900px; font-family: var(--ui); font-size: 15px; color: var(--text); background: #0b0b0c; -webkit-font-smoothing: antialiased; }
+.screen { position: relative; width: 1440px; height: 900px; overflow: hidden; background: #2b2d31; }
+.screen.tall { height: auto; min-height: 900px; }
+/* mac menu bar + notch island */
+.menubar { position: absolute; inset: 0 0 auto 0; height: 30px; background: rgba(20,20,22,.85); display: flex; align-items: center; padding: 0 16px; gap: 18px; font-size: 13px; color: rgba(255,255,255,.85); z-index: 40; }
+.menubar .app { font-weight: 600; }
+.menubar .right { margin-left: auto; display: flex; gap: 14px; color: rgba(255,255,255,.7); }
+.pill { position: absolute; top: 0; left: 50%; transform: translateX(-50%); height: 34px; min-width: 210px; padding: 0 14px; background: #000; border-radius: 0 0 var(--r-pill) var(--r-pill); display: flex; align-items: center; gap: 10px; font-size: 13px; color: var(--text); z-index: 50; }
+.pill .mark { width: 16px; height: 16px; color: #fff; font-size: 16px; display: grid; place-items: center; }
+.pill .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--watch); margin-left: auto; }
+.dot.pass { background: var(--pass); } .dot.off { background: var(--off); } .dot.watch { background: var(--watch); }
+.ring { width: 18px; height: 18px; border-radius: 50%; border: 2px solid rgba(255,255,255,.18); border-top-color: #fff; border-right-color: #fff; }
+/* app windows behind the overlay */
+.window { position: absolute; top: 44px; left: 24px; right: 24px; bottom: 24px; border-radius: 12px; overflow: hidden; background: #1e1e1e; border: 1px solid rgba(255,255,255,.08); }
+.window .titlebar { height: 34px; background: #2d2d30; display: flex; align-items: center; gap: 8px; padding: 0 12px; font-size: 12px; color: rgba(255,255,255,.6); }
+.traffic { display: flex; gap: 7px; } .traffic i { width: 12px; height: 12px; border-radius: 50%; background: #5a5a5e; display: block; }
+.code { font-family: var(--mono); font-size: 13px; line-height: 21px; color: #d4d4d4; white-space: pre; }
+.code .ln { display: inline-block; width: 34px; color: #6e7681; text-align: right; margin-right: 18px; }
+.kw { color: #c586c0; } .fn { color: #dcdcaa; } .str { color: #ce9178; } .num { color: #b5cea8; } .cm { color: #6a9955; } .ty { color: #4ec9b0; } .var { color: #9cdcfe; }
+.dim { position: absolute; inset: 0; background: rgba(0,0,0,.48); z-index: 20; pointer-events: none; }
+/* the spotlight: a clear white box over the exact target + caption */
+.spot { position: absolute; z-index: 25; border: 2px solid #fff; border-radius: 10px; box-shadow: 0 0 0 9999px rgba(0,0,0,.0); }
+.spot-cap { position: absolute; z-index: 26; background: var(--glass); border: 1px solid var(--hair); border-radius: 12px; padding: 8px 12px; font-size: 13px; color: var(--text); max-width: 340px; line-height: 1.4; }
+/* overlay surfaces */
+.drawer { position: absolute; z-index: 30; top: 44px; right: 16px; bottom: 16px; width: 440px; background: var(--glass); border: 1px solid var(--hair); border-radius: var(--r-card); box-shadow: 0 24px 60px rgba(0,0,0,.5); display: flex; flex-direction: column; overflow: hidden; }
+.drawer .scroll { padding: 18px 18px 14px; display: flex; flex-direction: column; gap: 14px; overflow: hidden; }
+.panel { position: absolute; z-index: 30; background: var(--glass); border: 1px solid var(--hair); border-radius: var(--r-card); box-shadow: 0 24px 60px rgba(0,0,0,.5); padding: 18px; }
+.card { background: rgba(255,255,255,.05); border: 1px solid var(--rule); border-radius: 16px; padding: 14px; }
+.card.current { background: rgba(255,255,255,.08); }
+h1, h2, h3 { margin: 0; font-weight: 600; letter-spacing: -.01em; }
+h1 { font-size: 20px; } h2 { font-size: 15px; } h3 { font-size: 13px; }
+.eyebrow { font-size: 11px; letter-spacing: .06em; text-transform: uppercase; color: var(--faint); font-weight: 600; }
+.muted { color: var(--muted); } .faint { color: var(--faint); } .small { font-size: 13px; } .tiny { font-size: 12px; }
+.row { display: flex; align-items: center; gap: 10px; } .col { display: flex; flex-direction: column; gap: 8px; } .wrap { flex-wrap: wrap; }
+.close { width: 30px; height: 30px; border-radius: 50%; background: var(--key); display: grid; place-items: center; color: rgba(255,255,255,.7); margin-left: auto; font-size: 14px; }
+/* buttons and chips */
+.btn { height: 34px; padding: 0 14px; border-radius: 17px; display: inline-flex; align-items: center; gap: 8px; font-size: 13px; font-weight: 600; border: 0; }
+.btn.primary { background: var(--white); color: var(--ink); }
+.btn.neutral { background: rgba(255,255,255,.09); color: var(--text); font-weight: 500; }
+.btn.sky { background: var(--sky); color: var(--ink); } .btn.lilac { background: var(--lilac); color: var(--ink); } .btn.pink { background: var(--pink); color: var(--ink); }
+.kbd { font-size: 11px; padding: 2px 6px; border-radius: 6px; background: rgba(0,0,0,.1); color: rgba(20,20,20,.7); font-weight: 600; }
+.kbd.dark { background: var(--key); color: rgba(255,255,255,.62); }
+.chip { display: inline-flex; align-items: center; gap: 6px; height: 26px; padding: 0 10px; border-radius: 13px; font-size: 12px; background: var(--chip); border: 1px solid rgba(255,255,255,.08); color: rgba(255,255,255,.78); }
+.chip.sky { background: var(--sky); color: var(--ink); border: 0; } .chip.lilac { background: var(--lilac); color: var(--ink); border: 0; } .chip.pink { background: var(--pink); color: var(--ink); border: 0; }
+.badge { font-size: 11px; font-weight: 600; padding: 2px 8px; border-radius: 8px; background: rgba(255,255,255,.1); color: rgba(255,255,255,.8); letter-spacing: .02em; }
+/* status */
+.check { display: flex; gap: 10px; align-items: flex-start; font-size: 13px; line-height: 1.4; }
+.check .ic { width: 18px; height: 18px; border-radius: 50%; flex: none; display: grid; place-items: center; font-size: 11px; margin-top: 1px; }
+.check.pass .ic { background: var(--pass); color: #08310f; } .check.off .ic { border: 1.5px solid var(--off); color: var(--off); } .check.wait .ic { border: 1.5px solid rgba(255,255,255,.28); }
+.passtext { color: var(--pass); } .offtext { color: var(--off); }
+.step { display: flex; gap: 12px; align-items: flex-start; font-size: 14px; }
+.step .circ { width: 20px; height: 20px; border-radius: 50%; border: 1.5px solid rgba(255,255,255,.28); flex: none; margin-top: 1px; display: grid; place-items: center; font-size: 11px; }
+.step.done .circ { background: var(--pass); border-color: var(--pass); color: #08310f; }
+.step.now .circ { border: 5px solid #fff; }
+.step.next { color: var(--faint); }
+.codeblock { background: rgba(0,0,0,.35); border: 1px solid var(--rule); border-radius: 12px; padding: 12px 14px; font-family: var(--mono); font-size: 12.5px; line-height: 19px; color: #e6e6e6; white-space: pre; overflow: hidden; position: relative; }
+.codeblock .copy { position: absolute; top: 8px; right: 8px; font-family: var(--ui); }
+.bar { height: 6px; border-radius: 3px; background: rgba(255,255,255,.12); overflow: hidden; } .bar > i { display: block; height: 100%; background: #fff; border-radius: 3px; }
+.bar.pass > i { background: var(--pass); }
+.hr { height: 1px; background: var(--rule); }
+.kind-tile { width: 28px; height: 28px; border-radius: 9px; display: grid; place-items: center; color: var(--ink); font-size: 15px; flex: none; }
+
+/* ---- icons ---- */
+.i { width: 1em; height: 1em; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; flex: none; display: inline-block; vertical-align: -0.125em; }
+.menubar .i { font-size: 15px; }
+
+/* ---- background app: VS Code ---- */
+.vbody { position: absolute; top: 34px; left: 0; right: 0; bottom: 0; display: flex; }
+.act { width: 48px; background: #333333; display: flex; flex-direction: column; align-items: center; gap: 22px; padding-top: 14px; color: rgba(255,255,255,.45); font-size: 22px; }
+.act .on { color: #fff; }
+.explorer { width: 220px; background: #252526; padding: 10px 0; font-size: 13px; color: #cccccc; }
+.explorer .hd { font-size: 11px; letter-spacing: .06em; padding: 0 16px 10px; color: rgba(255,255,255,.6); }
+.explorer .f { height: 24px; display: flex; align-items: center; gap: 6px; padding-left: 26px; }
+.explorer .f.sel { background: #37373d; }
+.explorer .f .i { font-size: 14px; color: #8fb3d9; }
+.editor { flex: 1; display: flex; flex-direction: column; }
+.tabs { height: 36px; background: #252526; display: flex; }
+.tabs .t { padding: 0 16px; display: flex; align-items: center; font-size: 13px; color: rgba(255,255,255,.55); background: #2d2d2d; }
+.tabs .t.on { background: #1e1e1e; color: #fff; }
+.editor .code { padding-top: 10px; }
+
+/* ---- the lesson-complete panel (mockup 10 language) ---- */
+.done { background: rgba(28,28,30,.975); left: 120px; top: 46px; width: 1200px; height: 830px; display: flex; flex-direction: column; gap: 16px; overflow: hidden; }
+.done::before { content: ""; position: absolute; left: -120px; top: -160px; width: 620px; height: 340px; background: radial-gradient(closest-side, rgba(48,209,88,.10), rgba(48,209,88,0)); pointer-events: none; }
+.phead { align-items: center; gap: 16px; height: 92px; position: relative; }
+.medal { width: 52px; height: 52px; border-radius: 16px; background: var(--pass-tint); border: 1px solid rgba(48,209,88,.35); display: grid; place-items: center; color: var(--pass); font-size: 26px; flex: none; position: relative; }
+.medal .i { stroke-width: 2.4; }
+.medal .spark { position: absolute; font-size: 14px; color: var(--sky); }
+.phead h1 { font-size: 24px; letter-spacing: -.015em; }
+.badge.pass { background: var(--pass-tint); color: var(--pass); display: inline-flex; align-items: center; gap: 4px; }
+.badge.pass .i { font-size: 12px; stroke-width: 2.6; }
+.evidence { font-size: 14px; color: var(--muted); line-height: 1.4; }
+.evidence b { color: var(--text); font-weight: 600; font-variant-numeric: tabular-nums; }
+.meta { gap: 6px; font-size: 12px; color: var(--faint); }
+.meta .sep { opacity: .5; }
+.thumbcap { text-align: right; display: flex; flex-direction: column; gap: 3px; }
+.thumbcap .t1 { font-size: 12px; color: var(--muted); }
+.thumbcap .t2 { font-family: var(--mono); font-size: 11.5px; color: var(--faint); }
+.thumb { width: 196px; height: 84px; border-radius: 14px; background: #060709; border: 1px solid rgba(255,255,255,.08); flex: none; overflow: hidden; }
+.thumb svg { display: block; }
+
+.pbody { display: flex; gap: 18px; height: 686px; position: relative; }
+.mapcard { width: 826px; height: 686px; padding: 16px; display: flex; flex-direction: column; flex: none; }
+.legend { height: 24px; }
+.legend .items { margin-left: auto; gap: 14px; font-size: 12px; color: var(--muted); }
+.legend .lg { display: inline-flex; align-items: center; gap: 6px; }
+.map { position: relative; width: 794px; height: 462px; margin-top: 8px; }
+.map svg.graph { position: absolute; inset: 0; overflow: visible; }
+.lane { position: absolute; left: 0; height: 36px; display: flex; align-items: center; gap: 8px; }
+.lane .kind-tile { width: 26px; height: 26px; border-radius: 8px; font-size: 15px; }
+.lane .ln { font-size: 13px; font-weight: 600; }
+.lane .lc { font-size: 12px; color: var(--faint); }
+svg .nl { font: 500 13px var(--ui); fill: rgba(255,255,255,.88); }
+svg .nl.sel { fill: #fff; font-weight: 600; }
+svg .nl.next { fill: rgba(255,255,255,.48); }
+svg .xl { font: 12px var(--mono); fill: rgba(255,255,255,.5); }
+.node { transform-box: fill-box; transform-origin: center; animation: pop .5s cubic-bezier(.2,.9,.3,1.3) both; animation-delay: calc(var(--d) * 70ms + 150ms); }
+.edge { animation: fadein .5s ease both; animation-delay: calc(var(--d) * 70ms + 250ms); }
+@keyframes pop { from { opacity: 0; transform: scale(.55); } to { opacity: 1; transform: none; } }
+@keyframes fadein { from { opacity: 0; } to { opacity: 1; } }
+@media (prefers-reduced-motion: reduce) { .node, .edge { animation: none; } }
+
+.proof { margin-top: 10px; border-top: 1px solid var(--rule); padding-top: 12px; display: grid; grid-template-columns: 250px 250px 1fr; gap: 16px; }
+.proof .box { height: 104px; border-radius: 12px; background: rgba(0,0,0,.3); border: 1px solid var(--rule); overflow: hidden; }
+.proof .box svg { display: block; }
+.focus { position: absolute; left: 0; width: 300px; }
+.formula { background: rgba(0,0,0,.3); border: 1px solid var(--rule); border-radius: 10px; padding: 8px 12px; display: flex; align-items: baseline; gap: 10px; }
+.formula .m { font-family: var(--mono); font-size: 14px; color: #fff; }
+.chip.opens { height: 24px; padding: 0 9px; font-size: 11.5px; gap: 5px; color: rgba(255,255,255,.7); }
+.need { display: flex; align-items: center; gap: 9px; font-size: 13px; height: 22px; white-space: nowrap; }
+.need .meta2 { margin-left: auto; font-size: 12px; color: var(--faint); }
+.need .ic { width: 18px; height: 18px; flex: none; display: grid; place-items: center; border-radius: 50%; font-size: 11px; background: var(--pass); color: #08310f; }
+.need .ic .i { stroke-width: 3; }
+.need code { font-family: var(--mono); font-size: 12.5px; }
+
+.side { width: 320px; display: flex; flex-direction: column; gap: 14px; }
+.lesson { display: flex; gap: 12px; padding: 12px; border-radius: 14px; }
+.lesson.rec { background: rgba(255,255,255,.06); border: 1px solid rgba(255,255,255,.08); }
+.lesson + .lesson { margin-top: 6px; }
+.lesson .kind-tile { width: 32px; height: 32px; border-radius: 10px; font-size: 17px; }
+.dt { font-size: 13.5px; font-weight: 600; line-height: 1.3; }
+.ds { font-size: 12.5px; color: var(--muted); margin-top: 3px; line-height: 1.4; }
+.side .btn { width: 100%; justify-content: center; height: 38px; border-radius: 19px; }
+.side .btn .i { font-size: 15px; }
+.stat .v { font-size: 20px; font-weight: 600; letter-spacing: -.01em; margin-top: 4px; font-variant-numeric: tabular-nums; }
+.sparkb { display: flex; align-items: flex-end; gap: 5px; height: 28px; margin-top: 8px; }
+.sparkb i { display: block; width: 14px; border-radius: 3px; background: rgba(255,255,255,.28); }
+.sparkb i.now { background: #F4F4F5; }
+.drillrow { display: flex; align-items: center; gap: 12px; }
+.tile { width: 32px; height: 32px; border-radius: 10px; background: rgba(255,255,255,.08); display: grid; place-items: center; font-size: 17px; color: rgba(255,255,255,.85); flex: none; }
+</style>
+</head>
+<body>
+<!-- inline icon sprite (Tabler-style 24px line icons, stroke 2) so the file needs no network -->
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <defs>
+    <symbol id="i-apple" viewBox="0 0 24 24"><path d="M8.286 7.008c-3.216 0-4.286 3.23-4.286 5.92 0 3.229 2.143 8.072 4.286 8.072 1.165-.05 1.799-.538 3.214-.538 1.406 0 1.607.538 3.214.538s4.286-3.229 4.286-5.381c-.03-.011-2.649-.434-2.679-3.23-.02-2.335 2.589-3.179 2.679-3.228-1.096-1.606-3.162-2.113-3.75-2.153-1.535-.12-3.032 1.077-3.75 1.077-.729 0-2.036-1.077-3.214-1.077z"/><path d="M12 4a2 2 0 0 0 2-2 2 2 0 0 0-2 2"/></symbol>
+    <symbol id="i-battery" viewBox="0 0 24 24"><path d="M6 7h11a2 2 0 0 1 2 2v.5a.5.5 0 0 0 .5.5.5.5 0 0 1 .5.5v3a.5.5 0 0 1-.5.5.5.5 0 0 0-.5.5v.5a2 2 0 0 1-2 2h-11a2 2 0 0 1-2-2v-6a2 2 0 0 1 2-2"/><path d="M7 10v4M10 10v4M13 10v4"/></symbol>
+    <symbol id="i-wifi" viewBox="0 0 24 24"><path d="M12 18h.01M9.172 15.172a4 4 0 0 1 5.656 0M6.343 12.343a8 8 0 0 1 11.314 0M3.515 9.515c4.686-4.687 12.284-4.687 17 0"/></symbol>
+    <symbol id="i-search" viewBox="0 0 24 24"><circle cx="10" cy="10" r="7"/><path d="M21 21l-6-6"/></symbol>
+    <symbol id="i-toggle" viewBox="0 0 24 24"><circle cx="16" cy="12" r="2"/><rect x="2" y="6" width="20" height="12" rx="6"/></symbol>
+    <symbol id="i-plant" viewBox="0 0 24 24"><path d="M2 9a10 10 0 1 0 20 0"/><path d="M12 19a10 10 0 0 1 10-10"/><path d="M2 9a10 10 0 0 1 10 10"/><path d="M12 4a9.7 9.7 0 0 1 2.99 7.5"/><path d="M9.01 11.5a9.7 9.7 0 0 1 2.99-7.5"/></symbol>
+    <symbol id="i-files" viewBox="0 0 24 24"><path d="M15 3v4a1 1 0 0 0 1 1h4"/><path d="M18 17h-7a2 2 0 0 1-2-2v-10a2 2 0 0 1 2-2h4l5 5v7a2 2 0 0 1-2 2z"/><path d="M16 17v2a2 2 0 0 1-2 2h-7a2 2 0 0 1-2-2v-10a2 2 0 0 1 2-2h2"/></symbol>
+    <symbol id="i-branch" viewBox="0 0 24 24"><circle cx="7" cy="18" r="2"/><circle cx="7" cy="6" r="2"/><circle cx="17" cy="6" r="2"/><path d="M7 8v8M9 18h6a2 2 0 0 0 2-2v-5M14 14l3-3 3 3"/></symbol>
+    <symbol id="i-bug" viewBox="0 0 24 24"><path d="M9 9v-1a3 3 0 0 1 6 0v1"/><path d="M8 9h8a6 6 0 0 1 1 3v3a5 5 0 0 1-10 0v-3a6 6 0 0 1 1-3"/><path d="M3 13h4M17 13h4M12 20v-6M4 19l3.35-2M20 19l-3.35-2M4 7l3.75 2.4M20 7l-3.75 2.4"/></symbol>
+    <symbol id="i-apps" viewBox="0 0 24 24"><rect x="4" y="4" width="6" height="6" rx="1"/><rect x="4" y="14" width="6" height="6" rx="1"/><rect x="14" y="14" width="6" height="6" rx="1"/><path d="M14 7h6M17 4v6"/></symbol>
+    <symbol id="i-user" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="10" r="3"/><path d="M6.168 18.849a4 4 0 0 1 3.832-2.849h4a4 4 0 0 1 3.834 2.855"/></symbol>
+    <symbol id="i-settings" viewBox="0 0 24 24"><path d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 0 0 2.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 0 0 1.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 0 0-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 0 0-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 0 0-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 0 0-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 0 0 1.066-2.573c-.94-1.543.826-3.31 2.37-2.37 1 .608 2.296.07 2.572-1.065z"/><circle cx="12" cy="12" r="3"/></symbol>
+    <symbol id="i-folder" viewBox="0 0 24 24"><path d="M5 4h4l3 3h7a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2h-14a2 2 0 0 1-2-2v-11a2 2 0 0 1 2-2"/></symbol>
+    <symbol id="i-python" viewBox="0 0 24 24"><path d="M12 9h-7a2 2 0 0 0-2 2v4a2 2 0 0 0 2 2h3"/><path d="M12 15h7a2 2 0 0 0 2-2v-4a2 2 0 0 0-2-2h-3"/><path d="M8 9v-4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-4a2 2 0 0 0-2 2v5a2 2 0 0 0 2 2h4a2 2 0 0 0 2-2v-4"/><path d="M11 6v.01M13 18v.01"/></symbol>
+    <symbol id="i-markdown" viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="M7 15v-6l2 2 2-2v6M14 13l2 2 2-2m-2 2v-6"/></symbol>
+    <symbol id="i-chev-r" viewBox="0 0 24 24"><path d="M9 6l6 6-6 6"/></symbol>
+    <symbol id="i-chev-d" viewBox="0 0 24 24"><path d="M6 9l6 6 6-6"/></symbol>
+    <symbol id="i-cube" viewBox="0 0 24 24"><path d="M21 16.008v-8.018a1.98 1.98 0 0 0-1-1.717l-7-4.008a2.016 2.016 0 0 0-2 0l-7 4.008c-.619.355-1 1.01-1 1.718v8.018c0 .709.381 1.363 1 1.717l7 4.008a2.016 2.016 0 0 0 2 0l7-4.008c.619-.355 1-1.01 1-1.718z"/><path d="M12 22v-10M12 12l8.73-5.04M3.27 6.96l8.73 5.04"/></symbol>
+    <symbol id="i-x" viewBox="0 0 24 24"><path d="M18 6l-12 12M6 6l12 12"/></symbol>
+    <symbol id="i-check" viewBox="0 0 24 24"><path d="M5 12l5 5 10-10"/></symbol>
+    <symbol id="i-eye" viewBox="0 0 24 24"><path d="M10 12a2 2 0 1 0 4 0 2 2 0 0 0-4 0"/><path d="M21 12c-2.4 4-5.4 6-9 6-3.6 0-6.6-2-9-6 2.4-4 5.4-6 9-6 3.6 0 6.6 2 9 6"/></symbol>
+    <symbol id="i-terminal" viewBox="0 0 24 24"><path d="M8 9l3 3-3 3M13 15h3"/><rect x="3" y="4" width="18" height="16" rx="2"/></symbol>
+    <symbol id="i-stairs" viewBox="0 0 24 24"><path d="M22 6h-5v5h-5v5h-5v5h-5M6 10v-7M3 6l3-3 3 3"/></symbol>
+    <symbol id="i-pause" viewBox="0 0 24 24"><rect x="6" y="5" width="4" height="14" rx="1"/><rect x="14" y="5" width="4" height="14" rx="1"/></symbol>
+    <symbol id="i-replay" viewBox="0 0 24 24"><path d="M19.933 13.041a8 8 0 1 1-9.925-8.788c3.899-1 7.935 1.007 9.425 4.747"/><path d="M20 4v5h-5"/></symbol>
+    <symbol id="i-arrow-r" viewBox="0 0 24 24"><path d="M5 12h14M13 18l6-6M13 6l6 6"/></symbol>
+    <symbol id="i-circle-x" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M10 10l4 4m0-4l-4 4"/></symbol>
+    <symbol id="i-alert" viewBox="0 0 24 24"><path d="M12 9v4M12 16h.01"/><path d="M10.363 3.591l-8.106 13.534a1.914 1.914 0 0 0 1.636 2.871h16.214a1.914 1.914 0 0 0 1.636-2.87l-8.106-13.536a1.914 1.914 0 0 0-3.274 0z"/></symbol>
+    <symbol id="i-code" viewBox="0 0 24 24"><path d="M7 8l-4 4 4 4M17 8l4 4-4 4M14 4l-4 16"/></symbol>
+    <symbol id="i-math" viewBox="0 0 24 24"><path d="M3 19a2 2 0 0 0 2 2c2 0 2-4 3-9s1-9 3-9a2 2 0 0 1 2 2"/><path d="M5 12h6M15 12l6 6M15 18l6-6"/></symbol>
+    <symbol id="i-net" viewBox="0 0 24 24"><circle cx="4.5" cy="12" r="2"/><circle cx="12" cy="5.5" r="2"/><circle cx="12" cy="18.5" r="2"/><circle cx="19.5" cy="12" r="2"/><path d="M6.3 11l3.9-4.4M6.3 13l3.9 4.4M13.8 6.6l3.9 4.4M13.8 17.4l3.9-4.4M12 7.5v9"/></symbol>
+    <symbol id="i-chart" viewBox="0 0 24 24"><path d="M4 19h16M4 15l4-6 4 2 4-5 4 4"/></symbol>
+    <symbol id="i-flame" viewBox="0 0 24 24"><path d="M12 10.941c2.333-3.308.167-7.823-1-8.941 0 3.395-2.235 5.299-3.667 6.706-1.43 1.408-2.333 3.621-2.333 5.588 0 3.704 3.134 6.706 7 6.706s7-3.002 7-6.706c0-1.712-1.232-4.403-2.333-5.588-2.084 3.353-3.257 3.353-4.667 2.235"/></symbol>
+    <symbol id="i-digits" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M8 9.5a1.5 1.5 0 0 1 3 0c0 1.2-3 2.6-3 5h3M14.5 9h2.5l-1.6 2.2a1.6 1.6 0 1 1-1.4 2.4"/></symbol>
+    <symbol id="i-logout" viewBox="0 0 24 24"><path d="M14 8v-2a2 2 0 0 0-2-2h-7a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h7a2 2 0 0 0 2-2v-2"/><path d="M9 12h12l-3-3M18 15l3-3"/></symbol>
+    <symbol id="i-clock" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 3"/></symbol>
+    <symbol id="i-gauge" viewBox="0 0 24 24"><path d="M12 13m-1 0a1 1 0 1 0 2 0 1 1 0 1 0-2 0M13.41 11.59l2.59-2.59"/><path d="M7 13a5 5 0 0 1 5-5"/><path d="M5.64 19a9 9 0 1 1 12.72 0"/></symbol>
+    <symbol id="i-sparkles" viewBox="0 0 24 24"><path d="M16 18a2 2 0 0 1 2 2 2 2 0 0 1 2-2 2 2 0 0 1-2-2 2 2 0 0 1-2 2zm0-12a2 2 0 0 1 2 2 2 2 0 0 1 2-2 2 2 0 0 1-2-2 2 2 0 0 1-2 2zm-7 12a6 6 0 0 1 6-6 6 6 0 0 1-6-6 6 6 0 0 1-6 6 6 6 0 0 1 6 6z"/></symbol>
+    <symbol id="i-play" viewBox="0 0 24 24"><path d="M7 4v16l13-8z"/></symbol>
+  </defs>
+</svg>
+<div class="screen">
+
+  <div class="menubar">
+    <svg class="i"><use href="#i-apple"/></svg>
+    <span class="app">Code</span><span>File</span><span>Edit</span><span>Selection</span><span>View</span><span>Go</span><span>Run</span><span>Terminal</span>
+    <div class="right"><svg class="i"><use href="#i-wifi"/></svg><svg class="i"><use href="#i-battery"/></svg><svg class="i"><use href="#i-search"/></svg><span>Sun Nov 15&nbsp;&nbsp;10:41</span></div>
+  </div>
+
+  <div class="pill">
+    <span class="mark"><svg class="i"><use href="#i-plant"/></svg></span>
+    <span>Lesson complete</span>
+    <span class="dot pass"></span>
+  </div>
+
+  <!-- the real app behind -->
+  <div class="window">
+    <div class="titlebar"><div class="traffic"><i></i><i></i><i></i></div><span style="margin:0 auto">train.py — tiny-nn</span></div>
+    <div class="vbody">
+      <div class="act"><span class="on"><svg class="i"><use href="#i-files"/></svg></span><svg class="i"><use href="#i-search"/></svg><svg class="i"><use href="#i-branch"/></svg><svg class="i"><use href="#i-play"/></svg><svg class="i"><use href="#i-apps"/></svg></div>
+      <div class="explorer">
+        <div class="hd">EXPLORER</div>
+        <div class="f" style="padding-left:12px"><svg class="i" style="color:#ccc"><use href="#i-chev-d"/></svg>TINY-NN</div>
+        <div class="f"><svg class="i"><use href="#i-python"/></svg>net.py</div>
+        <div class="f sel"><svg class="i"><use href="#i-python"/></svg>train.py</div>
+        <div class="f"><svg class="i"><use href="#i-python"/></svg>test_net.py</div>
+        <div class="f"><svg class="i"><use href="#i-python"/></svg>symmetry.py</div>
+        <div class="f"><svg class="i" style="color:#b0b0b0"><use href="#i-markdown"/></svg>README.md</div>
+      </div>
+      <div class="editor">
+        <div class="tabs"><div class="t">net.py</div><div class="t on">train.py</div><div class="t">symmetry.py</div></div>
+<div class="code"><span class="ln">1</span><span class="kw">import</span> numpy <span class="kw">as</span> np
+<span class="ln">2</span><span class="kw">from</span> net <span class="kw">import</span> <span class="fn">forward</span>, <span class="fn">backward</span>, <span class="fn">mse</span>
+<span class="ln">3</span>
+<span class="ln">4</span><span class="var">X</span> = np.<span class="fn">linspace</span>(-np.pi, np.pi, <span class="num">64</span>)[:, <span class="kw">None</span>]
+<span class="ln">5</span><span class="var">Y</span> = np.<span class="fn">sin</span>(<span class="var">X</span>)
+<span class="ln">6</span>
+<span class="ln">7</span><span class="var">rng</span> = np.random.<span class="fn">default_rng</span>(<span class="num">30</span>)
+<span class="ln">8</span><span class="var">sizes</span> = [<span class="num">1</span>, <span class="num">4</span>, <span class="num">4</span>, <span class="num">1</span>]
+<span class="ln">9</span><span class="var">W</span> = [rng.<span class="fn">normal</span>(<span class="num">0</span>, <span class="num">0.5</span>, (m, n))
+<span class="ln">10</span>     <span class="kw">for</span> m, n <span class="kw">in</span> <span class="fn">zip</span>(sizes, sizes[<span class="num">1</span>:])]
+<span class="ln">11</span><span class="var">b</span> = [np.<span class="fn">zeros</span>(n) <span class="kw">for</span> n <span class="kw">in</span> sizes[<span class="num">1</span>:]]
+<span class="ln">12</span>
+<span class="ln">13</span><span class="kw">for</span> <span class="var">epoch</span> <span class="kw">in</span> <span class="fn">range</span>(<span class="num">5001</span>):
+<span class="ln">14</span>    <span class="var">acts</span> = <span class="fn">forward</span>(<span class="var">X</span>, <span class="var">W</span>, <span class="var">b</span>)
+<span class="ln">15</span>    <span class="var">loss</span> = <span class="fn">mse</span>(<span class="var">acts</span>[-<span class="num">1</span>], <span class="var">Y</span>)
+<span class="ln">16</span>    <span class="var">gW</span>, <span class="var">gb</span> = <span class="fn">backward</span>(<span class="var">acts</span>, <span class="var">Y</span>, <span class="var">W</span>)
+<span class="ln">17</span>    <span class="var">W</span>, <span class="var">b</span> = <span class="fn">step</span>(<span class="var">W</span>, <span class="var">b</span>, <span class="var">gW</span>, <span class="var">gb</span>)
+<span class="ln">18</span>    <span class="kw">if</span> <span class="var">epoch</span> % <span class="num">500</span> == <span class="num">0</span>:
+<span class="ln">19</span>        <span class="fn">print</span>(<span class="str">f"epoch {epoch:5d}  loss {loss:.4f}"</span>)</div>
+      </div>
+    </div>
+  </div>
+  <div class="dim"></div>
+
+  <!-- Miyagi: lesson complete -->
+  <div class="panel done" role="dialog" aria-labelledby="ttl">
+    <div class="row phead">
+      <div class="medal"><svg class="i"><use href="#i-check"/></svg>
+        <svg class="i spark" style="right:-9px; top:-9px"><use href="#i-sparkles"/></svg>
+      </div>
+      <div class="col" style="gap:5px; min-width:0">
+        <div class="row" style="gap:10px"><h1 id="ttl"></h1><span class="badge pass"><svg class="i"><use href="#i-check"/></svg>Lesson complete</span></div>
+        <div class="evidence" id="body"></div>
+        <div class="row meta"><span>Just teach me · Machine learning</span><span class="sep">·</span><span>6 of 6 steps</span><span class="sep">·</span><span>41 min in VS Code</span></div>
+      </div>
+      <div class="thumbcap" style="margin-left:auto">
+        <span class="t1">Your network</span>
+        <span class="t2" id="thumbmeta">1-4-4-1 · epoch 5,000</span>
+      </div>
+      <div class="thumb"><svg id="thumb" width="196" height="84" viewBox="0 0 196 84" aria-label="Your final 1-4-4-1 network"></svg></div>
+      <div class="close" style="margin-left:0; align-self:flex-start; margin-top:4px"><svg class="i"><use href="#i-x"/></svg></div>
+    </div>
+
+    <div class="pbody">
+      <!-- skill map -->
+      <div class="card mapcard">
+        <div class="row legend">
+          <h2 id="headline"></h2>
+          <div class="row items">
+            <span class="lg"><svg width="14" height="14"><circle cx="7" cy="7" r="5.5" fill="none" stroke="#30D158" stroke-width="2"/></svg>Mastered</span>
+            <span class="lg"><svg width="14" height="14"><circle cx="7" cy="7" r="5.5" fill="none" stroke="#F4F4F5" stroke-width="2"/></svg>Learning</span>
+            <span class="lg"><svg width="14" height="14"><circle cx="7" cy="7" r="5.5" fill="none" stroke="#8E8E93" stroke-width="1.5" stroke-dasharray="2 2.4"/></svg>Next</span>
+            <span class="lg"><svg width="16" height="16"><g transform="translate(8,8)"><circle r="6.5" fill="#F4F4F5"/><path d="M0 -3.4 V0 L2.4 1.6" stroke="#141414" stroke-width="1.4" fill="none" stroke-linecap="round"/></g></svg>Drill due</span>
+            <span class="lg"><svg width="20" height="14"><path d="M1 7 H19" stroke="rgba(255,255,255,.55)" stroke-width="1.5" stroke-dasharray="3 3"/></svg>Shared idea</span>
+          </div>
+        </div>
+        <div class="map" id="map"></div>
+
+        <!-- what the learner proved -->
+        <div class="proof">
+          <div class="col" style="gap:6px">
+            <div class="row"><span class="eyebrow">Loss</span><span class="tiny faint" style="margin-left:auto">log scale</span></div>
+            <div class="box"><svg id="losschart" width="250" height="104" viewBox="0 0 250 104"></svg></div>
+          </div>
+          <div class="col" style="gap:6px">
+            <div class="row"><span class="eyebrow">Fit</span><span class="tiny faint" style="margin-left:auto" id="fitmeta"></span></div>
+            <div class="box"><svg id="fitchart" width="250" height="104" viewBox="0 0 250 104"></svg></div>
+          </div>
+          <div class="col" style="gap:6px">
+            <div class="row"><span class="eyebrow">Checks you passed</span><span class="tiny faint" style="margin-left:auto">14 of 15 first try</span></div>
+            <div class="col" style="gap:5px; margin-top:4px">
+              <div class="need"><span class="ic"><svg class="i"><use href="#i-check"/></svg></span><span><code>forward()</code> returns <code>(64, 1)</code></span></div>
+              <div class="need"><span class="ic"><svg class="i"><use href="#i-check"/></svg></span><span>Gradient check, error <code>3e-8</code></span></div>
+              <div class="need"><span class="ic"><svg class="i"><use href="#i-check"/></svg></span><span>Loss under <code>0.01</code> at epoch 3,539</span></div>
+              <div class="need"><span class="ic"><svg class="i"><use href="#i-check"/></svg></span><span>Random init breaks symmetry</span></div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- side column -->
+      <div class="side">
+        <div class="card current" style="padding:16px">
+          <div class="row"><span class="eyebrow">Up next</span><span class="tiny faint" style="margin-left:auto" id="nextcount"></span></div>
+          <div id="next" style="margin-top:10px"></div>
+          <div class="col" style="gap:8px; margin-top:14px">
+            <span class="btn primary" id="start"></span>
+            <span class="btn neutral" id="end"><svg class="i"><use href="#i-logout"/></svg>End lesson</span>
+          </div>
+        </div>
+
+        <div class="card" style="padding:14px 16px">
+          <div class="row"><span class="eyebrow">This lesson</span><span class="tiny faint" style="margin-left:auto">today</span></div>
+          <div class="row" style="align-items:flex-start; gap:16px; margin-top:10px">
+            <div class="stat" style="flex:1">
+              <div class="tiny muted">Time per step</div>
+              <div class="v">6m 50s</div>
+              <div class="sparkb"><i style="height:20px"></i><i style="height:26px"></i><i style="height:24px"></i><i style="height:28px"></i><i style="height:18px"></i><i class="now" style="height:12px"></i></div>
+              <div class="tiny faint" style="margin-top:6px">6 steps, 41 min</div>
+            </div>
+            <div class="stat" style="flex:1">
+              <div class="tiny muted">Checks passed first try</div>
+              <div class="v">93%</div>
+              <div class="bar pass" style="margin-top:19px"><i style="width:93%"></i></div>
+              <div class="tiny faint" style="margin-top:14px">14 of 15 checks</div>
+            </div>
+          </div>
+</div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+/* The card exactly as the engine sends it. */
+const CARD = {"kind":"complete","title":"You built a neural network","body":"Loss fell from 0.48 to 0.002 in 5,000 epochs. Your network learned the shape of sin(x).","actions":["end_lesson"],
+ "skillMap":{"track":"Machine learning","headline":"6 skills mastered today",
+  "nodes":[
+   {"id":"numpy","label":"NumPy arrays","state":"mastered","detail":"Mastered before this lesson. A redo drill is due today."},
+   {"id":"neurons","label":"Neurons & activations","state":"mastered","detail":"Step 1: one tanh neuron, by hand"},
+   {"id":"forward","label":"Forward pass","state":"mastered","detail":"Step 2: forward() returns shape (64, 1)"},
+   {"id":"loss","label":"Loss (MSE)","state":"mastered","detail":"Step 3: mse() matches np.mean((y - t) ** 2)"},
+   {"id":"backprop","label":"Backpropagation","state":"mastered","detail":"Step 4: gradient check, max error 3e-8"},
+   {"id":"train","label":"Training loop","state":"mastered","detail":"Step 5: loss 0.48 to 0.002 in 5,000 epochs"},
+   {"id":"symmetry","label":"Symmetry breaking","state":"mastered","detail":"Step 6: equal weights stay equal, random ones split"},
+   {"id":"adam","label":"Optimizers (Adam)","state":"next","detail":"Steadier, faster steps than plain gradient descent"},
+   {"id":"minibatch","label":"Mini-batches","state":"next","detail":"Train on slices of the data, not all of it at once"},
+   {"id":"softmax","label":"Softmax classification","state":"next","detail":"Turn scores into class probabilities"},
+   {"id":"autograd","label":"PyTorch autograd","state":"next","detail":"loss.backward() writes the gradients you wrote by hand"},
+   {"id":"cnn","label":"CNNs","state":"next","detail":"Networks that look at images"}
+  ],
+  "edges":[
+   {"from":"numpy","to":"neurons"},{"from":"neurons","to":"forward"},{"from":"forward","to":"loss"},{"from":"loss","to":"backprop"},
+   {"from":"backprop","to":"train"},{"from":"train","to":"symmetry"},
+   {"from":"loss","to":"softmax"},{"from":"backprop","to":"autograd"},{"from":"autograd","to":"cnn"},
+   {"from":"train","to":"adam"},{"from":"train","to":"minibatch"}
+  ],
+  "cross":[
+   {"track":"Math","label":"Matrix multiply","to":"forward","note":"X @ W"},
+   {"track":"Math","label":"Derivatives (chain rule)","to":"backprop","note":"chain rule"}
+  ],
+  "next":[
+   {"title":"Build a neural network in PyTorch","goal":"Rebuild today's 1-4-4-1 network with torch.nn and let autograd do the backprop."},
+   {"title":"Classify handwritten digits","goal":"Train a softmax classifier on MNIST, one mini-batch at a time."}
+  ]}};
+/* The lesson's last "network" card (same shape as mockup 11). The header thumbnail and the proof charts read it. */
+const NETWORK = {"kind":"network","caption":"Brightness is how strongly a neuron fires. Blue weights push up, brown push down.","data":{"layers":[1,4,4,1],"labels":{"input":["x"],"output":["y"]},"placement":"drawer","mode":"train","frames":[
+    {"epoch":0,"loss":0.479,"input":1.2,"W":[[[1.504,0.228,1.186,1.025]],[[-0.086,-0.093,-0.133,-0.195],[0.06,0.006,-0.516,-0.328],[-0.389,-0.068,-0.152,-0.038],[-0.514,-0.053,0.266,0.129]],[[0.095],[-0.483],[0.407],[-0.418]]],"b":[[0,0,0,0],[0,0,0,0],[0.16]],"a":[[1.2],[0.947,0.267,0.89,0.843],[-0.689,-0.19,-0.173,-0.194],[0.197]]},
+    {"epoch":100,"loss":0.237,"input":1.2,"W":[[[1.553,0.196,1.183,1.075]],[[-0.046,-0.137,-0.09,-0.239],[0.099,-0.036,-0.475,-0.369],[-0.348,-0.111,-0.109,-0.082],[-0.474,-0.097,0.309,0.085]],[[0.052],[-0.531],[0.374],[-0.465]]],"b":[[-0.043,0.034,0.014,-0.044],[-0.038,0.039,-0.04,0.04],[0.12]],"a":[[1.2],[0.949,0.263,0.892,0.847],[-0.646,-0.274,-0.085,-0.277],[0.329]]},
+    {"epoch":250,"loss":0.102,"input":1.2,"W":[[[1.622,0.216,1.279,1.147]],[[-0.021,-0.183,-0.045,-0.286],[0.119,-0.074,-0.438,-0.409],[-0.324,-0.157,-0.065,-0.129],[-0.449,-0.143,0.354,0.039]],[[0.01],[-0.591],[0.386],[-0.523]]],"b":[[-0.042,0.046,0.001,-0.041],[-0.055,0.059,-0.064,0.061],[0.094]],"a":[[1.2],[0.957,0.296,0.911,0.871],[-0.621,-0.385,0.011,-0.394],[0.525]]},
+    {"epoch":500,"loss":0.0735,"input":1.2,"W":[[[1.693,0.257,1.38,1.23]],[[-0.021,-0.211,-0.019,-0.316],[0.122,-0.075,-0.442,-0.416],[-0.324,-0.184,-0.04,-0.158],[-0.449,-0.169,0.378,0.01]],[[-0.013],[-0.628],[0.437],[-0.555]]],"b":[[0.007,0.051,0.043,0.009],[-0.055,0.062,-0.069,0.065],[0.084]],"a":[[1.2],[0.967,0.345,0.935,0.902],[-0.63,-0.456,0.064,-0.479],[0.672]]},
+    {"epoch":750,"loss":0.0684,"input":1.2,"W":[[[1.737,0.302,1.447,1.295]],[[-0.023,-0.217,-0.014,-0.327],[0.133,-0.038,-0.494,-0.39],[-0.325,-0.19,-0.036,-0.169],[-0.45,-0.173,0.38,0]],[[-0.018],[-0.633],[0.488],[-0.551]]],"b":[[0.021,0.044,0.046,0.022],[-0.054,0.061,-0.064,0.066],[0.083]],"a":[[1.2],[0.971,0.385,0.945,0.918],[-0.632,-0.465,0.047,-0.509],[0.692]]},
+    {"epoch":1000,"loss":0.0629,"input":1.2,"W":[[[1.768,0.336,1.5,1.355]],[[-0.024,-0.223,-0.008,-0.339],[0.152,0.007,-0.558,-0.364],[-0.326,-0.195,-0.031,-0.18],[-0.451,-0.178,0.384,-0.011]],[[-0.024],[-0.639],[0.553],[-0.547]]],"b":[[0.025,0.038,0.046,0.023],[-0.054,0.059,-0.055,0.065],[0.083]],"a":[[1.2],[0.973,0.415,0.951,0.929],[-0.631,-0.467,0.032,-0.535],[0.707]]},
+    {"epoch":1500,"loss":0.0524,"input":1.2,"W":[[[1.758,0.323,1.54,1.436]],[[-0.024,-0.23,0.01,-0.359],[0.22,0.113,-0.706,-0.307],[-0.326,-0.202,-0.013,-0.201],[-0.45,-0.184,0.401,-0.032]],[[-0.039],[-0.659],[0.709],[-0.542]]],"b":[[0.019,0.025,0.062,0.015],[-0.053,0.058,-0.037,0.064],[0.082]],"a":[[1.2],[0.972,0.391,0.957,0.94],[-0.621,-0.453,0.061,-0.556],[0.748]]},
+    {"epoch":2000,"loss":0.0421,"input":1.2,"W":[[[1.619,0.293,1.474,1.425]],[[-0.015,-0.228,0.032,-0.37],[0.331,0.23,-0.862,-0.247],[-0.319,-0.201,0.013,-0.215],[-0.442,-0.183,0.427,-0.045]],[[-0.056],[-0.686],[0.876],[-0.538]]],"b":[[-0.116,0.006,0.418,-0.092],[-0.053,0.058,-0.026,0.064],[0.077]],"a":[[1.2],[0.95,0.343,0.975,0.924],[-0.588,-0.418,0.115,-0.553],[0.795]]},
+    {"epoch":2500,"loss":0.0303,"input":1.2,"W":[[[1.452,0.288,1.529,1.361]],[[0.004,-0.221,0.062,-0.376],[0.501,0.359,-1.028,-0.183],[-0.321,-0.207,0.063,-0.233],[-0.423,-0.177,0.46,-0.054]],[[-0.082],[-0.729],[1.05],[-0.543]]],"b":[[-0.447,-0.008,0.886,-0.139],[-0.061,0.053,-0.028,0.056],[0.069]],"a":[[1.2],[0.861,0.326,0.991,0.904],[-0.534,-0.368,0.167,-0.543],[0.851]]},
+    {"epoch":3000,"loss":0.0187,"input":1.2,"W":[[[1.434,0.288,1.695,1.288]],[[0.028,-0.216,0.098,-0.385],[0.732,0.495,-1.199,-0.113],[-0.337,-0.217,0.127,-0.253],[-0.393,-0.165,0.488,-0.057]],[[-0.121],[-0.788],[1.225],[-0.556]]],"b":[[-0.853,-0.014,1.181,-0.106],[-0.059,0.047,-0.026,0.054],[0.061]],"a":[[1.2],[0.7,0.319,0.997,0.894],[-0.456,-0.301,0.219,-0.504],[0.903]]},
+    {"epoch":4000,"loss":0.00595,"input":1.2,"W":[[[1.506,0.274,1.732,1.288]],[[0.014,-0.218,0.168,-0.4],[1.147,0.726,-1.485,0.016],[-0.388,-0.226,0.215,-0.269],[-0.373,-0.147,0.528,-0.057]],[[-0.208],[-0.91],[1.508],[-0.587]]],"b":[[-1.317,-0.008,1.521,-0.112],[-0.021,0.033,-0.011,0.068],[0.054]],"a":[[1.2],[0.454,0.311,0.999,0.893],[-0.362,-0.194,0.282,-0.404],[0.968]]},
+    {"epoch":5000,"loss":0.00194,"input":1.2,"W":[[[1.508,0.262,1.562,1.417]],[[-0.061,-0.231,0.223,-0.41],[1.429,0.88,-1.68,0.116],[-0.399,-0.217,0.235,-0.262],[-0.424,-0.15,0.572,-0.059]],[[-0.279],[-1.004],[1.7],[-0.607]]],"b":[[-1.582,-0.001,1.647,-0.003],[-0.013,0.021,-0.001,0.089],[0.054]],"a":[[1.2],[0.224,0.304,0.998,0.935],[-0.368,-0.12,0.298,-0.277],[0.953]]}]}};
+
+(function () {
+  const $ = id => document.getElementById(id);
+  const SM = CARD.skillMap, NET = NETWORK.data, FR = NET.frames, FINAL = FR[FR.length - 1];
+  const esc = s => s.replace(/&/g, '&amp;').replace(/</g, '&lt;');
+
+  /* ---------- header ---------- */
+  $('ttl').textContent = CARD.title;
+  $('body').innerHTML = esc(CARD.body).replace(/(\d[\d,]*\.?\d*)(?![^<]*>)/g, '<b>$1</b>').replace('sin(x)', '<b>sin(x)</b>');
+  $('headline').textContent = SM.headline;
+  $('thumbmeta').textContent = `1-4-4-1 · loss ${FINAL.loss.toFixed(4)}`;
+
+  // final network thumbnail: same rules as the live drawer, no labels
+  (function thumb() {
+    const L = NET.layers, wMax = Math.max(...FINAL.W.flat(2).map(Math.abs));
+    const X = l => 26 + l * 48, Y = (l, i) => 42 + (i - (L[l] - 1) / 2) * 17, r = 6;
+    let s = '';
+    for (let k = 0; k < L.length - 1; k++) for (let i = 0; i < L[k]; i++) for (let j = 0; j < L[k + 1]; j++) {
+      const w = FINAL.W[k][i][j], m = Math.abs(w) / wMax, c = w >= 0 ? '92,176,240' : '214,132,66';
+      s += `<line x1="${X(k)}" y1="${Y(k, i)}" x2="${X(k + 1)}" y2="${Y(k + 1, j)}" stroke="rgba(${c},${(0.14 + 0.66 * m).toFixed(2)})" stroke-width="${(0.5 + 2 * m).toFixed(2)}" stroke-linecap="round"/>`;
+    }
+    for (let l = 0; l < L.length; l++) for (let i = 0; i < L[l]; i++) {
+      const b = Math.pow(Math.min(1, Math.abs(FINAL.a[l][i])), 0.8), v = Math.round(14 + 230 * b);
+      if (b > .3) s += `<circle cx="${X(l)}" cy="${Y(l, i)}" r="${r * 2.2}" fill="url(#tg)" opacity="${b.toFixed(2)}"/>`;
+      s += `<circle cx="${X(l)}" cy="${Y(l, i)}" r="${r}" fill="rgb(${v},${v},${v + 1})" stroke="rgba(255,255,255,.55)" stroke-width="1"/>`;
+    }
+    $('thumb').innerHTML = `<defs><radialGradient id="tg"><stop offset=".4" stop-color="#fff" stop-opacity=".22"/><stop offset="1" stop-color="#fff" stop-opacity="0"/></radialGradient></defs>` + s;
+  })();
+
+  /* ---------- skill map layout, from the payload ---------- */
+  const MW = 794, ML = 52, MR = 52;
+  const Y = { math: 40, rule: 100, mlHead: 114, rows: [186, 298, 418] };
+  const byId = Object.fromEntries(SM.nodes.map(n => [n.id, { ...n }]));
+  const nodes = Object.values(byId);
+  const core = nodes.filter(n => n.state !== 'next');
+  const sp = (MW - ML - MR) / Math.max(1, core.length - 1);
+  core.forEach((n, i) => { n.x = ML + i * sp; n.row = 0; });
+  const parentsOf = id => SM.edges.filter(e => e.to === id).map(e => byId[e.from]);
+  let todo = nodes.filter(n => n.state === 'next'), guard = 0;
+  while (todo.length && guard++ < 10) {
+    todo.forEach(n => { const p = parentsOf(n.id).find(p => p.row != null); if (p) { n.row = p.row + 1; n.parent = p; } });
+    todo = todo.filter(n => n.row == null);
+  }
+  for (let r = 1; r < Y.rows.length; r++) {          // spread each row so nodes keep one column apart
+    const row = nodes.filter(n => n.row === r); row.forEach(n => n.want = n.parent.x); row.sort((a, b) => a.want - b.want);
+    row.forEach((n, i) => { n.x = Math.max(n.want, i ? row[i - 1].x + sp : ML); });
+    for (let i = row.length - 1; i >= 0; i--) n_clamp(row, i);
+  }
+  function n_clamp(row, i) { const max = i === row.length - 1 ? MW - MR : row[i + 1].x - sp; if (row[i].x > max) row[i].x = max; }
+  nodes.forEach(n => n.y = Y.rows[n.row]);
+
+  // the recommended next node: the one the first "Up next" lesson is about
+  const nextTitle = (SM.next[0] && SM.next[0].title || '').toLowerCase();
+  const rec = nodes.find(n => n.state === 'next' && n.label.split(/\W+/).some(w => w.length > 3 && nextTitle.includes(w.toLowerCase())));
+  if (rec) rec.sel = true;
+
+  // labels wrap to the column width, measured with the real font
+  const mctx = document.createElement('canvas').getContext('2d');
+  const wrap = (text, font, max) => {
+    mctx.font = font; const words = text.split(' '); const lines = []; let cur = '';
+    for (const w of words) { const t = cur ? cur + ' ' + w : w; if (cur && mctx.measureText(t).width > max) { lines.push(cur); cur = w; } else cur = t; }
+    lines.push(cur); return lines;
+  };
+  const FONT = '500 13px -apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, sans-serif';
+  nodes.forEach(n => { n.lines = wrap(n.label, n.sel ? FONT.replace('500', '600') : FONT, sp - 10); n.ly = n.y + (n.sel ? 44 : 36); n.lbottom = n.ly + (n.lines.length - 1) * 15; });
+
+  // cross-track ("shared idea") nodes sit in the Math lane above their target
+  const cross = SM.cross.map(c => ({ ...c, x: byId[c.to].x, y: Y.math, lines: wrap(c.label, FONT, 2 * sp - 20) }));
+
+  /* ---------- draw ---------- */
+  const glyph = {
+    mastered: `<circle r="20" fill="rgba(48,209,88,.12)" stroke="#30D158" stroke-width="2.5"/><path d="M-6.5 0.5 L-2 5 L7 -4.5" fill="none" stroke="#30D158" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/>`,
+    learning: f => `<circle r="20" fill="rgba(255,255,255,.07)" stroke="rgba(255,255,255,.3)" stroke-width="2.5"/><circle r="20" fill="none" stroke="#F4F4F5" stroke-width="2.5" stroke-dasharray="${(125.7 * f).toFixed(1)} 200" transform="rotate(-90)" stroke-linecap="round"/><circle r="4.5" fill="#F4F4F5"/>`,
+    next: `<circle r="20" fill="rgba(255,255,255,.03)" stroke="#8E8E93" stroke-width="1.6" stroke-dasharray="3 4"/><circle r="3.5" fill="#8E8E93"/>`,
+    sel: `<circle r="28" fill="none" stroke="#F4F4F5" stroke-opacity=".65" stroke-width="1.5"/>`,
+    drill: `<g transform="translate(16,-16)"><circle r="8.5" fill="#F4F4F5" stroke="#1c1c1e" stroke-width="2"/><path d="M0 -4 V0 L3 2" stroke="#141414" stroke-width="1.6" fill="none" stroke-linecap="round"/></g>`,
+  };
+  const label = (n, cls) => n.lines.map((t, i) => `<text class="nl ${cls}" x="${n.x.toFixed(1)}" y="${(n.ly + i * 15).toFixed(1)}" text-anchor="middle">${esc(t)}</text>`).join('');
+
+  let edges = '', hi = '', dashed = '', notes = '', g = '';
+  const order = n => nodes.indexOf(n);
+  for (const e of SM.edges) {
+    const a = byId[e.from], b = byId[e.to], d = Math.max(order(a), order(b));
+    const into = b.sel;                              // the path into the recommended concept is white, as in mockup 10
+    let path;
+    if (a.row === b.row) path = `M${(a.x + 24).toFixed(1)} ${a.y} H${(b.x - 26).toFixed(1)}`;
+    else {
+      const sy = a.lbottom + 9, ey = b.y - (b.sel ? 34 : 26);
+      path = Math.abs(a.x - b.x) < 1 ? `M${a.x.toFixed(1)} ${sy} V${ey}` :
+        `M${a.x.toFixed(1)} ${sy} C${a.x.toFixed(1)} ${sy + 30} ${b.x.toFixed(1)} ${ey - 34} ${b.x.toFixed(1)} ${ey}`;
+    }
+    const el = `<path class="edge" style="--d:${d}" d="${path}"/>`;
+    if (into) hi += el; else edges += el;
+  }
+  cross.forEach((c, i) => {
+    const t = byId[c.to], sy = Y.math + 36 + (c.lines.length - 1) * 15 + 10, ey = t.y - 26;
+    dashed += `<path class="edge" style="--d:${order(t)}" d="M${c.x.toFixed(1)} ${sy} V${ey}"/>`;
+    notes += `<text class="xl edge" style="--d:${order(t)}" x="${(c.x + 10).toFixed(1)}" y="${((sy + ey) / 2 + 4).toFixed(1)}">${esc(c.note)}</text>`;
+  });
+  nodes.forEach((n, i) => {
+    const inner = n.state === 'mastered' ? glyph.mastered : n.state === 'learning' ? glyph.learning(.5) : glyph.next;
+    const drill = /drill is due/i.test(n.detail || '') ? glyph.drill : '';
+    g += `<g transform="translate(${n.x.toFixed(1)},${n.y})"><g class="node" style="--d:${i}"><title>${esc(n.label)}: ${esc(n.detail || '')}</title>${n.sel ? glyph.sel : ''}${inner}${drill}</g></g>`;
+    g += `<g class="edge" style="--d:${i}">${label(n, n.sel ? 'sel' : n.state === 'next' ? 'next' : '')}</g>`;
+  });
+  cross.forEach((c, i) => {
+    g += `<g transform="translate(${c.x.toFixed(1)},${c.y})"><g class="node" style="--d:${i}"><title>${esc(c.track)}: ${esc(c.label)}</title>${glyph.learning(.5)}</g></g>`;
+    g += label({ ...c, ly: c.y + 36 }, '');
+  });
+
+  const masteredN = nodes.filter(n => n.state === 'mastered').length;
+  $('map').innerHTML = `
+    <svg class="graph" width="${MW}" height="462" viewBox="0 0 ${MW} 462">
+      <defs>
+        <marker id="a" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto"><path d="M0 0 L8 4 L0 8 z" fill="rgba(255,255,255,.35)"/></marker>
+        <marker id="aw" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto"><path d="M0 0 L8 4 L0 8 z" fill="#F4F4F5"/></marker>
+      </defs>
+      <path d="M0 ${Y.rule + .5} H${MW}" stroke="rgba(255,255,255,.06)"/>
+      <g stroke="rgba(255,255,255,.28)" stroke-width="1.5" fill="none" marker-end="url(#a)">${edges}</g>
+      <g stroke="#F4F4F5" stroke-width="2" fill="none" marker-end="url(#aw)">${hi}</g>
+      <g stroke="rgba(255,255,255,.55)" stroke-width="1.5" fill="none" stroke-dasharray="3 3" marker-end="url(#a)">${dashed}</g>
+      ${notes}
+      ${g}
+    </svg>
+    <div class="lane" style="top:${Y.math - 18}px"><span class="kind-tile" style="background:var(--lilac)"><svg class="i"><use href="#i-math"/></svg></span><div><div class="ln">${esc(SM.cross[0].track)}</div><div class="lc">${SM.cross.length} shared ideas</div></div></div>
+    ${rec ? `<div class="focus" style="top:${Y.rows[1] - 22}px">
+      <div class="row" style="gap:8px"><h2>${esc(rec.label)}</h2><span class="badge">Up next</span></div>
+      <div class="small muted" style="line-height:1.45; margin-top:6px">${esc(rec.detail || '').replace(/([\w.]+\(\))/g, '<code class="white" style="font-family:var(--mono); font-size:12.5px">$1</code>')}.</div>
+      <div class="formula" style="margin-top:10px"><span class="m">loss.backward()</span><span class="tiny faint">does step 4 for you</span></div>
+      <div class="row" style="gap:6px; margin-top:10px">
+        <span class="chip sky">Explain <span class="kbd">⌥E</span></span>
+        <span class="chip sky">Diagram <span class="kbd">⌥D</span></span>
+      </div>
+    </div>` : ''}
+    <div class="lane" style="top:${Y.mlHead}px"><span class="kind-tile" style="background:var(--sky)"><svg class="i"><use href="#i-net"/></svg></span><div><div class="ln">${esc(SM.track)}</div><div class="lc">${masteredN} of ${nodes.length} mastered</div></div></div>`;
+
+  /* ---------- proof charts, from the network card ---------- */
+  (function lossChart() {
+    const w = 250, h = 104, px = e => 16 + e / FR[FR.length - 1].epoch * (w - 32);
+    const lmax = Math.log10(FR[0].loss), lmin = Math.log10(FINAL.loss), py = l => 22 + (lmax - Math.log10(l)) / (lmax - lmin) * (h - 44);
+    const pts = FR.map(f => [px(f.epoch), py(f.loss)]);
+    const d = pts.map((p, i) => (i ? 'L' : 'M') + p[0].toFixed(1) + ' ' + p[1].toFixed(1)).join(' ');
+    $('losschart').innerHTML =
+      `<defs><linearGradient id="lg1" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#F4F4F5" stop-opacity=".16"/><stop offset="1" stop-color="#F4F4F5" stop-opacity="0"/></linearGradient></defs>` +
+      `<path d="M16 ${h - 22 + .5} H${w - 16}" stroke="rgba(255,255,255,.08)"/>` +
+      `<path d="${d} L${pts[pts.length - 1][0]} ${h - 22} L16 ${h - 22} Z" fill="url(#lg1)"/>` +
+      `<path d="${d}" fill="none" stroke="#F4F4F5" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>` +
+      pts.map((p, i) => `<circle cx="${p[0].toFixed(1)}" cy="${p[1].toFixed(1)}" r="${i === pts.length - 1 ? 3.5 : 2}" fill="${i === pts.length - 1 ? '#F4F4F5' : 'rgba(244,244,245,.55)'}"/>`).join('') +
+      `<text x="${pts[0][0] + 7}" y="${pts[0][1] + 4}" style="font:600 11.5px var(--mono)" fill="#F4F4F5">${FR[0].loss.toFixed(2)}</text>` +
+      `<text x="${w - 16}" y="${pts[pts.length - 1][1] - 15}" text-anchor="end" style="font:600 11.5px var(--mono)" fill="#F4F4F5">${FINAL.loss.toFixed(3)}</text>` +
+      `<text x="16" y="${h - 7}" style="font:10.5px var(--mono)" fill="rgba(255,255,255,.4)">epoch 0</text>` +
+      `<text x="${w - 16}" y="${h - 7}" text-anchor="end" style="font:10.5px var(--mono)" fill="rgba(255,255,255,.4)">${FINAL.epoch.toLocaleString('en-US')}</text>`;
+  })();
+
+  (function fitChart() {
+    const w = 250, h = 104, L = NET.layers;
+    const f = x => { let a = [x]; for (let k = 0; k < L.length - 1; k++) { const z = FINAL.b[k].map((bj, j) => bj + a.reduce((s, ai, i) => s + ai * FINAL.W[k][i][j], 0)); a = z.map(v => k < L.length - 2 ? Math.tanh(v) : v); } return a[0]; };
+    const px = x => 16 + (x + Math.PI) / (2 * Math.PI) * (w - 32), py = y => h / 2 + 4 - y * 34;
+    let sd = '', nd = '', err = 0;
+    for (let s = 0; s <= 64; s++) { const x = -Math.PI + 2 * Math.PI * s / 64, y = f(x); err = Math.max(err, Math.abs(y - Math.sin(x)));
+      sd += (s ? 'L' : 'M') + px(x).toFixed(1) + ' ' + py(Math.sin(x)).toFixed(1); nd += (s ? 'L' : 'M') + px(x).toFixed(1) + ' ' + py(y).toFixed(1); }
+    $('fitmeta').textContent = `max error ${err.toFixed(2)}`;
+    $('fitchart').innerHTML =
+      `<path d="M16 ${h / 2 + 4} H${w - 16}" stroke="rgba(255,255,255,.08)"/>` +
+      `<path d="${sd}" fill="none" stroke="rgba(255,255,255,.45)" stroke-width="1.5" stroke-dasharray="3 4"/>` +
+      `<path d="${nd}" fill="none" stroke="#F4F4F5" stroke-width="2" stroke-linejoin="round"/>` +
+      `<text x="16" y="17" style="font:11px var(--ui)" fill="rgba(255,255,255,.5)">sin(x)</text><path d="M54 13.5 H68" stroke="rgba(255,255,255,.45)" stroke-width="1.5" stroke-dasharray="3 3"/>` +
+      `<text x="80" y="17" style="font:11px var(--ui)" fill="rgba(255,255,255,.75)">your net</text><path d="M128 13.5 H142" stroke="#F4F4F5" stroke-width="2"/>` +
+      `<text x="16" y="${h - 7}" style="font:10.5px var(--mono)" fill="rgba(255,255,255,.4)">−π</text>` +
+      `<text x="${w - 16}" y="${h - 7}" text-anchor="end" style="font:10.5px var(--mono)" fill="rgba(255,255,255,.4)">π</text>`;
+  })();
+
+  /* ---------- up next + actions ---------- */
+  const icons = ['i-flame', 'i-digits'];
+  // which "next" skills each lesson opens: next nodes named in the lesson's title or goal
+  const opens = l => { const txt = (l.title + ' ' + l.goal).toLowerCase();
+    return nodes.filter(n => n.state === 'next' && n.label.split(/[^A-Za-z]+/).some(w => w.length > 3 && txt.includes(w.toLowerCase()))); };
+  $('nextcount').textContent = `${SM.next.length} lessons`;
+  $('next').innerHTML = SM.next.map((l, i) => `
+    <div class="lesson ${i === 0 ? 'rec' : ''}">
+      <span class="kind-tile" style="background:var(--sky)"><svg class="i"><use href="#${icons[i] || 'i-code'}"/></svg></span>
+      <div style="min-width:0">
+        ${i === 0 ? '<div class="eyebrow" style="margin-bottom:4px">Recommended</div>' : ''}<div class="dt">${esc(l.title)}</div>
+        <div class="ds">${esc(l.goal)}</div>
+        ${opens(l).length ? `<div class="row wrap" style="gap:6px; margin-top:8px">${opens(l).map(n => `<span class="chip opens"><svg width="12" height="12" viewBox="-7 -7 14 14"><circle r="5.5" fill="none" stroke="#8E8E93" stroke-width="1.4" stroke-dasharray="2 2.4"/></svg>${esc(n.label)}</span>`).join('')}</div>` : ''}
+      </div>
+    </div>`).join('');
+  $('start').innerHTML = `Start: ${esc(SM.next[0].title)}`;
+  if (!CARD.actions.includes('end_lesson')) $('end').remove();
+})();
+</script>
+</body>
+</html>

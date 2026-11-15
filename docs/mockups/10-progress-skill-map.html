@@ -1,0 +1,345 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>Your skills</title>
+<link rel="stylesheet" href="tools/miyagi-kit.css">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@3.19.0/dist/tabler-icons.min.css">
+<style>
+  /* background app: VS Code */
+  .vbody { position: absolute; top: 34px; left: 0; right: 0; bottom: 0; display: flex; }
+  .act { width: 48px; background: #333333; display: flex; flex-direction: column; align-items: center; gap: 22px; padding-top: 14px; color: rgba(255,255,255,.45); font-size: 22px; }
+  .act .on { color: #fff; }
+  .explorer { width: 220px; background: #252526; padding: 10px 0; font-size: 13px; color: #cccccc; }
+  .explorer .hd { font-size: 11px; letter-spacing: .06em; padding: 0 16px 10px; color: rgba(255,255,255,.6); }
+  .explorer .f { height: 24px; display: flex; align-items: center; gap: 6px; padding-left: 26px; }
+  .explorer .f.sel { background: #37373d; }
+  .explorer .f i { font-size: 14px; color: #8fb3d9; }
+  .editor { flex: 1; display: flex; flex-direction: column; }
+  .tabs { height: 36px; background: #252526; display: flex; }
+  .tabs .t { padding: 0 16px; display: flex; align-items: center; font-size: 13px; color: rgba(255,255,255,.55); background: #2d2d2d; }
+  .tabs .t.on { background: #1e1e1e; color: #fff; }
+  .editor .code { padding-top: 10px; }
+
+  /* the skills panel */
+  .skills { background: rgba(28,28,30,.975); left: 170px; top: 46px; width: 1100px; height: 830px; display: flex; flex-direction: column; gap: 16px; }
+  .phead { height: 48px; align-items: flex-start; }
+  .filters { margin-left: auto; gap: 6px; margin-top: 4px; }
+  .chip.on { background: rgba(255,255,255,.14); color: #fff; border-color: rgba(255,255,255,.16); }
+  .pbody { display: flex; gap: 18px; height: 728px; }
+
+  .mapcard { width: 714px; height: 728px; padding: 16px; display: flex; flex-direction: column; flex: none; }
+  .legend { height: 24px; }
+  .legend .items { margin-left: auto; gap: 14px; font-size: 12px; color: var(--muted); }
+  .legend .lg { display: inline-flex; align-items: center; gap: 6px; }
+  .map { position: relative; width: 680px; height: 440px; margin-top: 10px; }
+  .map svg.graph { position: absolute; inset: 0; }
+  .lane { position: absolute; left: 0; height: 36px; display: flex; align-items: center; gap: 8px; }
+  .lane .kind-tile { width: 26px; height: 26px; border-radius: 8px; font-size: 14px; }
+  .lane .ln { font-size: 13px; font-weight: 600; }
+  .lane .lc { font-size: 12px; color: var(--faint); }
+  svg .nl { font: 500 13px var(--ui); fill: rgba(255,255,255,.88); }
+  svg .nl.sel { fill: #fff; font-weight: 600; }
+  svg .nl.next { fill: rgba(255,255,255,.48); }
+  svg .ns { font: 12px var(--ui); fill: rgba(255,255,255,.5); }
+  svg .xl { font: 12px var(--mono); fill: rgba(255,255,255,.5); }
+
+  .detail { margin-top: 12px; border-top: 1px solid var(--rule); padding-top: 14px; display: grid; grid-template-columns: 176px 240px 232px; gap: 16px; flex: 1; }
+  .formula { background: rgba(0,0,0,.3); border: 1px solid var(--rule); border-radius: 10px; padding: 8px 12px; display: flex; align-items: baseline; gap: 10px; }
+  .formula .m { font-family: var(--mono); font-size: 16px; color: #fff; }
+  .need { display: flex; align-items: center; gap: 9px; font-size: 13px; height: 22px; }
+  .need .meta { margin-left: auto; font-size: 12px; color: var(--faint); }
+  .need .ic { width: 18px; height: 18px; flex: none; display: grid; place-items: center; border-radius: 50%; font-size: 11px; }
+  .need.pass .ic { background: var(--pass); color: #08310f; }
+  .need.wait .ic { border: 1.5px dashed rgba(255,255,255,.35); }
+
+  .side { width: 330px; display: flex; flex-direction: column; gap: 14px; }
+  .drill { display: flex; align-items: center; gap: 12px; padding: 10px 0; }
+  .drill + .drill { border-top: 1px solid var(--rule); }
+  .tile { width: 32px; height: 32px; border-radius: 10px; background: rgba(255,255,255,.08); display: grid; place-items: center; font-size: 17px; color: rgba(255,255,255,.85); flex: none; }
+  .dt { font-size: 13px; font-weight: 600; }
+  .dt code { font-family: var(--mono); font-size: 12.5px; font-weight: 500; }
+  .ds { font-size: 12px; color: var(--faint); margin-top: 2px; }
+  .cont { padding: 12px 14px; }
+  .cont .kind-tile { width: 30px; height: 30px; }
+  .cont .bar { height: 4px; margin-top: 10px; }
+  .stat .v { font-size: 20px; font-weight: 600; letter-spacing: -.01em; margin-top: 4px; }
+  .spark { display: flex; align-items: flex-end; gap: 5px; height: 28px; margin-top: 8px; }
+  .spark i { display: block; width: 14px; border-radius: 3px; background: rgba(255,255,255,.28); }
+  .spark i.now { background: #F4F4F5; }
+</style>
+</head>
+<body>
+<div class="screen">
+
+  <div class="menubar">
+    <i class="ti ti-brand-apple" style="font-size:15px"></i>
+    <span class="app">Code</span><span>File</span><span>Edit</span><span>Selection</span><span>View</span><span>Go</span><span>Run</span><span>Terminal</span>
+    <div class="right"><i class="ti ti-wifi"></i><i class="ti ti-battery-3"></i><i class="ti ti-search"></i><span>Sat Nov 14&nbsp;&nbsp;9:41 AM</span></div>
+  </div>
+
+  <div class="pill">
+    <span class="mark"><i class="ti ti-plant-2"></i></span>
+    <span>Your skills</span>
+    <span class="dot watch"></span>
+  </div>
+
+  <!-- the real app behind -->
+  <div class="window">
+    <div class="titlebar"><div class="traffic"><i></i><i></i><i></i></div><span style="margin:0 auto">raytracer.py — raytracer</span></div>
+    <div class="vbody">
+      <div class="act"><i class="ti ti-files on"></i><i class="ti ti-search"></i><i class="ti ti-git-branch"></i><i class="ti ti-player-play"></i><i class="ti ti-puzzle"></i></div>
+      <div class="explorer">
+        <div class="hd">EXPLORER</div>
+        <div class="f" style="padding-left:12px"><i class="ti ti-chevron-down" style="color:#ccc"></i>RAYTRACER</div>
+        <div class="f"><i class="ti ti-brand-python"></i>vec.py</div>
+        <div class="f sel"><i class="ti ti-brand-python"></i>raytracer.py</div>
+        <div class="f"><i class="ti ti-brand-python"></i>test_vec.py</div>
+        <div class="f"><i class="ti ti-photo" style="color:#b0b0b0"></i>out.ppm</div>
+        <div class="f"><i class="ti ti-file-text" style="color:#b0b0b0"></i>README.md</div>
+      </div>
+      <div class="editor">
+        <div class="tabs"><div class="t">vec.py</div><div class="t on">raytracer.py</div></div>
+<div class="code"><span class="ln">1</span><span class="kw">import</span> math
+<span class="ln">2</span><span class="kw">from</span> vec <span class="kw">import</span> <span class="ty">Vec3</span>, <span class="fn">dot</span>, <span class="fn">normalize</span>
+<span class="ln">3</span>
+<span class="ln">4</span><span class="var">WIDTH</span>, <span class="var">HEIGHT</span> = <span class="num">320</span>, <span class="num">180</span>
+<span class="ln">5</span>
+<span class="ln">6</span><span class="kw">def</span> <span class="fn">hit_sphere</span>(<span class="var">center</span>, <span class="var">radius</span>, <span class="var">origin</span>, <span class="var">direction</span>):
+<span class="ln">7</span>    <span class="var">oc</span> = <span class="var">origin</span> - <span class="var">center</span>
+<span class="ln">8</span>    <span class="var">a</span> = <span class="fn">dot</span>(<span class="var">direction</span>, <span class="var">direction</span>)
+<span class="ln">9</span>    <span class="var">b</span> = <span class="num">2.0</span> * <span class="fn">dot</span>(<span class="var">oc</span>, <span class="var">direction</span>)
+<span class="ln">10</span>    <span class="var">c</span> = <span class="fn">dot</span>(<span class="var">oc</span>, <span class="var">oc</span>) - <span class="var">radius</span> * <span class="var">radius</span>
+<span class="ln">11</span>    <span class="var">disc</span> = <span class="var">b</span> * <span class="var">b</span> - <span class="num">4</span> * <span class="var">a</span> * <span class="var">c</span>
+<span class="ln">12</span>    <span class="kw">if</span> <span class="var">disc</span> &lt; <span class="num">0</span>:
+<span class="ln">13</span>        <span class="kw">return</span> -<span class="num">1.0</span>
+<span class="ln">14</span>    <span class="kw">return</span> (-<span class="var">b</span> - math.<span class="fn">sqrt</span>(<span class="var">disc</span>)) / (<span class="num">2.0</span> * <span class="var">a</span>)
+<span class="ln">15</span>
+<span class="ln">16</span><span class="kw">def</span> <span class="fn">render</span>():
+<span class="ln">17</span>    <span class="kw">for</span> <span class="var">j</span> <span class="kw">in</span> <span class="fn">range</span>(<span class="var">HEIGHT</span>):
+<span class="ln">18</span>        <span class="kw">for</span> <span class="var">i</span> <span class="kw">in</span> <span class="fn">range</span>(<span class="var">WIDTH</span>):
+<span class="ln">19</span>            <span class="var">u</span>, <span class="var">v</span> = <span class="var">i</span> / <span class="var">WIDTH</span>, <span class="var">j</span> / <span class="var">HEIGHT</span>
+<span class="ln">20</span>            <span class="var">ray</span> = <span class="fn">normalize</span>(<span class="ty">Vec3</span>(<span class="var">u</span> - <span class="num">0.5</span>, <span class="var">v</span> - <span class="num">0.5</span>, -<span class="num">1</span>))
+<span class="ln">21</span>            <span class="cm"># step 2: color the pixel the ray hits</span></div>
+      </div>
+    </div>
+  </div>
+  <div class="dim"></div>
+
+  <!-- Miyagi: Your skills -->
+  <div class="panel skills">
+    <div class="row phead">
+      <div class="col" style="gap:4px">
+        <div class="row"><h1>Your skills</h1><span class="badge">16 concepts</span></div>
+        <div class="small muted">9 mastered, 4 learning, 3 up next across code, math, papers and tools.</div>
+      </div>
+      <div class="row filters">
+        <span class="chip on">All tracks</span><span class="chip">Code</span><span class="chip">Math</span><span class="chip">Papers</span><span class="chip">Tools</span>
+      </div>
+      <div class="close" style="margin-left:14px"><i class="ti ti-x"></i></div>
+    </div>
+
+    <div class="pbody">
+      <!-- skill map -->
+      <div class="card mapcard">
+        <div class="row legend">
+          <h2>Skill map</h2>
+          <div class="row items">
+            <span class="lg"><svg width="14" height="14"><circle cx="7" cy="7" r="5.5" fill="none" stroke="#30D158" stroke-width="2"/></svg>Mastered</span>
+            <span class="lg"><svg width="14" height="14"><circle cx="7" cy="7" r="5.5" fill="none" stroke="#F4F4F5" stroke-width="2"/></svg>Learning</span>
+            <span class="lg"><svg width="14" height="14"><circle cx="7" cy="7" r="5.5" fill="none" stroke="#8E8E93" stroke-width="1.5" stroke-dasharray="2 2.4"/></svg>Next</span>
+            <span class="lg"><svg width="16" height="16"><g transform="translate(8,8)"><circle r="6.5" fill="#F4F4F5"/><path d="M0 -3.4 V0 L2.4 1.6" stroke="#141414" stroke-width="1.4" fill="none" stroke-linecap="round"/></g></svg>Drill due</span>
+            <span class="lg"><svg width="20" height="14"><path d="M1 7 H19" stroke="rgba(255,255,255,.55)" stroke-width="1.5" stroke-dasharray="3 3"/></svg>Shared idea</span>
+          </div>
+        </div>
+
+        <div class="map">
+          <svg class="graph" width="680" height="440" viewBox="0 0 680 440">
+            <defs>
+              <marker id="a" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto"><path d="M0 0 L8 4 L0 8 z" fill="rgba(255,255,255,.35)"/></marker>
+              <marker id="aw" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto"><path d="M0 0 L8 4 L0 8 z" fill="#F4F4F5"/></marker>
+            </defs>
+            <!-- lane rules -->
+            <g stroke="rgba(255,255,255,.06)" stroke-width="1">
+              <path d="M0 104.5 H680"/><path d="M0 214.5 H680"/><path d="M0 324.5 H680"/>
+            </g>
+
+            <!-- edges: within a track -->
+            <g stroke="rgba(255,255,255,.28)" stroke-width="1.5" fill="none" marker-end="url(#a)">
+              <path d="M187 158 H258"/><path d="M304 158 H375"/><path d="M421 158 H492"/><path d="M538 158 H606"/>
+              <path d="M187 268 H258"/><path d="M304 268 H492"/><path d="M538 268 H606"/>
+              <path d="M187 378 H258"/><path d="M304 378 H375"/><path d="M421 378 H492"/>
+            </g>
+            <!-- edges: the path into the selected concept -->
+            <g stroke="#F4F4F5" stroke-width="2" fill="none" marker-end="url(#aw)">
+              <path d="M421 48 H492"/><path d="M538 48 H606"/>
+            </g>
+            <!-- edges: shared ideas across tracks -->
+            <g stroke="rgba(255,255,255,.55)" stroke-width="1.5" fill="none" stroke-dasharray="3 3" marker-end="url(#a)">
+              <path d="M399 95 V132"/><path d="M516 205 V242"/>
+            </g>
+            <text class="xl" x="526" y="229">Q·K scores</text>
+
+            <!-- MATH y=48 -->
+            <g transform="translate(399,48)"><circle r="20" fill="rgba(48,209,88,.12)" stroke="#30D158" stroke-width="2.5"/><path d="M-6.5 0.5 L-2 5 L7 -4.5" fill="none" stroke="#30D158" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></g>
+            <text class="nl" x="399" y="84" text-anchor="middle">Linear algebra</text>
+
+            <g transform="translate(516,48)"><circle r="20" fill="rgba(255,255,255,.07)" stroke="rgba(255,255,255,.3)" stroke-width="2.5"/><circle r="20" fill="none" stroke="#F4F4F5" stroke-width="2.5" stroke-dasharray="75.4 200" transform="rotate(-90)" stroke-linecap="round"/><circle r="4.5" fill="#F4F4F5"/></g>
+            <text class="nl" x="516" y="84" text-anchor="middle">Matrices</text>
+            <text class="ns" x="516" y="99" text-anchor="middle">3 of 5</text>
+
+            <g transform="translate(630,48)"><circle r="28" fill="none" stroke="#F4F4F5" stroke-opacity=".65" stroke-width="1.5"/><circle r="20" fill="rgba(255,255,255,.03)" stroke="#8E8E93" stroke-width="1.6" stroke-dasharray="3 4"/><circle r="3.5" fill="#8E8E93"/></g>
+            <text class="nl sel" x="630" y="92" text-anchor="middle">Eigenvectors</text>
+
+            <!-- CODE y=158 -->
+            <g transform="translate(165,158)"><circle r="20" fill="rgba(48,209,88,.12)" stroke="#30D158" stroke-width="2.5"/><path d="M-6.5 0.5 L-2 5 L7 -4.5" fill="none" stroke="#30D158" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></g>
+            <text class="nl" x="165" y="194" text-anchor="middle">Python basics</text>
+            <g transform="translate(282,158)"><circle r="20" fill="rgba(48,209,88,.12)" stroke="#30D158" stroke-width="2.5"/><path d="M-6.5 0.5 L-2 5 L7 -4.5" fill="none" stroke="#30D158" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></g>
+            <text class="nl" x="282" y="194" text-anchor="middle">Functions</text>
+            <g transform="translate(399,158)"><circle r="20" fill="rgba(48,209,88,.12)" stroke="#30D158" stroke-width="2.5"/><path d="M-6.5 0.5 L-2 5 L7 -4.5" fill="none" stroke="#30D158" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></g>
+            <g transform="translate(415,142)"><circle r="8.5" fill="#F4F4F5" stroke="#1c1c1e" stroke-width="2"/><path d="M0 -4 V0 L3 2" stroke="#141414" stroke-width="1.6" fill="none" stroke-linecap="round"/></g>
+            <text class="nl" x="399" y="194" text-anchor="middle">Vectors</text>
+            <g transform="translate(516,158)"><circle r="20" fill="rgba(48,209,88,.12)" stroke="#30D158" stroke-width="2.5"/><path d="M-6.5 0.5 L-2 5 L7 -4.5" fill="none" stroke="#30D158" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></g>
+            <text class="nl" x="516" y="194" text-anchor="middle">Dot product</text>
+            <g transform="translate(630,158)"><circle r="20" fill="rgba(255,255,255,.07)" stroke="rgba(255,255,255,.3)" stroke-width="2.5"/><circle r="20" fill="none" stroke="#F4F4F5" stroke-width="2.5" stroke-dasharray="41.9 200" transform="rotate(-90)" stroke-linecap="round"/><circle r="4.5" fill="#F4F4F5"/></g>
+            <text class="nl" x="630" y="194" text-anchor="middle">Ray tracing</text>
+            <text class="ns" x="630" y="209" text-anchor="middle">Step 2 of 6</text>
+
+            <!-- PAPERS y=268 -->
+            <g transform="translate(165,268)"><circle r="20" fill="rgba(48,209,88,.12)" stroke="#30D158" stroke-width="2.5"/><path d="M-6.5 0.5 L-2 5 L7 -4.5" fill="none" stroke="#30D158" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></g>
+            <text class="nl" x="165" y="304" text-anchor="middle">Reading papers</text>
+            <g transform="translate(282,268)"><circle r="20" fill="rgba(48,209,88,.12)" stroke="#30D158" stroke-width="2.5"/><path d="M-6.5 0.5 L-2 5 L7 -4.5" fill="none" stroke="#30D158" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></g>
+            <text class="nl" x="282" y="304" text-anchor="middle">Softmax</text>
+            <g transform="translate(516,268)"><circle r="20" fill="rgba(255,255,255,.07)" stroke="rgba(255,255,255,.3)" stroke-width="2.5"/><circle r="20" fill="none" stroke="#F4F4F5" stroke-width="2.5" stroke-dasharray="56.5 200" transform="rotate(-90)" stroke-linecap="round"/><circle r="4.5" fill="#F4F4F5"/></g>
+            <text class="nl" x="516" y="304" text-anchor="middle">Attention</text>
+            <text class="ns" x="516" y="319" text-anchor="middle">Section 3.2</text>
+            <g transform="translate(630,268)"><circle r="20" fill="rgba(255,255,255,.03)" stroke="#8E8E93" stroke-width="1.6" stroke-dasharray="3 4"/><circle r="3.5" fill="#8E8E93"/></g>
+            <text class="nl next" x="630" y="304" text-anchor="middle">Transformers</text>
+
+            <!-- TOOLS y=378 -->
+            <g transform="translate(165,378)"><circle r="20" fill="rgba(48,209,88,.12)" stroke="#30D158" stroke-width="2.5"/><path d="M-6.5 0.5 L-2 5 L7 -4.5" fill="none" stroke="#30D158" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></g>
+            <text class="nl" x="165" y="414" text-anchor="middle">Git</text>
+            <g transform="translate(282,378)"><circle r="20" fill="rgba(48,209,88,.12)" stroke="#30D158" stroke-width="2.5"/><path d="M-6.5 0.5 L-2 5 L7 -4.5" fill="none" stroke="#30D158" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></g>
+            <text class="nl" x="282" y="414" text-anchor="middle">Branches</text>
+            <g transform="translate(399,378)"><circle r="20" fill="rgba(255,255,255,.07)" stroke="rgba(255,255,255,.3)" stroke-width="2.5"/><circle r="20" fill="none" stroke="#F4F4F5" stroke-width="2.5" stroke-dasharray="41.9 200" transform="rotate(-90)" stroke-linecap="round"/><circle r="4.5" fill="#F4F4F5"/></g>
+            <g transform="translate(415,362)"><circle r="8.5" fill="#F4F4F5" stroke="#1c1c1e" stroke-width="2"/><path d="M0 -4 V0 L3 2" stroke="#141414" stroke-width="1.6" fill="none" stroke-linecap="round"/></g>
+            <text class="nl" x="399" y="414" text-anchor="middle">Worktrees</text>
+            <text class="ns" x="399" y="429" text-anchor="middle">1 of 3</text>
+            <g transform="translate(516,378)"><circle r="20" fill="rgba(255,255,255,.03)" stroke="#8E8E93" stroke-width="1.6" stroke-dasharray="3 4"/><circle r="3.5" fill="#8E8E93"/></g>
+            <text class="nl next" x="516" y="414" text-anchor="middle">Parallel runs</text>
+          </svg>
+
+          <div class="lane" style="top:30px"><span class="kind-tile" style="background:var(--lilac)"><i class="ti ti-math-function"></i></span><div><div class="ln">Math</div><div class="lc">1 of 3 mastered</div></div></div>
+          <div class="lane" style="top:140px"><span class="kind-tile" style="background:var(--sky)"><i class="ti ti-code"></i></span><div><div class="ln">Code</div><div class="lc">4 of 5 mastered</div></div></div>
+          <div class="lane" style="top:250px"><span class="kind-tile" style="background:var(--pink)"><i class="ti ti-file-text"></i></span><div><div class="ln">Papers</div><div class="lc">2 of 4 mastered</div></div></div>
+          <div class="lane" style="top:360px"><span class="kind-tile" style="background:#E9E9EB"><i class="ti ti-git-branch"></i></span><div><div class="ln">Tools</div><div class="lc">2 of 4 mastered</div></div></div>
+        </div>
+
+        <!-- selected concept: what it is, theory, what to learn first -->
+        <div class="detail">
+          <div class="col" style="gap:6px">
+            <svg width="176" height="150" viewBox="0 0 176 150">
+              <defs>
+                <marker id="dw" viewBox="0 0 8 8" refX="6" refY="4" markerWidth="6" markerHeight="6" orient="auto"><path d="M0 0 L8 4 L0 8 z" fill="#F4F4F5"/></marker>
+                <marker id="dg" viewBox="0 0 8 8" refX="6" refY="4" markerWidth="6" markerHeight="6" orient="auto"><path d="M0 0 L8 4 L0 8 z" fill="#8E8E93"/></marker>
+              </defs>
+              <rect width="176" height="150" rx="12" fill="rgba(0,0,0,.3)" stroke="rgba(255,255,255,.08)"/>
+              <g stroke="rgba(255,255,255,.06)">
+                <path d="M18 0 V150 M62 0 V150 M106 0 V150 M150 0 V150"/>
+                <path d="M0 24 H176 M0 68 H176 M0 112 H176"/>
+              </g>
+              <!-- the eigen-direction (span of v) -->
+              <path d="M18 123 L168 48" stroke="#D9D2FF" stroke-width="1.5" stroke-dasharray="4 4" opacity=".8"/>
+              <!-- w and Aw: turned -->
+              <path d="M40 112 L50 70" stroke="#8E8E93" stroke-width="2" fill="none" marker-end="url(#dg)"/>
+              <path d="M40 112 L84 52" stroke="#8E8E93" stroke-width="2" fill="none" stroke-dasharray="4 3" marker-end="url(#dg)"/>
+              <!-- v and Av: same line, stretched -->
+              <path d="M40 112 L112 76" stroke="rgba(255,255,255,.55)" stroke-width="2.5" fill="none" marker-end="url(#dw)"/>
+              <path d="M40 112 L74 95" stroke="#F4F4F5" stroke-width="3" fill="none" marker-end="url(#dw)"/>
+              <circle cx="40" cy="112" r="3" fill="#F4F4F5"/>
+              <text x="70" y="113" fill="#F4F4F5" style="font:600 12px var(--mono)">v</text>
+              <text x="114" y="96" fill="rgba(255,255,255,.75)" style="font:12px var(--mono)">Av = 2v</text>
+              <text x="34" y="64" fill="#8E8E93" style="font:12px var(--mono)">w</text>
+              <text x="88" y="46" fill="#8E8E93" style="font:12px var(--mono)">Aw</text>
+            </svg>
+            <div class="tiny faint">v keeps its direction. w turns.</div>
+          </div>
+
+          <div class="col" style="gap:8px">
+            <div class="row" style="gap:8px"><h2>Eigenvectors</h2><span class="badge">Up next</span></div>
+            <div class="small muted" style="line-height:1.45">Directions a matrix only stretches, never turns.</div>
+            <div class="formula"><span class="m">Av = λv</span><span class="tiny faint">λ is the stretch</span></div>
+            <div class="tiny faint">Used in PCA, PageRank and physics sims.</div>
+            <div class="row" style="gap:6px; margin-top:2px">
+              <span class="chip sky">Explain <span class="kbd">⌥E</span></span>
+              <span class="chip sky">Diagram <span class="kbd">⌥D</span></span>
+            </div>
+          </div>
+
+          <div class="col" style="gap:6px">
+            <div class="eyebrow" style="margin-bottom:2px">Learn first</div>
+            <div class="need pass"><span class="ic"><i class="ti ti-check"></i></span>Linear algebra<span class="meta">mastered</span></div>
+            <div class="need"><svg width="18" height="18" style="flex:none"><circle cx="9" cy="9" r="7" fill="none" stroke="rgba(255,255,255,.3)" stroke-width="2"/><circle cx="9" cy="9" r="7" fill="none" stroke="#F4F4F5" stroke-width="2" stroke-dasharray="26.4 50" transform="rotate(-90 9 9)" stroke-linecap="round"/></svg>Matrices<span class="meta">3 of 5, 12 min</span></div>
+            <div class="need wait"><span class="ic"></span><span class="faint">Eigenvectors</span><span class="meta">4 steps, 25 min</span></div>
+            <div class="tiny faint" style="line-height:1.4; margin-top:2px">An eigenvector belongs to a matrix, so finish Matrices first.</div>
+            <span class="btn neutral" style="align-self:flex-start; margin-top:2px">Resume Matrices <i class="ti ti-arrow-right"></i></span>
+          </div>
+        </div>
+      </div>
+
+      <!-- side column -->
+      <div class="side">
+        <div class="card current" style="padding:16px">
+          <div class="row"><span class="eyebrow">Due today</span><span class="tiny faint" style="margin-left:auto">2 drills, 4 min</span></div>
+          <h2 style="margin-top:6px">Redo drills due today</h2>
+          <div style="margin-top:6px">
+            <div class="drill"><span class="tile"><i class="ti ti-code"></i></span><div><div class="dt"><code>normalize()</code> from memory</div><div class="ds">Vectors, in VS Code</div></div><span class="tiny faint" style="margin-left:auto">2 min</span></div>
+            <div class="drill"><span class="tile"><i class="ti ti-terminal-2"></i></span><div><div class="dt"><code>git worktree add</code></div><div class="ds">Worktrees, in Terminal</div></div><span class="tiny faint" style="margin-left:auto">2 min</span></div>
+          </div>
+          <div class="tiny faint" style="margin-top:4px">Short repeats keep mastered skills from fading.</div>
+          <span class="btn primary" style="width:100%; justify-content:center; margin-top:12px">Start today's drills <span class="kbd">⏎</span></span>
+        </div>
+
+        <div class="col" style="gap:8px">
+          <div class="eyebrow">Continue</div>
+          <div class="card cont">
+            <div class="row"><span class="kind-tile" style="background:var(--sky)"><i class="ti ti-code"></i></span>
+              <div style="min-width:0"><div class="dt">Ray tracer in Python</div><div class="ds">Step 2 of 6: cast one ray per pixel</div></div>
+              <i class="ti ti-chevron-right faint" style="margin-left:auto"></i></div>
+            <div class="bar"><i style="width:33%"></i></div>
+            <div class="row tiny faint" style="margin-top:8px">VS Code, 2 days ago<span style="margin-left:auto">33%</span></div>
+          </div>
+          <div class="card cont">
+            <div class="row"><span class="kind-tile" style="background:var(--pink)"><i class="ti ti-file-text"></i></span>
+              <div style="min-width:0"><div class="dt">Attention Is All You Need</div><div class="ds">Section 3.2: scaled dot-product attention</div></div>
+              <i class="ti ti-chevron-right faint" style="margin-left:auto"></i></div>
+            <div class="bar"><i style="width:45%"></i></div>
+            <div class="row tiny faint" style="margin-top:8px">Preview, yesterday<span style="margin-left:auto">45%</span></div>
+          </div>
+        </div>
+
+        <div class="card" style="padding:14px 16px">
+          <div class="row"><span class="eyebrow">This week</span><span class="tiny faint" style="margin-left:auto">from Tiger</span></div>
+          <div class="row" style="align-items:flex-start; gap:16px; margin-top:10px">
+            <div class="stat" style="flex:1">
+              <div class="tiny muted">Time per step</div>
+              <div class="v">4m 12s</div>
+              <div class="spark"><i style="height:26px"></i><i style="height:23px"></i><i style="height:22px"></i><i style="height:19px"></i><i style="height:17px"></i><i class="now" style="height:15px"></i></div>
+              <div class="tiny faint" style="margin-top:6px">38s faster</div>
+            </div>
+            <div class="stat" style="flex:1">
+              <div class="tiny muted">Checks passed first try</div>
+              <div class="v">78%</div>
+              <div class="bar pass" style="margin-top:19px"><i style="width:78%"></i></div>
+              <div class="tiny faint" style="margin-top:14px">31 of 40 checks</div>
+            </div>
+          </div>
+          <div class="hr" style="margin:12px 0 10px"></div>
+          <div class="tiny faint">23 steps in 5 sessions, 2h 10m total.</div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+</body>
+</html>

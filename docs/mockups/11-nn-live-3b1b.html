@@ -1,0 +1,650 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Live network drawer</title>
+<!-- Mockup 11: lesson drawer, "Build a neural network", step "Train it". Self-contained: no network requests.
+     Freeze a frame for screenshots with a hash, e.g. 11-nn-live-3b1b.html#frame=8&t=600 -->
+<style>
+/* ---- Miyagi kit (tools/miyagi-kit.css, inlined) ---- */
+/* Miyagi mockup kit: the app's real tokens (app/src/renderer/src/core/theme.ts + app/brand/BRAND.md).
+   Canvas = one 1440x900 Mac screen. Dark HUD glass. Green = passed only, apricot = off track only, gray = watching.
+   Pastels only for options: sky = Explain/Diagram/Watch, lilac = Show me, pink = Hint. Primary = white + ink. */
+:root {
+  --glass: rgba(28,28,30,.92); --glass-solid: #1c1c1e; --text: #F4F4F5; --muted: rgba(255,255,255,.6); --faint: rgba(255,255,255,.42);
+  --hair: rgba(255,255,255,.12); --rule: rgba(255,255,255,.08); --field: rgba(255,255,255,.06); --chip: rgba(255,255,255,.05);
+  --ink: #141414; --white: #F4F4F5; --pass: #30D158; --pass-tint: rgba(48,209,88,.14); --off: #FFC4A3; --off-deep: #C8693A; --off-tint: rgba(255,196,163,.14);
+  --watch: #8E8E93; --sky: #C5E4F9; --sky-deep: #9CCFF2; --lilac: #D9D2FF; --pink: #F9C5D5; --pink-deep: #F4A7BF; --key: rgba(255,255,255,.1);
+  --ui: -apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, sans-serif; --mono: ui-monospace, "SF Mono", Menlo, monospace;
+  --r-chip: 14px; --r-card: 20px; --r-island: 24px; --r-pill: 17px; --r-launcher: 28px;
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; }
+body { width: 1440px; min-height: 900px; font-family: var(--ui); font-size: 15px; color: var(--text); background: #0b0b0c; -webkit-font-smoothing: antialiased; }
+.screen { position: relative; width: 1440px; height: 900px; overflow: hidden; background: #2b2d31; }
+.screen.tall { height: auto; min-height: 900px; }
+/* mac menu bar + notch island */
+.menubar { position: absolute; inset: 0 0 auto 0; height: 30px; background: rgba(20,20,22,.85); display: flex; align-items: center; padding: 0 16px; gap: 18px; font-size: 13px; color: rgba(255,255,255,.85); z-index: 40; }
+.menubar .app { font-weight: 600; }
+.menubar .right { margin-left: auto; display: flex; gap: 14px; color: rgba(255,255,255,.7); }
+.pill { position: absolute; top: 0; left: 50%; transform: translateX(-50%); height: 34px; min-width: 210px; padding: 0 14px; background: #000; border-radius: 0 0 var(--r-pill) var(--r-pill); display: flex; align-items: center; gap: 10px; font-size: 13px; color: var(--text); z-index: 50; }
+.pill .mark { width: 16px; height: 16px; color: #fff; font-size: 16px; display: grid; place-items: center; }
+.pill .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--watch); margin-left: auto; }
+.dot.pass { background: var(--pass); } .dot.off { background: var(--off); } .dot.watch { background: var(--watch); }
+.ring { width: 18px; height: 18px; border-radius: 50%; border: 2px solid rgba(255,255,255,.18); border-top-color: #fff; border-right-color: #fff; }
+/* app windows behind the overlay */
+.window { position: absolute; top: 44px; left: 24px; right: 24px; bottom: 24px; border-radius: 12px; overflow: hidden; background: #1e1e1e; border: 1px solid rgba(255,255,255,.08); }
+.window .titlebar { height: 34px; background: #2d2d30; display: flex; align-items: center; gap: 8px; padding: 0 12px; font-size: 12px; color: rgba(255,255,255,.6); }
+.traffic { display: flex; gap: 7px; } .traffic i { width: 12px; height: 12px; border-radius: 50%; background: #5a5a5e; display: block; }
+.code { font-family: var(--mono); font-size: 13px; line-height: 21px; color: #d4d4d4; white-space: pre; }
+.code .ln { display: inline-block; width: 34px; color: #6e7681; text-align: right; margin-right: 18px; }
+.kw { color: #c586c0; } .fn { color: #dcdcaa; } .str { color: #ce9178; } .num { color: #b5cea8; } .cm { color: #6a9955; } .ty { color: #4ec9b0; } .var { color: #9cdcfe; }
+.dim { position: absolute; inset: 0; background: rgba(0,0,0,.48); z-index: 20; pointer-events: none; }
+/* the spotlight: a clear white box over the exact target + caption */
+.spot { position: absolute; z-index: 25; border: 2px solid #fff; border-radius: 10px; box-shadow: 0 0 0 9999px rgba(0,0,0,.0); }
+.spot-cap { position: absolute; z-index: 26; background: var(--glass); border: 1px solid var(--hair); border-radius: 12px; padding: 8px 12px; font-size: 13px; color: var(--text); max-width: 340px; line-height: 1.4; }
+/* overlay surfaces */
+.drawer { position: absolute; z-index: 30; top: 44px; right: 16px; bottom: 16px; width: 440px; background: var(--glass); border: 1px solid var(--hair); border-radius: var(--r-card); box-shadow: 0 24px 60px rgba(0,0,0,.5); display: flex; flex-direction: column; overflow: hidden; }
+.drawer .scroll { padding: 18px 18px 14px; display: flex; flex-direction: column; gap: 14px; overflow: hidden; }
+.panel { position: absolute; z-index: 30; background: var(--glass); border: 1px solid var(--hair); border-radius: var(--r-card); box-shadow: 0 24px 60px rgba(0,0,0,.5); padding: 18px; }
+.card { background: rgba(255,255,255,.05); border: 1px solid var(--rule); border-radius: 16px; padding: 14px; }
+.card.current { background: rgba(255,255,255,.08); }
+h1, h2, h3 { margin: 0; font-weight: 600; letter-spacing: -.01em; }
+h1 { font-size: 20px; } h2 { font-size: 15px; } h3 { font-size: 13px; }
+.eyebrow { font-size: 11px; letter-spacing: .06em; text-transform: uppercase; color: var(--faint); font-weight: 600; }
+.muted { color: var(--muted); } .faint { color: var(--faint); } .small { font-size: 13px; } .tiny { font-size: 12px; }
+.row { display: flex; align-items: center; gap: 10px; } .col { display: flex; flex-direction: column; gap: 8px; } .wrap { flex-wrap: wrap; }
+.close { width: 30px; height: 30px; border-radius: 50%; background: var(--key); display: grid; place-items: center; color: rgba(255,255,255,.7); margin-left: auto; font-size: 14px; }
+/* buttons and chips */
+.btn { height: 34px; padding: 0 14px; border-radius: 17px; display: inline-flex; align-items: center; gap: 8px; font-size: 13px; font-weight: 600; border: 0; }
+.btn.primary { background: var(--white); color: var(--ink); }
+.btn.neutral { background: rgba(255,255,255,.09); color: var(--text); font-weight: 500; }
+.btn.sky { background: var(--sky); color: var(--ink); } .btn.lilac { background: var(--lilac); color: var(--ink); } .btn.pink { background: var(--pink); color: var(--ink); }
+.kbd { font-size: 11px; padding: 2px 6px; border-radius: 6px; background: rgba(0,0,0,.1); color: rgba(20,20,20,.7); font-weight: 600; }
+.kbd.dark { background: var(--key); color: rgba(255,255,255,.62); }
+.chip { display: inline-flex; align-items: center; gap: 6px; height: 26px; padding: 0 10px; border-radius: 13px; font-size: 12px; background: var(--chip); border: 1px solid rgba(255,255,255,.08); color: rgba(255,255,255,.78); }
+.chip.sky { background: var(--sky); color: var(--ink); border: 0; } .chip.lilac { background: var(--lilac); color: var(--ink); border: 0; } .chip.pink { background: var(--pink); color: var(--ink); border: 0; }
+.badge { font-size: 11px; font-weight: 600; padding: 2px 8px; border-radius: 8px; background: rgba(255,255,255,.1); color: rgba(255,255,255,.8); letter-spacing: .02em; }
+/* status */
+.check { display: flex; gap: 10px; align-items: flex-start; font-size: 13px; line-height: 1.4; }
+.check .ic { width: 18px; height: 18px; border-radius: 50%; flex: none; display: grid; place-items: center; font-size: 11px; margin-top: 1px; }
+.check.pass .ic { background: var(--pass); color: #08310f; } .check.off .ic { border: 1.5px solid var(--off); color: var(--off); } .check.wait .ic { border: 1.5px solid rgba(255,255,255,.28); }
+.passtext { color: var(--pass); } .offtext { color: var(--off); }
+.step { display: flex; gap: 12px; align-items: flex-start; font-size: 14px; }
+.step .circ { width: 20px; height: 20px; border-radius: 50%; border: 1.5px solid rgba(255,255,255,.28); flex: none; margin-top: 1px; display: grid; place-items: center; font-size: 11px; }
+.step.done .circ { background: var(--pass); border-color: var(--pass); color: #08310f; }
+.step.now .circ { border: 5px solid #fff; }
+.step.next { color: var(--faint); }
+.codeblock { background: rgba(0,0,0,.35); border: 1px solid var(--rule); border-radius: 12px; padding: 12px 14px; font-family: var(--mono); font-size: 12.5px; line-height: 19px; color: #e6e6e6; white-space: pre; overflow: hidden; position: relative; }
+.codeblock .copy { position: absolute; top: 8px; right: 8px; font-family: var(--ui); }
+.bar { height: 6px; border-radius: 3px; background: rgba(255,255,255,.12); overflow: hidden; } .bar > i { display: block; height: 100%; background: #fff; border-radius: 3px; }
+.bar.pass > i { background: var(--pass); }
+.hr { height: 1px; background: var(--rule); }
+.kind-tile { width: 28px; height: 28px; border-radius: 9px; display: grid; place-items: center; color: var(--ink); font-size: 15px; flex: none; }
+
+/* ---- icons ---- */
+.i { width: 1em; height: 1em; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; flex: none; display: inline-block; vertical-align: -0.125em; }
+
+/* ---- VS Code (Dark Modern, neutral accents), same as mockup 01 ---- */
+.vsc { background: #1f1f1f; }
+.vsc .titlebar { background: #181818; border-bottom: 1px solid #2b2b2b; position: relative; }
+.vsc .titlebar .title { position: absolute; left: 0; right: 0; text-align: center; pointer-events: none; }
+.vsc .body { position: absolute; top: 34px; left: 0; right: 0; bottom: 0; }
+.act { position: absolute; left: 0; top: 0; bottom: 22px; width: 48px; background: #181818; border-right: 1px solid #2b2b2b; display: flex; flex-direction: column; align-items: center; padding-top: 6px; gap: 4px; }
+.act span { font-size: 24px; color: #868686; width: 48px; height: 44px; display: grid; place-items: center; }
+.act span.on { color: #e6e6e6; box-shadow: inset 2px 0 0 #e6e6e6; }
+.act .bottom { margin-top: auto; display: flex; flex-direction: column; }
+.side { position: absolute; left: 48px; top: 0; bottom: 22px; width: 180px; background: #181818; border-right: 1px solid #2b2b2b; font-size: 13px; color: #cccccc; }
+.side .hd { height: 35px; display: flex; align-items: center; padding: 0 16px; font-size: 11px; letter-spacing: .04em; color: #a9a9a9; }
+.side .sec { height: 22px; display: flex; align-items: center; gap: 2px; padding: 0 6px; font-size: 11px; font-weight: 700; letter-spacing: .03em; }
+.side .f { height: 22px; display: flex; align-items: center; gap: 6px; padding-left: 22px; }
+.side .f .i { font-size: 14px; color: #a9a9a9; }
+.side .f.on { background: rgba(255,255,255,.08); color: #fff; }
+.side .lower { position: absolute; left: 0; right: 0; bottom: 0; border-top: 1px solid #2b2b2b; }
+.ed { position: absolute; left: 228px; right: 0; top: 0; bottom: 22px; background: #1f1f1f; }
+.tabs { height: 35px; background: #181818; border-bottom: 1px solid #2b2b2b; display: flex; }
+.tab { display: flex; align-items: center; gap: 6px; padding: 0 12px; font-size: 13px; color: #9d9d9d; border-right: 1px solid #2b2b2b; }
+.tab.on { background: #1f1f1f; color: #fff; box-shadow: inset 0 1px 0 #cfcfcf; margin-bottom: -1px; }
+.crumbs { height: 22px; font-size: 12px; color: #a9a9a9; padding-left: 14px; display: flex; align-items: center; gap: 4px; }
+.lines { position: absolute; top: 61px; left: 8px; white-space: normal; }
+.lines > div { white-space: pre; height: 21px; }
+.lines .cur { background: rgba(255,255,255,.04); }
+.lines .cur .ln { color: #cccccc; }
+.term { position: absolute; left: 0; right: 0; bottom: 0; height: 226px; background: #181818; border-top: 1px solid #2b2b2b; }
+.term .tt { height: 34px; display: flex; align-items: center; gap: 22px; padding: 0 16px; font-size: 11px; letter-spacing: .04em; color: #9d9d9d; }
+.term .tt .on { color: #e6e6e6; box-shadow: inset 0 -1px 0 #e6e6e6; padding: 8px 0; }
+.term .out { padding: 6px 16px; font-family: var(--mono); font-size: 12.5px; line-height: 19px; color: #cccccc; white-space: pre; }
+.term .out .dim2 { color: #8a8a8a; }
+.tcur { display: inline-block; width: 8px; height: 15px; background: #cccccc; vertical-align: -3px; }
+.status { position: absolute; left: 0; right: 0; bottom: 0; height: 22px; background: #181818; border-top: 1px solid #2b2b2b; font-size: 12px; color: #a0a0a0; display: flex; align-items: center; gap: 14px; padding: 0 10px; }
+.status .i { font-size: 14px; vertical-align: -2px; }
+.menubar .i { font-size: 16px; }
+
+/* ---- drawer v2 (mockup 01) ---- */
+.drawer.v2 { width: 660px; }
+.drawer.v2 .scroll { flex: 1; min-height: 0; gap: 12px; padding: 16px 18px 12px; }
+.foot { border-top: 1px solid var(--rule); padding: 12px 18px 14px; display: flex; align-items: center; gap: 8px; flex: none; }
+.foot .btn { padding: 0 12px; }
+.foot .btn.primary { padding: 0 16px; }
+.foot .btn.primary .i { font-size: 16px; }
+.mono { font-family: var(--mono); font-size: .94em; }
+.white { color: var(--text); }
+.ey { display: flex; align-items: center; gap: 6px; }
+.ey .i { font-size: 13px; }
+.badge { display: inline-flex; align-items: center; gap: 4px; }
+.badge .i { font-size: 12px; }
+.chip .i { font-size: 14px; }
+.chip.sky .i { font-size: 13px; }
+.check .ic .i { font-size: 12px; }
+.check .end { margin-left: auto; font-size: 12px; flex: none; display: inline-flex; align-items: center; gap: 4px; }
+.theory { display: grid; grid-template-columns: 1fr 226px; gap: 14px; margin-top: 10px; }
+.diag { border-radius: 12px; border: 1px solid var(--rule); background: rgba(0,0,0,.22); overflow: hidden; height: 104px; position: relative; }
+.diag svg { display: block; }
+
+/* ---- the hero: live network panel ---- */
+.netcard { background: #060709; border: 1px solid rgba(255,255,255,.08); border-radius: 16px; padding: 14px 16px 14px; position: relative; }
+.netcard .hdr { display: flex; align-items: center; gap: 10px; height: 22px; }
+.live { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; color: var(--muted); }
+.live i { width: 7px; height: 7px; border-radius: 50%; background: #F4F4F5; box-shadow: 0 0 0 0 rgba(244,244,245,.5); animation: live 1.6s ease-out infinite; }
+@keyframes live { 0% { box-shadow: 0 0 0 0 rgba(244,244,245,.45); } 70%, 100% { box-shadow: 0 0 0 7px rgba(244,244,245,0); } }
+.ibtn { width: 26px; height: 26px; border-radius: 50%; background: rgba(255,255,255,.07); border: 0; color: rgba(255,255,255,.7); display: grid; place-items: center; font-size: 13px; cursor: pointer; padding: 0; }
+.ibtn:hover { background: rgba(255,255,255,.12); color: #fff; }
+.arch { font-family: var(--mono); font-size: 11.5px; color: var(--faint); }
+#net { display: block; width: 588px; height: 250px; margin-top: 6px; }
+.stats { display: flex; align-items: stretch; gap: 0; margin-top: 6px; border-top: 1px solid rgba(255,255,255,.07); padding-top: 12px; }
+.stat { display: flex; flex-direction: column; gap: 2px; padding-right: 18px; margin-right: 18px; border-right: 1px solid rgba(255,255,255,.07); }
+.stat .k { font-size: 11px; letter-spacing: .06em; text-transform: uppercase; color: var(--faint); font-weight: 600; }
+.stat .v { font-size: 19px; font-weight: 600; letter-spacing: -.01em; font-variant-numeric: tabular-nums; color: var(--text); line-height: 24px; }
+.stat .v small { font-size: 13px; font-weight: 500; color: var(--faint); letter-spacing: 0; }
+.spark { flex: 1; display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.spark svg { display: block; }
+.netcap { margin-top: 12px; font-size: 12.5px; color: var(--muted); line-height: 1.4; }
+.netcap .sw { display: inline-block; width: 14px; height: 3px; border-radius: 2px; vertical-align: 3px; margin-right: 5px; }
+.netcap b { font-weight: 600; }
+</style>
+</head>
+<body>
+<!-- inline icon sprite (Tabler-style 24px line icons, stroke 2) so the file needs no network -->
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <defs>
+    <symbol id="i-apple" viewBox="0 0 24 24"><path d="M8.286 7.008c-3.216 0-4.286 3.23-4.286 5.92 0 3.229 2.143 8.072 4.286 8.072 1.165-.05 1.799-.538 3.214-.538 1.406 0 1.607.538 3.214.538s4.286-3.229 4.286-5.381c-.03-.011-2.649-.434-2.679-3.23-.02-2.335 2.589-3.179 2.679-3.228-1.096-1.606-3.162-2.113-3.75-2.153-1.535-.12-3.032 1.077-3.75 1.077-.729 0-2.036-1.077-3.214-1.077z"/><path d="M12 4a2 2 0 0 0 2-2 2 2 0 0 0-2 2"/></symbol>
+    <symbol id="i-battery" viewBox="0 0 24 24"><path d="M6 7h11a2 2 0 0 1 2 2v.5a.5.5 0 0 0 .5.5.5.5 0 0 1 .5.5v3a.5.5 0 0 1-.5.5.5.5 0 0 0-.5.5v.5a2 2 0 0 1-2 2h-11a2 2 0 0 1-2-2v-6a2 2 0 0 1 2-2"/><path d="M7 10v4M10 10v4M13 10v4"/></symbol>
+    <symbol id="i-wifi" viewBox="0 0 24 24"><path d="M12 18h.01M9.172 15.172a4 4 0 0 1 5.656 0M6.343 12.343a8 8 0 0 1 11.314 0M3.515 9.515c4.686-4.687 12.284-4.687 17 0"/></symbol>
+    <symbol id="i-search" viewBox="0 0 24 24"><circle cx="10" cy="10" r="7"/><path d="M21 21l-6-6"/></symbol>
+    <symbol id="i-toggle" viewBox="0 0 24 24"><circle cx="16" cy="12" r="2"/><rect x="2" y="6" width="20" height="12" rx="6"/></symbol>
+    <symbol id="i-plant" viewBox="0 0 24 24"><path d="M2 9a10 10 0 1 0 20 0"/><path d="M12 19a10 10 0 0 1 10-10"/><path d="M2 9a10 10 0 0 1 10 10"/><path d="M12 4a9.7 9.7 0 0 1 2.99 7.5"/><path d="M9.01 11.5a9.7 9.7 0 0 1 2.99-7.5"/></symbol>
+    <symbol id="i-files" viewBox="0 0 24 24"><path d="M15 3v4a1 1 0 0 0 1 1h4"/><path d="M18 17h-7a2 2 0 0 1-2-2v-10a2 2 0 0 1 2-2h4l5 5v7a2 2 0 0 1-2 2z"/><path d="M16 17v2a2 2 0 0 1-2 2h-7a2 2 0 0 1-2-2v-10a2 2 0 0 1 2-2h2"/></symbol>
+    <symbol id="i-branch" viewBox="0 0 24 24"><circle cx="7" cy="18" r="2"/><circle cx="7" cy="6" r="2"/><circle cx="17" cy="6" r="2"/><path d="M7 8v8M9 18h6a2 2 0 0 0 2-2v-5M14 14l3-3 3 3"/></symbol>
+    <symbol id="i-bug" viewBox="0 0 24 24"><path d="M9 9v-1a3 3 0 0 1 6 0v1"/><path d="M8 9h8a6 6 0 0 1 1 3v3a5 5 0 0 1-10 0v-3a6 6 0 0 1 1-3"/><path d="M3 13h4M17 13h4M12 20v-6M4 19l3.35-2M20 19l-3.35-2M4 7l3.75 2.4M20 7l-3.75 2.4"/></symbol>
+    <symbol id="i-apps" viewBox="0 0 24 24"><rect x="4" y="4" width="6" height="6" rx="1"/><rect x="4" y="14" width="6" height="6" rx="1"/><rect x="14" y="14" width="6" height="6" rx="1"/><path d="M14 7h6M17 4v6"/></symbol>
+    <symbol id="i-user" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="10" r="3"/><path d="M6.168 18.849a4 4 0 0 1 3.832-2.849h4a4 4 0 0 1 3.834 2.855"/></symbol>
+    <symbol id="i-settings" viewBox="0 0 24 24"><path d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 0 0 2.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 0 0 1.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 0 0-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 0 0-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 0 0-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 0 0-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 0 0 1.066-2.573c-.94-1.543.826-3.31 2.37-2.37 1 .608 2.296.07 2.572-1.065z"/><circle cx="12" cy="12" r="3"/></symbol>
+    <symbol id="i-folder" viewBox="0 0 24 24"><path d="M5 4h4l3 3h7a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2h-14a2 2 0 0 1-2-2v-11a2 2 0 0 1 2-2"/></symbol>
+    <symbol id="i-python" viewBox="0 0 24 24"><path d="M12 9h-7a2 2 0 0 0-2 2v4a2 2 0 0 0 2 2h3"/><path d="M12 15h7a2 2 0 0 0 2-2v-4a2 2 0 0 0-2-2h-3"/><path d="M8 9v-4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-4a2 2 0 0 0-2 2v5a2 2 0 0 0 2 2h4a2 2 0 0 0 2-2v-4"/><path d="M11 6v.01M13 18v.01"/></symbol>
+    <symbol id="i-markdown" viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="M7 15v-6l2 2 2-2v6M14 13l2 2 2-2m-2 2v-6"/></symbol>
+    <symbol id="i-chev-r" viewBox="0 0 24 24"><path d="M9 6l6 6-6 6"/></symbol>
+    <symbol id="i-chev-d" viewBox="0 0 24 24"><path d="M6 9l6 6 6-6"/></symbol>
+    <symbol id="i-cube" viewBox="0 0 24 24"><path d="M21 16.008v-8.018a1.98 1.98 0 0 0-1-1.717l-7-4.008a2.016 2.016 0 0 0-2 0l-7 4.008c-.619.355-1 1.01-1 1.718v8.018c0 .709.381 1.363 1 1.717l7 4.008a2.016 2.016 0 0 0 2 0l7-4.008c.619-.355 1-1.01 1-1.718z"/><path d="M12 22v-10M12 12l8.73-5.04M3.27 6.96l8.73 5.04"/></symbol>
+    <symbol id="i-x" viewBox="0 0 24 24"><path d="M18 6l-12 12M6 6l12 12"/></symbol>
+    <symbol id="i-check" viewBox="0 0 24 24"><path d="M5 12l5 5 10-10"/></symbol>
+    <symbol id="i-eye" viewBox="0 0 24 24"><path d="M10 12a2 2 0 1 0 4 0 2 2 0 0 0-4 0"/><path d="M21 12c-2.4 4-5.4 6-9 6-3.6 0-6.6-2-9-6 2.4-4 5.4-6 9-6 3.6 0 6.6 2 9 6"/></symbol>
+    <symbol id="i-terminal" viewBox="0 0 24 24"><path d="M8 9l3 3-3 3M13 15h3"/><rect x="3" y="4" width="18" height="16" rx="2"/></symbol>
+    <symbol id="i-stairs" viewBox="0 0 24 24"><path d="M22 6h-5v5h-5v5h-5v5h-5M6 10v-7M3 6l3-3 3 3"/></symbol>
+    <symbol id="i-pause" viewBox="0 0 24 24"><rect x="6" y="5" width="4" height="14" rx="1"/><rect x="14" y="5" width="4" height="14" rx="1"/></symbol>
+    <symbol id="i-replay" viewBox="0 0 24 24"><path d="M19.933 13.041a8 8 0 1 1-9.925-8.788c3.899-1 7.935 1.007 9.425 4.747"/><path d="M20 4v5h-5"/></symbol>
+    <symbol id="i-arrow-r" viewBox="0 0 24 24"><path d="M5 12h14M13 18l6-6M13 6l6 6"/></symbol>
+    <symbol id="i-circle-x" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M10 10l4 4m0-4l-4 4"/></symbol>
+    <symbol id="i-alert" viewBox="0 0 24 24"><path d="M12 9v4M12 16h.01"/><path d="M10.363 3.591l-8.106 13.534a1.914 1.914 0 0 0 1.636 2.871h16.214a1.914 1.914 0 0 0 1.636-2.87l-8.106-13.536a1.914 1.914 0 0 0-3.274 0z"/></symbol>
+    <symbol id="i-code" viewBox="0 0 24 24"><path d="M7 8l-4 4 4 4M17 8l4 4-4 4M14 4l-4 16"/></symbol>
+    <symbol id="i-math" viewBox="0 0 24 24"><path d="M3 19a2 2 0 0 0 2 2c2 0 2-4 3-9s1-9 3-9a2 2 0 0 1 2 2"/><path d="M5 12h6M15 12l6 6M15 18l6-6"/></symbol>
+    <symbol id="i-net" viewBox="0 0 24 24"><circle cx="4.5" cy="12" r="2"/><circle cx="12" cy="5.5" r="2"/><circle cx="12" cy="18.5" r="2"/><circle cx="19.5" cy="12" r="2"/><path d="M6.3 11l3.9-4.4M6.3 13l3.9 4.4M13.8 6.6l3.9 4.4M13.8 17.4l3.9-4.4M12 7.5v9"/></symbol>
+    <symbol id="i-chart" viewBox="0 0 24 24"><path d="M4 19h16M4 15l4-6 4 2 4-5 4 4"/></symbol>
+    <symbol id="i-flame" viewBox="0 0 24 24"><path d="M12 10.941c2.333-3.308.167-7.823-1-8.941 0 3.395-2.235 5.299-3.667 6.706-1.43 1.408-2.333 3.621-2.333 5.588 0 3.704 3.134 6.706 7 6.706s7-3.002 7-6.706c0-1.712-1.232-4.403-2.333-5.588-2.084 3.353-3.257 3.353-4.667 2.235"/></symbol>
+    <symbol id="i-digits" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M8 9.5a1.5 1.5 0 0 1 3 0c0 1.2-3 2.6-3 5h3M14.5 9h2.5l-1.6 2.2a1.6 1.6 0 1 1-1.4 2.4"/></symbol>
+    <symbol id="i-logout" viewBox="0 0 24 24"><path d="M14 8v-2a2 2 0 0 0-2-2h-7a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h7a2 2 0 0 0 2-2v-2"/><path d="M9 12h12l-3-3M18 15l3-3"/></symbol>
+    <symbol id="i-clock" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 3"/></symbol>
+    <symbol id="i-gauge" viewBox="0 0 24 24"><path d="M12 13m-1 0a1 1 0 1 0 2 0 1 1 0 1 0-2 0M13.41 11.59l2.59-2.59"/><path d="M7 13a5 5 0 0 1 5-5"/><path d="M5.64 19a9 9 0 1 1 12.72 0"/></symbol>
+    <symbol id="i-sparkles" viewBox="0 0 24 24"><path d="M16 18a2 2 0 0 1 2 2 2 2 0 0 1 2-2 2 2 0 0 1-2-2 2 2 0 0 1-2 2zm0-12a2 2 0 0 1 2 2 2 2 0 0 1 2-2 2 2 0 0 1-2-2 2 2 0 0 1-2 2zm-7 12a6 6 0 0 1 6-6 6 6 0 0 1-6-6 6 6 0 0 1-6 6 6 6 0 0 1 6 6z"/></symbol>
+    <symbol id="i-play" viewBox="0 0 24 24"><path d="M7 4v16l13-8z"/></symbol>
+  </defs>
+</svg>
+<div class="screen">
+
+  <!-- macOS menu bar -->
+  <div class="menubar">
+    <svg class="i"><use href="#i-apple"/></svg>
+    <span class="app">Code</span><span>File</span><span>Edit</span><span>Selection</span><span>View</span><span>Go</span><span>Run</span><span>Terminal</span><span>Window</span><span>Help</span>
+    <span class="right"><svg class="i"><use href="#i-battery"/></svg><svg class="i"><use href="#i-wifi"/></svg><svg class="i"><use href="#i-search"/></svg><svg class="i"><use href="#i-toggle"/></svg><span>Sun Nov 15&nbsp;&nbsp;10:24</span></span>
+  </div>
+
+  <!-- Miyagi notch island -->
+  <div class="pill">
+    <span class="mark"><svg class="i"><use href="#i-plant"/></svg></span>
+    <span>Build a neural network</span><span class="faint">5/6</span>
+    <span class="dot watch"></span>
+  </div>
+
+  <!-- VS Code behind the overlay -->
+  <div class="window vsc">
+    <div class="titlebar">
+      <div class="traffic"><i></i><i></i><i></i></div>
+      <div class="title">train.py — tiny-nn</div>
+    </div>
+    <div class="body">
+      <div class="act">
+        <span class="on"><svg class="i"><use href="#i-files"/></svg></span><span><svg class="i"><use href="#i-search"/></svg></span><span><svg class="i"><use href="#i-branch"/></svg></span><span><svg class="i"><use href="#i-bug"/></svg></span><span><svg class="i"><use href="#i-apps"/></svg></span>
+        <div class="bottom"><span><svg class="i"><use href="#i-user"/></svg></span><span><svg class="i"><use href="#i-settings"/></svg></span></div>
+      </div>
+      <div class="side">
+        <div class="hd">EXPLORER</div>
+        <div class="sec"><svg class="i" style="font-size:14px"><use href="#i-chev-d"/></svg>TINY-NN</div>
+        <div class="f"><svg class="i"><use href="#i-python"/></svg>net.py</div>
+        <div class="f on"><svg class="i"><use href="#i-python"/></svg>train.py</div>
+        <div class="f"><svg class="i"><use href="#i-python"/></svg>test_net.py</div>
+        <div class="f"><svg class="i"><use href="#i-markdown"/></svg>README.md</div>
+        <div class="lower">
+          <div class="sec" style="color:#a9a9a9"><svg class="i" style="font-size:14px"><use href="#i-chev-r"/></svg>OUTLINE</div>
+          <div class="sec" style="color:#a9a9a9"><svg class="i" style="font-size:14px"><use href="#i-chev-r"/></svg>TIMELINE</div>
+        </div>
+      </div>
+      <div class="ed">
+        <div class="tabs">
+          <div class="tab"><svg class="i" style="font-size:14px"><use href="#i-python"/></svg>net.py</div>
+          <div class="tab on"><svg class="i" style="font-size:14px"><use href="#i-python"/></svg>train.py</div>
+        </div>
+        <div class="crumbs">train.py <svg class="i" style="font-size:12px"><use href="#i-chev-r"/></svg></div>
+        <div class="lines code">
+<div><span class="ln">1</span><span class="kw">import</span> <span class="ty">numpy</span> <span class="kw">as</span> <span class="ty">np</span></div>
+<div><span class="ln">2</span><span class="kw">from</span> net <span class="kw">import</span> <span class="fn">forward</span>, <span class="fn">backward</span>, <span class="fn">mse</span></div>
+<div><span class="ln">3</span></div>
+<div><span class="ln">4</span><span class="var">X</span> = np.<span class="fn">linspace</span>(-np.pi, np.pi, <span class="num">64</span>)[:, <span class="kw">None</span>]</div>
+<div><span class="ln">5</span><span class="var">Y</span> = np.<span class="fn">sin</span>(<span class="var">X</span>)</div>
+<div><span class="ln">6</span></div>
+<div><span class="ln">7</span><span class="var">rng</span> = np.random.<span class="fn">default_rng</span>(<span class="num">30</span>)</div>
+<div><span class="ln">8</span><span class="var">sizes</span> = [<span class="num">1</span>, <span class="num">4</span>, <span class="num">4</span>, <span class="num">1</span>]</div>
+<div><span class="ln">9</span><span class="var">W</span> = [rng.<span class="fn">normal</span>(<span class="num">0</span>, <span class="num">0.5</span>, (m, n))</div>
+<div><span class="ln">10</span>     <span class="kw">for</span> m, n <span class="kw">in</span> <span class="fn">zip</span>(sizes, sizes[<span class="num">1</span>:])]</div>
+<div><span class="ln">11</span><span class="var">b</span> = [np.<span class="fn">zeros</span>(n) <span class="kw">for</span> n <span class="kw">in</span> sizes[<span class="num">1</span>:]]</div>
+<div><span class="ln">12</span></div>
+<div><span class="ln">13</span><span class="kw">for</span> <span class="var">epoch</span> <span class="kw">in</span> <span class="fn">range</span>(<span class="num">5001</span>):</div>
+<div><span class="ln">14</span>    <span class="var">acts</span> = <span class="fn">forward</span>(<span class="var">X</span>, <span class="var">W</span>, <span class="var">b</span>)</div>
+<div><span class="ln">15</span>    <span class="var">loss</span> = <span class="fn">mse</span>(<span class="var">acts</span>[-<span class="num">1</span>], <span class="var">Y</span>)</div>
+<div><span class="ln">16</span>    <span class="var">gW</span>, <span class="var">gb</span> = <span class="fn">backward</span>(<span class="var">acts</span>, <span class="var">Y</span>, <span class="var">W</span>)</div>
+<div class="cur"><span class="ln">17</span>    <span class="var">W</span>, <span class="var">b</span> = <span class="fn">step</span>(<span class="var">W</span>, <span class="var">b</span>, <span class="var">gW</span>, <span class="var">gb</span>)</div>
+<div><span class="ln">18</span>    <span class="kw">if</span> <span class="var">epoch</span> % <span class="num">500</span> == <span class="num">0</span>:</div>
+<div><span class="ln">19</span>        <span class="fn">print</span>(<span class="str">f"epoch {epoch:5d}  loss {loss:.4f}"</span>)</div>
+<div><span class="ln">20</span></div>
+        </div>
+        <div class="term">
+          <div class="tt"><span>PROBLEMS</span><span>OUTPUT</span><span>DEBUG CONSOLE</span><span class="on">TERMINAL</span></div>
+          <div class="out">~/tiny-nn $ python3 train.py
+epoch     0  loss 0.4790
+epoch   500  loss 0.0735
+epoch  1000  loss 0.0629
+epoch  1500  loss 0.0524
+epoch  2000  loss 0.0421
+epoch  2500  loss 0.0303
+<span class="tcur"></span></div>
+        </div>
+      </div>
+      <div class="status">
+        <span><svg class="i"><use href="#i-branch"/></svg> main</span>
+        <span><svg class="i"><use href="#i-circle-x"/></svg> 0 <svg class="i"><use href="#i-alert"/></svg> 0</span>
+        <span style="margin-left:auto">Ln 17, Col 39</span><span>Spaces: 4</span><span>UTF-8</span><span>Python 3.12</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- the lesson drawer -->
+  <div class="drawer v2">
+    <div class="scroll">
+
+      <!-- header -->
+      <div class="col" style="gap:10px">
+        <div class="row" style="align-items:flex-start; gap:12px">
+          <div style="display:flex; flex-direction:column; gap:3px">
+            <div class="eyebrow">Just teach me · Machine learning</div>
+            <h1>Build a neural network</h1>
+          </div>
+          <span class="chip" style="margin-left:auto; margin-top:8px"><svg class="i"><use href="#i-stairs"/></svg>Needs: NumPy arrays, derivatives</span>
+          <div class="close" style="margin-left:0; margin-top:4px"><svg class="i"><use href="#i-x"/></svg></div>
+        </div>
+        <div class="row small">
+          <span style="font-weight:600">Step 5 of 6</span>
+          <div class="bar" style="flex:1"><i style="width:67%"></i></div>
+          <span class="faint">about 6 min left</span>
+        </div>
+      </div>
+
+      <!-- HERO: the live network -->
+      <section class="netcard" aria-label="Your network, training live">
+        <div class="hdr">
+          <div class="eyebrow ey"><svg class="i"><use href="#i-net"/></svg>Your network</div>
+          <span class="arch">1-4-4-1 · tanh</span>
+          <span class="live" style="margin-left:auto"><i></i>Live from train.py</span>
+          <button class="ibtn" id="pause" title="Pause" aria-label="Pause"><svg class="i"><use href="#i-pause"/></svg></button>
+          <button class="ibtn" id="replay" title="Replay from epoch 0" aria-label="Replay"><svg class="i"><use href="#i-replay"/></svg></button>
+        </div>
+        <canvas id="net" width="588" height="250" role="img" aria-label="A 1-4-4-1 neural network. A forward pass lights each layer in turn."></canvas>
+        <div class="stats">
+          <div class="stat" style="min-width:132px"><span class="k">Epoch</span><span class="v"><span id="epoch">0</span> <small>/ 5,000</small></span></div>
+          <div class="stat" style="min-width:94px"><span class="k">Loss</span><span class="v" id="loss">0.4790</span></div>
+          <div class="spark">
+            <span class="k" style="font-size:11px; letter-spacing:.06em; text-transform:uppercase; color:var(--faint); font-weight:600">Loss over training</span>
+            <svg id="spark" width="170" height="32" viewBox="0 0 170 32"></svg>
+          </div>
+          <div class="stat" style="border-right:0; margin-right:0; padding-right:0; align-items:flex-end">
+            <span class="k">Prediction</span>
+            <span class="v"><span id="yv">0.197</span> <small>target <span id="yt">0.932</span></small></span>
+          </div>
+        </div>
+        <div class="netcap" id="caption"></div>
+      </section>
+
+      <!-- current step -->
+      <div class="card current">
+        <div class="row" style="gap:10px">
+          <span class="badge"><svg class="i"><use href="#i-terminal"/></svg>Run</span>
+          <h2>Train it</h2>
+          <span class="tiny faint" style="margin-left:auto">about 3 min</span>
+        </div>
+        <div class="theory">
+          <div class="col" style="gap:9px">
+            <div class="small" style="line-height:1.45">In the terminal, run <span class="mono white">python3 train.py</span>. The network above redraws as your weights change.</div>
+            <div class="small" style="line-height:1.45"><b>Why:</b> <span class="muted">each epoch nudges every weight a little downhill on the loss, so the output creeps toward sin(x).</span></div>
+            <div class="row wrap" style="gap:6px">
+              <span class="chip sky"><svg class="i"><use href="#i-chart"/></svg>Gradient descent</span>
+              <span class="chip sky"><svg class="i"><use href="#i-gauge"/></svg>Learning rate</span>
+            </div>
+          </div>
+          <div class="diag">
+            <svg id="fit" width="226" height="104" viewBox="0 0 226 104" aria-label="Your network's output across x compared with sin(x)"></svg>
+          </div>
+        </div>
+        <div class="hr" style="margin-top:12px"></div>
+        <div class="col" style="gap:8px; margin-top:12px">
+          <div class="check pass"><span class="ic"><svg class="i"><use href="#i-check"/></svg></span><span><span class="mono">train.py</span> runs without errors</span><span class="end passtext">Passed</span></div>
+          <div class="check wait" id="chk"><span class="ic"></span><span>Loss falls below <span class="mono">0.01</span></span><span class="end faint"><svg class="i" style="font-size:14px"><use href="#i-eye"/></svg>Watching</span></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="foot">
+      <span class="btn sky">Explain <span class="kbd">⌥E</span></span>
+      <span class="btn sky">Diagram <span class="kbd">⌥D</span></span>
+      <span class="btn lilac">Show me <span class="kbd">⌥S</span></span>
+      <span class="btn pink">Hint <span class="kbd">⌥H</span></span>
+      <span class="btn primary" style="margin-left:auto"><svg class="i"><use href="#i-check"/></svg>Check my work</span>
+    </div>
+  </div>
+</div>
+
+<script>
+/* The card exactly as the engine sends it. W[k][i][j] = weight from neuron i of layer k to neuron j of layer k+1.
+   Frames come from a real run: 1-4-4-1, tanh hidden layers, linear output, 64 points of y = sin(x) on [-pi, pi]. */
+const PAYLOAD = {"kind":"network","caption":"Brightness is how strongly a neuron fires. Blue weights push up, brown push down.","data":{"layers":[1,4,4,1],"labels":{"input":["x"],"output":["y"]},"placement":"drawer","mode":"train","frames":[
+    {"epoch":0,"loss":0.479,"input":1.2,"W":[[[1.504,0.228,1.186,1.025]],[[-0.086,-0.093,-0.133,-0.195],[0.06,0.006,-0.516,-0.328],[-0.389,-0.068,-0.152,-0.038],[-0.514,-0.053,0.266,0.129]],[[0.095],[-0.483],[0.407],[-0.418]]],"b":[[0,0,0,0],[0,0,0,0],[0.16]],"a":[[1.2],[0.947,0.267,0.89,0.843],[-0.689,-0.19,-0.173,-0.194],[0.197]]},
+    {"epoch":100,"loss":0.237,"input":1.2,"W":[[[1.553,0.196,1.183,1.075]],[[-0.046,-0.137,-0.09,-0.239],[0.099,-0.036,-0.475,-0.369],[-0.348,-0.111,-0.109,-0.082],[-0.474,-0.097,0.309,0.085]],[[0.052],[-0.531],[0.374],[-0.465]]],"b":[[-0.043,0.034,0.014,-0.044],[-0.038,0.039,-0.04,0.04],[0.12]],"a":[[1.2],[0.949,0.263,0.892,0.847],[-0.646,-0.274,-0.085,-0.277],[0.329]]},
+    {"epoch":250,"loss":0.102,"input":1.2,"W":[[[1.622,0.216,1.279,1.147]],[[-0.021,-0.183,-0.045,-0.286],[0.119,-0.074,-0.438,-0.409],[-0.324,-0.157,-0.065,-0.129],[-0.449,-0.143,0.354,0.039]],[[0.01],[-0.591],[0.386],[-0.523]]],"b":[[-0.042,0.046,0.001,-0.041],[-0.055,0.059,-0.064,0.061],[0.094]],"a":[[1.2],[0.957,0.296,0.911,0.871],[-0.621,-0.385,0.011,-0.394],[0.525]]},
+    {"epoch":500,"loss":0.0735,"input":1.2,"W":[[[1.693,0.257,1.38,1.23]],[[-0.021,-0.211,-0.019,-0.316],[0.122,-0.075,-0.442,-0.416],[-0.324,-0.184,-0.04,-0.158],[-0.449,-0.169,0.378,0.01]],[[-0.013],[-0.628],[0.437],[-0.555]]],"b":[[0.007,0.051,0.043,0.009],[-0.055,0.062,-0.069,0.065],[0.084]],"a":[[1.2],[0.967,0.345,0.935,0.902],[-0.63,-0.456,0.064,-0.479],[0.672]]},
+    {"epoch":750,"loss":0.0684,"input":1.2,"W":[[[1.737,0.302,1.447,1.295]],[[-0.023,-0.217,-0.014,-0.327],[0.133,-0.038,-0.494,-0.39],[-0.325,-0.19,-0.036,-0.169],[-0.45,-0.173,0.38,0]],[[-0.018],[-0.633],[0.488],[-0.551]]],"b":[[0.021,0.044,0.046,0.022],[-0.054,0.061,-0.064,0.066],[0.083]],"a":[[1.2],[0.971,0.385,0.945,0.918],[-0.632,-0.465,0.047,-0.509],[0.692]]},
+    {"epoch":1000,"loss":0.0629,"input":1.2,"W":[[[1.768,0.336,1.5,1.355]],[[-0.024,-0.223,-0.008,-0.339],[0.152,0.007,-0.558,-0.364],[-0.326,-0.195,-0.031,-0.18],[-0.451,-0.178,0.384,-0.011]],[[-0.024],[-0.639],[0.553],[-0.547]]],"b":[[0.025,0.038,0.046,0.023],[-0.054,0.059,-0.055,0.065],[0.083]],"a":[[1.2],[0.973,0.415,0.951,0.929],[-0.631,-0.467,0.032,-0.535],[0.707]]},
+    {"epoch":1500,"loss":0.0524,"input":1.2,"W":[[[1.758,0.323,1.54,1.436]],[[-0.024,-0.23,0.01,-0.359],[0.22,0.113,-0.706,-0.307],[-0.326,-0.202,-0.013,-0.201],[-0.45,-0.184,0.401,-0.032]],[[-0.039],[-0.659],[0.709],[-0.542]]],"b":[[0.019,0.025,0.062,0.015],[-0.053,0.058,-0.037,0.064],[0.082]],"a":[[1.2],[0.972,0.391,0.957,0.94],[-0.621,-0.453,0.061,-0.556],[0.748]]},
+    {"epoch":2000,"loss":0.0421,"input":1.2,"W":[[[1.619,0.293,1.474,1.425]],[[-0.015,-0.228,0.032,-0.37],[0.331,0.23,-0.862,-0.247],[-0.319,-0.201,0.013,-0.215],[-0.442,-0.183,0.427,-0.045]],[[-0.056],[-0.686],[0.876],[-0.538]]],"b":[[-0.116,0.006,0.418,-0.092],[-0.053,0.058,-0.026,0.064],[0.077]],"a":[[1.2],[0.95,0.343,0.975,0.924],[-0.588,-0.418,0.115,-0.553],[0.795]]},
+    {"epoch":2500,"loss":0.0303,"input":1.2,"W":[[[1.452,0.288,1.529,1.361]],[[0.004,-0.221,0.062,-0.376],[0.501,0.359,-1.028,-0.183],[-0.321,-0.207,0.063,-0.233],[-0.423,-0.177,0.46,-0.054]],[[-0.082],[-0.729],[1.05],[-0.543]]],"b":[[-0.447,-0.008,0.886,-0.139],[-0.061,0.053,-0.028,0.056],[0.069]],"a":[[1.2],[0.861,0.326,0.991,0.904],[-0.534,-0.368,0.167,-0.543],[0.851]]},
+    {"epoch":3000,"loss":0.0187,"input":1.2,"W":[[[1.434,0.288,1.695,1.288]],[[0.028,-0.216,0.098,-0.385],[0.732,0.495,-1.199,-0.113],[-0.337,-0.217,0.127,-0.253],[-0.393,-0.165,0.488,-0.057]],[[-0.121],[-0.788],[1.225],[-0.556]]],"b":[[-0.853,-0.014,1.181,-0.106],[-0.059,0.047,-0.026,0.054],[0.061]],"a":[[1.2],[0.7,0.319,0.997,0.894],[-0.456,-0.301,0.219,-0.504],[0.903]]},
+    {"epoch":4000,"loss":0.00595,"input":1.2,"W":[[[1.506,0.274,1.732,1.288]],[[0.014,-0.218,0.168,-0.4],[1.147,0.726,-1.485,0.016],[-0.388,-0.226,0.215,-0.269],[-0.373,-0.147,0.528,-0.057]],[[-0.208],[-0.91],[1.508],[-0.587]]],"b":[[-1.317,-0.008,1.521,-0.112],[-0.021,0.033,-0.011,0.068],[0.054]],"a":[[1.2],[0.454,0.311,0.999,0.893],[-0.362,-0.194,0.282,-0.404],[0.968]]},
+    {"epoch":5000,"loss":0.00194,"input":1.2,"W":[[[1.508,0.262,1.562,1.417]],[[-0.061,-0.231,0.223,-0.41],[1.429,0.88,-1.68,0.116],[-0.399,-0.217,0.235,-0.262],[-0.424,-0.15,0.572,-0.059]],[[-0.279],[-1.004],[1.7],[-0.607]]],"b":[[-1.582,-0.001,1.647,-0.003],[-0.013,0.021,-0.001,0.089],[0.054]],"a":[[1.2],[0.224,0.304,0.998,0.935],[-0.368,-0.12,0.298,-0.277],[0.953]]}]}};
+
+(function () {
+  const D = PAYLOAD.data, F = D.frames, LAYERS = D.layers, NL = LAYERS.length, LAST = F.length - 1;
+
+  /* ---------- design tokens (copy these) ---------- */
+  const C = {
+    pos: [92, 176, 240],        // #5CB0F0  positive weight
+    neg: [214, 132, 66],        // #D68442  negative weight (warm brown/orange; reads brown at low opacity)
+    node: '#0C0D10',            // neuron base fill
+    ring: 'rgba(255,255,255,.55)',
+    label: 'rgba(255,255,255,.88)', faint: 'rgba(255,255,255,.42)',
+  };
+  const T = {                   // ms within one 1600 ms cycle
+    cycle: 1600,
+    light: [0, 380, 720, 1060], // when each layer starts lighting up
+    ramp: 140,                  // fill ease-in once pulses arrive
+    pulse: [100, 440, 780],     // pulses leave layer k at these times...
+    travel: 320,                // ...and take this long to cross
+    tween: 1250,                // from here to the end of the cycle: weights tween to the next frame, neurons settle
+    rest: 0.14,                 // between passes a neuron keeps 14% of its brightness
+  };
+  const G = { w: 588, h: 250, r: 17, x0: 68, dx: 146, cy: 112, gap: 54 };
+
+  const reduce = matchMedia('(prefers-reduced-motion: reduce)').matches;
+  const wMax = Math.max(...F.flatMap(f => f.W.flat(2).map(Math.abs)));
+  const fmt = n => n.toLocaleString('en-US');
+  const ease = t => t <= 0 ? 0 : t >= 1 ? 1 : t * t * (3 - 2 * t);
+  const easeIO = t => t <= 0 ? 0 : t >= 1 ? 1 : (t < .5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2);
+  const lerp = (a, b, t) => a + (b - a) * t;
+  const bright = a => Math.pow(Math.min(1, Math.abs(a)), 0.8);
+  const rgba = (c, a) => `rgba(${c[0]},${c[1]},${c[2]},${Math.max(0, Math.min(1, a)).toFixed(3)})`;
+
+  /* ---------- geometry: every column vertically centred, so 1-4-4-1 is symmetric ---------- */
+  const NX = l => G.x0 + l * G.dx;
+  const NY = (l, i) => G.cy + (i - (LAYERS[l] - 1) / 2) * G.gap;
+
+  /* ---------- canvas ---------- */
+  const cv = document.getElementById('net'), ctx = cv.getContext('2d');
+  const dpr = Math.max(1, window.devicePixelRatio || 1);
+  cv.width = G.w * dpr; cv.height = G.h * dpr; ctx.scale(dpr, dpr);
+
+  /* caption from the payload, with colour words */
+  document.getElementById('caption').innerHTML = PAYLOAD.caption
+    .replace('Brightness', '<span class="sw" style="background:#F4F4F5"></span><b class="white">Brightness</b>')
+    .replace('Blue', `<span class="sw" style="background:${rgba(C.pos, 1)}"></span><b style="color:${rgba(C.pos, 1)}">Blue</b>`)
+    .replace('brown', `<span class="sw" style="background:${rgba(C.neg, 1)}"></span><b style="color:${rgba(C.neg, 1)}">brown</b>`);
+
+  function weightsAt(fi, ni, t) { // tween W and b between frames
+    const A = F[fi], B = F[ni];
+    return {
+      W: A.W.map((L, k) => L.map((r, i) => r.map((w, j) => lerp(w, B.W[k][i][j], t)))),
+      b: A.b.map((L, k) => L.map((v, j) => lerp(v, B.b[k][j], t))),
+    };
+  }
+  function forward(x, P) {
+    let a = [x];
+    for (let k = 0; k < NL - 1; k++) {
+      const z = P.b[k].map((bj, j) => bj + a.reduce((s, ai, i) => s + ai * P.W[k][i][j], 0));
+      a = z.map(v => (k < NL - 2 ? Math.tanh(v) : v));
+    }
+    return a[0];
+  }
+
+  /* ---------- one frame of the picture, a pure function of (frame, ms) ---------- */
+  function draw(fi, ni, t) {
+    const f = F[fi];
+    const tw = reduce ? 0 : ease((t - T.tween) / (T.cycle - T.tween));
+    const P = weightsAt(fi, ni, tw);
+    ctx.clearRect(0, 0, G.w, G.h);
+
+    // neuron brightness at time t
+    const nb = (l, i) => {
+      const full = bright(f.a[l][i]);
+      if (reduce) return full;
+      const rest = full * T.rest, s = T.light[l];
+      if (t < s) return rest;
+      if (t < s + T.ramp) return lerp(rest, full, ease((t - s) / T.ramp));
+      if (t < T.tween) return full;
+      return lerp(full, full * T.rest, tw);
+    };
+
+    // 1. edges: blue +, brown -, width and opacity proportional to |w|
+    ctx.lineCap = 'round';
+    for (let k = 0; k < NL - 1; k++) {
+      const pk = reduce ? -1 : (t - T.pulse[k]) / T.travel;
+      for (let i = 0; i < LAYERS[k]; i++) for (let j = 0; j < LAYERS[k + 1]; j++) {
+        const w = P.W[k][i][j], m = Math.abs(w) / wMax, c = w >= 0 ? C.pos : C.neg;
+        const x1 = NX(k), y1 = NY(k, i), x2 = NX(k + 1), y2 = NY(k + 1, j);
+        const len = Math.hypot(x2 - x1, y2 - y1), ux = (x2 - x1) / len, uy = (y2 - y1) / len, o = G.r + 2;
+        const bell = pk > 0 && pk < 1.2 ? Math.sin(Math.min(1, pk / 1.2) * Math.PI) : 0;
+        const I = Math.min(1, Math.abs(f.W[k][i][j]) * bright(f.a[k][i]) / (wMax * 0.7));
+        ctx.strokeStyle = rgba(c, 0.10 + 0.62 * m + 0.4 * bell * (0.3 + 0.7 * I));
+        ctx.lineWidth = 0.6 + 3.4 * m;
+        ctx.beginPath(); ctx.moveTo(x1 + ux * o, y1 + uy * o); ctx.lineTo(x2 - ux * o, y2 - uy * o); ctx.stroke();
+      }
+    }
+
+    // 2. pulses: a glowing head and a short comet tail, brightness ~ |w| * activation
+    if (!reduce) {
+      ctx.save(); ctx.globalCompositeOperation = 'lighter';
+      for (let k = 0; k < NL - 1; k++) {
+        const p = (t - T.pulse[k]) / T.travel;
+        if (p <= 0 || p > 1.18) continue;
+        const fade = p > 1 ? 1 - (p - 1) / 0.18 : 1;
+        for (let i = 0; i < LAYERS[k]; i++) for (let j = 0; j < LAYERS[k + 1]; j++) {
+          const w = f.W[k][i][j], c = w >= 0 ? C.pos : C.neg;
+          const raw = Math.min(1, Math.abs(w) * bright(f.a[k][i]) / (wMax * 0.6));
+          if (raw < 0.01) continue;
+          const I = (0.28 + 0.72 * Math.pow(raw, 0.8)) * fade;
+          const x1 = NX(k), y1 = NY(k, i), x2 = NX(k + 1), y2 = NY(k + 1, j);
+          const len = Math.hypot(x2 - x1, y2 - y1), ux = (x2 - x1) / len, uy = (y2 - y1) / len, o = G.r + 2;
+          const sx = x1 + ux * o, sy = y1 + uy * o, ex = x2 - ux * o, ey = y2 - uy * o;
+          const hp = easeIO(Math.min(1, p)), tp = easeIO(Math.max(0, Math.min(1, p) - 0.42));
+          const hx = lerp(sx, ex, hp), hy = lerp(sy, ey, hp), tx = lerp(sx, ex, tp), ty = lerp(sy, ey, tp);
+          const g = ctx.createLinearGradient(tx, ty, hx, hy);
+          g.addColorStop(0, rgba(c, 0)); g.addColorStop(1, rgba(c, I));
+          ctx.strokeStyle = g; ctx.lineWidth = 1.8 + 3 * I;
+          ctx.beginPath(); ctx.moveTo(tx, ty); ctx.lineTo(hx, hy); ctx.stroke();
+          const R = 6 + 11 * I, h = ctx.createRadialGradient(hx, hy, 0, hx, hy, R);
+          h.addColorStop(0, `rgba(255,255,255,${Math.min(1, 1.1 * I).toFixed(3)})`);
+          h.addColorStop(0.22, rgba(c, 0.9 * I)); h.addColorStop(0.5, rgba(c, 0.35 * I)); h.addColorStop(1, rgba(c, 0));
+          ctx.fillStyle = h; ctx.beginPath(); ctx.arc(hx, hy, R, 0, Math.PI * 2); ctx.fill();
+        }
+      }
+      ctx.restore();
+    }
+
+    // 3. neurons: inner fill brightness = activation, thin outline, soft glow and a flash on arrival
+    for (let l = 0; l < NL; l++) for (let i = 0; i < LAYERS[l]; i++) {
+      const x = NX(l), y = NY(l, i), b = nb(l, i);
+      if (b > 0.04) {
+        const g = ctx.createRadialGradient(x, y, G.r * 0.6, x, y, G.r * 2.5);
+        g.addColorStop(0, `rgba(255,255,255,${(0.22 * b).toFixed(3)})`); g.addColorStop(1, 'rgba(255,255,255,0)');
+        ctx.fillStyle = g; ctx.beginPath(); ctx.arc(x, y, G.r * 2.5, 0, Math.PI * 2); ctx.fill();
+      }
+      const since = t - T.light[l];
+      if (!reduce && since >= 0 && since < 480) {
+        const k = 1 - since / 480, full = bright(f.a[l][i]);
+        ctx.strokeStyle = `rgba(255,255,255,${(0.55 * full * k * k).toFixed(3)})`; ctx.lineWidth = 1.5;
+        ctx.beginPath(); ctx.arc(x, y, G.r + 3 + 9 * (1 - k), 0, Math.PI * 2); ctx.stroke();
+      }
+      ctx.fillStyle = C.node; ctx.beginPath(); ctx.arc(x, y, G.r, 0, Math.PI * 2); ctx.fill();
+      const v = Math.round(lerp(14, 244, b));
+      ctx.fillStyle = `rgb(${v},${v},${Math.min(255, v + 1)})`; ctx.beginPath(); ctx.arc(x, y, G.r - 0.5, 0, Math.PI * 2); ctx.fill();
+      ctx.strokeStyle = C.ring; ctx.lineWidth = 1.25; ctx.beginPath(); ctx.arc(x, y, G.r, 0, Math.PI * 2); ctx.stroke();
+    }
+
+    // 4. labels, always outside the neurons
+    const lab = D.labels || {};
+    ctx.textBaseline = 'alphabetic';
+    ctx.font = '500 15px ui-monospace, "SF Mono", Menlo, monospace'; ctx.fillStyle = C.label;
+    ctx.textAlign = 'right'; ctx.fillText((lab.input || ['x'])[0], NX(0) - G.r - 12, G.cy + 1);
+    ctx.textAlign = 'left'; ctx.fillText((lab.output || ['y'])[0], NX(NL - 1) + G.r + 12, G.cy + 1);
+    ctx.font = '11.5px ui-monospace, "SF Mono", Menlo, monospace'; ctx.fillStyle = C.faint;
+    ctx.textAlign = 'right'; ctx.fillText(f.input.toFixed(2), NX(0) - G.r - 12, G.cy + 17);
+    ctx.textAlign = 'left'; ctx.fillStyle = `rgba(255,255,255,${(0.3 + 0.4 * nb(NL - 1, 0)).toFixed(3)})`;
+    ctx.fillText(f.a[NL - 1][0].toFixed(3), NX(NL - 1) + G.r + 12, G.cy + 17); ctx.fillStyle = C.faint;
+    ctx.font = '12px -apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, sans-serif'; ctx.textAlign = 'center';
+    for (let l = 1; l < NL - 1; l++) ctx.fillText(`hidden ${l}`, NX(l), NY(l, LAYERS[l] - 1) + G.r + 24);
+
+    return { P, tw };
+  }
+
+  /* ---------- numbers, sparkline, fit chart, live check ---------- */
+  const $ = id => document.getElementById(id);
+  const lmax = Math.log10(Math.max(...F.map(f => f.loss))), lmin = Math.log10(Math.min(...F.map(f => f.loss)));
+  const SP = { w: 170, h: 32, p: 3 };
+  const spx = i => SP.p + i * (SP.w - 2 * SP.p) / LAST;
+  const spy = l => SP.p + (lmax - Math.log10(l)) / (lmax - lmin) * (SP.h - 2 * SP.p);
+
+  function hud(fi, ni, tw, P) {
+    const A = F[fi], B = F[ni], forward_ = ni > fi;
+    const ep = forward_ ? Math.round(lerp(A.epoch, B.epoch, tw) / 10) * 10 : A.epoch;
+    const loss = forward_ ? Math.pow(10, lerp(Math.log10(A.loss), Math.log10(B.loss), tw)) : A.loss;
+    $('epoch').textContent = fmt(ep);
+    $('loss').textContent = loss.toFixed(4);
+    $('yv').textContent = A.a[NL - 1][0].toFixed(3); $('yt').textContent = Math.sin(A.input).toFixed(3);
+
+    // sparkline: falls over the frames (log scale), grows one point per frame
+    let pts = []; for (let i = 0; i <= fi; i++) pts.push([spx(i), spy(F[i].loss)]);
+    if (forward_ && tw > 0) pts.push([lerp(spx(fi), spx(ni), tw), spy(loss)]);
+    const d = pts.map((p, i) => (i ? 'L' : 'M') + p[0].toFixed(1) + ' ' + p[1].toFixed(1)).join(' ');
+    const last = pts[pts.length - 1];
+    $('spark').innerHTML =
+      `<defs><linearGradient id="sg" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#F4F4F5" stop-opacity=".18"/><stop offset="1" stop-color="#F4F4F5" stop-opacity="0"/></linearGradient></defs>` +
+      `<path d="M${SP.p} ${SP.h - .5} H${SP.w - SP.p}" stroke="rgba(255,255,255,.08)"/>` +
+      (pts.length > 1 ? `<path d="${d} L${last[0].toFixed(1)} ${SP.h} L${SP.p} ${SP.h} Z" fill="url(#sg)"/>` : '') +
+      `<path d="${d}" fill="none" stroke="#F4F4F5" stroke-width="1.5" stroke-linejoin="round" stroke-linecap="round"/>` +
+      `<circle cx="${last[0].toFixed(1)}" cy="${last[1].toFixed(1)}" r="2.6" fill="#F4F4F5"/>`;
+
+    // fit chart: the same weights, run across x in [-pi, pi], against the target sin(x)
+    const FW = 226, FH = 104, px = x => 14 + (x + Math.PI) / (2 * Math.PI) * (FW - 28), py = y => FH / 2 - y * 34;
+    let sd = '', nd = '';
+    for (let s = 0; s <= 60; s++) {
+      const x = -Math.PI + 2 * Math.PI * s / 60;
+      sd += (s ? 'L' : 'M') + px(x).toFixed(1) + ' ' + py(Math.sin(x)).toFixed(1);
+      nd += (s ? 'L' : 'M') + px(x).toFixed(1) + ' ' + py(forward(x, P)).toFixed(1);
+    }
+    const yx = forward(A.input, P);
+    $('fit').innerHTML =
+      `<path d="M14 ${FH / 2} H${FW - 14}" stroke="rgba(255,255,255,.1)"/>` +
+      `<path d="M${px(0)} 10 V${FH - 10}" stroke="rgba(255,255,255,.06)"/>` +
+      `<path d="${sd}" fill="none" stroke="rgba(255,255,255,.45)" stroke-width="1.5" stroke-dasharray="3 4"/>` +
+      `<path d="${nd}" fill="none" stroke="#F4F4F5" stroke-width="2" stroke-linejoin="round"/>` +
+      `<path d="M${px(A.input).toFixed(1)} 12 V${FH - 12}" stroke="rgba(255,255,255,.18)" stroke-dasharray="2 3"/>` +
+      `<circle cx="${px(A.input).toFixed(1)}" cy="${py(yx).toFixed(1)}" r="3" fill="#F4F4F5"/>` +
+      `<text x="14" y="16" style="font:11px var(--ui)" fill="rgba(255,255,255,.5)">sin(x)</text>` +
+      `<path d="M50 12.5 H64" stroke="rgba(255,255,255,.45)" stroke-width="1.5" stroke-dasharray="3 3"/>` +
+      `<text x="74" y="16" style="font:11px var(--ui)" fill="rgba(255,255,255,.75)">your net</text>` +
+      `<path d="M120 12.5 H134" stroke="#F4F4F5" stroke-width="2"/>` +
+      `<text x="${FW - 14}" y="${FH - 8}" text-anchor="end" style="font:10.5px var(--mono)" fill="rgba(255,255,255,.4)">x = ${A.input}</text>`;
+
+    // the step's live check passes once the loss really is below 0.01
+    const ok = A.loss < 0.01, el = $('chk');
+    if (el.dataset.ok !== String(ok)) {
+      el.dataset.ok = String(ok);
+      el.className = 'check ' + (ok ? 'pass' : 'wait');
+      el.innerHTML = ok
+        ? '<span class="ic"><svg class="i"><use href="#i-check"/></svg></span><span>Loss falls below <span class="mono">0.01</span></span><span class="end passtext">Passed</span>'
+        : '<span class="ic"></span><span>Loss falls below <span class="mono">0.01</span></span><span class="end faint"><svg class="i" style="font-size:14px"><use href="#i-eye"/></svg>Watching</span>';
+    }
+  }
+
+  /* ---------- driver ---------- */
+  // play every frame once, hold on the trained network for two passes, then rewind
+  const SEQ = [...F.keys(), LAST, LAST];
+  let s = 0, t = 0, prev = null, paused = false;
+  const step = () => { const fi = SEQ[s], ni = SEQ[(s + 1) % SEQ.length]; const { P, tw } = draw(fi, ni, t); hud(fi, ni, tw, P); };
+
+  const hash = new URLSearchParams(location.hash.slice(1));
+  if (hash.has('frame')) {            // frozen still, for screenshots: #frame=8&t=600
+    s = Math.min(LAST, +hash.get('frame')); t = +(hash.get('t') || 600);
+    step(); document.querySelector('.live i').style.animation = 'none'; return;
+  }
+  function loop(now) {
+    if (prev != null && !paused) {
+      t += Math.min(64, now - prev);
+      const len = reduce ? 2000 : T.cycle;
+      if (t >= len) { t -= len; s = (s + 1) % SEQ.length; }
+    }
+    prev = now; step(); requestAnimationFrame(loop);
+  }
+  requestAnimationFrame(loop);
+  $('pause').onclick = () => {
+    paused = !paused;
+    $('pause').innerHTML = `<svg class="i"><use href="#i-${paused ? 'play' : 'pause'}"/></svg>`;
+    $('pause').title = paused ? 'Play' : 'Pause';
+  };
+  $('replay').onclick = () => { s = 0; t = 0; };
+})();
+</script>
+</body>
+</html>
