@@ -337,6 +337,18 @@ export function Launcher({ layout }: { layout: Layout }): ReactNode {
     return () => window.removeEventListener('focus', refocus)
   }, [phase])
 
+  // The keyboard always lives in the field (Michael's test 10: Return on "Build lesson" did nothing). A click on a chip
+  // or a row used to leave DOM focus on that button, so the next Enter went to it instead of submit(). The click
+  // itself still lands: only focus goes back to the field.
+  useEffect(() => {
+    if (phase !== 'open') return
+    const keep = (e: FocusEvent): void => {
+      if (e.target !== input.current) input.current?.focus({ preventScroll: true })
+    }
+    document.addEventListener('focusin', keep)
+    return () => document.removeEventListener('focusin', keep)
+  }, [phase])
+
   // The panel springs to its content's height, so it grows down as rows stream in.
   const content = useRef<HTMLDivElement>(null)
   const [contentH, setContentH] = useState(0)

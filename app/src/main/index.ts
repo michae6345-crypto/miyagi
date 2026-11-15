@@ -163,6 +163,15 @@ function openLauncher(): void {
   launcher.show()
   launcher.focus()
   raise(launcher)
+  // macOS: focus() doesn't activate an inactive app, so with Finder (or any other app) in front the panel showed
+  // but the keystrokes kept going there (Michael's test 10). If the launcher still isn't key a moment later, take it.
+  if (process.platform === 'darwin') {
+    setTimeout(() => {
+      if (!launcherOpen || launcher.isDestroyed() || launcher.isFocused()) return
+      app.focus({ steal: true })
+      launcher.focus()
+    }, 60)
+  }
   send(launcher, 'launcher:open', { from: islandSize })
   send(overlay, 'launcher:open') // the island hides: the launcher window has it now
 }
