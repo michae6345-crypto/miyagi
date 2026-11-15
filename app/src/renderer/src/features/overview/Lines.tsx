@@ -1,13 +1,15 @@
 /**
  * The overview's text lines, all read from core/lesson (nothing PINN-specific, nothing explains the UI):
  *  - Instructions: the step's "what do I do now" (Michael P1-6: stored, never shown until now). 2 lines max.
+ *  - StepSnippet: the code to type for this step (spotlight.snippet), monospace, under the instructions.
  *  - GoalNote: lesson.goalMatch.note in amber under the title, only when the video doesn't fit the goal (score < 0.5).
  *  - Meta: who built the lesson (builtByLabel) and, for a long video still building, where its parts stand.
  */
 import type { ReactNode } from 'react'
 import { useShallow } from 'zustand/react/shallow'
 import { builtByLabel, useLesson } from '../../core/lesson'
-import { color } from '../../core/theme'
+import { color, fill, font } from '../../core/theme'
+import { useStepSnippet } from './snippet'
 
 /** Below this goalMatch score the video doesn't fit what the learner asked for (contract: preflight warning). */
 const GOAL_MISMATCH = 0.5
@@ -19,6 +21,21 @@ export function Instructions(): ReactNode {
     <div className="mt-[16px] line-clamp-2 text-[14px] leading-[20px]" style={{ color: color.label }} title={text}>
       {text}
     </div>
+  )
+}
+
+/** The code to type for this step, monospace like the cards' diff view (spotlight.snippet, kept by ./snippet). */
+export function StepSnippet(): ReactNode {
+  const stepId = useLesson((s) => s.stepId)
+  const snip = useStepSnippet()
+  if (!snip.code || snip.stepId !== stepId) return null
+  return (
+    <pre
+      className="mt-[10px] max-h-[126px] overflow-hidden whitespace-pre rounded-[12px] px-[12px] py-[8px] text-[12.5px] leading-[18px]"
+      style={{ fontFamily: font.mono, background: fill.field, color: color.text }}
+    >
+      {snip.code}
+    </pre>
   )
 }
 

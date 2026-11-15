@@ -8,7 +8,7 @@ import { create } from 'zustand'
 import type { ShortcutKind } from '../../../main/platform'
 import type { AppCommands } from '../../../../../shared/contracts/events'
 import { cmd } from '../../../common/wire'
-import { bridge } from '../bridge'
+import { bridge, isElectron } from '../bridge'
 import { emitUi, onMessage, onUi } from './bus'
 import { stopBuild, useLesson } from './lesson'
 
@@ -48,6 +48,9 @@ export function sendAction(kind: ActionKind, text?: string): void {
 }
 
 export function triggerShortcut(kind: ActionShortcut): void {
+  // Electron: only the overlay window runs shortcuts (it has the bar, the cards and the spinner). Any other window
+  // (the launcher) hands the press to main, which replays it in the overlay like a global key.
+  if (isElectron && document.documentElement.dataset.route !== 'overlay') return bridge.emit('shortcut', kind)
   if (emitUi('shortcut', kind)) return
   sendAction(kind)
 }

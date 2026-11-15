@@ -8,30 +8,34 @@
  * too, but it also blocks every motion that mounts later inside those rows, like the green tick drawing in.)
  */
 import { AnimatePresence, motion } from 'motion/react'
-import { useEffect, useRef, useState, type CSSProperties, type ReactNode, type RefObject } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type ReactNode, type RefObject } from 'react'
 import { useShallow } from 'zustand/react/shallow'
 import { ArrowUpRight, FileCode2, FileText, FolderGit2, Newspaper, X, type LucideIcon } from 'lucide-react'
 import type { Source, SourceKind, StepSummary } from '../../../../../../shared/contracts/events'
-import { builtByLabel, seekVideo, useLesson, type CheckItem, type Rect } from '../../core/lesson'
-import { brand, color, fill, kindTone, radius, shadow, spring, springOut } from '../../core/theme'
-import { CheckIcon, CheckList, Spinner, Thumb } from '../../core/ui/atoms'
+import { builtByLabel, seekVideo, useLesson, useProgress, type CheckItem, type Rect } from '../../core/lesson'
+import { useAppearance } from '../../core/prefs'
+import { alpha, clock, color, glass, kindTone, radius, spring, springOut } from '../../core/theme'
+import { Spinner, Thumb } from '../../core/ui/atoms'
 import { parseYouTube, thumbnailFor } from '../launcher/youtube'
 import { TAB } from './geometry'
-import { closeDrawer, isWebLink, openSource, toggleDrawer } from './store'
+import { closeDrawer, isWebLink, openSource, setPanelHeight, toggleDrawer } from './store'
 
 type StepStatus = 'done' | 'current' | 'locked'
 
 /** Row geometry: icon column, gap, time column. The current step's checks line up with its title. */
 const ROW = { h: 38, padX: 10, icon: 18, gap: 11 } as const
-/** Hover fill for clickable rows, through a CSS variable so the color stays a token. */
-const hoverVar = { '--drawer-hover': fill.chip } as CSSProperties
+/**
+ * Every color is a glass token (theme.glass: CSS variables that flip with Settings → Appearance), never color.* /
+ * fill.* (those are the black island's). Hover goes through a CSS variable so it stays a token too.
+ */
+const hoverVar = { '--drawer-hover': glass.field } as CSSProperties
 const hoverCls = 'hover:bg-[var(--drawer-hover)]'
 
 // ---------------------------------------------------------------------------
 // Tab
 // ---------------------------------------------------------------------------
 
-/** 4×40 white at fill.track, inside a wider hit box. Hover stretches the bar a little (transform only). */
+/** 4×40 at glass.track, inside a wider hit box. Hover stretches the bar a little (transform only). */
 export function Tab({ rect, shown }: { rect: Rect; shown: boolean }): ReactNode {
   const [hover, setHover] = useState(false)
   return (
@@ -56,7 +60,7 @@ export function Tab({ rect, shown }: { rect: Rect; shown: boolean }): ReactNode 
         >
           <motion.span
             className="absolute rounded-full"
-            style={{ right: TAB.edge, top: (rect.h - TAB.h) / 2, width: TAB.w, height: TAB.h, background: fill.track }}
+            style={{ right: TAB.edge, top: (rect.h - TAB.h) / 2, width: TAB.w, height: TAB.h, background: glass.track }}
             animate={{ scaleX: hover ? 1.5 : 1, scaleY: hover ? 1.15 : 1 }}
             transition={spring}
           />
@@ -72,12 +76,27 @@ export function Tab({ rect, shown }: { rect: Rect; shown: boolean }): ReactNode 
 
 export function Panel({ rect }: { rect: Rect }): ReactNode {
   const lesson = useLesson((s) => s.lesson)
+  const hasStep = useLesson((s) => !!s.stepId)
+  const progress = useProgress()
   const scroller = useRef<HTMLDivElement>(null)
+  const box = useRef<HTMLDivElement>(null)
   const by = builtByLabel(lesson?.builtBy)
   const sources = lesson?.sources ?? []
   const away = rect.w + 24
+  // The panel hugs its content (up to rect.h, then the list scrolls). Report the real height so the
+  // spotlight check covers only what's on screen. offsetHeight ignores the slide's transform.
+  useLayoutEffect(() => {
+    const el = box.current
+    if (!el) return
+    const report = (): void => setPanelHeight(el.offsetHeight)
+    report()
+    const ro = new ResizeObserver(report)
+    ro.observe(el)
+    return () => ro.disconnect()
+  }, [])
   return (
     <motion.div
+      ref={box}
       data-hit
       data-part="drawer"
       className="absolute flex flex-col overflow-hidden border"
@@ -85,13 +104,14 @@ export function Panel({ rect }: { rect: Rect }): ReactNode {
         left: rect.x,
         top: rect.y,
         width: rect.w,
-        height: rect.h,
+        maxHeight: rect.h,
         borderRadius: radius.card,
-        background: color.glass,
-        borderColor: color.hairline,
-        boxShadow: shadow,
-        backdropFilter: 'blur(30px) saturate(1.4)',
-        color: color.text
+        background: glass.bg,
+        borderColor: glass.hairline,
+        // No blur (a window can't blur the windows under it), so at .9 alpha the player's video and text show
+        // through. An inset layer of the same glass under the content makes it ~99% opaque, tokens only.
+        boxShadow: `${glass.shadow}, inset 0 0 0 ${rect.w}px ${glass.bg}`,
+        color: glass.text
       }}
       initial={{ x: away, opacity: 0 }}
       animate={{ x: 0, opacity: 1 }}
@@ -102,7 +122,7 @@ export function Panel({ rect }: { rect: Rect }): ReactNode {
         <div className="min-w-0 flex-1">
           <div className="line-clamp-2 text-[15px] font-semibold leading-[20px]">{lesson?.title ?? ''}</div>
           {by && (
-            <div className="mt-[2px] truncate text-[12px] leading-[16px]" style={{ color: color.faint }}>
+            <div className="mt-[2px] truncate text-[12px] leading-[16px]" style={{ color: glass.faint }}>
               {by}
             </div>
           )}
@@ -110,7 +130,7 @@ export function Panel({ rect }: { rect: Rect }): ReactNode {
         <button
           type="button"
           className="mt-[-1px] grid h-[22px] w-[22px] shrink-0 cursor-pointer place-items-center rounded-full"
-          style={{ background: fill.key, color: fill.keyText }}
+          style={{ background: glass.key, color: glass.keyText }}
           onMouseDown={(e) => e.preventDefault()}
           onClick={closeDrawer}
           aria-label="Close"
@@ -118,8 +138,8 @@ export function Panel({ rect }: { rect: Rect }): ReactNode {
           <X size={12} strokeWidth={2.2} />
         </button>
       </div>
-      <div ref={scroller} className="relative min-h-0 flex-1 overflow-y-auto px-[8px] pb-[12px]" style={{ scrollbarWidth: 'thin', scrollbarColor: `${fill.track} transparent` }}>
-        <Label>Steps</Label>
+      <div ref={scroller} className="relative min-h-0 flex-initial overflow-y-auto px-[8px] pb-[12px]" style={{ scrollbarWidth: 'thin', scrollbarColor: `${glass.track} transparent` }}>
+        <Label>{progress.total > 0 && hasStep ? `Step ${progress.index + 1} of ${progress.total}` : 'Steps'}</Label>
         <Steps scroller={scroller} />
         {sources.length > 0 && (
           <>
@@ -136,7 +156,7 @@ export function Panel({ rect }: { rect: Rect }): ReactNode {
 
 function Label({ children }: { children: ReactNode }): ReactNode {
   return (
-    <div className="px-[10px] pb-[4px] pt-[14px] text-[12px] font-semibold leading-[16px]" style={{ color: color.label }}>
+    <div className="px-[10px] pb-[4px] pt-[14px] text-[12px] font-semibold leading-[16px]" style={{ color: glass.label }}>
       {children}
     </div>
   )
@@ -147,8 +167,17 @@ function Label({ children }: { children: ReactNode }): ReactNode {
 // ---------------------------------------------------------------------------
 
 function Steps({ scroller }: { scroller: RefObject<HTMLDivElement | null> }): ReactNode {
-  const { steps, stepId, passed, checks, complete, parts, pendingNext } = useLesson(
-    useShallow((s) => ({ steps: s.steps, stepId: s.stepId, passed: s.passed, checks: s.checks, complete: s.complete, parts: s.parts, pendingNext: s.pendingNext }))
+  const { steps, stepId, passed, checks, complete, parts, pendingNext, instructions } = useLesson(
+    useShallow((s) => ({
+      steps: s.steps,
+      stepId: s.stepId,
+      passed: s.passed,
+      checks: s.checks,
+      complete: s.complete,
+      parts: s.parts,
+      pendingNext: s.pendingNext,
+      instructions: s.instructions.trim()
+    }))
   )
   // Ids on screen when the drawer opened: those rows never animate in. Anything appended later does.
   const atOpen = useRef<Set<string> | null>(null)
@@ -165,7 +194,17 @@ function Steps({ scroller }: { scroller: RefObject<HTMLDivElement | null> }): Re
       {steps.map((s, i) => {
         const status: StepStatus = passed.includes(s.id) || (cur >= 0 && i < cur) ? 'done' : s.id === stepId ? 'current' : 'locked'
         const k = fresh.indexOf(s.id)
-        return <StepRow key={s.id} step={s} status={status} timeW={timeW} checks={status === 'current' ? checks : undefined} enterDelay={k < 0 ? undefined : k * 0.04} />
+        return (
+          <StepRow
+            key={s.id}
+            step={s}
+            status={status}
+            timeW={timeW}
+            checks={status === 'current' ? checks : undefined}
+            instructions={status === 'current' ? instructions : undefined}
+            enterDelay={k < 0 ? undefined : k * 0.04}
+          />
+        )
       })}
       <AnimatePresence>{(!complete || pendingNext) && <PendingRow key="pending" waiting={pendingNext} part={part} timeW={timeW} />}</AnimatePresence>
     </div>
@@ -209,19 +248,34 @@ function useMounted(): boolean {
   return mounted.current
 }
 
-function StepRow({ step, status, timeW, checks, enterDelay }: { step: StepSummary; status: StepStatus; timeW: number; checks?: CheckItem[]; enterDelay?: number }): ReactNode {
+function StepRow({
+  step,
+  status,
+  timeW,
+  checks,
+  instructions,
+  enterDelay
+}: {
+  step: StepSummary
+  status: StepStatus
+  timeW: number
+  checks?: CheckItem[]
+  /** The current step's "what to do now" (Michael: a "Just teach me" lesson has no chapter list to read). */
+  instructions?: string
+  enterDelay?: number
+}): ReactNode {
   const mounted = useMounted()
   const v = step.video
   const current = status === 'current'
   const canSeek = status !== 'locked' && !!v
-  const tone = current ? color.text : status === 'done' ? color.label : color.faint
+  const tone = current ? glass.text : status === 'done' ? glass.label : glass.faint
   const indent = ROW.padX + ROW.icon + ROW.gap + (timeW ? timeW + ROW.gap : 0)
   return (
     <motion.div
       data-step={step.id}
       data-status={status}
       className="rounded-[12px]"
-      style={{ background: current ? fill.highlight : fill.clear }}
+      style={{ background: current ? glass.fieldHover : 'transparent' }}
       initial={enterDelay === undefined ? false : { opacity: 0, y: 6 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ ...spring, delay: enterDelay ?? 0, opacity: { duration: 0.25, delay: enterDelay ?? 0 } }}
@@ -247,13 +301,23 @@ function StepRow({ step, status, timeW, checks, enterDelay }: { step: StepSummar
         </span>
         {timeW > 0 && (
           <span className="shrink-0 text-[12.5px] tabular-nums" style={{ width: timeW, color: tone }}>
-            {v ? stamp(v.start) : ''}
+            {v ? clock(v.start) : ''}
           </span>
         )}
         <span className={`min-w-0 flex-1 truncate text-[14px] ${current ? 'font-semibold' : ''}`} style={{ color: tone }}>
           {step.title}
         </span>
       </button>
+      {instructions && (
+        <div
+          data-part="drawer-instructions"
+          className="line-clamp-3 pb-[10px] text-[13px] leading-[18px]"
+          style={{ paddingLeft: indent, paddingRight: ROW.padX, marginTop: -4, color: glass.label }}
+          title={instructions}
+        >
+          {instructions}
+        </div>
+      )}
       {checks && checks.length > 0 && (
         <motion.div
           data-part="drawer-checks"
@@ -263,30 +327,97 @@ function StepRow({ step, status, timeW, checks, enterDelay }: { step: StepSummar
           animate={{ opacity: 1 }}
           transition={{ duration: 0.2 }}
         >
-          <CheckList checks={checks} />
+          <GlassCheckList checks={checks} />
         </motion.div>
       )}
     </motion.div>
   )
 }
 
-/** done = white check · current = white ring with a dot · locked = the empty ring. Green stays for checks only. */
+/** done = the passed tick (glass.pass) · current = a ring with a dot in the text color · locked = an empty faint ring. */
 function StepIcon({ status }: { status: StepStatus }): ReactNode {
-  if (status === 'done')
-    return (
-      <svg width="18" height="18" viewBox="0 0 18 18" className="shrink-0">
-        <circle cx="9" cy="9" r="9" fill={color.text} />
-        <path d="M5.2 9.3 L7.8 11.8 L12.9 6.4" fill="none" stroke={brand.ink} strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" />
-      </svg>
-    )
+  if (status === 'done') return <Tick />
   if (status === 'current')
     return (
       <svg width="18" height="18" viewBox="0 0 18 18" className="shrink-0">
-        <circle cx="9" cy="9" r="8.2" fill="none" stroke={color.text} strokeWidth="1.6" />
-        <circle cx="9" cy="9" r="3.4" fill={color.text} />
+        <circle cx="9" cy="9" r="8.2" fill="none" strokeWidth="1.6" style={{ stroke: glass.text }} />
+        <circle cx="9" cy="9" r="3.4" style={{ fill: glass.text }} />
       </svg>
     )
-  return <CheckIcon status="pending" active={false} />
+  return <Ring />
+}
+
+/**
+ * The passed tick on glass: a glass.pass disc with the check knocked out in glass.buttonText (ink on dark,
+ * paper on light: the contrast color against a strong fill). `draw` animates it like core CheckIcon.
+ */
+function Tick({ draw = false }: { draw?: boolean }): ReactNode {
+  return (
+    <motion.svg width="18" height="18" viewBox="0 0 18 18" className="shrink-0" initial={draw ? { scale: 0.6 } : false} animate={{ scale: 1 }} transition={spring}>
+      <circle cx="9" cy="9" r="9" style={{ fill: glass.pass }} />
+      <motion.path
+        d="M5.2 9.3 L7.8 11.8 L12.9 6.4"
+        fill="none"
+        strokeWidth="1.9"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        style={{ stroke: glass.buttonText }}
+        initial={draw ? { pathLength: 0 } : false}
+        animate={{ pathLength: 1 }}
+        transition={{ duration: 0.25, ease: 'easeOut', delay: 0.05 }}
+      />
+    </motion.svg>
+  )
+}
+
+function Ring(): ReactNode {
+  return (
+    <svg width="18" height="18" viewBox="0 0 18 18" className="shrink-0">
+      <circle cx="9" cy="9" r="8.2" fill="none" strokeWidth="1.4" style={{ stroke: glass.faint }} />
+    </svg>
+  )
+}
+
+/**
+ * core CheckList on glass tokens (core's is drawn for the black island: white text, white rings). Same layout:
+ * the first pending check spins, a pass draws the tick, a fail is the off-track ring. Local until core takes a
+ * surface option (Core request 5).
+ */
+function GlassCheckList({ checks }: { checks: CheckItem[] }): ReactNode {
+  const activeId = checks.find((c) => c.status === 'pending')?.id
+  return (
+    <div className="flex flex-col gap-[11px]">
+      {checks.map((c) => {
+        const active = c.id === activeId
+        const tone = c.status === 'pass' ? glass.label : c.status === 'fail' || active ? glass.text : glass.faint
+        return (
+          <div key={c.id} data-check={c.id} data-check-status={c.status} className="flex items-center gap-3 text-[14px] leading-[18px]">
+            {c.status === 'pass' ? (
+              <Tick draw />
+            ) : c.status === 'fail' ? (
+              <svg width="18" height="18" viewBox="0 0 18 18" className="shrink-0">
+                <circle cx="9" cy="9" r="8.2" fill="none" strokeWidth="1.6" style={{ stroke: glass.offTrack }} />
+                <path d="M9 5 V10" strokeWidth="1.7" strokeLinecap="round" style={{ stroke: glass.offTrack }} />
+                <circle cx="9" cy="12.8" r="1" style={{ fill: glass.offTrack }} />
+              </svg>
+            ) : active ? (
+              <Spinner c={glass.text} track={glass.track} />
+            ) : (
+              <Ring />
+            )}
+            <span className="flex-1 truncate" style={{ color: tone, transition: 'color 200ms ease-out' }}>
+              {c.label}
+            </span>
+            {c.detail && (
+              <span className="shrink-0 text-[12px] tabular-nums" style={{ color: c.status === 'fail' ? glass.offTrack : glass.faint }}>
+                {c.detail}
+              </span>
+            )}
+          </div>
+        )
+      })}
+    </div>
+  )
 }
 
 /** "More steps coming" (Part 2 of 5) while the video builds; "Next part is still building" when the learner is waiting on it. */
@@ -304,19 +435,19 @@ function PendingRow({ waiting, part, timeW }: { waiting: boolean; part?: string;
     >
       <span className="grid shrink-0 place-items-center" style={{ width: ROW.icon, height: ROW.icon }}>
         {waiting ? (
-          <Spinner size={16} c={color.label} />
+          <Spinner size={16} c={glass.label} track={glass.track} />
         ) : (
           <svg width="18" height="18" viewBox="0 0 18 18" className="shrink-0">
-            <circle cx="9" cy="9" r="8.2" fill="none" stroke={fill.ring} strokeWidth="1.4" strokeDasharray="2.2 3.2" />
+            <circle cx="9" cy="9" r="8.2" fill="none" style={{ stroke: glass.faint }} strokeWidth="1.4" strokeDasharray="2.2 3.2" />
           </svg>
         )}
       </span>
       {timeW > 0 && <span className="shrink-0" style={{ width: timeW }} />}
-      <span className="min-w-0 flex-1 truncate text-[13px]" style={{ color: waiting ? color.label : color.faint }}>
+      <span className="min-w-0 flex-1 truncate text-[13px]" style={{ color: waiting ? glass.label : glass.faint }}>
         {waiting ? 'Next part is still building' : 'More steps coming'}
       </span>
       {part && (
-        <span className="shrink-0 text-[12px] tabular-nums" style={{ color: color.faint }}>
+        <span className="shrink-0 text-[12px] tabular-nums" style={{ color: glass.faint }}>
           {part}
         </span>
       )}
@@ -344,48 +475,35 @@ function SourceRow({ source }: { source: Source }): ReactNode {
     >
       <KindTile source={source} />
       <span className="min-w-0 flex-1">
-        <span className="block truncate text-[13px] font-medium leading-[17px]" style={{ color: color.text }}>
+        <span className="block truncate text-[13px] font-medium leading-[17px]" style={{ color: glass.text }}>
           {source.title}
         </span>
         {source.meta && (
-          <span className="block truncate text-[12px] leading-[16px]" style={{ color: color.faint }}>
+          <span className="block truncate text-[12px] leading-[16px]" style={{ color: glass.faint }}>
             {source.meta}
           </span>
         )}
       </span>
-      {link && <ArrowUpRight size={13} strokeWidth={1.8} className="shrink-0 opacity-0 transition-opacity group-hover:opacity-100" style={{ color: color.label }} />}
+      {link && <ArrowUpRight size={13} strokeWidth={1.8} className="shrink-0 opacity-0 transition-opacity group-hover:opacity-100" style={{ color: glass.label }} />}
     </button>
   )
 }
 
 /** 44×28: the video's thumbnail, or a 16% wash of the kind's pastel with the pastel glyph (theme.kindTone). */
 function KindTile({ source }: { source: Source }): ReactNode {
+  const light = useAppearance() === 'light'
   if (source.kind === 'video') {
     const id = source.videoId ?? parseYouTube(source.url)?.videoId
     return <Thumb w={44} h={28} src={id ? thumbnailFor(id) : undefined} />
   }
   const I = KIND_ICON[source.kind]
   const tone = kindTone[source.kind]
+  // Dark: the 16% wash with the pastel glyph. Light: a pastel glyph on paper all but disappears, so the tile
+  // is the pastel itself with an ink glyph (the shortcut bar's option tiles).
+  const style = light ? { background: tone, color: color.onAccent } : { background: alpha(tone, 0.16), color: tone }
   return (
-    <span className="grid h-[28px] w-[44px] shrink-0 place-items-center rounded-[7px]" style={{ background: alpha(tone, 0.16), color: tone }}>
+    <span className="grid h-[28px] w-[44px] shrink-0 place-items-center rounded-[7px]" style={style}>
       <I size={14} strokeWidth={1.6} />
     </span>
   )
-}
-
-// ---------------------------------------------------------------------------
-
-/** A #RRGGBB token at an alpha (the kind tiles' 16% wash). */
-function alpha(hex: string, a: number): string {
-  const n = parseInt(hex.slice(1, 7), 16)
-  return `rgba(${(n >> 16) & 255},${(n >> 8) & 255},${n & 255},${a})`
-}
-
-/** 4:05 · 1:56:30. core `clock()` has no hours, and long videos need them (see Core requests). */
-function stamp(t: number): string {
-  const s = Math.max(0, Math.round(t))
-  const h = Math.floor(s / 3600)
-  const m = Math.floor((s % 3600) / 60)
-  const ss = String(s % 60).padStart(2, '0')
-  return h ? `${h}:${String(m).padStart(2, '0')}:${ss}` : `${m}:${ss}`
 }

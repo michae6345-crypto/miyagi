@@ -8,17 +8,19 @@
 import { AnimatePresence, motion } from 'motion/react'
 import { useEffect, useRef, type CSSProperties, type ReactNode } from 'react'
 import { useShallow } from 'zustand/react/shallow'
-import { Check, Lock, PanelRight, Pause, Play, RotateCcw, SkipBack, SkipForward, Square, VolumeX, type LucideIcon } from 'lucide-react'
+import { Check, Lock, PanelRight, Pause, Play, RotateCcw, SkipBack, SkipForward, Square, VolumeX } from 'lucide-react'
 import type { StepSummary, VideoSegment } from '../../../../../../shared/contracts/events'
 import type { Layout } from '../../../../preload/api'
 import { cmd } from '../../../../common/wire'
 import { bridge, isElectron } from '../../bridge'
 import { useLesson, useProgress, useStatus, useThinking } from '../../core/lesson'
+import { useAppearance } from '../../core/prefs'
 import { sendAction, usePressed } from '../../core/shortcuts'
-import { clock, color, copy, fill, radius, shadow, spring } from '../../core/theme'
-import { CheckIcon, PrimaryButton, Spinner, StatusDot } from '../../core/ui/atoms'
+import { clock, color, copy, glass, radius, spring } from '../../core/theme'
+import { Spinner } from '../../core/ui/atoms'
 import { MiyagiMark } from '../../core/ui/Mark'
 import { dockRect } from './dock'
+import { GlassCheck, GlassDot, GlassPrimary, GlassQuiet, GlassSpinner } from './glass'
 import { attachPlayer, clipStart, inGate, player, usePlayer } from './store'
 
 /** Frameless window: the header drags it; buttons inside opt out. */
@@ -31,25 +33,6 @@ const endLesson = (): void => bridge.send(cmd('end_lesson', {}))
 const checkStep = (): void => sendAction('check_step')
 /** Leave this step unfinished and start the next one (never shown green). */
 const skipStep = (): void => sendAction('skip_step')
-
-/** A neutral pill (chrome, not an option or the primary): Replay / Skip next to the one white primary. */
-function QuietButton({ label, icon: I, onClick, busy }: { label: string; icon: LucideIcon; onClick: () => void; busy?: boolean }): ReactNode {
-  return (
-    <motion.button
-      type="button"
-      className="flex h-[30px] shrink-0 cursor-pointer items-center gap-[7px] whitespace-nowrap rounded-full px-[13px] text-[13px] font-medium"
-      style={{ background: fill.chipHover, color: color.text }}
-      whileHover={{ filter: 'brightness(1.15)' }}
-      whileTap={{ scale: 0.97 }}
-      transition={{ duration: 0.12 }}
-      onMouseDown={(e) => e.preventDefault()}
-      onClick={onClick}
-    >
-      {busy ? <Spinner size={13} c={color.text} /> : <I size={13} strokeWidth={1.8} className="shrink-0" />}
-      {label}
-    </motion.button>
-  )
-}
 
 /** The open step's clip (undefined once the step has passed). */
 function useOpenSegment(): VideoSegment | undefined {
@@ -64,10 +47,12 @@ export function PlayerPanel({ framed = false }: { framed?: boolean }): ReactNode
   const hover = (on: boolean) => () => isElectron && bridge.invoke('player:hover', on).catch(() => {})
   return (
     <div
-      className="flex h-full w-full flex-col overflow-hidden text-white"
+      className="flex h-full w-full flex-col overflow-hidden"
       style={{
-        background: color.glass,
-        ...(framed ? { borderRadius: radius.card, boxShadow: shadow, border: `1px solid ${color.hairline}`, backdropFilter: 'blur(30px) saturate(1.5)' } : {})
+        // A glass panel: follows Settings → Appearance (theme.glass flips on <html data-appearance>).
+        background: glass.bg,
+        color: glass.text,
+        ...(framed ? { borderRadius: radius.card, boxShadow: glass.shadow, border: `1px solid ${glass.hairline}`, backdropFilter: 'blur(30px) saturate(1.5)' } : {})
       }}
       onPointerEnter={hover(true)}
       onPointerLeave={hover(false)}
@@ -86,7 +71,7 @@ export function PlayerPanel({ framed = false }: { framed?: boolean }): ReactNode
           <Chapters />
         </>
       ) : (
-        <div className="grid flex-1 place-items-center px-8 text-center text-[13px]" style={{ color: color.faint }}>
+        <div className="grid flex-1 place-items-center px-8 text-center text-[13px]" style={{ color: glass.faint }}>
           The tutorial plays here once a lesson starts.
         </div>
       )}
@@ -99,23 +84,24 @@ function Header(): ReactNode {
   const hasStep = useLesson((s) => !!s.stepId)
   const { index, total } = useProgress()
   const status = useStatus()
+  const appearance = useAppearance()
   return (
     <div className="flex h-[44px] shrink-0 items-center gap-[9px] px-[16px]" style={drag}>
-      {/* Like the notch pill: the bonsai on the left, the status dot on the right. */}
-      <MiyagiMark size={14} />
-      <span className="truncate text-[13px] font-semibold" style={{ color: color.text }}>
+      {/* Like the notch pill: the bonsai on the left, the status dot on the right. On light, the dark-trunk cut. */}
+      <MiyagiMark size={14} tone={appearance === 'light' ? 'light' : 'dark'} />
+      <span className="truncate text-[13px] font-semibold" style={{ color: glass.text }}>
         {title ?? 'Lesson'}
       </span>
       <span className="flex-1" />
       {hasStep && (
-        <span className="shrink-0 text-[12px] tabular-nums" style={{ color: color.faint }}>
+        <span className="shrink-0 text-[12px] tabular-nums" style={{ color: glass.faint }}>
           Step {index + 1} of {total}
         </span>
       )}
-      <StatusDot status={status} />
+      <GlassDot status={status} />
       {hasStep && (
         <button
-          className="flex h-[24px] shrink-0 cursor-pointer items-center gap-[5px] rounded-[7px] px-[8px] text-[12px] font-medium text-white/60 hover:bg-white/10 hover:text-white"
+          className="flex h-[24px] shrink-0 cursor-pointer items-center gap-[5px] rounded-[7px] px-[8px] text-[12px] font-medium text-[var(--glass-label)] hover:bg-[var(--glass-field-hover)] hover:text-[var(--glass-text)]"
           style={noDrag}
           onClick={endLesson}
           title="End this lesson"
@@ -126,7 +112,7 @@ function Header(): ReactNode {
       )}
       {isElectron && (
         <button
-          className="grid h-[24px] w-[24px] cursor-pointer place-items-center rounded-[7px] text-white/55 hover:bg-white/10 hover:text-white"
+          className="grid h-[24px] w-[24px] cursor-pointer place-items-center rounded-[7px] text-[var(--glass-label)] hover:bg-[var(--glass-field-hover)] hover:text-[var(--glass-text)]"
           style={noDrag}
           onClick={() => bridge.invoke('player:dock').catch(() => {})}
           title="Dock to the right"
@@ -194,6 +180,19 @@ function Video(): ReactNode {
 }
 
 const fade = { initial: { opacity: 0 }, animate: { opacity: 1 }, exit: { opacity: 0 }, transition: { duration: 0.28 } }
+
+/**
+ * The waiting / building / passed states sit on the video as frosted glass in the panel's appearance
+ * (dark: smoked, light: milky), so they read as part of the panel. Blur + the panel color at 80%.
+ */
+function GlassScrim({ children, strength = 0.8 }: { children: ReactNode; strength?: number }): ReactNode {
+  return (
+    <motion.div className="pointer-events-none absolute inset-0 grid place-items-center backdrop-blur-[10px]" style={{ color: glass.text }} {...fade}>
+      <div className="absolute inset-0" style={{ background: glass.bg, opacity: strength }} />
+      <div className="relative">{children}</div>
+    </motion.div>
+  )
+}
 const rise = { initial: { opacity: 0, y: 6 }, animate: { opacity: 1, y: 0 }, transition: { ...spring, delay: 0.06 } }
 
 /** Calm "your turn" state: the clip is over, the step's checks decide when it continues. */
@@ -205,10 +204,10 @@ function Waiting(): ReactNode {
   const checking = thinking && pressed === 'check_step'
   const skipping = thinking && pressed === 'skip_step'
   const done = checks.filter((c) => c.status === 'pass').length
-  // Amber only for off track; otherwise Miyagi is watching (gray).
-  const tone = offtrack ? color.amber : color.gray
+  // Apricot only for off track; otherwise Miyagi is watching (gray).
+  const tone = offtrack ? glass.offTrack : color.gray
   return (
-    <motion.div className="pointer-events-none absolute inset-0 grid place-items-center bg-black/55 backdrop-blur-[10px]" {...fade}>
+    <GlassScrim>
       <motion.div className="flex flex-col items-center px-6 text-center" {...rise}>
         {/* One line, the status dot beside it (amber off track, gray watching). No eyebrow. */}
         <div className="flex items-center gap-[8px] text-[19px] font-semibold leading-tight">
@@ -216,14 +215,14 @@ function Waiting(): ReactNode {
           Waiting for your checks
         </div>
         {checks.length > 0 && (
-          <div className="mt-[10px] flex items-center gap-[8px] text-[13px]" style={{ color: color.label }}>
+          <div className="mt-[10px] flex items-center gap-[8px] text-[13px]" style={{ color: glass.label }}>
             <span className="flex gap-[4px]">
               {checks.map((c) => (
                 <motion.span
                   key={c.id}
                   className="h-[7px] w-[7px] rounded-full"
                   initial={false}
-                  animate={{ background: c.status === 'pass' ? color.green : c.status === 'fail' ? color.amber : color.faint }}
+                  animate={{ background: c.status === 'pass' ? glass.pass : c.status === 'fail' ? glass.offTrack : glass.faint }}
                   transition={{ duration: 0.25 }}
                 />
               ))}
@@ -232,12 +231,12 @@ function Waiting(): ReactNode {
           </div>
         )}
         <div className="pointer-events-auto mt-[16px] flex flex-wrap items-center justify-center gap-[8px]">
-          <PrimaryButton label={checking ? 'Checking…' : 'Check my work'} icon={Check} onClick={checkStep} disabled={checking} />
-          <QuietButton label="Replay" icon={RotateCcw} onClick={() => player.replayStep()} />
-          <QuietButton label="Skip step" icon={SkipForward} onClick={skipStep} busy={skipping} />
+          <GlassPrimary label={checking ? 'Checking…' : 'Check my work'} icon={Check} onClick={checkStep} disabled={checking} />
+          <GlassQuiet label="Replay" icon={RotateCcw} onClick={() => player.replayStep()} />
+          <GlassQuiet label="Skip step" icon={SkipForward} onClick={skipStep} busy={skipping} />
         </div>
       </motion.div>
-    </motion.div>
+    </GlassScrim>
   )
 }
 
@@ -245,39 +244,37 @@ function Waiting(): ReactNode {
 function BuildingNext(): ReactNode {
   const parts = useLesson((s) => s.parts)
   return (
-    <motion.div className="pointer-events-none absolute inset-0 grid place-items-center bg-black/55 backdrop-blur-[10px]" {...fade}>
+    <GlassScrim>
       <motion.div className="flex flex-col items-center px-6 text-center" {...rise}>
         <div className="flex items-center gap-[9px] text-[17px] font-semibold leading-tight">
-          <Spinner size={16} c={color.gray} />
+          <GlassSpinner size={16} />
           Next part is still building
         </div>
         {parts && parts.total > 0 && (
-          <div className="mt-[8px] text-[13px] tabular-nums" style={{ color: color.label }}>
+          <div className="mt-[8px] text-[13px] tabular-nums" style={{ color: glass.label }}>
             {parts.done} of {parts.total} parts ready
           </div>
         )}
       </motion.div>
-    </motion.div>
+    </GlassScrim>
   )
 }
 
 function Passed(): ReactNode {
   return (
-    <motion.div className="pointer-events-none absolute inset-0 grid place-items-center bg-black/45 backdrop-blur-[10px]" {...fade}>
+    <GlassScrim strength={0.7}>
       <motion.div className="flex flex-col items-center" {...rise}>
-        <div style={{ transform: 'scale(2.1)' }}>
-          <CheckIcon status="pass" active={false} />
-        </div>
-        <div className="mt-[16px] text-[15px] font-semibold">{copy.passed}</div>
+        <GlassCheck size={38} />
+        <div className="mt-[14px] text-[15px] font-semibold">{copy.passed}</div>
       </motion.div>
-    </motion.div>
+    </GlassScrim>
   )
 }
 
 function PausedGlyph(): ReactNode {
   return (
     <motion.div className="pointer-events-none absolute inset-0 grid place-items-center bg-black/30" {...fade}>
-      <div className="grid h-[54px] w-[54px] place-items-center rounded-full bg-black/55">
+      <div className="grid h-[54px] w-[54px] place-items-center rounded-full bg-black/55 text-white">
         <Play size={22} fill="currentColor" strokeWidth={0} className="ml-[3px]" />
       </div>
     </motion.div>
@@ -312,7 +309,7 @@ function ErrorState({ message }: { message: string }): ReactNode {
 function IconButton({ children, onClick, label, disabled }: { children: ReactNode; onClick: () => void; label: string; disabled?: boolean }): ReactNode {
   return (
     <motion.button
-      className="grid h-[30px] w-[30px] cursor-pointer place-items-center rounded-[9px] text-white/85 hover:bg-white/10 disabled:cursor-default disabled:text-white/35 disabled:hover:bg-transparent"
+      className="grid h-[30px] w-[30px] cursor-pointer place-items-center rounded-[9px] text-[var(--glass-text)] hover:bg-[var(--glass-field-hover)] disabled:cursor-default disabled:text-[var(--glass-faint)] disabled:hover:bg-transparent"
       whileTap={disabled ? undefined : { scale: 0.94 }}
       transition={{ duration: 0.09 }}
       onClick={onClick}
@@ -344,14 +341,13 @@ function Controls(): ReactNode {
           <SkipForward size={15} strokeWidth={1.8} />
         </IconButton>
       )}
-      <span className="ml-[6px] text-[13px] tabular-nums text-white/70">
-        {clock(p.t)} <span style={{ color: color.faint }}>/ {p.duration ? clock(p.duration) : '–:––'}</span>
+      <span className="ml-[6px] text-[13px] tabular-nums" style={{ color: glass.label }}>
+        {clock(p.t)} <span style={{ color: glass.faint }}>/ {p.duration ? clock(p.duration) : '–:––'}</span>
       </span>
       <span className="flex-1" />
       {seg ? (
         <button
-          className="flex h-[24px] cursor-pointer items-center gap-[5px] rounded-[7px] px-[6px] text-[12px] tabular-nums hover:bg-white/10 hover:text-white"
-          style={{ color: color.faint }}
+          className="flex h-[24px] cursor-pointer items-center gap-[5px] rounded-[7px] px-[6px] text-[12px] tabular-nums text-[var(--glass-faint)] hover:bg-[var(--glass-field-hover)] hover:text-[var(--glass-text)]"
           onClick={checkStep}
           title="The video holds here until the step's checks pass. Click to check now."
         >
@@ -359,7 +355,7 @@ function Controls(): ReactNode {
         </button>
       ) : (
         pendingNext && (
-          <span className="text-[12px]" style={{ color: color.faint }}>
+          <span className="text-[12px]" style={{ color: glass.faint }}>
             Next part building
           </span>
         )
@@ -385,7 +381,7 @@ function Timeline(): ReactNode {
         player.scrub(((e.clientX - r.left) / r.width) * span)
       }}
     >
-      <div className="absolute inset-x-0 top-[6px] h-[4px] rounded-full bg-white/[.07]" />
+      <div className="absolute inset-x-0 top-[6px] h-[4px] rounded-full" style={{ background: glass.field }} />
       {steps.map((s, i) => {
         if (!s.video) return null
         const locked = cur >= 0 ? i > cur && !passed.includes(s.id) : true
@@ -394,21 +390,21 @@ function Timeline(): ReactNode {
         return (
           <div
             key={s.id}
-            className={`absolute top-[6px] h-[4px] overflow-hidden rounded-full ${locked ? 'bg-white/10' : 'bg-white/25'}`}
-            style={{ left: `calc(${pct(start)} + 1px)`, width: `calc(${pct(s.video.end - start)} - 2px)` }}
+            className="absolute top-[6px] h-[4px] overflow-hidden rounded-full"
+            style={{ left: `calc(${pct(start)} + 1px)`, width: `calc(${pct(s.video.end - start)} - 2px)`, background: locked ? glass.rule : glass.track }}
           >
-            <div className="h-full origin-left" style={{ background: color.accent, transform: `scaleX(${played})` }} />
+            <div className="h-full origin-left" style={{ background: glass.button, transform: `scaleX(${played})` }} />
           </div>
         )
       })}
       {seg && (
         <div
-          className="absolute top-[3px] h-[10px] w-[10px] -translate-x-1/2 rounded-full border-2 border-white/70"
-          style={{ left: pct(seg.end), background: color.glass }}
+          className="absolute top-[3px] h-[10px] w-[10px] -translate-x-1/2 rounded-full border-2"
+          style={{ left: pct(seg.end), background: glass.bg, borderColor: glass.label }}
           title={`Holds at ${clock(seg.end)}`}
         />
       )}
-      <div className="absolute top-[3px] h-[10px] w-[10px] -translate-x-1/2 rounded-full" style={{ left: pct(t), background: color.accent }} />
+      <div className="absolute top-[3px] h-[10px] w-[10px] -translate-x-1/2 rounded-full" style={{ left: pct(t), background: glass.button }} />
     </div>
   )
 }
@@ -419,7 +415,7 @@ function SourceLine(): ReactNode {
   return (
     <div className="mt-[10px]">
       <div className="truncate text-[15px] font-semibold">{source?.title ?? title ?? 'Tutorial'}</div>
-      <div className="truncate text-[12px]" style={{ color: color.faint }}>
+      <div className="truncate text-[12px]" style={{ color: glass.faint }}>
         {standIn ? (title ? `${title} · stand-in video` : 'Stand-in video') : (source?.meta ?? '')}
       </div>
     </div>
@@ -458,7 +454,9 @@ function Chapters(): ReactNode {
 
   return (
     <div className="mt-[14px] flex min-h-0 flex-1 flex-col px-[12px] pb-[12px]">
-      <div className="px-[10px] pb-[6px] text-[13px] font-semibold text-white/80">Chapters</div>
+      <div className="px-[10px] pb-[6px] text-[13px] font-semibold" style={{ color: glass.text }}>
+        Chapters
+      </div>
       <div ref={list} className="relative min-h-0 flex-1 overflow-y-auto">
         <AnimatePresence initial={false}>
           {steps.map((s, i) => {
@@ -466,6 +464,7 @@ function Chapters(): ReactNode {
             return (
               <motion.div key={s.id} data-step={s.id} initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} transition={spring}>
                 <Chapter step={s} status={status} now={s.id === stepId} playing={playing} />
+                {s.id === stepId && <NowInstructions />}
               </motion.div>
             )
           })}
@@ -485,16 +484,27 @@ function MoreComing({ parts }: { parts?: { done: number; failed: number; total: 
   return (
     <div className="flex h-[38px] w-full items-center gap-[11px] px-[10px]">
       <span className="grid w-[18px] shrink-0 place-items-center">
-        <Spinner size={13} c={color.gray} />
+        <GlassSpinner size={13} c={glass.faint} />
       </span>
-      <span className="flex-1 truncate text-[14px]" style={{ color: color.faint }}>
+      <span className="flex-1 truncate text-[14px]" style={{ color: glass.faint }}>
         More steps coming
       </span>
       {parts && parts.total > 0 && (
-        <span className="shrink-0 text-[12px] tabular-nums" style={{ color: color.faint }}>
+        <span className="shrink-0 text-[12px] tabular-nums" style={{ color: glass.faint }}>
           {parts.done} of {parts.total} parts
         </span>
       )}
+    </div>
+  )
+}
+
+/** Under the current chapter: what to do right now (the step's instructions), so a title alone never leaves you guessing. */
+function NowInstructions(): ReactNode {
+  const text = useLesson((s) => s.instructions)
+  if (!text) return null
+  return (
+    <div className="px-[10px] pb-[8px] pl-[39px] pt-[2px] text-[13px] leading-[1.45]" style={{ color: glass.label }}>
+      {text}
     </div>
   )
 }
@@ -504,26 +514,28 @@ function Chapter({ step, status, now, playing }: { step: StepSummary; status: Ch
   const v = step.video
   return (
     <button
-      className={`flex h-[38px] w-full items-center gap-[11px] rounded-[10px] px-[10px] text-left ${now ? 'bg-white/[.08]' : locked || !v ? '' : 'hover:bg-white/[.05]'} ${locked || !v ? 'cursor-default' : 'cursor-pointer'}`}
+      className={`flex h-[38px] w-full items-center gap-[11px] rounded-[10px] px-[10px] text-left ${now ? 'bg-[var(--glass-field-hover)]' : locked || !v ? '' : 'hover:bg-[var(--glass-field)]'} ${locked || !v ? 'cursor-default' : 'cursor-pointer'}`}
       disabled={locked || !v}
       onClick={() => v && player.seek(clipStart(v), true)}
       title={locked ? 'Unlocks when you get there' : undefined}
     >
       <span className="grid w-[18px] shrink-0 place-items-center">
         {status === 'done' ? (
-          <CheckIcon status="pass" active={false} />
+          <GlassCheck />
         ) : status === 'skipped' ? (
-          <SkipForward size={13} strokeWidth={1.8} className="text-white/40" />
+          <SkipForward size={13} strokeWidth={1.8} style={{ color: glass.faint }} />
         ) : status === 'current' ? (
           <NowGlyph playing={playing} />
         ) : (
-          <Lock size={13} strokeWidth={1.8} className="text-white/30" />
+          <Lock size={13} strokeWidth={1.8} style={{ color: glass.faint }} />
         )}
       </span>
-      <span className="w-[40px] shrink-0 text-[13px] tabular-nums" style={{ color: locked ? color.faint : now ? color.text : color.label }}>
+      <span className="w-[40px] shrink-0 text-[13px] tabular-nums" style={{ color: locked ? glass.faint : now ? glass.text : glass.label }}>
         {v ? clock(clipStart(v)) : ''}
       </span>
-      <span className={`flex-1 truncate text-[14px] ${now ? 'font-semibold text-white' : locked ? 'text-white/40' : 'text-white/75'}`}>{step.title}</span>
+      <span className={`flex-1 truncate text-[14px] ${now ? 'font-semibold' : ''}`} style={{ color: now ? glass.text : locked ? glass.faint : glass.label }}>
+        {step.title}
+      </span>
     </button>
   )
 }
@@ -536,7 +548,7 @@ function NowGlyph({ playing }: { playing: boolean }): ReactNode {
         <motion.span
           key={i}
           className="w-[3px] origin-bottom rounded-full"
-          style={{ height: 14, background: color.accent }}
+          style={{ height: 14, background: glass.button }}
           animate={playing ? { scaleY: [0.35, 1, 0.5, 0.85, 0.35] } : { scaleY: [0.45, 0.8, 0.6][i] }}
           transition={playing ? { duration: 1.1, repeat: Infinity, delay: i * 0.18, ease: 'easeInOut' } : spring}
         />
@@ -556,7 +568,8 @@ export function PlayerWindow(): ReactNode {
 
 /** Browser stage only: the same panel at the dock rect, under the spotlight/cards like in Electron. */
 export function StagePlayer({ layout }: { layout: Layout }): ReactNode {
-  const hasLesson = useLesson((s) => !!s.lesson)
+  // No player for a "Just teach me" lesson (lesson.mode "lesson": no video at all).
+  const hasLesson = useLesson((s) => !!s.lesson && s.lesson.mode !== 'lesson')
   if (isElectron) return null
   const r = dockRect(layout.workArea)
   return (

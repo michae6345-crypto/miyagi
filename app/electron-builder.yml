@@ -14,5 +14,15 @@ mac:
   extendInfo:
     LSUIElement: true
 win:
-  target: dir
+  target: nsis
   icon: build/icon.ico
+# The Windows download on miyagi.study: one-click, per-user (no admin prompt), starts Miyagi when done.
+# Stable file name so the site can link straight to it. Unsigned: SmartScreen asks once (More info > Run anyway).
+nsis:
+  artifactName: Miyagi-Windows-Setup.${ext}
+  oneClick: true
+  perMachine: false
+  shortcutName: Miyagi
+  createDesktopShortcut: true
+  createStartMenuShortcut: true
+  runAfterFinish: true

@@ -11,7 +11,9 @@ import { defineFeature } from '../../core/registry'
 import { CheckList, Kbd, StatusDot, Thumb } from '../../core/ui/atoms'
 import { clock, color, fill } from '../../core/theme'
 import { Gear } from './Gear'
-import { GoalNote, Instructions, Meta } from './Lines'
+import { GoalNote, Instructions, Meta, StepSnippet } from './Lines'
+import { Stats } from './Stats'
+import './snippet'
 
 function Segments({ total, index, status }: { total: number; index: number; status: Status }): ReactNode {
   const current = status === 'offtrack' ? color.amber : status === 'passed' ? color.green : color.accent
@@ -37,7 +39,7 @@ function Segments({ total, index, status }: { total: number; index: number; stat
 }
 
 function Overview(): ReactNode {
-  const s = useLesson(useShallow((x) => ({ title: x.stepTitle, checks: x.checks, video: x.stepVideo })))
+  const s = useLesson(useShallow((x) => ({ title: x.stepTitle, checks: x.checks, video: x.stepVideo, textLesson: x.lesson?.mode === 'lesson' })))
   const { index, total } = useProgress()
   const status = useStatus()
   const start = s.video ? clock(s.video.start) : undefined
@@ -47,7 +49,8 @@ function Overview(): ReactNode {
   return (
     <div className="px-[22px] pb-[16px] pt-[20px]">
       <div className="flex gap-[16px]">
-        <Thumb w={120} h={68} time={start} />
+        {/* "Just teach me" lessons have no video: no thumbnail, no timestamps. */}
+        {!s.textLesson && <Thumb w={120} h={68} time={start} />}
         <div className="min-w-0 flex-1 pt-[2px]">
           <div className="flex items-center gap-[7px] text-[13px]" style={{ color: color.label }}>
             Step {index + 1} of {total} <StatusDot status={status} />
@@ -58,6 +61,7 @@ function Overview(): ReactNode {
         </div>
       </div>
       <Instructions />
+      <StepSnippet />
       {s.checks.length > 0 && (
         <div className="mt-[18px]">
           <CheckList checks={s.checks} />
@@ -67,6 +71,8 @@ function Overview(): ReactNode {
       <div className="mt-[16px] flex items-center justify-between gap-[8px] border-t pt-[12px] text-[13px]" style={{ borderColor: fill.rule, color: color.faint }}>
         <span className="truncate">{footer}</span>
         <span className="flex shrink-0 items-center gap-[8px]" style={{ color: color.label }}>
+          <Stats />
+          <span className="h-[12px] w-px" style={{ background: fill.rule }} />
           Ask <Kbd>{bridge.platform.keys.launcher}</Kbd>
           <Gear />
         </span>

@@ -11,6 +11,8 @@
 import { app, BrowserWindow, globalShortcut, ipcMain, screen, session, shell, type BrowserWindowConstructorOptions } from 'electron'
 import { join } from 'node:path'
 import { EngineLink } from './engine'
+import { setupPrefs } from './prefs'
+import { serveRenderer } from './serve'
 import type { MainContext, MainFeature } from './context'
 import {
   describePlatform,
@@ -39,6 +41,8 @@ let launcher: BrowserWindow
 let launcherOpen = false
 /** The island's latest size, so the launcher can grow out of its exact shape. */
 let islandSize = { w: 300, h: 34 }
+/** Built app: where main/serve.ts serves the renderer (set before any window is created). */
+let rendererOrigin: string | undefined
 let actionsRegistered = false
 
 /** v1: the engine watches the PRIMARY display only (contract: rects are relative to its full frame), so the overlay lives there. */
@@ -78,7 +82,9 @@ function createWindow(route: string, options: BrowserWindowConstructorOptions): 
     })
     win.webContents.on('render-process-gone', (_e, d) => console.error(`[${route}] renderer gone: ${d.reason}`))
   }
+  // Dev: Vite's server. Built: our own http://127.0.0.1 server (main/serve.ts), never file://, so YouTube embeds work.
   if (process.env.ELECTRON_RENDERER_URL) win.loadURL(`${process.env.ELECTRON_RENDERER_URL}#/${route}`)
+  else if (rendererOrigin) win.loadURL(`${rendererOrigin}/index.html#/${route}`)
   else win.loadFile(join(__dirname, '../renderer/index.html'), { hash: `/${route}` })
   return win
 }
@@ -188,9 +194,16 @@ function youtubeReferer(): void {
   })
 }
 
-app.whenReady().then(() => {
+app.whenReady().then(async () => {
   setupApp(app)
   youtubeReferer()
+  if (!process.env.ELECTRON_RENDERER_URL) {
+    try {
+      rendererOrigin = await serveRenderer(join(__dirname, '../renderer'))
+    } catch (err) {
+      console.error('[tut] could not serve the renderer over http, falling back to file:// (YouTube may refuse embeds)', err)
+    }
+  }
   overlay = createCoreWindow('overlay')
   launcher = createCoreWindow('launcher')
 
@@ -243,6 +256,11 @@ app.whenReady().then(() => {
       case 'launcher:toggle':
         launcherOpen ? closeLauncher() : openLauncher()
         break
+      case 'shortcut':
+        // A shortcut pressed in another window (the launcher's Explain / Hint chips): run it in the overlay, where
+        // the bar, cards and the pressed-button spinner live, exactly like a global key.
+        if (e.sender !== overlay.webContents) send(overlay, 'shortcut', payload)
+        break
       case 'launcher:hidden':
         hideLauncher()
         break
@@ -267,6 +285,8 @@ app.whenReady().then(() => {
       send(w, 'layout', layoutFor(w))
     }
   })
+
+  setupPrefs((channel, payload) => forEachWindow((w) => w.webContents.send(`feat:${channel}`, payload)))
 
   loadFeatures({
     app,

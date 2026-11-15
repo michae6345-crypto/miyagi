@@ -13,6 +13,7 @@ import { create } from 'zustand'
 import { useLesson, useThinking } from '../../core/lesson'
 import { usePressed, type ActionKind } from '../../core/shortcuts'
 import { Spinner } from '../../core/ui/atoms'
+import { GlassSpinner } from '../../core/ui/glass'
 
 /** A press owns a thinking spell that starts at most this long after it (2–5 s model calls; allows one queued call). */
 const OWN_MS = 6000
@@ -34,8 +35,12 @@ export function useBusy(kind: ActionKind): boolean {
   return thinking && pressedAt > 0 && since > 0 && since - pressedAt < OWN_MS
 }
 
-/** The tile's glyph, or the Spinner (same size, `tone` = the glyph's color) while busy. */
-export function Glyph({ kind, tone, size = 19, children }: { kind: ActionKind; tone: string; size?: number; children: ReactNode }): ReactNode {
+/**
+ * The tile's glyph, or a spinner of the same size while busy: `tone` = the glyph's color, `track` = the ring behind
+ * the arc. `glass`: the GlassSpinner (colors via CSS, so theme.glass variables resolve) for neutral / primary tiles;
+ * otherwise the core Spinner (ink on a pastel tile).
+ */
+export function Glyph({ kind, tone, track, glass, size = 19, children }: { kind: ActionKind; tone: string; track?: string; glass?: boolean; size?: number; children: ReactNode }): ReactNode {
   const busy = useBusy(kind)
   return (
     <motion.span
@@ -47,7 +52,7 @@ export function Glyph({ kind, tone, size = 19, children }: { kind: ActionKind; t
       transition={{ duration: 0.12 }}
       {...(busy ? { role: 'status', 'aria-label': 'Working', 'data-busy': '' } : {})}
     >
-      {busy ? <Spinner size={size - 2} c={tone} /> : children}
+      {busy ? glass ? <GlassSpinner size={size - 2} c={tone} track={track} /> : <Spinner size={size - 2} c={tone} track={track} /> : children}
     </motion.span>
   )
 }

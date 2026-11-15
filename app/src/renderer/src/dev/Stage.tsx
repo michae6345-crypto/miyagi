@@ -13,6 +13,7 @@ import desktop from './desktop.png'
 import { bridge, engineMode, STAGE } from '../bridge'
 import { emitUi } from '../core/bus'
 import { useLesson } from '../core/lesson'
+import { brand } from '../core/theme'
 import { getFeatureWindows } from '../core/registry'
 import { triggerShortcut, type ActionShortcut } from '../core/shortcuts'
 import { Overlay } from '../core/Overlay'
@@ -80,7 +81,7 @@ function DevHud(): ReactNode {
   const label = mode === 'inline' ? `inline mock · ${new URLSearchParams(location.search).get('scenario') ?? 'full'}` : mode === 'socket' ? 'engine socket' : 'electron'
   return (
     <div className="fixed bottom-3 left-3 flex max-w-[calc(100vw-24px)] items-center gap-2 rounded-full border border-white/10 bg-black/70 py-1 pl-3 pr-1 text-[12px] text-white/70 backdrop-blur">
-      <span className="h-[7px] w-[7px] shrink-0 rounded-full" style={{ background: connected ? '#30D158' : '#FFB020' }} />
+      <span className="h-[7px] w-[7px] shrink-0 rounded-full" style={{ background: connected ? brand.pass : brand.offTrack }} />
       <span className="shrink-0">{label}</span>
       <span className="truncate text-white/35">{seen ? `· sees ${seen.app}: ${seen.summary}` : '· Ctrl+K launcher · Alt+D diagram · Esc'}</span>
       <button
