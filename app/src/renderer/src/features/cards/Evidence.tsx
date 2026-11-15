@@ -422,6 +422,8 @@ export function Evidence({ o, failing, width, reserveDiff }: { o: Offtrack; fail
   const where = diff && [diff.file, diff.line ? `L${diff.line}` : undefined].filter(Boolean).join(' · ')
   // The yours | expected heads only above the two-column parts (check values, the curve and its end values).
   const pairs = rows.length > 0 || !!spark
+  // Only head an "expected" column that has something in it (a lone "0.49 / —" read as missing data).
+  const expects = rows.some((r) => r.expected != null && r.expected !== '') || !!spark?.tutorial
   return (
     <div data-evidence className="shrink-0 rounded-[14px] font-mono text-[12px] leading-[17px]" style={{ background: fill.field, width, padding: PAD }}>
       <div className="grid grid-cols-2" style={{ columnGap: GAP, rowGap: 2 }}>
@@ -435,7 +437,7 @@ export function Evidence({ o, failing, width, reserveDiff }: { o: Offtrack; fail
         {pairs && (
           <>
             <Head top={!!diff}>yours</Head>
-            <Head top={!!diff}>expected</Head>
+            <Head top={!!diff}>{expects ? 'expected' : ''}</Head>
           </>
         )}
 
@@ -456,7 +458,7 @@ export function Evidence({ o, failing, width, reserveDiff }: { o: Offtrack; fail
             {(spark.yours || spark.tutorial) && (
               <>
                 <Cell>{spark.yours ?? '—'}</Cell>
-                <Cell>{spark.tutorial ?? '—'}</Cell>
+                <Cell>{spark.tutorial ?? (spark.yours ? '' : '—')}</Cell>
               </>
             )}
           </>
