@@ -317,6 +317,32 @@ def _xterm_rows(focused, max_up: int = 6) -> list[str]:
     return []
 
 
+def find_button(pattern, max_nodes: int = 1500) -> Element | None:
+    """First AXButton in the frontmost app's focused window whose title/description/help matches
+    `pattern` (compiled regex), e.g. VS Code's editor-title "Run Python File". Bounded BFS."""
+    front = NSWorkspace.sharedWorkspace().frontmostApplication()
+    if front is None:
+        return None
+    pid = int(front.processIdentifier())
+    app_el = AX.AXUIElementCreateApplication(pid)
+    AX.AXUIElementSetMessagingTimeout(app_el, MESSAGING_TIMEOUT)
+    if str(front.bundleIdentifier() or "") in ELECTRON_EDITORS and not enable_electron_ax(app_el, pid):
+        return None
+    queue, seen = [attr(app_el, "AXFocusedWindow")], 0
+    while queue and seen < max_nodes:
+        el = queue.pop(0)
+        if el is None:
+            continue
+        seen += 1
+        if _s(attr(el, "AXRole")) == "AXButton":
+            for a in ("AXDescription", "AXTitle", "AXHelp"):
+                label = _s(attr(el, a))
+                if label and pattern.search(label):
+                    return element_info(el, str(front.localizedName() or ""))
+        queue.extend(attr(el, "AXChildren") or [])
+    return None
+
+
 def snapshot() -> AXSnapshot | None:
     """One read of the frontmost app + the element under the mouse. ~5-30 ms."""
     t0 = time.perf_counter()

@@ -34,8 +34,14 @@ EDITORS: dict[str, dict] = {
                "bundled_cli": "/Applications/Visual Studio Code.app/Contents/Resources/app/bin/code",
                "cask": "visual-studio-code", "url": "https://code.visualstudio.com/download"},
 }
-PREFERENCE = ["vscode", "cursor"]  # Michael uses VS Code: Cursor only when VS Code is missing
-ENV_NAMES = {"cursor": "cursor", "code": "vscode", "vscode": "vscode", "vs code": "vscode", "visual studio code": "vscode"}
+# Cursor is banned (Michael, Sat 4:15 PM: "permanently ban it from using Cursor"): Miyagi only ever opens, names or
+# offers VS Code. MIYAGI_ALLOW_CURSOR=1 brings Cursor back for someone who wants it.
+ALLOW_CURSOR = os.environ.get("MIYAGI_ALLOW_CURSOR", "").strip() == "1"
+# What macOS calls the running process (NSRunningApplication.localizedName / window owner): VS Code is "Code".
+PROCESS_NAMES = {"vscode": "Code", "cursor": "Cursor"}
+PREFERENCE = ["vscode", "cursor"] if ALLOW_CURSOR else ["vscode"]
+ENV_NAMES = {"code": "vscode", "vscode": "vscode", "vs code": "vscode", "visual studio code": "vscode",
+             **({"cursor": "cursor"} if ALLOW_CURSOR else {})}
 # Kept for older callers (orchestrator fallback).
 VSCODE_APP = EDITORS["vscode"]["app"]
 BUNDLED_CLI = EDITORS["vscode"]["bundled_cli"]
@@ -76,7 +82,8 @@ def installed_editors() -> list[dict]:
         ed = EDITORS[eid]
         app_path, cli = _app_path(ed), _cli(ed)
         if app_path or cli:
-            out.append({"id": eid, "label": ed["label"], "app": ed["app"], "app_path": app_path, "cli": cli})
+            out.append({"id": eid, "label": ed["label"], "app": ed["app"], "app_path": app_path, "cli": cli,
+                        "bundle": ed["bundle"], "process": PROCESS_NAMES.get(eid, ed["app"])})
     return out
 
 
@@ -193,7 +200,7 @@ def make_fullscreen(editor: dict, report: dict, *, ax=None, wait_s: float = 8.0,
     deadline = time.monotonic() + wait_s
     win = None
     while time.monotonic() < deadline:
-        pid = find_pid(editor["app"])
+        pid = editor_pid(editor)
         win = ax.focused_window(pid) if pid else None
         if win is not None:
             break
@@ -223,15 +230,25 @@ def left_frame(fraction: float = EDITOR_FRACTION) -> tuple[float, float, float, 
     return (vf.origin.x, top, round(vf.size.width * fraction), vf.size.height)
 
 
-def find_pid(app_name: str) -> int | None:
+def find_pid(app_name: str, bundle: str | None = None) -> int | None:
+    """pid of a running app: by bundle id (VS Code's process is named "Code", not "Visual Studio Code"),
+    else by name."""
     try:
         import AppKit
     except ImportError:
         return None
+    if bundle:
+        apps = AppKit.NSRunningApplication.runningApplicationsWithBundleIdentifier_(bundle) or []
+        if len(apps):
+            return int(apps[0].processIdentifier())
     for a in AppKit.NSWorkspace.sharedWorkspace().runningApplications():
-        if (a.localizedName() or "") == app_name:
+        if (a.localizedName() or "") in (app_name, PROCESS_NAMES.get("vscode") if app_name == VSCODE_APP else app_name):
             return int(a.processIdentifier())
     return None
+
+
+def editor_pid(editor: dict) -> int | None:
+    return find_pid(editor["app"], editor.get("bundle") or EDITORS.get(editor.get("id", ""), {}).get("bundle"))
 
 
 def arrange(editor: dict, previous: dict | None, report: dict, *, ax=None, wait_s: float = 8.0,
@@ -250,7 +267,7 @@ def arrange(editor: dict, previous: dict | None, report: dict, *, ax=None, wait_
     deadline = time.monotonic() + wait_s
     win = None
     while time.monotonic() < deadline:
-        pid = find_pid(editor["app"])
+        pid = editor_pid(editor)
         win = ax.focused_window(pid) if pid else None
         if win is not None:
             break
@@ -313,9 +330,10 @@ def open_editor_report(path: Path | str, file: str | None = None, *, runner: Run
         f = Path(file).expanduser()
         f = f if f.is_absolute() else folder / f
         target = f if f.is_file() else None
-    prev = previous if previous is not None else frontmost_app(skip={ed["app"]})
+    prev = previous if previous is not None else frontmost_app(skip={ed["app"], ed.get("process") or PROCESS_NAMES.get(ed["id"], "")})
     if ed.get("cli"):
-        argv = [ed["cli"], "-n", str(folder)] + (["-g", str(target)] if target else [])
+        # no `-n`: `code <folder>` focuses the window that already has this folder, and opens one only if none does
+        argv = [ed["cli"], str(folder)] + (["-g", str(target)] if target else [])
         report["command"] = " ".join([Path(argv[0]).name, *argv[1:]])
         report["opened"] = run(argv)
     if not report["opened"] and sys.platform == "darwin":
@@ -374,7 +392,7 @@ def _frontmost_editor_pid() -> tuple[int, str] | None:
     if front is not None and front.bundleIdentifier() in bundles:
         return int(front.processIdentifier()), bundles[front.bundleIdentifier()]
     ed = preferred_editor()
-    pid = find_pid(ed["app"]) if ed else None
+    pid = editor_pid(ed) if ed else None
     return (pid, ed["app"]) if pid else None
 
 
@@ -528,3 +546,148 @@ def _page_start(text: str, document: Path | None, page: int = 500) -> int:
         if lines[i:i + len(head)] == head:
             return i + 1
     return 1
+
+
+# --------------------------------------------------------------------------- open once, never steal focus
+
+MIYAGI_BUNDLES = {"dev.sandhacks.miyagi", "com.github.electron"}
+OPEN_WAIT_S = float(os.environ.get("MIYAGI_OPEN_WAIT_S", "120"))  # how long an auto-open waits for Miyagi to let go
+_open_lock = threading.Lock()
+_opened: dict[tuple[str, str], dict] = {}  # (lesson id, folder) -> {"state": waiting|opening|open, "t", "report"}
+
+
+def _frontmost() -> tuple[str, str] | None:
+    """(bundle id, name) of the active app. No permission needed."""
+    try:
+        import AppKit
+    except ImportError:
+        return None
+    a = AppKit.NSWorkspace.sharedWorkspace().frontmostApplication()
+    return (str(a.bundleIdentifier() or ""), str(a.localizedName() or "")) if a is not None else None
+
+
+def miyagi_focused(front: tuple[str, str] | None = None) -> bool:
+    """Is our overlay (the launcher, a card's text box) the active app? Then any editor activation would blur
+    it, and the launcher closes on blur."""
+    f = front if front is not None else _frontmost()
+    return bool(f) and (f[0] in MIYAGI_BUNDLES or f[1].lower() in OVERLAY_NAMES)
+
+
+def editor_focused(editor: dict, front: tuple[str, str] | None = None) -> bool:
+    f = front if front is not None else _frontmost()
+    return bool(f) and f[0] == (editor.get("bundle") or EDITORS.get(editor.get("id", ""), {}).get("bundle"))
+
+
+def editor_window_up(editor: dict) -> bool:
+    """Does the editor have an on-screen window yet? (window owner pids; no Screen Recording needed)"""
+    pid = editor_pid(editor)
+    if pid is None:
+        return False
+    try:
+        import Quartz
+    except ImportError:
+        return True
+    opts = Quartz.kCGWindowListOptionOnScreenOnly | Quartz.kCGWindowListExcludeDesktopElements
+    return any(int(w.get("kCGWindowOwnerPID", -1)) == pid and w.get("kCGWindowLayer", 1) == 0
+               for w in Quartz.CGWindowListCopyWindowInfo(opts, Quartz.kCGNullWindowID) or [])
+
+
+def reset_open_state() -> None:
+    """Forget which lessons opened the editor (tests; a new engine run starts empty anyway)."""
+    with _open_lock:
+        _opened.clear()
+
+
+def open_state(folder: str | Path, lesson_id: str = "") -> dict | None:
+    return _opened.get((lesson_id or "", str(Path(folder).expanduser().resolve())))
+
+
+def open_lesson_editor(folder: str | Path, file: str | None = None, *, lesson_id: str = "", fullscreen: bool = False,
+                       explicit: bool = False, runner: Runner | None = None, busy: Callable[[], bool] | None = None,
+                       wait_s: float | None = None, background: bool = True, sleep=time.sleep,
+                       focus: Callable[[], tuple[str, str] | None] | None = None, **kw) -> dict:
+    """Open the lesson folder in the editor AT MOST ONCE per (lesson id, folder); idempotent and focus-safe.
+
+    - First call: `code <folder> -g <file>` (never `-n`: VS Code focuses a window that already has the folder),
+      then the one-time arrange / full screen. An automatic call (explicit=False) first waits until the
+      learner isn't in Miyagi (launcher/cards: `miyagi_focused`) and `busy()` (typing) is false; if that takes
+      a while it waits in a background thread (background=True) instead of blocking the caller.
+    - Later calls: nothing, unless explicit=True (the learner pressed "Open VS Code"): then `code <folder>
+      [-g <file>]` brings that folder's existing window forward. Never a second window, never a re-arrange.
+    Returns open_editor_report()'s dict, or {"opened": False, "already": True} / {"deferred": True}."""
+    key = (lesson_id or "", str(Path(folder).expanduser().resolve()))
+    front = focus or _frontmost
+    with _open_lock:
+        st = _opened.get(key)
+        first = st is None
+        if first:
+            st = _opened[key] = {"state": "waiting", "t": time.monotonic()}
+    if not first:
+        if not explicit:
+            return {"opened": False, "already": True, "state": st["state"]}
+        ed = kw.get("editor") or preferred_editor()
+        if not ed or not ed.get("cli"):
+            return {"opened": False, "already": True, "error": "no editor CLI"}
+        target = Path(file) if file and Path(file).is_absolute() else (Path(key[1]) / file if file else None)
+        argv = [ed["cli"], key[1]] + (["-g", str(target)] if target and target.is_file() else [])
+        ok = (runner or _run)(argv)
+        log.info("editor already open for %s: brought forward (%s)", Path(key[1]).name, ok)
+        return {"opened": bool(ok), "already": True, "command": " ".join([Path(argv[0]).name, *argv[1:]])}
+
+    def blocked() -> bool:
+        return miyagi_focused(front()) or bool(busy and busy())
+
+    def go() -> dict:
+        st["state"] = "opening"
+        rep = open_editor_report(key[1], file, runner=runner, fullscreen=fullscreen, **kw)
+        with _open_lock:
+            if rep.get("opened"):
+                st.update(state="open", report=rep)
+            else:
+                _opened.pop(key, None)  # failed: a later call may try again
+        return rep
+
+    if explicit or not blocked():
+        return go()
+    limit = OPEN_WAIT_S if wait_s is None else wait_s
+
+    def wait_then_go() -> dict:
+        t0 = time.monotonic()
+        while blocked():
+            if time.monotonic() - t0 > limit:
+                with _open_lock:
+                    _opened.pop(key, None)
+                log.info("auto-open of %s gave up: the learner stayed in Miyagi for %.0fs", Path(key[1]).name, limit)
+                return {"opened": False, "deferred": True, "gave_up": True}
+            sleep(0.5)
+        return go()
+
+    if not background:
+        return wait_then_go()
+    threading.Thread(target=wait_then_go, daemon=True, name="miyagi-open-editor").start()
+    log.info("auto-open of %s deferred: the learner is in Miyagi / typing", Path(key[1]).name)
+    return {"opened": False, "deferred": True}
+
+
+def jump(path: str | Path, line: int = 1, *, explicit: bool = False, runner: Runner | None = None,
+         focus: Callable[[], tuple[str, str] | None] | None = None, window_up: Callable[[dict], bool] | None = None,
+         opening: Callable[[], bool] | None = None) -> bool:
+    """`code -r -g <file>:<line>`, but only when it can't steal focus or spawn a window:
+    automatic jumps (explicit=False) run only when the editor is ALREADY the active app, its window is up,
+    and no lesson folder is still waiting to open. explicit=True (a learner action: Do it for me) always jumps."""
+    ed = preferred_editor()
+    argv = goto_argv(path, line)
+    if not ed or not argv:
+        return False
+    if not explicit:
+        if opening() if opening else any(st["state"] != "open" for st in list(_opened.values())):
+            log.debug("jump skipped: the editor is still opening")
+            return False
+        f = (focus or _frontmost)()
+        if not editor_focused(ed, f):
+            log.debug("jump skipped: %s isn't the active app (won't steal focus)", ed["label"])
+            return False
+        if not (window_up or editor_window_up)(ed):
+            log.debug("jump skipped: no %s window yet", ed["label"])
+            return False
+    return bool((runner or _run)(argv))

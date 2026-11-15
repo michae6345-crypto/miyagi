@@ -41,6 +41,8 @@ class Rig:
                                inputs=self.inputs)
         self.s.ready_hold_s = 0
         self.s.offtrack_grace_s = 0  # most tests drive the ladder at once; the grace has its own test
+        self.s.CARD_GAP_S = 0  # pacing (8 s between cards, 2 s between spotlight moves) has its own test
+        self.s.SPOT_MIN_GAP_S = 0
 
     @property
     def events(self) -> list[dict]:
@@ -629,12 +631,14 @@ def test_demo_mode_falls_back_to_stubs(rig, monkeypatch, tmp_path):
     assert r2.of("offtrack")[0]["title"] != "Loss plateaued at large β"  # E5's own DEMO card, not the old stub
 
 
-def test_vscode_opens_only_after_the_learner_says_yes(tmp_path, monkeypatch):
+def test_coding_lesson_opens_vscode_by_itself_after_lesson_ready(tmp_path, monkeypatch):
+    """Michael: "it needs to open VS Code". A coding lesson with nothing missing opens the editor on its own
+    (after lesson.ready, no "Open…?" card) and jumps to the step's target."""
     monkeypatch.setenv("TUT_WORKDIR", str(tmp_path))
     from server.orchestrator import workspace as wsmod
     from server.orchestrator.workspace import Workspace
 
-    monkeypatch.setattr(wsmod, "requirements", lambda graph, folder: None)  # no S2 check: the plain offer
+    monkeypatch.setattr(wsmod, "requirements", lambda graph, folder: None)  # no S2 check (no key)
 
     calls = []
     ws = Workspace(enabled=True, runner=lambda argv: calls.append(argv) or True)
@@ -644,19 +648,43 @@ def test_vscode_opens_only_after_the_learner_says_yes(tmp_path, monkeypatch):
 
     async def go():
         await rig.start_lesson()
+        await asyncio.sleep(0.05)  # the setup check runs in the background
+        await rig.settle()
         await rig.s.goto_step(3)
         await rig.settle()
-        await asyncio.sleep(0.05)  # the setup card is computed in the background
-        assert not calls  # nothing opened, not even `code -g`
-        card = next(c for c in rig.of("card") if c["title"] != "Looks done?")
-        assert card["title"] == f"Open {wsmod.editor_label()}?" and card["actions"] == ["open_editor"]  # Cursor if installed
-        await rig.s.action("open_editor")
 
     run(go())
-    first = calls[0]  # S2's open_editor: `code -n <dir> [-g <file>]`, or `open -a "Visual Studio Code" <dir>`
-    assert (first[1:3] == ["-n", str(tmp_path.resolve())]) or (first[:3] == ["open", "-a", "Visual Studio Code"])
+    first = calls[0]  # S2: `code <dir> [-g <file>]` (never `-n`: it focuses a window that has the folder), or `open -a`
+    assert (first[1:2] == [str(tmp_path.resolve())] and "-n" not in first) or (first[:3] == ["open", "-a", "Visual Studio Code"])
+    opens = [c for c in calls if str(tmp_path.resolve()) in c]
+    assert len(opens) == 1, opens  # opened once, whatever else ran (setup card, step starts, goto_step)
+    assert rig.s.editor_open and not [c for c in rig.of("card") if (c.get("actions") or []) == ["open_editor"]]
+    assert rig.types().index("lesson.ready") < len(rig.types())  # opened after the lesson UI was up
     gotos = [c for c in calls if "-g" in c and "-n" not in c]
     assert gotos and gotos[-1][-1] == f"{tmp_path / 'pinn_convection.py'}:4"
+
+
+def test_setup_card_only_when_a_tool_is_missing(tmp_path, monkeypatch):
+    monkeypatch.setenv("TUT_WORKDIR", str(tmp_path))
+    from server.orchestrator import workspace as wsmod
+    from server.orchestrator.workspace import Workspace
+
+    items = [{"tool": "vscode", "label": "VS Code", "kind": "editor", "needed": True, "ok": True},
+             {"tool": "torch", "label": "PyTorch", "kind": "pip", "needed": True, "ok": False}]
+    monkeypatch.setattr(wsmod, "requirements", lambda graph, folder: items)
+    monkeypatch.setattr(wsmod, "setup_card", lambda its, resources=None: {"kind": "setup", "title": "Before you start",
+                                                                           "body": "PyTorch is missing", "actions": ["install"]})
+    calls = []
+    rig = Rig(tmp_path)
+    rig.s.workspace = Workspace(enabled=True, runner=lambda argv: calls.append(argv) or True)
+
+    async def go():
+        await rig.start_lesson()
+        await asyncio.sleep(0.05)
+        await rig.settle()
+
+    run(go())
+    assert [c for c in rig.of("card") if c["kind"] == "setup"] and not calls and not rig.s.editor_open
 
 
 def test_non_code_lesson_never_offers_vscode(tmp_path, monkeypatch):
@@ -2472,3 +2500,171 @@ def test_step_started_instructions_are_one_concrete_action(rig):
     run(go())
     st = rig.of("step.started")[0]
     assert st["instructions"] == "Create pinn_convection.py in your project folder." and "details" not in st
+
+
+def test_open_editor_without_code_on_path(tmp_path, monkeypatch):
+    """Michael's Mac has no `code` on PATH: the app's bundled CLI is used, and if the CLI fails the folder still
+    opens with `open -a "Visual Studio Code" <folder>`."""
+    import sys
+
+    from server.workspace import editor as ed
+
+    fake_cli = tmp_path / "code"
+    fake_cli.write_text("#!/bin/sh\n")
+    monkeypatch.setattr(ed.shutil, "which", lambda name: None)
+    monkeypatch.setitem(ed.EDITORS["vscode"], "bundled_cli", str(fake_cli))
+    assert ed._cli(ed.EDITORS["vscode"]) == str(fake_cli)
+
+    monkeypatch.setattr(sys, "platform", "darwin")
+    folder = tmp_path / "lesson"
+    folder.mkdir()
+    vscode = {"id": "vscode", "label": "Visual Studio Code", "app": "Visual Studio Code", "cli": str(fake_cli)}
+    calls = []
+
+    def runner(argv):  # the CLI fails (exit != 0); `open -a` works
+        calls.append(argv)
+        return argv[0] == "open"
+
+    rep = ed.open_editor_report(folder, editor=vscode, runner=runner, arrange_windows=False, trusted=lambda: False,
+                                previous={})
+    assert rep["opened"] and calls[0][:2] == [str(fake_cli), str(folder.resolve())]  # never `-n`
+    assert calls[1] == ["open", "-a", "Visual Studio Code", str(folder.resolve())]
+
+
+def _run_lesson():
+    g = _text_lesson()
+    g["steps"][1].update(title="Run it", instructions="Run the calculator.", code="python calc.py\n",
+                         targets=[{"app": "Code", "file": "calc.py", "match": "calc\\.py"}], precision_checks=[])
+    return g
+
+
+def _code_window(h: float = 1000.0):
+    from types import SimpleNamespace as NS
+
+    return NS(windows=[NS(app="Code", title="calc.py — lesson", rect={"x": 0.0, "y": 0.0, "w": 1200.0, "h": h})])
+
+
+def test_run_step_boxes_the_vscode_terminal_never_the_breadcrumb(tmp_path, monkeypatch):
+    """Michael: the box sat on the breadcrumb ("Users > tripi > … > calc.py") for `python calc.py`."""
+    async def build(goal, workdir, on_update=None, **kw):
+        return _run_lesson()
+
+    rig, screen, _ = _lesson_rig(tmp_path, monkeypatch, build)
+    (tmp_path / "calc.py").write_text("def add(a, b):\n    return a + b\n")
+    screen.text["Code"] = ["Users > tripi > miyagi > lessons > calc.py", "def add(a, b):"]
+
+    async def go():
+        await rig.s.learn("calc", mode="lesson")
+        await rig.settle()
+        rig.s.last_obs = _code_window()
+        await rig.s.goto_step(1)  # the run step, terminal not open yet
+        await asyncio.sleep(0.05)
+        first = dict(rig.of("spotlight")[-1])
+        screen.text["Code"] += [""] * 20 + ["TERMINAL", "tripi@mac lesson % "]  # the learner opened it (⌃`)
+        await asyncio.sleep(2.1)
+        return first
+
+    first = run(go())
+    assert first["caption"] == "Open the terminal: ⌃`" and first["snippet"] == "python calc.py"
+    assert first["rect"]["y"] >= 70  # the editor area, below the tab bar / breadcrumb
+    last = rig.of("spotlight")[-1]
+    assert last["caption"] == "Run it in the VS Code terminal" and last["rect"]["y"] == 100.0 + 20 * 22
+    assert not [s for s in rig.of("spotlight") if "matched" in s and ">" in s["matched"]]
+
+
+def test_spotlight_is_steady_one_box_until_it_really_moves(tmp_path, monkeypatch):
+    monkeypatch.setenv("TUT_WORKDIR", str(tmp_path))
+    screen = FakeScreen()
+    rig = Rig(tmp_path, screen=screen)
+    rig.s.SPOT_MIN_GAP_S = 2.0
+    screen.text["Code"] = ["import torch.nn as nn", "", "class Net(nn.Module):", "    pass"]
+
+    async def go():
+        await rig.start_lesson()
+        await rig.s.goto_step(1)
+        await rig.s._spotlight_target(rig.s.step)
+        n = len(rig.of("spotlight"))
+        for _ in range(5):  # frames with the same box: nothing re-sent
+            await rig.s._follow_spot()
+        assert len(rig.of("spotlight")) == n
+        screen.text["Code"].insert(0, "# moved down 20 px")
+        await rig.s._follow_spot()  # moved, but within 2 s of the last box: wait
+        assert len(rig.of("spotlight")) == n
+        rig.clock.t += 2.5
+        await rig.s._follow_spot()
+        return n
+
+    n = run(go())
+    assert len(rig.of("spotlight")) == n + 1
+
+
+def test_auto_cards_are_paced_20s_into_a_step_and_8s_apart(rig):
+    rig.s.offtrack_grace_s, rig.s.CARD_GAP_S = 20, 8
+
+    async def go():
+        await _to_step(rig, 1)
+        card = {"stepId": "s2", "kind": "hint", "title": "Stuck on this step?", "body": "b", "actions": ["skip_step"]}
+        assert await rig.s._emit_card(card, auto=True) is False  # 0 s into the step
+        rig.clock.t += 21
+        await rig.s._emit_card({**card, "title": "Not yet", "kind": "answer"})  # a card the learner asked for
+        rig.clock.t += 3
+        assert await rig.s._emit_card(card, auto=True) is False  # 3 s after the last card
+        rig.clock.t += 6
+        assert await rig.s._emit_card(card, auto=True) is True
+
+    run(go())
+
+
+def test_a_passed_check_does_not_flip_back_to_pending(rig):
+    async def go():
+        await _to_step(rig, 1)
+        step = rig.s.step
+        cid = rig.s.display_checks(step)[0]["id"]
+        await rig.s._publish(step, [{"checkId": cid, "status": "pass", "label": "x"}])
+        await rig.s._publish(step, [{"checkId": cid, "status": "pending", "label": "x"}])  # OCR missed it once
+        return cid
+
+    cid = run(go())
+    assert [p["status"] for p in rig.of("check.updated") if p["checkId"] == cid][-1] == "pass"
+
+
+def test_run_step_never_starts_while_its_file_is_empty(tmp_path, monkeypatch):
+    async def build(goal, workdir, on_update=None, **kw):
+        return _run_lesson()
+
+    rig, _, _ = _lesson_rig(tmp_path, monkeypatch, build)
+
+    async def go():
+        await rig.s.learn("calc", mode="lesson")
+        await rig.settle()
+        assert (tmp_path / "calc.py").read_text() == ""
+        await rig.s.goto_step(1)  # "python calc.py" on an empty file: back to the typing step
+        await rig.settle()
+
+    run(go())
+    assert rig.of("step.started")[-1]["stepId"] == "s1"
+    assert rig.of("card")[-1]["title"] == "calc.py is still empty"
+
+
+def test_run_step_uses_e6_terminal_region(tmp_path, monkeypatch):
+    async def build(goal, workdir, on_update=None, **kw):
+        return _run_lesson()
+
+    rig, screen, _ = _lesson_rig(tmp_path, monkeypatch, build)
+    (tmp_path / "calc.py").write_text("print(1)\n")
+    screen.regions = {"editor": {"x": 260.0, "y": 80.0, "w": 900.0, "h": 500.0}}
+
+    async def go():
+        await rig.s.learn("calc", mode="lesson")
+        await rig.settle()
+        await rig.s.goto_step(1)
+        await asyncio.sleep(0.05)
+        first = dict(rig.of("spotlight")[-1])
+        screen.regions["terminal"] = {"x": 260.0, "y": 600.0, "w": 900.0, "h": 240.0}
+        await asyncio.sleep(2.1)
+        return first
+
+    first = run(go())
+    assert first["caption"] == "Open the terminal: ⌃`" and first["rect"]["y"] == 80.0
+    last = rig.of("spotlight")[-1]
+    assert last["caption"] == "Run it in the VS Code terminal" and last["rect"] == {"x": 260.0, "y": 600.0, "w": 900.0, "h": 240.0}

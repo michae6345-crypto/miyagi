@@ -271,7 +271,8 @@ async def _build_lesson_impl(
             meta = {**await asyncio.wait_for(transcript.fetch_metadata(vid), 10), **{k: v for k, v in meta.items() if v}}
         except Exception:  # noqa: BLE001  without metadata we can't plan parts; build in one go
             pass
-    if (meta.get("length_s") or 0) > progressive.LONG_VIDEO_S and "gemini" in engines() and not gemini.is_down() and budget.remaining() > 0:
+    if ((meta.get("length_s") or 0) > progressive.LONG_VIDEO_S and engine_mode() != "claude-first"
+            and "gemini" in engines() and not gemini.is_down() and budget.remaining() > 0):
         try:
             graph = await progressive.build(source_url, vid, goal, workdir, info, meta, key, on_update=on_update, cache=cache, t0=t0)
         except RuntimeError as e:
@@ -440,12 +441,18 @@ GEMINI_MAX_TIMEOUT_S = 110.0  # LESSON_GEMINI_MAX_TIMEOUT: when Claude has nothi
 GEMINI_GRACE_S = GEMINI_VIDEO_TIMEOUT_S  # LESSON_GEMINI_GRACE: extra wait for Gemini once Claude's draft is ready
 
 
+def engine_mode() -> str:
+    """LESSON_ENGINE: auto (Gemini preferred, Claude races it) | claude-first (Claude transcript path; Gemini
+    only if there's no transcript or Claude's draft fails) | gemini | claude."""
+    gemini._load_env()
+    e = os.environ.get("LESSON_ENGINE", "auto").strip().lower().replace("_", "-")
+    return e if e in ("auto", "claude-first", "gemini", "claude") else "auto"
+
+
 def engines() -> list[str]:
     """Video-pass engines in order. Rule: Gemini only ever *watches* the video; Claude does
     everything else (transcript drafts, the adapt pass, check writing)."""
-    gemini._load_env()
-    e = os.environ.get("LESSON_ENGINE", "auto").strip().lower()
-    return {"gemini": ["gemini"], "claude": ["claude"]}.get(e, ["gemini", "claude"])
+    return {"gemini": ["gemini"], "claude": ["claude"], "claude-first": ["claude", "gemini"]}.get(engine_mode(), ["gemini", "claude"])
 
 
 async def _watch(url: str, vid: str, goal: str) -> dict:
@@ -481,7 +488,8 @@ async def _watch(url: str, vid: str, goal: str) -> dict:
     async def gemini_draft() -> dict:
         t0 = time.time()
         # hard limit; the race below takes Claude's draft at pref_cap if one exists
-        cap = max(pref_cap, float(os.environ.get("LESSON_GEMINI_MAX_TIMEOUT", GEMINI_MAX_TIMEOUT_S))) if "claude" in order else pref_cap
+        long_cap = max(pref_cap, float(os.environ.get("LESSON_GEMINI_MAX_TIMEOUT", GEMINI_MAX_TIMEOUT_S)))
+        cap = long_cap if ("claude" in order or engine_mode() == "claude-first") else pref_cap
         _emit("watching")
         try:
             meta = await asyncio.wait_for(transcript.fetch_metadata(vid), 10)
@@ -500,6 +508,24 @@ async def _watch(url: str, vid: str, goal: str) -> dict:
         draft["_built_by"] = f"{gemini.last_model} (watched the video)"
         draft["_engine"] = "gemini"
         return draft
+
+    if engine_mode() == "claude-first":
+        # Michael's rule: pay for Gemini only when the transcript route can't do it
+        try:
+            d = await claude_draft()
+            _emit("steps_ready", "claude")
+            return d
+        except RuntimeError as e:
+            errors.append(f"claude: {str(e)[:300]}")
+            log.warning("claude-first: transcript path failed (%s); asking Gemini to watch the video", str(e)[:150])
+            _emit("engine_switch", _short_reason(str(e)) if "transcript" not in str(e).lower() else "no_transcript")
+        try:
+            d = await gemini_draft()
+            _emit("steps_ready", "gemini")
+            return d
+        except RuntimeError as e:
+            errors.append(f"gemini: {str(e)[:300]}")
+        raise RuntimeError("no engine could build the lesson:\n" + "\n".join(errors))
 
     tasks: dict[str, asyncio.Task] = {}
     if "claude" in order:

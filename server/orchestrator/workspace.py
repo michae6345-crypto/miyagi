@@ -302,6 +302,7 @@ class Workspace:
         self.enabled = env_flag("ORCH_OPEN_WORKSPACE", False) if enabled is None else enabled
         self.run = runner or self._spawn  # injectable for tests
         self.opened: str | None = None
+        self.lesson_key = ""  # the current lesson's id (session.load_graph): the editor opens once per lesson + folder
 
     @staticmethod
     def _spawn(argv: list[str]) -> bool:
@@ -312,19 +313,35 @@ class Workspace:
             log.warning("could not run %s: %s", argv[0], e)
             return False
 
-    def open(self, workdir: str, force: bool = False, full: bool = False) -> None:
-        """force: the learner asked for it (the "Open VS Code?" card), so ignore the auto-open flag.
-        full: "Just teach me" lessons: the editor fills the screen (no video to dock beside it)."""
-        if not (self.enabled or force) or not Path(workdir).is_dir() or self.opened == workdir:
+    def _key(self) -> str:
+        return f"{id(self)}:{self.lesson_key}"
+
+    def _guarded(self, ws) -> bool:
+        return hasattr(ws, "editor") and hasattr(ws.editor, "open_lesson_editor")
+
+    def open(self, workdir: str, force: bool = False, full: bool = False, explicit: bool = False) -> None:
+        """force: open even though auto-open (ORCH_OPEN_WORKSPACE) is off. full: "Just teach me" (the editor fills the
+        screen). explicit: the learner pressed "Open VS Code" (may bring an already-open window forward).
+        S2 opens the folder AT MOST ONCE per lesson + folder (`code <folder>`, never `-n`), arranges once, and an
+        automatic open waits until the learner isn't in Miyagi's launcher/cards or typing."""
+        if not (self.enabled or force) or not Path(workdir).is_dir():
+            return
+        ws = _s2()
+        if ws is not None and self._guarded(ws):
+            real = self.run == self._spawn  # tests inject a runner: never touch real windows or real focus
+            ws.editor.open_lesson_editor(
+                workdir, ws.open_file_for(Path(workdir)), lesson_id=self._key(), fullscreen=full and real,
+                explicit=explicit, runner=None if (real and not full) else self.run,
+                **({} if real else {"focus": lambda: None, "background": False, "arrange_windows": False,
+                                     "trusted": lambda: False, "previous": None}))
+            self.opened = workdir
+            return
+        if self.opened == workdir:  # older S2: at most once per folder
             return
         self.opened = workdir
-        ws = _s2()
-        if ws is not None and full and hasattr(ws, "open_editor_report"):
-            ok = self._open_full(ws, workdir)
-            log.info("opened workspace %s full screen: %s", workdir, ok)
-            return
-        if ws is not None:  # S2: `code -n <dir> -g <starter file>`, fallback `open -a`
-            ok = ws.open_editor(workdir, ws.open_file_for(Path(workdir)), runner=self.run)
+        if ws is not None:
+            runner = None if self.run == self._spawn else self.run
+            ok = ws.open_editor(workdir, ws.open_file_for(Path(workdir)), runner=runner)
             log.info("opened workspace %s in VS Code: %s", workdir, ok)
             return
         ok = False
@@ -334,40 +351,27 @@ class Workspace:
             ok = self.run([cli, workdir])
         log.info("opened workspace %s in VS Code: %s", workdir, ok)
 
-    def _open_full(self, ws, workdir: str) -> bool:
-        """S2 opens the editor; then, with Accessibility, S2's arrange() sizes its window to the WHOLE visible
-        screen (fraction 1.0). Not a macOS full-screen Space: the overlay must stay on top of it."""
-        try:
-            from server.workspace import editor as ed
-        except Exception:  # noqa: BLE001
-            ed = None
-        real = self.run == self._spawn  # tests inject a runner: never move real windows from a test
-        if real and _accepts_kw(ws.open_editor_report, "fullscreen"):  # S2 (#41): macOS full screen via AX
-            rep = ws.open_editor_report(workdir, ws.open_file_for(Path(workdir)), runner=self.run, fullscreen=True)
-            log.info("full screen editor: %s", rep.get("fullscreen"))
-            return bool(rep.get("opened"))
-        editor = ed.preferred_editor() if ed is not None else None
-        prev = ed.frontmost_app(skip={editor["app"]}) if (ed is not None and editor) else None
-        rep = ws.open_editor_report(workdir, ws.open_file_for(Path(workdir)), runner=self.run,
-                                    arrange_windows=False, previous=prev)
-        if (rep.get("opened") and real and ed is not None and editor and rep.get("ax_trusted")
-                and os.environ.get("MIYAGI_ARRANGE", "1") != "0"):
-            import threading
-
-            threading.Thread(target=ed.arrange, args=(editor, prev, rep), kwargs={"fraction": 1.0},
-                             daemon=True, name="miyagi-arrange-full").start()
-        return bool(rep.get("opened"))
-
-    def goto(self, path: str, line: int) -> None:
+    def goto(self, path: str, line: int, explicit: bool = False) -> None:
+        """Jump to file:line. Automatic jumps (step start, spotlight retries) only run when VS Code is already the
+        active app with its window up, so they never steal focus from Miyagi or spawn a window while VS Code is
+        still starting. explicit=True: a learner action (Do it for me)."""
+        ws = _s2()
+        if ws is not None and hasattr(getattr(ws, "editor", None), "jump"):
+            real = self.run == self._spawn
+            mine = self._key()
+            ws.editor.jump(path, line, explicit=explicit, runner=self.run,
+                           **({} if real else {"focus": lambda: ("com.microsoft.VSCode", "Code"),
+                                               "window_up": lambda ed: True,
+                                               "opening": lambda: any(k[0] == mine and st["state"] != "open"
+                                                                      for k, st in ws.editor._opened.items())}))
+            return
         argv = goto_argv(path, line)
         if argv:
             self.run(argv)
 
-    def goto_target(self, workdir: str, step: dict) -> None:
+    def goto_target(self, workdir: str, step: dict, explicit: bool = False) -> None:
         loc = target_location(workdir, step)
         if loc is None:
             return
         path, line = loc
-        argv = goto_argv(str(path), line)
-        if argv:
-            self.run(argv)
+        self.goto(str(path), line, explicit=explicit)

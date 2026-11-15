@@ -129,3 +129,31 @@ no image`, and the coach went blind. Apple's `screencapture` uses a private path
 display stays ID 1, awake and unlocked). SCK calls now time out after 1.5 s. A stall makes the
 reader use `screencapture` for that same frame, then skip SCK for 10 s, 20 s, … up to 5 min. A
 recovery resets the backoff. An interrupted SCK connection is no longer reported as `no_permission`.
+
+## Regions for lesson spotlights
+```python
+from server.screen import locate_region, get_reader
+locate_region("terminal")   # VS Code's integrated terminal panel, or None if it isn't open
+locate_region("editor")     # the editor text area (below the tab bar + breadcrumb, above the panel)
+locate_region("explorer")   # the side bar (Explorer)
+locate_region("run_button") # editor-title Run action: Accessibility only, None without it (unverified live)
+get_reader().locate_regions()   # {"terminal": {x,y,w,h} | None, "editor": ..., ...} from one frame
+```
+Rects are in points, top-left origin of the primary display (same space as `locate()` and the
+spotlight). They're stable: edges snap to a 4-point grid, the last rect is kept while every edge moved
+< 12 points, and one missed OCR frame is bridged (no blinking spotlight).
+- **terminal**: from the panel tab header (`PROBLEMS  OUTPUT  DEBUG CONSOLE  TERMINAL  PORTS`) down to
+  the status bar, as wide as the editor area. If the header isn't readable, from the first shell
+  prompt below the editor. Code with `%` in it doesn't count as a prompt. With `app="Terminal"`
+  (or iTerm2) you get that app's window content instead.
+- **editor**: the left edge comes from the tab row or the line-number gutter. The right edge is the
+  window, or VS Code's secondary side bar (Chat / Copilot), which is detected as a separate text
+  column with its own header. `locate_line` rows stop there too.
+- **explorer**: under the `EXPLORER` header (or the OUTLINE / TIMELINE / OPEN EDITORS sections),
+  from the side bar's left edge to the editor's.
+- **Breadcrumbs are never targets**: `locate()` / `locate_match()` skip the breadcrumb row
+  (`pinn_demo › pinn_convection.py › pde_residual`), so a file name there can't be spotlighted.
+- Pure, one frame: `find_region(obs, name, app=None)` -> `Region(name, rect, app, source)`.
+  CLI: `python -m server.screen region all` (or `--image <fixture>.ocr.json`).
+- Tests: `tests/test_regions.py` uses the three rendered full-screen editors (panel at y=800, editor
+  x=300) and a recorded real windowed VS Code with Explorer, a Chat side panel and Terminal.app.

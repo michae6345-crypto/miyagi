@@ -35,7 +35,14 @@ def state_dir(tmp_path, monkeypatch):
     monkeypatch.setenv("TUT_WORKDIR", str(tmp_path / "work"))
     (tmp_path / "work").mkdir()
     monkeypatch.delenv("DEMO", raising=False)
+    for k in ("ANTHROPIC_API_KEY", "GEMINI_API_KEY", "GOOGLE_API_KEY", "BRIGHTDATA_API_KEY", "ELEVENLABS_API_KEY",
+              "TIGER_DATABASE_URL"):  # cost freeze: an accidental live call fails at once, for free
+        monkeypatch.setenv(k, "")
     return d
+
+
+def state_dir_of():
+    return sessions.state_dir()
 
 
 class Engine:
@@ -67,7 +74,8 @@ def test_save_load_clear_roundtrip_is_atomic(state_dir):
     st = sessions.load()
     assert st["lessonId"] == "L1" and st["videoT"] == 12.5 and st["lastActiveAt"] and st["version"] == 1
     assert sessions.load_graph(st) == graph
-    assert sorted(p.name for p in state_dir.iterdir()) == ["current.graph.json", "current.json"]  # no temp files left
+    assert sorted(p.name for p in state_dir.iterdir()) == ["current.json", "graph-L1.json"]  # no temp files left
+    assert st["graphFile"] == "graph-L1.json"
     sessions.clear()
     assert sessions.load() is None and sessions.load_graph() is None
     sessions.clear()  # clearing nothing is fine
@@ -113,6 +121,10 @@ def test_progress_saved_on_step_and_video_and_in_memory_card_uses_it():
         e.clock.t += 600  # the app was away 10 min; E4's engine asks to resume (lesson frozen in memory)
         msgs = e.s.snapshot(ask_resume=True)
         assert [t for t, _ in msgs] == ["video.pause", "card"] and e.s.awaiting_resume
+        before = (state_dir_of() / "current.json").read_text()
+        assert e.r.save_now() is None  # frozen: nothing may overwrite the save (disconnect, stop, player)
+        await e.s.video_state(seg["start"] + 30, True)
+        assert (state_dir_of() / "current.json").read_text() == before
         assert msgs[1][1]["body"].endswith("step 2 of %d · 10 min ago" % n)
         for t, p in msgs:
             engine_message(t, p)
@@ -296,3 +308,115 @@ def test_end_lesson_on_the_resume_card_clears_and_goes_idle():
         assert sessions.load() is None and e2.s.snapshot() == [("status", {"state": "idle"})]
 
     run(go())
+
+
+def _save_text_lesson_at_step_2():
+    """Michael's case: a "Just teach me" lesson, learner on s2 (index 1) when the engine restarts."""
+    lesson = _text_lesson_7()
+    e1 = Engine()
+
+    async def go():
+        await e1.s.load_graph(lesson)
+        await e1.settle()
+        await e1.s._pass_step()
+        await e1.settle()
+        assert e1.s.idx == 1
+
+    run(go())
+    st = sessions.load()
+    assert (st["stepIndex"], st["stepId"]) == (1, lesson["steps"][1]["id"])
+    return lesson, st
+
+
+def test_restart_connect_state_then_resume_starts_the_saved_step(tmp_path, monkeypatch, state_dir):
+    """save at s2 -> engine restart -> app connects (and leaves, and comes back) -> /state still s2 ->
+    resume starts s2. Real main.app; stub modules and no workspace (no VS Code, no API calls)."""
+    from fastapi.testclient import TestClient
+
+    from server.orchestrator import main
+
+    lesson, saved = _save_text_lesson_at_step_2()
+    files = {p.name: p.read_bytes() for p in state_dir.iterdir()}
+    eng = main.Engine()  # the restarted engine process
+    eng.recorder.enabled = False
+    eng.session.workspace = None
+    eng.session.m = eng.modules = Modules(demo=False, force_stubs="all")
+    calls = []
+    for name in ("build_lesson", "build_text_lesson", "extend_lesson"):
+        async def boom(*_a, _n=name, **_k):
+            calls.append(_n)
+            raise AssertionError(_n)
+        setattr(eng.session.m, name, boom)
+    monkeypatch.setattr(main, "engine", eng)
+    s2 = lesson["steps"][1]["id"]
+    with TestClient(main.app) as client:
+        for _ in range(2):  # connect, leave, connect again: nothing is answered yet
+            with client.websocket_connect("/") as ws:
+                msgs = [ws.receive_json() for _ in range(4)]
+                assert [m["type"] for m in msgs] == ["spotlight", "video.pause", "status", "card"]
+                assert " · step 2 of 7" in msgs[3]["payload"]["body"]
+        st = client.get("/state").json()
+        assert st["phase"] == "awaiting_resume" and st["saved"]["stepId"] == s2 and st["saved"]["stepIndex"] == 1
+        assert {p.name: p.read_bytes() for p in state_dir.iterdir()} == files  # not one byte rewritten
+        with client.websocket_connect("/") as ws:
+            [ws.receive_json() for _ in range(4)]
+            ws.send_json({"type": "action", "payload": {"kind": "resume"}})
+            got = []
+            while not any(m["type"] == "step.started" for m in got):
+                got.append(ws.receive_json())
+            assert [m["payload"]["stepId"] for m in got if m["type"] == "step.started"] == [s2]
+        st = client.get("/state").json()
+        assert st["stepId"] == s2 and st["phase"] == "active"
+    assert calls == []
+    assert sessions.load()["stepId"] == s2
+
+
+def test_same_lesson_loaded_again_after_restart_continues_at_the_saved_step():
+    lesson, _ = _save_text_lesson_at_step_2()
+    e2 = Engine()
+    fresh = json.loads(json.dumps(lesson))  # e.g. a "Just teach me" rebuild that hit the lesson cache
+
+    async def go():
+        assert e2.s.snapshot()[-1][0] == "card"
+        await e2.s.load_graph(fresh)
+        await e2.settle()
+        assert e2.s.idx == 1 and sessions.load()["stepIndex"] == 1
+
+    run(go())
+
+
+def test_another_lesson_replaces_the_pending_save():
+    _save_text_lesson_at_step_2()
+    e2 = Engine()
+
+    other = stubs.load_fixture_lesson()
+    other["lesson"]["id"] = "another-lesson"
+
+    async def go():
+        await e2.s.load_graph(other)
+        await e2.settle()
+        st = sessions.load()
+        assert st["lessonId"] == "another-lesson" and st["stepIndex"] == 0
+        assert sessions.load_graph(st)["lesson"]["id"] == "another-lesson"
+
+    run(go())
+
+
+def test_graph_and_progress_commit_together(state_dir):
+    g1 = {"lesson": {"id": "L1"}, "steps": [{"id": "a", "title": "a"}]}
+    g2 = {"lesson": {"id": "L2"}, "steps": [{"id": "b", "title": "b"}]}
+    sessions.save({"lessonId": "L1", "stepIndex": 0, "stepCount": 1}, g1)
+    store._write_atomic(state_dir / store._graph_name("L2"), g2)  # crash after the graph, before current.json
+    assert sessions.load()["lessonId"] == "L1" and sessions.load_graph(sessions.load()) == g1
+    sessions.save({"lessonId": "L2", "stepIndex": 0, "stepCount": 1}, g2)
+    assert sorted(p.name for p in state_dir.iterdir()) == ["current.json", "graph-L2.json"]
+    sessions.clear()
+    assert list(state_dir.iterdir()) == []
+
+
+def test_legacy_graph_file_still_resumes(state_dir):
+    state_dir.mkdir(parents=True, exist_ok=True)
+    g = {"lesson": {"id": "L1"}, "steps": [{"id": "a", "title": "a"}]}
+    (state_dir / "current.graph.json").write_text(json.dumps(g))
+    (state_dir / "current.json").write_text(json.dumps({"lessonId": "L1", "stepIndex": 0, "stepCount": 1}))
+    assert sessions.load_graph(sessions.load()) == g
