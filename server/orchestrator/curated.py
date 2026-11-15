@@ -16,8 +16,9 @@ MIYAGI_CURATED=0 turns all of it off ("Just teach me" builds a lesson as before)
 
 Pushed diagrams (one `diagram` event each, kind "network" with data.frames, stepId = the current step): the app shows
 them in the drawer's right-hand panel (adrian/shell PR #94). When a step starts: its own picture (forward pass, backprop,
-training). After the training run: identical hidden neurons when the loss is stuck at STUCK_LOSS, else the learner's own
-run (their printed losses, and their weights once nn.py prints them).
+training). After every run that prints losses, from the loop step on (Run it for me, the terminal, VS Code's ▶ Run Python
+File): identical hidden neurons when the loss is stuck at STUCK_LOSS, else the learner's own run (their printed losses,
+and their weights once nn.py prints them; a run that isn't the lesson's own run says the weights drawn are the lesson's).
 
 The payload (data): layers [1, 4, 4, 1], labels {input: ["x"], output: ["y"]}, placement "drawer", activation "tanh"
 (hidden; the output is linear), samples / targets (x and sin(x)), mode, frames. Each frame:
@@ -61,7 +62,11 @@ SHAPES = {f"{p}{k}": ((LAYERS[k - 1], LAYERS[k]) if p == "W" else (LAYERS[k],))
           for k in range(1, len(LAYERS)) for p in ("W", "b")}
 SIZES = {name: math.prod(shape) for name, shape in SHAPES.items()}
 ADOPT_AFTER_S = 1.0  # Run it for me's own wait polls every 0.3 s: it takes its runs first
-RUN_RX = re.compile(rf"(?:^|[\s/])python[\d.]*\s+(?:-\S+\s+)*{re.escape(FILE)}\b")
+# python3 nn.py, .venv/bin/python nn.py, python3 ./nn.py, and VS Code's ▶ Run Python File: "/abs/.venv/bin/python"
+# "/abs/lesson folder/nn.py" (absolute, maybe quoted). Never `cat nn.py`, never nn.pyc.
+RUN_RX = re.compile(rf"""(?:^|[\s/"'])python[\d.]*["']?\s+(?:-\S+\s+)*["']?(?:[^"'\s]*/|"[^"]*/|'[^']*/)?"""
+                    rf"""{re.escape(FILE)}(?![\w.])""")
+LOOP_STEP = "nn3"  # the step that writes the training loop: from here on a run prints losses the panel can draw
 
 # ---------------------------------------------------------------------------------------------------------- matching
 
@@ -72,7 +77,9 @@ _NN = re.compile(r"\bneural[\s-]*net(?:work)?s?\b|\bnn\b|\bmulti[\s-]*layer[\s-]
 _NOT = re.compile(
     r"\b(?:llms?|gpt\w*|chat\s*gpt|chatbots?|transformers?|attention|bert|language\s+models?|tokeni[sz]\w*|xor|"
     r"fine[\s-]*tun\w*|finetun\w*|lora|rlhf|diffusion|gans?|autoencoders?|vaes?|"
-    r"cnns?|conv\w*|rnns?|lstms?|grus?|recurrent|graph|gnns?|spiking|bayesian|quantum|evolution\w*|"
+    # conv: never "converge" / "convert"; graph: a graph neural network, never "graph the loss"
+    r"cnns?|conv(?:olution\w*|nets?|s)?|rnns?|lstms?|grus?|recurrent|graph\s+(?:neural|nets?|networks?|conv\w*)|"
+    r"gnns?|spiking|bayesian|quantum|evolution\w*|"
     r"reinforcement|q[\s-]*learning|dqn|pytorch|torch|tensorflow|keras|jax|flax|scikit|sklearn|"
     r"mnist|cifar|imagenet|images?|vision|digits?|style\s+transfer|text|sentiment|nlp|speech|audio|"
     r"stocks?|prices?|forecast\w*|time\s+series|physics|pinns?|"
@@ -85,10 +92,28 @@ def enabled() -> bool:
     return os.environ.get("MIYAGI_CURATED", "1").strip().lower() not in ("0", "false", "off", "no")
 
 
+def _edits(a: str, b: str) -> int:
+    """Edit distance with a swap of two neighbours counting as one edit ("nueral" -> "neural": 1)."""
+    d = [[i + j if i * j == 0 else 0 for j in range(len(b) + 1)] for i in range(len(a) + 1)]
+    for i in range(1, len(a) + 1):
+        for j in range(1, len(b) + 1):
+            d[i][j] = min(d[i - 1][j] + 1, d[i][j - 1] + 1, d[i - 1][j - 1] + (a[i - 1] != b[j - 1]))
+            if i > 1 and j > 1 and a[i - 1] == b[j - 2] and a[i - 2] == b[j - 1]:
+                d[i][j] = min(d[i][j], d[i - 2][j - 2] + 1)
+    return d[-1][-1]
+
+
+def _typo_nn(goal: str) -> bool:
+    """"neural network" typed fast on stage: "nueral network", "neural netowrk", "nerual net"."""
+    words = re.findall(r"[a-z]+", goal.lower())
+    net = lambda w: w in ("net", "nets") or min(_edits(w, "network"), _edits(w, "networks")) <= 2  # noqa: E731
+    return any(_edits(w, "neural") <= 1 and net(nxt) for w, nxt in zip(words, words[1:]))
+
+
 def matches(goal: str) -> bool:
     """Is this "Just teach me" goal "build a neural network" (and nothing more specific)?"""
     g = " ".join(str(goal or "").split())
-    return bool(g) and _NN.search(g) is not None and _NOT.search(g) is None
+    return bool(g) and (_NN.search(g) is not None or _typo_nn(g)) and _NOT.search(g) is None
 
 
 def lesson_for(goal: str) -> dict | None:
@@ -453,8 +478,10 @@ def live_frames(ref: list[dict], losses: list[tuple[int, float]], final: dict | 
     if not ref:
         return [], False
     by_epoch = {int(f["epoch"]): f for f in ref}
-    same = bool(losses) and all(e in by_epoch and abs(float(by_epoch[e]["loss"]) - v) <= max(6e-4, 0.02 * v)
-                                for e, v in losses)
+    # The epochs both printed (every 1,000 in the reference) must agree; a loop printing every 100 or every epoch is
+    # still the reference run when they do (at least two shared epochs: epoch 0 alone only says the start matches).
+    shared = [(e, v) for e, v in losses if e in by_epoch]
+    same = len(shared) >= 2 and all(abs(float(by_epoch[e]["loss"]) - v) <= max(6e-4, 0.02 * v) for e, v in shared)
     xs = _sample_xs(ref, samples)
     if same or not losses:
         frames = copy.deepcopy(ref)
@@ -486,11 +513,14 @@ def _fmt(v: float) -> str:
     return f"{v:.4f}" if v >= 1e-4 else f"{v:.1e}"
 
 
-def _train_caption(losses: list[tuple[int, float]], final: dict | None) -> str:
+def _train_caption(losses: list[tuple[int, float]], final: dict | None, same: bool = True) -> str:
+    """Never passes the lesson's weights off as theirs: a run that isn't the lesson's own run (another seed, lr, ...)
+    only has its printed losses (and, once nn.py prints them, its end weights)."""
     if not losses:
         return "Your trained network, from the weights it printed."
     (e0, v0), (e1, v1) = losses[0], losses[-1]
-    tail = " Drawn from the weights it printed." if final else ""
+    tail = (" Drawn from the weights it printed." if same else " It ends on the weights it printed.") if final \
+        else "" if same else " The lines are the lesson's own weights until nn.py prints yours."
     return f"Your run: loss {_fmt(v0)} at epoch {e0} → {_fmt(v1)} at epoch {e1}.{tail}"
 
 
@@ -513,14 +543,15 @@ def _live(session: Any, kind: str) -> dict | None:
     if not losses and not final:
         return None
     samples = base["data"].get("samples")
-    frames, _ = live_frames(base["data"]["frames"], losses, final, samples)
+    frames, same = live_frames(base["data"]["frames"], losses, final, samples)
     if not frames:
         return None
     if kind == "forward":
         return _with_frames(base, forward_frames(frames[-1], samples), mode="forward",
-                            caption="Your trained network: x goes in, sin(x) comes out"
-                                    + (". Drawn from the weights it printed." if final else "."))
-    return _with_frames(base, frames, mode="train", caption=_train_caption(losses, final))
+                            caption="Your trained network: x goes in, sin(x) comes out. Drawn from the weights it printed."
+                            if final else "Your trained network: x goes in, sin(x) comes out." if same
+                            else "The lesson's trained network drawing sin(x): run nn.py to draw yours.")
+    return _with_frames(base, frames, mode="train", caption=_train_caption(losses, final, same))
 
 
 def _step_ids(session: Any) -> list[str]:
@@ -539,13 +570,13 @@ def _after(session: Any, step: dict, sid: str) -> bool:
 def step_diagram(session: Any, step: dict, kind: str | None = None) -> dict | None:
     """What the right-hand panel / the Diagram button shows for this step now. kind "gradients" asks for the stuck
     picture; None picks: the stuck picture while this step's run is stuck, else the learner's own run once there is
-    one (training and test steps), else the step's precomputed network. Always with stepId."""
+    one (the loop, training and test steps), else the step's precomputed network. Always with stepId."""
     sid = step.get("id")
     st = _state(session)
     d = None
     if kind == "gradients" or (kind is None and st.get("stuck") and st.get("stuck_step") == sid):
         d = _live(session, "stuck") or _ref(f"{sid}-gradients")
-    elif _after(session, step, TRAIN_STEP) and (st.get("losses") or st.get("final")):
+    elif _after(session, step, LOOP_STEP) and (st.get("losses") or st.get("final")):
         d = _live(session, "forward" if sid == TEST_STEP else "train")
     if d is None:
         d = _ref(f"{sid}-network")
@@ -624,7 +655,7 @@ def _ingest_latest(session: Any) -> bool:
 def after_evaluate(session: Any, step: dict, trigger: str) -> None:
     """After a run (or new loss lines on screen): the right-hand panel follows the learner's real run. Stuck at
     STUCK_LOSS -> identical hidden neurons; otherwise their losses (and weights) redraw the step's network."""
-    if not active(session) or trigger not in ("run_end", "metric", "check") or not _after(session, step, TRAIN_STEP):
+    if not active(session) or trigger not in ("run_end", "metric", "check") or not _after(session, step, LOOP_STEP):
         return
     if not _ingest_latest(session):
         return
