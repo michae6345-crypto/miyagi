@@ -1365,6 +1365,9 @@ class LessonSession:
 
     def _step_summary(self, st: dict, i: int) -> dict:
         summary = {"id": st["id"], "index": st.get("index", i), "title": st["title"]}
+        for k in ("kind", "what"):  # E2: Code / Run / Learn + the plan line ("A list that stores every note")
+            if isinstance(st.get(k), str) and st[k].strip():
+                summary[k] = st[k].strip()
         seg = self._segment(st)
         if seg:
             summary["video"] = seg
@@ -1384,6 +1387,13 @@ class LessonSession:
                 info[k] = lesson[k]
         if lesson.get("goalMatch"):
             info["goalMatch"] = lesson["goalMatch"]
+        if isinstance(lesson.get("primer"), list) and lesson["primer"]:  # "Before you start" concepts (contract 9fdd9db)
+            info["primer"] = [
+                {k: v for k, v in item.items() if k in ("id", "title", "body", "code", "diagramPrompt") and v}
+                for item in lesson["primer"] if isinstance(item, dict) and item.get("id") and item.get("title")
+            ]
+        if isinstance(lesson.get("overview"), str) and lesson["overview"].strip():  # "What we're building"
+            info["overview"] = lesson["overview"].strip()
         return {"lesson": info, "steps": steps}
 
     # ------------------------------------------------------------------ steps
@@ -1418,6 +1428,14 @@ class LessonSession:
              "instructions": action}
         if full and " ".join(full.split()) != action:
             p["details"] = full  # the step's full explanation (the app may show it on expand)
+        for k in ("kind", "what", "why"):  # what you build + what it means (E2, contract 9fdd9db)
+            if isinstance(step.get(k), str) and step[k].strip():
+                p[k] = step[k].strip()
+        if isinstance(step.get("concepts"), list) and step["concepts"]:
+            p["concepts"] = [c for c in step["concepts"] if isinstance(c, str)]
+        exact = self._run_command(step) or (step.get("code") or "").strip()  # the full thing to type / run, never cut
+        if exact:
+            p["code"] = exact
         seg = self._segment(step)
         if seg:
             p["video"] = seg
