@@ -96,11 +96,18 @@ export default defineMainFeature({
       win.showInactive()
       ctx.raise(win, -1)
     }
+    // "Just teach me" (lesson.mode "lesson") has no video: never open or show the player for it (Michael, Sat 3:23 PM).
+    const textLesson = (e: { type: string; payload?: unknown }): boolean =>
+      e.type === 'lesson.ready' && (e.payload as { lesson?: { mode?: string } } | undefined)?.lesson?.mode === 'lesson'
     ctx.engine.onEvent((e) => {
-      if (e.type === 'lesson.ready') reveal()
+      if (e.type !== 'lesson.ready') return
+      if (textLesson(e)) {
+        if (!win.isDestroyed() && win.isVisible()) win.hide()
+      } else reveal()
     })
     // A lesson already running (e.g. DEMO=1 started before this feature loaded).
-    if (ctx.engine.log.some((e) => e.type === 'lesson.ready')) win.once('ready-to-show', reveal)
+    const ready = [...ctx.engine.log].reverse().find((e) => e.type === 'lesson.ready')
+    if (ready && !textLesson(ready)) win.once('ready-to-show', reveal)
 
     ctx.handle('player:dock', () => {
       win.setBounds(dock())

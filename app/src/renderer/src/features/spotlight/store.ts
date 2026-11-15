@@ -87,7 +87,7 @@ onMessage('spotlight', (p) => {
   const next = p as SpotlightTarget
   const prev = get().target
   // A re-spotlight: the engine re-sends the same target every screen read. Ignore OCR jitter so the hole doesn't wobble.
-  if (prev && prev.caption === next.caption && prev.matched === next.matched && prev.code === next.code && next.rect && sameRect(prev.rect, next.rect)) return
+  if (prev && prev.caption === next.caption && prev.matched === next.matched && prev.code === next.code && prev.snippet === next.snippet && next.rect && sameRect(prev.rect, next.rect)) return
   arrivedAt = Date.now()
   cameWith = openCard()
   set({ target: next })
