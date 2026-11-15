@@ -56,9 +56,12 @@ import { MiyagiMark } from '../../core/ui/Mark'
 import { OptionButton, Spinner } from '../../core/ui/atoms'
 import { color, copy, fill, launcher as launcherTheme, pill, radius, scrim, shadows, spring, springOut } from '../../core/theme'
 import { useCards } from '../cards/store'
+import { hole, isUsableRect, toLocal } from '../spotlight/place'
+import { useSpotlight } from '../spotlight/store'
 import { Action, Chip, EndLink, Hint, HOW_LABEL, HowChoice, Rise, type How } from './parts'
 import { LessonRow, LinkRow, MessageRow, ResultRow, ResumeRow, ROW_H, SettingsRow, SkeletonRow } from './Rows'
 import { clearResults, markAsked, setLauncherOpen, startSearch, useSearch } from './store'
+import { placeClear } from './place'
 import { parseYouTube } from './youtube'
 
 type Phase = 'closed' | 'open' | 'closing' | 'building' | 'sending'
@@ -133,6 +136,8 @@ const shapeOf = (s: Size): TargetAndTransition => ({
   height: s.h,
   borderRadius: isPillSized(s) ? s.h / 2 : radius.island,
   boxShadow: isPillSized(s) ? shadows.pill : shadows.card,
+  // At the notch: a panel moved clear of the spotlight (see placeClear) collapses back up into the island.
+  y: 0,
   // Born black like the island, so the hand-over is seamless; it turns to glass as it grows (see `grown`).
   backgroundColor: color.island
 })
@@ -198,6 +203,8 @@ export function Launcher({ layout }: { layout: Layout }): ReactNode {
   const resumeCard = useCards((c) => (c.card?.kind === 'resume' ? c.card : undefined))
   const saved = resumeCard ? savedLesson(resumeCard.body) : undefined
   const islandMode = useIslandMode()
+  /** The spotlight's box (the line being asked about): the panel keeps clear of it (Michael's review A13). */
+  const spot = useSpotlight((s) => s.target)
   const reduce = useReducedMotion()
   const input = useRef<HTMLInputElement>(null)
   /** The row Build last sent, so reopening (the preflight card's "Pick another") highlights the next one. */
@@ -604,10 +611,24 @@ export function Launcher({ layout }: { layout: Layout }): ReactNode {
   // ---- motion targets -------------------------------------------------------------------------
 
   const exiting = phase === 'closing' || phase === 'building' || phase === 'sending'
+  /**
+   * Clear of the spotlight's box (Michael's review A13: the ask panel covered the line being asked about): narrower
+   * under the notch, or slid down below the box. It still grows out of the notch and collapses back into it.
+   */
+  const box = spot && isUsableRect(spot.rect) ? hole(toLocal(spot.rect, layout.origin)) : undefined
+  const place = placeClear({
+    box,
+    width: WIDTH,
+    viewW: layout.width,
+    top: bridge.platform.pillTop,
+    height: contentH || from.h,
+    bottom: layout.workArea.y + layout.workArea.height
+  })
   /** Grown, the panel is dark HUD glass (color.glass) with a hairline edge (below), like mockup 03, not the island's flat black. */
   const grown: TargetAndTransition = {
-    width: WIDTH,
+    width: place.w,
     height: contentH || from.h,
+    y: place.dy,
     borderRadius: radius.launcher,
     boxShadow: shadows.card,
     backgroundColor: color.glass
@@ -676,7 +697,13 @@ export function Launcher({ layout }: { layout: Layout }): ReactNode {
   const bestIndex = Math.max(0, visible.findIndex((r) => /best/i.test(r.reason)))
 
   return (
-    <div key={gen} className="absolute inset-0" style={{ width: layout.width, height: layout.height }} data-launcher={phase}>
+    <div
+      key={gen}
+      className="absolute inset-0"
+      style={{ width: layout.width, height: layout.height }}
+      data-launcher={phase}
+      data-clear={place.dy ? 'below' : place.w < WIDTH ? 'narrow' : undefined}
+    >
       {/* A light dim; click anywhere outside to collapse back into the island. */}
       <motion.div
         className="absolute inset-0"
@@ -708,7 +735,7 @@ export function Launcher({ layout }: { layout: Layout }): ReactNode {
           ref={content}
           // flow-root: the first section's top margin must not collapse through, or the measured height comes up short and the panel clips the footer.
           className="flow-root"
-          style={{ width: WIDTH, marginLeft: `calc(50% - ${WIDTH / 2}px)` }}
+          style={{ width: place.w, marginLeft: `calc(50% - ${place.w / 2}px)` }}
           initial={{ opacity: 0, y: 4 }}
           animate={exiting ? { opacity: 0, y: 0, transition: contentOut } : { opacity: 1, y: 0, transition: contentIn }}
         >
@@ -855,9 +882,10 @@ export function Launcher({ layout }: { layout: Layout }): ReactNode {
           <Rise i={3}>
             <div className="mt-[16px] h-px" style={{ background: fill.rule }} />
             <div className="flex h-[48px] items-center gap-[4px] pl-[18px] pr-[12px]">
-              {/* Ask ↔ new lesson is navigation, not the action: quiet and on the far left, away from the primary, so a
-                  lesson isn't restarted by accident (Michael's audit A20). */}
-              {lesson.hasLesson && !choosing && <Action label={mode === 'ask' ? 'New lesson' : 'Back to step'} keycap="⇥" enabled onClick={switchMode} />}
+              {/* No "New lesson" while a lesson runs (Michael's review A13): the ask panel is about this step, and the
+                  footer's End lesson is the way out. Tab still flips to a new search, where "Back to step" (quiet, far
+                  left, away from the primary: audit A20) is the way back. */}
+              {lesson.hasLesson && mode === 'search' && !choosing && <Action label="Back to step" keycap="⇥" enabled onClick={switchMode} />}
               {/* End lesson (desktop test 3, item 8): quiet, small, two clicks, on the left away from the primary. */}
               {lesson.hasLesson && resumeRows && <EndLink armed={endArmed} onClick={tapEnd} />}
               <span className="flex min-w-0 flex-1 items-center gap-[7px] pl-[6px] text-[13px]" style={{ color: color.text }}>
