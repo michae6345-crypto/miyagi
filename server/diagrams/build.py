@@ -223,19 +223,20 @@ def _clip(s: Any, n: int) -> str:
 
 
 CAPTION_WORDS = 12  # BRAND: the caption is one sentence of <= 12 words (E12)
-_TRAILING = re.compile(r"\s+(a|an|the|of|to|and|or|in|on|for|with|by|at|from|into|is|are)$", re.I)
+_TRAILING = re.compile(r"\s+(a|an|the|of|to|and|or|in|on|for|with|by|at|from|into|is|are)$", re.IGNORECASE)
 
 
 def _caption(s: Any, limit: int = 240) -> str:
     """ONE sentence of <= CAPTION_WORDS words: the first sentence; a longer one ends at its last clause break
-    (, ; : —) when that keeps at least half of it, else at the word limit with "…"."""
+    (; : —, never a comma, which may sit inside a list) when that keeps at least half of it, else at the word limit
+    with "…"."""
     s = re.sub(r"\s+", " ", str(s or "")).strip()
     s = re.split(r"(?<=[.!?])\s+", s, maxsplit=1)[0] if s else ""
     words = s.split(" ")
     if len(words) <= CAPTION_WORDS:
         return _clip(s, limit)
     cut = " ".join(words[:CAPTION_WORDS])
-    at = max(cut.rfind(p) for p in (", ", "; ", ": ", " — ", " – "))
+    at = max(cut.rfind(p) for p in ("; ", ": ", " — ", " – "))
     if at > 0 and len(cut[:at].split()) >= CAPTION_WORDS // 2:
         return cut[:at].rstrip() + "."
     cut = cut.rstrip(",;:—–- ")

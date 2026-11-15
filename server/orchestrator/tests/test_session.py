@@ -2483,12 +2483,17 @@ def test_step_started_instructions_are_one_concrete_action(rig):
     from server.orchestrator.session import LessonSession
 
     s = rig.s
-    assert s._action_line({"id": "s1", "title": "t", "file": "calculator.py",
-                           "code": "print(\"Calculator\")\nx = 1\n", "instructions": "Long text."}) \
-        == "Create calculator.py, then type the lines below."
+    two = {"id": "s1", "title": "t", "file": "calculator.py", "code": "print(\"Calculator\")\nx = 1\n",
+           "instructions": "Long text."}
+    assert s._action_line(two) == 'In VS Code, create calculator.py and type print("Calculator") …'  # video: no snippet
+    s.graph = {"lesson": {"mode": "lesson"}}  # E5: lesson mode's snippet shows the code under the line
+    assert s._action_line(two) == "Create calculator.py, then type the lines below."
     (rig.workdir / "calculator.py").write_text("")
     assert s._action_line({"id": "s1", "title": "t", "file": "calculator.py", "code": "print(1)\n"}) \
         == "In calculator.py, type the line below."
+    s.graph = None
+    assert s._action_line({"id": "s1", "title": "t", "file": "calculator.py", "code": "print(1)\n"}) \
+        == "In VS Code, type print(1) in calculator.py"
     assert s._action_line({"id": "s2", "title": "t", "instructions": "Add an nn.Tanh after each Linear layer. "
                                                                      "This keeps the output smooth."}) \
         == "Add an nn.Tanh after each Linear layer."
@@ -3009,7 +3014,7 @@ def test_lesson_mode_targeter_confirms_moves_or_drops_the_located_box(tmp_path, 
 
         run(go())
         assert asked and asked[0][0]["y"] == 120.0                      # FakeScreen's located row
-        assert asked[0][1].startswith("In calc.py, type def add(a, b): …") and "(code: def add(a, b):" in asked[0][1]
+        assert asked[0][1].startswith("In calc.py, type the lines below.") and "(code: def add(a, b):" in asked[0][1]
         boxes = [sp for sp in rig.of("spotlight") if "rect" in sp]
         if answer is None:
             assert not boxes

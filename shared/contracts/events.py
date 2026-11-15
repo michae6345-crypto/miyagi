@@ -382,8 +382,9 @@ CardAction = Literal["confirm", "undo", "apply_fix", "open_editor", "resume", "e
 class Card(_Model):
     stepId: str | None = None
     # resume: "Continue where you left off?"; step: a step-control / judge card the engine raises itself ("Run it",
-    # "Save X", "X is still empty", "Wrong folder?", "Looks done?", "Not yet"), never an answer; where: Show me's
-    # where-to-work card ("Open calc.py", "Where to work") when there is no box to draw. See events.ts.
+    # "Save X", "X is still empty", "Wrong folder?", "Looks done?", "Not yet"), never an answer; where: the
+    # where-to-work card ("Open calc.py", "Where to work") when there is no box to draw (Show me, or Hint before the
+    # step's code is on screen). See events.ts.
     kind: Literal["explain", "hint", "answer", "resume", "setup", "preflight", "step", "where"]
     title: str
     body: str

@@ -52,7 +52,7 @@ def hint(step: dict, level: int, last_offtrack: dict | None = None, screen: Scre
     `actions`) are additive to the contract's `card` payload.
 
     With `screen`, the card also carries `targets` (the line it is about, exact match, no model) or
-    `where` (where to go first); levels 0/1 lead with `where` when the code isn't on screen.
+    `where` (where to go first, shown as its own Where row); the body is always the hint itself (E6).
     """
     card = _hint(step, level, last_offtrack)
     if screen is None:

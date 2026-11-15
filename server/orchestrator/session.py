@@ -1528,7 +1528,8 @@ class LessonSession:
     # ------------------------------------------------------------------ steps
     def _action_line(self, step: dict) -> str:
         """ONE concrete thing to do now, for the app to show under the current chapter: E2's own `action`, else
-        "In <file>, type the lines below." (the step's code shows under it), else the instructions' first sentence."""
+        "In <file>, type the lines below." (lesson mode: the step's code shows under it; a video lesson has no snippet,
+        so "In VS Code, type <first line> … in <file>"), else the instructions' first sentence."""
         for k in ("action", "todo"):
             if isinstance(step.get(k), str) and step[k].strip():
                 return step[k].strip()
@@ -1540,9 +1541,15 @@ class LessonSession:
             from . import workspace as wsmod
 
             exists = Path(self.workdir).is_dir() and wsmod.resolve_file(self.workdir, file) is not None
-            lines = "the lines below" if len([ln for ln in code.splitlines() if ln.strip()]) > 1 else "the line below"
-            return (f"In {Path(file).name}, type {lines}." if exists
-                    else f"Create {Path(file).name}, then type {lines}.")
+            n = len([ln for ln in code.splitlines() if ln.strip()])
+            if self.lesson_mode:  # E5: the island's snippet shows the code under this line (lesson mode only)
+                lines = "the lines below" if n > 1 else "the line below"
+                return (f"In {Path(file).name}, type {lines}." if exists
+                        else f"Create {Path(file).name}, then type {lines}.")
+            more = " …" if n > 1 else ""  # video lessons: no snippet under it, so name the first line
+            line = first if len(first) <= 60 else first[:57] + "…"
+            return (f"In VS Code, type {line}{more} in {Path(file).name}" if exists
+                    else f"In VS Code, create {Path(file).name} and type {line}{more}")
         text = " ".join((step.get("instructions") or "").split())
         m = re.match(r"(.+?[.!?])(\s|$)", text)
         sent = m.group(1) if m else text

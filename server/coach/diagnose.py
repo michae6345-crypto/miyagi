@@ -345,22 +345,24 @@ _CAMEL_BRANDS = frozenset({"iPhone", "iPad", "iOS", "macOS", "eBay", "iCloud"})
 
 def _tidy_title(title: str, step: dict, code_excerpt: str = "") -> str:
     """E11: sentence case, code names in backticks: "subtract, multiply, divide not written yet" -> "`subtract`,
-    `multiply`, `divide` not written yet". Wrapped: the step's def / class names, add() and snake_case tokens, and a
-    lowercase first word that is a name in the code (`lr`); otherwise the first letter is capitalized. Text already
-    in backticks is left alone."""
+    `multiply`, `divide` not written yet". Wrapped: the step's def / class names, add() and snake_case tokens, dotted
+    lowercase names (`calc.py`, `np.mean`, `torch.no_grad`), and a lowercase first word that is a name in the code
+    (`lr`, assigned or passed as `lr=`); otherwise the first letter is capitalized. A wrapped first word is never
+    capitalized. Text already in backticks is left alone."""
     src = f"{step.get('code') or ''}\n{code_excerpt or ''}"
     defs = set(re.findall(r"\b(?:def|class)\s+([A-Za-z_]\w*)", src))
-    assigned = re.findall(r"^\s*([A-Za-z_]\w*)\s*=(?!=)|^\s*(?:from|import)\s+([A-Za-z_]\w*)", src, re.M)
-    names = defs | {a or b for a, b in assigned}  # + variables and imported modules (`lr`, `pandas`)
+    assigned = re.findall(r"\b([A-Za-z_]\w*)\s*=(?!=)|^\s*(?:from|import)\s+([A-Za-z_]\w*)", src, re.MULTILINE)
+    names = defs | {a or b for a, b in assigned}  # + variables, keyword args and imported modules (`lr`, `pandas`)
 
     def wrap(m: re.Match, at_start: bool) -> str:
         tok = m.group(1)
         code = (tok.rstrip("()") in defs or tok.endswith("()") or ("_" in tok and re.search(r"[A-Za-z]", tok))
+                or ("." in tok and tok[:1].islower())  # calc.py, np.mean (Node.js is a name: left alone)
                 or (re.fullmatch(r"[a-z]+[A-Z]\w*", tok) and tok not in _CAMEL_BRANDS))  # useEffect, not macOS
         first = at_start and tok[:1].islower() and tok in names
         return f"`{tok}`" if code or first else tok
 
-    word = re.compile(r"(?<![\w`.])([A-Za-z_]\w*(?:\(\))?)(?![\w`(.])")
+    word = re.compile(r"(?<![\w`.])([A-Za-z_]\w*(?:\.[A-Za-z_]\w*)*(?:\(\))?)(?![\w`(.])")
     parts = re.split(r"(`[^`]*`)", title or "")
     for i in range(0, len(parts), 2):  # outside backticks only
         parts[i] = word.sub(lambda m, i=i: wrap(m, i == 0 and m.start() == 0), parts[i])
