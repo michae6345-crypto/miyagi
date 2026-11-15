@@ -51,6 +51,7 @@ class LineLocation:
     match_rect: Rect | None = None
     pane: Rect | None = None          # the editor text area (all visible rows)
     line_height: float | None = None
+    occluded: bool = False            # a hover tooltip covers part of the row: its text may be incomplete
 
     def __bool__(self) -> bool:
         return self.rect is not None
@@ -61,7 +62,8 @@ class LineLocation:
                 "direction": self.direction, "reason": self.reason, "source": self.source, "app": self.app,
                 "text": self.text, "match_rect": self.match_rect.to_dict() if self.match_rect else None,
                 "pane": self.pane.to_dict() if self.pane else None,
-                "line_height": round(self.line_height, 2) if self.line_height else None}
+                "line_height": round(self.line_height, 2) if self.line_height else None,
+                "occluded": self.occluded}
 
 
 @dataclass
@@ -342,10 +344,10 @@ def _extend(pane: EditorPane, chain: list[_Cand], obs: ScreenObservation, win_re
 def _editor_blocks(obs: ScreenObservation, app: str | None) -> list[Block]:
     if app:
         return obs.blocks_in(app)
-    eds = [b for b in obs.blocks if b.app and any(M.app_matches(e, b.app) for e in EDITOR_APPS)]
+    eds = [b for b in obs.blocks_in(None) if b.app and any(M.app_matches(e, b.app) for e in EDITOR_APPS)]
     if eds:
         return eds
-    return [b for b in obs.blocks if not M.is_terminal_app(b.app)]
+    return [b for b in obs.blocks_in(None) if not M.is_terminal_app(b.app)]
 
 
 # ---------------------------------------------------------------------- files
@@ -366,15 +368,19 @@ def _file_shown(obs: ScreenObservation, pane: EditorPane, file: str) -> bool | N
     """Does this pane show `file`? Decided by the breadcrumb right above the pane (each editor group
     has its own; tabs are no good: inactive tabs are listed too), else by the window title (the
     focused editor's file). None if neither is readable."""
-    base = os.path.basename(file)
+    base = _alnum(os.path.basename(file))       # OCR drops dots: "calculator.py" reads "calculatorpy"
     top = pane.rect.y
     crumbs = [b for b in obs.blocks if b.app == pane.app and top - 6 * pane.line_height <= b.rect.y2 <= top + 2
               and b.rect.x2 > pane.gutter_x and b.rect.x < pane.text_right and ("\u203a" in b.text or " > " in b.text)]
     if crumbs:
-        return any(base in b.text for b in crumbs)
+        return any(base in _alnum(b.text) for b in crumbs)
     if pane.window:
-        return base in pane.window
+        return base in _alnum(pane.window)
     return None
+
+
+def _alnum(s: str) -> str:
+    return re.sub(r"[^0-9a-z]", "", s.lower())
 
 
 # ---------------------------------------------------------------------- public (OCR)
@@ -411,7 +417,18 @@ def locate_line(obs: ScreenObservation, file: str | None, line: int, app: str | 
         return loc
     loc.rect = r.clamp(obs.screen) if obs.screen.w else r
     loc.text = pane.row_text(line) or None
+    loc.occluded = _under_hover(obs, loc.rect)
     return loc
+
+
+def _under_hover(obs: ScreenObservation, r: Rect) -> bool:
+    hov = [b.rect for b in obs.blocks if b.role == "hover"]
+    if not hov:
+        return False
+    box = hov[0]
+    for h in hov[1:]:
+        box = box.union(h)
+    return box.x < r.x2 and r.x < box.x2 + 8 and box.y - 2 < r.y2 and r.y < box.y2 + 2
 
 
 def locate_anchor(obs: ScreenObservation, text: str, app: str | None = None, file: str | None = None,
