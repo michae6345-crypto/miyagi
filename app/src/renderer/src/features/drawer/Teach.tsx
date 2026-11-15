@@ -5,16 +5,23 @@
  *  - PrimerSection: "Before you start", collapsed by default; each concept with its body and a small example.
  *  - StepDetail: inside the current step, a Type / Run badge with the one-line instruction, the full code (or the
  *    exact command) in mono with Copy, "Why:" and concept chips that open the matching primer item in place.
+ *  - StepActions: mockup 01's option row under the current step's checks: Explain / Diagram / Show me / Hint and
+ *    "Check my work", the drawer's one primary.
  *
- * Glass tokens only (theme.glass); chrome stays neutral (no pastels: these aren't options), green stays for passed.
+ * Glass tokens only (theme.glass); chrome stays neutral, pastels only on the option row (theme.actionTone through
+ * OptionButton), green stays for passed.
  */
 import { motion } from 'motion/react'
 import { useEffect, useRef, useState, type CSSProperties, type ReactNode } from 'react'
 import { BookOpen, Check, ChevronRight, Copy, Keyboard, Terminal, type LucideIcon } from 'lucide-react'
 import { useShallow } from 'zustand/react/shallow'
 import type { Prerequisite, PrimerItem, StepKind, StepSummary } from '../../../../../../shared/contracts/events'
-import { useLesson } from '../../core/lesson'
-import { font, glass, spring } from '../../core/theme'
+import { bridge } from '../../bridge'
+import { useLesson, useThinking } from '../../core/lesson'
+import { sendAction, triggerShortcut, usePressed, type ActionKind, type ActionShortcut } from '../../core/shortcuts'
+import { color, fill, font, glass, spring } from '../../core/theme'
+import { OptionButton, Spinner } from '../../core/ui/atoms'
+import { GlassPrimary, GlassSpinner } from '../../core/ui/glass'
 import { FlowDiagram } from '../before-start/Flow'
 import { openBeforeStart } from '../before-start/store'
 import { useStepSnippet } from '../overview/snippet'
@@ -92,6 +99,21 @@ export function NeedsChip(): ReactNode {
       </button>
     </div>
   )
+}
+
+/**
+ * The eyebrow's short topic ("Just teach me · calculator"): the title without a leading "how to" / verb / article, cut
+ * before its first qualifier (" in ", " with ", ": " ...), at most 4 words. From the data, never a fixed word.
+ */
+export function lessonTopic(title: string): string {
+  const full = title.trim()
+  let t = full
+    .replace(/^(?:how\s+to\s+|let's\s+)?(?:learn|build|make|create|write|code|train|solve|implement)\s+/i, '')
+    .replace(/^(?:a|an|the|your)\s+/i, '')
+  const cut = t.search(/\s*[:—–]\s*|\s+-\s+|\s+(?:in|with|using|for|from|on|via|by|to|that)\s+/i)
+  if (cut > 0) t = t.slice(0, cut)
+  t = t.split(/\s+/).slice(0, 4).join(' ').replace(/[.,;]+$/, '')
+  return t || full
 }
 
 /** "about N min left": the steps' estMinutes summed over the steps not passed or skipped yet (undefined without estimates). */
@@ -323,6 +345,45 @@ export function CodeBlock({ code, caption, bleed }: { code: string; caption: str
       <pre className="overflow-x-auto whitespace-pre px-[12px] py-[9px] text-[12px] leading-[18px]" style={{ fontFamily: font.mono, color: glass.text, ...thinScroll }}>
         <code>{code}</code>
       </pre>
+    </div>
+  )
+}
+
+// ---------------------------------------------------------------------------
+// The option row
+// ---------------------------------------------------------------------------
+
+/** The spinner in an option's icon slot: ink on the pastel (the cards' SpinInk). */
+const SpinInk = ((p: { size?: number }) => <Spinner size={p.size ?? 13} c={color.onAccent} track={fill.onAccentKey} />) as unknown as LucideIcon
+/** The spinner in the primary's icon slot: the glass button's text color (white on dark, ink on light). */
+const SpinPrimary = ((p: { size?: number }) => <GlassSpinner size={p.size ?? 13} c={glass.buttonText} track={glass.rule} />) as unknown as LucideIcon
+
+const OPTIONS: Array<{ kind: ActionShortcut & ('explain' | 'diagram' | 'show_me' | 'hint'); label: string }> = [
+  { kind: 'explain', label: 'Explain' },
+  { kind: 'diagram', label: 'Diagram' },
+  { kind: 'show_me', label: 'Show me' },
+  { kind: 'hint', label: 'Hint' }
+]
+
+/**
+ * Mockup 01: the current step's options, in their pastels with the platform's keycaps (bridge.platform.keys), the
+ * same path as the shortcut bar (triggerShortcut), and "Check my work" (action check_step) as the one primary.
+ * Never looks dead: the pressed button's icon spins while the engine thinks about it.
+ */
+export function StepActions({ padX }: { padX: number }): ReactNode {
+  const keys = bridge.platform.keys
+  const thinking = useThinking()
+  const pressed = usePressed((p) => p.kind)
+  const busy = (k: ActionKind): boolean => thinking && pressed === k
+  const checking = busy('check_step')
+  return (
+    <div data-part="drawer-actions" className="flex flex-wrap items-center gap-[6px] pb-[12px]" style={{ paddingLeft: padX, paddingRight: padX }}>
+      {OPTIONS.map((o) => (
+        <OptionButton key={o.kind} action={o.kind} label={o.label} kbd={keys[o.kind]} icon={busy(o.kind) ? SpinInk : undefined} onClick={() => triggerShortcut(o.kind)} />
+      ))}
+      <span className="ml-auto">
+        <GlassPrimary label={checking ? 'Checking…' : 'Check my work'} icon={checking ? SpinPrimary : Check} onClick={() => !checking && sendAction('check_step')} />
+      </span>
     </div>
   )
 }

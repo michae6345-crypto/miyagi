@@ -9,8 +9,11 @@ import type { Layout } from '../../../../preload/api'
 import type { Rect } from '../../core/lesson'
 
 export const PANEL_W = 340
-/** A "Just teach me" lesson has no player to line up with, and its drawer carries the code to type: give code room. */
-export const PANEL_W_LESSON = 384
+/**
+ * A "Just teach me" lesson has no player to line up with, and its drawer carries the code to type and the option row
+ * (Explain / Diagram / Show me / Hint + Check my work): mockup 01's width.
+ */
+export const PANEL_W_LESSON = 420
 const INSET = 8
 /** Same clearance as the player dock: the shortcut bar (88) + its 24px gap. */
 const BAR_CLEARANCE = 112
