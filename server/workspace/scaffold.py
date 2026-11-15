@@ -221,16 +221,21 @@ def _is_text_name(p: str) -> bool:
 
 # E26: "# Step 1: start building the weather CLI here" stayed on line 10, under the learner's step-2 code: no step uses
 # or removes a step-numbered placeholder. One whole comment line ("# Step 2 - ...", "// step 3", "<!-- Step 1 -->").
-_STEP_MARKER = re.compile(r"^[ \t]*(?:(?:#|//|--|;)[ \t]*|/\*[ \t]*(?=[^\n]*\*/)|<!--[ \t]*(?=[^\n]*-->))"
-                          r"(?:TODO:?[ \t]*)?\(?step[ \t]*\d+\b[^\n]*(?:\n|\Z)", re.I | re.M)
+# `--` starts a comment only in SQL, Lua and Haskell; elsewhere it is a CLI flag line (`  --step 1000 \`) and stays.
+_MARKER_RE = (r"^[ \t]*(?:(?:{lead})[ \t]*|/\*[ \t]*(?=[^\n]*\*/)|<!--[ \t]*(?=[^\n]*-->))"
+              r"(?:TODO:?[ \t]*)?\(?step[ \t]*\d+\b[^\n]*(?:\n|\Z)")
+_STEP_MARKER = re.compile(_MARKER_RE.replace("{lead}", "#|//|;"), re.I | re.M)
+_STEP_MARKER_DASH = re.compile(_MARKER_RE.replace("{lead}", "#|//|--|;"), re.I | re.M)
+_DASH_COMMENT_EXT = {".sql", ".lua", ".hs"}
 
 
 def strip_step_markers(text: str, path: str = "") -> str:
     """A starter code file without step-numbered placeholder comment lines (the docstring and the rest kept). Prose and
     data files (`# Step 1` is a Markdown heading there) are left as they are."""
-    if PurePosixPath(path or "").suffix.lower() in {".md", ".txt", ".csv", ".tsv", ".json", ".jsonl"}:
+    ext = PurePosixPath(path or "").suffix.lower()
+    if ext in {".md", ".txt", ".csv", ".tsv", ".json", ".jsonl"}:
         return text or ""
-    out = _STEP_MARKER.sub("", text or "")
+    out = (_STEP_MARKER_DASH if ext in _DASH_COMMENT_EXT else _STEP_MARKER).sub("", text or "")
     if out == (text or ""):
         return out
     out = re.sub(r"\n{3,}", "\n\n", out)

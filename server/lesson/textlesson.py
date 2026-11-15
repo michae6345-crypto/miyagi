@@ -330,7 +330,8 @@ async def build_text_lesson(goal: str, workdir: str, on_update=None, *, cache: b
 
     async def step(i: int, notes: str, d: dict | None = None) -> list[dict]:
         """Build plan step i against the files the earlier steps produced. d: its draft, written in parallel with the
-        other steps (E23); checked here against the real files and rewritten when it contradicts them."""
+        other steps (E23); checked here against the real files and rewritten when it contradicts them. None (step 1,
+        or a run step): drafted here from the code typed so far."""
         sp = steps_plan[i - 1]
         prompt = prompt_for(i, notes, typed_so_far())
         if d is None:
@@ -353,7 +354,10 @@ async def build_text_lesson(goal: str, workdir: str, on_update=None, *, cache: b
         st = _assemble_step(i, sp, d)
         st["expected_output"] = (d.get("expected_output") or "").strip()
         out = []
-        parts = [one_step(sanitize_step(st, workdir), sp)]  # never split in two: the outline already counted it
+        st = sanitize_step(st, workdir)
+        if _is_run_plan(sp) and len(split_code_and_run(st)) > 1:  # one_step keeps the command only: say so
+            warnings.append(f"step {i}: the run step's draft also wrote code for {st.get('file')}; only the command was kept")
+        parts = [one_step(st, sp)]  # never split in two: the outline already counted it
         for part in parts:
             part = builder.tidy_labels(explain_step(shape_step(use_python3(part)), sp, primer, len(parts)))  # step 1 goes out before _finalize
             if not _is_run_step(part):
@@ -371,10 +375,13 @@ async def build_text_lesson(goal: str, workdir: str, on_update=None, *, cache: b
     builder._emit("first_steps", "1 step")
     await emit(False)
 
-    # 2. research (bounded wait), then steps 2..N drafted in parallel (E23: the last one came +54.5 s later when they
-    #    were written one by one). Each draft sees step 1's code and the plan of the steps before it (titles and the
-    #    names they add); then, in order, each is checked against the files the earlier steps really produced and
-    #    rewritten if it contradicts them, so nothing is re-added, renamed or called before it exists.
+    # 2. research (bounded wait), then the code steps among 2..N drafted in parallel (E23: the last one came +54.5 s
+    #    later when they were written one by one). Each draft sees step 1's code and the plan of the steps before it
+    #    (titles and the names they add); then, in order, each is checked against the files the earlier steps really
+    #    produced and rewritten if it contradicts them, so nothing is re-added, renamed or called before it exists.
+    #    A run step is never drafted ahead: its Terminal check and expected_output (link_run_steps' exact-line check)
+    #    say what the program prints, and consistency_problem can't catch a wrong guess for a command, so it is
+    #    drafted in order, from the real code it runs (one call per run step; the code steps stay parallel).
     try:
         res = await asyncio.wait_for(asyncio.shield(research_task), max(0.0, RESEARCH_WAIT_S - (time.time() - t0)))
     except (asyncio.TimeoutError, TimeoutError):
@@ -384,11 +391,12 @@ async def build_text_lesson(goal: str, workdir: str, on_update=None, *, cache: b
     notes = res.get("notes", "")
     typed = typed_so_far()
     drafts = {i: asyncio.ensure_future(draft(i, notes, typed + parallel_note(steps_plan, 2, i)))
-              for i in range(2, len(steps_plan) + 1)}
+              for i in range(2, len(steps_plan) + 1) if not _is_run_plan(steps_plan[i - 1])}
     try:
-        for i, fut in drafts.items():
+        for i in range(2, len(steps_plan) + 1):
+            fut = drafts.get(i)  # None: a run step, drafted now by step() from typed_so_far()
             try:
-                done.extend(await step(i, notes, await fut))
+                done.extend(await step(i, notes, (await fut) if fut is not None else None))
             except RuntimeError as e:
                 warnings.append(f"step {i} ({steps_plan[i - 1]['title']}) failed: {str(e)[:160]}")
                 continue

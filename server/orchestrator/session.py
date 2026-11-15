@@ -584,7 +584,9 @@ class LessonSession:
                 fresh = await asyncio.to_thread(wsmod.requirements, self.graph, self.workdir)
                 if fresh:
                     self.reqs = fresh
-                    self._setup_card = wsmod.setup_card(fresh)
+                    if self.lesson_mode:  # _setup_card_task's lesson-mode card: tools really missing, never the editor
+                        fresh = [it for it in fresh if it.get("needed") and not it.get("ok") and it.get("kind") != "editor"]
+                    self._setup_card = wsmod.setup_card(fresh) if fresh else None
                     if self._setup_card and opened:
                         self._setup_card["actions"] = [a for a in self._setup_card.get("actions") or [] if a != "open_editor"]
             if res.get("ok") and (item.get("install") or {}).get("method") == "pip" and self.workdir \
