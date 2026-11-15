@@ -5,12 +5,17 @@
   of it when there is one, else below the step's target line, else at the end. Pure text; never writes.
 - `fix_in_words(yours, expected, line, text)`: "Change `tasks.add` to `tasks.append` on line 8." for a fix card
   when no safe patch could be made (the learner never sees the coach's internal reasons).
+- `place_step` / `by_name` / `code_done`: the same for a Python file, by name first (py_blocks): the step's defs,
+  classes and assignments go in place of the file's ones, never as second copies (T5: a multi-function step).
 """
 
 from __future__ import annotations
 
 import re
+from collections.abc import Iterable
 from difflib import SequenceMatcher
+
+from . import py_blocks
 
 HEAD_MIN = 0.85  # the learner's copy starts with (nearly) the step's first line
 LINE_MIN = 0.6  # a later line of their copy is a version of one of the step's lines ("tasks.add(task)")
@@ -124,3 +129,29 @@ def fix_in_words(yours: str | None, expected: str | None, line: int | None = Non
         first = a[0].strip()
         line = next((n for n, ln in enumerate(text.splitlines(), 1) if ln.strip() == first), None)
     return _one_line(a[i].strip(), b[i].strip(), f" on line {line + i}" if line else "")
+
+
+def by_name(code: str, text: str, py: bool, others: Iterable[str] = ()) -> tuple[str, int] | None:
+    """Python: (new_text, line) with the step's blocks in place of the file's blocks of the same names, when the file
+    has some, the code changes (not just spacing / comments) and the result checks out (one copy of each of the
+    step's defs; it compiles)."""
+    if not py or not (code or "").strip():
+        return None
+    hit = py_blocks.replace_by_name(code, text, others)
+    if hit is None or py_blocks.same_code(hit[0], text) or py_blocks.verify(code, hit[0], text):
+        return None
+    return hit
+
+
+def place_step(code: str, text: str, anchor_lines: list[str] | None = None, py: bool = False,
+               others: Iterable[str] = ()) -> tuple[str, int, bool]:
+    """place_code, by name first in a Python file (by_name). The caller still verifies (py_blocks.verify)."""
+    if (hit := by_name(code, text, py, others)) is not None:
+        return hit[0], hit[1], True
+    return place_code(code, text, anchor_lines)
+
+
+def code_done(code: str, text: str, py: bool = False) -> bool:
+    """Every meaningful line of the step's code is in the file and (Python) no def / class of it has a second copy:
+    T5's file had every line of the step's code AND an old sigmoid_slope below the new one, overriding it."""
+    return code_complete(code, text) and not (py and any(n > 1 for n in py_blocks.copies(code, text).values()))
