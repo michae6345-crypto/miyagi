@@ -2851,10 +2851,19 @@ class LessonSession:
         await self.emit("card", {**({"stepId": step["id"]} if step else {}), "kind": "answer", "title": title,
                                  "body": body, **({"actions": actions} if actions else {})})
 
+    # Setup and help presses aren't work on the step: they must not open the check gate or start the
+    # off-track clock (live test 01:08: clicking Install showed "Not yet" before the learner typed anything).
+    NOT_WORK_ACTIONS = frozenset({"install", "skip_setup", "open_editor", "open_in_browser", "download",
+                                  "use_this_folder", "voice_toggle", "build", "pick_another",
+                                  "explain", "diagram", "show_me", "hint", "ask", "retry", "back"})
+
     async def _action(self, kind: str, text: str | None = None) -> None:
         step = self.step
         if step is not None:
-            self._acted()
+            if kind in self.NOT_WORK_ACTIONS:
+                self._touch()
+            else:
+                self._acted()
         if kind == "confirm":  # "Apply this fix?" preview, or "Looks done? Confirm"
             if step is not None and self.pending_patch is not None:
                 await self._apply_patch(step)
