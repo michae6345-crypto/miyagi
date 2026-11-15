@@ -18,6 +18,8 @@ const PAD = 12
 const GAP = 12
 /** A code cell reaches this far into the gutter on each side, so a highlighted line has room around its text. */
 const BLEED = 4
+/** A non-breaking space: an empty row that still takes a line's height. */
+const NBSP = String.fromCharCode(0xa0)
 
 const thinScroll: CSSProperties = { scrollbarWidth: 'thin', scrollbarColor: `${fill.track} transparent` }
 
@@ -115,10 +117,13 @@ function Cell({ children }: { children: ReactNode }): ReactNode {
   )
 }
 
-/** One side of the diff as written: whitespace kept, never wrapped (a long line scrolls sideways); `mark` highlights a line. */
+/**
+ * One side of the diff as written: whitespace kept, never wrapped (a long line scrolls sideways); `mark` highlights
+ * a line. The scrollbar's room is always kept (its track is transparent), so a long line never changes the height.
+ */
 function Code({ text, mark }: { text: string; mark?: (line: string) => boolean }): ReactNode {
   return (
-    <div data-code className="min-w-0 overflow-x-auto" style={{ ...thinScroll, marginInline: -BLEED }}>
+    <div data-code className="min-w-0 overflow-x-scroll" style={{ ...thinScroll, marginInline: -BLEED }}>
       <div className="w-max min-w-full whitespace-pre">
         {text.split(/\r?\n/).map((l, i) => {
           const hit = mark?.(l) ?? false
@@ -133,8 +138,12 @@ function Code({ text, mark }: { text: string; mark?: (line: string) => boolean }
   )
 }
 
-/** Null when the payload has no evidence: the left column then takes the whole card. */
-export function Evidence({ o, failing, width }: { o: Offtrack; failing: CheckItem[]; width: number }): ReactNode {
+/**
+ * Null when the payload has no evidence: the left column then takes the whole card. `reserveDiff`: while the
+ * off-track has no diff yet, keep the room a one-line diff takes (an invisible caption + code row at the bottom),
+ * so the card doesn't grow when the diff arrives (it usually comes with the level-3 hint).
+ */
+export function Evidence({ o, failing, width, reserveDiff }: { o: Offtrack; failing: CheckItem[]; width: number; reserveDiff?: boolean }): ReactNode {
   const spark = useSpark(o)
   const rows = checkRows(failing, o.diff)
   if (!o.diff && rows.length === 0 && !spark) return null
@@ -178,6 +187,14 @@ export function Evidence({ o, failing, width }: { o: Offtrack; failing: CheckIte
               </>
             )}
           </>
+        )}
+
+        {reserveDiff && !diff && (
+          <div className="invisible contents" aria-hidden data-reserve>
+            <Label>{NBSP}</Label>
+            <Code text={NBSP} />
+            <Code text={NBSP} />
+          </div>
         )}
       </div>
     </div>

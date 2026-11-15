@@ -27,7 +27,7 @@ type CardsState = {
   offtrackOpen: boolean
   /** ✕ was pressed on this off-track: hovering must not reopen it (until a new off-track or step). */
   offtrackClosed: boolean
-  /** Apply fix was pressed: the off-track card collapses to a compact "applying the fix" card until the step passes. */
+  /** Do it for me (apply_fix) was pressed: the off-track card collapses to a compact "applying the fix" card until the step passes. */
   fixing: boolean
   /** The current step went off-track at some point → show "Back on track" when it passes. */
   recovered: boolean
@@ -103,7 +103,7 @@ function append(run: Run, p: Point): Run {
 let seq = 0
 const newRun = (runId: string, p: Point): Run => ({ runId, points: [p], seq: ++seq, at: Date.now() })
 
-/** A card button → `action {kind}`. Apply fix collapses the off-track card into the "applying the fix" view. */
+/** A card button → `action {kind}`. Do it for me (apply_fix) collapses the off-track card into the "applying the fix" view. */
 export function act(kind: 'show_me' | 'explain' | 'apply_fix' | 'hint'): void {
   sendAction(kind)
   if (kind === 'apply_fix') set({ fixing: true, offtrackOpen: true })

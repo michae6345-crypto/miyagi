@@ -1,10 +1,11 @@
 /**
  * Feature: cards. Coach cards that grow out of the pill, in the calm black-island look (mockup 02):
  *   offtrack  layout C (Adrian): ~620 wide, two columns (one below 520). Left: ring + "Not yet", the title,
- *             the guiding question (or the body), Show me / Explain / Hint (+ "Fix it" at level 3), the
- *             citation. Right: the evidence panel (Evidence.tsx): yours | expected from the diff, the
- *             failing checks and the curve, all monochrome. Off track has no hue anywhere.
- *             After Fix it, it collapses to "Waiting for the fix": the line the code should read
+ *             the guiding question (or the body), the citation. Right: the evidence panel (Evidence.tsx):
+ *             yours | expected from the diff, the failing checks and the curve, all monochrome. Under both,
+ *             the options in the shortcut bar's order (Explain, Show me, Hint) and, at level 3, "Do it for me"
+ *             on its own row. Off track has no hue anywhere.
+ *             After Do it for me, it collapses to "Waiting for the fix": the line the code should read
  *             (the engine may or may not write it), and the re-run's curve drawing live.
  *   success   green, "Good. Now the next one." after a recovered step: now-vs-before curve, auto-hides.
  *   card      explain / hint / answer from the engine, with an optional video jump.
@@ -208,10 +209,18 @@ function Diff({ diff, expectedOnly }: { diff: NonNullable<OfftrackPayload['diff'
   )
 }
 
+/** The off-track card's options, in the shortcut bar's order (Explain, Show me, Hint); Do it for me comes after. */
+const OFFTRACK_OPTIONS = [
+  { action: 'explain', label: 'Explain' },
+  { action: 'show_me', label: 'Show me' },
+  { action: 'hint', label: 'Hint' }
+] as const
+
 /**
  * Layout C (Adrian picked "side by side"). Left: ring + "Not yet", the title, the guiding question (or the body),
- * the options with their keycaps and, at level 3 with apply_fix, the one white "Fix it"; the citation as one faint
- * line. Right: the evidence panel. Below NARROW the panel drops under the left column.
+ * the citation as one faint line. Right: the evidence panel. Under both, full width so three options with their
+ * keycaps always fit on one row: Explain, Show me, Hint; at level 3 with apply_fix, the one white "Do it for me"
+ * on its own row. Below NARROW the panel drops under the left column.
  */
 function Diagnosis({ o, checks }: { o: OfftrackPayload; checks: ReturnType<typeof useLesson.getState>['checks'] }): ReactNode {
   const busy = useBusyIcon()
@@ -223,7 +232,7 @@ function Diagnosis({ o, checks }: { o: OfftrackPayload; checks: ReturnType<typeo
   const rightW = narrow ? inner : inner - COL_GAP - leftW
   // Precise: only what's failing (with your value), not the checks that already pass.
   const failing = checks.filter((c) => c.status === 'fail')
-  // "Fix it" = apply_fix, offered at the top of the hint ladder (level 3; no level = an older engine, trust actions).
+  // "Do it for me" = apply_fix, offered at the top of the hint ladder (level 3; no level = an older engine, trust actions).
   const canFix = o.actions.includes('apply_fix') && (o.level ?? 3) === 3
   return (
     <div data-card="offtrack" data-layout={narrow ? 'stacked' : 'side-by-side'} style={{ width, padding: `16px ${PAD}px 16px` }}>
@@ -239,18 +248,6 @@ function Diagnosis({ o, checks }: { o: OfftrackPayload; checks: ReturnType<typeo
           <div className="text-[18px] font-semibold leading-[23px] tracking-[-0.01em]">{o.title}</div>
           {o.guidingQuestion ? <Question text={o.guidingQuestion} /> : <Body>{o.body}</Body>}
 
-          <div className="mt-[14px] flex flex-wrap items-center gap-[8px]">
-            <OptionButton action="show_me" label="Show me" kbd={keys.show_me} icon={busy('show_me')} onClick={() => act('show_me')} />
-            <OptionButton action="explain" label="Explain" kbd={keys.explain} icon={busy('explain')} onClick={() => act('explain')} />
-            <OptionButton action="hint" label="Hint" kbd={keys.hint} icon={busy('hint')} onClick={() => act('hint')} />
-            {canFix && (
-              <>
-                <span className="flex-1" />
-                <PrimaryButton label="Fix it" icon={busy('apply_fix', Wrench)} onClick={() => act('apply_fix')} />
-              </>
-            )}
-          </div>
-
           {o.citation && (
             <div className="mt-[12px] flex min-w-0 items-center gap-[6px] text-[12px]" style={{ color: color.faint }}>
               <BookOpen size={12} className="shrink-0" />
@@ -259,8 +256,20 @@ function Diagnosis({ o, checks }: { o: OfftrackPayload; checks: ReturnType<typeo
           )}
         </div>
 
-        <Evidence o={o} failing={failing} width={rightW} />
+        {/* No diff yet: the panel keeps its room, so the card doesn't jump when one arrives. */}
+        <Evidence o={o} failing={failing} width={rightW} reserveDiff />
       </div>
+
+      <div data-options className="mt-[14px] flex flex-wrap items-center gap-[8px]">
+        {OFFTRACK_OPTIONS.map((x) => (
+          <OptionButton key={x.action} action={x.action} label={x.label} kbd={keys[x.action]} icon={busy(x.action)} onClick={() => act(x.action)} />
+        ))}
+      </div>
+      {canFix && (
+        <div data-fix className="mt-[8px] flex">
+          <PrimaryButton label={ACTION.apply_fix!.label} icon={busy('apply_fix', ACTION.apply_fix!.Icon)} onClick={() => act('apply_fix')} />
+        </div>
+      )}
     </div>
   )
 }
@@ -294,7 +303,7 @@ function AfterCurve({ label, since, width, passed }: { label?: string; since?: n
 }
 
 /**
- * After Apply fix: the card collapses to this until the step passes. The engine writes the file only
+ * After Do it for me (apply_fix): the card collapses to this until the step passes. The engine writes the file only
  * when it knows the project folder, so this never claims the fix is applied: it shows the line the
  * code should read and leaves the change to the learner if it isn't there yet.
  */
