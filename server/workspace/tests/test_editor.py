@@ -279,6 +279,9 @@ def fresh(monkeypatch):
     E.reset_open_state()
     monkeypatch.setattr(E, "preferred_editor", lambda installed=None: VSC)
     monkeypatch.setattr(E, "frontmost_app", lambda skip=None: None)
+    # 56cb5ca: a later call without windows= checks the lesson's window is still up. Never this Mac's real VS Code
+    # here: the window is there unless a test says otherwise.
+    monkeypatch.setattr(E, "_lesson_window_alive", lambda folder: True)
     yield
     E.reset_open_state()
 
@@ -301,6 +304,24 @@ def test_open_once_per_lesson_and_folder_never_dash_n(tmp_path, fresh, monkeypat
     # a new lesson in the same folder: one more open (VS Code focuses the existing window: still no -n)
     E.open_lesson_editor(tmp_path, None, lesson_id="L2", runner=run, focus=lambda: CODE, **kw())
     assert len([c for c in calls if c[0] == VSC["cli"]]) == 3 and not any("-n" in c for c in calls)
+
+
+def test_a_rerun_reopens_the_editor_when_its_window_is_gone(tmp_path, fresh, monkeypatch):
+    """56cb5ca: the same lesson in the same folder again (a second Demo take, a second "Just teach me") after VS Code
+    was quit: open it again instead of "already open" and no editor at all."""
+    calls, run = opener(tmp_path)
+    E.open_lesson_editor(tmp_path, "main.py", lesson_id="L1", runner=run, focus=lambda: CODE, **kw())
+    alive = {"up": True}
+    monkeypatch.setattr(E, "_lesson_window_alive", lambda folder: alive["up"])
+    args = {"lesson_id": "L1", "runner": run, "focus": lambda: CODE, "trusted": lambda: False, "previous": None,
+            "arrange_windows": False}
+    assert E.open_lesson_editor(tmp_path, "main.py", **args)["already"]  # still up: at most once
+    assert len([c for c in calls if c[0] == VSC["cli"]]) == 1
+    alive["up"] = False  # VS Code was quit
+    rep = E.open_lesson_editor(tmp_path, "main.py", **args)
+    assert rep.get("opened") and not rep.get("already")
+    opens = [c for c in calls if c[0] == VSC["cli"]]
+    assert len(opens) == 2 and "-n" not in opens[-1] and opens[-1][1] == str(tmp_path.resolve())
 
 
 def test_concurrent_open_calls_open_once(tmp_path, fresh):
@@ -382,10 +403,15 @@ def test_auto_jumps_never_steal_focus_or_race_startup(tmp_path, fresh):
     assert calls == [["/usr/local/bin/code", "-r", "-g", f"{f}:3"], ["/usr/local/bin/code", "-r", "-g", f"{f}:4"]]
 
 
-def test_miyagi_focus_detection():
+def test_miyagi_focus_detection(monkeypatch):
+    # The Miyagi overlay is this Mac's front app (as during a desktop test): None still means "nothing in front"
+    monkeypatch.setattr(E, "_frontmost", lambda: MIYAGI)
     assert E.miyagi_focused(MIYAGI) and E.miyagi_focused(("com.github.Electron", "Electron"))
     assert not E.miyagi_focused(CODE) and not E.miyagi_focused(None)
-    assert E.editor_focused(VSC, CODE) and not E.editor_focused(VSC, MIYAGI)
+    assert E.editor_focused(VSC, CODE) and not E.editor_focused(VSC, MIYAGI) and not E.editor_focused(VSC, None)
+    assert E.miyagi_focused() and not E.editor_focused(VSC)  # no argument: the live front app
+    monkeypatch.setattr(E, "_frontmost", lambda: CODE)
+    assert not E.miyagi_focused() and E.editor_focused(VSC)
 
 
 def test_orchestrator_workspace_opens_once_and_guards_jumps(tmp_path, fresh):

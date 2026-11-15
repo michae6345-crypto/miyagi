@@ -220,7 +220,9 @@ def test_pip_install_creates_lesson_venv(mac, tmp_path, monkeypatch):
     item = {"tool": "pandas", "kind": "python_package", "label": "pandas", "needed": True, "min_version": "", "pip_name": "pandas"}
     res = install(item, workdir=wd, popen=VenvPopen)
     assert FakePopen.calls[0] == ["/usr/local/bin/python3.12", "-m", "venv", str(wd / ".venv")]
-    assert FakePopen.calls[1] == [str(wd / ".venv/bin/python"), "-m", "pip", "install", "--disable-pip-version-check", "pandas"]
+    # ed9078d: --progress-bar off, so no progress-bar glyphs reach the card body
+    assert FakePopen.calls[1] == [str(wd / ".venv/bin/python"), "-m", "pip", "install", "--disable-pip-version-check",
+                                  "--progress-bar", "off", "pandas"]
     assert res["ok"] and res["version"] == "2.2.3"
 
 
