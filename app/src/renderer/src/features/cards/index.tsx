@@ -16,7 +16,7 @@
 import { motion } from 'motion/react'
 import { useEffect, type ReactNode } from 'react'
 import { useShallow } from 'zustand/react/shallow'
-import { BookOpen, Check, Code2, Download, ExternalLink, File, FileCode2, FolderGit2, Hammer, History, Info, Lightbulb, ListChecks, MessageCircle, MessageSquareText, NotebookText, Play, Search, SkipForward, Undo2, Wrench, FolderOpen, RotateCcw, type LucideIcon } from 'lucide-react'
+import { BookOpen, Check, Code2, Download, ExternalLink, File, FileCode2, FolderGit2, Hammer, History, Info, Lightbulb, ListChecks, MessageCircle, MessageSquareText, NotebookText, Play, Search, SkipForward, SquareTerminal, Undo2, Wrench, FolderOpen, RotateCcw, type LucideIcon } from 'lucide-react'
 import type { PreflightInfo } from '../../../../../../shared/contracts/events'
 import type { Payload } from '../../../../common/wire'
 import { bridge } from '../../bridge'
@@ -393,7 +393,18 @@ const KIND: Record<EngineCard['kind'], { label: string; Icon: LucideIcon; tone?:
   preflight: { label: 'Before you build', Icon: ListChecks }
 }
 
-function KindTile({ k }: { k: (typeof KIND)[EngineCard['kind']] }): ReactNode {
+type Tile = (typeof KIND)[EngineCard['kind']]
+
+/** A run step's card ("Run it for me") and its result (the program's output): a neutral terminal tile. */
+const RUN: Tile = { label: 'Run', Icon: SquareTerminal }
+
+/** The tile for a card: its kind's, unless what the card is about says otherwise. */
+function tileOf(c: EngineCard): Tile {
+  if (c.output || c.actions?.includes('run_command')) return RUN
+  return KIND[c.kind] ?? KIND.answer
+}
+
+function KindTile({ k }: { k: Tile }): ReactNode {
   return (
     <span
       className="grid h-[24px] w-[24px] shrink-0 place-items-center rounded-[7px]"
@@ -631,6 +642,36 @@ function Resources({ resources }: { resources: Resource[] }): ReactNode {
   )
 }
 
+/** Lines of a program's output the card shows: the last ones (the engine already sends the tail). */
+const OUTPUT_LINES = 8
+// eslint-disable-next-line no-control-regex
+const ANSI = /\x1b\[[0-9;]*[A-Za-z]/g
+const thinScroll = { scrollbarWidth: 'thin', scrollbarColor: `${fill.track} transparent` } as const
+
+/**
+ * What the program printed ("Run it for me", card.output): a mono block of its last OUTPUT_LINES lines, kept as
+ * printed (never wrapped; a long line scrolls sideways), with a faint count of the earlier lines it leaves out.
+ */
+function Output({ text }: { text: string }): ReactNode {
+  const all = text.replace(ANSI, '').replace(/\s+$/, '').split(/\r?\n/)
+  const shown = all.slice(-OUTPUT_LINES)
+  const hidden = all.length - shown.length
+  return (
+    <div data-output className="mt-[12px] rounded-[12px] py-[8px] font-mono text-[12px] leading-[17px]" style={{ background: fill.field }}>
+      {hidden > 0 && (
+        <div className="px-[12px] pb-[2px] font-sans text-[11px]" style={{ color: color.faint }}>
+          {hidden} earlier line{hidden === 1 ? '' : 's'}
+        </div>
+      )}
+      <div className="overflow-x-auto px-[12px]" style={thinScroll}>
+        <div className="w-max min-w-full whitespace-pre" style={{ color: color.text }}>
+          {shown.join('\n') || ' '}
+        </div>
+      </div>
+    </div>
+  )
+}
+
 /**
  * Where to go when the place isn't on screen ("Open app.py in Cursor"): one line and an Open button
  * (action open_editor), so "code not visible" always says what to do.
@@ -651,7 +692,7 @@ function Where({ text }: { text: string }): ReactNode {
 function Card(): ReactNode {
   const c = useCards((x) => x.card)
   if (!c) return null
-  const k = KIND[c.kind] ?? KIND.answer
+  const k = tileOf(c)
   const actions = c.actions ?? []
   // A title that only repeats the header ("Hint") is dropped: the body becomes the headline.
   const redundant = !c.title || c.title.trim().toLowerCase() === k.label.toLowerCase()
@@ -680,6 +721,7 @@ function Card(): ReactNode {
       </div>
       {c.kind === 'preflight' && <Preflight card={c} />}
       {c.where && <Where text={c.where} />}
+      {c.output && <Output text={c.output} />}
       {c.videoJump && (
         <div className="mt-[14px] flex">
           <OptionButton action="watch" label={`Watch ${c.videoJump.label}`} onClick={() => jumpTo(c.videoJump!.t)} />
