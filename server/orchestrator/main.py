@@ -320,6 +320,10 @@ async def vscode_event(body: dict = Body(...)) -> dict:
 
         if curated.active(engine.session):
             engine.session._spawn(curated.on_command_end(engine.session, item))  # never holds up the extension
+    if body.get("type") in ("command_end", "save"):  # Nov 15: a run step's terminal typo -> instant card (cmd_typos)
+        from . import typo_card
+
+        engine.session._spawn(typo_card.on_vscode_event(engine.session, item))
     if body.get("type") == "explain_selection":  # "Miyagi: Explain this" -> an Explain card in the overlay (selection.py)
         from .selection import explain_from_vscode
 

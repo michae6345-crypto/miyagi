@@ -91,8 +91,43 @@ class LessonBoxes:
         anchor = self._insert_anchor(step, lines) if p is not None else -1
         if anchor == -1:
             return None
+        if anchor and 0 < anchor <= len(lines) and lines[anchor - 1].lstrip().startswith("#"):
+            # Nov 15: a section comment (`# The network`): the line under it, or after what's typed there; never it
+            ins, above, new_line = spot_lines.type_row(lines, anchor, self._section_stops(lines[anchor - 1]))
+            return {"path": p, "lines": lines, "ins": ins, "above": above, "new_line": new_line}
         ins, above = spot_lines.insert_line(lines, anchor)
         return {"path": p, "lines": lines, "ins": ins, "above": above}
+
+    def _section_stops(self, anchor_text: str) -> set[str]:
+        """The lesson's other section comments (every step's comment anchor: `# Backprop`, `# Training`, ...): where
+        the section a step types into ends."""
+        own = anchor_text.strip()
+        return {m.strip() for st in (getattr(self, "graph", None) or {}).get("steps") or []
+                for t in st.get("targets") or [] if (m := t.get("match") or "").lstrip().startswith("#")
+                and m.strip() != own}
+
+    NEW_LINE_CAPTION = "Add a new line here"
+
+    def _not_on_above(self, spot: dict | None, lines: list[str], above: int) -> dict | None:
+        """Nov 15: an insertion box must never sit on the line above it (the section comment). When the comment's own
+        text, OCR'd on screen, is inside the box (an Accessibility / gutter row one off), move the box one row down."""
+        if spot is None or not above or getattr(self, "screen", None) is None \
+                or getattr(self.screen, "reader", None) is None:
+            return spot
+        txt = spot_lines.unique_text(lines, above)
+        try:
+            hit = self.screen.locate(re.escape(txt), "Code") if txt else None
+        except Exception:  # noqa: BLE001 - a guard: never breaks the box
+            hit = None
+        if not hit or "\n" in (hit.get("matched") or ""):
+            return spot
+        r, h = spot["rect"], hit["rect"]
+        pitch = float((spot.get("_line") or {}).get("pitch") or r["h"] or 18.0)
+        cy, hy = r["y"] + r["h"] / 2, float(h["y"]) + float(h["h"]) / 2
+        if abs(cy - hy) >= pitch / 2:
+            return spot
+        log.info("insertion box sat on line %s (%r): moved one row down (Nov 15)", above, txt[:40])
+        return {**spot, "rect": {**r, "y": float(h["y"]) + max(pitch, float(h["h"]) - 2.0)}}
 
     async def _insert_spot(self, step: dict, show_me: bool = False, plan: dict | None = None) -> dict | None:
         """t5 (d): the box at _insert_plan's row: "Type it here". When that row already holds code, or for Show me
@@ -102,12 +137,19 @@ class LessonBoxes:
         if plan is None:
             return None
         p, lines, ins, above = plan["path"], plan["lines"], plan["ins"], plan["above"]
-        below = bool(above) and (show_me or (ins <= len(lines) and bool(lines[ins - 1].strip())))
+        if "new_line" in plan:  # Nov 15: a section comment's step: the row under it, never the comment itself
+            below = bool(above) and show_me
+        else:
+            below = bool(above) and (show_me or (ins <= len(lines) and bool(lines[ins - 1].strip())))
         line, kind, cap = (above, "below", self.BELOW_CAPTION) if below else (ins, "insert", self.TYPE_CAPTION)
+        if not below and plan.get("new_line"):
+            cap = self.NEW_LINE_CAPTION  # that row holds the next section: the box marks the new line to open
         prog = {"path": p, "line": line, "kind": kind, "expect": lines[above - 1].strip() if above else ""}
         spot = await self._progress_spot(step, prog, caption=cap)
         if spot is None and above and (txt := spot_lines.unique_text(lines, above)):
             spot = self._row_spot(step, txt, cap, prog, down=not below)  # the gutter missed (a short file)
+        elif not below:
+            spot = self._not_on_above(spot, lines, above)
         return spot
 
     async def _start_line_box(self, gen: int, step: dict, plan: dict) -> bool:
@@ -150,6 +192,8 @@ class LessonBoxes:
             return None
         r = hit["rect"]
         lh = max(14.0, float(r["h"]) - 3.0)  # E24: the row pitch (locate_match's box is the row + 3 pt)
+        if down:  # Nov 15: the row under, never overlapping the line above (nn5's box was 3 pt into `# Test it`)
+            lh = max(lh, float(r["h"]) - 2.0)
         rect = {"x": float(r["x"]), "y": float(r["y"]) + (lh if down else 0.0),
                 "w": max(float(r["w"]), 320.0) if down else float(r["w"]), "h": float(r["h"])}
         return {"rect": rect, "caption": caption, "app": "Code", **self._snippet(step),

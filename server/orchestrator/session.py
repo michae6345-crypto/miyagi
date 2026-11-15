@@ -42,6 +42,7 @@ from .context import RunContext, RunInfo, metrics_summary
 from .modules import Modules
 from .captions import short_caption
 from . import spot_lines  # t5: which editor line a lesson box goes on
+from . import typo_card  # Nov 15: terminal-command typos on run steps, no model call
 from .lesson_boxes import LessonBoxes
 
 log = logging.getLogger("orchestrator.session")
@@ -3184,6 +3185,8 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
             return self._speak_note(reason, "deferred (typing)")
         if self._nudge_held(step, ctx):  # L4: "not started" already decided for this step / screen / code: no coach re-run
             return self._speak_note(reason, "held (not started: the Start card is decided)")
+        if typo_card.holds(self, step):  # Nov 15: cmd_typos already named the terminal typo's fix (no model call)
+            return self._speak_note(reason, "held (terminal typo card)")
         sig = self._sig(failed)
         if sig != self.spoken_sig:  # a new problem (or the first one): concept card
             level = 2
@@ -3548,6 +3551,8 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
         <expected line>" / "Add <line> below" / "Delete this line" from the diff ("" = none: the caller labels it)."""
         import difflib
 
+        if (typo := typo_card.anchor_for(full)) is not None:  # Nov 15: a terminal typo card names its own line
+            return typo
         diff = full.get("diff") or {}
         yours = [ln for ln in (diff.get("yours") or "").splitlines()]
         expected = [ln for ln in (diff.get("expected") or "").splitlines()]
