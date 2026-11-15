@@ -6,6 +6,7 @@
   "version": "0.0.1",
   "private": true,
   "license": "UNLICENSED",
+  "icon": "icon.png",
   "engines": {
     "vscode": "^1.90.0"
   },
