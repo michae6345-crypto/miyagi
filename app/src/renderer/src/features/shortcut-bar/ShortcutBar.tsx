@@ -25,6 +25,7 @@ import { sendAction, triggerShortcut, type ActionKind, type ActionShortcut } fro
 import { MiyagiMark } from '../../core/ui/Mark'
 import { actionTone, copy, glass, spring, type OptionAction } from '../../core/theme'
 import { useCards } from '../cards/store'
+import { useComplete } from '../complete/store'
 import { useDiagram } from '../diagrams/store'
 import { useLauncherOpen } from '../launcher/store'
 import { toggleVoice } from '../voice/store'
@@ -188,7 +189,9 @@ function Handle({ bottom, height, onReach }: { bottom: number; height: number; o
  * height (the handle sits just above it); lift: px above the spotlight's hole (lift.ts).
  */
 export function ShortcutBar({ bottom, dock = 0, lift = 0 }: { bottom: number; dock?: number; lift?: number }): ReactNode {
-  const on = useLesson((x) => !!x.lesson)
+  // Michael's test 8: no Hint / Skip / Check my work under the lesson-complete panel (it has its own End lesson).
+  const completing = useComplete((c) => !!c.card)
+  const on = useLesson((x) => !!x.lesson) && !completing
   const hasStep = useLesson((x) => !!x.stepId)
   const diagramOpen = useDiagram((d) => d.open)
   const voice = useVoiceTile()

@@ -21,6 +21,7 @@ import { PANEL_W, PANEL_W_LESSON, panelRect } from './geometry'
 import { NetBody, NetHeader, useHeaderDrag } from './LiveNet'
 import { dock, setFloatWidth, settle, useNetFloat, type Corner, type Spot } from './netFloat'
 import { RUN_CORNER, RUN_DROP, RUN_SHARE, useRunTuck } from './runTuck'
+import { useComplete } from '../complete/store'
 import { useBarTop } from '../shortcut-bar/lift'
 import { useDrawer } from './store'
 
@@ -35,6 +36,8 @@ const R = 0.99
 const RUBBER = 0.12
 const FLING = 400 // px/s: below this a drop settles without bounce
 const MIN_W = 240
+/** The drawer opening or tucking takes about this long (the one spring); the card moves after it. */
+const DRAWER_SETTLE_MS = 450
 const MAX_W = 560
 
 type Pt = { x: number; y: number }
@@ -45,7 +48,9 @@ export function FloatNetLayer({ layout }: { layout: Layout }): ReactNode {
   const spot = useNetFloat((s) => s.spot)
   const pickup = useNetFloat((s) => s.pickup)
   const run = !!useRunTuck()
-  if (!d || (!spot.floating && !pickup && !run)) return null
+  // The lesson-complete panel draws the learner's network itself: the floating one steps away (Michael's test 8).
+  const completing = useComplete((c) => !!c.card)
+  if (!d || completing || (!spot.floating && !pickup && !run)) return null
   return <FloatNet layout={layout} />
 }
 
@@ -79,6 +84,9 @@ function FloatNet({ layout }: { layout: Layout }): ReactNode {
   const [folded, setFolded] = useState(false)
   const anim = useRef<AnimationPlaybackControls[]>([])
   const placed = useRef(false)
+  /** Placed at least once: until then the card is invisible (never a frame at the overlay's top-left). */
+  const shownAt = useRef(false)
+  const [shown, setShown] = useState(false)
 
   /** Client px → overlay px (the browser stage scales the overlay; Electron is 1:1). */
   const toLocal = useCallback((p: Pt): Pt => {
@@ -258,6 +266,8 @@ function FloatNet({ layout }: { layout: Layout }): ReactNode {
       if (pw > 40) setW(Math.round(pw))
       x.set(at.x)
       y.set(at.y)
+      shownAt.current = true
+      setShown(true)
       const offset = { x: ptr.x - at.x, y: ptr.y - at.y }
       track(new PointerEvent('pointermove', { clientX: pickup.pointerX, clientY: pickup.pointerY }), offset)
       return
@@ -267,15 +277,35 @@ function FloatNet({ layout }: { layout: Layout }): ReactNode {
       if (t) {
         x.set(t.at.x)
         y.set(t.at.y)
+        shownAt.current = true
+        setShown(true)
       }
     }
   }, [targets, toLocal, track, x, y])
 
+  // Michael's test 8 (step 5 -> 6): the card jumped top-left over the editor, then back, while the drawer slid. Move only
+  // once the drawer has settled (DRAWER_SETTLE_MS after it opens or tucks), and stay hidden until first placed.
+  const drawerAt = useRef({ open: drawerOpen, at: 0 })
+  if (drawerAt.current.open !== drawerOpen) drawerAt.current = { open: drawerOpen, at: performance.now() }
+  const [settleTick, setSettleTick] = useState(0)
   useEffect(() => {
     if (dragging || anim.current.length || !spot.floating) return
+    const wait = DRAWER_SETTLE_MS - (performance.now() - drawerAt.current.at)
+    if (wait > 0 && placed.current && shownAt.current) {
+      const id = setTimeout(() => setSettleTick((n) => n + 1), wait)
+      return () => clearTimeout(id)
+    }
     const t = targets().find((c) => c.kind === 'corner' && c.corner === spot.corner)
-    if (t && (Math.abs(x.get() - t.at.x) > 1 || Math.abs(y.get() - t.at.y) > 1)) go(t)
-  }, [spot, targets, dragging, go, x, y, h])
+    if (!t) return
+    if (!shownAt.current) {
+      x.set(t.at.x)
+      y.set(t.at.y)
+      shownAt.current = true
+      setShown(true)
+      return
+    }
+    if (Math.abs(x.get() - t.at.x) > 1 || Math.abs(y.get() - t.at.y) > 1) go(t)
+  }, [spot, targets, dragging, go, x, y, h, settleTick])
 
   const grab = useHeaderDrag((e) => {
     const p = toLocal({ x: e.clientX, y: e.clientY })
@@ -343,8 +373,8 @@ function FloatNet({ layout }: { layout: Layout }): ReactNode {
           boxShadow: `${glass.shadow}, ${glass.shadow}, inset 0 0 0 ${w}px ${glass.bg}`,
           color: glass.text
         }}
-        initial={{ opacity: 0.9 }}
-        animate={{ opacity: 1 }}
+        initial={{ opacity: 0 }}
+        animate={{ opacity: shown ? 1 : 0 }}
       >
         <NetHeader d={d} folded={folded} onFold={() => setFolded((f) => !f)} grab={grab} dragging={dragging} onDoubleClick={dockNow} />
         {!folded && <NetBody d={d} />}

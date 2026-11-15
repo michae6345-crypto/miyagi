@@ -83,7 +83,7 @@ function FloatingRow(): ReactNode {
   return (
     <div ref={row} data-part="drawer-live-net-floating" className="flex shrink-0 items-center gap-[8px] border-b px-[18px] py-[6px]" style={{ borderColor: glass.rule }}>
       <span className="min-w-0 flex-1 truncate text-[12px] font-semibold leading-[16px]" style={{ color: glass.label }}>
-        Network <span className="font-normal" style={{ color: glass.faint }}>· floating</span>
+        Network <span className="font-normal" style={{ color: glass.faint }}>· over the screen</span>
       </span>
       <button
         type="button"
