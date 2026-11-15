@@ -9,7 +9,7 @@ from __future__ import annotations
 import json
 import math
 
-from server.orchestrator import curated
+from server.orchestrator import curated, stage
 from server.orchestrator.tests.test_stage import RANDOM, ZEROS, rig, run, save, settle  # noqa: F401 (rig: a fixture)
 from shared.contracts.events import validate_engine_payload
 
@@ -139,6 +139,29 @@ def test_the_random_take_learns_with_no_stuck_picture(rig):
 
     ds = run(go())
     assert ds and all(is_run(d) and d["data"]["mode"] == "train" and not still(d) for d in ds)
+
+
+def test_a_second_take_starts_with_previews_again(rig):
+    """Each Demo take is fresh: after ⌃⌥⌘R the last take's run never shows before this take's own run."""
+    async def go():
+        await rig.s.learn("anything", mode="demo")
+        await settle(rig)
+        for _ in range(3):
+            await save(rig, RANDOM)
+        await rig.s.action("run_command")  # take 1 trains
+        await settle(rig)
+        assert rig.s.step["id"] == "nn5"
+        m = rig.mark()
+        await stage.restart(rig.s)
+        await settle(rig)
+        await save(rig, ZEROS)
+        await save(rig, "\n")
+        await save(rig, "\n")
+        assert rig.s.step["id"] == "nn4"
+        return diagrams(rig.since(m))
+
+    ds = run(go())
+    assert [d["stepId"] for d in ds] == ["nn1", "nn2", "nn3", "nn4"] and all(is_preview(d) for d in ds)
 
 
 def test_the_stuck_picture_before_a_stuck_run_is_a_preview(rig):
