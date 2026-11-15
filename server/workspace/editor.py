@@ -564,6 +564,8 @@ def _ax_editor_snapshot_unsafe() -> dict | None:
     focused = get(app, "AXFocusedUIElement")
     if str(get(focused, "AXRole") or "") not in ("AXTextArea", "AXTextField"):
         return None
+    if str(get(focused, "AXRoleDescription") or "editor") != "editor":  # xterm's "Terminal input" helper, not Monaco
+        return None
     text = get(focused, "AXValue")
     if not text:  # "" = accessibilitySupport "off": Monaco empties its AX text, so caret_line/line_rect would be wrong
         return None

@@ -18,6 +18,8 @@ STATE_DIR = ".miyagi-state"  # under lessons_root(): one JSON per folder (keeps 
 # editor.accessibilitySupport is left out by default: our AXManualAccessibility read flips VS Code ("auto") into
 # "Screen Reader Optimized", but "off" makes VS Code 1.146 empty the editor's and terminal's AX text, so Miyagi would
 # fall back to OCR. MIYAGI_VSCODE_ACCESSIBILITY=off|on|auto writes that value (never "off" while VoiceOver runs).
+# Exception: "off" is written when the companion extension answers (_write_vscode_settings); the terminal then has no
+# AX rows either (xterm follows Screen Reader Optimized), so terminal output in that window is read by OCR.
 # window.title: VS Code's macOS default title drops the "●" unsaved marker that the screen code reads.
 VSCODE_A11Y = os.environ.get("MIYAGI_VSCODE_ACCESSIBILITY", "").strip().lower()
 VSCODE_A11Y = VSCODE_A11Y if VSCODE_A11Y in ("off", "on", "auto") else ""
