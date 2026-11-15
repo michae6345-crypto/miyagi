@@ -548,6 +548,14 @@ useLesson.subscribe((s, prev) => {
   else player.seek(v.t, v.playing, v.kind === 'seek' ? 'engine' : 'user', true)
 })
 
+// The lesson is gone (End, an interrupted lesson that never came back, an engine restart with no lesson): the player
+// window hides (Michael's desktop test 9: the empty panel stayed open after End). Main also hides it on lesson.ended.
+// The browser stage's panel already leaves with the lesson (StagePlayer).
+if (isElectron && isHost)
+  useLesson.subscribe((s, prev) => {
+    if (prev.lesson && !s.lesson) bridge.invoke('player:hide').catch(() => undefined)
+  })
+
 onUi('reset', () => {
   clearTimeout(resumeTimer)
   excursion = false

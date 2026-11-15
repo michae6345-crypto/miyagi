@@ -11,6 +11,9 @@
  * Handles (bridge.invoke from any window):
  *   player:dock    snap back to the right 40% (and save that)
  *   player:hover   (on: boolean) focusable while hovered
+ *   player:hide    the lesson is gone (the player window's lesson became null): hide the window
+ *
+ * Hidden again on lesson.ended (except reason "interrupted": an engine deploy that comes back with the same lesson).
  *
  * UNVERIFIED: written and typechecked on Windows, where Smart App Control blocks electron.exe.
  * Check on the Mac: docking, drag by the header, bounds restore, no focus steal, autoplay.
@@ -109,11 +112,22 @@ export default defineMainFeature({
     // "Just teach me" (lesson.mode "lesson") has no video: never open or show the player for it (Michael, Sat 3:23 PM).
     const textLesson = (e: { type: string; payload?: unknown }): boolean =>
       e.type === 'lesson.ready' && (e.payload as { lesson?: { mode?: string } } | undefined)?.lesson?.mode === 'lesson'
+    const hide = (): void => {
+      if (!win.isDestroyed() && win.isVisible()) win.hide()
+    }
+    let readyAt = 0
     ctx.engine.onEvent((e) => {
+      // End lesson (Michael's desktop test 9): the empty panel ("The tutorial plays here once a lesson starts.") stayed
+      // open. The lesson is over, so the player goes. Not for "interrupted" (an engine deploy that comes back with the
+      // same lesson): the renderer asks for player:hide if that lesson never comes back.
+      if (e.type === 'lesson.ended') {
+        if ((e.payload as { reason?: string } | undefined)?.reason !== 'interrupted') hide()
+        return
+      }
       if (e.type !== 'lesson.ready') return
-      if (textLesson(e)) {
-        if (!win.isDestroyed() && win.isVisible()) win.hide()
-      } else reveal()
+      readyAt = Date.now()
+      if (textLesson(e)) hide()
+      else reveal()
     })
     // A lesson already running (e.g. DEMO=1 started before this feature loaded).
     const ready = [...ctx.engine.log].reverse().find((e) => e.type === 'lesson.ready')
@@ -122,6 +136,11 @@ export default defineMainFeature({
     ctx.handle('player:dock', () => {
       win.setBounds(dock())
       save()
+    })
+    // The player window's lesson became null without an End (an interrupted lesson that never came back, an engine
+    // restart with no lesson): hide it too. A lesson.ready that just landed wins (its reset came first).
+    ctx.handle('player:hide', () => {
+      if (Date.now() - readyAt > 1500) hide()
     })
     ctx.handle('player:hover', (on) => {
       if (!win.isDestroyed()) win.setFocusable(!!on)
