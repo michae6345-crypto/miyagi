@@ -17,7 +17,7 @@ from server.checks.tiger import TigerWriter, replay_spool
 from server.orchestrator import curated, stage, tiger_runs
 from server.orchestrator.context import RunInfo
 from server.orchestrator.modules import Modules
-from server.orchestrator.tests.test_stage import RANDOM, ZEROS, rig, run, save, settle  # noqa: F401 (rig: a fixture)
+from server.orchestrator.tests.test_stage import NN1_ZEROS, RANDOM, ZEROS, code, rig, run, save, settle  # noqa: F401
 
 # nn.py's output (the lesson's own run, seed 0): a loss line every 2,000 epochs, then the weights.
 NN_OUT = ["epoch     0  loss 0.8187", "epoch  2000  loss 0.0257", "epoch  4000  loss 0.0151", "epoch  6000  loss 0.0048",
@@ -147,9 +147,9 @@ def test_demo_recorded_runs_are_tagged_demo_never_learner(rig):
         await settle(rig)
         rec = Recorded()
         rig.s.m.record_run = rec
-        await save(rig, ZEROS)
-        await save(rig, "\n")
-        await save(rig, "\n")
+        await save(rig, NN1_ZEROS)
+        await save(rig, code("nn2"))
+        await save(rig, code("nn3"))
         assert rig.s.step["id"] == "nn4"
         await rig.s.action("run_command")  # the recorded stuck run
         await settle(rig)

@@ -19,7 +19,7 @@ from server.checks.evaluator import RunContext, evaluate_check
 from server.coach import common
 from server.coach.diagnose import _lesson_action
 from server.orchestrator import card_copy, curated, lesson_end, stage
-from server.orchestrator.tests.test_stage import RANDOM, ZEROS, passed, rig, save, settle  # noqa: F401 (fixture)
+from server.orchestrator.tests.test_stage import NN1_ZEROS, RANDOM, ZEROS, code, passed, rig, save, settle  # noqa: F401
 
 # ------------------------------------------------------------------ the app's readers (Evidence.tsx, code.ts)
 # (code.ts readingValue as of adrian/shell PR #137, 230348a: "at step N" or "at epoch N")
@@ -49,9 +49,10 @@ def run(coro):
 async def _to_train_step(rig) -> None:  # noqa: F811
     await rig.s.learn("anything", mode="demo")
     await settle(rig)
-    await save(rig, ZEROS)  # the presenter's zeros shortcut
-    await save(rig, "\n")
-    rig.clock.t += 1
+    await save(rig, NN1_ZEROS)  # the presenter's zeros shortcut
+    await save(rig, code("nn2"))
+    (rig.workdir / "nn.py").write_text((rig.workdir / "nn.py").read_text() + code("nn3"))
+    rig.clock.t += 2
     await rig.s.action("check_step")
     await settle(rig)
     assert rig.s.step["id"] == curated.TRAIN_STEP

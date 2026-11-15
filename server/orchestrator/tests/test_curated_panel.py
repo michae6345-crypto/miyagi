@@ -10,7 +10,7 @@ import json
 import math
 
 from server.orchestrator import curated, stage
-from server.orchestrator.tests.test_stage import RANDOM, ZEROS, rig, run, save, settle  # noqa: F401 (rig: a fixture)
+from server.orchestrator.tests.test_stage import NN1_ZEROS, RANDOM, ZEROS, code, rig, run, save, settle  # noqa: F401
 from shared.contracts.events import validate_engine_payload
 
 HALF_PI = round(math.pi / 2, 4)
@@ -58,9 +58,9 @@ def test_demo_panel_tells_the_zeros_story(rig):
     async def go():
         await rig.s.learn("anything", mode="demo")
         await settle(rig)
-        await save(rig, ZEROS)  # step 1 with the presenter's shortcut
-        await save(rig, "\n")
-        await save(rig, "\n")
+        await save(rig, NN1_ZEROS)  # step 1 with the presenter's shortcut
+        await save(rig, code("nn2"))
+        await save(rig, code("nn3"))
         assert rig.s.step["id"] == "nn4"
         before = diagrams(rig.events)  # every step's picture up to Train it's first run
 
@@ -78,7 +78,7 @@ def test_demo_panel_tells_the_zeros_story(rig):
         assert rig.s.step["id"] == "nn5"
         nn5 = [d for d in rig.of("diagram") if d.get("stepId") == "nn5"]
 
-        await save(rig, "\n")
+        await save(rig, code("nn5"))
         m = rig.mark()
         await rig.s.action("run_command")  # See what it learned: the weights it printed
         await settle(rig)
@@ -130,8 +130,8 @@ def test_the_random_take_learns_with_no_stuck_picture(rig):
     async def go():
         await rig.s.learn("anything", mode="demo")
         await settle(rig)
-        for _ in range(3):
-            await save(rig, RANDOM)
+        for sid in ("nn1", "nn2", "nn3"):
+            await save(rig, code(sid))
         m = rig.mark()
         await rig.s.action("run_command")
         await settle(rig)
@@ -146,17 +146,17 @@ def test_a_second_take_starts_with_previews_again(rig):
     async def go():
         await rig.s.learn("anything", mode="demo")
         await settle(rig)
-        for _ in range(3):
-            await save(rig, RANDOM)
+        for sid in ("nn1", "nn2", "nn3"):
+            await save(rig, code(sid))
         await rig.s.action("run_command")  # take 1 trains
         await settle(rig)
         assert rig.s.step["id"] == "nn5"
         m = rig.mark()
         await stage.restart(rig.s)
         await settle(rig)
-        await save(rig, ZEROS)
-        await save(rig, "\n")
-        await save(rig, "\n")
+        await save(rig, NN1_ZEROS)
+        await save(rig, code("nn2"))
+        await save(rig, code("nn3"))
         assert rig.s.step["id"] == "nn4"
         return diagrams(rig.since(m))
 
@@ -174,8 +174,8 @@ def test_the_stuck_picture_before_a_stuck_run_is_a_preview(rig):
         await rig.s.action("diagram", "gradients")
         await settle(rig)
         early = diagrams(rig.since(m))
-        for _ in range(3):
-            await save(rig, RANDOM)
+        for sid in ("nn1", "nn2", "nn3"):
+            await save(rig, code(sid))
         await rig.s.action("run_command")  # a good run: nn4 passes
         await settle(rig)
         m = rig.mark()
