@@ -12,7 +12,7 @@ const os = require('os');
 const path = require('path');
 const vscode = require('vscode');
 
-const VERSION = '0.0.1';
+const VERSION = '0.0.3';
 const DEFAULT_PORT = 8791;
 const PORT_SPAN = 9;
 const ACTION_DEADLINE_MS = 250; // the engine's client gives up after 300 ms
@@ -21,6 +21,10 @@ const MAX_BODY = 4 * 1024 * 1024;
 const TAIL_CHARS = 16000;
 const TAIL_LINES = 40;
 const TERMINAL_NAME = 'Miyagi';
+const EXPLAIN_MAX_CHARS = 2000; // "Miyagi: Explain this": the selection sent to the engine (the rest is cut)
+const EXPLAIN_AROUND_LINES = 12; // ...plus this many lines above and below it, so Claude reads it in context
+const EXPLAIN_AROUND_CHARS = 3000;
+const EXPLAIN_REPEAT_MS = 1000; // the same selection again within this of the last press: dropped (a held key)
 const PROPOSED_SCHEME = 'miyagi-proposed';
 const PENDING = Symbol('pending');
 
@@ -37,6 +41,7 @@ const S = {
   proposedEmitter: null,
   dirty: new Map(), // document key -> last isDirty seen
   editorTimer: null,
+  lastExplain: null, // {text, at} of the last "Miyagi: Explain this" press
   log: null,
 };
 
@@ -672,6 +677,69 @@ function onWindowState(st) {
   postEvent('focus', { focused: !!(st && st.focused) });
 }
 
+// ---------------------------------------------------------------- "Miyagi: Explain this"
+
+// The lines around [startLine, endLine] (1-based), capped, so the engine can explain the selection in context.
+function aroundText(doc, startLine, endLine) {
+  const first = Math.max(1, startLine - EXPLAIN_AROUND_LINES);
+  const last = Math.min(doc.lineCount, endLine + EXPLAIN_AROUND_LINES);
+  const lines = [];
+  for (let n = first; n <= last; n++) lines.push(doc.lineAt(n - 1).text);
+  return { startLine: first, text: lines.join('\n').slice(0, EXPLAIN_AROUND_CHARS) };
+}
+
+// The selection, else the cursor's line, as {file, text, startLine, endLine, languageId, ...}; null without an editor.
+function selectionPayload(ed) {
+  if (!ed || !ed.document) return null;
+  const doc = ed.document;
+  const sel = ed.selection;
+  let text;
+  let startLine;
+  let endLine;
+  if (!sel || sel.isEmpty) {
+    const line = sel ? sel.active.line : 0;
+    text = doc.lineAt(line).text;
+    startLine = line + 1;
+    endLine = line + 1;
+  } else {
+    text = doc.getText(new vscode.Range(sel.start, sel.end));
+    startLine = sel.start.line + 1;
+    // a selection that ends at column 0 of the next line (a triple-click / whole-line select) ends on the line above
+    endLine = sel.end.line + (sel.end.character === 0 && sel.end.line > sel.start.line ? 0 : 1);
+  }
+  return {
+    file: docKey(doc),
+    relPath: doc.uri.scheme === 'file' ? vscode.workspace.asRelativePath(doc.uri, false) : null,
+    languageId: doc.languageId,
+    text: text.slice(0, EXPLAIN_MAX_CHARS),
+    truncated: text.length > EXPLAIN_MAX_CHARS,
+    fromCursorLine: !sel || sel.isEmpty,
+    startLine,
+    endLine,
+    around: aroundText(doc, startLine, endLine),
+  };
+}
+
+// Posts `explain_selection` to the engine, which answers with an Explain card in Miyagi's overlay. Shows nothing in
+// VS Code (no toast, no webview), whatever miyagi.editorUi says; it only reads the editor, so it works in Restricted
+// Mode. An empty line still goes out (text ""): the engine's card says to select something. VS Code repeats a held
+// keybinding, so presses of the same selection under EXPLAIN_REPEAT_MS apart count as one (the engine also drops a
+// press while it is still answering, or right after it answered the same selection).
+function explainSelection() {
+  const payload = selectionPayload(vscode.window.activeTextEditor);
+  if (!payload) {
+    log('explain: no active editor');
+    return false;
+  }
+  const now = Date.now();
+  const last = S.lastExplain;
+  S.lastExplain = { text: payload.text, at: now };
+  if (last && last.text === payload.text && now - last.at < EXPLAIN_REPEAT_MS) return false;
+  log(`explain: ${payload.file}:${payload.startLine}-${payload.endLine} (${payload.text.length} chars)`);
+  postEvent('explain_selection', payload);
+  return true;
+}
+
 // ---------------------------------------------------------------- lifecycle
 
 async function activate(context) {
@@ -701,6 +769,7 @@ async function activate(context) {
     subs.push(w.onDidStartTerminalShellExecution(onCommandStart));
     subs.push(w.onDidEndTerminalShellExecution(onCommandEnd));
   }
+  subs.push(vscode.commands.registerCommand('miyagi.companion.explainSelection', explainSelection));
   subs.push(vscode.commands.registerCommand('miyagi.companion.status', () => { // no toast; GET /health instead
     log(S.port ? `status: listening on 127.0.0.1:${S.port}` : 'status: no free port (8791-8799)');
     return S.port;
@@ -732,4 +801,4 @@ function deactivate() {
     proposed: new Map(), dirty: new Map(), lastFocusedAt: 0 });
 }
 
-module.exports = { activate, deactivate, _internal: { S, cleanOutput, tailLines, editToReplace, refuse } };
+module.exports = { activate, deactivate, _internal: { S, cleanOutput, tailLines, editToReplace, refuse, selectionPayload } };

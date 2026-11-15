@@ -7,8 +7,9 @@ It can also open a file at a line, open the terminal, run a command in it, and a
 **It draws nothing in VS Code.** Miyagi's own overlay (the white spotlight box, the drawer, the cards) is the only
 UI, so a lesson looks the same with or without the extension. The only things you see in VS Code are the lesson
 file being opened and the one terminal named "Miyagi" that "Run it for me" uses. No status bar item, no
-notification, no webview, no editor decoration, no diff tab, and no command palette entry. The `/highlight` box
-and `/diff` tab exist only behind the `miyagi.editorUi` setting (default `false`).
+notification, no webview, no editor decoration and no diff tab. The `/highlight` box and `/diff` tab exist only
+behind the `miyagi.editorUi` setting (default `false`). The one command it adds is **Miyagi: Explain this** (below),
+and its answer appears in Miyagi's overlay, not in VS Code.
 
 It is plain JavaScript (`extension.js` + `package.json`) with no build step and no dependencies. It needs
 VS Code 1.90 or newer; exit codes need 1.93 or newer. It starts on VS Code startup (`onStartupFinished`) and serves
@@ -18,12 +19,34 @@ so on up to 8799.
 The engine side is `server/workspace/vscode_ext.py`. Every call there returns `None` when the extension isn't
 running, so the engine falls back to its OCR path.
 
+## Miyagi: Explain this
+
+Select code (or put the cursor on a line) and press **Ctrl+Cmd+E** on macOS (Ctrl+Shift+Alt+E elsewhere), or
+right-click the selection → **Miyagi: Explain this**. It is also in the command palette. The extension posts an
+`explain_selection` event to the engine and shows nothing itself: no notification, no webview. The engine answers
+with an Explain card in Miyagi's overlay ("About `def add(a, b):…`"): Claude (Sonnet) explains the selection, with
+the current lesson step as context, also when no lesson is running. With nothing selected it sends the cursor's line;
+an empty line gets a short "Nothing to explain" card. It only reads the editor, so it works in Restricted Mode.
+One Claude call per question: presses of the same selection under 1 s apart (a held key) count as one here, and the
+engine drops a press while it is still answering, or the same selection again within 5 s of its card.
+
+Neither VS Code nor its built-in extensions bind Ctrl+Cmd+E on macOS (checked against VS Code 1.146's defaults), and
+Miyagi's own global shortcuts use Option (Option+E explains the step). The binding is active while the text editor
+has focus. Change it under Keyboard Shortcuts → "Miyagi: Explain this".
+
 ## Install (not done yet: waiting for Michael's OK)
 
-From the repo root, copy the folder into VS Code's extensions folder:
+Package the `.vsix` (`.vscodeignore` keeps the tests out) and install it:
 
 ```bash
-rm -rf ~/.vscode/extensions/miyagi.companion-0.0.1 && cp -R vscode-ext ~/.vscode/extensions/miyagi.companion-0.0.1
+cd vscode-ext && npx @vscode/vsce@3.2.1 package --allow-missing-repository --skip-license --no-dependencies -o dist/miyagi-companion-0.0.3.vsix
+"/Applications/Visual Studio Code.app/Contents/Resources/app/bin/code" --install-extension dist/miyagi-companion-0.0.3.vsix --force
+```
+
+Or, from the repo root, copy the folder into VS Code's extensions folder:
+
+```bash
+rm -rf ~/.vscode/extensions/miyagi.companion-0.0.* && cp -R vscode-ext ~/.vscode/extensions/miyagi.companion-0.0.3
 ```
 
 Then reload each open VS Code window: **Cmd+Shift+P → "Developer: Reload Window"**. To check it:
@@ -36,7 +59,7 @@ The output channel "Miyagi Companion" (Output panel, never opened by the extensi
 `terminal/run`.
 
 - **Update:** run the same copy command again, then reload the window.
-- **Uninstall:** `rm -rf ~/.vscode/extensions/miyagi.companion-0.0.1`, then reload the window.
+- **Uninstall:** `rm -rf ~/.vscode/extensions/miyagi.companion-0.0.*`, then reload the window.
 - **If it doesn't show up** under Extensions → `@installed miyagi`, you can try it without installing. This opens
   a separate "Extension Development Host" window with the extension loaded (`code` isn't on PATH on this Mac,
   hence the full path):
@@ -86,7 +109,7 @@ finishes, and its result is posted as an `action_done` event. The engine's clien
 
 ```jsonc
 {
-  "ok": true, "app": "vscode", "extension": "0.0.1", "vscodeVersion": "1.146.0", "pid": 123, "port": 8791,
+  "ok": true, "app": "vscode", "extension": "0.0.3", "vscodeVersion": "1.146.0", "pid": 123, "port": 8791,
   "folders": ["/Users/me/miyagi/lessons/python-calculator-e430dc"], "workspaceName": "python-calculator-e430dc",
   "file": "/Users/me/miyagi/lessons/python-calculator-e430dc/calculator.py", "relPath": "calculator.py",
   "dirty": true, "languageId": "python", "lineCount": 4,
@@ -126,6 +149,7 @@ The extension makes a best-effort `POST <miyagi.engineUrl>/vscode/event` (defaul
 | `command_start` | `command` | A command started (needs shell integration) |
 | `command_end` | `command` (with `exitCode` and `outputTail`) | A command ended (needs shell integration) |
 | `action_done` | `action, id, result` | A slow action (see above) finished |
+| `explain_selection` | `file, relPath, languageId, text, truncated, fromCursorLine, startLine, endLine, around` | **Miyagi: Explain this**. `text`: the selection (else the cursor's line), at most 2000 characters (`truncated` says it was longer); lines are 1-based; `around`: `{startLine, text}`, up to 12 lines above and below (3000 characters). The engine answers with an Explain card (`server/orchestrator/selection.py`) |
 
 The engine stores these with `server.workspace.vscode_ext.record_event`. To react to them, use
 `vscode_ext.subscribe(cb)`.

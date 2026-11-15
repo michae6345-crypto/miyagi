@@ -564,6 +564,8 @@ ActionKind = Literal["back", "explain", "diagram", "show_me", "hint", "voice_tog
 
 class Action(_Model):
     kind: ActionKind
+    # explain + text: text = the learner's selection (the drawer's "Explain more"): the engine answers with a card
+    # {kind: "explain", title: "About `<start of the selection>`", body}. explain without text: the current step.
     text: str | None = None
 
 

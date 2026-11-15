@@ -602,6 +602,14 @@ class Modules:
                               step, question, context)
         return self._public(out)
 
+    async def explain_selection(self, step: dict | None, selection: dict, context: dict) -> dict:
+        """"Explain this" on text the learner selected (VS Code or the drawer; see selection.py): an Explain card."""
+        from .selection import offline_card
+
+        out = await self._run("coach", "explain_selection", lambda: offline_card(step, selection),
+                              step, selection, context)
+        return self._public(out)
+
     def has_pointing(self) -> bool:
         return self._real_fn("coach", "show_me") is not None
 

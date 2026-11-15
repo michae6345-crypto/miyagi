@@ -25,6 +25,7 @@ from .outdated import fix_outdated
 from .playbook import match as match_playbook
 from .pointing import point, show_me
 from .screen import Box, ScreenContext
+from .selection import explain_selection
 from .triage import triage
 
 
@@ -57,6 +58,7 @@ __all__ = [
     "diagnose",
     "do_it_for_me",
     "explain",
+    "explain_selection",
     "fix_outdated",
     "hint",
     "inflight",

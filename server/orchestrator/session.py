@@ -2874,6 +2874,11 @@ class LessonSession:
         if kind == "undo":
             await self._undo_fix()
             return
+        if kind == "explain" and (text or "").strip():  # selected text (VS Code "Explain this", drawer "Explain more")
+            from .selection import answer as explain_selection
+
+            await explain_selection(self, step, text)  # also without a lesson: no step context then
+            return
         if step is None:
             await self.emit("error", {"message": "No lesson is running yet."})
             return

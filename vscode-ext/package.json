@@ -3,7 +3,7 @@
   "publisher": "miyagi",
   "displayName": "Miyagi Companion",
   "description": "Lets the Miyagi tutor engine read and drive VS Code exactly (open, highlight, terminal, apply) over a localhost-only HTTP API.",
-  "version": "0.0.1",
+  "version": "0.0.3",
   "private": true,
   "license": "UNLICENSED",
   "icon": "icon.png",
@@ -22,6 +22,10 @@
       {
         "command": "miyagi.companion.status",
         "title": "Miyagi: Companion status"
+      },
+      {
+        "command": "miyagi.companion.explainSelection",
+        "title": "Miyagi: Explain this"
       }
     ],
     "menus": {
@@ -29,9 +33,28 @@
         {
           "command": "miyagi.companion.status",
           "when": "false"
+        },
+        {
+          "command": "miyagi.companion.explainSelection",
+          "when": "editorIsOpen"
+        }
+      ],
+      "editor/context": [
+        {
+          "command": "miyagi.companion.explainSelection",
+          "when": "editorHasSelection",
+          "group": "0_miyagi@1"
         }
       ]
     },
+    "keybindings": [
+      {
+        "command": "miyagi.companion.explainSelection",
+        "key": "ctrl+shift+alt+e",
+        "mac": "ctrl+cmd+e",
+        "when": "editorTextFocus"
+      }
+    ],
     "configuration": {
       "title": "Miyagi Companion",
       "properties": {
