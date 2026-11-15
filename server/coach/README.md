@@ -121,12 +121,14 @@ judge = coach.StepJudge()                       # one per session; per-step rate
 if judge.should_judge(step, check_results, idle_s=idle, video_playing=playing, screen=obs, files=files, focused_app=app):
     j = await judge.judge(step, check_results, screen=obs, files=files, focused_app=app)   # None if unavailable
     for ev in j["events"]: emit(ev["type"], ev["payload"])     # check.updated status "pass", detail "Claude saw it on screen: …"
-    if j["card"]: emit("card", j["card"])
+    if j["card"] and shown(j["card"]): judge.card_shown(step["id"], j["card"])   # only cards the learner saw
 ```
 
-- **Gate:** a check is not yet passed, the learner has been idle at least 8 s, the video isn't playing, at most one judgment per 20 s per step, and only when the screen text or the files changed.
+- **Gate:** a check is not yet passed, the learner has been idle at least 8 s, the video isn't playing, at most one judgment per 20 s per step, and only when the screen text or the files changed (an app switch over the same text is not a change). The backoff follows Claude's per-check verdicts only, so a card going up never resets it to 20 s.
 - **Passing checks:** a check the machine still has as `pending` passes when Claude says done with confidence ≥ 0.8.
-- **Disagreement:** if a deterministic check says `fail` while Claude says done (confidence ≥ 0.6), Claude never overrules it. You get the card `{kind: "answer", title: "Looks done?", body: ≤12 words, actions: ["confirm", "skip_step"], checkIds}` instead.
+- **Judge cards** are step-status cards, never answers: `kind: "hint"`, `source: "judge"`. `j["done"]` is the whole step's verdict (every check passed by the machine or seen done by Claude, confidence ≥ 0.6).
+- **Disagreement:** if a deterministic check says `fail` while Claude says done (confidence ≥ 0.6), Claude never overrules it. When Claude sees the whole step done you get `{title: "Looks done?", verdict: "done", body: ≤12 words, actions: ["confirm", "skip_step"], checkIds}` (Yes vouches for `checkIds`). When other checks are still not done you get `{title: "Not yet", verdict: "not_done", body: what is left (≤12 words), actions: ["hint", "show_me", "skip_step"], checkIds: the missing checks}` instead, never "Looks done?".
+- **No repeats:** after `card_shown`, the same card (title + checkIds) is not offered again for that step until the files change.
 - **Ahead of the lesson:** if the learner is already on a later step, the card is `{title: "Already ahead?", actions: ["skip_step"], targetStepId}`. An earlier step on screen gives no card.
 - **Setup steps:** these are judged done when the tool is visibly open or installed.
 - **Check button** (action `check_step`): `await coach.judge_step(step, screen, files, check_results=...)` runs the same judgment with no gates. It returns `{checks: {id: {verdict: done|not_done|unsure, reason, evidence}}, done, missing (≤12 words), where, target: {text, rect} | None}`.

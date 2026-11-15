@@ -338,7 +338,8 @@ class PreflightInfo(_Model):
 
 
 CardAction = Literal["confirm", "undo", "apply_fix", "open_editor", "resume", "end_lesson", "install", "skip_setup",
-                     "open_in_browser", "build", "pick_another", "download", "skip_step", "check_step", "use_this_folder", "run_command"]
+                     "open_in_browser", "build", "pick_another", "download", "skip_step", "check_step", "use_this_folder", "run_command",
+                     "hint", "show_me"]  # hint / show_me: the off-track card's actions, on a judge "Not yet" card
 
 
 class Card(_Model):
@@ -358,6 +359,9 @@ class Card(_Model):
     preflight: PreflightInfo | None = None  # kind "preflight"
     where: str | None = None  # coach: where to go when the place isn't on screen (no dim)
     output: str | None = None  # monospace output block (e.g. "Run it for me")
+    source: Literal["judge"] | None = None  # E5's step judge made it: a step-status card (kind "hint"), never an answer
+    verdict: Literal["done", "not_done"] | None = None  # source "judge": the WHOLE step. done = "Looks done?", not_done = "Not yet"
+    checkIds: list[str] | None = None  # source "judge": the checks it is about (done: what Yes vouches for; not_done: still missing)
 
 
 class NetworkDiagram(_Model):

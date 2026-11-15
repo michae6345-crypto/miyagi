@@ -2445,7 +2445,10 @@ class LessonSession:
         if kind == "confirm":  # "Apply this fix?" preview, or "Looks done? Confirm"
             if step is not None and self.pending_patch is not None:
                 await self._apply_patch(step)
-            elif step is not None and self.confirm_pending and not self.passed:
+            elif step is not None and (self.confirm_pending or self.confirm_check_ids) and not self.passed:
+                # confirm_check_ids: the judge's "Looks done?" stays armed until the step changes or Claude
+                # stops seeing it done (evaluate() only clears confirm_pending, the checks-pass card's flag)
+                await self._status("thinking")  # the app's Yes spinner ends on thinking -> passed, even on the last step
                 self.confirm_pending = False
                 for cid in self.confirm_check_ids:  # E5's "Looks done?": the learner vouches for these checks
                     label = (self.check_state.get(cid) or {}).get("label", cid)
@@ -2453,6 +2456,8 @@ class LessonSession:
                                                       "status": "pass", "detail": "You confirmed it"})
                 self.confirm_check_ids = []
                 await self._pass_step()
+            elif step is not None and not self.passed:
+                await self._confirm_stale(step)  # a "Looks done?" that went stale: re-check, never a silent no-op
             return
         if kind == "undo":
             await self._undo_fix()
@@ -3137,10 +3142,42 @@ class LessonSession:
         if self.judged_pass:
             await self.evaluate("judge")
         card = j.get("card")
+        if not j.get("done"):
+            self.confirm_check_ids = []  # Claude no longer sees the step done: a later Yes re-checks (_confirm_stale)
         if card and not self.passed and gen == self.step_gen:
-            if await self._emit_card(card, auto=True) and "confirm" in (card.get("actions") or []):
-                self.confirm_pending = True
-                self.confirm_check_ids = list(card.get("checkIds") or [])
+            if card.get("verdict") == "not_done":
+                ids = {r.get("checkId") for r in self.last_failed if r.get("checkId")}
+                if self.coaching or (ids and ids <= self._offtracked_checks and self.last_offtrack):
+                    return  # the off-track card says "Not yet" better (question, evidence, Show me): don't cover it
+            if await self._emit_card(card, auto=True):
+                if shown := getattr(self.judge, "card_shown", None):
+                    shown(step["id"], card)  # E5: the same card isn't offered again for this step until a save
+                if "confirm" in (card.get("actions") or []):
+                    self.confirm_pending = True
+                    self.confirm_check_ids = list(card.get("checkIds") or [])
+
+    CONFIRM_TIMEOUT_S = 7.0  # Yes on a stale "Looks done?" answers within this (the app's button gives up at 10 s)
+
+    async def _confirm_stale(self, step: dict) -> None:
+        """Yes on a "Looks done?" that is no longer armed (the checks changed since it went up): re-check like the
+        Check button, but answer within CONFIRM_TIMEOUT_S. When the re-check runs late (a slow judge) or ends with
+        only a status, the deterministic checks decide and a card says what is still missing."""
+        gen, last_card = self.step_gen, self._last_card_t
+        # not cancelled on timeout (a cancel inside _pass_step would strand the lesson); a late pass still counts
+        check = self._spawn(self._check_step(step))
+        late = not (await asyncio.wait({check}, timeout=self.CONFIRM_TIMEOUT_S))[0]
+        if late:
+            log.info("confirm: re-check took over %.0f s; the checks decide", self.CONFIRM_TIMEOUT_S)
+        if self.passed or gen != self.step_gen or self._last_card_t != last_card:
+            return  # passed, moved on, or the re-check already answered with a card
+        labels = [r.get("label") or r.get("checkId") for r in self.last_failed
+                  or [r for r in self.last_results if r.get("status") != "pass"]]
+        what = ("" if late else (self.last_offtrack or {}).get("title") or "") or (
+            f"Still missing: {'; '.join(str(x) for x in labels[:2])}" if labels else "The checks haven't passed yet")
+        body = " ".join((("Couldn't double-check in time. " if late else "") + what).split()[:16])
+        await self._emit_card({"stepId": step["id"], "kind": "hint", "source": "judge", "verdict": "not_done",
+                               "title": "Not yet", "body": body, "actions": ["hint", "show_me", "skip_step"]}, window_s=2.0)
+        await self._status("offtrack" if self.last_offtrack else "watching")
 
     SETUP_STEP = re.compile(r"\b(install(ing|ation|ed)?|download(ing)?|set\s*-?\s*up|setup)\b", re.I)
 
