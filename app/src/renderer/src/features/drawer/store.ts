@@ -3,7 +3,6 @@
  * for a while (see index.tsx); that never changes `open`, so it slides back once the target moves on.
  */
 import { create } from 'zustand'
-import { bridge, registerWebHandler } from '../../bridge'
 import { onMessage, onUi } from '../../core/bus'
 
 type DrawerState = {
@@ -42,14 +41,9 @@ export function isWebLink(url: string): boolean {
 }
 
 /**
- * A source row was clicked. Electron: main opens it in the default browser (src/main/features/drawer.ts).
- * Browser stage: a new tab.
+ * A source row was clicked. Electron: core's window-open handler denies the window and sends http(s) to the
+ * default browser (src/main/index.ts). Browser stage: a new tab.
  */
 export function openSource(url: string): void {
-  if (!isWebLink(url)) return
-  bridge.invoke('drawer:open-url', url).catch((err) => console.warn('[drawer] open-url failed', err))
+  if (isWebLink(url)) window.open(url, '_blank', 'noopener,noreferrer')
 }
-registerWebHandler('drawer:open-url', (url) => {
-  if (typeof url === 'string' && isWebLink(url)) window.open(url, '_blank', 'noopener,noreferrer')
-  return true
-})
