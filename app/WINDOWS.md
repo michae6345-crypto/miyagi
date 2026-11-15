@@ -29,6 +29,6 @@ npm run build && npx electron-builder --win nsis --x64 --publish never
 
 ## Known limits
 
-- Unsigned: SmartScreen asks once (More info > Run anyway). Some PCs with Smart App Control on may block it.
-- Checked on Adrian's laptop (Sat Nov 14, packaged build, `DEMO=1`): the pill shows Ctrl⇧Space, Ctrl+Shift+Space opens the launcher, Esc closes it, a second launch exits. The packaged `dist/win-unpacked/Miyagi.exe` runs there even though Smart App Control blocks the dev `electron.exe`.
+- Unsigned: SmartScreen asks once (More info > Run anyway). PCs with Smart App Control on can block it outright; only code signing fixes that.
+- Checked on Adrian's laptop (Sat Nov 14, packaged build, `DEMO=1`): the pill shows Ctrl⇧Space, Ctrl+Shift+Space opens the launcher, Esc closes it, a second launch exits. Smart App Control let the first two builds run and blocked the third (Code Integrity event 3118), so the sync agent's smoke test skips a blocked build instead of failing it.
 - The app talks to the engine at `ENGINE_URL` (default `ws://localhost:8787`), same as the Mac. Without an engine the pill says Offline. The engine's screen reader is macOS-only for now (Michael's `server/`).
