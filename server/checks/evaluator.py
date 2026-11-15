@@ -590,3 +590,96 @@ def evaluate_gate(step: dict, ctx: RunContext | None = None, screen: Any = None,
 def step_passed(results: list[CheckResult]) -> bool:
     """A step passes only when it has checks and ALL of them pass."""
     return bool(results) and all(r["status"] == "pass" for r in results)
+
+
+# ---------------------------------------------------------------- lesson-file and run evidence
+# Used by the orchestrator in "Just teach me" lessons, where the step's file in the lesson folder is the truth and
+# the screen is only one way of seeing it (QA 11-14: a second VS Code window in front un-passed checks, and a run
+# step passed on the code alone).
+
+def screen_check_on_file(check: dict, path: str | os.PathLike | None, window_open: bool = True) -> CheckResult:
+    """Grade a ``screen_contains`` check on the lesson's file on disk instead of the screen, for when the screen
+    can't show the lesson's editor window (another folder's window is the one in front, or no editor text is in the
+    frame). ``path`` is the step's file in the lesson folder (missing = empty). ``window_open``: a lesson editor
+    window exists somewhere (another Space, behind, still opening).
+
+    pass when the pattern is in the file; otherwise fail "not in <file> yet", or "Open VS Code so I can check it."
+    only when no lesson window exists at all (the one case where opening the editor is the fix)."""
+    pattern = check.get("pattern")
+    if not pattern:
+        return _result(check, "fail", "check has no 'pattern'")
+    name = os.path.basename(os.fspath(path)) if path else "the lesson file"
+    text = ""
+    if path:
+        try:
+            with open(path, encoding="utf-8", errors="replace") as fh:
+                text = fh.read()
+        except OSError:
+            text = ""
+    try:
+        m = search_screen(pattern, text) if text else None
+    except re.error as exc:
+        return _result(check, "fail", f"invalid pattern: {exc}")
+    if m:
+        return _result(check, "pass", f"found in {name}: {m.group(0)[:80]!r}")
+    if not window_open:
+        app = check.get("app")
+        return _result(check, "fail", f"Open {_APP_NAMES.get(app, app)} so I can check it." if app
+                       else f"not in {name} yet")
+    return _result(check, "fail", f"not in {name} yet")
+
+
+def command_matches(expected: str | None, actual: str | None) -> bool:
+    """Does the command that ran (``actual``) run what ``expected`` runs? Interpreter wrappers and flags are ignored
+    (``python3 calculator.py`` == ``tut run python calculator.py``); an empty side never matches."""
+    if not expected or not actual or not _script_tokens(expected):
+        return False
+    return _command_matches(expected, actual)
+
+
+_INTERP = re.compile(r"python(3(\.\d+)?)?")
+# Python's crash output (a traceback, or a SyntaxError / IndentationError line) and the shell's "can't run it"
+_RUN_ERROR = re.compile(r"^\s*[A-Z]\w*(Error|Exception):|Traceback \(most recent call last\)|command not found"
+                        r"|No such file or directory|can't open file")
+
+
+def _words(text: str) -> list[str]:
+    try:
+        return shlex.split(text)
+    except ValueError:
+        return text.split()
+
+
+def _program(token: str) -> str:
+    """``/usr/bin/python3.12`` -> ``python``; other programs by their file name."""
+    name = os.path.basename(token)
+    return "python" if _INTERP.fullmatch(name) else name
+
+
+def terminal_runs(command: str, rows: list[str], expect: Iterable[str] = ()) -> tuple[int, bool, bool]:
+    """``(runs, error, shows)`` for terminal ``rows`` (visual lines, top to bottom): how many times they show
+    ``command`` being RUN, whether the output after the last such run shows an error, and whether it shows any of the
+    ``expect`` regexes (the step's expected output, e.g. ``^5$``).
+
+    A run is a row that names what the command runs (its script tokens, plus its program: ``python``/``python3``,
+    or ``tut``) with at least one row after it (Enter was pressed: output or a new prompt). A command typed but not
+    yet run is the bottom row, so it never counts; neither does a traceback line that mentions the file."""
+    want = _script_tokens(command)
+    head = next((_program(t) for t in _words(command) if "=" not in t), "")  # skip env assignments (X=1 cmd)
+    if not want or not head:
+        return 0, False, False
+    n, last = 0, None
+    for i, row in enumerate(rows[:-1]):
+        programs = {_program(t) for t in _words(row)}
+        if all(w in _script_tokens(row) for w in want) and (head in programs or "tut" in programs):
+            n, last = n + 1, i
+    if last is None:
+        return 0, False, False
+    tail = rows[last + 1:]
+    shows = False
+    for pattern in expect:
+        try:
+            shows = shows or bool(search_screen(pattern, "\n".join(tail)))
+        except re.error:
+            continue
+    return n, any(_RUN_ERROR.search(r) for r in tail), shows

@@ -51,6 +51,17 @@ A **pure function**: no network, no DB, no model calls. It never raises: a malfo
   terminal text (+ run output). Named groups `step`/`value` (without `step`, line order is used); it tolerates OCR slips like `O.25`.
   Without `metric`, the series is keyed by the check id. `extract_metrics(pattern, text)` is exported so E6 can reuse the same parser.
 
+### Lesson file and run evidence ("Just teach me", QA 11-14)
+The orchestrator (`LessonSession._settle_checks` / `_need_run`) uses three pure helpers so checks neither un-pass nor false-pass:
+- `screen_check_on_file(check, path, window_open=True)`: a VS Code `screen_contains` graded on the lesson's file on disk,
+  for frames that can't show the lesson window (another folder's VS Code window in front, or no editor text). Pass when
+  the pattern is in the file; else "not in <file> yet", or "Open VS Code so I can check it." only when no lesson window exists.
+- A `screen_contains` that passed in a step stays passed (latched in the session) unless the file on disk lacks it.
+- `terminal_runs(command, rows, expect)` -> `(runs, error, shows)`: how often terminal rows show `command` run (followed
+  by another row, so a typed-but-unrun command never counts), whether an error follows the last run, and whether the
+  step's expected output (`expect` regexes) does. With `command_matches(expected, actual)` for `tut run` / Run it for me
+  runs, this is the run evidence a run step needs: its code being on screen is not enough.
+
 ### `metric_trend`: thresholds
 The window is the points with `step ≥ latest_step − window` (default 1000; pending below 8 points or < 50 % coverage).
 A trend needs **both** gates (Mann-Kendall test + Sen's slope):

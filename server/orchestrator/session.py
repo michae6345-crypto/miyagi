@@ -331,6 +331,9 @@ class LessonSession:
         self._coach_backoff = 0.0
         self._coach_retry_at = 0.0
         self._eval_error_sent = False
+        self.latched_pass: set[str] = set()  # screen checks that passed this step: kept unless the file on disk disagrees
+        self._run_need: dict | None = None  # run step (fixed at its first evaluation): {cmd, expect, baseline, ran}
+        self._lesson_win_seen: tuple[float, bool] = (-1e9, False)  # (when, lesson's VS Code window open on any Space)
         self.engaged = False  # learner touched files / ran something during this step
         self.gate_open = False  # failing checks are shown as fail (else pending)
         self.step_t0 = self.clock()
@@ -1887,6 +1890,7 @@ class LessonSession:
                     self._eval_error_sent = True
                     await self.emit("error", {"message": f"Check evaluation failed: {e}"})
                 return
+            gate = self._settle_checks(step, gate, ctx)  # latch passes; the lesson file decides when its window isn't shown
             if gate.get("passed") and gate.get("via") == "precision":
                 # a visible error (a failing screen_absent check, e.g. "Failed to compile" / a Traceback) vetoes
                 # the files-only route: the files can be right while the app on screen is broken
@@ -1899,6 +1903,7 @@ class LessonSession:
             if gate.get("passed") and gate.get("via") != shown_list:  # green by the other route: show it green
                 why = "confirmed by your files" if gate.get("via") == "precision" else "confirmed on screen"
                 results = [r if r.get("status") == "pass" else {**r, "status": "pass", "detail": why} for r in results]
+            results, gate = self._need_run(step, results, gate)  # a run step needs a run, not just its code
             if gate.get("passed") and (self._dirty_step_file(step) or self._other_folder(step)
                                        or (self.lesson_mode and self._file_unready(step))):
                 # the screen shows the code, but it's unsaved / in another folder / not on disk: the file decides
@@ -2906,6 +2911,8 @@ class LessonSession:
             verdict = {**verdict, "done": False,
                        "missing": (f"Save {d} with ⌘S so I can check it" if (d := self._dirty_step_file(step))
                                    else f"Type the code into {Path(self._step_file(step) or step.get('file') or '').name}")}
+        if verdict and verdict.get("done") and (unrun := self._run_missing(step)):
+            verdict = {**verdict, "done": False, "missing": unrun}  # the judge saw the code; a run step needs the run
         if verdict and verdict.get("done"):
             for cid, v in (verdict.get("checks") or {}).items():
                 if v.get("verdict") == "done":
@@ -2933,6 +2940,193 @@ class LessonSession:
         await self._emit_card({"stepId": step["id"], "kind": "answer", "title": "Not yet", "body": body,
                                "actions": help_action + ["skip_step"]}, window_s=2.0)
         await self._status("offtrack" if self.last_offtrack else "watching")
+
+    # ------------------------------------------------------------------ check evidence (E3, QA 11-14)
+    def _checks_fn(self, name: str) -> Any:
+        """A helper from E3's server.checks (None when the checks run on the stubs)."""
+        return getattr((getattr(self.m, "real", None) or {}).get("checks"), name, None)
+
+    def _check_file(self, step: dict, check: dict) -> Path | None:
+        """The lesson file a VS Code screen check is about: the step's file in the lesson folder (in lesson mode it
+        may not exist yet). None for a check on another app, a step without a file, or (video lessons, where the
+        learner may work elsewhere) a file that isn't in the lesson folder. One stat: this runs on every frame."""
+        if (check.get("app") or "").strip().lower() not in CODE_APP_NAMES:
+            return None
+        f = self._step_file(step)
+        p = Path(self.workdir) / f if f else None
+        return p if p is not None and (self.lesson_mode or p.is_file()) else None
+
+    def _lesson_window_shown(self) -> bool | None:
+        """Is the lesson's VS Code window in the latest frame? True: a VS Code window there names the lesson folder
+        in its title; False: the titled ones all name other folders; None: no titled VS Code window to go by."""
+        from . import workspace as wsmod
+
+        parse = getattr(wsmod._s2(), "vscode_windows", None)
+        titles = [getattr(w, "title", "") or "" for w in getattr(self.last_obs, "windows", None) or []
+                  if (getattr(w, "app", "") or "").strip().lower() in CODE_APP_NAMES]
+        if parse is None or not any(titles):
+            return None
+        try:
+            names = {w.get("folder_name") for w in parse(titles)}
+        except Exception:  # noqa: BLE001
+            return None
+        return (Path(self.workdir).name in names) if names else None
+
+    def _lesson_window_open(self) -> bool:
+        """Does a VS Code window with the lesson folder exist at all (any Space, behind, full screen)? From every
+        VS Code window's title (CGWindowList), at most every 3 s; only with the real screen reader (never in tests)."""
+        if getattr(self.screen, "reader", None) is None:
+            return False
+        t, seen = self._lesson_win_seen
+        if self.clock() - t < 3.0:
+            return seen
+        from . import workspace as wsmod
+
+        parse = getattr(wsmod._s2(), "vscode_windows", None)
+        try:
+            seen = parse is not None and any(w.get("folder_name") == Path(self.workdir).name for w in parse())
+        except Exception:  # noqa: BLE001
+            seen = False
+        self._lesson_win_seen = (self.clock(), seen)
+        return seen
+
+    def _settle_checks(self, step: dict, gate: dict, ctx: RunContext) -> dict:
+        """The gating screen checks, made stable and honest about which window they read:
+
+        * Latch: a screen_contains check that passed this step stays passed, unless the step's file on disk lacks
+          it (the code was really deleted). A frame of another window, a scroll or a Space switch can't un-pass it.
+        * Lesson mode, a VS Code check: when the frame has no VS Code text, or every VS Code window in it shows
+          another folder while the lesson's window exists elsewhere, the check is graded on the lesson's file on
+          disk (never "not seen in Code" from the wrong window, never a pass from it). "Open VS Code so I can check
+          it" stays only when no lesson window exists at all."""
+        on_file, text_of = self._checks_fn("screen_check_on_file"), self._checks_fn("screen_text")
+        if on_file is None or text_of is None:
+            return gate
+        defs = {c.get("id"): c for c in step.get("checks") or []}
+        shown: Any = ...  # computed once, on first need
+        out = []
+        for r in gate.get("checks") or []:
+            cid, c = r.get("checkId"), defs.get(r.get("checkId")) or {}
+            if c.get("type") != "screen_contains":
+                out.append(r)
+                continue
+            path = self._check_file(step, c)
+            if path is not None and self.lesson_mode and ctx.screen is not None:
+                if shown is ...:
+                    shown = self._lesson_window_shown()
+                hidden = text_of(ctx.screen, c.get("app")) is None
+                if hidden or (shown is False and self._lesson_window_open()):
+                    r = on_file(c, path)
+                    if r.get("status") != "pass" and not (shown or self._lesson_window_open()):
+                        r = on_file(c, path, window_open=False)  # no lesson window anywhere: "Open VS Code …"
+            if r.get("status") == "pass":
+                self.latched_pass.add(cid)
+            elif cid in self.latched_pass:
+                if path is None or on_file(c, path).get("status") == "pass":
+                    prev = self.check_state.get(cid) or {}
+                    r = {**r, "status": "pass",
+                         "detail": prev.get("detail") if prev.get("status") == "pass" else "seen earlier in this step"}
+                else:
+                    self.latched_pass.discard(cid)  # gone from the file on disk: it really un-passed
+            out.append(r)
+        gate = {**gate, "checks": out}
+        if out and all(r.get("status") == "pass" for r in out):
+            return gate if gate.get("passed") else {**gate, "passed": True, "via": "checks"}
+        if gate.get("via") == "checks":  # a pass read off another folder's window: only the precision route is left
+            prec = gate.get("precision") or []
+            ok = bool(prec) and all(r.get("status") == "pass" for r in prec)
+            gate = {**gate, "passed": ok, "via": "precision" if ok else None}
+        return gate
+
+    def _need_run(self, step: dict, results: list[dict], gate: dict) -> tuple[list[dict], dict]:
+        """Lesson mode: a run step ("Run your first output") can't pass on its code alone, it needs a run since the
+        step began. Evidence: a `tut run` / Run it for me of the step's command that exited 0, or the lesson's VS
+        Code terminal showing that command run more times than when the step began, or showing the step's expected
+        output under its last run when it didn't then (never with an error after it). Shown as one more row ("Ran
+        python3 calculator.py"); until it is green the step can't pass."""
+        need = self._run_need
+        if need is None:  # fixed at the step's first evaluation: a typing step whose code is now saved stays one
+            cmd = (self._run_command(step) if self.lesson_mode else "").strip()
+            expect = [c["pattern"] for c in (step.get("checks") or []) + (step.get("precision_checks") or [])
+                      if c.get("pattern") and (c.get("type") == "output_contains" or (
+                          c.get("type") == "screen_contains" and "terminal" in (c.get("app") or "").lower()))]
+            expect += [rf"^\s*{re.escape(ln.strip())}\s*$" for ln in (step.get("expected_output") or "").splitlines()
+                       if ln.strip()][:1]
+            need = self._run_need = {"cmd": cmd.splitlines()[-1].strip() if cmd else "", "expect": expect,
+                                     "base": None, "base_shows": False, "ran": None}
+        cmd = need["cmd"]
+        count, same = self._checks_fn("terminal_runs"), self._checks_fn("command_matches")
+        if not cmd or count is None or same is None:
+            return results, gate
+        row = {"checkId": f"{step['id']}-ran", "label": f"Ran {cmd}"[:60], "status": "pending",
+               "detail": "Run it in the terminal (or press Run it for me)"}
+        if need["ran"]:
+            row = {**row, "status": "pass", "detail": need["ran"]}
+        for run in reversed(self.step_runs):  # tut run / Run it for me: the latest finished run of this command
+            if row["status"] == "pass":
+                break
+            if run.run_id.startswith("screen-") or run.exit_code is None or not same(cmd, run.command):
+                continue
+            if run.exit_code == 0:
+                row = {**row, "status": "pass", "detail": "ran without errors"}
+            else:
+                row["detail"] = f"the last run stopped with exit code {run.exit_code}"
+            break
+        if row["status"] != "pass" and (rows := self._terminal_rows()) is not None:
+            n, err, shows = count(cmd, rows, need["expect"])
+            # baseline: the terminal as the step began (or as it first showed), the most its first 2 s of reads saw,
+            # so a frame that misread an old run can't make that old run look new later
+            if need["base"] is None or self.clock() - self.step_t0 < 2.0:
+                need["base"], need["base_shows"] = max(n, need["base"] or 0), need["base_shows"] or shows
+            # a new run: one more run than at the start, or the step's expected output under the last run when it
+            # wasn't there at the start (a small panel can scroll an old run off as the new one comes in)
+            elif n > need["base"] or (shows and not need["base_shows"]):
+                row = {**row, "detail": "the run printed an error"} if err else \
+                    {**row, "status": "pass", "detail": "ran in the terminal"}
+        if row["status"] == "pass":
+            need["ran"] = row["detail"]
+        elif gate.get("passed"):
+            gate = {**gate, "passed": False, "via": None}
+        return [*results, row], gate
+
+    def _run_missing(self, step: dict) -> str:
+        """The run a run step still needs ('' when it ran, or it isn't a run step)."""
+        row = next((r for r in self.last_results if r.get("checkId") == f"{step['id']}-ran"), None)
+        return f"Run {(self._run_need or {}).get('cmd')} in the terminal" if row and row.get("status") != "pass" else ""
+
+    def _terminal_rows(self) -> list[str] | None:
+        """The lesson's VS Code terminal panel as visual rows (OCR blocks on one line joined left to right), top to
+        bottom ([] for an empty panel). None when no terminal panel of the lesson's window is on screen."""
+        region = getattr(self.screen, "region", None) if self.screen is not None else None
+        blocks = getattr(self.last_obs, "blocks", None)
+        if region is None or blocks is None:
+            return None
+        try:
+            r = region("terminal")
+        except Exception:  # noqa: BLE001
+            return None
+        if not r:
+            return None
+        mine, items, other = Path(self.workdir).name, [], False
+        for b in blocks:
+            br = b.rect.to_dict() if hasattr(b.rect, "to_dict") else (b.rect if isinstance(b.rect, dict) else vars(b.rect))
+            cx, cy = br["x"] + br["w"] / 2, br["y"] + br["h"] / 2
+            if not (r["x"] <= cx <= r["x"] + r["w"] and r["y"] <= cy <= r["y"] + r["h"]):
+                continue
+            title = str(getattr(b, "window", "") or "")
+            if " — " in title and mine not in title:
+                other = True  # another folder's VS Code window: not the lesson's terminal
+                continue
+            items.append((cy, float(br["h"]) or 1.0, br["x"], str(getattr(b, "text", ""))))
+        if other and not items:
+            return None
+        rows: list[list] = []  # [centre y, height, [(x, text)]]
+        for cy, h, x, text in sorted(items):
+            if rows and abs(cy - rows[-1][0]) < 0.5 * min(h, rows[-1][1]):
+                rows[-1][2].append((x, text))
+            else:
+                rows.append([cy, h, [(x, text)]])
+        return [" ".join(t for _, t in sorted(parts)) for _, _, parts in rows]
 
     SCREEN_DOWN_S = 15.0  # a Space switch / screen lock is brief: only a lasting failure is reported
 
