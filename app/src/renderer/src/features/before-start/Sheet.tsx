@@ -61,7 +61,7 @@ export function Sheet(): ReactNode {
       <div className="flex items-start gap-[10px]">
         <div className="min-w-0 flex-1">
           <div className="text-[12px] font-semibold leading-[16px]" style={{ color: color.label }}>
-            Before you start
+            Your lesson
           </div>
           <div className="mt-[2px] line-clamp-2 text-[19px] font-semibold leading-[24px] tracking-[-0.01em]">{l.title}</div>
         </div>

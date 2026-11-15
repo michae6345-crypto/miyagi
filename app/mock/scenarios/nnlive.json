@@ -1,0 +1,531 @@
+{
+  "name": "nnlive",
+  "on": {
+    "connect": "go"
+  },
+  "segments": {
+    "go": [
+      {
+        "wait": 150,
+        "type": "lesson.building",
+        "payload": {
+          "message": "Claude is writing your lesson",
+          "progress": 0.6
+        }
+      },
+      {
+        "wait": 500,
+        "type": "lesson.ready",
+        "payload": {
+          "lesson": {
+            "id": "cli-calculator",
+            "title": "Build a neural network from scratch",
+            "sources": [],
+            "complete": true,
+            "builtBy": "claude",
+            "mode": "lesson",
+            "overview": "We'll build a calculator you run in the terminal. First two functions, add and subtract, then we run the file to see them work. Next a loop that reads an operator and two numbers, and last multiply and divide, with a friendly message instead of a crash when you divide by zero.",
+            "primer": [
+              {
+                "id": "functions",
+                "title": "Functions",
+                "body": "A function is a named recipe. def add(a, b): takes two inputs, and return hands the answer back.",
+                "code": "def add(a, b):\n    return a + b"
+              },
+              {
+                "id": "input",
+                "title": "Reading input",
+                "body": "input() waits for the user to type a line and gives it back as text. float() turns that text into a number.",
+                "code": "a = float(input(\"First number: \"))"
+              },
+              {
+                "id": "loops",
+                "title": "While loops",
+                "body": "while True: repeats its block forever. break leaves the loop, so the program can stop when the user asks.",
+                "code": "while True:\n    op = input(\"Operator: \")\n    if op == \"q\":\n        break"
+              }
+            ]
+          },
+          "steps": [
+            {
+              "id": "k1",
+              "index": 0,
+              "title": "Add and subtract",
+              "kind": "code",
+              "what": "Two functions that add and subtract two numbers"
+            },
+            {
+              "id": "k2",
+              "index": 1,
+              "title": "Run it",
+              "kind": "run",
+              "what": "Run the file and see 5 and 1"
+            },
+            {
+              "id": "k3",
+              "index": 2,
+              "title": "Read input in a loop",
+              "kind": "code",
+              "what": "A loop that reads an operator and two numbers"
+            },
+            {
+              "id": "k4",
+              "index": 3,
+              "title": "Multiply and divide",
+              "kind": "code",
+              "what": "Multiply, divide, and a safe divide by zero"
+            }
+          ]
+        }
+      },
+      {
+        "wait": 250,
+        "type": "step.started",
+        "payload": {
+          "stepId": "k1",
+          "index": 0,
+          "title": "Add and subtract",
+          "instructions": "Create calculator.py and type these two functions.",
+          "video": null,
+          "kind": "code",
+          "what": "Two functions that add and subtract two numbers",
+          "why": "Each operation gets a name, so the loop later can reuse it instead of repeating the math.",
+          "concepts": [
+            "functions"
+          ],
+          "code": "def add(a, b):\n    return a + b\n\n\ndef subtract(a, b):\n    return a - b\n\n\nprint(add(2, 3))\nprint(subtract(3, 2))"
+        }
+      },
+      {
+        "wait": 900,
+        "type": "diagram",
+        "payload": {
+          "kind": "network",
+          "stepId": "k1",
+          "title": "Your network",
+          "caption": "Signals flow left to right: each hidden neuron weighs both inputs.",
+          "data": {
+            "layers": [
+              2,
+              4,
+              1
+            ],
+            "activation": "sigmoid",
+            "inputs": [
+              "x1",
+              "x2"
+            ],
+            "output": "ŷ",
+            "samples": [
+              [
+                0,
+                0
+              ],
+              [
+                0,
+                1
+              ],
+              [
+                1,
+                0
+              ],
+              [
+                1,
+                1
+              ]
+            ],
+            "targets": [
+              0,
+              1,
+              1,
+              0
+            ],
+            "mode": "forward",
+            "frames": [
+              {
+                "epoch": 0,
+                "loss": 0.252446,
+                "W": [
+                  [
+                    -0.5241,
+                    0.0885,
+                    -0.2601,
+                    0.2078,
+                    0.2514,
+                    -0.8689,
+                    -0.9737,
+                    0.6749
+                  ],
+                  [
+                    -0.4813,
+                    -0.5313,
+                    0.9913,
+                    -0.0595
+                  ]
+                ],
+                "b": [
+                  [
+                    0.0,
+                    0.0,
+                    0.0,
+                    0.0
+                  ],
+                  [
+                    0.0
+                  ]
+                ]
+              }
+            ]
+          }
+        }
+      },
+      {
+        "wait": 6000,
+        "type": "diagram",
+        "payload": {
+          "kind": "network",
+          "stepId": "k1",
+          "title": "Your network",
+          "caption": "Training: the weights move and every ŷ settles on its target.",
+          "data": {
+            "layers": [
+              2,
+              4,
+              1
+            ],
+            "activation": "sigmoid",
+            "inputs": [
+              "x1",
+              "x2"
+            ],
+            "output": "ŷ",
+            "samples": [
+              [
+                0,
+                0
+              ],
+              [
+                0,
+                1
+              ],
+              [
+                1,
+                0
+              ],
+              [
+                1,
+                1
+              ]
+            ],
+            "targets": [
+              0,
+              1,
+              1,
+              0
+            ],
+            "mode": "train",
+            "frames": [
+              {
+                "epoch": 0,
+                "loss": 0.252446,
+                "W": [
+                  [
+                    -0.5241,
+                    0.0885,
+                    -0.2601,
+                    0.2078,
+                    0.2514,
+                    -0.8689,
+                    -0.9737,
+                    0.6749
+                  ],
+                  [
+                    -0.4813,
+                    -0.5313,
+                    0.9913,
+                    -0.0595
+                  ]
+                ],
+                "b": [
+                  [
+                    0.0,
+                    0.0,
+                    0.0,
+                    0.0
+                  ],
+                  [
+                    0.0
+                  ]
+                ]
+              },
+              {
+                "epoch": 50,
+                "loss": 0.25008,
+                "W": [
+                  [
+                    -0.4884,
+                    -0.0353,
+                    0.0092,
+                    0.2106,
+                    0.2113,
+                    -0.9002,
+                    -0.8515,
+                    0.6769
+                  ],
+                  [
+                    -0.4258,
+                    -0.5806,
+                    0.9008,
+                    0.0505
+                  ]
+                ],
+                "b": [
+                  [
+                    0.0339,
+                    0.0119,
+                    0.0438,
+                    0.0005
+                  ],
+                  [
+                    0.0305
+                  ]
+                ]
+              },
+              {
+                "epoch": 200,
+                "loss": 0.239303,
+                "W": [
+                  [
+                    -0.3252,
+                    -1.1144,
+                    0.2966,
+                    0.2655,
+                    0.2184,
+                    -1.5339,
+                    -1.0651,
+                    0.721
+                  ],
+                  [
+                    -0.2965,
+                    -1.2455,
+                    0.9315,
+                    0.1385
+                  ]
+                ],
+                "b": [
+                  [
+                    0.1089,
+                    -0.2496,
+                    -0.2131,
+                    0.0338
+                  ],
+                  [
+                    -0.0105
+                  ]
+                ]
+              },
+              {
+                "epoch": 500,
+                "loss": 0.049554,
+                "W": [
+                  [
+                    -1.7048,
+                    -4.4212,
+                    1.6573,
+                    2.473,
+                    0.2047,
+                    -5.2168,
+                    -3.9812,
+                    0.1782
+                  ],
+                  [
+                    1.8575,
+                    -5.5087,
+                    3.6644,
+                    -2.9386
+                  ]
+                ],
+                "b": [
+                  [
+                    0.2829,
+                    1.2578,
+                    -0.5488,
+                    -1.2265
+                  ],
+                  [
+                    0.7988
+                  ]
+                ]
+              },
+              {
+                "epoch": 1000,
+                "loss": 0.003446,
+                "W": [
+                  [
+                    -3.1772,
+                    -5.4676,
+                    3.4016,
+                    3.4411,
+                    0.8414,
+                    -5.954,
+                    -5.363,
+                    0.6509
+                  ],
+                  [
+                    3.5026,
+                    -7.6662,
+                    6.3807,
+                    -4.8589
+                  ]
+                ],
+                "b": [
+                  [
+                    0.258,
+                    1.9997,
+                    -1.4819,
+                    -2.4144
+                  ],
+                  [
+                    0.9269
+                  ]
+                ]
+              },
+              {
+                "epoch": 2000,
+                "loss": 0.000833,
+                "W": [
+                  [
+                    -3.7527,
+                    -5.7489,
+                    3.8979,
+                    3.5978,
+                    1.3294,
+                    -6.2141,
+                    -5.7596,
+                    1.1136
+                  ],
+                  [
+                    4.2461,
+                    -8.4189,
+                    7.281,
+                    -5.6659
+                  ]
+                ],
+                "b": [
+                  [
+                    0.0301,
+                    2.1829,
+                    -1.8259,
+                    -3.0852
+                  ],
+                  [
+                    0.8704
+                  ]
+                ]
+              },
+              {
+                "epoch": 3000,
+                "loss": 0.000431,
+                "W": [
+                  [
+                    -3.9801,
+                    -5.8445,
+                    4.0675,
+                    3.6618,
+                    1.5609,
+                    -6.3168,
+                    -5.896,
+                    1.3378
+                  ],
+                  [
+                    4.5908,
+                    -8.7123,
+                    7.594,
+                    -6.0247
+                  ]
+                ],
+                "b": [
+                  [
+                    -0.0896,
+                    2.251,
+                    -1.9523,
+                    -3.3814
+                  ],
+                  [
+                    0.8384
+                  ]
+                ]
+              },
+              {
+                "epoch": 4500,
+                "loss": 0.000238,
+                "W": [
+                  [
+                    -4.1666,
+                    -5.9188,
+                    4.1998,
+                    3.7224,
+                    1.7665,
+                    -6.4021,
+                    -6.0014,
+                    1.535
+                  ],
+                  [
+                    4.9004,
+                    -8.9554,
+                    7.8381,
+                    -6.3377
+                  ]
+                ],
+                "b": [
+                  [
+                    -0.2018,
+                    2.3059,
+                    -2.0516,
+                    -3.6342
+                  ],
+                  [
+                    0.8114
+                  ]
+                ]
+              },
+              {
+                "epoch": 6000,
+                "loss": 0.000161,
+                "W": [
+                  [
+                    -4.2822,
+                    -5.9636,
+                    4.2798,
+                    3.7646,
+                    1.9008,
+                    -6.4554,
+                    -6.0642,
+                    1.6623
+                  ],
+                  [
+                    5.1053,
+                    -9.1079,
+                    7.9855,
+                    -6.5405
+                  ]
+                ],
+                "b": [
+                  [
+                    -0.278,
+                    2.3395,
+                    -2.1109,
+                    -3.7948
+                  ],
+                  [
+                    0.7951
+                  ]
+                ]
+              }
+            ]
+          }
+        }
+      }
+    ]
+  }
+}
