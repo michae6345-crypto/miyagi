@@ -127,6 +127,7 @@ class StepStarted(_Model):
     title: str
     instructions: str
     video: VideoSegment | None = None
+    details: str | None = None  # the full explanation; `instructions` is one concrete action
 
 
 class CheckUpdated(_Model):
@@ -316,7 +317,7 @@ class PreflightInfo(_Model):
 
 
 CardAction = Literal["confirm", "undo", "apply_fix", "open_editor", "resume", "end_lesson", "install", "skip_setup",
-                     "open_in_browser", "build", "pick_another", "download", "skip_step", "check_step"]
+                     "open_in_browser", "build", "pick_another", "download", "skip_step", "check_step", "use_this_folder", "run_command"]
 
 
 class Card(_Model):
@@ -335,6 +336,7 @@ class Card(_Model):
     recommended: Literal["build", "pick_another"] | None = None
     preflight: PreflightInfo | None = None  # kind "preflight"
     where: str | None = None  # coach: where to go when the place isn't on screen (no dim)
+    output: str | None = None  # monospace output block (e.g. "Run it for me")
 
 
 class NetworkDiagram(_Model):
@@ -490,7 +492,7 @@ class BuildLesson(_Model):
 
 ActionKind = Literal["back", "explain", "diagram", "show_me", "hint", "voice_toggle", "ask", "apply_fix",
                      "confirm", "undo", "open_editor", "resume", "end_lesson", "install", "skip_setup", "open_in_browser",
-                     "build", "pick_another", "download", "skip_step", "check_step"]
+                     "build", "pick_another", "download", "skip_step", "check_step", "use_this_folder", "run_command"]
 
 
 class Action(_Model):
