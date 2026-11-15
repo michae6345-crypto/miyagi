@@ -11,6 +11,7 @@ import { bridge } from '../bridge'
 import { Island } from './Island'
 import { getOverlayLayers } from './registry'
 import { triggerShortcut, type ActionShortcut } from './shortcuts'
+import { Boundary } from './ui/Boundary'
 
 const ISLAND_Z = 50
 
@@ -25,13 +26,17 @@ export function Overlay({ layout }: { layout: Layout }): ReactNode {
       {overlayLayers
         .filter((l) => l.z < ISLAND_Z)
         .map(({ id, Component }) => (
-          <Component key={id} layout={layout} />
+          <Boundary key={id} name={`layer ${id}`}>
+            <Component layout={layout} />
+          </Boundary>
         ))}
       <Island top={bridge.platform.pillTop} layout={layout} />
       {overlayLayers
         .filter((l) => l.z >= ISLAND_Z)
         .map(({ id, Component }) => (
-          <Component key={id} layout={layout} />
+          <Boundary key={id} name={`layer ${id}`}>
+            <Component layout={layout} />
+          </Boundary>
         ))}
     </div>
   )

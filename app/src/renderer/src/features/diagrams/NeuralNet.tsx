@@ -50,8 +50,9 @@ function forward(f: Frame, layers: number[], x: number[], act: (z: number) => nu
     const prev = out[l]
     const next: number[] = []
     for (let j = 0; j < layers[l + 1]; j++) {
-      let z = f.b[l]?.[j] ?? 0
-      for (let i = 0; i < layers[l]; i++) z += prev[i] * (f.W[l]?.[i * layers[l + 1] + j] ?? 0)
+      // A frame may carry only epoch / loss (a live run line without weights): missing weights count as 0, never throw.
+      let z = f.b?.[l]?.[j] ?? 0
+      for (let i = 0; i < layers[l]; i++) z += (prev?.[i] ?? 0) * (f.W?.[l]?.[i * layers[l + 1] + j] ?? 0)
       next.push(act(z))
     }
     out.push(next)
@@ -64,8 +65,8 @@ function mix(a: Frame, b: Frame, t: number): Frame {
   return {
     epoch: Math.round(lerp(a.epoch, b.epoch, t)),
     loss: Math.exp(lerp(Math.log(Math.max(a.loss, 1e-9)), Math.log(Math.max(b.loss, 1e-9)), t)),
-    W: a.W.map((row, l) => row.map((v, k) => lerp(v, b.W[l]?.[k] ?? v, t))),
-    b: a.b.map((row, l) => row.map((v, k) => lerp(v, b.b[l]?.[k] ?? v, t)))
+    W: (a.W ?? b.W ?? []).map((row, l) => row.map((v, k) => lerp(v, b.W?.[l]?.[k] ?? v, t))),
+    b: (a.b ?? b.b ?? []).map((row, l) => row.map((v, k) => lerp(v, b.b?.[l]?.[k] ?? v, t)))
   }
 }
 
@@ -175,7 +176,7 @@ export function NeuralNet({ data, compact = false }: { data: Record<string, unkn
     }
   }
 
-  const acts = forward(frame, layers, samples[sample], act)
+  const acts = forward(frame ?? frames[0], layers, samples[sample] ?? samples[0] ?? [], act)
   const shown = (l: number, i: number): number => {
     if (mode !== 'forward' || reduced) return acts[l][i]
     if (l > reached) return 0

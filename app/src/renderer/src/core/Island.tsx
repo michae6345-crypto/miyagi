@@ -13,6 +13,7 @@ import { bridge } from '../bridge'
 import { onUi } from './bus'
 import { useIslandOffset } from './islandPlace'
 import { startBuild, useLesson } from './lesson'
+import { Boundary } from './ui/Boundary'
 import { getIslandModes } from './registry'
 import { color, pill, shadows, spring, springOut } from './theme'
 
@@ -217,7 +218,9 @@ export function Island({ top, layout }: { top: number; layout: Layout }): ReactN
         />
         <AnimatePresence initial={false}>
           <Layer key={mode.id} id={mode.id} width={mode.width}>
-            <Content />
+            <Boundary name={`island mode ${mode.id}`}>
+              <Content />
+            </Boundary>
           </Layer>
         </AnimatePresence>
       </motion.div>
