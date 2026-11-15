@@ -112,8 +112,9 @@ def test_arrange_unfullscreens_previous_and_docks_editor_left(monkeypatch):
     monkeypatch.setattr(E, "left_frame", lambda fraction=0.6: (0, 38, round(1728 * fraction), 1079))
     ax, rep = FakeAX(fullscreen_prev=True, fullscreen_editor=True), {}
     E.arrange(CURSOR, {"pid": 111, "name": "Safari"}, rep, ax=ax, sleep=lambda s: None)
-    assert ax.log == [("exit_fs", "prev"), ("exit_fs", "ed"), ("frame", "ed", 0, 38, 1037, 1079 - E.BAR_CLEARANCE)]  # E22: above the bar
-    assert rep == {"unfullscreened": "Safari", "arranged": True, "frame": [0, 38, 1037, round(1079 - E.BAR_CLEARANCE)], "arrange": "done"}
+    top, h = 38 + E.PILL_CLEARANCE, 1079 - E.BAR_CLEARANCE - E.PILL_CLEARANCE  # t10: below the pill, E22: above the bar
+    assert ax.log == [("exit_fs", "prev"), ("exit_fs", "ed"), ("frame", "ed", 0, top, 1037, h)]
+    assert rep == {"unfullscreened": "Safari", "arranged": True, "frame": [0, round(top), 1037, round(h)], "arrange": "done"}
 
 
 def test_arrange_leaves_windowed_apps_alone(monkeypatch):

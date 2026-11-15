@@ -178,6 +178,18 @@ class ScreenBridge:
             log.exception("lines_by_app failed")
             return None
 
+    def fresh(self, max_age: float = 1.0) -> Any:
+        """t10: the latest frame when it is at most max_age s old, else a new capture + OCR (blocking: call it in a
+        thread), so locate() / snap_rows() read what is on screen now. None: paused / capture failing / no reader."""
+        if self.reader is None or self.paused or self.down_reason():
+            return None
+        try:
+            fn = getattr(self.reader, "_fresh_obs", None)
+            return fn(max_age) if fn is not None else self.reader.observe_now(force=True)
+        except Exception:  # noqa: BLE001
+            log.exception("fresh read failed")
+            return None
+
     def locate(self, match: str, app: str | None = None) -> dict | None:
         """-> {rect:{x,y,w,h}, app, matched} or None."""
         if self.reader is None or self.paused or not match or self.down_reason():
