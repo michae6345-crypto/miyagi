@@ -1,6 +1,15 @@
 # settings
 
-**Status:** pass 1 done (stage-verified; Electron side typechecked, unrun) · **Priority:** P1 · **Port:** 5183 · **Branch:** `adrian/settings`
+**Status:** pass 2 done: General section (stage-verified; Electron side typechecked, unrun) · **Priority:** P1 · **Port:** 5183 · **Branch:** `adrian/settings`
+
+### Pass 2 (Sat Nov 14, Adrian: "basic settings with the other stuff like light mode / dark mode")
+The sheet is now **Settings**: a **General** section above **Keys** (keys unchanged, ElevenLabs still hidden). Shots: `shots/settings-general-*.png`.
+- **Appearance:** System / Light / Dark segmented control → `setPrefs({appearance})`; ←/→ move it. Verified in the stage: `<html data-appearance>` and the `--glass-*` variables switch live; the sheet stays black (`01` system on a dark Mac, `03` light, `02`/`04` the whole stage).
+- **Read lessons aloud** → `voiceOnStart`, **Open at login** → `launchAtLogin` (switches; saved, `05`).
+- These apply at once (core prefs, `userData/prefs.json`); only the keys wait for Save. Neutral chrome: selected segment / on switch = white + ink, the rest `fill.*`. No pastel, no green.
+- **Never past the screen:** the content is capped at `layout.height − pillTop − 24`; past that only the key rows scroll under the "Keys" label, the footer stays (`06`, forced to 400 px).
+
+**Not visible yet, and not in this lane:** the glass panels (shortcut bar, player, drawer) still paint `color.glass`, so switching appearance changes nothing behind the sheet in `02`/`04`. They need to move to `theme.glass.*`. Also nothing reads `voiceOnStart` yet (the voice feature should turn voice on at `lesson.ready` when it's set).
 
 ### Pass 1 (Sat Nov 14)
 **Works in the stage** (`http://localhost:5183/?scenario=settings`, headless Chrome frames in `shots/settings-*.png`):
@@ -58,7 +67,7 @@ Core has the hand-over: `ctx.islandSize()` + `ctx.yieldIsland(true|false)` in ma
 ## Notes
 The overlay window is not focusable, so Settings is its own window. Every `ctx.createWindow` window already follows Spaces / full-screen apps; call `ctx.raise(win)` so it floats on top.
 
-- **Files:** `keys.ts` (names, `{set,last4}` view, patch merge, full payload; imported by main too), `Settings.tsx` (the sheet), `store.ts` (open/close requests, `config.status` counter), `web.ts` (stage stand-in, in-memory), `open.ts` (`openSettings()`).
+- **Files:** `keys.ts` (names, `{set,last4}` view, patch merge, full payload; imported by main too), `Settings.tsx` (the sheet), `General.tsx` (the General rows, segmented control, switch), `store.ts` (open/close requests, `config.status` counter), `web.ts` (stage stand-in, in-memory), `open.ts` (`openSettings()`).
 - **Channels:** `settings:open | get | save | test | island | hidden` (invoke) and `settings:open {from} | settings:close` (broadcast). `test` and `island` are additions to the brief: the renderer has no keys to re-send and needs the island's size at close time.
 - **last4** only for values ≥ 12 characters, so a short secret never shows a third of itself. Values are trimmed; over 4096 characters is ignored as a paste accident.
 - **Unsaved typing is dropped on close** (Esc, ✕, click outside, blur). The window covers the display, so it can't stay open while you're in another app.

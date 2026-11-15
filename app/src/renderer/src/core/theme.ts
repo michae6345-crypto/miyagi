@@ -3,7 +3,7 @@
  * names the app already uses. Change colors HERE, never in feature code.
  *
  * Brand rules (BRAND.md):
- *  - Green only ever means passed. Amber only ever means off track. Gray means watching. No red.
+ *  - Green only ever means passed. Apricot (`color.amber`, the old amber's slot) only ever means off track. Gray means watching. No red.
  *  - Buttons are white on dark (ink on light). Never system blue, never green.
  *  - No gradients, glows, purple, neon, sparkles or emoji. The sparkle is replaced by the small tree.
  *  - App text in the system font (SF Pro / Segoe). Brand font (Google Sans Flex) only for brand moments. No Inter.
@@ -27,8 +27,13 @@ export const brand = {
   passDeep: '#1F9B45',
   passText: '#1C8A3C',
   passTint: 'rgba(48,209,88,0.14)',
-  offTrack: '#FFB020',
-  offTrackTint: 'rgba(255,176,32,0.12)',
+  /**
+   * Off track: a soft apricot from the pastel family (Adrian, Sat 4 PM: the kit's amber #FFB020 read as "AI slop").
+   * Still the ONLY meaning of this color. offTrackDeep is for text on a light surface.
+   */
+  offTrack: '#FFC4A3',
+  offTrackDeep: '#C8693A',
+  offTrackTint: 'rgba(255,196,163,0.14)',
   watching: '#8E8E93',
   pill: '#000000',
   /**
@@ -36,7 +41,7 @@ export const brand = {
    * the "Best" label. Ink text on them. They never mean status (green = passed, amber = off track stay as is),
    * and the chrome stays black and white. No gradients or glow.
    */
-  pastel: { pink: '#F9C5D5', sky: '#C5E4F9', lilac: '#D9D2FF', pinkDeep: '#F4A7BF', skyDeep: '#9CCFF2' }
+  pastel: { pink: '#F9C5D5', sky: '#C5E4F9', lilac: '#D9D2FF', pinkDeep: '#F4A7BF', skyDeep: '#9CCFF2', apricot: '#FFC4A3' }
 } as const
 
 /** The overlay follows macOS: dark HUD glass by default, light when the system is light. */
@@ -52,7 +57,7 @@ export const hud = {
 export const color = {
   accent: hud.dark.button,
   onAccent: hud.dark.buttonText,
-  /** Off track. Nothing else is amber. */
+  /** Off track (apricot pastel; the name stays `amber` so call sites don't change). Nothing else uses it. */
   amber: brand.offTrack,
   amberTint: brand.offTrackTint,
   /** Passed. Nothing else is green. */
@@ -138,7 +143,35 @@ export const kindTone = {
   blog: brand.pastel.lilac
 } as const
 
-/** Screen dims behind surfaces. */
+/**
+ * Glass panels (shortcut bar, player, drawer) follow Settings → Appearance (System / Light / Dark); the notch
+ * island and every card stay black like the Dynamic Island. On a glass panel use these instead of color.* /
+ * fill.*: they are CSS variables (styles.css) that switch on <html data-appearance>. Not for canvas (no var()).
+ */
+/** The glass panel background as plain colors, for main (a window paints it before CSS loads). Keep in sync with styles.css. */
+export const glassBg = { dark: 'rgba(28,28,30,0.9)', light: 'rgba(250,250,248,0.92)' } as const
+
+export const glass = {
+  bg: 'var(--glass-bg)',
+  text: 'var(--glass-text)',
+  label: 'var(--glass-label)',
+  faint: 'var(--glass-faint)',
+  hairline: 'var(--glass-hairline)',
+  field: 'var(--glass-field)',
+  fieldHover: 'var(--glass-field-hover)',
+  rule: 'var(--glass-rule)',
+  key: 'var(--glass-key)',
+  keyText: 'var(--glass-key-text)',
+  track: 'var(--glass-track)',
+  /** The one primary action on a glass panel: white on dark, ink on light. */
+  button: 'var(--glass-button)',
+  buttonText: 'var(--glass-button-text)',
+  /** Status on glass: the same meanings, deeper on light for contrast. */
+  pass: 'var(--glass-pass)',
+  offTrack: 'var(--glass-offtrack)',
+  shadow: 'var(--glass-shadow)'
+} as const
+
 /** Screen dims behind surfaces. spotlight .66: Adrian asked for more contrast than the spec's .55. */
 export const scrim = { spotlight: 'rgba(0,0,0,.66)', launcher: 'rgba(0,0,0,.22)' } as const
 

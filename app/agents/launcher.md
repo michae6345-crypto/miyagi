@@ -1,6 +1,6 @@
 # launcher
 
-**Status:** pass 2 (functional) done: End lesson row, Pick another keeps results, error drops the spinner, finder meta segment; waiting for Adrian's review · **Priority:** P0 · **Port:** 5176 · **Branch:** `adrian/launcher`
+**Status:** pass 3 done: a way into Settings (typed word or ⌘, / Ctrl+,), on top of pass 2; waiting for Adrian's review · **Priority:** P0 · **Port:** 5176 · **Branch:** `adrian/launcher`
 
 ## Goal
 Launcher born from the notch island (⌥Space; Ctrl+Shift+Space on Windows). **Since Sat ~2 PM (Michael): the island expands down into the launcher and every exit collapses it back into the island; nothing opens mid-screen.** Type what you want to learn → results stream in (it grows down) → Build lesson → it collapses back up into the pill (the signature transition). Pasting a YouTube link skips search. **During a lesson** it becomes "Ask about this step": Enter sends `action {kind:"ask", text}` and the answer comes back as a card.
@@ -31,6 +31,7 @@ Launcher born from the notch island (⌥Space; Ctrl+Shift+Space on Windows). **S
 - **Search + build:** Ctrl+K (the pill grows into the launcher), type anything or click a suggestion chip, Enter (rows stream in, it grows down), ↑↓ or hover, Enter again → it collapses into the pill.
 - **Ask:** once "Step 4 · Define the residual" shows, Ctrl+K → ask mode (a faint step line, placeholder "Ask about this step"; Tab flips to a new lesson and back), type, Enter → it collapses back into the step pill and the answer card grows out. The mock answers at step 4 and step 6 (`mock/scenarios/launcher.json`); the chips send Explain / Hint.
 - **End lesson:** during a lesson, Ctrl+K → the first row is "End lesson" (highlighted, footer "End lesson ↵"); Enter → `end_lesson` → `lesson.ended` → the island goes idle. Typing hides the row; Esc keeps the lesson. (The mock's scripted lesson keeps playing its timers afterwards: Core request 7.)
+- **Settings:** type "sett" (or "keys", "pref", "appear") → one Settings row, Enter opens Settings; or ⌘, / Ctrl+, while the launcher is open.
 - **Pick another:** Build, then reopen (the preflight card's "Pick another" calls `launcher:toggle`; in the stage, Ctrl+K before the lesson is ready) → the same results, highlight on the next row.
 - **Learner warnings / Link checked:** after a search, about 1.3s after the rows land, the mock re-sends them by id: the video gets "Link checked" and "A learner said: “…” · +1 more", the notebook "Link checked", the paper (`verified: 'indexed'`) nothing. Rows don't move. (`mock/scenarios/launcher.json` overrides `learn` to play happy's `search` segment, then the updates.)
 - **Link:** paste a YouTube link (e.g. `https://www.youtube.com/watch?v=kCc8FmEb1nY&t=1m30s`) → one row, Enter → `learn_url`.
@@ -51,6 +52,12 @@ Launcher born from the notch island (⌥Space; Ctrl+Shift+Space on Windows). **S
 
 ## Notes
 Window show/hide/focus is core (`src/main/index.ts`); the shrink target comes from `bridge.platform.pillTop` + `theme.pill`.
+
+**Pass 3 (Sat night, integrator): a way into Settings.** Settings only had the overview gear and first run.
+- Typing a settings word shows a single "Settings" row (neutral gear tile, meta "Keys and appearance"): the whole input, 3+ letters, must be the start of settings / keys / preferences / appearance ("set", "keys", "pref", "appear"; not "se", not "keyboard"). It replaces the watcher's watch/teach choice and any results. Works in ask mode too.
+- Enter on it, or ⌘, (Ctrl+, on Windows) any time the launcher is open: `bridge.invoke('settings:open').catch(() => {})`, then the launcher collapses into the island as usual. The footer gets nothing new (its primary just says "Settings ↵").
+- Kept the watcher's "Watch a video / Just teach me" + "Start lesson" changes from the merge.
+- Checked headless: the matching above, Enter opens the Settings sheet in the stage, ⌘, on the Mac stage and Ctrl+, on `?os=win`, ask mode during a lesson. Shot: `agents/shots/launcher-16-settings.png`.
 
 **Pass 2, functional (Sat evening, the integrator relaying Michael's asks).** Merged `adrian/shell` (#30 reset scopes, latest contract, `notify()`); UI polish's OptionButton chips kept as they are.
 - **End lesson** (Michael, 2:32 PM): during a lesson, with nothing typed, the first row is "End lesson" (lesson title under it), highlighted; the footer's primary is "End lesson ↵". Enter sends `end_lesson` and the panel goes back into the island; core resets to idle on `lesson.ended` (scope "lesson", so the query and results survive). Esc keeps the lesson. Typing replaces the row. Note: ⌥Space during a lesson still opens in **ask** mode (the brief's design), so typing there is a question; Tab switches to a new search. If Michael wants typing to search by default during a lesson, it's a one-line change (open in search mode when a lesson exists).
