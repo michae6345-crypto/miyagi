@@ -28,6 +28,7 @@ import { useLayoutEffect, useMemo, useRef, useState, type RefObject } from 'reac
 import { create } from 'zustand'
 import type { Layout } from '../../../preload/api'
 import { useCards } from '../features/cards/store'
+import { dockRect } from '../features/player/dock'
 import { hole, intersects, isUsableRect, MIN_VISIBLE_SHARE, overlapShare, sameRect, toLocal } from '../features/spotlight/place'
 import { useSpotlight } from '../features/spotlight/store'
 import { onMessage, onUi } from './bus'
@@ -287,6 +288,8 @@ export function useIslandOffset(card: { id: string; w: number; h: number } | und
     const screen = { x: 0, y: 0, w: layout.width, h: layout.height }
     return rects.map((r) => hole(toLocal(r, layout.origin))).filter((h) => overlapShare(h, screen) >= MIN_VISIBLE_SHARE)
   }, [main, others, flagged, carded, layout])
+  // Video lessons: the player panel docks right (offDock below). Same test as spotlight/index.tsx.
+  const playerOn = useLesson((s) => !!s.lesson && s.lesson.mode !== 'lesson')
   const clear = useAvoidLocal(layout)
   const w = card?.w ?? 0
   const h = card?.h ?? 0
@@ -330,7 +333,25 @@ export function useIslandOffset(card: { id: string; w: number; h: number } | und
     spot.current = next
     aside.current = nextAside
   })
-  return nextAside?.at ?? base
+  return offDock(card && { ...notch, w, h }, nextAside?.at ?? base, playerOn, layout)
+}
+
+/** Room kept between a card's right edge and the docked video panel (Michael's test 10 polish, item 1). */
+const DOCK_GAP = 16
+
+/**
+ * In a video lesson the player is its own window docked right (player/dock.ts), so neither the DOM nor the spotlight
+ * boxes know about it: slide a card left until its right edge is DOCK_GAP clear of the panel, never past the work
+ * area's left edge.
+ */
+function offDock(notch: Rect | undefined, at: Offset, playerOn: boolean, layout: Layout): Offset {
+  if (!notch || !playerOn) return at
+  const wa = layout.workArea
+  const limit = dockRect(wa).x - DOCK_GAP
+  const right = notch.x + at.x + notch.w
+  if (right <= limit) return at
+  const minX = wa.x + EDGE - notch.x
+  return { x: Math.max(minX, at.x - (right - limit)), y: at.y }
 }
 
 /**

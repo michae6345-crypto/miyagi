@@ -47,7 +47,7 @@ const CAPTION_LINES = 2
  * The narrowest lane right of the box the caption takes (wrapping to it, a third line allowed) before it goes below
  * the box instead; a chip with a snippet needs more room for its code.
  */
-const CAPTION_MIN_ROOM = 180
+const CAPTION_MIN_ROOM = 120
 const SNIPPET_MIN_ROOM = 320
 /** Until the caption has been measured: one line. */
 const CAPTION_GUESS = { w: 240, h: 26 }
@@ -116,6 +116,10 @@ function Scene({ target, rect, bounds, mode, soft, showCaption, avoid, text }: P
               {/* Mask luminance: white keeps the dim, black cuts the hole. */}
               <rect width="100%" height="100%" fill="#fff" />
               <rect ref={register} data-part="hole" fill="#000" />
+              {/* The docked video panel stays undimmed: the playing video and its gate button (test 10 polish, item 2). */}
+              {avoid.map((r, i) => (
+                <rect key={i} x={r.x} y={r.y} width={r.w} height={r.h} rx={12} fill="#000" data-part="dock-cut" />
+              ))}
             </mask>
           </defs>
         )}
