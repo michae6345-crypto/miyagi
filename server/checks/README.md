@@ -43,6 +43,10 @@ A **pure function**: no network, no DB, no model calls. It never raises: a malfo
   (`metric_pattern` + `app`) whose app is hidden fails with "open <app> so I can read <metric>". A fail is what lets
   the orchestrator's idle/stuck help fire; `pending` never does. With no screen reading at all, `screen_contains`
   stays pending (not the learner's fault). Orchestrator wiring: pass `segment_done=session.segment_done` in the context.
+- **A hidden terminal is graded on the run.** A `Terminal`/`iTerm2` check whose terminal can't be read is graded on
+  the step's last finished run (`exit_code` + `output_tail`: `tut run`, Run it for me, VS Code's `command_end`), and
+  on a run step (`kind: "run"` or a `(terminal)` target) a `screen_absent` one stays pending until that run exists
+  instead of passing on the hidden terminal.
 - Accepts a ScreenObservation `{t, app, windows[{app,title,rect}], blocks[{text,rect,confidence,app?}]}` or `{app: [lines]|text}`.
   A block belongs to the frontmost window (first in `windows`) that contains its centre. Rects can be `{x,y,w,h}`/`{x,y,width,height}`/`[x,y,w,h]`.
   `app` matching is a case-insensitive substring. Blocks with confidence < 0.3 are dropped.

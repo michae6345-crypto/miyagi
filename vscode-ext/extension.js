@@ -326,13 +326,32 @@ function findTerminal(name) {
   return vscode.window.terminals.find((t) => t.name === name && !t.exitStatus);
 }
 
+// A terminal Miyagi just created: text sent before its shell prints the first prompt is echoed twice (once raw by
+// the tty, once after the prompt). Commands wait for shell integration to come up (the prompt is there), or
+// SHELL_READY_MS when it never does (shell integration off). Without the API (VS Code < 1.93): sent at once.
+const SHELL_READY_MS = 3000;
+const shellReady = new WeakMap(); // Terminal -> Promise, resolved once its shell can take a command
+
+function waitForShell(t) {
+  return new Promise((resolve) => {
+    const on = vscode.window.onDidChangeTerminalShellIntegration;
+    if (t.shellIntegration || typeof on !== 'function') return resolve();
+    let sub = null;
+    const done = () => { clearTimeout(timer); if (sub) sub.dispose(); resolve(); };
+    const timer = setTimeout(done, SHELL_READY_MS);
+    sub = on((e) => { if (e.terminal === t) done(); });
+  });
+}
+
 function miyagiTerminal(cwd) {
   const t = findTerminal(TERMINAL_NAME);
   if (t) return { t, created: false };
   const opts = { name: TERMINAL_NAME };
   const dir = cwd ? path.resolve(cwd) : folders()[0];
   if (dir && fs.existsSync(dir)) opts.cwd = dir;
-  return { t: vscode.window.createTerminal(opts), created: true };
+  const nt = vscode.window.createTerminal(opts);
+  shellReady.set(nt, waitForShell(nt));
+  return { t: nt, created: true };
 }
 
 async function terminal(body) {
@@ -357,8 +376,11 @@ async function terminalRun(body) {
     if (!samePath(here, body.cwd)) text = `cd ${shq(path.resolve(body.cwd))} && ${cmd}`;
   }
   t.show(!!body.preserveFocus);
-  t.sendText(text, true);
-  log(`terminal/run: ${text}`);
+  // answer now (the engine waits 300 ms at most); a new terminal gets the command once its shell is ready
+  const send = () => { t.sendText(text, true); log(`terminal/run: ${text}`); };
+  const ready = shellReady.get(t);
+  if (ready && !t.shellIntegration) ready.then(send).catch((e) => log(`terminal/run failed: ${e}`));
+  else send();
   return { ok: true, terminal: t.name, created, sent: text, shellIntegration: !!t.shellIntegration,
     reportsExitCode: hasShellApi() };
 }

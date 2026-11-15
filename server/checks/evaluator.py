@@ -478,10 +478,18 @@ def _not_visible(check: dict, ctx: RunContext, absent: bool) -> CheckResult:
     * screen_contains: waiting can't help, so it says which app to open, and once the segment is
       over it fails with that hint (a fail is what lets the orchestrator's idle/stuck help fire).
       With no screen reading at all it stays pending: that's not the learner's fault.
+    * A terminal check is graded on the step's last finished run instead (VS Code's command_end,
+      `tut run`, Run it for me: the real output), and on a run step (``run``, set by evaluate_step)
+      a screen_absent one waits for that run: nothing has run yet that could show the error (t3:
+      "No Python error shown" passed 2 ms into the step, then stayed green over a SyntaxError).
     """
     app = check.get("app")
     no_screen = ctx.screen is None
+    if app in _TERMINAL_APPS and ctx.run_finished:
+        return _on_run_output(check, ctx, absent)
     if absent:
+        if check.get("run") and app in _TERMINAL_APPS:
+            return _result(check, "pending", "checked when it runs")
         if ctx.after_segment:
             why = "screen reading is off" if no_screen else (f"{app} is not on screen" if app else "nothing on screen")
             return _result(check, "pass", f"{why}, so nothing to flag")
@@ -495,6 +503,20 @@ def _not_visible(check: dict, ctx: RunContext, absent: bool) -> CheckResult:
     else:
         hint = f"Open {_APP_NAMES.get(app, app)} so I can check it."
     return _result(check, "fail" if ctx.after_segment and app else "pending", hint)
+
+
+def _on_run_output(check: dict, ctx: RunContext, absent: bool) -> CheckResult:
+    """A terminal check the screen can't read, graded on the output of the step's last finished run."""
+    try:
+        m = search_screen(str(check.get("pattern") or ""), ctx.output_text())
+    except re.error as exc:
+        return _result(check, "fail", f"invalid pattern: {exc}")
+    if absent:
+        if m:
+            return _result(check, "fail", f"the last run printed {m.group(0)[:80]!r}")
+        return _result(check, "pass", "not in the last run's output")
+    return _result(check, "pass", "printed by the last run") if m else \
+        _result(check, "fail", "the last run didn't print it")
 
 
 _APP_NAMES = {"Code": "VS Code", "Terminal": "the Terminal", "iTerm2": "iTerm"}  # what the learner calls them
@@ -577,6 +599,11 @@ def evaluate_step(step: dict, ctx: RunContext | None = None, types: Iterable[str
     f = _step_file(step)  # a VS Code check not seen yet names the file the code goes in ("not in calculator.py yet")
     checks = [{**c, "file": f} if f and c.get("type") == "screen_contains" and c.get("app") == "Code"
               and not c.get("file") else c for c in checks]
+    # a run step's "no error in the terminal" waits for the run (_not_visible) instead of passing on a hidden terminal
+    run = step.get("kind") == "run" or any(str(t.get("file") or "").strip().lower() in ("(terminal)", "terminal")
+                                           for t in step.get("targets") or [])
+    checks = [{**c, "run": True} if run and c.get("type") == "screen_absent" and c.get("app") in _TERMINAL_APPS
+              else c for c in checks]
     return [evaluate_check(c, ctx) for c in checks if wanted is None or c.get("type") in wanted]
 
 
