@@ -176,7 +176,9 @@ export function NetHeader(props: {
         </motion.span>
         <span className="truncate">{title || 'Network'}</span>
         <span className="shrink-0 font-normal" style={{ color: glass.faint }}>
-          {mode === 'train' ? 'training' : mode === 'backward' ? 'backprop' : mode === 'stuck' ? 'loss stuck' : 'forward pass'}
+          {/* data.preview (engine e9a1156): a diagram from before the learner's first real run. Say so, never "training". */}
+          {(data.preview === true ? 'Preview · ' : '') +
+            (mode === 'train' && data.preview !== true ? 'training' : mode === 'backward' ? 'backprop' : mode === 'stuck' ? 'loss stuck' : 'forward pass')}
         </span>
       </button>
       <button

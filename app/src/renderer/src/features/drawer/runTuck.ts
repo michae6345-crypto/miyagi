@@ -9,8 +9,15 @@ import type { Corner } from './netFloat'
 import { useStepDetail } from './plan'
 import { useDrawer } from './store'
 
-/** Top-left: clear of the Run button (top-right of the editor tabs) and the terminal (bottom). */
-export const RUN_CORNER: Corner = 'tl'
+/**
+ * Top-right, where the drawer was (Michael's test 7: top-left still sat over the terminal and under the bar). FloatNet
+ * drops it below the editor's tab row (RUN_DROP) so the Run button stays clear, and fits it above the terminal.
+ */
+export const RUN_CORNER: Corner = 'tr'
+/** Below the editor's tab row and its Run ▷ (VS Code: title bar + tabs + breadcrumbs ≈ 80 px). */
+export const RUN_DROP = 88
+/** The share of the work area above the terminal panel (VS Code's panel takes about the bottom third). */
+export const RUN_SHARE = 0.6
 
 /** The run step's id while it has the drawer tucked, else undefined. */
 export function useRunTuck(): string | undefined {

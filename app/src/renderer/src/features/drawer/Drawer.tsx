@@ -192,7 +192,8 @@ export function Panel({ rect }: { rect: Rect }): ReactNode {
           <div className="min-w-0 flex-1">
             {lessonMode && (
               <div data-part="drawer-eyebrow" className="mb-[3px] truncate text-[11px] font-semibold uppercase leading-[15px] tracking-[0.06em]" style={{ color: glass.faint }}>
-                {topic ? `Just teach me · ${topic}` : 'Just teach me'}
+                {/* Michael, test 7: nothing on screen names the mode (a Demo take read "Just teach me"). */}
+                {topic || 'Lesson'}
               </div>
             )}
             {/* Mockup 01: a lesson's title is the header (20 pt); a video's stays 15 next to its player. */}

@@ -26,7 +26,7 @@ import { useLesson, useProgress, useThinking, type Offtrack as OfftrackPayload }
 import { defineFeature } from '../../core/registry'
 import { usePressed, type ActionKind } from '../../core/shortcuts'
 import { CheckList, CloseButton, CodeText, OptionButton, PrimaryButton, Spinner, StatusDot } from '../../core/ui/atoms'
-import { actionTone, color, copy, fill } from '../../core/theme'
+import { actionTone, color, fill } from '../../core/theme'
 import { useDrawer } from '../drawer/store'
 import { Curve, fmt, Key, plotPoints, type Line } from './Curve'
 import { BODY_LINES, Clamp, HEADLINE_LINES } from './Clamp'
@@ -387,7 +387,7 @@ function Offtrack(): ReactNode {
 
 function Success(): ReactNode {
   const s = useCards((x) => x.success)
-  const { after } = useSeries(undefined, s?.since)
+  const { after, name } = useSeries(undefined, s?.since)
   // A "Just teach me" lesson has no video to pick up.
   const hasVideo = useLesson((l) => l.lesson?.mode !== 'lesson')
   if (!s) return null
@@ -395,7 +395,11 @@ function Success(): ReactNode {
   return (
     <div data-card="success" className="relative" style={{ padding: `16px ${PAD}px 14px` }}>
       <Header mark={<StatusDot status="passed" size={6} />} label={`Step ${s.index + 1} done`} tone={color.green} step={false} />
-      <Title>{copy.passed}</Title>
+      {/* The step's real result (Michael, test 7): "Loss 0.82 to 0.0009" when this step's run has a curve; the header
+          already says "Step N done", so without a result there's no title line. */}
+      {showCurve && after ? (
+        <Title>{`${capital(name)} ${fmt(after.points[0].value)} to ${fmt(after.points[after.points.length - 1].value)}`}</Title>
+      ) : null}
       {s.summary && <Body>{s.summary}</Body>}
       {showCurve ? (
         <AfterCurve since={s.since} width={SUCCESS_W} passed />
@@ -1132,3 +1136,9 @@ export default defineFeature({
   // Renders nothing: it only reports the overlay's width (see WidthProbe).
   overlayLayers: [{ id: 'cards-width', z: 1, Component: WidthProbe }]
 })
+
+/** "loss" → "Loss" for a title line. */
+function capital(t?: string): string {
+  const w = t || 'Loss'
+  return w.charAt(0).toUpperCase() + w.slice(1)
+}
