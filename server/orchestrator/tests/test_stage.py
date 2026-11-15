@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import re
 
 import pytest
 
@@ -16,6 +17,15 @@ from shared.contracts.events import parse_app_message
 _SHAPES = list(zip(curated.LAYERS, curated.LAYERS[1:]))
 ZEROS = "".join(f"W{k} = np.zeros(({r}, {c}))\n" for k, (r, c) in enumerate(_SHAPES, 1))
 RANDOM = "".join(f"W{k} = np.random.randn({r}, {c})\n" for k, (r, c) in enumerate(_SHAPES, 1))
+_STEPS = {st["id"]: st for st in json.loads(curated.LESSON_FILE.read_text(encoding="utf-8"))["steps"]}
+
+
+def code(sid: str) -> str:
+    """A step's code as the drawer's Copy pastes it (a typing step passes only once its own code is there)."""
+    return "\n" + _STEPS[sid]["code"].strip() + "\n"
+
+
+NN1_ZEROS = "\n".join(ln for ln in code("nn1").splitlines() if not re.match(r"W\d+ =", ln)) + "\n" + ZEROS
 _RUNS = json.loads(stage.RUNS_FILE.read_text(encoding="utf-8"))
 STUCK = f"{curated.STUCK_LOSS:.4f}"
 GOOD_LAST = curated.parse_output(_RUNS["nn4"]["good"])["losses"][-1][1]
@@ -87,14 +97,17 @@ def test_the_whole_demo(rig):
         await save(rig, "# nothing yet\n", wait=0.5)
         assert passed(rig) == []
         # step 1: paste with the zeros shortcut, save -> every row green, then the step passes
-        await save(rig, ZEROS)
+        await save(rig, NN1_ZEROS)
         rows = {c["checkId"]: c["status"] for c in rig.of("check.updated") if c["stepId"] == "nn1"}  # the latest
         assert rows and set(rows.values()) == {"pass"}
         assert passed(rig) == ["nn1"] and rig.s.step["id"] == "nn2"
-        # step 2: a save passes it, whatever the file holds
+        # step 2: a save with only step 1's code passes nothing; with its own code it passes
         await save(rig, "\n")
-        # step 3: Check my work passes it without a save
-        rig.clock.t += 1
+        assert rig.s.step["id"] == "nn2"
+        await save(rig, code("nn2"))
+        # step 3: Check my work passes it once its code is there
+        (rig.workdir / "nn.py").write_text((rig.workdir / "nn.py").read_text() + code("nn3"))
+        rig.clock.t += 2
         await rig.s.action("check_step")
         await settle(rig)
         assert passed(rig) == ["nn1", "nn2", "nn3"] and rig.s.step["id"] == "nn4"
@@ -128,7 +141,7 @@ def test_the_whole_demo(rig):
         good = [c for c in rig.of("check.updated") if c["stepId"] == "nn4"][-1]
         assert good["status"] == "pass" and f"{GOOD_LAST:.4f}" in good.get("detail", "")
         # step 5: save; step 6: run -> the lesson is done, the panel shows their network answering
-        await save(rig, "\n")
+        await save(rig, code("nn5"))
         m = rig.mark()
         await rig.s.action("run_command")
         await settle(rig)
@@ -143,8 +156,8 @@ def test_no_stuck_run_when_nn_py_starts_random(rig):
     async def go():
         await rig.s.learn("anything", mode="demo")
         await settle(rig)
-        for _ in range(3):
-            await save(rig, RANDOM)
+        for sid in ("nn1", "nn2", "nn3"):
+            await save(rig, code(sid))  # nn1's own code starts every W random
         await rig.s.action("run_command")
         await settle(rig)
         assert passed(rig)[-1] == "nn4" and not rig.of("offtrack")
@@ -186,9 +199,9 @@ def test_a_double_press_is_one_run(rig, monkeypatch):
     async def go():
         await rig.s.learn("anything", mode="demo")
         await settle(rig)
-        await save(rig, ZEROS)
-        for _ in range(2):
-            await save(rig, "\n")
+        await save(rig, NN1_ZEROS)
+        for sid in ("nn2", "nn3"):
+            await save(rig, code(sid))
         assert rig.s.step["id"] == "nn4"
         await asyncio.gather(rig.s.action("run_command"), rig.s.action("run_command"))
         await settle(rig)
@@ -205,7 +218,7 @@ def test_check_during_a_saves_pass_is_quiet(rig, monkeypatch):
         await rig.s.learn("anything", mode="demo")
         await settle(rig)
         rig.clock.t += 5
-        (rig.workdir / "nn.py").write_text("x = 1" + chr(10))
+        (rig.workdir / "nn.py").write_text(NN1_ZEROS)
         await rig.s.on_file_change([str(rig.workdir / "nn.py")])  # the save's pass starts
         await rig.s.action("check_step")  # and Check my work right behind it
         await settle(rig)
@@ -219,9 +232,9 @@ def test_check_during_a_saves_pass_is_quiet(rig, monkeypatch):
 async def to_train(rig: Rig) -> None:
     await rig.s.learn("anything", mode="demo")
     await settle(rig)
-    await save(rig, ZEROS)
-    for _ in range(2):
-        await save(rig, "\n")
+    await save(rig, NN1_ZEROS)
+    for sid in ("nn2", "nn3"):
+        await save(rig, code(sid))
     assert rig.s.step["id"] == "nn4"
 
 
@@ -248,9 +261,9 @@ def test_a_queued_second_press_after_a_run_that_passed_is_quiet(rig):
     async def go():
         await rig.s.learn("anything", mode="demo")
         await settle(rig)
-        await save(rig, RANDOM)
-        for _ in range(2):
-            await save(rig, "\n")
+        await save(rig, code("nn1"))
+        for sid in ("nn2", "nn3"):
+            await save(rig, code(sid))
         for sid in ("nn4", "nn6"):
             assert rig.s.step["id"] == sid
             m = rig.mark()
@@ -262,7 +275,7 @@ def test_a_queued_second_press_after_a_run_that_passed_is_quiet(rig):
             assert len([t for t in cards if t.startswith("Ran ")]) == 1
             assert "Nothing to do here" not in cards, cards
             if sid == "nn4":
-                await save(rig, "\n")  # nn5
+                await save(rig, code("nn5"))
         assert passed(rig) == ["nn1", "nn2", "nn3", "nn4", "nn5", "nn6"]
     run(go())
 
@@ -286,7 +299,7 @@ def test_work_ends_the_before_you_start_hold(rig):
         await rig.s.learn("anything", mode="demo")
         await settle(rig)
         held = rig.s.awaiting_start
-        await save(rig, "x = 1\n")
+        await save(rig, NN1_ZEROS)
         assert passed(rig) == ["nn1"]
         assert not rig.s.awaiting_start, f"still held (was held: {held})"
     run(go())
@@ -720,4 +733,154 @@ def test_presenter_keys_walk_the_same_states(flow):
         assert await stage.next_step(rig.s)  # See what it learned: its good run, then the ending
         assert await _until(lambda: any(c.get("skillMap") for c in rig.of("card")))
         assert passed(rig)[-1] == "nn6"
+    run(go())
+
+
+# ---------------------------------------------------------------------------------------------------------- T7 docs audit
+# 1. a paste passes on its own (no ⌘S, no Check my work); 2. a stray cue never passes the next step; 3. a new take
+# resets VS Code's open nn.py through the companion (the stub below stands in for server.workspace.vscode_ext).
+
+class FakeBuffers:
+    """VS Code's open nn.py as the companion reads it (editor_text.EditorBuffers' surface): unsaved text included."""
+
+    def __init__(self) -> None:
+        self.buf: str | None = None
+
+    def clear(self) -> None:
+        pass
+
+    async def refresh(self, paths, folder=None) -> None:
+        pass
+
+    def text(self, path):
+        return self.buf
+
+
+class FakeCompanion:
+    """The companion's HTTP API on :8791 (vscode_ext.buffer_text / apply), recording every call."""
+
+    def __init__(self, bufs: FakeBuffers) -> None:
+        self.bufs, self.calls = bufs, []
+
+    def buffer_text(self, file, *, folder=None, **_kw):
+        self.calls.append(("text", str(file)))
+        return {"ok": True, "file": str(file), "text": self.bufs.buf, "dirty": True}
+
+    def apply(self, file, new_text=None, *, edits=None, save=True, reveal=True, folder=None):
+        self.calls.append(("apply", str(file), new_text, save, reveal))
+        self.bufs.buf = new_text  # VS Code now shows it, saved
+        return {"ok": True, "file": str(file), "saved": save, "dirty": False}
+
+
+def _paste(rig: Rig, bufs: FakeBuffers, text: str) -> None:
+    """A paste into VS Code, NOT saved: only the buffer has it."""
+    disk = (rig.workdir / "nn.py").read_text()
+    bufs.buf = (bufs.buf if bufs.buf is not None else disk) + text
+
+
+def test_a_paste_passes_without_a_save(rig):
+    """Demo, like a real lesson: the pasted step passes from VS Code's buffer within a tick, nothing saved, no Check
+    my work; Back to a done step never bounces forward on its own."""
+    async def go():
+        await rig.s.learn("anything", mode="demo")
+        await settle(rig)
+        bufs = FakeBuffers()
+        rig.s._buffers = bufs
+        on_disk = (rig.workdir / "nn.py").read_text()
+        await rig.s.tick()  # nothing pasted yet: nothing passes
+        await settle(rig)
+        assert passed(rig) == []
+        _paste(rig, bufs, NN1_ZEROS)
+        rig.clock.t += 0.5
+        await rig.s.tick()  # the 1/s tick (the companion's dirty event does the same, ~0.2 s)
+        await settle(rig)
+        assert passed(rig) == ["nn1"] and rig.s.step["id"] == "nn2"
+        assert (rig.workdir / "nn.py").read_text() == on_disk  # never saved
+        from server.orchestrator import quiet_save  # the companion's dirty event: the same pass
+        _paste(rig, bufs, code("nn2"))
+        quiet_save.on_vscode_event(rig.s, {"type": "dirty", "file": str(rig.workdir / "nn.py")})
+        await settle(rig)
+        assert passed(rig) == ["nn1", "nn2"] and rig.s.step["id"] == "nn3"
+        # Back to nn2 (its code is there): it waits for a cue, never passes again by itself
+        assert await stage.back(rig.s)
+        await settle(rig)
+        assert rig.s.step["id"] == "nn2"
+        rig.clock.t += 5
+        await rig.s.tick()
+        await settle(rig)
+        assert rig.s.step["id"] == "nn2" and passed(rig) == ["nn1", "nn2"]
+        assert not [c for c in rig.of("card") if c["title"] in ("Nothing to do here", "Not yet")]
+    run(go())
+
+
+def test_a_stray_cue_never_passes_the_next_step(rig):
+    """A second Check my work, or a late save, landing after the next step started: that step's code isn't there, so
+    it doesn't pass (and says nothing). The presenter's next key still passes it on purpose."""
+    async def go():
+        await rig.s.learn("anything", mode="demo")
+        await settle(rig)
+        await save(rig, NN1_ZEROS)
+        assert passed(rig) == ["nn1"] and rig.s.step["id"] == "nn2"
+        m = rig.mark()
+        await rig.s.action("check_step")  # the second press, right after nn2 started
+        await settle(rig)
+        rig.clock.t += 3
+        await rig.s.action("check_step")  # and a later one
+        await settle(rig)
+        await save(rig, "\n")  # a late save
+        assert rig.s.step["id"] == "nn2" and passed(rig) == ["nn1"]
+        assert not [e for e in rig.since(m) if e["type"] == "card"
+                    and e["payload"].get("title") in ("Nothing to do here", "Not yet")]
+        assert not [e for e in rig.since(m) if e["type"] == "check.updated" and e["payload"]["status"] == "pass"]
+        # nn2's code saved behind it, but the press is within the cue guard of nn3's start: not for nn3
+        await save(rig, code("nn2"))
+        assert passed(rig) == ["nn1", "nn2"] and rig.s.step["id"] == "nn3"
+        (rig.workdir / "nn.py").write_text((rig.workdir / "nn.py").read_text() + code("nn3"))
+        await rig.s.action("check_step")
+        await settle(rig)
+        assert rig.s.step["id"] == "nn3"
+        rig.clock.t += stage.CUE_GUARD_S + 0.1  # a real press: passes
+        await rig.s.action("check_step")
+        await settle(rig)
+        assert passed(rig) == ["nn1", "nn2", "nn3"]
+        # the presenter's next key passes a typing step with nothing in it, on purpose
+        await stage.next_step(rig.s)  # nn4 (run step: its good run)
+        await settle(rig)
+        assert rig.s.step["id"] == "nn5"
+        assert await stage.next_step(rig.s)
+        await settle(rig)
+        assert passed(rig)[-1] == "nn5"
+    run(go())
+
+
+def test_a_new_take_resets_vs_codes_open_nn_py(rig, monkeypatch):
+    """⌃⌥⌘R and a new Demo start put the clean nn.py back on disk AND in VS Code's open (unsaved) buffer, through
+    the companion's /apply (saved), so the take starts on a clean editor."""
+    async def go():
+        bufs = FakeBuffers()
+        comp = FakeCompanion(bufs)
+        monkeypatch.setattr(type(rig.s), "_vscode_ext", lambda self: comp)
+        await rig.s.learn("anything", mode="demo")
+        await settle(rig)
+        starter = curated._starter()
+        rig.s._buffers = bufs
+        _paste(rig, bufs, NN1_ZEROS)  # the take's unsaved code in VS Code
+        comp.calls.clear()
+        assert await stage.restart(rig.s)
+        await settle(rig)
+        applies = [c for c in comp.calls if c[0] == "apply"]
+        assert applies and applies[0][1].endswith("nn.py") and applies[0][2] == starter and applies[0][3] is True
+        assert bufs.buf == starter and (rig.workdir / "nn.py").read_text() == starter
+        assert rig.s.step["id"] == "nn1" and passed(rig) == []
+        # a new Demo start from the launcher: the same reset
+        _paste(rig, bufs, code("nn1"))
+        comp.calls.clear()
+        await rig.s.learn("anything", mode="demo")
+        await settle(rig)
+        assert [c for c in comp.calls if c[0] == "apply"] and bufs.buf == starter
+        # VS Code already clean: left alone
+        comp.calls.clear()
+        monkeypatch.setattr(comp, "buffer_text", lambda file, **kw: {"ok": True, "text": starter, "dirty": False})
+        assert not await stage.reset_editor(rig.s, str(rig.workdir))
+        assert not [c for c in comp.calls if c[0] == "apply"]
     run(go())

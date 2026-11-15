@@ -451,7 +451,7 @@ def _items(raw: dict) -> list[dict]:
         "why": (ed.get("why") or "") if ed.get("needed") else "No editor needed: " + _lower_first(ed.get("why") or "this lesson doesn't edit code files."),
         "min_version": "",
     }]
-    seen = {"vscode", "cursor"}  # the editor is item 0 only (Cursor when installed, MIYAGI_EDITOR overrides)
+    seen = {"vscode", "cursor"}  # the editor is item 0 only (VS Code; MIYAGI_EDITOR overrides)
     for t in (raw.get("tools") or [])[:20]:
         tool = _canonical(t.get("tool", ""))
         if not tool or tool in seen or not re.fullmatch(r"[a-z0-9][a-z0-9._+@\-]{0,40}", tool):
@@ -639,7 +639,7 @@ def setup_card(items: list[dict], *, step_id: str | None = None, resources: list
         "setup": {
             "editorNeeded": need_ed,
             "editor": ed["tool"] if ed else None,          # "cursor" | "vscode"
-            "editorLabel": ed["label"] if ed else None,    # "Cursor": the open_editor button reads "Open Cursor"
+            "editorLabel": ed["label"] if ed else None,    # "Visual Studio Code": the open_editor button reads "Open Visual Studio Code"
             "resources": [{"name": r["name"], "url": r["url"], "kind": r["kind"]} for r in resources or []],
             "actionLabels": {"open_editor": f"Open {ed['label']}" if ed else "Open editor", "open_in_browser": "Open in browser",
                              "download": "Download tutorial files",

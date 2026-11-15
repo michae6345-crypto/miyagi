@@ -650,7 +650,12 @@ def evaluate_step(step: dict, ctx: RunContext | None = None, types: Iterable[str
 
 
 _NOTEBOOK_RUN = re.compile(r"shift\s*\+\s*enter|\bcells?\b|\bnotebook\b|\bjupyter\b|\bcolab\b", re.I)
-_OUTPUT_LABEL = re.compile(r"\b(print(s|ed)?|outputs?|shown|shows|displayed|appears?|logged|rendered|plotted)\b", re.I)
+# printed / shown results, never "output layer" / "print statement" (t9: s4c4 "Softmax output layer added" is code)
+_OUTPUT_LABEL = re.compile(r"\b(printed|prints|shown|shows|displayed|logged|rendered|plotted)\b"
+                           r"|\b(cell|run|program|console|terminal|printed|progress)\s+output\b"
+                           r"|\boutput\s+(shown|printed|appears|visible|displayed)\b", re.I)
+# a pattern that looks like code: an escaped ( ) or =, an attribute dot (mnist\.load_data), a CamelCase name
+_CODE_PATTERN = re.compile(r"\\[()]|=|\\\.[A-Za-z_]|[a-z][A-Z]")
 # a code line on screen: a print( call, a string literal opening after ( or closing before , / ), an f-string
 _CODE_MARK = re.compile(r"\bprint\s*\(|\(\s*[fbr]?['\"]|['\"]\s*[,)]|\bf['\"]")
 
@@ -675,6 +680,8 @@ def is_output_check(check: dict) -> bool:
         return False
     if isinstance(check.get("output"), bool):
         return check["output"]
+    if _CODE_PATTERN.search(str(check.get("pattern") or "")):
+        return False  # a pattern for code (model\.predict\(): a code check, whatever its label says
     return bool(_OUTPUT_LABEL.search(str(check.get("label") or "")))
 
 

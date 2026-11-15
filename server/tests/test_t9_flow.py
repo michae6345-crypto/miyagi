@@ -105,3 +105,79 @@ def test_v8_colab_lesson_never_opens_vscode(tmp_path, monkeypatch):
     assert not rig.s.editor_open and not calls
     setup = [c for c in rig.of("card") if c["kind"] == "setup"]
     assert setup and "open_editor" in setup[0]["actions"]  # unchanged: the learner decides
+
+
+# ---------------------------------------------------------------- V12: Install all, rows that stay put
+
+
+def _t9_items(state: dict) -> list[dict]:
+    return [_item("vscode", "Visual Studio Code", "editor", True)] + [
+        _item(t, t, "python_package", state[t]) for t in ("jupyter", "tensorflow", "numpy")]
+
+
+def test_v12_install_all_installs_every_missing_row(tmp_path, monkeypatch):
+    """t9 V12: one package at a time, no Install all. The card now carries action install_all (label "Install all")
+    when two or more rows need an install; pressing it installs every missing row, one after another."""
+    state = {"jupyter": False, "tensorflow": False, "numpy": False}
+    rig, _ = _rig(tmp_path, monkeypatch, lambda: _t9_items(state))
+    from server.orchestrator import workspace as wsmod
+
+    order = []
+
+    def fake_install(item, folder, on_line):
+        on_line(f"Collecting {item['tool']}")
+        order.append(item["tool"])
+        state[item["tool"]] = True
+        return {"ok": True, "tool": item["tool"], "version": "1.0"}
+
+    monkeypatch.setattr(wsmod, "install", fake_install)
+
+    async def go():
+        await rig.s.load_graph(notebook_lesson())
+        await asyncio.sleep(0.05)
+        await rig.settle()
+        card = [c for c in rig.of("card") if c["kind"] == "setup"][0]
+        assert "install_all" in card["actions"] and card["setup"]["actionLabels"]["install_all"] == "Install all"
+        await rig.s.action("install_all")
+        for _ in range(20):
+            await asyncio.sleep(0.02)
+            await rig.settle()
+
+    run(go())
+    assert order == ["jupyter", "tensorflow", "numpy"]
+    prog = rig.of("setup.progress")
+    assert {"tool": "numpy", "line": "Waiting to install"} in prog
+    assert [p["tool"] for p in prog if p.get("done") and p.get("ok")] == ["jupyter", "tensorflow", "numpy"]
+    assert rig.s._setup_card is None  # nothing left: the one-line "installed" card closed it
+
+
+def test_v12_rows_stay_put_while_installing(tmp_path, monkeypatch):
+    """t9 V12: the rows moved while installing (the body above them changed with every pip line). A re-sent setup card
+    keeps the same rows in the same order, flips the installed one in place, and keeps its body while Install is left."""
+    state = {"jupyter": False, "tensorflow": False, "numpy": False}
+    rig, _ = _rig(tmp_path, monkeypatch, lambda: _t9_items(state))
+    from server.orchestrator import workspace as wsmod
+
+    def fake_install(item, folder, on_line):
+        on_line("Collecting pyzmq>=25 (from ipykernel->jupyter) Downloading pyzmq-27.3.0-cp312-abi3-macosx.whl")
+        state[item["tool"]] = True
+        return {"ok": True, "tool": item["tool"], "version": "1.0"}
+
+    monkeypatch.setattr(wsmod, "install", fake_install)
+
+    async def go():
+        await rig.s.load_graph(notebook_lesson())
+        await asyncio.sleep(0.05)
+        await rig.settle()
+        await rig.s.action("install", "jupyter")
+        await asyncio.sleep(0.05)
+        await rig.settle()
+
+    run(go())
+    cards = [c for c in rig.of("card") if c["kind"] == "setup"]
+    first, last = cards[0], cards[-1]
+    assert len(cards) >= 2 and all(c["body"] == first["body"] for c in cards), [c["body"] for c in cards]
+    tools = [r["tool"] for r in first["setup"]["items"]]
+    assert [r["tool"] for r in last["setup"]["items"]] == tools
+    assert {r["tool"]: r["ok"] for r in last["setup"]["items"]} == {
+        "vscode": True, "jupyter": True, "tensorflow": False, "numpy": False}

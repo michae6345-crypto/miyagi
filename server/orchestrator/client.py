@@ -31,6 +31,8 @@ from pathlib import Path
 import httpx
 import websockets
 
+from . import bg
+
 MARKER = "# tut-autopilot"
 
 C = {"dim": "\033[2m", "g": "\033[32m", "y": "\033[33m", "r": "\033[31m", "b": "\033[34m", "c": "\033[36m", "x": "\033[0m"}
@@ -185,10 +187,10 @@ class Autopilot:
             self.workdir = Path(st["workdir"])
             print(f"{C['c']}autopilot: workdir {self.workdir}{C['x']}")
         elif t == "step.started":
-            asyncio.create_task(self.do_step(p))
+            bg.spawn(self.do_step(p))  # held until done (V13)
         elif t == "offtrack" and p.get("stepId") == "s6" and self.hero_phase == 1:
             self.hero_phase = 2
-            asyncio.create_task(self.hero_fix())
+            bg.spawn(self.hero_fix())
         elif t == "step.passed" and not p.get("nextStepId"):
             print(f"{C['g']}autopilot: lesson complete{C['x']}")
             self.done.set()

@@ -31,7 +31,7 @@ LESSON_MIYAGI_WAIT_S = float(os.environ.get("ORCH_LESSON_OPEN_GRACE_S", "3"))
 
 
 def code_cli() -> str | None:
-    """The editor CLI for `-g file:line` jumps: S2's choice when available (e.g. Cursor when installed), so the
+    """The editor CLI for `-g file:line` jumps: S2's choice when available (VS Code's `code`), so the
     jumps go to the same editor open_editor opened; else VS Code's `code`."""
     ws = _s2()
     editor = getattr(ws, "editor", None) if ws is not None else None
@@ -375,7 +375,7 @@ def refresh_python(folder: str) -> dict | None:
 
 
 def goto_argv(path: str, line: int) -> list[str] | None:
-    """S2: the jump command for the learner's editor (Cursor if that's theirs), so jumps never launch a
+    """S2: the jump command for the learner's editor (VS Code), so jumps never launch a
     second editor; else VS Code's `code -r -g`."""
     ws = _s2()
     fn = getattr(ws, "goto_argv", None) if ws is not None else None
