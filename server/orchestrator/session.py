@@ -406,6 +406,10 @@ class LessonSession:
         if ep is not None and ep != self.lesson_epoch and type_ not in ALWAYS_SENT:
             log.info("dropped stale %s (lesson epoch %s, now %s)", type_, ep, self.lesson_epoch)
             return
+        if type_ in ("card", "offtrack") and payload:  # t5: no OCR / internals, no false "add the code" Not yet
+            from . import card_copy
+
+            payload = card_copy.learner_text(self, type_, payload)
         if type_ == "card" and where_row.offers_open(payload):  # no "Open nn.py" when nn.py is the active file
             payload = await where_row.filter_card(self, payload)
             if payload is None:
@@ -661,6 +665,23 @@ class LessonSession:
                 log.warning("open_editor: %s didn't come forward; asking VS Code again", Path(folder).name)
                 await asyncio.to_thread(self.workspace.open, folder, True, False, True, file=self._editor_file(self.step))
         log.warning("open_editor: %s still isn't on screen", Path(folder).name)
+
+    async def _open_editor_answered(self) -> None:
+        """Open on a setup / where card: bring the lesson's window forward, then ANSWER the press (t5 02:11:33: "Ready
+        to go"'s Open spun ~10 s with VS Code already in front, because nothing came back). The app ends a pressed
+        button on thinking -> not thinking (store.ts), which closes the card; a setup card that still has Install
+        rows comes back without Open instead."""
+        await self._status("thinking")
+        try:
+            await self._open_editor()
+        finally:
+            card = self._setup_card
+            if card and "open_editor" in (card.get("actions") or []):
+                card = {**card, "actions": [a for a in card["actions"] if a != "open_editor"]}
+                self._setup_card = card if ("install" in card["actions"] or self._installing) else None
+                if self._setup_card is not None:
+                    await self.emit("card", card)
+            await self._status("offtrack" if self.last_offtrack else ("passed" if self.passed else "watching"))
 
     def _editor_file(self, step: dict | None) -> str | None:
         """L2: the file the lesson's VS Code window opens on: the step's own file when it's in the lesson folder (the
@@ -3149,6 +3170,11 @@ class LessonSession:
                 await self._emit_card(self._where_card(step))
                 await self._status("offtrack" if self.last_offtrack else "watching")
                 return
+            from . import card_copy
+
+            if await card_copy.diagnosed_hint(self, step):  # t5: from the diagnosis / Check's "Not yet": line, then fix
+                await self._status("offtrack" if self.last_offtrack else "watching")
+                return
             shown = await self._show_where(step)
             screen = await self._screen_for_coach(step) if self.m.has_pointing() else None
             if screen is None and ((not shown and self._can_see()) or self._code_not_visible()):  # say WHERE to go
@@ -3187,7 +3213,7 @@ class LessonSession:
             await self._status("offtrack" if self.last_offtrack else ("passed" if self.passed else "watching"))
             return
         if kind == "open_editor":
-            await self._open_editor()
+            await self._open_editor_answered()
             return
         if kind == "install":  # text = the setup item's tool id
             self._spawn(self._install((text or "").strip()))

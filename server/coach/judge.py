@@ -46,7 +46,7 @@ JUDGE_SYSTEM = """You judge whether a learner has completed a step of a tutorial
 - confidence: 0..1, how sure you are of the verdict. evidence: the exact on-screen text or file line you relied on (short). reason: one line.
 - on_step_id: if the screen clearly shows the learner working on ANOTHER step of this lesson (e.g. already writing functions while the lesson is still on setup), that step's id; else "".
 - summary: at most 12 words, what you saw that matters ("calc.py defines add() and subtract(); tests pass").
-- missing: at most 12 words, what is still left to do for this step, using the real app and file names from the screen (e.g. "Save the Untitled-1 tab as calculator.py"); "" if nothing."""
+- missing: at most 12 words, what is still left to do for this step, using the real app and file names from the screen (e.g. "Save the Untitled-1 tab as calculator.py"); "" if nothing. The learner reads it word for word: never mention OCR, the screen text, how anything is read or checked; never ask to add or type code that WORKSPACE FILES already contain (a run step whose code is in the file: say what to run); if the terminal output can't be read, say "Make the terminal panel taller, then run it again"."""
 
 JUDGE_SCHEMA = {
     "type": "object",
