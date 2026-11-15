@@ -714,7 +714,6 @@ class TeachTake(Take):
         async with httpx.AsyncClient() as c:
             st = (await c.get(f"{self.http}/state")).json()
         self.workdir = Path(st["workdir"])
-        steps = (st.get("lesson") or {}).get("id"), ready["steps"]
         video = any(ty.startswith("video.") for _, ty, _ in self.events)
         self.beat("Just teach me → lesson.ready", t, t1, ready["lesson"]["id"].startswith("lesson-") and not video,
                   f"{ready['lesson']['id']} {ready['lesson'].get('title')!r} · {len(ready['steps'])} steps · "
@@ -732,7 +731,7 @@ class TeachTake(Take):
             since = self.cursor
             t0 = self.now()
             try:
-                ts, started = await self.expect(lambda ty, p: ty == "step.started" and p.get("stepId") == sid,
+                _, started = await self.expect(lambda ty, p, sid=sid: ty == "step.started" and p.get("stepId") == sid,
                                                 f"step.started {sid}", timeout=20, since=max(0, since - 40))
             except TimeoutError:
                 self.beat(f"{sid} starts", t0, self.now(), False, "never started")
@@ -751,7 +750,7 @@ class TeachTake(Take):
                 f.write_text(_type_into(f.read_text() if f.exists() else "", step["code"]))
                 await asyncio.sleep(1.0)
                 how.append("typed")
-                verdict, ev, dt = await self._check(sid)
+                verdict, ev, _ = await self._check(sid)
                 how.append(f"Check → {verdict}" + (f" {ev.get('title')!r}: {ev.get('body')!r}" if verdict == "card" else ""))
                 passed = verdict == "passed"
                 self.beat(f"{sid} type → Check", tt, self.now(), passed, how[-1][:150])
@@ -759,14 +758,14 @@ class TeachTake(Take):
                 stdin = _stdin_for(step)
                 script = (run_cmd or step.get("run_command") or f"python {f.name}").replace("python ", "python3 ", 1)
                 argv = ["bash", "-c", f"printf '{stdin}' | {script}"] if stdin else script.split()
-                tr, te, code, out = await self.tut_run(argv, timeout=30)
+                tr, _, code, out = await self.tut_run(argv, timeout=30)
                 how.append(f"tut run {' '.join(argv)[:60]!r} → exit {code}, out {out.splitlines()[:1]!r}")
                 try:
-                    await self.expect(lambda ty, p: ty == "step.passed" and p.get("stepId") == sid, f"{sid} passes",
+                    await self.expect(lambda ty, p, sid=sid: ty == "step.passed" and p.get("stepId") == sid, f"{sid} passes",
                                       timeout=4, since=since)
                     passed = True
                 except TimeoutError:
-                    verdict, ev, dt = await self._check(sid)
+                    verdict, ev, _ = await self._check(sid)
                     how.append(f"Check → {verdict}" + (f" {ev.get('title')!r}: {ev.get('body')!r}" if verdict == "card" else ""))
                     passed = verdict == "passed"
                 self.beat(f"{sid} run{' step' if run_cmd else ''} → green", tr, self.now(), passed, how[-1][:150])
