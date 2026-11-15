@@ -2853,3 +2853,82 @@ def test_use_this_folder_adopts_the_learners_folder(tmp_path, monkeypatch):
     assert adopted and rig.s.workdir == str(theirs) and moved == [str(theirs)]
     assert rig.of("card")[-1]["title"] == "Using old-lesson"
     assert rig.of("step.passed")[0]["stepId"] == "s1"  # its file there already has add(): the check passes
+
+
+def test_run_it_for_me_runs_the_command_shows_output_and_passes_the_run_check(tmp_path, monkeypatch):
+    """Michael: "it's asking me to run but nothing happens". The Run it button runs the step's command in the lesson
+    folder (real subprocess here), shows the last lines and feeds the run check its real exit code / output."""
+    g = _run_lesson()
+    g["steps"][1]["precision_checks"] = [{"id": "s2p1", "type": "command_exit_ok", "label": "runs", "command": "python calc.py"},
+                                         {"id": "s2p2", "type": "output_contains", "label": "prints 5", "pattern": "5"}]
+
+    async def build(goal, workdir, on_update=None, **kw):
+        return g
+
+    rig, _, _ = _lesson_rig(tmp_path, monkeypatch, build)
+    import sys
+    (tmp_path / "calc.py").write_text("def add(a, b):\n    return a + b\nprint(add(2, 3))\n")
+    monkeypatch.setenv("PATH", f"{Path(sys.executable).parent}:{__import__('os').environ['PATH']}")
+
+    async def go():
+        await rig.s.learn("calc", mode="lesson")
+        await rig.settle()
+        await rig.s.goto_step(1)
+        await rig.settle()
+        assert [c for c in rig.of("card") if c["title"] == "Run it"][-1]["actions"] == ["run_command"]
+        await rig.s.action("run_command")
+        await rig.settle()
+
+    run(go())
+    ran = [c for c in rig.of("card") if c["title"].startswith("Ran ")][-1]
+    assert ran["title"] == "Ran python calc.py" and ran["output"] == "5" and ran["body"] == "It ran without errors."
+    assert rig.of("step.passed")[-1]["stepId"] == "s2"
+
+
+def test_run_it_for_me_reports_a_failure_and_a_hang(tmp_path, monkeypatch):
+    async def build(goal, workdir, on_update=None, **kw):
+        g = _run_lesson()
+        g["steps"][1]["precision_checks"] = [{"id": "s2p1", "type": "command_exit_ok", "label": "runs"}]
+        return g
+
+    rig, _, _ = _lesson_rig(tmp_path, monkeypatch, build)
+    rig.s.RUN_TIMEOUT_S = 1.0
+    (tmp_path / "calc.py").write_text("x = 1\n")
+    step = {"id": "s2", "title": "Run", "code": "python3 -c 'import sys; print(\"boom\"); sys.exit(3)'\n"}
+    hang = {"id": "s2", "title": "Run", "code": "python3 -c 'import time; time.sleep(5)'\n"}
+
+    async def go():
+        await rig.s.learn("calc", mode="lesson")
+        await rig.settle()
+        await rig.s._run_for_me(step)
+        await rig.s._run_for_me(hang)
+
+    run(go())
+    cards = [c for c in rig.of("card") if c["title"].startswith("Ran ")]
+    assert cards[0]["body"] == "It stopped with exit code 3." and cards[0]["output"] == "boom"
+    assert cards[1]["body"].startswith("Stopped after 1 s")
+
+
+def test_do_it_for_me_appends_the_step_code_and_says_what_it_added(tmp_path, monkeypatch):
+    """Lesson mode, no coach: the step's code is previewed (exact diff), written on confirm, and the result line
+    names what was added; the checks re-run and the step passes."""
+    async def build(goal, workdir, on_update=None, **kw):
+        return _text_lesson()
+
+    rig, _, _ = _lesson_rig(tmp_path, monkeypatch, build)
+
+    async def go():
+        await rig.s.learn("calc", mode="lesson")
+        await rig.settle()
+        (tmp_path / "calc.py").write_text("# my calculator\n")
+        await rig.s.action("apply_fix")
+        await rig.settle()
+        prev = rig.of("card")[-1]
+        assert prev["title"] == "Type this for you?" and "+def add(a, b):" in prev["diff"]
+        await rig.s.action("confirm")
+        await rig.settle()
+
+    run(go())
+    assert (tmp_path / "calc.py").read_text() == "# my calculator\n\ndef add(a, b):\n    return a + b\n"
+    assert any(c["title"] == "Done" and c["body"] == "Added def add(a, b) to calc.py." for c in rig.of("card"))
+    assert rig.of("step.passed")[0]["stepId"] == "s1"
