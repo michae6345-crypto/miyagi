@@ -20,6 +20,7 @@ import { hole, intersects, toLocal } from '../spotlight/place'
 import { useSpotlight } from '../spotlight/store'
 import { ConceptPanel, Rail } from './Concept'
 import { Panel, Tab } from './Drawer'
+import { FloatNetLayer } from './FloatNet'
 import { conceptRects, panelRect, tabRect } from './geometry'
 import { Selectable, SelectionExplain } from './SelectionExplain'
 import { useDrawer } from './store'
@@ -76,4 +77,9 @@ function useYield(reason: boolean): boolean {
   return reason || held
 }
 
-export default defineFeature({ id: 'drawer', overlayLayers: [{ id: 'drawer', z: 40, Component: DrawerLayer }] })
+export default defineFeature({ id: 'drawer', overlayLayers: [
+    { id: 'drawer', z: 40, Component: DrawerLayer },
+    // The live network, dragged out of the drawer: over the drawer, under the island (z 50).
+    { id: 'drawer-net-float', z: 45, Component: FloatNetLayer }
+  ]
+})
