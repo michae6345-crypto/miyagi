@@ -12,6 +12,12 @@ video.pause + card {kind:"resume"}; action resume / end_lesson). This adds:
   - resume() with no lesson in memory: reload the cached step graph (no rebuild) at the saved step and
     seek the video to the saved position; with one in memory: the session's own resume
   - resume_card(): "<title> · Step 3 of 7 · 12 min ago" for the in-memory case too
+
+The save made before a restart is protected until the learner answers the card: while it is pending
+nothing saves or clears it (an app connect, a snapshot, a disconnect, the engine stopping, the frozen
+in-memory lesson). Continue restores it; Start new (end_lesson / POST /end) clears it; a different
+lesson replaces it; the SAME lesson loaded again (a rebuild that hit the lesson cache) continues at the
+saved step instead of starting over.
 """
 
 from __future__ import annotations
@@ -26,6 +32,7 @@ from . import store
 log = logging.getLogger("sessions")
 
 VIDEO_SAVE_EVERY_S = 3.0
+EXPLICIT_END = ("end_lesson", "POST /end")  # the learner chose "Start a new lesson"
 PROMPT_EVENTS = ("card", "video.pause", "status", "spotlight", "error")  # sending the prompt isn't activity
 
 
@@ -69,7 +76,9 @@ class Resumer:
         self._started_at: dict[str, float] = {}
         self._last_activity: float | None = None
         self._restoring = False  # resume() is reloading: its lesson.ready must not overwrite the saved step
+        self._pending = store.load() is not None  # saved before this engine started, not answered yet
         self._emit = session.emit
+        self._load_graph = session.load_graph
         self._video_state = session.video_state
         self._snapshot = session.snapshot
         self._resume = session.resume
@@ -79,6 +88,7 @@ class Resumer:
         session.snapshot = self.snapshot
         session.resume = self.resume
         session.resume_card = self.resume_card
+        session.load_graph = self.load_graph
 
     # ------------------------------------------------------------------ autosave
     def capture(self, step_index: int | None = None) -> dict | None:
@@ -109,6 +119,8 @@ class Resumer:
         }
 
     def save_now(self, step_index: int | None = None, with_graph: bool = False) -> dict | None:
+        if self._pending or getattr(self.s, "awaiting_resume", False):
+            return None  # the save on disk is the learner's place until they answer the resume card
         st = self.capture(step_index)
         if st is None:
             return None
@@ -140,6 +152,9 @@ class Resumer:
                 else:
                     store.clear()  # lesson complete: nothing to resume
             elif type_ == "lesson.ended":
+                if self._pending and (payload or {}).get("reason") not in EXPLICIT_END:
+                    return
+                self._pending = False
                 store.clear()
                 self._graph_saved_for = None
         except Exception:  # noqa: BLE001 - saving must never break the lesson
@@ -174,8 +189,24 @@ class Resumer:
         return resume_offer(st, self.clock()) if st else self._resume_card()
 
     # ------------------------------------------------------------------ resume
+    async def load_graph(self, graph: dict) -> None:
+        """Every load goes through here. While a pre-restart save is pending, the same lesson loaded
+        again continues at the saved step; any other lesson replaces the save."""
+        if self._pending:
+            saved = store.load()
+            self._pending = False
+            lid = (graph.get("lesson") or {}).get("id")
+            if saved is not None and lid and lid == saved.get("lessonId"):
+                old = store.load_graph(saved)
+                if old is not None and len(old.get("steps") or []) > len(graph.get("steps") or []):
+                    graph = old  # a partial rebuild: keep the full saved graph (later parts merge by id)
+                await self._restore(saved, graph)
+                return
+        await self._load_graph(graph)
+
     async def resume(self) -> bool:
         """action {kind:"resume"}."""
+        self._pending = False
         s = self.s
         if s.graph is not None:
             await self._resume()
@@ -187,9 +218,14 @@ class Resumer:
             await s.emit("error", {"message": "That lesson can't be resumed any more. Start a new one."})
             await s.emit("status", {"state": "idle"})
             return False
+        await self._restore(state, graph)
+        return True
+
+    async def _restore(self, state: dict, graph: dict) -> None:
+        s = self.s
         idx = max(0, min(int(state["stepIndex"]), len(graph["steps"]) - 1))
         self._started_at[state["lessonId"]] = state.get("startedAt") or self.clock()
-        self._graph_saved_for = state["lessonId"]
+        self._graph_saved_for = None  # the first save after a restore rewrites the graph file too
         editor_open = bool(state.get("editorOpen"))
         t = state.get("videoT")
         seg = s._segment(graph["steps"][idx])
@@ -199,7 +235,6 @@ class Resumer:
         if at is not None:
             self.video_t = at
             self.save_now()
-        return True
 
     async def _load_at(self, graph: dict, idx: int, seek_to: float | None, editor_open: bool,
                        skipped: list[str]) -> None:
@@ -226,7 +261,7 @@ class Resumer:
         s.start_step = saved_step
         self._restoring = True
         try:
-            await s.load_graph(graph)
+            await self._load_graph(graph)  # the session's own, not this wrapper
         finally:
             self._restoring = False
             s.emit = wrapped
