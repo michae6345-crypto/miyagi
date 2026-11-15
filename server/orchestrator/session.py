@@ -492,7 +492,7 @@ class LessonSession:
             if not self.typing():
                 break
             await asyncio.sleep(0.5)
-        await asyncio.to_thread(self.workspace.open, folder, True)
+        await asyncio.to_thread(self.workspace.open, folder, True, file=self._editor_file(self.step), **self._open_holds())
         self.editor_open = True
         self._record("editor_opened", {"auto": True, "folder": Path(folder).name})
         if self.step is not None:
@@ -618,7 +618,8 @@ class LessonSession:
             log.info("open_editor ignored: this lesson doesn't use an editor")
             return  # e.g. a Blender/Figma lesson: never open VS Code
         log.info("open_editor: bringing %s forward", Path(self.workdir).name)
-        self.workspace.open(self.workdir, force=True, explicit=True)  # the learner pressed "Open VS Code"
+        self.workspace.open(self.workdir, force=True, explicit=True,  # the learner pressed "Open VS Code"
+                            file=self._editor_file(self.step))  # L2: on the step's file, never README.md
         self.editor_open = True
         if self.step is not None:
             self.workspace.goto_target(self.workdir, self.step, explicit=True)
@@ -640,8 +641,74 @@ class LessonSession:
                 return
             if attempt == 1 and self.workspace is not None and folder == self.workdir:
                 log.warning("open_editor: %s didn't come forward; asking VS Code again", Path(folder).name)
-                await asyncio.to_thread(self.workspace.open, folder, True, False, True)
+                await asyncio.to_thread(self.workspace.open, folder, True, False, True, file=self._editor_file(self.step))
         log.warning("open_editor: %s still isn't on screen", Path(folder).name)
+
+    def _editor_file(self, step: dict | None) -> str | None:
+        """L2: the file the lesson's VS Code window opens on: the step's own file when it's in the lesson folder (the
+        live run opened README.md while step 1 said "In nn.py, type …"); None = S2's starter pick."""
+        from . import workspace as wsmod
+
+        rel = self._step_file(step) if step else None
+        if not rel and self.lesson_mode and step is not None and step is self.step:  # a run step: the file it runs
+            rel = next((f for st in reversed(self.steps[:self.idx]) if (f := self._step_file(st))), None)
+        if not rel or not self.workdir or not Path(self.workdir).is_dir():
+            return None
+        p = wsmod.resolve_file(self.workdir, rel)
+        return str(p) if p is not None and Path(self.workdir).resolve() in p.resolve().parents else None
+
+    def _open_holds(self) -> dict:
+        """L5: what holds an AUTOMATIC open of the lesson's editor (S2's waiter thread): a key or click in the last
+        TYPING_GUARD_S, Miyagi's own launcher / ask box included; another lesson (or end_lesson) drops it."""
+        lid, wd, inputs = ((self.graph or {}).get("lesson") or {}).get("id"), self.workdir, self.inputs
+
+        def busy() -> bool:
+            v = inputs.seconds_since_input() if inputs is not None else None
+            return v is not None and v < config.TYPING_GUARD_S
+
+        def cancelled() -> bool:
+            return self.graph is None or (self.graph.get("lesson") or {}).get("id") != lid or self.workdir != wd
+
+        return {"busy": busy, "cancelled": cancelled}
+
+    async def _show_step_file(self, step: dict, explicit: bool = False) -> bool:
+        """L2: the step's file in the lesson's OWN VS Code window (the companion extension; no focus change, never another
+        folder's window) when that window shows another file (README.md, the last step's file). start_step's `code -r
+        -g` jump only runs while VS Code is the active app, so a step started from Miyagi's drawer kept the old file.
+        explicit (Show me): at once; else after the learner's typing. True = it switched files."""
+        gen = self.step_gen
+        for _ in range(0 if explicit else 20):  # up to ~10 s: never switch tabs under a keystroke
+            if not self.typing():
+                break
+            await asyncio.sleep(0.5)
+        ext = await asyncio.to_thread(self._vscode_ext)
+        if ext is None or not hasattr(ext, "windows") or not hasattr(ext, "open_file"):
+            return False
+        if gen != self.step_gen or self.step is not step:  # the learner moved on meanwhile: not the old step's file
+            return False
+        from . import workspace as wsmod
+
+        def show() -> str | None:
+            path = self._editor_file(step)
+            if path is None:
+                return None
+            root = Path(self.workdir).resolve()
+            win = next((w for w in ext.windows() if any(Path(f).resolve() == root for f in w.get("folders") or [])), None)
+            if win is None or (win.get("file") and Path(str(win["file"])).resolve() == Path(path).resolve()):
+                return None  # no lesson window (yet), or it already shows the step's file
+            loc = wsmod.target_location(self.workdir, step, missing="end")
+            line = loc[1] if loc is not None and str(loc[0]) == path else None
+            res = ext.open_file(path, line, folder=self.workdir, preserve_focus=True, port=win.get("port"))
+            return path if isinstance(res, dict) and res.get("ok") else None
+
+        try:
+            shown = await asyncio.to_thread(show)
+        except Exception:  # noqa: BLE001 - showing the file is a convenience; the lesson runs without it
+            log.exception("showing the step's file failed")
+            return False
+        if shown:
+            log.info("showed %s in the lesson's VS Code window", Path(shown).name)
+        return bool(shown)
 
     def _prefetch_voice(self) -> None:
         """Synthesize every step's spoken line ahead of time (only while voice is on: it costs TTS credits)."""
@@ -1166,7 +1233,10 @@ class LessonSession:
         """Lesson mode: the editor IS the lesson, so it opens (full screen) without asking."""
         if self.workspace is None or getattr(self.workspace, "blocked", False):  # ORCH_OPEN_WORKSPACE=0: never on its own
             return
-        await asyncio.to_thread(self.workspace.open, folder, True, True)
+        first = self.steps[0] if self.steps else None  # L2: open ON step 1's file (start_step(0) comes next)
+        if first is not None:
+            self._ensure_step_file(first)
+        await asyncio.to_thread(self.workspace.open, folder, True, True, file=self._editor_file(first), **self._open_holds())
         self.editor_open = True
 
     def _snippet(self, step: dict | None) -> dict:
@@ -1624,6 +1694,8 @@ class LessonSession:
             self._spawn(self._prefetch_diagram(self.step_gen, step), timer=True)
         if self.workspace is not None and self.editor_open:  # `code -g` would itself launch VS Code
             self.workspace.goto_target(self.workdir, step, missing="end" if self.lesson_mode else "first")
+            if self.lesson_mode:  # L2: that jump needs VS Code in front; the extension shows the step's file anyway
+                self._spawn(self._show_step_file(step), timer=True)
         await self._status("watching")
         await self.evaluate("start")
         if seg is not None and not self.passed and self.step is step:
@@ -2729,6 +2801,8 @@ class LessonSession:
             if self._lesson_window_hidden():  # another project's window is in front: no box on it; where + Open
                 await self._emit_card(self._where_card(step))
                 return
+            if self.lesson_mode and await self._show_step_file(step, explicit=True):
+                await asyncio.sleep(0.4)  # L2: the editor switched to the step's file: box it, not the old one
             quick = await self._show_where(step)  # exact match / window: instant
             if quick and self.lesson_mode:
                 return  # the target box + what to type there is the whole answer
