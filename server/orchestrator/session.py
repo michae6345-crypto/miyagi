@@ -1374,8 +1374,8 @@ class LessonSession:
             if isinstance(step.get(k), str) and step[k].strip():
                 return step[k].strip()
         if cmd := self._run_command(step):
-            return f"In the terminal, run {cmd.splitlines()[0]}"
-        code, file = (step.get("code") or "").strip(), (step.get("file") or self._step_file(step) or "").strip()
+            return f"Run it in the terminal: {cmd.splitlines()[0]}"
+        code, file = (step.get("code") or "").strip(), (self._step_file(step) or "").strip()
         first = next((ln.strip() for ln in code.splitlines() if ln.strip() and not ln.strip().startswith("#")), "")
         if first and file:
             from . import workspace as wsmod
@@ -1761,6 +1761,10 @@ class LessonSession:
             if gate.get("passed") and gate.get("via") != shown_list:  # green by the other route: show it green
                 why = "confirmed by your files" if gate.get("via") == "precision" else "confirmed on screen"
                 results = [r if r.get("status") == "pass" else {**r, "status": "pass", "detail": why} for r in results]
+            if gate.get("passed") and self.lesson_mode and self._file_unready(step):
+                # the screen shows the code but the file on disk is empty / unsaved: the file decides
+                gate = {**gate, "passed": False, "via": None}
+                self._editor_state_card(step)
             if self.judged_pass:  # E5's judge saw these done on screen: they count like any pass
                 results = [r if r.get("checkId") not in self.judged_pass or r.get("status") == "pass"
                            else {**r, "status": "pass", "detail": r.get("judgedDetail") or "Claude saw it on screen"}
@@ -1971,6 +1975,9 @@ class LessonSession:
                 by_id = {c["id"]: c for c in (step.get("checks") or []) + (step.get("precision_checks") or [])}
                 failed_checks = [{**by_id.get(r.get("checkId"), {}), **r} for r in failed]
                 code, _file = self._code_excerpt(step)
+                sfile = self._step_file(step) or step.get("file") or _file or ""
+                file_state = {"path": sfile, "saved": not self._dirty_step_file(step),
+                              "wrong_folder": bool(self._other_folder(step))} if sfile else None
                 tail = ctx.output_tail[-40:] if isinstance(ctx.output_tail, list) else []
                 if not tail:  # screen-first (no `tut run`): what the terminal / notebook shows is the error text
                     tail = self._screen_error_lines()
@@ -1986,7 +1993,8 @@ class LessonSession:
                 self._early_spot = False
                 try:
                     card = await self.m.diagnose(step, failed_checks, ctx.metrics, code, error_text="\n".join(tail),
-                                                 cursor=self.cursor_context(), screen=screen, on_targets=on_targets)
+                                                 cursor=self.cursor_context(), screen=screen, on_targets=on_targets,
+                                                 file_state=file_state, code_source="file" if _file else "screen")
                 except Exception as e:
                     if gen == self.step_gen:
                         self.spoken_sig = None  # a later breakpoint may try again...
@@ -2005,6 +2013,16 @@ class LessonSession:
             if gen != self.step_gen or self.passed:
                 return
             ids = {r.get("checkId") for r in failed if r.get("checkId")}
+            if hold := card.get("hold"):  # E5: not diagnosable yet -> never an offtrack
+                self.spoken_sig = None  # the next breakpoint tries again
+                if hold == "wrong_folder":
+                    self._editor_state_card(step)
+                elif hold == "unsaved":
+                    await self._emit_card({"stepId": step["id"], "kind": "hint", "title": card.get("title") or "Save first",
+                                           "body": card.get("body") or "Save with ⌘S so I can check it."}, window_s=60.0)
+                # "unconfirmed": the OCR read disagreed with the last one: say nothing, a later read decides
+                await self._status("watching")
+                return
             if card.get("notStarted"):  # E5: nothing done yet -> one plain instruction, never amber / "off track"
                 self.spoken_sig = None  # a real diagnosis may follow once they've worked on it
                 self._carded_checks |= ids
@@ -2467,13 +2485,21 @@ class LessonSession:
             return True
         return False
 
+    @staticmethod
+    def _real_file(name: str | None) -> bool:
+        """E2 files run steps under "(terminal)": that's a place, not a file."""
+        n = (name or "").strip()
+        return bool(n) and not n.startswith("(") and n.lower() not in ("terminal", "the terminal", "shell")
+
     def _step_file(self, step: dict) -> str | None:
         for t in step.get("targets") or []:
-            if t.get("file"):
+            if self._real_file(t.get("file")):
                 return t["file"]
         for c in (step.get("checks") or []) + (step.get("precision_checks") or []):
-            if c.get("file"):
+            if self._real_file(c.get("file")):
                 return c["file"]
+        if self._real_file(step.get("file")):
+            return step["file"]
         return None
 
     def _can_see(self) -> bool:

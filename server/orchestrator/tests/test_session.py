@@ -2569,7 +2569,7 @@ def test_run_step_boxes_the_vscode_terminal_never_the_breadcrumb(tmp_path, monke
     assert first["caption"] == "Open the terminal: ⌃`" and first["snippet"] == "python calc.py"
     assert first["rect"] == {"x": 0.0, "y": 976.0, "w": 1200.0, "h": 24.0}  # the status bar, never empty space
     last = rig.of("spotlight")[-1]
-    assert last["caption"] == "In the terminal, run python calc.py" and last["rect"]["y"] == 100.0 + 20 * 22
+    assert last["caption"] == "Run it in the terminal: python calc.py" and last["rect"]["y"] == 100.0 + 20 * 22
     assert not [s for s in rig.of("spotlight") if "matched" in s and ">" in s["matched"]]
 
 
@@ -2669,7 +2669,7 @@ def test_run_step_uses_e6_terminal_region(tmp_path, monkeypatch):
     first = run(go())
     assert first["caption"] == "Open the terminal: ⌃`" and first["rect"]["h"] == 24.0  # status bar, not the editor
     last = rig.of("spotlight")[-1]
-    assert last["caption"] == "In the terminal, run python calc.py"
+    assert last["caption"] == "Run it in the terminal: python calc.py"
     assert last["rect"] == {"x": 260.0, "y": 600.0, "w": 900.0, "h": 240.0}
 
 
@@ -2753,3 +2753,66 @@ def test_another_lessons_folder_gets_one_calm_card(tmp_path, monkeypatch):
     cards = [c for c in rig.of("card") if c["title"] == "That's another lesson's folder"]
     assert len(cards) == 1 and cards[0]["actions"] == ["open_editor"] and "old-lesson-1a2b3c" in cards[0]["body"]
     assert not rig.of("offtrack")
+
+
+
+def test_run_step_wording_and_terminal_pseudo_file(rig):
+    s = rig.s
+    run_step = {"id": "s7", "title": "Run it", "file": "calculator.py", "code": "python calculator.py\n",
+                "targets": [{"file": "calculator.py", "match": "calculator"}]}
+    assert s._action_line(run_step) == "Run it in the terminal: python calculator.py"
+    assert s._action_line({**run_step, "file": "(terminal)", "targets": [{"file": "(terminal)", "match": "x"}]}) \
+        == "Run it in the terminal: python calculator.py"
+    assert s._step_file({"id": "s2", "file": "(terminal)", "targets": [{"file": "(terminal)"}]}) is None
+
+
+def test_coach_holds_never_become_offtracks(rig):
+    holds = iter([{"hold": "unconfirmed"}, {"hold": "unsaved", "title": "Save calc.py", "body": "Save with ⌘S so I can check it."}])
+    seen = []
+
+    async def diagnose(step, failed, metrics, code, **kw):
+        seen.append(kw)
+        return next(holds)
+
+    rig.s.m.diagnose = diagnose
+
+    async def go():
+        await _to_step(rig, 5)
+        rig.write("def train(model):\n    beta = 30\n")
+        await rig.end_segment()
+        await rig.run("r1", PLATEAU)  # unconfirmed OCR: nothing
+        n = len(rig.of("card"))
+        assert len(rig.of("card")) == n and not rig.of("offtrack")
+        rig.clock.t += 30
+        await rig.run("r2", PLATEAU)  # unsaved: a calm "save" hint
+
+    run(go())
+    assert not rig.of("offtrack") and rig.of("card")[-1]["title"] == "Save calc.py"
+    assert seen[0]["code_source"] == "file" and seen[0]["file_state"]["saved"] is True
+
+
+def test_screen_check_cannot_pass_a_lesson_step_whose_file_is_unsaved(tmp_path, monkeypatch):
+    from types import SimpleNamespace as NS
+
+    g = _text_lesson()
+    g["steps"][0]["checks"] = [{"id": "s1c1", "type": "screen_contains", "label": "add() typed", "pattern": "def add",
+                                "app": "Code"}]
+
+    async def build(goal, workdir, on_update=None, **kw):
+        return g
+
+    rig, screen, _ = _lesson_rig(tmp_path, monkeypatch, build)
+
+    async def go():
+        await rig.s.learn("calc", mode="lesson")
+        await rig.settle()
+        screen.text["Code"] = ["def add(a, b):", "    return a + b"]  # typed, not saved: calc.py is empty on disk
+        title = f"● calc.py — {tmp_path.name} — Visual Studio Code"
+        rig.s.last_obs = NS(app="Code", windows=[NS(app="Code", title=title)])
+        rig.s.last_action_t = rig.clock()
+        await rig.s.evaluate("file")
+        await rig.settle()
+
+    run(go())
+    assert not rig.of("step.passed")
+    assert any(c["title"] == "Save calc.py" for c in rig.of("card"))
