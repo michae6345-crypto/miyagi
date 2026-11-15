@@ -69,7 +69,8 @@ export function Tile({ label, icon: Icon, look: l, onClick, keycap, busyKind, di
   const inner = glyph ?? <Icon size={16} strokeWidth={1.8} />
   return (
     <motion.button
-      className={`relative flex h-[62px] min-w-[72px] flex-col items-center justify-center rounded-[14px] px-[6px] ${disabled ? 'cursor-default' : `cursor-pointer ${hoverCls}`}`}
+      // No browser focus ring (it's blue: brand). Keyboard focus shows as the neutral hover fill instead.
+      className={`relative flex h-[62px] min-w-[72px] flex-col items-center justify-center rounded-[14px] px-[6px] outline-none focus-visible:bg-[var(--glass-field)] ${disabled ? 'cursor-default' : `cursor-pointer ${hoverCls}`}`}
       style={{ ...(lit ? { background: glass.field } : {}), ...(disabled ? { opacity: DISABLED_OPACITY } : {}) }}
       aria-pressed={pressed}
       aria-expanded={expanded}

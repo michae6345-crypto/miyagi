@@ -6,6 +6,7 @@ import { create } from 'zustand'
 import type { Payload } from '../../../../common/wire'
 import { onMessage, onUi } from '../../core/bus'
 import { useLesson } from '../../core/lesson'
+import { useCards } from '../cards/store'
 
 export type DiagramPayload = Payload<'diagram'>
 export type DiagramKind = DiagramPayload['kind']
@@ -99,6 +100,14 @@ export function useUnseen(): boolean {
 onUi('reset', () => set({ ...empty }))
 onUi('dismiss', closeDiagram)
 onMessage('step.started', closeDiagram)
+/**
+ * A card opening on the island ("Step N done", Not yet, an engine card) grows down over the flyout's top half (Devpost
+ * shoot, PR #141): the flyout slides back in. The diagram stays kept for the step, so Diagram brings it back at once.
+ */
+const cardUp = (c: ReturnType<typeof useCards.getState>): boolean => !!c.card || !!c.success || c.offtrackOpen
+useCards.subscribe((c, prev) => {
+  if (cardUp(c) && !cardUp(prev)) closeDiagram()
+})
 
 /** How long after the learner's request the engine's diagram still counts as the one asked for (it opens). */
 const ASKED_WITHIN_MS = 30000
