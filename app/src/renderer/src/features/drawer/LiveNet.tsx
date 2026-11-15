@@ -5,20 +5,26 @@
  * new ones arrive: never as a card over the code. In train mode the epoch and loss sit right under it.
  *
  * It stays out of the scrolling list so it's on screen while the learner types, and it folds to one row with its
- * chevron. "Full size" is the same as ⌃⌥D: the island's full diagram.
+ * chevron. The bar's Diagram / ⌃⌥D unfolds it (Michael, Sun 2:32 AM: never a card at the top); "Full size" opens the
+ * island's full diagram.
  */
 import { AnimatePresence, motion } from 'motion/react'
-import { useState, type ReactNode } from 'react'
+import { useEffect, useState, type ReactNode } from 'react'
 import { ChevronDown, Maximize2 } from 'lucide-react'
-import { emitUi } from '../../core/bus'
 import { glass, spring } from '../../core/theme'
+import { Firing, isFiringNetwork } from '../diagrams/Firing'
 import { NeuralNet } from '../diagrams/NeuralNet'
-import { useLiveNetwork } from '../diagrams/store'
+import { openLiveFull, useDiagram, useLiveNetwork } from '../diagrams/store'
 import { titleOf } from '../diagrams/Tabs'
 
 export function LiveNetSection(): ReactNode {
   const d = useLiveNetwork()
   const [folded, setFolded] = useState(false)
+  // The bar's Diagram / ⌃⌥D in a lesson with a live network: unfold this panel (no card over the code).
+  const focus = useDiagram((s) => s.liveFocus)
+  useEffect(() => {
+    if (focus) setFolded(false)
+  }, [focus])
   if (!d) return null
   const data = d.data as Record<string, unknown>
   const mode = (data.mode as string) ?? 'forward'
@@ -39,7 +45,7 @@ export function LiveNetSection(): ReactNode {
           </motion.span>
           <span className="truncate">{title || 'Network'}</span>
           <span className="shrink-0 font-normal" style={{ color: glass.faint }}>
-            {mode === 'train' ? 'training' : mode === 'backward' ? 'backprop' : 'forward pass'}
+            {mode === 'train' ? 'training' : mode === 'backward' ? 'backprop' : mode === 'stuck' ? 'loss stuck' : 'forward pass'}
           </span>
         </button>
         <button
@@ -47,7 +53,7 @@ export function LiveNetSection(): ReactNode {
           className="grid h-[22px] w-[22px] shrink-0 cursor-pointer place-items-center rounded-full"
           style={{ background: glass.key, color: glass.keyText }}
           onMouseDown={(e) => e.preventDefault()}
-          onClick={() => emitUi('shortcut', 'diagram')}
+          onClick={openLiveFull}
           aria-label="Full size"
           title="Full size"
         >
@@ -64,7 +70,7 @@ export function LiveNetSection(): ReactNode {
             exit={{ height: 0, opacity: 0 }}
             transition={spring}
           >
-            <NeuralNet data={data} compact />
+            {isFiringNetwork(data) ? <Firing data={data} compact /> : <NeuralNet data={data} compact />}
             {d.caption && (
               <div className="mt-[6px] line-clamp-2 text-[12.5px] leading-[17px]" style={{ color: glass.label }}>
                 {d.caption}
