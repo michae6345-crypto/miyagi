@@ -155,7 +155,7 @@ def _write_vscode_settings(folder: Path) -> None:
     # Only code lessons get this file. No Copilot Chat panel in a lesson window (it took ~30% of the width), and no AI
     # that writes the code for the learner (that defeats the lesson). The learner's global settings stay as they are.
     want = {"window.title": VSCODE_TITLE, "workbench.secondarySideBar.defaultVisibility": "hidden",
-            "chat.disableAIFeatures": True}
+            "chat.disableAIFeatures": True, **python_terminal_settings(folder)}
     a11y = VSCODE_A11Y
     if not a11y:
         # The companion extension (installed Nov 14) gives exact buffer/terminal state, so the editor's AX text isn't
@@ -178,6 +178,58 @@ def _write_vscode_settings(folder: Path) -> None:
                 excl.write_text(text + ("\n" if text and not text.endswith("\n") else "") + ".vscode/\n")
     except OSError as e:
         log.warning("could not write VS Code settings for %s: %s", folder.name, e)
+
+
+# A Python lesson's terminals use its .venv without anything typed into them. t5 (Nov 15): the Python extension's
+# auto-activation typed ^C + `source .venv/bin/activate` into the "Miyagi" terminal right after Run it for me typed
+# `python3 main.py`, so the program never ran. With activation off, the .venv goes first on PATH instead. PATH alone
+# isn't enough on macOS: VS Code starts zsh as a login shell, /etc/zprofile's path_helper (and Homebrew's shellenv in
+# ~/.zprofile) put the system paths back in front, and `python3` would be Homebrew's, without NumPy. VS Code's shell
+# integration re-applies VSCODE_PATH_PREFIX after the login profile (shellIntegration-profile.zsh / -bash.sh, #99878),
+# so the prefix is given there too. VS Code sets that variable itself only for extensions that PREPEND to PATH
+# (none here: Copilot and debugpy append), which would then win over this one.
+_VENV = "${workspaceFolder}/.venv"
+PYTHON_TERMINAL = {
+    "python.terminal.activateEnvironment": False,  # also turns off the Python Environments extension's activation
+    "terminal.integrated.env.osx": {"PATH": f"{_VENV}/bin:${{env:PATH}}", "VIRTUAL_ENV": _VENV,
+                                    "VSCODE_PATH_PREFIX": f"{_VENV}/bin:"},
+}
+
+
+def is_python_folder(folder: Path) -> bool:
+    """A Python lesson folder: its .venv, requirements.txt / pyproject.toml, or a .py file at the top."""
+    try:
+        return ((folder / ".venv").is_dir() or (folder / "requirements.txt").is_file()
+                or (folder / "pyproject.toml").is_file() or any(folder.glob("*.py")))
+    except OSError:
+        return False
+
+
+def python_terminal_settings(folder: Path) -> dict:
+    """PYTHON_TERMINAL for a Python lesson folder, else {}."""
+    return json.loads(json.dumps(PYTHON_TERMINAL)) if is_python_folder(folder) else {}
+
+
+def ensure_python_terminal(folder: Path | str) -> bool:
+    """Merge PYTHON_TERMINAL into an existing Python lesson folder's .vscode/settings.json (a lesson built before this
+    fix, opened again; Run it for me before it creates the terminal). A value already there wins, a file that isn't
+    plain JSON is left alone. True when the file changed (VS Code picks it up within a second, for new terminals)."""
+    folder = Path(folder)
+    want = python_terminal_settings(folder)
+    if not want:
+        return False
+    p = folder / ".vscode" / "settings.json"
+    try:
+        cur = json.loads(p.read_text()) if p.exists() else {}
+        if not isinstance(cur, dict) or {**want, **cur} == cur:
+            return False
+        p.parent.mkdir(parents=True, exist_ok=True)
+        p.write_text(json.dumps({**cur, **{k: v for k, v in want.items() if k not in cur}}, indent=2) + "\n")
+        log.info("VS Code terminal settings for %s: the .venv without activation", folder.name)
+        return True
+    except (OSError, ValueError) as e:
+        log.warning("could not merge terminal settings for %s: %s", folder.name, e)
+        return False
 
 
 def _git(folder: Path, *args: str) -> None:

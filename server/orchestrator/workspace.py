@@ -177,6 +177,22 @@ def _s2():
         return None
 
 
+def python_terminal_settings(workdir: str | Path) -> bool:
+    """A Python lesson folder under the lessons root (a lesson built before t5's fix, opened again): its VS Code
+    terminals use the .venv without auto-activation typing into them (server.workspace.core.ensure_python_terminal).
+    Never the repo's own folders. True when .vscode/settings.json changed. Never raises."""
+    try:
+        from server.workspace import core, paths
+
+        root, folder = paths.lessons_root().expanduser().resolve(), Path(workdir).expanduser().resolve()
+        if folder == root or root not in folder.parents:
+            return False
+        return core.ensure_python_terminal(folder)
+    except Exception:  # noqa: BLE001 - a refinement: Run it for me retries a swallowed command anyway
+        log.exception("python terminal settings failed")
+        return False
+
+
 def build_workdir(url: str, goal: str) -> str:
     """The workdir to hand build_lesson. TUT_WORKDIR pins one folder (dev); otherwise S2 decides
     (the hero video -> demo/pinn-lab, anything else -> a not-yet-existing path), falling back to
@@ -377,6 +393,8 @@ class Workspace:
         busy / cancelled (L5, real windows only): what holds an automatic open and what drops it (a newer lesson)."""
         if not (self.enabled or force) or (self.blocked and not explicit) or not Path(workdir).is_dir():
             return
+        if self.run == self._spawn:  # real windows only: tests inject a runner
+            python_terminal_settings(workdir)
         ws = _s2()
         if ws is not None and self._guarded(ws):
             real = self.run == self._spawn  # tests inject a runner: never touch real windows or real focus

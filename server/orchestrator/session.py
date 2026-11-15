@@ -4804,11 +4804,13 @@ class LessonSession:
         """Lesson mode: a run step ("Run your first output") can't pass on its code alone, it needs a run of its
         command since the step began. Evidence, any one: a `tut run` / Run it for me (subprocess) run; VS Code's
         report of the command ending in a terminal of the lesson folder (the companion's command_end, from shell
-        integration: the learner's own runs and Run it for me in VS Code's terminal); or the lesson's VS Code
-        terminal showing it run: more runs than when the step began, the step's expected output under its last run
-        when it wasn't there then, the command typed at the prompt and then entered, or, 2 s after Run it for me
-        typed it there, the run on screen. A run counts when it exited 0, or showed no crash the step didn't ask for
-        (E3's run_output: "run it and see the ZeroDivisionError" passes on that error). Shown as one more row ("Ran
+        integration: the learner's own runs and Run it for me in VS Code's terminal); VS Code's report of it started
+        after the step began and still running LIVE_PASS_S later (a server, an input() loop: _live_run_row); or, only
+        when VS Code reports no commands at all, the lesson's VS Code terminal showing it run: more runs than when the step began, the step's
+        expected output under its last run when it wasn't there then, the command typed at the prompt and then
+        entered. A run counts when it exited 0, or showed the step's expected output with no crash the step didn't ask
+        for (E3's run_output: "run it and see the ZeroDivisionError" passes on that error); never one stopped by ^C
+        (exit 130), never one that started before the step (terminal_run.verdict). Shown as one more row ("Ran
         python3 calculator.py"); until it is green the step can't pass."""
         need = self._run_need
         if need is None:  # fixed at the step's first evaluation: a typing step whose code is now saved stays one
@@ -4827,15 +4829,13 @@ class LessonSession:
             return results, gate
         base = {"checkId": f"{step['id']}-ran", "label": f"Ran {cmd}"[:60], "status": "pending",
                 "detail": "Run it in the terminal (or press Run it for me)"}
+        from . import terminal_run
 
         def ended(code: int | None, lines: Any) -> dict:  # a run that finished: green, or why not
-            err, shows = out([str(x) for x in lines or []], need["expect"])
-            if code == 0 or (not err and (shows or code is None)):
-                return {**base, "status": "pass", "detail": "ran without errors" if code == 0
-                        else "ran and showed the expected output" if shows else "ran in the terminal"}
-            # a crash or a non-zero exit is a failed run (t3: a SyntaxError run stayed "pending" and nothing explained it)
-            return {**base, "status": "fail",
-                    "detail": f"the last run stopped with exit code {code}" if code else "the run printed an error"}
+            # pass; fail (a crash or a non-zero exit: t3, the coach explains it); pending (t5: stopped by ^C, or no exit
+            # status from VS Code: run it again, nothing to explain)
+            status, detail = terminal_run.verdict(code, lines, need["expect"], out)
+            return {**base, "status": status, "detail": detail}
 
         row = {**base, "status": "pass", "detail": need["ran"]} if need["ran"] else base
         for c in self._ext_commands_ended(need):  # VS Code's shell integration: every run of the command, read once
@@ -4845,11 +4845,18 @@ class LessonSession:
         for run in reversed(self.step_runs):  # tut run / Run it for me / VS Code: the latest finished run of this command
             if row["status"] == "pass":
                 break
-            if run.run_id.startswith("screen-") or run.exit_code is None or not same(cmd, run.command):
+            # a run in VS Code's terminal ("vscode-…") is graded below, on its command_end's own exit code
+            if run.run_id.startswith(("screen-", "vscode-")) or run.exit_code is None or not same(cmd, run.command):
                 continue
             row = ended(run.exit_code, run.output_tail)
             break
-        if row["status"] != "pass" and need["end"] is None and (rows := self._terminal_rows()) is not None:
+        if row["status"] != "pass" and need["end"] is not None:  # VS Code's own exit code (t5: never a ^C'd run)
+            row = ended(need["end"].get("exitCode"), need["end"].get("outputTail"))
+        row = self._live_run_row(need, row, cmd, same, count, ended)  # a server / input() loop: ends only on ^C (130)
+        # what the terminal panel shows only without VS Code's reports (t5: a ^C'd command on screen, an earlier step's
+        # run scrolled into view, passed as "ran in the terminal")
+        if row["status"] != "pass" and need["end"] is None and not terminal_run.shell_reports() \
+                and (rows := self._terminal_rows()) is not None:
             n, err, shows = count(cmd, rows, need["expect"])
             now = self.clock()
             if rows and count(cmd, [rows[-1], ""])[0]:  # typed at the prompt (the bottom row), Enter not pressed yet
@@ -4858,15 +4865,14 @@ class LessonSession:
                 need["left"] = now
             # it left the prompt and stayed gone 1.5 s (one misread frame can't fake it): it was entered
             entered = need["typed"] and need["left"] is not None and now - need["left"] >= 1.5
-            ext = self._ext_run_t >= self._step_wall_t0 and time.time() - self._ext_run_t >= 2.0
             # baseline: the terminal as the step began (or as it first showed), the most its first 2 s of reads saw,
             # so a frame that misread an old run can't make that old run look new later
             if need["base"] is None or now - self.step_t0 < 2.0:
                 need["base"], need["base_shows"] = max(n, need["base"] or 0), need["base_shows"] or shows
             # a new run: one more run than at the start, the step's expected output under the last run when it
-            # wasn't there at the start, the command entered at the prompt, or Run it for me typed it 2 s ago (a
-            # small panel, a restored history or a new terminal can hide that a run is new)
-            elif n and (n > need["base"] or (shows and not need["base_shows"]) or entered or ext):
+            # wasn't there at the start, or the command entered at the prompt (a small panel, a restored history or a
+            # new terminal can hide that a run is new). Not "Run it for me typed it": t5's ^C swallowed that one.
+            elif n and (n > need["base"] or (shows and not need["base_shows"]) or entered):
                 row = {**base, "detail": "the run printed an error"} if err else \
                     {**base, "status": "pass", "detail": "ran in the terminal"}
                 if err:
@@ -4876,6 +4882,32 @@ class LessonSession:
         elif gate.get("passed"):
             gate = {**gate, "passed": False, "via": None}
         return [*results, row], gate
+
+    def _live_run_row(self, need: dict, row: dict, cmd: str, same: Any, count: Any, ended: Any) -> dict:
+        """The step's run row for a run of its command still going: VS Code reported it started in a terminal of the
+        lesson folder after the step began and it has run terminal_run.LIVE_PASS_S with no end (a Flask / npm dev
+        server, an input() menu loop: ^C ends those with 130, which never passes). Green ("it's running in the
+        terminal") unless the terminal panel shows an error under its last run. Not t5's swallowed line (it never
+        started) nor an earlier step's run (started before the step). When that run then ends in a crash, the pass
+        it gave is taken back (the crash row, the coach explains it); ^C or exit 0 keeps it. Else `row` as it was."""
+        from . import terminal_run
+
+        end, t_live = need["end"], need.get("live_t")
+        if t_live is not None and end is not None and (end.get("startedAt") or 0) / 1000 == t_live:
+            need["live_t"] = None  # the run it passed on ended: its exit status decides now
+            if (r := ended(end.get("exitCode"), end.get("outputTail")))["status"] == "fail":
+                need["ran"] = None
+                return r
+        if row["status"] == "pass":
+            return row
+        t0 = terminal_run.live_start(need.setdefault("live", {}), str(self.workdir), self._step_wall_t0, cmd, same)
+        if t0 is None or time.time() - t0 < terminal_run.LIVE_PASS_S:
+            return row
+        rows = self._terminal_rows()
+        if rows and count(cmd, rows, need["expect"])[1]:
+            return row  # it printed a crash and is still up (a server's traceback): not a pass
+        need["live_t"] = t0
+        return {**row, "status": "pass", "detail": "it's running in the terminal"}
 
     def _ext_commands_ended(self, need: dict) -> list[dict]:
         """Commands VS Code reported ended in a terminal of the lesson folder since the step began, oldest first
@@ -5548,12 +5580,19 @@ class LessonSession:
         ext = self._vscode_ext()
         if ext is not None and hasattr(ext, "run_in_terminal"):
             try:
+                from . import workspace as wsmod
+
+                # t5: an older lesson's terminals still auto-activate the .venv (typing ^C over this command)
+                if await asyncio.to_thread(wsmod.python_terminal_settings, self.workdir):
+                    await asyncio.sleep(1.0)  # VS Code re-reads the folder's settings before the terminal is made
                 seq = self._ext_seq(ext)  # before typing it: a quick program's command_end may arrive at once
                 if await asyncio.to_thread(ext.run_in_terminal, cmd, cwd=self.workdir, folder=self.workdir):
                     self._acted()
-                    self._ext_run_t = time.time()  # _need_run: this run happened, whatever the terminal showed before
+                    self._ext_run_t = time.time()  # _step_ran: the step's run box has done its job
+                    self._run_watch += 1  # a second press: the first one's watch stops (this one answers)
                     await self._card(step, "Running it", f"{cmd} is running in VS Code's terminal.", kind="answer")
-                    self._spawn(self._terminal_run_result(self.step_gen, step, cmd, seq), timer=True)
+                    self._spawn(self._terminal_run_result(self.step_gen, step, cmd, seq, ext=ext,
+                                                          token=self._run_watch), timer=True)
                     return
             except Exception:  # noqa: BLE001
                 log.exception("run_in_terminal failed; running it here")
@@ -5623,21 +5662,54 @@ class LessonSession:
         return out
 
     _run_cards: frozenset[str] = frozenset()  # vscode run ids whose Run it for me result card went out
+    _run_watch = 0  # Run it for me presses in VS Code's terminal: only the latest one's watch answers
 
-    async def _terminal_run_result(self, gen: int, step: dict, cmd: str, seq: int) -> None:
+    async def _terminal_run_result(self, gen: int, step: dict, cmd: str, seq: int, ext: Any = None,
+                                   token: int | None = None) -> None:
         """Run it for me typed `cmd` into VS Code's terminal (the "Running it" card). When the companion reports it
         ended (command_end), that card's slot gets the result like the subprocess run's card: the exit status and the
         last 8 lines of output. The run then feeds the step like one (ingest: the checks see it ended), and a crash (a
-        non-zero exit, or an error the step didn't ask for) goes to the coach's diagnosis once, never silence."""
+        non-zero exit, or an error the step didn't ask for) goes to the coach's diagnosis once, never silence.
+        t5: terminal_run.follow types it again once when VS Code's shell swallowed it (the Python extension's venv
+        activation sent ^C over it) or it was interrupted right away, and the card never stays "Running it" for a
+        run that isn't: interrupted -> "It stopped before it finished", never started -> "didn't start", and with no
+        word at all from VS Code's shell (no shell integration) -> typed, can't follow it."""
+        from . import terminal_run
+
         want = cmd.splitlines()[-1].strip()
         same = self._checks_fn("command_matches") or (lambda a, b: bool(a) and a in (b or ""))
-        cursor, deadline, end = {"seq": seq}, self.clock() + self.RUN_WAIT_S, None
-        while end is None:
-            await asyncio.sleep(0.3)
-            if gen != self.step_gen or self.passed or self.clock() > deadline:
-                return  # the step moved on (its cards go with it), or it never ended
-            end = next((c for c in self._ext_commands_ended(cursor) if same(want, str(c.get("commandLine") or ""))),
-                       None)
+        token = self._run_watch if token is None else token
+        if ext is None:
+            import importlib
+
+            ext = importlib.import_module("server.workspace.vscode_ext")
+
+        def alive() -> bool:  # the step moved on (its cards go with it), or a newer press answers instead
+            return gen == self.step_gen and not self.passed and token == self._run_watch
+
+        async def resend() -> Any:
+            return await asyncio.to_thread(ext.run_in_terminal, cmd, cwd=self.workdir, folder=self.workdir)
+
+        async def live() -> bool:
+            return await asyncio.to_thread(terminal_run.terminal_live, ext, self.workdir)
+
+        res = await terminal_run.follow(ext, cmd, str(self.workdir), seq, same=same, alive=alive, resend=resend,
+                                        live=live, end_wait_s=self.RUN_WAIT_S)
+        end = res["end"]
+        if res["why"] == "gone":
+            return
+        if res["why"] != "ended" or end is None:  # the "Running it" card's slot never keeps a claim that isn't true
+            log.info("run it for me: %s %s", want[:80], res)
+            title, body = {
+                "not_started": (f"{want[:44]} didn't start",
+                                "VS Code's terminal didn't run it. Press Run it for me again."),
+                "running": (f"Still running {want[:44]}",
+                            "It's still running in VS Code's terminal. Press ⌃C there to stop it."),
+            }.get(res["why"], (f"Typed {want[:54]}",
+                               "It's in VS Code's terminal, but I can't follow it from here: its output is there."))
+            await self._card(step, title, body, kind="answer",
+                             **({"actions": ["run_command"]} if res["why"] == "not_started" else {}))
+            return
         run_id = f"vscode-{end.get('id')}-{end.get('startedAt')}"
         if run_id in self._run_cards:
             return  # Run it for me pressed twice: the other wait already reported this run
@@ -5645,10 +5717,13 @@ class LessonSession:
         code, tail = end.get("exitCode"), [str(x) for x in end.get("outputTail") or []]
         out = self._checks_fn("run_output")
         err, shows = out(tail, (self._run_need or {}).get("expect") or []) if out else (False, False)
-        crashed = bool(err) or (code not in (0, None) and not shows)  # as _need_run grades it
-        body = (f"It stopped with exit code {code}." if code not in (0, None) else "It printed an error." if err
+        stopped = terminal_run.interrupted(code, tail)  # ^C: not a crash to explain, and never a pass
+        crashed = not stopped and (bool(err) or (code not in (0, None) and not shows))  # as _need_run grades it
+        body = ("It stopped before it finished. Press Run it for me again." if stopped
+                else f"It stopped with exit code {code}." if code not in (0, None) else "It printed an error." if err
                 else "It ran without errors." if code == 0 else "It finished.")
-        await self._card(step, f"Ran {want[:60]}", body, kind="answer", output="\n".join(tail[-8:]) or "(no output)")
+        await self._card(step, f"Ran {want[:60]}", body, kind="answer", output="\n".join(tail[-8:]) or "(no output)",
+                         **({"actions": ["run_command"]} if stopped else {}))
         if gen != self.step_gen or run_id in self.runs:
             return
         await self.ingest({"kind": "run_started", "run_id": run_id, "command": want, "cwd": self.workdir})
@@ -5660,8 +5735,8 @@ class LessonSession:
         if diagnose:
             self.coaching = True  # the run_end breakpoint stays quiet: the crash goes to the coach below, with its row
         try:
-            await self.ingest({"kind": "run_ended", "run_id": run_id,
-                               "exit_code": code if code is not None else int(crashed)})
+            await self.ingest({"kind": "run_ended", "run_id": run_id, "exit_code": code if code is not None
+                               else terminal_run.SIGINT_EXIT if stopped else int(crashed)})
         finally:
             if diagnose and gen == self.step_gen:
                 self.coaching = False
