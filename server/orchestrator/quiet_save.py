@@ -36,6 +36,19 @@ _SAVE_ASK = re.compile(r"⌘S|\bsave\b.*\bso I can check\b", re.I)
 _SAVE_TITLE = re.compile(r"^(save\b|save to finish)", re.I)
 
 
+# "In nn.py, delete line 12 (…), then save with ⌘S." (stale_advice's Do it for me over unsaved edits): only the save
+# clause goes, the instruction stays. Dropping the whole sentence dropped the whole card, so Do it for me showed nothing.
+_SAVE_CLAUSE = re.compile(r",?\s+(?:and\s+)?then\s+save\b[^!?]*?(?:with\s+⌘S|\(⌘S\))(?=[.!?]?$)", re.I)
+
+
+def _without_save(sentence: str) -> str:
+    """A sentence that asks for something else first, then ⌘S: that something else, ending as it did."""
+    m = _SAVE_CLAUSE.search(sentence)
+    if m is None or not sentence[:m.start()].strip():
+        return sentence
+    return sentence[:m.start()].rstrip(" ,") + sentence[m.end():]
+
+
 def is_save_prompt(card: dict) -> bool:
     text = f"{card.get('title') or ''}\n{card.get('body') or ''}"
     return "⌘S" in text and not _UNTITLED.search(text) and card.get("kind") not in ("where", "setup", "resume")
@@ -83,7 +96,8 @@ async def intercept(s: Any, card: dict) -> dict | None:
     s._spawn(s.evaluate("file"))  # graded on the saved file now (the watcher would take up to 0.5 s)
     name = (_step_path(s, step) or Path(step.get("file") or "file")).name
     title, body = str(card.get("title") or ""), str(card.get("body") or "")
-    rest = " ".join(x for x in re.split(r"(?<=[.!?])\s+", body.strip()) if x and not _SAVE_ASK.search(x)).strip()
+    rest = " ".join(x for x in map(_without_save, re.split(r"(?<=[.!?])\s+", body.strip()))
+                    if x and not _SAVE_ASK.search(x)).strip()
     if "Do it for me" in body:  # "Save nn.py first / Press ⌘S, then Do it for me again."
         return {**card, "title": f"Saved {name}", "body": "Press Do it for me again."}
     if _SAVE_TITLE.match(title) and not rest:
@@ -131,7 +145,7 @@ async def regrade(s: Any, why: str) -> None:
     if changed or why != "poll":
         await s.evaluate("edit")
     if changed and s._run_command(step) and s._dirty_step_file(step):  # a run step: its fix is what runs next
-        st["run_save_due"] = time.monotonic() + RUN_AUTOSAVE_QUIET_S
+        st["run_save_due"] = (s.step_gen, time.monotonic() + RUN_AUTOSAVE_QUIET_S)
 
 
 async def poll(s: Any) -> None:
@@ -141,7 +155,9 @@ async def poll(s: Any) -> None:
     await regrade(s, "poll")
     st = s.__dict__.get("_quiet_save") or {}
     due = st.get("run_save_due")
-    if due is not None and time.monotonic() >= due and (step := _live(s)) is not None:
+    if due is not None and due[0] != s.step_gen:  # (audit) that run step is over: never a save of the next step's
+        st["run_save_due"] = due = None  # half-typed code on its behalf
+    if due is not None and time.monotonic() >= due[1] and (step := _live(s)) is not None:
         st["run_save_due"] = None
         if await save_now(s, step, "run step: the fix runs next") and _live(s) is step:
             await s.evaluate("file")
