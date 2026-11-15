@@ -387,14 +387,16 @@ class ScreenReader:
         if sys.platform != "darwin" or not self.use_ax:
             return None
         t, cached = self._run_btn
-        if time.time() - t < 2.0:
+        if time.time() - t < (1.0 if cached is not None else 6.0):  # not there: no new walk of VS Code's tree for 6 s
             return cached
         rect = None
         try:
             from . import ax
             if ax.trusted():
-                import re as _re
-                el = ax.find_button(_re.compile(r"^(Run|Start Debugging)\b|Run Python File|Run Code", _re.IGNORECASE))
+                # the lesson window's "Run Python File" (also while Miyagi's drawer is in front), never the activity
+                # bar's "Run and Debug" or the dropdown's "Run or Debug..." (a frontmost-app "^Run" search matched
+                # those)
+                el = ax.find_run_button(self._lesson_folder)
                 rect = el.rect if el is not None else None
         except Exception as e:  # noqa: BLE001
             log.debug("AX run button lookup failed: %s", e)

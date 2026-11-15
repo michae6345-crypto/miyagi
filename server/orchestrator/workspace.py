@@ -193,6 +193,19 @@ def python_terminal_settings(workdir: str | Path) -> bool:
         return False
 
 
+def fit_beside_drawer(workdir: str | Path) -> str:
+    """A run step: the lesson's VS Code window leaves room for Miyagi's drawer
+    (server.workspace.editor.fit_beside_drawer; full screen / maximized under it: logged and left). Blocking (AX):
+    call it in a thread. Never raises."""
+    try:
+        from server.workspace import editor
+
+        return editor.fit_beside_drawer(str(workdir))
+    except Exception:  # noqa: BLE001 - a refinement: the lesson runs without it
+        log.exception("fit beside drawer failed")
+        return "failed"
+
+
 def build_workdir(url: str, goal: str) -> str:
     """The workdir to hand build_lesson. TUT_WORKDIR pins one folder (dev); otherwise S2 decides
     (the hero video -> demo/pinn-lab, anything else -> a not-yet-existing path), falling back to

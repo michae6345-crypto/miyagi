@@ -49,7 +49,10 @@ LOSS_RX = re.compile(r"epoch\s+(?P<step>\d+)\s+loss\s+(?P<value>[-+]?(?:\d+\.?\d
 WEIGHT_RX = re.compile(r"^\s*(?P<name>W1|b1|W2|b2)\b\s*[=:]?\s*(?P<rest>(?:array\()?\[.*)$")
 SIZES = {"W1": LAYERS[0] * LAYERS[1], "b1": LAYERS[1], "W2": LAYERS[1] * LAYERS[2], "b2": LAYERS[2]}
 ADOPT_AFTER_S = 1.0  # Run it for me's own wait polls every 0.3 s: it takes its runs first
-RUN_RX = re.compile(rf"(?:^|[\s/])python[\d.]*\s+(?:-\S+\s+)*{re.escape(FILE)}\b")
+# python3 nn.py, .venv/bin/python nn.py, tut run python nn.py, and VS Code's Run ▷ (the Python extension types the
+# interpreter and the file as absolute paths, quoted when they hold a space: "/a b/.venv/bin/python" "/a b/nn.py")
+RUN_RX = re.compile(rf"(?:^|[\s/\"'])python[\d.]*[\"']?\s+(?:-\S+\s+)*"
+                    rf"(?:\"(?:[^\"]*/)?|'(?:[^']*/)?|(?:[^\s\"']*/)?){re.escape(FILE)}\b")
 
 # ---------------------------------------------------------------------------------------------------------- matching
 
@@ -592,7 +595,8 @@ async def on_command_end(session: Any, ev: dict) -> None:
         except Exception:  # noqa: BLE001
             code = 0
     parsed = parse_output(lines)
-    await session.ingest({"kind": "run_started", "run_id": run_id, "command": line, "cwd": c.get("cwd") or session.workdir})
+    await session.ingest({"kind": "run_started", "run_id": run_id, "command": line,
+                          "cwd": c.get("cwd") or session.workdir, "started_at": started})
     if lines:
         await session.ingest({"kind": "output", "run_id": run_id, "lines": lines[-200:]})
     if parsed["losses"]:

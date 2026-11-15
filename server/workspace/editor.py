@@ -241,6 +241,16 @@ class AX:
     def exit_fullscreen(self, win) -> bool:
         return self.A.AXUIElementSetAttributeValue(win, "AXFullScreen", False) == 0
 
+    def frame(self, win) -> tuple[float, float, float, float] | None:
+        """(x, y, w, h) in AX (top-left) points, or None."""
+        A = self.A
+        p, s = self._get(win, "AXPosition"), self._get(win, "AXSize")
+        if p is None or s is None:
+            return None
+        ok1, pt = A.AXValueGetValue(p, A.kAXValueCGPointType, None)
+        ok2, sz = A.AXValueGetValue(s, A.kAXValueCGSizeType, None)
+        return (float(pt.x), float(pt.y), float(sz.width), float(sz.height)) if ok1 and ok2 else None
+
     def set_frame(self, win, x: float, y: float, w: float, h: float) -> bool:
         A = self.A
         pos = A.AXValueCreate(A.kAXValueCGPointType, (x, y))
@@ -283,6 +293,51 @@ def make_fullscreen(editor: dict, report: dict, *, folder: str | None = None, ax
     if win is not None and folder:
         put_away_other_lessons(ax, pid, folder, win, report)
     log.info("full screen %s: %s", Path(folder).name if folder else editor["label"], report["fullscreen"])
+
+
+def fit_beside_drawer(folder: str, *, ax=None, editor: dict | None = None,
+                      screen: tuple[float, float, float, float] | None = None) -> str:
+    """A run step (Michael, Nov 15: Miyagi's drawer covered VS Code's top-right corner: the Run ▷ and the panel
+    toggle): the lesson's window ends DRAWER_W short of the main screen's right edge, as make_fullscreen leaves it.
+    A window the learner put in macOS full screen, or maximized under the drawer (it spans the whole visible width),
+    is logged and left as it is; another window that reaches under the drawer is narrowed (x, y and height kept).
+    Best effort, never raises; blocking (AX): call it in a thread. -> what it found / did (also logged)."""
+    if DRAWER_W <= 0:
+        return "off (MIYAGI_DRAWER_W=0)"
+    try:
+        if not ax_trusted():
+            return "skipped: Accessibility not granted"
+        ax = ax or AX()
+        ed = editor or preferred_editor()
+        pid = editor_pid(ed) if ed else None
+        win = ax.folder_window(pid, folder) if pid else None
+        if win is None:
+            return "skipped: no lesson window"
+        name = Path(folder).name
+        if ax.is_fullscreen(win):
+            log.info("drawer room: %s is in macOS full screen; the drawer covers its right edge (left as it is)", name)
+            return "full screen (left as it is)"
+        fr, vis = ax.frame(win), screen or left_frame(1.0)
+        if fr is None or vis is None:
+            return "skipped: no frame"
+        x, y, w, h = fr
+        vx, _vy, vw, _vh = vis
+        limit = vx + max(round(vw * EDITOR_FRACTION), vw - DRAWER_W)  # make_fullscreen's right edge
+        if x >= vx + vw or x + w <= vx or x + w <= limit + 2:
+            return "ok"
+        if x <= vx + 2 and x + w >= vx + vw - 2:
+            log.info("drawer room: %s is maximized under the drawer (%.0f pt of it covered; left as it is)",
+                     name, x + w - limit)
+            return "maximized under the drawer (left as it is)"
+        if limit - x < 480:
+            log.info("drawer room: %s starts too far right to narrow (left as it is)", name)
+            return "too far right (left as it is)"
+        ok = ax.set_frame(win, x, y, limit - x, h)
+        log.info("drawer room: %s narrowed to end at x=%.0f, beside the drawer: %s", name, limit, ok)
+        return "narrowed" if ok else "failed: the editor refused the new frame"
+    except Exception as e:  # noqa: BLE001 - a refinement: the lesson runs without it
+        log.debug("fit beside drawer failed: %r", e)
+        return f"failed: {e!r}"
 
 
 def put_away_other_lessons(ax, pid: int, folder: str, win, report: dict, *, wait_s: float = 8.0,
