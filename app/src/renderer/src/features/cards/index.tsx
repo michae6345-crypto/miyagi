@@ -29,7 +29,7 @@ import { actionTone, color, copy, fill } from '../../core/theme'
 import { Curve, fmt, Key, plotPoints, type Line } from './Curve'
 import { BODY_LINES, Clamp, HEADLINE_LINES } from './Clamp'
 import { Evidence } from './Evidence'
-import { act, cardAct, jumpTo, SUCCESS_MS, useCards, useOverlayWidth, useSeries, type CardAction } from './store'
+import { act, cardAct, jumpTo, SUCCESS_MS, useCards, useOverlayWidth, useSeries, type CardAction, type Install } from './store'
 
 /** Layout C: about 620 wide; below NARROW (a small display) the two columns stack. */
 const OFFTRACK_MAX = 620
@@ -506,7 +506,8 @@ function actionLabel(c: EngineCard, a: CardAction): string {
 function primaryOf(c: EngineCard, known: CardAction[]): CardAction | undefined {
   if (c.kind === 'preflight' && c.recommended && known.includes(c.recommended)) return c.recommended
   // A lone action becomes the primary, except option actions and Try again, which stay pastel / neutral.
-  const lone = known.length === 1 && !isOption(known[0]) && known[0] !== 'retry' ? known[0] : undefined
+  // Skip on a setup card is never the primary (A17): the item's Install is.
+  const lone = known.length === 1 && !isOption(known[0]) && known[0] !== 'retry' && known[0] !== 'skip_setup' ? known[0] : undefined
   return known.find((a) => ACTION[a]!.primary) ?? lone
 }
 
@@ -544,21 +545,45 @@ function itemAct(x: NonNullable<EngineCard['setup']>['items'][number]): void {
   else cardAct('install', x.tool)
 }
 
-/** Setup card: one row per needed item, Install on the missing ones (action install {text: tool}). */
-function SetupItems({ setup }: { setup: NonNullable<EngineCard['setup']> }): ReactNode {
+function itemLabel(x: NonNullable<EngineCard['setup']>['items'][number], run?: Install): string {
+  return x.install.method === 'download' ? 'Get it' : x.install.method === 'open' ? 'Open' : run?.error ? 'Retry' : 'Install'
+}
+
+/** Skip on a setup card (A17): a quiet text link, never a button that competes with Install. */
+function QuietLink({ label, onClick }: { label: string; onClick: () => void }): ReactNode {
+  return (
+    <button
+      type="button"
+      className="h-[30px] shrink-0 cursor-pointer px-[4px] text-[13px]"
+      style={{ color: color.faint }}
+      onMouseDown={(e) => e.preventDefault()}
+      onClick={onClick}
+    >
+      {label}
+    </button>
+  )
+}
+
+/**
+ * Setup card: one row per needed item, Install on the missing ones (action install {text: tool}).
+ * lead (A17): the card has no other primary, so the first missing item's button is the card's one white primary.
+ */
+function SetupItems({ setup, lead }: { setup: NonNullable<EngineCard['setup']>; lead?: boolean }): ReactNode {
   const installs = useCards((s) => s.installs)
   const items = setup.items.filter((x) => x.needed)
   if (items.length === 0) return null
+  const first = lead ? items.find((x) => !x.ok && !installs[x.tool]?.running && x.install.method !== 'none') : undefined
   return (
     <div className="mt-[12px] flex flex-col gap-[6px] text-[13px]">
       {items.map((x) => {
         const run = x.ok ? undefined : installs[x.tool]
         const detail = x.ok ? x.version : run?.running ? (run.line ?? 'Installing…') : (run?.error ?? x.why)
         return (
-          <div key={x.tool} className="flex h-[28px] items-center gap-[8px]">
+          <div key={x.tool} className="flex min-h-[28px] items-center gap-[8px]">
             <span style={{ color: x.ok ? color.text : color.faint }}>{x.ok ? <Check size={13} /> : '·'}</span>
             <span className="truncate">{x.label}</span>
-            <span className="min-w-0 flex-1 truncate text-[12px]" style={{ color: run?.error ? color.text : color.faint }} title={detail}>
+            {/* The reason wraps to two lines instead of being cut off (A17). */}
+            <span className="line-clamp-2 min-w-0 flex-1 text-[12px] leading-[16px]" style={{ color: run?.error ? color.text : color.faint }} title={detail}>
               {detail}
             </span>
             {!x.ok && run?.running && (
@@ -566,14 +591,21 @@ function SetupItems({ setup }: { setup: NonNullable<EngineCard['setup']> }): Rea
                 <Spinner size={12} c={color.faint} /> Installing…
               </span>
             )}
-            {!x.ok && !run?.running && x.install.method !== 'none' && (
+            {x === first && (
+              <PrimaryButton
+                label={itemLabel(x, run)}
+                icon={x.install.method === 'download' || x.install.method === 'open' ? ExternalLink : Download}
+                onClick={() => itemAct(x)}
+              />
+            )}
+            {x !== first && !x.ok && !run?.running && x.install.method !== 'none' && (
               <button
                 className="flex cursor-pointer items-center gap-[5px] rounded-full px-[10px] py-[3px] text-[12px] font-medium"
                 style={{ background: fill.button, color: color.text }}
                 onClick={() => itemAct(x)}
               >
                 {x.install.method === 'download' || x.install.method === 'open' ? <ExternalLink size={12} /> : <Download size={12} />}{' '}
-                {x.install.method === 'download' ? 'Get it' : x.install.method === 'open' ? 'Open' : run?.error ? 'Retry' : 'Install'}
+                {itemLabel(x, run)}
               </button>
             )}
           </div>
@@ -631,7 +663,7 @@ function CardActions({ card, actions }: { card: EngineCard; actions: CardAction[
       {known
         .filter((a) => a !== primary && !isOption(a) && a !== 'end_lesson')
         .map((a) => (
-          <QuietButton key={a} label={actionLabel(card, a)} icon={busy(a, ACTION[a]!.Icon, true)} onClick={() => cardAct(a)} />
+          a === 'skip_setup' ? <QuietLink key={a} label={actionLabel(card, a)} onClick={() => cardAct(a)} /> : <QuietButton key={a} label={actionLabel(card, a)} icon={busy(a, ACTION[a]!.Icon, true)} onClick={() => cardAct(a)} />
         ))}
       {/* "Start a new lesson" discards the save: it sits apart from Continue and needs a second tap (desktop test 3). */}
       {known.includes('end_lesson') && primary !== 'end_lesson' && <TwoTap label={actionLabel(card, 'end_lesson')} onConfirm={() => cardAct('end_lesson')} />}
@@ -805,7 +837,7 @@ function Card(): ReactNode {
         </div>
       )}
       {c.diff && <UnifiedDiff diff={c.diff} />}
-      {c.setup && <SetupItems setup={c.setup} />}
+      {c.setup && <SetupItems setup={c.setup} lead={!primaryOf(c, actions.filter((a) => ACTION[a]))} />}
       {c.setup?.resources && <Resources resources={c.setup.resources} />}
       {/* The where line has its own Open button: don't repeat it below. */}
       <CardActions card={c} actions={c.where ? actions.filter((a) => a !== 'open_editor') : actions} />
