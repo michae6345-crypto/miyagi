@@ -15,7 +15,8 @@ import type { Source, SourceKind, StepSummary } from '../../../../../../shared/c
 import { builtByLabel, seekVideo, useLesson, useProgress, type CheckItem, type Rect } from '../../core/lesson'
 import { useAppearance } from '../../core/prefs'
 import { alpha, clock, color, glass, kindTone, radius, spring, springOut } from '../../core/theme'
-import { Spinner, Thumb } from '../../core/ui/atoms'
+import { Thumb } from '../../core/ui/atoms'
+import { GlassCheck, GlassSpinner } from '../../core/ui/glass'
 import { parseYouTube, thumbnailFor } from '../launcher/youtube'
 import { TAB } from './geometry'
 import { closeDrawer, isWebLink, openSource, setPanelHeight, toggleDrawer } from './store'
@@ -289,15 +290,20 @@ function StepRow({
         onClick={() => v && seekVideo(v.start)}
       >
         <span className="relative grid shrink-0 place-items-center" style={{ width: ROW.icon, height: ROW.icon }}>
-          <motion.span
-            key={status}
-            className="grid place-items-center"
-            initial={mounted ? { opacity: 0, scale: 0.6 } : false}
-            animate={{ opacity: 1, scale: 1 }}
-            transition={spring}
-          >
-            <StepIcon status={status} />
-          </motion.span>
+          {/* initial={false}: icons already there when the drawer opens (or a row appears) don't draw in; a
+              status change does (GlassCheck draws its tick). */}
+          <AnimatePresence initial={false} mode="wait">
+            <motion.span
+              key={status}
+              className="grid place-items-center"
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0, transition: { duration: 0.08 } }}
+              transition={{ duration: 0.15 }}
+            >
+              <StepIcon status={status} />
+            </motion.span>
+          </AnimatePresence>
         </span>
         {timeW > 0 && (
           <span className="shrink-0 text-[12.5px] tabular-nums" style={{ width: timeW, color: tone }}>
@@ -334,9 +340,9 @@ function StepRow({
   )
 }
 
-/** done = the passed tick (glass.pass) · current = a ring with a dot in the text color · locked = an empty faint ring. */
+/** done = core GlassCheck (glass.pass) · current = a ring with a dot in the text color · locked = an empty faint ring. */
 function StepIcon({ status }: { status: StepStatus }): ReactNode {
-  if (status === 'done') return <Tick />
+  if (status === 'done') return <GlassCheck />
   if (status === 'current')
     return (
       <svg width="18" height="18" viewBox="0 0 18 18" className="shrink-0">
@@ -347,29 +353,7 @@ function StepIcon({ status }: { status: StepStatus }): ReactNode {
   return <Ring />
 }
 
-/**
- * The passed tick on glass: a glass.pass disc with the check knocked out in glass.buttonText (ink on dark,
- * paper on light: the contrast color against a strong fill). `draw` animates it like core CheckIcon.
- */
-function Tick({ draw = false }: { draw?: boolean }): ReactNode {
-  return (
-    <motion.svg width="18" height="18" viewBox="0 0 18 18" className="shrink-0" initial={draw ? { scale: 0.6 } : false} animate={{ scale: 1 }} transition={spring}>
-      <circle cx="9" cy="9" r="9" style={{ fill: glass.pass }} />
-      <motion.path
-        d="M5.2 9.3 L7.8 11.8 L12.9 6.4"
-        fill="none"
-        strokeWidth="1.9"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-        style={{ stroke: glass.buttonText }}
-        initial={draw ? { pathLength: 0 } : false}
-        animate={{ pathLength: 1 }}
-        transition={{ duration: 0.25, ease: 'easeOut', delay: 0.05 }}
-      />
-    </motion.svg>
-  )
-}
-
+/** An empty step / check: a faint ring (core has no glass twin of CheckIcon's pending state). */
 function Ring(): ReactNode {
   return (
     <svg width="18" height="18" viewBox="0 0 18 18" className="shrink-0">
@@ -379,9 +363,9 @@ function Ring(): ReactNode {
 }
 
 /**
- * core CheckList on glass tokens (core's is drawn for the black island: white text, white rings). Same layout:
- * the first pending check spins, a pass draws the tick, a fail is the off-track ring. Local until core takes a
- * surface option (Core request 5).
+ * core CheckList on glass (core's is drawn for the black island: white text, white rings), built from the core
+ * glass atoms (core/ui/glass). Same layout: the first pending check spins, a pass draws the tick, a fail is the
+ * off-track ring. Local until core has a glass CheckList (Core request 5).
  */
 function GlassCheckList({ checks }: { checks: CheckItem[] }): ReactNode {
   const activeId = checks.find((c) => c.status === 'pending')?.id
@@ -393,7 +377,7 @@ function GlassCheckList({ checks }: { checks: CheckItem[] }): ReactNode {
         return (
           <div key={c.id} data-check={c.id} data-check-status={c.status} className="flex items-center gap-3 text-[14px] leading-[18px]">
             {c.status === 'pass' ? (
-              <Tick draw />
+              <GlassCheck />
             ) : c.status === 'fail' ? (
               <svg width="18" height="18" viewBox="0 0 18 18" className="shrink-0">
                 <circle cx="9" cy="9" r="8.2" fill="none" strokeWidth="1.6" style={{ stroke: glass.offTrack }} />
@@ -401,7 +385,7 @@ function GlassCheckList({ checks }: { checks: CheckItem[] }): ReactNode {
                 <circle cx="9" cy="12.8" r="1" style={{ fill: glass.offTrack }} />
               </svg>
             ) : active ? (
-              <Spinner c={glass.text} track={glass.track} />
+              <GlassSpinner c={glass.text} />
             ) : (
               <Ring />
             )}
@@ -435,7 +419,7 @@ function PendingRow({ waiting, part, timeW }: { waiting: boolean; part?: string;
     >
       <span className="grid shrink-0 place-items-center" style={{ width: ROW.icon, height: ROW.icon }}>
         {waiting ? (
-          <Spinner size={16} c={glass.label} track={glass.track} />
+          <GlassSpinner size={16} />
         ) : (
           <svg width="18" height="18" viewBox="0 0 18 18" className="shrink-0">
             <circle cx="9" cy="9" r="8.2" fill="none" style={{ stroke: glass.faint }} strokeWidth="1.4" strokeDasharray="2.2 3.2" />
