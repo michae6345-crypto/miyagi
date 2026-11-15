@@ -755,17 +755,23 @@ class ScreenReader:
     def screenshot_pil(self, region=None):
         """The last captured frame as a PIL image (overlay blacked out), optionally cropped to a
         region in points."""
+        return self.latest_frame(region)[0]
+
+    def latest_frame(self, region=None):
+        """(PIL image of the last frame with our overlay blacked out, the ScreenObservation OCR'd from
+        that same frame), or (None, None). For vision prompts whose marks come from the OCR
+        (server.screen.target)."""
         from PIL import ImageDraw
 
         from . import macos
         with self._lock:
             img, obs, overlay = self._latest_image, self._latest, list(self._overlay)
         if img is None:
-            obs = self.observe_now(force=True)
+            self.observe_now(force=True)
             with self._lock:
-                img = self._latest_image
+                img, obs = self._latest_image, self._latest
         if img is None or obs is None:
-            return None
+            return None, None
         pil = macos.cgimage_to_pil(img)
         s = obs.scale
         d = ImageDraw.Draw(pil)
@@ -776,7 +782,7 @@ class ScreenReader:
             r = Rect.from_any(region).clamp(obs.screen)
             pil = pil.crop((int((r.x - obs.screen.x) * s), int((r.y - obs.screen.y) * s),
                             int((r.x2 - obs.screen.x) * s), int((r.y2 - obs.screen.y) * s)))
-        return pil
+        return pil, obs
 
 
 # ---------------------------------------------------------------------- helpers
