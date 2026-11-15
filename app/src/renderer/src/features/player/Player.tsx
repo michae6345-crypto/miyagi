@@ -6,9 +6,9 @@
  * Browser stage: drawn by an overlay layer at the same dock rect (see index.tsx for why).
  */
 import { AnimatePresence, motion } from 'motion/react'
-import { useEffect, useRef, type CSSProperties, type ReactNode } from 'react'
+import { useEffect, useRef, useState, type CSSProperties, type ReactNode } from 'react'
 import { useShallow } from 'zustand/react/shallow'
-import { Check, Lock, PanelRight, Pause, Play, RotateCcw, SkipBack, SkipForward, Square, VolumeX } from 'lucide-react'
+import { Check, Lock, PanelRight, Pause, Play, RotateCcw, SkipBack, SkipForward, Square, Volume1, Volume2, VolumeX } from 'lucide-react'
 import type { StepSummary, VideoSegment } from '../../../../../../shared/contracts/events'
 import type { Layout } from '../../../../preload/api'
 import { cmd } from '../../../../common/wire'
@@ -344,6 +344,8 @@ function Controls(): ReactNode {
       <span className="ml-[6px] text-[13px] tabular-nums" style={{ color: glass.label }}>
         {clock(p.t)} <span style={{ color: glass.faint }}>/ {p.duration ? clock(p.duration) : '–:––'}</span>
       </span>
+      <Volume />
+      <Speed />
       <span className="flex-1" />
       {seg ? (
         <button
@@ -361,6 +363,55 @@ function Controls(): ReactNode {
         )
       )}
     </div>
+  )
+}
+
+/**
+ * The speaker button and a short slider beside it (Michael, Nov 15: the video needed a volume control). The slider opens
+ * while the pointer is on the speaker or the slider, so the row stays compact. Neutral chrome: glass tokens only.
+ */
+function Volume(): ReactNode {
+  const v = usePlayer(useShallow((s) => ({ volume: s.volume, muted: s.muted })))
+  const [open, setOpen] = useState(false)
+  const level = v.muted ? 0 : v.volume
+  const Icon = level === 0 ? VolumeX : level < 50 ? Volume1 : Volume2
+  return (
+    <div className="ml-[4px] flex items-center" onPointerEnter={() => setOpen(true)} onPointerLeave={() => setOpen(false)}>
+      <IconButton onClick={() => player.toggleMute()} label={level === 0 ? 'Unmute' : 'Mute'}>
+        <Icon size={15} strokeWidth={1.8} />
+      </IconButton>
+      <motion.div className="overflow-hidden" initial={false} animate={{ width: open ? 64 : 0, opacity: open ? 1 : 0 }} transition={{ duration: 0.16 }}>
+        <input
+          type="range"
+          min={0}
+          max={100}
+          step={1}
+          value={level}
+          aria-label="Volume"
+          title={`Volume ${level}%`}
+          className="mx-[4px] h-[4px] w-[56px] cursor-pointer"
+          style={{ accentColor: 'var(--glass-text)' }}
+          onChange={(e) => player.setVolume(Number(e.target.value))}
+        />
+      </motion.div>
+    </div>
+  )
+}
+
+/** Playback speed: one chip that steps through 1x, 1.25x, 1.5x, 2x, 0.75x (saved). The step gate still holds at any speed. */
+function Speed(): ReactNode {
+  const rate = usePlayer((s) => s.rate)
+  return (
+    <button
+      type="button"
+      className="ml-[2px] h-[24px] min-w-[38px] cursor-pointer rounded-[7px] px-[6px] text-[12px] font-semibold tabular-nums hover:bg-[var(--glass-field-hover)]"
+      style={{ color: rate === 1 ? glass.faint : glass.text }}
+      onClick={() => player.cycleRate()}
+      title="Playback speed (click to change)"
+      aria-label={`Playback speed ${rate}x`}
+    >
+      {rate}×
+    </button>
   )
 }
 

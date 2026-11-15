@@ -44,8 +44,35 @@ type PlayerState = {
   resuming: boolean
   /** Autoplay with sound was blocked, so we play muted until the learner unmutes. */
   muted: boolean
+  /** The learner's volume, 0-100 (saved). */
+  volume: number
+  /** The learner's playback speed (saved): 0.75x to 2x, for learners who want to go fast (Michael, Nov 15). */
+  rate: number
   error?: string
 }
+
+/** The speed chip cycles through these. */
+export const RATES = [1, 1.25, 1.5, 2, 0.75] as const
+const PREF_KEY = 'miyagi.player.prefs'
+function savedPrefs(): { volume: number; rate: number } {
+  try {
+    const v = JSON.parse(localStorage.getItem(PREF_KEY) ?? '{}') as { volume?: unknown; rate?: unknown }
+    const volume = typeof v.volume === 'number' && v.volume >= 0 && v.volume <= 100 ? Math.round(v.volume) : 100
+    const rate = typeof v.rate === 'number' && (RATES as readonly number[]).includes(v.rate) ? v.rate : 1
+    return { volume, rate }
+  } catch {
+    return { volume: 100, rate: 1 }
+  }
+}
+function savePrefs(): void {
+  const { volume, rate } = usePlayer.getState()
+  try {
+    localStorage.setItem(PREF_KEY, JSON.stringify({ volume, rate }))
+  } catch {
+    // storage unavailable: the settings hold for this session only
+  }
+}
+const prefs = savedPrefs()
 
 const blank: PlayerState = {
   ready: false,
@@ -58,6 +85,8 @@ const blank: PlayerState = {
   pausedBy: undefined,
   resuming: false,
   muted: false,
+  volume: prefs.volume,
+  rate: prefs.rate,
   error: undefined
 }
 
@@ -241,6 +270,18 @@ function setPlay(play: boolean): void {
   sync(true)
 }
 
+/** The learner's volume and speed onto the YouTube player (on ready, and each time playback starts: a new clip can reset the rate). */
+function applyPrefs(): void {
+  if (!yt || !ready) return
+  const { volume, rate } = usePlayer.getState()
+  try {
+    yt.setVolume(volume)
+    if (yt.getPlaybackRate() !== rate) yt.setPlaybackRate(rate)
+  } catch {
+    // an older player without these calls: leave YouTube's defaults
+  }
+}
+
 /** Browsers block autoplay with sound without a user gesture: fall back to muted playback. */
 function watchAutoplay(): void {
   clearTimeout(autoplayTimer)
@@ -293,6 +334,7 @@ function onStateChange(st: number): void {
   // Our intent wins: seekTo on a cued video starts playback even when we wanted it paused.
   if (st === YTState.PLAYING && !want.play) return yt.pauseVideo()
   if (isRolling(st)) clearTimeout(autoplayTimer)
+  if (st === YTState.PLAYING) applyPrefs()
   if (st === YTState.ENDED) {
     want = { ...want, play: false }
     setUi({ pausedBy: holdPoint() ? 'gate' : 'ended' })
@@ -327,6 +369,7 @@ export function attachPlayer(host: HTMLElement): () => void {
             if (dead) return
             yt = player
             ready = true
+            applyPrefs()
             loadedId = undefined
             if (want.videoId) go(want.videoId, want.t, want.play)
             else sync()
@@ -397,6 +440,44 @@ export const player = {
   unmute(): void {
     yt?.unMute()
     setUi({ muted: false })
+  },
+  /** The volume slider: 0 mutes, anything above unmutes. Saved for the next lesson. */
+  setVolume(v: number): void {
+    const volume = Math.max(0, Math.min(100, Math.round(v)))
+    setUi({ volume, muted: volume === 0 })
+    if (yt && ready) {
+      yt.setVolume(volume)
+      if (volume === 0) yt.mute()
+      else yt.unMute()
+    }
+    savePrefs()
+  },
+  /** The speaker button: mute, or back to the last volume (at least a little, so it's audible). */
+  toggleMute(): void {
+    const s = usePlayer.getState()
+    if (s.muted || s.volume === 0) {
+      const volume = s.volume || 60
+      yt?.unMute()
+      yt?.setVolume(volume)
+      setUi({ muted: false, volume })
+      savePrefs()
+    } else {
+      yt?.mute()
+      setUi({ muted: true })
+    }
+  },
+  /** The speed chip: the next rate in RATES. Saved for the next lesson. */
+  cycleRate(): void {
+    const cur = usePlayer.getState().rate
+    const i = (RATES as readonly number[]).indexOf(cur)
+    const rate = RATES[(i + 1) % RATES.length]
+    setUi({ rate })
+    try {
+      yt?.setPlaybackRate(rate)
+    } catch {
+      // not supported: the chip still shows the choice, applied on the next play
+    }
+    savePrefs()
   },
   /** Seek from the timeline: never past the open step's gate. */
   scrub(t: number): void {
