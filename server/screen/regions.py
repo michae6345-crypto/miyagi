@@ -182,6 +182,17 @@ def _tab_row(win: Window, blocks: list[Block]) -> tuple[list[Block], list[Block]
     """(tab blocks, every block on the tab row). The tab row is the highest row with a file-name
     tab in the window's top band (explorer entries are file names too, but lower down)."""
     cands = [b for b in blocks if win.rect.y - 2 <= b.rect.y <= win.rect.y + 140 and _TAB.match(b.text.strip())]
+    # never Explorer entries: tabs sit right of the side bar header ("EXPLORER") and are laid out
+    # side by side, not in a vertical list (README.md under notes.py is the Explorer, not a tab row)
+    heads = [b for b in blocks if _SIDEBAR_MARKERS.match(b.text.strip()) and b.rect.y <= win.rect.y + 140]
+    if heads:
+        side_x2 = max(b.rect.x2 for b in heads)
+        cands = [b for b in cands if b.rect.x > side_x2 + 40]
+
+    def in_list(b: Block) -> bool:   # 2+ file names stacked at the same x: an Explorer list (a tab has
+        return sum(1 for o in blocks if o is not b and abs(o.rect.x - b.rect.x) <= 8   # at most its breadcrumb)
+                   and _TAB.match(o.text.strip()) and 0 < abs(o.rect.cy - b.rect.cy) < 4.4 * b.rect.h) >= 2
+    cands = [b for b in cands if not in_list(b)]
     if not cands:
         return [], []
     first = min(cands, key=lambda b: b.rect.y)
@@ -350,7 +361,12 @@ def editor_rows(obs: ScreenObservation, app: str | None = None) -> list[EditorRo
         return []
     inside = [ln for ln in lay.rows if ed.rect.contains(ln.rect) and ln.text.strip()]
     if not inside:
-        return []
+        # no text in the editor at all: an EMPTY file (a brand-new lesson file). Its line 1 is where
+        # the learner types; VS Code puts it at the editor's top, ~76 pt right of the edge at 12 pt.
+        th = sorted(b.rect.h for b in (lay.tabs or [])) or [12.6]
+        lh = round(1.43 * th[len(th) // 2], 1)
+        left = ed.rect.x + 76 * lh / 18
+        return [EditorRow(1, "", Rect(left - 4, ed.rect.y, ed.rect.x2 - left + 4, lh), lay.win.app)]
     inside.sort(key=lambda ln: ln.rect.cy)
     h = sorted(ln.rect.h for ln in inside)[len(inside) // 2]
     gaps = [b.rect.cy - a.rect.cy for a, b in itertools.pairwise(inside)]

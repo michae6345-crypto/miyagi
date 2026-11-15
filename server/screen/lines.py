@@ -405,7 +405,8 @@ def locate_line(obs: ScreenObservation, file: str | None, line: int, app: str | 
     """Full-width rect of file line `line` in the editor showing `file` (OCR of `obs`)."""
     pane, why = _pick_pane(obs, file, app)
     if pane is None:
-        return LineLocation(file, line, reason=why, source="ocr")
+        empty = _empty_file_row(obs, file, line, app) if why == "no_editor" else None
+        return empty or LineLocation(file, line, reason=why, source="ocr")
     loc = LineLocation(file, line, visible_lines=pane.visible, source="ocr", app=pane.app, pane=pane.rect,
                        line_height=pane.line_height)
     if why:
@@ -417,6 +418,30 @@ def locate_line(obs: ScreenObservation, file: str | None, line: int, app: str | 
         return loc
     loc.rect = r.clamp(obs.screen) if obs.screen.w else r
     loc.text = pane.row_text(line) or None
+    loc.occluded = _under_hover(obs, loc.rect)
+    return loc
+
+
+def _empty_file_row(obs: ScreenObservation, file: str | None, line: int, app: str | None) -> LineLocation | None:
+    """An EMPTY file has no gutter Vision can read (a lone "1") and no code: its line 1 comes from the
+    editor layout (regions.editor_rows). Only line 1, only when the editor shows no text at all."""
+    from .regions import editor_rows  # regions imports this module
+    from .vscode import vscode_window
+    rows = editor_rows(obs, app)
+    if len(rows) != 1 or rows[0].line != 1 or rows[0].text:
+        return None
+    win = vscode_window(obs, app)
+    if file and win is not None and win.file and not same_file(win.file, os.path.basename(file)) and \
+            _alnum(win.file) != _alnum(os.path.basename(file)):
+        return LineLocation(file, line, visible_lines=(1, 1), reason="file_not_active", source="ocr_layout")
+    loc = LineLocation(file, line, visible_lines=(1, 1), source="ocr_layout", app=rows[0].app,
+                       line_height=rows[0].rect.h)
+    if line != 1:
+        loc.reason, loc.direction = "not_visible", None     # an empty file has no other line
+        return loc
+    loc.rect = rows[0].rect
+    loc.pane = rows[0].rect
+    loc.text = ""
     loc.occluded = _under_hover(obs, loc.rect)
     return loc
 
