@@ -10,8 +10,14 @@
  *    icon, not in ⌘Tab, clicks never activate it or switch Spaces); MIYAGI_REGULAR_APP=1 opts out. It's named
  *    "miyagi" with a minimal menu (Edit stays, so ⌘C / ⌘V / ⌘A keep working in the launcher's field).
  * A3. A click on the pill fell through to the wallpaper: the overlay ignores the mouse until the renderer sees a
- *    hover, and a quick click can land first. Main polls the cursor (50 ms) and stops ignoring the mouse the
- *    moment it enters the island's rect; the renderer still turns click-through back on when the pointer leaves.
+ *    hover, and a quick click can land first. Main polls the cursor and stops ignoring the mouse the moment it
+ *    enters the island's rect.
+ * Test 3, item 2. The same on the bar: Diagram and Skip step did nothing when the pointer arrived without a hover
+ *    first (QA card 19), and a drag to select text in the drawer went to the app underneath (test 4: Finder came
+ *    forward). The poll now covers every UI rect the overlay reports (bar, cards, drawer, island: ctx.overlayRects(),
+ *    the overlay.bounds set) every 25 ms, so the first press or drag always counts. The renderer doesn't know about
+ *    a grab made here, so main gives the mouse back itself when the pointer leaves them all (unless the renderer
+ *    still wants it: its overlay:interactive), or the whole-screen overlay would keep eating clicks.
  *
  * UNVERIFIED: typechecked on Windows, where Smart App Control blocks electron.exe. Check on the Mac.
  */
@@ -24,10 +30,14 @@ const accessory = isMac && process.env.MIYAGI_REGULAR_APP !== '1'
 // Main features are imported before app.whenReady (eager glob in main/index.ts), so the name lands in time.
 app.setName('miyagi')
 
-/** How often main checks the cursor against the island. */
-const POLL_MS = 50
-/** Grab the mouse a few px before the pointer reaches the island's edge. */
+/** How often main checks the cursor against the overlay's UI. */
+const POLL_MS = 25
+/** Grab the mouse a few px before the pointer reaches a control's edge. */
 const MARGIN = 4
+
+type Box = { x: number; y: number; w: number; h: number }
+const within = (p: { x: number; y: number }, r: Box): boolean =>
+  p.x >= r.x - MARGIN && p.x <= r.x + r.w + MARGIN && p.y >= r.y - MARGIN && p.y <= r.y + r.h + MARGIN
 
 export default defineMainFeature({
   id: 'overlay-raise',
@@ -58,20 +68,39 @@ export default defineMainFeature({
     })
     ctx.handle('overlay:raise', raise)
 
-    // ---- A3: catch the pointer on the island before the click lands -----------------------------------------
-    let inside = false
+    // ---- A3 / test 3 item 2: catch the pointer on any control before the click lands ---------------------------
+    /** The renderer's last overlay:interactive (main/index.ts applies it; this only listens). */
+    let wants = false
+    /** This poll stopped ignoring the mouse; the renderer may not know. */
+    let grabbed = false
+    ctx.onSignal('overlay:interactive', (on) => {
+      wants = !!on
+      // A "no" while the pointer is still inside a rect (a passive chip, the margin) is grabbed again on the next tick.
+      // No ping-pong: the renderer only emits on a change, and it already said no.
+      if (!wants) grabbed = false
+    })
+    // A reloaded renderer starts click-through (main/index.ts, ui:ready) and has forgotten what it wanted.
+    ctx.overlay.webContents.on('did-start-loading', () => {
+      wants = false
+      grabbed = false
+    })
     const timer = setInterval(() => {
       if (ctx.overlay.isDestroyed()) return clearInterval(timer)
       if (!ctx.overlay.isVisible()) return
       const d = ctx.display().bounds
-      const { w, h } = ctx.islandSize()
-      const x = d.x + d.width / 2 - w / 2 - MARGIN
-      const y = d.y + ctx.platform.pillTop - MARGIN
+      const { w, h, dx = 0, dy = 0 } = ctx.islandSize()
+      // The island from its live size and place (the reported rects lag up to 300 ms while it grows into a card or
+      // moves off the spotlight: core/islandPlace.ts), plus the rest.
+      const island = { x: d.x + d.width / 2 - w / 2 + dx, y: d.y + ctx.platform.pillTop + dy, w, h }
       const p = screen.getCursorScreenPoint()
-      const now = p.x >= x && p.x <= x + w + MARGIN * 2 && p.y >= y && p.y <= y + h + MARGIN * 2
-      // Only on entering: leaving is the renderer's call (it knows about cards, the bar and the drawer too).
-      if (now && !inside) ctx.overlay.setIgnoreMouseEvents(false)
-      inside = now
+      const now = within(p, island) || ctx.overlayRects().some((r) => within(p, r))
+      if (now && !grabbed) {
+        grabbed = true
+        ctx.overlay.setIgnoreMouseEvents(false)
+      } else if (!now && grabbed) {
+        grabbed = false
+        if (!wants) ctx.overlay.setIgnoreMouseEvents(true, { forward: true })
+      }
     }, POLL_MS)
     app.on('before-quit', () => clearInterval(timer))
   }
