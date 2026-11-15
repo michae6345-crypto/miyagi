@@ -2057,7 +2057,8 @@ def test_just_teach_me_lesson_mode_has_no_video_and_spotlights_where_to_type(tmp
     assert [s["id"] for s in rig.of("lesson.updated")[0]["steps"]] == ["s2"]
     assert calls and rig.s.editor_open  # opened without an "Open VS Code?" card
     spot = rig.of("spotlight")[-1]
-    assert spot["caption"] == "Type add() here" and spot["snippet"] == "def add(a, b):\n    return a + b\n"
+    assert spot["caption"] == "In calc.py, type def add(a, b): …"  # the step's one action, as in the drawer
+    assert spot["snippet"] == "def add(a, b):\n    return a + b\n"
     assert spot["matched"] == "# add goes here"
 
 
@@ -2566,9 +2567,9 @@ def test_run_step_boxes_the_vscode_terminal_never_the_breadcrumb(tmp_path, monke
 
     first = run(go())
     assert first["caption"] == "Open the terminal: ⌃`" and first["snippet"] == "python calc.py"
-    assert first["rect"]["y"] >= 70  # the editor area, below the tab bar / breadcrumb
+    assert first["rect"] == {"x": 0.0, "y": 976.0, "w": 1200.0, "h": 24.0}  # the status bar, never empty space
     last = rig.of("spotlight")[-1]
-    assert last["caption"] == "Run it in the VS Code terminal" and last["rect"]["y"] == 100.0 + 20 * 22
+    assert last["caption"] == "In the terminal, run python calc.py" and last["rect"]["y"] == 100.0 + 20 * 22
     assert not [s for s in rig.of("spotlight") if "matched" in s and ">" in s["matched"]]
 
 
@@ -2657,6 +2658,7 @@ def test_run_step_uses_e6_terminal_region(tmp_path, monkeypatch):
     async def go():
         await rig.s.learn("calc", mode="lesson")
         await rig.settle()
+        rig.s.last_obs = _code_window()
         await rig.s.goto_step(1)
         await asyncio.sleep(0.05)
         first = dict(rig.of("spotlight")[-1])
@@ -2665,6 +2667,89 @@ def test_run_step_uses_e6_terminal_region(tmp_path, monkeypatch):
         return first
 
     first = run(go())
-    assert first["caption"] == "Open the terminal: ⌃`" and first["rect"]["y"] == 80.0
+    assert first["caption"] == "Open the terminal: ⌃`" and first["rect"]["h"] == 24.0  # status bar, not the editor
     last = rig.of("spotlight")[-1]
-    assert last["caption"] == "Run it in the VS Code terminal" and last["rect"] == {"x": 260.0, "y": 600.0, "w": 900.0, "h": 240.0}
+    assert last["caption"] == "In the terminal, run python calc.py"
+    assert last["rect"] == {"x": 260.0, "y": 600.0, "w": 900.0, "h": 240.0}
+
+
+
+def test_leaving_vscode_clears_the_box_and_coming_back_reboxes(tmp_path, monkeypatch):
+    from types import SimpleNamespace as NS
+
+    async def build(goal, workdir, on_update=None, **kw):
+        return _text_lesson()
+
+    rig, screen, _ = _lesson_rig(tmp_path, monkeypatch, build)
+    (tmp_path / "calc.py").write_text("# add goes here\n")
+    screen.text["Code"] = ["# add goes here"]
+
+    async def go():
+        await rig.s.learn("calc", mode="lesson")
+        await rig.settle()
+        await asyncio.sleep(0.05)
+        assert rig.s.spot_rect is not None
+        await rig.s.on_screen(NS(app="Claude", windows=[]))  # swiped to another app / Space
+        assert rig.of("spotlight")[-1] == {"clear": True} and rig.s.spot_rect is None
+        await rig.s.on_screen(NS(app="Miyagi", windows=[]))  # our own cards: no change
+        await rig.s.on_screen(NS(app="Code", windows=[]))  # back in VS Code: re-scan, re-box
+        await asyncio.sleep(0.05)
+
+    run(go())
+    assert rig.of("spotlight")[-1].get("rect") and rig.of("spotlight")[-1]["matched"] == "# add goes here"
+
+
+def test_unsaved_file_says_save_before_any_offtrack_and_judge_cannot_pass_it(tmp_path, monkeypatch):
+    from types import SimpleNamespace as NS
+
+    async def build(goal, workdir, on_update=None, **kw):
+        return _text_lesson()
+
+    rig, screen, _ = _lesson_rig(tmp_path, monkeypatch, build)
+    rig.s.check_wait_s = 0
+
+    async def judge_step(step, screen=None, files=None, **kw):
+        return {"done": True, "missing": "", "checks": {"s1p1": {"verdict": "done"}}}
+
+    rig.s.m.judge_step = judge_step
+
+    async def go():
+        await rig.s.learn("calc", mode="lesson")
+        await rig.settle()
+        title = f"● calc.py — {tmp_path.name} — Visual Studio Code"
+        rig.s.last_obs = NS(app="Code", windows=[NS(app="Code", title=title)])
+        await rig.s.action("check_step")  # Claude "sees" add() on screen, but the file on disk is empty
+        await rig.settle()
+        rig.s.last_action_t = rig.clock()
+        rig.s._consider_speaking("idle", rig.s.step, [{"checkId": "s1p1", "status": "fail"}], rig.s.context())
+        await rig.settle()
+
+    run(go())
+    assert not rig.of("step.passed") and not rig.of("offtrack")
+    titles = [c["title"] for c in rig.of("card")]
+    assert "Not yet" in titles and "Save calc.py" in titles
+    assert any("Save calc.py with ⌘S" in c["body"] for c in rig.of("card") if c["title"] == "Not yet")
+    assert [c for c in rig.of("card") if c["title"] == "Not yet"][0]["actions"] == ["apply_fix", "skip_step"]
+
+
+def test_another_lessons_folder_gets_one_calm_card(tmp_path, monkeypatch):
+    from types import SimpleNamespace as NS
+
+    async def build(goal, workdir, on_update=None, **kw):
+        return _text_lesson()
+
+    rig, _, _ = _lesson_rig(tmp_path, monkeypatch, build)
+
+    async def go():
+        await rig.s.learn("calc", mode="lesson")
+        await rig.settle()
+        rig.s.last_obs = NS(app="Code", windows=[NS(app="Code", title="calc.py — old-lesson-1a2b3c — Visual Studio Code")])
+        rig.s.last_action_t = rig.clock()
+        for _ in range(2):
+            rig.s._consider_speaking("idle", rig.s.step, [{"checkId": "s1p1", "status": "fail"}], rig.s.context())
+            await rig.settle()
+
+    run(go())
+    cards = [c for c in rig.of("card") if c["title"] == "That's another lesson's folder"]
+    assert len(cards) == 1 and cards[0]["actions"] == ["open_editor"] and "old-lesson-1a2b3c" in cards[0]["body"]
+    assert not rig.of("offtrack")
