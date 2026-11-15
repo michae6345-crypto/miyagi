@@ -119,6 +119,7 @@ function openLauncher(): void {
   if (launcherOpen) return
   launcherOpen = true
   keptBlurs = []
+  launcherModifier = false
   launcher.show()
   launcher.focus()
   raise(launcher)
@@ -132,16 +133,17 @@ function closeLauncher(): void {
 
 /** When blurs kept the launcher open (loop guard: an app that keeps grabbing focus wins after a few tries). */
 let keptBlurs: number[] = []
+/** ⌘ or Ctrl is down in the launcher (from its own key events): a blur now is ⌘Tab, ⌘Space, Ctrl+→… */
+let launcherModifier = false
 
 /**
- * The launcher closes when the learner leaves it (Esc, a pick, ⌥Space, a click outside the panel), not every time
- * it loses the keyboard. It is a non-activating panel, so the app the learner was in (VS Code) stays the active app,
- * and anything that makes one of that app's windows key takes the keyboard mid-typing: the engine's `code -g`
- * jumps and `open -a` (step start, opening the editor), or an app focusing itself. Then the panel was collapsing
- * on its own (Michael, Sat 4 PM).
- * The launcher covers its whole display and the renderer closes it on a click on the dim, so a blur with the
- * pointer still on that display was not a click elsewhere: take the keyboard back. A blur to another Miyagi
- * window (Settings) or with the pointer on another display closes it, as before.
+ * The launcher closes when the learner leaves it, not every time another app grabs the keyboard. It is a
+ * non-activating panel, so VS Code stays the active app, and the editor coming forward on its own (the engine
+ * opening it or jumping to a line) blurred it mid-typing (Michael, Sat 4 PM).
+ * Leaving = ⌘/Ctrl held (app or Space switch), focus on another Miyagi window (Settings), or the pointer on
+ * another display (a click there; a click on this display hits the launcher's dim, which closes it itself).
+ * Those close it at once. Any other blur had no input from the learner behind it: take the keyboard back.
+ * Plain typing never moves focus, so a recent keystroke doesn't count as leaving.
  */
 function onLauncherBlur(): void {
   if (!launcherOpen) return
@@ -152,7 +154,7 @@ function onLauncherBlur(): void {
     const onDisplay = p.x >= b.x && p.x < b.x + b.width && p.y >= b.y && p.y < b.y + b.height
     const now = Date.now()
     keptBlurs = keptBlurs.filter((t) => now - t < 3000)
-    if (BrowserWindow.getFocusedWindow() || !onDisplay || keptBlurs.length >= 8) return closeLauncher()
+    if (launcherModifier || BrowserWindow.getFocusedWindow() || !onDisplay || keptBlurs.length >= 4) return closeLauncher()
     keptBlurs.push(now)
     launcher.focus()
   }, 0)
@@ -239,6 +241,7 @@ app.whenReady().then(async () => {
   overlay.setIgnoreMouseEvents(true, { forward: true })
   overlay.once('ready-to-show', () => overlay.showInactive())
   launcher.on('blur', onLauncherBlur)
+  launcher.webContents.on('before-input-event', (_e, input) => (launcherModifier = input.meta || input.control))
 
   engine.onEvent((e) => {
     forEachWindow((w) => w.webContents.send('engine:event', e))
