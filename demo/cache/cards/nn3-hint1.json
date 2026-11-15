@@ -2,5 +2,5 @@
  "stepId": "nn3",
  "kind": "hint",
  "title": "Hint 2 of 2",
- "body": "Inside the loop: forward, backward, then W -= lr * dW for all four weights."
+ "body": "Inside the loop: forward, backward, then W -= lr * dW for all three weights and all three biases."
 }

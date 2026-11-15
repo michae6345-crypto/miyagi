@@ -2,5 +2,5 @@
  "stepId": "nn6",
  "kind": "explain",
  "title": "What the weights mean",
- "body": "Hidden neuron 1 turns on when either input is 1 (OR); neuron 3 only when both are (AND). The output adds the first and subtracts the third: OR minus AND is XOR."
+ "body": "Each first-layer neuron is tanh(w·x), an S-curve through 0: steep when its weight is big, gentle when it's small. The second layer mixes those S-curves, and the output adds them up into the sine wave. The biases stay at 0: sin is symmetric (sin(-x) = -sin(x)), and so is a network with no biases."
 }

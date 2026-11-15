@@ -1,6 +1,6 @@
 {
  "stepId": "nn3",
  "kind": "answer",
- "title": "Why lr = 1.0?",
- "body": "A tiny network with a smooth loss can take big steps. On real data you'd start nearer 0.01."
+ "title": "Why lr = 0.1?",
+ "body": "Small enough that each step doesn't overshoot, big enough to finish in a second. Real networks tune it the same way: try a few and watch the loss."
 }

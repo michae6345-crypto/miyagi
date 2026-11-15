@@ -1,7 +1,7 @@
 """Curated "Just teach me" lessons: written by hand, served instantly, no lesson build (no model call to build them).
 
-One today: build a neural network from scratch (2-4-1, NumPy, learns XOR), made by scripts/make_nn_demo.py:
-demo/cache/lessons/text-nn-from-scratch.json + its cards and live network diagrams.
+One today: build a neural network from scratch (1-4-4-1, NumPy, learns y = sin(x) on [-pi, pi]), made by
+scripts/make_nn_demo.py: demo/cache/lessons/text-nn-from-scratch.json + its cards and live network diagrams.
 
     lesson_for(goal)              the curated step graph for a "Just teach me" goal, or None (tight match, no LLM / fine-tune hits)
     prepare_folder(graph)         ~/miyagi/lessons/<slug>/ with nn.py's clean starter (an old attempt is kept in .miyagi-state)
@@ -16,8 +16,15 @@ MIYAGI_CURATED=0 turns all of it off ("Just teach me" builds a lesson as before)
 
 Pushed diagrams (one `diagram` event each, kind "network" with data.frames, stepId = the current step): the app shows
 them in the drawer's right-hand panel (adrian/shell PR #94). When a step starts: its own picture (forward pass, backprop,
-training). After the training run: four identical neurons when the loss is stuck at 0.25, else the learner's own run
-(their printed losses, and their weights once nn.py prints them).
+training). After the training run: identical hidden neurons when the loss is stuck at STUCK_LOSS, else the learner's own
+run (their printed losses, and their weights once nn.py prints them).
+
+The payload (data): layers [1, 4, 4, 1], labels {input: ["x"], output: ["y"]}, placement "drawer", activation "tanh"
+(hidden; the output is linear), samples / targets (x and sin(x)), mode, frames. Each frame:
+    {epoch, loss, input: x, W: [W1 1x4, W2 4x4, W3 4x1], b: [b1[4], b2[4], b3[1]], a: [[x], [4], [4], [y]]}
+W[k][i][j] is the weight from neuron i of layer k to neuron j of layer k+1; `a` is every neuron's activation for that
+frame's input (the app fires the neurons from it). Train frames cycle their input through data.samples; forward frames
+are the same weights once per sample.
 """
 
 from __future__ import annotations
@@ -42,12 +49,17 @@ KEY = "nn-from-scratch"
 LESSON_FILE = config.DEMO_CACHE / "lessons" / "text-nn-from-scratch.json"
 STARTER_FILE = config.REPO_ROOT / "demo" / "nn-start.py"
 FILE = "nn.py"
-LAYERS = (2, 4, 1)
+LAYERS = (1, 4, 4, 1)
 TRAIN_STEP, TEST_STEP = "nn4", "nn6"  # the run steps: training (the stuck moment), and the run that prints the weights
-STUCK_LOSS = 0.25  # every hidden neuron identical -> the output is 0.5 for all four inputs -> MSE 0.25
+# All weights 0: every hidden neuron outputs tanh(0) = 0 and gets the same (zero) update, so the output stays 0 for every
+# x -> MSE = mean(sin(x)^2) over the lesson's 50 points (linspace(-pi, pi, 50)) = 49/100.
+STUCK_LOSS = 0.49
 LOSS_RX = re.compile(r"epoch\s+(?P<step>\d+)\s+loss\s+(?P<value>[-+]?(?:\d+\.?\d*|\.\d+)(?:[eE][-+]?\d+)?)")
-WEIGHT_RX = re.compile(r"^\s*(?P<name>W1|b1|W2|b2)\b\s*[=:]?\s*(?P<rest>(?:array\()?\[.*)$")
-SIZES = {"W1": LAYERS[0] * LAYERS[1], "b1": LAYERS[1], "W2": LAYERS[1] * LAYERS[2], "b2": LAYERS[2]}
+WEIGHT_RX = re.compile(r"^\s*(?P<name>W1|b1|W2|b2|W3|b3)\b\s*[=:]?\s*(?P<rest>(?:array\()?\[.*)$")
+# W<k> is (layer k-1) x (layer k), the way nn.py's X @ W1 uses it; b<k> is layer k's biases.
+SHAPES = {f"{p}{k}": ((LAYERS[k - 1], LAYERS[k]) if p == "W" else (LAYERS[k],))
+          for k in range(1, len(LAYERS)) for p in ("W", "b")}
+SIZES = {name: math.prod(shape) for name, shape in SHAPES.items()}
 ADOPT_AFTER_S = 1.0  # Run it for me's own wait polls every 0.3 s: it takes its runs first
 RUN_RX = re.compile(rf"(?:^|[\s/])python[\d.]*\s+(?:-\S+\s+)*{re.escape(FILE)}\b")
 
@@ -56,9 +68,9 @@ RUN_RX = re.compile(rf"(?:^|[\s/])python[\d.]*\s+(?:-\S+\s+)*{re.escape(FILE)}\b
 # A neural network, by name. "nn" alone counts ("build a nn"); nn.Module-style PyTorch goals fall to _NOT.
 _NN = re.compile(r"\bneural[\s-]*net(?:work)?s?\b|\bnn\b|\bmulti[\s-]*layer[\s-]*perceptrons?\b|\bmlp\b", re.I)
 # Anything that asks for a different lesson: another architecture, a framework, an LLM, a dataset or task, another
-# language. Tight on purpose: the curated lesson is a NumPy 2-4-1 net on XOR.
+# language. Tight on purpose: the curated lesson is a NumPy 1-4-4-1 net that learns y = sin(x) (so XOR is another task).
 _NOT = re.compile(
-    r"\b(?:llms?|gpt\w*|chat\s*gpt|chatbots?|transformers?|attention|bert|language\s+models?|tokeni[sz]\w*|"
+    r"\b(?:llms?|gpt\w*|chat\s*gpt|chatbots?|transformers?|attention|bert|language\s+models?|tokeni[sz]\w*|xor|"
     r"fine[\s-]*tun\w*|finetun\w*|lora|rlhf|diffusion|gans?|autoencoders?|vaes?|"
     r"cnns?|conv\w*|rnns?|lstms?|grus?|recurrent|graph|gnns?|spiking|bayesian|quantum|evolution\w*|"
     r"reinforcement|q[\s-]*learning|dqn|pytorch|torch|tensorflow|keras|jax|flax|scikit|sklearn|"
@@ -175,8 +187,8 @@ def _folder_extras(folder: Path, graph: dict) -> None:
     check's requirements (python + numpy, so the "Install NumPy" card needs no Claude call). Best effort."""
     readme = folder / "README.md"
     if not readme.exists():
-        readme.write_text("# A neural net from scratch\n\nA 2-4-1 neural network in NumPy that learns XOR. "
-                          "Miyagi walks you through nn.py one step at a time.\n", encoding="utf-8")
+        readme.write_text("# A neural net from scratch\n\nA 1-4-4-1 neural network in NumPy that learns the curve "
+                          "y = sin(x). Miyagi walks you through nn.py one step at a time.\n", encoding="utf-8")
     try:
         from server.workspace import core
 
@@ -194,7 +206,7 @@ def _folder_extras(folder: Path, graph: dict) -> None:
             sf.write_text(json.dumps({
                 "scaffolded": True, "created": time.strftime("%Y-%m-%dT%H:%M:%S"), "curated": KEY,
                 "lesson_id": (graph.get("lesson") or {}).get("id"), "title": (graph.get("lesson") or {}).get("title"),
-                "lesson_kind": "code", "stack": "python", "summary": "A NumPy neural network that learns XOR.",
+                "lesson_kind": "code", "stack": "python", "summary": "A NumPy neural network that learns y = sin(x).",
                 "setup": [], "open_file": FILE, "files": [FILE], "readme": "README.md",
                 "git": {"init": False, "ops": 0, "commits": 0}, "dropped": [], "model": "", "error": "", "seconds": 0,
             }, indent=1))
@@ -287,9 +299,20 @@ def _numbers(text: str) -> list[float] | None:
     return out if all(math.isfinite(x) for x in out) else None
 
 
+def _rows(vals: list[float], shape: tuple[int, ...]) -> list:
+    """A flat row-major list as `shape` (2-D: rows of columns; 1-D: as is), -0.0 printed by NumPy read as 0.0."""
+    vals = [v + 0.0 for v in vals]
+    if len(shape) == 1:
+        return vals
+    cols = shape[1]
+    return [vals[r * cols:(r + 1) * cols] for r in range(shape[0])]
+
+
 def parse_output(lines: list[str]) -> dict:
-    """{losses: [(epoch, loss)], final: {W: [W1, W2], b: [b1, b2]} | None} from a run's output: the loop's
-    `epoch N  loss X` lines, and W1 / b1 / W2 / b2 when nn.py prints them (lists or NumPy arrays, any line layout)."""
+    """{losses: [(epoch, loss)], final: {W: [W1, W2, W3], b: [b1, b2, b3]} | None} from a run's output: the loop's
+    `epoch N  loss X` lines, and W1 / b1 / W2 / b2 / W3 / b3 when nn.py prints them (lists or NumPy arrays, any line
+    layout). W<k> comes back as rows (W1 1x4, W2 4x4, W3 4x1: W[k][i][j] is neuron i of layer k -> neuron j of layer
+    k+1), b<k> flat (4, 4, 1)."""
     losses: dict[int, float] = {}
     weights: dict[str, list[float]] = {}
     pending: tuple[str, str] | None = None
@@ -323,12 +346,15 @@ def parse_output(lines: list[str]) -> dict:
                 weights[name] = vals
     final = None
     if all(len(weights.get(k) or []) == n for k, n in SIZES.items()):
-        final = {"W": [weights["W1"], weights["W2"]], "b": [weights["b1"], weights["b2"]]}
+        n_w = len(LAYERS) - 1
+        final = {"W": [_rows(weights[f"W{k}"], SHAPES[f"W{k}"]) for k in range(1, n_w + 1)],
+                 "b": [_rows(weights[f"b{k}"], SHAPES[f"b{k}"]) for k in range(1, n_w + 1)]}
     return {"losses": sorted(losses.items()), "final": final}
 
 
 def is_stuck(losses: list[tuple[int, float]]) -> bool:
-    """The loss sat at 0.25 the whole run: every hidden neuron is the same neuron (W1 / W2 started equal, e.g. zeros)."""
+    """The loss sat at STUCK_LOSS (0.49) the whole run: every hidden neuron is the same neuron (the weights started
+    equal, e.g. zeros: each outputs tanh(0) = 0, so the network answers 0 for every x)."""
     return (len(losses) >= 2 and max(e for e, _ in losses) >= 1000
             and all(abs(v - STUCK_LOSS) <= 0.0015 for _, v in losses))
 
@@ -371,19 +397,65 @@ def _with_frames(d: dict, frames: list[dict], mode: str | None = None, caption: 
     return d
 
 
-def live_frames(ref: list[dict], losses: list[tuple[int, float]], final: dict | None) -> tuple[list[dict], bool]:
+def activations(W: list, b: list, x: float) -> list[list[float]] | None:
+    """Every neuron's activation for input x: [[x], tanh layer 1, tanh layer 2, linear output] (rounded to 4 places).
+    W[k][i][j] is neuron i of layer k -> neuron j of layer k+1. None when the weights don't fit together."""
+    try:
+        acts = [[float(x)]]
+        for k, (Wk, bk) in enumerate(zip(W, b)):
+            prev = acts[-1]
+            z = [float(bk[j]) + sum(prev[i] * float(Wk[i][j]) for i in range(len(prev))) for j in range(len(bk))]
+            acts.append([math.tanh(v) for v in z] if k < len(W) - 1 else z)
+    except (TypeError, IndexError, ValueError, KeyError):
+        return None
+    return [[round(v, 4) + 0.0 for v in layer] for layer in acts]
+
+
+def _fire(f: dict, x: float) -> dict:
+    """`f` with its input set to x and `a` computed from its own weights (in place)."""
+    f["input"] = round(float(x), 4)
+    a = activations(f.get("W") or [], f.get("b") or [], x)
+    if a is not None:
+        f["a"] = a
+    return f
+
+
+def _lerp(a: Any, b: Any, t: float) -> Any:
+    """a -> b at t, element by element through nested lists."""
+    if isinstance(a, list):
+        return [_lerp(x, y, t) for x, y in zip(a, b)]
+    return round(float(a) + (float(b) - float(a)) * t, 4)
+
+
+def _sample_xs(ref: list[dict], samples: list | None) -> list[float]:
+    """The inputs frames cycle through: data.samples ([[x], ...]), else the reference frames' own inputs, else 0."""
+    xs = [s[0] if isinstance(s, (list, tuple)) else s for s in samples or []]
+    if not xs:
+        xs = list(dict.fromkeys(f["input"] for f in ref if isinstance(f.get("input"), (int, float))))
+    return [float(x) for x in xs if isinstance(x, (int, float))] or [0.0]
+
+
+def forward_frames(frame: dict, samples: list | None) -> list[dict]:
+    """The trained network answering every sample: `frame`'s weights once per input x (each with its own `a`)."""
+    return [_fire(copy.deepcopy(frame), x) for x in _sample_xs([frame], samples)]
+
+
+def live_frames(ref: list[dict], losses: list[tuple[int, float]], final: dict | None,
+                samples: list | None = None) -> tuple[list[dict], bool]:
     """The training frames for the learner's run -> (frames, same_as_reference).
 
     Their run printed the same losses as the reference run (the lesson's code, seed 0): it IS the reference run, so
     every reference frame is theirs (the weights are exact), with their printed losses and, when nn.py printed them,
-    their final weights. Otherwise one frame per printed epoch with their loss; the weights end on theirs when printed
-    (drawn as a straight path from the reference start), else they are the reference's."""
+    their final weights (its `a` recomputed from them). Otherwise one frame per printed epoch with their loss; the
+    weights end on theirs when printed (drawn as a straight path from the reference start), else they are the
+    reference's. Each new frame's input cycles through `samples` (data.samples) and its `a` comes from its weights."""
     ref = [f for f in ref if isinstance(f, dict) and "epoch" in f]
     if not ref:
         return [], False
     by_epoch = {int(f["epoch"]): f for f in ref}
     same = bool(losses) and all(e in by_epoch and abs(float(by_epoch[e]["loss"]) - v) <= max(6e-4, 0.02 * v)
                                 for e, v in losses)
+    xs = _sample_xs(ref, samples)
     if same or not losses:
         frames = copy.deepcopy(ref)
         real = dict(losses)
@@ -391,20 +463,22 @@ def live_frames(ref: list[dict], losses: list[tuple[int, float]], final: dict | 
             if int(f["epoch"]) in real:
                 f["loss"] = real[int(f["epoch"])]
         if final:
-            frames[-1]["W"], frames[-1]["b"] = copy.deepcopy(final["W"]), copy.deepcopy(final["b"])
+            last = frames[-1]
+            last["W"], last["b"] = copy.deepcopy(final["W"]), copy.deepcopy(final["b"])
+            _fire(last, last.get("input", xs[(len(frames) - 1) % len(xs)]))
         return frames, same
     last = max(e for e, _ in losses)
     nearest = lambda e: min(ref, key=lambda f: abs(int(f["epoch"]) - e))  # noqa: E731
     start = ref[0]
     frames = []
-    for e, v in losses:
+    for k, (e, v) in enumerate(losses):
         if final:
             t = e / last if last else 1.0
-            mix = lambda a, b: [[x + (y - x) * t for x, y in zip(ra, rb)] for ra, rb in zip(a, b)]  # noqa: E731
-            frames.append({"epoch": e, "loss": v, "W": mix(start["W"], final["W"]), "b": mix(start["b"], final["b"])})
+            f = {"epoch": e, "loss": v, "W": _lerp(start["W"], final["W"], t), "b": _lerp(start["b"], final["b"], t)}
         else:
-            f = nearest(e)
-            frames.append({"epoch": e, "loss": v, "W": copy.deepcopy(f["W"]), "b": copy.deepcopy(f["b"])})
+            n = nearest(e)
+            f = {"epoch": e, "loss": v, "W": copy.deepcopy(n["W"]), "b": copy.deepcopy(n["b"])}
+        frames.append(_fire(f, xs[k % len(xs)]))
     return frames, False
 
 
@@ -422,29 +496,30 @@ def _train_caption(losses: list[tuple[int, float]], final: dict | None) -> str:
 
 def _live(session: Any, kind: str) -> dict | None:
     """The diagram drawn from the learner's latest training run: 'train' (weights moving, loss falling), 'forward'
-    (the trained network answering 00 01 10 11) or 'stuck' (four identical neurons, their flat loss)."""
+    (the trained network answering x from -3 to 3) or 'stuck' (identical hidden neurons, their flat loss)."""
     st = _state(session)
     losses, final = st.get("losses") or [], st.get("final")
     if kind == "stuck" or st.get("stuck"):  # a stuck run (also after Skip): the picture is the stuck one
         base = _ref(f"{TRAIN_STEP}-gradients")
         if base is None:
             return None
-        frames, _ = live_frames(base["data"]["frames"], losses, None)
+        frames, _ = live_frames(base["data"]["frames"], losses, None, base["data"].get("samples"))
         v = losses[-1][1] if losses else STUCK_LOSS
-        return _with_frames(base, frames, caption=f"Your run: the loss sits at {v:.4f}. All four hidden neurons are "
+        return _with_frames(base, frames, caption=f"Your run: the loss sits at {v:.4f}. All eight hidden neurons are "
                                                   "the same neuron: same start, same update, so nothing moves.")
     base = _ref(f"{TRAIN_STEP}-network")
     if base is None:
         return None
     if not losses and not final:
         return None
-    frames, _ = live_frames(base["data"]["frames"], losses, final)
+    samples = base["data"].get("samples")
+    frames, _ = live_frames(base["data"]["frames"], losses, final, samples)
     if not frames:
         return None
     if kind == "forward":
-        return _with_frames(base, frames[-1:], mode="forward",
-                            caption="Your trained network answering 00, 01, 10 and 11"
-                                    + (", drawn from the weights it printed." if final else "."))
+        return _with_frames(base, forward_frames(frames[-1], samples), mode="forward",
+                            caption="Your trained network: x goes in, sin(x) comes out"
+                                    + (". Drawn from the weights it printed." if final else "."))
     return _with_frames(base, frames, mode="train", caption=_train_caption(losses, final))
 
 
@@ -514,7 +589,8 @@ async def on_step_passed(session: Any, step: dict) -> None:
     if step.get("id") == TEST_STEP:  # the last step: their network answering, from the weights nn.py printed
         d = _live(session, "forward")
         if d is not None and _state(session).get("final"):
-            d["caption"] = "Your network answers 0 1 1 0. Drawn from the weights your nn.py printed."
+            d["caption"] = ("Your network draws sin(x): -1, 0, 1 at -π/2, 0, π/2. Drawn from the weights your nn.py "
+                            "printed.")
     else:
         d = _live(session, "train")
     if d is not None:
@@ -547,7 +623,7 @@ def _ingest_latest(session: Any) -> bool:
 
 def after_evaluate(session: Any, step: dict, trigger: str) -> None:
     """After a run (or new loss lines on screen): the right-hand panel follows the learner's real run. Stuck at
-    0.25 -> four identical neurons; otherwise their losses (and weights) redraw the step's network."""
+    STUCK_LOSS -> identical hidden neurons; otherwise their losses (and weights) redraw the step's network."""
     if not active(session) or trigger not in ("run_end", "metric", "check") or not _after(session, step, TRAIN_STEP):
         return
     if not _ingest_latest(session):
@@ -617,8 +693,8 @@ def _stuck_here(session: Any, step: dict) -> bool:
 
 def hint_card(session: Any, step: dict, level: int) -> dict | None:
     """The step's cached hint ladder (instant; the same every time). On the training step, while the loss is stuck at
-    0.25, the stuck ladder (look at how W1 and W2 start -> start them random), from its first hint even when the
-    learner used hints before the run got stuck. None past the ladder's end: the live coach takes the next hint."""
+    STUCK_LOSS, the stuck ladder (look at how W1, W2 and W3 start -> start them random), from its first hint even when
+    the learner used hints before the run got stuck. None past the ladder's end: the live coach takes the next hint."""
     if not active(session):
         return None
     sid = step.get("id")
