@@ -64,6 +64,10 @@ export interface EngineEvents {
   "spotlight": { rect: { x: number; y: number; w: number; h: number }; caption: string; app?: string; matched?: string; snippet?: string; zoom?: boolean } | { clear: true };   // snippet: code to type there (lesson mode / Show me), shown monospace under the caption   // zoom: the target is one of VS Code's own controls under 32 pt (the Run ▷, Toggle Panel, a tab's unsaved dot): show the loupe
   /** What the engine currently sees (debug HUD / optional). */
   "screen.seen": { app: string; summary: string; t: number };
+  /** t9: VS Code's quick-pick (the input box at the top centre: command palette, kernel picker, "Select Interpreter") is open under Miyagi's
+   *  overlay: move the card and the step pill off these rects. Same space as spotlight.rect (screen points, top-left origin). Sent only while a
+   *  lesson is active and only when the set changes; rects [] = it closed: clear it (also drop it on lesson.ended). */
+  "screen.avoid": { rects: { kind: "quickpick"; x: number; y: number; w: number; h: number }[] };
   "video.seek": { t: number; play: boolean };
   "video.pause": {};
   "video.play": {};
