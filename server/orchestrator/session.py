@@ -1098,7 +1098,7 @@ class LessonSession:
 
     async def _open_editor_full(self, folder: str) -> None:
         """Lesson mode: the editor IS the lesson, so it opens (full screen) without asking."""
-        if self.workspace is None:
+        if self.workspace is None or getattr(self.workspace, "blocked", False):  # ORCH_OPEN_WORKSPACE=0: never on its own
             return
         await asyncio.to_thread(self.workspace.open, folder, True, True)
         self.editor_open = True

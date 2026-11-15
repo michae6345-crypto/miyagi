@@ -23,7 +23,7 @@ log = logging.getLogger("server.workspace")
 
 VSCODE_BUNDLE = "com.microsoft.VSCode"
 SEP = " — "  # VS Code's window.title separator
-SKIP_DIRS = {".git", ".venv", "venv", "node_modules", "__pycache__", ".ipynb_checkpoints", "tutorial", ".mypy_cache", ".pytest_cache"}
+SKIP_DIRS = {".git", ".vscode", ".venv", "venv", "node_modules", "__pycache__", ".ipynb_checkpoints", "tutorial", ".mypy_cache", ".pytest_cache"}
 MAX_COPY_BYTES = 5 * 1024 * 1024
 
 

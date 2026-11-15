@@ -198,21 +198,27 @@ class AXSnapshot:
 # ---------------------------------------------------------------------- reading
 
 _enabled_pids: dict[int, float] = {}   # pid -> time AXManualAccessibility was set
-_SETTLE_S = 1.0
+_ready_pids: set[int] = set()          # pids whose AX mode read back on (or that ran out the wait)
+_SETTLE_MAX_S = 4.0                    # Electron waits ~2 s before it builds the tree; don't wait forever
 
 
 def enable_electron_ax(app_el, pid: int) -> bool:
     """Ask an Electron app (VS Code) to build its AX tree. ONCE per pid: re-setting it every frame
-    makes Chromium rebuild the tree (and can commit phantom text). Returns True once settled."""
+    makes Chromium rebuild the tree (and can commit phantom text). Returns True once settled: the
+    AXManualAccessibility read-back says the full AX mode is on, or _SETTLE_MAX_S passed.
+    No AXEnhancedUserInterface fallback: on Electron it can break window snapping and animations."""
     t = _enabled_pids.get(pid)
     if t is None:
         err = AX.AXUIElementSetAttributeValue(app_el, "AXManualAccessibility", True)
-        if err != 0:
-            AX.AXUIElementSetAttributeValue(app_el, "AXEnhancedUserInterface", True)
         _enabled_pids[pid] = time.time()
         log.info("enabled AX tree for pid %d (err=%s)", pid, err)
         return False
-    return time.time() - t >= _SETTLE_S
+    if pid in _ready_pids:
+        return True
+    if bool(attr(app_el, "AXManualAccessibility")) or time.time() - t >= _SETTLE_MAX_S:
+        _ready_pids.add(pid)
+        return True
+    return False
 
 
 def _page_start(text: str, document: str | None) -> int:
