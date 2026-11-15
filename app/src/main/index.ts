@@ -17,6 +17,7 @@ import type { MainContext, MainFeature } from './context'
 import {
   describePlatform,
   followSpaces,
+  isLeavingModifier,
   launcherGlassOptions,
   overlayBounds,
   overlayWindowOptions,
@@ -241,7 +242,7 @@ app.whenReady().then(async () => {
   overlay.setIgnoreMouseEvents(true, { forward: true })
   overlay.once('ready-to-show', () => overlay.showInactive())
   launcher.on('blur', onLauncherBlur)
-  launcher.webContents.on('before-input-event', (_e, input) => (launcherModifier = input.meta || input.control))
+  launcher.webContents.on('before-input-event', (_e, input) => (launcherModifier = isLeavingModifier(input)))
 
   engine.onEvent((e) => {
     forEachWindow((w) => w.webContents.send('engine:event', e))
