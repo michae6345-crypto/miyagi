@@ -12,8 +12,11 @@
  * The island hides itself while the launcher has it (core), so the two never show at once.
  *
  * Two modes, picked on open (Tab flips them during a lesson):
- *   search : learn {query} → rows stream in → Build lesson. A pasted YouTube link skips the search
+ *   search : learn {query} → video rows stream in → Build lesson. A pasted YouTube link skips the search
  *            (one row, Enter sends learn_url {url}). Idle shows a few suggestions; one click searches.
+ *            Once something is typed, the first row is always "Build a lesson from the internet":
+ *            learn {query, mode:'lesson'}, a text lesson Claude researches (no video), same exit as Build lesson.
+ *            It is the default pick when the search for what's typed found no video.
  *   ask    : a lesson exists → "Ask about this step" → action {kind:'ask', text}.
  *
  * Look: the island's own language. Black, white text at the theme's label/faint levels, low-alpha
@@ -39,7 +42,7 @@ import { MiyagiMark } from '../../core/ui/Mark'
 import { OptionButton, Spinner } from '../../core/ui/atoms'
 import { color, copy, fill, launcher as launcherTheme, pill, radius, scrim, shadows, spring, springOut } from '../../core/theme'
 import { Action, Chip, Hint, Rise } from './parts'
-import { EndRow, LinkRow, MessageRow, ResultRow, ROW_H, SkeletonRow } from './Rows'
+import { EndRow, LessonRow, LinkRow, MessageRow, ResultRow, ROW_H, SkeletonRow } from './Rows'
 import { clearResults, setLauncherOpen, startSearch, useSearch } from './store'
 import { chipTones } from './tint'
 import { parseYouTube } from './youtube'
@@ -49,11 +52,14 @@ type Mode = 'search' | 'ask'
 type View = 'idle' | 'link' | 'searching' | 'results' | 'empty' | 'error'
 type Size = { w: number; h: number }
 /** What Enter (and the footer action) would do right now. Mirrors submit(). */
-type Act = 'end' | 'ask' | 'build' | 'search' | 'searching' | 'none'
+type Act = 'end' | 'ask' | 'build' | 'teach' | 'search' | 'searching' | 'none'
 
 /** Launcher width when grown out of the notch. */
 const WIDTH = launcherTheme.width
+/** Video rows shown (the lesson row comes on top of these). */
 const MAX_ROWS = 4
+/** `sel` for the "Build a lesson from the internet" row; 0.. are video rows. */
+const LESSON = -1
 const SKELETONS = 3
 /** Minimum gap between two rows' entrances, in seconds. */
 const STAGGER = 0.04
@@ -243,12 +249,22 @@ export function Launcher({ layout }: { layout: Layout }): ReactNode {
                 ? 'empty'
                 : 'idle'
   const skeletons = view === 'searching' || (view === 'results' && search.pending) ? Math.max(0, SKELETONS - visible.length) : 0
-  const slots = view === 'idle' ? 0 : view === 'results' || view === 'searching' ? Math.min(MAX_ROWS, visible.length + skeletons) : 1
-  const selIndex = Math.min(sel, Math.max(0, visible.length - 1))
   const typed = (mode === 'ask' ? question : query).trim()
+  /** What a text lesson would be about: what's typed, else the query the rows on screen belong to. */
+  const goal = typed || (view === 'idle' ? '' : search.query)
+  /** "Build a lesson from the internet": the fixed first row once there's a goal (not for a pasted link, not in ask mode). */
+  const lessonRow = mode === 'search' && !link && !!goal
+  /** Video rows (and skeletons, the empty / error row) sit one slot lower under the lesson row. */
+  const off = lessonRow ? 1 : 0
+  const listed = view === 'idle' ? 0 : view === 'results' || view === 'searching' ? Math.min(MAX_ROWS, visible.length + skeletons) : 1
+  const slots = off + listed
+  /** The search for exactly what's typed finished without a video: the lesson row is the default pick. */
+  const noVideo = !visible.length && !search.pending && !!typed && typed === search.query && (view === 'empty' || view === 'error')
+  const onLesson = lessonRow && (sel === LESSON || noVideo)
+  const selIndex = Math.min(Math.max(0, sel), Math.max(0, visible.length - 1))
   /** During a lesson, with nothing typed: "End lesson" is the first row, highlighted. Typing replaces it. */
   const endRow = lesson.hasLesson && !typed && (mode === 'ask' || view === 'idle')
-  const highlight = view === 'link' ? 0 : view === 'results' ? selIndex : -1
+  const highlight = view === 'link' || onLesson ? 0 : view === 'results' ? selIndex + off : -1
 
   // ---- actions --------------------------------------------------------------------------------
 
@@ -272,6 +288,18 @@ export function Launcher({ layout }: { layout: Layout }): ReactNode {
       lastPick.current = first
       bridge.send(cmd('build_lesson', { resultIds: [first, ...results.map((r) => r.id).filter((id) => id !== first)] }))
     }
+    setPhase('building')
+  }
+
+  /**
+   * "Build a lesson from the internet": Claude researches the goal and builds a text lesson (no video search, no
+   * preflight). The engine drops its search results for it, so the rows go too. Same exit as Build lesson.
+   */
+  const teach = (): void => {
+    if (phaseRef.current !== 'open' || !goal) return
+    lastPick.current = undefined
+    clearResults()
+    bridge.send(cmd('learn', { query: goal, mode: 'lesson' }))
     setPhase('building')
   }
 
@@ -310,10 +338,22 @@ export function Launcher({ layout }: { layout: Layout }): ReactNode {
     if (endRow) return endLesson()
     if (mode === 'ask') return ask()
     if (link) return build()
+    if (onLesson) return teach()
     const q = query.trim()
     if (!q) return
     if (q !== search.query || (!results.length && !search.pending)) learn(q)
     else build()
+  }
+
+  /** ↑↓ over the lesson row and the video rows. Nothing highlighted yet (typing, searching): either key picks the lesson row. */
+  const move = (dir: 1 | -1): void => {
+    if (onLesson) {
+      if (dir === 1 && view === 'results') setSel(0)
+    } else if (highlight < 0 || (dir === -1 && selIndex === 0)) {
+      if (lessonRow) setSel(LESSON)
+    } else {
+      setSel(Math.max(0, Math.min(visible.length - 1, selIndex + dir)))
+    }
   }
 
   const onKey = (e: KeyboardEvent<HTMLInputElement>): void => {
@@ -331,13 +371,13 @@ export function Launcher({ layout }: { layout: Layout }): ReactNode {
       e.preventDefault() // focus stays in the field either way
       return switchMode()
     }
-    if (view !== 'results') return
+    if (view !== 'results' && !lessonRow) return
     if (e.key === 'ArrowDown') {
       e.preventDefault()
-      setSel(Math.min(visible.length - 1, selIndex + 1))
+      move(1)
     } else if (e.key === 'ArrowUp') {
       e.preventDefault()
-      setSel(Math.max(0, selIndex - 1))
+      move(-1)
     }
   }
 
@@ -383,15 +423,27 @@ export function Launcher({ layout }: { layout: Layout }): ReactNode {
         : 'none'
       : link
         ? 'build'
-        : !typed
-          ? 'none'
-          : typed !== search.query || (!results.length && !search.pending)
-            ? 'search'
-            : results.length
-              ? 'build'
-              : 'searching'
+        : onLesson
+          ? 'teach'
+          : !typed
+            ? 'none'
+            : typed !== search.query || (!results.length && !search.pending)
+              ? 'search'
+              : results.length
+                ? 'build'
+                : 'searching'
   const busy = search.pending && mode === 'search' && view !== 'link'
-  const actLabel = { end: 'End lesson', ask: 'Ask', build: 'Build lesson', search: 'Search', searching: 'Searching…', none: mode === 'ask' ? 'Ask' : 'Search' }[act]
+  const actLabel = {
+    end: 'End lesson',
+    ask: 'Ask',
+    build: 'Build lesson',
+    teach: 'Build lesson',
+    search: 'Search',
+    searching: 'Searching…',
+    none: mode === 'ask' ? 'Ask' : 'Search'
+  }[act]
+  /** Rows ↑↓ can move between right now: the lesson row plus the video rows. */
+  const choices = off + (view === 'results' ? visible.length : 0)
   // The footer is keys, not sentences: only the offline / partial-error notes are words.
   const note = offline ? 'Offline' : inlineError ? search.error : undefined
   /** The best row: the one the engine marks "best", else the first. Only it gets a label. */
@@ -487,7 +539,7 @@ export function Launcher({ layout }: { layout: Layout }): ReactNode {
               <OptionButton action="explain" label="Explain this step" kbd={bridge.platform.keys.explain} onClick={() => quick('explain')} />
               <OptionButton action="hint" label="Give me a hint" kbd={bridge.platform.keys.hint} onClick={() => quick('hint')} />
             </Rise>
-          ) : view === 'idle' ? (
+          ) : view === 'idle' && !lessonRow ? (
             <Rise key="try" i={2} className="flex flex-wrap gap-[8px] px-[20px] pt-[12px]">
               {SUGGESTIONS.map((s, i) => (
                 <Chip key={s.label} icon={s.icon} label={s.label} tone={chipTones[i % chipTones.length]} onClick={() => suggest(s.label)} />
@@ -506,11 +558,12 @@ export function Launcher({ layout }: { layout: Layout }): ReactNode {
                   />
                   <AnimatePresence initial={false}>
                     {view === 'link' && link && <LinkRow key={`link:${link.videoId}`} link={link} onPick={() => build()} />}
+                    {lessonRow && <LessonRow key="lesson" onHover={() => setSel(LESSON)} onPick={teach} />}
                     {(view === 'results' || view === 'searching') &&
                       visible.map((r, i) => (
                         <ResultRow
                           key={r.id}
-                          slot={i}
+                          slot={i + off}
                           delay={delayFor(r.id)}
                           r={r}
                           best={i === bestIndex}
@@ -519,12 +572,18 @@ export function Launcher({ layout }: { layout: Layout }): ReactNode {
                         />
                       ))}
                     {Array.from({ length: skeletons }, (_, k) => (
-                      <SkeletonRow key={`sk${visible.length + k}`} slot={visible.length + k} />
+                      <SkeletonRow key={`sk${visible.length + k}`} slot={visible.length + k + off} />
                     ))}
                     {view === 'empty' && (
-                      <MessageRow key="empty" tone="empty" title={`Nothing found for “${search.query}”`} detail="Try other words, or paste a YouTube link." />
+                      <MessageRow
+                        key="empty"
+                        slot={off}
+                        tone="empty"
+                        title={`No videos for “${search.query}”`}
+                        detail="Try other words, or paste a YouTube link."
+                      />
                     )}
-                    {view === 'error' && <MessageRow key="error" tone="error" title="Couldn't search right now" detail={search.error ?? ''} />}
+                    {view === 'error' && <MessageRow key="error" slot={off} tone="error" title="Couldn't search right now" detail={search.error ?? ''} />}
                   </AnimatePresence>
                 </div>
               </div>
@@ -539,14 +598,14 @@ export function Launcher({ layout }: { layout: Layout }): ReactNode {
                 {offline && <WifiOff size={13} strokeWidth={1.8} className="shrink-0" />}
                 {note && <span className="truncate">{note}</span>}
               </span>
-              {view === 'results' && visible.length > 1 && <Hint label="Choose" keycap="↑↓" />}
+              {choices > 1 && <Hint label="Choose" keycap="↑↓" />}
               {lesson.hasLesson && (
                 <>
                   <Action label={mode === 'ask' ? 'New lesson' : 'Back to step'} keycap="⇥" enabled onClick={switchMode} />
                   <span className="mx-[4px] h-[16px] w-px shrink-0" style={{ background: fill.rule }} />
                 </>
               )}
-              <Action label={actLabel} keycap="↵" enabled={act === 'end' || act === 'ask' || act === 'build' || act === 'search'} strong onClick={submit} />
+              <Action label={actLabel} keycap="↵" enabled={act === 'end' || act === 'ask' || act === 'build' || act === 'teach' || act === 'search'} strong onClick={submit} />
             </div>
           </Rise>
         </motion.div>
