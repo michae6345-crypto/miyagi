@@ -506,7 +506,7 @@ def test_s3_passes_once_the_cell_ran(rp):
 
     run(go())
     assert {k: r["status"] for k, r in rp.rows("s3").items()} == \
-        {"s3c1": "pass", "s3c2": "pass", "s3c3": "pass", "s3c4": "pass"}
+        {"s3c1": "pass", "s3c2": "pass", "s3c3": "pass", "s3c4": "pass", "s3-ran": "pass"}  # t10 R1: the cell ran
     assert rp.passed("s3") and rp.started("s4")
 
 

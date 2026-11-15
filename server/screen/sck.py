@@ -38,6 +38,16 @@ class SCKStalled(TimeoutError):
     """ScreenCaptureKit didn't answer in time (replayd stalled / connection interrupted)."""
 
 
+class SCKDeclined(RuntimeError):
+    """t10 R5: ScreenCaptureKit refused with "The user declined TCCs for application, window, display capture" (code
+    -3801) while the screen-recording grant itself is there: retrying at once only freezes capture again (1.5 s)."""
+
+
+def _declined(err: object) -> bool:
+    s = str(err or "")
+    return "-3801" in s or "declined TCC" in s
+
+
 def _env_set(name: str) -> set[str]:
     return {s.strip() for s in os.environ.get(name, "").split(",") if s.strip()}
 
@@ -82,6 +92,8 @@ class SCKCapturer:
             # an interrupted replayd connection also lands here: only a missing grant is a permission error
             if not Quartz.CGPreflightScreenCaptureAccess():
                 raise ScreenPermissionError()
+            if _declined(box.get("e")):
+                raise SCKDeclined(f"SCShareableContent failed: {box.get('e')}")
             raise RuntimeError(f"SCShareableContent failed: {box.get('e')}")
         content = box["c"]
         main_id = Quartz.CGMainDisplayID()
@@ -102,7 +114,7 @@ class SCKCapturer:
         once with fresh content; a stall is not (it would just stall again)."""
         try:
             return self._capture_once()
-        except SCKStalled:
+        except (SCKStalled, SCKDeclined):  # t10 R5: a TCC refusal isn't retried either (the retry froze capture)
             raise
         except ScreenPermissionError:
             raise
@@ -137,6 +149,8 @@ class SCKCapturer:
             raise SCKStalled(f"SCScreenshotManager gave no answer in {self.timeout_s:.1f} s")
         if box.get("i") is None:
             self._filter = None  # force a refresh next time
+            if _declined(box.get("e")):
+                raise SCKDeclined(f"ScreenCaptureKit capture failed: {box.get('e')}")
             raise RuntimeError(f"ScreenCaptureKit capture failed: {box.get('e')}")
         img = box["i"]
         return img, screen, Quartz.CGImageGetWidth(img) / screen.w

@@ -473,6 +473,9 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
         self._spot_t = -1e9
         self._spot_misses = 0
         self.step_gen = getattr(self, "step_gen", 0) + 1  # invalidates stale timers/coach results
+        from . import notebook_runs
+
+        notebook_runs.snapshot(self)  # t10 R1: the notebook's execution counts, the baseline a cell run is new against
 
     async def emit(self, type_: str, payload: dict | None = None) -> None:
         if type_.startswith("video.") and self.lesson_mode:
@@ -2480,8 +2483,8 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
         self.lesson_epoch += 1
         self._bind_epoch()  # this task (the build / autostart) now speaks for the new lesson
         self.notebook_lesson = is_notebook_lesson(graph)
-        if self.notebook_lesson:
-            unscope_editor_apps(graph)  # Colab/Jupyter in a browser counts, not just VS Code
+        if self.notebook_lesson and is_colab_lesson(graph):  # t10 R3: never a VS Code one (the video panel showed
+            unscope_editor_apps(graph)  # the presenter's outputs); Colab in a browser counts, not just VS Code
         _use_lesson_venv(graph)  # t9 V6: a video's "python3 -m venv venv && pip3 install …" step uses the lesson's .venv
         _metric_labels(graph)  # t10: "at least 95%", never "reaches 0.95" beside "at least 95"
         self.graph = graph
@@ -3444,6 +3447,11 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
         learner = trigger in ("file", "run_end", "metric", "check", "judge") or self._learner_evidence()
         if self.awaiting_resume or self.awaiting_start:
             return  # frozen until the learner picks Continue / Start new; held until Start / the first edit (E4)
+        if trigger != "run_end" and self.notebook_lesson:  # t10 R1: a notebook cell the learner ran is a run of the step
+            from . import notebook_runs
+
+            if await notebook_runs.poll(self) and trigger in ("file", "screen"):
+                return  # its run_end evaluation graded the step (and the coach explains a failed cell now)
         async with self._lock:
             step = self.step
             if step is None or self.passed or self.phase != "active":
@@ -5870,6 +5878,10 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
         for (E3's run_output: "run it and see the ZeroDivisionError" passes on that error); never one stopped by ^C
         (exit 130), never one that started before the step (terminal_run.verdict). Shown as one more row ("Ran
         python3 calculator.py"); until it is green the step can't pass."""
+        from . import notebook_runs
+
+        if (nb := notebook_runs.need_run(self, step, results, gate)) is not None:  # t10 R1: a video's notebook step
+            return nb
         need = self._run_need
         if need is None:  # fixed at the step's first evaluation: a typing step whose code is now saved stays one
             cmd = (self._run_command(step) if self.lesson_mode else "").strip()
