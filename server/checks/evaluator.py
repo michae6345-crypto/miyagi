@@ -465,8 +465,11 @@ def _screen(check: dict, ctx: RunContext, absent: bool) -> CheckResult:
         return _result(check, "pass", f"not showing{where}")
     if m:
         return _result(check, "pass", f"seen{where}")
+    if app in _TERMINAL_APPS:  # the terminal is on screen, the output isn't: say that, not where to open it
+        return _result(check, "fail", "not printed by the last run: run it again" if ctx.run_finished
+                       else f"not printed{where} yet")
     # learner words (E2): the file the code goes in when known ("not in calculator.py yet"), else the app
-    f = os.path.basename(str(check.get("file") or "")) if app not in _TERMINAL_APPS else ""
+    f = os.path.basename(str(check.get("file") or ""))
     return _result(check, "fail", f"not in {f} yet" if f else f"not{where} yet" if app else "not showing yet")
 
 
