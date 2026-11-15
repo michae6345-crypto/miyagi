@@ -4145,9 +4145,20 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
                 run.exit_code = int(ev.get("exit_code", 0))
             except (TypeError, ValueError):
                 run.exit_code = 1
+            self._tiger_run(run)  # before grading: the step passing on this run must not lose its numbers
             if in_step:
                 await self.evaluate("run_end")
             return
+
+    def _tiger_run(self, run: RunInfo) -> None:
+        """A finished run's loss values -> Tiger (tiger_runs.py: VS Code / Run it for me runs as 'learner', a Demo's
+        recorded runs as 'demo', each run once; non-blocking, offline spool). Never breaks the lesson."""
+        try:
+            from . import tiger_runs
+
+            tiger_runs.record(self, run)
+        except Exception:  # noqa: BLE001
+            log.exception("tiger: run %s not recorded", run.run_id)
 
     def _schedule_metric_eval(self) -> None:
         if self._metric_eval_pending:
@@ -5472,6 +5483,7 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
             run.exit_code = 1 if out is not None and out(lines)[0] else 0
         self.runs[run_id] = run
         self.step_runs.append(run)
+        self._tiger_run(run)  # its loss lines -> Tiger (curated.on_command_end stands back from a run taken here)
         self.engaged = True
         self._acted()  # the learner's run (a breakpoint); a diagnosis of the code before it is stale
         self._run_ended(run)  # t6: so is the coach's box on the run before it (T6-CP10's stale terminal error box)

@@ -549,6 +549,23 @@ class Modules:
         if fn is not None:
             fn(kind, lesson_id, step_id, video_t, payload, source_id=source_id)
 
+    def record_run(self, run: dict, metrics: list[tuple]) -> bool:
+        """A finished run's `runs` row + its metrics [(time, name, step, value)] -> Tiger (same queue + spool as
+        record). False when Tiger recording is off here (checks stubbed), so the caller doesn't count it as written."""
+        if "checks" in self.forced:
+            return False
+        try:
+            tiger = importlib.import_module("server.checks.tiger")
+        except Exception:  # noqa: BLE001 - no Tiger module: nothing to record
+            return False
+        rec_run, rec_metric = getattr(tiger, "record_run", None), getattr(tiger, "record_metric", None)
+        if rec_run is None or rec_metric is None:
+            return False
+        rec_run(run)
+        for t, name, step, value in metrics:
+            rec_metric(run["id"], name, step, value, time=t)
+        return True
+
     # -- voice (E5: ElevenLabs behind server.coach.voice; fills the existing `speak` event)
     def _voice(self) -> Any:
         if self.demo or "coach" in self.forced:
