@@ -9,6 +9,7 @@ import type { ReactNode } from 'react'
 import { useShallow } from 'zustand/react/shallow'
 import { builtByLabel, useLesson } from '../../core/lesson'
 import { color, fill, font } from '../../core/theme'
+import { useDrawer } from '../drawer/store'
 import { useStepSnippet } from './snippet'
 
 /** Below this goalMatch score the video doesn't fit what the learner asked for (contract: preflight warning). */
@@ -28,7 +29,11 @@ export function Instructions(): ReactNode {
 export function StepSnippet(): ReactNode {
   const stepId = useLesson((s) => s.stepId)
   const snip = useStepSnippet()
-  if (!snip.code || snip.stepId !== stepId) return null
+  // The code lives in one place (Michael's desktop test, item 5): in a "Just teach me" lesson or with the drawer
+  // open, the drawer has it.
+  const textLesson = useLesson((s) => s.lesson?.mode === 'lesson')
+  const drawerOpen = useDrawer((s) => s.open)
+  if (textLesson || drawerOpen || !snip.code || snip.stepId !== stepId) return null
   return (
     <pre
       className="mt-[10px] max-h-[126px] overflow-hidden whitespace-pre rounded-[12px] px-[12px] py-[8px] text-[12.5px] leading-[18px]"

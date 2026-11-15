@@ -21,7 +21,8 @@
 import { AnimatePresence, animate, motion, useMotionValue, useReducedMotion } from 'motion/react'
 import { useCallback, useEffect, useId, useLayoutEffect, useRef, useState, type ReactNode, type RefObject, type SVGProps } from 'react'
 import { Volume2 } from 'lucide-react'
-import { useStatus, type Rect } from '../../core/lesson'
+import { useLesson, useStatus, type Rect } from '../../core/lesson'
+import { useDrawer } from '../drawer/store'
 import { color, fill, font, radius, scrim, shadows, spring, text } from '../../core/theme'
 import { toggleVoice, useVoice } from '../voice/store'
 import { hole, holeRadius, placeCaption, type Side } from './place'
@@ -274,6 +275,11 @@ function Snippet({ code }: { code: string }): ReactNode {
 
 function Caption({ target, hole: cut, bounds, avoid: outside, reduced }: { target: SpotlightTarget; hole: Rect; bounds: Rect; avoid: Rect[]; reduced: boolean }): ReactNode {
   const voiceOn = useVoice((s) => s.on)
+  // The code lives in one place (Michael's desktop test, item 5): a "Just teach me" lesson or an open drawer has it
+  // in the drawer, so the caption shows only the words.
+  const textLesson = useLesson((s) => s.lesson?.mode === 'lesson')
+  const drawerOpen = useDrawer((s) => s.open)
+  const showCode = !textLesson && !drawerOpen
   const ref = useRef<HTMLDivElement>(null)
   const [size, setSize] = useState<{ w: number; h: number }>(CAPTION_GUESS)
 
@@ -326,7 +332,7 @@ function Caption({ target, hole: cut, bounds, avoid: outside, reduced }: { targe
         )}
       </div>
       {/* The code to type there ("Just teach me" steps, Show me): monospace under the caption, like the cards' diff. */}
-      {target.snippet?.trim() && <Snippet code={target.snippet} />}
+      {showCode && target.snippet?.trim() && <Snippet code={target.snippet} />}
     </motion.div>
   )
 }
