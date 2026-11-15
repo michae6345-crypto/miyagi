@@ -283,6 +283,12 @@ class ScreenReader:
         obs = self.latest() or self.observe_now(force=True)
         return M.locate_match(obs, match, app) if obs else None
 
+    def snap_rows(self, rect: Rect, app: str | None = None) -> Rect | None:
+        """t8: `rect` (a text match's box) with the y / height of the editor rows it is on (the gutter's, as the
+        full-line box has them) in the latest frame; None when it isn't on an editor's rows."""
+        obs = self.latest()
+        return L.snap_rows(obs, rect, app) if obs else None
+
     # ------------------------------------------------------------------ editor lines ("just teach me")
 
     def locate_line(self, file: str | None, line: int, app: str | None = None,
