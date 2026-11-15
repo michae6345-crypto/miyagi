@@ -65,7 +65,7 @@ async def attach(s: Any, payload: dict) -> dict:
         if t is not None:
             targets = [t]
     s._ot_state = {"gen": s.step_gen, "payload": {k: v for k, v in payload.items() if k != "targets"},
-                   "targets": targets, "carded": False, "pending": None}
+                   "targets": targets, "carded": False, "pending": None, "culprit": _has_culprit(s)}
     if targets:
         log.info("offtrack %r: targets %s (%s)", payload.get("title"), targets[0]["rect"], targets[0]["label"])
         return {**payload, "targets": targets}
@@ -76,6 +76,37 @@ def carded(s: Any) -> None:
     """A card went out: it took the off-track card's place in the app's one card slot."""
     if (st := getattr(s, "_ot_state", None)) is not None:
         st["carded"] = True
+
+
+def _has_culprit(s: Any) -> bool:
+    """Is the standing off-track about run_pointing's culprit lines (a run step: W1..W3 of a stuck run, a diagnosed
+    line, a NameError's line)? Then that culprit going away is what makes the off-track stale."""
+    try:
+        from . import run_pointing
+
+        return s.step is not None and run_pointing.culprit(s, s.step) is not None
+    except Exception:  # noqa: BLE001 - unknown: stale_advice decides
+        return False
+
+
+async def _cause_gone(s: Any, st: dict) -> str:
+    """(audit) Has the code the standing off-track is about changed since its targets were measured? The culprit is
+    gone (the weights start random now, the diagnosed line changed) or stale_advice says its line is gone / edited.
+    Then a rerun / re-grade is next, and a re-send would bring the old "Not yet" back over the fixed code (t8b's
+    advice_clear takes that card down; its card.closed must not put it back). -> why, "" while it still stands."""
+    try:
+        if st.get("culprit") or _has_culprit(s):
+            st["culprit"] = True
+            from . import run_pointing
+
+            return "the code it points at changed" if run_pointing.culprit(s, s.step) is None else ""
+        from . import stale_advice
+
+        gone = await stale_advice.state(s, s.step, s.last_offtrack)
+        return f"its line is {gone}" if gone else ""
+    except Exception:  # noqa: BLE001 - can't tell: the targets stand
+        log.exception("offtrack targets: staleness check failed")
+        return ""
 
 
 def _standing(s: Any, st: dict | None) -> bool:
@@ -101,6 +132,7 @@ async def update(s: Any, rect: Any, label: str = "", text: str = "") -> bool:
     from .session import _ANSWERED  # (session imports this module)
 
     answered = _ANSWERED.get()
+    st["culprit"] = st.get("culprit") or _has_culprit(s)  # (audit) what makes these targets stale later
     if st["carded"] or getattr(s, "_asks_in_flight", 0) or (answered is not None and "offtrack" not in answered):
         st["pending"] = targets  # a card is (about to be) on top of it: sent when that card closes
         return False
@@ -115,4 +147,8 @@ async def card_closed(s: Any) -> None:
         return
     st["carded"] = False  # (an off-track card the learner closed with ✕ stays closed: the app ignores its re-sends)
     if st.get("pending"):
+        if why := await _cause_gone(s, st):
+            log.info("offtrack %r: no re-send with targets: %s", st["payload"].get("title"), why)
+            st["pending"] = None
+            return
         await _send(s, st, st["pending"], "the card on top of it closed")
