@@ -58,7 +58,7 @@ _INIT = re.compile(r"^\s*(W1|W2)\s*=\s*(.+)$", re.M)
 
 
 def forced() -> bool:
-    """MIYAGI_STAGE=1: every lesson is a Demo lesson (scripts/miyagi-nn-demo.sh --stage)."""
+    """MIYAGI_STAGE=1 (set when starting the engine): every lesson is a Demo lesson."""
     return os.environ.get("MIYAGI_STAGE", "").strip().lower() in ("1", "true", "on", "yes")
 
 
@@ -86,7 +86,7 @@ def _st(session: Any) -> dict:
     epoch = getattr(session, "lesson_epoch", 0)
     st = getattr(session, "_stage", None)
     if not isinstance(st, dict) or st.get("epoch") != epoch:
-        st = {"epoch": epoch, "runs": {}, "passing": set()}
+        st = {"epoch": epoch, "runs": {}, "passing": set(), "running": set()}
         session._stage = st
     return st
 
@@ -134,6 +134,15 @@ async def _stuck_wanted(session: Any) -> bool:
     return any(not _RAND.search(rhs) for rhs in inits.values())  # W1 or W2 not started random (zeros, ones, ...)
 
 
+def _quiet() -> None:
+    """This press is already being answered (its step's run or pass is under way): no "Nothing to do here" /
+    "Not yet" notice for it (LessonSession.action sends one for a press that sent nothing)."""
+    from .session import _ANSWERED  # (session imports this module)
+
+    if (answered := _ANSWERED.get()) is not None:
+        answered.add("card")
+
+
 # ---------------------------------------------------------------------------------------------------------- passing
 
 def _detail(step: dict, check: dict, lines: list[str]) -> str:
@@ -152,6 +161,8 @@ async def _pass(session: Any, step: dict, gen: int, lines: list[str] | None = No
     st = _st(session)
     sid = step.get("id")
     if gen != session.step_gen or session.passed or sid in st["passing"]:
+        if sid in st["passing"]:
+            _quiet()
         return
     st["passing"].add(sid)
     try:
@@ -230,9 +241,19 @@ async def run(session: Any, step: dict, typed: bool = False) -> None:
     """A recorded run of this step (Run it for me; typed=True: the learner ran it in VS Code's terminal, which
     already shows its output, so no card). The first Train it run is the stuck one when nn.py starts at zeros."""
     gen, sid = session.step_gen, step.get("id")
-    if session.passed:
-        return
     st = _st(session)
+    if session.passed or sid in st["running"] or sid in st["passing"]:
+        if not session.passed:
+            _quiet()  # a second press while this step's run (or its pass) is still going: one run, not two
+        return
+    st["running"].add(sid)
+    try:
+        await _run(session, step, gen, sid, st, typed)
+    finally:
+        st["running"].discard(sid)
+
+
+async def _run(session: Any, step: dict, gen: int, sid: str, st: dict, typed: bool) -> None:
     n = st["runs"].get(sid, 0)
     st["runs"][sid] = n + 1
     stuck = sid == curated.TRAIN_STEP and n == 0 and await _stuck_wanted(session)

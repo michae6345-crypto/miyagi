@@ -173,3 +173,39 @@ def test_stage_env_makes_every_lesson_a_demo(rig, monkeypatch):
         await settle(rig)
         assert stage.on(rig.s) and rig.s.step["id"] == "nn1"
     run(go())
+
+
+def test_a_double_press_is_one_run(rig, monkeypatch):
+    monkeypatch.setattr(stage, "RUN_S", 0.05)
+
+    async def go():
+        await rig.s.learn("anything", mode="demo")
+        await settle(rig)
+        await save(rig, ZEROS)
+        for _ in range(2):
+            await save(rig, "\n")
+        assert rig.s.step["id"] == "nn4"
+        await asyncio.gather(rig.s.action("run_command"), rig.s.action("run_command"))
+        await settle(rig)
+        assert len([c for c in rig.of("card") if c["title"].startswith("Ran ")]) == 1
+        assert rig.s.step["id"] == "nn4" and rig.of("offtrack")  # the one run was the stuck one
+        assert not [c for c in rig.of("card") if c["title"] in ("Nothing to do here", "Not yet")]
+    run(go())
+
+
+def test_check_during_a_saves_pass_is_quiet(rig, monkeypatch):
+    monkeypatch.setattr(stage, "GRADE_S", 0.1)
+
+    async def go():
+        await rig.s.learn("anything", mode="demo")
+        await settle(rig)
+        rig.clock.t += 5
+        (rig.workdir / "nn.py").write_text("x = 1" + chr(10))
+        await rig.s.on_file_change([str(rig.workdir / "nn.py")])  # the save's pass starts
+        await rig.s.action("check_step")  # and Check my work right behind it
+        await settle(rig)
+        await asyncio.sleep(0.3)
+        await settle(rig)
+        assert passed(rig) == ["nn1"]
+        assert not [c for c in rig.of("card") if c["title"] in ("Nothing to do here", "Not yet")]
+    run(go())
