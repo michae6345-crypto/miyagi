@@ -15,7 +15,7 @@ write the real numbers in.**
 1. **Network:** the phone hotspot. The venue Wi-Fi blocks Tiger's port, and YouTube rate-limits caption requests from it.
 2. **Permissions:** turn on **Screen & System Audio Recording** and **Accessibility** for the terminal app that runs the engine,
    under System Settings › Privacy & Security. Quit and reopen that terminal after granting.
-3. **Engine** (`.env` already has `LESSON_ENGINE=claude` and `MIYAGI_EDITOR=vscode`):
+3. **Engine** (`.env` has `LESSON_ENGINE=auto`, `GEMINI_API_KEY` set, and `MIYAGI_EDITOR=vscode`):
    ```bash
    ORCH_LADDER_MIN_S=0 COACH_OFFLINE_FALLBACK=1 scripts/miyagi-engine.sh
    ```
@@ -49,7 +49,7 @@ write the real numbers in.**
 |---|---|---|
 | **0:00** | VS Code on screen, the island pill under the notch. | "YouTube tutorials can't tell whether you actually got it. Miyagi can. It turns any tutorial into an auto-graded lab, and there are two ways in." |
 | **0:07** | **⌥Space**. The launcher grows out of the island. Type **`learn physics informed machine learning with PINNs in PyTorch`**, then press **↵** (Watch a video). | "First way: watch a video. Claude searches YouTube with Bright Data's Google results, and Bright Data reads each video's comments, so a broken tutorial gets flagged." |
-| **0:14** | **↑/↓** to *Learning Physics Informed Machine Learning Part 1* (Toscano), then **↵**. The **preflight card** shows within 5 s. Click **Build**. | "Before building anything, Miyagi tells me what this video is and what I'm missing. Then Claude builds the lesson from the transcript." |
+| **0:14** | **↑/↓** to *Learning Physics Informed Machine Learning Part 1* (Toscano), then **↵**. The **preflight card** shows within 5 s. Click **Build**. | "Before building anything, Miyagi tells me what this video is and what I'm missing. Then Gemini watches the video and builds the lesson, with Claude reading the transcript as backup." |
 | **0:22** | The lesson loads (cached) and VS Code opens `demo/pinn-lab`. Switch to the second tab and press **↵** on `debug/goto/7`: the step's clip plays, then pauses. The screen dims to a **white box** on the code. | "Each step plays one clip and waits. Miyagi reads my whole screen on the device and boxes exactly where I work. Let's skip to training." |
 | **0:30** | In the VS Code terminal: **`tut run python pinn_diffusion.py`** ↵. The loss sits around 17. | "Learning rate 0.3." |
 | **0:47** | The pill pulses **amber** 16.5–18.8 s after ↵. | "The check reads my loss and tests whether it's improving, statistically. It isn't." |
@@ -59,7 +59,7 @@ write the real numbers in.**
 | **1:18** | Bottom bar › **End lesson**. Then **⌥Space**, type **`build a calculator`**, press **⌘↵** (Just teach me). | "Second way: no video at all. Just teach me." |
 | **1:24** | The pill shows the build. VS Code opens **full screen**. Step 1 appears and the white box sits on the exact line, with the code to type under the caption. | "Claude researched the official docs with web search and wrote the lesson, and Miyagi boxes exactly where to type." |
 | **1:34** | Type the boxed line, **⌘S**, then bottom bar › **Check**. The step goes green and the box moves to the next line. | "Check runs the step's checks on my screen, then a Claude judge. Green." |
-| **1:48** | — | "Two ways to learn, both graded from your real screen, and it survives a restart. Built on Claude, Bright Data and Tiger Data." |
+| **1:48** | — | "Two ways to learn, both graded from your real screen, and it survives a restart. Built on Claude, Gemini, Bright Data and Tiger Data." |
 
 **If something stalls:**
 - **Search is slow:** press Esc and run `ORCH_LADDER_MIN_S=0 COACH_OFFLINE_FALLBACK=1 scripts/miyagi-demo.sh`, which autostarts
@@ -126,8 +126,8 @@ only steps 1–2 are stage-safe, and step 2 needs the workaround below.** The bu
 
 ## Judge Q&A cheat sheet (3 min)
 
-**"Two ways to learn: what's the difference?"** Watch a video builds the lesson from a real YouTube tutorial: Claude reads its
-transcript. The video is gated step by step. Just teach me has no
+**"Two ways to learn: what's the difference?"** Watch a video builds the lesson from a real YouTube tutorial: Gemini watches the
+video while Claude reads its transcript as a backup. The video is gated step by step. Just teach me has no
 video: Claude writes an overview and a step plan, researches the official docs with web search and fetch, and for each step says
 what you build and why, with the complete code to type.
 Both are graded the same way, from your screen.
@@ -154,12 +154,14 @@ route for captions (and the backup for watch pages), and the coach looks up docs
 time per step, fail rate per check, a stuck heatmap per 15 s of video, and learner progress. You can see them live at
 `localhost:8787/stats`. When the venue Wi-Fi blocks the port, writes spool to disk and replay later.
 
-**"Where's Gemini?"** The lesson builder has an optional path where Gemini watches the video itself when there's no transcript
-(the cached hero lesson was built that way). It's off in our build to control cost; it's capped per day and logged in `build.cost`.
+**"Where's Gemini?"** Gemini watches the video. It gets the YouTube URL at 0.5 fps plus the title, description and chapters, and
+returns the steps with timestamps, the code typed on screen, draft checks and the hint ladder. Claude builds the same lesson from
+the transcript in parallel and is used if Gemini fails or takes over 75 s. The cached hero lesson was built by Gemini. Gemini is
+capped per day and logged in `build.cost`; everything else (Just teach me, search, the coach, the judge, screen reading) is Claude.
 
 **"What did it cost / how do you control spend?"** An unsupervised test sweep drained our prepaid Gemini credit (about $20, team
-figure). Since then: a billing fast-fail, a daily Gemini cap, skims off, Claude tiers (Haiku/Sonnet; Opus off), Gemini off and
-per-model token logging.
+figure). Since then: a billing fast-fail, a daily Gemini cap, skims off, Claude tiers (Haiku/Sonnet; Opus off), Claude's
+transcript draft as the fallback when Gemini is out of credit, and per-model token logging.
 
 **"What if it crashes?"** Every lesson is saved as it's built. A restart offers to resume at the same step with no rebuild.
 

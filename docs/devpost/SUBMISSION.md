@@ -60,11 +60,12 @@ it really works.
    videos, so a tutorial people say "doesn't work anymore" gets a warning.
 2. **Preflight.** Within 5 s of your pick, a card says what the video really is: its style, length and chapters, whether it fits
    your goal, and which tools you're missing. It has two buttons, **Build** or **Pick another** (`server/preflight/`).
-3. **Build, Claude first.**
-   - Our engine runs `LESSON_ENGINE=claude`: Claude builds the lesson from the video's **timestamped transcript**, title,
-     description and chapters (commit `ad28bad`).
-   - An optional Gemini path (`LESSON_ENGINE=claude-first`) watches the video itself when there's no transcript. It's off in our
-     build to control cost.
+3. **Build: Gemini watches, Claude reads, in parallel** (`LESSON_ENGINE=auto`, the default; `server/lesson/builder.py`).
+   - **Gemini watches the YouTube video itself** at 0.5 fps, with the title, description and chapters as text. It returns the
+     steps with timestamps, the code typed on screen, draft checks and a hint ladder (`server/lesson/gemini.py`).
+   - At the same time **Claude builds the same lesson from the video's timestamped transcript** (fetched through Bright Data's
+     Web Unlocker). Gemini's draft is used if it arrives within 75 s; if Gemini fails or runs late, Claude's is used.
+   - Claude then adapts the checks to your folder: your file names and the metric names your script prints.
    - Each step gets a video clip and checks that can be graded from your screen: regexes over the editor and terminal, plus
      loss/accuracy thresholds and trends read off the terminal.
    - Videos over 30 min are built part by part (`server/lesson/progressive.py`).
@@ -113,7 +114,7 @@ Electron overlay (app/: island, launcher, spotlight, bottom bar, player)
 engine: server/orchestrator (FastAPI hub, lesson state machine, don't-nag gate, hint ladder)
   ├─ finder     Claude web search + scoring · Bright Data SERP (Google video results) + YouTube comments
   ├─ preflight  ≤ 5 s card before any build
-  ├─ lesson     Watch a video: Claude from the transcript (optional Gemini path, off)
+  ├─ lesson     Watch a video: Gemini watches the video ∥ Claude drafts from the transcript; Claude adapts the checks
   │             Just teach me: Claude plans, researches (web search/fetch) and writes the steps
   ├─ workspace  per-lesson folder, starter files, VS Code (full screen in Just teach me), Accessibility line rects
   ├─ screen     ScreenCaptureKit → screencapture → CoreGraphics; Apple Vision OCR; Accessibility; terminal/editor regions
@@ -124,7 +125,7 @@ engine: server/orchestrator (FastAPI hub, lesson state machine, don't-nag gate, 
   └─ Tiger Data learning_events + training_metrics hypertables, 5 continuous aggregates, GET /stats
 ```
 
-**Model rule:** Claude reads screens, code and transcripts. Gemini can only ever watch YouTube videos, and it's off in our build.
+**Model rule:** Claude searches, scores and reads screens, code and transcripts. Gemini only ever watches YouTube videos.
 Inside Claude we use tiers: Sonnet builds lessons and writes the coach's diagnosis; Haiku does the routine work (search
 scoring, preflight, triage, explaining, the Check judge, locating, the set-of-marks box targeter); Sonnet also takes over when a
 quality check on cheaper output fails (commits `d500d03`, `c7f962b`). Opus is never used by default; it needs `LESSON_ALLOW_OPUS=1`.
@@ -159,7 +160,7 @@ React + TypeScript + Tailwind + Motion; PyTorch for the hero lesson.
 
 - **Free-tier quotas.** Our Gemini key had per-model daily caps (`gemini-3.8-flash`: 20/day), and by mid-afternoon every video
   model returned `429`. In response we:
-  - raced a Claude transcript path against Gemini, then made Claude the first choice (`ad28bad`);
+  - raced a Claude transcript path against Gemini, so a lesson still gets built when Gemini is out of quota or slow;
   - added hedged fallbacks and turned off the SDK's silent retries;
   - cached every lesson draft;
   - added a daily Gemini cap (`LESSON_GEMINI_DAILY_CAP`, 25 video calls, commit `6eb9aab`).
@@ -168,7 +169,6 @@ React + TypeScript + Tailwind + Motion; PyTorch for the hero lesson.
   - a 402 fast-fail with a 5-minute breaker and a plain-English error;
   - Gemini skims off in the finder (`b4f3bd2`);
   - Haiku/Sonnet tiers, and Opus off unless explicitly allowed;
-  - Gemini turned off (`LESSON_ENGINE=claude`);
   - `build.cost` token accounting on every lesson (`d500d03`);
   - opt-in prebuild;
   - paid keys blanked in tests.
@@ -202,7 +202,8 @@ React + TypeScript + Tailwind + Motion; PyTorch for the hero lesson.
 ## What we learned
 - Grading from the **screen** generalizes better than plugging into one editor. It works in VS Code, the terminal or a notebook
   with no extension; our optional VS Code companion only adds precision.
-- Transcripts plus Claude are fast and cheap enough to be the default. Watching the whole video is the fallback.
+- Watching the video gets step boundaries as good or better than reading the transcript (median 1 s from the chapter marks,
+  against up to 15 s for the transcript path, `evals/lesson/report.md`), and running both in parallel keeps every build working.
 - Noisy loss curves fool slope checks; rank-based trend tests don't.
 - Spending needs guardrails from the very first test sweep.
 
@@ -251,11 +252,16 @@ Tiger Data is the time-series memory of every session.
   `python -m server.checks.tiger --ping` output from the demo network before submitting.
 
 ### Gemini
-Gemini is the lesson builder's optional **video-watching path**, and it's off in our build (`LESSON_ENGINE=claude`) to control cost.
-With `LESSON_ENGINE=claude-first`, Gemini gets the public YouTube URL as `file_data` and watches the video itself when there's no
-transcript or Claude's draft fails.
-It returns steps with MM:SS bounds, the code written, checks, targets and hints as structured JSON (`server/lesson/gemini.py`).
-Long videos fall back to Gemini part by part (`server/lesson/progressive.py`). Usage is capped per day and logged in `build.cost`.
+Gemini is how Miyagi **watches** a tutorial (`LESSON_ENGINE=auto`, the default).
+- The lesson builder sends the public YouTube URL to Gemini as `file_data` at 0.5 fps, with the video's title, description and
+  chapters as text, so it also sees the repo and data links.
+- It returns structured JSON: steps with MM:SS bounds, titles and instructions, the code typed on screen, draft checks, targets,
+  and a hint ladder with common mistakes (`server/lesson/gemini.py`).
+- Claude builds the same lesson from the transcript in parallel. Gemini's draft is used if it arrives within 75 s; Claude's is
+  used if Gemini fails or runs late (`server/lesson/builder.py`). Claude then adapts the checks to the learner's folder.
+- Videos over 30 min are watched part by part (`server/lesson/progressive.py`). Usage is capped per day
+  (`LESSON_GEMINI_DAILY_CAP`) and logged in `build.cost`.
+- Gemini only watches videos. Just teach me, search, scoring, the coach, the judge, screen reading and box picking are Claude.
 The cached hero lesson was built by `gemini-4-hydrogen` watching the 24-minute video (31.1 s, `build.model` in
 `demo/cache/lessons/aebc6b8fba02dac5.json`).
 
