@@ -1,7 +1,10 @@
 {
   "name": "demo",
+  "full": false,
   "on": {
-    "learn": "nn_build",
+    "learn:lesson": "nn_build",
+    "learn": "nn_search",
+    "build_lesson": "nn_build",
     "action:check_step@step_nn1": "nn1_check",
     "action:skip_step@step_nn1": "nn1_skip",
     "action:explain@step_nn1": "nn1_explain",
@@ -47,6 +50,68 @@
     "action:hint@step_nn6": "nn6_hint"
   },
   "segments": {
+    "nn_search": [
+      {
+        "wait": 0,
+        "type": "status",
+        "payload": {
+          "state": "thinking"
+        }
+      },
+      {
+        "wait": 700,
+        "type": "search.result",
+        "payload": {
+          "id": "v1",
+          "kind": "video",
+          "title": "The spelled-out intro to neural networks and backpropagation: building micrograd",
+          "meta": "Video · Andrej Karpathy",
+          "score": 0.93,
+          "reason": "Builds backprop by hand",
+          "style": "coding"
+        }
+      },
+      {
+        "wait": 180,
+        "type": "search.result",
+        "payload": {
+          "id": "v2",
+          "kind": "video",
+          "title": "Building a neural network FROM SCRATCH (no Tensorflow/Pytorch, just numpy & math)",
+          "meta": "Video · Samson Zhang",
+          "score": 0.9,
+          "reason": "NumPy only, like this lesson",
+          "style": "coding"
+        }
+      },
+      {
+        "wait": 180,
+        "type": "search.result",
+        "payload": {
+          "id": "v3",
+          "kind": "video",
+          "title": "But what is a neural network?",
+          "meta": "Video · 3Blue1Brown",
+          "score": 0.84,
+          "reason": "The intuition first",
+          "style": "conceptual"
+        }
+      },
+      {
+        "wait": 150,
+        "type": "search.done",
+        "payload": {
+          "total": 3
+        }
+      },
+      {
+        "wait": 0,
+        "type": "status",
+        "payload": {
+          "state": "idle"
+        }
+      }
+    ],
     "nn_build": [
       {
         "wait": 0,

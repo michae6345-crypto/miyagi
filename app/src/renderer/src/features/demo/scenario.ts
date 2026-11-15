@@ -177,6 +177,29 @@ const SKILLS = {
 
 const DIAGRAM: Record<string, unknown> = { nn1: NETWORK, nn2: NETWORK, nn3: NETWORK, nn4: CHAIN, nn5: SYMMETRY, nn6: SKILLS }
 
+/** "Watch a video": real, well-known tutorials on this topic (no video ids: nothing here needs the network). */
+const SEARCH = [
+  {
+    id: 'v1',
+    kind: 'video',
+    title: 'The spelled-out intro to neural networks and backpropagation: building micrograd',
+    meta: 'Video · Andrej Karpathy',
+    score: 0.93,
+    reason: 'Builds backprop by hand',
+    style: 'coding'
+  },
+  {
+    id: 'v2',
+    kind: 'video',
+    title: 'Building a neural network FROM SCRATCH (no Tensorflow/Pytorch, just numpy & math)',
+    meta: 'Video · Samson Zhang',
+    score: 0.9,
+    reason: 'NumPy only, like this lesson',
+    style: 'coding'
+  },
+  { id: 'v3', kind: 'video', title: 'But what is a neural network?', meta: 'Video · 3Blue1Brown', score: 0.84, reason: 'The intuition first', style: 'conceptual' }
+]
+
 /** A training run: one `metric` per EPOCH_EVERY epochs, METRIC_MS apart (the fake terminal prints in step). */
 const run = (runId: string, curve: number[]): ScenarioItem[] =>
   curve.map((value, i) => ev(i === 0 ? 350 : METRIC_MS, 'metric', { runId, step: i * EPOCH_EVERY, name: 'loss', value }))
@@ -189,8 +212,16 @@ const bugRect = linesRect(Math.min(...bugRows), Math.max(...bugRows))
 const fixed = (n: number): string => FILE[n - 1]
 
 export function buildDemoScenario(): Scenario {
-  const on: Record<string, string> = { learn: 'nn_build' }
+  // "Just teach me" builds the lesson; "Watch a video" finds tutorials first, and building one gives the same lesson.
+  const on: Record<string, string> = { 'learn:lesson': 'nn_build', learn: 'nn_search', build_lesson: 'nn_build' }
   const segments: Record<string, ScenarioItem[]> = {}
+
+  segments.nn_search = [
+    ev(0, 'status', { state: 'thinking' }),
+    ...SEARCH.map((r, i) => ev(i === 0 ? 700 : 180, 'search.result', r)),
+    ev(150, 'search.done', { total: SEARCH.length }),
+    ev(0, 'status', { state: 'idle' })
+  ]
 
   segments.nn_build = [
     ev(0, 'status', { state: 'thinking' }),
@@ -369,5 +400,6 @@ export function buildDemoScenario(): Scenario {
     }
   }
 
-  return { name: 'demo', on, segments }
+  // Standalone: it answers learn and build_lesson itself, so it must not leak into the merged "full" scenario.
+  return { name: 'demo', full: false, on, segments } as Scenario
 }

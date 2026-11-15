@@ -62,10 +62,16 @@ export const BEATS: Beat[] = [
     title: 'Just teach me',
     say: 'Any video becomes a graded lab, or miyagi just teaches you. Claude writes the lesson.',
     async run(alive) {
-      const input = (await openLauncher(alive))!
-      press(input, 'Tab')
+      const input = await openLauncher(alive)
+      if (!input) return
+      // If the topic isn't typed yet (someone pressed Esc), type it again.
+      if (!input.value.trim()) await typeInto(input, 'build a neural net from scratch', alive)
+      // Light up "Just teach me", then ⌘/Ctrl+Enter: it teaches whichever way is highlighted, so it can't start a video search.
+      const teach = (): HTMLElement | undefined =>
+        Array.from(document.querySelectorAll<HTMLElement>('[role="radio"]')).find((el) => (el.textContent ?? '').includes('Just teach me'))
+      if (teach()?.getAttribute('aria-checked') !== 'true') press(input, 'Tab')
       await sleep(900)
-      press(input, 'Enter')
+      press(input, 'Enter', { ctrlKey: true, metaKey: bridge.platform.os === 'mac' })
       await at('nn1', alive, 15000)
     }
   },
@@ -213,11 +219,17 @@ type Walk = {
 export const useWalk = create<Walk>(() => ({ done: 0, running: false, auto: false }))
 
 let gen = 0
+/** → pressed while a beat was still running: run the next one as soon as it ends (one press is kept, like slides). */
+let queued = false
 
-/** Run the next beat (ignored while one is running). */
+/** Run the next beat. A press during a running beat is queued, not lost. */
 export async function nextBeat(): Promise<void> {
   const { done, running } = useWalk.getState()
-  if (running || done >= BEATS.length) return
+  if (done >= BEATS.length) return
+  if (running) {
+    queued = true
+    return
+  }
   const mine = ++gen
   const alive = (): boolean => mine === gen
   useWalk.setState({ running: true })
@@ -228,6 +240,10 @@ export async function nextBeat(): Promise<void> {
   }
   if (!alive()) return
   useWalk.setState({ done: done + 1, running: false })
+  if (queued) {
+    queued = false
+    return void nextBeat()
+  }
   if (useWalk.getState().auto) scheduleAuto()
 }
 
@@ -256,6 +272,7 @@ export function setAuto(on: boolean): void {
 /** Back to the empty desktop: end the lesson, reset every surface, start the beats over. */
 export function restart(): void {
   gen++
+  queued = false
   clearTimeout(autoTimer)
   useWalk.setState({ done: 0, running: false })
   dismiss()
@@ -269,6 +286,7 @@ onUi('reset', () => {
   // A reset from elsewhere (the dev HUD) also rewinds the walkthrough.
   if (useWalk.getState().done || useWalk.getState().running) {
     gen++
+    queued = false
     clearTimeout(autoTimer)
     useWalk.setState({ done: 0, running: false })
   }

@@ -24,13 +24,13 @@ Open `http://localhost:5173/` and click **Demo** (menu bar, right half), or go s
 ## Controls (bottom-left panel)
 | Key | Does |
 |---|---|
-| → · Space · PageDown (a clicker works) | next beat |
+| → · PageDown (a clicker works) · Space | next beat. → works even while the launcher's field has focus; pressing during a running beat queues the next one |
 | A | autoplay on/off (hands-free loop for the judging table) |
 | R | start over (empty desktop) |
 | × | leave the demo |
 
 You can take over at any beat: ⌘K / Ctrl+K, ⌥E / ⌥D / ⌥S / ⌥H, Check, Skip step, Fix it all answer like the real engine.
-Typing any topic in the launcher builds this lesson.
+Typing any topic in the launcher builds this lesson: "Just teach me" builds it straight away, "Watch a video" lists three real tutorials and building any of them gives the same lesson.
 
 ## The walkthrough (talk track)
 | # | Beat | What happens | Say |
@@ -67,7 +67,7 @@ About 4 minutes at a talking pace; autoplay runs it in about 3.
   ghost types, a beat sends `check_step` straight to the mock, standing in for "the engine saw the code".
 - `Presenter.tsx`: the Demo chip and the walkthrough panel. Hidden in Electron.
 
-No core files changed. One fix outside the folder: `cards/index.tsx` no longer says "The video picks up from here"
+Two small mock changes: `mock/engine.ts` gives "Just teach me" its own `learn:lesson` trigger (falls back to `learn`), and `mock/scenarios/build.ts` keeps a scenario with `"full": false` (this one) out of `full`. One fix outside the folder: `cards/index.tsx` no longer says "The video picks up from here"
 on a Just teach me lesson (there's no video).
 
 ## Status
@@ -78,4 +78,4 @@ on a Just teach me lesson (there's no video).
   The skill map is shown as a diagram at the end instead.
 
 ## Core requests
-None needed. Nice to have: an `npm run demo` script (`dev:web -- --open "/?scenario=demo&clean"`).
+The two mock changes above (backward compatible: no other scenario defines `learn:lesson` or `full: false`). Nice to have: an `npm run demo` script (`dev:web -- --open "/?scenario=demo&clean"`).

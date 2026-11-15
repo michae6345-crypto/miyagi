@@ -33,9 +33,9 @@ function useKeys(): void {
     const onKey = (e: KeyboardEvent): void => {
       if (e.metaKey || e.ctrlKey || e.altKey) return
       const typing = editable(e.target)
-      const { running } = useWalk.getState()
-      // A clicker sends PageDown / →. While a beat types into the launcher, its field has focus: still ours.
-      if (e.key === 'PageDown' || (e.key === 'ArrowRight' && (!typing || running)) || (e.key === ' ' && !typing)) {
+      // → and PageDown (a clicker) always advance, even with the launcher's field focused: a beat leaves the cursor
+      // there, and the presenter never needs → inside it. Space only when no field has focus.
+      if (e.key === 'PageDown' || e.key === 'ArrowRight' || (e.key === ' ' && !typing)) {
         e.preventDefault()
         e.stopPropagation()
         void nextBeat()
