@@ -6,8 +6,8 @@
  *
  * Owner: core. Features add modes; they don't edit this file.
  */
-import { AnimatePresence, motion } from 'motion/react'
-import { useCallback, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react'
+import { AnimatePresence, motion, useIsPresent } from 'motion/react'
+import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react'
 import type { Layout } from '../../../preload/api'
 import { bridge } from '../bridge'
 import { onUi } from './bus'
@@ -59,23 +59,40 @@ export function Island({ top, layout }: { top: number; layout: Layout }): ReactN
     return () => offs.forEach((off) => off())
   }, [])
 
-  // Measure whichever layer is active; the container springs to its size.
-  const [active, setActive] = useState<HTMLDivElement | null>(null)
-  const bindActive = useCallback((el: HTMLDivElement | null) => {
-    if (el) setActive(el)
-  }, [])
+  // Measure the active mode's live layer; the container springs to its size (Michael's review A1). The layer is found
+  // by data-island-layer, which only a present layer carries: a mode that comes back under the same key while its exit
+  // still runs keeps its old node and gets no new ref, so a ref bound on mount could point at a node that was leaving
+  // (measured 0 once gone: the island collapsed to nothing for 35 s). A 0 measurement never wins: the last good size stays.
   const [size, setSize] = useState<{ w: number; h: number }>({ w: 120, h: pill.height })
+  const modeId = mode?.id
+  const fixed = mode?.width
   useLayoutEffect(() => {
-    if (!active) return
-    const measure = (): void => {
-      const fixed = mode?.width
-      setSize({ w: fixed ?? Math.ceil(active.offsetWidth), h: fixed ? Math.ceil(active.offsetHeight) : pill.height })
+    const root = islandEl.current
+    if (!root || !modeId) return
+    let ro: ResizeObserver | undefined
+    let raf = 0
+    let tries = 0
+    const measure = (el: HTMLElement): void => {
+      const w = fixed ?? Math.ceil(el.offsetWidth)
+      const h = fixed ? Math.ceil(el.offsetHeight) : pill.height
+      if (w > 0 && h > 0) setSize((s) => (s.w === w && s.h === h ? s : { w, h }))
     }
-    measure()
-    const ro = new ResizeObserver(measure)
-    ro.observe(active)
-    return () => ro.disconnect()
-  }, [active, mode])
+    const bind = (): void => {
+      const el = root.querySelector<HTMLElement>(`[data-island-layer="${CSS.escape(modeId)}"]`)
+      if (!el) {
+        if (++tries < 30) raf = requestAnimationFrame(bind)
+        return
+      }
+      measure(el)
+      ro = new ResizeObserver(() => measure(el))
+      ro.observe(el)
+    }
+    bind()
+    return () => {
+      cancelAnimationFrame(raf)
+      ro?.disconnect()
+    }
+  }, [modeId, fixed])
 
   // An open card steps off the spotlight's hole and the coach's targets (Michael's desktop test 3, item 3). Transform only.
   const offset = useIslandOffset(mode && !isPill && held[at] ? { id: mode.id, w: size.w, h: size.h } : undefined, top, layout, wrapper)
@@ -164,19 +181,28 @@ export function Island({ top, layout }: { top: number; layout: Layout }): ReactN
           transition={{ duration: 0.6, ease: 'easeInOut' }}
         />
         <AnimatePresence initial={false}>
-          <motion.div
-            key={mode.id}
-            ref={bindActive}
-            className="absolute left-1/2 top-0"
-            style={{ x: '-50%', width: mode.width ?? 'max-content' }}
-            initial={{ opacity: 0, y: 4 }}
-            animate={{ opacity: 1, y: 0, transition: { duration: 0.2, delay: 0.06, ease: 'easeOut' } }}
-            exit={{ opacity: 0, transition: { duration: 0.08 } }}
-          >
+          <Layer key={mode.id} id={mode.id} width={mode.width}>
             <Content />
-          </motion.div>
+          </Layer>
         </AnimatePresence>
       </motion.div>
+    </motion.div>
+  )
+}
+
+/** One mode's content layer. Only a present layer carries data-island-layer, so a leaving one is never measured. */
+function Layer({ id, width, children }: { id: string; width?: number; children: ReactNode }): ReactNode {
+  const present = useIsPresent()
+  return (
+    <motion.div
+      data-island-layer={present ? id : undefined}
+      className="absolute left-1/2 top-0"
+      style={{ x: '-50%', width: width ?? 'max-content' }}
+      initial={{ opacity: 0, y: 4 }}
+      animate={{ opacity: 1, y: 0, transition: { duration: 0.2, delay: 0.06, ease: 'easeOut' } }}
+      exit={{ opacity: 0, transition: { duration: 0.08 } }}
+    >
+      {children}
     </motion.div>
   )
 }
