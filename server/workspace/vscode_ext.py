@@ -216,14 +216,17 @@ def active_editor() -> dict | None:
 # ------------------------------------------------------------------ actions
 
 def open_file(file: str | Path, line: int | None = None, *, column: int | None = None,
-              folder: str | Path | None = None, preserve_focus: bool = False) -> dict | None:
-    """Open/reveal `file` (centered on `line`) in the window that has it, never a new window."""
+              folder: str | Path | None = None, preserve_focus: bool = False, port: int | None = None) -> dict | None:
+    """Open/reveal `file` (centered on `line`) in the window that has it, never a new window. port: exactly that
+    window (a windows() entry's port), e.g. the lesson folder's own window."""
     path = _abs(file, folder)
     body: dict[str, Any] = {"file": path, "preserveFocus": preserve_focus}
     if line:
         body["line"] = int(line)
     if column:
         body["column"] = int(column)
+    if port:
+        return _call(int(port), "POST", "/open", body)
     return _post("/open", body, file=path, folder=folder)
 
 

@@ -754,7 +754,8 @@ def open_lesson_editor(folder: str | Path, file: str | None = None, *, lesson_id
                        explicit: bool = False, runner: Runner | None = None, busy: Callable[[], bool] | None = None,
                        wait_s: float | None = None, background: bool = True, sleep=time.sleep,
                        focus: Callable[[], tuple[str, str] | None] | None = None,
-                       windows: Callable[[], list[dict]] | None = None, reuse: bool | None = None, **kw) -> dict:
+                       windows: Callable[[], list[dict]] | None = None, reuse: bool | None = None,
+                       miyagi_wait_s: float | None = None, cancelled: Callable[[], bool] | None = None, **kw) -> dict:
     """Open the lesson folder in the editor AT MOST ONCE per (lesson id, folder); idempotent and focus-safe.
 
     - First call: `code <folder> -g <file>` (never `-n`: VS Code focuses a window that already has the folder),
@@ -763,6 +764,11 @@ def open_lesson_editor(folder: str | Path, file: str | None = None, *, lesson_id
       a while it waits in a background thread (background=True) instead of blocking the caller.
     - Later calls: nothing, unless explicit=True (the learner pressed "Open VS Code"): then `code <folder>
       [-g <file>]` brings that folder's existing window forward. Never a second window, never a re-arrange.
+    - file: the latest call's file wins, so a deferred first open shows the file asked for last (the step's), not
+      README.md (L2: the waiter's `-g README.md` landed after Open's jump to nn.py).
+    - miyagi_wait_s ("Just teach me", L5): Miyagi in front holds an automatic open only this long, then only busy()
+      does (the learner stays in Miyagi's drawer, so "until they leave Miyagi" was forever). cancelled(): a newer
+      lesson; the waiter then opens nothing.
     Returns open_editor_report()'s dict, or {"opened": False, "already": True} / {"deferred": True}."""
     key = (lesson_id or "", str(Path(folder).expanduser().resolve()))
     front = focus or _frontmost
@@ -770,7 +776,9 @@ def open_lesson_editor(folder: str | Path, file: str | None = None, *, lesson_id
         st = _opened.get(key)
         first = st is None
         if first:
-            st = _opened[key] = {"state": "waiting", "t": time.monotonic()}
+            st = _opened[key] = {"state": "waiting", "t": time.monotonic(), "file": file}
+        elif file:
+            st["file"] = file  # L2: a first open still waiting opens on this one
     if not first:
         if not explicit:
             return {"opened": False, "already": True, "state": st["state"]}
@@ -783,13 +791,17 @@ def open_lesson_editor(folder: str | Path, file: str | None = None, *, lesson_id
         log.info("editor already open for %s: brought forward (%s)", Path(key[1]).name, ok)
         return {"opened": bool(ok), "already": True, "command": " ".join([Path(argv[0]).name, *argv[1:]])}
 
+    t_ask = time.monotonic()
+
     def blocked() -> bool:
-        return miyagi_focused(front()) or bool(busy and busy())
+        held = miyagi_focused(front()) and (miyagi_wait_s is None or time.monotonic() - t_ask < miyagi_wait_s)
+        return held or bool(busy and busy())
 
     def go() -> dict:
         st["state"] = "opening"
         use_r = reuse_lesson_window(key[1], windows=windows) if reuse is None else reuse
-        rep = open_editor_report(key[1], file, runner=runner, fullscreen=fullscreen, reuse_window=use_r, **kw)
+        rep = open_editor_report(key[1], st.get("file") or file, runner=runner, fullscreen=fullscreen,
+                                 reuse_window=use_r, **kw)
         rep["reused_window"] = use_r
         with _open_lock:
             if rep.get("opened"):
@@ -811,6 +823,11 @@ def open_lesson_editor(folder: str | Path, file: str | None = None, *, lesson_id
                 log.info("auto-open of %s gave up: the learner stayed in Miyagi for %.0fs", Path(key[1]).name, limit)
                 return {"opened": False, "deferred": True, "gave_up": True}
             sleep(0.5)
+        if cancelled is not None and cancelled():  # L5: a newer lesson (or the lesson ended) while it waited
+            with _open_lock:
+                _opened.pop(key, None)
+            log.info("auto-open of %s dropped: the lesson changed while it waited", Path(key[1]).name)
+            return {"opened": False, "deferred": True, "cancelled": True}
         return go()
 
     if not background:

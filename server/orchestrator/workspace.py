@@ -24,6 +24,9 @@ log = logging.getLogger("orchestrator.workspace")
 
 VSCODE_APP = "Visual Studio Code"
 BUNDLED_CLI = "/Applications/Visual Studio Code.app/Contents/Resources/app/bin/code"
+# L5: a "Just teach me" lesson's automatic open waits at most this long while Miyagi is the active app (the learner
+# stays in Miyagi's drawer, so "until they leave Miyagi" never came); after it only typing / clicking holds it.
+LESSON_MIYAGI_WAIT_S = float(os.environ.get("ORCH_LESSON_OPEN_GRACE_S", "3"))
 
 
 def code_cli() -> str | None:
@@ -351,19 +354,23 @@ class Workspace:
     def _guarded(self, ws) -> bool:
         return hasattr(ws, "editor") and hasattr(ws.editor, "open_lesson_editor")
 
-    def open(self, workdir: str, force: bool = False, full: bool = False, explicit: bool = False) -> None:
+    def open(self, workdir: str, force: bool = False, full: bool = False, explicit: bool = False,
+             file: str | None = None, busy=None, cancelled=None) -> None:
         """force: open even though auto-open (ORCH_OPEN_WORKSPACE) is off. full: "Just teach me" (the editor fills the
         screen). explicit: the learner pressed "Open VS Code" (may bring an already-open window forward).
         S2 opens the folder AT MOST ONCE per lesson + folder (`code <folder>`, never `-n`), arranges once, and an
-        automatic open waits until the learner isn't in Miyagi's launcher/cards or typing."""
+        automatic open waits until the learner isn't in Miyagi's launcher/cards or typing.
+        file (L2): the file to show, the step's own; None = S2's starter pick (open_file_for, e.g. README.md).
+        busy / cancelled (L5, real windows only): what holds an automatic open and what drops it (a newer lesson)."""
         if not (self.enabled or force) or (self.blocked and not explicit) or not Path(workdir).is_dir():
             return
         ws = _s2()
         if ws is not None and self._guarded(ws):
             real = self.run == self._spawn  # tests inject a runner: never touch real windows or real focus
+            holds = {"busy": busy, "cancelled": cancelled, "miyagi_wait_s": LESSON_MIYAGI_WAIT_S if full else None}
             ws.editor.open_lesson_editor(
-                workdir, ws.open_file_for(Path(workdir)), lesson_id=self._key(), fullscreen=full and real,
-                explicit=explicit, runner=None if (real and not full) else self.run,
+                workdir, file or ws.open_file_for(Path(workdir)), lesson_id=self._key(), fullscreen=full and real,
+                explicit=explicit, runner=None if (real and not full) else self.run, **(holds if real else {}),
                 **({} if real else {"focus": lambda: None, "background": False, "arrange_windows": False,
                                      "trusted": lambda: False, "previous": None, "windows": lambda: []}))
             self.opened = workdir
@@ -373,7 +380,7 @@ class Workspace:
         self.opened = workdir
         if ws is not None:
             runner = None if self.run == self._spawn else self.run
-            ok = ws.open_editor(workdir, ws.open_file_for(Path(workdir)), runner=runner)
+            ok = ws.open_editor(workdir, file or ws.open_file_for(Path(workdir)), runner=runner)
             log.info("opened workspace %s in VS Code: %s", workdir, ok)
             return
         ok = False
