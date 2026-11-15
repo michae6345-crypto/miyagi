@@ -308,11 +308,36 @@ function gate(end: number): void {
   sync(true)
 }
 
+/**
+ * Where the lesson's video ends for us: the last step's clip end (Michael's desktop test 12). Past it YouTube shows its
+ * end screen with a suggested video, which invites the learner to leave. Only once the last step is the current one.
+ */
+function lessonEnd(): number | undefined {
+  const s = useLesson.getState()
+  const withVideo = s.steps.filter((x) => x.video)
+  const last = withVideo[withVideo.length - 1]
+  if (!last?.video || s.stepId !== last.id) return undefined
+  if (resolveVideoId(last.video.videoId) !== loadedId) return undefined
+  return last.video.end
+}
+
+/** Stop at the lesson's end, before YouTube's end screen: paused like 'ended'. */
+function stopAtEnd(end: number): void {
+  if (!yt) return
+  want = { ...want, t: end, play: false }
+  clearTimeout(autoplayTimer)
+  yt.pauseVideo()
+  setUi({ pausedBy: 'ended' })
+  sync(true)
+}
+
 function tick(): void {
   if (!yt || !ready) return
   const t = now()
   const h = holdPoint()
   if (h && isRolling(state()) && inGate(t)) return gate(h.end)
+  const e = h ? undefined : lessonEnd()
+  if (e !== undefined && !excursion && isRolling(state()) && t >= e - GATE_EPS && t < e + GATE_ZONE) return stopAtEnd(e)
   const s = usePlayer.getState()
   if (Math.abs(s.t - t) > 0.04 || !s.duration) sync()
 }

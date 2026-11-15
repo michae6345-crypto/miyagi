@@ -8,6 +8,7 @@
  * and body. Every number comes from the engine's card or its network diagrams; a piece without data is left out.
  */
 import { AnimatePresence, motion } from 'motion/react'
+import { Check } from 'lucide-react'
 import { useMemo, useState, type ReactNode } from 'react'
 import { CloseButton, CodeText, Spinner } from '../../core/ui/atoms'
 import { color, fill } from '../../core/theme'
@@ -84,7 +85,12 @@ function NetworkColumn({ net, trained, w }: { net: Net; trained?: Net; w: number
   )
 }
 
-/** One skill: a quiet fill when mastered; "learning" (typed for the learner) is fainter with no fill. */
+/** Glue a short last word to the one before it, so "…and skipped 1." never leaves "1." alone on a line (Michael, test 12). */
+function keepLastWord(text: string): string {
+  return text.replace(/ (\S{1,8})\s*$/, ' $1')
+}
+
+/** One skill: a quiet fill when mastered (with a green check); "learning" (typed for the learner) is fainter with no fill. */
 function Skill({ node, on, onClick }: { node: SkillNode; on: boolean; onClick: () => void }): ReactNode {
   const learning = node.state === 'learning'
   const rest = learning ? fill.clear : fill.chip
@@ -94,7 +100,7 @@ function Skill({ node, on, onClick }: { node: SkillNode; on: boolean; onClick: (
       data-skill={node.id}
       data-skill-state={node.state}
       aria-pressed={on}
-      className="h-[32px] cursor-pointer whitespace-nowrap rounded-full px-[14px] text-[14px] leading-[32px]"
+      className="flex h-[32px] cursor-pointer items-center gap-[6px] whitespace-nowrap rounded-full px-[14px] text-[14px] leading-[32px]"
       style={{ color: on ? color.text : learning ? color.faint : fill.chipText, boxShadow: learning ? `inset 0 0 0 1px ${fill.chipBorder}` : undefined }}
       initial={false}
       animate={{ backgroundColor: on ? fill.chipHover : rest }}
@@ -103,6 +109,8 @@ function Skill({ node, on, onClick }: { node: SkillNode; on: boolean; onClick: (
       onMouseDown={(e) => e.preventDefault()}
       onClick={onClick}
     >
+      {/* Passed steps carry a green check (green = passed), so they read apart from the dimmed skipped one (Michael, test 12). */}
+      {node.state === 'mastered' && <Check size={13} strokeWidth={2.4} style={{ color: color.green }} aria-hidden />}
       {node.label}
     </motion.button>
   )
@@ -160,8 +168,8 @@ function Skills({ card, center }: { card: CompleteCard; center: boolean }): Reac
       {/* The engine's body ("6 of 7 steps, 1 skipped", the result) when it sends one; the mastered count only
           without it, since it overclaims a skipped step (Michael, test 10). */}
       {card.body ? (
-        <div className="mt-[6px] text-[15px] leading-[21px]" style={{ color: color.label, ...tab }}>
-          <CodeText text={card.body} />
+        <div className="mt-[6px] text-[15px] leading-[21px]" style={{ color: color.label, textWrap: 'pretty', ...tab }}>
+          <CodeText text={keepLastWord(card.body)} />
         </div>
       ) : (
         mastered > 0 && (

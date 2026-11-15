@@ -70,12 +70,17 @@ function spotFor(root: HTMLElement, layout: Layout): Spot | undefined {
   // Electron it's its own window, so the overlay DOM can't see it: use the player's own dock math, like the spotlight
   // caption does. A "Just teach me" lesson has no player.
   const lesson = useLesson.getState().lesson
-  if (lesson && lesson.mode !== 'lesson') {
+  const video = !!lesson && lesson.mode !== 'lesson'
+  if (video) {
     const d = dockRect(layout.workArea)
     avoid.push({ x: d.x, y: d.y, w: d.width, h: d.height })
   }
   const blocked = (gx: number): boolean =>
     gx < 0 || gx + SIZE > root.offsetWidth || avoid.some((a) => intersects({ x: gx, y: top, w: SIZE, h: SIZE }, a))
+  // Video lessons: the gear stays LEFT of the pill. On the right it hit the docked player whenever a long step title
+  // widened the pill, so it switched sides between steps (Michael's desktop test 12, item 5: left at 8:56:40, right at
+  // 8:57:47). Other lessons keep it on the right.
+  if (video) return { x: blocked(left) && !blocked(right) ? right : left, y: top, visible }
   return { x: blocked(right) && !blocked(left) ? left : right, y: top, visible }
 }
 

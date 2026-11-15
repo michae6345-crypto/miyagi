@@ -548,6 +548,10 @@ onMessage('step.passed', (p) => {
   set({ offtrackOpen: false, fixing: false, resume: false })
   if (!recovered || p.skipped || (p as typeof p & { already?: boolean }).already) return // already: done before, quietly
   const lesson = useLesson.getState()
+  // Video lessons: every step's pass reads the same, the pill's check plus the player's passed beat. The "Step N done"
+  // card only came after a recovered Not yet, so step 2 got a card and steps 3-7 a check, and the card sat on the cell
+  // (Michael's desktop test 12, items 2 and 4). "Just teach me" lessons keep it.
+  if (lesson.lesson && lesson.lesson.mode !== 'lesson') return
   const index = lesson.steps.findIndex((x) => x.id === p.stepId)
   const summary = (p as typeof p & { summary?: string }).summary
   set({ success: { index, total: lesson.steps.length, summary, checks: lesson.checks, at: Date.now(), since: offtrackSeq } })
