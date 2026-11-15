@@ -34,6 +34,72 @@
         "body": "if runs its indented lines only when its condition is true. elif tries the next condition, and else catches everything that matched nothing above.",
         "code": "if op == \"+\":\n    print(\"plus\")\nelse:\n    print(\"something else\")"
       }
+    ],
+    "build": {
+      "summary": "A calculator that runs in your terminal and adds, subtracts, multiplies or divides two numbers.",
+      "outcome": "Run it, type 8, / and 2, and it prints Result: 4.0. Dividing by zero raises a clear error.",
+      "estMinutes": 22
+    },
+    "flow": [
+      {
+        "label": "Read input",
+        "detail": "float(input())",
+        "stepIndex": 5
+      },
+      {
+        "label": "Pick operation",
+        "detail": "if op == \"+\"",
+        "stepIndex": 6
+      },
+      {
+        "label": "Four operations",
+        "detail": "a + b, a - b, a * b, a / b",
+        "stepIndex": 3
+      },
+      {
+        "label": "Zero guard",
+        "detail": "if b == 0",
+        "stepIndex": 4
+      },
+      {
+        "label": "Print result",
+        "detail": "print(f\"Result: ...\")",
+        "stepIndex": 6
+      }
+    ],
+    "prerequisites": [
+      {
+        "id": "using-a-terminal",
+        "title": "Using a terminal",
+        "why": "You run calculator.py by typing one command in the terminal.",
+        "status": "unknown"
+      },
+      {
+        "id": "python-variables",
+        "title": "Python variables",
+        "why": "first, op and second hold what the user typed.",
+        "status": "unknown"
+      },
+      {
+        "id": "math-operators",
+        "title": "Math operators",
+        "why": "+, -, * and / do the four calculations.",
+        "status": "unknown"
+      }
+    ],
+    "learnFirst": [
+      {
+        "title": "Terminal basics",
+        "minutes": 4,
+        "kind": "read",
+        "covers": "using-a-terminal"
+      },
+      {
+        "title": "Python variables",
+        "minutes": 5,
+        "kind": "interactive",
+        "covers": "python-variables"
+      }
     ]
   },
   "sources": [],
@@ -110,7 +176,8 @@
         "Not indenting return a + b, which gives an IndentationError.",
         "Indenting the print line, which puts it inside add where it never runs.",
         "Forgetting to save, so the terminal runs the old, empty file."
-      ]
+      ],
+      "estMinutes": 3
     },
     {
       "id": "s2",
@@ -169,7 +236,8 @@
         "Typing python instead of python3: this Mac only has python3.",
         "Running before saving, so nothing prints.",
         "Running from another folder, which gives No such file or directory."
-      ]
+      ],
+      "estMinutes": 1
     },
     {
       "id": "s3",
@@ -249,7 +317,8 @@
         "Typing b - a or b / a: keep a on the left.",
         "Missing the colon after (a, b) or the indent under def.",
         "Adding a zero check to divide now: that comes in the next step."
-      ]
+      ],
+      "estMinutes": 4
     },
     {
       "id": "s4",
@@ -316,7 +385,8 @@
         "Putting the check below return a / b, where it never runs.",
         "Forgetting the colon after if b == 0.",
         "Indenting raise at the same level as if, so it always runs."
-      ]
+      ],
+      "estMinutes": 2
     },
     {
       "id": "s5",
@@ -390,7 +460,8 @@
         "Forgetting the parentheses or the colon in def main():.",
         "Wrapping the operator in float(), which fails on +.",
         "Missing a closing parenthesis in float(input(...)), a SyntaxError."
-      ]
+      ],
+      "estMinutes": 4
     },
     {
       "id": "s6",
@@ -464,7 +535,8 @@
         "Writing op == + without quotes, a SyntaxError.",
         "Using = instead of == in a comparison.",
         "Indenting the Result print under else, so it never prints a result."
-      ]
+      ],
+      "estMinutes": 4
     },
     {
       "id": "s7",
@@ -523,7 +595,8 @@
         "Indenting the if line, which puts it inside main() where it never runs.",
         "Writing \"main\" without the underscores.",
         "Leaving main() unindented, so it runs outside the guard."
-      ]
+      ],
+      "estMinutes": 2
     },
     {
       "id": "s8",
@@ -583,7 +656,8 @@
         "Typing all three answers on one line instead of pressing Enter after each.",
         "Typing divide instead of the / symbol, which prints Unknown operator.",
         "Running before saving, so the old file runs and nothing is asked."
-      ]
+      ],
+      "estMinutes": 2
     }
   ],
   "build": {
@@ -616,6 +690,6 @@
         }
       }
     },
-    "note": "Hand-repaired after the Nov 14 desktop QA, no model call: whole check labels, one new piece of code per step (no step re-types an earlier one), code and run steps apart, a unique anchor per step whose caption is the step's action, python3, plus overview, primer, kind, what and why."
+    "note": "Hand-repaired after the Nov 14 desktop QA, no model call: whole check labels, one new piece of code per step (no step re-types an earlier one), code and run steps apart, a unique anchor per step whose caption is the step's action, python3, plus overview, primer, kind, what and why. Learn-anything fields (build, flow, prerequisites, learnFirst, step estMinutes) hand-written the same way."
   }
 }

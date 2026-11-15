@@ -46,10 +46,25 @@ PLAN_SCHEMA = {
         "steps": {"type": "array", "items": {"type": "object", "properties": {
             "title": {"type": "string"}, "instructions": {"type": "string"}, "file": {"type": "string"},
             "what": {"type": "string"}, "why": {"type": "string"},
-            "concepts": {"type": "array", "items": {"type": "integer"}, "description": "1-based numbers of the primer concepts this step uses"}},
-            "required": ["title", "instructions", "file", "what", "why", "concepts"]}},
+            "concepts": {"type": "array", "items": {"type": "integer"}, "description": "1-based numbers of the primer concepts this step uses"},
+            "estMinutes": {"type": "integer", "description": "whole minutes a beginner needs for this step"}},
+            "required": ["title", "instructions", "file", "what", "why", "concepts", "estMinutes"]}},
+        # learn-anything screens (drawer v2, "Before you start"): same call, no extra model call
+        "build": {"type": "object", "properties": {"summary": {"type": "string"}, "outcome": {"type": "string"}},
+                  "required": ["summary", "outcome"]},
+        "flow": {"type": "array", "description": "3-6 boxes of a 'how it works' diagram", "items": {"type": "object", "properties": {
+            "label": {"type": "string"}, "detail": {"type": "string"},
+            "step": {"type": "integer", "description": "1-based number of the step that builds this box, 0 if none"}},
+            "required": ["label", "detail", "step"]}},
+        "prerequisites": {"type": "array", "items": {"type": "object", "properties": {
+            "title": {"type": "string"}, "why": {"type": "string"}}, "required": ["title", "why"]}},
+        "learnFirst": {"type": "array", "items": {"type": "object", "properties": {
+            "title": {"type": "string"}, "minutes": {"type": "integer"},
+            "kind": {"type": "string", "enum": ["notebook", "interactive", "video", "read"]},
+            "covers": {"type": "integer", "description": "1-based number of the prerequisite it teaches"}},
+            "required": ["title", "minutes", "kind", "covers"]}},
     },
-    "required": ["title", "overview", "libraries", "primer", "steps"],
+    "required": ["title", "overview", "libraries", "primer", "steps", "build", "flow", "prerequisites", "learnFirst"],
 }
 
 STEP_SCHEMA = {
@@ -101,7 +116,17 @@ Also teach the ideas, in plain words for a complete beginner:
   "Running a .py file"): title <= 6 words; body <= 40 words, no jargon; code: a tiny example (1-3 lines);
   diagramPrompt: one sentence describing a picture that would help, or "" if none would.
 - per step: what (<= 12 words: the plan line for this step, e.g. "A list that holds your notes"),
-  why (<= 25 words: what this part does in the app), concepts (numbers of the primer concepts it uses).
+  why (<= 25 words: what this part does in the app), concepts (numbers of the primer concepts it uses),
+  estMinutes (whole minutes a beginner needs for the step, typing included; usually 2-8).
+- build: summary (<= 20 words: what the learner will build, e.g. "A calculator that runs in your terminal"),
+  outcome (<= 25 words: what the finished program does when you run it, e.g. "Type 8, / and 2 and it prints 4.0").
+- flow: 3-6 boxes of a "how it works" diagram, left to right, following how the finished program works: label
+  (<= 3 words), detail (a formula, a key call or <= 4 words, e.g. "float(input())" or "max(0, N·L)"), step (the
+  number of the step that builds that box, or 0).
+- prerequisites: 2-5 things the learner should already know before step 1, not what this lesson teaches: title
+  (<= 4 words, e.g. "Python functions"), why (<= 12 words: where this lesson relies on it).
+- learnFirst: 0-3 short mini-lessons for the prerequisites a beginner most likely lacks: title, minutes (2-10),
+  kind (notebook, interactive, video or read), covers (the number of the prerequisite it teaches).
 title: imperative, <= 6 words; instructions: ONE imperative sentence, at most 10 words, no parentheses; say
 "terminal" only for commands and name the file only for code ("Add an add function to calculator.py.",
 "Run your calculator in the terminal."); file: the file the step edits (relative path), or "" for a
@@ -204,6 +229,9 @@ async def build_text_lesson(goal: str, workdir: str, on_update=None, *, cache: b
     overview = _words(plan.get("overview") or "", 60)
     steps_plan = order_plan(plan["steps"])
     overview = overview or overview_fallback(plan.get("title") or goal, steps_plan)  # the drawer always has one
+    build = make_build(plan.get("build") or {}, steps_plan)
+    flow = make_flow(plan.get("flow") or [], plan["steps"], steps_plan)  # step numbers -> the reordered plan
+    prereqs, learn_first = make_needs(plan.get("prerequisites") or [], plan.get("learnFirst") or [])
     outline = "; ".join(f"{i}. {s['title']}" for i, s in enumerate(steps_plan, 1))
     libs = {lb["name"]: lb.get("version", "") for lb in plan.get("libraries") or [] if lb.get("name")}
     done: list[dict] = []  # steps in order (a plan step may become two: code, then run)
@@ -213,11 +241,20 @@ async def build_text_lesson(goal: str, workdir: str, on_update=None, *, cache: b
 
     def graph_now(complete: bool) -> dict:
         ordered = json.loads(json.dumps(done))
+        first = {}  # plan step number -> the index of its first built step (a plan step may become code + run)
         for k, st in enumerate(ordered, 1):
+            if m := re.match(r"s(\d+)", st["id"]):
+                first.setdefault(int(m.group(1)), k)
             _renumber(st, k)
+        b = dict(build)
+        if complete and b and all(st.get("estMinutes") for st in ordered):
+            b["estMinutes"] = sum(st["estMinutes"] for st in ordered)  # exactly the steps' estimates added up
+        boxes = [dict({k: v for k, v in x.items() if k != "step"}, **({"stepIndex": first[x["step"]]} if x.get("step") in first else {}))
+                 for x in flow]  # stepIndex = the built step's index (1-based, as StepSummary.index)
+        needs = {"build": b, "flow": boxes, "prerequisites": prereqs, "learnFirst": learn_first}
         g = {"lesson": {"id": f"lesson-{key[5:13]}", "title": plan.get("title") or goal, "goal": goal, "workdir": workdir,
                         "libraries": libs, "mode": "lesson", "complete": complete, "builtBy": "claude", "primer": primer,
-                        **({"overview": overview} if overview else {})},
+                        **({"overview": overview} if overview else {}), **{k: v for k, v in needs.items() if v}},
              "sources": [{"id": f"src{i}", "kind": "repo" if "github.com/" in s["url"] else "blog", "title": s["title"][:200], "url": s["url"]}
                          for i, s in enumerate(sources, 1)],
              "steps": ordered,
@@ -274,8 +311,9 @@ async def build_text_lesson(goal: str, workdir: str, on_update=None, *, cache: b
         st = _assemble_step(i, sp, d)
         st["expected_output"] = (d.get("expected_output") or "").strip()
         out = []
-        for part in split_code_and_run(sanitize_step(st, workdir)):
-            part = explain_step(shape_step(use_python3(part)), sp, primer)
+        parts = split_code_and_run(sanitize_step(st, workdir))
+        for part in parts:
+            part = explain_step(shape_step(use_python3(part)), sp, primer, len(parts))
             if not _is_run_step(part):
                 f = part.get("file") or ""
                 before = state.get(f, "")
@@ -700,9 +738,11 @@ def step_kind(st: dict) -> str:
 _RUN_CONCEPT = re.compile(r"\b(run|running|terminal|command|execute)", re.I)
 
 
-def explain_step(st: dict, sp: dict, primer: list[dict]) -> dict:
-    """kind / what (<= 12 words) / why (<= 25 words) / concepts (primer ids) on every step."""
+def explain_step(st: dict, sp: dict, primer: list[dict], parts: int = 1) -> dict:
+    """kind / what (<= 12 words) / why (<= 25 words) / concepts (primer ids) / estMinutes on every step."""
     st["kind"] = step_kind(st)
+    if est := _minutes(sp.get("estMinutes")):  # the plan's estimate; split into code + run, the run part takes 1 min of it
+        st["estMinutes"] = est if parts < 2 else 1 if st["kind"] == "run" else max(1, est - 1)
     ids = [p["id"] for p in primer]
     if st["kind"] == "run":  # a run step split off a code step: its own plain explanation
         prog = _noun(st.get("file") or "")
@@ -770,3 +810,69 @@ def fill_missing(g: dict) -> dict:
         if not (st.get("why") or "").strip():
             st["why"] = _WHY_RUN if _is_run_step(st) else WHY_FALLBACK
     return g
+
+
+# --------------------------------------------------------------------------- #
+# Learn-anything screens (mockups 01 drawer v2, 03 "Before you start"): build / flow / prerequisites / learnFirst /
+# estMinutes, from the same plan call. Prerequisite status is "unknown" here; the orchestrator marks "passed" from
+# the lessons finished on this Mac (server/sessions/store.prerequisite_status) when it sends lesson.ready.
+# --------------------------------------------------------------------------- #
+_FORMULA = re.compile(r"[=+*/()·²³^<>×÷−\[\]]")
+LEARN_KINDS = ("notebook", "interactive", "video", "read")
+
+
+def _minutes(v, hi: int = 30) -> int | None:
+    try:
+        m = int(round(float(v)))
+    except (TypeError, ValueError, OverflowError):
+        return None
+    return min(hi, m) if m >= 1 else None
+
+
+def make_build(raw: dict, steps_plan: list[dict]) -> dict:
+    summary, outcome = _words(raw.get("summary") or "", 20), _words(raw.get("outcome") or "", 25)
+    if not summary or not outcome:
+        return {}
+    est = [_minutes(sp.get("estMinutes")) for sp in steps_plan]
+    return {"summary": summary, "outcome": outcome, **({"estMinutes": sum(est)} if est and all(est) else {})}
+
+
+def make_flow(items: list[dict], plan_steps: list[dict], steps_plan: list[dict]) -> list[dict]:
+    """3-6 boxes; `step` is renumbered from the model's plan to the reordered plan (order_plan), 0/absent = none."""
+    out = []
+    for it in items[:6]:
+        label = _short_title(it.get("label") or "", 3)
+        if not label:
+            continue
+        box = {"label": label}
+        d = " ".join((it.get("detail") or "").split())
+        if d:
+            box["detail"] = d[:40] if _FORMULA.search(d) else _short_title(d, 4)
+        n = it.get("step")
+        if isinstance(n, int) and 1 <= n <= len(plan_steps):
+            moved = next((k for k, sp in enumerate(steps_plan, 1) if sp is plan_steps[n - 1]), None)
+            if moved:
+                box["step"] = moved
+        out.append(box)
+    return out if len(out) >= 3 else []
+
+
+def make_needs(raw_prereqs: list[dict], raw_learn: list[dict]) -> tuple[list[dict], list[dict]]:
+    prereqs, ids = [], {}  # ids: the model's prerequisite number -> our id
+    for n, it in enumerate(raw_prereqs[:5], 1):
+        title, why = _short_title(it.get("title") or "", 4), _words(it.get("why") or "", 12)
+        if not title or not why:
+            continue
+        pid = base = re.sub(r"[^a-z0-9]+", "-", title.lower()).strip("-") or f"need{n}"
+        k = 2
+        while pid in ids.values():
+            pid, k = f"{base}-{k}", k + 1
+        ids[n] = pid
+        prereqs.append({"id": pid, "title": title, "why": why, "status": "unknown"})
+    learn = []
+    for it in raw_learn[:3]:
+        title = _short_title(it.get("title") or "", 6)
+        if title and it.get("covers") in ids:
+            learn.append({"title": title, "minutes": _minutes(it.get("minutes"), 15) or 5,
+                          "kind": it.get("kind") if it.get("kind") in LEARN_KINDS else "read", "covers": ids[it["covers"]]})
+    return prereqs, learn
