@@ -19,7 +19,9 @@ Sources, best first (each field independently):
 from __future__ import annotations
 
 import re
+import time
 from dataclasses import dataclass, field
+from pathlib import Path, PurePath
 
 from . import match as M
 from .lines import EDITOR_APPS
@@ -220,15 +222,43 @@ def _is_editor(app: str | None) -> bool:
     return M._norm_app(app) in _EDITOR_NAMES     # exact: "Xcode" is not "Code"
 
 
+_NOT_FOLDERS = {"Welcome", "Get Started", "Settings", "Extensions", "Keyboard Shortcuts", "Release Notes"}
+_SUBDIRS: dict[str, tuple[float, set[str]]] = {}
+
+
+def _subfolders(folder: str) -> set[str]:
+    """The (alnum) names of the folders up to 2 levels inside `folder`: create-react-app's demo-app/, the downloaded
+    tutorial/. Cached 5 s (the reader asks every frame; a folder made mid-lesson still shows up)."""
+    now = time.monotonic()
+    hit = _SUBDIRS.get(folder)
+    if hit is not None and now - hit[0] < 5.0:
+        return hit[1]
+    try:
+        names = {_alnum(p.name) for pat in ("*", "*/*") for p in Path(folder).glob(pat) if p.is_dir()} \
+            if Path(folder).is_absolute() else set()
+    except OSError:
+        names = set()
+    _SUBDIRS.clear()   # one lesson at a time
+    _SUBDIRS[folder] = (now, names)
+    return names
+
+
 def is_foreign(w: Window, folder: str | None) -> bool:
-    """A VS Code/Cursor window whose title names a folder and NOT `folder` (the lesson's folder, a name or a path):
-    "requirements.txt — fine-tune-llm-…" while the lesson is python-calculator-e430dc. A title that names no folder
-    (custom window.title, a lone file) is never foreign: when in doubt the window counts."""
-    if not folder or not _is_editor(w.app) or not parse_title(w.title)[1]:
+    """A VS Code/Cursor window on ANOTHER project than the lesson's (`folder`: its path, or a name): its title names a
+    folder that is not the lesson folder, a folder above it or one up to 2 levels inside it ("requirements.txt —
+    fine-tune-llm-…" while the lesson is python-calculator-e430dc). The same rule as server.coach.screen.other_project.
+    A title that names no folder (custom window.title, a lone file, Untitled-1, Welcome) is never foreign: when in
+    doubt the window counts."""
+    name = parse_title(w.title or "")[1] if folder and _is_editor(w.app) else None
+    if not name or name.startswith("Untitled") or name in _NOT_FOLDERS:
         return False
     want = _alnum(str(folder).rstrip("/").split("/")[-1])
     parts = [_alnum(p.split("[")[0]) for p in _TITLE_SEP.split(_strip_dirty(w.title or "")[0])]
-    return bool(want) and not any(want in p for p in parts)   # "in": a custom title may show the folder's path
+    if not want or any(want in p for p in parts):   # "in": a custom title may show the folder's path
+        return False
+    got = _alnum(name)
+    return bool(got) and got not in {_alnum(p) for p in PurePath(str(folder)).parts} \
+        and got not in _subfolders(str(folder))
 
 
 def window_shown(app: str | None, title: str | None, windows: list[Window]) -> bool:

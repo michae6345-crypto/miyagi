@@ -747,7 +747,8 @@ class ScreenReader:
             from .vscode import scope_to_folder
             with self._lock:
                 folder = self._lesson_folder
-            blocks, shown, foreign, foreign_rects = scope_to_folder(blocks, windows, folder)
+            blocks, shown, foreign, foreign_rects = scope_to_folder(  # fixture frames (DEMO fallback) are never scoped
+                blocks, windows, folder if source == "live" else None)
             self._frame += 1
             obs = ScreenObservation(t=time.time(), app=fixture_app or macos.frontmost_app(windows),
                                     windows=shown, blocks=blocks, screen=screen, scale=scale,

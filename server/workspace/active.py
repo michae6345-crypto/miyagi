@@ -185,6 +185,19 @@ def _names_folder(name: str | None) -> bool:
     return bool(n) and n not in _NOT_FOLDERS and not n.startswith("Untitled") and not re.search(r"\.[A-Za-z0-9]{1,6}$", n)
 
 
+def _in_project(name: str, lesson: Path) -> bool:
+    """A window title's folder `name` is the lesson's project: the lesson folder ("in": a custom window.title may show
+    its path), a folder above it, or one up to 2 levels inside it (create-react-app's demo-app/). The same rule as
+    E6's server.screen.vscode.is_foreign and the coach's other_project."""
+    n = name.split("[")[0].strip()   # "folder [SSH: host]"
+    if lesson.name in n or n in lesson.parts:
+        return True
+    try:
+        return any(p.name == n for pat in ("*", "*/*") for p in lesson.glob(pat) if p.is_dir())
+    except OSError:
+        return False
+
+
 def wrong_folder(lesson_folder: str | Path, lesson_files: Iterable[str] | None = None, *,
                  active: dict | None = None, titles: Iterable[str] | None = None,
                  window_check: bool = False) -> dict | None:
@@ -203,17 +216,21 @@ def wrong_folder(lesson_folder: str | Path, lesson_files: Iterable[str] | None =
     if not act:
         return None
     lesson = Path(lesson_folder).expanduser().resolve()
-    if act.get("folder") and (Path(act["folder"]).resolve() == lesson or lesson in Path(act["folder"]).resolve().parents):
+    folder = Path(act["folder"]).resolve() if act.get("folder") else None
+    if folder and (folder == lesson or lesson in folder.parents):
         return None
-    if not act.get("folder") and act.get("folder_name") and lesson.name in act["folder_name"]:
-        return None  # "in": a custom window.title may show the folder's path
+    if act.get("path") and lesson in Path(act["path"]).resolve().parents:
+        return None  # a file of the lesson's own folder (AX / the extension: in a window on a folder above it)
+    if not folder and act.get("folder_name") and _in_project(act["folder_name"], lesson):
+        return None
     if lesson_files is None:
         names = {p.name for p in lesson.rglob("*") if p.is_file() and not (set(p.relative_to(lesson).parts) & SKIP_DIRS)} \
             if lesson.is_dir() else set()
     else:
         names = {Path(f).name for f in lesson_files if f}
     same_file = bool(act.get("file")) and act["file"] in names
-    if not same_file and not (window_check and _names_folder(act.get("folder_name"))):
+    if not same_file and not (window_check and _names_folder(act.get("folder_name"))
+                              and not (folder and folder in lesson.parents)):   # a window on a folder above the lesson
         return None
     learner = act.get("folder")
     return {"learner_folder": learner, "learner_folder_name": act.get("folder_name"), "lesson_folder": str(lesson),

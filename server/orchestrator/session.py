@@ -370,6 +370,8 @@ class LessonSession:
         self._wrong_folder: dict | None = None  # S2's wrong_folder(): the learner edits the file in another folder
         self._wf_t = -1e9
         self._wf_since: float | None = None  # since when another folder's VS Code window has been the one on screen
+        self._wf_step: dict | None = None  # ... on this step
+        self._wf_recheck: int | None = None  # step_gen of the pending re-check (a still screen sends no frames)
         self._spot_caption: str | None = None
         self._spot_t = -1e9
         self._spot_misses = 0
@@ -1948,7 +1950,7 @@ class LessonSession:
             if gate.get("passed") and gate.get("via") != shown_list:  # green by the other route: show it green
                 why = "confirmed by your files" if gate.get("via") == "precision" else "confirmed on screen"
                 results = [r if r.get("status") == "pass" else {**r, "status": "pass", "detail": why} for r in results]
-            if gate.get("passed") and (self._dirty_step_file(step) or self._other_folder(step, same_file_only=True)
+            if gate.get("passed") and (self._dirty_step_file(step) or self._other_folder(step)
                                        or (self.lesson_mode and self._file_unready(step))):
                 # the screen shows the code, but it's unsaved / in another folder / not on disk: the file decides
                 gate = {**gate, "passed": False, "via": None}
@@ -3045,11 +3047,11 @@ class LessonSession:
             return Path(file).name
         return None
 
-    def _other_folder(self, step: dict, same_file_only: bool = False) -> str | None:
+    def _other_folder(self, step: dict, any_window: bool = False) -> str | None:
         """VS Code edits the step's file in ANOTHER folder (another lesson's) -> that folder's name. S2's detector
         when present, else the window title ("● calculator.py — other-lesson — Visual Studio Code"). S2 also reports
         another folder's window being the one on screen (reason "other_window", lesson bound to its window): that
-        counts too, unless same_file_only (a pass on the lesson's own files never waits for the window)."""
+        counts only with any_window (the Wrong folder? card; a pass on the lesson's own files never waits for it)."""
         from . import workspace as wsmod
 
         file = Path(self._step_file(step) or step.get("file") or "").name
@@ -3057,7 +3059,7 @@ class LessonSession:
             return None
         if self._s2_wrong_folder_fn() is not None:  # S2's detector (real screen): its cached answer decides
             wf = self._wrong_folder
-            if wf and same_file_only and wf.get("reason") == "other_window":
+            if wf and not any_window and wf.get("reason") == "other_window":
                 return None
             return (wf.get("learner_folder_name") or "another folder") if wf else None
         mine = Path(self.workdir).name
@@ -3088,24 +3090,31 @@ class LessonSession:
         except Exception:  # noqa: BLE001
             log.exception("wrong_folder failed")
             self._wrong_folder = None
-        # another project's VS Code window has been the one on screen for a few seconds (e.g. the lesson window went
-        # to its own Space): say so with Open, without waiting for a failing check to ask the coach
+        # another project's VS Code window has been the one in front for a few seconds (e.g. the lesson window went
+        # to its own Space): say so with Open, without waiting for a failing check to ask the coach. Only while VS Code
+        # is the front app: a window left behind the browser the learner reads in is not where they work.
         if ((self._wrong_folder or {}).get("reason") != "other_window" or self.step is not step or self.passed
-                or self.awaiting_resume or not (self.lesson_mode or self.segment_done)):
+                or self.awaiting_resume or not (self.lesson_mode or self.segment_done)
+                or (getattr(self.last_obs, "app", "") or "").strip().lower() not in CODE_APP_NAMES):
             self._wf_since = None
-        elif self._wf_since is None:
-            self._wf_since = self.clock()
-            gen = self.step_gen
-
-            async def again() -> None:  # a still screen sends no new frames: look again on our own
-                await asyncio.sleep(self.WRONG_WINDOW_S + 0.1)
-                if gen == self.step_gen:
-                    await self._refresh_wrong_folder(step)
-
-            self._spawn(again(), timer=True)
+            return
+        if self._wf_since is None or self._wf_step is not step:  # a new step starts its own count (no carried quiet)
+            self._wf_since, self._wf_step = self.clock(), step
         elif self.clock() - self._wf_since >= self.WRONG_WINDOW_S and self._auto_card_ok():  # not while VS Code opens
             self._wf_since = self.clock() + 120.0  # once; again only if it's still the wrong window 2 min later
             self._editor_state_card(step)
+            return
+        if self._wf_recheck != self.step_gen and self._wf_since <= self.clock():
+            self._wf_recheck = gen = self.step_gen  # one at a time: a still screen sends no new frames, so look again
+            delay = max(self._wf_since + self.WRONG_WINDOW_S - self.clock(), 2.0) + 0.1  # until the card can go out
+
+            async def again() -> None:
+                await asyncio.sleep(delay)
+                if gen == self.step_gen:
+                    self._wf_recheck = None
+                    await self._refresh_wrong_folder(step)
+
+            self._spawn(again(), timer=True)
 
     WRONG_WINDOW_S = 4.0
 
@@ -3142,7 +3151,7 @@ class LessonSession:
     def _editor_state_card(self, step: dict) -> bool:
         """Before any off-track: an unsaved step file -> "Save with ⌘S"; another lesson's folder -> one calm card
         with "Open this lesson's file". -> True when one applies (the caller then stays quiet)."""
-        other = self._other_folder(step)
+        other = self._other_folder(step, any_window=True)
         if other:
             wf = self._wrong_folder or {}
             if wf.get("reason") == "other_window":  # another project's window is the one on screen, any file
