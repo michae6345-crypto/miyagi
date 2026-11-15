@@ -181,8 +181,11 @@ function Video(): ReactNode {
 
   return (
     <div className="relative aspect-video w-full overflow-hidden bg-black" style={{ borderRadius: radius.chip }}>
-      {/* The iframe never takes clicks: every control goes through us, so the gate can't be skipped and YouTube links can't open windows. */}
-      <div ref={host} className="pointer-events-none absolute inset-0" />
+      {/* The iframe never takes clicks: every control goes through us, so the gate can't be skipped and YouTube links can't open windows.
+          It is 128 px taller than the frame and centered (Michael's desktop test 12): the video still fills the frame edge to edge
+          (it fits the width), while YouTube's own chrome (title bar and share button at the top, "More videos" and the logo at the
+          bottom, shown after every seek or resume) lands in the clipped bands. */}
+      <div ref={host} className="pointer-events-none absolute inset-x-0" style={{ top: -64, bottom: -64 }} />
       <button className="absolute inset-0 cursor-pointer" onClick={() => player.toggle()} aria-label="Play or pause" />
       <AnimatePresence>
         {mode === 'waiting' && <Waiting key="waiting" />}
