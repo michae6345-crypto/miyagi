@@ -284,6 +284,7 @@ class LessonSession:
         self.resources: list[dict] = []  # S2: files the video links (download button)
         self.waiting_more = False  # passed the last built step of a long video that's still building
         self.skipped_steps: list[str] = []
+        self._run_redirected: set[str] = set()
         self._parts_building = False  # build_lesson itself is still adding parts (non-lazy long video)
         self._extend_task: asyncio.Task | None = None  # E2 lazy parts: the next part being built
         self._extend_failed = False  # extend raised for this lesson: don't retry on every step
@@ -338,6 +339,7 @@ class LessonSession:
         self.confirm_check_ids: list[str] = []  # E5 judge's "Looks done?": the checks `confirm` passes
         self.judged_pass: set[str] = set()  # checks E5's judge saw done on screen (count as passed)
         self._carded_checks: set[str] = set()  # checks a hint / "Not yet" card already covers (no offtrack too)
+        self._last_card_t = -1e9
         self._offtracked_checks: set[str] = set()  # checks an offtrack already covers (no "Not yet" card too)
         self._judging = False
         self._stuck_card_sent = False
@@ -353,11 +355,16 @@ class LessonSession:
         self.last_offtrack: dict | None = None
         self.spot_track: tuple[str, str | None, str] | None = None  # (match, app, caption) to follow on screen
         self.spot_rect: dict | None = None
+        self._spot_caption: str | None = None
+        self._spot_t = -1e9
+        self._spot_misses = 0
         self.step_gen = getattr(self, "step_gen", 0) + 1  # invalidates stale timers/coach results
 
     async def emit(self, type_: str, payload: dict | None = None) -> None:
         if type_.startswith("video.") and self.lesson_mode:
             return  # "Just teach me": there is no player
+        if type_ == "spotlight" and (payload or {}).get("clear"):
+            self.spot_rect, self._spot_caption = None, None  # the next target box goes out again
         ep = _EPOCH.get()
         if ep is not None and ep != self.lesson_epoch and type_ not in ALWAYS_SENT:
             log.info("dropped stale %s (lesson epoch %s, now %s)", type_, ep, self.lesson_epoch)
@@ -1068,16 +1075,107 @@ class LessonSession:
         file = self._step_file(step)
         return f"Type this in {file}" if file else "Type this here"
 
+    def _typing_step_for_empty_run(self, idx: int) -> tuple[int, str] | None:
+        """A "run it" step must not start while the file it runs is empty: -> (the earlier step that types that
+        file's code, file name), once per run step; None when it's fine."""
+        step = self.steps[idx]
+        cmd = self._run_command(step)
+        if not cmd or step["id"] in self._run_redirected:
+            return None
+        from . import workspace as wsmod
+
+        m = re.search(r"([\w./-]+\.(?:py|js|mjs|ts|rb|go|sh|java))\b", cmd)
+        name = m.group(1) if m else (self._step_file(step) or step.get("file") or "")
+        if not name or not Path(self.workdir).is_dir():
+            return None
+        path = wsmod.resolve_file(self.workdir, name)
+        try:
+            empty = path is None or not path.read_text(errors="replace").strip()
+        except OSError:
+            return None
+        if not empty:
+            return None
+        base = Path(name).name
+        for j in range(idx - 1, -1, -1):
+            prev = self.steps[j]
+            pfile = Path(prev.get("file") or self._step_file(prev) or "").name
+            if pfile == base and (prev.get("code") or "").strip() and not self._run_command(prev):
+                self._run_redirected.add(step["id"])
+                log.info("step %s runs %s but it's empty: back to %s", step["id"], base, prev["id"])
+                return j, base
+        return None
+
+    SHELL_CMD = re.compile(r"^\s*(\$\s*)?(python3?|pip3?|uv|npm|npx|node|yarn|pnpm|git|cd|ls|cargo|go|ruby|bash|sh|"
+                           r"make|pytest|flask|streamlit|jupyter)\b")
+
+    def _run_command(self, step: dict) -> str:
+        """The shell command a "run it" step asks for ('' for a typing step)."""
+        if (step.get("run_command") or "").strip() and not (step.get("code") or "").strip():
+            return step["run_command"].strip()
+        lines = [ln for ln in (step.get("code") or "").splitlines() if ln.strip() and not ln.strip().startswith("#")]
+        if lines and all(self.SHELL_CMD.match(ln) for ln in lines):
+            return "\n".join(ln.strip().lstrip("$ ").strip() for ln in lines)
+        return ""
+
+    def _editor_window(self) -> dict | None:
+        """The VS Code window's rect (screen points), from the latest observation."""
+        for w in getattr(self.last_obs, "windows", None) or []:
+            if (getattr(w, "app", "") or "").lower() in CODE_APP_NAMES:
+                r = w.rect.to_dict() if hasattr(w.rect, "to_dict") else w.rect
+                return {k: float(r[k]) for k in ("x", "y", "w", "h")}
+        return None
+
+    def _terminal_spot(self, step: dict, cmd: str) -> dict:
+        """Run step: box VS Code's integrated terminal panel (its TERMINAL tab or a shell prompt, by OCR); if it
+        isn't open, box the editor area and say how to open it. Never the breadcrumb / tab bar."""
+        win = self._editor_window()
+        snip = {"snippet": cmd[:300]}
+        hit = None
+        if self.screen is not None:
+            for rx in (r"^\s*TERMINAL\b", r"\w+@[\w.-]+.*[%$#]\s*$", r"^\s*(\(\w+\)\s*)?\S*\s*[%$❯]\s*$"):
+                hit = self.screen.locate(rx, None)
+                if hit and (win is None or hit["rect"]["y"] > win["y"] + win["h"] * 0.3):  # the panel is low
+                    break
+                hit = None
+        if hit:
+            t = hit["rect"]
+            if win:
+                rect = {"x": win["x"], "y": t["y"], "w": win["w"], "h": max(60.0, win["y"] + win["h"] - t["y"])}
+            else:
+                rect = {"x": t["x"] - 12.0, "y": t["y"], "w": 700.0, "h": 220.0}
+            return {"rect": rect, "caption": "Run it in the VS Code terminal", "app": "Code", **snip, "kind": "terminal"}
+        if win:
+            area = {"x": win["x"], "y": win["y"] + 70.0, "w": win["w"], "h": max(60.0, win["h"] - 70.0)}
+            return {"rect": area, "caption": "Open the terminal: ⌃`", "app": "Code", **snip, "kind": "editor"}
+        return {}
+
+    SPOT_MOVE_PX = 12.0  # re-send only when the target really moved
+    SPOT_MIN_GAP_S = 2.0
+
     async def _lesson_spot(self, gen: int, step: dict, tries: int = 8) -> None:
-        """Lesson mode, step start: box where to type (the target line), dim the rest, caption + snippet.
-        The editor may still be opening: retry for a few seconds; the tracked target then follows the screen."""
+        """Lesson mode, step start: box where to act and caption it. Run step -> VS Code's terminal panel (or
+        "Open the terminal: ⌃`" over the editor until it's open); type step -> the target line in the file.
+        ONE spotlight once found; the editor may still be opening, so it retries for a few seconds."""
+        cmd = self._run_command(step)
+        if cmd:
+            for _ in range(30):  # ~60 s: upgrade "open the terminal" to the terminal box once it's open
+                if gen != self.step_gen or self.passed:
+                    return
+                spot = self._terminal_spot(step, cmd)
+                kind = spot.pop("kind", None)
+                if spot:
+                    await self._show_spot(spot, steady=True)
+                if kind == "terminal":
+                    return
+                await asyncio.sleep(2.0)
+            return
         for _ in range(max(1, tries)):
             if gen != self.step_gen or self.passed:
                 return
             if await self._spotlight_target(step):
                 return
             if (spot := await self._editor_line_spot(step)) is not None:
-                await self._show_spot(spot)
+                await self._show_spot(spot, steady=True)
                 return
             await asyncio.sleep(1.0)  # no whole-window box: the exact line, or nothing
 
@@ -1195,6 +1293,7 @@ class LessonSession:
         self.runs = {}
         self._extend_failed = False
         self.skipped_steps = []  # ids the learner skipped (S7 saves them apart from passed steps)
+        self._run_redirected: set[str] = set()  # run steps already sent back to their typing step once
         self.judge = self.m.make_step_judge()
         new_wd = str(config.resolve_workdir(graph.get("lesson", {}).get("workdir")))
         self.workdir = new_wd
@@ -1278,6 +1377,9 @@ class LessonSession:
         """seek_to: resume mid-segment (a restored session) instead of from the segment's start."""
         if not (0 <= idx < len(self.steps)):
             return
+        back = self._typing_step_for_empty_run(idx)
+        if back is not None:  # "run calculator.py" while calculator.py is still empty: type it first
+            idx, empty = back
         self.idx = idx
         self.phase = "active"
         self._reset_step_state()
@@ -1319,6 +1421,9 @@ class LessonSession:
                 self.segment_done = True
                 self.segment_end_t = self.clock()
                 await self.evaluate("start")  # already done before the clip: ask "Looks done?" now
+        if back is not None:
+            await self._emit_card({"stepId": step["id"], "kind": "hint", "title": f"{empty} is still empty",
+                                   "body": f"Type this step's code into {empty} first; then we'll run it."})
         await self._maybe_pass_setup_step()
         if self.lesson_mode and not self.passed and self.step is step:
             self._spawn(self._lesson_spot(self.step_gen, step), timer=True)
@@ -1391,30 +1496,57 @@ class LessonSession:
             cap = self._type_caption(step, t) if self.lesson_mode else t.get("caption", "")
             app = None if self.lesson_mode else t.get("app")  # lesson mode: whichever editor they use
             spot = self._locate(t["match"], app, cap)
+            if spot and self._chrome_hit(spot):
+                continue  # a breadcrumb / tab / title-bar hit (e.g. the file name) is not where to type
             if spot:
                 self.spot_track = (t["match"], app, cap)
-                await self._show_spot({**spot, **self._snippet(step)})
+                await self._show_spot({**spot, **self._snippet(step)}, steady=True)
                 return True
         return False
 
-    async def _show_spot(self, spot: dict) -> None:
-        self.spot_rect = spot["rect"]
+    def _chrome_hit(self, spot: dict) -> bool:
+        """Is this match in the editor's chrome (breadcrumb "a > b > c.py", tab bar, title bar) rather than code?"""
+        text = (spot.get("matched") or "").strip()
+        if re.search(r"\s[>›]\s", text):
+            return True
+        if re.fullmatch(r"[\w./-]+\.\w{1,6}( [—–-] .*)?", text):  # just a file name (tab / title)
+            return True
+        win = self._editor_window()
+        return bool(win and self.lesson_mode and spot["rect"]["y"] < win["y"] + 70.0)
+
+    async def _show_spot(self, spot: dict, steady: bool = False) -> None:
+        """steady: the engine's own target box (step start / follow): not re-sent when it hasn't really moved.
+        Coach / button spotlights always go out."""
+        old, r = self.spot_rect, spot["rect"]
+        if (steady and old and spot.get("caption") == self._spot_caption
+                and all(abs(r[k] - old[k]) <= self.SPOT_MOVE_PX for k in ("x", "y", "w", "h"))):
+            return  # the same box again: no re-send (flicker made the overlay feel laggy)
+        self.spot_rect, self._spot_caption, self._spot_t = r, spot.get("caption"), self.clock()
+        self._spot_misses = 0
         await self.emit("spotlight", spot)
 
     async def _follow_spot(self) -> None:
         """On a new frame: move the spotlight with its target (only if it moved > 4pt)."""
         if self.spot_track is None or self.passed or self.step is None:
             return
+        if self.clock() - self._spot_t < self.SPOT_MIN_GAP_S:
+            return  # at most one re-send every 2 s
         match, app, caption = self.spot_track
         spot = self._locate(match, app, caption)
+        if spot and self._chrome_hit(spot):
+            spot = None
         if not spot:
+            self._spot_misses += 1
+            if self.spot_rect is not None and self._spot_misses == 3:  # scrolled out of view (3 frames): clear
+                self.spot_rect, self._spot_caption, self._spot_t = None, None, self.clock()
+                await self.emit("spotlight", {"clear": True})
             return
         r, old = spot["rect"], self.spot_rect
-        if old and all(abs(r[k] - old[k]) <= 4 for k in ("x", "y", "w", "h")):
+        if old and all(abs(r[k] - old[k]) <= self.SPOT_MOVE_PX for k in ("x", "y", "w", "h")):
             return
         if any(t.get("match") == match for t in self.step.get("targets") or []):
             spot = {**spot, **self._snippet(self.step)}  # lesson mode: the step's own target keeps its snippet
-        await self._show_spot(spot)
+        await self._show_spot(spot, steady=True)
 
     async def _pass_step(self, skipped: bool = False) -> None:
         """skipped: the learner pressed Skip (action skip_step): move on, but it's not a pass (never green)."""
@@ -1609,11 +1741,11 @@ class LessonSession:
                 if learner or self.acted_since_step_start():
                     await self._pass_step()
                 elif self.segment_done and not self.confirm_pending:
-                    # the screen says done but we never saw the learner act: ask, don't assert
-                    self.confirm_pending = True
-                    await self.emit("card", {"stepId": step["id"], "kind": "hint", "title": "Looks done?",
-                                             "body": "The checks pass. Confirm and I'll move on.",
-                                             "actions": ["confirm"]})
+                    # the screen says done but we never saw the learner act: ask, don't assert (paced: a later
+                    # frame asks again if it's too early now)
+                    self.confirm_pending = await self._emit_card(
+                        {"stepId": step["id"], "kind": "hint", "title": "Looks done?",
+                         "body": "The checks pass. Confirm and I'll move on.", "actions": ["confirm"]}, auto=True)
                 return
             self.confirm_pending = False
             if failed and trigger in ("file", "run_end"):  # breakpoints
@@ -1634,6 +1766,9 @@ class LessonSession:
             label = r.get("label") or (prev or {}).get("label") or cid
             if prev and prev["status"] == shown and prev.get("detail") == detail:
                 continue
+            if prev and prev["status"] == "pass" and shown != "pass" and (
+                    shown == "pending" or self.clock() - self.step_t0 < self.offtrack_grace_s):
+                continue  # no flip-flop: a pass only turns red for a real failure, after the step's first ~20 s
             if shown in ("pass", "fail") and (not prev or prev["status"] != shown):
                 self._record(f"check_{shown}", {"check_id": cid, "label": label, "detail": detail}, step)
             self.check_state[cid] = {"label": label, "status": shown, "detail": detail}
@@ -1830,7 +1965,7 @@ class LessonSession:
                 self.spoken_sig = None  # a real diagnosis may follow once they've worked on it
                 self._carded_checks |= ids
                 await self._emit_card({"stepId": step["id"], "kind": "hint", "title": card.get("title") or "Start here",
-                                       "body": card.get("body") or step.get("instructions", "")}, window_s=120.0)
+                                       "body": card.get("body") or step.get("instructions", "")}, window_s=120.0, auto=True)
                 await self._status("watching")
                 return
             full = dict(card)
@@ -1849,6 +1984,10 @@ class LessonSession:
             self.ladder = level
             self.last_offtrack = full
             key = (step["id"], level, (full.get("title") or "").strip().lower())
+            if self.clock() - self._last_card_t < self.CARD_GAP_S:  # a card just went up: don't stack another
+                self.spoken_sig = None  # try again on the next trigger
+                await self._status("watching")
+                return
             if level == 2 and ids and ids <= self._carded_checks:
                 log.info("a card already covers %s; no offtrack on top of it", sorted(ids))
                 await self._status("watching")
@@ -1856,6 +1995,7 @@ class LessonSession:
             self._offtracked_checks |= ids
             if key != self._offtrack_key:  # only a NEW card: new step, higher level or a different diagnosis
                 self._offtrack_key = key  # (re-sending the same one reopens a card the learner just closed)
+                self._last_card_t = self.clock()
                 await self.emit("offtrack", shown)
                 self._say("offtrack", shown)
             else:
@@ -2336,17 +2476,31 @@ class LessonSession:
             "offtrack": self.last_offtrack,
         }
 
-    async def _emit_card(self, card: dict, window_s: float = 15.0) -> None:
+    CARD_GAP_S = 8.0  # never two automatic cards within 8 s
+
+    def _auto_card_ok(self) -> bool:
+        """May the engine show a card nobody asked for right now? Not in a step's first ~20 s, never within 8 s
+        of the last card."""
+        now = self.clock()
+        return now - self.step_t0 >= self.offtrack_grace_s and now - self._last_card_t >= self.CARD_GAP_S
+
+    async def _emit_card(self, card: dict, window_s: float = 15.0, auto: bool = False) -> bool:
         """Send a card unless the same one (step + kind + level + title + body) went out moments ago: repeated
-        key presses or overlapping triggers must not stack identical cards."""
+        key presses or overlapping triggers must not stack identical cards. auto: the engine's own initiative
+        (stuck / judge / not-started cards): paced by _auto_card_ok. -> whether it was sent."""
+        if auto and not self._auto_card_ok():
+            log.info("held back auto card %r (too early / too soon after the last)", card.get("title"))
+            return False
         sig = (card.get("stepId"), card.get("kind"), card.get("level"), card.get("title"), card.get("body"))
         now = self.clock()
         last = self._recent_cards.get(sig)
         if last is not None and now - last < window_s:
             log.info("dropped duplicate card %r", card.get("title"))
-            return
+            return False
         self._recent_cards[sig] = now
+        self._last_card_t = now
         await self.emit("card", card)
+        return True
 
     async def _card(self, step: dict, title: str, body: str, kind: str = "hint", **extra: Any) -> None:
         await self.emit("card", {"stepId": step["id"], "kind": kind, "title": title, "body": body, **extra})
@@ -2555,10 +2709,9 @@ class LessonSession:
             await self.evaluate("judge")
         card = j.get("card")
         if card and not self.passed and gen == self.step_gen:
-            if "confirm" in (card.get("actions") or []):
+            if await self._emit_card(card, auto=True) and "confirm" in (card.get("actions") or []):
                 self.confirm_pending = True
                 self.confirm_check_ids = list(card.get("checkIds") or [])
-            await self._emit_card(card)
 
     SETUP_STEP = re.compile(r"\b(install(ing|ation|ed)?|download(ing)?|set\s*-?\s*up|setup)\b", re.I)
 
@@ -2596,9 +2749,9 @@ class LessonSession:
             return
         if self.last_results and all(r.get("status") == "pass" for r in self.last_results):
             return
-        self._stuck_card_sent = True
-        await self._emit_card({"stepId": step["id"], "kind": "hint", "title": "Stuck on this step?",
-                               "body": "Skip it, or ask for a hint.", "actions": ["skip_step"]})
+        self._stuck_card_sent = await self._emit_card({"stepId": step["id"], "kind": "hint", "title": "Stuck on this step?",
+                                                       "body": "Skip it, or ask for a hint.", "actions": ["skip_step"]},
+                                                      auto=True)
 
     async def _type_step_for_them(self, step: dict) -> None:
         """Lesson mode "Do it for me": E5 places the step's code in the file (preview -> confirm -> apply);
