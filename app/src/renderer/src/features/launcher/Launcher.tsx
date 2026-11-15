@@ -285,7 +285,13 @@ export function Launcher({ layout }: { layout: Layout }): ReactNode {
   const listed = view === 'idle' ? 0 : view === 'results' || view === 'searching' ? Math.min(MAX_ROWS, visible.length + skeletons) : 1
   const slots = off + listed
   /** The search for exactly what's typed finished without a video: the lesson row is the default pick. */
-  const noVideo = !visible.length && !search.pending && !!typed && typed === search.query && (view === 'empty' || view === 'error')
+  /**
+   * The search for exactly what's typed ended with no video row: ↵ searches again (an error or offline), unless the
+   * lesson row is picked. Only a real "no videos" answer from a connected engine preselects the lesson row: after an
+   * error or offline it would fail for the same reason.
+   */
+  const retry = !choosing && !!typed && typed === search.query && !results.length && !search.pending
+  const noVideo = retry && view === 'empty' && lesson.connected
   const onLesson = lessonRow && (sel === LESSON || noVideo)
   const selIndex = Math.min(Math.max(0, sel), Math.max(0, visible.length - 1))
   /** During a lesson, with nothing typed: "End lesson" is the first row, highlighted. Typing replaces it. */
@@ -386,6 +392,7 @@ export function Launcher({ layout }: { layout: Layout }): ReactNode {
     const q = query.trim()
     if (!q) return
     if (choosing) return how === 'lesson' ? teach(q) : learn(q)
+    if (retry) return learn(q)
     build()
   }
 
@@ -482,7 +489,7 @@ export function Launcher({ layout }: { layout: Layout }): ReactNode {
           ? 'teach'
           : !typed
             ? 'none'
-            : choosing
+            : choosing || retry
               ? 'search'
               : results.length
                 ? 'build'
@@ -494,7 +501,7 @@ export function Launcher({ layout }: { layout: Layout }): ReactNode {
     ask: 'Ask',
     build: 'Build lesson',
     teach: 'Start lesson',
-    search: how === 'lesson' ? 'Start lesson' : 'Search',
+    search: choosing && how === 'lesson' ? 'Start lesson' : 'Search',
     searching: 'Searching…',
     none: mode === 'ask' ? 'Ask' : 'Search'
   }[act]
