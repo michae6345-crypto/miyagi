@@ -189,6 +189,33 @@ def running(session: Any, step: dict | None, now: float | None = None) -> bool:
     return running_in(cells(p))
 
 
+_INTERRUPT = re.compile(r"(?<![A-Za-z])Interrupt(?![A-Za-z])")  # VS Code's notebook toolbar mid-run (not KeyboardInterrupt)
+
+
+def run_in_progress(session: Any, step: dict | None) -> bool:
+    """T11 (s7, 08:35:14): a notebook run is still going. VS Code's notebook toolbar says Interrupt (Run All when idle),
+    or the autosaved notebook is mid-epoch (running). Run All wrote the file only at its end (08:35:18), so the
+    toolbar is the early signal."""
+    if not notebook_step(session, step):
+        return False
+    try:
+        lines = session._screen_lines() or {}
+    except Exception:  # noqa: BLE001
+        lines = {}
+    for app, ls in lines.items():
+        if "code" in str(app or "").lower() and any(_INTERRUPT.search(str(ln or "")) for ln in ls or []):
+            return True
+    return running(session, step)
+
+
+def waits_on_run(step: dict, row: dict) -> bool:
+    """An output row (printed / plotted / a metric) a running cell may still fill in; never an error row."""
+    c = {**_checks_by_id(step).get(row.get("checkId"), {}), **row}
+    if c.get("type") in ("screen_absent", "output_absent") or _ERRORISH.search(str(c.get("label") or "")):
+        return False
+    return _is_output_check(c, c)
+
+
 def last_metric(cs: list[dict], name: str = "accuracy") -> str | None:
     """The last `accuracy: 0.9861` the cells printed (ANSI stripped), or None."""
     vals = re.findall(rf"\b{re.escape(name)}\s*[:=]\s*([0-9]*\.?[0-9]+)", "\n".join(c.get("out") or "" for c in cs))

@@ -41,6 +41,7 @@ class Rig:
                                inputs=self.inputs)
         self.s.ready_hold_s = 0
         self.s.offtrack_grace_s = 0  # most tests drive the ladder at once; the grace has its own test
+        self.s.video_offtrack_hold = False  # ...while the clip plays too; the T11 hold has its own (test_t11_speed)
         self.s.CARD_GAP_S = 0  # pacing (8 s between cards, 2 s between spotlight moves) has its own test
         self.s.SPOT_MIN_GAP_S = 0
         self.s.has_python = True  # run-step wording: `python` is there (the python3 rewrite has its own test)

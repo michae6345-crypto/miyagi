@@ -189,6 +189,7 @@ async def explain(step: dict, question: str | None = None, context: dict | None 
             effort="low",
             max_tokens=8000,
             timeout=40.0,
+            thinking={"type": "disabled"},  # T11: adaptive thinking spent ~1100 tokens / 6 s on a 64-word card
         )
         d = res.data
         idx = d.get("explanation_index", -1)
