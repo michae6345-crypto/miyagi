@@ -105,12 +105,13 @@ def test_lesson_load_sends_the_venv_step(tmp_path, monkeypatch):
     assert started["stepId"] == "s1"
     sent = " ".join(str(started.get(k) or "") for k in ("title", "instructions", "details", "code"))
     assert not NEW_VENV.search(sent) and "pip3 install" not in sent, sent
-    assert "source .venv/bin/activate && jupyter notebook" in sent
+    # t10 (server/lesson/notebook_steps.py): no browser Jupyter server either; the notebook opens in VS Code on .venv
+    assert "Select the .venv kernel in mnist.ipynb" in sent and "jupyter notebook" not in sent, sent
     pending = {p["label"] for p in rig.of("check.updated") if p["stepId"] == "s1"}  # no screen here: the file checks
     assert pending == {"Jupyter server running", "No terminal errors"}  # t10: no vacuous .venv file check
     s1 = rig.s.graph["steps"][0]
-    assert s1["run_command"] == "source .venv/bin/activate && jupyter notebook"
-    assert [c["label"] for c in s1["checks"]] == ["Jupyter server running", "No terminal errors"]
+    assert "run_command" not in s1
+    assert [c["label"] for c in s1["checks"]] == ["Notebook kernel is .venv", "No kernel or terminal errors"]
 
 
 def test_adapt_prompt_says_the_lessons_venv_is_ready():

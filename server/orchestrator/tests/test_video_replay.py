@@ -46,11 +46,14 @@ def _graph() -> dict:
 STEPS = {s["id"]: s for s in _graph()["steps"]}
 
 # ------------------------------------------------------------------ what the screen showed in test 9
-S1_TERMINAL = [  # VS Code's terminal after the step-1 command ran (06:15:25-:32)
+S1_TERMINAL = [  # VS Code's terminal after the step-1 command ran (06:15:25-:32): a browser Jupyter, which t10 dropped
     "(.venv) learner@mac nn-tensorflow % source .venv/bin/activate && jupyter notebook",
     "Requirement already satisfied: jupyter in ./.venv/lib/python3.12/site-packages (1.1.1)",
     "[I 2026-11-15 06:15:30.112 ServerApp] Jupyter Server 2.21.1 is running at:",
     "[I 2026-11-15 06:15:30.112 ServerApp] http://localhost:8888/tree?token=4f2a9c",
+]
+S1_NOTEBOOK = [  # t10: Miyagi's mnist.ipynb open in VS Code's notebook editor, the kernel picker on the lesson's .venv
+    "mnist.ipynb", "Generate", "+ Code", "+ Markdown", "Run All", "Restart", ".venv (Python 3.12.16)",
 ]
 S2_LOAD = "(train_images, train_labels), (test_images, test_labels) = tf.keras.datasets.mnist.load_data()"
 S2_CODE = STEPS["s2"]["code"].splitlines()
@@ -189,7 +192,7 @@ class Replay:
     # -- correct work, step by step (as the learner did it in test 9, minus the bugs)
     async def do_s1(self) -> None:
         await self.work()
-        await self.frame(Terminal=S1_TERMINAL)
+        await self.frame(Code=S1_NOTEBOOK)
 
     async def do_cell(self, sid: str, run: bool = True, lines: list[str] | None = None) -> None:
         """The step's cell typed into mnist.ipynb (and run: its output under it), saved; VS Code shows that cell."""
@@ -277,7 +280,8 @@ def test_s1_no_screen_check_passes_before_the_screen_is_read(rp):
     assert not any("screen reading is off" in (r.get("detail") or "") for r in rows.values())
 
 
-def test_s1_passes_once_the_terminal_shows_jupyter_running(rp):
+def test_s1_passes_once_the_notebook_shows_the_venv_kernel(rp):
+    """t10: s1 is "Select the .venv kernel in mnist.ipynb" (no browser Jupyter server); its check ids stay s1c2/s1c3."""
     async def go():
         await rp.start()
         await rp.do_s1()
@@ -285,7 +289,7 @@ def test_s1_passes_once_the_terminal_shows_jupyter_running(rp):
     run(go())
     rows = rp.rows("s1")
     assert {"s1c2", "s1c3"} <= set(rows) and all(r["status"] == "pass" for r in rows.values()), rows
-    assert rows["s1c2"]["detail"].startswith("seen")  # (V6 dropped the pip-output row s1c1: the setup card installs)
+    assert rows["s1c2"]["label"] == "Notebook kernel is .venv" and rows["s1c2"]["detail"].startswith("seen")
     assert rp.of("step.passed")[0] == {"stepId": "s1", "nextStepId": "s2"}
     assert rp.started("s2")
 
@@ -298,6 +302,129 @@ def test_s1_does_not_pass_on_an_empty_terminal(rp):
 
     run(go())
     assert not rp.passed("s1") and rp.s.step["id"] == "s1"
+
+
+def test_s1_does_not_pass_on_a_browser_jupyter_server_or_the_explorers_venv_folder(rp):
+    """t10: a Jupyter server in the terminal is not the lesson's setup any more; VS Code's Explorer lists `.venv` too."""
+    async def go():
+        await rp.start()
+        await rp.work()
+        await rp.frame(Terminal=S1_TERMINAL, Code=["EXPLORER", ".venv", "mnist.ipynb", "README.md"])
+
+    run(go())
+    assert not rp.passed("s1") and rp.rows("s1")["s1c2"]["status"] != "pass"
+
+
+# ------------------------------------------------------------------ t10: the lesson's own notebook in VS Code
+def test_t10_lesson_start_creates_the_notebook_with_the_venv_kernel(rp):
+    """t10 CP4: nothing made a notebook, so step 2's "Run the cell" had nothing to run (the video makes Untitled.ipynb
+    in a browser Jupyter). The lesson folder now has mnist.ipynb (empty, .venv kernel) before step 1 starts."""
+    run(rp.start())
+    nb = rp.folder / NB
+    assert nb.is_file(), sorted(p.name for p in rp.folder.iterdir())
+    data = json.loads(nb.read_text())
+    assert data["nbformat"] == 4 and data["metadata"]["kernelspec"]["display_name"] == ".venv"
+    assert [c["cell_type"] for c in data["cells"]] == ["code"] and not data["cells"][0]["source"]
+    assert not (rp.folder / "Untitled.ipynb").exists()
+    assert rp.s.graph["lesson"]["notebook"] == NB
+
+
+def test_t10_lesson_start_keeps_the_learners_own_notebook(rp, tmp_path):
+    (rp.folder / NB).write_text(_notebook([_cell("print('mine')", None)]), encoding="utf-8")
+    run(rp.start())
+    assert "print('mine')" in (rp.folder / NB).read_text()
+
+
+def test_t10_s1_is_the_vscode_kernel_setup_not_a_jupyter_server(rp):
+    """t10 CP3: s1 said "Run source .venv/bin/activate && jupyter notebook in the VS Code terminal"."""
+    run(rp.start())
+    p = rp.started("s1")
+    told = " ".join([p["title"], p["instructions"], p.get("details") or ""])
+    assert p["instructions"].startswith(f"Select the .venv kernel in {NB}"), p["instructions"]
+    assert "jupyter notebook" not in told.lower() and "terminal" not in p["instructions"].lower()
+    assert "Colab" not in told and "Untitled" not in told
+    s1 = rp.s.steps[0]
+    assert "run_command" not in s1 and rp.s._step_file(s1) == NB
+
+
+def test_t10_the_step_file_is_never_inside_the_venv(rp):
+    """t10 CP3: VS Code opened .venv/bin/activate as s1's file (its precision check `file_exists .venv/bin/activate`)."""
+    run(rp.start())
+    assert rp.s._step_file({"precision_checks": [{"type": "file_exists", "file": ".venv/bin/activate"}]}) is None
+    assert rp.s._step_file({"checks": [{"file": "venv/bin/activate"}], "file": "nn.py"}) == "nn.py"
+    assert rp.s._editor_file(rp.s.steps[0]) == str(rp.folder.resolve() / NB)
+
+
+def test_t10_vscode_opens_the_notebook_not_the_activate_script(rp, monkeypatch):
+    """t10 CP3: the auto-open ran `code <folder> -g <folder>/.venv/bin/activate`. Now the folder opens (no -g: that's
+    for text files) and the companion extension shows mnist.ipynb in the notebook editor."""
+    opened, shown = [], []
+
+    def fake_open(folder, force=False, full=False, explicit=False, file=None, **kw):
+        opened.append(file)
+
+    async def fake_show(s, path):
+        shown.append(path)
+        return True
+
+    rp.s.workspace.open = fake_open
+    monkeypatch.setattr("server.orchestrator.lesson_notebook.open_when_up", fake_show)
+
+    async def go():
+        await rp.start()
+        rp.s.editor_open = False
+        await rp.s._auto_open_editor(rp.s.workdir)
+        await rp.settle()
+
+    run(go())
+    assert opened == [None] and shown == [str(rp.folder.resolve() / NB)]
+
+
+def test_t10_no_untitled_notebook_in_any_step_copy(rp):
+    """t10 CP10/CP15: s5 / s7 read "In VS Code, create Untitled.ipynb and type model.compile(…"."""
+    async def go():
+        await rp.to("s7")
+
+    run(go())
+    for sid in ORDER:
+        p = rp.started(sid)
+        text = " ".join(str(p.get(k) or "") for k in ("title", "instructions", "details"))
+        assert "Untitled" not in text and "Colab" not in text, (sid, text)
+        assert not re.search(r"\bcreate\s+mnist\.ipynb", text, re.I), (sid, text)
+    assert rp.started("s5")["instructions"].startswith(f"In {NB}, add a cell: model.compile("), rp.started("s5")
+    assert rp.started("s7")["instructions"].startswith(f"In {NB}, add a cell: test_loss, test_accuracy"), rp.started("s7")
+    for st in rp.s.steps:
+        files = [x.get("file") for k in ("targets", "checks", "precision_checks") for x in st.get(k) or [] if x.get("file")]
+        assert all(f in (NB, ".venv/bin/activate") for f in files), (st["id"], files)
+
+
+def test_t10_hint_where_row_names_the_notebook_in_vscode(rp):
+    """t10 CP6: the s2 Hint card's row read "Open Untitled.ipynb in Jupyter or Colab · Open"."""
+    async def go():
+        await rp.to("s2")
+        await rp.s.emit("card", {"stepId": "s2", "kind": "hint", "title": "Hint", "body": "load_dat is missing the a",
+                                 "where": "Open Untitled.ipynb in Jupyter or Colab"})
+        await rp.s.emit("card", {"stepId": "s2", "kind": "hint", "title": "Hint", "body": "x",
+                                 "where": "Open mnist.ipynb in Jupyter or Colab"})
+        await rp.settle()
+
+    run(go())
+    wheres = [c.get("where") for c in rp.of("card") if c.get("kind") == "hint"]
+    assert wheres[-2:] == [f"Open {NB} in VS Code", f"Open {NB} in VS Code"], wheres
+    card = rp.s._where_card(rp.s.step)
+    assert "Colab" not in card["body"] and "Jupyter" not in card["body"] and NB in card["body"], card
+
+
+def test_t10_the_coach_where_hint_for_the_normalised_step_names_the_notebook(rp):
+    """The coach's own Where row (server/coach/pointing.where_hint) on the normalised s2: the notebook's real name;
+    the session's card filter then says VS Code."""
+    from server.coach.pointing import where_hint
+    from server.orchestrator import lesson_notebook
+
+    run(rp.to("s2"))
+    raw = where_hint(rp.s.step)
+    assert "Untitled" not in raw and NB in raw, raw
+    assert lesson_notebook.learner_card(rp.s, {"where": raw})["where"] == f"Open {NB} in VS Code"
 
 
 # ------------------------------------------------------------------ s2: imports + MNIST

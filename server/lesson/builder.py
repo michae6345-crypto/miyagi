@@ -31,6 +31,7 @@ from .schema import (
     step_check_problems,
     value_line,
 )
+from .notebook_steps import use_lesson_notebook
 from .venv_steps import use_lesson_venv
 from .workdir import WorkdirInfo, scan
 
@@ -336,6 +337,7 @@ async def _build_lesson_impl(
         "warnings": warnings,
     }
     use_lesson_venv(graph)  # t9 V6: no second venv / reinstall in a step (Miyagi's setup card fills the lesson's .venv)
+    use_lesson_notebook(graph)  # t10: a Jupyter lesson's own notebook (mnist.ipynb) in VS Code, never Untitled.ipynb
     errs = schema_errors(graph)
     if errs:
         raise RuntimeError("step graph failed contract validation:\n" + "\n".join(errs))
