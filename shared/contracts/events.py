@@ -391,6 +391,46 @@ class PreflightInfo(_Model):
     partial: bool = False
 
 
+SkillState = Literal["mastered", "learning", "next"]
+
+
+class SkillNode(_Model):
+    """A concept on the skill map's track. mastered: every step behind it passed; learning: one was skipped; next: not learned yet."""
+    id: str
+    label: str  # <= 6 words
+    state: SkillState
+    detail: str | None = None  # a formula / "Step 2 skipped" / why it's next, under the label
+
+
+class SkillEdge(_Model):
+    model_config = ConfigDict(extra="allow", populate_by_name=True)
+    from_: str = Field(alias="from")  # SkillNode.id
+    to: str
+
+
+class SkillCross(_Model):
+    """A dashed "shared idea" link from another track's concept to SkillNode `to`."""
+    track: str  # "Math"
+    label: str  # "Matrix multiply"
+    to: str  # SkillNode.id
+    note: str | None = None  # the link's caption
+
+
+class SkillNext(_Model):
+    title: str
+    goal: str  # launcher text: learn {query: goal, mode: "lesson"}
+
+
+class SkillMap(_Model):
+    """card.skillMap on the lesson-complete card (mockup 10 "Your skills"), from server/lesson/skillmap.py."""
+    track: str
+    headline: str
+    nodes: list[SkillNode]
+    edges: list[SkillEdge]
+    cross: list[SkillCross]
+    next: list[SkillNext]
+
+
 CardAction = Literal["confirm", "undo", "apply_fix", "open_editor", "resume", "end_lesson", "install", "skip_setup",
                      "open_in_browser", "build", "pick_another", "download", "skip_step", "check_step", "use_this_folder", "run_command",
                      "retry", "hint", "show_me"]  # retry: "Couldn't reach Claude" card -> action retry; hint / show_me: the off-track card's actions, on a judge "Not yet" card
@@ -421,6 +461,7 @@ class Card(_Model):
     source: Literal["judge"] | None = None  # E5's step judge made it: a step-status card (kind "step"), never an answer
     verdict: Literal["done", "not_done"] | None = None  # source "judge": the WHOLE step. done = "Looks done?", not_done = "Not yet"
     checkIds: list[str] | None = None  # source "judge": the checks it is about (done: what Yes vouches for; not_done: still missing)
+    skillMap: SkillMap | None = None  # the lesson-complete card: the skill map to draw (mockup 10), server/lesson/skillmap.py
 
 
 class NetworkDiagram(_Model):

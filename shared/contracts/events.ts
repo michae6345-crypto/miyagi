@@ -90,7 +90,8 @@ export interface EngineEvents {
             guidingQuestion?: string;
             source?: "judge";              // E5's step judge made it ("Looks done?" / "Not yet" / "Already ahead?" / "Save so I can check"): a step-status card, never an answer to the learner (sent as kind "step"); don't let it replace an answer card
             verdict?: "done" | "not_done"; // source "judge": Claude's verdict on the WHOLE step. done -> "Looks done?" (confirm = Yes); not_done -> "Not yet" (hint / show_me)
-            checkIds?: string[] };         // source "judge": the checks it is about (done: what Yes vouches for; not_done: what is still missing)
+            checkIds?: string[];           // source "judge": the checks it is about (done: what Yes vouches for; not_done: what is still missing)
+            skillMap?: SkillMap };         // the lesson-complete card (last step passed): the skill map to draw under "Congratulations" (mockup 10)
   "diagram": {
     kind: "network" | "gradients" | "heatmap" | "graph";
     caption: string;
@@ -144,6 +145,16 @@ export interface GraphDiagramData {
   edges: Array<{ from: string; to: string; label?: string; style: "solid" | "dashed"; emphasis: boolean; order?: number }>;  // order: sequence only
   groups?: Array<{ id: string; label: string }>;
 }
+
+/** card.skillMap (server/lesson/skillmap.py): what the finished lesson taught, on one track (mockup 10 "Your skills").
+ *  Nodes left to right in track order; edges connect them (arrows). Progress is never invented: mastered = every step behind
+ *  the node passed (a check), learning = one of them was skipped (a ring), next = not learned yet (dashed). */
+export type SkillState = "mastered" | "learning" | "next";
+export interface SkillNode { id: string; label: string; state: SkillState; detail?: string }   // label <= 6 words; detail: a formula / "Step 2 skipped" / why it's next (<= 12 words), shown under the label
+export interface SkillEdge { from: string; to: string }                                         // SkillNode ids
+export interface SkillCross { track: string; label: string; to: string; note?: string }       // a dashed "shared idea" link from another track's concept (track "Math", label "Matrix multiply") to SkillNode.id `to`; note: the link's caption
+export interface SkillNext { title: string; goal: string }                                     // an up-next lesson; goal = launcher text: start it with learn {query: goal, mode: "lesson"}
+export interface SkillMap { track: string; headline: string; nodes: SkillNode[]; edges: SkillEdge[]; cross: SkillCross[]; next: SkillNext[] }   // track: "Machine learning"; headline: "You built a neural network from scratch. 7 mastered, 5 up next in Machine learning."
 
 // ---------- App -> Engine commands ----------
 export interface AppCommands {
