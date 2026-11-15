@@ -634,12 +634,6 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
                 self._spawn(asyncio.to_thread(wsmod.refresh_python, self.workdir), timer=True)
             if await missing_module.after_install(self, tool, res):  # a run stopped on it: rerun / "Run it again."
                 return
-            if res.get("ok") and not opened and self.graph is not None and not self.pending_pick \
-                    and not self.notebook_lesson and "install" not in ((self._setup_card or {}).get("actions") or []):
-                # Nothing left to install in a coding lesson whose editor isn't open yet: open it, as the setup check
-                # does when nothing was missing, instead of leaving "numpy installed ✓" + Open / Skip up for good.
-                await self._auto_open_editor(self.workdir)
-                opened = self.editor_open
             if res.get("ok") and opened and not self.pending_pick \
                     and "install" not in ((self._setup_card or {}).get("actions") or []):
                 self._setup_card = None  # nothing pending any more
