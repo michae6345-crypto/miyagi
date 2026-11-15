@@ -69,6 +69,7 @@ function createWindow(route: string, options: BrowserWindowConstructorOptions): 
   })
   windows.add(win)
   win.on('closed', () => windows.delete(win))
+  showAfterFirstPaint(win)
   // Every Miyagi window follows the learner across Spaces and over full-screen apps (Michael, Sat).
   followSpaces(win)
   // window.open / target=_blank from any window: never a new Electron window; http(s) goes to the default browser.
@@ -91,6 +92,41 @@ function createWindow(route: string, options: BrowserWindowConstructorOptions): 
   else if (rendererOrigin) win.loadURL(`${rendererOrigin}/index.html#/${route}`)
   else win.loadFile(join(__dirname, '../renderer/index.html'), { hash: `/${route}` })
   return win
+}
+
+/** If a window never reports its first paint (a failed load), show it anyway after this long rather than never. */
+const FIRST_PAINT_FALLBACK_MS = 4000
+
+/**
+ * Review A23: a window shows only after its renderer's first paint (ready-to-show), so a transparent window never
+ * flashes an empty or opaque frame. show() / showInactive() before then are held and run on ready-to-show (the
+ * latest call wins; hide() cancels it). Every window is created hidden (show: false), so this covers the overlay,
+ * the launcher and every feature window (player, settings). Windows are only ever resized when the display
+ * changes, never during an animation.
+ */
+function showAfterFirstPaint(win: BrowserWindow): void {
+  let painted = false
+  let held: (() => void) | undefined
+  const show = win.show.bind(win)
+  const showInactive = win.showInactive.bind(win)
+  const hide = win.hide.bind(win)
+  const ready = (): void => {
+    if (painted) return
+    painted = true
+    clearTimeout(fallback)
+    const run = held
+    held = undefined
+    if (run && !win.isDestroyed()) run()
+  }
+  const fallback = setTimeout(ready, FIRST_PAINT_FALLBACK_MS)
+  win.once('ready-to-show', ready)
+  win.on('closed', () => clearTimeout(fallback))
+  win.show = () => (painted ? show() : void (held = show))
+  win.showInactive = () => (painted ? showInactive() : void (held = showInactive))
+  win.hide = () => {
+    held = undefined
+    hide()
+  }
 }
 
 /** The two core windows: full display, transparent, always on top. */
