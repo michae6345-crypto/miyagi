@@ -26,12 +26,9 @@ import { CheckList, Thumb, useChecking } from '../../core/ui/atoms'
 import { GlassCheck, GlassSpinner } from '../../core/ui/glass'
 import { parseYouTube, thumbnailFor } from '../launcher/youtube'
 import { HANDLE, TAB } from './geometry'
-import { useStepDetail } from './plan'
+import { useStepDetail, useStepStatuses, type StepStatus } from './plan'
 import { closeDrawer, isWebLink, openSource, setPanelHeight, toggleDrawer } from './store'
 import { BuildStrip, lessonTopic, minutesLeft, NeedsChip, OverviewText, PrimerSection, StepActions, StepDetail } from './Teach'
-
-/** skipped: the learner pressed Skip. Done, but not passed, so never green. */
-type StepStatus = 'done' | 'skipped' | 'current' | 'locked'
 
 /** Row geometry: icon column, gap, time column. The current step's checks line up with its title. */
 const ROW = { h: 38, padX: 10, icon: 18, gap: 11 } as const
@@ -266,18 +263,26 @@ function Label({ children, right }: { children: ReactNode; right?: ReactNode }):
 // Header progress
 // ---------------------------------------------------------------------------
 
-type PlanProgress = { done: number; total: number; index: number; hasStep: boolean; complete: boolean; left?: number }
+type PlanProgress = { done: number; skipped: number; total: number; index: number; hasStep: boolean; complete: boolean; left?: number }
 
-/** Steps done (passed, skipped, or before the current one: the same rule as the rows), where we are, and minutes left. */
+/**
+ * Steps done: passed (or before the current one), never skipped and never the current step itself (the same rule as
+ * the rows, plan.ts stepStatuses; Michael's desktop test 4, Sun 1:42 AM: 2 passes + 2 skips read "4 of 7 done"),
+ * where we are, and minutes left.
+ */
 function usePlanProgress(): PlanProgress {
   const { index } = useProgress()
+  const statuses = useStepStatuses()
   const p = useLesson(
     useShallow((s) => {
-      const cur = s.steps.findIndex((x) => x.id === s.stepId)
-      const done = s.steps.filter((x, i) => s.passed.includes(x.id) || (cur >= 0 && i < cur)).length
-      // Mockup 01: "about N min left" (steps[].estMinutes over the steps not passed or skipped yet).
-      const left = minutesLeft(s.steps, [...s.passed, ...s.skipped])
-      return { done, total: s.steps.length, hasStep: !!s.stepId, complete: s.complete, left }
+      const done = statuses.filter((x) => x === 'done').length
+      const skipped = statuses.filter((x) => x === 'skipped').length
+      // Mockup 01: "about N min left" (steps[].estMinutes over the steps still to do: the current one counts, a skipped one doesn't).
+      const left = minutesLeft(
+        s.steps,
+        s.steps.filter((_, i) => statuses[i] === 'done' || statuses[i] === 'skipped').map((x) => x.id)
+      )
+      return { done, skipped, total: s.steps.length, hasStep: !!s.stepId, complete: s.complete, left }
     })
   )
   return { ...p, index }
@@ -285,8 +290,15 @@ function usePlanProgress(): PlanProgress {
 
 /** Mockup 01: a thin bar (neutral fill, never green: green only means passed), "Step N of M" and the time left. Never scrolls. */
 function ProgressHeader({ plan }: { plan: PlanProgress }): ReactNode {
-  const all = plan.complete && plan.done >= plan.total
-  const line = all ? `All ${plan.total} steps done` : plan.hasStep ? `Step ${plan.index + 1} of ${plan.total}` : `${plan.total} steps`
+  // Every step passed or skipped: the lesson is over. Skipped steps never read as done.
+  const all = plan.complete && plan.total > 0 && plan.done + plan.skipped >= plan.total
+  const line = !all
+    ? plan.hasStep
+      ? `Step ${plan.index + 1} of ${plan.total}`
+      : `${plan.total} steps`
+    : plan.skipped
+      ? `${plan.done} of ${plan.total} done · ${plan.skipped} skipped`
+      : `All ${plan.total} steps done`
   return (
     <div data-part="drawer-progress" className="mt-[11px]">
       <div className="h-[3px] overflow-hidden rounded-full" style={{ background: glass.track }}>
@@ -318,12 +330,10 @@ function ProgressHeader({ plan }: { plan: PlanProgress }): ReactNode {
 // ---------------------------------------------------------------------------
 
 function Steps({ scroller }: { scroller: RefObject<HTMLDivElement | null> }): ReactNode {
-  const { steps, stepId, passed, skipped, checks, complete, parts, pendingNext, instructions, lessonMode } = useLesson(
+  const { steps, stepId, checks, complete, parts, pendingNext, instructions, lessonMode } = useLesson(
     useShallow((s) => ({
       steps: s.steps,
       stepId: s.stepId,
-      passed: s.passed,
-      skipped: s.skipped,
       checks: s.checks,
       complete: s.complete,
       parts: s.parts,
@@ -337,7 +347,8 @@ function Steps({ scroller }: { scroller: RefObject<HTMLDivElement | null> }): Re
   if (!atOpen.current) atOpen.current = new Set(steps.map((s) => s.id))
   const fresh = steps.filter((s) => !atOpen.current!.has(s.id)).map((s) => s.id)
 
-  const cur = steps.findIndex((s) => s.id === stepId)
+  // The current step stays current (expanded) even when core still lists it as passed or skipped (after Back).
+  const statuses = useStepStatuses()
   const timeW = useTimeWidth(steps, complete)
   // The current step's code arriving after step.started grows the row: keep it in view then too.
   const codeLen = useStepDetail((d) => (d.detail && d.detail.stepId === stepId ? (d.detail.code?.length ?? 0) : -1))
@@ -347,13 +358,7 @@ function Steps({ scroller }: { scroller: RefObject<HTMLDivElement | null> }): Re
   return (
     <div className="flex flex-col">
       {steps.map((s, i) => {
-        const status: StepStatus = skipped.includes(s.id)
-          ? 'skipped'
-          : passed.includes(s.id) || (cur >= 0 && i < cur)
-            ? 'done'
-            : s.id === stepId
-              ? 'current'
-              : 'locked'
+        const status: StepStatus = statuses[i] ?? 'locked'
         const k = fresh.indexOf(s.id)
         return (
           <StepRow
