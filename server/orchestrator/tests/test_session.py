@@ -65,6 +65,14 @@ class Rig:
         await asyncio.sleep(0)
         await self.s.drain()
 
+    async def built(self) -> None:
+        """The whole build, then settle. Since perf.until_loaded (2240591) a learn returns once the lesson is live
+        (the quick-start placeholder / a progressive step 1); the rest of the build runs on as `_build_task`."""
+        task = self.s._build_task
+        if task is not None:
+            await asyncio.wait({task})
+        await self.settle()
+
     async def start_lesson(self) -> None:
         graph = stubs.load_fixture_lesson()
         await self.s.load_graph(graph)
@@ -1866,11 +1874,15 @@ def test_coach_gets_screen_error_text_without_tut_run(tmp_path, monkeypatch):
     assert "You have unstaged changes" in seen.get("error_text", "")
 
 
-def test_show_me_uses_e5_pointing(rig):
+@pytest.mark.parametrize("h,rect", [
+    (18, {"x": 5.0, "y": 6.0, "w": 7.0, "h": 18.0}),  # one text row: exactly the pointing box
+    (8, {"x": 5.0, "y": 0.0, "w": 7.0, "h": 20.0}),  # E24 (f265edd): a sliver is one 20 pt row centred on it
+])
+def test_show_me_uses_e5_pointing(rig, h, rect):
     rig.s.m.has_pointing = lambda: True
 
     async def show_me(step, screen, last):
-        return {"targets": [{"boxId": 1, "label": "here", "text": "net = ...", "rect": {"x": 5, "y": 6, "w": 7, "h": 8}}],
+        return {"targets": [{"boxId": 1, "label": "here", "text": "net = ...", "rect": {"x": 5, "y": 6, "w": 7, "h": h}}],
                 "caption": "Build the MLP here", "where": None}
 
     rig.s.m.show_me = show_me
@@ -1886,7 +1898,7 @@ def test_show_me_uses_e5_pointing(rig):
 
     run(go())
     spot = rig.of("spotlight")[-1]
-    assert spot["rect"] == {"x": 5.0, "y": 6.0, "w": 7.0, "h": 8.0} and spot["caption"] == "Build the MLP here"
+    assert spot["rect"] == rect and spot["caption"] == "Build the MLP here"
 
 
 def test_build_error_shows_only_e2s_sentence():
@@ -1922,7 +1934,7 @@ def test_quick_start_provisional_step_is_replaced(rig):
 
     async def go():
         await rig.s.learn_url("https://www.youtube.com/watch?v=abcdefghijk")
-        await rig.settle()
+        await rig.built()  # learn_url returned with the placeholder live; the real lesson replaces it after
 
     import json
     run(go())
@@ -2164,7 +2176,8 @@ def test_skip_step_moves_on_without_a_pass(rig):
 
 
 def test_check_step_passes_now_or_says_what_is_missing(rig):
-    """Check button: deterministic checks first, then E5's judge; ONE "Not yet" card (<= 12 words) + spotlight."""
+    """Check button: deterministic checks first, then E5's judge; ONE "Not yet" card + spotlight. E19 (7026814): the
+    body is whole sentences (no 12-word cut that ended "..., then save the")."""
     rig.s.check_wait_s = 0
     calls = []
 
@@ -2183,7 +2196,8 @@ def test_check_step_passes_now_or_says_what_is_missing(rig):
         await rig.settle()
         new = rig.of("card")[n_cards:]
         assert len(new) == 1 and new[0]["title"] == "Not yet" and new[0]["kind"] == "answer"
-        assert new[0]["actions"] == ["skip_step"] and len(new[0]["body"].split()) <= 12
+        assert new[0]["actions"] == ["skip_step"]
+        assert new[0]["body"] == "Add a Tanh activation after the first Linear layer, then save the file."
         assert rig.of("spotlight")[-1]["rect"]["w"] == 300.0
         assert calls and "pinn_convection.py" in calls[0]
         assert all(p["stepId"] != "s2" for p in rig.of("step.passed"))
@@ -3121,6 +3135,8 @@ def test_lesson_mode_vision_pick_boxes_the_line_when_text_and_gutter_miss(tmp_pa
     """Short new file: OCR has neither the target text nor the line numbers, so the text match and the gutter line
     both miss. The Haiku set-of-marks pick (screen.pick) boxes the row, at most twice per step; a pick that isn't an
     editor row (toolbar / region) is never used for a type step."""
+    from server.orchestrator import workspace as wsmod
+
     async def build(goal, workdir, on_update=None, **kw):
         return _text_lesson()
 
@@ -3141,6 +3157,9 @@ def test_lesson_mode_vision_pick_boxes_the_line_when_text_and_gutter_miss(tmp_pa
         screen.reader = object()          # "the real reader is running" (vision is only used then)
         screen.pick = pick
         rig.s._editor_line_spot = no_line
+        # the gutter misses for t5 (d)'s insertion row too (2f21672 / 9cfd59c: _start_box -> _insert_spot asks
+        # Accessibility / the gutter first); never the real screen reader in a test
+        monkeypatch.setattr(wsmod, "line_location", lambda path, line: {})
 
         async def go():
             await rig.s.learn("build a calculator", mode="lesson")

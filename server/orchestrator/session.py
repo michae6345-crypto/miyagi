@@ -4204,6 +4204,7 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
                 self._spawn(self._show_step_file(step, explicit=True), timer=True)
                 self._spawn(start_hold.reveal_step_line(self, step, again=True), timer=True)  # t6: its line on screen
         # the checks are re-graded by the next frame / save (the reader runs again), not replayed as they were
+        self.status = ""  # the snapshot's status was held back for this one: always sent (_status skips unchanged states)
         await self._status("offtrack" if self.last_offtrack and not self.passed and not self.awaiting_start
                            else "watching")
 
