@@ -2,12 +2,16 @@
  * Feature: pill. The island's pill-sized states (34px tall, width hugs content), to mockup 01 + the
  * Miyagi brand (app/brand/BRAND.md): always black and white, the bonsai as a one-color glyph on the left
  * (monochrome everywhere in the app), the status on the right.
- *   idle      no lesson yet: "[bonsai] ask miyagi ⌥Space ●" (lowercase, Michael) (click opens the launcher); "Offline ○" with no engine;
+ *   idle      no lesson yet: "[bonsai] ask miyagi ⌥Space ●" (lowercase, Michael) (click opens the launcher);
+ *             with no engine, once a connect attempt has failed: "[bonsai] Can't reach miyagi · [Retry]" (click tries now,
+ *             review A16), or what the app's own engine is doing (setting up, starting, missing, failed);
  *             while the engine offers a saved lesson back: "[bonsai] Continue · <lesson>  2/7 ●" (click resumes it, review A7)
- *   building  between Build lesson and the first step: lesson.building message + spinner + progress line
+ *   building  between Build lesson and the first step: "Planning your lesson…" + spinner from the moment the build is
+ *             sent until the engine's first lesson.building (review A20: it was blank), then its message + spinner + progress line
  *             (the stage's words always in full, at most STAGE_MAX characters, never cut mid-word: desktop test 3, item 9);
  *             once the lesson is set (lesson.ready, before the first step.started) it's static: "Lesson ready ●", no spinner, no line
- *   compact   during a lesson: "[bonsai] Step 4 · Define the residual  4/8 ●" (count = this step / steps, dot = status);
+ *   compact   during a lesson: "[bonsai] Step 4 · Define the residual  4/8 ●" (count = this step / steps, dot = status;
+ *             the step's title from lesson.steps, the same title the drawer has: review A20);
  *             "Next part is still building" after a pass while a long video's next part builds
  *   saved     after End (lesson.ended "stopped"): "[bonsai] Lesson saved · [Undo]" for ~8 s, then idle (review A3)
  *   notice    one line for ~5 s over any of them (engine errors, a failed build, notify()), then back
@@ -20,7 +24,7 @@
  * The step-pass moment (check → flash → crossfade) is driven by ./store.ts.
  */
 import { AnimatePresence, motion } from 'motion/react'
-import { useRef, type ReactNode } from 'react'
+import { useRef, useState, type ReactNode } from 'react'
 import { useShallow } from 'zustand/react/shallow'
 import { bridge } from '../../bridge'
 import { notify, useLesson } from '../../core/lesson'
@@ -28,18 +32,55 @@ import { defineFeature } from '../../core/registry'
 import { color, copy, fill } from '../../core/theme'
 import { Kbd, Spinner } from '../../core/ui/atoms'
 import { BuildLine, FitSwap, LeadMark, MonoMark, StatusMark, StepCount, SwapText, type Mark } from './parts'
-import { LESSON_SAVED, resumeSaved, undoEnd, usePill, type SavedOffer } from './store'
+import { LESSON_SAVED, resumeSaved, retryEngine, undoEnd, UNREACHABLE, usePill, type SavedOffer } from './store'
 
 /**
  * Offline, but the app is bringing its own engine up (main/localEngine.ts, built Mac app): say what's happening.
  * "Install the engine" copies Michael's one-liner; "Engine didn't start" opens the engine's log.
  */
-function offlineLabel(state?: string): { text: string; busy: boolean } {
+function offlineLabel(state?: string): { text: string; busy: boolean } | undefined {
   if (state === 'installing') return { text: 'Setting up miyagi', busy: true }
   if (state === 'starting' || state === 'checking') return { text: 'Starting miyagi', busy: true }
   if (state === 'missing') return { text: 'Install the engine', busy: false }
   if (state === 'failed') return { text: "Engine didn't start", busy: false }
-  return { text: 'Offline', busy: false }
+  return undefined // nothing more to say than "Can't reach miyagi · Retry" (Unreachable)
+}
+
+/**
+ * No engine answers and a connect attempt has failed (Michael's review A16): "Can't reach miyagi · Retry". The whole
+ * pill is the Retry (a 34px target); the chip is drawn like the saved line's Undo (neutral chrome, concentric with the
+ * pill's right end). Pressed, the bonsai spins until that attempt ends; main also keeps retrying by itself.
+ */
+function Unreachable(): ReactNode {
+  const retrying = usePill((s) => s.retrying)
+  const [hot, setHot] = useState(false)
+  return (
+    <button
+      type="button"
+      className="flex h-[34px] cursor-pointer items-center whitespace-nowrap pl-[13px] pr-[6px] text-[13px] font-medium"
+      style={{ color: color.label }}
+      onClick={retryEngine}
+      onMouseEnter={() => setHot(true)}
+      onMouseLeave={() => setHot(false)}
+      aria-label={`${UNREACHABLE}. Retry`}
+      aria-busy={retrying || undefined}
+      data-offline
+    >
+      <LeadMark busy={retrying} />
+      <span>{UNREACHABLE}</span>
+      <span>&nbsp;·&nbsp;</span>
+      <motion.span
+        className="ml-[4px] inline-flex h-[22px] items-center rounded-full px-[10px] text-[12px] font-medium"
+        style={{ color: color.text }}
+        initial={false}
+        animate={{ backgroundColor: hot ? fill.chipHover : fill.button }}
+        whileTap={{ scale: 0.96 }}
+        transition={{ duration: 0.12 }}
+      >
+        Retry
+      </motion.span>
+    </button>
+  )
 }
 
 /**
@@ -76,6 +117,7 @@ function Idle(): ReactNode {
   const off = offlineLabel(local?.state)
   // The engine offers a saved lesson back and its card is closed (review A7): the pill is the way back into it.
   const cont = !offline && offer ? continueLabel(offer) : undefined
+  if (offline && !off) return <Unreachable />
   const click = (): void => {
     if (cont) return resumeSaved()
     if (offline && local?.state === 'missing') {
@@ -94,7 +136,7 @@ function Idle(): ReactNode {
       style={{ color: offline ? color.label : color.text }}
       onClick={click}
       title={offline ? local?.line : cont?.full}
-      aria-label={offline ? `${off.text}: miyagi is not connected` : cont ? cont.aria : 'ask miyagi: open the launcher'}
+      aria-label={offline && off ? `${off.text}: miyagi is not connected` : cont ? cont.aria : 'ask miyagi: open the launcher'}
       data-offer={cont ? cont.id : undefined}
     >
       <LeadMark busy={resuming} />
@@ -102,7 +144,7 @@ function Idle(): ReactNode {
         id={offline ? `offline-${local?.state ?? ''}` : cont ? cont.id : 'ask'}
         className="flex opacity-90 transition-opacity duration-150 group-hover:opacity-100"
       >
-        {offline ? (
+        {offline && off ? (
           off.text
         ) : cont ? (
           cont.title ? (
@@ -118,7 +160,7 @@ function Idle(): ReactNode {
           copy.ask
         )}
       </SwapText>
-      {offline && off.busy && <span className="ml-[10px] inline-flex"><Spinner size={13} c={color.label} /></span>}
+      {offline && off?.busy && <span className="ml-[10px] inline-flex"><Spinner size={13} c={color.label} /></span>}
       {/* Fully round (radius 10 inside the pill's 17). Hidden offline: nothing to ask. Hidden on Continue: a click resumes. */}
       {!offline && !cont && <Kbd className="ml-[10px] !h-[20px] !rounded-full !px-[8px]">{bridge.platform.keys.launcher}</Kbd>}
       {/* The status dot on the right, like every pill state (BRAND.md): gray watching, hollow gray offline (audit A21).
@@ -129,7 +171,7 @@ function Idle(): ReactNode {
           <StatusMark mark="watching" />
         </span>
       ) : (
-        <span className={`flex items-center ${offline && !off.busy ? 'ml-[15px]' : 'ml-[9px]'}`}>
+        <span className={`flex items-center ${offline && !off?.busy ? 'ml-[15px]' : 'ml-[9px]'}`}>
           <StatusMark mark={offline ? 'offline' : 'watching'} />
         </span>
       )}
@@ -167,15 +209,25 @@ function stageLabel(stage: string): string {
 
 /** The building pill once lesson.ready has landed and the first step hasn't started: nothing is working any more. */
 const READY = 'Lesson ready'
+/** From the moment a build is sent until the engine's first lesson.building (Michael's review A20). */
+export const PLANNING = 'Planning your lesson…'
 
 function Building(): ReactNode {
-  const { message, progress, ready } = useLesson(
-    useShallow((s) => ({ message: s.buildingMessage, progress: s.buildingProgress, ready: !!s.lesson }))
+  const { message, progress, lesson, building } = useLesson(
+    useShallow((s) => ({ message: s.buildingMessage, progress: s.buildingProgress, lesson: !!s.lesson, building: s.building }))
   )
   const kept = usePill((s) => s.buildMessage)
+  const planned = usePill((s) => s.planning)
+  const shown = useRef<string>(undefined)
+  // Planning: the pill's own flag (the launcher just landed on it with a build), or, freshly drawn with no build running
+  // yet, the launcher's collapse onto the pill (it draws this content before the engine has said anything).
+  const planning = planned || (!building && !shown.current)
+  const ready = lesson && building && !planning
   // Calm: show only the stage. The text (and so the crossfade) changes on a real stage change, never on the timer
-  // tick; the progress line carries the motion.
-  const stage = ready ? READY : buildingStage(message ?? kept) || 'Building your lesson'
+  // tick; the progress line carries the motion. Leaving (a failed or dropped build) it keeps its last words.
+  const stage =
+    !building && !planning && shown.current ? shown.current : planning ? PLANNING : ready ? READY : buildingStage(message ?? kept) || PLANNING
+  shown.current = stage
   const text = stageLabel(stage)
   return (
     <div
@@ -184,13 +236,14 @@ function Building(): ReactNode {
       title={text !== stage ? stage : undefined}
       className="relative flex h-[34px] items-center whitespace-nowrap pl-[13px] pr-[14px] text-[13px] font-medium"
       style={{ color: color.text }}
+      data-planning={planning || undefined}
     >
       <MonoMark className="mr-[8px]" />
       {/* Never cut mid-word (item 9): the slot is always as wide as the stage's words; the island springs around it. */}
       <FitSwap id={text}>{text}</FitSwap>
       {/* Building: the spinner where the count will be. Set (Michael's audit A5): static, the gray dot only, no spinner, no line. */}
       <span className="ml-[15px] flex items-center">{ready ? <StatusMark mark="watching" /> : <Spinner size={16} />}</span>
-      <AnimatePresence>{!ready && progress !== undefined && <BuildLine progress={progress} />}</AnimatePresence>
+      <AnimatePresence>{!ready && !planning && progress !== undefined && <BuildLine progress={progress} />}</AnimatePresence>
     </div>
   )
 }
@@ -236,13 +289,14 @@ function useShown(): Shown & { total: number } {
     const j = at(to)
     return { key: to, index: j, title: titleOf(j), mark: offline ? 'offline' : 'watching', total }
   }
-  // 3) Normal: the engine's current step.
+  // 3) Normal: the engine's current step, titled from lesson.steps like the drawer and cases 1-2 (review A20: the pill
+  // named steps differently from the drawer); step.started's title only for a step the list doesn't have.
   const i = Math.max(0, at(l.stepId))
   const passed = !!l.stepId && l.passed.includes(l.stepId)
   return {
     key: l.stepId ?? '',
     index: i,
-    title: l.title,
+    title: at(l.stepId) >= 0 ? titleOf(i, l.title) : l.title,
     mark: offline ? 'offline' : l.offtrack ? 'offtrack' : passed ? 'passed' : 'watching',
     total
   }
@@ -330,9 +384,22 @@ function SavedLine(): ReactNode {
 export default defineFeature({
   id: 'pill',
   islandModes: [
-    { id: 'idle', priority: 0, useActive: () => useLesson((s) => !s.lesson && !s.building), Content: Idle },
-    { id: 'building', priority: 1, useActive: () => useLesson((s) => s.building && !s.stepId), Content: Building },
+    // No step and nothing building. Also a lesson that's set but stopped building before its first step (a failed or
+    // dropped build after lesson.ready): no mode covered that, and the island drew nothing (review A20: "blank").
+    { id: 'idle', priority: 0, useActive: () => useLesson((s) => !s.stepId && !s.building), Content: Idle },
     { id: 'compact', priority: 2, useActive: () => useLesson((s) => !!s.stepId), Content: Compact },
+    // Over compact while a new build is being planned (a lesson started from the launcher during another one); otherwise
+    // building (no step yet) and compact (a step) never overlap.
+    {
+      id: 'building',
+      priority: 3,
+      useActive: () => {
+        const planning = usePill((s) => s.planning)
+        const building = useLesson((s) => s.building && !s.stepId)
+        return planning || building
+      },
+      Content: Building
+    },
     // Over the idle pill only (a new lesson building or on screen wins), and never offline: Undo would go nowhere.
     {
       id: 'saved',

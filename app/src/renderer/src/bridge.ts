@@ -6,6 +6,8 @@
  *
  * Browser: the mock runs INLINE by default (so parallel agents never share a mock server).
  * Query params: ?engine=socket (ws://localhost:8787) or ?engine=ws://host:port · ?scenario=<name> · ?os=win
+ *   · &fallback=0 with a socket engine: never fall back to the inline mock, keep retrying like main does (to see the
+ *     pill's "Can't reach miyagi · Retry" and the reconnect: start `PORT=<port> npm run mock` later)
  */
 import { parseEngineMessage, type Incoming, type Outgoing } from '../../common/wire'
 import { describePlatform } from '../../main/platform'
@@ -58,20 +60,47 @@ function createWebBridge(): TutBridge & { mode: () => EngineMode } {
     if (!scenarios[name]) console.warn(`[tut] no scenario "${name}"; have: ${Object.keys(scenarios).join(', ')}`)
     console.info(`[tut] no engine answered: running the "${name}" mock inline`)
     setStatus(true)
+    fire('feat:engine-link', { open: true, attempting: false, failures: 0 })
     inline.start()
     for (const m of queue.splice(0)) inline.handle(JSON.parse(m))
   }
 
+  // The engine link as main reports it (main/engine.ts LinkInfo, review A16), same retry timing: every 1 s for the first
+  // 30 s of an outage (or after Retry), then backing off to every 5 s.
+  const fallback = params.get('fallback') !== '0'
+  let failures = 0
+  let downSince = Date.now()
+  let slow = 0
+  let retryTimer: ReturnType<typeof setTimeout> | undefined
+  const link = (): { open: boolean; attempting: boolean; failures: number } =>
+    inline ? { open: true, attempting: false, failures: 0 } : { open: ws?.readyState === WebSocket.OPEN, attempting: ws?.readyState === WebSocket.CONNECTING, failures }
+  const emitLink = (): void => fire('feat:engine-link', link())
+  const schedule = (): void => {
+    clearTimeout(retryTimer)
+    const fast = Date.now() - downSince < 30_000
+    retryTimer = setTimeout(connect, fast ? 1000 : (slow = Math.min(5000, slow ? slow * 2 : 2000)))
+    emitLink()
+  }
+
   const connect = (): void => {
+    clearTimeout(retryTimer)
     const url = params.get('engine')?.startsWith('ws://') ? params.get('engine')! : 'ws://localhost:8787'
     const sock = new WebSocket(url)
     ws = sock
-    const giveUp = setTimeout(() => !everConnected && (sock.close(), startInline()), 900)
+    let opened = false
+    // No engine at first: the inline mock (default). Otherwise the same timer is main's handshake timeout.
+    const first = fallback && !everConnected
+    const giveUp = setTimeout(() => !opened && (sock.close(), first && startInline()), first ? 900 : 4000)
     sock.onopen = () => {
       clearTimeout(giveUp)
+      if (ws !== sock) return sock.close()
+      opened = true
       everConnected = true
+      failures = 0
+      slow = 0
       mode = 'socket'
       setStatus(true)
+      emitLink()
       for (const m of queue.splice(0)) sock.send(m)
     }
     sock.onmessage = (m) => {
@@ -80,11 +109,26 @@ function createWebBridge(): TutBridge & { mode: () => EngineMode } {
     }
     sock.onclose = () => {
       clearTimeout(giveUp)
-      if (!everConnected) return startInline()
+      if (ws !== sock || inline) return
+      if (!everConnected && fallback) return startInline()
+      if (opened) {
+        downSince = Date.now()
+        slow = 0
+      } else failures++
       setStatus(false)
-      setTimeout(connect, 1000)
+      schedule()
     }
+    emitLink()
   }
+  // The pill's Retry, and every window on load (main/features/pill.ts): try now, fast retries again.
+  webHandlers.set('engine-link:retry', () => {
+    if (!inline && ws?.readyState !== WebSocket.OPEN) {
+      downSince = Date.now()
+      slow = 0
+      if (ws?.readyState !== WebSocket.CONNECTING) connect()
+    }
+    return link()
+  })
 
   const engineParam = params.get('engine')
   if (engineParam === 'socket' || engineParam?.startsWith('ws://')) connect()

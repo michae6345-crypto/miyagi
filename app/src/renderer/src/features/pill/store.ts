@@ -9,10 +9,12 @@
  * The pill moves on without waiting for the engine's step.started (the mock sends it ~4s later),
  * using step.passed.nextStepId or the next entry in lesson.steps. step.started then just confirms it.
  *
- * Also here: the notice line (core `notice`, shown ~5 s), the offline state (core `connected`, after a grace),
- * "Lesson saved · Undo" after End (review A3) and the saved lesson the engine offers back (review A7).
+ * Also here: the notice line (core `notice`, shown ~5 s), the offline state (core `connected`, after a grace, and only
+ * once a connect attempt has failed: review A16), "Lesson saved · Undo" after End (review A3) and the saved lesson the
+ * engine offers back (review A7).
  */
 import { create } from 'zustand'
+import { bridge } from '../../bridge'
 import { onMessage, onUi } from '../../core/bus'
 import { useLesson, type Notice } from '../../core/lesson'
 import { sendAction, usePressed } from '../../core/shortcuts'
@@ -29,17 +31,33 @@ type PillState = {
   buildMessage?: string
   /** The line the pill is showing right now (core `notice`, for NOTICE_MS). */
   notice?: Notice
-  /** connected has been false for longer than OFFLINE_GRACE_MS. */
+  /** connected has been false for longer than OFFLINE_GRACE_MS and a connect attempt has failed (review A16). */
   offline: boolean
+  /**
+   * The engine socket as main reports it (main/engine.ts LinkInfo). 'pending' until the first answer; 'unsupported' when
+   * this runtime doesn't report it (then offline is the plain grace, as before).
+   */
+  link: LinkInfo | 'pending' | 'unsupported'
+  /** Retry was pressed: the bonsai spins until that attempt ends (at least RETRY_MIN_MS, so the press reads). */
+  retrying: boolean
   /** "Lesson saved · Undo" is on the pill (UNDO_MS after an End that kept the save). */
   undo: boolean
   /** Undo or Continue was pressed: the bonsai spins until the lesson is back (never look dead), at most RESUME_WAIT_MS. */
   resuming: boolean
   /** A saved lesson the engine offers back (its resume card), kept after the learner closes the card: the idle pill's Continue. */
   offer?: SavedOffer
+  /**
+   * Build lesson / Teach me / a pasted link just landed on the pill and the engine hasn't answered yet: the building pill
+   * reads "Planning your lesson…" (Michael's review A20: the pill was blank when a build started). Held through the old
+   * lesson's lesson.ended and its steps; over at the engine's first lesson.building / lesson.ready, or an error.
+   */
+  planning: boolean
 }
 
-export const usePill = create<PillState>(() => ({ offline: false, undo: false, resuming: false }))
+/** main/engine.ts LinkInfo (main-only module, so the shape is repeated here). */
+export type LinkInfo = { open: boolean; attempting: boolean; failures: number }
+
+export const usePill = create<PillState>(() => ({ offline: false, undo: false, resuming: false, link: 'pending', retrying: false, planning: false }))
 const set = usePill.setState
 
 let holdTimer: ReturnType<typeof setTimeout> | undefined
@@ -56,9 +74,14 @@ onUi('reset', (p) => {
   clear()
   const r = p as { scope?: string; reason?: string } | undefined
   if (r?.scope) {
-    if (r.reason === 'reconnect') set({ offer: undefined })
+    // A new build's learn ends the old lesson (lesson.ended "new lesson"): that reset must not blank the planning pill.
+    if (r.reason === 'reconnect') {
+      set({ offer: undefined })
+      stopPlanning()
+    }
     return
   }
+  stopPlanning()
   hideNotice()
   dropUndo()
   doneResuming()
@@ -79,6 +102,48 @@ for (const t of ['lesson.building', 'lesson.ready', 'step.started'] as const)
     doneResuming()
     if (usePill.getState().offer) set({ offer: undefined })
   })
+
+// ---------------------------------------------------------------------------
+// Planning (review A20): "Planning your lesson…" from the moment the launcher lands on the pill with a build.
+// ---------------------------------------------------------------------------
+
+/** A build the engine never answers doesn't keep the planning pill forever. */
+export const PLANNING_MAX_MS = 30_000
+let planTimer: ReturnType<typeof setTimeout> | undefined
+
+function startPlanning(): void {
+  clearTimeout(planTimer)
+  // A new lesson is on its way: the Undo after End and the saved lesson's Continue are spent.
+  dropUndo()
+  set({ planning: true, offer: undefined })
+  planTimer = setTimeout(stopPlanning, PLANNING_MAX_MS)
+}
+function stopPlanning(): void {
+  clearTimeout(planTimer)
+  if (usePill.getState().planning) set({ planning: false })
+}
+/**
+ * When the launcher last opened, and when the engine last said something about a new build (a stage, or the lesson
+ * set). Not step.started: the lesson in progress can move on while the launcher is open, and a new build always
+ * opens with lesson.building or lesson.ready.
+ */
+let launcherAt = 0
+let heardAt = 0
+bridge.on('launcher:open', () => (launcherAt = Date.now()))
+// The launcher shrank onto the pill with Build lesson, Teach me or a pasted link (core starts the building pill too).
+// Unless the engine already answered during the collapse (a fast engine, the mock): then its words are already there.
+bridge.on('pill:receive', () => {
+  if (launcherAt && heardAt >= launcherAt) return
+  startPlanning()
+})
+// The engine's first word on the build, or its failure (an offline learn fails with an error at once).
+for (const t of ['lesson.building', 'lesson.ready'] as const)
+  onMessage(t, () => {
+    heardAt = Date.now()
+    stopPlanning()
+  })
+onMessage('error', stopPlanning)
+
 onMessage('step.passed', (p) => {
   const { steps } = useLesson.getState()
   const i = steps.findIndex((s) => s.id === p.stepId)
@@ -166,6 +231,8 @@ onMessage('card', doneResuming)
 onMessage('error', doneResuming)
 // "Start a new lesson" on the resume card (action end_lesson) clears the save: no Undo, no Continue for that.
 usePressed.subscribe((s) => {
+  // Pick another (the preflight card): the build is called off (core stopBuild), the launcher reopens.
+  if (s.kind === 'pick_another') return stopPlanning()
   if (s.kind !== 'end_lesson') return
   dropUndo()
   if (usePill.getState().offer) set({ offer: undefined })
@@ -205,22 +272,89 @@ onMessage('card', (p) => {
 })
 
 // ---------------------------------------------------------------------------
-// Offline: connected false for a moment is normal (startup, a socket hiccup); only a lasting drop shows.
+// Offline: connected false for a moment is normal (startup, a socket hiccup); only a lasting drop shows, and only once
+// a connect attempt has actually failed (Michael's review A16: "Offline" flashed on load and stayed ~10 s after an
+// engine reload). Main retries every 1 s for the first 30 s of an outage (main/engine.ts); the pill's Retry tries now.
 // ---------------------------------------------------------------------------
 
 export const OFFLINE_GRACE_MS = 2000
+/** The idle pill while the engine can't be reached (review A16), with a Retry. */
+export const UNREACHABLE = "Can't reach miyagi"
+export const RETRY_MIN_MS = 600
+const RETRY_MAX_MS = 6000
 let offlineTimer: ReturnType<typeof setTimeout> | undefined
+/** When this window last saw the engine go away (or loaded without it). */
+let downAt = Date.now()
 
-function syncOffline(connected: boolean): void {
+function syncOffline(): void {
   clearTimeout(offlineTimer)
-  if (connected) set({ offline: false })
-  else offlineTimer = setTimeout(() => set({ offline: true }), OFFLINE_GRACE_MS)
+  const { connected } = useLesson.getState()
+  const { link, offline } = usePill.getState()
+  if (connected) {
+    if (offline) set({ offline: false })
+    return
+  }
+  // No attempt has failed yet (the first one on load, or the first after a drop, is still in flight): not offline yet.
+  const failed = link === 'unsupported' || (link !== 'pending' && link.failures > 0)
+  if (!failed) return
+  const left = OFFLINE_GRACE_MS - (Date.now() - downAt)
+  if (left <= 0) {
+    if (!offline) set({ offline: true })
+  } else offlineTimer = setTimeout(syncOffline, left)
 }
-syncOffline(useLesson.getState().connected)
+
+let retryTimer: ReturnType<typeof setTimeout> | undefined
+let retryAt = 0
+function doneRetrying(): void {
+  clearTimeout(retryTimer)
+  const wait = RETRY_MIN_MS - (Date.now() - retryAt)
+  if (wait > 0) {
+    retryTimer = setTimeout(doneRetrying, wait)
+    return
+  }
+  if (usePill.getState().retrying) set({ retrying: false })
+}
+
+function onLink(l: LinkInfo): void {
+  set({ link: l })
+  // The attempt Retry started has ended (open, or failed again).
+  if (usePill.getState().retrying && (l.open || !l.attempting)) doneRetrying()
+  syncOffline()
+}
+
+/** The pill's Retry: main tries now (and goes back to 1 s retries); the bonsai spins until that attempt ends. */
+export function retryEngine(): void {
+  if (usePill.getState().retrying) return
+  retryAt = Date.now()
+  clearTimeout(retryTimer)
+  set({ retrying: true })
+  retryTimer = setTimeout(() => set({ retrying: false }), RETRY_MAX_MS)
+  bridge
+    .invoke<LinkInfo>('engine-link:retry')
+    .then((l) => l && onLink(l))
+    .catch(() => doneRetrying())
+}
+
+bridge.onFeature('engine-link', (p) => p && onLink(p as LinkInfo))
+// Connect as soon as the renderer loads (review A16): main tries now if it's down, and says where the link is.
+bridge
+  .invoke<LinkInfo>('engine-link:retry')
+  .then((l) => (l ? onLink(l) : undefined))
+  .catch(() => {
+    set({ link: 'unsupported' })
+    syncOffline()
+  })
+syncOffline()
 
 useLesson.subscribe((s, prev) => {
   if (s.notice && s.notice !== prev.notice) showNotice(s.notice)
-  if (s.connected !== prev.connected) syncOffline(s.connected)
+  if (s.connected !== prev.connected) {
+    if (!s.connected) {
+      downAt = Date.now()
+      stopPlanning() // dropped mid-build: core drops the building pill too
+    }
+    syncOffline()
+  }
 })
 
 /** Off-track episodes whose amber pulse has been seen, so hover/card remounts don't pulse again. */
