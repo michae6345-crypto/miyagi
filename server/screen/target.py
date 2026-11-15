@@ -66,7 +66,7 @@ EXTRA_ID = 500                         # our extra candidates; E6's ids (1-4, 10
 CACHE_TTL = 120.0
 CACHE_MAX = 128
 RETRY_BASE_S, RETRY_MAX_S = 3.0, 30.0  # a failed / low-confidence pick is asked again after 3, 6, 12, 24, 30 s
-NONE_HOLD_S = 6.0                      # "nothing matches" is not asked again for 6 s, even on a changed screen
+NONE_HOLD_S = 2.0                      # "nothing matches" held 2 s on a changed screen (< _lesson_spot's 3 s retry)
 OVERLAY_PAD = 6.0                      # pt around each overlay.bounds rect (edges, shadows, a late report)
 UI_TEXT_TTL = 600.0                    # s a string Miyagi showed counts as "ours" (note_ui_text)
 
@@ -744,13 +744,14 @@ def note_ui_text(texts: Iterable[str]) -> None:
 
 def _drop_ours(cands: list[Cand], intent: str) -> tuple[list[Cand], list[Cand]]:
     """-> (candidates, the ones dropped as Miyagi's own text): a line (>= 12 letters) that is a whole string Miyagi
-    showed in the last UI_TEXT_TTL s, or a wrapped piece of one (>= 30% of it; an editor row: >= half). Never one
-    the question itself names (the step's code is in the intent)."""
+    showed in the last UI_TEXT_TTL s, or a wrapped piece of one (>= 30% of it; an editor row: >= half). Never a line
+    of the code the question asks for (its `(code: ...)` part); its prose is Miyagi's caption / action line, so a
+    line restating it is ours."""
     now = _now()
     ui = [u for t, u in _UI_TEXT if now - t <= UI_TEXT_TTL]
     if not ui:
         return cands, []
-    asked = M.squash(intent)
+    asked = M.squash(intent.partition("(code:")[2])           # "" when the question has no code
     keep, ours = [], []
     for c in cands:
         s = M.squash(c.text) if c.kind != "region" else ""

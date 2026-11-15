@@ -259,7 +259,7 @@ rect, why = await confirm_on_screen(box_rect, intent)   # verifier: agree | move
 - **Outcomes:** `pick_with_outcome()` says which case it was. The verifier keeps the engine's own box unless Haiku *answered*: a confident pick elsewhere moves the box, and a sure "nothing" (≥ 0.75) removes it.
 - **Cache:** keyed by (the candidate-set hash = what Haiku is shown, snapped to 4 pt; intent; app), 120 s, including "nothing" answers.
   Per question (intent = the step's action + code) the last answer is reused across frames: a pick stands while its rows are in place and
-  the rows above them are unchanged (typing into / below the line doesn't re-ask); "nothing" is held 6 s; error / timeout / low confidence
+  the rows above them are unchanged (typing into / below the line doesn't re-ask); "nothing" is held 2 s; error / timeout / low confidence
   retry after 3, 6, 12, 24, 30 s. One call per question at a time; the 6/min budget stays.
 - **Logging:** each call logs its tokens and a running $ estimate (Haiku 5.5: $0.10 / $0.50 per MTok); `stats()` gives the totals and p50/p95.
 - **Orchestrator:** `ScreenBridge.pick()` / `.confirm()`. `MIYAGI_VISION_TARGET=0` turns both off.

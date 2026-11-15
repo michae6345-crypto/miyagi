@@ -38,9 +38,9 @@ from pathlib import Path
 from typing import Any
 
 from . import config
-from .captions import short_caption
 from .context import RunContext, RunInfo, metrics_summary
 from .modules import Modules
+from .captions import short_caption
 
 log = logging.getLogger("orchestrator.session")
 
