@@ -1315,6 +1315,8 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
                 except Exception:  # noqa: BLE001 - the lesson still runs in the default folder
                     log.exception("curated lesson folder failed")
                     folder = None
+                if demo:  # a new take: VS Code's open nn.py too, not the last take's unsaved code (stage.py)
+                    await stage.reset_editor(self, folder)
             graph["lesson"]["workdir"] = folder or str(config.lesson_workdir("", goal))
             log.info("curated lesson %s for %r in %s", graph["lesson"].get("curated"), goal, graph["lesson"]["workdir"])
             self.build_progress = None
@@ -3172,6 +3174,7 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
             self._sync_screen_soon()  # "Before you start" (E4), so step 1 gets its box
             if self.awaiting_start:
                 await self._maybe_begin()
+            await stage.tick(self)  # a pasted step passes on its own, unsaved (as quiet_save.poll in a real lesson)
             return
         step = self.step
         self._attribute_input()  # E5: the last second's keys / clicks, booked to the app that got them
