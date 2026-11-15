@@ -26,19 +26,32 @@ export function describePlatform(os: string): PlatformInfo {
     os: mac ? 'mac' : 'win',
     // Mac: sit just UNDER the hardware notch (notch/menu bar is ~37pt on notched MacBook Pros), not behind it.
     pillTop: mac ? 40 : 8,
+    // Mac lesson keys are ⌃⌥ (Control+Option), not ⌥ alone (Adrian, Sun 1 AM, after Michael's test): ⌥← is word-left
+    // in VS Code and ⌥E/D/S/H/V type characters (⌥E is the accent key), so global ⌥ shortcuts stole the learner's
+    // typing. ⌃⌥ combos type nothing. The launcher stays ⌥Space. Windows is unchanged (Ctrl+Alt is AltGr there).
     keys: mac
-      ? { launcher: '⌥Space', back: '⌥←', explain: '⌥E', diagram: '⌥D', show_me: '⌥S', hint: '⌥H', voice_toggle: '⌥V' }
+      ? { launcher: '⌥Space', back: '⌃⌥←', explain: '⌃⌥E', diagram: '⌃⌥D', show_me: '⌃⌥S', hint: '⌃⌥H', voice_toggle: '⌃⌥V' }
       : // Alt+Space is the Windows system menu: never bind it there.
         { launcher: 'Ctrl⇧Space', back: 'Alt←', explain: 'Alt+E', diagram: 'Alt+D', show_me: 'Alt+S', hint: 'Alt+H', voice_toggle: 'Alt+V' },
-    accelerators: {
-      launcher: mac ? 'Alt+Space' : 'Control+Shift+Space',
-      back: 'Alt+Left',
-      explain: 'Alt+E',
-      diagram: 'Alt+D',
-      show_me: 'Alt+S',
-      hint: 'Alt+H',
-      voice_toggle: 'Alt+V'
-    }
+    accelerators: mac
+      ? {
+          launcher: 'Alt+Space',
+          back: 'Control+Alt+Left',
+          explain: 'Control+Alt+E',
+          diagram: 'Control+Alt+D',
+          show_me: 'Control+Alt+S',
+          hint: 'Control+Alt+H',
+          voice_toggle: 'Control+Alt+V'
+        }
+      : {
+          launcher: 'Control+Shift+Space',
+          back: 'Alt+Left',
+          explain: 'Alt+E',
+          diagram: 'Alt+D',
+          show_me: 'Alt+S',
+          hint: 'Alt+H',
+          voice_toggle: 'Alt+V'
+        }
   }
 }
 
