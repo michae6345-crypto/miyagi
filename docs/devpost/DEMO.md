@@ -49,17 +49,17 @@ write the real numbers in.**
 |---|---|---|
 | **0:00** | VS Code on screen, the island pill under the notch. | "YouTube tutorials can't tell whether you actually got it. Miyagi can. It turns any tutorial into an auto-graded lab, and there are two ways in." |
 | **0:07** | **⌥Space**. The launcher grows out of the island. Type **`learn physics informed machine learning with PINNs in PyTorch`**, then press **↵** (Watch a video). | "First way: watch a video. Claude searches YouTube with Bright Data's Google results, and Bright Data reads each video's comments, so a broken tutorial gets flagged." |
-| **0:14** | **↑/↓** to *Learning Physics Informed Machine Learning Part 1* (Toscano), then **↵**. The **preflight card** shows within 5 s. Click **Build**. | "Before building anything, Miyagi tells me what this video is and what I'm missing. Then Claude builds the lesson from the transcript; Gemini watches the video only when there's no transcript." |
+| **0:14** | **↑/↓** to *Learning Physics Informed Machine Learning Part 1* (Toscano), then **↵**. The **preflight card** shows within 5 s. Click **Build**. | "Before building anything, Miyagi tells me what this video is and what I'm missing. Then Claude builds the lesson from the transcript." |
 | **0:22** | The lesson loads (cached) and VS Code opens `demo/pinn-lab`. Switch to the second tab and press **↵** on `debug/goto/7`: the step's clip plays, then pauses. The screen dims to a **white box** on the code. | "Each step plays one clip and waits. Miyagi reads my whole screen on the device and boxes exactly where I work. Let's skip to training." |
 | **0:30** | In the VS Code terminal: **`tut run python pinn_diffusion.py`** ↵. The loss sits around 17. | "Learning rate 0.3." |
 | **0:47** | The pill pulses **amber** 16.5–18.8 s after ↵. | "The check reads my loss and tests whether it's improving, statistically. It isn't." |
-| **0:53** | The coach card arrives 5–7 s after amber: *"Learning rate 0.3 is far too high… Set lr to 1e-3."* | "Claude Opus reads my real screen and code. No script." |
+| **0:53** | The coach card arrives 5–7 s after amber: *"Learning rate 0.3 is far too high… Set lr to 1e-3."* | "Claude reads my real screen and code. No script." |
 | **0:58** | **⌘S** once. Within 1 s **Do it for me** appears. Click it, review the `lr=0.3 → lr=1e-3` preview, click **Confirm**. | "Hints before answers. The fix is a diff I approve, and I can undo it." |
 | **1:02** | **`tut run python pinn_diffusion.py`** again. Green arrives 11.6–15.9 s later and the video resumes 0.4 s after that. | "Every check and every metric streams into Tiger Data. That's what lets a creator see where learners get stuck." |
 | **1:18** | Bottom bar › **End lesson**. Then **⌥Space**, type **`build a calculator`**, press **⌘↵** (Just teach me). | "Second way: no video at all. Just teach me." |
 | **1:24** | The pill shows the build. VS Code opens **full screen**. Step 1 appears and the white box sits on the exact line, with the code to type under the caption. | "Claude researched the official docs with web search and wrote the lesson, and Miyagi boxes exactly where to type." |
 | **1:34** | Type the boxed line, **⌘S**, then bottom bar › **Check**. The step goes green and the box moves to the next line. | "Check runs the step's checks on my screen, then a Claude judge. Green." |
-| **1:48** | — | "Two ways to learn, both graded from your real screen, and it survives a restart. Built on Claude, Bright Data, Tiger Data and Gemini." |
+| **1:48** | — | "Two ways to learn, both graded from your real screen, and it survives a restart. Built on Claude, Bright Data and Tiger Data." |
 
 **If something stalls:**
 - **Search is slow:** press Esc and run `ORCH_LADDER_MIN_S=0 COACH_OFFLINE_FALLBACK=1 scripts/miyagi-demo.sh`, which autostarts
@@ -127,11 +127,11 @@ only steps 1–2 are stage-safe, and step 2 needs the workaround below.** The bu
 ## Judge Q&A cheat sheet (3 min)
 
 **"Two ways to learn: what's the difference?"** Watch a video builds the lesson from a real YouTube tutorial: Claude reads its
-transcript, and Gemini watches the video only when there's no transcript. The video is gated step by step. Just teach me has no
+transcript. The video is gated step by step. Just teach me has no
 video: Claude plans the steps, researches the official docs with web search and fetch, and writes the exact code for each step.
 Both are graded the same way, from your screen.
 
-**"Is the coach scripted?"** No. Live diagnoses come from `claude-opus-5-5` with the failing checks, your metrics, your code and
+**"Is the coach scripted?"** No. Live diagnoses come from `claude-sonnet-5-5` with the failing checks, your metrics, your code and
 a marked-up screenshot (`server/coach/`). Canned cards exist only under `DEMO=1` or the opt-in offline fallback, which is marked
 `offline: true`.
 
@@ -152,11 +152,11 @@ fallback route for captions.
 time per step, fail rate per check, a stuck heatmap per 15 s of video, and learner progress. You can see them live at
 `localhost:8787/stats`. When the venue Wi-Fi blocks the port, writes spool to disk and replay later.
 
-**"Where's Gemini?"** It's the video-watching fallback in the lesson builder, used when there's no transcript or Claude's draft
-fails. It's capped per day and its token use is logged in `build.cost`.
+**"Where's Gemini?"** The lesson builder has an optional path where Gemini watches the video itself when there's no transcript
+(the cached hero lesson was built that way). It's off in our build to control cost; it's capped per day and logged in `build.cost`.
 
 **"What did it cost / how do you control spend?"** An unsupervised test sweep drained our prepaid Gemini credit (about $20, team
-figure). Since then: a billing fast-fail, a daily Gemini cap, skims off, Claude tiers (Haiku/Sonnet, Opus only on failure) and
+figure). Since then: a billing fast-fail, a daily Gemini cap, skims off, Claude tiers (Haiku/Sonnet; Opus off), Gemini off and
 per-model token logging.
 
 **"What if it crashes?"** Every lesson is saved as it's built. A restart offers to resume at the same step with no rebuild.

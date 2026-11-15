@@ -61,9 +61,10 @@ it really works.
 2. **Preflight.** Within 5 s of your pick, a card says what the video really is: its style, length and chapters, whether it fits
    your goal, and which tools you're missing. It has two buttons, **Build** or **Pick another** (`server/preflight/`).
 3. **Build, Claude first.**
-   - Our engine runs `LESSON_ENGINE=claude-first`: Claude builds the lesson from the video's **timestamped transcript**, title,
+   - Our engine runs `LESSON_ENGINE=claude`: Claude builds the lesson from the video's **timestamped transcript**, title,
      description and chapters (commit `ad28bad`).
-   - **Gemini watches the video itself only when there's no transcript, or when Claude's draft fails.**
+   - An optional Gemini path (`LESSON_ENGINE=claude-first`) watches the video itself when there's no transcript. It's off in our
+     build to control cost.
    - Each step gets a video clip and checks that can be graded from your screen: regexes over the editor and terminal, plus
      loss/accuracy thresholds and trends read off the terminal.
    - Videos over 30 min are built part by part (`server/lesson/progressive.py`).
@@ -78,13 +79,13 @@ You type a goal like *"build a calculator"* and press ⌘↵ (`learn {mode: "les
 - `build_text_lesson` (`server/lesson/textlesson.py`) plans 3–8 steps with Sonnet.
 - It researches the topic with Claude's **web search and web fetch** tools, so the official docs are the source. Sources are only
   URLs those tools returned.
-- Haiku writes each step: the exact code to type, where it goes, the screen checks and hints. Opus steps in only when a check on
+- Haiku writes each step: the exact code to type, where it goes, the screen checks and hints. Sonnet steps in only when a check on
   that output fails.
 - Step 1 is ready before the research finishes.
 - VS Code opens full screen, and each step boxes exactly where to type (commits `f438b88`, `12c1b26`, `716dafe`).
 
 ### In both modes
-- **Get unstuck.** When a check fails (for example, the loss sits around 17), the step turns amber. A **Claude Opus** coach reads
+- **Get unstuck.** When a check fails (for example, the loss sits around 17), the step turns amber. A **Claude Sonnet** coach reads
   your actual screen and code and gives one short card: a hint ladder from a question, to the moment in the video or the source,
   to the exact fix. **Do it for me** shows a diff preview, applies it only after you confirm, writes only code that compiles, and
   can be undone (`server/coach/`, `server/orchestrator/session.py`).
@@ -109,20 +110,20 @@ Electron overlay (app/: island, launcher, spotlight, bottom bar, player)
 engine: server/orchestrator (FastAPI hub, lesson state machine, don't-nag gate, hint ladder)
   ├─ finder     Claude web search + scoring · Bright Data SERP (Google video results) + YouTube comments
   ├─ preflight  ≤ 5 s card before any build
-  ├─ lesson     Watch a video: Claude from the transcript (Gemini watches when there's none)
+  ├─ lesson     Watch a video: Claude from the transcript (optional Gemini path, off)
   │             Just teach me: Claude plans, researches (web search/fetch) and writes the steps
   ├─ workspace  per-lesson folder, starter files, VS Code (full screen in Just teach me), Accessibility line rects
   ├─ screen     ScreenCaptureKit → screencapture → CoreGraphics; Apple Vision OCR; Accessibility; terminal/editor regions
   ├─ checks     pure evaluator: screen regex, metric threshold, metric trend (Mann-Kendall + Theil-Sen)
-  ├─ coach      Claude Opus diagnosis, step judge, hint ladder, Do it for me
+  ├─ coach      Claude Sonnet diagnosis, step judge, hint ladder, Do it for me
   ├─ diagrams   Claude-built diagram for the current step
   ├─ sessions   restart-safe lesson saves + resume
   └─ Tiger Data learning_events + training_metrics hypertables, 5 continuous aggregates, GET /stats
 ```
 
-**Model rule:** Claude reads screens, code and transcripts. Gemini only watches YouTube videos, and only as the lesson builder's
-fallback. Inside Claude we use tiers: Haiku and Sonnet do the routine work, and Opus is used for the coach's diagnosis and when
-a quality check on cheaper output fails (commit `d500d03`).
+**Model rule:** Claude reads screens, code and transcripts. Gemini can only ever watch YouTube videos, and it's off in our build.
+Inside Claude we use tiers: Haiku does the routine work, and Sonnet writes the coach's diagnosis and takes over when a quality
+check on cheaper output fails (commit `d500d03`). Opus is never used by default; it needs `LESSON_ALLOW_OPUS=1`.
 
 **Screen reading.**
 - Capture order: ScreenCaptureKit first, Apple's `/usr/sbin/screencapture` when ScreenCaptureKit stalls (as it does on
@@ -139,7 +140,7 @@ Measured numbers:
 | Search with Claude + Bright Data live (4 queries, all result kinds) | first row **3.6–5.8 s**, done 12.7–18.0 s; up to 36 YouTube comments read per video | `timings` / `comments` in `demo/cache/search/*.json` (re-recorded 15:16–15:18) |
 | Hero lesson build (24-min Toscano PINN video, Gemini watched it) | **31.1 s** | `build` in `demo/cache/lessons/aebc6b8fba02dac5.json` |
 | Lesson builder on 5 non-PINN tutorials (React, git, pandas, Rust, FastAPI) | Gemini path 41–50 s; Claude transcript path **29–83 s** after fixes; all schema-valid; 43/43 step titles match the transcript; manual score **8–9/10** | `evals/lesson/report.md` |
-| Coach card after a failed run | 2–4 s after the run ends; Opus 3.1–4.0 s (3 rehearsal takes) | rehearsal report (`docs/REHEARSAL.md`, rehearsal PR, **not merged**); commit `eb08267` (3.3 s) |
+| Coach card after a failed run | 2–4 s after the run ends; 3.1–4.0 s per diagnosis call (3 rehearsal takes, measured when the coach ran on Opus; it runs on Sonnet now) | `docs/REHEARSAL.md`; commit `eb08267` (3.3 s) |
 | Screen reader | capture ~17 ms; OCR 100–220 ms per changed frame | `server/screen/README.md` |
 | Plateau detector | flat noisy curves wrongly graded "improving": 61–136/300 seeds → **≤ 3/300** | `server/checks/README.md` |
 | Hero failure is real | `lr = 0.3`: loss stuck around 17, fails **6/6** seeds; `lr = 1e-3` passes 3/3 in ~15 s on CPU | `demo/pinn-lab/README.md` |
@@ -160,7 +161,8 @@ React + TypeScript + Tailwind + Motion; PyTorch for the hero lesson.
   every call returned `402 "prepayment credits are depleted"` (commit `15f0efe`). We added:
   - a 402 fast-fail with a 5-minute breaker and a plain-English error;
   - Gemini skims off in the finder (`b4f3bd2`);
-  - Haiku/Sonnet tiers with Opus only when a check fails;
+  - Haiku/Sonnet tiers, and Opus off unless explicitly allowed;
+  - Gemini turned off (`LESSON_ENGINE=claude`);
   - `build.cost` token accounting on every lesson (`d500d03`);
   - opt-in prebuild;
   - paid keys blanked in tests.
@@ -183,7 +185,7 @@ React + TypeScript + Tailwind + Motion; PyTorch for the hero lesson.
 
 ## Accomplishments that we're proud of
 - The hero loop is real end to end: a real training run, real OCR of the terminal, a statistically tested plateau check and a
-  live Opus diagnosis. It finds `lr = 0.3` by itself, then the step goes green and the video resumes.
+  live Claude diagnosis. It finds `lr = 0.3` by itself, then the step goes green and the video resumes.
 - There are two ways to learn, and both are graded the same way, from your real screen.
 - No fake data on the live path. A failing module reports why, and a search row that wasn't watched or read says so. Canned data
   exists only behind `DEMO=1`.
@@ -205,7 +207,7 @@ React + TypeScript + Tailwind + Motion; PyTorch for the hero lesson.
 
 ## Built with
 `python` · `fastapi` · `pyobjc` · `apple-vision` · `screencapturekit` · `macos-accessibility` · `electron` · `react` · `typescript`
-· `tailwindcss` · `framer-motion` · `pytorch` · `claude` (Opus 5.5, Sonnet 5.5, Haiku 5.5) · `anthropic-api` · `gemini` ·
+· `tailwindcss` · `framer-motion` · `pytorch` · `claude` (Sonnet 5.5, Haiku 5.5) · `anthropic-api` · `gemini` ·
 `bright-data` · `tiger-data` · `timescaledb` · `postgresql` · `youtube-iframe-api` · `vs-code` · `godaddy`
 
 ---
@@ -243,8 +245,9 @@ Tiger Data is the time-series memory of every session.
   `python -m server.checks.tiger --ping` output from the demo network before submitting.
 
 ### Gemini
-Gemini is the lesson builder's **video-watching fallback**. With our `LESSON_ENGINE=claude-first`, Claude builds from the transcript.
-Gemini gets the public YouTube URL as `file_data` and watches the video itself when there's no transcript or Claude's draft fails.
+Gemini is the lesson builder's optional **video-watching path**, and it's off in our build (`LESSON_ENGINE=claude`) to control cost.
+With `LESSON_ENGINE=claude-first`, Gemini gets the public YouTube URL as `file_data` and watches the video itself when there's no
+transcript or Claude's draft fails.
 It returns steps with MM:SS bounds, the code written, checks, targets and hints as structured JSON (`server/lesson/gemini.py`).
 Long videos fall back to Gemini part by part (`server/lesson/progressive.py`). Usage is capped per day and logged in `build.cost`.
 The cached hero lesson was built by `gemini-4-hydrogen` watching the 24-minute video (31.1 s, `build.model` in
