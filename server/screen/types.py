@@ -134,6 +134,9 @@ class ScreenObservation:
     capture: str = ""                   # backend that produced the frame: sck | cli | cg | fixture
     editor: dict | None = None          # frontmost VS Code window: {folder, file, path, symbol, dirty, sources}
     #                                     (server.screen.vscode; the one answer to "which file is open")
+    foreign: list[Window] = field(default_factory=list)       # VS Code windows of OTHER folders than the lesson's
+    #                                     (reader.set_lesson_folder): left out of windows/blocks/AX, front to back
+    foreign_rects: list[Rect] = field(default_factory=list)   # the screen areas they show (blacked out for models)
 
     def text(self, app: str | None = None) -> str:
         """All OCR text, one block per line, plus exact AX text (editor buffer page / terminal rows)
@@ -182,6 +185,8 @@ class ScreenObservation:
              "capture": self.capture, "editor": self.editor, "postprocessed": True}
         if with_blocks:
             d["blocks"] = [b.to_dict() for b in self.blocks]
+        if self.foreign:
+            d["foreign"] = [w.to_dict() for w in self.foreign]
         return d
 
     @staticmethod

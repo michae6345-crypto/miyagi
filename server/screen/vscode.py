@@ -23,7 +23,7 @@ from dataclasses import dataclass, field
 
 from . import match as M
 from .lines import EDITOR_APPS
-from .types import Block, ScreenObservation, Window
+from .types import Block, Rect, ScreenObservation, Window
 
 _DIRTY = ("●", "•", "⚫")            # ● • ⚫ (OCR variants)
 _TITLE_SEP = re.compile(r"\s+[—–-]\s+")   # " — " (VS Code on macOS), " – ", " - "
@@ -209,6 +209,75 @@ def vscode_window(obs: ScreenObservation, app: str | None = None) -> VSCodeWindo
             out.folder, out.sources["folder"] = min(heads, key=lambda b: b.rect.y).text.strip().lower(), "explorer"
 
     return out
+
+
+# ---------------------------------------------------------------------- the lesson's own window
+
+_EDITOR_NAMES = {M._norm_app(e) for e in EDITOR_APPS}
+
+
+def _is_editor(app: str | None) -> bool:
+    return M._norm_app(app) in _EDITOR_NAMES     # exact: "Xcode" is not "Code"
+
+
+def is_foreign(w: Window, folder: str | None) -> bool:
+    """A VS Code/Cursor window whose title names a folder and NOT `folder` (the lesson's folder, a name or a path):
+    "requirements.txt — fine-tune-llm-…" while the lesson is python-calculator-e430dc. A title that names no folder
+    (custom window.title, a lone file) is never foreign: when in doubt the window counts."""
+    if not folder or not _is_editor(w.app) or not parse_title(w.title)[1]:
+        return False
+    want = _alnum(str(folder).rstrip("/").split("/")[-1])
+    parts = [_alnum(p.split("[")[0]) for p in _TITLE_SEP.split(_strip_dirty(w.title or "")[0])]
+    return bool(want) and not any(want in p for p in parts)   # "in": a custom title may show the folder's path
+
+
+def window_shown(app: str | None, title: str | None, windows: list[Window]) -> bool:
+    """For an editor app: is the window titled `title` (AX's focused window) one of `windows` (a frame's on-screen,
+    lesson-scoped windows), by folder? VS Code's focused window can sit on another Space (full screen) or show another
+    folder; its AX text and caret rect must not count then. Other apps / a title with no folder: True (can't tell)."""
+    folder = parse_title(title or "")[1] if _is_editor(app) else None
+    if not folder:
+        return True
+    return any(_is_editor(w.app) and _alnum(parse_title(w.title)[1] or "") == _alnum(folder) for w in windows)
+
+
+def _visible_parts(r: Rect, front: list[Rect]) -> list[Rect]:
+    """`r` minus every rect in `front` (the windows in front of it), as up to a few rects."""
+    parts = [r]
+    for o in front:
+        out = []
+        for p in parts:
+            ix1, iy1, ix2, iy2 = max(p.x, o.x), max(p.y, o.y), min(p.x2, o.x2), min(p.y2, o.y2)
+            if ix1 >= ix2 or iy1 >= iy2:
+                out.append(p)
+                continue
+            if p.y < iy1:
+                out.append(Rect(p.x, p.y, p.w, iy1 - p.y))
+            if iy2 < p.y2:
+                out.append(Rect(p.x, iy2, p.w, p.y2 - iy2))
+            if p.x < ix1:
+                out.append(Rect(p.x, iy1, ix1 - p.x, iy2 - iy1))
+            if ix2 < p.x2:
+                out.append(Rect(ix2, iy1, p.x2 - ix2, iy2 - iy1))
+        parts = out
+    return [p for p in parts if p.w > 1 and p.h > 1]
+
+
+def scope_to_folder(blocks: list[Block], windows: list[Window], folder: str | None
+                    ) -> tuple[list[Block], list[Window], list[Window], list[Rect]]:
+    """Bind a frame to the lesson's own editor window: drop the VS Code windows of OTHER folders (and their OCR text)
+    so checks, the coach and spotlights never read or box another project.
+    -> (blocks, windows, foreign windows (front to back), the screen areas those foreign windows show)."""
+    foreign = [w for w in windows if is_foreign(w, folder)]
+    if not foreign:
+        return blocks, windows, [], []
+    keys = {(w.app, w.title) for w in foreign}
+    hidden: list[Rect] = []
+    for i, w in enumerate(windows):
+        if (w.app, w.title) in keys:
+            hidden += _visible_parts(w.rect, [o.rect for o in windows[:i]])
+    return ([b for b in blocks if (b.app, b.window) not in keys], [w for w in windows if (w.app, w.title) not in keys],
+            foreign, hidden)
 
 
 # ---------------------------------------------------------------------- the active file, from every source

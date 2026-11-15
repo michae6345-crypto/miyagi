@@ -8,6 +8,8 @@ rest of the engine text + positions in **screen points (top-left origin)**, the 
 from server.screen import get_reader, screen_contains
 reader = get_reader().start()                 # background thread; capture ~every 2s, OCR only on change
 reader.set_overlay_bounds(msg["rects"])       # forward the app's `overlay.bounds`; text under our UI is ignored
+reader.set_lesson_folder(workdir)             # bind to the lesson's VS Code window: other folders' windows (text, rects,
+                                              # AX, screenshot pixels) are left out; listed in obs.foreign. None unbinds
 obs = reader.latest()                         # ScreenObservation{t, app, windows[{app,title,rect}], blocks[{text,rect,confidence,app,window}]}
 unsub = reader.subscribe(cb)                  # cb(obs) per new frame; async def cb is scheduled on the running loop
 res = reader.locate_match("def pde_residual", app="Code")   # -> LocateResult{rect, app, matched, score} | None

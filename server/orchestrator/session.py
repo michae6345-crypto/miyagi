@@ -369,6 +369,7 @@ class LessonSession:
         self._spot_away = False  # the box was cleared because the learner left VS Code
         self._wrong_folder: dict | None = None  # S2's wrong_folder(): the learner edits the file in another folder
         self._wf_t = -1e9
+        self._wf_since: float | None = None  # since when another folder's VS Code window has been the one on screen
         self._spot_caption: str | None = None
         self._spot_t = -1e9
         self._spot_misses = 0
@@ -568,17 +569,62 @@ class LessonSession:
         for it in items:
             await self._install(it.get("tool", ""), item=it)
 
+    @property
+    def editor_open(self) -> bool:
+        """VS Code was opened on this lesson's folder (lesson mode always; a video lesson after Open / auto-open). While
+        True the lesson is bound to ITS window: E6 leaves other folders' VS Code windows out of the screen (text,
+        boxes, screenshots) and another folder's window on screen counts as "Wrong folder?"."""
+        return self._editor_open
+
+    @editor_open.setter
+    def editor_open(self, value: bool) -> None:
+        self._editor_open = bool(value)
+        self._bind_lesson_window()
+
+    def _bind_lesson_window(self) -> None:
+        """Tell E6 which folder's VS Code window is the lesson's (None: every window counts)."""
+        reader = getattr(getattr(self, "screen", None), "reader", None)
+        bind = getattr(reader, "set_lesson_folder", None)
+        if bind is not None:
+            try:
+                bind(getattr(self, "workdir", None) if self._editor_open else None)
+            except Exception:  # noqa: BLE001 - binding is a refinement; the lesson runs without it
+                log.exception("set_lesson_folder failed")
+
     async def _open_editor(self) -> None:
         if self.workspace is None or self.graph is None:
+            log.info("open_editor ignored: %s", "no workspace" if self.workspace is None else "no lesson")
             return
         from . import workspace as wsmod
 
         if self.reqs is not None and not wsmod.editor_needed(self.reqs):
+            log.info("open_editor ignored: this lesson doesn't use an editor")
             return  # e.g. a Blender/Figma lesson: never open VS Code
+        log.info("open_editor: bringing %s forward", Path(self.workdir).name)
         self.workspace.open(self.workdir, force=True, explicit=True)  # the learner pressed "Open VS Code"
         self.editor_open = True
         if self.step is not None:
             self.workspace.goto_target(self.workdir, self.step, explicit=True)
+        if getattr(self.screen, "reader", None) is not None:  # real windows only (never in tests)
+            self._spawn(self._confirm_lesson_window(self.workdir), timer=True)
+
+    async def _confirm_lesson_window(self, folder: str) -> None:
+        """After Open: did a VS Code window of the lesson folder come forward on this Space? Logged either way (the QA
+        run couldn't tell 'never sent' from 'sent, nothing came forward'); once more `code <folder>` if it didn't."""
+        from . import workspace as wsmod
+
+        fn = getattr(wsmod._s2(), "folder_on_screen", None)
+        if fn is None:
+            return
+        for attempt in (1, 2):
+            await asyncio.sleep(2.0)
+            if await asyncio.to_thread(fn, folder):
+                log.info("open_editor: %s is on screen", Path(folder).name)
+                return
+            if attempt == 1 and self.workspace is not None and folder == self.workdir:
+                log.warning("open_editor: %s didn't come forward; asking VS Code again", Path(folder).name)
+                await asyncio.to_thread(self.workspace.open, folder, True, False, True)
+        log.warning("open_editor: %s still isn't on screen", Path(folder).name)
 
     def _prefetch_voice(self) -> None:
         """Synthesize every step's spoken line ahead of time (only while voice is on: it costs TTS credits)."""
@@ -1265,7 +1311,7 @@ class LessonSession:
         """Text match and gutter line both missed (e.g. a short new file: Vision reads no line numbers): Haiku picks
         the row from the marked screenshot (server.screen.target). None = no box; it never boxes chrome or tooltips."""
         pick = getattr(self.screen, "pick", None) if getattr(self.screen, "reader", None) is not None else None
-        if pick is None:
+        if pick is None or self._lesson_window_hidden():  # nothing of the lesson's to pick: no Haiku call
             return None
         spot = {"caption": self._type_caption(step), "app": "Code", **self._snippet(step)}
         res = await pick(self._spot_intent(spot))  # same question _confirm_spot asks next: answered from the cache
@@ -1679,6 +1725,9 @@ class LessonSession:
     async def _show_spot(self, spot: dict, steady: bool = False) -> None:
         """steady: the engine's own target box (step start / follow): not re-sent when it hasn't really moved.
         Coach / button spotlights always go out."""
+        if self._lesson_window_hidden() and (self.lesson_mode or (spot.get("app") or "").lower() in CODE_APP_NAMES):
+            log.info("no box for %r: another folder's VS Code window is on screen, not the lesson's", spot.get("caption"))
+            return
         old, r = self.spot_rect, spot["rect"]
         if (steady and old and spot.get("caption") == self._spot_caption
                 and all(abs(r[k] - old[k]) <= self.SPOT_MOVE_PX for k in ("x", "y", "w", "h"))):
@@ -1899,7 +1948,7 @@ class LessonSession:
             if gate.get("passed") and gate.get("via") != shown_list:  # green by the other route: show it green
                 why = "confirmed by your files" if gate.get("via") == "precision" else "confirmed on screen"
                 results = [r if r.get("status") == "pass" else {**r, "status": "pass", "detail": why} for r in results]
-            if gate.get("passed") and (self._dirty_step_file(step) or self._other_folder(step)
+            if gate.get("passed") and (self._dirty_step_file(step) or self._other_folder(step, same_file_only=True)
                                        or (self.lesson_mode and self._file_unready(step))):
                 # the screen shows the code, but it's unsaved / in another folder / not on disk: the file decides
                 gate = {**gate, "passed": False, "via": None}
@@ -2282,7 +2331,7 @@ class LessonSession:
         front = (getattr(obs, "app", "") or "").strip().lower() if obs is not None else ""
         if not front or front in self.OVERLAY_APPS:
             return False  # unknown, or the learner is on Miyagi's own cards: keep the box
-        in_editor = front in CODE_APP_NAMES
+        in_editor = front in CODE_APP_NAMES and not self._lesson_window_hidden()  # another project's window: away
         if not in_editor and self.spot_rect is not None and (self._spot_app or "").lower() in CODE_APP_NAMES:
             self._spot_away = True
             self.spot_rect, self._spot_caption = None, None  # the box must come back when VS Code does (S1 g)
@@ -2494,6 +2543,9 @@ class LessonSession:
                 await self._emit_card({"stepId": step["id"], "kind": "hint", "title": "I can't see your screen",
                                        "body": self.screen_down_message(reason)})
                 return
+            if self._lesson_window_hidden():  # another project's window is in front: no box on it; where + Open
+                await self._emit_card(self._where_card(step))
+                return
             quick = await self._show_where(step)  # exact match / window: instant
             if quick and self.lesson_mode:
                 return  # the target box + what to type there is the whole answer
@@ -2510,7 +2562,7 @@ class LessonSession:
                         return
                 if r and r.get("where") and not quick:
                     await self._emit_card({"stepId": step["id"], "kind": "hint", "title": "Where to work",
-                                           "body": r["where"]})
+                                           "body": r["where"], **({"actions": ["open_editor"]} if self._offers_open() else {})})
                     return
             if not quick and self._can_see():
                 await self._emit_card(self._where_card(step))
@@ -2549,6 +2601,10 @@ class LessonSession:
         if kind == "hint":
             gen = self.step_gen
             await self._status("thinking")
+            if self._lesson_window_hidden():  # another project's window is in front: say where (+ Open), quote nothing
+                await self._emit_card(self._where_card(step))
+                await self._status("offtrack" if self.last_offtrack else "watching")
+                return
             shown = await self._show_where(step)
             screen = await self._screen_for_coach(step) if self.m.has_pointing() else None
             if screen is None and ((not shown and self._can_see()) or self._code_not_visible()):  # say WHERE to go
@@ -2693,6 +2749,22 @@ class LessonSession:
         details = " ".join(str(r.get("detail") or "") for r in self.last_results if r.get("status") != "pass").lower()
         return any(k in details for k in ("not visible", "not on screen", "waiting for screen"))
 
+    def _lesson_window_hidden(self) -> str | None:
+        """The lesson is bound to its own VS Code window, and the screen shows ANOTHER folder's VS Code window but none
+        of the lesson's (E6 `obs.foreign`) -> that folder's name: a box would land on the wrong project. Else None."""
+        obs = self.last_obs
+        foreign = getattr(obs, "foreign", None) if self.editor_open else None
+        if not foreign or any((getattr(w, "app", "") or "").lower() in CODE_APP_NAMES
+                              for w in getattr(obs, "windows", None) or []):
+            return None
+        parts = [p.split("[")[0].strip() for p in re.split(r"\s[—–]\s", (getattr(foreign[0], "title", "") or "").lstrip("●•⚫ "))]
+        return (parts[1] if len(parts) >= 2 else parts[0]) or "another folder"
+
+    def _offers_open(self) -> bool:
+        from . import workspace as wsmod
+
+        return self.workspace is not None and self.graph is not None and wsmod.needs_editor(self.graph)
+
     def _where_card(self, step: dict) -> dict:
         """A card that says WHERE to go when I can't see the learner's work."""
         file = self._step_file(step)
@@ -2704,12 +2776,13 @@ class LessonSession:
             return {"stepId": step["id"], "kind": "hint", "title": f"Save it as {Path(file).name}",
                     "body": f"Your code is in an unsaved {untitled} tab. Save it (⌘S) as {Path(file).name} in "
                             f"{self.workdir} so I can check it."}
+        hidden = self._lesson_window_hidden()  # another project's VS Code window is the one on screen: name it
         card: dict[str, Any] = {"stepId": step["id"], "kind": "hint", "title": f"Open {file}" if file else "Show me your code",
-                                "body": (f"Open {file} in {self._editor_label()} so I can see it and point at the right line."
+                                "body": (f"This VS Code window is {hidden}. Open {file} in {Path(self.workdir).name}, "
+                                         "this lesson's folder." if hidden and file else
+                                         f"Open {file} in {self._editor_label()} so I can see it and point at the right line."
                                          if file else "Bring your editor to the front so I can see your code.")}
-        from . import workspace as wsmod
-
-        if self.workspace is not None and self.graph is not None and wsmod.needs_editor(self.graph):
+        if self._offers_open():
             card["actions"] = ["open_editor"]
         return card
 
@@ -2972,9 +3045,11 @@ class LessonSession:
             return Path(file).name
         return None
 
-    def _other_folder(self, step: dict) -> str | None:
+    def _other_folder(self, step: dict, same_file_only: bool = False) -> str | None:
         """VS Code edits the step's file in ANOTHER folder (another lesson's) -> that folder's name. S2's detector
-        when present, else the window title ("● calculator.py — other-lesson — Visual Studio Code")."""
+        when present, else the window title ("● calculator.py — other-lesson — Visual Studio Code"). S2 also reports
+        another folder's window being the one on screen (reason "other_window", lesson bound to its window): that
+        counts too, unless same_file_only (a pass on the lesson's own files never waits for the window)."""
         from . import workspace as wsmod
 
         file = Path(self._step_file(step) or step.get("file") or "").name
@@ -2982,6 +3057,8 @@ class LessonSession:
             return None
         if self._s2_wrong_folder_fn() is not None:  # S2's detector (real screen): its cached answer decides
             wf = self._wrong_folder
+            if wf and same_file_only and wf.get("reason") == "other_window":
+                return None
             return (wf.get("learner_folder_name") or "another folder") if wf else None
         mine = Path(self.workdir).name
         for w in getattr(self.last_obs, "windows", None) or []:
@@ -3006,11 +3083,31 @@ class LessonSession:
             return
         files = sorted({Path(f).name for f in [self._step_file(step)] + [t.get("file") for t in step.get("targets") or []]
                         if self._real_file(f)})
-        try:
-            self._wrong_folder = await asyncio.to_thread(fn, self.workdir, files or None)
+        try:  # window_check: the lesson is bound to its own window, so ANOTHER folder's window on screen counts too
+            self._wrong_folder = await asyncio.to_thread(fn, self.workdir, files or None, window_check=self.editor_open)
         except Exception:  # noqa: BLE001
             log.exception("wrong_folder failed")
             self._wrong_folder = None
+        # another project's VS Code window has been the one on screen for a few seconds (e.g. the lesson window went
+        # to its own Space): say so with Open, without waiting for a failing check to ask the coach
+        if ((self._wrong_folder or {}).get("reason") != "other_window" or self.step is not step or self.passed
+                or self.awaiting_resume or not (self.lesson_mode or self.segment_done)):
+            self._wf_since = None
+        elif self._wf_since is None:
+            self._wf_since = self.clock()
+            gen = self.step_gen
+
+            async def again() -> None:  # a still screen sends no new frames: look again on our own
+                await asyncio.sleep(self.WRONG_WINDOW_S + 0.1)
+                if gen == self.step_gen:
+                    await self._refresh_wrong_folder(step)
+
+            self._spawn(again(), timer=True)
+        elif self.clock() - self._wf_since >= self.WRONG_WINDOW_S and self._auto_card_ok():  # not while VS Code opens
+            self._wf_since = self.clock() + 120.0  # once; again only if it's still the wrong window 2 min later
+            self._editor_state_card(step)
+
+    WRONG_WINDOW_S = 4.0
 
     async def _use_this_folder(self, step: dict | None) -> None:
         """"Use this folder" (S2 adopt_folder): the lesson continues in the folder the learner is typing in; files
@@ -3033,6 +3130,7 @@ class LessonSession:
             self.graph.setdefault("lesson", {})["workdir"] = new
         if self.on_workdir:
             self.on_workdir(new)
+        self._bind_lesson_window()  # the screen follows: this folder's window is the lesson's now
         self._wrong_folder = None
         copied = len(res.get("copied") or [])
         await self._emit_card({"stepId": (step or {}).get("id"), "kind": "answer", "title": f"Using {Path(new).name}",
@@ -3047,6 +3145,15 @@ class LessonSession:
         other = self._other_folder(step)
         if other:
             wf = self._wrong_folder or {}
+            if wf.get("reason") == "other_window":  # another project's window is the one on screen, any file
+                file = Path(self._step_file(step) or step.get("file") or "").name
+                adopt = wf.get("can_adopt") and not self.lesson_mode
+                self._spawn(self._emit_card({"stepId": step["id"], "kind": "hint", "title": "Wrong folder?",
+                                             "body": f"This VS Code window is {other}. Open {file} in "
+                                                     f"{Path(self.workdir).name}, this lesson's folder.",
+                                             "actions": ["open_editor", "use_this_folder"] if adopt
+                                             else ["open_editor"]}, window_s=120.0))
+                return True
             file = wf.get("file") or Path(self._step_file(step) or step.get("file") or "").name
             self._spawn(self._emit_card({"stepId": step["id"], "kind": "hint", "title": "Wrong folder?",
                                          "body": f"This is {other}/{file}. Open the lesson's {file} in VS Code.",

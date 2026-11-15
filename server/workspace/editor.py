@@ -436,6 +436,8 @@ def editor_line_location(file: str | Path, line: int, *, snapshot: Callable[[], 
     except Exception as e:  # noqa: BLE001 - never break a spotlight over an AX read
         log.debug("editor snapshot failed: %r", e)
         snap = None
+    if snap and not _window_on_screen(snap.get("pid"), snap.get("title")):
+        snap = None  # VS Code's focused window is on another Space: its caret rect would box whatever IS showing
     if snap:
         doc, want = _doc_path(snap.get("document")), Path(file).expanduser().resolve()
         if doc is not None and doc != want:
@@ -553,7 +555,27 @@ def _ax_editor_snapshot_unsafe() -> dict | None:
     if lr is None or lr["h"] <= 2 or lr["w"] <= 2:  # parked at the top-left = caret off-screen
         lr = None
     return {"document": document, "caret_line": start + text[:max(0, min(caret, len(text)))].count("\n"),
-            "line_rect": lr, "line_height": lr["h"] if lr else None, "window": rect(win)}
+            "line_rect": lr, "line_height": lr["h"] if lr else None, "window": rect(win),
+            "title": str(get(win, "AXTitle") or ""), "pid": pid}
+
+
+def _window_on_screen(pid: int | None, title: str | None) -> bool:
+    """Is the app's window titled `title` (AX's focused window) on screen on the current Space? A full-screen window
+    on another Space is not. Unknown (no pid/title, no Quartz, window names unreadable): True."""
+    if not pid or not title:
+        return True
+    try:
+        import Quartz
+
+        opts = Quartz.kCGWindowListOptionOnScreenOnly | Quartz.kCGWindowListExcludeDesktopElements
+        wins = [w for w in Quartz.CGWindowListCopyWindowInfo(opts, Quartz.kCGNullWindowID) or []
+                if int(w.get("kCGWindowOwnerPID", -1)) == int(pid) and w.get("kCGWindowLayer", 1) == 0]
+    except Exception:  # noqa: BLE001 - no window list: can't tell
+        return True
+    if not wins:
+        return False
+    names = [str(w.get("kCGWindowName") or "").lstrip("●•⚫ ").strip() for w in wins if w.get("kCGWindowName")]
+    return not names or title.lstrip("●•⚫ ").strip() in names
 
 
 def _page_start(text: str, document: Path | None, page: int = 500) -> int:
