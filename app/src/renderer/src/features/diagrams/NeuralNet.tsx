@@ -45,7 +45,7 @@ const squash: Record<string, (z: number) => number> = {
 
 /** Every layer's activations for one input. */
 function forward(f: Frame, layers: number[], x: number[], act: (z: number) => number): number[][] {
-  const out = [x]
+  const out = [x ?? []]
   for (let l = 0; l < layers.length - 1; l++) {
     const prev = out[l]
     const next: number[] = []
@@ -79,7 +79,7 @@ function useTime(run: boolean): number {
     let id = 0
     start.current = performance.now()
     const tick = (now: number): void => {
-      setT(now - start.current)
+      setT(Math.max(0, now - start.current))  // a rAF timestamp can precede the effect's performance.now()
       id = requestAnimationFrame(tick)
     }
     id = requestAnimationFrame(tick)
@@ -176,7 +176,8 @@ export function NeuralNet({ data, compact = false }: { data: Record<string, unkn
     }
   }
 
-  const acts = forward(frame ?? frames[0], layers, samples[sample] ?? samples[0] ?? [], act)
+  if (!(sample >= 0 && sample < samples.length)) sample = 0
+  const acts = forward(frame ?? frames[0], layers, samples[sample] ?? [], act)
   const shown = (l: number, i: number): number => {
     if (mode !== 'forward' || reduced) return acts[l][i]
     if (l > reached) return 0
@@ -187,7 +188,7 @@ export function NeuralNet({ data, compact = false }: { data: Record<string, unkn
   const err = target !== undefined ? y - target : undefined
 
   // Strongest weight on screen sets the scale (so a zero network reads as empty, not as faint lines).
-  const maxW = Math.max(1.5, ...frame.W.flat().map(Math.abs))
+  const maxW = Math.max(1.5, ...(frame.W ?? []).flat().map(Math.abs))
 
   const net = (
     <svg
@@ -201,7 +202,7 @@ export function NeuralNet({ data, compact = false }: { data: Record<string, unkn
       {pos.slice(0, -1).map((col, l) =>
         col.flatMap((a, i) =>
           pos[l + 1].map((b, j) => {
-            const w = frame.W[l]?.[i * layers[l + 1] + j] ?? 0
+            const w = frame.W?.[l]?.[i * layers[l + 1] + j] ?? 0
             const m = Math.min(1, Math.abs(w) / maxW)
             return (
               <line
@@ -225,7 +226,7 @@ export function NeuralNet({ data, compact = false }: { data: Record<string, unkn
         pos[pulse.back ? pulse.from - 1 : pulse.from].flatMap((a, i) =>
           pos[pulse.back ? pulse.from : pulse.from + 1].map((b, j) => {
             const l = pulse.back ? pulse.from - 1 : pulse.from
-            const w = frame.W[l]?.[i * layers[l + 1] + j] ?? 0
+            const w = frame.W?.[l]?.[i * layers[l + 1] + j] ?? 0
             const m = Math.min(1, Math.abs(w) / maxW)
             const strength = pulse.back ? m : m * acts[l][i]
             if (strength < 0.04) return null
