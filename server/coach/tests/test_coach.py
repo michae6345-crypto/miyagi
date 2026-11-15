@@ -21,12 +21,15 @@ EVENT_ACTIONS = {"explain", "show_me", "apply_fix", "hint"}
 
 @pytest.fixture(autouse=True)
 def _isolate(monkeypatch):
-    for k in ("ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN", "COACH_REPLAY_DIR", "COACH_RECORD_DIR", "BRIGHTDATA_API_KEY",
-              "BRIGHTDATA_SERP_ZONE", "BRIGHTDATA_UNLOCKER_ZONE", "DEMO", "TUT_ENV", "COACH_OFFLINE_FALLBACK"):
+    for k in ("ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN", "COACH_REPLAY_DIR", "COACH_RECORD_DIR", "BRIGHTDATA_API_KEY", "COACH_MODEL_DIAGNOSE",
+              "BRIGHTDATA_SERP_ZONE", "BRIGHTDATA_UNLOCKER_ZONE", "DEMO", "TUT_ENV", "COACH_OFFLINE_FALLBACK", "ORCH_STUBS"):
         monkeypatch.delenv(k, raising=False)
     monkeypatch.setattr(llm, "_load_env", lambda: None)
     monkeypatch.setattr(llm, "_local_keys", {})
     LAST.clear()
+    from server.coach.diagnose import reset_memo
+
+    reset_memo()
     common.set_lesson(LESSON)
     yield
     common.set_lesson(None)
@@ -83,7 +86,7 @@ def test_diagnose_without_api_in_demo_mode_uses_playbook_card(monkeypatch):
     assert_offtrack(card)
     assert card["_meta"]["route"] == "playbook"
     assert card["_meta"]["playbook_id"] == "pinn_convection_large_beta"
-    assert "no ANTHROPIC_API_KEY" in card["_meta"]["fallback_reason"]
+    assert "offline mode" in card["_meta"]["fallback_reason"]
     assert "diff" not in card  # the playbook carries no demo-specific code; only Opus writes diffs
 
 
@@ -135,7 +138,7 @@ def test_opus_request_shape(monkeypatch):
     monkeypatch.setattr(llm, "get_client", lambda: fake)
     monkeypatch.setenv("ANTHROPIC_API_KEY", "test")
     card = run(coach.diagnose(STEP, FAILED_CHECKS, METRICS, CODE))
-    assert seen["model"] == "claude-opus-5-5"
+    assert seen["model"] == "claude-sonnet-5-5"  # spend cap: diagnose defaults to Sonnet
     assert seen["thinking"] == {"type": "adaptive"}
     assert seen["output_config"]["effort"] == "low"
     assert seen["output_config"]["format"]["type"] == "json_schema"
@@ -1138,11 +1141,13 @@ def test_do_it_for_me_command_fix_and_missing_edit(monkeypatch):
 # ---------- cost policy: Opus only for the diagnosis card ------------------------------------------------
 
 def test_models_by_purpose(monkeypatch):
-    assert llm.model_for("diagnose") == "claude-opus-5-5"
+    assert llm.model_for("diagnose") == "claude-sonnet-5-5"  # never Opus by default (spend cap)
     for purpose in ("triage", "point", "locate", "explain", "do_it_for_me", "fix_outdated"):
         assert llm.model_for(purpose) == "claude-haiku-5-5"
     monkeypatch.setenv("COACH_MODEL_EXPLAIN", "claude-opus-5-5")
     assert llm.model_for("explain") == "claude-opus-5-5"
+    monkeypatch.setenv("COACH_MODEL_DIAGNOSE", "claude-opus-5-5")
+    assert llm.model_for("diagnose") == "claude-opus-5-5"  # Opus only when asked for explicitly
 
 
 def test_live_paths_use_the_policy(monkeypatch, fake_web):
@@ -1170,7 +1175,7 @@ def test_live_paths_use_the_policy(monkeypatch, fake_web):
     run(coach.do_it_for_me(g.REACT_STEP, "a.py", "a = 1\n", last_offtrack={}))
     run(coach.fix_outdated(g.PANDAS_ERROR, g.PANDAS_LIBS))
     assert {p: m for p, (m, _) in used.items()} == {
-        "triage": "claude-haiku-5-5", "diagnose": "claude-opus-5-5", "explain": "claude-haiku-5-5", "point": "claude-haiku-5-5",
+        "triage": "claude-haiku-5-5", "diagnose": "claude-sonnet-5-5", "explain": "claude-haiku-5-5", "point": "claude-haiku-5-5",
         "locate": "claude-haiku-5-5", "do_it_for_me": "claude-haiku-5-5", "fix_outdated": "claude-haiku-5-5"}
     assert all(cached for _, cached in used.values())  # every system prompt is marked for prompt caching
 
