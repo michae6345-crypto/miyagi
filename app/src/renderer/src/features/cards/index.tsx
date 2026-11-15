@@ -1048,7 +1048,8 @@ function Chip({ c, k }: { c: EngineCard; k: Tile }): ReactNode {
         title={c.body}
       >
         <KindTile k={k} />
-        <span className="truncate text-[13px] font-medium" style={{ maxWidth: CHIP_TEXT_W }}>
+        {/* Desktop test 9, A5: wraps to two lines (both fit the 34 px row) instead of "Import libraries and load MNI…". */}
+        <span className="line-clamp-2 whitespace-normal text-left text-[13px] font-medium leading-[15px]" style={{ maxWidth: CHIP_TEXT_W }} title={t || c.body}>
           <CodeText text={text} />
         </span>
       </button>
@@ -1104,7 +1105,7 @@ function FullCard({ c, k }: { c: EngineCard; k: Tile }): ReactNode {
           <Clamp text={c.body} lines={HEADLINE_LINES} className="text-[16px] font-medium leading-[22px] tracking-[-0.01em]" />
         ) : (
           <>
-            <div className="text-[17px] font-semibold leading-[22px] tracking-[-0.01em]"><CodeText text={titleText(c.title)} /></div>
+            <div className="line-clamp-2 text-[17px] font-semibold leading-[22px] tracking-[-0.01em]" title={c.title}><CodeText text={titleText(c.title)} /></div>
             <Clamp text={c.body} lines={BODY_LINES} className="mt-[3px] text-[14px] leading-[20px]" style={{ color: color.label }} />
           </>
         )}

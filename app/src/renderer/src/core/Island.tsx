@@ -11,7 +11,7 @@ import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 're
 import type { Layout } from '../../../preload/api'
 import { bridge } from '../bridge'
 import { onUi } from './bus'
-import { useIslandOffset } from './islandPlace'
+import { useIslandOffset, usePillOffset } from './islandPlace'
 import { startBuild, useLesson } from './lesson'
 import { Boundary } from './ui/Boundary'
 import { getIslandModes } from './registry'
@@ -102,10 +102,16 @@ export function Island({ top, layout }: { top: number; layout: Layout }): ReactN
     }
   }, [modeId, fixed])
 
-  // An open card steps off the spotlight's hole and the coach's targets (Michael's desktop test 3, item 3), decided as
-  // it opens and then held still, never moved under the pointer or just after a press (desktop test 5). Transform only.
+  // An open card steps off the spotlight's hole, the coach's and its own targets (Michael's desktop test 3, item 3) and
+  // out of the engine's avoid rects (screen.avoid: VS Code's quick-pick, test 9, A3), decided as it opens and then held
+  // still (a new avoid rect is the one exception), never moved under the pointer or just after a press (desktop test 5).
+  // Transform only.
   const card = mode && !isPill && held[at] ? { id: mode.id, w: size.w, h: size.h } : undefined
-  const offset = useIslandOffset(card, top, layout, wrapper, pointerIn || pressHold)
+  const cardOffset = useIslandOffset(card, top, layout, wrapper, pointerIn || pressHold)
+  // The pill slides beside what the engine says must stay visible (VS Code's quick-pick, test 9, A4).
+  const peek = !!mode && !isPill && !held[at]
+  const pillOffset = usePillOffset(mode && isPill ? { w: size.w, h: size.h } : undefined, peek, top, layout, pointerIn || pressHold)
+  const offset = card ? cardOffset : pillOffset
 
   // Tell main (or the browser bus) our current size, so the launcher can grow out of exactly this shape, and where we
   // are (dx/dy from the notch spot: main's click-through poll covers the island there).
