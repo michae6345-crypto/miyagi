@@ -652,8 +652,10 @@ def test_coding_lesson_opens_vscode_by_itself_after_lesson_ready(tmp_path, monke
         await rig.settle()
 
     run(go())
-    first = calls[0]  # S2's open_editor: `code -n <dir> [-g <file>]` (bundled CLI if not on PATH), or `open -a`
-    assert (first[1:3] == ["-n", str(tmp_path.resolve())]) or (first[:3] == ["open", "-a", "Visual Studio Code"])
+    first = calls[0]  # S2: `code <dir> [-g <file>]` (never `-n`: it focuses a window that has the folder), or `open -a`
+    assert (first[1:2] == [str(tmp_path.resolve())] and "-n" not in first) or (first[:3] == ["open", "-a", "Visual Studio Code"])
+    opens = [c for c in calls if str(tmp_path.resolve()) in c]
+    assert len(opens) == 1, opens  # opened once, whatever else ran (setup card, step starts, goto_step)
     assert rig.s.editor_open and not [c for c in rig.of("card") if (c.get("actions") or []) == ["open_editor"]]
     assert rig.types().index("lesson.ready") < len(rig.types())  # opened after the lesson UI was up
     gotos = [c for c in calls if "-g" in c and "-n" not in c]
@@ -2523,5 +2525,5 @@ def test_open_editor_without_code_on_path(tmp_path, monkeypatch):
 
     rep = ed.open_editor_report(folder, editor=vscode, runner=runner, arrange_windows=False, trusted=lambda: False,
                                 previous={})
-    assert rep["opened"] and calls[0][:2] == [str(fake_cli), "-n"]
+    assert rep["opened"] and calls[0][:2] == [str(fake_cli), str(folder.resolve())]  # never `-n`
     assert calls[1] == ["open", "-a", "Visual Studio Code", str(folder.resolve())]

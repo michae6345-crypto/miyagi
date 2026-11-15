@@ -554,10 +554,10 @@ class LessonSession:
 
         if self.reqs is not None and not wsmod.editor_needed(self.reqs):
             return  # e.g. a Blender/Figma lesson: never open VS Code
-        self.workspace.open(self.workdir, force=True)
+        self.workspace.open(self.workdir, force=True, explicit=True)  # the learner pressed "Open VS Code"
         self.editor_open = True
         if self.step is not None:
-            self.workspace.goto_target(self.workdir, self.step)
+            self.workspace.goto_target(self.workdir, self.step, explicit=True)
 
     def _prefetch_voice(self) -> None:
         """Synthesize every step's spoken line ahead of time (only while voice is on: it costs TTS credits)."""
@@ -1206,6 +1206,8 @@ class LessonSession:
             self._prefetch_voice()
         await self.emit("lesson.ready", self._lesson_ready_payload())
         self.editor_open = False
+        if self.workspace is not None:  # S2 opens the editor at most once per lesson + folder
+            self.workspace.lesson_key = str(graph.get("lesson", {}).get("id") or "")
         if self.lesson_mode:
             await self._open_editor_full(new_wd)
         await self.start_step(0)
@@ -2421,7 +2423,7 @@ class LessonSession:
         path.write_text(new_text)
         line = next((i for i, (a, b) in enumerate(zip(text.splitlines(), new_text.splitlines()), 1) if a != b), 1)
         if self.workspace is not None and self.editor_open:
-            self.workspace.goto(str(path), line)
+            self.workspace.goto(str(path), line, explicit=True)  # Do it for me: a learner action
         first = expected.strip().splitlines()[0]
         spot = self._locate(re.escape(first), None, "Fixed")
         if spot:
@@ -2671,7 +2673,7 @@ class LessonSession:
         path.parent.mkdir(parents=True, exist_ok=True)  # lesson mode: a step may create its file
         path.write_text(pp["new"])
         if self.workspace is not None and self.editor_open:
-            self.workspace.goto(str(path), int(pp["line"]))
+            self.workspace.goto(str(path), int(pp["line"]), explicit=True)  # Do it for me: a learner action
         if pp["first"]:
             spot = self._locate(re.escape(pp["first"][0]), None, "Fixed")
             if spot:
