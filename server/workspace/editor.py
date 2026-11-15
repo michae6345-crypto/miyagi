@@ -623,7 +623,7 @@ def editor_line_location(file: str | Path, line: int, *, snapshot: Callable[[], 
     d = loc.to_dict() if hasattr(loc, "to_dict") else dict(loc or {})
     rect = d.get("rect")
     out.update(rect=rect, source="screen" if rect else None, reason=d.get("reason") if not rect else None)
-    for k in ("direction", "visible_lines", "line_height"):
+    for k in ("direction", "visible_lines", "line_height", "text_x2"):  # t8 text_x2: where the row's text ends
         if d.get(k) is not None:
             out[k] = d[k]
     return out
