@@ -270,7 +270,8 @@ def prepare(graph: dict, goal: str) -> str | None:
 
 def set_aside_previous(folder: str | None, graph: dict) -> str | None:
     """A fresh build in a reused lesson folder: the last run's learner files go to <folder>/.miyagi-previous/<time>/
-    (S2's set_aside_previous) so no step passes on them. Never the hero folder, never a TUT_WORKDIR one. Blocking."""
+    (S2's set_aside_previous) so no step passes on them. Only Miyagi's own folder for this lesson: never the hero
+    folder, a TUT_WORKDIR one, or a folder of the learner's that the lesson was redirected to (adopt_folder). Blocking."""
     if not folder or os.environ.get("TUT_WORKDIR"):
         return None
     ws = _s2()
@@ -279,7 +280,8 @@ def set_aside_previous(folder: str | None, graph: dict) -> str | None:
         return None
     try:
         hero = ws.hero_workdir(graph) if hasattr(ws, "hero_workdir") else None
-        if hero is not None and Path(hero).resolve() == Path(folder).resolve():
+        own = (ws.lessons_root() / ws.folder_name(graph)).expanduser().resolve()
+        if (hero is not None and Path(hero).resolve() == Path(folder).resolve()) or own != Path(folder).resolve():
             return None
         moved = fn(folder)
         return str(moved) if moved else None

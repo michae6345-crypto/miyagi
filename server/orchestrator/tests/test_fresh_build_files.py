@@ -47,10 +47,13 @@ def built(tmp_path, monkeypatch):
     monkeypatch.delenv("TUT_WORKDIR", raising=False)
     monkeypatch.delenv("DEMO", raising=False)
     monkeypatch.setenv("MIYAGI_STATE_DIR", str(tmp_path / "state"))
-    folder = tmp_path / "lessons" / "nn-tf-1ac5c7"
+    monkeypatch.setenv("MIYAGI_LESSONS_DIR", str(tmp_path / "lessons"))
+    from server.workspace import paths
+
+    lesson = stubs.load_fixture_lesson()
+    folder = (paths.lessons_root() / paths.folder_name(lesson)).resolve()
     _old_run(folder)
     monkeypatch.setattr(wsmod, "prepare", lambda graph, goal: str(folder))  # "reusing lesson folder"
-    lesson = stubs.load_fixture_lesson()
 
     def go():
         rig = Rig(tmp_path / "unused")
@@ -87,6 +90,17 @@ def test_build_that_continues_a_save_keeps_the_files(built):
     store.save({"lessonId": lesson["lesson"]["id"], "stepIndex": 2})  # an engine restart's save, never ended
     go()
     assert (folder / "mnist.ipynb").is_file() and not (folder / core.PREVIOUS_DIR).exists()
+
+
+def test_never_a_folder_the_lesson_was_redirected_to(tmp_path, monkeypatch):
+    from server.orchestrator import workspace as wsmod
+
+    monkeypatch.delenv("TUT_WORKDIR", raising=False)
+    monkeypatch.setenv("MIYAGI_LESSONS_DIR", str(tmp_path / "lessons"))
+    mine = tmp_path / "my-project"  # the learner's own folder (adopt_folder)
+    mine.mkdir()
+    (mine / "app.py").write_text("print(1)\n")
+    assert wsmod.set_aside_previous(str(mine), stubs.load_fixture_lesson()) is None and (mine / "app.py").is_file()
 
 
 def test_build_after_the_learner_ended_it_is_fresh(built):
