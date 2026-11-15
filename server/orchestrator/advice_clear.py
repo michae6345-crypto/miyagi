@@ -17,7 +17,16 @@ closed (card.closed), so a clear never brings an old card back over a newer one.
 
 Hooks in LessonSession (kept tiny for merges): _emit_card -> sent, _offer_offtrack -> sent_offtrack, card_seen ->
 closed, on_screen -> follow; stale_advice.forget -> forgotten; main.py POST /vscode/event (dirty / save / editor) ->
-follow(force=True).
+follow(force=True); evaluate -> checks_moved; _pass_step -> step_passed.
+
+Desktop test 9 (V10, video lesson s3, 06:17:46-06:19:27): "Not yet · Plot cell not executed yet, no output" stayed up
+after the cells ran; nothing refreshed it. A generated / video lesson's "Not yet" (a Not yet card or the off-track)
+also rests on the step's checks that failed when it went out (`checks`: {checkId: row}). Every evaluate (a frame's
+background re-check, a save, a run's end, Check my work) compares them: one of them passes now -> none left failing:
+the card goes; some left: the card is sent again, a "Not yet" naming only those (code_gate.not_yet_body), and that
+one is tracked. A check that can't be told now (pending) changes nothing. The step passing (or Skip) clears a tracked
+card before step.passed (the app's step.passed closes an off-track itself, not a card), so a "Not yet" card never
+outlives its step. The curated lesson keeps its own basis (culprit lines / diagnosis) only.
 """
 from __future__ import annotations
 
@@ -37,7 +46,33 @@ def _advice(card: dict) -> bool:
             or str(card.get("title") or "").strip().lower() == "not yet")
 
 
-def _basis(s: Any, step: dict, off: dict | None) -> dict | None:
+def _not_yet(card: dict) -> bool:
+    """A "Not yet": the judge's / Check's card, or an off-track (the app's "Not yet"), not a Hint."""
+    return card.get("verdict") == "not_done" or str(card.get("title") or "").strip().lower() == "not yet"
+
+
+def _open(s: Any) -> dict[str, dict]:
+    """{checkId: row} of the step's rows not passing now: evaluate's last_failed (the drawer's red rows + the other
+    route's) and its results' rows that aren't green (what Check's "Not yet" body names)."""
+    rows = [*(getattr(s, "last_failed", None) or []),
+            *(r for r in getattr(s, "last_results", None) or [] if isinstance(r, dict) and r.get("status") != "pass")]
+    out: dict[str, dict] = {}
+    for r in rows:
+        if isinstance(r, dict) and r.get("checkId") and str(r["checkId"]) not in out:
+            out[str(r["checkId"])] = dict(r)
+    return out
+
+
+def _checks(s: Any, card: dict, offtrack: bool) -> dict[str, dict] | None:
+    """t9 (V10): the failing checks a generated / video lesson's "Not yet" reports on (None: not tracked by checks)."""
+    from . import curated
+
+    if not (offtrack or _not_yet(card)) or curated.active(s):
+        return None
+    return _open(s) or None
+
+
+def _basis(s: Any, step: dict, off: dict | None, checks: dict[str, dict] | None = None) -> dict | None:
     from . import run_pointing
 
     culprit = None
@@ -47,9 +82,10 @@ def _basis(s: Any, step: dict, off: dict | None) -> dict | None:
         log.info("advice_clear: no culprit for %s", step.get("id"))
     if off is not None and off.get("stepId") not in (None, step.get("id")):
         off = None
-    if culprit is None and off is None:
+    if culprit is None and off is None and not checks:
         return None  # nothing it is about that can go away: it stays until the step moves on / the learner closes it
-    return {"culprit": (culprit or {}).get("why"), "off": dict(off) if off is not None else None}
+    return {"culprit": (culprit or {}).get("why"), "off": dict(off) if off is not None else None,
+            "checks": checks or None}
 
 
 def _track(s: Any, what: str, card: dict, basis: dict | None) -> None:
@@ -63,12 +99,12 @@ def sent(s: Any, card: dict) -> None:
     if step is None or card.get("stepId") not in (None, step.get("id")) or not _advice(card):
         s._advice_up = None
         return
-    _track(s, "card", card, _basis(s, step, getattr(s, "last_offtrack", None)))
+    _track(s, "card", card, _basis(s, step, getattr(s, "last_offtrack", None), _checks(s, card, False)))
 
 
 def sent_offtrack(s: Any, step: dict, full: dict, shown: dict) -> None:
     """_offer_offtrack sent the off-track card `shown` (the diagnosis `full`)."""
-    _track(s, "offtrack", shown, _basis(s, step, full))
+    _track(s, "offtrack", shown, _basis(s, step, full, _checks(s, shown, True)))
 
 
 def closed(s: Any, title: str, by: str | None) -> None:
@@ -146,3 +182,63 @@ async def forgotten(s: Any, card: dict) -> None:
     if off is not None and stale_advice._key({**off, "stepId": off.get("stepId") or card.get("stepId")}) == \
             stale_advice._key(card):
         await clear(s, up, f"its diagnosis {card.get('title')!r} is gone")
+
+
+def _passes(s: Any, cid: str, now: dict[str, dict]) -> bool:
+    """The row `cid` passes in evaluate's latest results, or (the other route's row) no longer fails. A row still
+    pending / failing is no change."""
+    if cid in now:
+        return False
+    rows = [r for r in getattr(s, "last_results", None) or [] if isinstance(r, dict) and str(r.get("checkId")) == cid]
+    return not rows or any(r.get("status") == "pass" for r in rows)
+
+
+async def checks_moved(s: Any) -> None:
+    """t9 (V10): evaluate published the step's rows (a frame's background re-check, a save, a run's end, Check my work).
+    A tracked "Not yet" one of whose checks passes now: none of them left failing -> it goes; some left -> it is sent
+    again naming only those (and that card is tracked)."""
+    up = getattr(s, "_advice_up", None)
+    if up is None or not up.get("checks"):
+        return
+    step = getattr(s, "step", None)
+    if step is None or up["gen"] != s.step_gen or s.passed:
+        return
+    was: dict[str, dict] = up["checks"]
+    now = _open(s)
+    moved = [cid for cid in was if _passes(s, cid, now)]
+    if not moved:
+        return
+    left = {cid: now[cid] for cid in was if cid in now}
+    if not left:
+        await clear(s, up, f"its checks pass now ({', '.join(moved)})")
+        return
+    from . import code_gate
+
+    try:
+        cmd = s._run_command(step) or ""
+    except Exception:  # noqa: BLE001 - the rows alone say what's left
+        cmd = ""
+    card = up["card"]
+    body = code_gate.not_yet_body("", list(left.values()), sid=str(step.get("id")), cmd=cmd)
+    acts = [a for a in card.get("actions") or [] if a in ("hint", "show_me", "skip_step", "run_command", "check_step")]
+    kind = card.get("kind") if up["what"] == "card" and card.get("kind") else "step"
+    again = {"stepId": step.get("id"), "kind": kind, "verdict": "not_done", "title": "Not yet", "body": body,
+             **({"actions": acts} if acts else {})}
+    log.info("advice card %r sent again: %s pass now, still failing %s (t9)", card.get("title"), moved, list(left))
+    await s.emit("card", again)
+    _track(s, "card", again, {"culprit": None, "off": None, "checks": left})
+    use = getattr(s, "_card_in_use", None)
+    if use is not None and str(use[0]).strip().casefold() == str(card.get("title") or "").strip().casefold():
+        s._card_in_use = (again["title"], use[1], use[2])  # still the learner's own card, now with what's left
+
+
+async def step_passed(s: Any) -> None:
+    """t9 (V10): the step passed / was skipped: a tracked Hint / "Not yet" card goes now (the app's step.passed closes
+    the off-track, not a card; step.started only clears it later, and not at all while the next part builds)."""
+    up = getattr(s, "_advice_up", None)
+    if up is None:
+        return
+    if up["gen"] != s.step_gen or up["what"] == "offtrack":
+        s._advice_up = None  # the app's step.passed closes the off-track itself
+        return
+    await clear(s, up, "the step passed")

@@ -2906,6 +2906,7 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
             self.m.cancel_coach()
             if step["id"] not in self.skipped_steps:
                 self.skipped_steps.append(step["id"])  # a diagnosis for the step they left is no longer wanted
+        await advice_clear.step_passed(self)  # t9 (V10): its "Not yet" card goes with the step
         await self.emit("step.passed", payload)
         if not skipped:
             self._say("step.passed", payload)
@@ -3152,6 +3153,7 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
                 self.gate_open = True
                 self.screen_gate_open = self.screen_gate_open or trigger == "check"
             await self._publish(step, results)
+            await advice_clear.checks_moved(self)  # t9 (V10): a "Not yet" whose checks moved goes / names what's left
             curated.after_evaluate(self, step, trigger)  # curated lesson: the panel follows the learner's real run
             if gate.get("passed"):
                 if learner or self.acted_since_step_start():
