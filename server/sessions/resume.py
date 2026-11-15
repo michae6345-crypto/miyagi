@@ -47,6 +47,12 @@ INTERRUPTED = "interrupted"
 PROMPT_EVENTS = ("card", "video.pause", "status", "spotlight", "error")  # sending the prompt isn't activity
 
 
+def is_demo(graph: dict | None) -> bool:
+    """A Demo take (orchestrator/stage.py marks lesson.stage): never saved, resumed or offered back. Michael runs the
+    Demo many times in a row and every start must be a fresh take at step 1 (no resume card, no auto-resume)."""
+    return bool(((graph or {}).get("lesson") or {}).get("stage"))
+
+
 def ago(seconds: float) -> str:
     s = max(0, int(seconds))
     if s < 60:
@@ -87,6 +93,8 @@ class Resumer:
         self._started_at: dict[str, float] = {}
         self._last_activity: float | None = None
         self._restoring = False  # resume() is reloading: its lesson.ready must not overwrite the saved step
+        if (old := store.load()) is not None and is_demo(store.load_graph(old)):
+            store.clear()  # a Demo take saved by an older engine: never offered back
         self._pending = store.load() is not None  # saved before this engine started, not answered yet
         self._emit = session.emit
         self._load_graph = session.load_graph
@@ -134,6 +142,8 @@ class Resumer:
             return None  # the save on disk is the learner's place until they answer the resume card
         if getattr(self.s, "phase", None) == "done":
             return None  # t5: the lesson ran to its end (cleared at its last step.passed): an app quit must not save it back
+        if is_demo(self.s.graph):
+            return None  # a Demo take is never resumed: each Demo start is step 1 (stage.py)
         st = self.capture(step_index)
         if st is None:
             return None
@@ -225,7 +235,8 @@ class Resumer:
             saved = store.load()
             self._pending = False
             lid = (graph.get("lesson") or {}).get("id")
-            if saved is not None and lid and lid == saved.get("lessonId") and not saved.get("stopped"):
+            if (saved is not None and lid and lid == saved.get("lessonId") and not saved.get("stopped")
+                    and not is_demo(graph)):  # a Demo start is always step 1, never a save's step
                 old = store.load_graph(saved)
                 if old is not None and len(old.get("steps") or []) > len(graph.get("steps") or []):
                     graph = old  # a partial rebuild: keep the full saved graph (later parts merge by id)

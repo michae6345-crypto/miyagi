@@ -117,15 +117,17 @@ class Engine:
         """The first app connection after an engine restart (or a deploy's POST /end) while a lesson was running: that
         lesson continues at its saved step, as if nothing happened (Michael, Nov 15: restarts sent him back to "begin
         project"). Not a lesson the learner ended (End / Start new: `stopped`, offered by the resume card as before),
-        not one finished, not one idle longer than ORCH_AUTO_RESUME_S (default 3 h)."""
+        not one finished, not one idle longer than ORCH_AUTO_RESUME_S (default 3 h), never a Demo take (each Demo
+        start is a fresh take at step 1: stage.py)."""
         s = self.session
         if self.resumer is None or self.hub.clients or s.graph is not None or s.phase != "idle":
             return
         try:
             from server.sessions import store
+            from server.sessions.resume import is_demo
 
             saved = store.load()
-            if not saved or saved.get("stopped") or store.load_graph(saved) is None:
+            if not saved or saved.get("stopped") or (graph := store.load_graph(saved)) is None or is_demo(graph):
                 return
             idle = time.time() - float(saved.get("lastActiveAt") or saved.get("startedAt") or 0)
             if idle > float(os.environ.get("ORCH_AUTO_RESUME_S", str(3 * 3600))):
@@ -367,10 +369,11 @@ async def end_lesson(forget: int = 0) -> dict:
     Nov 15: this runs before every engine deploy, so the learner's place is KEPT: the next app connection after the
     restart continues at that exact step. A clean start (tests) that drops it:  curl -X POST 'localhost:8787/end?forget=1'"""
     lesson = (engine.session.graph or {}).get("lesson", {}).get("id")
+    demo = stage.on(engine.session)  # a Demo take is never saved (sessions.resume.is_demo): the next Demo is step 1
     if not forget:
         engine.save_progress()  # the exact step + checks, just before the lesson is unloaded
     await engine.session.end_lesson("POST /end" if forget else "interrupted")
-    return {"ok": True, "ended": lesson, "kept": bool(lesson) and not forget}
+    return {"ok": True, "ended": lesson, "kept": bool(lesson) and not forget and not demo}
 
 
 @app.get("/state")

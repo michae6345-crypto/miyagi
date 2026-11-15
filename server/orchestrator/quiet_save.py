@@ -12,6 +12,7 @@ Grading already reads VS Code's exact buffer (editor_text.EditorBuffers). This m
     already_done(s, step)        a code step whose whole code and every check pattern are in the file already
     await advance(s, gen, idx)   after a pass: steps whose code is already in the file pass at once, then ONE step
                                  starts with ONE card "You already did steps 2–3" (never a cascade of starts / cards)
+                                 (never in a Demo lesson: the presenter passes every step on cue, stage.py)
 """
 
 from __future__ import annotations
@@ -23,6 +24,8 @@ import re
 import time
 from pathlib import Path
 from typing import Any
+
+from . import stage
 
 log = logging.getLogger("orchestrator.quiet_save")
 
@@ -189,7 +192,7 @@ async def advance(s: Any, gen: int, idx: int) -> None:
         p = _step_path(s, s.steps[idx])
         if p is not None:
             await s._buffers.refresh([p], s.workdir)
-        while idx < len(s.steps) - 1 and already_done(s, s.steps[idx]):
+        while idx < len(s.steps) - 1 and not stage.on(s) and already_done(s, s.steps[idx]):  # a Demo: every step on cue
             jumped.append(idx)
             idx += 1
     except Exception:  # noqa: BLE001 - never blocks the advance
