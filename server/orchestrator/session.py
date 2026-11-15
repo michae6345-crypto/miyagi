@@ -2718,6 +2718,7 @@ class LessonSession:
                 why = "confirmed by your files" if gate.get("via") == "precision" else "confirmed on screen"
                 results = [r if r.get("status") == "pass" else {**r, "status": "pass", "detail": why} for r in results]
             results, gate = self._need_run(step, results, gate)  # a run step needs a run, not just its code
+            results, gate = self._defs_once(step, results, gate)  # T5: no later copy of the step's def overriding it
             if gate.get("passed") and (self._dirty_step_file(step) or self._other_folder(step)
                                        or (self.lesson_mode and self._file_unready(step))):
                 # the screen shows the code, but it's unsaved / in another folder / not on disk: the file decides
@@ -3946,6 +3947,9 @@ class LessonSession:
                 # stops seeing it done (evaluate() only clears confirm_pending, the checks-pass card's flag)
                 await self._status("thinking")  # the app's Yes spinner ends on thinking -> passed, even on the last step
                 self.confirm_pending = False
+                if await self._dup_blocks_pass(step):  # T5: a later copy of the step's def overrides it: no pass
+                    self.confirm_check_ids = []
+                    return
                 for cid in self.confirm_check_ids:  # E5's "Looks done?": the learner vouches for these checks
                     label = (self.check_state.get(cid) or {}).get("label", cid)
                     await self.emit("check.updated", {"stepId": step["id"], "checkId": cid, "label": label,
@@ -4465,6 +4469,9 @@ class LessonSession:
         except OSError as e:
             await self.emit("error", {"message": f"Could not open {file}: {e}"})
             return
+        if self._by_name(step, path, text) is not None:  # T5: the step's defs are in the file: its code in their
+            await self._fix_by_hand(step, path, text, diff)  # place (previewed), no model call, no second copies
+            return
         if self.m.has_do_it_for_me():  # E5: a minimal, compiling patch -> preview -> confirm -> apply
             await self._status("thinking")
             try:
@@ -4480,8 +4487,12 @@ class LessonSession:
                 else:
                     await self._fix_by_hand(step, path, text, diff)
                 return
+            if why := self._patch_unsafe(step, path, p["new_text"], text):  # a second copy of the step's def, …
+                log.info("do_it_for_me: patch for %s rejected: %s", step.get("id"), why)
+                await self._fix_by_hand(step, path, text, diff)
+                return
             self.pending_patch = {"path": path, "old": text, "new": p["new_text"], "line": p.get("line") or 1,
-                                  "first": (expected or "").strip().splitlines()[:1]}
+                                  "first": (expected or "").strip().splitlines()[:1], "step_code": step.get("code")}
             await self._card(step, "Apply this fix?", p.get("summary") or "Here's the change.", kind="answer",
                              diff=p.get("unified_diff", ""), actions=["confirm"])
             await self._status("offtrack" if self.last_offtrack else "watching")
@@ -4493,7 +4504,7 @@ class LessonSession:
             except SyntaxError:
                 log.warning("proposed fix for %s does not compile; asking the learner to do it", path.name)
                 new_text = None
-        if new_text is None or new_text == text:
+        if new_text is None or new_text == text or self._patch_unsafe(step, path, new_text, text):
             await self._fix_by_hand(step, path, text, diff)
             return
         backup_dir = config.REPO_ROOT / "demo" / "runs" / "backups"
@@ -4523,19 +4534,26 @@ class LessonSession:
         from . import step_code
 
         code = step.get("code") or ""
-        if self.lesson_mode and code.strip() and not step_code.code_complete(code, text):
-            new_text, line, replaced = step_code.place_code(code, text, step_code.anchors(step))
+        # T5: by name in the step's own Python file (no second copies), and the result verified
+        py = path.suffix == ".py" and self._in_step_file(step, path)
+        if self.lesson_mode and code.strip() and (not step_code.code_done(code, text, py)
+                                                  or self._by_name(step, path, text) is not None):
+            new_text, line, replaced = step_code.place_step(code, text, step_code.anchors(step), py,
+                                                            self._other_codes(step))
             ok = bool(new_text) and new_text != text
             if ok and path.suffix == ".py":
                 try:
                     compile(new_text, str(path), "exec")
                 except SyntaxError:
                     ok = False
+            if ok and (why := self._patch_unsafe(step, path, new_text, text)):
+                log.info("Do it for me: no safe placement of %s's code: %s", step.get("id"), why)
+                ok = False
             if ok:
                 import difflib
 
                 self.pending_patch = {"path": path, "old": text, "new": new_text, "line": line,
-                                      "first": code.strip().splitlines()[:1],
+                                      "first": code.strip().splitlines()[:1], "step_code": code,
                                       "result": f"Typed {self._code_head(step)} into {path.name}."}
                 summary = (f"Puts this step's code in {path.name} in place of yours." if replaced
                            else f"Adds this step's code to {path.name}.")
@@ -4630,6 +4648,8 @@ class LessonSession:
             verdict = {**verdict, "done": False, "missing": unrun}  # the judge saw the code; a run step needs the run
         if verdict and verdict.get("done") and getattr(self, "_code_block", None):
             verdict = {**verdict, "done": False}  # E1: a syntax error / a missing piece of the step's code
+        if verdict and verdict.get("done") and (dup := self._overridden_defs(step)):  # T5: a later copy overrides it
+            verdict = {**verdict, "done": False, "missing": f"Delete the second {dup[0]} on line {dup[1][-1]}"}
         if verdict and verdict.get("done"):
             for cid, v in (verdict.get("checks") or {}).items():
                 if v.get("verdict") == "done":
@@ -5347,6 +5367,8 @@ class LessonSession:
         if self.judged_pass:
             await self.evaluate("judge")
         card = j.get("card")
+        if card and "confirm" in (card.get("actions") or []) and (dup := self._overridden_defs(step)):
+            card = self._dup_card(step, dup)  # T5: never a "Looks done?" while a later copy overrides the step's def
         if not j.get("done"):
             self.confirm_check_ids = []  # Claude no longer sees the step done: a later Yes re-checks (_confirm_stale)
         if card and not self.passed and gen == self.step_gen:
@@ -5466,11 +5488,13 @@ class LessonSession:
                     cur = (buf or {}).get("text")
                     if isinstance(cur, str):
                         code = step["code"].rstrip("\n") + "\n"
-                        if code.strip() in cur:
+                        if code.strip() in cur and not self._patch_unsafe(step, path, cur, cur):
                             ok = {"ok": True}  # already there
-                        else:
-                            new_text = cur + ("" if not cur or cur.endswith("\n") else "\n") + code
-                            ok = await asyncio.to_thread(ext.apply, str(path), new_text)
+                        else:  # T5: the step's defs in place of the buffer's ones, else appended; never 2 copies
+                            hit = self._by_name(step, path, cur)
+                            new_text = hit[0] if hit else cur + ("" if not cur or cur.endswith("\n") else "\n") + code
+                            if not self._patch_unsafe(step, path, new_text, cur):
+                                ok = await asyncio.to_thread(ext.apply, str(path), new_text)
                 except Exception:  # noqa: BLE001
                     ok = None
                 if isinstance(ok, dict) and ok.get("ok") and not ok.get("pending"):
@@ -5489,6 +5513,8 @@ class LessonSession:
         thinking = False  # E12: "thinking" only while a model really runs; the card goes out BEFORE the status
         if not text.strip():
             new_text = code
+        elif (hit := self._by_name(step, path, text)) is not None:  # T5: the step's defs are in the file: its code
+            (new_text, line), summary = hit, f"Puts this step's code in {path.name} in place of yours."  # in place
         elif self.m.has_do_it_for_me():
             thinking = True
             await self._status("thinking")
@@ -5505,13 +5531,22 @@ class LessonSession:
                              or self._syntax_error_line(new_text, path)):
                 log.info("do_it_for_me (lesson step): the patch lacks the step's code or doesn't compile; placing it")
                 new_text = None
-        if not new_text and text.strip():  # no coach patch: type the step's code over the learner's partial copy of
-            from . import step_code  # it, else below the step's target line, else at the end (never a second copy)
+            if new_text and (why := self._patch_unsafe(step, path, new_text, text)):  # T5: a second copy of a def, …
+                log.info("do_it_for_me (lesson step): patch rejected: %s", why)
+                new_text = None
+        if not new_text and text.strip():  # no coach patch: the step's defs in place of the file's ones (by name),
+            from . import step_code  # else over the learner's partial copy, else below the target line / at the end
 
-            new_text, line, _ = step_code.place_code(code, text, step_code.anchors(step))
-            summary = f"Adds this step's code to {path.name}."  # not the rejected coach patch's description
+            new_text, line, replaced = step_code.place_step(code, text, step_code.anchors(step), path.suffix == ".py",
+                                                            self._other_codes(step))
+            summary = (f"Puts this step's code in {path.name} in place of yours." if replaced  # not the rejected
+                       else f"Adds this step's code to {path.name}.")  # coach patch's description
             if bad := self._syntax_error_line(new_text or text, path):  # the file still has a mistake: say where
                 summary += f" Also fix line {bad} yourself: it doesn't run yet."
+        if new_text and new_text != text and (why := self._patch_unsafe(step, path, new_text, text)):
+            log.info("Do it for me: no safe placement of %s's code: %s", step.get("id"), why)  # T5: never 2 copies
+            await self._fix_by_hand(step, path, text, (self.last_offtrack or {}).get("diff") or {})
+            return  # (_fix_by_hand sets the status: no "thinking" left)
         if not new_text or new_text == text:
             await self._card(step, "Type it yourself", step["code"], kind="answer")
         else:
@@ -5520,7 +5555,7 @@ class LessonSession:
             diff = "".join(difflib.unified_diff(text.splitlines(True), new_text.splitlines(True),
                                                 f"a/{path.name}", f"b/{path.name}"))
             self.pending_patch = {"path": path, "old": text, "new": new_text, "line": line,
-                                  "first": code.strip().splitlines()[:1],
+                                  "first": code.strip().splitlines()[:1], "step_code": code,
                                   "result": f"Added {self._code_head(step)} to {path.name}."}
             await self._card(step, "Type this for you?", summary, kind="answer", diff=diff, actions=["confirm"])
         if thinking:
@@ -5558,6 +5593,96 @@ class LessonSession:
             return bool(p and head and head in re.sub(r"\s+", "", p.read_text(errors="replace")))
         except OSError:
             return False
+
+    def _other_codes(self, step: dict) -> list[str]:
+        """The other steps' code: a block of the file that is one of theirs is never replaced by this step's."""
+        return [s.get("code") or "" for s in self.steps if s.get("id") != step.get("id")]
+
+    def _by_name(self, step: dict, path: Path, text: str) -> tuple[str, int] | None:
+        """Lesson mode, a Python step file that already has the step's defs / classes / assignments: (new_text, line)
+        with the step's code in their place, checked (one copy of each def; it compiles). Else None."""
+        from . import step_code
+
+        if not self.lesson_mode or not self._in_step_file(step, path):
+            return None
+        return step_code.by_name(step.get("code") or "", text, path.suffix == ".py", self._other_codes(step))
+
+    def _patch_unsafe(self, step: dict, path: Path, new_text: str, old_text: str | None,
+                      code: str | None = None) -> str:
+        """Lesson mode, a Python step with code: why `new_text` must not be written ('' = fine): a def / class of
+        the step's code missing or in two copies (T5: the later copy overrode the step's), or it no longer compiles."""
+        from . import py_blocks
+
+        code = (step.get("code") if code is None else code) or ""
+        if not self.lesson_mode or not code.strip() or path.suffix != ".py" or not self._in_step_file(step, path):
+            return ""
+        return py_blocks.verify(code, new_text, old_text)
+
+    def _overridden_defs(self, step: dict) -> tuple[str, list[int], str] | None:
+        """Lesson mode: (name, lines, file) of a def / class of the step's code that a later top-level copy in the
+        step's file overrides (that last copy isn't the step's). Reads VS Code's text of the file, else the disk."""
+        from . import py_blocks
+        from . import workspace as wsmod
+
+        code = step.get("code") or ""
+        if not self.lesson_mode or not re.search(r"^\s*(?:async\s+def|def|class)\s", code, re.M):
+            return None
+        file = self._step_file(step) or step.get("file") or ""
+        p = wsmod.resolve_file(self.workdir, file) if file else None
+        if p is None or p.suffix != ".py":
+            return None
+        try:
+            text = self._buffers.text(p)
+            text = p.read_text(errors="replace") if text is None else text
+        except OSError:
+            return None
+        hits = py_blocks.overridden(code, text)
+        return (*hits[0], p.name) if hits else None
+
+    def _defs_once(self, step: dict, results: list[dict], gate: dict) -> tuple[list[dict], dict]:
+        """T5: the step's def must be the one that counts. A later top-level copy of it (an old `def sigmoid_slope`
+        left below the right one) overrides it while every pattern is still in the file: one more row, red, and no
+        step pass until that copy is gone. Checked when the step would pass, the judge saw checks done (its pass comes
+        after this: the red row keeps it from passing; the row itself is never the judge's to pass), or the row is up."""
+        cid = f"{step['id']}-once"
+        if not (gate.get("passed") or self.judged_pass or cid in self.check_state):
+            return results, gate
+        self.judged_pass.discard(cid)
+        hit = self._overridden_defs(step)
+        if hit is None:
+            if cid not in self.check_state:
+                return results, gate
+            return [*results, {"checkId": cid, "label": self.check_state[cid]["label"], "status": "pass",
+                               "detail": "one copy left"}], gate
+        name, lines, fname = hit
+        row = {"checkId": cid, "label": f"One {name}() in {fname}"[:60], "status": "fail",
+               "detail": f"line {lines[-1]} defines {name} again and replaces yours: delete one copy"}
+        return [*results, row], {**gate, "passed": False, "via": None}
+
+    @staticmethod
+    def _dup_card(step: dict, hit: tuple[str, list[int], str]) -> dict:
+        """"Not yet: delete the second sigmoid_slope on line 30", with Do it for me (it removes that copy)."""
+        return {"stepId": step["id"], "kind": "answer", "title": "Not yet",
+                "body": f"Delete the second {hit[0]} on line {hit[1][-1]}", "actions": ["apply_fix"]}
+
+    async def _dup_blocks_pass(self, step: dict) -> bool:
+        """T5: a pass outside evaluate() (Yes on the judge's "Looks done?") while a later top-level copy overrides
+        the step's def: no pass. The red '<step>-once' row goes up (evaluate() keeps it until the copy is gone) and
+        a card names the copy to delete. -> whether the pass was blocked."""
+        hit = self._overridden_defs(step)
+        if hit is None:
+            return False
+        rows, _ = self._defs_once(step, [], {"passed": True})
+        self.gate_open = True
+        await self._publish(step, rows)
+        await self._emit_card(self._dup_card(step, hit), window_s=2.0)
+        await self._status("watching")
+        return True
+
+    def _in_step_file(self, step: dict, path: Path) -> bool:
+        """`path` is the step's own file (by name): the by-name placement and the one-copy check only look there,
+        never at another file a coach diff names (helper.py)."""
+        return path.name == Path(self._step_file(step) or step.get("file") or "").name
 
     def _vscode_ext(self) -> Any:
         """The VS Code companion extension (S2: server/workspace/vscode_ext.py, HTTP on 127.0.0.1:8791) when it's
@@ -5733,6 +5858,10 @@ class LessonSession:
             return
         if current != pp["old"]:
             await self._card(step, "The file changed", "You edited it after the preview. Ask again for a fresh fix.")
+            return
+        if pp.get("step_code") and (why := self._patch_unsafe(step, path, pp["new"], current, pp["step_code"])):
+            log.info("Do it for me: not writing %s: %s", path.name, why)  # T5: never 2 copies of the step's def
+            await self._fix_by_hand(step, path, current, (self.last_offtrack or {}).get("diff") or {})
             return
         backup_dir = config.REPO_ROOT / "demo" / "runs" / "backups"
         try:
