@@ -227,3 +227,27 @@ def test_stats_rates_totals_latency():
 def test_stats_on_plain_postgres_falls_back():
     st = stats(StatsConn(fail_timescale=True), runs=1)
     assert st["training_metrics"]["total"] == 1234 and st["chunks"] is None
+
+
+def test_follows_a_tiger_url_sent_after_start(monkeypatch):
+    """The app's Settings can send a Tiger URL (config.keys -> os.environ) after the writer started with none:
+    the writer connects to it instead of spooling until the engine restarts."""
+    import time as _time
+
+    monkeypatch.delenv("TIGER_DATABASE_URL", raising=False)
+    conn, dsns = FakeConn(), []
+    w = TigerWriter(session_id="sess_t", flush_every=0.05, connect=lambda dsn: dsns.append(dsn) or conn)
+    w.record_event("step_started", "l", "s1", 1.0)
+    _time.sleep(0.2)
+    assert w.no_url and not dsns and spool_status()["rows"] == 1
+    monkeypatch.setenv("TIGER_DATABASE_URL", "postgres://from-settings")
+    w.record_event("check_pass", "l", "s1", 2.0, {"check_id": "s1c1"})
+    w.flush()
+    assert dsns == ["postgres://from-settings"] and w.online and not w.no_url
+    # the row spooled before the URL arrived is uploaded first, then the new one
+    assert [r[5] for sql, r in conn.copied if "learning_events" in sql] == ["step_started", "check_pass"]
+    assert spool_status()["rows"] == 0
+    monkeypatch.setenv("TIGER_DATABASE_URL", "")  # cleared in Settings: back to the spool, no reconnect
+    w.record_event("question", "l", "s1", 3.0)
+    w.flush()
+    assert w.no_url and not w.online and dsns == ["postgres://from-settings"]
