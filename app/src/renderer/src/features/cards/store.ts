@@ -7,7 +7,7 @@ import type { Payload } from '../../../../common/wire'
 import { bridge } from '../../bridge'
 import { onMessage, onUi } from '../../core/bus'
 import { sendAction, usePressed, type ActionKind } from '../../core/shortcuts'
-import { seekVideo, useLesson, type CheckItem } from '../../core/lesson'
+import { clearOfftrack, dismissAfter, seekVideo, useLesson, WITHDRAW_MS, type CheckItem } from '../../core/lesson'
 import { useDiagram } from '../diagrams/store'
 
 export type Point = { step: number; value: number }
@@ -441,7 +441,23 @@ function openOfftrack(p: Payload<'offtrack'>): void {
  */
 const DECISION = new Set<CardAction>(['confirm', 'resume'])
 const awaitsDecision = (c: Payload<'card'> | undefined): boolean => !!c && (!!c.diff || !!c.actions?.some((a) => DECISION.has(a)))
+/** The last off-track this store saw (core/lesson may already hold the new one by the time this handler runs). */
+let lastOfftrack: Payload<'offtrack'> | undefined
+const sameOfftrack = (a: Payload<'offtrack'>, b: Payload<'offtrack'>): boolean =>
+  a.stepId === b.stepId && (a.level ?? 1) === (b.level ?? 1) && a.title === b.title && a.body === b.body
 onMessage('offtrack', (p) => {
+  const prev = lastOfftrack
+  lastOfftrack = p
+  // Withdrawn (dismissAfterMs 1): the Not yet card goes; core/lesson ends the off-track ring.
+  const after = dismissAfter(p)
+  if (after !== undefined && after <= WITHDRAW_MS) {
+    lastOfftrack = undefined
+    if (heldOfftrack?.stepId === p.stepId) dropHeldOfftrack()
+    if (get().offtrackOpen) set({ offtrackOpen: false, fixing: false, resume: false })
+    return
+  }
+  // The same card again updates in place: no re-open, no new "after the fix" mark.
+  if (prev && sameOfftrack(prev, p) && get().offtrackOpen) return
   if (awaitsDecision(get().card)) {
     lastPress = undefined
     return
@@ -461,7 +477,41 @@ onMessage('offtrack', (p) => {
   openOfftrack(p)
 })
 // "Apply this fix?" (a diff to confirm) replaces the "Waiting for the fix" view, so `fixing` ends here.
+/** Same card again (same step, kind, title, body and everything else but its timer). */
+function sameCard(a: Payload<'card'>, b: Payload<'card'>): boolean {
+  const strip = (c: Payload<'card'>): string => JSON.stringify({ ...c, dismissAfterMs: undefined })
+  return a.stepId === b.stepId && a.kind === b.kind && a.title === b.title && a.body === b.body && strip(a) === strip(b)
+}
+/** A Hint or judge Not yet card that goes away takes the off-track state with it (else the pill keeps its ring). */
+const fromOfftrack = (c: Payload<'card'>): boolean => c.kind === 'hint' || c.source === 'judge'
+/** The card's dismissAfterMs: it closes by itself; a withdrawn Hint / Not yet also ends the off-track state. */
+function autoClose(c: Payload<'card'>, after: number | undefined): void {
+  clearTimeout(autoTimer)
+  if (after === undefined) return
+  const go = (): void => {
+    if (get().card !== c) return
+    if (fromOfftrack(c)) clearOfftrack(c.stepId) // first, so closing doesn't bring the off-track card back
+    closeCard()
+  }
+  if (after <= WITHDRAW_MS) go()
+  else autoTimer = setTimeout(go, after)
+}
 onMessage('card', (raw) => {
+  const after = dismissAfter(raw)
+  const cur = get().card
+  // An identical card updates in place: the object on screen stays, so nothing re-renders or re-animates.
+  if (cur && sameCard(cur, raw)) {
+    clearTimeout(pendingTimer)
+    cancelClose()
+    lastPress = undefined
+    if (get().pending) set({ pending: undefined })
+    return autoClose(cur, after)
+  }
+  // Withdrawn (dismissAfterMs 1) and not on screen: never flash it; just end the off-track state it came from.
+  if (after !== undefined && after <= WITHDRAW_MS) {
+    if (fromOfftrack(raw)) clearOfftrack(raw.stepId)
+    return
+  }
   // A re-sent setup card keeps its rows in place (steadySetup); rows that are installed now drop their install state.
   const p = steadySetup(raw)
   const ok = new Set((p.setup?.items ?? []).filter((x) => x.ok).map((x) => x.tool))
@@ -473,13 +523,7 @@ onMessage('card', (raw) => {
   set({ card: p, cardFrom, pending: undefined, resume: over(), offtrackOpen: false, ...(p.diff ? { fixing: false } : {}) })
   pump() // a re-sent setup card that marks the running row ok moves Install all on
   // A passing note ("numpy installed ✓", dismissAfterMs 4000) goes by itself (Michael's test 6: still up after 30 s).
-  // Not in shared/contracts yet: read it off the payload.
-  clearTimeout(autoTimer)
-  const after = (p as typeof p & { dismissAfterMs?: number }).dismissAfterMs
-  if (typeof after === 'number' && after > 0)
-    autoTimer = setTimeout(() => {
-      if (get().card === p) closeCard()
-    }, after)
+  autoClose(p, after)
   if (lastAsk && Date.now() - lastAsk < ASKED_WITHIN_MS) {
     cardHeldUntil = Date.now() + CARD_HOLD_MS
     lastAsk = 0
