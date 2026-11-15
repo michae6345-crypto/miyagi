@@ -31,6 +31,7 @@ import { notify, useLesson } from '../../core/lesson'
 import { defineFeature } from '../../core/registry'
 import { color, copy, fill } from '../../core/theme'
 import { Kbd, Spinner } from '../../core/ui/atoms'
+import { PillGear } from './Gear'
 import { BuildLine, FitSwap, LeadMark, MonoMark, StatusMark, StepCount, SwapText, type Mark } from './parts'
 import { LESSON_SAVED, resumeSaved, retryEngine, undoEnd, UNREACHABLE, usePill, type SavedOffer } from './store'
 
@@ -413,5 +414,7 @@ export default defineFeature({
     },
     // Above the pill states, below hover (20) and cards (40+): a card the learner opened stays in front.
     { id: 'notice', priority: 5, useActive: () => usePill((s) => !!s.notice), Content: NoticeLine }
-  ]
+  ],
+  // The settings gear just right of the pill (./Gear.tsx): over the island (z 50) and under the shortcut bar (60).
+  overlayLayers: [{ id: 'pill-gear', z: 55, Component: PillGear }]
 })
