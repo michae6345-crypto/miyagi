@@ -497,15 +497,19 @@ def _not_visible(check: dict, ctx: RunContext, absent: bool) -> CheckResult:
     no_screen = ctx.screen is None
     if app in _TERMINAL_APPS and ctx.run_finished:
         return _on_run_output(check, ctx, absent)
+    if no_screen:
+        # t9 V1: no frame yet (the reader resumes ~10 ms after step.started, or is off): nothing was looked at, so
+        # nothing passes or fails. A screen_absent row passed "screen reading is off, so nothing to flag" and the
+        # app kept it green (a pass never goes back to pending); the next real frame grades it.
+        return _result(check, "pending", "checked when it runs" if absent and check.get("run") and app in _TERMINAL_APPS
+                       else "waiting for the screen")
     if absent:
         if check.get("run") and app in _TERMINAL_APPS:
             return _result(check, "pending", "checked when it runs")
         if ctx.after_segment:
-            why = "screen reading is off" if no_screen else (f"{app} is not on screen" if app else "nothing on screen")
+            why = f"{app} is not on screen" if app else "nothing on screen"
             return _result(check, "pass", f"{why}, so nothing to flag")
-        return _result(check, "pending", "waiting for screen" if no_screen else f"{app} not open yet")
-    if no_screen:
-        return _result(check, "pending", "screen reading is off: can't see " + (app or "the screen"))
+        return _result(check, "pending", f"{app} not open yet")
     if not app:
         hint = "nothing on screen yet"
     elif app in _TERMINAL_APPS and ctx.editor == "Code":  # a VS Code lesson runs code in VS Code's own terminal
