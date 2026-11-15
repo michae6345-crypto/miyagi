@@ -98,7 +98,8 @@ def lesson_for(goal: str, force: bool = False) -> dict | None:
 
 
 def active(session: Any) -> bool:
-    return enabled() and ((getattr(session, "graph", None) or {}).get("lesson") or {}).get("curated") == KEY
+    lesson = (getattr(session, "graph", None) or {}).get("lesson") or {}
+    return (enabled() or bool(lesson.get("stage"))) and lesson.get("curated") == KEY  # a Demo lesson: always
 
 
 # ---------------------------------------------------------------------------------------------------------- folder
@@ -580,7 +581,8 @@ async def on_command_end(session: Any, ev: dict) -> None:
     from . import stage  # (stage imports this module)
 
     if stage.on(session):  # a Demo lesson: the terminal's own output stays on screen, the recorded run grades it
-        await stage.run(session, step, typed=True)
+        if stage._is_run(session, step):  # (a run typed on a typing step passes nothing)
+            await stage.run(session, step, typed=True)
         return
     # The same id as Run it for me's own wait for this run (session._terminal_run_result, which also posts the result
     # card): give it a moment; whichever ingests first owns the run, the other stands back.

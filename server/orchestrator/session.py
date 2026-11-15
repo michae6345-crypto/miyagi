@@ -2816,8 +2816,12 @@ class LessonSession:
 
     async def tick(self) -> None:
         """Called ~1/s: idle-after-action, stuck, and typing-deferred speech."""
-        if stage.on(self):
-            return  # a Demo lesson: no screen health, scene glances, judge, stuck cards or idle nudges
+        if stage.on(self):  # a Demo lesson: no screen health, scene glances, judge, stuck cards or idle nudges,
+            self._attribute_input()  # but the reader follows the step (E3) and a click / edit in VS Code ends
+            self._sync_screen_soon()  # "Before you start" (E4), so step 1 gets its box
+            if self.awaiting_start:
+                await self._maybe_begin()
+            return
         step = self.step
         self._attribute_input()  # E5: the last second's keys / clicks, booked to the app that got them
         self._sync_screen_soon()  # E3: the reader runs only while a lesson step does (and the app hasn't left)

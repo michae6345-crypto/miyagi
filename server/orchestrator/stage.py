@@ -52,6 +52,7 @@ GRADE_S = _f("MIYAGI_STAGE_GRADE_S", 1.0)  # "checking" before the first row goe
 ROW_S = _f("MIYAGI_STAGE_ROW_S", 0.35)  # between rows
 RUN_S = _f("MIYAGI_STAGE_RUN_S", 1.4)  # Run it for me: how long the run takes
 STUCK_S = _f("MIYAGI_STAGE_STUCK_S", 2.0)  # the stuck run's output on screen before the "Not yet" card
+AGAIN_S = _f("MIYAGI_STAGE_AGAIN_S", 1.0)  # a run press this soon after the last run ended is the same press
 
 _RAND = re.compile(r"rand")
 _INIT = re.compile(r"^\s*(W1|W2)\s*=\s*(.+)$", re.M)
@@ -86,7 +87,7 @@ def _st(session: Any) -> dict:
     epoch = getattr(session, "lesson_epoch", 0)
     st = getattr(session, "_stage", None)
     if not isinstance(st, dict) or st.get("epoch") != epoch:
-        st = {"epoch": epoch, "runs": {}, "passing": set(), "running": set()}
+        st = {"epoch": epoch, "runs": {}, "passing": set(), "running": set(), "ended": {}, "good": set()}
         session._stage = st
     return st
 
@@ -102,6 +103,12 @@ def _runs() -> dict:
 def _lines(sid: str, stuck: bool) -> list[str]:
     runs = _runs().get(sid) or {}
     return list(runs.get("stuck" if stuck else "good") or runs.get("good") or [])
+
+
+async def _begin(session: Any) -> None:
+    """Work on the step ends the "Before you start" hold (E4) at once, so its box and the rest follow."""
+    if getattr(session, "awaiting_start", False):
+        await session._begin("work on a Demo step")
 
 
 def _is_run(session: Any, step: dict) -> bool:
@@ -189,8 +196,8 @@ async def _stuck(session: Any, step: dict, lines: list[str]) -> None:
     """The planned "Not yet": the training check fails on the run's flat loss, and the coach's card says why."""
     sid, gen = step.get("id"), session.step_gen
     await asyncio.sleep(STUCK_S)  # the run's output and the four identical neurons first, then the verdict
-    if gen != session.step_gen or session.passed:
-        return
+    if gen != session.step_gen or session.passed or sid in _st(session)["good"]:
+        return  # moved on, or the presenter's next is passing it
     losses = curated.parse_output(lines)["losses"]
     v = losses[-1][1] if losses else curated.STUCK_LOSS
     e = losses[-1][0] if losses else 4000
@@ -226,11 +233,15 @@ async def evaluate(session: Any, trigger: str) -> None:
         return
     if session.clock() - session.step_t0 < DWELL_S:
         return
+    await _begin(session)
     session._spawn(_pass(session, step, session.step_gen))
 
 
 async def check(session: Any, step: dict) -> None:
     """Check my work: a typing step passes now; a run step runs (the recorded run) and is graded on it."""
+    if session.awaiting_resume:  # the "Continue where you left off?" card is up: that answer comes first
+        return
+    await _begin(session)
     if _is_run(session, step):
         await run(session, step)
     else:
@@ -242,15 +253,21 @@ async def run(session: Any, step: dict, typed: bool = False) -> None:
     already shows its output, so no card). The first Train it run is the stuck one when nn.py starts at zeros."""
     gen, sid = session.step_gen, step.get("id")
     st = _st(session)
-    if session.passed or sid in st["running"] or sid in st["passing"]:
-        if not session.passed:
-            _quiet()  # a second press while this step's run (or its pass) is still going: one run, not two
+    if session.passed or session.awaiting_resume:
         return
+    # A second press while this step's run (or its pass) is going, or queued behind it (the socket runs commands one
+    # at a time, so it arrives just after): one run, not two. A press a second later is a new run.
+    if sid in st["running"] or sid in st["passing"] or (
+            not typed and session.clock() - st["ended"].get(sid, -1e9) < AGAIN_S):
+        _quiet()
+        return
+    await _begin(session)
     st["running"].add(sid)
     try:
         await _run(session, step, gen, sid, st, typed)
     finally:
         st["running"].discard(sid)
+        st["ended"][sid] = session.clock()
 
 
 async def _run(session: Any, step: dict, gen: int, sid: str, st: dict, typed: bool) -> None:
@@ -265,6 +282,8 @@ async def _run(session: Any, step: dict, gen: int, sid: str, st: dict, typed: bo
         await asyncio.sleep(RUN_S)
     if gen != session.step_gen or session.passed:
         return
+    if stuck and sid in st["good"]:  # the presenter's next landed during this run: it learns
+        stuck, lines = False, _lines(sid, False)
     run_id = f"stage-{sid}-{n}-{int(time.time() * 1000)}"
     await session.ingest({"kind": "run_started", "run_id": run_id, "command": cmd, "cwd": session.workdir})
     await session.ingest({"kind": "output", "run_id": run_id, "lines": lines})
@@ -287,12 +306,19 @@ async def _run(session: Any, step: dict, gen: int, sid: str, st: dict, typed: bo
 async def next_step(session: Any) -> bool:
     """Presenter: pass the current step now (a run step gets its good run first, so the panel has its numbers)."""
     step = session.step
-    if step is None or session.passed:
+    if step is None or session.passed or session.awaiting_resume:
         return False
+    await _begin(session)
     if _is_run(session, step):
-        st = _st(session)
-        st["runs"][step.get("id")] = max(1, st["runs"].get(step.get("id"), 0))  # never the stuck run
-        await run(session, step, typed=True)
+        st, sid = _st(session), step.get("id")
+        st["good"].add(sid)  # never the stuck run, also for a run already under way
+        st["runs"][sid] = max(1, st["runs"].get(sid, 0))
+        for _ in range(200):  # a Run it for me in flight finishes first (it now learns), then this one passes
+            if sid not in st["running"] or session.step is not step:
+                break
+            await asyncio.sleep(0.05)
+        if session.step is step and not session.passed:
+            await run(session, step, typed=True)
     else:
         await _pass(session, step, session.step_gen, fast=True)
     return True

@@ -67,6 +67,7 @@ quickly while you talk.
 | The presenter keys do nothing | They work only in a lesson started from the Demo chip, on the real engine. Another app may be holding them (Rectangle, Magnet). From a terminal: `curl -X POST localhost:8787/stage/next` (or `back`, `restart`). On screen, Check my work and Run it for me do the same job. |
 | VS Code didn't open `nn.py` | Open it yourself. LIVE: `~/miyagi/lessons/a-neural-net-from-scratch-*/nn.py`. Offline engine: `demo/nn-lab/nn.py`. |
 | The wrong lesson started | Watch a video or Just teach me was lit instead of the third chip. ⌥Space, ⇥ New lesson, type the goal, Tab to the third chip, Enter. |
+| A typed question takes a while, then answers about the step | Wi-Fi is bad on the LIVE engine: after about 7 s the step's own explanation answers instead. On bad Wi-Fi, run the offline engine; its answers are instant. |
 | A judge asks for another topic | ⌥Space, ⇥ New lesson, type it, pick **Just teach me**, Enter. That builds a real lesson. It needs the LIVE engine and Wi-Fi, and it takes longer, so talk over the building pill. |
 | The engine says `port 8787 is already in use` | Another engine or `npm run mock` is still running. The script prints its PID: `kill <pid>`, then start again. |
 | The engine or Python is broken on the Mac (last resort) | Quit the engine. In `app/`, run `DEMO=1 SCENARIO=nndemo npm run dev`, or `npm run mock -- nndemo` in one terminal and `npm run dev` in another. Launcher → anything → third chip → Enter. You get the same lesson, cards, runs and network panel. It can't see saves, so press Check my work after each paste. Use Run it for me on steps 4 and 6, and Check my work again after "Not yet". There are no presenter keys, VS Code won't open by itself, and Video and Just teach me don't work. |
@@ -91,7 +92,7 @@ teach me are untouched and real.
 
 - Don't type `python3 nn.py` in VS Code's terminal. miyagi still shows the recorded run, but the terminal runs real
   Python, and without NumPy it prints an error on screen. Use Run it for me.
-- A second press of Run it for me while a run is still going is ignored: one press, one run.
+- A second press of Run it for me (or Check my work) while a run is going, or within a second after it, is ignored: one press, one run. ⌃⌥⌘→ during a run makes that run the one that learns.
 - `curl -s localhost:8787/stage` shows whether a Demo lesson is running, which step it's on, and how many runs it
   has done. The app binds the presenter keys only when this says `on`, and lets them go when the lesson ends.
 - With the offline engine, the folder (`demo/nn-lab`) is pinned, so starting again from the launcher keeps the old

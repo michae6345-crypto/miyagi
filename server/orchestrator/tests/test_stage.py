@@ -209,3 +209,53 @@ def test_check_during_a_saves_pass_is_quiet(rig, monkeypatch):
         assert passed(rig) == ["nn1"]
         assert not [c for c in rig.of("card") if c["title"] in ("Nothing to do here", "Not yet")]
     run(go())
+
+
+async def to_train(rig: Rig) -> None:
+    await rig.s.learn("anything", mode="demo")
+    await settle(rig)
+    await save(rig, ZEROS)
+    for _ in range(2):
+        await save(rig, "\n")
+    assert rig.s.step["id"] == "nn4"
+
+
+def test_a_queued_second_press_is_the_same_run(rig):
+    async def go():
+        await to_train(rig)
+        await rig.s.action("run_command")  # the socket runs commands one at a time: the second comes right after
+        await settle(rig)
+        await rig.s.action("check_step")
+        await settle(rig)
+        assert rig.s.step["id"] == "nn4" and rig.of("offtrack")  # still the stuck run's "Not yet"
+        assert len([c for c in rig.of("card") if c["title"].startswith("Ran ")]) == 1
+        rig.clock.t += 5  # a press later on is a new run: it learns
+        await rig.s.action("check_step")
+        await settle(rig)
+        assert passed(rig)[-1] == "nn4"
+    run(go())
+
+
+def test_next_during_a_run_passes_without_not_yet(rig, monkeypatch):
+    monkeypatch.setattr(stage, "RUN_S", 0.2)
+
+    async def go():
+        await to_train(rig)
+        press = asyncio.create_task(rig.s.action("run_command"))
+        await asyncio.sleep(0.05)  # the run is under way (it would be the stuck one)
+        assert await stage.next_step(rig.s)
+        await press
+        await settle(rig)
+        assert passed(rig)[-1] == "nn4" and not rig.of("offtrack")
+    run(go())
+
+
+def test_work_ends_the_before_you_start_hold(rig):
+    async def go():
+        await rig.s.learn("anything", mode="demo")
+        await settle(rig)
+        held = rig.s.awaiting_start
+        await save(rig, "x = 1\n")
+        assert passed(rig) == ["nn1"]
+        assert not rig.s.awaiting_start, f"still held (was held: {held})"
+    run(go())
