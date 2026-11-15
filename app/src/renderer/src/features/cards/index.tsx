@@ -8,7 +8,7 @@
  *             (the engine may or may not write it), and the re-run's curve drawing live.
  *   success   green, "Good. Now the next one." after a recovered step: now-vs-before curve, auto-hides.
  *   card      explain / hint / answer from the engine, with an optional video jump.
- * Copy rule: readable in 2 seconds; body text is clamped to 2–3 lines. No red, no shaking.
+ * Copy rule: readable in 2 seconds; a long engine-card body folds to 6 lines with "More" (Clamp.tsx). No red, no shaking.
  * Generality: every label comes from the data (metric name, check labels, step titles).
  * Brand (app/brand/BRAND.md): off track has no hue (a white ring), green ONLY = passed, everything else
  * neutral white / muted. Buttons white on dark. No blue, amber, gradients, glows, sparkles or emoji.
@@ -26,6 +26,7 @@ import { usePressed } from '../../core/shortcuts'
 import { CheckList, CloseButton, OptionButton, PrimaryButton, Spinner, StatusDot } from '../../core/ui/atoms'
 import { actionTone, color, copy, fill } from '../../core/theme'
 import { Curve, fmt, Key, plotPoints, type Line } from './Curve'
+import { BODY_LINES, Clamp, HEADLINE_LINES } from './Clamp'
 import { Evidence } from './Evidence'
 import { act, cardAct, jumpTo, SUCCESS_MS, useCards, useOverlayWidth, useSeries, type CardAction } from './store'
 
@@ -673,15 +674,19 @@ function Output({ text }: { text: string }): ReactNode {
 }
 
 /**
- * Where to go when the place isn't on screen ("Open app.py in Cursor"): one line and an Open button
- * (action open_editor), so "code not visible" always says what to do.
+ * Where to go when the place isn't on screen ("Open app.py in Cursor"): up to two lines (the whole text on
+ * hover past that) and an Open button (action open_editor), so "code not visible" always says what to do.
  */
 function Where({ text }: { text: string }): ReactNode {
   const busy = useBusyIcon()
   return (
     <div data-where className="mt-[12px] flex items-center gap-[10px] rounded-[12px] py-[6px] pl-[12px] pr-[6px]" style={{ background: fill.field }}>
       <Info size={13} strokeWidth={1.8} className="shrink-0" style={{ color: color.label }} />
-      <span className="min-w-0 flex-1 truncate text-[13px]" style={{ color: color.label }}>
+      <span
+        className="min-w-0 flex-1 overflow-hidden text-[13px] leading-[18px]"
+        style={{ color: color.label, display: '-webkit-box', WebkitBoxOrient: 'vertical', WebkitLineClamp: 2 }}
+        title={text}
+      >
         {text}
       </span>
       <QuietButton label="Open" icon={busy('open_editor', ExternalLink, true)} onClick={() => cardAct('open_editor')} />
@@ -694,25 +699,20 @@ function Card(): ReactNode {
   if (!c) return null
   const k = tileOf(c)
   const actions = c.actions ?? []
-  // A title that only repeats the header ("Hint") is dropped: the body becomes the headline.
+  // A title that only repeats the kind ("Hint") is dropped: the body becomes the headline.
+  // Long bodies fold to a few lines with a "More" that opens them in place (never cut off for good).
   const redundant = !c.title || c.title.trim().toLowerCase() === k.label.toLowerCase()
-  // A title that only repeats the kind ("Hint") is dropped: the body becomes the headline (clamped to 2 lines).
   return (
     <div data-card={c.kind} style={{ padding: `16px ${PAD}px 16px` }}>
       <div className="flex items-start gap-[10px]">
         <KindTile k={k} />
         <div className="min-w-0 flex-1 pt-[1px]">
           {redundant ? (
-            <div
-              className="overflow-hidden text-[16px] font-medium leading-[22px] tracking-[-0.01em]"
-              style={{ display: '-webkit-box', WebkitBoxOrient: 'vertical', WebkitLineClamp: 2 }}
-            >
-              {c.body}
-            </div>
+            <Clamp text={c.body} lines={HEADLINE_LINES} className="text-[16px] font-medium leading-[22px] tracking-[-0.01em]" />
           ) : (
             <>
               <div className="text-[17px] font-semibold leading-[22px] tracking-[-0.01em]">{c.title}</div>
-              <Body lines={3}>{c.body}</Body>
+              <Clamp text={c.body} lines={BODY_LINES} className="mt-[3px] text-[14px] leading-[20px]" style={{ color: color.label }} />
             </>
           )}
           {c.guidingQuestion && <Question text={c.guidingQuestion} />}
