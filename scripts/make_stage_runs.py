@@ -5,7 +5,7 @@ Really runs the neural-net lesson's own code (scripts/make_nn_demo.py: STARTER +
 Demo run prints is one the code prints:
   nn4 good   steps 1-3 as written (random start): the loss falls
   nn4 stuck  the same with every W started at zeros: the loss sits at curated.STUCK_LOSS
-  nn6 good   steps 1-3 + 5: the loss lines, then the network's answers and the learned weights
+  nn6 good   steps 1-3 + 5: the loss lines, the learned weights, then the network's answers (t8: last)
 
     python3 scripts/make_stage_runs.py
 """

@@ -347,6 +347,10 @@ async def vscode_event(body: dict = Body(...)) -> dict:
     from . import quiet_save  # Nov 15: a dirty / save / editor change of the step file re-grades within ~0.2 s
 
     quiet_save.on_vscode_event(engine.session, item)
+    if body.get("type") in ("dirty", "save", "editor") and getattr(engine.session, "_advice_up", None) is not None:
+        from . import advice_clear  # t8: the Hint / Not yet whose line was just fixed goes within ~1 s
+
+        engine.session._spawn(advice_clear.follow(engine.session, force=True))
     if body.get("type") == "command_end":  # a curated lesson's run: VS Code's exact output grades it (curated.py)
         from . import curated
 
