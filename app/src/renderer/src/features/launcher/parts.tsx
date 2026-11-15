@@ -7,7 +7,7 @@
  */
 import { motion, useReducedMotion } from 'motion/react'
 import type { ReactNode } from 'react'
-import { GraduationCap, Play, type LucideIcon } from 'lucide-react'
+import { GraduationCap, Play, Square, type LucideIcon } from 'lucide-react'
 import { color, fill, spring } from '../../core/theme'
 
 /** One section of the panel settling into place a beat after the one above it. */
@@ -170,6 +170,34 @@ export function Action({
           {label}
         </>
       )}
+    </motion.button>
+  )
+}
+
+/**
+ * End lesson during a lesson (Michael's desktop test 3, item 8): a small quiet link in the footer, never a row, so a
+ * stray Enter or ↓ then Enter can't end a lesson. No key reaches it (not a focus stop, no keycap). Like the bar's End,
+ * the first click arms it ("Tap to end", a little brighter) and a second click while armed ends the lesson. Neutral
+ * chrome even when armed: the white button stays the one primary (Continue).
+ */
+export function EndLink({ armed, onClick }: { armed: boolean; onClick: () => void }): ReactNode {
+  return (
+    <motion.button
+      type="button"
+      tabIndex={-1}
+      className="flex h-[26px] shrink-0 cursor-pointer items-center gap-[6px] whitespace-nowrap rounded-full px-[9px] text-[12px]"
+      initial={false}
+      animate={armed ? { backgroundColor: fill.chip, color: color.text } : { backgroundColor: fill.clear, color: color.faint }}
+      whileHover={{ color: color.text }}
+      whileTap={{ scale: 0.97 }}
+      transition={{ duration: 0.14 }}
+      onMouseDown={(e) => e.preventDefault()}
+      onClick={onClick}
+      title={armed ? 'Click again to end the lesson' : 'End this lesson'}
+      data-armed={armed || undefined}
+    >
+      <Square size={10} strokeWidth={2} className="shrink-0" />
+      {armed ? 'Tap to end' : 'End lesson'}
     </motion.button>
   )
 }

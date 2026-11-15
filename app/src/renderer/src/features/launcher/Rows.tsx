@@ -4,7 +4,7 @@
  */
 import { AnimatePresence, motion } from 'motion/react'
 import type { ReactNode } from 'react'
-import { CircleAlert, CirclePlay, CircleStop, FileCode2, FileText, FolderGit2, Newspaper, SearchX, Settings } from 'lucide-react'
+import { CircleAlert, CirclePlay, FileCode2, FileText, FolderGit2, Newspaper, SearchX, Settings } from 'lucide-react'
 import { MiyagiMark } from '../../core/ui/Mark'
 import { Thumb } from '../../core/ui/atoms'
 import { brand, clock, color, fill, spring } from '../../core/theme'
@@ -136,28 +136,17 @@ export function LessonRow({ onHover, onPick }: { onHover: () => void; onPick: ()
 }
 
 /**
- * During a lesson with nothing typed, the first row (highlighted): back to the lesson where it was. Enter, or a click,
- * closes the launcher into the island, so the lesson is one key away and never restarted by accident.
+ * During a lesson with nothing typed, the only row (highlighted): back to the lesson where it was. Enter, or a click,
+ * closes the launcher into the island, so the lesson is one key away and never restarted by accident. Ending the
+ * lesson is not a row (desktop test 3, item 8): it's the quiet two-tap link in the footer (parts EndLink).
  */
-export function ResumeRow({ lessonTitle, where, onHover, onPick }: { lessonTitle?: string; where: string; onHover: () => void; onPick: () => void }): ReactNode {
+export function ResumeRow({ lessonTitle, where, onPick }: { lessonTitle?: string; where: string; onPick: () => void }): ReactNode {
   return (
-    <RowShell slot={0} onHover={onHover} onPick={onPick}>
+    <RowShell slot={0} onPick={onPick}>
       <span className="grid h-[38px] w-[60px] shrink-0 place-items-center rounded-[8px]" style={{ background: fill.tile, color: fill.tileGlyph }}>
         <CirclePlay size={16} strokeWidth={1.6} />
       </span>
       <Text title={lessonTitle ? `Continue ${lessonTitle}` : 'Continue the lesson'} meta={where} />
-    </RowShell>
-  )
-}
-
-/** Under the resume row during a lesson: ending it (↓ then Enter, or a click). Esc keeps the lesson. */
-export function EndRow({ slot = 0, onHover, onPick }: { slot?: number; onHover?: () => void; onPick: () => void }): ReactNode {
-  return (
-    <RowShell slot={slot} onHover={onHover} onPick={onPick}>
-      <span className="grid h-[38px] w-[60px] shrink-0 place-items-center rounded-[8px]" style={{ background: fill.tile, color: fill.tileGlyph }}>
-        <CircleStop size={16} strokeWidth={1.6} />
-      </span>
-      <Text title="End lesson" meta="Stop it and start something new" />
     </RowShell>
   )
 }
