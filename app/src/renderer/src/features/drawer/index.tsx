@@ -33,6 +33,7 @@ import { hole, intersects, toLocal } from '../spotlight/place'
 import { useSpotlight } from '../spotlight/store'
 import { ConceptPanel, Rail } from './Concept'
 import { Panel, Tab } from './Drawer'
+import { useComplete } from '../complete/store'
 import { useDiagram } from '../diagrams/store'
 import { Flyout } from './Flyout'
 import { conceptRects, panelRect, tabRect } from './geometry'
@@ -75,7 +76,9 @@ function DrawerLayer({ layout }: { layout: Layout }): ReactNode {
   // The Diagram flyout: out of the panel's inner edge, or on a run step out of the tucked handle's edge. Drawn first,
   // so the panel and the handle sit on top of the strip it tucks under them. Hidden (still open) while the drawer
   // yields to the spotlight or shows a concept; it comes back with the drawer.
-  const flyout = useDiagram((s) => s.open && !!s.diagram)
+  // The lesson-complete panel draws the learner's network itself: the flyout steps away (as the floating card did).
+  const completing = useComplete((c) => !!c.card)
+  const flyout = useDiagram((s) => s.open && !!s.diagram) && !completing
   const flyAt = !on || !flyout ? undefined : showPanel && !concept ? { anchor: panel, run: false } : tucked ? { anchor: tab, run: true } : undefined
   return (
     <>

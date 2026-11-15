@@ -14,6 +14,7 @@ import { motion } from 'motion/react'
 import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react'
 import { Waypoints, X } from 'lucide-react'
 import type { Layout } from '../../../../preload/api'
+import { bridge } from '../../bridge'
 import type { Rect } from '../../core/lesson'
 import { actionTone, color, glass, radius, spring, springOut } from '../../core/theme'
 import { DiagramBody } from '../diagrams/Diagram'
@@ -38,6 +39,10 @@ const ISLAND_W = 600
 const RUN_TOP = 24
 /** Air between the box and the shortcut bar's top edge. */
 const BAR_GAP = 12
+/** The resting step pill: about this far either side of the screen's center, this tall, from platform.pillTop. */
+const PILL_HALF = 180
+const PILL_H = 36
+const PILL_GAP = 10
 
 /**
  * side: the edge the drawer is drawn on. anchor: the drawer panel's rect (its max height), or on a run step the
@@ -51,7 +56,12 @@ export function Flyout({ layout, side, anchor, run }: { layout: Layout; side: Si
   const hi = Math.min(layout.width, wa.x + wa.width) - EDGE
   // Room on the inner side of the drawer (or the handle), counting the strip that tucks under it.
   const room = side === 'right' ? anchor.x + OVERLAP - lo : hi - (anchor.x + anchor.w - OVERLAP)
-  const top = run ? wa.y + RUN_TOP + RUN_DROP : anchor.y
+  const x0 = side === 'right' ? anchor.x + OVERLAP - Math.min(FLY_W, room) : anchor.x + anchor.w - OVERLAP
+  // Top-aligned with the drawer, unless that would put the header under the step pill (centered, at pillTop: on a
+  // Mac the pill's band and the drawer's top overlap): then it starts just under the pill.
+  const underPill = x0 < layout.width / 2 + PILL_HALF && x0 + Math.min(FLY_W, room) > layout.width / 2 - PILL_HALF
+  const pillClear = bridge.platform.pillTop + PILL_H + PILL_GAP
+  const top = run ? wa.y + RUN_TOP + RUN_DROP : underPill ? Math.max(anchor.y, pillClear) : anchor.y
   const bottom = run ? Math.min(wa.y + wa.height * RUN_SHARE, barTop - BAR_GAP) : anchor.y + anchor.h
   const maxH = Math.max(160, bottom - top)
   const base = Math.max(Math.min(MIN_W, room), Math.min(FLY_W, room))
