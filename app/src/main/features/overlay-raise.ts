@@ -3,8 +3,8 @@
  * (Michael's desktop test item 8 and screenshot audit A2 / A3).
  *
  * Item 8. Another app's always-on-top window at the same level (Wispr Flow's transparent "Status", level 1000) sat
- *    over the middle of the shortcut bar. Re-raise the overlay (level + moveTop) on lesson.ready and when the
- *    pointer enters the bar (renderer: features/shortcut-bar, bridge.invoke('overlay:raise'), throttled there).
+ *    over the middle of the shortcut bar. Re-raise the overlay (level + moveTop) on lesson events (throttled, not while the
+ *    launcher is open) and when the pointer enters the bar (renderer: features/shortcut-bar, bridge.invoke('overlay:raise'), throttled there).
  * A2. The overlay activated miyagi as a regular app: the menu bar read "Electron File Edit View Window", VS Code
  *    went inactive, and a click could move Spaces. On macOS miyagi is now an "accessory" app by default (no Dock
  *    icon, not in ⌘Tab, clicks never activate it or switch Spaces); MIYAGI_REGULAR_APP=1 opts out. It's named
@@ -63,8 +63,15 @@ export default defineMainFeature({
       ctx.overlay.moveTop()
       return true
     }
+    // Test 5: another app's window (Claude desktop) covered the drawer for a minute. Re-raise on the lesson
+    // events that put something on screen, at most once a second, and never over the open launcher.
+    const RAISE_ON = new Set(['lesson.ready', 'step.started', 'step.passed', 'card', 'spotlight', 'offtrack', 'diagram'])
+    let lastRaise = 0
     ctx.engine.onEvent((e) => {
-      if (e.type === 'lesson.ready') raise()
+      if (!RAISE_ON.has(e.type) || Date.now() - lastRaise < 1000) return
+      if (!ctx.launcher.isDestroyed() && ctx.launcher.isVisible()) return
+      lastRaise = Date.now()
+      raise()
     })
     ctx.handle('overlay:raise', raise)
 

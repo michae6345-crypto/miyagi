@@ -25,6 +25,23 @@ export const openBeforeStart = (): void => {
 }
 export const closeBeforeStart = (): void => set({ open: false })
 
-onMessage('lesson.ready', (p) => set({ open: p.lesson.mode === 'lesson' && worthASheet(p.lesson) }))
+/**
+ * Only a NEW lesson at step 0 gets the sheet (Michael's tests 2-3, A15): on a resume it came back over the code and
+ * repeated the drawer. A resume shows as the engine's "Continue where you left off?" card or as a first
+ * step.started that isn't the plan's first step; either closes it, and it can't open itself again until the next lesson.ready.
+ */
+let firstStepSeen = false
+onMessage('lesson.ready', (p) => {
+  firstStepSeen = false
+  set({ open: p.lesson.mode === 'lesson' && worthASheet(p.lesson) })
+})
+onMessage('step.started', (p) => {
+  // By position, not p.index: the engine numbers steps from 1 (Michael's test 5), so index > 0 closed every new lesson.
+  if (!firstStepSeen && useLesson.getState().steps.findIndex((s) => s.id === p.stepId) > 0) closeBeforeStart()
+  firstStepSeen = true
+})
+onMessage('card', (p) => {
+  if (p.kind === 'resume') closeBeforeStart()
+})
 onUi('dismiss', closeBeforeStart)
 onUi('reset', closeBeforeStart)
