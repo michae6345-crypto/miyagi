@@ -338,7 +338,8 @@ class LessonSession:
         self._coach_backoff = 0.0
         self._coach_retry_at = 0.0
         self._eval_error_sent = False
-        self.latched_pass: set[str] = set()  # screen checks that passed this step: kept unless the file on disk disagrees
+        self.latched_pass: set[str] = set()  # screen checks that passed this step: kept unless the editor lacks it
+        self._latch_t: dict[str, float] = {}  # checkId -> wall clock of its last real pass (a save after it may un-pass)
         self._run_need: dict | None = None  # run step (fixed at its first evaluation): {cmd, expect, baseline, ran}
         self._lesson_win_seen: tuple[float, bool] = (-1e9, False)  # (when, lesson's VS Code window open on any Space)
         self._ext_run_t = 0.0  # wall clock of the last Run it for me typed into VS Code's terminal by the companion
@@ -1976,7 +1977,10 @@ class LessonSession:
                     self._eval_error_sent = True
                     await self.emit("error", {"message": f"Check evaluation failed: {e}"})
                 return
-            gate = self._settle_checks(step, gate, ctx)  # latch passes; the lesson file decides when its window isn't shown
+            gen = self.step_gen
+            gate = await self._settle_checks(step, gate, ctx)  # latch passes; the lesson file decides when its window isn't shown
+            if gen != self.step_gen or self.passed:
+                return  # the step moved on while VS Code was asked for its unsaved text
             if gate.get("passed") and gate.get("via") == "precision":
                 # a visible error (a failing screen_absent check, e.g. "Failed to compile" / a Traceback) vetoes
                 # the files-only route: the files can be right while the app on screen is broken
@@ -3223,11 +3227,12 @@ class LessonSession:
         self._lesson_win_seen = (self.clock(), seen)
         return seen
 
-    def _settle_checks(self, step: dict, gate: dict, ctx: RunContext) -> dict:
+    async def _settle_checks(self, step: dict, gate: dict, ctx: RunContext) -> dict:
         """The gating screen checks, made stable and honest about which window they read:
 
-        * Latch: a screen_contains check that passed this step stays passed, unless the step's file on disk lacks
-          it (the code was really deleted). A frame of another window, a scroll or a Space switch can't un-pass it.
+        * Latch: a screen_contains check that passed this step stays passed, unless the editor's text really lacks
+          it (`_latch_lost`). A frame of another window, a scroll, a Space switch or an OCR misread while the
+          learner types into the unsaved file can't un-pass it.
         * Lesson mode, a VS Code check: when the frame has no VS Code text, or every VS Code window in it shows
           another folder while the lesson's window exists elsewhere, the check is graded on the lesson's file on
           disk (never "not seen in Code" from the wrong window, never a pass from it). "Open VS Code so I can check
@@ -3263,13 +3268,14 @@ class LessonSession:
                         self._editor_state_card(step)
             if r.get("status") == "pass":
                 self.latched_pass.add(cid)
+                self._latch_t[cid] = time.time()
             elif cid in self.latched_pass:
-                if not paths or graded(c, paths).get("status") == "pass":
+                if not paths or not await self._latch_lost(cid, c, paths):
                     prev = self.check_state.get(cid) or {}
                     r = {**r, "status": "pass",
                          "detail": prev.get("detail") if prev.get("status") == "pass" else "seen earlier in this step"}
                 else:
-                    self.latched_pass.discard(cid)  # gone from the file on disk: it really un-passed
+                    self.latched_pass.discard(cid)  # gone from the unsaved buffer / the saved file: really un-passed
             out.append(r)
         gate = {**gate, "checks": out}
         if out and all(r.get("status") == "pass" for r in out):
@@ -3279,6 +3285,46 @@ class LessonSession:
             ok = bool(prec) and all(r.get("status") == "pass" for r in prec)
             gate = {**gate, "passed": ok, "via": "precision" if ok else None}
         return gate
+
+    async def _latch_lost(self, cid: str, check: dict, paths: list[Path]) -> bool:
+        """Did a latched screen pass really go? Only when each of the check's files lacks it: in the companion
+        extension's live buffer when it holds unsaved edits of the file, else in the file on disk once it was saved
+        after the pass. An unsaved edit never un-passes a check: while the learner types, OCR misreads the line and
+        the file on disk is still empty (L3: s1c2 pass -> fail -> pass, nn.py 0 bytes)."""
+        texts = await asyncio.to_thread(self._unsaved_texts, paths)
+        on_file, find = self._checks_fn("screen_check_on_file"), self._checks_fn("search_screen")
+        for p, text in zip(paths, texts):
+            if text is not None:  # the editor's unsaved text decides
+                try:
+                    if find is None or find(check.get("pattern") or "", text):
+                        return False
+                except re.error:
+                    return False
+                continue
+            try:
+                saved = p.stat().st_mtime > self._latch_t.get(cid, 0.0)
+            except OSError:
+                saved = False  # not on disk (yet): no save can disagree
+            if not saved or on_file is None or on_file(check, p).get("status") == "pass":
+                return False
+        return True
+
+    def _unsaved_texts(self, paths: list[Path]) -> list[str | None]:
+        """Each file's unsaved text in VS Code, from the companion extension. None when it didn't answer (always in
+        tests) or its buffer is clean: a clean buffer is the file on disk (also what a window that doesn't have the
+        file open answers), so the save rule decides. Blocking HTTP: run it in a thread."""
+        ext = self._vscode_ext()
+        out: list[str | None] = []
+        for p in paths:
+            buf = None
+            if ext is not None and hasattr(ext, "buffer_text"):
+                try:
+                    buf = ext.buffer_text(str(p), folder=self.workdir)
+                except Exception:  # noqa: BLE001
+                    buf = None
+            ok = isinstance(buf, dict) and buf.get("ok", True) and buf.get("dirty") and isinstance(buf.get("text"), str)
+            out.append(buf["text"] if ok else None)
+        return out
 
     def _need_run(self, step: dict, results: list[dict], gate: dict) -> tuple[list[dict], dict]:
         """Lesson mode: a run step ("Run your first output") can't pass on its code alone, it needs a run of its

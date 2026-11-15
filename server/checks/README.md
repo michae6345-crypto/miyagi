@@ -56,7 +56,9 @@ The orchestrator (`LessonSession._settle_checks` / `_need_run`) uses three pure 
 - `screen_check_on_file(check, path, window_open=True)`: a VS Code `screen_contains` graded on the lesson's file on disk,
   for frames that can't show the lesson window (another folder's VS Code window in front, or no editor text). Pass when
   the pattern is in the file; else "not in <file> yet", or "Open VS Code so I can check it." only when no lesson window exists.
-- A `screen_contains` that passed in a step stays passed (latched in the session) unless the file on disk lacks it.
+- A `screen_contains` that passed in a step stays passed (latched in the session) unless the editor's text lacks it:
+  the VS Code companion's live buffer when it holds unsaved edits of the file, else the file on disk once saved after
+  the pass. OCR misreads while the learner types into an unsaved (still empty) file never un-pass it.
 - `terminal_runs(command, rows, expect)` -> `(runs, error, shows)`: how often terminal rows show `command` run (followed
   by another row, so a typed-but-unrun command never counts), and `run_output`'s verdict on the output under the last
   run (not "shown" when a later row runs the same program: it may be a misread newer run). With

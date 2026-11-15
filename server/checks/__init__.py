@@ -16,7 +16,7 @@ from .evaluator import (
     terminal_runs,
     trend_stats,
 )
-from .screen import extract_metrics, screen_text
+from .screen import extract_metrics, screen_text, search_screen
 
 __all__ = [
     "FILE_CHECK_TYPES",
@@ -33,6 +33,7 @@ __all__ = [
     "run_output",
     "screen_check_on_file",
     "screen_text",
+    "search_screen",
     "step_passed",
     "terminal_runs",
     "trend_stats",
