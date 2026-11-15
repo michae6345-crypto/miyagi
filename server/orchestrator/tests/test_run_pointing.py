@@ -311,6 +311,55 @@ def test_reader_keeps_a_settling_miss_only_for_a_moment(monkeypatch):
     ax._misses.pop("run_button", None)
 
 
+def test_t11_run_button_found_after_vscode_was_quit_and_reopened(monkeypatch, tmp_path):
+    """t11 (Nov 15, 08:42, nn4 of the Just teach me lesson): the engine started at 08:35:53 with VS Code (pid 62432) in
+    front; VS Code was quit and reopened at 08:40:33 (pid 3452). NSWorkspace.frontmostApplication never updates in the
+    engine (no AppKit run loop), so every Run ▷ lookup asked the dead 62432: no window, "VS Code's Run ▷ isn't found
+    (yet)", and the step boxed the terminal panel ("Run it here") instead of the ▷ with its zoom. A dead VS Code is
+    passed over: the running one's window is walked and its ▷ found."""
+    import subprocess
+    import sys
+
+    ax = pytest.importorskip("server.screen.ax")
+    p = subprocess.Popen([sys.executable, "-c", "pass"])
+    p.wait()
+    dead, live = p.pid, os.getpid()  # the VS Code quit at 08:40 / the one running now
+
+    class El(dict):
+        __hash__ = object.__hash__
+
+    def app(pid):
+        return NS(processIdentifier=lambda: pid, bundleIdentifier=lambda: "com.microsoft.VSCode")
+
+    nn = tmp_path / "nn.py"
+    button = El(AXRole="AXButton", AXDescription="Run Python File", rect=(1176.0, 124.0, 28.0, 28.0))
+    kids = [El(AXRole="AXGroup", AXChildren=[El(AXRole="AXGroup") for _ in range(3)]) for _ in range(20)]
+    win = El(AXRole="AXWindow", AXDocument=f"file://{nn}", AXChildren=kids + [El(AXRole="AXGroup", AXChildren=[button])])
+    apps = {dead: El(), live: El(AXWindows=[win], AXFocusedWindow=win)}  # a dead app answers no AX reads
+    stale = app(dead)
+    monkeypatch.setattr(ax, "NSWorkspace", NS(sharedWorkspace=lambda: NS(frontmostApplication=lambda: stale)))
+    monkeypatch.setattr(ax, "NSRunningApplication", NS(runningApplicationsWithBundleIdentifier_=lambda b: (
+        [stale, app(live)] if b == "com.microsoft.VSCode" else [])))
+    monkeypatch.setattr(ax, "AX", NS(AXUIElementCreateApplication=lambda pid: apps.get(pid, El()),
+                                     AXUIElementSetMessagingTimeout=lambda el, t: None))
+    monkeypatch.setattr(ax, "enable_electron_ax", lambda app_el, pid: True)
+    monkeypatch.setattr(ax, "attr", lambda el, name: el.get(name) if isinstance(el, dict) else None)
+    monkeypatch.setattr(ax, "rect_of", lambda el: ax.Rect(*el["rect"]) if isinstance(el, dict) and "rect" in el
+                        else None)
+    ax._run_cache.clear()
+    try:
+        assert ax._code_app(str(tmp_path)) == (live, win)  # never the stale front app's dead pid
+        found = ax.find_run_button(str(tmp_path))
+        assert found is not None and found.rect.x == 1176.0 and ax.last_miss() is None
+        apps.pop(live)  # VS Code not running at all: no app, nothing walked
+        monkeypatch.setattr(ax, "NSRunningApplication", NS(runningApplicationsWithBundleIdentifier_=lambda b: (
+            [stale] if b == "com.microsoft.VSCode" else [])))
+        assert ax._code_app(str(tmp_path)) == (None, None)
+    finally:
+        ax._run_cache.clear()
+        ax._misses.pop("run_button", None)
+
+
 # ------------------------------------------------------------------------------- (4) the culprit lines
 
 class FakeExt:

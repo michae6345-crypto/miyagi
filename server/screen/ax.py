@@ -398,15 +398,37 @@ _run_cache: dict = {}  # {"pid", "el"}: the button found last time, re-checked (
 _VSCODE_BUNDLES = ("com.microsoft.VSCode", "com.microsoft.VSCodeInsiders", "com.visualstudio.code.oss", "com.vscodium")
 
 
+def _alive(app) -> bool:
+    """Is this NSRunningApplication's process still running (a signal-0 probe)? NSWorkspace.frontmostApplication is
+    frozen in the engine (no AppKit run loop, see macos.frontmost_app): t11 08:42, the engine had started while VS Code
+    pid 62432 was in front, VS Code was quit and reopened (pid 3452), and every Run ▷ lookup still asked the dead 62432
+    (no window: "isn't found (yet)", the terminal box for the whole step)."""
+    try:
+        pid = int(app.processIdentifier())
+    except Exception:  # noqa: BLE001
+        return False
+    if pid <= 0:
+        return False
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    except OSError:  # EPERM: it runs (another user's process)
+        return True
+    return True
+
+
 def _code_app(folder: str | None = None):
     """(pid, window) of VS Code's window for `folder` (its AXDocument inside it), else VS Code's focused window. The
-    frontmost app when it is VS Code, else the running one: the learner may be on Miyagi's drawer. VS Code only.
+    frontmost app when it is VS Code, else the running one: the learner may be on Miyagi's drawer. VS Code only, and
+    only a VS Code that still runs (t11: the stale front app was a VS Code quit minutes before).
     (None, None) without VS Code; (pid, None) while its AX tree is being switched on (t7: settling)."""
     front = NSWorkspace.sharedWorkspace().frontmostApplication()
-    apps = [front] if front is not None and str(front.bundleIdentifier() or "") in _VSCODE_BUNDLES else []
+    apps = [front] if (front is not None and str(front.bundleIdentifier() or "") in _VSCODE_BUNDLES
+                       and _alive(front)) else []
     if not apps:
         for b in _VSCODE_BUNDLES:
-            apps = list(NSRunningApplication.runningApplicationsWithBundleIdentifier_(b) or [])
+            apps = [a for a in NSRunningApplication.runningApplicationsWithBundleIdentifier_(b) or [] if _alive(a)]
             if apps:
                 break
     if not apps:
