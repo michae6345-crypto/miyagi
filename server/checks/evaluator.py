@@ -72,7 +72,8 @@ class RunContext:
     # learner's terminal: the details say "VS Code's terminal", never Terminal.app.
     editor: str | None = None
     # t9: the learner's notebook (server.checks.notebook.Notebook) on a notebook step; evaluate_step reads it from
-    # the lesson folder when the orchestrator doesn't hand one in. False: none (looked, nothing there).
+    # the lesson folder when the orchestrator doesn't hand one in. False: none (looked, nothing there). t10:
+    # evaluate_step narrows it to the step's own cells (Notebook.only): outputs / errors / ran are those cells' only.
     notebook: Any = None
 
     @property
@@ -162,6 +163,10 @@ def _file_contains(check: dict, ctx: RunContext) -> CheckResult:
     if not rel or not pattern:
         return _result(check, "fail", "check needs 'file' and 'pattern'")
     path = _resolve(ctx.workdir, rel)
+    if rel.strip().lower().endswith(".ipynb") and not os.path.exists(path) and os.path.isabs(str(ctx.workdir or "")):
+        # t10: the video's Untitled.ipynb is the learner's mnist.ipynb ("Still to do: evaluate saved in notebook")
+        if (found := find_notebook(ctx.workdir, [rel])) is not None:
+            path, rel = str(found), found.name
     try:
         with open(path, encoding="utf-8", errors="replace") as fh:
             text = fh.read()
@@ -246,11 +251,23 @@ def _metric_name(check: dict) -> str | None:
     return check.get("metric") or (str(check.get("id")) if check.get("metric_pattern") else None)
 
 
+def _notebook_points(ctx: RunContext, check: dict | None) -> list[tuple[int, float]]:
+    """t10 (the s5 blocker): a metric the step's own notebook cell printed, e.g. Keras's `accuracy: 0.9858` epoch lines
+    (ANSI codes stripped by notebook.read_notebook). The run happened in the kernel, so no `tut run` / terminal
+    output and often no screen ever shows them: the notebook file is where they are."""
+    nb, pattern = ctx.notebook, (check or {}).get("metric_pattern")
+    if not pattern or not isinstance(nb, Notebook) or not nb.outputs:
+        return []
+    return [(int(s), float(v)) for s, v in extract_metrics(pattern, "\n".join(nb.outputs))]
+
+
 def _raw_series(ctx: RunContext, name: str, check: dict | None = None) -> list[tuple[int, float]]:
     """All points sorted by step, None/NaN/inf kept as float (NaN for None)."""
     raw = list(ctx.metrics.get(name, []))
     pattern = (check or {}).get("metric_pattern")
-    if not raw and pattern:
+    if pattern and (nb_pts := _notebook_points(ctx, check)):
+        raw = nb_pts  # the step's cell output on disk is exact; the screen / a terminal only saw part of it
+    elif not raw and pattern:
         texts = [screen_text(ctx.screen, check.get("app")) or "", ctx.output_text()]
         merged: dict[int, float] = {}
         for t in texts:
@@ -315,12 +332,15 @@ def _metric_threshold(check: dict, ctx: RunContext) -> CheckResult:
         return _waiting_for_metric(check, ctx, name)
     eligible = [p for p in pts if by_step is None or p[0] <= by_step]
     latest_step = pts[-1][0]
+    # a notebook cell's Keras lines are per-epoch averages already: its last one is the result (t10: 0.9858)
+    nb = ctx.notebook if _notebook_points(ctx, check) else None
     if eligible:
-        recent = [v for _, v in eligible[-THRESHOLD_SMOOTH_POINTS:]]
+        recent = [v for _, v in eligible[-(1 if nb is not None else THRESHOLD_SMOOTH_POINTS):]]
         current = statistics.median(recent)
         at = eligible[-1][0]
         if _OPS[op](current, float(target)):
-            return _result(check, "pass", f"{name} {_fmt(current)} {op} {_fmt(float(target))} at step {at}")
+            where = f"in {nb.path.name}" if nb is not None else f"at step {at}"
+            return _result(check, "pass", f"{name} {_fmt(current)} {op} {_fmt(float(target))} {where}")
         msg = f"{name} {_fmt(current)} at step {at}, need {op} {_fmt(float(target))}"
     else:
         msg = f"no '{name}' points at or before step {by_step}"
@@ -467,16 +487,26 @@ def _screen(check: dict, ctx: RunContext, absent: bool) -> CheckResult:
     if not pattern:
         return _result(check, "fail", "check has no 'pattern'")
     where = f" in {_app_name(app, ctx)}" if app else " on screen"
+    # the notebook as this step sees it (t10): every cell's source, but the outputs of the cells holding its own code
     nb = ctx.notebook if isinstance(ctx.notebook, Notebook) and app not in _TERMINAL_APPS else None
     output = not absent and app not in _TERMINAL_APPS and is_output_check(check)
     try:
         if nb is not None and absent and nb.errors and (e := search_screen(pattern, "\n".join(nb.errors))):
             return _result(check, "fail", f"the cell printed {e.group(0)[:80]!r}")  # t9 V3: a cell's error output
+        if nb is not None and absent and not nb.executed:
+            # t10: "No predict errors · not showing on screen" passed before the step's cell existed: no run, no verdict
+            return _result(check, "pending", "checked when the cell runs")
         if nb is not None and not absent:  # t9 V2/V3: the notebook's cells as typed / what they printed decide first
             if search_wrapped(pattern, nb.output_text if output else nb.source_text):
                 return _result(check, "pass", f"{'printed' if output else 'typed'} in {nb.path.name}")
+            if output and _plotted(pattern, nb):
+                return _result(check, "pass", f"plotted in {nb.path.name}")
     except re.error as exc:
         return _result(check, "fail", f"invalid pattern: {exc}")
+    if output and nb is not None and not nb.executed:
+        # t10: the step's cell hasn't run (or isn't written): whatever the screen shows is another cell's output
+        # ("predict progress printed" passed on the TRAINING cell's "ms/step" before any s6 code existed)
+        return _result(check, "fail", "not printed yet: run the cell")
     text = screen_text(ctx.screen, app)
     if text is None:
         return _not_visible(check, ctx, absent)
@@ -501,6 +531,25 @@ def _screen(check: dict, ctx: RunContext, absent: bool) -> CheckResult:
     # learner words (E2): the file the code goes in when known ("not in calculator.py yet"), else the app
     f = os.path.basename(str(check.get("file") or ""))
     return _result(check, "fail", f"not in {f} yet" if f else f"not{where} yet" if app else "not showing yet")
+
+
+# a plot's own words, set in the cell's source: ax2.set_title('Class Probability'), plt.xlabel("Epoch"), ...
+_PLOT_TEXT = re.compile(r"\b(?:set_title|suptitle|title|set_xlabel|set_ylabel|xlabel|ylabel|text|annotate|legend|"
+                        r"set_label)\s*\(")
+
+
+def _plotted(pattern: str, nb: Notebook) -> bool:
+    """t10 (s6 "Class Probability title shown"): words that exist only inside a figure (a PNG output: no text the
+    notebook holds, and OCR sees it only once the learner scrolls the plot into view). Passes when one of the step's
+    cells ran without an error, displayed an image, and its source puts those words on the plot (set_title, xlabel,
+    legend ...). OCR of the plot stays a second way to pass."""
+    rx = re.compile(pattern, re.MULTILINE)
+    for c in nb.cells:
+        if not c.executed or c.errors or not any(str(m).startswith("image/") for m in c.images):
+            continue
+        if any(_PLOT_TEXT.search(ln) and rx.search(ln) for ln in c.source.splitlines()):
+            return True
+    return False
 
 
 def _not_visible(check: dict, ctx: RunContext, absent: bool) -> CheckResult:
@@ -638,11 +687,10 @@ def evaluate_step(step: dict, ctx: RunContext | None = None, types: Iterable[str
               and not c.get("file") else c for c in checks]
     # a run step's "no error in the terminal" waits for the run (_not_visible) instead of passing on a hidden terminal
     run = step.get("kind") == "run" or any(str(t.get("file") or "").strip().lower() in ("(terminal)", "terminal")
-                                           for t in step.get("targets") or [])
+                                           for t in step.get("targets") or []) or _command_step(step)
     checks = [{**c, "run": True} if run and c.get("type") == "screen_absent" and c.get("app") in _TERMINAL_APPS
               else c for c in checks]
-    if ctx.notebook is None and is_notebook_step(step) and os.path.isabs(str(ctx.workdir or "")):
-        ctx = dataclasses.replace(ctx, notebook=read_notebook(find_notebook(ctx.workdir, _files(step))) or False)
+    ctx = _with_step_notebook(step, ctx)
     code = "\n".join([str(step.get("code") or "")] + [str(t.get("match") or "") for t in step.get("targets") or []]
                      + (ctx.notebook.sources if isinstance(ctx.notebook, Notebook) else []))
     checks = [{**c, "_code": code} if c.get("type") == "screen_contains" and is_output_check(c) else c for c in checks]
@@ -658,6 +706,82 @@ _OUTPUT_LABEL = re.compile(r"\b(printed|prints|shown|shows|displayed|logged|rend
 _CODE_PATTERN = re.compile(r"\\[()]|=|\\\.[A-Za-z_]|[a-z][A-Z]")
 # a code line on screen: a print( call, a string literal opening after ( or closing before , / ), an f-string
 _CODE_MARK = re.compile(r"\bprint\s*\(|\(\s*[fbr]?['\"]|['\"]\s*[,)]|\bf['\"]")
+
+
+def _with_step_notebook(step: dict, ctx: RunContext) -> RunContext:
+    """ctx with the step's notebook: read from the lesson folder on a notebook step (t9), then narrowed to the cells
+    holding the step's own code (t10: its output / error / metric checks never read another cell's output; s7
+    "evaluate progress output shown" passed on the training cell's progress bars). Idempotent."""
+    if ctx.notebook is None and is_notebook_step(step) and os.path.isabs(str(ctx.workdir or "")):
+        ctx = dataclasses.replace(ctx, notebook=read_notebook(find_notebook(ctx.workdir, _files(step))) or False)
+    if isinstance(ctx.notebook, Notebook) and ctx.notebook.cells:
+        ctx = dataclasses.replace(ctx, notebook=ctx.notebook.only(step_cells(ctx.notebook, step)))
+    return ctx
+
+
+_RUN_THE_CELL = re.compile(r"shift\s*\+\s*enter|\brun\s+(?:the|this|each|all|every)\s+cells?\b", re.I)
+
+
+def cell_not_run(step: dict, ctx: RunContext | None) -> bool:
+    """t10 (CP7: s2 passed with its corrected cell written but never run): a "Run the cell (Shift+Enter)" step whose
+    code is in the notebook, in cells none of which has run (no execution count, no output). Such a step can't pass,
+    whichever list or route says green."""
+    if ctx is None or not _RUN_THE_CELL.search(str(step.get("run_command") or "")):
+        return False
+    nb = _with_step_notebook(step, ctx).notebook
+    return isinstance(nb, Notebook) and bool(nb.cells) and not nb.executed
+
+
+_CELL_ACTION = re.compile(r"shift\s*\+\s*enter|^\s*(?:run|execute|press|click)\s+(?:the|a|all|each|this)\b", re.I)
+
+
+def _command_step(step: dict) -> bool:
+    """A step whose work is a shell command (no code to type): its "No terminal errors" waits for that run instead of
+    passing on a hidden terminal (t10: s1 "source .venv/bin/activate && jupyter notebook"). Never "Run the cell"."""
+    rc = str(step.get("run_command") or "").strip()
+    return bool(rc) and not _CELL_ACTION.search(rc) and not str(step.get("code") or "").strip()
+
+
+def _anchors(step: dict) -> tuple[list[re.Pattern[str]], list[re.Pattern[str]]]:
+    """The step's own code as patterns: (its targets' match text, whitespace aside; its code checks' regexes, never an
+    output check's (that is what it prints), plus its notebook file_contains patterns)."""
+    def rx(p: str) -> re.Pattern[str] | None:
+        try:
+            return re.compile(p, re.MULTILINE)
+        except re.error:
+            return None
+
+    targets = []
+    for t in step.get("targets") or []:
+        flat = "".join(str(t.get("match") or "").split())
+        if len(flat) >= 6:
+            targets.append(rx(r"\s*".join(re.escape(ch) for ch in flat)))
+    code = [rx(str(c["pattern"])) for c in step.get("checks") or [] if c.get("type") == "screen_contains"
+            and c.get("pattern") and c.get("app") not in _TERMINAL_APPS and not is_output_check(c)]
+    code += [rx(str(c["pattern"])) for c in step.get("precision_checks") or [] if c.get("type") == "file_contains"
+             and c.get("pattern") and str(c.get("file") or "").lower().endswith(".ipynb")]
+    return [r for r in targets if r], [r for r in code if r]
+
+
+def step_cells(nb: Notebook, step: dict) -> list[int]:
+    """t10: indices (into nb.cells) of the code cells holding the step's own code. The cells with its target text
+    (model.fit(, plt.subplots(1, 10 ...) plus any cell with two or more of its code patterns; when no cell has the
+    target text, any cell with one of its code patterns (s3's plt.subplots( is in s6's view_classify too, so a lone
+    code pattern only counts without a target match). No patterns at all: a line of its `code`. [] = not there yet."""
+    targets, code = _anchors(step)
+
+    def hits(rxs: list[re.Pattern[str]], src: str) -> int:
+        flat = re.sub(r"\s+", " ", src)
+        return sum(1 for r in rxs if r.search(src) or r.search(flat))
+
+    by_target = [i for i, c in enumerate(nb.cells) if hits(targets, c.source)]
+    if by_target:
+        return sorted(set(by_target) | {i for i, c in enumerate(nb.cells) if hits(code, c.source) >= 2})
+    if code:
+        return [i for i, c in enumerate(nb.cells) if hits(code, c.source)]
+    lines = {" ".join(ln.split()) for ln in str(step.get("code") or "").splitlines() if len(ln.strip()) >= 16}
+    return [i for i, c in enumerate(nb.cells) if lines and any(" ".join(ln.split()) in lines
+                                                                 for ln in c.source.splitlines())]
 
 
 def _files(step: dict) -> list[str]:
@@ -725,6 +849,12 @@ def evaluate_gate(step: dict, ctx: RunContext | None = None, screen: Any = None,
     """
     checks = evaluate_step(step, ctx, screen=screen, which="checks")
     prec = evaluate_step(step, ctx, screen=screen, which="precision") if precision_mode else []
+    if cell_not_run(step, ctx):
+        # t10: typed is not run. When no row already says why (an error / output check waits for the run), one does.
+        if step_passed(checks):
+            checks = [*checks, {"checkId": f"{step.get('id', '')}-cell", "label": "Cell run", "status": "pending",
+                                "detail": "run the cell (Shift+Enter)"}]
+        return {"passed": False, "via": None, "checks": checks, "precision": prec}
     if step_passed(checks):
         via: Literal["checks", "precision"] | None = "checks"
     elif precision_mode and step_passed(prec):
