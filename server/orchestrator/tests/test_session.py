@@ -1407,7 +1407,8 @@ def test_s2_setup_card_install_and_open_editor_gate(tmp_path, monkeypatch):
     assert prog[-1] == {"tool": "pandas", "done": True, "ok": True, "version": "2.2.3"}
     last = rig.of("card")[-1]
     assert last["title"] == "Ready to go" and last["body"] == "pandas installed ✓"  # the row flipped, status on the card
-    assert any(c["body"].startswith("Installing pandas") for c in rig.of("card"))
+    # t9 V12: while the card still offers Install its body stays put (the row shows the progress: setup.progress)
+    assert not any(c["body"].startswith("Installing pandas") for c in rig.of("card"))
     assert not calls  # never opened VS Code
 
 
