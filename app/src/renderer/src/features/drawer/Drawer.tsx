@@ -22,10 +22,11 @@ import type { Source, SourceKind, StepSummary } from '../../../../../../shared/c
 import { builtByLabel, seekVideo, useLesson, useProgress, type CheckItem, type Rect } from '../../core/lesson'
 import { useAppearance } from '../../core/prefs'
 import { alpha, clock, color, glass, kindTone, radius, spring, springOut } from '../../core/theme'
-import { CheckList, Thumb } from '../../core/ui/atoms'
+import { CheckList, Thumb, useChecking } from '../../core/ui/atoms'
 import { GlassCheck, GlassSpinner } from '../../core/ui/glass'
 import { parseYouTube, thumbnailFor } from '../launcher/youtube'
 import { TAB } from './geometry'
+import { useStepDetail } from './plan'
 import { closeDrawer, isWebLink, openSource, setPanelHeight, toggleDrawer } from './store'
 import { BuildStrip, lessonTopic, minutesLeft, NeedsChip, OverviewText, PrimerSection, StepActions, StepDetail } from './Teach'
 
@@ -292,7 +293,9 @@ function Steps({ scroller }: { scroller: RefObject<HTMLDivElement | null> }): Re
 
   const cur = steps.findIndex((s) => s.id === stepId)
   const timeW = useTimeWidth(steps, complete)
-  useKeepInView(scroller, stepId, checks.length)
+  // The current step's code arriving after step.started grows the row: keep it in view then too.
+  const codeLen = useStepDetail((d) => (d.detail && d.detail.stepId === stepId ? (d.detail.code?.length ?? 0) : -1))
+  useKeepInView(scroller, stepId, checks, codeLen)
 
   const part = parts && parts.total > 1 ? `Part ${Math.min(parts.total, parts.done + parts.failed + 1)} of ${parts.total}` : undefined
   return (
@@ -337,20 +340,58 @@ function useTimeWidth(steps: StepSummary[], complete: boolean): number {
   return widest.current
 }
 
-/** Keep the current step (and its checks) in view inside the list, without scrolling anything outside it. */
-function useKeepInView(scroller: RefObject<HTMLDivElement | null>, stepId: string | undefined, checkCount: number): void {
+/**
+ * Keep the current step in view inside the list, without scrolling anything outside it (audit A11: its checks were cut
+ * off at the bottom).
+ *  - The whole step fits: show all of it, from the label above it down to the row after it peeking in.
+ *  - It's taller than the list: a new step starts at its title (what to type); once a check has a result (or a Check
+ *    is running), the checks and the option row under them come up from below the fold.
+ */
+function useKeepInView(scroller: RefObject<HTMLDivElement | null>, stepId: string | undefined, checks: CheckItem[], codeLen: number): void {
   const first = useRef(true)
+  const lastStep = useRef<string | undefined>(undefined)
+  const checksKey = checks.map((c) => `${c.id}:${c.status}`).join(',')
+  const settled = checks.some((c) => c.status !== 'pending')
+  const checking = useChecking()
   useEffect(() => {
     const box = scroller.current
     const el = stepId ? box?.querySelector<HTMLElement>(`[data-step="${CSS.escape(stepId)}"]`) : null
     if (!box || !el) return
-    const top = el.offsetTop - 34 // the "Steps" label stays visible above the first rows
-    const bottom = el.offsetTop + el.offsetHeight + 46 // and the row after it peeks in
-    const behavior: ScrollBehavior = first.current ? 'auto' : 'smooth'
+    const newStep = lastStep.current !== stepId
+    lastStep.current = stepId
+    // Positions inside the scroller's content (offsetTop would depend on which ancestor is positioned), in layout px:
+    // the browser stage scales the whole screen, and client rects are scaled while scrollTop is not.
+    const frame = box.getBoundingClientRect()
+    const k = box.offsetHeight > 0 ? frame.height / box.offsetHeight : 1
+    const at = (n: HTMLElement): { top: number; bottom: number } => {
+      const r = n.getBoundingClientRect()
+      return { top: (r.top - frame.top) / k + box.scrollTop, bottom: (r.bottom - frame.top) / k + box.scrollTop }
+    }
+    const view = box.clientHeight
+    const now = box.scrollTop
+    const step = at(el)
+    const top = step.top - 34 // the label above stays visible
+    const end = step.bottom + 46 // and the row after it peeks in
+    let target: number | undefined
+    if (step.bottom + 8 - top <= view) {
+      if (top < now) target = top
+      else if (end > now + view) target = Math.min(top, end - view)
+    } else if (newStep) {
+      target = top
+    } else {
+      const list = el.querySelector<HTMLElement>('[data-part="drawer-checks"]')
+      const tail = el.querySelector<HTMLElement>('[data-part="drawer-actions"]') ?? list
+      if (list && tail && (settled || checking)) {
+        const c = at(list)
+        const bottom = at(tail).bottom + 12
+        if (bottom > now + view) target = Math.min(c.top - 12, bottom - view)
+        else if (c.top - 12 < now) target = c.top - 12
+      }
+    }
+    if (target === undefined) return
+    box.scrollTo({ top: Math.max(0, target), behavior: first.current ? 'auto' : 'smooth' })
     first.current = false
-    if (top < box.scrollTop) box.scrollTo({ top: Math.max(0, top), behavior })
-    else if (bottom > box.scrollTop + box.clientHeight) box.scrollTo({ top: Math.min(top, bottom - box.clientHeight), behavior })
-  }, [scroller, stepId, checkCount])
+  }, [scroller, stepId, checksKey, settled, checking, codeLen])
 }
 
 /** True only during a component's first render (so nothing animates just because the drawer opened). */

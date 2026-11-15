@@ -12,8 +12,8 @@
  * OptionButton), green stays for passed.
  */
 import { motion } from 'motion/react'
-import { useEffect, useRef, useState, type CSSProperties, type ReactNode } from 'react'
-import { BookOpen, Check, ChevronRight, Copy, Keyboard, Terminal, type LucideIcon } from 'lucide-react'
+import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type ReactNode, type RefObject } from 'react'
+import { BookOpen, Check, ChevronDown, ChevronRight, ChevronUp, Copy, Keyboard, Terminal, type LucideIcon } from 'lucide-react'
 import { useShallow } from 'zustand/react/shallow'
 import type { Prerequisite, PrimerItem, StepKind, StepSummary } from '../../../../../../shared/contracts/events'
 import { bridge } from '../../bridge'
@@ -312,8 +312,22 @@ function ConceptChip({ label, item, open, onToggle }: { label: string; item?: Pr
   )
 }
 
-/** The full code (never truncated): long lines scroll sideways rather than wrap, so what you see is what you type. */
+/** Code longer than CLAMP_OVER lines shows its first CLAMP lines and "Show all N lines" (Copy always copies all of it). */
+const CLAMP = 10
+const CLAMP_OVER = 12
+
+/**
+ * The full code: long lines scroll sideways rather than wrap, so what you see is what you type. A line cut off at the
+ * right edge gets a cue there (a chevron strip that scrolls on), so a missing ")" never looks like a typo. Long code
+ * starts clamped to CLAMP lines with "Show all".
+ */
 export function CodeBlock({ code, caption, bleed }: { code: string; caption: string; bleed: number }): ReactNode {
+  const lines = code.split('\n')
+  const long = lines.length > CLAMP_OVER
+  const [all, setAll] = useState(false)
+  const shown = long && !all ? lines.slice(0, CLAMP).join('\n') : code
+  const pre = useRef<HTMLPreElement>(null)
+  const more = useMoreToTheRight(pre, shown)
   const [copied, setCopied] = useState<'yes' | 'no'>()
   const timer = useRef<ReturnType<typeof setTimeout>>(undefined)
   useEffect(() => () => clearTimeout(timer.current), [])
@@ -342,11 +356,63 @@ export function CodeBlock({ code, caption, bleed }: { code: string; caption: str
           {copied === 'yes' ? 'Copied' : copied === 'no' ? "Couldn't copy" : 'Copy'}
         </button>
       </div>
-      <pre className="overflow-x-auto whitespace-pre px-[12px] py-[9px] text-[12px] leading-[18px]" style={{ fontFamily: font.mono, color: glass.text, ...thinScroll }}>
-        <code>{code}</code>
-      </pre>
+      <div className="relative">
+        <pre ref={pre} className="overflow-x-auto whitespace-pre px-[12px] py-[9px] text-[12px] leading-[18px]" style={{ fontFamily: font.mono, color: glass.text, ...thinScroll }}>
+          <code>{shown}</code>
+        </pre>
+        {more && (
+          <button
+            type="button"
+            data-part="drawer-code-more"
+            className="absolute inset-y-0 right-0 w-[22px] cursor-pointer border-l"
+            // Opaque (the panel's glass twice, like the panel itself) so the cut-off characters don't show through.
+            style={{ background: glass.bg, boxShadow: `inset 0 0 0 22px ${glass.bg}`, borderColor: glass.rule, color: glass.label }}
+            title="More to the right"
+            aria-label="Scroll the code right"
+            onMouseDown={(e) => e.preventDefault()}
+            onClick={() => pre.current?.scrollBy({ left: Math.round(pre.current.clientWidth * 0.6), behavior: 'smooth' })}
+          >
+            <span className="absolute inset-0 grid place-items-center" style={{ background: glass.field }}>
+              <ChevronRight size={13} strokeWidth={2} />
+            </span>
+          </button>
+        )}
+      </div>
+      {long && (
+        <button
+          type="button"
+          data-part="drawer-code-all"
+          className="flex h-[28px] w-full cursor-pointer items-center justify-center gap-[4px] border-t text-[12px] font-medium hover:bg-[var(--drawer-hover)]"
+          style={{ ...hoverVar, borderColor: glass.rule, color: glass.label }}
+          aria-expanded={all}
+          onMouseDown={(e) => e.preventDefault()}
+          onClick={() => setAll((a) => !a)}
+        >
+          {all ? 'Show less' : `Show all ${lines.length} lines`}
+          {all ? <ChevronUp size={12} strokeWidth={2} /> : <ChevronDown size={12} strokeWidth={2} />}
+        </button>
+      )}
     </div>
   )
+}
+
+/** True while the <pre>'s lines run past its right edge and it isn't scrolled to the end. */
+function useMoreToTheRight(ref: RefObject<HTMLPreElement | null>, content: string): boolean {
+  const [more, setMore] = useState(false)
+  useLayoutEffect(() => {
+    const el = ref.current
+    if (!el) return
+    const check = (): void => setMore(el.scrollLeft + el.clientWidth < el.scrollWidth - 1)
+    check()
+    el.addEventListener('scroll', check, { passive: true })
+    const ro = new ResizeObserver(check)
+    ro.observe(el)
+    return () => {
+      el.removeEventListener('scroll', check)
+      ro.disconnect()
+    }
+  }, [ref, content])
+  return more
 }
 
 // ---------------------------------------------------------------------------
