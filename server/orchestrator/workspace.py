@@ -240,6 +240,28 @@ def build_workdir(url: str, goal: str) -> str:
     return str(config.lesson_workdir(url, goal))
 
 
+def lesson_folder(graph: dict) -> str | None:
+    """The folder a build of `graph` works in (what prepare() returns, else the pinned TUT_WORKDIR), found without creating
+    or writing anything; None when S2 isn't available. Desktop test 10: the preflight card checks this folder's .venv,
+    the one the setup card checks after Build."""
+    from . import config
+
+    if os.environ.get("TUT_WORKDIR"):
+        return str(config.default_workdir())
+    ws = _s2()
+    if ws is None:
+        return None
+    try:
+        if config.demo_mode():  # prepare()'s demo folder: the hero's, else <lessons root>/<folder name>
+            hero = ws.hero_workdir(graph) if hasattr(ws, "hero_workdir") else None
+            return str(hero if hero is not None else ws.lessons_root() / ws.folder_name(graph))
+        fn = getattr(ws, "lesson_folder", None)
+        return str(fn(graph)) if fn is not None else None
+    except Exception:  # noqa: BLE001
+        log.exception("workspace.lesson_folder failed")
+        return None
+
+
 def prepare(graph: dict, goal: str) -> str | None:
     """Create/fill the lesson's folder (S2; may call Claude for starter files, 2-25 s, never raises).
     None when TUT_WORKDIR pins the folder or S2 isn't available."""
