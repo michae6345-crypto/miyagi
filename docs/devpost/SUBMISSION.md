@@ -1,9 +1,8 @@
 # Miyagi: Devpost submission (final)
 
-Paste-ready Devpost fields. The claims are limited to what is merged in `integration/live` (`ff8fdd1`) and the app branch
-`adrian/shell` (`10ea9a8`). Every number names the file or commit it comes from. **(unverified)** marks anything the repo can't
-show; **(team-reported)** marks something the team told us that isn't in the repo. The checklist at the bottom lists what to
-confirm before pressing Submit.
+Paste-ready Devpost fields. The claims are limited to what is merged in `integration/live` (the engine) and `adrian/shell`
+(the app) on Nov 15, 2026. Numbers name the file or commit they come from. **[CHECK]** marks anything the repo can't show:
+Michael confirms or removes each one before pressing Submit. The checklist at the bottom lists them all.
 
 ---
 
@@ -14,279 +13,300 @@ confirm before pressing Submit.
 **Turn any tutorial into an auto-graded lab.**
 
 ## Elevator pitch (for the short-description field)
-Ask Miyagi anything. It finds a real tutorial, or writes one from the web, then watches your screen and won't move on until your
-own code actually works.
+Tell Miyagi what you want to learn. It finds a YouTube tutorial or writes the lesson, opens it in your own VS Code, checks
+every step from your code and your screen, and won't move on until your code works.
 
 ---
 
 ## Inspiration
 
-YouTube tutorials can't tell whether you actually got it. You follow along, your loss curve is flat, and the video has already
-moved on. The fix is usually one line ("your learning rate is 300x too high"), but nobody is watching your screen to say so. We
-wanted the patient teacher from *The Karate Kid*, someone who makes you do each step yourself and doesn't let you move on until
-it really works.
+YouTube tutorials can't tell whether you got it. You follow along, your loss curve is flat, and the video has already moved
+on. The fix is often one line (every weight starts at zero, or the learning rate is far too high), but nobody is watching
+your screen to say so. We wanted the patient teacher from *The Karate Kid*: someone who makes you do each step yourself and
+doesn't let you move on until it works.
 
 ## What it does
 
-### The overlay
-- **Position 1, the island.** A small pill sits just under the MacBook notch for the whole lesson. Its ring shows progress and its
-  dot shows state: gray while watching, amber when you're off track, green when a step passes.
-- **Position 2, the launcher.** Press **⌥Space** and a launcher grows out of the island. Type what you want to learn, then choose
-  how to learn it:
-  - **Watch a video** (↵)
-  - **Just teach me** (**⌘↵**)
+Miyagi is a macOS overlay that sits under the MacBook notch. Press **⌥Space**, type what you want to learn, and pick one of
+three ways in:
 
-  (`app/src/renderer/src/features/launcher/Launcher.tsx` on `adrian/shell`.)
-- **Spotlight.** While you work, Miyagi dims the rest of the screen to 55% and draws one **white hairline box** around the exact
-  place to work:
-  - the line of code to type, using an exact line rect from macOS Accessibility (`server/workspace/editor.py`,
-    `editor_line_rect`) with OCR as the fallback;
-  - or **VS Code's integrated terminal** for steps that run something (`server/screen` `locate_region("terminal")`, commits
-    `0f7b9f8` and `eff2cfd`).
+- **Watch a video** (↵): Miyagi finds a YouTube tutorial and turns it into a lesson that pauses at every step.
+- **Just teach me** (⌘↵): no video. Claude writes the lesson from the web and the official docs. A plain neural-network goal
+  gets our hand-written lesson instead.
+- **Demo** (the third chip): the neural-network lesson, staged so nothing can break in front of an audience.
 
-  In "Just teach me" the spotlight also shows the code to type under its caption (`spotlight.snippet` in
-  `shared/contracts/events.ts`). The app side is `app/src/renderer/src/features/spotlight/Spotlight.tsx`.
-- **Bottom bar.** It has **Check**, **Skip step** and **End lesson**, next to Back, Explain, Diagram, Show me, Hint and Voice
-  (`app/src/renderer/src/features/shortcut-bar/ShortcutBar.tsx` on `adrian/shell`). **Check** runs the step's deterministic
-  checks on a fresh screen frame first, then a Claude step judge. If the step isn't done you get one short "Not yet" with the
-  spot to fix (commit `71abc6f`).
+In every lesson you work in your own VS Code, in a folder Miyagi sets up for that lesson (`~/miyagi/lessons/<lesson>`).
 
-### Two ways to learn
+### Build a neural network (the lesson we demo)
 
-**1. Watch a video**
-1. **Find.** The launcher search shows **YouTube videos only**. Claude (with the web-search tool) looks for videos, one Bright
-   Data SERP query adds Google's video results, and Claude scores every candidate. Rows under 40/100 are never shown
-   (`FINDER_KINDS=video`, `FINDER_MIN_SCORE=40`, commit `b27d68d`). Bright Data also reads the **YouTube comments** of the top
+A hand-written lesson served at once, with no build step and no model call to write it
+(`server/orchestrator/curated.py`, `demo/cache/lessons/text-nn-from-scratch.json`). You build a 1-4-4-1 network in NumPy
+(one input x, two hidden layers of 4 tanh neurons, one linear output y) and train it to learn y = sin(x) on [-π, π]:
+
+| Step | What you do | What it checks |
+|---|---|---|
+| `nn1` Build the network | the sine data, W1 to W3 and `forward()` | tanh on both hidden layers and none on the output |
+| `nn2` Backprop | `backward()` | `d_out = 2 * (out - y) / len(X)` and the tanh slope `1 - h²` on both layers |
+| `nn3` Write the training loop | 20,000 epochs of gradient steps | every weight and bias steps downhill, the loss is the mean squared error |
+| `nn4` Train it | run `python3 nn.py` | the loss falls below 0.01 |
+| `nn5` Test it | print its answers and the weights | both prints are there |
+| `nn6` See what it learned | run it again | it answers `[-1.0, 0.0, 1.0]` for x = -π/2, 0, π/2 |
+
+- A "Before you start" sheet shows the plan (input → hidden layer 1 → hidden layer 2 → output → backprop → gradient step) and
+  what to know first (NumPy arrays, matrix multiply, derivatives).
+- The drawer's right-hand panel draws the network. Until your first run it shows a preview of the lesson's own network. After
+  each run that prints losses it shows **your** run: your weights on the edges, the neurons firing, the prediction for
+  x = π/2 climbing to its target 1.
+- The planned "Not yet": start every weight at zero and every hidden neuron gets the same update, so the network answers 0 for
+  every x. The loss sits at 0.49 (the mean of sin²(x) over the lesson's 50 points), the panel shows eight identical dark
+  neurons, and the card reads **Loss is stuck at 0.49**, with a two-step hint ladder. Start the weights random and the
+  lesson's own code goes from loss 0.8187 to 0.0009 by epoch 18,000 (`demo/cache/stage/nn-runs.json`, real NumPy output).
+- The finished lesson ends on a completion panel with the lesson's skill map.
+
+### Demo mode
+
+The third launcher chip sends `learn` with `mode: "demo"` (`server/orchestrator/stage.py`). It loads the same neural-network
+lesson, with the same folder, cards, hints and network panel, and stages it:
+
+- A typing step passes on cue: **Check my work**, a save in the lesson folder, or the presenter's key.
+- A run step never runs anything. **Run it for me** shows a recorded run of the lesson's own code, and its loss lines feed the
+  live curve and the network panel. The first Train it run is the stuck one when `nn.py` starts any weight at zero.
+- No grading, screen reading or coach calls happen on stage. A typed question that can't reach Claude gets the step's own
+  explanation (commit `65024d6`: with Wi-Fi off, 51 "Couldn't reach Claude" cards went to 0).
+- Presenter keys, bound only while a Demo runs: ⌃⌥⌘→ passes the step, ⌃⌥⌘← goes back, ⌃⌥⌘R starts again at step 1 with a
+  clean `nn.py` (`POST /stage/next`, `/stage/back`, `/stage/restart`; `app/src/main/features/presenter.ts` on `adrian/shell`).
+- Every Demo start is a fresh take: step 1 and a clean `nn.py`, never a saved step (commit `a2ff530`).
+- A headless rehearsal plays the whole run of show against a private engine with no paid keys, as a regression gate
+  (`scripts/rehearse_demo.py`, `server/tests/demo_rehearsal.py`).
+
+### Watch a video
+
+1. **Find.** The launcher shows YouTube videos only. Claude (with its web-search tool) looks for videos, one Bright Data SERP
+   query adds Google's video results, and Claude scores every candidate. Rows under 40/100 are never shown
+   (`FINDER_KINDS=video`, `FINDER_MIN_SCORE=40`, `server/finder/`). Bright Data also reads the YouTube comments of the top
    videos, so a tutorial people say "doesn't work anymore" gets a warning.
-2. **Preflight.** Within 5 s of your pick, a card says what the video really is: its style, length and chapters, whether it fits
-   your goal, and which tools you're missing. It has two buttons, **Build** or **Pick another** (`server/preflight/`).
-3. **Build: Gemini watches, Claude reads, in parallel** (`LESSON_ENGINE=auto`, the default; `server/lesson/builder.py`).
-   - **Gemini watches the YouTube video itself** at 0.5 fps, with the title, description and chapters as text. It returns the
-     steps with timestamps, the code typed on screen, draft checks and a hint ladder (`server/lesson/gemini.py`).
-   - At the same time **Claude builds the same lesson from the video's timestamped transcript** (fetched through Bright Data's
-     Web Unlocker). Gemini's draft is used if it arrives within 75 s; if Gemini fails or runs late, Claude's is used.
-   - Claude then adapts the checks to your folder: your file names and the metric names your script prints.
-   - Each step gets a video clip and checks that can be graded from your screen: regexes over the editor and terminal, plus
-     loss/accuracy thresholds and trends read off the terminal.
-   - Videos over 30 min are built part by part (`server/lesson/progressive.py`).
-4. **Set up.** It makes a folder per lesson (`~/miyagi/lessons/<slug>`) with starter files that never pass a step on their own,
-   and opens VS Code (`server/workspace/`).
-5. **Follow along.** The video plays one step's clip and pauses. When your screen shows the step really works, the step turns
-   green and the video moves on by itself.
+2. **Preflight.** Within about 5 s of your pick, a card says what the video is: its style, length and chapters, whether it
+   fits your goal, and which tools you're missing. Nothing is built until you say so (`server/preflight/`).
+3. **Build.** Gemini watches the YouTube video at 0.5 fps, with its title, description and chapters as text, and returns the
+   steps with timestamps, the code typed on screen, draft checks and a hint ladder (`server/lesson/gemini.py`). That draft is
+   cached per video and goal (`demo/cache/lessons/raw/`), so Gemini watches each video once. Claude drafts the same lesson
+   from the transcript in parallel and is used if Gemini fails or takes over 75 s (`server/lesson/builder.py`). Videos over
+   30 minutes are built part by part (`server/lesson/progressive.py`).
+4. **Adapt to your machine.** Claude rewrites the checks for your folder: your file names and the metric names your script
+   prints. Claude also lists the tools the lesson needs, and the engine checks each one on your Mac. A setup card offers a
+   one-press Install for what's missing (`server/workspace/setup.py`).
+5. **Follow along.** The player plays one step's clip and pauses at the step's end ("Waiting for your checks") until your work
+   passes. Then it resumes by itself (`app/src/renderer/src/features/player/store.ts` on `adrian/shell`).
 
-**2. Just teach me** (no video, **Claude only**)
+### Just teach me, for any other topic
 
-You type a goal like *"build a calculator"* and press ⌘↵ (`learn {mode: "lesson"}`).
-- `build_text_lesson` (`server/lesson/textlesson.py`) plans 3–8 steps with Sonnet.
-- It researches the topic with Claude's **web search and web fetch** tools, so the official docs are the source. Sources are only
-  URLs those tools returned.
-- Haiku writes each step: the exact code to type, where it goes, the screen checks and hints. Sonnet steps in only when a check on
-  that output fails.
-- The lesson opens with an **overview** ("What we're building"), a **"Before you start"** primer and the **plan**; every step
-  says **what** you build and **why**, and gives the **complete code to type**, never truncated (`explain_step` in
-  `textlesson.py`, fields in `shared/contracts/events.ts`). The drawer that shows them is app PR #68 (open).
-- Step 1 is ready before the research finishes.
-- VS Code opens full screen, and each step boxes exactly where to type (commits `f438b88`, `12c1b26`, `716dafe`).
+You type a goal like *"build a calculator"* (`server/lesson/textlesson.py`). Claude plans the steps, researches the topic with
+its web-search and web-fetch tools (sources are only URLs those tools returned), and writes each step: what you build and
+why, and the complete code to type. Step 1 is ready before the research finishes.
 
-### In both modes
-- **Get unstuck.** When a check fails (for example, the loss sits around 17), the step turns amber. A **Claude Sonnet** coach reads
-  your actual screen and code and gives one short card: a hint ladder from a question, to the moment in the video or the source,
-  to the exact fix. **Do it for me** shows a diff preview, applies it only after you confirm, writes only code that compiles, and
-  can be undone (`server/coach/`, `server/orchestrator/session.py`).
-- **Lessons survive restarts.** Every lesson, video or not, is saved as it's built. After an engine restart Miyagi offers
-  "<title> · step N of M · X min ago" and resumes at that step with no rebuild. A save made before the restart is never
-  overwritten before you answer (`server/sessions/`, commits `b80996d` and `1bebab8`).
-- **Diagrams.** **⌥D** draws a Claude-built diagram of the current step for any topic: React data flow, a git commit graph, a
-  pandas groupby, a neural net (`server/diagrams/`).
-- **Everything is recorded.** Every learning event and metric goes to **Tiger Data**, and the engine serves a live stats page at
-  `localhost:8787/stats`.
+### Live checks, from your code and your screen
+
+- **Your code.** The VS Code companion hands the engine the exact text in your editor, unsaved edits included. Without it the
+  engine reads the file on disk, and OCR is the last resort (`server/orchestrator/editor_text.py`). You never press ⌘S: an
+  edit is re-graded within about a second, and when a step needs the file on disk (before a run), the companion saves it
+  for you (`server/orchestrator/quiet_save.py`, commit `f690f54`).
+- **Your screen.** On-device Apple Vision OCR reads the terminal: the output, and the loss values off each printed line.
+  Metric checks test thresholds and trends; the trend test is Mann-Kendall with a Theil-Sen slope, so a noisy flat curve
+  doesn't count as falling (`server/checks/`).
+- **Pointing.** The spotlight dims the screen and draws one white box: on the line to type, or on the real VS Code control to
+  use next (the Run ▷ button, the terminal, the file's tab), found through macOS Accessibility (commit `34d525b`). The type
+  box follows when VS Code scrolls (companion 0.0.5, commit `84042f5`).
+
+### The coach: "Not yet" cards and hints
+
+- **Check my work** runs the step's checks on a fresh screen frame, then a Claude step judge reads the screen and the code.
+- If the step isn't done, a **Not yet** card says what's left, from the rows that failed ("Still to do: ..."). A metric row
+  shows your value next to the expected one (`server/orchestrator/code_gate.py`, commit `7863fa6`).
+- **Hint** climbs a ladder: a guiding question first, then the moment in the video or the source, then the exact fix
+  (`server/coach/hints.py`). When a check fails on its own, a Claude Sonnet coach reads your screen and code and writes one
+  short card about what's wrong (`server/coach/diagnose.py`).
+- **Do it for me** shows a preview, applies only after you confirm, and can be undone.
+- A run that stops on a missing package offers a one-press Install (commit `01bf965`). Terminal typos get a card without a
+  model call (commit `2f20461`).
+
+### Lessons survive restarts
+
+Every lesson is saved as you go. After an engine restart, the first app connection continues the lesson at the exact step
+(`server/sessions/`, `auto_resume` in `server/orchestrator/main.py`). `POST /end` ends a lesson and keeps your place;
+`POST /end?forget=1` forgets it.
 
 ## How we built it
 
-Two people and many parallel Claude Code sessions, each in its own git worktree and folder. The boundary between them is the
-contracts in `shared/contracts/`: WebSocket events, the step-graph and check schemas, the metric line protocol and the Tiger
-schema.
+Two people and many parallel Claude Code sessions, each in its own git worktree. The boundary between them is the contracts
+in `shared/contracts/`: WebSocket events, the step-graph and check schemas, the metric line protocol and the Tiger schema.
 
 ```
-Electron overlay (app/: island, launcher, spotlight, bottom bar, player)
+Electron overlay (app/: pill, launcher, drawer + network panel, spotlight, cards, bottom bar, video player)
         │  WebSocket :8787 · shared/contracts/events.ts
         ▼
-engine: server/orchestrator (FastAPI hub, lesson state machine, don't-nag gate, hint ladder)
+engine: server/orchestrator (FastAPI hub, lesson state machine, curated NN lesson, Demo staging, quiet save)
   ├─ finder     Claude web search + scoring · Bright Data SERP (Google video results) + YouTube comments
   ├─ preflight  ≤ 5 s card before any build
   ├─ lesson     Watch a video: Gemini watches the video ∥ Claude drafts from the transcript; Claude adapts the checks
   │             Just teach me: Claude plans, researches (web search/fetch) and writes the steps
-  ├─ workspace  per-lesson folder, starter files, VS Code (full screen in Just teach me), Accessibility line rects
-  ├─ screen     ScreenCaptureKit → screencapture → CoreGraphics; Apple Vision OCR; Accessibility; terminal/editor regions
+  ├─ workspace  per-lesson folder, the lesson's tools checked on this Mac, VS Code, Accessibility rects
+  ├─ screen     ScreenCaptureKit → screencapture → CoreGraphics; Apple Vision OCR; Accessibility
   ├─ checks     pure evaluator: screen regex, metric threshold, metric trend (Mann-Kendall + Theil-Sen)
-  ├─ coach      Claude Sonnet diagnosis, step judge, hint ladder, Do it for me
-  ├─ diagrams   Claude-built diagram for the current step
+  ├─ coach      Claude step judge, Sonnet diagnosis, hint ladder, Do it for me
   ├─ sessions   restart-safe lesson saves + resume
-  └─ Tiger Data learning_events + training_metrics hypertables, 5 continuous aggregates, GET /stats
+  └─ Tiger Data learning_events + training_metrics hypertables, continuous aggregates, GET /stats
+VS Code companion (vscode-ext/, 0.0.5): exact editor text, saves, terminal output and exit codes, scrolls
 ```
 
-**Model rule:** Claude searches, scores and reads screens, code and transcripts. Gemini only ever watches YouTube videos.
-Inside Claude we use tiers: Sonnet builds lessons and writes the coach's diagnosis; Haiku does the routine work (search
-scoring, preflight, triage, explaining, the Check judge, locating, the set-of-marks box targeter); Sonnet also takes over when a
-quality check on cheaper output fails (commits `d500d03`, `c7f962b`). Opus is never used by default; it needs `LESSON_ALLOW_OPUS=1`.
+**Model rule.** Claude searches, scores, writes lessons and reads screens, code and transcripts. Gemini only watches YouTube
+videos. Inside Claude we use tiers: Sonnet writes lessons and the coach's diagnosis; Haiku does the routine work (search
+scoring, preflight, the Check judge, explaining, locating). Opus is never used by default (`server/coach/llm.py`,
+`server/lesson/claude.py`).
 
-**Screen reading.**
-- Capture order: ScreenCaptureKit first, Apple's `/usr/sbin/screencapture` when ScreenCaptureKit stalls (as it does on
-  macOS 26), then CoreGraphics (commit `e23a751`).
-- OCR runs on the device with Apple Vision. On an M5 Pro, capture takes about 17 ms and OCR 100–220 ms per changed frame
-  (`server/screen/README.md`).
-- macOS Accessibility gives exact editor line rects.
-- Our own overlay is left out of the captured frames.
-- The VS Code companion extension (`vscode-ext/`) is an optional precision boost (exact file, unsaved edits, the terminal's last
-  command and exit code). Without it every call returns nothing and the engine reads the screen (`server/workspace/vscode_ext.py`).
+**Screen reading.** Capture tries ScreenCaptureKit first, then Apple's `/usr/sbin/screencapture` when ScreenCaptureKit stalls
+(as it does on macOS 26), then CoreGraphics. OCR runs on the device with Apple Vision. Our own overlay is left out of the
+captured frames.
+
+**VS Code companion** (`vscode-ext/`, version 0.0.5). Plain JavaScript with no build step, serving HTTP on 127.0.0.1 only
+(port 8791). It gives the engine the open file, unsaved edits, the caret position, what's scrolled into view, and the terminal's last
+command with its output and exit code. It can open a file at a line, run a command in a terminal named "Miyagi", save, and
+apply a fix. It draws nothing in VS Code. It adds one command, **Miyagi: Explain this** (Ctrl+Cmd+E), answered in Miyagi's
+overlay. Without it, the engine falls back to the screen and the disk.
+
+**Electron overlay** (`app/`). Electron, React 19, TypeScript, Tailwind CSS 4, Motion and Zustand. The pill under the notch
+shows progress and state, the launcher grows out of it, the drawer holds the steps, their live checks and the network panel,
+and the YouTube player is docked to the right.
 
 Measured numbers:
 
 | What | Measured | Source |
 |---|---|---|
-| Search with Claude + Bright Data live (4 queries, all result kinds) | first row **3.6–5.8 s**, done 12.7–18.0 s; up to 36 YouTube comments read per video | `timings` / `comments` in `demo/cache/search/*.json` (re-recorded 15:16–15:18) |
-| Hero lesson build (24-min Toscano PINN video, Gemini watched it) | **31.1 s** | `build` in `demo/cache/lessons/aebc6b8fba02dac5.json` |
-| Lesson builder on 5 non-PINN tutorials (React, git, pandas, Rust, FastAPI) | Gemini path 41–50 s; Claude transcript path **29–83 s** after fixes; all schema-valid; 43/43 step titles match the transcript; manual score **8–9/10** | `evals/lesson/report.md` |
-| Coach card after a failed run | 2–4 s after the run ends; 3.1–4.0 s per diagnosis call (3 rehearsal takes, measured when the coach ran on Opus; it runs on Sonnet now) | `docs/REHEARSAL.md`; commit `eb08267` (3.3 s) |
-| Screen reader | capture ~17 ms; OCR 100–220 ms per changed frame | `server/screen/README.md` |
-| Plateau detector | flat noisy curves wrongly graded "improving": 61–136/300 seeds → **≤ 3/300** | `server/checks/README.md` |
-| Hero failure is real | `lr = 0.3`: loss stuck around 17, fails **6/6** seeds; `lr = 1e-3` passes 3/3 in ~15 s on CPU | `demo/pinn-lab/README.md` |
-| Diagrams | 2.1–4.4 s per live Claude call | `server/diagrams/examples/RESULTS.md` |
+| The NN lesson's own training run (seeded) | loss 0.8187 at epoch 0 → 0.0009 at epoch 18,000; with zero weights, 0.4900 on every line | `demo/cache/stage/nn-runs.json` |
+| Demo with Wi-Fi off | "Couldn't reach Claude" cards: 51 → 0 | commit `65024d6` |
+| Lesson builder on 5 tutorials (React, git, pandas, Rust, FastAPI) | Gemini's step starts a median 1 s from the chapter marks, against up to 15 s for the transcript path; React, Rust and FastAPI score 8–9/10 on Gemini; 43/43 step titles match the transcript | `evals/lesson/report.md` |
+| A 24-minute video watched by Gemini | lesson built in 31.1 s | `build` in `demo/cache/lessons/aebc6b8fba02dac5.json` |
+| Screen reader | capture ~17 ms; OCR ~100–220 ms per frame | `server/screen/README.md` |
+| Plateau detector | flat noisy curves wrongly graded "improving": ≤ 3/300 seeds | `server/checks/README.md` |
 
-Stack: Python 3.12 (FastAPI, pyobjc for ScreenCaptureKit/Vision/Accessibility, psycopg, httpx, rapidfuzz, watchdog); Electron +
-React + TypeScript + Tailwind + Motion; PyTorch for the hero lesson.
+Stack: Python 3.12 (FastAPI, PyObjC for ScreenCaptureKit, Vision and Accessibility, psycopg 3, httpx, watchdog); Electron,
+React, TypeScript, Tailwind CSS, Motion; NumPy for the neural-network lesson.
 
 ## Challenges we ran into
 
-- **Free-tier quotas.** Our Gemini key had per-model daily caps (`gemini-3.8-flash`: 20/day), and by mid-afternoon every video
-  model returned `429`. In response we:
-  - raced a Claude transcript path against Gemini, so a lesson still gets built when Gemini is out of quota or slow;
-  - added hedged fallbacks and turned off the SDK's silent retries;
-  - cached every lesson draft;
-  - added a daily Gemini cap (`LESSON_GEMINI_DAILY_CAP`, 25 video calls, commit `6eb9aab`).
-- **Cost.** A test sweep left running unsupervised used up our prepaid Gemini credit (about $20, **team-reported**). After that,
-  every call returned `402 "prepayment credits are depleted"` (commit `15f0efe`). We added:
-  - a 402 fast-fail with a 5-minute breaker and a plain-English error;
-  - Gemini skims off in the finder (`b4f3bd2`);
-  - Haiku/Sonnet tiers, and Opus off unless explicitly allowed;
-  - `build.cost` token accounting on every lesson (`d500d03`);
-  - opt-in prebuild;
-  - paid keys blanked in tests.
-- **YouTube rate limits on the venue Wi-Fi.** YouTube answered caption requests from the venue network with `429`. The Bright
-  Data Web Unlocker is the alternate route for watch pages and captions (`server/lesson/transcript.py`). Every build failure ends
-  in seconds with a plain sentence instead of a hang.
-- **The venue Wi-Fi blocked Tiger Data.** Our Tiger Cloud service listens on a high port (37145) that the venue network drops.
-  Writes spool to `~/.miyagi/tiger-spool/` and upload on reconnect, and `python -m server.checks.tiger --ping` tests the
-  connection from any network (`server/checks/tiger.py`).
-- **Screen capture on macOS 26.** `replayd` kept dropping our ScreenCaptureKit connection (thousands of
-  `XPC_ERROR_CONNECTION_INTERRUPTED` a second), and `CGDisplayCreateImage` blocked for 5 s and returned nothing. We added the
-  `screencapture` fallback: a temp PNG with mode 0600, deleted right away, with backoff (`e23a751`). The app is also told when the
-  screen reader is down (`27c1804`).
-- **Permissions.** Screen Recording and Accessibility belong to the app that *runs the engine*, not to Miyagi.
-  `scripts/miyagi-engine.sh` detects a denied grant and prints where to turn it on.
-- **Pointing at the right place.** OCR heuristics kept landing the box on VS Code's breadcrumb or jittering. We switched to stable
-  editor and terminal regions (`0f7b9f8`) and Accessibility line rects (`12c1b26`).
-- **A demo that hid a general bug.** Running 4 non-PINN topics stage by stage showed every lesson being adapted to the PINN demo
-  folder. The fix was one folder per lesson (`server/workspace`).
+- **Free-tier quotas.** Our Gemini key had per-model daily caps, and by mid-afternoon every video model returned `429`. So
+  Claude's transcript path races Gemini, every lesson draft is cached, and Gemini has a daily cap
+  (`LESSON_GEMINI_DAILY_CAP`, commit `6eb9aab`).
+- **Cost.** A test sweep left running used up our prepaid Gemini credit, and every call returned
+  `402 "prepayment credits are depleted"` (commit `15f0efe`). We added a 402 fast-fail with a 5-minute breaker, Haiku and
+  Sonnet tiers with Opus off by default, token accounting in every lesson's `build.cost` (commit `d500d03`), and paid keys
+  blanked in tests.
+- **The venue Wi-Fi.** YouTube answered caption requests with `429`, so Bright Data's Web Unlocker is the alternate route for
+  watch pages and captions (`server/lesson/transcript.py`). The network also blocked our Tiger Cloud port, so writes go to an
+  offline spool (`~/.miyagi/tiger-spool/`) and upload on reconnect. For the stage, Demo mode makes no Claude call that can
+  fail.
+- **Screen capture on macOS 26.** `replayd` kept dropping our ScreenCaptureKit connection and `CGDisplayCreateImage` blocked
+  for 5 s and returned nothing. We added the `screencapture` fallback (a temp PNG with mode 0600, deleted right away, with
+  backoff; commit `e23a751`).
+- **Pointing at the right place.** OCR guesses kept landing the box on VS Code's breadcrumb or jittering. We moved to exact
+  editor line rects and VS Code's own controls through Accessibility, and the companion's scroll events keep the box on its
+  line.
+- **Human details from desktop tests.** Testers had to press ⌘S before every check and still watched checks lag, so grading
+  moved to the live editor buffer and the companion saves for you. Engine deploys sent a lesson back to the start sheet, so `POST /end` now keeps your place
+  and the next connection resumes the exact step (commit `f690f54`).
 
 ## Accomplishments that we're proud of
-- The hero loop is real end to end: a real training run, real OCR of the terminal, a statistically tested plateau check and a
-  live Claude diagnosis. It finds `lr = 0.3` by itself, then the step goes green and the video resumes.
-- There are two ways to learn, and both are graded the same way, from your real screen.
-- No fake data on the live path. A failing module reports why, and a search row that wasn't watched or read says so. Canned data
-  exists only behind `DEMO=1`.
-- It generalizes: 5 tutorials in very different stacks became lessons scored 8–9/10 (`evals/lesson/report.md`).
-- "Do it for me" is safe: preview, confirm, apply, undo. It refuses while the file has unsaved changes, and terminal fixes are
-  copied, never run.
+
+- The neural-network lesson works end to end in the learner's own editor: real code, real runs, a network panel drawn from
+  their own weights, and a "Not yet" that teaches why zero weights never learn.
+- Checks come from the learner's own code and screen, and they re-grade within about a second of an edit.
+- A video lesson pauses at each step until the learner's work passes, and Gemini watches each video only once.
+- No fake data on the live path. A failing module reports why. Canned data exists only behind `DEMO=1` and the Demo chip,
+  and Demo recordings are tagged `demo` in Tiger.
+- "Do it for me" is safe: preview, confirm, apply, undo.
 
 ## What we learned
-- Grading from the **screen** generalizes better than plugging into one editor. It works in VS Code, the terminal or a notebook
-  with no extension; our optional VS Code companion only adds precision.
+
+- Reading the screen works with no plugin at all, but OCR misreads code ("import numey as np"). The companion's exact editor
+  text fixed that (`server/orchestrator/editor_text.py`).
 - Watching the video gets step boundaries as good or better than reading the transcript (median 1 s from the chapter marks,
-  against up to 15 s for the transcript path, `evals/lesson/report.md`), and running both in parallel keeps every build working.
+  against up to 15 s, `evals/lesson/report.md`), and racing both keeps every build working.
 - Noisy loss curves fool slope checks; rank-based trend tests don't.
 - Spending needs guardrails from the very first test sweep.
+- Small chores (a forgotten ⌘S, a box one line off) are what make a real learner give up.
 
 ## What's next
+
 - A creator dashboard on the Tiger aggregates: where learners get stuck in *your* video.
 - Community warnings pinned to timestamps ("breaks at 12:40 on pandas 2.x").
+- More hand-written lessons like the neural network one.
 - Windows support (platform differences are already isolated in `app/src/main/platform.ts`).
 
 ## Built with
-`python` · `fastapi` · `pyobjc` · `apple-vision` · `screencapturekit` · `macos-accessibility` · `electron` · `react` · `typescript`
-· `tailwindcss` · `framer-motion` · `pytorch` · `claude` (Sonnet 5.5, Haiku 5.5) · `anthropic-api` · `gemini` ·
+`python` · `fastapi` · `pyobjc` · `apple-vision` · `screencapturekit` · `macos-accessibility` · `electron` · `react` ·
+`typescript` · `tailwindcss` · `motion` · `numpy` · `claude` (Sonnet 5.5, Haiku 5.5) · `anthropic-api` · `gemini` ·
 `bright-data` · `tiger-data` · `timescaledb` · `postgresql` · `youtube-iframe-api` · `vs-code` · `godaddy`
 
 ---
 
 ## Sponsor tracks
 
-### Bright Data: live
-Bright Data is Miyagi's live-web layer, and its "good" is steering learners away from tutorials that no longer work.
-- **SERP API:** Google's video results for every search. It resolves `google.com/goto` links and falls back to DuckDuckGo on a
-  target failure (`server/finder/brightdata.py`, `server/finder/sources.py`).
-- **YouTube data (Web Scraper API comments dataset):** comments of the top videos, read in parallel under a 10 s cap.
-  "Outdated" and "doesn't work" comments become row `warnings`.
-  - Live evidence: "36 comments read via Bright Data" in `demo/cache/search/learn-physics-informed-machine-learning-with-pin-*.json`
-    (re-recorded with Bright Data live at 15:17).
-- **Web Unlocker:** the first route for YouTube captions and the backup for watch pages when YouTube blocks the plain fetch
-  (`server/lesson/transcript.py`), and, with the SERP API, the docs/community pages the coach cites (`server/coach/web.py`).
+### Bright Data
+Bright Data is how Miyagi searches and reads the live web.
+- **SERP API:** Google's video results for every search (`server/finder/brightdata.py`, `server/finder/sources.py`).
+- **YouTube comments (Web Scraper API dataset):** the comments of the top videos, read in parallel under a 10 s cap.
+  "Outdated" and "doesn't work" comments become warnings on the result row (`server/finder/core.py`).
+- **Web Unlocker:** YouTube captions and watch pages when YouTube blocks the plain fetch (`server/lesson/transcript.py`), and
+  the docs pages the coach cites (`server/coach/web.py`).
 
 ### Tiger Data
-Tiger Data is the time-series memory of every session.
-- **Schema** (`shared/contracts/tiger-schema.sql` + `cli/sql/tiger-extras.sql`):
-  - hypertables **`learning_events`** (step_started, check_pass, check_fail, offtrack, fix_applied, question, step_passed, each
-    with the video timestamp) and **`training_metrics`**;
-  - **continuous aggregates** `metrics_1s`, `time_per_step`, `check_fail_rate`, `stuck_heatmap` (per 15 s of video) and
-    `learner_progress`, set to real-time with refresh policies.
-- **Writers:** `server/checks/tiger.py` batches `COPY` every 0.5 s and keeps an offline spool. The orchestrator records every
-  learning event (commit `79bd343`).
-- **Stats page:** `GET localhost:8787/stats` (`server/checks/stats_web.py`, polling `/stats/data` every 2 s) shows:
-  - the live curve from `metrics_1s` with the tutorial's reference curve;
-  - time per step and fail rate per check;
-  - the stuck heatmap;
-  - ingest rows/s and each panel's measured query latency.
-
-  When Tiger is unreachable it says so instead of showing stale numbers. The app's overview links to it (commit `27879d2`).
-- **Status:** the schema was applied to our Tiger Cloud service tonight (**team-reported**). Paste the
-  `python -m server.checks.tiger --ping` output from the demo network before submitting.
+Tiger Data is the time-series record of every session.
+- **Schema** (`shared/contracts/tiger-schema.sql`, `cli/sql/tiger-extras.sql`): hypertables `learning_events` (step started,
+  check pass and fail, off track, fix applied, question, step passed) and `training_metrics`, with continuous aggregates
+  `metrics_1s`, `time_per_step`, `check_fail_rate`, `stuck_heatmap` and `learner_progress`.
+- **Training metrics:** every run the engine sees end (VS Code's ▷, a command typed in its terminal, Run it for me) sends its
+  loss values to `training_metrics`. Demo recordings are written with source `demo`, and `/stats` labels them "Demo
+  recording, not a live run" (`server/orchestrator/tiger_runs.py`, commit `b5cfcc1`).
+- **Offline spool:** the writer batches `COPY` in the background. When Tiger can't be reached, rows wait in
+  `~/.miyagi/tiger-spool/` and upload as soon as it answers (`server/checks/tiger.py`).
+- **Stats page:** `localhost:8787/stats` shows the live loss curve with the tutorial's reference curve, time per step, fail
+  rate per check and the stuck heatmap (`server/checks/stats_web.py`).
+- **[CHECK]** Rows from today's runs are in the local spool because the venue network blocks Tiger's port. Say whether they
+  reached Tiger Cloud (run `python -m server.checks.tiger --ping` and `--flush-spool` on a network that allows it), or keep
+  this track's wording to "spooled offline".
 
 ### Gemini
 Gemini is how Miyagi **watches** a tutorial (`LESSON_ENGINE=auto`, the default).
-- The lesson builder sends the public YouTube URL to Gemini as `file_data` at 0.5 fps, with the video's title, description and
-  chapters as text, so it also sees the repo and data links.
-- It returns structured JSON: steps with MM:SS bounds, titles and instructions, the code typed on screen, draft checks, targets,
-  and a hint ladder with common mistakes (`server/lesson/gemini.py`).
-- Claude builds the same lesson from the transcript in parallel. Gemini's draft is used if it arrives within 75 s; Claude's is
-  used if Gemini fails or runs late (`server/lesson/builder.py`). Claude then adapts the checks to the learner's folder.
-- Videos over 30 min are watched part by part (`server/lesson/progressive.py`). Usage is capped per day
+- The lesson builder sends the public YouTube URL to Gemini as `file_data` at 0.5 fps, with the title, description and
+  chapters as text (`server/lesson/gemini.py`).
+- It returns structured JSON: steps with MM:SS bounds, titles and instructions, the code typed on screen, draft checks,
+  targets and a hint ladder.
+- The draft is cached per video and goal, so each video is watched once. Claude then adapts the checks to the learner's
+  folder.
+- Claude's transcript draft runs in parallel and is used only if Gemini fails or takes over 75 s. Usage is capped per day
   (`LESSON_GEMINI_DAILY_CAP`) and logged in `build.cost`.
-- Gemini only watches videos. Just teach me, search, scoring, the coach, the judge, screen reading and box picking are Claude.
-The cached hero lesson was built by `gemini-4-hydrogen` watching the 24-minute video (31.1 s, `build.model` in
-`demo/cache/lessons/aebc6b8fba02dac5.json`).
+- Example: the cached PINN lesson was built by `gemini-4-hydrogen` watching a 24-minute video in 31.1 s (`build.model` in
+  `demo/cache/lessons/aebc6b8fba02dac5.json`).
+- **[CHECK]** Say whether a Gemini-built video lesson is shown in the demo video, or only described.
 
 ### GoDaddy
-Our domain is **miyagi.study**. The packaged app sends `https://miyagi.study/` as the Referer for YouTube embeds
-(`youtubeReferer()` in `app/src/main/index.ts`). **(unverified)** Nothing in the repo shows the registration or what the domain
-serves. Confirm both.
+Our domain is **miyagi.study**. The app sends `https://miyagi.study/` as the Referer for YouTube embeds (`app/src/main/index.ts`).
+**[CHECK]** Nothing in the repo shows the registration or what the domain serves. Confirm both, or drop this track.
 
-### Pending Michael's decision: ElevenLabs, xAI, Vultr
-- **ElevenLabs:** the code is merged. `server/coach/voice.py` calls ElevenLabs streaming TTS (`eleven_flash_v2_5`) for short
-  lines (the step title, the card title, "Nice, step passed.") and serves them at `/tts/<hash>.mp3`. It's wired in
-  `server/orchestrator/modules.py:544`, and the app plays `speak` audio when Voice is on. **(unverified live)** Enter the track only
-  if Michael decides to and it has been heard working.
-- **xAI:** nothing in the repo uses xAI. Don't list it unless something lands.
-- **Vultr:** nothing in the repo deploys to Vultr. The engine runs locally on the Mac. Don't list it unless something lands.
+### Not entered: ElevenLabs, xAI, Vultr
+**[CHECK]** Michael dropped ElevenLabs and Vultr on Nov 15. `server/coach/voice.py` (ElevenLabs text to speech) is still in the
+repo and speaks only with an ElevenLabs key. Nothing in the repo uses xAI or deploys to Vultr. Confirm none of these go on the form.
 
 ---
 
 ## Before you submit
-- [ ] Repo public: https://github.com/michae6345-crypto/miyagi (moved from `sandhacks-tutor`; private right now)
-- [ ] The app on `integration/live` matches `adrian/shell` (the launcher's two ways to learn and the bottom bar are on `adrian/shell` `10ea9a8`).
-- [ ] Tiger: `python -m server.checks.tiger --ping` on the demo network; paste the numbers in place of "(team-reported)".
-- [ ] GoDaddy: confirm `miyagi.study` is registered and what it serves.
-- [ ] Michael: ElevenLabs / xAI / Vultr: in or out.
-- [x] Rehearsal PR merged (#43: `scripts/miyagi-offline.sh`, `scripts/rehearse.py`, `docs/REHEARSAL.md`).
-- [ ] App PR #68 (drawer: overview, plan, why, full code) merged into `adrian/shell`, or drop that sentence.
-- [ ] Backup screen recording of both demo paths.
+- [ ] **[CHECK]** The repo is public at https://github.com/michae6345-crypto/miyagi.
+- [ ] **[CHECK]** The app judges run is `adrian/shell` (the Demo chip, presenter keys and network panel are there, not yet in
+      `integration/live`'s `app/`).
+- [ ] **[CHECK]** The presenter keys (⌃⌥⌘→ / ⌃⌥⌘← / ⌃⌥⌘R) were tried on the Mac: `presenter.ts` still marks them untested in
+      Electron.
+- [ ] **[CHECK]** Tiger: spooled rows uploaded, or the track says "spooled offline".
+- [ ] **[CHECK]** Gemini: a video lesson in the demo video, or described only.
+- [ ] **[CHECK]** GoDaddy: `miyagi.study` registered, and what it serves.
+- [ ] **[CHECK]** ElevenLabs, xAI, Vultr: not entered.
+- [ ] Backup screen recording of the Demo run of show (`docs/DEMO.md`).
 - [ ] No `.env`, keys or connection strings in screenshots or the video.
