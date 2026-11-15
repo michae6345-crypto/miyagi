@@ -31,6 +31,8 @@ const GLASS: Ink = { text: glass.text, label: glass.label, faint: glass.faint, r
 
 type Frame = { epoch: number; loss: number; W: number[][]; b: number[][] }
 type Mode = 'forward' | 'backward' | 'train'
+/** The backward pulse's least strength: visible on a weight of any size. */
+const BACK_MIN = 0.35
 
 const W = 600
 const H = 262
@@ -232,7 +234,9 @@ export function NeuralNet({ data, compact = false }: { data: Record<string, unkn
             const l = pulse.back ? pulse.from - 1 : pulse.from
             const w = frame.W?.[l]?.[i * layers[l + 1] + j] ?? 0
             const m = Math.min(1, Math.abs(w) / maxW)
-            const strength = pulse.back ? m : m * acts[l][i]
+            // Backward: the error reaches every weight, so it's always drawn (test 7, item 10: with small or zero
+            // weights the blame pulse vanished and nothing visibly flowed from y back to x).
+            const strength = pulse.back ? Math.max(BACK_MIN, m) : m * acts[l][i]
             if (strength < 0.04) return null
             const p = ease(pulse.p)
             const [sx, sy, ex, ey] = pulse.back ? [b.x, b.y, a.x, a.y] : [a.x, a.y, b.x, b.y]
