@@ -79,6 +79,9 @@ def test_the_next_press_is_not_stuck_behind_a_hanging_question(rig):
         await asyncio.sleep(0)
         await asyncio.wait_for(ask, 5)
         rig.clock.t += 5
+        from server.orchestrator.tests.test_stage import NN1_ZEROS  # (a Demo step passes once its code is there)
+
+        (rig.workdir / "nn.py").write_text((rig.workdir / "nn.py").read_text() + NN1_ZEROS)
         await rig.s.action("check_step")  # Check my work right after: the Demo passes the typing step
         await settle(rig)
         assert time.monotonic() - t0 < 3.0
