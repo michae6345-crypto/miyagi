@@ -277,3 +277,38 @@ All sent to E4 with repros (E2's content issues flagged as E2's).
 | Step 2 | Says "type print(add(2, 3))" and boxes the editor | "Now run it." | Run `python3 calculator.py` in the terminal; ignore the box. |
 | Run | `command not found: python` | "Mac Python is python3." | `python3 calculator.py`. |
 | Steps 3+ | Box on line 1 | Stop the path here. | End the lesson (`curl -X POST localhost:8787/end`). |
+
+### Boxes on rendered VS Code frames (S1's harness, integration/live 054aa06, zero cost)
+
+S1's `scripts/stage_lessonmode.py` (branch `claude/stage-runner-89c172`) runs the real Engine in-process with the real
+ScreenReader OCR-ing rendered VS Code screenshots (DEMO=1, keys blanked, dead proxy). It was run once on the calculator
+lesson (`--lesson demo/cache/lessons/text-43e26ca1d86c37ed.json --hold 8`), with no starter seeded:
+
+| Check | Terminal open | Terminal closed |
+|---|---|---|
+| (a) one box per step | FAIL: s1 gets no box (its anchor `# Step 1:` isn't on screen) | FAIL: same |
+| (b) box on the target line, never tab/breadcrumb | FAIL: s4's box at y 272.5 is not on line 2 `return a + b` (the regex bug); s6/s7 not judged (anchor not on screen) | PASS |
+| (c) no card in a step's first 20 s | FAIL: s8 "Run it" card at +0.0 s | FAIL: same, plus two cards 6.7 s apart |
+| (d) a run step never starts on an empty file | PASS | FAIL: s8 started while calculator.py was empty |
+| (e) editor opened once, never Cursor | PASS | PASS |
+| (f) one short instruction per step | PASS | PASS |
+| (g) box clears when another app is in front, and comes back | **FAIL: clears in 1.1 s, but no box comes back** when VS Code is frontmost again | (open only) |
+| (h) "Save ⌘S" card for an unsaved file | PASS (2.3 s) | (open only) |
+| (i) one calm card when another lesson's folder is open | FAIL: no open_editor card | (open only) |
+| (j) the first help card offers Do it for me | FAIL: s8 "Run it" has only `run_command` | FAIL: same |
+| screen down → "I can't see your screen" ≤ 1 s | PASS | PASS |
+
+The engine didn't advance by itself on s3–s7 (open) and on every step (closed); the harness pressed Skip.
+
+(g) matches the code. `_spot_follows_app` sends `spotlight {clear}` when VS Code loses focus but keeps `spot_rect`. On
+return, the re-box goes through `_show_spot(steady=True)`, which drops a box identical to `spot_rect`, so an unchanged view
+never gets its box back.
+
+**Not run yet:** `scripts/rehearse_boxes.py` (added, untested; runs stopped on Michael's request). It reuses S1's harness to
+classify every box against the rendered rows (empty row, below the last line, tab row, terminal), compares the no-starter
+and seeded-starter cases, and probes app switching: clear, re-box, a step finishing while VS Code is in the background,
+and a browser showing the step's own code. Run it with `.venv/bin/python scripts/rehearse_boxes.py` (zero cost; it spools
+into `demo/runs/boxes/`, never `~/.miyagi`).
+
+Side note: S1's harness blanks `TIGER_DATABASE_URL` but not `TUT_SPOOL_DIR`, so its learning events spool into the shared
+`~/.miyagi/tiger-spool` and would upload to the real Tiger later. My run's two files were moved out.
