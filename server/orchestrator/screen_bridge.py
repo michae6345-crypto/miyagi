@@ -61,11 +61,29 @@ class ScreenBridge:
         try:
             if self._unsub:
                 self._unsub()
+            if getattr(self, "_front_unsub", None):
+                self._front_unsub()
             self.unwatch()
             if self.reader is not None and hasattr(self.reader, "stop"):
                 self.reader.stop()
         except Exception:  # noqa: BLE001
             log.exception("screen stop failed")
+
+    def watch_frontmost(self, on_front: Callable[[str], Awaitable[None]]) -> None:
+        """E6 on_frontmost_change: `on_front(app_name)` on the loop within ~0.25 s of an app switch / Space swipe."""
+        r = self.reader
+        if r is None or self._loop is None or not hasattr(r, "on_frontmost_change"):
+            return
+        loop = self._loop
+
+        def cb(new: dict | None, old: dict | None) -> None:  # E6's poller thread
+            app = str((new or {}).get("app") or "")
+            loop.call_soon_threadsafe(lambda: asyncio.ensure_future(on_front(app)))
+
+        try:
+            self._front_unsub = r.on_frontmost_change(cb)
+        except Exception:  # noqa: BLE001
+            log.exception("on_frontmost_change failed")
 
     def down_reason(self) -> str | None:
         """Why the reader can't see the screen right now (E6: status error / no_permission), else None."""
@@ -126,6 +144,36 @@ class ScreenBridge:
             return None
         d = r.to_dict() if hasattr(r, "to_dict") else dict(r)
         return {k: float(d[k]) for k in ("x", "y", "w", "h")}
+
+    async def pick(self, intent: str, app: str | None = "Code") -> dict | None:
+        """Haiku set-of-marks pick (server.screen.target): {rect, box_ids, label, confidence, reason, ...} or None
+        (low confidence / nothing matches / timeout / budget / no key). Off with MIYAGI_VISION_TARGET=0."""
+        if self.reader is None or self.down_reason() or not env_flag("MIYAGI_VISION_TARGET", True):
+            return None
+        try:
+            from server.screen.target import pick_on_screen
+
+            return await pick_on_screen(intent, app, reader=self.reader)
+        except Exception:
+            log.exception("vision pick failed")
+            return None
+
+    async def confirm(self, rect: dict, intent: str, app: str | None = "Code") -> dict | None:
+        """Haiku verifier for a box the engine located itself (server.screen.target.verdict): -> the rect to show (the
+        same box, or what Haiku picked instead) or None when Haiku is sure nothing on screen matches. Haiku off /
+        unavailable / unsure: the box unchanged."""
+        if self.reader is None or self.down_reason() or not env_flag("MIYAGI_VISION_TARGET", True):
+            return rect
+        try:
+            from server.screen.target import confirm_on_screen
+
+            out, why = await confirm_on_screen(rect, intent, app, reader=self.reader)
+        except Exception:
+            log.exception("vision confirm failed; keeping the box")
+            return rect
+        if why != "agree":
+            log.info("targeter %s for %r", why, intent[:80])
+        return out
 
     def set_overlay(self, rects: list[dict]) -> None:
         if self.reader is not None:

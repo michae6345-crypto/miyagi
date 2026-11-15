@@ -16,7 +16,6 @@ Haiku only (`llm.model_for("judge")`); never raises (None on any failure).
 
 from __future__ import annotations
 
-import hashlib
 import logging
 import re
 import time
@@ -26,6 +25,7 @@ from typing import Any
 from . import llm
 from .common import clamp_words, get_lesson
 from .diagnose import notebook_code
+from .gate import PeriodicGate
 from .pointing import deterministic_targets, editor_state, step_file, where_hint
 
 log = logging.getLogger("coach.judge")
@@ -100,14 +100,10 @@ def files_text(files: dict[str, str] | None) -> str:
     return "\n\n".join(parts)
 
 
-def _sig(*parts: str) -> str:
-    return hashlib.sha256("\x00".join(parts).encode()).hexdigest()[:16]
-
-
 # ---------- the judge -----------------------------------------------------------------------------------
 
 async def _ask(step: dict, check_results: list[dict] | None, screen: Any, files: dict[str, str] | None,
-               focused_app: str, lesson: dict | None):
+               focused_app: str, lesson: dict | None, active_file: dict | None = None):
     """One Haiku judgment → (data, result, checks, status_by_id, steps), or None when unavailable."""
     sid = step.get("id", "")
     scr, fil = screen_text(screen, focused_app), files_text(files)
@@ -115,7 +111,7 @@ async def _ask(step: dict, check_results: list[dict] | None, screen: Any, files:
     status = {r.get("checkId"): r for r in check_results or []}
     checks = [c for c in step.get("checks") or [] if c.get("id")]
     steps = [s for s in (lesson or {}).get("steps") or [] if s.get("id")]
-    ed, expected = editor_state(screen), step_file(step)
+    ed, expected = editor_state(screen, active_file), step_file(step)
     editor = (f"{ed['app']} showing " + (f"an unsaved {ed['untitled']}" if ed["untitled"] else (ed["file"] or "an unknown file"))
               + (" (unsaved changes)" if ed["unsaved"] and not ed["untitled"] else "")) if ed else ""
     user = "\n\n".join(x for x in [
@@ -123,7 +119,7 @@ async def _ask(step: dict, check_results: list[dict] | None, screen: Any, files:
         "CHECKS (id: label [machine status]):\n" + "\n".join(
             f"- {c['id']}: {c.get('label', '')} [{status.get(c['id'], {}).get('status', 'pending')}]" for c in checks),
         f"EXPECTED FILE: {expected}" if expected else "",
-        f"EDITOR ON SCREEN: {editor}" if editor else "",
+        f"EDITOR (from the editor window, not OCR): {editor}" if editor else "EDITOR: unknown; don't claim which file is open",
         "OTHER STEPS OF THIS LESSON:\n" + "\n".join(f"- {s['id']}: {s.get('title', '')}" for s in steps if s["id"] != sid) if len(steps) > 1 else "",
         f"SCREEN NOW:\n{scr}" if scr else "SCREEN NOW: (not available)",
         f"WORKSPACE FILES:\n{fil}" if fil else "",
@@ -139,6 +135,27 @@ async def _ask(step: dict, check_results: list[dict] | None, screen: Any, files:
         return None
     log.info("judge %s %s %.2fs usage=%s", sid, res.model, res.latency_s, res.usage)
     return res.data, res, checks, status, steps
+
+
+def _file_blocker(step: dict, check: dict, files: dict[str, str] | None, screen: Any) -> str | None:
+    """Why Claude may NOT pass a check about a file: "unsaved" | "not seen" | "empty", or None.
+    Michael: step 1 showed as passed while calculator.py was unsaved (and in another folder)."""
+    name = (check.get("file") or "").rsplit("/", 1)[-1]
+    if not name:
+        expected = (step_file(step) or "").rsplit("/", 1)[-1]
+        name = expected if expected and expected in (check.get("label") or "") else ""
+    if not name:
+        return None
+    ed = editor_state(screen) if screen is not None else {}
+    if ed and ed.get("unsaved") and (ed.get("untitled") or ed.get("file") == name):
+        return "unsaved"
+    text = next((t for p, t in (files or {}).items() if p == name or p.rsplit("/", 1)[-1] == name), None)
+    if text is None:
+        return "not seen"
+    return "empty" if not text.strip() else None
+
+
+SAVE_FIRST = "Save with ⌘S so I can check it"
 
 
 def _meta(res: llm.CallResult) -> dict:
@@ -158,7 +175,8 @@ def _box_for(screen: Any, text: str) -> dict | None:
 
 
 async def judge_step(step: dict, screen: Any = None, files: dict[str, str] | None = None, *,
-                     check_results: list[dict] | None = None, focused_app: str = "", lesson: dict | None = None) -> dict | None:
+                     check_results: list[dict] | None = None, focused_app: str = "", lesson: dict | None = None,
+                     active_file: dict | None = None) -> dict | None:
     """The "Check" button (action check_step): judge now, no idle/rate gates (the learner asked).
 
     → {"checks": {id: {"verdict": "done"|"not_done"|"unsure", "reason", "evidence"}}, "done": bool,
@@ -166,18 +184,27 @@ async def judge_step(step: dict, screen: Any = None, files: dict[str, str] | Non
     `done` = every check passed by the machine or judged done by Claude (confidence >= 0.6).
     None only when the model is unavailable.
     """
-    asked = await _ask(step, check_results, screen, files, focused_app, lesson)
+    if llm.offline_mode():
+        return _offline_judgment(step, check_results, screen)
+    asked = await _ask(step, check_results, screen, files, focused_app, lesson, active_file)
     if asked is None:
         return None
     data, res, checks, status, _steps = asked
     by_id = {c["id"] for c in checks}
+    check_by_id = {c["id"]: c for c in checks}
     out: dict[str, dict] = {}
+    blocked: set[str] = set()
     for v in data.get("checks") or []:
         if v.get("check_id") in by_id:
             verdict = {"done": "done", "not_done": "not_done"}.get(v.get("verdict"), "unsure")
+            reason = v.get("reason", "")
             if verdict == "done" and float(v.get("confidence") or 0) < LOOKS_DONE_CONFIDENCE:
                 verdict = "unsure"
-            out[v["check_id"]] = {"verdict": verdict, "reason": v.get("reason", ""), "evidence": v.get("evidence", "")}
+            if verdict == "done" and status.get(v["check_id"], {}).get("status") != "pass" and (
+                    why := _file_blocker(step, check_by_id[v["check_id"]], files, screen)):
+                verdict, reason = "unsure", f"the file is {why}, so I can't confirm it"
+                blocked.add(why)
+            out[v["check_id"]] = {"verdict": verdict, "reason": reason, "evidence": v.get("evidence", "")}
     for cid in by_id - out.keys():
         out[cid] = {"verdict": "unsure", "reason": "not judged", "evidence": ""}
     done = bool(checks) and all(status.get(c["id"], {}).get("status") == "pass" or out[c["id"]]["verdict"] == "done" for c in checks)
@@ -185,6 +212,8 @@ async def judge_step(step: dict, screen: Any = None, files: dict[str, str] | Non
     where = None
     if not done and (editor_state(screen) or step_file(step)):
         where = where_hint(step, None, screen)
+    if "unsaved" in blocked:
+        missing = where = SAVE_FIRST
     target = None
     if hasattr(screen, "boxes"):
         ev = next((o["evidence"] for o in out.values() if o["evidence"] and (o["verdict"] == "done") == done), "")
@@ -195,47 +224,67 @@ async def judge_step(step: dict, screen: Any = None, files: dict[str, str] | Non
 
 
 
+def _offline_judgment(step: dict, check_results: list[dict] | None, screen: Any) -> dict:
+    """The Check button in DEMO / stubbed mode: no model; machine-passed checks are done, the rest
+    'unsure'. `done` only if every check already passed."""
+    status = {r.get("checkId"): r.get("status") for r in check_results or []}
+    checks = [c for c in step.get("checks") or [] if c.get("id")]
+    out = {c["id"]: ({"verdict": "done", "reason": "the check passed", "evidence": ""} if status.get(c["id"]) == "pass"
+                     else {"verdict": "unsure", "reason": "offline: Claude didn't look", "evidence": ""}) for c in checks}
+    done = bool(checks) and all(v["verdict"] == "done" for v in out.values())
+    where = None if done or not (editor_state(screen) or step_file(step)) else where_hint(step, None, screen)
+    return {"checks": out, "done": done, "missing": "", "where": where, "target": None, "offline": True, "_meta": {"model": None}}
+
+
 class StepJudge:
-    def __init__(self, *, min_interval_s: float = 20.0, idle_s: float = 8.0, clock: Callable[[], float] = time.monotonic):
-        self.min_interval_s, self.idle_s, self.clock = min_interval_s, idle_s, clock
-        self._last_t: dict[str, float] = {}
-        self._last_sig: dict[str, str] = {}
+    """Periodic judge with the cost gate (gate.PeriodicGate): changed screen/files only, never while
+    the reader is down or the display sleeps, 20 s → 5 min backoff on repeat verdicts, stop after 3."""
+
+    def __init__(self, *, min_interval_s: float = 20.0, idle_s: float = 8.0, cap_s: float = 300.0, stop_after: int = 3,
+                 clock: Callable[[], float] = time.monotonic):
+        self.idle_s, self.clock = idle_s, clock
+        self.gate = PeriodicGate(base_s=min_interval_s, cap_s=cap_s, stop_after=stop_after, clock=clock)
 
     def should_judge(self, step: dict, check_results: list[dict], *, idle_s: float, video_playing: bool,
-                     screen: Any = None, files: dict[str, str] | None = None, focused_app: str = "") -> bool:
-        sid = step.get("id", "")
-        if video_playing or idle_s < self.idle_s:
-            return False
+                     screen: Any = None, files: dict[str, str] | None = None, focused_app: str = "",
+                     screen_ok: bool = True, display_asleep: bool = False, file_mtimes: dict[str, Any] | None = None) -> bool:
+        """`file_mtimes` ({path: mtime}) is preferred over `files` for change detection."""
+        if llm.offline_mode() or screen is None or video_playing or idle_s < self.idle_s:
+            return False  # offline (DEMO): never; no screen = the reader is down
         if check_results and all(r.get("status") == "pass" for r in check_results):
             return False
-        last = self._last_t.get(sid)
-        if last is not None and self.clock() - last < self.min_interval_s:
-            return False
-        sig = _sig(screen_text(screen, focused_app), files_text(files))
-        return sig != self._last_sig.get(sid)
+        return self.gate.allow(step.get("id", ""), screen=screen_text(screen, focused_app), files=file_mtimes or files,
+                               screen_ok=screen_ok, asleep=display_asleep)
 
     async def judge(self, step: dict, check_results: list[dict], *, screen: Any = None, files: dict[str, str] | None = None,
-                    focused_app: str = "", lesson: dict | None = None) -> dict | None:
+                    focused_app: str = "", lesson: dict | None = None, file_mtimes: dict[str, Any] | None = None) -> dict | None:
         """{"checks": [...], "events": [check.updated...], "card": {...} | None, "summary", "_meta"}, or None."""
         sid = step.get("id", "")
-        self._last_t[sid] = self.clock()
-        self._last_sig[sid] = _sig(screen_text(screen, focused_app), files_text(files))
+        self.gate.started(sid, screen=screen_text(screen, focused_app), files=file_mtimes or files)
         asked = await _ask(step, check_results, screen, files, focused_app, lesson)
         if asked is None:
             return None
         data, res, checks, status, steps = asked
-        return self._decide(step, checks, status, steps, data) | {"_meta": _meta(res)}
+        out = self._decide(step, checks, status, steps, data, files, screen)
+        verdict = (tuple(sorted((v["check_id"], v["verdict"]) for v in out["checks"])), data.get("on_step_id", ""),
+                   (out["card"] or {}).get("title"), len(out["events"]))
+        self.gate.record(sid, verdict)
+        return out | {"_meta": _meta(res) | {"gate": self.gate.state(sid)}}
 
-    def _decide(self, step: dict, checks: list[dict], status: dict, steps: list[dict], data: dict) -> dict:
+    def _decide(self, step: dict, checks: list[dict], status: dict, steps: list[dict], data: dict,
+                files: dict[str, str] | None = None, screen: Any = None) -> dict:
         sid = step.get("id", "")
         by_id = {c["id"]: c for c in checks}
         verdicts = [v for v in data.get("checks") or [] if v.get("check_id") in by_id]  # unknown ids dropped
         summary = clamp_words(data.get("summary", ""), 12).rstrip(".")
-        events, disagree = [], []
+        events, disagree, blocked = [], [], set()
         for v in verdicts:
             c, st = by_id[v["check_id"]], status.get(v["check_id"], {}).get("status", "pending")
             conf = float(v.get("confidence") or 0)
             if v["verdict"] != "done" or st == "pass":
+                continue
+            if why := _file_blocker(step, c, files, screen):  # never pass a file nobody has saved/seen
+                blocked.add(why)
                 continue
             if st == "fail":  # a deterministic check disagrees: ask, don't overrule it
                 if conf >= LOOKS_DONE_CONFIDENCE:
@@ -252,6 +301,8 @@ class StepJudge:
             card = {"stepId": sid, "kind": "answer", "title": "Already ahead?",
                     "body": clamp_words(f"You look to be on “{other.get('title', other['id'])}” already", 12),
                     "actions": ["skip_step"], "targetStepId": other["id"]}
+        elif "unsaved" in blocked:
+            card = {"stepId": sid, "kind": "answer", "title": "Save so I can check", "body": f"{SAVE_FIRST}.", "actions": []}
         elif disagree:
             card = {"stepId": sid, "kind": "answer", "title": "Looks done?",
                     "body": summary or clamp_words(disagree[0].get("evidence") or disagree[0].get("reason", ""), 12),

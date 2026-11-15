@@ -43,6 +43,7 @@ class Rig:
         self.s.offtrack_grace_s = 0  # most tests drive the ladder at once; the grace has its own test
         self.s.CARD_GAP_S = 0  # pacing (8 s between cards, 2 s between spotlight moves) has its own test
         self.s.SPOT_MIN_GAP_S = 0
+        self.s.has_python = True  # run-step wording: `python` is there (the python3 rewrite has its own test)
 
     @property
     def events(self) -> list[dict]:
@@ -2057,7 +2058,8 @@ def test_just_teach_me_lesson_mode_has_no_video_and_spotlights_where_to_type(tmp
     assert [s["id"] for s in rig.of("lesson.updated")[0]["steps"]] == ["s2"]
     assert calls and rig.s.editor_open  # opened without an "Open VS Code?" card
     spot = rig.of("spotlight")[-1]
-    assert spot["caption"] == "Type add() here" and spot["snippet"] == "def add(a, b):\n    return a + b\n"
+    assert spot["caption"] == "In VS Code, type def add(a, b): … in calc.py"  # the step's one action, as in the drawer
+    assert spot["snippet"] == "def add(a, b):\n    return a + b\n"
     assert spot["matched"] == "# add goes here"
 
 
@@ -2287,7 +2289,7 @@ def test_stuck_card_offers_skip_once_after_90s_idle(rig):
         await rig.settle()
 
     run(go())
-    stuck = [c for c in rig.of("card") if c["title"] == "Stuck on this step?"]
+    stuck = [c for c in rig.of("card") if c["title"] == "Need a hand?"]
     assert len(stuck) == 1 and stuck[0]["actions"] == ["skip_step"]
 
 
@@ -2483,10 +2485,10 @@ def test_step_started_instructions_are_one_concrete_action(rig):
     s = rig.s
     assert s._action_line({"id": "s1", "title": "t", "file": "calculator.py",
                            "code": "print(\"Calculator\")\nx = 1\n", "instructions": "Long text."}) \
-        == 'Create calculator.py and type print("Calculator") …'
+        == 'In VS Code, create calculator.py and type print("Calculator") …'
     (rig.workdir / "calculator.py").write_text("")
     assert s._action_line({"id": "s1", "title": "t", "file": "calculator.py", "code": "print(1)\n"}) \
-        == "In calculator.py, type print(1)"
+        == "In VS Code, type print(1) in calculator.py"
     assert s._action_line({"id": "s2", "title": "t", "instructions": "Add an nn.Tanh after each Linear layer. "
                                                                      "This keeps the output smooth."}) \
         == "Add an nn.Tanh after each Linear layer."
@@ -2566,9 +2568,9 @@ def test_run_step_boxes_the_vscode_terminal_never_the_breadcrumb(tmp_path, monke
 
     first = run(go())
     assert first["caption"] == "Open the terminal: ⌃`" and first["snippet"] == "python calc.py"
-    assert first["rect"]["y"] >= 70  # the editor area, below the tab bar / breadcrumb
+    assert first["rect"] == {"x": 0.0, "y": 976.0, "w": 1200.0, "h": 24.0}  # the status bar, never empty space
     last = rig.of("spotlight")[-1]
-    assert last["caption"] == "Run it in the VS Code terminal" and last["rect"]["y"] == 100.0 + 20 * 22
+    assert last["caption"] == "Run python calc.py in the VS Code terminal" and last["rect"]["y"] == 100.0 + 20 * 22
     assert not [s for s in rig.of("spotlight") if "matched" in s and ">" in s["matched"]]
 
 
@@ -2603,7 +2605,7 @@ def test_auto_cards_are_paced_20s_into_a_step_and_8s_apart(rig):
 
     async def go():
         await _to_step(rig, 1)
-        card = {"stepId": "s2", "kind": "hint", "title": "Stuck on this step?", "body": "b", "actions": ["skip_step"]}
+        card = {"stepId": "s2", "kind": "hint", "title": "Need a hand?", "body": "b", "actions": ["skip_step"]}
         assert await rig.s._emit_card(card, auto=True) is False  # 0 s into the step
         rig.clock.t += 21
         await rig.s._emit_card({**card, "title": "Not yet", "kind": "answer"})  # a card the learner asked for
@@ -2657,6 +2659,7 @@ def test_run_step_uses_e6_terminal_region(tmp_path, monkeypatch):
     async def go():
         await rig.s.learn("calc", mode="lesson")
         await rig.settle()
+        rig.s.last_obs = _code_window()
         await rig.s.goto_step(1)
         await asyncio.sleep(0.05)
         first = dict(rig.of("spotlight")[-1])
@@ -2665,6 +2668,432 @@ def test_run_step_uses_e6_terminal_region(tmp_path, monkeypatch):
         return first
 
     first = run(go())
-    assert first["caption"] == "Open the terminal: ⌃`" and first["rect"]["y"] == 80.0
+    assert first["caption"] == "Open the terminal: ⌃`" and first["rect"]["h"] == 24.0  # status bar, not the editor
     last = rig.of("spotlight")[-1]
-    assert last["caption"] == "Run it in the VS Code terminal" and last["rect"] == {"x": 260.0, "y": 600.0, "w": 900.0, "h": 240.0}
+    assert last["caption"] == "Run python calc.py in the VS Code terminal"
+    assert last["rect"] == {"x": 260.0, "y": 600.0, "w": 900.0, "h": 240.0}
+
+
+
+def test_leaving_vscode_clears_the_box_and_coming_back_reboxes(tmp_path, monkeypatch):
+    from types import SimpleNamespace as NS
+
+    async def build(goal, workdir, on_update=None, **kw):
+        return _text_lesson()
+
+    rig, screen, _ = _lesson_rig(tmp_path, monkeypatch, build)
+    (tmp_path / "calc.py").write_text("# add goes here\n")
+    screen.text["Code"] = ["# add goes here"]
+
+    async def go():
+        await rig.s.learn("calc", mode="lesson")
+        await rig.settle()
+        await asyncio.sleep(0.05)
+        assert rig.s.spot_rect is not None
+        await rig.s.on_screen(NS(app="Claude", windows=[]))  # swiped to another app / Space
+        assert rig.of("spotlight")[-1] == {"clear": True} and rig.s.spot_rect is None
+        await rig.s.on_screen(NS(app="Miyagi", windows=[]))  # our own cards: no change
+        await rig.s.on_screen(NS(app="Code", windows=[]))  # back in VS Code: re-scan, re-box
+        await asyncio.sleep(0.05)
+
+    run(go())
+    assert rig.of("spotlight")[-1].get("rect") and rig.of("spotlight")[-1]["matched"] == "# add goes here"
+
+
+def test_unsaved_file_says_save_before_any_offtrack_and_judge_cannot_pass_it(tmp_path, monkeypatch):
+    from types import SimpleNamespace as NS
+
+    async def build(goal, workdir, on_update=None, **kw):
+        return _text_lesson()
+
+    rig, screen, _ = _lesson_rig(tmp_path, monkeypatch, build)
+    rig.s.check_wait_s = 0
+
+    async def judge_step(step, screen=None, files=None, **kw):
+        return {"done": True, "missing": "", "checks": {"s1p1": {"verdict": "done"}}}
+
+    rig.s.m.judge_step = judge_step
+
+    async def go():
+        await rig.s.learn("calc", mode="lesson")
+        await rig.settle()
+        title = f"● calc.py — {tmp_path.name} — Visual Studio Code"
+        rig.s.last_obs = NS(app="Code", windows=[NS(app="Code", title=title)])
+        await rig.s.action("check_step")  # Claude "sees" add() on screen, but the file on disk is empty
+        await rig.settle()
+        rig.s.last_action_t = rig.clock()
+        rig.s._consider_speaking("idle", rig.s.step, [{"checkId": "s1p1", "status": "fail"}], rig.s.context())
+        await rig.settle()
+
+    run(go())
+    assert not rig.of("step.passed") and not rig.of("offtrack")
+    titles = [c["title"] for c in rig.of("card")]
+    assert "Not yet" in titles and "Save calc.py" in titles
+    assert any("Save calc.py" in c["body"] for c in rig.of("card") if c["title"] == "Not yet")
+    assert [c for c in rig.of("card") if c["title"] == "Not yet"][0]["actions"] == ["apply_fix", "skip_step"]
+
+
+def test_another_lessons_folder_gets_one_calm_card(tmp_path, monkeypatch):
+    from types import SimpleNamespace as NS
+
+    async def build(goal, workdir, on_update=None, **kw):
+        return _text_lesson()
+
+    rig, _, _ = _lesson_rig(tmp_path, monkeypatch, build)
+
+    async def go():
+        await rig.s.learn("calc", mode="lesson")
+        await rig.settle()
+        rig.s.last_obs = NS(app="Code", windows=[NS(app="Code", title="calc.py — old-lesson-1a2b3c — Visual Studio Code")])
+        rig.s.last_action_t = rig.clock()
+        for _ in range(2):
+            rig.s._consider_speaking("idle", rig.s.step, [{"checkId": "s1p1", "status": "fail"}], rig.s.context())
+            await rig.settle()
+
+    run(go())
+    cards = [c for c in rig.of("card") if c["title"] == "Wrong folder?"]
+    assert len(cards) == 1 and cards[0]["actions"] == ["open_editor"] and "old-lesson-1a2b3c/calc.py" in cards[0]["body"]
+    assert not rig.of("offtrack")
+
+
+
+def test_run_step_wording_and_terminal_pseudo_file(rig):
+    s = rig.s
+    run_step = {"id": "s7", "title": "Run it", "file": "calculator.py", "code": "python calculator.py\n",
+                "targets": [{"file": "calculator.py", "match": "calculator"}]}
+    assert s._action_line(run_step) == "Run python calculator.py in the VS Code terminal"
+    assert s._action_line({**run_step, "file": "(terminal)", "targets": [{"file": "(terminal)", "match": "x"}]}) \
+        == "Run python calculator.py in the VS Code terminal"
+    assert s._step_file({"id": "s2", "file": "(terminal)", "targets": [{"file": "(terminal)"}]}) is None
+
+
+def test_coach_holds_never_become_offtracks(rig):
+    holds = iter([{"hold": "unconfirmed"}, {"hold": "unsaved", "title": "Save calc.py", "body": "Save with ⌘S so I can check it."}])
+    seen = []
+
+    async def diagnose(step, failed, metrics, code, **kw):
+        seen.append(kw)
+        return next(holds)
+
+    rig.s.m.diagnose = diagnose
+
+    async def go():
+        await _to_step(rig, 5)
+        rig.write("def train(model):\n    beta = 30\n")
+        await rig.end_segment()
+        await rig.run("r1", PLATEAU)  # unconfirmed OCR: nothing
+        n = len(rig.of("card"))
+        assert len(rig.of("card")) == n and not rig.of("offtrack")
+        rig.clock.t += 30
+        await rig.run("r2", PLATEAU)  # unsaved: a calm "save" hint
+
+    run(go())
+    assert not rig.of("offtrack") and rig.of("card")[-1]["title"] == "Save calc.py"
+    assert seen[0]["code_source"] == "file" and seen[0]["file_state"]["saved"] is True
+
+
+def test_screen_check_cannot_pass_a_lesson_step_whose_file_is_unsaved(tmp_path, monkeypatch):
+    from types import SimpleNamespace as NS
+
+    g = _text_lesson()
+    g["steps"][0]["checks"] = [{"id": "s1c1", "type": "screen_contains", "label": "add() typed", "pattern": "def add",
+                                "app": "Code"}]
+
+    async def build(goal, workdir, on_update=None, **kw):
+        return g
+
+    rig, screen, _ = _lesson_rig(tmp_path, monkeypatch, build)
+
+    async def go():
+        await rig.s.learn("calc", mode="lesson")
+        await rig.settle()
+        screen.text["Code"] = ["def add(a, b):", "    return a + b"]  # typed, not saved: calc.py is empty on disk
+        title = f"● calc.py — {tmp_path.name} — Visual Studio Code"
+        rig.s.last_obs = NS(app="Code", windows=[NS(app="Code", title=title)])
+        rig.s.last_action_t = rig.clock()
+        await rig.s.evaluate("file")
+        await rig.settle()
+
+    run(go())
+    assert not rig.of("step.passed")
+    assert any(c["title"] == "Save calc.py" for c in rig.of("card"))
+
+
+
+def test_use_this_folder_adopts_the_learners_folder(tmp_path, monkeypatch):
+    from server.orchestrator import workspace as wsmod
+
+    async def build(goal, workdir, on_update=None, **kw):
+        return _text_lesson()
+
+    rig, _, _ = _lesson_rig(tmp_path, monkeypatch, build)
+    theirs = tmp_path / "old-lesson"
+    theirs.mkdir()
+    (theirs / "calc.py").write_text("def add(a, b):\n    return a + b\n")
+    adopted = []
+
+    class S2:
+        @staticmethod
+        def adopt_folder(lesson_folder, learner_folder):
+            adopted.append((lesson_folder, learner_folder))
+            return {"workdir": str(learner_folder), "copied": ["README.md"], "skipped": []}
+
+    moved = []
+
+    async def go():
+        await rig.s.learn("calc", mode="lesson")
+        await rig.settle()
+        monkeypatch.setattr(wsmod, "_s2", lambda: S2)
+        rig.s.on_workdir = moved.append
+        rig.s._wrong_folder = {"learner_folder": str(theirs), "learner_folder_name": "old-lesson", "file": "calc.py",
+                               "can_adopt": True}
+        await rig.s.action("use_this_folder")
+        await rig.settle()
+
+    run(go())
+    assert adopted and rig.s.workdir == str(theirs) and moved == [str(theirs)]
+    assert rig.of("card")[-1]["title"] == "Using old-lesson"
+    assert rig.of("step.passed")[0]["stepId"] == "s1"  # its file there already has add(): the check passes
+
+
+def test_run_it_for_me_runs_the_command_shows_output_and_passes_the_run_check(tmp_path, monkeypatch):
+    """Michael: "it's asking me to run but nothing happens". The Run it button runs the step's command in the lesson
+    folder (real subprocess here), shows the last lines and feeds the run check its real exit code / output."""
+    g = _run_lesson()
+    g["steps"][1]["precision_checks"] = [{"id": "s2p1", "type": "command_exit_ok", "label": "runs", "command": "python calc.py"},
+                                         {"id": "s2p2", "type": "output_contains", "label": "prints 5", "pattern": "5"}]
+
+    async def build(goal, workdir, on_update=None, **kw):
+        return g
+
+    rig, _, _ = _lesson_rig(tmp_path, monkeypatch, build)
+    import sys
+    (tmp_path / "calc.py").write_text("def add(a, b):\n    return a + b\nprint(add(2, 3))\n")
+    monkeypatch.setenv("PATH", f"{Path(sys.executable).parent}:{__import__('os').environ['PATH']}")
+
+    async def go():
+        await rig.s.learn("calc", mode="lesson")
+        await rig.settle()
+        await rig.s.goto_step(1)
+        await rig.settle()
+        assert [c for c in rig.of("card") if c["title"] == "Run it"][-1]["actions"] == ["run_command"]
+        await rig.s.action("run_command")
+        await rig.settle()
+
+    run(go())
+    ran = [c for c in rig.of("card") if c["title"].startswith("Ran ")][-1]
+    assert ran["title"] == "Ran python calc.py" and ran["output"] == "5" and ran["body"] == "It ran without errors."
+    assert rig.of("step.passed")[-1]["stepId"] == "s2"
+
+
+def test_run_it_for_me_reports_a_failure_and_a_hang(tmp_path, monkeypatch):
+    async def build(goal, workdir, on_update=None, **kw):
+        g = _run_lesson()
+        g["steps"][1]["precision_checks"] = [{"id": "s2p1", "type": "command_exit_ok", "label": "runs"}]
+        return g
+
+    rig, _, _ = _lesson_rig(tmp_path, monkeypatch, build)
+    rig.s.RUN_TIMEOUT_S = 1.0
+    (tmp_path / "calc.py").write_text("x = 1\n")
+    step = {"id": "s2", "title": "Run", "code": "python3 -c 'import sys; print(\"boom\"); sys.exit(3)'\n"}
+    hang = {"id": "s2", "title": "Run", "code": "python3 -c 'import time; time.sleep(5)'\n"}
+
+    async def go():
+        await rig.s.learn("calc", mode="lesson")
+        await rig.settle()
+        await rig.s._run_for_me(step)
+        await rig.s._run_for_me(hang)
+
+    run(go())
+    cards = [c for c in rig.of("card") if c["title"].startswith("Ran ")]
+    assert cards[0]["body"] == "It stopped with exit code 3." and cards[0]["output"] == "boom"
+    assert cards[1]["body"].startswith("Stopped after 1 s")
+
+
+def test_do_it_for_me_appends_the_step_code_and_says_what_it_added(tmp_path, monkeypatch):
+    """Lesson mode, no coach: the step's code is previewed (exact diff), written on confirm, and the result line
+    names what was added; the checks re-run and the step passes."""
+    async def build(goal, workdir, on_update=None, **kw):
+        return _text_lesson()
+
+    rig, _, _ = _lesson_rig(tmp_path, monkeypatch, build)
+
+    async def go():
+        await rig.s.learn("calc", mode="lesson")
+        await rig.settle()
+        (tmp_path / "calc.py").write_text("# my calculator\n")
+        await rig.s.action("apply_fix")
+        await rig.settle()
+        prev = rig.of("card")[-1]
+        assert prev["title"] == "Type this for you?" and "+def add(a, b):" in prev["diff"]
+        await rig.s.action("confirm")
+        await rig.settle()
+
+    run(go())
+    assert (tmp_path / "calc.py").read_text() == "# my calculator\n\ndef add(a, b):\n    return a + b\n"
+    assert any(c["title"] == "Done" and c["body"] == "Added def add(a, b) to calc.py." for c in rig.of("card"))
+    assert rig.of("step.passed")[0]["stepId"] == "s1"
+
+
+def test_lesson_mode_vision_pick_boxes_the_line_when_text_and_gutter_miss(tmp_path, monkeypatch):
+    """Short new file: OCR has neither the target text nor the line numbers, so the text match and the gutter line
+    both miss. The Haiku set-of-marks pick (screen.pick) boxes the row, at most twice per step; a pick that isn't an
+    editor row (toolbar / region) is never used for a type step."""
+    async def build(goal, workdir, on_update=None, **kw):
+        return _text_lesson()
+
+    for kind, boxed in (("blank", True), ("toolbar", False)):
+        rig, screen, calls = _lesson_rig(tmp_path / kind, monkeypatch, build)
+        (tmp_path / kind).mkdir(exist_ok=True)
+        asked: list[str] = []
+        rect = {"x": 618.0, "y": 238.0, "w": 520.0, "h": 23.0}
+
+        async def pick(intent, app="Code", kind=kind):
+            asked.append(intent)
+            return {"rect": rect, "box_ids": [501], "label": "blank line", "kind": kind, "confidence": 0.9,
+                    "reason": "next line"}
+
+        async def no_line(step):
+            return None
+
+        screen.reader = object()          # "the real reader is running" (vision is only used then)
+        screen.pick = pick
+        rig.s._editor_line_spot = no_line
+
+        async def go():
+            await rig.s.learn("build a calculator", mode="lesson")
+            await rig.settle()
+            await asyncio.sleep(1.3)      # try 2 of _lesson_spot asks vision
+
+        run(go())
+        assert asked and "def add(a, b):" in asked[0] and "calc.py" in asked[0]
+        spots = [sp for sp in rig.of("spotlight") if sp.get("rect") == rect]
+        if boxed:
+            assert spots and spots[-1]["caption"] == "In calc.py, type def add(a, b): …"
+            assert spots[-1]["snippet"] == "def add(a, b):\n    return a + b\n"
+            assert len(asked) == 1
+        else:
+            assert not spots
+
+
+def test_lesson_mode_targeter_confirms_moves_or_drops_the_located_box(tmp_path, monkeypatch):
+    """_confirm_spot: screen.confirm (Haiku verifier) returns the box to show. A moved rect replaces the located one;
+    None (Haiku is sure nothing on screen matches) means no box; the question is the step's caption + code."""
+    async def build(goal, workdir, on_update=None, **kw):
+        return _text_lesson()
+
+    moved = {"x": 330.0, "y": 580.0, "w": 330.0, "h": 22.0}
+    for name, answer in (("moved", moved), ("dropped", None)):
+        rig, screen, calls = _lesson_rig(tmp_path / name, monkeypatch, build)
+        (tmp_path / name).mkdir(exist_ok=True)
+        (tmp_path / name / "calc.py").write_text("# add goes here\n")
+        screen.text["Code"] = ["calc.py", "# add goes here"]
+        asked: list[tuple] = []
+
+        async def confirm(rect, intent, app="Code", answer=answer):
+            asked.append((rect, intent))
+            return answer
+
+        async def no_line(step):
+            return None
+
+        screen.reader = object()
+        screen.confirm = confirm
+        rig.s._editor_line_spot = no_line
+        rig.s._vision_spot = no_line
+
+        async def go():
+            await rig.s.learn("build a calculator", mode="lesson")
+            await rig.settle()
+            await asyncio.sleep(0.05)
+
+        run(go())
+        assert asked and asked[0][0]["y"] == 120.0                      # FakeScreen's located row
+        assert asked[0][1].startswith("In calc.py, type def add(a, b): …") and "(code: def add(a, b):" in asked[0][1]
+        boxes = [sp for sp in rig.of("spotlight") if "rect" in sp]
+        if answer is None:
+            assert not boxes
+        else:
+            assert boxes and boxes[-1]["rect"] == moved and boxes[-1]["matched"] == "# add goes here"
+
+
+
+def test_s11_run_steps_anchors_and_python3(rig, tmp_path):
+    """S11's rehearsal: a run step with code + run_command, regex-looking anchors, missing anchors, no `python`."""
+    from server.orchestrator import workspace as wsmod
+
+    (rig.workdir / "calculator.py").write_text('"""Calc."""\n\ndef add(a, b):\n    return a + b\n\nprint(add(2, 3))\n')
+    loc = wsmod.target_location(rig.workdir, {"targets": [{"file": "calculator.py", "match": "return a + b"}]})
+    assert loc[1] == 4  # literal first: the regex '+' doesn't send it to line 1
+    loc = wsmod.target_location(rig.workdir, {"targets": [{"file": "calculator.py", "match": "print(add(2, 3))"}]})
+    assert loc[1] == 6
+    loc = wsmod.target_location(rig.workdir, {"targets": [{"file": "calculator.py", "match": "def main"}]}, missing="end")
+    assert loc[1] == 7  # not in the file: where the new code goes
+
+    s2 = {"id": "s2", "title": "Run your first output", "file": "calculator.py", "code": "print(add(2, 3))",
+          "run_command": "python calculator.py", "details": "In the terminal, run python calculator.py"}
+    assert rig.s._run_command(s2) == "python calculator.py"  # its code is already in the file: a run step
+    assert rig.s._action_line(s2) == "Run python calculator.py in the VS Code terminal"
+    s8 = {"id": "s8", "title": "Try it", "file": "(terminal)", "code": "python calculator.py"}
+    assert rig.s._action_line(s8) == "Run python calculator.py in the VS Code terminal"
+    rig.s.has_python = False  # this Mac: python3 only
+    assert rig.s._run_command(s2) == "python3 calculator.py"
+    assert rig.s._run_command({"id": "x", "code": "cd app && python main.py"}) == "cd app && python3 main.py"
+
+
+
+def test_lesson_step_passes_on_its_own_when_the_file_is_saved(tmp_path, monkeypatch):
+    """S1: steps didn't advance after the learner saved (no keyboard signal in the harness). A save of the step's
+    file since the step began is the learner's action."""
+    import time as _t
+
+    async def build(goal, workdir, on_update=None, **kw):
+        return _text_lesson()
+
+    rig, screen, _ = _lesson_rig(tmp_path, monkeypatch, build)
+
+    async def go():
+        await rig.s.learn("calc", mode="lesson")
+        await rig.settle()
+        _t.sleep(0.1)
+        (tmp_path / "calc.py").write_text("def add(a, b):\n    return a + b\n")  # saved, no watcher event
+        await rig.s.evaluate("screen")
+        await rig.settle()
+
+    run(go())
+    assert rig.of("step.passed")[0]["stepId"] == "s1"
+
+
+def test_run_step_passes_from_vscode_integrated_terminal_output(tmp_path, monkeypatch):
+    """S9: app:Terminal checks read VS Code's terminal panel (E6 region) too; new output there = the learner ran it."""
+    from types import SimpleNamespace as NS
+
+    g = _run_lesson()
+    g["steps"][1]["checks"] = [{"id": "s2c1", "type": "screen_contains", "label": "prints 5", "pattern": "^5$",
+                                "app": "Terminal"}]
+    g["steps"][1]["precision_checks"] = []
+
+    async def build(goal, workdir, on_update=None, **kw):
+        return g
+
+    rig, screen, _ = _lesson_rig(tmp_path, monkeypatch, build)
+    (tmp_path / "calc.py").write_text("print(5)\n")
+    screen.regions = {"terminal": {"x": 0.0, "y": 600.0, "w": 1200.0, "h": 300.0}}
+
+    def block(text, y):
+        return NS(text=text, app="Code", rect={"x": 10.0, "y": y, "w": 300.0, "h": 18.0})
+
+    async def go():
+        await rig.s.learn("calc", mode="lesson")
+        await rig.settle()
+        rig.s.last_obs = NS(app="Code", windows=[], blocks=[block("print(5)", 100.0)])
+        await rig.s.goto_step(1)
+        await rig.settle()
+        assert not [p for p in rig.of("step.passed") if p["stepId"] == "s2"]
+        rig.s.last_obs = NS(app="Code", windows=[], blocks=[block("print(5)", 100.0),
+                                                            block("% python3 calc.py", 620.0), block("5", 640.0)])
+        await rig.s.on_screen(rig.s.last_obs)
+        await rig.settle()
+
+    run(go())
+    assert rig.of("step.passed")[-1]["stepId"] == "s2"

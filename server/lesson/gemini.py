@@ -27,6 +27,8 @@ DEFAULT_FAST_MODEL = "gemini-3.8-flash"
 
 
 def _load_env() -> None:
+    if os.environ.get("LESSON_NO_DOTENV") == "1":  # tests: never pick up real keys
+        return
     try:
         from dotenv import load_dotenv
     except ImportError:
@@ -165,6 +167,8 @@ async def _generate_json(model_id: str, parts: list[types.Part], schema: dict, *
                 um = getattr(resp, "usage_metadata", None)
                 cost.add_tokens(mid, getattr(um, "prompt_token_count", 0),
                                 (getattr(um, "candidates_token_count", 0) or 0) + (getattr(um, "thoughts_token_count", 0) or 0))
+                log.info("gemini call: model=%s in=%s out=%s", mid, getattr(um, "prompt_token_count", "?"),
+                         (getattr(um, "candidates_token_count", 0) or 0) + (getattr(um, "thoughts_token_count", 0) or 0))
                 out = json.loads(resp.text or "")
                 global last_model
                 last_model = mid

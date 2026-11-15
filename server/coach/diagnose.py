@@ -3,9 +3,12 @@
 from __future__ import annotations
 
 import asyncio
+import copy
+import hashlib
 import json
 import logging
 import re
+import time
 from collections.abc import Callable
 from typing import Any
 
@@ -33,6 +36,7 @@ from .playbook import (
     offending_line,
     playbook_text,
 )
+from .pointing import lesson_mode
 from .screen import TARGETS_RULES, TARGETS_SCHEMA, ScreenContext, TargetStream
 from .triage import triage
 
@@ -57,6 +61,9 @@ Hard limits:
 - guiding_question: one Socratic question (at most 20 words) about THIS cause that leads the learner to the fix without stating it, e.g. "What happens to Adam's steps when the learning rate is large?". It is the first rung of the hint ladder.
 
 - Trust what is on screen (error text, versions in tracebacks) over the lesson's library versions: the learner may have a newer release than the tutorial.
+- Never say or guess which file is open or active in the editor from the screen text: the Explorer, tab strip, breadcrumbs and overlays (e.g. VS Code's inline chat over line 1) all show file names. Only an "ACTIVE FILE" line says which file is open; without it, don't mention it at all.
+- The body states the cause and the fix; it never asks the learner a question.
+- Code read from the screen (OCR) can contain recognition errors and editor overlays (hover tooltips like "(function) def add(a: Any, b: Any) -> None", autocomplete). Never claim a line is malformed, misnamed or missing syntax because of how OCR text looks; only a saved file or an actual error message can show that.
 - Never put `git add` or `git rebase/merge/cherry-pick --continue` in diff_command while the file still has conflict markers (<<<<<<< ======= >>>>>>>) that your diff does not remove: that would commit the markers. Say to resolve the markers first.
 
 If the evidence is genuinely insufficient, say what to check next instead of guessing.
@@ -131,7 +138,88 @@ def playbook_card(step: dict, mode: FailureMode, code_excerpt: str = "", severit
     }
 
 
-def template_card(step: dict, failed_checks: list, screen: Any = None) -> dict:
+OPEN_FILE_CLAIM = re.compile(
+    r"\b(?:editor|tab|window|vs ?code)\b[^.?!]*\b(?:shows|showing|has|is on|displays|is open|opened)\b"
+    r"|\b(?:is|isn't|is not) (?:the )?(?:open|active|current) (?:file|tab)\b|\bopen in the editor\b|\bnot (?:the )?open file\b",
+    re.IGNORECASE,
+)
+
+
+def _active_file_line(active: dict | None) -> str:
+    if not active:
+        return ""  # unknown: the system rule forbids naming the open file
+    from .pointing import editor_state
+
+    ed = editor_state(None, active)
+    name = ed.get("untitled") or ed.get("file") or "unknown"
+    return f"ACTIVE FILE (from the editor window, authoritative): {name}{' (unsaved)' if ed.get('unsaved') else ''}"
+
+
+def _no_questions_or_open_file_claims(card: dict, known_active: bool) -> bool:
+    """Michael: no Socratic questions on these cards, and never "the editor shows X" guessed from the
+    screen. Drops such sentences from the body (and a claiming title); False if nothing is left."""
+    def keep(sentence: str) -> bool:
+        return not sentence.rstrip().endswith("?") and (known_active or not OPEN_FILE_CLAIM.search(sentence))
+
+    sentences = [x for x in re.split(r"(?<=[.!?])\s+", card.get("body", "")) if x.strip()]
+    kept = [x for x in sentences if keep(x)]
+    if not kept:
+        return False
+    card["body"] = " ".join(kept)
+    if card.get("why"):
+        card["why"] = " ".join(x for x in re.split(r"(?<=[.!?])\s+", card["why"]) if x.strip() and keep(x))
+    if not keep(card.get("title", "") + "."):
+        card["title"] = clamp_title(kept[0])
+    return True
+
+
+LESSON_MODE_RULE = (
+    'LESSON MODE ("Just teach me"): the learner types this lesson\'s code in VS Code. Make the body\'s LAST '
+    "sentence ONE action of at most 12 words that names the file and VS Code (e.g. \"In VS Code, name the "
+    "function add on line 4 of calculator.py.\"); the first sentence is the why."
+)
+
+
+def _lesson_action(card: dict) -> None:
+    """Lesson mode: the card shows one <=12-word action; the why moves behind Explain (S9 #6)."""
+    sentences = [x.strip() for x in re.split(r"(?<=[.!?])\s+", card.get("body", "")) if x.strip()]
+    if not sentences:
+        return
+    action = clamp_words(sentences[-1], 12)
+    card["why"] = " ".join(sentences[:-1])
+    card["body"] = action if action.endswith((".", "!", "?", "…")) else action + "."
+
+
+def error_card(step: dict, error_text: str, code: str) -> dict:
+    """No model available but an error is visible: name it, from the error itself (S9: `SyntaxError` under
+    `def(a, b):` got the "Start: …" card). Says only what the error and the file show."""
+    key = web.error_line(error_text)
+    etype = (re.search(r"([A-Za-z_]*(?:Error|Exception|Warning))\b", key) or re.search(r"(error|fatal)", key, re.IGNORECASE))
+    etype = etype.group(1) if etype else "Error"
+    files = re.findall(r'File "([^"]+)"', error_text)
+    fname = (files[-1] if files else (step.get("file") or "")).rsplit("/", 1)[-1] or "your file"
+    lines = re.findall(r"\bline (\d+)\b", error_text)
+    n = int(lines[-1]) if lines else None
+    code_lines = (code or "").splitlines()
+    src = code_lines[n - 1].strip() if n and 0 < n <= len(code_lines) else ""
+    msg = key.split(":", 1)[1].strip() if ":" in key else key
+    if etype == "SyntaxError" and re.match(r"def\s*\(", src):
+        body = f"`def` needs a name: line {n} of {fname}."
+    elif n:
+        body = clamp_words(f"{etype} on line {n} of {fname}: {msg}", 12)
+    else:
+        body = clamp_words(f"{etype} in {fname}: {msg}", 12)
+    return {
+        "stepId": step.get("id", ""),
+        "severity": "fail",
+        "title": clamp_title(f"{etype} in {fname}"),
+        "body": body,
+        "actions": order_actions(["show_me"] if n else [], has_diff=False),
+        "_meta": {"route": "error_offline"},
+    }
+
+
+def template_card(step: dict, failed_checks: list, screen: Any = None, empty_file: bool = False) -> dict:
     """The learner hasn't started the step yet: NOT an off-track. One plain instruction from the step
     itself (Michael: "Not yet: calculator.py created" + a Socratic question read as a wrong diagnosis).
     `notStarted: true` tells the orchestrator to show it as a nudge, not an `offtrack`. No model call."""
@@ -141,7 +229,7 @@ def template_card(step: dict, failed_checks: list, screen: Any = None) -> dict:
         "stepId": step.get("id", ""),
         "severity": "warn",
         "title": clamp_title(f"Start: {step.get('title', 'this step')}"),
-        "body": clamp_words(start_instruction(step, screen), 30),
+        "body": clamp_words(start_instruction(step, screen, empty_file=empty_file), 30),
         "actions": order_actions(["show_me"] if step.get("targets") else [], has_diff=False),
         "notStarted": True,
         "_meta": {"route": "template"},
@@ -306,8 +394,20 @@ async def diagnose(
     screen: ScreenContext | None = None,
     on_targets: Callable[[list[dict]], Any] | None = None,
     cursor: dict | None = None,
+    file_state: dict | None = None,
+    code_source: str = "file",
+    active_file: dict | None = None,
 ) -> dict:
     """Return an `offtrack` payload for the failed step.
+
+    Holds (no diagnosis, no model call; the card carries `hold` and the orchestrator must NOT show
+    it as an offtrack), from Michael's live misdiagnosis of an unsaved, OCR'd `def add(a, b):`:
+      - `hold: "wrong_folder"`: `file_state["wrong_folder"]`, the learner edits a same-named file
+        elsewhere (the orchestrator shows its own card);
+      - `hold: "unsaved"`: `file_state["saved"] is False`, or the screen shows the step's file
+        unsaved (●, Untitled-N) → the only message is "Save with ⌘S so I can check it.";
+      - `hold: "unconfirmed"`: `code_source="screen"` (the excerpt is OCR) and it doesn't match the
+        previous read of this step: two agreeing reads before claiming anything; say nothing.
 
     With `screen` (a set-of-mark ScreenContext) Opus also sees the screen and returns
     `targets` first: [{boxId, label, text, rect}] in screen points. The reply is streamed and
@@ -320,6 +420,18 @@ async def diagnose(
     for logs; strip them before sending (see `public()`).
     """
     lesson = lesson if lesson is not None else get_lesson()
+    active_file = active_file if active_file is not None else getattr(screen, "active_file", None)
+    if (held := _hold(step, screen, file_state, code_excerpt, code_source, active_file)) is not None:
+        return held
+    if _empty_code_step(step, code_excerpt, file_state):  # an empty file at a code step: not started, not off track
+        card = template_card(step, failed_checks, screen, empty_file=True)
+        card["_meta"]["triage"] = {"route": "template", "by": "rules", "reason": "the step's file is empty"}
+        return card
+    memo_key = _memo_key(step, failed_checks, metrics_summary, code_excerpt, error_text, screen)
+    if (hit := _MEMO.get(step.get("id", ""))) and hit[0] == memo_key and time.monotonic() - hit[1] < MEMO_TTL_S:
+        card = copy.deepcopy(hit[2])  # same failure, same code, same screen: no second paid call
+        card["_meta"]["memo"] = True
+        return card
     if not error_text.strip() and screen is not None:
         # screen-first lessons have no captured stderr: an error/refusal visible on screen is the
         # error text (S9 QA: without it, triage sent git/React failures to the "not done yet" card)
@@ -347,13 +459,73 @@ async def diagnose(
             card = playbook_card(step, BY_ID[t.playbook_id], code_excerpt, severity="fail" if has_error else "warn")
         else:
             sources = await web_task if web_task is not None else []
-            card = await _opus(step, failed_checks, metrics_text, flags, code_excerpt, error_text, lesson, effort, sources, screen, on_targets, cursor)
+            card = await _opus(step, failed_checks, metrics_text, flags, code_excerpt, error_text, lesson, effort, sources, screen, on_targets, cursor, active_file)
     finally:
         if web_task is not None and not web_task.done():
             web_task.cancel()
     card["_meta"]["triage"] = {"route": t.route, "by": t.by, "reason": t.reason}
     LAST[card["stepId"]] = card
+    _MEMO[step.get("id", "")] = (memo_key, time.monotonic(), copy.deepcopy(card))
     return card
+
+
+MEMO_TTL_S = 600.0
+_MEMO: dict[str, tuple[str, float, dict]] = {}  # step id → (inputs hash, time, card)
+
+
+def reset_memo() -> None:
+    _MEMO.clear()
+
+
+def _memo_key(step: dict, failed_checks: list, metrics: Any, code: str, error_text: str, screen: Any) -> str:
+    from .gate import screen_signature
+
+    def last_values(m: Any) -> Any:  # a metric series is summarized by its last point per name
+        if isinstance(m, dict):
+            return sorted((k, tuple(v[-1]) if isinstance(v, list) and v and isinstance(v[-1], (list, tuple)) else repr(v)) for k, v in m.items())
+        return repr(m)
+
+    scr = screen_signature("\n".join(b.text for b in screen.boxes)) if hasattr(screen, "boxes") else ""
+    blob = json.dumps([step.get("id"), [(c.get("checkId") or c.get("id"), c.get("status"), c.get("detail")) if isinstance(c, dict) else str(c)
+                                        for c in failed_checks or []],
+                       last_values(metrics), code, error_text, scr], default=str, sort_keys=True)
+    return hashlib.sha256(blob.encode()).hexdigest()
+
+
+_SCREEN_READS: dict[str, str] = {}  # step id → last OCR'd code excerpt (normalized)
+
+
+def _empty_code_step(step: dict, code: str, file_state: dict | None) -> bool:
+    if (file_state or {}).get("empty"):
+        return True
+    return lesson_mode(step) and bool((step.get("code") or "").strip()) and not (code or "").strip() and (step.get("file") or "") != "(terminal)"
+
+
+def _hold(step: dict, screen: Any, file_state: dict | None, code: str, code_source: str, active_file: dict | None = None) -> dict | None:
+    from .pointing import editor_state, step_file
+
+    sid = step.get("id", "")
+    fs = file_state or {}
+
+    def card(hold: str, title: str, body: str) -> dict:
+        return {"stepId": sid, "severity": "warn", "title": title, "body": body, "actions": [], "hold": hold,
+                "_meta": {"route": "hold", "hold": hold}}
+
+    if fs.get("wrong_folder"):
+        return card("wrong_folder", "Different folder", "This file isn't in the lesson folder.")
+    name = (step_file(step) or "").rsplit("/", 1)[-1]
+    ed = editor_state(screen, active_file) if (screen is not None or active_file) else {}
+    unsaved_on_screen = bool(ed) and ed.get("unsaved") and (ed.get("untitled") or not name or ed.get("file") == name)
+    if fs.get("saved") is False or unsaved_on_screen:
+        return card("unsaved", "Save so I can check", "Save with ⌘S so I can check it.")
+    if code_source == "screen" and code.strip():
+        norm = re.sub(r"\s+", "", code)
+        prev, _SCREEN_READS[sid] = _SCREEN_READS.get(sid), norm
+        if prev != norm:
+            return card("unconfirmed", "", "")
+    else:
+        _SCREEN_READS.pop(sid, None)
+    return None
 
 
 def metric_goals(step: dict) -> dict[str, str]:
@@ -378,7 +550,7 @@ def grounding_query(step: dict, failed_checks: list, error_text: str, code: str,
     return "", "", f"{title} {step.get('title', '')} {labels}".strip(), ""
 
 
-async def _opus(step, failed_checks, metrics_text, flags, code_excerpt, error_text, lesson, effort, sources=None, screen=None, on_targets=None, cursor=None) -> dict:
+async def _opus(step, failed_checks, metrics_text, flags, code_excerpt, error_text, lesson, effort, sources=None, screen=None, on_targets=None, cursor=None, active_file=None) -> dict:
     sources = sources or []
     file = _target_file(step)
     key_error = web.error_line(error_text) if ERROR_SIGNATURE.search(error_text or "") else ""
@@ -395,6 +567,8 @@ async def _opus(step, failed_checks, metrics_text, flags, code_excerpt, error_te
             f"WEB SOURCES (fetched live for this failure):\n{web.sources_text(sources)}" if sources else "WEB SOURCES: (none available)",
             f"CITATIONS you may use (id: source):\n{citation_menu(lesson, sources)}",
             cursor_text(cursor) if cursor and screen is None else "",
+            LESSON_MODE_RULE if lesson_mode(step) else "",
+            _active_file_line(active_file),
             "Write the card.",
         ] if x
     )
@@ -431,11 +605,18 @@ async def _opus(step, failed_checks, metrics_text, flags, code_excerpt, error_te
         log.warning("opus diagnose failed (%s); DEMO=1 so using the offline playbook card", e)
         if mode and conf >= 0.4:
             card = playbook_card(step, mode, code_excerpt, severity="fail" if ERROR_SIGNATURE.search(error_text or "") else "warn")
+        elif ERROR_SIGNATURE.search(error_text or ""):
+            card = error_card(step, error_text, code_excerpt)  # a visible error is never "not started" (S9)
         else:
             card = template_card(step, failed_checks)
         card["_meta"]["fallback_reason"] = str(e)
         return card
     card = _shape(res.data, step, code_excerpt, lesson, sources)
+    if not _no_questions_or_open_file_claims(card, known_active=bool(active_file)):
+        return {"stepId": step.get("id", ""), "severity": "warn", "title": "", "body": "", "actions": [], "hold": "unconfirmed",
+                "_meta": {"route": "hold", "hold": "unconfirmed", "reason": "the card only asked a question or guessed the open file"}}
+    if lesson_mode(step):
+        _lesson_action(card)
     if screen is not None:
         card["targets"] = stream.fired if stream.fired is not None else screen.resolve_targets(res.data.get("targets"))
         if stream.fired is None and on_targets is not None and card["targets"]:

@@ -157,3 +157,102 @@ spotlight). They're stable: edges snap to a 4-point grid, the last rect is kept 
   CLI: `python -m server.screen region all` (or `--image <fixture>.ocr.json`).
 - Tests: `tests/test_regions.py` uses the three rendered full-screen editors (panel at y=800, editor
   x=300) and a recorded real windowed VS Code with Explorer, a Chat side panel and Terminal.app.
+
+## VS Code window, frontmost app, menu bar, hover tooltips
+```python
+r = get_reader()
+r.vscode_window()     # {app, title, folder, file, path, symbol, dirty, sources} | None
+r.frontmost()         # {app, pid, title, window_id, rect} of the window in front on the current Space
+r.is_frontmost("Code")
+unsub = r.on_frontmost_change(lambda new, old: ...)    # fires within ~0.25 s (app switch, Space swipe)
+r.locate_region("terminal_menu")   # "Terminal" in the macOS menu bar while VS Code is in front
+r.locate_region("menu:Run")        # any menu-bar item
+```
+- **vscode_window**: the folder comes from the command center and the window title
+  (`● calculator.py — python-calculator-e430dc`), else the Explorer header or the breadcrumb root.
+  The file comes from the title, and the path from the breadcrumb (`src/calculator.py`), spelled as
+  on the tab when OCR drops the dot. Dirty comes from the title's `●` (VS Code's default title
+  includes it; OCR rarely reads the dot on the tab), or from AX when granted. Pure version:
+  `server.screen.vscode.vscode_window(obs)`.
+- **frontmost**: the first normal on-screen window from the window server (`CGWindowListCopyWindowInfo`,
+  ~0.3 ms, no permission needed). It follows Space swipes and full screen at once; our overlay never
+  counts. `on_frontmost_change` runs one 0.25 s poller and also pokes a capture.
+- **terminal_menu**: AX (`AXMenuBar > AXMenuBarItem "Terminal"`) when trusted, else OCR of the menu
+  strip. The strip must show ≥3 VS Code menus and VS Code must be in front. It's None in full screen
+  (menu bar hidden) or when another app is in front.
+- **Hover tooltips** (Pylance `(function) def add(`, diagnostics): their blocks get `role="hover"`
+  and are left out of `text()`, `lines_by_app()`, `locate()` and line reading. `obs.hovers()` has their
+  text. Rows under a hover come back with `LineLocation.occluded=True`. Before this, a hover over
+  `def subtract(a, b):` read as `def b: Any`.
+- **Split coloured words**: Vision splits a line at colour changes (`def` | `add(a, b):`).
+  Touching blocks on one row are re-joined into one block, so the coach's numbered boxes say
+  `def add(a, b):`. A row that still reads like `def(a, b):` (name missing) is OCR'd again on its own
+  and replaced only if the second read has the name.
+
+## Set-of-marks candidates (for a model to pick a target by id)
+```python
+from server.screen import candidates, marks
+cs = candidates("the line that defines add")   # live; or candidates(intent, obs=obs) on an observation
+prompt = marks.listing(cs)    # "2 [region] editor\n10 [code L4] def add(a, b):\n..."
+pick = marks.by_id(cs, 10)    # Candidate(id, kind, text, rect, app, line, region, score, occluded)
+```
+- **Regions** keep fixed ids: 1 terminal, 2 editor, 3 explorer, 4 terminal_menu. Absent ones are
+  left out. Live, they are the same stabilized rects `locate_region` returns.
+- **Lines** start at id 10. Editor code rows come first, in file-line order, as full-width rows
+  with `line`. Then every other OCR line in reading order, tagged with the region it's in
+  (`terminal` / `explorer` / ...).
+- **Left out:** hover tooltips, the breadcrumb, the editor tab bar and title bar (command center),
+  and gutter numbers. Rows partly under a tooltip are `occluded` and say so in the listing.
+- **Stable ids:** the same observation always numbers the same way, whatever the intent.
+- **`intent`:** only adds a `score` and, past `max_lines`, keeps the most relevant lines, still in
+  id order.
+
+## Which file is open (`obs.editor`) and inline chat widgets
+- Every observation carries `obs.editor` = `vscode_window(obs)`: {folder, file, path, symbol, dirty,
+  sources}. This is the one answer to "which file is open". The file comes from what's above the
+  editor: the breadcrumb plus the active tab (the one with the close × / dirty ●, or the only tab). The
+  window title is a fallback only, and a disagreeing title is kept in `sources["title_file"]`.
+  **Explorer rows never name the file**: README.md listed in the Explorer is not the open file.
+- VS Code's inline chat / suggestion widgets ("Generate code", "+ Auto | Balance", Accept / Discard,
+  Ask Copilot) get `role="widget"` and are treated like hover tooltips. They are left out of `text()`,
+  `lines_by_app()`, `locate()`, line reading and set-of-marks candidates. `obs.widgets()` has their
+  text, and rows under them are `occluded`.
+- Fixture: `vscode_window_notes_inline_chat` (empty notes.py, inline chat over line 1, README.md in
+  the Explorer). Regenerate one fixture with `python -m server.screen.tests.make_window_fixtures NAME`.
+
+## `reader.active_file()`: the learner's current file, fresh
+`get_reader().active_file(fresh=True, folder=None)` reads every source now, best first:
+1. the companion extension's active editor (`server.workspace.vscode_ext`, the window with `folder`);
+2. AX: the focused VS Code window's AXDocument (when Accessibility is granted);
+3. the live window title `● file — folder` (window server, read now);
+4. OCR of the active tab + breadcrumb in a NEW frame.
+
+The extension and AX are trusted alone. The title and OCR only count when they agree. Otherwise
+`file` is None and `confidence` is `"unsure"` (`candidates` shows what each source said), so callers
+never claim a wrong file. Returns `{file, path, folder, dirty, source, confidence, candidates, title,
+app, t}`. It blocks for ~0.3 s plus one capture; use `asyncio.to_thread` from async code.
+`vscode_window(fresh=True)` also forces a new frame.
+
+## Haiku target picker (`target.py`): what to box
+
+```python
+from server.screen.target import pick_target, pick_on_screen, confirm_on_screen, stats
+res = await pick_target(frame, obs, "the VS Code integrated terminal panel")   # pure: PIL frame + its obs
+res = await pick_on_screen("the line where the learner types `def add(a, b):`")  # live reader
+# -> {"rect": {x,y,w,h}, "box_ids": [11], "label": "code L4: def add(a, b):", "kind": "code" | "blank" |
+#     "region" | "text" | "toolbar", "line": 4, "region": "editor", "confidence": 0.9, "reason": "...",
+#     "ms", "api_ms", "cached", "input_tokens", "output_tokens", "cost_usd"}  or None
+rect, why = await confirm_on_screen(box_rect, intent)   # verifier: agree | moved | none | kept:<outcome>
+```
+- **Candidates:** `marks.candidates()` as-is:
+  - regions 1-5: terminal, editor, explorer, terminal_menu, run_button;
+  - editor code and blank rows, even when Vision reads no line numbers;
+  - other OCR lines;
+  - callers can add `extra` marks (ids from 500).
+- **Request:** the frame is cropped to the front window, scaled to ≤ 1280 px each way, and gets numbered tags (yellow = lines, cyan = regions). It goes out as ONE `claude-haiku-5-5` call: thinking off, effort low, max_tokens 160, strict JSON `{"ids", "confidence", "why"}`. No `temperature`, since Haiku 5.5 rejects it.
+- **No box (None) when:** confidence < `MIYAGI_VISION_MIN_CONF` (0.6), no ids, a timeout (`MIYAGI_VISION_TIMEOUT_S`, 2.5 s), an API error, no key, or the budget `MIYAGI_VISION_MAX_CALLS_PER_MIN` (6) is spent.
+- **Outcomes:** `pick_with_outcome()` says which case it was. The verifier keeps the engine's own box unless Haiku *answered*: a confident pick elsewhere moves the box, and a sure "nothing" (≥ 0.75) removes it.
+- **Cache:** keyed by (the candidate-set hash = what Haiku is shown, snapped to 4 pt; intent; app), 120 s, including "nothing" answers.
+- **Logging:** each call logs its tokens and a running $ estimate (Haiku 5.5: $0.10 / $0.50 per MTok); `stats()` gives the totals and p50/p95.
+- **Orchestrator:** `ScreenBridge.pick()` / `.confirm()`. `MIYAGI_VISION_TARGET=0` turns both off.
+- **Tests:** `tests/test_target.py`, offline with a stub client: 17 labelled cases over 6 fixtures. The fixture `vscode_lesson_calculator` is Michael's real screen: no line numbers OCR'd, Chat panel, run icon. Known gap (xfail): line 1 of an EMPTY file under the inline chat widget is not a mark.

@@ -140,6 +140,39 @@ def list_windows(screen: Rect | None = None, on_screen_only: bool = True) -> lis
     return out
 
 
+# Never "the frontmost app": our own overlay (Electron in dev, the packaged app) and screen chrome.
+_OVERLAY_OWNERS = {"Electron", "Miyagi", "miyagi", "sandhacks-tutor"} | {
+    s.strip() for s in os.environ.get("TUT_OVERLAY_APPS", "").split(",") if s.strip()}
+
+
+def pick_frontmost(infos, ignore: set[str] | None = None) -> dict | None:
+    """First normal (layer 0), visible window in CGWindowList's front-to-back order, skipping our
+    overlay and system chrome -> {app, pid, title, window_id, rect}. Pure: takes the info dicts."""
+    ignore = (ignore or set()) | _IGNORED_OWNERS | _OVERLAY_OWNERS
+    for w in infos or []:
+        if w.get("kCGWindowLayer", 0) != 0 or w.get("kCGWindowAlpha", 1) == 0:
+            continue
+        owner = w.get("kCGWindowOwnerName") or ""
+        if not owner or owner in ignore:
+            continue
+        b = w.get("kCGWindowBounds") or {}
+        if float(b.get("Width", 0)) < 60 or float(b.get("Height", 0)) < 40:
+            continue
+        return {"app": owner, "pid": int(w.get("kCGWindowOwnerPID", 0)), "title": w.get("kCGWindowName") or "",
+                "window_id": int(w.get("kCGWindowNumber", 0)),
+                "rect": {"x": float(b.get("X", 0)), "y": float(b.get("Y", 0)), "w": float(b.get("Width", 0)),
+                         "h": float(b.get("Height", 0))}}
+    return None
+
+
+def frontmost_window() -> dict | None:
+    """The app whose window is in front on the CURRENT Space, read live from the window server
+    (~2-5 ms, no permission needed for the owner name). Follows Space swipes and full-screen apps
+    at once, unlike NSWorkspace.frontmostApplication, which goes stale without an AppKit run loop."""
+    opts = Quartz.kCGWindowListOptionOnScreenOnly | Quartz.kCGWindowListExcludeDesktopElements
+    return pick_frontmost(Quartz.CGWindowListCopyWindowInfo(opts, Quartz.kCGNullWindowID))
+
+
 def frontmost_app(windows: list[Window] | None = None) -> str:
     """Name of the frontmost app.
 

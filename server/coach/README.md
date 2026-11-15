@@ -26,7 +26,7 @@ fix = await coach.fix_outdated(error_text, lesson["libraries"])  # offtrack-shap
 
 ## Cost policy
 
-- **Models:** Opus (`claude-opus-5-5`) writes only the diagnosis card. Triage, pointing/locate, explain, "Do it for me" and `fix_outdated` use Haiku (`claude-haiku-5-5`). To override one purpose, set `COACH_MODEL_<PURPOSE>` (see `llm.model_for`).
+- **Models:** Sonnet (`claude-sonnet-5-5`) writes the diagnosis card (spend cap: never Opus by default; `COACH_MODEL_DIAGNOSE=claude-opus-5-5` to opt in). Triage, pointing/locate, explain, "Do it for me" and `fix_outdated` use Haiku (`claude-haiku-5-5`). To override one purpose, set `COACH_MODEL_<PURPOSE>` (see `llm.model_for`).
 - **Prompt caching:** every system prompt carries `cache_control`. `warm()` pre-writes the diagnose prefix.
 - **Cost freeze:** run offline tests only. `tests/record_fixtures.py` makes paid calls and refuses to run without `COACH_ALLOW_LIVE=1`.
 
@@ -66,6 +66,51 @@ targets = await coach.locate("the learning rate", screen)  # exact text → no m
 - **`do_it_for_me`:**
   - It returns `{command, …}` for terminal fixes.
   - It reuses the diagnosis's diff only if it contains every value the action sentence names ("…to `squash`", "…to 1e-3"); otherwise Opus writes the patch.
+
+## Which file is open: only the editor window says so
+
+The active file comes only from E6's `reader.vscode_window()` (`{app, title, path, file, dirty}`), the companion extension (`{path, dirty}`), the macOS window list, or accessibility title boxes. It never comes from OCR text. This came from Michael's case: "Editor shows README.md" while notes.py was active, with README.md only in the Explorer and VS Code's inline chat covering line 1.
+- **Inputs:** pass `active_file=` to `diagnose` and `judge_step`, or set `ScreenContext.active_file`.
+- **Prompt:** an "ACTIVE FILE" line appears only when that source is known. Otherwise a system rule forbids naming the open file.
+- **Post-filter:** card bodies drop question sentences, and drop "the editor shows X" claims when the active file is unknown. If nothing true is left, the card becomes `hold: "unconfirmed"`, which is silent.
+- **Empty file at a code step:** this is not started, not off track: "Type `notes = []` on line 1 of notes.py in VS Code."
+
+## "Just teach me" text lessons (lesson.mode = "lesson"; S9 copy QA)
+
+Copy rules: at most 12 words, name the file and VS Code (never Cursor), no glued check labels, one action.
+- **Start:** the not-started card and `start_instruction()` give ONE action built from the step's `code` or `run_command`: "In VS Code, type `def add(a, b):` in calculator.py." or "Run `python3 calculator.py` in the VS Code terminal."
+- **Hint after the auto card** moves up a rung instead of repeating it: "Type this" with the step's full `code` and Show me, or "Run this". Video steps get "Step details" (the full instructions).
+- **Questions** never quote a check label. They ask about the code: "Which line of calculator.py defines add, and is it there yet?", "What does `python3 calculator.py` print right now?".
+- **Show me / where:** lesson mode created the file, so it says "Open calculator.py in VS Code".
+- **No model available:** a visible error gets a card that names it (`route: error_offline`), e.g. "`def` needs a name: line 4 of calculator.py." It never gets the not-started card.
+- **Opus cards in lesson mode:** `body` is one action of ≤12 words naming the file and VS Code; `why` holds the reason, for Explain.
+
+## Zero-cost mode: DEMO=1 or ORCH_STUBS includes the coach
+
+`llm.offline_mode()` is true with `DEMO=1`, or with `ORCH_STUBS=all` or a list naming `coach` (e.g. `lesson,coach`). In that mode nothing paid leaves the coach. Recorded fixtures (`COACH_REPLAY_DIR`) still replay. S11 had counted 19 Claude calls in one DEMO rehearsal take.
+- **Claude:** `structured_call` refuses before any network call. `diagnose` and `explain` return their offline cards (playbook or template).
+- **Step judge:** `StepJudge.should_judge` is always false, so it never runs on a timer. `judge_step` (the Check button) returns `{offline: true}`: machine-passed checks are "done", the rest "unsure", and `done` is true only if every check already passed.
+- **Other calls:** `warm()` is skipped, `locate` uses exact text only, `point` falls back to `where`, and Bright Data is never called.
+- **Voice:** already-cached audio still plays; nothing new is synthesized.
+
+## Cost gate for periodic calls (gate.py)
+
+Michael's key: the step judge called Haiku every ~20 s while he was away with the display asleep. `PeriodicGate` now guards it, and is exported for any other periodic coach call. The rules:
+1. **Only on change:** the screen text or the files must have changed. OCR is hashed without clocks, dates or percentages and ignoring line order. Files are hashed by `{path: mtime}` when available.
+2. **Never when the screen reader is down or the display is asleep:** `should_judge(..., screen_ok=, display_asleep=)`, and `screen=None` also counts as down.
+3. **Backoff:** while the verdict stays the same, the interval doubles: 20 s → 40 → 80 … capped at 5 min. A new verdict or a save resets it to 20 s.
+4. **Stop:** after 3 identical verdicts it stops until a save, or until ≥ 25% of the screen's lines change (another app in front). A scrolling log doesn't wake it.
+
+`diagnose` remembers its inputs per step for 10 min (failed checks, last metric values, code, error text, screen signature). An identical repeat returns the previous card (`_meta.memo`) with no model call.
+
+## Holds: when the coach must not diagnose
+
+`diagnose(..., file_state={"path", "saved", "wrong_folder"}, code_source="file"|"screen")` can return a card with `hold`. The orchestrator must NOT show such a card as an offtrack, and no model is called. This came from Michael's live misdiagnosis of an unsaved, OCR'd `def add(a, b):` with a hover tooltip over it.
+- `hold: "wrong_folder"`: the learner is editing a same-named file in another folder. The orchestrator shows its own card.
+- `hold: "unsaved"`: `saved` is false, or the screen shows the step's file unsaved (●, `Untitled-N`). The only message is "Save with ⌘S so I can check it."
+- `hold: "unconfirmed"`: the code excerpt is OCR (`code_source="screen"`) and differs from the previous read of this step. Two agreeing reads are needed before any diagnosis; until then the coach says nothing.
+- **Prompt:** OCR text and editor overlays such as tooltips never justify claiming a line is malformed.
+- **Step judge:** a check about a file (its `file`, or a label naming the step's file) passes only if the workspace file is saved and non-empty. Unsaved gives a "Save so I can check" card; not seen or empty gives nothing.
 
 ## Step judge (judge.py)
 

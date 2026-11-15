@@ -6,6 +6,7 @@ import inspect
 import json
 import logging
 import os
+import re
 import sys
 import threading
 import time
@@ -82,6 +83,9 @@ class ScreenReader:
         self._tiger: TigerWriter | None = None
         self._describer = Describer()
         self._regions = R.RegionStabilizer()
+        self._front: tuple[float, dict | None] = (0.0, None)
+        self._front_cbs: list[Callable[[dict | None, dict | None], object]] = []
+        self._front_thread: threading.Thread | None = None
         self._run_btn: tuple[float, Rect | None] = (0.0, None)
         self._lock = threading.RLock()
         self._capture_lock = threading.Lock()
@@ -298,12 +302,23 @@ class ScreenReader:
     def locate_region(self, name: str, app: str | None = None) -> Rect | None:
         """Rect of a VS Code region for a spotlight: "terminal" (integrated terminal panel; None if
         it isn't open), "editor" (text area below tabs + breadcrumb), "explorer" (side bar),
-        "run_button" (AX only; None without Accessibility). Stable frame to frame: snapped to a
+        "run_button" (AX only; None without Accessibility), "terminal_menu" (the Terminal item in the
+        macOS menu bar while VS Code is in front; AX, else OCR; None when the menu bar is hidden),
+        "menu:<Title>" (any menu-bar item). Stable frame to frame: snapped to a
         4-point grid, unchanged while it moves < 12 points, kept through one missed frame."""
+        title = R.menu_title(name)            # "terminal_menu" / "menu:Run" keep their case
         name = R.canonical(name)
         obs = self._fresh_obs()
         if name == "run_button":
             rect = self._ax_run_button() if obs is None or obs.source == "live" else None
+            if rect is None and obs is not None:          # the ▷ icon on the tab row, by OCR
+                reg = R.find_region(obs, name, app)
+                rect = reg.rect if reg else None
+        elif title is not None:
+            rect = self._ax_menu_item(title) if obs is None or obs.source == "live" else None
+            if rect is None and obs is not None:
+                reg = R.find_menu_item(obs, title, app)
+                rect = reg.rect if reg else None
         else:
             reg = R.find_region(obs, name, app) if obs is not None else None
             rect = reg.rect if reg else None
@@ -317,6 +332,34 @@ class ScreenReader:
             r = self.locate_region(n, app)
             out[n] = r.to_dict() if r else None
         return out
+
+    def candidates(self, intent: str | None = None, app: str | None = None, max_lines: int = 120):
+        """Set-of-marks targets from a fresh frame (<= 1 s old): regions with fixed ids (1 terminal,
+        2 editor, 3 explorer, 4 terminal_menu; their rects are the same stabilized ones locate_region
+        returns) and OCR lines from id 10 (editor code rows with file line numbers first). Hover
+        tooltips, the breadcrumb and the tab/title bar are left out. -> list[marks.Candidate];
+        `marks.listing(c)` is the prompt text, `marks.by_id(c, id)` the pick."""
+        from . import marks
+        obs = self._fresh_obs()
+        if obs is None:
+            return []
+        regions = {n: self.locate_region(n, app) for n in marks.REGION_IDS}
+        return marks.candidates(obs, intent, app, max_lines=max_lines, regions=regions)
+
+    def _ax_menu_item(self, title: str) -> Rect | None:
+        """The frontmost app's menu-bar item (AX: exact, even while the menu bar is auto-hidden in
+        full screen, where the rect is where it appears). None without Accessibility."""
+        if sys.platform != "darwin" or not self.use_ax:
+            return None
+        try:
+            from . import ax
+            if not ax.trusted():
+                return None
+            el = ax.menu_bar_item(title)
+            return el.rect if el is not None else None
+        except Exception as e:  # noqa: BLE001
+            log.debug("AX menu item lookup failed: %s", e)
+            return None
 
     def _ax_run_button(self) -> Rect | None:
         if sys.platform != "darwin" or not self.use_ax:
@@ -335,6 +378,144 @@ class ScreenReader:
             log.debug("AX run button lookup failed: %s", e)
         self._run_btn = (time.time(), rect)
         return rect
+
+    # ------------------------------------------------------------------ frontmost app / VS Code window
+
+    def frontmost(self, max_age: float = 0.2) -> dict | None:
+        """{app, pid, title, window_id, rect} of the window in front on the CURRENT Space, read live
+        from the window server (~0.3 ms; cached `max_age` s). Changes the moment the user swipes to
+        another Space or switches apps. Our overlay never counts as frontmost."""
+        t, cached = self._front
+        if time.time() - t <= max_age:
+            return cached
+        if self.fixture or sys.platform != "darwin":
+            obs = self.latest()
+            w = obs.windows[0] if obs is not None and obs.windows else None
+            cur = {"app": w.app, "pid": w.pid, "title": w.title, "window_id": w.window_id,
+                   "rect": w.rect.to_dict()} if w else None
+        else:
+            from . import macos
+            try:
+                cur = macos.frontmost_window()
+            except Exception as e:  # noqa: BLE001
+                log.debug("frontmost lookup failed: %s", e)
+                cur = None
+        self._front = (time.time(), cur)
+        return cur
+
+    def is_frontmost(self, app: str = "Code") -> bool:
+        """Is `app` ("Code", "VS Code", "Cursor", "Terminal" ...) in front on the current Space?"""
+        f = self.frontmost()
+        return bool(f) and M.app_matches(app, f["app"], f.get("title"))
+
+    def on_frontmost_change(self, cb: Callable[[dict | None, dict | None], object],
+                            interval: float = 0.25) -> Callable[[], None]:
+        """Call `cb(new, old)` within ~`interval` s whenever the frontmost app/window changes (app
+        switch, Space swipe, full-screen toggle). One background poller for all callbacks; it also
+        pokes a capture so the next observation shows the new screen. Returns an unsubscribe."""
+        with self._lock:
+            self._front_cbs.append(cb)
+            if self._front_thread is None or not self._front_thread.is_alive():
+                self._front_thread = threading.Thread(target=self._watch_front, args=(interval,),
+                                                      name="screen-frontmost", daemon=True)
+                self._front_thread.start()
+
+        def unsubscribe() -> None:
+            with self._lock:
+                if cb in self._front_cbs:
+                    self._front_cbs.remove(cb)
+        return unsubscribe
+
+    def _watch_front(self, interval: float) -> None:
+        def key(f):
+            return (f["app"], f["pid"], f["window_id"]) if f else None
+        last = self.frontmost(max_age=0)
+        while not self._stop.is_set():
+            with self._lock:
+                if not self._front_cbs:
+                    self._front_thread = None
+                    return
+                cbs = list(self._front_cbs)
+            self._stop.wait(interval)
+            cur = self.frontmost(max_age=0)
+            if key(cur) != key(last):
+                if self._thread is not None and self._thread.is_alive():
+                    self.poke("app_switch", force=True)
+                for cb in cbs:
+                    try:
+                        cb(cur, last)
+                    except Exception:
+                        log.exception("frontmost callback failed")
+                last = cur
+
+    def vscode_window(self, app: str | None = None, fresh: bool = False) -> dict | None:
+        """{app, title, folder, file, path, symbol, dirty, sources} of the frontmost VS Code window
+        (OCR of a frame + its window title; AX's file and dirty flag when Accessibility is on).
+        fresh=True captures a NEW frame first (Check / step changes: never a frame from before the
+        learner's last switch). For "which file is open" prefer `active_file()`."""
+        from .vscode import vscode_window
+        obs = self._fresh_obs(max_age=0.0 if fresh else 1.0)
+        win = vscode_window(obs, app) if obs is not None else None
+        if win is None:
+            return None
+        if obs.source == "live":
+            snap = self.ax_reader.latest() if self.ax_reader is not None and self.ax_reader.available else None
+            if snap is not None and time.time() - snap.t < 2.0 and M.app_matches(win.app, snap.app):
+                if snap.dirty is not None:
+                    win.dirty, win.sources["dirty"] = snap.dirty, "ax"
+                if snap.document:
+                    win.sources["document"] = snap.document
+        return win.to_dict()
+
+    def active_file(self, fresh: bool = True, folder: str | None = None) -> dict:
+        """THE answer to "which file is the learner on", read fresh from every source, best first:
+        the companion extension (/state of the window with `folder`, else the focused one), AX (the
+        focused VS Code window's AXDocument), the live window title, then OCR of the active tab +
+        breadcrumb in a NEW frame (fresh=True). Extension/AX are trusted alone; title and OCR only when
+        they agree. Otherwise file=None, confidence="unsure": callers must not claim a wrong file.
+        -> {file, path, folder, dirty, source, confidence, candidates, title, app, t}. Blocking
+        (~0.3 s extension timeout + one capture); from async code use asyncio.to_thread."""
+        from . import vscode as V
+        ext = ax_d = title_d = ocr_d = None
+        app = title = None
+        try:                                         # 1. the companion extension
+            from server.workspace import vscode_ext as vx
+            ed = vx.active_editor() if folder is None else None
+            if folder is not None:
+                st = vx.state(folder=folder)
+                if st and st.get("file") and "://" not in str(st["file"]):
+                    ed = {"file": Path(st["file"]).name, "path": st["file"], "dirty": bool(st.get("dirty"))}
+            if ed and ed.get("file"):
+                ext = {"file": ed.get("file"), "path": ed.get("path"), "folder": ed.get("folder"),
+                       "dirty": ed.get("dirty")}
+        except Exception as e:  # noqa: BLE001
+            log.debug("companion extension unavailable: %s", e)
+        front = self.frontmost(max_age=0.0) if fresh else self.frontmost()
+        front_is_code = bool(front) and any(M.app_matches(a, front["app"]) for a in L.EDITOR_APPS)
+        if front_is_code:
+            app, title = front["app"], front.get("title") or ""
+            if ext is None and sys.platform == "darwin" and self.use_ax:    # 2. AX
+                try:
+                    from . import ax
+                    snap = ax.snapshot() if ax.trusted() else None
+                    if snap is not None and snap.document and M.app_matches(snap.app, app):
+                        ax_d = {"path": snap.document, "file": Path(snap.document).name, "dirty": snap.dirty}
+                except Exception as e:  # noqa: BLE001
+                    log.debug("AX document read failed: %s", e)
+            t_file, t_folder, t_dirty = V.parse_title(title)                  # 3. the live window title
+            if t_file:
+                title_d = {"file": t_file, "folder": t_folder, "dirty": t_dirty}
+        if ext is None and ax_d is None:                                       # 4. OCR of a fresh frame
+            try:
+                obs = self._fresh_obs(max_age=0.0 if fresh else 1.0)
+                ocr_d = V.ocr_only(V.vscode_window(obs)) if obs is not None else None
+            except Exception as e:  # noqa: BLE001
+                log.debug("OCR active-file read failed: %s", e)
+        out = V.resolve_active(ext, ax_d, title_d, ocr_d)
+        out.update(app=app, title=title, t=time.time())
+        if out["confidence"] == "unsure":
+            log.info("active file unsure: %s", out["candidates"])
+        return out
 
     def _fresh_obs(self, max_age: float = 1.0) -> ScreenObservation | None:
         obs = self.latest()
@@ -545,8 +726,9 @@ class ScreenReader:
             blocks, ms = macos.ocr_image(img, screen, scale)
             if not overlay_excluded:  # CG fallback: the overlay is in the pixels, drop its text
                 blocks = M.drop_inside(blocks, overlay)
-            blocks = M.reading_order(M.assign_windows(blocks, windows))
-            blocks = [Block(redact(b.text), b.rect, b.confidence, b.app, b.window) for b in blocks
+            blocks = M.postprocess(M.reading_order(M.assign_windows(blocks, windows)))
+            blocks = repair_code_rows(img, screen, scale, blocks)
+            blocks = [Block(redact(b.text), b.rect, b.confidence, b.app, b.window, b.role) for b in blocks
                       if not is_private_app(b.app)]
             self._frame += 1
             obs = ScreenObservation(t=time.time(), app=fixture_app or macos.frontmost_app(windows),
@@ -554,6 +736,7 @@ class ScreenReader:
                                     ocr_ms=ms, frame=self._frame, source=source, trigger=trigger,
                                     overlay_excluded=overlay_excluded,
                                     capture=(self.backend or "") if source == "live" else "fixture")
+            obs.editor = _editor_info(obs)
             if source == "live":
                 self._attach_cursor_and_ax(obs)
             self.ocr_ms_history = (self.ocr_ms_history + [ms])[-50:]
@@ -628,17 +811,23 @@ class ScreenReader:
     def screenshot_pil(self, region=None):
         """The last captured frame as a PIL image (overlay blacked out), optionally cropped to a
         region in points."""
+        return self.latest_frame(region)[0]
+
+    def latest_frame(self, region=None):
+        """(PIL image of the last frame with our overlay blacked out, the ScreenObservation OCR'd from
+        that same frame), or (None, None). For vision prompts whose marks come from the OCR
+        (server.screen.target)."""
         from PIL import ImageDraw
 
         from . import macos
         with self._lock:
             img, obs, overlay = self._latest_image, self._latest, list(self._overlay)
         if img is None:
-            obs = self.observe_now(force=True)
+            self.observe_now(force=True)
             with self._lock:
-                img = self._latest_image
+                img, obs = self._latest_image, self._latest
         if img is None or obs is None:
-            return None
+            return None, None
         pil = macos.cgimage_to_pil(img)
         s = obs.scale
         d = ImageDraw.Draw(pil)
@@ -649,10 +838,48 @@ class ScreenReader:
             r = Rect.from_any(region).clamp(obs.screen)
             pil = pil.crop((int((r.x - obs.screen.x) * s), int((r.y - obs.screen.y) * s),
                             int((r.x2 - obs.screen.x) * s), int((r.y2 - obs.screen.y) * s)))
-        return pil
+        return pil, obs
 
 
 # ---------------------------------------------------------------------- helpers
+
+_BROKEN_DEF = re.compile(r"\b(?:def|class)\s*[(:]")          # keyword with its name missing
+_GOOD_DEF = re.compile(r"\b(?:def|class)\s+[A-Za-z_]\w*")
+
+
+def repair_code_rows(img, screen: Rect, scale: float, blocks: list[Block], max_rows: int = 3,
+                     ocr=None) -> list[Block]:
+    """Re-read code rows that came out impossible (`def(a, b):` = the coloured name was dropped):
+    OCR just that row, cropped, which Vision reads more reliably than the whole screen. The row is
+    replaced only if the second read has the name. At most `max_rows` rows per frame (~20 ms each)."""
+    bad = [b for b in blocks if not b.role and b.app and _BROKEN_DEF.search(b.text)
+           and not _GOOD_DEF.search(b.text)][:max_rows]
+    if not bad:
+        return blocks
+    if ocr is None:
+        from . import macos
+        ocr = macos.ocr_image
+    out = list(blocks)
+    for b in bad:
+        row = [x for x in out if x.app == b.app and x.window == b.window and not x.role
+               and abs(x.rect.cy - b.rect.cy) < 0.5 * b.rect.h and x.rect.x >= b.rect.x - 2]
+        right = max(x.rect.x2 for x in row)
+        crop = Rect(b.rect.x - 6, b.rect.y - 4, right - b.rect.x + 12, b.rect.h + 8).clamp(screen)
+        try:
+            fresh, _ = ocr(img, screen, scale, crop=crop)
+        except Exception as e:  # noqa: BLE001
+            log.debug("row re-OCR failed: %s", e)
+            continue
+        text = " ".join(f.text for f in sorted(fresh, key=lambda f: f.rect.x)).strip()
+        if not _GOOD_DEF.search(text):
+            continue
+        r = fresh[0].rect
+        for f in fresh[1:]:
+            r = r.union(f.rect)
+        out = [x for x in out if x not in row] + [Block(text, r, min(f.confidence for f in fresh), b.app, b.window)]
+        log.info("re-read code row %r -> %r", b.text, text)
+    return M.reading_order(out)
+
 
 def _changed(a: bytes | None, b: bytes, min_pixels: int) -> bool:
     if a is None or len(a) != len(b):
@@ -729,9 +956,22 @@ def observe_image(path: str, overlay=None) -> ScreenObservation:
     img, screen, scale, windows, app = load_fixture(path)
     blocks, ms = macos.ocr_image(img, screen, scale)
     blocks = M.drop_inside(blocks, [Rect.from_any(r) for r in (overlay or [])])
-    blocks = M.reading_order(M.assign_windows(blocks, windows))
-    return ScreenObservation(t=time.time(), app=app, windows=windows, blocks=blocks, screen=screen,
-                             scale=scale, ocr_ms=ms, frame=1, source=f"fixture:{Path(path).name}")
+    blocks = M.postprocess(M.reading_order(M.assign_windows(blocks, windows)))
+    blocks = repair_code_rows(img, screen, scale, blocks)
+    obs = ScreenObservation(t=time.time(), app=app, windows=windows, blocks=blocks, screen=screen,
+                            scale=scale, ocr_ms=ms, frame=1, source=f"fixture:{Path(path).name}")
+    obs.editor = _editor_info(obs)
+    return obs
+
+
+def _editor_info(obs: ScreenObservation) -> dict | None:
+    try:
+        from .vscode import vscode_window
+        w = vscode_window(obs)
+        return w.to_dict() if w is not None else None
+    except Exception:
+        log.exception("vscode_window failed")
+        return None
 
 
 _READER: ScreenReader | None = None

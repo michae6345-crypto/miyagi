@@ -74,6 +74,7 @@ class ScreenContext:
     file: str = ""  # focused editor file (AX `AXDocument`)
     line: int | None = None  # caret / hovered line (AX)
     element: str = ""  # AX element under the cursor, e.g. 'AXButton "Run"'
+    active_file: dict | None = None  # E6 reader.vscode_window() / companion extension: the ONLY source of "which file is open"
     _img: Any = field(default=None, repr=False)
 
     @classmethod

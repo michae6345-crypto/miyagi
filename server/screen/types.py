@@ -92,6 +92,9 @@ class Window:
         return {"app": self.app, "title": self.title, "rect": self.rect.to_dict()}
 
 
+OVERLAY_ROLES = frozenset({"hover", "widget"})   # drawn over the code: left out of text / lines / locate
+
+
 @dataclass(frozen=True)
 class Block:
     """One OCR'd line of text (Vision returns roughly one observation per visual line)."""
@@ -100,10 +103,15 @@ class Block:
     confidence: float
     app: str | None = None       # owning window's app, None if outside every known window
     window: str | None = None    # owning window's title
+    role: str = ""               # "" (content) | "hover" (editor tooltip) | "widget" (inline chat / suggestion
+    #                              widget): both are OVERLAY_ROLES, not part of the code
 
     def to_dict(self) -> dict:
-        return {"text": self.text, "rect": self.rect.to_dict(), "confidence": round(self.confidence, 3),
-                "app": self.app, "window": self.window}
+        d = {"text": self.text, "rect": self.rect.to_dict(), "confidence": round(self.confidence, 3),
+             "app": self.app, "window": self.window}
+        if self.role:
+            d["role"] = self.role
+        return d
 
 
 @dataclass
@@ -124,20 +132,32 @@ class ScreenObservation:
     trigger: str = "tick"               # why this frame was captured: tick|click|typing_pause|app_switch|...
     overlay_excluded: bool = False      # overlay left out at capture time (ScreenCaptureKit)
     capture: str = ""                   # backend that produced the frame: sck | cli | cg | fixture
+    editor: dict | None = None          # frontmost VS Code window: {folder, file, path, symbol, dirty, sources}
+    #                                     (server.screen.vscode; the one answer to "which file is open")
 
     def text(self, app: str | None = None) -> str:
         """All OCR text, one block per line, plus exact AX text (editor buffer page / terminal rows)
         for matching apps; optionally only `app`'s windows."""
         from .match import app_matches
-        lines = [b.text for b in self.blocks if app is None or app_matches(app, b.app)]
+        lines = [b.text for b in self.blocks if (app is None or app_matches(app, b.app)) and b.role not in OVERLAY_ROLES]
         for a, ax_lines in self.ax_lines.items():
             if app is None or app_matches(app, a):
                 lines.extend(ax_lines)
         return "\n".join(lines)
 
-    def blocks_in(self, app: str | None) -> list[Block]:
+    def blocks_in(self, app: str | None, include_hover: bool = False) -> list[Block]:
+        """Blocks of `app`'s windows (all if None). Hover tooltips are left out unless asked for."""
         from .match import app_matches
-        return [b for b in self.blocks if app is None or app_matches(app, b.app)]
+        return [b for b in self.blocks if (app is None or app_matches(app, b.app))
+                and (include_hover or b.role not in OVERLAY_ROLES)]
+
+    def hovers(self) -> list[str]:
+        """Text of editor hover tooltips on screen (left out of text()/lines_by_app()/locate())."""
+        return [b.text for b in self.blocks if b.role == "hover"]
+
+    def widgets(self) -> list[str]:
+        """Text of VS Code inline chat / suggestion widgets on screen (left out like hovers)."""
+        return [b.text for b in self.blocks if b.role == "widget"]
 
     def lines_by_app(self) -> dict[str, list[str]]:
         """`{app: [line, ...]}` with Vision's split blocks re-joined into visual rows, in reading
@@ -159,7 +179,7 @@ class ScreenObservation:
              "frame": self.frame, "source": self.source, "trigger": self.trigger,
              "cursor": {"x": self.cursor[0], "y": self.cursor[1]} if self.cursor else None,
              "under_cursor": self.under_cursor, "ax": self.ax, "overlay_excluded": self.overlay_excluded,
-             "capture": self.capture}
+             "capture": self.capture, "editor": self.editor, "postprocessed": True}
         if with_blocks:
             d["blocks"] = [b.to_dict() for b in self.blocks]
         return d
@@ -171,13 +191,22 @@ class ScreenObservation:
         return ScreenObservation(
             t=float(d.get("t", 0.0)), app=d.get("app", ""),
             windows=[Window(w["app"], w.get("title", ""), Rect.from_any(w["rect"])) for w in d.get("windows", [])],
-            blocks=[Block(b["text"], Rect.from_any(b["rect"]), float(b.get("confidence", 1.0)), b.get("app"),
-                          b.get("window")) for b in d.get("blocks", [])],
+            blocks=_load_blocks(d),
             screen=Rect.from_any(d["screen"]) if d.get("screen") else Rect(0, 0, 0, 0),
             scale=float(d.get("scale", 1.0)), ocr_ms=float(d.get("ocr_ms", 0.0)), frame=int(d.get("frame", 0)),
             source=d.get("source", "recorded"), cursor=(cur["x"], cur["y"]) if cur else None,
             under_cursor=d.get("under_cursor"), ax=d.get("ax"), trigger=d.get("trigger", "tick"),
-            overlay_excluded=bool(d.get("overlay_excluded", False)), capture=d.get("capture", ""))
+            overlay_excluded=bool(d.get("overlay_excluded", False)), capture=d.get("capture", ""),
+            editor=d.get("editor"))
+
+
+def _load_blocks(d: dict) -> list[Block]:
+    blocks = [Block(b["text"], Rect.from_any(b["rect"]), float(b.get("confidence", 1.0)), b.get("app"),
+                    b.get("window"), b.get("role", "")) for b in d.get("blocks", [])]
+    if not d.get("postprocessed"):     # raw recordings: same clean-up a live frame gets
+        from .match import postprocess
+        blocks = postprocess(blocks)
+    return blocks
 
 
 __all__ = ["Block", "Rect", "ScreenObservation", "Window", "asdict"]

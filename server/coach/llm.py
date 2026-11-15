@@ -17,6 +17,7 @@ import inspect
 import json
 import logging
 import os
+import re
 import time
 from collections.abc import Callable
 from dataclasses import dataclass, field
@@ -26,14 +27,15 @@ from typing import Any
 log = logging.getLogger("coach.llm")
 
 OPUS = "claude-opus-5-5"
+SONNET = "claude-sonnet-5-5"
 HAIKU = "claude-haiku-5-5"
 FALLBACK_BETA = "server-side-fallback-2026-07-01"
 
 FIXTURES_DIR = Path(__file__).parent / "fixtures"
 
-# Cost policy (Michael): Opus writes only the diagnosis card; everything else is Haiku.
+# Cost policy (Michael): Sonnet writes the diagnosis card (Opus only via COACH_MODEL_DIAGNOSE); everything else is Haiku.
 # Override per purpose with COACH_MODEL_<PURPOSE>, e.g. COACH_MODEL_EXPLAIN=claude-opus-5-5.
-MODELS = {"diagnose": OPUS}
+MODELS = {"diagnose": SONNET}  # spend cap (Michael, $84/$100): never Opus by default; COACH_MODEL_DIAGNOSE overrides
 
 
 def model_for(purpose: str) -> str:
@@ -72,8 +74,19 @@ class OutdatedFixUnavailable(CoachUnavailable):
     """fix_outdated() could not search or read the docs (no Bright Data config, fetch/model failure)."""
 
 
+def offline_mode() -> bool:
+    """Zero-cost mode: DEMO=1, or ORCH_STUBS names the coach ("all" / "lesson,coach,..."). No paid call
+    leaves the coach (Claude, Bright Data, ElevenLabs); recorded fixtures (COACH_REPLAY_DIR) still replay.
+    S11: with DEMO=1 the coach still made 19 Claude calls in one rehearsal take."""
+    if os.environ.get("DEMO", "").strip() == "1":
+        return True
+    stubs = {t.strip().lower() for t in re.split(r"[,\s]+", os.environ.get("ORCH_STUBS", "")) if t.strip()}
+    return bool(stubs & {"coach", "all", "*", "1"})
+
+
 def demo_mode() -> bool:
-    return os.environ.get("DEMO", "").strip() == "1"
+    """Offline answers (playbook / template cards) stand in for model answers."""
+    return offline_mode()
 
 
 def offline_fallback() -> bool:
@@ -223,6 +236,8 @@ async def structured_call(
             await _maybe_await(on_text(full, full))
         return hit
 
+    if offline_mode():
+        raise CoachLLMError(f"{purpose}: offline mode (DEMO / ORCH_STUBS), no live call", "offline")
     if not has_credentials():
         raise CoachLLMError("no ANTHROPIC_API_KEY", "no_key")
 
@@ -286,7 +301,7 @@ def _request(client, model: str, system: list[dict], content: Any, schema: dict,
         "thinking": thinking or {"type": "adaptive"},  # Haiku pointing passes {"type": "disabled"} for speed
         "output_config": {"effort": effort, "format": {"type": "json_schema", "schema": schema}},
     }
-    if model == OPUS:  # server-side refusal fallback: on a policy decline the API reruns on a fallback model
+    if model in (OPUS, SONNET):  # server-side refusal fallback: on a policy decline the API reruns on a fallback model
         return client.beta.messages, {"betas": [FALLBACK_BETA], "fallbacks": "default", **kwargs}
     return client.messages, kwargs
 
@@ -302,20 +317,22 @@ async def warm(requests: list[dict] | None = None) -> dict:
     `requests`: [{"model", "system", "schema", "effort"}], the same values the real call will use
     (the cached prefix includes the output format). Best effort: never raises; returns timings.
     """
+    if offline_mode():
+        return {"skipped": "offline"}
     out: dict[str, Any] = {}
     if not has_credentials():
         return {"skipped": "no key"}
     client = get_client()
     t0 = time.monotonic()
     try:
-        await client.models.retrieve(OPUS)
+        await client.models.retrieve(model_for("diagnose"))
         out["tls_s"] = round(time.monotonic() - t0, 2)
     except Exception as e:  # noqa: BLE001 - warm-up is best effort
         out["tls_error"] = type(e).__name__
 
     async def one(r: dict) -> Any:
         # max_tokens=1: writes the cached prefix for one output token (0 is rejected with output_config.format)
-        api, kwargs = _request(client, r.get("model", OPUS), r["system"], "warm", r["schema"], r.get("effort", "low"), 1)
+        api, kwargs = _request(client, r.get("model") or model_for("diagnose"), r["system"], "warm", r["schema"], r.get("effort", "low"), 1)
         return await api.create(**kwargs)
 
     t0 = time.monotonic()

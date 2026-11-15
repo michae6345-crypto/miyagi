@@ -200,7 +200,7 @@ async def locate(query: str, screen: ScreenContext, *, use_model: bool = True) -
     """
     if ids := text_matches(query, screen):
         return screen.resolve_targets([{"box_id": i, "label": query[:24]} for i in ids[:3]])
-    if not use_model:
+    if not use_model or llm.offline_mode():
         return []
     ask = f'Find: "{query}"'
     try:

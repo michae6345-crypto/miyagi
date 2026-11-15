@@ -327,8 +327,8 @@ class Modules:
 
     # -- E5's Claude step judge (Haiku): the Check button and checks the machine can't see
     def make_step_judge(self) -> Any:
-        """A coach.StepJudge per lesson, or None (no coach / stubbed)."""
-        if "coach" in self.forced:
+        """A coach.StepJudge per lesson, or None (no coach / stubbed / DEMO: no paid calls)."""
+        if "coach" in self.forced or self.demo:
             return None
         mod = self.real.get("coach")
         cls = getattr(mod, "StepJudge", None) if mod else None
@@ -339,11 +339,12 @@ class Modules:
             return None
 
     async def judge_step(self, step: dict, screen: Any = None, files: dict | None = None, *, check_results: Any = None,
-                         focused_app: str = "", lesson: dict | None = None) -> dict | None:
+                         focused_app: str = "", lesson: dict | None = None, active_file: dict | None = None) -> dict | None:
         fn = self._real_fn("coach", "judge_step")
         if fn is None:
             return None
-        return await fn(step, screen, files, check_results=check_results, focused_app=focused_app, lesson=lesson)
+        return await fn(step, screen, files, check_results=check_results, focused_app=focused_app, lesson=lesson,
+                        active_file=active_file)
 
     # -- E2 lazy long-video parts: later parts are built only as the learner nears them
     def lesson_needs_more(self, graph: dict, step_index: int) -> bool:
@@ -442,6 +443,8 @@ class Modules:
             return 0
 
     async def warm(self) -> None:
+        if self.demo:
+            return  # DEMO costs nothing
         fn = self._real_fn("coach", "warm")
         if fn is not None:
             try:
@@ -451,7 +454,8 @@ class Modules:
 
     async def diagnose(self, step: dict, failed_checks: list[dict], metrics: dict, code_excerpt: str,
                        error_text: str = "", cursor: dict | None = None, screen: Any = None,
-                       on_targets: Callable[[list[dict]], Any] | None = None) -> dict:
+                       on_targets: Callable[[list[dict]], Any] | None = None, file_state: dict | None = None,
+                       code_source: str = "file") -> dict:
         """`metrics` is the raw series dict {name: [(step, value)]} (what coach.diagnose expects).
         Runs as the coach's cancellable "diagnose" task when the coach supports it."""
         cached = self._cache("coach", f"{step['id']}.json")
@@ -461,8 +465,8 @@ class Modules:
         kwargs: dict[str, Any] = {}
         if fn is not None:
             for name, val in (("error_text", error_text), ("cursor", cursor), ("screen", screen),
-                              ("on_targets", on_targets)):
-                if val and _accepts(fn, name):
+                              ("on_targets", on_targets), ("file_state", file_state), ("code_source", code_source)):
+                if val and _accepts(fn, name):  # E5: file_state / code_source -> holds (unsaved, OCR, wrong folder)
                     kwargs[name] = val
         inflight = getattr(self.real.get("coach"), "inflight", None) if fn is not None else None
         if fn is not None and inflight is not None and hasattr(inflight, "start"):

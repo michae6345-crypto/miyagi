@@ -92,6 +92,8 @@ class Engine:
         self.watcher.start()
         if not self.screen.start(self.session.on_screen):
             self.session.screen = None  # precision mode only (files + tut run)
+        else:  # E6: app switch / Space swipe within ~0.25 s -> clear (or re-place) the spotlight at once
+            self.screen.watch_frontmost(self.session.on_frontmost)
         if config.env_flag("ORCH_AUTOSTART"):  # no launcher needed: the lesson is live from the start
             if self.modules.demo and (graph := self.modules._lesson_file()):
                 await self.session.load_graph(graph)
@@ -262,6 +264,15 @@ async def ingest(body: Any = Body(...)) -> dict:
     lesson = (engine.session.graph or {}).get("lesson", {})
     # E3's `tut run` tags its Tiger run with these
     return {"ok": True, "accepted": n, "lesson_id": lesson.get("id"), "step_id": st["id"] if st else None}
+
+
+@app.post("/vscode/event")
+async def vscode_event(body: dict = Body(...)) -> dict:
+    """The VS Code companion (vscode-ext/) posts editor/save/dirty/focus/command_end events; see server.workspace.vscode_ext."""
+    from server.workspace import vscode_ext
+
+    vscode_ext.record_event(body)
+    return {"ok": True}
 
 
 @app.post("/end")
