@@ -115,18 +115,33 @@ def missing_edits(action: str, expected: str) -> list[str]:
     return [w for w in dict.fromkeys(wanted) if w.lower() not in stop and w.lower() not in exp]
 
 
-async def do_it_for_me(step: dict, file: str, file_text: str, last_offtrack: dict | None = None, *, lesson: dict | None = None) -> dict:
+def _squash(s: str) -> str:
+    return re.sub(r"\s+", "", s or "")
+
+
+def _step_code_head(step: dict) -> str:
+    """The step's first meaningful code line ("def roll_die():"), "" when the step has no code."""
+    return next((ln.strip() for ln in (step.get("code") or "").splitlines()
+                 if ln.strip() and not ln.strip().startswith("#")), "")
+
+
+async def do_it_for_me(step: dict, file: str, file_text: str, last_offtrack: dict | None = None, *,
+                       lesson: dict | None = None, use_diagnosis: bool = True) -> dict:
     """A minimal patch that compiles: {file, unified_diff, summary, line, new_text, requires_confirmation},
     or a terminal fix {command, summary, file: None, new_text: None} when that is the fix.
 
     Reuses the latest diagnosis's diff when it applies cleanly AND makes every edit its action
     sentence names; otherwise asks Opus (up to two tries, the second told why the first failed).
+    use_diagnosis=False (lesson mode "Do it for me" on a typing step, E12): never the cached diff (it fixed a
+    comma, not the step); the patch must ADD the step's code and compile, with the diagnosis only as context.
     Rejects no-op patches. Never writes files or runs commands. Raises `CoachUnavailable`.
     """
     last = last_offtrack or LAST.get(step.get("id", "")) or {}
     action = _action_sentence(last) if last else ""
     error = ""
-    if diff := last.get("diff"):
+    add_code = "" if use_diagnosis else (step.get("code") or "").strip("\n")
+    head = _step_code_head(step) if add_code else ""
+    if use_diagnosis and (diff := last.get("diff")):
         if diff.get("command") and not diff.get("expected"):
             return _command_result(diff["command"], action or "Run this command", "diagnosis")
         p = apply_fix({**diff, "file": file}, file_text)
@@ -142,6 +157,9 @@ async def do_it_for_me(step: dict, file: str, file_text: str, last_offtrack: dic
             for x in [
                 f"CURRENT STEP:\n{step_brief(step)}",
                 f"DIAGNOSIS: {last.get('title')} — {last.get('body')}" if last else "",
+                (f"ADD THIS STEP'S CODE where it belongs (the result must contain it, in the learner's file):\n{add_code}\n"
+                 "Also fix whatever would stop the file from compiling (see DIAGNOSIS). If the two edits are apart, "
+                 "`yours` spans from the first line you change to the last (e.g. to the end of the file).") if add_code else "",
                 f"PREVIOUS ATTEMPT FAILED: {error}" if error else "",
                 f"FILE {file}, numbered:\n{number_lines(notebook_code(file_text), 400)}",
                 "Write the patch.",
@@ -160,6 +178,8 @@ async def do_it_for_me(step: dict, file: str, file_text: str, last_offtrack: dic
             return _command_result(d["command"].strip(), d["summary"], f"opus#{attempt + 1}")
         p = apply_fix({"yours": d["yours"], "expected": d["expected"], "line": d.get("line"), "file": file}, file_text)
         missing = missing_edits(action, d["expected"]) if p["error"] is None else []
+        if p["error"] is None and head and _squash(head) not in _squash(p["new_text"] or ""):
+            missing = [f"the step's code (`{head}`)"]
         if p["error"] is None and not missing:
             return _result(file, p, d["summary"], d.get("line"), f"opus#{attempt + 1}")
         error = p["error"] or f"the patch misses part of the fix: {', '.join(missing)}"

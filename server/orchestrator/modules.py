@@ -587,13 +587,14 @@ class Modules:
     def has_do_it_for_me(self) -> bool:
         return self._real_fn("coach", "do_it_for_me") is not None
 
-    async def do_it_for_me(self, step: dict, file: str, file_text: str, last_offtrack: dict | None) -> dict:
-        """-> {file, unified_diff, summary, line, new_text, requires_confirmation}; ModuleUnavailable if no safe patch."""
+    async def do_it_for_me(self, step: dict, file: str, file_text: str, last_offtrack: dict | None, **kw: Any) -> dict:
+        """-> {file, unified_diff, summary, line, new_text, requires_confirmation}; ModuleUnavailable if no safe patch.
+        kw: use_diagnosis=False (a lesson step's code, never the cached diagnosis diff)."""
         fn = self._real_fn("coach", "do_it_for_me")
         if fn is None:
             raise self._missing("coach", "do_it_for_me")
         try:
-            return _to_dict(await _call(fn, step, file, file_text, last_offtrack))
+            return _to_dict(await _call(fn, step, file, file_text, last_offtrack, **kw))
         except Exception as e:
             raise ModuleUnavailable(f"{getattr(e, 'reason', None) or e}") from e
 

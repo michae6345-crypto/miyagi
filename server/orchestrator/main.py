@@ -49,6 +49,8 @@ class Engine:
                                      inputs=Inputs())
         self.watcher = Watcher(self.session.on_file_change, interval=config.WATCH_INTERVAL_S)
         self.session.on_workdir = self.watcher.set_root
+        # E14: no off-track to an app that left (headless runs that never had an app still get them, e.g. /events)
+        self.session.has_client = lambda: bool(self.hub.clients) or self.last_client_gone is None
         try:  # S7: progress saved to ~/miyagi/state; "Continue where you left off?" survives an engine restart
             from server.sessions import Resumer
 
@@ -151,6 +153,8 @@ class Engine:
             await s.end_lesson("stopped")  # (the resume card's "Start a new lesson" is action end_lesson: discards)
         elif msg.type == "config.keys":
             await self.hub.emit("config.status", apply_keys(p.model_dump()))
+        elif msg.type in ("card.shown", "card.closed"):  # E14: what the learner really has on screen
+            await s.card_seen(msg.type == "card.shown", p.stepId, p.title, p.kind, getattr(p, "by", None))
 
 
 # config.keys -> server.config (get_key) + the env vars modules read. Memory only; never logged.
@@ -221,7 +225,7 @@ async def ws_endpoint(ws: WebSocket) -> None:
     await ws.accept()
     for type_, payload in engine.session.snapshot(ask_resume=engine.app_returning()):
         await engine.hub.send_to(ws, type_, payload)
-    engine.hub.clients.add(ws)
+    engine.hub.join(ws)
     engine.mark_lesson_seen()
     queue: asyncio.Queue[dict] = asyncio.Queue()
     running: dict[str, dict] = {}  # the command the worker is on (a press queued behind it is logged on arrival)
@@ -248,6 +252,7 @@ async def ws_endpoint(ws: WebSocket) -> None:
                 running.pop("job", None)
 
     task = asyncio.create_task(worker())
+    why = "cancelled"  # how the socket ended (E14: the hub logs every close)
     try:
         while True:
             raw = await ws.receive_json()
@@ -258,7 +263,7 @@ async def ws_endpoint(ws: WebSocket) -> None:
             elif raw.get("type") in ("learn", "learn_url", "build_lesson") and _searching(running, engine.session):
                 running["job"].cancel()  # "Just teach me" / a pick / a new query while the search still runs: it
                 # replaces the search (rows so far stay pickable) instead of waiting out its tail (live: 15 s)
-            if raw.get("type") in ("video.state", "overlay.bounds", "end_lesson"):  # instant: skip the queue
+            if raw.get("type") in ("video.state", "overlay.bounds", "end_lesson", "card.shown", "card.closed"):  # instant
                 try:
                     await engine.dispatch(raw)
                 except Exception:
@@ -267,12 +272,15 @@ async def ws_endpoint(ws: WebSocket) -> None:
                 if (cur := running.get("cmd")) is not None:  # '<- …' is logged when it runs; this says it waited
                     log.info("<- %s queued behind %s (%d waiting)", _brief(raw), _brief(cur), queue.qsize())
                 await queue.put(raw)
-    except (WebSocketDisconnect, RuntimeError):
-        pass
+    except WebSocketDisconnect as e:
+        why = f"closed, code {e.code}"
+    except RuntimeError as e:
+        why = f"closed ({e})"
     except Exception:
         log.exception("websocket error")
+        why = "error"
     finally:
-        engine.hub.clients.discard(ws)
+        engine.hub.drop(ws, why)
         if not engine.hub.clients:
             engine.last_client_gone = time.monotonic()
             engine.save_progress()  # the app left: keep the exact video position (autosave is throttled)

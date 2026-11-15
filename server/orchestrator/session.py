@@ -2595,46 +2595,177 @@ class LessonSession:
                 if full.get("diff") and "apply_fix" not in shown["actions"]:
                     shown["actions"] = [*shown["actions"], "apply_fix"]
             shown["level"] = level
+            if (step.get("code") or "").strip():  # E13: the drawer shows the exact code to type, so a Socratic
+                shown.pop("guidingQuestion", None)  # question only re-asks what the learner can read; the body says
+                full.pop("guidingQuestion", None)  # what differs and the box marks the line
             self.ladder = level
-            self.last_offtrack = full
-            key = (step["id"], level, (full.get("title") or "").strip().lower())
-            if self.clock() - self._last_card_t < self.CARD_GAP_S or self._ask_held():  # a card just went up / asked
-                self.spoken_sig = None  # try again on the next trigger
-                await self._status("watching")
-                return
-            if level == 2 and ids and ids <= self._carded_checks:
-                log.info("a card already covers %s; no offtrack on top of it", sorted(ids))
-                await self._status("watching")
-                return
-            self._offtracked_checks |= ids
-            if key != self._offtrack_key:  # only a NEW card: new step, higher level or a different diagnosis
-                self._offtrack_key = key  # (re-sending the same one reopens a card the learner just closed)
-                self._last_card_t = self.clock()
-                await self.emit("offtrack", shown)
-                self._say("offtrack", shown)
-                async with self._lock:  # the coach's verdict: the check rows say "not yet" with it (E1)
-                    if gen == self.step_gen and not self.passed:
-                        await self._open_gate(step)
-            else:
-                log.info("same offtrack as before (%s, level %s); not re-sent", step["id"], level)
-            self._record("offtrack", {"title": full.get("title"), "level": level,
-                                      "check_ids": [r.get("checkId") for r in failed]}, step)
-            diff = full.get("diff") or {}
-            first = (diff.get("yours") or "").strip().splitlines()[:1]
-            spot = self._locate(re.escape(first[0]), None, full.get("title", "")) if first else None
-            if spot is None and full.get("targets"):  # the coach pointed at screen boxes (set-of-mark)
-                spot = self._target_spot(full["targets"][0])
-            if getattr(self, "_early_spot", False) and spot is None:
-                pass  # the streamed target spotlight is already up
-            elif spot:
-                self.spot_track = (re.escape(first[0]), None, full.get("title", ""))
-                await self._show_spot(spot)
-            else:
-                await self._spotlight_target(step)
-            await self._status("offtrack")
+            await self._offer_offtrack(gen, step, failed, ids, level, full, shown)
         finally:
             if gen == self.step_gen:
                 self.coaching = False
+
+    # E14: a diagnosis that lands while a card just went up, the learner's question is answered, the display sleeps
+    # or no app is connected is KEPT and sent when that ends (it was dropped, and a later trigger paid for it again)
+    _pending_offtrack: dict | None = None
+    _pending_task: asyncio.Task | None = None
+    PENDING_OFFTRACK_S = 90.0  # a kept diagnosis older than this is stale: the next trigger diagnoses afresh
+    has_client: Callable[[], bool] | None = None  # main.py: is an app connected? (None: unknown, e.g. tests)
+
+    def _offtrack_wait(self) -> str | None:
+        """Why an off-track card can't go out right now (None: it can)."""
+        if self.clock() - self._last_card_t < self.CARD_GAP_S:
+            return "a card just went up"
+        if self._ask_held():
+            return "the learner's question comes first"
+        if self.screen_asleep(self.screen_down_reason()):
+            return "the screen is asleep"
+        if self.has_client is not None and not self.has_client():
+            return "no app connected"
+        return None
+
+    async def _offer_offtrack(self, gen: int, step: dict, failed: list[dict], ids: set, level: int, full: dict,
+                              shown: dict) -> None:
+        """Send the coach's diagnosis as the off-track card, keep it for later (_offtrack_wait), or leave it unsent
+        when a card on screen already covers the same checks. last_offtrack is set only when it is really sent."""
+        if gen != self.step_gen or self.passed:
+            return
+        if why := self._offtrack_wait():
+            self._pending_offtrack = {"gen": gen, "step": step, "failed": failed, "ids": ids, "level": level,
+                                      "full": full, "shown": shown, "sig": self._sig(failed), "t": self.clock()}
+            log.info("offtrack %r kept for later (%s)", full.get("title"), why)
+            if self._pending_task is None or self._pending_task.done():
+                self._pending_task = self._spawn(self._pending_offtrack_later(), timer=True)
+            if self.status != (want := "offtrack" if self.last_offtrack else "watching"):
+                await self._status(want)  # (only a real change: a flip can close a card the app is showing, A1)
+            return
+        self._pending_offtrack = None
+        if level == 2 and ids and ids <= self._carded_checks:
+            log.info("a card already covers %s; no offtrack on top of it", sorted(ids))
+            await self._status("watching")
+            return
+        self.last_offtrack = full
+        key = (step["id"], level, (full.get("title") or "").strip().lower())
+        self._offtracked_checks |= ids
+        if key != self._offtrack_key:  # only a NEW card: new step, higher level or a different diagnosis
+            self._offtrack_key = key  # (re-sending the same one reopens a card the learner just closed)
+            self._last_card_t = self.clock()
+            await self.emit("offtrack", shown)
+            self._say("offtrack", shown)
+            async with self._lock:  # the coach's verdict: the check rows say "not yet" with it (E1)
+                if gen == self.step_gen and not self.passed:
+                    await self._open_gate(step)
+        else:
+            log.info("same offtrack as before (%s, level %s); not re-sent", step["id"], level)
+        self._record("offtrack", {"title": full.get("title"), "level": level,
+                                  "check_ids": [r.get("checkId") for r in failed]}, step)
+        await self._offtrack_spot(step, full)
+        await self._status("offtrack")
+
+    async def _pending_offtrack_later(self) -> None:
+        """Send the kept diagnosis once nothing holds it (no second model call). Dropped when the step moved on,
+        the failing checks changed (it may no longer be true: the next trigger diagnoses afresh) or it got old;
+        a newer diagnosis simply replaces it."""
+        while (p := self._pending_offtrack) is not None:
+            await asyncio.sleep(min(2.0, max(0.25, self._last_card_t + self.CARD_GAP_S - self.clock())))
+            p = self._pending_offtrack
+            if p is None:
+                return
+            if p["gen"] != self.step_gen or self.passed:
+                self._pending_offtrack = None
+                return
+            if self._sig(self.last_failed) != p["sig"] or self.clock() - p["t"] > self.PENDING_OFFTRACK_S:
+                self._pending_offtrack, self.spoken_sig = None, None
+                log.info("kept offtrack %r dropped: the checks changed or it got old", p["full"].get("title"))
+                return
+            if self.coaching or self.typing() or self._offtrack_wait():
+                continue  # a fresh diagnosis is running (it replaces this one) / the learner types / still held
+            await self._offer_offtrack(p["gen"], p["step"], p["failed"], p["ids"], p["level"], p["full"], p["shown"])
+            return
+
+    LINE_REF = re.compile(r"\bline\s+(\d+)\b", re.I)
+
+    @staticmethod
+    def _plain(text: str | None) -> str:
+        """Markdown off a caption: `code` -> code, **bold** -> bold, [label](url) -> label (E10)."""
+        t = re.sub(r"\[([^\]]+)\]\([^)]*\)", r"\1", text or "")
+        t = t.replace("`", "").replace("**", "")
+        return " ".join(t.split()).strip(" .")
+
+    def _offtrack_anchor(self, step: dict, full: dict) -> tuple[str, str]:
+        """(the code line to box, its caption) for an off-track card (E10: the box sat on diff.yours's first line,
+        line 7, while the card said "change line 8"). The line the card names ("line 8") wins, read from the diff
+        (diff.line + offset) or the file; else the line of the diff that actually changes. Caption: "Change to
+        <expected line>" / "Add <line> below" / "Delete this line" from the diff ("" = none: the caller labels it)."""
+        import difflib
+
+        diff = full.get("diff") or {}
+        yours = [ln for ln in (diff.get("yours") or "").splitlines()]
+        expected = [ln for ln in (diff.get("expected") or "").splitlines()]
+        while yours and not yours[0].strip():  # diff.line counts from the first real line
+            yours.pop(0)
+        idx, cap = 0, ""
+        ops = difflib.SequenceMatcher(a=[x.strip() for x in yours], b=[x.strip() for x in expected],
+                                      autojunk=False).get_opcodes() if yours else []
+        for tag, i1, i2, j1, j2 in ops:  # the first real change: what the box points at
+            if tag == "replace":
+                idx, cap = i1, f"Change to {expected[j1].strip()}"
+            elif tag == "delete":
+                idx, cap = i1, "Delete this line"
+            elif tag == "insert":
+                idx, cap = max(0, i1 - 1), f"Add {expected[j1].strip()} {'below' if i1 else 'above'}"
+            if tag != "equal":
+                break
+        named = self.LINE_REF.search(f"{full.get('body') or ''} {full.get('title') or ''}")
+        n = int(named.group(1)) if named else None
+        if n:  # where the hunk really starts in the file (diff.line is the model's count), then the named line
+            code, file = self._code_excerpt(step)
+            lines = [x.strip() for x in code.splitlines()] if file else []  # screen text has no line numbers
+            ys = [y.strip() for y in yours]
+            first = next((i + 1 for i in range(len(lines) - len(ys) + 1) if ys and lines[i:i + len(ys)] == ys),
+                         None) or (diff.get("line") if isinstance(diff.get("line"), int) and diff["line"] > 0 else None)
+            if first and 0 <= n - first < len(yours):
+                if n - first != idx:  # the card names another line of the hunk: box that one
+                    idx = n - first
+                    j = next((j1 + (idx - i1) for tag, i1, i2, j1, j2 in ops if tag == "replace" and i1 <= idx < i2
+                              and j1 + (idx - i1) < j2), None)
+                    cap = f"Change to {expected[j].strip()}" if j is not None else ""
+            elif 0 < n <= len(lines) and lines[n - 1]:  # the named line is outside the hunk: box it as the card says
+                anchor = lines[n - 1]
+                return anchor, (self._plain(cap) if yours and yours[idx].strip() == anchor else "")
+        anchor = yours[idx].strip() if yours else ""
+        cap = self._plain(cap)
+        if not cap or len(cap.split()) > 8 or len(cap) > 48:
+            cap = "Change this line" if anchor and diff.get("expected") else ""
+        return anchor, cap
+
+    async def _offtrack_spot(self, step: dict, full: dict) -> None:
+        """Box the line the off-track card is about (_offtrack_anchor), as the off-track's own spotlight."""
+        anchor, cap = self._offtrack_anchor(step, full)
+        cap = cap if self.lesson_mode else ""  # "Change to …" where the step's code is on show; a video keeps its title
+        title = self._plain(full.get("title")) or "Look here"  # no markdown on the box (E10)
+        spot = self._locate(re.escape(anchor), None, cap or title) if anchor else None
+        if spot is None and full.get("targets"):  # the coach pointed at screen boxes (set-of-mark): one ON that line
+            import difflib
+
+            squash = re.sub(r"\s+", "", anchor)
+
+            def on_line(t: dict) -> bool:  # OCR may misread a letter ("resoonse"): close is enough
+                text = re.sub(r"\s+", "", t.get("text") or "")
+                return not squash or squash in text or difflib.SequenceMatcher(None, squash, text).ratio() >= 0.85
+
+            hit = next((t for t in full["targets"] if on_line(t)), None)
+            spot = self._target_spot({**hit, "label": cap or self._plain(hit.get("label")) or title}) if hit else None
+        if getattr(self, "_early_spot", False) and spot is None:
+            return  # the streamed target spotlight is already up
+        if not spot:
+            await self._spotlight_target(step)
+            return
+        if anchor:
+            self.spot_track = (re.escape(anchor), None, spot.get("caption") or title)
+        import inspect
+
+        owner = {"owner": "offtrack"} if "owner" in inspect.signature(self._show_spot).parameters else {}
+        await self._show_spot(spot, **owner)  # owner: the spotlight cluster's argument, once it has landed
 
     # ------------------------------------------------------------------ inputs
     async def on_screen(self, obs: Any = None) -> None:
@@ -3290,10 +3421,36 @@ class LessonSession:
         self._recent_cards[sig] = now
         self._last_card_t = now
         await self.emit("card", card)
+        covers = (card.get("title") == "Not yet" or card.get("verdict") == "not_done"
+                  or (self._nudge is not None and card is self._nudge.get("card")))
+        if self._carded_checks and not covers:  # E14: the app has ONE card slot: this card took the place of the one
+            log.info("card %r replaced the card covering %s", card.get("title"), sorted(self._carded_checks))
+            if not self._carded_checks <= self._offtracked_checks:
+                self.spoken_sig = None  # the diagnosis it held back was never shown
+            self._carded_checks = set()  # that covered these checks, so an off-track may speak for them again
         return True
 
-    async def _card(self, step: dict, title: str, body: str, kind: str = "hint", **extra: Any) -> None:
-        await self.emit("card", {"stepId": step["id"], "kind": kind, "title": title, "body": body, **extra})
+    async def _card(self, step: dict, title: str, body: str, kind: str = "hint", **extra: Any) -> bool:
+        """Every card goes through _emit_card (E14): the card gap, the duplicate check and card.closed see it too."""
+        return await self._emit_card({"stepId": step["id"], "kind": kind, "title": title, "body": body, **extra},
+                                     window_s=1.0)
+
+    async def card_seen(self, shown: bool, step_id: str | None, title: str, kind: str | None = None,
+                        by: str | None = None) -> None:
+        """App -> engine card.shown / card.closed (E14): what the learner really has on screen. A closed (or
+        covered) card no longer speaks for its checks: the off-track suppression it caused is lifted."""
+        step = self.step
+        if step is None or (step_id and step_id != step["id"]):
+            return
+        if shown:
+            log.info("card on screen: %s %r", kind or "card", title)
+            return
+        log.info("card closed (%s): %s %r", by or "?", kind or "card", title)
+        if self._carded_checks:
+            log.info("no card covers %s any more", sorted(self._carded_checks))
+            if not self._carded_checks <= self._offtracked_checks:
+                self.spoken_sig = None  # the diagnosis it held back was never shown: the next save / run may speak
+            self._carded_checks = set()
 
     async def _apply_fix(self, step: dict) -> None:
         """"Do it for me": the learner saw the diff on the offtrack card and pressed the button.
@@ -4077,11 +4234,16 @@ class LessonSession:
         if not j.get("done"):
             self.confirm_check_ids = []  # Claude no longer sees the step done: a later Yes re-checks (_confirm_stale)
         if card and not self.passed and gen == self.step_gen:
+            ids: set = set()
             if card.get("verdict") == "not_done":
                 ids = {r.get("checkId") for r in self.last_failed if r.get("checkId")}
-                if self.coaching or (ids and ids <= self._offtracked_checks and self.last_offtrack):
-                    return  # the off-track card says "Not yet" better (question, evidence, Show me): don't cover it
+                pend = self._pending_offtrack
+                if self.coaching or (ids and ids <= self._offtracked_checks and self.last_offtrack) or (
+                        pend is not None and pend["gen"] == gen and ids and ids <= pend["ids"]):
+                    return  # the off-track card (up, coming or kept) says "Not yet" better: one card per mistake
             if await self._emit_card(card, auto=True):
+                if ids:  # E13: and no off-track on top of this "Not yet" for the same checks (until it's closed)
+                    self._carded_checks |= ids
                 if shown := getattr(self.judge, "card_shown", None):
                     shown(step["id"], card)  # E5: the same card isn't offered again for this step until a save
                 if card.get("verdict") == "not_done":  # the judge's verdict: the check rows say "not yet" with it (E1)
@@ -4201,30 +4363,57 @@ class LessonSession:
             return
         code = step["code"].rstrip("\n") + "\n"
         new_text, summary, line = None, f"Adds this step's code to {path.name}.", 1
+        thinking = False  # E12: "thinking" only while a model really runs; the card goes out BEFORE the status
         if not text.strip():
             new_text = code
         elif self.m.has_do_it_for_me():
+            thinking = True
             await self._status("thinking")
-            try:
-                p = await self.m.do_it_for_me(step, path.name, text, None)
+            try:  # a patch that ADDS the step's code (never the last diagnosis's cached diff, which only fixed a
+                # comma); the diagnosis rides along as context so the file also compiles
+                p = await self.m.do_it_for_me(step, path.name, text, self.last_offtrack or self.full_card,
+                                              use_diagnosis=False)
                 new_text, summary, line = p.get("new_text"), p.get("summary") or summary, p.get("line") or 1
             except Exception as e:  # noqa: BLE001
                 log.info("do_it_for_me (lesson step) failed: %s", e)
-            await self._status("watching")
-        if not new_text and text.strip():  # no coach (offline / no key): add the step's code at the end
+            head = re.sub(r"\s+", "", next((ln for ln in code.splitlines()
+                                            if ln.strip() and not ln.strip().startswith("#")), ""))
+            if new_text and ((head and head not in re.sub(r"\s+", "", new_text))
+                             or self._syntax_error_line(new_text, path)):
+                log.info("do_it_for_me (lesson step): the patch lacks the step's code or doesn't compile; appending")
+                new_text = None
+        if not new_text and text.strip():  # no coach (offline / no key) / no usable patch: add the code at the end
             new_text = text.rstrip("\n") + "\n\n" + code
             line = len(text.rstrip("\n").splitlines()) + 2
+            summary = f"Adds this step's code to {path.name}."
+            if bad := self._syntax_error_line(text, path):  # the file already has a mistake: say where
+                summary += f" Also fix line {bad} yourself: it doesn't run yet."
         if not new_text or new_text == text:
             await self._card(step, "Type it yourself", step["code"], kind="answer")
-            return
-        import difflib
+        else:
+            import difflib
 
-        diff = "".join(difflib.unified_diff(text.splitlines(True), new_text.splitlines(True),
-                                            f"a/{path.name}", f"b/{path.name}"))
-        self.pending_patch = {"path": path, "old": text, "new": new_text, "line": line,
-                              "first": code.strip().splitlines()[:1],
-                              "result": f"Added {self._code_head(step)} to {path.name}."}
-        await self._card(step, "Type this for you?", summary, kind="answer", diff=diff, actions=["confirm"])
+            diff = "".join(difflib.unified_diff(text.splitlines(True), new_text.splitlines(True),
+                                                f"a/{path.name}", f"b/{path.name}"))
+            self.pending_patch = {"path": path, "old": text, "new": new_text, "line": line,
+                                  "first": code.strip().splitlines()[:1],
+                                  "result": f"Added {self._code_head(step)} to {path.name}."}
+            await self._card(step, "Type this for you?", summary, kind="answer", diff=diff, actions=["confirm"])
+        if thinking:
+            await self._status("offtrack" if self.last_offtrack else "watching")
+
+    @staticmethod
+    def _syntax_error_line(text: str, path: Path) -> int | None:
+        """A Python file that doesn't compile: the line of its first syntax error (else None; other languages: None)."""
+        if path.suffix != ".py":
+            return None
+        try:
+            compile(text, str(path), "exec")
+        except SyntaxError as e:
+            return e.lineno or 1
+        except (ValueError, OverflowError):
+            return None
+        return None
 
     @staticmethod
     def _code_head(step: dict) -> str:
