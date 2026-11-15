@@ -776,8 +776,7 @@ export function Launcher({ layout }: { layout: Layout }): ReactNode {
             <div className="flex h-[48px] items-center gap-[4px] pl-[18px] pr-[12px]">
               {/* Ask ↔ new lesson is navigation, not the action: quiet and on the far left, away from the primary, so a
                   lesson isn't restarted by accident (Michael's audit A20). */}
-              {/* During a lesson the ask panel doesn't offer "New lesson" (Michael's tests 2-3, A13); Tab still flips to it. */}
-              {lesson.hasLesson && !choosing && mode === 'search' && <Action label="Back to step" keycap="⇥" enabled onClick={switchMode} />}
+              {lesson.hasLesson && !choosing && <Action label={mode === 'ask' ? 'New lesson' : 'Back to step'} keycap="⇥" enabled onClick={switchMode} />}
               <span className="flex min-w-0 flex-1 items-center gap-[7px] pl-[6px] text-[13px]" style={{ color: color.text }}>
                 {offline && <WifiOff size={13} strokeWidth={1.8} className="shrink-0" />}
                 {note && <span className="truncate">{note}</span>}
