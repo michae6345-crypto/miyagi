@@ -1,290 +1,247 @@
 /**
- * The lesson-complete panel (Michael's NEW 2, mockup 12 "Lesson complete"), grown out of the notch island:
- *   header   quiet "<track> · N skills mastered" (Michael, test 6: no headline sentence, no "Lesson complete" pill),
- *            a meta line (Just teach me · steps done · minutes), and on the right the lesson's own network as it
- *            last came from the engine ("1-4-4-1", "loss 0.82 → 0.0009" and a thumbnail)
- *   left     the skill map (SkillMap.tsx); under it, when the data has them: the loss over training, the trained
- *            network's fit against the lesson's targets, and the checks this lesson passed
- *   right    Up next: the first two lessons of skillMap.next; "Start: <first>" sends learn {query: goal,
- *            mode: "lesson"}, End lesson sends action end_lesson
- * Every number comes from the engine's card, its diagrams or the checks it sent; a piece without data is left out.
+ * The lesson-complete panel, grown out of the notch island. Direction C, "Network":
+ *   left    the network the learner trained, drawn from the engine's own weights (Network.tsx), and its loss
+ *           from the first to the last frame in large tabular numerals
+ *   right   the track as the title, how many skills are mastered, and the skills as a quiet wrap; a click shows
+ *           a skill's detail under it. One next action at the bottom right: "Start: <next lesson>", and End lesson.
+ * No network (a lesson that isn't a neural net): the right column alone, centered. No skill map: the card's title
+ * and body. Every number comes from the engine's card or its network diagrams; a piece without data is left out.
  */
-import { motion } from 'motion/react'
-import { useMemo, type ReactNode } from 'react'
-import { useShallow } from 'zustand/react/shallow'
-import { BookOpen, Check, ChevronRight, LogOut } from 'lucide-react'
-import { useLesson } from '../../core/lesson'
-import { CloseButton, Spinner } from '../../core/ui/atoms'
-import { color, fill, font, radius } from '../../core/theme'
-import { useOverlayWidth } from '../cards/store'
-import { FitChart, LossChart, NetThumb } from './Charts'
-import { fitCurve, lossSeries, short } from './net'
-import { SkillMapView } from './SkillMap'
-import { endLesson, startLesson, useComplete } from './store'
+import { AnimatePresence, motion } from 'motion/react'
+import { useMemo, useState, type ReactNode } from 'react'
+import { CloseButton, CodeText, Spinner } from '../../core/ui/atoms'
+import { color, fill } from '../../core/theme'
+import { useOverlayWidth, useSeries, type Point } from '../cards/store'
+import { NetGraph } from './Network'
+import { lossStat, plain, type Net } from './net'
+import { endLesson, startLesson, useComplete, type CompleteCard } from './store'
+import type { SkillNode } from './types'
 
-const PAD = 24
-const GAP = 16
-const SIDE = 300
-const INNER = 20
-/** Below this the Up next column moves under the map. */
-const STACK_BELOW = 960
-/** Without a skill map: just the header and the buttons. */
-const PLAIN_W = 520
-const CHECKS_SHOWN = 3
+const PAD = 40
+const COL_GAP = 64
+const NET_W = 300
+/** Two columns: the network and the skills. */
+const WIDE = 960
+/** The skills alone (no network), or a card without a map. */
+const SINGLE = 600
+const PLAIN = 520
+/** Below this the network sits above the skills. */
+const STACK_BELOW = 760
 
 /** The panel's width on an overlay this wide (the island keeps 16 px from each edge). */
-export function panelWidth(overlay: number, hasMap: boolean): number {
-  if (!hasMap) return Math.min(PLAIN_W, overlay - 32)
-  return Math.max(560, Math.min(1260, overlay - 32))
+export function panelWidth(overlay: number, hasMap: boolean, hasNet = false): number {
+  const room = overlay - 32
+  if (!hasMap) return Math.min(PLAIN, room)
+  if (!hasNet) return Math.min(SINGLE, room)
+  return Math.max(360, Math.min(WIDE, room))
 }
 
-const caps = 'text-[11px] font-semibold uppercase tracking-[0.07em]'
-
-function Primary({ label, onClick }: { label: string; onClick: () => void }): ReactNode {
-  return (
-    <motion.button
-      type="button"
-      data-complete-primary
-      className="flex h-[40px] w-full cursor-pointer items-center justify-center rounded-full px-[16px] text-[14px] font-medium"
-      style={{ background: color.accent, color: color.onAccent }}
-      whileHover={{ filter: 'brightness(0.96)' }}
-      whileTap={{ scale: 0.98 }}
-      transition={{ duration: 0.12 }}
-      onMouseDown={(e) => e.preventDefault()}
-      onClick={onClick}
-      title={label}
-    >
-      <span className="truncate">{label}</span>
-    </motion.button>
-  )
-}
-
-function Quiet({ label, busy, onClick }: { label: string; busy: boolean; onClick: () => void }): ReactNode {
-  return (
-    <motion.button
-      type="button"
-      data-complete-end
-      className="flex h-[40px] w-full cursor-pointer items-center justify-center gap-[8px] rounded-full text-[14px] font-medium"
-      style={{ background: fill.button, color: color.text }}
-      whileHover={{ backgroundColor: fill.chipHover }}
-      whileTap={{ scale: 0.98 }}
-      transition={{ duration: 0.12 }}
-      onMouseDown={(e) => e.preventDefault()}
-      onClick={onClick}
-    >
-      {busy ? <Spinner size={14} c={color.text} /> : <LogOut size={14} strokeWidth={1.8} />}
-      {label}
-    </motion.button>
-  )
-}
-
-function UpNext(): ReactNode {
-  const card = useComplete((s) => s.card)
-  const ending = useComplete((s) => s.ending)
-  if (!card) return null
-  const next = (card.map?.next ?? []).slice(0, 2)
-  const endLabel = card.endLabel || 'End lesson'
-  return (
-    <div data-up-next className="flex h-full flex-col">
-      {next.length > 0 && (
-        <>
-          <div className={`mb-[12px] flex items-baseline gap-[8px] ${caps}`} style={{ color: color.faint }}>
-            Up next
-            <span className="flex-1" />
-            <span className="font-normal normal-case tracking-normal">
-              {next.length} lesson{next.length === 1 ? '' : 's'}
-            </span>
-          </div>
-          <div className="flex flex-col gap-[8px]">
-            {next.map((n, i) => (
-              <motion.button
-                key={n.goal}
-                type="button"
-                data-next={i}
-                className="flex w-full cursor-pointer items-start gap-[12px] rounded-[14px] p-[12px] text-left"
-                style={i === 0 ? { background: fill.highlight, boxShadow: `inset 0 0 0 1px ${fill.chipBorder}` } : { background: fill.clear }}
-                whileHover={{ backgroundColor: fill.chipHover }}
-                transition={{ duration: 0.12 }}
-                onMouseDown={(e) => e.preventDefault()}
-                onClick={() => startLesson(n.goal)}
-                title={n.goal}
-              >
-                <span className="grid h-[30px] w-[30px] shrink-0 place-items-center rounded-[9px]" style={{ background: fill.tile, color: fill.tileGlyph }}>
-                  <BookOpen size={15} strokeWidth={1.8} />
-                </span>
-                <span className="min-w-0 flex-1">
-                  {i === 0 && (
-                    <span className={`mb-[3px] block ${caps}`} style={{ color: color.faint }}>
-                      Recommended
-                    </span>
-                  )}
-                  <span className="block text-[14px] font-medium leading-[19px]" style={{ color: color.text }}>
-                    {n.title}
-                  </span>
-                  <span className="mt-[3px] block overflow-hidden text-[12.5px] leading-[17px]" style={{ color: color.label, display: '-webkit-box', WebkitBoxOrient: 'vertical', WebkitLineClamp: 3 }}>
-                    {n.goal}
-                  </span>
-                </span>
-                <ChevronRight size={15} strokeWidth={1.8} className="mt-[6px] shrink-0" style={{ color: color.faint }} />
-              </motion.button>
-            ))}
-          </div>
-        </>
-      )}
-      <div className="mt-auto flex flex-col gap-[8px] pt-[18px]">
-        {next.length > 0 && <Primary label={`Start: ${next[0].title}`} onClick={() => startLesson(next[0].goal)} />}
-        <Quiet label={endLabel} busy={ending} onClick={endLesson} />
-      </div>
-    </div>
-  )
-}
-
-/** "Just teach me · 6 of 6 steps · 41 min": only what's known. */
-function useMeta(): string {
-  const l = useLesson(useShallow((s) => ({ mode: s.lesson?.mode, total: s.steps.length, passed: s.passed, skipped: s.skipped })))
-  const startedAt = useComplete((s) => s.startedAt)
-  const cardAt = useComplete((s) => s.card) // re-read the minutes when the card comes
-  return useMemo(() => {
-    const done = l.passed.filter((id) => !l.skipped.includes(id)).length
-    const mins = startedAt ? Math.round((Date.now() - startedAt) / 60000) : 0
-    return [l.total ? `${Math.min(done, l.total)} of ${l.total} steps` : '', mins >= 1 ? `${mins} min` : '']
-      .filter(Boolean)
-      .join(' · ')
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [l, startedAt, cardAt])
-}
-
-/** Loss at the first and last frame that carry one, e.g. "loss 0.82 → 0.0009" (only when both are real). */
-function lossRange(frames: Array<{ loss?: number }>): string | undefined {
-  const with_ = frames.filter((f) => f.loss !== undefined && Number.isFinite(f.loss))
-  if (!with_.length) return undefined
-  const a = with_[0].loss!
-  const b = with_[with_.length - 1].loss!
-  return with_.length > 1 && a !== b ? `loss ${short(a)} → ${short(b)}` : `loss ${short(b)}`
-}
+const tab = { fontVariantNumeric: 'tabular-nums' } as const
 
 /**
- * Michael, test 6: no headline sentence, no "Lesson complete" pill. The skill mastery leads: a quiet
- * "Neural networks · 8 skills mastered" line, the meta under it, and the lesson's network with its real numbers.
+ * What the learner's own run printed (the newest metric series, never the tutorial's run): its first and last point,
+ * labelled with the metric's own name. That's the number the terminal, the step card and the write-up show
+ * (0.82 → 0.0009), so it wins over the network panel's frames, whose counter runs on past the last printed line.
  */
-function Header(): ReactNode {
-  const card = useComplete((s) => s.card)!
-  const net = useComplete((s) => s.net)
-  const trained = useComplete((s) => s.trained)
-  const meta = useMeta()
-  const map = card.map
-  const mastered = map ? map.nodes.filter((n) => n.state === 'mastered').length : 0
-  const head = map
-    ? [map.track, mastered ? `${mastered} skill${mastered === 1 ? '' : 's'} mastered` : ''].filter(Boolean).join(' · ')
-    : card.title
-  const loss = useMemo(() => lossRange(trained?.frames ?? []) ?? lossRange(net?.frames ?? []), [trained, net])
+function printedRun(points: Point[] | undefined, name: string | undefined): { from?: number; to: number; label: string } | undefined {
+  if (!points?.length || !name) return undefined
+  const a = points[0]
+  const b = points[points.length - 1]
+  return { ...(points.length > 1 && a.value !== b.value ? { from: a.value } : {}), to: b.value, label: `Your run's ${name}` }
+}
+
+/** The network and its loss, e.g. "0.82 → 0.0009" over "Your run's loss". */
+function NetworkColumn({ net, trained, w }: { net: Net; trained?: Net; w: number }): ReactNode {
+  const { name, series } = useSeries()
+  const loss = useMemo(() => {
+    const printed = printedRun(series?.run.points, name)
+    if (printed) return printed
+    const s = lossStat(trained?.frames ?? []) ?? lossStat(net.frames)
+    return s && { ...s, label: s.epochs ? `Loss over ${s.epochs.toLocaleString('en-US')} epochs` : 'Loss' }
+  }, [series, name, trained, net])
   return (
-    <div className="flex items-start gap-[16px]">
-      <div className="min-w-0 flex-1">
-        <div className="text-[20px] font-semibold leading-[26px] tracking-[-0.01em]" style={{ color: color.text }} data-complete-head>
-          {head}
-        </div>
-        {meta && (
-          <div className="mt-[4px] text-[13px] leading-[18px]" style={{ color: color.faint }}>
-            {meta}
+    <div className="flex h-full flex-col" data-your-network>
+      <NetGraph net={net} w={w} />
+      {loss && (
+        <div className="mt-auto pt-[32px]" data-complete-loss>
+          <div className="flex items-baseline gap-[10px] text-[28px] font-medium leading-[32px] tracking-[-0.02em]" style={tab}>
+            {loss.from !== undefined && (
+              <>
+                <span style={{ color: color.label }}>{plain(loss.from)}</span>
+                <span className="text-[20px]" style={{ color: color.faint }}>
+                  →
+                </span>
+              </>
+            )}
+            <span style={{ color: color.text }}>{plain(loss.to)}</span>
           </div>
-        )}
-      </div>
-      {net && (
-        <div className="flex shrink-0 items-center gap-[14px]" data-your-network>
-          <div className="text-right text-[13px] leading-[19px]" style={{ fontFamily: font.mono }}>
-            <div style={{ color: color.label }}>{net.layers.join('-')}</div>
-            {loss && <div style={{ color: color.faint }}>{loss}</div>}
-          </div>
-          <div className="overflow-hidden rounded-[14px]" style={{ background: fill.field, boxShadow: `inset 0 0 0 1px ${fill.fieldBorder}` }}>
-            <NetThumb net={net} />
+          <div className="mt-[6px] text-[13px] leading-[18px]" style={{ color: color.faint, ...tab }}>
+            {loss.label}
           </div>
         </div>
       )}
-      <CloseButton />
     </div>
   )
 }
 
-/** Mockup 12's bottom row: loss, fit, checks passed. Only the pieces the data backs. */
-function Evidence({ width }: { width: number }): ReactNode {
-  const net = useComplete((s) => s.net)
-  const trained = useComplete((s) => s.trained)
-  const checks = useComplete((s) => s.checks)
-  const pts = useMemo(() => lossSeries(trained), [trained])
-  const fit = useMemo(() => fitCurve(net) ?? fitCurve(trained), [net, trained])
-  const passed = useMemo(() => Object.values(checks).sort((a, b) => a.at - b.at), [checks])
-  const parts = [pts ? 'loss' : '', fit ? 'fit' : '', passed.length ? 'checks' : ''].filter(Boolean)
-  if (!parts.length) return null
-  const gap = 20
-  const colW = Math.floor((width - gap * (parts.length - 1)) / parts.length)
-  const head = (left: string, right?: string): ReactNode => (
-    <div className={`mb-[8px] flex items-baseline gap-[8px] ${caps}`} style={{ color: color.faint }}>
-      {left}
-      <span className="flex-1" />
-      {right && <span className="font-normal normal-case tracking-normal">{right}</span>}
+/** One skill: a quiet fill when mastered; "learning" (typed for the learner) is fainter with no fill. */
+function Skill({ node, on, onClick }: { node: SkillNode; on: boolean; onClick: () => void }): ReactNode {
+  const learning = node.state === 'learning'
+  const rest = learning ? fill.clear : fill.chip
+  return (
+    <motion.button
+      type="button"
+      data-skill={node.id}
+      data-skill-state={node.state}
+      aria-pressed={on}
+      className="h-[32px] cursor-pointer whitespace-nowrap rounded-full px-[14px] text-[14px] leading-[32px]"
+      style={{ color: on ? color.text : learning ? color.faint : fill.chipText, boxShadow: learning ? `inset 0 0 0 1px ${fill.chipBorder}` : undefined }}
+      initial={false}
+      animate={{ backgroundColor: on ? fill.chipHover : rest }}
+      whileHover={{ backgroundColor: fill.chipHover }}
+      transition={{ duration: 0.12 }}
+      onMouseDown={(e) => e.preventDefault()}
+      onClick={onClick}
+    >
+      {node.label}
+    </motion.button>
+  )
+}
+
+function Actions({ card, align }: { card: CompleteCard; align: 'end' | 'center' }): ReactNode {
+  const ending = useComplete((s) => s.ending)
+  const next = card.map?.next[0]
+  const endLabel = card.endLabel || 'End lesson'
+  return (
+    <div className={`flex items-center gap-[24px] ${align === 'end' ? 'justify-end' : 'justify-center'}`}>
+      <button
+        type="button"
+        data-complete-end
+        className={`flex h-[36px] cursor-pointer items-center gap-[8px] rounded-full text-[14px] font-medium ${next ? 'transition-colors hover:text-white' : 'px-[18px]'}`}
+        style={next ? { color: color.label } : { background: color.accent, color: color.onAccent }}
+        onMouseDown={(e) => e.preventDefault()}
+        onClick={endLesson}
+      >
+        {ending && <Spinner size={14} c={next ? color.text : color.onAccent} track={next ? fill.trackSoft : fill.onAccentKey} />}
+        {endLabel}
+      </button>
+      {next && (
+        <motion.button
+          type="button"
+          data-complete-primary
+          className="flex h-[36px] min-w-0 cursor-pointer items-center rounded-full px-[18px] text-[14px] font-medium"
+          style={{ background: color.accent, color: color.onAccent, maxWidth: 380 }}
+          whileHover={{ filter: 'brightness(0.94)' }}
+          whileTap={{ scale: 0.98 }}
+          transition={{ duration: 0.12 }}
+          onMouseDown={(e) => e.preventDefault()}
+          onClick={() => startLesson(next.goal)}
+          title={next.goal}
+        >
+          <span className="truncate">Start: {next.title}</span>
+        </motion.button>
+      )}
     </div>
   )
+}
+
+/** The track, its mastered count, the skills and the selected one's detail. */
+function Skills({ card, center }: { card: CompleteCard; center: boolean }): ReactNode {
+  const map = card.map!
+  const [picked, setPicked] = useState<string>()
+  const skills = map.nodes.filter((n) => n.state !== 'next')
+  const mastered = skills.filter((n) => n.state === 'mastered').length
+  const detail = skills.find((n) => n.id === picked)?.detail
   return (
-    <div className="mt-[14px] flex border-t pt-[12px]" style={{ borderColor: fill.rule, gap }} data-complete-evidence>
-      {pts && (
-        <div style={{ width: colW }}>
-          {head('Loss', 'log scale')}
-          <LossChart pts={pts} w={colW} />
+    <div className={center ? 'text-center' : undefined}>
+      <div className="text-[28px] font-semibold leading-[34px] tracking-[-0.02em]" style={{ color: color.text }} data-complete-head>
+        {map.track || card.title}
+      </div>
+      {mastered > 0 && (
+        <div className="mt-[6px] text-[15px] leading-[20px]" style={{ color: color.label, ...tab }}>
+          {mastered} skill{mastered === 1 ? '' : 's'} mastered
         </div>
       )}
-      {fit && (
-        <div style={{ width: colW }}>
-          {head('Fit', `max error ${short(fit.maxError)}`)}
-          <FitChart fit={fit} w={colW} />
+      {skills.length > 0 && (
+        <div className={`mt-[24px] flex flex-wrap gap-[8px] ${center ? 'justify-center' : ''}`} data-skills>
+          {skills.map((n) => (
+            <Skill key={n.id} node={n} on={picked === n.id} onClick={() => setPicked((p) => (p === n.id ? undefined : n.id))} />
+          ))}
         </div>
       )}
-      {passed.length > 0 && (
-        <div style={{ width: colW }} data-checks-passed>
-          {head('Checks you passed', `${passed.length} check${passed.length === 1 ? '' : 's'}`)}
-          <div className="flex flex-col gap-[7px]">
-            {passed.slice(-CHECKS_SHOWN).map((c) => (
-              <div key={`${c.stepId}:${c.label}`} className="flex items-center gap-[9px] text-[13px] leading-[17px]" style={{ color: color.text }}>
-                <span className="grid h-[16px] w-[16px] shrink-0 place-items-center rounded-full" style={{ background: color.green }}>
-                  <Check size={10} strokeWidth={3} style={{ color: color.onAccent }} />
-                </span>
-                <span className="truncate">{c.label}</span>
-              </div>
-            ))}
-            {passed.length > CHECKS_SHOWN && (
-              <div className="pl-[25px] text-[12px]" style={{ color: color.faint }}>
-                and {passed.length - CHECKS_SHOWN} more
-              </div>
-            )}
-          </div>
-        </div>
-      )}
+      <div className="relative mt-[14px] min-h-[20px] text-[13px] leading-[20px]" style={{ color: color.label }} data-skill-detail>
+        <AnimatePresence initial={false} mode="wait">
+          {detail && (
+            <motion.div key={picked} initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={{ duration: 0.12 }}>
+              <CodeText text={detail} />
+            </motion.div>
+          )}
+        </AnimatePresence>
+      </div>
     </div>
   )
 }
 
 export function CompletePanel(): ReactNode {
   const card = useComplete((s) => s.card)
+  const net = useComplete((s) => s.net)
+  const trained = useComplete((s) => s.trained)
   const overlay = useOverlayWidth((s) => s.w)
   if (!card) return null
   const map = card.map
-  const w = panelWidth(overlay, !!map)
-  const stacked = !map || w < STACK_BELOW
-  const mapW = (stacked ? w - 2 * PAD : w - 2 * PAD - GAP - SIDE) - 2 * INNER
-  const box = { background: fill.chip, boxShadow: `inset 0 0 0 1px ${fill.chipBorder}`, borderRadius: radius.card, padding: INNER }
+  const shown = map ? net : undefined
+  const w = panelWidth(overlay, !!map, !!shown)
+  const close = (
+    <div className="absolute right-[16px] top-[16px]">
+      <CloseButton />
+    </div>
+  )
 
-  return (
-    <div data-complete="panel" style={{ width: w, padding: `16px ${PAD}px 20px` }}>
-      <Header />
-      <div className={`mt-[16px] flex ${stacked ? 'flex-col' : 'flex-row items-stretch'}`} style={{ gap: GAP }}>
-        {map && (
-          <div className="min-w-0 flex-1" style={box}>
-            <SkillMapView map={map} width={mapW} heading={false} />
-            <Evidence width={mapW} />
+  // No skill map: the card's own title and body.
+  if (!map)
+    return (
+      <div data-complete="panel" className="relative text-center" style={{ width: w, padding: `${PAD}px ${PAD - 8}px 28px` }}>
+        {close}
+        <div className="text-[20px] font-semibold leading-[26px] tracking-[-0.01em]" style={{ color: color.text }} data-complete-head>
+          {card.title}
+        </div>
+        {card.body && (
+          <div className="mx-auto mt-[8px] max-w-[400px] text-[15px] leading-[21px]" style={{ color: color.label }}>
+            <CodeText text={card.body} />
           </div>
         )}
-        <div style={stacked ? undefined : { width: SIDE, flexShrink: 0, ...box }}>
-          <UpNext />
+        <div className="mt-[28px]">
+          <Actions card={card} align="center" />
+        </div>
+      </div>
+    )
+
+  // A map but no network: the skills alone, centered.
+  if (!shown)
+    return (
+      <div data-complete="panel" className="relative" style={{ width: w, padding: `${PAD}px ${PAD - 8}px 28px` }}>
+        {close}
+        <Skills card={card} center />
+        <div className="mt-[18px]">
+          <Actions card={card} align="center" />
+        </div>
+      </div>
+    )
+
+  const stacked = w < STACK_BELOW
+  const netW = stacked ? Math.min(NET_W, w - 2 * PAD) : NET_W
+  return (
+    <div data-complete="panel" className="relative" style={{ width: w, padding: `${PAD}px ${PAD}px 32px` }}>
+      {close}
+      <div className={stacked ? 'flex flex-col gap-[32px]' : 'flex items-stretch'} style={stacked ? undefined : { gap: COL_GAP }}>
+        <div className="shrink-0" style={{ width: netW }}>
+          <NetworkColumn net={shown} trained={trained} w={netW} />
+        </div>
+        <div className="flex min-w-0 flex-1 flex-col">
+          <Skills card={card} center={false} />
+          <div className="mt-auto pt-[18px]">
+            <Actions card={card} align="end" />
+          </div>
         </div>
       </div>
     </div>

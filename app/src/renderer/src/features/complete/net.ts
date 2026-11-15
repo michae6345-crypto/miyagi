@@ -1,8 +1,7 @@
 /**
  * The lesson's own network, read from the `network` diagrams the engine pushed (data.frames with real weights), for
- * mockup 12's header thumbnail, loss chart and fit chart. Pure: no React. Nothing here is made up: a piece that the
- * data can't back (no frames, one epoch, no samples / targets, a forward pass that doesn't reproduce the engine's
- * own activations) comes back undefined and the panel leaves it out.
+ * the complete panel's network and its loss. Pure: no React. Nothing here is made up: a piece that the data can't
+ * back (no frames, no loss) comes back undefined and the panel leaves it out.
  */
 
 type Raw = Record<string, unknown>
@@ -57,52 +56,6 @@ export function lossSeries(net: Net | undefined): Array<{ epoch: number; loss: n
   return pts.length >= 2 ? pts : undefined
 }
 
-const SQUASH: Record<string, (z: number) => number> = {
-  sigmoid: (z) => 1 / (1 + Math.exp(-z)),
-  tanh: (z) => Math.tanh(z),
-  relu: (z) => Math.max(0, z),
-  linear: (z) => z
-}
-
-/** One input through the network: hidden layers use `act`, the output `out`. Every layer's activations. */
-function forward(f: NetFrame, x: number[], act: (z: number) => number, out: (z: number) => number): number[][] {
-  const as = [x]
-  let h = x
-  f.W.forEach((m, k) => {
-    const last = k === f.W.length - 1
-    const n = m[0]?.length ?? 0
-    h = Array.from({ length: n }, (_, j) => {
-      let z = Number(f.b?.[k]?.[j] ?? 0)
-      for (let i = 0; i < m.length; i++) z += (h[i] ?? 0) * (m[i]?.[j] ?? 0)
-      return (last ? out : act)(z)
-    })
-    as.push(h)
-  })
-  return as
-}
-
-/**
- * The trained network's curve against the lesson's targets (one input, one output). The output squash is checked
- * against the engine's own activations in the frame (`a`): linear first, then the hidden one; no match, no chart.
- */
-export function fitCurve(net: Net | undefined, steps = 64): { xs: number[]; ys: number[]; samples: number[]; targets: number[]; maxError: number } | undefined {
-  if (!net?.samples || !net.targets || net.layers[0] !== 1 || net.layers[net.layers.length - 1] !== 1) return undefined
-  const f = net.frames[net.frames.length - 1]
-  const act = SQUASH[net.activation ?? ''] ?? undefined
-  if (!act || !f.a?.length) return undefined
-  const x0 = Number(f.a[0]?.[0])
-  const want = Number(f.a[f.a.length - 1]?.[0])
-  if (!Number.isFinite(x0) || !Number.isFinite(want)) return undefined
-  const outFn = [SQUASH.linear, act].find((o) => Math.abs(forward(f, [x0], act, o).at(-1)![0] - want) <= 0.02 + 0.02 * Math.abs(want))
-  if (!outFn) return undefined
-  const y = (x: number): number => forward(f, [x], act, outFn).at(-1)![0]
-  const lo = Math.min(...net.samples)
-  const hi = Math.max(...net.samples)
-  const xs = Array.from({ length: steps }, (_, i) => lo + ((hi - lo) * i) / (steps - 1))
-  const maxError = Math.max(...net.samples.map((x, i) => Math.abs(y(x) - net.targets![i])))
-  return { xs, ys: xs.map(y), samples: net.samples, targets: net.targets, maxError }
-}
-
 /** "0.0019" / "0.82" / "7.8e-4": short, honest. */
 export function short(v: number): string {
   const a = Math.abs(v)
@@ -111,4 +64,22 @@ export function short(v: number): string {
   if (a >= 1) return v.toFixed(2).replace(/\.?0+$/, '')
   if (a >= 0.001) return v.toPrecision(2).replace(/(\.\d*?)0+$/, '$1').replace(/\.$/, '')
   return v.toExponential(1)
+}
+
+/** A loss for the big numbers: plain decimals ("0.82", "0.00078"), never exponent form unless it's tiny. */
+export function plain(v: number): string {
+  const a = Math.abs(v)
+  if (a === 0) return '0'
+  if (a >= 100 || a < 1e-6) return short(v)
+  return String(Number(v.toPrecision(2)))
+}
+
+/** The loss at the first and last frame that carry one, and the epochs between them (only what the frames hold). */
+export function lossStat(frames: NetFrame[]): { from?: number; to: number; epochs?: number } | undefined {
+  const at = frames.filter((f) => f.loss !== undefined && Number.isFinite(f.loss))
+  if (!at.length) return undefined
+  const a = at[0]
+  const b = at[at.length - 1]
+  const epochs = a.epoch !== undefined && b.epoch !== undefined && b.epoch > a.epoch ? b.epoch - a.epoch : undefined
+  return { ...(at.length > 1 && a.loss !== b.loss ? { from: a.loss } : {}), to: b.loss!, ...(epochs ? { epochs } : {}) }
 }
