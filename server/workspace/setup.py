@@ -321,7 +321,7 @@ def check(item: dict, *, workdir: Path | str | None = None, run: Runner = _run) 
         item.update(installed=True, version="", where=cat.get("url") or _https(item.get("url", "")), ok=True)
         return item
     if kind == "python_package":
-        check_python_packages([item], venv_python(workdir) or best_python(), run=run)
+        check_python_packages([item], check_python(workdir), run=run)
         return item
     else:
         if cat.get("bundle") or kind in ("app", "editor"):
@@ -377,6 +377,13 @@ def venv_python(workdir: Path | str | None) -> str | None:
         return None
     p = Path(workdir) / ".venv" / "bin" / "python"
     return str(p) if p.exists() else None
+
+
+def check_python(workdir: Path | str | None) -> str | None:
+    """The Python whose packages the setup check reads: the lesson folder's .venv when it has one, else best_python()
+    (the one Install builds that .venv from). The setup card and the preflight card both check through requirements(),
+    so they agree (desktop test 10)."""
+    return venv_python(workdir) or best_python()
 
 
 # --------------------------------------------------------------------------- requirements()
@@ -503,7 +510,7 @@ def requirements(lesson: dict, *, workdir: Path | str | None = None, client=None
     with ThreadPoolExecutor(max_workers=8) as ex:
         futs = [ex.submit(check, it, workdir=workdir, run=run) for it in items if it["kind"] != "python_package"]
         if pys:  # one interpreter, packages imported one after another (cold imports in parallel time out)
-            futs.append(ex.submit(check_python_packages, pys, venv_python(workdir) or best_python(), run=run))
+            futs.append(ex.submit(check_python_packages, pys, check_python(workdir), run=run))
         for f in futs:
             f.result()
     for it in items:

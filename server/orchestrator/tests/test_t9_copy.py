@@ -63,11 +63,11 @@ def test_preflight_summary_no_doubled_channel_and_ends_with_period():
     body = pf.preflight_card(_t9_preflight_result())["body"]
     shown = " ".join(body.split("\n"))  # how the app shows it: the lines run together
     assert "Kie Codes Codes" not in shown
-    assert shown == ("Coding · 8:40 · 7 chapters. Kie Codes codes and trains a handwritten-digit MNIST neural network "
+    assert shown == ("Kie Codes codes and trains a handwritten-digit MNIST neural network "
                      "classifier in TensorFlow. Builds a real neural network you can train and test, though only a "
                      "basic MNIST digit classifier. Built before: ready instantly (7 steps).")
     other = pf.preflight_card({**_t9_preflight_result(), "channel": "Andrej Karpathy"})["body"]
-    assert other.startswith("Coding · 8:40 · 7 chapters · Andrej Karpathy.\nCodes and trains a handwritten-digit MNIST "
+    assert other.startswith("Codes and trains a handwritten-digit MNIST "  # t10: no meta line (the app draws it)
                             "neural network classifier in TensorFlow.\n")
 
 

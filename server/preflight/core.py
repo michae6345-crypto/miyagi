@@ -311,8 +311,49 @@ def cached_lesson(url: str, goal: str) -> dict | None:
     if not hit:
         return None
     graph = json.loads(Path(hit).read_text())
+    folder = _lesson_folder(graph)
     graph.setdefault("lesson", {})["workdir"] = workdir
-    return {"graph": graph, "file": Path(hit).name, "steps": len(graph.get("steps") or []), "workdir": workdir}
+    return {"graph": graph, "file": Path(hit).name, "steps": len(graph.get("steps") or []), "workdir": workdir,
+            "folder": folder if folder and Path(folder).is_dir() else None}
+
+
+def _lesson_folder(graph: dict) -> str | None:
+    """The folder the build of `graph` works in (E4's lesson_folder, else S2's): the one whose .venv the setup card
+    checks after Build. Read-only. Desktop test 10: preflight checked the build's placeholder folder (`_new`), so the
+    system Python, and said "tensorflow ✕ · 4 to install" while the lesson's .venv had all four (no setup card came)."""
+    try:
+        from server.orchestrator.workspace import lesson_folder  # E4: TUT_WORKDIR / demo / S2
+
+        return lesson_folder(graph)
+    except Exception as e:  # noqa: BLE001
+        log.debug("preflight: E4's lesson_folder unavailable (%s)", type(e).__name__)
+    try:
+        from server.workspace import lesson_folder  # S2
+
+        return str(lesson_folder(graph))
+    except Exception:  # noqa: BLE001
+        return None
+
+
+def _hit_folder(hit: dict | None) -> str | None:
+    """The folder the setup check reads for a cached lesson (a lesson_cache without "folder": its workdir)."""
+    return (hit.get("folder", hit.get("workdir")) or None) if hit else None
+
+
+def _venv_mark(folder: str | None) -> str | None:
+    """The lesson .venv the setup check reads, as "<python>@<site-packages mtime>"; None when there's no .venv yet. A
+    memoised preflight with another mark checked packages that changed since (a build made the .venv, Install added
+    to it), so it is checked again."""
+    if not folder:
+        return None
+    venv = Path(folder) / ".venv"
+    try:
+        if not (venv / "bin" / "python").exists():
+            return None
+        mtimes = [p.stat().st_mtime for p in (venv / "lib").glob("python*/site-packages")]
+    except OSError:
+        return None
+    return f"{venv / 'bin' / 'python'}@{max(mtimes, default=0.0):.3f}"
 
 
 def _call_req(req: Callable, graph: dict, workdir: str | None):
@@ -535,13 +576,17 @@ async def preflight(
     key = _key(url, goal) if use_memo else object()
     if use_memo:
         if (hit := _memo_get(key)) is not None:
-            _listen(key, on_late)
-            return await _recheck_lesson_cache({**hit, "cached": True}, url, goal, lesson_cache)
-        if (running := _inflight.get(key)) is not None:
+            if (fresh := await _recheck_lesson_cache({**hit, "cached": True}, url, goal, lesson_cache)) is not None:
+                _listen(key, on_late)
+                return fresh
+            _memo.pop(key, None)  # the lesson's .venv changed since that check: check it again
+        elif (running := _inflight.get(key)) is not None:
             try:
                 res = await asyncio.wait_for(asyncio.shield(running), timeout)
-                _listen(key, on_late)
-                return await _recheck_lesson_cache({**res, "cached": True}, url, goal, lesson_cache)
+                if (fresh := await _recheck_lesson_cache({**res, "cached": True}, url, goal, lesson_cache)) is not None:
+                    _listen(key, on_late)
+                    return fresh
+                _memo.pop(key, None)
             except Exception as e:  # noqa: BLE001 - a prefetch that failed or is slow: run our own
                 log.info("preflight: prefetch for %s not usable (%s), running it now", key[0], type(e).__name__)
     if on_late is not None:
@@ -557,16 +602,25 @@ async def preflight(
             _inflight.pop(key, None)
 
 
-async def _recheck_lesson_cache(res: dict, url: str, goal: str, lesson_cache) -> dict:
+async def _recheck_lesson_cache(res: dict, url: str, goal: str, lesson_cache) -> dict | None:
     """A memoised result may predate a build (prefetched, then built, then picked again): the lesson
-    cache is re-read (milliseconds) so "Built before: ready instantly" is never stale."""
+    cache is re-read (milliseconds) so "Built before: ready instantly" is never stale. None when the lesson's
+    .venv changed since (made by the build, added to by Install): its package checks are stale, so check again."""
     if not lesson_cache or not res.get("buildPlan"):
         return res
     look = lesson_cache if callable(lesson_cache) else cached_lesson
+
+    def look_now() -> tuple[dict | None, str | None]:
+        h = look(url, goal)
+        return h, _venv_mark(_hit_folder(h))
+
     try:
-        hit = await asyncio.wait_for(asyncio.to_thread(look, url, goal), 1.0)
+        hit, venv = await asyncio.wait_for(asyncio.to_thread(look_now), 1.0)
     except Exception:  # noqa: BLE001
         return res
+    if venv != res.get("lessonVenv"):
+        log.info("preflight: the lesson .venv changed since the memoised check (%s -> %s)", res.get("lessonVenv"), venv)
+        return None
     plan = dict(res["buildPlan"])
     if hit:
         res = {**res, "cachedLesson": {"file": hit["file"], "steps": hit["steps"], "workdir": hit["workdir"]}}
@@ -668,9 +722,11 @@ async def _run(key, url: str, goal: str, *, row, timeout: float, late_s: float, 
             res["timings"]["cache"] = round(time.monotonic() - t0, 2)
         if cached:
             res["cachedLesson"] = {"file": cached["file"], "steps": cached["steps"], "workdir": cached["workdir"]}
+            res["lessonFolder"] = _hit_folder(cached)
+            res["lessonVenv"] = await asyncio.to_thread(_venv_mark, res["lessonFolder"])
         if req is not None and (m.get("title") or cached):
-            if cached:  # the real lesson (and its real folder): exactly what the setup card will check
-                job = functools.partial(_call_req, req, cached["graph"], cached["workdir"])
+            if cached:  # the real lesson in its real folder (its .venv, if any): exactly what the setup card will check
+                job = functools.partial(_call_req, req, cached["graph"], res["lessonFolder"])
             else:
                 job = functools.partial(_call_req, req, light_graph(m, goal), None)
             tasks["requirements"] = asyncio.create_task(timed("requirements", asyncio.to_thread(job)))
@@ -819,12 +875,17 @@ def _editor_needed(res: dict) -> bool | None:
 
 # --------------------------------------------------------------------------- the card
 
-STYLE_LABEL = {"coding": "Coding", "no-code": "No-code", "conceptual": "Concepts only"}
+def _venv_install(it: dict) -> bool:
+    """A Python package that isn't there yet: the setup card's Install puts it in the lesson's .venv (made with
+    best_python() when there's none yet), so it isn't "✗"."""
+    return (it.get("kind") == "python_package" and not it.get("ok")
+            and (it.get("install") or {}).get("method") == "pip")
 
 
 def needs_line(items: list[dict]) -> str:
-    """'Needs: VS Code ✓ Python ✓ PyTorch ✗' (needed items only; the editor only when it's needed;
-    web apps as 'Botpress (web)')."""
+    """'Needs: VS Code ✓ Python ✓ Git ✗ PyTorch, numpy (to install in the lesson's .venv)' (needed items only; the
+    editor only when it's needed; web apps as 'Botpress (web)'). Desktop test 10: a Python package that isn't installed
+    yet says what the setup card will do with it, not "✗"."""
     shown = [it for it in items if it.get("needed")]
     if not shown:
         return ""
@@ -835,7 +896,11 @@ def needs_line(items: list[dict]) -> str:
             return f"{label} (web)"
         return f"{label} {'✓' if it.get('ok') else '✗'}"
 
-    return "Needs: " + " ".join(one(it) for it in shown)
+    parts = [one(it) for it in shown if not _venv_install(it)]
+    venv = [str(it.get("label") or it.get("tool")) for it in shown if _venv_install(it)]
+    if venv:
+        parts.append(f"{', '.join(venv)} (to install in the lesson's .venv)")
+    return "Needs: " + " ".join(parts)
 
 
 def _sentence(text: str) -> str:
@@ -846,22 +911,16 @@ def _sentence(text: str) -> str:
 
 def preflight_card(res: dict) -> dict:
     """card {kind: "preflight"}: what the video is, how well it fits the goal, what it needs.
-    actions: build / pick_another, plus install when a needed tool is missing (S2's install flow)."""
-    facts = [STYLE_LABEL.get(res.get("style", ""), "")]
-    if res.get("durationS"):
-        facts.append(_fmt(res["durationS"]))
-    if res.get("chapters"):
-        facts.append(f"{len(res['chapters'])} chapters")
-    if res.get("captions"):
-        facts.append("CC")
+    actions: build / pick_another, plus install when a needed tool is missing (S2's install flow).
+    Desktop test 10: the body no longer carries the "Coding · 8:40 · 7 chapters · CC" line or the "Needs: …" line; the
+    app draws both from card.preflight and card.items ("Coding · 9 min · 7 chapters · Captions", "Needs … · 4 to
+    install"), so the card said everything twice."""
     channel, topic = " ".join((res.get("channel") or "").split()), " ".join((res.get("topic") or "").split())
-    # V5: the app runs body lines together, so "· Kie Codes" + "Codes and trains a…" read "Kie Codes Codes and trains a…":
-    # a topic that opens with the channel's last word takes the channel as its subject ("Kie Codes codes and trains a…")
+    # V5: a topic that opens with the channel's last word takes the channel as its subject ("Kie Codes codes and
+    # trains a…", never "Codes and trains a…" right under the channel)
     if channel and topic and topic.split()[0].strip(",.:;").lower() == channel.split()[-1].lower():
-        channel, topic = "", f"{channel} {topic[0].lower()}{topic[1:]}"
-    if channel:
-        facts.append(channel)
-    lines = [_sentence(" · ".join(f for f in facts if f)), _sentence(topic)]
+        topic = f"{channel} {topic[0].lower()}{topic[1:]}"
+    lines = [_sentence(topic)]
     gm = res.get("goalMatch")
     warning = None
     if gm and gm.get("score") is not None and gm["score"] < LOW_MATCH:
@@ -889,10 +948,7 @@ def preflight_card(res: dict) -> dict:
         lines.append("No code editor needed for this one.")
     if res.get("partial") and not res.get("goalMatch"):
         lines.append("I couldn't check this video in time; you can still build it.")
-    items = res.get("requirements") or []
-    need = needs_line(items)
-    if need:
-        lines.append(need)
+    items = res.get("requirements") or []  # the app's "Needs … · N to install" row (needs_line is the text form)
     missing = [it for it in items if it.get("needed") and not it.get("ok")]
     actions = ["build", "pick_another"] + (["install"] if missing else [])
     card: dict[str, Any] = {
