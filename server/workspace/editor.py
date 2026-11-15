@@ -850,6 +850,14 @@ def open_lesson_editor(folder: str | Path, file: str | None = None, *, lesson_id
             st = _opened[key] = {"state": "waiting", "t": time.monotonic(), "file": file}
         elif file:
             st["file"] = file  # L2: a first open still waiting opens on this one
+    if not first and st.get("state") == "open" and windows is None and not _lesson_window_alive(key[1]):
+        # The editor was quit (or the folder's window closed) since it opened: open it again. A rerun of the same
+        # lesson in the same folder (Demo, a second "Just teach me") otherwise left the learner with no VS Code at
+        # all (Michael, Nov 15 5:11 AM).
+        with _open_lock:
+            st = _opened[key] = {"state": "waiting", "t": time.monotonic(), "file": file}
+        first = True
+        log.info("editor for %s was closed since it opened: opening it again", Path(key[1]).name)
     if not first:
         if not explicit:
             return {"opened": False, "already": True, "state": st["state"]}
@@ -906,6 +914,24 @@ def open_lesson_editor(folder: str | Path, file: str | None = None, *, lesson_id
     threading.Thread(target=wait_then_go, daemon=True, name="miyagi-open-editor").start()
     log.info("auto-open of %s deferred: the learner is in Miyagi / typing", Path(key[1]).name)
     return {"opened": False, "deferred": True}
+
+
+def _lesson_window_alive(folder: str | Path) -> bool:
+    """Is the editor running with a window on this lesson folder right now? Unknown counts as yes (keep the
+    at-most-once rule); a plain `code <folder>` on a window that is there only focuses it anyway."""
+    try:
+        ed = preferred_editor()
+        if ed and editor_pid(ed) is None:
+            return False  # the editor isn't running at all
+        from .active import vscode_windows
+
+        wins = vscode_windows()
+    except Exception:  # noqa: BLE001 - no window list: assume it's still there
+        return True
+    if not wins:
+        return False  # running, but no window open
+    name = Path(folder).expanduser().resolve().name
+    return any(w.get("folder_name") == name for w in wins)
 
 
 def reuse_lesson_window(folder: str | Path, *, windows: Callable[[], list[dict]] | None = None) -> bool:
