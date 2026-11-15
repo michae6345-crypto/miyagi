@@ -2822,7 +2822,8 @@ def test_screen_check_cannot_pass_a_lesson_step_whose_file_is_unsaved(tmp_path, 
 
     run(go())
     assert not rig.of("step.passed")
-    assert any(c["title"] == "Save calc.py" for c in rig.of("card"))
+    assert any(c["title"] == "Save to finish" and c["body"] == "Save calc.py (⌘S) and this step is done."
+               and c["actions"] == [] for c in rig.of("card"))
 
 
 

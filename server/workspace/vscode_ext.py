@@ -120,9 +120,9 @@ def _scan(method: str, path: str, body: dict | None = None, timeout: float = TIM
 
 # ------------------------------------------------------------------ windows
 
-def windows() -> list[dict]:
+def windows(timeout: float = TIMEOUT_S) -> list[dict]:
     """Every VS Code window with the extension: their /state, focused first, then most recently focused. [] if none."""
-    wins = [w for w in _scan("GET", "/state") if w.get("app") == "vscode" and w.get("port")]
+    wins = [w for w in _scan("GET", "/state", timeout=timeout) if w.get("app") == "vscode" and w.get("port")]
     return sorted(wins, key=lambda w: (bool(w.get("windowFocused")), w.get("lastFocusedAt") or 0), reverse=True)
 
 
@@ -186,15 +186,18 @@ def last_command(*, folder: str | Path | None = None) -> dict | None:
     return (st or {}).get("lastCommand")
 
 
-def buffer_text(file: str | Path | None = None, *, folder: str | Path | None = None) -> dict | None:
+def buffer_text(file: str | Path | None = None, *, folder: str | Path | None = None, port: int | None = None,
+                timeout: float = TIMEOUT_S) -> dict | None:
     """{file, text, dirty, version, languageId, lineCount}: what the editor holds, unsaved edits included.
-    No file: the active editor."""
+    No file: the active editor. port: exactly that window (a windows() entry's port), no window scan."""
     path = _abs(file, folder)
-    w = _window(file=path, folder=folder)
-    if w is None:
-        return None
+    if port is None:
+        w = _window(file=path, folder=folder)
+        if w is None:
+            return None
+        port = int(w["port"])
     q = "/text" + (f"?file={urllib.parse.quote(path)}" if path else "")
-    return _call(int(w["port"]), "GET", q)
+    return _call(int(port), "GET", q, timeout=timeout)
 
 
 def active_editor() -> dict | None:

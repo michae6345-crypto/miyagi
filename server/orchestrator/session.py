@@ -37,7 +37,7 @@ from collections.abc import Awaitable, Callable
 from pathlib import Path
 from typing import Any
 
-from . import config
+from . import config, editor_text
 from .context import RunContext, RunInfo, metrics_summary
 from .modules import Modules
 
@@ -315,6 +315,8 @@ class LessonSession:
         self.video_t: float | None = None  # last position the player reported
         self.video_playing = False
         self.judge: Any = None  # E5's StepJudge (made per lesson in load_graph), None without the coach
+        # VS Code's exact text of the lesson files (companion extension; never in tests: no real screen reader)
+        self._buffers = editor_text.EditorBuffers(lambda: getattr(self.screen, "reader", None) is not None)
         self._screen_down_since: float | None = None
         self._screen_notice_sent = False
         self.voice = False
@@ -341,6 +343,8 @@ class LessonSession:
         self.latched_pass: set[str] = set()  # screen checks that passed this step: kept unless the editor lacks it
         self._latch_t: dict[str, float] = {}  # checkId -> wall clock of its last real pass (a save after it may un-pass)
         self._unsaved_holds: set[str] = set()  # latched checks held this evaluation that the file on disk lacks
+        self._save_file: str | None = None  # every check green, only the save missing: the "Save to finish" file
+        self._save_card_sent = False  # that card went out in this unsaved stretch (once per step per dirty episode)
         self._run_need: dict | None = None  # run step (fixed at its first evaluation): {cmd, expect, baseline, ran}
         self._lesson_win_seen: tuple[float, bool] = (-1e9, False)  # (when, lesson's VS Code window open on any Space)
         self._ext_run_t = 0.0  # wall clock of the last Run it for me typed into VS Code's terminal by the companion
@@ -2139,6 +2143,8 @@ class LessonSession:
                     await self.emit("error", {"message": f"Check evaluation failed: {e}"})
                 return
             gen = self.step_gen
+            if trigger in ("check", "file"):
+                self._buffers.clear()  # Check / a save: VS Code's text now, not the last tick's
             gate = await self._settle_checks(step, gate, ctx)  # latch passes; the lesson file decides when its window isn't shown
             if gen != self.step_gen or self.passed:
                 return  # the step moved on while VS Code was asked for its unsaved text
@@ -2159,7 +2165,7 @@ class LessonSession:
                                        or (self.lesson_mode and self._file_unready(step))):
                 # the screen shows the code, but it's unsaved / in another folder / not on disk: the file decides
                 gate = {**gate, "passed": False, "via": None}
-                self._editor_state_card(step)
+                self._editor_state_card(step, unsaved=False)  # unsaved only: "Save to finish" (below) says it
             if self.judged_pass:  # E5's judge saw these done on screen: they count like any pass
                 results = [r if r.get("checkId") not in self.judged_pass or r.get("status") == "pass"
                            else {**r, "status": "pass", "detail": r.get("judgedDetail") or "Claude saw it on screen"}
@@ -2167,6 +2173,7 @@ class LessonSession:
                 held = self._unsaved_holds - self.judged_pass  # green only until the save: never a step pass
                 if not gate.get("passed") and not held and results and all(r.get("status") == "pass" for r in results):
                     gate = {**gate, "passed": True, "via": "judge"}
+            self._save_file = None if gate.get("passed") else self._save_to_finish(step, results)
             self.last_results = results
             failed = [r for r in results if r.get("status") == "fail"]
             if not gate.get("passed"):
@@ -2270,8 +2277,9 @@ class LessonSession:
         for f in files:
             p = wsmod.resolve_file(self.workdir, f, titles)  # nested project dirs, .git/rebase-merge, open file
             if p is not None:
-                try:
-                    text = p.read_text(errors="replace")
+                try:  # VS Code's exact text (unsaved edits included) when it has the file open, else the disk
+                    text = self._buffers.text(p)
+                    text = p.read_text(errors="replace") if text is None else text
                 except OSError:
                     continue
                 if p.suffix.lower() == ".ipynb":  # cell sources, then the limit (S9: raw JSON cut = invalid)
@@ -3360,7 +3368,11 @@ class LessonSession:
         await self.evaluate("check")
         if self.passed or gen != self.step_gen:
             return
-        code, file = self._code_excerpt(step)
+        if self._save_file:  # every check passes, only the save is missing: say that, no judge
+            await self._emit_card(editor_text.save_card(step["id"], self._save_file), window_s=2.0)
+            await self._status("watching")
+            return
+        screen, files, exact = self._judge_inputs(step)
         # Which file is the learner really on? Read it fresh (extension / AX / title / new-frame OCR), never guess
         # from screen text (Michael: switched README -> .py, pressed Check, got "you're still on README").
         active = None
@@ -3372,9 +3384,10 @@ class LessonSession:
             except Exception as e:  # noqa: BLE001 - best effort; None means "unsure", so nothing claims a file
                 log.info("check_step: active_file unavailable (%s)", e)
         try:
-            verdict = await self.m.judge_step(step, screen=self._screen_lines(), files={file: code} if file and code else {},
+            verdict = await self.m.judge_step(step, screen=screen, files=files,
                                               check_results=self._judge_results(), focused_app=self._focused_app(),
-                                              lesson=(self.graph or {}).get("lesson"), active_file=active)
+                                              lesson=(self.graph or {}).get("lesson"), active_file=active,
+                                              exact_files=exact)
         except Exception as e:  # noqa: BLE001 - the judge is a bonus
             log.info("check_step: no judge (%s)", e)
             verdict = None
@@ -3491,9 +3504,12 @@ class LessonSession:
         * Lesson mode, a VS Code check: when the frame has no VS Code text, or every VS Code window in it shows
           another folder while the lesson's window exists elsewhere, the check is graded on the lesson's file on
           disk (never "not seen in Code" from the wrong window, never a pass from it). "Open VS Code so I can check
-          it" stays only when no lesson window exists at all."""
+          it" stays only when no lesson window exists at all.
+        * VS Code has the check's file open (companion extension): graded on its exact text, unsaved edits included,
+          never OCR (00:55: "import numey as np"); a pass only in the unsaved buffer is held: the save passes it."""
         self._unsaved_holds = set()
         on_file, text_of = self._checks_fn("screen_check_on_file"), self._checks_fn("screen_text")
+        find = self._checks_fn("search_screen")
         if on_file is None or text_of is None:
             return gate
         defs = {c.get("id"): c for c in step.get("checks") or []}
@@ -3512,7 +3528,19 @@ class LessonSession:
                 out.append(r)
                 continue
             paths = self._check_files(step, c)
-            if paths and self.lesson_mode and ctx.screen is not None:
+            if paths:
+                await self._buffers.refresh(paths, self.workdir)  # once per file per tick
+            exact = editor_text.check_on_editor(c, paths, self._buffers, find, on_file) if paths else None
+            if exact is not None and (self.lesson_mode or exact[0].get("status") == "pass"):  # video: a pass only
+                r, unsaved = exact  # VS Code has the file open: its exact text decides, never OCR (numpy -> numey)
+                if unsaved:
+                    self._unsaved_holds.add(cid)  # green on the unsaved buffer: the save passes the step
+                elif r.get("status") != "pass":
+                    self.latched_pass.discard(cid)  # the editor's exact text lacks it: not an OCR flicker
+                    if not carded and self.lesson_mode and self._other_folder(step):
+                        carded = True
+                        self._editor_state_card(step)
+            elif paths and self.lesson_mode and ctx.screen is not None:
                 if shown is ...:
                     shown = self._lesson_window_shown()
                 hidden = text_of(ctx.screen, c.get("app")) is None
@@ -3574,19 +3602,8 @@ class LessonSession:
     def _unsaved_texts(self, paths: list[Path]) -> list[str | None]:
         """Each file's unsaved text in VS Code, from the companion extension. None when it didn't answer (always in
         tests) or its buffer is clean: a clean buffer is the file on disk (also what a window that doesn't have the
-        file open answers), so the save rule decides. Blocking HTTP: run it in a thread."""
-        ext = self._vscode_ext()
-        out: list[str | None] = []
-        for p in paths:
-            buf = None
-            if ext is not None and hasattr(ext, "buffer_text"):
-                try:
-                    buf = ext.buffer_text(str(p), folder=self.workdir)
-                except Exception:  # noqa: BLE001
-                    buf = None
-            ok = isinstance(buf, dict) and buf.get("ok", True) and buf.get("dirty") and isinstance(buf.get("text"), str)
-            out.append(buf["text"] if ok else None)
-        return out
+        file open answers), so the save rule decides. From this tick's reads (self._buffers): no HTTP here."""
+        return [self._buffers.unsaved_text(p) for p in paths]
 
     def _need_run(self, step: dict, results: list[dict], gate: dict) -> tuple[list[dict], dict]:
         """Lesson mode: a run step ("Run your first output") can't pass on its code alone, it needs a run of its
@@ -3768,10 +3785,14 @@ class LessonSession:
             await self.emit("error", {"message": self.screen_down_message(reason)})
 
     def _dirty_step_file(self, step: dict) -> str | None:
-        """The step's file when the editor shows it unsaved (● in the title): checks read the file on disk."""
+        """The step's file when the editor has it unsaved: the companion extension's dirty flag (this tick's read /
+        its dirty and save events), else ● in the window title. Checks read the file on disk."""
         from .inputs import dirty_files
 
         file = self._step_file(step) or step.get("file") or ""
+        for k in self._buffers.named(file) if file else []:
+            if (d := self._buffers.dirty(k)) is not None:
+                return Path(file).name if d else None
         names = dirty_files(self.last_obs)
         if file and Path(file).name in names:
             return Path(file).name
@@ -3878,9 +3899,10 @@ class LessonSession:
         if self.step is not None:
             await self.evaluate("file")
 
-    def _editor_state_card(self, step: dict) -> bool:
+    def _editor_state_card(self, step: dict, unsaved: bool = True) -> bool:
         """Before any off-track: an unsaved step file -> "Save with ⌘S"; another lesson's folder -> one calm card
-        with "Open this lesson's file". -> True when one applies (the caller then stays quiet)."""
+        with "Open this lesson's file". -> True when one applies (the caller then stays quiet). unsaved=False: the
+        other folder only (every check green: _save_to_finish says the save)."""
         other = self._other_folder(step, any_window=True)
         if other:
             wf = self._wrong_folder or {}
@@ -3899,7 +3921,9 @@ class LessonSession:
                                          "actions": ["use_this_folder", "open_editor"] if wf.get("can_adopt")
                                          else ["open_editor"]}, window_s=120.0))
             return True
-        dirty = self._dirty_step_file(step)
+        if unsaved and self._save_file:
+            return True  # every check green, only the save missing: "Save to finish" said it (once per dirty episode)
+        dirty = self._dirty_step_file(step) if unsaved else None
         if dirty:
             self._spawn(self._emit_card({"stepId": step["id"], "kind": "step", "title": f"Save {dirty}",
                                          "body": f"Save {dirty} in VS Code (⌘S)."}, window_s=60.0))
@@ -3920,6 +3944,31 @@ class LessonSession:
             return p is None or not p.read_text(errors="replace").strip()
         except OSError:
             return True
+
+    def _save_to_finish(self, step: dict, results: list[dict]) -> str | None:
+        """Every row green on the editor's text / the screen, the step held only by the save (VS Code's dirty flag, ●
+        in the title, or the file on disk lacking the code): ONE calm "Save to finish" card per dirty episode, no
+        buttons. The save then passes the step (a file evaluation). -> the file name in that state, else None."""
+        if not (self._dirty_step_file(step) or self._unsaved_holds or (self.lesson_mode and self._file_unready(step))):
+            self._save_card_sent = False  # saved: the next unsaved stretch is a new episode
+            return None
+        name = Path(self._step_file(step) or step.get("file") or "").name
+        if (not name or not results or any(r.get("status") != "pass" for r in results) or self._other_folder(step)
+                or self._untitled_editor()):
+            return None
+        if not self._save_card_sent:
+            self._save_card_sent = True
+            self._spawn(self._emit_card(editor_text.save_card(step["id"], name), window_s=60.0))
+        return name
+
+    def _judge_inputs(self, step: dict) -> tuple[Any, dict, bool]:
+        """(screen, files, exact) for E5's judge: the step file's text, VS Code's exact buffer when it has the file
+        open (else the disk). Exact in a "Just teach me" lesson: the editor's OCR is left out, it must not judge code."""
+        code, file = self._code_excerpt(step)
+        files = {file: code} if file and code else {}
+        exact = bool(files) and any(self._buffers.text(k) is not None for k in self._buffers.named(file))
+        screen = self._screen_lines()
+        return (editor_text.without_apps(screen, CODE_APP_NAMES) if exact and self.lesson_mode else screen), files, exact
 
     def _focused_app(self) -> str:
         return str(getattr(self.last_obs, "app", "") or "")
@@ -3946,9 +3995,7 @@ class LessonSession:
         j = self.judge
         if j is None or self._judging or not self.last_results:
             return
-        screen = self._screen_lines()
-        code, file = self._code_excerpt(step)
-        files = {file: code} if file and code else {}
+        screen, files, exact = self._judge_inputs(step)
         try:
             if not j.should_judge(step, [r for r in self.last_results if r.get("checkId") != f"{step['id']}-ran"],
                                   idle_s=self.learner_idle_s(),
@@ -3960,13 +4007,14 @@ class LessonSession:
             log.exception("should_judge failed")
             return
         self._judging = True
-        self._spawn(self._run_judge(self.step_gen, step, screen, files))
+        self._spawn(self._run_judge(self.step_gen, step, screen, files, exact))
 
-    async def _run_judge(self, gen: int, step: dict, screen: Any, files: dict) -> None:
+    async def _run_judge(self, gen: int, step: dict, screen: Any, files: dict, exact: bool = False) -> None:
         try:
             j = await self.judge.judge(step, self._judge_results(), screen=screen, files=files,
                                        focused_app=self._focused_app(), lesson=(self.graph or {}).get("lesson"),
-                                       file_mtimes=self._judge_gate_kwargs(step)["file_mtimes"])
+                                       file_mtimes=self._judge_gate_kwargs(step)["file_mtimes"],
+                                       **({"exact_files": True} if exact else {}))
         except Exception:  # noqa: BLE001
             log.exception("step judge failed")
             j = None
