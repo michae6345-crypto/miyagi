@@ -145,7 +145,7 @@ async def regrade(s: Any, why: str) -> None:
     if changed or why != "poll":
         await s.evaluate("edit")
     if changed and s._run_command(step) and s._dirty_step_file(step):  # a run step: its fix is what runs next
-        st["run_save_due"] = time.monotonic() + RUN_AUTOSAVE_QUIET_S
+        st["run_save_due"] = (s.step_gen, time.monotonic() + RUN_AUTOSAVE_QUIET_S)
 
 
 async def poll(s: Any) -> None:
@@ -155,7 +155,9 @@ async def poll(s: Any) -> None:
     await regrade(s, "poll")
     st = s.__dict__.get("_quiet_save") or {}
     due = st.get("run_save_due")
-    if due is not None and time.monotonic() >= due and (step := _live(s)) is not None:
+    if due is not None and due[0] != s.step_gen:  # (audit) that run step is over: never a save of the next step's
+        st["run_save_due"] = due = None  # half-typed code on its behalf
+    if due is not None and time.monotonic() >= due[1] and (step := _live(s)) is not None:
         st["run_save_due"] = None
         if await save_now(s, step, "run step: the fix runs next") and _live(s) is step:
             await s.evaluate("file")

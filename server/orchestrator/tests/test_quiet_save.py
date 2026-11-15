@@ -79,6 +79,51 @@ def test_without_the_companion_the_card_asks_for_the_save(tmp_path):
     assert _run(quiet_save.intercept(s, card)) == card and not spawned
 
 
+def test_a_run_steps_pending_autosave_never_lands_on_the_next_step(tmp_path, monkeypatch):
+    """A run step's unsaved fix is saved after ~1 s of quiet (a terminal run reads the disk). When that step is over
+    first (Check passed it, Skip), the save it had pending is dropped, never done on the next step's half-typed code."""
+    s, _ = _session(tmp_path)
+    text = {"v": "W1 = np.zeros((1, 4))\n"}
+    saved: list = []
+
+    async def refresh(paths, workdir):
+        return None
+
+    async def save_step_file(step):
+        saved.append(step["id"])
+        return True
+
+    async def evaluate(trigger):
+        return None
+
+    s.__dict__.update(
+        passed=False, phase="active", awaiting_resume=False, awaiting_start=False, step_gen=1,
+        _buffers=types.SimpleNamespace(refresh=refresh, text=lambda p: text["v"]), _save_step_file=save_step_file,
+        _run_command=lambda step: "python3 nn.py" if step["id"] == "nn4" else "", _dirty_step_file=lambda step: True,
+        evaluate=evaluate)
+    clock = {"t": 100.0}
+    monkeypatch.setattr(quiet_save.time, "monotonic", lambda: clock["t"])
+
+    async def go():
+        await quiet_save.poll(s)  # the first look: the buffer's signature
+        text["v"] = "W1 = np.random.randn(1, 4)\n"  # the fix, typed (unsaved)
+        await quiet_save.poll(s)
+        assert s._quiet_save["run_save_due"] is not None
+        s.step, s.step_gen = {"id": "nn5", "file": "nn.py"}, 2  # Check passed nn4: nn5 started
+        clock["t"] += 5
+        await quiet_save.poll(s)
+        assert saved == [] and s._quiet_save["run_save_due"] is None
+        # the same on the run step itself: saved once still for a second
+        s.step, s.step_gen = {"id": "nn4", "file": "nn.py"}, 3
+        text["v"] = "W1 = np.random.randn(1, 4) * 0.5\n"
+        await quiet_save.poll(s)
+        clock["t"] += 1.5
+        await quiet_save.poll(s)
+        assert saved == ["nn4"]
+
+    _run(go())
+
+
 def test_save_clause_only_goes_when_something_else_is_asked():
     w = quiet_save._without_save
     assert w("In nn.py, delete lines 3-5 (W1 = 0), then save with ⌘S.") == "In nn.py, delete lines 3-5 (W1 = 0)."
