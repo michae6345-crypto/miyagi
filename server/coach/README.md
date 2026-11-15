@@ -26,7 +26,7 @@ fix = await coach.fix_outdated(error_text, lesson["libraries"])  # offtrack-shap
 
 ## Cost policy
 
-- **Models:** Opus (`claude-opus-5-5`) writes only the diagnosis card. Triage, pointing/locate, explain, "Do it for me" and `fix_outdated` use Haiku (`claude-haiku-5-5`). To override one purpose, set `COACH_MODEL_<PURPOSE>` (see `llm.model_for`).
+- **Models:** Sonnet (`claude-sonnet-5-5`) writes the diagnosis card (spend cap: never Opus by default; `COACH_MODEL_DIAGNOSE=claude-opus-5-5` to opt in). Triage, pointing/locate, explain, "Do it for me" and `fix_outdated` use Haiku (`claude-haiku-5-5`). To override one purpose, set `COACH_MODEL_<PURPOSE>` (see `llm.model_for`).
 - **Prompt caching:** every system prompt carries `cache_control`. `warm()` pre-writes the diagnose prefix.
 - **Cost freeze:** run offline tests only. `tests/record_fixtures.py` makes paid calls and refuses to run without `COACH_ALLOW_LIVE=1`.
 

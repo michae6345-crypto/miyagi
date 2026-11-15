@@ -27,14 +27,15 @@ from typing import Any
 log = logging.getLogger("coach.llm")
 
 OPUS = "claude-opus-5-5"
+SONNET = "claude-sonnet-5-5"
 HAIKU = "claude-haiku-5-5"
 FALLBACK_BETA = "server-side-fallback-2026-07-01"
 
 FIXTURES_DIR = Path(__file__).parent / "fixtures"
 
-# Cost policy (Michael): Opus writes only the diagnosis card; everything else is Haiku.
+# Cost policy (Michael): Sonnet writes the diagnosis card (Opus only via COACH_MODEL_DIAGNOSE); everything else is Haiku.
 # Override per purpose with COACH_MODEL_<PURPOSE>, e.g. COACH_MODEL_EXPLAIN=claude-opus-5-5.
-MODELS = {"diagnose": OPUS}
+MODELS = {"diagnose": SONNET}  # spend cap (Michael, $84/$100): never Opus by default; COACH_MODEL_DIAGNOSE overrides
 
 
 def model_for(purpose: str) -> str:
@@ -300,7 +301,7 @@ def _request(client, model: str, system: list[dict], content: Any, schema: dict,
         "thinking": thinking or {"type": "adaptive"},  # Haiku pointing passes {"type": "disabled"} for speed
         "output_config": {"effort": effort, "format": {"type": "json_schema", "schema": schema}},
     }
-    if model == OPUS:  # server-side refusal fallback: on a policy decline the API reruns on a fallback model
+    if model in (OPUS, SONNET):  # server-side refusal fallback: on a policy decline the API reruns on a fallback model
         return client.beta.messages, {"betas": [FALLBACK_BETA], "fallbacks": "default", **kwargs}
     return client.messages, kwargs
 
@@ -324,14 +325,14 @@ async def warm(requests: list[dict] | None = None) -> dict:
     client = get_client()
     t0 = time.monotonic()
     try:
-        await client.models.retrieve(OPUS)
+        await client.models.retrieve(model_for("diagnose"))
         out["tls_s"] = round(time.monotonic() - t0, 2)
     except Exception as e:  # noqa: BLE001 - warm-up is best effort
         out["tls_error"] = type(e).__name__
 
     async def one(r: dict) -> Any:
         # max_tokens=1: writes the cached prefix for one output token (0 is rejected with output_config.format)
-        api, kwargs = _request(client, r.get("model", OPUS), r["system"], "warm", r["schema"], r.get("effort", "low"), 1)
+        api, kwargs = _request(client, r.get("model") or model_for("diagnose"), r["system"], "warm", r["schema"], r.get("effort", "low"), 1)
         return await api.create(**kwargs)
 
     t0 = time.monotonic()
