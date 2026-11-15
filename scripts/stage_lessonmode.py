@@ -316,7 +316,8 @@ async def run_scenario(lesson_path: Path, scenario: str, hold: float) -> dict:
             await asyncio.sleep(0.1)
         if not moved and i + 1 < len(lesson["steps"]):
             forced.append(st["id"])
-            await engine.session.goto_step(i + 1)
+            rec.events.append({"t": rec.now(), "type": "_skip", "payload": {}, "step": st["id"]})
+            await engine.session.action("skip_step")  # what a learner presses to move on
 
     extras = await run_extras(engine, lesson, rec, show, render, workdir, folder, starter) if scenario == "open" else {}
 
@@ -408,12 +409,14 @@ def judge(res: dict) -> dict:
         evs = [e for e in events if t0 <= e["t"] < t1 and e is not se]
         spots = [e for e in evs if e["type"] == "spotlight" and e["payload"].get("rect")]
         cards = [e for e in evs if e["type"] in ("card", "offtrack")
-                 and (e["payload"].get("kind") not in ("setup", "preflight", "resume"))]
+                 and (e["payload"].get("kind") not in ("setup", "preflight", "resume"))
+                 and not re.search(r"is still empty", e["payload"].get("title") or "")]  # answer to the learner's Skip
         row = {"step": sid, "kind": kind, "spots": len(spots), "cards": [(round(e["t"] - t0, 1), e["type"],
                e["payload"].get("kind"), (e["payload"].get("title") or "")[:40]) for e in cards]}
+        row["after_skip"] = any(e["type"] == "_skip" for e in events if t0 - 1.0 <= e["t"] <= t0)
         # (a)
         prob_a = []
-        if not spots:
+        if not spots and t1 - t0 >= 6.0:  # a step that was up for less than 6 s (redirected / skipped) isn't judged
             prob_a.append("no spotlight")
         for a, b in zip(spots, spots[1:]):
             ra, rb = a["payload"]["rect"], b["payload"]["rect"]
