@@ -1198,7 +1198,7 @@ def test_post_end_endpoint(tmp_path, monkeypatch):
     main.engine.recorder.enabled = False
     with TestClient(main.app) as client:
         r = client.post("/end")
-        assert r.json() == {"ok": True, "ended": None}
+        assert r.json() == {"ok": True, "ended": None, "kept": False}  # Nov 15: kept = the place stays for after a restart
         assert main.engine.session.phase == "idle"
 
 

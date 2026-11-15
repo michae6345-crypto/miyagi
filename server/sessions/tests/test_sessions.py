@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import time
 
 import pytest
 
@@ -339,16 +340,12 @@ def _save_text_lesson_at_step_2():
     return lesson, st
 
 
-def test_restart_connect_state_then_resume_starts_the_saved_step(tmp_path, monkeypatch, state_dir):
-    """save at s2 -> engine restart -> app connects (and leaves, and comes back) -> /state still s2 ->
-    resume starts s2. Real main.app; stub modules and no workspace (no VS Code, no API calls)."""
-    from fastapi.testclient import TestClient
-
+def _restarted_engine(monkeypatch):
+    """The restarted engine process: real main.app, stub modules, no workspace (no VS Code, no API calls); any
+    build call fails the test (`calls`)."""
     from server.orchestrator import main
 
-    lesson, saved = _save_text_lesson_at_step_2()
-    files = {p.name: p.read_bytes() for p in state_dir.iterdir()}
-    eng = main.Engine()  # the restarted engine process
+    eng = main.Engine()
     eng.recorder.enabled = False
     eng.session.workspace = None
     eng.session.m = eng.modules = Modules(demo=False, force_stubs="all")
@@ -359,6 +356,41 @@ def test_restart_connect_state_then_resume_starts_the_saved_step(tmp_path, monke
             raise AssertionError(_n)
         setattr(eng.session.m, name, boom)
     monkeypatch.setattr(main, "engine", eng)
+    return main, eng, calls
+
+
+def test_restart_connect_auto_resumes_the_saved_step(monkeypatch, state_dir):
+    """Nov 15: save at s2 -> engine restart -> the first app connection continues at s2 by itself (no resume card,
+    no rebuild), and a second connection replays s2."""
+    from fastapi.testclient import TestClient
+
+    lesson, _ = _save_text_lesson_at_step_2()
+    main, eng, calls = _restarted_engine(monkeypatch)
+    s2 = lesson["steps"][1]["id"]
+    with TestClient(main.app) as client:
+        for _ in range(2):
+            with client.websocket_connect("/") as ws:
+                got = []
+                while not any(m["type"] == "step.started" for m in got):
+                    got.append(ws.receive_json())
+                assert [m["payload"]["stepId"] for m in got if m["type"] == "step.started"] == [s2]
+                assert not [m for m in got if m["type"] == "card" and m["payload"].get("kind") == "resume"]
+        st = client.get("/state").json()
+        assert st["stepId"] == s2 and st["phase"] == "active"
+    assert calls == []
+    assert sessions.load()["stepId"] == s2
+
+
+def test_restart_connect_state_then_resume_starts_the_saved_step(tmp_path, monkeypatch, state_dir):
+    """save at s2 -> engine restart -> app connects (and leaves, and comes back) -> /state still s2 ->
+    resume starts s2. Real main.app; stub modules and no workspace (no VS Code, no API calls). A save idle longer than
+    ORCH_AUTO_RESUME_S (3 h) is offered by the resume card instead of continuing by itself (Nov 15 auto-resume)."""
+    from fastapi.testclient import TestClient
+
+    lesson, saved = _save_text_lesson_at_step_2()
+    store.save({**sessions.load(), "lastActiveAt": time.time() - 4 * 3600})  # left 4 h ago: no auto-resume
+    files = {p.name: p.read_bytes() for p in state_dir.iterdir()}
+    main, eng, calls = _restarted_engine(monkeypatch)
     s2 = lesson["steps"][1]["id"]
     with TestClient(main.app) as client:
         for _ in range(2):  # connect, leave, connect again: nothing is answered yet

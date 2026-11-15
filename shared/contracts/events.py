@@ -176,6 +176,7 @@ class LessonInfo(_Model):
 class LessonReady(_Model):
     lesson: LessonInfo
     steps: list[StepSummary]
+    replay: bool | None = None  # the SAME lesson again (reconnect / restore): keep its progress, no "Before you start"
 
 
 class PartsProgress(_Model):
@@ -203,6 +204,7 @@ class StepStarted(_Model):
     concepts: list[str] | None = None  # primer ids this step uses
     code: str | None = None  # the exact code to type (code steps) or command to run (run steps), in full
     estMinutes: int | None = None  # about how long this step takes ("about 4 min")
+    replay: bool | None = None  # a reconnect's / restore's replay of the step already running (not a new step)
 
 
 class CheckUpdated(_Model):
@@ -218,6 +220,7 @@ class StepPassed(_Model):
     nextStepId: str | None = None
     pending: bool | None = None  # no next step yet: the next part is still building
     skipped: bool | None = None  # the learner skipped it (action skip_step): not passed, never shown green
+    already: bool | None = None  # its code was already in the file: passed without starting (one "You already did" card)
 
 
 class OfftrackDiff(_Model):
