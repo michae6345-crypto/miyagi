@@ -1,8 +1,8 @@
 /**
  * The lesson-complete panel (Michael's NEW 2, mockup 12 "Lesson complete"), grown out of the notch island:
- *   header   a green check tile and a "Lesson complete" chip (the lesson passed), the card's title and body (the real
- *            evidence), a meta line (Just teach me · track · steps done · minutes), and on the right the lesson's
- *            own network as it last came from the engine ("Your network 1-4-4-1 · loss …" and a thumbnail)
+ *   header   quiet "<track> · N skills mastered" (Michael, test 6: no headline sentence, no "Lesson complete" pill),
+ *            a meta line (Just teach me · steps done · minutes), and on the right the lesson's own network as it
+ *            last came from the engine ("1-4-4-1", "loss 0.82 → 0.0009" and a thumbnail)
  *   left     the skill map (SkillMap.tsx); under it, when the data has them: the loss over training, the trained
  *            network's fit against the lesson's targets, and the checks this lesson passed
  *   right    Up next: the first two lessons of skillMap.next; "Start: <first>" sends learn {query: goal,
@@ -139,60 +139,62 @@ function UpNext(): ReactNode {
   )
 }
 
-/** "Just teach me · Machine learning · 6 of 6 steps · 41 min": only what's known. */
-function useMeta(track?: string): string {
+/** "Just teach me · 6 of 6 steps · 41 min": only what's known. */
+function useMeta(): string {
   const l = useLesson(useShallow((s) => ({ mode: s.lesson?.mode, total: s.steps.length, passed: s.passed, skipped: s.skipped })))
   const startedAt = useComplete((s) => s.startedAt)
   const cardAt = useComplete((s) => s.card) // re-read the minutes when the card comes
   return useMemo(() => {
     const done = l.passed.filter((id) => !l.skipped.includes(id)).length
     const mins = startedAt ? Math.round((Date.now() - startedAt) / 60000) : 0
-    return [l.mode === 'lesson' ? 'Just teach me' : '', track ?? '', l.total ? `${Math.min(done, l.total)} of ${l.total} steps` : '', mins >= 1 ? `${mins} min` : '']
+    return [l.mode === 'lesson' ? 'Just teach me' : '', l.total ? `${Math.min(done, l.total)} of ${l.total} steps` : '', mins >= 1 ? `${mins} min` : '']
       .filter(Boolean)
       .join(' · ')
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [l, startedAt, track, cardAt])
+  }, [l, startedAt, cardAt])
 }
 
+/** Loss at the first and last frame that carry one, e.g. "loss 0.82 → 0.0009" (only when both are real). */
+function lossRange(frames: Array<{ loss?: number }>): string | undefined {
+  const with_ = frames.filter((f) => f.loss !== undefined && Number.isFinite(f.loss))
+  if (!with_.length) return undefined
+  const a = with_[0].loss!
+  const b = with_[with_.length - 1].loss!
+  return with_.length > 1 && a !== b ? `loss ${short(a)} → ${short(b)}` : `loss ${short(b)}`
+}
+
+/**
+ * Michael, test 6: no headline sentence, no "Lesson complete" pill. The skill mastery leads: a quiet
+ * "Neural networks · 8 skills mastered" line, the meta under it, and the lesson's network with its real numbers.
+ */
 function Header(): ReactNode {
   const card = useComplete((s) => s.card)!
   const net = useComplete((s) => s.net)
-  const meta = useMeta(card.map?.track)
-  const last = net?.frames[net.frames.length - 1]
+  const trained = useComplete((s) => s.trained)
+  const meta = useMeta()
+  const map = card.map
+  const mastered = map ? map.nodes.filter((n) => n.state === 'mastered').length : 0
+  const head = map
+    ? [map.track, mastered ? `${mastered} skill${mastered === 1 ? '' : 's'} mastered` : ''].filter(Boolean).join(' · ')
+    : card.title
+  const loss = useMemo(() => lossRange(trained?.frames ?? []) ?? lossRange(net?.frames ?? []), [trained, net])
   return (
     <div className="flex items-start gap-[16px]">
-      <span className="grid h-[52px] w-[52px] shrink-0 place-items-center rounded-[16px]" style={{ background: color.greenTint, boxShadow: `inset 0 0 0 1px ${color.green}` }}>
-        <Check size={26} strokeWidth={2.4} style={{ color: color.green }} />
-      </span>
       <div className="min-w-0 flex-1">
-        <div className="flex flex-wrap items-center gap-x-[12px] gap-y-[4px]">
-          <span className="text-[26px] font-semibold leading-[32px] tracking-[-0.02em]" style={{ color: color.text }}>
-            {card.title}
-          </span>
-          <span className="flex items-center gap-[5px] rounded-full px-[9px] py-[3px] text-[12px] font-semibold" style={{ background: color.greenTint, color: color.green }}>
-            <Check size={12} strokeWidth={2.6} />
-            Lesson complete
-          </span>
+        <div className="text-[20px] font-semibold leading-[26px] tracking-[-0.01em]" style={{ color: color.text }} data-complete-head>
+          {head}
         </div>
-        {card.body && (
-          <div className="mt-[4px] text-[15px] leading-[21px]" style={{ color: color.label }}>
-            {card.body}
-          </div>
-        )}
         {meta && (
           <div className="mt-[4px] text-[13px] leading-[18px]" style={{ color: color.faint }}>
             {meta}
           </div>
         )}
       </div>
-      {net && last && (
+      {net && (
         <div className="flex shrink-0 items-center gap-[14px]" data-your-network>
-          <div className="text-right text-[13px] leading-[19px]">
-            <div style={{ color: color.label }}>Your network</div>
-            <div style={{ color: color.faint, fontFamily: font.mono }}>
-              {net.layers.join('-')}
-              {last.loss !== undefined && ` · loss ${short(last.loss)}`}
-            </div>
+          <div className="text-right text-[13px] leading-[19px]" style={{ fontFamily: font.mono }}>
+            <div style={{ color: color.label }}>{net.layers.join('-')}</div>
+            {loss && <div style={{ color: color.faint }}>{loss}</div>}
           </div>
           <div className="overflow-hidden rounded-[14px]" style={{ background: fill.field, boxShadow: `inset 0 0 0 1px ${fill.fieldBorder}` }}>
             <NetThumb net={net} />
@@ -277,7 +279,7 @@ export function CompletePanel(): ReactNode {
       <div className={`mt-[16px] flex ${stacked ? 'flex-col' : 'flex-row items-stretch'}`} style={{ gap: GAP }}>
         {map && (
           <div className="min-w-0 flex-1" style={box}>
-            <SkillMapView map={map} width={mapW} />
+            <SkillMapView map={map} width={mapW} heading={false} />
             <Evidence width={mapW} />
           </div>
         )}

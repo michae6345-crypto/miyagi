@@ -18,13 +18,14 @@ const LABEL_GAP = 8
 export const LINE = 16
 export const DETAIL_LINE = 15
 const ROW_GAP = 20
-/** Between a cross lane and the lane under it: the hairline, then the arrows' notes (2 lines). */
-const CROSS_GAP = 46
+/** Between a cross lane and the lane under it: the hairline and the arrows' run down. */
+const CROSS_GAP = 30
 export const NOTE_LINE = 14
 
 export type Placed<T> = T & { x: number; y: number; row: number; col: number; lines: number }
 export type Lane = { kind: 'cross' | 'track'; name: string; top: number; inline: boolean; done?: number; total?: number }
-export type Path = { d: string; dashed?: boolean; faint?: boolean }
+/** `from`/`to`: the two ends (node ids, or a cross concept's key for `from` on a shared-idea arrow), so a click can explain the link. */
+export type Path = { d: string; dashed?: boolean; faint?: boolean; from: string; to: string; note?: string }
 export type Note = { x: number; y: number; w: number; text: string }
 export type Layout = {
   width: number
@@ -166,30 +167,32 @@ export function layout(map: SkillMap, width: number): Layout {
     if (!a || !b) continue
     const faint = b.state === 'next'
     if (a.row === b.row && b.col > a.col) {
-      paths.push({ d: `M${a.x + R + 5},${a.y} L${b.x - R - 6},${b.y}`, faint })
+      paths.push({ d: `M${a.x + R + 5},${a.y} L${b.x - R - 6},${b.y}`, faint, from: a.id, to: b.id })
     } else if (b.row === a.row + 1 && firsts.has(b.id)) {
       const xr = Math.min(width - 2, a.x + colW / 2 - 2)
       const xl = b.x - colW / 2 + 4
       const ym = rowBottom[a.row] + ROW_GAP / 2
-      paths.push({ d: rounded([[a.x + R + 5, a.y], [xr, a.y], [xr, ym], [xl, ym], [xl, b.y], [b.x - R - 6, b.y]]), faint })
+      paths.push({ d: rounded([[a.x + R + 5, a.y], [xr, a.y], [xr, ym], [xl, ym], [xl, b.y], [b.x - R - 6, b.y]]), faint, from: a.id, to: b.id })
     } else {
       const mx = (a.x + b.x) / 2
-      paths.push({ d: `M${a.x},${a.y + R + 4} C${a.x},${b.y - 40} ${mx},${b.y - R - 30} ${b.x},${b.y - R - 6}`, faint })
+      paths.push({ d: `M${a.x},${a.y + R + 4} C${a.x},${b.y - 40} ${mx},${b.y - R - 30} ${b.x},${b.y - R - 6}`, faint, from: a.id, to: b.id })
     }
   }
 
-  // Shared ideas: a dashed arrow from under the concept's label down to its node; the note beside the arrow.
-  const xs = links.map((l) => l.from.x)
+  // Shared ideas: a dashed arrow from under the concept's label down to its node. No text along the arrow
+  // (Michael, test 6): the note opens in the detail box when the arrow is clicked.
   for (const { from, bottom } of links) {
     const b = pos.get(from.to)
     if (!b) continue
     const y0 = bottom + 4
     const y1 = b.y - R - 6
-    paths.push({ d: from.x === b.x ? `M${from.x},${y0} L${b.x},${y1}` : rounded([[from.x, y0], [from.x, (y0 + y1) / 2], [b.x, (y0 + y1) / 2], [b.x, y1]]), dashed: true })
-    if (from.note) {
-      const right = Math.min(width, ...xs.filter((x) => x > from.x).map((x) => x - 10))
-      notes.push({ x: from.x + 9, y: bottom + 20, w: Math.max(60, right - from.x - 12), text: from.note })
-    }
+    paths.push({
+      d: from.x === b.x ? `M${from.x},${y0} L${b.x},${y1}` : rounded([[from.x, y0], [from.x, (y0 + y1) / 2], [b.x, (y0 + y1) / 2], [b.x, y1]]),
+      dashed: true,
+      from: from.key,
+      to: b.id,
+      ...(from.note ? { note: from.note } : {})
+    })
   }
 
   const free = rowsN > 1 ? shift : cols - total
