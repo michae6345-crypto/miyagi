@@ -17,6 +17,7 @@
  */
 import { useLayoutEffect, useMemo, useRef, useState, type RefObject } from 'react'
 import type { Layout } from '../../../preload/api'
+import { useCards } from '../features/cards/store'
 import { hole, intersects, isUsableRect, MIN_VISIBLE_SHARE, overlapShare, sameRect, toLocal } from '../features/spotlight/place'
 import { useSpotlight } from '../features/spotlight/store'
 import { useLesson, type Rect } from './lesson'
@@ -169,24 +170,29 @@ type Spot = { id: string; boxes: Rect[]; at: Offset; until: number }
  * steps around the card, not the other way round), not when the card grows, not when the spotlight clears. Only a new
  * box (another target) places it again, and never while `still`: that waits until the pointer is off it. A card that
  * opens or replaces another under the pointer keeps the spot it's at.
+ *
+ * The card's own targets (`card.targets`) count like the coach's, kept while the card is open: a spotlight clear or the
+ * next step.started wipes the spotlight's copy (desktop test 9, A5: the step card sat on the code it talked about).
  */
 export function useIslandOffset(card: { id: string; w: number; h: number } | undefined, top: number, layout: Layout, wrapper: RefObject<HTMLElement | null>, still = false): Offset {
   const main = useSpotlight((s) => (s.target && isUsableRect(s.target.rect) ? s.target.rect : undefined))
   const others = useSpotlight((s) => s.targets)
   // The off-track's own targets, kept while the off-track stands: a spotlight clear wipes the spotlight's copy.
   const flagged = useLesson((s) => s.offtrack?.targets)
+  // The open card's own targets, the same way (desktop test 9, A5).
+  const carded = useCards((s) => s.card?.targets)
   // The holes as the spotlight draws them: the main one while it's on this display, and the coach's others with it.
   // The coach's targets count even with no spotlight up (Michael's desktop test 6/7, item 5: the "Not yet" card sat on
   // lines 40-48, the very lines it was talking about, because the step's box had cleared when it opened).
   const keepOff = useMemo(() => {
     const rects: Rect[] = []
-    for (const r of [main, ...others.map((t) => t.rect), ...(flagged ?? []).map((t) => t?.rect)]) {
+    for (const r of [main, ...others.map((t) => t.rect), ...(flagged ?? []).map((t) => t?.rect), ...(carded ?? []).map((t) => t?.rect)]) {
       if (isUsableRect(r) && !rects.some((k) => sameRect(k, r, SAME_BOX_PX))) rects.push(r)
     }
     if (!rects.length) return []
     const screen = { x: 0, y: 0, w: layout.width, h: layout.height }
     return rects.map((r) => hole(toLocal(r, layout.origin))).filter((h) => overlapShare(h, screen) >= MIN_VISIBLE_SHARE)
-  }, [main, others, flagged, layout])
+  }, [main, others, flagged, carded, layout])
   const w = card?.w ?? 0
   const h = card?.h ?? 0
   const { others: avoid, chips } = useOverlayUi(wrapper, keepOff.length > 0, card?.id ?? '')
