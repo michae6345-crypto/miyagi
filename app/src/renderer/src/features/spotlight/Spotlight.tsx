@@ -1,8 +1,12 @@
 /**
  * Building mode, screen-first (mockup 04, Miyagi brand): the engine's screen reader (Apple Vision OCR)
- * finds the target on screen and sends `spotlight {rect, caption}`. We dim everything to 55% and cut a
+ * finds the target on screen and sends `spotlight {rect, caption}`. We dim everything around it and cut a
  * rounded hole at that rect, edged with a crisp hairline, with a glass caption beside it. Works over
  * any app; never takes a click except on the voice button.
+ *
+ * Two dims (Michael's audit A6): a text lesson's "type here" target gets the soft one (`scrim.spotlightSoft`), so
+ * the learner's own code and terminal stay readable around it; Show me (and video lessons) keep the strong one
+ * (`scrim.spotlight`). The two crossfade (opacity only) when a target changes kind.
  *
  * Brand (app/brand/BRAND.md) + Adrian ("less like AI slop, more precise"): the cut-out is edged by ONE white
  * hairline, whatever the state (the pill and the card already carry status color), over a faint
@@ -33,8 +37,8 @@ const CAPTION_MAX_W = 360
 const CAPTION_LINES = 2
 /** Until the caption has been measured. */
 const CAPTION_GUESS = { w: 280, h: 44 }
-/** The dim: `scrim.spotlight` (black at .66, Adrian's "more contrast"; the handoff said 55%), fading in over 280ms. */
-const DIM = { fill: scrim.spotlight, fade: 0.28 } as const
+/** The dim: `scrim.spotlight` (black at .66, Adrian's "more contrast") or `scrim.spotlightSoft`, fading in over 280ms. */
+const DIM = { strong: scrim.spotlight, soft: scrim.spotlightSoft, fade: 0.28 } as const
 /** The ring: a crisp hairline (no blur) over a faint dark keyline for contrast on light apps. */
 const RING = { width: 1, keyline: 3, keylineOpacity: 0.35 } as const
 const PULSE = { from: 0.45, peak: 1, rest: 0.9, duration: 1.2 } as const
@@ -46,6 +50,8 @@ type Props = {
   /** Where the caption may go: the window's work area, in window coordinates. */
   bounds: Rect
   mode: SpotlightMode
+  /** The soft dim: a text lesson's "type here" target. false = the strong dim (Show me, video lessons). */
+  soft: boolean
   /** Only one window draws the caption when a target straddles two displays. */
   showCaption: boolean
   /** UI outside this window the caption must not cover (the lesson player's window), window coordinates. */
@@ -64,7 +70,7 @@ export function Spotlight({ target, rect, ...rest }: Props): ReactNode {
   return <AnimatePresence>{target && rect && <Scene key="spotlight" target={target} rect={rect} {...rest} />}</AnimatePresence>
 }
 
-function Scene({ target, rect, bounds, mode, showCaption, avoid, extras }: Props & { target: SpotlightTarget; rect: Rect }): ReactNode {
+function Scene({ target, rect, bounds, mode, soft, showCaption, avoid, extras }: Props & { target: SpotlightTarget; rect: Rect }): ReactNode {
   const reduced = useReducedMotion() ?? false
   const cut = hole(rect)
   const register = useAnimatedHole(cut, reduced)
@@ -102,7 +108,21 @@ function Scene({ target, rect, bounds, mode, showCaption, avoid, extras }: Props
             </mask>
           </defs>
         )}
-        {!outline && <rect width="100%" height="100%" fill={DIM.fill} mask={`url(#${id}-hole)`} data-part="dim" />}
+        {!outline &&
+          (['strong', 'soft'] as const).map((k) => (
+            <motion.rect
+              key={k}
+              width="100%"
+              height="100%"
+              fill={DIM[k]}
+              mask={`url(#${id}-hole)`}
+              data-part="dim"
+              data-dim={k}
+              initial={false}
+              animate={{ opacity: (k === 'soft') === soft ? 1 : 0 }}
+              transition={{ duration: DIM.fade, ease: 'easeOut' }}
+            />
+          ))}
         <motion.g style={{ opacity: pulse }} data-part="ring">
           <rect ref={register} data-part="keyline" fill="none" style={{ stroke: color.onAccent }} strokeOpacity={RING.keylineOpacity} strokeWidth={RING.keyline} />
           <rect ref={register} data-part="hairline" data-status={status} fill="none" style={{ stroke: color.text }} strokeWidth={RING.width} />
