@@ -185,7 +185,7 @@ def test_where_reads_the_editor_state():
     assert where_hint(CALC, None, _vscode_untitled()) == "You're in VS Code on an unsaved file. Save it as calculator.py in the lesson folder"
     obs = SimpleNamespace(app="Code", windows=[SimpleNamespace(app="Code", title="● calc.py — calculator")],
                           lines_by_app=lambda: {"Code": ["def add(a, b):"]})
-    assert editor_state(obs) == {"app": "VS Code", "file": "calc.py", "untitled": "", "unsaved": True}
+    assert editor_state(obs) == {"app": "VS Code", "file": "calc.py", "untitled": "", "unsaved": True, "source": "window"}
     assert where_hint(CALC, None, obs) == "You're in VS Code on calc.py. Open calculator.py from the lesson folder"
     no_editor = {"Terminal": ["$ ls"]}
     assert where_hint(CALC, None, no_editor) == "Create calculator.py in the lesson folder"  # a creation step, file named only in the instructions
@@ -212,7 +212,7 @@ def test_judge_step_not_done_says_what_and_where(monkeypatch):
     assert r["done"] is False and r["missing"] == "Save the Untitled-1 tab as calculator.py"
     assert r["checks"] == {"k2a": {"verdict": "not_done", "reason": "file is still Untitled-1", "evidence": "Untitled-1 — Visual Studio Code"}}
     assert r["where"] == "You're in VS Code on an unsaved file. Save it as calculator.py in the lesson folder"
-    assert "EDITOR ON SCREEN: VS Code showing an unsaved Untitled-1" in seen["user_text"] and "EXPECTED FILE: calculator.py" in seen["user_text"]
+    assert "EDITOR (from the editor window, not OCR): VS Code showing an unsaved Untitled-1" in seen["user_text"] and "EXPECTED FILE: calculator.py" in seen["user_text"]
 
 
 def test_judge_step_done_points_at_the_evidence(monkeypatch):
@@ -550,8 +550,9 @@ def test_start_is_one_short_action_from_the_code():
     b = start_instruction(T3)
     assert b == "Run `python3 calculator.py` in the VS Code terminal."
     _rules(b)
-    card = run(coach.diagnose(T1, [{"checkId": "t1a", "status": "fail"}], None, ""))
-    assert card["notStarted"] and card["body"] == a  # not the 22-word raw instructions
+    card = run(coach.diagnose(T1, [{"checkId": "t1a", "status": "fail"}], None, ""))  # calculator.py is empty
+    assert card["notStarted"] and card["body"] == "Type `def add(a, b):` on line 1 of calculator.py in VS Code."
+    _rules(card["body"])  # not the 22-word raw instructions
 
 
 def test_hint_after_the_auto_card_moves_up_and_never_quotes_labels():
@@ -609,3 +610,72 @@ def test_lesson_mode_card_is_one_action_with_the_why_behind_explain(monkeypatch)
     assert card["body"] == "In VS Code, name the function add on line 4 of calculator.py."
     _rules(card["body"])
     assert card["why"].startswith("Python needs a name between def") and 'LESSON MODE ("Just teach me")' in seen["diagnose"]
+
+
+
+# ---------- Michael: "Editor shows README.md" while notes.py was the active tab ------------------------------
+
+NOTES = {"id": "n1", "title": "Start the notes list", "file": "notes.py", "instructions": "Create an empty list called notes.",
+         "code": "notes = []", "checks": [{"id": "n1a", "type": "file_contains", "label": "notes list", "file": "notes.py", "pattern": r"notes\s*=\s*\[\]"}],
+         "hints": []}
+NOTES_LESSON = {"lesson": {"id": "notes", "title": "Notes app", "goal": "notes", "mode": "lesson"}, "sources": [], "steps": [NOTES]}
+
+
+def _vscode_explorer_ocr() -> ScreenContext:
+    """OCR boxes only (no AX title): the Explorer lists README.md; the inline chat covers line 1."""
+    boxes = [Box(0, "EXPLORER", 10, 40, 80, 13, app="Code"), Box(0, "README.md", 20, 60, 80, 13, app="Code"),
+             Box(0, "notes.py", 20, 75, 80, 13, app="Code"), Box(0, "Ask Copilot or type / for commands", 300, 80, 260, 13, app="Code")]
+    return ScreenContext(image=Image.new("RGB", (10, 10)), cursor=(100, 90), boxes=boxes, scale=1.0, app="Code").numbered()
+
+
+def test_active_file_never_comes_from_ocr():
+    assert editor_state(_vscode_explorer_ocr()) == {}  # README.md in the Explorer is not "the open file"
+    win = {"app": "Code", "title": "notes.py — notes", "path": "/lesson/notes.py", "file": "notes.py", "dirty": False}
+    assert editor_state(_vscode_explorer_ocr(), win)["file"] == "notes.py"
+    assert editor_state(None, {"path": "/lesson/notes.py", "dirty": True})["unsaved"] is True  # companion extension
+
+
+def test_empty_file_at_a_code_step_is_not_started():
+    common.set_lesson(NOTES_LESSON)
+    card = run(coach.diagnose(NOTES, [{"checkId": "n1a", "status": "fail"}], None, "", screen=_vscode_explorer_ocr()))
+    assert card["notStarted"] is True and card["body"] == "Type `notes = []` on line 1 of notes.py in VS Code."
+    assert "?" not in card["body"] and "README" not in card["body"]
+    _rules(card["body"])
+
+
+NOTES_RUN = {**NOTES, "id": "n2", "checks": [{"id": "n2a", "type": "output_contains", "label": "prints []", "pattern": r"\[\]"}]}
+
+
+def _card_from(monkeypatch, body: str, title: str, seen: dict):
+    async def call(**kw):
+        seen[kw["purpose"]] = kw["user_text"]
+        if kw["purpose"] == "triage":
+            return llm.CallResult(data={"route": "opus", "playbook_id": "none", "reason": ""}, model="h")
+        return llm.CallResult(data={"playbook_id": "none", "severity": "warn", "title": title, "body": body, "citation_id": "none",
+                                    "diff_expected": "", "diff_yours": "", "diff_file": "", "diff_line": 0, "diff_command": "",
+                                    "actions": [], "guiding_question": "q?"}, model="s")
+
+    monkeypatch.setattr(llm, "structured_call", call)
+
+
+def test_guessed_open_file_and_questions_never_reach_the_card(monkeypatch):
+    common.set_lesson(NOTES_LESSON)
+    seen = {}
+    _card_from(monkeypatch, "Editor shows README.md, not notes.py. Which file is open in the editor right now, and which file does the check read?",
+               "Editor shows README.md, not notes.py", seen)
+    card = run(coach.diagnose(NOTES_RUN, [{"checkId": "n2a", "status": "fail"}], None, "notes = {}", screen=_vscode_explorer_ocr()))
+    assert card["hold"] == "unconfirmed" and card["body"] == ""  # nothing true was left to say → say nothing
+    assert "ACTIVE FILE" not in seen["diagnose"]  # unknown: not even mentioned to the model
+    from server.coach.diagnose import COACH_SYSTEM
+
+    assert "Never say or guess which file is open" in COACH_SYSTEM and "never asks the learner a question" in COACH_SYSTEM
+
+
+def test_card_keeps_the_fix_and_drops_the_question(monkeypatch):
+    common.set_lesson(NOTES_LESSON)
+    seen = {}
+    _card_from(monkeypatch, "notes is a dict, not a list. Change it to notes = [] on line 1. Do you see why?", "notes should be a list", seen)
+    win = {"app": "Code", "title": "notes.py — notes", "path": "/lesson/notes.py", "dirty": False}
+    card = run(coach.diagnose(NOTES_RUN, [{"checkId": "n2a", "status": "fail"}], None, "notes = {}", active_file=win))
+    assert "?" not in card["body"] and "Change it to notes = []" in card["body"]
+    assert "ACTIVE FILE (from the editor window, authoritative): notes.py" in seen["diagnose"]

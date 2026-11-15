@@ -97,7 +97,7 @@ def creates_file(step: dict, name: str) -> bool:
     return bool(name) and name in text and bool(CREATE_WORDS.search(text))
 
 
-def start_instruction(step: dict, screen: Any = None) -> str:
+def start_instruction(step: dict, screen: Any = None, empty_file: bool = False) -> str:
     """ONE short action to START this step (S9: <=12 words, the file + VS Code, never the raw instructions).
     Lesson mode: built from the step's own `code` / `run_command`:
       "In VS Code, type `def add(a, b):` in calculator.py."  /  "Run `python3 calculator.py` in the VS Code terminal."
@@ -108,7 +108,9 @@ def start_instruction(step: dict, screen: Any = None) -> str:
         if ed and name and (ed.get("untitled") or (ed.get("unsaved") and ed.get("file") == name)):
             return where_hint(step, None, screen) + "."
         if line := first_code_line(step):
-            return f"In VS Code, type `{line}` in {name}." if name and name != "(terminal)" else f"In VS Code, type `{line}`."
+            if name and name != "(terminal)":
+                return f"Type `{line}` on line 1 of {name} in VS Code." if empty_file else f"In VS Code, type `{line}` in {name}."
+            return f"In VS Code, type `{line}`."
         if cmd := (step.get("run_command") or "").strip():
             return f"Run `{cmd}` in the VS Code terminal."
     instr = re.sub(r"\s+", " ", step.get("instructions") or step.get("title") or "").strip()
@@ -133,23 +135,29 @@ def step_command(step: dict) -> str:
     return next((c.get("command", "") for c in step.get("checks") or [] if c.get("command")), "")
 
 
-def editor_state(screen: Any) -> dict:
-    """What the screen says about the editor: {app, file, unsaved, untitled} (empty dict if no editor).
+def editor_state(screen: Any, active: dict | None = None) -> dict:
+    """The editor's state: {app, file, unsaved, untitled} (empty dict = unknown).
 
-    Reads window titles (E6 `windows[].title`), title boxes and the first lines of each app's text:
-    VS Code shows `Untitled-1 — Visual Studio Code`, `● calc.py — project` (● = unsaved changes)."""
+    ONLY from authoritative sources, never OCR text (Michael: README.md in the Explorer and VS Code's
+    inline chat over line 1 were read as "the editor shows README.md" while notes.py was active):
+      1. `active` / `screen.active_file`: E6 `reader.vscode_window()` ({app, title, path, file, dirty}) or
+         the companion extension ({path, dirty});
+      2. the macOS window list (E6 `obs.windows[].title`) and accessibility title boxes (source "ax")."""
+    src = active if active is not None else getattr(screen, "active_file", None)
+    if src:
+        title = str(src.get("title") or "")
+        path = str(src.get("path") or src.get("file") or "")
+        untitled = next((m.group(0) for t in (title, path) if (m := UNTITLED.search(t))), "")
+        app = EDITORS.get(str(src.get("app") or "code").lower(), "VS Code")
+        return {"app": app, "file": "" if untitled else path.rsplit("/", 1)[-1], "untitled": untitled,
+                "unsaved": bool(untitled) or bool(src.get("dirty")) or title.lstrip().startswith("●"), "source": "editor"}
     if screen is None:
         return {}
-    rows: list[tuple[str, str]] = []  # (app, text)
+    rows: list[tuple[str, str]] = []  # (app, window title)
     for w in getattr(screen, "windows", None) or []:
         rows.append((getattr(w, "app", "") or "", getattr(w, "title", "") or ""))
     if hasattr(screen, "boxes"):
-        rows += [(b.app, b.text) for b in screen.boxes if b.role in ("AXTitle", "AXWindow") or UNTITLED.search(b.text)]
-        rows += [(b.app, b.text) for b in screen.boxes[:40]]
-    elif hasattr(screen, "lines_by_app"):
-        rows += [(a, ln) for a, ls in screen.lines_by_app().items() for ln in ls[:5]]
-    elif isinstance(screen, dict):
-        rows += [(str(a), str(ln)) for a, ls in screen.items() if isinstance(ls, list) for ln in ls[:5]]
+        rows += [(b.app, b.text) for b in screen.boxes if b.source == "ax" and b.role in ("AXTitle", "AXWindow")]
     focused = (getattr(screen, "app", "") or "").lower()
     editors = [(a, t) for a, t in rows if a.lower() in EDITORS]
     if not editors:
@@ -160,7 +168,7 @@ def editor_state(screen: Any) -> dict:
     untitled = next((m.group(0) for t in texts if (m := UNTITLED.search(t))), "")
     file = next((m.group(1) for t in texts if (m := FILE_NAME.search(t))), "")
     return {"app": EDITORS[app.lower()], "file": "" if untitled else file, "untitled": untitled,
-            "unsaved": bool(untitled) or any(t.lstrip().startswith("●") for t in texts)}
+            "unsaved": bool(untitled) or any(t.lstrip().startswith("●") for t in texts), "source": "window"}
 
 
 def where_hint(step: dict, last: dict | None = None, screen: Any = None) -> str:

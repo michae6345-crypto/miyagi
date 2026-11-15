@@ -67,6 +67,14 @@ targets = await coach.locate("the learning rate", screen)  # exact text → no m
   - It returns `{command, …}` for terminal fixes.
   - It reuses the diagnosis's diff only if it contains every value the action sentence names ("…to `squash`", "…to 1e-3"); otherwise Opus writes the patch.
 
+## Which file is open: only the editor window says so
+
+The active file comes only from E6's `reader.vscode_window()` (`{app, title, path, file, dirty}`), the companion extension (`{path, dirty}`), the macOS window list, or accessibility title boxes. It never comes from OCR text. This came from Michael's case: "Editor shows README.md" while notes.py was active, with README.md only in the Explorer and VS Code's inline chat covering line 1.
+- **Inputs:** pass `active_file=` to `diagnose` and `judge_step`, or set `ScreenContext.active_file`.
+- **Prompt:** an "ACTIVE FILE" line appears only when that source is known. Otherwise a system rule forbids naming the open file.
+- **Post-filter:** card bodies drop question sentences, and drop "the editor shows X" claims when the active file is unknown. If nothing true is left, the card becomes `hold: "unconfirmed"`, which is silent.
+- **Empty file at a code step:** this is not started, not off track: "Type `notes = []` on line 1 of notes.py in VS Code."
+
 ## "Just teach me" text lessons (lesson.mode = "lesson"; S9 copy QA)
 
 Copy rules: at most 12 words, name the file and VS Code (never Cursor), no glued check labels, one action.

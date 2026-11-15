@@ -103,7 +103,7 @@ def files_text(files: dict[str, str] | None) -> str:
 # ---------- the judge -----------------------------------------------------------------------------------
 
 async def _ask(step: dict, check_results: list[dict] | None, screen: Any, files: dict[str, str] | None,
-               focused_app: str, lesson: dict | None):
+               focused_app: str, lesson: dict | None, active_file: dict | None = None):
     """One Haiku judgment → (data, result, checks, status_by_id, steps), or None when unavailable."""
     sid = step.get("id", "")
     scr, fil = screen_text(screen, focused_app), files_text(files)
@@ -111,7 +111,7 @@ async def _ask(step: dict, check_results: list[dict] | None, screen: Any, files:
     status = {r.get("checkId"): r for r in check_results or []}
     checks = [c for c in step.get("checks") or [] if c.get("id")]
     steps = [s for s in (lesson or {}).get("steps") or [] if s.get("id")]
-    ed, expected = editor_state(screen), step_file(step)
+    ed, expected = editor_state(screen, active_file), step_file(step)
     editor = (f"{ed['app']} showing " + (f"an unsaved {ed['untitled']}" if ed["untitled"] else (ed["file"] or "an unknown file"))
               + (" (unsaved changes)" if ed["unsaved"] and not ed["untitled"] else "")) if ed else ""
     user = "\n\n".join(x for x in [
@@ -119,7 +119,7 @@ async def _ask(step: dict, check_results: list[dict] | None, screen: Any, files:
         "CHECKS (id: label [machine status]):\n" + "\n".join(
             f"- {c['id']}: {c.get('label', '')} [{status.get(c['id'], {}).get('status', 'pending')}]" for c in checks),
         f"EXPECTED FILE: {expected}" if expected else "",
-        f"EDITOR ON SCREEN: {editor}" if editor else "",
+        f"EDITOR (from the editor window, not OCR): {editor}" if editor else "EDITOR: unknown; don't claim which file is open",
         "OTHER STEPS OF THIS LESSON:\n" + "\n".join(f"- {s['id']}: {s.get('title', '')}" for s in steps if s["id"] != sid) if len(steps) > 1 else "",
         f"SCREEN NOW:\n{scr}" if scr else "SCREEN NOW: (not available)",
         f"WORKSPACE FILES:\n{fil}" if fil else "",
@@ -175,7 +175,8 @@ def _box_for(screen: Any, text: str) -> dict | None:
 
 
 async def judge_step(step: dict, screen: Any = None, files: dict[str, str] | None = None, *,
-                     check_results: list[dict] | None = None, focused_app: str = "", lesson: dict | None = None) -> dict | None:
+                     check_results: list[dict] | None = None, focused_app: str = "", lesson: dict | None = None,
+                     active_file: dict | None = None) -> dict | None:
     """The "Check" button (action check_step): judge now, no idle/rate gates (the learner asked).
 
     → {"checks": {id: {"verdict": "done"|"not_done"|"unsure", "reason", "evidence"}}, "done": bool,
@@ -185,7 +186,7 @@ async def judge_step(step: dict, screen: Any = None, files: dict[str, str] | Non
     """
     if llm.offline_mode():
         return _offline_judgment(step, check_results, screen)
-    asked = await _ask(step, check_results, screen, files, focused_app, lesson)
+    asked = await _ask(step, check_results, screen, files, focused_app, lesson, active_file)
     if asked is None:
         return None
     data, res, checks, status, _steps = asked
