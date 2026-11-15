@@ -196,6 +196,21 @@ class ScreenBridge:
             out["matched"] = res.matched[:200]
         return out
 
+    def snap_rows(self, rect: dict, app: str | None = None) -> dict | None:
+        """t8: a text match's box {x, y, w, h} with the y / height of its editor rows (the full-line box's: the
+        tight "Look here" box sat 3.4 pt low and cut the next line), x / width kept. None: not on an editor's rows."""
+        fn = getattr(self.reader, "snap_rows", None) if self.reader is not None and not self.paused else None
+        if fn is None:
+            return None
+        try:
+            from server.screen.types import Rect
+
+            r = fn(Rect(float(rect["x"]), float(rect["y"]), float(rect["w"]), float(rect["h"])), app)
+        except Exception:  # noqa: BLE001 - the match's own box stands
+            log.exception("snap_rows failed")
+            return None
+        return {k: float(v) for k, v in r.to_dict().items() if k in ("x", "y", "w", "h")} if r is not None else None
+
     def region(self, name: str, app: str | None = None) -> dict | None:
         """E6: a VS Code region's rect {x, y, w, h} ("terminal" | "editor" | "explorer" | "run_button"), stabilized
         (4-pt grid, kept while edges move < 12 pt), or None when it isn't on screen."""

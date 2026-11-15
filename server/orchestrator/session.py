@@ -49,6 +49,8 @@ from . import start_hold  # t6: the Before-you-start hold gates checks only; the
 from . import box_follow  # t7: the type box waits for the step start's jump, then follows every scroll
 from .lesson_boxes import LessonBoxes
 from . import quiet_save  # Nov 15: no ⌘S chores, ~1 s freshness, one "You already did" card instead of a cascade
+from . import box_fit  # t8: row boxes as wide as their text, so the caption beside them fits
+from . import advice_clear  # t8: a Hint / Not yet card goes once the code it is about changed
 from . import run_pointing  # t7: the Run ▷ found once VS Code filled its AX tree; a Not yet in the code boxes the code
 from . import offtrack_targets  # t8: a lesson's Not yet carries the culprit lines as its targets (the card steps off)
 
@@ -112,11 +114,14 @@ class BuildStage(logging.Handler):
         super().__init__(level=logging.INFO)
         self.text = "Watching the video"
         self.structured = False  # once the builder reports stages, ignore log matching
+        self.cache_hit = False  # E2 answered from its lesson cache (nothing was built: no "ready" moment to linger on)
 
     def on_progress(self, stage: str, message: str = "") -> None:
         """E2's progress callback: honest, stable stage ids."""
         self.structured = True
         msg = (message or "").strip()
+        if stage == "cache_hit":
+            self.cache_hit = True
         if stage == "engine_switch":
             self.text = self.SWITCH_LABELS.get(msg, "Switching to the transcript")
         elif stage == "steps_ready":
@@ -247,6 +252,26 @@ def is_notebook_lesson(graph: dict) -> bool:
             if str(x.get("file") or "").endswith(".ipynb"):
                 return True
     return False
+
+
+def is_colab_lesson(graph: dict) -> bool:
+    """A notebook lesson done in Google Colab (a browser), never in VS Code."""
+    blob = " ".join([str((graph.get("lesson") or {}).get(k) or "") for k in ("title", "goal")]
+                    + [s.get("url") or "" for s in graph.get("sources", [])]
+                    + [f"{st.get('title', '')} {st.get('instructions', '')}" for st in graph.get("steps", [])]).lower()
+    return "colab" in blob
+
+
+def _use_lesson_venv(graph: dict) -> None:
+    """t9 V6 (server/lesson/venv_steps.py): a step that makes a venv / pip-installs the lesson's libraries uses the
+    lesson's .venv instead (cached lessons too). Never breaks a lesson load."""
+    try:
+        from server.lesson.venv_steps import use_lesson_venv
+
+        if changed := use_lesson_venv(graph):
+            log.info("lesson .venv: step(s) %s now use the lesson's .venv (no second venv, no reinstall)", ", ".join(changed))
+    except Exception:  # noqa: BLE001
+        log.exception("lesson .venv normalisation failed")
 
 
 def unscope_editor_apps(graph: dict) -> None:
@@ -511,13 +536,19 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
                 await self.emit("card", card)
             await self._maybe_pass_setup_step()
             return
-        coding = not self.notebook_lesson and (wsmod.editor_needed(items) if items else wsmod.needs_editor(graph))
+        coding = self._editor_lesson(graph, items)
         if items:  # S2: what this lesson needs, what's installed, install recipes (+ "Download tutorial files")
             self.reqs = items
             missing = [it for it in items if it.get("needed") and not it.get("ok")]
-            if coding and not missing:  # everything's here: open the editor now, no "Ready to go… Open?" card
+            if coding:  # t9 V8: VS Code opens on the lesson folder by itself, as the curated lesson's does, alongside
+                # the setup card (which then never offers "Open VS Code"); the learner no longer has to press Open
+                if missing:
+                    card = wsmod.setup_card(items, resources=found)
+                    if card:
+                        self._setup_card = card = wsmod.editor_opens(card, items)
+                        await self.emit("card", card)
                 await self._auto_open_editor(folder)
-                if found:  # keep the video's files one tap away
+                if found and not missing:  # keep the video's files one tap away
                     await self.emit("card", {"kind": "hint", "title": "Tutorial files",
                                              "body": f"The video links {len(found)} file(s). Save them in your lesson folder?",
                                              "actions": ["download"]})
@@ -530,6 +561,16 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
             return
         if coding:  # no setup check available (module missing, no key): a coding lesson opens its editor
             await self._auto_open_editor(folder)
+
+    def _editor_lesson(self, graph: dict, items: list[dict] | None) -> bool:
+        """Does this video lesson happen in VS Code (so VS Code opens by itself)? t9 V8: a Jupyter notebook lesson does
+        too when the setup check says it needs the editor (test 9: mnist.ipynb in VS Code); a Colab one stays in the
+        browser."""
+        from . import workspace as wsmod
+
+        if self.notebook_lesson:
+            return bool(items) and wsmod.editor_needed(items) and not is_colab_lesson(graph)
+        return wsmod.editor_needed(items) if items else wsmod.needs_editor(graph)
 
     async def _auto_open_editor(self, folder: str) -> None:
         """Coding lesson, nothing missing: open the learner's editor on the lesson folder (S2: VS Code first, the
@@ -626,7 +667,7 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
                         fresh = [it for it in fresh if it.get("needed") and not it.get("ok") and it.get("kind") != "editor"]
                     self._setup_card = wsmod.setup_card(fresh) if fresh else None
                     if self._setup_card and opened:
-                        self._setup_card["actions"] = [a for a in self._setup_card.get("actions") or [] if a != "open_editor"]
+                        wsmod.editor_opens(self._setup_card, fresh)
             if res.get("ok") and (item.get("install") or {}).get("method") == "pip" and self.workdir \
                     and getattr(self.screen, "reader", None) is not None:  # real windows only (never in tests)
                 # E20: Pylance resolved `import requests` before the .venv existed and never looked again: the lesson's
@@ -967,10 +1008,12 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
         self.query = query
         await self._status("thinking")
         self.results = {}
+        early: set[str] = set()
         try:
             async for r in self.m.search(query):  # streamed as the finder produces them
                 self.results[r["id"]] = r
                 await self.emit("search.result", r)
+                self._prefetch_early(r, early)
                 if self.result_stagger_s and self.m.demo:
                     await asyncio.sleep(self.result_stagger_s)
         except asyncio.CancelledError:  # a newer learn / pick replaced this search (main.py): not "searching" any more
@@ -984,6 +1027,20 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
             self.m.prefetch_preflight(list(self.results.values()), self.query)
         self.phase = "idle" if self.graph is None else self.phase
         await self._status("idle")
+
+    PREFETCH_EARLY = 3  # S8: video rows preflighted while the search still streams (preflight.prefetch's top=3)
+
+    def _prefetch_early(self, row: dict, early: set[str]) -> None:
+        """S8: the first few video rows get their preflight as they arrive, not at search.done. A live search streams
+        its first rows at ~5 s and ends at ~18 s; a pick before search.done cancels the search (main.py), so the
+        preflight only ran on the pick and its card waited ~3-5 s for Claude. search.done still prefetches the final
+        top 3 (preflight's memo / in-flight share makes a row prefetched here free there)."""
+        if len(early) >= self.PREFETCH_EARLY or row.get("id") in early or not video_id_from_url(row.get("url", "")):
+            return
+        if not self.m.has_preflight():
+            return
+        early.add(row.get("id"))
+        self.m.prefetch_preflight([row], self.query)
 
     async def build_lesson(self, result_ids: list[str]) -> None:
         picked = [self.results[i] for i in result_ids if i in self.results]
@@ -1041,7 +1098,24 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
         card = self.m.preflight_card(res)
         self.reqs = list(card.get("items") or res.get("items") or []) or self.reqs  # Install on this card uses S2's flow
         pick["card"] = card
+        await self._sync_row_captions(res)
         await self.emit("card", card)
+
+    async def _sync_row_captions(self, res: dict) -> None:
+        """V5: the app's preflight line says Captions / No captions from the picked video's search row, whose False only
+        meant "no CC badge" (test 9: "No captions" for a video built from a 181-line transcript). Re-send that row (same
+        id: the app updates it in place) with what preflight knows: True when known, else no claim at all."""
+        vid = res.get("videoId")
+        for row in self.results.values():
+            if not vid or row.get("videoId") != vid or row.get("captions") is (True if res.get("captions") else None):
+                continue
+            if res.get("captions"):
+                row["captions"] = True
+            elif "captions" in row:
+                row.pop("captions")
+            else:
+                continue
+            await self.emit("search.result", row)
 
     async def _build_pick(self) -> None:
         pick, self.pending_pick = self.pending_pick, None
@@ -1138,6 +1212,8 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
         await self.emit("lesson.ended", {**({"lessonId": lesson_id} if lesson_id else {}), "reason": reason})
         await self._status("idle")
 
+    CACHED_READY_HOLD_S = 0.6  # the "Lesson ready" hold for a lesson E2 served from its cache (as _load_curated's)
+
     async def _build(self, url: str, goal: str, video_meta: dict | None = None) -> None:
         """Build a lesson with live progress (>= 1 tick/s, stage names from the builder's own log
         events). Any failure, timeout or cancellation ends with `error` (human wording), a final
@@ -1225,7 +1301,9 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
                 graph.setdefault("lesson", {})["workdir"] = folder
             self.build_progress = None
             await self.emit("lesson.building", {"message": "Lesson ready", "progress": 1.0})
-            await asyncio.sleep(self.ready_hold_s)  # let the "ready" moment be seen before the lesson UI
+            # let the "ready" moment be seen before the lesson UI; a cached lesson had no build to see finish, so it
+            # holds like a curated one (0.6 s): Build -> lesson.ready went 1.5 s -> 0.6 s on a demo re-run
+            await asyncio.sleep(min(self.ready_hold_s, self.CACHED_READY_HOLD_S) if stage.cache_hit else self.ready_hold_s)
             ok = True
         except BaseException as e:
             if isinstance(e, Exception) and progressive["loaded"] and self.graph is not None:
@@ -1650,6 +1728,13 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
         log.info("run step %s: VS Code's terminal panel %s (%s)", step.get("id"), "opened" if ok else "not opened", res)
         return ok
 
+    def _ptr_runs_it(self, step: dict) -> bool:
+        """t8: a run step whose command VS Code's Run ▷ runs on its own (`python3 nn.py`): the ▷ box is the
+        instruction and the ▷'s run opens its own "Python" terminal, so no terminal is opened ahead of it (a zsh opened
+        first made two). When the ▷ isn't found, ui_targets.run_spot still opens the terminal for its box."""
+        cmd = self._run_command(step)
+        return bool(cmd) and self._run_button_file(step, cmd) is not None
+
     async def _ready_run_step(self, gen: int, step: dict) -> None:
         """A run step's start: the lesson window leaves room for Miyagi's drawer (workspace.fit_beside_drawer: its Run ▷
         and VS Code's top-right buttons never under it; full screen / maximized: logged, left), then VS Code's terminal
@@ -1659,6 +1744,8 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
         from . import workspace as wsmod
 
         await asyncio.to_thread(wsmod.fit_beside_drawer, self.workdir)
+        if self._ptr_runs_it(step):
+            return
         for _ in range(6):
             if gen != self.step_gen or self.passed or self._spot_frozen():
                 return
@@ -1956,6 +2043,7 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
         return "done" if ids and not ids & {r.get("checkId") for r in self.last_failed} else "up"
 
     FINISH_CAPTIONS = ("Finish this function", "Finish this class", "Keep typing here")
+    CHANGE_CAPTION = "Change this line"  # t8: _code_progress's "change" row (the coach's own boxes say it too)
 
     def _code_progress(self, step: dict | None) -> dict | None:
         """E9: a lesson code step whose first code line (`def get_weather(city):`) is already in its file -> where the
@@ -2032,7 +2120,11 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
         r = where.get("rect")
         if not r:
             return None
-        return {"rect": {k: float(r[k]) for k in ("x", "y", "w", "h")}, "caption": caption or self._finish_caption(step),
+        rect = box_fit.fit({k: float(r[k]) for k in ("x", "y", "w", "h")}, where.get("text_x2"),
+                           box_fit.line_text(self, step, path, line))  # t8: room for the caption beside it
+        if not caption:  # t8: a line that differs is changed, not finished ("Finish this function" on nn2's sign)
+            caption = self.CHANGE_CAPTION if prog.get("kind") == "change" else self._finish_caption(step)
+        return {"rect": rect, "caption": caption,
                 "app": "Code", **self._snippet(step), "_line": self._line_meta(prog, float(r["h"]))}
 
     def _below_code_spot(self, step: dict) -> dict | None:
@@ -2097,8 +2189,9 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
         if not r:
             return None
         target = next((t for t in step.get("targets") or [] if t.get("match")), None)
-        return {"rect": {k: float(r[k]) for k in ("x", "y", "w", "h")}, "caption": self._type_caption(step, target),
-                **self._snippet(step)}
+        rect = box_fit.fit({k: float(r[k]) for k in ("x", "y", "w", "h")}, where.get("text_x2"),
+                           box_fit.line_text(self, step, path, line))  # t8: room for the caption beside it
+        return {"rect": rect, "caption": self._type_caption(step, target), **self._snippet(step)}
 
     def _ensure_step_file(self, step: dict) -> None:
         """Lesson mode: the step's file exists in the lesson folder before it starts, so step 1 is "type this"
@@ -2152,6 +2245,7 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
         if self.graph is None:
             return
         new = copy.deepcopy(g)
+        _use_lesson_venv(new)
         new.setdefault("lesson", {})["workdir"] = self.graph.get("lesson", {}).get("workdir") or self.workdir
         new["lesson"]["complete"] = bool(complete or new["lesson"].get("complete"))
         new["lesson"]["provisional"] = False  # the app drops the placeholder on this lesson.ready
@@ -2175,6 +2269,7 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
             return
         known = {st["id"] for st in self.steps}
         new = [copy.deepcopy(st) for st in g.get("steps", []) if st["id"] not in known]
+        _use_lesson_venv({"lesson": self.graph.get("lesson") or {}, "steps": new})
         self.graph["steps"].extend(new)
         lesson = self.graph.setdefault("lesson", {})
         for k in ("parts", "builtBy", "goalMatch"):
@@ -2214,6 +2309,7 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
         self.notebook_lesson = is_notebook_lesson(graph)
         if self.notebook_lesson:
             unscope_editor_apps(graph)  # Colab/Jupyter in a browser counts, not just VS Code
+        _use_lesson_venv(graph)  # t9 V6: a video's "python3 -m venv venv && pip3 install …" step uses the lesson's .venv
         self.graph = graph
         self.runs = {}
         self._extend_failed = False
@@ -2309,6 +2405,24 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
         return {"lesson": info, "steps": steps}
 
     # ------------------------------------------------------------------ steps
+    _RUN_VERB = re.compile(r"^(?:run|execute|press|hit|click)\b\s*", re.I)
+    _NOTEBOOK_RUN = re.compile(r"shift\s*\+\s*enter|\bcells?\b", re.I)
+
+    def _run_line(self, step: dict, cmd: str) -> str:
+        """V5: "Run <cmd> in the VS Code terminal" for a shell command. A video build's run_command can be the action in
+        words ("Run the cell (Shift+Enter)", "run python3 app.py"): never "Run Run …", and a notebook cell (Shift+Enter, a
+        cell, a .ipynb step) runs in the notebook, not in the terminal."""
+        verb = self._RUN_VERB.match(cmd)
+        if verb and self.SHELL_CMD.match(cmd[verb.end():]):  # "run python3 app.py": the command is what follows
+            cmd, verb = cmd[verb.end():], None
+        if self.SHELL_CMD.match(cmd) or not (verb or self._NOTEBOOK_RUN.search(cmd)):
+            return f"Run {cmd} in the VS Code terminal"
+        line = (cmd if verb else f"Run {cmd}").rstrip(" .")
+        line = line[0].upper() + line[1:]
+        if self._NOTEBOOK_RUN.search(cmd) or (self._step_file(step) or "").lower().endswith(".ipynb"):
+            return line if re.search(r"\bnotebook\b", line, re.I) else f"{line} in the notebook"
+        return f"{line} in the VS Code terminal"
+
     def _action_line(self, step: dict) -> str:
         """ONE concrete thing to do now, for the app to show under the current chapter: E2's own `action`, else
         "In <file>, type the lines below." (lesson mode: the step's code shows under it; a video lesson has no snippet,
@@ -2319,7 +2433,7 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
         if cmd := self._run_command(step):
             if self.lesson_mode and (f := self._run_button_file(step, cmd)):  # t8: the ▷ the step's box points at
                 return f"Click ▷ to run {f} (or run {cmd.splitlines()[0]} in the terminal)"
-            return f"Run {cmd.splitlines()[0]} in the VS Code terminal"
+            return self._run_line(step, cmd.splitlines()[0].strip())
         code, file = (step.get("code") or "").strip(), (self._step_file(step) or "").strip()
         first = next((ln.strip() for ln in code.splitlines() if ln.strip() and not ln.strip().startswith("#")), "")
         if first and file:
@@ -2353,7 +2467,10 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
                 p[k] = step[k].strip()
         if isinstance(step.get("concepts"), list) and step["concepts"]:
             p["concepts"] = [c for c in step["concepts"] if isinstance(c, str)]
-        exact = self._run_command(step) or (step.get("code") or "").strip()  # the full thing to type / run, never cut
+        rc = self._run_command(step)
+        if rc and not self.SHELL_CMD.match(rc) and (self._RUN_VERB.match(rc) or self._NOTEBOOK_RUN.search(rc)):
+            rc = ""  # V5: "Run the cell (Shift+Enter)" is an action in words, not the code to type or run
+        exact = rc or (step.get("code") or "").strip()  # the full thing to type / run, never cut
         if exact:
             p["code"] = exact
         if isinstance(step.get("estMinutes"), int) and step["estMinutes"] > 0:
@@ -2505,6 +2622,9 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
         spot = self.screen.locate(match, app)
         if not spot:
             return None
+        snap = getattr(self.screen, "snap_rows", None)  # t8: on its editor row exactly (the full-line box's y / height)
+        if snap is not None and (rows := snap(spot["rect"], app)) is not None:
+            spot = {**spot, "rect": rows}
         return {**spot, "caption": caption}
 
     async def _spotlight_target(self, step: dict, owner: str = "step") -> bool:
@@ -2558,7 +2678,7 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
         already in the file, it asks for the line where it goes on (or the line that differs) with that line's code,
         never for the whole snippet again."""
         intent, code = spot.get("caption") or "", spot.get("snippet") or ""
-        if intent in (self.TYPE_CAPTION, self.RUN_CAPTION, *self.FINISH_CAPTIONS) and self.step is not None:
+        if intent in (self.TYPE_CAPTION, self.RUN_CAPTION, self.CHANGE_CAPTION, *self.FINISH_CAPTIONS) and self.step is not None:
             intent = self._action_line(self.step)
             prog = self._code_progress(self.step)  # None for a run step
             if prog is not None and prog["kind"] != "done":
@@ -2741,6 +2861,8 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
         if 0 < spot["rect"]["h"] < 12.0:  # E24: a sliver (7.6 pt) is no box: one text row, centred on it
             r0 = spot["rect"]
             spot = {**spot, "rect": {**r0, "y": r0["y"] + r0["h"] / 2 - 10.0, "h": 20.0}}
+        if owner != "answer":  # t8: one line, one caption (a press may still say more: Show me's "Change to: …")
+            spot = self._keep_row_caption(spot)
         sticky = steady and owner != "answer"  # E15: a press re-sends the box it answers with (not twice in 1 s)
         if self._same_box(spot, sticky):
             if (answered := _ANSWERED.get()) is not None:
@@ -2800,6 +2922,26 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
             self._spot_sent_seq, self._spot_owner = seq, (owner, gen, self.clock())
             await self.emit("spotlight", {**spot, "caption": short_caption(self._no_create(spot["caption"]))}  # <= ~8 words
                             if spot.get("caption") else spot)
+
+    def _keep_row_caption(self, spot: dict) -> dict:
+        """t8 (nn2, 05:51:20-05:51:31): one line to change got three captions in 11 s ("Finish this function", the
+        coach's streamed "Change + to - here", the off-track's "Change this line"). A box on the row of the box that is
+        up, both saying what to change there, keeps the caption already on screen."""
+        cur, cap, new = self.spot_rect, self._spot_caption or "", spot.get("caption") or ""
+        if cur is None or not cap or not new or new == cap or not (cap.startswith("Change") and new.startswith("Change")):
+            return spot
+        r = spot.get("rect") or {}
+        try:
+            h = max(float(cur["h"]), float(r["h"]), 1.0)
+            same_row = (abs(float(cur["y"]) + float(cur["h"]) / 2 - float(r["y"]) - float(r["h"]) / 2) < 0.5 * h
+                        and float(r["x"]) < float(cur["x"]) + float(cur["w"])
+                        and float(cur["x"]) < float(r["x"]) + float(r["w"]))
+        except (KeyError, TypeError, ValueError):
+            return spot
+        if not same_row:
+            return spot
+        log.info("box on the same row as %r: keeps that caption (not %r)", cap, new)
+        return {**spot, "caption": cap}
 
     async def _follow_spot(self) -> None:
         """On a new frame: move the spotlight with its target (only if it moved > 4pt). E8: it moves the box that is
@@ -2864,6 +3006,7 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
             self.m.cancel_coach()
             if step["id"] not in self.skipped_steps:
                 self.skipped_steps.append(step["id"])  # a diagnosis for the step they left is no longer wanted
+        await advice_clear.step_passed(self)  # t9 (V10): its "Not yet" card goes with the step
         await self.emit("step.passed", payload)
         if not skipped:
             self._say("step.passed", payload)
@@ -3110,6 +3253,7 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
                 self.gate_open = True
                 self.screen_gate_open = self.screen_gate_open or trigger == "check"
             await self._publish(step, results)
+            await advice_clear.checks_moved(self)  # t9 (V10): a "Not yet" whose checks moved goes / names what's left
             curated.after_evaluate(self, step, trigger)  # curated lesson: the panel follows the learner's real run
             if gate.get("passed"):
                 if learner or self.acted_since_step_start():
@@ -3778,6 +3922,7 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
     # (title, clock, step_gen) of the card in the slot when it is the learner's own: the answer to their press or a
     # card waiting for their Yes (`confirm`). _emit_card sets / clears it, card.closed clears it.
     _card_in_use: tuple[str, float, int] | None = None
+    _advice_up: dict | None = None  # t8 (advice_clear): the Hint / Not yet card in the slot and what it is about
 
     def _learner_card_up(self) -> bool:
         """Is the learner's own card in the slot, and have they not acted since it went up? Then no off-track takes
@@ -3834,6 +3979,7 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
             self._last_card_t = self.clock()
             self._card_in_use = None  # the off-track takes the slot
             await self.emit("offtrack", shown)
+            advice_clear.sent_offtrack(self, step, full, shown)  # t8: it goes once its line is fixed
             self._say("offtrack", shown)
             async with self._lock:  # the coach's verdict: the check rows say "not yet" with it (E1)
                 if gen == self.step_gen and not self.passed:
@@ -3984,6 +4130,7 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
                 self._wf_t = self.clock()
                 self._spawn(self._refresh_wrong_folder(self.step))
             await self.evaluate("screen")
+            await advice_clear.follow(self)  # t8: a Hint / Not yet whose code changed goes (<= ~1 s)
             if self._spot_frozen():  # E7: resume card up / no app connected: no box work, no targeter call
                 if self.spot_rect is not None:  # the card shows instead; after Continue / a reconnect it goes out again
                     await self.emit("spotlight", {"clear": True})
@@ -4637,7 +4784,8 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
             await self._show_spot(fix, owner="answer")
             return True
         if self.lesson_mode and (cmd := self._run_command(step)):
-            await self._ensure_terminal(step)
+            if not self._ptr_runs_it(step):  # t8: the ▷ makes its own terminal (else zsh + "Python")
+                await self._ensure_terminal(step)
             spot = await self._run_spot(step, cmd)
             spot.pop("kind", None)
             if spot:
@@ -4857,6 +5005,7 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
         self._recent_cards[sig] = now
         self._last_card_t = now
         await self.emit("card", card)
+        advice_clear.sent(self, card)  # t8: a Hint / Not yet goes once the code it is about changed
         mine = (not auto and _ANSWERED.get() is not None) or "confirm" in (card.get("actions") or [])
         self._card_in_use = (card.get("title") or "", now, self.step_gen) if mine else None  # (_learner_card_up)
         covers = (card.get("title") == "Not yet" or card.get("verdict") == "not_done"
@@ -4889,6 +5038,7 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
             log.info("card on screen: %s %r", kind or "card", title)
             return
         log.info("card closed (%s): %s %r", by or "?", kind or "card", title)
+        advice_clear.closed(self, title, by)  # t8: a closed card is never cleared (re-shown) later
         if by in ("replaced", "hidden"):  # _emit_card already handled the card the engine put in its place; a covered
             return  # slot shows the same card again (card.shown), so neither lifts a hold
         same = (title or "").strip().casefold()

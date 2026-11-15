@@ -132,7 +132,28 @@ def _inert_macos() -> None:
         pass
 
 
+def _no_dotenv() -> None:
+    """No .env is ever read in here. The app's config.keys carries blank keys, so main.apply_keys drops the blank
+    ANTHROPIC_API_KEY="" (and the other paid keys) from os.environ; the next lazy load_dotenv (coach/llm walks up from
+    the cwd, finder/env and lesson/gemini try the main checkout's .env) then put the REAL keys into this engine. Only
+    the dead proxy stood between a rehearsal and a paid call (and nothing at all between it and Tiger's database)."""
+    try:
+        import dotenv
+        import dotenv.main
+    except ImportError:
+        return
+
+    def blocked(*a, **k) -> bool:
+        note("blocked", program="load_dotenv")
+        return False
+
+    dotenv.load_dotenv = dotenv.main.load_dotenv = blocked  # type: ignore[assignment]
+    dotenv.find_dotenv = dotenv.main.find_dotenv = lambda *a, **k: ""  # type: ignore[assignment]
+    dotenv.dotenv_values = dotenv.main.dotenv_values = lambda *a, **k: {}  # type: ignore[assignment]
+
+
 def install() -> None:
+    _no_dotenv()
     subprocess.Popen = GuardedPopen  # type: ignore[misc]
     if sys.platform == "darwin":
         _inert_macos()
