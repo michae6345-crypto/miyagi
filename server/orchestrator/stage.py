@@ -253,14 +253,16 @@ async def run(session: Any, step: dict, typed: bool = False) -> None:
     already shows its output, so no card). The first Train it run is the stuck one when nn.py starts at zeros."""
     gen, sid = session.step_gen, step.get("id")
     st = _st(session)
-    if session.passed or session.awaiting_resume or not _is_run(session, step):
-        return  # (a typing step has nothing to run: the session's "Nothing to do here" answers)
     # A second press while this step's run (or its pass) is going, or queued behind it (the socket runs commands one
-    # at a time, so it arrives just after): one run, not two. A press a second later is a new run.
-    if sid in st["running"] or sid in st["passing"] or (
-            not typed and session.clock() - st["ended"].get(sid, -1e9) < AGAIN_S):
+    # at a time, so it arrives just after): one run, not two. A press a second later is a new run. Checked before
+    # `passed`: the queued press of a run that LEARNED lands on the step it just passed (nn6: the last one), and
+    # "Nothing to do here" must not cover that run's [-1.0, 0.0, 1.0] card (Demo rehearsal, Nov 15).
+    if _is_run(session, step) and (sid in st["running"] or sid in st["passing"] or (
+            not typed and session.clock() - st["ended"].get(sid, -1e9) < AGAIN_S)):
         _quiet()
         return
+    if session.passed or session.awaiting_resume or not _is_run(session, step):
+        return  # (a typing step has nothing to run: the session's "Nothing to do here" answers)
     await _begin(session)
     st["running"].add(sid)
     try:
