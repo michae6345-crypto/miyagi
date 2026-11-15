@@ -3,10 +3,10 @@
 **Status:** pass 2 done (light/dark glass, content-fit height), awaiting review (not pushed) · **Priority:** P2 · **Port:** 5184 · **Branch:** `adrian/drawer`
 
 ### Pass 2 (Sat Nov 14, evening): light / dark
-**Works** (headless Chrome over CDP, 28/28 checks in dark AND in light):
+**Works** (headless Chrome over CDP, 30/30 checks in dark AND in light):
 - Everything on `theme.glass`: panel, text, rows, dividers, the ✕, the scrollbar and the edge tab flip with Settings → Appearance (`setPrefs({appearance:'light'})`). No `backdrop-filter`.
 - Without blur the .9 glass let the player's video and text show through, so the panel draws an inset layer of the same `glass.bg` under its content (~99% opaque, tokens only; the ghost went from 25 to 2 grey levels). See Core request 6.
-- Done steps and passed checks are `glass.pass` (bright green on dark, `#1C8A3C` on light, the tick knocked out in `glass.buttonText`). Current = ring + dot in `glass.text`, locked = faint ring. Failed check = `glass.offTrack` (apricot). The check list is drawn locally on glass tokens (Core request 5).
+- Done steps and passed checks are core `GlassCheck` (`glass.pass`: bright green on dark, `#1C8A3C` on light); spinners are core `GlassSpinner` (`core/ui/glass`). Current = ring + dot in `glass.text`, locked = faint ring. Failed check = `glass.offTrack` (apricot). A step that completes while the drawer is open draws its tick in; ticks already there when it opens don't. Colors go through `style`, never SVG attributes. Only the empty ring and the check-list wrapper are local (Core request 5).
 - Kind tiles: dark keeps the 16% pastel wash + pastel glyph. Light: the wash and glyph vanish on paper, so the tile is the pastel itself with an ink glyph, like the shortcut bar's option tiles. One line in `KindTile` to revert.
 - Height hugs the content (a 3-step lesson: 635 px), up to the old full column (840 px), then the list scrolls. The spotlight check uses the real height: open = the panel, closed = only the tab.
 - core `clock()` (hours) and `alpha()` replace the local copies; core's window-open handler replaces `drawer:open-url` (main file removed).
@@ -65,5 +65,5 @@ A slim tab on the right edge (vertically centered, 6px from the edge). Click →
 2. ~~`clock()` with hours~~ done in core.
 3. ~~`setWindowOpenHandler` on every window~~ done in core; the drawer's main-process workaround is gone.
 4. ~~`alpha(hex, a)` in `core/theme.ts`~~ done in core.
-5. **`CheckList` / `CheckIcon` / `Spinner` on glass** (pass 2): core's are drawn for the black island (white text, white rings, `color.green`), so on a light glass panel the labels vanish. A `surface?: 'island' | 'glass'` prop (glass = `theme.glass.*`) would do. *Workaround:* `GlassCheckList` in `Drawer.tsx` (same layout and motion). The player's checks will hit the same thing when it moves to glass.
+5. **A glass `CheckList`** (and a glass empty ring, CheckIcon's pending state) in `core/ui/glass`: `GlassCheck` and `GlassSpinner` landed (used now), the list and the ring didn't. *Workaround:* `GlassCheckList` + `Ring` in `Drawer.tsx`, built from the core glass atoms.
 6. **An opaque glass background** (`glass.solid`, or `--glass-bg` closer to 1): with `backdrop-filter` gone, `.9`/`.92` lets whatever is under a panel show through (for the drawer, the player's moving video). *Workaround:* an inset `glass.bg` layer under the drawer's content (`boxShadow`), ~99% opaque.
