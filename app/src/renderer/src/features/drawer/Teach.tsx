@@ -1,7 +1,7 @@
 /**
  * Feature: drawer. The "Just teach me" parts of the drawer (Michael: show the big picture, then the plan, then
  * exactly what to type):
- *  - OverviewText: "What we're building", one paragraph (lesson.ready overview).
+ *  - OverviewText: "What you're building", one paragraph (lesson.ready overview).
  *  - PrimerSection: "Before you start", collapsed by default; each concept with its body and a small example.
  *  - StepDetail: inside the current step, a Type / Run badge with the one-line instruction, the full code (or the
  *    exact command) in mono with Copy, "Why:" and concept chips that open the matching primer item in place.
@@ -153,13 +153,14 @@ export function PrimerSection(): ReactNode {
       <button
         type="button"
         className="flex w-full cursor-pointer items-center gap-[6px] px-[10px] pb-[4px] pt-[14px] text-left text-[12px] leading-[16px]"
-        style={{ color: glass.label }}
+        style={{ color: glass.faint }}
         aria-expanded={open}
         onMouseDown={(e) => e.preventDefault()}
         onClick={() => setOpen((o) => !o)}
       >
-        <span className="font-semibold">Key ideas</span>
-        <span style={{ color: glass.faint }}>
+        {/* The drawer's section labels (mockup 01's small caps). */}
+        <span className="text-[11px] font-semibold uppercase tracking-[0.06em]">Key ideas</span>
+        <span>
           {primer.length} {primer.length === 1 ? 'idea' : 'ideas'}
         </span>
         <motion.span className="grid place-items-center" animate={{ rotate: open ? 90 : 0 }} transition={spring}>
