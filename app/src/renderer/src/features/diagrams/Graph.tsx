@@ -7,13 +7,14 @@
  *   sequence : participants on top, lifelines, one arrow per message in `order`, top to bottom
  *   git      : a vertical log (like `git log --graph`): row = commit order (col), lanes = branches (row) as
  *              columns on the left, hash + message + branch tag on the right, so no line crosses a label
- * Emphasis = full white; everything else at label alpha. Groups are a faint cluster with their label.
+ * Color, a tad (Adrian, Sat): emphasis in deep sky (the Diagram tone, like the header tile); groups and git lanes take
+ * the pastel trio (sky, lilac, pink) as soft washes. Everything else white / label alpha. Green and amber stay status-only.
  * Lines draw in (350 ms, 30 ms stagger). Every label comes from the data. Reference: server/diagrams/render_svg.py.
  */
 import { motion } from 'motion/react'
 import { useId, useMemo, type ReactNode } from 'react'
 import type { GraphDiagramData } from '../../../../../../shared/contracts/events'
-import { color, fill, font } from '../../core/theme'
+import { alpha, brand, color, fill, font } from '../../core/theme'
 
 type Node = GraphDiagramData['nodes'][number]
 type Edge = GraphDiagramData['edges'][number]
@@ -28,6 +29,10 @@ const STAGGER = 0.03
 const MASK = 'white'
 const LABEL = 10.5
 const LH = 12.5
+/** Emphasis: the deeper sky (the Diagram tone reads near-white as a thin stroke). */
+const ACCENT = brand.pastel.skyDeep
+/** Categorical washes (groups, git lanes), in order. */
+const PASTELS = [brand.pastel.sky, brand.pastel.lilac, brand.pastel.pink] as const
 
 // ---------------------------------------------------------------------------------------------- text
 
@@ -77,10 +82,10 @@ const clamp = (v: number, lo: number, hi: number): number => Math.max(lo, Math.m
 
 type BoxText = { label: Fit; detail: string[]; dsize: number }
 type CommitText = { hash: Fit; hashX: number; detail?: Fit; detailX: number; tag?: { x: number; w: number; text: string } }
-type Box = { n: Node; x: number; y: number; w: number; h: number; hx: number; hy: number; rank: number; kind: 'box' | 'circle' | 'commit'; text?: BoxText; commit?: CommitText }
+type Box = { n: Node; x: number; y: number; w: number; h: number; hx: number; hy: number; rank: number; kind: 'box' | 'circle' | 'commit'; text?: BoxText; commit?: CommitText; tone?: string }
 type Label = { x: number; y: number; lines: string[]; size: number; anchor: 'middle' | 'start'; bg: boolean }
-type Line = { key: string; d: string; dashed: boolean; strong: boolean; head?: { x: number; y: number; a: number }; label?: Label; order: number; title: string }
-type Group = { id: string; label: string; x: number; y: number; w: number; h: number }
+type Line = { key: string; d: string; dashed: boolean; strong: boolean; stroke?: string; head?: { x: number; y: number; a: number }; label?: Label; order: number; title: string }
+type Group = { id: string; label: string; x: number; y: number; w: number; h: number; tone: string }
 type Scene = { boxes: Box[]; lines: Line[]; groups: Group[]; lifelines: { x: number; y1: number; y2: number }[]; minY: number; maxY: number }
 
 function extents(): { add: (a: number, b: number) => void; get: () => { minY: number; maxY: number } } {
@@ -222,14 +227,14 @@ function layered(g: GraphDiagramData): Scene {
   lines.sort((p, q) => p.order - q.order).forEach((l, i) => (l.order = i))
 
   const groups: Group[] = []
-  for (const c of clusters) {
+  for (const [gi, c] of clusters.entries()) {
     const m = boxes.filter((b) => b.n.group === c.id)
     if (!m.length) continue
     const x1 = Math.min(...m.map((b) => b.x - b.hx)) - 10
     const x2 = Math.max(...m.map((b) => b.x + b.hx)) + 10
     const y1 = Math.min(...m.map((b) => b.y - b.hy)) - 24
     const y2 = Math.max(...m.map((b) => b.y + b.hy)) + 10
-    groups.push({ id: c.id, label: fit(c.label, x2 - x1 - 20, LABEL).text, x: x1, y: y1, w: x2 - x1, h: y2 - y1 })
+    groups.push({ id: c.id, label: fit(c.label, x2 - x1 - 20, LABEL).text, x: x1, y: y1, w: x2 - x1, h: y2 - y1, tone: PASTELS[gi % PASTELS.length] })
     ext.add(y1, y2)
   }
   return { boxes, lines, groups, lifelines: [], ...ext.get() }
@@ -392,7 +397,7 @@ function git(g: GraphDiagramData): Scene {
       detailX: x0 - R + detailX,
       tag: tag ? { x: x0 - R + detailX + dW + (detail ? 10 : 0), w: tagW, text: fit(tag, tagW - 12, LABEL, 9, 400, true).text } : undefined
     }
-    return { n, x: laneX(lane(n)), y, w: R * 2, h: R * 2, hx: R, hy: R, rank: k, kind: 'commit', commit }
+    return { n, x: laneX(lane(n)), y, w: R * 2, h: R * 2, hx: R, hy: R, rank: k, kind: 'commit', commit, tone: PASTELS[lane(n) % PASTELS.length] }
   })
   const byId = new Map(boxes.map((b) => [b.n.id, b]))
   const busy = (r: number, k1: number, k2: number): boolean => nodes.some((n, k) => k > k1 && k < k2 && lane(n) === r)
@@ -408,6 +413,9 @@ function git(g: GraphDiagramData): Scene {
     const ka = rowOf.get(a.n.id)!
     const kb = rowOf.get(b.n.id)!
     base.order = Math.min(ka, kb) + i * 0.01
+    // a line takes the color of the branch it leads into
+    const tone = b.tone ?? ACCENT
+    const stroke = base.strong ? tone : alpha(tone, 0.5)
     const down = kb > ka ? 1 : -1
     if (base.dashed && a.x !== b.x) {
       // original → copy: leave between the lanes, enter the copy from its side
@@ -417,13 +425,13 @@ function git(g: GraphDiagramData): Scene {
       const tip = { x: b.x - dir * (R + 1.5), y: b.y, a: dir > 0 ? 0 : Math.PI }
       const [ex, ey] = back(tip.x, tip.y, tip.a)
       const d = `M${p0x},${p0y} C${p0x + dir * LANE * 0.4},${p0y + down * Math.min(24, Math.abs(b.y - a.y) * 0.45)} ${ex - dir * 12},${ey} ${ex},${ey}`
-      lines.push({ ...base, d, head: tip })
+      lines.push({ ...base, stroke, d, head: tip })
       return
     }
     if (a.x === b.x) {
       const sy = a.y + down * (R + 2)
       const ey = b.y - down * (R + 2)
-      lines.push({ ...base, d: `M${a.x},${sy} L${a.x},${ey}`, head: base.dashed ? { x: b.x, y: b.y - down * (R + 1), a: down > 0 ? Math.PI / 2 : -Math.PI / 2 } : undefined })
+      lines.push({ ...base, stroke, d: `M${a.x},${sy} L${a.x},${ey}`, head: base.dashed ? { x: b.x, y: b.y - down * (R + 1), a: down > 0 ? Math.PI / 2 : -Math.PI / 2 } : undefined })
       return
     }
     const sy = a.y + R + 1
@@ -438,7 +446,7 @@ function git(g: GraphDiagramData): Scene {
       const y1 = b.y - ROW
       d = `M${a.x},${sy}${y1 > sy ? ` L${a.x},${y1}` : ''} C${a.x},${b.y - ROW * 0.45} ${b.x},${b.y - ROW * 0.55} ${b.x},${ey}`
     } else d = `M${a.x},${sy} C${a.x},${(sy + ey) / 2} ${b.x},${(sy + ey) / 2} ${b.x},${ey}`
-    lines.push({ ...base, d })
+    lines.push({ ...base, stroke, d })
   })
   lines.sort((p, q) => p.order - q.order).forEach((l, i) => (l.order = i))
   const last = boxes[boxes.length - 1]
@@ -475,8 +483,8 @@ export function Graph({ data }: { data: GraphDiagramData }): ReactNode {
     <svg key={sig} width={W * scale} height={H * scale} viewBox={`0 ${scene.minY} ${W} ${H}`} className="mx-auto block overflow-visible" style={{ fontFamily: font.ui }}>
       {scene.groups.map((g) => (
         <motion.g key={`g-${g.id}`} initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: 0.2 }}>
-          <rect x={g.x} y={g.y} width={g.w} height={g.h} rx={12} fill={fill.chip} />
-          <text x={g.x + 10} y={g.y + 15} fill={color.faint} fontSize={LABEL}>
+          <rect x={g.x} y={g.y} width={g.w} height={g.h} rx={12} fill={alpha(g.tone, 0.1)} />
+          <text x={g.x + 10} y={g.y + 15} fill={alpha(g.tone, 0.85)} fontSize={LABEL}>
             {g.label}
           </text>
         </motion.g>
@@ -486,7 +494,7 @@ export function Graph({ data }: { data: GraphDiagramData }): ReactNode {
       ))}
 
       {scene.lines.map((l) => {
-        const stroke = l.strong ? color.text : color.faint
+        const stroke = l.stroke ?? (l.strong ? ACCENT : color.faint)
         const width = l.strong ? 1.6 : 1.25
         const t = { duration: DRAW, delay: lineDelay(l), ease: 'easeOut' as const }
         const mask = `${uid}-${l.key.replace(/[^a-zA-Z0-9-]/g, '')}`
@@ -529,7 +537,7 @@ function EdgeLabel({ l, strong, delay }: { l: Label; strong: boolean; delay: num
     <motion.g initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: 0.15, delay }}>
       {l.bg && <rect x={x0} y={l.y - LH + 2} width={w} height={h} rx={4} fill={color.island} />}
       {l.lines.map((s, i) => (
-        <text key={i} x={l.x} y={l.y + i * LH} textAnchor={l.anchor} fill={strong ? color.text : color.label} fontSize={l.size}>
+        <text key={i} x={l.x} y={l.y + i * LH} textAnchor={l.anchor} fill={strong ? ACCENT : color.label} fontSize={l.size}>
           {s}
         </text>
       ))}
@@ -541,14 +549,15 @@ function NodeBox({ b }: { b: Box }): ReactNode {
   const { n, x, y } = b
   const t = b.text!
   const strong = !!n.emphasis
-  const stroke = ink(strong)
+  const stroke = strong ? ACCENT : color.label
   const sw = strong ? 1.6 : 1.2
-  const dfill = strong ? color.label : color.faint
+  const wash = alpha(ACCENT, 0.12)
+  const dfill = strong ? alpha(ACCENT, 0.85) : color.faint
   if (b.kind === 'circle') {
     return (
       <>
         <circle cx={x} cy={y} r={b.hx} fill={color.island} stroke={stroke} strokeWidth={sw} />
-        {strong && <circle cx={x} cy={y} r={b.hx} fill={fill.highlight} />}
+        {strong && <circle cx={x} cy={y} r={b.hx} fill={wash} />}
         <text x={x} y={y + 4} textAnchor="middle" fill={ink(strong)} fontSize={t.label.size} fontWeight={600}>
           {t.label.text}
         </text>
@@ -570,7 +579,7 @@ function NodeBox({ b }: { b: Box }): ReactNode {
   return (
     <>
       <rect x={x - w / 2} y={y - h / 2} width={w} height={h} rx={rx} fill={color.island} stroke={stroke} strokeWidth={sw} />
-      {strong && <rect x={x - w / 2} y={y - h / 2} width={w} height={h} rx={rx} fill={fill.highlight} />}
+      {strong && <rect x={x - w / 2} y={y - h / 2} width={w} height={h} rx={rx} fill={wash} />}
       {/* data: a table-like header rule */}
       {data && <line x1={x - w / 2} x2={x + w / 2} y1={y - h / 2 + 6} y2={y - h / 2 + 6} stroke={stroke} strokeWidth={0.8} />}
       <text x={x} y={ly} textAnchor="middle" fill={ink(strong)} fontSize={t.label.size} fontWeight={600}>
@@ -589,9 +598,10 @@ function Commit({ b }: { b: Box }): ReactNode {
   const { n, x, y } = b
   const c = b.commit!
   const strong = !!n.emphasis
+  const tone = b.tone ?? ACCENT
   return (
     <>
-      <circle cx={x} cy={y} r={b.hx} fill={strong ? color.text : color.island} stroke={ink(strong)} strokeWidth={1.5} />
+      <circle cx={x} cy={y} r={b.hx} fill={strong ? tone : color.island} stroke={strong ? tone : alpha(tone, 0.75)} strokeWidth={1.5} />
       <text x={c.hashX} y={y + 3.8} fill={strong ? color.text : color.faint} fontSize={c.hash.size} fontFamily={font.mono}>
         {c.hash.text}
       </text>
@@ -602,8 +612,8 @@ function Commit({ b }: { b: Box }): ReactNode {
       )}
       {c.tag && (
         <>
-          <rect x={c.tag.x} y={y - 8} width={c.tag.w} height={16} rx={4} fill={fill.chip} stroke={fill.chipBorder} />
-          <text x={c.tag.x + 6} y={y + 3.6} fill={color.label} fontSize={LABEL} fontFamily={font.mono}>
+          <rect x={c.tag.x} y={y - 8} width={c.tag.w} height={16} rx={4} fill={alpha(tone, 0.14)} />
+          <text x={c.tag.x + 6} y={y + 3.6} fill={tone} fontSize={LABEL} fontFamily={font.mono}>
             {c.tag.text}
           </text>
         </>

@@ -556,7 +556,8 @@ export function PlayerWindow(): ReactNode {
 
 /** Browser stage only: the same panel at the dock rect, under the spotlight/cards like in Electron. */
 export function StagePlayer({ layout }: { layout: Layout }): ReactNode {
-  const hasLesson = useLesson((s) => !!s.lesson)
+  // No player for a "Just teach me" lesson (lesson.mode "lesson": no video at all).
+  const hasLesson = useLesson((s) => !!s.lesson && s.lesson.mode !== 'lesson')
   if (isElectron) return null
   const r = dockRect(layout.workArea)
   return (

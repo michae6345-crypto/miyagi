@@ -22,7 +22,7 @@ import { AnimatePresence, animate, motion, useMotionValue, useReducedMotion } fr
 import { useCallback, useEffect, useId, useLayoutEffect, useRef, useState, type ReactNode, type RefObject, type SVGProps } from 'react'
 import { Volume2 } from 'lucide-react'
 import { useStatus, type Rect } from '../../core/lesson'
-import { color, radius, scrim, shadows, spring, text } from '../../core/theme'
+import { color, fill, font, radius, scrim, shadows, spring, text } from '../../core/theme'
 import { toggleVoice, useVoice } from '../voice/store'
 import { hole, holeRadius, placeCaption, type Side } from './place'
 import type { SpotlightMode, SpotlightTarget } from './store'
@@ -258,6 +258,18 @@ const ENTER: Record<Side, { x: number; y: number }> = {
   inside: { x: 0, y: 0 }
 }
 
+/** spotlight.snippet: the code to type at the target, shown as-is (whitespace kept), up to 8 lines. */
+function Snippet({ code }: { code: string }): ReactNode {
+  return (
+    <pre
+      className="mt-[8px] mr-[5px] max-h-[144px] overflow-hidden whitespace-pre rounded-[10px] px-[10px] py-[7px] text-[12.5px] leading-[18px]"
+      style={{ fontFamily: font.mono, background: fill.field, color: color.text }}
+    >
+      {code.replace(/\s+$/, '')}
+    </pre>
+  )
+}
+
 function Caption({ target, hole: cut, bounds, avoid: outside, reduced }: { target: SpotlightTarget; hole: Rect; bounds: Rect; avoid: Rect[]; reduced: boolean }): ReactNode {
   const voiceOn = useVoice((s) => s.on)
   const ref = useRef<HTMLDivElement>(null)
@@ -283,27 +295,31 @@ function Caption({ target, hole: cut, bounds, avoid: outside, reduced }: { targe
       ref={ref}
       data-ui
       data-side={at.side}
-      className="absolute left-0 top-0 flex items-center gap-[10px] py-[11px] pl-[16px] pr-[11px]"
+      className="absolute left-0 top-0 py-[11px] pl-[16px] pr-[11px]"
       style={{ maxWidth: CAPTION_MAX_W, borderRadius: radius.chip, background: color.island, boxShadow: shadows.card }}
       initial={{ opacity: 0, x: at.x + from.x, y: at.y + from.y }}
       animate={{ opacity: 1, x: at.x, y: at.y }}
       transition={reduced ? { duration: 0.2 } : { ...spring, opacity: { duration: 0.2 } }}
     >
-      <div className="min-w-0 truncate font-medium leading-[22px]" style={{ fontSize: text.sm, color: color.text }} title={target.caption}>
-        {target.caption}
+      <div className="flex items-center gap-[10px]">
+        <div className="min-w-0 truncate font-medium leading-[22px]" style={{ fontSize: text.sm, color: color.text }} title={target.caption}>
+          {target.caption}
+        </div>
+        {/* Only while voice is on: white, like every toggle that's on. Tap to turn it off. */}
+        {voiceOn && (
+          <button
+            data-hit
+            className="pointer-events-auto grid h-[24px] w-[24px] shrink-0 cursor-pointer place-items-center rounded-full"
+            style={{ background: color.accent, color: color.onAccent }}
+            onClick={toggleVoice}
+            aria-label="Turn voice off"
+          >
+            <Volume2 size={13} />
+          </button>
+        )}
       </div>
-      {/* Only while voice is on: white, like every toggle that's on. Tap to turn it off. */}
-      {voiceOn && (
-        <button
-          data-hit
-          className="pointer-events-auto grid h-[24px] w-[24px] shrink-0 cursor-pointer place-items-center rounded-full"
-          style={{ background: color.accent, color: color.onAccent }}
-          onClick={toggleVoice}
-          aria-label="Turn voice off"
-        >
-          <Volume2 size={13} />
-        </button>
-      )}
+      {/* The code to type there ("Just teach me" steps, Show me): monospace under the caption, like the cards' diff. */}
+      {target.snippet?.trim() && <Snippet code={target.snippet} />}
     </motion.div>
   )
 }
