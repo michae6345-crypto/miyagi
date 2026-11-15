@@ -115,6 +115,7 @@ export function placeCaption(target: Rect, size: { w: number; h: number }, bound
   const bottom = bounds.y + bounds.h - EDGE_MARGIN
   const sideY = clamp(target.y + target.h / 2 - size.h / 2, top, bottom - size.h)
   const alongX = clamp(target.x, left, right - size.w)
+  const endX = clamp(target.x + target.w - size.w, left, right - size.w)
 
   const rx = rightLane(target, bounds, [], text).x
   const lx = target.x - CAPTION_GAP - size.w
@@ -131,7 +132,12 @@ export function placeCaption(target: Rect, size: { w: number; h: number }, bound
   const candidates: Array<Placed | false> = [
     rx + size.w <= right && { x: rx, y: sideY, side: 'right' },
     by + size.h <= bottom && { x: alongX, y: by, side: 'below' },
-    ay >= top && { x: alongX, y: ay, side: 'above' }
+    ay >= top && { x: alongX, y: ay, side: 'above' },
+    // Flipped to end at the hole's right edge, then the left side: for a target next to our own UI on its right (the
+    // drawer), where every spot above runs under it (Michael's test 7: "Click ▷ t..." cut at the drawer's edge).
+    by + size.h <= bottom && { x: endX, y: by, side: 'below' },
+    ay >= top && { x: endX, y: ay, side: 'above' },
+    lx >= left && { x: lx, y: sideY, side: 'left' }
   ]
   const fitting = candidates.filter((p): p is Placed => !!p && offHole(p))
   if (!fitting.length) {

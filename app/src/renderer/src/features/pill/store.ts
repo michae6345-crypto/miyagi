@@ -149,7 +149,8 @@ onMessage('step.passed', (p) => {
   const i = steps.findIndex((s) => s.id === p.stepId)
   const to = p.nextStepId ?? (i >= 0 ? steps[i + 1]?.id : undefined)
   clearTimeout(holdTimer)
-  if (p.skipped) return set({ celebrating: undefined, advanced: { from: p.stepId, to } }) // no green check for a skip
+  // no green check for a skip, or for a step done before (already: true, a resume)
+  if (p.skipped || (p as typeof p & { already?: boolean }).already) return set({ celebrating: undefined, advanced: { from: p.stepId, to } })
   set({ celebrating: p.stepId, advanced: undefined })
   holdTimer = setTimeout(() => set({ celebrating: undefined, advanced: { from: p.stepId, to } }), PASS_HOLD_MS)
 })

@@ -58,7 +58,9 @@ onMessage('step.started', (p) => {
 
 onMessage('card', (p) => say(titled(p.title, p.body)))
 onMessage('offtrack', (p) => say(titled(p.title, p.body)))
-onMessage('step.passed', () => say(copy.passed))
+onMessage('step.passed', (p) => {
+  if (!p.skipped && !(p as typeof p & { already?: boolean }).already) say(copy.passed)
+})
 // The engine stopped the video so the learner can work: say what to do.
 onMessage('video.pause', () => say(task()))
 
