@@ -152,7 +152,10 @@ def _write_vscode_settings(folder: Path) -> None:
         return
     if not isinstance(cur, dict):
         return
-    want = {"window.title": VSCODE_TITLE}
+    # Only code lessons get this file. No Copilot Chat panel in a lesson window (it took ~30% of the width), and no AI
+    # that writes the code for the learner (that defeats the lesson). The learner's global settings stay as they are.
+    want = {"window.title": VSCODE_TITLE, "workbench.secondarySideBar.defaultVisibility": "hidden",
+            "chat.disableAIFeatures": True}
     a11y = VSCODE_A11Y
     if not a11y:
         # The companion extension (installed Nov 14) gives exact buffer/terminal state, so the editor's AX text isn't

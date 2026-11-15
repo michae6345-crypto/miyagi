@@ -125,6 +125,9 @@ spaces is the app's job (Electron `setVisibleOnAllWorkspaces(true, {visibleOnFul
 - `open_editor(path, file, fullscreen=True)` opens Cursor/VS Code as usual (CLI, then `open -a` so it's frontmost). With
   Accessibility, a background thread then maximizes the lesson folder's window in the current Space (`MIYAGI_FULLSCREEN=native`:
   `AXFullScreen=true`, macOS full screen in its own Space), instead of the left-60% layout. `MIYAGI_ARRANGE=0` turns it off.
+  The maximized window stops `MIYAGI_DRAWER_W` (356) pt short of the right edge so the overlay's drawer doesn't cover it.
+  In both layouts the editor's windows of OTHER `~/miyagi/lessons/*` folders are then minimized (never the learner's own
+  projects, never a full-screen window) and the lesson's window is raised last (`put_away_other_lessons`).
   Without Accessibility, `report["fullscreen"]` = "skipped: Accessibility not granted (the learner can press Ctrl+Cmd+F)" and
   the editor stays a normal frontmost window. AppleScript keystrokes or menu clicks need the same permission, so there is no
   permission-free full screen.

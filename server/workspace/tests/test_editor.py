@@ -133,7 +133,7 @@ def test_arrange_gives_up_without_an_editor_window(monkeypatch):
 
 def test_open_with_accessibility_runs_arrange(tmp_path, monkeypatch):
     seen = {}
-    monkeypatch.setattr(E, "arrange", lambda ed, prev, rep: seen.update(ed=ed["id"], prev=prev) or rep.update(arrange="done"))
+    monkeypatch.setattr(E, "arrange", lambda ed, prev, rep, **k: seen.update(ed=ed["id"], prev=prev) or rep.update(arrange="done"))
     _, run = opener(tmp_path)
     rep = E.open_editor_report(tmp_path, runner=run, editor=CURSOR, trusted=lambda: True, previous={"pid": 1, "name": "Keynote"}, wait=True)
     assert seen == {"ed": "cursor", "prev": {"pid": 1, "name": "Keynote"}} and rep["arrange"] == "done" and rep["ax_trusted"]
