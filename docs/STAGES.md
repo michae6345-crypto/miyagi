@@ -143,6 +143,28 @@ directly on the cached PINN hero, React, linear-regression and convection lesson
 **E6 capture is still dead on this Mac.** `capture_main_display()` raises `ScreenUnavailableError` on 085c832, the same as
 before; see A-1.
 
+### Real-screen spotlights after E6's capture fix, OFFLINE: integration/live b37a767 (includes a0e1ecd / e23a751), 15:57–16:02
+
+Zero API calls: keys blanked, dead proxy, DEMO=1 + `ORCH_STUBS=coach,diagrams,finder,lesson`. Each lesson was autostarted
+from a scratch copy of the cached React lesson whose step-1 target is text that is on the screen right now. Script:
+`scripts/stage_spotlight.py <lesson.json>`. The test changed nothing on the screen; Michael was using the Mac at the time.
+
+- **Capture works.**
+  - The reader captures in 0.36–0.82 s per frame, `status ok`, `source live`.
+  - ScreenCaptureKit is refused for the engine process ("SCStreamErrorDomain -3801: The user declined TCCs for application,
+    window, display capture"), so E6's fallback `screencapture` + overlay masking does the work.
+  - `macos.capture_main_display()` (CG) still returns None, but it's now the last resort.
+  - To get the SCK path (overlay left out), grant Screen Recording to the app that runs the engine.
+- **Exact text target → real rect: PASS.** Target `{app: Code, match: "Welcome"}` (VS Code's tab). `show_me` → `spotlight` at
+  0.0 s, rect `{x: 69.3, y: 71.8, w: 74.8, h: 24.6}`, `matched: "Welcome"`, `app: Code`. It's on-screen and non-empty, and the
+  same on the second press.
+- **Target not on screen → window fallback: PASS.** The target was `{app: Claude, match: "integration/live"}`, but by test time the
+  screen had changed. `show_me` → `spotlight` at 0.0 s around the visible VS Code window, rect `{0, 33, 865×1010}` (the window's
+  exact frame), with no match text.
+- No `error` and no screen-down notice while capture works.
+- **Still open (E4):** `show_me` still calls `_show_where()` → `locate` *before* checking `screen_down_reason()`. When capture is
+  down, the "I can't see your screen" card comes ~8.5 s late (measured on 085c832). I couldn't re-test this now that capture works.
+
 ## Soak: 10 topics back to back, integration/live 9f89e04, Gemini paid, 14:44–15:07
 
 Run with `.venv/bin/python scripts/stage_soak.py [--open] [--only "topic[=pinned url]"]`. One LIVE engine on :8790 with default
