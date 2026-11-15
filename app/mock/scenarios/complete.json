@@ -359,6 +359,106 @@
         }
       },
       {
+        "wait": 30,
+        "type": "metric",
+        "payload": {
+          "runId": "run-nn4",
+          "step": 0,
+          "name": "loss",
+          "value": 0.8187
+        }
+      },
+      {
+        "wait": 30,
+        "type": "metric",
+        "payload": {
+          "runId": "run-nn4",
+          "step": 2000,
+          "name": "loss",
+          "value": 0.026
+        }
+      },
+      {
+        "wait": 30,
+        "type": "metric",
+        "payload": {
+          "runId": "run-nn4",
+          "step": 4000,
+          "name": "loss",
+          "value": 0.0153
+        }
+      },
+      {
+        "wait": 30,
+        "type": "metric",
+        "payload": {
+          "runId": "run-nn4",
+          "step": 6000,
+          "name": "loss",
+          "value": 0.005
+        }
+      },
+      {
+        "wait": 30,
+        "type": "metric",
+        "payload": {
+          "runId": "run-nn4",
+          "step": 8000,
+          "name": "loss",
+          "value": 0.003
+        }
+      },
+      {
+        "wait": 30,
+        "type": "metric",
+        "payload": {
+          "runId": "run-nn4",
+          "step": 10000,
+          "name": "loss",
+          "value": 0.0021
+        }
+      },
+      {
+        "wait": 30,
+        "type": "metric",
+        "payload": {
+          "runId": "run-nn4",
+          "step": 12000,
+          "name": "loss",
+          "value": 0.0016
+        }
+      },
+      {
+        "wait": 30,
+        "type": "metric",
+        "payload": {
+          "runId": "run-nn4",
+          "step": 14000,
+          "name": "loss",
+          "value": 0.0013
+        }
+      },
+      {
+        "wait": 30,
+        "type": "metric",
+        "payload": {
+          "runId": "run-nn4",
+          "step": 16000,
+          "name": "loss",
+          "value": 0.0011
+        }
+      },
+      {
+        "wait": 30,
+        "type": "metric",
+        "payload": {
+          "runId": "run-nn4",
+          "step": 18000,
+          "name": "loss",
+          "value": 0.0009
+        }
+      },
+      {
         "wait": 120,
         "type": "check.updated",
         "payload": {

@@ -11,7 +11,7 @@ import { AnimatePresence, motion } from 'motion/react'
 import { useMemo, useState, type ReactNode } from 'react'
 import { CloseButton, CodeText, Spinner } from '../../core/ui/atoms'
 import { color, fill } from '../../core/theme'
-import { useOverlayWidth } from '../cards/store'
+import { useOverlayWidth, useSeries, type Point } from '../cards/store'
 import { NetGraph } from './Network'
 import { lossStat, plain, type Net } from './net'
 import { endLesson, startLesson, useComplete, type CompleteCard } from './store'
@@ -38,9 +38,27 @@ export function panelWidth(overlay: number, hasMap: boolean, hasNet = false): nu
 
 const tab = { fontVariantNumeric: 'tabular-nums' } as const
 
-/** The network and its loss, e.g. "0.82 → 0.00078" over "Loss over 20,000 epochs". */
+/**
+ * What the learner's own run printed (the newest metric series, never the tutorial's run): its first and last point,
+ * labelled with the metric's own name. That's the number the terminal, the step card and the write-up show
+ * (0.82 → 0.0009), so it wins over the network panel's frames, whose counter runs on past the last printed line.
+ */
+function printedRun(points: Point[] | undefined, name: string | undefined): { from?: number; to: number; label: string } | undefined {
+  if (!points?.length || !name) return undefined
+  const a = points[0]
+  const b = points[points.length - 1]
+  return { ...(points.length > 1 && a.value !== b.value ? { from: a.value } : {}), to: b.value, label: `Your run's ${name}` }
+}
+
+/** The network and its loss, e.g. "0.82 → 0.0009" over "Your run's loss". */
 function NetworkColumn({ net, trained, w }: { net: Net; trained?: Net; w: number }): ReactNode {
-  const loss = useMemo(() => lossStat(trained?.frames ?? []) ?? lossStat(net.frames), [trained, net])
+  const { name, series } = useSeries()
+  const loss = useMemo(() => {
+    const printed = printedRun(series?.run.points, name)
+    if (printed) return printed
+    const s = lossStat(trained?.frames ?? []) ?? lossStat(net.frames)
+    return s && { ...s, label: s.epochs ? `Loss over ${s.epochs.toLocaleString('en-US')} epochs` : 'Loss' }
+  }, [series, name, trained, net])
   return (
     <div className="flex h-full flex-col" data-your-network>
       <NetGraph net={net} w={w} />
@@ -58,7 +76,7 @@ function NetworkColumn({ net, trained, w }: { net: Net; trained?: Net; w: number
             <span style={{ color: color.text }}>{plain(loss.to)}</span>
           </div>
           <div className="mt-[6px] text-[13px] leading-[18px]" style={{ color: color.faint, ...tab }}>
-            {loss.epochs ? `Loss over ${loss.epochs.toLocaleString('en-US')} epochs` : 'Loss'}
+            {loss.label}
           </div>
         </div>
       )}
