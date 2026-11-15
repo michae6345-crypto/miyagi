@@ -363,7 +363,7 @@ def test_primer_and_step_explanations(fake_claude, tmp_path):
     assert kinds[0] == "code" and kinds[-1] == "run" and set(kinds) <= {"code", "run", "read"}
     s1 = g["steps"][0]
     assert s1["what"] == "A function named add that returns a + b" and s1["concepts"] == ["p1"] and len(s1["why"].split()) <= 25
-    assert "why" not in g["steps"][1]  # nothing given: left out rather than invented
+    assert g["steps"][1]["why"] == textlesson.WHY_FALLBACK  # nothing given: a plain generic line, never missing
     assert g["steps"][2]["concepts"] == ["p3"]  # an out-of-range concept number is dropped
     run = g["steps"][-1]
     assert run["what"].startswith("Run your calc") and run["concepts"] == ["p2"]  # the "Running a .py file" concept
