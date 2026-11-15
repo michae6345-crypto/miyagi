@@ -1,6 +1,6 @@
 /**
- * Feature: complete (Michael's NEW 2, mockup 10 style). The lesson-complete card: when the last step passes the
- * engine sends a card of kind "complete" (lesson_end.card() sends kind "step") with an optional skillMap. This store
+ * Feature: complete. The lesson-complete card: when the last step passes the engine sends a card (kind "step", or
+ * "complete") with a skillMap. This store
  * keeps that card so the panel can draw it; it reads the same `card` message as features/cards (whose own store
  * drops a card on any `diagram`), so a diagram opened on top doesn't lose the panel.
  *
@@ -17,20 +17,33 @@ import { readNet, lossSeries, type Net } from './net'
 import { readSkillMap, type SkillMap } from './types'
 
 export type CompleteCard = { title: string; body: string; stepId?: string; endLabel?: string; map?: SkillMap }
-export type PassedCheck = { stepId: string; label: string; at: number }
+export type MetricCurve = { name: string; pts: Array<{ step: number; value: number }> }
 type State = {
   card?: CompleteCard
   ending: boolean
-  /** The lesson's networks as the engine pushed them (mockup 12): the newest one, and the newest with a training curve. */
+  /** The lesson's networks as the engine pushed them: the newest one, and the newest with a training curve. */
   net?: Net
   trained?: Net
-  /** Every check this window saw pass in this lesson (stepId:checkId), newest last. */
-  checks: Record<string, PassedCheck>
-  /** When this window saw the lesson load (lesson.ready), for the minutes it took. */
-  startedAt?: number
+  /** The last real run's first metric curve, taken when the card comes (the fallback when no network has a curve). */
+  curve?: MetricCurve
 }
 
-const lessonBlank = { net: undefined, trained: undefined, checks: {}, startedAt: undefined }
+const lessonBlank = { net: undefined, trained: undefined, curve: undefined }
+
+/**
+ * Metric events of the latest real run (any runId but "tutorial"), name → points in arrival order. Kept outside the
+ * store: a run can send thousands, and only the card needs them.
+ */
+let runId: string | undefined
+let curves = new Map<string, MetricCurve['pts']>()
+const clearRun = (): void => {
+  runId = undefined
+  curves = new Map()
+}
+function latestCurve(): MetricCurve | undefined {
+  for (const [name, pts] of curves) if (pts.length >= 2) return { name, pts: [...pts].sort((a, b) => a.step - b.step) }
+  return undefined
+}
 export const useComplete = create<State>(() => ({ card: undefined, ending: false, ...lessonBlank }))
 const set = useComplete.setState
 const get = useComplete.getState
@@ -60,21 +73,24 @@ onMessage('card', (p) => {
       endLabel: raw.setup?.actionLabels?.end_lesson,
       map
     },
+    curve: latestCurve(),
     ending: false
   })
 })
 onMessage('step.started', close)
 onMessage('lesson.ready', () => {
   close()
-  set({ ...lessonBlank, startedAt: Date.now() })
+  clearRun()
+  set({ ...lessonBlank })
 })
 onUi('dismiss', close)
 onUi('reset', () => {
   close()
+  clearRun()
   set({ ...lessonBlank })
 })
-// The lesson's own network (kind "network" with real weights in data.frames): its newest picture, and its newest
-// training run (frames over at least two epochs) for the loss chart.
+// The lesson's own network (kind "network" with real weights in data.frames): its newest one, and its newest
+// training run (frames over at least two epochs) for the result line.
 onMessage('diagram', (p) => {
   if (p.kind !== 'network') return
   // A preview (data.preview, before the learner's first real run) is not their network: not the thumbnail, not the charts.
@@ -83,12 +99,15 @@ onMessage('diagram', (p) => {
   if (!net) return
   set(lossSeries(net) ? { net, trained: net } : { net })
 })
-onMessage('check.updated', (p) => {
-  const key = `${p.stepId}:${p.checkId}`
-  const checks = { ...get().checks }
-  if (p.status === 'pass') checks[key] = checks[key] ?? { stepId: p.stepId, label: p.label, at: Date.now() }
-  else delete checks[key]
-  set({ checks })
+onMessage('metric', (p) => {
+  if (p.runId === 'tutorial' || !Number.isFinite(p.value) || !Number.isFinite(p.step)) return
+  if (p.runId !== runId) {
+    runId = p.runId
+    curves = new Map()
+  }
+  const pts = curves.get(p.name) ?? []
+  pts.push({ step: p.step, value: p.value })
+  curves.set(p.name, pts)
 })
 
 /** Up next: start that lesson the way the launcher's "Just teach me" does (contract SkillNext.goal). */

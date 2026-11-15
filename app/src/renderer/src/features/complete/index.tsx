@@ -1,5 +1,5 @@
 /**
- * Feature: complete (Michael's NEW 2). The lesson-complete panel with the skill map, mockup 10 style, grown out
+ * Feature: complete. The lesson-complete panel (direction A, "Summary": one narrow column), grown out
  * of the notch island. Priority 64: above a plain card (50, which carries the same card) and the step-pass moment
  * (60), below the before-start sheet (65), an off-track (70) and a diagram (80): a diagram opened on top closes
  * back to this panel.
