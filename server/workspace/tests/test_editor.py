@@ -402,10 +402,15 @@ def test_auto_jumps_never_steal_focus_or_race_startup(tmp_path, fresh):
     assert calls == [["/usr/local/bin/code", "-r", "-g", f"{f}:3"], ["/usr/local/bin/code", "-r", "-g", f"{f}:4"]]
 
 
-def test_miyagi_focus_detection():
+def test_miyagi_focus_detection(monkeypatch):
+    # The Miyagi overlay is this Mac's front app (as during a desktop test): None still means "nothing in front"
+    monkeypatch.setattr(E, "_frontmost", lambda: MIYAGI)
     assert E.miyagi_focused(MIYAGI) and E.miyagi_focused(("com.github.Electron", "Electron"))
     assert not E.miyagi_focused(CODE) and not E.miyagi_focused(None)
-    assert E.editor_focused(VSC, CODE) and not E.editor_focused(VSC, MIYAGI)
+    assert E.editor_focused(VSC, CODE) and not E.editor_focused(VSC, MIYAGI) and not E.editor_focused(VSC, None)
+    assert E.miyagi_focused() and not E.editor_focused(VSC)  # no argument: the live front app
+    monkeypatch.setattr(E, "_frontmost", lambda: CODE)
+    assert not E.miyagi_focused() and E.editor_focused(VSC)
 
 
 def test_orchestrator_workspace_opens_once_and_guards_jumps(tmp_path, fresh):

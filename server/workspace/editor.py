@@ -24,6 +24,7 @@ import threading
 import time
 from collections.abc import Callable
 from pathlib import Path
+from typing import Any
 
 log = logging.getLogger("server.workspace")
 
@@ -784,15 +785,19 @@ def _frontmost() -> tuple[str, str] | None:
     return (str(a.bundleIdentifier() or ""), str(a.localizedName() or "")) if a is not None else None
 
 
-def miyagi_focused(front: tuple[str, str] | None = None) -> bool:
+_LIVE: Any = object()  # "ask the system now"; an explicit None is "no app known in front" (never a second live query)
+
+
+def miyagi_focused(front: tuple[str, str] | None = _LIVE) -> bool:
     """Is our overlay (the launcher, a card's text box) the active app? Then any editor activation would blur
-    it, and the launcher closes on blur."""
-    f = front if front is not None else _frontmost()
+    it, and the launcher closes on blur. No argument: the live frontmost app. None: nothing known in front (e.g. an
+    injected focus() that found nothing): not Miyagi, never a second, live lookup of this Mac's front app."""
+    f = _frontmost() if front is _LIVE else front
     return bool(f) and (f[0] in MIYAGI_BUNDLES or f[1].lower() in OVERLAY_NAMES)
 
 
-def editor_focused(editor: dict, front: tuple[str, str] | None = None) -> bool:
-    f = front if front is not None else _frontmost()
+def editor_focused(editor: dict, front: tuple[str, str] | None = _LIVE) -> bool:
+    f = _frontmost() if front is _LIVE else front
     return bool(f) and f[0] == (editor.get("bundle") or EDITORS.get(editor.get("id", ""), {}).get("bundle"))
 
 
