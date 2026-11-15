@@ -15,7 +15,9 @@ libraries:
   says the command;
 - checks: a screen check that waits for pip's own output ("Successfully installed") can never pass any more and goes;
   file checks on `X/...` look in `.venv/...`; a prompt check `\\(venv\\)` also accepts `(.venv)`;
-- a target that pointed at a dropped command points at the command left.
+- a target that pointed at a dropped command points at the command left;
+- t10: a file check on the lesson's .venv itself goes (any step): Miyagi made that .venv, so "Lesson .venv ready"
+  passed s1 ("confirmed by your files") the moment the lesson started, before the learner did anything.
 Idempotent: a second pass changes nothing. Returns the ids of the steps it changed."""
 
 from __future__ import annotations
@@ -197,4 +199,28 @@ def use_lesson_venv(graph: dict) -> list[str]:
             targets.append(t)
         step["targets"] = targets
         changed.append(step.get("id") or "?")
+    for step in graph.get("steps") or []:
+        if isinstance(step, dict) and _drop_venv_file_checks(step) and (step.get("id") or "?") not in changed:
+            changed.append(step.get("id") or "?")
     return changed
+
+
+def _venv_file_check(c: dict) -> bool:
+    f = str(c.get("file") or "").strip()
+    f = f[2:] if f.startswith("./") else f
+    return c.get("type") in ("file_exists", "file_contains") and (f == VENV or f.startswith(VENV + "/"))
+
+
+def _drop_venv_file_checks(step: dict) -> bool:
+    """t10: file checks on the lesson's .venv prove nothing about the learner (Miyagi made it): they go. A gating
+    `checks` list keeps them when they are all it has (an empty list could never pass)."""
+    dropped = False
+    for key in ("checks", "precision_checks"):
+        cs = step.get(key)
+        if not isinstance(cs, list):
+            continue
+        kept = [c for c in cs if not (isinstance(c, dict) and _venv_file_check(c))]
+        if len(kept) != len(cs) and (kept or key == "precision_checks"):
+            step[key] = kept
+            dropped = True
+    return dropped

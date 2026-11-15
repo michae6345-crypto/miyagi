@@ -2595,7 +2595,10 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
         await self._status("watching")
         await self.evaluate("start")
         if seg is not None and not self.passed and self.step is step:
-            ahead = any(r.get("status") == "pass" for r in self.last_results)  # already doing it: don't replay
+            # already doing it: don't replay. t10: a "No … errors" (screen_absent) row says nothing about that: it
+            # marked s4/s6/s7's clips done at step start, so they never played and _segment_end never ran
+            absent = {c.get("id") for c in step.get("checks") or [] if c.get("type") == "screen_absent"}
+            ahead = any(r.get("status") == "pass" and r.get("checkId") not in absent for r in self.last_results)
             if not ahead or resuming:
                 t0 = float(seek_to) if resuming else seg["start"]
                 play = not self.typing()  # never start the video over the learner's typing
@@ -6289,6 +6292,18 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
         await self._status("offtrack" if self.last_offtrack else "watching")
 
     SETUP_STEP = re.compile(r"\b(install(ing|ation|ed)?|download(ing)?|set\s*-?\s*up|setup)\b", re.I)
+    # one part of a step's command that only installs / checks / activates (pip install, node -v, source .venv/...)
+    _SETUP_PART = re.compile(r"^(?:sudo\s+)?(?:source|\.|cd|mkdir|export|which|echo)\b|\binstall\b|\bvenv\b|"
+                             r"--version\b|\s-[vV]$|\bversion\b|\bupgrade\b|\bactivate\b", re.I)
+
+    @classmethod
+    def _runs_more_than_setup(cls, step: dict) -> bool:
+        """t10: s1 "source .venv/bin/activate && jupyter notebook" passed as "Already installed" the moment the lesson
+        started: tools already on this Mac don't start a server / run a program for the learner. True when some part
+        of the step's command does more than install / activate / check a version."""
+        rc = str(step.get("run_command") or "").strip()
+        parts = [p.strip() for p in re.split(r"\s*(?:&&|\|\||;|\n)\s*", rc) if p.strip()]
+        return any(not cls._SETUP_PART.search(p) for p in parts)
 
     async def _maybe_pass_setup_step(self) -> None:
         """Never trap the learner on an install step for tools S2's check already found on this Mac."""
@@ -6297,6 +6312,8 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
             return
         if (step.get("code") or "").strip() and not self._run_command(step):
             return  # a typing step is never an install step, whatever its title says
+        if self._runs_more_than_setup(step):
+            return  # it also starts something (jupyter notebook, npm run dev): the learner has to run it
         requires = {str(t).lower() for t in step.get("requires") or []}
         if step.get("setup") and requires:  # E2 tags real setup steps: setup: true, requires: [tool ids]
             items = [it for it in self.reqs if str(it.get("tool", "")).lower() in requires]
