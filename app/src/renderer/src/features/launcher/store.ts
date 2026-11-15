@@ -27,11 +27,15 @@ type SearchState = {
   error?: string
   /** The launcher panel is showing (set by the component). */
   open: boolean
+  /** A question was sent and its answer card hasn't arrived yet: the launcher keeps the text (Michael, item 6). */
+  askPending: boolean
+  /** Counts answer cards; the launcher clears its question field when this changes. */
+  answered: number
 }
 
 const blank = { query: '', results: [], pending: false, done: false, total: undefined, error: undefined } satisfies Partial<SearchState>
 
-export const useSearch = create<SearchState>(() => ({ ...blank, open: false }))
+export const useSearch = create<SearchState>(() => ({ ...blank, open: false, askPending: false, answered: 0 }))
 const set = useSearch.setState
 const get = useSearch.getState
 
@@ -41,11 +45,17 @@ export const clearResults = (): void => set({ ...blank })
 export const setLauncherOpen = (open: boolean): void => {
   if (get().open !== open) set({ open })
 }
+/** The launcher sent a question (action ask). */
+export const markAsked = (): void => set({ askPending: true })
 
 // A lesson-only reset (engine `lesson.ended`) must not wipe a search the learner is typing.
 onUi('reset', (p) => {
   if ((p as { scope?: string } | undefined)?.scope === 'lesson') return
-  set({ ...blank })
+  set({ ...blank, askPending: false })
+})
+// The answer (or the engine's "couldn't answer, retry" answer card) arrived: the question can go.
+onMessage('card', (p) => {
+  if (p.kind === 'answer' && get().askPending) set({ askPending: false, answered: get().answered + 1 })
 })
 
 onMessage('search.result', (payload) => {

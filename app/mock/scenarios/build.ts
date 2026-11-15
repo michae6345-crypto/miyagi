@@ -11,6 +11,8 @@ export function buildScenarios(files: Record<string, Scenario>): Record<string, 
   const names = Object.keys(files).sort((a, b) => rank(a) - rank(b) || a.localeCompare(b))
   const full: Scenario = { name: 'full', on: {}, segments: {} }
   for (const n of names) {
+    // A standalone scenario (the offline demo) answers learn / build_lesson itself: keep it out of "full".
+    if ((files[n] as Scenario & { full?: boolean }).full === false) continue
     Object.assign(full.on, files[n].on)
     Object.assign(full.segments, files[n].segments)
   }

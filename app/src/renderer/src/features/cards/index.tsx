@@ -332,6 +332,8 @@ function Offtrack(): ReactNode {
 function Success(): ReactNode {
   const s = useCards((x) => x.success)
   const { after } = useSeries(undefined, s?.since)
+  // A "Just teach me" lesson has no video to pick up.
+  const hasVideo = useLesson((l) => l.lesson?.mode !== 'lesson')
   if (!s) return null
   const showCurve = !!after && after.points.length > 1
   return (
@@ -348,13 +350,15 @@ function Success(): ReactNode {
           </div>
         )
       )}
-      <Footer
-        left={
-          <>
-            <Play size={11} fill="currentColor" className="shrink-0" /> The video picks up from here
-          </>
-        }
-      />
+      {hasVideo && (
+        <Footer
+          left={
+            <>
+              <Play size={11} fill="currentColor" className="shrink-0" /> The video picks up from here
+            </>
+          }
+        />
+      )}
       {/* Auto-hide countdown: a hairline that drains (transform only). */}
       <motion.div
         key={s.at}

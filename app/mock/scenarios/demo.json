@@ -1,0 +1,3232 @@
+{
+  "name": "demo",
+  "full": false,
+  "on": {
+    "learn:lesson": "nn_build",
+    "learn": "nn_search",
+    "build_lesson": "nn_build",
+    "action:check_step@step_nn1": "nn1_check",
+    "action:skip_step@step_nn1": "nn1_skip",
+    "action:explain@step_nn1": "nn1_explain",
+    "action:diagram@step_nn1": "nn1_diagram",
+    "action:ask@step_nn1": "nn1_ask",
+    "action:show_me@step_nn1": "nn1_showme",
+    "action:hint@step_nn1": "nn1_hint",
+    "action:check_step@step_nn2": "nn2_check",
+    "action:skip_step@step_nn2": "nn2_skip",
+    "action:explain@step_nn2": "nn2_explain",
+    "action:diagram@step_nn2": "nn2_diagram",
+    "action:ask@step_nn2": "nn2_ask",
+    "action:show_me@step_nn2": "nn2_showme",
+    "action:hint@step_nn2": "nn2_hint",
+    "action:check_step@step_nn3": "nn3_check",
+    "action:skip_step@step_nn3": "nn3_skip",
+    "action:explain@step_nn3": "nn3_explain",
+    "action:diagram@step_nn3": "nn3_diagram",
+    "action:ask@step_nn3": "nn3_ask",
+    "action:show_me@step_nn3": "nn3_showme",
+    "action:hint@step_nn3": "nn3_hint",
+    "action:check_step@step_nn4": "nn4_check",
+    "action:skip_step@step_nn4": "nn4_skip",
+    "action:explain@step_nn4": "nn4_explain",
+    "action:diagram@step_nn4": "nn4_diagram",
+    "action:ask@step_nn4": "nn4_ask",
+    "action:show_me@step_nn4": "nn4_showme",
+    "action:hint@step_nn4": "nn4_hint",
+    "action:hint@step_nn5": "nn5_hint",
+    "action:apply_fix@step_nn5": "nn5_fix",
+    "action:check_step@step_nn5": "nn5_check",
+    "action:skip_step@step_nn5": "nn5_skip",
+    "action:explain@step_nn5": "nn5_explain",
+    "action:diagram@step_nn5": "nn5_diagram",
+    "action:ask@step_nn5": "nn5_ask",
+    "action:show_me@step_nn5": "nn5_showme",
+    "action:check_step@step_nn6": "nn6_check",
+    "action:skip_step@step_nn6": "nn6_skip",
+    "action:explain@step_nn6": "nn6_explain",
+    "action:diagram@step_nn6": "nn6_diagram",
+    "action:ask@step_nn6": "nn6_ask",
+    "action:show_me@step_nn6": "nn6_showme",
+    "action:hint@step_nn6": "nn6_hint"
+  },
+  "segments": {
+    "nn_search": [
+      {
+        "wait": 0,
+        "type": "status",
+        "payload": {
+          "state": "thinking"
+        }
+      },
+      {
+        "wait": 700,
+        "type": "search.result",
+        "payload": {
+          "id": "v1",
+          "kind": "video",
+          "title": "The spelled-out intro to neural networks and backpropagation: building micrograd",
+          "meta": "Video · Andrej Karpathy",
+          "score": 0.93,
+          "reason": "Builds backprop by hand",
+          "style": "coding"
+        }
+      },
+      {
+        "wait": 180,
+        "type": "search.result",
+        "payload": {
+          "id": "v2",
+          "kind": "video",
+          "title": "Building a neural network FROM SCRATCH (no Tensorflow/Pytorch, just numpy & math)",
+          "meta": "Video · Samson Zhang",
+          "score": 0.9,
+          "reason": "NumPy only, like this lesson",
+          "style": "coding"
+        }
+      },
+      {
+        "wait": 180,
+        "type": "search.result",
+        "payload": {
+          "id": "v3",
+          "kind": "video",
+          "title": "But what is a neural network?",
+          "meta": "Video · 3Blue1Brown",
+          "score": 0.84,
+          "reason": "The intuition first",
+          "style": "conceptual"
+        }
+      },
+      {
+        "wait": 150,
+        "type": "search.done",
+        "payload": {
+          "total": 3
+        }
+      },
+      {
+        "wait": 0,
+        "type": "status",
+        "payload": {
+          "state": "idle"
+        }
+      }
+    ],
+    "nn_build": [
+      {
+        "wait": 0,
+        "type": "status",
+        "payload": {
+          "state": "thinking"
+        }
+      },
+      {
+        "wait": 250,
+        "type": "lesson.building",
+        "payload": {
+          "message": "Reading about neural nets from scratch",
+          "progress": 0.15,
+          "elapsedS": 0
+        }
+      },
+      {
+        "wait": 1000,
+        "type": "lesson.building",
+        "payload": {
+          "message": "Planning 6 steps",
+          "progress": 0.45,
+          "elapsedS": 1
+        }
+      },
+      {
+        "wait": 1000,
+        "type": "lesson.building",
+        "payload": {
+          "message": "Claude is writing your lesson",
+          "progress": 0.8,
+          "elapsedS": 2
+        }
+      },
+      {
+        "wait": 1000,
+        "type": "lesson.building",
+        "payload": {
+          "message": "Claude is writing your lesson",
+          "progress": 0.95,
+          "elapsedS": 3
+        }
+      },
+      {
+        "wait": 500,
+        "type": "lesson.ready",
+        "payload": {
+          "lesson": {
+            "id": "nn-from-scratch",
+            "title": "A neural net from scratch",
+            "sources": [],
+            "complete": true,
+            "builtBy": "claude",
+            "mode": "lesson",
+            "overview": "We'll build a neural network with nothing but NumPy and teach it XOR. First the data, then random weights, a forward pass that makes a guess, backprop that gives each weight its share of the error, and a loop that trains it. At the end it answers 0 1 1 0 on its own.",
+            "primer": [
+              {
+                "id": "xor",
+                "title": "XOR",
+                "body": "1 when exactly one input is 1. No single straight line separates its 1s from its 0s.",
+                "code": "0 0 → 0\n0 1 → 1\n1 0 → 1\n1 1 → 0"
+              },
+              {
+                "id": "matmul",
+                "title": "Matrix multiply",
+                "body": "X @ W1 computes every hidden neuron's weighted sum, for all four examples at once.",
+                "code": "(4×2) @ (2×4) → (4×4)"
+              },
+              {
+                "id": "sigmoid",
+                "title": "Sigmoid",
+                "body": "Squashes any number into 0..1. Its slope is σ(z)·(1 − σ(z)), which backprop reuses.",
+                "code": "1 / (1 + np.exp(-z))"
+              },
+              {
+                "id": "chain_rule",
+                "title": "Chain rule",
+                "body": "How a weight moves the loss: multiply the slopes along the path from that weight to the loss.",
+                "diagramPrompt": "The chain rule through a 2-4-1 network"
+              },
+              {
+                "id": "gradient_descent",
+                "title": "Gradient descent",
+                "body": "Step each weight a little against its gradient. Repeat, and the loss falls.",
+                "code": "W -= lr * dW"
+              }
+            ]
+          },
+          "steps": [
+            {
+              "id": "nn1",
+              "index": 0,
+              "title": "The data",
+              "kind": "code",
+              "what": "XOR inputs and targets as NumPy arrays",
+              "video": null
+            },
+            {
+              "id": "nn2",
+              "index": 1,
+              "title": "Weights",
+              "kind": "code",
+              "what": "Random starting weights for a 2-4-1 network",
+              "video": null
+            },
+            {
+              "id": "nn3",
+              "index": 2,
+              "title": "Forward pass",
+              "kind": "code",
+              "what": "Sigmoid, and a forward pass from inputs to a guess",
+              "video": null
+            },
+            {
+              "id": "nn4",
+              "index": 3,
+              "title": "Backprop",
+              "kind": "code",
+              "what": "A gradient for every weight, with the chain rule",
+              "video": null
+            },
+            {
+              "id": "nn5",
+              "index": 4,
+              "title": "Train",
+              "kind": "code",
+              "what": "A loop that steps every weight downhill 5,000 times",
+              "video": null
+            },
+            {
+              "id": "nn6",
+              "index": 5,
+              "title": "Test it",
+              "kind": "run",
+              "what": "Predict XOR and see 0 1 1 0",
+              "video": null
+            }
+          ]
+        }
+      },
+      {
+        "wait": 0,
+        "type": "status",
+        "payload": {
+          "state": "watching"
+        }
+      },
+      {
+        "wait": 300,
+        "goto": "step_nn1"
+      }
+    ],
+    "step_nn1": [
+      {
+        "wait": 0,
+        "type": "step.started",
+        "payload": {
+          "stepId": "nn1",
+          "index": 0,
+          "title": "The data",
+          "instructions": "Create nn.py and type the XOR data.",
+          "video": null,
+          "kind": "code",
+          "what": "XOR inputs and targets as NumPy arrays",
+          "why": "XOR is the classic case one straight line can't split, so it needs a hidden layer.",
+          "concepts": [
+            "xor"
+          ],
+          "code": "import numpy as np\n\n# XOR: 1 when exactly one input is 1\nX = np.array([[0, 0], [0, 1], [1, 0], [1, 1]])\ny = np.array([[0], [1], [1], [0]])"
+        }
+      },
+      {
+        "wait": 0,
+        "type": "check.updated",
+        "payload": {
+          "stepId": "nn1",
+          "checkId": "c1",
+          "label": "nn.py exists",
+          "status": "pending"
+        }
+      },
+      {
+        "wait": 0,
+        "type": "check.updated",
+        "payload": {
+          "stepId": "nn1",
+          "checkId": "c2",
+          "label": "X is 4×2 and y is 4×1",
+          "status": "pending"
+        }
+      },
+      {
+        "wait": 500,
+        "type": "spotlight",
+        "payload": {
+          "rect": {
+            "x": 284,
+            "y": 118,
+            "w": 470,
+            "h": 96
+          },
+          "caption": "Create nn.py and type the data here",
+          "app": "Code"
+        }
+      }
+    ],
+    "nn1_check": [
+      {
+        "wait": 0,
+        "type": "status",
+        "payload": {
+          "state": "thinking"
+        }
+      },
+      {
+        "wait": 350,
+        "type": "check.updated",
+        "payload": {
+          "stepId": "nn1",
+          "checkId": "c1",
+          "label": "nn.py exists",
+          "status": "pass"
+        }
+      },
+      {
+        "wait": 380,
+        "type": "check.updated",
+        "payload": {
+          "stepId": "nn1",
+          "checkId": "c2",
+          "label": "X is 4×2 and y is 4×1",
+          "status": "pass"
+        }
+      },
+      {
+        "wait": 0,
+        "type": "status",
+        "payload": {
+          "state": "watching"
+        }
+      },
+      {
+        "wait": 400,
+        "type": "step.passed",
+        "payload": {
+          "stepId": "nn1",
+          "nextStepId": "nn2"
+        }
+      },
+      {
+        "wait": 0,
+        "type": "spotlight",
+        "payload": {
+          "clear": true
+        }
+      },
+      {
+        "wait": 1700,
+        "goto": "step_nn2"
+      }
+    ],
+    "nn1_skip": [
+      {
+        "wait": 0,
+        "type": "spotlight",
+        "payload": {
+          "clear": true
+        }
+      },
+      {
+        "wait": 200,
+        "type": "step.passed",
+        "payload": {
+          "stepId": "nn1",
+          "nextStepId": "nn2",
+          "skipped": true
+        }
+      },
+      {
+        "wait": 900,
+        "goto": "step_nn2"
+      }
+    ],
+    "nn1_explain": [
+      {
+        "wait": 0,
+        "type": "status",
+        "payload": {
+          "state": "thinking"
+        }
+      },
+      {
+        "wait": 650,
+        "type": "card",
+        "payload": {
+          "stepId": "nn1",
+          "kind": "explain",
+          "title": "Why XOR needs a hidden layer",
+          "body": "The 1s sit on opposite corners of a square. No straight line splits them, so one neuron can't. A hidden layer bends it."
+        }
+      },
+      {
+        "wait": 0,
+        "type": "status",
+        "payload": {
+          "state": "watching"
+        }
+      }
+    ],
+    "nn1_diagram": [
+      {
+        "wait": 0,
+        "type": "status",
+        "payload": {
+          "state": "thinking"
+        }
+      },
+      {
+        "wait": 700,
+        "type": "diagram",
+        "payload": {
+          "kind": "network",
+          "caption": "Two inputs, four hidden neurons, one output. Every line is one weight the loop learns.",
+          "data": {
+            "layers": [
+              2,
+              4,
+              1
+            ],
+            "activation": "sigmoid",
+            "inputs": [
+              "x₁",
+              "x₂"
+            ],
+            "output": "ŷ",
+            "derivatives": [],
+            "residual": ""
+          },
+          "stepId": "nn1"
+        }
+      },
+      {
+        "wait": 0,
+        "type": "status",
+        "payload": {
+          "state": "watching"
+        }
+      }
+    ],
+    "nn1_ask": [
+      {
+        "wait": 0,
+        "type": "status",
+        "payload": {
+          "state": "thinking"
+        }
+      },
+      {
+        "wait": 900,
+        "type": "card",
+        "payload": {
+          "stepId": "nn1",
+          "kind": "answer",
+          "title": "Why start with XOR",
+          "body": "It's the smallest problem one neuron can't solve, so it proves the hidden layer is doing real work."
+        }
+      },
+      {
+        "wait": 0,
+        "type": "status",
+        "payload": {
+          "state": "watching"
+        }
+      }
+    ],
+    "nn1_showme": [
+      {
+        "wait": 250,
+        "type": "spotlight",
+        "payload": {
+          "rect": {
+            "x": 284,
+            "y": 118,
+            "w": 470,
+            "h": 96
+          },
+          "caption": "Type this here",
+          "app": "Code",
+          "snippet": "import numpy as np\n\n# XOR: 1 when exactly one input is 1\nX = np.array([[0, 0], [0, 1], [1, 0], [1, 1]])\ny = np.array([[0], [1], [1], [0]])"
+        }
+      }
+    ],
+    "nn1_hint": [
+      {
+        "wait": 0,
+        "type": "status",
+        "payload": {
+          "state": "thinking"
+        }
+      },
+      {
+        "wait": 600,
+        "type": "card",
+        "payload": {
+          "stepId": "nn1",
+          "kind": "hint",
+          "title": "Hint",
+          "body": "X has one row per example. y holds the four answers in the same order."
+        }
+      },
+      {
+        "wait": 0,
+        "type": "status",
+        "payload": {
+          "state": "watching"
+        }
+      }
+    ],
+    "step_nn2": [
+      {
+        "wait": 0,
+        "type": "step.started",
+        "payload": {
+          "stepId": "nn2",
+          "index": 1,
+          "title": "Weights",
+          "instructions": "Add the weights and biases under the data.",
+          "video": null,
+          "kind": "code",
+          "what": "Random starting weights for a 2-4-1 network",
+          "why": "Small random weights make each hidden neuron start different, so each can learn its own feature.",
+          "concepts": [
+            "matmul"
+          ],
+          "code": "np.random.seed(0)\nW1 = np.random.randn(2, 4) * 0.5\nb1 = np.zeros((1, 4))\nW2 = np.random.randn(4, 1) * 0.5\nb2 = np.zeros((1, 1))"
+        }
+      },
+      {
+        "wait": 0,
+        "type": "check.updated",
+        "payload": {
+          "stepId": "nn2",
+          "checkId": "c1",
+          "label": "W1 is 2×4 and W2 is 4×1",
+          "status": "pending"
+        }
+      },
+      {
+        "wait": 0,
+        "type": "check.updated",
+        "payload": {
+          "stepId": "nn2",
+          "checkId": "c2",
+          "label": "b1 and b2 are defined",
+          "status": "pending"
+        }
+      },
+      {
+        "wait": 500,
+        "type": "spotlight",
+        "payload": {
+          "rect": {
+            "x": 284,
+            "y": 226,
+            "w": 470,
+            "h": 96
+          },
+          "caption": "Weights go under the data",
+          "app": "Code"
+        }
+      }
+    ],
+    "nn2_check": [
+      {
+        "wait": 0,
+        "type": "status",
+        "payload": {
+          "state": "thinking"
+        }
+      },
+      {
+        "wait": 350,
+        "type": "check.updated",
+        "payload": {
+          "stepId": "nn2",
+          "checkId": "c1",
+          "label": "W1 is 2×4 and W2 is 4×1",
+          "status": "pass"
+        }
+      },
+      {
+        "wait": 380,
+        "type": "check.updated",
+        "payload": {
+          "stepId": "nn2",
+          "checkId": "c2",
+          "label": "b1 and b2 are defined",
+          "status": "pass"
+        }
+      },
+      {
+        "wait": 0,
+        "type": "status",
+        "payload": {
+          "state": "watching"
+        }
+      },
+      {
+        "wait": 400,
+        "type": "step.passed",
+        "payload": {
+          "stepId": "nn2",
+          "nextStepId": "nn3"
+        }
+      },
+      {
+        "wait": 0,
+        "type": "spotlight",
+        "payload": {
+          "clear": true
+        }
+      },
+      {
+        "wait": 1700,
+        "goto": "step_nn3"
+      }
+    ],
+    "nn2_skip": [
+      {
+        "wait": 0,
+        "type": "spotlight",
+        "payload": {
+          "clear": true
+        }
+      },
+      {
+        "wait": 200,
+        "type": "step.passed",
+        "payload": {
+          "stepId": "nn2",
+          "nextStepId": "nn3",
+          "skipped": true
+        }
+      },
+      {
+        "wait": 900,
+        "goto": "step_nn3"
+      }
+    ],
+    "nn2_explain": [
+      {
+        "wait": 0,
+        "type": "status",
+        "payload": {
+          "state": "thinking"
+        }
+      },
+      {
+        "wait": 650,
+        "type": "card",
+        "payload": {
+          "stepId": "nn2",
+          "kind": "explain",
+          "title": "Why the weights start random",
+          "body": "Two neurons with the same weights compute the same thing and get the same update. Random starts let each learn its own."
+        }
+      },
+      {
+        "wait": 0,
+        "type": "status",
+        "payload": {
+          "state": "watching"
+        }
+      }
+    ],
+    "nn2_diagram": [
+      {
+        "wait": 0,
+        "type": "status",
+        "payload": {
+          "state": "thinking"
+        }
+      },
+      {
+        "wait": 700,
+        "type": "diagram",
+        "payload": {
+          "kind": "network",
+          "caption": "Two inputs, four hidden neurons, one output. Every line is one weight the loop learns.",
+          "data": {
+            "layers": [
+              2,
+              4,
+              1
+            ],
+            "activation": "sigmoid",
+            "inputs": [
+              "x₁",
+              "x₂"
+            ],
+            "output": "ŷ",
+            "derivatives": [],
+            "residual": ""
+          },
+          "stepId": "nn2"
+        }
+      },
+      {
+        "wait": 0,
+        "type": "status",
+        "payload": {
+          "state": "watching"
+        }
+      }
+    ],
+    "nn2_ask": [
+      {
+        "wait": 0,
+        "type": "status",
+        "payload": {
+          "state": "thinking"
+        }
+      },
+      {
+        "wait": 900,
+        "type": "card",
+        "payload": {
+          "stepId": "nn2",
+          "kind": "answer",
+          "title": "Why times 0.5",
+          "body": "Small starting weights keep sigmoid in its steep middle, where the gradients are big enough to learn fast."
+        }
+      },
+      {
+        "wait": 0,
+        "type": "status",
+        "payload": {
+          "state": "watching"
+        }
+      }
+    ],
+    "nn2_showme": [
+      {
+        "wait": 250,
+        "type": "spotlight",
+        "payload": {
+          "rect": {
+            "x": 284,
+            "y": 226,
+            "w": 470,
+            "h": 96
+          },
+          "caption": "Type this here",
+          "app": "Code",
+          "snippet": "np.random.seed(0)\nW1 = np.random.randn(2, 4) * 0.5\nb1 = np.zeros((1, 4))\nW2 = np.random.randn(4, 1) * 0.5\nb2 = np.zeros((1, 1))"
+        }
+      }
+    ],
+    "nn2_hint": [
+      {
+        "wait": 0,
+        "type": "status",
+        "payload": {
+          "state": "thinking"
+        }
+      },
+      {
+        "wait": 600,
+        "type": "card",
+        "payload": {
+          "stepId": "nn2",
+          "kind": "hint",
+          "title": "Hint",
+          "body": "W1 maps 2 inputs to 4 hidden neurons, so it's 2×4. W2 maps 4 to 1."
+        }
+      },
+      {
+        "wait": 0,
+        "type": "status",
+        "payload": {
+          "state": "watching"
+        }
+      }
+    ],
+    "step_nn3": [
+      {
+        "wait": 0,
+        "type": "step.started",
+        "payload": {
+          "stepId": "nn3",
+          "index": 2,
+          "title": "Forward pass",
+          "instructions": "Add sigmoid and forward.",
+          "video": null,
+          "kind": "code",
+          "what": "Sigmoid, and a forward pass from inputs to a guess",
+          "why": "Each layer is a weighted sum squashed by sigmoid. Two layers turn the inputs into a guess between 0 and 1.",
+          "concepts": [
+            "sigmoid",
+            "matmul"
+          ],
+          "code": "def sigmoid(z):\n    return 1 / (1 + np.exp(-z))\n\ndef forward(X):\n    h = sigmoid(X @ W1 + b1)\n    return h, sigmoid(h @ W2 + b2)"
+        }
+      },
+      {
+        "wait": 0,
+        "type": "check.updated",
+        "payload": {
+          "stepId": "nn3",
+          "checkId": "c1",
+          "label": "sigmoid and forward are defined",
+          "status": "pending"
+        }
+      },
+      {
+        "wait": 0,
+        "type": "check.updated",
+        "payload": {
+          "stepId": "nn3",
+          "checkId": "c2",
+          "label": "forward(X) returns 4 outputs",
+          "status": "pending"
+        }
+      },
+      {
+        "wait": 500,
+        "type": "spotlight",
+        "payload": {
+          "rect": {
+            "x": 284,
+            "y": 334,
+            "w": 470,
+            "h": 114
+          },
+          "caption": "Add sigmoid and forward here",
+          "app": "Code"
+        }
+      }
+    ],
+    "nn3_check": [
+      {
+        "wait": 0,
+        "type": "status",
+        "payload": {
+          "state": "thinking"
+        }
+      },
+      {
+        "wait": 350,
+        "type": "check.updated",
+        "payload": {
+          "stepId": "nn3",
+          "checkId": "c1",
+          "label": "sigmoid and forward are defined",
+          "status": "pass"
+        }
+      },
+      {
+        "wait": 380,
+        "type": "check.updated",
+        "payload": {
+          "stepId": "nn3",
+          "checkId": "c2",
+          "label": "forward(X) returns 4 outputs",
+          "status": "pass"
+        }
+      },
+      {
+        "wait": 0,
+        "type": "status",
+        "payload": {
+          "state": "watching"
+        }
+      },
+      {
+        "wait": 400,
+        "type": "step.passed",
+        "payload": {
+          "stepId": "nn3",
+          "nextStepId": "nn4"
+        }
+      },
+      {
+        "wait": 0,
+        "type": "spotlight",
+        "payload": {
+          "clear": true
+        }
+      },
+      {
+        "wait": 1700,
+        "goto": "step_nn4"
+      }
+    ],
+    "nn3_skip": [
+      {
+        "wait": 0,
+        "type": "spotlight",
+        "payload": {
+          "clear": true
+        }
+      },
+      {
+        "wait": 200,
+        "type": "step.passed",
+        "payload": {
+          "stepId": "nn3",
+          "nextStepId": "nn4",
+          "skipped": true
+        }
+      },
+      {
+        "wait": 900,
+        "goto": "step_nn4"
+      }
+    ],
+    "nn3_explain": [
+      {
+        "wait": 0,
+        "type": "status",
+        "payload": {
+          "state": "thinking"
+        }
+      },
+      {
+        "wait": 650,
+        "type": "card",
+        "payload": {
+          "stepId": "nn3",
+          "kind": "explain",
+          "title": "What forward computes",
+          "body": "Each hidden neuron takes a weighted sum of the inputs, squashed into 0..1 by sigmoid. W2 does it again to make one guess."
+        }
+      },
+      {
+        "wait": 0,
+        "type": "status",
+        "payload": {
+          "state": "watching"
+        }
+      }
+    ],
+    "nn3_diagram": [
+      {
+        "wait": 0,
+        "type": "status",
+        "payload": {
+          "state": "thinking"
+        }
+      },
+      {
+        "wait": 700,
+        "type": "diagram",
+        "payload": {
+          "kind": "network",
+          "caption": "Two inputs, four hidden neurons, one output. Every line is one weight the loop learns.",
+          "data": {
+            "layers": [
+              2,
+              4,
+              1
+            ],
+            "activation": "sigmoid",
+            "inputs": [
+              "x₁",
+              "x₂"
+            ],
+            "output": "ŷ",
+            "derivatives": [],
+            "residual": ""
+          },
+          "stepId": "nn3"
+        }
+      },
+      {
+        "wait": 0,
+        "type": "status",
+        "payload": {
+          "state": "watching"
+        }
+      }
+    ],
+    "nn3_ask": [
+      {
+        "wait": 0,
+        "type": "status",
+        "payload": {
+          "state": "thinking"
+        }
+      },
+      {
+        "wait": 900,
+        "type": "card",
+        "payload": {
+          "stepId": "nn3",
+          "kind": "answer",
+          "title": "Sigmoid or ReLU?",
+          "body": "Both work. Sigmoid keeps outputs in 0..1 like XOR's answers, and its slope σ(1 − σ) keeps backprop to one line."
+        }
+      },
+      {
+        "wait": 0,
+        "type": "status",
+        "payload": {
+          "state": "watching"
+        }
+      }
+    ],
+    "nn3_showme": [
+      {
+        "wait": 250,
+        "type": "spotlight",
+        "payload": {
+          "rect": {
+            "x": 284,
+            "y": 334,
+            "w": 470,
+            "h": 114
+          },
+          "caption": "Type this here",
+          "app": "Code",
+          "snippet": "def sigmoid(z):\n    return 1 / (1 + np.exp(-z))\n\ndef forward(X):\n    h = sigmoid(X @ W1 + b1)\n    return h, sigmoid(h @ W2 + b2)"
+        }
+      }
+    ],
+    "nn3_hint": [
+      {
+        "wait": 0,
+        "type": "status",
+        "payload": {
+          "state": "thinking"
+        }
+      },
+      {
+        "wait": 600,
+        "type": "card",
+        "payload": {
+          "stepId": "nn3",
+          "kind": "hint",
+          "title": "Hint",
+          "body": "forward returns h as well: backward needs it."
+        }
+      },
+      {
+        "wait": 0,
+        "type": "status",
+        "payload": {
+          "state": "watching"
+        }
+      }
+    ],
+    "step_nn4": [
+      {
+        "wait": 0,
+        "type": "step.started",
+        "payload": {
+          "stepId": "nn4",
+          "index": 3,
+          "title": "Backprop",
+          "instructions": "Add backward. It returns one gradient per weight.",
+          "video": null,
+          "kind": "code",
+          "what": "A gradient for every weight, with the chain rule",
+          "why": "The chain rule passes the error back one layer at a time, so every weight learns its share of the blame.",
+          "concepts": [
+            "chain_rule"
+          ],
+          "code": "def backward(X, y, h, out):\n    d_out = 2 * (out - y) / len(X) * out * (1 - out)\n    d_h = d_out @ W2.T * h * (1 - h)\n    return h.T @ d_out, d_out.sum(0), X.T @ d_h, d_h.sum(0)"
+        }
+      },
+      {
+        "wait": 0,
+        "type": "check.updated",
+        "payload": {
+          "stepId": "nn4",
+          "checkId": "c1",
+          "label": "backward is defined",
+          "status": "pending"
+        }
+      },
+      {
+        "wait": 0,
+        "type": "check.updated",
+        "payload": {
+          "stepId": "nn4",
+          "checkId": "c2",
+          "label": "Gradients match the weight shapes",
+          "status": "pending"
+        }
+      },
+      {
+        "wait": 500,
+        "type": "spotlight",
+        "payload": {
+          "rect": {
+            "x": 284,
+            "y": 460,
+            "w": 470,
+            "h": 78
+          },
+          "caption": "Add backward here",
+          "app": "Code"
+        }
+      }
+    ],
+    "nn4_check": [
+      {
+        "wait": 0,
+        "type": "status",
+        "payload": {
+          "state": "thinking"
+        }
+      },
+      {
+        "wait": 350,
+        "type": "check.updated",
+        "payload": {
+          "stepId": "nn4",
+          "checkId": "c1",
+          "label": "backward is defined",
+          "status": "pass"
+        }
+      },
+      {
+        "wait": 380,
+        "type": "check.updated",
+        "payload": {
+          "stepId": "nn4",
+          "checkId": "c2",
+          "label": "Gradients match the weight shapes",
+          "status": "pass"
+        }
+      },
+      {
+        "wait": 0,
+        "type": "status",
+        "payload": {
+          "state": "watching"
+        }
+      },
+      {
+        "wait": 400,
+        "type": "step.passed",
+        "payload": {
+          "stepId": "nn4",
+          "nextStepId": "nn5"
+        }
+      },
+      {
+        "wait": 0,
+        "type": "spotlight",
+        "payload": {
+          "clear": true
+        }
+      },
+      {
+        "wait": 1700,
+        "goto": "step_nn5"
+      }
+    ],
+    "nn4_skip": [
+      {
+        "wait": 0,
+        "type": "spotlight",
+        "payload": {
+          "clear": true
+        }
+      },
+      {
+        "wait": 200,
+        "type": "step.passed",
+        "payload": {
+          "stepId": "nn4",
+          "nextStepId": "nn5",
+          "skipped": true
+        }
+      },
+      {
+        "wait": 900,
+        "goto": "step_nn5"
+      }
+    ],
+    "nn4_explain": [
+      {
+        "wait": 0,
+        "type": "status",
+        "payload": {
+          "state": "thinking"
+        }
+      },
+      {
+        "wait": 650,
+        "type": "card",
+        "payload": {
+          "stepId": "nn4",
+          "kind": "explain",
+          "title": "The chain rule, in this code",
+          "body": "out depends on h, h on W1. Multiply the slopes along that path: d_out is error × σ′, and d_h carries it back through W2."
+        }
+      },
+      {
+        "wait": 0,
+        "type": "status",
+        "payload": {
+          "state": "watching"
+        }
+      }
+    ],
+    "nn4_diagram": [
+      {
+        "wait": 0,
+        "type": "status",
+        "payload": {
+          "state": "thinking"
+        }
+      },
+      {
+        "wait": 700,
+        "type": "diagram",
+        "payload": {
+          "kind": "graph",
+          "caption": "Forward makes a guess. Backward sends the error back the same way, one layer at a time.",
+          "data": {
+            "title": "Forward, then backward",
+            "layout": "flow",
+            "direction": "LR",
+            "grid": {
+              "cols": 4,
+              "rows": 2
+            },
+            "nodes": [
+              {
+                "id": "x",
+                "label": "X",
+                "detail": "4 examples",
+                "shape": "data",
+                "emphasis": false,
+                "col": 0,
+                "row": 0
+              },
+              {
+                "id": "h",
+                "label": "hidden h",
+                "detail": "σ(X @ W1 + b1)",
+                "shape": "box",
+                "emphasis": false,
+                "col": 1,
+                "row": 0
+              },
+              {
+                "id": "out",
+                "label": "out",
+                "detail": "σ(h @ W2 + b2)",
+                "shape": "box",
+                "emphasis": false,
+                "col": 2,
+                "row": 0
+              },
+              {
+                "id": "loss",
+                "label": "loss",
+                "detail": "mean (out − y)²",
+                "shape": "round",
+                "emphasis": true,
+                "col": 3,
+                "row": 0
+              },
+              {
+                "id": "dout",
+                "label": "d_out",
+                "detail": "error × σ′",
+                "shape": "box",
+                "emphasis": true,
+                "col": 2,
+                "row": 1
+              },
+              {
+                "id": "dh",
+                "label": "d_h",
+                "detail": "d_out @ W2ᵀ × σ′",
+                "shape": "box",
+                "emphasis": true,
+                "col": 1,
+                "row": 1
+              }
+            ],
+            "edges": [
+              {
+                "from": "x",
+                "to": "h",
+                "style": "solid",
+                "emphasis": false
+              },
+              {
+                "from": "h",
+                "to": "out",
+                "style": "solid",
+                "emphasis": false
+              },
+              {
+                "from": "out",
+                "to": "loss",
+                "style": "solid",
+                "emphasis": false
+              },
+              {
+                "from": "loss",
+                "to": "dout",
+                "style": "dashed",
+                "emphasis": true,
+                "label": "backward"
+              },
+              {
+                "from": "dout",
+                "to": "dh",
+                "style": "dashed",
+                "emphasis": true,
+                "label": "through W2"
+              }
+            ]
+          },
+          "stepId": "nn4"
+        }
+      },
+      {
+        "wait": 0,
+        "type": "status",
+        "payload": {
+          "state": "watching"
+        }
+      }
+    ],
+    "nn4_ask": [
+      {
+        "wait": 0,
+        "type": "status",
+        "payload": {
+          "state": "thinking"
+        }
+      },
+      {
+        "wait": 900,
+        "type": "card",
+        "payload": {
+          "stepId": "nn4",
+          "kind": "answer",
+          "title": "Why out * (1 - out)",
+          "body": "It's sigmoid's slope, σ(1 − σ). The chain rule multiplies it in wherever the signal went through a sigmoid."
+        }
+      },
+      {
+        "wait": 0,
+        "type": "status",
+        "payload": {
+          "state": "watching"
+        }
+      }
+    ],
+    "nn4_showme": [
+      {
+        "wait": 250,
+        "type": "spotlight",
+        "payload": {
+          "rect": {
+            "x": 284,
+            "y": 460,
+            "w": 470,
+            "h": 78
+          },
+          "caption": "Type this here",
+          "app": "Code",
+          "snippet": "def backward(X, y, h, out):\n    d_out = 2 * (out - y) / len(X) * out * (1 - out)\n    d_h = d_out @ W2.T * h * (1 - h)\n    return h.T @ d_out, d_out.sum(0), X.T @ d_h, d_h.sum(0)"
+        }
+      }
+    ],
+    "nn4_hint": [
+      {
+        "wait": 0,
+        "type": "status",
+        "payload": {
+          "state": "thinking"
+        }
+      },
+      {
+        "wait": 600,
+        "type": "card",
+        "payload": {
+          "stepId": "nn4",
+          "kind": "hint",
+          "title": "Hint",
+          "body": "Sigmoid's slope is out * (1 - out). Multiply it in at each layer."
+        }
+      },
+      {
+        "wait": 0,
+        "type": "status",
+        "payload": {
+          "state": "watching"
+        }
+      }
+    ],
+    "step_nn5": [
+      {
+        "wait": 0,
+        "type": "step.started",
+        "payload": {
+          "stepId": "nn5",
+          "index": 4,
+          "title": "Train",
+          "instructions": "Type the training loop, then run python nn.py.",
+          "video": null,
+          "kind": "code",
+          "what": "A loop that steps every weight downhill 5,000 times",
+          "why": "Gradient descent: move each weight a little against its gradient, and the loss falls.",
+          "concepts": [
+            "gradient_descent"
+          ],
+          "code": "lr = 1.0\nfor epoch in range(5000):\n    h, out = forward(X)\n    dW2, db2, dW1, db1 = backward(X, y, h, out)\n    W2 -= lr * dW2\n    b2 -= lr * db2\n    W1 -= lr * dW1\n    b1 -= lr * db1\n    loss = np.mean((out - y) ** 2)\n    if epoch % 1000 == 0:\n        print(f\"epoch {epoch:4d}  loss {loss:.4f}\")"
+        }
+      },
+      {
+        "wait": 0,
+        "type": "check.updated",
+        "payload": {
+          "stepId": "nn5",
+          "checkId": "c1",
+          "label": "The loop updates all four weights",
+          "status": "pending"
+        }
+      },
+      {
+        "wait": 0,
+        "type": "check.updated",
+        "payload": {
+          "stepId": "nn5",
+          "checkId": "c2",
+          "label": "nn.py runs without errors",
+          "status": "pending"
+        }
+      },
+      {
+        "wait": 0,
+        "type": "check.updated",
+        "payload": {
+          "stepId": "nn5",
+          "checkId": "c3",
+          "label": "Loss falls below 0.01",
+          "status": "pending"
+        }
+      },
+      {
+        "wait": 500,
+        "type": "spotlight",
+        "payload": {
+          "rect": {
+            "x": 284,
+            "y": 550,
+            "w": 470,
+            "h": 204
+          },
+          "caption": "The training loop goes here",
+          "app": "Code"
+        }
+      }
+    ],
+    "nn5_check": [
+      {
+        "wait": 0,
+        "type": "status",
+        "payload": {
+          "state": "thinking"
+        }
+      },
+      {
+        "wait": 400,
+        "type": "check.updated",
+        "payload": {
+          "stepId": "nn5",
+          "checkId": "c1",
+          "label": "The loop updates all four weights",
+          "status": "pass"
+        }
+      },
+      {
+        "wait": 250,
+        "type": "check.updated",
+        "payload": {
+          "stepId": "nn5",
+          "checkId": "c2",
+          "label": "nn.py runs without errors",
+          "status": "pending",
+          "detail": "running python nn.py"
+        }
+      },
+      {
+        "wait": 0,
+        "type": "status",
+        "payload": {
+          "state": "watching"
+        }
+      },
+      {
+        "wait": 0,
+        "type": "spotlight",
+        "payload": {
+          "rect": {
+            "x": 800,
+            "y": 100,
+            "w": 300,
+            "h": 24
+          },
+          "caption": "Watching your training run",
+          "app": "Code"
+        }
+      },
+      {
+        "wait": 0,
+        "type": "metric",
+        "payload": {
+          "runId": "tutorial",
+          "step": 0,
+          "name": "loss",
+          "value": 0.2691
+        }
+      },
+      {
+        "wait": 0,
+        "type": "metric",
+        "payload": {
+          "runId": "tutorial",
+          "step": 250,
+          "name": "loss",
+          "value": 0.24696
+        }
+      },
+      {
+        "wait": 0,
+        "type": "metric",
+        "payload": {
+          "runId": "tutorial",
+          "step": 500,
+          "name": "loss",
+          "value": 0.21131
+        }
+      },
+      {
+        "wait": 0,
+        "type": "metric",
+        "payload": {
+          "runId": "tutorial",
+          "step": 750,
+          "name": "loss",
+          "value": 0.10564
+        }
+      },
+      {
+        "wait": 0,
+        "type": "metric",
+        "payload": {
+          "runId": "tutorial",
+          "step": 1000,
+          "name": "loss",
+          "value": 0.021908
+        }
+      },
+      {
+        "wait": 0,
+        "type": "metric",
+        "payload": {
+          "runId": "tutorial",
+          "step": 1250,
+          "name": "loss",
+          "value": 0.0091464
+        }
+      },
+      {
+        "wait": 0,
+        "type": "metric",
+        "payload": {
+          "runId": "tutorial",
+          "step": 1500,
+          "name": "loss",
+          "value": 0.005438
+        }
+      },
+      {
+        "wait": 0,
+        "type": "metric",
+        "payload": {
+          "runId": "tutorial",
+          "step": 1750,
+          "name": "loss",
+          "value": 0.0037846
+        }
+      },
+      {
+        "wait": 0,
+        "type": "metric",
+        "payload": {
+          "runId": "tutorial",
+          "step": 2000,
+          "name": "loss",
+          "value": 0.0028712
+        }
+      },
+      {
+        "wait": 0,
+        "type": "metric",
+        "payload": {
+          "runId": "tutorial",
+          "step": 2250,
+          "name": "loss",
+          "value": 0.0022988
+        }
+      },
+      {
+        "wait": 0,
+        "type": "metric",
+        "payload": {
+          "runId": "tutorial",
+          "step": 2500,
+          "name": "loss",
+          "value": 0.0019092
+        }
+      },
+      {
+        "wait": 0,
+        "type": "metric",
+        "payload": {
+          "runId": "tutorial",
+          "step": 2750,
+          "name": "loss",
+          "value": 0.0016282
+        }
+      },
+      {
+        "wait": 0,
+        "type": "metric",
+        "payload": {
+          "runId": "tutorial",
+          "step": 3000,
+          "name": "loss",
+          "value": 0.0014166
+        }
+      },
+      {
+        "wait": 0,
+        "type": "metric",
+        "payload": {
+          "runId": "tutorial",
+          "step": 3250,
+          "name": "loss",
+          "value": 0.0012519
+        }
+      },
+      {
+        "wait": 0,
+        "type": "metric",
+        "payload": {
+          "runId": "tutorial",
+          "step": 3500,
+          "name": "loss",
+          "value": 0.0011202
+        }
+      },
+      {
+        "wait": 0,
+        "type": "metric",
+        "payload": {
+          "runId": "tutorial",
+          "step": 3750,
+          "name": "loss",
+          "value": 0.0010127
+        }
+      },
+      {
+        "wait": 0,
+        "type": "metric",
+        "payload": {
+          "runId": "tutorial",
+          "step": 4000,
+          "name": "loss",
+          "value": 0.00092341
+        }
+      },
+      {
+        "wait": 0,
+        "type": "metric",
+        "payload": {
+          "runId": "tutorial",
+          "step": 4250,
+          "name": "loss",
+          "value": 0.00084807
+        }
+      },
+      {
+        "wait": 0,
+        "type": "metric",
+        "payload": {
+          "runId": "tutorial",
+          "step": 4500,
+          "name": "loss",
+          "value": 0.00078371
+        }
+      },
+      {
+        "wait": 0,
+        "type": "metric",
+        "payload": {
+          "runId": "tutorial",
+          "step": 4750,
+          "name": "loss",
+          "value": 0.00072813
+        }
+      },
+      {
+        "wait": 350,
+        "type": "metric",
+        "payload": {
+          "runId": "zeros",
+          "step": 0,
+          "name": "loss",
+          "value": 0.25
+        }
+      },
+      {
+        "wait": 130,
+        "type": "metric",
+        "payload": {
+          "runId": "zeros",
+          "step": 250,
+          "name": "loss",
+          "value": 0.25
+        }
+      },
+      {
+        "wait": 130,
+        "type": "metric",
+        "payload": {
+          "runId": "zeros",
+          "step": 500,
+          "name": "loss",
+          "value": 0.25
+        }
+      },
+      {
+        "wait": 130,
+        "type": "metric",
+        "payload": {
+          "runId": "zeros",
+          "step": 750,
+          "name": "loss",
+          "value": 0.25
+        }
+      },
+      {
+        "wait": 130,
+        "type": "metric",
+        "payload": {
+          "runId": "zeros",
+          "step": 1000,
+          "name": "loss",
+          "value": 0.25
+        }
+      },
+      {
+        "wait": 130,
+        "type": "metric",
+        "payload": {
+          "runId": "zeros",
+          "step": 1250,
+          "name": "loss",
+          "value": 0.25
+        }
+      },
+      {
+        "wait": 130,
+        "type": "metric",
+        "payload": {
+          "runId": "zeros",
+          "step": 1500,
+          "name": "loss",
+          "value": 0.25
+        }
+      },
+      {
+        "wait": 130,
+        "type": "metric",
+        "payload": {
+          "runId": "zeros",
+          "step": 1750,
+          "name": "loss",
+          "value": 0.25
+        }
+      },
+      {
+        "wait": 130,
+        "type": "metric",
+        "payload": {
+          "runId": "zeros",
+          "step": 2000,
+          "name": "loss",
+          "value": 0.25
+        }
+      },
+      {
+        "wait": 130,
+        "type": "metric",
+        "payload": {
+          "runId": "zeros",
+          "step": 2250,
+          "name": "loss",
+          "value": 0.25
+        }
+      },
+      {
+        "wait": 130,
+        "type": "metric",
+        "payload": {
+          "runId": "zeros",
+          "step": 2500,
+          "name": "loss",
+          "value": 0.25
+        }
+      },
+      {
+        "wait": 130,
+        "type": "metric",
+        "payload": {
+          "runId": "zeros",
+          "step": 2750,
+          "name": "loss",
+          "value": 0.25
+        }
+      },
+      {
+        "wait": 130,
+        "type": "metric",
+        "payload": {
+          "runId": "zeros",
+          "step": 3000,
+          "name": "loss",
+          "value": 0.25
+        }
+      },
+      {
+        "wait": 130,
+        "type": "metric",
+        "payload": {
+          "runId": "zeros",
+          "step": 3250,
+          "name": "loss",
+          "value": 0.25
+        }
+      },
+      {
+        "wait": 130,
+        "type": "metric",
+        "payload": {
+          "runId": "zeros",
+          "step": 3500,
+          "name": "loss",
+          "value": 0.25
+        }
+      },
+      {
+        "wait": 130,
+        "type": "metric",
+        "payload": {
+          "runId": "zeros",
+          "step": 3750,
+          "name": "loss",
+          "value": 0.25
+        }
+      },
+      {
+        "wait": 130,
+        "type": "metric",
+        "payload": {
+          "runId": "zeros",
+          "step": 4000,
+          "name": "loss",
+          "value": 0.25
+        }
+      },
+      {
+        "wait": 130,
+        "type": "metric",
+        "payload": {
+          "runId": "zeros",
+          "step": 4250,
+          "name": "loss",
+          "value": 0.25
+        }
+      },
+      {
+        "wait": 130,
+        "type": "metric",
+        "payload": {
+          "runId": "zeros",
+          "step": 4500,
+          "name": "loss",
+          "value": 0.25
+        }
+      },
+      {
+        "wait": 130,
+        "type": "metric",
+        "payload": {
+          "runId": "zeros",
+          "step": 4750,
+          "name": "loss",
+          "value": 0.25
+        }
+      },
+      {
+        "wait": 200,
+        "type": "check.updated",
+        "payload": {
+          "stepId": "nn5",
+          "checkId": "c2",
+          "label": "nn.py runs without errors",
+          "status": "pass"
+        }
+      },
+      {
+        "wait": 300,
+        "type": "check.updated",
+        "payload": {
+          "stepId": "nn5",
+          "checkId": "c3",
+          "label": "Loss falls below 0.01",
+          "status": "fail",
+          "detail": "yours 0.2500"
+        }
+      },
+      {
+        "wait": 0,
+        "type": "status",
+        "payload": {
+          "state": "offtrack"
+        }
+      },
+      {
+        "wait": 150,
+        "type": "offtrack",
+        "payload": {
+          "stepId": "nn5",
+          "severity": "fail",
+          "reason": "loss flat for 5,000 epochs",
+          "title": "Loss is stuck at 0.25",
+          "body": "Your loss hasn't moved in 5,000 epochs. The tutorial's falls below 0.01.",
+          "guidingQuestion": "If every hidden neuron starts the same, can they ever become different?",
+          "actions": [
+            "show_me",
+            "explain",
+            "hint"
+          ],
+          "level": 2,
+          "curve": {
+            "label": "loss",
+            "yours": [
+              0.25,
+              0.25,
+              0.25,
+              0.25,
+              0.25,
+              0.25,
+              0.25,
+              0.25,
+              0.25,
+              0.25,
+              0.25,
+              0.25,
+              0.25,
+              0.25,
+              0.25,
+              0.25,
+              0.25,
+              0.25,
+              0.25,
+              0.25
+            ],
+            "tutorial": [
+              0.2691,
+              0.24696,
+              0.21131,
+              0.10564,
+              0.021908,
+              0.0091464,
+              0.005438,
+              0.0037846,
+              0.0028712,
+              0.0022988,
+              0.0019092,
+              0.0016282,
+              0.0014166,
+              0.0012519,
+              0.0011202,
+              0.0010127,
+              0.00092341,
+              0.00084807,
+              0.00078371,
+              0.00072813
+            ]
+          }
+        }
+      },
+      {
+        "wait": 450,
+        "type": "spotlight",
+        "payload": {
+          "rect": {
+            "x": 284,
+            "y": 244,
+            "w": 470,
+            "h": 60
+          },
+          "caption": "Every weight starts at zero",
+          "app": "Code",
+          "matched": "W1 = np.zeros((2, 4))"
+        }
+      }
+    ],
+    "nn5_hint": [
+      {
+        "wait": 0,
+        "type": "status",
+        "payload": {
+          "state": "thinking"
+        }
+      },
+      {
+        "wait": 700,
+        "type": "offtrack",
+        "payload": {
+          "stepId": "nn5",
+          "severity": "fail",
+          "reason": "loss flat for 5,000 epochs",
+          "title": "Loss is stuck at 0.25",
+          "body": "Start W1 and W2 random, like the lesson. Zeros make every hidden neuron identical.",
+          "diff": {
+            "file": "nn.py",
+            "line": 8,
+            "expected": "W1 = np.random.randn(2, 4) * 0.5",
+            "yours": "W1 = np.zeros((2, 4))"
+          },
+          "actions": [
+            "show_me",
+            "explain",
+            "apply_fix"
+          ],
+          "level": 3,
+          "curve": {
+            "label": "loss",
+            "yours": [
+              0.25,
+              0.25,
+              0.25,
+              0.25,
+              0.25,
+              0.25,
+              0.25,
+              0.25,
+              0.25,
+              0.25,
+              0.25,
+              0.25,
+              0.25,
+              0.25,
+              0.25,
+              0.25,
+              0.25,
+              0.25,
+              0.25,
+              0.25
+            ],
+            "tutorial": [
+              0.2691,
+              0.24696,
+              0.21131,
+              0.10564,
+              0.021908,
+              0.0091464,
+              0.005438,
+              0.0037846,
+              0.0028712,
+              0.0022988,
+              0.0019092,
+              0.0016282,
+              0.0014166,
+              0.0012519,
+              0.0011202,
+              0.0010127,
+              0.00092341,
+              0.00084807,
+              0.00078371,
+              0.00072813
+            ]
+          },
+          "citation": {
+            "label": "Goodfellow et al. · Deep Learning §8.4",
+            "url": "https://www.deeplearningbook.org/contents/optimization.html"
+          }
+        }
+      },
+      {
+        "wait": 0,
+        "type": "status",
+        "payload": {
+          "state": "offtrack"
+        }
+      },
+      {
+        "wait": 300,
+        "type": "spotlight",
+        "payload": {
+          "rect": {
+            "x": 284,
+            "y": 244,
+            "w": 470,
+            "h": 60
+          },
+          "caption": "Start these random, like the lesson",
+          "app": "Code",
+          "matched": "W1 = np.zeros((2, 4))"
+        }
+      }
+    ],
+    "nn5_fix": [
+      {
+        "wait": 0,
+        "type": "status",
+        "payload": {
+          "state": "thinking"
+        }
+      },
+      {
+        "wait": 300,
+        "type": "spotlight",
+        "payload": {
+          "rect": {
+            "x": 284,
+            "y": 244,
+            "w": 470,
+            "h": 60
+          },
+          "caption": "Random starts, like the lesson",
+          "app": "Code",
+          "matched": "W1 = np.random.randn(2, 4) * 0.5"
+        }
+      },
+      {
+        "wait": 0,
+        "type": "check.updated",
+        "payload": {
+          "stepId": "nn5",
+          "checkId": "c3",
+          "label": "Loss falls below 0.01",
+          "status": "pending",
+          "detail": "retraining"
+        }
+      },
+      {
+        "wait": 900,
+        "type": "status",
+        "payload": {
+          "state": "watching"
+        }
+      },
+      {
+        "wait": 0,
+        "type": "spotlight",
+        "payload": {
+          "rect": {
+            "x": 800,
+            "y": 208,
+            "w": 300,
+            "h": 24
+          },
+          "caption": "Retraining with random weights",
+          "app": "Code"
+        }
+      },
+      {
+        "wait": 350,
+        "type": "metric",
+        "payload": {
+          "runId": "fixed",
+          "step": 0,
+          "name": "loss",
+          "value": 0.2691
+        }
+      },
+      {
+        "wait": 130,
+        "type": "metric",
+        "payload": {
+          "runId": "fixed",
+          "step": 250,
+          "name": "loss",
+          "value": 0.24696
+        }
+      },
+      {
+        "wait": 130,
+        "type": "metric",
+        "payload": {
+          "runId": "fixed",
+          "step": 500,
+          "name": "loss",
+          "value": 0.21131
+        }
+      },
+      {
+        "wait": 130,
+        "type": "metric",
+        "payload": {
+          "runId": "fixed",
+          "step": 750,
+          "name": "loss",
+          "value": 0.10564
+        }
+      },
+      {
+        "wait": 130,
+        "type": "metric",
+        "payload": {
+          "runId": "fixed",
+          "step": 1000,
+          "name": "loss",
+          "value": 0.021908
+        }
+      },
+      {
+        "wait": 130,
+        "type": "metric",
+        "payload": {
+          "runId": "fixed",
+          "step": 1250,
+          "name": "loss",
+          "value": 0.0091464
+        }
+      },
+      {
+        "wait": 130,
+        "type": "metric",
+        "payload": {
+          "runId": "fixed",
+          "step": 1500,
+          "name": "loss",
+          "value": 0.005438
+        }
+      },
+      {
+        "wait": 130,
+        "type": "metric",
+        "payload": {
+          "runId": "fixed",
+          "step": 1750,
+          "name": "loss",
+          "value": 0.0037846
+        }
+      },
+      {
+        "wait": 130,
+        "type": "metric",
+        "payload": {
+          "runId": "fixed",
+          "step": 2000,
+          "name": "loss",
+          "value": 0.0028712
+        }
+      },
+      {
+        "wait": 130,
+        "type": "metric",
+        "payload": {
+          "runId": "fixed",
+          "step": 2250,
+          "name": "loss",
+          "value": 0.0022988
+        }
+      },
+      {
+        "wait": 130,
+        "type": "metric",
+        "payload": {
+          "runId": "fixed",
+          "step": 2500,
+          "name": "loss",
+          "value": 0.0019092
+        }
+      },
+      {
+        "wait": 130,
+        "type": "metric",
+        "payload": {
+          "runId": "fixed",
+          "step": 2750,
+          "name": "loss",
+          "value": 0.0016282
+        }
+      },
+      {
+        "wait": 130,
+        "type": "metric",
+        "payload": {
+          "runId": "fixed",
+          "step": 3000,
+          "name": "loss",
+          "value": 0.0014166
+        }
+      },
+      {
+        "wait": 130,
+        "type": "metric",
+        "payload": {
+          "runId": "fixed",
+          "step": 3250,
+          "name": "loss",
+          "value": 0.0012519
+        }
+      },
+      {
+        "wait": 130,
+        "type": "metric",
+        "payload": {
+          "runId": "fixed",
+          "step": 3500,
+          "name": "loss",
+          "value": 0.0011202
+        }
+      },
+      {
+        "wait": 130,
+        "type": "metric",
+        "payload": {
+          "runId": "fixed",
+          "step": 3750,
+          "name": "loss",
+          "value": 0.0010127
+        }
+      },
+      {
+        "wait": 130,
+        "type": "metric",
+        "payload": {
+          "runId": "fixed",
+          "step": 4000,
+          "name": "loss",
+          "value": 0.00092341
+        }
+      },
+      {
+        "wait": 130,
+        "type": "metric",
+        "payload": {
+          "runId": "fixed",
+          "step": 4250,
+          "name": "loss",
+          "value": 0.00084807
+        }
+      },
+      {
+        "wait": 130,
+        "type": "metric",
+        "payload": {
+          "runId": "fixed",
+          "step": 4500,
+          "name": "loss",
+          "value": 0.00078371
+        }
+      },
+      {
+        "wait": 130,
+        "type": "metric",
+        "payload": {
+          "runId": "fixed",
+          "step": 4750,
+          "name": "loss",
+          "value": 0.00072813
+        }
+      },
+      {
+        "wait": 250,
+        "type": "check.updated",
+        "payload": {
+          "stepId": "nn5",
+          "checkId": "c3",
+          "label": "Loss falls below 0.01",
+          "status": "pass",
+          "detail": "yours 0.0007"
+        }
+      },
+      {
+        "wait": 0,
+        "type": "status",
+        "payload": {
+          "state": "passed"
+        }
+      },
+      {
+        "wait": 400,
+        "type": "step.passed",
+        "payload": {
+          "stepId": "nn5",
+          "nextStepId": "nn6",
+          "summary": "Loss 0.0007, like the tutorial."
+        }
+      },
+      {
+        "wait": 0,
+        "type": "spotlight",
+        "payload": {
+          "clear": true
+        }
+      },
+      {
+        "wait": 4200,
+        "goto": "step_nn6"
+      }
+    ],
+    "nn5_skip": [
+      {
+        "wait": 0,
+        "type": "spotlight",
+        "payload": {
+          "clear": true
+        }
+      },
+      {
+        "wait": 200,
+        "type": "step.passed",
+        "payload": {
+          "stepId": "nn5",
+          "nextStepId": "nn6",
+          "skipped": true
+        }
+      },
+      {
+        "wait": 900,
+        "goto": "step_nn6"
+      }
+    ],
+    "nn5_explain": [
+      {
+        "wait": 0,
+        "type": "status",
+        "payload": {
+          "state": "thinking"
+        }
+      },
+      {
+        "wait": 650,
+        "type": "card",
+        "payload": {
+          "stepId": "nn5",
+          "kind": "explain",
+          "title": "Why zeros can't learn",
+          "body": "All four hidden neurons compute sigmoid(0) = 0.5 and get the same update, so they stay copies. Here nothing moves at all."
+        }
+      },
+      {
+        "wait": 0,
+        "type": "status",
+        "payload": {
+          "state": "offtrack"
+        }
+      }
+    ],
+    "nn5_diagram": [
+      {
+        "wait": 0,
+        "type": "status",
+        "payload": {
+          "state": "thinking"
+        }
+      },
+      {
+        "wait": 700,
+        "type": "diagram",
+        "payload": {
+          "kind": "graph",
+          "caption": "With every weight at zero, all four hidden neurons compute 0.5 and get the same update. They stay copies.",
+          "data": {
+            "title": "Four copies of one neuron",
+            "layout": "architecture",
+            "direction": "LR",
+            "grid": {
+              "cols": 3,
+              "rows": 4
+            },
+            "nodes": [
+              {
+                "id": "x",
+                "label": "x₁, x₂",
+                "detail": "inputs",
+                "shape": "data",
+                "emphasis": false,
+                "col": 0,
+                "row": 1.5
+              },
+              {
+                "id": "h1",
+                "label": "h1 = 0.5",
+                "detail": "same update",
+                "shape": "circle",
+                "emphasis": true,
+                "col": 1,
+                "row": 0
+              },
+              {
+                "id": "h2",
+                "label": "h2 = 0.5",
+                "detail": "same update",
+                "shape": "circle",
+                "emphasis": true,
+                "col": 1,
+                "row": 1
+              },
+              {
+                "id": "h3",
+                "label": "h3 = 0.5",
+                "detail": "same update",
+                "shape": "circle",
+                "emphasis": true,
+                "col": 1,
+                "row": 2
+              },
+              {
+                "id": "h4",
+                "label": "h4 = 0.5",
+                "detail": "same update",
+                "shape": "circle",
+                "emphasis": true,
+                "col": 1,
+                "row": 3
+              },
+              {
+                "id": "out",
+                "label": "out = 0.5",
+                "detail": "for every input",
+                "shape": "round",
+                "emphasis": false,
+                "col": 2,
+                "row": 1.5
+              }
+            ],
+            "edges": [
+              {
+                "from": "x",
+                "to": "h1",
+                "style": "solid",
+                "emphasis": false
+              },
+              {
+                "from": "x",
+                "to": "h2",
+                "style": "solid",
+                "emphasis": false
+              },
+              {
+                "from": "x",
+                "to": "h3",
+                "style": "solid",
+                "emphasis": false
+              },
+              {
+                "from": "x",
+                "to": "h4",
+                "style": "solid",
+                "emphasis": false
+              },
+              {
+                "from": "h1",
+                "to": "out",
+                "style": "solid",
+                "emphasis": false
+              },
+              {
+                "from": "h2",
+                "to": "out",
+                "style": "solid",
+                "emphasis": false
+              },
+              {
+                "from": "h3",
+                "to": "out",
+                "style": "solid",
+                "emphasis": false
+              },
+              {
+                "from": "h4",
+                "to": "out",
+                "style": "solid",
+                "emphasis": false
+              }
+            ]
+          },
+          "stepId": "nn5"
+        }
+      },
+      {
+        "wait": 0,
+        "type": "status",
+        "payload": {
+          "state": "offtrack"
+        }
+      }
+    ],
+    "nn5_ask": [
+      {
+        "wait": 0,
+        "type": "status",
+        "payload": {
+          "state": "thinking"
+        }
+      },
+      {
+        "wait": 900,
+        "type": "card",
+        "payload": {
+          "stepId": "nn5",
+          "kind": "answer",
+          "title": "Why lr = 1.0",
+          "body": "A tiny network with a smooth loss can take big steps. On real data you would start nearer 0.01."
+        }
+      },
+      {
+        "wait": 0,
+        "type": "status",
+        "payload": {
+          "state": "offtrack"
+        }
+      }
+    ],
+    "nn5_showme": [
+      {
+        "wait": 250,
+        "type": "spotlight",
+        "payload": {
+          "rect": {
+            "x": 284,
+            "y": 244,
+            "w": 470,
+            "h": 60
+          },
+          "caption": "Use the random weights from the lesson",
+          "app": "Code",
+          "snippet": "W1 = np.random.randn(2, 4) * 0.5\nb1 = np.zeros((1, 4))\nW2 = np.random.randn(4, 1) * 0.5"
+        }
+      }
+    ],
+    "step_nn6": [
+      {
+        "wait": 0,
+        "type": "step.started",
+        "payload": {
+          "stepId": "nn6",
+          "index": 5,
+          "title": "Test it",
+          "instructions": "Add the last line and run python nn.py.",
+          "video": null,
+          "kind": "run",
+          "what": "Predict XOR and see 0 1 1 0",
+          "why": "Outputs above 0.5 count as 1, so the guesses become answers you can check against XOR.",
+          "concepts": [],
+          "code": "print((forward(X)[1] > 0.5).astype(int).ravel())"
+        }
+      },
+      {
+        "wait": 0,
+        "type": "check.updated",
+        "payload": {
+          "stepId": "nn6",
+          "checkId": "c1",
+          "label": "Predicts 0 1 1 0",
+          "status": "pending"
+        }
+      },
+      {
+        "wait": 500,
+        "type": "spotlight",
+        "payload": {
+          "rect": {
+            "x": 284,
+            "y": 766,
+            "w": 470,
+            "h": 24
+          },
+          "caption": "Last line: print the predictions",
+          "app": "Code"
+        }
+      }
+    ],
+    "nn6_check": [
+      {
+        "wait": 0,
+        "type": "status",
+        "payload": {
+          "state": "thinking"
+        }
+      },
+      {
+        "wait": 300,
+        "type": "check.updated",
+        "payload": {
+          "stepId": "nn6",
+          "checkId": "c1",
+          "label": "Predicts 0 1 1 0",
+          "status": "pending",
+          "detail": "running python nn.py"
+        }
+      },
+      {
+        "wait": 0,
+        "type": "status",
+        "payload": {
+          "state": "watching"
+        }
+      },
+      {
+        "wait": 0,
+        "type": "spotlight",
+        "payload": {
+          "rect": {
+            "x": 800,
+            "y": 316,
+            "w": 300,
+            "h": 24
+          },
+          "caption": "Running your network",
+          "app": "Code"
+        }
+      },
+      {
+        "wait": 350,
+        "type": "metric",
+        "payload": {
+          "runId": "final",
+          "step": 0,
+          "name": "loss",
+          "value": 0.2691
+        }
+      },
+      {
+        "wait": 70,
+        "type": "metric",
+        "payload": {
+          "runId": "final",
+          "step": 250,
+          "name": "loss",
+          "value": 0.24696
+        }
+      },
+      {
+        "wait": 70,
+        "type": "metric",
+        "payload": {
+          "runId": "final",
+          "step": 500,
+          "name": "loss",
+          "value": 0.21131
+        }
+      },
+      {
+        "wait": 70,
+        "type": "metric",
+        "payload": {
+          "runId": "final",
+          "step": 750,
+          "name": "loss",
+          "value": 0.10564
+        }
+      },
+      {
+        "wait": 70,
+        "type": "metric",
+        "payload": {
+          "runId": "final",
+          "step": 1000,
+          "name": "loss",
+          "value": 0.021908
+        }
+      },
+      {
+        "wait": 70,
+        "type": "metric",
+        "payload": {
+          "runId": "final",
+          "step": 1250,
+          "name": "loss",
+          "value": 0.0091464
+        }
+      },
+      {
+        "wait": 70,
+        "type": "metric",
+        "payload": {
+          "runId": "final",
+          "step": 1500,
+          "name": "loss",
+          "value": 0.005438
+        }
+      },
+      {
+        "wait": 70,
+        "type": "metric",
+        "payload": {
+          "runId": "final",
+          "step": 1750,
+          "name": "loss",
+          "value": 0.0037846
+        }
+      },
+      {
+        "wait": 70,
+        "type": "metric",
+        "payload": {
+          "runId": "final",
+          "step": 2000,
+          "name": "loss",
+          "value": 0.0028712
+        }
+      },
+      {
+        "wait": 70,
+        "type": "metric",
+        "payload": {
+          "runId": "final",
+          "step": 2250,
+          "name": "loss",
+          "value": 0.0022988
+        }
+      },
+      {
+        "wait": 70,
+        "type": "metric",
+        "payload": {
+          "runId": "final",
+          "step": 2500,
+          "name": "loss",
+          "value": 0.0019092
+        }
+      },
+      {
+        "wait": 70,
+        "type": "metric",
+        "payload": {
+          "runId": "final",
+          "step": 2750,
+          "name": "loss",
+          "value": 0.0016282
+        }
+      },
+      {
+        "wait": 70,
+        "type": "metric",
+        "payload": {
+          "runId": "final",
+          "step": 3000,
+          "name": "loss",
+          "value": 0.0014166
+        }
+      },
+      {
+        "wait": 70,
+        "type": "metric",
+        "payload": {
+          "runId": "final",
+          "step": 3250,
+          "name": "loss",
+          "value": 0.0012519
+        }
+      },
+      {
+        "wait": 70,
+        "type": "metric",
+        "payload": {
+          "runId": "final",
+          "step": 3500,
+          "name": "loss",
+          "value": 0.0011202
+        }
+      },
+      {
+        "wait": 70,
+        "type": "metric",
+        "payload": {
+          "runId": "final",
+          "step": 3750,
+          "name": "loss",
+          "value": 0.0010127
+        }
+      },
+      {
+        "wait": 70,
+        "type": "metric",
+        "payload": {
+          "runId": "final",
+          "step": 4000,
+          "name": "loss",
+          "value": 0.00092341
+        }
+      },
+      {
+        "wait": 70,
+        "type": "metric",
+        "payload": {
+          "runId": "final",
+          "step": 4250,
+          "name": "loss",
+          "value": 0.00084807
+        }
+      },
+      {
+        "wait": 70,
+        "type": "metric",
+        "payload": {
+          "runId": "final",
+          "step": 4500,
+          "name": "loss",
+          "value": 0.00078371
+        }
+      },
+      {
+        "wait": 70,
+        "type": "metric",
+        "payload": {
+          "runId": "final",
+          "step": 4750,
+          "name": "loss",
+          "value": 0.00072813
+        }
+      },
+      {
+        "wait": 500,
+        "type": "check.updated",
+        "payload": {
+          "stepId": "nn6",
+          "checkId": "c1",
+          "label": "Predicts 0 1 1 0",
+          "status": "pass",
+          "detail": "[0 1 1 0]"
+        }
+      },
+      {
+        "wait": 0,
+        "type": "status",
+        "payload": {
+          "state": "watching"
+        }
+      },
+      {
+        "wait": 500,
+        "type": "step.passed",
+        "payload": {
+          "stepId": "nn6"
+        }
+      },
+      {
+        "wait": 0,
+        "type": "spotlight",
+        "payload": {
+          "clear": true
+        }
+      },
+      {
+        "wait": 1500,
+        "type": "card",
+        "payload": {
+          "stepId": "nn6",
+          "kind": "answer",
+          "title": "You built a neural net from scratch",
+          "body": "Six steps, one bug caught by its training curve. It learned XOR with nothing but NumPy.",
+          "output": "[0 1 1 0]"
+        }
+      }
+    ],
+    "nn6_skip": [
+      {
+        "wait": 0,
+        "type": "spotlight",
+        "payload": {
+          "clear": true
+        }
+      },
+      {
+        "wait": 200,
+        "type": "step.passed",
+        "payload": {
+          "stepId": "nn6",
+          "skipped": true
+        }
+      }
+    ],
+    "nn6_explain": [
+      {
+        "wait": 0,
+        "type": "status",
+        "payload": {
+          "state": "thinking"
+        }
+      },
+      {
+        "wait": 650,
+        "type": "card",
+        "payload": {
+          "stepId": "nn6",
+          "kind": "explain",
+          "title": "Reading the output",
+          "body": "Outputs are between 0 and 1. Above 0.5 counts as 1, so 0.03 0.98 0.97 0.03 reads as 0 1 1 0."
+        }
+      },
+      {
+        "wait": 0,
+        "type": "status",
+        "payload": {
+          "state": "watching"
+        }
+      }
+    ],
+    "nn6_diagram": [
+      {
+        "wait": 0,
+        "type": "status",
+        "payload": {
+          "state": "thinking"
+        }
+      },
+      {
+        "wait": 700,
+        "type": "diagram",
+        "payload": {
+          "kind": "graph",
+          "caption": "Solid: what you built today. Dashed: where the same backprop leads next.",
+          "data": {
+            "title": "What you learned, what is next",
+            "layout": "flow",
+            "direction": "LR",
+            "grid": {
+              "cols": 4,
+              "rows": 2
+            },
+            "nodes": [
+              {
+                "id": "data",
+                "label": "XOR data",
+                "detail": "step 1",
+                "shape": "data",
+                "emphasis": false,
+                "col": 0,
+                "row": 0
+              },
+              {
+                "id": "fwd",
+                "label": "forward pass",
+                "detail": "sigmoid · matmul",
+                "shape": "box",
+                "emphasis": false,
+                "col": 0,
+                "row": 1
+              },
+              {
+                "id": "bp",
+                "label": "backprop",
+                "detail": "chain rule",
+                "shape": "box",
+                "emphasis": true,
+                "col": 1,
+                "row": 0.5
+              },
+              {
+                "id": "gd",
+                "label": "gradient descent",
+                "detail": "random init",
+                "shape": "box",
+                "emphasis": true,
+                "col": 2,
+                "row": 0.5
+              },
+              {
+                "id": "torch",
+                "label": "PyTorch autograd",
+                "detail": "next",
+                "shape": "round",
+                "emphasis": false,
+                "col": 3,
+                "row": 0
+              },
+              {
+                "id": "attn",
+                "label": "attention",
+                "detail": "later",
+                "shape": "round",
+                "emphasis": false,
+                "col": 3,
+                "row": 1
+              }
+            ],
+            "edges": [
+              {
+                "from": "data",
+                "to": "bp",
+                "style": "solid",
+                "emphasis": false
+              },
+              {
+                "from": "fwd",
+                "to": "bp",
+                "style": "solid",
+                "emphasis": false
+              },
+              {
+                "from": "bp",
+                "to": "gd",
+                "style": "solid",
+                "emphasis": true
+              },
+              {
+                "from": "gd",
+                "to": "torch",
+                "style": "dashed",
+                "emphasis": false,
+                "label": "next"
+              },
+              {
+                "from": "gd",
+                "to": "attn",
+                "style": "dashed",
+                "emphasis": false
+              }
+            ]
+          },
+          "stepId": "nn6"
+        }
+      },
+      {
+        "wait": 0,
+        "type": "status",
+        "payload": {
+          "state": "watching"
+        }
+      }
+    ],
+    "nn6_ask": [
+      {
+        "wait": 0,
+        "type": "status",
+        "payload": {
+          "state": "thinking"
+        }
+      },
+      {
+        "wait": 900,
+        "type": "card",
+        "payload": {
+          "stepId": "nn6",
+          "kind": "answer",
+          "title": "What next",
+          "body": "Swap XOR for real data: more inputs, a bigger hidden layer, and the same four pieces."
+        }
+      },
+      {
+        "wait": 0,
+        "type": "status",
+        "payload": {
+          "state": "watching"
+        }
+      }
+    ],
+    "nn6_showme": [
+      {
+        "wait": 250,
+        "type": "spotlight",
+        "payload": {
+          "rect": {
+            "x": 284,
+            "y": 766,
+            "w": 470,
+            "h": 24
+          },
+          "caption": "Type this here",
+          "app": "Code",
+          "snippet": "print((forward(X)[1] > 0.5).astype(int).ravel())"
+        }
+      }
+    ],
+    "nn6_hint": [
+      {
+        "wait": 0,
+        "type": "status",
+        "payload": {
+          "state": "thinking"
+        }
+      },
+      {
+        "wait": 600,
+        "type": "card",
+        "payload": {
+          "stepId": "nn6",
+          "kind": "hint",
+          "title": "Hint",
+          "body": "Compare the outputs with 0.5, then turn True and False into 1 and 0."
+        }
+      },
+      {
+        "wait": 0,
+        "type": "status",
+        "payload": {
+          "state": "watching"
+        }
+      }
+    ]
+  }
+}
