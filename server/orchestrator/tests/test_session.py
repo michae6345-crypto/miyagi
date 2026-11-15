@@ -2058,7 +2058,7 @@ def test_just_teach_me_lesson_mode_has_no_video_and_spotlights_where_to_type(tmp
     assert [s["id"] for s in rig.of("lesson.updated")[0]["steps"]] == ["s2"]
     assert calls and rig.s.editor_open  # opened without an "Open VS Code?" card
     spot = rig.of("spotlight")[-1]
-    assert spot["caption"] == "In VS Code, type def add(a, b): … in calc.py"  # the step's one action, as in the drawer
+    assert spot["caption"] == "Type it here"  # E5: a short pointer; the drawer says the step's one action
     assert spot["snippet"] == "def add(a, b):\n    return a + b\n"
     assert spot["matched"] == "# add goes here"
 
@@ -2483,10 +2483,15 @@ def test_step_started_instructions_are_one_concrete_action(rig):
     from server.orchestrator.session import LessonSession
 
     s = rig.s
-    assert s._action_line({"id": "s1", "title": "t", "file": "calculator.py",
-                           "code": "print(\"Calculator\")\nx = 1\n", "instructions": "Long text."}) \
-        == 'In VS Code, create calculator.py and type print("Calculator") …'
+    two = {"id": "s1", "title": "t", "file": "calculator.py", "code": "print(\"Calculator\")\nx = 1\n",
+           "instructions": "Long text."}
+    assert s._action_line(two) == 'In VS Code, create calculator.py and type print("Calculator") …'  # video: no snippet
+    s.graph = {"lesson": {"mode": "lesson"}}  # E5: lesson mode's snippet shows the code under the line
+    assert s._action_line(two) == "Create calculator.py, then type the lines below."
     (rig.workdir / "calculator.py").write_text("")
+    assert s._action_line({"id": "s1", "title": "t", "file": "calculator.py", "code": "print(1)\n"}) \
+        == "In calculator.py, type the line below."
+    s.graph = None
     assert s._action_line({"id": "s1", "title": "t", "file": "calculator.py", "code": "print(1)\n"}) \
         == "In VS Code, type print(1) in calculator.py"
     assert s._action_line({"id": "s2", "title": "t", "instructions": "Add an nn.Tanh after each Linear layer. "
@@ -2570,7 +2575,7 @@ def test_run_step_boxes_the_vscode_terminal_never_the_breadcrumb(tmp_path, monke
     assert first["caption"] == "Open the terminal: ⌃`" and first["snippet"] == "python calc.py"
     assert first["rect"] == {"x": 0.0, "y": 976.0, "w": 1200.0, "h": 24.0}  # the status bar, never empty space
     last = rig.of("spotlight")[-1]
-    assert last["caption"] == "Run python calc.py in the VS Code terminal" and last["rect"]["y"] == 100.0 + 20 * 22
+    assert last["caption"] == "Run it here" and last["rect"]["y"] == 100.0 + 20 * 22
     assert not [s for s in rig.of("spotlight") if "matched" in s and ">" in s["matched"]]
     assert last["rect"]["h"] == 20.0  # E8: the prompt line itself (row 22, not the TERMINAL tab), never the panel
 
@@ -2671,7 +2676,7 @@ def test_run_step_uses_e6_terminal_region(tmp_path, monkeypatch):
     first = run(go())
     assert first["caption"] == "Open the terminal: ⌃`" and first["rect"]["h"] == 24.0  # status bar, not the editor
     last = rig.of("spotlight")[-1]
-    assert last["caption"] == "Run python calc.py in the VS Code terminal"
+    assert last["caption"] == "Run it here"
     assert last["rect"] == {"x": 260.0, "y": 600.0, "w": 900.0, "h": 240.0}
 
 
@@ -2970,7 +2975,7 @@ def test_lesson_mode_vision_pick_boxes_the_line_when_text_and_gutter_miss(tmp_pa
         assert asked and "def add(a, b):" in asked[0] and "calc.py" in asked[0]
         spots = [sp for sp in rig.of("spotlight") if sp.get("rect") == rect]
         if boxed:
-            assert spots and spots[-1]["caption"] == "In calc.py, type def add(a, b): …"
+            assert spots and spots[-1]["caption"] == "Type it here"
             assert spots[-1]["snippet"] == "def add(a, b):\n    return a + b\n"
             assert len(asked) == 1
         else:
@@ -3010,7 +3015,7 @@ def test_lesson_mode_targeter_confirms_moves_or_drops_the_located_box(tmp_path, 
 
         run(go())
         assert asked and asked[0][0]["y"] == 120.0                      # FakeScreen's located row
-        assert asked[0][1].startswith("In calc.py, type def add(a, b): …") and "(code: def add(a, b):" in asked[0][1]
+        assert asked[0][1].startswith("In calc.py, type the lines below.") and "(code: def add(a, b):" in asked[0][1]
         boxes = [sp for sp in rig.of("spotlight") if "rect" in sp]
         if answer is None:
             assert not boxes

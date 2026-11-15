@@ -36,7 +36,7 @@ WEB_TOOLS = [
 PLAN_SCHEMA = {
     "type": "object",
     "properties": {
-        "title": {"type": "string"},
+        "title": {"type": "string", "description": "the lesson title in sentence case; keep proper nouns as spelled"},
         "libraries": {"type": "array", "items": {"type": "object", "properties": {"name": {"type": "string"}, "version": {"type": "string"}},
                                                  "required": ["name", "version"]}},
         "overview": {"type": "string", "description": "<= 60 words: what we build and the plan, in plain words"},
@@ -130,7 +130,10 @@ Also teach the ideas, in plain words for a complete beginner:
 title: imperative, <= 6 words; instructions: ONE imperative sentence, at most 10 words, no parentheses; say
 "terminal" only for commands and name the file only for code ("Add an add function to calculator.py.",
 "Run your calculator in the terminal."); file: the file the step edits (relative path), or "" for a
-terminal-only step. libraries: what the lesson uses, with current major versions."""
+terminal-only step. libraries: what the lesson uses, with current major versions.
+The lesson title (top-level title): sentence case, <= 6 words: capitalize only the first word and proper nouns, and
+keep proper nouns and product names as they are spelled ("Make a Discord bot", "Build a Python calculator",
+"Pay with Stripe in Next.js")."""
 
 STEP_PROMPT = """Learner's goal: {goal}. Lesson: "{lesson}". All steps: {outline}
 
@@ -260,6 +263,7 @@ async def build_text_lesson(goal: str, workdir: str, on_update=None, *, cache: b
              "steps": ordered,
              "build": {"mode": "lesson", "seconds": round(time.time() - t0, 1), "warnings": list(warnings),
                        "model": {"plan": claude.model("segment"), "steps": claude.model("detail"), "research": claude.model(RESEARCH_MODEL_ROLE)}}}
+        g["_title_case"] = "model"  # E11: the plan prompt asks for sentence case; fill_missing re-cases only older caches
         return g
 
     async def emit(complete: bool) -> None:
@@ -784,6 +788,46 @@ def _code_title(st: dict) -> str:
     return f"Add the code to {f}" if f else "Add the code"
 
 
+# E11: names that stay capitalized when a Title Case lesson title becomes sentence case (acronyms and CamelCase
+# names such as HTML or PyTorch are kept anyway, and so is any word the learner capitalized in the goal)
+_PROPER = frozenset("""Python JavaScript TypeScript React Node Flask Django Rust Go Java Kotlin Swift Ruby Rails Jupyter
+Colab Linux Windows Mac Docker Git Pandas Streamlit Vue Svelte Express Tailwind Postgres Excel Google Chrome Arduino
+Raspberry Pi Unity Godot Blender Claude Gemini Anthropic English Spanish French I Discord Spotify Stripe Vercel Firebase
+Supabase Slack Twitter Reddit Notion Figma Shopify Twilio Heroku Netlify Telegram Twitch YouTube Minecraft Roblox
+Android Microsoft Kaggle Keras Matplotlib Seaborn Angular Laravel Redis Mongo Prisma Electron Flutter Dart Gmail
+Wordle Tetris""".split())
+_SMALL = frozenset("a an and as at by for from in into of on or the to vs with".split())
+
+
+def sentence_case(title: str, goal: str = "") -> str:
+    """"Build a Python Calculator" -> "Build a Python calculator" (BRAND: sentence case). Fallback for titles cached
+    before the plan prompt asked for sentence case: only a Title Case title is changed (every word but small ones
+    capitalized, at least two of them); proper nouns, acronyms, CamelCase and dotted names (Next.js) and the goal's
+    capitalized words stay. The first word is capitalized unless it has an internal capital (useEffect, iPhone)."""
+    words = " ".join((title or "").split()).split(" ")
+    if not words[0]:
+        return ""
+    if not re.search(r"[A-Z]", words[0][1:]):  # "useEffect basics", "iPhone app basics" keep their first word
+        words[0] = words[0][:1].upper() + words[0][1:]
+    keep = _PROPER | {re.split(r"['’]", w.strip(".,:;!?()\"'“”‘’"))[0] for w in (goal or "").split() if w[:1].isupper()}
+
+    def cap(part: str) -> bool:  # "Calculator", "To": capitalized, the rest lowercase
+        return part[:1].isupper() and part[1:].islower() if part[1:] else part[:1].isupper()
+
+    rest = [w for w in words[1:] if w[:1].isalpha() and w.lower() not in _SMALL]
+    if len(rest) < 2 or not all(w[:1].isupper() for w in rest):
+        return " ".join(words)  # already sentence case (or "Explore Supabase": maybe a name): leave it
+    out = [words[0]]
+    for w in words[1:]:
+        bare = w.strip(".,:;!?()\"'“”‘’")
+        root = re.split(r"['’]", bare)[0]  # "Python's" -> "Python"
+        if root in keep or "." in root or not all(cap(p) for p in root.split("-") if p):
+            out.append(w)  # a proper noun, an acronym (HTML), a CamelCase (PyTorch) or dotted (Next.js) name
+        else:
+            out.append(w.replace(bare, bare.lower()))
+    return " ".join(out)
+
+
 def overview_fallback(title: str, steps: list[dict]) -> str:
     """'What we're building' (<= 60 words) from the title and the step titles, when the plan gave none."""
     t = " ".join((title or "").split()).rstrip(".")
@@ -795,9 +839,11 @@ def overview_fallback(title: str, steps: list[dict]) -> str:
 
 def fill_missing(g: dict) -> dict:
     """A lesson cached by an older builder: complete check labels (never cut, never the regex), an overview, and
-    what / why on every step. Deterministic, no model call."""
+    what / why on every step, a sentence-case title. Deterministic, no model call."""
     les = g.get("lesson") or {}
     steps = g.get("steps") or []
+    if les.get("title") and g.get("_title_case") != "model":  # only titles cached by an older builder
+        les["title"] = sentence_case(les["title"], les.get("goal") or "")
     if not (les.get("overview") or "").strip():
         les["overview"] = overview_fallback(les.get("title") or les.get("goal") or "", steps)
     for st in steps:

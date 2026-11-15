@@ -16,7 +16,6 @@ from .explain import match_explanation
 from .playbook import BY_ID, CITATIONS, GUIDING_QUESTIONS
 from .pointing import (
     code_question,
-    code_visible,
     deterministic_targets,
     editor_state,
     where_hint,
@@ -53,7 +52,7 @@ def hint(step: dict, level: int, last_offtrack: dict | None = None, screen: Scre
     `actions`) are additive to the contract's `card` payload.
 
     With `screen`, the card also carries `targets` (the line it is about, exact match, no model) or
-    `where` (where to go first); levels 0/1 lead with `where` when the code isn't on screen.
+    `where` (where to go first, shown as its own Where row); the body is always the hint itself (E6).
     """
     card = _hint(step, level, last_offtrack)
     if screen is None:
@@ -67,10 +66,7 @@ def hint(step: dict, level: int, last_offtrack: dict | None = None, screen: Scre
     if targets:
         card["targets"] = targets
         return card
-    card["where"] = where_hint(step, last, screen)
-    if card["level"] <= 1 and not code_visible(step, screen, "", last):
-        card["title"] = "Open your code first"
-        card["body"] = f"{card['where']}. Then: {card['body']}"
+    card["where"] = where_hint(step, last, screen)  # the Where row (+ Open) says the open step once; the body stays the hint (E6)
     return card
 
 

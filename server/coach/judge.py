@@ -12,7 +12,7 @@ he was clearly past it).
 
 Gate: some check not passed, the learner idle >= 8 s, the video not playing, at most one judgment per
 20 s per step, and only when the screen text or the files changed since the last one.
-Cards are step-status cards (`source: "judge"`, kind "hint"), never answers. "Looks done?" only when Claude
+Cards are step-status cards (`source: "judge"`, kind "step"), never answers. "Looks done?" only when Claude
 sees the WHOLE step done (`verdict: "done"`); a check-level disagreement on an unfinished step is "Not yet"
 (`verdict: "not_done"`, Hint / Show me). A card the learner already saw is not offered again for that step
 until the files change.
@@ -319,25 +319,26 @@ class StepJudge:
         card = None
         other = next((s for s in steps if s["id"] == data.get("on_step_id") and s["id"] != sid), None)
         idx = {s["id"]: i for i, s in enumerate(steps)}
-        # judge cards are step-status cards (source "judge", kind "hint"), never answers: they don't take the answer slot
+        # judge cards are step-status cards (source "judge", kind "step"), never answers: they don't take the answer slot.
+        # No skip_step on them: the bar owns Skip (E9).
         if other is not None and idx.get(other["id"], -1) > idx.get(sid, -1):  # ahead of the lesson; behind → no card
-            card = {"stepId": sid, "kind": "hint", "source": "judge", "title": "Already ahead?",
+            card = {"stepId": sid, "kind": "step", "source": "judge", "title": "Already ahead?",
                     "body": clamp_words(f"You look to be on “{other.get('title', other['id'])}” already", 12),
-                    "actions": ["skip_step"], "targetStepId": other["id"]}
+                    "actions": [], "targetStepId": other["id"]}
         elif "unsaved" in blocked:
-            card = {"stepId": sid, "kind": "hint", "source": "judge", "title": "Save so I can check",
+            card = {"stepId": sid, "kind": "step", "source": "judge", "title": "Save so I can check",
                     "body": f"{SAVE_FIRST}.", "actions": []}
         elif disagree and done:  # "Looks done?" only when Claude sees the WHOLE step done; Yes vouches for these checks
-            card = {"stepId": sid, "kind": "hint", "source": "judge", "verdict": "done", "title": "Looks done?",
+            card = {"stepId": sid, "kind": "step", "source": "judge", "verdict": "done", "title": "Looks done?",
                     "body": summary or clamp_words(disagree[0].get("evidence") or disagree[0].get("reason", ""), 12),
-                    "actions": ["confirm", "skip_step"], "checkIds": [c["id"] for c in checks if c["id"] in seen]}
+                    "actions": ["confirm"], "checkIds": [c["id"] for c in checks if c["id"] in seen]}
         elif disagree:  # Claude sees part of it but the step isn't done: say what's left, never "Looks done?"
             left = [c["id"] for c in checks if c["id"] not in seen and status.get(c["id"], {}).get("status") != "pass"]
             why = (data.get("missing") or next((v.get("reason", "") for v in verdicts
                                                 if v["check_id"] in left and v["verdict"] == "not_done"), "")
                    or f"Still missing: {by_id[left[0]].get('label') or left[0]}")
-            card = {"stepId": sid, "kind": "hint", "source": "judge", "verdict": "not_done", "title": "Not yet",
-                    "body": clamp_words(why, 12).rstrip("."), "actions": ["hint", "show_me", "skip_step"], "checkIds": left}
+            card = {"stepId": sid, "kind": "step", "source": "judge", "verdict": "not_done", "title": "Not yet",
+                    "body": clamp_words(why, 12).rstrip("."), "actions": ["hint", "show_me"], "checkIds": left}
         return {"checks": verdicts, "events": events, "card": card, "done": done, "summary": summary}
 
 

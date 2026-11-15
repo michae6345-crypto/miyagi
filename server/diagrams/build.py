@@ -60,14 +60,14 @@ Choose the form that fits the topic:
 
 Rules:
 - 4 to 10 nodes; never more than 12. Fewer, clearer nodes beat completeness. Keep any left-to-right chain to 5 nodes or fewer (branch or group instead of making it longer).
-- Use the real names from the code and topic on screen: variables, functions, components, columns, branches. label <= 16 chars. detail <= 22 chars or "" (a type, a shape like "(N, 2)", a value that APPEARS in the context).
+- Use the real names from the code and topic on screen: variables, functions, components, columns, branches. label <= 16 chars. detail <= 22 chars or "": what happens at that node in plain words ("checks b == 0", "returns a / b", "prints the result"), or a shape like "(N, 2)" or a value that APPEARS in the context. Never syntax trivia ("two equals signs", "ends with a colon", "uses parentheses").
 - Never invent numbers, data values or results that are not in the context.
 - emphasis = true on the 1-2 nodes or edges that carry the step's key idea; false elsewhere.
 - Edge labels: a short verb phrase (<= 18 chars) or "".
 - node.id: short unique slug. edge.from / edge.to must be node ids. group: "" unless the layout uses groups (git branches, or clusters you name in groups).
 - title: 1-3 words naming the view, e.g. "Effect lifecycle", "Rebase", "Split-apply-combine".
 - direction: "TB" for trees, "LR" otherwise.
-- caption: 1-2 short plain sentences, under 200 characters in total saying what to notice. If the learner asked a question, the caption answers it. Use the same names as the diagram.
+- caption: ONE plain sentence of 12 words or fewer saying what to notice. If the learner asked a question, the caption answers it. Use the same names as the diagram.
 Set whichever of network / graph you did not use to null."""
 
 _NODE = {
@@ -222,17 +222,27 @@ def _clip(s: Any, n: int) -> str:
     return s if len(s) <= n else s[: n - 1].rstrip() + "…"
 
 
+CAPTION_WORDS = 12  # BRAND: the caption is one sentence of <= 12 words (E12)
+_TRAILING = re.compile(r"\s+(a|an|the|of|to|and|or|in|on|for|with|by|at|from|into|is|are)$", re.IGNORECASE)
+
+
 def _caption(s: Any, limit: int = 240) -> str:
-    """Whole sentences up to `limit` chars (never cut mid-sentence unless the first one is too long)."""
+    """ONE sentence of <= CAPTION_WORDS words: the first sentence; a longer one ends at its last clause break
+    (; : —, never a comma, which may sit inside a list) when that keeps at least half of it, else at the word limit
+    with "…"."""
     s = re.sub(r"\s+", " ", str(s or "")).strip()
-    if len(s) <= limit:
-        return s
-    out = ""
-    for sent in re.split(r"(?<=[.!?])\s+", s):
-        if len(out) + len(sent) + 1 > limit:
-            break
-        out = f"{out} {sent}".strip()
-    return out or _clip(s, limit)
+    s = re.split(r"(?<=[.!?])\s+", s, maxsplit=1)[0] if s else ""
+    words = s.split(" ")
+    if len(words) <= CAPTION_WORDS:
+        return _clip(s, limit)
+    cut = " ".join(words[:CAPTION_WORDS])
+    at = max(cut.rfind(p) for p in ("; ", ": ", " — ", " – "))
+    if at > 0 and len(cut[:at].split()) >= CAPTION_WORDS // 2:
+        return cut[:at].rstrip() + "."
+    cut = cut.rstrip(",;:—–- ")
+    while _TRAILING.search(cut):
+        cut = _TRAILING.sub("", cut)
+    return cut + "…"
 
 
 def to_payload(raw: dict, step: dict) -> dict:
