@@ -46,6 +46,7 @@ log = logging.getLogger("orchestrator.scene")
 
 WHERE_AFTER = 2  # looks in a row without the step's file as the active tab -> the where card
 SPOT_AFTER = 2  # looks in a row without the spotlight's target on screen -> place the spotlight again
+RESPOT_EVERY_S = 15.0  # E16: a look that sees the step's file with no box up places it again, at most this often
 FRAME_MAX_AGE_S = 30.0  # the reader re-OCRs at least every ~15 s while the display is awake
 EDITOR_APPS = {"code", "vs code", "vscode", "visual studio code", "cursor"}
 
@@ -309,6 +310,9 @@ class SceneWatch:
     # ------------------------------------------------------------------ reactions
     async def _react(self, step: dict, sc: Any, obs: Any, run: str) -> None:
         s = self.s
+        frozen = getattr(s, "_spot_frozen", None)
+        if frozen is not None and frozen():
+            return  # E7: the resume card is up / no app: no where card, no box, no targeter call
         f = s._step_file(step)
         editor_front = bool({str(getattr(obs, "app", "") or "").lower(), sc.app.lower()} & EDITOR_APPS)
         if f and not run and not s.notebook_lesson:  # (a) the step's file isn't the active tab
@@ -329,6 +333,16 @@ class SceneWatch:
                     s._spawn(s._lesson_spot(s.step_gen, step, tries=3), timer=True)
                 else:
                     await s._spotlight_target(step)
+            elif (s.lesson_mode and in_editor and getattr(s, "spot_rect", 0) is None and not getattr(s, "_spot_away", False)
+                  and not s.coaching and not (run and s._step_ran())
+                  and s.clock() - getattr(self, "_respot_t", -1e9) >= RESPOT_EVERY_S):
+                # (e) E16: the step's file is in front and no box is up (the first tries ran under a save dialog, or
+                # the targeter said no then): place it again, one Haiku pick at most (tries=2; the engine's own
+                # no-model retry runs every few seconds on new frames, session._maybe_respot)
+                self._respot_t = s.clock()
+                log.info("scene: %s is in front with no box; placing it again (%s)",
+                         "the terminal" if run else Path(s._step_file(step) or "").name, step.get("id"))
+                s._spawn(s._lesson_spot(s.step_gen, step, tries=2), timer=True)
 
     async def _where(self, step: dict, name: str) -> None:
         s = self.s
