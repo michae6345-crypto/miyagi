@@ -26,7 +26,8 @@ from collections.abc import Iterable
 from dataclasses import dataclass, field
 from typing import Any, Literal, TypedDict
 
-from .screen import extract_metrics, screen_text, search_screen
+from .notebook import Notebook, find_notebook, read_notebook
+from .screen import extract_metrics, screen_lines, screen_text, search_screen, search_wrapped
 
 CheckStatus = Literal["pending", "pass", "fail"]
 
@@ -70,6 +71,9 @@ class RunContext:
     # The lesson's editor app ("Code" in a "Just teach me" VS Code lesson), else None. Its terminal is then the
     # learner's terminal: the details say "VS Code's terminal", never Terminal.app.
     editor: str | None = None
+    # t9: the learner's notebook (server.checks.notebook.Notebook) on a notebook step; evaluate_step reads it from
+    # the lesson folder when the orchestrator doesn't hand one in. False: none (looked, nothing there).
+    notebook: Any = None
 
     @property
     def after_segment(self) -> bool:
@@ -463,13 +467,28 @@ def _screen(check: dict, ctx: RunContext, absent: bool) -> CheckResult:
     if not pattern:
         return _result(check, "fail", "check has no 'pattern'")
     where = f" in {_app_name(app, ctx)}" if app else " on screen"
+    nb = ctx.notebook if isinstance(ctx.notebook, Notebook) and app not in _TERMINAL_APPS else None
+    output = not absent and app not in _TERMINAL_APPS and is_output_check(check)
+    try:
+        if nb is not None and absent and nb.errors and (e := search_screen(pattern, "\n".join(nb.errors))):
+            return _result(check, "fail", f"the cell printed {e.group(0)[:80]!r}")  # t9 V3: a cell's error output
+        if nb is not None and not absent:  # t9 V2/V3: the notebook's cells as typed / what they printed decide first
+            if search_wrapped(pattern, nb.output_text if output else nb.source_text):
+                return _result(check, "pass", f"{'printed' if output else 'typed'} in {nb.path.name}")
+    except re.error as exc:
+        return _result(check, "fail", f"invalid pattern: {exc}")
     text = screen_text(ctx.screen, app)
     if text is None:
         return _not_visible(check, ctx, absent)
+    if output:  # t9 V3: the print() line on screen is code, never the output it promises
+        text = "\n".join(ln for ln in screen_lines(ctx.screen, app) or [] if not _code_line(ln, check.get("_code")))
     try:
-        m = search_screen(pattern, text)
+        m = search_screen(pattern, text) if absent else search_wrapped(pattern, text)
     except re.error as exc:
         return _result(check, "fail", f"invalid pattern: {exc}")
+    if output and not m:
+        return _result(check, "fail", "not printed yet: run the cell" if nb is not None and not nb.executed
+                       else "not printed yet")
     if absent:
         if m:
             return _result(check, "fail", f"still showing {m.group(0)[:80]!r}{where}")
@@ -622,7 +641,50 @@ def evaluate_step(step: dict, ctx: RunContext | None = None, types: Iterable[str
                                            for t in step.get("targets") or [])
     checks = [{**c, "run": True} if run and c.get("type") == "screen_absent" and c.get("app") in _TERMINAL_APPS
               else c for c in checks]
+    if ctx.notebook is None and is_notebook_step(step) and os.path.isabs(str(ctx.workdir or "")):
+        ctx = dataclasses.replace(ctx, notebook=read_notebook(find_notebook(ctx.workdir, _files(step))) or False)
+    code = "\n".join([str(step.get("code") or "")] + [str(t.get("match") or "") for t in step.get("targets") or []]
+                     + (ctx.notebook.sources if isinstance(ctx.notebook, Notebook) else []))
+    checks = [{**c, "_code": code} if c.get("type") == "screen_contains" and is_output_check(c) else c for c in checks]
     return [evaluate_check(c, ctx) for c in checks if wanted is None or c.get("type") in wanted]
+
+
+_NOTEBOOK_RUN = re.compile(r"shift\s*\+\s*enter|\bcells?\b|\bnotebook\b|\bjupyter\b|\bcolab\b", re.I)
+_OUTPUT_LABEL = re.compile(r"\b(print(s|ed)?|outputs?|shown|shows|displayed|appears?|logged|rendered|plotted)\b", re.I)
+# a code line on screen: a print( call, a string literal opening after ( or closing before , / ), an f-string
+_CODE_MARK = re.compile(r"\bprint\s*\(|\(\s*[fbr]?['\"]|['\"]\s*[,)]|\bf['\"]")
+
+
+def _files(step: dict) -> list[str]:
+    return [str(x.get("file") or "") for x in [*(step.get("targets") or []), *(step.get("checks") or []),
+                                               *(step.get("precision_checks") or [])]] + [str(step.get("file") or "")]
+
+
+def is_notebook_step(step: dict) -> bool:
+    """A step done in a Jupyter notebook: a target / check file is an .ipynb, or its run is a cell run."""
+    if any(f.strip().lower().endswith(".ipynb") for f in _files(step)):
+        return True
+    return bool(_NOTEBOOK_RUN.search(str(step.get("run_command") or "")))
+
+
+def is_output_check(check: dict) -> bool:
+    """t9 V3: a screen_contains check about what the code PRINTS ("Image shape line printed"), graded on output only,
+    never on the code that prints it. An explicit ``output`` (bool) on the check decides; else its label says so
+    (printed / output / shown / displayed ...). Terminal checks keep their own rules."""
+    if check.get("type") != "screen_contains" or check.get("app") in _TERMINAL_APPS:
+        return False
+    if isinstance(check.get("output"), bool):
+        return check["output"]
+    return bool(_OUTPUT_LABEL.search(str(check.get("label") or "")))
+
+
+def _code_line(line: str, code: str | None) -> bool:
+    """Is this OCR line the learner's code rather than output? A print( / string-literal line, or a whole line of the
+    step's code / the notebook's cells (whitespace aside)."""
+    if _CODE_MARK.search(line):
+        return True
+    norm = " ".join(line.split())
+    return bool(norm) and any(norm == " ".join(c.split()) for c in (code or "").splitlines())
 
 
 def _step_file(step: dict) -> str:

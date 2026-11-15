@@ -247,6 +247,23 @@ def ensure_python_terminal(folder: Path | str) -> bool:
         return False
 
 
+def ensure_notebook_autosave(folder: Path | str) -> bool:
+    """t9 V3: a notebook lesson's folder saves by itself (files.autoSave afterDelay, ~1 s): a run cell's outputs reach
+    the .ipynb the checks read, and the learner never presses ⌘S. A value already there wins; a file that isn't plain
+    JSON is left alone. True when the file changed (VS Code picks workspace settings up live)."""
+    p = Path(folder) / ".vscode" / "settings.json"
+    try:
+        cur = json.loads(p.read_text()) if p.exists() else {}
+        if not isinstance(cur, dict) or "files.autoSave" in cur:
+            return False
+        p.parent.mkdir(parents=True, exist_ok=True)
+        p.write_text(json.dumps({**cur, "files.autoSave": "afterDelay"}, indent=2) + "\n")
+        return True
+    except (OSError, ValueError) as e:
+        log.warning("could not turn on autosave for %s: %s", Path(folder).name, e)
+        return False
+
+
 def _git(folder: Path, *args: str) -> None:
     env = {**os.environ, "GIT_AUTHOR_NAME": "miyagi", "GIT_AUTHOR_EMAIL": "miyagi@localhost",
            "GIT_COMMITTER_NAME": "miyagi", "GIT_COMMITTER_EMAIL": "miyagi@localhost"}
