@@ -2213,6 +2213,8 @@ class LessonSession:
 
                 if (cpath := wsmod.resolve_file(self.workdir, cfile)) is not None:
                     await self._buffers.refresh([cpath], self.workdir)
+                    if gen != self.step_gen or self.passed:
+                        return  # Back / goto_step during the read: this gate is the old step's
                     sid, again, btext = step["id"], would_pass or trigger == "check", self._buffers.text(cpath)
                     # no exact text and the code is unsaved / in another folder: the disk is stale, the save or the
                     # "Wrong folder?" card decides (both already hold the pass)
@@ -3504,9 +3506,13 @@ class LessonSession:
                 if v.get("verdict") == "done":
                     self.judged_pass.add(cid)
             await self.evaluate("check")
-            if not self.passed and gen == self.step_gen:  # the judge says every check is done: trust it
+            if self.passed or gen != self.step_gen:
+                return
+            if not getattr(self, "_code_block", None):  # the judge says every check is done: trust it
                 await self._pass_step()
-            return
+                return
+            # E1: the judge's passes reached rows the code gate fails (a syntax error / a missing piece, e.g. a
+            # requests.get without params): the drawer shows them red, so "Not yet", never step.passed
         from . import code_gate
 
         missing = (verdict or {}).get("missing") or ""

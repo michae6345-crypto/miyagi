@@ -326,13 +326,17 @@ def _period(s: str) -> str:
 
 def not_yet_body(missing: str, rows: list[dict], *, sid: str, cmd: str = "", forced: bool = False) -> str:
     """The "Not yet" card body, from the failing rows the drawer shows (never the judge's free text when a row
-    says what's left), whole sentences, the step's exact command; a syntax error on its own line.
-    `missing`: the judge's text; `forced`: it is the engine's own (save / type / run), which then leads."""
+    says what's left: "line 7 still needs ..." / the run), whole sentences, the step's exact command; a syntax
+    error on its own line. Rows that only carry a label ("Requests.get call written", a finished fact) yield to
+    the judge's own sentence when there is one. `missing`: the judge's text; `forced`: it is the engine's own
+    (save / type / run), which then leads."""
     syntax = next((r for r in rows if r.get("checkId") == f"{sid}-syntax"), None)
     rest = [r for r in rows if r is not syntax]
+    says = any(r.get("checkId") == f"{sid}-ran" or re.match(r"(?:line \d+ )?still needs ", str(r.get("detail") or ""))
+               for r in rest)
     if forced and missing:
         main = missing
-    elif rest:
+    elif rest and (says or not missing):
         parts = []
         for r in rest[:3]:
             label, detail = str(r.get("label") or r.get("checkId") or ""), str(r.get("detail") or "")

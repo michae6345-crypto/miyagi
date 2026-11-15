@@ -155,6 +155,42 @@ def test_requests_get_without_params_or_raise_for_status_does_not_pass(tmp_path,
     assert rig.of("step.passed")[-1] == {"stepId": "s2", "nextStepId": "s3"}
 
 
+def test_the_judges_done_never_passes_rows_the_code_gate_fails(tmp_path, monkeypatch):
+    """Review of E1: rows that fail on their own (tight) patterns aren't code-gate rows on Check's first pass, so
+    the judge's "done" reached them; the gate failed them again, the drawer showed them red, and the step still
+    passed. Now that is a "Not yet" saying what's missing."""
+    async def judge(step, screen=None, files=None, **kw):
+        return {"done": True, "missing": "", "checks": {c["id"]: {"verdict": "done"} for c in step["checks"]}}
+
+    rig, screen = _rig(tmp_path, monkeypatch, judge)
+    lesson = _lesson()
+    lesson["steps"][1]["checks"][1:] = [_code("s2c2", r'params=\{"format":\s*"j1"\}', "Asks wttr.in for JSON"),
+                                        _code("s2c3", r"raise_for_status\(\)", "Stops on a bad status")]
+
+    async def build(goal, workdir, on_update=None, **kw):
+        return lesson
+
+    rig.s.m.build_text_lesson = build
+    bare = WEATHER.replace(', params={"format": "j1"}', "").replace("    response.raise_for_status()\n", "")
+
+    async def go():
+        await rig.s.learn("weather", mode="lesson")
+        await rig.settle()
+        await rig.s.goto_step(1)
+        await rig.settle()
+        await _save(rig, screen, "weather.py", bare)
+        await rig.s.action("check_step")
+        await rig.settle()
+
+    run(go())
+    assert not rig.of("step.passed")
+    last = {r["checkId"]: r for r in rig.s.last_results}
+    assert last["s2c2"]["status"] == last["s2c3"]["status"] == "fail"
+    assert _rows(rig, "s2c2")[-1]["status"] == "fail"
+    card = [c for c in rig.of("card") if c["title"] == "Not yet"][-1]
+    assert 'params={"format": "j1"}' in card["body"] and "raise_for_status()" in card["body"]
+
+
 def test_not_yet_body_is_whole_sentences_with_the_steps_python3(tmp_path, monkeypatch):
     """01:21:48: the run step's card said "run python main.py" (only python3 on this Mac); 012054: the body was
     cut to 12 words with an ellipsis."""
@@ -167,6 +203,10 @@ def test_not_yet_body_is_whole_sentences_with_the_steps_python3(tmp_path, monkey
     assert card_text("Then run python main.py again.", {"code": "python3 main.py\n"}) == "Then run python3 main.py again"
     assert code_gate.not_yet_body("Run python main.py in the terminal", [], sid="s3", cmd="python3 main.py") == \
         "Run python3 main.py in the terminal."
+    labelled = [{"checkId": "s2c4", "label": "Prints the forecast", "status": "fail", "detail": "not found"}]
+    assert code_gate.not_yet_body('Call get_weather("Paris") and print it', labelled, sid="s2") == \
+        'Call get_weather("Paris") and print it.'  # a label is a finished fact: the judge's sentence says it better
+    assert code_gate.not_yet_body("", labelled, sid="s2") == "Still to do: Prints the forecast."
 
     async def judge(step, screen=None, files=None, **kw):
         return {"done": False, "missing": "Run python main.py in the terminal", "checks": {}}
