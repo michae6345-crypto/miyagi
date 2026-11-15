@@ -10,6 +10,9 @@
  * Color, a tad (Adrian, Sat): emphasis in deep sky (the Diagram tone, like the header tile); groups and git lanes take
  * the pastel trio (sky, lilac, pink) as soft washes. Everything else white / label alpha. Green and amber stay status-only.
  * Lines draw in (350 ms, 30 ms stagger). Every label comes from the data. Reference: server/diagrams/render_svg.py.
+ * Edge labels never touch a line (audit A23): each is knocked out of whatever runs under it (a halo, plus a padded
+ * plate when it sits on its own curve) in the island's black; labels of straight arrows sit above them; arrowheads
+ * draw over the plates; a node's branches leave from separate ports along its exit side.
  */
 import { motion } from 'motion/react'
 import { useId, useMemo, type ReactNode } from 'react'
@@ -29,6 +32,12 @@ const STAGGER = 0.03
 const MASK = 'white'
 const LABEL = 10.5
 const LH = 12.5
+/** An edge label's knockout: the plate's padding around the text (on-curve labels), and the halo's width (all labels). */
+const PLATE_X = 6
+const PLATE_Y = 4
+const HALO = 4
+/** Gap between a line and a label set beside / above it (clears descenders). */
+const OFF = 9
 /** Emphasis: the deeper sky (the Diagram tone reads near-white as a thin stroke). */
 const ACCENT = brand.pastel.skyDeep
 /** Categorical washes (groups, git lanes), in order. */
@@ -137,6 +146,45 @@ const boxH = (texts: BoxText[]): number => {
   return lines === 0 ? 30 : lines === 1 ? 40 : 52
 }
 
+/** A box's corner radius (NodeBox draws it); a circle is all corner. */
+const cornerOf = (n: Node, h: number): number => (n.shape === 'round' ? Math.min(h / 2, 20) : n.shape === 'data' ? 6 : 8)
+
+/**
+ * How far in from a box's exit side its outline is at offset d along that side (LR: the right side, d along y;
+ * TB: the bottom, d along x): 0 on the straight part, more on a rounded corner or a circle.
+ */
+function inset(b: Box, d: number, tb: boolean): number {
+  if (!d) return 0
+  const half = tb ? b.hx : b.hy
+  const r = b.kind === 'circle' ? b.hx : Math.min(cornerOf(b.n, b.h), half)
+  const into = Math.abs(d) - (half - r)
+  return into <= 0 ? 0 : r - Math.sqrt(Math.max(0, r * r - into * into))
+}
+
+/**
+ * Branches get their own exit ports (audit A23): a node's forward edges spread along its exit side, ordered by where
+ * they go (LR: by the target's y, TB: by its x), so they don't all fan out of one point. Edge index → offset.
+ */
+function exitPorts(edges: Edge[], byId: Map<string, Box>, tb: boolean): Map<number, number> {
+  const out = new Map<Box, { i: number; cross: number }[]>()
+  edges.forEach((e, i) => {
+    const a = byId.get(e.from)
+    const b = byId.get(e.to)
+    if (!a || !b || a === b) return
+    const forward = tb ? b.y - b.hy > a.y + a.hy + 4 : b.x - b.hx > a.x + a.hx + 4
+    if (forward) out.set(a, [...(out.get(a) ?? []), { i, cross: tb ? b.x : b.y }])
+  })
+  const ports = new Map<number, number>()
+  for (const [a, list] of out) {
+    if (list.length < 2) continue
+    // Spread over the middle of the side, at most 8 px (LR) / 18 px (TB) apart.
+    const span = (tb ? a.hx : a.hy) * 0.55
+    const step = Math.min(tb ? 18 : 8, (2 * span) / (list.length - 1))
+    list.sort((p, q) => p.cross - q.cross || p.i - q.i).forEach((p, k) => ports.set(p.i, (k - (list.length - 1) / 2) * step))
+  }
+  return ports
+}
+
 /** flow · data · architecture · tree (and any layered layout), LR or TB. */
 function layered(g: GraphDiagramData): Scene {
   const tb = g.direction === 'TB'
@@ -205,19 +253,21 @@ function layered(g: GraphDiagramData): Scene {
   for (const b of boxes) ext.add(b.y - b.hy, b.y + b.hy + (b.kind === 'circle' && b.n.detail ? 16 : 0))
 
   const lines: Line[] = []
+  const ports = exitPorts(g.edges, byId, tb)
   g.edges.forEach((e, i) => {
     const a = byId.get(e.from)
     const b = byId.get(e.to)
     if (!a || !b || a === b) return
-    const route = tb ? routeTB(a, b) : routeLR(a, b, above)
+    const port = ports.get(i) ?? 0
+    const route = tb ? routeTB(a, b, port) : routeLR(a, b, above, port)
     const text = e.label?.trim()
     let label: Label | undefined
     if (text && route.room.w >= 26) {
       const ls = route.room.lines > 1 ? wrap(text, route.room.w, LABEL, route.room.lines) : [fit(text, route.room.w, LABEL, 9.5).text]
       const size = route.room.lines > 1 ? LABEL : fit(text, route.room.w, LABEL, 9.5).size
       const h = ls.length * LH
-      // first baseline: centered blocks sit on the line's midpoint, others start at ly
-      const top = route.room.center ? route.ly - h / 2 + LH - 3 : route.ly
+      // first baseline: centered blocks sit on the line's midpoint, `up` blocks end at ly, others start at ly
+      const top = route.room.center ? route.ly - h / 2 + LH - 3 : route.room.up ? route.ly - (ls.length - 1) * LH : route.ly
       label = { x: route.lx, y: top, lines: ls, size, anchor: route.room.anchor, bg: route.room.bg }
       ext.add(top - LH, top + h - LH + 4)
     }
@@ -240,7 +290,8 @@ function layered(g: GraphDiagramData): Scene {
   return { boxes, lines, groups, lifelines: [], ...ext.get() }
 }
 
-type Room = { w: number; lines: number; anchor: 'middle' | 'start'; bg: boolean; center: boolean }
+/** Where an edge label goes: `center` = on the line's midpoint (with a plate), `up` = its block grows upward from ly. */
+type Room = { w: number; lines: number; anchor: 'middle' | 'start'; bg: boolean; center: boolean; up?: boolean }
 type Route = { d: string; head: { x: number; y: number; a: number }; lx: number; ly: number; room: Room; minY: number; maxY: number }
 
 function curve(sx: number, sy: number, ex: number, ey: number, a: number, horizontal: boolean): string {
@@ -254,15 +305,21 @@ function curve(sx: number, sy: number, ex: number, ey: number, a: number, horizo
   return `M${sx},${sy} C${sx},${my} ${bx},${my} ${bx},${by}`
 }
 
-function routeLR(a: Box, b: Box, above: boolean): Route {
+function routeLR(a: Box, b: Box, above: boolean, port = 0): Route {
   if (b.x - b.hx > a.x + a.hx + 4) {
-    const sx = a.x + a.hx
+    const sy = a.y + port
+    const sx = a.x + a.hx - inset(a, port, false)
     const ex = b.x - b.hx
+    // A straight arrow's label sits above it; an S-curve's sits on its midpoint, on a plate.
+    const straight = Math.abs(b.y - sy) < 0.5
     const room: Room = above
       ? { w: Math.abs(b.x - a.x) - 12, lines: 1, anchor: 'middle', bg: false, center: false }
-      : { w: ex - sx - 8, lines: 3, anchor: 'middle', bg: true, center: true }
-    const ly = above ? Math.min(a.y - a.hy, b.y - b.hy) - 8 : (a.y + b.y) / 2
-    return { d: curve(sx, a.y, ex, b.y, 0, true), head: { x: ex, y: b.y, a: 0 }, lx: (sx + ex) / 2, ly, room, minY: Math.min(a.y, b.y), maxY: Math.max(a.y, b.y) }
+      : straight
+        ? { w: ex - sx - 8, lines: 2, anchor: 'middle', bg: false, center: false, up: true }
+        : // the text keeps clear of the arrowhead (6.5 long) at the end of the gap, plate included
+          { w: ex - sx - 22, lines: 3, anchor: 'middle', bg: true, center: true }
+    const ly = above ? Math.min(a.y - a.hy, b.y - b.hy) - 8 : straight ? sy - OFF : (sy + b.y) / 2
+    return { d: curve(sx, sy, ex, b.y, 0, true), head: { x: ex, y: b.y, a: 0 }, lx: (sx + ex) / 2, ly, room, minY: Math.min(sy, b.y), maxY: Math.max(sy, b.y) }
   }
   if (b.x + b.hx < a.x - a.hx - 4) {
     // back edge: arc under both boxes
@@ -272,7 +329,7 @@ function routeLR(a: Box, b: Box, above: boolean): Route {
     const a2 = -Math.PI / 2
     const [bx, by] = back(b.x, ey, a2)
     const midY = (sy + 6 * yb + ey) / 8
-    return { d: `M${a.x},${sy} C${a.x},${yb} ${bx},${yb} ${bx},${by}`, head: { x: b.x, y: ey, a: a2 }, lx: (a.x + b.x) / 2, ly: midY + 13, room: { w: Math.abs(a.x - b.x) - 24, lines: 1, anchor: 'middle', bg: false, center: false }, minY: sy, maxY: midY + 2 }
+    return { d: `M${a.x},${sy} C${a.x},${yb} ${bx},${yb} ${bx},${by}`, head: { x: b.x, y: ey, a: a2 }, lx: (a.x + b.x) / 2, ly: midY + 15, room: { w: Math.abs(a.x - b.x) - 24, lines: 1, anchor: 'middle', bg: false, center: false }, minY: sy, maxY: midY + 2 }
   }
   // same column: straight down / up, label beside the line
   const down = b.y > a.y
@@ -280,15 +337,16 @@ function routeLR(a: Box, b: Box, above: boolean): Route {
   const ey = down ? b.y - b.hy : b.y + b.hy
   const a2 = down ? Math.PI / 2 : -Math.PI / 2
   const [bx, by] = back(b.x, ey, a2)
-  return { d: `M${a.x},${sy} L${bx},${by}`, head: { x: b.x, y: ey, a: a2 }, lx: a.x + 7, ly: (sy + ey) / 2 + 4, room: { w: Math.max(a.hx, 60), lines: 2, anchor: 'start', bg: false, center: false }, minY: sy, maxY: ey }
+  return { d: `M${a.x},${sy} L${bx},${by}`, head: { x: b.x, y: ey, a: a2 }, lx: a.x + OFF, ly: (sy + ey) / 2 + 4, room: { w: Math.max(a.hx, 60), lines: 2, anchor: 'start', bg: false, center: false }, minY: sy, maxY: ey }
 }
 
-function routeTB(a: Box, b: Box): Route {
+function routeTB(a: Box, b: Box, port = 0): Route {
   if (b.y - b.hy > a.y + a.hy + 4) {
-    const sy = a.y + a.hy
+    const sx = a.x + port
+    const sy = a.y + a.hy - inset(a, port, true)
     const ey = b.y - b.hy
     const a2 = Math.PI / 2
-    return { d: curve(a.x, sy, b.x, ey, a2, false), head: { x: b.x, y: ey, a: a2 }, lx: (a.x + b.x) / 2, ly: (sy + ey) / 2, room: { w: Math.max(56, Math.abs(b.x - a.x) + Math.min(a.hx, b.hx) * 1.2), lines: 1, anchor: 'middle', bg: true, center: true }, minY: sy, maxY: ey }
+    return { d: curve(sx, sy, b.x, ey, a2, false), head: { x: b.x, y: ey, a: a2 }, lx: (sx + b.x) / 2, ly: (sy + ey) / 2, room: { w: Math.max(56, Math.abs(b.x - sx) + Math.min(a.hx, b.hx) * 1.2), lines: 1, anchor: 'middle', bg: true, center: true }, minY: sy, maxY: ey }
   }
   if (b.y + b.hy < a.y - a.hy - 4) {
     // back edge (child calls up): arc on the right of both boxes
@@ -298,7 +356,7 @@ function routeTB(a: Box, b: Box): Route {
     const a2 = Math.PI
     const [bx, by] = back(ex, b.y, a2)
     const midX = (sx + 6 * xr + ex) / 8
-    return { d: `M${sx},${a.y} C${xr},${a.y} ${xr},${by} ${bx},${by}`, head: { x: ex, y: b.y, a: a2 }, lx: midX + 6, ly: (a.y + b.y) / 2 + 4, room: { w: Math.max(40, W - midX - 10), lines: 2, anchor: 'start', bg: false, center: false }, minY: b.y, maxY: a.y }
+    return { d: `M${sx},${a.y} C${xr},${a.y} ${xr},${by} ${bx},${by}`, head: { x: ex, y: b.y, a: a2 }, lx: midX + OFF, ly: (a.y + b.y) / 2 + 4, room: { w: Math.max(40, W - midX - 10), lines: 2, anchor: 'start', bg: false, center: false }, minY: b.y, maxY: a.y }
   }
   // same row: straight across, label above
   const right = b.x > a.x
@@ -306,7 +364,7 @@ function routeTB(a: Box, b: Box): Route {
   const ex = right ? b.x - b.hx : b.x + b.hx
   const a2 = right ? 0 : Math.PI
   const [bx, by] = back(ex, b.y, a2)
-  return { d: `M${sx},${a.y} L${bx},${by}`, head: { x: ex, y: b.y, a: a2 }, lx: (sx + ex) / 2, ly: a.y - 6, room: { w: Math.abs(ex - sx) - 8, lines: 1, anchor: 'middle', bg: false, center: false }, minY: a.y - 16, maxY: a.y }
+  return { d: `M${sx},${a.y} L${bx},${by}`, head: { x: ex, y: b.y, a: a2 }, lx: (sx + ex) / 2, ly: a.y - OFF, room: { w: Math.abs(ex - sx) - 8, lines: 1, anchor: 'middle', bg: false, center: false, up: true }, minY: a.y - 18, maxY: a.y }
 }
 
 /** Participants left to right; messages top to bottom by `order`. */
@@ -344,7 +402,7 @@ function sequence(g: GraphDiagramData): Scene {
     const ang = right ? 0 : Math.PI
     const [bx] = back(ex, y, ang)
     const f = text ? fit(text, Math.abs(ex - sx) - 12, 11, 9.5) : undefined
-    lines.push({ ...base, d: `M${sx},${y} L${bx},${y}`, head: { x: ex, y, a: ang }, label: f ? { x: (sx + ex) / 2, y: y - 7, lines: [f.text], size: f.size, anchor: 'middle', bg: false } : undefined })
+    lines.push({ ...base, d: `M${sx},${y} L${bx},${y}`, head: { x: ex, y, a: ang }, label: f ? { x: (sx + ex) / 2, y: y - OFF, lines: [f.text], size: f.size, anchor: 'middle', bg: false } : undefined })
     y += step
   })
   const end = Math.max(y - step + 18, bh + 30)
@@ -470,6 +528,7 @@ const arrow = (x: number, y: number, a: number, L = 6.5, Wd = 5.5): string => {
 }
 
 const ink = (strong: boolean): string => (strong ? color.text : color.label)
+const lineStroke = (l: Line): string => l.stroke ?? (l.strong ? ACCENT : color.faint)
 
 export function Graph({ data }: { data: GraphDiagramData }): ReactNode {
   const uid = useId().replace(/[^a-zA-Z0-9]/g, '')
@@ -494,7 +553,7 @@ export function Graph({ data }: { data: GraphDiagramData }): ReactNode {
       ))}
 
       {scene.lines.map((l) => {
-        const stroke = l.stroke ?? (l.strong ? ACCENT : color.faint)
+        const stroke = lineStroke(l)
         const width = l.strong ? 1.6 : 1.25
         const t = { duration: DRAW, delay: lineDelay(l), ease: 'easeOut' as const }
         const mask = `${uid}-${l.key.replace(/[^a-zA-Z0-9-]/g, '')}`
@@ -512,12 +571,26 @@ export function Graph({ data }: { data: GraphDiagramData }): ReactNode {
             ) : (
               <motion.path d={l.d} fill="none" stroke={stroke} strokeWidth={width} initial={{ pathLength: 0, opacity: 0 }} animate={{ pathLength: 1, opacity: 1 }} transition={t} />
             )}
-            {l.head && <motion.path d={arrow(l.head.x, l.head.y, l.head.a)} fill={stroke} initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: 0.12, delay: t.delay + DRAW * 0.85 }} />}
           </g>
         )
       })}
 
       {scene.lines.map((l) => l.label && <EdgeLabel key={`lab-${l.key}`} l={l.label} strong={l.strong} delay={lineDelay(l) + DRAW * 0.6} />)}
+
+      {/* Arrowheads over the labels' knockouts, so a plate never hides one. */}
+      {scene.lines.map(
+        (l) =>
+          l.head && (
+            <motion.path
+              key={`head-${l.key}`}
+              d={arrow(l.head.x, l.head.y, l.head.a)}
+              fill={lineStroke(l)}
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              transition={{ duration: 0.12, delay: lineDelay(l) + DRAW * 0.85 }}
+            />
+          )
+      )}
 
       {scene.boxes.map((b) => (
         <motion.g key={b.n.id} initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: 0.2, delay: b.rank * STAGGER }}>
@@ -529,15 +602,30 @@ export function Graph({ data }: { data: GraphDiagramData }): ReactNode {
   )
 }
 
+/**
+ * An edge label, knocked out of the lines under it in the island's own black (audit A23): a padded plate when it sits
+ * on its own curve, and a halo (paint-order stroke) on every label, so a line passing by never touches the text.
+ */
 function EdgeLabel({ l, strong, delay }: { l: Label; strong: boolean; delay: number }): ReactNode {
-  const w = Math.max(...l.lines.map((s) => textW(s, l.size))) + 8
-  const h = l.lines.length * LH + 3
-  const x0 = l.anchor === 'middle' ? l.x - w / 2 : l.x - 4
+  const w = Math.max(...l.lines.map((s) => textW(s, l.size))) + PLATE_X * 2
+  const h = l.lines.length * LH + 3 + PLATE_Y * 2
+  const x0 = l.anchor === 'middle' ? l.x - w / 2 : l.x - PLATE_X
   return (
     <motion.g initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: 0.15, delay }}>
-      {l.bg && <rect x={x0} y={l.y - LH + 2} width={w} height={h} rx={4} fill={color.island} />}
+      {l.bg && <rect x={x0} y={l.y - LH + 2 - PLATE_Y} width={w} height={h} rx={5} fill={color.island} />}
       {l.lines.map((s, i) => (
-        <text key={i} x={l.x} y={l.y + i * LH} textAnchor={l.anchor} fill={strong ? ACCENT : color.label} fontSize={l.size}>
+        <text
+          key={i}
+          x={l.x}
+          y={l.y + i * LH}
+          textAnchor={l.anchor}
+          fill={strong ? ACCENT : color.label}
+          fontSize={l.size}
+          stroke={color.island}
+          strokeWidth={HALO}
+          strokeLinejoin="round"
+          paintOrder="stroke"
+        >
           {s}
         </text>
       ))}
@@ -571,7 +659,7 @@ function NodeBox({ b }: { b: Box }): ReactNode {
   }
   const { w, h } = b
   const data = n.shape === 'data'
-  const rx = n.shape === 'round' ? Math.min(h / 2, 20) : data ? 6 : 8
+  const rx = cornerOf(n, h)
   const dy = data ? 2 : 0
   // label + detail lines, centered as one block
   const block = 12 + t.detail.length * 12.5

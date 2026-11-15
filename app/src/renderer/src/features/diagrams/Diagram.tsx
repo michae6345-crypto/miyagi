@@ -42,9 +42,10 @@ export function DiagramView(): ReactNode {
         {d.kind === 'heatmap' && <Heatmap data={d.data as HeatmapData} />}
         {d.kind === 'graph' && <Graph data={d.data as GraphDiagramData} />}
       </div>
+      {/* Left-aligned under the left-aligned title (audit A23). */}
       {d.caption && (
         <div
-          className="mt-[8px] overflow-hidden text-center text-[14px] leading-[20px]"
+          className="mt-[8px] overflow-hidden text-left text-[14px] leading-[20px]"
           style={{ color: color.label, display: '-webkit-box', WebkitBoxOrient: 'vertical', WebkitLineClamp: 2 }}
         >
           {d.caption}

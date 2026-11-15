@@ -19,9 +19,11 @@
 /*
  * Glass panels (theme.glass): dark by default, light under <html data-appearance="light"> (Settings → Appearance).
  * The island and the cards don't use these; they stay black.
+ * --glass-bg is nearly opaque (.96 / .97): CSS can't blur other apps in Electron, and at .9 the terminal text under
+ * the shortcut bar showed through (Michael's audit A22).
  */
 :root {
-  --glass-bg: rgba(28, 28, 30, 0.9);
+  --glass-bg: rgba(28, 28, 30, 0.96);
   --glass-text: #F4F4F5;
   --glass-label: rgba(255, 255, 255, 0.6);
   --glass-faint: rgba(255, 255, 255, 0.42);
@@ -39,7 +41,7 @@
   --glass-shadow: 0 24px 60px rgba(0, 0, 0, 0.5);
 }
 :root[data-appearance="light"] {
-  --glass-bg: rgba(250, 250, 248, 0.92);
+  --glass-bg: rgba(250, 250, 248, 0.97);
   --glass-text: #141414;
   --glass-label: rgba(0, 0, 0, 0.56);
   --glass-faint: rgba(0, 0, 0, 0.38);
