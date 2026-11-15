@@ -116,9 +116,23 @@ export default defineMainFeature({
       grabbed = false
       away = false
     })
+    // Desktop test 9, A1: grab only over controls. The renderer sends its data-hit rects ('overlay:hits'); until it
+    // does (an older renderer), every reported rect counts, as before.
+    let hits: Box[] | undefined
+    ctx.handle('overlay:hits', (rects) => {
+      hits = Array.isArray(rects) ? (rects as Box[]) : undefined
+    })
+    // A scroll over UI that can't scroll itself: give the mouse to the app below for a moment (renderer 'overlay:pass').
+    let passUntil = 0
+    ctx.handle('overlay:pass', (ms) => {
+      passUntil = Date.now() + Math.min(2000, Math.max(0, Number(ms) || 0))
+      grabbed = false
+      if (!ctx.overlay.isDestroyed()) ctx.overlay.setIgnoreMouseEvents(true, { forward: true })
+    })
     const timer = setInterval(() => {
       if (ctx.overlay.isDestroyed()) return clearInterval(timer)
       if (!ctx.overlay.isVisible()) return
+      if (Date.now() < passUntil) return
       const d = ctx.display().bounds
       const { w, h, dx = 0, dy = 0 } = ctx.islandSize()
       // The island from its live size and place (the reported rects lag up to 300 ms while it grows into a card or
@@ -135,7 +149,7 @@ export default defineMainFeature({
         }
         return
       }
-      const now = within(p, island) || ctx.overlayRects().some((r) => within(p, r))
+      const now = within(p, island) || (hits ?? ctx.overlayRects()).some((r) => within(p, r))
       if (now && !grabbed) {
         grabbed = true
         ctx.overlay.setIgnoreMouseEvents(false)

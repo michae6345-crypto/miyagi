@@ -313,7 +313,7 @@ function Compact(): ReactNode {
         ) : (
           <>
             <span style={{ color: color.label }}>Step {s.index + 1} ·&nbsp;</span>
-            <span className="max-w-[240px] truncate">{s.title}</span>
+            <span className="max-w-[360px] truncate">{s.title}</span>
           </>
         )}
       </SwapText>
