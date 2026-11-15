@@ -2,7 +2,9 @@
  * Feature: pill. The island's pill-sized states (34px tall, width hugs content), to mockup 01 + the
  * Miyagi brand (app/brand/BRAND.md): always black and white, the bonsai as a one-color glyph on the left
  * (monochrome everywhere in the app), the status on the right.
- *   idle      no lesson yet: "[bonsai] ask miyagi ⌥Space ●" (lowercase, Michael) (click opens the launcher); "Offline ○" with no engine;
+ *   idle      no lesson yet: "[bonsai] ask miyagi ⌥Space ●" (lowercase, Michael) (click opens the launcher);
+ *             with no engine, once a connect attempt has failed: "[bonsai] Can't reach miyagi · [Retry]" (click tries now,
+ *             review A16), or what the app's own engine is doing (setting up, starting, missing, failed);
  *             while the engine offers a saved lesson back: "[bonsai] Continue · <lesson>  2/7 ●" (click resumes it, review A7)
  *   building  between Build lesson and the first step: lesson.building message + spinner + progress line
  *             (the stage's words always in full, at most STAGE_MAX characters, never cut mid-word: desktop test 3, item 9);
@@ -20,7 +22,7 @@
  * The step-pass moment (check → flash → crossfade) is driven by ./store.ts.
  */
 import { AnimatePresence, motion } from 'motion/react'
-import { useRef, type ReactNode } from 'react'
+import { useRef, useState, type ReactNode } from 'react'
 import { useShallow } from 'zustand/react/shallow'
 import { bridge } from '../../bridge'
 import { notify, useLesson } from '../../core/lesson'
@@ -28,18 +30,55 @@ import { defineFeature } from '../../core/registry'
 import { color, copy, fill } from '../../core/theme'
 import { Kbd, Spinner } from '../../core/ui/atoms'
 import { BuildLine, FitSwap, LeadMark, MonoMark, StatusMark, StepCount, SwapText, type Mark } from './parts'
-import { LESSON_SAVED, resumeSaved, undoEnd, usePill, type SavedOffer } from './store'
+import { LESSON_SAVED, resumeSaved, retryEngine, undoEnd, UNREACHABLE, usePill, type SavedOffer } from './store'
 
 /**
  * Offline, but the app is bringing its own engine up (main/localEngine.ts, built Mac app): say what's happening.
  * "Install the engine" copies Michael's one-liner; "Engine didn't start" opens the engine's log.
  */
-function offlineLabel(state?: string): { text: string; busy: boolean } {
+function offlineLabel(state?: string): { text: string; busy: boolean } | undefined {
   if (state === 'installing') return { text: 'Setting up miyagi', busy: true }
   if (state === 'starting' || state === 'checking') return { text: 'Starting miyagi', busy: true }
   if (state === 'missing') return { text: 'Install the engine', busy: false }
   if (state === 'failed') return { text: "Engine didn't start", busy: false }
-  return { text: 'Offline', busy: false }
+  return undefined // nothing more to say than "Can't reach miyagi · Retry" (Unreachable)
+}
+
+/**
+ * No engine answers and a connect attempt has failed (Michael's review A16): "Can't reach miyagi · Retry". The whole
+ * pill is the Retry (a 34px target); the chip is drawn like the saved line's Undo (neutral chrome, concentric with the
+ * pill's right end). Pressed, the bonsai spins until that attempt ends; main also keeps retrying by itself.
+ */
+function Unreachable(): ReactNode {
+  const retrying = usePill((s) => s.retrying)
+  const [hot, setHot] = useState(false)
+  return (
+    <button
+      type="button"
+      className="flex h-[34px] cursor-pointer items-center whitespace-nowrap pl-[13px] pr-[6px] text-[13px] font-medium"
+      style={{ color: color.label }}
+      onClick={retryEngine}
+      onMouseEnter={() => setHot(true)}
+      onMouseLeave={() => setHot(false)}
+      aria-label={`${UNREACHABLE}. Retry`}
+      aria-busy={retrying || undefined}
+      data-offline
+    >
+      <LeadMark busy={retrying} />
+      <span>{UNREACHABLE}</span>
+      <span>&nbsp;·&nbsp;</span>
+      <motion.span
+        className="ml-[4px] inline-flex h-[22px] items-center rounded-full px-[10px] text-[12px] font-medium"
+        style={{ color: color.text }}
+        initial={false}
+        animate={{ backgroundColor: hot ? fill.chipHover : fill.button }}
+        whileTap={{ scale: 0.96 }}
+        transition={{ duration: 0.12 }}
+      >
+        Retry
+      </motion.span>
+    </button>
+  )
 }
 
 /**
@@ -76,6 +115,7 @@ function Idle(): ReactNode {
   const off = offlineLabel(local?.state)
   // The engine offers a saved lesson back and its card is closed (review A7): the pill is the way back into it.
   const cont = !offline && offer ? continueLabel(offer) : undefined
+  if (offline && !off) return <Unreachable />
   const click = (): void => {
     if (cont) return resumeSaved()
     if (offline && local?.state === 'missing') {
@@ -94,7 +134,7 @@ function Idle(): ReactNode {
       style={{ color: offline ? color.label : color.text }}
       onClick={click}
       title={offline ? local?.line : cont?.full}
-      aria-label={offline ? `${off.text}: miyagi is not connected` : cont ? cont.aria : 'ask miyagi: open the launcher'}
+      aria-label={offline && off ? `${off.text}: miyagi is not connected` : cont ? cont.aria : 'ask miyagi: open the launcher'}
       data-offer={cont ? cont.id : undefined}
     >
       <LeadMark busy={resuming} />
@@ -102,7 +142,7 @@ function Idle(): ReactNode {
         id={offline ? `offline-${local?.state ?? ''}` : cont ? cont.id : 'ask'}
         className="flex opacity-90 transition-opacity duration-150 group-hover:opacity-100"
       >
-        {offline ? (
+        {offline && off ? (
           off.text
         ) : cont ? (
           cont.title ? (
@@ -118,7 +158,7 @@ function Idle(): ReactNode {
           copy.ask
         )}
       </SwapText>
-      {offline && off.busy && <span className="ml-[10px] inline-flex"><Spinner size={13} c={color.label} /></span>}
+      {offline && off?.busy && <span className="ml-[10px] inline-flex"><Spinner size={13} c={color.label} /></span>}
       {/* Fully round (radius 10 inside the pill's 17). Hidden offline: nothing to ask. Hidden on Continue: a click resumes. */}
       {!offline && !cont && <Kbd className="ml-[10px] !h-[20px] !rounded-full !px-[8px]">{bridge.platform.keys.launcher}</Kbd>}
       {/* The status dot on the right, like every pill state (BRAND.md): gray watching, hollow gray offline (audit A21).
@@ -129,7 +169,7 @@ function Idle(): ReactNode {
           <StatusMark mark="watching" />
         </span>
       ) : (
-        <span className={`flex items-center ${offline && !off.busy ? 'ml-[15px]' : 'ml-[9px]'}`}>
+        <span className={`flex items-center ${offline && !off?.busy ? 'ml-[15px]' : 'ml-[9px]'}`}>
           <StatusMark mark={offline ? 'offline' : 'watching'} />
         </span>
       )}
