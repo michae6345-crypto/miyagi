@@ -92,6 +92,8 @@ class Engine:
         self.watcher.start()
         if not self.screen.start(self.session.on_screen):
             self.session.screen = None  # precision mode only (files + tut run)
+        else:  # E6: app switch / Space swipe within ~0.25 s -> clear (or re-place) the spotlight at once
+            self.screen.watch_frontmost(self.session.on_frontmost)
         if config.env_flag("ORCH_AUTOSTART"):  # no launcher needed: the lesson is live from the start
             if self.modules.demo and (graph := self.modules._lesson_file()):
                 await self.session.load_graph(graph)

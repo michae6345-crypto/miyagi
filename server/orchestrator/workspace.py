@@ -123,8 +123,26 @@ def line_location(path: str | Path, line: int) -> dict:
         return {}
 
 
-def target_location(workdir: str | Path, step: dict) -> tuple[Path, int] | None:
-    """(absolute file, 1-based line) of the step's first target whose file exists."""
+def anchor_line(text: str, match: str) -> int | None:
+    """1-based line of `match` in `text`: the literal text first ("return a + b" has a regex '+'), then as a regex.
+    None when it isn't there."""
+    lines = text.splitlines()
+    for i, ln in enumerate(lines, start=1):
+        if match in ln:
+            return i
+    try:
+        rx = re.compile(match)
+    except re.error:
+        return None
+    for i, ln in enumerate(lines, start=1):
+        if rx.search(ln):
+            return i
+    return None
+
+
+def target_location(workdir: str | Path, step: dict, missing: str = "first") -> tuple[Path, int] | None:
+    """(absolute file, 1-based line) of the step's first target whose file exists. missing: where to point when
+    the anchor isn't in the file: "first" (line 1) or "end" (where new code goes: the line after the last)."""
     for t in step.get("targets") or []:
         f = t.get("file")
         if not f:
@@ -132,22 +150,16 @@ def target_location(workdir: str | Path, step: dict) -> tuple[Path, int] | None:
         path = resolve_file(workdir, f)
         if path is None:
             continue
-        line = 1
         match = t.get("match")
-        if match:
-            try:
-                text = path.read_text(errors="replace")
-            except OSError:
-                return path, 1
-            try:
-                rx = re.compile(match)
-                hit = lambda s: rx.search(s) is not None  # noqa: E731
-            except re.error:
-                hit = lambda s: match in s  # noqa: E731
-            for i, ln in enumerate(text.splitlines(), start=1):
-                if hit(ln):
-                    line = i
-                    break
+        if not match:
+            return path, 1
+        try:
+            text = path.read_text(errors="replace")
+        except OSError:
+            return path, 1
+        line = anchor_line(text, match)
+        if line is None:
+            line = (len(text.rstrip("\n").splitlines()) + 1) if missing == "end" else 1
         return path, line
     return None
 
@@ -369,8 +381,8 @@ class Workspace:
         if argv:
             self.run(argv)
 
-    def goto_target(self, workdir: str, step: dict, explicit: bool = False) -> None:
-        loc = target_location(workdir, step)
+    def goto_target(self, workdir: str, step: dict, explicit: bool = False, missing: str = "first") -> None:
+        loc = target_location(workdir, step, missing=missing)
         if loc is None:
             return
         path, line = loc

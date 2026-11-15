@@ -32,6 +32,7 @@ import math
 import os
 import re
 import time
+import types
 from collections.abc import Awaitable, Callable
 from pathlib import Path
 from typing import Any
@@ -275,6 +276,7 @@ class LessonSession:
         self.ready_hold_s = float(os.environ.get("ORCH_READY_HOLD_S", "1.5"))
         self.offtrack_grace_s = float(os.environ.get("ORCH_OFFTRACK_GRACE_S", "20"))  # no offtrack this early in a step
         self.check_wait_s = float(os.environ.get("ORCH_CHECK_WAIT_S", "1.2"))  # check_step: wait for a fresh frame
+        self.has_python: bool | None = None  # is `python` on PATH? None = look (tests pin it)
 
         self.phase = "idle"  # idle | searching | building | active | done
         self.query = ""
@@ -1124,14 +1126,30 @@ class LessonSession:
     SHELL_CMD = re.compile(r"^\s*(\$\s*)?(python3?|pip3?|uv|npm|npx|node|yarn|pnpm|git|cd|ls|cargo|go|ruby|bash|sh|"
                            r"make|pytest|flask|streamlit|jupyter)\b")
 
+    RUN_WORDS = re.compile(r"\b(run|execute|terminal)\b", re.I)
+
     def _run_command(self, step: dict) -> str:
-        """The shell command a "run it" step asks for ('' for a typing step)."""
-        if (step.get("run_command") or "").strip() and not (step.get("code") or "").strip():
-            return step["run_command"].strip()
-        lines = [ln for ln in (step.get("code") or "").splitlines() if ln.strip() and not ln.strip().startswith("#")]
+        """The shell command a "run it" step asks for ('' for a typing step). A step with BOTH code and a
+        run_command is a run step when its code is already in the file or its words say run / terminal."""
+        rc = (step.get("run_command") or "").strip()
+        code = (step.get("code") or "").strip()
+        lines = [ln for ln in code.splitlines() if ln.strip() and not ln.strip().startswith("#")]
         if lines and all(self.SHELL_CMD.match(ln) for ln in lines):
-            return "\n".join(ln.strip().lstrip("$ ").strip() for ln in lines)
+            return self._python3("\n".join(ln.strip().lstrip("$ ").strip() for ln in lines))
+        if rc and (not code or self._step_code_in_file(step)
+                   or self.RUN_WORDS.search(f"{step.get('title', '')} {step.get('details', '')}")):
+            return self._python3(rc)
         return ""
+
+    def _python3(self, cmd: str) -> str:
+        """This Mac may have no `python` (only python3): say python3 unless `python` exists here or in the
+        lesson's .venv."""
+        import shutil
+
+        has = self.has_python if self.has_python is not None else bool(shutil.which("python"))
+        if has or (Path(self.workdir) / ".venv" / "bin" / "python").exists():
+            return cmd
+        return re.sub(r"(^|\n|&&\s*|;\s*)python(?=\s)", r"\1python3", cmd)
 
     def _editor_window(self) -> dict | None:
         """The VS Code window's rect (screen points), from the latest observation."""
@@ -1169,6 +1187,9 @@ class LessonSession:
     def _open_terminal_spot(self, win: dict | None, snip: dict) -> dict:
         """The terminal is closed: point at something real that opens it: VS Code's "Terminal" menu-bar item when
         the screen shows it, else the editor's status bar. Never an empty rect."""
+        region = getattr(self.screen, "region", None) if self.screen is not None else None
+        if region is not None and (m := region("terminal_menu")):  # E6: the menu bar's Terminal item
+            return {"rect": m, "caption": "Open the terminal: ⌃`", "app": "Code", **snip, "kind": "menu"}
         menu = self.screen.locate(r"^\s*Terminal\s*$", None) if self.screen is not None else None
         if menu and menu["rect"]["y"] < 40 and menu["rect"]["h"] < 40:  # the menu bar, top of the screen
             return {"rect": menu["rect"], "caption": "Open the terminal: ⌃`", "app": "Code", **snip, "kind": "menu"}
@@ -1215,7 +1236,7 @@ class LessonSession:
             return None
         from . import workspace as wsmod
 
-        loc = wsmod.target_location(self.workdir, step)
+        loc = wsmod.target_location(self.workdir, step, missing="end")  # anchor not in the file: where code goes
         if loc is None:
             return None
         path, line = loc
@@ -1437,7 +1458,7 @@ class LessonSession:
         if self.m.has_diagrams() and os.environ.get("ORCH_DIAGRAM_PREFETCH", "1") == "1":
             self._spawn(self._prefetch_diagram(self.step_gen, step), timer=True)
         if self.workspace is not None and self.editor_open:  # `code -g` would itself launch VS Code
-            self.workspace.goto_target(self.workdir, step)
+            self.workspace.goto_target(self.workdir, step, missing="end" if self.lesson_mode else "first")
         await self._status("watching")
         await self.evaluate("start")
         if seg is not None and not self.passed and self.step is step:
@@ -1528,6 +1549,8 @@ class LessonSession:
         if tlist and self.spot_track is None:
             t = tlist[0]
             self.spot_track = (t["match"], None if self.lesson_mode else t.get("app"), t.get("caption", ""))
+        if self.lesson_mode:  # an anchor that isn't in the file (yet) would box some other line: skip it
+            tlist = [t for t in tlist if self._anchor_in_file(t)]
         for t in tlist:
             cap = self._type_caption(step, t) if self.lesson_mode else t.get("caption", "")
             app = None if self.lesson_mode else t.get("app")  # lesson mode: whichever editor they use
@@ -1570,6 +1593,18 @@ class LessonSession:
             return {**spot, "rect": {k: float(d[k]) for k in ("x", "y", "w", "h")}}
         except (KeyError, TypeError, ValueError):
             return spot
+
+    def _anchor_in_file(self, target: dict) -> bool:
+        from . import workspace as wsmod
+
+        f, match = target.get("file") or "", target.get("match") or ""
+        p = wsmod.resolve_file(self.workdir, f) if self._real_file(f) else None
+        if p is None or not match:
+            return p is not None
+        try:
+            return wsmod.anchor_line(p.read_text(errors="replace"), match) is not None
+        except OSError:
+            return False
 
     def _chrome_hit(self, spot: dict) -> bool:
         """Is this match in the editor's chrome (breadcrumb "a > b > c.py", tab bar, title bar) rather than code?"""
@@ -2151,6 +2186,12 @@ class LessonSession:
                 await self._follow_spot()
 
     OVERLAY_APPS = {"miyagi", "electron", "miyagi-overlay"}
+
+    async def on_frontmost(self, app: str) -> None:
+        """E6's frontmost watcher (app switch / Space swipe, ~0.25 s): clear or re-place the box right away."""
+        if self.step is None or self.passed:
+            return
+        await self._spot_follows_app(types.SimpleNamespace(app=app))
 
     async def _spot_follows_app(self, obs: Any) -> bool:
         """The box lives in VS Code: when the learner leaves it (another app / Space), clear the spotlight at once;
@@ -2944,6 +2985,22 @@ class LessonSession:
     def _focused_app(self) -> str:
         return str(getattr(self.last_obs, "app", "") or "")
 
+    def _judge_gate_kwargs(self, step: dict) -> dict:
+        """E5's cost gate: is the reader alive, is the display asleep / locked, the step files' mtimes."""
+        from . import workspace as wsmod
+
+        down = self.screen_down_reason() or ""
+        mtimes: dict[str, float] = {}
+        names = {self._step_file(step)} | {t.get("file") for t in step.get("targets") or []}
+        for f in names:
+            if self._real_file(f) and (p := wsmod.resolve_file(self.workdir, f)) is not None:
+                try:
+                    mtimes[str(p)] = p.stat().st_mtime
+                except OSError:
+                    pass
+        return {"screen_ok": self.screen_active() and not down,
+                "display_asleep": bool(re.search(r"asleep|locked", down, re.I)), "file_mtimes": mtimes}
+
     def _maybe_judge(self, step: dict) -> None:
         """E5's StepJudge in the background: when the learner is idle and the deterministic checks can't tell
         (pending), Claude (Haiku) looks; gates (idle >= 8 s, <= 1 per 20 s, only on change) are E5's."""
@@ -2956,7 +3013,8 @@ class LessonSession:
         try:
             if not j.should_judge(step, self.last_results, idle_s=self.learner_idle_s(),
                                   video_playing=self.video_playing and not self.segment_done,
-                                  screen=screen, files=files, focused_app=self._focused_app()):
+                                  screen=screen, files=files, focused_app=self._focused_app(),
+                                  **self._judge_gate_kwargs(step)):
                 return
         except Exception:  # noqa: BLE001
             log.exception("should_judge failed")
@@ -2967,7 +3025,8 @@ class LessonSession:
     async def _run_judge(self, gen: int, step: dict, screen: Any, files: dict) -> None:
         try:
             j = await self.judge.judge(step, self.last_results, screen=screen, files=files,
-                                       focused_app=self._focused_app(), lesson=(self.graph or {}).get("lesson"))
+                                       focused_app=self._focused_app(), lesson=(self.graph or {}).get("lesson"),
+                                       file_mtimes=self._judge_gate_kwargs(step)["file_mtimes"])
         except Exception:  # noqa: BLE001
             log.exception("step judge failed")
             j = None

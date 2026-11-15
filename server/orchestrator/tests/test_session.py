@@ -43,6 +43,7 @@ class Rig:
         self.s.offtrack_grace_s = 0  # most tests drive the ladder at once; the grace has its own test
         self.s.CARD_GAP_S = 0  # pacing (8 s between cards, 2 s between spotlight moves) has its own test
         self.s.SPOT_MIN_GAP_S = 0
+        self.s.has_python = True  # run-step wording: `python` is there (the python3 rewrite has its own test)
 
     @property
     def events(self) -> list[dict]:
@@ -2932,3 +2933,27 @@ def test_do_it_for_me_appends_the_step_code_and_says_what_it_added(tmp_path, mon
     assert (tmp_path / "calc.py").read_text() == "# my calculator\n\ndef add(a, b):\n    return a + b\n"
     assert any(c["title"] == "Done" and c["body"] == "Added def add(a, b) to calc.py." for c in rig.of("card"))
     assert rig.of("step.passed")[0]["stepId"] == "s1"
+
+
+
+def test_s11_run_steps_anchors_and_python3(rig, tmp_path):
+    """S11's rehearsal: a run step with code + run_command, regex-looking anchors, missing anchors, no `python`."""
+    from server.orchestrator import workspace as wsmod
+
+    (rig.workdir / "calculator.py").write_text('"""Calc."""\n\ndef add(a, b):\n    return a + b\n\nprint(add(2, 3))\n')
+    loc = wsmod.target_location(rig.workdir, {"targets": [{"file": "calculator.py", "match": "return a + b"}]})
+    assert loc[1] == 4  # literal first: the regex '+' doesn't send it to line 1
+    loc = wsmod.target_location(rig.workdir, {"targets": [{"file": "calculator.py", "match": "print(add(2, 3))"}]})
+    assert loc[1] == 6
+    loc = wsmod.target_location(rig.workdir, {"targets": [{"file": "calculator.py", "match": "def main"}]}, missing="end")
+    assert loc[1] == 7  # not in the file: where the new code goes
+
+    s2 = {"id": "s2", "title": "Run your first output", "file": "calculator.py", "code": "print(add(2, 3))",
+          "run_command": "python calculator.py", "details": "In the terminal, run python calculator.py"}
+    assert rig.s._run_command(s2) == "python calculator.py"  # its code is already in the file: a run step
+    assert rig.s._action_line(s2) == "Run it in the terminal: python calculator.py"
+    s8 = {"id": "s8", "title": "Try it", "file": "(terminal)", "code": "python calculator.py"}
+    assert rig.s._action_line(s8) == "Run it in the terminal: python calculator.py"
+    rig.s.has_python = False  # this Mac: python3 only
+    assert rig.s._run_command(s2) == "python3 calculator.py"
+    assert rig.s._run_command({"id": "x", "code": "cd app && python main.py"}) == "cd app && python3 main.py"
