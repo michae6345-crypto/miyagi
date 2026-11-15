@@ -4,7 +4,7 @@
     reqs = requirements(graph)                 # read-only: tools + installed/version/install recipe
     install(item, on_line=print)               # only after the learner says yes
     wd = prepare(graph, goal)                  # Path; the hero lesson gets demo/pinn-lab
-    if editor_needed(reqs): open_editor(wd, open_file_for(wd))   # Cursor or VS Code, only after the learner says yes
+    if editor_needed(reqs): open_editor(wd, open_file_for(wd))   # VS Code, only after the learner says yes
 """
 
 from .active import active_editor, adopt_folder, folder_on_screen, vscode_windows, wrong_folder
