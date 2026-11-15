@@ -399,6 +399,8 @@ const ACTION: Partial<Record<CardAction, { label: string; Icon?: LucideIcon; pri
   skip_step: { label: 'Skip step', Icon: SkipForward },
   // Wrong-folder card: the learner is editing the lesson file in another folder; adopt that folder (engine copies only missing files).
   use_this_folder: { label: 'Use this folder', Icon: FolderOpen },
+  // Run steps: the engine runs the step's command in the lesson folder and shows the output.
+  run_command: { label: 'Run it for me', Icon: Play, primary: true },
   confirm: { label: 'Yes', Icon: Check, primary: true },
   apply_fix: { label: 'Do it for me', Icon: Wrench, primary: true },
   open_editor: { label: 'Open VS Code', Icon: Code2, primary: true },
