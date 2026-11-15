@@ -112,6 +112,21 @@ class ScreenBridge:
             out["matched"] = res.matched[:200]
         return out
 
+    def region(self, name: str, app: str | None = None) -> dict | None:
+        """E6: a VS Code region's rect {x, y, w, h} ("terminal" | "editor" | "explorer" | "run_button"), stabilized
+        (4-pt grid, kept while edges move < 12 pt), or None when it isn't on screen."""
+        if self.reader is None or self.down_reason() or not hasattr(self.reader, "locate_region"):
+            return None
+        try:
+            r = self.reader.locate_region(name, app)
+        except Exception:  # noqa: BLE001
+            log.exception("locate_region failed")
+            return None
+        if r is None:
+            return None
+        d = r.to_dict() if hasattr(r, "to_dict") else dict(r)
+        return {k: float(d[k]) for k in ("x", "y", "w", "h")}
+
     def set_overlay(self, rects: list[dict]) -> None:
         if self.reader is not None:
             self.reader.set_overlay_bounds(rects)
@@ -193,6 +208,9 @@ class FakeScreen:
 
     def down_reason(self) -> str | None:
         return self.down
+
+    def region(self, name: str, app: str | None = None) -> dict | None:
+        return getattr(self, "regions", {}).get(name)
 
     def screenshot(self) -> Any:
         return None

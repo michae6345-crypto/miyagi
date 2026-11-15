@@ -86,8 +86,12 @@ small, visible piece (a function, a component, a command that prints something).
 The app has already created the lesson folder and opens each file for the learner: never tell them to
 mkdir, cd, touch or create folders, and never write absolute paths; name files relative to the lesson folder
 ("in calculator.py"). Use the terminal only for real tool commands (npm create, pip install, running the program).
-title: imperative, <= 6 words; instructions: ONE short action (one sentence); file: the file the step edits
-(relative path), or "" for a terminal-only step. libraries: what the lesson uses, with current major versions."""
+Order: step 1 is always typing code into a file (never a terminal step); a step that runs a program comes
+AFTER the steps that write that program's code.
+title: imperative, <= 6 words; instructions: ONE imperative sentence, at most 10 words, no parentheses; say
+"terminal" only for commands and name the file only for code ("Add an add function to calculator.py.",
+"Run your calculator in the terminal."); file: the file the step edits (relative path), or "" for a
+terminal-only step. libraries: what the lesson uses, with current major versions."""
 
 STEP_PROMPT = """Learner's goal: {goal}. Lesson: "{lesson}". All steps: {outline}
 
@@ -177,7 +181,7 @@ async def build_text_lesson(goal: str, workdir: str, on_update=None, *, cache: b
     builder._emit("planning", "planning the lesson")
     plan = await claude._generate_json(SYSTEM, PLAN_PROMPT.format(goal=goal, workdir=summary), PLAN_SCHEMA,
                                        effort="medium", role="segment", check=plan_ok)
-    steps_plan = plan["steps"]
+    steps_plan = order_plan(plan["steps"])
     outline = "; ".join(f"{i}. {s['title']}" for i, s in enumerate(steps_plan, 1))
     libs = {lb["name"]: lb.get("version", "") for lb in plan.get("libraries") or [] if lb.get("name")}
     done: dict[int, dict] = {}
@@ -214,7 +218,7 @@ async def build_text_lesson(goal: str, workdir: str, on_update=None, *, cache: b
                                     stack_guide=gemini.STACK_GUIDE)
 
         def ok(o: dict) -> str | None:
-            if not (o.get("code") or "").strip():
+            if not ((o.get("code") or "").strip() or (o.get("run_command") or "").strip()):
                 return "no code"
             if not o.get("checks"):
                 return "no checks"
@@ -223,7 +227,7 @@ async def build_text_lesson(goal: str, workdir: str, on_update=None, *, cache: b
             return None
 
         d = await claude._generate_json(SYSTEM, prompt, STEP_SCHEMA, effort="low", structured=False, role="detail", check=ok)
-        return sanitize_step(_assemble_step(i, sp, d), workdir)
+        return shape_step(sanitize_step(_assemble_step(i, sp, d), workdir))
 
     # 1. step 1 right away (no waiting for research)
     first = await step(1, "", "")
@@ -254,6 +258,7 @@ async def build_text_lesson(goal: str, workdir: str, on_update=None, *, cache: b
     g["steps"] = [done[i] for i in sorted(done)]
     for k, s in enumerate(g["steps"], 1):  # renumber if a middle step failed
         _renumber(s, k)
+    link_run_steps(g["steps"])
     _finalize(g, info)
     g["build"]["cost"] = json.loads(json.dumps(counter))
     errs = schema_errors(g)
@@ -348,3 +353,99 @@ def sanitize_step(step: dict, workdir: str) -> dict:
         for j, c in enumerate(step.get(key) or [], 1):
             c["id"] = f"{step['id']}{tag}{j}"
     return step
+
+
+# --------------------------------------------------------------------------- #
+# Step order and wording for no-video lessons (Michael: "Type this in the VS Code terminal (use python…"
+# with `python calculator.py` while calculator.py was still empty)
+# --------------------------------------------------------------------------- #
+_RUN_FILE = re.compile(r"\b([\w./-]+\.(?:py|js|mjs|ts|rs|go|rb|java|sh))\b")
+_RUN_WORD = re.compile(r"\b(run|execute|launch|start)\b", re.I)
+MAX_WORDS = 10
+
+
+def _is_run_plan(st: dict) -> bool:
+    return not (st.get("file") or "").strip()
+
+
+def _ran_file(text: str) -> str | None:
+    m = _RUN_FILE.search(text or "")
+    return m.group(1) if m else None
+
+
+def order_plan(steps: list[dict]) -> list[dict]:
+    """Step 1 types code into a file (never a terminal step); a run step that the plan put before any of the code
+    it runs moves after the last step writing that file. Done on the plan, before any step is built or shown,
+    so step ids never change later."""
+    steps = list(steps)
+    for _ in range(len(steps)):
+        moved = False
+        for k, st in enumerate(steps):
+            if not _is_run_plan(st):
+                continue
+            f = _ran_file(f"{st.get('title', '')} {st.get('instructions', '')}")
+            writers = [j for j, o in enumerate(steps) if f and (o.get("file") or "") == f]
+            if writers and min(writers) > k:  # runs a file nobody has written yet
+                steps.insert(max(writers), steps.pop(k))
+                moved = True
+                break
+        if not moved:
+            break
+    if steps and _is_run_plan(steps[0]):
+        first_code = next((k for k, st in enumerate(steps) if not _is_run_plan(st)), None)
+        if first_code is not None:
+            steps.insert(0, steps.pop(first_code))
+    return steps
+
+
+def _noun(file: str) -> str:
+    stem = re.sub(r"[_-]+", " ", os.path.splitext(os.path.basename(file or ""))[0]).strip()
+    return stem if stem and stem.lower() not in ("main", "index", "app", "script") else "program"
+
+
+def _is_run_step(st: dict) -> bool:
+    cmd, code = (st.get("run_command") or "").strip(), (st.get("code") or "").strip()
+    return bool(cmd) and (not (st.get("file") or "").strip() or not code or code == cmd)
+
+
+def shape_step(st: dict) -> dict:
+    """One imperative sentence, <= 10 words, no parentheticals; 'terminal' only for commands, the file only for code."""
+    text = re.sub(r"\s*\([^)]*\)", "", st.get("instructions") or "")  # no parentheticals
+    text = re.split(r"(?<=[.!?])\s+", text.strip())[0] if text.strip() else ""
+    text = re.sub(r"\s*(and\s+)?(type|run|enter)\s+(this|the following|it)?\s*:?\s*$", "", text, flags=re.I).rstrip(" :,;")
+    if _is_run_step(st):
+        ran = _ran_file(st["run_command"]) or st.get("file") or ""
+        st["code"] = st["run_command"]  # the snippet is the command to type in the terminal
+        if ran:
+            st["file"] = ran  # the file it runs (checks look for its code there)
+        st["instructions"] = f"Run your {_noun(ran)} in the terminal."
+        return st
+    f = st.get("file") or ""
+    words = text.split()
+    if (not words or len(words) > MAX_WORDS or re.search(r"\bterminal\b", text, re.I) or _RUN_WORD.match(text)):
+        text = f"In {f}, type the code below." if f else "Type the code below."
+    elif not text.endswith((".", "!", "?")):
+        text += "."
+    st["instructions"] = text[0].upper() + text[1:] if text else text
+    return st
+
+
+def link_run_steps(steps: list[dict]) -> None:
+    """A run step's check requires the code it runs to be in the file: the last fragment written to that file."""
+    for k, st in enumerate(steps):
+        if not _is_run_step(st):
+            continue
+        f = st.get("file") or ""
+        writers = [o for o in steps[:k] if (o.get("file") or "") == f and not _is_run_step(o) and (o.get("code") or "").strip()]
+        if not writers:
+            continue
+        lines = [ln.strip() for ln in writers[-1]["code"].splitlines() if ln.strip()]
+        frag = next((ln for ln in reversed(lines) if len(ln) >= 6), max(lines, key=len) if lines else "")
+        if not frag:
+            continue
+        pc = st.setdefault("precision_checks", [])
+        pc[:] = [c for c in pc if c.get("type") != "file_contains"]
+        pc.insert(0, {"id": "", "type": "file_contains", "label": f"code is in {f}"[:40], "file": f,
+                      "pattern": builder.literal_pattern(frag[:60])})
+        for j, c in enumerate(pc, 1):
+            c["id"] = f"{st['id']}p{j}"

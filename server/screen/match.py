@@ -173,6 +173,20 @@ def line_score(needle: str, hay: str, rx: re.Pattern | None = None) -> float:
 _GUTTER = re.compile(r"^\d{1,5}(?=\D)")  # editor line number glued to the code
 
 
+_CRUMB_SEP = re.compile(r"\s[›>»]\s")
+_CRUMB_FILE = re.compile(r"\b[\w.-]+\.(?:py|ipynb|js|jsx|ts|tsx|md|json|txt|toml|ya?ml|sh|rs|go|java|c|cc|cpp|h|"
+                        r"hpp|rb|swift|kt|html|css|r|jl|sql)\s[>›»]")
+
+
+def is_breadcrumb(text: str) -> bool:
+    """VS Code's breadcrumb row (`pinn_demo › pinn_convection.py › pde_residual`). A file or symbol
+    name there is never what a step means, so locate() skips the row."""
+    t = text.strip()
+    if "›" in t or _CRUMB_FILE.search(t):
+        return True
+    return len(_CRUMB_SEP.findall(t)) >= 2 and not re.search(r"[=(){}\[\];:]", t)
+
+
 def _is_gutter(ln: Line) -> bool:
     return ln.text.strip().isdigit()
 
@@ -218,7 +232,8 @@ def locate_match(obs: ScreenObservation, match: str, app: str | None = None, *,
     - multi-line needle: lines of the needle must match consecutive screen lines, in order.
     Ties are broken by: higher score, then the frontmost app, then top-most position.
     """
-    lines = [ln for ln in group_lines(obs.blocks_in(app)) if ln.text.strip() and not _is_gutter(ln)]
+    lines = [ln for ln in group_lines(obs.blocks_in(app)) if ln.text.strip() and not _is_gutter(ln)
+             and not is_breadcrumb(ln.text)]
     if not lines or not match.strip():
         return None
     front_rank = {}

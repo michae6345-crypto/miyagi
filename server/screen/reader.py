@@ -14,6 +14,7 @@ from pathlib import Path
 
 from . import lines as L
 from . import match as M
+from . import regions as R
 from .describe import DescribeError, Describer, to_jpeg
 from .metrics import TerminalMetricReader, TigerWriter
 from .privacy import is_private_app, redact
@@ -80,6 +81,8 @@ class ScreenReader:
         self._metric_readers: list[TerminalMetricReader] = []
         self._tiger: TigerWriter | None = None
         self._describer = Describer()
+        self._regions = R.RegionStabilizer()
+        self._run_btn: tuple[float, Rect | None] = (0.0, None)
         self._lock = threading.RLock()
         self._capture_lock = threading.Lock()
         self._thread: threading.Thread | None = None
@@ -289,6 +292,49 @@ class ScreenReader:
         if obs is None:
             return L.LineLocation(file, None, reason="no_editor")
         return L.locate_anchor(obs, text, app, file, _read_text(file))
+
+    # ------------------------------------------------------------------ regions (lesson spotlights)
+
+    def locate_region(self, name: str, app: str | None = None) -> Rect | None:
+        """Rect of a VS Code region for a spotlight: "terminal" (integrated terminal panel; None if
+        it isn't open), "editor" (text area below tabs + breadcrumb), "explorer" (side bar),
+        "run_button" (AX only; None without Accessibility). Stable frame to frame: snapped to a
+        4-point grid, unchanged while it moves < 12 points, kept through one missed frame."""
+        name = R.canonical(name)
+        obs = self._fresh_obs()
+        if name == "run_button":
+            rect = self._ax_run_button() if obs is None or obs.source == "live" else None
+        else:
+            reg = R.find_region(obs, name, app) if obs is not None else None
+            rect = reg.rect if reg else None
+        with self._lock:
+            return self._regions.update((name, app), rect, obs.frame if obs is not None else None)
+
+    def locate_regions(self, names=R.REGIONS, app: str | None = None) -> dict[str, dict | None]:
+        """{name: {x, y, w, h} | None} for several regions from one frame (JSON-ready)."""
+        out = {}
+        for n in names:
+            r = self.locate_region(n, app)
+            out[n] = r.to_dict() if r else None
+        return out
+
+    def _ax_run_button(self) -> Rect | None:
+        if sys.platform != "darwin" or not self.use_ax:
+            return None
+        t, cached = self._run_btn
+        if time.time() - t < 2.0:
+            return cached
+        rect = None
+        try:
+            from . import ax
+            if ax.trusted():
+                import re as _re
+                el = ax.find_button(_re.compile(r"^(Run|Start Debugging)\b|Run Python File|Run Code", _re.IGNORECASE))
+                rect = el.rect if el is not None else None
+        except Exception as e:  # noqa: BLE001
+            log.debug("AX run button lookup failed: %s", e)
+        self._run_btn = (time.time(), rect)
+        return rect
 
     def _fresh_obs(self, max_age: float = 1.0) -> ScreenObservation | None:
         obs = self.latest()
