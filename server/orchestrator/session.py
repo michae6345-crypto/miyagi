@@ -1006,6 +1006,9 @@ class LessonSession:
     async def end_lesson(self, reason: str = "end_lesson") -> None:
         """Stop everything: cancel the build / diagnosis / timers, clear spotlight + video, record it,
         then `lesson.ended` + `status idle`. Safe to call when nothing is running."""
+        from . import lesson_end
+
+        reason = lesson_end.end_reason(self, reason)  # t5: End on a finished lesson = "completed" (no Undo / resume)
         token = _EPOCH.set(None)  # end_lesson's own messages must always go out, whoever calls it
         try:
             await self._end_lesson(reason)
@@ -1678,6 +1681,7 @@ class LessonSession:
                 self.waiting_more = False
                 self.phase = "done"
                 await self.emit("video.play", {})
+                self._spawn_lesson_end()
 
     async def _build_failed(self, message: str) -> None:
         self.build_progress = None
@@ -2152,6 +2156,12 @@ class LessonSession:
         else:
             self.phase = "done"
             await self.emit("video.play", {})
+            self._spawn_lesson_end()  # t5: the completion card ("You built …", their run's numbers, End lesson)
+
+    def _spawn_lesson_end(self) -> None:
+        from . import lesson_end
+
+        self._spawn(lesson_end.send_later(self, self.step_gen), timer=True)
 
     # ---------------------------------------------------------- E2 lazy parts (long videos)
     def _more_in_flight(self) -> bool:
@@ -2981,6 +2991,12 @@ class LessonSession:
         if progress and step is not None and (self._placeholder_hold or step.get("provisional")
                                               or is_provisional(self.graph)):
             title, body = "Almost ready", "The full lesson is still being built. Its first step starts here in a moment."
+        elif progress and self.passed and self.phase == "done":  # t5: Check / Skip after the end: the ending again
+            from . import lesson_end
+
+            await self._emit_card(lesson_end.card(self), window_s=0.0)
+            await self._status("passed")  # Check set "thinking" on a passed step: no spinner left over the ending
+            return
         elif progress and self.passed:  # the last step, or a long video's next part still building: not "Not yet"
             title, body = "This step is done", ("That was the last step." if self.phase == "done" else
                                                 "The next part is still being built." if self.waiting_more else
@@ -4606,8 +4622,11 @@ class LessonSession:
     def snapshot(self, ask_resume: bool = False) -> list[tuple[str, dict]]:
         """Messages that bring a freshly connected client up to date. ask_resume (the app came back
         after being away): pause and offer "Continue / Start new" instead of jumping back in."""
+        from . import lesson_end
+
         out: list[tuple[str, dict]] = []
-        if ask_resume and self.graph is not None and self.step is not None:
+        done = lesson_end.finished(self)  # t5: a finished lesson is never "Continue where you left off?"
+        if ask_resume and self.graph is not None and self.step is not None and not done:
             self.awaiting_resume = True
             return [("video.pause", {}), ("card", self.resume_card())]
         if self.awaiting_resume and self.graph is not None:  # still undecided: show the question again
@@ -4632,6 +4651,8 @@ class LessonSession:
                 out.append(("check.updated", p))
             if self.last_offtrack and not self.passed:
                 out.append(("offtrack", self.last_offtrack))
+        if done:  # a reconnecting app gets the ending again (its End lesson closes the lesson)
+            out.append(("card", lesson_end.card(self)))
         out.append(("status", {"state": self.status}))
         return out
 

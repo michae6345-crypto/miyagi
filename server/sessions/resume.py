@@ -124,6 +124,8 @@ class Resumer:
     def save_now(self, step_index: int | None = None, with_graph: bool = False) -> dict | None:
         if self._pending or getattr(self.s, "awaiting_resume", False):
             return None  # the save on disk is the learner's place until they answer the resume card
+        if getattr(self.s, "phase", None) == "done":
+            return None  # t5: the lesson ran to its end (cleared at its last step.passed): an app quit must not save it back
         st = self.capture(step_index)
         if st is None:
             return None
