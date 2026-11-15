@@ -1,4 +1,4 @@
-# server/workspace: what the lesson needs, one folder per lesson, starter files, Cursor / VS Code
+# server/workspace: what the lesson needs, one folder per lesson, starter files, VS Code
 
 Every lesson except the demo hero gets its own folder, `~/miyagi/lessons/<slug-of-title>-<hash>/`,
 scaffolded from the lesson's step graph by Claude and opened in VS Code. The hero (Toscano's PINN
@@ -95,15 +95,15 @@ the list is empty). Don't auto-open VS Code any more. `action install {text: too
 `setup.progress` lines, then `{done, ok, error|version}`, then re-run `requirements` (cached list, fresh checks) and re-emit the card.
 `action open_editor` → `open_editor(wd, open_file_for(wd))`. `action skip_setup` → dismiss.
 
-## Editor: Cursor or VS Code, frontmost, room for the video (editor.py)
+## Editor: VS Code, frontmost, room for the video (editor.py)
 
-- **Which editor:** `MIYAGI_EDITOR=cursor|code` if that one is installed, else Cursor (`com.todesktop.230313mzl4w4u92`,
-  `cursor` CLI), else VS Code (`com.microsoft.VSCode`, `code`). Detection: `/Applications/<App>.app`, else `mdfind` by
+- **Which editor:** VS Code (`com.microsoft.VSCode`, `code`); Miyagi only ever opens, names or offers VS Code
+  (`ALLOW_CURSOR` in editor.py is a local opt-out). Detection: `/Applications/<App>.app`, else `mdfind` by
   bundle id; the CLI is found on PATH or inside the .app. `preferred_editor()`, `installed_editors()`, `editor_label()`
-  ("Cursor"), and `goto_argv(file, line)` → `[<cli>, "-r", "-g", "file:line"]` for step jumps.
-- **The setup card names it:** item 0 is `cursor` or `vscode` (`brew install --cask cursor` if Cursor is wanted but missing);
-  `card.setup.editor`, `card.setup.editorLabel` ("Cursor"), `card.setup.actionLabels.open_editor` ("Open Cursor"), and the body
-  asks "Open the lesson folder in Cursor?".
+  ("Visual Studio Code"), and `goto_argv(file, line)` → `[<cli>, "-r", "-g", "file:line"]` for step jumps.
+- **The setup card names it:** item 0 is `vscode` (`brew install --cask visual-studio-code` if it is missing);
+  `card.setup.editor`, `card.setup.editorLabel` ("Visual Studio Code"), `card.setup.actionLabels.open_editor`
+  ("Open Visual Studio Code"), and the body asks "Open the lesson folder in Visual Studio Code?".
 - **`open_editor_report(path, file)`** → `{opened, editor, label, command, frontmost, ax_trusted, arrange, unfullscreened?, arranged?, frame?}`
   (`open_editor` = its `opened`).
 
@@ -122,7 +122,7 @@ spaces is the app's job (Electron `setVisibleOnAllWorkspaces(true, {visibleOnFul
 
 ### "Just teach me" mode: full screen, and where to type
 
-- `open_editor(path, file, fullscreen=True)` opens Cursor/VS Code as usual (CLI, then `open -a` so it's frontmost). With
+- `open_editor(path, file, fullscreen=True)` opens VS Code as usual (CLI, then `open -a` so it's frontmost). With
   Accessibility, a background thread then maximizes the lesson folder's window in the current Space (`MIYAGI_FULLSCREEN=native`:
   `AXFullScreen=true`, macOS full screen in its own Space), instead of the left-60% layout. `MIYAGI_ARRANGE=0` turns it off.
   The maximized window stops `MIYAGI_DRAWER_W` (436) pt short of the right edge so the overlay's lesson drawer (420 pt

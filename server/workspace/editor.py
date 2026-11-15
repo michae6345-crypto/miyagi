@@ -1,7 +1,7 @@
-"""open_editor(): open a lesson folder in the learner's editor (Cursor or VS Code), bring it to the front,
+"""open_editor(): open a lesson folder in the learner's editor (VS Code), bring it to the front,
 and, only with Accessibility permission, make room for the overlay's video.
 
-Editor choice: MIYAGI_EDITOR=cursor|code (vscode) if that editor is installed, else Cursor, else VS Code.
+Editor choice: MIYAGI_EDITOR=code (vscode) if that editor is installed, else VS Code (see ALLOW_CURSOR below).
 
 Without Accessibility (always): `<cli> -n <dir> -g <file>` (fallback `open -a <App> <dir> [<file>]`), then
 `open -a <App>` so the editor is frontmost. A full-screen app the learner was in stays as it is; the editor
@@ -128,7 +128,7 @@ def editor_id() -> str:
 
 
 def editor_label() -> str:
-    """"Cursor" / "Visual Studio Code": for "Open Cursor?" cards."""
+    """"Visual Studio Code": for "Open Visual Studio Code?" cards."""
     return EDITORS[editor_id()]["label"]
 
 

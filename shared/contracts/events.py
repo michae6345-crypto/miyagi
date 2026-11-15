@@ -346,7 +346,7 @@ class SetupResource(_Model):
 class Setup(_Model):
     editorNeeded: bool
     items: list[SetupItem]
-    editorLabel: str | None = None  # "Cursor"
+    editorLabel: str | None = None  # "Visual Studio Code"
     resources: list[SetupResource] | None = None  # files the video links (action download)
     actionLabels: dict[str, str] | None = None
 

@@ -84,9 +84,9 @@ export interface EngineEvents {
             warning?: string;             // kind "preflight": shown in amber when the video doesn't fit the goal (goalMatch.score < 0.5)
             recommended?: "build" | "pick_another";   // which button to make primary
             preflight?: PreflightInfo;    // kind "preflight": what the picked video is, before anything is built
-            where?: string;               // coach (E5): where to go when the place isn't on screen ("Open app.py in Cursor"); shown without a dim
+            where?: string;               // coach (E5): where to go when the place isn't on screen ("Open app.py in VS Code"); shown without a dim
             setup?: { editorNeeded: boolean; items: SetupItem[];
-                      editorLabel?: string | null;                       // "Cursor": the open_editor button reads "Open Cursor"
+                      editorLabel?: string | null;                       // "Visual Studio Code": the open_editor button reads "Open Visual Studio Code"
                       resources?: Array<{ name: string; url: string; kind: "repo" | "notebook" | "gist" | "file" }>;   // files the video links (action download)
                       actionLabels?: { [action: string]: string } };     // button labels, e.g. download: "Download tutorial files"   // kind "setup": what the lesson needs on this Mac (one Install button per missing item -> action install {text: tool})
             diff?: string;               // unified diff to preview ("Apply this fix?" -> confirm)
