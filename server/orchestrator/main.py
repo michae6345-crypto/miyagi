@@ -264,6 +264,15 @@ async def ingest(body: Any = Body(...)) -> dict:
     return {"ok": True, "accepted": n, "lesson_id": lesson.get("id"), "step_id": st["id"] if st else None}
 
 
+@app.post("/vscode/event")
+async def vscode_event(body: dict = Body(...)) -> dict:
+    """The VS Code companion (vscode-ext/) posts editor/save/dirty/focus/command_end events; see server.workspace.vscode_ext."""
+    from server.workspace import vscode_ext
+
+    vscode_ext.record_event(body)
+    return {"ok": True}
+
+
 @app.post("/end")
 async def end_lesson() -> dict:
     """End the current lesson from a terminal:  curl -X POST localhost:8787/end"""
