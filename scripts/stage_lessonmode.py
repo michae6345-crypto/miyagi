@@ -462,13 +462,15 @@ def judge(res: dict) -> dict:
                 row["note_b"] = f"target {tgt!r} not on the before-screen; box not judged"
         items["b"] += [f"{sid}: {p}" for p in prob_b]
         # (c)
-        prob_c = [f"{c[1]} {c[2] or ''} {c[3]!r} at +{c[0]}s" for c in row["cards"] if c[0] < 20.0]
+        # hub design call: a run step's "Run it" offer (actions run_command) is an action offer, not a coach card
+        offers = {round(e["t"] - t0, 1) for e in cards if kind == "run" and "run_command" in (e["payload"].get("actions") or [])}
+        prob_c = [f"{c[1]} {c[2] or ''} {c[3]!r} at +{c[0]}s" for c in row["cards"] if c[0] < 20.0 and c[0] not in offers]
         for a, b in zip(cards, cards[1:]):
             if b["t"] - a["t"] < 8.0:
                 prob_c.append(f"two cards {b['t'] - a['t']:.1f}s apart")
         items["c"] += [f"{sid}: {p}" for p in prob_c]
         # (d)
-        if kind == "run" and not se.get("file_bytes"):
+        if kind == "run" and not se.get("file_bytes") and not row.get("after_skip"):  # Skip twice = the learner's choice
             items["d"].append(f"{sid}: run step started while {se.get('file')} is {'empty' if se.get('file_bytes') == 0 else 'missing'}")
         # (j) the first help card of the step offers "Do it for me" (apply_fix)
         help_cards = [e for e in cards if e["type"] == "offtrack" or (

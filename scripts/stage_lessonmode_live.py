@@ -388,7 +388,12 @@ def main() -> None:
     ap.add_argument("--spent", type=float, default=0.0, help=argparse.SUPPRESS)
     ap.add_argument("--child", action="store_true", help=argparse.SUPPRESS)
     ap.add_argument("--port", type=int, default=8790)
+    ap.add_argument("--approved", action="store_true",
+                    help="required: live calls spend Michael's Claude credit; only with an explicit go-ahead")
     args = ap.parse_args()
+    if not args.approved:
+        sys.exit("live tier is OFF (cost freeze, 2026-11-14 17:20: spend at $84 of a $100 cap). Run only with an "
+                 "explicit go-ahead, then pass --approved.")
     topics = args.topic or TOPICS
     head = subprocess.run(["git", "-C", str(ROOT), "log", "-1", "--format=%h"], capture_output=True, text=True).stdout.strip()
     live = subprocess.run(["git", "-C", str(ROOT), "rev-parse", "--short", "origin/integration/live"],
@@ -409,7 +414,7 @@ def main() -> None:
             break
         print(f"\n=== {t}  (round so far ${spent:.3f})", flush=True)
         n0 = sum(1 for _ in out_path.open()) if out_path.exists() else 0
-        subprocess.run([sys.executable, __file__, "--child", "--topic", t, "--hold", str(args.hold), "--budget",
+        subprocess.run([sys.executable, __file__, "--child", "--approved", "--topic", t, "--hold", str(args.hold), "--budget",
                         str(args.budget), "--spent", str(spent), "--port", str(args.port)], check=False)
         lines = out_path.read_text().splitlines() if out_path.exists() else []
         if len(lines) <= n0:
