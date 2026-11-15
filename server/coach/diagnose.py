@@ -3,9 +3,12 @@
 from __future__ import annotations
 
 import asyncio
+import copy
+import hashlib
 import json
 import logging
 import re
+import time
 from collections.abc import Callable
 from typing import Any
 
@@ -334,6 +337,11 @@ async def diagnose(
     lesson = lesson if lesson is not None else get_lesson()
     if (held := _hold(step, screen, file_state, code_excerpt, code_source)) is not None:
         return held
+    memo_key = _memo_key(step, failed_checks, metrics_summary, code_excerpt, error_text, screen)
+    if (hit := _MEMO.get(step.get("id", ""))) and hit[0] == memo_key and time.monotonic() - hit[1] < MEMO_TTL_S:
+        card = copy.deepcopy(hit[2])  # same failure, same code, same screen: no second paid call
+        card["_meta"]["memo"] = True
+        return card
     if not error_text.strip() and screen is not None:
         # screen-first lessons have no captured stderr: an error/refusal visible on screen is the
         # error text (S9 QA: without it, triage sent git/React failures to the "not done yet" card)
@@ -367,7 +375,31 @@ async def diagnose(
             web_task.cancel()
     card["_meta"]["triage"] = {"route": t.route, "by": t.by, "reason": t.reason}
     LAST[card["stepId"]] = card
+    _MEMO[step.get("id", "")] = (memo_key, time.monotonic(), copy.deepcopy(card))
     return card
+
+
+MEMO_TTL_S = 600.0
+_MEMO: dict[str, tuple[str, float, dict]] = {}  # step id → (inputs hash, time, card)
+
+
+def reset_memo() -> None:
+    _MEMO.clear()
+
+
+def _memo_key(step: dict, failed_checks: list, metrics: Any, code: str, error_text: str, screen: Any) -> str:
+    from .gate import screen_signature
+
+    def last_values(m: Any) -> Any:  # a metric series is summarized by its last point per name
+        if isinstance(m, dict):
+            return sorted((k, tuple(v[-1]) if isinstance(v, list) and v and isinstance(v[-1], (list, tuple)) else repr(v)) for k, v in m.items())
+        return repr(m)
+
+    scr = screen_signature("\n".join(b.text for b in screen.boxes)) if hasattr(screen, "boxes") else ""
+    blob = json.dumps([step.get("id"), [(c.get("checkId") or c.get("id"), c.get("status"), c.get("detail")) if isinstance(c, dict) else str(c)
+                                        for c in failed_checks or []],
+                       last_values(metrics), code, error_text, scr], default=str, sort_keys=True)
+    return hashlib.sha256(blob.encode()).hexdigest()
 
 
 _SCREEN_READS: dict[str, str] = {}  # step id → last OCR'd code excerpt (normalized)

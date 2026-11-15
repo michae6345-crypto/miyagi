@@ -67,6 +67,16 @@ targets = await coach.locate("the learning rate", screen)  # exact text → no m
   - It returns `{command, …}` for terminal fixes.
   - It reuses the diagnosis's diff only if it contains every value the action sentence names ("…to `squash`", "…to 1e-3"); otherwise Opus writes the patch.
 
+## Cost gate for periodic calls (gate.py)
+
+Michael's key: the step judge called Haiku every ~20 s while he was away with the display asleep. `PeriodicGate` now guards it, and is exported for any other periodic coach call. The rules:
+1. **Only on change:** the screen text or the files must have changed. OCR is hashed without clocks, dates or percentages and ignoring line order. Files are hashed by `{path: mtime}` when available.
+2. **Never when the screen reader is down or the display is asleep:** `should_judge(..., screen_ok=, display_asleep=)`, and `screen=None` also counts as down.
+3. **Backoff:** while the verdict stays the same, the interval doubles: 20 s → 40 → 80 … capped at 5 min. A new verdict or a save resets it to 20 s.
+4. **Stop:** after 3 identical verdicts it stops until a save, or until ≥ 25% of the screen's lines change (another app in front). A scrolling log doesn't wake it.
+
+`diagnose` remembers its inputs per step for 10 min (failed checks, last metric values, code, error text, screen signature). An identical repeat returns the previous card (`_meta.memo`) with no model call.
+
 ## Holds: when the coach must not diagnose
 
 `diagnose(..., file_state={"path", "saved", "wrong_folder"}, code_source="file"|"screen")` can return a card with `hold`. The orchestrator must NOT show such a card as an offtrack, and no model is called. This came from Michael's live misdiagnosis of an unsaved, OCR'd `def add(a, b):` with a hover tooltip over it.

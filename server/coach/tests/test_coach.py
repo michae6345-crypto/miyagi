@@ -27,6 +27,9 @@ def _isolate(monkeypatch):
     monkeypatch.setattr(llm, "_load_env", lambda: None)
     monkeypatch.setattr(llm, "_local_keys", {})
     LAST.clear()
+    from server.coach.diagnose import reset_memo
+
+    reset_memo()
     common.set_lesson(LESSON)
     yield
     common.set_lesson(None)
