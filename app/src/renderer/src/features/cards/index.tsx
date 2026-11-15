@@ -31,6 +31,7 @@ import { useDrawer } from '../drawer/store'
 import { Curve, fmt, Key, plotPoints, type Line } from './Curve'
 import { BODY_LINES, Clamp, HEADLINE_LINES } from './Clamp'
 import { Evidence, useHasEvidence } from './Evidence'
+import { shortEditor, useFitLevel } from './fit'
 import { act, cardAct, jumpTo, SUCCESS_MS, useCards, useOverlayWidth, useSeries, type CardAction, type Install } from './store'
 
 /** Layout C: about 620 wide; below NARROW (a small display) the two columns stack. */
@@ -127,21 +128,28 @@ function useBusyIcon(): (kind: string, icon?: LucideIcon, quiet?: boolean) => Lu
   return (kind, icon, quiet) => ((thinking && pressed === kind) || pending === kind ? (quiet ? SpinText : SpinInk) : icon)
 }
 
-/** A neutral (non-primary) card action: same shape as PrimaryButton, quiet fill. */
-function QuietButton({ label, icon: I, onClick }: { label: string; icon?: LucideIcon; onClick: () => void }): ReactNode {
+/**
+ * A neutral (non-primary) card action: same shape as PrimaryButton, quiet fill. `compact` (a row that doesn't fit,
+ * A22): a round icon-only button, the label as its tooltip and accessible name. A button without an icon keeps its label.
+ */
+function QuietButton({ label, icon: I, onClick, compact }: { label: string; icon?: LucideIcon; onClick: () => void; compact?: boolean }): ReactNode {
+  const iconOnly = compact && !!I
   return (
     <motion.button
       type="button"
-      className="flex h-[30px] shrink-0 cursor-pointer items-center gap-[7px] whitespace-nowrap rounded-full px-[13px] text-[13px] font-medium"
+      data-compact={iconOnly ? '' : undefined}
+      className={`flex h-[30px] shrink-0 cursor-pointer items-center gap-[7px] whitespace-nowrap rounded-full text-[13px] font-medium ${iconOnly ? 'w-[30px] justify-center' : 'px-[13px]'}`}
       style={{ backgroundColor: fill.button, color: color.text }}
       whileHover={{ backgroundColor: fill.chipHover }}
       whileTap={{ scale: 0.97 }}
       transition={{ duration: 0.12 }}
+      title={iconOnly ? label : undefined}
+      aria-label={iconOnly ? label : undefined}
       onMouseDown={(e) => e.preventDefault()}
       onClick={onClick}
     >
       {I && <I size={13} strokeWidth={1.8} className="shrink-0" />}
-      {label}
+      {!iconOnly && label}
     </motion.button>
   )
 }
@@ -256,7 +264,10 @@ function Diagnosis({ o, checks }: { o: OfftrackPayload; checks: ReturnType<typeo
     <div data-card="offtrack" data-layout={narrow ? 'stacked' : hasEvidence ? 'side-by-side' : 'single'} style={{ width, padding: `16px ${PAD}px 16px` }}>
       <div className="flex h-[22px] items-center gap-[8px] text-[13px] leading-none">
         <StatusDot status="offtrack" size={8} />
-        <span style={{ color: color.label }}>Not yet</span>
+        {/* White, never the watching gray (A22): Not yet must not read as Watching. Still no hue. */}
+        <span className="font-medium" style={{ color: color.text }}>
+          Not yet
+        </span>
         <span className="flex-1" />
         <CloseButton />
       </div>
@@ -264,7 +275,12 @@ function Diagnosis({ o, checks }: { o: OfftrackPayload; checks: ReturnType<typeo
       <div className={`mt-[10px] flex ${narrow ? 'flex-col gap-[14px]' : 'items-start'}`} style={narrow ? undefined : { gap: COL_GAP }}>
         <div className="min-w-0 flex-1" style={narrow ? undefined : { maxWidth: leftW }}>
           <div className="text-[18px] font-semibold leading-[23px] tracking-[-0.01em]"><CodeText text={titleText(o.title)} /></div>
-          {o.guidingQuestion ? <Question text={o.guidingQuestion} /> : <Body>{o.body}</Body>}
+          {/* The body folds to 3 lines with a "More" (Clamp), never cut off for good (A22). */}
+          {o.guidingQuestion ? (
+            <Question text={o.guidingQuestion} />
+          ) : (
+            <Clamp text={o.body} lines={3} className="mt-[3px] text-[14px] leading-[20px]" style={{ color: color.label }} />
+          )}
 
           {o.citation && (
             <div className="mt-[12px] flex min-w-0 items-center gap-[6px] text-[12px]" style={{ color: color.faint }}>
@@ -509,11 +525,14 @@ const OPTION = ['show_me', 'hint'] as const
 type OptionCardAction = (typeof OPTION)[number]
 const isOption = (a: CardAction): a is OptionCardAction => (OPTION as readonly CardAction[]).includes(a)
 
-/** The engine names some buttons itself: setup.actionLabels ("Download tutorial files"), setup.editorLabel ("Open Cursor"). */
-function actionLabel(c: EngineCard, a: CardAction): string {
+/**
+ * The engine names some buttons itself: setup.actionLabels ("Download tutorial files"), setup.editorLabel ("Open Cursor").
+ * `short` (a row that doesn't fit on one line, A22): our own short label instead ("Download", "Open VS Code").
+ */
+function actionLabel(c: EngineCard, a: CardAction, short?: boolean): string {
   const custom = c.setup?.actionLabels?.[a]
-  if (custom) return custom
-  if (a === 'open_editor' && c.setup?.editorLabel) return `Open ${c.setup.editorLabel}`
+  if (custom && !short) return custom
+  if (a === 'open_editor' && c.setup?.editorLabel) return `Open ${short ? shortEditor(c.setup.editorLabel) : c.setup.editorLabel}`
   // "Type this for you?" (a fix preview): the confirm types the diff into the learner's file.
   if (a === 'confirm' && c.diff) return 'Type it'
   return ACTION[a]!.label
@@ -599,7 +618,8 @@ function SetupItems({ setup, lead }: { setup: NonNullable<EngineCard['setup']>; 
         const run = x.ok ? undefined : installs[x.tool]
         const detail = x.ok ? x.version : run?.running ? (run.line ?? 'Installing…') : (run?.error ?? x.why)
         return (
-          <div key={x.tool} className="flex min-h-[28px] items-center gap-[8px]">
+          // min-h 30 = the button's height: a row doesn't change height when Install turns into "Installing…" or a check.
+          <div key={x.tool} className="flex min-h-[30px] items-center gap-[8px]">
             <span style={{ color: x.ok ? color.text : color.faint }}>{x.ok ? <Check size={13} /> : '·'}</span>
             <span className="truncate">{x.label}</span>
             {/* The reason wraps to two lines instead of being cut off (A17). */}
@@ -607,7 +627,7 @@ function SetupItems({ setup, lead }: { setup: NonNullable<EngineCard['setup']>; 
               {detail}
             </span>
             {!x.ok && run?.running && (
-              <span className="flex items-center gap-[6px] px-[9px] py-[3px] text-[12px] font-medium" style={{ color: color.faint }} aria-disabled>
+              <span className="flex h-[30px] shrink-0 items-center gap-[6px] px-[9px] text-[12px] font-medium" style={{ color: color.faint }} aria-disabled>
                 <Spinner size={12} c={color.faint} /> Installing…
               </span>
             )}
@@ -674,7 +694,7 @@ function TwoTap({ armKey, label, onConfirm }: { armKey: string; label: string; o
     <button
       type="button"
       data-two-tap="idle"
-      className="mr-[12px] h-[34px] cursor-pointer px-[4px] text-[13px] transition-colors"
+      className="mr-[12px] h-[30px] cursor-pointer px-[4px] text-[13px] transition-colors"
       style={{ color: color.faint }}
       // Like every other card button: no focus grab on press (the overlay never takes focus from the editor).
       onMouseDown={(e) => e.preventDefault()}
@@ -722,25 +742,33 @@ function CardActions({ card, actions }: { card: EngineCard; actions: CardAction[
   // Hint / Show me (the judge's "Not yet" card) are the bar's while it's up (A11): the card keeps only its own buttons.
   const barHelp = useBarHelp()
   const known = actions.filter((a) => ACTION[a] && !(barHelp && isOption(a)))
-  if (known.length === 0) return null
   const primary = primaryOf(card, known)
   const keys = bridge.platform.keys
+  const row = useRef<HTMLDivElement>(null)
+  // One row, always (A22): too wide, the labels go short (1), then the quiet buttons go icon-only (2). Never a wrap.
+  const fit = useFitLevel(row, `${known.join()}|${known.map((a) => actionLabel(card, a)).join()}`, 2)
+  if (known.length === 0) return null
+  const short = fit >= 1
   // Option actions (Show me / Hint) first, then quiet actions, the one white primary on the right.
   return (
-    <div className="mt-[16px] flex flex-wrap items-center gap-[8px]">
+    <div ref={row} data-actions data-fit={fit || undefined} className="mt-[16px] flex items-center gap-[8px]">
       {OPTION.filter((a) => known.includes(a)).map((a) => (
-        <OptionButton key={a} action={a} label={ACTION[a]!.label} kbd={keys[a]} icon={busy(a)} onClick={() => cardAct(a)} />
+        <OptionButton key={a} action={a} label={ACTION[a]!.label} kbd={short ? undefined : keys[a]} icon={busy(a)} onClick={() => cardAct(a)} />
       ))}
       {known
         .filter((a) => a !== primary && !isOption(a) && a !== 'end_lesson')
         .map((a) => (
-          a === 'skip_setup' ? <QuietLink key={a} label={actionLabel(card, a)} onClick={() => cardAct(a)} /> : <QuietButton key={a} label={actionLabel(card, a)} icon={busy(a, ACTION[a]!.Icon, true)} onClick={() => cardAct(a)} />
+          a === 'skip_setup' ? (
+            <QuietLink key={a} label={actionLabel(card, a, short)} onClick={() => cardAct(a)} />
+          ) : (
+            <QuietButton key={a} label={actionLabel(card, a, short)} icon={busy(a, ACTION[a]!.Icon, true)} compact={fit >= 2} onClick={() => cardAct(a)} />
+          )
         ))}
       {/* "Start a new lesson" discards the save: it sits apart from Continue and needs a second tap (desktop test 3),
           then opens the launcher for the next one (A7). */}
       {known.includes('end_lesson') && primary !== 'end_lesson' && <TwoTap armKey={`${card.kind}:${card.title}`} label={actionLabel(card, 'end_lesson')} onConfirm={startOver} />}
       <span className="flex-1" />
-      {primary && <PrimaryButton label={actionLabel(card, primary)} icon={busy(primary, ACTION[primary]!.Icon)} onClick={() => cardAct(primary)} />}
+      {primary && <PrimaryButton label={actionLabel(card, primary, short)} icon={busy(primary, ACTION[primary]!.Icon)} onClick={() => cardAct(primary)} />}
     </div>
   )
 }
@@ -777,7 +805,7 @@ function Preflight({ card }: { card: EngineCard }): ReactNode {
     <div data-preflight className="mt-[12px] flex flex-col gap-[6px] text-[13px] leading-[18px]">
       {meta.length > 0 && <div style={{ color: color.label }}>{meta.join(' · ')}</div>}
       {needs.length > 0 && (
-        <div className="truncate" style={{ color: color.label }} title={needs.map((x) => x.label).join(', ')}>
+        <div className="line-clamp-2" style={{ color: color.label }} title={needs.map((x) => x.label).join(', ')}>
           <span style={{ color: color.faint }}>Needs </span>
           {needs.map((x) => x.label).join(', ')}
           {missing > 0 && <span style={{ color: color.faint }}> · {missing} to install</span>}
