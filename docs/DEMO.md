@@ -86,16 +86,17 @@ no keys). The Demo chip run of show passed every row on the LIVE engine and on t
    mid-take on the LIVE engine when Wi-Fi drops, keep going: the Demo needs no network.
 3. **App.** `cd app && npm run dev`, then ⌥Space, type the goal, the **Demo** chip, Enter. Same run of show as section 2.
    VS Code opens `demo/nn-lab/nn.py`. NumPy is not needed (Demo runs are recorded).
-4. **Between takes.** Press ⌃⌥⌘R (step 1, clean `nn.py`). Starting again from the launcher keeps the old `nn.py` on this
-   engine.
+4. **Between takes.** Press ⌃⌥⌘R (step 1, clean `nn.py`), or End and start the Demo again from the launcher. Both gave a
+   fresh take on this engine.
 5. **Tiger Data.** Nothing to do. Its port is blocked at the venue, so every event and loss value goes to
    `~/.miyagi/tiger-spool` at once and the lesson never waits. Don't delete that folder. Once you are back online the
    engine uploads it by itself (it retries every 30 s), or run
    `.venv/bin/python -m server.checks.tiger --flush-spool`. `/stats` reads "offline" until then.
 6. **What doesn't work offline.** Watch a video, and Just teach me for any other topic. That one sits on "Setting up
-   your project folder" for minutes. Say "that one needs the internet" and stay on the neural net. Just teach me for
-   the neural net works, but its setup card asks to install NumPy, which needs the network: press Skip. Its runs use
-   `python3`, which needs NumPy.
+   your project folder" for minutes. Say "that one needs the internet" and stay on the neural net. On the offline
+   engine use only the Demo chip: its Just teach me keeps the old `demo/nn-lab/nn.py` and doesn't grade it the same
+   way. On the LIVE engine with Wi-Fi off, Just teach me for the neural net works, but its setup card asks to install
+   NumPy, which needs the network: press Skip. Its runs use `python3`, which needs NumPy.
 7. **Last resort** (no Python engine at all): the app's mock, `DEMO=1 SCENARIO=nndemo npm run dev` in `app/` (see the
    table above).
 
