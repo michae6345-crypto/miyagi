@@ -9,6 +9,8 @@ import type { Layout } from '../../../../preload/api'
 import type { Rect } from '../../core/lesson'
 
 export const PANEL_W = 340
+/** A "Just teach me" lesson has no player to line up with, and its drawer carries the code to type: give code room. */
+export const PANEL_W_LESSON = 384
 const INSET = 8
 /** Same clearance as the player dock: the shortcut bar (88) + its 24px gap. */
 const BAR_CLEARANCE = 112
@@ -24,9 +26,9 @@ function rightEdge(layout: Layout): number {
   return Math.min(layout.width, wa.x + wa.width)
 }
 
-export function panelRect(layout: Layout): Rect {
+export function panelRect(layout: Layout, lessonMode = false): Rect {
   const wa = layout.workArea
-  const w = Math.min(PANEL_W, wa.width - INSET * 2)
+  const w = Math.min(lessonMode ? PANEL_W_LESSON : PANEL_W, wa.width - INSET * 2)
   const h = Math.max(320, wa.height - INSET * 2 - BAR_CLEARANCE)
   return { x: rightEdge(layout) - INSET - w, y: wa.y + INSET, w, h }
 }
