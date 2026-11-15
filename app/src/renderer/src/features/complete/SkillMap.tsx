@@ -69,12 +69,12 @@ function LaneHeader({ lane }: { lane: Lane }): ReactNode {
   const I = glyph(lane.name, lane.kind === 'track')
   const sub = lane.kind === 'track' ? `${lane.done} of ${lane.total} mastered` : `${lane.total} shared idea${lane.total === 1 ? '' : 's'}`
   return (
-    <div className="absolute left-0 flex items-center gap-[10px]" style={{ top: lane.centerY - 17, width: LANE_W - 12 }}>
-      <span className="grid h-[30px] w-[30px] shrink-0 place-items-center rounded-[9px]" style={{ background: fill.tile, color: fill.tileGlyph }}>
-        <I size={15} strokeWidth={1.8} />
+    <div data-lane={lane.kind} className="absolute left-0 flex flex-col items-start gap-[7px]" style={{ top: lane.centerY - NODE / 2 - 2, width: LANE_W - 14 }}>
+      <span className="grid h-[26px] w-[26px] shrink-0 place-items-center rounded-[8px]" style={{ background: fill.tile, color: fill.tileGlyph }}>
+        <I size={14} strokeWidth={1.8} />
       </span>
-      <span className="min-w-0">
-        <span className="block truncate text-[14px] font-medium leading-[18px]" style={{ color: color.text }}>
+      <span className="w-full min-w-0">
+        <span className="block text-[14px] font-medium leading-[18px]" style={{ color: color.text }}>
           {lane.name}
         </span>
         <span className="block truncate text-[12px] leading-[16px]" style={{ color: color.label }}>
