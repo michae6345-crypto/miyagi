@@ -65,6 +65,34 @@ def insert_line(lines: list[str], anchor: int | None = None) -> tuple[int, int]:
     return above + 1, above
 
 
+def _comment(line: str) -> bool:
+    return line.lstrip().startswith("#")
+
+
+def type_row(lines: list[str], anchor: int, stops: set[str] | frozenset = frozenset()) -> tuple[int, int, bool]:
+    """Nov 15 (Michael: "you put it on the comment, but it's supposed to go one line below the comment"): where a step
+    whose anchor is a section comment (`# The network`) is typed. -> (row, above, new_line), 1-based.
+
+    The section under the comment runs to the next section comment (a line in `stops`, the lesson's other anchors;
+    else a top-level comment after a blank line) or the end of the file. Nothing typed in it yet: row = the comment
+    + 1 (the first blank line under it). Partly typed (a line that isn't the step's first, a typo): row = the line
+    after the learner's last typed line of that section. new_line: that row already holds code (the next section's
+    comment right under it): the box marks the new line to open there. `above` is the comment / the last typed line.
+    Never the comment line itself."""
+    want = {re.sub(r"\s+", " ", x.strip()) for x in stops}
+    end = len(lines)
+    for k in range(anchor, len(lines)):  # 0-based k = file line k + 1, from the line after the anchor
+        s = lines[k]
+        if not _comment(s) or _indent(s):
+            continue
+        if re.sub(r"\s+", " ", s.strip()) in want or (not want and k > anchor and not lines[k - 1].strip()):
+            end = k  # the next section's comment is file line k + 1
+            break
+    last = next((k + 1 for k in range(end - 1, anchor - 1, -1) if lines[k].strip()), anchor)
+    row = last + 1
+    return row, last, row <= len(lines) and bool(lines[row - 1].strip())
+
+
 def inside_block(lines: list[str], line: int) -> bool:
     """Is `line` (1-based) a place new top-level code can't go? Any existing non-blank line (code is never overwritten),
     a blank line whose next code line is indented (inside a def / loop / wrapped expression), or a row outside the
