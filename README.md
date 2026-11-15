@@ -97,7 +97,7 @@ Then press **⌥Space**, type `build a neural network`, and pick **Just teach me
 ### 3. VS Code companion (optional)
 
 [`vscode-ext/`](vscode-ext/README.md) (version 0.0.5) is a small extension with no build step. It lets the engine read VS Code
-exactly (the open file, unsaved edits, the cursor, what's scrolled into view, the terminal's last command, its output and its
+exactly (the open file, unsaved edits, the caret position, what's scrolled into view, the terminal's last command, its output and its
 exit code), save the lesson file for you, and apply a fix. It also adds **Miyagi: Explain this** (Ctrl+Cmd+E on a
 selection), answered in Miyagi's overlay. It draws nothing in VS Code.
 
