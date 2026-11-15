@@ -421,10 +421,9 @@ def test_the_whole_lesson_video_gates_and_resumes_in_order(rp):
     assert rp.s.phase == "done"
 
 
-@_xfail("V4 family (replay finding, no owner yet)", "after s5 passes, the s6 run step resolves the video's "
-        "Untitled.ipynb, finds it 'still empty' and starts s5 again ('Untitled.ipynb is still empty' card, s5 told to "
-        "'create Untitled.ipynb'): session._typing_step_for_empty_run")
 def test_s5_to_s6_does_not_bounce_back_over_the_videos_notebook_name(rp):
+    """Replay finding (fixed): after s5 passed, the s6 run step resolved the video's Untitled.ipynb, found it 'still
+    empty' and started s5 again. session._typing_step_for_empty_run now reads the learner's notebook (mnist.ipynb)."""
     async def go():
         await rp.to("s5")
         await rp.do("s5")
