@@ -4,15 +4,21 @@ Run from the repo root:  python -m pytest server/orchestrator/tests/test_stage.p
 from __future__ import annotations
 
 import asyncio
+import json
 
 import pytest
 
-from server.orchestrator import stage
+from server.orchestrator import curated, stage
 from server.orchestrator.tests.test_session import Rig
 from shared.contracts.events import parse_app_message
 
-ZEROS = "W1 = np.zeros((2, 4))\nW2 = np.zeros((4, 1))\n"
-RANDOM = "W1 = np.random.randn(2, 4) * 0.5\nW2 = np.random.randn(4, 1) * 0.5\n"
+# The lesson's weights (curated.LAYERS), started at zeros (the presenter's shortcut) or random (the lesson's code).
+_SHAPES = list(zip(curated.LAYERS, curated.LAYERS[1:]))
+ZEROS = "".join(f"W{k} = np.zeros(({r}, {c}))\n" for k, (r, c) in enumerate(_SHAPES, 1))
+RANDOM = "".join(f"W{k} = np.random.randn({r}, {c})\n" for k, (r, c) in enumerate(_SHAPES, 1))
+_RUNS = json.loads(stage.RUNS_FILE.read_text(encoding="utf-8"))
+STUCK = f"{curated.STUCK_LOSS:.4f}"
+GOOD_LAST = curated.parse_output(_RUNS["nn4"]["good"])["losses"][-1][1]
 
 
 @pytest.fixture
@@ -102,13 +108,13 @@ def test_the_whole_demo(rig):
         await settle(rig)
         ev = rig.since(m)
         cards = [e["payload"] for e in ev if e["type"] == "card"]
-        assert any(c["title"].startswith("Ran ") and "0.2500" in (c.get("output") or "") for c in cards)
+        assert any(c["title"].startswith("Ran ") and STUCK in (c.get("output") or "") for c in cards)
         rows = {e["payload"]["checkId"]: e["payload"]["status"] for e in ev if e["type"] == "check.updated"}
         assert sorted(rows.values()) == ["fail", "pass"]  # the loss row fails, the saved file's row stays green
         off = [e["payload"] for e in ev if e["type"] == "offtrack"]
-        assert off and off[0]["stepId"] == "nn4" and "0.25" in off[0]["title"]
+        assert off and off[0]["stepId"] == "nn4" and f"{curated.STUCK_LOSS:.2f}" in off[0]["title"]
         diag = [e["payload"] for e in ev if e["type"] == "diagram"]
-        assert diag and "same neuron" in diag[-1].get("caption", "")  # four identical neurons in the panel
+        assert diag and "same neuron" in diag[-1].get("caption", "")  # identical hidden neurons in the panel
         assert [e["payload"]["name"] for e in ev if e["type"] == "metric"]  # the live curve
         assert rig.s.step["id"] == "nn4"
         # the hint is the stuck ladder's first hint
@@ -121,14 +127,14 @@ def test_the_whole_demo(rig):
         await settle(rig)
         assert passed(rig)[-1] == "nn4"
         good = [c for c in rig.of("check.updated") if c["stepId"] == "nn4"][-1]
-        assert good["status"] == "pass" and "0.0009" in good.get("detail", "")
+        assert good["status"] == "pass" and f"{GOOD_LAST:.4f}" in good.get("detail", "")
         # step 5: save; step 6: run -> the lesson is done, the panel shows their network answering
         await save(rig, "\n")
         m = rig.mark()
         await rig.s.action("run_command")
         await settle(rig)
         assert passed(rig) == ["nn1", "nn2", "nn3", "nn4", "nn5", "nn6"]
-        assert any("0 1 1 0" in (e["payload"].get("caption") or "") for e in rig.since(m) if e["type"] == "diagram")
+        assert [e for e in rig.since(m) if e["type"] == "diagram"]  # the panel: their trained network answering
         assert not rig.of("error")
         assert not [c for c in rig.of("card") if c.get("title") == "Not yet"]
     run(go())

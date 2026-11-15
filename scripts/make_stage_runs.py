@@ -3,15 +3,16 @@
 
 Really runs the neural-net lesson's own code (scripts/make_nn_demo.py: STARTER + CODE) with NumPy, so every number a
 Demo run prints is one the code prints:
-  nn4 good   steps 1-3 as written (random start): the loss falls to 0.0009
-  nn4 stuck  the same with W1 / W2 started at zeros: the loss sits at 0.2500
-  nn6 good   steps 1-3 + 5: the loss lines, then [0 1 1 0] and the learned weights
+  nn4 good   steps 1-3 as written (random start): the loss falls
+  nn4 stuck  the same with every W started at zeros: the loss sits at curated.STUCK_LOSS
+  nn6 good   steps 1-3 + 5: the loss lines, then the network's answers and the learned weights
 
     python3 scripts/make_stage_runs.py
 """
 from __future__ import annotations
 
 import json
+import re
 import subprocess
 import sys
 import tempfile
@@ -28,9 +29,9 @@ def program(steps: list[str], zeros: bool = False) -> str:
     src = STARTER
     for sid in steps:
         code = CODE[sid]
-        if zeros and sid == "nn1":
-            code = code.replace("np.random.randn(2, 4) * 0.5", "np.zeros((2, 4))").replace(
-                "np.random.randn(4, 1) * 0.5", "np.zeros((4, 1))")
+        if zeros and sid == "nn1":  # W<k> = np.random.randn(r, c) [* s]  ->  W<k> = np.zeros((r, c))
+            code = re.sub(r"^(W\d+) = np\.random\.randn\(([^)]*)\)(?: \* [\d.]+)?$", r"\1 = np.zeros((\2))", code,
+                          flags=re.M)
         src = src.replace(ANCHOR[sid], f"{ANCHOR[sid]}\n{code}", 1)
     return src
 

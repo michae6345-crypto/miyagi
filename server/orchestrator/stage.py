@@ -55,7 +55,7 @@ STUCK_S = _f("MIYAGI_STAGE_STUCK_S", 2.0)  # the stuck run's output on screen be
 AGAIN_S = _f("MIYAGI_STAGE_AGAIN_S", 1.0)  # a run press this soon after the last run ended is the same press
 
 _RAND = re.compile(r"rand")
-_INIT = re.compile(r"^\s*(W1|W2)\s*=\s*(.+)$", re.M)
+_INIT = re.compile(r"^\s*(W\d+)\s*=\s*(.+)$", re.M)
 
 
 def forced() -> bool:
@@ -138,7 +138,7 @@ async def _stuck_wanted(session: Any) -> bool:
     if mode in ("never", "0", "no", "off"):
         return False
     inits = dict(_INIT.findall(await _file_text(session)))
-    return any(not _RAND.search(rhs) for rhs in inits.values())  # W1 or W2 not started random (zeros, ones, ...)
+    return any(not _RAND.search(rhs) for rhs in inits.values())  # a W<k> not started random (zeros, ones, ...)
 
 
 def _quiet() -> None:
