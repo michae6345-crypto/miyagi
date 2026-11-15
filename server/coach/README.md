@@ -67,6 +67,15 @@ targets = await coach.locate("the learning rate", screen)  # exact text → no m
   - It returns `{command, …}` for terminal fixes.
   - It reuses the diagnosis's diff only if it contains every value the action sentence names ("…to `squash`", "…to 1e-3"); otherwise Opus writes the patch.
 
+## Holds: when the coach must not diagnose
+
+`diagnose(..., file_state={"path", "saved", "wrong_folder"}, code_source="file"|"screen")` can return a card with `hold`. The orchestrator must NOT show such a card as an offtrack, and no model is called. This came from Michael's live misdiagnosis of an unsaved, OCR'd `def add(a, b):` with a hover tooltip over it.
+- `hold: "wrong_folder"`: the learner is editing a same-named file in another folder. The orchestrator shows its own card.
+- `hold: "unsaved"`: `saved` is false, or the screen shows the step's file unsaved (●, `Untitled-N`). The only message is "Save with ⌘S so I can check it."
+- `hold: "unconfirmed"`: the code excerpt is OCR (`code_source="screen"`) and differs from the previous read of this step. Two agreeing reads are needed before any diagnosis; until then the coach says nothing.
+- **Prompt:** OCR text and editor overlays such as tooltips never justify claiming a line is malformed.
+- **Step judge:** a check about a file (its `file`, or a label naming the step's file) passes only if the workspace file is saved and non-empty. Unsaved gives a "Save so I can check" card; not seen or empty gives nothing.
+
 ## Step judge (judge.py)
 
 Deterministic checks sometimes can't see that the learner is done: visual or setup steps, or a file outside the workdir. `StepJudge` asks Haiku, check by check, from the screen text and the workspace files.
