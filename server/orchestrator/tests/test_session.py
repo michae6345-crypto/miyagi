@@ -364,7 +364,8 @@ def test_hero_ladder_concept_then_exact_fix_then_green(rig):
     passed = [e["payload"] for e in fixed if e["type"] == "step.passed"]
     assert passed == [{"stepId": "s6"}]  # last step: no nextStepId
     assert rig.s.phase == "done"
-    assert fixed[-1]["type"] == "video.play"
+    assert fixed[-1]["type"] == "video.pause"  # t11: the completion panel never plays the video's outro behind it
+    assert "video.play" not in [e["type"] for e in fixed[[e["type"] for e in fixed].index("step.passed"):]]
 
 
 def test_typing_guard_defers_speech_until_the_learner_stops(tmp_path, monkeypatch):

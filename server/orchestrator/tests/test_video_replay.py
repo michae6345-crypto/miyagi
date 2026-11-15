@@ -528,7 +528,8 @@ def test_later_steps_pass_on_the_cell_and_its_output(rp, sid):
 def test_the_whole_lesson_video_gates_and_resumes_in_order(rp):
     """All seven steps, the player reporting each clip's end before the learner's work: a step that plays its clip
     gets seek(start, play) + play after step.started, pause once the clip ends with checks still open, and nothing
-    plays again until the step passes; the last pass plays the video on (the outro)."""
+    plays again until the step passes; the last pass pauses it (t11: the outro and end cards played behind the
+    completion panel)."""
     async def go():
         await rp.start()
         for sid in ORDER:
@@ -547,7 +548,7 @@ def test_the_whole_lesson_video_gates_and_resumes_in_order(rp):
         mid = [t if t != "video.seek" else (t, p["t"], p["play"]) for t, p in ev[i + 1:j]]
         if mid:  # the clip played: seek to its start, play, pause at its end
             assert mid == [("video.seek", STEPS[sid]["video"]["start"], True), "video.play", "video.pause"], (sid, mid)
-    assert ev[-1] == ("video.play", {}) and ev[-2][0] == "step.passed" and ev[-2][1]["stepId"] == "s7"
+    assert ev[-1] == ("video.pause", {}) and ev[-2][0] == "step.passed" and ev[-2][1]["stepId"] == "s7"
     assert rp.s.phase == "done"
 
 

@@ -77,6 +77,40 @@ def test_quickpick_low_in_the_window_is_not_matched():
     assert ax.quickpick_in(t["win"], t["combo"], get, rect) is None
 
 
+def kernel_picker_tree() -> dict:
+    """t11: VS Code 1.146's "Select Kernel" picker on mnist.ipynb as Chromium reports it: the input sets
+    aria-activedescendant to the highlighted row, so the app's focused element is that ROW (an AXStaticText option
+    inside an AXGroup row of the "Quick Input" list), never the input."""
+    win = node("AXWindow", (0, 25, 1512, 957))
+    bench = node("AXGroup", (0, 25, 1512, 957), win, AXDOMClassList=["monaco-workbench"])
+    node("AXTextArea", (300, 120, 1212, 700), bench, AXRoleDescription="editor")
+    widget = node("AXGroup", (456, 63, 600, 260), bench, AXDOMClassList=["quick-input-widget", "show-file-icons"])
+    node("AXComboBox", (462, 98, 588, 24), widget, AXDescription="Select Kernel")
+    lst = node("AXList", (456, 128, 600, 190), widget, AXDescription="Quick Input", AXDOMClassList=["quick-input-list"])
+    row = node("AXGroup", (456, 128, 600, 22), lst, AXSubrole="AXOutlineRow")
+    option = node("AXStaticText", (470, 130, 300, 18), row, AXDescription=".venv (3.12.16) .venv/bin/python")
+    return {"win": win, "widget": widget, "list": lst, "row": row, "option": option, "bench": bench}
+
+
+@pytest.mark.parametrize("focus", ["option", "row"])
+def test_kernel_picker_found_from_its_highlighted_row(focus):
+    t = kernel_picker_tree()
+    assert ax.quickpick_in(t["win"], t[focus], get, rect) == Rect(456, 63, 600, 260)  # the whole widget
+
+
+def test_kernel_picker_row_without_widget_class_gives_the_list():
+    t = kernel_picker_tree()
+    t["widget"].pop("AXDOMClassList")  # only the list says "Quick Input": the widget around it still sits top centre
+    assert ax.quickpick_in(t["win"], t["option"], get, rect) == Rect(456, 63, 600, 260)
+
+
+def test_a_list_row_outside_any_quick_input_is_not_the_quickpick():
+    win = node("AXWindow", (0, 0, 1440, 900))
+    lst = node("AXList", (420, 60, 600, 300), win, AXDescription="Files Explorer")
+    row = node("AXGroup", (420, 60, 600, 22), lst)
+    assert ax.quickpick_in(win, row, get, rect) is None
+
+
 # ---------------------------------------------------------------------- screen.avoid (fake session, fake AX tree)
 
 class AXScreen:

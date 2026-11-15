@@ -663,9 +663,11 @@ def quickpick_in(win, focused, get=None, rect=None) -> Rect | None:
     picker's input while it is open) up its parents; None when the focus is anywhere else. `win`: the window it is in.
     `get(el, attr)` / `rect(el)` default to the real AX reads (tests pass a fake tree)."""
     get, rect = get or attr, rect or rect_of
-    if focused is None or _s(get(focused, "AXRole")) not in _QP_INPUT_ROLES:
+    if focused is None:
         return None
     wr = rect(win) if win is not None else None
+    if _s(get(focused, "AXRole")) not in _QP_INPUT_ROLES:
+        return _quickpick_above(focused, wr, get, rect)
     ir = rect(focused)
     if not _qp_placed(ir, wr):
         return None
@@ -682,16 +684,56 @@ def quickpick_in(win, focused, get=None, rect=None) -> Rect | None:
     return box if hinted else None
 
 
+def _quickpick_above(focused, wr: Rect | None, get, rect) -> Rect | None:
+    """t11: the quick-pick when VS Code's focus is a ROW of its list, not its input. Chromium reports a combobox's
+    aria-activedescendant as the focused element, and VS Code's quick input points it at the highlighted row (the kernel
+    picker's ".venv" entry), so in test 11 the focus was never the input and no screen.avoid was ever sent. Up from the
+    row: the first parent that says it is the quick input (the "Quick Input" list, the quick-input-widget div), then
+    its parents while they still sit where the picker sits (top centre, not the whole workbench)."""
+    el, hit, box = focused, None, None
+    for _ in range(12):  # row -> list -> widget -> workbench
+        el = get(el, "AXParent")
+        if el is None:
+            break
+        r = rect(el)
+        if hit is None:
+            if _qp_placed(r, wr) and _qp_hint(el, get):  # where first: one read, the label reads only up there
+                hit, box = el, r
+            continue
+        if r is None or not _qp_placed(r, wr) or not _inside(r, box):
+            break
+        box = r
+    return box
+
+
+_qp_seen: list = [None]  # t11: the last miss logged (VS Code's focused role + label), so a miss is logged once
+
+
+def _qp_log_miss(focused) -> None:
+    key = (_s(attr(focused, "AXRole")), _s(attr(focused, "AXSubrole")),
+           _s(attr(focused, "AXDescription"), 60)) if focused is not None else None
+    if key != _qp_seen[0]:
+        _qp_seen[0] = key
+        log.info("quickpick: none (VS Code's focus: %s)", key or "nothing")
+
+
 def find_quickpick(folder: str | None = None) -> Element | None:
     """VS Code's open quick-pick (see quickpick_in) in the lesson's VS Code (`folder`), also while Miyagi's drawer is in
     front. None when it is closed or VS Code isn't running."""
     pid, win = _code_app(folder)
     if win is None:
+        if _qp_seen[0] != "no window":
+            _qp_seen[0] = "no window"
+            log.info("quickpick: none (no VS Code window: %s)", "settling" if pid is not None else "not running")
         return None
     app_el = AX.AXUIElementCreateApplication(pid)
     AX.AXUIElementSetMessagingTimeout(app_el, MESSAGING_TIMEOUT)
     focused = attr(app_el, "AXFocusedUIElement")
     r = quickpick_in(attr(focused, "AXWindow") or win, focused)
+    if r is None:
+        _qp_log_miss(focused)
+    else:
+        _qp_seen[0] = "found"
     return Element(role="AXGroup", subrole=None, title=None, value=None, description="quickpick", rect=r,
                    app="Code") if r is not None else None
 

@@ -458,8 +458,13 @@ class ScreenReader:
             if ax.trusted():
                 el = ax.find_quickpick(self._lesson_folder)
                 return el.rect if el is not None else None
+            if getattr(self, "_qp_error", None) != "untrusted":
+                self._qp_error = "untrusted"
+                log.info("AX quickpick lookup skipped: no Accessibility permission")
         except Exception as e:  # noqa: BLE001
-            log.debug("AX quickpick lookup failed: %s", e)
+            if str(e) != getattr(self, "_qp_error", None):  # t11: was debug (test 11 sent no screen.avoid at all)
+                self._qp_error = str(e)
+                log.info("AX quickpick lookup failed: %s", e)
         return None
 
     # ------------------------------------------------------------------ frontmost app / VS Code window

@@ -33,9 +33,10 @@ _SPLIT = re.compile(r"\s*(?:&&|;|\n)\s*")
 _YOUR_NOTEBOOK = re.compile(r"\b(in|to|into|from|open)\s+(?:your|the|a\s+new)\s+(?:jupyter\s+)?notebook\b", re.I)
 _APP_WORDS = re.compile(r"\bin\s+(?:Jupyter(?:\s+Notebook)?\s+or\s+(?:Google\s+)?Colab|(?:Google\s+)?Colab\s+or\s+Jupyter(?:\s+Notebook)?)\b",
                         re.I)
-# what VS Code's notebook kernel picker reads with the lesson's .venv selected: ".venv (Python 3.12.16)" (older builds:
-# "Python 3.12.16 ('.venv': venv)"); never the Explorer's bare .venv folder
-KERNEL_PATTERN = r"\.?venv\s*\(\s*Python\s*3|['‘’]\.?venv['‘’]\s*:\s*venv"
+# what VS Code's notebook kernel picker reads with the lesson's .venv selected: ".venv (Python 3.12.16)", t11: VS Code
+# 1.146 ".venv (3.12.16)" (older builds: "Python 3.12.16 ('.venv': venv)"); never the Explorer's bare .venv folder
+KERNEL_PATTERN = r"\.?venv\s*\(\s*(?:Python\s*)?3\b|['‘’]\.?venv['‘’]\s*:\s*venv"
+KERNEL_LABEL = f"Notebook kernel is {VENV}"
 # the kernel's own errors in VS Code, and the terminal's (the step's old check: a pip / shell error still fails it)
 KERNEL_ERRORS = r"Failed\s+to\s+start\s+the\s+[Kk]ernel|[Kk]ernel\s+died|Traceback|ERROR:|ERR!"
 # a notebook named after what the lesson works on (MNIST -> mnist.ipynb), else notebook.ipynb
@@ -127,7 +128,7 @@ def _setup_step(step: dict, nb: str, libs: list[str]) -> None:
         c = dict(c)
         pat = str(c.get("pattern") or "")
         if c.get("type") == "screen_contains" and re.search(r"localhost|jupyter|127\\?\.0", pat, re.I):
-            c.update(label=f"Notebook kernel is {VENV}", pattern=KERNEL_PATTERN)
+            c.update(label=KERNEL_LABEL, pattern=KERNEL_PATTERN)
             c.pop("app", None)
         elif c.get("type") == "screen_absent" and str(c.get("app") or "").lower() == "terminal":
             c.update(label="No kernel or terminal errors", pattern=KERNEL_ERRORS)
@@ -167,6 +168,8 @@ def use_lesson_notebook(graph: dict) -> list[str]:
                 for k in ("caption", "label"):
                     if isinstance(x.get(k), str):
                         x[k] = fix_copy(x[k], nb)
+                if x.get("label") == KERNEL_LABEL and x.get("type") == "screen_contains":
+                    x["pattern"] = KERNEL_PATTERN  # t11: a lesson cached with the old pattern reads ".venv (3.12.16)" too
         if isinstance(step.get("file"), str) and UNTITLED.fullmatch(step["file"].rsplit("/", 1)[-1]):
             step["file"] = nb
         if repr(step) != before:

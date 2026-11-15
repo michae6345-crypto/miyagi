@@ -123,11 +123,17 @@ def _check_question(step: dict) -> str | None:
     return "What on screen would show that this step is done?" if step.get("checks") else None
 
 
+# t11: a card about an error the code printed (AttributeError: ... has no attribute, a Traceback), not one about the code
+_ERROR_SEEN = re.compile(r"\b\w*(?:Error|Exception)\b|Traceback|has no attribute|\b[Tt]h(?:e|is) error\b")
+
+
 def nudge_question(card: dict) -> str:
     """A question that points the learner where to look, without the card's answer (t10 CP6: "load_dat is missing
     the a: what in your code makes that happen…" just restated the diagnosis)."""
     text = " ".join(str(card.get(k) or "") for k in ("title", "body"))
     if re.search(r"has no attribute|misspel|typo|is missing the|has an extra|should be\b", text, re.I):
+        if not _ERROR_SEEN.search(text):  # t11: found in the code before any run: there is no error to read yet
+            return "Compare the highlighted line with the step's code, letter by letter: one name is spelled differently."
         return "Read the last line of the error: which name can't Python find? Compare its spelling, letter by letter, with the step's code."
     if re.search(r"isn't defined|not defined|NameError|doesn't know", text, re.I):
         return "Which name does the error say Python doesn't know, and where in your code is it defined or imported?"

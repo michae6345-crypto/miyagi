@@ -482,10 +482,34 @@ def _metric_trend(check: dict, ctx: RunContext) -> CheckResult:
     return _result(check, "pass" if ok else "fail", desc + ("" if ok else " — plateau"))
 
 
+# t11: the notebook kernel check (server.lesson.notebook_steps: "Notebook kernel is .venv"), and the kernel VS Code saves
+# in the notebook's metadata once it connected one: ".venv (3.12.16)" / ".venv" (older: "Python 3.12.16 ('.venv': venv)")
+_KERNEL_LABEL = re.compile(r"^Notebook kernel is \.?venv\b", re.I)
+_VENV_KERNEL = re.compile(r"^\s*\.?venv\b|['‘’]\.?venv['‘’]", re.I)
+
+
+def _is_kernel_check(check: dict) -> bool:
+    return check.get("type") == "screen_contains" and bool(_KERNEL_LABEL.match(str(check.get("label") or "")))
+
+
+def _saved_kernel(check: dict, ctx: RunContext) -> str | None:
+    """t11: the .venv kernel as the step's notebook on disk says it, before any OCR of the picker's label: VS Code writes
+    kernelspec.display_name and language_info.version when it connects the kernel (Miyagi's template has no version,
+    so an untouched template never passes). None: not known from the file."""
+    if not os.path.isabs(str(ctx.workdir or "")):
+        return None
+    nb = read_notebook(find_notebook(ctx.workdir, [str(check.get("_nb_file") or check.get("file") or "")]))
+    if nb is None or not nb.kernel_version or not _VENV_KERNEL.search(nb.kernel):
+        return None
+    return f"kernel {nb.kernel} in {nb.path.name}"
+
+
 def _screen(check: dict, ctx: RunContext, absent: bool) -> CheckResult:
     pattern, app = check.get("pattern"), check.get("app")
     if not pattern:
         return _result(check, "fail", "check has no 'pattern'")
+    if not absent and _is_kernel_check(check) and (k := _saved_kernel(check, ctx)):
+        return _result(check, "pass", k)
     where = f" in {_app_name(app, ctx)}" if app else " on screen"
     # the notebook as this step sees it (t10): every cell's source, but the outputs of the cells holding its own code
     nb = ctx.notebook if isinstance(ctx.notebook, Notebook) and app not in _TERMINAL_APPS else None
@@ -526,6 +550,8 @@ def _screen(check: dict, ctx: RunContext, absent: bool) -> CheckResult:
     if m:
         return _result(check, "pass", f"seen{where}")
     if app in _TERMINAL_APPS:  # the terminal is on screen, the output isn't: say that, not where to open it
+        if ctx.running:  # t11: the step's run is still live (a server never exits): not a fail yet
+            return _result(check, "pending", f"not printed{where} yet: still running")
         return _result(check, "fail", "not printed by the last run: run it again" if ctx.run_finished
                        else f"not printed{where} yet")
     # learner words (E2): the file the code goes in when known ("not in calculator.py yet"), else the app
@@ -685,6 +711,7 @@ def evaluate_step(step: dict, ctx: RunContext | None = None, types: Iterable[str
     f = _step_file(step)  # a VS Code check not seen yet names the file the code goes in ("not in calculator.py yet")
     checks = [{**c, "file": f} if f and c.get("type") == "screen_contains" and c.get("app") == "Code"
               and not c.get("file") else c for c in checks]
+    checks = [{**c, "_nb_file": f} if f and _is_kernel_check(c) else c for c in checks]  # t11: _saved_kernel reads it
     # a run step's "no error in the terminal" waits for the run (_not_visible) instead of passing on a hidden terminal
     run = step.get("kind") == "run" or any(str(t.get("file") or "").strip().lower() in ("(terminal)", "terminal")
                                            for t in step.get("targets") or []) or _command_step(step)
