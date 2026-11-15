@@ -49,8 +49,86 @@ def assign_windows(blocks: list[Block], windows: list[Window]) -> list[Block]:
     out = []
     for b in blocks:
         owner = next((w for w in windows if w.rect.contains(b.rect)), None)
-        out.append(Block(b.text, b.rect, b.confidence, owner.app if owner else None, owner.title if owner else None))
+        out.append(Block(b.text, b.rect, b.confidence, owner.app if owner else None, owner.title if owner else None,
+                         b.role))
     return out
+
+
+# ----------------------------------------------------------------- clean-up of a frame's blocks
+
+# Editor hover tooltips (Pylance / Pyright / TS server / diagnostics). Their rows interleave with the
+# code underneath and garble it (`def subtract(a, b):` + hover `b: Any` -> "def b: Any").
+_HOVER_HEAD = re.compile(
+    r"^\((?:function|method|variable|class|module|parameter|property|constant|type|type alias|field|enum|"
+    r"interface|keyword|import|instance attribute|class attribute|alias)\)|"
+    r"\b(?:Pylance|Pyright|pyright|Pylint|mypy|Ruff|ts\(\d+\)|eslint)\b|^(?:View Problem|Quick Fix)")
+
+
+def mark_hovers(blocks: list[Block]) -> list[Block]:
+    """Tag editor hover-tooltip blocks with role="hover": a block that looks like a hover header,
+    plus the blocks stacked with it in the same left-aligned box (signature lines, docs)."""
+    seeds = [b for b in blocks if b.app and _HOVER_HEAD.search(b.text.strip())]
+    if not seeds:
+        return blocks
+    hover: set[int] = set()
+    for s in seeds:
+        box = [s]
+        h = s.rect.h
+        changed = True
+        while changed:     # grow up/down through blocks that start at the box's left edge
+            changed = False
+            top, bot = min(b.rect.y for b in box), max(b.rect.y2 for b in box)
+            for b in blocks:
+                if b in box or b.app != s.app or b.window != s.window:
+                    continue
+                if abs(b.rect.x - s.rect.x) <= 14 + (b.rect.x > s.rect.x) * 30 and (
+                        0 <= b.rect.y - bot < 1.6 * h or 0 <= top - b.rect.y2 < 1.6 * h):
+                    box.append(b)
+                    changed = True
+        x1, x2 = s.rect.x - 4, max(b.rect.x2 for b in box) + 4
+        y1, y2 = min(b.rect.y for b in box) - 2, max(b.rect.y2 for b in box) + 2
+        for i, b in enumerate(blocks):   # everything whose centre is inside the box
+            if b.app == s.app and x1 <= b.rect.cx <= x2 and y1 <= b.rect.cy <= y2 and b.rect.x >= x1 - 2:
+                hover.add(i)
+    return [Block(b.text, b.rect, b.confidence, b.app, b.window, "hover") if i in hover else b
+            for i, b in enumerate(blocks)]
+
+
+def merge_split_words(blocks: list[Block]) -> list[Block]:
+    """Join blocks Vision split inside one line of code (`def` | `add(a, b):`; a colour change is
+    enough to split): same window and row, touching or a gap under half a line height. Line numbers
+    and hover blocks are never joined to code."""
+    by_win: dict[tuple, list[Block]] = {}
+    for b in blocks:
+        by_win.setdefault((b.app, b.window), []).append(b)
+    out: list[Block] = []
+    for bs in by_win.values():
+        rows: list[list[Block]] = []
+        for b in sorted(bs, key=lambda b: b.rect.cy):
+            if rows and abs(b.rect.cy - sum(x.rect.cy for x in rows[-1]) / len(rows[-1])) < 0.3 * min(
+                    b.rect.h, min(x.rect.h for x in rows[-1])):
+                rows[-1].append(b)
+            else:
+                rows.append([b])
+        for row in rows:
+            row.sort(key=lambda b: b.rect.x)
+            merged: list[Block] = []
+            for b in row:
+                prev = merged[-1] if merged else None
+                h = min(prev.rect.h, b.rect.h) if prev else 0
+                if (prev is not None and prev.role == b.role == "" and -0.5 * h < b.rect.x - prev.rect.x2 < 0.5 * h
+                        and not prev.text.strip().isdigit() and not b.text.strip().isdigit()):
+                    merged[-1] = Block(f"{prev.text} {b.text}", prev.rect.union(b.rect),
+                                       min(prev.confidence, b.confidence), prev.app, prev.window)
+                else:
+                    merged.append(b)
+            out.extend(merged)
+    return reading_order(out)
+
+
+def postprocess(blocks: list[Block]) -> list[Block]:
+    """Per-frame clean-up after OCR + window assignment: tag hovers, re-join split code words."""
+    return merge_split_words(mark_hovers(blocks))
 
 
 def drop_inside(blocks: list[Block], rects: list[Rect]) -> list[Block]:
@@ -89,6 +167,8 @@ def group_lines(blocks: list[Block]) -> list[Line]:
     """
     by_win: dict[tuple, list[Block]] = {}
     for b in blocks:
+        if b.role == "hover":
+            continue
         by_win.setdefault((b.app, b.window), []).append(b)
     lines: list[Line] = []
     for (app, win), bs in by_win.items():
