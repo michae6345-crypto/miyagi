@@ -55,6 +55,9 @@ STUCK_S = _f("MIYAGI_STAGE_STUCK_S", 2.0)  # the stuck run's output on screen be
 AGAIN_S = _f("MIYAGI_STAGE_AGAIN_S", 1.0)  # a run press this soon after the last run ended is the same press
 
 _RAND = re.compile(r"rand")
+# Michael's planted bug: the tanh slope with + (1 + h**2 instead of 1 - h**2) in backprop.
+_SIGN = re.compile(r"\(\s*1\s*\+\s*(?P<h>h\d)\s*\*\*\s*2\s*\)")
+INSTALL_S = _f("MIYAGI_STAGE_INSTALL_S", 25.0)  # the real pip install gets this long; then it counts as installed
 _INIT = re.compile(r"^\s*(W\d+)\s*=\s*(.+)$", re.M)
 
 
@@ -100,9 +103,10 @@ def _runs() -> dict:
         return {}
 
 
-def _lines(sid: str, stuck: bool) -> list[str]:
+def _lines(sid: str, variant: str) -> list[str]:
+    """The recorded run: "good", "stuck" (every W at zeros) or "sign_h1" / "sign_h2" (the planted tanh-sign bug)."""
     runs = _runs().get(sid) or {}
-    return list(runs.get("stuck" if stuck else "good") or runs.get("good") or [])
+    return list(runs.get(variant) or runs.get("good") or [])
 
 
 async def _begin(session: Any) -> None:
@@ -131,14 +135,41 @@ async def _file_text(session: Any) -> str:
         return ""
 
 
-async def _stuck_wanted(session: Any) -> bool:
-    mode = os.environ.get("MIYAGI_STAGE_STUCK", "zeros").strip().lower()
-    if mode in ("always", "1", "yes"):
-        return True
+async def _planted(session: Any) -> dict | None:
+    """The bug the presenter planted in nn.py, read from the editor (else the disk): the tanh slope's sign
+    ({"kind": "sign", "h": "h1", "line": 23, "yours": ..., "expected": ...}) or every W started without random
+    numbers ({"kind": "zeros"}). MIYAGI_STAGE_STUCK=always: the zeros run whatever the file says; never: no bug."""
+    mode = os.environ.get("MIYAGI_STAGE_STUCK", "file").strip().lower()
     if mode in ("never", "0", "no", "off"):
-        return False
-    inits = dict(_INIT.findall(await _file_text(session)))
-    return any(not _RAND.search(rhs) for rhs in inits.values())  # a W<k> not started random (zeros, ones, ...)
+        return None
+    text = await _file_text(session)
+    for i, ln in enumerate(text.splitlines(), 1):
+        if (m := _SIGN.search(ln)) is not None:
+            fixed = ln[:m.start()] + m.group(0).replace("+", "-", 1) + ln[m.end():]
+            return {"kind": "sign", "h": m.group("h"), "line": i, "yours": ln.strip(), "expected": fixed.strip()}
+    if mode in ("always", "1", "yes"):
+        return {"kind": "zeros"}
+    inits = dict(_INIT.findall(text))
+    if any(not _RAND.search(rhs) for rhs in inits.values()):  # a W<k> not started random (zeros, ones, ...)
+        return {"kind": "zeros"}
+    return None
+
+
+def _variant(bug: dict | None) -> str:
+    if not bug:
+        return "good"
+    return f"sign_{bug['h']}" if bug["kind"] == "sign" else "stuck"
+
+
+def _sign_card(sid: str, bug: dict, v: float) -> dict:
+    """The planted sign bug's Not yet, in the coach's words from Michael's test run."""
+    return {"stepId": sid, "severity": "fail", "level": 3,
+            "title": "Wrong sign in tanh slope",
+            "body": f"Change + to − on line {bug['line']}. The slope of tanh is 1 − h², so with + the error flows back "
+                    f"wrong and the loss stalls at {v:.4f}.",
+            "guidingQuestion": "What is the derivative of tanh(z), written with h = tanh(z)?",
+            "diff": {"expected": bug["expected"], "yours": bug["yours"], "file": curated.FILE, "line": bug["line"]},
+            "actions": ["explain", "hint", "show_me"]}
 
 
 def _quiet() -> None:
@@ -190,8 +221,9 @@ async def _pass(session: Any, step: dict, gen: int, lines: list[str] | None = No
         st["passing"].discard(sid)
 
 
-async def _stuck(session: Any, step: dict, lines: list[str]) -> None:
-    """The planned "Not yet": the training check fails on the run's flat loss, and the coach's card says why."""
+async def _stuck(session: Any, step: dict, lines: list[str], bug: dict | None = None) -> None:
+    """The planned "Not yet": the training check fails on the run's loss, and the coach's card says why (the zeros
+    card from demo/cache/coach, or the sign bug's own)."""
     sid, gen = step.get("id"), session.step_gen
     await asyncio.sleep(STUCK_S)  # the run's output and the identical neurons first, then the verdict
     if gen != session.step_gen or session.passed or sid in _st(session)["good"]:
@@ -207,7 +239,10 @@ async def _stuck(session: Any, step: dict, lines: list[str]) -> None:
         await session.emit("check.updated", {"stepId": sid, "checkId": c["id"], "label": label, "status": status,
                                              "detail": detail})
     try:
-        card = json.loads(COACH_FILE.read_text(encoding="utf-8"))
+        if bug and bug.get("kind") == "sign":
+            card = _sign_card(sid, bug, v)
+        else:
+            card = json.loads(COACH_FILE.read_text(encoding="utf-8"))
     except (OSError, ValueError):
         card = {"severity": "fail", "title": f"Loss is stuck at {v:.2f}",
                 "body": "Every hidden neuron starts the same, so they stay copies. Start the weights random.",
@@ -273,8 +308,9 @@ async def run(session: Any, step: dict, typed: bool = False) -> None:
 async def _run(session: Any, step: dict, gen: int, sid: str, st: dict, typed: bool) -> None:
     n = st["runs"].get(sid, 0)
     st["runs"][sid] = n + 1
-    stuck = sid == curated.TRAIN_STEP and n == 0 and await _stuck_wanted(session)
-    lines = _lines(sid, stuck)
+    bug = await _planted(session) if sid == curated.TRAIN_STEP and n == 0 else None
+    stuck = bug is not None
+    lines = _lines(sid, _variant(bug))
     cmd = session._run_command(step) or (step.get("run_command") or "").strip() or f"python3 {curated.FILE}"
     session._acted()
     if not typed:
@@ -283,7 +319,7 @@ async def _run(session: Any, step: dict, gen: int, sid: str, st: dict, typed: bo
     if gen != session.step_gen or session.passed:
         return
     if stuck and sid in st["good"]:  # the presenter's next landed during this run: it learns
-        stuck, lines = False, _lines(sid, False)
+        stuck, bug, lines = False, None, _lines(sid, "good")
     run_id = f"stage-{sid}-{n}-{int(time.time() * 1000)}"
     await session.ingest({"kind": "run_started", "run_id": run_id, "command": cmd, "cwd": session.workdir})
     await session.ingest({"kind": "output", "run_id": run_id, "lines": lines})
@@ -298,7 +334,7 @@ async def _run(session: Any, step: dict, gen: int, sid: str, st: dict, typed: bo
                             output="\n".join(lines[-8:]) or "(no output)")
     curated.after_evaluate(session, step, "run_end")  # the panel: identical neurons, or their run
     if stuck:
-        await _stuck(session, step, lines)
+        await _stuck(session, step, lines, bug)
     else:
         await _pass(session, step, gen, lines)
 
@@ -336,6 +372,64 @@ async def restart(session: Any) -> bool:
     goal = ((session.graph or {}).get("lesson") or {}).get("asked") or getattr(session, "query", "") or GOAL
     await session.learn_demo(goal, fresh=True)
     return True
+
+
+def requirements(folder: str | None = None) -> list[dict] | None:
+    """The setup check in a Demo lesson: the curated lesson's own list (curated.requirements_raw: VS Code, python,
+    NumPy) in S2's item format, with no Claude call and nothing looked up, and NumPy missing on every take (Michael's
+    flow: "Missing: numpy" -> Install -> "numpy installed ✓"), also when this Mac's lesson .venv has it from the last
+    take, or on the offline engine (DEMO=1, where the real check returns nothing). None: S2 isn't there."""
+    try:
+        from server.workspace import setup
+    except Exception:  # noqa: BLE001
+        return None
+    try:
+        items = setup._items(curated.requirements_raw())
+        brew = setup.brew_path()
+    except Exception:  # noqa: BLE001 - no card, the Demo goes on
+        log.exception("stage: no setup items")
+        return None
+    for it in items:
+        here = it["kind"] != "python_package"
+        it.update(installed=here, ok=here, version="", where="")
+        it["install"] = {k: v for k, v in setup.recipe(it, brew).items() if k != "package"}
+    return items
+
+
+async def install(session: Any, tool: str, item: dict | None) -> None:
+    """Install on the setup card ("Missing: numpy") in a Demo lesson: the same progress and the same closing
+    "numpy installed ✓" card as a real install, and it always gets there. The real pip install runs for up to
+    INSTALL_S (so VS Code's ▷ run has NumPy too); if it fails or takes longer, it still counts as installed."""
+    from . import workspace as wsmod
+
+    items = list(getattr(session, "reqs", None) or [])
+    item = item or next((it for it in items if it.get("tool") == tool), None) or {"tool": tool, "label": tool}
+    label = item.get("label") or tool
+    if tool in session._installing:
+        return
+    session._installing.add(tool)
+    try:
+        await session.emit("setup.progress", {"tool": tool, "line": f"Installing {label}…"})
+        await session._install_status(f"Installing {label}…")
+        ok = False
+        if session.workdir and item.get("install"):
+            try:
+                res = await asyncio.wait_for(asyncio.to_thread(wsmod.install, item, session.workdir, lambda _l: None),
+                                             INSTALL_S)
+                ok = bool(res.get("ok"))
+            except Exception:  # noqa: BLE001 - offline / slow: the Demo goes on
+                log.info("stage: %s install didn't finish (%s s); counted as installed", tool, INSTALL_S)
+        if ok and getattr(session.screen, "reader", None) is not None:
+            session._spawn(asyncio.to_thread(wsmod.refresh_python, session.workdir), timer=True)
+        await session.emit("setup.progress", {"tool": tool, "done": True, "ok": True})
+        for it in items:  # the row flips to installed
+            if it.get("tool") == tool:
+                it["ok"] = True
+        session._setup_card = None
+        await session.emit("card", {"kind": "setup", "title": f"{label} installed ✓", "body": "", "actions": [],
+                                    "dismissAfterMs": 4000})
+    finally:
+        session._installing.discard(tool)
 
 
 def last_hint(session: Any, step: dict) -> dict | None:

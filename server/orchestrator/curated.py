@@ -299,18 +299,24 @@ def _folder_extras(folder: Path, graph: dict) -> None:
         cache = setup._cache_file(graph)
         if not cache.exists():
             cache.parent.mkdir(parents=True, exist_ok=True)
-            tool = {"needed": True, "min_version": "", "binary": "", "import_name": "", "pip_name": "", "brew": "",
-                    "brew_cask": False, "url": ""}
-            cache.write_text(json.dumps({
-                "editor": {"needed": True, "why": "You write nn.py in VS Code."},
-                "tools": [
-                    {**tool, "tool": "python", "kind": "runtime", "why": "Runs nn.py.", "min_version": "3.9",
-                     "binary": "python3", "brew": "python", "url": "https://www.python.org/downloads/"},
-                    {**tool, "tool": "numpy", "kind": "python_package", "why": "Every array and weight in nn.py.",
-                     "import_name": "numpy", "pip_name": "numpy", "brew": "numpy", "url": "https://numpy.org/install/"},
-                ]}, indent=1))
+            cache.write_text(json.dumps(requirements_raw(), indent=1))
     except Exception:  # noqa: BLE001
         log.exception("curated lesson: requirements cache")
+
+
+def requirements_raw() -> dict:
+    """What the lesson needs, in S2's requirements format (server.workspace.setup: what Claude would answer): VS Code,
+    python and NumPy. The setup check's cache (_folder_extras) and a Demo lesson's setup card (stage.requirements)."""
+    tool = {"needed": True, "min_version": "", "binary": "", "import_name": "", "pip_name": "", "brew": "",
+            "brew_cask": False, "url": ""}
+    return {
+        "editor": {"needed": True, "why": "You write nn.py in VS Code."},
+        "tools": [
+            {**tool, "tool": "python", "kind": "runtime", "why": "Runs nn.py.", "min_version": "3.9",
+             "binary": "python3", "brew": "python", "url": "https://www.python.org/downloads/"},
+            {**tool, "tool": "numpy", "kind": "python_package", "why": "Every array and weight in nn.py.",
+             "import_name": "numpy", "pip_name": "numpy", "brew": "numpy", "url": "https://numpy.org/install/"},
+        ]}
 
 
 # ---------------------------------------------------------------------------------------------------------- steps

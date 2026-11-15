@@ -520,12 +520,13 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
         self._spawn(self._setup_card_task(graph, folder))
 
     async def _setup_card_task(self, graph: dict, folder: str) -> None:
-        if stage.on_graph(graph):
-            return  # a Demo lesson installs nothing: its runs are recorded (stage.py)
         from . import workspace as wsmod
 
-        items, found = await asyncio.gather(  # what it needs (3-6 s first time, cached) + the video's own files
-            asyncio.to_thread(wsmod.requirements, graph, folder), asyncio.to_thread(wsmod.find_resources, graph))
+        if stage.on_graph(graph):  # a Demo lesson: "Missing: numpy" on every take, no Claude call (stage.requirements)
+            items, found = await asyncio.to_thread(stage.requirements, folder), []
+        else:
+            items, found = await asyncio.gather(  # what it needs (3-6 s first time, cached) + the video's own files
+                asyncio.to_thread(wsmod.requirements, graph, folder), asyncio.to_thread(wsmod.find_resources, graph))
         self.resources = found
         if self.lesson_mode:  # the editor is already open: only a card for tools that are really missing
             self.reqs = items or None
@@ -606,6 +607,9 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
         system's Python; on the preflight card (no lesson folder yet) they wait until the lesson exists."""
         from . import workspace as wsmod
 
+        if stage.on(self):  # a Demo lesson: the same cards, and it always ends "installed" (stage.install)
+            await stage.install(self, tool, item)
+            return
         if item is None:
             items = list(self.reqs or []) + list(((self.pending_pick or {}).get("card") or {}).get("items") or [])
             item = next((it for it in items if it.get("tool") == tool), None)
@@ -3472,6 +3476,8 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
             return
         if self.idx > 0:  # Continue / a reconnect at a later step: the app shows no sheet (store.ts step.started)
             return
+        if getattr(self, "_began_epoch", None) == self.lesson_epoch:  # Michael's locked flow: once Start was pressed,
+            return  # a reconnect / lesson.ready replay / back to step 1 never brings the sheet back (same lesson)
         if self._start_hold != self.lesson_epoch:
             self._start_hold, self._hold_t, self._hold_sig = self.lesson_epoch, self.clock(), None
             self._hold_fresh = False
@@ -3512,6 +3518,7 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
         if not self.awaiting_start:
             return
         self._start_hold = None
+        self._began_epoch = self.lesson_epoch  # (_hold_for_sheet: never held again in this lesson)
         now = self.clock()
         if self._hold_fresh:  # step 1 started under the sheet: it really starts now
             self.step_t0 = self.last_progress_t = now
