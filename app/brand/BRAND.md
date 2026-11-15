@@ -49,7 +49,7 @@ Each has a `-dark` version (white trunk and pot) for dark backgrounds.
 
 | Token | Hex | Meaning |
 |---|---|---|
-| Pass green | `#30D158` | Passed. The light on the i. The bonsai's pads on the app icon and external brand surfaces. Nothing else. |
+| Pass green | `#30D158` | Passed. The light on the i. The bonsai's pads (in the app too). Nothing else. |
 | Pass deep | `#1F9B45` | Pad undersides and back pads, pressed states |
 | Pass text | `#1C8A3C` | Green text on light backgrounds |
 | Off track | no hue | A check failed: a hollow white ring and the words "Not yet". Calm: no red, no shaking. (`#FFB020` amber and apricot are retired, see below.) |
@@ -58,7 +58,7 @@ Each has a `-dark` version (white trunk and pot) for dark backgrounds.
 | Paper | `#F6F6F3` | Brand background: site, Devpost, slides |
 | Pill | `#000000` | The notch pill, always black |
 
-**Rules:** green only ever means passed. Amber only ever means off track. Buttons are ink (on light) or white (on dark), never green and never blue. No gradients, no neon.
+**Rules:** green only ever means passed (the bonsai's own pads are the one exception: they're the logo, not a status). Amber only ever means off track. Buttons are ink (on light) or white (on dark), never green and never blue. No gradients, no neon.
 
 **Pastels for options (Adrian, Sat):** soft pastels add a little color to *options* only: suggestion and quick-action chips, source-kind tiles, the "Best" label. Pink `#F9C5D5`, sky `#C5E4F9`, lilac `#D9D2FF` (deeper: pink `#F4A7BF`, sky `#9CCFF2`), with ink text on them. They never mean status, the UI chrome stays black and white, and no gradients or glow. This is the only exception to "no blue, no purple".
 
@@ -86,7 +86,7 @@ How it's applied: buttons and chips are a solid pastel fill with ink text and ic
 The overlay should feel like a first-party Apple feature (Spotlight, Dynamic Island), not a chatbot. Michael's frontend handoff is the spec for layout and motion; this kit sets the look:
 
 - Glass follows macOS: dark HUD glass by default, light when the system is light. Tokens in `code/theme.ts` (`hud.dark`, `hud.light`).
-- **Inside the app the tree is monochrome** (Adrian, Sat): a white silhouette on dark, ink on light (`<MiyagiMark />` does this by default). The green pads appear only on the app icon and external brand surfaces (site, Devpost, slides), so in the overlay green means passed without exception.
+- **Inside the app the tree is in color** (Adrian, Sun Nov 15, reverting Saturday's monochrome cut): green pads, light trunk and pot on dark, exactly as in the logo files, in the pill, launcher, cards and everywhere else (`<MiyagiMark />` does this by default). Don't make it a white or one-color silhouette again.
 - The notch pill is always black, with the small tree on the left and the status dot on the right: gray watching, hollow white ring off track, green passed.
 - The launcher input shows the small tree where the mockup had a sparkle, with the placeholder "ask miyagi anything".
 - One spring everywhere: stiffness 420, damping 34, mass 0.9. Radii 14 / 20 / 28.
