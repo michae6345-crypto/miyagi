@@ -337,7 +337,8 @@ class ScreenContext:
         for t in targets or []:
             b = ids.get(int(t.get("box_id", -1)))
             if b is not None and all(o["boxId"] != b.id for o in out):
-                out.append({"boxId": b.id, "label": str(t.get("label", ""))[:40], "text": b.text, "rect": b.rect()})
+                label = str(t.get("label", "")).strip()[:40]  # the spotlight's label: sentence case ("Open tab", not "open tab")
+                out.append({"boxId": b.id, "label": label[:1].upper() + label[1:], "text": b.text, "rect": b.rect()})
         return out
 
 
@@ -388,4 +389,4 @@ TARGETS_SCHEMA = {
 }
 
 TARGETS_RULES = """
-SCREEN TARGETS: when a SCREEN is attached, "targets" comes first in your JSON: up to 3 box ids from the BOXES list for exactly what the learner should look at or change, most important first, each with a label of at most 3 words (e.g. "learning rate", "loss term"). Only ids that exist in the list; [] if nothing on screen is relevant. Read code from the full-resolution crop when the overview is too small."""
+SCREEN TARGETS: when a SCREEN is attached, "targets" comes first in your JSON: up to 3 box ids from the BOXES list for exactly what the learner should look at or change, most important first, each with a label: a short sentence-case action of at most 5 words saying what to do there (e.g. "Lower the learning rate", "Open calculator.py here"), never a bare noun clip like "open tab". Only ids that exist in the list; [] if nothing on screen is relevant. Read code from the full-resolution crop when the overview is too small."""

@@ -1252,27 +1252,28 @@ class LessonSession:
         return None
 
     def _terminal_spot(self, step: dict, cmd: str) -> dict:
-        """Run step: box VS Code's integrated terminal panel (its TERMINAL tab or a shell prompt, by OCR); if it
+        """Run step: box the live prompt line of VS Code's integrated terminal (E8: one line inside the panel, never
+        the whole panel, the status bar or the Chat side bar; the panel only when no prompt is readable); if it
         isn't open, box the editor area and say how to open it. Never the breadcrumb / tab bar."""
         win = self._editor_window()
         snip = {"snippet": cmd[:300]}
         region = getattr(self.screen, "region", None) if self.screen is not None else None
         if region is not None:  # E6: the panel / editor regions, stabilized (no jitter)
             if term := region("terminal"):
-                return {"rect": term, "caption": self._action_line(step), "app": "Code", **snip, "kind": "terminal"}
+                rect = region("terminal_prompt") or term
+                return {"rect": rect, "caption": self._action_line(step), "app": "Code", **snip, "kind": "terminal"}
         hit = None
-        if self.screen is not None:
-            for rx in (r"^\s*TERMINAL\b", r"\w+@[\w.-]+.*[%$#]\s*$", r"^\s*(\(\w+\)\s*)?\S*\s*[%$❯]\s*$"):
+        if self.screen is not None:  # a shell prompt first: that's where the command goes, not the TERMINAL tab
+            for rx in (r"\w+@[\w.-]+.*[%$#]\s*$", r"^\s*(\(\w+\)\s*)?\S*\s*[%$❯]\s*$", r"^\s*TERMINAL\b"):
                 hit = self.screen.locate(rx, None)
                 if hit and (win is None or hit["rect"]["y"] > win["y"] + win["h"] * 0.3):  # the panel is low
                     break
                 hit = None
-        if hit:
+        if hit:  # E8: that one line (room for the command after the prompt), inside the window
             t = hit["rect"]
-            if win:
-                rect = {"x": win["x"], "y": t["y"], "w": win["w"], "h": max(60.0, win["y"] + win["h"] - t["y"])}
-            else:
-                rect = {"x": t["x"] - 12.0, "y": t["y"], "w": 700.0, "h": 220.0}
+            x = max(win["x"], t["x"]) if win else t["x"]
+            w = max(t["w"] + 160.0, 420.0)
+            rect = {"x": x, "y": t["y"], "w": min(w, win["x"] + win["w"] - x) if win else w, "h": t["h"]}
             return {"rect": rect, "caption": self._action_line(step), "app": "Code", **snip, "kind": "terminal"}
         return self._open_terminal_spot(win, snip)
 
@@ -1593,6 +1594,7 @@ class LessonSession:
             self.check_state[c["id"]] = {"label": c.get("label", c["id"]), "status": "pending", "detail": None}
             await self.emit("check.updated", {"stepId": step["id"], "checkId": c["id"],
                                               "label": c.get("label", c["id"]), "status": "pending"})
+        await self.emit("spotlight", {"clear": True})  # E3: the last step's box (e.g. its terminal) never carries over
         seg = self._segment(step)
         resuming = seek_to is not None and seg is not None and seg["start"] <= seek_to < seg["end"]
         if seg is None or not (resuming or self._video_needed(step, seg)):
@@ -1699,11 +1701,12 @@ class LessonSession:
             self.spot_track = (t["match"], None if self.lesson_mode else t.get("app"), t.get("caption", ""))
         if self.lesson_mode:  # an anchor that isn't in the file (yet) would box some other line: skip it
             tlist = [t for t in tlist if self._anchor_in_file(t)]
+        pane = await asyncio.to_thread(self._code_pane) if self.lesson_mode and tlist else None
         for t in tlist:
             cap = self._type_caption(step, t) if self.lesson_mode else t.get("caption", "")
             app = None if self.lesson_mode else t.get("app")  # lesson mode: whichever editor they use
             spot = self._locate(t["match"], app, cap)
-            if spot and self._chrome_hit(spot):
+            if spot and self._chrome_hit(spot, pane):
                 continue  # a breadcrumb / tab / title-bar hit (e.g. the file name) is not where to type
             if spot:
                 self.spot_track = (t["match"], app, cap)
@@ -1745,15 +1748,32 @@ class LessonSession:
         except OSError:
             return False
 
-    def _chrome_hit(self, spot: dict) -> bool:
-        """Is this match in the editor's chrome (breadcrumb "a > b > c.py", tab bar, title bar) rather than code?"""
+    def _chrome_hit(self, spot: dict, pane: dict | None = None) -> bool:
+        """Is this match in the editor's chrome (breadcrumb "a > b > c.py", tab bar, title bar) rather than code?
+        `pane`: a lesson code step's editor pane (_code_pane): a match outside it (terminal, Chat) isn't either."""
         text = (spot.get("matched") or "").strip()
         if re.search(r"\s[>›]\s", text):
             return True
         if re.fullmatch(r"[\w./-]+\.\w{1,6}( [—–-] .*)?", text):  # just a file name (tab / title)
             return True
         win = self._editor_window()
-        return bool(win and self.lesson_mode and spot["rect"]["y"] < win["y"] + 70.0)
+        if win and self.lesson_mode and spot["rect"]["y"] < win["y"] + 70.0:
+            return True
+        return pane is not None and not self._in_pane(spot["rect"], pane)
+
+    def _code_pane(self) -> dict | None:
+        """E3: in a lesson code step, VS Code's editor pane (E6 region "editor"; it may capture a frame, so call it
+        in a thread); None for a run step, a video lesson, or when the pane isn't read."""
+        if not self.lesson_mode or self.step is None or self._run_command(self.step):
+            return None
+        region = getattr(self.screen, "region", None) if self.screen is not None else None
+        return region("editor") if region is not None else None
+
+    @staticmethod
+    def _in_pane(r: dict, pane: dict, slop: float = 4.0) -> bool:
+        cx, cy = r["x"] + r["w"] / 2, r["y"] + r["h"] / 2
+        return (pane["x"] - slop <= cx <= pane["x"] + pane["w"] + slop
+                and pane["y"] - slop <= cy <= pane["y"] + pane["h"] + slop)
 
     async def _show_spot(self, spot: dict, steady: bool = False) -> None:
         """steady: the engine's own target box (step start / follow): not re-sent when it hasn't really moved.
@@ -1761,6 +1781,15 @@ class LessonSession:
         if self._lesson_window_hidden() and (self.lesson_mode or (spot.get("app") or "").lower() in CODE_APP_NAMES):
             log.info("no box for %r: another folder's VS Code window is on screen, not the lesson's", spot.get("caption"))
             return
+        gen = self.step_gen
+        pane = await asyncio.to_thread(self._code_pane) if steady and self.lesson_mode else None
+        if pane is not None:  # E3: a code step's line box stays inside the editor pane (never the terminal / Chat)
+            r0 = spot["rect"]
+            if not self._in_pane(r0, pane):
+                log.info("no box for %r: outside the editor pane", spot.get("caption"))
+                return
+            x, x2 = max(r0["x"], pane["x"]), min(r0["x"] + r0["w"], pane["x"] + pane["w"])
+            spot = {**spot, "rect": {**r0, "x": x, "w": max(8.0, x2 - x)}}
         old, r = self.spot_rect, spot["rect"]
         if (steady and old and spot.get("caption") == self._spot_caption
                 and all(abs(r[k] - old[k]) <= self.SPOT_MOVE_PX for k in ("x", "y", "w", "h"))):
@@ -1769,9 +1798,15 @@ class LessonSession:
             return  # the same box again: no re-send (flicker made the overlay feel laggy)
         if steady and self.lesson_mode:
             confirmed = await self._confirm_spot(spot)
+            if gen != self.step_gen or self.passed:  # E3: Haiku answered after the step moved on: no stale box
+                log.info("targeter answered after the step changed; no box for %r", spot.get("caption"))
+                return
             if confirmed is None:
                 log.info("targeter: no real target for %r; no box", spot.get("caption"))
                 return
+            if pane is not None and confirmed["rect"] != spot["rect"] and not self._in_pane(confirmed["rect"], pane):
+                log.info("targeter moved %r out of the editor pane; keeping the line box", spot.get("caption"))
+                confirmed = spot  # E3: (taller than ~3 lines is refused in target.verdict)
             spot, r = confirmed, confirmed["rect"]
         self.spot_rect, self._spot_caption, self._spot_t = r, spot.get("caption"), self.clock()
         self._spot_app = spot.get("app") or ("Code" if self.lesson_mode else None)

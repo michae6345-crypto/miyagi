@@ -184,14 +184,14 @@ def where_hint(step: dict, last: dict | None = None, screen: Any = None) -> str:
             return f"You're in {ed['app']} on {ed['file']}. Open {name} from the lesson folder"
         if ed["file"] == name and ed["unsaved"]:
             return f"{name} is open in {ed['app']} with unsaved changes. Save it"
-    if name and lesson_mode(step) and name != "(terminal)":  # lesson mode created the file already (S9)
-        return f"Open {name} in VS Code"
+    if name and lesson_mode(step):  # lesson mode created the file already (S9); the lesson is in VS Code
+        return "Open VS Code's terminal (⌃`)" if name == "(terminal)" else f"Open {name} in VS Code"
     if name and creates_file(step, name):
         return f"Create {name} in the lesson folder" + (f" ({ed['app']} is open)" if ed and not ed["file"] else "")
     if f.endswith(".ipynb"):
         return f"Open {f} in Jupyter or Colab"
     if f:
-        return f"Open {f} in {ed['app']}" if ed else f"Open {f} in your editor"
+        return f"Open {f} in {ed['app'] if ed else 'VS Code' if lesson_mode(step) else 'your editor'}"
     if cmd := step_command(step):
         return f"Switch to your terminal and run `{cmd}`"
     return "Open the code for this step"
@@ -220,8 +220,10 @@ def deterministic_targets(step: dict, screen: ScreenContext, last: dict | None =
                 hits = [b for b in boxes if _norm(needle) in _norm(b.text)]
         if hits:
             hits.sort(key=lambda b: (b.app.lower() not in ("code", "cursor", "pycharm"), len(b.text)))
-            label = ((last or {}).get("title") or "") if kind == "text" else next((t.get("caption", "") for t in step.get("targets") or [] if t.get("match") == needle), "")
-            return screen.resolve_targets([{"box_id": hits[0].id, "label": _short(label) or "here"}])
+            # a short sentence-case action; a video lesson's own target keeps its authored caption when it's short
+            cap = next((t.get("caption", "") for t in step.get("targets") or [] if t.get("match") == needle), "")
+            label = (kind == "re" and not lesson_mode(step) and _short(cap, 5)) or spot_label(step, last, screen)
+            return screen.resolve_targets([{"box_id": hits[0].id, "label": label}])
     return []
 
 
@@ -241,7 +243,27 @@ TERMINALS = {"terminal", "iterm2", "iterm", "warp", "alacritty", "kitty", "ghost
 
 
 def _short(label: str, n: int = 3) -> str:
-    return " ".join((label or "").replace(".", "").split()[:n])
+    """`label` in sentence case with file names intact ("Open calculator.py here"); "" when it is over `n` words
+    (a clip like "open tab" or "the code for" says nothing: the caller says the action instead)."""
+    words = (label or "").split()
+    if len(words) > n:
+        return ""
+    s = " ".join(words).rstrip(".:;,")
+    return s[:1].upper() + s[1:]
+
+
+def spot_label(step: dict, last: dict | None = None, screen: Any = None) -> str:
+    """A spotlight label: a short sentence-case action for the box ("Open calculator.py here", "Change this line",
+    "Run it here", "Type it here"), never a clip of what the coach was asked."""
+    name = (step_file(step, last) or "").rsplit("/", 1)[-1]
+    shown = editor_state(screen).get("file") if screen is not None else ""
+    if name and name != "(terminal)" and shown and shown != name:
+        return f"Open {name} here"
+    if ((last or {}).get("diff") or {}).get("yours"):
+        return "Change this line"
+    if step.get("kind") == "run" or ((step.get("run_command") or "").strip() and not (step.get("code") or "").strip()):
+        return "Run it here"
+    return "Type it here" if (step.get("code") or "").strip() else "Look here"
 
 
 async def point(
@@ -277,12 +299,13 @@ async def point(
     except (llm.CoachLLMError, TimeoutError) as e:
         log.info("point: model unavailable (%s); where-only", e)
         return {"targets": [], "where": where_hint(step, last, screen), "via": "fallback"}
-    targets = screen.resolve_targets([{"box_id": i, "label": _short(about)} for i in res.data.get("box_ids", [])[:3]])
+    label = spot_label(step, last, screen)
+    targets = screen.resolve_targets([{"box_id": i, "label": label} for i in res.data.get("box_ids", [])[:3]])
     if targets:
         where = None
-    else:  # the screen-derived instruction (names the real editor + file) beats Haiku's generic one
+    else:  # the screen-derived instruction (names the real editor + file; VS Code in a lesson) beats Haiku's generic one
         det = where_hint(step, last, screen)
-        where = det if editor_state(screen) and step_file(step, last) else ((res.data.get("where") or "").strip() or det)
+        where = det if (editor_state(screen) or lesson_mode(step)) and step_file(step, last) else ((res.data.get("where") or "").strip() or det)
     return {"targets": targets, "where": where, "via": "haiku"}
 
 
@@ -293,5 +316,6 @@ async def show_me(step: dict, screen: ScreenContext | None = None, last_offtrack
     last = last_offtrack or LAST.get(step.get("id", "")) or {}
     about = (last.get("title") and f"the code to change: {last['title']}") or f"where to work on this step: {step.get('instructions', '')}"
     p = await point(step, screen, about=about, last=last)
-    caption = next((t.get("caption") for t in step.get("targets") or [] if t.get("caption")), "") or (_short(last.get("title", ""), 6) if last else "") or _short(step.get("title", ""), 6)
+    caption = (spot_label(step, last, screen) if lesson_mode(step) else  # a lesson: the action, in VS Code
+               next((t.get("caption") for t in step.get("targets") or [] if t.get("caption")), "") or (_short(last.get("title", ""), 6) if last else "") or _short(step.get("title", ""), 6) or spot_label(step, last, screen))
     return {"stepId": step.get("id"), "targets": p["targets"], "caption": caption or "Work here", "where": p["where"], "_meta": {"via": p["via"]}}

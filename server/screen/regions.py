@@ -10,6 +10,8 @@ How each is found (OCR of the frontmost VS Code window):
 - terminal: the panel tab header row ("PROBLEMS  OUTPUT  DEBUG CONSOLE  TERMINAL  PORTS") down to the
   status bar; if the header isn't readable, from the top-most shell prompt below the editor. None
   when neither is on screen (panel closed). Terminal.app/iTerm2 only when asked for (`app="Terminal"`).
+- terminal_prompt: the live (last) shell prompt line inside that panel, clamped to the panel's own
+  edges (never the status bar or a side bar such as Chat): where a run step's command is typed.
 - editor: below the tab bar + breadcrumb, from the editor's left edge (tab row / line-number gutter)
   to the window's right edge, down to the panel (or the status bar).
 - explorer: the side bar under its "EXPLORER" header (or OUTLINE / TIMELINE / OPEN EDITORS sections),
@@ -31,7 +33,7 @@ from . import lines as L
 from . import match as M
 from .types import Block, Rect, ScreenObservation, Window
 
-REGIONS = ("terminal", "editor", "explorer", "run_button", "terminal_menu")
+REGIONS = ("terminal", "editor", "explorer", "run_button", "terminal_menu", "terminal_prompt")
 # a tab: "calculator.py", "calculator.py X", "calculator.py ●", "calculator.py 1" (problem count)
 _TAB = re.compile(r"^[\w.\-]+\.[A-Za-z0-9]{1,6}(?:\s*[xX×●•]|\s+\d{1,2})?$")
 # secondary side bar headers that sit on the editor's tab row (its right edge is the editor's)
@@ -91,6 +93,8 @@ _PANEL_TABS = ("PROBLEMS", "OUTPUT", "DEBUG CONSOLE", "TERMINAL", "PORTS", "GITL
 _SIDEBAR_MARKERS = re.compile(r"^(?:[›>v]\s*)?(EXPLORER|Explorer|OUTLINE|Outline|TIMELINE|Timeline|OPEN EDITORS"
                               r"|Open Editors)\b")
 _PROMPT = re.compile(r"^\S*@\S+.*?[%$#❯➜]\s|(?:^|\s)[%$❯➜]\s+\S|^\(\S+\)\s.*[%$#]\s|^PS [A-Z]:\\")
+# the live prompt may be empty (nothing typed yet): "tripi@mac calc %" ends the line
+_PROMPT_END = re.compile(r"^\S*@\S+.*\s[%$#❯➜]\s*$|^\s*(?:\(\S+\)\s*)?(?:\S+\s+)?[%$❯➜]\s*$")
 
 
 @dataclass
@@ -263,6 +267,26 @@ def _terminal(lay: _Layout) -> Region | None:
     return Region("terminal", r, lay.win.app, src) if r.h > 20 else None
 
 
+def _terminal_prompt(lay: _Layout) -> Region | None:
+    """The live (bottom-most) prompt line in the integrated terminal panel, as a one-line box clamped to
+    the panel's own edges and kept above the status bar; None when no prompt line is readable."""
+    panel = _terminal(lay)
+    if panel is None:
+        return None
+    p = panel.rect
+    bottom = min(p.y2, lay.status_top) - 2
+    lines = [ln for ln in lay.rows if ln.rect.y >= p.y and ln.rect.y2 <= bottom + 2 and p.x - 4 <= ln.rect.x < p.x2
+             and "›" not in ln.text and (_PROMPT.search(ln.text) or _PROMPT_END.search(ln.text))]
+    if not lines:
+        return None
+    ln = max(lines, key=lambda ln: ln.rect.y)
+    x = max(p.x + 2, ln.rect.x - 6)
+    x2 = min(p.x2 - 2, max(ln.rect.x2 + 160, x + 420))   # room for the command typed after the prompt
+    y, y2 = max(p.y, ln.rect.y - 3), min(bottom, ln.rect.y2 + 3)
+    r = Rect(x, y, x2 - x, y2 - y)
+    return Region("terminal_prompt", r, lay.win.app, "prompt_line") if r.w > 20 and r.h > 6 else None
+
+
 def _editor(lay: _Layout) -> Region | None:
     if lay.pane is None:
         if lay.editor_left is None or lay.chrome_bottom is None:
@@ -314,7 +338,8 @@ def find_region(obs: ScreenObservation, name: str, app: str | None = None) -> Re
     lay = _layout(obs, app)
     if lay is None:
         return None
-    reg = {"terminal": _terminal, "editor": _editor, "explorer": _explorer, "run_button": _run_icon}[name](lay)
+    reg = {"terminal": _terminal, "editor": _editor, "explorer": _explorer, "run_button": _run_icon,
+           "terminal_prompt": _terminal_prompt}[name](lay)
     if reg is not None and obs.screen.w:
         reg.rect = reg.rect.clamp(obs.screen)
     return reg
