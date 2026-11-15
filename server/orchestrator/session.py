@@ -249,6 +249,18 @@ def is_notebook_lesson(graph: dict) -> bool:
     return False
 
 
+def _use_lesson_venv(graph: dict) -> None:
+    """t9 V6 (server/lesson/venv_steps.py): a step that makes a venv / pip-installs the lesson's libraries uses the
+    lesson's .venv instead (cached lessons too). Never breaks a lesson load."""
+    try:
+        from server.lesson.venv_steps import use_lesson_venv
+
+        if changed := use_lesson_venv(graph):
+            log.info("lesson .venv: step(s) %s now use the lesson's .venv (no second venv, no reinstall)", ", ".join(changed))
+    except Exception:  # noqa: BLE001
+        log.exception("lesson .venv normalisation failed")
+
+
 def unscope_editor_apps(graph: dict) -> None:
     """Screen checks/targets scoped to VS Code also accept any app (the notebook may be open in a browser)."""
     for st in graph.get("steps", []):
@@ -2152,6 +2164,7 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
         if self.graph is None:
             return
         new = copy.deepcopy(g)
+        _use_lesson_venv(new)
         new.setdefault("lesson", {})["workdir"] = self.graph.get("lesson", {}).get("workdir") or self.workdir
         new["lesson"]["complete"] = bool(complete or new["lesson"].get("complete"))
         new["lesson"]["provisional"] = False  # the app drops the placeholder on this lesson.ready
@@ -2175,6 +2188,7 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
             return
         known = {st["id"] for st in self.steps}
         new = [copy.deepcopy(st) for st in g.get("steps", []) if st["id"] not in known]
+        _use_lesson_venv({"lesson": self.graph.get("lesson") or {}, "steps": new})
         self.graph["steps"].extend(new)
         lesson = self.graph.setdefault("lesson", {})
         for k in ("parts", "builtBy", "goalMatch"):
@@ -2214,6 +2228,7 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
         self.notebook_lesson = is_notebook_lesson(graph)
         if self.notebook_lesson:
             unscope_editor_apps(graph)  # Colab/Jupyter in a browser counts, not just VS Code
+        _use_lesson_venv(graph)  # t9 V6: a video's "python3 -m venv venv && pip3 install …" step uses the lesson's .venv
         self.graph = graph
         self.runs = {}
         self._extend_failed = False
