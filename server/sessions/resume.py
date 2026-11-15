@@ -154,6 +154,8 @@ class Resumer:
                     self.save_now(self.s.idx + 1)  # quit before the advance -> resume on the next step
                 else:
                     store.clear()  # lesson complete: nothing to resume
+                    skipped = set(getattr(self.s, "skipped_steps", None) or []) | ({p.get("stepId")} if p.get("skipped") else set())
+                    store.record_completed(self.s.graph or {}, skipped)  # evidence for later lessons' prerequisites
             elif type_ == "lesson.ended":
                 if self._pending and (payload or {}).get("reason") not in EXPLICIT_END:
                     return

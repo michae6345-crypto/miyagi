@@ -6,7 +6,8 @@ Each file is written atomically (temp file + os.replace), and the pair is commit
 graph file is written first, then current.json (the commit point) is replaced to point at it; older
 graph files are removed only after that. clear() removes current.json first. So a reader never sees
 progress without its graph. A missing, unreadable or corrupt file reads as "none".
-Override the folder with MIYAGI_STATE_DIR (tests do).
+history.json lists the lessons finished on this Mac (what each covered): a later lesson's prerequisites read
+"passed" from it (prerequisite_status). Override the folder with MIYAGI_STATE_DIR (tests do).
 """
 
 from __future__ import annotations
@@ -141,3 +142,71 @@ def clear() -> None:
             pass
         except OSError as e:
             log.warning("could not remove %s: %s", p, e)
+
+
+# ---------------------------------------------------------------- finished lessons (prerequisite evidence)
+HISTORY_MAX = 50
+_STOP = {"a", "an", "the", "and", "or", "of", "in", "on", "to", "for", "with", "your", "how", "what", "basic", "intro",
+         "introduction", "using", "use", "simple", "first", "write", "build", "make", "create", "add"}
+
+
+def _history() -> Path:
+    return state_dir() / "history.json"  # not a graph-*.json file: clear() never removes it
+
+
+def completed() -> list[dict]:
+    """Lessons finished on this Mac, oldest first: {lessonId, title, covered: [phrases], finishedAt}."""
+    data = _read(_history())
+    return [e for e in data if isinstance(e, dict) and e.get("lessonId")] if isinstance(data, list) else []
+
+
+def record_completed(graph: dict, skipped: set[str] | frozenset[str] = frozenset()) -> dict | None:
+    """The lesson's last step passed: remember what it covered (title, goal, concept titles, the steps the learner
+    passed; skipped steps don't count) so a later lesson can mark its prerequisites passed."""
+    les = graph.get("lesson") or {}
+    passed = [st for st in graph.get("steps") or [] if isinstance(st, dict) and st.get("id") not in skipped]
+    if not les.get("id") or not passed:
+        return None
+    covered = [les.get("title"), les.get("goal")] + [p.get("title") for p in les.get("primer") or [] if isinstance(p, dict)]
+    covered += [st.get(k) for st in passed for k in ("title", "what")]
+    entry = {"lessonId": les["id"], "title": les.get("title") or "a lesson",
+             "covered": [c.strip() for c in covered if isinstance(c, str) and c.strip()], "finishedAt": time.time()}
+    _write_atomic(_history(), ([e for e in completed() if e["lessonId"] != entry["lessonId"]] + [entry])[-HISTORY_MAX:])
+    return entry
+
+
+def _stems(text: str) -> set[str]:
+    out = set()
+    for w in re.findall(r"[a-z0-9]+", (text or "").lower()):
+        if w.endswith("ies") and len(w) > 4:
+            w = w[:-3] + "y"
+        elif w.endswith("sses"):
+            w = w[:-2]
+        elif w.endswith("s") and not w.endswith("ss") and len(w) > 3:
+            w = w[:-1]
+        if len(w) >= 2 and w not in _STOP:
+            out.add(w)
+    return out
+
+
+def _lesson_name(title: str) -> str:
+    t = re.sub(r"^(build|make|create|write|code)\s+(a|an|the|your)?\s*", "", (title or "").strip(), flags=re.I)
+    return t[:1].upper() + t[1:] if t else "an earlier lesson"
+
+
+def prerequisite_status(prereqs: list[dict], lesson_id: str | None = None) -> list[dict]:
+    """Each prerequisite with status "passed" + evidence ("Passed in Python Calculator") when a finished lesson (not
+    this one) covered every word of its title, else "unknown". New dicts; the input is not changed."""
+    done = [(e, _stems(" ".join(e.get("covered") or []))) for e in reversed(completed()) if e.get("lessonId") != lesson_id]
+    out = []
+    for p in prereqs:
+        if not isinstance(p, dict):
+            continue
+        q = {k: v for k, v in p.items() if k != "evidence"}
+        q["status"] = "unknown"
+        need = _stems(p.get("title") or "")
+        hit = next((e for e, have in done if need and need <= have), None)  # newest first
+        if hit is not None:
+            q["status"], q["evidence"] = "passed", f"Passed in {_lesson_name(hit.get('title') or '')}"
+        out.append(q)
+    return out

@@ -1481,6 +1481,8 @@ class LessonSession:
         for k in ("kind", "what"):  # E2: Code / Run / Learn + the plan line ("A list that stores every note")
             if isinstance(st.get(k), str) and st[k].strip():
                 summary[k] = st[k].strip()
+        if isinstance(st.get("estMinutes"), int) and st["estMinutes"] > 0:  # "about 4 min" / "about 35 min left"
+            summary["estMinutes"] = st["estMinutes"]
         seg = self._segment(st)
         if seg:
             summary["video"] = seg
@@ -1507,6 +1509,17 @@ class LessonSession:
             ]
         if isinstance(lesson.get("overview"), str) and lesson["overview"].strip():  # "What we're building"
             info["overview"] = lesson["overview"].strip()
+        for k in ("build", "flow", "prerequisites", "learnFirst"):  # learn-anything screens (drawer v2, "Before you start")
+            if lesson.get(k):
+                info[k] = lesson[k]
+        if info.get("prerequisites"):  # passed / unknown from the lessons finished on this Mac; learn-first only for gaps
+            from server.sessions import store
+
+            info["prerequisites"] = store.prerequisite_status(info["prerequisites"], info["id"])
+            have = {q.get("id") for q in info["prerequisites"] if q["status"] == "passed"}
+            info["learnFirst"] = [x for x in info.get("learnFirst") or [] if x.get("covers") not in have]
+            if not info["learnFirst"]:
+                info.pop("learnFirst")
         return {"lesson": info, "steps": steps}
 
     # ------------------------------------------------------------------ steps
@@ -1549,6 +1562,8 @@ class LessonSession:
         exact = self._run_command(step) or (step.get("code") or "").strip()  # the full thing to type / run, never cut
         if exact:
             p["code"] = exact
+        if isinstance(step.get("estMinutes"), int) and step["estMinutes"] > 0:
+            p["estMinutes"] = step["estMinutes"]
         seg = self._segment(step)
         if seg:
             p["video"] = seg
