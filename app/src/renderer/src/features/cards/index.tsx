@@ -1,14 +1,15 @@
 /**
  * Feature: cards. Coach cards that grow out of the pill, in the calm black-island look (mockup 02):
  *   offtrack  layout C (Adrian): ~620 wide, two columns (one below 520). Left: ring + "Not yet", the title,
- *             the guiding question (or the body), Show me / Explain / Hint (+ "Fix it" at level 3), the
- *             citation. Right: the evidence panel (Evidence.tsx): yours | expected from the diff, the
- *             failing checks and the curve, all monochrome. Off track has no hue anywhere.
- *             After Fix it, it collapses to "Waiting for the fix": the line the code should read
+ *             the guiding question (or the body), the citation. Right: the evidence panel (Evidence.tsx):
+ *             yours | expected from the diff, the failing checks and the curve, all monochrome. Under both,
+ *             the options in the shortcut bar's order (Explain, Show me, Hint) and, at level 3, "Do it for me"
+ *             on its own row. Off track has no hue anywhere.
+ *             After Do it for me, it collapses to "Waiting for the fix": the line the code should read
  *             (the engine may or may not write it), and the re-run's curve drawing live.
  *   success   green, "Good. Now the next one." after a recovered step: now-vs-before curve, auto-hides.
  *   card      explain / hint / answer from the engine, with an optional video jump.
- * Copy rule: readable in 2 seconds; body text is clamped to 2–3 lines. No red, no shaking.
+ * Copy rule: readable in 2 seconds; a long engine-card body folds to 6 lines with "More" (Clamp.tsx). No red, no shaking.
  * Generality: every label comes from the data (metric name, check labels, step titles).
  * Brand (app/brand/BRAND.md): off track has no hue (a white ring), green ONLY = passed, everything else
  * neutral white / muted. Buttons white on dark. No blue, amber, gradients, glows, sparkles or emoji.
@@ -16,16 +17,17 @@
 import { motion } from 'motion/react'
 import { useEffect, type ReactNode } from 'react'
 import { useShallow } from 'zustand/react/shallow'
-import { BookOpen, Check, Code2, Download, ExternalLink, File, FileCode2, FolderGit2, Hammer, History, Info, Lightbulb, ListChecks, MessageCircle, MessageSquareText, NotebookText, Play, Search, SkipForward, Undo2, Wrench, FolderOpen, RotateCcw, type LucideIcon } from 'lucide-react'
+import { BookOpen, Check, Code2, Download, ExternalLink, File, FileCode2, Footprints, FolderGit2, Hammer, History, Info, Lightbulb, ListChecks, MessageCircle, MessageSquareText, NotebookText, Play, Search, SkipForward, SquarePlay, SquareTerminal, Undo2, Wrench, FolderOpen, RotateCcw, type LucideIcon } from 'lucide-react'
 import type { PreflightInfo } from '../../../../../../shared/contracts/events'
 import type { Payload } from '../../../../common/wire'
 import { bridge } from '../../bridge'
 import { useLesson, useProgress, useThinking, type Offtrack as OfftrackPayload } from '../../core/lesson'
 import { defineFeature } from '../../core/registry'
-import { usePressed } from '../../core/shortcuts'
+import { usePressed, type ActionKind } from '../../core/shortcuts'
 import { CheckList, CloseButton, OptionButton, PrimaryButton, Spinner, StatusDot } from '../../core/ui/atoms'
 import { actionTone, color, copy, fill } from '../../core/theme'
 import { Curve, fmt, Key, plotPoints, type Line } from './Curve'
+import { BODY_LINES, Clamp, HEADLINE_LINES } from './Clamp'
 import { Evidence } from './Evidence'
 import { act, cardAct, jumpTo, SUCCESS_MS, useCards, useOverlayWidth, useSeries, type CardAction } from './store'
 
@@ -207,10 +209,18 @@ function Diff({ diff, expectedOnly }: { diff: NonNullable<OfftrackPayload['diff'
   )
 }
 
+/** The off-track card's options, in the shortcut bar's order (Explain, Show me, Hint); Do it for me comes after. */
+const OFFTRACK_OPTIONS = [
+  { action: 'explain', label: 'Explain' },
+  { action: 'show_me', label: 'Show me' },
+  { action: 'hint', label: 'Hint' }
+] as const
+
 /**
  * Layout C (Adrian picked "side by side"). Left: ring + "Not yet", the title, the guiding question (or the body),
- * the options with their keycaps and, at level 3 with apply_fix, the one white "Fix it"; the citation as one faint
- * line. Right: the evidence panel. Below NARROW the panel drops under the left column.
+ * the citation as one faint line. Right: the evidence panel. Under both, full width so three options with their
+ * keycaps always fit on one row: Explain, Show me, Hint; at level 3 with apply_fix, the one white "Do it for me"
+ * on its own row. Below NARROW the panel drops under the left column.
  */
 function Diagnosis({ o, checks }: { o: OfftrackPayload; checks: ReturnType<typeof useLesson.getState>['checks'] }): ReactNode {
   const busy = useBusyIcon()
@@ -222,7 +232,7 @@ function Diagnosis({ o, checks }: { o: OfftrackPayload; checks: ReturnType<typeo
   const rightW = narrow ? inner : inner - COL_GAP - leftW
   // Precise: only what's failing (with your value), not the checks that already pass.
   const failing = checks.filter((c) => c.status === 'fail')
-  // "Fix it" = apply_fix, offered at the top of the hint ladder (level 3; no level = an older engine, trust actions).
+  // "Do it for me" = apply_fix, offered at the top of the hint ladder (level 3; no level = an older engine, trust actions).
   const canFix = o.actions.includes('apply_fix') && (o.level ?? 3) === 3
   return (
     <div data-card="offtrack" data-layout={narrow ? 'stacked' : 'side-by-side'} style={{ width, padding: `16px ${PAD}px 16px` }}>
@@ -238,18 +248,6 @@ function Diagnosis({ o, checks }: { o: OfftrackPayload; checks: ReturnType<typeo
           <div className="text-[18px] font-semibold leading-[23px] tracking-[-0.01em]">{o.title}</div>
           {o.guidingQuestion ? <Question text={o.guidingQuestion} /> : <Body>{o.body}</Body>}
 
-          <div className="mt-[14px] flex flex-wrap items-center gap-[8px]">
-            <OptionButton action="show_me" label="Show me" kbd={keys.show_me} icon={busy('show_me')} onClick={() => act('show_me')} />
-            <OptionButton action="explain" label="Explain" kbd={keys.explain} icon={busy('explain')} onClick={() => act('explain')} />
-            <OptionButton action="hint" label="Hint" kbd={keys.hint} icon={busy('hint')} onClick={() => act('hint')} />
-            {canFix && (
-              <>
-                <span className="flex-1" />
-                <PrimaryButton label="Fix it" icon={busy('apply_fix', Wrench)} onClick={() => act('apply_fix')} />
-              </>
-            )}
-          </div>
-
           {o.citation && (
             <div className="mt-[12px] flex min-w-0 items-center gap-[6px] text-[12px]" style={{ color: color.faint }}>
               <BookOpen size={12} className="shrink-0" />
@@ -258,8 +256,20 @@ function Diagnosis({ o, checks }: { o: OfftrackPayload; checks: ReturnType<typeo
           )}
         </div>
 
-        <Evidence o={o} failing={failing} width={rightW} />
+        {/* No diff yet: the panel keeps its room, so the card doesn't jump when one arrives. */}
+        <Evidence o={o} failing={failing} width={rightW} reserveDiff />
       </div>
+
+      <div data-options className="mt-[14px] flex flex-wrap items-center gap-[8px]">
+        {OFFTRACK_OPTIONS.map((x) => (
+          <OptionButton key={x.action} action={x.action} label={x.label} kbd={keys[x.action]} icon={busy(x.action)} onClick={() => act(x.action)} />
+        ))}
+      </div>
+      {canFix && (
+        <div data-fix className="mt-[8px] flex">
+          <PrimaryButton label={ACTION.apply_fix!.label} icon={busy('apply_fix', ACTION.apply_fix!.Icon)} onClick={() => act('apply_fix')} />
+        </div>
+      )}
     </div>
   )
 }
@@ -293,7 +303,7 @@ function AfterCurve({ label, since, width, passed }: { label?: string; since?: n
 }
 
 /**
- * After Apply fix: the card collapses to this until the step passes. The engine writes the file only
+ * After Do it for me (apply_fix): the card collapses to this until the step passes. The engine writes the file only
  * when it knows the project folder, so this never claims the fix is applied: it shows the line the
  * code should read and leaves the change to the learner if it isn't there yet.
  */
@@ -380,8 +390,8 @@ type EngineCard = Payload<'card'>
 
 /**
  * Header per card kind: a small icon tile instead of a text eyebrow. The options that made the card keep
- * their pastel (Explain sky, Hint pink, same as their buttons); the rest are neutral tiles.
- * Typed against the contract so a new kind fails here, not at runtime.
+ * their pastel (Explain sky, Hint pink, Show me lilac, same as their buttons); the rest are neutral tiles.
+ * Typed against the contract so a new kind fails here, not at runtime. tileOf() picks the tile per card.
  */
 const KIND: Record<EngineCard['kind'], { label: string; Icon: LucideIcon; tone?: string }> = {
   explain: { label: 'Explain', Icon: MessageSquareText, tone: actionTone.explain },
@@ -390,10 +400,50 @@ const KIND: Record<EngineCard['kind'], { label: string; Icon: LucideIcon; tone?:
   resume: { label: 'Continue?', Icon: History },
   setup: { label: 'Setup', Icon: Wrench },
   // Contract sync (integration/live): the cards agent gives it a real view.
-  preflight: { label: 'Before you build', Icon: ListChecks }
+  preflight: { label: 'Before you build', Icon: ListChecks },
+  // integration/live 29d7e0d: the engine names these itself (A15).
+  // step: step-control and step-judge cards ("Looks done?", "Not yet"): a status card, never an option.
+  step: { label: 'Step', Icon: Footprints },
+  // where: Show me's where-to-work card: lilac with the Show me glyph, like its button.
+  where: { label: 'Show me', Icon: SquarePlay, tone: actionTone.show_me }
 }
 
-function KindTile({ k }: { k: (typeof KIND)[EngineCard['kind']] }): ReactNode {
+type Tile = (typeof KIND)[EngineCard['kind']]
+
+/** A run step's card ("Run it for me") and its result (the program's output): a neutral terminal tile. */
+const RUN: Tile = { label: 'Run', Icon: SquareTerminal }
+/** Show me's answer (e.g. "Code not visible" + where): the "where" kind's tile. */
+const SHOW_ME: Tile = KIND.where
+/** Step controls and the step judge ("Looks done?", "Not yet", "Stuck on this step?"): the "step" kind's tile. */
+const STEP: Tile = KIND.step
+/** Wrong-folder card (use_this_folder). */
+const FOLDER: Tile = { label: 'Folder', Icon: FolderOpen }
+/** "Apply this fix?" (a diff to confirm): the Do it for me preview. */
+const FIX: Tile = { label: 'Do it for me', Icon: Wrench }
+
+const STEP_ACTIONS: CardAction[] = ['skip_step', 'check_step']
+/** Cards that answer a question (the tile can follow the button that asked): not setup, resume or preflight. */
+const ANSWERS: EngineCard['kind'][] = ['explain', 'hint', 'answer']
+
+/**
+ * The tile for a card: its kind's, unless what the card is about says otherwise. The engine now sends kind "step"
+ * and "where" itself (integration/live 29d7e0d); for an older engine the guesses stay: output / run_command = Run;
+ * source "judge" or step-control actions = Step; a diff = the fix preview; an answer that came right after Show me
+ * (`from`, the pressed action) = Show me.
+ */
+function tileOf(c: EngineCard, from?: ActionKind): Tile {
+  const actions = c.actions ?? []
+  if (c.output || actions.includes('run_command') || from === 'run_command') return RUN
+  if (c.kind === 'step' || c.kind === 'where') return KIND[c.kind]
+  if (c.source === 'judge') return STEP
+  if (actions.includes('use_this_folder')) return FOLDER
+  if (actions.some((a) => STEP_ACTIONS.includes(a)) || (from && (STEP_ACTIONS as string[]).includes(from))) return STEP
+  if (c.diff) return FIX
+  if (from === 'show_me' && ANSWERS.includes(c.kind)) return SHOW_ME
+  return KIND[c.kind] ?? KIND.answer
+}
+
+function KindTile({ k }: { k: Tile }): ReactNode {
   return (
     <span
       className="grid h-[24px] w-[24px] shrink-0 place-items-center rounded-[7px]"
@@ -631,16 +681,50 @@ function Resources({ resources }: { resources: Resource[] }): ReactNode {
   )
 }
 
+/** Lines of a program's output the card shows: the last ones (the engine already sends the tail). */
+const OUTPUT_LINES = 8
+// eslint-disable-next-line no-control-regex
+const ANSI = /\x1b\[[0-9;]*[A-Za-z]/g
+const thinScroll = { scrollbarWidth: 'thin', scrollbarColor: `${fill.track} transparent` } as const
+
 /**
- * Where to go when the place isn't on screen ("Open app.py in Cursor"): one line and an Open button
- * (action open_editor), so "code not visible" always says what to do.
+ * What the program printed ("Run it for me", card.output): a mono block of its last OUTPUT_LINES lines, kept as
+ * printed (never wrapped; a long line scrolls sideways), with a faint count of the earlier lines it leaves out.
+ */
+function Output({ text }: { text: string }): ReactNode {
+  const all = text.replace(ANSI, '').replace(/\s+$/, '').split(/\r?\n/)
+  const shown = all.slice(-OUTPUT_LINES)
+  const hidden = all.length - shown.length
+  return (
+    <div data-output className="mt-[12px] rounded-[12px] py-[8px] font-mono text-[12px] leading-[17px]" style={{ background: fill.field }}>
+      {hidden > 0 && (
+        <div className="px-[12px] pb-[2px] font-sans text-[11px]" style={{ color: color.faint }}>
+          {hidden} earlier line{hidden === 1 ? '' : 's'}
+        </div>
+      )}
+      <div className="overflow-x-auto px-[12px]" style={thinScroll}>
+        <div className="w-max min-w-full whitespace-pre" style={{ color: color.text }}>
+          {shown.join('\n') || ' '}
+        </div>
+      </div>
+    </div>
+  )
+}
+
+/**
+ * Where to go when the place isn't on screen ("Open app.py in Cursor"): up to two lines (the whole text on
+ * hover past that) and an Open button (action open_editor), so "code not visible" always says what to do.
  */
 function Where({ text }: { text: string }): ReactNode {
   const busy = useBusyIcon()
   return (
     <div data-where className="mt-[12px] flex items-center gap-[10px] rounded-[12px] py-[6px] pl-[12px] pr-[6px]" style={{ background: fill.field }}>
       <Info size={13} strokeWidth={1.8} className="shrink-0" style={{ color: color.label }} />
-      <span className="min-w-0 flex-1 truncate text-[13px]" style={{ color: color.label }}>
+      <span
+        className="min-w-0 flex-1 overflow-hidden text-[13px] leading-[18px]"
+        style={{ color: color.label, display: '-webkit-box', WebkitBoxOrient: 'vertical', WebkitLineClamp: 2 }}
+        title={text}
+      >
         {text}
       </span>
       <QuietButton label="Open" icon={busy('open_editor', ExternalLink, true)} onClick={() => cardAct('open_editor')} />
@@ -650,28 +734,25 @@ function Where({ text }: { text: string }): ReactNode {
 
 function Card(): ReactNode {
   const c = useCards((x) => x.card)
+  const from = useCards((x) => x.cardFrom)
   if (!c) return null
-  const k = KIND[c.kind] ?? KIND.answer
+  const k = tileOf(c, from)
   const actions = c.actions ?? []
-  // A title that only repeats the header ("Hint") is dropped: the body becomes the headline.
-  const redundant = !c.title || c.title.trim().toLowerCase() === k.label.toLowerCase()
-  // A title that only repeats the kind ("Hint") is dropped: the body becomes the headline (clamped to 2 lines).
+  // A title that only repeats the kind or the tile ("Hint") is dropped: the body becomes the headline.
+  // Long bodies fold to a few lines with a "More" that opens them in place (never cut off for good).
+  const t = c.title?.trim().toLowerCase()
+  const redundant = !t || t === k.label.toLowerCase() || t === (KIND[c.kind] ?? KIND.answer).label.toLowerCase()
   return (
     <div data-card={c.kind} style={{ padding: `16px ${PAD}px 16px` }}>
       <div className="flex items-start gap-[10px]">
         <KindTile k={k} />
         <div className="min-w-0 flex-1 pt-[1px]">
           {redundant ? (
-            <div
-              className="overflow-hidden text-[16px] font-medium leading-[22px] tracking-[-0.01em]"
-              style={{ display: '-webkit-box', WebkitBoxOrient: 'vertical', WebkitLineClamp: 2 }}
-            >
-              {c.body}
-            </div>
+            <Clamp text={c.body} lines={HEADLINE_LINES} className="text-[16px] font-medium leading-[22px] tracking-[-0.01em]" />
           ) : (
             <>
               <div className="text-[17px] font-semibold leading-[22px] tracking-[-0.01em]">{c.title}</div>
-              <Body lines={3}>{c.body}</Body>
+              <Clamp text={c.body} lines={BODY_LINES} className="mt-[3px] text-[14px] leading-[20px]" style={{ color: color.label }} />
             </>
           )}
           {c.guidingQuestion && <Question text={c.guidingQuestion} />}
@@ -680,6 +761,7 @@ function Card(): ReactNode {
       </div>
       {c.kind === 'preflight' && <Preflight card={c} />}
       {c.where && <Where text={c.where} />}
+      {c.output && <Output text={c.output} />}
       {c.videoJump && (
         <div className="mt-[14px] flex">
           <OptionButton action="watch" label={`Watch ${c.videoJump.label}`} onClick={() => jumpTo(c.videoJump!.t)} />

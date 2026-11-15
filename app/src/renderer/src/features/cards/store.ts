@@ -6,7 +6,7 @@ import { create } from 'zustand'
 import type { Payload } from '../../../../common/wire'
 import { bridge } from '../../bridge'
 import { onMessage, onUi } from '../../core/bus'
-import { sendAction, usePressed } from '../../core/shortcuts'
+import { sendAction, usePressed, type ActionKind } from '../../core/shortcuts'
 import { seekVideo, useLesson, type CheckItem } from '../../core/lesson'
 
 export type Point = { step: number; value: number }
@@ -27,7 +27,7 @@ type CardsState = {
   offtrackOpen: boolean
   /** ✕ was pressed on this off-track: hovering must not reopen it (until a new off-track or step). */
   offtrackClosed: boolean
-  /** Apply fix was pressed: the off-track card collapses to a compact "applying the fix" card until the step passes. */
+  /** Do it for me (apply_fix) was pressed: the off-track card collapses to a compact "applying the fix" card until the step passes. */
   fixing: boolean
   /** The current step went off-track at some point → show "Back on track" when it passes. */
   recovered: boolean
@@ -38,6 +38,8 @@ type CardsState = {
   /** "Back on track". `since` = the off-track's event order (so the curve can split before/after). */
   success?: { index: number; total: number; summary?: string; checks: CheckItem[]; at: number; since?: number }
   card?: Payload<'card'>
+  /** The action the learner pressed that this card answers (show_me, check_step, run_command…), if it came soon after. */
+  cardFrom?: ActionKind
   /** Live `metric` events, by metric name. */
   metrics: Record<string, Series>
   /** The tutorial's reference curve, if the engine streams it as runId "tutorial". */
@@ -58,7 +60,7 @@ export type ResultMeta = Pick<Payload<'search.result'>, 'style' | 'captions' | '
 /** One setup item's install: running (Install button disabled, spinner + latest line) until done. */
 export type Install = { running: boolean; line?: string; error?: string }
 
-const blank: CardsState = { offtrackOpen: false, offtrackClosed: false, fixing: false, recovered: false, resume: false, offtrackSeq: undefined, success: undefined, card: undefined, metrics: {}, tutorial: {}, installs: {}, pending: undefined, results: {} }
+const blank: CardsState = { offtrackOpen: false, offtrackClosed: false, fixing: false, recovered: false, resume: false, offtrackSeq: undefined, success: undefined, card: undefined, cardFrom: undefined, metrics: {}, tutorial: {}, installs: {}, pending: undefined, results: {} }
 export const useCards = create<CardsState>(() => ({ ...blank }))
 
 /**
@@ -101,7 +103,7 @@ function append(run: Run, p: Point): Run {
 let seq = 0
 const newRun = (runId: string, p: Point): Run => ({ runId, points: [p], seq: ++seq, at: Date.now() })
 
-/** A card button → `action {kind}`. Apply fix collapses the off-track card into the "applying the fix" view. */
+/** A card button → `action {kind}`. Do it for me (apply_fix) collapses the off-track card into the "applying the fix" view. */
 export function act(kind: 'show_me' | 'explain' | 'apply_fix' | 'hint'): void {
   sendAction(kind)
   if (kind === 'apply_fix') set({ fixing: true, offtrackOpen: true })
@@ -246,10 +248,18 @@ const CARD_HOLD_MS = 8000
 const ASKED_WITHIN_MS = 30000
 const ASKED = new Set(['explain', 'hint', 'show_me', 'ask'])
 let lastAsk = 0
+/** The last press of any kind (for the card's tile: a Show me answer gets the Show me tile); spent once answered. */
+let lastPress: { kind: ActionKind; at: number } | undefined
 // core clears `pressed` as soon as a card arrives (possibly before our handler runs), so note presses as they happen.
 usePressed.subscribe((s) => {
   if (s.kind && ASKED.has(s.kind)) lastAsk = s.at
+  if (s.kind) lastPress = { kind: s.kind, at: s.at }
 })
+// A press answered by something other than a card (a spotlight, a video jump, a diagram) is spent.
+for (const t of ['spotlight', 'video.seek', 'diagram', 'offtrack'] as const)
+  onMessage(t, () => {
+    lastPress = undefined
+  })
 let cardHeldUntil = 0
 let heldOfftrack: Payload<'offtrack'> | undefined
 let offtrackTimer: ReturnType<typeof setTimeout> | undefined
@@ -290,7 +300,9 @@ onMessage('card', (p) => {
   const ok = new Set((p.setup?.items ?? []).filter((x) => x.ok).map((x) => x.tool))
   if (ok.size) set({ installs: Object.fromEntries(Object.entries(get().installs).filter(([t]) => !ok.has(t))) })
   clearTimeout(pendingTimer)
-  set({ card: p, pending: undefined, resume: over(), offtrackOpen: false, ...(p.diff ? { fixing: false } : {}) })
+  const cardFrom = lastPress && Date.now() - lastPress.at < ASKED_WITHIN_MS ? lastPress.kind : undefined
+  lastPress = undefined
+  set({ card: p, cardFrom, pending: undefined, resume: over(), offtrackOpen: false, ...(p.diff ? { fixing: false } : {}) })
   if (lastAsk && Date.now() - lastAsk < ASKED_WITHIN_MS) {
     cardHeldUntil = Date.now() + CARD_HOLD_MS
     lastAsk = 0
