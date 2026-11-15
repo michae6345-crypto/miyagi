@@ -16,6 +16,7 @@
  */
 import { motion } from 'motion/react'
 import { useEffect, useRef, useState, type ReactNode } from 'react'
+import { create } from 'zustand'
 import { useShallow } from 'zustand/react/shallow'
 import { BookOpen, Check, Code2, Download, ExternalLink, File, FileCode2, Footprints, FolderGit2, Hammer, History, Info, Lightbulb, ListChecks, MessageCircle, MessageSquareText, NotebookText, Play, Search, SkipForward, SquarePlay, SquareTerminal, Undo2, Wrench, FolderOpen, RotateCcw, type LucideIcon } from 'lucide-react'
 import type { PreflightInfo } from '../../../../../../shared/contracts/events'
@@ -24,8 +25,9 @@ import { bridge } from '../../bridge'
 import { useLesson, useProgress, useThinking, type Offtrack as OfftrackPayload } from '../../core/lesson'
 import { defineFeature } from '../../core/registry'
 import { usePressed, type ActionKind } from '../../core/shortcuts'
-import { CheckList, CloseButton, OptionButton, PrimaryButton, Spinner, StatusDot } from '../../core/ui/atoms'
+import { CheckList, CloseButton, CodeText, OptionButton, PrimaryButton, Spinner, StatusDot } from '../../core/ui/atoms'
 import { actionTone, color, copy, fill } from '../../core/theme'
+import { useDrawer } from '../drawer/store'
 import { Curve, fmt, Key, plotPoints, type Line } from './Curve'
 import { BODY_LINES, Clamp, HEADLINE_LINES } from './Clamp'
 import { Evidence, useHasEvidence } from './Evidence'
@@ -144,6 +146,12 @@ function QuietButton({ label, icon: I, onClick }: { label: string; icon?: Lucide
   )
 }
 
+/**
+ * A card title as the engine wrote it, ready for CodeText (backticks become mono, never shown literally; Michael's
+ * desktop test 4: About `Every to-do app needs a pla…`). A title cut inside code loses its closing backtick: close it.
+ */
+const titleText = (t: string): string => ((t.match(/`/g)?.length ?? 0) % 2 ? `${t}\`` : t)
+
 /** The engine's Socratic nudge, under the body (off-track and engine cards alike). */
 function Question({ text }: { text: string }): ReactNode {
   return (
@@ -247,7 +255,7 @@ function Diagnosis({ o, checks }: { o: OfftrackPayload; checks: ReturnType<typeo
 
       <div className={`mt-[10px] flex ${narrow ? 'flex-col gap-[14px]' : 'items-start'}`} style={narrow ? undefined : { gap: COL_GAP }}>
         <div className="min-w-0 flex-1" style={narrow ? undefined : { maxWidth: leftW }}>
-          <div className="text-[18px] font-semibold leading-[23px] tracking-[-0.01em]">{o.title}</div>
+          <div className="text-[18px] font-semibold leading-[23px] tracking-[-0.01em]"><CodeText text={titleText(o.title)} /></div>
           {o.guidingQuestion ? <Question text={o.guidingQuestion} /> : <Body>{o.body}</Body>}
 
           {o.citation && (
@@ -617,37 +625,86 @@ function SetupItems({ setup, lead }: { setup: NonNullable<EngineCard['setup']>; 
   )
 }
 
-/** How long the second tap of a TwoTap button stays armed. */
-const ARM_MS = 3000
+/** How long a TwoTap stays armed after the first tap: long enough for a slow, deliberate second tap. */
+const ARM_MS = 10_000
 
 /**
- * A destructive card action as a quiet text link: the first tap only arms it ("Tap again to start over"), the
- * second within ARM_MS acts. A stray click meant for the button next to it does nothing.
+ * Which TwoTap is armed (its armKey) and since when. Kept outside the component, so a re-sent or re-mounted card
+ * keeps the armed button (Michael's desktop test 4: the second tap on "Tap again to start over" did nothing).
  */
-function TwoTap({ label, onConfirm }: { label: string; onConfirm: () => void }): ReactNode {
-  const [armed, setArmed] = useState(false)
-  const timer = useRef<ReturnType<typeof setTimeout>>(undefined)
-  useEffect(() => () => clearTimeout(timer.current), [])
+const useArm = create<{ key?: string; at: number }>(() => ({ at: 0 }))
+
+/**
+ * A destructive card action as a quiet text link. The first tap only arms it: the link becomes a real button
+ * ("Yes, start over") for ARM_MS, and pressing that acts. A stray click meant for the button next to it does nothing.
+ */
+function TwoTap({ armKey, label, onConfirm }: { armKey: string; label: string; onConfirm: () => void }): ReactNode {
+  const armed = useArm((s) => s.key === armKey)
+  useEffect(() => {
+    if (!armed) return
+    const t = setTimeout(() => {
+      if (useArm.getState().key === armKey) useArm.setState({ key: undefined })
+    }, Math.max(0, useArm.getState().at + ARM_MS - Date.now()))
+    return () => clearTimeout(t)
+  }, [armed, armKey])
+  if (armed)
+    return (
+      <span data-two-tap="armed" className="mr-[12px] flex">
+        <QuietButton
+          label="Yes, start over"
+          icon={RotateCcw}
+          onClick={() => {
+            useArm.setState({ key: undefined })
+            onConfirm()
+          }}
+        />
+      </span>
+    )
   return (
     <button
       type="button"
-      data-two-tap={armed ? 'armed' : 'idle'}
-      className="mr-[12px] h-[34px] px-[4px] text-[13px] transition-colors"
-      style={{ color: armed ? color.label : color.faint }}
-      onClick={() => {
-        clearTimeout(timer.current)
-        if (armed) {
-          setArmed(false)
-          onConfirm()
-          return
-        }
-        setArmed(true)
-        timer.current = setTimeout(() => setArmed(false), ARM_MS)
-      }}
+      data-two-tap="idle"
+      className="mr-[12px] h-[34px] cursor-pointer px-[4px] text-[13px] transition-colors"
+      style={{ color: color.faint }}
+      // Like every other card button: no focus grab on press (the overlay never takes focus from the editor).
+      onMouseDown={(e) => e.preventDefault()}
+      onClick={() => useArm.setState({ key: armKey, at: Date.now() })}
     >
-      {armed ? 'Tap again to start over' : label}
+      {label}
     </button>
   )
+}
+
+/** The launcher is open (main's signals to this window; the island hides meanwhile). */
+let launcherShown = false
+bridge.on('launcher:open', () => void (launcherShown = true))
+bridge.on('launcher:closed', () => void (launcherShown = false))
+
+/** Main takes no explicit open from a renderer, only launcher:toggle: toggle only while it's closed, so it never closes. */
+function openLauncher(): void {
+  if (!launcherShown) bridge.emit('launcher:toggle')
+}
+
+/** Longest "Yes, start over" waits for the engine to drop a loaded lesson before it lets the launcher be. */
+const START_OVER_WAIT_MS = 4000
+
+/**
+ * "Yes, start over" (Michael's review A7): discard the save, then open the launcher (its input takes the caret on
+ * open) so the next lesson can be typed right away. The launcher picks search or ask from the lesson it sees as it
+ * opens, so a lesson still loaded here opens it only once lesson.ended has blanked it.
+ */
+function startOver(): void {
+  cardAct('end_lesson')
+  // cardAct drops a press while another button on the card waits for the engine: nothing was sent.
+  if (useCards.getState().pending?.kind !== 'end_lesson') return
+  if (!useLesson.getState().lesson) return openLauncher()
+  const t = setTimeout(() => off(), START_OVER_WAIT_MS)
+  const off = useLesson.subscribe((s) => {
+    if (s.lesson) return
+    off()
+    clearTimeout(t)
+    openLauncher()
+  })
 }
 
 function CardActions({ card, actions }: { card: EngineCard; actions: CardAction[] }): ReactNode {
@@ -667,8 +724,9 @@ function CardActions({ card, actions }: { card: EngineCard; actions: CardAction[
         .map((a) => (
           a === 'skip_setup' ? <QuietLink key={a} label={actionLabel(card, a)} onClick={() => cardAct(a)} /> : <QuietButton key={a} label={actionLabel(card, a)} icon={busy(a, ACTION[a]!.Icon, true)} onClick={() => cardAct(a)} />
         ))}
-      {/* "Start a new lesson" discards the save: it sits apart from Continue and needs a second tap (desktop test 3). */}
-      {known.includes('end_lesson') && primary !== 'end_lesson' && <TwoTap label={actionLabel(card, 'end_lesson')} onConfirm={() => cardAct('end_lesson')} />}
+      {/* "Start a new lesson" discards the save: it sits apart from Continue and needs a second tap (desktop test 3),
+          then opens the launcher for the next one (A7). */}
+      {known.includes('end_lesson') && primary !== 'end_lesson' && <TwoTap armKey={`${card.kind}:${card.title}`} label={actionLabel(card, 'end_lesson')} onConfirm={startOver} />}
       <span className="flex-1" />
       {primary && <PrimaryButton label={actionLabel(card, primary)} icon={busy(primary, ACTION[primary]!.Icon)} onClick={() => cardAct(primary)} />}
     </div>
@@ -803,11 +861,123 @@ function Where({ text }: { text: string }): ReactNode {
   )
 }
 
+// ---------------------------------------------------------------------------
+// Chip: a step card the drawer already shows (Michael's review A4)
+// ---------------------------------------------------------------------------
+
+/** The chip's text is cut past this width (the full card is one tap away). */
+const CHIP_TEXT_W = 240
+
+/** A card across re-sends (the engine re-sends the same step card): a chip the learner opened stays open. */
+const cardKey = (c: EngineCard): string => `${c.kind}:${c.stepId ?? ''}:${c.title}`
+
+/** The chip the learner tapped open (its cardKey). */
+const useOpened = create<{ key?: string }>(() => ({}))
+
+/** The step the open drawer shows (its id, title and instructions), or undefined when the drawer isn't on a step. */
+type Shown = { id: string; title: string; instructions: string }
+
+/** Lowercase words only, so "Add the XOR data." matches "add the `XOR` data". */
+const words = (s: string | undefined): string =>
+  (s ?? '')
+    .toLowerCase()
+    .replace(/[`"'“”‘’.,:;!?…()[\]]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+
+/** The card only repeats what the drawer shows for that step: its text holds the step's title or its instructions. */
+function repeatsDrawer(c: EngineCard, shown: Shown): boolean {
+  const said = words(`${c.title ?? ''} ${c.body ?? ''}`)
+  const title = words(shown.title)
+  const how = words(shown.instructions)
+  const body = words(c.body)
+  return (title.length >= 8 && said.includes(title)) || (how.length >= 12 && (said.includes(how) || (body.length >= 12 && how.includes(body))))
+}
+
+/**
+ * "Shrink a card to a chip when the drawer already shows the same content" (A4). Only a card that adds nothing to the
+ * open drawer folds: a step or hint card the engine sent on its own (not one the learner asked for), for the step the
+ * drawer shows, with no buttons (nothing to hide behind the tap), whose text just repeats that step's title or
+ * instructions (e.g. the "Start here" nudge). The judge's "Not yet", "Wrong folder?", "Run it" and every card with a
+ * button stay full: the drawer doesn't say what they say. Never once tapped open.
+ */
+function folds(c: EngineCard | undefined, cardFrom: string | undefined, shown: Shown | undefined, opened: string | undefined): boolean {
+  if (!c || !shown || cardFrom || (c.kind !== 'step' && c.kind !== 'hint')) return false
+  if (c.stepId && c.stepId !== shown.id) return false
+  if ((c.actions ?? []).length > 0 || c.diff || c.output || c.where || c.videoJump) return false
+  if (!repeatsDrawer(c, shown)) return false
+  return cardKey(c) !== opened
+}
+
+/** Is the card a chip right now? (The island reads it through the card mode's width.) */
+function isChip(): boolean {
+  const d = useDrawer.getState()
+  const l = useLesson.getState()
+  const shown = d.open && !d.concept && l.lesson && l.stepId ? { id: l.stepId, title: l.stepTitle, instructions: l.instructions } : undefined
+  const s = useCards.getState()
+  return folds(s.card, s.cardFrom, shown, useOpened.getState().key)
+}
+
+/** isChip() as a hook: re-renders on every input (the card, the drawer, the step, a tap). */
+function useChip(): boolean {
+  const card = useCards((x) => x.card)
+  const cardFrom = useCards((x) => x.cardFrom)
+  const drawerOnStep = useDrawer((d) => d.open && !d.concept)
+  const id = useLesson((l) => (l.lesson ? l.stepId : undefined))
+  const title = useLesson((l) => l.stepTitle)
+  const instructions = useLesson((l) => l.instructions)
+  const opened = useOpened((o) => o.key)
+  return folds(card, cardFrom, drawerOnStep && id ? { id, title, instructions } : undefined, opened)
+}
+
+/**
+ * The card folded to a pill-sized row: its kind tile and a short title, ✕ still closes it. A tap on the row opens the
+ * full card (the island springs back out to it).
+ */
+function Chip({ c, k }: { c: EngineCard; k: Tile }): ReactNode {
+  const t = c.title?.trim()
+  const text = t && t.toLowerCase() !== k.label.toLowerCase() ? titleText(t) : c.body
+  return (
+    <div data-card={c.kind} data-chip className="flex h-[34px] items-center gap-[8px] whitespace-nowrap pl-[5px] pr-[6px]">
+      <button
+        type="button"
+        className="flex min-w-0 cursor-pointer items-center gap-[9px] opacity-90 transition-opacity duration-150 hover:opacity-100"
+        style={{ color: color.text }}
+        // Like every other card button: no focus grab on press.
+        onMouseDown={(e) => e.preventDefault()}
+        onClick={() => useOpened.setState({ key: cardKey(c) })}
+        title={c.body}
+      >
+        <KindTile k={k} />
+        <span className="truncate text-[13px] font-medium" style={{ maxWidth: CHIP_TEXT_W }}>
+          <CodeText text={text} />
+        </span>
+      </button>
+      <CloseButton />
+    </div>
+  )
+}
+
 function Card(): ReactNode {
   const c = useCards((x) => x.card)
   const from = useCards((x) => x.cardFrom)
+  const chip = useChip()
   if (!c) return null
   const k = tileOf(c, from)
+  if (chip)
+    return (
+      <Swap id="chip">
+        <Chip c={c} k={k} />
+      </Swap>
+    )
+  return (
+    <Swap id="card">
+      <FullCard c={c} k={k} />
+    </Swap>
+  )
+}
+
+function FullCard({ c, k }: { c: EngineCard; k: Tile }): ReactNode {
   const actions = c.actions ?? []
   // A title that only repeats the kind or the tile ("Hint") is dropped: the body becomes the headline.
   // Long bodies fold to a few lines with a "More" that opens them in place (never cut off for good).
@@ -822,7 +992,7 @@ function Card(): ReactNode {
             <Clamp text={c.body} lines={HEADLINE_LINES} className="text-[16px] font-medium leading-[22px] tracking-[-0.01em]" />
           ) : (
             <>
-              <div className="text-[17px] font-semibold leading-[22px] tracking-[-0.01em]">{c.title}</div>
+              <div className="text-[17px] font-semibold leading-[22px] tracking-[-0.01em]"><CodeText text={titleText(c.title)} /></div>
               <Clamp text={c.body} lines={BODY_LINES} className="mt-[3px] text-[14px] leading-[20px]" style={{ color: color.label }} />
             </>
           )}
@@ -869,7 +1039,19 @@ export default defineFeature({
       Content: Offtrack
     },
     { id: 'success', priority: 60, width: SUCCESS_W, useActive: () => useCards((c) => !!c.success), Content: Success },
-    { id: 'card', priority: 50, width: CARD_W, useActive: () => useCards((c) => !!c.card), Content: Card }
+    {
+      id: 'card',
+      priority: 50,
+      // A chip is pill-sized (no width: 34 tall, hugging its row); read at render time like the off-track card's.
+      get width() {
+        return isChip() ? undefined : CARD_W
+      },
+      useActive: () => {
+        useChip() // subscribes, so the island re-reads the width when the card folds or opens
+        return useCards((c) => !!c.card)
+      },
+      Content: Card
+    }
   ],
   // Renders nothing: it only reports the overlay's width (see WidthProbe).
   overlayLayers: [{ id: 'cards-width', z: 1, Component: WidthProbe }]
