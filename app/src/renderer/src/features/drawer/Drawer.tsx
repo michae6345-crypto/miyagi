@@ -28,7 +28,7 @@ import { GlassCheck, GlassSpinner } from '../../core/ui/glass'
 import { useCards } from '../cards/store'
 import { parseYouTube, thumbnailFor } from '../launcher/youtube'
 import { HANDLE, TAB } from './geometry'
-import { count, lessonOutline, planTotal, useStepDetail, useStepStatuses, type StepStatus } from './plan'
+import { count, lessonOutline, planTotal, useJustEnded, useStepDetail, useStepStatuses, type StepStatus } from './plan'
 import { closeDrawer, isWebLink, openSource, setDrawerSide, setPanelHeight, toggleDrawer, useDrawer, type Side } from './store'
 import { BuildStrip, lessonTopic, minutesLeft, NeedsChip, OverviewText, PrimerSection, StepActions, StepDetail } from './Teach'
 
@@ -311,8 +311,13 @@ type PlanProgress = { done: number; skipped: number; known: number; total?: numb
  * where we are, and minutes left.
  */
 function usePlanProgress(): PlanProgress {
-  const { index } = useProgress()
+  const { index: at } = useProgress()
   const statuses = useStepStatuses()
+  // Passed, next step.started not here yet: the pill already shows the next step, so the header does too (Michael's
+  // test 10, item 9: "Step 4 of 7" under a pill at Step 5). Not after the last step: that reads "All N steps done".
+  const ended = useJustEnded()
+  const ahead = useLesson((s) => !!ended && (at < s.steps.length - 1 || s.pendingNext || !s.complete))
+  const index = ahead ? at + 1 : at
   const p = useLesson(
     useShallow((s) => {
       const done = statuses.filter((x) => x === 'done').length
@@ -409,6 +414,15 @@ function Steps({ scroller }: { scroller: RefObject<HTMLDivElement | null> }): Re
 
   // The current step stays current (expanded) even when core still lists it as passed or skipped (after Back).
   const statuses = useStepStatuses()
+  // Just passed, next step.started on its way: the row stays open (its code and green checks) until the next step
+  // opens, so the panel doesn't shrink and grow back at every step change (Michael's test 10, item 9). The last
+  // step of a finished lesson closes as before.
+  const ended = useJustEnded()
+  const held = useLesson((s) => {
+    if (!ended) return undefined
+    const i = s.steps.findIndex((x) => x.id === ended)
+    return i >= 0 && (i < s.steps.length - 1 || s.pendingNext || !s.complete) ? ended : undefined
+  })
   const waitingOnSetup = useWaitingOnSetup()
   const timeW = useTimeWidth(steps, complete)
   // The current step's code arriving after step.started grows the row: keep it in view then too.
@@ -421,16 +435,18 @@ function Steps({ scroller }: { scroller: RefObject<HTMLDivElement | null> }): Re
       {steps.map((s, i) => {
         const status: StepStatus = statuses[i] ?? 'locked'
         const k = fresh.indexOf(s.id)
+        const open = status === 'current' || s.id === held
         return (
           <StepRow
             key={s.id}
             step={s}
             n={i + 1}
             status={status}
+            held={s.id === held}
             timeW={timeW}
-            checks={status === 'current' ? checks : undefined}
-            instructions={status === 'current' ? instructions : undefined}
-            actions={status === 'current' && lessonMode}
+            checks={open ? checks : undefined}
+            instructions={open ? instructions : undefined}
+            actions={open && lessonMode}
             note={status === 'current' && waitingOnSetup ? 'Waiting on setup' : undefined}
             enterDelay={k < 0 ? undefined : k * 0.04}
           />
@@ -511,10 +527,31 @@ function useKeepInView(scroller: RefObject<HTMLDivElement | null>, stepId: strin
         else if (c.top - 12 < now) target = c.top - 12
       }
     }
+    reach(box, at, target ?? now)
     if (target === undefined) return
     box.scrollTo({ top: Math.max(0, target), behavior: first.current ? 'auto' : 'smooth' })
     first.current = false
   }, [scroller, stepId, checksKey, settled, checking, codeLen])
+}
+
+/** The list's own bottom padding (its pb-[12px] class). */
+const LIST_PAD = 12
+
+/**
+ * The list only scrolls so far: past its end the browser clamps the scroll, and when the clamp stops inside the intro
+ * above the plan, the "What you're building" strip sits cut in half under the header (Michael's tests 8 and 10: from
+ * step 5 on the drawer opened scrolled halfway, the flow boxes cut off at the top). Then room at the list's foot lets
+ * the scroll land on the block edge clearOfIntro chose. Only while the list overflows (the panel is at its full height,
+ * so the extra room never grows it), and recomputed on every pass, so it never piles up.
+ */
+function reach(box: HTMLElement, at: (n: HTMLElement) => { top: number; bottom: number }, want: number): void {
+  const plan = box.querySelector<HTMLElement>('[data-part="drawer-plan"]')
+  const extra = Number(box.dataset.reach ?? 0)
+  const max = box.scrollHeight - extra - box.clientHeight
+  const need = plan && max > 0 && want > max && max < at(plan).top ? Math.ceil(want - max) : 0
+  if (need === extra) return
+  box.dataset.reach = String(need)
+  box.style.paddingBottom = need ? `${LIST_PAD + need}px` : ''
 }
 
 /**
@@ -552,6 +589,7 @@ function StepRow({
   step,
   n,
   status,
+  held = false,
   timeW,
   checks,
   instructions,
@@ -563,6 +601,8 @@ function StepRow({
   /** The step's number in the plan (1-based), drawn in its ring. */
   n: number
   status: StepStatus
+  /** Just passed or skipped, the next step not started yet: stays open (done icon) until the next step opens. */
+  held?: boolean
   timeW: number
   checks?: CheckItem[]
   /** The current step's "what to do now" (Michael: a "Just teach me" lesson has no chapter list to read). */
@@ -576,10 +616,11 @@ function StepRow({
   const mounted = useMounted()
   const v = step.video
   const current = status === 'current'
+  const open = current || held
   const canSeek = status !== 'locked' && !!v
   // The plan line (steps[].what); the title when the engine sent none.
   const line = step.what?.trim() || undefined
-  const tone = current ? glass.text : status === 'done' || status === 'skipped' ? glass.label : glass.faint
+  const tone = open ? glass.text : status === 'done' || status === 'skipped' ? glass.label : glass.faint
   const indent = ROW.padX + ROW.icon + ROW.gap + (timeW ? timeW + ROW.gap : 0)
   // No time column (a "Just teach me" lesson): plan lines wrap to two lines instead of being cut off.
   const wrap = timeW === 0
@@ -589,7 +630,7 @@ function StepRow({
       data-step={step.id}
       data-status={status}
       className="rounded-[12px]"
-      style={{ background: current ? glass.fieldHover : 'transparent' }}
+      style={{ background: open ? glass.fieldHover : 'transparent' }}
       initial={enterDelay === undefined ? false : { opacity: 0, y: 6 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ ...spring, delay: enterDelay ?? 0, opacity: { duration: 0.25, delay: enterDelay ?? 0 } }}
@@ -624,7 +665,7 @@ function StepRow({
           </span>
         )}
         <span
-          className={`min-w-0 flex-1 text-[14px] ${wrap ? 'line-clamp-2 leading-[20px]' : 'truncate'} ${current ? 'font-semibold' : ''}`}
+          className={`min-w-0 flex-1 text-[14px] ${wrap ? 'line-clamp-2 leading-[20px]' : 'truncate'} ${open ? 'font-semibold' : ''}`}
           style={{ color: tone }}
           title={line && line !== step.title ? step.title : undefined}
         >
@@ -637,7 +678,7 @@ function StepRow({
           </span>
         )}
       </button>
-      {current && <StepDetail stepId={step.id} instructions={instructions} planKind={step.kind} indent={indent} padX={ROW.padX} />}
+      {open && <StepDetail stepId={step.id} instructions={instructions} planKind={step.kind} indent={indent} padX={ROW.padX} />}
       {checks && checks.length > 0 && (
         <motion.div
           data-part="drawer-checks"
@@ -650,7 +691,15 @@ function StepRow({
           <CheckList checks={checks} surface="glass" />
         </motion.div>
       )}
-      {actions && <StepActions padX={ROW.padX} />}
+      {/* A held (finished) step keeps the row's room but its options are spent: faded and inert until the next opens. */}
+      {actions &&
+        (held ? (
+          <div aria-hidden style={{ opacity: 0.35, pointerEvents: 'none' }}>
+            <StepActions padX={ROW.padX} />
+          </div>
+        ) : (
+          <StepActions padX={ROW.padX} />
+        ))}
     </motion.div>
   )
 }
