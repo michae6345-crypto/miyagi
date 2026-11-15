@@ -1,7 +1,7 @@
 /**
  * Feature: pill. The island's pill-sized states (34px tall, width hugs content), to mockup 01 + the
- * Miyagi brand (app/brand/BRAND.md): always black and white, the bonsai as a one-color glyph on the left
- * (monochrome everywhere in the app), the status on the right.
+ * Miyagi brand (app/brand/BRAND.md): always black, the bonsai in color on the left (green pads, as everywhere in
+ * the app), the status on the right.
  *   idle      no lesson yet: "[bonsai] ask miyagi ⌥Space ●" (lowercase, Michael) (click opens the launcher);
  *             with no engine, once a connect attempt has failed: "[bonsai] Can't reach miyagi · [Retry]" (click tries now,
  *             review A16), or what the app's own engine is doing (setting up, starting, missing, failed);
@@ -31,8 +31,9 @@ import { notify, useLesson } from '../../core/lesson'
 import { defineFeature } from '../../core/registry'
 import { color, copy, fill } from '../../core/theme'
 import { Kbd, Spinner } from '../../core/ui/atoms'
+import { MiyagiMark } from '../../core/ui/Mark'
 import { PillGear } from './Gear'
-import { BuildLine, FitSwap, LeadMark, MonoMark, StatusMark, StepCount, SwapText, type Mark } from './parts'
+import { BuildLine, FitSwap, LeadMark, StatusMark, StepCount, SwapText, type Mark } from './parts'
 import { LESSON_SAVED, resumeSaved, retryEngine, undoEnd, UNREACHABLE, usePill, type SavedOffer } from './store'
 
 /**
@@ -239,7 +240,7 @@ function Building(): ReactNode {
       style={{ color: color.text }}
       data-planning={planning || undefined}
     >
-      <MonoMark className="mr-[8px]" />
+      <MiyagiMark size={16} className="mr-[8px]" />
       {/* Never cut mid-word (item 9): the slot is always as wide as the stage's words; the island springs around it. */}
       <FitSwap id={text}>{text}</FitSwap>
       {/* Building: the spinner where the count will be. Set (Michael's audit A5): static, the gray dot only, no spinner, no line. */}
@@ -345,7 +346,7 @@ function NoticeLine(): ReactNode {
       style={{ color: color.text }}
       data-notice={n?.tone}
     >
-      <MonoMark className="mr-[8px]" />
+      <MiyagiMark size={16} className="mr-[8px]" />
       <SwapText id={n?.text ?? ''}>
         <span className="block max-w-[380px] truncate">{n?.text}</span>
       </SwapText>
@@ -360,7 +361,7 @@ function NoticeLine(): ReactNode {
 function SavedLine(): ReactNode {
   return (
     <div role="status" className="flex h-[34px] items-center whitespace-nowrap pl-[13px] pr-[6px] text-[13px] font-medium" style={{ color: color.text }} data-saved>
-      <MonoMark className="mr-[8px]" />
+      <MiyagiMark size={16} className="mr-[8px]" />
       <span>{LESSON_SAVED}</span>
       <span style={{ color: color.label }}>&nbsp;·&nbsp;</span>
       <motion.button

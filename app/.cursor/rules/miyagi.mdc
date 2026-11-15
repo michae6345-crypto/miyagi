@@ -20,7 +20,7 @@ miyagi is a desktop overlay that turns any tutorial into a hands-on lesson whose
 ## Brand (anything visible)
 - Read `app/brand/BRAND.md` first. Use `core/theme.ts` tokens only, no new hard-coded colors.
 - Green only means passed. Off track has no hue: a white ring and "Not yet". Pastels only for options.
-- No gradients, glows, neon, emoji or sparkles; the bonsai `MiyagiMark` replaces sparkle icons.
+- No gradients, glows, neon, emoji or sparkles; the bonsai `MiyagiMark` replaces sparkle icons and is shown in color (green pads), never as a white silhouette.
 - The brand is lowercase: "miyagi". Copy is short, 12 words or fewer per card.
 - Every surface grows out of the notch island and returns to it.
 
