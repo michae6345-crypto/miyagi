@@ -8,7 +8,7 @@
 """
 
 from .active import active_editor, adopt_folder, folder_on_screen, vscode_windows, wrong_folder
-from .core import open_file_for, prepare, read_state, set_aside_previous
+from .core import lesson_folder, open_file_for, prepare, read_state, set_aside_previous
 from .editor import (
     editor_label,
     editor_line_location,
@@ -40,6 +40,7 @@ __all__ = [
     "hero_workdir",
     "install",
     "installed_editors",
+    "lesson_folder",
     "lessons_root",
     "missing",
     "open_editor",

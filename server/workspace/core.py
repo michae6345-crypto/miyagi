@@ -46,6 +46,27 @@ def read_state(folder: Path) -> dict | None:
         return None
 
 
+def _own_folder(lesson: dict, root: Path | None = None) -> Path:
+    return ((root or paths.lessons_root()).expanduser() / paths.folder_name(lesson)).resolve()
+
+
+def _redirect(state: dict | None) -> Path | None:
+    r = (state or {}).get("redirect")
+    return Path(r) if r and Path(r).is_dir() else None
+
+
+def lesson_folder(lesson: dict, *, root: Path | None = None) -> Path:
+    """The folder prepare() returns for this lesson (the hero's, `<root>/<slug>-<hash>`, or the folder it continues in),
+    found without creating or writing anything. Desktop test 10: the preflight card checks the packages in THIS folder's
+    .venv, the same ones the setup card checks after Build (it used to check the build's placeholder folder, so a
+    lesson .venv that already had TensorFlow showed "tensorflow ✕ · 4 to install")."""
+    hero = paths.hero_workdir(lesson)
+    if hero is not None:
+        return hero
+    folder = _own_folder(lesson, root)
+    return _redirect(read_state(folder)) or folder
+
+
 def prepare(lesson: dict, goal: str = "", *, root: Path | None = None, client=None) -> Path:
     """Create (or reuse) the learner's folder for this lesson and return its absolute path.
 
@@ -61,13 +82,12 @@ def prepare(lesson: dict, goal: str = "", *, root: Path | None = None, client=No
         log.info("hero lesson: using %s", hero)
         return hero
 
-    base = (root or paths.lessons_root()).expanduser()
-    folder = (base / paths.folder_name(lesson)).resolve()
+    folder = _own_folder(lesson, root)
     folder.mkdir(parents=True, exist_ok=True)
     state = read_state(folder)
-    if state and state.get("redirect") and Path(state["redirect"]).is_dir():  # "use this folder" (active.adopt_folder)
-        log.info("lesson %s continues in %s", folder.name, state["redirect"])
-        return Path(state["redirect"])
+    if redirect := _redirect(state):  # "use this folder" (active.adopt_folder)
+        log.info("lesson %s continues in %s", folder.name, redirect)
+        return redirect
     if state and state.get("scaffolded") and not state.get("error"):
         log.info("reusing lesson folder %s", folder)
         # README is ours and cheap: rewrite it so wording fixes reach existing folders (no Claude call).
