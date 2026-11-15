@@ -9,11 +9,17 @@
  * Timing (Michael's tests 2-3, A9): the latest spotlight message always wins (a clear followed by a new target is
  * a move; a target followed by a clear is gone), and the spotlight's lifetime is NOT tied to the card it came with:
  * closing a card leaves the box up until the engine clears it.
+ *
+ * Front app (review A9: "draw it only while spotlight.app is the front app"): while another app is in front, the box
+ * and caption hide; the target is kept and comes back when its app does (unless the engine cleared or moved it
+ * meanwhile). Only when the payload names an app and main knows the front one (macOS: main/features/front-app.ts,
+ * read through features/shortcut-bar/front.ts); miyagi's own windows in front keep it.
  */
 import { create } from 'zustand'
 import type { Payload } from '../../../../common/wire'
 import { onMessage, onUi } from '../../core/bus'
 import { usePressed } from '../../core/shortcuts'
+import { useFront } from '../shortcut-bar/front'
 import { sameRect } from './place'
 
 export type SpotlightTarget = Exclude<Payload<'spotlight'>, { clear: true }> & { code?: string }
@@ -47,11 +53,33 @@ export const useSpotlight = create<{ target?: SpotlightTarget; targets: CoachTar
 const set = useSpotlight.setState
 const get = useSpotlight.getState
 
+/** The engine's current target, drawn or not (`target` is undefined while its app isn't in front). */
+let current: SpotlightTarget | undefined
+
+/** The target's app is known and another (non-miyagi) app is in front. */
+function offApp(t: SpotlightTarget | undefined): boolean {
+  const app = t?.app?.trim().toLowerCase()
+  const f = useFront.getState()
+  return !!app && f.known && !f.miyagi && !f.aliases.includes(app)
+}
+
+/** Keep `current` and draw it only while its app is in front. */
+function put(t: SpotlightTarget | undefined, showMe: boolean): void {
+  current = t
+  set({ target: offApp(t) ? undefined : t, showMe })
+}
+
+useFront.subscribe(() => {
+  const shown = offApp(current) ? undefined : current
+  if (shown !== get().target) set({ target: shown })
+})
+
 let pendingClear: ReturnType<typeof setTimeout> | undefined
 
 function clearNow(): void {
   clearTimeout(pendingClear)
   pendingClear = undefined
+  current = undefined
   set({ target: undefined, targets: [], showMe: false })
 }
 
@@ -75,7 +103,7 @@ onMessage('step.passed', forgetShowMe)
 
 /** Clear, but give a replacement that's already on its way a beat to arrive (no dim flash). */
 function clearSoon(): void {
-  if (!get().target) return clearNow()
+  if (!current) return clearNow()
   clearTimeout(pendingClear)
   pendingClear = setTimeout(clearNow, REPLACE_GRACE_MS)
 }
@@ -95,14 +123,14 @@ onMessage('spotlight', (p) => {
   clearTimeout(pendingClear)
   pendingClear = undefined
   const next = p as SpotlightTarget
-  const prev = get().target
+  const prev = current
   // A re-spotlight: the engine re-sends the same target every screen read. Ignore OCR jitter so the hole doesn't wobble.
   const still = !!(prev && next.rect && sameRect(prev.rect, next.rect, JITTER_PX))
   if (prev && still && prev.caption === next.caption && prev.matched === next.matched && prev.code === next.code && prev.snippet === next.snippet) return
   // A Show me answer keeps its strong dim while the engine re-reads it (new words at the same place).
   const showMe = answersShowMe() || (still && get().showMe)
   // New words at (nearly) the same place: keep the old rect so only the caption changes.
-  set({ target: still && prev ? { ...next, rect: prev.rect } : next, showMe })
+  put(still && prev ? { ...next, rect: prev.rect } : next, showMe)
 })
 
 // The coach's targets: the engine spotlights targets[0]; the rest are drawn as extra cut-outs while it's up.
