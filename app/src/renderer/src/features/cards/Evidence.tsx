@@ -2,13 +2,16 @@
  * The off-track card's evidence panel (layout C, the right column). Two columns, yours | expected, built from
  * whatever the payload has, in this order:
  *   1. the diff, as code: "{file} · L{line}" on its caption, each side kept as written (never wrapped; a long
- *      line scrolls sideways), and the lines only the expected side has highlighted
+ *      line scrolls sideways, and the edge that hides text stops under a chevron that scrolls it), and the
+ *      lines only the expected side has highlighted
  *   2. each failing check that has a real value of yours (not status text like "not seen in Code") and doesn't
  *      just repeat the diff: its label, then your value | the expected one (read from the label)
  *   3. the metric curve: a monochrome sparkline (yours white, tutorial faint) with both end values
  * No color at all (no pastel, no status hue): values in color.text, headers and labels in color.faint.
  */
-import type { CSSProperties, ReactNode } from 'react'
+import { ChevronLeft, ChevronRight } from 'lucide-react'
+import { motion, useReducedMotion } from 'motion/react'
+import { useCallback, useLayoutEffect, useRef, useState, type CSSProperties, type ReactNode } from 'react'
 import type { CheckItem, Offtrack } from '../../core/lesson'
 import { color, fill } from '../../core/theme'
 import { Curve, fmt, plotArray, plotPoints, type Line } from './Curve'
@@ -117,23 +120,108 @@ function Cell({ children }: { children: ReactNode }): ReactNode {
   )
 }
 
+/** At an edge that hides code: the chevron's strip, with no text under it. */
+const CUE = 14
+/** Mask alpha, not a visible color: opaque shows the text, transparent hides it. */
+const SHOW = 'black'
+const HIDE = 'transparent'
+
+/**
+ * A hard cut at each edge that hides code: an alpha mask on the scroller with hard stops (no fade: BRAND.md, no
+ * gradients), so it draws no color and stays put while the code scrolls under it. The text stops a chevron's width
+ * from the edge, so the glyph never sits on text. Undefined when the whole line fits.
+ */
+function edgeMask(left: boolean, right: boolean): string | undefined {
+  if (!left && !right) return undefined
+  const start = left ? `${HIDE} ${CUE}px, ${SHOW} ${CUE}px` : `${SHOW} 0`
+  const end = right ? `${SHOW} calc(100% - ${CUE}px), ${HIDE} calc(100% - ${CUE}px)` : `${SHOW} 100%`
+  return `linear-gradient(to right, ${start}, ${end})`
+}
+
+/** Which edges of a sideways scroller hide text, and the height its scrollbar takes (0 for overlay scrollbars). */
+type Edges = { left: boolean; right: boolean; bar: number }
+const FITS: Edges = { left: false, right: false, bar: 0 }
+
+/** The chevron on an edge that hides code: it scrolls that way by about a column. */
+function Chevron({ side, bar, onClick }: { side: 'left' | 'right'; bar: number; onClick: () => void }): ReactNode {
+  const I = side === 'left' ? ChevronLeft : ChevronRight
+  return (
+    <motion.button
+      type="button"
+      data-scroll-cue={side}
+      aria-label={side === 'left' ? 'Scroll back' : 'Scroll to see the rest'}
+      className="absolute top-0 flex cursor-pointer items-center justify-center"
+      style={{ ...(side === 'left' ? { left: 0 } : { right: 0 }), bottom: bar, width: CUE, color: color.faint }}
+      whileHover={{ color: color.text }}
+      transition={{ duration: 0.12 }}
+      onMouseDown={(e) => e.preventDefault()}
+      onClick={onClick}
+    >
+      <I size={12} strokeWidth={2} />
+    </motion.button>
+  )
+}
+
 /**
  * One side of the diff as written: whitespace kept, never wrapped (a long line scrolls sideways); `mark` highlights
  * a line. The scrollbar's room is always kept (its track is transparent), so a long line never changes the height.
+ * A line wider than the column is never cut without a cue (Michael, desktop test 3: macOS overlay scrollbars stay
+ * hidden until you scroll, so the code just stopped at the edge): the edge that hides text is cut clean under a
+ * chevron that scrolls it, and hovering shows the whole side as a tooltip. Trackpad and shift-wheel scroll as usual.
  */
 function Code({ text, mark }: { text: string; mark?: (line: string) => boolean }): ReactNode {
+  const ref = useRef<HTMLDivElement>(null)
+  const [edges, setEdges] = useState<Edges>(FITS)
+  const reduce = useReducedMotion()
+  const measure = useCallback((): void => {
+    const el = ref.current
+    if (!el) return
+    // 1px of slack: scrollLeft is fractional on a Retina display.
+    const left = el.scrollLeft > 1
+    const right = el.scrollLeft + el.clientWidth < el.scrollWidth - 1
+    const bar = Math.max(0, el.offsetHeight - el.clientHeight)
+    setEdges((e) => (e.left === left && e.right === right && e.bar === bar ? e : { left, right, bar }))
+  }, [])
+  useLayoutEffect(() => {
+    const el = ref.current
+    if (!el) return
+    measure()
+    // The column's width and the code's (a new diff, a font that lands late) both decide what's hidden.
+    const ro = new ResizeObserver(measure)
+    ro.observe(el)
+    if (el.firstElementChild) ro.observe(el.firstElementChild)
+    return () => ro.disconnect()
+  }, [measure, text])
+  const scroll = (dir: 1 | -1) => (): void => {
+    const el = ref.current
+    el?.scrollBy({ left: dir * Math.max(CUE * 2, el.clientWidth - CUE * 2), behavior: reduce ? 'auto' : 'smooth' })
+  }
+  const hidden = edges.left || edges.right
+  const mask = edgeMask(edges.left, edges.right)
   return (
-    <div data-code className="min-w-0 overflow-x-scroll" style={{ ...thinScroll, marginInline: -BLEED }}>
-      <div className="w-max min-w-full whitespace-pre">
-        {text.split(/\r?\n/).map((l, i) => {
-          const hit = mark?.(l) ?? false
-          return (
-            <div key={i} data-mark={hit || undefined} className="rounded-[4px]" style={{ paddingInline: BLEED, background: hit ? fill.highlight : undefined }}>
-              {l || ' '}
-            </div>
-          )
-        })}
+    <div className="relative min-w-0" style={{ marginInline: -BLEED }}>
+      <div
+        ref={ref}
+        data-code
+        data-overflow={hidden ? [edges.left && 'left', edges.right && 'right'].filter(Boolean).join(' ') : undefined}
+        className="overflow-x-scroll"
+        style={{ ...thinScroll, maskImage: mask, WebkitMaskImage: mask }}
+        title={hidden ? text : undefined}
+        onScroll={measure}
+      >
+        <div className="w-max min-w-full whitespace-pre">
+          {text.split(/\r?\n/).map((l, i) => {
+            const hit = mark?.(l) ?? false
+            return (
+              <div key={i} data-mark={hit || undefined} className="rounded-[4px]" style={{ paddingInline: BLEED, background: hit ? fill.highlight : undefined }}>
+                {l || ' '}
+              </div>
+            )
+          })}
+        </div>
       </div>
+      {edges.left && <Chevron side="left" bar={edges.bar} onClick={scroll(-1)} />}
+      {edges.right && <Chevron side="right" bar={edges.bar} onClick={scroll(1)} />}
     </div>
   )
 }
