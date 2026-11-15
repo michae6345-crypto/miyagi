@@ -639,47 +639,76 @@ function QuietLink({ label, onClick }: { label: string; onClick: () => void }): 
 function SetupItems({ setup, lead }: { setup: NonNullable<EngineCard['setup']>; lead?: boolean }): ReactNode {
   const installs = useCards((s) => s.installs)
   const items = setup.items.filter((x) => x.needed)
+  // Desktop test 9, A8: one "Install all" when two or more rows need a package install. It runs them one after
+  // another through the same per-row action (install {text: tool}); a failed row keeps its Retry and the run moves on.
+  const installable = items.filter((x) => !x.ok && x.install.method !== 'none' && x.install.method !== 'download' && x.install.method !== 'open')
+  const [queue, setQueue] = useState<string[]>([])
+  const busy = items.some((x) => installs[x.tool]?.running)
+  useEffect(() => {
+    if (busy || queue.length === 0) return
+    const [next, ...rest] = queue
+    setQueue(rest)
+    const x = items.find((y) => y.tool === next)
+    if (x && !x.ok) cardAct('install', x.tool)
+  }, [busy, queue, items])
   if (items.length === 0) return null
-  const first = lead ? items.find((x) => !x.ok && !installs[x.tool]?.running && x.install.method !== 'none') : undefined
+  const all = installable.length >= 2
+  const allRunning = queue.length > 0 || (all && busy)
+  // One white primary per surface: with Install all, every row's button stays quiet.
+  const first = lead && !all ? items.find((x) => !x.ok && !installs[x.tool]?.running && x.install.method !== 'none') : undefined
   return (
     <div className="mt-[12px] flex flex-col gap-[6px] text-[13px]">
       {items.map((x) => {
         const run = x.ok ? undefined : installs[x.tool]
         const detail = x.ok ? x.version : run?.running ? (run.line ?? 'Installing…') : (run?.error ?? x.why)
         return (
-          // min-h 30 = the button's height: a row doesn't change height when Install turns into "Installing…" or a check.
-          <div key={x.tool} className="flex min-h-[30px] items-center gap-[8px]">
+          // A8: every row is exactly 34 px (two 16 px detail lines fit) and the button sits in a fixed 104 px slot, so
+          // nothing moves while a row installs: the next Install stays where the cursor is.
+          <div key={x.tool} className="flex h-[34px] items-center gap-[8px] overflow-hidden">
             <span style={{ color: x.ok ? color.text : color.faint }}>{x.ok ? <Check size={13} /> : '·'}</span>
             <span className="truncate">{x.label}</span>
             {/* The reason wraps to two lines instead of being cut off (A17). */}
             <span className="line-clamp-2 min-w-0 flex-1 text-[12px] leading-[16px]" style={{ color: run?.error ? color.text : color.faint }} title={detail}>
               {detail}
             </span>
-            {!x.ok && run?.running && (
-              <span className="flex h-[30px] shrink-0 items-center gap-[6px] px-[9px] text-[12px] font-medium" style={{ color: color.faint }} aria-disabled>
-                <Spinner size={12} c={color.faint} /> Installing…
-              </span>
-            )}
-            {x === first && (
-              <PrimaryButton
-                label={itemLabel(x, run)}
-                icon={x.install.method === 'download' || x.install.method === 'open' ? ExternalLink : Download}
-                onClick={() => itemAct(x)}
-              />
-            )}
-            {x !== first && !x.ok && !run?.running && x.install.method !== 'none' && (
-              <button
-                className="flex cursor-pointer items-center gap-[5px] rounded-full px-[10px] py-[3px] text-[12px] font-medium"
-                style={{ background: fill.button, color: color.text }}
-                onClick={() => itemAct(x)}
-              >
-                {x.install.method === 'download' || x.install.method === 'open' ? <ExternalLink size={12} /> : <Download size={12} />}{' '}
-                {itemLabel(x, run)}
-              </button>
-            )}
+            <span className="flex w-[104px] shrink-0 justify-end">
+              {!x.ok && run?.running && (
+                <span className="flex h-[30px] items-center gap-[6px] px-[9px] text-[12px] font-medium" style={{ color: color.faint }} aria-disabled>
+                  <Spinner size={12} c={color.faint} /> Installing…
+                </span>
+              )}
+              {x === first && (
+                <PrimaryButton
+                  label={itemLabel(x, run)}
+                  icon={x.install.method === 'download' || x.install.method === 'open' ? ExternalLink : Download}
+                  onClick={() => itemAct(x)}
+                />
+              )}
+              {x !== first && !x.ok && !run?.running && x.install.method !== 'none' && (
+                <button
+                  className="flex cursor-pointer items-center gap-[5px] rounded-full px-[10px] py-[3px] text-[12px] font-medium"
+                  style={{ background: fill.button, color: color.text }}
+                  onClick={() => itemAct(x)}
+                >
+                  {x.install.method === 'download' || x.install.method === 'open' ? <ExternalLink size={12} /> : <Download size={12} />}{' '}
+                  {itemLabel(x, run)}
+                </button>
+              )}
+            </span>
           </div>
         )
       })}
+      {all && (
+        <div className="mt-[4px] flex h-[30px] justify-end">
+          {allRunning ? (
+            <span className="flex h-[30px] items-center gap-[6px] px-[9px] text-[12px] font-medium" style={{ color: color.faint }} aria-disabled>
+              <Spinner size={12} c={color.faint} /> Installing all…
+            </span>
+          ) : (
+            <PrimaryButton label="Install all" icon={Download} onClick={() => setQueue(installable.map((x) => x.tool))} />
+          )}
+        </div>
+      )}
     </div>
   )
 }

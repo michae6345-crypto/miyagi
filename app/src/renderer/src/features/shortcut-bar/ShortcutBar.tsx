@@ -60,7 +60,7 @@ const STEP_BUTTONS: StepBtn[] = [
 /** Skip: repeat presses inside this window are ignored (Michael's desktop test: one tap could skip twice). */
 const SKIP_LOCK_MS = 1000
 /** End: the first tap arms it ("Tap to end"); a second tap inside this window ends the lesson. No one-tap loss. */
-const END_ARM_MS = 3000
+const END_ARM_MS = 4000
 
 /** After End on a finished lesson: how long to wait for the engine's lesson.ended before closing the lesson UI here. */
 const END_FALLBACK_MS = 1500
@@ -284,7 +284,7 @@ export function ShortcutBar({ bottom, dock = 0, lift = 0 }: { bottom: number; do
               const tip = id === 'end' && step.armed ? 'Tap again to end the lesson' : title
               // Check is the bar's one primary, unless a card with its own step controls is up (A17): then it's quiet.
               const primary = (id === 'check' && !cardSteps) || (id === 'end' && step.armed)
-              return <Tile key={id} label={shown} icon={icon} look={primary ? look.primary : look.quiet} busyKind={kind} title={tip} onClick={() => step.run(id)} />
+              return <Tile key={id} label={shown} icon={icon} look={primary ? look.primary : look.quiet} busyKind={kind} title={tip} onDown={id === 'end'} onClick={() => step.run(id)} />
             })}
           </div>
         </motion.div>

@@ -45,6 +45,32 @@ export function Overlay({ layout }: { layout: Layout }): ReactNode {
   )
 }
 
+/** A main-side feature handle (overlay-raise.ts). Missing in the browser stage and older mains: ignored. */
+function tellMain(channel: string, payload: unknown): void {
+  try {
+    void bridge.invoke(channel, payload).catch(() => {})
+  } catch {
+    // no handler
+  }
+}
+
+/** How long a scroll over non-scrolling overlay UI hands the mouse to the app below. */
+const PASS_MS = 600
+
+/** Some element from `el` up can still scroll in the wheel's direction (the drawer, a code block). */
+function canScroll(el: Element | null, dx: number, dy: number): boolean {
+  for (let n = el; n && n !== document.body; n = n.parentElement) {
+    const st = getComputedStyle(n)
+    if (dy && /(auto|scroll)/.test(st.overflowY) && n.scrollHeight > n.clientHeight + 1) {
+      if ((dy < 0 && n.scrollTop > 0) || (dy > 0 && n.scrollTop + n.clientHeight < n.scrollHeight - 1)) return true
+    }
+    if (dx && /(auto|scroll)/.test(st.overflowX) && n.scrollWidth > n.clientWidth + 1) {
+      if ((dx < 0 && n.scrollLeft > 0) || (dx > 0 && n.scrollLeft + n.clientWidth < n.scrollWidth - 1)) return true
+    }
+  }
+  return false
+}
+
 /**
  * Tell the engine where our own UI is (`overlay.bounds`, screen points) so its screen reader
  * ignores it. Sampled every 100ms; sent only when it changes. Elements opt in with
@@ -53,21 +79,31 @@ export function Overlay({ layout }: { layout: Layout }): ReactNode {
 function useReportBounds(root: React.RefObject<HTMLDivElement | null>, layout: Layout): void {
   useEffect(() => {
     let last = ''
+    let lastHits = ''
     const tick = (): void => {
       const el = root.current
       if (!el) return
       const box = el.getBoundingClientRect()
       if (!box.width) return
       const k = layout.width / box.width // undo the browser stage's CSS scale (1 in Electron)
-      const rects = Array.from(el.querySelectorAll<HTMLElement>('[data-hit],[data-ui]'))
-        .map((n) => n.getBoundingClientRect())
-        .filter((r) => r.width > 1 && r.height > 1)
-        .map((r) => ({
-          x: Math.round((r.left - box.left) * k + layout.origin.x),
-          y: Math.round((r.top - box.top) * k + layout.origin.y),
-          w: Math.round(r.width * k),
-          h: Math.round(r.height * k)
-        }))
+      const toScreen = (r: DOMRect): { x: number; y: number; w: number; h: number } => ({
+        x: Math.round((r.left - box.left) * k + layout.origin.x),
+        y: Math.round((r.top - box.top) * k + layout.origin.y),
+        w: Math.round(r.width * k),
+        h: Math.round(r.height * k)
+      })
+      const nodes = Array.from(el.querySelectorAll<HTMLElement>('[data-hit],[data-ui]'))
+        .map((n) => ({ n, r: n.getBoundingClientRect() }))
+        .filter(({ r }) => r.width > 1 && r.height > 1)
+      const rects = nodes.map(({ r }) => toScreen(r))
+      // Desktop test 9, A1: main's click-catching poll grabs the mouse only over controls (data-hit). Passive UI
+      // (data-ui: the spotlight caption, the loupe callout) stays click- and scroll-through.
+      const hits = nodes.filter(({ n }) => n.hasAttribute('data-hit')).map(({ r }) => toScreen(r))
+      const hitKey = JSON.stringify(hits)
+      if (hitKey !== lastHits) {
+        lastHits = hitKey
+        tellMain('overlay:hits', hits)
+      }
       const key = JSON.stringify(rects)
       if (key === last) return
       last = key
@@ -107,11 +143,20 @@ export function useClickThrough(): void {
       const el = x < 0 ? null : document.elementFromPoint(x, y)
       if (!el?.closest?.('[data-hit]')) set(false)
     }, 250)
+    // Desktop test 9, A1: a scroll over overlay UI that can't scroll itself (a card, the bar) goes to the app below:
+    // hand the mouse back for a moment so the next wheel ticks reach it (main holds its grab off as well).
+    const wheel = (e: WheelEvent): void => {
+      if (canScroll(e.target as Element | null, e.deltaX, e.deltaY)) return
+      set(false)
+      tellMain('overlay:pass', PASS_MS)
+    }
+    window.addEventListener('wheel', wheel, { passive: true })
     window.addEventListener('mousemove', move)
     document.addEventListener('mouseleave', out)
     window.addEventListener('blur', out)
     return () => {
       clearInterval(watchdog)
+      window.removeEventListener('wheel', wheel)
       window.removeEventListener('mousemove', move)
       document.removeEventListener('mouseleave', out)
       window.removeEventListener('blur', out)
