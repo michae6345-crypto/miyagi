@@ -7,6 +7,9 @@
  *
  * Never covers the spotlight target: while a spotlight hole touches the open panel (or, closed, the tab),
  * it slides away; if the learner had it open, it slides back a beat after the target moves on.
+ * In a "Just teach me" lesson only a Show me answer makes it yield: the step's own "type here" spotlight stays up
+ * for the whole step (A9), and hiding the drawer for it left the learner with no steps, code or checks, not even
+ * the tab (Michael's test 5, Sun 2:10 AM).
  */
 import { AnimatePresence } from 'motion/react'
 import { useEffect, useState, type ReactNode } from 'react'
@@ -38,7 +41,8 @@ function DrawerLayer({ layout }: { layout: Layout }): ReactNode {
   // panel + rail), out to the edge; closed = just the tab.
   const left = concept ? conceptAt.panel.x : panel.x
   const area: Rect = open ? { x: left, y: panel.y, w: tab.x + tab.w - left, h: concept ? panel.h : Math.min(panel.h, panelH ?? panel.h) } : tab
-  const yielding = useYield(useSpotlightOn(area, layout))
+  const showMe = useSpotlight((s) => s.showMe)
+  const yielding = useYield(useSpotlightOn(area, layout) && (!lessonMode || showMe))
   const showPanel = on && open && !yielding
   return (
     <>
