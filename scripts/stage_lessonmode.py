@@ -472,7 +472,7 @@ def judge(res: dict) -> dict:
             items["d"].append(f"{sid}: run step started while {se.get('file')} is {'empty' if se.get('file_bytes') == 0 else 'missing'}")
         # (j) the first help card of the step offers "Do it for me" (apply_fix)
         help_cards = [e for e in cards if e["type"] == "offtrack" or (
-            e["payload"].get("kind") == "hint" and not re.match(r"(Looks done|I can't see|Save |That's another)",
+            e["payload"].get("kind") == "hint" and not re.match(r"(Looks done|I can't see|Save |That's another|Wrong folder|.* is still empty)",
                                                                 e["payload"].get("title") or ""))]
         want = {"apply_fix", "run_command"} if kind == "run" else {"apply_fix"}  # Do it for me / Run it for me
         if help_cards and not want & set(help_cards[0]["payload"].get("actions") or []):
