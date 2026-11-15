@@ -168,7 +168,16 @@ export function Launcher({ layout }: { layout: Layout }): ReactNode {
       }),
     [setPhase]
   )
-  useEffect(() => bridge.on('launcher:close', close), [close])
+  useEffect(
+    () =>
+      bridge.on('launcher:close', () => {
+        // Main thinks the panel is open but this renderer isn't showing it (a hot reload remounted it): let main hide
+        // the window, or its invisible full-screen panel keeps the keyboard, every click and the island.
+        if (phaseRef.current === 'closed') return bridge.emit('launcher:hidden')
+        close()
+      }),
+    [close]
+  )
   useEffect(() => {
     const offs = [
       onUi('dismiss', () => void close()),
@@ -207,6 +216,15 @@ export function Launcher({ layout }: { layout: Layout }): ReactNode {
     input.current?.focus({ preventScroll: true })
     if (mode === 'search') input.current?.select()
   }, [phase, gen, mode])
+
+  // Main takes the keyboard back when another app grabs it mid-typing (an engine editor jump): the caret goes back
+  // into the field, with no select(), so the next keystroke adds to the text instead of replacing it.
+  useEffect(() => {
+    if (phase !== 'open') return
+    const refocus = (): void => input.current?.focus({ preventScroll: true })
+    window.addEventListener('focus', refocus)
+    return () => window.removeEventListener('focus', refocus)
+  }, [phase])
 
   // The panel springs to its content's height, so it grows down as rows stream in.
   const content = useRef<HTMLDivElement>(null)
