@@ -1173,11 +1173,14 @@ class LessonSession:
         code = (step or {}).get("code") or ""
         return {"snippet": code[:1200]} if self.lesson_mode and code.strip() else {}
 
+    TYPE_CAPTION = "Type it here"  # E5: lesson-mode captions are short pointers; the drawer says the whole action
+    RUN_CAPTION = "Run it here"
+
     def _type_caption(self, step: dict, target: dict | None = None) -> str:
-        """Lesson mode: the caption IS the step's one action (the same line the drawer shows), never a target's own
-        caption that may describe another action."""
+        """Lesson mode: a short pointer ("Type it here"; the drawer shows the step's one action and the snippet its
+        code), never a target's own caption that may describe another action."""
         if self.lesson_mode:
-            return self._action_line(step)
+            return self.TYPE_CAPTION
         cap = (target or {}).get("caption") or ""
         if cap:
             return cap
@@ -1259,7 +1262,7 @@ class LessonSession:
         region = getattr(self.screen, "region", None) if self.screen is not None else None
         if region is not None:  # E6: the panel / editor regions, stabilized (no jitter)
             if term := region("terminal"):
-                return {"rect": term, "caption": self._action_line(step), "app": "Code", **snip, "kind": "terminal"}
+                return {"rect": term, "caption": self.RUN_CAPTION, "app": "Code", **snip, "kind": "terminal"}
         hit = None
         if self.screen is not None:
             for rx in (r"^\s*TERMINAL\b", r"\w+@[\w.-]+.*[%$#]\s*$", r"^\s*(\(\w+\)\s*)?\S*\s*[%$❯]\s*$"):
@@ -1273,7 +1276,7 @@ class LessonSession:
                 rect = {"x": win["x"], "y": t["y"], "w": win["w"], "h": max(60.0, win["y"] + win["h"] - t["y"])}
             else:
                 rect = {"x": t["x"] - 12.0, "y": t["y"], "w": 700.0, "h": 220.0}
-            return {"rect": rect, "caption": self._action_line(step), "app": "Code", **snip, "kind": "terminal"}
+            return {"rect": rect, "caption": self.RUN_CAPTION, "app": "Code", **snip, "kind": "terminal"}
         return self._open_terminal_spot(win, snip)
 
     def _open_terminal_spot(self, win: dict | None, snip: dict) -> dict:
@@ -1525,7 +1528,7 @@ class LessonSession:
     # ------------------------------------------------------------------ steps
     def _action_line(self, step: dict) -> str:
         """ONE concrete thing to do now, for the app to show under the current chapter: E2's own `action`, else
-        "Create <file> and type <first line>" from the step's code, else the instructions' first sentence."""
+        "In <file>, type the lines below." (the step's code shows under it), else the instructions' first sentence."""
         for k in ("action", "todo"):
             if isinstance(step.get(k), str) and step[k].strip():
                 return step[k].strip()
@@ -1537,10 +1540,9 @@ class LessonSession:
             from . import workspace as wsmod
 
             exists = Path(self.workdir).is_dir() and wsmod.resolve_file(self.workdir, file) is not None
-            more = " …" if len([ln for ln in code.splitlines() if ln.strip()]) > 1 else ""
-            line = first if len(first) <= 60 else first[:57] + "…"
-            return (f"In VS Code, type {line}{more} in {Path(file).name}" if exists
-                    else f"In VS Code, create {Path(file).name} and type {line}{more}")
+            lines = "the lines below" if len([ln for ln in code.splitlines() if ln.strip()]) > 1 else "the line below"
+            return (f"In {Path(file).name}, type {lines}." if exists
+                    else f"Create {Path(file).name}, then type {lines}.")
         text = " ".join((step.get("instructions") or "").split())
         m = re.match(r"(.+?[.!?])(\s|$)", text)
         sent = m.group(1) if m else text
@@ -1619,14 +1621,18 @@ class LessonSession:
                 self.segment_done = True
                 self.segment_end_t = self.clock()
                 await self.evaluate("start")  # already done before the clip: ask "Looks done?" now
+        # E5: the run caption ("Run it here" on the terminal, or "Open the terminal") goes up whenever the lesson's VS
+        # Code window is on screen; the drawer says the command. The Run it card only when no caption can go up
+        # (Run it for me stays on Check's "Not yet" card).
+        spot_up = self._can_see() and self._editor_window() is not None and not self._lesson_window_hidden()
         if back is not None and self._dirty_step_file(step):  # they typed it: it's just not saved
-            await self._emit_card({"stepId": step["id"], "kind": "hint", "title": f"Save {empty}",
+            await self._emit_card({"stepId": step["id"], "kind": "step", "title": f"Save {empty}",
                                    "body": f"Save {empty} in VS Code (⌘S)."})
         elif back is not None:
-            await self._emit_card({"stepId": step["id"], "kind": "hint", "title": f"{empty} is still empty",
+            await self._emit_card({"stepId": step["id"], "kind": "step", "title": f"{empty} is still empty",
                                    "body": f"Type this step's code into {empty} first; then we'll run it."})
-        elif self.lesson_mode and (cmd := self._run_command(step)):  # the run step's own button
-            await self._emit_card({"stepId": step["id"], "kind": "hint", "title": "Run it",
+        elif self.lesson_mode and (cmd := self._run_command(step)) and not spot_up:  # the run step's own button
+            await self._emit_card({"stepId": step["id"], "kind": "step", "title": "Run it",
                                    "body": f"Run it in the terminal: {cmd.splitlines()[0]}",
                                    "actions": ["run_command"]})
         await self._maybe_pass_setup_step()
@@ -1711,10 +1717,12 @@ class LessonSession:
                 return True
         return False
 
-    @staticmethod
-    def _spot_intent(spot: dict) -> str:
-        """What the Haiku targeter is asked to find for a box: the step's one action (+ its code)."""
+    def _spot_intent(self, spot: dict) -> str:
+        """What the Haiku targeter is asked to find for a box: the step's one action (+ its code). A short pointer
+        caption ("Type it here", E5) asks with the step's action line, as before."""
         intent = spot.get("caption") or ""
+        if intent in (self.TYPE_CAPTION, self.RUN_CAPTION) and self.step is not None:
+            intent = self._action_line(self.step)
         if spot.get("snippet"):
             intent += f" (code: {spot['snippet'][:120]})"
         return intent
@@ -2018,7 +2026,7 @@ class LessonSession:
                     # the screen says done but we never saw the learner act: ask, don't assert (paced: a later
                     # frame asks again if it's too early now)
                     self.confirm_pending = await self._emit_card(
-                        {"stepId": step["id"], "kind": "hint", "title": "Looks done?",
+                        {"stepId": step["id"], "kind": "step", "title": "Looks done?",
                          "body": "The checks pass. Confirm and I'll move on.", "actions": ["confirm"]}, auto=True)
                 return
             self.confirm_pending = False
@@ -2281,7 +2289,7 @@ class LessonSession:
                 if hold == "wrong_folder":
                     self._editor_state_card(step)
                 elif hold == "unsaved":
-                    await self._emit_card({"stepId": step["id"], "kind": "hint", "title": card.get("title") or "Save first",
+                    await self._emit_card({"stepId": step["id"], "kind": "step", "title": card.get("title") or "Save first",
                                            "body": card.get("body") or "Save with ⌘S so I can check it."}, window_s=60.0)
                 # "unconfirmed": the OCR read disagreed with the last one: say nothing, a later read decides
                 await self._status("watching")
@@ -2672,7 +2680,7 @@ class LessonSession:
                         await self._show_spot({**spot, **self._snippet(step)})
                         return
                 if r and r.get("where") and not quick:
-                    await self._emit_card({"stepId": step["id"], "kind": "hint", "title": "Where to work",
+                    await self._emit_card({"stepId": step["id"], "kind": "where", "title": "Where to work",
                                            "body": r["where"], **({"actions": ["open_editor"]} if self._offers_open() else {})})
                     return
             if not quick and self._can_see():
@@ -2880,15 +2888,15 @@ class LessonSession:
         """A card that says WHERE to go when I can't see the learner's work."""
         file = self._step_file(step)
         if self.notebook_lesson:
-            return {"stepId": step["id"], "kind": "hint", "title": "Open the notebook",
+            return {"stepId": step["id"], "kind": "where", "title": "Open the notebook",
                     "body": f"Open {file or 'the notebook'} in Colab or Jupyter so I can see it."}
         untitled = self._untitled_editor()
         if file and untitled:  # the learner typed into a new, unsaved editor tab: say exactly what to do
-            return {"stepId": step["id"], "kind": "hint", "title": f"Save it as {Path(file).name}",
+            return {"stepId": step["id"], "kind": "where", "title": f"Save it as {Path(file).name}",
                     "body": f"Your code is in an unsaved {untitled} tab. Save it (⌘S) as {Path(file).name} in "
                             f"{self.workdir} so I can check it."}
         hidden = self._lesson_window_hidden()  # another project's VS Code window is the one on screen: name it
-        card: dict[str, Any] = {"stepId": step["id"], "kind": "hint", "title": f"Open {file}" if file else "Show me your code",
+        card: dict[str, Any] = {"stepId": step["id"], "kind": "where", "title": f"Open {file}" if file else "Show me your code",
                                 "body": (f"This VS Code window is {hidden}. Open {file} in {Path(self.workdir).name}, "
                                          "this lesson's folder." if hidden and file else
                                          f"Open {file} in {self._editor_label()} so I can see it and point at the right line."
@@ -3557,21 +3565,21 @@ class LessonSession:
             if wf.get("reason") == "other_window":  # another project's window is the one on screen, any file
                 file = Path(self._step_file(step) or step.get("file") or "").name
                 adopt = wf.get("can_adopt") and not self.lesson_mode
-                self._spawn(self._emit_card({"stepId": step["id"], "kind": "hint", "title": "Wrong folder?",
+                self._spawn(self._emit_card({"stepId": step["id"], "kind": "step", "title": "Wrong folder?",
                                              "body": f"This VS Code window is {other}. Open {file} in "
                                                      f"{Path(self.workdir).name}, this lesson's folder.",
                                              "actions": ["open_editor", "use_this_folder"] if adopt
                                              else ["open_editor"]}, window_s=120.0))
                 return True
             file = wf.get("file") or Path(self._step_file(step) or step.get("file") or "").name
-            self._spawn(self._emit_card({"stepId": step["id"], "kind": "hint", "title": "Wrong folder?",
+            self._spawn(self._emit_card({"stepId": step["id"], "kind": "step", "title": "Wrong folder?",
                                          "body": f"This is {other}/{file}. Open the lesson's {file} in VS Code.",
                                          "actions": ["use_this_folder", "open_editor"] if wf.get("can_adopt")
                                          else ["open_editor"]}, window_s=120.0))
             return True
         dirty = self._dirty_step_file(step)
         if dirty:
-            self._spawn(self._emit_card({"stepId": step["id"], "kind": "hint", "title": f"Save {dirty}",
+            self._spawn(self._emit_card({"stepId": step["id"], "kind": "step", "title": f"Save {dirty}",
                                          "body": f"Save {dirty} in VS Code (⌘S)."}, window_s=60.0))
             return True
         return False
@@ -3687,8 +3695,8 @@ class LessonSession:
         what = ("" if late else (self.last_offtrack or {}).get("title") or "") or (
             f"Still missing: {'; '.join(str(x) for x in labels[:2])}" if labels else "The checks haven't passed yet")
         body = " ".join((("Couldn't double-check in time. " if late else "") + what).split()[:16])
-        await self._emit_card({"stepId": step["id"], "kind": "hint", "source": "judge", "verdict": "not_done",
-                               "title": "Not yet", "body": body, "actions": ["hint", "show_me", "skip_step"]}, window_s=2.0)
+        await self._emit_card({"stepId": step["id"], "kind": "step", "source": "judge", "verdict": "not_done",
+                               "title": "Not yet", "body": body, "actions": ["hint", "show_me"]}, window_s=2.0)  # E9: the bar owns Skip
         await self._status("offtrack" if self.last_offtrack else "watching")
 
     SETUP_STEP = re.compile(r"\b(install(ing|ation|ed)?|download(ing)?|set\s*-?\s*up|setup)\b", re.I)

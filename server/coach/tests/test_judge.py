@@ -118,8 +118,8 @@ def test_done_but_a_deterministic_check_disagrees_asks(monkeypatch):
     r = run(StepJudge().judge(S2, [{"checkId": "c2", "status": "fail", "detail": "calc.py not found in workdir"}], screen=SCREEN,
                               files={"calc.py": "def add(a, b):\n    return a + b\n"}))
     assert r["events"] == []  # never overrule a machine check
-    assert r["card"] == {"stepId": "s2", "kind": "hint", "source": "judge", "verdict": "done", "title": "Looks done?",
-                         "body": "calc.py is open in VS Code", "actions": ["confirm", "skip_step"], "checkIds": ["c2"]}
+    assert r["card"] == {"stepId": "s2", "kind": "step", "source": "judge", "verdict": "done", "title": "Looks done?",
+                         "body": "calc.py is open in VS Code", "actions": ["confirm"], "checkIds": ["c2"]}
     assert len(r["card"]["body"].split()) <= 12
 
 
@@ -127,7 +127,7 @@ def test_learner_already_on_a_later_step(monkeypatch):
     fake(monkeypatch, {"checks": [{"check_id": "c1", "verdict": "cant_tell", "confidence": 0.3, "reason": "r", "evidence": ""}],
                        "on_step_id": "s3", "summary": "writing add() and subtract() in calc.py"})
     r = run(StepJudge().judge(S1, [{"checkId": "c1", "status": "pending"}], screen=SCREEN))
-    assert r["card"]["title"] == "Already ahead?" and r["card"]["actions"] == ["skip_step"] and r["card"]["targetStepId"] == "s3"
+    assert r["card"]["title"] == "Already ahead?" and r["card"]["actions"] == [] and r["card"]["targetStepId"] == "s3"
     assert "Write add and subtract" in r["card"]["body"] and len(r["card"]["body"].split()) <= 12
     # an earlier step on screen → no card
     fake(monkeypatch, {"checks": [], "on_step_id": "s1", "summary": ""})
@@ -193,7 +193,7 @@ def test_where_reads_the_editor_state():
 
 def test_hint_and_point_use_the_editor_state(monkeypatch):
     h = coach.hint(CALC, 0, {}, screen=_vscode_untitled())
-    assert h["where"].startswith("You're in VS Code on an unsaved file") and h["title"] == "Open your code first"
+    assert h["where"].startswith("You're in VS Code on an unsaved file") and "Then:" not in h["body"]  # E6: Where says it once
 
     async def call(**kw):
         return llm.CallResult(data={"box_ids": [], "where": "Open the lesson file in your editor, such as VS Code, first"}, model="h")

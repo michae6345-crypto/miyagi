@@ -1012,7 +1012,7 @@ def test_hint_points_or_says_where_first():
     h = coach.hint(d.STEP, 0, card, screen=s)
     assert h["body"] == card["guidingQuestion"] and "lr=0.3" in h["targets"][0]["text"]
     h = coach.hint(d.STEP, 0, card, screen=terminal_only(s))  # `$ python pinn_diffusion.py` is not the code
-    assert h["title"] == "Open your code first" and h["body"].startswith("Open pinn_diffusion.py in your editor. Then: What happens")
+    assert h["body"] == card["guidingQuestion"]  # E6: the body is the hint; the Where row says where to go
     assert h["where"] == "Open pinn_diffusion.py in your editor" and "targets" not in h
     h = coach.hint(step_without_targets(d.STEP) | {"checks": [{"id": "r", "type": "command_exit_ok", "command": "python train.py"}]}, 1, {}, screen=terminal_only(s))
     assert h["where"] == "Switch to your terminal and run `python train.py`"

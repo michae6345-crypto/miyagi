@@ -61,7 +61,11 @@ export interface EngineEvents {
   "video.seek": { t: number; play: boolean };
   "video.pause": {};
   "video.play": {};
-  "card": { stepId?: string; kind: "explain" | "hint" | "answer" | "resume" | "setup" | "preflight"; title: string; body: string; videoJump?: { t: number; label: string };
+  /** card.kind (tile per kind, A15): explain / hint / answer = what the learner pressed or asked (Explain, Hint, a typed question); resume / setup / preflight: see their fields.
+   *  "step": a step-control / step-status card the engine raises itself, never an answer: "Run it" (run_command), "Save calc.py", "calc.py is still empty", "Wrong folder?",
+   *          "Looks done?" and every judge card (source "judge": "Not yet", "Already ahead?", "Save so I can check"). A neutral step tile, not the pink Hint one.
+   *  "where": Show me's answer when there is no box to draw: where to work ("Open calc.py", "Where to work", "Save it as calc.py"), usually with open_editor. The lilac Show me tile. */
+  "card": { stepId?: string; kind: "explain" | "hint" | "answer" | "resume" | "setup" | "preflight" | "step" | "where"; title: string; body: string; videoJump?: { t: number; label: string };
             output?: string;              // monospace output block (e.g. the last lines of "Run it for me")
             actions?: Array<"confirm" | "undo" | "apply_fix" | "open_editor" | "resume" | "end_lesson" | "install" | "skip_setup" | "open_in_browser" | "build" | "pick_another" | "download" | "skip_step" | "check_step" | "use_this_folder" | "run_command" | "retry" | "hint" | "show_me">;    // buttons on the card -> send `action {kind}`; retry ("Try again"): on the "Couldn't reach Claude" answer card; hint / show_me: the same actions as on the off-track card (judge "Not yet" card)
             items?: SetupItem[];          // kind "preflight": early tool check (a second card of the same kind replaces the first)
@@ -76,7 +80,7 @@ export interface EngineEvents {
             diff?: string;               // unified diff to preview ("Apply this fix?" -> confirm)
             targets?: Array<{ boxId: number; label: string; text: string; rect: { x: number; y: number; w: number; h: number } }>;
             guidingQuestion?: string;
-            source?: "judge";              // E5's step judge made it ("Looks done?" / "Not yet" / "Already ahead?" / "Save so I can check"): a step-status card, never an answer to the learner (sent as kind "hint"); don't let it replace an answer card
+            source?: "judge";              // E5's step judge made it ("Looks done?" / "Not yet" / "Already ahead?" / "Save so I can check"): a step-status card, never an answer to the learner (sent as kind "step"); don't let it replace an answer card
             verdict?: "done" | "not_done"; // source "judge": Claude's verdict on the WHOLE step. done -> "Looks done?" (confirm = Yes); not_done -> "Not yet" (hint / show_me)
             checkIds?: string[] };         // source "judge": the checks it is about (done: what Yes vouches for; not_done: what is still missing)
   "diagram": {

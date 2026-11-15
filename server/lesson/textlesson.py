@@ -252,7 +252,7 @@ async def build_text_lesson(goal: str, workdir: str, on_update=None, *, cache: b
         boxes = [dict({k: v for k, v in x.items() if k != "step"}, **({"stepIndex": first[x["step"]]} if x.get("step") in first else {}))
                  for x in flow]  # stepIndex = the built step's index (1-based, as StepSummary.index)
         needs = {"build": b, "flow": boxes, "prerequisites": prereqs, "learnFirst": learn_first}
-        g = {"lesson": {"id": f"lesson-{key[5:13]}", "title": plan.get("title") or goal, "goal": goal, "workdir": workdir,
+        g = {"lesson": {"id": f"lesson-{key[5:13]}", "title": sentence_case(plan.get("title") or goal, goal), "goal": goal, "workdir": workdir,
                         "libraries": libs, "mode": "lesson", "complete": complete, "builtBy": "claude", "primer": primer,
                         **({"overview": overview} if overview else {}), **{k: v for k, v in needs.items() if v}},
              "sources": [{"id": f"src{i}", "kind": "repo" if "github.com/" in s["url"] else "blog", "title": s["title"][:200], "url": s["url"]}
@@ -784,6 +784,40 @@ def _code_title(st: dict) -> str:
     return f"Add the code to {f}" if f else "Add the code"
 
 
+# E11: names that stay capitalized when a Title Case lesson title becomes sentence case (acronyms and CamelCase
+# names such as HTML or PyTorch are kept anyway, and so is any word the learner capitalized in the goal)
+_PROPER = frozenset("""Python JavaScript TypeScript React Node Flask Django Rust Go Java Kotlin Swift Ruby Rails Jupyter
+Colab Linux Windows Mac Docker Git Pandas Streamlit Vue Svelte Express Tailwind Postgres Excel Google Chrome Arduino
+Raspberry Pi Unity Godot Blender Claude Gemini Anthropic English Spanish French I""".split())
+_SMALL = frozenset("a an and as at by for from in into of on or the to vs with".split())
+
+
+def sentence_case(title: str, goal: str = "") -> str:
+    """"Build a Python Calculator" -> "Build a Python calculator" (BRAND: sentence case). Only a Title Case title is
+    changed (every word but small ones capitalized); proper nouns, acronyms and the goal's capitalized words stay."""
+    words = " ".join((title or "").split()).split(" ")
+    if not words[0]:
+        return ""
+    words[0] = words[0][:1].upper() + words[0][1:]
+    keep = _PROPER | {re.split(r"['’]", w.strip(".,:;!?()\"'“”‘’"))[0] for w in (goal or "").split() if w[:1].isupper()}
+
+    def cap(part: str) -> bool:  # "Calculator", "To": capitalized, the rest lowercase
+        return part[:1].isupper() and part[1:].islower() if part[1:] else part[:1].isupper()
+
+    rest = [w for w in words[1:] if w[:1].isalpha() and w.lower() not in _SMALL]
+    if not rest or not all(w[:1].isupper() for w in rest):
+        return " ".join(words)  # already sentence case (or a name only): leave it
+    out = [words[0]]
+    for w in words[1:]:
+        bare = w.strip(".,:;!?()\"'“”‘’")
+        root = re.split(r"['’]", bare)[0]  # "Python's" -> "Python"
+        if root in keep or not all(cap(p) for p in root.split("-") if p):
+            out.append(w)  # a proper noun, an acronym (HTML) or a CamelCase name (PyTorch)
+        else:
+            out.append(w.replace(bare, bare.lower()))
+    return " ".join(out)
+
+
 def overview_fallback(title: str, steps: list[dict]) -> str:
     """'What we're building' (<= 60 words) from the title and the step titles, when the plan gave none."""
     t = " ".join((title or "").split()).rstrip(".")
@@ -795,9 +829,11 @@ def overview_fallback(title: str, steps: list[dict]) -> str:
 
 def fill_missing(g: dict) -> dict:
     """A lesson cached by an older builder: complete check labels (never cut, never the regex), an overview, and
-    what / why on every step. Deterministic, no model call."""
+    what / why on every step, a sentence-case title. Deterministic, no model call."""
     les = g.get("lesson") or {}
     steps = g.get("steps") or []
+    if les.get("title"):
+        les["title"] = sentence_case(les["title"], les.get("goal") or "")
     if not (les.get("overview") or "").strip():
         les["overview"] = overview_fallback(les.get("title") or les.get("goal") or "", steps)
     for st in steps:

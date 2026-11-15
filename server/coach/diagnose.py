@@ -50,7 +50,7 @@ COACH_SYSTEM = f"""You are the coach inside a tutorial overlay. A learner is fol
 Voice: a calm, precise senior engineer sitting beside them. Name the actual cause, then the one change to make. No hype, no exclamation marks, no "Great question", no apologies, no hedging filler. Assume a skeptical expert may read the card: every claim must be correct and specific.
 
 Hard limits:
-- title: 3 to 7 words (hard maximum 8), plain statement of the cause (not a question, no trailing period).
+- title: 3 to 7 words (hard maximum 8), plain statement of the cause (not a question, no trailing period), in sentence case (capitalize only the first word and proper nouns), with code names in backticks ("`subtract` and `divide` not written yet").
 - body: at most 30 words, at most 2 sentences. Sentence 1: why it fails. Sentence 2: what to do, stated completely in words with the concrete value or name (e.g. "Set lr to 1e-3."), because the diff is often hidden at first.
 - Refer to their code by its real names (variables, functions) when helpful.
 - diff_expected: the smallest replacement for the learner's offending line(s): one contiguous block of at most 8 lines that makes EVERY edit your body's action sentence asks for (if the fix touches two nearby lines, the block covers both), in the learner's style and variable names; "" if no code change applies. If the fix adds training stages, keep the total training budget about the same (split the epochs across stages). diff_yours: the learner's current line(s) copied exactly from the numbered excerpt (without line numbers); "" if none. diff_line: the 1-based line number of diff_yours in the excerpt, 0 if none. diff_file: the file name if known, else "".
@@ -340,6 +340,35 @@ def _title(title: str, pid: str | None) -> str:
     return clamp_title(title)
 
 
+_CAMEL_BRANDS = frozenset({"iPhone", "iPad", "iOS", "macOS", "eBay", "iCloud"})
+
+
+def _tidy_title(title: str, step: dict, code_excerpt: str = "") -> str:
+    """E11: sentence case, code names in backticks: "subtract, multiply, divide not written yet" -> "`subtract`,
+    `multiply`, `divide` not written yet". Wrapped: the step's def / class names, add() and snake_case tokens, and a
+    lowercase first word that is a name in the code (`lr`); otherwise the first letter is capitalized. Text already
+    in backticks is left alone."""
+    src = f"{step.get('code') or ''}\n{code_excerpt or ''}"
+    defs = set(re.findall(r"\b(?:def|class)\s+([A-Za-z_]\w*)", src))
+    assigned = re.findall(r"^\s*([A-Za-z_]\w*)\s*=(?!=)|^\s*(?:from|import)\s+([A-Za-z_]\w*)", src, re.M)
+    names = defs | {a or b for a, b in assigned}  # + variables and imported modules (`lr`, `pandas`)
+
+    def wrap(m: re.Match, at_start: bool) -> str:
+        tok = m.group(1)
+        code = (tok.rstrip("()") in defs or tok.endswith("()") or ("_" in tok and re.search(r"[A-Za-z]", tok))
+                or (re.fullmatch(r"[a-z]+[A-Z]\w*", tok) and tok not in _CAMEL_BRANDS))  # useEffect, not macOS
+        first = at_start and tok[:1].islower() and tok in names
+        return f"`{tok}`" if code or first else tok
+
+    word = re.compile(r"(?<![\w`.])([A-Za-z_]\w*(?:\(\))?)(?![\w`(.])")
+    parts = re.split(r"(`[^`]*`)", title or "")
+    for i in range(0, len(parts), 2):  # outside backticks only
+        parts[i] = word.sub(lambda m, i=i: wrap(m, i == 0 and m.start() == 0), parts[i])
+    out = "".join(parts)
+    lead = re.match(r"\S*", out).group(0)
+    return out[0].upper() + out[1:] if lead.islower() else out  # "macOS …" keeps its case
+
+
 def _shape(data: dict, step: dict, code_excerpt: str, lesson: dict | None, sources: list[dict] | None = None) -> dict:
     expected = (data.get("diff_expected") or "").strip("\n")
     yours = (data.get("diff_yours") or "").strip()
@@ -369,7 +398,7 @@ def _shape(data: dict, step: dict, code_excerpt: str, lesson: dict | None, sourc
     out = {
         "stepId": step.get("id", ""),
         "severity": data.get("severity") if data.get("severity") in ("warn", "fail") else "warn",
-        "title": _title(data.get("title", ""), pid),
+        "title": _tidy_title(_title(data.get("title", ""), pid), step, code_excerpt),
         "body": clamp_body(data.get("body", "")),
         "actions": order_actions(data.get("actions") or [], has_diff=bool(diff)),
         "_meta": {"route": "opus", "playbook_id": pid if pid in BY_ID else None},
