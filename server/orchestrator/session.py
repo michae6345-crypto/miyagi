@@ -3128,6 +3128,10 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
                 self.last_bp_sig = sig
                 if trigger == "run_end" or repeat or speak_now:  # a new syntax error: the coach explains it now
                     self._consider_speaking("repeat" if repeat else "breakpoint", step, failed, ctx)
+            if (failed and not self.coaching and self._sig(failed) != self.spoken_sig
+                    and curated.known_offtrack(self, step, failed) is not None):
+                # t8: a known failure of the curated lesson (nn2's sign) is said now, not after the idle gate
+                self._consider_speaking("known", step, failed, ctx)
 
     _FILE_DETAIL = re.compile(r"(found in|typed in|confirmed by your files)\b")
 
@@ -3494,8 +3498,10 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
         if self._ask_held():  # the learner asked Miyagi something: no proactive card over (or right after) the answer
             self.pending_speak = None
             return
-        if not self.learner_started() or self.clock() - self.step_t0 < self.offtrack_grace_s:
-            # never "off track" before the learner did anything on this step, nor in its first ~20 s
+        if not self.learner_started() or (self.clock() - self.step_t0 < self.offtrack_grace_s
+                                          and curated.known_offtrack(self, step, failed) is None):
+            # never "off track" before the learner did anything on this step, nor in its first ~20 s (t8: unless it
+            # is a known failure of the curated lesson the learner just made: its card is certain and instant)
             return self._speak_note(reason, "held (learner not started / first ~20 s)")
         if self._editor_state_card(step):  # unsaved file / another lesson's folder: say that, never "off track"
             return self._speak_note(reason, "held (editor-state card instead)")
@@ -3673,6 +3679,11 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
 
                 await stale_advice.fresh(self, step)  # VS Code's text this tick, not a 4 s old read's disk fallback
                 code, _file = self._code_excerpt(step)
+                card = curated.known_offtrack(self, step, failed)  # t8: a known failure: no model call
+                if card is not None:
+                    log.info("instant off-track %r for %s (curated, no model call)", card.get("title"), step["id"])
+                    stale_advice.note(self, step, card, code)
+            if card is None:
                 sfile = self._step_file(step) or step.get("file") or _file or ""
                 file_state = {"path": sfile, "saved": not self._dirty_step_file(step),
                               "wrong_folder": bool(self._other_folder(step))} if sfile else None

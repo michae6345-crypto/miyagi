@@ -656,6 +656,50 @@ def math_detail(check_id: str | None, lines: list[str]) -> str | None:
     return None
 
 
+# ---------------------------------------------------------------------------------------------- instant Not yet cards
+# t8 (05:51:20-05:51:31, nn2): the planted sign bug `(1 + h2 ** 2)` was named by the math row at paste, but its Not yet
+# card took ~11 s: the 20 s grace / 3 s idle gate held it, then a Haiku triage (3.2 s) and a Sonnet diagnosis (3.0 s)
+# wrote what the row already knew. A known, deterministic failure of this lesson now gets its card from the files alone
+# (session._coach skips the model; session._consider_speaking lets it through the grace), in the same shape as the
+# coach's card (title, body, severity, actions, diff), so Show me / Do it for me / the box / stale_advice work as before.
+# Anything else still goes to Claude.
+SIGN_ROWS = ("nn2c4", "nn2p4")  # "Uses the tanh slope 1 - h² on both layers" (screen / files route)
+_SLOPE_LINE = re.compile(r"^\s*(d_h[12])\s*=(?!=)")
+_PLUS_SLOPE = re.compile(r"\(\s*1(?:\.0*)?\s*\+\s*(h[12])\s*(?:\*\*\s*2(?:\.0*)?|\*\s*h[12])\s*\)")
+
+
+def _sign_card(session: Any, step: dict, failed: list[dict]) -> dict | None:
+    """nn2's tanh slope written (1 + h ** 2): change + to - on that line."""
+    if step.get("id") != "nn2" or not any(r.get("checkId") in SIGN_ROWS for r in failed):
+        return None
+    path, lines = session._step_lines(step)
+    if path is None:
+        return None
+    for n, ln in enumerate(lines, start=1):
+        code = ln.split("#", 1)[0]
+        g, m = _SLOPE_LINE.match(code), _PLUS_SLOPE.search(code)
+        if not (g and m):
+            continue
+        fixed = ln[:m.start()] + m.group(0).replace("+", "-", 1) + ln[m.end():]
+        return {"stepId": step["id"], "severity": "fail", "title": f"Wrong sign in the {g.group(1)} tanh slope",
+                "body": f"Change + to - on line {n} of {path.name}. The slope of tanh is 1 - {m.group(1)} ** 2.",
+                "actions": ["explain", "show_me", "hint"],
+                "diff": {"yours": ln.rstrip(), "expected": fixed.rstrip(), "file": path.name, "line": n}}
+    return None
+
+
+def known_offtrack(session: Any, step: dict | None, failed: list[dict]) -> dict | None:
+    """The off-track card for a known failure of the curated lesson, from the files alone (no model call), or None
+    (not the curated lesson, nothing known fails, or its cause is no longer in the file: Claude diagnoses it)."""
+    if step is None or not failed or not active(session):
+        return None
+    try:
+        return _sign_card(session, step, failed)
+    except Exception:  # noqa: BLE001 - the coach diagnoses it as before
+        log.exception("curated: no instant card")
+        return None
+
+
 def _loss_rows(session: Any, step: dict, results: list[dict]) -> list[dict]:
     """The loss row's detail from the run's LAST printed row (metric_detail), when its verdict is the row's."""
     check = _loss_check(step)
