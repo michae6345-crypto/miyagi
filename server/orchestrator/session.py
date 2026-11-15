@@ -1136,6 +1136,12 @@ class LessonSession:
         isn't open, box the editor area and say how to open it. Never the breadcrumb / tab bar."""
         win = self._editor_window()
         snip = {"snippet": cmd[:300]}
+        region = getattr(self.screen, "region", None) if self.screen is not None else None
+        if region is not None:  # E6: the panel / editor regions, stabilized (no jitter)
+            if term := region("terminal"):
+                return {"rect": term, "caption": "Run it in the VS Code terminal", "app": "Code", **snip, "kind": "terminal"}
+            if ed := region("editor"):
+                return {"rect": ed, "caption": "Open the terminal: ⌃`", "app": "Code", **snip, "kind": "editor"}
         hit = None
         if self.screen is not None:
             for rx in (r"^\s*TERMINAL\b", r"\w+@[\w.-]+.*[%$#]\s*$", r"^\s*(\(\w+\)\s*)?\S*\s*[%$❯]\s*$"):
