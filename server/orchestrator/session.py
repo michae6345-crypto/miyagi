@@ -114,11 +114,14 @@ class BuildStage(logging.Handler):
         super().__init__(level=logging.INFO)
         self.text = "Watching the video"
         self.structured = False  # once the builder reports stages, ignore log matching
+        self.cache_hit = False  # E2 answered from its lesson cache (nothing was built: no "ready" moment to linger on)
 
     def on_progress(self, stage: str, message: str = "") -> None:
         """E2's progress callback: honest, stable stage ids."""
         self.structured = True
         msg = (message or "").strip()
+        if stage == "cache_hit":
+            self.cache_hit = True
         if stage == "engine_switch":
             self.text = self.SWITCH_LABELS.get(msg, "Switching to the transcript")
         elif stage == "steps_ready":
@@ -249,6 +252,14 @@ def is_notebook_lesson(graph: dict) -> bool:
             if str(x.get("file") or "").endswith(".ipynb"):
                 return True
     return False
+
+
+def is_colab_lesson(graph: dict) -> bool:
+    """A notebook lesson done in Google Colab (a browser), never in VS Code."""
+    blob = " ".join([str((graph.get("lesson") or {}).get(k) or "") for k in ("title", "goal")]
+                    + [s.get("url") or "" for s in graph.get("sources", [])]
+                    + [f"{st.get('title', '')} {st.get('instructions', '')}" for st in graph.get("steps", [])]).lower()
+    return "colab" in blob
 
 
 def _use_lesson_venv(graph: dict) -> None:
@@ -525,13 +536,19 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
                 await self.emit("card", card)
             await self._maybe_pass_setup_step()
             return
-        coding = not self.notebook_lesson and (wsmod.editor_needed(items) if items else wsmod.needs_editor(graph))
+        coding = self._editor_lesson(graph, items)
         if items:  # S2: what this lesson needs, what's installed, install recipes (+ "Download tutorial files")
             self.reqs = items
             missing = [it for it in items if it.get("needed") and not it.get("ok")]
-            if coding and not missing:  # everything's here: open the editor now, no "Ready to go… Open?" card
+            if coding:  # t9 V8: VS Code opens on the lesson folder by itself, as the curated lesson's does, alongside
+                # the setup card (which then never offers "Open VS Code"); the learner no longer has to press Open
+                if missing:
+                    card = wsmod.setup_card(items, resources=found)
+                    if card:
+                        self._setup_card = card = wsmod.editor_opens(card, items)
+                        await self.emit("card", card)
                 await self._auto_open_editor(folder)
-                if found:  # keep the video's files one tap away
+                if found and not missing:  # keep the video's files one tap away
                     await self.emit("card", {"kind": "hint", "title": "Tutorial files",
                                              "body": f"The video links {len(found)} file(s). Save them in your lesson folder?",
                                              "actions": ["download"]})
@@ -544,6 +561,16 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
             return
         if coding:  # no setup check available (module missing, no key): a coding lesson opens its editor
             await self._auto_open_editor(folder)
+
+    def _editor_lesson(self, graph: dict, items: list[dict] | None) -> bool:
+        """Does this video lesson happen in VS Code (so VS Code opens by itself)? t9 V8: a Jupyter notebook lesson does
+        too when the setup check says it needs the editor (test 9: mnist.ipynb in VS Code); a Colab one stays in the
+        browser."""
+        from . import workspace as wsmod
+
+        if self.notebook_lesson:
+            return bool(items) and wsmod.editor_needed(items) and not is_colab_lesson(graph)
+        return wsmod.editor_needed(items) if items else wsmod.needs_editor(graph)
 
     async def _auto_open_editor(self, folder: str) -> None:
         """Coding lesson, nothing missing: open the learner's editor on the lesson folder (S2: VS Code first, the
@@ -640,7 +667,7 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
                         fresh = [it for it in fresh if it.get("needed") and not it.get("ok") and it.get("kind") != "editor"]
                     self._setup_card = wsmod.setup_card(fresh) if fresh else None
                     if self._setup_card and opened:
-                        self._setup_card["actions"] = [a for a in self._setup_card.get("actions") or [] if a != "open_editor"]
+                        wsmod.editor_opens(self._setup_card, fresh)
             if res.get("ok") and (item.get("install") or {}).get("method") == "pip" and self.workdir \
                     and getattr(self.screen, "reader", None) is not None:  # real windows only (never in tests)
                 # E20: Pylance resolved `import requests` before the .venv existed and never looked again: the lesson's
@@ -981,10 +1008,12 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
         self.query = query
         await self._status("thinking")
         self.results = {}
+        early: set[str] = set()
         try:
             async for r in self.m.search(query):  # streamed as the finder produces them
                 self.results[r["id"]] = r
                 await self.emit("search.result", r)
+                self._prefetch_early(r, early)
                 if self.result_stagger_s and self.m.demo:
                     await asyncio.sleep(self.result_stagger_s)
         except asyncio.CancelledError:  # a newer learn / pick replaced this search (main.py): not "searching" any more
@@ -998,6 +1027,20 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
             self.m.prefetch_preflight(list(self.results.values()), self.query)
         self.phase = "idle" if self.graph is None else self.phase
         await self._status("idle")
+
+    PREFETCH_EARLY = 3  # S8: video rows preflighted while the search still streams (preflight.prefetch's top=3)
+
+    def _prefetch_early(self, row: dict, early: set[str]) -> None:
+        """S8: the first few video rows get their preflight as they arrive, not at search.done. A live search streams
+        its first rows at ~5 s and ends at ~18 s; a pick before search.done cancels the search (main.py), so the
+        preflight only ran on the pick and its card waited ~3-5 s for Claude. search.done still prefetches the final
+        top 3 (preflight's memo / in-flight share makes a row prefetched here free there)."""
+        if len(early) >= self.PREFETCH_EARLY or row.get("id") in early or not video_id_from_url(row.get("url", "")):
+            return
+        if not self.m.has_preflight():
+            return
+        early.add(row.get("id"))
+        self.m.prefetch_preflight([row], self.query)
 
     async def build_lesson(self, result_ids: list[str]) -> None:
         picked = [self.results[i] for i in result_ids if i in self.results]
@@ -1169,6 +1212,8 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
         await self.emit("lesson.ended", {**({"lessonId": lesson_id} if lesson_id else {}), "reason": reason})
         await self._status("idle")
 
+    CACHED_READY_HOLD_S = 0.6  # the "Lesson ready" hold for a lesson E2 served from its cache (as _load_curated's)
+
     async def _build(self, url: str, goal: str, video_meta: dict | None = None) -> None:
         """Build a lesson with live progress (>= 1 tick/s, stage names from the builder's own log
         events). Any failure, timeout or cancellation ends with `error` (human wording), a final
@@ -1256,7 +1301,9 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
                 graph.setdefault("lesson", {})["workdir"] = folder
             self.build_progress = None
             await self.emit("lesson.building", {"message": "Lesson ready", "progress": 1.0})
-            await asyncio.sleep(self.ready_hold_s)  # let the "ready" moment be seen before the lesson UI
+            # let the "ready" moment be seen before the lesson UI; a cached lesson had no build to see finish, so it
+            # holds like a curated one (0.6 s): Build -> lesson.ready went 1.5 s -> 0.6 s on a demo re-run
+            await asyncio.sleep(min(self.ready_hold_s, self.CACHED_READY_HOLD_S) if stage.cache_hit else self.ready_hold_s)
             ok = True
         except BaseException as e:
             if isinstance(e, Exception) and progressive["loaded"] and self.graph is not None:

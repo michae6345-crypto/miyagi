@@ -497,3 +497,40 @@ def test_memo_hit_rechecks_the_lesson_cache():
     assert "cached" not in first["buildPlan"] and first["buildPlan"]["estSecondsToFirstSteps"] > 0
     assert again["cached"] and again["buildPlan"]["cached"] and "ready instantly (5 steps)" in preflight_card(again)["body"]
     assert "cached" not in third["buildPlan"] and third["buildPlan"]["estSecondsToFirstSteps"] == first["buildPlan"]["estSecondsToFirstSteps"]
+
+
+def test_claudes_read_is_kept_on_disk_so_a_rerun_makes_no_call(tmp_path, monkeypatch):
+    """Video speed: a demo re-run (or a pick after an engine restart: the 10 min memo is gone) shows the same card
+    without a Claude call or its wait. Same answer as the first read; another goal or a stale file asks again."""
+    claude = FakeClaude(CODING, delay=0.3)
+    first = run(_pf("kCc8FmEb1nY", "build an LLM", claude=claude, classify_cache=tmp_path))
+    assert len(claude.calls) == 1 and list(tmp_path.glob("kCc8FmEb1nY-*.json"))
+    core.clear_memo()  # an engine restart
+    t0 = time.monotonic()
+    again = run(_pf("kCc8FmEb1nY", "Build an  LLM", claude=claude, classify_cache=tmp_path))
+    assert len(claude.calls) == 1 and time.monotonic() - t0 < 0.25  # no call, no 0.3 s wait
+    for k in ("style", "styleWhy", "topic", "goalMatch", "libraries"):
+        assert again[k] == first[k]
+    assert again["buildPlan"] == first["buildPlan"] and preflight_card(again) == preflight_card(first)
+    core.clear_memo()
+    run(_pf("kCc8FmEb1nY", "build a chatbot", claude=claude, classify_cache=tmp_path))  # another goal: its own read
+    assert len(claude.calls) == 2
+    core.clear_memo()
+    monkeypatch.setattr(core, "CLASSIFY_TTL_S", -1)  # stale
+    run(_pf("kCc8FmEb1nY", "build an LLM", claude=claude, classify_cache=tmp_path))
+    assert len(claude.calls) == 3
+
+
+def test_claudes_read_cache_default_dir_and_off_switch(tmp_path, monkeypatch):
+    monkeypatch.setenv("PREFLIGHT_CACHE_DIR", str(tmp_path))
+    assert core.classify_cache_dir() == tmp_path
+    monkeypatch.setenv("PREFLIGHT_CACHE", "0")
+    assert core.classify_cache_dir() is None
+    core.classify_save(tmp_path, "kCc8FmEb1nY", "x", CODING)
+    assert core.classify_cached(tmp_path, "kCc8FmEb1nY", " X ") == CODING
+    assert core.classify_cached(tmp_path, "kCc8FmEb1nY", "y") is None and core.classify_cached(None, "v", "x") is None
+    # a test double for Claude never reads or writes the real cache (classify_cache defaults to off with a client)
+    monkeypatch.setenv("PREFLIGHT_CACHE", "1")
+    claude = FakeClaude(CODING)
+    run(_pf("kCc8FmEb1nY", "x", claude=claude))
+    assert len(claude.calls) == 1

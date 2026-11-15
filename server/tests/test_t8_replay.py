@@ -357,3 +357,151 @@ def test_t8_just_teach_me_nn1_to_nn4(t8):
     previews_only_until_a_run(ev, at["nn4-zeros"])
     assert not of(ev, "error"), of(ev, "error")
     assert set(rig.coach.calls) <= {"nn2", "nn4"}, rig.coach.calls
+
+
+NN5_DONE = _pasted(NN3_DONE, "# Test it", STEPS["nn5"]["code"])
+
+
+def test_t8_just_teach_me_nn5_nn6_completion_and_end(t8, monkeypatch):
+    """CP10: nn5 boxed under # Test it and passed on its paste; nn6 the ▷ box, the real ▷ run completes the lesson:
+    "Neural networks · 8 skills mastered" (no "You built…", no "Lesson complete"); End lesson in one tap."""
+    from server.orchestrator import lesson_end
+
+    monkeypatch.setattr(lesson_end, "CARD_DELAY_S", 0.05)
+    rig = t8
+
+    async def go():
+        at = await just_teach_me_nn1_to_nn4(rig)
+        at["nn5"] = rig.mark()
+        await save(rig, NN5_DONE)
+        await tick(rig, 2)
+        await settle(rig, 0.2)
+        at["nn6"] = rig.mark()
+        await vscode_run(rig, RUNS["nn6"]["good"])
+        await tick(rig, 3)
+        await settle(rig, 0.3)
+        at["done"] = rig.mark()
+        await rig.s.action("end_lesson")
+        await settle(rig, 0.2)
+        at["ended"] = rig.mark()
+        return at
+
+    at = run(go())
+    ev = rig.events
+    # nn5: its box under # Test it (line 47 in t8), then the paste passes it; nn6 starts on the ▷ box
+    s = ev[at["end"]:at["nn5"]]
+    n = _line(NN3_DONE, "# Test it") + 1
+    assert n == 47
+    b = boxes(ev[at["nn4-good"]:at["nn5"]])
+    assert b and b[-1]["caption"] == "Type it here" and abs(b[-1]["rect"]["y"] - rig.vs.row_y(n, n - 15)) <= 2.0, b
+    s = ev[at["nn5"]:at["nn6"]]
+    assert {"stepId": "nn5", "nextStepId": "nn6"} in of(s, "step.passed")
+    b = boxes(s)
+    assert b and b[-1]["caption"] == "Click ▷ to run nn.py" and b[-1].get("zoom") is True, b
+    # nn6: the run passes it and the lesson is complete
+    s = ev[at["nn6"]:at["done"]]
+    assert {"stepId": "nn6"} in [{k: v for k, v in p.items() if k != "nextStepId"} for p in of(s, "step.passed")]
+    done = [c for c in of(s, "card") if c.get("stepId") == "nn6" and c.get("kind") == "step"]
+    assert done, of(s, "card")
+    card = done[-1]
+    assert card["title"] == "Neural networks · 8 skills mastered", card
+    words = (card["title"] + " " + card.get("body", "")).lower()
+    assert "you built" not in words and "lesson complete" not in words, card
+    assert "0.0009" in card.get("body", ""), card  # the learner's own last run, not a canned number
+    assert any("-1" in d.get("caption", "") and "1" in d.get("caption", "") for d in of(s, "diagram"))
+    # End: one tap ends it, the box goes
+    s = ev[at["done"]:at["ended"]]
+    assert of(s, "lesson.ended") and of(s, "lesson.ended")[-1]["reason"] == "completed", of(s, "lesson.ended")
+    assert {"clear": True} in of(s, "spotlight")
+    no_stale(ev)
+    previews_only_until_a_run(ev, at["nn4-zeros"])
+    assert not of(ev, "error"), of(ev, "error")
+
+
+# ------------------------------------------------------------------------------------------------------ Demo takes
+
+async def demo_take(rig: Rig) -> dict:
+    """One Demo take as docs/DEMO.md runs it: zeros at step 1, Run it for me -> the recorded stuck run, Hint, random
+    weights + Check my work -> it learns, nn5, Run it for me on nn6 -> complete; then End."""
+    at = {"start": rig.mark()}
+    await rig.s.learn("teach me to build a neural network from scratch", mode="demo")
+    rig.s.last_obs = _code_window(f"nn.py — {rig.workdir.name}")
+    rig.s.editor_open = True
+    await settle(rig, 0.2)
+    at["starter"] = (rig.workdir / "nn.py").read_text(encoding="utf-8") == STARTER
+    await save(rig, _zeros(NN1_DONE))
+    await save(rig, _zeros(NN2_FIXED))
+    await save(rig, _zeros(NN3_DONE))
+    at["nn4"] = rig.mark()
+    await rig.s.action("run_command")
+    await settle(rig, 0.2)
+    at["nn4-hint"] = rig.mark()
+    await rig.s.action("hint")
+    await settle(rig, 0.3)
+    at["nn4-fix"] = rig.mark()
+    await save(rig, NN3_DONE)
+    rig.clock.t += 2
+    await rig.s.action("check_step")
+    await settle(rig, 0.2)
+    at["nn5"] = rig.mark()
+    await save(rig, NN5_DONE)
+    at["nn6"] = rig.mark()
+    await rig.s.action("run_command")
+    await settle(rig, 0.3)
+    at["done"] = rig.mark()
+    await rig.s.action("end_lesson")
+    await settle(rig, 0.1)
+    at["end"] = rig.mark()
+    return at
+
+
+def test_t8_two_demo_takes_in_a_row_each_fresh(t8, monkeypatch):
+    from server.orchestrator import lesson_end
+
+    for name in ("GRADE_S", "ROW_S", "RUN_S", "STUCK_S"):
+        monkeypatch.setattr(stage, name, 0.0)
+    monkeypatch.setattr(lesson_end, "CARD_DELAY_S", 0.05)
+    monkeypatch.delenv("MIYAGI_STAGE_STUCK", raising=False)
+    rig = t8
+
+    async def go():
+        rig.vs.loop = asyncio.get_running_loop()
+        return [await demo_take(rig), await demo_take(rig)]
+
+    takes = run(go())
+    ev = rig.events
+    for k, at in enumerate(takes, 1):
+        s = ev[at["start"]:at["end"]]
+        assert at["starter"], f"take {k}: nn.py was not the clean starter"
+        started = [p["stepId"] for p in of(s, "step.started")]
+        assert started == ["nn1", "nn2", "nn3", "nn4", "nn5", "nn6"], (k, started)  # step 1, one step at a time
+        assert not [p for p in of(s, "step.started") + of(s, "lesson.ready") if p.get("replay")], k
+        assert [p["stepId"] for p in of(s, "step.passed") if not p.get("skipped")] == \
+            ["nn1", "nn2", "nn3", "nn4", "nn5", "nn6"], k
+        # the recorded stuck run: its output card, the loss row, the Not yet
+        st = ev[at["nn4"]:at["nn4-hint"]]
+        assert any(c["title"].startswith("Ran ") and "0.4900" in (c.get("output") or "") for c in of(st, "card")), k
+        assert rows(st, "nn4")["nn4c1"]["status"] == "fail", (k, rows(st, "nn4"))
+        off = of(st, "offtrack")
+        assert off and off[0]["stepId"] == "nn4" and "0.49" in off[0]["title"], (k, off)
+        assert {"hint", "show_me"} <= set(off[0]["actions"]), (k, off[0]["actions"])
+        # Hint 1 of 2 about W1-W3, its box on those lines, never the ▷
+        st = ev[at["nn4-hint"]:at["nn4-fix"]]
+        hint = [c for c in of(st, "card") if c.get("kind") == "hint"]
+        assert hint and hint[-1]["title"] == "Hint 1 of 2" and "W1" in hint[-1]["body"], (k, of(st, "card"))
+        b = boxes(st)
+        assert b and b[-1]["caption"] == "Look at how W1, W2 and W3 start", (k, b)
+        # random weights + Check my work: it learns
+        st = ev[at["nn4-fix"]:at["nn5"]]
+        assert {"stepId": "nn4", "nextStepId": "nn5"} in of(st, "step.passed"), k
+        assert not of(st, "offtrack"), (k, of(st, "offtrack"))
+        # nn6 -> the plain completion card, then End
+        st = ev[at["nn6"]:at["done"]]
+        done = [c for c in of(st, "card") if c.get("kind") == "step" and c.get("stepId") == "nn6"]
+        assert done and done[-1]["title"] == "Neural networks · 8 skills mastered", (k, of(st, "card"))
+        assert "you built" not in (done[-1]["title"] + done[-1].get("body", "")).lower()
+        assert of(ev[at["done"]:at["end"]], "lesson.ended"), k
+        no_stale(s)
+        previews_only_until_a_run(s, at["nn4"] - at["start"])
+        assert not of(s, "error"), (k, of(s, "error"))
+    assert rig.coach.calls == [], rig.coach.calls  # a Demo makes no coach calls
