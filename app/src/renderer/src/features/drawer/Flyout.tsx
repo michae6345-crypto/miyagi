@@ -15,7 +15,8 @@ import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 're
 import { Waypoints, X } from 'lucide-react'
 import type { Layout } from '../../../../preload/api'
 import { bridge } from '../../bridge'
-import type { Rect } from '../../core/lesson'
+import { useLesson, type Rect } from '../../core/lesson'
+import { dockRect } from '../player/dock'
 import { actionTone, color, glass, radius, spring, springOut } from '../../core/theme'
 import { DiagramBody } from '../diagrams/Diagram'
 import { closeDiagram, isLiveNetwork, useDiagram, type DiagramPayload } from '../diagrams/store'
@@ -52,11 +53,19 @@ export function Flyout({ layout, side, anchor, run }: { layout: Layout; side: Si
   const d = useDiagram((s) => s.diagram)
   const barTop = useBarTop(layout)
   const wa = layout.workArea
+  // A video lesson's player is docked on the right (player/dock.ts) and is wider than the drawer: the flyout never
+  // covers it. With the drawer on the right it opens beside the player's left edge, toward the code; on the left it
+  // stops short of the player.
+  const video = useLesson((s) => !!s.lesson && s.lesson.mode !== 'lesson')
+  const dock = video ? dockRect(wa) : undefined
   const lo = Math.max(0, wa.x) + EDGE
-  const hi = Math.min(layout.width, wa.x + wa.width) - EDGE
-  // Room on the inner side of the drawer (or the handle), counting the strip that tucks under it.
-  const room = side === 'right' ? anchor.x + OVERLAP - lo : hi - (anchor.x + anchor.w - OVERLAP)
-  const x0 = side === 'right' ? anchor.x + OVERLAP - Math.min(FLY_W, room) : anchor.x + anchor.w - OVERLAP
+  const hi = Math.min(layout.width, wa.x + wa.width, dock ? dock.x : Infinity) - EDGE
+  // The flyout's inner edge: tucked OVERLAP under the drawer (or the handle), or beside the player's left edge.
+  const tucked = side === 'right' ? anchor.x + OVERLAP : anchor.x + anchor.w - OVERLAP
+  const inner = side === 'right' && dock ? Math.min(tucked, dock.x - EDGE) : tucked
+  const attached = inner === tucked
+  const room = side === 'right' ? inner - lo : hi - inner
+  const x0 = side === 'right' ? inner - Math.min(FLY_W, room) : inner
   // Top-aligned with the drawer, unless that would put the header under the step pill (centered, at pillTop: on a
   // Mac the pill's band and the drawer's top overlap): then it starts just under the pill.
   const underPill = x0 < layout.width / 2 + PILL_HALF && x0 + Math.min(FLY_W, room) > layout.width / 2 - PILL_HALF
@@ -68,7 +77,7 @@ export function Flyout({ layout, side, anchor, run }: { layout: Layout; side: Si
   // Too tall for its box (a run step's room above the terminal): narrower, so the scaled drawing gets shorter.
   const [fit, setFit] = useState<number | undefined>(undefined)
   const w = Math.min(base, fit ?? base)
-  const x = side === 'right' ? anchor.x + OVERLAP - w : anchor.x + anchor.w - OVERLAP
+  const x = side === 'right' ? inner - w : inner
   const content = useRef<HTMLDivElement>(null)
   const kind = d?.kind
   useEffect(() => setFit(undefined), [kind, maxH])
@@ -108,7 +117,7 @@ export function Flyout({ layout, side, anchor, run }: { layout: Layout; side: Si
         boxShadow: `${glass.shadow}, inset 0 0 0 ${w}px ${glass.bg}`,
         color: glass.text,
         [far]: PAD,
-        [joined]: OVERLAP + PAD - 4,
+        [joined]: attached ? OVERLAP + PAD - 4 : PAD,
         scrollbarWidth: 'thin'
       }}
       initial={{ x: away, opacity: 0 }}
@@ -154,12 +163,17 @@ function IslandWell({ d }: { d: DiagramPayload }): ReactNode {
   useLayoutEffect(() => {
     const el = box.current
     if (!el) return
-    const measure = (): void => setK(Math.min(1, el.clientWidth / ISLAND_W))
+    // Scale by the drawing's own width (an svg's width attribute; the island's 600 otherwise), so a narrow one
+    // isn't shrunk for nothing.
+    const measure = (): void => {
+      const natural = Number(el.querySelector('svg')?.getAttribute('width')) || ISLAND_W
+      setK(Math.min(1, el.clientWidth / natural))
+    }
     measure()
     const ro = new ResizeObserver(measure)
     ro.observe(el)
     return () => ro.disconnect()
-  }, [])
+  }, [d])
   return (
     <>
       <div data-part="diagram-flyout-well" className="overflow-hidden px-[10px] py-[12px]" style={{ background: color.island, borderRadius: radius.chip }}>

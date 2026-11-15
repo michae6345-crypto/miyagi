@@ -79,9 +79,12 @@ function Network({ data }: { data: Record<string, unknown> }): ReactNode {
   const inputs = (data.inputs as string[]) ?? []
   const derivs = (data.derivatives as string[]) ?? []
   const residual = (data.residual as string) ?? ''
-  const W = 600
+  const output = typeof data.output === 'string' ? data.output : ''
   const H = 196
   const netW = 420
+  // With nothing on the right (no autograd arrows, no combined output) the drawing ends at the output's name, written
+  // in full: no empty right third, so it sits centred (test 10 judge review: "softm…", network in the left 420 of 600).
+  const W = derivs.length || residual ? 600 : Math.round(netW - 24 + 19 + (output ? output.length * 6.6 + 4 : 0) + 16)
   // Node names sit OUTSIDE the circles (inputs to the left, the output to the right): inside, "X" covered the first
   // input and "output" overlapped its node (Michael's test 5). Room on the left grows with the longest input name.
   const short = (t: string): string => (t.length > 12 ? `${t.slice(0, 11)}…` : t)
@@ -157,8 +160,9 @@ function Network({ data }: { data: Record<string, unknown> }): ReactNode {
           </text>
         )
       })}
-      {typeof data.output === 'string' && data.output && (
-        // With autograd arrows on the right (derivatives), the short output name stays in its node, clear of them.
+      {output && (
+        // With autograd arrows on the right (derivatives), the short output name stays in its node, clear of them;
+        // without them it's written in full to the node's right (W makes room for it).
         <text
           x={colX[colX.length - 1] + (derivs.length ? 0 : 19)}
           y={82 + 4}
@@ -167,7 +171,7 @@ function Network({ data }: { data: Record<string, unknown> }): ReactNode {
           fontSize="12"
           fontStyle="italic"
         >
-          {short(data.output)}
+          {derivs.length ? short(output) : output}
         </text>
       )}
       {/* labels */}
