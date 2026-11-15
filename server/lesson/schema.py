@@ -335,7 +335,7 @@ _CHECK_DRAFT = {
     "type": "object",
     "properties": {
         "type": {"type": "string", "enum": CHECK_TYPES},
-        "label": {"type": "string", "description": "<= 6 words, shown in a checklist"},
+        "label": {"type": "string", "description": "<= 6 words, shown in a checklist; unique within the step, naming the thing built (e.g. 'X inputs typed')"},
         "app": {"type": "string", "description": "screen_*: app whose window must show the text, e.g. Code, Terminal"},
         "metric_pattern": {"type": "string", "description": "regex with named group value (and step when printed per step/epoch) that reads the number off one printed line"},
         "file": {"type": "string"},
