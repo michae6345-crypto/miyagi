@@ -33,7 +33,7 @@ function DrawerLayer({ layout }: { layout: Layout }): ReactNode {
   const concept = useDrawer((s) => s.concept)
   const panel = panelRect(layout, lessonMode)
   const conceptAt = conceptRects(layout, lessonMode)
-  const tab = tabRect(layout)
+  const tab = tabRect(layout, lessonMode)
   // What the drawer covers: open (even while it has yielded) = the panel at its real height (or the concept
   // panel + rail), out to the edge; closed = just the tab.
   const left = concept ? conceptAt.panel.x : panel.x
@@ -42,7 +42,7 @@ function DrawerLayer({ layout }: { layout: Layout }): ReactNode {
   const showPanel = on && open && !yielding
   return (
     <>
-      <Tab rect={tab} shown={on && !showPanel && !yielding} />
+      <Tab rect={tab} shown={on && !showPanel && !yielding} labeled={lessonMode} />
       <Selectable>
         <AnimatePresence>
           {showPanel && !concept && <Panel key="drawer" rect={panel} />}

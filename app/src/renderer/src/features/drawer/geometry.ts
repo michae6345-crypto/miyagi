@@ -49,8 +49,15 @@ export function conceptRects(layout: Layout, lessonMode = false): { rail: Rect; 
   return { rail, panel: { x: rail.x - CONCEPT_GAP - w, y: p.y, w, h: p.h } }
 }
 
-/** The tab's hit box, flush with the right edge; the bar sits inside it, TAB.edge from that edge. */
-export function tabRect(layout: Layout): Rect {
+/**
+ * A "Just teach me" lesson's collapsed drawer: a labeled "Steps" handle on the right edge instead of the thin bar,
+ * so the way back is plain to see (Michael, Sun 12:55 AM).
+ */
+export const HANDLE = { w: 30, h: 92, edge: 4 } as const
+
+/** The tab's hit box, flush with the right edge; the bar (or the "Steps" handle) sits inside it, TAB.edge from that edge. */
+export function tabRect(layout: Layout, labeled = false): Rect {
   const wa = layout.workArea
-  return { x: rightEdge(layout) - TAB_HIT.w, y: Math.round(wa.y + wa.height / 2 - TAB_HIT.h / 2), w: TAB_HIT.w, h: TAB_HIT.h }
+  const s = labeled ? HANDLE : TAB_HIT
+  return { x: rightEdge(layout) - s.w, y: Math.round(wa.y + wa.height / 2 - s.h / 2), w: s.w, h: s.h }
 }

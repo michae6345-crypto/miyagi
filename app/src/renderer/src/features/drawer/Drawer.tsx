@@ -17,7 +17,7 @@
 import { AnimatePresence, motion } from 'motion/react'
 import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type ReactNode, type RefObject } from 'react'
 import { useShallow } from 'zustand/react/shallow'
-import { ArrowUpRight, FileCode2, FileText, FolderGit2, Newspaper, X, type LucideIcon } from 'lucide-react'
+import { ArrowUpRight, ChevronsRight, FileCode2, FileText, FolderGit2, Newspaper, X, type LucideIcon } from 'lucide-react'
 import type { Source, SourceKind, StepSummary } from '../../../../../../shared/contracts/events'
 import { builtByLabel, seekVideo, useLesson, useProgress, type CheckItem, type Rect } from '../../core/lesson'
 import { useAppearance } from '../../core/prefs'
@@ -25,7 +25,7 @@ import { alpha, clock, color, glass, kindTone, radius, spring, springOut } from 
 import { CheckList, Thumb, useChecking } from '../../core/ui/atoms'
 import { GlassCheck, GlassSpinner } from '../../core/ui/glass'
 import { parseYouTube, thumbnailFor } from '../launcher/youtube'
-import { TAB } from './geometry'
+import { HANDLE, TAB } from './geometry'
 import { useStepDetail } from './plan'
 import { closeDrawer, isWebLink, openSource, setPanelHeight, toggleDrawer } from './store'
 import { BuildStrip, lessonTopic, minutesLeft, NeedsChip, OverviewText, PrimerSection, StepActions, StepDetail } from './Teach'
@@ -47,8 +47,9 @@ const hoverCls = 'hover:bg-[var(--drawer-hover)]'
 // ---------------------------------------------------------------------------
 
 /** 4×40 at glass.track, inside a wider hit box. Hover stretches the bar a little (transform only). */
-export function Tab({ rect, shown }: { rect: Rect; shown: boolean }): ReactNode {
+export function Tab({ rect, shown, labeled = false }: { rect: Rect; shown: boolean; labeled?: boolean }): ReactNode {
   const [hover, setHover] = useState(false)
+  if (labeled) return <StepsHandle rect={rect} shown={shown} />
   return (
     <AnimatePresence>
       {shown && (
@@ -75,6 +76,49 @@ export function Tab({ rect, shown }: { rect: Rect; shown: boolean }): ReactNode 
             animate={{ scaleX: hover ? 1.5 : 1, scaleY: hover ? 1.15 : 1 }}
             transition={spring}
           />
+        </motion.button>
+      )}
+    </AnimatePresence>
+  )
+}
+
+/**
+ * A "Just teach me" lesson's collapsed drawer: a glass "Steps" handle on the right edge, plain to see, so a learner who
+ * hid the drawer always has the way back (Michael's live test, Sun 12:55 AM). Neutral chrome: glass tokens, no pastel.
+ */
+function StepsHandle({ rect, shown }: { rect: Rect; shown: boolean }): ReactNode {
+  return (
+    <AnimatePresence>
+      {shown && (
+        <motion.button
+          key="drawer-handle"
+          type="button"
+          data-hit
+          data-part="drawer-tab"
+          aria-label="Show lesson steps"
+          title="Show lesson steps"
+          className="absolute flex cursor-pointer items-center justify-center border text-[12px] font-semibold"
+          style={{
+            left: rect.x,
+            top: rect.y,
+            width: rect.w - HANDLE.edge,
+            height: rect.h,
+            borderRadius: radius.card,
+            background: glass.bg,
+            borderColor: glass.hairline,
+            boxShadow: `${glass.shadow}, inset 0 0 0 ${rect.w}px ${glass.bg}`,
+            color: glass.label,
+            writingMode: 'vertical-rl'
+          }}
+          initial={{ opacity: 0, x: 12 }}
+          animate={{ opacity: 1, x: 0 }}
+          exit={{ opacity: 0, x: 12 }}
+          whileHover={{ x: -2 }}
+          transition={{ ...spring, opacity: { duration: 0.18 } }}
+          onMouseDown={(e) => e.preventDefault()}
+          onClick={toggleDrawer}
+        >
+          Steps
         </motion.button>
       )}
     </AnimatePresence>
@@ -158,9 +202,11 @@ export function Panel({ rect }: { rect: Rect }): ReactNode {
             style={{ background: glass.key, color: glass.keyText }}
             onMouseDown={(e) => e.preventDefault()}
             onClick={closeDrawer}
-            aria-label="Close"
+            aria-label={lessonMode ? 'Hide steps' : 'Close'}
+            title={lessonMode ? 'Hide steps (the Steps tab on the right brings them back)' : undefined}
           >
-            <X size={12} strokeWidth={2.2} />
+            {/* A lesson's drawer collapses to the "Steps" handle: a chevron, so it never reads as a card's ✕. */}
+            {lessonMode ? <ChevronsRight size={13} strokeWidth={2.2} /> : <X size={12} strokeWidth={2.2} />}
           </button>
         </div>
         {plan.total > 0 && <ProgressHeader plan={plan} />}
