@@ -2611,12 +2611,25 @@ class LessonSession:
     PENDING_OFFTRACK_S = 90.0  # a kept diagnosis older than this is stale: the next trigger diagnoses afresh
     has_client: Callable[[], bool] | None = None  # main.py: is an app connected? (None: unknown, e.g. tests)
 
+    # (title, clock, step_gen) of the card in the slot when it is the learner's own: the answer to their press or a
+    # card waiting for their Yes (`confirm`). _emit_card sets / clears it, card.closed clears it.
+    _card_in_use: tuple[str, float, int] | None = None
+
+    def _learner_card_up(self) -> bool:
+        """Is the learner's own card in the slot, and have they not acted since it went up? Then no off-track takes
+        its place on a timer (A1: a kept diagnosis wiped "Type this for you?" 8 s later; an answer was replaced 10 s
+        after it went up). A save / run / press since then lifts it, as does card.closed."""
+        u = self._card_in_use
+        return u is not None and u[2] == self.step_gen and self.last_action_t <= u[1]
+
     def _offtrack_wait(self) -> str | None:
         """Why an off-track card can't go out right now (None: it can)."""
         if self.clock() - self._last_card_t < self.CARD_GAP_S:
             return "a card just went up"
         if self._ask_held():
             return "the learner's question comes first"
+        if self._learner_card_up():
+            return f"the learner is using {self._card_in_use[0]!r}"
         if self.screen_asleep(self.screen_down_reason()):
             return "the screen is asleep"
         if self.has_client is not None and not self.has_client():
@@ -2649,6 +2662,7 @@ class LessonSession:
         if key != self._offtrack_key:  # only a NEW card: new step, higher level or a different diagnosis
             self._offtrack_key = key  # (re-sending the same one reopens a card the learner just closed)
             self._last_card_t = self.clock()
+            self._card_in_use = None  # the off-track takes the slot
             await self.emit("offtrack", shown)
             self._say("offtrack", shown)
             async with self._lock:  # the coach's verdict: the check rows say "not yet" with it (E1)
@@ -2673,12 +2687,16 @@ class LessonSession:
             if p["gen"] != self.step_gen or self.passed:
                 self._pending_offtrack = None
                 return
+            if self.coaching:
+                continue  # a fresh diagnosis is running: it replaces this one (resetting spoken_sig now would pay twice)
+            if self._learner_card_up():  # it doesn't age while the learner reads their own card: going stale would
+                p["t"] = self.clock()  # reset spoken_sig and the idle tick would pay for a new diagnosis every 90 s
             if self._sig(self.last_failed) != p["sig"] or self.clock() - p["t"] > self.PENDING_OFFTRACK_S:
                 self._pending_offtrack, self.spoken_sig = None, None
                 log.info("kept offtrack %r dropped: the checks changed or it got old", p["full"].get("title"))
                 return
-            if self.coaching or self.typing() or self._offtrack_wait():
-                continue  # a fresh diagnosis is running (it replaces this one) / the learner types / still held
+            if self.typing() or self._offtrack_wait():
+                continue  # the learner types / still held
             await self._offer_offtrack(p["gen"], p["step"], p["failed"], p["ids"], p["level"], p["full"], p["shown"])
             return
 
@@ -3421,13 +3439,17 @@ class LessonSession:
         self._recent_cards[sig] = now
         self._last_card_t = now
         await self.emit("card", card)
+        mine = (not auto and _ANSWERED.get() is not None) or "confirm" in (card.get("actions") or [])
+        self._card_in_use = (card.get("title") or "", now, self.step_gen) if mine else None  # (_learner_card_up)
         covers = (card.get("title") == "Not yet" or card.get("verdict") == "not_done"
                   or (self._nudge is not None and card is self._nudge.get("card")))
-        if self._carded_checks and not covers:  # E14: the app has ONE card slot: this card took the place of the one
+        if covers:  # card.closed lifts the hold only for THIS card (another card's close must not: Test 2, 01:09)
+            self._carded_title = card.get("title") or ""
+        elif self._carded_checks:  # E14: the app has ONE card slot: this card took the place of the one
             log.info("card %r replaced the card covering %s", card.get("title"), sorted(self._carded_checks))
             if not self._carded_checks <= self._offtracked_checks:
                 self.spoken_sig = None  # the diagnosis it held back was never shown
-            self._carded_checks = set()  # that covered these checks, so an off-track may speak for them again
+            self._carded_checks, self._carded_title = set(), None  # that covered these: off-tracks may speak again
         return True
 
     async def _card(self, step: dict, title: str, body: str, kind: str = "hint", **extra: Any) -> bool:
@@ -3435,10 +3457,13 @@ class LessonSession:
         return await self._emit_card({"stepId": step["id"], "kind": kind, "title": title, "body": body, **extra},
                                      window_s=1.0)
 
+    _carded_title: str | None = None  # title of the card that set _carded_checks (card.closed matches on it)
+
     async def card_seen(self, shown: bool, step_id: str | None, title: str, kind: str | None = None,
                         by: str | None = None) -> None:
-        """App -> engine card.shown / card.closed (E14): what the learner really has on screen. A closed (or
-        covered) card no longer speaks for its checks: the off-track suppression it caused is lifted."""
+        """App -> engine card.shown / card.closed (E14): what the learner really has on screen. The card that set
+        the off-track hold, closed by the learner or by itself (by "user" / "timeout"), no longer speaks for its
+        checks: the hold is lifted. Another card's close, "replaced" or "hidden" lift nothing."""
         step = self.step
         if step is None or (step_id and step_id != step["id"]):
             return
@@ -3446,7 +3471,12 @@ class LessonSession:
             log.info("card on screen: %s %r", kind or "card", title)
             return
         log.info("card closed (%s): %s %r", by or "?", kind or "card", title)
-        if self._carded_checks:
+        if by in ("replaced", "hidden"):  # _emit_card already handled the card the engine put in its place; a covered
+            return  # slot shows the same card again (card.shown), so neither lifts a hold
+        same = (title or "").strip().casefold()
+        if self._card_in_use is not None and self._card_in_use[0].strip().casefold() == same:
+            self._card_in_use = None  # the learner closed their own card: a kept off-track may go out
+        if self._carded_checks and (self._carded_title or "").strip().casefold() == same:
             log.info("no card covers %s any more", sorted(self._carded_checks))
             if not self._carded_checks <= self._offtracked_checks:
                 self.spoken_sig = None  # the diagnosis it held back was never shown: the next save / run may speak

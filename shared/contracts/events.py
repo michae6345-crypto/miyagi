@@ -602,7 +602,8 @@ class CardShown(_Model):
 
 class CardClosed(_Model):
     """card.closed: that card left the slot. by: "user" | "replaced" | "timeout" | "hidden" (kept a plain str here so
-    a new reason from the app is logged, not rejected)."""
+    a new reason from the app is logged, not rejected). "user" / "timeout" lift the hold this card (matched by title)
+    caused; "replaced" / "hidden" lift nothing."""
 
     stepId: str | None = None
     title: str = ""

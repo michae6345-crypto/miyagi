@@ -104,7 +104,8 @@ def video_jump(step: dict, idx: int) -> dict | None:
     return None
 
 
-FILLER = re.compile(r"^(?:good|great|nice) question\b[^.!?]*[.!?]\s*|^(?:sure|okay|ok|so)[,.!]\s+", re.IGNORECASE)
+# only the interjection: "Good question, add a comma …" keeps "add a comma …" (the fix is often in the same sentence)
+FILLER = re.compile(r"^(?:good|great|nice) question\b[\s.!,:;—–-]*|^(?:sure|okay|ok|so)[,.!]\s+", re.IGNORECASE)
 
 
 def _no_filler(body: str) -> str:

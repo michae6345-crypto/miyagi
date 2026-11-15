@@ -154,7 +154,7 @@ export interface AppCommands {
   /** What the learner really has on screen (E14: the engine assumed every card it sent was visible). Optional: an app that never sends these keeps today's behaviour.
    *  card.shown: a `card` or the `offtrack` card became visible in the card slot (not while the sheet / launcher covers the slot or the window is hidden; send it when it shows).
    *  card.closed: it left the slot. by: "user" (✕ / Esc / a video jump), "replaced" (another card / diagram / off-track took the slot), "timeout" (it closed itself, e.g. a pressed button gave up), "hidden" (the sheet / launcher covered the slot, the window hid).
-   *  title / kind / stepId: copied from the card's payload; kind "offtrack" for the off-track card. The engine then lifts the off-track hold the closed card caused. */
+   *  title / kind / stepId: copied from the card's payload; kind "offtrack" for the off-track card. On by "user" / "timeout" the engine lifts the off-track hold that this card (matched by title) caused; "replaced" / "hidden" lift nothing (the engine knows what it sent; a covered card shows again). */
   "card.shown": { stepId?: string; title: string; kind?: string };
   "card.closed": { stepId?: string; title: string; kind?: string; by: "user" | "replaced" | "timeout" | "hidden" };
 }
