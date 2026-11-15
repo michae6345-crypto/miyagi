@@ -17,17 +17,27 @@ Devpost write-up: [`docs/devpost/SUBMISSION.md`](docs/devpost/SUBMISSION.md) · 
    - **Watch a video** (↵). Miyagi searches YouTube, shows a short preflight card (what the video covers, what you need), and
      turns the video into a step-by-step lesson. The video plays one step at a time and pauses until you've done that step.
    - **Just teach me** (⌘↵). No video. Claude researches the topic with web search and the official docs and writes the lesson:
-     a plan, what each step builds and why, and the code to type.
+     a plan, what each step builds and why, and the code to type. A plain neural-network goal ("build a neural network")
+     gets the hand-written lesson instead, ready at once: six steps (`nn1` to `nn6`) that build a 1-4-4-1 NumPy network
+     and train it to learn y = sin(x).
+   - **Demo** (Tab to the third chip). The same neural-network lesson, staged for a live presentation. See
+     [`docs/DEMO.md`](docs/DEMO.md).
 3. **Drawer.** A tab on the right edge opens the lesson drawer: every step (done, current, locked), the current step's live
-   checks, and the lesson's sources.
-4. **Spotlight.** Miyagi dims the screen except for a white box on the exact line of code to type, or on VS Code's terminal
-   when it's time to run something.
-5. **Checks and coach.** A step passes only when your screen shows it works. Press **Check** any time. When something is wrong,
-   the coach reads your screen and code and says what: a hint first, then the exact fix, then **Do it for me**, which you
-   confirm and can undo. The bottom bar also has Ask Miyagi, Back, Explain, Diagram, Show me, Hint, Voice, Skip step and End
-   lesson.
+   checks, and the lesson's sources. In the neural-network lesson it also shows the network itself, firing, with the
+   weights from your own runs.
+4. **Spotlight.** Miyagi dims the screen except for a white box on the exact line of code to type, or on the VS Code control
+   to use next (the Run ▷ button, the terminal, the file's tab), found through macOS Accessibility.
+5. **Checks and coach.** A step passes only when your code and your screen show it works. Press **Check my work** any time.
+   When something is wrong, a **Not yet** card says what's left, and the coach reads your screen and code: a hint first, then
+   the exact fix, then **Do it for me**, which you confirm and can undo. The bottom bar also has Ask Miyagi, Back, Explain,
+   Diagram, Show me, Hint, Voice, Skip step and End lesson.
 
-Lessons survive an engine restart. The VS Code companion extension is optional; without it, Miyagi works from the screen alone.
+You never press ⌘S. Miyagi grades the code in VS Code as you type it, unsaved edits included, and re-grades within about a
+second of a change. When a step needs the file on disk (before a run), the companion extension saves it for you.
+
+Lessons survive an engine restart: the next time the app connects, the lesson continues at the exact step. The VS Code
+companion extension is optional; without it, Miyagi works from the screen and the files on disk, and asks you to save when
+it has to.
 
 ### What each service does
 
@@ -36,7 +46,7 @@ Lessons survive an engine restart. The VS Code companion extension is optional; 
 | **Claude** (Anthropic: Sonnet and Haiku) | Writes the lessons ("Just teach me", the transcript draft of a video lesson, fitting each check to your folder), searches for and scores tutorials, reads your screen to place the spotlight, judges whether a step is done, coaches, explains, draws diagrams |
 | **Gemini** | Watches the videos, and nothing else. It watches the YouTube video at 0.5 fps (with its title, description and chapters) and drafts the steps with timestamps, the code typed on screen, checks and hints. Claude's transcript draft runs in parallel and is used if Gemini fails or takes over 75 s |
 | **Bright Data** | Finds the videos and sources: SERP API for Google's video results, the YouTube comments dataset (flags tutorials people say "doesn't work anymore"), Web Unlocker for transcripts, watch pages and the coach's docs |
-| **Tiger Data** | Stores check results and training metrics: `learning_events` and `training_metrics` hypertables with continuous aggregates (time per step, check fail rate, where learners get stuck). Live page at `localhost:8787/stats` |
+| **Tiger Data** | Stores check results and training metrics: `learning_events` and `training_metrics` hypertables with continuous aggregates (time per step, check fail rate, where learners get stuck). Every run the engine sees end (VS Code's ▷, the terminal, Run it for me) sends its loss values to `training_metrics`; Demo recordings are tagged `demo`. When Tiger can't be reached, rows wait in `~/.miyagi/tiger-spool/` and upload on reconnect. Live page at `localhost:8787/stats` |
 | Apple Vision + Accessibility (on the Mac) | Reads the whole screen with on-device OCR and gets exact editor line positions |
 
 ## Run it locally (macOS)
@@ -76,31 +86,49 @@ entered there win over `.env`.
 cd app && npm ci && npm run dev
 ```
 
-Then press **⌥Space**, type `build a neural network in PyTorch`, and pick **Just teach me** (⌘↵) or **Watch a video** (↵).
+Then press **⌥Space**, type `build a neural network`, and pick **Just teach me** (⌘↵) or **Watch a video** (↵).
 ⌃⌥Q quits the overlay.
 
-> The newest overlay (the launcher's two ways to learn, the drawer and the bottom bar) is on the branch
+> The newest overlay (the launcher with Watch a video, Just teach me and Demo, the drawer with the network panel, the
+> bottom bar and the Demo presenter keys) is on the branch
 > [`adrian/shell`](https://github.com/michae6345-crypto/miyagi/tree/adrian/shell). Until it's merged here, run the app from a
 > checkout of that branch; it talks to this engine over the same contract.
 
 ### 3. VS Code companion (optional)
 
-[`vscode-ext/`](vscode-ext/README.md) is a small extension with no build step. It lets the engine read VS Code exactly (the
-open file, unsaved edits, the cursor, the terminal's last command and its exit code) and apply a fix for you. It also adds
-**Miyagi: Explain this** (Ctrl+Cmd+E on a selection), answered in Miyagi's overlay. It draws nothing in VS Code.
+[`vscode-ext/`](vscode-ext/README.md) (version 0.0.5) is a small extension with no build step. It lets the engine read VS Code
+exactly (the open file, unsaved edits, the cursor, what's scrolled into view, the terminal's last command, its output and its
+exit code), save the lesson file for you, and apply a fix. It also adds **Miyagi: Explain this** (Ctrl+Cmd+E on a
+selection), answered in Miyagi's overlay. It draws nothing in VS Code.
 
 ```bash
-cp -R vscode-ext ~/.vscode/extensions/miyagi.companion-0.0.3
+rm -rf ~/.vscode/extensions/miyagi.companion-0.0.* && cp -R vscode-ext ~/.vscode/extensions/miyagi.companion-0.0.5
 ```
 
 Reload the VS Code window (⌘⇧P → "Developer: Reload Window"), then check it with `curl -s 127.0.0.1:8791/health`.
 
+### Ending a lesson from a terminal
+
+```bash
+curl -X POST localhost:8787/end              # ends the lesson and keeps your place
+curl -X POST 'localhost:8787/end?forget=1'   # ends it and forgets it: the next start is step 1
+```
+
+Use the plain `/end` before restarting the engine: the first app connection after the restart continues the lesson at the
+exact step. A Demo lesson is never saved, so every Demo start is a fresh take from step 1 with a clean `nn.py`.
+
 ### Other ways to run it
 
-- `scripts/miyagi-demo.sh`: the stage lesson (Juan Toscano's PINN video `AXXnSzmpyoI`, a cached lesson, `demo/pinn-lab`),
+- **Demo** in the launcher: the neural-network lesson staged for a presentation. Typing steps pass on cue, run steps show a
+  recorded run of the lesson's own code, and no Claude call happens on stage. While a Demo lesson runs, ⌃⌥⌘→ passes the
+  step, ⌃⌥⌘← goes back a step and ⌃⌥⌘R starts again at step 1 with a clean `nn.py` (they call `POST /stage/next`,
+  `/stage/back` and `/stage/restart`). Run of show: [`docs/DEMO.md`](docs/DEMO.md).
+- `scripts/miyagi-nn-demo.sh`: the neural-network lesson with `DEMO=1`, so the lesson, hints and coach card come from
+  `demo/cache` and nothing goes over the network. Checks stay real.
+- `scripts/miyagi-demo.sh`: the earlier PINN lesson (Juan Toscano's video `AXXnSzmpyoI`, a cached lesson, `demo/pinn-lab`),
   started automatically, with everything else live.
 - `DEMO=1 scripts/miyagi-engine.sh`: cached search, lessons and coach cards, with no live API calls. Checks stay real.
-- `scripts/miyagi-offline.sh`: the stage lesson with no network at all.
+- `scripts/miyagi-offline.sh`: the PINN lesson with no network at all.
 - `cd app && DEMO=1 npm run dev`: a scripted lesson inside the app, with no engine and no network.
 
 ## Tech stack
@@ -161,7 +189,7 @@ flowchart LR
 | Folder | What it does |
 |---|---|
 | `app/` | The Electron overlay: the notch pill, the ⌥Space launcher, the lesson drawer, the spotlight, cards, diagrams, the YouTube player that pauses at each step's end, Settings |
-| `server/orchestrator/` | The hub (FastAPI on :8787): lesson state machine, don't-nag gate, hint ladder, Do it for me (preview → confirm → apply → undo), `DEMO=1` replay |
+| `server/orchestrator/` | The hub (FastAPI on :8787): lesson state machine, don't-nag gate, hint ladder, Do it for me (preview → confirm → apply → undo), the hand-written neural-network lesson (`curated.py`), Demo lessons and the presenter endpoints (`stage.py`), `DEMO=1` replay |
 | `server/finder/` | Tutorial search: YouTube videos by default, scored by Claude, with a relevance floor |
 | `server/preflight/` | The card shown right after you pick a video (style, length, fit, tools needed); nothing is built until you say so |
 | `server/lesson/` | Builds the lesson: Gemini watches the video while Claude drafts from the transcript; long videos part by part; "Just teach me" is `textlesson.py` (Claude only) |
@@ -182,6 +210,7 @@ flowchart LR
 .venv/bin/python -m pytest server/orchestrator -q     # each module's README has its own test command
 cd app && npm run typecheck
 cd vscode-ext && npm test
+.venv/bin/python scripts/rehearse_demo.py               # the Demo run of show (docs/DEMO.md), headless, on a private engine
 ```
 
 The engine tests run offline: Claude and Gemini are faked or replayed from recorded responses. The `server/screen` fixture tests
@@ -191,6 +220,8 @@ run real Vision OCR and are macOS only.
 
 - [`docs/devpost/SUBMISSION.md`](docs/devpost/SUBMISSION.md): the Devpost write-up, with the file or commit behind each claim
 - [`docs/devpost/DEMO.md`](docs/devpost/DEMO.md): the 2-minute demo script and setup
+- [`docs/DEMO.md`](docs/DEMO.md): the run of show for the Demo lesson, with the presenter keys and fixes for what can go wrong
+- [`docs/NN-DEMO.md`](docs/NN-DEMO.md): the neural-network lesson, step by step, and which goals get it
 - [`docs/PIPELINE.md`](docs/PIPELINE.md): search → preflight → build → setup → run
 - [`app/README.md`](app/README.md): how the overlay works · [`app/brand/BRAND.md`](app/brand/BRAND.md): name, voice, logo, color
 - [`docs/WORKFLOW.md`](docs/WORKFLOW.md): branches, worktrees and many parallel Claude Code sessions
