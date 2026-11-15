@@ -153,8 +153,17 @@ def _write_vscode_settings(folder: Path) -> None:
     if not isinstance(cur, dict):
         return
     want = {"window.title": VSCODE_TITLE}
-    if VSCODE_A11Y and not (VSCODE_A11Y == "off" and _voiceover_on()):
-        want["editor.accessibilitySupport"] = VSCODE_A11Y
+    a11y = VSCODE_A11Y
+    if not a11y:
+        # The companion extension (installed Nov 14) gives exact buffer/terminal state, so the editor's AX text isn't
+        # needed: turn off "Screen Reader Optimized" (Michael's desktop test) whenever it answers.
+        try:
+            from . import vscode_ext
+            a11y = "off" if vscode_ext.available() else ""
+        except Exception:  # noqa: BLE001 - best effort, never block lesson setup
+            a11y = ""
+    if a11y and not (a11y == "off" and _voiceover_on()):
+        want["editor.accessibilitySupport"] = a11y
     try:
         if {**want, **cur} != cur:
             p.parent.mkdir(parents=True, exist_ok=True)
