@@ -11,9 +11,11 @@
 import { motion } from 'motion/react'
 import { useEffect, useRef, useState, type CSSProperties, type ReactNode } from 'react'
 import { BookOpen, Check, ChevronRight, Copy, Keyboard, Terminal, type LucideIcon } from 'lucide-react'
+import type { PrimerItem, StepKind } from '../../../../../../shared/contracts/events'
+import { useLesson } from '../../core/lesson'
 import { font, glass, spring } from '../../core/theme'
 import { useStepSnippet } from '../overview/snippet'
-import { copyText, findPrimer, usePlan, type PrimerItem, type StepKind } from './plan'
+import { copyText, findPrimer, useStepDetail } from './plan'
 
 const hoverVar = { '--drawer-hover': glass.fieldHover } as CSSProperties
 const thinScroll = { scrollbarWidth: 'thin', scrollbarColor: `${glass.track} transparent` } as CSSProperties
@@ -34,8 +36,10 @@ export function OverviewText({ text }: { text: string }): ReactNode {
 // Before you start
 // ---------------------------------------------------------------------------
 
+const NO_PRIMER: PrimerItem[] = []
+
 export function PrimerSection(): ReactNode {
-  const primer = usePlan((s) => s.primer)
+  const primer = useLesson((s) => s.lesson?.primer) ?? NO_PRIMER
   const [open, setOpen] = useState(false)
   if (primer.length === 0) return null
   return (
@@ -103,8 +107,8 @@ const KIND: Record<StepKind, { label: string; icon: LucideIcon; caption: string 
  * is indented under the step title; code needs the width).
  */
 export function StepDetail({ stepId, instructions, planKind, indent, padX }: { stepId: string; instructions?: string; planKind?: StepKind; indent: number; padX: number }): ReactNode {
-  const detail = usePlan((s) => (s.detail?.stepId === stepId ? s.detail : undefined))
-  const primer = usePlan((s) => s.primer)
+  const detail = useStepDetail((s) => (s.detail?.stepId === stepId ? s.detail : undefined))
+  const primer = useLesson((s) => s.lesson?.primer) ?? NO_PRIMER
   const snippet = useStepSnippet()
   const [openId, setOpenId] = useState<string>()
 

@@ -23,7 +23,6 @@ import { Thumb } from '../../core/ui/atoms'
 import { GlassCheck, GlassSpinner } from '../../core/ui/glass'
 import { parseYouTube, thumbnailFor } from '../launcher/youtube'
 import { TAB } from './geometry'
-import { usePlan, type StepKind as PlanKind } from './plan'
 import { closeDrawer, isWebLink, openSource, setPanelHeight, toggleDrawer } from './store'
 import { OverviewText, PrimerSection, StepDetail } from './Teach'
 
@@ -88,10 +87,9 @@ export function Panel({ rect }: { rect: Rect }): ReactNode {
   const progress = useProgress()
   const scroller = useRef<HTMLDivElement>(null)
   const box = useRef<HTMLDivElement>(null)
-  // "Claude read this tutorial" is wrong for a lesson Claude wrote itself ("Just teach me"): no line there.
-  const by = lesson?.mode === 'lesson' ? undefined : builtByLabel(lesson?.builtBy)
+  const by = builtByLabel(lesson?.builtBy, lesson?.mode)
   const sources = lesson?.sources ?? []
-  const overview = usePlan((s) => s.overview)
+  const overview = lesson?.overview?.trim()
   // A hairline under the header once the list scrolls, so text doesn't run straight into the title.
   const [scrolled, setScrolled] = useState(false)
   const away = rect.w + 24
@@ -212,7 +210,6 @@ function Steps({ scroller }: { scroller: RefObject<HTMLDivElement | null> }): Re
   if (!atOpen.current) atOpen.current = new Set(steps.map((s) => s.id))
   const fresh = steps.filter((s) => !atOpen.current!.has(s.id)).map((s) => s.id)
 
-  const plan = usePlan((s) => s.plan)
   const cur = steps.findIndex((s) => s.id === stepId)
   const timeW = useTimeWidth(steps, complete)
   useKeepInView(scroller, stepId, checks.length)
@@ -233,8 +230,6 @@ function Steps({ scroller }: { scroller: RefObject<HTMLDivElement | null> }): Re
           <StepRow
             key={s.id}
             step={s}
-            line={plan[s.id]?.what}
-            kind={plan[s.id]?.kind}
             status={status}
             timeW={timeW}
             checks={status === 'current' ? checks : undefined}
@@ -287,8 +282,6 @@ function useMounted(): boolean {
 
 function StepRow({
   step,
-  line,
-  kind,
   status,
   timeW,
   checks,
@@ -296,9 +289,6 @@ function StepRow({
   enterDelay
 }: {
   step: StepSummary
-  /** The plan line (steps[].what); the title when the engine sent none. */
-  line?: string
-  kind?: PlanKind
   status: StepStatus
   timeW: number
   checks?: CheckItem[]
@@ -310,6 +300,8 @@ function StepRow({
   const v = step.video
   const current = status === 'current'
   const canSeek = status !== 'locked' && !!v
+  // The plan line (steps[].what); the title when the engine sent none.
+  const line = step.what?.trim() || undefined
   const tone = current ? glass.text : status === 'done' || status === 'skipped' ? glass.label : glass.faint
   const indent = ROW.padX + ROW.icon + ROW.gap + (timeW ? timeW + ROW.gap : 0)
   // No time column (a "Just teach me" lesson): plan lines wrap to two lines instead of being cut off.
@@ -361,7 +353,7 @@ function StepRow({
           {line ?? step.title}
         </span>
       </button>
-      {current && <StepDetail stepId={step.id} instructions={instructions} planKind={kind} indent={indent} padX={ROW.padX} />}
+      {current && <StepDetail stepId={step.id} instructions={instructions} planKind={step.kind} indent={indent} padX={ROW.padX} />}
       {checks && checks.length > 0 && (
         <motion.div
           data-part="drawer-checks"
