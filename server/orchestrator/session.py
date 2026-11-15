@@ -3015,6 +3015,9 @@ class LessonSession:
                 # stops seeing it done (evaluate() only clears confirm_pending, the checks-pass card's flag)
                 await self._status("thinking")  # the app's Yes spinner ends on thinking -> passed, even on the last step
                 self.confirm_pending = False
+                if await self._dup_blocks_pass(step):  # T5: a later copy of the step's def overrides it: no pass
+                    self.confirm_check_ids = []
+                    return
                 for cid in self.confirm_check_ids:  # E5's "Looks done?": the learner vouches for these checks
                     label = (self.check_state.get(cid) or {}).get("label", cid)
                     await self.emit("check.updated", {"stepId": step["id"], "checkId": cid, "label": label,
@@ -3513,13 +3516,14 @@ class LessonSession:
         from . import step_code
 
         code = step.get("code") or ""
-        py = path.suffix == ".py"  # T5: by name in a Python file (no second copies), and the result verified
+        # T5: by name in the step's own Python file (no second copies), and the result verified
+        py = path.suffix == ".py" and self._in_step_file(step, path)
         if self.lesson_mode and code.strip() and (not step_code.code_done(code, text, py)
                                                   or self._by_name(step, path, text) is not None):
             new_text, line, replaced = step_code.place_step(code, text, step_code.anchors(step), py,
                                                             self._other_codes(step))
             ok = bool(new_text) and new_text != text
-            if ok and py:
+            if ok and path.suffix == ".py":
                 try:
                     compile(new_text, str(path), "exec")
                 except SyntaxError:
@@ -4243,6 +4247,8 @@ class LessonSession:
         if self.judged_pass:
             await self.evaluate("judge")
         card = j.get("card")
+        if card and "confirm" in (card.get("actions") or []) and (dup := self._overridden_defs(step)):
+            card = self._dup_card(step, dup)  # T5: never a "Looks done?" while a later copy overrides the step's def
         if not j.get("done"):
             self.confirm_check_ids = []  # Claude no longer sees the step done: a later Yes re-checks (_confirm_stale)
         if card and not self.passed and gen == self.step_gen:
@@ -4437,7 +4443,7 @@ class LessonSession:
         with the step's code in their place, checked (one copy of each def; it compiles). Else None."""
         from . import step_code
 
-        if not self.lesson_mode:
+        if not self.lesson_mode or not self._in_step_file(step, path):
             return None
         return step_code.by_name(step.get("code") or "", text, path.suffix == ".py", self._other_codes(step))
 
@@ -4448,7 +4454,7 @@ class LessonSession:
         from . import py_blocks
 
         code = (step.get("code") if code is None else code) or ""
-        if not self.lesson_mode or not code.strip() or path.suffix != ".py":
+        if not self.lesson_mode or not code.strip() or path.suffix != ".py" or not self._in_step_file(step, path):
             return ""
         return py_blocks.verify(code, new_text, old_text)
 
@@ -4476,10 +4482,12 @@ class LessonSession:
     def _defs_once(self, step: dict, results: list[dict], gate: dict) -> tuple[list[dict], dict]:
         """T5: the step's def must be the one that counts. A later top-level copy of it (an old `def sigmoid_slope`
         left below the right one) overrides it while every pattern is still in the file: one more row, red, and no
-        step pass until that copy is gone. Checked when the step would pass (or the row is already up)."""
+        step pass until that copy is gone. Checked when the step would pass, the judge saw checks done (its pass comes
+        after this: the red row keeps it from passing; the row itself is never the judge's to pass), or the row is up."""
         cid = f"{step['id']}-once"
-        if not (gate.get("passed") or cid in self.check_state):
+        if not (gate.get("passed") or self.judged_pass or cid in self.check_state):
             return results, gate
+        self.judged_pass.discard(cid)
         hit = self._overridden_defs(step)
         if hit is None:
             if cid not in self.check_state:
@@ -4490,6 +4498,31 @@ class LessonSession:
         row = {"checkId": cid, "label": f"One {name}() in {fname}"[:60], "status": "fail",
                "detail": f"line {lines[-1]} defines {name} again and replaces yours: delete one copy"}
         return [*results, row], {**gate, "passed": False, "via": None}
+
+    @staticmethod
+    def _dup_card(step: dict, hit: tuple[str, list[int], str]) -> dict:
+        """"Not yet: delete the second sigmoid_slope on line 30", with Do it for me (it removes that copy)."""
+        return {"stepId": step["id"], "kind": "answer", "title": "Not yet",
+                "body": f"Delete the second {hit[0]} on line {hit[1][-1]}", "actions": ["apply_fix"]}
+
+    async def _dup_blocks_pass(self, step: dict) -> bool:
+        """T5: a pass outside evaluate() (Yes on the judge's "Looks done?") while a later top-level copy overrides
+        the step's def: no pass. The red '<step>-once' row goes up (evaluate() keeps it until the copy is gone) and
+        a card names the copy to delete. -> whether the pass was blocked."""
+        hit = self._overridden_defs(step)
+        if hit is None:
+            return False
+        rows, _ = self._defs_once(step, [], {"passed": True})
+        self.gate_open = True
+        await self._publish(step, rows)
+        await self._emit_card(self._dup_card(step, hit), window_s=2.0)
+        await self._status("watching")
+        return True
+
+    def _in_step_file(self, step: dict, path: Path) -> bool:
+        """`path` is the step's own file (by name): the by-name placement and the one-copy check only look there,
+        never at another file a coach diff names (helper.py)."""
+        return path.name == Path(self._step_file(step) or step.get("file") or "").name
 
     def _vscode_ext(self) -> Any:
         """The VS Code companion extension (S2: server/workspace/vscode_ext.py, HTTP on 127.0.0.1:8791) when it's
