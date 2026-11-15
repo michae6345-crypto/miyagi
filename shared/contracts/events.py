@@ -42,11 +42,25 @@ class Source(_Model):
     videoId: str | None = None
 
 
+StepKind = Literal["code", "run", "read"]
+
+
 class StepSummary(_Model):
     id: str
     index: int
     title: str
     video: VideoSegment | None = None
+    kind: StepKind | None = None  # code = type in the file, run = run a command, read = learn a concept first
+    what: str | None = None  # what this step builds, <= 12 words (shown in the step list as the plan)
+
+
+class PrimerItem(_Model):
+    """'Before you start' concept card for a Just teach me lesson (the pre-knowledge for the steps)."""
+    id: str
+    title: str  # <= 6 words, e.g. "What a function is"
+    body: str  # <= 40 words, plain language
+    code: str | None = None  # a tiny example
+    diagramPrompt: str | None = None  # if set, the app may ask for a picture: action {kind:"diagram", text:"primer:<id>"}
 
 
 # ---------- Engine -> App events ----------
@@ -102,6 +116,8 @@ class LessonInfo(_Model):
     goalMatch: GoalMatch | None = None
     mode: Literal["video", "lesson"] | None = None  # "lesson": no video ("Just teach me")
     provisional: bool | None = None  # True: a placeholder from the chapter list; a fresh lesson.ready replaces it
+    primer: list[PrimerItem] | None = None  # "Before you start": the concepts the steps rely on (lesson mode)
+    overview: str | None = None  # "What we're building": the project and the plan in plain words, <= 60 words
 
 
 class LessonReady(_Model):
@@ -127,6 +143,12 @@ class StepStarted(_Model):
     title: str
     instructions: str
     video: VideoSegment | None = None
+    details: str | None = None  # the full explanation; `instructions` is one concrete action
+    kind: StepKind | None = None  # code / run / read
+    what: str | None = None  # what you're building in this step, <= 12 words ("A function named add that returns a + b")
+    why: str | None = None  # what it means / why it matters, <= 25 words
+    concepts: list[str] | None = None  # primer ids this step uses
+    code: str | None = None  # the exact code to type (code steps) or command to run (run steps), in full
 
 
 class CheckUpdated(_Model):
@@ -316,7 +338,7 @@ class PreflightInfo(_Model):
 
 
 CardAction = Literal["confirm", "undo", "apply_fix", "open_editor", "resume", "end_lesson", "install", "skip_setup",
-                     "open_in_browser", "build", "pick_another", "download", "skip_step", "check_step"]
+                     "open_in_browser", "build", "pick_another", "download", "skip_step", "check_step", "use_this_folder", "run_command"]
 
 
 class Card(_Model):
@@ -335,6 +357,7 @@ class Card(_Model):
     recommended: Literal["build", "pick_another"] | None = None
     preflight: PreflightInfo | None = None  # kind "preflight"
     where: str | None = None  # coach: where to go when the place isn't on screen (no dim)
+    output: str | None = None  # monospace output block (e.g. "Run it for me")
 
 
 class NetworkDiagram(_Model):
@@ -490,7 +513,7 @@ class BuildLesson(_Model):
 
 ActionKind = Literal["back", "explain", "diagram", "show_me", "hint", "voice_toggle", "ask", "apply_fix",
                      "confirm", "undo", "open_editor", "resume", "end_lesson", "install", "skip_setup", "open_in_browser",
-                     "build", "pick_another", "download", "skip_step", "check_step"]
+                     "build", "pick_another", "download", "skip_step", "check_step", "use_this_folder", "run_command"]
 
 
 class Action(_Model):
