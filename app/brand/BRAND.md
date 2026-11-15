@@ -16,7 +16,7 @@ Read this before building anything people will see: the overlay app, the VS Code
 | Use | Text |
 |---|---|
 | One-liner | Turn any tutorial into an auto-graded lab. |
-| Launcher placeholder | Ask Miyagi anything |
+| Launcher placeholder | ask miyagi anything (lowercase, as in `copy.launcherPlaceholder`) |
 | Pitch | I asked Miyagi to teach me PINNs. It found the best video, paused it at every step, and wouldn't move on until my code actually worked. |
 | Off-track card | Loss is flat at 0.25. Add a β curriculum, then rerun. |
 | Passed card | Good. Now the next one. |
@@ -52,7 +52,7 @@ Each has a `-dark` version (white trunk and pot) for dark backgrounds.
 | Pass green | `#30D158` | Passed. The light on the i. The bonsai's pads on the app icon and external brand surfaces. Nothing else. |
 | Pass deep | `#1F9B45` | Pad undersides and back pads, pressed states |
 | Pass text | `#1C8A3C` | Green text on light backgrounds |
-| Off-track amber | `#FFB020` | A check failed. Calm: no red, no shaking. |
+| Off track | no hue | A check failed: a hollow white ring and the words "Not yet". Calm: no red, no shaking. (`#FFB020` amber and apricot are retired, see below.) |
 | Watching gray | `#8E8E93` | The status dot while Miyagi watches |
 | Ink | `#141414` | Text, the trunk and pot, buttons on light |
 | Paper | `#F6F6F3` | Brand background: site, Devpost, slides |
@@ -73,7 +73,7 @@ Each has a `-dark` version (white trunk and pot) for dark backgrounds.
 | Chrome and navigation (Back, Voice, Close, chapters, toggles, inputs) | neutral |
 | Source-kind tiles: notebook/repo, paper, blog | sky, pink, lilac |
 
-How it's applied: buttons and chips are a solid pastel fill with ink text and icon, with the keycap on ink at 10% (`OptionButton` / `PrimaryButton` in `core/ui/atoms.tsx`). Icon tiles (shortcut bar) are a 28px rounded square in the pastel with an ink glyph; the label stays white. Kind tiles are a 16% pastel wash with a pastel glyph. Status is unchanged: green passed, amber off track, gray watching. No glows.
+How it's applied: buttons and chips are a solid pastel fill with ink text and icon, with the keycap on ink at 10% (`OptionButton` / `PrimaryButton` in `core/ui/atoms.tsx`). Icon tiles (shortcut bar) are a 28px rounded square in the pastel with an ink glyph; the label stays white. Kind tiles are a 16% pastel wash with a pastel glyph. Status is unchanged: green passed, no hue (hollow white ring) off track, gray watching. No glows.
 
 ## Type
 
@@ -87,8 +87,8 @@ The overlay should feel like a first-party Apple feature (Spotlight, Dynamic Isl
 
 - Glass follows macOS: dark HUD glass by default, light when the system is light. Tokens in `code/theme.ts` (`hud.dark`, `hud.light`).
 - **Inside the app the tree is monochrome** (Adrian, Sat): a white silhouette on dark, ink on light (`<MiyagiMark />` does this by default). The green pads appear only on the app icon and external brand surfaces (site, Devpost, slides), so in the overlay green means passed without exception.
-- The notch pill is always black, with the small tree on the left and the status dot on the right: gray watching, amber off track, green passed.
-- The launcher input shows the small tree where the mockup had a sparkle, with the placeholder "Ask Miyagi anything".
+- The notch pill is always black, with the small tree on the left and the status dot on the right: gray watching, hollow white ring off track, green passed.
+- The launcher input shows the small tree where the mockup had a sparkle, with the placeholder "ask miyagi anything".
 - One spring everywhere: stiffness 420, damping 34, mass 0.9. Radii 14 / 20 / 28.
 - No annotations: no hand-drawn notes, arrows or doodles anywhere this weekend.
 
@@ -118,7 +118,7 @@ fonts/                GoogleSansFlex.woff2, OFL.txt
 
 1. Use the files in this kit. Never redraw the tree, retype the wordmark or pick new colors.
 2. Use the cut for the size: `markLevel(px)` in `theme.ts`, or `<MiyagiMark size={n} />`, which picks it for you.
-3. Green means passed, amber means off track, gray means watching. Nothing else is green or amber. No red. Pastels (`brand.pastel` in `core/theme.ts`) are for options only, never status.
+3. Green means passed, a hollow white ring means off track, gray means watching. Nothing else is green, and nothing is amber. No red. Pastels (`brand.pastel` in `core/theme.ts`) are for options only, never status.
 4. Buttons: ink on light, white on dark. Never system blue, never green.
 5. App text in the system font; brand headings in Google Sans Flex. No Inter.
 6. No gradients, glows, sparkles, emoji or hand-drawn annotations.

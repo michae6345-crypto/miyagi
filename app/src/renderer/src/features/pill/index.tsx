@@ -311,10 +311,8 @@ function Compact(): ReactNode {
         {s.mark === 'done' || s.mark === 'pending' ? (
           <span>{s.title}</span>
         ) : (
-          <>
-            <span style={{ color: color.label }}>Step {s.index + 1} ·&nbsp;</span>
-            <span className="max-w-[360px] truncate">{s.title}</span>
-          </>
+          // The count on the right says which step (Michael, test 10: "Step 4 · … 4/7" said it twice).
+          <span className="max-w-[360px] truncate">{s.title}</span>
         )}
       </SwapText>
       {s.mark === 'pending' ? (

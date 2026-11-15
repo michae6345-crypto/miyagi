@@ -92,7 +92,7 @@ function Overview(): ReactNode {
           <div className="flex items-center gap-[7px] text-[13px]" style={{ color: color.label }}>
             Step {index + 1} of {total} <StatusDot status={status} />
           </div>
-          <div className="mt-[2px] truncate text-[20px] font-semibold tracking-[-0.015em]">{s.title}</div>
+          <div className="mt-[2px] line-clamp-2 text-[20px] font-semibold tracking-[-0.015em]" title={s.title}>{s.title}</div>
           <GoalNote />
           <Segments total={total} index={index} status={status} skipped={skipped} />
         </div>

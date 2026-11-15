@@ -330,14 +330,14 @@ export function useThinking(): boolean {
 }
 
 /**
- * "Gemini watched this video" style line, from lesson.builtBy (undefined when unknown).
+ * "Steps timed to the video" style line, from lesson.builtBy (undefined when unknown).
  * mode "lesson" ("Just teach me"): Claude wrote the lesson and no tutorial was read, so "Claude wrote this lesson".
  */
 export function builtByLabel(by: LessonInfo['builtBy'], mode?: LessonInfo['mode'], demo = false): string | undefined {
   // The Demo lesson is curated (server/orchestrator/stage.py), not written by a model (Michael, 5 AM shoot).
   if (demo) return undefined
   if (mode === 'lesson' && (by === 'claude' || by === 'unknown' || by == null)) return 'Claude wrote this lesson'
-  return by === 'gemini' ? 'Gemini watched this video' : by === 'claude' ? 'Claude read this tutorial' : by === 'mixed' ? 'Built by Gemini and Claude' : undefined
+  return by === 'gemini' ? 'Steps timed to the video' : by === 'claude' ? 'Claude read this tutorial' : by === 'mixed' ? 'Built by Gemini and Claude' : undefined
 }
 
 export function useStatus(): Status {

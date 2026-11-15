@@ -177,13 +177,14 @@ function Question({ text }: { text: string }): ReactNode {
 }
 
 /** A label that opens its URL outside the overlay (window.open; Electron's main hands https to the browser). */
-function LinkText({ label, url }: { label: string; url?: string }): ReactNode {
-  if (!url) return <span className="truncate">{label}</span>
+function LinkText({ label, url, wrap }: { label: string; url?: string; wrap?: boolean }): ReactNode {
+  const fit = wrap ? 'line-clamp-2 break-words' : 'truncate'
+  if (!url) return <span className={fit}>{label}</span>
   return (
     <a
       href={url}
       data-link
-      className="cursor-pointer truncate underline-offset-2 hover:underline"
+      className={`cursor-pointer ${fit} underline-offset-2 hover:underline`}
       style={{ color: 'inherit' }}
       onClick={(e) => {
         e.preventDefault()
@@ -293,15 +294,16 @@ function Diagnosis({ o, checks }: { o: OfftrackPayload; checks: ReturnType<typeo
           )}
 
           {o.citation && (
-            <div className="mt-[12px] flex min-w-0 items-center gap-[6px] text-[12px]" style={{ color: color.faint }}>
-              <BookOpen size={12} className="shrink-0" />
-              <LinkText label={o.citation.label} url={o.citation.url} />
+            <div className="mt-[12px] flex min-w-0 items-start gap-[6px] text-[12px] leading-[16px]" style={{ color: color.faint }}>
+              <BookOpen size={12} className="mt-[2px] shrink-0" />
+              {/* Up to two lines, so a source like "§8.4 (breaking symmetry)" isn't cut mid-word. */}
+              <LinkText label={o.citation.label} url={o.citation.url} wrap />
             </div>
           )}
         </div>
 
-        {/* No diff yet: the panel keeps its room, so the card doesn't jump when one arrives. */}
-        <Evidence o={o} failing={failing} width={rightW} reserveDiff />
+        {/* At level 2 the next rung brings the diff: keep its room so the card doesn't jump. Otherwise no empty room. */}
+        <Evidence o={o} failing={failing} width={rightW} reserveDiff={o.level === 2} />
       </div>
 
       {options.length > 0 && (
@@ -423,7 +425,7 @@ function Success(): ReactNode {
       <motion.div
         key={s.at}
         className="absolute inset-x-0 bottom-0 h-[2px] origin-left"
-        style={{ background: color.green, opacity: 0.45 }}
+        style={{ background: color.faint }} // gray: green only means passed (test 10 polish, item 8)
         initial={{ scaleX: 1 }}
         animate={{ scaleX: 0 }}
         transition={{ duration: SUCCESS_MS / 1000, ease: 'linear' }}
@@ -569,8 +571,9 @@ function primaryOf(c: EngineCard, known: CardAction[]): CardAction | undefined {
   // NumPy row's Install a small grey one, and the engine only ever got skip_setup.
   if (c.setup?.items.some((x) => x.needed && !x.ok && x.install.method !== 'none')) return undefined
   // A lone action becomes the primary, except option actions and Try again, which stay pastel / neutral.
-  // Skip on a setup card is never the primary (A17): the item's Install is.
-  const lone = known.length === 1 && !isOption(known[0]) && known[0] !== 'retry' && known[0] !== 'skip_setup' ? known[0] : undefined
+  // Skip on a setup card is never the primary (A17): the item's Install is. A lone Skip step stays quiet too (test 10
+  // polish, item 3: a video lesson's Not yet card turned it into the white button).
+  const lone = known.length === 1 && !isOption(known[0]) && known[0] !== 'retry' && known[0] !== 'skip_setup' && known[0] !== 'skip_step' ? known[0] : undefined
   // A setup card with everything ready: "Open <editor>" is never its primary (desktop test 5), it stays quiet.
   const ready = setupReady(c)
   return known.find((a) => ACTION[a]!.primary && !(ready && a === 'open_editor')) ?? (ready && lone === 'open_editor' ? undefined : lone)

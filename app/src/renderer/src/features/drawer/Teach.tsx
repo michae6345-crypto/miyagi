@@ -365,13 +365,12 @@ export function CodeBlock({ code, caption, bleed }: { code: string; caption: str
         </button>
       </div>
       <div className="relative">
-        {/* Long lines wrap (Michael's test-5 review: comment lines were cut off at the panel edge); a wrapped line's rest
-            hangs 2 characters in, so it never reads as a new, indented line. */}
-        <pre ref={pre} className="overflow-x-auto whitespace-pre-wrap px-[12px] py-[9px] text-[12px] leading-[18px]" style={{ fontFamily: font.mono, color: glass.text, overflowWrap: 'anywhere', ...thinScroll }}>
+        {/* Lines never wrap (Michael, test 10: "sparse_categoric / al_crossentropy" broke inside a name, and typing it as
+            shown fails); long lines scroll sideways. */}
+        <pre ref={pre} className="overflow-x-auto whitespace-pre px-[12px] py-[9px] text-[12px] leading-[18px]" style={{ fontFamily: font.mono, color: glass.text, ...thinScroll }}>
           <code>
             {shown.split(/\r?\n/).map((line, i) => (
-              // The rest of a wrapped line hangs under its own code (its indent + 2), not at the margin (test 8).
-              <span key={i} className="block" style={{ paddingLeft: `${hangOf(line)}ch`, textIndent: `-${hangOf(line)}ch` }}>
+              <span key={i} className="block">
                 {line || ' '}
               </span>
             ))}
@@ -459,9 +458,4 @@ export function StepActions({ padX }: { padX: number }): ReactNode {
       <GlassPrimary label={checking ? 'Checking…' : 'Check my work'} icon={checking ? SpinPrimary : Check} onClick={() => !checking && sendAction('check_step')} />
     </div>
   )
-}
-
-/** A code line's hanging indent in ch: its own leading whitespace (tabs as 4) plus 2. */
-function hangOf(line: string): number {
-  return (line.match(/^[ \t]*/)?.[0].replace(/\t/g, '    ').length ?? 0) + 2
 }

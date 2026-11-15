@@ -157,10 +157,18 @@ function Skills({ card, center }: { card: CompleteCard; center: boolean }): Reac
       <div className="text-[28px] font-semibold leading-[34px] tracking-[-0.02em]" style={{ color: color.text }} data-complete-head>
         {map.track || card.title}
       </div>
-      {mastered > 0 && (
-        <div className="mt-[6px] text-[15px] leading-[20px]" style={{ color: color.label, ...tab }}>
-          {mastered} skill{mastered === 1 ? '' : 's'} mastered
+      {/* The engine's body ("6 of 7 steps, 1 skipped", the result) when it sends one; the mastered count only
+          without it, since it overclaims a skipped step (Michael, test 10). */}
+      {card.body ? (
+        <div className="mt-[6px] text-[15px] leading-[21px]" style={{ color: color.label, ...tab }}>
+          <CodeText text={card.body} />
         </div>
+      ) : (
+        mastered > 0 && (
+          <div className="mt-[6px] text-[15px] leading-[20px]" style={{ color: color.label, ...tab }}>
+            {mastered} skill{mastered === 1 ? '' : 's'} mastered
+          </div>
+        )
       )}
       {skills.length > 0 && (
         <div className={`mt-[24px] flex flex-wrap gap-[8px] ${center ? 'justify-center' : ''}`} data-skills>
