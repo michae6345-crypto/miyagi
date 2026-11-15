@@ -20,11 +20,11 @@ import { BookOpen, Check, MousePointerClick, NotebookText, Play, type LucideIcon
 import type { LearnFirstItem, Prerequisite } from '../../../../../../shared/contracts/events'
 import { cmd } from '../../../../common/wire'
 import { bridge } from '../../bridge'
-import { useLesson } from '../../core/lesson'
+import { useLesson, noteLearnMode } from '../../core/lesson'
 import { color, fill } from '../../core/theme'
 import { CloseButton, PrimaryButton } from '../../core/ui/atoms'
 import { FlowDiagram } from './Flow'
-import { closeBeforeStart } from './store'
+import { closeBeforeStart, lessonDone, startLesson } from './store'
 
 export const SHEET_W = 520
 const PAD = 22
@@ -38,6 +38,7 @@ const LEARN_KIND: Record<LearnFirstItem['kind'], { icon: LucideIcon; label: stri
 
 /** Start a mini-lesson for a prerequisite (contract LearnFirstItem: learn {query: title, mode}). */
 function learn(item: LearnFirstItem): void {
+  noteLearnMode(undefined)
   bridge.send(cmd('learn', { query: item.title, mode: item.kind === 'video' ? 'video' : 'lesson' }))
   closeBeforeStart()
 }
@@ -50,7 +51,8 @@ export function Sheet(): ReactNode {
       flow: s.lesson?.flow,
       prerequisites: s.lesson?.prerequisites,
       learnFirst: s.lesson?.learnFirst,
-      stepIndex: s.steps.find((x) => x.id === s.stepId)?.index
+      stepIndex: s.steps.find((x) => x.id === s.stepId)?.index,
+      done: lessonDone(s)
     }))
   )
   const needs = l.prerequisites ?? []
@@ -61,7 +63,7 @@ export function Sheet(): ReactNode {
       <div className="flex items-start gap-[10px]">
         <div className="min-w-0 flex-1">
           <div className="text-[12px] font-semibold leading-[16px]" style={{ color: color.label }}>
-            Before you start
+            Your lesson
           </div>
           <div className="mt-[2px] line-clamp-2 text-[19px] font-semibold leading-[24px] tracking-[-0.01em]">{l.title}</div>
         </div>
@@ -91,7 +93,7 @@ export function Sheet(): ReactNode {
         <Section title="You'll need">
           <div className="flex flex-col gap-[8px]">
             {needs.map((p) => (
-              <NeedRow key={p.id} need={p} />
+              <NeedRow key={p.id} need={p} done={l.done} />
             ))}
           </div>
         </Section>
@@ -120,7 +122,7 @@ export function Sheet(): ReactNode {
             <span className="truncate">Learn {first.title} first</span>
           </button>
         )}
-        <PrimaryButton label="Start the lesson" onClick={closeBeforeStart} />
+        <PrimaryButton label="Start the lesson" onClick={startLesson} />
       </div>
     </div>
   )
@@ -137,7 +139,8 @@ function Section({ title, children }: { title: string; children: ReactNode }): R
   )
 }
 
-function NeedRow({ need }: { need: Prerequisite }): ReactNode {
+/** done: the lesson's steps have all passed, so an unseen prerequisite reads "Used in this lesson", not "Not seen yet". */
+function NeedRow({ need, done }: { need: Prerequisite; done?: boolean }): ReactNode {
   const passed = need.status === 'passed'
   return (
     <div data-need={need.id} data-status={need.status} className="flex items-start gap-[10px]">
@@ -152,7 +155,7 @@ function NeedRow({ need }: { need: Prerequisite }): ReactNode {
         <div className="flex items-baseline justify-between gap-[10px]">
           <span className="truncate text-[13.5px] font-semibold leading-[18px]">{need.title}</span>
           <span className="shrink-0 text-[12px] leading-[16px]" style={{ color: passed ? color.label : color.faint }}>
-            {passed ? need.evidence || 'Passed' : 'Not seen yet'}
+            {passed ? need.evidence || 'Passed' : done ? 'Used in this lesson' : 'Not seen yet'}
           </span>
         </div>
         {need.why && (

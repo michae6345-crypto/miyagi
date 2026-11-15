@@ -21,8 +21,15 @@ export function onMessage<T extends MessageType>(type: T, fn: (payload: PayloadO
   return () => messageHandlers.get(type)!.delete(fn as AnyHandler)
 }
 
+/** One gate (core/lesson's): returns false to drop a message before any feature sees it (a replayed lesson.ready). */
+let gate: ((msg: Incoming) => boolean) | undefined
+export function setGate(fn: (msg: Incoming) => boolean): void {
+  gate = fn
+}
+
 /** Called once per engine message by the feed in main.tsx. */
 export function dispatch(msg: Incoming): void {
+  if (gate && !gate(msg)) return
   messageHandlers.get(msg.type)?.forEach((fn) => {
     try {
       fn(msg.payload, msg)

@@ -65,9 +65,9 @@ export function Spinner({ size = 18, c = color.accent, track = fill.trackSoft }:
 }
 
 /**
- * One check: passed = a filled green circle whose tick draws in · not yet (fail) = a hollow white ring, no mark
- * (off track has no hue) · pending = an empty faint ring. `active` = a Check is in flight (useChecking): the
- * spinner, the only time a check row moves.
+ * One check: passed = a filled green circle whose tick draws in · not yet (fail) = a solid hollow white ring, no
+ * mark (off track has no hue) · pending (watching) = a faint dashed ring, so it never reads as Not yet (Michael's
+ * review A22). `active` = a Check is in flight (useChecking): the spinner, the only time a check row moves.
  */
 export function CheckIcon({ status, active }: { status: CheckItem['status']; active: boolean }): ReactNode {
   if (status === 'pass')
@@ -90,10 +90,13 @@ export function CheckIcon({ status, active }: { status: CheckItem['status']; act
   if (active) return <Spinner />
   return (
     <svg width="18" height="18" viewBox="0 0 18 18" className="shrink-0">
-      <circle cx="9" cy="9" r="8.2" fill="none" stroke={status === 'fail' ? color.amber : fill.ring} strokeWidth={status === 'fail' ? 1.6 : 1.4} />
+      <circle cx="9" cy="9" r="8.2" fill="none" stroke={status === 'fail' ? color.amber : fill.ring} strokeWidth={status === 'fail' ? 1.6 : 1.4} strokeDasharray={status === 'fail' ? undefined : WATCH_DASH} />
     </svg>
   )
 }
+
+/** The watching ring's dashes: 12 even dashes around r 8.2 (circumference ≈ 51.5). */
+const WATCH_DASH = '2.4 1.9'
 
 /** The same check icon on a glass panel (theme.glass, follows Settings → Appearance). Colors via style, so var() resolves. */
 function GlassCheckIcon({ status, active }: { status: CheckItem['status']; active: boolean }): ReactNode {
@@ -101,7 +104,15 @@ function GlassCheckIcon({ status, active }: { status: CheckItem['status']; activ
   if (active) return <GlassSpinner c={glass.text} />
   return (
     <svg width="18" height="18" viewBox="0 0 18 18" className="shrink-0">
-      <circle cx="9" cy="9" r="8.2" fill="none" strokeWidth={status === 'fail' ? 1.6 : 1.4} style={{ stroke: status === 'fail' ? glass.offTrack : glass.faint }} />
+      <circle
+        cx="9"
+        cy="9"
+        r="8.2"
+        fill="none"
+        strokeWidth={status === 'fail' ? 1.6 : 1.4}
+        strokeDasharray={status === 'fail' ? undefined : WATCH_DASH}
+        style={{ stroke: status === 'fail' ? glass.offTrack : glass.faint }}
+      />
     </svg>
   )
 }
@@ -155,10 +166,10 @@ const CHECK_TONE: Record<CheckSurface, { text: string; label: string; faint: str
 
 /**
  * The step's checks, one row each: the icon, the label (up to two lines, code in mono, the full text on hover), the
- * engine's detail as a faint second line, and ONE status word on the right: Passed (green) · Watching (gray, eye;
- * the whole row gray, an empty ring, never a spinner or a "!") · Not yet (white, no hue). Rows only spin while a
- * Check is in flight (useChecking). `surface="glass"` for glass panels (the drawer); the island and its cards are
- * the default.
+ * engine's detail under it (faint, also up to two lines: never cut to one, Michael's review A22), and ONE status word
+ * on the right: Passed (green) · Watching (gray, eye; the whole row gray, a dashed ring, never a spinner or a "!") ·
+ * Not yet (white with its own hollow ring, no hue). Rows only spin while a Check is in flight (useChecking).
+ * `surface="glass"` for glass panels (the drawer); the island and its cards are the default.
  */
 export function CheckList({ checks, surface = 'island' }: { checks: CheckItem[]; surface?: CheckSurface }): ReactNode {
   const checking = useChecking()
@@ -182,7 +193,7 @@ export function CheckList({ checks, surface = 'island' }: { checks: CheckItem[];
               {c.detail && (
                 <div
                   data-part="check-detail"
-                  className="mt-[1px] truncate text-[12px] leading-[16px] tabular-nums"
+                  className="mt-[1px] line-clamp-2 break-words text-[12px] leading-[16px] tabular-nums"
                   style={{ color: c.status === 'fail' ? t.label : t.faint }}
                   title={c.detail}
                 >
@@ -204,8 +215,18 @@ function CheckWord({ status, tone }: { status: CheckItem['status']; tone: (typeo
   return (
     <span data-part="check-word" className="flex shrink-0 items-center gap-[4px] whitespace-nowrap text-[12px] font-medium leading-[18px]" style={{ color: c }}>
       {status === 'pending' && <Eye size={12} strokeWidth={1.9} className="shrink-0" />}
+      {status === 'fail' && <NotYetRing c={c} />}
       {word}
     </span>
+  )
+}
+
+/** Not yet's own glyph (A22): the off-track ring (StatusDot's), white on the island, never a hue. Watching keeps the eye. */
+function NotYetRing({ c }: { c: string }): ReactNode {
+  return (
+    <svg data-part="not-yet-ring" width="12" height="12" viewBox="0 0 12 12" className="shrink-0">
+      <circle cx="6" cy="6" r="4.2" fill="none" strokeWidth="1.6" style={{ stroke: c }} />
+    </svg>
   )
 }
 

@@ -9,7 +9,7 @@ import { useShallow } from 'zustand/react/shallow'
 import type { CheckStatus, Source, StepSummary, VideoSegment } from '../../../../../shared/contracts/events'
 import type { ConfigStatus, Payload } from '../../../common/wire'
 import { bridge } from '../bridge'
-import { emitUi, onMessage, onUi } from './bus'
+import { emitUi, onMessage, onUi, setGate } from './bus'
 
 export type CheckItem = { id: string; label: string; status: CheckStatus; detail?: string }
 export type Status = 'watching' | 'offtrack' | 'passed'
@@ -68,6 +68,8 @@ type LessonState = {
   notice?: Notice
   /** The engine this app starts on a Mac (main/localEngine.ts): installing, starting, missing, failed… */
   localEngine?: { state: string; line?: string; logs?: string }
+  /** This lesson came from the launcher's Demo option (the curated lesson): no "Claude wrote this lesson" line. */
+  demo: boolean
 }
 
 export type Notice = { text: string; tone: 'error' | 'info'; at: number }
@@ -96,7 +98,8 @@ const blank = {
   engineState: undefined,
   seen: undefined,
   error: undefined,
-  notice: undefined
+  notice: undefined,
+  demo: false
 } satisfies Partial<LessonState>
 
 export const useLesson = create<LessonState>(() => ({ connected: false, ...blank }))
@@ -111,7 +114,9 @@ export const stopBuild = (): void => set({ building: false, buildingMessage: und
 export const setConnected = (connected: boolean): void => {
   // (Re)connected: the engine's snapshot is the truth (after an engine restart it's just "idle"),
   // so drop the lesson this window was showing before the snapshot refills it.
-  if (connected && !get().connected) emitUi('reset', { scope: 'lesson', reason: 'reconnect' })
+  // Held for a moment: if the engine replays the same lesson (same id), the UI stays as it was (Michael, test 6:
+  // no jumping back to the "Your lesson" sheet); anything else, or nothing, and the reset goes ahead.
+  if (connected && !get().connected) holdReconnectReset()
   // Dropped mid-build: no `failed` can arrive any more, so drop the building UI too (audit P1-3).
   if (!connected && get().building) set({ building: false, buildingMessage: undefined, buildingProgress: undefined, buildingElapsed: undefined })
   // Nothing is thinking on a dead socket.
@@ -121,11 +126,63 @@ export const setConnected = (connected: boolean): void => {
 
 onUi('reset', () => set({ ...blank }))
 
+const REPLAY_WAIT_MS = 2000
+/** lesson.ended reason "interrupted" (an engine deploy): how long the screen stays as it is for the engine to come back. */
+const INTERRUPT_WAIT_MS = 30000
+let held: { id?: string; timer: ReturnType<typeof setTimeout> } | undefined
+function holdReconnectReset(wait = REPLAY_WAIT_MS): void {
+  if (held) return
+  const id = get().lesson?.id
+  if (!id) {
+    emitUi('reset', { scope: 'lesson', reason: 'reconnect' })
+    return
+  }
+  held = {
+    id,
+    timer: setTimeout(() => {
+      held = undefined
+      emitUi('reset', { scope: 'lesson', reason: 'reconnect' })
+    }, wait)
+  }
+}
+
+/**
+ * Idempotent lesson.ready (Michael, test 6): the same lesson id as the one on screen (a replay on reconnect, a
+ * resent snapshot) merges its steps like lesson.updated and is dropped before any feature resets its UI.
+ * A different id is a new lesson and goes through as before.
+ */
+setGate((msg) => {
+  if (msg.type !== 'lesson.ready') return true
+  const p = msg.payload as Payload<'lesson.ready'>
+  const cur = get().lesson
+  const same = !!cur?.id && cur.id === p.lesson?.id
+  if (held) {
+    clearTimeout(held.timer)
+    held = undefined
+    if (!same) emitUi('reset', { scope: 'lesson', reason: 'reconnect' })
+  }
+  if (!same) return true
+  set((s) => {
+    const incoming = new Map(p.steps.map((x) => [x.id, x]))
+    const kept = s.steps.map((x) => incoming.get(x.id) ?? x)
+    const known = new Set(s.steps.map((x) => x.id))
+    return { lesson: p.lesson, steps: [...kept, ...p.steps.filter((x) => !known.has(x.id))], complete: p.lesson.complete !== false }
+  })
+  return false
+})
+
 /**
  * The engine ended the lesson (end_lesson, a new learn, POST /end): blank every lesson-side store.
  * scope "lesson" tells the launcher to keep its query and results (a new search may be in flight).
  */
 onMessage('lesson.ended', (p) => {
+  // reason "interrupted" (claude/stable-nosave): an engine deploy, and it comes back with the same lesson. Keep the
+  // screen, say so quietly, and reset only if no replay of this lesson arrives.
+  if ((p.reason as string | undefined) === 'interrupted' && get().lesson?.id) {
+    notify('Reconnecting…')
+    holdReconnectReset(INTERRUPT_WAIT_MS)
+    return
+  }
   emitUi('reset', { scope: 'lesson', reason: p.reason })
 })
 
@@ -135,7 +192,13 @@ onMessage('lesson.building', (p) =>
     ? set({ building: false, buildingMessage: undefined, buildingProgress: undefined, buildingElapsed: undefined })
     : set({ building: true, buildingMessage: p.message, buildingProgress: p.progress, buildingElapsed: p.elapsedS })
 )
-onMessage('lesson.ready', (p) => set({ ...blank, lesson: p.lesson, steps: p.steps, complete: p.lesson.complete !== false, building: true }))
+/** The mode of the last learn the launcher sent. lesson.ready doesn't say "demo", so the app remembers what it asked for. */
+let learnMode: string | undefined
+export function noteLearnMode(mode: string | undefined): void {
+  learnMode = mode
+}
+
+onMessage('lesson.ready', (p) => set({ ...blank, lesson: p.lesson, steps: p.steps, complete: p.lesson.complete !== false, building: true, demo: learnMode === 'demo' }))
 /**
  * A long video's next part: the engine sends only the NEW steps (contract: appended, ids stable), sometimes an
  * empty list with complete:true. Merge by id (a known id is updated in place) so the list never shrinks.
@@ -152,6 +215,8 @@ onMessage('lesson.updated', (p) =>
 )
 onMessage('step.started', (p) => {
   const s = get()
+  // replay: true (claude/stable-nosave): the step on screen sent again. Keep its checks and progress.
+  if ((p as typeof p & { replay?: boolean }).replay && p.stepId === s.stepId) return
   const pos = s.steps.findIndex((x) => x.id === p.stepId)
   const before = pos > 0 ? s.steps.slice(0, pos).map((x) => x.id) : []
   set({
@@ -177,7 +242,13 @@ onMessage('check.updated', (p) => {
 onMessage('step.passed', (p) => {
   const s = get()
   const summary = (p as typeof p & { summary?: string }).summary
-  if (p.skipped) {
+  // already: true (claude/stable-nosave): a step done before (a resume). Mark it done quietly: no green flash, no
+  // step-done card; the engine's own "You already did..." card follows.
+  if (p.skipped || (p as typeof p & { already?: boolean }).already) {
+    if (!p.skipped) {
+      set({ passed: Array.from(new Set([...s.passed, p.stepId])), pendingNext: p.pending === true, offtrack: undefined })
+      return
+    }
     // Skipped, not passed: no green flash, no "Good. Now the next one."
     set({ passed: Array.from(new Set([...s.passed, p.stepId])), skipped: Array.from(new Set([...s.skipped, p.stepId])), pendingNext: p.pending === true, offtrack: undefined })
     return
@@ -240,7 +311,9 @@ export function useThinking(): boolean {
  * "Gemini watched this video" style line, from lesson.builtBy (undefined when unknown).
  * mode "lesson" ("Just teach me"): Claude wrote the lesson and no tutorial was read, so "Claude wrote this lesson".
  */
-export function builtByLabel(by: LessonInfo['builtBy'], mode?: LessonInfo['mode']): string | undefined {
+export function builtByLabel(by: LessonInfo['builtBy'], mode?: LessonInfo['mode'], demo = false): string | undefined {
+  // The Demo lesson is curated (server/orchestrator/stage.py), not written by a model (Michael, 5 AM shoot).
+  if (demo) return undefined
   if (mode === 'lesson' && (by === 'claude' || by === 'unknown' || by == null)) return 'Claude wrote this lesson'
   return by === 'gemini' ? 'Gemini watched this video' : by === 'claude' ? 'Claude read this tutorial' : by === 'mixed' ? 'Built by Gemini and Claude' : undefined
 }

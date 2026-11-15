@@ -56,9 +56,12 @@ type TileProps = {
   title?: string
   /** Replaces the icon (the Voice equalizer). */
   glyph?: ReactNode
+  /** Fire on the press itself, not the click (End lesson, desktop test 9 A2): a click needs down and up on the same
+   * spot, and the bar can lift or re-render between them. Keyboard activation still goes through onClick. */
+  onDown?: boolean
 }
 
-export function Tile({ label, icon: Icon, look: l, onClick, keycap, busyKind, dip, lit, pressed, expanded, disabled, title, glyph }: TileProps): ReactNode {
+export function Tile({ label, icon: Icon, look: l, onClick, keycap, busyKind, dip, lit, pressed, expanded, disabled, title, glyph, onDown }: TileProps): ReactNode {
   const [hover, setHover] = useState(false)
   const alt = useAltHeld((a) => a.held)
   const inner = glyph ?? <Icon size={16} strokeWidth={1.8} />
@@ -75,7 +78,8 @@ export function Tile({ label, icon: Icon, look: l, onClick, keycap, busyKind, di
       transition={{ duration: PRESS_MS / 1000 }}
       onPointerEnter={() => setHover(true)}
       onPointerLeave={() => setHover(false)}
-      onClick={onClick}
+      onPointerDown={onDown && !disabled ? (e) => e.button === 0 && onClick() : undefined}
+      onClick={onDown ? (e) => e.detail === 0 && onClick() : onClick}
     >
       <span className="grid h-[28px] w-[28px] place-items-center rounded-[8px]" style={{ background: l.background, color: l.color }}>
         {busyKind ? (

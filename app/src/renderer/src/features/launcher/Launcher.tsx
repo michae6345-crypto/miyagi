@@ -14,17 +14,28 @@
  * Two modes, picked on open (Tab flips them during a lesson):
  *   search : learn {query} → video rows stream in → Build lesson. A pasted YouTube link skips the search
  *            (one row, Enter sends learn_url {url}). Idle shows a few neutral topic suggestions (never the
- *            lesson in progress); one click searches.
- *            Over a search's rows, the first row is always "Build a lesson from the internet" (the same
- *            learn {query, mode:'lesson'} as "Just teach me" below); it is the default pick when the search
- *            for what's typed found no video. Only video rows are listed (the store drops the rest).
- *   ask    : a lesson exists → "Ask about this step" → action {kind:'ask', text}.
- * During a lesson with nothing typed, "Continue <lesson>" is the first row (Enter goes back to the lesson)
- * and "End lesson" sits under it (↓ then Enter sends end_lesson).
+ *            lesson in progress); a click puts the topic in the field, where the two ways to learn it come up.
+ *            Over a search's rows, the first row is always "Just teach me" (the same learn {query, mode:'lesson'}
+ *            as the chip below); it is the default pick when the search for what's typed found no video. Only
+ *            video rows are listed (the store drops the rest).
+ *   ask    : a lesson exists → "Ask about this step" → action {kind:'ask', text}. Under the field, 2-3 suggested questions
+ *            about the step (its check, title, concepts: questions.ts); one click asks it (Michael's review A11). The
+ *            options (Explain, Hint …) stay in the bar, not repeated here.
+ * During a lesson with nothing typed, "Continue <lesson>" is the only row (Enter goes back to the lesson). Ending
+ * the lesson is a quiet two-tap "End lesson" link in the footer (Michael's desktop test 3, item 8): no key reaches it,
+ * so a stray Enter or ↓ then Enter can't end a lesson.
+ * A saved lesson waiting to resume (the engine's card {kind:'resume'} after a restart; the lesson may not be loaded in
+ * the app yet) gets the same first row, "Continue <its title>", and Enter sends action resume (item 10).
  *
  * Two ways to learn a typed topic (Michael, Sat 3:23 PM): "Watch a video" (the search flow above) or
  * "Just teach me" (learn {query, mode:"lesson"}: no video, the engine writes the lesson; the panel goes
- * straight into the building pill). Tab switches while they're offered, Enter picks, ⌘/Ctrl+Enter teaches.
+ * straight into the building pill). A third chip, "Demo" (learn {query, mode:"demo"}), starts the engine's staged
+ * neural-net lesson whatever is typed (server/orchestrator/stage.py), the same way as "Just teach me"; the chip is the
+ * only place the word appears (its primary says "Start demo"). One model for all three (Michael's review A18): they
+ * are buttons. A click starts that way at once; Enter starts the highlighted one, Tab / Shift+Tab move the highlight
+ * over all three, ⌘/Ctrl+Enter is always "Just teach me". The same two names on the chips, the footer's primary, its
+ * key hint and the lesson row. The highlight starts on "Just teach me" when the goal reads like building something
+ * (isBuildGoal), on "Watch a video" otherwise; never on Demo unless the learner moves it there.
  *
  * Look: born black like the island, it turns to dark HUD glass (color.glass) with a hairline edge as it
  * grows (Michael's audit A18, mockup 03) and back to black as it collapses. White text at the theme's
@@ -38,20 +49,26 @@
 import { AnimatePresence, motion, useReducedMotion, type HTMLMotionProps, type TargetAndTransition, type Transition } from 'motion/react'
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, type ClipboardEvent, type KeyboardEvent, type ReactNode } from 'react'
 import { useShallow } from 'zustand/react/shallow'
-import { Aperture, Bot, Mic, Waves, WifiOff, type LucideIcon } from 'lucide-react'
+import { Aperture, Bot, Mic, Network, WifiOff, type LucideIcon } from 'lucide-react'
 import type { Layout } from '../../../../preload/api'
 import { cmd } from '../../../../common/wire'
 import { bridge } from '../../bridge'
 import { onUi } from '../../core/bus'
-import { useLesson, useProgress } from '../../core/lesson'
+import { noteLearnMode, useLesson, useProgress } from '../../core/lesson'
 import { getIslandModes, type IslandMode } from '../../core/registry'
-import { triggerShortcut } from '../../core/shortcuts'
+import { sendAction } from '../../core/shortcuts'
 import { MiyagiMark } from '../../core/ui/Mark'
-import { OptionButton, Spinner } from '../../core/ui/atoms'
+import { Spinner } from '../../core/ui/atoms'
 import { color, copy, fill, launcher as launcherTheme, pill, radius, scrim, shadows, spring, springOut } from '../../core/theme'
-import { Action, Chip, Hint, HowChoice, Rise, type How } from './parts'
-import { EndRow, LessonRow, LinkRow, MessageRow, ResultRow, ResumeRow, ROW_H, SettingsRow, SkeletonRow } from './Rows'
+import { useCards } from '../cards/store'
+import { findPrimer, useStepDetail } from '../drawer/plan'
+import { hole, isUsableRect, toLocal } from '../spotlight/place'
+import { useSpotlight } from '../spotlight/store'
+import { Action, Chip, EndLink, Hint, HOW_LABEL, HOWS, HowChoice, QuestionChips, Rise, type How } from './parts'
+import { stepQuestions } from './questions'
+import { LessonRow, LinkRow, MessageRow, ResultRow, ResumeRow, ROW_H, SettingsRow, SkeletonRow } from './Rows'
 import { clearResults, markAsked, setLauncherOpen, startSearch, useSearch } from './store'
+import { placeClear } from './place'
 import { parseYouTube } from './youtube'
 
 type Phase = 'closed' | 'open' | 'closing' | 'building' | 'sending'
@@ -59,7 +76,10 @@ type Mode = 'search' | 'ask'
 type View = 'idle' | 'link' | 'searching' | 'results' | 'empty' | 'error'
 type Size = { w: number; h: number }
 /** What Enter (and the footer action) would do right now. Mirrors submit(). */
-type Act = 'settings' | 'resume' | 'end' | 'ask' | 'build' | 'teach' | 'search' | 'searching' | 'none'
+type Act = 'settings' | 'resume' | 'ask' | 'build' | 'teach' | 'demo' | 'search' | 'searching' | 'none'
+
+/** The footer's End lesson stays armed ("Tap to end") this long for its second click, like the bar's End. */
+const END_ARM_MS = 3000
 
 /** Words that lead to Settings. The whole input (3+ letters) must be the start of one: "sett", "keys", "appear". */
 const SETTINGS_WORDS = ['settings', 'keys', 'preferences', 'appearance']
@@ -80,12 +100,20 @@ const STAGGER = 0.04
 /** The pill core's island lands on after Build lesson. */
 const PILL: Size = { w: pill.landingWidth, h: pill.height }
 
-/** Idle suggestions: example asks across fields (never the demo lesson's topic). One click searches. */
+/** Idle suggestions: example asks across fields. One click searches. The demo's lesson leads (Michael's test 6). */
 const SUGGESTIONS: { icon: LucideIcon; label: string }[] = [
+  { icon: Network, label: 'Build a neural network' },
   { icon: Bot, label: 'Fine-tune an LLM' },
-  { icon: Aperture, label: 'Build a ray tracer' },
-  { icon: Waves, label: 'Train a diffusion model' }
+  { icon: Aperture, label: 'Build a ray tracer' }
 ]
+
+/**
+ * The goal reads like building something ("build a ray tracer", "write a tokenizer from scratch", "train a GAN"):
+ * "Just teach me" is the default way, else "Watch a video" (Michael's review A18). Verbs of making, not topics.
+ */
+const BUILD_GOAL =
+  /\b(build(s|ing)?|mak(e|es|ing)|creat(e|es|ing)|writ(e|es|ing)|cod(e|es|ing)|implement(s|ing)?|develop(s|ing)?|program(s|ming)?|train(s|ing)?|fine-?tun(e|es|ing)|set ?up|from scratch|my own|clone)\b/i
+const isBuildGoal = (text: string): boolean => BUILD_GOAL.test(text)
 
 /** Lowercase words only, space-padded, for comparing a suggestion with the lesson in progress. */
 const words = (s: string): string => ` ${s.toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim()} `
@@ -96,6 +124,18 @@ const sameTopic = (a: string, b: string): boolean => {
   return x.trim() !== '' && y.trim() !== '' && (x.includes(y) || y.includes(x))
 }
 
+/**
+ * The engine's "Continue where you left off?" card (card {kind:'resume'}) says which lesson in its body:
+ * "<lesson title> · step 3: <step title>". Split it into the Continue row's title and meta line; any other body is
+ * the meta line as it is.
+ */
+function savedLesson(body: string): { title?: string; where: string } {
+  const text = body.trim()
+  const m = /^(.*?)\s+·\s+step\s+([^:]*):\s*(.*)$/i.exec(text)
+  if (m && m[1].trim()) return { title: m[1].trim(), where: m[3].trim() ? `Step ${m[2].trim()} · ${m[3].trim()}` : `Step ${m[2].trim()}` }
+  return { where: text || 'Where you left off' }
+}
+
 const isPillSized = (s: Size): boolean => s.h <= pill.height + 1
 /** The island's shape at a given size: a pill is fully round, a card uses the island's card radius. */
 const shapeOf = (s: Size): TargetAndTransition => ({
@@ -103,6 +143,8 @@ const shapeOf = (s: Size): TargetAndTransition => ({
   height: s.h,
   borderRadius: isPillSized(s) ? s.h / 2 : radius.island,
   boxShadow: isPillSized(s) ? shadows.pill : shadows.card,
+  // At the notch: a panel moved clear of the spotlight (see placeClear) collapses back up into the island.
+  y: 0,
   // Born black like the island, so the hand-over is seamless; it turns to glass as it grows (see `grown`).
   backgroundColor: color.island
 })
@@ -128,8 +170,12 @@ export function Launcher({ layout }: { layout: Layout }): ReactNode {
     setPhaseState(p)
   }, [])
   const [mode, setMode] = useState<Mode>('search')
-  /** "Watch a video" or "Just teach me" for the topic being typed (Michael's two ways to learn). */
-  const [how, setHow] = useState<How>('video')
+  /**
+   * "Watch a video", "Just teach me" or "Demo" for the topic being typed (Michael's two ways to learn, plus Demo), when
+   * the learner moved the highlight (Tab / Shift+Tab). Unset, the highlight follows what's typed (isBuildGoal), so it
+   * never lands on Demo by itself. Cleared with the field and on open.
+   */
+  const [howPicked, setHowPicked] = useState<How | undefined>(undefined)
   const [from, setFrom] = useState<Size>(PILL)
   /** The island's content is still fading out of the panel (first ~100ms after opening). */
   const [handoff, setHandoff] = useState(false)
@@ -137,8 +183,14 @@ export function Launcher({ layout }: { layout: Layout }): ReactNode {
   const [query, setQuery] = useState('')
   const [question, setQuestion] = useState('')
   const [sel, setSel] = useState(0)
-  /** During a lesson with nothing typed: the "End lesson" row is picked instead of "Continue" (↓ or hover). */
-  const [pickEnd, setPickEnd] = useState(false)
+  /** The footer's End lesson got its first click: the next click (within END_ARM_MS) ends the lesson. */
+  const [endArmed, setEndArmed] = useState(false)
+  const endTimer = useRef<ReturnType<typeof setTimeout>>(undefined)
+  const disarmEnd = useCallback(() => {
+    clearTimeout(endTimer.current)
+    setEndArmed(false)
+  }, [])
+  useEffect(() => () => clearTimeout(endTimer.current), [])
 
   const search = useSearch(useShallow((s) => ({ query: s.query, results: s.results, pending: s.pending, done: s.done, error: s.error })))
   const lesson = useLesson(
@@ -148,11 +200,24 @@ export function Launcher({ layout }: { layout: Layout }): ReactNode {
       hasStep: !!s.stepId,
       hasLesson: !!s.lesson,
       building: s.building,
-      title: s.lesson?.title
+      title: s.lesson?.title,
+      stepId: s.stepId,
+      checks: s.checks,
+      primer: s.lesson?.primer
     }))
   )
+  /** The step's concepts (step.started, kept by the drawer's store), for the suggested questions (review A11). */
+  const stepDetail = useStepDetail((s) => s.detail)
   const progress = useProgress()
+  /**
+   * The engine is waiting on "Continue where you left off?" (after an engine restart it sends card {kind:'resume'},
+   * actions resume / end_lesson, and the lesson may not be loaded in the app yet). Michael's desktop test 3, item 10.
+   */
+  const resumeCard = useCards((c) => (c.card?.kind === 'resume' ? c.card : undefined))
+  const saved = resumeCard ? savedLesson(resumeCard.body) : undefined
   const islandMode = useIslandMode()
+  /** The spotlight's box (the line being asked about): the panel keeps clear of it (Michael's review A13). */
+  const spot = useSpotlight((s) => s.target)
   const reduce = useReducedMotion()
   const input = useRef<HTMLInputElement>(null)
   /** The row Build last sent, so reopening (the preflight card's "Pick another") highlights the next one. */
@@ -186,9 +251,13 @@ export function Launcher({ layout }: { layout: Layout }): ReactNode {
       bridge.on('launcher:open', (payload) => {
         const f = (payload as { from?: Size } | undefined)?.from
         setFrom(f && f.w > 0 && f.h > 0 ? { w: Math.round(f.w), h: Math.round(f.h) } : PILL)
-        setMode(useLesson.getState().lesson ? 'ask' : 'search')
-        setHow('video')
-        setPickEnd(false)
+        const hasLesson = !!useLesson.getState().lesson
+        setMode(hasLesson ? 'ask' : 'search')
+        // A saved lesson is waiting to resume (item 10): the first decision is Continue, so an old search text left in
+        // the field (it outlives an engine restart) must not hide the Continue row.
+        if (!hasLesson && useCards.getState().card?.kind === 'resume') setQuery('')
+        setHowPicked(undefined)
+        disarmEnd()
         delays.current.clear()
         // Results stay after Build until a new learn / learn_url. Reopened after a pick ("Pick another"), the
         // highlight starts on the next row, so Enter doesn't rebuild the same tutorial.
@@ -199,7 +268,7 @@ export function Launcher({ layout }: { layout: Layout }): ReactNode {
         setGen((g) => g + 1)
         setPhase('open')
       }),
-    [setPhase]
+    [setPhase, disarmEnd]
   )
   useEffect(
     () =>
@@ -326,14 +395,23 @@ export function Launcher({ layout }: { layout: Layout }): ReactNode {
   /** The typed text is a settings word: a single "Settings" row replaces everything else. */
   const settingsRow = !link && isSettingsQuery(typed)
   const choosing = !settingsRow && mode === 'search' && !link && !!typed && (typed !== search.query || view === 'idle')
+  /** The highlighted way: the learner's Tab pick, else "Just teach me" for a goal that reads like building something. */
+  const how: How = howPicked ?? (isBuildGoal(typed) ? 'lesson' : 'video')
   const teachKey = bridge.platform.os === 'mac' ? '⌘↵' : 'Ctrl↵'
+  /**
+   * During a lesson, with nothing typed: "Continue <lesson>" is the only row, highlighted (Enter goes back to the
+   * lesson). Typing replaces it. End lesson is the footer's quiet two-tap link, out of reach of Enter and ↑↓.
+   * While the engine waits on a saved lesson (resume card, item 10) the row is there with nothing typed whatever else
+   * is on screen (old search rows step aside), and Continue resumes it.
+   */
+  const resumeRows = !typed && (resumeCard ? true : lesson.hasLesson && (mode === 'ask' || view === 'idle'))
   /** What a text lesson would be about: what's typed, else the query the rows on screen belong to. */
   const goal = typed || (view === 'idle' ? '' : search.query)
   /**
    * "Build a lesson from the internet": the fixed first row over a search's rows (not while the two ways are offered,
-   * not for a settings word or a pasted link, not in ask mode). Same request as "Just teach me".
+   * not for a settings word or a pasted link, not in ask mode, not under Continue). Same request as "Just teach me".
    */
-  const lessonRow = mode === 'search' && !link && !settingsRow && !!goal && !choosing
+  const lessonRow = mode === 'search' && !link && !settingsRow && !!goal && !choosing && !resumeRows
   /** Video rows (and skeletons, the empty / error row) sit one slot lower under the lesson row. */
   const off = lessonRow ? 1 : 0
   const listed = view === 'idle' ? 0 : view === 'results' || view === 'searching' ? Math.min(MAX_ROWS, visible.length + skeletons) : 1
@@ -348,15 +426,14 @@ export function Launcher({ layout }: { layout: Layout }): ReactNode {
   const noVideo = retry && view === 'empty' && lesson.connected
   const onLesson = lessonRow && (sel === LESSON || noVideo)
   const selIndex = Math.min(Math.max(0, sel), Math.max(0, visible.length - 1))
-  /**
-   * During a lesson, with nothing typed: "Continue <lesson>" is the first row, highlighted (Enter goes back to the
-   * lesson), and "End lesson" sits under it (↓ then Enter). Typing replaces both.
-   */
-  const resumeRows = lesson.hasLesson && !typed && (mode === 'ask' || view === 'idle')
   const highlight = view === 'link' || onLesson ? 0 : view === 'results' ? selIndex + off : -1
-  /** The idle topic chips, minus the lesson in progress (or being built): never offer it again. */
-  const current = lesson.hasLesson || lesson.building ? [lesson.title, topic.current].filter((t): t is string => !!t) : []
+  /** The idle topic chips, minus the lesson in progress, being built or waiting to resume: never offer it again. */
+  const current = [...(lesson.hasLesson || lesson.building ? [lesson.title, topic.current] : []), saved?.title].filter((t): t is string => !!t)
   const suggestions = SUGGESTIONS.filter((s) => !current.some((t) => sameTopic(s.label, t)))
+  /** Ask mode: questions about the step on screen, from its own check, title and concepts (a concept id → its primer title). */
+  const concepts =
+    stepDetail && stepDetail.stepId === lesson.stepId ? stepDetail.concepts.map((c) => (lesson.primer && findPrimer(lesson.primer, c)?.title) || c) : []
+  const questions = mode === 'ask' && lesson.hasStep ? stepQuestions({ title: lesson.stepTitle, concepts, checks: lesson.checks }) : []
 
   // ---- actions --------------------------------------------------------------------------------
 
@@ -365,6 +442,7 @@ export function Launcher({ layout }: { layout: Layout }): ReactNode {
     startSearch(q)
     delays.current.clear()
     setSel(0)
+    noteLearnMode(undefined)
     bridge.send(cmd('learn', { query: q }))
   }
 
@@ -373,22 +451,23 @@ export function Launcher({ layout }: { layout: Layout }): ReactNode {
    * so there are no rows to pick: the panel goes straight into the building pill, like Build lesson.
    * Only this path sends `mode`: "video" is the contract default, so the video flow's learn stays exactly as it was.
    */
-  const teach = (q: string): void => {
+  const teach = (q: string, as: 'lesson' | 'demo' = 'lesson'): void => {
     if (phaseRef.current !== 'open') return
     lastPick.current = undefined
     topic.current = q
     clearResults()
-    bridge.send(cmd('learn', { query: q, mode: 'lesson' }))
+    noteLearnMode(as)
+    bridge.send(cmd('learn', { query: q, mode: as }))
     setPhase('building')
   }
 
-  /** A click on one of the two ways picks it and starts it. */
+  /** The ways are buttons: a click (its press) starts that way at once, whichever is highlighted. */
   const pick = (h: How): void => {
     const q = query.trim()
     if (!q || phaseRef.current !== 'open') return
-    setHow(h)
-    if (h === 'lesson') teach(q)
-    else learn(q)
+    setHowPicked(h)
+    if (h === 'video') learn(q)
+    else teach(q, h)
   }
 
   const build = (i = selIndex): void => {
@@ -415,6 +494,29 @@ export function Launcher({ layout }: { layout: Layout }): ReactNode {
     setPhase('closing')
   }
 
+  /**
+   * Continue: back to the lesson. While the engine waits on a saved lesson (resume card) that is action resume (the
+   * engine reloads it and the card goes); either way the panel goes back into the island.
+   */
+  const continueLesson = (): void => {
+    if (phaseRef.current !== 'open') return
+    if (resumeCard) sendAction('resume')
+    close()
+  }
+
+  /** The footer's End lesson: the first click arms it ("Tap to end"), a second one within END_ARM_MS ends the lesson. */
+  const tapEnd = (): void => {
+    if (phaseRef.current !== 'open') return
+    clearTimeout(endTimer.current)
+    if (!endArmed) {
+      setEndArmed(true)
+      endTimer.current = setTimeout(() => setEndArmed(false), END_ARM_MS)
+      return
+    }
+    setEndArmed(false)
+    endLesson()
+  }
+
   /** Settings has its own window (grown from the island by core); the launcher goes back into the island as usual. */
   const openSettings = (): void => {
     if (phaseRef.current !== 'open') return
@@ -422,9 +524,10 @@ export function Launcher({ layout }: { layout: Layout }): ReactNode {
     setPhase('closing')
   }
 
-  const ask = (): void => {
-    const text = question.trim()
+  /** Ask what's typed, or a suggested question (it goes into the field, which keeps it until the answer arrives). */
+  const ask = (text = question.trim()): void => {
     if (!text || phaseRef.current !== 'open') return
+    setQuestion(text)
     bridge.send(cmd('action', { kind: 'ask', text }))
     markAsked()
     setPhase('sending')
@@ -436,27 +539,27 @@ export function Launcher({ layout }: { layout: Layout }): ReactNode {
     setMode((m) => (m === 'ask' ? 'search' : 'ask'))
   }
 
-  const quick = (kind: 'explain' | 'hint'): void => {
-    close()
-    triggerShortcut(kind)
-  }
-
+  /**
+   * A topic chip is only the "what": it fills the field, and the two ways to learn it come up with the default
+   * highlighted (Michael's review A18: a chip click used to start a video search at once). Enter or a way starts it.
+   */
   const suggest = (text: string): void => {
     if (phaseRef.current !== 'open') return
+    disarmEnd()
+    setHowPicked(undefined)
     setQuery(text)
-    learn(text)
   }
 
   const submit = (): void => {
     if (settingsRow) return openSettings()
-    // "Continue" goes back into the island and the lesson carries on; only a picked "End lesson" ends it.
-    if (resumeRows) return pickEnd ? endLesson() : close()
+    // "Continue" goes back into the island and the lesson carries on. Enter never ends a lesson (the footer link does).
+    if (resumeRows) return continueLesson()
     if (mode === 'ask') return ask()
     if (link) return build()
     if (onLesson) return teach(goal)
     const q = query.trim()
     if (!q) return
-    if (choosing) return how === 'lesson' ? teach(q) : learn(q)
+    if (choosing) return how === 'video' ? learn(q) : teach(q, how)
     if (retry) return learn(q)
     build()
   }
@@ -492,15 +595,12 @@ export function Launcher({ layout }: { layout: Layout }): ReactNode {
     }
     if (e.key === 'Tab') {
       e.preventDefault() // focus stays in the field either way
-      // While the two ways are offered, Tab switches between them; otherwise it flips ask / new lesson.
-      if (choosing) return setHow((h) => (h === 'video' ? 'lesson' : 'video'))
+      // While the ways are offered, Tab (Shift+Tab back) moves the highlight over all three; otherwise it flips ask / new lesson.
+      if (choosing) return setHowPicked(HOWS[(HOWS.indexOf(how) + (e.shiftKey ? HOWS.length - 1 : 1)) % HOWS.length])
       return switchMode()
     }
-    // Continue / End lesson: ↓ picks End lesson, ↑ goes back to Continue.
-    if (resumeRows && (e.key === 'ArrowDown' || e.key === 'ArrowUp')) {
-      e.preventDefault()
-      return setPickEnd(e.key === 'ArrowDown')
-    }
+    // Continue is the only row: ↑↓ have nothing to move to (End lesson is out of the keys' reach on purpose).
+    if (resumeRows && (e.key === 'ArrowDown' || e.key === 'ArrowUp')) return e.preventDefault()
     if (settingsRow || choosing || (view !== 'results' && !lessonRow)) return
     if (e.key === 'ArrowDown') {
       e.preventDefault()
@@ -526,10 +626,24 @@ export function Launcher({ layout }: { layout: Layout }): ReactNode {
   // ---- motion targets -------------------------------------------------------------------------
 
   const exiting = phase === 'closing' || phase === 'building' || phase === 'sending'
+  /**
+   * Clear of the spotlight's box (Michael's review A13: the ask panel covered the line being asked about): narrower
+   * under the notch, or slid down below the box. It still grows out of the notch and collapses back into it.
+   */
+  const box = spot && isUsableRect(spot.rect) ? hole(toLocal(spot.rect, layout.origin)) : undefined
+  const place = placeClear({
+    box,
+    width: WIDTH,
+    viewW: layout.width,
+    top: bridge.platform.pillTop,
+    height: contentH || from.h,
+    bottom: layout.workArea.y + layout.workArea.height
+  })
   /** Grown, the panel is dark HUD glass (color.glass) with a hairline edge (below), like mockup 03, not the island's flat black. */
   const grown: TargetAndTransition = {
-    width: WIDTH,
+    width: place.w,
     height: contentH || from.h,
+    y: place.dy,
     borderRadius: radius.launcher,
     boxShadow: shadows.card,
     backgroundColor: color.glass
@@ -551,13 +665,11 @@ export function Launcher({ layout }: { layout: Layout }): ReactNode {
   const returnTo = phase === 'building' ? building : islandMode
 
   const offline = !lesson.connected
-  const inlineError = view === 'results' && search.error
+  const inlineError = view === 'results' && !resumeRows && search.error
   const act: Act = settingsRow
     ? 'settings'
     : resumeRows
-    ? pickEnd
-      ? 'end'
-      : 'resume'
+    ? 'resume'
     : mode === 'ask'
       ? typed
         ? 'ask'
@@ -571,34 +683,46 @@ export function Launcher({ layout }: { layout: Layout }): ReactNode {
             : choosing
               ? how === 'lesson'
                 ? 'teach'
-                : 'search'
+                : how === 'demo'
+                  ? 'demo'
+                  : 'search'
               : retry
                 ? 'search'
                 : results.length
                   ? 'build'
                   : 'searching'
   const busy = search.pending && mode === 'search' && view !== 'link'
-  /** The primary says what Enter does: named after the picked way to learn (Michael's audit A19), never a bare "Search". */
+  /**
+   * The primary says what Enter does, never a bare "Search" (Michael's audit A19). For the two ways it is the
+   * highlighted way's own name, exactly as on its chip and the lesson row (review A18); for Demo, "Start demo".
+   */
   const actLabel = {
     settings: 'Settings',
     resume: 'Continue',
-    end: 'End lesson',
     ask: 'Ask',
     build: 'Build lesson',
-    teach: 'Teach me',
-    search: choosing ? 'Find videos' : 'Try again',
+    teach: HOW_LABEL.lesson,
+    // The one exception to "the chip's own name" (#121): a bare "Demo" button doesn't say what Enter does.
+    demo: 'Start demo',
+    search: choosing ? HOW_LABEL.video : 'Try again',
     searching: 'Searching…',
     none: ''
   }[act]
-  /** Rows ↑↓ can move between right now: Continue / End lesson, or the lesson row plus the video rows (none while the two ways or Settings show). */
-  const choices = resumeRows ? 2 : settingsRow || choosing ? 0 : off + (view === 'results' ? visible.length : 0)
+  /** Rows ↑↓ can move between right now: the lesson row plus the video rows (none for Continue, the two ways or Settings). */
+  const choices = resumeRows ? 0 : settingsRow || choosing ? 0 : off + (view === 'results' ? visible.length : 0)
   // The footer is keys, not sentences: only the offline / partial-error notes are words.
   const note = offline ? 'Offline' : inlineError ? search.error : undefined
   /** The best row: the one the engine marks "best", else the first. Only it gets a label. */
   const bestIndex = Math.max(0, visible.findIndex((r) => /best/i.test(r.reason)))
 
   return (
-    <div key={gen} className="absolute inset-0" style={{ width: layout.width, height: layout.height }} data-launcher={phase}>
+    <div
+      key={gen}
+      className="absolute inset-0"
+      style={{ width: layout.width, height: layout.height }}
+      data-launcher={phase}
+      data-clear={place.dy ? 'below' : place.w < WIDTH ? 'narrow' : undefined}
+    >
       {/* A light dim; click anywhere outside to collapse back into the island. */}
       <motion.div
         className="absolute inset-0"
@@ -630,7 +754,7 @@ export function Launcher({ layout }: { layout: Layout }): ReactNode {
           ref={content}
           // flow-root: the first section's top margin must not collapse through, or the measured height comes up short and the panel clips the footer.
           className="flow-root"
-          style={{ width: WIDTH, marginLeft: `calc(50% - ${WIDTH / 2}px)` }}
+          style={{ width: place.w, marginLeft: `calc(50% - ${place.w / 2}px)` }}
           initial={{ opacity: 0, y: 4 }}
           animate={exiting ? { opacity: 0, y: 0, transition: contentOut } : { opacity: 1, y: 0, transition: contentIn }}
         >
@@ -658,9 +782,13 @@ export function Launcher({ layout }: { layout: Layout }): ReactNode {
                 ref={input}
                 value={mode === 'ask' ? question : query}
                 onChange={(e) => {
-                  setPickEnd(false) // cleared again, the rows come back on "Continue"
+                  disarmEnd() // typing hides End lesson; cleared again, it comes back unarmed
                   if (mode === 'ask') setQuestion(e.target.value)
-                  else setQuery(e.target.value)
+                  else {
+                    setQuery(e.target.value)
+                    // A cleared field forgets a Tab pick: the next topic gets its own default way.
+                    if (!e.target.value.trim()) setHowPicked(undefined)
+                  }
                 }}
                 onKeyDown={onKey}
                 onPaste={onPaste}
@@ -679,22 +807,20 @@ export function Launcher({ layout }: { layout: Layout }): ReactNode {
 
           {resumeRows && (
             <Rise key="resume" i={2} className="pt-[8px]">
-              <div className="relative mx-[20px]" style={{ height: 2 * ROW_H }}>
-                <motion.div
-                  className="pointer-events-none absolute inset-x-0 top-0 rounded-[12px]"
-                  style={{ height: ROW_H, background: fill.highlight }}
-                  initial={false}
-                  animate={{ y: pickEnd ? ROW_H : 0 }}
-                  transition={spring}
-                />
+              <div className="relative mx-[20px]" style={{ height: ROW_H }}>
+                <div className="pointer-events-none absolute inset-x-0 top-0 rounded-[12px]" style={{ height: ROW_H, background: fill.highlight }} />
                 <ResumeRow
-                  lessonTitle={lesson.title}
-                  // Ask mode already names the step in the line above the field.
-                  where={mode === 'search' && lesson.hasStep ? `Step ${progress.index + 1} of ${progress.total} · ${lesson.stepTitle}` : 'Where you left off'}
-                  onHover={() => setPickEnd(false)}
-                  onPick={close}
+                  lessonTitle={saved ? (saved.title ?? lesson.title) : lesson.title}
+                  // Ask mode already names the step in the line above the field. A saved lesson: where the card says.
+                  where={
+                    saved
+                      ? saved.where
+                      : mode === 'search' && lesson.hasStep
+                        ? `Step ${progress.index + 1} of ${progress.total} · ${lesson.stepTitle}`
+                        : 'Where you left off'
+                  }
+                  onPick={continueLesson}
                 />
-                <EndRow slot={1} onHover={() => setPickEnd(true)} onPick={endLesson} />
               </div>
             </Rise>
           )}
@@ -713,11 +839,13 @@ export function Launcher({ layout }: { layout: Layout }): ReactNode {
               <HowChoice how={how} onPick={pick} />
             </Rise>
           ) : mode === 'ask' ? (
-            <Rise key="ask" i={2} className="flex flex-wrap gap-[8px] px-[20px] pt-[12px]">
-              <OptionButton action="explain" label="Explain this step" kbd={bridge.platform.keys.explain} onClick={() => quick('explain')} />
-              <OptionButton action="hint" label="Give me a hint" kbd={bridge.platform.keys.hint} onClick={() => quick('hint')} />
-            </Rise>
-          ) : view === 'idle' && !lessonRow ? (
+            questions.length > 0 && (
+              <Rise key="ask" i={2} className="px-[20px] pt-[12px]">
+                <QuestionChips questions={questions} onPick={(q) => ask(q)} />
+              </Rise>
+            )
+          ) : (view === 'idle' || resumeRows) && !lessonRow ? (
+            // Under Continue (a saved lesson waiting) the old search rows step aside for the topic chips too.
             suggestions.length > 0 && (
               <Rise key="try" i={2} className="flex flex-wrap gap-[8px] px-[20px] pt-[12px]">
                 {suggestions.map((s) => (
@@ -774,9 +902,12 @@ export function Launcher({ layout }: { layout: Layout }): ReactNode {
           <Rise i={3}>
             <div className="mt-[16px] h-px" style={{ background: fill.rule }} />
             <div className="flex h-[48px] items-center gap-[4px] pl-[18px] pr-[12px]">
-              {/* Ask ↔ new lesson is navigation, not the action: quiet and on the far left, away from the primary, so a
-                  lesson isn't restarted by accident (Michael's audit A20). */}
-              {lesson.hasLesson && !choosing && <Action label={mode === 'ask' ? 'New lesson' : 'Back to step'} keycap="⇥" enabled onClick={switchMode} />}
+              {/* No "New lesson" while a lesson runs (Michael's review A13): the ask panel is about this step, and the
+                  footer's End lesson is the way out. Tab still flips to a new search, where "Back to step" (quiet, far
+                  left, away from the primary: audit A20) is the way back. */}
+              {lesson.hasLesson && mode === 'search' && !choosing && <Action label="Back to step" keycap="⇥" enabled onClick={switchMode} />}
+              {/* End lesson (desktop test 3, item 8): quiet, small, two clicks, on the left away from the primary. */}
+              {lesson.hasLesson && resumeRows && <EndLink armed={endArmed} onClick={tapEnd} />}
               <span className="flex min-w-0 flex-1 items-center gap-[7px] pl-[6px] text-[13px]" style={{ color: color.text }}>
                 {offline && <WifiOff size={13} strokeWidth={1.8} className="shrink-0" />}
                 {note && <span className="truncate">{note}</span>}
@@ -785,8 +916,8 @@ export function Launcher({ layout }: { layout: Layout }): ReactNode {
               {choosing && (
                 <>
                   <Hint label="Switch" keycap="⇥" />
-                  {/* Each keycap once, here (not inside the chip): ⌘↵ teaches whichever way is picked; with "Just teach me" picked, ↵ already does. */}
-                  {how === 'video' && <Hint label="Teach me" keycap={teachKey} />}
+                  {/* Each keycap once, here (not inside the chip): ⌘↵ is "Just teach me" whichever way is highlighted; with it highlighted, ↵ already does. */}
+                  {how !== 'lesson' && <Hint label={HOW_LABEL.lesson} keycap={teachKey} />}
                 </>
               )}
               {act === 'none' ? (

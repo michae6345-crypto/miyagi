@@ -8,6 +8,7 @@ import { bridge } from '../../bridge'
 import { onMessage, onUi } from '../../core/bus'
 import { sendAction, usePressed, type ActionKind } from '../../core/shortcuts'
 import { seekVideo, useLesson, type CheckItem } from '../../core/lesson'
+import { useDiagram } from '../diagrams/store'
 
 export type Point = { step: number; value: number }
 /** `seq` = event order of its first point (compared with the off-track's), `at` = when its last point arrived (ms). */
@@ -72,6 +73,8 @@ const set = useCards.setState
 const get = useCards.getState
 
 let successTimer: ReturnType<typeof setTimeout> | undefined
+/** The card's own dismissAfterMs. */
+let autoTimer: ReturnType<typeof setTimeout> | undefined
 
 /**
  * The off-track the learner closed with ✕. The engine re-sends `offtrack` while the step keeps
@@ -119,11 +122,30 @@ const PER_ITEM = new Set<CardAction>(['install', 'open_in_browser'])
 /** Longest a card waits on its pressed button before it closes anyway (the engine may never say "thinking"). */
 const PENDING_MS = 10_000
 let pendingTimer: ReturnType<typeof setTimeout> | undefined
+/**
+ * Buttons with no answer to wait for: open_editor brings the editor forward and the engine says nothing back (no
+ * "thinking", no card), so the button spun until PENDING_MS (Michael's desktop test 5). They spin SETTLE_MS, then the
+ * card settles: it closes when that button was its only job (the where card's Open), else it stays for its other buttons.
+ */
+const SETTLE = new Set<CardAction>(['open_editor'])
+const SETTLE_MS = 900
+function settle(kind: CardAction): void {
+  const card = get().card
+  const at = Date.now()
+  set({ pending: { kind, at, sawThinking: false } })
+  clearTimeout(pendingTimer)
+  pendingTimer = setTimeout(() => {
+    if (get().pending?.at !== at) return // answered, replaced or closed meanwhile
+    const rest = (card?.actions ?? []).filter((a) => a !== kind && !CLOSE_NOW.has(a))
+    if (get().card !== card || rest.length > 0) set({ pending: undefined })
+    else closeCard()
+  }, SETTLE_MS)
+}
 
 /**
  * A button on an engine card → `action {kind}` (install / open_in_browser: text = the setup item's tool id).
- * pick_another / skip_setup close the card; the rest keep it up, the pressed button spinning, until the
- * engine answers (next card or event, status leaves "thinking") or PENDING_MS passes.
+ * pick_another / skip_setup close the card; open_editor settles after a short spin (SETTLE); the rest keep it up, the
+ * pressed button spinning, until the engine answers (next card or event, status leaves "thinking") or PENDING_MS passes.
  */
 export function cardAct(kind: CardAction, text?: string): void {
   if (kind === 'install' && text !== undefined) {
@@ -141,6 +163,7 @@ export function cardAct(kind: CardAction, text?: string): void {
     if (kind === 'pick_another') bridge.emit('launcher:toggle')
     return
   }
+  if (SETTLE.has(kind)) return settle(kind)
   const at = Date.now()
   set({ pending: { kind, at, sawThinking: false } })
   clearTimeout(pendingTimer)
@@ -149,9 +172,28 @@ export function cardAct(kind: CardAction, text?: string): void {
   }, PENDING_MS)
 }
 
+/**
+ * A card that's done waits this long before it goes (Michael's review A1): a card that arrives meanwhile takes its place
+ * in the open island, so close-then-card in quick succession never flashes the island down to nothing. The pressed
+ * button keeps its spinner until then.
+ */
+const CLOSE_DELAY_MS = 100
+let closeTimer: ReturnType<typeof setTimeout> | undefined
+
 function closeCard(): void {
   clearTimeout(pendingTimer)
-  set({ card: undefined, pending: undefined })
+  if (closeTimer) return // already on its way out
+  const closing = get().card
+  closeTimer = setTimeout(() => {
+    closeTimer = undefined
+    // Whatever replaced or cleared it meanwhile (a new card, ✕, a reset) has already decided.
+    if (get().card === closing) set({ card: undefined, pending: undefined })
+  }, CLOSE_DELAY_MS)
+}
+/** Anything that sets or clears the card itself drops a close still on its way. */
+function cancelClose(): void {
+  clearTimeout(closeTimer)
+  closeTimer = undefined
 }
 
 function setInstall(tool: string, patch: Partial<Install>): void {
@@ -200,6 +242,7 @@ function closeTop(): void {
   if (closingOfftrack) dismissed = sig(offtrack)
   const back = s.resume && !!offtrack
   clearTimeout(pendingTimer)
+  cancelClose()
   set({ card: undefined, success: undefined, resume: false, offtrackOpen: back, pending: undefined, ...(closingOfftrack ? { offtrackClosed: true } : {}) })
 }
 const over = (): boolean => get().offtrackOpen || get().resume
@@ -207,6 +250,7 @@ const over = (): boolean => get().offtrackOpen || get().resume
 onUi('reset', (p) => {
   clearTimeout(successTimer)
   clearTimeout(pendingTimer)
+  cancelClose()
   dropHeldOfftrack()
   dismissed = undefined
   // scope "lesson" (lesson.ended): a new search may be in flight, so keep what the finder said about its results.
@@ -227,6 +271,7 @@ onMessage('lesson.ready', () => {
   dropHeldOfftrack()
   dismissed = undefined
   clearTimeout(pendingTimer)
+  cancelClose()
   // Keep what the finder said about the results: a preflight card may still be up for the next pick.
   set({ ...blank, results: get().results })
 })
@@ -277,6 +322,7 @@ function openOfftrack(p: Payload<'offtrack'>): void {
     return
   }
   dismissed = undefined
+  cancelClose()
   set({ offtrackOpen: true, offtrackClosed: false, fixing: false, recovered: true, resume: false, offtrackSeq: ++seq, card: undefined, pending: undefined, success: undefined })
 }
 /**
@@ -312,19 +358,40 @@ onMessage('card', (p) => {
   const ok = new Set((p.setup?.items ?? []).filter((x) => x.ok).map((x) => x.tool))
   if (ok.size) set({ installs: Object.fromEntries(Object.entries(get().installs).filter(([t]) => !ok.has(t))) })
   clearTimeout(pendingTimer)
+  cancelClose() // it takes the closing card's place
   const cardFrom = lastPress && Date.now() - lastPress.at < ASKED_WITHIN_MS ? lastPress.kind : undefined
   lastPress = undefined
   set({ card: p, cardFrom, pending: undefined, resume: over(), offtrackOpen: false, ...(p.diff ? { fixing: false } : {}) })
+  // A passing note ("numpy installed ✓", dismissAfterMs 4000) goes by itself (Michael's test 6: still up after 30 s).
+  // Not in shared/contracts yet: read it off the payload.
+  clearTimeout(autoTimer)
+  const after = (p as typeof p & { dismissAfterMs?: number }).dismissAfterMs
+  if (typeof after === 'number' && after > 0)
+    autoTimer = setTimeout(() => {
+      if (get().card === p) closeCard()
+    }, after)
   if (lastAsk && Date.now() - lastAsk < ASKED_WITHIN_MS) {
     cardHeldUntil = Date.now() + CARD_HOLD_MS
     lastAsk = 0
   }
 })
-onMessage('diagram', () => set({ card: undefined, pending: undefined, resume: over(), offtrackOpen: false }))
+/**
+ * A diagram takes the card's place only when it opens at the top. A live network the engine pushes for the drawer's
+ * panel (curated lessons push one at every step start, right after the run step's "Run it" card) opens nothing up
+ * there, so the card stays: else "Run it for me" vanished the moment Train it started. The diagrams feature decides
+ * where it goes, so this looks once its handler has run.
+ */
+onMessage('diagram', () => {
+  queueMicrotask(() => {
+    if (!useDiagram.getState().open) return
+    cancelClose()
+    set({ card: undefined, pending: undefined, resume: over(), offtrackOpen: false })
+  })
+})
 onMessage('step.passed', (p) => {
   const { recovered, offtrackSeq } = get()
   set({ offtrackOpen: false, fixing: false, resume: false })
-  if (!recovered || p.skipped) return
+  if (!recovered || p.skipped || (p as typeof p & { already?: boolean }).already) return // already: done before, quietly
   const lesson = useLesson.getState()
   const index = lesson.steps.findIndex((x) => x.id === p.stepId)
   const summary = (p as typeof p & { summary?: string }).summary
@@ -381,3 +448,16 @@ function latest(metrics: Record<string, Series>): string | undefined {
   for (const [k, v] of Object.entries(metrics)) if (!best || v.run.at > metrics[best].run.at) best = k
   return best
 }
+
+/**
+ * The current step's checks have all just turned Passed: a "Not yet" (the off-track card, or the card answering
+ * "Can I move on?") is stale, so it closes. A card waiting on a decision (a fix to confirm, resume) stays.
+ * Michael's test, Sun 2:56 AM: "Not yet" stayed up while every check in the drawer showed Passed.
+ */
+useLesson.subscribe((s, prev) => {
+  const allPass = (c: typeof s.checks): boolean => c.length > 0 && c.every((x) => x.status === 'pass')
+  if (!allPass(s.checks) || (prev.stepId === s.stepId && allPass(prev.checks))) return
+  const { offtrackOpen, card, cardFrom } = get()
+  const staleCard = !!card && cardFrom === 'check_step' && !awaitsDecision(card) && (!card.stepId || card.stepId === s.stepId)
+  if (offtrackOpen || staleCard) set({ offtrackOpen: false, resume: false, ...(staleCard ? { card: undefined } : {}) })
+})
