@@ -399,9 +399,10 @@ def snapshot() -> AXSnapshot | None:
                 snap.terminal_rect = rect_of(area)
         else:
             snap.editor = read_editor(focused, snap.document)
-            if snap.editor is not None and bundle in ELECTRON_EDITORS and \
+            if snap.focused_role in ("AXTextArea", "AXTextField") and bundle in ELECTRON_EDITORS and \
                     _s(attr(focused, "AXRoleDescription")) not in (None, "editor"):
-                # the focused textarea is xterm's helper, not Monaco: read terminal rows instead
+                # the focused textarea is xterm's helper, not Monaco: read terminal rows instead. Gate on the role,
+                # not on snap.editor: xterm empties the helper on Enter/Ctrl-C/blur, so read_editor gave None there
                 rows = _xterm_rows(focused)
                 if rows:
                     snap.editor, snap.terminal_lines = None, rows
