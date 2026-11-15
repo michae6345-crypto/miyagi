@@ -13,6 +13,14 @@ mac:
   identity: null
   extendInfo:
     LSUIElement: true
+    # macOS shows these in the permission prompts (the app starts the engine, so the prompts name miyagi).
+    NSScreenCaptureUsageDescription: miyagi reads your screen to check each step of the lesson.
+    NSAppleEventsUsageDescription: miyagi opens your editor at the right file for each step.
+  # The engine travels inside the app (scripts/bundle-engine.mjs makes build/engine); on first launch
+  # main/localEngine.ts installs it to ~/miyagi/engine and starts it.
+  extraResources:
+    - from: build/engine
+      to: engine
 win:
   target: nsis
   icon: build/icon.ico

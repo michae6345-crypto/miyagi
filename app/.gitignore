@@ -3,3 +3,5 @@ out
 dist
 .env
 *.log
+build/engine
+build/engine.tar

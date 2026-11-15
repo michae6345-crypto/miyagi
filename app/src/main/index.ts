@@ -12,6 +12,7 @@ import { app, BrowserWindow, globalShortcut, ipcMain, screen, session, shell, ty
 import { join } from 'node:path'
 import { EngineLink } from './engine'
 import { setupPrefs } from './prefs'
+import { setupLocalEngine } from './localEngine'
 import { serveRenderer } from './serve'
 import type { MainContext, MainFeature } from './context'
 import {
@@ -29,7 +30,9 @@ import {
 import type { Layout, UiSignal } from '../preload/api'
 
 const platform = describePlatform(process.platform)
-const engine = new EngineLink(process.env.ENGINE_URL ?? 'ws://localhost:8787', process.env.DEMO === '1' ? (process.env.SCENARIO ?? 'full') : undefined)
+const ENGINE_URL = process.env.ENGINE_URL ?? 'ws://localhost:8787'
+const engine = new EngineLink(ENGINE_URL, process.env.DEMO === '1' ? (process.env.SCENARIO ?? 'full') : undefined)
+let stopLocalEngine: () => void = () => undefined
 
 const windows = new Set<BrowserWindow>()
 /** Feature windows whose rects join the overlay's overlay.bounds report (ctx.reportBounds). */
@@ -320,6 +323,8 @@ app.whenReady().then(async () => {
   })
 
   setupPrefs((channel, payload) => forEachWindow((w) => w.webContents.send(`feat:${channel}`, payload)))
+  // One download: a built app on a Mac starts (and first installs) the engine itself. See main/localEngine.ts.
+  stopLocalEngine = setupLocalEngine(engine, ENGINE_URL, (channel, payload) => forEachWindow((w) => w.webContents.send(`feat:${channel}`, payload)))
 
   loadFeatures({
     app,
@@ -343,5 +348,8 @@ app.whenReady().then(async () => {
   })
 })
 
-app.on('will-quit', () => globalShortcut.unregisterAll())
+app.on('will-quit', () => {
+  globalShortcut.unregisterAll()
+  stopLocalEngine()
+})
 app.on('window-all-closed', () => app.quit())
