@@ -38,8 +38,9 @@ app.setName('miyagi')
 
 /** How often main checks the cursor against the overlay's UI. */
 const POLL_MS = 25
-/** Grab the mouse a few px before the pointer reaches a control's edge. */
-const MARGIN = 4
+/** Grab the mouse this many px before the pointer reaches a control's edge (4 px let a quick move-and-click on a
+ * card's X near the top go through to VS Code's command center: Michael's 5 AM shoot). */
+const MARGIN = 12
 /** Away (A8): the pointer resting this long on the island wakes the overlay; passing over it doesn't. */
 const REST_MS = 500
 

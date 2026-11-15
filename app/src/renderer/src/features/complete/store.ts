@@ -7,6 +7,7 @@
  * Opens: a card with a skillMap, or kind "complete". Closes: any other card, Esc / ✕ (dismiss), Back (a new
  * step.started), a new lesson, a reset (lesson.ended).
  */
+import { noteLearnMode } from '../../core/lesson'
 import { create } from 'zustand'
 import { cmd, type Payload } from '../../../../common/wire'
 import { bridge } from '../../bridge'
@@ -92,6 +93,7 @@ onMessage('check.updated', (p) => {
 
 /** Up next: start that lesson the way the launcher's "Just teach me" does (contract SkillNext.goal). */
 export function startLesson(goal: string): void {
+  noteLearnMode(undefined)
   bridge.send(cmd('learn', { query: goal, mode: 'lesson' }))
   emitUi('dismiss') // the panel and the engine's card both close; the pill shows the new build
 }

@@ -6,7 +6,8 @@
  */
 import { Component, type ErrorInfo, type ReactNode } from 'react'
 
-type Props = { name: string; retryKey?: unknown; children: ReactNode }
+/** retryMs: also try again by itself after this long (the island: one bad render must not leave the screen empty). */
+type Props = { name: string; retryKey?: unknown; retryMs?: number; children: ReactNode }
 type State = { failed: boolean; key?: unknown }
 
 export class Boundary extends Component<Props, State> {
@@ -21,8 +22,20 @@ export class Boundary extends Component<Props, State> {
     return props.retryKey !== state.key ? { failed: false, key: props.retryKey } : null
   }
 
+  private retry?: ReturnType<typeof setTimeout>
+
   componentDidCatch(error: Error, info: ErrorInfo): void {
     console.error(`[miyagi] ${this.props.name} crashed and was hidden:`, error, info.componentStack)
+    const ms = this.props.retryMs
+    if (ms != null) {
+      clearTimeout(this.retry)
+      // A fresh mount: a stale hot reload ("calling Hooks conditionally") recovers on a clean first render.
+      this.retry = setTimeout(() => this.setState({ failed: false }), ms)
+    }
+  }
+
+  componentWillUnmount(): void {
+    clearTimeout(this.retry)
   }
 
   render(): ReactNode {

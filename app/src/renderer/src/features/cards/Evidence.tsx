@@ -33,8 +33,20 @@ const RECENT_MS = 45_000
  * Michael, test 6: a NameError card showed an earlier run's loss sparkline. The live series is this card's evidence
  * only when the card names a curve, its text mentions the metric, or the series was still moving when it arrived.
  */
-function seriesFits(o: Offtrack, name: string | undefined, at: number): boolean {
+function seriesFits(o: Offtrack, name: string | undefined, at: number, last?: number): boolean {
   if (o.curve) return true
+  // Michael's 5 AM shoot: the stuck run's card ("Loss is stuck at 0.49", yours 0.4900) ended its sparkline on 9.0e-4,
+  // an earlier run's last value. A failing check on this metric that reads a different value means another run.
+  if (name && last != null && Number.isFinite(last)) {
+    const metric = name.toLowerCase()
+    for (const c of useLesson.getState().checks) {
+      if (c.status === 'pass' || !`${c.label ?? ''} ${c.detail ?? ''}`.toLowerCase().includes(metric)) continue
+      const v = Number(yoursValue(c.detail)?.replace(/,/g, ''))
+      if (!Number.isFinite(v)) continue
+      const far = Math.abs(v - last) > Math.max(Math.abs(v), Math.abs(last)) * 0.25
+      if (far) return false
+    }
+  }
   // The engine (7863fa6): a crashed run's failing check reads "no loss: the run stopped with an error". This run has no
   // curve, so an older run's points are not evidence for it.
   const none = name && `no ${name.toLowerCase()}`
@@ -135,7 +147,7 @@ function checkRows(failing: CheckItem[], diff: Sides | undefined): Row[] {
  */
 function useSpark(o: Offtrack): { lines: Line[]; name?: string; yours?: string; tutorial?: string; at?: number } | undefined {
   const { name, before: run, tutorial } = useSeries(o.curve?.label)
-  const live = run && run.points.length > 1 && seriesFits(o, name, run.at) ? run : undefined
+  const live = run && run.points.length > 1 && seriesFits(o, name, run.at, run.points[run.points.length - 1]?.value) ? run : undefined
   const yours = live ? plotPoints(live.points) : o.curve ? plotArray(o.curve.yours) : []
   if (yours.length < 2) return undefined
   const ref = live ? (tutorial && tutorial.length > 1 ? plotPoints(tutorial) : []) : o.curve ? plotArray(o.curve.tutorial) : []

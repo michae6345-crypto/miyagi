@@ -184,3 +184,46 @@ export function useLiveNetwork(): DiagramPayload | undefined {
   const cur = useLesson((s) => s.stepId)
   return live && (!live.step || !cur || live.step === cur) ? live.diagram : undefined
 }
+
+/*
+ * The step's live network survives a relaunch (Michael's 5 AM shoot: after the overlay was relaunched mid-lesson,
+ * the network panel stayed empty until Diagram was pressed, because the engine's replay doesn't resend it).
+ * The last live network is kept in localStorage with its lesson and step; the first step.started after launch puts
+ * it back if it's the same lesson and step, and recent. Later step changes never restore anything.
+ */
+const SAVE_KEY = 'miyagi.liveNetwork'
+const RESTORE_WITHIN_MS = 20 * 60 * 1000
+type Saved = { lesson?: string; step?: string; at: number; diagram: DiagramPayload }
+let saveTimer: ReturnType<typeof setTimeout> | undefined
+useDiagram.subscribe((s, prev) => {
+  if (s.live === prev.live || !s.live) return
+  clearTimeout(saveTimer)
+  saveTimer = setTimeout(() => {
+    const live = get().live
+    if (!live) return
+    const saved: Saved = { lesson: useLesson.getState().lesson?.id, step: live.step, at: Date.now(), diagram: live.diagram }
+    try {
+      localStorage.setItem(SAVE_KEY, JSON.stringify(saved))
+    } catch {
+      // storage full or blocked: nothing to restore later, that's all
+    }
+  }, 1000)
+})
+let firstStep = true
+onMessage('step.started', (p) => {
+  if (!firstStep) return
+  firstStep = false
+  if (get().live) return
+  try {
+    const raw = localStorage.getItem(SAVE_KEY)
+    if (!raw) return
+    const saved = JSON.parse(raw) as Saved
+    const lesson = useLesson.getState().lesson?.id
+    const step = p.stepId ?? useLesson.getState().stepId
+    if (!saved?.diagram || !lesson || saved.lesson !== lesson || !step || saved.step !== step) return
+    if (Date.now() - saved.at > RESTORE_WITHIN_MS) return
+    set({ live: { step, diagram: saved.diagram } })
+  } catch {
+    // unreadable copy: skip it
+  }
+})

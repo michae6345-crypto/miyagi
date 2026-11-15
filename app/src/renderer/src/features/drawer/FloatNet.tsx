@@ -209,19 +209,22 @@ function FloatNet({ layout }: { layout: Layout }): ReactNode {
   // learner's width back after it.
   const runW = useRef<number | undefined>(undefined)
   useEffect(() => {
-    if (!auto) {
-      if (runW.current !== undefined) setW(runW.current)
+    if (!auto && runW.current !== undefined) {
+      setW(runW.current)
       runW.current = undefined
       return
     }
+    if (dragging) return // never fight the learner's own resize
     const wa = layout.workArea
-    const top = wa.y + INSET + TOP_CLEAR + RUN_DROP
-    const room = Math.min(wa.y + wa.height * RUN_SHARE, barTop - BAR_GAP) - top
+    const top = wa.y + INSET + TOP_CLEAR + (auto ? RUN_DROP : 0)
+    // Every floating card fits above the bar (Michael's 5 AM shoot: the training card ran under the bar and down over
+    // the Dock, hiding its PREDICTION row). A run step also stays above the terminal (RUN_SHARE).
+    const room = (auto ? Math.min(wa.y + wa.height * RUN_SHARE, barTop - BAR_GAP) : barTop - BAR_GAP) - top
     if (room > 0 && h > room + 4 && w > MIN_W) {
-      runW.current ??= w
+      if (auto) runW.current ??= w
       setW(Math.max(MIN_W, Math.floor((w * room) / h)))
     }
-  }, [auto, h, w, layout, barTop])
+  }, [auto, h, w, layout, barTop, dragging])
 
   // Resizing from a right or bottom corner: keep that edge fixed as the width (and so the height) changes.
   useLayoutEffect(() => {

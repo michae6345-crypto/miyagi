@@ -30,7 +30,10 @@ export function Overlay({ layout }: { layout: Layout }): ReactNode {
             <Component layout={layout} />
           </Boundary>
         ))}
-      <Island top={bridge.platform.pillTop} layout={layout} />
+      {/* Michael's 5 AM shoot: one bad Island render (a stale hot reload) wiped the overlay. Now it comes back in 1 s. */}
+      <Boundary name="island" retryMs={1000}>
+        <Island top={bridge.platform.pillTop} layout={layout} />
+      </Boundary>
       {overlayLayers
         .filter((l) => l.z >= ISLAND_Z)
         .map(({ id, Component }) => (
