@@ -2,7 +2,7 @@
  "lesson": {
   "id": "lesson-nn-from-scratch",
   "title": "A neural net from scratch",
-  "goal": "build a neural net from scratch",
+  "goal": "build a neural network from scratch",
   "workdir": "demo/nn-lab",
   "libraries": {
    "numpy": "2.x"
@@ -149,6 +149,13 @@
      "label": "forward() is defined",
      "app": "Code",
      "pattern": "def\\s+forward\\s*\\(\\s*X\\s*\\)"
+    },
+    {
+     "id": "nn1c4",
+     "type": "screen_contains",
+     "label": "Hidden layers use tanh, the output doesn't",
+     "app": "Code",
+     "pattern": "h1\\s*=\\s*np\\.tanh\\(\\s*X\\s*(?:@\\s*W1|\\.dot\\(\\s*W1\\s*\\))\\s*\\+\\s*b1\\s*\\)[\\s\\S]*h2\\s*=\\s*np\\.tanh\\(\\s*h1\\s*(?:@\\s*W2|\\.dot\\(\\s*W2\\s*\\))\\s*\\+\\s*b2\\s*\\)[\\s\\S]*return\\s+h1\\s*,\\s*h2\\s*,\\s*h2\\s*(?:@\\s*W3|\\.dot\\(\\s*W3\\s*\\))\\s*\\+\\s*b3\\b"
     }
    ],
    "precision_checks": [
@@ -172,6 +179,13 @@
      "label": "nn.py defines forward with two tanh layers",
      "file": "nn.py",
      "pattern": "def\\s+forward\\s*\\(\\s*X\\s*\\)\\s*:[\\s\\S]*np\\.tanh\\([\\s\\S]*np\\.tanh\\([\\s\\S]*@\\s*W3"
+    },
+    {
+     "id": "nn1p4",
+     "type": "file_contains",
+     "label": "nn.py's hidden layers use tanh, its output doesn't",
+     "file": "nn.py",
+     "pattern": "h1\\s*=\\s*np\\.tanh\\(\\s*X\\s*(?:@\\s*W1|\\.dot\\(\\s*W1\\s*\\))\\s*\\+\\s*b1\\s*\\)[\\s\\S]*h2\\s*=\\s*np\\.tanh\\(\\s*h1\\s*(?:@\\s*W2|\\.dot\\(\\s*W2\\s*\\))\\s*\\+\\s*b2\\s*\\)[\\s\\S]*return\\s+h1\\s*,\\s*h2\\s*,\\s*h2\\s*(?:@\\s*W3|\\.dot\\(\\s*W3\\s*\\))\\s*\\+\\s*b3\\b"
     }
    ],
    "targets": [
@@ -221,6 +235,20 @@
      "label": "The error flows back through W3 and W2",
      "app": "Code",
      "pattern": "d_h2\\s*=\\s*d_out\\s*@\\s*W3\\.T[\\s\\S]*d_h1\\s*=\\s*d_h2\\s*@\\s*W2\\.T"
+    },
+    {
+     "id": "nn2c3",
+     "type": "screen_contains",
+     "label": "The error starts as 2 * (out - y) / len(X)",
+     "app": "Code",
+     "pattern": "d_out\\s*=\\s*2(?:\\.0*)?\\s*\\*\\s*\\(\\s*out\\s*-\\s*y\\s*\\)\\s*/\\s*(?:len\\(\\s*X\\s*\\)|X\\.shape\\[\\s*0\\s*\\])"
+    },
+    {
+     "id": "nn2c4",
+     "type": "screen_contains",
+     "label": "Uses the tanh slope 1 - h² on both layers",
+     "app": "Code",
+     "pattern": "d_h2\\s*=\\s*d_out\\s*(?:@\\s*W3\\.T|\\.dot\\(\\s*W3\\.T\\s*\\))\\s*\\*\\s*\\(\\s*1(?:\\.0*)?\\s*-\\s*(?:h2\\s*\\*\\*\\s*2(?:\\.0*)?|h2\\s*\\*\\s*h2|np\\.square\\(\\s*h2\\s*\\))\\s*\\)[\\s\\S]*d_h1\\s*=\\s*d_h2\\s*(?:@\\s*W2\\.T|\\.dot\\(\\s*W2\\.T\\s*\\))\\s*\\*\\s*\\(\\s*1(?:\\.0*)?\\s*-\\s*(?:h1\\s*\\*\\*\\s*2(?:\\.0*)?|h1\\s*\\*\\s*h1|np\\.square\\(\\s*h1\\s*\\))\\s*\\)"
     }
    ],
    "precision_checks": [
@@ -237,6 +265,20 @@
      "label": "nn.py sends the error back through W3 and W2",
      "file": "nn.py",
      "pattern": "d_h2\\s*=\\s*d_out\\s*@\\s*W3\\.T[\\s\\S]*d_h1\\s*=\\s*d_h2\\s*@\\s*W2\\.T"
+    },
+    {
+     "id": "nn2p3",
+     "type": "file_contains",
+     "label": "nn.py's error starts as 2 * (out - y) / len(X)",
+     "file": "nn.py",
+     "pattern": "d_out\\s*=\\s*2(?:\\.0*)?\\s*\\*\\s*\\(\\s*out\\s*-\\s*y\\s*\\)\\s*/\\s*(?:len\\(\\s*X\\s*\\)|X\\.shape\\[\\s*0\\s*\\])"
+    },
+    {
+     "id": "nn2p4",
+     "type": "file_contains",
+     "label": "nn.py uses the tanh slope 1 - h² on both layers",
+     "file": "nn.py",
+     "pattern": "d_h2\\s*=\\s*d_out\\s*(?:@\\s*W3\\.T|\\.dot\\(\\s*W3\\.T\\s*\\))\\s*\\*\\s*\\(\\s*1(?:\\.0*)?\\s*-\\s*(?:h2\\s*\\*\\*\\s*2(?:\\.0*)?|h2\\s*\\*\\s*h2|np\\.square\\(\\s*h2\\s*\\))\\s*\\)[\\s\\S]*d_h1\\s*=\\s*d_h2\\s*(?:@\\s*W2\\.T|\\.dot\\(\\s*W2\\.T\\s*\\))\\s*\\*\\s*\\(\\s*1(?:\\.0*)?\\s*-\\s*(?:h1\\s*\\*\\*\\s*2(?:\\.0*)?|h1\\s*\\*\\s*h1|np\\.square\\(\\s*h1\\s*\\))\\s*\\)"
     }
    ],
    "targets": [
@@ -283,9 +325,16 @@
     {
      "id": "nn3c2",
      "type": "screen_contains",
-     "label": "Every weight steps downhill",
+     "label": "Every weight and bias steps downhill",
      "app": "Code",
-     "pattern": "W3\\s*-=\\s*lr\\s*\\*\\s*dW3[\\s\\S]*W2\\s*-=\\s*lr\\s*\\*\\s*dW2[\\s\\S]*W1\\s*-=\\s*lr\\s*\\*\\s*dW1"
+     "pattern": "\\A(?=[\\s\\S]*\\bW1\\s*(?:-=|=\\s*W1\\s*-)\\s*lr\\s*\\*\\s*dW1\\b)(?=[\\s\\S]*\\bb1\\s*(?:-=|=\\s*b1\\s*-)\\s*lr\\s*\\*\\s*db1\\b)(?=[\\s\\S]*\\bW2\\s*(?:-=|=\\s*W2\\s*-)\\s*lr\\s*\\*\\s*dW2\\b)(?=[\\s\\S]*\\bb2\\s*(?:-=|=\\s*b2\\s*-)\\s*lr\\s*\\*\\s*db2\\b)(?=[\\s\\S]*\\bW3\\s*(?:-=|=\\s*W3\\s*-)\\s*lr\\s*\\*\\s*dW3\\b)(?=[\\s\\S]*\\bb3\\s*(?:-=|=\\s*b3\\s*-)\\s*lr\\s*\\*\\s*db3\\b)"
+    },
+    {
+     "id": "nn3c4",
+     "type": "screen_contains",
+     "label": "The loss is the mean squared error",
+     "app": "Code",
+     "pattern": "loss\\s*=\\s*np\\.mean\\(\\s*\\(\\s*(?:out\\s*-\\s*y|y\\s*-\\s*out)\\s*\\)\\s*\\*\\*\\s*2\\s*\\)"
     },
     {
      "id": "nn3c3",
@@ -306,9 +355,16 @@
     {
      "id": "nn3p2",
      "type": "file_contains",
-     "label": "nn.py updates W1, W2 and W3",
+     "label": "nn.py moves every weight and bias downhill",
      "file": "nn.py",
-     "pattern": "W3\\s*-=\\s*lr\\s*\\*\\s*dW3[\\s\\S]*W2\\s*-=\\s*lr\\s*\\*\\s*dW2[\\s\\S]*W1\\s*-=\\s*lr\\s*\\*\\s*dW1"
+     "pattern": "\\A(?=[\\s\\S]*\\bW1\\s*(?:-=|=\\s*W1\\s*-)\\s*lr\\s*\\*\\s*dW1\\b)(?=[\\s\\S]*\\bb1\\s*(?:-=|=\\s*b1\\s*-)\\s*lr\\s*\\*\\s*db1\\b)(?=[\\s\\S]*\\bW2\\s*(?:-=|=\\s*W2\\s*-)\\s*lr\\s*\\*\\s*dW2\\b)(?=[\\s\\S]*\\bb2\\s*(?:-=|=\\s*b2\\s*-)\\s*lr\\s*\\*\\s*db2\\b)(?=[\\s\\S]*\\bW3\\s*(?:-=|=\\s*W3\\s*-)\\s*lr\\s*\\*\\s*dW3\\b)(?=[\\s\\S]*\\bb3\\s*(?:-=|=\\s*b3\\s*-)\\s*lr\\s*\\*\\s*db3\\b)"
+    },
+    {
+     "id": "nn3p4",
+     "type": "file_contains",
+     "label": "nn.py's loss is the mean squared error",
+     "file": "nn.py",
+     "pattern": "loss\\s*=\\s*np\\.mean\\(\\s*\\(\\s*(?:out\\s*-\\s*y|y\\s*-\\s*out)\\s*\\)\\s*\\*\\*\\s*2\\s*\\)"
     },
     {
      "id": "nn3p3",
