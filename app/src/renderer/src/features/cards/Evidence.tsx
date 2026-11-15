@@ -18,7 +18,7 @@ import { useCallback, useLayoutEffect, useMemo, useRef, useState, type CSSProper
 import { useLesson, type CheckItem, type Offtrack } from '../../core/lesson'
 import { color, fill } from '../../core/theme'
 import { diffLines, fitRows, isProse, LITERAL, NUMBER, readingValue, readsAsCode, type DiffRow } from './code'
-import { Curve, fmt, plotArray, plotPoints, type Line } from './Curve'
+import { Curve, fmt, plotArray, plotPoints, type Line, type XY } from './Curve'
 import { useSeries } from './store'
 import { onMessage } from '../../core/bus'
 
@@ -140,6 +140,14 @@ function checkRows(failing: CheckItem[], diff: Sides | undefined): Row[] {
   return rows
 }
 
+/** A line's x spread over [0, 1] from its own first to last point, so every line starts at the left edge. */
+function spread(pts: XY[]): XY[] {
+  if (pts.length < 2) return pts
+  const x0 = pts[0][0]
+  const w = pts[pts.length - 1][0] - x0
+  return pts.map((p, i) => [w > 0 ? (p[0] - x0) / w : i / (pts.length - 1), p[1]])
+}
+
 /**
  * The curve as a sparkline: live `metric` events when there are any (tutorial = runId "tutorial"), else both
  * lines from the payload's optional `curve` (never mixed: they may not share units). End values only for live
@@ -148,9 +156,11 @@ function checkRows(failing: CheckItem[], diff: Sides | undefined): Row[] {
 function useSpark(o: Offtrack): { lines: Line[]; name?: string; yours?: string; tutorial?: string; at?: number } | undefined {
   const { name, before: run, tutorial } = useSeries(o.curve?.label)
   const live = run && run.points.length > 1 && seriesFits(o, name, run.at, run.points[run.points.length - 1]?.value) ? run : undefined
-  const yours = live ? plotPoints(live.points) : o.curve ? plotArray(o.curve.yours) : []
+  // Each line spans the whole width (test 8: "yours" began a third of the way in, because its first logged step came
+  // after the tutorial run's on the shared step axis). The two are separate runs, so start-to-end is the comparison.
+  const yours = spread(live ? plotPoints(live.points) : o.curve ? plotArray(o.curve.yours) : [])
   if (yours.length < 2) return undefined
-  const ref = live ? (tutorial && tutorial.length > 1 ? plotPoints(tutorial) : []) : o.curve ? plotArray(o.curve.tutorial) : []
+  const ref = spread(live ? (tutorial && tutorial.length > 1 ? plotPoints(tutorial) : []) : o.curve ? plotArray(o.curve.tutorial) : [])
   return {
     lines: [
       { key: 'yours', pts: yours, stroke: color.text },
