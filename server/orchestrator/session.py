@@ -3242,6 +3242,13 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
         log.info("lesson start (%s): %s", why, (step or {}).get("id"))
         if step is None or self.passed:
             return
+        if self.lesson_mode and why == "Start" and self.workspace is not None and self.workdir:
+            # Start pressed: bring the lesson's VS Code window forward on the step's file. A repeat run (Demo, a
+            # rerun) reuses the folder, so the once-per-lesson auto-open may never fire; the learner must not be
+            # left on the desktop with no editor (Michael, Nov 15 3:50 AM).
+            self._spawn(asyncio.to_thread(self.workspace.open, self.workdir, True, True, explicit=True,
+                                          file=self._editor_file(step)))
+            self.editor_open = True
         await self.evaluate("start")
         if self.lesson_mode and not self.passed and self.step is step:
             self._spawn(self._lesson_spot(self.step_gen, step), timer=True)
