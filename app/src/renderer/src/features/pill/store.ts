@@ -13,7 +13,7 @@
  */
 import { create } from 'zustand'
 import { onMessage, onUi } from '../../core/bus'
-import { useLesson, type Notice } from '../../core/lesson'
+import { notify, useLesson, type Notice } from '../../core/lesson'
 
 /** How long the green check holds before the text crossfades to the next step. */
 export const PASS_HOLD_MS = 560
@@ -83,6 +83,20 @@ function hideNotice(): void {
   clearTimeout(noticeTimer)
   set({ notice: undefined })
 }
+
+/**
+ * The learner ended the lesson with End (the bar's or the launcher's): one calm line that it's kept, instead of
+ * dropping silently back to the idle pill (Michael's desktop test 3, item 11). Only for the engine's reason "stopped":
+ * that End keeps the save, and the resume card offers it back (server/sessions/resume.py KEEP_END). No line for
+ * "new lesson" (a new search or build replaced it), nor "end_lesson" / "POST /end" ("Start a new lesson" on the resume
+ * card: the save is cleared, so "saved" would be untrue).
+ * Core turns lesson.ended into a lesson-scoped reset first (it registered before this handler); that reset keeps
+ * notices, so the line survives it.
+ */
+export const LESSON_SAVED = 'Lesson saved. Continue anytime.'
+onMessage('lesson.ended', (p) => {
+  if (p.reason === 'stopped') notify(LESSON_SAVED)
+})
 
 // ---------------------------------------------------------------------------
 // Offline: connected false for a moment is normal (startup, a socket hiccup); only a lasting drop shows.

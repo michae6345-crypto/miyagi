@@ -3,7 +3,8 @@
  * Miyagi brand (app/brand/BRAND.md): always black and white, the bonsai as a one-color glyph on the left
  * (monochrome everywhere in the app), the status on the right.
  *   idle      no lesson yet: "[bonsai] ask miyagi ⌥Space ●" (lowercase, Michael) (click opens the launcher); "Offline ○" with no engine
- *   building  between Build lesson and the first step: lesson.building message + spinner + progress line;
+ *   building  between Build lesson and the first step: lesson.building message + spinner + progress line
+ *             (the stage's words always in full, at most STAGE_MAX characters, never cut mid-word: desktop test 3, item 9);
  *             once the lesson is set (lesson.ready, before the first step.started) it's static: "Lesson ready ●", no spinner, no line
  *   compact   during a lesson: "[bonsai] Step 4 · Define the residual  4/8 ●" (count = this step / steps, dot = status);
  *             "Next part is still building" after a pass while a long video's next part builds
@@ -24,7 +25,7 @@ import { notify, useLesson } from '../../core/lesson'
 import { defineFeature } from '../../core/registry'
 import { color, copy } from '../../core/theme'
 import { Kbd, Spinner } from '../../core/ui/atoms'
-import { BuildLine, LeadMark, MonoMark, StatusMark, StepCount, SwapText, type Mark } from './parts'
+import { BuildLine, FitSwap, LeadMark, MonoMark, StatusMark, StepCount, SwapText, type Mark } from './parts'
 import { usePill } from './store'
 
 /**
@@ -93,6 +94,22 @@ function buildingStage(message?: string): string {
   return s ? s[0].toUpperCase() + s.slice(1) : ''
 }
 
+/** Longest stage label the building pill shows (about 220px at 13px), so it stays close to the 300px landing width. */
+const STAGE_MAX = 34
+
+/**
+ * The pill's words for a build stage (desktop test 3, item 9): the stage's first clause ("First steps ready; the rest
+ * builds while you work" → "First steps ready"), and past STAGE_MAX characters it ends at a word boundary with "…",
+ * never mid-word. The pill keeps the full stage as its title and accessible label.
+ */
+function stageLabel(stage: string): string {
+  const clause = stage.split(/\s*;\s*|\.\s+|\s[–—]\s/)[0].trim() || stage
+  if (clause.length <= STAGE_MAX) return clause
+  const at = clause.lastIndexOf(' ', STAGE_MAX)
+  // One very long word: show it whole rather than cut it.
+  return at > 0 ? `${clause.slice(0, at).replace(/[\s,:·–—-]+$/, '')}…` : clause
+}
+
 /** The building pill once lesson.ready has landed and the first step hasn't started: nothing is working any more. */
 const READY = 'Lesson ready'
 
@@ -101,13 +118,21 @@ function Building(): ReactNode {
     useShallow((s) => ({ message: s.buildingMessage, progress: s.buildingProgress, ready: !!s.lesson }))
   )
   const kept = usePill((s) => s.buildMessage)
-  // Calm: show only the stage. The text (and so the crossfade + width spring) changes on a real stage change,
-  // never on the timer tick; the progress line carries the motion.
-  const text = ready ? READY : buildingStage(message ?? kept) || 'Building your lesson'
+  // Calm: show only the stage. The text (and so the crossfade) changes on a real stage change, never on the timer
+  // tick; the progress line carries the motion.
+  const stage = ready ? READY : buildingStage(message ?? kept) || 'Building your lesson'
+  const text = stageLabel(stage)
   return (
-    <div className="relative flex h-[34px] items-center whitespace-nowrap pl-[13px] pr-[14px] text-[13px] font-medium" style={{ color: color.text }}>
+    <div
+      role="status"
+      aria-label={stage}
+      title={text !== stage ? stage : undefined}
+      className="relative flex h-[34px] items-center whitespace-nowrap pl-[13px] pr-[14px] text-[13px] font-medium"
+      style={{ color: color.text }}
+    >
       <MonoMark className="mr-[8px]" />
-      <SwapText id={text}>{text}</SwapText>
+      {/* Never cut mid-word (item 9): the slot is always as wide as the stage's words; the island springs around it. */}
+      <FitSwap id={text}>{text}</FitSwap>
       {/* Building: the spinner where the count will be. Set (Michael's audit A5): static, the gray dot only, no spinner, no line. */}
       <span className="ml-[15px] flex items-center">{ready ? <StatusMark mark="watching" /> : <Spinner size={16} />}</span>
       <AnimatePresence>{!ready && progress !== undefined && <BuildLine progress={progress} />}</AnimatePresence>
