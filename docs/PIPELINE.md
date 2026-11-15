@@ -32,8 +32,8 @@ flowchart LR
 | # | Stage | Owner | Target | Measured (14 Nov) |
 |---|---|---|---|---|
 | 1 | **Search.** Ranked by strict topic match. Each row carries `kind` (video / repo / blog), `style` (coding / no-code / conceptual), `durationLabel`, `long`, `chapters` (count) and `captions`. | E7 (`server/finder`) | first row ≤ 4 s, done ≤ 13 s | 3.0–3.9 s / 12–13 s (Run 3) |
-| 1b | **Prefetch.** On `search.done`, `server.preflight.prefetch(rows, query)` starts preflight for the top 3 videos in the background. | E4 calls it, S8 owns it | free: the later pick returns from the memo | not wired yet |
-| 2 | **Preflight.** Metadata + Claude's read + an early tool check, then card `kind: "preflight"`. | S8 (`server/preflight`) | ≤ 5 s hard; a late part re-sends the card within +3 s | cold 3.4–5.0 s; late tool list at 5.3–7.0 s |
+| 1b | **Prefetch.** On `search.done`, `server.preflight.prefetch(rows, query)` starts preflight for the top 3 videos in the background. | E4 calls it, S8 owns it | free: the later pick returns from the memo | stage rehearsal (S11): picked 8 s after search.done → card in 0.00 s |
+| 2 | **Preflight.** Metadata + Claude's read + an early tool check, then card `kind: "preflight"`. | S8 (`server/preflight`) | ≤ 5 s hard; a late part re-sends the card within +3 s | cold 2.3–5.0 s (rehearsal: 2.9–4.9 s); late tool list at 5.3–7.0 s; offline: partial card in 0.19 s, and Build still works from the cache |
 | 3 | **Confirm.** The learner presses `build`, or `pick_another` to go back to the results they already have. | Adrian (card UI), E4 | — | — |
 | 4 | **Progressive build.** Videos ≤ 30 min are built whole. Longer ones are built window by window: window 1 is chapters from 0:00 grouped to 3–6 min, and the rest are appended in time order, 3 windows in parallel. | E2 (`server/lesson`) | whole ≤ 60 s; window 1 ≤ 45 s | whole 44–69 s (Run 3); E2: Gemini ~40 s on 6 min |
 | 5 | **Setup card.** `requirements()` → card `kind: "setup"`. `install` / `open_editor` / `open_in_browser` run only on the learner's yes. No editor for no-code or conceptual lessons. | S2 (`server/workspace`) | ≤ 1 s (preflight warms it, #28) | cold ~3.7–5.9 s, warmed by preflight 0.01 s |
@@ -81,6 +81,8 @@ listed in `missing`, and if it lands later it arrives through `on_late`.
 | `items` ("Needs: VS Code ✓ Python 3 ✓ torch ✗") | S2's `server.workspace.requirements()` on a metadata-level step graph (lesson id `preflight-<videoId>`) |
 | `buildPlan {strategy whole\|chapters, firstChapter, firstHandsOn, skippedIntro, estSecondsToFirstSteps}` | E2's `plan_windows(length, chapters, first_hands_on)` (local mirror when it isn't importable). A talk-only intro of 1–10 min is skipped, and part 1 starts at the first hands-on chapter |
 | `warning`, `recommended: "pick_another"` | when `goalMatch.score < 0.5` |
+| "Built before: ready instantly (N steps)", `buildPlan.cached` | E2's own cache lookup (`cache_key` / `find_cached` on E4's `build_workdir`); the tool check then runs on that real graph and folder |
+| `editorNeeded` | always true for coding (lessons run locally in VS Code, even when the video uses Colab); S2's answer otherwise |
 
 Live cards (14 Nov, cold, this network):
 

@@ -83,10 +83,19 @@ export function launcherGlassOptions(): BrowserWindowConstructorOptions {
     : { backgroundMaterial: 'acrylic' }
 }
 
-/** Float above everything, including fullscreen apps on macOS. */
-export function raise(win: BrowserWindow): void {
-  win.setAlwaysOnTop(true, 'screen-saver')
+/** Show on every Space, including over full-screen apps and when the engine brings the editor forward (macOS). */
+export function followSpaces(win: BrowserWindow): void {
   if (isMac()) win.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true, skipTransformProcessType: true })
+}
+
+/**
+ * Float above everything, including full-screen apps (Michael, Sat: every Miyagi window gets this).
+ * relativeLevel orders windows inside the 'screen-saver' level: the player uses -1 so it stays over
+ * full-screen apps but under the overlay (the spotlight dim covers it).
+ */
+export function raise(win: BrowserWindow, relativeLevel = 0): void {
+  win.setAlwaysOnTop(true, 'screen-saver', relativeLevel)
+  followSpaces(win)
 }
 
 /** The overlay covers the whole display (including the Mac menu bar, so the pill can hug the notch). */

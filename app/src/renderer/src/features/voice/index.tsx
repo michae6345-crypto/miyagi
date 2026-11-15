@@ -1,28 +1,15 @@
-/** Feature: voice. Plays `speak` audio while voice is on. No UI of its own (the Voice button lives in the shortcut bar). */
-import { useEffect, useRef, type ReactNode } from 'react'
+/**
+ * Feature: voice. Reads Miyagi's lines aloud with the computer's own voice while voice is on (⌥V). No UI of its
+ * own: the shortcut bar's Voice tile reads useVoice (on / speaking). The layer only marks the overlay as the
+ * window that speaks.
+ */
+import { useEffect, type ReactNode } from 'react'
 import { defineFeature } from '../../core/registry'
-import { useVoice } from './store'
+import { attachSpeech } from './store'
 
-function VoicePlayer(): ReactNode {
-  const last = useVoice((s) => s.last)
-  const on = useVoice((s) => s.on)
-  const audio = useRef<HTMLAudioElement>(undefined)
-  useEffect(() => {
-    if (!last || !on) return
-    audio.current?.pause()
-    const a = new Audio(last.url)
-    audio.current = a
-    useVoice.setState({ speaking: true })
-    a.onended = () => useVoice.setState({ speaking: false })
-    a.play().catch(() => useVoice.setState({ speaking: false }))
-  }, [last, on])
-  useEffect(() => {
-    if (!on) {
-      audio.current?.pause()
-      useVoice.setState({ speaking: false })
-    }
-  }, [on])
+function VoiceSpeaker(): ReactNode {
+  useEffect(() => attachSpeech(), [])
   return null
 }
 
-export default defineFeature({ id: 'voice', overlayLayers: [{ id: 'voice-player', z: 0, Component: VoicePlayer }] })
+export default defineFeature({ id: 'voice', overlayLayers: [{ id: 'voice-speaker', z: 0, Component: VoiceSpeaker }] })

@@ -221,6 +221,9 @@ class _Run:
         self.inflight: list[dict] = []
         self.pending_evt = asyncio.Event()
         self.sources_done = False
+        self.kinds = env.kinds()        # FINDER_KINDS (default: videos only)
+        self.floor = env.min_score()     # FINDER_MIN_SCORE: rows the model scored below it are not sent
+        self.dropped: list[dict] = []    # below the floor (kept for the cache file, never streamed)
         self.gemini_ok = bool(keys.gemini)  # for the video skim, only when skim_top > 0
         self.gemini_fallback = self.gemini_ok and env.gemini_fallback()  # Gemini scoring if Claude fails (opt-in)
         self.video_top = 3  # top videos that get Bright Data comments
@@ -246,6 +249,9 @@ class _Run:
             "plan": self.plan_used,
             "timings": {k: round(v, 2) for k, v in self.timings.items()},
             "notes": (self.ctx.errors if self.ctx else [])[:20],
+            "kinds": sorted(self.kinds),
+            "min_score": self.floor,
+            "below_floor": self.dropped[:30],
             **({"claude": self.ctx.extra["claude"]} if self.ctx and "claude" in self.ctx.extra else {}),
         }
 
@@ -280,17 +286,23 @@ class _Run:
         plan = gemini.heuristic_plan(q)
         self.plan_used = plan
         topic = plan["topic"]
-        jobs = {
-            "youtube": sources.youtube_search(self.ctx, q),
-            "web-tutorial": sources.web_search(self.ctx, plan["web_queries"][0]),
-            "web-notebook": sources.web_search(self.ctx, plan["web_queries"][1]),
-            "github": sources.github_search(self.ctx, plan["github_query"]),
-            "arxiv": sources.arxiv_search(self.ctx, plan["arxiv_terms"]),
-        }
+        want = self.kinds
+        jobs = {"youtube": sources.youtube_search(self.ctx, q)}
         if cache.normalize(topic) != cache.normalize(q):
             jobs["youtube-2"] = sources.youtube_search(self.ctx, f"{topic} tutorial code", limit=6)
+        if want - {"video"}:  # blogs / notebooks / repos / papers only when FINDER_KINDS asks for them
+            jobs["web-tutorial"] = sources.web_search(self.ctx, plan["web_queries"][0])
+            if "notebook" in want:
+                jobs["web-notebook"] = sources.web_search(self.ctx, plan["web_queries"][1])
+            if want & {"repo", "notebook"}:
+                jobs["github"] = sources.github_search(self.ctx, plan["github_query"])
+            if "paper" in want:
+                jobs["arxiv"] = sources.arxiv_search(self.ctx, plan["arxiv_terms"])
+        elif brightdata.available(self.keys):  # videos only: one Bright Data SERP for Google's video results
+            jobs["web-video"] = sources.web_search(self.ctx, f"{q} video tutorial", limit=4)
         if self.keys.anthropic:  # primary planner + searcher
-            jobs["claude"] = sources.claude_search(self.ctx, q, timeout=max(4.0, SOURCES_BUDGET_S - 1.5))
+            jobs["claude"] = sources.claude_search(self.ctx, q, timeout=max(4.0, SOURCES_BUDGET_S - 1.5),
+                                                   videos_only=want == {"video"})
         tasks = [asyncio.create_task(self._source(name, coro)) for name, coro in jobs.items()]
         try:
             await asyncio.gather(*tasks)
@@ -310,6 +322,8 @@ class _Run:
         fresh = []
         for c in raw:
             c = normalize_arxiv(c)
+            if c.get("kind") not in self.kinds:  # e.g. Claude's or Google's non-video hits in videos-only mode
+                continue
             k = url_key(c["url"])
             if k in self.seen:
                 continue
@@ -448,6 +462,11 @@ class _Run:
             video_fields(c)
             c["score"] = self._adjusted(c)
         for c in sorted(batch, key=lambda c: -c["score"]):
+            # relevance floor (Michael: a TI-84 teardown at 3 for "build calculator in python" must not appear).
+            # Keyword-scored rows (both models failed) are labelled and kept: we can't judge them.
+            if c["scored_by"] != "keywords" and c["score"] < self.floor:
+                self.dropped.append({"id": c["id"], "title": c["title"], "score": c["score"], "reason": c["reason"]})
+                continue
             self.cands[c["id"]] = c
             if "first_result" not in self.timings:
                 self.timings["first_result"] = self.elapsed()

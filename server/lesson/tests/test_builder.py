@@ -81,6 +81,9 @@ def fake(monkeypatch, tmp_path):
     monkeypatch.setattr(gemini, "step_detail", step_detail)
     monkeypatch.setattr(gemini, "adapt_checks", adapt_checks)
     monkeypatch.setenv("LESSON_ENGINE", "gemini")  # tests never reach a real API; Claude tests opt in
+    monkeypatch.setenv("LESSON_LAZY_PARTS", "0")  # eager by default in tests; lazy tests opt in
+    monkeypatch.setenv("LESSON_GEMINI_USAGE_FILE", str(tmp_path / "gemini_usage.json"))  # never ~/miyagi
+    monkeypatch.setenv("LESSON_GEMINI_DAILY_CAP", "1000")
 
     async def offline(*a, **k):
         raise RuntimeError("offline test: no real Claude/transcript calls")
@@ -1019,8 +1022,8 @@ def test_quick_start_sends_a_provisional_step_then_the_real_lesson(fake, monkeyp
     g = asyncio.run(builder.build_lesson(URL, "x", WORKDIR, refresh=True, video_meta=vm,
                                          on_update=lambda gr, c: updates.append((c, gr["lesson"].get("provisional"), gr["steps"][0]))))
     first, last = updates[0], updates[-1]
-    assert first[0] is False and first[1] is True and first[2]["title"] == "Installation"  # skips the intro chapter
-    assert first[2]["video"] == {"sourceId": "src1", "start": 101.0, "end": 168.0} and first[2]["id"] == "s1"
+    assert first[0] is False and first[1] is True and first[2]["title"] == "New project"  # skips intro AND install chapters
+    assert first[2]["video"] == {"sourceId": "src1", "start": 168.0, "end": 468.0} and first[2]["id"] == "s1"
     assert last[0] is True and not last[1] and last[2]["id"] == "s1" and g["lesson"]["complete"] is True
 
 
@@ -1119,3 +1122,101 @@ def test_token_usage_is_recorded_per_model():
     cost.add_tokens("claude-haiku-5-5", 1200, 300)
     cost.add_tokens("claude-haiku-5-5", 800, 200)
     assert c["tokens"]["claude-haiku-5-5"] == {"input": 2000, "output": 500, "calls": 2}
+
+
+# ---- spend guard + lazy parts -----------------------------------------------------------
+from server.lesson import budget  # noqa: E402
+
+_REAL_WATCH = gemini.watch_video
+
+
+def test_daily_budget_persists_and_blocks_gemini(tmp_path, monkeypatch):
+    monkeypatch.setenv("LESSON_GEMINI_USAGE_FILE", str(tmp_path / "u.json"))
+    monkeypatch.setenv("LESSON_GEMINI_DAILY_CAP", "2")
+    monkeypatch.setattr(gemini, "_down_until", 0.0)
+    assert budget.remaining() == 2 and budget.try_take("a") and budget.try_take("b") and not budget.try_take("c")
+    assert json.loads((tmp_path / "u.json").read_text())["video_calls"] == 2  # survives a restart
+    with pytest.raises(RuntimeError, match="Gemini budget is used up"):  # the real watch_video checks it first
+        asyncio.run(gemini.watch_video(URL, "x"))
+    (tmp_path / "u.json").write_text(json.dumps({"date": "2000-01-01", "video_calls": 99}))
+    assert budget.remaining() == 2  # a new day resets it
+
+
+def test_budget_exhausted_build_goes_to_claude_and_says_so(fake, monkeypatch, tmp_path):
+    monkeypatch.setenv("LESSON_ENGINE", "auto")
+    monkeypatch.setenv("LESSON_GEMINI_DAILY_CAP", "0")
+    monkeypatch.setattr(gemini, "watch_video", _REAL_WATCH)  # the real one: it checks the budget first
+    calls = []
+    _claude_fakes(monkeypatch, calls)
+    seen = []
+    g = asyncio.run(builder.build_lesson(URL, "x", WORKDIR, refresh=True, on_progress=lambda s, m: seen.append((s, m))))
+    assert g["lesson"]["builtBy"] == "claude" and ("engine_switch", "budget") in seen
+
+
+def test_long_video_builds_part_one_then_extends_on_demand(fake, monkeypatch):
+    from server.lesson import progressive
+    monkeypatch.setenv("LESSON_LAZY_PARTS", "1")
+    chapters = [{"t": 0, "title": "setup"}, {"t": 400, "title": "two"}, {"t": 1200, "title": "three"}, {"t": 2000, "title": "four"}]
+
+    async def meta(vid):
+        return {"video_id": vid, "title": "Long", "description": "", "length_s": 2600, "chapters": chapters}
+
+    monkeypatch.setattr(transcript, "fetch_metadata", meta)
+    watched = []
+
+    async def clip(url, goal, fps=None, context="", start=None, end=None, media_low=False):
+        watched.append(int(start))
+        return {"title": "t", "libraries": [], "steps": [{"start": start + 10, "end": start + 200, "title": f"Step {int(start)}", "instructions": "do", "checks": [], "hints": []}]}
+
+    monkeypatch.setattr(gemini, "watch_video", clip)
+
+    async def adapt(goal, steps, summary, feedback=None):
+        return {"steps": [{"index": s["index"], "checks": [{"type": "screen_contains", "label": "x", "app": "Code", "pattern": "marker_text"}], "targets": []} for s in steps]}
+
+    monkeypatch.setattr(claude, "adapt_checks", adapt)
+    g = asyncio.run(builder.build_lesson(URL, "x", WORKDIR, refresh=True))
+    assert watched == [0] and [s["title"] for s in g["steps"]] == ["Step 0"] and g["lesson"]["complete"] is False
+    assert [p["status"] for p in g["lesson"]["parts"]["list"]] == ["done", "pending", "pending", "pending"]
+    assert progressive.needs_more(g, current_step_index=1)  # learner is on the last built step
+    ups = []
+    g2 = asyncio.run(progressive.extend(g, on_update=lambda gr, c: ups.append(c)))
+    assert watched == [0, 400] and [s["id"] for s in g2["steps"]] == ["s1", "s2"] and g2["steps"][1]["checks"][0]["id"] == "s2c1"
+    assert ups == [False] and g["steps"] != g2["steps"]  # input untouched, new graph returned
+    g3 = asyncio.run(progressive.extend(g2, parts=5))
+    assert g3["lesson"]["complete"] is True and len(g3["steps"]) == 4 and not progressive.needs_more(g3, 4)
+
+
+# ---- quick-start placeholder + setup steps (Michael's calculator lesson) -----------------
+
+CALC_CHAPTERS = [{"t": 0, "title": "Introduction"}, {"t": 40, "title": "Guide to Installing Python & VS Code"},
+                 {"t": 80, "title": "Creating the calculator file"}, {"t": 150, "title": "Adding operations"}]
+
+
+def test_placeholder_skips_intro_and_setup_chapters_and_never_gates():
+    g = builder.provisional_graph({"title": "Python calculator", "length_s": 520, "chapters": CALC_CHAPTERS}, "MPlIAlvqAjk",
+                                  "https://www.youtube.com/watch?v=MPlIAlvqAjk", "build a calculator", "/tmp/w")
+    s1 = g["steps"][0]
+    assert s1["video"]["start"] == 80 and s1["title"] == "Creating the calculator file"
+    assert s1["checks"] == [] and s1["provisional"] is True
+    assert g["lesson"]["builtBy"] == "chapters" and g["lesson"]["provisional"] is True and schema_errors(g) == []
+    g2 = builder.provisional_graph({"length_s": 520, "chapters": CALC_CHAPTERS, "first_hands_on": 150}, "MPlIAlvqAjk",
+                                   "https://youtu.be/MPlIAlvqAjk", "x", "/tmp/w")
+    assert g2["steps"][0]["video"]["start"] == 150  # preflight's first hands-on still wins
+
+
+def test_pure_install_steps_are_tagged_setup_unless_the_goal_is_installing():
+    def g(goal):
+        return {"lesson": {"goal": goal}, "steps": [
+            {"id": "s1", "title": "Install Python and VS Code", "instructions": "Download Python 3 and VS Code.", "checks": [], "precision_checks": [], "targets": []},
+            {"id": "s2", "title": "Create the calculator file", "instructions": "Write add() in calc.py.", "code": "def add(a, b):\n    return a + b",
+             "checks": [], "precision_checks": [], "targets": []},
+            {"id": "s3", "title": "Set up the project", "instructions": "Create main.py with Python.", "code": "import sys", "checks": [], "precision_checks": [], "targets": []}]}
+
+    out = builder.normalize_checks(g("build a calculator"), set())
+    s1, s2, s3 = out["steps"]
+    assert s1["setup"] is True and s1["requires"] == ["python", "vscode"]
+    assert "setup" not in s2 and "setup" not in s3  # writing code is real work
+    assert schema_errors({"lesson": {"id": "x", "title": "t", "goal": "g"}, "sources": [], "steps": [
+        {k: v for k, v in s1.items() if k != "precision_checks"} | {"index": 1}]}) == []
+    out2 = builder.normalize_checks(g("install Python on my Mac"), set())
+    assert "setup" not in out2["steps"][0]

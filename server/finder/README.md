@@ -22,6 +22,15 @@ source, scoredBy, watched?, comments?, style?, durationLabel?, long?, chapters?,
 Example: `{"id": "yt-unBU1PwCnvQ", "kind": "video", "title": "S5 Solving Linear convection equation using PINNs",
 "meta": "YouTube · SimCom · 22:40 · 314 · 1y ago", "score": 86, "reason": "Clear, 22 min, hands-on, uses PyTorch, explains PINNs for convection", "url": "https://www.youtube.com/watch?v=unBU1PwCnvQ", ...}`
 
+## What it returns (default: YouTube videos only)
+- **Videos only.** `FINDER_KINDS=video` is the default (Michael: the list is videos; the no-video path is the separate "Build a lesson from the internet" button). So GitHub, arXiv and the blog/notebook web searches **don't run at all**, and Claude doesn't read pages.
+  - Claude's web search asks only for YouTube videos (1-2 searches); its non-video hits are dropped.
+  - One Bright Data SERP query collects Google's video results.
+  - `FINDER_KINDS=all` (or e.g. `video,repo`) brings the other kinds back.
+- **Relevance floor.** A row the model scored below `FINDER_MIN_SCORE` (default 40) is never sent. Rows that only got a keyword score (both models failed) are kept and labelled.
+  - Rows below the floor are listed in the cache file's `below_floor`.
+  - Every row that is sent is in the returned list, so the orchestrator's `search.done.total` (it counts the rows it streamed) stays exact. A row whose score drops after the deep pass stays in the list, ranked lower.
+
 ## Who does what (Michael's rule: Gemini only watches YouTube videos; Claude does everything else)
 - **Claude searches.**
   - `claude-haiku-5-5` with the server-side `web_search_20250305` tool plans 2-3 searches and returns its picks with a "why".
@@ -83,12 +92,13 @@ The keys come from the shared `.env` (looked up in `$TUT_ENV`, the repo root, th
 | `BRIGHTDATA_API_KEY`, `BRIGHTDATA_SERP_ZONE` (default `serp_api1`), `BRIGHTDATA_UNLOCKER_ZONE` (default `web_unlocker1`) | SERP + Unlocker; any failure falls back, and an inactive account or missing zone trips a 5-min circuit breaker |
 | `BRIGHTDATA_YT_COMMENTS_DATASET` | Web Scraper API dataset id for YouTube comments |
 | `GITHUB_TOKEN` | optional, raises the GitHub search rate limit |
+| `FINDER_KINDS` (default `video`; `all`), `FINDER_MIN_SCORE` (default 40) | what to search for, relevance floor |
 | `FINDER_SKIM_TOP` (default 0 = no Gemini skim), `FINDER_GEMINI_FALLBACK` (default 0), `FINDER_MODEL` (Gemini scoring fallback), `FINDER_SKIM_MODEL` | comma-separated Gemini fallback chains (default flash-lite only, so server/lesson's `gemini-4-hydrogen` / `gemini-3.8-flash` daily quota is left alone) |
 
 Gemini calls use no SDK retries. Each call has its own timeout and a **hedged** fallback (if model 1 is slow, model 2 starts too), and a model that returns 429 is skipped until its quota resets.
 
 ## Tests
-`pytest server/finder/tests`: 28 tests, offline in < 1 s. They replay **recorded real responses** (YouTube results page data, oEmbed, DuckDuckGo, GitHub, arXiv) through an `httpx.MockTransport`. They check:
+`pytest server/finder/tests`: 34 tests, offline in < 1 s. They replay **recorded real responses** (YouTube results page data, oEmbed, DuckDuckGo, GitHub, arXiv) through an `httpx.MockTransport`. They check:
 - every emitted URL came from a source response (none invented);
 - a 404 is dropped;
 - a URL Claude wrote that its search tool never returned is dropped;
@@ -97,6 +107,7 @@ Gemini calls use no SDK retries. Each call has its own timeout and a **hedged** 
 - Bright Data target failures are errors, `goto` links resolve, SERP video results are kept, and comment failures are labelled and only trip their own breaker;
 - a no-code video never leads a coding goal (capped at 35);
 - with default settings Gemini is never called;
+- the default searches videos only (GitHub, arXiv and DuckDuckGo are never called) and rows below the floor are never streamed, while streamed rows == returned rows;
 - rows say plainly when they weren't watched ("not watched: Gemini quota") or read ("not read: Claude timeout");
 - everything returned was streamed;
 - the best video leads;

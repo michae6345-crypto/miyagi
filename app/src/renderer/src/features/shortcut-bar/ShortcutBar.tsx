@@ -1,18 +1,25 @@
 /**
  * Bottom shortcut bar: "Ask Miyagi" + Back / Explain / Diagram / Show me / Hint / Voice.
  * Only visible during a lesson. Sits 24px above the dock / taskbar.
+ * Options wear their pastel tile (theme.actionTone, the same color as their buttons everywhere):
+ * Explain / Diagram sky, Show me lilac, Hint pink. Back and Voice are chrome: neutral tiles (Voice on = white).
+ * The pressed option's glyph becomes a spinner while the engine thinks (never looks dead, Busy.tsx). Any trigger dips
+ * its tile for 90 ms (press.ts). Voice speaking: the equalizer (Equalizer.tsx). Diagram open: the button stays lit.
  */
 import { AnimatePresence, motion } from 'motion/react'
-import { useEffect, useState, type ReactNode } from 'react'
-import { useShallow } from 'zustand/react/shallow'
-import { AudioLines, Lightbulb, MessageSquareText, RotateCcw, Search, SquarePlay, Waypoints, type LucideIcon } from 'lucide-react'
+import type { ReactNode } from 'react'
+import { AudioLines, Lightbulb, MessageSquareText, RotateCcw, SquarePlay, Waypoints, type LucideIcon } from 'lucide-react'
 import { bridge } from '../../bridge'
-import { onUi } from '../../core/bus'
 import { useLesson } from '../../core/lesson'
 import { triggerShortcut, type ActionShortcut } from '../../core/shortcuts'
-import { color, spring } from '../../core/theme'
+import { Kbd } from '../../core/ui/atoms'
+import { MiyagiMark } from '../../core/ui/Mark'
+import { actionTone, color, fill, shadow, spring, type OptionAction } from '../../core/theme'
 import { useDiagram } from '../diagrams/store'
-import { useVoice } from '../voice/store'
+import { toggleVoice } from '../voice/store'
+import { Glyph } from './Busy'
+import { Equalizer, useVoiceTile } from './Equalizer'
+import { PRESS_MS, PRESS_SCALE, usePress } from './press'
 
 type Btn = { kind: ActionShortcut; label: string; icon: LucideIcon }
 
@@ -27,23 +34,17 @@ const BUTTONS: Btn[] = [
 
 export const BAR_HEIGHT = 88
 
+/** The options among the buttons (the rest is chrome). */
+const toneOf = (kind: ActionShortcut): string | undefined => (kind in actionTone ? actionTone[kind as OptionAction] : undefined)
+
 
 export function ShortcutBar({ bottom }: { bottom: number }): ReactNode {
   const on = useLesson((x) => !!x.lesson)
   const diagramOpen = useDiagram((d) => d.open)
-  const voice = useVoice(useShallow((v) => ({ on: v.on, speaking: v.speaking })))
+  const voice = useVoiceTile()
   const s = { on, diagramOpen, voiceOn: voice.on, speaking: voice.speaking }
-  const [pressed, setPressed] = useState<string>()
-
-  // Any shortcut (global key, click, stage key): animate the matching button. Never claims it.
-  useEffect(
-    () =>
-      onUi('shortcut', (kind) => {
-        setPressed(kind as string)
-        setTimeout(() => setPressed(undefined), 90)
-      }),
-    []
-  )
+  // Any shortcut (click, global key, stage key, launcher chip): the matching tile dips for 90 ms (press.ts).
+  const pressed = usePress((p) => p.kind)
 
   return (
     <AnimatePresence>
@@ -59,36 +60,46 @@ export function ShortcutBar({ bottom }: { bottom: number }): ReactNode {
           <div
             data-hit
             className="pointer-events-auto flex items-center gap-[2px] rounded-[26px] border p-[8px]"
-            style={{ height: BAR_HEIGHT, background: color.glass, borderColor: color.hairline, boxShadow: '0 20px 60px rgba(0,0,0,.45)', backdropFilter: 'blur(30px) saturate(1.4)' }}
+            style={{ height: BAR_HEIGHT, background: color.glass, borderColor: color.hairline, boxShadow: shadow, backdropFilter: 'blur(30px) saturate(1.4)' }}
           >
             <button
               className="mr-[6px] flex h-[48px] w-[204px] cursor-pointer items-center gap-[9px] whitespace-nowrap rounded-[24px] border pl-[16px] pr-[8px] text-left"
-              style={{ background: 'rgba(255,255,255,.06)', borderColor: 'rgba(255,255,255,.1)' }}
+              style={{ background: fill.field, borderColor: fill.fieldBorder, color: color.label }}
               onClick={() => bridge.emit('launcher:toggle')}
             >
-              <Search size={15} className="text-white/55" />
-              <span className="flex-1 text-[15px] text-white/55">Ask Miyagi</span>
-              <span className="rounded-[7px] px-[7px] py-[3px] text-[11.5px] text-white/55" style={{ background: 'rgba(255,255,255,.1)' }}>
-                {bridge.platform.keys.launcher}
-              </span>
+              <MiyagiMark size={15} />
+              <span className="flex-1 text-[15px]">Ask Miyagi</span>
+              <Kbd>{bridge.platform.keys.launcher}</Kbd>
             </button>
-            <div className="mx-[4px] h-[40px] w-px" style={{ background: 'rgba(255,255,255,.1)' }} />
+            <div className="mx-[4px] h-[40px] w-px" style={{ background: fill.rule }} />
             {BUTTONS.map(({ kind, label, icon: Icon }) => {
-              const lit = (kind === 'diagram' && s.diagramOpen) || (kind === 'voice_toggle' && s.voiceOn)
-              const blue = kind === 'voice_toggle' && s.voiceOn
+              const lit = kind === 'diagram' && s.diagramOpen
+              const voiceOn = kind === 'voice_toggle' && s.voiceOn
+              const tone = toneOf(kind)
+              // Tile: the option's pastel with an ink glyph; chrome is a neutral tile (Voice on: white, like every toggle).
+              const tile = tone ? { background: tone, color: color.onAccent } : voiceOn ? { background: color.accent, color: color.onAccent } : { background: fill.tile, color: color.text }
               return (
                 <motion.button
                   key={kind}
                   className="flex h-[72px] w-[84px] cursor-pointer flex-col items-center justify-center rounded-[16px]"
-                  animate={{ scale: pressed === kind ? 0.94 : 1, background: lit ? 'rgba(255,255,255,.09)' : 'rgba(255,255,255,0)' }}
-                  whileHover={{ background: 'rgba(255,255,255,.06)' }}
-                  whileTap={{ scale: 0.94 }}
-                  transition={{ duration: 0.09 }}
-                  onClick={() => triggerShortcut(kind)}
+                  aria-pressed={kind === 'diagram' ? lit : kind === 'voice_toggle' ? voiceOn : undefined}
+                  animate={{ scale: pressed === kind ? PRESS_SCALE : 1, backgroundColor: lit ? fill.button : fill.clear }}
+                  whileHover={{ backgroundColor: fill.field }}
+                  whileTap={{ scale: PRESS_SCALE }}
+                  transition={{ duration: PRESS_MS / 1000 }}
+                  onClick={() => (kind === 'voice_toggle' ? toggleVoice() : triggerShortcut(kind))}
                 >
-                  {blue && s.speaking ? <Equalizer /> : <Icon size={19} strokeWidth={1.6} style={{ color: blue ? color.accent : lit ? color.accent : '#fff' }} />}
-                  <span className="mt-[5px] text-[13px] leading-none text-white/90">{label}</span>
-                  <span className="mt-[5px] text-[11px] leading-none text-white/42">{bridge.platform.keys[kind]}</span>
+                  <span className="grid h-[30px] w-[30px] place-items-center rounded-[9px]" style={tile}>
+                    <Glyph kind={kind} tone={tile.color} size={16}>
+                      {voiceOn && s.speaking ? <Equalizer tone={tile.color} size={16} /> : <Icon size={16} strokeWidth={1.8} />}
+                    </Glyph>
+                  </span>
+                  <span className="mt-[6px] text-[12.5px] leading-none" style={{ color: color.text }}>
+                    {label}
+                  </span>
+                  <span className="mt-[4px] text-[11px] leading-none" style={{ color: color.faint }}>
+                    {bridge.platform.keys[kind]}
+                  </span>
                 </motion.button>
               )
             })}
@@ -96,21 +107,5 @@ export function ShortcutBar({ bottom }: { bottom: number }): ReactNode {
         </motion.div>
       )}
     </AnimatePresence>
-  )
-}
-
-function Equalizer(): ReactNode {
-  return (
-    <span className="flex h-[19px] items-end gap-[3px]">
-      {[0, 1, 2].map((i) => (
-        <motion.i
-          key={i}
-          className="block w-[3px] rounded-full"
-          style={{ background: color.accent }}
-          animate={{ height: [6, 17, 9, 15, 6] }}
-          transition={{ repeat: Infinity, duration: 0.9, delay: i * 0.15 }}
-        />
-      ))}
-    </span>
   )
 }

@@ -1,6 +1,6 @@
 """Re-record every LLM fixture the tests replay (live Opus/Haiku calls; costs a few cents).
 
-    rm server/coach/fixtures/*.json && .venv/bin/python -m server.coach.tests.record_fixtures
+    rm server/coach/fixtures/*.json && COACH_ALLOW_LIVE=1 .venv/bin/python -m server.coach.tests.record_fixtures
 
 The web layer is replaced by `generic_cases.fake_fetch` (excerpts of the real pages) for the
 React/pandas cases, and switched off for the PINN cases, exactly as in the tests.
@@ -77,4 +77,6 @@ async def main() -> None:
 
 
 if __name__ == "__main__":
+    if os.environ.get("COACH_ALLOW_LIVE") != "1":  # cost freeze (Michael): live calls only on purpose
+        raise SystemExit("record_fixtures makes live paid API calls; set COACH_ALLOW_LIVE=1 to run it.")
     asyncio.run(main())

@@ -34,7 +34,7 @@ EDITORS: dict[str, dict] = {
                "bundled_cli": "/Applications/Visual Studio Code.app/Contents/Resources/app/bin/code",
                "cask": "visual-studio-code", "url": "https://code.visualstudio.com/download"},
 }
-PREFERENCE = ["cursor", "vscode"]
+PREFERENCE = ["vscode", "cursor"]  # Michael uses VS Code: Cursor only when VS Code is missing
 ENV_NAMES = {"cursor": "cursor", "code": "vscode", "vscode": "vscode", "vs code": "vscode", "visual studio code": "vscode"}
 # Kept for older callers (orchestrator fallback).
 VSCODE_APP = EDITORS["vscode"]["app"]
@@ -81,7 +81,7 @@ def installed_editors() -> list[dict]:
 
 
 def preferred_editor(installed: list[dict] | None = None) -> dict | None:
-    """MIYAGI_EDITOR (cursor | code) if installed, else Cursor, else VS Code, else None."""
+    """MIYAGI_EDITOR (cursor | code) if installed, else VS Code, else Cursor, else None."""
     eds = installed if installed is not None else installed_editors()
     want = ENV_NAMES.get(os.environ.get("MIYAGI_EDITOR", "").strip().lower())
     if want:
@@ -168,6 +168,9 @@ class AX:
     def is_fullscreen(self, win) -> bool:
         return bool(self._get(win, "AXFullScreen"))
 
+    def enter_fullscreen(self, win) -> bool:
+        return self.A.AXUIElementSetAttributeValue(win, "AXFullScreen", True) == 0
+
     def exit_fullscreen(self, win) -> bool:
         return self.A.AXUIElementSetAttributeValue(win, "AXFullScreen", False) == 0
 
@@ -178,6 +181,30 @@ class AX:
         ok1 = A.AXUIElementSetAttributeValue(win, "AXPosition", pos) == 0
         ok2 = A.AXUIElementSetAttributeValue(win, "AXSize", size) == 0
         return ok1 and ok2
+
+
+def make_fullscreen(editor: dict, report: dict, *, ax=None, wait_s: float = 8.0, sleep=time.sleep) -> None:
+    """With Accessibility: put the editor's window in macOS full screen (AXFullScreen=true)."""
+    try:
+        ax = ax or AX()
+    except ImportError:
+        report["fullscreen"] = "skipped: pyobjc-framework-ApplicationServices not installed"
+        return
+    deadline = time.monotonic() + wait_s
+    win = None
+    while time.monotonic() < deadline:
+        pid = find_pid(editor["app"])
+        win = ax.focused_window(pid) if pid else None
+        if win is not None:
+            break
+        sleep(0.3)
+    if win is None:
+        report["fullscreen"] = f"skipped: no {editor['label']} window within {wait_s:.0f}s"
+        return
+    if ax.is_fullscreen(win):
+        report["fullscreen"] = "done (already full screen)"
+        return
+    report["fullscreen"] = "done" if ax.enter_fullscreen(win) else "failed: the editor refused AXFullScreen"
 
 
 def left_frame(fraction: float = EDITOR_FRACTION) -> tuple[float, float, float, float] | None:
@@ -261,11 +288,14 @@ def _run(argv: list[str]) -> bool:
 
 def open_editor_report(path: Path | str, file: str | None = None, *, runner: Runner | None = None,
                        editor: dict | None = None, arrange_windows: bool | None = None, wait: bool = False,
-                       trusted: Callable[[], bool] = ax_trusted, previous: dict | None = None) -> dict:
+                       trusted: Callable[[], bool] = ax_trusted, previous: dict | None = None,
+                       fullscreen: bool = False) -> dict:
     """Open the folder in the preferred editor and bring it frontmost; arrange windows when allowed.
 
-    Returns {opened, editor, label, command, frontmost, ax_trusted, arrange, unfullscreened?, arranged?, frame?}.
-    The Accessibility part runs in a background thread unless wait=True (it polls for the editor's window)."""
+    fullscreen=True ("Just teach me" mode): the editor goes macOS full screen instead of the left-60% layout
+    (needs Accessibility; without it `fullscreen` says so and the editor stays a normal frontmost window).
+    Returns {opened, editor, label, command, frontmost, ax_trusted, arrange, fullscreen?, unfullscreened?,
+    arranged?, frame?}. The Accessibility part runs in a background thread unless wait=True."""
     run = runner or _run
     folder = Path(path).expanduser().resolve()
     ed = editor if editor is not None else preferred_editor()
@@ -297,6 +327,17 @@ def open_editor_report(path: Path | str, file: str | None = None, *, runner: Run
     if sys.platform == "darwin":  # the safe part: bring it to the front (works without Accessibility)
         report["frontmost"] = run(["open", "-a", ed["app"]])
     report["ax_trusted"] = trusted()
+    if fullscreen:
+        report["arrange"] = "off (full screen requested)"
+        if not report["ax_trusted"]:
+            report["fullscreen"] = "skipped: Accessibility not granted (the learner can press Ctrl+Cmd+F)"
+        elif wait:
+            make_fullscreen(ed, report)
+        else:
+            report["fullscreen"] = "scheduled"
+            threading.Thread(target=make_fullscreen, args=(ed, report), daemon=True, name="miyagi-fullscreen").start()
+        log.info("open_editor %s: %s", folder, report)
+        return report
     if arrange_windows is None:
         arrange_windows = os.environ.get("MIYAGI_ARRANGE", "1") != "0"
     if not arrange_windows:
@@ -315,3 +356,175 @@ def open_editor_report(path: Path | str, file: str | None = None, *, runner: Run
 def open_editor(path: Path | str, file: str | None = None, *, runner: Runner | None = None, **kw) -> bool:
     """Open `path` in Cursor/VS Code focused on `file`, frontmost; arrange with Accessibility. Returns whether it opened."""
     return bool(open_editor_report(path, file, runner=runner, **kw)["opened"])
+
+
+# --------------------------------------------------------------------------- where to type (Accessibility)
+
+_ax_enabled: dict[int, float] = {}  # pid -> when AXManualAccessibility was set (once per process, like E6)
+
+
+def _frontmost_editor_pid() -> tuple[int, str] | None:
+    """(pid, app name) of Cursor/VS Code: the frontmost app if it is one, else the preferred editor."""
+    try:
+        import AppKit
+    except ImportError:
+        return None
+    bundles = {e["bundle"]: e["app"] for e in EDITORS.values()}
+    front = AppKit.NSWorkspace.sharedWorkspace().frontmostApplication()
+    if front is not None and front.bundleIdentifier() in bundles:
+        return int(front.processIdentifier()), bundles[front.bundleIdentifier()]
+    ed = preferred_editor()
+    pid = find_pid(ed["app"]) if ed else None
+    return (pid, ed["app"]) if pid else None
+
+
+def _doc_path(document) -> Path | None:
+    if not document:
+        return None
+    d = str(document)
+    if d.startswith("file://"):
+        from urllib.parse import unquote, urlparse
+        d = unquote(urlparse(d).path)
+    return Path(d).expanduser().resolve()
+
+
+def line_rect_from_state(state: dict, line: int, window: dict | None = None) -> dict | None:
+    """Rect of file line `line` from an editor snapshot {caret_line, line_rect:{x,y,w,h}, line_height}: the caret
+    line's exact rect (Monaco's hidden textarea sits on it) shifted by whole lines. None when the caret is
+    off-screen or the line is outside the window. Folding/word wrap shift lines: treat as a hint, cross-check with OCR."""
+    lr, h = state.get("line_rect"), state.get("line_height")
+    if not lr or not h or h <= 2:
+        return None
+    y = lr["y"] + (int(line) - int(state["caret_line"])) * h
+    rect = {"x": lr["x"], "y": y, "w": lr["w"], "h": h}
+    if window and not (window["y"] <= y and y + h <= window["y"] + window["h"]):
+        return None
+    return rect
+
+
+def editor_line_location(file: str | Path, line: int, *, snapshot: Callable[[], dict | None] | None = None,
+                         screen_locate: Callable | None = None) -> dict:
+    """Where `line` (1-based) of `file` is on screen in Cursor/VS Code, best source first:
+    1. Accessibility (exact caret-anchored row, a few AX reads; needs the permission),
+    2. E6's screen reader `server.screen.locate_line` (works without Accessibility; PR #9) when installed.
+    -> {rect: {x,y,w,h} | None, source: "ax"|"screen"|None, reason, direction?, visible_lines?, line_height?}
+    rect is in top-left global screen points (spotlight space). reason: None | no_editor | file_not_active |
+    not_visible | not_found | unavailable. direction "up"/"down" = scrolled off: jump with goto_argv() and ask again."""
+    out: dict = {"rect": None, "source": None, "reason": "unavailable", "line": int(line)}
+    snap = snapshot() if snapshot else _ax_editor_snapshot()
+    if snap:
+        doc, want = _doc_path(snap.get("document")), Path(file).expanduser().resolve()
+        if doc is not None and doc != want:
+            out["reason"] = "file_not_active"
+        elif (rect := line_rect_from_state(snap, line, snap.get("window"))) is not None:
+            return {**out, "rect": rect, "source": "ax", "reason": None, "line_height": snap.get("line_height")}
+        else:
+            out["reason"] = "not_visible"
+    locate = screen_locate
+    if locate is None:
+        try:
+            from server.screen import (
+                locate_line as locate,  # E6 (PR #9); absent on older builds
+            )
+        except ImportError:
+            locate = None
+    if locate is None:
+        return out
+    try:
+        loc = locate(str(file), int(line))
+    except Exception as e:  # noqa: BLE001 - screen reader not running / no permission: just no answer
+        log.debug("screen locate_line failed: %s", e)
+        return out
+    d = loc.to_dict() if hasattr(loc, "to_dict") else dict(loc or {})
+    rect = d.get("rect")
+    out.update(rect=rect, source="screen" if rect else None, reason=d.get("reason") if not rect else None)
+    for k in ("direction", "visible_lines", "line_height"):
+        if d.get(k) is not None:
+            out[k] = d[k]
+    return out
+
+
+def editor_line_rect(file: str | Path, line: int, *, snapshot: Callable[[], dict | None] | None = None,
+                     screen_locate: Callable | None = None) -> dict | None:
+    """{x, y, w, h, line, source} of `line` of `file` in the open editor, or None (see editor_line_location
+    for why). Accessibility first, then E6's screen reader."""
+    loc = editor_line_location(file, line, snapshot=snapshot, screen_locate=screen_locate)
+    if not loc["rect"]:
+        return None
+    return {**loc["rect"], "line": int(line), "source": loc["source"]}
+
+
+def _ax_editor_snapshot() -> dict | None:
+    """One-shot AX read of the frontmost editor (the same technique as E6's server/screen/ax.py)."""
+    if not ax_trusted():
+        return None
+    target = _frontmost_editor_pid()
+    if target is None:
+        return None
+    pid, _app = target
+    try:
+        import ApplicationServices as A
+    except ImportError:
+        return None
+
+    def get(el, name):
+        if el is None:
+            return None
+        err, v = A.AXUIElementCopyAttributeValue(el, name, None)
+        return v if err == 0 else None
+
+    def rect(el):
+        p, sz = get(el, "AXPosition"), get(el, "AXSize")
+        if p is None or sz is None:
+            return None
+        ok1, pt = A.AXValueGetValue(p, A.kAXValueCGPointType, None)
+        ok2, sv = A.AXValueGetValue(sz, A.kAXValueCGSizeType, None)
+        return {"x": float(pt.x), "y": float(pt.y), "w": float(sv.width), "h": float(sv.height)} if ok1 and ok2 else None
+
+    app = A.AXUIElementCreateApplication(pid)
+    A.AXUIElementSetMessagingTimeout(app, 0.3)
+    if pid not in _ax_enabled:
+        if A.AXUIElementSetAttributeValue(app, "AXManualAccessibility", True) != 0:
+            A.AXUIElementSetAttributeValue(app, "AXEnhancedUserInterface", True)
+        _ax_enabled[pid] = time.monotonic()
+        return None  # Chromium builds its tree now; ask again in a second
+    if time.monotonic() - _ax_enabled[pid] < 1.0:
+        return None
+    win = get(app, "AXFocusedWindow")
+    focused = get(app, "AXFocusedUIElement")
+    if str(get(focused, "AXRole") or "") not in ("AXTextArea", "AXTextField"):
+        return None
+    text = get(focused, "AXValue")
+    if text is None:
+        return None
+    text = str(text)
+    sr = get(focused, "AXSelectedTextRange")
+    caret = 0
+    if sr is not None:
+        ok, r = A.AXValueGetValue(sr, A.kAXValueCFRangeType, None)
+        caret = int(r.location) if ok else 0
+    document = get(win, "AXDocument")
+    start = _page_start(text, _doc_path(document))
+    lr = rect(focused)
+    if lr is None or lr["h"] <= 2 or lr["w"] <= 2:  # parked at the top-left = caret off-screen
+        lr = None
+    return {"document": document, "caret_line": start + text[:max(0, min(caret, len(text)))].count("\n"),
+            "line_rect": lr, "line_height": lr["h"] if lr else None, "window": rect(win)}
+
+
+def _page_start(text: str, document: Path | None, page: int = 500) -> int:
+    """1-based file line where the editor's 500-line AX page starts (E6's approach): 1 for small files, else
+    match the page's first lines against the file on disk."""
+    if document is None or not document.is_file():
+        return 1
+    try:
+        lines = document.read_text(encoding="utf-8", errors="replace").split("\n")
+    except OSError:
+        return 1
+    if len(lines) <= page:
+        return 1
+    head = text.split("\n")[:3]
+    for i in list(range(0, len(lines), page)) + list(range(len(lines))):
+        if lines[i:i + len(head)] == head:
+            return i + 1
+    return 1

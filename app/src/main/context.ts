@@ -46,6 +46,20 @@ export type MainContext = {
    * Re-sent automatically when the window moves, resizes, shows or hides.
    */
   reportBounds(win: BrowserWindow): void
+  /**
+   * Keep a window above everything, full-screen apps included (level 'screen-saver', every Space).
+   * relativeLevel -1 = just under the overlay (the player: the spotlight dim must cover it).
+   * Every ctx.createWindow window already follows Spaces; call this for windows that must float on top.
+   */
+  raise(win: BrowserWindow, relativeLevel?: number): void
+  /**
+   * The notch island hand-over, for a focusable surface that grows out of it (settings…), like the launcher:
+   * read its current size, start your panel at exactly that rect (top = platform.pillTop, centered), then
+   * yieldIsland(true) so it hides; collapse back into its rect and yieldIsland(false) when you close.
+   * Renderer side: bridge.emit('island:yield') / bridge.emit('island:return') do the same.
+   */
+  islandSize(): { w: number; h: number }
+  yieldIsland(on: boolean): void
 }
 
 export type MainFeature = { id: string; setup(ctx: MainContext): void }
