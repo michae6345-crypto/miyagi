@@ -771,10 +771,13 @@ def _drop_ours(cands: list[Cand], intent: str) -> tuple[list[Cand], list[Cand]]:
 NONE_CONF = 0.75     # "nothing on screen matches" must be at least this sure to remove a box
 
 
-def verdict(rect, res: dict | None, outcome: str, conf: float) -> tuple[dict | None, str]:
+def verdict(rect, res: dict | None, outcome: str, conf: float,
+            move_conf: float | None = None) -> tuple[dict | None, str]:
     """Combine the engine's own box with a pick -> (rect to show | None, why):
     - pick overlaps the box -> keep the box ("agree"); a confident pick elsewhere -> the pick ("moved"),
       except a whole panel, or a block taller than ~3 lines, replacing a single row (never more precise than a row);
+      move_conf (t5): a box the engine took from the file itself moves only on a pick at least this sure
+      ("kept:unsure_move" below it);
     - the model is sure nothing matches (conf >= NONE_CONF) -> None ("none": no box);
     - low confidence, timeout, budget, no key, error -> keep the box ("kept:<outcome>")."""
     box = Rect.from_any(rect).to_dict()
@@ -785,16 +788,19 @@ def verdict(rect, res: dict | None, outcome: str, conf: float) -> tuple[dict | N
             return box, "kept:region"
         if box["h"] < 80 and res["rect"]["h"] > 3 * max(box["h"], 20.0) + 12:  # e.g. 15 merged terminal rows
             return box, "kept:tall"
+        if move_conf is not None and conf < move_conf:
+            return box, "kept:unsure_move"
         return dict(res["rect"]), "moved"
     if outcome == "none" and conf >= NONE_CONF:
         return None, "none"
     return box, f"kept:{outcome}"
 
 
-async def confirm_spot(rect, frame, ocr_boxes, intent: str, **kw) -> tuple[dict | None, str]:
+async def confirm_spot(rect, frame, ocr_boxes, intent: str, move_conf: float | None = None,
+                       **kw) -> tuple[dict | None, str]:
     """Verifier for a box the engine located itself (text match / gutter line / region): see verdict()."""
     res, outcome, conf = await pick_with_outcome(frame, ocr_boxes, intent, **kw)
-    return verdict(rect, res, outcome, conf)
+    return verdict(rect, res, outcome, conf, move_conf)
 
 
 # ---------------------------------------------------------------------- live
