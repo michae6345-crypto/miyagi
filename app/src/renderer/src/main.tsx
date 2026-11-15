@@ -6,6 +6,7 @@ import type { Layout } from '../../preload/api'
 import { bridge, isElectron } from './bridge'
 import { dispatch } from './core/bus'
 import { setConnected } from './core/lesson'
+import './core/prefs' // applies the appearance before the first paint
 import { getFeatureWindows } from './core/registry' // importing it loads features/* (their stores subscribe on import)
 import { Overlay, useClickThrough } from './core/Overlay'
 import { Stage } from './dev/Stage'

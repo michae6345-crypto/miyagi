@@ -4,7 +4,7 @@
  */
 import { AnimatePresence, motion } from 'motion/react'
 import type { ReactNode } from 'react'
-import { CircleAlert, CircleStop, FileCode2, FileText, FolderGit2, Newspaper, SearchX } from 'lucide-react'
+import { CircleAlert, CircleStop, FileCode2, FileText, FolderGit2, Newspaper, SearchX, Settings } from 'lucide-react'
 import { MiyagiMark } from '../../core/ui/Mark'
 import { Thumb } from '../../core/ui/atoms'
 import { brand, clock, color, fill, spring } from '../../core/theme'
@@ -143,6 +143,18 @@ export function EndRow({ lessonTitle, onPick }: { lessonTitle?: string; onPick: 
         <CircleStop size={16} strokeWidth={1.6} />
       </span>
       <Text title="End lesson" meta={lessonTitle ?? 'Back to idle'} />
+    </RowShell>
+  )
+}
+
+/** Typing a settings word ("sett", "keys", "pref", "appear"…): the one way into Settings from the launcher. */
+export function SettingsRow({ onPick }: { onPick: () => void }): ReactNode {
+  return (
+    <RowShell slot={0} onPick={onPick}>
+      <span className="grid h-[38px] w-[60px] shrink-0 place-items-center rounded-[8px]" style={{ background: fill.tile, color: fill.tileGlyph }}>
+        <Settings size={16} strokeWidth={1.6} />
+      </span>
+      <Text title="Settings" meta="Keys and appearance" />
     </RowShell>
   )
 }

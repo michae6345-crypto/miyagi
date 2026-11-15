@@ -46,7 +46,7 @@ import { MiyagiMark } from '../../core/ui/Mark'
 import { OptionButton, Spinner } from '../../core/ui/atoms'
 import { color, copy, fill, launcher as launcherTheme, pill, radius, scrim, shadows, spring, springOut } from '../../core/theme'
 import { Action, Chip, Hint, HowChoice, Rise, type How } from './parts'
-import { EndRow, LessonRow, LinkRow, MessageRow, ResultRow, ROW_H, SkeletonRow } from './Rows'
+import { EndRow, LessonRow, LinkRow, MessageRow, ResultRow, ROW_H, SettingsRow, SkeletonRow } from './Rows'
 import { clearResults, setLauncherOpen, startSearch, useSearch } from './store'
 import { chipTones } from './tint'
 import { parseYouTube } from './youtube'
@@ -56,7 +56,14 @@ type Mode = 'search' | 'ask'
 type View = 'idle' | 'link' | 'searching' | 'results' | 'empty' | 'error'
 type Size = { w: number; h: number }
 /** What Enter (and the footer action) would do right now. Mirrors submit(). */
-type Act = 'end' | 'ask' | 'build' | 'teach' | 'search' | 'searching' | 'none'
+type Act = 'settings' | 'end' | 'ask' | 'build' | 'teach' | 'search' | 'searching' | 'none'
+
+/** Words that lead to Settings. The whole input (3+ letters) must be the start of one: "sett", "keys", "appear". */
+const SETTINGS_WORDS = ['settings', 'keys', 'preferences', 'appearance']
+const isSettingsQuery = (text: string): boolean => {
+  const q = text.trim().toLowerCase()
+  return q.length >= 3 && SETTINGS_WORDS.some((w) => w.startsWith(q))
+}
 
 /** Launcher width when grown out of the notch. */
 const WIDTH = launcherTheme.width
@@ -262,15 +269,17 @@ export function Launcher({ layout }: { layout: Layout }): ReactNode {
    * search flow) or "Just teach me" (learn {mode:"lesson"}, no video). Once the search for exactly what's typed has
    * run, the rows take over (videos under "Build a lesson from the internet"), also when it found no video.
    */
-  const choosing = mode === 'search' && !link && !!typed && (typed !== search.query || view === 'idle')
+  /** The typed text is a settings word: a single "Settings" row replaces everything else. */
+  const settingsRow = !link && isSettingsQuery(typed)
+  const choosing = !settingsRow && mode === 'search' && !link && !!typed && (typed !== search.query || view === 'idle')
   const teachKey = bridge.platform.os === 'mac' ? '⌘↵' : 'Ctrl↵'
   /** What a text lesson would be about: what's typed, else the query the rows on screen belong to. */
   const goal = typed || (view === 'idle' ? '' : search.query)
   /**
    * "Build a lesson from the internet": the fixed first row over a search's rows (not while the two ways are offered,
-   * not for a pasted link, not in ask mode). Same request as "Just teach me".
+   * not for a settings word or a pasted link, not in ask mode). Same request as "Just teach me".
    */
-  const lessonRow = mode === 'search' && !link && !!goal && !choosing
+  const lessonRow = mode === 'search' && !link && !settingsRow && !!goal && !choosing
   /** Video rows (and skeletons, the empty / error row) sit one slot lower under the lesson row. */
   const off = lessonRow ? 1 : 0
   const listed = view === 'idle' ? 0 : view === 'results' || view === 'searching' ? Math.min(MAX_ROWS, visible.length + skeletons) : 1
@@ -337,6 +346,13 @@ export function Launcher({ layout }: { layout: Layout }): ReactNode {
     setPhase('closing')
   }
 
+  /** Settings has its own window (grown from the island by core); the launcher goes back into the island as usual. */
+  const openSettings = (): void => {
+    if (phaseRef.current !== 'open') return
+    bridge.invoke('settings:open').catch(() => {})
+    setPhase('closing')
+  }
+
   const ask = (): void => {
     const text = question.trim()
     if (!text || phaseRef.current !== 'open') return
@@ -362,6 +378,7 @@ export function Launcher({ layout }: { layout: Layout }): ReactNode {
   }
 
   const submit = (): void => {
+    if (settingsRow) return openSettings()
     if (endRow) return endLesson()
     if (mode === 'ask') return ask()
     if (link) return build()
@@ -389,11 +406,16 @@ export function Launcher({ layout }: { layout: Layout }): ReactNode {
       e.stopPropagation() // the stage's Esc would also dismiss cards
       return close()
     }
+    // ⌘, (Ctrl+, on Windows): Settings, whatever is typed.
+    if (e.key === ',' && (bridge.platform.os === 'mac' ? e.metaKey : e.ctrlKey)) {
+      e.preventDefault()
+      return openSettings()
+    }
     if (e.key === 'Enter') {
       e.preventDefault()
       if (e.nativeEvent.isComposing) return
       // ⌘Enter (Ctrl+Enter on Windows) = "Just teach me" straight away, whichever way is highlighted.
-      if ((e.metaKey || e.ctrlKey) && mode === 'search' && !link && typed) return teach(typed)
+      if ((e.metaKey || e.ctrlKey) && mode === 'search' && !link && !settingsRow && typed) return teach(typed)
       return submit()
     }
     if (e.key === 'Tab') {
@@ -402,7 +424,7 @@ export function Launcher({ layout }: { layout: Layout }): ReactNode {
       if (choosing) return setHow((h) => (h === 'video' ? 'lesson' : 'video'))
       return switchMode()
     }
-    if (choosing || (view !== 'results' && !lessonRow)) return
+    if (settingsRow || choosing || (view !== 'results' && !lessonRow)) return
     if (e.key === 'ArrowDown') {
       e.preventDefault()
       move(1)
@@ -446,7 +468,9 @@ export function Launcher({ layout }: { layout: Layout }): ReactNode {
 
   const offline = !lesson.connected
   const inlineError = view === 'results' && search.error
-  const act: Act = endRow
+  const act: Act = settingsRow
+    ? 'settings'
+    : endRow
     ? 'end'
     : mode === 'ask'
       ? typed
@@ -465,6 +489,7 @@ export function Launcher({ layout }: { layout: Layout }): ReactNode {
                 : 'searching'
   const busy = search.pending && mode === 'search' && view !== 'link'
   const actLabel = {
+    settings: 'Settings',
     end: 'End lesson',
     ask: 'Ask',
     build: 'Build lesson',
@@ -473,8 +498,8 @@ export function Launcher({ layout }: { layout: Layout }): ReactNode {
     searching: 'Searching…',
     none: mode === 'ask' ? 'Ask' : 'Search'
   }[act]
-  /** Rows ↑↓ can move between right now: the lesson row plus the video rows (none while the two ways are offered). */
-  const choices = choosing ? 0 : off + (view === 'results' ? visible.length : 0)
+  /** Rows ↑↓ can move between right now: the lesson row plus the video rows (none while the two ways or Settings show). */
+  const choices = settingsRow || choosing ? 0 : off + (view === 'results' ? visible.length : 0)
   // The footer is keys, not sentences: only the offline / partial-error notes are words.
   const note = offline ? 'Offline' : inlineError ? search.error : undefined
   /** The best row: the one the engine marks "best", else the first. Only it gets a label. */
@@ -565,7 +590,16 @@ export function Launcher({ layout }: { layout: Layout }): ReactNode {
             </Rise>
           )}
 
-          {choosing ? (
+          {settingsRow && (
+            <Rise key="settings" i={2} className="pt-[8px]">
+              <div className="relative mx-[20px]" style={{ height: ROW_H }}>
+                <div className="pointer-events-none absolute inset-x-0 top-0 rounded-[12px]" style={{ height: ROW_H, background: fill.highlight }} />
+                <SettingsRow onPick={openSettings} />
+              </div>
+            </Rise>
+          )}
+
+          {settingsRow ? null : choosing ? (
             <Rise key="how" i={2} className="px-[20px] pt-[12px]">
               <HowChoice how={how} teachKey={teachKey} onPick={pick} />
             </Rise>
@@ -644,7 +678,13 @@ export function Launcher({ layout }: { layout: Layout }): ReactNode {
                   </>
                 )
               )}
-              <Action label={actLabel} keycap="↵" enabled={act === 'end' || act === 'ask' || act === 'build' || act === 'teach' || act === 'search'} strong onClick={submit} />
+              <Action
+                label={actLabel}
+                keycap="↵"
+                enabled={act === 'settings' || act === 'end' || act === 'ask' || act === 'build' || act === 'teach' || act === 'search'}
+                strong
+                onClick={submit}
+              />
             </div>
           </Rise>
         </motion.div>
