@@ -1,7 +1,7 @@
 /**
  * Bottom shortcut bar: "Ask Miyagi" + the commands. Only visible during a lesson. Sits 24px above the dock / taskbar.
  *
- * Pass 3 (Adrian: "simpler"): each tile is its glyph + label; keycaps only on hover or while ⌥ is held (Tile.tsx).
+ * Pass 3 (Adrian: "simpler"): each tile is its glyph + label + keycap; hover or ⌥ held brightens the keycap (Tile.tsx).
  * Options wear their pastel (theme.actionTone): Explain / Diagram sky, Show me lilac, Hint pink, ink glyphs.
  * Back and Voice are neutral chrome (Voice on = glass.button). Step controls after one hairline: Check is the one
  * primary, Skip step / End lesson are quiet. (Adrian picked this over a "More" menu for Back / Skip / End, Sat.)
@@ -13,11 +13,11 @@
  */
 import { AnimatePresence, motion } from 'motion/react'
 import { useEffect, useRef, useState, type ReactNode } from 'react'
-import { AudioLines, Check, Lightbulb, MessageSquareText, RotateCcw, SkipForward, Square, SquarePlay, Waypoints, type LucideIcon } from 'lucide-react'
+import { ArrowLeft, AudioLines, Check, Lightbulb, MessageSquareText, RotateCcw, SkipForward, Square, SquarePlay, Waypoints, type LucideIcon } from 'lucide-react'
 import { create } from 'zustand'
 import { cmd } from '../../../../common/wire'
 import { bridge, registerWebHandler } from '../../bridge'
-import { useLesson } from '../../core/lesson'
+import { useLesson, useProgress } from '../../core/lesson'
 import { useAppearance } from '../../core/prefs'
 import { sendAction, triggerShortcut, type ActionKind, type ActionShortcut } from '../../core/shortcuts'
 import { MiyagiMark } from '../../core/ui/Mark'
@@ -47,7 +47,7 @@ const BUTTONS: Btn[] = [
  */
 type StepBtn = { id: 'check' | 'skip' | 'end'; label: string; icon: LucideIcon; kind?: ActionKind; title: string }
 const STEP_BUTTONS: StepBtn[] = [
-  { id: 'check', label: 'Check', icon: Check, kind: 'check_step', title: 'Check my work: can I move on?' },
+  { id: 'check', label: 'Check my work', icon: Check, kind: 'check_step', title: 'Check my work: can I move on?' },
   { id: 'skip', label: 'Skip step', icon: SkipForward, kind: 'skip_step', title: 'Skip this step' },
   { id: 'end', label: 'End lesson', icon: Square, title: 'End this lesson' }
 ]
@@ -84,7 +84,8 @@ function useStepControls(): { skipping: boolean; armed: boolean; run: (id: StepB
   return { skipping, armed, run }
 }
 
-export const BAR_HEIGHT = 74
+/** 8 px padding around the 62 px tiles (glyph, label, keycap). lift.ts reads it. */
+export const BAR_HEIGHT = 78
 
 const isOption = (kind: ActionShortcut): kind is ActionShortcut & OptionAction => kind in actionTone
 
@@ -143,6 +144,10 @@ export function ShortcutBar({ bottom, lift = 0 }: { bottom: number; lift?: numbe
   const step = useStepControls()
   const cardSteps = useCards((c) => !!c.card?.actions?.some((a) => CARD_STEP_ACTIONS.has(a)))
   const askCollapsed = useLauncherOpen()
+  // Text lessons ("Just teach me"): Back goes to the previous step, so it's an arrow, and there's none before step 1.
+  // Video lessons keep the replay glyph (Back rewinds the video). Audit A22.
+  const textLesson = useLesson((x) => x.lesson?.mode === 'lesson')
+  const firstStep = useProgress().index === 0
 
   return (
     <AnimatePresence>
@@ -184,12 +189,14 @@ export function ShortcutBar({ bottom, lift = 0 }: { bottom: number; lift?: numbe
             {BUTTONS.map(({ kind, label, icon }) => {
               const voiceOn = kind === 'voice_toggle' && voice.on
               const l = isOption(kind) ? look.option(kind) : voiceOn ? look.primary : look.neutral
+              const back = kind === 'back' && textLesson
               return (
                 <Tile
                   key={kind}
                   label={label}
-                  icon={icon}
+                  icon={back ? ArrowLeft : icon}
                   look={l}
+                  disabled={back && firstStep}
                   keycap={bridge.platform.keys[kind]}
                   busyKind={kind}
                   dip={pressed === kind}
@@ -206,7 +213,7 @@ export function ShortcutBar({ bottom, lift = 0 }: { bottom: number; lift?: numbe
               const tip = id === 'end' && step.armed ? 'Tap again to end the lesson' : title
               // Check is the bar's one primary, unless a card with its own step controls is up (A17): then it's quiet.
               const primary = (id === 'check' && !cardSteps) || (id === 'end' && step.armed)
-              return <Tile key={id} label={shown} icon={icon} look={primary ? look.primary : look.quiet} quiet={!primary} busyKind={kind} title={tip} onClick={() => step.run(id)} />
+              return <Tile key={id} label={shown} icon={icon} look={primary ? look.primary : look.quiet} busyKind={kind} title={tip} onClick={() => step.run(id)} />
             })}
           </div>
         </motion.div>
