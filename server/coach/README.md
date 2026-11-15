@@ -108,7 +108,7 @@ Michael's key: the step judge called Haiku every ~20 s while he was away with th
 
 `diagnose(..., file_state={"path", "saved", "wrong_folder"}, code_source="file"|"screen")` can return a card with `hold`. The orchestrator must NOT show such a card as an offtrack, and no model is called. This came from Michael's live misdiagnosis of an unsaved, OCR'd `def add(a, b):` with a hover tooltip over it.
 - `hold: "wrong_folder"`: the learner is editing a same-named file in another folder. The orchestrator shows its own card.
-- `hold: "unsaved"`: `saved` is false, or the screen shows the step's file unsaved (●, `Untitled-N`). The only message is "Save with ⌘S so I can check it."
+- `hold: "unsaved"`: `saved` is false, or the screen shows the step's file unsaved (●, `Untitled-N`). The only message is "Save with ⌘S so I can check it." The learner rarely sees it: `server/orchestrator/quiet_save.py` saves the file through the VS Code companion instead and drops the card, and shows it only when the companion can't save.
 - `hold: "unconfirmed"`: the code excerpt is OCR (`code_source="screen"`) and differs from the previous read of this step. Two agreeing reads are needed before any diagnosis; until then the coach says nothing.
 - **Prompt:** OCR text and editor overlays such as tooltips never justify claiming a line is malformed.
 - **Step judge:** a check about a file (its `file`, or a label naming the step's file) passes only if the workspace file is saved and non-empty. Unsaved gives a "Save so I can check" card; not seen or empty gives nothing.
