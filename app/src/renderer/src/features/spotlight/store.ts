@@ -31,7 +31,9 @@ export function spotlightMode(): SpotlightMode {
 }
 
 /** A clear followed this quickly by a new spotlight is a move (the cut-out springs), not a fade out and back in. */
-export const REPLACE_GRACE_MS = 300
+export const REPLACE_GRACE_MS = 800
+/** Rect changes smaller than this (px, any edge) are OCR jitter: the hole stays put (Michael, live test: "jumpy"). */
+export const JITTER_PX = 8
 /** A card that opens this soon after its spotlight still owns it (the engine may send them in either order). */
 const PAIR_MS = 1500
 
@@ -87,10 +89,12 @@ onMessage('spotlight', (p) => {
   const next = p as SpotlightTarget
   const prev = get().target
   // A re-spotlight: the engine re-sends the same target every screen read. Ignore OCR jitter so the hole doesn't wobble.
-  if (prev && prev.caption === next.caption && prev.matched === next.matched && prev.code === next.code && prev.snippet === next.snippet && next.rect && sameRect(prev.rect, next.rect)) return
+  const still = !!(prev && next.rect && sameRect(prev.rect, next.rect, JITTER_PX))
+  if (prev && still && prev.caption === next.caption && prev.matched === next.matched && prev.code === next.code && prev.snippet === next.snippet) return
   arrivedAt = Date.now()
   cameWith = openCard()
-  set({ target: next })
+  // New words at (nearly) the same place: keep the old rect so only the caption changes.
+  set({ target: still && prev ? { ...next, rect: prev.rect } : next })
 })
 
 // The coach's targets: the engine spotlights targets[0]; the rest are drawn as extra cut-outs while it's up.
