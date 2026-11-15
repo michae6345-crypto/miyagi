@@ -2932,3 +2932,85 @@ def test_do_it_for_me_appends_the_step_code_and_says_what_it_added(tmp_path, mon
     assert (tmp_path / "calc.py").read_text() == "# my calculator\n\ndef add(a, b):\n    return a + b\n"
     assert any(c["title"] == "Done" and c["body"] == "Added def add(a, b) to calc.py." for c in rig.of("card"))
     assert rig.of("step.passed")[0]["stepId"] == "s1"
+
+
+def test_lesson_mode_vision_pick_boxes_the_line_when_text_and_gutter_miss(tmp_path, monkeypatch):
+    """Short new file: OCR has neither the target text nor the line numbers, so the text match and the gutter line
+    both miss. The Haiku set-of-marks pick (screen.pick) boxes the row, at most twice per step; a pick that isn't an
+    editor row (toolbar / region) is never used for a type step."""
+    async def build(goal, workdir, on_update=None, **kw):
+        return _text_lesson()
+
+    for kind, boxed in (("blank", True), ("toolbar", False)):
+        rig, screen, calls = _lesson_rig(tmp_path / kind, monkeypatch, build)
+        (tmp_path / kind).mkdir(exist_ok=True)
+        asked: list[str] = []
+        rect = {"x": 618.0, "y": 238.0, "w": 520.0, "h": 23.0}
+
+        async def pick(intent, app="Code", kind=kind):
+            asked.append(intent)
+            return {"rect": rect, "box_ids": [501], "label": "blank line", "kind": kind, "confidence": 0.9,
+                    "reason": "next line"}
+
+        async def no_line(step):
+            return None
+
+        screen.reader = object()          # "the real reader is running" (vision is only used then)
+        screen.pick = pick
+        rig.s._editor_line_spot = no_line
+
+        async def go():
+            await rig.s.learn("build a calculator", mode="lesson")
+            await rig.settle()
+            await asyncio.sleep(1.3)      # try 2 of _lesson_spot asks vision
+
+        run(go())
+        assert asked and "def add(a, b):" in asked[0] and "calc.py" in asked[0]
+        spots = [sp for sp in rig.of("spotlight") if sp.get("rect") == rect]
+        if boxed:
+            assert spots and spots[-1]["caption"] == "In calc.py, type def add(a, b): …"
+            assert spots[-1]["snippet"] == "def add(a, b):\n    return a + b\n"
+            assert len(asked) == 1
+        else:
+            assert not spots
+
+
+def test_lesson_mode_targeter_confirms_moves_or_drops_the_located_box(tmp_path, monkeypatch):
+    """_confirm_spot: screen.confirm (Haiku verifier) returns the box to show. A moved rect replaces the located one;
+    None (Haiku is sure nothing on screen matches) means no box; the question is the step's caption + code."""
+    async def build(goal, workdir, on_update=None, **kw):
+        return _text_lesson()
+
+    moved = {"x": 330.0, "y": 580.0, "w": 330.0, "h": 22.0}
+    for name, answer in (("moved", moved), ("dropped", None)):
+        rig, screen, calls = _lesson_rig(tmp_path / name, monkeypatch, build)
+        (tmp_path / name).mkdir(exist_ok=True)
+        (tmp_path / name / "calc.py").write_text("# add goes here\n")
+        screen.text["Code"] = ["calc.py", "# add goes here"]
+        asked: list[tuple] = []
+
+        async def confirm(rect, intent, app="Code", answer=answer):
+            asked.append((rect, intent))
+            return answer
+
+        async def no_line(step):
+            return None
+
+        screen.reader = object()
+        screen.confirm = confirm
+        rig.s._editor_line_spot = no_line
+        rig.s._vision_spot = no_line
+
+        async def go():
+            await rig.s.learn("build a calculator", mode="lesson")
+            await rig.settle()
+            await asyncio.sleep(0.05)
+
+        run(go())
+        assert asked and asked[0][0]["y"] == 120.0                      # FakeScreen's located row
+        assert asked[0][1].startswith("In calc.py, type def add(a, b): …") and "(code: def add(a, b):" in asked[0][1]
+        boxes = [sp for sp in rig.of("spotlight") if "rect" in sp]
+        if answer is None:
+            assert not boxes
+        else:
+            assert boxes and boxes[-1]["rect"] == moved and boxes[-1]["matched"] == "# add goes here"

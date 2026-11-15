@@ -20,11 +20,11 @@ from types import SimpleNamespace
 import pytest
 
 PIL = pytest.importorskip("PIL")
-from PIL import Image  # noqa: E402
+from PIL import Image
 
-from server.screen import match as M  # noqa: E402
-from server.screen import target as T  # noqa: E402
-from server.screen.types import Rect, ScreenObservation  # noqa: E402
+from server.screen import match as M
+from server.screen import target as T
+from server.screen.types import Rect, ScreenObservation
 
 FIX = Path(__file__).resolve().parent.parent / "fixtures"
 
@@ -209,7 +209,7 @@ def test_offline_accuracy_report(capsys):
 @pytest.mark.parametrize("name", ["vscode_window_calc_clean", "vscode_window_calc_hover", "vscode_fullscreen_scrolled",
                                   "vscode_fullscreen_top", "vscode_terminal_flat", "vscode_lesson_calculator"])
 def test_chrome_tooltip_and_side_panel_are_never_marks(name):
-    frame, obs = _load(name)
+    _frame, obs = _load(name)
     cands = T.build_candidates(obs, "Code")
     for c in cands:
         if c.kind == "region":
@@ -228,14 +228,14 @@ def test_chrome_tooltip_and_side_panel_are_never_marks(name):
 
 
 def test_hover_row_is_offered_but_flagged():
-    frame, obs = _load("vscode_window_calc_hover")
+    _frame, obs = _load("vscode_window_calc_hover")
     l8 = [c for c in T.build_candidates(obs, "Code") if c.line == 8]
     assert l8 and l8[0].occluded
     assert "partly under a tooltip" in T.listing(l8)
 
 
 def test_blank_rows_have_file_line_numbers():
-    frame, obs = _load("vscode_window_calc_clean")
+    _frame, obs = _load("vscode_window_calc_clean")
     blanks = {c.line: c for c in T.build_candidates(obs, "Code") if c.kind == "blank"}
     assert {2, 3, 6, 7, 10, 11, 14, 15, 20, 21} <= set(blanks)
     assert abs(blanks[6].rect.cy - (215 + 9)) <= 4
@@ -382,7 +382,7 @@ def test_overlay_is_masked_and_its_lines_dropped():
     l4 = next(c for c in cands if c.line == 4)
     ov = [l4.rect.pad(4)]                     # e.g. our caption card sitting on line 4
     assert not any(c.line == 4 for c in T.build_candidates(obs, "Code", exclude=ov))
-    jpeg, size = T.render_marks(frame, cands, obs, exclude=ov)
+    _jpeg, size = T.render_marks(frame, cands, obs, exclude=ov)
     assert size[0] <= 1280 and size[1] <= 1280
 
 
@@ -395,3 +395,33 @@ def test_list_of_blocks_input():
 def test_overlaps_helper():
     assert T.overlaps({"x": 0, "y": 0, "w": 100, "h": 20}, {"x": 10, "y": 2, "w": 50, "h": 16})
     assert not T.overlaps({"x": 0, "y": 0, "w": 100, "h": 20}, {"x": 0, "y": 40, "w": 100, "h": 20})
+
+
+# ---------------------------------------------------------------------- verifier (E4's _confirm_spot)
+
+def test_verdict_rules():
+    row = {"x": 357, "y": 177, "w": 838, "h": 18}
+    pick = {"rect": {"x": 355, "y": 175, "w": 842, "h": 22}, "kind": "code"}
+    assert T.verdict(row, pick, "picked", 0.9) == (row, "agree")
+    far = {"rect": {"x": 355, "y": 517, "w": 842, "h": 22}, "kind": "code"}
+    assert T.verdict(row, far, "picked", 0.9) == (far["rect"], "moved")
+    reg = {"rect": {"x": 300, "y": 800, "w": 1400, "h": 290}, "kind": "region"}
+    assert T.verdict(row, reg, "picked", 0.9) == (row, "kept:region")
+    assert T.verdict(row, None, "none", 0.9) == (None, "none")
+    assert T.verdict(row, None, "none", 0.6) == (row, "kept:none")          # not sure enough to remove a box
+    for outcome in ("timeout", "budget", "no_key", "error", "low_confidence"):
+        assert T.verdict(row, None, outcome, 0.0) == (row, f"kept:{outcome}")
+
+
+def test_confirm_spot_moves_a_wrong_box_and_keeps_it_when_haiku_is_unavailable():
+    frame, obs = _load("vscode_fullscreen_scrolled")
+    cands = T.build_candidates(obs, "Code")
+    l48 = next(c for c in cands if c.line == 48)
+    crumb = {"x": 312, "y": 40, "w": 260, "h": 14}                             # a box on the breadcrumb
+    rect, why = run(T.confirm_spot(crumb, frame, obs, "where pde_residual is defined", client=Stub(ans([l48.id]))))
+    assert why == "moved" and abs(rect["y"] - (l48.rect.y - 2)) < 0.2
+    T.reset()
+    rect, why = run(T.confirm_spot(crumb, frame, obs, "where pde_residual is defined"))        # no key
+    assert (rect, why) == (crumb, "kept:no_key")
+    rect, why = run(T.confirm_spot(crumb, frame, obs, "x", client=Stub(ans([2]), delay=1), timeout=0.05))
+    assert (rect, why) == (crumb, "kept:timeout")

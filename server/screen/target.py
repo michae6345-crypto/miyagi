@@ -33,6 +33,7 @@ import asyncio
 import base64
 import hashlib
 import io
+import itertools
 import json
 import logging
 import math
@@ -40,8 +41,9 @@ import os
 import re
 import time
 from collections import OrderedDict, deque
+from collections.abc import Iterable, Sequence
 from dataclasses import dataclass, field
-from typing import Any, Iterable, Sequence
+from typing import Any
 
 from . import lines as L
 from . import marks as MK
@@ -257,7 +259,7 @@ def _no_gutter(cands: list[Cand], obs: ScreenObservation, win, ch: _Chrome) -> t
     if code:
         code.sort(key=lambda c: c.rect.cy)
         h = sorted(c.rect.h for c in code)[len(code) // 2]
-        gaps = [b.rect.cy - a.rect.cy for a, b in zip(code, code[1:]) if b.rect.cy - a.rect.cy > 0.8 * h]
+        gaps = [b.rect.cy - a.rect.cy for a, b in itertools.pairwise(code) if b.rect.cy - a.rect.cy > 0.8 * h]
         pitch = 1.35 * h
         if gaps:
             g = min(gaps)
@@ -383,7 +385,7 @@ def render_marks(frame, cands: list[Cand], obs: ScreenObservation, exclude: Sequ
 def parse_answer(text: str) -> tuple[list[int], float, str] | None:
     """`{"ids": [12], "confidence": 0.9, "why": "..."}` (code fences / stray prose tolerated) ->
     (ids, confidence 0..1, why); None when there's no valid JSON object."""
-    m = re.search(r"\{.*\}", text or "", re.S)
+    m = re.search(r"\{.*\}", text or "", re.DOTALL)
     if not m:
         return None
     try:
@@ -487,22 +489,6 @@ def stats() -> dict:
     return {**_STATS, "cost_usd": round(_STATS["cost_usd"], 6), "api_ms_p50": pct(0.5), "api_ms_p95": pct(0.95)}
 
 
-def _cache_get(key: str) -> tuple[bool, dict | None]:
-    hit = _CACHE.get(key)
-    if hit is None or time.monotonic() - hit[0] > CACHE_TTL:
-        _CACHE.pop(key, None)
-        return False, None
-    _CACHE.move_to_end(key)
-    return True, (dict(hit[1], cached=True) if hit[1] else None)
-
-
-def _cache_put(key: str, val: dict | None) -> None:
-    _CACHE[key] = (time.monotonic(), val)
-    _CACHE.move_to_end(key)
-    while len(_CACHE) > CACHE_MAX:
-        _CACHE.popitem(last=False)
-
-
 def _client_for(api_key: str | None):
     key = api_key or os.environ.get("ANTHROPIC_API_KEY", "")
     if not key:
@@ -522,6 +508,14 @@ def _cost(inp: int, out: int) -> float:
 
 # ---------------------------------------------------------------------- the pick
 
+# Outcome of one pick (pick_with_outcome / confirm_spot):
+#   picked          the model chose a target, confidence >= the floor        -> the result dict
+#   none            the model says nothing on screen matches                 -> None
+#   low_confidence  it chose, but below the floor                            -> None
+#   no_candidates | budget | no_key | timeout | error                       -> None (couldn't ask)
+ASKED = ("picked", "none", "low_confidence")
+
+
 def _as_obs(frame, ocr_boxes, app: str | None, screen) -> ScreenObservation:
     if isinstance(ocr_boxes, ScreenObservation):
         return ocr_boxes
@@ -535,18 +529,29 @@ async def pick_target(frame, ocr_boxes, intent: str, *, app: str | None = "Code"
                       api_key: str | None = None, regions: dict | None = None, exclude: Sequence = (),
                       extra: Iterable = (), screen=None, timeout: float | None = None,
                       min_conf: float | None = None) -> dict | None:
-    """Which on-screen target matches `intent`? -> {rect, box_ids, label, kind, confidence, reason,
-    ms, api_ms, cached} or None (see module doc). `frame`: PIL image of the primary display (our
-    overlay already masked); `ocr_boxes`: the ScreenObservation of that frame (or a list of
-    Blocks + `screen=`). `client`: an AsyncAnthropic-like object (tests pass a stub)."""
+    """Which on-screen target matches `intent`? -> {rect, box_ids, label, kind, line, region,
+    confidence, reason, ms, api_ms, cached, ...} or None (see module doc). `frame`: PIL image of the
+    primary display (our overlay already masked); `ocr_boxes`: the ScreenObservation OCR'd from
+    that frame (or a list of Blocks + `screen=` in points). `client`: AsyncAnthropic-like (tests: a stub)."""
+    res, _, _ = await pick_with_outcome(frame, ocr_boxes, intent, app=app, client=client, api_key=api_key,
+                                        regions=regions, exclude=exclude, extra=extra, screen=screen,
+                                        timeout=timeout, min_conf=min_conf)
+    return res
+
+
+async def pick_with_outcome(frame, ocr_boxes, intent: str, *, app: str | None = "Code", client=None,
+                            api_key: str | None = None, regions: dict | None = None, exclude: Sequence = (),
+                            extra: Iterable = (), screen=None, timeout: float | None = None,
+                            min_conf: float | None = None) -> tuple[dict | None, str, float]:
+    """`pick_target` plus why: -> (result | None, outcome, model confidence). See ASKED / outcomes."""
     t0 = time.perf_counter()
     intent = (intent or "").strip()
     if not intent or frame is None:
-        return None
+        return None, "no_candidates", 0.0
     obs = _as_obs(frame, ocr_boxes, app, screen)
     cands = build_candidates(obs, app, regions=regions, exclude=exclude, extra=extra)
     if not cands:
-        return None
+        return None, "no_candidates", 0.0
     key = hashlib.blake2b(f"{MODEL}|{app}|{intent.lower()}|{signature(cands)}".encode(), digest_size=16).hexdigest()
     found, val = _cache_get(key)
     if found:
@@ -554,35 +559,35 @@ async def pick_target(frame, ocr_boxes, intent: str, *, app: str | None = "Code"
         return val
     if key in _INFLIGHT:                       # the same question is already being asked
         try:
-            res = await asyncio.shield(_INFLIGHT[key])
+            res, outcome, conf = await asyncio.shield(_INFLIGHT[key])
         except Exception:  # noqa: BLE001
-            return None
-        return dict(res, cached=True) if res else None
+            return None, "error", 0.0
+        return (dict(res, cached=True) if res else None), outcome, conf
     fut = asyncio.get_running_loop().create_future()
     _INFLIGHT[key] = fut
-    res: dict | None = None
+    out: tuple[dict | None, str, float] = (None, "error", 0.0)
     try:
-        res = await _ask(frame, obs, cands, intent, key, client, api_key, exclude, timeout, min_conf, t0, app)
-        return res
+        out = await _ask(frame, obs, cands, intent, key, client, api_key, exclude, timeout, min_conf, t0, app)
+        return out
     finally:
         _INFLIGHT.pop(key, None)
         if not fut.done():
-            fut.set_result(res)
+            fut.set_result(out)
 
 
 async def _ask(frame, obs, cands, intent, key, client, api_key, exclude, timeout, min_conf, t0,
-               app) -> dict | None:
+               app) -> tuple[dict | None, str, float]:
     if not _BUDGET.allow(time.monotonic()):
         _STATS["budget_skips"] += 1
         log.warning("pick_target: budget of %d calls/min reached, skipped %r",
                     _env_int("MIYAGI_VISION_MAX_CALLS_PER_MIN", 6), intent[:60])
-        return None
+        return None, "budget", 0.0
     client = client or _client_for(api_key)
     if client is None:
         _STATS["no_key"] += 1
         if _STATS["no_key"] == 1:
             log.warning("pick_target: no Anthropic key (config.keys.anthropic / ANTHROPIC_API_KEY): skipped")
-        return None
+        return None, "no_key", 0.0
     jpeg, size = await asyncio.to_thread(render_marks, frame, cands, obs, exclude, MAX_W, app)
     text = f"Request: {intent}\n\nTags (id [kind] OCR text):\n{listing(cands)}"
     kwargs = {"model": MODEL, "max_tokens": MAX_TOKENS, "system": SYSTEM,
@@ -597,17 +602,15 @@ async def _ask(frame, obs, cands, intent, key, client, api_key, exclude, timeout
     ta = time.perf_counter()
     try:
         resp = await asyncio.wait_for(c.messages.create(**kwargs), t)
-    except (asyncio.TimeoutError, TimeoutError):
+    except TimeoutError:
         _STATS["timeouts"] += 1
         log.info("pick_target: timeout after %.1fs for %r", t, intent[:60])
-        return None
+        return None, "timeout", 0.0
     except Exception as e:  # noqa: BLE001  (auth / rate limit / overload / network: the locate path wins)
-        if "Timeout" in type(e).__name__:
-            _STATS["timeouts"] += 1
-        else:
-            _STATS["errors"] += 1
+        timed_out = "Timeout" in type(e).__name__
+        _STATS["timeouts" if timed_out else "errors"] += 1
         log.warning("pick_target: %s: %s", type(e).__name__, str(e)[:200])
-        return None
+        return None, "timeout" if timed_out else "error", 0.0
     api_ms = (time.perf_counter() - ta) * 1000
     _LAT.append(api_ms)
     usage = getattr(resp, "usage", None)
@@ -624,31 +627,28 @@ async def _ask(frame, obs, cands, intent, key, client, api_key, exclude, timeout
              _STATS["cost_usd"], _STATS["calls"], api_ms)
     if parsed is None:
         _STATS["errors"] += 1
-        return None                            # not cached: a garbled answer may be a one-off
+        return None, "error", 0.0              # not cached: a garbled answer may be a one-off
     ids, conf, why = parsed
-    res = _result(cands, ids, conf, why, obs, min_conf)
+    res, outcome = _result(cands, ids, conf, why, obs, min_conf)
     if res is not None:
         res.update(ms=round((time.perf_counter() - t0) * 1000), api_ms=round(api_ms), cached=False,
                    input_tokens=inp, output_tokens=out, cost_usd=round(cost, 6))
-        _STATS["picked"] += 1
-    _cache_put(key, res)
-    return dict(res) if res else None
+    _STATS[outcome] = _STATS.get(outcome, 0) + 1
+    _cache_put(key, (res, outcome, conf))
+    return (dict(res) if res else None), outcome, conf
 
 
 def _result(cands: list[Cand], ids: list[int], conf: float, why: str, obs: ScreenObservation,
-            min_conf: float | None) -> dict | None:
+            min_conf: float | None) -> tuple[dict | None, str]:
     if not ids:
-        _STATS["none"] += 1
-        return None
+        return None, "none"
     thr = min_conf if min_conf is not None else _env_float("MIYAGI_VISION_MIN_CONF", 0.6)
     if conf < thr:
-        _STATS["low_confidence"] += 1
         log.info("pick_target: confidence %.2f < %.2f (ids %s): no box", conf, thr, ids)
-        return None
+        return None, "low_confidence"
     m = merge(cands, ids)
     if m is None:
-        _STATS["none"] += 1
-        return None
+        return None, "low_confidence"          # ids that aren't marks: treat as unsure, not as "nothing"
     group, r = m
     first = group[0]
     if first.kind not in ("region", "toolbar"):
@@ -656,22 +656,61 @@ def _result(cands: list[Cand], ids: list[int], conf: float, why: str, obs: Scree
     if obs.screen.w:
         r = r.clamp(obs.screen)
     if r.w < 6 or r.h < 6:
-        return None
+        return None, "low_confidence"
     label = first.label() + (f" (+{len(group) - 1} more rows)" if len(group) > 1 else "")
-    return {"rect": r.to_dict(), "box_ids": [c.id for c in group], "label": label, "kind": first.kind,
-            "line": first.line, "region": first.region, "confidence": round(conf, 3), "reason": why}
+    return ({"rect": r.to_dict(), "box_ids": [c.id for c in group], "label": label, "kind": first.kind,
+             "line": first.line, "region": first.region, "confidence": round(conf, 3), "reason": why}, "picked")
+
+
+def _cache_get(key: str):
+    hit = _CACHE.get(key)
+    if hit is None or time.monotonic() - hit[0] > CACHE_TTL:
+        _CACHE.pop(key, None)
+        return False, None
+    _CACHE.move_to_end(key)
+    res, outcome, conf = hit[1]
+    return True, ((dict(res, cached=True) if res else None), outcome, conf)
+
+
+def _cache_put(key: str, val) -> None:
+    _CACHE[key] = (time.monotonic(), val)
+    _CACHE.move_to_end(key)
+    while len(_CACHE) > CACHE_MAX:
+        _CACHE.popitem(last=False)
+
+
+# ---------------------------------------------------------------------- verifier
+
+NONE_CONF = 0.75     # "nothing on screen matches" must be at least this sure to remove a box
+
+
+def verdict(rect, res: dict | None, outcome: str, conf: float) -> tuple[dict | None, str]:
+    """Combine the engine's own box with a pick -> (rect to show | None, why):
+    - pick overlaps the box -> keep the box ("agree"); a confident pick elsewhere -> the pick ("moved"),
+      except a whole region replacing a single row (a region is never more precise than a row);
+    - the model is sure nothing matches (conf >= NONE_CONF) -> None ("none": no box);
+    - low confidence, timeout, budget, no key, error -> keep the box ("kept:<outcome>")."""
+    box = Rect.from_any(rect).to_dict()
+    if res is not None:
+        if overlaps(box, res["rect"], 0.3):
+            return box, "agree"
+        if res.get("kind") == "region" and box["h"] < 80:
+            return box, "kept:region"
+        return dict(res["rect"]), "moved"
+    if outcome == "none" and conf >= NONE_CONF:
+        return None, "none"
+    return box, f"kept:{outcome}"
+
+
+async def confirm_spot(rect, frame, ocr_boxes, intent: str, **kw) -> tuple[dict | None, str]:
+    """Verifier for a box the engine located itself (text match / gutter line / region): see verdict()."""
+    res, outcome, conf = await pick_with_outcome(frame, ocr_boxes, intent, **kw)
+    return verdict(rect, res, outcome, conf)
 
 
 # ---------------------------------------------------------------------- live
 
-async def pick_on_screen(intent: str, app: str | None = "Code", reader=None, **kw) -> dict | None:
-    """`pick_target` on the live reader's latest frame: same image + OCR frame, stabilized region
-    rects, our overlay masked, the AX run button when Accessibility gives it, BYOK key."""
-    from .reader import get_reader
-    reader = reader or get_reader()
-    frame, obs = await asyncio.to_thread(reader.latest_frame)
-    if frame is None or obs is None:
-        return None
+def _live_args(reader, app: str | None) -> dict:
     regions, extra = {}, []
     try:
         for n in MK.REGION_IDS:
@@ -681,13 +720,35 @@ async def pick_on_screen(intent: str, app: str | None = "Code", reader=None, **k
         run = reader.locate_region("run_button", app)
         if run is not None:
             extra.append(("toolbar", "Run button (Accessibility)", run))
-    except Exception:  # noqa: BLE001
+    except Exception:
         log.exception("pick_on_screen: regions")
-        regions = None
+        regions = {}
     desc = getattr(reader, "_describer", None)
     key = desc._key() if desc is not None and hasattr(desc, "_key") else None
-    return await pick_target(frame, obs, intent, app=app, regions=regions or None, extra=extra,
-                             exclude=list(getattr(reader, "_overlay", []) or []), api_key=key or None, **kw)
+    return {"regions": regions or None, "extra": extra, "api_key": key or None,
+            "exclude": list(getattr(reader, "_overlay", []) or [])}
+
+
+async def pick_on_screen(intent: str, app: str | None = "Code", reader=None, **kw) -> dict | None:
+    """`pick_target` on the live reader's latest frame: image + OCR of the same frame, stabilized
+    region rects, our overlay masked, the AX run button when Accessibility gives it, BYOK key."""
+    from .reader import get_reader
+    reader = reader or get_reader()
+    frame, obs = await asyncio.to_thread(reader.latest_frame)
+    if frame is None or obs is None:
+        return None
+    return await pick_target(frame, obs, intent, app=app, **_live_args(reader, app), **kw)
+
+
+async def confirm_on_screen(rect, intent: str, app: str | None = "Code", reader=None,
+                            **kw) -> tuple[dict | None, str]:
+    """`confirm_spot` on the live reader's latest frame (see verdict())."""
+    from .reader import get_reader
+    reader = reader or get_reader()
+    frame, obs = await asyncio.to_thread(reader.latest_frame)
+    if frame is None or obs is None:
+        return Rect.from_any(rect).to_dict(), "kept:no_frame"
+    return await confirm_spot(rect, frame, obs, intent, app=app, **_live_args(reader, app), **kw)
 
 
 def overlaps(a, b, min_frac: float = 0.5) -> bool:
@@ -702,5 +763,6 @@ def overlaps(a, b, min_frac: float = 0.5) -> bool:
     return inter >= min_frac * min(a.w * a.h, b.w * b.h)
 
 
-__all__ = ["Cand", "build_candidates", "listing", "merge", "overlaps", "parse_answer", "pick_on_screen",
-           "pick_target", "render_marks", "reset", "signature", "stats"]
+__all__ = ["ASKED", "Cand", "build_candidates", "confirm_on_screen", "confirm_spot", "listing", "merge", "overlaps",
+           "parse_answer", "pick_on_screen", "pick_target", "pick_with_outcome", "render_marks", "reset", "signature",
+           "stats", "verdict"]

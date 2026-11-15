@@ -1197,7 +1197,7 @@ class LessonSession:
                     return
                 await asyncio.sleep(2.0)
             return
-        for _ in range(max(1, tries)):
+        for i in range(max(1, tries)):
             if gen != self.step_gen or self.passed:
                 return
             if await self._spotlight_target(step):
@@ -1205,7 +1205,25 @@ class LessonSession:
             if (spot := await self._editor_line_spot(step)) is not None:
                 await self._show_spot(spot, steady=True)
                 return
+            if i in (1, 4) and (spot := await self._vision_spot(step)) is not None:  # <= 2 Haiku calls per step
+                if gen != self.step_gen or self.passed:
+                    return
+                await self._show_spot(spot, steady=True)
+                return
             await asyncio.sleep(1.0)  # no whole-window box: the exact line, or nothing
+
+    async def _vision_spot(self, step: dict) -> dict | None:
+        """Text match and gutter line both missed (e.g. a short new file: Vision reads no line numbers): Haiku picks
+        the row from the marked screenshot (server.screen.target). None = no box; it never boxes chrome or tooltips."""
+        pick = getattr(self.screen, "pick", None) if getattr(self.screen, "reader", None) is not None else None
+        if pick is None:
+            return None
+        spot = {"caption": self._type_caption(step), "app": "Code", **self._snippet(step)}
+        res = await pick(self._spot_intent(spot))  # same question _confirm_spot asks next: answered from the cache
+        if not res or res.get("kind") not in ("code", "blank"):
+            return None
+        log.info("vision spot: %s (%.2f, %s)", res.get("label"), res.get("confidence", 0), res.get("reason"))
+        return {"rect": res["rect"], **spot}
 
     async def _editor_line_spot(self, step: dict) -> dict | None:
         """S2 + E6: the exact editor line of the step's target (Accessibility, else E6's locate_line on the OCR'd
@@ -1540,36 +1558,27 @@ class LessonSession:
                 return True
         return False
 
-    async def _confirm_spot(self, spot: dict) -> dict | None:
-        """The Haiku targeter (server/screen/target.py: pick_target(frame, ocr_boxes, intent)) confirms or picks the
-        box on the real screen; None = there's nothing real to box. Without it (not installed, tests) the box stands."""
-        if getattr(self.screen, "reader", None) is None:
-            return spot
-        try:
-            from server.screen import target as tg
-        except Exception:  # noqa: BLE001
-            return spot
-        fn = getattr(tg, "pick_target", None)
-        if fn is None:
-            return spot
+    @staticmethod
+    def _spot_intent(spot: dict) -> str:
+        """What the Haiku targeter is asked to find for a box: the step's one action (+ its code)."""
         intent = spot.get("caption") or ""
         if spot.get("snippet"):
             intent += f" (code: {spot['snippet'][:120]})"
-        try:
-            frame = await asyncio.to_thread(self.screen.screenshot)
-            res = fn(frame, getattr(self.last_obs, "blocks", None) or [], intent)
-            if asyncio.iscoroutine(res):
-                res = await res
-        except Exception:  # noqa: BLE001
-            log.exception("pick_target failed; keeping the located box")
+        return intent
+
+    async def _confirm_spot(self, spot: dict) -> dict | None:
+        """The Haiku targeter (server/screen/target.py, via screen.confirm) checks the box on the real screen: keeps
+        it, moves it to what Haiku picked, or drops it (None) when Haiku is sure nothing on screen matches. Haiku
+        unavailable (no key / timeout / budget / error) or unsure: the box stands. No real reader (tests): it stands."""
+        confirm = getattr(self.screen, "confirm", None) if getattr(self.screen, "reader", None) is not None else None
+        if confirm is None:
             return spot
-        if res is None:
-            return None
-        d = res.to_dict() if hasattr(res, "to_dict") else dict(res.get("rect", res) if isinstance(res, dict) else res)
         try:
-            return {**spot, "rect": {k: float(d[k]) for k in ("x", "y", "w", "h")}}
-        except (KeyError, TypeError, ValueError):
+            rect = await confirm(spot["rect"], self._spot_intent(spot))
+        except Exception:
+            log.exception("targeter failed; keeping the located box")
             return spot
+        return None if rect is None else {**spot, "rect": {k: float(rect[k]) for k in ("x", "y", "w", "h")}}
 
     def _chrome_hit(self, spot: dict) -> bool:
         """Is this match in the editor's chrome (breadcrumb "a > b > c.py", tab bar, title bar) rather than code?"""

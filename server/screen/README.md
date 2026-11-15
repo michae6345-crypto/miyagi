@@ -206,3 +206,27 @@ pick = marks.by_id(cs, 10)    # Candidate(id, kind, text, rect, app, line, regio
 - **Stable ids:** the same observation always numbers the same way, whatever the intent.
 - **`intent`:** only adds a `score` and, past `max_lines`, keeps the most relevant lines, still in
   id order.
+
+## Haiku target picker (`target.py`): what to box
+
+```python
+from server.screen.target import pick_target, pick_on_screen, confirm_on_screen, stats
+res = await pick_target(frame, obs, "the VS Code integrated terminal panel")   # pure: PIL frame + its obs
+res = await pick_on_screen("the line where the learner types `def add(a, b):`")  # live reader
+# -> {"rect": {x,y,w,h}, "box_ids": [11], "label": "code L4: def add(a, b):", "kind": "code" | "blank" |
+#     "region" | "text" | "toolbar", "line": 4, "region": "editor", "confidence": 0.9, "reason": "...",
+#     "ms", "api_ms", "cached", "input_tokens", "output_tokens", "cost_usd"}  or None
+rect, why = await confirm_on_screen(box_rect, intent)   # verifier: agree | moved | none | kept:<outcome>
+```
+- **Candidates:** `marks.candidates()` (ids 1-4 regions, 10+ lines), plus ids from 500 up:
+  - blank editor rows, for "type here";
+  - icons on the tab row (the ▷ run button OCRs as "D •");
+  - the AX run button;
+  - a no-gutter fallback for when Vision misses the line numbers of a short new file. It drops the tab, breadcrumb and side-panel text and adds the blank row under the last line.
+- **Request:** the frame is cropped to the front window, scaled to ≤ 1280 px each way, and gets numbered tags (yellow = lines, cyan = regions, pink = icons). It goes out as ONE `claude-haiku-5-5` call: thinking off, effort low, max_tokens 160, strict JSON `{"ids", "confidence", "why"}`. No `temperature`, since Haiku 5.5 rejects it.
+- **No box (None) when:** confidence < `MIYAGI_VISION_MIN_CONF` (0.6), no ids, a timeout (`MIYAGI_VISION_TIMEOUT_S`, 2.5 s), an API error, no key, or the budget `MIYAGI_VISION_MAX_CALLS_PER_MIN` (6) is spent.
+- **Outcomes:** `pick_with_outcome()` says which case it was. The verifier keeps the engine's own box unless Haiku *answered*: a confident pick elsewhere moves the box, and a sure "nothing" (≥ 0.75) removes it.
+- **Cache:** keyed by (the candidate-set hash = what Haiku is shown, snapped to 4 pt; intent; app), 120 s, including "nothing" answers.
+- **Logging:** each call logs its tokens and a running $ estimate (Haiku 5.5: $0.10 / $0.50 per MTok); `stats()` gives the totals and p50/p95.
+- **Orchestrator:** `ScreenBridge.pick()` / `.confirm()`. `MIYAGI_VISION_TARGET=0` turns both off.
+- **Tests:** `tests/test_target.py`, offline with a stub client. The fixture `vscode_lesson_calculator` is Michael's real screen: no line numbers OCR'd, Chat panel, run icon.
