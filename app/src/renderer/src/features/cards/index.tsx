@@ -28,7 +28,7 @@ import { CheckList, CloseButton, OptionButton, PrimaryButton, Spinner, StatusDot
 import { actionTone, color, copy, fill } from '../../core/theme'
 import { Curve, fmt, Key, plotPoints, type Line } from './Curve'
 import { BODY_LINES, Clamp, HEADLINE_LINES } from './Clamp'
-import { Evidence } from './Evidence'
+import { Evidence, useHasEvidence } from './Evidence'
 import { act, cardAct, jumpTo, SUCCESS_MS, useCards, useOverlayWidth, useSeries, type CardAction, type Install } from './store'
 
 /** Layout C: about 620 wide; below NARROW (a small display) the two columns stack. */
@@ -228,14 +228,16 @@ function Diagnosis({ o, checks }: { o: OfftrackPayload; checks: ReturnType<typeo
   const width = useOfftrackWidth()
   const narrow = width < NARROW
   const inner = width - PAD * 2
-  const leftW = narrow ? inner : Math.round((inner - COL_GAP) * 0.47)
-  const rightW = narrow ? inner : inner - COL_GAP - leftW
   // Precise: only what's failing (with your value), not the checks that already pass.
   const failing = checks.filter((c) => c.status === 'fail')
+  // No real code or value to compare (review A5): no evidence column, so the diagnosis takes the card's full width.
+  const hasEvidence = useHasEvidence(o, failing)
+  const leftW = narrow || !hasEvidence ? inner : Math.round((inner - COL_GAP) * 0.47)
+  const rightW = narrow ? inner : inner - COL_GAP - leftW
   // "Do it for me" = apply_fix, offered at the top of the hint ladder (level 3; no level = an older engine, trust actions).
   const canFix = o.actions.includes('apply_fix') && (o.level ?? 3) === 3
   return (
-    <div data-card="offtrack" data-layout={narrow ? 'stacked' : 'side-by-side'} style={{ width, padding: `16px ${PAD}px 16px` }}>
+    <div data-card="offtrack" data-layout={narrow ? 'stacked' : hasEvidence ? 'side-by-side' : 'single'} style={{ width, padding: `16px ${PAD}px 16px` }}>
       <div className="flex h-[22px] items-center gap-[8px] text-[13px] leading-none">
         <StatusDot status="offtrack" size={8} />
         <span style={{ color: color.label }}>Not yet</span>
