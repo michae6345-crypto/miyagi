@@ -1543,7 +1543,7 @@ class LessonSession:
             await asyncio.sleep(1.0)  # no whole-window box: the exact line, or nothing
         for _ in range(self.START_BOX_EXTRA_TRIES):  # t4: VS Code came up late (a save dialog, full screen): keep
             await asyncio.sleep(1.0)  # trying the cheap deterministic box a while longer (no Haiku until it's found)
-            if gen != self.step_gen or self.passed or self.spot_rect is not None or self._offtrack_box() == "up":
+            if gone() or self.spot_rect is not None or self._code_progress(step) is not None:
                 return
             if await self._start_box(gen, step):
                 return
@@ -1605,7 +1605,7 @@ class LessonSession:
         old = self.spot_rect
         if old and self._spot_caption == where[1] and all(abs(r[k] - old[k]) <= self.SPOT_MOVE_PX for k in "xywh"):
             return True  # the same box is already up: no re-send, no second Haiku question
-        await self._show_spot(spot)  # at once: not after the ~2 s Haiku check
+        await self._show_spot(spot, owner="step")  # at once: not after the ~2 s Haiku check
         if self.spot_rect is not r:
             return False
         await self._refine_start_box(gen, spot, pane)
@@ -1628,7 +1628,7 @@ class LessonSession:
         if pane is not None and not self._in_pane(r, pane):
             log.info("targeter moved %r out of the editor pane; keeping the start box", spot.get("caption"))
             return
-        await self._show_spot(confirmed)
+        await self._show_spot(confirmed, owner="step")
 
     def _offtrack_box(self) -> str | None:
         """t4, one box at a time. "up": the box the engine follows is the off-track card's own (the line to fix) and
@@ -4907,7 +4907,7 @@ class LessonSession:
         the step, once per command: its exit code and output tail grade output_contains / command_exit_ok and the
         terminal checks the screen can't read, and are the coach's error text. A new one is a breakpoint: a run_end
         evaluation follows (the coach explains a crash). None once the step is over."""
-        run_id = f"vscode-{c.get('id')}-{c.get('startedAt') or c.get('endedAt') or ''}"
+        run_id = f"vscode-{c.get('id')}-{c.get('startedAt')}"  # the same id _terminal_run_result / curated use
         if run_id in self.runs or self.step is None or self.passed:
             return self.runs.get(run_id)
         tail = c.get("outputTail")
@@ -5463,12 +5463,12 @@ class LessonSession:
                              or self._syntax_error_line(new_text, path)):
                 log.info("do_it_for_me (lesson step): the patch lacks the step's code or doesn't compile; placing it")
                 new_text = None
-            await self._status("watching")
         if not new_text and text.strip():  # no coach patch: type the step's code over the learner's partial copy of
             from . import step_code  # it, else below the step's target line, else at the end (never a second copy)
 
             new_text, line, _ = step_code.place_code(code, text, step_code.anchors(step))
-            if bad := self._syntax_error_line(text, path):  # the file already has a mistake: say where
+            summary = f"Adds this step's code to {path.name}."  # not the rejected coach patch's description
+            if bad := self._syntax_error_line(new_text or text, path):  # the file still has a mistake: say where
                 summary += f" Also fix line {bad} yourself: it doesn't run yet."
         if not new_text or new_text == text:
             await self._card(step, "Type it yourself", step["code"], kind="answer")
@@ -5622,6 +5622,8 @@ class LessonSession:
                 log.warning("metric_pattern for %s failed on the run output", name)
         return out
 
+    _run_cards: frozenset[str] = frozenset()  # vscode run ids whose Run it for me result card went out
+
     async def _terminal_run_result(self, gen: int, step: dict, cmd: str, seq: int) -> None:
         """Run it for me typed `cmd` into VS Code's terminal (the "Running it" card). When the companion reports it
         ended (command_end), that card's slot gets the result like the subprocess run's card: the exit status and the
@@ -5637,8 +5639,9 @@ class LessonSession:
             end = next((c for c in self._ext_commands_ended(cursor) if same(want, str(c.get("commandLine") or ""))),
                        None)
         run_id = f"vscode-{end.get('id')}-{end.get('startedAt')}"
-        if run_id in self.runs:
+        if run_id in self._run_cards:
             return  # Run it for me pressed twice: the other wait already reported this run
+        self._run_cards = self._run_cards | {run_id}  # _ext_run may have ingested it already: the card still goes out
         code, tail = end.get("exitCode"), [str(x) for x in end.get("outputTail") or []]
         out = self._checks_fn("run_output")
         err, shows = out(tail, (self._run_need or {}).get("expect") or []) if out else (False, False)
