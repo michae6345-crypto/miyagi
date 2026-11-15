@@ -354,3 +354,94 @@ test('cleanOutput strips ANSI/OSC and collapses carriage returns', () => {
   assert.deepEqual(_internal.cleanOutput('\x1b]633;C\x07a\x1b[1mb\x1b[0m\r\nx\ry\n'), ['ab', 'y', '']);
   assert.deepEqual(_internal.tailLines('1\n2\n\n'), ['1', '2']);
 });
+
+// t9 V11: mnist.ipynb opened as raw JSON in a text editor. A notebook opens in the notebook editor, the engine's line
+// (a line of the .ipynb JSON) selects its cell, and /apply + /save never go through a raw JSON text buffer.
+const NB = JSON.stringify({
+  cells: [
+    { cell_type: 'markdown', metadata: {}, source: ['# MNIST\n'] },
+    { cell_type: 'code', execution_count: null, metadata: {}, outputs: [],
+      source: ['import tensorflow as tf\n', '(x_train, y_train), (x_test, y_test) = tf.keras.datasets.mnist.load_data()\n'] },
+    { cell_type: 'code', execution_count: null, metadata: {}, outputs: [], source: ['print(x_train.shape)\n'] },
+  ],
+  metadata: {}, nbformat: 4, nbformat_minor: 5,
+}, null, 1) + '\n';
+
+function nbLine(text, needle) {
+  return text.split('\n').findIndex((l) => l.includes(needle)) + 1;
+}
+
+test('POST /open on an .ipynb opens the notebook editor (never raw JSON) and selects the cell for the line', async (t) => {
+  const s = await setup(t);
+  const nb = path.join(s.dir, 'mnist.ipynb');
+  fs.writeFileSync(nb, NB);
+  const line = nbLine(NB, 'load_data()');
+  const r = await s.req('POST', '/open', { file: nb, line, preserveFocus: true });
+  assert.equal(r.status, 200);
+  assert.equal(r.body.ok, true);
+  assert.equal(r.body.notebook, true);
+  assert.equal(r.body.cell, 1);
+  const open = s.ctl.calls.commands.find((c) => c.id === 'vscode.openWith');
+  assert.equal(open.args[0].fsPath, nb);
+  assert.equal(open.args[1], 'jupyter-notebook');
+  assert.equal(open.args[2].preserveFocus, true);
+  assert.equal(s.ctl.calls.shown.length, 0, 'no text editor');
+  assert.equal(s.ctl.docs.length, 0, 'no raw JSON text document either');
+  assert.deepEqual(s.ctl.notebookEditors[0].selections.map((x) => [x.start, x.end]), [[1, 2]]);
+  assert.deepEqual(s.ctl.calls.nbReveals.map((x) => [x.start, x.end]), [[1, 2]]);
+  // No line: just open (no cell moved). A line past the end ("where new code goes"): the last cell.
+  const plain = await s.req('POST', '/open', { file: nb });
+  assert.equal(plain.body.cell, null);
+  assert.equal(s.ctl.calls.nbReveals.length, 1);
+  assert.equal((await s.req('POST', '/open', { file: nb, line: 9999 })).body.cell, 2);
+  assert.equal(s.ctl.notebookEditors.length, 1, 'reuses the open notebook editor');
+});
+
+test('POST /open on an .ipynb without a notebook editor falls back to vscode.open', async (t) => {
+  const s = await setup(t, { fake: { notebooks: false } });
+  const nb = path.join(s.dir, 'mnist.ipynb');
+  fs.writeFileSync(nb, NB);
+  const r = await s.req('POST', '/open', { file: nb, line: 5 });
+  assert.equal(r.body.ok, true);
+  assert.equal(r.body.notebook, false);
+  assert.deepEqual(s.ctl.calls.commands.map((c) => c.id), ['vscode.openWith', 'vscode.open']);
+  assert.equal(s.ctl.calls.shown.length, 0);
+});
+
+test('notebookCellForLine maps a line of the .ipynb JSON to its cell', () => {
+  const { vscode } = createFakeVscode();
+  const { _internal } = loadExtension(vscode);
+  const f = _internal.notebookCellForLine;
+  assert.equal(f(NB, nbLine(NB, '# MNIST')), 0);
+  assert.equal(f(NB, nbLine(NB, 'load_data()')), 1);
+  assert.equal(f(NB, nbLine(NB, 'print(x_train')), 2);
+  assert.equal(f(NB, nbLine(NB, '"outputs"')), 1, 'a non-source line: the cell around it');
+  assert.equal(f(NB, 1), null, 'before the first cell');
+  assert.equal(f(NB, 10000), 2);
+  assert.equal(f('not json', 3), null);
+});
+
+test('POST /apply refuses an .ipynb (409); POST /save saves the open notebook, not a JSON text buffer', async (t) => {
+  const s = await setup(t);
+  const nb = path.join(s.dir, 'mnist.ipynb');
+  fs.writeFileSync(nb, NB);
+  const a = await s.req('POST', '/apply', { file: nb, newText: '{}' });
+  assert.equal(a.status, 409);
+  assert.equal(a.body.error, 'notebook_unsupported');
+  assert.equal(fs.readFileSync(nb, 'utf8'), NB);
+  assert.equal(s.ctl.docs.length, 0);
+  await s.req('POST', '/open', { file: nb });
+  await s.req('GET', `/text?file=${encodeURIComponent(nb)}`); // the engine's buffer_text: a hidden raw JSON model
+  const doc = s.ctl.notebookDocs[0];
+  doc.isDirty = true;
+  const r = await s.req('POST', '/save', { file: nb });
+  assert.equal(r.body.ok, true);
+  assert.equal(r.body.notebook, true);
+  assert.equal(r.body.saved, true);
+  assert.equal(r.body.wasDirty, true);
+  assert.equal(doc.saves, 1);
+  assert.equal(fs.readFileSync(nb, 'utf8'), NB, 'the JSON text model was not written');
+  const again = await s.req('POST', '/save', { file: nb });
+  assert.equal(again.body.saved, false);
+  assert.equal(doc.saves, 1, 'a clean notebook is left alone');
+});

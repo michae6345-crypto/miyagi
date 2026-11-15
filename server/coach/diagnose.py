@@ -64,6 +64,7 @@ Hard limits:
 
 - Trust what is on screen (error text, versions in tracebacks) over the lesson's library versions: the learner may have a newer release than the tutorial.
 - Never say or guess which file is open or active in the editor from the screen text: the Explorer, tab strip, breadcrumbs and overlays (e.g. VS Code's inline chat over line 1) all show file names. Only an "ACTIVE FILE" line says which file is open; without it, don't mention it at all.
+- File and folder names the tutorial uses incidentally (Jupyter's default Untitled.ipynb, the presenter's venv or project folder, paths on their machine, a `file` in the step's targets) are never requirements: the learner may name their notebook, files and folders anything. Never ask them to rename, move or re-save a file to match the tutorial; a name is required only when a FAILED CHECK itself names that file. When the failed checks read the screen or the code (screen_contains / screen_absent), the card is about exactly what that check looks for (e.g. that line is not on screen yet, or is cut off at the editor's edge).
 - The body states the cause and the fix; it never asks the learner a question.
 - Code read from the screen (OCR) can contain recognition errors and editor overlays (hover tooltips like "(function) def add(a: Any, b: Any) -> None", autocomplete). Never claim a line is malformed, misnamed or missing syntax because of how OCR text looks; only a saved file or an actual error message can show that.
 - Never put `git add` or `git rebase/merge/cherry-pick --continue` in diff_command while the file still has conflict markers (<<<<<<< ======= >>>>>>>) that your diff does not remove: that would commit the markers. Say to resolve the markers first.
@@ -173,6 +174,105 @@ def _no_questions_or_open_file_claims(card: dict, known_active: bool) -> bool:
     if not keep(card.get("title", "") + "."):
         card["title"] = clamp_title(kept[0])
     return True
+
+
+# Desktop test 9 (Nov 15, V4): "Not yet · Notebook is mnist.ipynb, not Untitled.ipynb · Rename mnist.ipynb to
+# Untitled.ipynb", with a box on the Explorer item, while the only failing check was the screen check
+# `mnist\.load_data\(\)`. Untitled.ipynb was only the video's Jupyter default (in the step's targets). A name is required
+# only when a failing check of the step itself names that file (never a precision check: those are an extra route to
+# green, never a hurdle; never a Jupyter / VS Code default notebook name). A card or a box label that asks to rename /
+# save as / move to any other name is dropped: the card is rewritten from the failing check, the box goes.
+_PLACEHOLDER_NB = re.compile(r"^Untitled(?:[-_ ]?\d+)?\.ipynb$", re.I)
+_RENAME_TO = re.compile(
+    r"\b(?:rename|re-?save|save|move|call|name)\b(?:[^.\n]|\.(?=\w))*?\b(?:to|as|into)\s+[`'\"]?([\w./~-]+)"
+    r"|\bname\s+(?:it|the\s+(?:file|notebook|folder))\s+[`'\"]?([\w./~-]+)",
+    re.I,
+)
+
+
+def required_names(step: dict, failed_checks: list) -> set[str]:
+    """Base names of the files the step's own failing checks name (precision checks and default notebook names never)."""
+    own = {c.get("id") for c in step.get("checks") or [] if isinstance(c, dict)}
+    out = set()
+    if lesson_mode(step):  # a "Just teach me" lesson's own file (Miyagi made it: nn.py, calculator.py) is a real name
+        for f in [step.get("file")] + [t.get("file") for t in step.get("targets") or [] if isinstance(t, dict)]:
+            if f and not str(f).startswith("("):
+                out.add(str(f).rstrip("/").rsplit("/", 1)[-1].lower())
+    for c in failed_checks or []:
+        if not isinstance(c, dict) or (c.get("checkId") or c.get("id")) not in own:
+            continue
+        name = str(c.get("file") or "").rstrip("/").rsplit("/", 1)[-1]
+        if name and not _PLACEHOLDER_NB.match(name):
+            out.add(name.lower())
+    return out
+
+
+def asks_incidental_rename(text: str, required: set[str]) -> bool:
+    """Does `text` ask the learner to rename / save as / move something to a name no failing check needs?"""
+    for m in _RENAME_TO.finditer(text or ""):
+        raw = (m.group(1) or m.group(2) or "").rstrip(".")
+        name = raw.rstrip("/").rsplit("/", 1)[-1].lower()
+        if ("." in name or "venv" in name or "/" in raw) and name not in required:
+            return True
+    return False
+
+
+def keep_targets(targets: list[dict] | None, required: set[str]) -> list[dict]:
+    """Screen targets without the boxes whose label asks for an incidental rename ("Rename to Untitled.ipynb")."""
+    return [t for t in targets or [] if not asks_incidental_rename(str(t.get("label") or ""), required)]
+
+
+def _pattern_text(pattern: str) -> str:
+    """A screen check's regex as the text it looks for, when it is a plain literal: `mnist\\.load_data\\(\\)` ->
+    "mnist.load_data()", `import\\s+tensorflow\\s+as\\s+tf` -> "import tensorflow as tf"; "" for a real regex."""
+    t = re.sub(r"\\s(?:[*+?]|\{\d*,?\d*\})?", " ", pattern or "")
+    if not t.strip() or re.search(r"(?<!\\)[.\[\]|*+?{}^$()]|\\[dDwWbBSAZ\d]", t):
+        return ""
+    return " ".join(re.sub(r"\\(.)", r"\1", t).split())
+
+
+def check_card(step: dict, failed_checks: list) -> dict:
+    """The card for the step's first failing check, from the check alone (no model): what it looks for and the one
+    thing to do. A hold (no card) when no failing check of the step is known."""
+    own = {c.get("id"): c for c in step.get("checks") or [] if isinstance(c, dict)}
+    fc = next((c for c in failed_checks or [] if isinstance(c, dict) and (c.get("checkId") or c.get("id")) in own), None)
+    if fc is None:
+        return {"stepId": step.get("id", ""), "severity": "warn", "title": "", "body": "", "actions": [], "hold": "unconfirmed",
+                "_meta": {"route": "hold", "hold": "unconfirmed", "reason": "an incidental rename, and no failing check"}}
+    c = {**own[fc.get("checkId") or fc.get("id")], **fc}
+    label = str(c.get("label") or "this check").strip().rstrip(".")
+    text = _pattern_text(str(c.get("pattern") or ""))
+    t = c.get("type") or ""
+    if t == "screen_contains":
+        title = f"`{text}` not on screen yet" if text else f"Not on screen yet: {label}"
+        body = (f"The check reads your screen and can't find `{text}` yet. Scroll VS Code so that whole line is in view."
+                if text else f"The check reads your screen and hasn't seen this yet: {label}. Scroll VS Code so that code is in view.")
+    elif t == "screen_absent":
+        title = f"`{text}` is on screen" if text else f"Not passing yet: {label}"
+        body = (f"The check flags `{text}` on your screen. Fix what it points at, then run it again." if text
+                else f"The check flags something on your screen: {label}. Fix the error it shows, then run it again.")
+    elif t.startswith("metric_"):
+        title, body = f"Not reached yet: {label}", "The run's printed value hasn't reached the step's target yet. Run it again and compare."
+    else:
+        title, body = f"Not passing yet: {label}", "Compare your code with the step's code, then check again."
+    return {"stepId": step.get("id", ""), "severity": "warn", "title": clamp_title(title), "body": clamp_body(body),
+            "actions": order_actions([], has_diff=False), "_meta": {"route": "guard", "playbook_id": None}}
+
+
+def drop_incidental_rename(card: dict, step: dict, failed_checks: list) -> dict:
+    """V4: a card that asks for a rename no failing check needs becomes the failing check's own card."""
+    required = required_names(step, failed_checks)
+    if not asks_incidental_rename(f"{card.get('title') or ''}. {card.get('body') or ''}. {card.get('why') or ''}", required):
+        if card.get("targets"):
+            card["targets"] = keep_targets(card["targets"], required)
+        return card
+    out = check_card(step, failed_checks)
+    out["_meta"].update({k: v for k, v in (card.get("_meta") or {}).items() if k not in ("route", "playbook_id")})
+    out["_meta"]["dropped"] = {"title": card.get("title"), "body": card.get("body"), "why": "incidental rename"}
+    if card.get("targets") is not None and "hold" not in out:
+        out["targets"] = []
+    log.info("coach: dropped an incidental rename card (%r) for %s", card.get("title"), out.get("title") or "a hold")
+    return out
 
 
 LESSON_MODE_RULE = (
@@ -525,7 +625,17 @@ async def diagnose(
             card = playbook_card(step, BY_ID[t.playbook_id], code_excerpt, severity="fail" if has_error else "warn")
         else:
             sources = await web_task if web_task is not None else []
-            card = await _opus(step, failed_checks, metrics_text, flags, code_excerpt, error_text, lesson, effort, sources, screen, on_targets, cursor, active_file)
+            required = required_names(step, failed_checks)
+            spot = on_targets
+            if on_targets is not None:  # V4: a streamed box labelled "Rename to Untitled.ipynb" never goes up
+                def spot(targets: list[dict], _up=on_targets) -> Any:
+                    kept = keep_targets(targets, required)
+                    return _up(kept) if kept else None
+            card = await _opus(step, failed_checks, metrics_text, flags, code_excerpt, error_text, lesson, effort, sources, screen, spot, cursor, active_file)
+            if card.get("_meta", {}).get("route") == "opus":
+                card = drop_incidental_rename(card, step, failed_checks)
+                if card["_meta"].get("route") == "guard" and lesson_mode(step):
+                    _lesson_action(card)
     finally:
         if web_task is not None and not web_task.done():
             web_task.cancel()
