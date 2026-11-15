@@ -1,6 +1,6 @@
 /**
  * Spotlight text, pure (no React): the snippet's missing line(s) (Michael's tests 2-3, A10: "highlight the missing
- * line"). Kept apart so it's easy to check on its own.
+ * line") and the caption's backticks (A21). Kept apart so it's easy to check on its own.
  */
 
 /** Whitespace-insensitive: indentation and spacing in OCR'd or engine-written code vary. */
@@ -27,3 +27,12 @@ export function missingLines(snippet: string, diff?: { expected: string; yours: 
   lines.forEach((l, i) => named.some((c) => norm(l).includes(c)) && out.add(i))
   return out
 }
+
+/**
+ * A caption for CodeText (Michael's tests 2-3, A21: literal backticks in spotlight captions): backticks become inline
+ * mono code, like card titles. A caption cut inside code (an odd number of backticks) gets its closing one.
+ */
+export const closeTicks = (t: string): string => ((t.match(/`/g)?.length ?? 0) % 2 ? `${t}\`` : t)
+
+/** The caption as plain words, where text shows as-is (the pill's notice, a tooltip): no literal backticks. */
+export const plain = (t: string): string => t.replace(/`/g, '')

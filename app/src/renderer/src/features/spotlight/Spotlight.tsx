@@ -35,7 +35,8 @@ import { useDrawer } from '../drawer/store'
 import { useLauncherOpen } from '../launcher/store'
 import { color, fill, font, radius, scrim, shadows, spring, text } from '../../core/theme'
 import { toggleVoice, useVoice } from '../voice/store'
-import { missingLines } from './code'
+import { CodeText } from '../../core/ui/atoms'
+import { closeTicks, missingLines, plain } from './code'
 import { EDGE_MARGIN, hole, holeRadius, placeCaption, rightLane, type Side } from './place'
 import type { SpotlightMode, SpotlightTarget } from './store'
 
@@ -363,9 +364,10 @@ function Caption({ target, hole: cut, bounds, avoid: outside, text: boxed, reduc
         <div
           className="min-w-0 overflow-hidden font-medium leading-[18px]"
           style={{ fontSize: text.xs, color: color.text, display: '-webkit-box', WebkitBoxOrient: 'vertical', WebkitLineClamp: maxW < CAPTION_MAX_W ? CAPTION_LINES + 1 : CAPTION_LINES }}
-          title={target.caption}
+          title={plain(target.caption)}
         >
-          {target.caption}
+          {/* Code in the caption in mono, never literal backticks (A21). */}
+          <CodeText text={closeTicks(target.caption)} />
         </div>
         {/* Only while voice is on: white, like every toggle that's on. Tap to turn it off. */}
         {voiceOn && (

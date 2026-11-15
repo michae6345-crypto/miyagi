@@ -4,6 +4,7 @@ import type { Layout } from '../../../../preload/api'
 import { notify, useLesson } from '../../core/lesson'
 import { defineFeature } from '../../core/registry'
 import { dockRect } from '../player/dock'
+import { plain } from './code'
 import { hole, isUsableRect, MIN_VISIBLE_SHARE, overlapShare, toLocal } from './place'
 import { Spotlight } from './Spotlight'
 import { spotlightMode, useSpotlight } from './store'
@@ -27,7 +28,8 @@ function SpotlightLayer({ layout }: { layout: Layout }): ReactNode {
   // Nothing to point at (an empty or zero-size rect, or off the primary display): say it on the pill
   // instead of showing nothing. Once per target: a re-sent identical spotlight keeps the same object.
   useEffect(() => {
-    if (t && !here) notify(t.caption?.trim() || 'Not on this screen')
+    // The pill shows text as-is: no literal backticks (A21).
+    if (t && !here) notify(plain(t.caption ?? '').trim() || 'Not on this screen')
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [t])
 
