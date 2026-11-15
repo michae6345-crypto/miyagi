@@ -210,11 +210,17 @@ const fade = { initial: { opacity: 0 }, animate: { opacity: 1 }, exit: { opacity
 /**
  * The waiting / building / passed states sit on the video as frosted glass in the panel's appearance
  * (dark: smoked, light: milky), so they read as part of the panel. Blur + the panel color at 80%.
+ *
+ * `cover`: the gate states (waiting for checks, next part building, setup first, the passed beat). A paused YouTube embed draws its
+ * own chrome over the frame (the title bar, the "More videos" strip), and at 80% it showed through (Michael's desktop
+ * test 9). Two layers of the panel's glass (each ~96% opaque) hide it; the title and channel stay in the source line
+ * under the video.
  */
-function GlassScrim({ children, strength = 0.8 }: { children: ReactNode; strength?: number }): ReactNode {
+function GlassScrim({ children, strength = 0.8, cover = false }: { children: ReactNode; strength?: number; cover?: boolean }): ReactNode {
   return (
     <motion.div className="pointer-events-none absolute inset-0 grid place-items-center backdrop-blur-[10px]" style={{ color: glass.text }} {...fade}>
-      <div className="absolute inset-0" style={{ background: glass.bg, opacity: strength }} />
+      <div className="absolute inset-0" style={{ background: glass.bg, opacity: cover ? 1 : strength }} />
+      {cover && <div className="absolute inset-0" style={{ background: glass.bg }} />}
       <div className="relative">{children}</div>
     </motion.div>
   )
@@ -233,7 +239,7 @@ function Waiting(): ReactNode {
   // Apricot only for off track; otherwise Miyagi is watching (gray).
   const tone = offtrack ? glass.offTrack : color.gray
   return (
-    <GlassScrim>
+    <GlassScrim cover>
       <motion.div className="flex flex-col items-center px-6 text-center" {...rise}>
         {/* One line, the status dot beside it (amber off track, gray watching). No eyebrow. */}
         <div className="flex items-center gap-[8px] text-[19px] font-semibold leading-tight">
@@ -270,7 +276,7 @@ function Waiting(): ReactNode {
 function BuildingNext(): ReactNode {
   const parts = useLesson((s) => s.parts)
   return (
-    <GlassScrim>
+    <GlassScrim cover>
       <motion.div className="flex flex-col items-center px-6 text-center" {...rise}>
         <div className="flex items-center gap-[9px] text-[17px] font-semibold leading-tight">
           <GlassSpinner size={16} />
@@ -289,7 +295,7 @@ function BuildingNext(): ReactNode {
 /** A setup card is waiting ("Set up first"): the video holds at the clip's start and plays once setup is done or skipped. */
 function SetupHold(): ReactNode {
   return (
-    <GlassScrim>
+    <GlassScrim cover>
       <motion.div className="flex flex-col items-center px-6 text-center" {...rise}>
         <div className="flex items-center gap-[8px] text-[17px] font-semibold leading-tight">
           <span className="h-[7px] w-[7px] shrink-0 rounded-full" style={{ background: color.gray }} />
@@ -305,7 +311,7 @@ function SetupHold(): ReactNode {
 
 function Passed(): ReactNode {
   return (
-    <GlassScrim strength={0.7}>
+    <GlassScrim cover>
       <motion.div className="flex flex-col items-center" {...rise}>
         <GlassCheck size={38} />
         <div className="mt-[14px] text-[15px] font-semibold">{copy.passed}</div>

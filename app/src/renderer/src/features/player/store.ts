@@ -360,7 +360,11 @@ export function attachPlayer(host: HTMLElement): () => void {
     .then((YT) => {
       if (dead) return
       // Under file:// (packaged Electron) there's no http(s) origin to give YouTube: see player.md → Notes.
-      const vars: Record<string, string | number> = { controls: 0, disablekb: 1, fs: 0, rel: 0, iv_load_policy: 3, playsinline: 1, enablejsapi: 1 }
+      // Quiet embed (Michael's desktop test 9): no controls (ours drive it), related videos from the same channel only
+      // (rel 0), no annotations or cards (iv_load_policy 3), no keyboard, no fullscreen. modestbranding is a no-op on
+      // today's player but harmless. A paused embed still draws its title bar and "More videos" strip: the panel's
+      // gate states cover the frame (Player.tsx GlassScrim cover).
+      const vars: Record<string, string | number> = { controls: 0, disablekb: 1, fs: 0, rel: 0, iv_load_policy: 3, modestbranding: 1, playsinline: 1, enablejsapi: 1 }
       if (/^https?:$/.test(location.protocol)) vars.origin = location.origin
       // Created empty, then everything goes through go(). (Creating it with a videoId and re-cueing
       // on ready races YouTube's own first cue: the clip then starts at 0 instead of the step start.)
