@@ -3476,8 +3476,9 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
             return
         if self.idx > 0:  # Continue / a reconnect at a later step: the app shows no sheet (store.ts step.started)
             return
-        if getattr(self, "_began_epoch", None) == self.lesson_epoch:  # Michael's locked flow: once Start was pressed,
-            return  # a reconnect / lesson.ready replay / back to step 1 never brings the sheet back (same lesson)
+        if stage.on(self) and getattr(self, "_began_epoch", None) == self.lesson_epoch:  # Michael's locked Demo flow:
+            return  # once Start was pressed, a reconnect / lesson.ready replay / back to step 1 never brings the sheet back
+            # (same lesson). Other lessons: Continue at step 1 re-shows the sheet and holds again (E4, test_session).
         if self._start_hold != self.lesson_epoch:
             self._start_hold, self._hold_t, self._hold_sig = self.lesson_epoch, self.clock(), None
             self._hold_fresh = False
