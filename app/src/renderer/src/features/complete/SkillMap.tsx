@@ -1,5 +1,5 @@
 /**
- * The skill map (mockup 10's "Skill map" panel), drawn from card.skillMap only: lanes with a header on the left,
+ * The skill map (mockups 10 and 12), drawn from card.skillMap only: lanes with a tile header,
  * concept nodes left to right, arrows between them. Mastered = a green ring with a check (green only ever means
  * passed), learning = a white ring with a dot, next = a dashed ring. Other tracks' concepts sit in a lane above,
  * with dashed "shared idea" arrows down to the node they feed. Hover or click a node: its detail in the strip below.
@@ -8,7 +8,7 @@ import { motion } from 'motion/react'
 import { useMemo, useState, type ReactNode } from 'react'
 import { BookOpen, Code2, FileText, Layers, Sigma, Wrench, type LucideIcon } from 'lucide-react'
 import { color, fill, spring } from '../../core/theme'
-import { DETAIL_LINE, LANE_W, LINE, NODE, NOTE_LINE, layout, type Lane } from './layout'
+import { DETAIL_LINE, LINE, NODE, NOTE_LINE, layout, type Lane } from './layout'
 import type { SkillMap as Map, SkillNode, SkillState } from './types'
 
 /** A lane's glyph by track name (neutral tile; the name itself always comes from the data). */
@@ -68,18 +68,67 @@ export function Ring({ state, size = NODE, delay = 0 }: { state: SkillState | 's
 function LaneHeader({ lane }: { lane: Lane }): ReactNode {
   const I = glyph(lane.name, lane.kind === 'track')
   const sub = lane.kind === 'track' ? `${lane.done} of ${lane.total} mastered` : `${lane.total} shared idea${lane.total === 1 ? '' : 's'}`
+  // Mockup 12: tile + name over the count, beside the lane's nodes (when its first columns are free) or above them.
   return (
-    <div data-lane={lane.kind} className="absolute left-0 flex flex-col items-start gap-[7px]" style={{ top: lane.centerY - NODE / 2 - 2, width: LANE_W - 14 }}>
-      <span className="grid h-[26px] w-[26px] shrink-0 place-items-center rounded-[8px]" style={{ background: fill.tile, color: fill.tileGlyph }}>
+    <div data-lane={lane.kind} className="absolute left-0 flex items-center gap-[10px]" style={{ top: lane.inline ? lane.top + 2 : lane.top, maxWidth: lane.inline ? 200 : undefined }}>
+      <span className="grid h-[28px] w-[28px] shrink-0 place-items-center rounded-[8px]" style={{ background: fill.tile, color: fill.tileGlyph }}>
         <I size={14} strokeWidth={1.8} />
       </span>
-      <span className="w-full min-w-0">
-        <span className="block text-[14px] font-medium leading-[18px]" style={{ color: color.text }}>
+      <span className="min-w-0">
+        <span className="block truncate text-[14px] font-medium leading-[18px]" style={{ color: color.text }}>
           {lane.name}
         </span>
         <span className="block truncate text-[12px] leading-[16px]" style={{ color: color.label }}>
           {sub}
         </span>
+      </span>
+    </div>
+  )
+}
+
+/** The selected concept: its state, its detail and the shared idea that feeds it. `boxed` = in the free cells of the last row. */
+function Detail({ node, map, boxed }: { node: SkillNode; map: Map; boxed: boolean }): ReactNode {
+  const shared = map.cross.filter((c) => c.to === node.id)
+  const chip = (
+    <span
+      className="shrink-0 rounded-full px-[8px] py-[2px] text-[11px] font-medium"
+      style={node.state === 'mastered' ? { background: color.greenTint, color: color.green } : { background: fill.chip, color: color.label, boxShadow: `inset 0 0 0 1px ${fill.chipBorder}` }}
+    >
+      {STATE_WORD[node.state]}
+    </span>
+  )
+  const share = shared.length > 0 && `Shared idea from ${shared.map((c) => `${c.track}: ${c.label}`).join(', ')}`
+  if (boxed)
+    return (
+      <div className="flex h-full flex-col justify-center">
+        <div className="flex flex-wrap items-center gap-x-[8px] gap-y-[4px]">
+          <span className="min-w-0 text-[16px] font-semibold leading-[21px]" style={{ color: color.text }}>
+            {node.label}
+          </span>
+          {chip}
+        </div>
+        {node.detail && (
+          <div className="mt-[5px] text-[13px] leading-[18px]" style={{ color: color.label }}>
+            {node.detail}
+          </div>
+        )}
+        {share && (
+          <div className="mt-[4px] text-[12px] leading-[16px]" style={{ color: color.faint }}>
+            {share}
+          </div>
+        )}
+      </div>
+    )
+  return (
+    <div className="mt-[18px] flex min-h-[40px] items-center gap-[12px] border-t pt-[14px]" style={{ borderColor: fill.rule }}>
+      <Ring state={node.state} size={22} />
+      <span className="shrink-0 text-[14px] font-medium" style={{ color: color.text }}>
+        {node.label}
+      </span>
+      {chip}
+      <span className="min-w-0 flex-1 truncate text-[13px]" style={{ color: color.label }}>
+        {node.detail}
+        {share && <span style={{ color: color.faint }}>{`${node.detail ? ' · ' : ''}${share}`}</span>}
       </span>
     </div>
   )
@@ -93,14 +142,14 @@ export function SkillMapView({ map, width }: { map: Map; width: number }): React
   const L = useMemo(() => layout(map, width), [map, width])
   const [sel, setSel] = useState<string | undefined>(() => firstOpen(map.nodes))
   const node = map.nodes.find((n) => n.id === sel)
-  const shared = node ? map.cross.filter((c) => c.to === node.id) : []
+  const mastered = map.nodes.filter((n) => n.state === 'mastered').length
   const states = (['mastered', 'learning', 'next'] as const).filter((s) => map.nodes.some((n) => n.state === s))
 
   return (
     <div data-skill-map>
-      <div className="mb-[18px] flex items-center gap-[16px]">
-        <span className="text-[15px] font-semibold" style={{ color: color.text }}>
-          Skill map
+      <div className="mb-[12px] flex items-center gap-[16px]">
+        <span className="text-[16px] font-semibold" style={{ color: color.text }}>
+          {mastered ? `${mastered} skill${mastered === 1 ? '' : 's'} mastered` : 'Skill map'}
         </span>
         <span className="flex-1" />
         {states.map((s) => (
@@ -205,29 +254,16 @@ export function SkillMapView({ map, width }: { map: Map; width: number }): React
             )}
           </motion.button>
         ))}
+        {node && L.detail && (
+          <div data-skill-detail className="absolute" style={{ left: L.detail.x, top: L.detail.y, width: L.detail.w, height: L.detail.h }}>
+            <Detail node={node} map={map} boxed />
+          </div>
+        )}
       </div>
 
-      {node && (
-        <div data-skill-detail className="mt-[18px] flex min-h-[40px] items-center gap-[12px] border-t pt-[14px]" style={{ borderColor: fill.rule }}>
-          <Ring state={node.state} size={22} />
-          <span className="shrink-0 text-[14px] font-medium" style={{ color: color.text }}>
-            {node.label}
-          </span>
-          <span
-            className="shrink-0 rounded-full px-[8px] py-[2px] text-[11px] font-medium"
-            style={node.state === 'mastered' ? { background: color.greenTint, color: color.green } : { background: fill.chip, color: color.label, boxShadow: `inset 0 0 0 1px ${fill.chipBorder}` }}
-          >
-            {STATE_WORD[node.state]}
-          </span>
-          <span className="min-w-0 flex-1 truncate text-[13px]" style={{ color: color.label }}>
-            {node.detail}
-            {shared.length > 0 && (
-              <span style={{ color: color.faint }}>
-                {node.detail ? ' · ' : ''}
-                Shared idea from {shared.map((c) => `${c.track}: ${c.label}`).join(', ')}
-              </span>
-            )}
-          </span>
+      {node && !L.detail && (
+        <div data-skill-detail>
+          <Detail node={node} map={map} boxed={false} />
         </div>
       )}
     </div>

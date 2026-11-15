@@ -22,19 +22,19 @@
               {
                 "id": "p1",
                 "title": "A neuron holds a number",
-                "body": "Each neuron holds a number between 0 and 1, its activation. The inputs are the data; every other neuron computes its number from the layer before it."
+                "body": "The input neuron holds x. Each hidden neuron holds a number between -1 and 1, its activation, computed from the layer before it. The output neuron holds the network's answer, y."
               },
               {
                 "id": "p2",
                 "title": "Weights and a bias",
-                "body": "Each connection multiplies the signal by a weight: positive pushes the next neuron up, negative pushes it down. The bias shifts how easily the neuron lights up.",
-                "code": "z = x1 * w1 + x2 * w2 + b"
+                "body": "Each connection multiplies the signal by a weight: positive pushes the next neuron up, negative pushes it down. The bias shifts where the neuron switches on.",
+                "code": "z = h1 * w1 + h2 * w2 + h3 * w3 + h4 * w4 + b"
               },
               {
                 "id": "p3",
-                "title": "Sigmoid squishes",
-                "body": "Sigmoid turns any total into a number between 0 and 1, so a neuron's output reads like how active it is.",
-                "code": "1 / (1 + np.exp(-z))"
+                "title": "tanh bends",
+                "body": "tanh squishes any total into -1..1. Stacking these bends is what lets the network draw a curve; the output skips tanh, so it can answer any number.",
+                "code": "np.tanh(z)"
               },
               {
                 "id": "p4",
@@ -43,73 +43,7 @@
                 "code": "W -= lr * dW"
               }
             ],
-            "overview": "We'll build a neural network with nothing but NumPy and teach it XOR: output 1 when exactly one input is 1. First the network and its forward pass, then backprop, then a training loop, and last a test that prints 0 1 1 0.",
-            "build": {
-              "summary": "A 2-4-1 neural network in NumPy that learns XOR.",
-              "outcome": "Run it and the loss falls below 0.001; it prints [0 1 1 0] for the four inputs.",
-              "estMinutes": 14
-            },
-            "flow": [
-              {
-                "label": "Inputs",
-                "detail": "x₁, x₂",
-                "stepIndex": 1
-              },
-              {
-                "label": "Hidden layer",
-                "detail": "σ(X·W1 + b1)",
-                "stepIndex": 1
-              },
-              {
-                "label": "Output",
-                "detail": "σ(h·W2 + b2)",
-                "stepIndex": 1
-              },
-              {
-                "label": "Backprop",
-                "detail": "chain rule",
-                "stepIndex": 2
-              },
-              {
-                "label": "Gradient step",
-                "detail": "W -= lr·dW",
-                "stepIndex": 3
-              }
-            ],
-            "prerequisites": [
-              {
-                "id": "numpy-arrays",
-                "title": "NumPy arrays",
-                "why": "X, y and every weight are arrays.",
-                "status": "unknown"
-              },
-              {
-                "id": "matrix-multiply",
-                "title": "Matrix multiply",
-                "why": "X @ W1 runs every hidden neuron at once.",
-                "status": "unknown"
-              },
-              {
-                "id": "derivatives",
-                "title": "Derivatives",
-                "why": "Backprop multiplies slopes along the network.",
-                "status": "unknown"
-              }
-            ],
-            "learnFirst": [
-              {
-                "title": "NumPy arrays",
-                "minutes": 5,
-                "kind": "read",
-                "covers": "numpy-arrays"
-              },
-              {
-                "title": "Matrix multiplication",
-                "minutes": 6,
-                "kind": "interactive",
-                "covers": "matrix-multiply"
-              }
-            ]
+            "overview": "We'll build a neural network with nothing but NumPy and teach it to draw a curve: y = sin(x) for x from -π to π. One input (x), two hidden layers of 4 neurons, one output (y). First the network and its forward pass, then backprop, then a training loop, and last a test that prints -1, 0, 1 for -π/2, 0, π/2."
           },
           "steps": [
             {
@@ -117,7 +51,7 @@
               "index": 1,
               "title": "Build the network",
               "kind": "code",
-              "what": "The XOR data, random weights and a forward pass",
+              "what": "The sine data, random weights and a forward pass",
               "estMinutes": 4
             },
             {
@@ -133,7 +67,7 @@
               "index": 3,
               "title": "Write the training loop",
               "kind": "code",
-              "what": "A loop that steps every weight downhill 5,000 times",
+              "what": "A loop that steps every weight downhill 20,000 times",
               "estMinutes": 3
             },
             {
@@ -157,29 +91,2369 @@
               "index": 6,
               "title": "See what it learned",
               "kind": "run",
-              "what": "Run it: it answers 0 1 1 0",
+              "what": "Run it: it answers -1, 0, 1",
               "estMinutes": 1
             }
           ]
         }
       },
       {
-        "wait": 300,
+        "wait": 350,
+        "type": "step.started",
+        "payload": {
+          "stepId": "nn1",
+          "index": 1,
+          "title": "Build the network",
+          "instructions": "In nn.py, paste this under # The network",
+          "kind": "code",
+          "what": "The sine data, random weights and a forward pass",
+          "why": "Every guess the network makes is this forward pass: x goes through two layers of tanh neurons, and the output neuron adds them up into y.",
+          "concepts": [
+            "p1",
+            "p2",
+            "p3"
+          ],
+          "code": "X = np.linspace(-np.pi, np.pi, 50).reshape(-1, 1)\ny = np.sin(X)\n\nnp.random.seed(0)\nW1 = np.random.randn(1, 4)\nb1 = np.zeros((1, 4))\nW2 = np.random.randn(4, 4)\nb2 = np.zeros((1, 4))\nW3 = np.random.randn(4, 1) * 0.1\nb3 = np.zeros((1, 1))\n\ndef forward(X):\n    h1 = np.tanh(X @ W1 + b1)\n    h2 = np.tanh(h1 @ W2 + b2)\n    return h1, h2, h2 @ W3 + b3"
+        }
+      },
+      {
+        "wait": 0,
+        "type": "check.updated",
+        "payload": {
+          "stepId": "nn1",
+          "checkId": "nn1c1",
+          "label": "The sine data is in nn.py",
+          "status": "pending"
+        }
+      },
+      {
+        "wait": 0,
+        "type": "check.updated",
+        "payload": {
+          "stepId": "nn1",
+          "checkId": "nn1c2",
+          "label": "W1, W2 and W3 are created",
+          "status": "pending"
+        }
+      },
+      {
+        "wait": 0,
+        "type": "check.updated",
+        "payload": {
+          "stepId": "nn1",
+          "checkId": "nn1c3",
+          "label": "forward() is defined",
+          "status": "pending"
+        }
+      },
+      {
+        "wait": 120,
+        "type": "check.updated",
+        "payload": {
+          "stepId": "nn1",
+          "checkId": "nn1c1",
+          "label": "The sine data is in nn.py",
+          "status": "pass"
+        }
+      },
+      {
+        "wait": 120,
+        "type": "check.updated",
+        "payload": {
+          "stepId": "nn1",
+          "checkId": "nn1c2",
+          "label": "W1, W2 and W3 are created",
+          "status": "pass"
+        }
+      },
+      {
+        "wait": 120,
+        "type": "check.updated",
+        "payload": {
+          "stepId": "nn1",
+          "checkId": "nn1c3",
+          "label": "forward() is defined",
+          "status": "pass"
+        }
+      },
+      {
+        "wait": 100,
+        "type": "step.passed",
+        "payload": {
+          "stepId": "nn1"
+        }
+      },
+      {
+        "wait": 350,
+        "type": "step.started",
+        "payload": {
+          "stepId": "nn2",
+          "index": 2,
+          "title": "Backprop",
+          "instructions": "In nn.py, paste backward under # Backprop",
+          "kind": "code",
+          "what": "A gradient for every weight, with the chain rule",
+          "why": "The chain rule sends the output's error back one layer at a time, so each weight learns its share of the blame.",
+          "concepts": [
+            "p4"
+          ],
+          "code": "def backward(X, y, h1, h2, out):\n    d_out = 2 * (out - y) / len(X)\n    d_h2 = d_out @ W3.T * (1 - h2 ** 2)\n    d_h1 = d_h2 @ W2.T * (1 - h1 ** 2)\n    return h2.T @ d_out, d_out.sum(0), h1.T @ d_h2, d_h2.sum(0), X.T @ d_h1, d_h1.sum(0)"
+        }
+      },
+      {
+        "wait": 0,
+        "type": "check.updated",
+        "payload": {
+          "stepId": "nn2",
+          "checkId": "nn2c1",
+          "label": "backward() is defined",
+          "status": "pending"
+        }
+      },
+      {
+        "wait": 0,
+        "type": "check.updated",
+        "payload": {
+          "stepId": "nn2",
+          "checkId": "nn2c2",
+          "label": "The error flows back through W3 and W2",
+          "status": "pending"
+        }
+      },
+      {
+        "wait": 120,
+        "type": "check.updated",
+        "payload": {
+          "stepId": "nn2",
+          "checkId": "nn2c1",
+          "label": "backward() is defined",
+          "status": "pass"
+        }
+      },
+      {
+        "wait": 120,
+        "type": "check.updated",
+        "payload": {
+          "stepId": "nn2",
+          "checkId": "nn2c2",
+          "label": "The error flows back through W3 and W2",
+          "status": "pass"
+        }
+      },
+      {
+        "wait": 100,
+        "type": "step.passed",
+        "payload": {
+          "stepId": "nn2"
+        }
+      },
+      {
+        "wait": 350,
+        "type": "step.started",
+        "payload": {
+          "stepId": "nn3",
+          "index": 3,
+          "title": "Write the training loop",
+          "instructions": "In nn.py, paste the loop under # Training",
+          "kind": "code",
+          "what": "A loop that steps every weight downhill 20,000 times",
+          "why": "Each step lowers the loss a little. The loop prints the loss every 2,000 epochs so you can watch it fall.",
+          "concepts": [
+            "p4"
+          ],
+          "code": "lr = 0.1\nfor epoch in range(20000):\n    h1, h2, out = forward(X)\n    dW3, db3, dW2, db2, dW1, db1 = backward(X, y, h1, h2, out)\n    W3 -= lr * dW3\n    b3 -= lr * db3\n    W2 -= lr * dW2\n    b2 -= lr * db2\n    W1 -= lr * dW1\n    b1 -= lr * db1\n    loss = np.mean((out - y) ** 2)\n    if epoch % 2000 == 0:\n        print(f\"epoch {epoch:5d}  loss {loss:.4f}\")"
+        }
+      },
+      {
+        "wait": 0,
+        "type": "check.updated",
+        "payload": {
+          "stepId": "nn3",
+          "checkId": "nn3c1",
+          "label": "The loop runs 20,000 epochs",
+          "status": "pending"
+        }
+      },
+      {
+        "wait": 0,
+        "type": "check.updated",
+        "payload": {
+          "stepId": "nn3",
+          "checkId": "nn3c2",
+          "label": "Every weight steps downhill",
+          "status": "pending"
+        }
+      },
+      {
+        "wait": 0,
+        "type": "check.updated",
+        "payload": {
+          "stepId": "nn3",
+          "checkId": "nn3c3",
+          "label": "It prints the loss",
+          "status": "pending"
+        }
+      },
+      {
+        "wait": 120,
+        "type": "check.updated",
+        "payload": {
+          "stepId": "nn3",
+          "checkId": "nn3c1",
+          "label": "The loop runs 20,000 epochs",
+          "status": "pass"
+        }
+      },
+      {
+        "wait": 120,
+        "type": "check.updated",
+        "payload": {
+          "stepId": "nn3",
+          "checkId": "nn3c2",
+          "label": "Every weight steps downhill",
+          "status": "pass"
+        }
+      },
+      {
+        "wait": 120,
+        "type": "check.updated",
+        "payload": {
+          "stepId": "nn3",
+          "checkId": "nn3c3",
+          "label": "It prints the loss",
+          "status": "pass"
+        }
+      },
+      {
+        "wait": 100,
+        "type": "step.passed",
+        "payload": {
+          "stepId": "nn3"
+        }
+      },
+      {
+        "wait": 350,
+        "type": "step.started",
+        "payload": {
+          "stepId": "nn4",
+          "index": 4,
+          "title": "Train it",
+          "instructions": "Run python3 nn.py in the VS Code terminal",
+          "kind": "run",
+          "what": "Run it and watch the loss fall",
+          "why": "Each printed line is one checkpoint. If the loss stops falling, the network has stopped learning.",
+          "concepts": [
+            "p4"
+          ],
+          "code": "python3 nn.py"
+        }
+      },
+      {
+        "wait": 0,
+        "type": "check.updated",
+        "payload": {
+          "stepId": "nn4",
+          "checkId": "nn4c1",
+          "label": "Loss falls below 0.01",
+          "status": "pending"
+        }
+      },
+      {
+        "wait": 120,
+        "type": "check.updated",
+        "payload": {
+          "stepId": "nn4",
+          "checkId": "nn4c1",
+          "label": "Loss falls below 0.01",
+          "status": "pass"
+        }
+      },
+      {
+        "wait": 50,
+        "type": "diagram",
+        "payload": {
+          "kind": "network",
+          "caption": "Run it and the weights move while the loss falls. This redraws from your run.",
+          "data": {
+            "layers": [
+              1,
+              4,
+              4,
+              1
+            ],
+            "activation": "tanh",
+            "inputs": [
+              "x"
+            ],
+            "output": "ŷ",
+            "labels": {
+              "input": [
+                "x"
+              ],
+              "output": [
+                "y"
+              ]
+            },
+            "placement": "drawer",
+            "derivatives": [],
+            "residual": "",
+            "mode": "train",
+            "frames": [
+              {
+                "epoch": 0,
+                "loss": 0.81868,
+                "input": -3.0,
+                "W": [
+                  [
+                    [
+                      1.7641,
+                      0.4002,
+                      0.9787,
+                      2.2409
+                    ]
+                  ],
+                  [
+                    [
+                      1.8676,
+                      -0.9773,
+                      0.9501,
+                      -0.1514
+                    ],
+                    [
+                      -0.1032,
+                      0.4106,
+                      0.144,
+                      1.4543
+                    ],
+                    [
+                      0.761,
+                      0.1217,
+                      0.4439,
+                      0.3337
+                    ],
+                    [
+                      1.4941,
+                      -0.2052,
+                      0.3131,
+                      -0.8541
+                    ]
+                  ],
+                  [
+                    [
+                      -0.2553
+                    ],
+                    [
+                      0.0654
+                    ],
+                    [
+                      0.0864
+                    ],
+                    [
+                      -0.0742
+                    ]
+                  ]
+                ],
+                "b": [
+                  [
+                    0.0,
+                    0.0,
+                    0.0,
+                    0.0
+                  ],
+                  [
+                    0.0,
+                    0.0,
+                    0.0,
+                    0.0
+                  ],
+                  [
+                    0.0
+                  ]
+                ],
+                "a": [
+                  [
+                    -3.0
+                  ],
+                  [
+                    -0.9999,
+                    -0.8338,
+                    -0.9944,
+                    -1.0
+                  ],
+                  [
+                    -0.9994,
+                    0.6163,
+                    -0.9493,
+                    -0.4922
+                  ],
+                  [
+                    0.2499
+                  ]
+                ]
+              },
+              {
+                "epoch": 1000,
+                "loss": 0.031,
+                "input": -2.0,
+                "W": [
+                  [
+                    [
+                      1.0395,
+                      0.3205,
+                      0.7998,
+                      1.8348
+                    ]
+                  ],
+                  [
+                    [
+                      1.8713,
+                      -0.9699,
+                      0.7163,
+                      -0.5668
+                    ],
+                    [
+                      -0.1038,
+                      0.6637,
+                      0.0965,
+                      1.9034
+                    ],
+                    [
+                      0.7625,
+                      0.0404,
+                      0.3975,
+                      -0.0606
+                    ],
+                    [
+                      1.4934,
+                      0.0665,
+                      -0.1988,
+                      -1.0152
+                    ]
+                  ],
+                  [
+                    [
+                      -0.5632
+                    ],
+                    [
+                      -0.7292
+                    ],
+                    [
+                      0.7998
+                    ],
+                    [
+                      -1.1092
+                    ]
+                  ]
+                ],
+                "b": [
+                  [
+                    0.0,
+                    0.0,
+                    0.0,
+                    0.0
+                  ],
+                  [
+                    0.0,
+                    0.0,
+                    0.0,
+                    0.0
+                  ],
+                  [
+                    0.0
+                  ]
+                ],
+                "a": [
+                  [
+                    -2.0
+                  ],
+                  [
+                    -0.9692,
+                    -0.5655,
+                    -0.9216,
+                    -0.9987
+                  ],
+                  [
+                    -0.9993,
+                    0.4309,
+                    -0.7243,
+                    0.4949
+                  ],
+                  [
+                    -0.8798
+                  ]
+                ]
+              },
+              {
+                "epoch": 2000,
+                "loss": 0.02598,
+                "input": -1.0,
+                "W": [
+                  [
+                    [
+                      1.048,
+                      0.3442,
+                      0.787,
+                      1.7527
+                    ]
+                  ],
+                  [
+                    [
+                      1.833,
+                      -1.0418,
+                      0.7525,
+                      -0.7547
+                    ],
+                    [
+                      -0.1184,
+                      0.7448,
+                      0.1911,
+                      2.2517
+                    ],
+                    [
+                      0.7335,
+                      0.0205,
+                      0.4643,
+                      -0.0473
+                    ],
+                    [
+                      1.4251,
+                      0.14,
+                      -0.3907,
+                      -1.2245
+                    ]
+                  ],
+                  [
+                    [
+                      -0.6399
+                    ],
+                    [
+                      -0.6392
+                    ],
+                    [
+                      0.8571
+                    ],
+                    [
+                      -1.1719
+                    ]
+                  ]
+                ],
+                "b": [
+                  [
+                    0.0,
+                    0.0,
+                    0.0,
+                    0.0
+                  ],
+                  [
+                    0.0,
+                    0.0,
+                    0.0,
+                    0.0
+                  ],
+                  [
+                    0.0
+                  ]
+                ],
+                "a": [
+                  [
+                    -1.0
+                  ],
+                  [
+                    -0.781,
+                    -0.3312,
+                    -0.6567,
+                    -0.9417
+                  ],
+                  [
+                    -0.9968,
+                    0.3983,
+                    -0.5285,
+                    0.773
+                  ],
+                  [
+                    -0.9756
+                  ]
+                ]
+              },
+              {
+                "epoch": 3000,
+                "loss": 0.02233,
+                "input": 0.0,
+                "W": [
+                  [
+                    [
+                      1.0637,
+                      0.3568,
+                      0.7226,
+                      1.7909
+                    ]
+                  ],
+                  [
+                    [
+                      1.7918,
+                      -1.0892,
+                      0.7921,
+                      -0.9098
+                    ],
+                    [
+                      -0.1348,
+                      0.7753,
+                      0.3485,
+                      2.5698
+                    ],
+                    [
+                      0.704,
+                      0.0223,
+                      0.5491,
+                      0.0418
+                    ],
+                    [
+                      1.3531,
+                      0.1993,
+                      -0.575,
+                      -1.4475
+                    ]
+                  ],
+                  [
+                    [
+                      -0.7123
+                    ],
+                    [
+                      -0.5311
+                    ],
+                    [
+                      0.9364
+                    ],
+                    [
+                      -1.2251
+                    ]
+                  ]
+                ],
+                "b": [
+                  [
+                    0.0,
+                    0.0,
+                    0.0,
+                    0.0
+                  ],
+                  [
+                    0.0,
+                    0.0,
+                    0.0,
+                    0.0
+                  ],
+                  [
+                    0.0
+                  ]
+                ],
+                "a": [
+                  [
+                    0.0
+                  ],
+                  [
+                    0.0,
+                    0.0,
+                    0.0,
+                    0.0
+                  ],
+                  [
+                    0.0,
+                    0.0,
+                    0.0,
+                    0.0
+                  ],
+                  [
+                    0.0
+                  ]
+                ]
+              },
+              {
+                "epoch": 4000,
+                "loss": 0.01531,
+                "input": 1.0,
+                "W": [
+                  [
+                    [
+                      1.0877,
+                      0.3676,
+                      0.4828,
+                      1.9109
+                    ]
+                  ],
+                  [
+                    [
+                      1.7588,
+                      -1.115,
+                      0.8435,
+                      -1.0763
+                    ],
+                    [
+                      -0.1487,
+                      0.7797,
+                      0.5686,
+                      2.8253
+                    ],
+                    [
+                      0.6848,
+                      0.0834,
+                      0.6493,
+                      0.3068
+                    ],
+                    [
+                      1.2936,
+                      0.2513,
+                      -0.7478,
+                      -1.701
+                    ]
+                  ],
+                  [
+                    [
+                      -0.7911
+                    ],
+                    [
+                      -0.4344
+                    ],
+                    [
+                      1.0469
+                    ],
+                    [
+                      -1.3026
+                    ]
+                  ]
+                ],
+                "b": [
+                  [
+                    0.0,
+                    0.0,
+                    0.0,
+                    0.0
+                  ],
+                  [
+                    0.0,
+                    0.0,
+                    0.0,
+                    0.0
+                  ],
+                  [
+                    0.0
+                  ]
+                ],
+                "a": [
+                  [
+                    1.0
+                  ],
+                  [
+                    0.796,
+                    0.3519,
+                    0.4485,
+                    0.9572
+                  ],
+                  [
+                    0.9939,
+                    -0.3233,
+                    0.4194,
+                    -0.8748
+                  ],
+                  [
+                    0.9328
+                  ]
+                ]
+              },
+              {
+                "epoch": 5000,
+                "loss": 0.00761,
+                "input": 2.0,
+                "W": [
+                  [
+                    [
+                      1.0927,
+                      0.3764,
+                      0.291,
+                      1.9955
+                    ]
+                  ],
+                  [
+                    [
+                      1.7489,
+                      -1.1225,
+                      0.8863,
+                      -1.2069
+                    ],
+                    [
+                      -0.1544,
+                      0.7669,
+                      0.7729,
+                      2.9573
+                    ],
+                    [
+                      0.6815,
+                      0.1756,
+                      0.7086,
+                      0.707
+                    ],
+                    [
+                      1.2741,
+                      0.2865,
+                      -0.8601,
+                      -1.8861
+                    ]
+                  ],
+                  [
+                    [
+                      -0.8841
+                    ],
+                    [
+                      -0.3778
+                    ],
+                    [
+                      1.1286
+                    ],
+                    [
+                      -1.4072
+                    ]
+                  ]
+                ],
+                "b": [
+                  [
+                    0.0,
+                    0.0,
+                    0.0,
+                    0.0
+                  ],
+                  [
+                    0.0,
+                    0.0,
+                    0.0,
+                    0.0
+                  ],
+                  [
+                    0.0
+                  ]
+                ],
+                "a": [
+                  [
+                    2.0
+                  ],
+                  [
+                    0.975,
+                    0.6368,
+                    0.5241,
+                    0.9993
+                  ],
+                  [
+                    0.9969,
+                    -0.2239,
+                    0.7005,
+                    -0.6683
+                  ],
+                  [
+                    0.9342
+                  ]
+                ]
+              },
+              {
+                "epoch": 6000,
+                "loss": 0.00499,
+                "input": 3.0,
+                "W": [
+                  [
+                    [
+                      1.1395,
+                      0.3791,
+                      0.2877,
+                      2.0088
+                    ]
+                  ],
+                  [
+                    [
+                      1.7533,
+                      -1.1195,
+                      0.8712,
+                      -1.2984
+                    ],
+                    [
+                      -0.1543,
+                      0.7589,
+                      0.8689,
+                      3.0102
+                    ],
+                    [
+                      0.6824,
+                      0.2156,
+                      0.7292,
+                      0.9154
+                    ],
+                    [
+                      1.282,
+                      0.3,
+                      -0.9239,
+                      -1.9984
+                    ]
+                  ],
+                  [
+                    [
+                      -0.9501
+                    ],
+                    [
+                      -0.3244
+                    ],
+                    [
+                      1.1424
+                    ],
+                    [
+                      -1.4629
+                    ]
+                  ]
+                ],
+                "b": [
+                  [
+                    0.0,
+                    0.0,
+                    0.0,
+                    0.0
+                  ],
+                  [
+                    0.0,
+                    0.0,
+                    0.0,
+                    0.0
+                  ],
+                  [
+                    0.0
+                  ]
+                ],
+                "a": [
+                  [
+                    3.0
+                  ],
+                  [
+                    0.9979,
+                    0.8135,
+                    0.6979,
+                    1.0
+                  ],
+                  [
+                    0.9977,
+                    -0.0493,
+                    0.8214,
+                    -0.2035
+                  ],
+                  [
+                    0.3041
+                  ]
+                ]
+              },
+              {
+                "epoch": 7000,
+                "loss": 0.00372,
+                "input": -3.0,
+                "W": [
+                  [
+                    [
+                      1.1885,
+                      0.379,
+                      0.2916,
+                      1.9915
+                    ]
+                  ],
+                  [
+                    [
+                      1.7687,
+                      -1.1206,
+                      0.8566,
+                      -1.3639
+                    ],
+                    [
+                      -0.15,
+                      0.7521,
+                      0.9246,
+                      3.039
+                    ],
+                    [
+                      0.6861,
+                      0.2338,
+                      0.7434,
+                      1.0401
+                    ],
+                    [
+                      1.3091,
+                      0.3012,
+                      -0.9504,
+                      -2.0615
+                    ]
+                  ],
+                  [
+                    [
+                      -1.0036
+                    ],
+                    [
+                      -0.2871
+                    ],
+                    [
+                      1.1457
+                    ],
+                    [
+                      -1.4937
+                    ]
+                  ]
+                ],
+                "b": [
+                  [
+                    0.0,
+                    0.0,
+                    0.0,
+                    0.0
+                  ],
+                  [
+                    0.0,
+                    0.0,
+                    0.0,
+                    0.0
+                  ],
+                  [
+                    0.0
+                  ]
+                ],
+                "a": [
+                  [
+                    -3.0
+                  ],
+                  [
+                    -0.9984,
+                    -0.8134,
+                    -0.7037,
+                    -1.0
+                  ],
+                  [
+                    -0.9979,
+                    0.0414,
+                    -0.8275,
+                    0.2159
+                  ],
+                  [
+                    -0.2808
+                  ]
+                ]
+              },
+              {
+                "epoch": 8000,
+                "loss": 0.00298,
+                "input": -2.0,
+                "W": [
+                  [
+                    [
+                      1.2305,
+                      0.3787,
+                      0.2949,
+                      1.9659
+                    ]
+                  ],
+                  [
+                    [
+                      1.7874,
+                      -1.1231,
+                      0.8462,
+                      -1.4147
+                    ],
+                    [
+                      -0.1447,
+                      0.7464,
+                      0.9624,
+                      3.058
+                    ],
+                    [
+                      0.6904,
+                      0.2438,
+                      0.7541,
+                      1.1274
+                    ],
+                    [
+                      1.34,
+                      0.2988,
+                      -0.9614,
+                      -2.1034
+                    ]
+                  ],
+                  [
+                    [
+                      -1.0484
+                    ],
+                    [
+                      -0.2604
+                    ],
+                    [
+                      1.1481
+                    ],
+                    [
+                      -1.5143
+                    ]
+                  ]
+                ],
+                "b": [
+                  [
+                    0.0,
+                    0.0,
+                    0.0,
+                    0.0
+                  ],
+                  [
+                    0.0,
+                    0.0,
+                    0.0,
+                    0.0
+                  ],
+                  [
+                    0.0
+                  ]
+                ],
+                "a": [
+                  [
+                    -2.0
+                  ],
+                  [
+                    -0.9855,
+                    -0.6395,
+                    -0.5298,
+                    -0.9992
+                  ],
+                  [
+                    -0.9977,
+                    0.1991,
+                    -0.7105,
+                    0.7367
+                  ],
+                  [
+                    -0.9372
+                  ]
+                ]
+              },
+              {
+                "epoch": 9000,
+                "loss": 0.00249,
+                "input": -1.0,
+                "W": [
+                  [
+                    [
+                      1.2649,
+                      0.3787,
+                      0.2979,
+                      1.9404
+                    ]
+                  ],
+                  [
+                    [
+                      1.8054,
+                      -1.1257,
+                      0.8383,
+                      -1.4564
+                    ],
+                    [
+                      -0.1396,
+                      0.7419,
+                      0.99,
+                      3.0724
+                    ],
+                    [
+                      0.6946,
+                      0.2502,
+                      0.7625,
+                      1.1944
+                    ],
+                    [
+                      1.3684,
+                      0.296,
+                      -0.9665,
+                      -2.1359
+                    ]
+                  ],
+                  [
+                    [
+                      -1.0861
+                    ],
+                    [
+                      -0.2403
+                    ],
+                    [
+                      1.1509
+                    ],
+                    [
+                      -1.5304
+                    ]
+                  ]
+                ],
+                "b": [
+                  [
+                    0.0,
+                    0.0,
+                    0.0,
+                    0.0
+                  ],
+                  [
+                    0.0,
+                    0.0,
+                    0.0,
+                    0.0
+                  ],
+                  [
+                    0.0
+                  ]
+                ],
+                "a": [
+                  [
+                    -1.0
+                  ],
+                  [
+                    -0.8524,
+                    -0.3616,
+                    -0.2894,
+                    -0.9596
+                  ],
+                  [
+                    -0.9951,
+                    0.3229,
+                    -0.3504,
+                    0.9503
+                  ],
+                  [
+                    -0.8543
+                  ]
+                ]
+              },
+              {
+                "epoch": 10000,
+                "loss": 0.00213,
+                "input": 0.0,
+                "W": [
+                  [
+                    [
+                      1.2932,
+                      0.3791,
+                      0.3006,
+                      1.9177
+                    ]
+                  ],
+                  [
+                    [
+                      1.8214,
+                      -1.1278,
+                      0.8325,
+                      -1.4917
+                    ],
+                    [
+                      -0.1351,
+                      0.7384,
+                      1.0113,
+                      3.0844
+                    ],
+                    [
+                      0.6983,
+                      0.2547,
+                      0.7692,
+                      1.2487
+                    ],
+                    [
+                      1.3926,
+                      0.2935,
+                      -0.9689,
+                      -2.1633
+                    ]
+                  ],
+                  [
+                    [
+                      -1.1184
+                    ],
+                    [
+                      -0.2245
+                    ],
+                    [
+                      1.1539
+                    ],
+                    [
+                      -1.5439
+                    ]
+                  ]
+                ],
+                "b": [
+                  [
+                    0.0,
+                    0.0,
+                    0.0,
+                    0.0
+                  ],
+                  [
+                    0.0,
+                    0.0,
+                    0.0,
+                    0.0
+                  ],
+                  [
+                    0.0
+                  ]
+                ],
+                "a": [
+                  [
+                    0.0
+                  ],
+                  [
+                    0.0,
+                    0.0,
+                    0.0,
+                    0.0
+                  ],
+                  [
+                    0.0,
+                    0.0,
+                    0.0,
+                    0.0
+                  ],
+                  [
+                    0.0
+                  ]
+                ]
+              },
+              {
+                "epoch": 11000,
+                "loss": 0.00185,
+                "input": 1.0,
+                "W": [
+                  [
+                    [
+                      1.3165,
+                      0.3797,
+                      0.3031,
+                      1.8982
+                    ]
+                  ],
+                  [
+                    [
+                      1.8352,
+                      -1.1295,
+                      0.8283,
+                      -1.5221
+                    ],
+                    [
+                      -0.1313,
+                      0.7357,
+                      1.0283,
+                      3.0948
+                    ],
+                    [
+                      0.7014,
+                      0.2581,
+                      0.7747,
+                      1.294
+                    ],
+                    [
+                      1.4128,
+                      0.2916,
+                      -0.9698,
+                      -2.1874
+                    ]
+                  ],
+                  [
+                    [
+                      -1.1466
+                    ],
+                    [
+                      -0.212
+                    ],
+                    [
+                      1.1568
+                    ],
+                    [
+                      -1.5555
+                    ]
+                  ]
+                ],
+                "b": [
+                  [
+                    0.0,
+                    0.0,
+                    0.0,
+                    0.0
+                  ],
+                  [
+                    0.0,
+                    0.0,
+                    0.0,
+                    0.0
+                  ],
+                  [
+                    0.0
+                  ]
+                ],
+                "a": [
+                  [
+                    1.0
+                  ],
+                  [
+                    0.8659,
+                    0.3624,
+                    0.2941,
+                    0.9561
+                  ],
+                  [
+                    0.9959,
+                    -0.3423,
+                    0.3718,
+                    -0.9569
+                  ],
+                  [
+                    0.8491
+                  ]
+                ]
+              },
+              {
+                "epoch": 12000,
+                "loss": 0.00164,
+                "input": 2.0,
+                "W": [
+                  [
+                    [
+                      1.3358,
+                      0.3803,
+                      0.3053,
+                      1.8819
+                    ]
+                  ],
+                  [
+                    [
+                      1.8469,
+                      -1.1307,
+                      0.8255,
+                      -1.5486
+                    ],
+                    [
+                      -0.1281,
+                      0.7336,
+                      1.042,
+                      3.1041
+                    ],
+                    [
+                      0.704,
+                      0.2609,
+                      0.7792,
+                      1.3329
+                    ],
+                    [
+                      1.4292,
+                      0.2902,
+                      -0.9697,
+                      -2.2091
+                    ]
+                  ],
+                  [
+                    [
+                      -1.1716
+                    ],
+                    [
+                      -0.2018
+                    ],
+                    [
+                      1.1594
+                    ],
+                    [
+                      -1.5656
+                    ]
+                  ]
+                ],
+                "b": [
+                  [
+                    0.0,
+                    0.0,
+                    0.0,
+                    0.0
+                  ],
+                  [
+                    0.0,
+                    0.0,
+                    0.0,
+                    0.0
+                  ],
+                  [
+                    0.0
+                  ]
+                ],
+                "a": [
+                  [
+                    2.0
+                  ],
+                  [
+                    0.9905,
+                    0.6414,
+                    0.5445,
+                    0.9989
+                  ],
+                  [
+                    0.9984,
+                    -0.2141,
+                    0.736,
+                    -0.7715
+                  ],
+                  [
+                    0.9346
+                  ]
+                ]
+              },
+              {
+                "epoch": 13000,
+                "loss": 0.00146,
+                "input": 3.0,
+                "W": [
+                  [
+                    [
+                      1.3519,
+                      0.3809,
+                      0.3073,
+                      1.8685
+                    ]
+                  ],
+                  [
+                    [
+                      1.8565,
+                      -1.1316,
+                      0.824,
+                      -1.5721
+                    ],
+                    [
+                      -0.1255,
+                      0.7321,
+                      1.0535,
+                      3.1126
+                    ],
+                    [
+                      0.7061,
+                      0.2633,
+                      0.783,
+                      1.3667
+                    ],
+                    [
+                      1.4427,
+                      0.2892,
+                      -0.9689,
+                      -2.2287
+                    ]
+                  ],
+                  [
+                    [
+                      -1.194
+                    ],
+                    [
+                      -0.1935
+                    ],
+                    [
+                      1.1615
+                    ],
+                    [
+                      -1.5743
+                    ]
+                  ]
+                ],
+                "b": [
+                  [
+                    0.0,
+                    0.0,
+                    0.0,
+                    0.0
+                  ],
+                  [
+                    0.0,
+                    0.0,
+                    0.0,
+                    0.0
+                  ],
+                  [
+                    0.0
+                  ]
+                ],
+                "a": [
+                  [
+                    3.0
+                  ],
+                  [
+                    0.9994,
+                    0.8153,
+                    0.7267,
+                    1.0
+                  ],
+                  [
+                    0.9988,
+                    -0.0535,
+                    0.8572,
+                    -0.2626
+                  ],
+                  [
+                    0.2269
+                  ]
+                ]
+              },
+              {
+                "epoch": 14000,
+                "loss": 0.00131,
+                "input": -3.0,
+                "W": [
+                  [
+                    [
+                      1.3653,
+                      0.3814,
+                      0.3091,
+                      1.8576
+                    ]
+                  ],
+                  [
+                    [
+                      1.8646,
+                      -1.1322,
+                      0.8235,
+                      -1.5931
+                    ],
+                    [
+                      -0.1234,
+                      0.7309,
+                      1.0632,
+                      3.1205
+                    ],
+                    [
+                      0.7079,
+                      0.2653,
+                      0.7863,
+                      1.3966
+                    ],
+                    [
+                      1.4535,
+                      0.2885,
+                      -0.9676,
+                      -2.2466
+                    ]
+                  ],
+                  [
+                    [
+                      -1.2143
+                    ],
+                    [
+                      -0.1866
+                    ],
+                    [
+                      1.1634
+                    ],
+                    [
+                      -1.582
+                    ]
+                  ]
+                ],
+                "b": [
+                  [
+                    0.0,
+                    0.0,
+                    0.0,
+                    0.0
+                  ],
+                  [
+                    0.0,
+                    0.0,
+                    0.0,
+                    0.0
+                  ],
+                  [
+                    0.0
+                  ]
+                ],
+                "a": [
+                  [
+                    -3.0
+                  ],
+                  [
+                    -0.9994,
+                    -0.8158,
+                    -0.7293,
+                    -1.0
+                  ],
+                  [
+                    -0.9989,
+                    0.0533,
+                    -0.8608,
+                    0.2678
+                  ],
+                  [
+                    -0.2221
+                  ]
+                ]
+              },
+              {
+                "epoch": 15000,
+                "loss": 0.00118,
+                "input": -2.0,
+                "W": [
+                  [
+                    [
+                      1.3766,
+                      0.3819,
+                      0.3107,
+                      1.8488
+                    ]
+                  ],
+                  [
+                    [
+                      1.8712,
+                      -1.1326,
+                      0.8237,
+                      -1.612
+                    ],
+                    [
+                      -0.1217,
+                      0.73,
+                      1.0715,
+                      3.1278
+                    ],
+                    [
+                      0.7094,
+                      0.2671,
+                      0.7892,
+                      1.4232
+                    ],
+                    [
+                      1.4623,
+                      0.288,
+                      -0.9658,
+                      -2.2631
+                    ]
+                  ],
+                  [
+                    [
+                      -1.2329
+                    ],
+                    [
+                      -0.1808
+                    ],
+                    [
+                      1.1649
+                    ],
+                    [
+                      -1.5888
+                    ]
+                  ]
+                ],
+                "b": [
+                  [
+                    0.0,
+                    0.0,
+                    0.0,
+                    0.0
+                  ],
+                  [
+                    0.0,
+                    0.0,
+                    0.0,
+                    0.0
+                  ],
+                  [
+                    0.0
+                  ]
+                ],
+                "a": [
+                  [
+                    -2.0
+                  ],
+                  [
+                    -0.9919,
+                    -0.6433,
+                    -0.552,
+                    -0.9988
+                  ],
+                  [
+                    -0.9986,
+                    0.2152,
+                    -0.7519,
+                    0.7862
+                  ],
+                  [
+                    -0.9328
+                  ]
+                ]
+              },
+              {
+                "epoch": 16000,
+                "loss": 0.00108,
+                "input": -1.0,
+                "W": [
+                  [
+                    [
+                      1.3862,
+                      0.3824,
+                      0.3121,
+                      1.8417
+                    ]
+                  ],
+                  [
+                    [
+                      1.8766,
+                      -1.1328,
+                      0.8246,
+                      -1.6291
+                    ],
+                    [
+                      -0.1202,
+                      0.7293,
+                      1.0787,
+                      3.1347
+                    ],
+                    [
+                      0.7106,
+                      0.2688,
+                      0.7917,
+                      1.4471
+                    ],
+                    [
+                      1.4694,
+                      0.2878,
+                      -0.9638,
+                      -2.2783
+                    ]
+                  ],
+                  [
+                    [
+                      -1.25
+                    ],
+                    [
+                      -0.1759
+                    ],
+                    [
+                      1.1661
+                    ],
+                    [
+                      -1.5948
+                    ]
+                  ]
+                ],
+                "b": [
+                  [
+                    0.0,
+                    0.0,
+                    0.0,
+                    0.0
+                  ],
+                  [
+                    0.0,
+                    0.0,
+                    0.0,
+                    0.0
+                  ],
+                  [
+                    0.0
+                  ]
+                ],
+                "a": [
+                  [
+                    -1.0
+                  ],
+                  [
+                    -0.8823,
+                    -0.3648,
+                    -0.3023,
+                    -0.951
+                  ],
+                  [
+                    -0.9968,
+                    0.3615,
+                    -0.4169,
+                    0.9656
+                  ],
+                  [
+                    -0.8436
+                  ]
+                ]
+              },
+              {
+                "epoch": 17000,
+                "loss": 0.00099,
+                "input": 0.0,
+                "W": [
+                  [
+                    [
+                      1.3944,
+                      0.3828,
+                      0.3134,
+                      1.836
+                    ]
+                  ],
+                  [
+                    [
+                      1.8811,
+                      -1.133,
+                      0.8259,
+                      -1.6447
+                    ],
+                    [
+                      -0.1191,
+                      0.7288,
+                      1.085,
+                      3.1411
+                    ],
+                    [
+                      0.7116,
+                      0.2702,
+                      0.794,
+                      1.4689
+                    ],
+                    [
+                      1.4752,
+                      0.2877,
+                      -0.9616,
+                      -2.2925
+                    ]
+                  ],
+                  [
+                    [
+                      -1.2658
+                    ],
+                    [
+                      -0.1718
+                    ],
+                    [
+                      1.1672
+                    ],
+                    [
+                      -1.6002
+                    ]
+                  ]
+                ],
+                "b": [
+                  [
+                    0.0,
+                    0.0,
+                    0.0,
+                    0.0
+                  ],
+                  [
+                    0.0,
+                    0.0,
+                    0.0,
+                    0.0
+                  ],
+                  [
+                    0.0
+                  ]
+                ],
+                "a": [
+                  [
+                    0.0
+                  ],
+                  [
+                    0.0,
+                    0.0,
+                    0.0,
+                    0.0
+                  ],
+                  [
+                    0.0,
+                    0.0,
+                    0.0,
+                    0.0
+                  ],
+                  [
+                    0.0
+                  ]
+                ]
+              },
+              {
+                "epoch": 18000,
+                "loss": 0.00091,
+                "input": 1.0,
+                "W": [
+                  [
+                    [
+                      1.4014,
+                      0.3831,
+                      0.3146,
+                      1.8315
+                    ]
+                  ],
+                  [
+                    [
+                      1.8848,
+                      -1.133,
+                      0.8276,
+                      -1.6591
+                    ],
+                    [
+                      -0.1181,
+                      0.7284,
+                      1.0907,
+                      3.1472
+                    ],
+                    [
+                      0.7124,
+                      0.2716,
+                      0.796,
+                      1.4887
+                    ],
+                    [
+                      1.4799,
+                      0.2876,
+                      -0.9593,
+                      -2.3056
+                    ]
+                  ],
+                  [
+                    [
+                      -1.2805
+                    ],
+                    [
+                      -0.1682
+                    ],
+                    [
+                      1.1682
+                    ],
+                    [
+                      -1.605
+                    ]
+                  ]
+                ],
+                "b": [
+                  [
+                    0.0,
+                    0.0,
+                    0.0,
+                    0.0
+                  ],
+                  [
+                    0.0,
+                    0.0,
+                    0.0,
+                    0.0
+                  ],
+                  [
+                    0.0
+                  ]
+                ],
+                "a": [
+                  [
+                    1.0
+                  ],
+                  [
+                    0.8856,
+                    0.3654,
+                    0.3046,
+                    0.95
+                  ],
+                  [
+                    0.997,
+                    -0.3639,
+                    0.4323,
+                    -0.9678
+                  ],
+                  [
+                    0.8429
+                  ]
+                ]
+              },
+              {
+                "epoch": 19000,
+                "loss": 0.00084,
+                "input": 2.0,
+                "W": [
+                  [
+                    [
+                      1.4074,
+                      0.3834,
+                      0.3157,
+                      1.8279
+                    ]
+                  ],
+                  [
+                    [
+                      1.8879,
+                      -1.133,
+                      0.8295,
+                      -1.6723
+                    ],
+                    [
+                      -0.1173,
+                      0.7281,
+                      1.0957,
+                      3.153
+                    ],
+                    [
+                      0.7131,
+                      0.2728,
+                      0.7979,
+                      1.5069
+                    ],
+                    [
+                      1.4838,
+                      0.2877,
+                      -0.9569,
+                      -2.3179
+                    ]
+                  ],
+                  [
+                    [
+                      -1.2941
+                    ],
+                    [
+                      -0.1651
+                    ],
+                    [
+                      1.169
+                    ],
+                    [
+                      -1.6094
+                    ]
+                  ]
+                ],
+                "b": [
+                  [
+                    0.0,
+                    0.0,
+                    0.0,
+                    0.0
+                  ],
+                  [
+                    0.0,
+                    0.0,
+                    0.0,
+                    0.0
+                  ],
+                  [
+                    0.0
+                  ]
+                ],
+                "a": [
+                  [
+                    2.0
+                  ],
+                  [
+                    0.9928,
+                    0.6451,
+                    0.559,
+                    0.9987
+                  ],
+                  [
+                    0.9987,
+                    -0.2122,
+                    0.7702,
+                    -0.8001
+                  ],
+                  [
+                    0.9306
+                  ]
+                ]
+              },
+              {
+                "epoch": 20000,
+                "loss": 0.00078,
+                "input": 3.0,
+                "W": [
+                  [
+                    [
+                      1.4127,
+                      0.3837,
+                      0.3167,
+                      1.8251
+                    ]
+                  ],
+                  [
+                    [
+                      1.8905,
+                      -1.133,
+                      0.8315,
+                      -1.6845
+                    ],
+                    [
+                      -0.1167,
+                      0.7278,
+                      1.1003,
+                      3.1584
+                    ],
+                    [
+                      0.7137,
+                      0.2739,
+                      0.7996,
+                      1.5236
+                    ],
+                    [
+                      1.487,
+                      0.2877,
+                      -0.9545,
+                      -2.3294
+                    ]
+                  ],
+                  [
+                    [
+                      -1.3069
+                    ],
+                    [
+                      -0.1625
+                    ],
+                    [
+                      1.1698
+                    ],
+                    [
+                      -1.6135
+                    ]
+                  ]
+                ],
+                "b": [
+                  [
+                    0.0,
+                    0.0,
+                    0.0,
+                    0.0
+                  ],
+                  [
+                    0.0,
+                    0.0,
+                    0.0,
+                    0.0
+                  ],
+                  [
+                    0.0
+                  ]
+                ],
+                "a": [
+                  [
+                    3.0
+                  ],
+                  [
+                    0.9996,
+                    0.8181,
+                    0.7398,
+                    1.0
+                  ],
+                  [
+                    0.999,
+                    -0.0466,
+                    0.8783,
+                    -0.2931
+                  ],
+                  [
+                    0.2023
+                  ]
+                ]
+              }
+            ],
+            "samples": [
+              [
+                -3.0
+              ],
+              [
+                -2.0
+              ],
+              [
+                -1.0
+              ],
+              [
+                0.0
+              ],
+              [
+                1.0
+              ],
+              [
+                2.0
+              ],
+              [
+                3.0
+              ]
+            ],
+            "targets": [
+              -0.1411,
+              -0.9093,
+              -0.8415,
+              0.0,
+              0.8415,
+              0.9093,
+              0.1411
+            ]
+          },
+          "stepId": "nn4"
+        }
+      },
+      {
+        "wait": 100,
+        "type": "step.passed",
+        "payload": {
+          "stepId": "nn4"
+        }
+      },
+      {
+        "wait": 350,
+        "type": "step.started",
+        "payload": {
+          "stepId": "nn5",
+          "index": 5,
+          "title": "Test it",
+          "instructions": "In nn.py, paste this under # Test it",
+          "kind": "code",
+          "what": "Print its answers and the weights it learned",
+          "why": "sin(-π/2) = -1, sin(0) = 0 and sin(π/2) = 1, so you can check its answers. The weights are what it learned.",
+          "concepts": [
+            "p1"
+          ],
+          "code": "h1, h2, out = forward(np.array([[-np.pi / 2], [0.0], [np.pi / 2]]))\nprint(np.round(out, 1).ravel().tolist())\nfor name, w in ((\"W1\", W1), (\"b1\", b1), (\"W2\", W2), (\"b2\", b2), (\"W3\", W3), (\"b3\", b3)):\n    print(name, np.round(w, 3).tolist())"
+        }
+      },
+      {
+        "wait": 0,
+        "type": "check.updated",
+        "payload": {
+          "stepId": "nn5",
+          "checkId": "nn5c1",
+          "label": "It prints its answers",
+          "status": "pending"
+        }
+      },
+      {
+        "wait": 0,
+        "type": "check.updated",
+        "payload": {
+          "stepId": "nn5",
+          "checkId": "nn5c2",
+          "label": "It prints W1 to b3",
+          "status": "pending"
+        }
+      },
+      {
+        "wait": 120,
+        "type": "check.updated",
+        "payload": {
+          "stepId": "nn5",
+          "checkId": "nn5c1",
+          "label": "It prints its answers",
+          "status": "pass"
+        }
+      },
+      {
+        "wait": 120,
+        "type": "check.updated",
+        "payload": {
+          "stepId": "nn5",
+          "checkId": "nn5c2",
+          "label": "It prints W1 to b3",
+          "status": "pass"
+        }
+      },
+      {
+        "wait": 100,
+        "type": "step.passed",
+        "payload": {
+          "stepId": "nn5"
+        }
+      },
+      {
+        "wait": 350,
         "type": "step.started",
         "payload": {
           "stepId": "nn6",
           "index": 6,
           "title": "See what it learned",
           "instructions": "Run python3 nn.py in the VS Code terminal",
-          "details": "Run nn.py again and read its answers.",
           "kind": "run",
-          "what": "Run it: it answers 0 1 1 0",
-          "why": "Your network learned XOR from four examples. The panel on the right is drawn from the weights it printed.",
+          "what": "Run it: it answers -1, 0, 1",
+          "why": "Your network learned the sine curve from 50 examples. The panel on the right is drawn from the weights it printed.",
           "concepts": [
             "p1"
           ],
-          "code": "python3 nn.py",
-          "estMinutes": 1
+          "code": "python3 nn.py"
         }
       },
       {
@@ -188,29 +2462,22 @@
         "payload": {
           "stepId": "nn6",
           "checkId": "nn6c1",
-          "label": "It answers 0 1 1 0",
+          "label": "It answers -1, 0, 1",
           "status": "pending"
         }
       },
       {
-        "wait": 0,
-        "type": "status",
-        "payload": {
-          "state": "watching"
-        }
-      },
-      {
-        "wait": 900,
+        "wait": 120,
         "type": "check.updated",
         "payload": {
           "stepId": "nn6",
           "checkId": "nn6c1",
-          "label": "It answers 0 1 1 0",
+          "label": "It answers -1, 0, 1",
           "status": "pass"
         }
       },
       {
-        "wait": 300,
+        "wait": 100,
         "type": "step.passed",
         "payload": {
           "stepId": "nn6"
@@ -224,13 +2491,725 @@
         }
       },
       {
+        "wait": 50,
+        "type": "diagram",
+        "payload": {
+          "kind": "network",
+          "caption": "Your network draws sin(x): -1, 0, 1 at -π/2, 0, π/2. Drawn from the weights your nn.py printed.",
+          "data": {
+            "layers": [
+              1,
+              4,
+              4,
+              1
+            ],
+            "activation": "tanh",
+            "inputs": [
+              "x"
+            ],
+            "output": "ŷ",
+            "labels": {
+              "input": [
+                "x"
+              ],
+              "output": [
+                "y"
+              ]
+            },
+            "placement": "drawer",
+            "derivatives": [],
+            "residual": "",
+            "mode": "forward",
+            "frames": [
+              {
+                "epoch": 20000,
+                "loss": 0.00078,
+                "input": -3.0,
+                "W": [
+                  [
+                    [
+                      1.4127,
+                      0.3837,
+                      0.3167,
+                      1.8251
+                    ]
+                  ],
+                  [
+                    [
+                      1.8905,
+                      -1.133,
+                      0.8315,
+                      -1.6845
+                    ],
+                    [
+                      -0.1167,
+                      0.7278,
+                      1.1003,
+                      3.1584
+                    ],
+                    [
+                      0.7137,
+                      0.2739,
+                      0.7996,
+                      1.5236
+                    ],
+                    [
+                      1.487,
+                      0.2877,
+                      -0.9545,
+                      -2.3294
+                    ]
+                  ],
+                  [
+                    [
+                      -1.3069
+                    ],
+                    [
+                      -0.1625
+                    ],
+                    [
+                      1.1698
+                    ],
+                    [
+                      -1.6135
+                    ]
+                  ]
+                ],
+                "b": [
+                  [
+                    0.0,
+                    0.0,
+                    0.0,
+                    0.0
+                  ],
+                  [
+                    0.0,
+                    0.0,
+                    0.0,
+                    0.0
+                  ],
+                  [
+                    0.0
+                  ]
+                ],
+                "a": [
+                  [
+                    -3.0
+                  ],
+                  [
+                    -0.9996,
+                    -0.8181,
+                    -0.7398,
+                    -1.0
+                  ],
+                  [
+                    -0.999,
+                    0.0467,
+                    -0.8783,
+                    0.2931
+                  ],
+                  [
+                    -0.2024
+                  ]
+                ]
+              },
+              {
+                "epoch": 20000,
+                "loss": 0.00078,
+                "input": -2.0,
+                "W": [
+                  [
+                    [
+                      1.4127,
+                      0.3837,
+                      0.3167,
+                      1.8251
+                    ]
+                  ],
+                  [
+                    [
+                      1.8905,
+                      -1.133,
+                      0.8315,
+                      -1.6845
+                    ],
+                    [
+                      -0.1167,
+                      0.7278,
+                      1.1003,
+                      3.1584
+                    ],
+                    [
+                      0.7137,
+                      0.2739,
+                      0.7996,
+                      1.5236
+                    ],
+                    [
+                      1.487,
+                      0.2877,
+                      -0.9545,
+                      -2.3294
+                    ]
+                  ],
+                  [
+                    [
+                      -1.3069
+                    ],
+                    [
+                      -0.1625
+                    ],
+                    [
+                      1.1698
+                    ],
+                    [
+                      -1.6135
+                    ]
+                  ]
+                ],
+                "b": [
+                  [
+                    0.0,
+                    0.0,
+                    0.0,
+                    0.0
+                  ],
+                  [
+                    0.0,
+                    0.0,
+                    0.0,
+                    0.0
+                  ],
+                  [
+                    0.0
+                  ]
+                ],
+                "a": [
+                  [
+                    -2.0
+                  ],
+                  [
+                    -0.993,
+                    -0.6454,
+                    -0.5604,
+                    -0.9987
+                  ],
+                  [
+                    -0.9987,
+                    0.2113,
+                    -0.7742,
+                    0.8029
+                  ],
+                  [
+                    -0.9302
+                  ]
+                ]
+              },
+              {
+                "epoch": 20000,
+                "loss": 0.00078,
+                "input": -1.0,
+                "W": [
+                  [
+                    [
+                      1.4127,
+                      0.3837,
+                      0.3167,
+                      1.8251
+                    ]
+                  ],
+                  [
+                    [
+                      1.8905,
+                      -1.133,
+                      0.8315,
+                      -1.6845
+                    ],
+                    [
+                      -0.1167,
+                      0.7278,
+                      1.1003,
+                      3.1584
+                    ],
+                    [
+                      0.7137,
+                      0.2739,
+                      0.7996,
+                      1.5236
+                    ],
+                    [
+                      1.487,
+                      0.2877,
+                      -0.9545,
+                      -2.3294
+                    ]
+                  ],
+                  [
+                    [
+                      -1.3069
+                    ],
+                    [
+                      -0.1625
+                    ],
+                    [
+                      1.1698
+                    ],
+                    [
+                      -1.6135
+                    ]
+                  ]
+                ],
+                "b": [
+                  [
+                    0.0,
+                    0.0,
+                    0.0,
+                    0.0
+                  ],
+                  [
+                    0.0,
+                    0.0,
+                    0.0,
+                    0.0
+                  ],
+                  [
+                    0.0
+                  ]
+                ],
+                "a": [
+                  [
+                    -1.0
+                  ],
+                  [
+                    -0.8881,
+                    -0.3659,
+                    -0.3065,
+                    -0.9493
+                  ],
+                  [
+                    -0.9971,
+                    0.3651,
+                    -0.4462,
+                    0.9695
+                  ],
+                  [
+                    -0.8426
+                  ]
+                ]
+              },
+              {
+                "epoch": 20000,
+                "loss": 0.00078,
+                "input": 0.0,
+                "W": [
+                  [
+                    [
+                      1.4127,
+                      0.3837,
+                      0.3167,
+                      1.8251
+                    ]
+                  ],
+                  [
+                    [
+                      1.8905,
+                      -1.133,
+                      0.8315,
+                      -1.6845
+                    ],
+                    [
+                      -0.1167,
+                      0.7278,
+                      1.1003,
+                      3.1584
+                    ],
+                    [
+                      0.7137,
+                      0.2739,
+                      0.7996,
+                      1.5236
+                    ],
+                    [
+                      1.487,
+                      0.2877,
+                      -0.9545,
+                      -2.3294
+                    ]
+                  ],
+                  [
+                    [
+                      -1.3069
+                    ],
+                    [
+                      -0.1625
+                    ],
+                    [
+                      1.1698
+                    ],
+                    [
+                      -1.6135
+                    ]
+                  ]
+                ],
+                "b": [
+                  [
+                    0.0,
+                    0.0,
+                    0.0,
+                    0.0
+                  ],
+                  [
+                    0.0,
+                    0.0,
+                    0.0,
+                    0.0
+                  ],
+                  [
+                    0.0
+                  ]
+                ],
+                "a": [
+                  [
+                    0.0
+                  ],
+                  [
+                    0.0,
+                    0.0,
+                    0.0,
+                    0.0
+                  ],
+                  [
+                    0.0,
+                    0.0,
+                    0.0,
+                    0.0
+                  ],
+                  [
+                    0.0
+                  ]
+                ]
+              },
+              {
+                "epoch": 20000,
+                "loss": 0.00078,
+                "input": 1.0,
+                "W": [
+                  [
+                    [
+                      1.4127,
+                      0.3837,
+                      0.3167,
+                      1.8251
+                    ]
+                  ],
+                  [
+                    [
+                      1.8905,
+                      -1.133,
+                      0.8315,
+                      -1.6845
+                    ],
+                    [
+                      -0.1167,
+                      0.7278,
+                      1.1003,
+                      3.1584
+                    ],
+                    [
+                      0.7137,
+                      0.2739,
+                      0.7996,
+                      1.5236
+                    ],
+                    [
+                      1.487,
+                      0.2877,
+                      -0.9545,
+                      -2.3294
+                    ]
+                  ],
+                  [
+                    [
+                      -1.3069
+                    ],
+                    [
+                      -0.1625
+                    ],
+                    [
+                      1.1698
+                    ],
+                    [
+                      -1.6135
+                    ]
+                  ]
+                ],
+                "b": [
+                  [
+                    0.0,
+                    0.0,
+                    0.0,
+                    0.0
+                  ],
+                  [
+                    0.0,
+                    0.0,
+                    0.0,
+                    0.0
+                  ],
+                  [
+                    0.0
+                  ]
+                ],
+                "a": [
+                  [
+                    1.0
+                  ],
+                  [
+                    0.8881,
+                    0.3659,
+                    0.3065,
+                    0.9493
+                  ],
+                  [
+                    0.9971,
+                    -0.3651,
+                    0.4462,
+                    -0.9695
+                  ],
+                  [
+                    0.8426
+                  ]
+                ]
+              },
+              {
+                "epoch": 20000,
+                "loss": 0.00078,
+                "input": 2.0,
+                "W": [
+                  [
+                    [
+                      1.4127,
+                      0.3837,
+                      0.3167,
+                      1.8251
+                    ]
+                  ],
+                  [
+                    [
+                      1.8905,
+                      -1.133,
+                      0.8315,
+                      -1.6845
+                    ],
+                    [
+                      -0.1167,
+                      0.7278,
+                      1.1003,
+                      3.1584
+                    ],
+                    [
+                      0.7137,
+                      0.2739,
+                      0.7996,
+                      1.5236
+                    ],
+                    [
+                      1.487,
+                      0.2877,
+                      -0.9545,
+                      -2.3294
+                    ]
+                  ],
+                  [
+                    [
+                      -1.3069
+                    ],
+                    [
+                      -0.1625
+                    ],
+                    [
+                      1.1698
+                    ],
+                    [
+                      -1.6135
+                    ]
+                  ]
+                ],
+                "b": [
+                  [
+                    0.0,
+                    0.0,
+                    0.0,
+                    0.0
+                  ],
+                  [
+                    0.0,
+                    0.0,
+                    0.0,
+                    0.0
+                  ],
+                  [
+                    0.0
+                  ]
+                ],
+                "a": [
+                  [
+                    2.0
+                  ],
+                  [
+                    0.993,
+                    0.6454,
+                    0.5604,
+                    0.9987
+                  ],
+                  [
+                    0.9987,
+                    -0.2113,
+                    0.7742,
+                    -0.8029
+                  ],
+                  [
+                    0.9302
+                  ]
+                ]
+              },
+              {
+                "epoch": 20000,
+                "loss": 0.00078,
+                "input": 3.0,
+                "W": [
+                  [
+                    [
+                      1.4127,
+                      0.3837,
+                      0.3167,
+                      1.8251
+                    ]
+                  ],
+                  [
+                    [
+                      1.8905,
+                      -1.133,
+                      0.8315,
+                      -1.6845
+                    ],
+                    [
+                      -0.1167,
+                      0.7278,
+                      1.1003,
+                      3.1584
+                    ],
+                    [
+                      0.7137,
+                      0.2739,
+                      0.7996,
+                      1.5236
+                    ],
+                    [
+                      1.487,
+                      0.2877,
+                      -0.9545,
+                      -2.3294
+                    ]
+                  ],
+                  [
+                    [
+                      -1.3069
+                    ],
+                    [
+                      -0.1625
+                    ],
+                    [
+                      1.1698
+                    ],
+                    [
+                      -1.6135
+                    ]
+                  ]
+                ],
+                "b": [
+                  [
+                    0.0,
+                    0.0,
+                    0.0,
+                    0.0
+                  ],
+                  [
+                    0.0,
+                    0.0,
+                    0.0,
+                    0.0
+                  ],
+                  [
+                    0.0
+                  ]
+                ],
+                "a": [
+                  [
+                    3.0
+                  ],
+                  [
+                    0.9996,
+                    0.8181,
+                    0.7398,
+                    1.0
+                  ],
+                  [
+                    0.999,
+                    -0.0467,
+                    0.8783,
+                    -0.2931
+                  ],
+                  [
+                    0.2024
+                  ]
+                ]
+              }
+            ],
+            "samples": [
+              [
+                -3.0
+              ],
+              [
+                -2.0
+              ],
+              [
+                -1.0
+              ],
+              [
+                0.0
+              ],
+              [
+                1.0
+              ],
+              [
+                2.0
+              ],
+              [
+                3.0
+              ]
+            ],
+            "targets": [
+              -0.1411,
+              -0.9093,
+              -0.8415,
+              0.0,
+              0.8415,
+              0.9093,
+              0.1411
+            ]
+          },
+          "stepId": "nn6"
+        }
+      },
+      {
         "wait": 2500,
         "type": "card",
         "payload": {
           "stepId": "nn6",
           "kind": "complete",
           "title": "You built a neural net",
-          "body": "A 2-4-1 neural network in NumPy that learns XOR. Loss fell from 0.269 to 0.0009 in your last run.",
+          "body": "A 1-4-4-1 neural network in NumPy that learns y = sin(x). Loss fell from 0.819 to 0.0009 in your last run.",
           "actions": [
             "end_lesson"
           ],
