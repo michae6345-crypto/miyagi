@@ -338,7 +338,9 @@ class LessonSession:
         self._coach_backoff = 0.0
         self._coach_retry_at = 0.0
         self._eval_error_sent = False
-        self.latched_pass: set[str] = set()  # screen checks that passed this step: kept unless the file on disk disagrees
+        self.latched_pass: set[str] = set()  # screen checks that passed this step: kept unless the editor lacks it
+        self._latch_t: dict[str, float] = {}  # checkId -> wall clock of its last real pass (a save after it may un-pass)
+        self._unsaved_holds: set[str] = set()  # latched checks held this evaluation that the file on disk lacks
         self._run_need: dict | None = None  # run step (fixed at its first evaluation): {cmd, expect, baseline, ran}
         self._lesson_win_seen: tuple[float, bool] = (-1e9, False)  # (when, lesson's VS Code window open on any Space)
         self._ext_run_t = 0.0  # wall clock of the last Run it for me typed into VS Code's terminal by the companion
@@ -2108,7 +2110,10 @@ class LessonSession:
                     self._eval_error_sent = True
                     await self.emit("error", {"message": f"Check evaluation failed: {e}"})
                 return
-            gate = self._settle_checks(step, gate, ctx)  # latch passes; the lesson file decides when its window isn't shown
+            gen = self.step_gen
+            gate = await self._settle_checks(step, gate, ctx)  # latch passes; the lesson file decides when its window isn't shown
+            if gen != self.step_gen or self.passed:
+                return  # the step moved on while VS Code was asked for its unsaved text
             if gate.get("passed") and gate.get("via") == "precision":
                 # a visible error (a failing screen_absent check, e.g. "Failed to compile" / a Traceback) vetoes
                 # the files-only route: the files can be right while the app on screen is broken
@@ -2131,7 +2136,8 @@ class LessonSession:
                 results = [r if r.get("checkId") not in self.judged_pass or r.get("status") == "pass"
                            else {**r, "status": "pass", "detail": r.get("judgedDetail") or "Claude saw it on screen"}
                            for r in results]
-                if not gate.get("passed") and results and all(r.get("status") == "pass" for r in results):
+                held = self._unsaved_holds - self.judged_pass  # green only until the save: never a step pass
+                if not gate.get("passed") and not held and results and all(r.get("status") == "pass" for r in results):
                     gate = {**gate, "passed": True, "via": "judge"}
             self.last_results = results
             failed = [r for r in results if r.get("status") == "fail"]
@@ -3222,6 +3228,12 @@ class LessonSession:
                          kind="answer", actions=["undo"])
         await self.on_file_change([str(path)])
 
+    def _judge_results(self) -> list[dict]:
+        """last_results for a judge: a row held green only by an unsaved buffer (_unsaved_holds) goes as "pending",
+        so the judge's own file blocker refuses it until the save (a held row must never pass the step)."""
+        held = getattr(self, "_unsaved_holds", set())
+        return [{**r, "status": "pending"} if r.get("checkId") in held else r for r in self.last_results]
+
     async def _check_step(self, step: dict) -> None:
         """"Can I move on?": re-run the checks on a fresh frame now (asking counts as acting, so a pass moves on
         at once), then E5's Claude judge looks at the screen + files. Done -> step.passed. Not done -> ONE card
@@ -3252,7 +3264,7 @@ class LessonSession:
                 log.info("check_step: active_file unavailable (%s)", e)
         try:
             verdict = await self.m.judge_step(step, screen=self._screen_lines(), files={file: code} if file and code else {},
-                                              check_results=self.last_results, focused_app=self._focused_app(),
+                                              check_results=self._judge_results(), focused_app=self._focused_app(),
                                               lesson=(self.graph or {}).get("lesson"), active_file=active)
         except Exception as e:  # noqa: BLE001 - the judge is a bonus
             log.info("check_step: no judge (%s)", e)
@@ -3263,6 +3275,9 @@ class LessonSession:
             verdict = {**verdict, "done": False,
                        "missing": (f"Save {d} with ⌘S so I can check it" if (d := self._dirty_step_file(step))
                                    else f"Type the code into {Path(self._step_file(step) or step.get('file') or '').name}")}
+        if verdict and verdict.get("done") and getattr(self, "_unsaved_holds", None):  # code typed, not saved yet
+            verdict = {**verdict, "done": False,
+                       "missing": f"Save {Path(self._step_file(step) or step.get('file') or '').name} with ⌘S so I can check it"}
         if verdict and verdict.get("done") and (unrun := self._run_missing(step)):
             verdict = {**verdict, "done": False, "missing": unrun}  # the judge saw the code; a run step needs the run
         if verdict and verdict.get("done"):
@@ -3357,21 +3372,25 @@ class LessonSession:
         self._lesson_win_seen = (self.clock(), seen)
         return seen
 
-    def _settle_checks(self, step: dict, gate: dict, ctx: RunContext) -> dict:
+    async def _settle_checks(self, step: dict, gate: dict, ctx: RunContext) -> dict:
         """The gating screen checks, made stable and honest about which window they read:
 
-        * Latch: a screen_contains check that passed this step stays passed, unless the step's file on disk lacks
-          it (the code was really deleted). A frame of another window, a scroll or a Space switch can't un-pass it.
+        * Latch: a screen_contains check that passed this step stays passed, unless the editor's text really lacks
+          it (`_latch_lost`). A frame of another window, a scroll, a Space switch or an OCR misread while the
+          learner types into the unsaved file can't un-pass it. A hold the file on disk doesn't confirm (code only
+          on screen / unsaved) keeps the row green but never passes the step (`_unsaved_holds`): the save does.
         * Lesson mode, a VS Code check: when the frame has no VS Code text, or every VS Code window in it shows
           another folder while the lesson's window exists elsewhere, the check is graded on the lesson's file on
           disk (never "not seen in Code" from the wrong window, never a pass from it). "Open VS Code so I can check
           it" stays only when no lesson window exists at all."""
+        self._unsaved_holds = set()
         on_file, text_of = self._checks_fn("screen_check_on_file"), self._checks_fn("screen_text")
         if on_file is None or text_of is None:
             return gate
         defs = {c.get("id"): c for c in step.get("checks") or []}
         shown: Any = ...  # computed once, on first need
         carded = False
+        buffers: dict[Path, str | None] = {}  # VS Code's unsaved text per file: asked once per evaluation
 
         def graded(c: dict, paths: list[Path]) -> dict:  # on the files: a pass from any, else the first one's verdict
             res = [on_file(c, p) for p in paths]
@@ -3397,22 +3416,68 @@ class LessonSession:
                         self._editor_state_card(step)
             if r.get("status") == "pass":
                 self.latched_pass.add(cid)
+                self._latch_t[cid] = time.time()
             elif cid in self.latched_pass:
-                if not paths or graded(c, paths).get("status") == "pass":
+                on_disk = not paths or graded(c, paths).get("status") == "pass"  # the saved file has it too
+                if on_disk or not await self._latch_lost(cid, c, paths, buffers):
+                    if not on_disk:
+                        self._unsaved_holds.add(cid)  # unsaved code: the row stays green, the step waits for a save
                     prev = self.check_state.get(cid) or {}
                     r = {**r, "status": "pass",
                          "detail": prev.get("detail") if prev.get("status") == "pass" else "seen earlier in this step"}
                 else:
-                    self.latched_pass.discard(cid)  # gone from the file on disk: it really un-passed
+                    self.latched_pass.discard(cid)  # gone from the unsaved buffer / the saved file: really un-passed
             out.append(r)
         gate = {**gate, "checks": out}
-        if out and all(r.get("status") == "pass" for r in out):
+        if out and all(r.get("status") == "pass" for r in out) and not self._unsaved_holds:
             return gate if gate.get("passed") else {**gate, "passed": True, "via": "checks"}
         if gate.get("via") == "checks":  # a pass read off another folder's window: only the precision route is left
             prec = gate.get("precision") or []
             ok = bool(prec) and all(r.get("status") == "pass" for r in prec)
             gate = {**gate, "passed": ok, "via": "precision" if ok else None}
         return gate
+
+    async def _latch_lost(self, cid: str, check: dict, paths: list[Path], buffers: dict[Path, str | None]) -> bool:
+        """Did a latched screen pass really go? Only when each of the check's files lacks it: in the companion
+        extension's live buffer when it holds unsaved edits of the file, else in the file on disk once it was saved
+        after the pass. An unsaved edit never un-passes a check: while the learner types, OCR misreads the line and
+        the file on disk is still empty (L3: s1c2 pass -> fail -> pass, nn.py 0 bytes). `buffers` caches the
+        unsaved texts for this evaluation (one ask of VS Code, not one per check)."""
+        if need := [p for p in paths if p not in buffers]:
+            buffers.update(zip(need, await asyncio.to_thread(self._unsaved_texts, need)))
+        on_file, find = self._checks_fn("screen_check_on_file"), self._checks_fn("search_screen")
+        for p in paths:
+            if (text := buffers.get(p)) is not None:  # the editor's unsaved text decides
+                try:
+                    if find is None or find(check.get("pattern") or "", text):
+                        return False
+                except re.error:
+                    return False
+                continue
+            try:
+                saved = p.stat().st_mtime > self._latch_t.get(cid, 0.0)
+            except OSError:
+                saved = False  # not on disk (yet): no save can disagree
+            if not saved or on_file is None or on_file(check, p).get("status") == "pass":
+                return False
+        return True
+
+    def _unsaved_texts(self, paths: list[Path]) -> list[str | None]:
+        """Each file's unsaved text in VS Code, from the companion extension. None when it didn't answer (always in
+        tests) or its buffer is clean: a clean buffer is the file on disk (also what a window that doesn't have the
+        file open answers), so the save rule decides. Blocking HTTP: run it in a thread."""
+        ext = self._vscode_ext()
+        out: list[str | None] = []
+        for p in paths:
+            buf = None
+            if ext is not None and hasattr(ext, "buffer_text"):
+                try:
+                    buf = ext.buffer_text(str(p), folder=self.workdir)
+                except Exception:  # noqa: BLE001
+                    buf = None
+            ok = isinstance(buf, dict) and buf.get("ok", True) and buf.get("dirty") and isinstance(buf.get("text"), str)
+            out.append(buf["text"] if ok else None)
+        return out
 
     def _need_run(self, step: dict, results: list[dict], gate: dict) -> tuple[list[dict], dict]:
         """Lesson mode: a run step ("Run your first output") can't pass on its code alone, it needs a run of its
@@ -3790,7 +3855,7 @@ class LessonSession:
 
     async def _run_judge(self, gen: int, step: dict, screen: Any, files: dict) -> None:
         try:
-            j = await self.judge.judge(step, self.last_results, screen=screen, files=files,
+            j = await self.judge.judge(step, self._judge_results(), screen=screen, files=files,
                                        focused_app=self._focused_app(), lesson=(self.graph or {}).get("lesson"),
                                        file_mtimes=self._judge_gate_kwargs(step)["file_mtimes"])
         except Exception:  # noqa: BLE001
