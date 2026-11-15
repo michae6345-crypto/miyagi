@@ -14,11 +14,13 @@ import os
 from collections.abc import Awaitable, Callable
 from typing import Any
 
+from . import perf
 from .config import env_flag
 
 log = logging.getLogger("orchestrator.screen")
 
 MetricCb = Callable[[str, str, int, float], None]  # (run_id, name, step, value), called on the loop
+LOOP_REGION_MAX_AGE_S = 1e9  # on the event loop: any latest frame (the reader thread keeps it current)
 
 
 class ScreenBridge:
@@ -31,6 +33,7 @@ class ScreenBridge:
         self._metrics: Any = None
         self._loop: asyncio.AbstractEventLoop | None = None
         self.metric_run_id: str | None = None
+        self._confirms = perf.ConfirmMemo()  # one Haiku verdict per (intent, box) for a few seconds, shared
 
     @property
     def active(self) -> bool:
@@ -136,7 +139,16 @@ class ScreenBridge:
         if self.reader is None or self.down_reason() or not hasattr(self.reader, "locate_region"):
             return None
         try:
-            r = self.reader.locate_region(name, app)
+            if perf.on_loop():  # the event loop: the latest frame's region, never a blocking capture + OCR (~0.2-0.5 s
+                # each, once a second on a still screen: _screen_lines -> terminal region from every tick / evaluate)
+                if self.reader.latest() is None:
+                    return None
+                try:
+                    r = self.reader.locate_region(name, app, max_age=LOOP_REGION_MAX_AGE_S)
+                except TypeError:  # a reader without max_age
+                    r = self.reader.locate_region(name, app)
+            else:
+                r = self.reader.locate_region(name, app)
         except Exception:  # noqa: BLE001
             log.exception("locate_region failed")
             return None
@@ -164,16 +176,24 @@ class ScreenBridge:
         unavailable / unsure: the box unchanged."""
         if self.reader is None or self.down_reason() or not env_flag("MIYAGI_VISION_TARGET", True):
             return rect
-        try:
-            from server.screen.target import confirm_on_screen
+        async def ask() -> tuple[dict | None, str]:
+            try:
+                from server.screen.target import confirm_on_screen
 
-            out, why = await confirm_on_screen(rect, intent, app, reader=self.reader)
-        except Exception:
-            log.exception("vision confirm failed; keeping the box")
-            return rect
-        if why != "agree":
-            log.info("targeter %s for %r", why, intent[:80])
-        return out
+                out, why = await confirm_on_screen(rect, intent, app, reader=self.reader)
+            except Exception:
+                log.exception("vision confirm failed; keeping the box")
+                return rect, "kept:exception"
+            if why != "agree":
+                log.info("targeter %s for %r", why, intent[:80])
+            return out, why
+
+        # the same box + intent from several callers within a second (frame follow, step start, Check) or again a
+        # few seconds later: one Haiku call, not three (live: 3 calls in 1 s, then the 6/min budget skipped real ones)
+        out, why = await self._confirms.get(intent, app, rect, ask)
+        if why == "agree" or why.startswith("kept"):
+            return rect  # this caller's own box (a shared verdict may come from a box a few points off)
+        return dict(out) if isinstance(out, dict) else out
 
     def set_overlay(self, rects: list[dict]) -> None:
         if self.reader is not None:
@@ -192,6 +212,27 @@ class ScreenBridge:
     def poke(self) -> None:
         if self.reader is not None and hasattr(self.reader, "poke"):
             self.reader.poke()
+
+    async def fresh_frame(self, timeout: float) -> bool:
+        """A frame captured now (Check: "not one from before their last keystroke"). Was poke + a flat 1.2 s sleep, and
+        the poked capture itself waits out the reader's 1.5 s debounce; this captures + OCRs at once in a thread
+        (~0.3-0.5 s, no model call), never longer than `timeout`. -> True when the fresh frame is in."""
+        r = self.reader
+        if r is None:
+            return False
+        if not hasattr(r, "observe_now") or self.down_reason():
+            if hasattr(r, "poke"):
+                r.poke()
+            await asyncio.sleep(timeout)
+            return False
+        job = asyncio.ensure_future(asyncio.to_thread(r.observe_now, True, "check"))
+        try:
+            await asyncio.wait_for(asyncio.shield(job), timeout)
+            return True
+        except Exception as e:  # noqa: BLE001 - slow / failing capture: go on with the latest frame, as before
+            job.add_done_callback(lambda t: t.cancelled() or t.exception())
+            log.info("check: no fresh frame within %.1fs (%s)", timeout, type(e).__name__)
+            return False
 
     # -- metrics read off the terminal
     def watch(self, lesson_id: str, patterns: dict[str, str], on_metric: MetricCb) -> None:

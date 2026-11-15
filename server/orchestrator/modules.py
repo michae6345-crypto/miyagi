@@ -211,6 +211,9 @@ class Modules:
             except Exception as e:
                 task.cancel()
                 raise ModuleUnavailable(f"finder.search failed: {type(e).__name__}: {e}") from e
+            except BaseException:  # cancelled (a newer learn replaced this search) / closed early: stop the finder too
+                task.cancel()
+                raise
         try:
             out = fn(query)
             if hasattr(out, "__aiter__"):  # streaming finder

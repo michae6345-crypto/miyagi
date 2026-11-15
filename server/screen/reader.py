@@ -312,16 +312,18 @@ class ScreenReader:
 
     # ------------------------------------------------------------------ regions (lesson spotlights)
 
-    def locate_region(self, name: str, app: str | None = None) -> Rect | None:
+    def locate_region(self, name: str, app: str | None = None, max_age: float = 1.0) -> Rect | None:
         """Rect of a VS Code region for a spotlight: "terminal" (integrated terminal panel; None if
         it isn't open), "editor" (text area below tabs + breadcrumb), "explorer" (side bar),
         "run_button" (AX only; None without Accessibility), "terminal_menu" (the Terminal item in the
         macOS menu bar while VS Code is in front; AX, else OCR; None when the menu bar is hidden),
         "menu:<Title>" (any menu-bar item). Stable frame to frame: snapped to a
-        4-point grid, unchanged while it moves < 12 points, kept through one missed frame."""
+        4-point grid, unchanged while it moves < 12 points, kept through one missed frame.
+        max_age: an older latest frame is re-captured + OCR'd first (blocking); the engine's event loop passes a
+        large one (its callers read blocks from that same latest frame, and a capture there froze every tick)."""
         title = R.menu_title(name)            # "terminal_menu" / "menu:Run" keep their case
         name = R.canonical(name)
-        obs = self._fresh_obs()
+        obs = self._fresh_obs(max_age)
         if name == "run_button":
             rect = self._ax_run_button() if obs is None or obs.source == "live" else None
             if rect is None and obs is not None:          # the ▷ icon on the tab row, by OCR

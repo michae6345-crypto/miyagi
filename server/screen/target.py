@@ -604,7 +604,8 @@ async def pick_on_screen(intent: str, app: str | None = "Code", reader=None, **k
     frame, obs = await asyncio.to_thread(reader.latest_frame)
     if frame is None or obs is None:
         return None
-    return await pick_target(frame, obs, intent, app=app, **_live_args(reader, app), **kw)
+    args = await asyncio.to_thread(_live_args, reader, app)  # AX + region reads: never on the event loop
+    return await pick_target(frame, obs, intent, app=app, **args, **kw)
 
 
 async def confirm_on_screen(rect, intent: str, app: str | None = "Code", reader=None,
@@ -615,7 +616,8 @@ async def confirm_on_screen(rect, intent: str, app: str | None = "Code", reader=
     frame, obs = await asyncio.to_thread(reader.latest_frame)
     if frame is None or obs is None:
         return Rect.from_any(rect).to_dict(), "kept:no_frame"
-    return await confirm_spot(rect, frame, obs, intent, app=app, **_live_args(reader, app), **kw)
+    args = await asyncio.to_thread(_live_args, reader, app)  # AX + region reads: never on the event loop
+    return await confirm_spot(rect, frame, obs, intent, app=app, **args, **kw)
 
 
 def overlaps(a, b, min_frac: float = 0.5) -> bool:
