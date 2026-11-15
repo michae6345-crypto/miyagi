@@ -2,5 +2,5 @@
  "stepId": "nn4",
  "kind": "hint",
  "title": "Hint 2 of 2",
- "body": "Watch the epoch lines: the loss should fall below 0.01 by epoch 4000."
+ "body": "Watch the epoch lines: the loss should fall below 0.01 by epoch 18000."
 }

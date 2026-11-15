@@ -1,4 +1,4 @@
-# A neural net from scratch: 2 inputs, 4 hidden neurons, 1 output. It learns XOR.
+# A neural net from scratch: 1 input, two hidden layers of 4 neurons, 1 output. It learns the curve y = sin(x).
 import numpy as np
 
 # The network

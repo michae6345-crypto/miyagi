@@ -7,6 +7,10 @@ LIVE: "Just teach me" with a neural-network goal ("build a neural network", "neu
 lesson instantly instead of building one (server/orchestrator/curated.py; MIYAGI_CURATED=0 turns that off). The coach
 stays live; hints, the Explain button and every network diagram come from the files below.
 
+The network: 1-4-4-1 (one input x, two hidden layers of 4 tanh neurons, one linear output y), NumPy only, trained with
+plain gradient descent on MSE to draw the curve y = sin(x) for 50 points on [-pi, pi]. Seeded (np.random.seed(0)), so
+the lesson's run is the same every time.
+
 What it writes (all data, no engine code):
   demo/nn-lab/nn.py, demo/nn-start.py       the learner's file and its clean copy (four section comments)
   demo/cache/lessons/text-nn-from-scratch.json
@@ -15,21 +19,29 @@ What it writes (all data, no engine code):
   demo/cache/coach/nn4.json                 DEMO only: the off-track card when training stays flat (zero weights)
   demo/cache/cards/nn<k>-explain|answer|hint<n>.json, nn4-stuck-explain|hint<n>.json
                                             Explain / Ask (DEMO) / Hint for each step; nn4-stuck-*: the ladder once the
-                                            loss is stuck at 0.25
+                                            loss is stuck at 0.4900
   demo/cache/diagrams/nn<k>-network.json, nn4-gradients.json
                                             live networks (the app's NeuralNet view): neurons lit by activation,
                                             weights blue/brown, signals firing. The engine pushes them to the drawer's
                                             right-hand panel and redraws the training ones from the learner's own run.
 
-The story (DEMO's presenter, or any learner who takes the shortcut): step 1 builds the network with W1 and W2 = zeros.
-Every check passes. Step 4 trains: the loss sits at exactly 0.2500 for all 5,000 epochs, because every hidden neuron
-computes the same thing and gets the same update. miyagi goes off track, the diagram shows four identical neurons, the
-hint ladder says start them random; the learner fixes it, reruns, and the loss falls to 0.0009.
-Every number comes from running the code below.
+Diagram payload (kind "network"): data.layers [1, 4, 4, 1], labels {input: ["x"], output: ["y"]}, placement "drawer",
+activation "tanh" (hidden; the output is linear), samples [[x]] for x = -3..3, targets sin(x), mode, frames. A frame:
+    {epoch, loss, input: x, W: [W1 1x4, W2 4x4, W3 4x1], b: [b1[4], b2[4], b3[1]], a: [[x], [4], [4], [y]]}
+W[k][i][j] is the weight from neuron i of layer k to neuron j of layer k+1; `a` is every neuron's activation for the
+frame's input. Train frames (one per SNAP epochs) cycle their input through the samples; forward frames are the trained
+weights once per sample.
+
+The story (DEMO's presenter, or any learner who takes the shortcut): step 1 builds the network with W1, W2 and W3 =
+zeros. Every check passes. Step 4 trains: the loss sits at exactly 0.4900 on every line, because every hidden neuron
+outputs tanh(0) = 0 and gets the same (zero) update, so the network answers 0 for every x. miyagi goes off track, the
+diagram shows identical neurons, the hint ladder says start them random; the learner fixes it, reruns, and the loss
+falls. Every number comes from running the code below.
 """
 from __future__ import annotations
 
 import json
+import math
 from pathlib import Path
 
 import numpy as np
@@ -39,12 +51,25 @@ LAB = ROOT / "demo" / "nn-lab"
 CACHE = ROOT / "demo" / "cache"
 RUN = "python3 nn.py"
 
+# The run (every number in the lesson's code; the checks and cards below quote them)
+N_POINTS = 50  # x = linspace(-pi, pi, 50): zeros answer 0 everywhere -> MSE = mean(sin^2) = 49/100 exactly
+LR = 0.1
+EPOCHS = 20000  # about 0.3 s; plain gradient descent, so the loss keeps creeping down the whole run
+PRINT_EVERY = 2000  # the loss lines the loop prints (10 of them: the run check takes the median of the last 5)
+SNAP = 1000  # a diagram frame every SNAP epochs (every printed epoch has one: curated.live_frames matches on them)
+# np.random.randn(...) * scale (1.0: no factor in the code). W3 starts small, so the first guesses are near 0.
+# Picked over 40 seeds: 39 end below 0.01 and print [-1.0, 0.0, 1.0]; seed 0 (the lesson's) is one of them.
+SCALE = {"W1": 1.0, "W2": 1.0, "W3": 0.1}
+STUCK_LOSS = (N_POINTS - 1) / (2 * N_POINTS)  # 0.49: what curated.py's STUCK_LOSS must be
+LOSS_TARGET = 0.01  # the run step passes once the loss is below this by BY_EPOCH
+BY_EPOCH = EPOCHS - PRINT_EVERY  # the last printed epoch
+
 # ---------------------------------------------------------------------------------------------------------------
 # The code, step by step (what the drawer shows and Copy copies). The learner pastes it under each section comment.
 # The comments carry no numbers: the lesson has 6 steps (4 to type, 2 to run) but the file has 4 sections.
 # ---------------------------------------------------------------------------------------------------------------
 
-STARTER = """# A neural net from scratch: 2 inputs, 4 hidden neurons, 1 output. It learns XOR.
+STARTER = """# A neural net from scratch: 1 input, two hidden layers of 4 neurons, 1 output. It learns the curve y = sin(x).
 import numpy as np
 
 # The network
@@ -61,92 +86,131 @@ import numpy as np
 
 ANCHOR = {"nn1": "# The network", "nn2": "# Backprop", "nn3": "# Training", "nn5": "# Test it"}
 
+
+def _init(name: str, shape: str) -> str:
+    s = SCALE[name]
+    return f"np.random.randn({shape})" + ("" if s == 1.0 else f" * {s:g}")
+
+
+INIT = {"W1": _init("W1", "1, 4"), "W2": _init("W2", "4, 4"), "W3": _init("W3", "4, 1")}
+EPOCH_W = len(str(EPOCHS - 1))
+
 CODE = {
-    "nn1": """X = np.array([[0, 0], [0, 1], [1, 0], [1, 1]])
-y = np.array([[0], [1], [1], [0]])
+    "nn1": f"""X = np.linspace(-np.pi, np.pi, {N_POINTS}).reshape(-1, 1)
+y = np.sin(X)
 
 np.random.seed(0)
-W1 = np.random.randn(2, 4) * 0.5
+W1 = {INIT["W1"]}
 b1 = np.zeros((1, 4))
-W2 = np.random.randn(4, 1) * 0.5
-b2 = np.zeros((1, 1))
-
-def sigmoid(z):
-    return 1 / (1 + np.exp(-z))
+W2 = {INIT["W2"]}
+b2 = np.zeros((1, 4))
+W3 = {INIT["W3"]}
+b3 = np.zeros((1, 1))
 
 def forward(X):
-    h = sigmoid(X @ W1 + b1)
-    return h, sigmoid(h @ W2 + b2)""",
-    "nn2": """def backward(X, y, h, out):
-    d_out = 2 * (out - y) / len(X) * out * (1 - out)
-    d_h = d_out @ W2.T * h * (1 - h)
-    return h.T @ d_out, d_out.sum(0), X.T @ d_h, d_h.sum(0)""",
-    "nn3": """lr = 1.0
-for epoch in range(5000):
-    h, out = forward(X)
-    dW2, db2, dW1, db1 = backward(X, y, h, out)
+    h1 = np.tanh(X @ W1 + b1)
+    h2 = np.tanh(h1 @ W2 + b2)
+    return h1, h2, h2 @ W3 + b3""",
+    "nn2": """def backward(X, y, h1, h2, out):
+    d_out = 2 * (out - y) / len(X)
+    d_h2 = d_out @ W3.T * (1 - h2 ** 2)
+    d_h1 = d_h2 @ W2.T * (1 - h1 ** 2)
+    return h2.T @ d_out, d_out.sum(0), h1.T @ d_h2, d_h2.sum(0), X.T @ d_h1, d_h1.sum(0)""",
+    "nn3": f"""lr = {LR:g}
+for epoch in range({EPOCHS}):
+    h1, h2, out = forward(X)
+    dW3, db3, dW2, db2, dW1, db1 = backward(X, y, h1, h2, out)
+    W3 -= lr * dW3
+    b3 -= lr * db3
     W2 -= lr * dW2
     b2 -= lr * db2
     W1 -= lr * dW1
     b1 -= lr * db1
     loss = np.mean((out - y) ** 2)
-    if epoch % 1000 == 0:
-        print(f"epoch {epoch:4d}  loss {loss:.4f}")""",
+    if epoch % {PRINT_EVERY} == 0:
+        print(f"epoch {{epoch:{EPOCH_W}d}}  loss {{loss:.4f}}")""",
     "nn4": RUN,
-    "nn5": """h, out = forward(X)
-print((out > 0.5).astype(int).ravel())
-for name, w in (("W1", W1), ("b1", b1), ("W2", W2), ("b2", b2)):
+    "nn5": """h1, h2, out = forward(np.array([[-np.pi / 2], [0.0], [np.pi / 2]]))
+print(np.round(out, 1).ravel().tolist())
+for name, w in (("W1", W1), ("b1", b1), ("W2", W2), ("b2", b2), ("W3", W3), ("b3", b3)):
     print(name, np.round(w, 3).tolist())""",
     "nn6": RUN,
 }
 
 # ---------------------------------------------------------------------------------------------------------------
-# Real runs: the weights every 250 epochs (the live diagrams), for the shortcut (zeros) and the lesson's code.
+# Real runs: the weights every SNAP epochs (the live diagrams), for the shortcut (zeros) and the lesson's code.
 # ---------------------------------------------------------------------------------------------------------------
 
-X = np.array([[0, 0], [0, 1], [1, 0], [1, 1]])
-Y = np.array([[0], [1], [1], [0]])
+X = np.linspace(-np.pi, np.pi, N_POINTS).reshape(-1, 1)
+Y = np.sin(X)
+SAMPLES = [[float(x)] for x in range(-3, 4)]  # what the diagrams fire: x = -3 ... 3
+TARGETS = [round(math.sin(s[0]), 4) for s in SAMPLES]
+TEST_X = [-math.pi / 2, 0.0, math.pi / 2]  # step 5 prints the network's answers here: sin = -1, 0, 1
 
 
-def train(zero: bool) -> tuple[list[dict], list[float], dict]:
+def r4(a) -> list:
+    """An array as (nested) lists rounded to 4 places, with -0.0 as 0.0."""
+    return (np.round(np.asarray(a, dtype=float), 4) + 0.0).tolist()
+
+
+def fire(W: list[np.ndarray], b: list[np.ndarray], x: float) -> list[list[float]]:
+    """Every neuron's activation for input x: [[x], tanh layer 1, tanh layer 2, linear output]."""
+    h1 = np.tanh(np.array([[x]]) @ W[0] + b[0])
+    h2 = np.tanh(h1 @ W[1] + b[1])
+    return [[round(float(x), 4)], r4(h1.ravel()), r4(h2.ravel()), r4((h2 @ W[2] + b[2]).ravel())]
+
+
+def frame(epoch: int, loss: float, x: float, W: list[np.ndarray], b: list[np.ndarray]) -> dict:
+    return {"epoch": epoch, "loss": round(float(loss), 5), "input": round(float(x), 4),
+            "W": [r4(w) for w in W], "b": [r4(v.ravel()) for v in b], "a": fire(W, b, x)}
+
+
+def train(zero: bool) -> tuple[list[dict], list[tuple[int, float]], dict]:
+    """The lesson's code, run for real (zero=True: the shortcut, every weight starts at 0)."""
     np.random.seed(0)
-    W1 = np.zeros((2, 4)) if zero else np.random.randn(2, 4) * 0.5
-    b1 = np.zeros((1, 4))
-    W2 = np.zeros((4, 1)) if zero else np.random.randn(4, 1) * 0.5
-    b2 = np.zeros((1, 1))
-    sig = lambda z: 1 / (1 + np.exp(-z))  # noqa: E731
+    shapes = {"W1": (1, 4), "W2": (4, 4), "W3": (4, 1)}
+    W = [np.zeros(shapes[k]) if zero else np.random.randn(*shapes[k]) * SCALE[k] for k in ("W1", "W2", "W3")]
+    b = [np.zeros((1, 4)), np.zeros((1, 4)), np.zeros((1, 1))]
     frames: list[dict] = []
-
-    def snap(epoch: int, loss: float) -> None:
-        r = lambda a: [round(float(v), 4) for v in np.asarray(a).ravel()]  # noqa: E731
-        frames.append({"epoch": epoch, "loss": round(float(loss), 5), "W": [r(W1), r(W2)], "b": [r(b1), r(b2)]})
-
-    printed = []
-    for epoch in range(5000):
-        h = sig(X @ W1 + b1)
-        out = sig(h @ W2 + b2)
-        d_out = 2 * (out - Y) / len(X) * out * (1 - out)
-        d_h = d_out @ W2.T * h * (1 - h)
-        W2 -= h.T @ d_out
-        b2 -= d_out.sum(0)
-        W1 -= X.T @ d_h
-        b1 -= d_h.sum(0)
+    printed: list[tuple[int, float]] = []
+    for epoch in range(EPOCHS):
+        h1 = np.tanh(X @ W[0] + b[0])
+        h2 = np.tanh(h1 @ W[1] + b[1])
+        out = h2 @ W[2] + b[2]
         loss = np.mean((out - Y) ** 2)
-        if epoch % 250 == 0:
-            snap(epoch, loss)
-        if epoch % 1000 == 0:
-            printed.append(float(loss))
-    out = sig(sig(X @ W1 + b1) @ W2 + b2)
-    snap(5000, np.mean((out - Y) ** 2))
-    preds = (out > 0.5).astype(int).ravel().tolist()
-    return frames, printed, {"predictions": preds}
+        if epoch % SNAP == 0:  # the weights that made this epoch's loss
+            frames.append(frame(epoch, loss, SAMPLES[len(frames) % len(SAMPLES)][0], W, b))
+        if epoch % PRINT_EVERY == 0:
+            printed.append((epoch, round(float(loss), 4)))  # what nn.py prints (loss {loss:.4f})
+        d_out = 2 * (out - Y) / len(X)
+        d_h2 = d_out @ W[2].T * (1 - h2 ** 2)
+        d_h1 = d_h2 @ W[1].T * (1 - h1 ** 2)
+        grads = [(X.T @ d_h1, d_h1.sum(0)), (h1.T @ d_h2, d_h2.sum(0)), (h2.T @ d_out, d_out.sum(0))]
+        for k, (dW, db) in enumerate(grads):
+            W[k] -= LR * dW
+            b[k] -= LR * db
+    out = np.tanh(np.tanh(X @ W[0] + b[0]) @ W[1] + b[1]) @ W[2] + b[2]
+    frames.append(frame(EPOCHS, np.mean((out - Y) ** 2), SAMPLES[len(frames) % len(SAMPLES)][0], W, b))
+    t = np.array(TEST_X).reshape(-1, 1)
+    answers = (np.round(np.tanh(np.tanh(t @ W[0] + b[0]) @ W[1] + b[1]) @ W[2] + b[2], 1) + 0.0).ravel().tolist()
+    return frames, printed, {"answers": answers, "loss": float(np.mean((out - Y) ** 2)),
+                             "max_error": float(np.abs(out - Y).max())}
 
 
 ZEROS, ZERO_PRINTS, _ = train(zero=True)
 FIXED, FIXED_PRINTS, FIXED_END = train(zero=False)
-assert all(abs(v - 0.25) < 1e-9 for v in ZERO_PRINTS), ZERO_PRINTS
-assert FIXED_PRINTS[-1] < 0.01, FIXED_PRINTS
-assert FIXED_END["predictions"] == [0, 1, 1, 0], FIXED_END
+assert abs(STUCK_LOSS - 0.49) < 1e-12, STUCK_LOSS
+assert all(abs(v - STUCK_LOSS) < 1e-9 for _, v in ZERO_PRINTS), ZERO_PRINTS
+assert all(f["a"][1] == [0.0] * 4 and f["a"][2] == [0.0] * 4 for f in ZEROS), "zeros: every hidden neuron is 0"
+assert sorted(FIXED_PRINTS[-5:])[2][1] < LOSS_TARGET, FIXED_PRINTS  # the run check: median of the last 5 printed
+assert FIXED_END["answers"] == [-1.0, 0.0, 1.0], FIXED_END
+
+
+def forward_frames(f: dict) -> list[dict]:
+    """The trained network answering every sample: f's weights, once per x."""
+    W = [np.array(w) for w in f["W"]]
+    b = [np.array(v) for v in f["b"]]
+    return [{**f, "input": s[0], "a": fire(W, b, s[0])} for s in SAMPLES]
 
 
 def net(mode: str, frames: list[dict], caption: str) -> dict:
@@ -154,9 +218,10 @@ def net(mode: str, frames: list[dict], caption: str) -> dict:
         "kind": "network",
         "caption": caption,
         "data": {
-            "layers": [2, 4, 1], "activation": "sigmoid", "inputs": ["x₁", "x₂"], "output": "ŷ",
+            "layers": [1, 4, 4, 1], "activation": "tanh", "inputs": ["x"], "output": "ŷ",
+            "labels": {"input": ["x"], "output": ["y"]}, "placement": "drawer",
             "derivatives": [], "residual": "",  # the contract's network fields (the classic view ignores them here)
-            "mode": mode, "frames": frames, "samples": X.tolist(), "targets": Y.ravel().tolist(),
+            "mode": mode, "frames": frames, "samples": SAMPLES, "targets": TARGETS,
         },
     }
 
@@ -164,20 +229,23 @@ def net(mode: str, frames: list[dict], caption: str) -> dict:
 # Per step: what the drawer's right-hand panel shows when the step starts (the engine redraws the training ones from
 # the learner's own run: server/orchestrator/curated.py). nn4-gradients is the stuck-loss picture.
 DIAGRAMS = {
-    "nn1-network": net("forward", FIXED[-1:],
-                       "What you're building. Brightness is a neuron's activation; blue weights push up, brown push down."),
+    "nn1-network": net("forward", forward_frames(FIXED[-1]),
+                       "What you're building: x goes in, y comes out. Brightness is a neuron's activation; blue weights "
+                       "push up, brown push down."),
     "nn2-network": net("backward", FIXED[:1],
                        "Backprop: the output's error flows back along the same weights, and each weight gets its share."),
     "nn3-network": net("train", FIXED,
-                       "What your loop will do: every weight takes a small step downhill 5,000 times, and ŷ settles on 0 1 1 0."),
+                       f"What your loop will do: every weight takes a small step downhill {EPOCHS:,} times, and y "
+                       "settles on sin(x)."),
     "nn4-network": net("train", FIXED,
                        "Run it and the weights move while the loss falls. This redraws from your run."),
     "nn4-gradients": net("train", ZEROS,
-                         "Your run: all four hidden neurons are the same neuron. Same start, same update, so nothing moves."),
+                         "Your run: all eight hidden neurons are the same neuron. Same start, same update, so nothing "
+                         "moves."),
     "nn5-network": net("train", FIXED,
-                       "Your network training: the weights move while the loss falls, and ŷ settles on 0 1 1 0."),
-    "nn6-network": net("forward", FIXED[-1:],
-                       "Your trained network answering 00, 01, 10 and 11."),
+                       "Your network training: the weights move while the loss falls, and y settles on sin(x)."),
+    "nn6-network": net("forward", forward_frames(FIXED[-1]),
+                       "Your trained network: x goes in, sin(x) comes out."),
 }
 
 # ---------------------------------------------------------------------------------------------------------------
@@ -187,7 +255,13 @@ DIAGRAMS = {
 # ---------------------------------------------------------------------------------------------------------------
 
 METRIC = r"epoch\s+(?P<step>\d+)\s+loss\s+(?P<value>[0-9Oo.eE+-]+)"  # O: OCR reads 0.0009 as O.0009 at times
-XOR_OUT = r"\[\s*0\s*,?\s*1\s*,?\s*1\s*,?\s*0\s*\]"  # [0 1 1 0], tolerant of OCR spacing ("[0 11 0]") and a list
+# [-1.0, 0.0, 1.0] (or -0.0), tolerant of OCR spacing, a missing comma and an O read for a 0
+SIN_OUT = r"\[\s*-\s*1\.[0O]\s*,?\s*-?\s*[0O]\.[0O]\s*,?\s*1\.[0O]\s*\]"
+INIT_RX = r"W1\s*=\s*np\.[\s\S]*W2\s*=\s*np\.[\s\S]*W3\s*=\s*np\."
+LOOP_RX = rf"for\s+epoch\s+in\s+range\(\s*{EPOCHS}\s*\)"
+UPDATE_RX = r"W3\s*-=\s*lr\s*\*\s*dW3[\s\S]*W2\s*-=\s*lr\s*\*\s*dW2[\s\S]*W1\s*-=\s*lr\s*\*\s*dW1"
+ANSWERS_RX = r"np\.round\(\s*out\s*,\s*1\s*\)"
+WEIGHTS_RX = r"\(\s*[\"']W1[\"']\s*,\s*W1\s*\)[\s\S]*\(\s*[\"']W3[\"']\s*,\s*W3\s*\)"
 
 
 def step(sid: str, index: int, **kw) -> dict:
@@ -207,33 +281,36 @@ STEPS = [
         "nn1", 1,
         title="Build the network",
         kind="code",
-        what="The XOR data, random weights and a forward pass",
-        why="Every guess the network makes is this forward pass: weighted sums squished by sigmoid, one layer at a time.",
+        what="The sine data, random weights and a forward pass",
+        why="Every guess the network makes is this forward pass: x goes through two layers of tanh neurons, and the "
+            "output neuron adds them up into y.",
         concepts=["p1", "p2", "p3"],
         action="In nn.py, paste this under # The network",
-        instructions="Under # The network, add the XOR data, the weights and the forward pass.",
+        instructions="Under # The network, add the data (y = sin(x)), the weights and the forward pass.",
         checks=[
-            {"id": "nn1c1", "type": "screen_contains", "label": "The XOR data is in nn.py", "app": "Code",
-             "pattern": r"y\s*=\s*np\.array\(\s*\[\s*\[\s*0\s*\]\s*,\s*\[\s*1\s*\]"},
-            {"id": "nn1c2", "type": "screen_contains", "label": "W1 and W2 are created", "app": "Code",
-             "pattern": r"W1\s*=\s*np\.[\s\S]*W2\s*=\s*np\."},
+            {"id": "nn1c1", "type": "screen_contains", "label": "The sine data is in nn.py", "app": "Code",
+             "pattern": r"y\s*=\s*np\.sin\(\s*X\s*\)"},
+            {"id": "nn1c2", "type": "screen_contains", "label": "W1, W2 and W3 are created", "app": "Code",
+             "pattern": INIT_RX},
             {"id": "nn1c3", "type": "screen_contains", "label": "forward() is defined", "app": "Code",
              "pattern": r"def\s+forward\s*\(\s*X\s*\)"},
         ],
         precision_checks=[
-            {"id": "nn1p1", "type": "file_contains", "label": "nn.py has the XOR data", "file": "nn.py",
-             "pattern": r"y\s*=\s*np\.array\(\s*\[\s*\[\s*0\s*\]\s*,\s*\[\s*1\s*\]"},
-            {"id": "nn1p2", "type": "file_contains", "label": "nn.py creates W1 and W2", "file": "nn.py",
-             "pattern": r"W1\s*=\s*np\.[\s\S]*W2\s*=\s*np\."},
-            {"id": "nn1p3", "type": "file_contains", "label": "nn.py defines sigmoid and forward", "file": "nn.py",
-             "pattern": r"1\s*/\s*\(\s*1\s*\+\s*np\.exp\(\s*-\s*z\s*\)\s*\)[\s\S]*def\s+forward\s*\(\s*X\s*\)\s*:"},
+            {"id": "nn1p1", "type": "file_contains", "label": "nn.py has the sine data", "file": "nn.py",
+             "pattern": r"X\s*=\s*np\.linspace\([\s\S]*y\s*=\s*np\.sin\(\s*X\s*\)"},
+            {"id": "nn1p2", "type": "file_contains", "label": "nn.py creates W1, W2 and W3", "file": "nn.py",
+             "pattern": INIT_RX},
+            {"id": "nn1p3", "type": "file_contains", "label": "nn.py defines forward with two tanh layers",
+             "file": "nn.py",
+             "pattern": r"def\s+forward\s*\(\s*X\s*\)\s*:[\s\S]*np\.tanh\([\s\S]*np\.tanh\([\s\S]*@\s*W3"},
         ],
         targets=code_target("nn1", "Paste the network under this line"),
         hints=[
             "Copy the code from the drawer and paste it under # The network.",
-            "forward returns two things: the hidden layer h and the output.",
+            "forward returns three things: the two hidden layers h1 and h2, and the output.",
         ],
-        common_mistakes=["Pasting above import numpy as np, so np isn't defined yet.", "Losing the indentation inside def forward."],
+        common_mistakes=["Pasting above import numpy as np, so np isn't defined yet.",
+                         "Losing the indentation inside def forward."],
         estMinutes=4,
     ),
     step(
@@ -241,61 +318,65 @@ STEPS = [
         title="Backprop",
         kind="code",
         what="A gradient for every weight, with the chain rule",
-        why="The chain rule sends the output's error back one layer at a time, so each weight learns its share of the blame.",
+        why="The chain rule sends the output's error back one layer at a time, so each weight learns its share of the "
+            "blame.",
         concepts=["p4"],
         action="In nn.py, paste backward under # Backprop",
-        instructions="Under # Backprop, add backward. It returns one gradient per weight.",
+        instructions="Under # Backprop, add backward. It returns one gradient per weight and bias.",
         checks=[
             {"id": "nn2c1", "type": "screen_contains", "label": "backward() is defined", "app": "Code",
              "pattern": r"def\s+backward\s*\("},
-            {"id": "nn2c2", "type": "screen_contains", "label": "The error flows back through W2", "app": "Code",
-             "pattern": r"d_h\s*=\s*d_out\s*@\s*W2\.T"},
+            {"id": "nn2c2", "type": "screen_contains", "label": "The error flows back through W3 and W2", "app": "Code",
+             "pattern": r"d_h2\s*=\s*d_out\s*@\s*W3\.T[\s\S]*d_h1\s*=\s*d_h2\s*@\s*W2\.T"},
         ],
         precision_checks=[
             {"id": "nn2p1", "type": "file_contains", "label": "nn.py defines backward", "file": "nn.py",
-             "pattern": r"def\s+backward\s*\(\s*X\s*,\s*y\s*,\s*h\s*,\s*out\s*\)\s*:"},
-            {"id": "nn2p2", "type": "file_contains", "label": "nn.py sends the error back through W2", "file": "nn.py",
-             "pattern": r"d_h\s*=\s*d_out\s*@\s*W2\.T"},
+             "pattern": r"def\s+backward\s*\(\s*X\s*,\s*y\s*,\s*h1\s*,\s*h2\s*,\s*out\s*\)\s*:"},
+            {"id": "nn2p2", "type": "file_contains", "label": "nn.py sends the error back through W3 and W2",
+             "file": "nn.py", "pattern": r"d_h2\s*=\s*d_out\s*@\s*W3\.T[\s\S]*d_h1\s*=\s*d_h2\s*@\s*W2\.T"},
         ],
         targets=code_target("nn2", "Paste backward under this line"),
         hints=[
-            "Start at the output: d_out is the error times sigmoid's slope, out * (1 - out).",
-            "d_h sends d_out back through W2, then multiplies by the hidden layer's slope.",
+            "Start at the output: d_out is how wrong it was. The output has no tanh, so there is no slope to multiply.",
+            "d_h2 sends d_out back through W3, then multiplies by tanh's slope, 1 - h2 ** 2. d_h1 does the same "
+            "through W2.",
         ],
-        common_mistakes=["Writing W2 instead of W2.T, so the shapes don't line up.", "Forgetting the hidden slope h * (1 - h)."],
+        common_mistakes=["Writing W3 instead of W3.T, so the shapes don't line up.",
+                         "Forgetting tanh's slope (1 - h ** 2) on a hidden layer."],
         estMinutes=3,
     ),
     step(
         "nn3", 3,
         title="Write the training loop",
         kind="code",
-        what="A loop that steps every weight downhill 5,000 times",
-        why="Each step lowers the loss a little. The loop prints the loss every 1,000 epochs so you can watch it fall.",
+        what=f"A loop that steps every weight downhill {EPOCHS:,} times",
+        why=f"Each step lowers the loss a little. The loop prints the loss every {PRINT_EVERY:,} epochs so you can "
+            "watch it fall.",
         concepts=["p4"],
         action="In nn.py, paste the loop under # Training",
-        instructions="Under # Training, add the training loop. It prints the loss every 1,000 epochs.",
+        instructions=f"Under # Training, add the training loop. It prints the loss every {PRINT_EVERY:,} epochs.",
         checks=[
-            {"id": "nn3c1", "type": "screen_contains", "label": "The loop runs 5,000 epochs", "app": "Code",
-             "pattern": r"for\s+epoch\s+in\s+range\(\s*5000\s*\)"},
+            {"id": "nn3c1", "type": "screen_contains", "label": f"The loop runs {EPOCHS:,} epochs", "app": "Code",
+             "pattern": LOOP_RX},
             {"id": "nn3c2", "type": "screen_contains", "label": "Every weight steps downhill", "app": "Code",
-             "pattern": r"W2\s*-=\s*lr\s*\*\s*dW2[\s\S]*W1\s*-=\s*lr\s*\*\s*dW1"},
+             "pattern": UPDATE_RX},
             {"id": "nn3c3", "type": "screen_contains", "label": "It prints the loss", "app": "Code",
              "pattern": r"print\(\s*f[\"']epoch"},
         ],
         precision_checks=[
             {"id": "nn3p1", "type": "file_contains", "label": "nn.py has the training loop", "file": "nn.py",
-             "pattern": r"for\s+epoch\s+in\s+range\(\s*5000\s*\)"},
-            {"id": "nn3p2", "type": "file_contains", "label": "nn.py updates W1 and W2", "file": "nn.py",
-             "pattern": r"W2\s*-=\s*lr\s*\*\s*dW2[\s\S]*W1\s*-=\s*lr\s*\*\s*dW1"},
+             "pattern": LOOP_RX},
+            {"id": "nn3p2", "type": "file_contains", "label": "nn.py updates W1, W2 and W3", "file": "nn.py",
+             "pattern": UPDATE_RX},
             {"id": "nn3p3", "type": "file_contains", "label": "nn.py prints the loss", "file": "nn.py",
              "pattern": r"print\(\s*f[\"']epoch"},
         ],
         targets=code_target("nn3", "Paste the loop under this line"),
         hints=[
             "Copy the loop from the drawer and paste it under # Training, with its indentation.",
-            "Inside the loop: forward, backward, then W -= lr * dW for all four weights.",
+            "Inside the loop: forward, backward, then W -= lr * dW for all three weights and all three biases.",
         ],
-        common_mistakes=["Losing the indentation under for epoch.", "Updating only W1 and W2, not the biases."],
+        common_mistakes=["Losing the indentation under for epoch.", "Updating only the weights, not the biases."],
         estMinutes=3,
     ),
     step(
@@ -308,21 +389,22 @@ STEPS = [
         instructions="Run nn.py in VS Code's terminal and watch the loss.",
         run_command=RUN,
         checks=[
-            {"id": "nn4c1", "type": "metric_threshold", "label": "Loss falls below 0.01", "metric": "loss",
-             "op": "<", "value": 0.01, "metric_pattern": METRIC, "by_step": 4000},
+            {"id": "nn4c1", "type": "metric_threshold", "label": f"Loss falls below {LOSS_TARGET:g}", "metric": "loss",
+             "op": "<", "value": LOSS_TARGET, "metric_pattern": METRIC, "by_step": BY_EPOCH},
         ],
         precision_checks=[
-            {"id": "nn4p1", "type": "file_contains", "label": "The saved nn.py runs 5,000 epochs", "file": "nn.py",
-             "pattern": r"for\s+epoch\s+in\s+range\(\s*5000\s*\)"},
-            {"id": "nn4p2", "type": "metric_threshold", "label": "Your run's loss falls below 0.01", "metric": "loss",
-             "op": "<", "value": 0.01, "metric_pattern": METRIC, "by_step": 4000},
+            {"id": "nn4p1", "type": "file_contains", "label": f"The saved nn.py runs {EPOCHS:,} epochs",
+             "file": "nn.py", "pattern": LOOP_RX},
+            {"id": "nn4p2", "type": "metric_threshold", "label": f"Your run's loss falls below {LOSS_TARGET:g}",
+             "metric": "loss", "op": "<", "value": LOSS_TARGET, "metric_pattern": METRIC, "by_step": BY_EPOCH},
         ],
         targets=RUN_TARGET,
         hints=[
             "Press Run it for me, or run the command in VS Code's terminal (Terminal > New Terminal).",
-            "Watch the epoch lines: the loss should fall below 0.01 by epoch 4000.",
+            f"Watch the epoch lines: the loss should fall below {LOSS_TARGET:g} by epoch {BY_EPOCH}.",
         ],
-        common_mistakes=["Starting W1 and W2 at zero: every hidden neuron stays identical and the loss never moves.",
+        common_mistakes=["Starting W1, W2 and W3 at zero: every hidden neuron stays identical and the loss never "
+                         "moves.",
                          "Running before saving, so the old file runs."],
         estMinutes=1,
     ),
@@ -331,50 +413,52 @@ STEPS = [
         title="Test it",
         kind="code",
         what="Print its answers and the weights it learned",
-        why="Outputs above 0.5 count as 1, so you can check its answers against XOR. The weights are what it learned.",
+        why="sin(-π/2) = -1, sin(0) = 0 and sin(π/2) = 1, so you can check its answers. The weights are what it learned.",
         concepts=["p1"],
         action="In nn.py, paste this under # Test it",
-        instructions="Under # Test it, print the predictions and the weights.",
+        instructions="Under # Test it, print its answers for -π/2, 0 and π/2, and the weights.",
         checks=[
-            {"id": "nn5c1", "type": "screen_contains", "label": "It prints the predictions", "app": "Code",
-             "pattern": r"\(\s*out\s*>\s*0\.5\s*\)\.astype\(\s*int\s*\)"},
-            {"id": "nn5c2", "type": "screen_contains", "label": "It prints W1, b1, W2 and b2", "app": "Code",
-             "pattern": r"\(\s*[\"']W1[\"']\s*,\s*W1\s*\)"},
+            {"id": "nn5c1", "type": "screen_contains", "label": "It prints its answers", "app": "Code",
+             "pattern": ANSWERS_RX},
+            {"id": "nn5c2", "type": "screen_contains", "label": "It prints W1 to b3", "app": "Code",
+             "pattern": WEIGHTS_RX},
         ],
         precision_checks=[
-            {"id": "nn5p1", "type": "file_contains", "label": "nn.py prints the predictions", "file": "nn.py",
-             "pattern": r"\(\s*out\s*>\s*0\.5\s*\)\.astype\(\s*int\s*\)"},
+            {"id": "nn5p1", "type": "file_contains", "label": "nn.py prints its answers", "file": "nn.py",
+             "pattern": ANSWERS_RX},
             {"id": "nn5p2", "type": "file_contains", "label": "nn.py prints the weights", "file": "nn.py",
-             "pattern": r"\(\s*[\"']W1[\"']\s*,\s*W1\s*\)"},
+             "pattern": WEIGHTS_RX},
         ],
         targets=code_target("nn5", "Paste the test under this line"),
-        hints=["forward(X) gives h and out; out holds the four answers.",
-               "Compare with 0.5 and turn True/False into 1/0 with .astype(int)."],
-        common_mistakes=["Printing h instead of out."],
+        hints=["forward gives h1, h2 and out; out holds its three answers.",
+               "np.round(out, 1) rounds them to one decimal, so a good network prints -1.0, 0.0 and 1.0."],
+        common_mistakes=["Printing h2 instead of out."],
         estMinutes=2,
     ),
     step(
         "nn6", 6,
         title="See what it learned",
         kind="run",
-        what="Run it: it answers 0 1 1 0",
-        why="Your network learned XOR from four examples. The panel on the right is drawn from the weights it printed.",
+        what="Run it: it answers -1, 0, 1",
+        why="Your network learned the sine curve from 50 examples. The panel on the right is drawn from the weights it "
+            "printed.",
         concepts=["p1"],
         instructions="Run nn.py again and read its answers.",
         run_command=RUN,
-        expected_output="[0 1 1 0]",
+        expected_output="[-1.0, 0.0, 1.0]",
         checks=[
-            {"id": "nn6c1", "type": "screen_contains", "label": "It answers 0 1 1 0", "app": "Terminal", "pattern": XOR_OUT},
+            {"id": "nn6c1", "type": "screen_contains", "label": "It answers -1, 0, 1", "app": "Terminal",
+             "pattern": SIN_OUT},
         ],
         precision_checks=[
             {"id": "nn6p1", "type": "file_contains", "label": "The saved nn.py prints its answers", "file": "nn.py",
-             "pattern": r"\(\s*out\s*>\s*0\.5\s*\)\.astype\(\s*int\s*\)"},
-            {"id": "nn6p2", "type": "output_contains", "label": "Your run prints [0 1 1 0]", "pattern": XOR_OUT},
+             "pattern": ANSWERS_RX},
+            {"id": "nn6p2", "type": "output_contains", "label": "Your run prints [-1.0, 0.0, 1.0]", "pattern": SIN_OUT},
         ],
         targets=RUN_TARGET,
         hints=["Press Run it for me, or run the command again in VS Code's terminal.",
-               "The first line after the losses is its answer for 00, 01, 10 and 11."],
-        common_mistakes=["Reading the loss lines instead of the [0 1 1 0] line under them."],
+               "The first line after the losses is its answer for -π/2, 0 and π/2."],
+        common_mistakes=["Reading the loss lines instead of the [-1.0, 0.0, 1.0] line under them."],
         estMinutes=1,
     ),
 ]
@@ -390,32 +474,36 @@ LESSON = {
         "complete": True,
         "builtBy": "claude",
         "curated": "nn-from-scratch",
-        "overview": ("We'll build a neural network with nothing but NumPy and teach it XOR: output 1 when exactly one input "
-                     "is 1. First the network and its forward pass, then backprop, then a training loop, and last a test "
-                     "that prints 0 1 1 0."),
+        "overview": ("We'll build a neural network with nothing but NumPy and teach it to draw a curve: y = sin(x) for x "
+                     "from -π to π. One input (x), two hidden layers of 4 neurons, one output (y). First the network "
+                     "and its forward pass, then backprop, then a training loop, and last a test that prints -1, 0, 1 "
+                     "for -π/2, 0, π/2."),
         "primer": [
             {"id": "p1", "title": "A neuron holds a number",
-             "body": "Each neuron holds a number between 0 and 1, its activation. The inputs are the data; every other "
-                     "neuron computes its number from the layer before it."},
+             "body": "The input neuron holds x. Each hidden neuron holds a number between -1 and 1, its activation, "
+                     "computed from the layer before it. The output neuron holds the network's answer, y."},
             {"id": "p2", "title": "Weights and a bias",
              "body": "Each connection multiplies the signal by a weight: positive pushes the next neuron up, negative "
-                     "pushes it down. The bias shifts how easily the neuron lights up.",
-             "code": "z = x1 * w1 + x2 * w2 + b"},
-            {"id": "p3", "title": "Sigmoid squishes",
-             "body": "Sigmoid turns any total into a number between 0 and 1, so a neuron's output reads like how active it is.",
-             "code": "1 / (1 + np.exp(-z))"},
+                     "pushes it down. The bias shifts where the neuron switches on.",
+             "code": "z = h1 * w1 + h2 * w2 + h3 * w3 + h4 * w4 + b"},
+            {"id": "p3", "title": "tanh bends",
+             "body": "tanh squishes any total into -1..1. Stacking these bends is what lets the network draw a curve; "
+                     "the output skips tanh, so it can answer any number.",
+             "code": "np.tanh(z)"},
             {"id": "p4", "title": "Learning goes downhill",
              "body": "The loss says how wrong the outputs are. Backprop finds which way each weight should move to "
                      "lower it, and each training step moves it a little that way.",
              "code": "W -= lr * dW"},
         ],
-        "build": {"summary": "A 2-4-1 neural network in NumPy that learns XOR.",
-                  "outcome": "Run it and the loss falls below 0.001; it prints [0 1 1 0] for the four inputs.",
+        "build": {"summary": "A 1-4-4-1 neural network in NumPy that learns y = sin(x).",
+                  "outcome": f"Run it and the loss falls below {LOSS_TARGET:g}; it prints [-1.0, 0.0, 1.0] for "
+                             "x = -π/2, 0, π/2.",
                   "estMinutes": sum(s["estMinutes"] for s in STEPS)},
         "flow": [
-            {"label": "Inputs", "detail": "x₁, x₂", "stepIndex": 1},
-            {"label": "Hidden layer", "detail": "σ(X·W1 + b1)", "stepIndex": 1},
-            {"label": "Output", "detail": "σ(h·W2 + b2)", "stepIndex": 1},
+            {"label": "Input", "detail": "x", "stepIndex": 1},
+            {"label": "Hidden layer 1", "detail": "tanh(X·W1 + b1)", "stepIndex": 1},
+            {"label": "Hidden layer 2", "detail": "tanh(h1·W2 + b2)", "stepIndex": 1},
+            {"label": "Output", "detail": "h2·W3 + b3", "stepIndex": 1},
             {"label": "Backprop", "detail": "chain rule", "stepIndex": 2},
             {"label": "Gradient step", "detail": "W -= lr·dW", "stepIndex": 3},
         ],
@@ -441,17 +529,18 @@ LESSON = {
 # ---------------------------------------------------------------------------------------------------------------
 
 STUCK_HINTS = [
-    "Look at how W1 and W2 start. What does every hidden neuron compute when all its weights are 0?",
-    "Start them random, like the lesson: np.random.randn(2, 4) * 0.5 and np.random.randn(4, 1) * 0.5. Save, then run again.",
+    "Look at how W1, W2 and W3 start. What does every hidden neuron compute when all its weights are 0?",
+    f"Start them random, like the lesson: W1 = {INIT['W1']}, W2 = {INIT['W2']}, W3 = {INIT['W3']}. "
+    "Save, then run again.",
 ]
 
 COACH = {
     "nn4": {
         "stepId": "nn4",
         "severity": "fail",
-        "title": "Loss is stuck at 0.25",
-        "body": "All four hidden neurons start with the same weights, so they get the same update and stay copies. "
-                "With zeros nothing moves at all. Start W1 and W2 random.",
+        "title": f"Loss is stuck at {STUCK_LOSS:.2f}",
+        "body": "All eight hidden neurons start with the same weights, so they get the same update and stay copies. "
+                "With zeros nothing moves at all: the network answers 0 for every x. Start W1, W2 and W3 random.",
         "guidingQuestion": "If every hidden neuron starts the same, can they ever become different?",
         "citation": {"label": "Goodfellow et al., Deep Learning §8.4 (breaking symmetry)",
                      "url": "https://www.deeplearningbook.org/contents/optimization.html"},
@@ -459,23 +548,45 @@ COACH = {
     }
 }
 
+FIRST, LAST = FIXED_PRINTS[0][1], FIXED_PRINTS[-1][1]
+
 EXPLAIN = {
-    "nn1": ("What a neuron does", "It adds its inputs, each times a weight, plus a bias, then sigmoid squishes the total into 0..1. That number is how lit up it is."),
-    "nn2": ("How backprop assigns blame", "Start at the output: how wrong was it? Each weight into it is blamed by how much it contributed. Then do the same one layer back."),
-    "nn3": ("One pass of the loop", "forward makes a guess, backward says which way each weight should move, and each weight moves a little that way (lr sets how far). 5,000 times."),
-    "nn4": ("Reading the loss", "The loss is the mean squared error over the four inputs. Answering 0.5 for everything scores 0.25; a network that has learned XOR goes below 0.01."),
-    "nn4-stuck": ("Why zeros can't learn", "All four hidden neurons compute sigmoid(0) = 0.5 and get the same update, so they stay copies. Here the gradient is exactly zero."),
-    "nn5": ("Reading the output", "Outputs are between 0 and 1. Above 0.5 counts as 1, so 0.03 0.98 0.97 0.03 reads as 0 1 1 0."),
-    "nn6": ("What the weights mean", "Hidden neuron 1 turns on when either input is 1 (OR); neuron 3 only when both are (AND). The output adds the first and subtracts the third: OR minus AND is XOR."),
+    "nn1": ("What a neuron does", "It adds its inputs, each times a weight, plus a bias, then tanh squishes the total "
+                                  "into -1..1. That number is how lit up it is. The output neuron skips tanh, so it can "
+                                  "answer any number."),
+    "nn2": ("How backprop assigns blame", "Start at the output: how wrong was it? Each weight into it is blamed by how "
+                                          "much it contributed. Then do the same one layer back, and once more."),
+    "nn3": ("One pass of the loop", f"forward makes a guess for all {N_POINTS} points, backward says which way each "
+                                    f"weight should move, and each weight moves a little that way (lr sets how far). "
+                                    f"{EPOCHS:,} times."),
+    "nn4": ("Reading the loss", f"The loss is the mean squared error over the {N_POINTS} points. Answering 0 for every "
+                                f"x scores {STUCK_LOSS:.2f}; a network that has learned the curve goes below "
+                                f"{LOSS_TARGET:g}."),
+    "nn4-stuck": ("Why zeros can't learn", "With every weight at 0, all eight hidden neurons output tanh(0) = 0, so the "
+                                           "network answers 0 for every x. Every weight's gradient is exactly zero, "
+                                           "so they stay copies and nothing moves."),
+    "nn5": ("Reading the output", "sin(-π/2) = -1, sin(0) = 0 and sin(π/2) = 1. Rounded to one decimal, a network that "
+                                  "learned the curve prints exactly those."),
+    "nn6": ("What the weights mean", "Each first-layer neuron is tanh(w·x), an S-curve through 0: steep when its "
+                                     "weight is big, gentle when it's small. The second layer mixes those S-curves, "
+                                     "and the output adds them up into the sine wave. The biases stay at 0: sin is "
+                                     "symmetric (sin(-x) = -sin(x)), and so is a network with no biases."),
 }
 
 ASK = {
-    "nn1": ("Sigmoid or ReLU?", "Both work. Sigmoid keeps outputs in 0..1 like XOR's answers, and its slope σ(1 − σ) keeps backprop to one line."),
-    "nn2": ("Why out * (1 - out)?", "It's sigmoid's slope. The chain rule multiplies it in wherever the signal went through a sigmoid."),
-    "nn3": ("Why lr = 1.0?", "A tiny network with a smooth loss can take big steps. On real data you'd start nearer 0.01."),
-    "nn4": ("Why 5,000 epochs?", "XOR needs a few thousand small steps from this start; by epoch 4000 the loss is under 0.001."),
-    "nn5": ("Why round the weights?", "Three decimals are enough to read them, and the drawing on the right uses the same numbers."),
-    "nn6": ("What next?", "Swap XOR for real data: more inputs, a bigger hidden layer, and the same four pieces."),
+    "nn1": ("Why no tanh on the output?", "tanh keeps a neuron between -1 and 1. The hidden layers need that bend; the "
+                                          "output just adds them up, so it can reach any value. Its weights start "
+                                          "small (* 0.1), so its first guesses are near 0."),
+    "nn2": ("Why 1 - h2 ** 2?", "It's tanh's slope. The chain rule multiplies it in wherever the signal went through "
+                                "a tanh."),
+    "nn3": (f"Why lr = {LR:g}?", "Small enough that each step doesn't overshoot, big enough to finish in a second. "
+                                 "Real networks tune it the same way: try a few and watch the loss."),
+    "nn4": (f"Why {EPOCHS:,} epochs?", f"Plain gradient descent takes small steps. From this start the loss goes from "
+                                       f"{FIRST:.4f} to {LAST:.4f} by epoch {FIXED_PRINTS[-1][0]:,}, in about a second."),
+    "nn5": ("Why round the weights?", "Three decimals are enough to read them, and the drawing on the right uses the "
+                                      "same numbers."),
+    "nn6": ("What next?", "Swap np.sin for another curve, like np.cos, and train again: the same network and the same "
+                          "four pieces learn it."),
 }
 
 
@@ -509,7 +620,9 @@ def main() -> None:
         write(CACHE / "cards" / f"nn4-stuck-hint{level}.json", card("nn4", "hint", f"Hint {level + 1} of {len(STUCK_HINTS)}", text))
     for name, d in DIAGRAMS.items():
         write(CACHE / "diagrams" / f"{name}.json", d)
-    print(f"zeros: loss {ZERO_PRINTS} · lesson code: loss {[round(v, 4) for v in FIXED_PRINTS]}")
+    print(f"zeros: loss {[v for _, v in ZERO_PRINTS]} · lesson code: loss {[v for _, v in FIXED_PRINTS]}")
+    print(f"lesson code: final loss {FIXED_END['loss']:.6f}, max error {FIXED_END['max_error']:.3f}, "
+          f"answers {FIXED_END['answers']}")
     print(f"wrote {LAB.relative_to(ROOT)}/ and demo/cache/(lessons|coach|cards|diagrams) for {len(STEPS)} steps")
 
 

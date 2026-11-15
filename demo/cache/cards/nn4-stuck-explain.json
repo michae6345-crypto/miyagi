@@ -2,5 +2,5 @@
  "stepId": "nn4",
  "kind": "explain",
  "title": "Why zeros can't learn",
- "body": "All four hidden neurons compute sigmoid(0) = 0.5 and get the same update, so they stay copies. Here the gradient is exactly zero."
+ "body": "With every weight at 0, all eight hidden neurons output tanh(0) = 0, so the network answers 0 for every x. Every weight's gradient is exactly zero, so they stay copies and nothing moves."
 }

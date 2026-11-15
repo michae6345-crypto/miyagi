@@ -2,5 +2,5 @@
  "stepId": "nn3",
  "kind": "explain",
  "title": "One pass of the loop",
- "body": "forward makes a guess, backward says which way each weight should move, and each weight moves a little that way (lr sets how far). 5,000 times."
+ "body": "forward makes a guess for all 50 points, backward says which way each weight should move, and each weight moves a little that way (lr sets how far). 20,000 times."
 }
