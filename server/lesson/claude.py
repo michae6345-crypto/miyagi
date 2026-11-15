@@ -20,11 +20,12 @@ from .transcript import format_for_prompt
 
 log = logging.getLogger("server.lesson")
 
-DEFAULT_MODEL = "claude-opus-5-5"
+DEFAULT_MODEL = "claude-sonnet-5-5"  # cost: never Opus by default (an Opus default once cost ~$80 in an hour)
+OPUS_MODEL = "claude-opus-5-5"
 # Cheapest model that holds quality per job; Opus only when a quality check fails (escalation).
 ROLE_MODELS = {"segment": "claude-sonnet-5-5", "detail": "claude-haiku-5-5", "adapt": "claude-haiku-5-5", "judge": "claude-haiku-5-5",
-               "escalate": "claude-opus-5-5"}
-ESCALATION_MODEL = "claude-opus-5-5"
+               "escalate": "claude-sonnet-5-5"}
+ESCALATION_MODEL = "claude-sonnet-5-5"  # Opus only with LESSON_ALLOW_OPUS=1
 last_model: str | None = None  # model that served the most recent successful call (for build.model)
 _client: anthropic.AsyncAnthropic | None = None
 _override_key: str | None = None
@@ -36,19 +37,36 @@ def set_api_key(key: str | None) -> None:
     _override_key, _client = key or None, None
 
 
+def opus_allowed() -> bool:
+    """Opus is opt-in only: LESSON_ALLOW_OPUS=1."""
+    gemini._load_env()
+    return os.environ.get("LESSON_ALLOW_OPUS", "0") == "1"
+
+
+def _guard(mid: str) -> str:
+    if "opus" in mid and not opus_allowed():
+        log.warning("%s requested without LESSON_ALLOW_OPUS=1; using %s", mid, DEFAULT_MODEL)
+        return DEFAULT_MODEL
+    return mid
+
+
 def model(role: str | None = None) -> str:
-    """LESSON_CLAUDE_MODEL forces one model for everything; else LESSON_CLAUDE_MODEL_<ROLE> or ROLE_MODELS."""
+    """LESSON_CLAUDE_MODEL forces one model for everything; else LESSON_CLAUDE_MODEL_<ROLE> or ROLE_MODELS.
+    Any Opus choice is downgraded to Sonnet unless LESSON_ALLOW_OPUS=1."""
     gemini._load_env()
     if os.environ.get("LESSON_CLAUDE_MODEL"):
-        return os.environ["LESSON_CLAUDE_MODEL"]
+        return _guard(os.environ["LESSON_CLAUDE_MODEL"])
     if role is None:
         return DEFAULT_MODEL
-    return os.environ.get(f"LESSON_CLAUDE_MODEL_{role.upper()}", ROLE_MODELS.get(role, DEFAULT_MODEL))
+    if role == "escalate":
+        return escalation_model()
+    return _guard(os.environ.get(f"LESSON_CLAUDE_MODEL_{role.upper()}", ROLE_MODELS.get(role, DEFAULT_MODEL)))
 
 
 def escalation_model() -> str:
     gemini._load_env()
-    return os.environ.get("LESSON_CLAUDE_MODEL_ESCALATE", ESCALATION_MODEL)
+    default = OPUS_MODEL if opus_allowed() else ESCALATION_MODEL
+    return _guard(os.environ.get("LESSON_CLAUDE_MODEL_ESCALATE", default))
 
 
 def client() -> anthropic.AsyncAnthropic:
@@ -85,7 +103,8 @@ _fast_ok = True  # flips off for the process if fast mode is rate-limited or una
 
 def _use_fast() -> bool:
     gemini._load_env()
-    return _fast_ok and os.environ.get("LESSON_CLAUDE_FAST", "1") != "0"
+    # fast mode is premium-priced and Opus-only: off unless explicitly enabled (and Opus is allowed)
+    return _fast_ok and os.environ.get("LESSON_CLAUDE_FAST", "0") == "1" and opus_allowed()
 
 
 CONCURRENCY = int(os.environ.get("LESSON_CLAUDE_CONCURRENCY", "4"))  # per process: segment + per-step + adapt batches add up
@@ -177,6 +196,8 @@ async def _call_once(mid: str, system: str, prompt: str, *, effort: str, schema:
         raise RuntimeError(f"Claude unreachable: {e}") from e
     u = getattr(msg, "usage", None)
     cost.add_tokens(getattr(msg, "model", None) or mid, getattr(u, "input_tokens", 0), getattr(u, "output_tokens", 0))
+    log.info("claude call: model=%s in=%s out=%s fast=%s", getattr(msg, "model", None) or mid,
+             getattr(u, "input_tokens", "?"), getattr(u, "output_tokens", "?"), fast)
     if msg.stop_reason == "refusal":
         raise RuntimeError(f"Claude declined: {getattr(msg, 'stop_details', None)}")
     if msg.stop_reason == "max_tokens":
