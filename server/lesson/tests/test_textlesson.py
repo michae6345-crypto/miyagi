@@ -75,8 +75,10 @@ def fake_claude(monkeypatch, tmp_path):
             out = data["plan"]
         else:
             idx = int(prompt.split("Write step ", 1)[1].split(":", 1)[0])
+            title = prompt.split("Write step ", 1)[1].split('"', 2)[1]  # the plan may have been reordered: match by title
+            k = next(j for j, st in enumerate(data["plan"]["steps"]) if st["title"] == title)
             await asyncio.sleep(0.01 * idx)  # later steps finish at different times
-            out = data["steps"][idx - 1]
+            out = data["steps"][k]
         assert check is None or check(out) is None
         return json.loads(json.dumps(out))
 
@@ -201,3 +203,54 @@ def test_prompts_never_see_the_absolute_workdir(fake_claude, tmp_path, monkeypat
     (wd / "calculator.py").write_text("")
     asyncio.run(textlesson.build_text_lesson("build a calculator in Python", str(wd)))
     assert seen and all(str(wd) not in p for p in seen)
+
+
+# ---- Michael's rules for text-lesson steps -------------------------------------------------
+
+def test_plan_order_code_first_and_run_after_its_code():
+    plan = [{"title": "Run the calculator", "instructions": "Run calculator.py in the terminal.", "file": ""},
+            {"title": "Write add", "instructions": "Add an add function.", "file": "calculator.py"},
+            {"title": "Read input", "instructions": "Ask for two numbers.", "file": "calculator.py"},
+            {"title": "Install pytest", "instructions": "Run pip install pytest.", "file": ""}]
+    out = textlesson.order_plan(plan)
+    assert out[0]["title"] == "Write add"  # step 1 types code, never the terminal
+    run_at = [s["title"] for s in out].index("Run the calculator")
+    assert run_at > [s["title"] for s in out].index("Read input")  # runs only after the code it runs exists
+
+
+def test_step_wording_and_run_step_checks():
+    code = textlesson.shape_step({"id": "s1", "file": "calculator.py", "code": "def add(a, b):\n    return a + b",
+                                  "instructions": "Open calculator.py (the file on the left) and type this in the VS Code terminal: the add function, carefully.",
+                                  "checks": [], "precision_checks": []})
+    assert code["instructions"] == "In calculator.py, type the code below."  # had 'terminal' and a parenthetical
+    short = textlesson.shape_step({"id": "s2", "file": "calculator.py", "code": "x = 1", "instructions": "Add a subtract function (like add).",
+                                   "checks": [], "precision_checks": []})
+    assert short["instructions"] == "Add a subtract function." and len(short["instructions"].split()) <= 10
+    run = textlesson.shape_step({"id": "s3", "file": "", "code": "", "run_command": "python calculator.py",
+                                 "instructions": "Type this in the VS Code terminal (use python3 on a Mac):",
+                                 "checks": [{"id": "s3c1", "type": "screen_contains", "label": "result", "app": "Terminal", "pattern": r"Result:\s*\d"}],
+                                 "precision_checks": []})
+    assert run["instructions"] == "Run your calculator in the terminal."  # 'terminal' for the command, no file name
+    assert run["code"] == "python calculator.py" and run["file"] == "calculator.py"
+    steps = [code, short, run]
+    textlesson.link_run_steps(steps)
+    fc = run["precision_checks"][0]
+    import re
+    assert fc["type"] == "file_contains" and fc["file"] == "calculator.py" and fc["id"] == "s3p1"
+    assert re.search(fc["pattern"], "x = 1") and not re.search(fc["pattern"], "")  # needs the code in the file
+
+
+def test_built_text_lesson_follows_the_rules(fake_claude, tmp_path):
+    lesson = json.loads(json.dumps(LESSONS["build a calculator in Python"]))
+    lesson["plan"]["steps"].insert(0, {"title": "Run it", "instructions": "Type this in the VS Code terminal (use python…", "file": ""})
+    lesson["steps"].insert(0, {"file": "", "code": "", "run_command": "python calc.py", "hints": ["h"],
+                               "checks": [{"type": "screen_contains", "label": "runs", "app": "Terminal", "pattern": r"Result:\s*\d+"}],
+                               "targets": [{"file": "calc.py", "match": "def add(", "caption": "c"}]})
+    fake_claude["lesson"] = lesson
+
+    # the fake answers by step index; after reordering, step 1 must be a code step
+    g = asyncio.run(textlesson.build_text_lesson("build a calculator in Python", str(tmp_path / "w")))
+    s1 = g["steps"][0]
+    assert not s1.get("run_command") and "terminal" not in s1["instructions"].lower()
+    for s in g["steps"]:
+        assert "(" not in s["instructions"] and len(s["instructions"].split()) <= 10, s["instructions"]
