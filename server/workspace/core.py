@@ -22,6 +22,16 @@ STATE_DIR = ".miyagi-state"  # under lessons_root(): one JSON per folder (keeps 
 VSCODE_A11Y = os.environ.get("MIYAGI_VSCODE_ACCESSIBILITY", "").strip().lower()
 VSCODE_A11Y = VSCODE_A11Y if VSCODE_A11Y in ("off", "on", "auto") else ""
 VSCODE_TITLE = "${dirty}${activeEditorShort}${separator}${rootName}${separator}${profileName}"
+# Desktop test 8 (Nov 15, 05:50-05:54): VS Code's terminal sticky scroll pinned the 3-row `.venv/bin/python …/nn.py`
+# command over an 11-row terminal (the early epochs and step 6's "[-1.0, 0.0, 1.0]" went under it); the minimap took
+# width the code needed; and VS Code opened the folder with a zsh terminal of its own, so the ▷'s "Python" terminal
+# made two. hideOnStartup "whenEmpty" + no persistent sessions: no terminal until a run makes its own.
+LESSON_VIEW = {
+    "terminal.integrated.stickyScroll.enabled": False,
+    "editor.minimap.enabled": False,
+    "terminal.integrated.enablePersistentSessions": False,
+    "terminal.integrated.hideOnStartup": "whenEmpty",
+}
 
 
 def _state_file(folder: Path) -> Path:
@@ -155,7 +165,7 @@ def _write_vscode_settings(folder: Path) -> None:
     # Only code lessons get this file. No Copilot Chat panel in a lesson window (it took ~30% of the width), and no AI
     # that writes the code for the learner (that defeats the lesson). The learner's global settings stay as they are.
     want = {"window.title": VSCODE_TITLE, "workbench.secondarySideBar.defaultVisibility": "hidden",
-            "chat.disableAIFeatures": True, **python_terminal_settings(folder)}
+            "chat.disableAIFeatures": True, **LESSON_VIEW, **python_terminal_settings(folder)}
     a11y = VSCODE_A11Y
     if not a11y:
         # The companion extension (installed Nov 14) gives exact buffer/terminal state, so the editor's AX text isn't
@@ -167,6 +177,11 @@ def _write_vscode_settings(folder: Path) -> None:
             a11y = ""
     if a11y and not (a11y == "off" and _voiceover_on()):
         want["editor.accessibilitySupport"] = a11y
+    if want.get("editor.accessibilitySupport") == "off":
+        # t8: lines 1, 27 and 49 of nn.py ran past the editor's right edge. Wrapped only while the boxes come from the
+        # OCR'd gutter (a line number per file line): the Accessibility caret row (accessibilitySupport not "off")
+        # counts one row per file line, so a wrapped line above the box would put it a row off.
+        want["editor.wordWrap"] = "on"
     try:
         if {**want, **cur} != cur:
             p.parent.mkdir(parents=True, exist_ok=True)
