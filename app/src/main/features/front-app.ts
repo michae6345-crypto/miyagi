@@ -42,6 +42,8 @@ export type FrontState = {
 const POLL_MS = 1000
 const TIMEOUT_MS = 800
 const MAX_FAILS = 5
+/** Test 12 item 8: hand activation back to the learner's app at most this often (handBack below). */
+const HAND_BACK_MS = 2000
 
 const UNKNOWN: FrontState = { known: false, name: '', bundle: '', aliases: [], miyagi: false, lesson: true }
 
@@ -140,6 +142,27 @@ export default defineMainFeature({
       publish()
     })
 
+    // Test 12 item 8: a click on the overlay (a card, the pill) can make miyagi the active app, even as an accessory
+    // app with non-focusable windows. VS Code is then inactive, and macOS spends the learner's next click there
+    // (Explorer at 08:55:40) on activating it. When miyagi is in front but none of its windows has the keyboard
+    // (the launcher and settings do when they're open), hand activation back to the app the learner was in, so
+    // that first click lands. At most once every HAND_BACK_MS. MIYAGI_HAND_BACK=0 turns it off.
+    let handedAt = 0
+    const handBack = (): void => {
+      if (process.env.MIYAGI_HAND_BACK === '0' || !lastOther || Date.now() - handedAt < HAND_BACK_MS) return
+      try {
+        if (BrowserWindow.getFocusedWindow()) return
+        if (!ctx.launcher.isDestroyed() && ctx.launcher.isVisible()) return
+      } catch {
+        return
+      }
+      handedAt = Date.now()
+      execFile('open', ['-b', lastOther], (err) => {
+        if (err) console.warn('[front-app] could not hand focus back to', lastOther, err.message)
+      })
+      if (!ctx.overlay.isDestroyed()) ctx.raise(ctx.overlay)
+    }
+
     let fails = 0
     let stopped = false
     let timer: ReturnType<typeof setTimeout> | undefined
@@ -149,6 +172,7 @@ export default defineMainFeature({
         fails = 0
         if (f) last = f
         if (f?.bundle && !MIYAGI.bundles.includes(norm(f.bundle)) && !MIYAGI.names.includes(norm(f.name))) lastOther = f.bundle
+        else if (f) handBack()
         publish()
       } catch (err) {
         fails += 1
