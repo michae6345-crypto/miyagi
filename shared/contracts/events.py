@@ -317,7 +317,7 @@ class PreflightInfo(_Model):
 
 
 CardAction = Literal["confirm", "undo", "apply_fix", "open_editor", "resume", "end_lesson", "install", "skip_setup",
-                     "open_in_browser", "build", "pick_another", "download", "skip_step", "check_step"]
+                     "open_in_browser", "build", "pick_another", "download", "skip_step", "check_step", "use_this_folder"]
 
 
 class Card(_Model):
@@ -491,7 +491,7 @@ class BuildLesson(_Model):
 
 ActionKind = Literal["back", "explain", "diagram", "show_me", "hint", "voice_toggle", "ask", "apply_fix",
                      "confirm", "undo", "open_editor", "resume", "end_lesson", "install", "skip_setup", "open_in_browser",
-                     "build", "pick_another", "download", "skip_step", "check_step"]
+                     "build", "pick_another", "download", "skip_step", "check_step", "use_this_folder"]
 
 
 class Action(_Model):

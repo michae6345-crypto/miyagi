@@ -2750,7 +2750,7 @@ def test_another_lessons_folder_gets_one_calm_card(tmp_path, monkeypatch):
             await rig.settle()
 
     run(go())
-    cards = [c for c in rig.of("card") if c["title"] == "That's another lesson's folder"]
+    cards = [c for c in rig.of("card") if c["title"] == "Wrong folder?"]
     assert len(cards) == 1 and cards[0]["actions"] == ["open_editor"] and "old-lesson-1a2b3c" in cards[0]["body"]
     assert not rig.of("offtrack")
 
@@ -2816,3 +2816,40 @@ def test_screen_check_cannot_pass_a_lesson_step_whose_file_is_unsaved(tmp_path, 
     run(go())
     assert not rig.of("step.passed")
     assert any(c["title"] == "Save calc.py" for c in rig.of("card"))
+
+
+
+def test_use_this_folder_adopts_the_learners_folder(tmp_path, monkeypatch):
+    from server.orchestrator import workspace as wsmod
+
+    async def build(goal, workdir, on_update=None, **kw):
+        return _text_lesson()
+
+    rig, _, _ = _lesson_rig(tmp_path, monkeypatch, build)
+    theirs = tmp_path / "old-lesson"
+    theirs.mkdir()
+    (theirs / "calc.py").write_text("def add(a, b):\n    return a + b\n")
+    adopted = []
+
+    class S2:
+        @staticmethod
+        def adopt_folder(lesson_folder, learner_folder):
+            adopted.append((lesson_folder, learner_folder))
+            return {"workdir": str(learner_folder), "copied": ["README.md"], "skipped": []}
+
+    moved = []
+
+    async def go():
+        await rig.s.learn("calc", mode="lesson")
+        await rig.settle()
+        monkeypatch.setattr(wsmod, "_s2", lambda: S2)
+        rig.s.on_workdir = moved.append
+        rig.s._wrong_folder = {"learner_folder": str(theirs), "learner_folder_name": "old-lesson", "file": "calc.py",
+                               "can_adopt": True}
+        await rig.s.action("use_this_folder")
+        await rig.settle()
+
+    run(go())
+    assert adopted and rig.s.workdir == str(theirs) and moved == [str(theirs)]
+    assert rig.of("card")[-1]["title"] == "Using old-lesson"
+    assert rig.of("step.passed")[0]["stepId"] == "s1"  # its file there already has add(): the check passes

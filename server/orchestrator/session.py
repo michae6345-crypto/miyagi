@@ -363,6 +363,8 @@ class LessonSession:
         self.spot_rect: dict | None = None
         self._spot_app: str | None = None  # the app the box points into (cleared when the learner leaves it)
         self._spot_away = False  # the box was cleared because the learner left VS Code
+        self._wrong_folder: dict | None = None  # S2's wrong_folder(): the learner edits the file in another folder
+        self._wf_t = -1e9
         self._spot_caption: str | None = None
         self._spot_t = -1e9
         self._spot_misses = 0
@@ -2100,6 +2102,9 @@ class LessonSession:
             summary = " · ".join((lines.get(app) or [])[:2])[:140]
             await self.emit("screen.seen", {"app": app, "summary": summary, "t": float(getattr(obs, "t", 0) or 0)})
         if self.step is not None:
+            if self.clock() - self._wf_t >= 2.0:  # S2's wrong_folder: a cheap window read, at most every 2 s
+                self._wf_t = self.clock()
+                self._spawn(self._refresh_wrong_folder(self.step))
             await self.evaluate("screen")
             if not await self._spot_follows_app(obs):
                 await self._follow_spot()
@@ -2290,6 +2295,9 @@ class LessonSession:
             await self.emit("error", {"message": "No lesson is running yet."})
             return
         self._touch()
+        if kind == "use_this_folder":  # the "Wrong folder?" card: continue in the learner's folder
+            await self._use_this_folder(step)
+            return
         if kind == "check_step":  # "Can I move on?"
             await self._check_step(step)
             return
@@ -2788,12 +2796,9 @@ class LessonSession:
         file = Path(self._step_file(step) or step.get("file") or "").name
         if not file:
             return None
-        fn = getattr(wsmod._s2(), "other_lesson_folder", None)
-        if fn is not None:
-            try:
-                return fn(self.last_obs, self.workdir, file)
-            except Exception:  # noqa: BLE001
-                log.exception("other_lesson_folder failed")
+        if self._s2_wrong_folder_fn() is not None:  # S2's detector (real screen): its cached answer decides
+            wf = self._wrong_folder
+            return (wf.get("learner_folder_name") or "another folder") if wf else None
         mine = Path(self.workdir).name
         for w in getattr(self.last_obs, "windows", None) or []:
             if (getattr(w, "app", "") or "").lower() not in CODE_APP_NAMES:
@@ -2803,15 +2808,67 @@ class LessonSession:
                 return parts[1]
         return None
 
+    def _s2_wrong_folder_fn(self):
+        """S2's wrong_folder(), only with the real screen reader (never in tests: it reads real windows)."""
+        from . import workspace as wsmod
+
+        if getattr(self.screen, "reader", None) is None:
+            return None
+        return getattr(wsmod._s2(), "wrong_folder", None)
+
+    async def _refresh_wrong_folder(self, step: dict) -> None:
+        fn = self._s2_wrong_folder_fn()
+        if fn is None:
+            return
+        files = sorted({Path(f).name for f in [self._step_file(step)] + [t.get("file") for t in step.get("targets") or []]
+                        if self._real_file(f)})
+        try:
+            self._wrong_folder = await asyncio.to_thread(fn, self.workdir, files or None)
+        except Exception:  # noqa: BLE001
+            log.exception("wrong_folder failed")
+            self._wrong_folder = None
+
+    async def _use_this_folder(self, step: dict | None) -> None:
+        """"Use this folder" (S2 adopt_folder): the lesson continues in the folder the learner is typing in; files
+        it lacks are copied in (nothing overwritten or deleted)."""
+        from . import workspace as wsmod
+
+        wf = self._wrong_folder or {}
+        fn = getattr(wsmod._s2(), "adopt_folder", None)
+        if fn is None or not wf.get("learner_folder"):
+            await self.emit("error", {"message": "I can't switch to that folder; open this lesson's file instead."})
+            return
+        try:
+            res = await asyncio.to_thread(fn, self.workdir, wf["learner_folder"])
+        except Exception as e:  # noqa: BLE001
+            await self.emit("error", {"message": f"Couldn't use that folder: {e}"})
+            return
+        new = str(res.get("workdir") or wf["learner_folder"])
+        self.workdir = new
+        if self.graph is not None:
+            self.graph.setdefault("lesson", {})["workdir"] = new
+        if self.on_workdir:
+            self.on_workdir(new)
+        self._wrong_folder = None
+        copied = len(res.get("copied") or [])
+        await self._emit_card({"stepId": (step or {}).get("id"), "kind": "answer", "title": f"Using {Path(new).name}",
+                               "body": "I'll check your work in this folder now."
+                                       + (f" Copied {copied} missing file(s) in." if copied else "")})
+        if self.step is not None:
+            await self.evaluate("file")
+
     def _editor_state_card(self, step: dict) -> bool:
         """Before any off-track: an unsaved step file -> "Save with ⌘S"; another lesson's folder -> one calm card
         with "Open this lesson's file". -> True when one applies (the caller then stays quiet)."""
         other = self._other_folder(step)
         if other:
-            self._spawn(self._emit_card({"stepId": step["id"], "kind": "hint", "title": "That's another lesson's folder",
-                                         "body": f"You're editing it in {other}. This lesson's file is in "
-                                                 f"{Path(self.workdir).name}.", "actions": ["open_editor"]},
-                                        window_s=120.0))
+            wf = self._wrong_folder or {}
+            file = wf.get("file") or Path(self._step_file(step) or step.get("file") or "").name
+            self._spawn(self._emit_card({"stepId": step["id"], "kind": "hint", "title": "Wrong folder?",
+                                         "body": f"You're editing {file} in {other}, but this lesson is in "
+                                                 f"{Path(self.workdir).name}.",
+                                         "actions": ["use_this_folder", "open_editor"] if wf.get("can_adopt")
+                                         else ["open_editor"]}, window_s=120.0))
             return True
         dirty = self._dirty_step_file(step)
         if dirty:
