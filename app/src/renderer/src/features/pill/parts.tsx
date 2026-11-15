@@ -34,10 +34,11 @@ export function MonoMark({ size = 16, tone = color.text, className = '' }: { siz
 /**
  * The lead glyph: the bonsai, or the small core Spinner while the engine is thinking (an explain, a hint,
  * a diagram: 2-5 s), so a shortcut never looks dead. Both sit in the same 16px box: no layout change,
- * a 150ms crossfade only when thinking actually starts or stops.
+ * a 150ms crossfade only when thinking actually starts or stops. `busy`: spin anyway (the pill sent something and
+ * waits for its answer, e.g. Undo / Continue resuming a saved lesson).
  */
-export function LeadMark(): ReactNode {
-  const thinking = useThinking()
+export function LeadMark({ busy = false }: { busy?: boolean }): ReactNode {
+  const thinking = useThinking() || busy
   return (
     <span className="relative mr-[8px] inline-block h-[16px] w-[16px] shrink-0" data-thinking={thinking || undefined}>
       <motion.span className="absolute inset-0" initial={false} animate={{ opacity: thinking ? 0 : 1 }} transition={{ duration: 0.15 }}>
@@ -215,5 +216,31 @@ export function BuildLine({ progress }: { progress: number }): ReactNode {
         transition={spring}
       />
     </motion.span>
+  )
+}
+
+/**
+ * SwapText for the building pill (Michael's desktop test 3, item 9: "Setting up your project fo…"). Same crossfade
+ * (old text up and out, new text in from below), but the slot can never be narrower than the text it shows: old and
+ * new text stack in one grid cell, both in flow, so the slot is the wider of the two during the swap and then exactly
+ * the new text. No measured or animated width that can lag a stage behind and clip the label mid-word; the island
+ * (which hugs its content) springs its own width around it.
+ */
+export function FitSwap({ id, children }: { id: string; children: ReactNode }): ReactNode {
+  return (
+    <span className="grid h-[34px] shrink-0 overflow-hidden" data-fit>
+      <AnimatePresence initial={false}>
+        <motion.span
+          key={id}
+          className="whitespace-nowrap pt-[8px] leading-[18px]"
+          style={{ gridArea: '1 / 1' }}
+          initial={{ opacity: 0, y: 7 }}
+          animate={{ opacity: 1, y: 0, transition: { duration: 0.24, ease: 'easeOut', delay: 0.11 } }}
+          exit={{ opacity: 0, y: -7, transition: { duration: 0.1, ease: 'easeIn' } }}
+        >
+          {children}
+        </motion.span>
+      </AnimatePresence>
+    </span>
   )
 }
