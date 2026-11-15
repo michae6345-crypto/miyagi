@@ -1,8 +1,9 @@
 /**
  * Feature: drawer. Where the tab and the panel sit, in overlay-window coordinates. Pure math, no React.
  *
- * The panel lines up with the player's dock (same top, same bottom: it ends above the shortcut bar) and
- * hugs the right edge with the dock's 8px inset, so when it slides in over the player it reads as one column.
+ * The panel starts at the player dock's top and hugs the right edge with the dock's 8px inset, so when it
+ * slides in over the player it reads as one column. panelRect's height is the MAX (down to the dock's
+ * bottom, above the shortcut bar); the panel itself hugs its content and scrolls past that.
  */
 import type { Layout } from '../../../../preload/api'
 import type { Rect } from '../../core/lesson'

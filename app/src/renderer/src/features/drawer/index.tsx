@@ -5,8 +5,8 @@
  * locked, the current one with its checks), "More steps coming" while a long video builds part by part,
  * and the lesson's sources. One overlay layer at z 40 (under the island and the shortcut bar).
  *
- * Never covers the spotlight target: while a spotlight hole touches the drawer's column, the drawer (and
- * its tab) slide away; if the learner had it open, it slides back a beat after the target moves on.
+ * Never covers the spotlight target: while a spotlight hole touches the open panel (or, closed, the tab),
+ * it slides away; if the learner had it open, it slides back a beat after the target moves on.
  */
 import { AnimatePresence } from 'motion/react'
 import { useEffect, useState, type ReactNode } from 'react'
@@ -25,11 +25,13 @@ const RETURN_MS = 700
 function DrawerLayer({ layout }: { layout: Layout }): ReactNode {
   const on = useLesson((s) => !!s.lesson)
   const open = useDrawer((s) => s.open)
+  const panelH = useDrawer((s) => s.panelH)
   const panel = panelRect(layout)
   const tab = tabRect(layout)
-  // The whole right column: the panel plus the strip between it and the edge, where the tab sits.
-  const column: Rect = { x: panel.x, y: Math.min(panel.y, tab.y), w: tab.x + tab.w - panel.x, h: Math.max(panel.y + panel.h, tab.y + tab.h) - Math.min(panel.y, tab.y) }
-  const yielding = useYield(useSpotlightOn(column, layout))
+  // What the drawer covers: open (even while it has yielded) = the panel at its real height, out to the edge;
+  // closed = just the tab.
+  const area: Rect = open ? { x: panel.x, y: panel.y, w: tab.x + tab.w - panel.x, h: Math.min(panel.h, panelH ?? panel.h) } : tab
+  const yielding = useYield(useSpotlightOn(area, layout))
   const showPanel = on && open && !yielding
   return (
     <>
