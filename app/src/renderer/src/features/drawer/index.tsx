@@ -18,6 +18,7 @@ import { useSpotlight } from '../spotlight/store'
 import { ConceptPanel, Rail } from './Concept'
 import { Panel, Tab } from './Drawer'
 import { conceptRects, panelRect, tabRect } from './geometry'
+import { Selectable, SelectionExplain } from './SelectionExplain'
 import { useDrawer } from './store'
 
 /** After the spotlight leaves, wait this long before sliding back (a spotlight tour hops between targets). */
@@ -42,11 +43,14 @@ function DrawerLayer({ layout }: { layout: Layout }): ReactNode {
   return (
     <>
       <Tab rect={tab} shown={on && !showPanel && !yielding} />
-      <AnimatePresence>
-        {showPanel && !concept && <Panel key="drawer" rect={panel} />}
-        {showPanel && concept && <Rail key="rail" rect={conceptAt.rail} />}
-        {showPanel && concept && <ConceptPanel key="concept" rect={conceptAt.panel} />}
-      </AnimatePresence>
+      <Selectable>
+        <AnimatePresence>
+          {showPanel && !concept && <Panel key="drawer" rect={panel} />}
+          {showPanel && concept && <Rail key="rail" rect={conceptAt.rail} />}
+          {showPanel && concept && <ConceptPanel key="concept" rect={conceptAt.panel} />}
+        </AnimatePresence>
+      </Selectable>
+      <SelectionExplain />
     </>
   )
 }
