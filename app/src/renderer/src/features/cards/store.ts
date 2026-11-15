@@ -279,7 +279,19 @@ function openOfftrack(p: Payload<'offtrack'>): void {
   dismissed = undefined
   set({ offtrackOpen: true, offtrackClosed: false, fixing: false, recovered: true, resume: false, offtrackSeq: ++seq, card: undefined, pending: undefined, success: undefined })
 }
+/**
+ * A card waiting on the learner's decision: a fix preview to confirm ("Type this for you?", card.diff) or the
+ * resume card. The engine re-sends `offtrack` while the step keeps failing, which used to wipe this card before
+ * the learner could press it (Michael's desktop test 3, 1:20 AM: "Do it for me" showed nothing). An automatic
+ * off-track never replaces it: the pill keeps its off-track ring, and the off-track card can open once this one closes.
+ */
+const DECISION = new Set<CardAction>(['confirm', 'resume'])
+const awaitsDecision = (c: Payload<'card'> | undefined): boolean => !!c && (!!c.diff || !!c.actions?.some((a) => DECISION.has(a)))
 onMessage('offtrack', (p) => {
+  if (awaitsDecision(get().card)) {
+    lastPress = undefined
+    return
+  }
   const left = cardHeldUntil - Date.now()
   if (get().card && left > 0) {
     heldOfftrack = p // the newest one wins
