@@ -25,9 +25,14 @@ type DiagramState = {
    * for that step and updates in place as new ones arrive; it never opens over the code. ⌃⌥D opens it full size.
    */
   live?: { step?: string; diagram: DiagramPayload }
+  /**
+   * Bumped (a timestamp) when the learner asks for a diagram while the step has a live network: the drawer opens and
+   * its network panel unfolds, instead of a card at the top (Michael, Sun 2:32 AM).
+   */
+  liveFocus?: number
 }
 
-const empty = { diagram: undefined, open: false, step: undefined, byKind: {}, kinds: [], concepts: {}, live: undefined } satisfies DiagramState
+const empty = { diagram: undefined, open: false, step: undefined, byKind: {}, kinds: [], concepts: {}, live: undefined, liveFocus: undefined } satisfies DiagramState
 
 /** A network diagram with real weights (data.frames): what NeuralNet.tsx draws. */
 export const isLiveNetwork = (p: DiagramPayload): boolean =>
@@ -47,6 +52,22 @@ export function expectConceptDiagram(title: string): void {
 export const useDiagram = create<DiagramState>(() => ({ ...empty }))
 const set = useDiagram.setState
 const get = useDiagram.getState
+
+/** Pushed with data.placement "drawer": lives only in the drawer's network panel, never on the island. */
+const drawerOnly = (p: DiagramPayload): boolean => (p.data as Record<string, unknown> | undefined)?.placement === 'drawer'
+
+/** The step's live network, full size on the island (the drawer panel's "Full size" button). */
+export function openLiveFull(): void {
+  const live = liveForStep()
+  if (!live) return
+  const step = live.step ?? useLesson.getState().stepId
+  const s = get()
+  const same = s.step === step
+  const kinds = same ? (s.kinds.includes('network') ? s.kinds : [...s.kinds, 'network' as DiagramKind]) : ['network' as DiagramKind]
+  set({ diagram: live.diagram, open: true, step, byKind: { ...(same ? s.byKind : {}), network: live.diagram }, kinds })
+  unhold()
+  heldUntil = Date.now() + HOLD_MS
+}
 
 /** Switch the open diagram to another kind sent for this step (the tabs). */
 export function showKind(kind: DiagramKind): void {
@@ -84,16 +105,9 @@ const unhold = (): void => {
 onUi('shortcut', (kind) => {
   if (kind !== 'diagram') return
   if (!get().open) {
-    // The step's live network is already here: open it full size, no new request to the engine.
-    const live = liveForStep()
-    if (live) {
-      const step = live.step ?? useLesson.getState().stepId
-      const s = get()
-      const same = s.step === step
-      const kinds = same ? (s.kinds.includes('network') ? s.kinds : [...s.kinds, 'network' as DiagramKind]) : ['network' as DiagramKind]
-      set({ diagram: live.diagram, open: true, step, byKind: { ...(same ? s.byKind : {}), network: live.diagram }, kinds })
-      unhold()
-      heldUntil = Date.now() + HOLD_MS
+    // The step's live network is already here: open the drawer on its panel, no card, no new request to the engine.
+    if (liveForStep()) {
+      set({ liveFocus: Date.now() })
       return true
     }
     requestedAt = Date.now()
@@ -114,6 +128,14 @@ onMessage('diagram', (p) => {
   const asked = !!requestedAt && Date.now() - requestedAt < ASKED_WITHIN_MS
   if (isLiveNetwork(p)) {
     set({ live: { step, diagram: p } })
+    // Drawer placement: never a card at the top, even when asked for; the drawer panel shows (and unfolds) instead.
+    if (drawerOnly(p)) {
+      if (asked) set({ liveFocus: Date.now() })
+      requestedAt = 0
+      const s = get()
+      if (s.open && s.diagram && isLiveNetwork(s.diagram) && s.step === step) set({ diagram: p, byKind: { ...s.byKind, network: p } })
+      return
+    }
     // Pushed, not asked for: the drawer panel shows it (and the full-size view, if it's already open, follows along).
     if (!asked) {
       const s = get()
