@@ -40,6 +40,10 @@ EXPLICIT_END = ("end_lesson", "POST /end")  # the learner chose "Start a new les
 # the bar's / launcher's End, and the resume card's "Start a new lesson": stop for now; the save stays (offered back
 # like a restart's) until another lesson is built (E11). Only POST /end and a finished lesson clear it.
 KEEP_END = ("stopped", "end_lesson")
+# Nov 15: `curl -X POST localhost:8787/end` before every engine deploy cleared the learner's place, so after the restart
+# the app was back on the start sheet and typing the goal again began at step 1. That end now keeps the save, NOT marked
+# stopped: the next connection after the restart continues at that exact step (POST /end?forget=1 still clears it).
+INTERRUPTED = "interrupted"
 PROMPT_EVENTS = ("card", "video.pause", "status", "spotlight", "error")  # sending the prompt isn't activity
 
 
@@ -165,6 +169,9 @@ class Resumer:
                     skipped = set(getattr(self.s, "skipped_steps", None) or []) | ({p.get("stepId")} if p.get("skipped") else set())
                     store.record_completed(self.s.graph or {}, skipped)  # evidence for later lessons' prerequisites
             elif type_ == "lesson.ended":
+                if (payload or {}).get("reason") == INTERRUPTED:  # a deploy's end: the place stays (POST /end saved it
+                    self._pending = self._pending or store.load() is not None  # just before), resumed after the restart
+                    return
                 if self._pending and (payload or {}).get("reason") not in EXPLICIT_END:
                     return
                 if (payload or {}).get("reason") in KEEP_END:  # protected until Continue / another lesson / POST /end

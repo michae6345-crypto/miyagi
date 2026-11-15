@@ -45,6 +45,7 @@ from . import spot_lines  # t5: which editor line a lesson box goes on
 from . import typo_card  # Nov 15: terminal-command typos on run steps, no model call
 from . import ui_targets  # t6: VS Code's real controls (AX) boxed: Terminal, save, open the file, ...
 from .lesson_boxes import LessonBoxes
+from . import quiet_save  # Nov 15: no ⌘S chores, ~1 s freshness, one "You already did" card instead of a cascade
 
 log = logging.getLogger("orchestrator.session")
 
@@ -1240,11 +1241,16 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
 
     # ---------------------------------------------------------- "Just teach me" (no video)
     async def learn_text(self, goal: str) -> None:
+        graph = curated.lesson_for(goal)  # "build a neural network": the curated lesson, instantly (curated.py)
+        if graph is not None and self._same_lesson_running(graph):  # Nov 15: a re-sent learn never restarts it
+            log.info("curated lesson %s already running at step %d: continuing", self._lesson_id_of(graph), self.idx + 1)
+            for type_, payload in self.snapshot():
+                await self.emit(type_, payload)
+            return
         if self.graph is not None or self.phase in ("building", "searching"):
             await self.end_lesson("new lesson")
         self.query = goal
         self.results, self.pending_pick = {}, None
-        graph = curated.lesson_for(goal)  # "build a neural network": the curated lesson, instantly (curated.py)
         if graph is not None:
             await self._run_build("", goal, factory=lambda: self._load_curated(goal, graph))
             return
@@ -1252,7 +1258,8 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
 
     async def learn_demo(self, goal: str, fresh: bool = False) -> None:
         """The launcher's Demo option: the curated neural-net lesson for any goal, staged (stage.py: checks pass on
-        cue, runs are recorded, one planned "Not yet"). fresh: also put the clean nn.py back in a pinned folder."""
+        cue, runs are recorded, one planned "Not yet"). Every Demo start is a fresh take (Michael runs it many times
+        in a row): step 1 and the clean nn.py, also in a pinned folder (_load_curated), never a saved step."""
         if self.graph is not None or self.phase in ("building", "searching"):
             await self.end_lesson("new lesson")
         self.query = goal
@@ -1264,6 +1271,19 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
         stage.mark(graph)
         await self._run_build("", goal, factory=lambda: self._load_curated(goal, graph, fresh=fresh))
 
+    @staticmethod
+    def _lesson_id_of(graph: dict | None) -> str | None:
+        return ((graph or {}).get("lesson") or {}).get("id")
+
+    def _same_lesson_running(self, graph: dict) -> bool:
+        """This very lesson is loaded and not finished (a reconnecting launcher re-sent its learn). A Demo take of the
+        same lesson is not it ("Just teach me" during a Demo starts the real, graded lesson)."""
+        from . import lesson_end
+
+        return (self.graph is not None and self._lesson_id_of(self.graph) == self._lesson_id_of(graph)
+                and stage.on_graph(self.graph) == stage.on_graph(graph)
+                and self.step is not None and self.phase == "active" and not lesson_end.finished(self))
+
     async def _load_curated(self, goal: str, graph: dict, fresh: bool = False) -> None:
         """A curated "Just teach me" lesson: no build, its folder with a clean starter, then the lesson."""
         self.phase = "building"
@@ -1272,12 +1292,17 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
         try:
             self.build_progress = {"message": "Setting up your project folder", "progress": 0.5}
             await self.emit("lesson.building", self.build_progress)
-            await asyncio.to_thread(curated.forget_saved, graph)  # starts at step 1, never a pre-restart save's step
-            try:
-                folder = await asyncio.to_thread(curated.prepare_folder, graph, fresh)
-            except Exception:  # noqa: BLE001 - the lesson still runs in the default folder
-                log.exception("curated lesson folder failed")
-                folder = None
+            demo = stage.on_graph(graph)  # a Demo take never continues a save: step 1, clean nn.py, every time
+            kept = None if demo else await asyncio.to_thread(curated.resumable_save, graph)  # Nov 15: an engine
+            if kept:  # restart / deploy mid-lesson: its nn.py stays and the Resumer continues at the saved step
+                folder = kept
+            else:  # a fresh start, or the learner ended it (End / Start new): step 1 with a clean nn.py
+                await asyncio.to_thread(curated.forget_saved, graph)  # starts at step 1, never a pre-restart save's step
+                try:
+                    folder = await asyncio.to_thread(curated.prepare_folder, graph, fresh or demo)
+                except Exception:  # noqa: BLE001 - the lesson still runs in the default folder
+                    log.exception("curated lesson folder failed")
+                    folder = None
             graph["lesson"]["workdir"] = folder or str(config.lesson_workdir("", goal))
             log.info("curated lesson %s for %r in %s", graph["lesson"].get("curated"), goal, graph["lesson"]["workdir"])
             self.build_progress = None
@@ -2832,8 +2857,9 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
         self._record("step_skipped" if skipped else "step_passed", {"nextStepId": payload.get("nextStepId")}, step)
         await self._status("watching" if skipped else "passed")
         await self.emit("spotlight", {"clear": True})
-        if nxt:
-            self._spawn(self._advance(self.step_gen, self.idx + 1))
+        if nxt:  # Nov 15: steps whose code is already in the file pass at once, ONE card (quiet_save.advance)
+            self._spawn(quiet_save.advance(self, self.step_gen, self.idx + 1) if not skipped
+                        else self._advance(self.step_gen, self.idx + 1))
         elif more_coming and not self._more_in_flight():
             await self._finish_partial(step)  # nothing can build the rest (DEMO / extend failed): finish here
         elif more_coming:
@@ -3131,6 +3157,7 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
             await self._maybe_begin()  # E4: an edit of the step file / typing in the editor starts the held step
             if self.awaiting_start:
                 return  # "Before you start" is up: no look, judge, stuck card or idle ladder yet
+        await quiet_save.poll(self)  # Nov 15: the buffer changed -> re-graded now, not at the next 2-5 s scene look
         await scene_watch.tick(self)  # a Haiku glance at the screen every ~5 s during a step (scene_watch.py)
         if step is not None and not self.passed and not self.awaiting_resume:
             if self._go_t <= self.step_t0 or self.learner_started():  # after Continue: once they work again (E4)
@@ -4742,6 +4769,10 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
         """Send a card unless the same one (step + kind + level + title + body) went out moments ago: repeated
         key presses or overlapping triggers must not stack identical cards. auto: the engine's own initiative
         (stuck / judge / not-started cards): paced by _auto_card_ok. -> whether it was sent."""
+        if (card := await quiet_save.intercept(self, card)) is None:  # Nov 15: no ⌘S chores: saved it quietly instead
+            if (answered := _ANSWERED.get()) is not None:
+                answered.add("card")  # a press answered by the save (its re-grade passes the step / shows the rows)
+            return False
         if auto and not self._auto_card_ok():
             log.info("held back auto card %r (too early / too soon after the last)", card.get("title"))
             return False
@@ -6412,13 +6443,15 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
         if self.graph is None:
             out.append(("status", {"state": "idle" if self.phase != "searching" else self.status}))
             return out
-        ready = self._lesson_ready_payload()
+        ready = {**self._lesson_ready_payload(), "replay": True}  # Nov 15: the SAME lesson again (a reconnect / restore)
         out.append(("lesson.ready", ready))
         step, held = self.step, False
         if step is not None:
-            self._hold_for_sheet(ready.get("lesson"))  # E4: the app opens "Before you start" on this lesson.ready
-            held = self.awaiting_start
-            out.append(("step.started", self._step_started_payload(step)))
+            if not (self.engaged or self.learner_started() or self.check_state and any(
+                    (c or {}).get("status") == "pass" for c in self.check_state.values())):
+                self._hold_for_sheet(ready.get("lesson"))  # E4: the app opens "Before you start" on this lesson.ready
+            held = self.awaiting_start  # (Nov 15: never again once the learner began: a reconnect isn't a new start)
+            out.append(("step.started", {**self._step_started_payload(step), "replay": True}))
             for cid, st in self.check_state.items():
                 p = {"stepId": step["id"], "checkId": cid, "label": st["label"], "status": st["status"]}
                 if held and p["status"] == "fail":  # under the sheet: re-graded once the learner starts, not replayed

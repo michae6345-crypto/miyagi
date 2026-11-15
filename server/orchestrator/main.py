@@ -113,6 +113,30 @@ class Engine:
                  self.modules.describe(), self.session.workdir, self.session.screen_active(),
                  config.precision_setting())
 
+    async def auto_resume(self) -> None:
+        """The first app connection after an engine restart (or a deploy's POST /end) while a lesson was running: that
+        lesson continues at its saved step, as if nothing happened (Michael, Nov 15: restarts sent him back to "begin
+        project"). Not a lesson the learner ended (End / Start new: `stopped`, offered by the resume card as before),
+        not one finished, not one idle longer than ORCH_AUTO_RESUME_S (default 3 h)."""
+        s = self.session
+        if self.resumer is None or self.hub.clients or s.graph is not None or s.phase != "idle":
+            return
+        try:
+            from server.sessions import store
+
+            saved = store.load()
+            if not saved or saved.get("stopped") or store.load_graph(saved) is None:
+                return
+            idle = time.time() - float(saved.get("lastActiveAt") or saved.get("startedAt") or 0)
+            if idle > float(os.environ.get("ORCH_AUTO_RESUME_S", str(3 * 3600))):
+                return
+            log.info("auto-resume: %s at step %s (%s) after an engine restart", saved.get("lessonId"),
+                     int(saved.get("stepIndex") or 0) + 1, saved.get("stepId"))
+            await self.resumer.resume()
+            self.seen_lesson = self._lesson_id()  # the app sees it in this connection's snapshot
+        except Exception:  # noqa: BLE001 - never blocks the connection: the resume card is still there
+            log.exception("auto-resume failed")
+
     def save_progress(self) -> None:
         if self.resumer is not None and self.session.graph is not None and not self.session.awaiting_resume:
             try:
@@ -228,6 +252,7 @@ except Exception as _e:  # noqa: BLE001
 @app.websocket("/")
 async def ws_endpoint(ws: WebSocket) -> None:
     await ws.accept()
+    await engine.auto_resume()  # Nov 15: an engine restart mid-lesson: back at that exact step, not the start sheet
     for type_, payload in engine.session.snapshot(ask_resume=engine.app_returning()):
         await engine.hub.send_to(ws, type_, payload)
     engine.hub.join(ws)
@@ -317,6 +342,9 @@ async def vscode_event(body: dict = Body(...)) -> dict:
     from server.workspace import vscode_ext
 
     item = vscode_ext.record_event(body)
+    from . import quiet_save  # Nov 15: a dirty / save / editor change of the step file re-grades within ~0.2 s
+
+    quiet_save.on_vscode_event(engine.session, item)
     if body.get("type") == "command_end":  # a curated lesson's run: VS Code's exact output grades it (curated.py)
         from . import curated
 
@@ -334,11 +362,15 @@ async def vscode_event(body: dict = Body(...)) -> dict:
 
 
 @app.post("/end")
-async def end_lesson() -> dict:
-    """End the current lesson from a terminal:  curl -X POST localhost:8787/end"""
+async def end_lesson(forget: int = 0) -> dict:
+    """End the current lesson from a terminal:  curl -X POST localhost:8787/end
+    Nov 15: this runs before every engine deploy, so the learner's place is KEPT: the next app connection after the
+    restart continues at that exact step. A clean start (tests) that drops it:  curl -X POST 'localhost:8787/end?forget=1'"""
     lesson = (engine.session.graph or {}).get("lesson", {}).get("id")
-    await engine.session.end_lesson("POST /end")
-    return {"ok": True, "ended": lesson}
+    if not forget:
+        engine.save_progress()  # the exact step + checks, just before the lesson is unloaded
+    await engine.session.end_lesson("POST /end" if forget else "interrupted")
+    return {"ok": True, "ended": lesson, "kept": bool(lesson) and not forget}
 
 
 @app.get("/state")
