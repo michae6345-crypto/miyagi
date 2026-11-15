@@ -3476,7 +3476,15 @@ class LessonSession:
             return None
 
     @staticmethod
-    def screen_down_message(reason: str) -> str:
+    def screen_asleep(reason: str | None) -> bool:
+        """The display is asleep or the screen is locked: the learner is away, nothing is broken."""
+        r = (reason or "").lower()
+        return "asleep" in r or "locked" in r
+
+    @classmethod
+    def screen_down_message(cls, reason: str) -> str:
+        if cls.screen_asleep(reason):
+            return "Your screen is asleep or locked. Miyagi picks up again when you're back."
         return "Miyagi can't see your screen. Check Screen Recording in System Settings."
 
     async def _check_screen_health(self) -> None:
@@ -3490,6 +3498,8 @@ class LessonSession:
         if self._screen_down_since is None:
             self._screen_down_since = self.clock()
         if not self._screen_notice_sent and self.clock() - self._screen_down_since >= self.SCREEN_DOWN_S:
+            if self.screen_asleep(reason):  # learner away: an error toast would only mislead ("Check Screen Recording")
+                return
             self._screen_notice_sent = True
             log.warning("screen reader down: %s", reason)
             await self.emit("error", {"message": self.screen_down_message(reason)})
