@@ -1,0 +1,211 @@
+"""explain(): learner asks "why?" (or types a question) → `card` payload."""
+
+from __future__ import annotations
+
+import asyncio
+import json
+import logging
+import re
+
+from . import llm, scene, web
+from .common import (
+    citation_menu,
+    clamp_title,
+    clamp_words,
+    fmt_t,
+    get_lesson,
+    number_lines,
+    resolve_citation,
+    step_brief,
+    system_blocks,
+)
+from .diagnose import COACH_SYSTEM, LAST, cursor_text
+from .metrics import summarize
+from .pointing import lesson_mode, point
+
+log = logging.getLogger("coach.explain")
+
+EXPLAIN_TASK = """
+TASK NOW: explain, do not diagnose. Answer the learner's question (or, if there is no question, explain the reason behind the current card) for someone who just watched the tutorial. At most 60 words, plain prose, one idea per sentence, intuition first, then the precise statement (no labels such as "Intuition:"; just the sentences). If one of the step's `explanations` moments in the video covers the topic, set explanation_index to its 0-based index in the step's explanations list, else -1. citation_id from the CITATIONS list or "none"."""
+
+# Lesson mode ("Just teach me", no video): Explain teaches the step's idea, never the grader (QA 11-14: "Checks look
+# for the three function definitions … The checks search calculator.py for def subtract(a, b)…").
+TEACH_SYSTEM = """You are the teacher inside a "Just teach me" lesson overlay: a beginner builds a small program in VS Code one step at a time (no video). When they press Explain or type a question, you write one small card that teaches the IDEA behind the current step.
+
+Voice: a calm, precise senior engineer sitting beside them. No hype, no exclamation marks, no "Great question", no apologies, no filler. Every claim must be correct and specific.
+
+Write:
+- title: 3 to 7 words naming the idea (e.g. "Functions give a calculation a name"), not the card and not a check; no trailing period.
+- body: at most 60 words, plain prose, one idea per sentence, intuition first, then the precise statement. Say what this step builds and why it matters in the program, from CURRENT STEP (what / why / the primer concepts it uses / the code they type). Use the learner's real names from LEARNER CODE when it helps. If they asked a question, answer it in these terms.
+- Never describe how the step is checked or graded: no patterns, regexes, check labels or "the checks look for…". At most ONE short closing sentence may say what finishing the step looks like (e.g. "The step is done once all three are saved in calculator.py.").
+- Never say or guess which file is open in the editor.
+- Code read from the screen can contain OCR errors; never call a line wrong because of how it looks.
+- explanation_index: -1 (there is no video). citation_id: an id from the CITATIONS list only when that source directly supports the card, else "none"."""
+
+TEACH_STEP_KEYS = ("id", "index", "title", "what", "why", "concepts", "instructions")  # the lesson's arc, no checks
+
+
+def concept_brief(step: dict, lesson: dict | None) -> str:
+    """The step as an idea: what it builds, why, the primer concepts it uses, the code to type. Never its checks,
+    patterns or targets (step_brief's checks were the most concrete thing in the prompt, so Explain paraphrased them)."""
+    meta = (lesson or {}).get("lesson") or {}
+    primer = {p.get("id"): p for p in meta.get("primer") or [] if isinstance(p, dict)}
+    keep = {k: step.get(k) for k in ("id", "title", "what", "why", "instructions", "code", "run_command", "file", "hints", "common_mistakes") if step.get(k)}
+    concepts = [{"title": primer[c].get("title"), "body": primer[c].get("body")} for c in step.get("concepts") or [] if c in primer]
+    if concepts:
+        keep["concepts"] = concepts
+    if meta.get("overview"):
+        keep["lesson_overview"] = meta["overview"]
+    return json.dumps(keep, sort_keys=True, ensure_ascii=False, indent=1)
+
+
+CARD_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "title": {"type": "string"},
+        "body": {"type": "string"},
+        "explanation_index": {"type": "integer"},
+        "citation_id": {"type": "string"},
+    },
+    "required": ["title", "body", "explanation_index", "citation_id"],
+    "additionalProperties": False,
+}
+
+ASK_WEB_S = 1.0  # web grounding for a typed question: at most ~1 s before the model call starts (was 4 s)
+
+_STOP = {"the", "a", "an", "of", "to", "is", "why", "what", "how", "does", "do", "in", "on", "and", "it", "this", "my", "i", "for", "with"}
+
+
+def _tokens(s: str) -> set[str]:
+    return {w for w in re.findall(r"[a-zA-Zβ_]+", (s or "").lower()) if w not in _STOP and len(w) > 1}
+
+
+def match_explanation(step: dict, text: str, min_overlap: int = 1) -> int:
+    """Index of the step explanation whose topic best overlaps `text` (>= min_overlap words), or -1."""
+    q = _tokens(text)
+    best, best_i = min_overlap - 1, -1
+    for i, e in enumerate(step.get("explanations") or []):
+        overlap = len(q & _tokens(e.get("topic", "")))
+        if overlap > best:
+            best, best_i = overlap, i
+    return best_i
+
+
+def video_jump(step: dict, idx: int) -> dict | None:
+    exps = step.get("explanations") or []
+    if 0 <= idx < len(exps) and exps[idx].get("t") is not None:
+        t = float(exps[idx]["t"])
+        return {"t": t, "label": f"Explained at {fmt_t(t)}"}
+    return None
+
+
+async def _point_and_notify(step, screen, about, last, on_targets) -> dict:
+    p = await point(step, screen, about=about, last=last)
+    if p["targets"] and on_targets is not None:
+        r = on_targets(p["targets"])
+        if hasattr(r, "__await__"):
+            await r
+    return p
+
+
+async def explain(step: dict, question: str | None = None, context: dict | None = None) -> dict:
+    """`context` may hold: code_excerpt (or the orchestrator's code + file), metrics_summary, offtrack (last card), lesson,
+    screen (ScreenContext), on_targets (callback), cursor ({"x", "y", "under": {"text", "app", "rect"}}).
+
+    With a screen, pointing runs in parallel with the Opus text: `on_targets(targets)` fires as soon
+    as they are known (exact match ~0 ms, Haiku ~1 s), and the card carries `targets`, or `where`
+    when the place isn't on screen. Opus itself gets text only, so the explanation is not slowed."""
+    ctx = context or {}
+    screen = ctx.get("screen")
+    # the orchestrator sends graph["lesson"] (metadata only) and "code": the full graph is the coach's own
+    lesson = ctx["lesson"] if "steps" in (ctx.get("lesson") or {}) else (get_lesson() or ({"lesson": ctx["lesson"]} if ctx.get("lesson") else None))
+    code = ctx.get("code_excerpt") or ctx.get("code") or ""
+    if code and not ctx.get("file") and screen is not None and hasattr(screen, "drop_foreign"):
+        code = screen.drop_foreign(code)  # read off the screen: never another project's window
+    teach = lesson_mode(step)  # "Just teach me": the step's idea, not the card or its checks
+    last = ctx.get("offtrack") or LAST.get(step.get("id", ""))
+    kind = "answer" if question else "explain"
+    if teach:
+        about = question or "Explain this step's idea: what it builds and why it matters."
+    else:
+        about = question or (f"Why? (about the card: {last.get('title')} — {last.get('body')})" if last else f"Explain the idea behind this step: {step.get('title')}")
+
+    point_task = None
+    if screen is not None:
+        point_about = question or (last and f"{last.get('title')}: the code it is about") or f"the code for this step: {step.get('instructions', '')}"
+        point_task = asyncio.create_task(_point_and_notify(step, screen, point_about, last, ctx.get("on_targets")))
+
+    metrics_text, _ = summarize(ctx.get("metrics_summary"))
+    if question:  # ground a free question in live docs/community pages
+        libs = ((lesson or {}).get("lesson") or {}).get("libraries") or {}
+        lib, sym = web.detect(question, code, libs)
+        sources = await web.gather(lib, sym, question, timeout=ASK_WEB_S)
+    else:  # "why?" about the card: reuse what diagnose() already fetched
+        sources = ((last or {}).get("_meta") or {}).get("web_sources") or []
+    if teach:
+        card_line = f"LAST CARD (context only; teach the idea, not this card): {last.get('title')} — {last.get('why') or last.get('body')}" if last else ""
+    else:
+        card_line = f"CURRENT CARD: {last.get('title')} — {last.get('body')}" if last else ""
+    user = "\n\n".join(
+        x
+        for x in [
+            f"CURRENT STEP:\n{concept_brief(step, lesson) if teach else step_brief(step)}",
+            card_line,
+            f"METRICS:\n{metrics_text}" if ctx.get("metrics_summary") is not None else "",
+            f"LEARNER CODE:\n{number_lines(code, 80)}" if code else "",
+            cursor_text(ctx["cursor"]) if ctx.get("cursor") and screen is None else "",
+            scene.prompt_line(step.get("id"), files=not teach),  # a Haiku glance < 8 s old, when there is one
+            f"WEB SOURCES (fetched live):\n{web.sources_text(sources)}" if sources else "",
+            f"CITATIONS you may use:\n{citation_menu(lesson, sources)}",
+            f"LEARNER ASKS: {about}",
+        ]
+        if x
+    )
+    det_idx = match_explanation(step, about)
+    try:
+        res = await llm.structured_call_retrying(  # a network blip must not lose the learner's question
+            purpose="explain",
+            model=llm.model_for("explain"),
+            system=system_blocks(TEACH_SYSTEM, lesson, TEACH_STEP_KEYS) if teach else system_blocks(COACH_SYSTEM + EXPLAIN_TASK, lesson),
+            user_text=user,
+            schema=CARD_SCHEMA,
+            effort="low",
+            max_tokens=8000,
+            timeout=40.0,
+        )
+        d = res.data
+        idx = d.get("explanation_index", -1)
+        if not (0 <= idx < len(step.get("explanations") or [])):
+            idx = det_idx
+        card = {
+            "stepId": step.get("id"),
+            "kind": kind,
+            "title": clamp_title(d.get("title", "")),
+            "body": clamp_words(d.get("body", ""), 64),
+        }
+        cit = resolve_citation(d.get("citation_id"), lesson, sources)
+        meta = {"web_sources": [x["url"] for x in sources], "model": res.model, "latency_s": round(res.latency_s, 2), "usage": res.usage, "source": res.source}
+    except llm.CoachLLMError as e:
+        if not llm.demo_mode():
+            if point_task is not None:
+                point_task.cancel()
+            raise llm.CoachUnavailable(f"explanation unavailable: {e}") from e
+        log.warning("explain failed (%s); DEMO=1 so using the offline card", e)
+        idx = det_idx
+        src = None if teach else last  # lesson mode: the step's own idea, not the card
+        body = src.get("body") if src else (step.get("why") or step.get("instructions", ""))
+        card = {"stepId": step.get("id"), "kind": kind, "title": clamp_title(src.get("title") if src else step.get("title", "")), "body": body}
+        cit = src.get("citation") if src else None
+        meta = {"fallback_reason": str(e)}
+    if jump := video_jump(step, idx):
+        card["videoJump"] = jump
+    if cit:
+        card["citation"] = cit  # extra field (contract allows additions)
+    if point_task is not None:
+        p = await point_task
+        card["targets"] = p["targets"]
+        if p["where"]:
+            card["where"] = p["where"]
+        meta["point_via"] = p["via"]
+    card["_meta"] = meta
+    return card

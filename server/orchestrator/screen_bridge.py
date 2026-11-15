@@ -1,0 +1,349 @@
+"""Optional bridge to server.screen (E6), the whole-screen reader.
+
+Disabled (methods become no-ops) when server.screen isn't importable (Linux CI, before E6 merges),
+when ORCH_SCREEN=0, or if the reader fails to start. The rest of the engine never imports
+server.screen directly, so the hub always starts.
+"""
+
+from __future__ import annotations
+
+import asyncio
+import importlib
+import logging
+import os
+from collections.abc import Awaitable, Callable
+from typing import Any
+
+from . import perf
+from .config import env_flag
+
+log = logging.getLogger("orchestrator.screen")
+
+MetricCb = Callable[[str, str, int, float], None]  # (run_id, name, step, value), called on the loop
+LOOP_REGION_MAX_AGE_S = 1e9  # on the event loop: any latest frame (the reader thread keeps it current)
+
+
+class ScreenBridge:
+    """Real bridge over server.screen.get_reader()."""
+
+    def __init__(self, enabled: bool | None = None):
+        self.enabled = env_flag("ORCH_SCREEN", True) if enabled is None else enabled
+        self.reader: Any = None
+        self._unsub: Callable[[], None] | None = None
+        self._metrics: Any = None
+        self._loop: asyncio.AbstractEventLoop | None = None
+        self.metric_run_id: str | None = None
+        self._confirms = perf.ConfirmMemo()  # one Haiku verdict per (intent, box) for a few seconds, shared
+
+    @property
+    def active(self) -> bool:
+        return self.reader is not None
+
+    def start(self, on_obs: Callable[[Any], Awaitable[None]]) -> bool:
+        if not self.enabled:
+            return False
+        try:
+            mod = importlib.import_module("server.screen")
+            reader = mod.get_reader()
+            if reader is None:
+                return False
+            # ~1 frame/s (OCR still runs only when the screen changed) so a check flips within ~2 s
+            reader.interval = float(os.environ.get("ORCH_SCREEN_INTERVAL_S", "1.0"))
+            reader.start()
+            self._loop = asyncio.get_running_loop()
+            self._unsub = reader.subscribe(on_obs)
+            self.reader = reader
+            log.info("screen reader started")
+            return True
+        except Exception as e:  # noqa: BLE001 - permission / platform problems must not kill the hub
+            log.warning("screen reader unavailable (%s); running without screen", e)
+            self.reader = None
+            return False
+
+    def stop(self) -> None:
+        try:
+            if self._unsub:
+                self._unsub()
+            if getattr(self, "_front_unsub", None):
+                self._front_unsub()
+            self.unwatch()
+            if self.reader is not None and hasattr(self.reader, "stop"):
+                self.reader.stop()
+        except Exception:  # noqa: BLE001
+            log.exception("screen stop failed")
+
+    def watch_frontmost(self, on_front: Callable[[str], Awaitable[None]]) -> None:
+        """E6 on_frontmost_change: `on_front(app_name)` on the loop within ~0.25 s of an app switch / Space swipe."""
+        r = self.reader
+        if r is None or self._loop is None or not hasattr(r, "on_frontmost_change"):
+            return
+        loop = self._loop
+
+        def cb(new: dict | None, old: dict | None) -> None:  # E6's poller thread
+            app = str((new or {}).get("app") or "")
+            loop.call_soon_threadsafe(lambda: asyncio.ensure_future(on_front(app)))
+
+        try:
+            self._front_unsub = r.on_frontmost_change(cb)
+        except Exception:  # noqa: BLE001
+            log.exception("on_frontmost_change failed")
+
+    def down_reason(self) -> str | None:
+        """Why the reader can't see the screen right now (E6: status error / no_permission), else None."""
+        r = self.reader
+        if r is None:
+            return None
+        try:
+            status = getattr(r, "status", "ok")
+        except Exception:  # noqa: BLE001
+            return None
+        if status not in ("error", "no_permission"):
+            return None
+        return "no_permission" if status == "no_permission" else str(getattr(r, "last_error", "") or "capture failed")
+
+    # -- reads
+    def latest(self) -> Any:
+        return self.reader.latest() if self.reader is not None else None
+
+    def lines(self, obs: Any = None) -> dict[str, list[str]] | None:
+        obs = obs if obs is not None else self.latest()
+        if obs is None:
+            return None
+        try:
+            return obs.lines_by_app()
+        except Exception:  # noqa: BLE001
+            log.exception("lines_by_app failed")
+            return None
+
+    def locate(self, match: str, app: str | None = None) -> dict | None:
+        """-> {rect:{x,y,w,h}, app, matched} or None."""
+        if self.reader is None or not match or self.down_reason():
+            return None  # capture is failing: a locate would block on a fresh capture for seconds (S1)
+        try:
+            res = self.reader.locate_match(match, app)
+        except Exception:  # noqa: BLE001
+            log.exception("locate failed")
+            return None
+        if res is None:
+            return None
+        out = {"rect": res.rect.to_dict()}
+        if getattr(res, "app", None):
+            out["app"] = res.app
+        if getattr(res, "matched", None):
+            out["matched"] = res.matched[:200]
+        return out
+
+    def region(self, name: str, app: str | None = None) -> dict | None:
+        """E6: a VS Code region's rect {x, y, w, h} ("terminal" | "editor" | "explorer" | "run_button"), stabilized
+        (4-pt grid, kept while edges move < 12 pt), or None when it isn't on screen."""
+        if self.reader is None or self.down_reason() or not hasattr(self.reader, "locate_region"):
+            return None
+        try:
+            if perf.on_loop():  # the event loop: the latest frame's region, never a blocking capture + OCR (~0.2-0.5 s
+                # each, once a second on a still screen: _screen_lines -> terminal region from every tick / evaluate)
+                if self.reader.latest() is None:
+                    return None
+                try:
+                    r = self.reader.locate_region(name, app, max_age=LOOP_REGION_MAX_AGE_S)
+                except TypeError:  # a reader without max_age
+                    r = self.reader.locate_region(name, app)
+            else:
+                r = self.reader.locate_region(name, app)
+        except Exception:  # noqa: BLE001
+            log.exception("locate_region failed")
+            return None
+        if r is None:
+            return None
+        d = r.to_dict() if hasattr(r, "to_dict") else dict(r)
+        return {k: float(d[k]) for k in ("x", "y", "w", "h")}
+
+    async def pick(self, intent: str, app: str | None = "Code") -> dict | None:
+        """Haiku set-of-marks pick (server.screen.target): {rect, box_ids, label, confidence, reason, ...} or None
+        (low confidence / nothing matches / timeout / budget / no key). Off with MIYAGI_VISION_TARGET=0."""
+        if self.reader is None or self.down_reason() or not env_flag("MIYAGI_VISION_TARGET", True):
+            return None
+        try:
+            from server.screen.target import pick_on_screen
+
+            return await pick_on_screen(intent, app, reader=self.reader)
+        except Exception:
+            log.exception("vision pick failed")
+            return None
+
+    async def confirm(self, rect: dict, intent: str, app: str | None = "Code") -> dict | None:
+        """Haiku verifier for a box the engine located itself (server.screen.target.verdict): -> the rect to show (the
+        same box, or what Haiku picked instead) or None when Haiku is sure nothing on screen matches. Haiku off /
+        unavailable / unsure: the box unchanged."""
+        if self.reader is None or self.down_reason() or not env_flag("MIYAGI_VISION_TARGET", True):
+            return rect
+        async def ask() -> tuple[dict | None, str]:
+            try:
+                from server.screen.target import confirm_on_screen
+
+                out, why = await confirm_on_screen(rect, intent, app, reader=self.reader)
+            except Exception:
+                log.exception("vision confirm failed; keeping the box")
+                return rect, "kept:exception"
+            if why != "agree":
+                log.info("targeter %s for %r", why, intent[:80])
+            return out, why
+
+        # the same box + intent from several callers within a second (frame follow, step start, Check) or again a
+        # few seconds later: one Haiku call, not three (live: 3 calls in 1 s, then the 6/min budget skipped real ones)
+        out, why = await self._confirms.get(intent, app, rect, ask)
+        if why == "agree" or why.startswith("kept"):
+            return rect  # this caller's own box (a shared verdict may come from a box a few points off)
+        return dict(out) if isinstance(out, dict) else out
+
+    def set_overlay(self, rects: list[dict]) -> None:
+        if self.reader is not None:
+            self.reader.set_overlay_bounds(rects)
+
+    UI_TEXT_KEYS = frozenset({"title", "body", "caption", "instructions", "what", "why", "label", "detail", "action",
+                              "reason", "message"})
+
+    def note_ui(self, type_: str, payload: dict | None) -> None:
+        """Every Engine->App event: the prose Miyagi puts on screen (card title / body, captions, step lines, check
+        labels; never code or snippets) goes to the Haiku targeter, which then never boxes our own overlay's text even
+        when overlay.bounds misses it (server.screen.target.note_ui_text)."""
+        if self.reader is None or not payload or type_ in ("metric", "screen.seen", "video.state"):
+            return
+        texts: list[str] = []
+
+        def walk(v: Any, depth: int) -> None:
+            if isinstance(v, dict) and depth < 4:
+                for k, x in v.items():
+                    if isinstance(x, str) and k in self.UI_TEXT_KEYS:
+                        texts.append(x)
+                    elif isinstance(x, (dict, list)):
+                        walk(x, depth + 1)
+            elif isinstance(v, list) and depth < 4:
+                for x in v[:50]:
+                    walk(x, depth + 1)
+
+        walk(payload, 0)
+        if not texts:
+            return
+        try:
+            from server.screen.target import note_ui_text
+
+            note_ui_text(texts[:200])
+        except Exception:  # noqa: BLE001 - never let this break an emit
+            log.debug("note_ui failed", exc_info=True)
+
+    def screenshot(self) -> Any:
+        """A PIL image of the screen (overlay blacked out by E6), or None. Blocking (~20 ms): use a thread."""
+        if self.reader is None or not hasattr(self.reader, "screenshot_pil"):
+            return None
+        try:
+            return self.reader.screenshot_pil()
+        except Exception:  # noqa: BLE001
+            log.exception("screenshot failed")
+            return None
+
+    def poke(self) -> None:
+        if self.reader is not None and hasattr(self.reader, "poke"):
+            self.reader.poke()
+
+    async def fresh_frame(self, timeout: float) -> bool:
+        """A frame captured now (Check: "not one from before their last keystroke"). Was poke + a flat 1.2 s sleep, and
+        the poked capture itself waits out the reader's 1.5 s debounce; this captures + OCRs at once in a thread
+        (~0.3-0.5 s, no model call), never longer than `timeout`. -> True when the fresh frame is in."""
+        r = self.reader
+        if r is None:
+            return False
+        if not hasattr(r, "observe_now") or self.down_reason():
+            if hasattr(r, "poke"):
+                r.poke()
+            await asyncio.sleep(timeout)
+            return False
+        job = asyncio.ensure_future(asyncio.to_thread(r.observe_now, True, "check"))
+        try:
+            await asyncio.wait_for(asyncio.shield(job), timeout)
+            return True
+        except Exception as e:  # noqa: BLE001 - slow / failing capture: go on with the latest frame, as before
+            job.add_done_callback(lambda t: t.cancelled() or t.exception())
+            log.info("check: no fresh frame within %.1fs (%s)", timeout, type(e).__name__)
+            return False
+
+    # -- metrics read off the terminal
+    def watch(self, lesson_id: str, patterns: dict[str, str], on_metric: MetricCb) -> None:
+        """(Re)start reading `patterns` off the screen. Callbacks arrive on the event loop."""
+        self.unwatch()
+        if self.reader is None or not patterns or self._loop is None:
+            return
+        loop = self._loop
+
+        def cb(name: str, step: int, value: float) -> None:  # reader thread
+            run_id = self._metrics.run_id if self._metrics is not None else f"screen-{lesson_id}"
+            loop.call_soon_threadsafe(on_metric, run_id, name, step, value)
+
+        try:
+            self._metrics = self.reader.watch_metrics(lesson_id, patterns, cb)
+        except Exception:  # noqa: BLE001
+            log.exception("watch_metrics failed")
+            self._metrics = None
+
+    def unwatch(self) -> None:
+        if self.reader is not None and self._metrics is not None:
+            try:
+                self.reader.unwatch_metrics(self._metrics)
+            except Exception:  # noqa: BLE001
+                log.exception("unwatch_metrics failed")
+        self._metrics = None
+
+
+class FakeScreen:
+    """In-memory stand-in for tests and the autopilot: set `.text[app] = [...]` and `.rects`."""
+
+    def __init__(self) -> None:
+        self.text: dict[str, list[str]] = {}
+        self.overlay: list[dict] = []
+        self.watched: dict[str, str] = {}
+        self.active = True
+        self.down: str | None = None  # tests: what down_reason() reports
+
+    def latest(self) -> Any:
+        return self.text
+
+    def lines(self, obs: Any = None) -> dict[str, list[str]] | None:
+        return dict(self.text) if self.text else None
+
+    def locate(self, match: str, app: str | None = None) -> dict | None:
+        import re
+
+        for a, lines in self.text.items():
+            if app and app.lower() not in a.lower():
+                continue
+            for i, ln in enumerate(lines):
+                try:
+                    hit = re.search(match, ln) is not None
+                except re.error:
+                    hit = match in ln
+                if hit:
+                    return {"rect": {"x": 100.0, "y": 100.0 + 20 * i, "w": 400.0, "h": 20.0}, "app": a, "matched": ln}
+        return None
+
+    def set_overlay(self, rects: list[dict]) -> None:
+        self.overlay = rects
+
+    def down_reason(self) -> str | None:
+        return self.down
+
+    def region(self, name: str, app: str | None = None) -> dict | None:
+        return getattr(self, "regions", {}).get(name)
+
+    def screenshot(self) -> Any:
+        return None
+
+    def poke(self) -> None:
+        pass
+
+    def watch(self, lesson_id: str, patterns: dict[str, str], on_metric: MetricCb) -> None:
+        self.watched = dict(patterns)
+
+    def unwatch(self) -> None:
+        self.watched = {}
+
+    def stop(self) -> None:
+        pass

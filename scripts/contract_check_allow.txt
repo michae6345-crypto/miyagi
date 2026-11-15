@@ -1,0 +1,10 @@
+# Deliberate gaps for scripts/check_contract.py: one `category:name  # reason` per line.
+# Categories: event, card.kind, card.action, offtrack.action, action.kind, command, diagram.kind.
+# An entry only silences a finding while the gap exists; the check tells you when an entry is stale.
+# Example:
+#   card.action:open_in_browser  # web_app items open through shell.openExternal, no action is sent
+
+event:speak  # voice is app-local (the computer's own voice, features/voice/store.ts): the app claims voice_toggle so the engine never speaks, and ignores `speak`
+offtrack.action:explain  # the off-track card always shows Explain / Show me / Hint (cards/index.tsx OFFTRACK_OPTIONS); it does not gate them on offtrack.actions
+offtrack.action:show_me  # same: always-on option on the off-track card (OFFTRACK_OPTIONS)
+offtrack.action:hint     # same: always-on option on the off-track card (OFFTRACK_OPTIONS)

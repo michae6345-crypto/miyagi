@@ -1,0 +1,1281 @@
+{
+ "t": 0.0,
+ "app": "Cursor",
+ "windows": [
+  {
+   "app": "Cursor",
+   "title": "\u25cf pinn_convection.py \u2014 pinn_demo",
+   "rect": {
+    "x": 0,
+    "y": 0,
+    "w": 1728,
+    "h": 1117
+   }
+  }
+ ],
+ "screen": {
+  "x": 0,
+  "y": 0,
+  "w": 1728,
+  "h": 1117
+ },
+ "scale": 2.0,
+ "ocr_ms": 248.8,
+ "frame": 1,
+ "source": "fixture:cursor_fullscreen_bigfont.png",
+ "trigger": "tick",
+ "cursor": null,
+ "under_cursor": null,
+ "ax": null,
+ "overlay_excluded": false,
+ "blocks": [
+  {
+   "text": "pinn_convection.py",
+   "rect": {
+    "x": 60.3,
+    "y": 12.6,
+    "w": 100.5,
+    "h": 12.6
+   },
+   "confidence": 1.0,
+   "app": "Cursor",
+   "window": "\u25cf pinn_convection.py \u2014 pinn_demo"
+  },
+  {
+   "text": "train.py",
+   "rect": {
+    "x": 228.6,
+    "y": 12.6,
+    "w": 40.2,
+    "h": 12.6
+   },
+   "confidence": 1.0,
+   "app": "Cursor",
+   "window": "\u25cf pinn_convection.py \u2014 pinn_demo"
+  },
+  {
+   "text": "README.md",
+   "rect": {
+    "x": 326.5,
+    "y": 12.6,
+    "w": 72.8,
+    "h": 12.6
+   },
+   "confidence": 1.0,
+   "app": "Cursor",
+   "window": "\u25cf pinn_convection.py \u2014 pinn_demo"
+  },
+  {
+   "text": "pinn_demo \u203a pinn_convection.py \u203a pde_residual",
+   "rect": {
+    "x": 60.3,
+    "y": 40.0,
+    "w": 233.6,
+    "h": 12.7
+   },
+   "confidence": 1.0,
+   "app": "Cursor",
+   "window": "\u25cf pinn_convection.py \u2014 pinn_demo"
+  },
+  {
+   "text": "70",
+   "rect": {
+    "x": 85.4,
+    "y": 60.2,
+    "w": 20.1,
+    "h": 15.1
+   },
+   "confidence": 1.0,
+   "app": "Cursor",
+   "window": "\u25cf pinn_convection.py \u2014 pinn_demo"
+  },
+  {
+   "text": "loss_ic = initial_loss(model, x0, t0, u0)",
+   "rect": {
+    "x": 163.3,
+    "y": 60.0,
+    "w": 349.1,
+    "h": 18.0
+   },
+   "confidence": 1.0,
+   "app": "Cursor",
+   "window": "\u25cf pinn_convection.py \u2014 pinn_demo"
+  },
+  {
+   "text": "71",
+   "rect": {
+    "x": 85.4,
+    "y": 82.8,
+    "w": 20.1,
+    "h": 12.6
+   },
+   "confidence": 1.0,
+   "app": "Cursor",
+   "window": "\u25cf pinn_convection.py \u2014 pinn_demo"
+  },
+  {
+   "text": "loss_bc = boundary_loss(model)",
+   "rect": {
+    "x": 163.3,
+    "y": 82.8,
+    "w": 256.2,
+    "h": 17.7
+   },
+   "confidence": 1.0,
+   "app": "Cursor",
+   "window": "\u25cf pinn_convection.py \u2014 pinn_demo"
+  },
+  {
+   "text": "72",
+   "rect": {
+    "x": 85.4,
+    "y": 102.9,
+    "w": 20.1,
+    "h": 12.6
+   },
+   "confidence": 1.0,
+   "app": "Cursor",
+   "window": "\u25cf pinn_convection.py \u2014 pinn_demo"
+  },
+  {
+   "text": "return loss_pde + 100.0 * loss_ic + loss_bc, loss_pde,",
+   "rect": {
+    "x": 163.3,
+    "y": 102.9,
+    "w": 464.7,
+    "h": 17.6
+   },
+   "confidence": 1.0,
+   "app": "Cursor",
+   "window": "\u25cf pinn_convection.py \u2014 pinn_demo"
+  },
+  {
+   "text": "loss_ic",
+   "rect": {
+    "x": 625.4,
+    "y": 102.9,
+    "w": 67.8,
+    "h": 17.6
+   },
+   "confidence": 1.0,
+   "app": "Cursor",
+   "window": "\u25cf pinn_convection.py \u2014 pinn_demo"
+  },
+  {
+   "text": "73",
+   "rect": {
+    "x": 85.4,
+    "y": 125.5,
+    "w": 20.1,
+    "h": 12.6
+   },
+   "confidence": 1.0,
+   "app": "Cursor",
+   "window": "\u25cf pinn_convection.py \u2014 pinn_demo"
+  },
+  {
+   "text": "74",
+   "rect": {
+    "x": 85.4,
+    "y": 145.6,
+    "w": 22.6,
+    "h": 12.6
+   },
+   "confidence": 1.0,
+   "app": "Cursor",
+   "window": "\u25cf pinn_convection.py \u2014 pinn_demo"
+  },
+  {
+   "text": "75",
+   "rect": {
+    "x": 85.4,
+    "y": 165.7,
+    "w": 20.1,
+    "h": 12.6
+   },
+   "confidence": 1.0,
+   "app": "Cursor",
+   "window": "\u25cf pinn_convection.py \u2014 pinn_demo"
+  },
+  {
+   "text": "def train(epochs: int = EPOCHS, Ir: float = LEARNING_RATE,",
+   "rect": {
+    "x": 128.1,
+    "y": 165.5,
+    "w": 497.3,
+    "h": 17.7
+   },
+   "confidence": 1.0,
+   "app": "Cursor",
+   "window": "\u25cf pinn_convection.py \u2014 pinn_demo"
+  },
+  {
+   "text": "seed: int = 0):",
+   "rect": {
+    "x": 627.9,
+    "y": 165.5,
+    "w": 133.1,
+    "h": 15.2
+   },
+   "confidence": 1.0,
+   "app": "Cursor",
+   "window": "\u25cf pinn_convection.py \u2014 pinn_demo"
+  },
+  {
+   "text": "torch.manualseed(seed)",
+   "rect": {
+    "x": 163.3,
+    "y": 185.7,
+    "w": 198.4,
+    "h": 17.6
+   },
+   "confidence": 1.0,
+   "app": "Cursor",
+   "window": "\u25cf pinn_convection.py \u2014 pinn_demo"
+  },
+  {
+   "text": "76",
+   "rect": {
+    "x": 85.4,
+    "y": 188.3,
+    "w": 22.6,
+    "h": 12.6
+   },
+   "confidence": 1.0,
+   "app": "Cursor",
+   "window": "\u25cf pinn_convection.py \u2014 pinn_demo"
+  },
+  {
+   "text": "77",
+   "rect": {
+    "x": 85.4,
+    "y": 208.3,
+    "w": 20.1,
+    "h": 12.6
+   },
+   "confidence": 1.0,
+   "app": "Cursor",
+   "window": "\u25cf pinn_convection.py \u2014 pinn_demo"
+  },
+  {
+   "text": "model = MLP()",
+   "rect": {
+    "x": 163.3,
+    "y": 208.3,
+    "w": 113.0,
+    "h": 12.7
+   },
+   "confidence": 1.0,
+   "app": "Cursor",
+   "window": "\u25cf pinn_convection.py \u2014 pinn_demo"
+  },
+  {
+   "text": "78",
+   "rect": {
+    "x": 85.4,
+    "y": 228.4,
+    "w": 22.6,
+    "h": 12.6
+   },
+   "confidence": 1.0,
+   "app": "Cursor",
+   "window": "\u25cf pinn_convection.py \u2014 pinn_demo"
+  },
+  {
+   "text": "opt",
+   "rect": {
+    "x": 163.3,
+    "y": 230.9,
+    "w": 30.1,
+    "h": 12.6
+   },
+   "confidence": 1.0,
+   "app": "Cursor",
+   "window": "\u25cf pinn_convection.py \u2014 pinn_demo"
+  },
+  {
+   "text": "- torch.optim.Adam(model.parameters(), lr=lr",
+   "rect": {
+    "x": 203.4,
+    "y": 230.9,
+    "w": 369.2,
+    "h": 10.1
+   },
+   "confidence": 1.0,
+   "app": "Cursor",
+   "window": "\u25cf pinn_convection.py \u2014 pinn_demo"
+  },
+  {
+   "text": "79",
+   "rect": {
+    "x": 85.4,
+    "y": 251.0,
+    "w": 20.1,
+    "h": 12.6
+   },
+   "confidence": 1.0,
+   "app": "Cursor",
+   "window": "\u25cf pinn_convection.py \u2014 pinn_demo"
+  },
+  {
+   "text": "XC,",
+   "rect": {
+    "x": 163.3,
+    "y": 251.0,
+    "w": 27.6,
+    "h": 17.6
+   },
+   "confidence": 1.0,
+   "app": "Cursor",
+   "window": "\u25cf pinn_convection.py \u2014 pinn_demo"
+  },
+  {
+   "text": "c = sample collocation(N COLLOCATION",
+   "rect": {
+    "x": 203.4,
+    "y": 251.0,
+    "w": 308.9,
+    "h": 12.6
+   },
+   "confidence": 1.0,
+   "app": "Cursor",
+   "window": "\u25cf pinn_convection.py \u2014 pinn_demo"
+  },
+  {
+   "text": "X0,",
+   "rect": {
+    "x": 160.7,
+    "y": 268.6,
+    "w": 30.1,
+    "h": 20.1
+   },
+   "confidence": 1.0,
+   "app": "Cursor",
+   "window": "\u25cf pinn_convection.py \u2014 pinn_demo"
+  },
+  {
+   "text": "u0 = sample_initial(N_INITIAL)",
+   "rect": {
+    "x": 225.9,
+    "y": 268.5,
+    "w": 261.5,
+    "h": 21.2
+   },
+   "confidence": 1.0,
+   "app": "Cursor",
+   "window": "\u25cf pinn_convection.py \u2014 pinn_demo"
+  },
+  {
+   "text": "80",
+   "rect": {
+    "x": 85.4,
+    "y": 271.1,
+    "w": 20.1,
+    "h": 12.6
+   },
+   "confidence": 1.0,
+   "app": "Cursor",
+   "window": "\u25cf pinn_convection.py \u2014 pinn_demo"
+  },
+  {
+   "text": "to,",
+   "rect": {
+    "x": 193.4,
+    "y": 271.1,
+    "w": 32.7,
+    "h": 17.6
+   },
+   "confidence": 1.0,
+   "app": "Cursor",
+   "window": "\u25cf pinn_convection.py \u2014 pinn_demo"
+  },
+  {
+   "text": "81",
+   "rect": {
+    "x": 85.4,
+    "y": 293.7,
+    "w": 20.1,
+    "h": 12.6
+   },
+   "confidence": 1.0,
+   "app": "Cursor",
+   "window": "\u25cf pinn_convection.py \u2014 pinn_demo"
+  },
+  {
+   "text": "history",
+   "rect": {
+    "x": 163.3,
+    "y": 291.2,
+    "w": 65.3,
+    "h": 17.6
+   },
+   "confidence": 1.0,
+   "app": "Cursor",
+   "window": "\u25cf pinn_convection.py \u2014 pinn_demo"
+  },
+  {
+   "text": "=[]",
+   "rect": {
+    "x": 226.0,
+    "y": 291.2,
+    "w": 37.7,
+    "h": 15.1
+   },
+   "confidence": 1.0,
+   "app": "Cursor",
+   "window": "\u25cf pinn_convection.py \u2014 pinn_demo"
+  },
+  {
+   "text": "82",
+   "rect": {
+    "x": 85.4,
+    "y": 313.8,
+    "w": 20.1,
+    "h": 12.6
+   },
+   "confidence": 1.0,
+   "app": "Cursor",
+   "window": "\u25cf pinn_convection.py \u2014 pinn_demo"
+  },
+  {
+   "text": "for epoch in range(epochs + 1):",
+   "rect": {
+    "x": 163.3,
+    "y": 311.3,
+    "w": 266.2,
+    "h": 17.7
+   },
+   "confidence": 1.0,
+   "app": "Cursor",
+   "window": "\u25cf pinn_convection.py \u2014 pinn_demo"
+  },
+  {
+   "text": "83",
+   "rect": {
+    "x": 85.4,
+    "y": 333.8,
+    "w": 20.1,
+    "h": 12.6
+   },
+   "confidence": 1.0,
+   "app": "Cursor",
+   "window": "\u25cf pinn_convection.py \u2014 pinn_demo"
+  },
+  {
+   "text": "opt.zero_grad()",
+   "rect": {
+    "x": 195.9,
+    "y": 333.8,
+    "w": 130.6,
+    "h": 15.1
+   },
+   "confidence": 1.0,
+   "app": "Cursor",
+   "window": "\u25cf pinn_convection.py \u2014 pinn_demo"
+  },
+  {
+   "text": "84",
+   "rect": {
+    "x": 85.4,
+    "y": 353.9,
+    "w": 20.1,
+    "h": 12.6
+   },
+   "confidence": 1.0,
+   "app": "Cursor",
+   "window": "\u25cf pinn_convection.py \u2014 pinn_demo"
+  },
+  {
+   "text": "loss,",
+   "rect": {
+    "x": 198.4,
+    "y": 353.9,
+    "w": 47.7,
+    "h": 17.6
+   },
+   "confidence": 1.0,
+   "app": "Cursor",
+   "window": "\u25cf pinn_convection.py \u2014 pinn_demo"
+  },
+  {
+   "text": "loss_pde,",
+   "rect": {
+    "x": 246.0,
+    "y": 353.1,
+    "w": 83.2,
+    "h": 19.2
+   },
+   "confidence": 1.0,
+   "app": "Cursor",
+   "window": "\u25cf pinn_convection.py \u2014 pinn_demo"
+  },
+  {
+   "text": "85",
+   "rect": {
+    "x": 85.4,
+    "y": 376.5,
+    "w": 20.1,
+    "h": 12.6
+   },
+   "confidence": 1.0,
+   "app": "Cursor",
+   "window": "\u25cf pinn_convection.py \u2014 pinn_demo"
+  },
+  {
+   "text": "loss.backward()",
+   "rect": {
+    "x": 195.9,
+    "y": 374.0,
+    "w": 130.6,
+    "h": 15.1
+   },
+   "confidence": 1.0,
+   "app": "Cursor",
+   "window": "\u25cf pinn_convection.py \u2014 pinn_demo"
+  },
+  {
+   "text": "86",
+   "rect": {
+    "x": 85.4,
+    "y": 396.6,
+    "w": 22.6,
+    "h": 12.6
+   },
+   "confidence": 1.0,
+   "app": "Cursor",
+   "window": "\u25cf pinn_convection.py \u2014 pinn_demo"
+  },
+  {
+   "text": "opt.step()",
+   "rect": {
+    "x": 195.9,
+    "y": 396.6,
+    "w": 87.9,
+    "h": 15.1
+   },
+   "confidence": 1.0,
+   "app": "Cursor",
+   "window": "\u25cf pinn_convection.py \u2014 pinn_demo"
+  },
+  {
+   "text": "87",
+   "rect": {
+    "x": 85.4,
+    "y": 416.7,
+    "w": 20.1,
+    "h": 12.6
+   },
+   "confidence": 1.0,
+   "app": "Cursor",
+   "window": "\u25cf pinn_convection.py \u2014 pinn_demo"
+  },
+  {
+   "text": "if",
+   "rect": {
+    "x": 195.9,
+    "y": 416.7,
+    "w": 22.6,
+    "h": 15.1
+   },
+   "confidence": 1.0,
+   "app": "Cursor",
+   "window": "\u25cf pinn_convection.py \u2014 pinn_demo"
+  },
+  {
+   "text": "epoch %",
+   "rect": {
+    "x": 218.0,
+    "y": 415.9,
+    "w": 71.4,
+    "h": 19.1
+   },
+   "confidence": 1.0,
+   "app": "Cursor",
+   "window": "\u25cf pinn_convection.py \u2014 pinn_demo"
+  },
+  {
+   "text": "100 == 0:",
+   "rect": {
+    "x": 286.2,
+    "y": 416.1,
+    "w": 83.1,
+    "h": 16.2
+   },
+   "confidence": 1.0,
+   "app": "Cursor",
+   "window": "\u25cf pinn_convection.py \u2014 pinn_demo"
+  },
+  {
+   "text": "88",
+   "rect": {
+    "x": 85.4,
+    "y": 439.3,
+    "w": 20.1,
+    "h": 12.6
+   },
+   "confidence": 1.0,
+   "app": "Cursor",
+   "window": "\u25cf pinn_convection.py \u2014 pinn_demo"
+  },
+  {
+   "text": "history.append(loss.item())",
+   "rect": {
+    "x": 231.1,
+    "y": 439.3,
+    "w": 231.1,
+    "h": 15.1
+   },
+   "confidence": 1.0,
+   "app": "Cursor",
+   "window": "\u25cf pinn_convection.py \u2014 pinn_demo"
+  },
+  {
+   "text": "print (f\"epoch {epoch:5d} | loss {loss.item():-4e} | pde {loss_pde.item() :\"3e}\")",
+   "rect": {
+    "x": 231.1,
+    "y": 456.8,
+    "w": 673.1,
+    "h": 20.2
+   },
+   "confidence": 1.0,
+   "app": "Cursor",
+   "window": "\u25cf pinn_convection.py \u2014 pinn_demo"
+  },
+  {
+   "text": "89",
+   "rect": {
+    "x": 85.4,
+    "y": 459.4,
+    "w": 20.1,
+    "h": 12.6
+   },
+   "confidence": 1.0,
+   "app": "Cursor",
+   "window": "\u25cf pinn_convection.py \u2014 pinn_demo"
+  },
+  {
+   "text": "90",
+   "rect": {
+    "x": 85.4,
+    "y": 481.9,
+    "w": 20.1,
+    "h": 12.6
+   },
+   "confidence": 1.0,
+   "app": "Cursor",
+   "window": "\u25cf pinn_convection.py \u2014 pinn_demo"
+  },
+  {
+   "text": "return",
+   "rect": {
+    "x": 163.1,
+    "y": 481.3,
+    "w": 55.5,
+    "h": 13.9
+   },
+   "confidence": 1.0,
+   "app": "Cursor",
+   "window": "\u25cf pinn_convection.py \u2014 pinn_demo"
+  },
+  {
+   "text": "model, history",
+   "rect": {
+    "x": 218.5,
+    "y": 479.4,
+    "w": 125.6,
+    "h": 20.1
+   },
+   "confidence": 1.0,
+   "app": "Cursor",
+   "window": "\u25cf pinn_convection.py \u2014 pinn_demo"
+  },
+  {
+   "text": "91",
+   "rect": {
+    "x": 85.4,
+    "y": 502.0,
+    "w": 20.1,
+    "h": 12.6
+   },
+   "confidence": 1.0,
+   "app": "Cursor",
+   "window": "\u25cf pinn_convection.py \u2014 pinn_demo"
+  },
+  {
+   "text": "92",
+   "rect": {
+    "x": 85.4,
+    "y": 522.1,
+    "w": 20.1,
+    "h": 15.1
+   },
+   "confidence": 1.0,
+   "app": "Cursor",
+   "window": "\u25cf pinn_convection.py \u2014 pinn_demo"
+  },
+  {
+   "text": "93",
+   "rect": {
+    "x": 85.4,
+    "y": 544.7,
+    "w": 20.1,
+    "h": 12.6
+   },
+   "confidence": 1.0,
+   "app": "Cursor",
+   "window": "\u25cf pinn_convection.py \u2014 pinn_demo"
+  },
+  {
+   "text": "def evaluate(model, nx: int = 256, nt: int = 100):",
+   "rect": {
+    "x": 128.1,
+    "y": 542.0,
+    "w": 429.5,
+    "h": 18.0
+   },
+   "confidence": 1.0,
+   "app": "Cursor",
+   "window": "\u25cf pinn_convection.py \u2014 pinn_demo"
+  },
+  {
+   "text": "94",
+   "rect": {
+    "x": 85.4,
+    "y": 564.8,
+    "w": 20.1,
+    "h": 12.6
+   },
+   "confidence": 1.0,
+   "app": "Cursor",
+   "window": "\u25cf pinn_convection.py \u2014 pinn_demo"
+  },
+  {
+   "text": "\u00d7 = torch.linspace(0, 2 * math.pi, nx)",
+   "rect": {
+    "x": 163.3,
+    "y": 564.8,
+    "w": 324.0,
+    "h": 17.7
+   },
+   "confidence": 1.0,
+   "app": "Cursor",
+   "window": "\u25cf pinn_convection.py \u2014 pinn_demo"
+  },
+  {
+   "text": "95",
+   "rect": {
+    "x": 85.4,
+    "y": 584.9,
+    "w": 20.1,
+    "h": 12.6
+   },
+   "confidence": 1.0,
+   "app": "Cursor",
+   "window": "\u25cf pinn_convection.py \u2014 pinn_demo"
+  },
+  {
+   "text": "t = torch.linspace(0, 1, nt)",
+   "rect": {
+    "x": 163.3,
+    "y": 584.9,
+    "w": 238.6,
+    "h": 20.1
+   },
+   "confidence": 1.0,
+   "app": "Cursor",
+   "window": "\u25cf pinn_convection.py \u2014 pinn_demo"
+  },
+  {
+   "text": "tt = torch.meshgrid(x, t, indexing=\"ij\")",
+   "rect": {
+    "x": 193.4,
+    "y": 604.9,
+    "w": 344.1,
+    "h": 20.1
+   },
+   "confidence": 1.0,
+   "app": "Cursor",
+   "window": "\u25cf pinn_convection.py \u2014 pinn_demo"
+  },
+  {
+   "text": "96",
+   "rect": {
+    "x": 85.4,
+    "y": 607.4,
+    "w": 20.1,
+    "h": 12.6
+   },
+   "confidence": 1.0,
+   "app": "Cursor",
+   "window": "\u25cf pinn_convection.py \u2014 pinn_demo"
+  },
+  {
+   "text": "XX,",
+   "rect": {
+    "x": 160.7,
+    "y": 607.4,
+    "w": 32.7,
+    "h": 15.1
+   },
+   "confidence": 1.0,
+   "app": "Cursor",
+   "window": "\u25cf pinn_convection.py \u2014 pinn_demo"
+  },
+  {
+   "text": "with torch.no_grad():",
+   "rect": {
+    "x": 160.7,
+    "y": 625.0,
+    "w": 183.3,
+    "h": 17.6
+   },
+   "confidence": 1.0,
+   "app": "Cursor",
+   "window": "\u25cf pinn_convection.py \u2014 pinn_demo"
+  },
+  {
+   "text": "97",
+   "rect": {
+    "x": 85.4,
+    "y": 627.5,
+    "w": 20.1,
+    "h": 12.6
+   },
+   "confidence": 1.0,
+   "app": "Cursor",
+   "window": "\u25cf pinn_convection.py \u2014 pinn_demo"
+  },
+  {
+   "text": "98",
+   "rect": {
+    "x": 85.4,
+    "y": 647.6,
+    "w": 20.1,
+    "h": 15.1
+   },
+   "confidence": 1.0,
+   "app": "Cursor",
+   "window": "\u25cf pinn_convection.py \u2014 pinn_demo"
+  },
+  {
+   "text": "u = model(xx.reshape(-1, 1), tt.reshape(-1, 1)).reshape(nx,",
+   "rect": {
+    "x": 195.9,
+    "y": 647.5,
+    "w": 504.8,
+    "h": 17.7
+   },
+   "confidence": 1.0,
+   "app": "Cursor",
+   "window": "\u25cf pinn_convection.py \u2014 pinn_demo"
+  },
+  {
+   "text": "nt)",
+   "rect": {
+    "x": 703.3,
+    "y": 647.6,
+    "w": 30.1,
+    "h": 15.1
+   },
+   "confidence": 1.0,
+   "app": "Cursor",
+   "window": "\u25cf pinn_convection.py \u2014 pinn_demo"
+  },
+  {
+   "text": "99",
+   "rect": {
+    "x": 85.4,
+    "y": 670.2,
+    "w": 20.1,
+    "h": 12.6
+   },
+   "confidence": 1.0,
+   "app": "Cursor",
+   "window": "\u25cf pinn_convection.py \u2014 pinn_demo"
+  },
+  {
+   "text": "exact = torch.sin(xx - BETA *tt)",
+   "rect": {
+    "x": 163.3,
+    "y": 670.0,
+    "w": 281.3,
+    "h": 13.0
+   },
+   "confidence": 1.0,
+   "app": "Cursor",
+   "window": "\u25cf pinn_convection.py \u2014 pinn_demo"
+  },
+  {
+   "text": "100",
+   "rect": {
+    "x": 77.9,
+    "y": 690.3,
+    "w": 30.1,
+    "h": 15.1
+   },
+   "confidence": 1.0,
+   "app": "Cursor",
+   "window": "\u25cf pinn_convection.py \u2014 pinn_demo"
+  },
+  {
+   "text": "err = torch.linalg.norm(u - exact) / torch.linalg.norm(exact)",
+   "rect": {
+    "x": 163.3,
+    "y": 690.3,
+    "w": 519.9,
+    "h": 17.7
+   },
+   "confidence": 1.0,
+   "app": "Cursor",
+   "window": "\u25cf pinn_convection.py \u2014 pinn_demo"
+  },
+  {
+   "text": "101",
+   "rect": {
+    "x": 77.9,
+    "y": 710.4,
+    "w": 27.6,
+    "h": 15.1
+   },
+   "confidence": 1.0,
+   "app": "Cursor",
+   "window": "\u25cf pinn_convection.py \u2014 pinn_demo"
+  },
+  {
+   "text": "return u, exact, err.item()",
+   "rect": {
+    "x": 163.3,
+    "y": 710.4,
+    "w": 231.1,
+    "h": 20.1
+   },
+   "confidence": 1.0,
+   "app": "Cursor",
+   "window": "\u25cf pinn_convection.py \u2014 pinn_demo"
+  },
+  {
+   "text": "102",
+   "rect": {
+    "x": 77.9,
+    "y": 733.0,
+    "w": 27.6,
+    "h": 12.6
+   },
+   "confidence": 1.0,
+   "app": "Cursor",
+   "window": "\u25cf pinn_convection.py \u2014 pinn_demo"
+  },
+  {
+   "text": "103",
+   "rect": {
+    "x": 77.9,
+    "y": 753.0,
+    "w": 27.6,
+    "h": 12.6
+   },
+   "confidence": 1.0,
+   "app": "Cursor",
+   "window": "\u25cf pinn_convection.py \u2014 pinn_demo"
+  },
+  {
+   "text": "104",
+   "rect": {
+    "x": 77.9,
+    "y": 773.1,
+    "w": 27.6,
+    "h": 15.1
+   },
+   "confidence": 1.0,
+   "app": "Cursor",
+   "window": "\u25cf pinn_convection.py \u2014 pinn_demo"
+  },
+  {
+   "text": "def",
+   "rect": {
+    "x": 128.1,
+    "y": 773.1,
+    "w": 30.1,
+    "h": 15.1
+   },
+   "confidence": 1.0,
+   "app": "Cursor",
+   "window": "\u25cf pinn_convection.py \u2014 pinn_demo"
+  },
+  {
+   "text": "curriculum(betas=(1.0, 5.0, 10.0, 20.0, 30.0)):",
+   "rect": {
+    "x": 158.2,
+    "y": 773.0,
+    "w": 406.9,
+    "h": 17.7
+   },
+   "confidence": 1.0,
+   "app": "Cursor",
+   "window": "\u25cf pinn_convection.py \u2014 pinn_demo"
+  },
+  {
+   "text": "105",
+   "rect": {
+    "x": 77.9,
+    "y": 795.7,
+    "w": 27.6,
+    "h": 12.6
+   },
+   "confidence": 1.0,
+   "app": "Cursor",
+   "window": "\u25cf pinn_convection.py \u2014 pinn_demo"
+  },
+  {
+   "text": "model = None",
+   "rect": {
+    "x": 163.3,
+    "y": 795.5,
+    "w": 105.5,
+    "h": 13.0
+   },
+   "confidence": 1.0,
+   "app": "Cursor",
+   "window": "\u25cf pinn_convection.py \u2014 pinn_demo"
+  },
+  {
+   "text": "106",
+   "rect": {
+    "x": 77.9,
+    "y": 815.8,
+    "w": 30.1,
+    "h": 12.6
+   },
+   "confidence": 1.0,
+   "app": "Cursor",
+   "window": "\u25cf pinn_convection.py \u2014 pinn_demo"
+  },
+  {
+   "text": "for beta in betas:",
+   "rect": {
+    "x": 163.3,
+    "y": 815.8,
+    "w": 155.7,
+    "h": 15.2
+   },
+   "confidence": 1.0,
+   "app": "Cursor",
+   "window": "\u25cf pinn_convection.py \u2014 pinn_demo"
+  },
+  {
+   "text": "107",
+   "rect": {
+    "x": 77.9,
+    "y": 835.9,
+    "w": 27.6,
+    "h": 15.1
+   },
+   "confidence": 1.0,
+   "app": "Cursor",
+   "window": "\u25cf pinn_convection.py \u2014 pinn_demo"
+  },
+  {
+   "text": "print(f\"curriculum stage beta={beta}\")",
+   "rect": {
+    "x": 195.9,
+    "y": 835.9,
+    "w": 326.5,
+    "h": 17.6
+   },
+   "confidence": 1.0,
+   "app": "Cursor",
+   "window": "\u25cf pinn_convection.py \u2014 pinn_demo"
+  },
+  {
+   "text": "model, -=train(epochs=1000)",
+   "rect": {
+    "x": 195.8,
+    "y": 855.8,
+    "w": 251.5,
+    "h": 21.1
+   },
+   "confidence": 1.0,
+   "app": "Cursor",
+   "window": "\u25cf pinn_convection.py \u2014 pinn_demo"
+  },
+  {
+   "text": "108",
+   "rect": {
+    "x": 77.9,
+    "y": 858.5,
+    "w": 30.1,
+    "h": 12.6
+   },
+   "confidence": 1.0,
+   "app": "Cursor",
+   "window": "\u25cf pinn_convection.py \u2014 pinn_demo"
+  },
+  {
+   "text": "109",
+   "rect": {
+    "x": 77.9,
+    "y": 878.5,
+    "w": 27.6,
+    "h": 15.1
+   },
+   "confidence": 1.0,
+   "app": "Cursor",
+   "window": "\u25cf pinn_convection.py \u2014 pinn_demo"
+  },
+  {
+   "text": "return model",
+   "rect": {
+    "x": 163.3,
+    "y": 878.5,
+    "w": 105.5,
+    "h": 15.1
+   },
+   "confidence": 1.0,
+   "app": "Cursor",
+   "window": "\u25cf pinn_convection.py \u2014 pinn_demo"
+  },
+  {
+   "text": "110",
+   "rect": {
+    "x": 77.9,
+    "y": 901.1,
+    "w": 27.6,
+    "h": 12.6
+   },
+   "confidence": 1.0,
+   "app": "Cursor",
+   "window": "\u25cf pinn_convection.py \u2014 pinn_demo"
+  },
+  {
+   "text": "111",
+   "rect": {
+    "x": 77.9,
+    "y": 921.2,
+    "w": 27.6,
+    "h": 12.6
+   },
+   "confidence": 1.0,
+   "app": "Cursor",
+   "window": "\u25cf pinn_convection.py \u2014 pinn_demo"
+  },
+  {
+   "text": "112",
+   "rect": {
+    "x": 77.9,
+    "y": 941.3,
+    "w": 27.6,
+    "h": 15.1
+   },
+   "confidence": 1.0,
+   "app": "Cursor",
+   "window": "\u25cf pinn_convection.py \u2014 pinn_demo"
+  },
+  {
+   "text": "if",
+   "rect": {
+    "x": 128.1,
+    "y": 941.3,
+    "w": 22.6,
+    "h": 15.1
+   },
+   "confidence": 1.0,
+   "app": "Cursor",
+   "window": "\u25cf pinn_convection.py \u2014 pinn_demo"
+  },
+  {
+   "text": "_name_ == \"_main_\":",
+   "rect": {
+    "x": 155.7,
+    "y": 938.8,
+    "w": 195.9,
+    "h": 22.7
+   },
+   "confidence": 1.0,
+   "app": "Cursor",
+   "window": "\u25cf pinn_convection.py \u2014 pinn_demo"
+  },
+  {
+   "text": "113",
+   "rect": {
+    "x": 77.9,
+    "y": 961.4,
+    "w": 27.6,
+    "h": 15.1
+   },
+   "confidence": 1.0,
+   "app": "Cursor",
+   "window": "\u25cf pinn_convection.py \u2014 pinn_demo"
+  },
+  {
+   "text": "model, history = train()",
+   "rect": {
+    "x": 160.7,
+    "y": 961.4,
+    "w": 208.5,
+    "h": 20.1
+   },
+   "confidence": 1.0,
+   "app": "Cursor",
+   "window": "\u25cf pinn_convection.py \u2014 pinn_demo"
+  },
+  {
+   "text": "114",
+   "rect": {
+    "x": 77.9,
+    "y": 984.0,
+    "w": 27.6,
+    "h": 12.6
+   },
+   "confidence": 1.0,
+   "app": "Cursor",
+   "window": "\u25cf pinn_convection.py \u2014 pinn_demo"
+  },
+  {
+   "text": "rel_err = evaluate(model)",
+   "rect": {
+    "x": 206.0,
+    "y": 984.0,
+    "w": 221.0,
+    "h": 17.6
+   },
+   "confidence": 1.0,
+   "app": "Cursor",
+   "window": "\u25cf pinn_convection.py \u2014 pinn_demo"
+  },
+  {
+   "text": "115",
+   "rect": {
+    "x": 75.3,
+    "y": 1004.0,
+    "w": 30.1,
+    "h": 17.6
+   },
+   "confidence": 1.0,
+   "app": "Cursor",
+   "window": "\u25cf pinn_convection.py \u2014 pinn_demo"
+  },
+  {
+   "text": "print(f\"relative L2 error: {rel_err:.3e}\")",
+   "rect": {
+    "x": 163.3,
+    "y": 1004.0,
+    "w": 359.2,
+    "h": 17.6
+   },
+   "confidence": 1.0,
+   "app": "Cursor",
+   "window": "\u25cf pinn_convection.py \u2014 pinn_demo"
+  },
+  {
+   "text": "Ln 80, Col 5 Spaces: 4 UTF-8 LF Python 3.11.9",
+   "rect": {
+    "x": 1205.6,
+    "y": 1096.9,
+    "w": 258.7,
+    "h": 15.1
+   },
+   "confidence": 1.0,
+   "app": "Cursor",
+   "window": "\u25cf pinn_convection.py \u2014 pinn_demo"
+  }
+ ]
+}

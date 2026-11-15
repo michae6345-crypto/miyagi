@@ -1,0 +1,305 @@
+{
+  "_notes": "Hand-written expected graph for precision reports. Step bounds = the video's chapter marks (chapter start -> next chapter start); intros, theory-only chapters and outros are not steps. Checks are the screen evidence a grader would expect; no `solution` code (presenter's exact code not transcribed), so the report measures segmentation and check types for this fixture.",
+  "lesson": {
+    "id": "expected-github_git_beginner_commands",
+    "title": "Beginner Git commands you need to know (WITH EXAMPLES)",
+    "goal": "learn the basic git commands",
+    "libraries": {
+      "git": "2.x"
+    }
+  },
+  "sources": [
+    {
+      "id": "src1",
+      "kind": "video",
+      "title": "Beginner Git commands you need to know (WITH EXAMPLES)",
+      "url": "https://www.youtube.com/watch?v=rE2zRhZdjFU",
+      "videoId": "rE2zRhZdjFU"
+    }
+  ],
+  "steps": [
+    {
+      "id": "s1",
+      "index": 1,
+      "title": "Configure your git identity",
+      "instructions": "Set user.name and user.email with git config --global.",
+      "video": {
+        "sourceId": "src1",
+        "start": 21,
+        "end": 109
+      },
+      "checks": [
+        {
+          "type": "screen_contains",
+          "label": "user.name set",
+          "app": "Terminal",
+          "pattern": "git\\s+config.*user\\.name",
+          "id": "s1c1"
+        }
+      ],
+      "targets": [],
+      "hints": [],
+      "common_mistakes": []
+    },
+    {
+      "id": "s2",
+      "index": 2,
+      "title": "Initialize a repository",
+      "instructions": "Run git init in a new project folder.",
+      "video": {
+        "sourceId": "src1",
+        "start": 109,
+        "end": 134
+      },
+      "checks": [
+        {
+          "type": "screen_contains",
+          "label": "repo initialized",
+          "app": "Terminal",
+          "pattern": "Initiali[sz]ed\\s+empty\\s+Git\\s+repository",
+          "id": "s2c1"
+        }
+      ],
+      "targets": [],
+      "hints": [],
+      "common_mistakes": []
+    },
+    {
+      "id": "s3",
+      "index": 3,
+      "title": "Check the repository status",
+      "instructions": "Run git status to see the branch and untracked files.",
+      "video": {
+        "sourceId": "src1",
+        "start": 134,
+        "end": 163
+      },
+      "checks": [
+        {
+          "type": "screen_contains",
+          "label": "status shown",
+          "app": "Terminal",
+          "pattern": "On\\s+branch",
+          "id": "s3c1"
+        }
+      ],
+      "targets": [],
+      "hints": [],
+      "common_mistakes": []
+    },
+    {
+      "id": "s4",
+      "index": 4,
+      "title": "Create and stage a file",
+      "instructions": "Create a file and stage it with git add.",
+      "video": {
+        "sourceId": "src1",
+        "start": 163,
+        "end": 235
+      },
+      "checks": [
+        {
+          "type": "screen_contains",
+          "label": "file staged",
+          "app": "Terminal",
+          "pattern": "git\\s+add",
+          "id": "s4c1"
+        },
+        {
+          "type": "screen_contains",
+          "label": "changes staged",
+          "app": "Terminal",
+          "pattern": "Changes\\s+to\\s+be\\s+committed",
+          "id": "s4c2"
+        }
+      ],
+      "targets": [],
+      "hints": [],
+      "common_mistakes": []
+    },
+    {
+      "id": "s5",
+      "index": 5,
+      "title": "Commit the change",
+      "instructions": "Commit the staged file with git commit -m and a message.",
+      "video": {
+        "sourceId": "src1",
+        "start": 235,
+        "end": 343
+      },
+      "checks": [
+        {
+          "type": "screen_contains",
+          "label": "commit created",
+          "app": "Terminal",
+          "pattern": "\\[\\S+\\s+(\\(root-commit\\)\\s+)?[0-9a-f]{7}\\]",
+          "id": "s5c1"
+        }
+      ],
+      "targets": [],
+      "hints": [],
+      "common_mistakes": []
+    },
+    {
+      "id": "s6",
+      "index": 6,
+      "title": "Clone a repository",
+      "instructions": "Clone an existing repository with git clone.",
+      "video": {
+        "sourceId": "src1",
+        "start": 343,
+        "end": 415
+      },
+      "checks": [
+        {
+          "type": "screen_contains",
+          "label": "repo cloned",
+          "app": "Terminal",
+          "pattern": "Cloning\\s+into",
+          "id": "s6c1"
+        }
+      ],
+      "targets": [],
+      "hints": [],
+      "common_mistakes": []
+    },
+    {
+      "id": "s7",
+      "index": 7,
+      "title": "Create a branch",
+      "instructions": "Create a new branch with git branch and list branches.",
+      "video": {
+        "sourceId": "src1",
+        "start": 415,
+        "end": 464
+      },
+      "checks": [
+        {
+          "type": "screen_contains",
+          "label": "branch created",
+          "app": "Terminal",
+          "pattern": "git\\s+branch\\s+\\S+",
+          "id": "s7c1"
+        }
+      ],
+      "targets": [],
+      "hints": [],
+      "common_mistakes": []
+    },
+    {
+      "id": "s8",
+      "index": 8,
+      "title": "Switch branches",
+      "instructions": "Switch to the new branch with git switch.",
+      "video": {
+        "sourceId": "src1",
+        "start": 464,
+        "end": 531
+      },
+      "checks": [
+        {
+          "type": "screen_contains",
+          "label": "switched branch",
+          "app": "Terminal",
+          "pattern": "Switched\\s+to\\s+(a\\s+new\\s+)?branch",
+          "id": "s8c1"
+        }
+      ],
+      "targets": [],
+      "hints": [],
+      "common_mistakes": []
+    },
+    {
+      "id": "s9",
+      "index": 9,
+      "title": "Push to the remote",
+      "instructions": "Push your branch to GitHub with git push.",
+      "video": {
+        "sourceId": "src1",
+        "start": 531,
+        "end": 641
+      },
+      "checks": [
+        {
+          "type": "screen_contains",
+          "label": "pushed",
+          "app": "Terminal",
+          "pattern": "->\\s*\\S+|set\\s+up\\s+to\\s+track",
+          "id": "s9c1"
+        }
+      ],
+      "targets": [],
+      "hints": [],
+      "common_mistakes": []
+    },
+    {
+      "id": "s10",
+      "index": 10,
+      "title": "Pull remote changes",
+      "instructions": "Update your local branch with git pull.",
+      "video": {
+        "sourceId": "src1",
+        "start": 641,
+        "end": 733
+      },
+      "checks": [
+        {
+          "type": "screen_contains",
+          "label": "pulled",
+          "app": "Terminal",
+          "pattern": "Fast-forward|Already\\s+up\\s+to\\s+date",
+          "id": "s10c1"
+        }
+      ],
+      "targets": [],
+      "hints": [],
+      "common_mistakes": []
+    },
+    {
+      "id": "s11",
+      "index": 11,
+      "title": "Inspect history with git show",
+      "instructions": "Use git show to view a commit's details.",
+      "video": {
+        "sourceId": "src1",
+        "start": 733,
+        "end": 834
+      },
+      "checks": [
+        {
+          "type": "screen_contains",
+          "label": "commit shown",
+          "app": "Terminal",
+          "pattern": "commit\\s+[0-9a-f]{7,}",
+          "id": "s11c1"
+        }
+      ],
+      "targets": [],
+      "hints": [],
+      "common_mistakes": []
+    },
+    {
+      "id": "s12",
+      "index": 12,
+      "title": "Delete branches",
+      "instructions": "Delete a branch locally with git branch -d and on the remote with git push --delete.",
+      "video": {
+        "sourceId": "src1",
+        "start": 834,
+        "end": 868
+      },
+      "checks": [
+        {
+          "type": "screen_contains",
+          "label": "branch deleted",
+          "app": "Terminal",
+          "pattern": "Deleted\\s+branch",
+          "id": "s12c1"
+        }
+      ],
+      "targets": [],
+      "hints": [],
+      "common_mistakes": []
+    }
+  ]
+}

@@ -1,0 +1,518 @@
+{
+ "t": 1794697342.589421,
+ "app": "Terminal",
+ "windows": [
+  {
+   "app": "Terminal",
+   "title": "git-rebase-lab — -zsh — 108×70",
+   "rect": {
+    "x": 944.0,
+    "y": 33.0,
+    "w": 784.0,
+    "h": 1084.0
+   }
+  },
+  {
+   "app": "Code",
+   "title": "index.js — git-rebase-lab",
+   "rect": {
+    "x": 0.0,
+    "y": 33.0,
+    "w": 940.0,
+    "h": 1084.0
+   }
+  }
+ ],
+ "screen": {
+  "x": 0.0,
+  "y": 0.0,
+  "w": 1728.0,
+  "h": 1117.0
+ },
+ "scale": 2.0,
+ "ocr_ms": 157.2,
+ "frame": 1,
+ "source": "fixture:screen.png",
+ "blocks": [
+  {
+   "text": "Sat Nov 14 3:12 PM",
+   "rect": {
+    "x": 1557.2,
+    "y": 10.0,
+    "w": 120.6,
+    "h": 15.1
+   },
+   "confidence": 1.0,
+   "app": null,
+   "window": null
+  },
+  {
+   "text": "Terminal",
+   "rect": {
+    "x": 37.7,
+    "y": 10.0,
+    "w": 55.3,
+    "h": 15.1
+   },
+   "confidence": 1.0,
+   "app": null,
+   "window": null
+  },
+  {
+   "text": "File",
+   "rect": {
+    "x": 110.5,
+    "y": 12.6,
+    "w": 22.6,
+    "h": 12.6
+   },
+   "confidence": 1.0,
+   "app": null,
+   "window": null
+  },
+  {
+   "text": "Edit",
+   "rect": {
+    "x": 150.7,
+    "y": 12.6,
+    "w": 27.6,
+    "h": 12.6
+   },
+   "confidence": 1.0,
+   "app": null,
+   "window": null
+  },
+  {
+   "text": "Selection",
+   "rect": {
+    "x": 195.9,
+    "y": 12.6,
+    "w": 57.8,
+    "h": 12.6
+   },
+   "confidence": 1.0,
+   "app": null,
+   "window": null
+  },
+  {
+   "text": "View",
+   "rect": {
+    "x": 268.7,
+    "y": 12.6,
+    "w": 32.7,
+    "h": 12.6
+   },
+   "confidence": 1.0,
+   "app": null,
+   "window": null
+  },
+  {
+   "text": "Go",
+   "rect": {
+    "x": 319.0,
+    "y": 12.6,
+    "w": 22.6,
+    "h": 12.6
+   },
+   "confidence": 1.0,
+   "app": null,
+   "window": null
+  },
+  {
+   "text": "Run",
+   "rect": {
+    "x": 359.2,
+    "y": 12.6,
+    "w": 25.1,
+    "h": 12.6
+   },
+   "confidence": 1.0,
+   "app": null,
+   "window": null
+  },
+  {
+   "text": "Window",
+   "rect": {
+    "x": 401.9,
+    "y": 12.6,
+    "w": 52.7,
+    "h": 12.6
+   },
+   "confidence": 1.0,
+   "app": null,
+   "window": null
+  },
+  {
+   "text": "Help",
+   "rect": {
+    "x": 469.7,
+    "y": 12.6,
+    "w": 32.7,
+    "h": 12.6
+   },
+   "confidence": 1.0,
+   "app": null,
+   "window": null
+  },
+  {
+   "text": "..",
+   "rect": {
+    "x": 2.5,
+    "y": 37.7,
+    "w": 50.2,
+    "h": 27.6
+   },
+   "confidence": 0.5,
+   "app": "Code",
+   "window": "index.js — git-rebase-lab"
+  },
+  {
+   "text": "indexjs -git-rebase-lab",
+   "rect": {
+    "x": 399.3,
+    "y": 42.5,
+    "w": 143.2,
+    "h": 15.2
+   },
+   "confidence": 1.0,
+   "app": "Code",
+   "window": "index.js — git-rebase-lab"
+  },
+  {
+   "text": "git-rebase-lab - -zsh - 108×70",
+   "rect": {
+    "x": 1245.8,
+    "y": 42.5,
+    "w": 183.3,
+    "h": 15.2
+   },
+   "confidence": 1.0,
+   "app": "Terminal",
+   "window": "git-rebase-lab — -zsh — 108×70"
+  },
+  {
+   "text": "learner@MacBook-Pro git-rebase-lab % git rebase --interactive HEAD~4",
+   "rect": {
+    "x": 951.9,
+    "y": 67.8,
+    "w": 479.7,
+    "h": 15.2
+   },
+   "confidence": 1.0,
+   "app": "Terminal",
+   "window": "git-rebase-lab — -zsh — 108×70"
+  },
+  {
+   "text": "indexjs",
+   "rect": {
+    "x": 281.3,
+    "y": 80.3,
+    "w": 40.2,
+    "h": 12.6
+   },
+   "confidence": 1.0,
+   "app": "Code",
+   "window": "index.js — git-rebase-lab"
+  },
+  {
+   "text": "=XРОК-К",
+   "rect": {
+    "x": 60.3,
+    "y": 82.8,
+    "w": 50.2,
+    "h": 5.0
+   },
+   "confidence": 0.5,
+   "app": "Code",
+   "window": "index.js — git-rebase-lab"
+  },
+  {
+   "text": "Stopped at 38434d6...",
+   "rect": {
+    "x": 949.4,
+    "y": 97.9,
+    "w": 153.2,
+    "h": 15.1
+   },
+   "confidence": 1.0,
+   "app": "Terminal",
+   "window": "git-rebase-lab — -zsh — 108×70"
+  },
+  {
+   "text": "Add README and login endpoint",
+   "rect": {
+    "x": 1107.6,
+    "y": 97.9,
+    "w": 208.5,
+    "h": 15.1
+   },
+   "confidence": 1.0,
+   "app": "Terminal",
+   "window": "git-rebase-lab — -zsh — 108×70"
+  },
+  {
+   "text": "GIT-REBASE-LAB",
+   "rect": {
+    "x": 57.8,
+    "y": 102.9,
+    "w": 95.4,
+    "h": 12.6
+   },
+   "confidence": 1.0,
+   "app": "Code",
+   "window": "index.js — git-rebase-lab"
+  },
+  {
+   "text": "You can amend the commit now, with",
+   "rect": {
+    "x": 949.4,
+    "y": 113.0,
+    "w": 243.6,
+    "h": 15.1
+   },
+   "confidence": 1.0,
+   "app": "Terminal",
+   "window": "git-rebase-lab — -zsh — 108×70"
+  },
+  {
+   "text": "ncex.s",
+   "rect": {
+    "x": 278.8,
+    "y": 115.5,
+    "w": 37.7,
+    "h": 5.0
+   },
+   "confidence": 0.3,
+   "app": "Code",
+   "window": "index.js — git-rebase-lab"
+  },
+  {
+   "text": ".gitignore",
+   "rect": {
+    "x": 65.3,
+    "y": 128.0,
+    "w": 50.2,
+    "h": 12.6
+   },
+   "confidence": 1.0,
+   "app": "Code",
+   "window": "index.js — git-rebase-lab"
+  },
+  {
+   "text": "const express = require('express');",
+   "rect": {
+    "x": 316.5,
+    "y": 130.5,
+    "w": 248.7,
+    "h": 15.1
+   },
+   "confidence": 1.0,
+   "app": "Code",
+   "window": "index.js — git-rebase-lab"
+  },
+  {
+   "text": "git commit -amend",
+   "rect": {
+    "x": 964.5,
+    "y": 143.0,
+    "w": 130.6,
+    "h": 15.1
+   },
+   "confidence": 1.0,
+   "app": "Terminal",
+   "window": "git-rebase-lab — -zsh — 108×70"
+  },
+  {
+   "text": "index.js",
+   "rect": {
+    "x": 62.8,
+    "y": 148.1,
+    "w": 42.7,
+    "h": 12.6
+   },
+   "confidence": 1.0,
+   "app": "Code",
+   "window": "index.js — git-rebase-lab"
+  },
+  {
+   "text": "const app = express();",
+   "rect": {
+    "x": 316.5,
+    "y": 148.0,
+    "w": 158.2,
+    "h": 15.2
+   },
+   "confidence": 1.0,
+   "app": "Code",
+   "window": "index.js — git-rebase-lab"
+  },
+  {
+   "text": "app.use(express. json()) ;",
+   "rect": {
+    "x": 316.5,
+    "y": 165.5,
+    "w": 170.8,
+    "h": 17.7
+   },
+   "confidence": 1.0,
+   "app": "Code",
+   "window": "index.js — git-rebase-lab"
+  },
+  {
+   "text": "README.md",
+   "rect": {
+    "x": 62.8,
+    "y": 170.7,
+    "w": 72.8,
+    "h": 12.6
+   },
+   "confidence": 1.0,
+   "app": "Code",
+   "window": "index.js — git-rebase-lab"
+  },
+  {
+   "text": "Once you aresatisfied with your changes,",
+   "rect": {
+    "x": 949.4,
+    "y": 173.0,
+    "w": 293.9,
+    "h": 15.5
+   },
+   "confidence": 1.0,
+   "app": "Terminal",
+   "window": "git-rebase-lab — -zsh — 108×70"
+  },
+  {
+   "text": "app.post('/login', (req, res) = {",
+   "rect": {
+    "x": 316.5,
+    "y": 200.8,
+    "w": 243.6,
+    "h": 17.7
+   },
+   "confidence": 1.0,
+   "app": "Code",
+   "window": "index.js — git-rebase-lab"
+  },
+  {
+   "text": "git rebase -continue",
+   "rect": {
+    "x": 964.5,
+    "y": 203.3,
+    "w": 150.7,
+    "h": 12.7
+   },
+   "confidence": 1.0,
+   "app": "Terminal",
+   "window": "git-rebase-lab — -zsh — 108×70"
+  },
+  {
+   "text": "res. json(f ok: true });",
+   "rect": {
+    "x": 331.5,
+    "y": 218.4,
+    "w": 163.3,
+    "h": 17.6
+   },
+   "confidence": 1.0,
+   "app": "Code",
+   "window": "index.js — git-rebase-lab"
+  },
+  {
+   "text": "learner@MacBook-Pro git-rebase-lab % git rebase --continue",
+   "rect": {
+    "x": 949.4,
+    "y": 218.4,
+    "w": 409.4,
+    "h": 12.6
+   },
+   "confidence": 1.0,
+   "app": "Terminal",
+   "window": "git-rebase-lab — -zsh — 108×70"
+  },
+  {
+   "text": "You must edit all merge conflicts and then",
+   "rect": {
+    "x": 949.4,
+    "y": 230.9,
+    "w": 298.9,
+    "h": 15.1
+   },
+   "confidence": 1.0,
+   "app": "Terminal",
+   "window": "git-rebase-lab — -zsh — 108×70"
+  },
+  {
+   "text": "});",
+   "rect": {
+    "x": 316.5,
+    "y": 238.5,
+    "w": 25.1,
+    "h": 15.1
+   },
+   "confidence": 1.0,
+   "app": "Code",
+   "window": "index.js — git-rebase-lab"
+  },
+  {
+   "text": "mark them as resolved using git add",
+   "rect": {
+    "x": 949.4,
+    "y": 248.5,
+    "w": 251.2,
+    "h": 12.6
+   },
+   "confidence": 1.0,
+   "app": "Terminal",
+   "window": "git-rebase-lab — -zsh — 108×70"
+  },
+  {
+   "text": "learner@MacBook-Pro git-rebase-lab %",
+   "rect": {
+    "x": 951.9,
+    "y": 263.5,
+    "w": 256.2,
+    "h": 15.1
+   },
+   "confidence": 1.0,
+   "app": "Terminal",
+   "window": "git-rebase-lab — -zsh — 108×70"
+  },
+  {
+   "text": "app. listen(3000, () => console. log('Server running on port 3000')) ;",
+   "rect": {
+    "x": 316.5,
+    "y": 273.5,
+    "w": 472.2,
+    "h": 17.7
+   },
+   "confidence": 1.0,
+   "app": "Code",
+   "window": "index.js — git-rebase-lab"
+  },
+  {
+   "text": "main*",
+   "rect": {
+    "x": 7.5,
+    "y": 1099.4,
+    "w": 32.7,
+    "h": 12.6
+   },
+   "confidence": 1.0,
+   "app": "Code",
+   "window": "index.js — git-rebase-lab"
+  },
+  {
+   "text": "Ln 1, Col 1 Spaces: 2 UTF-8 LF JavaScript",
+   "rect": {
+    "x": 695.7,
+    "y": 1099.4,
+    "w": 231.1,
+    "h": 12.6
+   },
+   "confidence": 1.0,
+   "app": "Code",
+   "window": "index.js — git-rebase-lab"
+  }
+ ]
+}

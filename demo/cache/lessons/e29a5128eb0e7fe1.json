@@ -1,0 +1,624 @@
+{
+  "lesson": {
+    "id": "lesson-9649077b",
+    "title": "Learning PINNs in PyTorch: Diffusion Equation",
+    "goal": "train a physics-informed neural network in PyTorch",
+    "libraries": {
+      "torch": "1.x",
+      "pyDOE": "0.3.8",
+      "numpy": "1.21.5",
+      "scipy": "1.4.1",
+      "matplotlib": "3.x",
+      "scikit-learn": "1.x"
+    },
+    "workdir": "server/lesson/fixtures/diffusion_workdir",
+    "builtBy": "gemini"
+  },
+  "sources": [
+    {
+      "id": "src1",
+      "kind": "video",
+      "title": "Learning PINNs in PyTorch: Diffusion Equation",
+      "url": "https://www.youtube.com/watch?v=AXXnSzmpyoI",
+      "videoId": "AXXnSzmpyoI"
+    }
+  ],
+  "steps": [
+    {
+      "id": "s1",
+      "index": 1,
+      "title": "Install pyDOE and import libraries",
+      "instructions": "Install pyDOE and import PyTorch, Matplotlib, NumPy, and lhs. Configure device and fixed random seeds in pinn_diffusion.py.",
+      "video": {
+        "sourceId": "src1",
+        "start": 143.0,
+        "end": 172.0
+      },
+      "checks": [
+        {
+          "id": "s1c1",
+          "type": "screen_contains",
+          "label": "PyTorch imported",
+          "app": "Code",
+          "pattern": "import\\s+torch"
+        },
+        {
+          "id": "s1c2",
+          "type": "screen_contains",
+          "label": "lhs imported from pyDOE",
+          "app": "Code",
+          "pattern": "from\\s+pyDOE\\s+import\\s+lhs|from\\s+pydoe\\s+import\\s+lhs"
+        },
+        {
+          "id": "s1c3",
+          "type": "screen_absent",
+          "label": "Imports run without errors",
+          "app": "Terminal",
+          "pattern": "Traceback|Error"
+        }
+      ],
+      "precision_checks": [
+        {
+          "id": "s1p1",
+          "type": "file_contains",
+          "label": "PyTorch import present",
+          "file": "pinn_diffusion.py",
+          "pattern": "import torch"
+        }
+      ],
+      "targets": [
+        {
+          "app": "Code",
+          "file": "pinn_diffusion.py",
+          "match": "from pyDOE import lhs",
+          "caption": "Import PyTorch and Latin Hypercube Sampling"
+        }
+      ],
+      "explanations": [
+        {
+          "topic": "Purpose of pyDOE and Latin Hypercube Sampling",
+          "t": 164.0,
+          "sourceId": "src1"
+        }
+      ],
+      "hints": [
+        "Which sampling library is needed for collocation points?",
+        "Run !pip install pyDOE and import lhs from pyDOE.",
+        "Add torch.set_default_dtype(torch.float), manual_seed(1234), and device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')."
+      ],
+      "common_mistakes": [
+        "Forgetting to install pyDOE before importing lhs.",
+        "Using float64 instead of setting default dtype to torch.float (float32)."
+      ]
+    },
+    {
+      "id": "s2",
+      "index": 2,
+      "title": "Generate and plot exact solution",
+      "instructions": "Define f_real(x,t) for the analytical solution and create a 2D meshgrid over x in [-1,1] and t in [0,1].",
+      "video": {
+        "sourceId": "src1",
+        "start": 173.0,
+        "end": 310.0
+      },
+      "checks": [
+        {
+          "id": "s2c1",
+          "type": "screen_contains",
+          "label": "Exact solution defined",
+          "app": "Code",
+          "pattern": "def\\s+f_real\\(x,\\s*t\\):"
+        },
+        {
+          "id": "s2c2",
+          "type": "screen_contains",
+          "label": "Meshgrid created",
+          "app": "Code",
+          "pattern": "torch\\.meshgrid"
+        }
+      ],
+      "precision_checks": [
+        {
+          "id": "s2p1",
+          "type": "file_contains",
+          "label": "f_real function defined",
+          "file": "pinn_diffusion.py",
+          "pattern": "def f_real"
+        }
+      ],
+      "targets": [
+        {
+          "app": "Code",
+          "file": "pinn_diffusion.py",
+          "match": "def f_real",
+          "caption": "Define f_real and generate space-time grid"
+        }
+      ],
+      "explanations": [
+        {
+          "topic": "Domain limits and 2D meshgrid setup",
+          "t": 255.0,
+          "sourceId": "src1"
+        }
+      ],
+      "hints": [
+        "How do you build a 2D space-time grid from 1D tensors in PyTorch?",
+        "Use torch.linspace(-1,1,200) for x, torch.linspace(0,1,100) for t, and torch.meshgrid(x,t).",
+        "Define def f_real(x,t): return torch.exp(-t)*(torch.sin(np.pi*x)) and call plot3D(x,t,y_real)."
+      ],
+      "common_mistakes": [
+        "Using wrong domain bounds instead of [-1, 1] for x and [0, 1] for t.",
+        "Calling numpy functions instead of torch.exp and torch.sin on PyTorch tensors."
+      ]
+    },
+    {
+      "id": "s3",
+      "index": 3,
+      "title": "Flatten grid into testing tensors",
+      "instructions": "Flatten X, T, and y_real into column vectors x_test and y_test using torch.hstack, and extract domain bounds lb and ub.",
+      "video": {
+        "sourceId": "src1",
+        "start": 311.0,
+        "end": 445.0
+      },
+      "checks": [
+        {
+          "id": "s3c1",
+          "type": "screen_contains",
+          "label": "Flattened test grid with hstack",
+          "app": "Code",
+          "pattern": "hstack"
+        }
+      ],
+      "precision_checks": [
+        {
+          "id": "s3p1",
+          "type": "file_contains",
+          "label": "hstack used for test data",
+          "file": "pinn_diffusion.py",
+          "pattern": "torch.hstack"
+        }
+      ],
+      "targets": [
+        {
+          "app": "Code",
+          "file": "pinn_diffusion.py",
+          "match": "x_test = torch.hstack",
+          "caption": "Flatten 2D grid into column vectors for evaluation"
+        }
+      ],
+      "explanations": [
+        {
+          "topic": "Column-major flattening for fully connected networks",
+          "t": 319.0,
+          "sourceId": "src1"
+        }
+      ],
+      "hints": [
+        "Why does a fully connected network need flattened vectors instead of 2D matrices?",
+        "Transpose X, T, and y_real with .transpose(1,0), flatten, and add a trailing axis with [:,None].",
+        "Stack X and T with torch.hstack and set lb=X_test[0], ub=X_test[-1]."
+      ],
+      "common_mistakes": [
+        "Omitting [:,None], which leaves y_test as 1D instead of shape (20000, 1).",
+        "Forgetting .transpose(1,0) before .flatten() when reshaping back later."
+      ]
+    },
+    {
+      "id": "s4",
+      "index": 4,
+      "title": "Build initial and boundary data",
+      "instructions": "Create initial and boundary condition tensors, stack them with torch.vstack, and sample Nu=100 training points.",
+      "video": {
+        "sourceId": "src1",
+        "start": 446.0,
+        "end": 770.0
+      },
+      "checks": [
+        {
+          "id": "s4c1",
+          "type": "screen_contains",
+          "label": "Boundary tensors stacked",
+          "app": "Code",
+          "pattern": "torch\\.vstack"
+        },
+        {
+          "id": "s4c2",
+          "type": "screen_contains",
+          "label": "Nu training points sampled",
+          "app": "Code",
+          "pattern": "random\\.choice"
+        }
+      ],
+      "precision_checks": [
+        {
+          "id": "s4p1",
+          "type": "file_contains",
+          "label": "vstack used for boundary data",
+          "file": "pinn_diffusion.py",
+          "pattern": "torch.vstack"
+        }
+      ],
+      "targets": [
+        {
+          "app": "Code",
+          "file": "pinn_diffusion.py",
+          "match": "X_train = torch.vstack",
+          "caption": "Combine initial and boundary conditions and sample Nu training points"
+        }
+      ],
+      "explanations": [
+        {
+          "topic": "Initial condition edge extraction",
+          "t": 453.0,
+          "sourceId": "src1"
+        },
+        {
+          "topic": "Boundary conditions at x=-1 and x=1",
+          "t": 545.0,
+          "sourceId": "src1"
+        }
+      ],
+      "hints": [
+        "Which slices of X and T correspond to t=0, x=1, and x=-1?",
+        "Use X[:,0] for t=0, X[-1,:] for bottom, and X[0,:] for top, then vstack them.",
+        "Sample Nu=100 indices via np.random.choice(X_train.shape[0], Nu, replace=False)."
+      ],
+      "common_mistakes": [
+        "Using torch.hstack instead of torch.vstack when combining left, bottom, and top points.",
+        "Forgetting .unsqueeze(1) on left_Y so its shape matches bottom_Y and top_Y.",
+        "Setting replace=True when sampling unique boundary points."
+      ]
+    },
+    {
+      "id": "s5",
+      "index": 5,
+      "title": "Sample collocation points with LHS",
+      "instructions": "Sample Nf=10000 interior collocation points using lhs(2, Nf), stack them with initial/boundary points, and move data to device.",
+      "video": {
+        "sourceId": "src1",
+        "start": 771.0,
+        "end": 901.0
+      },
+      "checks": [
+        {
+          "id": "s5c1",
+          "type": "screen_contains",
+          "label": "Collocation points sampled with lhs",
+          "app": "Code",
+          "pattern": "lhs\\(2,\\s*Nf\\)"
+        }
+      ],
+      "precision_checks": [
+        {
+          "id": "s5p1",
+          "type": "file_contains",
+          "label": "lhs call present",
+          "file": "pinn_diffusion.py",
+          "pattern": "lhs\\(2,\\s*Nf\\)"
+        }
+      ],
+      "targets": [
+        {
+          "app": "Code",
+          "file": "pinn_diffusion.py",
+          "match": "lhs(2, Nf)",
+          "caption": "Sample interior domain collocation points using Latin Hypercube Sampling"
+        }
+      ],
+      "explanations": [
+        {
+          "topic": "Latin Hypercube Sampling for collocation points",
+          "t": 772.0,
+          "sourceId": "src1"
+        },
+        {
+          "topic": "Why f_hat is a tensor of zeros",
+          "t": 898.0,
+          "sourceId": "src1"
+        }
+      ],
+      "hints": [
+        "How do you map lhs(2, Nf) from [0,1] into [lb, ub]?",
+        "Compute lb + (ub - lb) * lhs(2, Nf) and vstack with X_train_Nu.",
+        "Convert X_train_Nu, X_train_Nf, Y_train_Nu with .float().to(device) and set f_hat=torch.zeros(X_train_Nf.shape[0],1).to(device)."
+      ],
+      "common_mistakes": [
+        "Forgetting to append X_train_Nu to X_train_Nf.",
+        "Leaving lhs output as double (float64) without calling .float() before passing to the network.",
+        "Creating f_hat on CPU instead of moving it to device."
+      ]
+    },
+    {
+      "id": "s6",
+      "index": 6,
+      "title": "Define the FCN neural network",
+      "instructions": "Implement the FCN neural network with Tanh activations, lossBC, and lossPDE using autograd.grad with create_graph=True.",
+      "video": {
+        "sourceId": "src1",
+        "start": 902.0,
+        "end": 1096.0
+      },
+      "checks": [
+        {
+          "id": "s6c1",
+          "type": "screen_contains",
+          "label": "FCN architecture defined",
+          "app": "Code",
+          "pattern": "class\\s+FCN\\(nn\\.Module\\):"
+        },
+        {
+          "id": "s6c2",
+          "type": "screen_contains",
+          "label": "PDE loss defined with autograd",
+          "app": "Code",
+          "pattern": "def\\s+lossPDE"
+        },
+        {
+          "id": "s6c3",
+          "type": "screen_contains",
+          "label": "Graph retained for second derivative",
+          "app": "Code",
+          "pattern": "create_graph\\s*=\\s*True"
+        }
+      ],
+      "precision_checks": [
+        {
+          "id": "s6p1",
+          "type": "file_contains",
+          "label": "FCN class in code",
+          "file": "pinn_diffusion.py",
+          "pattern": "class FCN"
+        }
+      ],
+      "targets": [
+        {
+          "app": "Code",
+          "file": "pinn_diffusion.py",
+          "match": "def lossPDE",
+          "caption": "Compute derivatives using autograd.grad and calculate PINN physics loss"
+        }
+      ],
+      "explanations": [
+        {
+          "topic": "FCN architecture, Xavier init, and forward pass",
+          "t": 915.0,
+          "sourceId": "src1"
+        },
+        {
+          "topic": "Boundary loss and PDE residual via autograd",
+          "t": 970.0,
+          "sourceId": "src1"
+        }
+      ],
+      "hints": [
+        "How do you compute first and second derivatives of the network output with respect to (x, t)?",
+        "Clone x_PDE, set g.requires_grad=True, and call autograd.grad twice with create_graph=True.",
+        "Extract f_t = f_x_t[:,[1]] and f_xx = f_xx_tt[:,[0]], compute the residual f, and return self.loss_function(f, f_hat)."
+      ],
+      "common_mistakes": [
+        "Forgetting create_graph=True on autograd.grad, which breaks backpropagation through second derivatives.",
+        "Forgetting g.requires_grad=True on the cloned collocation tensor.",
+        "Swapping column indices 0 (x) and 1 (t) when slicing f_x_t and f_xx_tt."
+      ]
+    },
+    {
+      "id": "s7",
+      "index": 7,
+      "title": "Instantiate PINN and Adam optimizer",
+      "instructions": "Instantiate PINN on device with layer architecture [2, 32, 32, 1] and initialize the Adam optimizer.",
+      "video": {
+        "sourceId": "src1",
+        "start": 1097.0,
+        "end": 1201.0
+      },
+      "checks": [
+        {
+          "id": "s7c1",
+          "type": "screen_contains",
+          "label": "PINN model instantiated",
+          "app": "Code",
+          "pattern": "FCN\\(layers\\)"
+        },
+        {
+          "id": "s7c2",
+          "type": "screen_contains",
+          "label": "Adam optimizer configured",
+          "app": "Code",
+          "pattern": "optim\\.Adam"
+        }
+      ],
+      "precision_checks": [
+        {
+          "id": "s7p1",
+          "type": "file_contains",
+          "label": "Adam optimizer initialized",
+          "file": "pinn_diffusion.py",
+          "pattern": "torch.optim.Adam"
+        }
+      ],
+      "targets": [
+        {
+          "app": "Code",
+          "file": "pinn_diffusion.py",
+          "match": "PINN = FCN(layers)",
+          "caption": "Instantiate the PINN model and set up the Adam optimizer"
+        }
+      ],
+      "explanations": [
+        {
+          "topic": "Input/output dimensions of the PINN architecture",
+          "t": 1114.0,
+          "sourceId": "src1"
+        }
+      ],
+      "hints": [
+        "What must the first and last numbers in layers be?",
+        "Use np.array([2,32,64,1]) since the inputs are (x, t) and the output is y.",
+        "Instantiate optimizer = torch.optim.Adam(PINN.parameters(), lr=1e-3, amsgrad=False)."
+      ],
+      "common_mistakes": [
+        "Using a positive exponent in lr=1e3 instead of lr=1e-3.",
+        "Forgetting to call PINN.to(device) before creating the optimizer or running training."
+      ]
+    },
+    {
+      "id": "s8",
+      "index": 8,
+      "title": "Train the network and log loss",
+      "instructions": "Run the training loop updating PINN parameters via loss.backward() and optimizer.step(), logging metrics to terminal.",
+      "video": {
+        "sourceId": "src1",
+        "start": 1202.0,
+        "end": 1415.0
+      },
+      "checks": [
+        {
+          "id": "s8c1",
+          "type": "screen_contains",
+          "label": "PINN loss evaluated in loop",
+          "app": "Code",
+          "pattern": "PINN\\.loss"
+        },
+        {
+          "id": "s8c2",
+          "type": "screen_contains",
+          "label": "Backward pass called",
+          "app": "Code",
+          "pattern": "loss\\.backward\\(\\)"
+        },
+        {
+          "id": "s8c3",
+          "type": "screen_absent",
+          "label": "Training executes without errors",
+          "app": "Terminal",
+          "pattern": "Traceback|Error"
+        },
+        {
+          "id": "s8c4",
+          "type": "metric_trend",
+          "label": "Loss decreases over steps",
+          "metric": "loss",
+          "trend": "decreasing",
+          "window": 5,
+          "metric_pattern": "step\\W+(?P<step>\\d+)\\W+name\\W+loss\\W+value\\W+(?P<value>[0-9.eE+-]+)"
+        }
+      ],
+      "precision_checks": [
+        {
+          "id": "s8p1",
+          "type": "command_exit_ok",
+          "label": "Script runs short training pass",
+          "command": "python pinn_diffusion.py --steps 10"
+        },
+        {
+          "id": "s8p2",
+          "type": "metric_trend",
+          "label": "Loss decreases over steps",
+          "metric": "loss",
+          "trend": "decreasing",
+          "window": 5
+        }
+      ],
+      "targets": [
+        {
+          "app": "Code",
+          "file": "pinn_diffusion.py",
+          "match": "loss.backward()",
+          "caption": "Execute optimization loop with zero_grad, backward, and step"
+        }
+      ],
+      "explanations": [
+        {
+          "topic": "Using torch.no_grad() when logging test loss",
+          "t": 1340.0,
+          "sourceId": "src1"
+        }
+      ],
+      "hints": [
+        "Did you move X_test and y_test to device before logging test_loss?",
+        "Call loss = PINN.loss(X_train_Nu, Y_train_Nu, X_train_Nf), zero_grad(), backward(), and step().",
+        "Wrap test_loss = PINN.lossBC(X_test, y_test) inside with torch.no_grad(): and print both losses."
+      ],
+      "common_mistakes": [
+        "Forgetting to move X_test and y_test to device before evaluating test_loss.",
+        "Omitting optimizer.zero_grad(), causing gradients to accumulate across iterations.",
+        "Forgetting with torch.no_grad(): during test evaluation."
+      ]
+    },
+    {
+      "id": "s9",
+      "index": 9,
+      "title": "Evaluate and plot predicted solution",
+      "instructions": "Evaluate PINN predictions across x_test and plot or save the solution comparison against the analytical reference.",
+      "video": {
+        "sourceId": "src1",
+        "start": 1416.0,
+        "end": 1443.0
+      },
+      "checks": [
+        {
+          "id": "s9c1",
+          "type": "screen_contains",
+          "label": "Model inference on test domain",
+          "app": "Code",
+          "pattern": "PINN\\(X_test\\)|PINN\\(x_test\\)"
+        },
+        {
+          "id": "s9c2",
+          "type": "screen_contains",
+          "label": "Plot generated or saved",
+          "app": "Code",
+          "pattern": "plt\\.savefig|plot3D"
+        }
+      ],
+      "precision_checks": [
+        {
+          "id": "s9p1",
+          "type": "file_contains",
+          "label": "Figure saving code present",
+          "file": "pinn_diffusion.py",
+          "pattern": "plt.savefig"
+        }
+      ],
+      "targets": [
+        {
+          "app": "Code",
+          "file": "pinn_diffusion.py",
+          "match": "plt.savefig(\"results.png\")",
+          "caption": "Evaluate trained model and save comparison plot"
+        }
+      ],
+      "explanations": [
+        {
+          "topic": "Reshaping vector predictions back into 2D matrices",
+          "t": 1420.0,
+          "sourceId": "src1"
+        }
+      ],
+      "hints": [
+        "How do you turn the 20000-element prediction vector back into a 2D plot grid?",
+        "Reshape each tensor to [100, 200], transpose(1,0), and call .detach().cpu().",
+        "Call plot3D_Matrix(arr_x1, arr_t1, arr_y1) and compare with plot3D_Matrix(X, T, y_real)."
+      ],
+      "common_mistakes": [
+        "Reshaping to [200, 100] instead of [100, 200] before transposing.",
+        "Forgetting .detach().cpu() before plotting GPU tensors with Matplotlib."
+      ]
+    }
+  ],
+  "build": {
+    "adapted": true,
+    "seconds": 256.5,
+    "workdir_metrics": [
+      "loss",
+      "test_loss"
+    ],
+    "warnings": [],
+    "workdir_fp": "f9f98a4894d9",
+    "model": {
+      "video": "gemini-4-hydrogen (watched the video)",
+      "adapt": "gemini-3.6-flash"
+    }
+  }
+}

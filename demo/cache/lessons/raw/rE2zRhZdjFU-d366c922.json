@@ -1,0 +1,516 @@
+{
+  "title": "Git commands to know",
+  "summary": "Learn essential everyday Git and GitHub Flow commands, from configuring Git and initializing repositories to branching, committing, pushing, pulling, and cleaning up branches.",
+  "libraries": [
+    {
+      "name": "git",
+      "version": "2.x"
+    },
+    {
+      "name": "python",
+      "version": "3.9.6"
+    }
+  ],
+  "files": [
+    "hello.md",
+    "learning.py",
+    "waiting.py",
+    "index.html"
+  ],
+  "steps": [
+    {
+      "start": 33.0,
+      "end": 93.0,
+      "title": "Configure Git user and alias",
+      "instructions": "Set your global Git username and email, verify the settings, and create an alias for git init.",
+      "code": "git config --global user.name \"itsladykerrtoo\" && git config --global user.email \"itsladykerrtoo@email.com\" && git config --list && git config --global alias.i init",
+      "run_command": "git config --list",
+      "expected_output": "user.name=itsladykerrtoo user.email=itsladykerrtoo@email.com alias.i=init",
+      "checks": [
+        {
+          "type": "screen_contains",
+          "label": "Global user.name and user.email listed",
+          "app": "Terminal",
+          "pattern": "user\\.name=.+user\\.email="
+        },
+        {
+          "type": "screen_contains",
+          "label": "Alias for init configured",
+          "app": "Terminal",
+          "pattern": "git\\s+config\\s+--global\\s+alias\\.i\\s+init"
+        }
+      ],
+      "targets": [
+        {
+          "app": "Terminal",
+          "match": "git config --global",
+          "caption": "Set your global username, email, and alias in the terminal"
+        }
+      ],
+      "explanations": [
+        {
+          "topic": "Why git config sets username and email",
+          "t": 33.0
+        },
+        {
+          "topic": "Creating command aliases with git config",
+          "t": 73.0
+        }
+      ],
+      "hints": [
+        "Use git config with the --global flag to set configuration values across repositories.",
+        "Set user.name and user.email first, then inspect them with git config --list.",
+        "Run git config --global alias.i init to create a shorthand for git init."
+      ],
+      "common_mistakes": [
+        "Forgetting --global when intending to configure Git for all repositories on the machine.",
+        "Omitting quotes around values that contain spaces."
+      ],
+      "index": 1
+    },
+    {
+      "start": 94.0,
+      "end": 120.0,
+      "title": "Initialize a new Git repository",
+      "instructions": "Create a directory named project1, navigate into it, and initialize it as a Git repository.",
+      "code": "mkdir project1 && cd project1 && git i",
+      "run_command": "git i",
+      "expected_output": "Initialized empty Git repository in /Users/ladykerrtoo/Documents/project1/.git/",
+      "checks": [
+        {
+          "type": "screen_contains",
+          "label": "Empty Git repository initialized",
+          "app": "Terminal",
+          "pattern": "Initialized\\s+empty\\s+Git\\s+repository"
+        }
+      ],
+      "targets": [
+        {
+          "app": "Terminal",
+          "match": "git i",
+          "caption": "Run git i (or git init) inside the project1 folder"
+        }
+      ],
+      "explanations": [
+        {
+          "topic": "What git init does to a regular folder",
+          "t": 120.0
+        }
+      ],
+      "hints": [
+        "Create the folder with mkdir and move into it with cd before initializing Git.",
+        "You can use the git i alias you just created (or git init) inside project1."
+      ],
+      "common_mistakes": [
+        "Running git init in the parent Documents directory instead of inside project1."
+      ],
+      "index": 2
+    },
+    {
+      "start": 134.0,
+      "end": 218.0,
+      "title": "Create and stage project files",
+      "instructions": "Create hello.md, learning.py, and waiting.py, then stage hello.md and learning.py while checking status.",
+      "file": "hello.md",
+      "code": "git status && touch hello.md && git add . && touch learning.py && touch waiting.py && git add learning.py && git status",
+      "run_command": "git status",
+      "expected_output": "Changes to be committed: new file: hello.md new file: learning.py Untracked files: waiting.py",
+      "checks": [
+        {
+          "type": "screen_contains",
+          "label": "Staged hello.md and learning.py",
+          "app": "Terminal",
+          "pattern": "new\\s+file:\\s+learning\\.py"
+        },
+        {
+          "type": "screen_contains",
+          "label": "waiting.py remains untracked",
+          "app": "Terminal",
+          "pattern": "waiting\\.py"
+        }
+      ],
+      "targets": [
+        {
+          "app": "Terminal",
+          "match": "git add learning.py",
+          "caption": "Stage a specific file with git add <filename>"
+        }
+      ],
+      "explanations": [
+        {
+          "topic": "Using git status to inspect tracked and untracked files",
+          "t": 138.0
+        },
+        {
+          "topic": "Difference between git add . and git add <file name>",
+          "t": 171.0
+        }
+      ],
+      "hints": [
+        "Use touch to create empty files in the terminal.",
+        "Use git add . to stage all current files, or git add <filename> for a single file.",
+        "After creating waiting.py, run git add learning.py and check with git status."
+      ],
+      "common_mistakes": [
+        "Running git add . at the end instead of git add learning.py, which stages waiting.py too early."
+      ],
+      "index": 3
+    },
+    {
+      "start": 234.0,
+      "end": 273.0,
+      "title": "Edit Python file and stage updates",
+      "instructions": "Open the project in VS Code, add a print statement to learning.py, and stage the updated file.",
+      "file": "learning.py",
+      "code": "print(\"I am learning git!\")",
+      "run_command": "git add learning.py",
+      "checks": [
+        {
+          "type": "screen_contains",
+          "label": "Print statement added in Code",
+          "app": "Code",
+          "pattern": "print\\(\"I\\s+am\\s+learning\\s+git!\"\\)"
+        },
+        {
+          "type": "screen_contains",
+          "label": "Updated learning.py staged",
+          "app": "Terminal",
+          "pattern": "git\\s+add\\s+learning\\.py"
+        }
+      ],
+      "targets": [
+        {
+          "app": "Code",
+          "file": "learning.py",
+          "match": "print(\"I am learning git!\")",
+          "caption": "Add the print statement inside learning.py"
+        }
+      ],
+      "explanations": [
+        {
+          "topic": "Why modified files must be re-staged with git add",
+          "t": 226.0
+        }
+      ],
+      "hints": [
+        "Open VS Code from the terminal using code .",
+        "Add print(\"I am learning git!\") to learning.py and save the file.",
+        "Run git add learning.py in the terminal to stage the new edit."
+      ],
+      "common_mistakes": [
+        "Forgetting to save learning.py in the editor before running git add.",
+        "Assuming the earlier git add automatically includes later edits to the file."
+      ],
+      "index": 4
+    },
+    {
+      "start": 274.0,
+      "end": 338.0,
+      "title": "Commit staged changes to history",
+      "instructions": "Create an initial commit, add my_function to learning.py, then stage and commit all remaining changes.",
+      "file": "learning.py",
+      "code": "def my_function(): print(\"Hello from a function\")",
+      "run_command": "git commit -m \"add waiting file and new function\"",
+      "expected_output": "[master 540e201] add waiting file and new function 2 files changed, 4 insertions(+), 1 deletion(-)",
+      "checks": [
+        {
+          "type": "screen_contains",
+          "label": "my_function defined in learning.py",
+          "app": "Code",
+          "pattern": "def\\s+my_function\\(\\):"
+        },
+        {
+          "type": "screen_contains",
+          "label": "Second commit recorded on master",
+          "app": "Terminal",
+          "pattern": "\\[master\\s+\\w+\\]\\s+add\\s+waiting\\s+file"
+        }
+      ],
+      "targets": [
+        {
+          "app": "Code",
+          "file": "learning.py",
+          "match": "def my_function():",
+          "caption": "Define my_function in learning.py before the second commit"
+        },
+        {
+          "app": "Terminal",
+          "match": "git commit -m",
+          "caption": "Commit staged files with a descriptive message"
+        }
+      ],
+      "explanations": [
+        {
+          "topic": "What git commit does and why untracked files stay out",
+          "t": 278.0
+        }
+      ],
+      "hints": [
+        "First run git commit -m \"initial commit\" to store the staged files.",
+        "Add def my_function(): with a print statement to learning.py and save it.",
+        "Run git add . followed by git commit -m \"add waiting file and new function\"."
+      ],
+      "common_mistakes": [
+        "Running git commit without the -m flag and getting stuck in the default text editor.",
+        "Forgetting to run git add . before the second commit."
+      ],
+      "index": 5
+    },
+    {
+      "start": 343.0,
+      "end": 413.0,
+      "title": "Clone a remote GitHub repository",
+      "instructions": "Clone the GitGoing repository from GitHub to your local machine and change into the gitgoing folder.",
+      "code": "git clone https://github.com/LadyKerr/GitGoing.git && cd gitgoing",
+      "run_command": "git clone https://github.com/LadyKerr/GitGoing.git",
+      "expected_output": "Cloning into 'GitGoing'... Resolving deltas: 100% (8/8), done.",
+      "checks": [
+        {
+          "type": "screen_contains",
+          "label": "Repository cloned successfully",
+          "app": "Terminal",
+          "pattern": "Cloning\\s+into\\s+'GitGoing'"
+        },
+        {
+          "type": "screen_contains",
+          "label": "Switched into gitgoing directory",
+          "app": "Terminal",
+          "pattern": "cd\\s+[gG]it[gG]oing"
+        }
+      ],
+      "targets": [
+        {
+          "app": "Terminal",
+          "match": "git clone https://github.com/LadyKerr/GitGoing.git",
+          "caption": "Paste the HTTPS URL after git clone"
+        }
+      ],
+      "explanations": [
+        {
+          "topic": "What cloning a remote repository means",
+          "t": 352.0
+        }
+      ],
+      "hints": [
+        "Copy the HTTPS repository URL from the green Code dropdown on GitHub.",
+        "Run git clone followed by the URL from your Documents folder, not inside project1.",
+        "Use cd gitgoing to move into the newly cloned repository."
+      ],
+      "common_mistakes": [
+        "Cloning a repository inside an existing Git repository folder (project1)."
+      ],
+      "index": 6
+    },
+    {
+      "start": 414.0,
+      "end": 489.0,
+      "title": "Create and switch Git branches",
+      "instructions": "Create and switch to a branch named update-name, list branches, switch to main, then switch back.",
+      "code": "git checkout -b update-name && git branch && git switch main && git switch update-name",
+      "run_command": "git switch update-name",
+      "expected_output": "Switched to branch 'update-name'",
+      "checks": [
+        {
+          "type": "screen_contains",
+          "label": "Branch update-name created",
+          "app": "Terminal",
+          "pattern": "Switched\\s+to\\s+a\\s+new\\s+branch\\s+'update-name'"
+        },
+        {
+          "type": "screen_contains",
+          "label": "Switched back to update-name",
+          "app": "Terminal",
+          "pattern": "Switched\\s+to\\s+branch\\s+'update-name'"
+        }
+      ],
+      "targets": [
+        {
+          "app": "Terminal",
+          "match": "git checkout -b update-name",
+          "caption": "Create and check out the update-name branch"
+        }
+      ],
+      "explanations": [
+        {
+          "topic": "Why teams use branches for new changes",
+          "t": 414.0
+        }
+      ],
+      "hints": [
+        "Use git checkout -b <branch-name> to create a branch and switch to it in one command.",
+        "Run git branch to see all local branches (press q to exit the pager if needed).",
+        "Practice switching with git switch main and then git switch update-name."
+      ],
+      "common_mistakes": [
+        "Forgetting the -b flag on git checkout when creating a brand-new branch.",
+        "Not pressing q to exit the git branch pager view."
+      ],
+      "index": 7
+    },
+    {
+      "start": 490.0,
+      "end": 591.0,
+      "title": "Update, commit, and push branch",
+      "instructions": "Change the heading in index.html to Git Going, commit the edit on update-name, and push to origin.",
+      "file": "index.html",
+      "code": "<h1>Git Going</h1>",
+      "run_command": "git push origin update-name",
+      "expected_output": "* [new branch] update-name -> update-name",
+      "checks": [
+        {
+          "type": "screen_contains",
+          "label": "Heading updated in index.html",
+          "app": "Code",
+          "pattern": "<h1>Git\\s+Going</h1>"
+        },
+        {
+          "type": "screen_contains",
+          "label": "Changes committed on update-name",
+          "app": "Terminal",
+          "pattern": "\\[update-name\\s+\\w+\\]\\s+update\\s+app\\s+name"
+        },
+        {
+          "type": "screen_contains",
+          "label": "Branch pushed to remote origin",
+          "app": "Terminal",
+          "pattern": "update-name\\s+->\\s+update-name"
+        }
+      ],
+      "targets": [
+        {
+          "app": "Code",
+          "file": "index.html",
+          "match": "<h1>Git Going</h1>",
+          "caption": "Update the h1 title inside index.html"
+        },
+        {
+          "app": "Terminal",
+          "match": "git push origin update-name",
+          "caption": "Push the local branch commits up to origin"
+        }
+      ],
+      "explanations": [
+        {
+          "topic": "How git push uploads local commits to a remote repository",
+          "t": 548.0
+        }
+      ],
+      "hints": [
+        "Open index.html in VS Code and replace Todo List with Git Going inside the <h1> tag.",
+        "Stage and commit the change with git add . and git commit -m \"update app name\".",
+        "Push your branch to GitHub using git push origin update-name."
+      ],
+      "common_mistakes": [
+        "Editing index.html while still on the main branch instead of update-name.",
+        "Pushing to a repository where you do not have write access instead of your own fork."
+      ],
+      "index": 8
+    },
+    {
+      "start": 646.0,
+      "end": 779.0,
+      "title": "Pull merged changes and inspect history",
+      "instructions": "Switch to main, run git pull to fetch the merged PR changes locally, and inspect the latest commit with git show.",
+      "code": "git switch main && git pull && git show",
+      "run_command": "git pull",
+      "expected_output": "Fast-forward index.html | 2 +- 1 file changed, 1 insertion(+), 1 deletion(-)",
+      "checks": [
+        {
+          "type": "screen_contains",
+          "label": "Pulled latest changes into main",
+          "app": "Terminal",
+          "pattern": "1\\s+file\\s+changed,\\s+1\\s+insertion"
+        },
+        {
+          "type": "screen_contains",
+          "label": "Commit details shown via git show",
+          "app": "Terminal",
+          "pattern": "commit\\s+[0-9a-f]{7,}"
+        }
+      ],
+      "targets": [
+        {
+          "app": "Terminal",
+          "match": "git pull",
+          "caption": "Fetch and merge remote updates into local main"
+        },
+        {
+          "app": "Terminal",
+          "match": "git show",
+          "caption": "Inspect the commit SHA, author, message, and diff"
+        }
+      ],
+      "explanations": [
+        {
+          "topic": "Why local main stays behind remote until git pull",
+          "t": 670.0
+        },
+        {
+          "topic": "Reading commit metadata and diffs with git show",
+          "t": 745.0
+        }
+      ],
+      "hints": [
+        "First merge the pull request on GitHub, then switch back to main locally with git switch main.",
+        "Run git pull to download and merge the remote main updates into your local main.",
+        "Run git show to inspect the commit hash, author, date, and message."
+      ],
+      "common_mistakes": [
+        "Forgetting to merge the pull request on GitHub before running git pull on main."
+      ],
+      "index": 9
+    },
+    {
+      "start": 832.0,
+      "end": 856.0,
+      "title": "Delete local and remote branches",
+      "instructions": "Clean up the merged update-name branch both locally and on the remote origin repository.",
+      "code": "git branch -d update-name && git push --delete origin update-name",
+      "run_command": "git push --delete origin update-name",
+      "expected_output": "Deleted branch update-name (was b1a35f3). - [deleted] update-name",
+      "checks": [
+        {
+          "type": "screen_contains",
+          "label": "Local branch deleted",
+          "app": "Terminal",
+          "pattern": "Deleted\\s+branch\\s+update-name"
+        },
+        {
+          "type": "screen_contains",
+          "label": "Remote branch deleted",
+          "app": "Terminal",
+          "pattern": "\\[deleted\\]\\s+update-name"
+        }
+      ],
+      "targets": [
+        {
+          "app": "Terminal",
+          "match": "git branch -d update-name",
+          "caption": "Delete the local branch after merging"
+        },
+        {
+          "app": "Terminal",
+          "match": "git push --delete origin update-name",
+          "caption": "Delete the branch from the remote repository"
+        }
+      ],
+      "explanations": [
+        {
+          "topic": "The complete GitHub Flow summary",
+          "t": 792.0
+        }
+      ],
+      "hints": [
+        "Make sure you are on main before deleting update-name.",
+        "Use git branch -d update-name to delete the local branch.",
+        "Use git push --delete origin update-name to remove the remote branch."
+      ],
+      "common_mistakes": [
+        "Trying to delete the update-name branch while it is still the currently checked-out branch."
+      ],
+      "index": 10
+    }
+  ],
+  "_built_by": "gemini-4-hydrogen (watched the video)",
+  "_engine": "gemini"
+}

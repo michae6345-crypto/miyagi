@@ -1,0 +1,42 @@
+{
+ "screen": {
+  "x": 0.0,
+  "y": 0.0,
+  "w": 1728.0,
+  "h": 1117.0
+ },
+ "scale": 2.0,
+ "app": "Terminal",
+ "windows": [
+  {
+   "app": "Terminal",
+   "title": "demo-app — node ◂ npm start — 100×34",
+   "rect": {
+    "x": 1004,
+    "y": 557,
+    "w": 724,
+    "h": 560
+   }
+  },
+  {
+   "app": "Google Chrome",
+   "title": "React App - Google Chrome",
+   "rect": {
+    "x": 1004,
+    "y": 33,
+    "w": 724,
+    "h": 520
+   }
+  },
+  {
+   "app": "Code",
+   "title": "Timer.js — demo-app",
+   "rect": {
+    "x": 0,
+    "y": 33,
+    "w": 1000,
+    "h": 1084
+   }
+  }
+ ]
+}
