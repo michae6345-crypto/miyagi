@@ -27,7 +27,7 @@ export function Overlay({ layout }: { layout: Layout }): ReactNode {
         .map(({ id, Component }) => (
           <Component key={id} layout={layout} />
         ))}
-      <Island top={bridge.platform.pillTop} />
+      <Island top={bridge.platform.pillTop} layout={layout} />
       {overlayLayers
         .filter((l) => l.z >= ISLAND_Z)
         .map(({ id, Component }) => (

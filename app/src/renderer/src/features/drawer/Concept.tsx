@@ -12,8 +12,7 @@
  */
 import { motion } from 'motion/react'
 import { useEffect, useState, type ReactNode } from 'react'
-import { useShallow } from 'zustand/react/shallow'
-import { ArrowLeft, Check, CircleHelp } from 'lucide-react'
+import { ArrowLeft, Check, CircleHelp, Minus } from 'lucide-react'
 import type { GraphDiagramData } from '../../../../../../shared/contracts/events'
 import { onMessage } from '../../core/bus'
 import { useLesson, useProgress, useThinking, type Rect } from '../../core/lesson'
@@ -22,6 +21,7 @@ import { color, glass, radius, spring, springOut } from '../../core/theme'
 import { GlassPrimary, GlassQuiet, GlassSpinner } from '../../core/ui/glass'
 import { expectConceptDiagram, useDiagram } from '../diagrams/store'
 import { Graph } from '../diagrams/Graph'
+import { useStepStatuses } from './plan'
 import { closeConcept, useDrawer } from './store'
 import { CodeBlock } from './Teach'
 
@@ -133,9 +133,13 @@ export function ConceptPanel({ rect }: { rect: Rect }): ReactNode {
   )
 }
 
-/** The drawer collapsed to its steps: numbered dots (passed = the green tick, current = ringed). Click = back. */
+/**
+ * The drawer collapsed to its steps: numbered dots (done = the green tick, skipped = a dash, never green, current =
+ * ringed), by the drawer's own rule (plan.ts stepStatuses: after Back the current step is current). Click = back.
+ */
 export function Rail({ rect }: { rect: Rect }): ReactNode {
-  const r = useLesson(useShallow((s) => ({ steps: s.steps, stepId: s.stepId, passed: s.passed })))
+  const steps = useLesson((s) => s.steps)
+  const statuses = useStepStatuses()
   return (
     <motion.div
       data-hit
@@ -147,9 +151,10 @@ export function Rail({ rect }: { rect: Rect }): ReactNode {
       exit={{ opacity: 0, transition: { duration: 0.15 } }}
       transition={{ duration: 0.18 }}
     >
-      {r.steps.map((s, i) => {
-        const passed = r.passed.includes(s.id)
-        const current = s.id === r.stepId
+      {steps.map((s, i) => {
+        const passed = statuses[i] === 'done'
+        const current = statuses[i] === 'current'
+        const skipped = statuses[i] === 'skipped'
         return (
           <button
             key={s.id}
@@ -159,12 +164,12 @@ export function Rail({ rect }: { rect: Rect }): ReactNode {
             style={{
               borderColor: current ? glass.text : glass.rule,
               background: passed ? glass.pass : current ? glass.field : 'transparent',
-              color: passed ? glass.buttonText : current ? glass.text : glass.faint
+              color: passed ? glass.buttonText : current ? glass.text : skipped ? glass.label : glass.faint
             }}
             onMouseDown={(e) => e.preventDefault()}
             onClick={closeConcept}
           >
-            {passed ? <Check size={13} strokeWidth={2.6} /> : i + 1}
+            {passed ? <Check size={13} strokeWidth={2.6} /> : skipped ? <Minus size={13} strokeWidth={2.2} /> : i + 1}
           </button>
         )
       })}
