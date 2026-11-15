@@ -188,3 +188,21 @@ r.locate_region("menu:Run")        # any menu-bar item
   Touching blocks on one row are re-joined into one block, so the coach's numbered boxes say
   `def add(a, b):`. A row that still reads like `def(a, b):` (name missing) is OCR'd again on its own
   and replaced only if the second read has the name.
+
+## Set-of-marks candidates (for a model to pick a target by id)
+```python
+from server.screen import candidates, marks
+cs = candidates("the line that defines add")   # live; or candidates(intent, obs=obs) on an observation
+prompt = marks.listing(cs)    # "2 [region] editor\n10 [code L4] def add(a, b):\n..."
+pick = marks.by_id(cs, 10)    # Candidate(id, kind, text, rect, app, line, region, score, occluded)
+```
+- **Regions** keep fixed ids: 1 terminal, 2 editor, 3 explorer, 4 terminal_menu. Absent ones are
+  left out. Live, they are the same stabilized rects `locate_region` returns.
+- **Lines** start at id 10. Editor code rows come first, in file-line order, as full-width rows
+  with `line`. Then every other OCR line in reading order, tagged with the region it's in
+  (`terminal` / `explorer` / ...).
+- **Left out:** hover tooltips, the breadcrumb, the editor tab bar and title bar (command center),
+  and gutter numbers. Rows partly under a tooltip are `occluded` and say so in the listing.
+- **Stable ids:** the same observation always numbers the same way, whatever the intent.
+- **`intent`:** only adds a `score` and, past `max_lines`, keeps the most relevant lines, still in
+  id order.
