@@ -176,7 +176,7 @@ def test_fullscreen_without_accessibility_says_so(tmp_path):
 
 def test_fullscreen_with_accessibility(tmp_path, monkeypatch):
     seen = {}
-    monkeypatch.setattr(E, "make_fullscreen", lambda ed, rep: seen.update(ed=ed["id"]) or rep.update(fullscreen="done"))
+    monkeypatch.setattr(E, "make_fullscreen", lambda ed, rep, **k: seen.update(ed=ed["id"]) or rep.update(fullscreen="done"))
     monkeypatch.setattr(E, "arrange", lambda *a, **k: pytest.fail("no left-60% layout in full-screen mode"))
     _, run = opener(tmp_path)
     rep = E.open_editor_report(tmp_path, runner=run, editor=VSCODE, trusted=lambda: True, previous={"pid": 1, "name": "Safari"},
@@ -190,6 +190,7 @@ def test_make_fullscreen_sets_axfullscreen(monkeypatch):
             self.log.append(("enter_fs", w))
             return True
     monkeypatch.setattr(E, "find_pid", lambda name, bundle=None: 222)
+    monkeypatch.setattr(E, "NATIVE_FULLSCREEN", True)  # MIYAGI_FULLSCREEN=native (the default maximizes)
     ax, rep = AXF(fullscreen_editor=False), {}
     E.make_fullscreen(CURSOR, rep, ax=ax, sleep=lambda s: None)
     assert ax.log == [("enter_fs", "ed")] and rep["fullscreen"] == "done"

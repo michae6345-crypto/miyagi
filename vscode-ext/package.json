@@ -41,5 +41,11 @@
   },
   "scripts": {
     "test": "node --test test/*.test.js"
+  },
+  "capabilities": {
+    "untrustedWorkspaces": {
+      "supported": true
+    },
+    "virtualWorkspaces": false
   }
 }

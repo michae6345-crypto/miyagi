@@ -14,6 +14,14 @@ from . import paths, scaffold
 log = logging.getLogger("server.workspace")
 
 STATE_DIR = ".miyagi-state"  # under lessons_root(): one JSON per folder (keeps the learner's folder clean)
+# .vscode/settings.json in each code lesson folder (workspace settings; the learner's own VS Code settings stay as is).
+# editor.accessibilitySupport is left out by default: our AXManualAccessibility read flips VS Code ("auto") into
+# "Screen Reader Optimized", but "off" makes VS Code 1.146 empty the editor's and terminal's AX text, so Miyagi would
+# fall back to OCR. MIYAGI_VSCODE_ACCESSIBILITY=off|on|auto writes that value (never "off" while VoiceOver runs).
+# window.title: VS Code's macOS default title drops the "●" unsaved marker that the screen code reads.
+VSCODE_A11Y = os.environ.get("MIYAGI_VSCODE_ACCESSIBILITY", "").strip().lower()
+VSCODE_A11Y = VSCODE_A11Y if VSCODE_A11Y in ("off", "on", "auto") else ""
+VSCODE_TITLE = "${dirty}${activeEditorShort}${separator}${rootName}${separator}${profileName}"
 
 
 def _state_file(folder: Path) -> Path:
@@ -59,12 +67,16 @@ def prepare(lesson: dict, goal: str = "", *, root: Path | None = None, client=No
         sc.git_init = bool((state.get("git") or {}).get("init"))
         sc.git_ops = [{"op": "commit"}] * int((state.get("git") or {}).get("commits") or 0)
         _write_readme(folder, lesson, goal, sc)
+        if sc.lesson_kind == "code":
+            _write_vscode_settings(folder)
         return folder
 
     t0 = time.monotonic()
     sc = scaffold.generate(lesson, goal, client=client)
     written = _apply(folder, sc)
     readme = _write_readme(folder, lesson, goal, sc)
+    if sc.lesson_kind == "code":
+        _write_vscode_settings(folder)
     st = {
         "scaffolded": True,
         "created": time.strftime("%Y-%m-%dT%H:%M:%S"),
@@ -120,6 +132,49 @@ def _write(folder: Path, rel: str, content: str, *, overwrite: bool = False) -> 
     p.parent.mkdir(parents=True, exist_ok=True)
     p.write_text(content if content.endswith("\n") or not content else content + "\n")
     return True
+
+
+def _voiceover_on() -> bool:
+    try:
+        import AppKit
+        return bool(AppKit.NSWorkspace.sharedWorkspace().isVoiceOverEnabled())
+    except Exception:  # noqa: BLE001 - not macOS / no pyobjc
+        return False
+
+
+def _write_vscode_settings(folder: Path) -> None:
+    """Add our keys to <folder>/.vscode/settings.json; a value already there always wins, and a file that isn't plain
+    JSON (VS Code allows comments) is left alone. A lesson git repo ignores .vscode/ locally (.git/info/exclude)."""
+    p = folder / ".vscode" / "settings.json"
+    try:
+        cur = json.loads(p.read_text()) if p.exists() else {}
+    except (OSError, ValueError):
+        return
+    if not isinstance(cur, dict):
+        return
+    want = {"window.title": VSCODE_TITLE}
+    a11y = VSCODE_A11Y
+    if not a11y:
+        # The companion extension (installed Nov 14) gives exact buffer/terminal state, so the editor's AX text isn't
+        # needed: turn off "Screen Reader Optimized" (Michael's desktop test) whenever it answers.
+        try:
+            from . import vscode_ext
+            a11y = "off" if vscode_ext.available() else ""
+        except Exception:  # noqa: BLE001 - best effort, never block lesson setup
+            a11y = ""
+    if a11y and not (a11y == "off" and _voiceover_on()):
+        want["editor.accessibilitySupport"] = a11y
+    try:
+        if {**want, **cur} != cur:
+            p.parent.mkdir(parents=True, exist_ok=True)
+            p.write_text(json.dumps({**want, **cur}, indent=2) + "\n")
+        excl = folder / ".git" / "info" / "exclude"
+        if excl.parent.is_dir():
+            text = excl.read_text(errors="replace") if excl.exists() else ""
+            if ".vscode/" not in text.splitlines():
+                excl.write_text(text + ("\n" if text and not text.endswith("\n") else "") + ".vscode/\n")
+    except OSError as e:
+        log.warning("could not write VS Code settings for %s: %s", folder.name, e)
 
 
 def _git(folder: Path, *args: str) -> None:

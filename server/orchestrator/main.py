@@ -28,7 +28,7 @@ from shared.contracts.events import parse_app_message
 from server import config as server_config
 
 from . import config, recorder
-from .hub import Hub
+from .hub import Hub, log_received
 from .modules import Modules
 from .screen_bridge import ScreenBridge
 from .session import LessonSession
@@ -132,6 +132,7 @@ class Engine:
         msg = parse_app_message(raw)
         p = msg.payload
         s = self.session
+        log_received(msg.type, p)
         if msg.type == "learn":
             await s.learn(p.query, getattr(p, "mode", None))
         elif msg.type == "learn_url":
@@ -144,8 +145,8 @@ class Engine:
             await s.video_state(p.t, p.playing)
         elif msg.type == "overlay.bounds":
             s.overlay_bounds([r.model_dump() for r in p.rects])
-        elif msg.type == "end_lesson":
-            await s.end_lesson("end_lesson")
+        elif msg.type == "end_lesson":  # the bar's / launcher's End: stop for now, the saved progress stays resumable
+            await s.end_lesson("stopped")  # (the resume card's "Start a new lesson" is action end_lesson: discards)
         elif msg.type == "config.keys":
             await self.hub.emit("config.status", apply_keys(p.model_dump()))
 
@@ -171,6 +172,13 @@ def apply_keys(keys: dict) -> dict:
 
 def _redact(raw: dict) -> dict:
     return {"type": raw.get("type"), "payload": "<redacted>"} if raw.get("type") == "config.keys" else raw
+
+
+def _brief(raw: dict) -> str:
+    """'action hint' / 'learn': the type (+ an action's kind), never a payload (config.keys holds keys)."""
+    p = raw.get("payload")
+    kind = p.get("kind") if raw.get("type") == "action" and isinstance(p, dict) else None
+    return f"{raw.get('type')} {kind}" if kind else str(raw.get("type"))
 
 
 engine = Engine()
@@ -208,17 +216,21 @@ async def ws_endpoint(ws: WebSocket) -> None:
     engine.hub.clients.add(ws)
     engine.mark_lesson_seen()
     queue: asyncio.Queue[dict] = asyncio.Queue()
+    running: dict[str, dict] = {}  # the command the worker is on (a press queued behind it is logged on arrival)
 
     async def worker() -> None:
         # commands run in order, off the receive loop, so video.state keeps flowing
         while True:
             raw = await queue.get()
+            running["cmd"] = raw
             try:
                 await engine.dispatch(raw)
             except Exception as e:
                 log.exception("command failed: %s", _redact(raw))
                 with contextlib.suppress(Exception):
                     await engine.hub.send_to(ws, "error", {"message": f"{raw.get('type')}: {e}"})
+            finally:
+                running.pop("cmd", None)
 
     task = asyncio.create_task(worker())
     try:
@@ -234,6 +246,8 @@ async def ws_endpoint(ws: WebSocket) -> None:
                 except Exception:
                     log.exception("bad video.state: %s", raw)
             else:
+                if (cur := running.get("cmd")) is not None:  # '<- …' is logged when it runs; this says it waited
+                    log.info("<- %s queued behind %s (%d waiting)", _brief(raw), _brief(cur), queue.qsize())
                 await queue.put(raw)
     except (WebSocketDisconnect, RuntimeError):
         pass

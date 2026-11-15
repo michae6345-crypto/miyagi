@@ -291,6 +291,27 @@ async def structured_call(
     return res
 
 
+RETRY_DELAYS_S = (0.5, 1.5, 3.0)  # QA 11-14: a 2 s network blip (VPN rebuild) killed a question (one 0.5 s retry)
+RETRY_BUDGET_S = 12.0
+
+
+async def structured_call_retrying(*, delays: tuple[float, ...] = RETRY_DELAYS_S, budget_s: float = RETRY_BUDGET_S,
+                                   **kwargs: Any) -> CallResult:
+    """structured_call() for the learner's own question: a *connection* failure is retried after each of `delays`
+    (s) while the whole try stays within `budget_s` (a slow timeout is not retried). Any other failure (HTTP error,
+    refusal, no key, offline, replay) raises at once."""
+    t0 = time.monotonic()
+    for i, delay in enumerate((*delays, None)):
+        try:
+            return await structured_call(**kwargs)
+        except CoachLLMError as e:
+            if e.kind != "connection" or delay is None or time.monotonic() - t0 + delay > budget_s:
+                raise
+            log.warning("%s: connection failed (try %d); retrying in %.1fs", kwargs.get("purpose"), i + 1, delay)
+            await asyncio.sleep(delay)
+    raise CoachLLMError("unreachable", "api")  # pragma: no cover - the loop always returns or raises
+
+
 def _request(client, model: str, system: list[dict], content: Any, schema: dict, effort: str, max_tokens: int, thinking: dict | None = None):
     """The one place a coach request is shaped (warm() must send the same prefix to hit the cache)."""
     kwargs: dict[str, Any] = {

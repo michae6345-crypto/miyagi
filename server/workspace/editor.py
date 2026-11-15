@@ -47,6 +47,9 @@ ENV_NAMES = {"code": "vscode", "vscode": "vscode", "vs code": "vscode", "visual 
 VSCODE_APP = EDITORS["vscode"]["app"]
 BUNDLED_CLI = EDITORS["vscode"]["bundled_cli"]
 EDITOR_FRACTION = float(os.environ.get("MIYAGI_EDITOR_FRACTION", "0.6"))
+# "Just teach me" fills the screen with a MAXIMIZED window in the current Space. MIYAGI_FULLSCREEN=native brings back
+# macOS full screen, which moves the window into its own Space (where the overlay and other lesson windows get lost).
+NATIVE_FULLSCREEN = os.environ.get("MIYAGI_FULLSCREEN", "").strip().lower() == "native"
 # Our own overlay must never be treated as "the app the learner was in".
 OVERLAY_NAMES = {n.strip().lower() for n in os.environ.get("MIYAGI_OVERLAY_APPS", "Miyagi,miyagi-overlay,Electron").split(",") if n.strip()}
 
@@ -173,6 +176,19 @@ class AX:
         app = self.A.AXUIElementCreateApplication(pid)
         return self._get(app, "AXFocusedWindow") or next(iter(self._get(app, "AXWindows") or []), None)
 
+    def folder_window(self, pid: int, folder: str):
+        """The app's window showing `folder`: its AXDocument (the active file) is inside the folder, else (no document)
+        its title names the folder ("calculator.py — python-calculator-e430dc"). None while no window does."""
+        root, by_title = Path(folder).expanduser().resolve(), None
+        for win in self._get(self.A.AXUIElementCreateApplication(pid), "AXWindows") or []:
+            doc = _doc_path(self._get(win, "AXDocument"))
+            if doc is not None:
+                if doc == root or root in doc.parents:
+                    return win
+            elif by_title is None and root.name in [p.strip() for p in str(self._get(win, "AXTitle") or "").lstrip("● ").split(" — ")]:
+                by_title = win
+        return by_title
+
     def is_fullscreen(self, win) -> bool:
         return bool(self._get(win, "AXFullScreen"))
 
@@ -191,8 +207,11 @@ class AX:
         return ok1 and ok2
 
 
-def make_fullscreen(editor: dict, report: dict, *, ax=None, wait_s: float = 8.0, sleep=time.sleep) -> None:
-    """With Accessibility: put the editor's window in macOS full screen (AXFullScreen=true)."""
+def make_fullscreen(editor: dict, report: dict, *, folder: str | None = None, ax=None, wait_s: float = 8.0,
+                    sleep=time.sleep) -> None:
+    """With Accessibility: fill the screen with the editor's window. Default: maximized to the main screen's visible
+    frame, in the current Space. MIYAGI_FULLSCREEN=native: macOS full screen (AXFullScreen=true).
+    folder: act on the window showing that folder, never on whichever window had focus before it appeared."""
     try:
         ax = ax or AX()
     except ImportError:
@@ -202,17 +221,21 @@ def make_fullscreen(editor: dict, report: dict, *, ax=None, wait_s: float = 8.0,
     win = None
     while time.monotonic() < deadline:
         pid = editor_pid(editor)
-        win = ax.focused_window(pid) if pid else None
+        win = (ax.folder_window(pid, folder) if folder else ax.focused_window(pid)) if pid else None
         if win is not None:
             break
         sleep(0.3)
     if win is None:
-        report["fullscreen"] = f"skipped: no {editor['label']} window within {wait_s:.0f}s"
-        return
-    if ax.is_fullscreen(win):
+        report["fullscreen"] = f"skipped: no {editor['label']} window{' for ' + Path(folder).name if folder else ''} within {wait_s:.0f}s"
+    elif ax.is_fullscreen(win):
         report["fullscreen"] = "done (already full screen)"
-        return
-    report["fullscreen"] = "done" if ax.enter_fullscreen(win) else "failed: the editor refused AXFullScreen"
+    elif NATIVE_FULLSCREEN:
+        report["fullscreen"] = "done" if ax.enter_fullscreen(win) else "failed: the editor refused AXFullScreen"
+    elif (frame := left_frame(1.0)) is None:
+        report["fullscreen"] = "skipped: no screen info"
+    else:
+        report["fullscreen"] = "done (maximized)" if ax.set_frame(win, *frame) else "failed: the editor refused the new frame"
+    log.info("full screen %s: %s", Path(folder).name if folder else editor["label"], report["fullscreen"])
 
 
 def left_frame(fraction: float = EDITOR_FRACTION) -> tuple[float, float, float, float] | None:
@@ -310,8 +333,9 @@ def open_editor_report(path: Path | str, file: str | None = None, *, runner: Run
                        fullscreen: bool = False, reuse_window: bool = False) -> dict:
     """Open the folder in the preferred editor and bring it frontmost; arrange windows when allowed.
 
-    fullscreen=True ("Just teach me" mode): the editor goes macOS full screen instead of the left-60% layout
-    (needs Accessibility; without it `fullscreen` says so and the editor stays a normal frontmost window).
+    fullscreen=True ("Just teach me" mode): the lesson's window fills the screen (maximized; MIYAGI_FULLSCREEN=native:
+    macOS full screen) instead of the left-60% layout (needs Accessibility and MIYAGI_ARRANGE != 0; else
+    `fullscreen` says why and the editor stays a normal frontmost window).
     Returns {opened, editor, label, command, frontmost, ax_trusted, arrange, fullscreen?, unfullscreened?,
     arranged?, frame?}. The Accessibility part runs in a background thread unless wait=True."""
     run = runner or _run
@@ -347,19 +371,22 @@ def open_editor_report(path: Path | str, file: str | None = None, *, runner: Run
     if sys.platform == "darwin":  # the safe part: bring it to the front (works without Accessibility)
         report["frontmost"] = run(["open", "-a", ed["app"]])
     report["ax_trusted"] = trusted()
-    if fullscreen:
-        report["arrange"] = "off (full screen requested)"
-        if not report["ax_trusted"]:
-            report["fullscreen"] = "skipped: Accessibility not granted (the learner can press Ctrl+Cmd+F)"
-        elif wait:
-            make_fullscreen(ed, report)
-        else:
-            report["fullscreen"] = "scheduled"
-            threading.Thread(target=make_fullscreen, args=(ed, report), daemon=True, name="miyagi-fullscreen").start()
-        log.info("open_editor %s: %s", folder, report)
-        return report
     if arrange_windows is None:
         arrange_windows = os.environ.get("MIYAGI_ARRANGE", "1") != "0"
+    if fullscreen:
+        report["arrange"] = "off (full screen requested)"
+        if not arrange_windows:
+            report["fullscreen"] = "off (MIYAGI_ARRANGE=0)"
+        elif not report["ax_trusted"]:
+            report["fullscreen"] = "skipped: Accessibility not granted (the learner can press Ctrl+Cmd+F)"
+        elif wait:
+            make_fullscreen(ed, report, folder=str(folder))
+        else:
+            report["fullscreen"] = "scheduled"
+            threading.Thread(target=make_fullscreen, args=(ed, report), kwargs={"folder": str(folder)}, daemon=True,
+                             name="miyagi-fullscreen").start()
+        log.info("open_editor %s: %s", folder, report)
+        return report
     if not arrange_windows:
         report["arrange"] = "off (MIYAGI_ARRANGE=0)"
     elif not report["ax_trusted"]:
@@ -527,9 +554,8 @@ def _ax_editor_snapshot_unsafe() -> dict | None:
 
     app = A.AXUIElementCreateApplication(pid)
     A.AXUIElementSetMessagingTimeout(app, 0.3)
-    if pid not in _ax_enabled:
-        if A.AXUIElementSetAttributeValue(app, "AXManualAccessibility", True) != 0:
-            A.AXUIElementSetAttributeValue(app, "AXEnhancedUserInterface", True)
+    if pid not in _ax_enabled:  # no AXEnhancedUserInterface fallback: on Electron it breaks window snapping
+        A.AXUIElementSetAttributeValue(app, "AXManualAccessibility", True)
         _ax_enabled[pid] = time.monotonic()
         return None  # Chromium builds its tree now; ask again in a second
     if time.monotonic() - _ax_enabled[pid] < 1.0:
@@ -539,7 +565,7 @@ def _ax_editor_snapshot_unsafe() -> dict | None:
     if str(get(focused, "AXRole") or "") not in ("AXTextArea", "AXTextField"):
         return None
     text = get(focused, "AXValue")
-    if text is None:
+    if not text:  # "" = accessibilitySupport "off": Monaco empties its AX text, so caret_line/line_rect would be wrong
         return None
     text = str(text)
     sr = get(focused, "AXSelectedTextRange")

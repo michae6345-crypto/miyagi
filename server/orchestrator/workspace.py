@@ -329,6 +329,9 @@ def editor_label() -> str:
 class Workspace:
     def __init__(self, enabled: bool | None = None, runner=None):
         self.enabled = env_flag("ORCH_OPEN_WORKSPACE", False) if enabled is None else enabled
+        # ORCH_OPEN_WORKSPACE=0 said out loud (QA, rehearsal and stage engines): nothing opens VS Code on its own, not even
+        # "Just teach me". Only the learner pressing "Open VS Code" (explicit) still does. Unset keeps the default.
+        self.blocked = enabled is None and os.environ.get("ORCH_OPEN_WORKSPACE", "").strip().lower() in {"0", "false", "no", "off"}
         self.run = runner or self._spawn  # injectable for tests
         self.opened: str | None = None
         self.lesson_key = ""  # the current lesson's id (session.load_graph): the editor opens once per lesson + folder
@@ -353,7 +356,7 @@ class Workspace:
         screen). explicit: the learner pressed "Open VS Code" (may bring an already-open window forward).
         S2 opens the folder AT MOST ONCE per lesson + folder (`code <folder>`, never `-n`), arranges once, and an
         automatic open waits until the learner isn't in Miyagi's launcher/cards or typing."""
-        if not (self.enabled or force) or not Path(workdir).is_dir():
+        if not (self.enabled or force) or (self.blocked and not explicit) or not Path(workdir).is_dir():
             return
         ws = _s2()
         if ws is not None and self._guarded(ws):

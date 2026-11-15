@@ -187,7 +187,8 @@ async def build_text_lesson(goal: str, workdir: str, on_update=None, *, cache: b
     if cache and not refresh and path.is_file():
         g = json.loads(path.read_text())
         g["lesson"]["workdir"] = workdir
-        return g
+        log.info("text lesson: cache hit %s", path.name)
+        return fill_missing(g)  # a lesson cached by an older builder: complete labels, overview, what / why
 
     research_task = asyncio.ensure_future(_safe_research(goal))
     summary = info.summary_for_prompt().replace(str(info.root), "the lesson folder")
@@ -202,6 +203,7 @@ async def build_text_lesson(goal: str, workdir: str, on_update=None, *, cache: b
     primer = make_primer(plan.get("primer") or [])
     overview = _words(plan.get("overview") or "", 60)
     steps_plan = order_plan(plan["steps"])
+    overview = overview or overview_fallback(plan.get("title") or goal, steps_plan)  # the drawer always has one
     outline = "; ".join(f"{i}. {s['title']}" for i, s in enumerate(steps_plan, 1))
     libs = {lb["name"]: lb.get("version", "") for lb in plan.get("libraries") or [] if lb.get("name")}
     done: list[dict] = []  # steps in order (a plan step may become two: code, then run)
@@ -276,8 +278,9 @@ async def build_text_lesson(goal: str, workdir: str, on_update=None, *, cache: b
             part = explain_step(shape_step(use_python3(part)), sp, primer)
             if not _is_run_step(part):
                 f = part.get("file") or ""
+                before = state.get(f, "")
                 state[f] = (state.get(f, "").rstrip("\n") + "\n" + (part.get("code") or "")).lstrip("\n") if f else state.get(f, "")
-                exact_anchor(part, state.get(f, ""))
+                exact_anchor(part, state.get(f, ""), before)
             out.append(part)
         return out
 
@@ -327,7 +330,7 @@ async def _safe_research(goal: str) -> dict:
 
 
 def _assemble_step(i: int, sp: dict, d: dict) -> dict:
-    s = {"id": f"s{i}", "index": i, "title": builder._clip_words(sp["title"], 6), "instructions": sp["instructions"].strip(),
+    s = {"id": f"s{i}", "index": i, "title": _short_title(sp["title"], 6), "instructions": sp["instructions"].strip(),
          "code": d.get("code", ""), "file": d.get("file") or sp.get("file") or "",
          "checks": [c for j, raw in enumerate(d.get("checks") or [], 1) if (c := builder.clean_check(raw, f"s{i}c{j}"))],
          "precision_checks": [c for j, raw in enumerate(d.get("precision_checks") or [], 1) if (c := builder.clean_check(raw, f"s{i}p{j}"))],
@@ -476,6 +479,8 @@ def shape_step(st: dict) -> dict:
         return st
     f = st.get("file") or ""
     code_lines = [ln for ln in (st.get("code") or "").splitlines() if ln.strip()]
+    if code_lines and _RUN_TITLE.match(st.get("title") or ""):  # "Run the calculator" on a step that types code
+        st["title"] = _code_title(st)
     if code_lines:  # exactly what to do: where to type, and that the snippet below is the whole thing
         what = "line" if len(code_lines) == 1 else "lines"
         text = f"In {f}, type the {what} below." if f else f"Type the {what} below."
@@ -576,17 +581,36 @@ def run_output_check(st: dict) -> dict | None:
     if not out:
         return None
     line = out[-1][:80]
-    return {"id": "", "type": "screen_contains", "label": builder._clip_words(f"Prints {line}", 6), "app": "Terminal",
-            "pattern": r"^\s*" + builder.literal_pattern(line) + r"\s*$"}
+    c = {"id": "", "type": "screen_contains", "label": "", "app": "Terminal",
+         "pattern": r"^\s*" + builder.literal_pattern(line) + r"\s*$"}
+    c["label"] = builder.plain_label(f"Prints {line}", c)  # a whole phrase, never "Prints Result: the sum of"
+    return c
 
 
-def exact_anchor(st: dict, file_text: str) -> None:
-    """Each code step's target is a literal line that exists in the file after this step (never line 1 by default)."""
+def _skeleton(s: str) -> str:
+    return re.sub(r"[\W_]+", "", (s or "").lower())
+
+
+def _unique_line(match: str, text: str) -> bool:
+    """Exactly one line of `text` holds `match` once OCR noise is ignored ("return a + b" vs "return a / b" read as
+    "return a /b": both are "returnab", so the box could land on either)."""
+    k = _skeleton(match)
+    return bool(k) and sum(1 for ln in (text or "").splitlines() if k in _skeleton(ln)) == 1
+
+
+def exact_anchor(st: dict, file_text: str, before: str | None = None) -> None:
+    """Each code step's target is a literal line that exists in the file after this step (never line 1 by default),
+    and is the only such line on screen when the step starts (`before`: the file before this step)."""
     f, code = st.get("file") or "", st.get("code") or ""
     lines = [ln.strip() for ln in code.splitlines() if ln.strip() and not ln.strip().startswith(("#", "//"))]
     if not f or not lines:
         return
-    ok = [t for t in st.get("targets") or [] if (t.get("match") or "").strip() and t["match"].strip() in file_text]
+
+    def unique(m: str) -> bool:
+        return before is None or _unique_line(m, before if m in before else file_text)
+
+    ok = [t for t in st.get("targets") or [] if (t.get("match") or "").strip() and t["match"].strip() in file_text
+          and unique(t["match"].strip())]
     if ok:
         st["targets"] = [dict(t, file=f, app="Code") for t in ok]
         return
@@ -612,6 +636,9 @@ def consistency_problem(file: str, code: str, run_command: str, state: dict[str,
     again = sorted(_defined(code) & _defined(before))
     if again:
         return f"contradicts earlier steps: {', '.join(again)} already written in {file}"
+    first = next((ln.strip() for ln in code.splitlines() if ln.strip() and not ln.strip().startswith(("#", "//"))), "")
+    if len(first) >= 8 and any(ln.strip() == first for ln in before.splitlines()):  # the step reads as "type X" for an X
+        return f"re-types `{first[:60]}`, which an earlier step already wrote in {file}"  # already there (or as a run step)
     if file.endswith(".py"):
         known = _defined(before) | _defined(code) | _PY_KNOWN
         imported = set(re.findall(r"^\s*(?:from\s+\S+\s+)?import\s+([\w, ]+)", before + "\n" + code, re.M))
@@ -653,7 +680,7 @@ def make_primer(items: list[dict]) -> list[dict]:
         body = (it.get("body") or "").strip()
         if not title or not body:
             continue
-        p = {"id": f"p{k}", "title": builder._clip_words(title, 6) if len(title.split()) > 6 else title, "body": _words(body, 40)}
+        p = {"id": f"p{k}", "title": _short_title(title, 6), "body": _words(body, 40)}
         code = (it.get("code") or "").strip()
         if code:
             p["code"] = "\n".join(code.splitlines()[:4])
@@ -680,13 +707,66 @@ def explain_step(st: dict, sp: dict, primer: list[dict]) -> dict:
     if st["kind"] == "run":  # a run step split off a code step: its own plain explanation
         prog = _noun(st.get("file") or "")
         st["what"] = _words(f"Run your {prog} and see what it prints", 12)
-        st["why"] = _words("Running the file makes the computer follow your code line by line, so you can check it works.", 25)
+        st["why"] = _words(_WHY_RUN, 25)
         st["concepts"] = [p["id"] for p in primer if _RUN_CONCEPT.search(p["title"] + " " + p["body"])][:2]
         return st
     st["what"] = _words(sp.get("what") or st.get("title") or "", 12)
-    st["why"] = _words(sp.get("why") or "", 25) or None
-    if st["why"] is None:
-        st.pop("why")
+    st["why"] = _words(sp.get("why") or "", 25) or WHY_FALLBACK  # the drawer always explains the step
     nums = [n for n in sp.get("concepts") or [] if isinstance(n, int)]
     st["concepts"] = [ids[n - 1] for n in nums if 1 <= n <= len(ids)]
     return st
+
+
+WHY_FALLBACK = "Each step adds one small piece you can check before moving on, so mistakes show up early."
+_WHY_RUN = "Running the file makes the computer follow your code line by line, so you can check it works."
+_RUN_TITLE = re.compile(r"^\s*(run|execute|launch|try|test)\b", re.I)
+_DANGLING = re.compile(r"\s+(in|on|to|at|for|of|with|from|by|into|the|a|an|and|or|is|are|was|be|your|its|this|that)$", re.I)
+_VERB_START = re.compile(r"^(build|create|make|write|code|program|set up)\b", re.I)
+
+
+def _short_title(text: str, n: int = 6) -> str:
+    """At most n words, never ending on a dangling word ("Add the add function to the" -> "Add the add function")."""
+    words = " ".join((text or "").split()).split(" ")
+    if len(words) <= n:
+        return " ".join(words)
+    t = " ".join(words[:n]).rstrip(",;:—- ")
+    while _DANGLING.search(t):
+        t = _DANGLING.sub("", t)
+    return t
+
+
+def _code_title(st: dict) -> str:
+    """A title for a step that types code (the plan called it "Run …")."""
+    names = [a or b for a, b in _DEF.findall(st.get("code") or "")]
+    if names:
+        return _short_title("Write " + " and ".join(f"{n}()" for n in names[:2]), 6)
+    f = os.path.basename(st.get("file") or "")
+    return f"Add the code to {f}" if f else "Add the code"
+
+
+def overview_fallback(title: str, steps: list[dict]) -> str:
+    """'What we're building' (<= 60 words) from the title and the step titles, when the plan gave none."""
+    t = " ".join((title or "").split()).rstrip(".")
+    intro = (f"You'll {t[0].lower()}{t[1:]}." if _VERB_START.match(t) else f"You'll build {t}.") if t else ""
+    names = [" ".join((s.get("title") or "").split()).rstrip(".") for s in steps]
+    names = [x[0].lower() + x[1:] for x in names if x]
+    return _words(intro + (f" Step by step: {', then '.join(names)}." if names else ""), 60)
+
+
+def fill_missing(g: dict) -> dict:
+    """A lesson cached by an older builder: complete check labels (never cut, never the regex), an overview, and
+    what / why on every step. Deterministic, no model call."""
+    les = g.get("lesson") or {}
+    steps = g.get("steps") or []
+    if not (les.get("overview") or "").strip():
+        les["overview"] = overview_fallback(les.get("title") or les.get("goal") or "", steps)
+    for st in steps:
+        for c in (st.get("checks") or []) + (st.get("precision_checks") or []):
+            lbl = c.get("label") or ""
+            if not 1 <= len(lbl.split()) <= 6 or builder.label_is_cut(lbl, c) or re.match(r"\s*(code|terminal|editor)\s*:", lbl, re.I):
+                c["label"] = builder.plain_label(lbl, c)  # only broken ones: a good label is kept word for word
+        if not (st.get("what") or "").strip():
+            st["what"] = _words(st.get("title") or "", 12)
+        if not (st.get("why") or "").strip():
+            st["why"] = _WHY_RUN if _is_run_step(st) else WHY_FALLBACK
+    return g

@@ -150,7 +150,7 @@ def test_react_lesson_that_scaffolds_itself_gets_readme_only(tmp_path):
     g = load("516197461c0dacf3.json")  # step 1: npm create vite -> my-react-app/
     fc = FakeClient(reply([("my-react-app/package.json", "{}")], stack="node/react", setup=["node -v"]))
     wd = prepare(g, "learn react", client=fc)
-    assert sorted(p.name for p in wd.iterdir()) == ["README.md"]
+    assert sorted(p.name for p in wd.iterdir()) == [".vscode", "README.md"]  # + our workspace settings
     assert "my-react-app/package.json" in fc.calls[0]["messages"][0]["content"]  # told it's learner-created
     assert any("learner create" in d for d in read_state(wd)["dropped"])
 
@@ -185,7 +185,7 @@ def test_no_key_gives_readme_only_and_retries_later(monkeypatch, tmp_path):
     monkeypatch.setattr(scaffold, "make_client", lambda: None)
     g = load("pandas_pokemon.json")
     wd = prepare(g, "")
-    assert [p.name for p in wd.iterdir()] == ["README.md"]
+    assert sorted(p.name for p in wd.iterdir()) == [".vscode", "README.md"]  # + our workspace settings
     assert "no Anthropic key" in read_state(wd)["error"]
     fc = FakeClient(reply([("main.py", "# start\n")]))
     prepare(g, "", client=fc)  # a failed scaffold is retried on the next prepare
