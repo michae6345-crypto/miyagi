@@ -448,7 +448,13 @@ export function StepActions({ padX }: { padX: number }): ReactNode {
   const pressed = usePressed((p) => p.kind)
   const checking = thinking && pressed === 'check_step'
   return (
-    <div data-part="drawer-actions" className="flex items-center justify-end pb-[12px]" style={{ paddingLeft: padX, paddingRight: padX }}>
+    // Sticky at the scroller's bottom while its step is on screen (Michael's test 8: on a tall step 6 the button was
+    // cut off at the drawer's bottom edge). Opaque glass under the current row's tint, so rows scrolling behind don't show through.
+    <div
+      data-part="drawer-actions"
+      className="sticky bottom-0 z-[1] flex items-center justify-end pb-[12px] pt-[6px]"
+      style={{ paddingLeft: padX, paddingRight: padX, borderRadius: '0 0 12px 12px', background: glass.bg, boxShadow: `inset 0 0 0 999px ${glass.bg}, inset 0 0 0 999px ${glass.fieldHover}` }}
+    >
       <GlassPrimary label={checking ? 'Checking…' : 'Check my work'} icon={checking ? SpinPrimary : Check} onClick={() => !checking && sendAction('check_step')} />
     </div>
   )

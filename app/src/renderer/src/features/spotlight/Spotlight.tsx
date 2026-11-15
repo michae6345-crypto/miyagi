@@ -222,8 +222,8 @@ function usePulse(key: string, reduced: boolean) {
  * Read from the DOM every 400ms; state changes only when something moved.
  * Local workaround: see "Core requests" in agents/spotlight.md.
  */
-function useOtherUi(caption: RefObject<HTMLElement | null>): Rect[] {
-  const [rects, setRects] = useState<Rect[]>([])
+function useOtherUi(caption: RefObject<HTMLElement | null>): { rects: Rect[]; drawer?: Rect } {
+  const [rects, setRects] = useState<{ rects: Rect[]; drawer?: Rect }>({ rects: [] })
   useLayoutEffect(() => {
     let last = ''
     const read = (): void => {
@@ -233,11 +233,15 @@ function useOtherUi(caption: RefObject<HTMLElement | null>): Rect[] {
       const box = root.getBoundingClientRect()
       if (!box.width) return
       const k = root.offsetWidth / box.width // undo the browser stage's CSS scale (1 in Electron)
-      const next = Array.from(root.querySelectorAll<HTMLElement>('[data-hit],[data-ui]'))
+      const local = (r: DOMRect): Rect => ({ x: Math.round((r.left - box.left) * k), y: Math.round((r.top - box.top) * k), w: Math.round(r.width * k), h: Math.round(r.height * k) })
+      const list = Array.from(root.querySelectorAll<HTMLElement>('[data-hit],[data-ui]'))
         .filter((el) => !mine.contains(el))
         .map((el) => el.getBoundingClientRect())
         .filter((r) => r.width > 1 && r.height > 1)
-        .map((r) => ({ x: Math.round((r.left - box.left) * k), y: Math.round((r.top - box.top) * k), w: Math.round(r.width * k), h: Math.round(r.height * k) }))
+        .map(local)
+      // The open drawer, on whichever side it sits (Michael's #129 lets it move left): captions stay off it.
+      const dr = root.querySelector<HTMLElement>('[data-part="drawer"]')?.getBoundingClientRect()
+      const next = { rects: list, drawer: dr && dr.width > 40 && dr.height > 40 ? local(dr) : undefined }
       const key = JSON.stringify(next)
       if (key !== last) {
         last = key
@@ -249,6 +253,22 @@ function useOtherUi(caption: RefObject<HTMLElement | null>): Rect[] {
     return () => clearInterval(id)
   }, [caption])
   return rects
+}
+
+/** `bounds` cut to the side of the drawer the hole is on (by its left edge: a type box may run under the drawer). */
+function beside(bounds: Rect, cut: Rect, drawer: Rect): Rect {
+  const GAP = 8
+  const MIN = 220
+  const end = bounds.x + bounds.w
+  if (cut.x < drawer.x) {
+    const w = Math.min(end, drawer.x - GAP) - bounds.x
+    return w >= MIN ? { ...bounds, w } : bounds
+  }
+  if (cut.x >= drawer.x + drawer.w) {
+    const x = Math.max(bounds.x, drawer.x + drawer.w + GAP)
+    return end - x >= MIN ? { ...bounds, x, w: end - x } : bounds
+  }
+  return bounds
 }
 
 /** Slide-in direction: from the hole toward where the caption lands. */
@@ -313,7 +333,7 @@ function Snippet({ code, missing, maxHeight }: { code: string; missing: Set<numb
   )
 }
 
-function Caption({ target, hole: cut, bounds, avoid: outside, text: boxed, reduced }: { target: SpotlightTarget; hole: Rect; bounds: Rect; avoid: Rect[]; text: Rect[]; reduced: boolean }): ReactNode {
+function Caption({ target, hole: cut, bounds: screen, avoid: outside, text: boxed, reduced }: { target: SpotlightTarget; hole: Rect; bounds: Rect; avoid: Rect[]; text: Rect[]; reduced: boolean }): ReactNode {
   const voiceOn = useVoice((s) => s.on)
   // The code lives in one place (Michael's desktop test, item 5): a "Just teach me" lesson or an open drawer has it
   // in the drawer, so the caption shows only the words.
@@ -337,8 +357,11 @@ function Caption({ target, hole: cut, bounds, avoid: outside, text: boxed, reduc
     return () => ro.disconnect()
   }, [])
 
-  const inOverlay = useOtherUi(ref)
-  const avoid = [...inOverlay, ...outside]
+  const other = useOtherUi(ref)
+  const avoid = [...other.rects, ...outside]
+  // Michael's test 8: "Click ▷ to r…" and "Look at how W1,…" ran under the open drawer, and a type box that spans to
+  // the drawer's edge showed no caption at all. With the drawer open, the caption's usable area ends at the drawer.
+  const bounds = drawerOpen && other.drawer ? beside(screen, cut, other.drawer) : screen
   // Right of the box, in its empty lane: the chip wraps to the lane's width rather than moving to another side.
   // Too narrow a lane (a long line, the docked player): it goes below / above at its own width (place.ts).
   const full = bounds.w - EDGE_MARGIN * 2

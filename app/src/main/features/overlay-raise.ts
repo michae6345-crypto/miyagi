@@ -37,7 +37,7 @@ const accessory = isMac && process.env.MIYAGI_REGULAR_APP !== '1'
 app.setName('miyagi')
 
 /** How often main checks the cursor against the overlay's UI. */
-const POLL_MS = 25
+const POLL_MS = 15 // test 8: a move-and-click at once on a card's Hint landed between two 25 ms ticks
 /** Grab the mouse this many px before the pointer reaches a control's edge (4 px let a quick move-and-click on a
  * card's X near the top go through to VS Code's command center: Michael's 5 AM shoot). */
 const MARGIN = 12
