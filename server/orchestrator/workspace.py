@@ -383,6 +383,19 @@ def reveal_line(path: str | Path, line: int) -> bool:
     return ok
 
 
+def _editor_in_front() -> bool:
+    """Is the learner's editor the active app (S2's editor.jump gate for an automatic jump)? Unknown: True."""
+    ws = _s2()
+    ed_mod = getattr(ws, "editor", None) if ws is not None else None
+    if ed_mod is None or not hasattr(ed_mod, "editor_focused"):
+        return True
+    try:
+        ed = ed_mod.preferred_editor()
+        return ed is None or bool(ed_mod.editor_focused(ed))
+    except Exception:  # noqa: BLE001
+        return True
+
+
 def editor_label() -> str:
     ws = _s2()
     fn = getattr(ws, "editor_label", None) if ws is not None else None
@@ -402,6 +415,7 @@ class Workspace:
         self.opened: str | None = None
         self.lesson_key = ""  # the current lesson's id (session.load_graph): the editor opens once per lesson + folder
         self.reveal = None  # (path, line) -> revealed? t8: the companion's /open; None = reveal_line on real windows
+        self.front = None  # () -> is the editor the active app? None = _editor_in_front (tests inject both)
 
     @staticmethod
     def _spawn(argv: list[str]) -> bool:
@@ -464,8 +478,12 @@ class Workspace:
         `code` CLI, so VS Code's Dock icon never bounces); the CLI only when no lesson window of it answers."""
         reveal = self.reveal if self.reveal is not None else (reveal_line if self.run == self._spawn else None)
         if not explicit and reveal is not None:
+            front = self.front if self.front is not None else _editor_in_front
+
             def go() -> None:
                 try:
+                    if not front():  # as the CLI jump: only with VS Code in front (else reveal_step_line has its say)
+                        return
                     if reveal(path, line):
                         return
                 except Exception:  # noqa: BLE001 - the CLI jump below

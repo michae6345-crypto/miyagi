@@ -2519,6 +2519,9 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
         spot = self.screen.locate(match, app)
         if not spot:
             return None
+        snap = getattr(self.screen, "snap_rows", None)  # t8: on its editor row exactly (the full-line box's y / height)
+        if snap is not None and (rows := snap(spot["rect"], app)) is not None:
+            spot = {**spot, "rect": rows}
         return {**spot, "caption": caption}
 
     async def _spotlight_target(self, step: dict, owner: str = "step") -> bool:

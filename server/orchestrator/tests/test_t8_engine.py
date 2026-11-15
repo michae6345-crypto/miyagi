@@ -331,6 +331,10 @@ def test_automatic_jump_reveals_through_the_companion_not_the_cli():
     calls, reveals = [], []
     ws = wsmod.Workspace(enabled=True, runner=lambda argv: calls.append(argv) or True)
     ws.reveal = lambda path, line: reveals.append((Path(path).name, line)) or True
+    ws.front = lambda: False  # VS Code isn't the active app: no jump at all (as the CLI's gate)
+    ws.goto("/tmp/lesson/nn.py", 46)
+    assert reveals == [] and calls == []
+    ws.front = lambda: True
     ws.goto("/tmp/lesson/nn.py", 46)
     assert reveals == [("nn.py", 46)] and calls == []
     ws.reveal = lambda path, line: False  # no lesson window answers: the CLI, as before
@@ -344,6 +348,7 @@ def test_automatic_jump_reveals_through_the_companion_not_the_cli():
 def test_tests_never_reach_a_real_vs_code():
     ws = wsmod.Workspace(enabled=True, runner=lambda argv: True)
     assert ws.reveal is None and ws.run != ws._spawn  # an injected runner: no companion reveal at all
+    assert wsmod.Workspace(enabled=True).run == wsmod.Workspace._spawn  # (the real one does reveal)
 
 
 def test_reveal_line_uses_only_the_window_that_holds_the_file(monkeypatch, tmp_path):
@@ -434,3 +439,40 @@ def test_an_empty_row_has_no_text_end():
     blank = next(int(k) for k in sorted(truth["lines"], key=int) if not src[int(k) - 1].strip())
     loc = L.locate_line(obs, "pinn_demo/pinn_convection.py", blank)
     assert loc and loc.text_x2 is None and loc.to_dict()["text_x2"] is None
+
+
+def test_locate_puts_a_text_match_on_its_editor_row(tmp_path, monkeypatch, fast):  # noqa: F811
+    """session._locate (the tight "Look here" box, the off-track's text follow): the editor row's y / height."""
+    rig, screen = _demo_rig(tmp_path, monkeypatch)
+    screen.text = {"Code": ["    d_h2 = d_out @ W3.T * (1 + h2 ** 2)"]}
+    asked = []
+
+    def snap(rect, app=None):
+        asked.append(dict(rect))
+        return {**rect, "y": rect["y"] - 3.4, "h": rect["h"] - 0.7}
+
+    screen.snap_rows = snap
+    spot = rig.s._locate(re.escape("d_h2 = d_out @ W3.T * (1 + h2 ** 2)"), None, "Look here")
+    assert asked and spot["rect"] == {**asked[0], "y": asked[0]["y"] - 3.4, "h": asked[0]["h"] - 0.7}
+    assert spot["caption"] == "Look here"
+    screen.snap_rows = lambda rect, app=None: None  # not on an editor's rows: the match's own box
+    assert rig.s._locate(re.escape("d_h2 = d_out"), None, "Look here")["rect"] == asked[0]
+
+
+def test_the_live_bridge_snaps_through_the_readers_latest_frame():
+    from server.orchestrator.screen_bridge import ScreenBridge
+    from server.screen import lines as L
+    from server.screen import match as M
+    from server.screen import reader as rd
+
+    obs, truth = _fixture("vscode_fullscreen_top")
+    n = next(int(k) for k in sorted(truth["lines"], key=int) if len(_src()[int(k) - 1].strip()) > 20
+             and sum(1 for ln in _src() if ln.strip() == _src()[int(k) - 1].strip()) == 1)
+    res = M.locate_match(obs, re.escape(_src()[n - 1].strip()), None)
+    reader = NS(latest=lambda: obs)
+    reader.snap_rows = lambda rect, app=None: rd.ScreenReader.snap_rows(reader, rect, app)
+    bridge = NS(reader=reader, paused=False)
+    got = ScreenBridge.snap_rows(bridge, res.rect.to_dict())
+    row = L.locate_line(obs, "pinn_demo/pinn_convection.py", n).rect
+    assert got["y"] == round(row.y, 1) and got["h"] == round(row.h, 1) and got["x"] == round(res.rect.x, 1)
+    assert ScreenBridge.snap_rows(NS(reader=None, paused=False), res.rect.to_dict()) is None

@@ -281,15 +281,13 @@ class ScreenReader:
 
     def locate_match(self, match: str, app: str | None = None) -> M.LocateResult | None:
         obs = self.latest() or self.observe_now(force=True)
-        res = M.locate_match(obs, match, app) if obs else None
-        if res is not None:  # t8: a match in an editor gets that row's y / height (the full-line box's), never 4 pt low
-            try:
-                snapped = L.snap_rows(obs, res.rect, app)
-            except Exception:  # noqa: BLE001 - the match's own box stands
-                snapped = None
-            if snapped is not None:
-                res.rect = snapped
-        return res
+        return M.locate_match(obs, match, app) if obs else None
+
+    def snap_rows(self, rect: Rect, app: str | None = None) -> Rect | None:
+        """t8: `rect` (a text match's box) with the y / height of the editor rows it is on (the gutter's, as the
+        full-line box has them) in the latest frame; None when it isn't on an editor's rows."""
+        obs = self.latest()
+        return L.snap_rows(obs, rect, app) if obs else None
 
     # ------------------------------------------------------------------ editor lines ("just teach me")
 
