@@ -335,6 +335,7 @@ class SceneWatch:
                     await s._spotlight_target(step)
             elif (s.lesson_mode and in_editor and getattr(s, "spot_rect", 0) is None and not getattr(s, "_spot_away", False)
                   and not s.coaching and not (run and s._step_ran())
+                  and not getattr(s, "_respot_held", lambda: False)()  # the targeter just refused it: backing off
                   and s.clock() - getattr(self, "_respot_t", -1e9) >= RESPOT_EVERY_S):
                 # (e) E16: the step's file is in front and no box is up (the first tries ran under a save dialog, or
                 # the targeter said no then): place it again, one Haiku pick at most (tries=2; the engine's own

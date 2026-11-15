@@ -1446,7 +1446,9 @@ class LessonSession:
             if spot is not None:
                 if gone():  # E3: the step moved on during the line lookup
                     return
-                await self._show_spot(spot, steady=True)
+                # a progress box is the exact file line (Accessibility / gutter): no Haiku confirm. It moves with every
+                # typed line (_progress_follow), so verifying each one spent the 6/min budget and starved real picks.
+                await self._show_spot(spot, steady=True, verify=prog is None)
                 return
             if i in (1, 4) and (spot := await self._vision_spot(step)) is not None:  # <= 2 Haiku calls per step
                 if gone():
@@ -1494,6 +1496,8 @@ class LessonSession:
             flat += sq(ln) if text(ln) else ""  # the learner's own comments are neither right nor wrong
             ends.append(len(flat))
         pos = flat.find(head) + len(head)
+        if sq(code[0]).endswith(":") and flat.startswith(":", pos):
+            pos += 1  # the head's own colon (`def f(x):`): that line is typed, not "the one that differs"
         for want in code[1:]:
             k = flat.find(sq(want), pos)
             if k < 0 or k > pos + 2:  # missing, or the next thing in the file is something else
@@ -2088,13 +2092,14 @@ class LessonSession:
     SPOT_DUP_S = 1.0  # the same box is never sent twice within this
 
     def _spot_frozen(self) -> bool:
-        """E7: no box work at all (no targeter call either) while "Continue where you left off?" is up or no app is
-        connected to see it."""
+        """E7: no box work at all (no targeter call either) while "Continue where you left off?" is up or the app that
+        was connected has left. An engine that never had an app (demo autostart before it connects, the in-process
+        staging / box-rehearsal scripts) still places boxes (as has_client: last_client_gone is None)."""
         if self.awaiting_resume:
             return True
-        hub = getattr(getattr(self._emit_raw, "__self__", None), "hub", None)  # main.Engine._emit -> its Hub
-        clients = getattr(hub, "clients", None)
-        return clients is not None and not clients
+        engine = getattr(self._emit_raw, "__self__", None)  # main.Engine._emit -> the Engine (hub + last_client_gone)
+        clients = getattr(getattr(engine, "hub", None), "clients", None)
+        return clients is not None and not clients and getattr(engine, "last_client_gone", None) is not None
 
     def _live_front(self) -> str:
         """The frontmost app right now (E6 reader.frontmost(): the window server, ~0.3 ms, Miyagi's overlay never
@@ -2199,6 +2204,9 @@ class LessonSession:
                 return
             if confirmed is None:
                 log.info("targeter: no real target for %r; no box", spot.get("caption"))
+                if owner == "step":  # _maybe_respot backs off instead of asking again every RESPOT_S
+                    prev = getattr(self, "_spot_refused", None)
+                    self._spot_refused = (gen, prev[1] + 1 if prev and prev[0] == gen else 1, self.clock())
                 if self.spot_rect is not None and self._spot_rank_ok(owner):  # E6: never keep a stale box up
                     async with self._spot_lock():
                         if self.spot_rect is not None and gen == self.step_gen and self._spot_rank_ok(owner):
@@ -3008,8 +3016,17 @@ class LessonSession:
         front = self._live_front().lower()
         if (front and front not in CODE_APP_NAMES) or (self._run_command(step) and self._step_ran()):
             return
+        if self._respot_held():
+            return
         self._respot_t = self.clock()
         self._spawn(self._lesson_spot(self.step_gen, step, tries=1), timer=True)
+
+    def _respot_held(self) -> bool:
+        """The targeter said "no box" for this step's box: no re-place for 15, 30, 60, then 120 s (_maybe_respot every
+        5 s and the scene look every 15 s each asked Haiku again, spent the 6/min budget, starved real picks, and once
+        it ran out kept:budget put the refused box back)."""
+        r = getattr(self, "_spot_refused", None)
+        return bool(r) and r[0] == self.step_gen and self.clock() - r[2] < 15.0 * 2 ** min(r[1] - 1, 3)
 
     async def on_frontmost(self, app: str) -> None:
         """E6's frontmost watcher (app switch / Space swipe, ~0.25 s): clear or re-place the box right away."""
