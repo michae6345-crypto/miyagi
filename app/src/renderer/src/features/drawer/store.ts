@@ -6,7 +6,11 @@ import { create } from 'zustand'
 import { bridge, registerWebHandler } from '../../bridge'
 import { onMessage, onUi } from '../../core/bus'
 
-type DrawerState = { open: boolean }
+type DrawerState = {
+  open: boolean
+  /** The panel's last rendered height (it hugs its content). Kept while it's hidden, for the spotlight check. */
+  panelH?: number
+}
 
 /** Stage only: `?drawer=open` starts with the drawer open (review and screenshots). */
 const startOpen = typeof location !== 'undefined' && new URLSearchParams(location.search).get('drawer') === 'open'
@@ -15,6 +19,9 @@ export const useDrawer = create<DrawerState>(() => ({ open: startOpen }))
 
 export const toggleDrawer = (): void => useDrawer.setState((s) => ({ open: !s.open }))
 export const closeDrawer = (): void => useDrawer.setState({ open: false })
+export const setPanelHeight = (h: number): void => {
+  if (h > 0 && useDrawer.getState().panelH !== h) useDrawer.setState({ panelH: h })
+}
 
 // Esc / a card's close button closes every surface, the drawer included.
 onUi('dismiss', closeDrawer)
