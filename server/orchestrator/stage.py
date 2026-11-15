@@ -253,8 +253,8 @@ async def run(session: Any, step: dict, typed: bool = False) -> None:
     already shows its output, so no card). The first Train it run is the stuck one when nn.py starts at zeros."""
     gen, sid = session.step_gen, step.get("id")
     st = _st(session)
-    if session.passed or session.awaiting_resume:
-        return
+    if session.passed or session.awaiting_resume or not _is_run(session, step):
+        return  # (a typing step has nothing to run: the session's "Nothing to do here" answers)
     # A second press while this step's run (or its pass) is going, or queued behind it (the socket runs commands one
     # at a time, so it arrives just after): one run, not two. A press a second later is a new run.
     if sid in st["running"] or sid in st["passing"] or (

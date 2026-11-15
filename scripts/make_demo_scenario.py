@@ -61,9 +61,11 @@ async def walk() -> dict:
         await s.drain()
 
     async def record(name: str, act, cond) -> None:
+        await asyncio.sleep(stage.AGAIN_S + 0.3)  # a person's pace: a press right after a run counts as that run
         t0, n = time.monotonic(), len(log)
         await act()
         await until(cond)
+        assert cond(), f"{name}: the engine didn't get there"
         items, last = [], t0
         for t, type_, payload in log[n:]:
             if type_ in SKIP:
