@@ -8,3 +8,5 @@ event:speak  # voice is app-local (the computer's own voice, features/voice/stor
 offtrack.action:explain  # the off-track card always shows Explain / Show me / Hint (cards/index.tsx OFFTRACK_OPTIONS); it does not gate them on offtrack.actions
 offtrack.action:show_me  # same: always-on option on the off-track card (OFFTRACK_OPTIONS)
 offtrack.action:hint     # same: always-on option on the off-track card (OFFTRACK_OPTIONS)
+command:card.shown   # optional (E14, events.ts AppCommands): the app doesn't report card visibility yet; the engine keeps its old behaviour without it
+command:card.closed  # same: optional E14 report, not sent by the app yet
