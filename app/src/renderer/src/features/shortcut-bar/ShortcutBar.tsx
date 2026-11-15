@@ -14,9 +14,9 @@
 import { AnimatePresence, motion } from 'motion/react'
 import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { ArrowLeft, AudioLines, Check, Lightbulb, MessageSquareText, RotateCcw, SkipForward, Square, SquarePlay, Waypoints, type LucideIcon } from 'lucide-react'
-import { create } from 'zustand'
 import { cmd } from '../../../../common/wire'
 import { bridge, registerWebHandler } from '../../bridge'
+import { emitUi } from '../../core/bus'
 import { useLesson, useProgress } from '../../core/lesson'
 import { useAppearance } from '../../core/prefs'
 import { sendAction, triggerShortcut, type ActionKind, type ActionShortcut } from '../../core/shortcuts'
@@ -24,7 +24,7 @@ import { MiyagiMark } from '../../core/ui/Mark'
 import { actionTone, copy, glass, spring, type OptionAction } from '../../core/theme'
 import { useCards } from '../cards/store'
 import { useDiagram } from '../diagrams/store'
-import { useSearch } from '../launcher/store'
+import { useLauncherOpen } from '../launcher/store'
 import { toggleVoice } from '../voice/store'
 import { Equalizer, useVoiceTile } from './Equalizer'
 import { usePress } from './press'
@@ -57,6 +57,14 @@ const SKIP_LOCK_MS = 1000
 /** End: the first tap arms it ("Tap to end"); a second tap inside this window ends the lesson. No one-tap loss. */
 const END_ARM_MS = 3000
 
+/** After End on a finished lesson: how long to wait for the engine's lesson.ended before closing the lesson UI here. */
+const END_FALLBACK_MS = 1500
+/** Every step of a complete lesson passed (skipped steps count: they're in `passed` too). */
+function lessonDone(): boolean {
+  const s = useLesson.getState()
+  return !!s.lesson && s.complete && s.steps.length > 0 && s.steps.every((x) => s.passed.includes(x.id))
+}
+
 /** Step-control state: the Skip lock and the End confirm, each cleared by its own timer. */
 function useStepControls(): { skipping: boolean; armed: boolean; run: (id: StepBtn['id']) => void } {
   const [skipping, setSkipping] = useState(false)
@@ -73,6 +81,18 @@ function useStepControls(): { skipping: boolean; armed: boolean; run: (id: StepB
       return
     }
     clearTimeout(timers.current.end)
+    // The lesson is finished (every step passed): nothing to lose, so End is one tap. If the engine doesn't answer
+    // with lesson.ended (it ignored end_lesson once a lesson was done, Michael's test 5), close the drawer, cards and
+    // bar here anyway, so the learner is never stuck on a finished lesson.
+    if (lessonDone()) {
+      setArmed(false)
+      const shown = useLesson.getState().lesson
+      bridge.send(cmd('end_lesson', {}))
+      timers.current.end = setTimeout(() => {
+        if (shown && useLesson.getState().lesson === shown) emitUi('reset', { scope: 'lesson', reason: 'end_lesson' })
+      }, END_FALLBACK_MS)
+      return
+    }
     if (!armed) {
       setArmed(true)
       timers.current.end = setTimeout(() => setArmed(false), END_ARM_MS)
@@ -116,21 +136,10 @@ registerWebHandler('overlay:raise', () => true)
 const CARD_STEP_ACTIONS = new Set<string>(['confirm', 'skip_step', 'check_step'])
 
 /**
- * The launcher is open. In the browser stage it lives in this document, so its store says so; in Electron it's its own
- * window (its store isn't ours), so also follow main's launcher:open / launcher:closed signals to the overlay.
+ * The Ask field's width. It keeps it while the launcher is open (only its words fade, so the launcher is the one ask
+ * field on screen): collapsing it made every bar button slide left and back (Michael's tests 2-3, A13).
  */
-const useLauncherSignal = create<{ open: boolean }>(() => ({ open: false }))
-bridge.on('launcher:open', () => useLauncherSignal.setState({ open: true }))
-bridge.on('launcher:closed', () => useLauncherSignal.setState({ open: false }))
-function useLauncherOpen(): boolean {
-  const here = useSearch((s) => s.open)
-  const signal = useLauncherSignal((s) => s.open)
-  return here || signal
-}
-
-/** The Ask field's width, open and collapsed (just the tree, while the launcher is the one ask field on screen). */
 const ASK_W = 196
-const ASK_COLLAPSED_W = 44
 
 export function ShortcutBar({ bottom, lift = 0 }: { bottom: number; lift?: number }): ReactNode {
   const on = useLesson((x) => !!x.lesson)
@@ -167,13 +176,10 @@ export function ShortcutBar({ bottom, lift = 0 }: { bottom: number; lift?: numbe
             className="pointer-events-auto flex items-center gap-[2px] rounded-[24px] border p-[8px]"
             style={{ height: BAR_HEIGHT, background: glass.bg, borderColor: glass.hairline, boxShadow: glass.shadow, backdropFilter: 'blur(30px) saturate(1.4)' }}
           >
-            {/* While the launcher is open it is the ask field: this one collapses to the tree (no second input). */}
+            {/* While the launcher is open it is the ask field: this one keeps its width but shows only the tree (A13). */}
             <motion.button
               className={`mr-[8px] flex h-[44px] shrink-0 cursor-pointer items-center gap-[9px] overflow-hidden whitespace-nowrap rounded-[22px] border pl-[14px] pr-[8px] text-left ${hoverCls}`}
-              style={{ borderColor: glass.hairline, color: glass.label }}
-              initial={false}
-              animate={{ width: askCollapsed ? ASK_COLLAPSED_W : ASK_W }}
-              transition={spring}
+              style={{ width: ASK_W, borderColor: glass.hairline, color: glass.label }}
               aria-label={copy.ask}
               data-collapsed={askCollapsed ? '' : undefined}
               onClick={() => bridge.emit('launcher:toggle')}
