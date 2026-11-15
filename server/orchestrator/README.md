@@ -99,6 +99,8 @@ screen, nothing is spotlighted.
   (on the screen rect of `diff.yours` if visible, else the step target) + `status offtrack`. Screen frames count as learner activity only after the step's clip ends. The same failure set on the same run is coached only once.
 - **Actions:**
   - `back` seeks to the start of the step (`text:"prev"` goes back a step). With no clip to rewind (a "Just teach me" lesson) it goes back a step.
+    A step gone back to is never passed by a click or key alone (its code may already be in the file): a save, a run, Check, or
+    "Looks done?" → Confirm passes it again.
   - `show_me` replays the clip and turns the spotlight on.
   - `explain` and `ask` return a coach `card`.
   - `hint` walks the hint ladder.
@@ -107,18 +109,23 @@ screen, nothing is spotlighted.
   - `apply_fix` replaces the last offtrack `diff.yours` line with `diff.expected`, only when the learner explicitly asks for it.
   - Every action gets a visible answer: one that sends no card / offtrack / diagram / spotlight / step / video / error (nothing to confirm,
     to undo, to go back to…) answers with a short `card {kind:"answer"}` notice. Exceptions, whose effect is elsewhere: `voice_toggle`,
-    `skip_setup`, `install`, `open_editor`, `open_in_browser`.
+    `skip_setup`, `install`, `open_editor`, `open_in_browser`. Not a notice: Show me while its box is already up, or a card identical
+    to one sent moments ago (both are already on screen). Check / Skip / Confirm on a step that already passed say "This step is done";
+    Check's notice keeps the off-track card's buttons (Do it for me / Run it, Skip).
   - Every command from the app is logged at INFO as one `<- ` line (`<- action ask "why does divide…"`, text cut at 60 chars; `config.keys` by
-    name only; `video.state` / `overlay.bounds` at DEBUG), next to the outbound `-> ` lines. Speaking decisions log as `speak? <step> <reason>: …`.
+    name only; `video.state` / `overlay.bounds` at DEBUG), next to the outbound `-> ` lines, when the command runs. A command that arrives
+    while another is still running also logs at once: `<- action hint queued behind action ask (0 waiting)`. Speaking decisions log as
+    `speak? <step> <reason>: …`.
 - **Reconnect:** a new socket gets a snapshot (`lesson.ready`, `step.started`, check states, the open offtrack card, `status`).
 
 ## Ending a lesson
 
 `curl -X POST localhost:8787/end` (or `python -m server.orchestrator.client end`, or the app's `end_lesson` command) cancels any build or diagnosis, clears the
 spotlight and video, records `lesson_ended`, and sends `lesson.ended` + `status idle`. A new `learn` while a lesson runs ends it first.
-The app's `end_lesson` command (the bar's / launcher's End) ends with reason `stopped`: the saved progress is kept and offered back
-("Continue where you left off?"), and the same lesson built again continues at the saved step. `POST /end` and the resume card's
-"Start a new lesson" (`action end_lesson`) discard it.
+The app's `end_lesson` command (the bar's / launcher's End) ends with reason `stopped`: the saved progress is kept (marked `stopped`)
+and offered back by the resume card ("Continue where you left off?") when the app next connects; only its Continue restores it.
+Building any lesson, the same one too, starts over and replaces it. `POST /end` and the resume card's "Start a new lesson"
+(`action end_lesson`) discard it.
 
 ## VS Code
 

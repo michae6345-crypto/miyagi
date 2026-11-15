@@ -1693,6 +1693,8 @@ class LessonSession:
         old, r = self.spot_rect, spot["rect"]
         if (steady and old and spot.get("caption") == self._spot_caption
                 and all(abs(r[k] - old[k]) <= self.SPOT_MOVE_PX for k in ("x", "y", "w", "h"))):
+            if (answered := _ANSWERED.get()) is not None:
+                answered.add("spotlight")  # a press (Show me): the box already up is the answer, no notice
             return  # the same box again: no re-send (flicker made the overlay feel laggy)
         if steady and self.lesson_mode:
             confirmed = await self._confirm_spot(spot)
@@ -1867,6 +1869,8 @@ class LessonSession:
         return v is not None and v < config.TYPING_GUARD_S
 
     def acted_since_step_start(self) -> bool:
+        if getattr(self, "_revisit_gen", None) == self.step_gen:
+            return False  # a step reached by Back: its code may be in the file already; a save / run / Check passes it
         if self.last_action_t >= self.step_t0:
             return True
         v = self.inputs.seconds_since_input() if self.inputs is not None else None
@@ -2463,8 +2467,8 @@ class LessonSession:
             if self.step is not None:
                 await self._status("offtrack" if self.last_offtrack else ("passed" if self.passed else "watching"))
         finally:
-            _ANSWERED.reset(answered_token)
             _EPOCH.reset(token)
+            _ANSWERED.reset(answered_token)
 
     NOTICES = {  # action -> (title, body) when it had nothing to do; check_step's body is the off-track title
         "back": ("This is the first step", "There's no step before this one."),
@@ -2480,12 +2484,22 @@ class LessonSession:
     async def _notice(self, kind: str) -> None:
         """A short answer card for an action the engine could not serve (it would otherwise look like a lost click)."""
         title, body = self.NOTICES.get(kind, ("Nothing to do here", "That doesn't apply to this step right now."))
-        if kind == "check_step" and (self.last_offtrack or {}).get("title"):
-            body = self.last_offtrack["title"]  # the off-track card the engine thinks is up may have been covered
-        step = self.step
+        step, actions = self.step, []
+        progress = kind in ("check_step", "skip_step", "confirm")
+        if progress and step is not None and (self._placeholder_hold or step.get("provisional")
+                                              or is_provisional(self.graph)):
+            title, body = "Almost ready", "The full lesson is still being built. Its first step starts here in a moment."
+        elif progress and self.passed:  # the last step, or a long video's next part still building: not "Not yet"
+            title, body = "This step is done", ("That was the last step." if self.phase == "done" else
+                                                "The next part is still being built." if self.waiting_more else
+                                                "Moving on to the next step.")
+        elif kind == "check_step" and step is not None:  # replaces the off-track card in the app: keep its buttons
+            body = (self.last_offtrack or {}).get("title") or body  # the off-track card may have been covered
+            actions = ((["run_command"] if self._run_command(step) else ["apply_fix"]) if self.lesson_mode else [])
+            actions += ["skip_step"]
         log.info("action %s: nothing to do; notice %r", kind, title)
         await self.emit("card", {**({"stepId": step["id"]} if step else {}), "kind": "answer", "title": title,
-                                 "body": body})
+                                 "body": body, **({"actions": actions} if actions else {})})
 
     async def _action(self, kind: str, text: str | None = None) -> None:
         step = self.step
@@ -2526,6 +2540,7 @@ class LessonSession:
             idx = self.idx
             seg = self._segment(step)
             if ((text or "").strip().lower() in ("prev", "previous") or not seg) and idx > 0:
+                self._revisit_gen = self.step_gen + 1  # start_step's reset bumps step_gen once: never auto-passed
                 await self.start_step(idx - 1)  # no clip to rewind (a "Just teach me" lesson): the previous step
                 return
             if seg:
@@ -2821,6 +2836,8 @@ class LessonSession:
         last = self._recent_cards.get(sig)
         if last is not None and now - last < window_s:
             log.info("dropped duplicate card %r", card.get("title"))
+            if (answered := _ANSWERED.get()) is not None:
+                answered.add("card")  # a press: this very card went out moments ago, so no "Nothing to do" notice
             return False
         self._recent_cards[sig] = now
         self._last_card_t = now

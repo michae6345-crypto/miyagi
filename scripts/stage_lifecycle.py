@@ -147,7 +147,9 @@ async def start_lesson(c: Client, topic=LESSON_A, *, timeout: float = 120) -> di
 
 
 async def assert_ended(case: Case, c: Client, engine: stage.Engine, i: int, *, reason: str, quiet_s: float = 6.0,
-                       expect_follow: set[str] | None = None) -> None:
+                       expect_follow: set[str] | None = None, kept: bool = False) -> None:
+    """kept: the bar's End (reason "stopped") keeps the save, so /state reads awaiting_resume and a new app is
+    offered the resume card (only its Continue restores it; a rebuild starts over)."""
     ended = await c.wait_for(lambda e: e[1] == "lesson.ended", i, 10)
     case.check("lesson.ended arrives", ended is not None, f"reason={ended[2].get('reason')!r}" if ended else "none in 10 s")
     if ended:
@@ -163,14 +165,18 @@ async def assert_ended(case: Case, c: Client, engine: stage.Engine, i: int, *, r
     case.check(f"no leftover events for {quiet_s:.0f} s (diagram/card/offtrack/check/step/video)", not after,
                ", ".join(f"{ty}@{t:.1f}s" for t, ty, _ in after[:5]))
     st = engine.state()
-    case.check("/state: phase idle, no lesson, no step",
-               st.get("phase") == "idle" and not st.get("lesson") and st.get("stepId") is None,
+    case.check("/state: " + ("awaiting_resume (save kept)" if kept else "phase idle, no lesson") + ", no step",
+               st.get("phase") == ("awaiting_resume" if kept else "idle") and bool(st.get("lesson")) == kept
+               and st.get("stepId") is None,
                f"phase={st.get('phase')} lesson={bool(st.get('lesson'))} step={st.get('stepId')}")
     async with Client(engine, "probe") as probe:  # what a freshly connecting app would be told
         await asyncio.sleep(1.0)
         types = [ty for _, ty, _ in probe.events]
-        case.check("new client's snapshot has no lesson/step/offtrack/card",
-                   not ({"lesson.ready", "step.started", "offtrack", "card", "diagram"} & set(types)),
+        cards = [p.get("kind") for _, ty, p in probe.events if ty == "card"]
+        case.check("new client's snapshot has no lesson/step/offtrack/diagram, and "
+                   + ("only the resume card" if kept else "no card"),
+                   not ({"lesson.ready", "step.started", "offtrack", "diagram"} & set(types))
+                   and cards == (["resume"] if kept else []),
                    f"snapshot: {types}")
 
 
@@ -200,8 +206,8 @@ async def run_end(engine: stage.Engine) -> list[Case]:
         await c.send("action", {"kind": "diagram"})
         await asyncio.sleep(0.3)
         await c.send("end_lesson", {})
-        await assert_ended(case, c, engine, i, reason="end_lesson")
-        await ended_then_fresh(case, c)
+        await assert_ended(case, c, engine, i, reason="stopped", kept=True)  # the bar's End: save kept
+        await ended_then_fresh(case, c)  # the same lesson again starts over (only Continue restores a kept save)
         case.sequence = seq(c.since(i0))
         print(f"      {C['dim']}{case.sequence}{C['x']}")
         cases.append(case)

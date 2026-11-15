@@ -174,6 +174,13 @@ def _redact(raw: dict) -> dict:
     return {"type": raw.get("type"), "payload": "<redacted>"} if raw.get("type") == "config.keys" else raw
 
 
+def _brief(raw: dict) -> str:
+    """'action hint' / 'learn': the type (+ an action's kind), never a payload (config.keys holds keys)."""
+    p = raw.get("payload")
+    kind = p.get("kind") if raw.get("type") == "action" and isinstance(p, dict) else None
+    return f"{raw.get('type')} {kind}" if kind else str(raw.get("type"))
+
+
 engine = Engine()
 
 
@@ -209,17 +216,21 @@ async def ws_endpoint(ws: WebSocket) -> None:
     engine.hub.clients.add(ws)
     engine.mark_lesson_seen()
     queue: asyncio.Queue[dict] = asyncio.Queue()
+    running: dict[str, dict] = {}  # the command the worker is on (a press queued behind it is logged on arrival)
 
     async def worker() -> None:
         # commands run in order, off the receive loop, so video.state keeps flowing
         while True:
             raw = await queue.get()
+            running["cmd"] = raw
             try:
                 await engine.dispatch(raw)
             except Exception as e:
                 log.exception("command failed: %s", _redact(raw))
                 with contextlib.suppress(Exception):
                     await engine.hub.send_to(ws, "error", {"message": f"{raw.get('type')}: {e}"})
+            finally:
+                running.pop("cmd", None)
 
     task = asyncio.create_task(worker())
     try:
@@ -235,6 +246,8 @@ async def ws_endpoint(ws: WebSocket) -> None:
                 except Exception:
                     log.exception("bad video.state: %s", raw)
             else:
+                if (cur := running.get("cmd")) is not None:  # '<- …' is logged when it runs; this says it waited
+                    log.info("<- %s queued behind %s (%d waiting)", _brief(raw), _brief(cur), queue.qsize())
                 await queue.put(raw)
     except (WebSocketDisconnect, RuntimeError):
         pass

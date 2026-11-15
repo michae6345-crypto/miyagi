@@ -7,7 +7,8 @@ video.pause + card {kind:"resume"}; action resume / end_lesson). This adds:
   - autosave to ~/miyagi/state on lesson.ready / lesson.updated (graph + progress: video AND "Just teach
     me" text lessons) and step.started / step.passed (passed + skipped) / video.state (throttled); cleared on
     lesson.ended (end_lesson, a new learn, POST /end) and when the last step passes; KEPT on lesson.ended
-    "stopped" (the bar's End), protected like a pre-restart save until the learner answers
+    "stopped" (the bar's End), marked `stopped`: offered back by the resume card when the app next connects,
+    restored only by its Continue (a rebuild of the same lesson starts over and replaces it)
   - snapshot() with no lesson in memory but one saved (the engine restarted): spotlight clear,
     video.pause, status idle, the resume card
   - resume() with no lesson in memory: reload the cached step graph (no rebuild) at the saved step and
@@ -18,7 +19,7 @@ The save made before a restart is protected until the learner answers the card: 
 nothing saves or clears it (an app connect, a snapshot, a disconnect, the engine stopping, the frozen
 in-memory lesson). Continue restores it; Start new (end_lesson / POST /end) clears it; a different
 lesson replaces it; the SAME lesson loaded again (a rebuild that hit the lesson cache) continues at the
-saved step instead of starting over.
+saved step instead of starting over, except for a save the bar's End kept (`stopped`): that one starts over.
 """
 
 from __future__ import annotations
@@ -157,7 +158,10 @@ class Resumer:
                 if self._pending and (payload or {}).get("reason") not in EXPLICIT_END:
                     return
                 if (payload or {}).get("reason") in KEEP_END:  # protected until Continue / Start new / another lesson
-                    self._pending = store.load() is not None
+                    saved = store.load()
+                    if saved is not None:  # marked: only Continue restores it, never a rebuild (also after a restart)
+                        store.save({**saved, "stopped": True})
+                    self._pending = saved is not None
                     return
                 self._pending = False
                 store.clear()
@@ -196,12 +200,13 @@ class Resumer:
     # ------------------------------------------------------------------ resume
     async def load_graph(self, graph: dict) -> None:
         """Every load goes through here. While a pre-restart save is pending, the same lesson loaded
-        again continues at the saved step; any other lesson replaces the save."""
+        again continues at the saved step (not one the bar's End kept: only Continue restores that); any other
+        lesson replaces the save."""
         if self._pending:
             saved = store.load()
             self._pending = False
             lid = (graph.get("lesson") or {}).get("id")
-            if saved is not None and lid and lid == saved.get("lessonId"):
+            if saved is not None and lid and lid == saved.get("lessonId") and not saved.get("stopped"):
                 old = store.load_graph(saved)
                 if old is not None and len(old.get("steps") or []) > len(graph.get("steps") or []):
                     graph = old  # a partial rebuild: keep the full saved graph (later parts merge by id)
