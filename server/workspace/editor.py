@@ -260,7 +260,7 @@ class AX:
         return ok1 and ok2
 
 
-def make_fullscreen(editor: dict, report: dict, *, folder: str | None = None, ax=None, wait_s: float = 8.0,
+def make_fullscreen(editor: dict, report: dict, *, folder: str | None = None, ax=None, wait_s: float = 20.0,
                     sleep=time.sleep) -> None:
     """With Accessibility: fill the screen with the editor's window. Default: maximized to the main screen's visible
     frame, in the current Space. MIYAGI_FULLSCREEN=native: macOS full screen (AXFullScreen=true).
