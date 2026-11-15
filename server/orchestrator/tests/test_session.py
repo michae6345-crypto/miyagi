@@ -40,6 +40,7 @@ class Rig:
                                result_stagger_s=0, build_tick_s=0.01, screen=screen, seen_interval_s=0,
                                inputs=self.inputs)
         self.s.ready_hold_s = 0
+        self.s.offtrack_grace_s = 0  # most tests drive the ladder at once; the grace has its own test
 
     @property
     def events(self) -> list[dict]:
@@ -140,7 +141,7 @@ def test_learn_then_build_streams_happy_path(rig):
     started = rig.of("step.started")[0]
     assert started["stepId"] == "s1" and started["index"] == 0
     after = t[t.index("step.started"):]
-    assert after[:4] == ["step.started", "check.updated", "video.seek", "video.play"]
+    assert after[:2] == ["step.started", "check.updated"] and after.index("video.seek") + 1 == after.index("video.play")
     assert rig.of("video.seek")[0] == {"t": 0.0, "play": True}
 
 
@@ -170,18 +171,38 @@ def test_done_without_any_learner_action_asks_to_confirm(rig):
 
     async def go():
         await rig.start_lesson()
-        assert rig.s.step["id"] == "s1"  # checks pass, but the clip is still playing
+        assert rig.s.step["id"] == "s1"
         assert rig.of("check.updated")[-1]["status"] == "pass"
-        assert not rig.of("step.passed")
-        await rig.end_segment()  # screen says done, but nobody did anything: ask, don't assert
-        assert not rig.of("step.passed")
-        assert rig.of("card")[-1]["title"] == "Looks done?" and rig.of("card")[-1]["actions"] == ["confirm"]
+        assert not rig.of("step.passed")  # screen says done, but nobody did anything: ask, don't assert
+        looks = [c for c in rig.of("card") if c["title"] == "Looks done?"]
+        assert looks and looks[0]["actions"] == ["confirm"]
+        assert "video.seek" not in rig.types()  # already ahead of the clip: the video isn't replayed
         await rig.s.action("confirm")
         await rig.settle()
 
     run(go())
     assert rig.of("step.passed")[0]["stepId"] == "s1"
-    assert "video.pause" in rig.types()  # gated at the clip's end until the learner confirms
+
+
+def test_video_plays_only_when_the_step_needs_it(rig):
+    graph = stubs.load_fixture_lesson()
+    graph["steps"][0].update(title="Install Python and VS Code", setup=True)
+
+    async def go():
+        await rig.s.load_graph(graph)  # s1: setup -> no seek / play
+        await rig.settle()
+        assert "video.seek" not in rig.types() and rig.s.segment_done
+        rig.write("# s1\n")
+        await rig.s.goto_step(1)  # s2 teaches something, but the learner is typing: position it, don't play
+        rig.s.inputs = __import__("server.orchestrator.inputs", fromlist=["FakeInputs"]).FakeInputs(rig.clock)
+        await rig.s.goto_step(1)
+        rig.s.inputs.key()
+        await rig.s.goto_step(1)
+        await rig.settle()
+
+    run(go())
+    seeks = rig.of("video.seek")
+    assert seeks[0] == {"t": 40.0, "play": True} and seeks[-1] == {"t": 40.0, "play": False}
 
 
 def test_spotlight_on_segment_end_uses_screen_rect(tmp_path, monkeypatch):
@@ -627,7 +648,7 @@ def test_vscode_opens_only_after_the_learner_says_yes(tmp_path, monkeypatch):
         await rig.settle()
         await asyncio.sleep(0.05)  # the setup card is computed in the background
         assert not calls  # nothing opened, not even `code -g`
-        card = rig.of("card")[0]
+        card = next(c for c in rig.of("card") if c["title"] != "Looks done?")
         assert card["title"] == f"Open {wsmod.editor_label()}?" and card["actions"] == ["open_editor"]  # Cursor if installed
         await rig.s.action("open_editor")
 
@@ -1387,7 +1408,7 @@ def test_long_video_builds_progressively(rig):
         await rig.settle()
         assert rig.of("step.passed")[-1] == {"stepId": "s2", "pending": True}
         more = rig.of("card")[-1]
-        assert more["title"] == "More steps are coming" and "(part 2 of 2)" in more["body"]
+        assert more["title"] == "Building the next part…" and "(part 2 of 2)" in more["body"]
         assert rig.s.phase == "active" and rig.s.waiting_more
         part2_go.set()
         await t
@@ -1451,8 +1472,11 @@ def test_preflight_before_build_then_build_or_pick_another(rig):
         late = [c for c in rig.of("card") if c["kind"] == "preflight"][-1]
         assert late["warning"] and late["recommended"] == "pick_another"
         assert [t for t, _ in rig.s.snapshot()] == ["status", "card"]  # a reconnecting app sees the same card
+        n_results, n_searches = len(rig.of("search.result")), len(prefetched)
         await rig.s.action("pick_another")
         assert rig.s.pending_pick is None and rig.s.phase == "idle" and rig.of("status")[-1] == {"state": "idle"}
+        assert len(rig.of("search.result")) == 2 * n_results and rig.of("search.done")[-1] == {"total": n_results}
+        assert len(prefetched) == n_searches  # the rows were re-sent, not searched again
         await rig.s.build_lesson(["r1"])
         await rig.s.action("build")
         await rig.settle()
@@ -1872,3 +1896,579 @@ def test_notebook_excerpt_is_cell_sources_not_cut_json(rig):
     rig.write("{not json", "broken.ipynb")  # not parseable: falls back to the raw text, still limited
     code, _ = rig.s._code_excerpt({"targets": [{"file": "broken.ipynb"}]}, limit=5)
     assert code == "{not "
+
+
+def _lazy_graph(n_built: int, pending: int):
+    import json
+
+    g = json.loads(json.dumps(stubs.load_fixture_lesson()))
+    g["steps"] = g["steps"][:n_built]
+    g["lesson"]["complete"] = pending == 0
+    plist = [{"status": "done", "start": 0, "end": 600}] + [{"status": "pending", "start": 600, "end": 1200}] * pending
+    g["lesson"]["parts"] = {"done": 1, "failed": 0, "total": len(plist), "list": plist}
+    return g
+
+
+def test_lazy_long_video_extends_near_the_end_only_once(rig, monkeypatch):
+    """E2 lazy parts: step.started near the last built step -> extend() in the background (one call per part)."""
+    full = stubs.load_fixture_lesson()
+    calls = []
+    monkeypatch.setattr(rig.s.m, "lesson_needs_more",
+                        lambda g, i: any(p["status"] == "pending" for p in g["lesson"]["parts"]["list"])
+                        and max(s.get("index", 0) for s in g["steps"]) - i < 2)
+
+    async def extend(graph, on_update=None):
+        calls.append(len(graph["steps"]))
+        g = _lazy_graph(len(full["steps"]), 1)  # the next part's steps appended (the fixture's s3..)
+        g["lesson"]["parts"]["list"][1]["status"] = "done"
+        g["lesson"]["complete"] = True
+        await on_update(g, True)
+        return g
+
+    monkeypatch.setattr(rig.s.m, "extend_lesson", extend)
+
+    async def go():
+        await rig.s.load_graph(_lazy_graph(2, 1))
+        await rig.settle()
+
+    run(go())
+    assert calls == [2]  # step 0 of 2 built steps is within the lookahead: built once, not per step
+    upd = rig.of("lesson.updated")
+    assert upd[-1]["complete"] is True and len(rig.s.steps) == len(full["steps"])
+
+
+def test_lazy_lesson_without_a_builder_finishes_instead_of_waiting(rig):
+    """DEMO / stubs never build more (no Gemini): the last built step ends the lesson, no endless 'building'."""
+    async def go():
+        await rig.s.load_graph(_lazy_graph(2, 1))
+        await rig.settle()
+        await rig.s.force_pass()
+        await rig.settle()
+        await rig.s.force_pass()
+        await rig.settle()
+
+    run(go())
+    assert rig.s.phase == "done" and not rig.s.waiting_more
+    assert all(c["title"] != "Building the next part…" for c in rig.of("card"))
+
+
+def test_gemini_budget_stage_and_error_wording():
+    from server.orchestrator.session import BuildStage, human_build_error
+
+    st = BuildStage()
+    st.on_progress("engine_switch", "budget")
+    assert st.text == "Today's Gemini budget is used up — reading the transcript instead"
+    assert human_build_error(RuntimeError("no engine: gemini budget exhausted; transcript 429")).startswith(
+        "Today's Gemini budget is used up")
+
+
+def _text_lesson():
+    """E2's build_text_lesson shape: lesson.mode "lesson", steps with code + file + targets, no video."""
+    return {"lesson": {"id": "lesson-calc", "title": "Build a calculator", "goal": "build a calculator in Python",
+                       "mode": "lesson", "complete": True, "builtBy": "claude"},
+            "sources": [{"id": "src1", "kind": "blog", "title": "Python docs", "url": "https://docs.python.org/3/"}],
+            "steps": [
+                {"id": "s1", "index": 1, "title": "Write add()", "instructions": "Define add(a, b).", "file": "calc.py",
+                 "code": "def add(a, b):\n    return a + b\n",
+                 "targets": [{"app": "Code", "file": "calc.py", "match": "# add goes here", "caption": "Type add() here"}],
+                 "checks": [], "precision_checks": [{"id": "s1p1", "type": "file_contains", "label": "has add()",
+                                                     "file": "calc.py", "pattern": r"def add\("}]},
+                {"id": "s2", "index": 2, "title": "Write sub()", "instructions": "Define sub(a, b).", "file": "calc.py",
+                 "code": "def sub(a, b):\n    return a - b\n",
+                 "targets": [{"app": "Code", "file": "calc.py", "match": "def add"}],
+                 "checks": [], "precision_checks": [{"id": "s2p1", "type": "file_contains", "label": "has sub()",
+                                                     "file": "calc.py", "pattern": r"def sub\("}]}]}
+
+
+def _lesson_rig(tmp_path, monkeypatch, build):
+    monkeypatch.setenv("TUT_WORKDIR", str(tmp_path))
+    monkeypatch.delenv("DEMO", raising=False)
+    from server.orchestrator.workspace import Workspace
+
+    screen = FakeScreen()
+    rig = Rig(tmp_path, screen=screen)
+    calls: list = []
+    rig.s.workspace = Workspace(enabled=False, runner=lambda argv: calls.append(argv) or True)
+    rig.s.m.build_text_lesson = build
+    return rig, screen, calls
+
+
+def test_just_teach_me_lesson_mode_has_no_video_and_spotlights_where_to_type(tmp_path, monkeypatch):
+    """learn {mode: "lesson"}: no search, no player events, the editor opens (unasked: it IS the lesson),
+    and each step boxes the exact place to type with the code as the caption's snippet."""
+    searched = []
+
+    async def build(goal, workdir, on_update=None, **kw):
+        g = _text_lesson()
+        first = {**g, "steps": g["steps"][:1], "lesson": {**g["lesson"], "complete": False}}
+        await on_update(first, False)  # step 1 first: the lesson starts on it
+        await on_update(g, True)
+        return g
+
+    rig, screen, calls = _lesson_rig(tmp_path, monkeypatch, build)
+
+    async def search(q):
+        searched.append(q)
+        yield {}
+
+    rig.s.m.search = search
+    (tmp_path / "calc.py").write_text("# add goes here\n")
+    screen.text["Code"] = ["calc.py", "# add goes here"]
+
+    async def go():
+        await rig.s.learn("build a calculator in Python", mode="lesson")
+        await rig.settle()
+        await asyncio.sleep(0.05)
+
+    run(go())
+    assert not searched and not rig.of("search.result")
+    ready = rig.of("lesson.ready")[0]
+    assert ready["lesson"]["mode"] == "lesson" and all("video" not in s for s in ready["steps"])
+    assert "video" not in rig.of("step.started")[0]
+    assert not [t for t in rig.types() if t.startswith("video.")]
+    assert [s["id"] for s in rig.of("lesson.updated")[0]["steps"]] == ["s2"]
+    assert calls and rig.s.editor_open  # opened without an "Open VS Code?" card
+    spot = rig.of("spotlight")[-1]
+    assert spot["caption"] == "Type add() here" and spot["snippet"] == "def add(a, b):\n    return a + b\n"
+    assert spot["matched"] == "# add goes here"
+
+
+def test_lesson_mode_do_it_for_me_previews_the_step_code_then_applies(tmp_path, monkeypatch):
+    async def build(goal, workdir, on_update=None, **kw):
+        return _text_lesson()
+
+    rig, screen, calls = _lesson_rig(tmp_path, monkeypatch, build)
+
+    async def go():
+        await rig.s.learn("build a calculator in Python", mode="lesson")
+        await rig.settle()
+        await rig.s.action("apply_fix")  # no offtrack yet: "Do it for me" types this step's code (new file)
+        await rig.settle()
+        card = rig.of("card")[-1]
+        assert card["title"] == "Type this for you?" and card["actions"] == ["confirm"] and "+def add(a, b):" in card["diff"]
+        assert (tmp_path / "calc.py").read_text() == ""  # created empty at step start; nothing typed before confirm
+        await rig.s.action("confirm")
+        await rig.settle()
+
+    run(go())
+    assert (tmp_path / "calc.py").read_text() == "def add(a, b):\n    return a + b\n"
+    assert rig.of("step.passed")[0]["stepId"] == "s1"  # the checks gate as usual
+
+
+def test_lesson_mode_build_failure_is_an_error_not_a_video_message(tmp_path, monkeypatch):
+    async def build(goal, workdir, on_update=None, **kw):
+        raise RuntimeError("lesson.build_text_lesson failed: RuntimeError: Couldn't build this lesson: no Anthropic key")
+
+    rig, _, _ = _lesson_rig(tmp_path, monkeypatch, build)
+    run(rig.s.learn("anything", mode="lesson"))
+    assert rig.of("lesson.building")[-1].get("failed") is True
+    assert rig.of("error")[-1]["message"].startswith("Couldn't build this lesson")
+    assert rig.s.phase == "idle"
+
+
+def test_demo_text_lesson_is_the_fixture_without_video(monkeypatch, tmp_path):
+    monkeypatch.setattr("server.orchestrator.modules.DEMO_CACHE", tmp_path)  # no cached lessons
+    m = Modules(demo=True)
+    g = run(m.build_text_lesson("x", str(tmp_path)))
+    assert g["lesson"]["mode"] == "lesson" and all("video" not in s for s in g["steps"])
+
+
+def test_skip_step_moves_on_without_a_pass(rig):
+    async def go():
+        await rig.start_lesson()
+        await rig.s.action("skip_step")
+        await rig.settle()
+
+    run(go())
+    assert rig.of("step.passed")[0] == {"stepId": "s1", "nextStepId": "s2", "skipped": True}
+    assert rig.of("step.started")[-1]["stepId"] == "s2"
+    assert not any(p["status"] == "pass" for p in rig.of("check.updated"))  # never green
+    assert {"state": "passed"} not in rig.of("status")
+
+
+def test_check_step_passes_now_or_says_what_is_missing(rig):
+    """Check button: deterministic checks first, then E5's judge; ONE "Not yet" card (<= 12 words) + spotlight."""
+    rig.s.check_wait_s = 0
+    calls = []
+
+    async def judge_step(step, screen=None, files=None, **kw):
+        calls.append(files)
+        return {"done": False, "missing": "Add a Tanh activation after the first Linear layer, then save the file",
+                "checks": {}, "target": {"text": "nn.Linear", "rect": {"x": 10.0, "y": 20.0, "w": 300.0, "h": 18.0}}}
+
+    rig.s.m.judge_step = judge_step
+
+    async def go():
+        await _to_step(rig, 1)  # s2: Linear + Tanh layers
+        rig.write("import torch.nn as nn\nnet = nn.Sequential(nn.Linear(2, 50))\n")
+        n_cards = len(rig.of("card"))
+        await rig.s.action("check_step")
+        await rig.settle()
+        new = rig.of("card")[n_cards:]
+        assert len(new) == 1 and new[0]["title"] == "Not yet" and new[0]["kind"] == "answer"
+        assert new[0]["actions"] == ["skip_step"] and len(new[0]["body"].split()) <= 12
+        assert rig.of("spotlight")[-1]["rect"]["w"] == 300.0
+        assert calls and "pinn_convection.py" in calls[0]
+        assert all(p["stepId"] != "s2" for p in rig.of("step.passed"))
+        rig.write(S2)  # now done, with no run or other trigger: asking is enough
+        await rig.s.action("check_step")
+        await rig.settle()
+
+    run(go())
+    assert rig.of("step.passed")[-1]["stepId"] == "s2" and "skipped" not in rig.of("step.passed")[-1]
+
+
+def test_check_step_judge_can_pass_what_the_machine_cannot_see(rig):
+    rig.s.check_wait_s = 0
+
+    async def judge_step(step, screen=None, files=None, **kw):
+        return {"done": True, "missing": "", "checks": {c["id"]: {"verdict": "done"} for c in rig.s.display_checks(step)}}
+
+    rig.s.m.judge_step = judge_step
+
+    async def go():
+        await _to_step(rig, 1)
+        await rig.s.action("check_step")
+        await rig.settle()
+
+    run(go())
+    assert rig.of("step.passed")[-1]["stepId"] == "s2"
+
+
+def test_check_step_without_a_judge_names_the_failing_checks(rig):
+    rig.s.check_wait_s = 0
+
+    async def go():
+        await _to_step(rig, 1)
+        rig.write("import torch.nn as nn\nnet = nn.Sequential(nn.Linear(2, 50))\n")
+        await rig.s.action("check_step")
+        await rig.settle()
+
+    run(go())
+    card = rig.of("card")[-1]
+    assert card["title"] == "Not yet" and "uses tanh" in card["body"] and card["actions"] == ["skip_step"]
+
+
+def test_provisional_placeholder_is_replaced_even_when_the_real_lesson_races_it(rig, monkeypatch):
+    """Live bug (calculator lesson): E2's quick-start timer sent the placeholder from its own task; the real
+    7-step lesson arrived while the placeholder was still being prepared and was APPENDED (s2..s7), so the
+    learner stayed on a placeholder install step forever. The real lesson must replace it: fresh lesson.ready,
+    the real s1 starts, and no empty lesson.updated."""
+    import json
+    import time as _t
+
+    from server.orchestrator import workspace as wsmod
+
+    real = stubs.load_fixture_lesson()
+    real["lesson"]["builtBy"] = "gemini"
+
+    def slow_prepare(graph, goal):
+        _t.sleep(0.15)  # S2 writing starter files
+        return None
+
+    monkeypatch.setattr(wsmod, "prepare", slow_prepare)
+    placeholder = json.loads(json.dumps(real))
+    placeholder["steps"] = [{"id": "s1", "index": 1, "title": "Guide to Installing Python & VS", "instructions": "i",
+                             "video": real["steps"][0]["video"], "provisional": True,
+                             "checks": [{"id": "s1c1", "type": "screen_absent", "label": "No errors",
+                                         "pattern": "Traceback", "app": "Terminal"}]}]
+    placeholder["lesson"].update(provisional=True, complete=False, builtBy="chapters")
+
+    async def build(url, goal, workdir, on_update=None, **kw):
+        timer = asyncio.create_task(on_update(placeholder, False))  # E2's _QuickStart._fire, another task
+        await asyncio.sleep(0.02)
+        await on_update(json.loads(json.dumps(real)), True)  # the real lesson, while the placeholder prepares
+        pending.append(timer)  # build_lesson returns while the placeholder is still being set up
+        return json.loads(json.dumps(real))
+
+    pending: list = []
+
+    rig.s.m.build_lesson = build
+
+    async def go():
+        await rig.s.learn_url("https://www.youtube.com/watch?v=abcdefghijk")
+        await rig.settle()
+
+    run(go())
+    readies = rig.of("lesson.ready")
+    assert [len(r["steps"]) for r in readies] == [1, len(real["steps"])]
+    assert readies[-1]["lesson"]["provisional"] is False and readies[-1]["lesson"]["builtBy"] == "gemini"
+    assert rig.s.step["title"] == real["steps"][0]["title"] and rig.of("step.started")[-1]["stepId"] == "s1"
+    assert [s["id"] for s in rig.s.steps] == [s["id"] for s in real["steps"]]
+    assert all(u["steps"] for u in rig.of("lesson.updated"))  # never an empty update
+
+
+
+def test_background_judge_passes_pending_checks_and_looks_done_confirm(rig):
+    """E5's StepJudge on the tick: pending checks it saw done count as passed; a "Looks done?" card's confirm
+    passes the step (its checkIds go green)."""
+    class Judge:
+        def __init__(self, card=None, events=()):
+            self.card, self.events, self.n = card, list(events), 0
+
+        def should_judge(self, step, results, **kw):
+            return self.n == 0
+
+        async def judge(self, step, results, **kw):
+            self.n += 1
+            return {"events": self.events, "card": self.card}
+
+    async def go():
+        await _to_step(rig, 1)
+        rig.write("import torch.nn as nn\nnet = nn.Sequential(nn.Linear(2, 50))\n")
+        await rig.s.on_file_change([str(rig.workdir / "pinn_convection.py")])
+        await rig.settle()
+        failing = [r["checkId"] for r in rig.s.last_results if r.get("status") != "pass"]
+        rig.s.judge = Judge(card={"stepId": "s2", "kind": "answer", "title": "Looks done?", "body": "Tanh is there",
+                                  "actions": ["confirm", "skip_step"], "checkIds": failing})
+        await rig.s.tick()
+        await rig.settle()
+        assert rig.of("card")[-1]["title"] == "Looks done?"
+        await rig.s.action("confirm")
+        await rig.settle()
+
+    run(go())
+    assert rig.of("step.passed")[-1]["stepId"] == "s2"
+    assert any(p.get("detail") == "You confirmed it" for p in rig.of("check.updated"))
+
+
+def test_install_step_passes_when_the_tools_are_already_installed(rig):
+    graph = stubs.load_fixture_lesson()
+    graph["steps"][0].update(title="Guide to Installing Python & VS Code", instructions="Install Python and VS Code.")
+
+    async def go():
+        await rig.s.load_graph(graph)
+        await rig.settle()
+        rig.s.reqs = [{"tool": "python", "label": "Python", "kind": "runtime", "needed": True, "ok": True},
+                      {"tool": "vscode", "label": "VS Code", "kind": "editor", "needed": True, "ok": True}]
+        await rig.s._maybe_pass_setup_step()
+        await rig.settle()
+
+    run(go())
+    assert rig.of("step.passed")[0]["stepId"] == "s1"
+    assert any(p.get("detail") == "Already installed" for p in rig.of("check.updated"))
+
+
+def test_stuck_card_offers_skip_once_after_90s_idle(rig):
+    async def go():
+        await _to_step(rig, 1)
+        await rig.end_segment()
+        rig.clock.t += 95
+        await rig.s.tick()
+        await rig.s.tick()
+        await rig.settle()
+
+    run(go())
+    stuck = [c for c in rig.of("card") if c["title"] == "Stuck on this step?"]
+    assert len(stuck) == 1 and stuck[0]["actions"] == ["skip_step"]
+
+
+def test_dead_screen_is_reported_once_and_show_me_says_why(tmp_path, monkeypatch):
+    monkeypatch.setenv("TUT_WORKDIR", str(tmp_path))
+    screen = FakeScreen()
+    rig = Rig(tmp_path, screen=screen)
+
+    async def go():
+        await rig.start_lesson()
+        screen.down = "RuntimeError: display returned no image"
+        await rig.s.tick()  # t0: not yet (could be a Space switch)
+        assert not rig.of("error")
+        rig.clock.t += 6
+        await rig.s.tick()
+        assert not rig.of("error")  # 6 s: still quiet
+        rig.clock.t += 10
+        await rig.s.tick()
+        await rig.s.tick()
+        assert rig.s.state()["screen"] is False
+        await rig.s.action("show_me")
+        await rig.settle()
+
+    run(go())
+    errs = [e["message"] for e in rig.of("error")]
+    assert errs == ["Miyagi can't see your screen. Check Screen Recording in System Settings."]
+    assert rig.of("card")[-1]["title"] == "I can't see your screen"
+
+
+def test_where_card_says_save_it_when_the_code_is_in_an_untitled_tab(rig):
+    from types import SimpleNamespace as NS
+
+    async def go():
+        await _to_step(rig, 1)
+        rig.s.last_obs = NS(windows=[NS(app="Code", title="● Untitled-1 — Visual Studio Code")])
+
+    run(go())
+    card = rig.s._where_card(rig.s.step)
+    assert card["title"] == "Save it as pinn_convection.py" and str(rig.workdir) in card["body"]
+
+
+
+def test_preflight_card_actions_download_and_open_in_browser_are_handled(rig, monkeypatch):
+    from server.orchestrator import workspace as wsmod
+
+    rig.s.m._preflight_mod = lambda: _fake_preflight([])
+    opened = []
+    monkeypatch.setattr(wsmod, "download_resources", lambda graph, folder: ([], "Downloaded 0 files."))
+
+    class WS:
+        enabled = False
+
+        def run(self, argv):
+            opened.append(argv)
+            return True
+
+    async def go():
+        await rig.s.learn("build chat gpt")
+        await rig.s.build_lesson(["r1"])
+        rig.s.workspace = WS()
+        rig.s.reqs = [{"tool": "colab", "install": {"url": "https://colab.research.google.com/"}}]
+        await rig.s.action("open_in_browser", "colab")
+        await rig.s.action("download")  # before the lesson exists: queued
+        assert rig.of("card")[-1]["title"] == "Tutorial files"
+        await rig.s.action("build")
+        await rig.settle()
+        await asyncio.sleep(0.05)
+
+    run(go())
+    assert opened[0] == ["open", "https://colab.research.google.com/"]
+    assert rig.of("card")[-1]["title"] == "Tutorial files" and rig.of("card")[-1]["body"] == "Downloaded 0 files."
+    assert not any("Unknown action" in e["message"] for e in rig.of("error"))
+
+
+
+def test_lesson_mode_no_early_offtrack_no_setup_card_no_window_box(tmp_path, monkeypatch):
+    """Live run (calculator): an offtrack 2.8 s into step 1, an 'Open in Cursor?' setup card, and the whole
+    editor window boxed. Lesson mode: the coach waits for an edit / run / 25 s; no setup card when nothing is
+    missing; only the exact line is boxed."""
+    from types import SimpleNamespace as NS
+
+    from server.orchestrator import workspace as wsmod
+
+    async def build(goal, workdir, on_update=None, **kw):
+        return _text_lesson()
+
+    rig, screen, calls = _lesson_rig(tmp_path, monkeypatch, build)
+    rig.s.workspace.enabled = True
+    monkeypatch.setattr(wsmod, "requirements", lambda graph, folder: [
+        {"tool": "python", "label": "Python", "kind": "runtime", "needed": True, "ok": True},
+        {"tool": "vscode", "label": "VS Code", "kind": "editor", "needed": True, "ok": True}])
+    spoke = []
+    rig.s._consider_speaking = (lambda orig: lambda *a, **k: (spoke.append(a[0]), orig(*a, **k)))(rig.s._consider_speaking)
+
+    async def go():
+        await rig.s.learn("build a calculator", mode="lesson")
+        await rig.settle()
+        await asyncio.sleep(0.05)
+        rig.s.last_obs = NS(windows=[NS(app="Cursor", title="calc.py — lesson",
+                                        rect={"x": 0.0, "y": 33.0, "w": 865.0, "h": 1001.0})])
+        rig.s.engaged = True  # screen frames arrived (lesson mode has no clip to wait for)
+        rig.clock.t += 6  # past the idle gate, inside the 25 s grace
+        await rig.s.tick()
+        await rig.settle()
+        assert "idle" in spoke and not rig.of("offtrack") and not rig.s.coaching
+        await rig.s.action("show_me")
+        await rig.settle()
+
+    run(go())
+    assert (tmp_path / "calc.py").exists()  # the step's file was created: step 1 is "type this"
+    assert not [c for c in rig.of("card") if c.get("kind") == "setup"]
+    assert not [sp for sp in rig.of("spotlight") if sp.get("rect", {}).get("w") == 865.0]
+
+
+
+def test_tagged_setup_step_passes_on_its_required_tools(rig):
+    graph = stubs.load_fixture_lesson()
+    graph["steps"][0].update(title="Get ready", instructions="Open a terminal.", setup=True, requires=["python"])
+
+    async def go():
+        await rig.s.load_graph(graph)
+        await rig.settle()
+        rig.s.reqs = [{"tool": "python", "label": "Python", "kind": "runtime", "needed": True, "ok": True},
+                      {"tool": "node", "label": "Node", "kind": "runtime", "needed": True, "ok": False}]
+        await rig.s._maybe_pass_setup_step()
+        await rig.settle()
+
+    run(go())
+    assert rig.of("step.passed")[0]["stepId"] == "s1"  # node is missing, but this step only requires python
+
+
+def test_no_offtrack_in_the_first_20s_of_a_step(rig):
+    rig.s.offtrack_grace_s = 20
+
+    async def go():
+        await _to_step(rig, 5)
+        rig.write("def train(model):\n    beta = 30\n    for epoch in range(4000):\n        pass\n")
+        await rig.end_segment()
+        await rig.run("r1", PLATEAU)  # a real failing run 0 s into the step: still too early
+        assert not rig.of("offtrack")
+        rig.clock.t += 21
+        await rig.run("r2", PLATEAU)
+
+    run(go())
+    assert len(rig.of("offtrack")) == 1
+
+
+def test_not_started_diagnosis_is_a_calm_hint_never_an_offtrack(rig):
+    async def diagnose(step, failed, metrics, code, **kw):
+        return {"notStarted": True, "title": "Start: Write the training loop",
+                "body": "Create the training loop in pinn_convection.py, then run it."}
+
+    rig.s.m.diagnose = diagnose
+
+    async def go():
+        await _to_step(rig, 5)
+        rig.write("# nothing yet\n")
+        await rig.end_segment()
+        await rig.run("r1", PLATEAU)
+
+    run(go())
+    assert not rig.of("offtrack")
+    card = rig.of("card")[-1]
+    assert card["kind"] == "hint" and card["title"] == "Start: Write the training loop"
+    assert {"state": "offtrack"} not in rig.of("status") and rig.of("status")[-1] == {"state": "watching"}
+
+
+def test_not_yet_card_and_offtrack_never_both_for_the_same_check(rig):
+    rig.s.check_wait_s = 0
+    spoke = []
+    rig.s._consider_speaking = (lambda orig: lambda *a, **k: (spoke.append(a[0]), orig(*a, **k)))(rig.s._consider_speaking)
+
+    async def go():
+        await _to_step(rig, 1)  # s2: Linear + Tanh
+        await rig.end_segment()
+        rig.write("import torch.nn as nn\nnet = nn.Sequential(nn.Linear(2, 50))\n")
+        await rig.s.action("check_step")  # "Not yet": uses tanh
+        await rig.settle()
+        for _ in range(2):  # the same failure saved twice: the coach would repeat it as an offtrack
+            await rig.s.on_file_change([str(rig.workdir / "pinn_convection.py")])
+            await rig.settle()
+
+    run(go())
+    assert "repeat" in spoke  # the coach path really ran
+    assert [c["title"] for c in rig.of("card")].count("Not yet") == 1
+    assert not [o for o in rig.of("offtrack") if o["level"] == 2]
+
+
+
+def test_step_started_instructions_are_one_concrete_action(rig):
+    from server.orchestrator.session import LessonSession
+
+    s = rig.s
+    assert s._action_line({"id": "s1", "title": "t", "file": "calculator.py",
+                           "code": "print(\"Calculator\")\nx = 1\n", "instructions": "Long text."}) \
+        == 'Create calculator.py and type print("Calculator") …'
+    (rig.workdir / "calculator.py").write_text("")
+    assert s._action_line({"id": "s1", "title": "t", "file": "calculator.py", "code": "print(1)\n"}) \
+        == "In calculator.py, type print(1)"
+    assert s._action_line({"id": "s2", "title": "t", "instructions": "Add an nn.Tanh after each Linear layer. "
+                                                                     "This keeps the output smooth."}) \
+        == "Add an nn.Tanh after each Linear layer."
+    assert s._action_line({"id": "s3", "title": "t", "action": "Run python calculator.py", "instructions": "x"}) \
+        == "Run python calculator.py"
+    assert LessonSession  # (imported for the type)
+
+    async def go():
+        await rig.start_lesson()
+
+    run(go())
+    st = rig.of("step.started")[0]
+    assert st["instructions"] == "Create pinn_convection.py in your project folder." and "details" not in st

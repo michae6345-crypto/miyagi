@@ -1,0 +1,21 @@
+{
+  "name": "settings",
+  "on": {
+    "connect": "first_run"
+  },
+  "segments": {
+    "first_run": [
+      {
+        "wait": 400,
+        "type": "config.status",
+        "payload": {
+          "anthropic": "missing",
+          "gemini": "missing",
+          "brightdata": "env",
+          "elevenlabs": "invalid",
+          "tigerUrl": "missing"
+        }
+      }
+    ]
+  }
+}

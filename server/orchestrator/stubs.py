@@ -56,6 +56,22 @@ def load_fixture_lesson() -> dict:
     return json.loads((FIXTURES / "pinn_lesson.json").read_text())
 
 
+def text_lesson(graph: dict, goal: str = "") -> dict:
+    """A video lesson made into a "lesson" mode one (no video): DEMO's stand-in for E2's build_text_lesson."""
+    g = json.loads(json.dumps(graph))
+    g.setdefault("lesson", {})["mode"] = "lesson"
+    if goal:
+        g["lesson"]["goal"] = goal
+    for st in g.get("steps", []):
+        st.pop("video", None)
+    g["sources"] = [s for s in g.get("sources", []) if s.get("kind") != "video"]
+    return g
+
+
+async def build_text_lesson(goal: str, workdir: str) -> dict:
+    return text_lesson(load_fixture_lesson(), goal)
+
+
 async def build_lesson(source_url: str, goal: str, workdir: str) -> dict:
     graph = load_fixture_lesson()
     if goal:

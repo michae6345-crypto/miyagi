@@ -73,6 +73,14 @@ class ModuleUnavailable(RuntimeError):
     """A real module is missing or failed and stubs aren't allowed (live mode)."""
 
 
+
+def _progressive_fn(name: str) -> Callable[..., Any] | None:
+    try:
+        from server.lesson import progressive
+    except Exception:  # noqa: BLE001 - E2 not installed / older builder
+        return None
+    return getattr(progressive, name, None)
+
 class Modules:
     def __init__(self, *, demo: bool | None = None, force_stubs: str | None = None):
         self.demo = demo_mode() if demo is None else demo
@@ -286,6 +294,77 @@ class Modules:
             raise
         finally:
             waiter.cancel()
+
+    # -- "Just teach me": a lesson with no video (E2's build_text_lesson; Claude only, no Gemini)
+    async def build_text_lesson(self, goal: str, workdir: str, on_update: Any = None, on_progress: Any = None) -> dict:
+        if self.demo:  # DEMO: a cached "lesson" mode lesson, else the fixture without its video
+            files = sorted((DEMO_CACHE / "lessons").glob("*.json"), key=lambda p: p.stat().st_mtime, reverse=True) \
+                if (DEMO_CACHE / "lessons").is_dir() else []
+            for f in files:
+                g = _read_json(f)
+                if g and (g.get("lesson") or {}).get("mode") == "lesson":
+                    return g
+            return await stubs.build_text_lesson(goal, workdir)
+        fn = self._real_fn("lesson", "build_text_lesson")
+        kwargs = {"on_update": on_update} if fn is not None and on_update is not None and _accepts(fn, "on_update") else {}
+        if fn is not None and on_progress is not None:
+            if _accepts(fn, "on_progress"):
+                kwargs["on_progress"] = on_progress
+            else:  # E2: the text builder reports stages through the same callback slot build_lesson sets
+                try:
+                    from server.lesson import builder as _b
+
+                    _b._progress.set(on_progress)
+                except Exception:  # noqa: BLE001
+                    pass
+        timeout = float(os.environ.get("ORCH_BUILD_TIMEOUT_S", "300"))
+        try:
+            return await asyncio.wait_for(self._run("lesson", "build_text_lesson",
+                                                    lambda: stubs.build_text_lesson(goal, workdir),
+                                                    goal, workdir, **kwargs), timeout)
+        except TimeoutError as e:
+            raise ModuleUnavailable(f"building the lesson took over {timeout:.0f}s") from e
+
+    # -- E5's Claude step judge (Haiku): the Check button and checks the machine can't see
+    def make_step_judge(self) -> Any:
+        """A coach.StepJudge per lesson, or None (no coach / stubbed)."""
+        if "coach" in self.forced:
+            return None
+        mod = self.real.get("coach")
+        cls = getattr(mod, "StepJudge", None) if mod else None
+        try:
+            return cls() if cls else None
+        except Exception:  # noqa: BLE001
+            log.exception("StepJudge() failed")
+            return None
+
+    async def judge_step(self, step: dict, screen: Any = None, files: dict | None = None, *, check_results: Any = None,
+                         focused_app: str = "", lesson: dict | None = None) -> dict | None:
+        fn = self._real_fn("coach", "judge_step")
+        if fn is None:
+            return None
+        return await fn(step, screen, files, check_results=check_results, focused_app=focused_app, lesson=lesson)
+
+    # -- E2 lazy long-video parts: later parts are built only as the learner nears them
+    def lesson_needs_more(self, graph: dict, step_index: int) -> bool:
+        """DEMO never builds more (cost freeze: no Gemini calls); LIVE asks E2's progressive.needs_more."""
+        if self.demo or "lesson" in self.forced:
+            return False
+        fn = _progressive_fn("needs_more")
+        if fn is None:
+            return False
+        try:
+            return bool(fn(graph, step_index))
+        except Exception:
+            log.exception("progressive.needs_more failed")
+            return False
+
+    async def extend_lesson(self, graph: dict, on_update: Any = None) -> dict:
+        """E2: build the NEXT pending part (one Gemini call) and return the new graph."""
+        fn = _progressive_fn("extend")
+        if fn is None:
+            raise ModuleUnavailable("server.lesson.progressive.extend is not available")
+        return _to_dict(await fn(graph, on_update=on_update))
 
     # -- checks (always real unless forced: the demo run is a real run)
     def make_context(self, ctx: RunContext) -> Any:

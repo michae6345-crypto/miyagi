@@ -131,7 +131,7 @@ class Engine:
         p = msg.payload
         s = self.session
         if msg.type == "learn":
-            await s.learn(p.query)
+            await s.learn(p.query, getattr(p, "mode", None))
         elif msg.type == "learn_url":
             await s.learn_url(p.url)
         elif msg.type == "build_lesson":

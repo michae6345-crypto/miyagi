@@ -62,6 +62,19 @@ Each has a `-dark` version (white trunk and pot) for dark backgrounds.
 
 **Pastels for options (Adrian, Sat):** soft pastels add a little color to *options* only: suggestion and quick-action chips, source-kind tiles, the "Best" label. Pink `#F9C5D5`, sky `#C5E4F9`, lilac `#D9D2FF` (deeper: pink `#F4A7BF`, sky `#9CCFF2`), with ink text on them. They never mean status, the UI chrome stays black and white, and no gradients or glow. This is the only exception to "no blue, no purple".
 
+**The pastel options mapping** (Adrian, Sat: "consistent across all features"). The same action is the same color everywhere:
+
+| Action | Color |
+|---|---|
+| Understand: Explain, Diagram, Watch (video jump) | sky `#C5E4F9` |
+| Show me | lilac `#D9D2FF` |
+| Hint | pink `#F9C5D5` |
+| The ONE primary action per surface (Build lesson, Apply fix, Ask, Replay step) | white + ink |
+| Chrome and navigation (Back, Voice, Close, chapters, toggles, inputs) | neutral |
+| Source-kind tiles: notebook/repo, paper, blog | sky, pink, lilac |
+
+How it's applied: buttons and chips are a solid pastel fill with ink text and icon, with the keycap on ink at 10% (`OptionButton` / `PrimaryButton` in `core/ui/atoms.tsx`). Icon tiles (shortcut bar) are a 28px rounded square in the pastel with an ink glyph; the label stays white. Kind tiles are a 16% pastel wash with a pastel glyph. Status is unchanged: green passed, amber off track, gray watching. No glows.
+
 ## Type
 
 - **Google Sans Flex** (`fonts/GoogleSansFlex.woff2`, SIL Open Font License) for the wordmark, headings, covers and slides. Medium 500 or SemiBold 600, tight tracking (−3 to −4.5%).

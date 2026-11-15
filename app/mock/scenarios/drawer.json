@@ -1,0 +1,580 @@
+{
+  "name": "drawer",
+  "on": {
+    "connect": "step_drawer",
+    "action:hint@step_drawer": "drawer_spotlight"
+  },
+  "segments": {
+    "step_drawer": [
+      {
+        "wait": 150,
+        "type": "lesson.building",
+        "payload": {
+          "message": "Gemini is watching part 1 of 3",
+          "progress": 0.3
+        }
+      },
+      {
+        "wait": 500,
+        "type": "lesson.ready",
+        "payload": {
+          "lesson": {
+            "id": "gpt-from-scratch",
+            "title": "GPT from scratch",
+            "sources": [
+              {
+                "id": "d1",
+                "kind": "video",
+                "title": "Let's build GPT: from scratch, in code, spelled out.",
+                "url": "https://www.youtube.com/watch?v=kCc8FmEb1nY",
+                "meta": "Video · Andrej Karpathy · 1:56:20",
+                "videoId": "kCc8FmEb1nY"
+              },
+              {
+                "id": "d2",
+                "kind": "repo",
+                "title": "karpathy/nanoGPT",
+                "url": "https://github.com/karpathy/nanoGPT",
+                "meta": "Repo · GitHub"
+              },
+              {
+                "id": "d3",
+                "kind": "notebook",
+                "title": "gpt-dev.ipynb",
+                "url": "https://github.com/karpathy/ng-video-lecture",
+                "meta": "Notebook · from the video"
+              },
+              {
+                "id": "d4",
+                "kind": "paper",
+                "title": "Attention Is All You Need",
+                "url": "https://arxiv.org/abs/1706.03762",
+                "meta": "Paper · Vaswani et al. · NeurIPS 2017"
+              },
+              {
+                "id": "d5",
+                "kind": "blog",
+                "title": "The Illustrated Transformer",
+                "url": "https://jalammar.github.io/illustrated-transformer/",
+                "meta": "Blog · Jay Alammar"
+              }
+            ],
+            "complete": false,
+            "builtBy": "gemini"
+          },
+          "steps": [
+            {
+              "id": "g1",
+              "index": 0,
+              "title": "Read the Tiny Shakespeare text",
+              "video": {
+                "videoId": "kCc8FmEb1nY",
+                "start": 472,
+                "end": 568
+              }
+            },
+            {
+              "id": "g2",
+              "index": 1,
+              "title": "Encode characters as integers",
+              "video": {
+                "videoId": "kCc8FmEb1nY",
+                "start": 568,
+                "end": 867
+              }
+            },
+            {
+              "id": "g3",
+              "index": 2,
+              "title": "Batch the data into chunks",
+              "video": {
+                "videoId": "kCc8FmEb1nY",
+                "start": 867,
+                "end": 1331
+              }
+            }
+          ]
+        }
+      },
+      {
+        "wait": 250,
+        "type": "step.started",
+        "payload": {
+          "stepId": "g1",
+          "index": 0,
+          "title": "Read the Tiny Shakespeare text",
+          "instructions": "Download input.txt and print its length.",
+          "video": {
+            "videoId": "kCc8FmEb1nY",
+            "start": 472,
+            "end": 568
+          }
+        }
+      },
+      {
+        "wait": 0,
+        "type": "check.updated",
+        "payload": {
+          "stepId": "g1",
+          "checkId": "c1",
+          "label": "input.txt loads",
+          "status": "pending"
+        }
+      },
+      {
+        "wait": 0,
+        "type": "check.updated",
+        "payload": {
+          "stepId": "g1",
+          "checkId": "c2",
+          "label": "Prints the character count",
+          "status": "pending"
+        }
+      },
+      {
+        "wait": 1600,
+        "type": "check.updated",
+        "payload": {
+          "stepId": "g1",
+          "checkId": "c1",
+          "label": "input.txt loads",
+          "status": "pass"
+        }
+      },
+      {
+        "wait": 1400,
+        "type": "check.updated",
+        "payload": {
+          "stepId": "g1",
+          "checkId": "c2",
+          "label": "Prints the character count",
+          "status": "pass",
+          "detail": "1,115,394"
+        }
+      },
+      {
+        "wait": 450,
+        "type": "step.passed",
+        "payload": {
+          "stepId": "g1",
+          "nextStepId": "g2"
+        }
+      },
+      {
+        "wait": 400,
+        "type": "step.started",
+        "payload": {
+          "stepId": "g2",
+          "index": 1,
+          "title": "Encode characters as integers",
+          "instructions": "Map each character to an integer and back.",
+          "video": {
+            "videoId": "kCc8FmEb1nY",
+            "start": 568,
+            "end": 867
+          }
+        }
+      },
+      {
+        "wait": 0,
+        "type": "check.updated",
+        "payload": {
+          "stepId": "g2",
+          "checkId": "c1",
+          "label": "decode(encode(s)) == s",
+          "status": "pending"
+        }
+      },
+      {
+        "wait": 0,
+        "type": "check.updated",
+        "payload": {
+          "stepId": "g2",
+          "checkId": "c2",
+          "label": "Vocabulary size",
+          "status": "pending"
+        }
+      },
+      {
+        "wait": 1800,
+        "type": "check.updated",
+        "payload": {
+          "stepId": "g2",
+          "checkId": "c1",
+          "label": "decode(encode(s)) == s",
+          "status": "pass"
+        }
+      },
+      {
+        "wait": 1200,
+        "type": "check.updated",
+        "payload": {
+          "stepId": "g2",
+          "checkId": "c2",
+          "label": "Vocabulary size",
+          "status": "pass",
+          "detail": "65"
+        }
+      },
+      {
+        "wait": 450,
+        "type": "step.passed",
+        "payload": {
+          "stepId": "g2",
+          "nextStepId": "g3"
+        }
+      },
+      {
+        "wait": 400,
+        "type": "step.started",
+        "payload": {
+          "stepId": "g3",
+          "index": 2,
+          "title": "Batch the data into chunks",
+          "instructions": "Write get_batch for random chunks of 8 tokens.",
+          "video": {
+            "videoId": "kCc8FmEb1nY",
+            "start": 867,
+            "end": 1331
+          }
+        }
+      },
+      {
+        "wait": 0,
+        "type": "check.updated",
+        "payload": {
+          "stepId": "g3",
+          "checkId": "c1",
+          "label": "get_batch returns (4, 8) tensors",
+          "status": "pending"
+        }
+      },
+      {
+        "wait": 2600,
+        "type": "check.updated",
+        "payload": {
+          "stepId": "g3",
+          "checkId": "c1",
+          "label": "get_batch returns (4, 8) tensors",
+          "status": "pass"
+        }
+      },
+      {
+        "wait": 450,
+        "type": "step.passed",
+        "payload": {
+          "stepId": "g3",
+          "pending": true
+        }
+      },
+      {
+        "wait": 3800,
+        "type": "lesson.updated",
+        "payload": {
+          "steps": [
+            {
+              "id": "g1",
+              "index": 0,
+              "title": "Read the Tiny Shakespeare text",
+              "video": {
+                "videoId": "kCc8FmEb1nY",
+                "start": 472,
+                "end": 568
+              }
+            },
+            {
+              "id": "g2",
+              "index": 1,
+              "title": "Encode characters as integers",
+              "video": {
+                "videoId": "kCc8FmEb1nY",
+                "start": 568,
+                "end": 867
+              }
+            },
+            {
+              "id": "g3",
+              "index": 2,
+              "title": "Batch the data into chunks",
+              "video": {
+                "videoId": "kCc8FmEb1nY",
+                "start": 867,
+                "end": 1331
+              }
+            },
+            {
+              "id": "g4",
+              "index": 3,
+              "title": "Train a bigram language model",
+              "video": {
+                "videoId": "kCc8FmEb1nY",
+                "start": 1331,
+                "end": 2280
+              }
+            },
+            {
+              "id": "g5",
+              "index": 4,
+              "title": "Average past tokens with a matrix multiply",
+              "video": {
+                "videoId": "kCc8FmEb1nY",
+                "start": 2533,
+                "end": 3282
+              }
+            },
+            {
+              "id": "g6",
+              "index": 5,
+              "title": "Add positional embeddings",
+              "video": {
+                "videoId": "kCc8FmEb1nY",
+                "start": 3618,
+                "end": 3720
+              }
+            },
+            {
+              "id": "g7",
+              "index": 6,
+              "title": "Write one self-attention head",
+              "video": {
+                "videoId": "kCc8FmEb1nY",
+                "start": 3720,
+                "end": 4919
+              }
+            }
+          ],
+          "complete": false,
+          "parts": {
+            "done": 2,
+            "failed": 0,
+            "total": 3
+          }
+        }
+      },
+      {
+        "wait": 300,
+        "type": "step.started",
+        "payload": {
+          "stepId": "g4",
+          "index": 3,
+          "title": "Train a bigram language model",
+          "instructions": "Train a bigram model and sample from it.",
+          "video": {
+            "videoId": "kCc8FmEb1nY",
+            "start": 1331,
+            "end": 2280
+          }
+        }
+      },
+      {
+        "wait": 0,
+        "type": "check.updated",
+        "payload": {
+          "stepId": "g4",
+          "checkId": "c1",
+          "label": "Loss starts near 4.17",
+          "status": "pending"
+        }
+      },
+      {
+        "wait": 0,
+        "type": "check.updated",
+        "payload": {
+          "stepId": "g4",
+          "checkId": "c2",
+          "label": "Loss falls below 2.6",
+          "status": "pending"
+        }
+      },
+      {
+        "wait": 2000,
+        "type": "check.updated",
+        "payload": {
+          "stepId": "g4",
+          "checkId": "c1",
+          "label": "Loss starts near 4.17",
+          "status": "pass",
+          "detail": "4.21"
+        }
+      },
+      {
+        "wait": 5000,
+        "type": "lesson.updated",
+        "payload": {
+          "steps": [
+            {
+              "id": "g1",
+              "index": 0,
+              "title": "Read the Tiny Shakespeare text",
+              "video": {
+                "videoId": "kCc8FmEb1nY",
+                "start": 472,
+                "end": 568
+              }
+            },
+            {
+              "id": "g2",
+              "index": 1,
+              "title": "Encode characters as integers",
+              "video": {
+                "videoId": "kCc8FmEb1nY",
+                "start": 568,
+                "end": 867
+              }
+            },
+            {
+              "id": "g3",
+              "index": 2,
+              "title": "Batch the data into chunks",
+              "video": {
+                "videoId": "kCc8FmEb1nY",
+                "start": 867,
+                "end": 1331
+              }
+            },
+            {
+              "id": "g4",
+              "index": 3,
+              "title": "Train a bigram language model",
+              "video": {
+                "videoId": "kCc8FmEb1nY",
+                "start": 1331,
+                "end": 2280
+              }
+            },
+            {
+              "id": "g5",
+              "index": 4,
+              "title": "Average past tokens with a matrix multiply",
+              "video": {
+                "videoId": "kCc8FmEb1nY",
+                "start": 2533,
+                "end": 3282
+              }
+            },
+            {
+              "id": "g6",
+              "index": 5,
+              "title": "Add positional embeddings",
+              "video": {
+                "videoId": "kCc8FmEb1nY",
+                "start": 3618,
+                "end": 3720
+              }
+            },
+            {
+              "id": "g7",
+              "index": 6,
+              "title": "Write one self-attention head",
+              "video": {
+                "videoId": "kCc8FmEb1nY",
+                "start": 3720,
+                "end": 4919
+              }
+            },
+            {
+              "id": "g8",
+              "index": 7,
+              "title": "Run several heads in parallel",
+              "video": {
+                "videoId": "kCc8FmEb1nY",
+                "start": 4919,
+                "end": 5065
+              }
+            },
+            {
+              "id": "g9",
+              "index": 8,
+              "title": "Add the feed-forward layer",
+              "video": {
+                "videoId": "kCc8FmEb1nY",
+                "start": 5065,
+                "end": 5208
+              }
+            },
+            {
+              "id": "g10",
+              "index": 9,
+              "title": "Add residual connections and LayerNorm",
+              "video": {
+                "videoId": "kCc8FmEb1nY",
+                "start": 5208,
+                "end": 5869
+              }
+            },
+            {
+              "id": "g11",
+              "index": 10,
+              "title": "Scale up and train the full model",
+              "video": {
+                "videoId": "kCc8FmEb1nY",
+                "start": 5869,
+                "end": 6420
+              }
+            }
+          ],
+          "complete": true,
+          "parts": {
+            "done": 3,
+            "failed": 0,
+            "total": 3
+          }
+        }
+      },
+      {
+        "wait": 1500,
+        "type": "check.updated",
+        "payload": {
+          "stepId": "g4",
+          "checkId": "c2",
+          "label": "Loss falls below 2.6",
+          "status": "pending",
+          "detail": "3.10"
+        }
+      },
+      {
+        "wait": 1500,
+        "goto": "drawer_spotlight"
+      }
+    ],
+    "drawer_spotlight": [
+      {
+        "wait": 0,
+        "type": "spotlight",
+        "payload": {
+          "rect": {
+            "x": 100,
+            "y": 563,
+            "w": 380,
+            "h": 18
+          },
+          "caption": "The learning rate",
+          "app": "Code",
+          "matched": "lr=1e-3"
+        }
+      },
+      {
+        "wait": 2200,
+        "type": "spotlight",
+        "payload": {
+          "rect": {
+            "x": 1300,
+            "y": 300,
+            "w": 220,
+            "h": 22
+          },
+          "caption": "Print the loss here",
+          "app": "Code",
+          "matched": "print(loss.item())"
+        }
+      },
+      {
+        "wait": 2600,
+        "type": "spotlight",
+        "payload": {
+          "clear": true
+        }
+      }
+    ]
+  }
+}

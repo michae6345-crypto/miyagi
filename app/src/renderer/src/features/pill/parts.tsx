@@ -6,15 +6,17 @@
 import { AnimatePresence, motion, useAnimate, useReducedMotion } from 'motion/react'
 import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react'
 import treeSmall from '../../assets/brand/tree-small-dark.svg'
-import { useLesson } from '../../core/lesson'
+import { useLesson, useThinking } from '../../core/lesson'
 import { color, spring } from '../../core/theme'
+import { Spinner } from '../../core/ui/atoms'
 import { pulsedOfftrack, ring } from './store'
 
-export type Mark = 'watching' | 'offtrack' | 'passed' | 'check' | 'done'
+/** offline: a hollow gray dot (no connection). pending: the next part is still building (spinner, no dot). */
+export type Mark = 'watching' | 'offtrack' | 'passed' | 'check' | 'done' | 'offline' | 'pending'
 
 /**
  * The bonsai as a one-color template glyph, like a menu-bar icon: white on the black pill. Adrian's call:
- * the pill is black and white, and the tree shows its colors once the island opens (launcher, cards).
+ * the tree is monochrome everywhere in the app (the green pads are for the app icon and external surfaces).
  * Same file and geometry as MiyagiMark's small cut (the SVG is the mask), so nothing is redrawn.
  * 16px: the art is ~10.5×12 inside the box, the optical size of mockup 01's icon.
  */
@@ -26,6 +28,36 @@ export function MonoMark({ size = 16, tone = color.text, className = '' }: { siz
       className={`inline-block shrink-0 ${className}`}
       style={{ width: size, height: size, backgroundColor: tone, WebkitMask: mask, mask }}
     />
+  )
+}
+
+/**
+ * The lead glyph: the bonsai, or the small core Spinner while the engine is thinking (an explain, a hint,
+ * a diagram: 2-5 s), so a shortcut never looks dead. Both sit in the same 16px box: no layout change,
+ * a 150ms crossfade only when thinking actually starts or stops.
+ */
+export function LeadMark(): ReactNode {
+  const thinking = useThinking()
+  return (
+    <span className="relative mr-[8px] inline-block h-[16px] w-[16px] shrink-0" data-thinking={thinking || undefined}>
+      <motion.span className="absolute inset-0" initial={false} animate={{ opacity: thinking ? 0 : 1 }} transition={{ duration: 0.15 }}>
+        <MonoMark />
+      </motion.span>
+      <AnimatePresence initial={false}>
+        {thinking && (
+          <motion.span
+            key="thinking"
+            className="absolute inset-0 grid place-items-center"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            transition={{ duration: 0.15 }}
+          >
+            <Spinner size={14} />
+          </motion.span>
+        )}
+      </AnimatePresence>
+    </span>
   )
 }
 
@@ -75,7 +107,8 @@ export function PillRing({
  * Off-track: the dot eases to amber and pulses twice (scale 1 → 1.35 → 1). Once per episode. No glow, no halo.
  */
 export function StatusMark({ mark }: { mark: Mark }): ReactNode {
-  const tone = mark === 'offtrack' ? color.amber : mark === 'watching' ? color.gray : color.green
+  // Green only ever means passed, amber only off track; everything else (watching, offline) is gray.
+  const tone = mark === 'offtrack' ? color.amber : mark === 'passed' || mark === 'check' || mark === 'done' ? color.green : color.gray
   const off = useLesson((s) => s.offtrack)
   const reduced = useReducedMotion()
   const [dot, animate] = useAnimate<HTMLSpanElement>()
@@ -91,7 +124,17 @@ export function StatusMark({ mark }: { mark: Mark }): ReactNode {
 
   return (
     <span className="relative inline-block h-[7px] w-[7px] shrink-0" data-mark={mark}>
-      <span ref={dot} className="absolute inset-0 rounded-full" style={{ backgroundColor: tone, transition: 'background-color .3s ease' }} />
+      <span
+        ref={dot}
+        className="absolute inset-0 rounded-full"
+        title={mark === 'offline' ? 'Offline' : undefined}
+        style={{
+          // Offline: the same dot, hollow. Gray only, no icon.
+          backgroundColor: mark === 'offline' ? 'transparent' : tone,
+          boxShadow: `inset 0 0 0 ${mark === 'offline' ? 1.5 : 0}px ${color.gray}`,
+          transition: 'background-color .3s ease, box-shadow .3s ease'
+        }}
+      />
       <AnimatePresence>
         {mark === 'check' && (
           <motion.svg

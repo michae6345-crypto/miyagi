@@ -1,7 +1,13 @@
 {
   "name": "cards",
   "on": {
-    "action:apply_fix@step6": "cards_apply_fix"
+    "action:apply_fix@step6": "cards_apply_fix",
+    "learn_url": "cards_preflight",
+    "action:build": "cards_build",
+    "action:download": "cards_download",
+    "action:open_editor": "cards_open_editor",
+    "action:install": "cards_install",
+    "action:show_me@step7": "cards_where_step7"
   },
   "segments": {
     "after_step5": [
@@ -685,6 +691,377 @@
           "step": 7000,
           "name": "loss",
           "value": 0.000608
+        }
+      }
+    ],
+    "cards_preflight": [
+      {
+        "wait": 0,
+        "type": "status",
+        "payload": {
+          "state": "thinking"
+        }
+      },
+      {
+        "wait": 900,
+        "type": "card",
+        "payload": {
+          "kind": "preflight",
+          "title": "Learning PIML Part 1 – PINNs",
+          "body": "Good fit. You code along, step by step.",
+          "preflight": {
+            "videoId": "AXXnSzmpyoI",
+            "url": "https://www.youtube.com/watch?v=AXXnSzmpyoI",
+            "style": "coding",
+            "styleFrom": "claude",
+            "topic": "Physics-informed neural networks",
+            "durationS": 1460,
+            "chapters": 7,
+            "goalMatch": {
+              "score": 0.82,
+              "note": "Trains a PINN on the convection equation"
+            },
+            "buildPlan": {
+              "strategy": "chapters",
+              "estSecondsToFirstSteps": 40,
+              "firstChapter": {
+                "index": 0,
+                "lastIndex": 1,
+                "title": "Set up the environment",
+                "start": 0,
+                "end": 125
+              }
+            },
+            "editorNeeded": true,
+            "partial": false
+          },
+          "items": [
+            {
+              "tool": "cursor",
+              "label": "Cursor",
+              "kind": "editor",
+              "why": "Where you write the code",
+              "needed": true,
+              "installed": true,
+              "ok": true,
+              "version": "0.45",
+              "install": {
+                "method": "download",
+                "url": "https://cursor.com/download"
+              }
+            },
+            {
+              "tool": "python",
+              "label": "Python 3.10+",
+              "kind": "runtime",
+              "why": "Runs the training script",
+              "needed": true,
+              "installed": true,
+              "ok": true,
+              "version": "3.11.6",
+              "install": {
+                "method": "brew",
+                "command": "brew install python@3.11"
+              }
+            },
+            {
+              "tool": "torch",
+              "label": "PyTorch",
+              "kind": "python_package",
+              "why": "The network and autograd",
+              "needed": true,
+              "installed": false,
+              "ok": false,
+              "install": {
+                "method": "pip",
+                "command": "pip install torch"
+              }
+            }
+          ],
+          "actions": [
+            "build",
+            "pick_another"
+          ],
+          "recommended": "build"
+        }
+      },
+      {
+        "wait": 0,
+        "type": "status",
+        "payload": {
+          "state": "watching"
+        }
+      }
+    ],
+    "cards_build": [
+      {
+        "wait": 0,
+        "type": "status",
+        "payload": {
+          "state": "thinking"
+        }
+      },
+      {
+        "wait": 600,
+        "goto": "lesson"
+      },
+      {
+        "wait": 700,
+        "type": "status",
+        "payload": {
+          "state": "watching"
+        }
+      },
+      {
+        "wait": 2400,
+        "type": "card",
+        "payload": {
+          "kind": "setup",
+          "title": "Set up this lesson",
+          "body": "One package to install. The video links two files.",
+          "setup": {
+            "editorNeeded": true,
+            "editorLabel": "Cursor",
+            "items": [
+              {
+                "tool": "cursor",
+                "label": "Cursor",
+                "kind": "editor",
+                "why": "Where you write the code",
+                "needed": true,
+                "installed": true,
+                "ok": true,
+                "version": "0.45",
+                "install": {
+                  "method": "download",
+                  "url": "https://cursor.com/download"
+                }
+              },
+              {
+                "tool": "python",
+                "label": "Python 3.10+",
+                "kind": "runtime",
+                "why": "Runs the training script",
+                "needed": true,
+                "installed": true,
+                "ok": true,
+                "version": "3.11.6",
+                "install": {
+                  "method": "brew",
+                  "command": "brew install python@3.11"
+                }
+              },
+              {
+                "tool": "torch",
+                "label": "PyTorch",
+                "kind": "python_package",
+                "why": "The network and autograd",
+                "needed": true,
+                "installed": false,
+                "ok": false,
+                "install": {
+                  "method": "pip",
+                  "command": "pip install torch"
+                }
+              }
+            ],
+            "resources": [
+              {
+                "name": "pinn-convection",
+                "url": "https://github.com/example/pinn-convection",
+                "kind": "repo"
+              },
+              {
+                "name": "pinn_convection.ipynb",
+                "url": "https://github.com/example/pinn-convection/blob/main/pinn_convection.ipynb",
+                "kind": "notebook"
+              }
+            ],
+            "actionLabels": {
+              "download": "Download tutorial files"
+            }
+          },
+          "actions": [
+            "download",
+            "open_editor",
+            "skip_setup"
+          ]
+        }
+      }
+    ],
+    "cards_download": [
+      {
+        "wait": 0,
+        "type": "status",
+        "payload": {
+          "state": "thinking"
+        }
+      },
+      {
+        "wait": 1800,
+        "type": "status",
+        "payload": {
+          "state": "watching"
+        }
+      }
+    ],
+    "cards_open_editor": [
+      {
+        "wait": 0,
+        "type": "status",
+        "payload": {
+          "state": "thinking"
+        }
+      },
+      {
+        "wait": 1200,
+        "type": "status",
+        "payload": {
+          "state": "watching"
+        }
+      }
+    ],
+    "cards_install": [
+      {
+        "wait": 300,
+        "type": "setup.progress",
+        "payload": {
+          "tool": "torch",
+          "line": "Collecting torch"
+        }
+      },
+      {
+        "wait": 800,
+        "type": "setup.progress",
+        "payload": {
+          "tool": "torch",
+          "line": "Downloading torch-2.5.1 (180 MB)"
+        }
+      },
+      {
+        "wait": 900,
+        "type": "setup.progress",
+        "payload": {
+          "tool": "torch",
+          "line": "Installing collected packages: torch"
+        }
+      },
+      {
+        "wait": 900,
+        "type": "setup.progress",
+        "payload": {
+          "tool": "torch",
+          "done": true,
+          "ok": true,
+          "version": "2.5.1"
+        }
+      },
+      {
+        "wait": 150,
+        "type": "card",
+        "payload": {
+          "kind": "setup",
+          "title": "Ready to code",
+          "body": "Everything is installed. Grab the tutorial files.",
+          "setup": {
+            "editorNeeded": true,
+            "editorLabel": "Cursor",
+            "items": [
+              {
+                "tool": "cursor",
+                "label": "Cursor",
+                "kind": "editor",
+                "why": "Where you write the code",
+                "needed": true,
+                "installed": true,
+                "ok": true,
+                "version": "0.45",
+                "install": {
+                  "method": "download",
+                  "url": "https://cursor.com/download"
+                }
+              },
+              {
+                "tool": "python",
+                "label": "Python 3.10+",
+                "kind": "runtime",
+                "why": "Runs the training script",
+                "needed": true,
+                "installed": true,
+                "ok": true,
+                "version": "3.11.6",
+                "install": {
+                  "method": "brew",
+                  "command": "brew install python@3.11"
+                }
+              },
+              {
+                "tool": "torch",
+                "label": "PyTorch",
+                "kind": "python_package",
+                "why": "The network and autograd",
+                "needed": true,
+                "installed": true,
+                "ok": true,
+                "version": "2.5.1",
+                "install": {
+                  "method": "pip",
+                  "command": "pip install torch"
+                }
+              }
+            ],
+            "resources": [
+              {
+                "name": "pinn-convection",
+                "url": "https://github.com/example/pinn-convection",
+                "kind": "repo"
+              },
+              {
+                "name": "pinn_convection.ipynb",
+                "url": "https://github.com/example/pinn-convection/blob/main/pinn_convection.ipynb",
+                "kind": "notebook"
+              }
+            ],
+            "actionLabels": {
+              "download": "Download tutorial files"
+            }
+          },
+          "actions": [
+            "download",
+            "open_editor",
+            "skip_setup"
+          ]
+        }
+      }
+    ],
+    "cards_where_step7": [
+      {
+        "wait": 0,
+        "type": "status",
+        "payload": {
+          "state": "thinking"
+        }
+      },
+      {
+        "wait": 800,
+        "type": "card",
+        "payload": {
+          "stepId": "s7",
+          "kind": "hint",
+          "title": "Code not visible",
+          "body": "The plotting code isn't on screen.",
+          "where": "Open plot_solution.py in Cursor",
+          "guidingQuestion": "Which array holds the exact solution?",
+          "actions": [
+            "open_editor"
+          ]
+        }
+      },
+      {
+        "wait": 0,
+        "type": "status",
+        "payload": {
+          "state": "watching"
         }
       }
     ]

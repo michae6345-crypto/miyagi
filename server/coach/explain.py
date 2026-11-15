@@ -118,7 +118,7 @@ async def explain(step: dict, question: str | None = None, context: dict | None 
     try:
         res = await llm.structured_call(
             purpose="explain",
-            model=llm.OPUS,
+            model=llm.model_for("explain"),
             system=system_blocks(COACH_SYSTEM + EXPLAIN_TASK, lesson),
             user_text=user,
             schema=CARD_SCHEMA,

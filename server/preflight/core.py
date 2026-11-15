@@ -18,6 +18,8 @@ Claude reads text (Gemini only watches YouTube; preflight never calls Gemini, it
 from __future__ import annotations
 
 import asyncio
+import functools
+import inspect
 import json
 import logging
 import os
@@ -209,7 +211,64 @@ def finder_prior(row: dict | None, video_id: str | None) -> dict:
     return out
 
 
+# --------------------------------------------------------------------------- lesson cache (E2)
+
+def _build_workdir(url: str, goal: str) -> str | None:
+    """The folder the engine will build into: E4's choice (TUT_WORKDIR, else S2's: the hero video ->
+    demo/pinn-lab), else S2's directly."""
+    try:
+        from server.orchestrator.workspace import build_workdir  # E4
+
+        return str(build_workdir(url, goal))
+    except Exception as e:  # noqa: BLE001
+        log.debug("preflight: E4's build_workdir unavailable (%s)", type(e).__name__)
+    try:
+        from server.workspace import build_workdir  # S2
+
+        return str(build_workdir(url))
+    except Exception:  # noqa: BLE001
+        return None
+
+
+def cached_lesson(url: str, goal: str) -> dict | None:
+    """The lesson E2's build_lesson would return from its cache for (url, goal) right now, with the same
+    lookup it uses (exact cache_key, else find_cached: same video + same workdir layout). Blocking
+    (reads files): call in a thread. {graph, file, steps, workdir} or None."""
+    vid = youtube.video_id(url)
+    workdir = _build_workdir(url, goal) if vid else None
+    if not workdir:
+        return None
+    try:
+        from server.lesson import builder
+        from server.lesson.workdir import scan
+    except Exception:  # noqa: BLE001 - lesson module not here
+        return None
+    info = scan(workdir)
+    path = builder.CACHE_DIR / f"{builder.cache_key(url, goal, workdir, info)}.json"
+    hit = path if path.is_file() else builder.find_cached(vid, workdir, info)
+    if not hit:
+        return None
+    graph = json.loads(Path(hit).read_text())
+    graph.setdefault("lesson", {})["workdir"] = workdir
+    return {"graph": graph, "file": Path(hit).name, "steps": len(graph.get("steps") or []), "workdir": workdir}
+
+
+def _call_req(req: Callable, graph: dict, workdir: str | None):
+    try:
+        if workdir and "workdir" in inspect.signature(req).parameters:
+            return req(graph, workdir=workdir)
+    except (TypeError, ValueError):
+        pass
+    return req(graph)
+
+
 # --------------------------------------------------------------------------- tools (S2's requirements)
+
+LOCAL_NOTE = ("How Miyagi runs this lesson: if the learner writes code, they do it LOCALLY in VS Code, in a "
+              "project folder on their Mac, with a local Python/Node/... (never in Colab, Kaggle, Replit or "
+              "another online notebook, even if the video uses one), so list the local editor, runtime and "
+              "packages. If the video is done in web apps or GUI tools without code, list those instead.")
+
 
 def light_graph(m: dict, goal: str, libraries: list[str] | None = None) -> dict:
     """A metadata-level step graph for server.workspace.requirements: one step per chapter
@@ -221,6 +280,7 @@ def light_graph(m: dict, goal: str, libraries: list[str] | None = None) -> dict:
     ]
     if chs and m.get("description"):
         steps[0]["instructions"] = m["description"][:2500]
+    steps[0]["instructions"] = LOCAL_NOTE + "\n\n" + steps[0].get("instructions", "")
     return {
         "lesson": {"id": f"preflight-{m.get('videoId') or 'url'}", "title": m.get("title") or "", "goal": goal,
                    "libraries": libraries or m.get("keywords", [])[:10]},
@@ -391,6 +451,7 @@ async def preflight(
     http: httpx.AsyncClient | None = None,
     claude_client=None,
     requirements_fn: Callable | None | bool = True,
+    lesson_cache: Callable | bool = True,
     use_memo: bool = True,
     cache_dir: Path | None = None,
 ) -> dict:
@@ -406,18 +467,18 @@ async def preflight(
     if use_memo:
         if (hit := _memo_get(key)) is not None:
             _listen(key, on_late)
-            return {**hit, "cached": True}
+            return await _recheck_lesson_cache({**hit, "cached": True}, url, goal, lesson_cache)
         if (running := _inflight.get(key)) is not None:
             try:
                 res = await asyncio.wait_for(asyncio.shield(running), timeout)
                 _listen(key, on_late)
-                return {**res, "cached": True}
+                return await _recheck_lesson_cache({**res, "cached": True}, url, goal, lesson_cache)
             except Exception as e:  # noqa: BLE001 - a prefetch that failed or is slow: run our own
                 log.info("preflight: prefetch for %s not usable (%s), running it now", key[0], type(e).__name__)
     if on_late is not None:
         _listeners.setdefault(key, []).append(on_late)
     task = asyncio.ensure_future(_run(key, url, goal, row=row, timeout=timeout, late_s=late_s, keys=keys or resolve_keys(api_keys),
-                                      http=http, claude_client=claude_client, requirements_fn=requirements_fn,
+                                      http=http, claude_client=claude_client, requirements_fn=requirements_fn, lesson_cache=lesson_cache,
                                       use_memo=use_memo, cache_dir=cache_dir))
     _inflight[key] = task
     try:
@@ -425,6 +486,27 @@ async def preflight(
     finally:
         if _inflight.get(key) is task:
             _inflight.pop(key, None)
+
+
+async def _recheck_lesson_cache(res: dict, url: str, goal: str, lesson_cache) -> dict:
+    """A memoised result may predate a build (prefetched, then built, then picked again): the lesson
+    cache is re-read (milliseconds) so "Built before: ready instantly" is never stale."""
+    if not lesson_cache or not res.get("buildPlan"):
+        return res
+    look = lesson_cache if callable(lesson_cache) else cached_lesson
+    try:
+        hit = await asyncio.wait_for(asyncio.to_thread(look, url, goal), 1.0)
+    except Exception:  # noqa: BLE001
+        return res
+    plan = dict(res["buildPlan"])
+    if hit:
+        res = {**res, "cachedLesson": {"file": hit["file"], "steps": hit["steps"], "workdir": hit["workdir"]}}
+        plan.update(cached=True, estSecondsToFirstSteps=0)
+    elif plan.pop("cached", None):  # the cached lesson is gone: back to the estimate
+        res = {k: v for k, v in res.items() if k != "cachedLesson"}
+        span = (plan.get("firstChapter") or {})
+        plan["estSecondsToFirstSteps"] = est_build_s((span["end"] - span["start"]) if span else res.get("durationS"))
+    return {**res, "buildPlan": plan}
 
 
 def prefetch(rows: list[dict], goal: str, *, top: int = 3, **kw) -> list[asyncio.Task]:
@@ -444,7 +526,7 @@ def clear_memo() -> None:
 
 
 async def _run(key, url: str, goal: str, *, row, timeout: float, late_s: float, keys: Keys, http, claude_client,
-               requirements_fn, use_memo: bool, cache_dir) -> dict:
+               requirements_fn, use_memo: bool, cache_dir, lesson_cache) -> dict:
     t0 = time.monotonic()
     deadline = t0 + timeout
 
@@ -458,6 +540,10 @@ async def _run(key, url: str, goal: str, *, row, timeout: float, late_s: float, 
     tasks: dict[str, asyncio.Task] = {}
     late: dict[str, asyncio.Task] = {}
     try:
+        cache_task = None
+        if lesson_cache:
+            look = lesson_cache if callable(lesson_cache) else cached_lesson
+            cache_task = asyncio.ensure_future(asyncio.to_thread(look, url, goal))
         # 1. metadata
         try:
             m, notes = await asyncio.wait_for(meta_mod.fetch(http, url, keys, timeout=min(3.0, max(0.5, left(1.5)))),
@@ -496,9 +582,21 @@ async def _run(key, url: str, goal: str, *, row, timeout: float, late_s: float, 
         elif m.get("title"):
             res["notes"].append("no ANTHROPIC_API_KEY")
         req = _default_requirements() if requirements_fn is True else (requirements_fn or None)
-        if req is not None and m.get("title"):
-            graph = light_graph(m, goal)
-            tasks["requirements"] = asyncio.create_task(timed("requirements", asyncio.to_thread(req, graph)))
+        cached = None
+        if cache_task is not None:
+            try:
+                cached = await asyncio.wait_for(asyncio.shield(cache_task), max(0.05, left(3.5)))
+            except Exception as e:  # noqa: BLE001 - slow disk / E2 changed: just no "built before"
+                res["notes"].append(f"lesson cache: {type(e).__name__}: {str(e)[:80]}")
+            res["timings"]["cache"] = round(time.monotonic() - t0, 2)
+        if cached:
+            res["cachedLesson"] = {"file": cached["file"], "steps": cached["steps"], "workdir": cached["workdir"]}
+        if req is not None and (m.get("title") or cached):
+            if cached:  # the real lesson (and its real folder): exactly what the setup card will check
+                job = functools.partial(_call_req, req, cached["graph"], cached["workdir"])
+            else:
+                job = functools.partial(_call_req, req, light_graph(m, goal), None)
+            tasks["requirements"] = asyncio.create_task(timed("requirements", asyncio.to_thread(job)))
         elif requirements_fn is True:
             res["notes"].append("server.workspace.requirements not available (S2's branch claude/workspace-setup not merged here)")
         if tasks:
@@ -516,6 +614,8 @@ async def _run(key, url: str, goal: str, *, row, timeout: float, late_s: float, 
         if not res.get("style") and prior.get("style"):  # Claude late / failed: the search's own read (real, from E7)
             res.update(style=prior["style"], styleFrom="finder")
         res["buildPlan"] = build_plan(m, res.pop("_firstHandsOn", None))
+        if res.get("cachedLesson"):  # E2 returns the cached graph at once (measured 0.00-0.02 s on stage)
+            res["buildPlan"].update(cached=True, estSecondsToFirstSteps=0)
         res["editorNeeded"] = _editor_needed(res)
     except Exception as e:
         log.exception("preflight failed")
@@ -612,7 +712,13 @@ def _copy_meta(res: dict, m: dict) -> None:
 
 
 def _editor_needed(res: dict) -> bool | None:
-    """S2's answer when we have it, else from the style (no editor for no-code / conceptual)."""
+    """Coding lessons always run locally in VS Code (E2 adapts them to a local folder, even when the video
+    uses Colab). Otherwise S2's answer when we have it, else from the style (no editor for no-code / conceptual)."""
+    if res.get("style") == "coding":
+        for it in res.get("requirements") or []:
+            if it.get("kind") == "editor" and not it.get("needed"):
+                it.update(needed=True, why="You write and run the code locally in VS Code.")
+        return True
     for it in res.get("requirements") or []:
         if it.get("kind") == "editor":
             return bool(it.get("needed"))
@@ -666,7 +772,10 @@ def preflight_card(res: dict) -> dict:
         lines.append(gm["note"])
     plan = res.get("buildPlan") or {}
     est = plan.get("estSecondsToFirstSteps")
-    if plan.get("strategy") == "chapters" and plan.get("firstChapter"):
+    if plan.get("cached"):
+        n = (res.get("cachedLesson") or {}).get("steps")
+        lines.append(f"Built before: ready instantly{f' ({n} steps)' if n else ''}.")
+    elif plan.get("strategy") == "chapters" and plan.get("firstChapter"):
         fc = plan["firstChapter"]
         span = f"{_ts(fc['start'])}–{_ts(fc.get('end'))}"
         skip = plan.get("skippedIntro")

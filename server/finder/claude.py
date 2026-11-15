@@ -68,7 +68,15 @@ def _picks_from_text(text: str) -> list[dict]:
     return [d for d in data if isinstance(d, dict) and isinstance(d.get("url"), str)]
 
 
-async def search(key: str, goal: str, *, timeout: float = 12.0, max_uses: int = 3) -> tuple[list[dict], dict]:
+VIDEO_SEARCH_SYSTEM = """You find the best YouTube tutorial videos for one learner.
+Use the web_search tool (1-2 focused searches for YouTube videos that teach exactly the learner's goal,
+ideally code-along with the code written on screen). Ignore blogs, repos, papers and course listings.
+Then answer with ONLY a JSON array in a ```json block, best first, at most 8 items:
+[{"url": "https://www.youtube.com/watch?v=...", "kind": "video", "why": "<= 12 words: why it fits, caveat if any"}]
+Every url MUST be copied exactly from your search results. Never write a URL from memory."""
+
+
+async def search(key: str, goal: str, *, timeout: float = 12.0, max_uses: int = 3, videos_only: bool = False) -> tuple[list[dict], dict]:
     """Claude searches the web for the goal. Returns (candidates, info).
 
     candidates: [{url, title, kind?, why?, page_age?}], only URLs from the tool's results:
@@ -76,8 +84,8 @@ async def search(key: str, goal: str, *, timeout: float = 12.0, max_uses: int = 
     resp = await client(key).messages.create(
         model=model(),
         max_tokens=3000,
-        system=SEARCH_SYSTEM,
-        tools=[{"type": search_tool(), "name": "web_search", "max_uses": max_uses}],
+        system=VIDEO_SEARCH_SYSTEM if videos_only else SEARCH_SYSTEM,
+        tools=[{"type": search_tool(), "name": "web_search", "max_uses": 2 if videos_only else max_uses}],
         output_config={"effort": "low"},
         messages=[{"role": "user", "content": f"Learner's goal: {goal}"}],
         timeout=timeout,

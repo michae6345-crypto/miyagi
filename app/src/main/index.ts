@@ -8,12 +8,13 @@
  * Features add their own main-process code in src/main/features/<name>.ts (see context.ts).
  * Owner: core.
  */
-import { app, BrowserWindow, globalShortcut, ipcMain, screen, session, type BrowserWindowConstructorOptions } from 'electron'
+import { app, BrowserWindow, globalShortcut, ipcMain, screen, session, shell, type BrowserWindowConstructorOptions } from 'electron'
 import { join } from 'node:path'
 import { EngineLink } from './engine'
 import type { MainContext, MainFeature } from './context'
 import {
   describePlatform,
+  followSpaces,
   launcherGlassOptions,
   overlayBounds,
   overlayWindowOptions,
@@ -46,6 +47,8 @@ const displayNow = (): Electron.Display => screen.getPrimaryDisplay()
 function createWindow(route: string, options: BrowserWindowConstructorOptions): BrowserWindow {
   const win = new BrowserWindow({
     show: false,
+    // A panel on macOS, like the core windows, so it can sit over full-screen apps.
+    ...(platform.os === 'mac' ? { type: 'panel' } : {}),
     ...options,
     webPreferences: {
       preload: join(__dirname, '../preload/index.js'),
@@ -58,6 +61,13 @@ function createWindow(route: string, options: BrowserWindowConstructorOptions): 
   })
   windows.add(win)
   win.on('closed', () => windows.delete(win))
+  // Every Miyagi window follows the learner across Spaces and over full-screen apps (Michael, Sat).
+  followSpaces(win)
+  // window.open / target=_blank from any window: never a new Electron window; http(s) goes to the default browser.
+  win.webContents.setWindowOpenHandler(({ url }) => {
+    if (/^https?:\/\//i.test(url)) void shell.openExternal(url)
+    return { action: 'deny' }
+  })
   if (!app.isPackaged) {
     // Pipe renderer warnings/errors into the terminal (overlay windows have no visible devtools).
     win.webContents.on('console-message', (...args: unknown[]) => {
@@ -205,6 +215,10 @@ app.whenReady().then(() => {
   ipcMain.on('ui:ready', (e) => {
     const win = BrowserWindow.fromWebContents(e.sender)
     if (!win) return
+    // A renderer that (re)loads starts closed/click-through. If main still thinks the launcher is open,
+    // its invisible full-screen window would keep the keyboard and every click: hide it.
+    if (win === launcher && launcherOpen) hideLauncher()
+    if (win === overlay) overlay.setIgnoreMouseEvents(true, { forward: true })
     e.sender.send('ui:layout', layoutFor(win))
     e.sender.send('engine:status', engine.connected)
     for (const ev of engine.log) e.sender.send('engine:event', ev)
@@ -221,6 +235,10 @@ app.whenReady().then(() => {
         break
       case 'island:size':
         islandSize = payload as typeof islandSize
+        break
+      case 'island:yield':
+      case 'island:return':
+        send(overlay, signal, payload)
         break
       case 'launcher:toggle':
         launcherOpen ? closeLauncher() : openLauncher()
@@ -265,7 +283,10 @@ app.whenReady().then(() => {
       if (!signalListeners.has(signal)) signalListeners.set(signal, new Set())
       signalListeners.get(signal)!.add(fn)
     },
-    reportBounds
+    reportBounds,
+    raise,
+    islandSize: () => islandSize,
+    yieldIsland: (on) => send(overlay, on ? 'island:yield' : 'island:return')
   })
 })
 

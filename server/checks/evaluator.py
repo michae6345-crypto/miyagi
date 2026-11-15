@@ -63,6 +63,14 @@ class RunContext:
     running: bool = False
     visual: dict[str, dict[str, Any]] = field(default_factory=dict)
     screen: Any = None
+    # True once the step's video segment has played (the learner has been told what to do).
+    # None = the orchestrator doesn't say: treated as done, so a hidden app never leaves a
+    # check pending forever. See _not_visible().
+    segment_done: bool | None = None
+
+    @property
+    def after_segment(self) -> bool:
+        return self.segment_done is not False
 
     @property
     def has_run(self) -> bool:
@@ -263,6 +271,17 @@ def _diverged(ctx: RunContext, name: str, check: dict, since_step: int | None = 
     return _result(check, "fail", f"{name} diverged: {v} at step {s}")
 
 
+def _waiting_for_metric(check: dict, ctx: RunContext, name: str) -> CheckResult:
+    """No points yet. A screen-read metric whose app isn't on screen can't arrive by waiting:
+    say which app to open, and (once the segment is over) fail so stuck/idle help can kick in."""
+    app = check.get("app")
+    if (check.get("metric_pattern") and app and ctx.screen is not None and not ctx.running
+            and screen_text(ctx.screen, app) is None):
+        return _result(check, "fail" if ctx.after_segment else "pending", f"open {app} so I can read {name}")
+    where = f" in {app}" if app and check.get("metric_pattern") else ""
+    return _result(check, "pending", f"waiting for '{name}'{where}")
+
+
 def _metric_threshold(check: dict, ctx: RunContext) -> CheckResult:
     name, op, target = _metric_name(check), check.get("op"), check.get("value")
     if not name or op not in _OPS or target is None:
@@ -275,7 +294,7 @@ def _metric_threshold(check: dict, ctx: RunContext) -> CheckResult:
     if not pts:
         if ctx.run_finished:
             return _result(check, "fail", f"run logged no '{name}' metric")
-        return _result(check, "pending", f"waiting for '{name}'")
+        return _waiting_for_metric(check, ctx, name)
     eligible = [p for p in pts if by_step is None or p[0] <= by_step]
     latest_step = pts[-1][0]
     if eligible:
@@ -401,7 +420,7 @@ def _metric_trend(check: dict, ctx: RunContext) -> CheckResult:
     if not pts:
         if ctx.run_finished:
             return _result(check, "fail", f"run logged no '{name}' metric")
-        return _result(check, "pending", f"waiting for '{name}'")
+        return _waiting_for_metric(check, ctx, name)
     latest = pts[-1][0]
     div = _diverged(ctx, name, check, since_step=latest - window)
     if div:
@@ -432,7 +451,7 @@ def _screen(check: dict, ctx: RunContext, absent: bool) -> CheckResult:
     where = f" in {app}" if app else " on screen"
     text = screen_text(ctx.screen, app)
     if text is None:
-        return _result(check, "pending", f"{app} not visible" if app and ctx.screen is not None else "waiting for screen")
+        return _not_visible(check, ctx, absent)
     try:
         m = search_screen(pattern, text)
     except re.error as exc:
@@ -444,6 +463,28 @@ def _screen(check: dict, ctx: RunContext, absent: bool) -> CheckResult:
     if m:
         return _result(check, "pass", f"seen{where}: {m.group(0)[:80]!r}")
     return _result(check, "fail", f"not seen{where}")
+
+
+def _not_visible(check: dict, ctx: RunContext, absent: bool) -> CheckResult:
+    """The check's app (or the whole screen) can't be seen. Never "pending forever":
+
+    * screen_absent: nothing bad is visible, so once the segment is over it passes (a hidden
+      Terminal can't be showing a Traceback). It fails only when the pattern is actually seen.
+    * screen_contains: waiting can't help, so it says which app to open, and once the segment is
+      over it fails with that hint (a fail is what lets the orchestrator's idle/stuck help fire).
+      With no screen reading at all it stays pending: that's not the learner's fault.
+    """
+    app = check.get("app")
+    no_screen = ctx.screen is None
+    if absent:
+        if ctx.after_segment:
+            why = "screen reading is off" if no_screen else (f"{app} is not on screen" if app else "nothing on screen")
+            return _result(check, "pass", f"{why}, so nothing to flag")
+        return _result(check, "pending", "waiting for screen" if no_screen else f"{app} not open yet")
+    if no_screen:
+        return _result(check, "pending", "screen reading is off: can't see " + (app or "the screen"))
+    hint = f"open {app} so I can check: {check.get('label') or check.get('id')}" if app else "nothing on screen yet"
+    return _result(check, "fail" if ctx.after_segment and app else "pending", hint)
 
 
 def _screen_contains(check: dict, ctx: RunContext) -> CheckResult:

@@ -117,6 +117,8 @@ def offline(monkeypatch, tmp_path):
     for k in ("GEMINI_API_KEY", "GOOGLE_API_KEY", "BRIGHTDATA_API_KEY", "GITHUB_TOKEN", "ANTHROPIC_API_KEY"):
         monkeypatch.setenv(k, "")
     monkeypatch.setattr(cache, "CACHE_DIR", tmp_path)
+    monkeypatch.setenv("FINDER_KINDS", "all")  # most tests exercise every source; videos-only has its own tests
+    monkeypatch.delenv("FINDER_MIN_SCORE", raising=False)
     calls: list[str] = []
     monkeypatch.setattr(search_mod, "HTTP_TRANSPORT", _transport(calls))
     return calls
@@ -412,9 +414,9 @@ def test_no_code_video_never_leads_a_coding_goal(offline, monkeypatch):
     monkeypatch.setattr(claude, "read", nothing)
     monkeypatch.setattr(sources, "claude_search", no_source)
     rows = asyncio.run(search("build an LLM from scratch", use_cache=False))
-    trap_row = next(r for r in rows if r["id"] == f"yt-{trap}")
-    assert trap_row["score"] <= 35 and trap_row["style"] == "no-code"
-    assert rows[0]["kind"] == "video" and rows[0]["style"] == "coding" and rows[0]["id"] != trap_row["id"]
+    # capped at 35 for a coding goal, then below the relevance floor (40): never sent
+    assert f"yt-{trap}" not in {r["id"] for r in rows}
+    assert rows[0]["kind"] == "video" and rows[0]["style"] == "coding"
     assert all("durationLabel" in r for r in rows if r["kind"] == "video")
 
 
@@ -464,3 +466,69 @@ def test_skim_switches(monkeypatch, skims, top, expected):
         else:
             monkeypatch.setenv(k, v)
     assert env.skim_top() == expected
+
+
+
+# --------------------------------------------------------------------------- videos only + relevance floor
+
+def test_default_is_videos_only_and_skips_other_sources(offline, monkeypatch):
+    """Michael: the result list is YouTube videos; repos/papers/blogs/notebooks aren't searched at all."""
+    monkeypatch.delenv("FINDER_KINDS", raising=False)
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "test-anthropic")
+    seen_videos_only = []
+
+    async def claude_search(ctx, q, **kw):
+        seen_videos_only.append(kw.get("videos_only"))
+        return [{"url": "https://github.com/a/b", "title": "a/b", "kind": "repo", "via": "claude", "indexed": True},
+                {"url": "https://www.youtube.com/watch?v=unBU1PwCnvQ", "title": "S5", "kind": "video", "via": "claude", "indexed": True}]
+
+    async def claude_score(key, goal, cands, **kw):
+        return {c["id"]: {"score": 80, "reason": "Codes it on screen", "style": "coding", "goal_is_coding": True} for c in cands}
+
+    monkeypatch.setattr(sources, "claude_search", claude_search)
+    monkeypatch.setattr(claude, "score", claude_score)
+    rows = asyncio.run(search("train a PINN on the convection equation", use_cache=False))
+    assert rows and {r["kind"] for r in rows} == {"video"}
+    assert seen_videos_only == [True]
+    hosts = {httpx.URL(u).host for u in offline}
+    assert not hosts & {"api.github.com", "export.arxiv.org", "html.duckduckgo.com"}  # never called
+
+
+def test_rows_below_the_relevance_floor_are_never_sent(offline, monkeypatch):
+    monkeypatch.delenv("FINDER_KINDS", raising=False)
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "test-anthropic")
+    vids = youtube.parse_search(YT)
+    off_topic = {f"yt-{v['videoId']}" for v in vids[:3]}  # e.g. a TI-84 teardown for "build a calculator in python"
+
+    async def claude_score(key, goal, cands, **kw):
+        return {c["id"]: ({"score": 3, "reason": "Hardware teardown, not Python code", "style": "conceptual", "goal_is_coding": True}
+                          if c["id"] in off_topic else
+                          {"score": 75, "reason": "Codes it on screen", "style": "coding", "goal_is_coding": True}) for c in cands}
+
+    async def no_source(ctx, q, **kw):
+        return []
+
+    monkeypatch.setattr(claude, "score", claude_score)
+    monkeypatch.setattr(sources, "claude_search", no_source)
+    streamed: list[dict] = []
+
+    async def on_result(r):
+        streamed.append(r)
+
+    rows = asyncio.run(search("build a calculator in python", on_result, use_cache=False))
+    ids = {r["id"] for r in rows}
+    assert not ids & off_topic and all(r["score"] >= 40 for r in rows)
+    # search.done total == rows streamed == rows returned (the orchestrator counts what it streamed)
+    assert [r["id"] for r in streamed] and {r["id"] for r in streamed} == ids and len(streamed) == len(rows)
+    cached = json.loads(cache.path_for("build a calculator in python").read_text())
+    assert {d["id"] for d in cached["below_floor"]} == off_topic and cached["kinds"] == ["video"]
+
+
+@pytest.mark.parametrize("raw,expected", [(None, {"video"}), ("all", set(env.ALL_KINDS)), ("video,repo", {"video", "repo"}), ("bogus", {"video"})])
+def test_kinds_switch(monkeypatch, raw, expected):
+    monkeypatch.setattr(env, "_loaded", True)
+    if raw is None:
+        monkeypatch.delenv("FINDER_KINDS", raising=False)
+    else:
+        monkeypatch.setenv("FINDER_KINDS", raw)
+    assert env.kinds() == expected

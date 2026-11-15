@@ -14,7 +14,7 @@ from pathlib import Path
 
 import os
 
-from . import claude, gemini, links, transcript
+from . import budget, claude, gemini, links, transcript
 from .schema import (
     CHECK_TYPES,
     PRECISION_TYPES,
@@ -165,6 +165,7 @@ class _QuickStart:
 
 
 _INTRO = re.compile(r"\b(intro(duction)?|welcome|overview|about|agenda|preview|demo|what we.?ll build)\b", re.I)
+_SETUP_CHAPTER = re.compile(r"\b(install(ing|ation)?|download(ing)?|set\s*-?\s*up|setup|prerequisites?|requirements|getting\s+started|environment)\b", re.I)
 
 
 def provisional_graph(meta: dict, vid: str, url: str, goal: str, workdir: str) -> dict:
@@ -176,7 +177,9 @@ def provisional_graph(meta: dict, vid: str, url: str, goal: str, workdir: str) -
         start = float(meta["first_hands_on"])
         title = next((c["title"] for c in reversed(chapters) if c["t"] <= start), "")
     elif chapters:
-        c = chapters[1] if len(chapters) > 1 and _INTRO.search(chapters[0]["title"]) else chapters[0]
+        # the placeholder is a watch-along step: start at the first hands-on chapter, not an intro or install chapter
+        hands_on = [c for c in chapters if not (_INTRO.search(c["title"]) or _SETUP_CHAPTER.search(c["title"]))]
+        c = hands_on[0] if hands_on else (chapters[1] if len(chapters) > 1 else chapters[0])
         start, title = float(c["t"]), c["title"]
     nxt = [c["t"] for c in chapters if c["t"] > start]
     end = min(nxt[0] if nxt else start + 300, length or start + 300, start + 600)
@@ -187,8 +190,7 @@ def provisional_graph(meta: dict, vid: str, url: str, goal: str, workdir: str) -
         "instructions": (f"Watch {gemini._mmss(start)}-{gemini._mmss(end)}"
                          + (f" ({title})" if title else "") + " and type along in your editor; detailed steps are on the way."),
         "video": {"sourceId": "src1", "start": start, "end": end},
-        "checks": [{"id": "s1c1", "type": "screen_absent", "label": "no errors so far", "app": "Terminal",
-                    "pattern": r"Traceback|Error:|ERR!|fatal:|error\[E\d+\]"}],
+        "checks": [],  # a watch-along placeholder must never gate (an app-scoped check can wait forever); the real lesson replaces it
         "targets": [], "explanations": [], "hints": [], "common_mistakes": [],
     }
     g = {"lesson": {"id": f"lesson-{cache_key(url, goal, workdir)[:8]}", "title": meta.get("title") or goal or "Tutorial",
@@ -269,7 +271,7 @@ async def _build_lesson_impl(
             meta = {**await asyncio.wait_for(transcript.fetch_metadata(vid), 10), **{k: v for k, v in meta.items() if v}}
         except Exception:  # noqa: BLE001  without metadata we can't plan parts; build in one go
             pass
-    if (meta.get("length_s") or 0) > progressive.LONG_VIDEO_S and "gemini" in engines() and not gemini.is_down():
+    if (meta.get("length_s") or 0) > progressive.LONG_VIDEO_S and "gemini" in engines() and not gemini.is_down() and budget.remaining() > 0:
         try:
             graph = await progressive.build(source_url, vid, goal, workdir, info, meta, key, on_update=on_update, cache=cache, t0=t0)
         except RuntimeError as e:
@@ -287,7 +289,7 @@ async def _build_lesson_impl(
         if goal_task:
             goal_task.cancel()
         # a mid-length video Gemini couldn't finish in one go: build it in parts (shorter clips are what it handles)
-        if (meta.get("length_s") or 0) > PARTS_FALLBACK_MIN_S and "gemini" in engines() and not gemini.is_down():
+        if (meta.get("length_s") or 0) > PARTS_FALLBACK_MIN_S and "gemini" in engines() and not gemini.is_down() and budget.remaining() > 0:
             log.warning("one-pass build failed (%s); building in parts", str(e)[:150])
             _emit("planning", "retrying in parts")
             try:
@@ -574,6 +576,8 @@ def human_error(err: str, meta: dict | None = None) -> str:
     """A sentence a learner can act on, followed by the technical detail (the app shows the first line)."""
     e = err.lower()
     why = []
+    if "gemini budget" in e:
+        why.append("today's Gemini budget is used up")
     billing = "402" in e or "payment required" in e or "prepayment" in e or "credits are depleted" in e or "billing" in e
     if billing:
         why.append("Gemini credits are used up (top up at ai.studio/projects)")
@@ -601,6 +605,10 @@ def human_error(err: str, meta: dict | None = None) -> str:
 
 def _short_reason(err: str) -> str:
     e = err.lower()
+    if "gemini budget" in e:
+        return "budget"
+    if "402" in e or "payment required" in e or "credits" in e or "billing" in e:
+        return "billing"
     if "429" in e or "quota" in e or "resource_exhausted" in e:
         return "quota"
     if "no answer within" in e or "timeout" in e:
@@ -879,8 +887,33 @@ def assemble(draft: dict, goal: str, adapted: dict) -> dict:
 BROWSER_APPS = {"google chrome", "chrome", "safari", "arc", "firefox", "microsoft edge", "edge", "brave browser", "brave", "browser"}
 
 
+_SETUP_VERB = re.compile(r"\b(install(ing)?|download(ing)?|set\s*-?\s*up|setup|get|update|upgrade)\b", re.I)
+_TOOLS = {  # tool id -> how it's named
+    "python": r"\bpython\s*3?\b|\bpip\b", "vscode": r"\bvs\s*code\b|visual\s+studio\s+code", "node": r"\bnode(\.?js)?\b|\bnpm\b",
+    "git": r"\bgit\b(?!hub)", "rust": r"\brust(up)?\b|\bcargo\b", "docker": r"\bdocker\b", "java": r"\bjava\b|\bjdk\b",
+    "go": r"\bgolang\b|\bgo\s+(toolchain|compiler)\b",
+}
+_WRITES_CODE = re.compile(r"\b(def|class|function|const|let|fn|import|from|return)\b|=>|\{", re.I)
+_INSTALL_GOAL = re.compile(r"\b(install|set\s*up|setup|configure)\b", re.I)
+
+
+def tag_setup_steps(graph: dict) -> None:
+    """Mark pure install/setup steps (install Python, install VS Code) with setup: true and requires: [tool ids],
+    so the engine can auto-pass them when the tools are already there. Not when the goal is about installing."""
+    lesson = graph.get("lesson") or {}
+    if _INSTALL_GOAL.search(lesson.get("goal") or ""):
+        return
+    for step in graph.get("steps") or []:
+        text = f"{step.get('title', '')} {step.get('instructions', '')}"
+        tools = sorted(t for t, rx in _TOOLS.items() if re.search(rx, text, re.I))
+        code = step.get("code") or ""
+        if tools and _SETUP_VERB.search(step.get("title", "")) and not _WRITES_CODE.search(code):
+            step["setup"], step["requires"] = True, tools
+
+
 def normalize_checks(graph: dict, known_metrics: set[str]) -> dict:
     """Deterministic fixes applied before lint (no model call)."""
+    tag_setup_steps(graph)
     libs = (graph.get("lesson") or {}).get("libraries") or {}
     for step in graph["steps"]:
         # "it runs" checks: a Python Traceback never shows up in a Vite/cargo/git terminal
