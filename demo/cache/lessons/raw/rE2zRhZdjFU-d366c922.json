@@ -23,9 +23,9 @@
       "end": 93.0,
       "title": "Configure Git user and alias",
       "instructions": "Set your global Git username and email, verify the settings, and create an alias for git init.",
-      "code": "git config --global user.name \"itsladykerrtoo\" && git config --global user.email \"itsladykerrtoo@email.com\" && git config --list && git config --global alias.i init",
+      "code": "git config --global user.name \"Your Name\" && git config --global user.email \"you@example.com\" && git config --list && git config --global alias.i init",
       "run_command": "git config --list",
-      "expected_output": "user.name=itsladykerrtoo user.email=itsladykerrtoo@email.com alias.i=init",
+      "expected_output": "user.name=Your Name user.email=you@example.com alias.i=init",
       "checks": [
         {
           "type": "screen_contains",
@@ -75,7 +75,7 @@
       "instructions": "Create a directory named project1, navigate into it, and initialize it as a Git repository.",
       "code": "mkdir project1 && cd project1 && git i",
       "run_command": "git i",
-      "expected_output": "Initialized empty Git repository in /Users/ladykerrtoo/Documents/project1/.git/",
+      "expected_output": "Initialized empty Git repository in /Users/you/Documents/project1/.git/",
       "checks": [
         {
           "type": "screen_contains",

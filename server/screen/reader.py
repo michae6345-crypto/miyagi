@@ -335,6 +335,8 @@ class ScreenReader:
         4-point grid, unchanged while it moves < 12 points, kept through one missed frame.
         max_age: an older latest frame is re-captured + OCR'd first (blocking); the engine's event loop passes a
         large one (its callers read blocks from that same latest frame, and a capture there froze every tick)."""
+        if name == "ui:quickpick":  # t9: VS Code's open quick-pick (ax.find_quickpick), fresh each look (screen.avoid)
+            return self._ax_quickpick()
         if name.startswith("ui:"):  # one of VS Code's own controls, by Accessibility only (ax.find_ui)
             return self._ax_ui(name[3:])
         title = R.menu_title(name)            # "terminal_menu" / "menu:Run" keep their case
@@ -445,6 +447,20 @@ class ScreenReader:
             log.debug("AX %s lookup failed: %s", key, e)
         self._ui_els[key] = (time.time(), rect, self._ax_keep(f"ui:{key}", rect, 4.0))
         return rect
+
+    def _ax_quickpick(self) -> Rect | None:
+        """t9: VS Code's open quick-pick (ax.find_quickpick: the focused element and its parents, a dozen AX reads), not
+        cached (it opens and closes in a moment). None without Accessibility, in a fixture, or when it is closed."""
+        if sys.platform != "darwin" or not self.use_ax or self.fixture:
+            return None
+        try:
+            from . import ax
+            if ax.trusted():
+                el = ax.find_quickpick(self._lesson_folder)
+                return el.rect if el is not None else None
+        except Exception as e:  # noqa: BLE001
+            log.debug("AX quickpick lookup failed: %s", e)
+        return None
 
     # ------------------------------------------------------------------ frontmost app / VS Code window
 

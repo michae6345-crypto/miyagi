@@ -290,6 +290,20 @@ class ScreenSeen(_Model):
     t: float
 
 
+class AvoidRect(_Model):
+    """Screen POINTS, TOP-LEFT origin (the spotlight.rect space): a VS Code control Miyagi's UI must not cover."""
+
+    kind: Literal["quickpick"]
+    x: float
+    y: float
+    w: float
+    h: float
+
+
+class ScreenAvoid(_Model):
+    rects: list[AvoidRect]  # [] = nothing to avoid any more (the picker closed): the app clears it
+
+
 class VideoSeek(_Model):
     t: float
     play: bool
@@ -332,7 +346,7 @@ class SetupResource(_Model):
 class Setup(_Model):
     editorNeeded: bool
     items: list[SetupItem]
-    editorLabel: str | None = None  # "Cursor"
+    editorLabel: str | None = None  # "Visual Studio Code"
     resources: list[SetupResource] | None = None  # files the video links (action download)
     actionLabels: dict[str, str] | None = None
 
@@ -435,7 +449,7 @@ class SkillMap(_Model):
     next: list[SkillNext]
 
 
-CardAction = Literal["confirm", "undo", "apply_fix", "open_editor", "resume", "end_lesson", "install", "skip_setup",
+CardAction = Literal["confirm", "undo", "apply_fix", "open_editor", "resume", "end_lesson", "install", "install_all", "skip_setup",
                      "open_in_browser", "build", "pick_another", "download", "skip_step", "check_step", "use_this_folder", "run_command",
                      "retry", "hint", "show_me"]  # retry: "Couldn't reach Claude" card -> action retry; hint / show_me: the off-track card's actions, on a judge "Not yet" card
 
@@ -588,6 +602,7 @@ ENGINE_EVENTS: dict[str, Any] = {
     "offtrack": Offtrack,
     "spotlight": TypeAdapter(Spotlight),
     "screen.seen": ScreenSeen,
+    "screen.avoid": ScreenAvoid,
     "video.seek": VideoSeek,
     "video.pause": Empty,
     "video.play": Empty,
@@ -606,6 +621,7 @@ EngineEventType = Literal[
     "search.result", "search.done", "lesson.building", "lesson.ready", "step.started",
     "check.updated", "step.passed", "offtrack", "spotlight", "video.seek", "video.pause",
     "video.play", "card", "diagram", "speak", "metric", "status", "error", "screen.seen", "config.status", "lesson.ended", "setup.progress", "lesson.updated",
+    "screen.avoid",
 ]
 
 
@@ -624,7 +640,7 @@ class BuildLesson(_Model):
 
 
 ActionKind = Literal["back", "explain", "diagram", "show_me", "hint", "voice_toggle", "ask", "apply_fix",
-                     "confirm", "undo", "open_editor", "resume", "end_lesson", "install", "skip_setup", "open_in_browser",
+                     "confirm", "undo", "open_editor", "resume", "end_lesson", "install", "install_all", "skip_setup", "open_in_browser",
                      "build", "pick_another", "download", "skip_step", "check_step", "use_this_folder", "run_command",
                      "retry", "start"]  # start: "Start the lesson" on "Before you start" (step 1 waits for it)
 
