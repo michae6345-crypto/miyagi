@@ -47,7 +47,7 @@ export function Overlay({ layout }: { layout: Layout }): ReactNode {
 
 /**
  * Tell the engine where our own UI is (`overlay.bounds`, screen points) so its screen reader
- * ignores it. Sampled every 300ms; sent only when it changes. Elements opt in with
+ * ignores it. Sampled every 100ms; sent only when it changes. Elements opt in with
  * data-hit (interactive: also stops click-through) or data-ui (display only).
  */
 function useReportBounds(root: React.RefObject<HTMLDivElement | null>, layout: Layout): void {
@@ -73,7 +73,9 @@ function useReportBounds(root: React.RefObject<HTMLDivElement | null>, layout: L
       last = key
       bridge.send(cmd('overlay.bounds', { rects }))
     }
-    const id = setInterval(tick, 300)
+    // 100 ms, not 300: main's click-catching poll (main/features/overlay-raise.ts) reads these rects, and a card that had
+    // just opened or moved wasn't in them yet, so a quick move-and-click on its Hint went through to VS Code (test 8).
+    const id = setInterval(tick, 100)
     return () => clearInterval(id)
   }, [root, layout])
 }

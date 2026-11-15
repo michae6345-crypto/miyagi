@@ -55,12 +55,18 @@ function FloatNet({ layout }: { layout: Layout }): ReactNode {
   const lessonMode = useLesson((s) => s.lesson?.mode === 'lesson')
   const drawerOpen = useDrawer((s) => s.open)
   const barTop = useBarTop(layout)
-  const run = !!useRunTuck()
-  // A run step floats the docked network out to RUN_CORNER (runTuck.ts) until the step ends or the learner moves it.
+  const runStep = useRunTuck()
+  const run = !!runStep
+  // A run step puts the network at RUN_CORNER (runTuck.ts) until the step ends or the learner moves it during the
+  // step. That holds when it was already floating too (Michael's test 8: floating bottom-right from step 1, it sat
+  // over the terminal for the whole training run).
   const saved = useNetFloat((s) => s.spot)
-  const spot: Spot = saved.floating || !run ? saved : { floating: true, corner: RUN_CORNER }
+  const [movedIn, setMovedIn] = useState<string | undefined>(undefined)
   /** Placed by the run step, not by the learner: dropped below the tab row and fitted above the terminal. */
-  const auto = run && !saved.floating
+  const auto = run && movedIn !== runStep
+  const spot: Spot = auto ? { floating: true, corner: RUN_CORNER } : saved
+  const autoRef = useRef(auto)
+  autoRef.current = auto
   const root = useRef<HTMLDivElement>(null)
   const card = useRef<HTMLDivElement>(null)
   const x = useMotionValue(0)
@@ -118,7 +124,8 @@ function FloatNet({ layout }: { layout: Layout }): ReactNode {
   const go = useCallback(
     (t: Target, v: Pt = { x: 0, y: 0 }): void => {
       stopAnim()
-      const done = (): void => (t.kind === 'dock' ? dock() : settle(t.corner))
+      // A run step's own placement isn't the learner's choice: don't remember it as their corner.
+      const done = (): void => (t.kind === 'dock' ? dock() : autoRef.current ? undefined : settle(t.corner))
       if (reduced) {
         x.set(t.at.x)
         y.set(t.at.y)
@@ -142,6 +149,10 @@ function FloatNet({ layout }: { layout: Layout }): ReactNode {
     (start: PointerEvent, offset: Pt): void => {
       stopAnim()
       setDragging(true)
+      if (runStep) {
+        setMovedIn(runStep)
+        autoRef.current = false
+      }
       const samples: { t: number; p: Pt }[] = []
       const place = (e: PointerEvent): Pt => {
         const p = toLocal({ x: e.clientX, y: e.clientY })
@@ -192,7 +203,7 @@ function FloatNet({ layout }: { layout: Layout }): ReactNode {
       window.addEventListener('pointerup', up)
       window.addEventListener('pointercancel', up)
     },
-    [bounds, go, layout, lessonMode, reduced, targets, toLocal, x, y]
+    [bounds, go, layout, lessonMode, reduced, targets, toLocal, x, y, runStep]
   )
 
   // Size: follow the card's real height (folding, captions, a new diagram).

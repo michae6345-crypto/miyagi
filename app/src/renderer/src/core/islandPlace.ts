@@ -49,6 +49,12 @@ const SETTLE_MS = 300
 /** Holes within this many px of the ones a card was placed for are the same box (OCR jitter, a re-sent off-track). */
 const SAME_BOX_PX = 12
 
+/**
+ * Cards that keep the spot they opened at even when a new box arrives: the "Your lesson" sheet (Michael's test 8: it
+ * opened top-centre, then jumped to the lower-left over the editor and terminal the moment VS Code finished opening).
+ */
+const HOLDS = new Set(['before-start'])
+
 const clamp = (v: number, lo: number, hi: number): number => Math.min(hi, Math.max(lo, v))
 const grow = (r: Rect, by: number): Rect => ({ x: r.x - by, y: r.y - by, w: r.w + by * 2, h: r.h + by * 2 })
 function covered(a: Rect, list: Rect[]): number {
@@ -201,7 +207,7 @@ export function useIslandOffset(card: { id: string; w: number; h: number } | und
   else if (!prev) next = still ? { id: card.id, boxes: keepOff, at: AT_NOTCH, until: 0 } : fresh() // grows out of the pill (opened under the pointer: stays put)
   else if (prev.id !== card.id) next = still ? { id: card.id, boxes: keepOff, at: prev.at, until: 0 } : fresh()
   else if (now < prev.until) next = { ...prev, boxes: keepOff, at: decide() } // still springing out: follow its real size
-  else if (keepOff.length && !sameBoxes(keepOff, prev.boxes) && !still) next = fresh() // a new box
+  else if (keepOff.length && !sameBoxes(keepOff, prev.boxes) && !still && !HOLDS.has(card.id)) next = fresh() // a new box
   else next = prev
   useLayoutEffect(() => {
     spot.current = next
