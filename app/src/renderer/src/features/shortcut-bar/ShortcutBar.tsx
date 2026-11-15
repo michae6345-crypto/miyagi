@@ -10,7 +10,7 @@
  * Voice speaking: the equalizer (Equalizer.tsx). Diagram open: its tile stays lit.
  */
 import { AnimatePresence, motion } from 'motion/react'
-import type { ReactNode } from 'react'
+import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { AudioLines, Check, Lightbulb, MessageSquareText, RotateCcw, SkipForward, Square, SquarePlay, Waypoints, type LucideIcon } from 'lucide-react'
 import { cmd } from '../../../../common/wire'
 import { bridge } from '../../bridge'
@@ -40,12 +40,44 @@ const BUTTONS: Btn[] = [
  * Step controls, always reachable in every lesson (video or "Just teach me"): Check = "Can I move on?" (engine re-runs
  * the checks + Claude reads the screen), Skip = leave this step unfinished, End = stop the lesson. Michael, Sat.
  */
-type StepBtn = { id: 'check' | 'skip' | 'end'; label: string; icon: LucideIcon; kind?: ActionKind; run: () => void; title: string }
+type StepBtn = { id: 'check' | 'skip' | 'end'; label: string; icon: LucideIcon; kind?: ActionKind; title: string }
 const STEP_BUTTONS: StepBtn[] = [
-  { id: 'check', label: 'Check', icon: Check, kind: 'check_step', run: () => sendAction('check_step'), title: 'Check my work: can I move on?' },
-  { id: 'skip', label: 'Skip step', icon: SkipForward, kind: 'skip_step', run: () => sendAction('skip_step'), title: 'Skip this step' },
-  { id: 'end', label: 'End lesson', icon: Square, run: () => bridge.send(cmd('end_lesson', {})), title: 'End this lesson' }
+  { id: 'check', label: 'Check', icon: Check, kind: 'check_step', title: 'Check my work: can I move on?' },
+  { id: 'skip', label: 'Skip step', icon: SkipForward, kind: 'skip_step', title: 'Skip this step' },
+  { id: 'end', label: 'End lesson', icon: Square, title: 'End this lesson' }
 ]
+
+/** Skip: repeat presses inside this window are ignored (Michael's desktop test: one tap could skip twice). */
+const SKIP_LOCK_MS = 1000
+/** End: the first tap arms it ("Tap to end"); a second tap inside this window ends the lesson. No one-tap loss. */
+const END_ARM_MS = 3000
+
+/** Step-control state: the Skip lock and the End confirm, each cleared by its own timer. */
+function useStepControls(): { skipping: boolean; armed: boolean; run: (id: StepBtn['id']) => void } {
+  const [skipping, setSkipping] = useState(false)
+  const [armed, setArmed] = useState(false)
+  const timers = useRef<{ skip?: ReturnType<typeof setTimeout>; end?: ReturnType<typeof setTimeout> }>({})
+  useEffect(() => () => (clearTimeout(timers.current.skip), clearTimeout(timers.current.end)), [])
+  const run = (id: StepBtn['id']): void => {
+    if (id === 'check') return sendAction('check_step')
+    if (id === 'skip') {
+      if (skipping) return
+      setSkipping(true)
+      sendAction('skip_step')
+      timers.current.skip = setTimeout(() => setSkipping(false), SKIP_LOCK_MS)
+      return
+    }
+    clearTimeout(timers.current.end)
+    if (!armed) {
+      setArmed(true)
+      timers.current.end = setTimeout(() => setArmed(false), END_ARM_MS)
+      return
+    }
+    setArmed(false)
+    bridge.send(cmd('end_lesson', {}))
+  }
+  return { skipping, armed, run }
+}
 
 export const BAR_HEIGHT = 74
 
@@ -60,6 +92,7 @@ export function ShortcutBar({ bottom }: { bottom: number }): ReactNode {
   // Any shortcut (click, global key, stage key, launcher chip): the matching tile dips for 90 ms (press.ts).
   const pressed = usePress((p) => p.kind)
   const stepTiles = hasStep ? STEP_BUTTONS : []
+  const step = useStepControls()
 
   return (
     <AnimatePresence>
@@ -107,9 +140,13 @@ export function ShortcutBar({ bottom }: { bottom: number }): ReactNode {
               )
             })}
             {stepTiles.length > 0 && <div className="mx-[6px] h-[34px] w-px" style={{ background: glass.rule }} />}
-            {stepTiles.map(({ id, label, icon, kind, run, title }) => (
-              <Tile key={id} label={label} icon={icon} look={id === 'check' ? look.primary : look.quiet} quiet={id !== 'check'} busyKind={kind} title={title} onClick={run} />
-            ))}
+            {stepTiles.map(({ id, label, icon, kind, title }) => {
+              const shown = id === 'skip' && step.skipping ? 'Skipping…' : id === 'end' && step.armed ? 'Tap to end' : label
+              const tip = id === 'end' && step.armed ? 'Tap again to end the lesson' : title
+              return (
+                <Tile key={id} label={shown} icon={icon} look={id === 'check' || (id === 'end' && step.armed) ? look.primary : look.quiet} quiet={id !== 'check' && !(id === 'end' && step.armed)} busyKind={kind} title={tip} onClick={() => step.run(id)} />
+              )
+            })}
           </div>
         </motion.div>
       )}
