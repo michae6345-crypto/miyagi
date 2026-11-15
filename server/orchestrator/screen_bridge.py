@@ -170,10 +170,15 @@ class ScreenBridge:
             log.exception("vision pick failed")
             return None
 
-    async def confirm(self, rect: dict, intent: str, app: str | None = "Code") -> dict | None:
+    # E6: Haiku answered but couldn't vouch for the box (unsure, "nothing" said without conviction, a garbled answer, no
+    # candidates for the app): the box only stands inside the lesson's editor pane (the engine's own line match there).
+    UNSURE = frozenset({"kept:low_confidence", "kept:none", "kept:error", "kept:no_candidates"})
+
+    async def confirm(self, rect: dict, intent: str, app: str | None = "Code", pane: dict | None = None) -> dict | None:
         """Haiku verifier for a box the engine located itself (server.screen.target.verdict): -> the rect to show (the
-        same box, or what Haiku picked instead) or None when Haiku is sure nothing on screen matches. Haiku off /
-        unavailable / unsure: the box unchanged."""
+        same box, or what Haiku picked instead) or None when Haiku is sure nothing on screen matches, or (E6) is unsure
+        and the box isn't inside the lesson's editor pane (`pane`, else E6's "editor" region of the latest frame).
+        Haiku off / unavailable (no key, timeout, budget): the box unchanged."""
         if self.reader is None or self.down_reason() or not env_flag("MIYAGI_VISION_TARGET", True):
             return rect
         async def ask() -> tuple[dict | None, str]:
@@ -191,6 +196,13 @@ class ScreenBridge:
         # the same box + intent from several callers within a second (frame follow, step start, Check) or again a
         # few seconds later: one Haiku call, not three (live: 3 calls in 1 s, then the 6/min budget skipped real ones)
         out, why = await self._confirms.get(intent, app, rect, ask)
+        if why in self.UNSURE:
+            pane = pane if pane is not None else self.region("editor", app)
+            cx, cy = float(rect["x"]) + float(rect["w"]) / 2, float(rect["y"]) + float(rect["h"]) / 2
+            if pane is None or not (pane["x"] - 4 <= cx <= pane["x"] + pane["w"] + 4
+                                    and pane["y"] - 4 <= cy <= pane["y"] + pane["h"] + 4):
+                log.info("targeter %s and the box isn't in the lesson's editor pane: no box for %r", why, intent[:80])
+                return None
         if why == "agree" or why.startswith("kept"):
             return rect  # this caller's own box (a shared verdict may come from a box a few points off)
         return dict(out) if isinstance(out, dict) else out

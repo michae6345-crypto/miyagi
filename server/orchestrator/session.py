@@ -1431,9 +1431,10 @@ class LessonSession:
                 term = region("terminal_prompt") or term  # E8: the live prompt line; the panel only without one
                 return {"rect": term, "caption": self.RUN_CAPTION, "app": "Code", **snip, "kind": "terminal"}
         hit = None
+        app = "Code" if self.lesson_mode else None  # E6/E17: VS Code's own terminal, never a prompt in another app
         if self.screen is not None:  # a shell prompt first: that's where the command goes, not the TERMINAL tab
             for rx in (r"\w+@[\w.-]+.*[%$#]\s*$", r"^\s*(\(\w+\)\s*)?\S*\s*[%$❯]\s*$", r"^\s*TERMINAL\b"):
-                hit = self.screen.locate(rx, None)
+                hit = self.screen.locate(rx, app)
                 if hit and (win is None or hit["rect"]["y"] > win["y"] + win["h"] * 0.3):  # the panel is low
                     break
                 hit = None
@@ -1468,35 +1469,63 @@ class LessonSession:
         """Lesson mode, step start: box where to act and caption it. Run step -> VS Code's terminal panel (or
         "Open the terminal: ⌃`" over the editor until it's open); type step -> the target line in the file.
         ONE spotlight once found; the editor may still be opening, so it retries for a few seconds.
-        t4: a type step's deterministic start box goes up at once (_start_box; Haiku only refines it afterwards), and
-        none of these boxes ever replaces the off-track card's box while that card is up (_offtrack_box)."""
+        One placement per step at a time (E8: step start, the scene look, an app switch and the no-box retry all call
+        this); nothing while the lesson is paused (E7). t4: a type step's deterministic start box goes up at once
+        (_start_box; Haiku only refines it), and no box replaces the off-track card's box while that card is up."""
+        if getattr(self, "_lesson_spot_gen", None) == gen or self._spot_frozen():
+            return
+        self._lesson_spot_gen = gen
+        try:
+            await self._lesson_spot_once(gen, step, tries)
+        finally:
+            if self._lesson_spot_gen == gen:
+                self._lesson_spot_gen = None
+
+    async def _lesson_spot_once(self, gen: int, step: dict, tries: int) -> None:
+        def gone() -> bool:
+            return gen != self.step_gen or self.passed or self._spot_frozen() or self._offtrack_box() == "up"
+
         cmd = self._run_command(step)
         if cmd:
             for _ in range(30):  # ~60 s: upgrade "open the terminal" to the terminal box once it's open
-                if gen != self.step_gen or self.passed or self._offtrack_box() == "up":
+                if gone() or self._step_ran():  # E17: after a run the box has done its job (_run_box_done)
                     return
                 spot = self._terminal_spot(step, cmd)
                 kind = spot.pop("kind", None)
-                if spot:
-                    await self._show_spot(spot, steady=True)
+                if spot:  # E17: the terminal panel / menu item are where to act; the targeter never moves them
+                    await self._show_spot(spot, steady=True, verify=False)
                 if kind == "terminal":
                     return
                 await asyncio.sleep(2.0)
             return
         for i in range(max(1, tries)):
-            if gen != self.step_gen or self.passed or self._offtrack_box() == "up":
+            if gone():
                 return
-            if await self._start_box(gen, step) or gen != self.step_gen or self.passed:
+            if i == 0 and self._code_progress(step) is None and await self._start_box(gen, step):
                 return
-            if await self._spotlight_target(step) or gen != self.step_gen or self.passed:
+            if self._editor_off_screen():  # E6: VS Code isn't on screen: no box on another app, no targeter call
+                await asyncio.sleep(1.0)
+                continue
+            prog = self._code_progress(step)
+            if prog is not None:  # E9: the step's code is (partly) in the file: never its "where to start" anchor
+                if prog["kind"] == "done":
+                    return  # all of it is typed: nothing to point at
+                spot = await self._progress_spot(step, prog)
+                if spot is not None:
+                    self._progress_at = (gen, prog["line"], prog["kind"])  # _progress_follow moves it as they type
+            elif await self._spotlight_target(step) or gone():
                 return
-            if (spot := await self._editor_line_spot(step)) is not None:
-                if gen != self.step_gen or self.passed:  # E3: the step moved on during the line lookup
+            else:
+                spot = await self._editor_line_spot(step) or self._below_code_spot(step)  # E16: under the last line
+            if spot is not None:
+                if gone():  # E3: the step moved on during the line lookup
                     return
-                await self._show_spot(spot, steady=True)
+                # a progress box is the exact file line (Accessibility / gutter): no Haiku confirm. It moves with every
+                # typed line (_progress_follow), so verifying each one spent the 6/min budget and starved real picks.
+                await self._show_spot(spot, steady=True, verify=prog is None)
                 return
             if i in (1, 4) and (spot := await self._vision_spot(step)) is not None:  # <= 2 Haiku calls per step
-                if gen != self.step_gen or self.passed:
+                if gone():
                     return
                 await self._show_spot(spot, steady=True)
                 return
@@ -1598,6 +1627,106 @@ class LessonSession:
         if not (t and off and off.get("title") and t[2] == off["title"]) or self.passed:
             return None
         return "done" if ids and not ids & {r.get("checkId") for r in self.last_failed} else "up"
+
+    FINISH_CAPTIONS = ("Finish this function", "Finish this class", "Keep typing here")
+
+    def _code_progress(self, step: dict | None) -> dict | None:
+        """E9: a lesson code step whose first code line (`def get_weather(city):`) is already in its file -> where the
+        learner is in typing the rest: {path, line (1-based file line to box), kind, expect (the step's line that
+        belongs there)}. kind "next": the code typed so far ends there, the rest goes on that line; "change": that line
+        differs from the step's code; "done": all of it is in the file. Spacing and line breaks are ignored (a call
+        typed on one line matches the step's wrapped one). None: the code's first line isn't in the file (its anchor
+        says where to start), or it isn't a lesson code step."""
+        if not self.lesson_mode or step is None or self._run_command(step):
+            return None
+        code = [ln.strip() for ln in (step.get("code") or "").splitlines()
+                if ln.strip() and not ln.strip().startswith("#")]
+        file = self._step_file(step)
+        if not code or not file:
+            return None
+        from . import workspace as wsmod
+
+        p = wsmod.resolve_file(self.workdir, file) if self._real_file(file) else None
+        try:  # VS Code's unsaved buffer when the companion extension has it: what's typed, saved or not
+            lines = (self._unsaved_texts([p])[0] or p.read_text(errors="replace")).splitlines() if p is not None else []
+        except OSError:
+            return None
+
+        def sq(s: str) -> str:
+            return re.sub(r"\s+", "", s)
+
+        def text(ln: str) -> bool:
+            return bool(ln.strip()) and not ln.strip().startswith("#")
+
+        head = sq(code[0]).rstrip(":")
+        start = next((i for i, ln in enumerate(lines) if head and text(ln) and head in sq(ln)), None)
+        if start is None:
+            return None
+        flat, ends = "", []  # the file from the head line on, squashed; ends[k]: offset where file line start+k ends
+        for ln in lines[start:]:
+            flat += sq(ln) if text(ln) else ""  # the learner's own comments are neither right nor wrong
+            ends.append(len(flat))
+        pos = flat.find(head) + len(head)
+        if sq(code[0]).endswith(":") and flat.startswith(":", pos):
+            pos += 1  # the head's own colon (`def f(x):`): that line is typed, not "the one that differs"
+        for want in code[1:]:
+            k = flat.find(sq(want), pos)
+            if k < 0 or k > pos + 2:  # missing, or the next thing in the file is something else
+                row = next(r for r, e in enumerate(ends) if e >= pos)  # the line the matched code ends on
+                if ends[row] > pos:  # that line goes on with something else: it's the one that differs
+                    return {"path": p, "line": start + row + 1, "kind": "change", "expect": want}
+                nxt = next((r for r in range(row + 1, len(ends)) if text(lines[start + r])), None)
+                if nxt is not None and lines[start + nxt][:1] in (" ", "\t"):  # an indented line of the block
+                    return {"path": p, "line": start + nxt + 1, "kind": "change", "expect": want}
+                return {"path": p, "line": start + row + 2, "kind": "next", "expect": want}
+            pos = k + len(sq(want))
+        return {"path": p, "line": start + 1, "kind": "done", "expect": code[0]}
+
+    def _finish_caption(self, step: dict) -> str:
+        head = self._code_head(step)
+        return self.FINISH_CAPTIONS[0 if re.match(r"(async\s+)?def\b", head) else 1 if head.startswith("class ") else 2]
+
+    async def _progress_spot(self, step: dict, prog: dict, caption: str | None = None) -> dict | None:
+        """E9 / E15: the editor row of `prog` (_code_progress), from Accessibility or the OCR'd gutter (one line high,
+        right of the line numbers). Scrolled off: jump there and ask once more. Only with the real screen reader."""
+        if getattr(self.screen, "reader", None) is None:
+            return None
+        from . import workspace as wsmod
+
+        path, line = prog["path"], prog["line"]
+        where = await asyncio.to_thread(wsmod.line_location, path, line)
+        if not where.get("rect") and (where.get("direction") or where.get("reason") == "not_visible"):
+            if self.workspace is not None and self.editor_open:
+                self.workspace.goto(str(path), line)
+                await asyncio.sleep(0.4)
+                where = await asyncio.to_thread(wsmod.line_location, path, line)
+        r = where.get("rect")
+        if not r:
+            return None
+        return {"rect": {k: float(r[k]) for k in ("x", "y", "w", "h")}, "caption": caption or self._finish_caption(step),
+                "app": "Code", **self._snippet(step)}
+
+    def _below_code_spot(self, step: dict) -> dict | None:
+        """E16: the step's code isn't in the file yet and the gutter didn't give its line (a short new file): the row
+        under the file's last line of text, measured from that line on screen. No model call; real reader only."""
+        if getattr(self.screen, "reader", None) is None or self._editor_off_screen():
+            return None
+        from . import workspace as wsmod
+
+        file = self._step_file(step)
+        p = wsmod.resolve_file(self.workdir, file) if file and self._real_file(file) else None
+        try:
+            text = p.read_text(errors="replace") if p is not None else ""
+        except OSError:
+            return None
+        last = next((ln.strip() for ln in reversed(text.splitlines()) if ln.strip()), "")
+        hit = self.screen.locate(re.escape(last), "Code") if len(last) >= 4 else None
+        if not hit or "\n" in (hit.get("matched") or "") or self._chrome_hit(hit) or self._long_hit(hit, last):
+            return None
+        r = hit["rect"]
+        lh = max(14.0, float(r["h"]) - 3.0)  # E24: the row pitch (locate_match's box is the row + 3 pt)
+        return {"rect": {"x": float(r["x"]), "y": float(r["y"]) + lh, "w": max(float(r["w"]), 320.0), "h": float(r["h"])},
+                "caption": self._type_caption(step), "app": "Code", **self._snippet(step)}
 
     async def _vision_spot(self, step: dict) -> dict | None:
         """Text match and gutter line both missed (e.g. a short new file: Vision reads no line numbers): Haiku picks
@@ -2026,14 +2155,20 @@ class LessonSession:
             return None
         return {**spot, "caption": caption}
 
-    async def _spotlight_target(self, step: dict) -> bool:
+    async def _spotlight_target(self, step: dict, owner: str = "step") -> bool:
         """Spotlight the step's first target that is visible on screen (rect in screen points).
-        The target is remembered, so later frames re-place the spotlight when it scrolls into view or moves."""
+        The target is remembered, so later frames re-place the spotlight when it scrolls into view or moves.
+        Lesson mode (E6 / E9): only VS Code's text, only while its window is on screen, and never the step's "where to
+        start" anchor once the step's code is in the file. `owner`: who asks (E8, see _show_spot)."""
         tlist = [t for t in step.get("targets") or [] if t.get("match")]
-        if tlist and self.spot_track is None:
+        if self.lesson_mode and (self._spot_frozen() or self._code_progress(step) is not None):
+            return False  # E7: paused / E9: the code is typed (partly): _lesson_spot boxes where it goes on
+        if tlist and self.spot_track is None and self._spot_rank_ok(owner):  # E8: never under a higher box
             t = tlist[0]
-            self.spot_track = (t["match"], None if self.lesson_mode else t.get("app"), t.get("caption", ""))
+            self.spot_track = (t["match"], "Code" if self.lesson_mode else t.get("app"), t.get("caption", ""))
         if self.lesson_mode:  # an anchor that isn't in the file (yet) would box some other line: skip it
+            if self._editor_off_screen():
+                return False  # E6: no VS Code window on screen: never a box on another app's text
             tlist = [t for t in tlist if self._anchor_in_file(t)]
         gen = self.step_gen
         pane = await asyncio.to_thread(self._code_pane) if self.lesson_mode and tlist else None
@@ -2041,35 +2176,58 @@ class LessonSession:
             return False
         for t in tlist:
             cap = self._type_caption(step, t) if self.lesson_mode else t.get("caption", "")
-            app = None if self.lesson_mode else t.get("app")  # lesson mode: whichever editor they use
-            spot = self._locate(t["match"], app, cap)
-            if spot and self._chrome_hit(spot, pane):
+            app = "Code" if self.lesson_mode else t.get("app")  # E6: lesson mode: VS Code's text only (Claude's chat
+            spot = self._locate(t["match"], app, cap)  # quoting `import sys` is not the line)
+            if spot and (self._chrome_hit(spot, pane) or (self.lesson_mode and self._long_hit(spot, t["match"]))):
                 continue  # a breadcrumb / tab / title-bar hit (e.g. the file name) is not where to type
             if spot:
-                self.spot_track = (t["match"], app, cap)
-                await self._show_spot({**spot, **self._snippet(step)}, steady=True)
+                if self._spot_rank_ok(owner):
+                    self.spot_track = (t["match"], app, cap)
+                await self._show_spot({**spot, **self._snippet(step)}, steady=True, owner=owner)
                 return True
         return False
 
+    @staticmethod
+    def _long_hit(spot: dict, match: str) -> bool:
+        """E6: an OCR line far longer than the anchor is prose that mentions it (a chat message quoting `import sys`),
+        not the code line."""
+        line = next(iter((spot.get("matched") or "").splitlines()), "")
+        lit = re.sub(r"\s+", "", re.sub(r"\\(.)", r"\1", match or ""))  # an escaped regex reads as its text
+        n = len(re.sub(r"\s+", "", line))
+        prose = (len(line.split()) >= 8 and not line.lstrip().startswith(("#", "//"))  # a sentence, not a code comment:
+                 and re.search(r"[\w)][.!?]\s+[A-Z][a-z']", line) is not None)  # "… on import sys and line 7. I'm …"
+        return bool(lit) and (n > max(4 * len(lit), len(lit) + 50) or prose)
+
     def _spot_intent(self, spot: dict) -> str:
         """What the Haiku targeter is asked to find for a box: the step's one action (+ its code). A short pointer
-        caption ("Type it here", E5) asks with the step's action line, as before."""
-        intent = spot.get("caption") or ""
-        if intent in (self.TYPE_CAPTION, self.RUN_CAPTION) and self.step is not None:
+        caption ("Type it here", E5) asks with the step's action line, as before. E9: when part of the step's code is
+        already in the file, it asks for the line where it goes on (or the line that differs) with that line's code,
+        never for the whole snippet again."""
+        intent, code = spot.get("caption") or "", spot.get("snippet") or ""
+        if intent in (self.TYPE_CAPTION, self.RUN_CAPTION, *self.FINISH_CAPTIONS) and self.step is not None:
             intent = self._action_line(self.step)
-        if spot.get("snippet"):
-            intent += f" (code: {spot['snippet'][:120]})"
+            prog = self._code_progress(self.step)  # None for a run step
+            if prog is not None and prog["kind"] != "done":
+                name = Path(prog["path"]).name
+                intent = (f"In {name}, line {prog['line']}: the line that differs from the step's code"
+                          if prog["kind"] == "change" else
+                          f"In {name}, line {prog['line']}: where typing goes on (the lines above it are already typed)")
+                code = prog["expect"]
+        if code:
+            intent += f" (code: {code[:120]})"
         return intent
 
-    async def _confirm_spot(self, spot: dict) -> dict | None:
+    async def _confirm_spot(self, spot: dict, pane: dict | None = None) -> dict | None:
         """The Haiku targeter (server/screen/target.py, via screen.confirm) checks the box on the real screen: keeps
-        it, moves it to what Haiku picked, or drops it (None) when Haiku is sure nothing on screen matches. Haiku
-        unavailable (no key / timeout / budget / error) or unsure: the box stands. No real reader (tests): it stands."""
+        it, moves it to what Haiku picked, or drops it (None) when Haiku is sure nothing on screen matches. E6: unsure
+        (low confidence / "nothing" / an error) keeps the box only inside the lesson's editor pane (`pane`). Haiku
+        unavailable (no key / timeout / budget): the box stands. No real reader (tests): it stands."""
         confirm = getattr(self.screen, "confirm", None) if getattr(self.screen, "reader", None) is not None else None
         if confirm is None:
             return spot
         try:
-            rect = await confirm(spot["rect"], self._no_create(self._spot_intent(spot)))
+            rect = await confirm(spot["rect"], self._no_create(self._spot_intent(spot)),
+                                 **({"pane": pane} if pane is not None else {}))
         except Exception:
             log.exception("targeter failed; keeping the located box")
             return spot
@@ -2114,13 +2272,102 @@ class LessonSession:
         return (pane["x"] - slop <= cx <= pane["x"] + pane["w"] + slop
                 and pane["y"] - slop <= cy <= pane["y"] + pane["h"] + slop)
 
-    async def _show_spot(self, spot: dict, steady: bool = False) -> None:
+    # E8: the box has ONE owner at a time. A press's answer (Show me / Explain / Hint / Check) outranks the coach's
+    # off-track box, which outranks the step's own target; a lower one never replaces a higher one that's still up.
+    SPOT_RANK = {"step": 1, "offtrack": 2, "answer": 3}
+    ANSWER_PIN_S = 10.0  # an answer's box holds this long, or until the learner acts
+    SPOT_DUP_S = 1.0  # the same box is never sent twice within this
+
+    def _spot_frozen(self) -> bool:
+        """E7: no box work at all (no targeter call either) while "Continue where you left off?" is up or the app that
+        was connected has left. An engine that never had an app (demo autostart before it connects, the in-process
+        staging / box-rehearsal scripts) still places boxes (as has_client: last_client_gone is None)."""
+        if self.awaiting_resume:
+            return True
+        engine = getattr(self._emit_raw, "__self__", None)  # main.Engine._emit -> the Engine (hub + last_client_gone)
+        clients = getattr(getattr(engine, "hub", None), "clients", None)
+        return clients is not None and not clients and getattr(engine, "last_client_gone", None) is not None
+
+    def _live_front(self) -> str:
+        """The frontmost app right now (E6 reader.frontmost(): the window server, ~0.3 ms, Miyagi's overlay never
+        counts), or '' when unknown (no real reader: tests)."""
+        fn = getattr(getattr(self.screen, "reader", None), "frontmost", None) if self.screen is not None else None
+        if fn is None:
+            return ""
+        try:
+            return str((fn() or {}).get("app") or "").strip()
+        except Exception:  # noqa: BLE001 - a failed lookup must never cost the box
+            return ""
+
+    def _editor_off_screen(self) -> bool:
+        """E6: the latest frame lists the windows on screen and none is the lesson's VS Code window (E6 keeps other
+        folders' VS Code windows out of `windows`)."""
+        wins = getattr(self.last_obs, "windows", None) or []
+        return bool(wins) and not any((getattr(w, "app", "") or "").lower() in CODE_APP_NAMES for w in wins)
+
+    def _spot_held_by(self) -> str | None:
+        """The owner of the box up now while it outranks the step's box: an answer for ANSWER_PIN_S or until the
+        learner acts; an off-track box while this step's diagnosis stands. None: no box, or the step's own."""
+        own = getattr(self, "_spot_owner", None)
+        if own is None or self.spot_rect is None or own[1] != self.step_gen:
+            return None
+        name, _gen, t0 = own
+        if name == "answer" and (self.clock() - t0 >= self.ANSWER_PIN_S or self.last_action_t > t0):
+            return None
+        if name == "offtrack" and self.last_offtrack is None:
+            return None
+        return None if name == "step" else name
+
+    def _spot_rank_ok(self, owner: str) -> bool:
+        held = self._spot_held_by()
+        return held is None or self.SPOT_RANK.get(owner, 1) >= self.SPOT_RANK[held]
+
+    def _spot_lock(self) -> asyncio.Lock:
+        loop = asyncio.get_running_loop()
+        if getattr(self, "_spot_lock_loop", None) is not loop:  # a lock never outlives its loop (tests run several)
+            self._spot_lock_obj, self._spot_lock_loop = asyncio.Lock(), loop
+        return self._spot_lock_obj
+
+    def _same_box(self, spot: dict, steady: bool) -> bool:
+        """The box up already is this one: a steady box that hasn't really moved, or any identical box sent within
+        SPOT_DUP_S (two callers placing the same box)."""
+        old, r = self.spot_rect, spot["rect"]
+        if not old or spot.get("caption") != self._spot_caption:
+            return False
+        slop = self.SPOT_MOVE_PX if steady else 1.0
+        if not all(abs(r[k] - old[k]) <= slop for k in ("x", "y", "w", "h")):
+            return False
+        return steady or self.clock() - self._spot_t < self.SPOT_DUP_S
+
+    def _title_strip(self, r: dict) -> bool:
+        """E6/E17: the menu bar or VS Code's title bar (layout buttons), where no step is ever done."""
+        win = self._editor_window()
+        return r["y"] + r["h"] / 2 < (win["y"] + 40.0 if win else 60.0)
+
+    async def _show_spot(self, spot: dict, steady: bool = False, owner: str | None = None,
+                         verify: bool = True) -> None:
         """steady: the engine's own target box (step start / follow): not re-sent when it hasn't really moved.
-        Coach / button spotlights always go out."""
+        Coach / button spotlights go out (an identical one not twice within SPOT_DUP_S).
+        owner (E8): "answer" > "offtrack" > "step" (see SPOT_RANK); default: steady -> step, during a press -> answer,
+        else (the coach) -> offtrack. verify: a steady lesson box goes past the Haiku targeter first.
+        Never while the lesson is paused (E7); lesson mode: only on VS Code, and only while it is the app in front (E6).
+        One send at a time: the checks run again after the targeter's await (E8: no double sends)."""
+        owner = owner or ("step" if steady else "answer" if _ANSWERED.get() is not None else "offtrack")
+        if self._spot_frozen():
+            log.info("no box for %r: the lesson is paused (resume card up / no app)", spot.get("caption"))
+            return
+        if not self._spot_rank_ok(owner):
+            log.info("no %s box for %r: the %s box is up", owner, spot.get("caption"), self._spot_held_by())
+            return
         if self._lesson_window_hidden() and (self.lesson_mode or (spot.get("app") or "").lower() in CODE_APP_NAMES):
             log.info("no box for %r: another folder's VS Code window is on screen, not the lesson's", spot.get("caption"))
             return
+        if self.lesson_mode and ((spot.get("app") or "Code").strip().lower() not in CODE_APP_NAMES
+                                 or self._editor_off_screen()):
+            log.info("no box for %r: not on the lesson's VS Code window (%s)", spot.get("caption"), spot.get("app"))
+            return
         gen = self.step_gen
+        self._spot_seq = seq = getattr(self, "_spot_seq", 0) + 1
         pane = await asyncio.to_thread(self._code_pane) if steady and self.lesson_mode else None
         if pane is not None:  # E3: a code step's line box stays inside the editor pane (never the terminal / Chat)
             r0 = spot["rect"]
@@ -2129,56 +2376,96 @@ class LessonSession:
                 return
             x, x2 = max(r0["x"], pane["x"]), min(r0["x"] + r0["w"], pane["x"] + pane["w"])
             spot = {**spot, "rect": {**r0, "x": x, "w": max(8.0, x2 - x)}}
-        old, r = self.spot_rect, spot["rect"]
-        if (steady and old and spot.get("caption") == self._spot_caption
-                and all(abs(r[k] - old[k]) <= self.SPOT_MOVE_PX for k in ("x", "y", "w", "h"))):
+        if 0 < spot["rect"]["h"] < 12.0:  # E24: a sliver (7.6 pt) is no box: one text row, centred on it
+            r0 = spot["rect"]
+            spot = {**spot, "rect": {**r0, "y": r0["y"] + r0["h"] / 2 - 10.0, "h": 20.0}}
+        sticky = steady and owner != "answer"  # E15: a press re-sends the box it answers with (not twice in 1 s)
+        if self._same_box(spot, sticky):
             if (answered := _ANSWERED.get()) is not None:
-                answered.add("spotlight")  # a press (Show me): the box already up is the answer, no notice
+                answered.add("spotlight")  # a press: the box already up is the answer, no notice
             return  # the same box again: no re-send (flicker made the overlay feel laggy)
-        if steady and self.lesson_mode:
-            confirmed = await self._confirm_spot(spot)
+        if sticky and self.lesson_mode and verify:  # E15: a press's box answers at once, no Haiku round trip
+            confirmed = await self._confirm_spot(spot, pane)
             if gen != self.step_gen or self.passed:  # E3: Haiku answered after the step moved on: no stale box
                 log.info("targeter answered after the step changed; no box for %r", spot.get("caption"))
                 return
             if confirmed is None:
                 log.info("targeter: no real target for %r; no box", spot.get("caption"))
+                if owner == "step":  # _maybe_respot backs off instead of asking again every RESPOT_S
+                    prev = getattr(self, "_spot_refused", None)
+                    self._spot_refused = (gen, prev[1] + 1 if prev and prev[0] == gen else 1, self.clock())
+                if self.spot_rect is not None and self._spot_rank_ok(owner):  # E6: never keep a stale box up
+                    async with self._spot_lock():
+                        if self.spot_rect is not None and gen == self.step_gen and self._spot_rank_ok(owner):
+                            await self.emit("spotlight", {"clear": True})
                 return
-            if pane is not None and confirmed["rect"] != spot["rect"] and not self._in_pane(confirmed["rect"], pane):
+            moved = confirmed["rect"] != spot["rect"]
+            if moved and pane is not None and not self._in_pane(confirmed["rect"], pane):
                 log.info("targeter moved %r out of the editor pane; keeping the line box", spot.get("caption"))
                 confirmed = spot  # E3: (taller than ~3 lines is refused in target.verdict)
-            spot, r = confirmed, confirmed["rect"]
-        self.spot_rect, self._spot_caption, self._spot_t = r, spot.get("caption"), self.clock()
-        self._spot_app = spot.get("app") or ("Code" if self.lesson_mode else None)
-        self._spot_misses = 0
-        await self.emit("spotlight", {**spot, "caption": short_caption(self._no_create(spot["caption"]))}  # <= ~8 words
-                        if spot.get("caption") else spot)
+            elif moved and self._title_strip(confirmed["rect"]) and not self._title_strip(spot["rect"]):
+                log.info("targeter moved %r onto the menu / title bar; keeping the box", spot.get("caption"))
+                confirmed = spot
+            spot = confirmed
+        async with self._spot_lock():
+            if gen != self.step_gen or (steady and self.passed) or self._spot_frozen():
+                return
+            if owner == "step" and getattr(self, "_spot_sent_seq", 0) > seq:
+                return  # a newer box went out while this one waited for the targeter
+            if not self._spot_rank_ok(owner) or self._same_box(spot, sticky):
+                return  # E8: re-checked after the await: a second caller with the same box sends nothing
+            front = self._live_front().lower()
+            if self.lesson_mode and front and front not in CODE_APP_NAMES and front not in self.OVERLAY_APPS:
+                log.info("no box for %r: %s is in front, not VS Code (it comes back with VS Code)",
+                         spot.get("caption"), front)
+                self._spot_away = True  # E6: never a box over another app, never a box and a clear in one tick
+                return
+            r = spot["rect"]
+            self.spot_rect, self._spot_caption, self._spot_t = r, spot.get("caption"), self.clock()
+            self._spot_app = spot.get("app") or ("Code" if self.lesson_mode else None)
+            self._spot_misses = 0
+            self._spot_matched = bool(spot.get("matched"))  # a text match _follow_spot may move; a line box it never swaps
+            self._spot_sent_seq, self._spot_owner = seq, (owner, gen, self.clock())
+            await self.emit("spotlight", {**spot, "caption": short_caption(self._no_create(spot["caption"]))}  # <= ~8 words
+                            if spot.get("caption") else spot)
 
     async def _follow_spot(self) -> None:
-        """On a new frame: move the spotlight with its target (only if it moved > 4pt)."""
-        if self.spot_track is None or self.passed or self.step is None:
+        """On a new frame: move the spotlight with its target (only if it moved > 4pt). E8: it moves the box that is
+        up as that box's owner, never swaps a line / vision box for another text match; E9: the step's anchor is
+        dropped once the step's code is in the file; E6: lesson mode follows VS Code's text only."""
+        if self.spot_track is None or self.passed or self.step is None or self._spot_frozen():
             return
         if self.lesson_mode and self._offtrack_box() == "done":  # t4: the off-track's checks pass: the type box returns
             self.spot_track = None
             self._spawn(self._lesson_spot(self.step_gen, self.step, tries=3), timer=True)
             return
+        if self.lesson_mode and self.spot_rect is not None and not getattr(self, "_spot_matched", True):
+            return  # the box up is the exact line (gutter / vision), not the tracked text
         if self.clock() - self._spot_t < self.SPOT_MIN_GAP_S:
             return  # at most one re-send every 2 s
         match, app, caption = self.spot_track
+        own = any(t.get("match") == match for t in self.step.get("targets") or [])
+        if self.lesson_mode:
+            app = app or "Code"
+            if own and self._code_progress(self.step) is not None:
+                self.spot_track = None  # E9: "where to start typing" is done once the code is there
+                return
+        owner = "step" if own else (self._spot_held_by() or "step")
         spot = self._locate(match, app, caption)
-        if spot and self._chrome_hit(spot):
+        if spot and (self._chrome_hit(spot) or (self.lesson_mode and self._long_hit(spot, match))):
             spot = None
         if not spot:
             self._spot_misses += 1
-            if self.spot_rect is not None and self._spot_misses == 3:  # scrolled out of view (3 frames): clear
-                self.spot_rect, self._spot_caption, self._spot_t = None, None, self.clock()
+            if self.spot_rect is not None and self._spot_misses == 3 and self._spot_rank_ok(owner):
+                self.spot_rect, self._spot_caption, self._spot_t = None, None, self.clock()  # scrolled out of view
                 await self.emit("spotlight", {"clear": True})
             return
         r, old = spot["rect"], self.spot_rect
         if old and all(abs(r[k] - old[k]) <= self.SPOT_MOVE_PX for k in ("x", "y", "w", "h")):
             return
-        if any(t.get("match") == match for t in self.step.get("targets") or []):
+        if own:
             spot = {**spot, **self._snippet(self.step)}  # lesson mode: the step's own target keeps its snippet
-        await self._show_spot(spot, steady=True)
+        await self._show_spot(spot, steady=True, owner=owner)
 
     async def _pass_step(self, skipped: bool = False) -> None:
         """skipped: the learner pressed Skip (action skip_step): move on, but it's not a pass (never green)."""
@@ -3033,28 +3320,112 @@ class LessonSession:
                 self._wf_t = self.clock()
                 self._spawn(self._refresh_wrong_folder(self.step))
             await self.evaluate("screen")
+            if self._spot_frozen():  # E7: resume card up / no app connected: no box work, no targeter call
+                if self.spot_rect is not None:  # the card shows instead; after Continue / a reconnect it goes out again
+                    await self.emit("spotlight", {"clear": True})
+                return
             if not await self._spot_follows_app(obs):
-                await self._follow_spot()
+                if not await self._progress_follow():
+                    await self._follow_spot()
+                await self._run_box_done()
+                self._maybe_respot()
 
     OVERLAY_APPS = {"miyagi", "electron", "miyagi-overlay"}
+    RESPOT_S = 5.0  # E16: a lesson step with no box while its VS Code window is in front: place it again this often
+
+    async def _progress_follow(self) -> bool:
+        """E9, lesson code step: once the step's code is (partly) in the file, the "where to start" box (the anchor,
+        `import sys`) goes and the box follows the typing: the line where the code goes on or differs; none once all of
+        it is there. At most every SPOT_MIN_GAP_S. -> handled (no text-follow on this frame)."""
+        step = self.step
+        if not self.lesson_mode or step is None or self.passed:
+            return False
+        track = self.spot_track
+        anchor_track = track is not None and any(t.get("match") == track[0] for t in step.get("targets") or [])
+        own = getattr(self, "_spot_owner", None)
+        mine = self.spot_rect is not None and own is not None and own[0] == "step" and own[1] == self.step_gen
+        if not (mine or anchor_track) or self.clock() - self._spot_t < self.SPOT_MIN_GAP_S:
+            return False
+        prog = self._code_progress(step)
+        if prog is None:
+            return False
+        if anchor_track:
+            self.spot_track = None
+        want = (self.step_gen, prog["line"], prog["kind"])
+        if not mine or getattr(self, "_progress_at", None) == want:
+            return True  # no box of the step's up, or it is already on that line
+        if prog["kind"] == "done" or getattr(self, "_spot_matched", False):  # all typed / the anchor's text box
+            async with self._spot_lock():
+                if self.spot_rect is not None:
+                    await self.emit("spotlight", {"clear": True})
+            self._progress_at = None
+        tried = getattr(self, "_progress_try", None)
+        if prog["kind"] != "done" and not (tried and tried[0] == want and self.clock() - tried[1] < 10.0):
+            self._progress_try = (want, self.clock())  # a line the gutter can't give is asked again in 10 s, not 2
+            self._spawn(self._lesson_spot(self.step_gen, step, tries=1), timer=True)
+        return True
+
+    def _step_ran(self) -> bool:
+        """This step ran its command: a `tut run` / screen-read run, or Run it for me in VS Code's terminal."""
+        return bool(self.step_runs) or getattr(self, "_ext_run_t", 0.0) >= self._step_wall_t0
+
+    async def _run_box_done(self) -> None:
+        """E17: the run step's own box ("Run it here" / "Open the terminal") has done its job once the step ran."""
+        own = getattr(self, "_spot_owner", None)
+        if (self.lesson_mode and self.spot_rect is not None and own is not None and own[0] == "step"
+                and self.step is not None and self._run_command(self.step) and self._step_ran()
+                and (self._spot_caption == self.RUN_CAPTION or (self._spot_caption or "").startswith("Open the terminal"))):
+            async with self._spot_lock():
+                if self.spot_rect is not None:
+                    await self.emit("spotlight", {"clear": True})
+
+    def _maybe_respot(self) -> None:
+        """E16: no box up on a lesson step while its VS Code window is in front (the first tries ran under a save
+        dialog, or before the window opened): place it again, at most every RESPOT_S, with no Haiku pick (tries=1;
+        the scene look retries with one). Never after a run step ran (its box was cleared on purpose)."""
+        step = self.step
+        if (not self.lesson_mode or step is None or self.passed or self.spot_rect is not None or self._spot_away
+                or self.coaching or getattr(self, "_lesson_spot_gen", None) == self.step_gen
+                or self.clock() - max(getattr(self, "_respot_t", -1e9), self.step_t0) < self.RESPOT_S
+                or not getattr(self.last_obs, "windows", None) or self._editor_off_screen()
+                or self._lesson_window_hidden()):
+            return
+        front = self._live_front().lower()
+        if (front and front not in CODE_APP_NAMES) or (self._run_command(step) and self._step_ran()):
+            return
+        if self._respot_held():
+            return
+        self._respot_t = self.clock()
+        self._spawn(self._lesson_spot(self.step_gen, step, tries=1), timer=True)
+
+    def _respot_held(self) -> bool:
+        """The targeter said "no box" for this step's box: no re-place for 15, 30, 60, then 120 s (_maybe_respot every
+        5 s and the scene look every 15 s each asked Haiku again, spent the 6/min budget, starved real picks, and once
+        it ran out kept:budget put the refused box back)."""
+        r = getattr(self, "_spot_refused", None)
+        return bool(r) and r[0] == self.step_gen and self.clock() - r[2] < 15.0 * 2 ** min(r[1] - 1, 3)
 
     async def on_frontmost(self, app: str) -> None:
         """E6's frontmost watcher (app switch / Space swipe, ~0.25 s): clear or re-place the box right away."""
-        if self.step is None or self.passed:
+        if self.step is None or self.passed or self._spot_frozen():
             return
-        await self._spot_follows_app(types.SimpleNamespace(app=app))
+        await self._spot_follows_app(types.SimpleNamespace(app=app), front=app)
 
-    async def _spot_follows_app(self, obs: Any) -> bool:
+    async def _spot_follows_app(self, obs: Any, front: str | None = None) -> bool:
         """The box lives in VS Code: when the learner leaves it (another app / Space), clear the spotlight at once;
-        when VS Code is frontmost again, re-scan and re-box. Never keep a rect from an old frame. -> handled."""
-        front = (getattr(obs, "app", "") or "").strip().lower() if obs is not None else ""
+        when VS Code is frontmost again, re-scan and re-box. Never keep a rect from an old frame. -> handled.
+        E6: the live frontmost app decides (`front`, else the window server's, else the frame's)."""
+        if front is None:
+            front = self._live_front() or ((getattr(obs, "app", "") or "") if obs is not None else "")
+        front = front.strip().lower()
         if not front or front in self.OVERLAY_APPS:
             return False  # unknown, or the learner is on Miyagi's own cards: keep the box
         in_editor = front in CODE_APP_NAMES and not self._lesson_window_hidden()  # another project's window: away
         if not in_editor and self.spot_rect is not None and (self._spot_app or "").lower() in CODE_APP_NAMES:
             self._spot_away = True
-            self.spot_rect, self._spot_caption = None, None  # the box must come back when VS Code does (S1 g)
-            await self.emit("spotlight", {"clear": True})
+            async with self._spot_lock():  # E8: after a box another caller is sending, never under it
+                self.spot_rect, self._spot_caption = None, None  # the box must come back when VS Code does (S1 g)
+                await self.emit("spotlight", {"clear": True})
             return True
         if in_editor and self._spot_away and self.step is not None and not self.passed:
             self._spot_away = False
@@ -3337,6 +3708,12 @@ class LessonSession:
                 return
             if self.lesson_mode and await self._show_step_file(step, explicit=True):
                 await asyncio.sleep(0.4)  # L2: the editor switched to the step's file: box it, not the old one
+            if self.lesson_mode and (spot := await self._change_spot(step)) is not None:  # E15: the line to change,
+                if gen != self.step_gen:  # captioned with what it should read; no model call (< 1 s)
+                    return
+                self._action_spot = True
+                await self._show_spot(spot, owner="answer")
+                return
             quick = await self._show_where(step)  # exact match / window: instant
             if quick and self.lesson_mode:
                 return  # the target box + what to type there is the whole answer
@@ -3498,8 +3875,16 @@ class LessonSession:
         return None
 
     async def _show_where(self, step: dict) -> bool:
-        """Spotlight where to work NOW: the step's target on screen, else its app's window. False = nothing visible."""
-        if await self._spotlight_target(step):
+        """Spotlight where to work NOW: the step's target on screen, else its app's window. False = nothing visible.
+        A press's answer (E8 owner "answer": Explain / Hint / Show me). E9: once the step's code is (partly) in the
+        file, where it goes on, never the "where to start" anchor."""
+        if self.lesson_mode and (prog := self._code_progress(step)) is not None:
+            spot = await self._progress_spot(step, prog) if prog["kind"] != "done" else None
+            if spot:
+                self._action_spot = True
+                await self._show_spot(spot, owner="answer")
+            return spot is not None
+        if await self._spotlight_target(step, owner="answer"):
             self._action_spot = True
             return True
         file = self._step_file(step)
@@ -3507,7 +3892,7 @@ class LessonSession:
             spot = await self._editor_line_spot(step)
             if spot:
                 self._action_spot = True
-                await self._show_spot(spot)
+                await self._show_spot(spot, owner="answer")
                 return True
             return False
         caption = f"Work here: {file}" if file else "Work here"
@@ -3517,6 +3902,27 @@ class LessonSession:
             await self._show_spot({**spot, **self._snippet(step)})
             return True
         return False
+
+    async def _change_spot(self, step: dict) -> dict | None:
+        """E15 Show me: the exact line to change, captioned with what it should read: the off-track diagnosis's line
+        ("Change to: return response.json()"), else the first line of the file that differs from the step's code (or
+        where its next line goes). None: nothing typed yet (Show me boxes where to start, as before)."""
+        def clip(code: str) -> str:  # the caption stays <= 8 words (short_caption would swap it for a pointer)
+            w = code.split()
+            return " ".join(w[:6]) if len(w) <= 6 else " ".join(w[:5]) + "…"
+
+        diff = (self.last_offtrack or {}).get("diff") or {}
+        yours, want = (next((ln.strip() for ln in str(diff.get(k) or "").splitlines() if ln.strip()), "")
+                       for k in ("yours", "expected"))
+        if yours and want and yours != want and self.screen is not None:
+            hit = self._locate(re.escape(yours), "Code", f"Change to: {clip(want)}")
+            if hit and not self._chrome_hit(hit) and not self._long_hit(hit, yours):
+                return {**hit, **self._snippet(step)}
+        prog = self._code_progress(step)
+        if prog is None or prog["kind"] == "done":
+            return None
+        cap = f"{'Change to' if prog['kind'] == 'change' else 'Type next'}: {clip(prog['expect'])}"
+        return await self._progress_spot(step, prog, caption=cap)
 
     @staticmethod
     def _real_file(name: str | None) -> bool:
