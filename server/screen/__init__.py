@@ -11,6 +11,7 @@
     res = await reader.where("the Run button")
     loc = locate_line("pinn_demo/pinn_convection.py", 47)     # LineLocation: .rect / .visible_lines
     loc = locate_anchor("def pde_residual(", file="pinn_demo/pinn_convection.py")
+    marks = candidates("the line that defines add")   # set-of-marks targets for a model to pick by id
     rect = locate_region("terminal")    # / "editor" / "explorer" / "run_button": stable spotlight rects
 
 Pure helpers (no pyobjc, usable on Linux): `server.screen.match.screen_contains/locate_match`,
@@ -62,6 +63,16 @@ def locate_region(name: str, app: str | None = None, obs: ScreenObservation | No
     return get_reader().locate_region(name, app)
 
 
+def candidates(intent: str | None = None, app: str | None = None, obs: ScreenObservation | None = None,
+               max_lines: int = 120):
+    """Set-of-marks targets (server.screen.marks): regions 1-4 + OCR lines from id 10, each with a
+    rect in screen points. Live (stabilized regions) without `obs`; pure on a given observation."""
+    if obs is not None:
+        from .marks import candidates as _c
+        return _c(obs, intent, app, max_lines=max_lines)
+    return get_reader().candidates(intent, app, max_lines)
+
+
 def observe_image(path: str, overlay=None):
     from .reader import observe_image as _o
     return _o(path, overlay)
@@ -80,6 +91,7 @@ __all__ = [
     "ScreenObservation",
     "ScreenPermissionError",
     "Window",
+    "candidates",
     "find_region",
     "get_reader",
     "locate",

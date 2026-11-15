@@ -451,7 +451,8 @@ class Modules:
 
     async def diagnose(self, step: dict, failed_checks: list[dict], metrics: dict, code_excerpt: str,
                        error_text: str = "", cursor: dict | None = None, screen: Any = None,
-                       on_targets: Callable[[list[dict]], Any] | None = None) -> dict:
+                       on_targets: Callable[[list[dict]], Any] | None = None, file_state: dict | None = None,
+                       code_source: str = "file") -> dict:
         """`metrics` is the raw series dict {name: [(step, value)]} (what coach.diagnose expects).
         Runs as the coach's cancellable "diagnose" task when the coach supports it."""
         cached = self._cache("coach", f"{step['id']}.json")
@@ -461,8 +462,8 @@ class Modules:
         kwargs: dict[str, Any] = {}
         if fn is not None:
             for name, val in (("error_text", error_text), ("cursor", cursor), ("screen", screen),
-                              ("on_targets", on_targets)):
-                if val and _accepts(fn, name):
+                              ("on_targets", on_targets), ("file_state", file_state), ("code_source", code_source)):
+                if val and _accepts(fn, name):  # E5: file_state / code_source -> holds (unsaved, OCR, wrong folder)
                     kwargs[name] = val
         inflight = getattr(self.real.get("coach"), "inflight", None) if fn is not None else None
         if fn is not None and inflight is not None and hasattr(inflight, "start"):
