@@ -177,9 +177,12 @@ export const scrim = { spotlight: 'rgba(0,0,0,.66)', launcher: 'rgba(0,0,0,.22)'
 
 /** Copy from the brand kit. */
 export const copy = {
-  name: 'Miyagi',
+  /** Brand moments are lowercase like the wordmark (Adrian, Sat 5 PM). Teaching copy keeps normal case. */
+  name: 'miyagi',
   oneLiner: 'Turn any tutorial into an auto-graded lab.',
-  launcherPlaceholder: 'Ask Miyagi anything',
+  launcherPlaceholder: 'ask miyagi anything',
+  /** The pill / bar entry point. */
+  ask: 'ask miyagi',
   passed: 'Good. Now the next one.'
 } as const
 

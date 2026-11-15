@@ -27,7 +27,8 @@ Need a core change (a new field in `core/lesson.ts`, a new bus event, a new npm 
   - **Pastels for options only**, by the mapping in BRAND.md (`theme.actionTone`): sky = Explain / Diagram / Watch, lilac = Show me, pink = Hint; source kinds via `theme.kindTone`. Use `OptionButton` for options and `PrimaryButton` for the ONE primary action per surface (`core/ui/atoms.tsx`); chrome and navigation stay neutral. Never pastel for status, never for chrome. Status dots have no glow.
   - **No blue anywhere else.** `color.accent` is now white: buttons are white on dark (`color.accent` fill + `color.onAccent` text), never blue, green or amber.
   - No gradients, glows, purple, neon, sparkles, emoji or hand-drawn annotations. Every sparkle icon becomes the bonsai: `<MiyagiMark size={14} />` from `core/ui/Mark.tsx` (it picks the right cut for the size). In the app the tree is **monochrome** (white on dark) by default; don't pass `mono={false}`.
-  - App text uses the system font (SF Pro / Segoe). No Inter. Copy is calm and short (≤12 words per card); the launcher placeholder is "Ask Miyagi anything"; the passed line is "Good. Now the next one."
+  - App text uses the system font (SF Pro / Segoe). No Inter. Copy is calm and short (≤12 words per card); the launcher placeholder is "ask miyagi anything"; the passed line is "Good. Now the next one."
+  - **The brand is lowercase**: the product calls itself "miyagi" (`copy.name`, `copy.ask`), never "Miyagi". Teaching copy keeps sentence case.
 - **Keys and actions (same everywhere):**
   - Keycaps come from `bridge.platform.keys[kind]` only (⌥E on Mac, Alt+E on Windows). Never type a key label by hand. Pass it as `kbd` to `OptionButton` / `PrimaryButton`, or render `<Kbd>`.
   - Send every action with `sendAction(kind, text?)` or `triggerShortcut(kind)` (`core/shortcuts.ts`), never `bridge.send(cmd('action', …))` directly: they record the pressed kind.

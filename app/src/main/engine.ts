@@ -63,7 +63,7 @@ export class EngineLink {
     // Offline (audit P1-3): never queue a learner command and replay it stale on reconnect (a build_lesson
     // whose resultIds a restarted engine doesn't know). Fail it visibly instead. overlay.bounds is re-sent
     // from lastBounds and config.keys from the onOpen hooks, so nothing else needs remembering.
-    if (OFFLINE_FAILS.has(cmd.type)) this.notify({ type: 'error', payload: { message: 'Miyagi is offline. Start the engine, then try again.' } })
+    if (OFFLINE_FAILS.has(cmd.type)) this.notify({ type: 'error', payload: { message: 'miyagi is offline. Start the engine, then try again.' } })
   }
 
   /** To every window, but not into the replay log (a reloaded window must not see a stale error). */

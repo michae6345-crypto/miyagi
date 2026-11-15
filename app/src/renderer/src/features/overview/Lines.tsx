@@ -44,7 +44,7 @@ export function GoalNote(): ReactNode {
   const note = goal?.note.trim()
   if (!note || goal?.score == null || goal.score >= GOAL_MISMATCH) return null
   return (
-    <div className="mt-[3px] line-clamp-2 text-[13px] leading-[17px]" style={{ color: color.amber }} title={note}>
+    <div className="mt-[3px] line-clamp-2 text-[13px] leading-[17px]" style={{ color: color.label }} title={note}>
       {note}
     </div>
   )

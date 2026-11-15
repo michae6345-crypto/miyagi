@@ -36,5 +36,5 @@ export function MiyagiMark({ size = 16, tone = 'dark', level = 'auto', mono = tr
 
 /** The wordmark: lowercase miyagi with the green light on the first i. Height in px. */
 export function MiyagiWordmark({ height = 20, tone = 'dark', className }: { height?: number; tone?: Tone; className?: string }): ReactNode {
-  return <img src={tone === 'dark' ? wordmarkDark : wordmark} height={height} style={{ width: 'auto' }} alt="Miyagi" draggable={false} className={className} />
+  return <img src={tone === 'dark' ? wordmarkDark : wordmark} height={height} style={{ width: 'auto' }} alt="miyagi" draggable={false} className={className} />
 }

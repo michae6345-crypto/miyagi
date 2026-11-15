@@ -33,7 +33,7 @@ function Idle(): ReactNode {
       className={`group flex h-[34px] cursor-pointer items-center whitespace-nowrap pl-[13px] text-[13px] font-medium ${offline ? 'pr-[16px]' : 'pr-[7px]'}`}
       style={{ color: offline ? color.label : color.text }}
       onClick={() => bridge.emit('launcher:toggle')}
-      aria-label={offline ? 'Offline: Miyagi is not connected' : 'Ask Miyagi: open the launcher'}
+      aria-label={offline ? 'Offline: miyagi is not connected' : 'ask miyagi: open the launcher'}
     >
       <LeadMark />
       <SwapText id={offline ? 'offline' : 'ask'} className="opacity-90 transition-opacity duration-150 group-hover:opacity-100">
