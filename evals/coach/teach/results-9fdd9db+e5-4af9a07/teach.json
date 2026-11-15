@@ -1,0 +1,6330 @@
+[
+ {
+  "lesson": "A",
+  "lesson_title": "Build a Python Calculator",
+  "step": "s1",
+  "step_title": "Add the add function",
+  "state": "empty",
+  "note": "",
+  "window_title": "calculator.py — python-calculator-e430dc",
+  "on_disk": "\"\"\"A simple Python calculator.\"\"\"\n\n# Step 1: Start building your calculator here\n",
+  "terminal": [
+   "learner@MacBook-Pro python-calculator-e430dc % "
+  ],
+  "passed": false,
+  "status": "idle",
+  "checks": {
+   "s1c1": [
+    "fail",
+    "not seen in Code"
+   ],
+   "s1c2": [
+    "fail",
+    "not seen in Code"
+   ]
+  },
+  "copy": [
+   {
+    "src": "step.started",
+    "title": "Add the add function",
+    "body": "In calculator.py, type def add(a, b): …",
+    "kind": "action line",
+    "grades": {
+     "words": true,
+     "cursor": true,
+     "label": true,
+     "one": true,
+     "file": true,
+     "app": false
+    }
+   },
+   {
+    "src": "spotlight",
+    "title": "",
+    "body": "Type the add",
+    "kind": "caption",
+    "when": "hint",
+    "grades": {
+     "words": true,
+     "cursor": true,
+     "label": true,
+     "one": true
+    }
+   },
+   {
+    "src": "card",
+    "title": "Question · Add the add function",
+    "body": "Which line of calculator.py defines add, and is it there yet?",
+    "kind": "hint",
+    "level": 0,
+    "actions": null,
+    "when": "hint",
+    "grades": {
+     "words": true,
+     "cursor": true,
+     "label": true,
+     "one": true,
+     "file": true,
+     "app": false
+    }
+   },
+   {
+    "src": "spotlight",
+    "title": "",
+    "body": "In calculator.py, type def add(a, b): …",
+    "kind": "caption",
+    "when": "show me",
+    "grades": {
+     "words": true,
+     "cursor": true,
+     "label": true,
+     "one": true
+    }
+   },
+   {
+    "src": "card",
+    "title": "Stuck on this step?",
+    "body": "Skip it, or ask for a hint.",
+    "kind": "hint",
+    "level": null,
+    "actions": [
+     "skip_step"
+    ],
+    "when": "idle 100 s",
+    "grades": {
+     "words": true,
+     "cursor": true,
+     "label": true,
+     "one": false,
+     "file": false,
+     "app": false
+    }
+   }
+  ],
+  "timeline": [
+   "typed / screen",
+   "tick while typing",
+   "idle 5 s",
+   "hint",
+   "show me",
+   "idle 100 s"
+  ],
+  "coach_routes": [
+   {
+    "route": "template",
+    "triage": {
+     "route": "opus",
+     "by": "fallback",
+     "reason": "default to full diagnosis"
+    },
+    "fallback": "diagnose: offline mode (DEMO / ORCH_STUBS), no live call",
+    "playbook": null,
+    "title": "Start: Add the add function"
+   }
+  ],
+  "next_step_cards": [],
+  "errors": []
+ },
+ {
+  "lesson": "A",
+  "lesson_title": "Build a Python Calculator",
+  "step": "s1",
+  "step_title": "Add the add function",
+  "state": "unsaved",
+  "note": "",
+  "window_title": "● calculator.py — python-calculator-e430dc",
+  "on_disk": "\"\"\"A simple Python calculator.\"\"\"\n\n# Step 1: Start building your calculator here\n",
+  "terminal": [
+   "learner@MacBook-Pro python-calculator-e430dc % "
+  ],
+  "passed": false,
+  "status": "idle",
+  "checks": {
+   "s1c1": [
+    "fail",
+    "not seen in Code"
+   ]
+  },
+  "copy": [
+   {
+    "src": "step.started",
+    "title": "Add the add function",
+    "body": "In calculator.py, type def add(a, b): …",
+    "kind": "action line",
+    "grades": {
+     "words": true,
+     "cursor": true,
+     "label": true,
+     "one": true,
+     "file": true,
+     "app": false
+    }
+   },
+   {
+    "src": "card",
+    "title": "Type this · Add the add function",
+    "body": "Type exactly this in calculator.py in VS Code, then save.",
+    "kind": "hint",
+    "level": 0,
+    "actions": [
+     "show_me"
+    ],
+    "when": "hint",
+    "grades": {
+     "words": true,
+     "cursor": true,
+     "label": true,
+     "one": false,
+     "file": true,
+     "app": true
+    }
+   },
+   {
+    "src": "card",
+    "title": "Stuck on this step?",
+    "body": "Skip it, or ask for a hint.",
+    "kind": "hint",
+    "level": null,
+    "actions": [
+     "skip_step"
+    ],
+    "when": "idle 100 s",
+    "grades": {
+     "words": true,
+     "cursor": true,
+     "label": true,
+     "one": false,
+     "file": false,
+     "app": false
+    }
+   },
+   {
+    "src": "card",
+    "title": "Save calculator.py",
+    "body": "Save with ⌘S so I can check it.",
+    "kind": "hint",
+    "level": null,
+    "actions": null,
+    "when": "idle 100 s",
+    "grades": {
+     "words": true,
+     "cursor": true,
+     "label": true,
+     "one": true,
+     "file": true,
+     "app": false
+    }
+   }
+  ],
+  "timeline": [
+   "typed / screen",
+   "tick while typing",
+   "idle 5 s",
+   "hint",
+   "show me",
+   "idle 100 s"
+  ],
+  "coach_routes": [],
+  "next_step_cards": [],
+  "errors": []
+ },
+ {
+  "lesson": "A",
+  "lesson_title": "Build a Python Calculator",
+  "step": "s1",
+  "step_title": "Add the add function",
+  "state": "wrong_folder",
+  "note": "",
+  "window_title": "calculator.py — Desktop",
+  "on_disk": "\"\"\"A simple Python calculator.\"\"\"\n\n# Step 1: Start building your calculator here\n",
+  "terminal": [
+   "learner@MacBook-Pro python-calculator-e430dc % "
+  ],
+  "passed": false,
+  "status": "idle",
+  "checks": {
+   "s1c1": [
+    "fail",
+    "not seen in Code"
+   ]
+  },
+  "copy": [
+   {
+    "src": "step.started",
+    "title": "Add the add function",
+    "body": "In calculator.py, type def add(a, b): …",
+    "kind": "action line",
+    "grades": {
+     "words": true,
+     "cursor": true,
+     "label": true,
+     "one": true,
+     "file": true,
+     "app": false
+    }
+   },
+   {
+    "src": "card",
+    "title": "Type this · Add the add function",
+    "body": "Type exactly this in calculator.py in VS Code, then save.",
+    "kind": "hint",
+    "level": 0,
+    "actions": [
+     "show_me"
+    ],
+    "when": "hint",
+    "grades": {
+     "words": true,
+     "cursor": true,
+     "label": true,
+     "one": false,
+     "file": true,
+     "app": true
+    }
+   },
+   {
+    "src": "card",
+    "title": "Stuck on this step?",
+    "body": "Skip it, or ask for a hint.",
+    "kind": "hint",
+    "level": null,
+    "actions": [
+     "skip_step"
+    ],
+    "when": "idle 100 s",
+    "grades": {
+     "words": true,
+     "cursor": true,
+     "label": true,
+     "one": false,
+     "file": false,
+     "app": false
+    }
+   },
+   {
+    "src": "card",
+    "title": "Wrong folder?",
+    "body": "You're editing calculator.py in Desktop, but this lesson is in python-calculator-e430dc.",
+    "kind": "hint",
+    "level": null,
+    "actions": [
+     "open_editor"
+    ],
+    "when": "idle 100 s",
+    "grades": {
+     "words": true,
+     "cursor": true,
+     "label": true,
+     "one": true,
+     "file": true,
+     "app": false
+    }
+   }
+  ],
+  "timeline": [
+   "typed / screen",
+   "tick while typing",
+   "idle 5 s",
+   "hint",
+   "show me",
+   "idle 100 s"
+  ],
+  "coach_routes": [],
+  "next_step_cards": [],
+  "errors": []
+ },
+ {
+  "lesson": "A",
+  "lesson_title": "Build a Python Calculator",
+  "step": "s1",
+  "step_title": "Add the add function",
+  "state": "typo",
+  "note": "def add(a, b): -> def(a, b):",
+  "window_title": "calculator.py — python-calculator-e430dc",
+  "on_disk": "\"\"\"A simple Python calculator.\"\"\"\n\n# Step 1: Start building your calculator here\ndef(a, b):\n    return a + b\n\nprint(add(2, 3))\n",
+  "terminal": [
+   "learner@MacBook-Pro python-calculator-e430dc % python calculator.py",
+   "  File \"/Users/learner/miyagi/lessons/python-calculator-e430dc/calculator.py\", line 4",
+   "    def(a, b):",
+   "       ^",
+   "SyntaxError: invalid syntax",
+   "learner@MacBook-Pro python-calculator-e430dc % "
+  ],
+  "passed": false,
+  "status": "idle",
+  "checks": {
+   "s1c1": [
+    "fail",
+    "not seen in Code"
+   ]
+  },
+  "copy": [
+   {
+    "src": "step.started",
+    "title": "Add the add function",
+    "body": "In calculator.py, type def add(a, b): …",
+    "kind": "action line",
+    "grades": {
+     "words": true,
+     "cursor": true,
+     "label": true,
+     "one": true,
+     "file": true,
+     "app": false
+    }
+   },
+   {
+    "src": "offtrack",
+    "title": "SyntaxError in calculator.py",
+    "body": "`def` needs a name: line 4 of calculator.py.",
+    "kind": "offtrack",
+    "level": 2,
+    "actions": [
+     "explain",
+     "show_me",
+     "hint",
+     "apply_fix"
+    ],
+    "when": "saved again",
+    "grades": {
+     "words": true,
+     "cursor": true,
+     "label": true,
+     "one": true,
+     "file": true,
+     "app": false
+    }
+   },
+   {
+    "src": "spotlight",
+    "title": "",
+    "body": "Type the add",
+    "kind": "caption",
+    "when": "hint",
+    "grades": {
+     "words": true,
+     "cursor": true,
+     "label": true,
+     "one": true
+    }
+   },
+   {
+    "src": "card",
+    "title": "Question · Add the add function",
+    "body": "SyntaxError in calculator.py: what in your code makes that happen, and which value or line would change it?",
+    "kind": "hint",
+    "level": 0,
+    "actions": null,
+    "when": "hint",
+    "grades": {
+     "words": false,
+     "cursor": true,
+     "label": true,
+     "one": true,
+     "file": true,
+     "app": false
+    }
+   },
+   {
+    "src": "spotlight",
+    "title": "",
+    "body": "In calculator.py, type def add(a, b): …",
+    "kind": "caption",
+    "when": "show me",
+    "grades": {
+     "words": true,
+     "cursor": true,
+     "label": true,
+     "one": true
+    }
+   },
+   {
+    "src": "card",
+    "title": "Stuck on this step?",
+    "body": "Skip it, or ask for a hint.",
+    "kind": "hint",
+    "level": null,
+    "actions": [
+     "skip_step"
+    ],
+    "when": "idle 100 s",
+    "grades": {
+     "words": true,
+     "cursor": true,
+     "label": true,
+     "one": false,
+     "file": false,
+     "app": false
+    }
+   }
+  ],
+  "timeline": [
+   "typed / screen",
+   "saved",
+   "tick while typing",
+   "idle 5 s",
+   "saved again",
+   "idle after 2nd save",
+   "hint",
+   "show me",
+   "idle 100 s"
+  ],
+  "coach_routes": [
+   {
+    "route": "error_offline",
+    "triage": {
+     "route": "opus",
+     "by": "fallback",
+     "reason": "default to full diagnosis"
+    },
+    "fallback": "diagnose: offline mode (DEMO / ORCH_STUBS), no live call",
+    "playbook": null,
+    "title": "SyntaxError in calculator.py"
+   }
+  ],
+  "next_step_cards": [],
+  "errors": []
+ },
+ {
+  "lesson": "A",
+  "lesson_title": "Build a Python Calculator",
+  "step": "s1",
+  "step_title": "Add the add function",
+  "state": "terminal_closed",
+  "note": "",
+  "window_title": "calculator.py — python-calculator-e430dc",
+  "on_disk": "\"\"\"A simple Python calculator.\"\"\"\n\n# Step 1: Start building your calculator here\ndef add(a, b):\n    return a + b\n\nprint(add(2, 3))\n",
+  "terminal": null,
+  "passed": false,
+  "status": "idle",
+  "checks": {
+   "s1c2": [
+    "fail",
+    "not seen in Code"
+   ]
+  },
+  "copy": [
+   {
+    "src": "step.started",
+    "title": "Add the add function",
+    "body": "In calculator.py, type def add(a, b): …",
+    "kind": "action line",
+    "grades": {
+     "words": true,
+     "cursor": true,
+     "label": true,
+     "one": true,
+     "file": true,
+     "app": false
+    }
+   },
+   {
+    "src": "card",
+    "title": "Start: Add the add function",
+    "body": "In VS Code, type `def add(a, b):` in calculator.py.",
+    "kind": "hint",
+    "level": null,
+    "actions": [
+     "apply_fix"
+    ],
+    "when": "saved again",
+    "grades": {
+     "words": true,
+     "cursor": true,
+     "label": true,
+     "one": true,
+     "file": true,
+     "app": true
+    }
+   },
+   {
+    "src": "card",
+    "title": "Type this · Add the add function",
+    "body": "Type exactly this in calculator.py in VS Code, then save.",
+    "kind": "hint",
+    "level": 0,
+    "actions": [
+     "show_me"
+    ],
+    "when": "hint",
+    "grades": {
+     "words": true,
+     "cursor": true,
+     "label": true,
+     "one": false,
+     "file": true,
+     "app": true
+    }
+   },
+   {
+    "src": "card",
+    "title": "Stuck on this step?",
+    "body": "Skip it, or ask for a hint.",
+    "kind": "hint",
+    "level": null,
+    "actions": [
+     "skip_step"
+    ],
+    "when": "idle 100 s",
+    "grades": {
+     "words": true,
+     "cursor": true,
+     "label": true,
+     "one": false,
+     "file": false,
+     "app": false
+    }
+   }
+  ],
+  "timeline": [
+   "typed / screen",
+   "saved",
+   "tick while typing",
+   "idle 5 s",
+   "saved again",
+   "idle after 2nd save",
+   "hint",
+   "show me",
+   "idle 100 s"
+  ],
+  "coach_routes": [
+   {
+    "route": "template",
+    "triage": {
+     "route": "opus",
+     "by": "fallback",
+     "reason": "default to full diagnosis"
+    },
+    "fallback": "diagnose: offline mode (DEMO / ORCH_STUBS), no live call",
+    "playbook": null,
+    "title": "Start: Add the add function"
+   },
+   {
+    "route": "template",
+    "triage": {
+     "route": "opus",
+     "by": "fallback",
+     "reason": "default to full diagnosis"
+    },
+    "fallback": "diagnose: offline mode (DEMO / ORCH_STUBS), no live call",
+    "playbook": null,
+    "title": "Start: Add the add function"
+   },
+   {
+    "route": "template",
+    "triage": {
+     "route": "opus",
+     "by": "fallback",
+     "reason": "default to full diagnosis"
+    },
+    "fallback": "diagnose: offline mode (DEMO / ORCH_STUBS), no live call",
+    "playbook": null,
+    "title": "Start: Add the add function"
+   }
+  ],
+  "next_step_cards": [],
+  "errors": []
+ },
+ {
+  "lesson": "A",
+  "lesson_title": "Build a Python Calculator",
+  "step": "s1",
+  "step_title": "Add the add function",
+  "state": "right",
+  "note": "",
+  "window_title": "calculator.py — python-calculator-e430dc",
+  "on_disk": "\"\"\"A simple Python calculator.\"\"\"\n\n# Step 1: Start building your calculator here\ndef add(a, b):\n    return a + b\n\nprint(add(2, 3))\n",
+  "terminal": [
+   "learner@MacBook-Pro python-calculator-e430dc % python calculator.py",
+   "5",
+   "learner@MacBook-Pro python-calculator-e430dc % "
+  ],
+  "passed": false,
+  "status": "idle",
+  "checks": {
+   "s1c1": [
+    "fail",
+    "not seen in Code"
+   ]
+  },
+  "copy": [
+   {
+    "src": "step.started",
+    "title": "Add the add function",
+    "body": "In calculator.py, type def add(a, b): …",
+    "kind": "action line",
+    "grades": {
+     "words": true,
+     "cursor": true,
+     "label": true,
+     "one": true,
+     "file": true,
+     "app": false
+    }
+   },
+   {
+    "src": "card",
+    "title": "Start: Add the add function",
+    "body": "In VS Code, type `def add(a, b):` in calculator.py.",
+    "kind": "hint",
+    "level": null,
+    "actions": [
+     "apply_fix"
+    ],
+    "when": "saved again",
+    "grades": {
+     "words": true,
+     "cursor": true,
+     "label": true,
+     "one": true,
+     "file": true,
+     "app": true
+    }
+   },
+   {
+    "src": "card",
+    "title": "Type this · Add the add function",
+    "body": "Type exactly this in calculator.py in VS Code, then save.",
+    "kind": "hint",
+    "level": 0,
+    "actions": [
+     "show_me"
+    ],
+    "when": "hint",
+    "grades": {
+     "words": true,
+     "cursor": true,
+     "label": true,
+     "one": false,
+     "file": true,
+     "app": true
+    }
+   },
+   {
+    "src": "card",
+    "title": "Stuck on this step?",
+    "body": "Skip it, or ask for a hint.",
+    "kind": "hint",
+    "level": null,
+    "actions": [
+     "skip_step"
+    ],
+    "when": "idle 100 s",
+    "grades": {
+     "words": true,
+     "cursor": true,
+     "label": true,
+     "one": false,
+     "file": false,
+     "app": false
+    }
+   }
+  ],
+  "timeline": [
+   "typed / screen",
+   "saved",
+   "tick while typing",
+   "idle 5 s",
+   "saved again",
+   "idle after 2nd save",
+   "hint",
+   "show me",
+   "idle 100 s"
+  ],
+  "coach_routes": [
+   {
+    "route": "template",
+    "triage": {
+     "route": "opus",
+     "by": "fallback",
+     "reason": "default to full diagnosis"
+    },
+    "fallback": "diagnose: offline mode (DEMO / ORCH_STUBS), no live call",
+    "playbook": null,
+    "title": "Start: Add the add function"
+   },
+   {
+    "route": "template",
+    "triage": {
+     "route": "opus",
+     "by": "fallback",
+     "reason": "default to full diagnosis"
+    },
+    "fallback": "diagnose: offline mode (DEMO / ORCH_STUBS), no live call",
+    "playbook": null,
+    "title": "Start: Add the add function"
+   },
+   {
+    "route": "template",
+    "triage": {
+     "route": "opus",
+     "by": "fallback",
+     "reason": "default to full diagnosis"
+    },
+    "fallback": "diagnose: offline mode (DEMO / ORCH_STUBS), no live call",
+    "playbook": null,
+    "title": "Start: Add the add function"
+   }
+  ],
+  "next_step_cards": [],
+  "errors": []
+ },
+ {
+  "lesson": "A",
+  "lesson_title": "Build a Python Calculator",
+  "step": "s2",
+  "step_title": "Run your first output",
+  "state": "empty",
+  "note": "",
+  "window_title": "calculator.py — python-calculator-e430dc",
+  "on_disk": "\"\"\"A simple Python calculator.\"\"\"\n\n# Step 1: Start building your calculator here\n",
+  "terminal": [
+   "learner@MacBook-Pro python-calculator-e430dc % "
+  ],
+  "passed": false,
+  "status": "idle",
+  "checks": {
+   "s2c1": [
+    "fail",
+    "not seen in Code"
+   ]
+  },
+  "copy": [
+   {
+    "src": "step.started",
+    "title": "Run your first output",
+    "body": "In calculator.py, type print(add(2, 3))",
+    "kind": "action line",
+    "grades": {
+     "words": true,
+     "cursor": true,
+     "label": true,
+     "one": true,
+     "file": true,
+     "app": false
+    }
+   },
+   {
+    "src": "card",
+    "title": "Question · Run your first output",
+    "body": "What does `python calculator.py` print right now?",
+    "kind": "hint",
+    "level": 0,
+    "actions": null,
+    "when": "hint",
+    "grades": {
+     "words": true,
+     "cursor": true,
+     "label": true,
+     "one": true,
+     "file": true,
+     "app": false
+    }
+   },
+   {
+    "src": "card",
+    "title": "Where to work",
+    "body": "Open calculator.py in VS Code",
+    "kind": "hint",
+    "level": null,
+    "actions": null,
+    "when": "show me",
+    "grades": {
+     "words": true,
+     "cursor": true,
+     "label": true,
+     "one": true,
+     "file": true,
+     "app": true
+    }
+   },
+   {
+    "src": "card",
+    "title": "Stuck on this step?",
+    "body": "Skip it, or ask for a hint.",
+    "kind": "hint",
+    "level": null,
+    "actions": [
+     "skip_step"
+    ],
+    "when": "idle 100 s",
+    "grades": {
+     "words": true,
+     "cursor": true,
+     "label": true,
+     "one": false,
+     "file": false,
+     "app": false
+    }
+   }
+  ],
+  "timeline": [
+   "typed / screen",
+   "tick while typing",
+   "idle 5 s",
+   "hint",
+   "show me",
+   "idle 100 s"
+  ],
+  "coach_routes": [
+   {
+    "route": "template",
+    "triage": {
+     "route": "opus",
+     "by": "fallback",
+     "reason": "default to full diagnosis"
+    },
+    "fallback": "diagnose: offline mode (DEMO / ORCH_STUBS), no live call",
+    "playbook": null,
+    "title": "Start: Run your first output"
+   }
+  ],
+  "next_step_cards": [],
+  "errors": []
+ },
+ {
+  "lesson": "A",
+  "lesson_title": "Build a Python Calculator",
+  "step": "s2",
+  "step_title": "Run your first output",
+  "state": "unsaved",
+  "note": "",
+  "window_title": "● calculator.py — python-calculator-e430dc",
+  "on_disk": "\"\"\"A simple Python calculator.\"\"\"\n\n# Step 1: Start building your calculator here\ndef add(a, b):\n    return a + b\n\nprint(add(2, 3))\n",
+  "terminal": [
+   "learner@MacBook-Pro python-calculator-e430dc % "
+  ],
+  "passed": false,
+  "status": "idle",
+  "checks": {},
+  "copy": [
+   {
+    "src": "step.started",
+    "title": "Run your first output",
+    "body": "In calculator.py, type print(add(2, 3))",
+    "kind": "action line",
+    "grades": {
+     "words": true,
+     "cursor": true,
+     "label": true,
+     "one": true,
+     "file": true,
+     "app": false
+    }
+   },
+   {
+    "src": "card",
+    "title": "Type this · Run your first output",
+    "body": "Type exactly this in calculator.py in VS Code, then save.",
+    "kind": "hint",
+    "level": 0,
+    "actions": [
+     "show_me"
+    ],
+    "when": "hint",
+    "grades": {
+     "words": true,
+     "cursor": true,
+     "label": true,
+     "one": false,
+     "file": true,
+     "app": true
+    }
+   }
+  ],
+  "timeline": [
+   "typed / screen",
+   "tick while typing",
+   "idle 5 s",
+   "hint",
+   "show me",
+   "idle 100 s"
+  ],
+  "coach_routes": [],
+  "next_step_cards": [],
+  "errors": []
+ },
+ {
+  "lesson": "A",
+  "lesson_title": "Build a Python Calculator",
+  "step": "s2",
+  "step_title": "Run your first output",
+  "state": "wrong_folder",
+  "note": "",
+  "window_title": "calculator.py — Desktop",
+  "on_disk": "\"\"\"A simple Python calculator.\"\"\"\n\n# Step 1: Start building your calculator here\ndef add(a, b):\n    return a + b\n\nprint(add(2, 3))\n",
+  "terminal": [
+   "learner@MacBook-Pro python-calculator-e430dc % "
+  ],
+  "passed": true,
+  "status": null,
+  "checks": {},
+  "copy": [
+   {
+    "src": "step.started",
+    "title": "Run your first output",
+    "body": "In calculator.py, type print(add(2, 3))",
+    "kind": "action line",
+    "grades": {
+     "words": true,
+     "cursor": true,
+     "label": true,
+     "one": true,
+     "file": true,
+     "app": false
+    }
+   }
+  ],
+  "timeline": [
+   "typed / screen",
+   "tick while typing",
+   "idle 5 s",
+   "hint",
+   "show me",
+   "idle 100 s"
+  ],
+  "coach_routes": [],
+  "next_step_cards": [
+   [
+    "Question · Add three more operations",
+    "Which line of calculator.py defines subtract, and is it there yet?"
+   ],
+   [
+    "Stuck on this step?",
+    "Skip it, or ask for a hint."
+   ]
+  ],
+  "errors": []
+ },
+ {
+  "lesson": "A",
+  "lesson_title": "Build a Python Calculator",
+  "step": "s2",
+  "step_title": "Run your first output",
+  "state": "typo",
+  "note": "def add(a, b): -> def(a, b):",
+  "window_title": "calculator.py — python-calculator-e430dc",
+  "on_disk": "\"\"\"A simple Python calculator.\"\"\"\n\n# Step 1: Start building your calculator here\ndef(a, b):\n    return a + b\n\nprint(add(2, 3))\n",
+  "terminal": [
+   "learner@MacBook-Pro python-calculator-e430dc % python calculator.py",
+   "  File \"/Users/learner/miyagi/lessons/python-calculator-e430dc/calculator.py\", line 4",
+   "    def(a, b):",
+   "       ^",
+   "SyntaxError: invalid syntax",
+   "learner@MacBook-Pro python-calculator-e430dc % "
+  ],
+  "passed": false,
+  "status": "idle",
+  "checks": {
+   "s2c1": [
+    "fail",
+    "not seen in Code"
+   ]
+  },
+  "copy": [
+   {
+    "src": "step.started",
+    "title": "Run your first output",
+    "body": "In calculator.py, type print(add(2, 3))",
+    "kind": "action line",
+    "grades": {
+     "words": true,
+     "cursor": true,
+     "label": true,
+     "one": true,
+     "file": true,
+     "app": false
+    }
+   },
+   {
+    "src": "offtrack",
+    "title": "SyntaxError in calculator.py",
+    "body": "`def` needs a name: line 4 of calculator.py.",
+    "kind": "offtrack",
+    "level": 2,
+    "actions": [
+     "explain",
+     "show_me",
+     "hint",
+     "apply_fix"
+    ],
+    "when": "saved again",
+    "grades": {
+     "words": true,
+     "cursor": true,
+     "label": true,
+     "one": true,
+     "file": true,
+     "app": false
+    }
+   },
+   {
+    "src": "spotlight",
+    "title": "",
+    "body": "In the terminal,",
+    "kind": "caption",
+    "when": "hint",
+    "grades": {
+     "words": true,
+     "cursor": true,
+     "label": true,
+     "one": true
+    }
+   },
+   {
+    "src": "card",
+    "title": "Question · Run your first output",
+    "body": "SyntaxError in calculator.py: what in your code makes that happen, and which value or line would change it?",
+    "kind": "hint",
+    "level": 0,
+    "actions": null,
+    "when": "hint",
+    "grades": {
+     "words": false,
+     "cursor": true,
+     "label": true,
+     "one": true,
+     "file": true,
+     "app": false
+    }
+   },
+   {
+    "src": "spotlight",
+    "title": "",
+    "body": "In calculator.py, type print(add(2, 3))",
+    "kind": "caption",
+    "when": "show me",
+    "grades": {
+     "words": true,
+     "cursor": true,
+     "label": true,
+     "one": true
+    }
+   },
+   {
+    "src": "card",
+    "title": "Stuck on this step?",
+    "body": "Skip it, or ask for a hint.",
+    "kind": "hint",
+    "level": null,
+    "actions": [
+     "skip_step"
+    ],
+    "when": "idle 100 s",
+    "grades": {
+     "words": true,
+     "cursor": true,
+     "label": true,
+     "one": false,
+     "file": false,
+     "app": false
+    }
+   }
+  ],
+  "timeline": [
+   "typed / screen",
+   "saved",
+   "tick while typing",
+   "idle 5 s",
+   "saved again",
+   "idle after 2nd save",
+   "hint",
+   "show me",
+   "idle 100 s"
+  ],
+  "coach_routes": [
+   {
+    "route": "error_offline",
+    "triage": {
+     "route": "opus",
+     "by": "fallback",
+     "reason": "default to full diagnosis"
+    },
+    "fallback": "diagnose: offline mode (DEMO / ORCH_STUBS), no live call",
+    "playbook": null,
+    "title": "SyntaxError in calculator.py"
+   }
+  ],
+  "next_step_cards": [],
+  "errors": []
+ },
+ {
+  "lesson": "A",
+  "lesson_title": "Build a Python Calculator",
+  "step": "s2",
+  "step_title": "Run your first output",
+  "state": "terminal_closed",
+  "note": "",
+  "window_title": "calculator.py — python-calculator-e430dc",
+  "on_disk": "\"\"\"A simple Python calculator.\"\"\"\n\n# Step 1: Start building your calculator here\ndef add(a, b):\n    return a + b\n\nprint(add(2, 3))\n",
+  "terminal": null,
+  "passed": true,
+  "status": null,
+  "checks": {},
+  "copy": [
+   {
+    "src": "step.started",
+    "title": "Run your first output",
+    "body": "In calculator.py, type print(add(2, 3))",
+    "kind": "action line",
+    "grades": {
+     "words": true,
+     "cursor": true,
+     "label": true,
+     "one": true,
+     "file": true,
+     "app": false
+    }
+   }
+  ],
+  "timeline": [
+   "typed / screen",
+   "saved",
+   "tick while typing",
+   "idle 5 s",
+   "saved again",
+   "idle after 2nd save",
+   "hint",
+   "show me",
+   "idle 100 s"
+  ],
+  "coach_routes": [
+   {
+    "route": "template",
+    "triage": {
+     "route": "opus",
+     "by": "fallback",
+     "reason": "default to full diagnosis"
+    },
+    "fallback": "diagnose: offline mode (DEMO / ORCH_STUBS), no live call",
+    "playbook": null,
+    "title": "Start: Add three more operations"
+   },
+   {
+    "route": "template",
+    "triage": {
+     "route": "opus",
+     "by": "fallback",
+     "reason": "default to full diagnosis"
+    },
+    "fallback": "diagnose: offline mode (DEMO / ORCH_STUBS), no live call",
+    "playbook": null,
+    "title": "Start: Add three more operations"
+   },
+   {
+    "route": "template",
+    "triage": {
+     "route": "opus",
+     "by": "fallback",
+     "reason": "default to full diagnosis"
+    },
+    "fallback": "diagnose: offline mode (DEMO / ORCH_STUBS), no live call",
+    "playbook": null,
+    "title": "Start: Add three more operations"
+   }
+  ],
+  "next_step_cards": [
+   [
+    "Start: Add three more operations",
+    "In VS Code, type `def subtract(a, b):` in calculator.py."
+   ],
+   [
+    "Type this · Add three more operations",
+    "Type exactly this in calculator.py in VS Code, then save."
+   ],
+   [
+    "Stuck on this step?",
+    "Skip it, or ask for a hint."
+   ]
+  ],
+  "errors": []
+ },
+ {
+  "lesson": "A",
+  "lesson_title": "Build a Python Calculator",
+  "step": "s2",
+  "step_title": "Run your first output",
+  "state": "right",
+  "note": "",
+  "window_title": "calculator.py — python-calculator-e430dc",
+  "on_disk": "\"\"\"A simple Python calculator.\"\"\"\n\n# Step 1: Start building your calculator here\ndef add(a, b):\n    return a + b\n\nprint(add(2, 3))\n",
+  "terminal": [
+   "learner@MacBook-Pro python-calculator-e430dc % python calculator.py",
+   "5",
+   "learner@MacBook-Pro python-calculator-e430dc % "
+  ],
+  "passed": true,
+  "status": null,
+  "checks": {},
+  "copy": [
+   {
+    "src": "step.started",
+    "title": "Run your first output",
+    "body": "In calculator.py, type print(add(2, 3))",
+    "kind": "action line",
+    "grades": {
+     "words": true,
+     "cursor": true,
+     "label": true,
+     "one": true,
+     "file": true,
+     "app": false
+    }
+   }
+  ],
+  "timeline": [
+   "typed / screen",
+   "saved",
+   "tick while typing",
+   "idle 5 s",
+   "saved again",
+   "idle after 2nd save",
+   "hint",
+   "show me",
+   "idle 100 s"
+  ],
+  "coach_routes": [
+   {
+    "route": "template",
+    "triage": {
+     "route": "opus",
+     "by": "fallback",
+     "reason": "default to full diagnosis"
+    },
+    "fallback": "diagnose: offline mode (DEMO / ORCH_STUBS), no live call",
+    "playbook": null,
+    "title": "Start: Add three more operations"
+   },
+   {
+    "route": "template",
+    "triage": {
+     "route": "opus",
+     "by": "fallback",
+     "reason": "default to full diagnosis"
+    },
+    "fallback": "diagnose: offline mode (DEMO / ORCH_STUBS), no live call",
+    "playbook": null,
+    "title": "Start: Add three more operations"
+   },
+   {
+    "route": "template",
+    "triage": {
+     "route": "opus",
+     "by": "fallback",
+     "reason": "default to full diagnosis"
+    },
+    "fallback": "diagnose: offline mode (DEMO / ORCH_STUBS), no live call",
+    "playbook": null,
+    "title": "Start: Add three more operations"
+   }
+  ],
+  "next_step_cards": [
+   [
+    "Start: Add three more operations",
+    "In VS Code, type `def subtract(a, b):` in calculator.py."
+   ],
+   [
+    "Type this · Add three more operations",
+    "Type exactly this in calculator.py in VS Code, then save."
+   ],
+   [
+    "Stuck on this step?",
+    "Skip it, or ask for a hint."
+   ]
+  ],
+  "errors": []
+ },
+ {
+  "lesson": "A",
+  "lesson_title": "Build a Python Calculator",
+  "step": "s3",
+  "step_title": "Add three more operations",
+  "state": "empty",
+  "note": "",
+  "window_title": "calculator.py — python-calculator-e430dc",
+  "on_disk": "\"\"\"A simple Python calculator.\"\"\"\n\n# Step 1: Start building your calculator here\n",
+  "terminal": [
+   "learner@MacBook-Pro python-calculator-e430dc % "
+  ],
+  "passed": false,
+  "status": "idle",
+  "checks": {
+   "s3c1": [
+    "fail",
+    "not seen in Code"
+   ],
+   "s3c2": [
+    "fail",
+    "not seen in Code"
+   ],
+   "s3c3": [
+    "fail",
+    "not seen in Code"
+   ]
+  },
+  "copy": [
+   {
+    "src": "step.started",
+    "title": "Add three more operations",
+    "body": "In calculator.py, type def subtract(a, b): …",
+    "kind": "action line",
+    "grades": {
+     "words": true,
+     "cursor": true,
+     "label": true,
+     "one": true,
+     "file": true,
+     "app": false
+    }
+   },
+   {
+    "src": "card",
+    "title": "Type this · Add three more operations",
+    "body": "Type exactly this in calculator.py in VS Code, then save.",
+    "kind": "hint",
+    "level": 0,
+    "actions": [
+     "show_me"
+    ],
+    "when": "hint",
+    "grades": {
+     "words": true,
+     "cursor": true,
+     "label": true,
+     "one": false,
+     "file": true,
+     "app": true
+    }
+   },
+   {
+    "src": "card",
+    "title": "Where to work",
+    "body": "Open calculator.py in VS Code",
+    "kind": "hint",
+    "level": null,
+    "actions": null,
+    "when": "show me",
+    "grades": {
+     "words": true,
+     "cursor": true,
+     "label": true,
+     "one": true,
+     "file": true,
+     "app": true
+    }
+   },
+   {
+    "src": "card",
+    "title": "Stuck on this step?",
+    "body": "Skip it, or ask for a hint.",
+    "kind": "hint",
+    "level": null,
+    "actions": [
+     "skip_step"
+    ],
+    "when": "idle 100 s",
+    "grades": {
+     "words": true,
+     "cursor": true,
+     "label": true,
+     "one": false,
+     "file": false,
+     "app": false
+    }
+   }
+  ],
+  "timeline": [
+   "typed / screen",
+   "tick while typing",
+   "idle 5 s",
+   "hint",
+   "show me",
+   "idle 100 s"
+  ],
+  "coach_routes": [
+   {
+    "route": "template",
+    "triage": {
+     "route": "opus",
+     "by": "fallback",
+     "reason": "default to full diagnosis"
+    },
+    "fallback": "diagnose: offline mode (DEMO / ORCH_STUBS), no live call",
+    "playbook": null,
+    "title": "Start: Add three more operations"
+   }
+  ],
+  "next_step_cards": [],
+  "errors": []
+ },
+ {
+  "lesson": "A",
+  "lesson_title": "Build a Python Calculator",
+  "step": "s3",
+  "step_title": "Add three more operations",
+  "state": "unsaved",
+  "note": "",
+  "window_title": "● calculator.py — python-calculator-e430dc",
+  "on_disk": "\"\"\"A simple Python calculator.\"\"\"\n\n# Step 1: Start building your calculator here\ndef add(a, b):\n    return a + b\n\nprint(add(2, 3))\n",
+  "terminal": [
+   "learner@MacBook-Pro python-calculator-e430dc % "
+  ],
+  "passed": false,
+  "status": "idle",
+  "checks": {},
+  "copy": [
+   {
+    "src": "step.started",
+    "title": "Add three more operations",
+    "body": "In calculator.py, type def subtract(a, b): …",
+    "kind": "action line",
+    "grades": {
+     "words": true,
+     "cursor": true,
+     "label": true,
+     "one": true,
+     "file": true,
+     "app": false
+    }
+   },
+   {
+    "src": "card",
+    "title": "Type this · Add three more operations",
+    "body": "Type exactly this in calculator.py in VS Code, then save.",
+    "kind": "hint",
+    "level": 0,
+    "actions": [
+     "show_me"
+    ],
+    "when": "hint",
+    "grades": {
+     "words": true,
+     "cursor": true,
+     "label": true,
+     "one": false,
+     "file": true,
+     "app": true
+    }
+   },
+   {
+    "src": "card",
+    "title": "Save calculator.py",
+    "body": "Save with ⌘S so I can check it.",
+    "kind": "hint",
+    "level": null,
+    "actions": null,
+    "when": "idle 100 s",
+    "grades": {
+     "words": true,
+     "cursor": true,
+     "label": true,
+     "one": true,
+     "file": true,
+     "app": false
+    }
+   }
+  ],
+  "timeline": [
+   "typed / screen",
+   "tick while typing",
+   "idle 5 s",
+   "hint",
+   "show me",
+   "idle 100 s"
+  ],
+  "coach_routes": [],
+  "next_step_cards": [],
+  "errors": []
+ },
+ {
+  "lesson": "A",
+  "lesson_title": "Build a Python Calculator",
+  "step": "s3",
+  "step_title": "Add three more operations",
+  "state": "wrong_folder",
+  "note": "",
+  "window_title": "calculator.py — Desktop",
+  "on_disk": "\"\"\"A simple Python calculator.\"\"\"\n\n# Step 1: Start building your calculator here\ndef add(a, b):\n    return a + b\n\nprint(add(2, 3))\n",
+  "terminal": [
+   "learner@MacBook-Pro python-calculator-e430dc % "
+  ],
+  "passed": false,
+  "status": "idle",
+  "checks": {
+   "s3c1": [
+    "fail",
+    "not seen in Code"
+   ]
+  },
+  "copy": [
+   {
+    "src": "step.started",
+    "title": "Add three more operations",
+    "body": "In calculator.py, type def subtract(a, b): …",
+    "kind": "action line",
+    "grades": {
+     "words": true,
+     "cursor": true,
+     "label": true,
+     "one": true,
+     "file": true,
+     "app": false
+    }
+   },
+   {
+    "src": "card",
+    "title": "Type this · Add three more operations",
+    "body": "Type exactly this in calculator.py in VS Code, then save.",
+    "kind": "hint",
+    "level": 0,
+    "actions": [
+     "show_me"
+    ],
+    "when": "hint",
+    "grades": {
+     "words": true,
+     "cursor": true,
+     "label": true,
+     "one": false,
+     "file": true,
+     "app": true
+    }
+   },
+   {
+    "src": "card",
+    "title": "Stuck on this step?",
+    "body": "Skip it, or ask for a hint.",
+    "kind": "hint",
+    "level": null,
+    "actions": [
+     "skip_step"
+    ],
+    "when": "idle 100 s",
+    "grades": {
+     "words": true,
+     "cursor": true,
+     "label": true,
+     "one": false,
+     "file": false,
+     "app": false
+    }
+   },
+   {
+    "src": "card",
+    "title": "Wrong folder?",
+    "body": "You're editing calculator.py in Desktop, but this lesson is in python-calculator-e430dc.",
+    "kind": "hint",
+    "level": null,
+    "actions": [
+     "open_editor"
+    ],
+    "when": "idle 100 s",
+    "grades": {
+     "words": true,
+     "cursor": true,
+     "label": true,
+     "one": true,
+     "file": true,
+     "app": false
+    }
+   }
+  ],
+  "timeline": [
+   "typed / screen",
+   "tick while typing",
+   "idle 5 s",
+   "hint",
+   "show me",
+   "idle 100 s"
+  ],
+  "coach_routes": [],
+  "next_step_cards": [],
+  "errors": []
+ },
+ {
+  "lesson": "A",
+  "lesson_title": "Build a Python Calculator",
+  "step": "s3",
+  "step_title": "Add three more operations",
+  "state": "typo",
+  "note": "def subtract(a, b): -> def(a, b):",
+  "window_title": "calculator.py — python-calculator-e430dc",
+  "on_disk": "\"\"\"A simple Python calculator.\"\"\"\n\n# Step 1: Start building your calculator here\ndef add(a, b):\n    return a + b\n\ndef(a, b):\n    return a - b\n\ndef multiply(a, b):\n    return a * b\n\ndef divide(a, b):\n    return a / b\n\nprint(add(2, 3))\n",
+  "terminal": [
+   "learner@MacBook-Pro python-calculator-e430dc % python calculator.py",
+   "  File \"/Users/learner/miyagi/lessons/python-calculator-e430dc/calculator.py\", line 7",
+   "    def(a, b):",
+   "       ^",
+   "SyntaxError: invalid syntax",
+   "learner@MacBook-Pro python-calculator-e430dc % "
+  ],
+  "passed": false,
+  "status": "idle",
+  "checks": {
+   "s3c1": [
+    "fail",
+    "not seen in Code"
+   ]
+  },
+  "copy": [
+   {
+    "src": "step.started",
+    "title": "Add three more operations",
+    "body": "In calculator.py, type def subtract(a, b): …",
+    "kind": "action line",
+    "grades": {
+     "words": true,
+     "cursor": true,
+     "label": true,
+     "one": true,
+     "file": true,
+     "app": false
+    }
+   },
+   {
+    "src": "offtrack",
+    "title": "SyntaxError in calculator.py",
+    "body": "`def` needs a name: line 7 of calculator.py.",
+    "kind": "offtrack",
+    "level": 2,
+    "actions": [
+     "explain",
+     "show_me",
+     "hint",
+     "apply_fix"
+    ],
+    "when": "saved again",
+    "grades": {
+     "words": true,
+     "cursor": true,
+     "label": true,
+     "one": true,
+     "file": true,
+     "app": false
+    }
+   },
+   {
+    "src": "card",
+    "title": "Question · Add three more operations",
+    "body": "SyntaxError in calculator.py: what in your code makes that happen, and which value or line would change it?",
+    "kind": "hint",
+    "level": 0,
+    "actions": null,
+    "when": "hint",
+    "grades": {
+     "words": false,
+     "cursor": true,
+     "label": true,
+     "one": true,
+     "file": true,
+     "app": false
+    }
+   },
+   {
+    "src": "card",
+    "title": "Stuck on this step?",
+    "body": "Skip it, or ask for a hint.",
+    "kind": "hint",
+    "level": null,
+    "actions": [
+     "skip_step"
+    ],
+    "when": "idle 100 s",
+    "grades": {
+     "words": true,
+     "cursor": true,
+     "label": true,
+     "one": false,
+     "file": false,
+     "app": false
+    }
+   }
+  ],
+  "timeline": [
+   "typed / screen",
+   "saved",
+   "tick while typing",
+   "idle 5 s",
+   "saved again",
+   "idle after 2nd save",
+   "hint",
+   "show me",
+   "idle 100 s"
+  ],
+  "coach_routes": [
+   {
+    "route": "error_offline",
+    "triage": {
+     "route": "opus",
+     "by": "fallback",
+     "reason": "default to full diagnosis"
+    },
+    "fallback": "diagnose: offline mode (DEMO / ORCH_STUBS), no live call",
+    "playbook": null,
+    "title": "SyntaxError in calculator.py"
+   }
+  ],
+  "next_step_cards": [],
+  "errors": []
+ },
+ {
+  "lesson": "A",
+  "lesson_title": "Build a Python Calculator",
+  "step": "s3",
+  "step_title": "Add three more operations",
+  "state": "terminal_closed",
+  "note": "",
+  "window_title": "calculator.py — python-calculator-e430dc",
+  "on_disk": "\"\"\"A simple Python calculator.\"\"\"\n\n# Step 1: Start building your calculator here\ndef add(a, b):\n    return a + b\n\ndef subtract(a, b):\n    return a - b\n\ndef multiply(a, b):\n    return a * b\n\ndef divide(a, b):\n    return a / b\n\nprint(add(2, 3))\n",
+  "terminal": null,
+  "passed": true,
+  "status": null,
+  "checks": {},
+  "copy": [
+   {
+    "src": "step.started",
+    "title": "Add three more operations",
+    "body": "In calculator.py, type def subtract(a, b): …",
+    "kind": "action line",
+    "grades": {
+     "words": true,
+     "cursor": true,
+     "label": true,
+     "one": true,
+     "file": true,
+     "app": false
+    }
+   }
+  ],
+  "timeline": [
+   "typed / screen",
+   "saved",
+   "tick while typing",
+   "idle 5 s",
+   "saved again",
+   "idle after 2nd save",
+   "hint",
+   "show me",
+   "idle 100 s"
+  ],
+  "coach_routes": [
+   {
+    "route": "template",
+    "triage": {
+     "route": "opus",
+     "by": "fallback",
+     "reason": "default to full diagnosis"
+    },
+    "fallback": "diagnose: offline mode (DEMO / ORCH_STUBS), no live call",
+    "playbook": null,
+    "title": "Start: Guard against dividing by zero"
+   },
+   {
+    "route": "template",
+    "triage": {
+     "route": "opus",
+     "by": "fallback",
+     "reason": "default to full diagnosis"
+    },
+    "fallback": "diagnose: offline mode (DEMO / ORCH_STUBS), no live call",
+    "playbook": null,
+    "title": "Start: Guard against dividing by zero"
+   },
+   {
+    "route": "template",
+    "triage": {
+     "route": "opus",
+     "by": "fallback",
+     "reason": "default to full diagnosis"
+    },
+    "fallback": "diagnose: offline mode (DEMO / ORCH_STUBS), no live call",
+    "playbook": null,
+    "title": "Start: Guard against dividing by zero"
+   }
+  ],
+  "next_step_cards": [
+   [
+    "Start: Guard against dividing by zero",
+    "In VS Code, type `def divide(a, b):` in calculator.py."
+   ],
+   [
+    "Type this · Guard against dividing by…",
+    "Type exactly this in calculator.py in VS Code, then save."
+   ],
+   [
+    "Stuck on this step?",
+    "Skip it, or ask for a hint."
+   ]
+  ],
+  "errors": []
+ },
+ {
+  "lesson": "A",
+  "lesson_title": "Build a Python Calculator",
+  "step": "s3",
+  "step_title": "Add three more operations",
+  "state": "right",
+  "note": "",
+  "window_title": "calculator.py — python-calculator-e430dc",
+  "on_disk": "\"\"\"A simple Python calculator.\"\"\"\n\n# Step 1: Start building your calculator here\ndef add(a, b):\n    return a + b\n\ndef subtract(a, b):\n    return a - b\n\ndef multiply(a, b):\n    return a * b\n\ndef divide(a, b):\n    return a / b\n\nprint(add(2, 3))\n",
+  "terminal": [
+   "learner@MacBook-Pro python-calculator-e430dc % python calculator.py",
+   "5",
+   "learner@MacBook-Pro python-calculator-e430dc % "
+  ],
+  "passed": true,
+  "status": null,
+  "checks": {},
+  "copy": [
+   {
+    "src": "step.started",
+    "title": "Add three more operations",
+    "body": "In calculator.py, type def subtract(a, b): …",
+    "kind": "action line",
+    "grades": {
+     "words": true,
+     "cursor": true,
+     "label": true,
+     "one": true,
+     "file": true,
+     "app": false
+    }
+   }
+  ],
+  "timeline": [
+   "typed / screen",
+   "saved",
+   "tick while typing",
+   "idle 5 s",
+   "saved again",
+   "idle after 2nd save",
+   "hint",
+   "show me",
+   "idle 100 s"
+  ],
+  "coach_routes": [
+   {
+    "route": "template",
+    "triage": {
+     "route": "opus",
+     "by": "fallback",
+     "reason": "default to full diagnosis"
+    },
+    "fallback": "diagnose: offline mode (DEMO / ORCH_STUBS), no live call",
+    "playbook": null,
+    "title": "Start: Guard against dividing by zero"
+   },
+   {
+    "route": "template",
+    "triage": {
+     "route": "opus",
+     "by": "fallback",
+     "reason": "default to full diagnosis"
+    },
+    "fallback": "diagnose: offline mode (DEMO / ORCH_STUBS), no live call",
+    "playbook": null,
+    "title": "Start: Guard against dividing by zero"
+   },
+   {
+    "route": "template",
+    "triage": {
+     "route": "opus",
+     "by": "fallback",
+     "reason": "default to full diagnosis"
+    },
+    "fallback": "diagnose: offline mode (DEMO / ORCH_STUBS), no live call",
+    "playbook": null,
+    "title": "Start: Guard against dividing by zero"
+   }
+  ],
+  "next_step_cards": [
+   [
+    "Start: Guard against dividing by zero",
+    "In VS Code, type `def divide(a, b):` in calculator.py."
+   ],
+   [
+    "Type this · Guard against dividing by…",
+    "Type exactly this in calculator.py in VS Code, then save."
+   ],
+   [
+    "Stuck on this step?",
+    "Skip it, or ask for a hint."
+   ]
+  ],
+  "errors": []
+ },
+ {
+  "lesson": "B",
+  "lesson_title": "Build a Python Calculator",
+  "step": "s1",
+  "step_title": "Create the project file",
+  "state": "empty",
+  "note": "",
+  "window_title": "calculator.py — _new",
+  "on_disk": "",
+  "terminal": [
+   "learner@MacBook-Pro _new % "
+  ],
+  "passed": false,
+  "status": "idle",
+  "checks": {
+   "s1c1": [
+    "fail",
+    "not seen on screen"
+   ]
+  },
+  "copy": [
+   {
+    "src": "step.started",
+    "title": "Create the project file",
+    "body": "In calculator.py, type print(\"Calculator ready\")",
+    "kind": "action line",
+    "grades": {
+     "words": true,
+     "cursor": true,
+     "label": true,
+     "one": true,
+     "file": true,
+     "app": false
+    }
+   },
+   {
+    "src": "card",
+    "title": "Type this · Create the project file",
+    "body": "Type exactly this in calculator.py in VS Code, then save.",
+    "kind": "hint",
+    "level": 0,
+    "actions": [
+     "show_me"
+    ],
+    "when": "hint",
+    "grades": {
+     "words": true,
+     "cursor": true,
+     "label": true,
+     "one": false,
+     "file": true,
+     "app": true
+    }
+   },
+   {
+    "src": "card",
+    "title": "Where to work",
+    "body": "Open calculator.py in VS Code",
+    "kind": "hint",
+    "level": null,
+    "actions": null,
+    "when": "show me",
+    "grades": {
+     "words": true,
+     "cursor": true,
+     "label": true,
+     "one": true,
+     "file": true,
+     "app": true
+    }
+   },
+   {
+    "src": "card",
+    "title": "Stuck on this step?",
+    "body": "Skip it, or ask for a hint.",
+    "kind": "hint",
+    "level": null,
+    "actions": [
+     "skip_step"
+    ],
+    "when": "idle 100 s",
+    "grades": {
+     "words": true,
+     "cursor": true,
+     "label": true,
+     "one": false,
+     "file": false,
+     "app": false
+    }
+   }
+  ],
+  "timeline": [
+   "typed / screen",
+   "tick while typing",
+   "idle 5 s",
+   "hint",
+   "show me",
+   "idle 100 s"
+  ],
+  "coach_routes": [
+   {
+    "route": "template",
+    "triage": {
+     "route": "opus",
+     "by": "fallback",
+     "reason": "default to full diagnosis"
+    },
+    "fallback": "diagnose: offline mode (DEMO / ORCH_STUBS), no live call",
+    "playbook": null,
+    "title": "Start: Create the project file"
+   }
+  ],
+  "next_step_cards": [],
+  "errors": []
+ },
+ {
+  "lesson": "B",
+  "lesson_title": "Build a Python Calculator",
+  "step": "s1",
+  "step_title": "Create the project file",
+  "state": "unsaved",
+  "note": "",
+  "window_title": "● calculator.py — _new",
+  "on_disk": "",
+  "terminal": [
+   "learner@MacBook-Pro _new % "
+  ],
+  "passed": false,
+  "status": "idle",
+  "checks": {},
+  "copy": [
+   {
+    "src": "step.started",
+    "title": "Create the project file",
+    "body": "In calculator.py, type print(\"Calculator ready\")",
+    "kind": "action line",
+    "grades": {
+     "words": true,
+     "cursor": true,
+     "label": true,
+     "one": true,
+     "file": true,
+     "app": false
+    }
+   },
+   {
+    "src": "card",
+    "title": "Type this · Create the project file",
+    "body": "Type exactly this in calculator.py in VS Code, then save.",
+    "kind": "hint",
+    "level": 0,
+    "actions": [
+     "show_me"
+    ],
+    "when": "hint",
+    "grades": {
+     "words": true,
+     "cursor": true,
+     "label": true,
+     "one": false,
+     "file": true,
+     "app": true
+    }
+   },
+   {
+    "src": "card",
+    "title": "Where to work",
+    "body": "Open calculator.py in VS Code",
+    "kind": "hint",
+    "level": null,
+    "actions": null,
+    "when": "show me",
+    "grades": {
+     "words": true,
+     "cursor": true,
+     "label": true,
+     "one": true,
+     "file": true,
+     "app": true
+    }
+   },
+   {
+    "src": "card",
+    "title": "Save calculator.py",
+    "body": "Save with ⌘S so I can check it.",
+    "kind": "hint",
+    "level": null,
+    "actions": null,
+    "when": "idle 100 s",
+    "grades": {
+     "words": true,
+     "cursor": true,
+     "label": true,
+     "one": true,
+     "file": true,
+     "app": false
+    }
+   }
+  ],
+  "timeline": [
+   "typed / screen",
+   "tick while typing",
+   "idle 5 s",
+   "hint",
+   "show me",
+   "idle 100 s"
+  ],
+  "coach_routes": [],
+  "next_step_cards": [],
+  "errors": []
+ },
+ {
+  "lesson": "B",
+  "lesson_title": "Build a Python Calculator",
+  "step": "s1",
+  "step_title": "Create the project file",
+  "state": "wrong_folder",
+  "note": "",
+  "window_title": "calculator.py — Desktop",
+  "on_disk": "",
+  "terminal": [
+   "learner@MacBook-Pro _new % "
+  ],
+  "passed": false,
+  "status": "idle",
+  "checks": {},
+  "copy": [
+   {
+    "src": "step.started",
+    "title": "Create the project file",
+    "body": "In calculator.py, type print(\"Calculator ready\")",
+    "kind": "action line",
+    "grades": {
+     "words": true,
+     "cursor": true,
+     "label": true,
+     "one": true,
+     "file": true,
+     "app": false
+    }
+   },
+   {
+    "src": "card",
+    "title": "Type this · Create the project file",
+    "body": "Type exactly this in calculator.py in VS Code, then save.",
+    "kind": "hint",
+    "level": 0,
+    "actions": [
+     "show_me"
+    ],
+    "when": "hint",
+    "grades": {
+     "words": true,
+     "cursor": true,
+     "label": true,
+     "one": false,
+     "file": true,
+     "app": true
+    }
+   },
+   {
+    "src": "card",
+    "title": "Where to work",
+    "body": "Open calculator.py in VS Code",
+    "kind": "hint",
+    "level": null,
+    "actions": null,
+    "when": "show me",
+    "grades": {
+     "words": true,
+     "cursor": true,
+     "label": true,
+     "one": true,
+     "file": true,
+     "app": true
+    }
+   }
+  ],
+  "timeline": [
+   "typed / screen",
+   "tick while typing",
+   "idle 5 s",
+   "hint",
+   "show me",
+   "idle 100 s"
+  ],
+  "coach_routes": [],
+  "next_step_cards": [],
+  "errors": []
+ },
+ {
+  "lesson": "B",
+  "lesson_title": "Build a Python Calculator",
+  "step": "s1",
+  "step_title": "Create the project file",
+  "state": "typo",
+  "note": "print( -> prnt(  (no def in this step)",
+  "window_title": "calculator.py — _new",
+  "on_disk": "prnt(\"Calculator ready\")\n",
+  "terminal": [
+   "learner@MacBook-Pro _new % python3 calculator.py",
+   "Traceback (most recent call last):",
+   "  File \"/Users/learner/miyagi/lessons/_new/calculator.py\", line 1, in <module>",
+   "    prnt(\"Calculator ready\")",
+   "    ^^^^",
+   "NameError: name 'prnt' is not defined. Did you mean: 'print'?",
+   "learner@MacBook-Pro _new % "
+  ],
+  "passed": false,
+  "status": "idle",
+  "checks": {
+   "s1c1": [
+    "fail",
+    "not seen on screen"
+   ]
+  },
+  "copy": [
+   {
+    "src": "step.started",
+    "title": "Create the project file",
+    "body": "In calculator.py, type print(\"Calculator ready\")",
+    "kind": "action line",
+    "grades": {
+     "words": true,
+     "cursor": true,
+     "label": true,
+     "one": true,
+     "file": true,
+     "app": false
+    }
+   },
+   {
+    "src": "offtrack",
+    "title": "NameError in calculator.py",
+    "body": "NameError on line 1 of calculator.py: name 'prnt' is not defined.",
+    "kind": "offtrack",
+    "level": 2,
+    "actions": [
+     "explain",
+     "show_me",
+     "hint",
+     "apply_fix"
+    ],
+    "when": "saved again",
+    "grades": {
+     "words": true,
+     "cursor": true,
+     "label": true,
+     "one": true,
+     "file": true,
+     "app": false
+    }
+   },
+   {
+    "src": "card",
+    "title": "Question · Create the project file",
+    "body": "NameError in calculator.py: what in your code makes that happen, and which value or line would change it?",
+    "kind": "hint",
+    "level": 0,
+    "actions": null,
+    "when": "hint",
+    "grades": {
+     "words": false,
+     "cursor": true,
+     "label": true,
+     "one": true,
+     "file": true,
+     "app": false
+    }
+   },
+   {
+    "src": "card",
+    "title": "Where to work",
+    "body": "Open calculator.py in VS Code",
+    "kind": "hint",
+    "level": null,
+    "actions": null,
+    "when": "show me",
+    "grades": {
+     "words": true,
+     "cursor": true,
+     "label": true,
+     "one": true,
+     "file": true,
+     "app": true
+    }
+   },
+   {
+    "src": "card",
+    "title": "Stuck on this step?",
+    "body": "Skip it, or ask for a hint.",
+    "kind": "hint",
+    "level": null,
+    "actions": [
+     "skip_step"
+    ],
+    "when": "idle 100 s",
+    "grades": {
+     "words": true,
+     "cursor": true,
+     "label": true,
+     "one": false,
+     "file": false,
+     "app": false
+    }
+   }
+  ],
+  "timeline": [
+   "typed / screen",
+   "saved",
+   "tick while typing",
+   "idle 5 s",
+   "saved again",
+   "idle after 2nd save",
+   "hint",
+   "show me",
+   "idle 100 s"
+  ],
+  "coach_routes": [
+   {
+    "route": "error_offline",
+    "triage": {
+     "route": "opus",
+     "by": "fallback",
+     "reason": "default to full diagnosis"
+    },
+    "fallback": "diagnose: offline mode (DEMO / ORCH_STUBS), no live call",
+    "playbook": null,
+    "title": "NameError in calculator.py"
+   }
+  ],
+  "next_step_cards": [],
+  "errors": []
+ },
+ {
+  "lesson": "B",
+  "lesson_title": "Build a Python Calculator",
+  "step": "s1",
+  "step_title": "Create the project file",
+  "state": "terminal_closed",
+  "note": "",
+  "window_title": "calculator.py — _new",
+  "on_disk": "print(\"Calculator ready\")\n",
+  "terminal": null,
+  "passed": true,
+  "status": null,
+  "checks": {},
+  "copy": [
+   {
+    "src": "step.started",
+    "title": "Create the project file",
+    "body": "In calculator.py, type print(\"Calculator ready\")",
+    "kind": "action line",
+    "grades": {
+     "words": true,
+     "cursor": true,
+     "label": true,
+     "one": true,
+     "file": true,
+     "app": false
+    }
+   }
+  ],
+  "timeline": [
+   "typed / screen",
+   "saved",
+   "tick while typing",
+   "idle 5 s",
+   "saved again",
+   "idle after 2nd save",
+   "hint",
+   "show me",
+   "idle 100 s"
+  ],
+  "coach_routes": [
+   {
+    "route": "template",
+    "triage": {
+     "route": "opus",
+     "by": "fallback",
+     "reason": "default to full diagnosis"
+    },
+    "fallback": "diagnose: offline mode (DEMO / ORCH_STUBS), no live call",
+    "playbook": null,
+    "title": "Start: Run your first script"
+   },
+   {
+    "route": "template",
+    "triage": {
+     "route": "opus",
+     "by": "fallback",
+     "reason": "default to full diagnosis"
+    },
+    "fallback": "diagnose: offline mode (DEMO / ORCH_STUBS), no live call",
+    "playbook": null,
+    "title": "Start: Run your first script"
+   },
+   {
+    "route": "template",
+    "triage": {
+     "route": "opus",
+     "by": "fallback",
+     "reason": "default to full diagnosis"
+    },
+    "fallback": "diagnose: offline mode (DEMO / ORCH_STUBS), no live call",
+    "playbook": null,
+    "title": "Start: Run your first script"
+   }
+  ],
+  "next_step_cards": [
+   [
+    "Run it",
+    "Run it in the terminal: python3 calculator.py"
+   ],
+   [
+    "Start: Run your first script",
+    "In VS Code, type `python3 calculator.py`."
+   ],
+   [
+    "Type this · Run your first script",
+    "Type exactly this in VS Code, then save."
+   ],
+   [
+    "Stuck on this step?",
+    "Skip it, or ask for a hint."
+   ]
+  ],
+  "errors": []
+ },
+ {
+  "lesson": "B",
+  "lesson_title": "Build a Python Calculator",
+  "step": "s1",
+  "step_title": "Create the project file",
+  "state": "right",
+  "note": "",
+  "window_title": "calculator.py — _new",
+  "on_disk": "print(\"Calculator ready\")\n",
+  "terminal": [
+   "learner@MacBook-Pro _new % python3 calculator.py",
+   "Calculator ready",
+   "learner@MacBook-Pro _new % "
+  ],
+  "passed": true,
+  "status": null,
+  "checks": {},
+  "copy": [
+   {
+    "src": "step.started",
+    "title": "Create the project file",
+    "body": "In calculator.py, type print(\"Calculator ready\")",
+    "kind": "action line",
+    "grades": {
+     "words": true,
+     "cursor": true,
+     "label": true,
+     "one": true,
+     "file": true,
+     "app": false
+    }
+   }
+  ],
+  "timeline": [
+   "typed / screen",
+   "saved",
+   "tick while typing",
+   "idle 5 s",
+   "saved again",
+   "idle after 2nd save",
+   "hint",
+   "show me",
+   "idle 100 s"
+  ],
+  "coach_routes": [
+   {
+    "route": "template",
+    "triage": {
+     "route": "opus",
+     "by": "fallback",
+     "reason": "default to full diagnosis"
+    },
+    "fallback": "diagnose: offline mode (DEMO / ORCH_STUBS), no live call",
+    "playbook": null,
+    "title": "Start: Run your first script"
+   },
+   {
+    "route": "template",
+    "triage": {
+     "route": "opus",
+     "by": "fallback",
+     "reason": "default to full diagnosis"
+    },
+    "fallback": "diagnose: offline mode (DEMO / ORCH_STUBS), no live call",
+    "playbook": null,
+    "title": "Start: Run your first script"
+   },
+   {
+    "route": "template",
+    "triage": {
+     "route": "opus",
+     "by": "fallback",
+     "reason": "default to full diagnosis"
+    },
+    "fallback": "diagnose: offline mode (DEMO / ORCH_STUBS), no live call",
+    "playbook": null,
+    "title": "Start: Run your first script"
+   }
+  ],
+  "next_step_cards": [
+   [
+    "Run it",
+    "Run it in the terminal: python3 calculator.py"
+   ],
+   [
+    "Start: Run your first script",
+    "In VS Code, type `python3 calculator.py`."
+   ],
+   [
+    "Type this · Run your first script",
+    "Type exactly this in VS Code, then save."
+   ],
+   [
+    "Stuck on this step?",
+    "Skip it, or ask for a hint."
+   ]
+  ],
+  "errors": []
+ },
+ {
+  "lesson": "B",
+  "lesson_title": "Build a Python Calculator",
+  "step": "s2",
+  "step_title": "Run your first script",
+  "state": "empty",
+  "note": "",
+  "window_title": "calculator.py — _new",
+  "on_disk": "",
+  "terminal": [
+   "learner@MacBook-Pro _new % "
+  ],
+  "passed": false,
+  "status": "idle",
+  "checks": {
+   "s1c1": [
+    "fail",
+    "not seen on screen"
+   ]
+  },
+  "copy": [
+   {
+    "src": "step.started",
+    "title": "Create the project file",
+    "body": "In calculator.py, type print(\"Calculator ready\")",
+    "kind": "action line",
+    "grades": {
+     "words": true,
+     "cursor": true,
+     "label": true,
+     "one": true,
+     "file": true,
+     "app": false
+    }
+   },
+   {
+    "src": "card",
+    "title": "Question · Create the project file",
+    "body": "NameError in calculator.py: what in your code makes that happen, and which value or line would change it?",
+    "kind": "hint",
+    "level": 0,
+    "actions": null,
+    "when": "hint",
+    "grades": {
+     "words": false,
+     "cursor": true,
+     "label": true,
+     "one": true,
+     "file": true,
+     "app": false
+    }
+   },
+   {
+    "src": "card",
+    "title": "Where to work",
+    "body": "Open calculator.py in VS Code",
+    "kind": "hint",
+    "level": null,
+    "actions": null,
+    "when": "show me",
+    "grades": {
+     "words": true,
+     "cursor": true,
+     "label": true,
+     "one": true,
+     "file": true,
+     "app": true
+    }
+   },
+   {
+    "src": "card",
+    "title": "Stuck on this step?",
+    "body": "Skip it, or ask for a hint.",
+    "kind": "hint",
+    "level": null,
+    "actions": [
+     "skip_step"
+    ],
+    "when": "idle 100 s",
+    "grades": {
+     "words": true,
+     "cursor": true,
+     "label": true,
+     "one": false,
+     "file": false,
+     "app": false
+    }
+   }
+  ],
+  "timeline": [
+   "typed / screen",
+   "tick while typing",
+   "idle 5 s",
+   "hint",
+   "show me",
+   "idle 100 s"
+  ],
+  "coach_routes": [
+   {
+    "route": "template",
+    "triage": {
+     "route": "opus",
+     "by": "fallback",
+     "reason": "default to full diagnosis"
+    },
+    "fallback": "diagnose: offline mode (DEMO / ORCH_STUBS), no live call",
+    "playbook": null,
+    "title": "Start: Create the project file"
+   }
+  ],
+  "next_step_cards": [],
+  "errors": []
+ },
+ {
+  "lesson": "B",
+  "lesson_title": "Build a Python Calculator",
+  "step": "s2",
+  "step_title": "Run your first script",
+  "state": "unsaved",
+  "note": "",
+  "window_title": "● calculator.py — _new",
+  "on_disk": "print(\"Calculator ready\")\n",
+  "terminal": [
+   "learner@MacBook-Pro _new % "
+  ],
+  "passed": false,
+  "status": "idle",
+  "checks": {
+   "s2c1": [
+    "fail",
+    "Open the Terminal so I can check it."
+   ]
+  },
+  "copy": [
+   {
+    "src": "step.started",
+    "title": "Run your first script",
+    "body": "Run it in the terminal: python3 calculator.py",
+    "kind": "action line",
+    "grades": {
+     "words": true,
+     "cursor": true,
+     "label": true,
+     "one": true,
+     "file": true,
+     "app": false
+    }
+   },
+   {
+    "src": "card",
+    "title": "Type this · Run your first script",
+    "body": "Type exactly this in VS Code, then save.",
+    "kind": "hint",
+    "level": 0,
+    "actions": [
+     "show_me"
+    ],
+    "when": "hint",
+    "grades": {
+     "words": true,
+     "cursor": true,
+     "label": true,
+     "one": false,
+     "file": false,
+     "app": true
+    }
+   },
+   {
+    "src": "spotlight",
+    "title": "",
+    "body": "Type python3 calculator.py at the terminal prompt, then press Enter",
+    "kind": "caption",
+    "when": "show me",
+    "grades": {
+     "words": true,
+     "cursor": true,
+     "label": true,
+     "one": false
+    }
+   },
+   {
+    "src": "card",
+    "title": "Stuck on this step?",
+    "body": "Skip it, or ask for a hint.",
+    "kind": "hint",
+    "level": null,
+    "actions": [
+     "skip_step"
+    ],
+    "when": "idle 100 s",
+    "grades": {
+     "words": true,
+     "cursor": true,
+     "label": true,
+     "one": false,
+     "file": false,
+     "app": false
+    }
+   },
+   {
+    "src": "card",
+    "title": "Save calculator.py",
+    "body": "Save with ⌘S so I can check it.",
+    "kind": "hint",
+    "level": null,
+    "actions": null,
+    "when": "idle 100 s",
+    "grades": {
+     "words": true,
+     "cursor": true,
+     "label": true,
+     "one": true,
+     "file": true,
+     "app": false
+    }
+   }
+  ],
+  "timeline": [
+   "typed / screen",
+   "tick while typing",
+   "idle 5 s",
+   "hint",
+   "show me",
+   "idle 100 s"
+  ],
+  "coach_routes": [],
+  "next_step_cards": [],
+  "errors": []
+ },
+ {
+  "lesson": "B",
+  "lesson_title": "Build a Python Calculator",
+  "step": "s2",
+  "step_title": "Run your first script",
+  "state": "wrong_folder",
+  "note": "",
+  "window_title": "calculator.py — Desktop",
+  "on_disk": "print(\"Calculator ready\")\n",
+  "terminal": [
+   "learner@MacBook-Pro _new % "
+  ],
+  "passed": false,
+  "status": "idle",
+  "checks": {
+   "s2c1": [
+    "fail",
+    "Open the Terminal so I can check it."
+   ]
+  },
+  "copy": [
+   {
+    "src": "step.started",
+    "title": "Run your first script",
+    "body": "Run it in the terminal: python3 calculator.py",
+    "kind": "action line",
+    "grades": {
+     "words": true,
+     "cursor": true,
+     "label": true,
+     "one": true,
+     "file": true,
+     "app": false
+    }
+   },
+   {
+    "src": "card",
+    "title": "Type this · Run your first script",
+    "body": "Type exactly this in VS Code, then save.",
+    "kind": "hint",
+    "level": 0,
+    "actions": [
+     "show_me"
+    ],
+    "when": "hint",
+    "grades": {
+     "words": true,
+     "cursor": true,
+     "label": true,
+     "one": false,
+     "file": false,
+     "app": true
+    }
+   },
+   {
+    "src": "spotlight",
+    "title": "",
+    "body": "Type python3 calculator.py at the terminal prompt, then press Enter",
+    "kind": "caption",
+    "when": "show me",
+    "grades": {
+     "words": true,
+     "cursor": true,
+     "label": true,
+     "one": false
+    }
+   },
+   {
+    "src": "card",
+    "title": "Stuck on this step?",
+    "body": "Skip it, or ask for a hint.",
+    "kind": "hint",
+    "level": null,
+    "actions": [
+     "skip_step"
+    ],
+    "when": "idle 100 s",
+    "grades": {
+     "words": true,
+     "cursor": true,
+     "label": true,
+     "one": false,
+     "file": false,
+     "app": false
+    }
+   },
+   {
+    "src": "card",
+    "title": "Wrong folder?",
+    "body": "You're editing calculator.py in Desktop, but this lesson is in _new.",
+    "kind": "hint",
+    "level": null,
+    "actions": [
+     "open_editor"
+    ],
+    "when": "idle 100 s",
+    "grades": {
+     "words": true,
+     "cursor": true,
+     "label": true,
+     "one": true,
+     "file": true,
+     "app": false
+    }
+   }
+  ],
+  "timeline": [
+   "typed / screen",
+   "tick while typing",
+   "idle 5 s",
+   "hint",
+   "show me",
+   "idle 100 s"
+  ],
+  "coach_routes": [],
+  "next_step_cards": [],
+  "errors": []
+ },
+ {
+  "lesson": "B",
+  "lesson_title": "Build a Python Calculator",
+  "step": "s2",
+  "step_title": "Run your first script",
+  "state": "typo",
+  "note": "print( -> prnt(  (no def in this step)",
+  "window_title": "calculator.py — _new",
+  "on_disk": "prnt(\"Calculator ready\")\n",
+  "terminal": [
+   "learner@MacBook-Pro _new % python3 calculator.py",
+   "Traceback (most recent call last):",
+   "  File \"/Users/learner/miyagi/lessons/_new/calculator.py\", line 1, in <module>",
+   "    prnt(\"Calculator ready\")",
+   "    ^^^^",
+   "NameError: name 'prnt' is not defined. Did you mean: 'print'?",
+   "learner@MacBook-Pro _new % "
+  ],
+  "passed": false,
+  "status": "idle",
+  "checks": {
+   "s2c1": [
+    "fail",
+    "Open the Terminal so I can check it."
+   ],
+   "s2c3": [
+    "fail",
+    "not seen on screen"
+   ]
+  },
+  "copy": [
+   {
+    "src": "step.started",
+    "title": "Run your first script",
+    "body": "Run it in the terminal: python3 calculator.py",
+    "kind": "action line",
+    "grades": {
+     "words": true,
+     "cursor": true,
+     "label": true,
+     "one": true,
+     "file": true,
+     "app": false
+    }
+   },
+   {
+    "src": "offtrack",
+    "title": "NameError in (terminal)",
+    "body": "NameError on line 1 of (terminal): name 'prnt' is not defined.",
+    "kind": "offtrack",
+    "level": 2,
+    "actions": [
+     "explain",
+     "show_me",
+     "hint",
+     "apply_fix"
+    ],
+    "when": "saved again",
+    "grades": {
+     "words": true,
+     "cursor": true,
+     "label": true,
+     "one": true,
+     "file": false,
+     "app": false
+    }
+   },
+   {
+    "src": "spotlight",
+    "title": "",
+    "body": "Type python3 calculatorpy",
+    "kind": "caption",
+    "when": "hint",
+    "grades": {
+     "words": true,
+     "cursor": true,
+     "label": true,
+     "one": true
+    }
+   },
+   {
+    "src": "card",
+    "title": "Question · Run your first script",
+    "body": "NameError in (terminal): what in your code makes that happen, and which value or line would change it?",
+    "kind": "hint",
+    "level": 0,
+    "actions": null,
+    "when": "hint",
+    "grades": {
+     "words": false,
+     "cursor": true,
+     "label": true,
+     "one": true,
+     "file": false,
+     "app": false
+    }
+   },
+   {
+    "src": "spotlight",
+    "title": "",
+    "body": "Type python3 calculator.py at the terminal prompt, then press Enter",
+    "kind": "caption",
+    "when": "show me",
+    "grades": {
+     "words": true,
+     "cursor": true,
+     "label": true,
+     "one": false
+    }
+   },
+   {
+    "src": "card",
+    "title": "Stuck on this step?",
+    "body": "Skip it, or ask for a hint.",
+    "kind": "hint",
+    "level": null,
+    "actions": [
+     "skip_step"
+    ],
+    "when": "idle 100 s",
+    "grades": {
+     "words": true,
+     "cursor": true,
+     "label": true,
+     "one": false,
+     "file": false,
+     "app": false
+    }
+   }
+  ],
+  "timeline": [
+   "typed / screen",
+   "saved",
+   "tick while typing",
+   "idle 5 s",
+   "saved again",
+   "idle after 2nd save",
+   "hint",
+   "show me",
+   "idle 100 s"
+  ],
+  "coach_routes": [
+   {
+    "route": "error_offline",
+    "triage": {
+     "route": "opus",
+     "by": "fallback",
+     "reason": "default to full diagnosis"
+    },
+    "fallback": "diagnose: offline mode (DEMO / ORCH_STUBS), no live call",
+    "playbook": null,
+    "title": "NameError in (terminal)"
+   }
+  ],
+  "next_step_cards": [],
+  "errors": []
+ },
+ {
+  "lesson": "B",
+  "lesson_title": "Build a Python Calculator",
+  "step": "s2",
+  "step_title": "Run your first script",
+  "state": "terminal_closed",
+  "note": "",
+  "window_title": "calculator.py — _new",
+  "on_disk": "print(\"Calculator ready\")\n",
+  "terminal": null,
+  "passed": false,
+  "status": "idle",
+  "checks": {
+   "s2c1": [
+    "fail",
+    "Open the Terminal so I can check it."
+   ]
+  },
+  "copy": [
+   {
+    "src": "step.started",
+    "title": "Run your first script",
+    "body": "Run it in the terminal: python3 calculator.py",
+    "kind": "action line",
+    "grades": {
+     "words": true,
+     "cursor": true,
+     "label": true,
+     "one": true,
+     "file": true,
+     "app": false
+    }
+   },
+   {
+    "src": "card",
+    "title": "Start: Run your first script",
+    "body": "In VS Code, type `python3 calculator.py`.",
+    "kind": "hint",
+    "level": null,
+    "actions": [
+     "apply_fix"
+    ],
+    "when": "saved again",
+    "grades": {
+     "words": true,
+     "cursor": true,
+     "label": true,
+     "one": true,
+     "file": true,
+     "app": true
+    }
+   },
+   {
+    "src": "card",
+    "title": "Type this · Run your first script",
+    "body": "Type exactly this in VS Code, then save.",
+    "kind": "hint",
+    "level": 0,
+    "actions": [
+     "show_me"
+    ],
+    "when": "hint",
+    "grades": {
+     "words": true,
+     "cursor": true,
+     "label": true,
+     "one": false,
+     "file": false,
+     "app": true
+    }
+   },
+   {
+    "src": "spotlight",
+    "title": "",
+    "body": "Type python3 calculator.py at the terminal prompt, then press Enter",
+    "kind": "caption",
+    "when": "show me",
+    "grades": {
+     "words": true,
+     "cursor": true,
+     "label": true,
+     "one": false
+    }
+   },
+   {
+    "src": "card",
+    "title": "Stuck on this step?",
+    "body": "Skip it, or ask for a hint.",
+    "kind": "hint",
+    "level": null,
+    "actions": [
+     "skip_step"
+    ],
+    "when": "idle 100 s",
+    "grades": {
+     "words": true,
+     "cursor": true,
+     "label": true,
+     "one": false,
+     "file": false,
+     "app": false
+    }
+   }
+  ],
+  "timeline": [
+   "typed / screen",
+   "saved",
+   "tick while typing",
+   "idle 5 s",
+   "saved again",
+   "idle after 2nd save",
+   "hint",
+   "show me",
+   "idle 100 s"
+  ],
+  "coach_routes": [
+   {
+    "route": "template",
+    "triage": {
+     "route": "opus",
+     "by": "fallback",
+     "reason": "default to full diagnosis"
+    },
+    "fallback": "diagnose: offline mode (DEMO / ORCH_STUBS), no live call",
+    "playbook": null,
+    "title": "Start: Run your first script"
+   },
+   {
+    "route": "template",
+    "triage": {
+     "route": "opus",
+     "by": "fallback",
+     "reason": "default to full diagnosis"
+    },
+    "fallback": "diagnose: offline mode (DEMO / ORCH_STUBS), no live call",
+    "playbook": null,
+    "title": "Start: Run your first script"
+   },
+   {
+    "route": "template",
+    "triage": {
+     "route": "opus",
+     "by": "fallback",
+     "reason": "default to full diagnosis"
+    },
+    "fallback": "diagnose: offline mode (DEMO / ORCH_STUBS), no live call",
+    "playbook": null,
+    "title": "Start: Run your first script"
+   }
+  ],
+  "next_step_cards": [],
+  "errors": []
+ },
+ {
+  "lesson": "B",
+  "lesson_title": "Build a Python Calculator",
+  "step": "s2",
+  "step_title": "Run your first script",
+  "state": "right",
+  "note": "",
+  "window_title": "calculator.py — _new",
+  "on_disk": "print(\"Calculator ready\")\n",
+  "terminal": [
+   "learner@MacBook-Pro _new % python3 calculator.py",
+   "Calculator ready",
+   "learner@MacBook-Pro _new % "
+  ],
+  "passed": false,
+  "status": "idle",
+  "checks": {
+   "s2c1": [
+    "fail",
+    "Open the Terminal so I can check it."
+   ]
+  },
+  "copy": [
+   {
+    "src": "step.started",
+    "title": "Run your first script",
+    "body": "Run it in the terminal: python3 calculator.py",
+    "kind": "action line",
+    "grades": {
+     "words": true,
+     "cursor": true,
+     "label": true,
+     "one": true,
+     "file": true,
+     "app": false
+    }
+   },
+   {
+    "src": "card",
+    "title": "Start: Run your first script",
+    "body": "In VS Code, type `python3 calculator.py`.",
+    "kind": "hint",
+    "level": null,
+    "actions": [
+     "apply_fix"
+    ],
+    "when": "saved again",
+    "grades": {
+     "words": true,
+     "cursor": true,
+     "label": true,
+     "one": true,
+     "file": true,
+     "app": true
+    }
+   },
+   {
+    "src": "card",
+    "title": "Type this · Run your first script",
+    "body": "Type exactly this in VS Code, then save.",
+    "kind": "hint",
+    "level": 0,
+    "actions": [
+     "show_me"
+    ],
+    "when": "hint",
+    "grades": {
+     "words": true,
+     "cursor": true,
+     "label": true,
+     "one": false,
+     "file": false,
+     "app": true
+    }
+   },
+   {
+    "src": "spotlight",
+    "title": "",
+    "body": "Type python3 calculator.py at the terminal prompt, then press Enter",
+    "kind": "caption",
+    "when": "show me",
+    "grades": {
+     "words": true,
+     "cursor": true,
+     "label": true,
+     "one": false
+    }
+   },
+   {
+    "src": "card",
+    "title": "Stuck on this step?",
+    "body": "Skip it, or ask for a hint.",
+    "kind": "hint",
+    "level": null,
+    "actions": [
+     "skip_step"
+    ],
+    "when": "idle 100 s",
+    "grades": {
+     "words": true,
+     "cursor": true,
+     "label": true,
+     "one": false,
+     "file": false,
+     "app": false
+    }
+   }
+  ],
+  "timeline": [
+   "typed / screen",
+   "saved",
+   "tick while typing",
+   "idle 5 s",
+   "saved again",
+   "idle after 2nd save",
+   "hint",
+   "show me",
+   "idle 100 s"
+  ],
+  "coach_routes": [
+   {
+    "route": "template",
+    "triage": {
+     "route": "opus",
+     "by": "fallback",
+     "reason": "default to full diagnosis"
+    },
+    "fallback": "diagnose: offline mode (DEMO / ORCH_STUBS), no live call",
+    "playbook": null,
+    "title": "Start: Run your first script"
+   },
+   {
+    "route": "template",
+    "triage": {
+     "route": "opus",
+     "by": "fallback",
+     "reason": "default to full diagnosis"
+    },
+    "fallback": "diagnose: offline mode (DEMO / ORCH_STUBS), no live call",
+    "playbook": null,
+    "title": "Start: Run your first script"
+   },
+   {
+    "route": "template",
+    "triage": {
+     "route": "opus",
+     "by": "fallback",
+     "reason": "default to full diagnosis"
+    },
+    "fallback": "diagnose: offline mode (DEMO / ORCH_STUBS), no live call",
+    "playbook": null,
+    "title": "Start: Run your first script"
+   }
+  ],
+  "next_step_cards": [],
+  "errors": []
+ },
+ {
+  "lesson": "B",
+  "lesson_title": "Build a Python Calculator",
+  "step": "s3",
+  "step_title": "Add the math functions",
+  "state": "empty",
+  "note": "",
+  "window_title": "calculator.py — _new",
+  "on_disk": "",
+  "terminal": [
+   "learner@MacBook-Pro _new % "
+  ],
+  "passed": false,
+  "status": "idle",
+  "checks": {
+   "s3c1": [
+    "fail",
+    "not seen on screen"
+   ],
+   "s3c2": [
+    "fail",
+    "not seen on screen"
+   ],
+   "s3c3": [
+    "fail",
+    "Open the Terminal so I can check it."
+   ]
+  },
+  "copy": [
+   {
+    "src": "step.started",
+    "title": "Add the math functions",
+    "body": "In calculator.py, type def add(a, b): …",
+    "kind": "action line",
+    "grades": {
+     "words": true,
+     "cursor": true,
+     "label": true,
+     "one": true,
+     "file": true,
+     "app": false
+    }
+   },
+   {
+    "src": "card",
+    "title": "Question · Add the math functions",
+    "body": "SyntaxError in calculator.py: what in your code makes that happen, and which value or line would change it?",
+    "kind": "hint",
+    "level": 0,
+    "actions": null,
+    "when": "hint",
+    "grades": {
+     "words": false,
+     "cursor": true,
+     "label": true,
+     "one": true,
+     "file": true,
+     "app": false
+    }
+   },
+   {
+    "src": "card",
+    "title": "Where to work",
+    "body": "Open calculator.py in VS Code",
+    "kind": "hint",
+    "level": null,
+    "actions": null,
+    "when": "show me",
+    "grades": {
+     "words": true,
+     "cursor": true,
+     "label": true,
+     "one": true,
+     "file": true,
+     "app": true
+    }
+   },
+   {
+    "src": "card",
+    "title": "Stuck on this step?",
+    "body": "Skip it, or ask for a hint.",
+    "kind": "hint",
+    "level": null,
+    "actions": [
+     "skip_step"
+    ],
+    "when": "idle 100 s",
+    "grades": {
+     "words": true,
+     "cursor": true,
+     "label": true,
+     "one": false,
+     "file": false,
+     "app": false
+    }
+   }
+  ],
+  "timeline": [
+   "typed / screen",
+   "tick while typing",
+   "idle 5 s",
+   "hint",
+   "show me",
+   "idle 100 s"
+  ],
+  "coach_routes": [
+   {
+    "route": "template",
+    "triage": {
+     "route": "opus",
+     "by": "fallback",
+     "reason": "default to full diagnosis"
+    },
+    "fallback": "diagnose: offline mode (DEMO / ORCH_STUBS), no live call",
+    "playbook": null,
+    "title": "Start: Add the math functions"
+   }
+  ],
+  "next_step_cards": [],
+  "errors": []
+ },
+ {
+  "lesson": "B",
+  "lesson_title": "Build a Python Calculator",
+  "step": "s3",
+  "step_title": "Add the math functions",
+  "state": "unsaved",
+  "note": "",
+  "window_title": "● calculator.py — _new",
+  "on_disk": "print(\"Calculator ready\")\n",
+  "terminal": [
+   "learner@MacBook-Pro _new % "
+  ],
+  "passed": false,
+  "status": "idle",
+  "checks": {
+   "s3c2": [
+    "fail",
+    "not seen on screen"
+   ],
+   "s3c3": [
+    "fail",
+    "Open the Terminal so I can check it."
+   ]
+  },
+  "copy": [
+   {
+    "src": "step.started",
+    "title": "Add the math functions",
+    "body": "In calculator.py, type def add(a, b): …",
+    "kind": "action line",
+    "grades": {
+     "words": true,
+     "cursor": true,
+     "label": true,
+     "one": true,
+     "file": true,
+     "app": false
+    }
+   },
+   {
+    "src": "card",
+    "title": "Type this · Add the math functions",
+    "body": "Type exactly this in calculator.py in VS Code, then save.",
+    "kind": "hint",
+    "level": 0,
+    "actions": [
+     "show_me"
+    ],
+    "when": "hint",
+    "grades": {
+     "words": true,
+     "cursor": true,
+     "label": true,
+     "one": false,
+     "file": true,
+     "app": true
+    }
+   },
+   {
+    "src": "card",
+    "title": "Stuck on this step?",
+    "body": "Skip it, or ask for a hint.",
+    "kind": "hint",
+    "level": null,
+    "actions": [
+     "skip_step"
+    ],
+    "when": "idle 100 s",
+    "grades": {
+     "words": true,
+     "cursor": true,
+     "label": true,
+     "one": false,
+     "file": false,
+     "app": false
+    }
+   },
+   {
+    "src": "card",
+    "title": "Save calculator.py",
+    "body": "Save with ⌘S so I can check it.",
+    "kind": "hint",
+    "level": null,
+    "actions": null,
+    "when": "idle 100 s",
+    "grades": {
+     "words": true,
+     "cursor": true,
+     "label": true,
+     "one": true,
+     "file": true,
+     "app": false
+    }
+   }
+  ],
+  "timeline": [
+   "typed / screen",
+   "tick while typing",
+   "idle 5 s",
+   "hint",
+   "show me",
+   "idle 100 s"
+  ],
+  "coach_routes": [],
+  "next_step_cards": [],
+  "errors": []
+ },
+ {
+  "lesson": "B",
+  "lesson_title": "Build a Python Calculator",
+  "step": "s3",
+  "step_title": "Add the math functions",
+  "state": "wrong_folder",
+  "note": "",
+  "window_title": "calculator.py — Desktop",
+  "on_disk": "print(\"Calculator ready\")\n",
+  "terminal": [
+   "learner@MacBook-Pro _new % "
+  ],
+  "passed": false,
+  "status": "idle",
+  "checks": {
+   "s3c2": [
+    "fail",
+    "not seen on screen"
+   ],
+   "s3c3": [
+    "fail",
+    "Open the Terminal so I can check it."
+   ]
+  },
+  "copy": [
+   {
+    "src": "step.started",
+    "title": "Add the math functions",
+    "body": "In calculator.py, type def add(a, b): …",
+    "kind": "action line",
+    "grades": {
+     "words": true,
+     "cursor": true,
+     "label": true,
+     "one": true,
+     "file": true,
+     "app": false
+    }
+   },
+   {
+    "src": "card",
+    "title": "Type this · Add the math functions",
+    "body": "Type exactly this in calculator.py in VS Code, then save.",
+    "kind": "hint",
+    "level": 0,
+    "actions": [
+     "show_me"
+    ],
+    "when": "hint",
+    "grades": {
+     "words": true,
+     "cursor": true,
+     "label": true,
+     "one": false,
+     "file": true,
+     "app": true
+    }
+   },
+   {
+    "src": "card",
+    "title": "Stuck on this step?",
+    "body": "Skip it, or ask for a hint.",
+    "kind": "hint",
+    "level": null,
+    "actions": [
+     "skip_step"
+    ],
+    "when": "idle 100 s",
+    "grades": {
+     "words": true,
+     "cursor": true,
+     "label": true,
+     "one": false,
+     "file": false,
+     "app": false
+    }
+   },
+   {
+    "src": "card",
+    "title": "Wrong folder?",
+    "body": "You're editing calculator.py in Desktop, but this lesson is in _new.",
+    "kind": "hint",
+    "level": null,
+    "actions": [
+     "open_editor"
+    ],
+    "when": "idle 100 s",
+    "grades": {
+     "words": true,
+     "cursor": true,
+     "label": true,
+     "one": true,
+     "file": true,
+     "app": false
+    }
+   }
+  ],
+  "timeline": [
+   "typed / screen",
+   "tick while typing",
+   "idle 5 s",
+   "hint",
+   "show me",
+   "idle 100 s"
+  ],
+  "coach_routes": [],
+  "next_step_cards": [],
+  "errors": []
+ },
+ {
+  "lesson": "B",
+  "lesson_title": "Build a Python Calculator",
+  "step": "s3",
+  "step_title": "Add the math functions",
+  "state": "typo",
+  "note": "def subtract(a, b): -> def(a, b):",
+  "window_title": "calculator.py — _new",
+  "on_disk": "def add(a, b):\n    return a + b\n\ndef(a, b):\n    return a - b\n\ndef multiply(a, b):\n    return a * b\n\ndef divide(a, b):\n    if b == 0:\n        return \"Error: divide by zero\"\n    return a / b\n\nprint(add(2, 3))\nprint(divide(8, 0))\n",
+  "terminal": [
+   "learner@MacBook-Pro _new % python3 calculator.py",
+   "  File \"/Users/learner/miyagi/lessons/_new/calculator.py\", line 4",
+   "    def(a, b):",
+   "       ^",
+   "SyntaxError: invalid syntax",
+   "learner@MacBook-Pro _new % "
+  ],
+  "passed": false,
+  "status": "idle",
+  "checks": {
+   "s3c3": [
+    "fail",
+    "Open the Terminal so I can check it."
+   ]
+  },
+  "copy": [
+   {
+    "src": "step.started",
+    "title": "Add the math functions",
+    "body": "In calculator.py, type def add(a, b): …",
+    "kind": "action line",
+    "grades": {
+     "words": true,
+     "cursor": true,
+     "label": true,
+     "one": true,
+     "file": true,
+     "app": false
+    }
+   },
+   {
+    "src": "offtrack",
+    "title": "SyntaxError in calculator.py",
+    "body": "`def` needs a name: line 4 of calculator.py.",
+    "kind": "offtrack",
+    "level": 2,
+    "actions": [
+     "explain",
+     "show_me",
+     "hint",
+     "apply_fix"
+    ],
+    "when": "saved again",
+    "grades": {
+     "words": true,
+     "cursor": true,
+     "label": true,
+     "one": true,
+     "file": true,
+     "app": false
+    }
+   },
+   {
+    "src": "spotlight",
+    "title": "",
+    "body": "Replace the old",
+    "kind": "caption",
+    "when": "hint",
+    "grades": {
+     "words": true,
+     "cursor": true,
+     "label": true,
+     "one": true
+    }
+   },
+   {
+    "src": "card",
+    "title": "Question · Add the math functions",
+    "body": "SyntaxError in calculator.py: what in your code makes that happen, and which value or line would change it?",
+    "kind": "hint",
+    "level": 0,
+    "actions": null,
+    "when": "hint",
+    "grades": {
+     "words": false,
+     "cursor": true,
+     "label": true,
+     "one": true,
+     "file": true,
+     "app": false
+    }
+   },
+   {
+    "src": "spotlight",
+    "title": "",
+    "body": "In calculator.py, type def add(a, b): …",
+    "kind": "caption",
+    "when": "show me",
+    "grades": {
+     "words": true,
+     "cursor": true,
+     "label": true,
+     "one": true
+    }
+   },
+   {
+    "src": "card",
+    "title": "Stuck on this step?",
+    "body": "Skip it, or ask for a hint.",
+    "kind": "hint",
+    "level": null,
+    "actions": [
+     "skip_step"
+    ],
+    "when": "idle 100 s",
+    "grades": {
+     "words": true,
+     "cursor": true,
+     "label": true,
+     "one": false,
+     "file": false,
+     "app": false
+    }
+   }
+  ],
+  "timeline": [
+   "typed / screen",
+   "saved",
+   "tick while typing",
+   "idle 5 s",
+   "saved again",
+   "idle after 2nd save",
+   "hint",
+   "show me",
+   "idle 100 s"
+  ],
+  "coach_routes": [
+   {
+    "route": "error_offline",
+    "triage": {
+     "route": "opus",
+     "by": "fallback",
+     "reason": "default to full diagnosis"
+    },
+    "fallback": "diagnose: offline mode (DEMO / ORCH_STUBS), no live call",
+    "playbook": null,
+    "title": "SyntaxError in calculator.py"
+   }
+  ],
+  "next_step_cards": [],
+  "errors": []
+ },
+ {
+  "lesson": "B",
+  "lesson_title": "Build a Python Calculator",
+  "step": "s3",
+  "step_title": "Add the math functions",
+  "state": "terminal_closed",
+  "note": "",
+  "window_title": "calculator.py — _new",
+  "on_disk": "def add(a, b):\n    return a + b\n\ndef subtract(a, b):\n    return a - b\n\ndef multiply(a, b):\n    return a * b\n\ndef divide(a, b):\n    if b == 0:\n        return \"Error: divide by zero\"\n    return a / b\n\nprint(add(2, 3))\nprint(divide(8, 0))\n",
+  "terminal": null,
+  "passed": false,
+  "status": "idle",
+  "checks": {
+   "s3c2": [
+    "fail",
+    "not seen on screen"
+   ],
+   "s3c3": [
+    "fail",
+    "Open the Terminal so I can check it."
+   ]
+  },
+  "copy": [
+   {
+    "src": "step.started",
+    "title": "Add the math functions",
+    "body": "In calculator.py, type def add(a, b): …",
+    "kind": "action line",
+    "grades": {
+     "words": true,
+     "cursor": true,
+     "label": true,
+     "one": true,
+     "file": true,
+     "app": false
+    }
+   },
+   {
+    "src": "card",
+    "title": "Start: Add the math functions",
+    "body": "In VS Code, type `def add(a, b):` in calculator.py.",
+    "kind": "hint",
+    "level": null,
+    "actions": [
+     "apply_fix"
+    ],
+    "when": "saved again",
+    "grades": {
+     "words": true,
+     "cursor": true,
+     "label": true,
+     "one": true,
+     "file": true,
+     "app": true
+    }
+   },
+   {
+    "src": "card",
+    "title": "Type this · Add the math functions",
+    "body": "Type exactly this in calculator.py in VS Code, then save.",
+    "kind": "hint",
+    "level": 0,
+    "actions": [
+     "show_me"
+    ],
+    "when": "hint",
+    "grades": {
+     "words": true,
+     "cursor": true,
+     "label": true,
+     "one": false,
+     "file": true,
+     "app": true
+    }
+   },
+   {
+    "src": "card",
+    "title": "Stuck on this step?",
+    "body": "Skip it, or ask for a hint.",
+    "kind": "hint",
+    "level": null,
+    "actions": [
+     "skip_step"
+    ],
+    "when": "idle 100 s",
+    "grades": {
+     "words": true,
+     "cursor": true,
+     "label": true,
+     "one": false,
+     "file": false,
+     "app": false
+    }
+   }
+  ],
+  "timeline": [
+   "typed / screen",
+   "saved",
+   "tick while typing",
+   "idle 5 s",
+   "saved again",
+   "idle after 2nd save",
+   "hint",
+   "show me",
+   "idle 100 s"
+  ],
+  "coach_routes": [
+   {
+    "route": "template",
+    "triage": {
+     "route": "opus",
+     "by": "fallback",
+     "reason": "default to full diagnosis"
+    },
+    "fallback": "diagnose: offline mode (DEMO / ORCH_STUBS), no live call",
+    "playbook": null,
+    "title": "Start: Add the math functions"
+   },
+   {
+    "route": "template",
+    "triage": {
+     "route": "opus",
+     "by": "fallback",
+     "reason": "default to full diagnosis"
+    },
+    "fallback": "diagnose: offline mode (DEMO / ORCH_STUBS), no live call",
+    "playbook": null,
+    "title": "Start: Add the math functions"
+   },
+   {
+    "route": "template",
+    "triage": {
+     "route": "opus",
+     "by": "fallback",
+     "reason": "default to full diagnosis"
+    },
+    "fallback": "diagnose: offline mode (DEMO / ORCH_STUBS), no live call",
+    "playbook": null,
+    "title": "Start: Add the math functions"
+   }
+  ],
+  "next_step_cards": [],
+  "errors": []
+ },
+ {
+  "lesson": "B",
+  "lesson_title": "Build a Python Calculator",
+  "step": "s3",
+  "step_title": "Add the math functions",
+  "state": "right",
+  "note": "",
+  "window_title": "calculator.py — _new",
+  "on_disk": "def add(a, b):\n    return a + b\n\ndef subtract(a, b):\n    return a - b\n\ndef multiply(a, b):\n    return a * b\n\ndef divide(a, b):\n    if b == 0:\n        return \"Error: divide by zero\"\n    return a / b\n\nprint(add(2, 3))\nprint(divide(8, 0))\n",
+  "terminal": [
+   "learner@MacBook-Pro _new % python3 calculator.py",
+   "5",
+   "Error: divide by zero",
+   "learner@MacBook-Pro _new % "
+  ],
+  "passed": false,
+  "status": "idle",
+  "checks": {
+   "s3c3": [
+    "fail",
+    "Open the Terminal so I can check it."
+   ]
+  },
+  "copy": [
+   {
+    "src": "step.started",
+    "title": "Add the math functions",
+    "body": "In calculator.py, type def add(a, b): …",
+    "kind": "action line",
+    "grades": {
+     "words": true,
+     "cursor": true,
+     "label": true,
+     "one": true,
+     "file": true,
+     "app": false
+    }
+   },
+   {
+    "src": "offtrack",
+    "title": "Error in calculator.py",
+    "body": "Error in calculator.py: divide by zero",
+    "kind": "offtrack",
+    "level": 2,
+    "actions": [
+     "explain",
+     "hint",
+     "apply_fix"
+    ],
+    "when": "saved again",
+    "grades": {
+     "words": true,
+     "cursor": true,
+     "label": true,
+     "one": true,
+     "file": true,
+     "app": false
+    }
+   },
+   {
+    "src": "card",
+    "title": "Question · Add the math functions",
+    "body": "Error in calculator.py: what in your code makes that happen, and which value or line would change it?",
+    "kind": "hint",
+    "level": 0,
+    "actions": null,
+    "when": "hint",
+    "grades": {
+     "words": false,
+     "cursor": true,
+     "label": true,
+     "one": true,
+     "file": true,
+     "app": false
+    }
+   },
+   {
+    "src": "card",
+    "title": "Stuck on this step?",
+    "body": "Skip it, or ask for a hint.",
+    "kind": "hint",
+    "level": null,
+    "actions": [
+     "skip_step"
+    ],
+    "when": "idle 100 s",
+    "grades": {
+     "words": true,
+     "cursor": true,
+     "label": true,
+     "one": false,
+     "file": false,
+     "app": false
+    }
+   }
+  ],
+  "timeline": [
+   "typed / screen",
+   "saved",
+   "tick while typing",
+   "idle 5 s",
+   "saved again",
+   "idle after 2nd save",
+   "hint",
+   "show me",
+   "idle 100 s"
+  ],
+  "coach_routes": [
+   {
+    "route": "error_offline",
+    "triage": {
+     "route": "opus",
+     "by": "fallback",
+     "reason": "default to full diagnosis"
+    },
+    "fallback": "diagnose: offline mode (DEMO / ORCH_STUBS), no live call",
+    "playbook": null,
+    "title": "Error in calculator.py"
+   }
+  ],
+  "next_step_cards": [],
+  "errors": []
+ },
+ {
+  "lesson": "C",
+  "lesson_title": "Build a Python Calculator",
+  "step": "s1",
+  "step_title": "Print a welcome message",
+  "state": "empty",
+  "note": "",
+  "window_title": "calculator.py — i-wanna-build-a-calc-in-python-in-vs-cods-9808de",
+  "on_disk": "# Simple calculator\n# Write your code below\n",
+  "terminal": [
+   "learner@MacBook-Pro i-wanna-build-a-calc-in-python-in-vs-cods-9808de % "
+  ],
+  "passed": false,
+  "status": "idle",
+  "checks": {
+   "s1c1": [
+    "fail",
+    "not seen in Code"
+   ]
+  },
+  "copy": [
+   {
+    "src": "step.started",
+    "title": "Print a welcome message",
+    "body": "In calculator.py, type print(\"Simple Calculator\")",
+    "kind": "action line",
+    "grades": {
+     "words": true,
+     "cursor": true,
+     "label": true,
+     "one": true,
+     "file": true,
+     "app": false
+    }
+   },
+   {
+    "src": "card",
+    "title": "Type this · Print a welcome message",
+    "body": "Type exactly this in calculator.py in VS Code, then save.",
+    "kind": "hint",
+    "level": 0,
+    "actions": [
+     "show_me"
+    ],
+    "when": "hint",
+    "grades": {
+     "words": true,
+     "cursor": true,
+     "label": true,
+     "one": false,
+     "file": true,
+     "app": true
+    }
+   },
+   {
+    "src": "card",
+    "title": "Stuck on this step?",
+    "body": "Skip it, or ask for a hint.",
+    "kind": "hint",
+    "level": null,
+    "actions": [
+     "skip_step"
+    ],
+    "when": "idle 100 s",
+    "grades": {
+     "words": true,
+     "cursor": true,
+     "label": true,
+     "one": false,
+     "file": false,
+     "app": false
+    }
+   }
+  ],
+  "timeline": [
+   "typed / screen",
+   "tick while typing",
+   "idle 5 s",
+   "hint",
+   "show me",
+   "idle 100 s"
+  ],
+  "coach_routes": [
+   {
+    "route": "template",
+    "triage": {
+     "route": "opus",
+     "by": "fallback",
+     "reason": "default to full diagnosis"
+    },
+    "fallback": "diagnose: offline mode (DEMO / ORCH_STUBS), no live call",
+    "playbook": null,
+    "title": "Start: Print a welcome message"
+   }
+  ],
+  "next_step_cards": [],
+  "errors": []
+ },
+ {
+  "lesson": "C",
+  "lesson_title": "Build a Python Calculator",
+  "step": "s1",
+  "step_title": "Print a welcome message",
+  "state": "unsaved",
+  "note": "",
+  "window_title": "● calculator.py — i-wanna-build-a-calc-in-python-in-vs-cods-9808de",
+  "on_disk": "# Simple calculator\n# Write your code below\n",
+  "terminal": [
+   "learner@MacBook-Pro i-wanna-build-a-calc-in-python-in-vs-cods-9808de % "
+  ],
+  "passed": false,
+  "status": "idle",
+  "checks": {},
+  "copy": [
+   {
+    "src": "step.started",
+    "title": "Print a welcome message",
+    "body": "In calculator.py, type print(\"Simple Calculator\")",
+    "kind": "action line",
+    "grades": {
+     "words": true,
+     "cursor": true,
+     "label": true,
+     "one": true,
+     "file": true,
+     "app": false
+    }
+   },
+   {
+    "src": "card",
+    "title": "Type this · Print a welcome message",
+    "body": "Type exactly this in calculator.py in VS Code, then save.",
+    "kind": "hint",
+    "level": 0,
+    "actions": [
+     "show_me"
+    ],
+    "when": "hint",
+    "grades": {
+     "words": true,
+     "cursor": true,
+     "label": true,
+     "one": false,
+     "file": true,
+     "app": true
+    }
+   },
+   {
+    "src": "card",
+    "title": "Save calculator.py",
+    "body": "Save with ⌘S so I can check it.",
+    "kind": "hint",
+    "level": null,
+    "actions": null,
+    "when": "idle 100 s",
+    "grades": {
+     "words": true,
+     "cursor": true,
+     "label": true,
+     "one": true,
+     "file": true,
+     "app": false
+    }
+   }
+  ],
+  "timeline": [
+   "typed / screen",
+   "tick while typing",
+   "idle 5 s",
+   "hint",
+   "show me",
+   "idle 100 s"
+  ],
+  "coach_routes": [],
+  "next_step_cards": [],
+  "errors": []
+ },
+ {
+  "lesson": "C",
+  "lesson_title": "Build a Python Calculator",
+  "step": "s1",
+  "step_title": "Print a welcome message",
+  "state": "wrong_folder",
+  "note": "",
+  "window_title": "calculator.py — Desktop",
+  "on_disk": "# Simple calculator\n# Write your code below\n",
+  "terminal": [
+   "learner@MacBook-Pro i-wanna-build-a-calc-in-python-in-vs-cods-9808de % "
+  ],
+  "passed": true,
+  "status": null,
+  "checks": {},
+  "copy": [
+   {
+    "src": "step.started",
+    "title": "Print a welcome message",
+    "body": "In calculator.py, type print(\"Simple Calculator\")",
+    "kind": "action line",
+    "grades": {
+     "words": true,
+     "cursor": true,
+     "label": true,
+     "one": true,
+     "file": true,
+     "app": false
+    }
+   }
+  ],
+  "timeline": [
+   "typed / screen",
+   "tick while typing",
+   "idle 5 s",
+   "hint",
+   "show me",
+   "idle 100 s"
+  ],
+  "coach_routes": [],
+  "next_step_cards": [
+   [
+    "Run it",
+    "Run it in the terminal: python calculator.py"
+   ],
+   [
+    "Type this · Run your script",
+    "Type exactly this in VS Code, then save."
+   ],
+   [
+    "Stuck on this step?",
+    "Skip it, or ask for a hint."
+   ]
+  ],
+  "errors": []
+ },
+ {
+  "lesson": "C",
+  "lesson_title": "Build a Python Calculator",
+  "step": "s1",
+  "step_title": "Print a welcome message",
+  "state": "typo",
+  "note": "print( -> prnt(  (no def in this step)",
+  "window_title": "calculator.py — i-wanna-build-a-calc-in-python-in-vs-cods-9808de",
+  "on_disk": "# Simple calculator\n# Write your code below\nprnt(\"Simple Calculator\")\n",
+  "terminal": [
+   "learner@MacBook-Pro i-wanna-build-a-calc-in-python-in-vs-cods-9808de % python calculator.py",
+   "Traceback (most recent call last):",
+   "  File \"/Users/learner/miyagi/lessons/i-wanna-build-a-calc-in-python-in-vs-cods-9808de/calculator.py\", line 3, in <module>",
+   "    prnt(\"Simple Calculator\")",
+   "    ^^^^",
+   "NameError: name 'prnt' is not defined. Did you mean: 'print'?",
+   "learner@MacBook-Pro i-wanna-build-a-calc-in-python-in-vs-cods-9808de % "
+  ],
+  "passed": false,
+  "status": "idle",
+  "checks": {
+   "s1c1": [
+    "fail",
+    "not seen in Code"
+   ]
+  },
+  "copy": [
+   {
+    "src": "step.started",
+    "title": "Print a welcome message",
+    "body": "In calculator.py, type print(\"Simple Calculator\")",
+    "kind": "action line",
+    "grades": {
+     "words": true,
+     "cursor": true,
+     "label": true,
+     "one": true,
+     "file": true,
+     "app": false
+    }
+   },
+   {
+    "src": "offtrack",
+    "title": "NameError in calculator.py",
+    "body": "NameError in calculator.py: name 'prnt' is not defined. Did you mean: 'print'?",
+    "kind": "offtrack",
+    "level": 2,
+    "actions": [
+     "explain",
+     "hint",
+     "apply_fix"
+    ],
+    "when": "saved again",
+    "grades": {
+     "words": true,
+     "cursor": true,
+     "label": true,
+     "one": true,
+     "file": true,
+     "app": false
+    }
+   },
+   {
+    "src": "spotlight",
+    "title": "",
+    "body": "Click at the",
+    "kind": "caption",
+    "when": "hint",
+    "grades": {
+     "words": true,
+     "cursor": true,
+     "label": true,
+     "one": true
+    }
+   },
+   {
+    "src": "card",
+    "title": "Question · Print a welcome message",
+    "body": "NameError in calculator.py: what in your code makes that happen, and which value or line would change it?",
+    "kind": "hint",
+    "level": 0,
+    "actions": null,
+    "when": "hint",
+    "grades": {
+     "words": false,
+     "cursor": true,
+     "label": true,
+     "one": true,
+     "file": true,
+     "app": false
+    }
+   },
+   {
+    "src": "spotlight",
+    "title": "",
+    "body": "In calculator.py, type print(\"Simple Calculator\")",
+    "kind": "caption",
+    "when": "show me",
+    "grades": {
+     "words": true,
+     "cursor": true,
+     "label": true,
+     "one": true
+    }
+   },
+   {
+    "src": "card",
+    "title": "Stuck on this step?",
+    "body": "Skip it, or ask for a hint.",
+    "kind": "hint",
+    "level": null,
+    "actions": [
+     "skip_step"
+    ],
+    "when": "idle 100 s",
+    "grades": {
+     "words": true,
+     "cursor": true,
+     "label": true,
+     "one": false,
+     "file": false,
+     "app": false
+    }
+   }
+  ],
+  "timeline": [
+   "typed / screen",
+   "saved",
+   "tick while typing",
+   "idle 5 s",
+   "saved again",
+   "idle after 2nd save",
+   "hint",
+   "show me",
+   "idle 100 s"
+  ],
+  "coach_routes": [
+   {
+    "route": "error_offline",
+    "triage": {
+     "route": "opus",
+     "by": "fallback",
+     "reason": "default to full diagnosis"
+    },
+    "fallback": "diagnose: offline mode (DEMO / ORCH_STUBS), no live call",
+    "playbook": null,
+    "title": "NameError in calculator.py"
+   }
+  ],
+  "next_step_cards": [],
+  "errors": []
+ },
+ {
+  "lesson": "C",
+  "lesson_title": "Build a Python Calculator",
+  "step": "s1",
+  "step_title": "Print a welcome message",
+  "state": "terminal_closed",
+  "note": "",
+  "window_title": "calculator.py — i-wanna-build-a-calc-in-python-in-vs-cods-9808de",
+  "on_disk": "# Simple calculator\n# Write your code below\nprint(\"Simple Calculator\")\n",
+  "terminal": null,
+  "passed": true,
+  "status": null,
+  "checks": {},
+  "copy": [
+   {
+    "src": "step.started",
+    "title": "Print a welcome message",
+    "body": "In calculator.py, type print(\"Simple Calculator\")",
+    "kind": "action line",
+    "grades": {
+     "words": true,
+     "cursor": true,
+     "label": true,
+     "one": true,
+     "file": true,
+     "app": false
+    }
+   }
+  ],
+  "timeline": [
+   "typed / screen",
+   "saved",
+   "tick while typing",
+   "idle 5 s",
+   "saved again",
+   "idle after 2nd save",
+   "hint",
+   "show me",
+   "idle 100 s"
+  ],
+  "coach_routes": [
+   {
+    "route": "template",
+    "triage": {
+     "route": "opus",
+     "by": "fallback",
+     "reason": "default to full diagnosis"
+    },
+    "fallback": "diagnose: offline mode (DEMO / ORCH_STUBS), no live call",
+    "playbook": null,
+    "title": "Start: Run your script"
+   },
+   {
+    "route": "template",
+    "triage": {
+     "route": "opus",
+     "by": "fallback",
+     "reason": "default to full diagnosis"
+    },
+    "fallback": "diagnose: offline mode (DEMO / ORCH_STUBS), no live call",
+    "playbook": null,
+    "title": "Start: Run your script"
+   },
+   {
+    "route": "template",
+    "triage": {
+     "route": "opus",
+     "by": "fallback",
+     "reason": "default to full diagnosis"
+    },
+    "fallback": "diagnose: offline mode (DEMO / ORCH_STUBS), no live call",
+    "playbook": null,
+    "title": "Start: Run your script"
+   }
+  ],
+  "next_step_cards": [
+   [
+    "Run it",
+    "Run it in the terminal: python calculator.py"
+   ],
+   [
+    "Start: Run your script",
+    "In VS Code, type `python calculator.py`."
+   ],
+   [
+    "Type this · Run your script",
+    "Type exactly this in VS Code, then save."
+   ],
+   [
+    "Stuck on this step?",
+    "Skip it, or ask for a hint."
+   ]
+  ],
+  "errors": []
+ },
+ {
+  "lesson": "C",
+  "lesson_title": "Build a Python Calculator",
+  "step": "s1",
+  "step_title": "Print a welcome message",
+  "state": "right",
+  "note": "",
+  "window_title": "calculator.py — i-wanna-build-a-calc-in-python-in-vs-cods-9808de",
+  "on_disk": "# Simple calculator\n# Write your code below\nprint(\"Simple Calculator\")\n",
+  "terminal": [
+   "learner@MacBook-Pro i-wanna-build-a-calc-in-python-in-vs-cods-9808de % python calculator.py",
+   "Simple Calculator",
+   "learner@MacBook-Pro i-wanna-build-a-calc-in-python-in-vs-cods-9808de % "
+  ],
+  "passed": true,
+  "status": null,
+  "checks": {},
+  "copy": [
+   {
+    "src": "step.started",
+    "title": "Print a welcome message",
+    "body": "In calculator.py, type print(\"Simple Calculator\")",
+    "kind": "action line",
+    "grades": {
+     "words": true,
+     "cursor": true,
+     "label": true,
+     "one": true,
+     "file": true,
+     "app": false
+    }
+   }
+  ],
+  "timeline": [
+   "typed / screen",
+   "saved",
+   "tick while typing",
+   "idle 5 s",
+   "saved again",
+   "idle after 2nd save",
+   "hint",
+   "show me",
+   "idle 100 s"
+  ],
+  "coach_routes": [
+   {
+    "route": "template",
+    "triage": {
+     "route": "opus",
+     "by": "fallback",
+     "reason": "default to full diagnosis"
+    },
+    "fallback": "diagnose: offline mode (DEMO / ORCH_STUBS), no live call",
+    "playbook": null,
+    "title": "Start: Run your script"
+   },
+   {
+    "route": "template",
+    "triage": {
+     "route": "opus",
+     "by": "fallback",
+     "reason": "default to full diagnosis"
+    },
+    "fallback": "diagnose: offline mode (DEMO / ORCH_STUBS), no live call",
+    "playbook": null,
+    "title": "Start: Run your script"
+   },
+   {
+    "route": "template",
+    "triage": {
+     "route": "opus",
+     "by": "fallback",
+     "reason": "default to full diagnosis"
+    },
+    "fallback": "diagnose: offline mode (DEMO / ORCH_STUBS), no live call",
+    "playbook": null,
+    "title": "Start: Run your script"
+   }
+  ],
+  "next_step_cards": [
+   [
+    "Run it",
+    "Run it in the terminal: python calculator.py"
+   ],
+   [
+    "Start: Run your script",
+    "In VS Code, type `python calculator.py`."
+   ],
+   [
+    "Type this · Run your script",
+    "Type exactly this in VS Code, then save."
+   ],
+   [
+    "Stuck on this step?",
+    "Skip it, or ask for a hint."
+   ]
+  ],
+  "errors": []
+ },
+ {
+  "lesson": "C",
+  "lesson_title": "Build a Python Calculator",
+  "step": "s2",
+  "step_title": "Run your script",
+  "state": "empty",
+  "note": "",
+  "window_title": "calculator.py — i-wanna-build-a-calc-in-python-in-vs-cods-9808de",
+  "on_disk": "# Simple calculator\n# Write your code below\n",
+  "terminal": [
+   "learner@MacBook-Pro i-wanna-build-a-calc-in-python-in-vs-cods-9808de % "
+  ],
+  "passed": false,
+  "status": "idle",
+  "checks": {
+   "s2c1": [
+    "fail",
+    "Open the Terminal so I can check it."
+   ],
+   "s2c2": [
+    "fail",
+    "not seen in Code"
+   ]
+  },
+  "copy": [
+   {
+    "src": "step.started",
+    "title": "Run your script",
+    "body": "Run it in the terminal: python calculator.py",
+    "kind": "action line",
+    "grades": {
+     "words": true,
+     "cursor": true,
+     "label": true,
+     "one": true,
+     "file": true,
+     "app": false
+    }
+   },
+   {
+    "src": "spotlight",
+    "title": "",
+    "body": "Run it in the terminal: python calculator.py",
+    "kind": "caption",
+    "when": "hint",
+    "grades": {
+     "words": true,
+     "cursor": true,
+     "label": true,
+     "one": true
+    }
+   },
+   {
+    "src": "card",
+    "title": "Type this · Run your script",
+    "body": "Type exactly this in VS Code, then save.",
+    "kind": "hint",
+    "level": 0,
+    "actions": [
+     "show_me"
+    ],
+    "when": "hint",
+    "grades": {
+     "words": true,
+     "cursor": true,
+     "label": true,
+     "one": false,
+     "file": false,
+     "app": true
+    }
+   },
+   {
+    "src": "card",
+    "title": "Stuck on this step?",
+    "body": "Skip it, or ask for a hint.",
+    "kind": "hint",
+    "level": null,
+    "actions": [
+     "skip_step"
+    ],
+    "when": "idle 100 s",
+    "grades": {
+     "words": true,
+     "cursor": true,
+     "label": true,
+     "one": false,
+     "file": false,
+     "app": false
+    }
+   }
+  ],
+  "timeline": [
+   "typed / screen",
+   "tick while typing",
+   "idle 5 s",
+   "hint",
+   "show me",
+   "idle 100 s"
+  ],
+  "coach_routes": [
+   {
+    "route": "template",
+    "triage": {
+     "route": "opus",
+     "by": "fallback",
+     "reason": "default to full diagnosis"
+    },
+    "fallback": "diagnose: offline mode (DEMO / ORCH_STUBS), no live call",
+    "playbook": null,
+    "title": "Start: Run your script"
+   }
+  ],
+  "next_step_cards": [],
+  "errors": []
+ },
+ {
+  "lesson": "C",
+  "lesson_title": "Build a Python Calculator",
+  "step": "s2",
+  "step_title": "Run your script",
+  "state": "unsaved",
+  "note": "",
+  "window_title": "● calculator.py — i-wanna-build-a-calc-in-python-in-vs-cods-9808de",
+  "on_disk": "# Simple calculator\n# Write your code below\nprint(\"Simple Calculator\")\n",
+  "terminal": [
+   "learner@MacBook-Pro i-wanna-build-a-calc-in-python-in-vs-cods-9808de % "
+  ],
+  "passed": false,
+  "status": "idle",
+  "checks": {
+   "s2c1": [
+    "fail",
+    "Open the Terminal so I can check it."
+   ]
+  },
+  "copy": [
+   {
+    "src": "step.started",
+    "title": "Run your script",
+    "body": "Run it in the terminal: python calculator.py",
+    "kind": "action line",
+    "grades": {
+     "words": true,
+     "cursor": true,
+     "label": true,
+     "one": true,
+     "file": true,
+     "app": false
+    }
+   },
+   {
+    "src": "spotlight",
+    "title": "",
+    "body": "Run it in the terminal: python calculator.py",
+    "kind": "caption",
+    "when": "hint",
+    "grades": {
+     "words": true,
+     "cursor": true,
+     "label": true,
+     "one": true
+    }
+   },
+   {
+    "src": "card",
+    "title": "Type this · Run your script",
+    "body": "Type exactly this in VS Code, then save.",
+    "kind": "hint",
+    "level": 0,
+    "actions": [
+     "show_me"
+    ],
+    "when": "hint",
+    "grades": {
+     "words": true,
+     "cursor": true,
+     "label": true,
+     "one": false,
+     "file": false,
+     "app": true
+    }
+   },
+   {
+    "src": "card",
+    "title": "Stuck on this step?",
+    "body": "Skip it, or ask for a hint.",
+    "kind": "hint",
+    "level": null,
+    "actions": [
+     "skip_step"
+    ],
+    "when": "idle 100 s",
+    "grades": {
+     "words": true,
+     "cursor": true,
+     "label": true,
+     "one": false,
+     "file": false,
+     "app": false
+    }
+   },
+   {
+    "src": "card",
+    "title": "Save calculator.py",
+    "body": "Save with ⌘S so I can check it.",
+    "kind": "hint",
+    "level": null,
+    "actions": null,
+    "when": "idle 100 s",
+    "grades": {
+     "words": true,
+     "cursor": true,
+     "label": true,
+     "one": true,
+     "file": true,
+     "app": false
+    }
+   }
+  ],
+  "timeline": [
+   "typed / screen",
+   "tick while typing",
+   "idle 5 s",
+   "hint",
+   "show me",
+   "idle 100 s"
+  ],
+  "coach_routes": [],
+  "next_step_cards": [],
+  "errors": []
+ },
+ {
+  "lesson": "C",
+  "lesson_title": "Build a Python Calculator",
+  "step": "s2",
+  "step_title": "Run your script",
+  "state": "wrong_folder",
+  "note": "",
+  "window_title": "calculator.py — Desktop",
+  "on_disk": "# Simple calculator\n# Write your code below\nprint(\"Simple Calculator\")\n",
+  "terminal": [
+   "learner@MacBook-Pro i-wanna-build-a-calc-in-python-in-vs-cods-9808de % "
+  ],
+  "passed": false,
+  "status": "idle",
+  "checks": {
+   "s2c1": [
+    "fail",
+    "Open the Terminal so I can check it."
+   ]
+  },
+  "copy": [
+   {
+    "src": "step.started",
+    "title": "Run your script",
+    "body": "Run it in the terminal: python calculator.py",
+    "kind": "action line",
+    "grades": {
+     "words": true,
+     "cursor": true,
+     "label": true,
+     "one": true,
+     "file": true,
+     "app": false
+    }
+   },
+   {
+    "src": "spotlight",
+    "title": "",
+    "body": "Run it in the terminal: python calculator.py",
+    "kind": "caption",
+    "when": "hint",
+    "grades": {
+     "words": true,
+     "cursor": true,
+     "label": true,
+     "one": true
+    }
+   },
+   {
+    "src": "card",
+    "title": "Type this · Run your script",
+    "body": "Type exactly this in VS Code, then save.",
+    "kind": "hint",
+    "level": 0,
+    "actions": [
+     "show_me"
+    ],
+    "when": "hint",
+    "grades": {
+     "words": true,
+     "cursor": true,
+     "label": true,
+     "one": false,
+     "file": false,
+     "app": true
+    }
+   },
+   {
+    "src": "card",
+    "title": "Stuck on this step?",
+    "body": "Skip it, or ask for a hint.",
+    "kind": "hint",
+    "level": null,
+    "actions": [
+     "skip_step"
+    ],
+    "when": "idle 100 s",
+    "grades": {
+     "words": true,
+     "cursor": true,
+     "label": true,
+     "one": false,
+     "file": false,
+     "app": false
+    }
+   },
+   {
+    "src": "card",
+    "title": "Wrong folder?",
+    "body": "You're editing calculator.py in Desktop, but this lesson is in i-wanna-build-a-calc-in-python-in-vs-cods-9808de.",
+    "kind": "hint",
+    "level": null,
+    "actions": [
+     "open_editor"
+    ],
+    "when": "idle 100 s",
+    "grades": {
+     "words": true,
+     "cursor": true,
+     "label": true,
+     "one": true,
+     "file": true,
+     "app": false
+    }
+   }
+  ],
+  "timeline": [
+   "typed / screen",
+   "tick while typing",
+   "idle 5 s",
+   "hint",
+   "show me",
+   "idle 100 s"
+  ],
+  "coach_routes": [],
+  "next_step_cards": [],
+  "errors": []
+ },
+ {
+  "lesson": "C",
+  "lesson_title": "Build a Python Calculator",
+  "step": "s2",
+  "step_title": "Run your script",
+  "state": "typo",
+  "note": "print( -> prnt(  (no def in this step)",
+  "window_title": "calculator.py — i-wanna-build-a-calc-in-python-in-vs-cods-9808de",
+  "on_disk": "# Simple calculator\n# Write your code below\nprnt(\"Simple Calculator\")\n",
+  "terminal": [
+   "learner@MacBook-Pro i-wanna-build-a-calc-in-python-in-vs-cods-9808de % python calculator.py",
+   "Traceback (most recent call last):",
+   "  File \"/Users/learner/miyagi/lessons/i-wanna-build-a-calc-in-python-in-vs-cods-9808de/calculator.py\", line 3, in <module>",
+   "    prnt(\"Simple Calculator\")",
+   "    ^^^^",
+   "NameError: name 'prnt' is not defined. Did you mean: 'print'?",
+   "learner@MacBook-Pro i-wanna-build-a-calc-in-python-in-vs-cods-9808de % "
+  ],
+  "passed": false,
+  "status": "idle",
+  "checks": {
+   "s2c1": [
+    "fail",
+    "Open the Terminal so I can check it."
+   ],
+   "s2c2": [
+    "fail",
+    "not seen in Code"
+   ]
+  },
+  "copy": [
+   {
+    "src": "step.started",
+    "title": "Run your script",
+    "body": "Run it in the terminal: python calculator.py",
+    "kind": "action line",
+    "grades": {
+     "words": true,
+     "cursor": true,
+     "label": true,
+     "one": true,
+     "file": true,
+     "app": false
+    }
+   },
+   {
+    "src": "offtrack",
+    "title": "NameError in (terminal)",
+    "body": "NameError in (terminal): name 'prnt' is not defined. Did you mean: 'print'?",
+    "kind": "offtrack",
+    "level": 2,
+    "actions": [
+     "explain",
+     "hint",
+     "apply_fix"
+    ],
+    "when": "saved again",
+    "grades": {
+     "words": true,
+     "cursor": true,
+     "label": true,
+     "one": true,
+     "file": false,
+     "app": false
+    }
+   },
+   {
+    "src": "spotlight",
+    "title": "",
+    "body": "Run it in the terminal: python calculator.py",
+    "kind": "caption",
+    "when": "saved again",
+    "grades": {
+     "words": true,
+     "cursor": true,
+     "label": true,
+     "one": true
+    }
+   },
+   {
+    "src": "spotlight",
+    "title": "",
+    "body": "Type this in",
+    "kind": "caption",
+    "when": "hint",
+    "grades": {
+     "words": true,
+     "cursor": true,
+     "label": true,
+     "one": true
+    }
+   },
+   {
+    "src": "card",
+    "title": "Question · Run your script",
+    "body": "NameError in (terminal): what in your code makes that happen, and which value or line would change it?",
+    "kind": "hint",
+    "level": 0,
+    "actions": null,
+    "when": "hint",
+    "grades": {
+     "words": false,
+     "cursor": true,
+     "label": true,
+     "one": true,
+     "file": false,
+     "app": false
+    }
+   },
+   {
+    "src": "card",
+    "title": "Stuck on this step?",
+    "body": "Skip it, or ask for a hint.",
+    "kind": "hint",
+    "level": null,
+    "actions": [
+     "skip_step"
+    ],
+    "when": "idle 100 s",
+    "grades": {
+     "words": true,
+     "cursor": true,
+     "label": true,
+     "one": false,
+     "file": false,
+     "app": false
+    }
+   }
+  ],
+  "timeline": [
+   "typed / screen",
+   "saved",
+   "tick while typing",
+   "idle 5 s",
+   "saved again",
+   "idle after 2nd save",
+   "hint",
+   "show me",
+   "idle 100 s"
+  ],
+  "coach_routes": [
+   {
+    "route": "error_offline",
+    "triage": {
+     "route": "opus",
+     "by": "fallback",
+     "reason": "default to full diagnosis"
+    },
+    "fallback": "diagnose: offline mode (DEMO / ORCH_STUBS), no live call",
+    "playbook": null,
+    "title": "NameError in (terminal)"
+   }
+  ],
+  "next_step_cards": [],
+  "errors": []
+ },
+ {
+  "lesson": "C",
+  "lesson_title": "Build a Python Calculator",
+  "step": "s2",
+  "step_title": "Run your script",
+  "state": "terminal_closed",
+  "note": "",
+  "window_title": "calculator.py — i-wanna-build-a-calc-in-python-in-vs-cods-9808de",
+  "on_disk": "# Simple calculator\n# Write your code below\nprint(\"Simple Calculator\")\n",
+  "terminal": null,
+  "passed": false,
+  "status": "idle",
+  "checks": {
+   "s2c1": [
+    "fail",
+    "Open the Terminal so I can check it."
+   ]
+  },
+  "copy": [
+   {
+    "src": "step.started",
+    "title": "Run your script",
+    "body": "Run it in the terminal: python calculator.py",
+    "kind": "action line",
+    "grades": {
+     "words": true,
+     "cursor": true,
+     "label": true,
+     "one": true,
+     "file": true,
+     "app": false
+    }
+   },
+   {
+    "src": "card",
+    "title": "Start: Run your script",
+    "body": "In VS Code, type `python calculator.py`.",
+    "kind": "hint",
+    "level": null,
+    "actions": [
+     "apply_fix"
+    ],
+    "when": "saved again",
+    "grades": {
+     "words": true,
+     "cursor": true,
+     "label": true,
+     "one": true,
+     "file": true,
+     "app": true
+    }
+   },
+   {
+    "src": "spotlight",
+    "title": "",
+    "body": "Run it in the terminal: python calculator.py",
+    "kind": "caption",
+    "when": "hint",
+    "grades": {
+     "words": true,
+     "cursor": true,
+     "label": true,
+     "one": true
+    }
+   },
+   {
+    "src": "card",
+    "title": "Type this · Run your script",
+    "body": "Type exactly this in VS Code, then save.",
+    "kind": "hint",
+    "level": 0,
+    "actions": [
+     "show_me"
+    ],
+    "when": "hint",
+    "grades": {
+     "words": true,
+     "cursor": true,
+     "label": true,
+     "one": false,
+     "file": false,
+     "app": true
+    }
+   },
+   {
+    "src": "card",
+    "title": "Stuck on this step?",
+    "body": "Skip it, or ask for a hint.",
+    "kind": "hint",
+    "level": null,
+    "actions": [
+     "skip_step"
+    ],
+    "when": "idle 100 s",
+    "grades": {
+     "words": true,
+     "cursor": true,
+     "label": true,
+     "one": false,
+     "file": false,
+     "app": false
+    }
+   }
+  ],
+  "timeline": [
+   "typed / screen",
+   "saved",
+   "tick while typing",
+   "idle 5 s",
+   "saved again",
+   "idle after 2nd save",
+   "hint",
+   "show me",
+   "idle 100 s"
+  ],
+  "coach_routes": [
+   {
+    "route": "template",
+    "triage": {
+     "route": "opus",
+     "by": "fallback",
+     "reason": "default to full diagnosis"
+    },
+    "fallback": "diagnose: offline mode (DEMO / ORCH_STUBS), no live call",
+    "playbook": null,
+    "title": "Start: Run your script"
+   },
+   {
+    "route": "template",
+    "triage": {
+     "route": "opus",
+     "by": "fallback",
+     "reason": "default to full diagnosis"
+    },
+    "fallback": "diagnose: offline mode (DEMO / ORCH_STUBS), no live call",
+    "playbook": null,
+    "title": "Start: Run your script"
+   },
+   {
+    "route": "template",
+    "triage": {
+     "route": "opus",
+     "by": "fallback",
+     "reason": "default to full diagnosis"
+    },
+    "fallback": "diagnose: offline mode (DEMO / ORCH_STUBS), no live call",
+    "playbook": null,
+    "title": "Start: Run your script"
+   }
+  ],
+  "next_step_cards": [],
+  "errors": []
+ },
+ {
+  "lesson": "C",
+  "lesson_title": "Build a Python Calculator",
+  "step": "s2",
+  "step_title": "Run your script",
+  "state": "right",
+  "note": "",
+  "window_title": "calculator.py — i-wanna-build-a-calc-in-python-in-vs-cods-9808de",
+  "on_disk": "# Simple calculator\n# Write your code below\nprint(\"Simple Calculator\")\n",
+  "terminal": [
+   "learner@MacBook-Pro i-wanna-build-a-calc-in-python-in-vs-cods-9808de % python calculator.py",
+   "Simple Calculator",
+   "learner@MacBook-Pro i-wanna-build-a-calc-in-python-in-vs-cods-9808de % "
+  ],
+  "passed": false,
+  "status": "idle",
+  "checks": {
+   "s2c1": [
+    "fail",
+    "Open the Terminal so I can check it."
+   ]
+  },
+  "copy": [
+   {
+    "src": "step.started",
+    "title": "Run your script",
+    "body": "Run it in the terminal: python calculator.py",
+    "kind": "action line",
+    "grades": {
+     "words": true,
+     "cursor": true,
+     "label": true,
+     "one": true,
+     "file": true,
+     "app": false
+    }
+   },
+   {
+    "src": "card",
+    "title": "Start: Run your script",
+    "body": "In VS Code, type `python calculator.py`.",
+    "kind": "hint",
+    "level": null,
+    "actions": [
+     "apply_fix"
+    ],
+    "when": "saved again",
+    "grades": {
+     "words": true,
+     "cursor": true,
+     "label": true,
+     "one": true,
+     "file": true,
+     "app": true
+    }
+   },
+   {
+    "src": "spotlight",
+    "title": "",
+    "body": "Run it in the terminal: python calculator.py",
+    "kind": "caption",
+    "when": "hint",
+    "grades": {
+     "words": true,
+     "cursor": true,
+     "label": true,
+     "one": true
+    }
+   },
+   {
+    "src": "card",
+    "title": "Type this · Run your script",
+    "body": "Type exactly this in VS Code, then save.",
+    "kind": "hint",
+    "level": 0,
+    "actions": [
+     "show_me"
+    ],
+    "when": "hint",
+    "grades": {
+     "words": true,
+     "cursor": true,
+     "label": true,
+     "one": false,
+     "file": false,
+     "app": true
+    }
+   },
+   {
+    "src": "card",
+    "title": "Stuck on this step?",
+    "body": "Skip it, or ask for a hint.",
+    "kind": "hint",
+    "level": null,
+    "actions": [
+     "skip_step"
+    ],
+    "when": "idle 100 s",
+    "grades": {
+     "words": true,
+     "cursor": true,
+     "label": true,
+     "one": false,
+     "file": false,
+     "app": false
+    }
+   }
+  ],
+  "timeline": [
+   "typed / screen",
+   "saved",
+   "tick while typing",
+   "idle 5 s",
+   "saved again",
+   "idle after 2nd save",
+   "hint",
+   "show me",
+   "idle 100 s"
+  ],
+  "coach_routes": [
+   {
+    "route": "template",
+    "triage": {
+     "route": "opus",
+     "by": "fallback",
+     "reason": "default to full diagnosis"
+    },
+    "fallback": "diagnose: offline mode (DEMO / ORCH_STUBS), no live call",
+    "playbook": null,
+    "title": "Start: Run your script"
+   },
+   {
+    "route": "template",
+    "triage": {
+     "route": "opus",
+     "by": "fallback",
+     "reason": "default to full diagnosis"
+    },
+    "fallback": "diagnose: offline mode (DEMO / ORCH_STUBS), no live call",
+    "playbook": null,
+    "title": "Start: Run your script"
+   },
+   {
+    "route": "template",
+    "triage": {
+     "route": "opus",
+     "by": "fallback",
+     "reason": "default to full diagnosis"
+    },
+    "fallback": "diagnose: offline mode (DEMO / ORCH_STUBS), no live call",
+    "playbook": null,
+    "title": "Start: Run your script"
+   }
+  ],
+  "next_step_cards": [],
+  "errors": []
+ },
+ {
+  "lesson": "C",
+  "lesson_title": "Build a Python Calculator",
+  "step": "s3",
+  "step_title": "Write an add function",
+  "state": "empty",
+  "note": "",
+  "window_title": "calculator.py — i-wanna-build-a-calc-in-python-in-vs-cods-9808de",
+  "on_disk": "# Simple calculator\n# Write your code below\n",
+  "terminal": [
+   "learner@MacBook-Pro i-wanna-build-a-calc-in-python-in-vs-cods-9808de % "
+  ],
+  "passed": false,
+  "status": "idle",
+  "checks": {
+   "s3c1": [
+    "fail",
+    "not seen in Code"
+   ],
+   "s3c2": [
+    "fail",
+    "not seen in Code"
+   ]
+  },
+  "copy": [
+   {
+    "src": "step.started",
+    "title": "Write an add function",
+    "body": "In calculator.py, type def add(a, b): …",
+    "kind": "action line",
+    "grades": {
+     "words": true,
+     "cursor": true,
+     "label": true,
+     "one": true,
+     "file": true,
+     "app": false
+    }
+   },
+   {
+    "src": "spotlight",
+    "title": "",
+    "body": "Type the def",
+    "kind": "caption",
+    "when": "hint",
+    "grades": {
+     "words": true,
+     "cursor": true,
+     "label": true,
+     "one": true
+    }
+   },
+   {
+    "src": "card",
+    "title": "Question · Write an add function",
+    "body": "Error in calculator.py: what in your code makes that happen, and which value or line would change it?",
+    "kind": "hint",
+    "level": 0,
+    "actions": null,
+    "when": "hint",
+    "grades": {
+     "words": false,
+     "cursor": true,
+     "label": true,
+     "one": true,
+     "file": true,
+     "app": false
+    }
+   },
+   {
+    "src": "spotlight",
+    "title": "",
+    "body": "In calculator.py, type def add(a, b): …",
+    "kind": "caption",
+    "when": "show me",
+    "grades": {
+     "words": true,
+     "cursor": true,
+     "label": true,
+     "one": true
+    }
+   },
+   {
+    "src": "card",
+    "title": "Stuck on this step?",
+    "body": "Skip it, or ask for a hint.",
+    "kind": "hint",
+    "level": null,
+    "actions": [
+     "skip_step"
+    ],
+    "when": "idle 100 s",
+    "grades": {
+     "words": true,
+     "cursor": true,
+     "label": true,
+     "one": false,
+     "file": false,
+     "app": false
+    }
+   }
+  ],
+  "timeline": [
+   "typed / screen",
+   "tick while typing",
+   "idle 5 s",
+   "hint",
+   "show me",
+   "idle 100 s"
+  ],
+  "coach_routes": [
+   {
+    "route": "template",
+    "triage": {
+     "route": "opus",
+     "by": "fallback",
+     "reason": "default to full diagnosis"
+    },
+    "fallback": "diagnose: offline mode (DEMO / ORCH_STUBS), no live call",
+    "playbook": null,
+    "title": "Start: Write an add function"
+   }
+  ],
+  "next_step_cards": [],
+  "errors": []
+ },
+ {
+  "lesson": "C",
+  "lesson_title": "Build a Python Calculator",
+  "step": "s3",
+  "step_title": "Write an add function",
+  "state": "unsaved",
+  "note": "",
+  "window_title": "● calculator.py — i-wanna-build-a-calc-in-python-in-vs-cods-9808de",
+  "on_disk": "# Simple calculator\n# Write your code below\nprint(\"Simple Calculator\")\n",
+  "terminal": [
+   "learner@MacBook-Pro i-wanna-build-a-calc-in-python-in-vs-cods-9808de % "
+  ],
+  "passed": false,
+  "status": "idle",
+  "checks": {
+   "s3c1": [
+    "fail",
+    "not seen in Code"
+   ],
+   "s3c2": [
+    "fail",
+    "not seen in Code"
+   ]
+  },
+  "copy": [
+   {
+    "src": "step.started",
+    "title": "Write an add function",
+    "body": "In calculator.py, type def add(a, b): …",
+    "kind": "action line",
+    "grades": {
+     "words": true,
+     "cursor": true,
+     "label": true,
+     "one": true,
+     "file": true,
+     "app": false
+    }
+   },
+   {
+    "src": "card",
+    "title": "Type this · Write an add function",
+    "body": "Type exactly this in calculator.py in VS Code, then save.",
+    "kind": "hint",
+    "level": 0,
+    "actions": [
+     "show_me"
+    ],
+    "when": "hint",
+    "grades": {
+     "words": true,
+     "cursor": true,
+     "label": true,
+     "one": false,
+     "file": true,
+     "app": true
+    }
+   },
+   {
+    "src": "card",
+    "title": "Stuck on this step?",
+    "body": "Skip it, or ask for a hint.",
+    "kind": "hint",
+    "level": null,
+    "actions": [
+     "skip_step"
+    ],
+    "when": "idle 100 s",
+    "grades": {
+     "words": true,
+     "cursor": true,
+     "label": true,
+     "one": false,
+     "file": false,
+     "app": false
+    }
+   },
+   {
+    "src": "card",
+    "title": "Save calculator.py",
+    "body": "Save with ⌘S so I can check it.",
+    "kind": "hint",
+    "level": null,
+    "actions": null,
+    "when": "idle 100 s",
+    "grades": {
+     "words": true,
+     "cursor": true,
+     "label": true,
+     "one": true,
+     "file": true,
+     "app": false
+    }
+   }
+  ],
+  "timeline": [
+   "typed / screen",
+   "tick while typing",
+   "idle 5 s",
+   "hint",
+   "show me",
+   "idle 100 s"
+  ],
+  "coach_routes": [],
+  "next_step_cards": [],
+  "errors": []
+ },
+ {
+  "lesson": "C",
+  "lesson_title": "Build a Python Calculator",
+  "step": "s3",
+  "step_title": "Write an add function",
+  "state": "wrong_folder",
+  "note": "",
+  "window_title": "calculator.py — Desktop",
+  "on_disk": "# Simple calculator\n# Write your code below\nprint(\"Simple Calculator\")\n",
+  "terminal": [
+   "learner@MacBook-Pro i-wanna-build-a-calc-in-python-in-vs-cods-9808de % "
+  ],
+  "passed": false,
+  "status": "idle",
+  "checks": {
+   "s3c1": [
+    "fail",
+    "not seen in Code"
+   ]
+  },
+  "copy": [
+   {
+    "src": "step.started",
+    "title": "Write an add function",
+    "body": "In calculator.py, type def add(a, b): …",
+    "kind": "action line",
+    "grades": {
+     "words": true,
+     "cursor": true,
+     "label": true,
+     "one": true,
+     "file": true,
+     "app": false
+    }
+   },
+   {
+    "src": "card",
+    "title": "Type this · Write an add function",
+    "body": "Type exactly this in calculator.py in VS Code, then save.",
+    "kind": "hint",
+    "level": 0,
+    "actions": [
+     "show_me"
+    ],
+    "when": "hint",
+    "grades": {
+     "words": true,
+     "cursor": true,
+     "label": true,
+     "one": false,
+     "file": true,
+     "app": true
+    }
+   },
+   {
+    "src": "card",
+    "title": "Stuck on this step?",
+    "body": "Skip it, or ask for a hint.",
+    "kind": "hint",
+    "level": null,
+    "actions": [
+     "skip_step"
+    ],
+    "when": "idle 100 s",
+    "grades": {
+     "words": true,
+     "cursor": true,
+     "label": true,
+     "one": false,
+     "file": false,
+     "app": false
+    }
+   },
+   {
+    "src": "card",
+    "title": "Wrong folder?",
+    "body": "You're editing calculator.py in Desktop, but this lesson is in i-wanna-build-a-calc-in-python-in-vs-cods-9808de.",
+    "kind": "hint",
+    "level": null,
+    "actions": [
+     "open_editor"
+    ],
+    "when": "idle 100 s",
+    "grades": {
+     "words": true,
+     "cursor": true,
+     "label": true,
+     "one": true,
+     "file": true,
+     "app": false
+    }
+   }
+  ],
+  "timeline": [
+   "typed / screen",
+   "tick while typing",
+   "idle 5 s",
+   "hint",
+   "show me",
+   "idle 100 s"
+  ],
+  "coach_routes": [],
+  "next_step_cards": [],
+  "errors": []
+ },
+ {
+  "lesson": "C",
+  "lesson_title": "Build a Python Calculator",
+  "step": "s3",
+  "step_title": "Write an add function",
+  "state": "typo",
+  "note": "def add(a, b): -> def(a, b):",
+  "window_title": "calculator.py — i-wanna-build-a-calc-in-python-in-vs-cods-9808de",
+  "on_disk": "# Simple calculator\n# Write your code below\ndef(a, b):\n    return a + b\n\nprint(\"Simple Calculator\")\nprint(add(2, 3))\n",
+  "terminal": [
+   "learner@MacBook-Pro i-wanna-build-a-calc-in-python-in-vs-cods-9808de % python calculator.py",
+   "  File \"/Users/learner/miyagi/lessons/i-wanna-build-a-calc-in-python-in-vs-cods-9808de/calculator.py\", line 3",
+   "    def(a, b):",
+   "       ^",
+   "SyntaxError: invalid syntax",
+   "learner@MacBook-Pro i-wanna-build-a-calc-in-python-in-vs-cods-9808de % "
+  ],
+  "passed": false,
+  "status": "idle",
+  "checks": {
+   "s3c1": [
+    "fail",
+    "not seen in Code"
+   ]
+  },
+  "copy": [
+   {
+    "src": "step.started",
+    "title": "Write an add function",
+    "body": "In calculator.py, type def add(a, b): …",
+    "kind": "action line",
+    "grades": {
+     "words": true,
+     "cursor": true,
+     "label": true,
+     "one": true,
+     "file": true,
+     "app": false
+    }
+   },
+   {
+    "src": "offtrack",
+    "title": "SyntaxError in calculator.py",
+    "body": "SyntaxError in calculator.py: invalid syntax",
+    "kind": "offtrack",
+    "level": 2,
+    "actions": [
+     "explain",
+     "hint",
+     "apply_fix"
+    ],
+    "when": "saved again",
+    "grades": {
+     "words": true,
+     "cursor": true,
+     "label": true,
+     "one": true,
+     "file": true,
+     "app": false
+    }
+   },
+   {
+    "src": "spotlight",
+    "title": "",
+    "body": "Type the def",
+    "kind": "caption",
+    "when": "hint",
+    "grades": {
+     "words": true,
+     "cursor": true,
+     "label": true,
+     "one": true
+    }
+   },
+   {
+    "src": "card",
+    "title": "Question · Write an add function",
+    "body": "SyntaxError in calculator.py: what in your code makes that happen, and which value or line would change it?",
+    "kind": "hint",
+    "level": 0,
+    "actions": null,
+    "when": "hint",
+    "grades": {
+     "words": false,
+     "cursor": true,
+     "label": true,
+     "one": true,
+     "file": true,
+     "app": false
+    }
+   },
+   {
+    "src": "spotlight",
+    "title": "",
+    "body": "In calculator.py, type def add(a, b): …",
+    "kind": "caption",
+    "when": "show me",
+    "grades": {
+     "words": true,
+     "cursor": true,
+     "label": true,
+     "one": true
+    }
+   },
+   {
+    "src": "card",
+    "title": "Stuck on this step?",
+    "body": "Skip it, or ask for a hint.",
+    "kind": "hint",
+    "level": null,
+    "actions": [
+     "skip_step"
+    ],
+    "when": "idle 100 s",
+    "grades": {
+     "words": true,
+     "cursor": true,
+     "label": true,
+     "one": false,
+     "file": false,
+     "app": false
+    }
+   }
+  ],
+  "timeline": [
+   "typed / screen",
+   "saved",
+   "tick while typing",
+   "idle 5 s",
+   "saved again",
+   "idle after 2nd save",
+   "hint",
+   "show me",
+   "idle 100 s"
+  ],
+  "coach_routes": [
+   {
+    "route": "error_offline",
+    "triage": {
+     "route": "opus",
+     "by": "fallback",
+     "reason": "default to full diagnosis"
+    },
+    "fallback": "diagnose: offline mode (DEMO / ORCH_STUBS), no live call",
+    "playbook": null,
+    "title": "SyntaxError in calculator.py"
+   }
+  ],
+  "next_step_cards": [],
+  "errors": []
+ },
+ {
+  "lesson": "C",
+  "lesson_title": "Build a Python Calculator",
+  "step": "s3",
+  "step_title": "Write an add function",
+  "state": "terminal_closed",
+  "note": "",
+  "window_title": "calculator.py — i-wanna-build-a-calc-in-python-in-vs-cods-9808de",
+  "on_disk": "# Simple calculator\n# Write your code below\ndef add(a, b):\n    return a + b\n\nprint(\"Simple Calculator\")\nprint(add(2, 3))\n",
+  "terminal": null,
+  "passed": false,
+  "status": "idle",
+  "checks": {
+   "s3c1": [
+    "fail",
+    "not seen in Code"
+   ],
+   "s3c2": [
+    "fail",
+    "not seen in Code"
+   ]
+  },
+  "copy": [
+   {
+    "src": "step.started",
+    "title": "Write an add function",
+    "body": "In calculator.py, type def add(a, b): …",
+    "kind": "action line",
+    "grades": {
+     "words": true,
+     "cursor": true,
+     "label": true,
+     "one": true,
+     "file": true,
+     "app": false
+    }
+   },
+   {
+    "src": "card",
+    "title": "Start: Write an add function",
+    "body": "In VS Code, type `def add(a, b):` in calculator.py.",
+    "kind": "hint",
+    "level": null,
+    "actions": [
+     "apply_fix"
+    ],
+    "when": "saved again",
+    "grades": {
+     "words": true,
+     "cursor": true,
+     "label": true,
+     "one": true,
+     "file": true,
+     "app": true
+    }
+   },
+   {
+    "src": "card",
+    "title": "Type this · Write an add function",
+    "body": "Type exactly this in calculator.py in VS Code, then save.",
+    "kind": "hint",
+    "level": 0,
+    "actions": [
+     "show_me"
+    ],
+    "when": "hint",
+    "grades": {
+     "words": true,
+     "cursor": true,
+     "label": true,
+     "one": false,
+     "file": true,
+     "app": true
+    }
+   },
+   {
+    "src": "card",
+    "title": "Stuck on this step?",
+    "body": "Skip it, or ask for a hint.",
+    "kind": "hint",
+    "level": null,
+    "actions": [
+     "skip_step"
+    ],
+    "when": "idle 100 s",
+    "grades": {
+     "words": true,
+     "cursor": true,
+     "label": true,
+     "one": false,
+     "file": false,
+     "app": false
+    }
+   }
+  ],
+  "timeline": [
+   "typed / screen",
+   "saved",
+   "tick while typing",
+   "idle 5 s",
+   "saved again",
+   "idle after 2nd save",
+   "hint",
+   "show me",
+   "idle 100 s"
+  ],
+  "coach_routes": [
+   {
+    "route": "template",
+    "triage": {
+     "route": "opus",
+     "by": "fallback",
+     "reason": "default to full diagnosis"
+    },
+    "fallback": "diagnose: offline mode (DEMO / ORCH_STUBS), no live call",
+    "playbook": null,
+    "title": "Start: Write an add function"
+   },
+   {
+    "route": "template",
+    "triage": {
+     "route": "opus",
+     "by": "fallback",
+     "reason": "default to full diagnosis"
+    },
+    "fallback": "diagnose: offline mode (DEMO / ORCH_STUBS), no live call",
+    "playbook": null,
+    "title": "Start: Write an add function"
+   },
+   {
+    "route": "template",
+    "triage": {
+     "route": "opus",
+     "by": "fallback",
+     "reason": "default to full diagnosis"
+    },
+    "fallback": "diagnose: offline mode (DEMO / ORCH_STUBS), no live call",
+    "playbook": null,
+    "title": "Start: Write an add function"
+   }
+  ],
+  "next_step_cards": [],
+  "errors": []
+ },
+ {
+  "lesson": "C",
+  "lesson_title": "Build a Python Calculator",
+  "step": "s3",
+  "step_title": "Write an add function",
+  "state": "right",
+  "note": "",
+  "window_title": "calculator.py — i-wanna-build-a-calc-in-python-in-vs-cods-9808de",
+  "on_disk": "# Simple calculator\n# Write your code below\ndef add(a, b):\n    return a + b\n\nprint(\"Simple Calculator\")\nprint(add(2, 3))\n",
+  "terminal": [
+   "learner@MacBook-Pro i-wanna-build-a-calc-in-python-in-vs-cods-9808de % python calculator.py",
+   "Simple Calculator",
+   "5",
+   "learner@MacBook-Pro i-wanna-build-a-calc-in-python-in-vs-cods-9808de % "
+  ],
+  "passed": false,
+  "status": "idle",
+  "checks": {
+   "s3c1": [
+    "fail",
+    "not seen in Code"
+   ],
+   "s3c2": [
+    "fail",
+    "not seen in Code"
+   ]
+  },
+  "copy": [
+   {
+    "src": "step.started",
+    "title": "Write an add function",
+    "body": "In calculator.py, type def add(a, b): …",
+    "kind": "action line",
+    "grades": {
+     "words": true,
+     "cursor": true,
+     "label": true,
+     "one": true,
+     "file": true,
+     "app": false
+    }
+   },
+   {
+    "src": "card",
+    "title": "Start: Write an add function",
+    "body": "In VS Code, type `def add(a, b):` in calculator.py.",
+    "kind": "hint",
+    "level": null,
+    "actions": [
+     "apply_fix"
+    ],
+    "when": "saved again",
+    "grades": {
+     "words": true,
+     "cursor": true,
+     "label": true,
+     "one": true,
+     "file": true,
+     "app": true
+    }
+   },
+   {
+    "src": "card",
+    "title": "Type this · Write an add function",
+    "body": "Type exactly this in calculator.py in VS Code, then save.",
+    "kind": "hint",
+    "level": 0,
+    "actions": [
+     "show_me"
+    ],
+    "when": "hint",
+    "grades": {
+     "words": true,
+     "cursor": true,
+     "label": true,
+     "one": false,
+     "file": true,
+     "app": true
+    }
+   },
+   {
+    "src": "card",
+    "title": "Stuck on this step?",
+    "body": "Skip it, or ask for a hint.",
+    "kind": "hint",
+    "level": null,
+    "actions": [
+     "skip_step"
+    ],
+    "when": "idle 100 s",
+    "grades": {
+     "words": true,
+     "cursor": true,
+     "label": true,
+     "one": false,
+     "file": false,
+     "app": false
+    }
+   }
+  ],
+  "timeline": [
+   "typed / screen",
+   "saved",
+   "tick while typing",
+   "idle 5 s",
+   "saved again",
+   "idle after 2nd save",
+   "hint",
+   "show me",
+   "idle 100 s"
+  ],
+  "coach_routes": [
+   {
+    "route": "template",
+    "triage": {
+     "route": "opus",
+     "by": "fallback",
+     "reason": "default to full diagnosis"
+    },
+    "fallback": "diagnose: offline mode (DEMO / ORCH_STUBS), no live call",
+    "playbook": null,
+    "title": "Start: Write an add function"
+   },
+   {
+    "route": "template",
+    "triage": {
+     "route": "opus",
+     "by": "fallback",
+     "reason": "default to full diagnosis"
+    },
+    "fallback": "diagnose: offline mode (DEMO / ORCH_STUBS), no live call",
+    "playbook": null,
+    "title": "Start: Write an add function"
+   },
+   {
+    "route": "template",
+    "triage": {
+     "route": "opus",
+     "by": "fallback",
+     "reason": "default to full diagnosis"
+    },
+    "fallback": "diagnose: offline mode (DEMO / ORCH_STUBS), no live call",
+    "playbook": null,
+    "title": "Start: Write an add function"
+   }
+  ],
+  "next_step_cards": [],
+  "errors": []
+ }
+]
