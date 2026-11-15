@@ -15,7 +15,7 @@
  * neutral white / muted. Buttons white on dark. No blue, amber, gradients, glows, sparkles or emoji.
  */
 import { motion } from 'motion/react'
-import { useEffect, type ReactNode } from 'react'
+import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { useShallow } from 'zustand/react/shallow'
 import { BookOpen, Check, Code2, Download, ExternalLink, File, FileCode2, Footprints, FolderGit2, Hammer, History, Info, Lightbulb, ListChecks, MessageCircle, MessageSquareText, NotebookText, Play, Search, SkipForward, SquarePlay, SquareTerminal, Undo2, Wrench, FolderOpen, RotateCcw, type LucideIcon } from 'lucide-react'
 import type { PreflightInfo } from '../../../../../../shared/contracts/events'
@@ -494,6 +494,8 @@ function actionLabel(c: EngineCard, a: CardAction): string {
   const custom = c.setup?.actionLabels?.[a]
   if (custom) return custom
   if (a === 'open_editor' && c.setup?.editorLabel) return `Open ${c.setup.editorLabel}`
+  // "Type this for you?" (a fix preview): the confirm types the diff into the learner's file.
+  if (a === 'confirm' && c.diff) return 'Type it'
   return ACTION[a]!.label
 }
 
@@ -581,6 +583,39 @@ function SetupItems({ setup }: { setup: NonNullable<EngineCard['setup']> }): Rea
   )
 }
 
+/** How long the second tap of a TwoTap button stays armed. */
+const ARM_MS = 3000
+
+/**
+ * A destructive card action as a quiet text link: the first tap only arms it ("Tap again to start over"), the
+ * second within ARM_MS acts. A stray click meant for the button next to it does nothing.
+ */
+function TwoTap({ label, onConfirm }: { label: string; onConfirm: () => void }): ReactNode {
+  const [armed, setArmed] = useState(false)
+  const timer = useRef<ReturnType<typeof setTimeout>>(undefined)
+  useEffect(() => () => clearTimeout(timer.current), [])
+  return (
+    <button
+      type="button"
+      data-two-tap={armed ? 'armed' : 'idle'}
+      className="mr-[12px] h-[34px] px-[4px] text-[13px] transition-colors"
+      style={{ color: armed ? color.label : color.faint }}
+      onClick={() => {
+        clearTimeout(timer.current)
+        if (armed) {
+          setArmed(false)
+          onConfirm()
+          return
+        }
+        setArmed(true)
+        timer.current = setTimeout(() => setArmed(false), ARM_MS)
+      }}
+    >
+      {armed ? 'Tap again to start over' : label}
+    </button>
+  )
+}
+
 function CardActions({ card, actions }: { card: EngineCard; actions: CardAction[] }): ReactNode {
   const busy = useBusyIcon()
   const known = actions.filter((a) => ACTION[a])
@@ -594,10 +629,12 @@ function CardActions({ card, actions }: { card: EngineCard; actions: CardAction[
         <OptionButton key={a} action={a} label={ACTION[a]!.label} kbd={keys[a]} icon={busy(a)} onClick={() => cardAct(a)} />
       ))}
       {known
-        .filter((a) => a !== primary && !isOption(a))
+        .filter((a) => a !== primary && !isOption(a) && a !== 'end_lesson')
         .map((a) => (
           <QuietButton key={a} label={actionLabel(card, a)} icon={busy(a, ACTION[a]!.Icon, true)} onClick={() => cardAct(a)} />
         ))}
+      {/* "Start a new lesson" discards the save: it sits apart from Continue and needs a second tap (desktop test 3). */}
+      {known.includes('end_lesson') && primary !== 'end_lesson' && <TwoTap label={actionLabel(card, 'end_lesson')} onConfirm={() => cardAct('end_lesson')} />}
       <span className="flex-1" />
       {primary && <PrimaryButton label={actionLabel(card, primary)} icon={busy(primary, ACTION[primary]!.Icon)} onClick={() => cardAct(primary)} />}
     </div>

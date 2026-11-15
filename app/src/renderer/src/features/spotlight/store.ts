@@ -3,15 +3,17 @@
  * targets, and how long a spotlight lives.
  *
  * Lifetime (Michael's P0-2: "Show me / Explain / Hint must visibly point at my screen"): a spotlight
- * STAYS until `spotlight {clear:true}`, the step moves on (step.started / step.passed: the video resumes,
- * and a dim over it would hide it), the lesson ends or resets (lesson.ended arrives as a core reset), or
- * the learner dismisses the card it came with (✕ / Esc). There is no timeout.
+ * STAYS until `spotlight {clear:true}`, the step moves on (step.started / step.passed clear it at once, so the
+ * old step's box never lingers into the new one), or the lesson ends or resets. There is no timeout.
+ *
+ * Timing (Michael's tests 2-3, A9): the latest spotlight message always wins (a clear followed by a new target is
+ * a move; a target followed by a clear is gone), and the spotlight's lifetime is NOT tied to the card it came with:
+ * closing a card leaves the box up until the engine clears it.
  */
 import { create } from 'zustand'
 import type { Payload } from '../../../../common/wire'
 import { onMessage, onUi } from '../../core/bus'
 import { usePressed } from '../../core/shortcuts'
-import { useCards } from '../cards/store'
 import { sameRect } from './place'
 
 export type SpotlightTarget = Exclude<Payload<'spotlight'>, { clear: true }> & { code?: string }
@@ -35,8 +37,6 @@ export function spotlightMode(): SpotlightMode {
 export const REPLACE_GRACE_MS = 800
 /** Rect changes smaller than this (px, any edge) are OCR jitter: the hole stays put (Michael, live test: "jumpy"). */
 export const JITTER_PX = 8
-/** A card that opens this soon after its spotlight still owns it (the engine may send them in either order). */
-const PAIR_MS = 1500
 
 /**
  * showMe: the current target answers a Show me press, so it keeps the strong dim (scrim.spotlight). Anything else in a
@@ -47,16 +47,11 @@ export const useSpotlight = create<{ target?: SpotlightTarget; targets: CoachTar
 const set = useSpotlight.setState
 const get = useSpotlight.getState
 
-/** The coach card the current spotlight came with: dismissing that card clears the spotlight too. */
-type CardRef = { card: Payload<'card'> } | { offtrack: true }
-let cameWith: CardRef | undefined
-let arrivedAt = 0
 let pendingClear: ReturnType<typeof setTimeout> | undefined
 
 function clearNow(): void {
   clearTimeout(pendingClear)
   pendingClear = undefined
-  cameWith = undefined
   set({ target: undefined, targets: [], showMe: false })
 }
 
@@ -85,26 +80,15 @@ function clearSoon(): void {
   pendingClear = setTimeout(clearNow, REPLACE_GRACE_MS)
 }
 
-function openCard(): CardRef | undefined {
-  const c = useCards.getState()
-  if (c.card) return { card: c.card }
-  if (c.offtrackOpen) return { offtrack: true }
-  return undefined
-}
-
-/** Is that card still up? An off-track card under an explain card or diagram (`resume`) comes back, so it counts. */
-function stillOpen(ref: CardRef): boolean {
-  const c = useCards.getState()
-  return 'card' in ref ? c.card === ref.card : c.offtrackOpen || c.resume
-}
-
 const validTargets = (t: CoachTarget[] | undefined): CoachTarget[] =>
   (t ?? []).filter((x) => x && x.rect && [x.rect.x, x.rect.y, x.rect.w, x.rect.h].every(Number.isFinite) && x.rect.w > 0 && x.rect.h > 0)
 
 onUi('reset', clearNow) // dev reset, reconnect, and engine lesson.ended (core turns it into a reset)
 onMessage('lesson.ready', clearNow)
-onMessage('step.started', clearSoon)
-onMessage('step.passed', clearSoon)
+onMessage('lesson.ended', clearNow)
+// A clear lands together with the new step: no grace, the old step's box must not sit over the new step's code.
+onMessage('step.started', clearNow)
+onMessage('step.passed', clearNow)
 
 onMessage('spotlight', (p) => {
   if ('clear' in p) return clearSoon()
@@ -115,8 +99,6 @@ onMessage('spotlight', (p) => {
   // A re-spotlight: the engine re-sends the same target every screen read. Ignore OCR jitter so the hole doesn't wobble.
   const still = !!(prev && next.rect && sameRect(prev.rect, next.rect, JITTER_PX))
   if (prev && still && prev.caption === next.caption && prev.matched === next.matched && prev.code === next.code && prev.snippet === next.snippet) return
-  arrivedAt = Date.now()
-  cameWith = openCard()
   // A Show me answer keeps its strong dim while the engine re-reads it (new words at the same place).
   const showMe = answersShowMe() || (still && get().showMe)
   // New words at (nearly) the same place: keep the old rect so only the caption changes.
@@ -126,18 +108,3 @@ onMessage('spotlight', (p) => {
 // The coach's targets: the engine spotlights targets[0]; the rest are drawn as extra cut-outs while it's up.
 onMessage('card', (p) => set({ targets: validTargets(p.targets) }))
 onMessage('offtrack', (p) => set({ targets: validTargets(p.targets) }))
-
-// A card that opens right after its spotlight still owns it.
-useCards.subscribe((s, before) => {
-  if (!get().target || cameWith || Date.now() - arrivedAt > PAIR_MS) return
-  if ((s.card && s.card !== before.card) || (s.offtrackOpen && !before.offtrackOpen)) cameWith = openCard()
-})
-
-// ✕ / Esc: cards close their top card in their own dismiss handler; look once every handler has run.
-onUi('dismiss', () => {
-  const ref = cameWith
-  if (!ref || !get().target) return
-  queueMicrotask(() => {
-    if (cameWith === ref && !stillOpen(ref)) clearNow()
-  })
-})
