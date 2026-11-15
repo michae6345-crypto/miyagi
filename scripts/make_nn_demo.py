@@ -595,7 +595,7 @@ COACH = {
         "body": "All eight hidden neurons start with the same weights, so they get the same update and stay copies. "
                 "With zeros nothing moves at all: the network answers 0 for every x. Start W1, W2 and W3 random.",
         "guidingQuestion": "If every hidden neuron starts the same, can they ever become different?",
-        "citation": {"label": "Goodfellow et al., Deep Learning §8.4 (breaking symmetry)",
+        "citation": {"label": "Goodfellow et al. 2016, §8.4",
                      "url": "https://www.deeplearningbook.org/contents/optimization.html"},
         "actions": ["explain", "hint", "show_me"],
     }

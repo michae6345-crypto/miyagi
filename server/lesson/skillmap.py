@@ -7,7 +7,7 @@
 
 Hook: server/orchestrator/lesson_end.card() returns its card through attach_skill_map(card, s, evidence), which covers
 its three senders (send_later, Check / Skip after the end, the reconnect replay). `evidence` is lesson_end's real proof
-from the learner's own runs ("Loss fell from 0.819 to 0.001 in your last run."); the headline carries it.
+from the learner's own runs ("Loss 0.819 → 0.001 in your last run."); the headline carries it.
 
 The engine supplies the data; the app draws it (concept nodes left to right on the track, mastered = check,
 learning = ring, next = dashed; `cross` = dashed links from another track, the "shared idea"). Contract:
@@ -15,7 +15,7 @@ SkillMap in shared/contracts/events.ts (card.skillMap) and events.py.
 
 Two sources:
 - The curated "build a neural network" lesson (lesson.curated == "nn-from-scratch", or a goal that names a neural
-  network and nothing more specific): a hand-written Machine learning track for the curated 1-4-4-1 tanh network that
+  network and nothing more specific): a hand-written Neural networks track for the curated 1-4-4-1 tanh network that
   learns the shape of sin(x) (nn1 network + forward, nn2 backprop, nn3 training loop, nn4 train it, nn5 test it, nn6
   see what it learned). Each concept names the curated steps that teach it; another neural-network lesson maps a concept to the steps whose text names it, and a concept no
   step teaches is left out.
@@ -23,7 +23,8 @@ Two sources:
   title); one node per step (a run step joins the step it runs); next from lesson.nextTopics / learnFirst.
 
 Progress is never invented: a node is mastered only when every step behind it passed (results), learning when one
-of them was skipped, next when none of that is known (results None, or not reached yet).
+of them was skipped or passed only because Do it for me typed its code (t7: practiced, not mastered; results
+"assisted"), next when none of that is known (results None, or not reached yet).
 """
 
 from __future__ import annotations
@@ -40,8 +41,8 @@ MAX_LABEL_WORDS, MAX_DETAIL_WORDS = 6, 12
 
 # ------------------------------------------------------------------------------------- the curated NN lesson
 NN_KEY = "nn-from-scratch"  # server/orchestrator/curated.py KEY (lesson.curated in the graph)
-NN_TRACK = "Machine learning"
-NN_LEAD = "You built a neural network that learns the shape of sin(x)."
+NN_TRACK = "Neural networks"  # t7: the app's complete panel header reads "Neural networks · 8 skills mastered"
+NN_LEAD = "A 1-4-4-1 network that learns the shape of sin(x)."  # t7: plain facts, never "You built..."
 
 # (id, label, detail, the curated steps that teach it, words that name it in another NN lesson's steps)
 _NN_CONCEPTS: tuple[tuple[str, str, str, tuple[str, ...], str], ...] = (
@@ -137,8 +138,10 @@ def session_results(session: Any) -> dict:
     idx = idx if isinstance(idx, int) else -1
     done = steps[: idx + 1] if getattr(session, "passed", False) else steps[: max(idx, 0)]
     skipped = set(getattr(session, "skipped_steps", None) or [])
+    assisted = set(getattr(session, "assisted_steps", None) or []) - skipped
     return {"passed": [s["id"] for s in done if s["id"] not in skipped],
-            "skipped": [s["id"] for s in done if s["id"] in skipped]}
+            "skipped": [s["id"] for s in done if s["id"] in skipped],
+            "assisted": [s["id"] for s in done if s["id"] in assisted]}
 
 
 def finished(session: Any) -> bool:
@@ -178,6 +181,9 @@ def _statuses(steps: list[dict], results: dict | None) -> dict[str, str]:
     if isinstance(results.get("passed"), (list, tuple, set)) or isinstance(results.get("skipped"), (list, tuple, set)):
         for sid in results.get("passed") or ():
             out[str(sid)] = "passed"
+        for sid in results.get("assisted") or ():
+            if out.get(str(sid)) == "passed":
+                out[str(sid)] = "assisted"  # passed because Do it for me typed it: practiced, not mastered
         for sid in results.get("skipped") or ():
             out[str(sid)] = "skipped"  # skipped wins: Skip is never a pass
         return out
@@ -193,7 +199,7 @@ def _state(step_ids: Iterable[str], status: dict[str, str]) -> str:
     got = [status.get(s) for s in step_ids]
     if got and all(g == "passed" for g in got):
         return MASTERED
-    if any(g == "skipped" for g in got):
+    if any(g in ("skipped", "assisted") for g in got):
         return LEARNING
     return NEXT
 
@@ -318,12 +324,9 @@ def _pretty(name: str) -> str:
 
 
 def _lead(lesson: dict, taught: list[dict]) -> str:
-    title = " ".join(str(lesson.get("title") or lesson.get("goal") or "this lesson").split())
-    if re.match(r"^(?:a|an|the)\s", title, re.I):
-        title = title[:1].lower() + title[1:]
-    if taught and any(n["state"] == MASTERED for n in taught):
-        return f"You finished {title}."
-    return f"You reached the end of {title}."
+    """The lesson's own title as a plain sentence ("A to-do app in React."); t7: never "You finished ..." """
+    title = " ".join(str(lesson.get("title") or lesson.get("goal") or "This lesson").split()).rstrip(".!?")
+    return f"{title[:1].upper()}{title[1:]}."
 
 
 def _finish(track: str, lead: str, nodes: list[dict], cross: list[dict], nxt: list[dict], proof: str = "") -> dict:
@@ -331,8 +334,8 @@ def _finish(track: str, lead: str, nodes: list[dict], cross: list[dict], nxt: li
               for s, word in ((MASTERED, "mastered"), (LEARNING, "learning"), (NEXT, "up next"))]
     tally = ", ".join(f"{c} {w}" for c, w in counts if c)
     where = "" if track.lower() in lead.lower() else f" in {track}"  # "...a to-do app in React. 3 mastered." once
-    # "You built a neural network that learns the shape of sin(x). Loss fell from 0.819 to 0.001 in your last run.
-    # 8 mastered, 5 up next in Machine learning." (the proof only when the learner's own run gave one)
+    # "A 1-4-4-1 network that learns the shape of sin(x). Loss 0.819 → 0.001 in your last run. 8 mastered, 5 up next
+    # in Neural networks." (the proof only when the learner's own run gave one)
     headline = " ".join(x for x in (lead, proof, f"{tally}{where}." if tally else "") if x)
     edges = [{"from": a["id"], "to": b["id"]} for a, b in zip(nodes, nodes[1:])]
     return {"track": track, "headline": headline, "nodes": nodes, "edges": edges, "cross": cross,
@@ -356,7 +359,11 @@ def _skipped_detail(step_ids: list[str], steps: list[dict], status: dict[str, st
     pos = {s["id"]: i + 1 for i, s in enumerate(steps)}
     nums = [str(pos[s]) for s in step_ids if status.get(s) == "skipped" and s in pos]
     if not nums:
-        return ""
+        done = [str(pos[s]) for s in step_ids if status.get(s) == "assisted" and s in pos]
+        if not done:
+            return ""
+        return (f"Step {done[0]} typed by Do it for me" if len(done) == 1
+                else f"Steps {', '.join(done)} typed by Do it for me")
     return f"Step {nums[0]} skipped" if len(nums) == 1 else f"Steps {', '.join(nums)} skipped"
 
 

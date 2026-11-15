@@ -41,6 +41,7 @@ from . import config, curated, editor_text, missing_module, perf, scene_watch, s
 from .context import RunContext, RunInfo, metrics_summary
 from .modules import Modules
 from .captions import short_caption
+from .card_copy import ran as _ran  # t7: a run in plain words ("Ran nn.py", not "Ran .venv/bin/python nn.py")
 from . import spot_lines  # t5: which editor line a lesson box goes on
 from . import typo_card  # Nov 15: terminal-command typos on run steps, no model call
 from . import ui_targets  # t6: VS Code's real controls (AX) boxed: Terminal, save, open the file, ...
@@ -305,6 +306,7 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
         self.resources: list[dict] = []  # S2: files the video links (download button)
         self.waiting_more = False  # passed the last built step of a long video that's still building
         self.skipped_steps: list[str] = []
+        self.assisted_steps: list[str] = []  # t7: steps whose code Do it for me typed (the skill map: practiced)
         self._run_redirected: set[str] = set()
         self._parts_building = False  # build_lesson itself is still adding parts (non-lazy long video)
         self._extend_task: asyncio.Task | None = None  # E2 lazy parts: the next part being built
@@ -437,6 +439,8 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
                 return
         if (answered := _ANSWERED.get()) is not None and not (payload or {}).get("clear"):
             answered.add(type_)  # a spotlight clear is not an answer
+        if type_ == "offtrack" and payload:  # t7: the card's "expected" column: the curated lesson's own run first
+            await curated.send_reference(self)
         await self._emit_raw(type_, payload or {})
 
     def _bind_epoch(self) -> None:
@@ -2216,6 +2220,7 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
         self.runs = {}
         self._extend_failed = False
         self.skipped_steps = []  # ids the learner skipped (S7 saves them apart from passed steps)
+        self.assisted_steps = []  # t7: ids whose code Do it for me typed in full (the skill map: not mastered)
         self._run_redirected: set[str] = set()  # run steps already sent back to their typing step once
         self.judge = self.m.make_step_judge()
         new_wd = str(config.resolve_workdir(graph.get("lesson", {}).get("workdir")))
@@ -2880,7 +2885,7 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
         else:
             self.phase = "done"
             await self.emit("video.play", {})
-            self._spawn_lesson_end()  # t5: the completion card ("You built …", their run's numbers, End lesson)
+            self._spawn_lesson_end()  # t5: the completion card (its skill count, their run's numbers, End lesson)
 
     def _spawn_lesson_end(self) -> None:
         from . import lesson_end
@@ -5118,9 +5123,10 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
         if target.get("rect"):
             await self._show_spot({"rect": target["rect"], "caption": body.split("\n")[0]})
             self._action_spot = True
-        # teach first: Hint / Show me on the first "Not yet"; Do it for me / Run it for me only on a repeat
+        # teach first: Hint / Show me on the first "Not yet"; Do it for me only on a repeat. A run step's rerun (Run
+        # it for me) is on every one: running it is the step itself, not the answer (t7: the Demo had no rerun button)
         n = self._not_yet_n[1] + 1 if getattr(self, "_not_yet_n", (None, 0))[0] == self.step_gen else 1
-        teach = ((["run_command"] if self._run_command(step) else ["apply_fix"]) if n > 1 else []) + ["hint", "show_me"]
+        teach = (["run_command"] if self._run_command(step) else ["apply_fix"] if n > 1 else []) + ["hint", "show_me"]
         if await self._emit_card({"stepId": step["id"], "kind": "answer", "title": "Not yet", "body": body,
                                   "actions": (teach if self.lesson_mode else []) + ["skip_step"]}, window_s=2.0):
             self._not_yet_n = (self.step_gen, n)  # a double press inside 2 s is one "Not yet", not a repeat
@@ -5328,7 +5334,7 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
         count, same, out = (self._checks_fn(n) for n in ("terminal_runs", "command_matches", "run_output"))
         if not cmd or count is None or same is None or out is None:
             return results, gate
-        base = {"checkId": f"{step['id']}-ran", "label": f"Ran {cmd}"[:60], "status": "pending",
+        base = {"checkId": f"{step['id']}-ran", "label": _ran(cmd), "status": "pending",
                 "detail": "Run it in the terminal (or press Run it for me)"}
         from . import terminal_run
 
@@ -5469,7 +5475,7 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
             if card is not None and card[0] == gen == self.step_gen and self._run_for_me_card is card:  # Running it
                 self._run_for_me_card = None  # becomes the result, before the coach's card (that one goes on top)
                 self._record("run_for_me", {"command": card[1][:200], "exit_code": run.exit_code}, step)
-                await self._card(step, f"Ran {card[1].splitlines()[0][:60]}",
+                await self._card(step, _ran(card[1]),
                                  self._run_verdict(run.exit_code, run.output_tail), kind="answer",
                                  output="\n".join(run.output_tail[-8:]) or "(no output)")
             for _ in range(20):  # the stale diagnosis _acted cancelled must end first, or the breakpoint is dropped
@@ -6251,7 +6257,7 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
         self._record("run_for_me", {"command": cmd[:200], "exit_code": code}, step)
         body = (f"Stopped after {self.RUN_TIMEOUT_S:.0f} s (is it waiting for input?)." if timed_out
                 else "It ran without errors." if code == 0 else f"It stopped with exit code {code}.")
-        await self._card(step, f"Ran {cmd.splitlines()[0][:60]}", body, kind="answer",
+        await self._card(step, _ran(cmd), body, kind="answer",
                          output="\n".join(lines[-8:]) or "(no output)")
         if not self.passed and self.step is step:
             await self._status("offtrack" if self.last_offtrack else "watching")
@@ -6345,7 +6351,7 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
         body = ("It stopped before it finished. Press Run it for me again." if stopped
                 else f"It stopped with exit code {code}." if code not in (0, None) else "It printed an error." if err
                 else "It ran without errors." if code == 0 else "It finished.")
-        await self._card(step, f"Ran {want[:60]}", body, kind="answer", output="\n".join(tail[-8:]) or "(no output)",
+        await self._card(step, _ran(want), body, kind="answer", output="\n".join(tail[-8:]) or "(no output)",
                          **({"actions": ["run_command"]} if stopped else {}))
         if gen != self.step_gen or run_id in self.runs:
             return
@@ -6367,7 +6373,7 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
         if not diagnose or gen != self.step_gen or self.passed:
             return
         self._run_diag_key = key
-        row = {"checkId": f"{step['id']}-ran", "type": "command_exit_ok", "label": f"Ran {want}"[:60], "status": "fail",
+        row = {"checkId": f"{step['id']}-ran", "type": "command_exit_ok", "label": _ran(want), "status": "fail",
                "detail": f"the last run stopped with exit code {code}" if code else "the run printed an error"}
         failed = [row, *(r for r in self.last_failed if r.get("checkId") != row["checkId"])]
         self.coaching = True
@@ -6411,6 +6417,8 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
             if spot:
                 await self._show_spot(spot)
         self._record("fix_applied", {"file": path.name}, step)
+        if pp.get("step_code") and step["id"] not in self.assisted_steps:  # t7: practiced, not mastered (skill map)
+            self.assisted_steps.append(step["id"])
         if pp.get("result"):  # a lesson step's code: say what changed in one line
             await self._card(step, "Done", pp["result"], kind="answer", actions=["undo"])
         else:
@@ -6425,6 +6433,8 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
         path, text = self.undo
         self.undo = None
         path.write_text(text)
+        if step["id"] in self.assisted_steps:  # their own version again: no longer Do it for me's
+            self.assisted_steps.remove(step["id"])
         await self._card(step, "Undone", "Your version is back.")
         await self.on_file_change([str(path)])
 

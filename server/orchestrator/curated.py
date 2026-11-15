@@ -11,6 +11,10 @@ scripts/make_nn_demo.py: demo/cache/lessons/text-nn-from-scratch.json + its card
     run_for_me_command(session, step, cmd)   Run it for me runs the lesson .venv's python once NumPy is in it
     on_step_started / on_step_passed / after_evaluate / on_command_end   the pushed diagrams and the real run's numbers
     diagram_for_action / hint_card / explain_card   the Diagram button, the hint ladder and Explain, from the cached files
+    send_reference(session)       before a Not yet on the training step: the lesson's own run as the app's "expected"
+                                  curve (metric runId "tutorial"), so the card's yours | expected never reads "—"
+    metric_detail(check, losses)  a loss row's detail as the checks module words it ("loss 0.4900 at step 18000,
+                                  need < 0.01"): the app reads yours and the target from it
 
 The off-track coach stays live (real Claude); the hints and Explain come from the files (instant, the same every time).
 MIYAGI_CURATED=0 turns all of it off ("Just teach me" builds a lesson as before). DEMO=1 uses the same lesson.
@@ -476,6 +480,61 @@ def _read_run(session: Any) -> tuple[str, dict] | None:
 
 def _ref(name: str) -> dict | None:
     return _cache_json("diagrams", f"{name}.json")
+
+
+# ---------------------------------------------------------------------------------------------------------- Not yet
+TUTORIAL_RUN = "tutorial"  # the app's reference curve (features/cards/store.ts TUTORIAL_RUN)
+PRINT_EVERY = 2000  # nn.py prints the loss every 2,000 epochs
+
+
+def _loss_check(step: dict | None) -> dict | None:
+    return next((c for c in (step or {}).get("checks") or [] if c.get("type") == "metric_threshold"), None)
+
+
+def reference_losses(step: dict | None = None) -> list[tuple[int, float]]:
+    """The lesson's own training run (seed 0: the train step's reference diagram) as nn.py prints it: every 2,000
+    epochs up to the loss check's by_step (0.8187 at epoch 0 -> 0.0009 at epoch 18000)."""
+    frames = ((_ref(f"{TRAIN_STEP}-network") or {}).get("data") or {}).get("frames") or []
+    by = (_loss_check(step) or {}).get("by_step")
+    out = []
+    for f in frames:
+        e, v = f.get("epoch") if isinstance(f, dict) else None, f.get("loss") if isinstance(f, dict) else None
+        if (isinstance(e, int) and isinstance(v, (int, float)) and math.isfinite(v) and e % PRINT_EVERY == 0
+                and (by is None or e <= by)):
+            out.append((e, round(float(v), 4)))
+    return out
+
+
+async def send_reference(session: Any) -> None:
+    """test 7: the Not yet card's evidence read "yours 0.49 / expected —". The app's expected column under the loss
+    curve is the reference run's last value (metric events of runId "tutorial"): the lesson's own run, sent just
+    before an off-track on the training step (the app keeps one point per epoch, so a resend changes nothing)."""
+    step = getattr(session, "step", None)
+    if not active(session) or not step or step.get("id") != TRAIN_STEP:
+        return
+    try:
+        name = (_loss_check(step) or {}).get("metric") or "loss"
+        for e, v in reference_losses(step):
+            await session.emit("metric", {"runId": TUTORIAL_RUN, "step": e, "name": name, "value": v})
+    except Exception:  # noqa: BLE001 - the card goes out without its reference curve
+        log.exception("curated: no reference curve")
+
+
+def metric_detail(check: dict, losses: list[tuple[int, float]]) -> str | None:
+    """A loss row's detail from this run's printed losses, in the checks module's words: "loss 0.0009 < 0.01 at step
+    18000" (passed) / "loss 0.4900 at step 18000, need < 0.01" (not yet; the app shows 0.4900 under yours and the
+    label's 0.01 under expected). None: this run printed no loss (a crash: the row says so, never an older run's)."""
+    if not losses:
+        return None
+    by = check.get("by_step")
+    upto = [(e, v) for e, v in losses if by is None or e <= by] or losses
+    e, v = upto[-1]
+    name, op, target = check.get("metric") or "loss", check.get("op") or "<", check.get("value")
+    if not isinstance(target, (int, float)):
+        return f"{name} {v:.4f} at step {e}"
+    ok = {"<": v < target, "<=": v <= target, ">": v > target, ">=": v >= target}.get(op, False)
+    return (f"{name} {v:.4f} {op} {target:g} at step {e}" if ok
+            else f"{name} {v:.4f} at step {e}, need {op} {target:g}")
 
 
 def _with_frames(d: dict, frames: list[dict], mode: str | None = None, caption: str | None = None) -> dict:

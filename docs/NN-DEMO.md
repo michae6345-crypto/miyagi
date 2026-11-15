@@ -48,7 +48,7 @@ training run); from the first run on it is their run.
 | 4 | Train it | Run it (Run it for me, or the command in VS Code's terminal) | Loss 0.4900 on every line → **off track** (live coach). Panel: **loss stuck**, identical dark hidden neurons (all eight at 0), loss 0.4900. ⌥H twice: "look at how W1, W2 and W3 start" → "start them random". | "Every check passed, but the loss never moved. All eight hidden neurons are the same neuron: each outputs tanh(0) = 0, so the network answers 0 for every x." |
 | 4b | | Change the three lines back to `np.random.randn(1, 4)` / `np.random.randn(4, 4)` / `np.random.randn(4, 1) * 0.1`, save, run again (about 0.4 s) | Loss 0.8187 → 0.0009 (epoch 0 → 18000), step passes. Panel: **your run**, weights moving while the loss falls | "Random starts break the tie. Now it learns." |
 | 5 | Test it | Copy, paste under `# Test it`, save | Panel: your run again | |
-| 6 | See what it learned | Run it | `[-1.0, 0.0, 1.0]` (its answers for -π/2, 0, π/2) and the weights; lesson complete. Panel: your network answering x = -π/2, 0, π/2, drawn from the weights it printed | "From nothing to a network that draws a sine wave, every step checked." |
+| 6 | See what it learned | Run it | `[-1.0, 0.0, 1.0]` (its answers for -π/2, 0, π/2) and the weights; the completion card ("Neural networks · 8 skills mastered", loss first → last). Panel: your network answering x = -π/2, 0, π/2, drawn from the weights it printed | "From nothing to a network that draws a sine wave, every step checked." |
 
 ⌥D on any step opens the panel's network full size (no engine round trip when the panel has one).
 

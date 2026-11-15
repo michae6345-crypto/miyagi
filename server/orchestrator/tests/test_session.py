@@ -3064,7 +3064,7 @@ def test_run_it_for_me_runs_the_command_shows_output_and_passes_the_run_check(tm
 
     run(go())
     ran = [c for c in rig.of("card") if c["title"].startswith("Ran ")][-1]
-    assert ran["title"] == "Ran python calc.py" and ran["output"] == "5" and ran["body"] == "It ran without errors."
+    assert ran["title"] == "Ran calc.py" and ran["output"] == "5" and ran["body"] == "It ran without errors."
     assert rig.of("step.passed")[-1]["stepId"] == "s2"
 
 

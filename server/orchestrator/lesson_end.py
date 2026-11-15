@@ -4,9 +4,12 @@
     end_reason(session, why)   End on a finished lesson ("stopped" from the bar / launcher, action end_lesson from a
                                card) ends it as "completed": the save was cleared at its last step, so no
                                "Lesson saved · Undo" and no "Continue where you left off?" for it
-    card(session)              ONE completion card in the existing card format: the title from the goal ("You built a
-                               neural network"), what they built plus the real evidence from their own runs ("Loss fell
-                               from 0.247 to 0.001 in your last run."), actions [end_lesson] (labelled "End lesson")
+    card(session)              ONE completion card in the existing card format: a plain title (t7: the skill count,
+                               "Neural networks · 8 skills mastered", else the lesson's own title; never "You built..."
+                               or "Lesson complete"), a body of plain facts: what they built plus the real evidence
+                               from their own runs ("Loss 0.819 → 0.0009 in your last run."), actions [end_lesson]
+                               (labelled "End lesson"), card.skillMap (node details and cross notes: the app shows
+                               them on click)
     send_later(session, gen)   that card, a moment after the last step's own result card (the run's output) went out
 
 No model call: everything comes from the lesson graph and the runs the engine already holds.
@@ -22,11 +25,12 @@ from typing import Any
 
 from server.lesson.skillmap import attach_skill_map
 
+from .card_copy import ran
+
 log = logging.getLogger("orchestrator.lesson_end")
 
 CARD_DELAY_S = 2.5  # the last step's "Ran python3 main.py" card (its output) stays up this long first
 END_LABEL = "End lesson"  # the card's button (the app's default label for end_lesson is "Start a new lesson")
-MAX_TITLE_WORDS = 8
 
 # ------------------------------------------------------------------------------------------------ finished / reason
 
@@ -43,53 +47,33 @@ def end_reason(s: Any, reason: str) -> str:
 
 
 # ------------------------------------------------------------------------------------------------ title
+# t7 (Michael, test 7): "You built a neural net" read as AI slop, and nothing says "Lesson complete". The title is
+# the skill count the app's complete panel leads with ("Neural networks · 8 skills mastered"), else the lesson's own
+# title ("A neural net from scratch").
 
-_IRREGULAR = {"build": "built", "make": "made", "write": "wrote", "draw": "drew", "teach": "taught", "run": "ran",
-              "do": "did", "get": "got", "set": "set", "put": "put", "read": "read", "find": "found", "spin": "spun",
-              "understand": "understood", "begin": "began", "bring": "brought", "fit": "fitted", "plot": "plotted",
-              "plan": "planned", "ship": "shipped", "map": "mapped", "program": "programmed", "debug": "debugged",
-              "log": "logged", "chat": "chatted", "stop": "stopped", "drop": "dropped", "grow": "grew",
-              "fine-tune": "fine-tuned", "finetune": "fine-tuned"}
-_REGULAR = {"create", "train", "code", "implement", "design", "learn", "deploy", "solve", "render", "animate", "model",
-            "simulate", "analyze", "analyse", "visualize", "visualise", "compose", "cook", "bake", "paint", "sketch",
-            "edit", "record", "mix", "play", "master", "explore", "use", "add", "automate", "scrape", "test", "host",
-            "launch", "publish", "configure", "install", "connect", "compute", "calculate", "measure", "predict",
-            "classify", "detect", "generate", "translate", "convert", "sort", "search", "parse", "craft", "develop",
-            "construct", "assemble", "finish", "complete", "optimize", "optimise", "tune", "style", "format", "clean",
-            "fix", "prototype", "start", "practice", "practise", "try", "wire", "script", "query"}
-_LEAD = re.compile(r"^(?:how\s+(?:do\s+i\s+|to\s+)|let'?s\s+|(?:i\s+(?:want|would\s+like|'d\s+like)\s+to\s+)|"
-                   r"(?:teach\s+me\s+(?:how\s+)?to\s+)|(?:show\s+me\s+how\s+to\s+)|(?:help\s+me\s+)|(?:learn\s+(?:how\s+)?to\s+))",
-                   re.I)
-# trailing "in Python" / "with NumPy" / "using React" / "from scratch": the title says what, the drawer says how
-_TAIL = re.compile(r"\s+(?:from\s+scratch|(?:in|with|using)\s+(?:pure\s+|plain\s+)?[\w.+#-]+)\s*$", re.I)
-
-
-def _past(verb: str) -> str | None:
-    v = verb.lower()
-    if v in _IRREGULAR:
-        return _IRREGULAR[v]
-    if v not in _REGULAR:
-        return None
-    if v.endswith("e"):
-        return v + "d"
-    if v.endswith("y") and len(v) > 1 and v[-2] not in "aeiou":
-        return v[:-1] + "ied"
-    return v + "ed"
+MAX_TITLE_WORDS = 8
 
 
 def title(lesson: dict) -> str:
-    """"Build a neural network in Python" -> "You built a neural network"; no leading verb -> "Lesson complete"."""
+    """The lesson's own title as written ("A neural net from scratch"), else its goal with a capital first letter;
+    "All steps done" when it has neither (or they run longer than MAX_TITLE_WORDS)."""
     for text in (lesson.get("title"), lesson.get("goal")):
-        t = _LEAD.sub("", " ".join(str(text or "").split())).strip().rstrip(".!?")
-        words = t.split(" ")
-        if len(words) < 2 or not (past := _past(words[0].strip(",:"))):
-            continue
-        rest = " ".join(words[1:])
-        while (m := _TAIL.search(rest)) and len(rest[:m.start()].split()) >= 2:
-            rest = rest[:m.start()]
-        if len(rest.split()) + 2 <= MAX_TITLE_WORDS:
-            return f"You {past} {rest}"
-    return "Lesson complete"
+        t = " ".join(str(text or "").split()).rstrip(".!?")
+        if t and len(t.split()) <= MAX_TITLE_WORDS:
+            return t[:1].upper() + t[1:]
+    return "All steps done"
+
+
+def mastery_title(skill_map: Any) -> str | None:
+    """"Neural networks · 8 skills mastered" from the card's skillMap (the app's complete panel header), None when
+    nothing was mastered."""
+    if not isinstance(skill_map, dict):
+        return None
+    n = sum(1 for x in skill_map.get("nodes") or [] if isinstance(x, dict) and x.get("state") == "mastered")
+    track = " ".join(str(skill_map.get("track") or "").split())
+    if not n or not track:
+        return None
+    return f"{track} · {n} skill{'' if n == 1 else 's'} mastered"
 
 
 # ------------------------------------------------------------------------------------------------ evidence
@@ -185,7 +169,7 @@ def _ok_runs(s: Any) -> list[Any]:
 
 
 def metric_line(s: Any) -> str | None:
-    """"Loss fell from 0.247 to 0.001 in your last run." from the newest run whose metric moved the right way."""
+    """"Loss 0.247 → 0.001 in your last run." from the newest run whose metric moved the right way."""
     patterns = _patterns(s)
     for i, run in enumerate(_ok_runs(s)):
         for name, vals in _series(run, patterns).items():
@@ -195,7 +179,7 @@ def metric_line(s: Any) -> str | None:
                 continue
             label = _LABEL.get(name) or name.replace("_", " ").capitalize()
             when = "in your last run" if i == 0 else "when you ran it"
-            return f"{label} {'fell' if lower else 'rose'} from {_fmt(first)} to {_fmt(last)} {when}."
+            return f"{label} {_fmt(first)} → {_fmt(last)} {when}."
     return None
 
 
@@ -204,9 +188,8 @@ def evidence(s: Any) -> str | None:
     if line := metric_line(s):
         return line
     for run in _ok_runs(s):
-        cmd = (run.command or "").strip().splitlines()[0][:48] if (run.command or "").strip() else ""
-        if cmd:
-            return f"{cmd} ran without errors."
+        if (run.command or "").strip():
+            return f"{ran(run.command)} without errors."  # "Ran nn.py without errors."
     return None
 
 
@@ -235,15 +218,17 @@ def card(s: Any) -> dict:
         lines.append(f"You did {len(steps) - len(skipped)} of {len(steps)} steps and skipped {len(skipped)}.")
     body = " ".join(x for x in lines if x) or f"All {len(steps)} steps done."
     step = getattr(s, "step", None)
-    out = {**({"stepId": step["id"]} if step else {}), "kind": "step",
-           "title": "Lesson finished" if skipped else title(lesson), "body": body,
+    out = {**({"stepId": step["id"]} if step else {}), "kind": "step", "title": title(lesson), "body": body,
            "actions": ["end_lesson"],
            # setup.actionLabels is how a card names its own buttons (cards/index.tsx actionLabel); no items, so the
            # app draws no setup rows: only the label of end_lesson changes ("End lesson", not "Start a new lesson")
            "setup": {"editorNeeded": False, "items": [], "actionLabels": {"end_lesson": END_LABEL}}}
     # mockup 10 "Your skills": card.skillMap (all three senders: send_later, Check / Skip after the end, the reconnect
     # replay); its headline carries the same real proof as the body. Never raises: no map rather than no card.
-    return attach_skill_map(out, s, evidence=proof)
+    out = attach_skill_map(out, s, evidence=proof)
+    if head := mastery_title(out.get("skillMap")):  # the header the app's complete panel draws from the same map
+        out["title"] = head
+    return out
 
 
 async def send_later(s: Any, gen: int, delay_s: float | None = None) -> None:

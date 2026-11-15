@@ -274,6 +274,13 @@ def _diverged(ctx: RunContext, name: str, check: dict, since_step: int | None = 
     return _result(check, "fail", f"{name} diverged: {v} at step {s}")
 
 
+def _no_metric(ctx: RunContext, name: str) -> str:
+    """A finished run that printed no `name`, in plain words (test 7: a crash has no loss; the row says so and never
+    shows an older run's): "no loss: the run stopped with an error" / "the run printed no loss"."""
+    label = name.replace("_", " ")
+    return f"no {label}: the run stopped with an error" if ctx.exit_code else f"the run printed no {label}"
+
+
 def _waiting_for_metric(check: dict, ctx: RunContext, name: str) -> CheckResult:
     """No points yet. A screen-read metric whose app isn't on screen can't arrive by waiting:
     say which app to open, and (once the segment is over) fail so stuck/idle help can kick in."""
@@ -296,7 +303,7 @@ def _metric_threshold(check: dict, ctx: RunContext) -> CheckResult:
     pts = _series(ctx, name, check)
     if not pts:
         if ctx.run_finished:
-            return _result(check, "fail", f"run logged no '{name}' metric")
+            return _result(check, "fail", _no_metric(ctx, name))
         return _waiting_for_metric(check, ctx, name)
     eligible = [p for p in pts if by_step is None or p[0] <= by_step]
     latest_step = pts[-1][0]
@@ -422,7 +429,7 @@ def _metric_trend(check: dict, ctx: RunContext) -> CheckResult:
     pts = _series(ctx, name, check)
     if not pts:
         if ctx.run_finished:
-            return _result(check, "fail", f"run logged no '{name}' metric")
+            return _result(check, "fail", _no_metric(ctx, name))
         return _waiting_for_metric(check, ctx, name)
     latest = pts[-1][0]
     div = _diverged(ctx, name, check, since_step=latest - window)

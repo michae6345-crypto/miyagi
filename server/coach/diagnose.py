@@ -187,9 +187,9 @@ def _lesson_action(card: dict) -> None:
     sentences = [x.strip() for x in re.split(r"(?<=[.!?])\s+", card.get("body", "")) if x.strip()]
     if not sentences:
         return
-    action = clamp_words(sentences[-1], 12)
+    action = sentences[-1]  # t7: the whole action sentence (test 6 cut it at 12 words: "...and `backward` under #…")
     card["why"] = " ".join(sentences[:-1])
-    card["body"] = action if action.endswith((".", "!", "?", "…")) else action + "."
+    card["body"] = action if action.endswith((".", "!", "?")) else action.rstrip("…").rstrip() + "."
 
 
 def error_card(step: dict, error_text: str, code: str) -> dict:

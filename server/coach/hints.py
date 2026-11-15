@@ -86,9 +86,16 @@ def _scene_shows_file(step: dict, screen: ScreenContext | None, last: dict | Non
     return not ed or (not ed["untitled"] and not ed["unsaved"] and ed["file"] in ("", name))
 
 
-def _short(step: dict, n: int = 4) -> str:
-    words = (step.get("title") or "this step").split()
-    return " ".join(words[:n]) + ("…" if len(words) > n else "")
+def _short(step: dict, n: int = 6) -> str:
+    """The step's title for a hint card's title ("Type this · Build the network"); a longer one is left out whole
+    (t7: never a title cut with "…")."""
+    words = (step.get("title") or "").split()
+    return " ".join(words) if len(words) <= n else ""
+
+
+def _titled(head: str, short: str) -> str:
+    """"Type this · Build the network", or just "Type this" when the step's title is too long to add whole."""
+    return f"{head} · {short}" if short else head
 
 
 def _lc(s: str) -> str:
@@ -129,13 +136,13 @@ def _hint(step: dict, level: int, last_offtrack: dict | None = None) -> dict:
             if (step.get("code") or "").strip():
                 f = (step.get("file") or "").rsplit("/", 1)[-1]
                 where = f"in {f} in VS Code" if f and f != "(terminal)" else "in VS Code"
-                return _card(step, 0, f"Type this · {_short(step)}", f"Type exactly this {where}, then save.",
+                return _card(step, 0, _titled("Type this", _short(step)), f"Type exactly this {where}, then save.",
                              code=step["code"].strip("\n"), actions=["show_me"])
             if (cmd := (step.get("run_command") or "").strip()):
-                return _card(step, 0, f"Run this · {_short(step)}", f"Run `{cmd}` in the VS Code terminal and read the last line.",
+                return _card(step, 0, _titled("Run this", _short(step)), f"Run `{cmd}` in the VS Code terminal and read the last line.",
                              actions=["show_me"])
             instr = re.sub(r"\s+", " ", step.get("instructions") or "").strip()
-            return _card(step, 0, f"Step details · {_short(step)}", clamp_words(instr, 40) or step.get("title", ""))
+            return _card(step, 0, _titled("Step details", _short(step)), clamp_words(instr, 40) or step.get("title", ""))
         last = {}
     pid = (last.get("_meta") or {}).get("playbook_id") or _pid_from_citation(last)
     mode = BY_ID.get(pid) if pid else None
@@ -148,7 +155,7 @@ def _hint(step: dict, level: int, last_offtrack: dict | None = None) -> dict:
         if not q and last.get("title"):  # an older or cached card without a question: still about THIS issue
             q = f"{last['title'].rstrip('.')}: what in your code makes that happen, and which value or line would change it?"
         q = q or next((h for h in hints if h.strip().endswith("?")), None) or _check_question(step)
-        return _card(step, 0, f"Question · {short}", q or f"What does “{step.get('title', 'this step')}” need that your work doesn't show yet?")
+        return _card(step, 0, _titled("Question", short), q or f"What does “{step.get('title', 'this step')}” need that your work doesn't show yet?")
 
     if level == 1:
         # the moment in the video about THIS issue; else the step's own segment
@@ -158,12 +165,12 @@ def _hint(step: dict, level: int, last_offtrack: dict | None = None) -> dict:
         if idx >= 0 and exps[idx].get("t") is not None:
             e = exps[idx]
             t = fmt_t(e["t"])
-            return _card(step, 1, f"Rewatch {t} · {short}", f"Rewatch {t}, where the tutorial shows {_lc(e.get('topic', 'this part'))}.",
+            return _card(step, 1, _titled(f"Rewatch {t}", short), f"Rewatch {t}, where the tutorial shows {_lc(e.get('topic', 'this part'))}.",
                          videoJump={"t": float(e["t"]), "label": f"Rewatch {t}"})
         v = step.get("video") or {}
         if v.get("start") is not None:
             t = fmt_t(v["start"])
-            return _card(step, 1, f"Rewatch {t} · {short}", f"Rewatch from {t}, where the tutorial does “{step.get('title', 'this step')}”, and compare it with yours.",
+            return _card(step, 1, _titled(f"Rewatch {t}", short), f"Rewatch from {t}, where the tutorial does “{step.get('title', 'this step')}”, and compare it with yours.",
                          videoJump={"t": float(v["start"]), "label": f"Rewatch {t}"})
         return _hint(step, 2, last)
 
@@ -174,20 +181,20 @@ def _hint(step: dict, level: int, last_offtrack: dict | None = None) -> dict:
             cit = {"label": paper["title"], "url": paper["url"]} if paper else None
         if cit:
             body = PAPER_NOTES.get(mode.id, mode.fix) if mode else "The linked source explains this in more depth."
-            return _card(step, 2, f"What the source says · {short}", body, citation={"label": cit["label"], "url": cit["url"]})
+            return _card(step, 2, _titled("What the source says", short), body, citation={"label": cit["label"], "url": cit["url"]})
         # no source: still a real rung, the idea behind the step (S1: level 2 was skipped every time)
         cause = mode.cause if mode else next(iter(re.split(r"(?<=[.!?])\s+", last.get("body", "")) if last.get("body") else []), "")
         idea = cause or (hints[1] if len(hints) > 1 else "") or (hints[0] if hints and not hints[0].strip().endswith("?") else "")
         if not idea:  # never glue check labels into prose (S9)
             idea = step.get("instructions", "") or step.get("title", "")
-        return _card(step, 2, f"Key idea · {short}", idea)
+        return _card(step, 2, _titled("Key idea", short), idea)
 
     diff = last.get("diff")
     if not diff and mode and mode.diff_expected:
         diff = {"expected": mode.diff_expected, "yours": ""}
     if not diff:
-        return _card(step, 3, f"Compare with the tutorial · {short}", hints[-1] if hints else step.get("instructions", ""))
-    return _card(step, 3, f"The fix · {short}", "Review it first; nothing changes until you accept.", diff=diff, actions=["apply_fix"])
+        return _card(step, 3, _titled("Compare with the tutorial", short), hints[-1] if hints else step.get("instructions", ""))
+    return _card(step, 3, _titled("The fix", short), "Review it first; nothing changes until you accept.", diff=diff, actions=["apply_fix"])
 
 
 def _indent(line: str) -> str:
