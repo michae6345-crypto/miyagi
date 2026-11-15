@@ -37,7 +37,7 @@ from collections.abc import Awaitable, Callable
 from pathlib import Path
 from typing import Any
 
-from . import config, scene_watch
+from . import config, scene_watch, where_row
 from .context import RunContext, RunInfo, metrics_summary
 from .modules import Modules
 
@@ -401,6 +401,10 @@ class LessonSession:
         if ep is not None and ep != self.lesson_epoch and type_ not in ALWAYS_SENT:
             log.info("dropped stale %s (lesson epoch %s, now %s)", type_, ep, self.lesson_epoch)
             return
+        if type_ == "card" and where_row.offers_open(payload):  # no "Open nn.py" when nn.py is the active file
+            payload = await where_row.filter_card(self, payload)
+            if payload is None:
+                return
         if (answered := _ANSWERED.get()) is not None and not (payload or {}).get("clear"):
             answered.add(type_)  # a spotlight clear is not an answer
         await self._emit_raw(type_, payload or {})
@@ -620,8 +624,15 @@ class LessonSession:
             log.info("open_editor ignored: this lesson doesn't use an editor")
             return  # e.g. a Blender/Figma lesson: never open VS Code
         log.info("open_editor: bringing %s forward", Path(self.workdir).name)
-        self.workspace.open(self.workdir, force=True, explicit=True,  # the learner pressed "Open VS Code"
-                            file=self._editor_file(self.step))  # L2: on the step's file, never README.md
+        file = self._editor_file(self.step)
+        loc = wsmod.target_location(self.workdir, self.step) if self.step is not None and file else None
+        line = loc[1] if loc and str(loc[0]) == file else None
+        real = getattr(self.screen, "reader", None) is not None  # real windows only (never in tests)
+        if real and await asyncio.to_thread(where_row.reveal, self.workdir, file, line):
+            self.editor_open = True  # shown in the lesson's existing window (companion extension): no `code` CLI
+            return
+        await asyncio.to_thread(lambda: self.workspace.open(self.workdir, force=True, explicit=True,  # pressed Open
+                                                            file=file))  # L2: on the step's file, never README.md
         self.editor_open = True
         if self.step is not None:
             self.workspace.goto_target(self.workdir, self.step, explicit=True)
