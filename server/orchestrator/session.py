@@ -1765,7 +1765,7 @@ class LessonSession:
         """Text match and gutter line both missed (e.g. a short new file: Vision reads no line numbers): Haiku picks
         the row from the marked screenshot (server.screen.target). None = no box; it never boxes chrome or tooltips."""
         pick = getattr(self.screen, "pick", None) if getattr(self.screen, "reader", None) is not None else None
-        if pick is None or self._lesson_window_hidden():  # nothing of the lesson's to pick: no Haiku call
+        if pick is None or self._lesson_window_hidden() or stage.on(self):  # nothing to pick / a Demo: no Haiku call
             return None
         spot = {"caption": self._type_caption(step), "app": "Code", **self._snippet(step)}
         res = await pick(self._no_create(self._spot_intent(spot)))  # same question _confirm_spot asks next: answered from the cache
@@ -1926,7 +1926,8 @@ class LessonSession:
         if self.on_workdir:
             self.on_workdir(new_wd)
         self.m.set_lesson(graph)
-        self._spawn(self.m.warm(), timer=True)  # pre-warm the coach's cached lesson prefix
+        if not stage.on_graph(graph):  # a Demo lesson never calls the coach
+            self._spawn(self.m.warm(), timer=True)  # pre-warm the coach's cached lesson prefix
         if self.voice:
             self._prefetch_voice()
         await self.emit("lesson.ready", self._lesson_ready_payload())
@@ -2263,7 +2264,7 @@ class LessonSession:
         (low confidence / "nothing" / an error) keeps the box only inside the lesson's editor pane (`pane`). Haiku
         unavailable (no key / timeout / budget): the box stands. No real reader (tests): it stands."""
         confirm = getattr(self.screen, "confirm", None) if getattr(self.screen, "reader", None) is not None else None
-        if confirm is None:
+        if confirm is None or stage.on(self):  # a Demo lesson: the box stands, no Haiku call
             return spot
         try:
             rect = await confirm(spot["rect"], self._no_create(self._spot_intent(spot)),
@@ -3872,7 +3873,9 @@ class LessonSession:
         except Exception as e:  # live mode: a missing/failing module is reported, never faked
             log.exception("action %s failed", kind)
             if asking and self.step is not None and gen == self.step_gen:  # never a silent failure for a question
-                await self._emit_card(self._ask_failed_card(kind, text, e), window_s=0.0)
+                card = (stage.fallback_answer(self, kind, text) if stage.on(self) else None) or \
+                    self._ask_failed_card(kind, text, e)  # a Demo lesson: the lesson's own answer, never "Couldn't reach"
+                await self._emit_card(card, window_s=0.0)
             else:
                 await self.emit("error", {"message": f"{kind}: {e}"})
             if self.step is not None:
@@ -4005,7 +4008,7 @@ class LessonSession:
             quick = await self._show_where(step)  # exact match / window: instant
             if quick and self.lesson_mode:
                 return  # the target box + what to type there is the whole answer
-            if self.m.has_pointing():  # E5: the diagnosed line, the step's target, else Haiku (<= 3 s)
+            if self.m.has_pointing() and not stage.on(self):  # E5: the diagnosed line, the step's target, else Haiku (<= 3 s)
                 screen = await self._screen_for_coach(step)
                 r = await self.m.show_me(step, screen, self.last_offtrack) if screen is not None else None
                 if gen != self.step_gen:
@@ -4072,6 +4075,7 @@ class LessonSession:
                 await self._status("offtrack" if self.last_offtrack else "watching")
                 return
             card = curated.hint_card(self, step, self.hint_level) or \
+                (stage.last_hint(self, step) if stage.on(self) else None) or \
                 dict(await self.m.hint(step, self.hint_level, self.last_offtrack, screen=screen))
             if gen != self.step_gen:
                 return
@@ -4087,6 +4091,8 @@ class LessonSession:
             return
         if kind == "diagram":
             want = (text or "").strip().lower()
+            if stage.on(self) and want not in ("network", "gradients"):
+                want = ""  # a Demo lesson: a concept title gets the step's own network, never a model call
             if (d := curated.diagram_for_action(self, step, want)) is not None:  # curated: its own network, instantly
                 await self.emit("diagram", d)
                 return
@@ -4450,7 +4456,7 @@ class LessonSession:
         except OSError as e:
             await self.emit("error", {"message": f"Could not open {file}: {e}"})
             return
-        if self.m.has_do_it_for_me():  # E5: a minimal, compiling patch -> preview -> confirm -> apply
+        if self.m.has_do_it_for_me() and not stage.on(self):  # E5: a minimal, compiling patch -> preview -> confirm -> apply
             await self._status("thinking")
             try:
                 p = await self.m.do_it_for_me(step, path.name, text, self.last_offtrack)
@@ -5477,7 +5483,7 @@ class LessonSession:
         thinking = False  # E12: "thinking" only while a model really runs; the card goes out BEFORE the status
         if not text.strip():
             new_text = code
-        elif self.m.has_do_it_for_me():
+        elif self.m.has_do_it_for_me() and not stage.on(self):  # a Demo lesson: the step's own code, no model
             thinking = True
             await self._status("thinking")
             try:  # a patch that ADDS the step's code (never the last diagnosis's cached diff, which only fixed a

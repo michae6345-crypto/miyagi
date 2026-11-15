@@ -312,6 +312,34 @@ async def restart(session: Any) -> bool:
     return True
 
 
+def last_hint(session: Any, step: dict) -> dict | None:
+    """Hint pressed past the cached ladder: its last rung again (the coach's generic rungs mention a tutorial and a
+    linked source this lesson doesn't have)."""
+    for level in range(int(getattr(session, "hint_level", 0) or 0) - 1, -1, -1):
+        if (card := curated.hint_card(session, step, level)) is not None:
+            return card
+    return None
+
+
+def fallback_answer(session: Any, kind: str, text: str | None) -> dict | None:
+    """A question that couldn't reach Claude (no Wi-Fi): Explain more on a selection gets its offline card, any other
+    question the step's own Explain card, in place of "Couldn't reach Claude"."""
+    step = session.step
+    if step is None:
+        return None
+    try:
+        if kind == "explain" and (text or "").strip():
+            from .selection import offline_card, recall
+
+            sel = recall(session, text)
+            return {**offline_card(step, sel), "stepId": step["id"], "title": sel["title"]}
+        card = curated.explain_card(session, step)
+        return {**card, "kind": "answer"} if card else None
+    except Exception:  # noqa: BLE001 - the plain failure card is still there
+        log.exception("stage: no fallback answer")
+        return None
+
+
 def state(session: Any) -> dict:
     step = session.step
     return {"on": on(session), "forced": forced(), "step": (step or {}).get("id"),
