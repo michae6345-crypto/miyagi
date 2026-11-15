@@ -109,7 +109,7 @@ def test_adopt_refuses_unsafe_targets(lessons, bad):
         A.adopt_folder(new, target)
 
 
-def test_new_lesson_reuses_an_older_miyagi_window(lessons, monkeypatch):
+def test_new_lesson_opens_a_new_window_over_an_older_miyagi_window(lessons, monkeypatch):
     root, old, new = lessons
     monkeypatch.setattr(E, "preferred_editor", lambda installed=None: VSC)
     calls = []
@@ -117,7 +117,8 @@ def test_new_lesson_reuses_an_older_miyagi_window(lessons, monkeypatch):
     wins = lambda: A.vscode_windows([f"● calculator.py — {OLD}"])  # noqa: E731
     rep = E.open_lesson_editor(new, "calculator.py", lesson_id="L", runner=run, focus=lambda: None, windows=wins,
                                trusted=lambda: False, previous=None, arrange_windows=False)
-    assert rep["reused_window"] and calls[0][:3] == ["/usr/local/bin/code", "-r", str(new.resolve())]
+    # E21: `-n`, never `-r` (reusing the old lesson's window made it ask to save the old lesson's file)
+    assert rep["reused_window"] and calls[0][:3] == ["/usr/local/bin/code", "-n", str(new.resolve())]
 
 
 def test_never_reuse_windows_outside_lessons_or_when_already_open(lessons):

@@ -405,10 +405,32 @@ def locate_match(obs: ScreenObservation, match: str, app: str | None = None, *,
     r = _rect_without_gutter(best[0])
     for ln in best[1:]:
         r = r.union(_rect_without_gutter(ln))
-    r = r.pad(pad)
+    r = _fit_rows(r, best, lines, pad)
     if obs.screen.w > 0:
         r = r.clamp(obs.screen)
     return LocateResult(r, best[0].app, "\n".join(ln.text for ln in best), score, best)
+
+
+def _row_pitch(first: Line, lines: list[Line]) -> float | None:
+    """The row pitch (line height) at `first`, measured to its nearest neighbour row in the same window and column;
+    None when no row sits right above or below it."""
+    h = first.rect.h
+    gaps = [abs(ln.rect.cy - first.rect.cy) for ln in lines
+            if ln is not first and ln.app == first.app and ln.window == first.window
+            and abs(ln.rect.x - first.rect.x) < 40 * h]
+    gaps = [g for g in gaps if 0.9 * h <= g <= 1.6 * h + 2]
+    return min(gaps) if gaps else None
+
+
+def _fit_rows(r: Rect, best: list[Line], lines: list[Line], pad: float) -> Rect:
+    """E24: `pad` left and right, but vertically the matched rows at the measured row pitch + 3 pt (the box never
+    runs into the row above or below, which read as crossed out), or the text's own height + 4 pt when no
+    neighbouring row gives the pitch."""
+    pitch = _row_pitch(best[0], lines)
+    if pitch is None:
+        return Rect(r.x - pad, r.y - 2, r.w + 2 * pad, r.h + 4)
+    top, bottom = best[0].rect.cy - pitch / 2 - 1.5, best[-1].rect.cy + pitch / 2 + 1.5
+    return Rect(r.x - pad, min(top, r.y - 1), r.w + 2 * pad, max(bottom, r.y2 + 1) - min(top, r.y - 1))
 
 
 def locate(obs: ScreenObservation, match: str, app: str | None = None, **kw) -> Rect | None:

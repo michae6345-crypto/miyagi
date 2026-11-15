@@ -126,9 +126,13 @@ def _result(check: dict, status: CheckStatus, detail: str) -> CheckResult:
 
 
 def _fmt(v: float) -> str:
-    if v == 0 or 1e-3 <= abs(v) < 1e4:
+    """A value the way a training script prints it: plain decimals (test 8: 0.0009, never 9.00e-04)."""
+    if v == 0 or not math.isfinite(v) or 1e-3 <= abs(v) < 1e4:
         return f"{v:.4g}"
-    return f"{v:.2e}"
+    if abs(v) >= 1e4:
+        return f"{v:.0f}"
+    digits = 3 - math.floor(math.log10(abs(v)))  # 4 significant digits, no exponent
+    return f"{v:.{digits}f}".rstrip("0").rstrip(".")
 
 
 def _resolve(workdir: str, rel: str) -> str:
@@ -274,6 +278,13 @@ def _diverged(ctx: RunContext, name: str, check: dict, since_step: int | None = 
     return _result(check, "fail", f"{name} diverged: {v} at step {s}")
 
 
+def _no_metric(ctx: RunContext, name: str) -> str:
+    """A finished run that printed no `name`, in plain words (test 7: a crash has no loss; the row says so and never
+    shows an older run's): "no loss: the run stopped with an error" / "the run printed no loss"."""
+    label = name.replace("_", " ")
+    return f"no {label}: the run stopped with an error" if ctx.exit_code else f"the run printed no {label}"
+
+
 def _waiting_for_metric(check: dict, ctx: RunContext, name: str) -> CheckResult:
     """No points yet. A screen-read metric whose app isn't on screen can't arrive by waiting:
     say which app to open, and (once the segment is over) fail so stuck/idle help can kick in."""
@@ -282,7 +293,7 @@ def _waiting_for_metric(check: dict, ctx: RunContext, name: str) -> CheckResult:
             and screen_text(ctx.screen, app) is None):
         return _result(check, "fail" if ctx.after_segment else "pending", f"open {app} so I can read {name}")
     where = f" in {app}" if app and check.get("metric_pattern") else ""
-    return _result(check, "pending", f"waiting for '{name}'{where}")
+    return _result(check, "pending", f"waiting for the run's {name.replace('_', ' ')} lines{where}")  # t8: plain words
 
 
 def _metric_threshold(check: dict, ctx: RunContext) -> CheckResult:
@@ -296,7 +307,7 @@ def _metric_threshold(check: dict, ctx: RunContext) -> CheckResult:
     pts = _series(ctx, name, check)
     if not pts:
         if ctx.run_finished:
-            return _result(check, "fail", f"run logged no '{name}' metric")
+            return _result(check, "fail", _no_metric(ctx, name))
         return _waiting_for_metric(check, ctx, name)
     eligible = [p for p in pts if by_step is None or p[0] <= by_step]
     latest_step = pts[-1][0]
@@ -422,7 +433,7 @@ def _metric_trend(check: dict, ctx: RunContext) -> CheckResult:
     pts = _series(ctx, name, check)
     if not pts:
         if ctx.run_finished:
-            return _result(check, "fail", f"run logged no '{name}' metric")
+            return _result(check, "fail", _no_metric(ctx, name))
         return _waiting_for_metric(check, ctx, name)
     latest = pts[-1][0]
     div = _diverged(ctx, name, check, since_step=latest - window)
@@ -465,8 +476,11 @@ def _screen(check: dict, ctx: RunContext, absent: bool) -> CheckResult:
         return _result(check, "pass", f"not showing{where}")
     if m:
         return _result(check, "pass", f"seen{where}")
+    if app in _TERMINAL_APPS:  # the terminal is on screen, the output isn't: say that, not where to open it
+        return _result(check, "fail", "not printed by the last run: run it again" if ctx.run_finished
+                       else f"not printed{where} yet")
     # learner words (E2): the file the code goes in when known ("not in calculator.py yet"), else the app
-    f = os.path.basename(str(check.get("file") or "")) if app not in _TERMINAL_APPS else ""
+    f = os.path.basename(str(check.get("file") or ""))
     return _result(check, "fail", f"not in {f} yet" if f else f"not{where} yet" if app else "not showing yet")
 
 
@@ -478,10 +492,18 @@ def _not_visible(check: dict, ctx: RunContext, absent: bool) -> CheckResult:
     * screen_contains: waiting can't help, so it says which app to open, and once the segment is
       over it fails with that hint (a fail is what lets the orchestrator's idle/stuck help fire).
       With no screen reading at all it stays pending: that's not the learner's fault.
+    * A terminal check is graded on the step's last finished run instead (VS Code's command_end,
+      `tut run`, Run it for me: the real output), and on a run step (``run``, set by evaluate_step)
+      a screen_absent one waits for that run: nothing has run yet that could show the error (t3:
+      "No Python error shown" passed 2 ms into the step, then stayed green over a SyntaxError).
     """
     app = check.get("app")
     no_screen = ctx.screen is None
+    if app in _TERMINAL_APPS and ctx.run_finished:
+        return _on_run_output(check, ctx, absent)
     if absent:
+        if check.get("run") and app in _TERMINAL_APPS:
+            return _result(check, "pending", "checked when it runs")
         if ctx.after_segment:
             why = "screen reading is off" if no_screen else (f"{app} is not on screen" if app else "nothing on screen")
             return _result(check, "pass", f"{why}, so nothing to flag")
@@ -495,6 +517,20 @@ def _not_visible(check: dict, ctx: RunContext, absent: bool) -> CheckResult:
     else:
         hint = f"Open {_APP_NAMES.get(app, app)} so I can check it."
     return _result(check, "fail" if ctx.after_segment and app else "pending", hint)
+
+
+def _on_run_output(check: dict, ctx: RunContext, absent: bool) -> CheckResult:
+    """A terminal check the screen can't read, graded on the output of the step's last finished run."""
+    try:
+        m = search_screen(str(check.get("pattern") or ""), ctx.output_text())
+    except re.error as exc:
+        return _result(check, "fail", f"invalid pattern: {exc}")
+    if absent:
+        if m:
+            return _result(check, "fail", f"the last run printed {m.group(0)[:80]!r}")
+        return _result(check, "pass", "not in the last run's output")
+    return _result(check, "pass", "printed by the last run") if m else \
+        _result(check, "fail", "the last run didn't print it")
 
 
 _APP_NAMES = {"Code": "VS Code", "Terminal": "the Terminal", "iTerm2": "iTerm"}  # what the learner calls them
@@ -577,6 +613,11 @@ def evaluate_step(step: dict, ctx: RunContext | None = None, types: Iterable[str
     f = _step_file(step)  # a VS Code check not seen yet names the file the code goes in ("not in calculator.py yet")
     checks = [{**c, "file": f} if f and c.get("type") == "screen_contains" and c.get("app") == "Code"
               and not c.get("file") else c for c in checks]
+    # a run step's "no error in the terminal" waits for the run (_not_visible) instead of passing on a hidden terminal
+    run = step.get("kind") == "run" or any(str(t.get("file") or "").strip().lower() in ("(terminal)", "terminal")
+                                           for t in step.get("targets") or [])
+    checks = [{**c, "run": True} if run and c.get("type") == "screen_absent" and c.get("app") in _TERMINAL_APPS
+              else c for c in checks]
     return [evaluate_check(c, ctx) for c in checks if wanted is None or c.get("type") in wanted]
 
 
@@ -637,16 +678,17 @@ def screen_check_on_file(check: dict, path: str | os.PathLike | None, window_ope
     window exists somewhere (another Space, behind, still opening).
 
     pass when the pattern is in the file; otherwise fail "not in <file> yet", or "Open VS Code so I can check it."
-    only when no lesson window exists at all (the one case where opening the editor is the fix)."""
+    only when no lesson window exists at all AND the file can't be read (live test 3: s2c3 said "Open VS Code so I
+    can check it." while the rows above it said "found in weather.py": a readable file answers the question)."""
     pattern = check.get("pattern")
     if not pattern:
         return _result(check, "fail", "check has no 'pattern'")
     name = os.path.basename(os.fspath(path)) if path else "the lesson file"
-    text = ""
+    text, readable = "", False
     if path:
         try:
             with open(path, encoding="utf-8", errors="replace") as fh:
-                text = fh.read()
+                text, readable = fh.read(), True
         except OSError:
             text = ""
     try:
@@ -655,7 +697,7 @@ def screen_check_on_file(check: dict, path: str | os.PathLike | None, window_ope
         return _result(check, "fail", f"invalid pattern: {exc}")
     if m:
         return _result(check, "pass", f"found in {name}")
-    if not window_open:
+    if not window_open and not readable:
         app = check.get("app")
         return _result(check, "fail", f"Open {_APP_NAMES.get(app, app)} so I can check it." if app
                        else f"not in {name} yet")
@@ -670,10 +712,27 @@ def command_matches(expected: str | None, actual: str | None) -> bool:
         return False
     if not _script_tokens(expected):
         return _ends_with(actual, _seq(expected))
+    # A Python run is ANY python invocation of the script: VS Code's Run ▷ ("/abs/.venv/bin/python" "/abs/nn.py"),
+    # `tut run python nn.py`, `uv run nn.py`; never another program that names the file (`cat nn.py`, `code nn.py`).
+    if _runs_python(expected) and not _runs_python(actual):
+        return False
     return _command_matches(expected, actual)
 
 
 _INTERP = re.compile(r"python(3(\.\d+)?)?")
+_PY_RUNNERS = {"python", "tut", "uv", "ipython", "pipenv", "poetry"}
+
+
+def _runs_python(command: str) -> bool:
+    """Does ``command`` start Python: a python interpreter (any path / version: ``.venv/bin/python``,
+    ``python3.12``) or a runner that does (``tut``, ``uv``)?"""
+    for t in _words(command):
+        if "=" in t and not t.startswith(("/", ".")):
+            continue  # env assignments (X=1 python3 nn.py)
+        name = os.path.basename(t)
+        if name in _PY_RUNNERS or re.fullmatch(r"python[\d.]*t?", name):
+            return True
+    return False
 # Python's crash output (a traceback, or a SyntaxError / IndentationError line) and the shell's "can't run it"
 _RUN_ERROR = re.compile(r"^\s*[A-Z]\w*(Error|Exception):|Traceback \(most recent call last\)|command not found"
                         r"|No such file or directory|can't open file")

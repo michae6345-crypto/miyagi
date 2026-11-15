@@ -46,7 +46,7 @@ JUDGE_SYSTEM = """You judge whether a learner has completed a step of a tutorial
 - confidence: 0..1, how sure you are of the verdict. evidence: the exact on-screen text or file line you relied on (short). reason: one line.
 - on_step_id: if the screen clearly shows the learner working on ANOTHER step of this lesson (e.g. already writing functions while the lesson is still on setup), that step's id; else "".
 - summary: at most 12 words, what you saw that matters ("calc.py defines add() and subtract(); tests pass").
-- missing: at most 12 words, what is still left to do for this step, using the real app and file names from the screen (e.g. "Save the Untitled-1 tab as calculator.py"); "" if nothing."""
+- missing: at most 12 words, what is still left to do for this step, using the real app and file names from the screen (e.g. "Save the Untitled-1 tab as calculator.py"); "" if nothing. The learner reads it word for word: never mention OCR, the screen text, how anything is read or checked; never ask to add or type code that WORKSPACE FILES already contain (a run step whose code is in the file: say what to run); if the terminal output can't be read, say "Make the terminal panel taller, then run it again"."""
 
 JUDGE_SCHEMA = {
     "type": "object",
@@ -124,11 +124,13 @@ async def _ask(step: dict, check_results: list[dict] | None, screen: Any, files:
     ed, expected = editor_state(screen, active_file), step_file(step)
     editor = (f"{ed['app']} showing " + (f"an unsaved {ed['untitled']}" if ed["untitled"] else (ed["file"] or "an unknown file"))
               + (" (unsaved changes)" if ed["unsaved"] and not ed["untitled"] else "")) if ed else ""
+    cmd = step_command(step)  # E19: the judge quotes the step's own command (python3 main.py), never its guess
     user = "\n\n".join(x for x in [
         f"CURRENT STEP ({sid}): {step.get('title', '')}\n{step.get('instructions', '')}",
         "CHECKS (id: label [machine status]):\n" + "\n".join(
             f"- {c['id']}: {c.get('label', '')} [{status.get(c['id'], {}).get('status', 'pending')}]" for c in checks),
         f"EXPECTED FILE: {expected}" if expected else "",
+        f"STEP COMMAND (if you mention running it, write exactly this): {cmd}" if cmd else "",
         f"EDITOR (from the editor window, not OCR): {editor}" if editor else "EDITOR: unknown; don't claim which file is open",
         "OTHER STEPS OF THIS LESSON:\n" + "\n".join(f"- {s['id']}: {s.get('title', '')}" for s in steps if s["id"] != sid) if len(steps) > 1 else "",
         f"SCREEN NOW:\n{scr}" if scr else "SCREEN NOW: (not available)",
@@ -168,6 +170,44 @@ def _file_blocker(step: dict, check: dict, files: dict[str, str] | None, screen:
 
 SAVE_FIRST = "Save with ⌘S so I can check it"
 
+_SHELL = re.compile(r"^\s*(\$\s*)?(python3?|pip3?|uv|npm|npx|node|yarn|pnpm|git|cd|ls|cargo|go|ruby|bash|sh|make|pytest|"
+                    r"flask|streamlit|jupyter)\b(?!\s*[.(=\[])")
+_PY_RUN = re.compile(r"\bpython3?(?:\.\d+)?\s+([\w./-]+\.py)\b")
+
+
+def step_command(step: dict) -> str:
+    """The step's own shell command, as the lesson writes it (its code when that is shell lines, else
+    run_command): "python3 main.py". '' for a typing step without one."""
+    lines = [ln.strip().lstrip("$ ").strip() for ln in (step.get("code") or "").splitlines()
+             if ln.strip() and not ln.strip().startswith("#")]
+    if lines and all(_SHELL.match(ln) for ln in lines):
+        return lines[-1]
+    return (step.get("run_command") or "").strip()
+
+
+def card_text(text: str, step: dict, limit: int = 30) -> str:
+    """A "Not yet" body (live test 3: "Wrap roll in def roll_die(), add a call, fix the print comma…"): whole
+    sentences of at most ~`limit` words, never cut mid-sentence with "…", and the step's exact command where the
+    text names its script another way ("python main.py" for a python3 step). No trailing period (the caller's)."""
+    text = re.sub(r"\s+", " ", (text or "").strip()).rstrip("…").strip()
+    if len(text.split()) > limit:
+        parts, keep = re.split(r"(?<=[.!?])\s+", text), []
+        for part in parts:
+            if len(" ".join(keep + [part]).split()) > limit:
+                break
+            keep.append(part)
+        if keep:
+            text = " ".join(keep)
+        else:
+            cut = " ".join(parts[0].split()[:limit])
+            m = re.search(r"^(.*\S)[,;:]\s", cut)  # the last clause boundary inside the limit
+            text = (m.group(1) if m and len(m.group(1).split()) >= 4 else cut).rstrip(",;:—- ")
+    m = _PY_RUN.search(step_command(step))
+    if m:
+        script = m.group(1).rsplit("/", 1)[-1]
+        text = _PY_RUN.sub(lambda x: m.group(0) if x.group(1).rsplit("/", 1)[-1] == script else x.group(0), text)
+    return text.rstrip(".")
+
 
 def _meta(res: llm.CallResult) -> dict:
     return {"model": res.model, "latency_s": round(res.latency_s, 2), "usage": res.usage}
@@ -191,7 +231,7 @@ async def judge_step(step: dict, screen: Any = None, files: dict[str, str] | Non
     """The "Check" button (action check_step): judge now, no idle/rate gates (the learner asked).
 
     → {"checks": {id: {"verdict": "done"|"not_done"|"unsure", "reason", "evidence"}}, "done": bool,
-       "missing": "<=12 words", "where": str | None, "target": {"text", "rect"} | None, "_meta"}
+       "missing": whole sentences with the step's exact command (card_text), "where": str | None, "target": {"text", "rect"} | None, "_meta"}
     `done` = every check passed by the machine or judged done by Claude (confidence >= 0.6).
     None only when the model is unavailable.
     """
@@ -219,7 +259,8 @@ async def judge_step(step: dict, screen: Any = None, files: dict[str, str] | Non
     for cid in by_id - out.keys():
         out[cid] = {"verdict": "unsure", "reason": "not judged", "evidence": ""}
     done = bool(checks) and all(status.get(c["id"], {}).get("status") == "pass" or out[c["id"]]["verdict"] == "done" for c in checks)
-    missing = "" if done else clamp_words(data.get("missing") or next((o["reason"] for o in out.values() if o["verdict"] != "done"), ""), 12).rstrip(".")
+    missing = "" if done else card_text(data.get("missing") or next((o["reason"] for o in out.values()
+                                                                      if o["verdict"] != "done"), ""), step)
     where = None
     if not done and (editor_state(screen) or step_file(step)):
         where = where_hint(step, None, screen)
@@ -345,7 +386,7 @@ class StepJudge:
                                                 if v["check_id"] in left and v["verdict"] == "not_done"), "")
                    or f"Still missing: {by_id[left[0]].get('label') or left[0]}")
             card = {"stepId": sid, "kind": "step", "source": "judge", "verdict": "not_done", "title": "Not yet",
-                    "body": clamp_words(why, 12).rstrip("."), "actions": ["hint", "show_me"], "checkIds": left}
+                    "body": card_text(why, step), "actions": ["hint", "show_me"], "checkIds": left}
         return {"checks": verdicts, "events": events, "card": card, "done": done, "summary": summary}
 
 

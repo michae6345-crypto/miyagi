@@ -65,6 +65,7 @@ then a β-curriculum run. It only writes `pinn_convection.py` and refuses to ove
 | `MIYAGI_SCENE_CAP_S` | = every | > every lets a repeated scene back off (PeriodicGate doubling up to this) |
 | `MIYAGI_SCENE_TIMEOUT_S` | 8 | one look's timeout (a slow look is skipped, never retried) |
 | `ORCH_RECORD` | 1 | record every ingest event to `demo/runs/<run_id>.jsonl` (gitignored) |
+| `MIYAGI_CURATED` | 1 | curated "Just teach me" lessons ([curated.py](curated.py)): a neural-network goal gets the hand-built NN lesson instantly (no build), its network diagrams pushed to the drawer's right-hand panel and redrawn from the learner's run. `0` = build every lesson. See `docs/NN-DEMO.md` |
 
 ## Modules
 

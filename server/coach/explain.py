@@ -21,12 +21,14 @@ from .common import (
 )
 from .diagnose import COACH_SYSTEM, LAST, cursor_text
 from .metrics import summarize
-from .pointing import lesson_mode, point
+from .pointing import answer_caption, lesson_mode, point
 
 log = logging.getLogger("coach.explain")
 
 EXPLAIN_TASK = """
-TASK NOW: explain, do not diagnose. Answer the learner's question (or, if there is no question, explain the reason behind the current card) for someone who just watched the tutorial. At most 60 words, plain prose, one idea per sentence, intuition first, then the precise statement (no labels such as "Intuition:"; just the sentences). If one of the step's `explanations` moments in the video covers the topic, set explanation_index to its 0-based index in the step's explanations list, else -1. citation_id from the CITATIONS list or "none"."""
+TASK NOW: explain, do not diagnose. Answer the learner's question (or, if there is no question, explain the reason behind the current card) for someone who just watched the tutorial. At most 60 words, plain prose, one idea per sentence, intuition first, then the precise statement (no labels such as "Intuition:"; just the sentences). If one of the step's `explanations` moments in the video covers the topic, set explanation_index to its 0-based index in the step's explanations list, else -1. citation_id from the CITATIONS list or "none".
+When the learner asks about an error, a mistake or what to change, the body's FIRST sentence is the exact fix (what to change, on which line, e.g. "Add a comma after "Rolled:" on line 6."), then why; never open with filler ("Good question", "Let's look", "Looking at your code").
+caption: the label for the box on the learner's screen, at most 5 words, the action at that place ("Add a comma here", "Change to return response.json()"), plain text without backticks or markdown; "" when the answer is not about one place."""
 
 # Lesson mode ("Just teach me", no video): Explain teaches the step's idea, never the grader (QA 11-14: "Checks look
 # for the three function definitions … The checks search calculator.py for def subtract(a, b)…").
@@ -40,6 +42,8 @@ Write:
 - Never describe how the step is checked or graded: no patterns, regexes, check labels or "the checks look for…". At most ONE short closing sentence may say what finishing the step looks like (e.g. "The step is done once all three are saved in calculator.py.").
 - Never say or guess which file is open in the editor.
 - Code read from the screen can contain OCR errors; never call a line wrong because of how it looks.
+- If the learner asks about an error, a mistake or what to change, the body's FIRST sentence is the exact fix (what to change, on which line, e.g. "Add a comma after "Rolled:" on line 6 of main.py."), then the idea. Never open with filler ("Good question", "Let's look", "Looking at your code").
+- caption: the label for the box on the learner's screen, at most 5 words, the action at that place ("Add a comma here", "Change to return response.json()"), plain text without backticks or markdown; "" when the answer is not about one place.
 - explanation_index: -1 (there is no video). citation_id: an id from the CITATIONS list only when that source directly supports the card, else "none"."""
 
 TEACH_STEP_KEYS = ("id", "index", "title", "what", "why", "concepts", "instructions")  # the lesson's arc, no checks
@@ -66,8 +70,9 @@ CARD_SCHEMA = {
         "body": {"type": "string"},
         "explanation_index": {"type": "integer"},
         "citation_id": {"type": "string"},
+        "caption": {"type": "string"},
     },
-    "required": ["title", "body", "explanation_index", "citation_id"],
+    "required": ["title", "body", "explanation_index", "citation_id", "caption"],
     "additionalProperties": False,
 }
 
@@ -99,8 +104,18 @@ def video_jump(step: dict, idx: int) -> dict | None:
     return None
 
 
-async def _point_and_notify(step, screen, about, last, on_targets) -> dict:
-    p = await point(step, screen, about=about, last=last)
+# only the interjection: "Good question, add a comma …" keeps "add a comma …" (the fix is often in the same sentence)
+FILLER = re.compile(r"^(?:good|great|nice) question\b[\s.!,:;—–-]*|^(?:sure|okay|ok|so)[,.!]\s+", re.IGNORECASE)
+
+
+def _no_filler(body: str) -> str:
+    """The answer starts with its point (E10: "opens with filler and hides the fix behind More")."""
+    b = FILLER.sub("", (body or "").strip())
+    return (b[:1].upper() + b[1:]) if b else (body or "")
+
+
+async def _point_and_notify(step, screen, about, last, on_targets, label: str | None = None) -> dict:
+    p = await point(step, screen, about=about, last=last, label=label)
     if p["targets"] and on_targets is not None:
         r = on_targets(p["targets"])
         if hasattr(r, "__await__"):
@@ -133,7 +148,9 @@ async def explain(step: dict, question: str | None = None, context: dict | None 
     point_task = None
     if screen is not None:
         point_about = question or (last and f"{last.get('title')}: the code it is about") or f"the code for this step: {step.get('instructions', '')}"
-        point_task = asyncio.create_task(_point_and_notify(step, screen, point_about, last, ctx.get("on_targets")))
+        # a question's box says "Look here" until the answer names the action (E10: never the step's "Type it here")
+        point_task = asyncio.create_task(_point_and_notify(step, screen, point_about, last, ctx.get("on_targets"),
+                                                           "Look here" if question else None))
 
     metrics_text, _ = summarize(ctx.get("metrics_summary"))
     if question:  # ground a free question in live docs/community pages
@@ -181,8 +198,9 @@ async def explain(step: dict, question: str | None = None, context: dict | None 
             "stepId": step.get("id"),
             "kind": kind,
             "title": clamp_title(d.get("title", "")),
-            "body": clamp_words(d.get("body", ""), 64),
+            "body": clamp_words(_no_filler(d.get("body", "")), 64),
         }
+        caption = answer_caption(d.get("caption"))
         cit = resolve_citation(d.get("citation_id"), lesson, sources)
         meta = {"web_sources": [x["url"] for x in sources], "model": res.model, "latency_s": round(res.latency_s, 2), "usage": res.usage, "source": res.source}
     except llm.CoachLLMError as e:
@@ -195,6 +213,7 @@ async def explain(step: dict, question: str | None = None, context: dict | None 
         src = None if teach else last  # lesson mode: the step's own idea, not the card
         body = src.get("body") if src else (step.get("why") or step.get("instructions", ""))
         card = {"stepId": step.get("id"), "kind": kind, "title": clamp_title(src.get("title") if src else step.get("title", "")), "body": body}
+        caption = ""
         cit = src.get("citation") if src else None
         meta = {"fallback_reason": str(e)}
     if jump := video_jump(step, idx):
@@ -203,7 +222,7 @@ async def explain(step: dict, question: str | None = None, context: dict | None 
         card["citation"] = cit  # extra field (contract allows additions)
     if point_task is not None:
         p = await point_task
-        card["targets"] = p["targets"]
+        card["targets"] = [{**t, "label": caption} for t in p["targets"]] if caption else p["targets"]
         if p["where"]:
             card["where"] = p["where"]
         meta["point_via"] = p["via"]

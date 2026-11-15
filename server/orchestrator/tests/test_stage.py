@@ -1,0 +1,428 @@
+"""Demo lessons (stage.py): the launcher's Demo option walks the neural-net lesson without grading anything.
+Run from the repo root:  python -m pytest server/orchestrator/tests/test_stage.py -q"""
+
+from __future__ import annotations
+
+import asyncio
+import json
+
+import pytest
+
+from server.orchestrator import curated, stage
+from server.orchestrator.tests.test_session import Rig
+from shared.contracts.events import parse_app_message
+
+# The lesson's weights (curated.LAYERS), started at zeros (the presenter's shortcut) or random (the lesson's code).
+_SHAPES = list(zip(curated.LAYERS, curated.LAYERS[1:]))
+ZEROS = "".join(f"W{k} = np.zeros(({r}, {c}))\n" for k, (r, c) in enumerate(_SHAPES, 1))
+RANDOM = "".join(f"W{k} = np.random.randn({r}, {c})\n" for k, (r, c) in enumerate(_SHAPES, 1))
+_RUNS = json.loads(stage.RUNS_FILE.read_text(encoding="utf-8"))
+STUCK = f"{curated.STUCK_LOSS:.4f}"
+GOOD_LAST = curated.parse_output(_RUNS["nn4"]["good"])["losses"][-1][1]
+
+
+@pytest.fixture
+def rig(tmp_path, monkeypatch):
+    monkeypatch.setenv("TUT_WORKDIR", str(tmp_path))
+    monkeypatch.delenv("DEMO", raising=False)
+    monkeypatch.delenv("MIYAGI_STAGE", raising=False)
+    monkeypatch.delenv("MIYAGI_STAGE_STUCK", raising=False)
+    for name in ("GRADE_S", "ROW_S", "RUN_S", "STUCK_S"):
+        monkeypatch.setattr(stage, name, 0.0)
+    r = Rig(tmp_path)
+    r.s.offtrack_grace_s = 20  # as in the app: nothing the stage does may depend on it
+    return r
+
+
+def run(coro):
+    return asyncio.run(coro)
+
+
+async def settle(rig: Rig) -> None:
+    for _ in range(4):
+        await rig.settle()
+        await asyncio.sleep(0)
+
+
+async def save(rig: Rig, text: str, wait: float = 5.0) -> None:
+    rig.clock.t += wait  # past the step's first seconds
+    p = rig.workdir / "nn.py"
+    p.write_text(p.read_text() + text if p.exists() else text)
+    await rig.s.on_file_change([str(p)])
+    await settle(rig)
+
+
+def passed(rig: Rig) -> list[str]:
+    return [p["stepId"] for p in rig.of("step.passed") if not p.get("skipped")]
+
+
+def test_demo_mode_is_in_the_contract():
+    assert parse_app_message({"type": "learn", "payload": {"query": "x", "mode": "demo"}}).payload.mode == "demo"
+
+
+def test_any_goal_starts_the_staged_nn_lesson(rig):
+    async def go():
+        await rig.s.learn("how do rockets land", mode="demo")
+        await settle(rig)
+        lesson = rig.of("lesson.ready")[-1]["lesson"]
+        assert lesson["id"] == "lesson-nn-from-scratch"
+        assert rig.s.step["id"] == "nn1"
+        assert stage.on(rig.s)
+        assert not [c for c in rig.of("card") if c.get("kind") == "setup"]  # never "Install NumPy"
+    run(go())
+
+
+def test_video_and_just_teach_me_are_untouched(rig):
+    async def go():
+        await rig.s.learn("build a neural network", mode="lesson")
+        await settle(rig)
+        assert not stage.on(rig.s)  # the real curated lesson, really graded
+    run(go())
+
+
+def test_the_whole_demo(rig):
+    async def go():
+        await rig.s.learn("anything", mode="demo")
+        await settle(rig)
+        # a save in the step's first seconds doesn't count (the last step's own save)
+        await save(rig, "# nothing yet\n", wait=0.5)
+        assert passed(rig) == []
+        # step 1: paste with the zeros shortcut, save -> every row green, then the step passes
+        await save(rig, ZEROS)
+        rows = {c["checkId"]: c["status"] for c in rig.of("check.updated") if c["stepId"] == "nn1"}  # the latest
+        assert rows and set(rows.values()) == {"pass"}
+        assert passed(rig) == ["nn1"] and rig.s.step["id"] == "nn2"
+        # step 2: a save passes it, whatever the file holds
+        await save(rig, "\n")
+        # step 3: Check my work passes it without a save
+        rig.clock.t += 1
+        await rig.s.action("check_step")
+        await settle(rig)
+        assert passed(rig) == ["nn1", "nn2", "nn3"] and rig.s.step["id"] == "nn4"
+        # step 4: a save never passes a run step
+        await save(rig, "\n")
+        assert rig.s.step["id"] == "nn4"
+        # the first run is the stuck one (W1 / W2 start at zeros): its output card, a fail row, the coach's card
+        m = rig.mark()
+        await rig.s.action("run_command")
+        await settle(rig)
+        ev = rig.since(m)
+        cards = [e["payload"] for e in ev if e["type"] == "card"]
+        assert any(c["title"].startswith("Ran ") and STUCK in (c.get("output") or "") for c in cards)
+        rows = {e["payload"]["checkId"]: e["payload"]["status"] for e in ev if e["type"] == "check.updated"}
+        assert sorted(rows.values()) == ["fail", "pass"]  # the loss row fails, the saved file's row stays green
+        off = [e["payload"] for e in ev if e["type"] == "offtrack"]
+        assert off and off[0]["stepId"] == "nn4" and f"{curated.STUCK_LOSS:.2f}" in off[0]["title"]
+        diag = [e["payload"] for e in ev if e["type"] == "diagram"]
+        assert diag and "same neuron" in diag[-1].get("caption", "")  # identical hidden neurons in the panel
+        assert [e["payload"]["name"] for e in ev if e["type"] == "metric"]  # the live curve
+        assert rig.s.step["id"] == "nn4"
+        # the hint is the stuck ladder's first hint
+        await rig.s.action("hint")
+        await settle(rig)
+        assert "W1" in (rig.of("card")[-1].get("title", "") + rig.of("card")[-1].get("body", ""))
+        # fix it, run again: it learns
+        await save(rig, RANDOM)
+        await rig.s.action("run_command")
+        await settle(rig)
+        assert passed(rig)[-1] == "nn4"
+        good = [c for c in rig.of("check.updated") if c["stepId"] == "nn4"][-1]
+        assert good["status"] == "pass" and f"{GOOD_LAST:.4f}" in good.get("detail", "")
+        # step 5: save; step 6: run -> the lesson is done, the panel shows their network answering
+        await save(rig, "\n")
+        m = rig.mark()
+        await rig.s.action("run_command")
+        await settle(rig)
+        assert passed(rig) == ["nn1", "nn2", "nn3", "nn4", "nn5", "nn6"]
+        assert [e for e in rig.since(m) if e["type"] == "diagram"]  # the panel: their trained network answering
+        assert not rig.of("error")
+        assert not [c for c in rig.of("card") if c.get("title") == "Not yet"]
+    run(go())
+
+
+def test_no_stuck_run_when_nn_py_starts_random(rig):
+    async def go():
+        await rig.s.learn("anything", mode="demo")
+        await settle(rig)
+        for _ in range(3):
+            await save(rig, RANDOM)
+        await rig.s.action("run_command")
+        await settle(rig)
+        assert passed(rig)[-1] == "nn4" and not rig.of("offtrack")
+    run(go())
+
+
+def test_presenter_next_back_restart(rig):
+    async def go():
+        await rig.s.learn("anything", mode="demo")
+        await settle(rig)
+        for _ in range(4):  # next on typing steps and on the run step (never the stuck run)
+            assert await stage.next_step(rig.s)
+            await settle(rig)
+        assert passed(rig) == ["nn1", "nn2", "nn3", "nn4"] and not rig.of("offtrack")
+        assert await stage.back(rig.s)
+        await settle(rig)
+        assert rig.s.step["id"] == "nn4"
+        (rig.workdir / "nn.py").write_text("junk\n")
+        assert await stage.restart(rig.s)
+        await settle(rig)
+        assert rig.s.step["id"] == "nn1" and stage.on(rig.s)
+        assert (rig.workdir / "nn.py").read_text().startswith("# A neural net from scratch")  # clean starter
+    run(go())
+
+
+def test_stage_env_makes_every_lesson_a_demo(rig, monkeypatch):
+    monkeypatch.setenv("MIYAGI_STAGE", "1")
+
+    async def go():
+        await rig.s.learn("teach me guitar")  # a video search otherwise
+        await settle(rig)
+        assert stage.on(rig.s) and rig.s.step["id"] == "nn1"
+    run(go())
+
+
+def test_a_double_press_is_one_run(rig, monkeypatch):
+    monkeypatch.setattr(stage, "RUN_S", 0.05)
+
+    async def go():
+        await rig.s.learn("anything", mode="demo")
+        await settle(rig)
+        await save(rig, ZEROS)
+        for _ in range(2):
+            await save(rig, "\n")
+        assert rig.s.step["id"] == "nn4"
+        await asyncio.gather(rig.s.action("run_command"), rig.s.action("run_command"))
+        await settle(rig)
+        assert len([c for c in rig.of("card") if c["title"].startswith("Ran ")]) == 1
+        assert rig.s.step["id"] == "nn4" and rig.of("offtrack")  # the one run was the stuck one
+        assert not [c for c in rig.of("card") if c["title"] in ("Nothing to do here", "Not yet")]
+    run(go())
+
+
+def test_check_during_a_saves_pass_is_quiet(rig, monkeypatch):
+    monkeypatch.setattr(stage, "GRADE_S", 0.1)
+
+    async def go():
+        await rig.s.learn("anything", mode="demo")
+        await settle(rig)
+        rig.clock.t += 5
+        (rig.workdir / "nn.py").write_text("x = 1" + chr(10))
+        await rig.s.on_file_change([str(rig.workdir / "nn.py")])  # the save's pass starts
+        await rig.s.action("check_step")  # and Check my work right behind it
+        await settle(rig)
+        await asyncio.sleep(0.3)
+        await settle(rig)
+        assert passed(rig) == ["nn1"]
+        assert not [c for c in rig.of("card") if c["title"] in ("Nothing to do here", "Not yet")]
+    run(go())
+
+
+async def to_train(rig: Rig) -> None:
+    await rig.s.learn("anything", mode="demo")
+    await settle(rig)
+    await save(rig, ZEROS)
+    for _ in range(2):
+        await save(rig, "\n")
+    assert rig.s.step["id"] == "nn4"
+
+
+def test_a_queued_second_press_is_the_same_run(rig):
+    async def go():
+        await to_train(rig)
+        await rig.s.action("run_command")  # the socket runs commands one at a time: the second comes right after
+        await settle(rig)
+        await rig.s.action("check_step")
+        await settle(rig)
+        assert rig.s.step["id"] == "nn4" and rig.of("offtrack")  # still the stuck run's "Not yet"
+        assert len([c for c in rig.of("card") if c["title"].startswith("Ran ")]) == 1
+        rig.clock.t += 5  # a press later on is a new run: it learns
+        await rig.s.action("check_step")
+        await settle(rig)
+        assert passed(rig)[-1] == "nn4"
+    run(go())
+
+
+def test_a_queued_second_press_after_a_run_that_passed_is_quiet(rig):
+    """Demo rehearsal (Nov 15): Run it for me double-clicked on a run that LEARNS. The socket runs the second press
+    after the first one's run passed the step, so it found the step passed and answered "Nothing to do here" over the
+    run's own card (on nn6: over [-1.0, 0.0, 1.0], the Demo's last beat). One press, one run, nothing else."""
+    async def go():
+        await rig.s.learn("anything", mode="demo")
+        await settle(rig)
+        await save(rig, RANDOM)
+        for _ in range(2):
+            await save(rig, "\n")
+        for sid in ("nn4", "nn6"):
+            assert rig.s.step["id"] == sid
+            m = rig.mark()
+            await rig.s.action("run_command")
+            await rig.s.action("run_command")  # queued behind the first: it arrives once the step has passed
+            await settle(rig)
+            cards = [e["payload"]["title"] for e in rig.since(m) if e["type"] == "card"]
+            assert passed(rig)[-1] == sid
+            assert len([t for t in cards if t.startswith("Ran ")]) == 1
+            assert "Nothing to do here" not in cards, cards
+            if sid == "nn4":
+                await save(rig, "\n")  # nn5
+        assert passed(rig) == ["nn1", "nn2", "nn3", "nn4", "nn5", "nn6"]
+    run(go())
+
+
+def test_next_during_a_run_passes_without_not_yet(rig, monkeypatch):
+    monkeypatch.setattr(stage, "RUN_S", 0.2)
+
+    async def go():
+        await to_train(rig)
+        press = asyncio.create_task(rig.s.action("run_command"))
+        await asyncio.sleep(0.05)  # the run is under way (it would be the stuck one)
+        assert await stage.next_step(rig.s)
+        await press
+        await settle(rig)
+        assert passed(rig)[-1] == "nn4" and not rig.of("offtrack")
+    run(go())
+
+
+def test_work_ends_the_before_you_start_hold(rig):
+    async def go():
+        await rig.s.learn("anything", mode="demo")
+        await settle(rig)
+        held = rig.s.awaiting_start
+        await save(rig, "x = 1\n")
+        assert passed(rig) == ["nn1"]
+        assert not rig.s.awaiting_start, f"still held (was held: {held})"
+    run(go())
+
+
+# ---------------------------------------------------------------------------------------------------------- fresh takes
+# Michael runs the Demo many times in a row: every Demo start is step 1 with a clean nn.py, whatever the last take, a
+# deploy or an engine restart left behind (Nov 15: the stable-progress resume paths must never reach a Demo).
+
+def _code(*ids: str) -> str:
+    by = {st["id"]: st for st in curated.lesson_for(stage.GOAL)["steps"]}
+    return "import numpy as np\n\n" + "\n\n".join(by[i]["code"] for i in ids) + "\n"
+
+
+def _engine(tmp_path):
+    """A (re)started engine on the same disk: a session with its Resumer (sessions.resume)."""
+    from server.sessions import Resumer
+
+    r = Rig(tmp_path)
+    return r, Resumer(r.s)
+
+
+async def _auto_resume(rig: Rig, resumer) -> None:
+    """main.Engine.auto_resume as the first app connection after a restart runs it."""
+    import types
+
+    from server.orchestrator import main
+
+    eng = types.SimpleNamespace(resumer=resumer, hub=types.SimpleNamespace(clients=set()), session=rig.s,
+                                seen_lesson=None, _lesson_id=lambda: None)
+    await main.Engine.auto_resume(eng)
+    await settle(rig)
+
+
+def test_every_demo_start_is_a_fresh_take(tmp_path, monkeypatch):
+    from server.sessions import store
+
+    monkeypatch.setenv("TUT_WORKDIR", str(tmp_path))
+    monkeypatch.delenv("MIYAGI_STAGE", raising=False)
+    nn = tmp_path / "nn.py"
+    starter = curated._starter()
+
+    async def go():
+        # take 1: three steps on cue, nn.py full of code, then a deploy's POST /end ("interrupted", place kept)
+        r1, res1 = _engine(tmp_path)
+        await r1.s.learn("anything", mode="demo")
+        await settle(r1)
+        for _ in range(3):
+            assert await stage.next_step(r1.s)
+            await settle(r1)
+        assert r1.s.step["id"] == "nn4"
+        nn.write_text(_code("nn1", "nn2", "nn3"))
+        res1.save_now()
+        await r1.s.end_lesson("interrupted")
+        assert store.load() is None  # a Demo take is never saved
+        # an older engine's Demo save on disk: dropped when the engine starts, never offered back
+        g = stage.mark(curated.lesson_for(stage.GOAL))
+        store.save({"lessonId": g["lesson"]["id"], "title": "x", "stepIndex": 3, "stepCount": len(g["steps"]),
+                    "stepId": "nn4", "workdir": str(tmp_path), "startedAt": 1.0, "lastActiveAt": 9e12}, g)
+        r2, res2 = _engine(tmp_path)
+        assert store.load() is None
+        assert not [p for t, p in r2.s.snapshot() if t == "card" and p.get("kind") == "resume"]
+        # ... and one written after it started: the first app connection doesn't auto-resume it
+        from server.orchestrator import main  # noqa: F401 - (its import starts an engine: before the save below)
+        store.save({"lessonId": g["lesson"]["id"], "title": "x", "stepIndex": 3, "stepCount": len(g["steps"]),
+                    "stepId": "nn4", "workdir": str(tmp_path), "startedAt": 1.0, "lastActiveAt": 9e12}, g)
+        await _auto_resume(r2, res2)
+        assert r2.s.graph is None
+        # take 2 (the launcher's Demo, not a restart): step 1, the clean starter, no resume / skip ahead
+        await r2.s.learn("anything", mode="demo")
+        await settle(r2)
+        assert r2.s.step["id"] == "nn1" and stage.on(r2.s)
+        assert nn.read_text() == starter
+        assert [p["stepId"] for p in r2.of("step.started")] == ["nn1"]
+        assert not [p for p in r2.of("step.started") + r2.of("lesson.ready") if p.get("replay")]
+        assert passed(r2) == []
+        # the presenter pastes ahead: "next" still goes one step at a time (no "You already did steps 2-3")
+        nn.write_text(_code("nn1", "nn2", "nn3"))
+        assert await stage.next_step(r2.s)
+        await settle(r2)
+        assert r2.s.step["id"] == "nn2" and passed(r2) == ["nn1"]
+        assert not [p for p in r2.of("step.passed") if p.get("already")]
+        assert not [c for c in r2.of("card") if c.get("title", "").startswith("You already did")]
+        # "build a neural network" re-sent as a Demo while the Demo runs: a new take, never "continuing"
+        await r2.s.learn(stage.GOAL, mode="demo")
+        await settle(r2)
+        assert r2.s.step["id"] == "nn1" and nn.read_text() == starter
+        # ⌃⌥⌘R mid-take: step 1, clean nn.py
+        assert await stage.next_step(r2.s)
+        await settle(r2)
+        nn.write_text(_code("nn1", "nn2", "nn3"))
+        assert await stage.restart(r2.s)
+        await settle(r2)
+        assert r2.s.step["id"] == "nn1" and stage.on(r2.s) and nn.read_text() == starter
+        assert store.load() is None
+
+    run(go())
+
+
+def test_just_teach_me_still_continues_after_a_restart_but_never_a_demo(tmp_path, monkeypatch):
+    from server.sessions import store
+
+    monkeypatch.setenv("TUT_WORKDIR", str(tmp_path))
+    monkeypatch.delenv("MIYAGI_STAGE", raising=False)
+    nn = tmp_path / "nn.py"
+
+    async def go():
+        # the real lesson at nn3, then a deploy's POST /end keeps the place
+        r1, res1 = _engine(tmp_path)
+        await r1.s.learn(stage.GOAL, mode="lesson")
+        await settle(r1)
+        assert not stage.on(r1.s) and r1.s.step["id"] == "nn1"
+        for _ in range(2):
+            await r1.s.force_pass()
+            await settle(r1)
+        assert r1.s.step["id"] == "nn3"
+        nn.write_text(_code("nn1", "nn2"))
+        res1.save_now()
+        await r1.s.end_lesson("interrupted")
+        assert (store.load() or {}).get("stepId") == "nn3"
+        # restarted engine, the goal typed again: continues at nn3, nn.py untouched (the Nov 15 behaviour)
+        r2, _res2 = _engine(tmp_path)
+        await r2.s.learn(stage.GOAL, mode="lesson")
+        await settle(r2)
+        assert r2.s.step["id"] == "nn3" and not stage.on(r2.s)
+        assert nn.read_text() == _code("nn1", "nn2")
+        # the Demo from there: a fresh take (step 1, clean nn.py), not the real lesson's step
+        await r2.s.learn("anything", mode="demo")
+        await settle(r2)
+        assert r2.s.step["id"] == "nn1" and stage.on(r2.s) and nn.read_text() == curated._starter()
+        # "Just teach me" during a Demo starts the real lesson (step 1), it doesn't continue the Demo
+        assert await stage.next_step(r2.s)
+        await settle(r2)
+        await r2.s.learn(stage.GOAL, mode="lesson")
+        await settle(r2)
+        assert not stage.on(r2.s) and r2.s.step["id"] == "nn1"
+
+    run(go())

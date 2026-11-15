@@ -8,6 +8,7 @@
     vx.show_terminal(); vx.run_in_terminal("python calculator.py", cwd=lesson_dir)
     vx.last_command()                        # {commandLine, exitCode, outputTail[], running, cwd} (shell integration)
     vx.apply(path, new_text=...)             # WorkspaceEdit + save: works on unsaved buffers
+    vx.save(path)                            # ⌘S on that file (0.0.4 /save; older: a no-op /apply that saves)
     vx.replace_line(path, yours, expected)   # E5's apply_fix semantics (indentation kept)
     vx.diff(path, new_text)                  # preview only
     vx.buffer_text(path)                     # the editor's text, unsaved edits included
@@ -124,6 +125,12 @@ def windows(timeout: float = TIMEOUT_S) -> list[dict]:
     """Every VS Code window with the extension: their /state, focused first, then most recently focused. [] if none."""
     wins = [w for w in _scan("GET", "/state", timeout=timeout) if w.get("app") == "vscode" and w.get("port")]
     return sorted(wins, key=lambda w: (bool(w.get("windowFocused")), w.get("lastFocusedAt") or 0), reverse=True)
+
+
+def window_state(port: int, timeout: float = TIMEOUT_S) -> dict | None:
+    """The /state of exactly the window on `port` (a windows() entry's port; no scan of every port), or None."""
+    st = _call(int(port), "GET", "/state", timeout=timeout)
+    return st if st and st.get("app") == "vscode" and st.get("port") else None
 
 
 def available() -> bool:
@@ -270,6 +277,25 @@ def run_in_terminal(cmd: str, *, cwd: str | Path | None = None, folder: str | Pa
     return _post("/terminal/run", body, folder=folder or cwd)
 
 
+def refresh_python(folder: str | Path, *, tries: int = 10, every_s: float = 2.0, sleep=time.sleep) -> dict | None:
+    """After a pip install into <folder>/.venv (E20): the window that has `folder` open selects that .venv as its Python
+    interpreter and restarts the Python language server, so Pylance re-reads the packages (it resolved `import
+    requests` before the .venv existed and kept the warning). Only that window, never another one. Retries while the
+    window or its extension is still starting (the folder opened the same second the install finished). Blocking.
+    None when no window has the folder open; {"ok": False, "error": "no_route"} from an older extension."""
+    root = str(Path(folder).expanduser().resolve())
+    for k in range(max(1, tries)):
+        w = next((w for w in windows() if any(_inside(root, f) or _inside(f, root) for f in w.get("folders") or [])), None)
+        if w is not None:
+            out = _call(int(w["port"]), "POST", "/python/refresh", {"folder": root})
+            if out is not None:
+                log.info("python refresh in %s: %s", Path(root).name, out)
+                return out
+        if k + 1 < tries:
+            sleep(every_s)
+    return None
+
+
 def apply(file: str | Path, new_text: str | None = None, *, edits: Iterable[dict] | None = None, save: bool = True,
           reveal: bool = True, folder: str | Path | None = None) -> dict | None:
     """Edit through VS Code (WorkspaceEdit), then save: the learner's unsaved buffer is edited, not clobbered on
@@ -284,6 +310,23 @@ def apply(file: str | Path, new_text: str | None = None, *, edits: Iterable[dict
     else:
         raise ValueError("apply() needs new_text or edits")
     return _post("/apply", body, file=path, folder=folder)
+
+
+def save(file: str | Path, *, folder: str | Path | None = None) -> dict | None:
+    """Save `file` in the window that has it, as ⌘S does: its unsaved edits go to disk (Run it for me / Check on a run
+    step, so what runs is what the editor shows). The 0.0.4 extension's POST /save -> {ok, file, open, saved, dirty};
+    an older one (no_route): a no-op /apply edit (empty text at 1:1) that saves the buffer as it is: no text change,
+    no cursor move, nothing revealed. None when no window answered."""
+    path = _abs(file, folder)
+    w = _window(file=path, folder=folder)
+    if w is None:
+        return None
+    port = int(w["port"])
+    out = _call(port, "POST", "/save", {"file": path})
+    if out is not None and out.get("error") == "no_route":
+        noop = {"startLine": 1, "startColumn": 1, "endLine": 1, "endColumn": 1, "text": ""}
+        out = _call(port, "POST", "/apply", {"file": path, "edits": [noop], "save": True, "reveal": False})
+    return out
 
 
 def replace_line(file: str | Path, yours: str, expected: str, *, save: bool = True,
@@ -308,6 +351,9 @@ _latest: dict[str, dict] = {}
 _subscribers: list[Callable[[dict], Any]] = []
 _lock = threading.Lock()
 _seq = 0
+# Companion 0.0.5's `visible` (every scroll, 80 ms debounce) goes to the subscribers and last_event only: in the
+# 200-event history a long scroll pushed out the command_end / dirty events that recent_events() readers still need.
+_NOT_KEPT = frozenset({"visible"})
 
 
 def record_event(ev: dict) -> dict:
@@ -318,7 +364,8 @@ def record_event(ev: dict) -> dict:
     with _lock:
         _seq += 1
         item = {**ev, "seq": _seq, "received": time.time()}
-        _events.append(item)
+        if str(ev.get("type") or "") not in _NOT_KEPT:
+            _events.append(item)
         _latest[str(ev.get("type") or "")] = item
         subs = list(_subscribers)
     for cb in subs:

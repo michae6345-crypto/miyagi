@@ -218,10 +218,10 @@ async def run_end(engine: stage.Engine) -> list[Case]:
         i = c.mark()
         await c.send("action", {"kind": "explain"})
         await asyncio.sleep(0.3)
-        r = httpx.post(f"{engine.http}/end", timeout=10).json()
+        r = httpx.post(f"{engine.http}/end?forget=1", timeout=10).json()
         case.check("POST /end answers ok + the ended lesson id", r.get("ok") and r.get("ended"), json.dumps(r))
         await assert_ended(case, c, engine, i, reason="POST /end")
-        r2 = httpx.post(f"{engine.http}/end", timeout=10).json()
+        r2 = httpx.post(f"{engine.http}/end?forget=1", timeout=10).json()
         case.check("POST /end again with nothing running is harmless", r2.get("ok") and not r2.get("ended"), json.dumps(r2))
         await ended_then_fresh(case, c)
         case.sequence = seq(c.since(i))
@@ -321,7 +321,8 @@ async def _expect_resume(case: Case, engine: stage.Engine, before: dict) -> None
         resumed = c.since(i)
         j = c.mark()
         await c.send("action", {"kind": "end_lesson"})  # the card's "Start a new lesson" button
-        await assert_ended(case, c, engine, j, reason="end_lesson", quiet_s=3)
+        # E11: the save is kept (stopped) until another lesson is built, like the bar's End
+        await assert_ended(case, c, engine, j, reason="end_lesson", quiet_s=3, kept=True)
         case.sequence = ("snapshot: " + seq([e for e in c.events[:i]]) + "\n      after resume: " + seq(resumed)
                          + "\n      after end_lesson: " + seq(c.since(j)))
         print(f"      {C['dim']}{case.sequence}{C['x']}")
@@ -353,7 +354,7 @@ async def run_resume(engine: stage.Engine, restart) -> list[Case]:
                    f"{types}")
         case.sequence = seq(c.events)
         print(f"      {C['dim']}{case.sequence}{C['x']}")
-        httpx.post(f"{engine.http}/end", timeout=10)
+        httpx.post(f"{engine.http}/end?forget=1", timeout=10)
     cases.append(case)
 
     case = Case("engine restart while away -> resume card")

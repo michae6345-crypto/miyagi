@@ -177,6 +177,35 @@ def _s2():
         return None
 
 
+def python_terminal_settings(workdir: str | Path) -> bool:
+    """A Python lesson folder under the lessons root (a lesson built before t5's fix, opened again): its VS Code
+    terminals use the .venv without auto-activation typing into them (server.workspace.core.ensure_python_terminal).
+    Never the repo's own folders. True when .vscode/settings.json changed. Never raises."""
+    try:
+        from server.workspace import core, paths
+
+        root, folder = paths.lessons_root().expanduser().resolve(), Path(workdir).expanduser().resolve()
+        if folder == root or root not in folder.parents:
+            return False
+        return core.ensure_python_terminal(folder)
+    except Exception:  # noqa: BLE001 - a refinement: Run it for me retries a swallowed command anyway
+        log.exception("python terminal settings failed")
+        return False
+
+
+def fit_beside_drawer(workdir: str | Path) -> str:
+    """A run step: the lesson's VS Code window leaves room for Miyagi's drawer
+    (server.workspace.editor.fit_beside_drawer; full screen / maximized under it: logged and left). Blocking (AX):
+    call it in a thread. Never raises."""
+    try:
+        from server.workspace import editor
+
+        return editor.fit_beside_drawer(str(workdir))
+    except Exception:  # noqa: BLE001 - a refinement: the lesson runs without it
+        log.exception("fit beside drawer failed")
+        return "failed"
+
+
 def build_workdir(url: str, goal: str) -> str:
     """The workdir to hand build_lesson. TUT_WORKDIR pins one folder (dev); otherwise S2 decides
     (the hero video -> demo/pinn-lab, anything else -> a not-yet-existing path), falling back to
@@ -306,6 +335,19 @@ def install(item: dict, folder: str, on_line) -> dict:
     return dict(fn(item, workdir=folder, on_line=on_line))
 
 
+def refresh_python(folder: str) -> dict | None:
+    """E20: after a pip install into <folder>/.venv, the lesson's VS Code window selects that .venv and restarts its
+    Python language server (companion extension), so `import requests` loses Pylance's warning. Blocking (retries for
+    up to ~20 s while the window starts): run it in a thread. Never raises; None when no window answered."""
+    try:
+        from server.workspace import vscode_ext
+
+        return vscode_ext.refresh_python(folder)
+    except Exception:  # noqa: BLE001 - a refinement: the lesson runs without it
+        log.exception("refresh_python failed")
+        return None
+
+
 def goto_argv(path: str, line: int) -> list[str] | None:
     """S2: the jump command for the learner's editor (Cursor if that's theirs), so jumps never launch a
     second editor; else VS Code's `code -r -g`."""
@@ -364,6 +406,8 @@ class Workspace:
         busy / cancelled (L5, real windows only): what holds an automatic open and what drops it (a newer lesson)."""
         if not (self.enabled or force) or (self.blocked and not explicit) or not Path(workdir).is_dir():
             return
+        if self.run == self._spawn:  # real windows only: tests inject a runner
+            python_terminal_settings(workdir)
         ws = _s2()
         if ws is not None and self._guarded(ws):
             real = self.run == self._spawn  # tests inject a runner: never touch real windows or real focus

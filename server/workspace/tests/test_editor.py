@@ -112,8 +112,8 @@ def test_arrange_unfullscreens_previous_and_docks_editor_left(monkeypatch):
     monkeypatch.setattr(E, "left_frame", lambda fraction=0.6: (0, 38, round(1728 * fraction), 1079))
     ax, rep = FakeAX(fullscreen_prev=True, fullscreen_editor=True), {}
     E.arrange(CURSOR, {"pid": 111, "name": "Safari"}, rep, ax=ax, sleep=lambda s: None)
-    assert ax.log == [("exit_fs", "prev"), ("exit_fs", "ed"), ("frame", "ed", 0, 38, 1037, 1079)]
-    assert rep == {"unfullscreened": "Safari", "arranged": True, "frame": [0, 38, 1037, 1079], "arrange": "done"}
+    assert ax.log == [("exit_fs", "prev"), ("exit_fs", "ed"), ("frame", "ed", 0, 38, 1037, 1079 - E.BAR_CLEARANCE)]  # E22: above the bar
+    assert rep == {"unfullscreened": "Safari", "arranged": True, "frame": [0, 38, 1037, round(1079 - E.BAR_CLEARANCE)], "arrange": "done"}
 
 
 def test_arrange_leaves_windowed_apps_alone(monkeypatch):
@@ -279,6 +279,9 @@ def fresh(monkeypatch):
     E.reset_open_state()
     monkeypatch.setattr(E, "preferred_editor", lambda installed=None: VSC)
     monkeypatch.setattr(E, "frontmost_app", lambda skip=None: None)
+    # the lesson's window is still up (56cb5ca's reopen check): never this machine's real VS Code windows, which made
+    # the explicit "Open VS Code" below a fresh open whenever VS Code had no window on the test's tmp folder
+    monkeypatch.setattr(E, "_lesson_window_alive", lambda folder: True)
     yield
     E.reset_open_state()
 
@@ -287,7 +290,9 @@ def kw():
     return {"trusted": lambda: False, "previous": None, "arrange_windows": False, "windows": lambda: []}
 
 
-def test_open_once_per_lesson_and_folder_never_dash_n(tmp_path, fresh):
+def test_open_once_per_lesson_and_folder_never_dash_n(tmp_path, fresh, monkeypatch):
+    # the explicit open below passes no window list: never ask the real VS Code (56cb5ca): its window is still there
+    monkeypatch.setattr(E, "_lesson_window_alive", lambda folder: True)
     calls, run = opener(tmp_path)
     for _ in range(5):  # lesson-mode open, auto-open after the setup check, resume, retries…
         E.open_lesson_editor(tmp_path, "main.py", lesson_id="L1", runner=run, focus=lambda: CODE, **kw())
@@ -299,6 +304,23 @@ def test_open_once_per_lesson_and_folder_never_dash_n(tmp_path, fresh):
     # a new lesson in the same folder: one more open (VS Code focuses the existing window: still no -n)
     E.open_lesson_editor(tmp_path, None, lesson_id="L2", runner=run, focus=lambda: CODE, **kw())
     assert len([c for c in calls if c[0] == VSC["cli"]]) == 3 and not any("-n" in c for c in calls)
+
+
+def test_rerun_reopens_the_editor_only_when_its_window_is_gone(tmp_path, fresh, monkeypatch):
+    """56cb5ca (Michael, Nov 15 5:11 AM): the same lesson + folder again after VS Code was quit opens it again; while
+    its window is up, the at-most-once rule holds (no second `code <folder>`)."""
+    calls, run = opener(tmp_path)
+    alive = {"v": True}
+    monkeypatch.setattr(E, "_lesson_window_alive", lambda folder: alive["v"])
+    # no `windows` (the real-call path that checks the window); reuse=False: never this machine's window list
+    rep = {"trusted": lambda: False, "previous": None, "arrange_windows": False, "reuse": False}
+    E.open_lesson_editor(tmp_path, "main.py", lesson_id="L1", runner=run, focus=lambda: CODE, **rep)
+    E.open_lesson_editor(tmp_path, "main.py", lesson_id="L1", runner=run, focus=lambda: CODE, **rep)
+    assert len([c for c in calls if c[0] == VSC["cli"]]) == 1
+    alive["v"] = False  # VS Code was quit since
+    E.open_lesson_editor(tmp_path, "main.py", lesson_id="L1", runner=run, focus=lambda: CODE, **rep)
+    opens = [c for c in calls if c[0] == VSC["cli"]]
+    assert len(opens) == 2 and not any("-n" in c for c in opens)
 
 
 def test_concurrent_open_calls_open_once(tmp_path, fresh):

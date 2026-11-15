@@ -77,8 +77,15 @@ class WorkspaceEdit {
 
 const LANG = { '.py': 'python', '.js': 'javascript', '.md': 'markdown', '.txt': 'plaintext' };
 
-function createFakeVscode({ folders = [], config = {}, shellApi = true, openDelayMs = 0 } = {}) {
-  const calls = { commands: [], shown: [], reveals: [], info: [] };
+class NotebookRange {
+  constructor(start, end) { this.start = start; this.end = end; }
+}
+
+// notebooks: true -> 'vscode.openWith' (jupyter-notebook) opens a notebook editor; false -> it throws (no ipynb support).
+function createFakeVscode({ folders = [], config = {}, shellApi = true, openDelayMs = 0, notebooks = true } = {}) {
+  const calls = { commands: [], shown: [], reveals: [], info: [], nbReveals: [] };
+  const notebookDocs = [];
+  const notebookEditors = [];
   const docs = [];
   const editors = [];
   const terminals = [];
@@ -87,6 +94,7 @@ function createFakeVscode({ folders = [], config = {}, shellApi = true, openDela
   const decorationTypes = [];
   const ev = {
     activeEditor: new EventEmitter(), visibleEditors: new EventEmitter(), windowState: new EventEmitter(),
+    visibleRanges: new EventEmitter(),
     openTerminal: new EventEmitter(), closeTerminal: new EventEmitter(),
     shellStart: new EventEmitter(), shellEnd: new EventEmitter(),
   };
@@ -97,12 +105,15 @@ function createFakeVscode({ folders = [], config = {}, shellApi = true, openDela
 
   const vscode = {
     version: '1.146.0',
-    EventEmitter, Uri, Position, Range, Selection, WorkspaceEdit,
+    EventEmitter, Uri, Position, Range, Selection, WorkspaceEdit, NotebookRange,
     TextEditorRevealType: { Default: 0, InCenter: 2 },
+    NotebookEditorRevealType: { Default: 0, InCenter: 1, InCenterIfOutsideViewport: 2 },
     OverviewRulerLane: { Full: 7 },
     window: {
       activeTextEditor: undefined,
       visibleTextEditors: editors,
+      activeNotebookEditor: undefined,
+      visibleNotebookEditors: notebookEditors,
       terminals,
       activeTerminal: undefined,
       state: { focused: true },
@@ -110,6 +121,7 @@ function createFakeVscode({ folders = [], config = {}, shellApi = true, openDela
       onDidChangeActiveTextEditor: ev.activeEditor.event,
       onDidChangeVisibleTextEditors: ev.visibleEditors.event,
       onDidChangeWindowState: ev.windowState.event,
+      onDidChangeTextEditorVisibleRanges: ev.visibleRanges.event,
       onDidOpenTerminal: ev.openTerminal.event,
       onDidCloseTerminal: ev.closeTerminal.event,
       createOutputChannel: () => ({ lines: [], appendLine(l) { this.lines.push(l); }, dispose() {} }),
@@ -156,6 +168,7 @@ function createFakeVscode({ folders = [], config = {}, shellApi = true, openDela
       name: folders.length ? path.basename(folders[0]) : undefined,
       workspaceFolders: folders.map((f, i) => ({ uri: Uri.file(f), name: path.basename(f), index: i })),
       textDocuments: docs,
+      notebookDocuments: notebookDocs,
       onDidSaveTextDocument: ws.save.event,
       onDidChangeTextDocument: ws.change.event,
       getConfiguration: () => ({ get: (k) => config[k] }),
@@ -197,7 +210,27 @@ function createFakeVscode({ folders = [], config = {}, shellApi = true, openDela
       },
     },
     commands: {
-      async executeCommand(id, ...args) { calls.commands.push({ id, args }); },
+      async executeCommand(id, ...args) {
+        calls.commands.push({ id, args });
+        if (id !== 'vscode.openWith' || args[1] !== 'jupyter-notebook') return undefined;
+        if (!notebooks) throw new Error("There is no editor for 'jupyter-notebook'");
+        const uri = args[0];
+        let ne = notebookEditors.find((e) => e.notebook.uri.fsPath === uri.fsPath);
+        if (!ne) {
+          let nb = notebookDocs.find((d) => d.uri.fsPath === uri.fsPath);
+          if (!nb) {
+            const cells = JSON.parse(fs.readFileSync(uri.fsPath, 'utf8')).cells || [];
+            nb = { uri, notebookType: 'jupyter-notebook', cellCount: cells.length, isDirty: false, saves: 0,
+              async save() { this.saves += 1; this.isDirty = false; return true; } };
+            notebookDocs.push(nb);
+          }
+          ne = { notebook: nb, viewColumn: (args[2] && args[2].viewColumn) || 1, selections: [new NotebookRange(0, 1)],
+            revealRange(r, how) { calls.nbReveals.push({ file: uri.fsPath, start: r.start, end: r.end, how }); } };
+          notebookEditors.push(ne);
+        }
+        vscode.window.activeNotebookEditor = ne;
+        return undefined;
+      },
       registerCommand(id, fn) { registered[id] = fn; return { dispose() {} }; },
     },
   };
@@ -207,7 +240,7 @@ function createFakeVscode({ folders = [], config = {}, shellApi = true, openDela
   }
 
   const ctl = {
-    calls, docs, editors, terminals, providers, registered, decorationTypes, ev, ws,
+    calls, docs, editors, notebookDocs, notebookEditors, terminals, providers, registered, decorationTypes, ev, ws,
     // Simulate the learner typing in a buffer (dirty, not saved).
     type(doc, text) {
       doc.text = text; doc.isDirty = true; doc.version += 1;

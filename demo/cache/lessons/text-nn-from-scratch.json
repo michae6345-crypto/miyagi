@@ -1,0 +1,585 @@
+{
+ "lesson": {
+  "id": "lesson-nn-from-scratch",
+  "title": "A neural net from scratch",
+  "goal": "build a neural network from scratch",
+  "workdir": "demo/nn-lab",
+  "libraries": {
+   "numpy": "2.x"
+  },
+  "mode": "lesson",
+  "complete": true,
+  "builtBy": "claude",
+  "curated": "nn-from-scratch",
+  "overview": "We'll build a neural network with nothing but NumPy and teach it to draw a curve: y = sin(x) for x from -π to π. One input (x), two hidden layers of 4 neurons, one output (y). First the network and its forward pass, then backprop, then a training loop, and last a test that prints -1, 0, 1 for -π/2, 0, π/2.",
+  "primer": [
+   {
+    "id": "p1",
+    "title": "A neuron holds a number",
+    "body": "The input neuron holds x. Each hidden neuron holds a number between -1 and 1, its activation, computed from the layer before it. The output neuron holds the network's answer, y."
+   },
+   {
+    "id": "p2",
+    "title": "Weights and a bias",
+    "body": "Each connection multiplies the signal by a weight: positive pushes the next neuron up, negative pushes it down. The bias shifts where the neuron switches on.",
+    "code": "z = h1 * w1 + h2 * w2 + h3 * w3 + h4 * w4 + b"
+   },
+   {
+    "id": "p3",
+    "title": "tanh bends",
+    "body": "tanh squishes any total into -1..1. Stacking these bends is what lets the network draw a curve; the output skips tanh, so it can answer any number.",
+    "code": "np.tanh(z)"
+   },
+   {
+    "id": "p4",
+    "title": "Learning goes downhill",
+    "body": "The loss says how wrong the outputs are. Backprop finds which way each weight should move to lower it, and each training step moves it a little that way.",
+    "code": "W -= lr * dW"
+   }
+  ],
+  "build": {
+   "summary": "A 1-4-4-1 neural network in NumPy that learns y = sin(x).",
+   "outcome": "Run it and the loss falls below 0.01; it prints [-1.0, 0.0, 1.0] for x = -π/2, 0, π/2.",
+   "estMinutes": 14
+  },
+  "flow": [
+   {
+    "label": "Input",
+    "detail": "x",
+    "stepIndex": 1
+   },
+   {
+    "label": "Hidden layer 1",
+    "detail": "tanh(X·W1 + b1)",
+    "stepIndex": 1
+   },
+   {
+    "label": "Hidden layer 2",
+    "detail": "tanh(h1·W2 + b2)",
+    "stepIndex": 1
+   },
+   {
+    "label": "Output",
+    "detail": "h2·W3 + b3",
+    "stepIndex": 1
+   },
+   {
+    "label": "Backprop",
+    "detail": "chain rule",
+    "stepIndex": 2
+   },
+   {
+    "label": "Gradient step",
+    "detail": "W -= lr·dW",
+    "stepIndex": 3
+   }
+  ],
+  "prerequisites": [
+   {
+    "id": "numpy-arrays",
+    "title": "NumPy arrays",
+    "why": "X, y and every weight are arrays.",
+    "status": "unknown"
+   },
+   {
+    "id": "matrix-multiply",
+    "title": "Matrix multiply",
+    "why": "X @ W1 runs every hidden neuron at once.",
+    "status": "unknown"
+   },
+   {
+    "id": "derivatives",
+    "title": "Derivatives",
+    "why": "Backprop multiplies slopes along the network.",
+    "status": "unknown"
+   }
+  ],
+  "learnFirst": [
+   {
+    "title": "NumPy arrays",
+    "minutes": 5,
+    "kind": "read",
+    "covers": "numpy-arrays"
+   },
+   {
+    "title": "Matrix multiplication",
+    "minutes": 6,
+    "kind": "interactive",
+    "covers": "matrix-multiply"
+   }
+  ]
+ },
+ "sources": [],
+ "steps": [
+  {
+   "id": "nn1",
+   "index": 1,
+   "file": "nn.py",
+   "code": "X = np.linspace(-np.pi, np.pi, 50).reshape(-1, 1)\ny = np.sin(X)\n\nnp.random.seed(0)\nW1 = np.random.randn(1, 4)\nb1 = np.zeros((1, 4))\nW2 = np.random.randn(4, 4)\nb2 = np.zeros((1, 4))\nW3 = np.random.randn(4, 1) * 0.1\nb3 = np.zeros((1, 1))\n\ndef forward(X):\n    h1 = np.tanh(X @ W1 + b1)\n    h2 = np.tanh(h1 @ W2 + b2)\n    return h1, h2, h2 @ W3 + b3",
+   "explanations": [],
+   "title": "Build the network",
+   "kind": "code",
+   "what": "The sine data, random weights and a forward pass",
+   "why": "Every guess the network makes is this forward pass: x goes through two layers of tanh neurons, and the output neuron adds them up into y.",
+   "concepts": [
+    "p1",
+    "p2",
+    "p3"
+   ],
+   "action": "In nn.py, paste this under # The network",
+   "instructions": "Under # The network, add the data (y = sin(x)), the weights and the forward pass.",
+   "checks": [
+    {
+     "id": "nn1c1",
+     "type": "screen_contains",
+     "label": "The sine data is in nn.py",
+     "app": "Code",
+     "pattern": "y\\s*=\\s*np\\.sin\\(\\s*X\\s*\\)"
+    },
+    {
+     "id": "nn1c2",
+     "type": "screen_contains",
+     "label": "W1, W2 and W3 are created",
+     "app": "Code",
+     "pattern": "W1\\s*=\\s*np\\.[\\s\\S]*W2\\s*=\\s*np\\.[\\s\\S]*W3\\s*=\\s*np\\."
+    },
+    {
+     "id": "nn1c3",
+     "type": "screen_contains",
+     "label": "forward() is defined",
+     "app": "Code",
+     "pattern": "def\\s+forward\\s*\\(\\s*X\\s*\\)"
+    },
+    {
+     "id": "nn1c4",
+     "type": "screen_contains",
+     "label": "Hidden layers use tanh, the output doesn't",
+     "app": "Code",
+     "pattern": "h1\\s*=\\s*np\\.tanh\\(\\s*X\\s*(?:@\\s*W1|\\.dot\\(\\s*W1\\s*\\))\\s*\\+\\s*b1\\s*\\)[\\s\\S]*h2\\s*=\\s*np\\.tanh\\(\\s*h1\\s*(?:@\\s*W2|\\.dot\\(\\s*W2\\s*\\))\\s*\\+\\s*b2\\s*\\)[\\s\\S]*return\\s+h1\\s*,\\s*h2\\s*,\\s*h2\\s*(?:@\\s*W3|\\.dot\\(\\s*W3\\s*\\))\\s*\\+\\s*b3\\b"
+    }
+   ],
+   "precision_checks": [
+    {
+     "id": "nn1p1",
+     "type": "file_contains",
+     "label": "nn.py has the sine data",
+     "file": "nn.py",
+     "pattern": "X\\s*=\\s*np\\.linspace\\([\\s\\S]*y\\s*=\\s*np\\.sin\\(\\s*X\\s*\\)"
+    },
+    {
+     "id": "nn1p2",
+     "type": "file_contains",
+     "label": "nn.py creates W1, W2 and W3",
+     "file": "nn.py",
+     "pattern": "W1\\s*=\\s*np\\.[\\s\\S]*W2\\s*=\\s*np\\.[\\s\\S]*W3\\s*=\\s*np\\."
+    },
+    {
+     "id": "nn1p3",
+     "type": "file_contains",
+     "label": "nn.py defines forward with two tanh layers",
+     "file": "nn.py",
+     "pattern": "def\\s+forward\\s*\\(\\s*X\\s*\\)\\s*:[\\s\\S]*np\\.tanh\\([\\s\\S]*np\\.tanh\\([\\s\\S]*@\\s*W3"
+    },
+    {
+     "id": "nn1p4",
+     "type": "file_contains",
+     "label": "nn.py's hidden layers use tanh, its output doesn't",
+     "file": "nn.py",
+     "pattern": "h1\\s*=\\s*np\\.tanh\\(\\s*X\\s*(?:@\\s*W1|\\.dot\\(\\s*W1\\s*\\))\\s*\\+\\s*b1\\s*\\)[\\s\\S]*h2\\s*=\\s*np\\.tanh\\(\\s*h1\\s*(?:@\\s*W2|\\.dot\\(\\s*W2\\s*\\))\\s*\\+\\s*b2\\s*\\)[\\s\\S]*return\\s+h1\\s*,\\s*h2\\s*,\\s*h2\\s*(?:@\\s*W3|\\.dot\\(\\s*W3\\s*\\))\\s*\\+\\s*b3\\b"
+    }
+   ],
+   "targets": [
+    {
+     "app": "Code",
+     "file": "nn.py",
+     "match": "# The network",
+     "caption": "Paste the network under this line"
+    }
+   ],
+   "hints": [
+    "Copy the code from the drawer and paste it under # The network.",
+    "forward returns three things: the two hidden layers h1 and h2, and the output."
+   ],
+   "common_mistakes": [
+    "Pasting above import numpy as np, so np isn't defined yet.",
+    "Losing the indentation inside def forward."
+   ],
+   "estMinutes": 4
+  },
+  {
+   "id": "nn2",
+   "index": 2,
+   "file": "nn.py",
+   "code": "def backward(X, y, h1, h2, out):\n    d_out = 2 * (out - y) / len(X)\n    d_h2 = d_out @ W3.T * (1 - h2 ** 2)\n    d_h1 = d_h2 @ W2.T * (1 - h1 ** 2)\n    return h2.T @ d_out, d_out.sum(0), h1.T @ d_h2, d_h2.sum(0), X.T @ d_h1, d_h1.sum(0)",
+   "explanations": [],
+   "title": "Backprop",
+   "kind": "code",
+   "what": "A gradient for every weight, with the chain rule",
+   "why": "The chain rule sends the output's error back one layer at a time, so each weight learns its share of the blame.",
+   "concepts": [
+    "p4"
+   ],
+   "action": "In nn.py, paste backward under # Backprop",
+   "instructions": "Under # Backprop, add backward. It returns one gradient per weight and bias.",
+   "checks": [
+    {
+     "id": "nn2c1",
+     "type": "screen_contains",
+     "label": "backward() is defined",
+     "app": "Code",
+     "pattern": "def\\s+backward\\s*\\("
+    },
+    {
+     "id": "nn2c2",
+     "type": "screen_contains",
+     "label": "The error flows back through W3 and W2",
+     "app": "Code",
+     "pattern": "d_h2\\s*=\\s*d_out\\s*@\\s*W3\\.T[\\s\\S]*d_h1\\s*=\\s*d_h2\\s*@\\s*W2\\.T"
+    },
+    {
+     "id": "nn2c3",
+     "type": "screen_contains",
+     "label": "The error starts as 2 * (out - y) / len(X)",
+     "app": "Code",
+     "pattern": "d_out\\s*=\\s*2(?:\\.0*)?\\s*\\*\\s*\\(\\s*out\\s*-\\s*y\\s*\\)\\s*/\\s*(?:len\\(\\s*X\\s*\\)|X\\.shape\\[\\s*0\\s*\\])"
+    },
+    {
+     "id": "nn2c4",
+     "type": "screen_contains",
+     "label": "Uses the tanh slope 1 - h² on both layers",
+     "app": "Code",
+     "pattern": "d_h2\\s*=\\s*d_out\\s*(?:@\\s*W3\\.T|\\.dot\\(\\s*W3\\.T\\s*\\))\\s*\\*\\s*\\(\\s*1(?:\\.0*)?\\s*-\\s*(?:h2\\s*\\*\\*\\s*2(?:\\.0*)?|h2\\s*\\*\\s*h2|np\\.square\\(\\s*h2\\s*\\))\\s*\\)[\\s\\S]*d_h1\\s*=\\s*d_h2\\s*(?:@\\s*W2\\.T|\\.dot\\(\\s*W2\\.T\\s*\\))\\s*\\*\\s*\\(\\s*1(?:\\.0*)?\\s*-\\s*(?:h1\\s*\\*\\*\\s*2(?:\\.0*)?|h1\\s*\\*\\s*h1|np\\.square\\(\\s*h1\\s*\\))\\s*\\)"
+    }
+   ],
+   "precision_checks": [
+    {
+     "id": "nn2p1",
+     "type": "file_contains",
+     "label": "nn.py defines backward",
+     "file": "nn.py",
+     "pattern": "def\\s+backward\\s*\\(\\s*X\\s*,\\s*y\\s*,\\s*h1\\s*,\\s*h2\\s*,\\s*out\\s*\\)\\s*:"
+    },
+    {
+     "id": "nn2p2",
+     "type": "file_contains",
+     "label": "nn.py sends the error back through W3 and W2",
+     "file": "nn.py",
+     "pattern": "d_h2\\s*=\\s*d_out\\s*@\\s*W3\\.T[\\s\\S]*d_h1\\s*=\\s*d_h2\\s*@\\s*W2\\.T"
+    },
+    {
+     "id": "nn2p3",
+     "type": "file_contains",
+     "label": "nn.py's error starts as 2 * (out - y) / len(X)",
+     "file": "nn.py",
+     "pattern": "d_out\\s*=\\s*2(?:\\.0*)?\\s*\\*\\s*\\(\\s*out\\s*-\\s*y\\s*\\)\\s*/\\s*(?:len\\(\\s*X\\s*\\)|X\\.shape\\[\\s*0\\s*\\])"
+    },
+    {
+     "id": "nn2p4",
+     "type": "file_contains",
+     "label": "nn.py uses the tanh slope 1 - h² on both layers",
+     "file": "nn.py",
+     "pattern": "d_h2\\s*=\\s*d_out\\s*(?:@\\s*W3\\.T|\\.dot\\(\\s*W3\\.T\\s*\\))\\s*\\*\\s*\\(\\s*1(?:\\.0*)?\\s*-\\s*(?:h2\\s*\\*\\*\\s*2(?:\\.0*)?|h2\\s*\\*\\s*h2|np\\.square\\(\\s*h2\\s*\\))\\s*\\)[\\s\\S]*d_h1\\s*=\\s*d_h2\\s*(?:@\\s*W2\\.T|\\.dot\\(\\s*W2\\.T\\s*\\))\\s*\\*\\s*\\(\\s*1(?:\\.0*)?\\s*-\\s*(?:h1\\s*\\*\\*\\s*2(?:\\.0*)?|h1\\s*\\*\\s*h1|np\\.square\\(\\s*h1\\s*\\))\\s*\\)"
+    }
+   ],
+   "targets": [
+    {
+     "app": "Code",
+     "file": "nn.py",
+     "match": "# Backprop",
+     "caption": "Paste backward under this line"
+    }
+   ],
+   "hints": [
+    "Start at the output: d_out is how wrong it was. The output has no tanh, so there is no slope to multiply.",
+    "d_h2 sends d_out back through W3, then multiplies by tanh's slope, 1 - h2 ** 2. d_h1 does the same through W2."
+   ],
+   "common_mistakes": [
+    "Writing W3 instead of W3.T, so the shapes don't line up.",
+    "Forgetting tanh's slope (1 - h ** 2) on a hidden layer."
+   ],
+   "estMinutes": 3
+  },
+  {
+   "id": "nn3",
+   "index": 3,
+   "file": "nn.py",
+   "code": "lr = 0.1\nfor epoch in range(20000):\n    h1, h2, out = forward(X)\n    dW3, db3, dW2, db2, dW1, db1 = backward(X, y, h1, h2, out)\n    W3 -= lr * dW3\n    b3 -= lr * db3\n    W2 -= lr * dW2\n    b2 -= lr * db2\n    W1 -= lr * dW1\n    b1 -= lr * db1\n    loss = np.mean((out - y) ** 2)\n    if epoch % 2000 == 0:\n        print(f\"epoch {epoch:5d}  loss {loss:.4f}\")",
+   "explanations": [],
+   "title": "Write the training loop",
+   "kind": "code",
+   "what": "A loop that steps every weight downhill 20,000 times",
+   "why": "Each step lowers the loss a little. The loop prints the loss every 2,000 epochs so you can watch it fall.",
+   "concepts": [
+    "p4"
+   ],
+   "action": "In nn.py, paste the loop under # Training",
+   "instructions": "Under # Training, add the training loop. It prints the loss every 2,000 epochs.",
+   "checks": [
+    {
+     "id": "nn3c1",
+     "type": "screen_contains",
+     "label": "The loop runs 20,000 epochs",
+     "app": "Code",
+     "pattern": "for\\s+epoch\\s+in\\s+range\\(\\s*20000\\s*\\)"
+    },
+    {
+     "id": "nn3c2",
+     "type": "screen_contains",
+     "label": "Every weight and bias steps downhill",
+     "app": "Code",
+     "pattern": "\\A(?=[\\s\\S]*\\bW1\\s*(?:-=|=\\s*W1\\s*-)\\s*lr\\s*\\*\\s*dW1\\b)(?=[\\s\\S]*\\bb1\\s*(?:-=|=\\s*b1\\s*-)\\s*lr\\s*\\*\\s*db1\\b)(?=[\\s\\S]*\\bW2\\s*(?:-=|=\\s*W2\\s*-)\\s*lr\\s*\\*\\s*dW2\\b)(?=[\\s\\S]*\\bb2\\s*(?:-=|=\\s*b2\\s*-)\\s*lr\\s*\\*\\s*db2\\b)(?=[\\s\\S]*\\bW3\\s*(?:-=|=\\s*W3\\s*-)\\s*lr\\s*\\*\\s*dW3\\b)(?=[\\s\\S]*\\bb3\\s*(?:-=|=\\s*b3\\s*-)\\s*lr\\s*\\*\\s*db3\\b)"
+    },
+    {
+     "id": "nn3c4",
+     "type": "screen_contains",
+     "label": "The loss is the mean squared error",
+     "app": "Code",
+     "pattern": "loss\\s*=\\s*np\\.mean\\(\\s*\\(\\s*(?:out\\s*-\\s*y|y\\s*-\\s*out)\\s*\\)\\s*\\*\\*\\s*2\\s*\\)"
+    },
+    {
+     "id": "nn3c3",
+     "type": "screen_contains",
+     "label": "It prints the loss",
+     "app": "Code",
+     "pattern": "print\\(\\s*f[\\\"']epoch"
+    }
+   ],
+   "precision_checks": [
+    {
+     "id": "nn3p1",
+     "type": "file_contains",
+     "label": "nn.py has the training loop",
+     "file": "nn.py",
+     "pattern": "for\\s+epoch\\s+in\\s+range\\(\\s*20000\\s*\\)"
+    },
+    {
+     "id": "nn3p2",
+     "type": "file_contains",
+     "label": "nn.py moves every weight and bias downhill",
+     "file": "nn.py",
+     "pattern": "\\A(?=[\\s\\S]*\\bW1\\s*(?:-=|=\\s*W1\\s*-)\\s*lr\\s*\\*\\s*dW1\\b)(?=[\\s\\S]*\\bb1\\s*(?:-=|=\\s*b1\\s*-)\\s*lr\\s*\\*\\s*db1\\b)(?=[\\s\\S]*\\bW2\\s*(?:-=|=\\s*W2\\s*-)\\s*lr\\s*\\*\\s*dW2\\b)(?=[\\s\\S]*\\bb2\\s*(?:-=|=\\s*b2\\s*-)\\s*lr\\s*\\*\\s*db2\\b)(?=[\\s\\S]*\\bW3\\s*(?:-=|=\\s*W3\\s*-)\\s*lr\\s*\\*\\s*dW3\\b)(?=[\\s\\S]*\\bb3\\s*(?:-=|=\\s*b3\\s*-)\\s*lr\\s*\\*\\s*db3\\b)"
+    },
+    {
+     "id": "nn3p4",
+     "type": "file_contains",
+     "label": "nn.py's loss is the mean squared error",
+     "file": "nn.py",
+     "pattern": "loss\\s*=\\s*np\\.mean\\(\\s*\\(\\s*(?:out\\s*-\\s*y|y\\s*-\\s*out)\\s*\\)\\s*\\*\\*\\s*2\\s*\\)"
+    },
+    {
+     "id": "nn3p3",
+     "type": "file_contains",
+     "label": "nn.py prints the loss",
+     "file": "nn.py",
+     "pattern": "print\\(\\s*f[\\\"']epoch"
+    }
+   ],
+   "targets": [
+    {
+     "app": "Code",
+     "file": "nn.py",
+     "match": "# Training",
+     "caption": "Paste the loop under this line"
+    }
+   ],
+   "hints": [
+    "Copy the loop from the drawer and paste it under # Training, with its indentation.",
+    "Inside the loop: forward, backward, then W -= lr * dW for all three weights and all three biases."
+   ],
+   "common_mistakes": [
+    "Losing the indentation under for epoch.",
+    "Updating only the weights, not the biases."
+   ],
+   "estMinutes": 3
+  },
+  {
+   "id": "nn4",
+   "index": 4,
+   "file": "nn.py",
+   "code": "python3 nn.py",
+   "explanations": [],
+   "title": "Train it",
+   "kind": "run",
+   "what": "Run it and watch the loss fall",
+   "why": "Each printed line is one checkpoint. If the loss stops falling, the network has stopped learning.",
+   "concepts": [
+    "p4"
+   ],
+   "instructions": "Run nn.py in VS Code's terminal and watch the loss.",
+   "run_command": "python3 nn.py",
+   "checks": [
+    {
+     "id": "nn4c1",
+     "type": "metric_threshold",
+     "label": "Loss falls below 0.01",
+     "metric": "loss",
+     "op": "<",
+     "value": 0.01,
+     "metric_pattern": "epoch\\s+(?P<step>\\d+)\\s+loss\\s+(?P<value>[0-9Oo.eE+-]+)",
+     "by_step": 18000
+    }
+   ],
+   "precision_checks": [
+    {
+     "id": "nn4p1",
+     "type": "file_contains",
+     "label": "The saved nn.py runs 20,000 epochs",
+     "file": "nn.py",
+     "pattern": "for\\s+epoch\\s+in\\s+range\\(\\s*20000\\s*\\)"
+    },
+    {
+     "id": "nn4p2",
+     "type": "metric_threshold",
+     "label": "Your run's loss falls below 0.01",
+     "metric": "loss",
+     "op": "<",
+     "value": 0.01,
+     "metric_pattern": "epoch\\s+(?P<step>\\d+)\\s+loss\\s+(?P<value>[0-9Oo.eE+-]+)",
+     "by_step": 18000
+    }
+   ],
+   "targets": [
+    {
+     "app": "Terminal",
+     "file": "nn.py",
+     "match": "python3 nn.py",
+     "caption": "Run it here"
+    }
+   ],
+   "hints": [
+    "Press Run it for me, or run the command in VS Code's terminal (Terminal > New Terminal).",
+    "Watch the epoch lines: the loss should fall below 0.01 by epoch 18000."
+   ],
+   "common_mistakes": [
+    "Starting W1, W2 and W3 at zero: every hidden neuron stays identical and the loss never moves.",
+    "Running before saving, so the old file runs."
+   ],
+   "estMinutes": 1
+  },
+  {
+   "id": "nn5",
+   "index": 5,
+   "file": "nn.py",
+   "code": "h1, h2, out = forward(np.array([[-np.pi / 2], [0.0], [np.pi / 2]]))\nprint(np.round(out, 1).ravel().tolist())\nfor name, w in ((\"W1\", W1), (\"b1\", b1), (\"W2\", W2), (\"b2\", b2), (\"W3\", W3), (\"b3\", b3)):\n    print(name, np.round(w, 3).tolist())",
+   "explanations": [],
+   "title": "Test it",
+   "kind": "code",
+   "what": "Print its answers and the weights it learned",
+   "why": "sin(-π/2) = -1, sin(0) = 0 and sin(π/2) = 1, so you can check its answers. The weights are what it learned.",
+   "concepts": [
+    "p1"
+   ],
+   "action": "In nn.py, paste this under # Test it",
+   "instructions": "Under # Test it, print its answers for -π/2, 0 and π/2, and the weights.",
+   "checks": [
+    {
+     "id": "nn5c1",
+     "type": "screen_contains",
+     "label": "It prints its answers",
+     "app": "Code",
+     "pattern": "np\\.round\\(\\s*out\\s*,\\s*1\\s*\\)"
+    },
+    {
+     "id": "nn5c2",
+     "type": "screen_contains",
+     "label": "It prints W1 to b3",
+     "app": "Code",
+     "pattern": "\\(\\s*[\\\"']W1[\\\"']\\s*,\\s*W1\\s*\\)[\\s\\S]*\\(\\s*[\\\"']W3[\\\"']\\s*,\\s*W3\\s*\\)"
+    }
+   ],
+   "precision_checks": [
+    {
+     "id": "nn5p1",
+     "type": "file_contains",
+     "label": "nn.py prints its answers",
+     "file": "nn.py",
+     "pattern": "np\\.round\\(\\s*out\\s*,\\s*1\\s*\\)"
+    },
+    {
+     "id": "nn5p2",
+     "type": "file_contains",
+     "label": "nn.py prints the weights",
+     "file": "nn.py",
+     "pattern": "\\(\\s*[\\\"']W1[\\\"']\\s*,\\s*W1\\s*\\)[\\s\\S]*\\(\\s*[\\\"']W3[\\\"']\\s*,\\s*W3\\s*\\)"
+    }
+   ],
+   "targets": [
+    {
+     "app": "Code",
+     "file": "nn.py",
+     "match": "# Test it",
+     "caption": "Paste the test under this line"
+    }
+   ],
+   "hints": [
+    "forward gives h1, h2 and out; out holds its three answers.",
+    "np.round(out, 1) rounds them to one decimal, so a good network prints -1.0, 0.0 and 1.0."
+   ],
+   "common_mistakes": [
+    "Printing h2 instead of out."
+   ],
+   "estMinutes": 2
+  },
+  {
+   "id": "nn6",
+   "index": 6,
+   "file": "nn.py",
+   "code": "python3 nn.py",
+   "explanations": [],
+   "title": "See what it learned",
+   "kind": "run",
+   "what": "Run it: it answers -1, 0, 1",
+   "why": "Your network learned the sine curve from 50 examples. The panel on the right is drawn from the weights it printed.",
+   "concepts": [
+    "p1"
+   ],
+   "instructions": "Run nn.py again and read its answers.",
+   "run_command": "python3 nn.py",
+   "expected_output": "[-1.0, 0.0, 1.0]",
+   "checks": [
+    {
+     "id": "nn6c1",
+     "type": "screen_contains",
+     "label": "It answers -1, 0, 1",
+     "app": "Terminal",
+     "pattern": "\\[\\s*-\\s*1\\.[0O]\\s*,?\\s*-?\\s*[0O]\\.[0O]\\s*,?\\s*1\\.[0O]\\s*\\]"
+    }
+   ],
+   "precision_checks": [
+    {
+     "id": "nn6p1",
+     "type": "file_contains",
+     "label": "The saved nn.py prints its answers",
+     "file": "nn.py",
+     "pattern": "np\\.round\\(\\s*out\\s*,\\s*1\\s*\\)"
+    },
+    {
+     "id": "nn6p2",
+     "type": "output_contains",
+     "label": "Your run prints [-1.0, 0.0, 1.0]",
+     "pattern": "\\[\\s*-\\s*1\\.[0O]\\s*,?\\s*-?\\s*[0O]\\.[0O]\\s*,?\\s*1\\.[0O]\\s*\\]"
+    }
+   ],
+   "targets": [
+    {
+     "app": "Terminal",
+     "file": "nn.py",
+     "match": "python3 nn.py",
+     "caption": "Run it here"
+    }
+   ],
+   "hints": [
+    "Press Run it for me, or run the command again in VS Code's terminal.",
+    "The first line after the losses is its answer for -π/2, 0 and π/2."
+   ],
+   "common_mistakes": [
+    "Reading the loss lines instead of the [-1.0, 0.0, 1.0] line under them."
+   ],
+   "estMinutes": 1
+  }
+ ],
+ "build": {
+  "mode": "lesson",
+  "note": "Written by hand (scripts/make_nn_demo.py), no model call. Served instantly for neural-network goals by server/orchestrator/curated.py."
+ }
+}

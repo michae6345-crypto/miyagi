@@ -76,9 +76,15 @@ def fake_claude(monkeypatch, tmp_path):
         else:
             idx = int(prompt.split("Write step ", 1)[1].split(":", 1)[0])
             title = prompt.split("Write step ", 1)[1].split('"', 2)[1]  # the plan may have been reordered: match by title
-            k = next(j for j, st in enumerate(data["plan"]["steps"]) if st["title"] == title)
+            k = next((j for j, st in enumerate(data["plan"]["steps"]) if st["title"] == title), None)
             await asyncio.sleep(0.01 * idx)  # later steps finish at different times
-            out = data["steps"][k]
+            if k is None:  # the run step plan_runs added at the end ("Run calc.py"): one built step per plan step
+                f = title.split(" ", 1)[1]
+                out = {"file": "", "code": "", "run_command": f"python {f}", "hints": ["Run it"],
+                       "checks": [{"type": "screen_absent", "label": "No errors", "app": "Terminal", "pattern": r"Traceback"}],
+                       "targets": [{"file": f, "match": f, "caption": "run it"}]}
+            else:
+                out = data["steps"][k]
         assert check is None or check(out) is None
         return json.loads(json.dumps(out))
 
@@ -93,15 +99,21 @@ def fake_claude(monkeypatch, tmp_path):
 @pytest.mark.parametrize("goal", list(LESSONS))
 def test_text_lessons_are_valid_and_arrive_step_by_step(fake_claude, tmp_path, goal):
     fake_claude["lesson"] = LESSONS[goal]
-    updates = []
-    g = asyncio.run(textlesson.build_text_lesson(goal, str(tmp_path / "work"), on_update=lambda gr, c: updates.append((c, len(gr["steps"])))))
+    updates, outlines = [], []
+
+    def on_update(gr, c):
+        updates.append((c, len(gr["steps"])))
+        outlines.append(gr["lesson"]["outline"]["count"])
+
+    g = asyncio.run(textlesson.build_text_lesson(goal, str(tmp_path / "work"), on_update=on_update))
     assert schema_errors(g) == []
     assert g["lesson"]["mode"] == "lesson" and g["lesson"]["complete"] is True and g["lesson"]["builtBy"] == "claude"
     assert updates[0] == (False, 1) and updates[-1][0] is True  # step 1 first, then the rest, then complete
     assert [n for _, n in updates] == sorted(n for _, n in updates)  # steps only ever appended
-    n = len(LESSONS[goal]["plan"]["steps"]) + sum(  # a step with code AND a command becomes two
-        1 for x in LESSONS[goal]["steps"] if x.get("run_command") and x.get("file") and x.get("code", "").strip() != x["run_command"])
+    # E23: one built step per plan step (never split in two), plus a run step when the plan never runs its code
+    n = len(textlesson.plan_runs(textlesson.order_plan(LESSONS[goal]["plan"]["steps"])))
     assert [s["id"] for s in g["steps"]] == [f"s{i}" for i in range(1, n + 1)]
+    assert outlines == [n] * len(outlines)  # lesson.ready's outline (step 1 only) already has the final count
     for s in g["steps"]:
         assert "video" not in s and s["code"].strip() and s["checks"] and s["hints"]
         assert all(t["file"] and t["match"] and t["app"] == "Code" for t in s["targets"]), s["targets"]
@@ -391,3 +403,44 @@ def test_primer_comes_from_the_one_plan_call_on_a_cheap_model(fake_claude, tmp_p
     plans = [r for r in roles if r[1]]
     assert plans == [("segment", True)]  # one plan call (Sonnet) makes the primer; no extra model call for it
     assert "primer" in textlesson.PLAN_SCHEMA["required"] and all(r[0] in ("segment", "detail") for r in roles)
+
+
+# ---- E23 / E25: the outline up front, parallel steps, distinct plan lines ----------------------------------------
+
+def test_outline_is_final_from_step_one_and_steps_are_drafted_in_parallel(fake_claude, tmp_path, monkeypatch):
+    lesson = json.loads(json.dumps(LESSONS["build a calculator in Python"]))
+    fake_claude["lesson"] = lesson
+    orig = claude._generate_json
+    live, peak = [0], [0]
+
+    async def spy(system, prompt, schema, **kw):
+        if schema is not textlesson.PLAN_SCHEMA:
+            live[0] += 1
+            peak[0] = max(peak[0], live[0])
+        try:
+            return await orig(system, prompt, schema, **kw)
+        finally:
+            if schema is not textlesson.PLAN_SCHEMA:
+                live[0] -= 1
+
+    monkeypatch.setattr(claude, "_generate_json", spy)
+    first = []
+    g = asyncio.run(textlesson.build_text_lesson("build a calculator in Python", str(tmp_path / "w"),
+                                                 on_update=lambda gr, c: first.append(gr["lesson"]["outline"]) if not first else None))
+    assert first[0]["count"] == len(g["steps"]) == g["lesson"]["outline"]["count"] == 4  # 3 code steps + "Run calc.py"
+    assert [r["kind"] for r in first[0]["steps"]] == ["code", "code", "code", "run"]
+    assert peak[0] >= 2  # steps 2..N were written at the same time
+    assert [s["kind"] for s in g["steps"]] == ["code", "code", "code", "run"]  # a code step's command is never split off
+
+
+def test_run_steps_get_distinct_titles_and_plan_lines():
+    rows = [{"title": "Roll one die", "kind": "code", "what": "Import random and print a number"},
+            {"title": "Run your program", "kind": "run", "what": "Run your dice and see what it prints"},
+            {"title": "Roll five dice", "kind": "code", "what": "Five rolls in a row"},
+            {"title": "Run your program", "kind": "run", "what": "Run your dice and see what it prints"}]
+    textlesson.distinct_steps(rows)
+    assert rows[1]["title"] == "Run your program" and rows[3]["title"] == "Run your program again"
+    assert rows[3]["what"] == "Run your dice again and see what changed" and rows[1]["what"].startswith("Run your dice and")
+    st = textlesson.shape_step({"id": "s2", "title": "Wrap the roll in a function", "file": "dice.py", "instructions": "x",
+                                "code": "def roll_die():\n    return random.randint(1, 6)", "checks": [], "precision_checks": []})
+    assert st["title"] == "Write roll_die()"  # steps only add code: the title says what this code does

@@ -1,0 +1,6 @@
+{
+ "stepId": "nn4",
+ "kind": "answer",
+ "title": "Why 20,000 epochs?",
+ "body": "Plain gradient descent takes small steps. From this start the loss goes from 0.8187 to 0.0009 by epoch 18,000, in about a second."
+}

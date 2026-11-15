@@ -267,12 +267,33 @@ def brew_path() -> str | None:
     return None
 
 
+# The lesson .venv's Python: 3.12 first (every common ML wheel exists for it), then the nearest versions. The newest
+# isn't the best pick: on a brand-new 3.14 the wheels for TensorFlow and friends often don't exist yet.
+PYTHON_PREFERENCE = (12, 13, 11, 10, 14, 9)
+
+
+def _xcode_stub(path: str | None) -> bool:
+    """Apple's /usr/bin/python3 on a Mac without the Command Line Tools: running it pops the "install the developer
+    tools" dialog instead of starting Python. A read-only setup check must never trigger that."""
+    if sys.platform != "darwin" or not path:
+        return False
+    try:
+        if Path(path).resolve() != Path("/usr/bin/python3"):
+            return False
+        r = subprocess.run(["xcode-select", "-p"], capture_output=True, text=True, timeout=5)
+        return r.returncode != 0
+    except (OSError, subprocess.SubprocessError):
+        return False
+
+
 def best_python() -> str | None:
-    """The newest python3.x on PATH (Apple's /usr/bin/python3 is often 3.9)."""
-    for minor in range(14, 8, -1):
-        if p := shutil.which(f"python3.{minor}"):
+    """The python3.x to build a lesson .venv with: PYTHON_PREFERENCE order, then plain python3. Never Apple's
+    Xcode stub (no Command Line Tools), so a Mac without Python shows the Python row as missing, with its Install."""
+    for minor in PYTHON_PREFERENCE:
+        if (p := shutil.which(f"python3.{minor}")) and not _xcode_stub(p):
             return p
-    return shutil.which("python3")
+    p = shutil.which("python3")
+    return None if _xcode_stub(p) else p
 
 
 def find_app(bundle_id: str, name: str, run: Runner = _run) -> str | None:
@@ -542,7 +563,7 @@ def install(item: dict, *, workdir: Path | str | None = None, on_line: Callable[
                 out["error"] = f"could not create .venv: {txt[-300:]}"
                 return out
             py = venv_python(workdir)
-        argv = [py, "-m", "pip", "install", "--disable-pip-version-check", r["package"]]
+        argv = [py, "-m", "pip", "install", "--disable-pip-version-check", "--progress-bar", "off", r["package"]]
     elif r["method"] == "brew_cask":
         argv = [brew, "install", "--cask", r["package"]]
     else:
@@ -613,7 +634,7 @@ def setup_card(items: list[dict], *, step_id: str | None = None, resources: list
     actions = ((["open_editor"] if need_ed and ed and ed.get("installed") else []) + (["open_in_browser"] if web else [])
                + (["download"] if resources else []) + (["install"] if miss else []) + ["skip_setup"])
     card = {
-        "kind": "setup", "title": "Before you start" if miss else "Ready to go", "body": body,
+        "kind": "setup", "title": "Set up first" if miss else "Ready to go", "body": body,
         "actions": actions,
         "setup": {
             "editorNeeded": need_ed,

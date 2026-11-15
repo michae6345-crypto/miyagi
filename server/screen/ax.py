@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import logging
 import os
+import re
 import threading
 import time
 from collections.abc import Callable
@@ -221,6 +222,32 @@ def enable_electron_ax(app_el, pid: int) -> bool:
     return False
 
 
+# t7 (Nov 15, 03:56:31.121): the Run ▷ lookup that switched VS Code's tree on found nothing 2 ms later, and the miss was
+# kept for 6 s ("no Python extension?"); the ▷ was on screen. Chromium fills the tree in over the next seconds, so a
+# lookup that finds nothing then says "settling" (the reader keeps that miss only for a moment and looks again).
+_FILL_S = 8.0       # after AXManualAccessibility goes on, the tree may still be filling in this long
+_SPARSE_NODES = 40  # a walk of a VS Code window that saw fewer nodes than this saw a tree that isn't filled in yet
+_misses: dict[str, str] = {}  # lookup key ("run_button", "ui:<key>") -> why its last lookup found nothing
+
+
+def settling(pid: int) -> bool:
+    """Is `pid`'s AX tree still being switched on or filled in (enabled by this process in the last _FILL_S)?"""
+    t = _enabled_pids.get(pid)
+    return t is None or pid not in _ready_pids or time.time() - t < _FILL_S
+
+
+def _missed(key: str, pid: int | None, seen: int | None) -> None:
+    """Note why `key`'s lookup found nothing: "settling" (the tree is being switched on / filled in, or the walk saw
+    an almost empty tree) or "absent" (VS Code isn't running, or its filled-in tree has no such element)."""
+    filling = pid is not None and (settling(pid) or (seen is not None and seen < _SPARSE_NODES))
+    _misses[key] = "settling" if filling else "absent"
+
+
+def last_miss(key: str = "run_button") -> str | None:
+    """Why the last lookup of `key` found nothing ("settling" / "absent"); None after it found it."""
+    return _misses.get(key)
+
+
 def _page_start(text: str, document: str | None) -> int:
     """1-based file line where VS Code's 500-line AX page starts. Small files: 1. Big files: match the
     page's first lines against the file on disk (pages are aligned to multiples of 500)."""
@@ -361,6 +388,217 @@ def find_button(pattern, max_nodes: int = 1500) -> Element | None:
         queue.extend(attr(el, "AXChildren") or [])
     return None
 
+
+# VS Code's editor-title Run ▷: the Python extension's "Run Python File" (its dropdown's chevron is "Run or Debug...",
+# the activity bar's "Run and Debug": never those), or Code Runner's "Run Code".
+RUN_BUTTON_LABEL = re.compile(r"\bRun Python File\b|^Run Code\b", re.IGNORECASE)
+_RUN_SKIP_ROLES = {"AXTextArea", "AXTextField", "AXStaticText", "AXOutline", "AXTable", "AXList", "AXRow", "AXImage",
+                   "AXMenu", "AXScrollBar"}  # an editor's text, the Explorer tree, terminal rows: no buttons inside
+_run_cache: dict = {}  # {"pid", "el"}: the button found last time, re-checked (rect + label) instead of a new walk
+_VSCODE_BUNDLES = ("com.microsoft.VSCode", "com.microsoft.VSCodeInsiders", "com.visualstudio.code.oss", "com.vscodium")
+
+
+def _code_app(folder: str | None = None):
+    """(pid, window) of VS Code's window for `folder` (its AXDocument inside it), else VS Code's focused window. The
+    frontmost app when it is VS Code, else the running one: the learner may be on Miyagi's drawer. VS Code only.
+    (None, None) without VS Code; (pid, None) while its AX tree is being switched on (t7: settling)."""
+    front = NSWorkspace.sharedWorkspace().frontmostApplication()
+    apps = [front] if front is not None and str(front.bundleIdentifier() or "") in _VSCODE_BUNDLES else []
+    if not apps:
+        for b in _VSCODE_BUNDLES:
+            apps = list(NSRunningApplication.runningApplicationsWithBundleIdentifier_(b) or [])
+            if apps:
+                break
+    if not apps:
+        return None, None
+    pid = int(apps[0].processIdentifier())
+    app_el = AX.AXUIElementCreateApplication(pid)
+    AX.AXUIElementSetMessagingTimeout(app_el, MESSAGING_TIMEOUT)
+    if not enable_electron_ax(app_el, pid):
+        return pid, None
+    if folder:
+        from urllib.parse import unquote
+        root = os.path.realpath(os.path.expanduser(str(folder)))
+        for win in attr(app_el, "AXWindows") or []:
+            doc = attr(win, "AXDocument")
+            path = os.path.realpath(unquote(str(doc).removeprefix("file://"))) if doc is not None else ""
+            if path == root or path.startswith(root + os.sep):
+                return pid, win
+    return pid, attr(app_el, "AXFocusedWindow") or attr(app_el, "AXMainWindow")
+
+
+def _run_label(el) -> str | None:
+    for a in ("AXDescription", "AXTitle", "AXHelp"):
+        label = _s(attr(el, a))
+        if label and RUN_BUTTON_LABEL.search(label) and "debug" not in label.lower():
+            return label
+    return None
+
+
+def find_run_button(folder: str | None = None, max_nodes: int = 2500) -> Element | None:
+    """VS Code's editor-title Run ▷ ("Run Python File") in the lesson's window (`folder`), even while another app
+    (Miyagi's drawer) is in front. Bounded BFS that skips text areas, trees and lists; the element found is kept
+    and only re-checked next time (its rect and label: 3 AX reads instead of a walk). None without one (last_miss
+    says whether VS Code's tree was still filling in)."""
+    pid, win = _code_app(folder)
+    if win is None:
+        _missed("run_button", pid, None)
+        return None
+    el = _run_cache.get("el") if _run_cache.get("pid") == pid else None
+    if el is not None and _run_label(el) and (r := rect_of(el)) is not None and r.w > 2 and r.h > 2:
+        _misses.pop("run_button", None)
+        return Element(role="AXButton", subrole=None, title=None, value=None, description=_run_label(el), rect=r,
+                       app="Code")
+    _run_cache.clear()
+    queue, seen = [win], 0
+    while queue and seen < max_nodes:
+        el = queue.pop(0)
+        if el is None:
+            continue
+        seen += 1
+        role = _s(attr(el, "AXRole"))
+        if role == "AXButton":
+            if _run_label(el) and (r := rect_of(el)) is not None and r.w > 2 and r.h > 2:
+                _run_cache.update(pid=pid, el=el)
+                _misses.pop("run_button", None)
+                return element_info(el, "Code")
+            continue
+        if role in _RUN_SKIP_ROLES:
+            continue
+        queue.extend(attr(el, "AXChildren") or [])
+    _missed("run_button", pid, seen)
+    return None
+
+
+
+# Michael (desktop test 6) on the Run ▷ box: "it really actually selects it, actually finds it". The other VS Code
+# controls a learner must click, found the same way (the lesson's window only, VS Code only, a bounded BFS; the element
+# found is kept and re-checked next time: its rect and label, 3 AX reads instead of a walk):
+# - "terminal_tab": the panel's "Terminal" tab (the panel is open on Problems / Output)
+# - "toggle_panel": the title bar's layout control "Toggle Panel (⌘J)" (the panel is closed)
+# - "tab:<name>": the editor tab of <name>; "dirty:<name>": its close button, where VS Code draws the unsaved dot
+# - "explorer:<name>": <name>'s row in the Explorer tree
+# - "problems": the status bar's errors / warnings item (else the panel's "Problems" tab)
+# - "interpreter": the Python extension's notification button "Select Interpreter" (never the status bar's item)
+_TAB_ROLES = {"AXRadioButton", "AXTab", "AXButton"}  # role="tab" is AXRadioButton (subrole AXTabButton) in Chromium
+_UI_SKIP = {"AXTextArea", "AXTextField", "AXStaticText", "AXImage", "AXMenu", "AXScrollBar"}
+_UI_TERMINAL = re.compile(r"^Terminal(?:\s*\([^)]*\))?$", re.IGNORECASE)
+_UI_TOGGLE_PANEL = re.compile(r"^Toggle Panel\b", re.IGNORECASE)
+_UI_PROBLEMS = re.compile(r"\bErrors?:\s*\d+|\b\d+\s+errors?\b|^Problems\b", re.IGNORECASE)
+_UI_INTERPRETER = re.compile(r"^Select (?:a )?(?:Python )?Interpreter$", re.IGNORECASE)
+_UI_NOTE = re.compile(r"interpreter|notification", re.IGNORECASE)  # the toast around the button says so
+_UI_CLOSE = re.compile(r"^Close\b", re.IGNORECASE)
+_ui_cache: dict = {}  # {key: {"pid", "el"}}
+
+
+def _labels(el) -> list[str]:
+    return [lb for a in ("AXDescription", "AXTitle", "AXHelp") if (lb := _s(attr(el, a)))]
+
+
+def _name_rx(name: str) -> re.Pattern:
+    """A tab / tree row of file `name`: "nn.py", "nn.py, preview", "● nn.py", never "nn.py.bak" / "my_nn.py"."""
+    return re.compile(r"^[●•\s]*" + re.escape(name) + r"(?:$|[\s,(•●])", re.IGNORECASE)
+
+
+def _in_notification(el, up: int = 8) -> bool:
+    """`el` sits in a notification toast (an ancestor labelled "... interpreter ..." / "..., notification" or a dialog),
+    not in the status bar."""
+    for _ in range(up):
+        el = attr(el, "AXParent")
+        if el is None:
+            return False
+        if _s(attr(el, "AXSubrole")) in ("AXApplicationDialog", "AXDialog", "AXApplicationAlert"):
+            return True
+        if any(_UI_NOTE.search(lb) for lb in _labels(el)):
+            return True
+    return False
+
+
+def _ui_spec(key: str):
+    """key -> (roles, label test(el, labels) -> bool, roles not descended into, the child to return: None = itself)."""
+    kind, _, name = key.partition(":")
+    run_skip = _RUN_SKIP_ROLES
+    if kind == "terminal_tab":
+        return {"AXRadioButton", "AXTab", "AXButton", "AXCheckBox"}, \
+            lambda el, lbs: any(_UI_TERMINAL.search(lb) for lb in lbs), run_skip, None
+    if kind == "toggle_panel":
+        return {"AXButton", "AXCheckBox"}, lambda el, lbs: any(_UI_TOGGLE_PANEL.search(lb) for lb in lbs), run_skip, None
+    if kind in ("tab", "dirty") and name:
+        rx = _name_rx(name)
+        return _TAB_ROLES, lambda el, lbs: any(rx.search(lb) for lb in lbs), run_skip, ("close" if kind == "dirty" else None)
+    if kind == "explorer" and name:
+        rx = _name_rx(name)
+        return {"AXRow"}, lambda el, lbs: any(rx.search(lb) for lb in lbs) or any(
+            rx.search(str(attr(k, "AXValue") or attr(k, "AXTitle") or "")) for k in (attr(el, "AXChildren") or [])[:4]
+        ), _UI_SKIP | {"AXList", "AXTable"}, None
+    if kind == "problems":
+        return {"AXButton", "AXRadioButton", "AXTab"}, lambda el, lbs: any(_UI_PROBLEMS.search(lb) for lb in lbs), \
+            run_skip, None
+    if kind == "interpreter":
+        return {"AXButton", "AXLink"}, lambda el, lbs: any(_UI_INTERPRETER.search(lb) for lb in lbs) and \
+            _in_notification(el), _UI_SKIP | {"AXOutline", "AXTable"}, None
+    return None
+
+
+def _close_button(tab):
+    """The close button inside an editor tab (where VS Code draws the unsaved ●), else None."""
+    for ch in attr(tab, "AXChildren") or []:
+        for el in [ch, *(attr(ch, "AXChildren") or [])]:
+            if _s(attr(el, "AXRole")) in ("AXButton", "AXLink") and any(_UI_CLOSE.search(lb) for lb in _labels(el)):
+                return el
+    return None
+
+
+def _ui_hit(el, test, roles, child) -> Element | None:
+    if el is None or _s(attr(el, "AXRole")) not in roles:
+        return None
+    lbs = _labels(el)
+    if not test(el, lbs):
+        return None
+    if child == "close" and (btn := _close_button(el)) is not None:
+        r = rect_of(btn)
+        if r is not None and r.w > 2 and r.h > 2:
+            return Element(role="AXButton", subrole=None, title=None, value=None, description=lbs[0] if lbs else None,
+                           rect=r, app="Code")
+    r = rect_of(el)
+    if r is None or r.w <= 2 or r.h <= 2:
+        return None
+    return Element(role=_s(attr(el, "AXRole")), subrole=_s(attr(el, "AXSubrole")), title=None, value=None,
+                   description=lbs[0] if lbs else None, rect=r, app="Code")
+
+
+def find_ui(key: str, folder: str | None = None, max_nodes: int = 2500) -> Element | None:
+    """One of VS Code's own controls (`key`: see above) in the lesson's window (`folder`), even while Miyagi's drawer
+    is in front, as find_run_button finds the Run ▷. None when it isn't there (or an unknown key)."""
+    spec = _ui_spec(key)
+    if spec is None:
+        return None
+    roles, test, skip, child = spec
+    pid, win = _code_app(folder)
+    if win is None:
+        _missed(f"ui:{key}", pid, None)
+        return None
+    cached = _ui_cache.get(key)
+    if cached is not None and cached.get("pid") == pid and (hit := _ui_hit(cached["el"], test, roles, child)) is not None:
+        _misses.pop(f"ui:{key}", None)
+        return hit
+    _ui_cache.pop(key, None)
+    queue, seen = [win], 0
+    while queue and seen < max_nodes:
+        el = queue.pop(0)
+        if el is None:
+            continue
+        seen += 1
+        role = _s(attr(el, "AXRole"))
+        if role in roles and (hit := _ui_hit(el, test, roles, child)) is not None:
+            _ui_cache[key] = {"pid": pid, "el": el}
+            _misses.pop(f"ui:{key}", None)
+            return hit
+        if role in skip:
+            continue
+        queue.extend(attr(el, "AXChildren") or [])
+    _missed(f"ui:{key}", pid, seen)
+    return None
 
 def snapshot() -> AXSnapshot | None:
     """One read of the frontmost app + the element under the mouse. ~5-30 ms."""

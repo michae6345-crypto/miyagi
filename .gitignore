@@ -10,3 +10,4 @@ __pycache__/
 demo/runs/
 
 *.egg-info/
+demo/.nn-state/
