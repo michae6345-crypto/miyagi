@@ -22,7 +22,7 @@ EVENT_ACTIONS = {"explain", "show_me", "apply_fix", "hint"}
 @pytest.fixture(autouse=True)
 def _isolate(monkeypatch):
     for k in ("ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN", "COACH_REPLAY_DIR", "COACH_RECORD_DIR", "BRIGHTDATA_API_KEY",
-              "BRIGHTDATA_SERP_ZONE", "BRIGHTDATA_UNLOCKER_ZONE", "DEMO", "TUT_ENV", "COACH_OFFLINE_FALLBACK"):
+              "BRIGHTDATA_SERP_ZONE", "BRIGHTDATA_UNLOCKER_ZONE", "DEMO", "TUT_ENV", "COACH_OFFLINE_FALLBACK", "ORCH_STUBS"):
         monkeypatch.delenv(k, raising=False)
     monkeypatch.setattr(llm, "_load_env", lambda: None)
     monkeypatch.setattr(llm, "_local_keys", {})
@@ -86,7 +86,7 @@ def test_diagnose_without_api_in_demo_mode_uses_playbook_card(monkeypatch):
     assert_offtrack(card)
     assert card["_meta"]["route"] == "playbook"
     assert card["_meta"]["playbook_id"] == "pinn_convection_large_beta"
-    assert "no ANTHROPIC_API_KEY" in card["_meta"]["fallback_reason"]
+    assert "offline mode" in card["_meta"]["fallback_reason"]
     assert "diff" not in card  # the playbook carries no demo-specific code; only Opus writes diffs
 
 

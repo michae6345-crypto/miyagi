@@ -133,7 +133,9 @@ def error_line(error_text: str) -> str:
 # ---------- Bright Data transport ---------------------------------------------------
 
 def configured() -> bool:
-    return _bd_config() is not None or bool(os.environ.get("COACH_REPLAY_DIR"))
+    if os.environ.get("COACH_REPLAY_DIR"):
+        return True
+    return not llm.offline_mode() and _bd_config() is not None
 
 
 def _bd_config() -> tuple[str, str, str] | None:
@@ -162,6 +164,8 @@ async def fetch(kind: str, url: str) -> str | None:
     if rd := os.environ.get("COACH_REPLAY_DIR"):
         p = Path(rd) / f"{_fixture(kind, url)}.json"
         return json.loads(p.read_text())["body"] if p.exists() else None
+    if llm.offline_mode():
+        return None
     cfg = _bd_config()
     if not cfg:
         return None

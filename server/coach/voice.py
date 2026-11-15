@@ -166,6 +166,8 @@ async def speak(text: str) -> dict | None:
     model = os.environ.get("COACH_TTS_MODEL", DEFAULT_MODEL)
     h = _key(text, voice_id, model)
     out = cache_dir() / f"{h}.mp3"
+    if not out.is_file() and llm.offline_mode():
+        return None  # offline: cached lines still play, nothing new is synthesized
     if not out.is_file():
         task = _inflight.get(h)  # the same line requested twice at once → one request
         if task is None:

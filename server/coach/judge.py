@@ -183,6 +183,8 @@ async def judge_step(step: dict, screen: Any = None, files: dict[str, str] | Non
     `done` = every check passed by the machine or judged done by Claude (confidence >= 0.6).
     None only when the model is unavailable.
     """
+    if llm.offline_mode():
+        return _offline_judgment(step, check_results, screen)
     asked = await _ask(step, check_results, screen, files, focused_app, lesson)
     if asked is None:
         return None
@@ -221,6 +223,18 @@ async def judge_step(step: dict, screen: Any = None, files: dict[str, str] | Non
 
 
 
+def _offline_judgment(step: dict, check_results: list[dict] | None, screen: Any) -> dict:
+    """The Check button in DEMO / stubbed mode: no model; machine-passed checks are done, the rest
+    'unsure'. `done` only if every check already passed."""
+    status = {r.get("checkId"): r.get("status") for r in check_results or []}
+    checks = [c for c in step.get("checks") or [] if c.get("id")]
+    out = {c["id"]: ({"verdict": "done", "reason": "the check passed", "evidence": ""} if status.get(c["id"]) == "pass"
+                     else {"verdict": "unsure", "reason": "offline: Claude didn't look", "evidence": ""}) for c in checks}
+    done = bool(checks) and all(v["verdict"] == "done" for v in out.values())
+    where = None if done or not (editor_state(screen) or step_file(step)) else where_hint(step, None, screen)
+    return {"checks": out, "done": done, "missing": "", "where": where, "target": None, "offline": True, "_meta": {"model": None}}
+
+
 class StepJudge:
     """Periodic judge with the cost gate (gate.PeriodicGate): changed screen/files only, never while
     the reader is down or the display sleeps, 20 s → 5 min backoff on repeat verdicts, stop after 3."""
@@ -234,8 +248,8 @@ class StepJudge:
                      screen: Any = None, files: dict[str, str] | None = None, focused_app: str = "",
                      screen_ok: bool = True, display_asleep: bool = False, file_mtimes: dict[str, Any] | None = None) -> bool:
         """`file_mtimes` ({path: mtime}) is preferred over `files` for change detection."""
-        if screen is None or video_playing or idle_s < self.idle_s:
-            return False  # no screen = the reader is down
+        if llm.offline_mode() or screen is None or video_playing or idle_s < self.idle_s:
+            return False  # offline (DEMO): never; no screen = the reader is down
         if check_results and all(r.get("status") == "pass" for r in check_results):
             return False
         return self.gate.allow(step.get("id", ""), screen=screen_text(screen, focused_app), files=file_mtimes or files,

@@ -17,6 +17,7 @@ import inspect
 import json
 import logging
 import os
+import re
 import time
 from collections.abc import Callable
 from dataclasses import dataclass, field
@@ -72,8 +73,19 @@ class OutdatedFixUnavailable(CoachUnavailable):
     """fix_outdated() could not search or read the docs (no Bright Data config, fetch/model failure)."""
 
 
+def offline_mode() -> bool:
+    """Zero-cost mode: DEMO=1, or ORCH_STUBS names the coach ("all" / "lesson,coach,..."). No paid call
+    leaves the coach (Claude, Bright Data, ElevenLabs); recorded fixtures (COACH_REPLAY_DIR) still replay.
+    S11: with DEMO=1 the coach still made 19 Claude calls in one rehearsal take."""
+    if os.environ.get("DEMO", "").strip() == "1":
+        return True
+    stubs = {t.strip().lower() for t in re.split(r"[,\s]+", os.environ.get("ORCH_STUBS", "")) if t.strip()}
+    return bool(stubs & {"coach", "all", "*", "1"})
+
+
 def demo_mode() -> bool:
-    return os.environ.get("DEMO", "").strip() == "1"
+    """Offline answers (playbook / template cards) stand in for model answers."""
+    return offline_mode()
 
 
 def offline_fallback() -> bool:
@@ -223,6 +235,8 @@ async def structured_call(
             await _maybe_await(on_text(full, full))
         return hit
 
+    if offline_mode():
+        raise CoachLLMError(f"{purpose}: offline mode (DEMO / ORCH_STUBS), no live call", "offline")
     if not has_credentials():
         raise CoachLLMError("no ANTHROPIC_API_KEY", "no_key")
 
@@ -302,6 +316,8 @@ async def warm(requests: list[dict] | None = None) -> dict:
     `requests`: [{"model", "system", "schema", "effort"}], the same values the real call will use
     (the cached prefix includes the output format). Best effort: never raises; returns timings.
     """
+    if offline_mode():
+        return {"skipped": "offline"}
     out: dict[str, Any] = {}
     if not has_credentials():
         return {"skipped": "no key"}

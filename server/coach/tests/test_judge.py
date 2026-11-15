@@ -24,7 +24,8 @@ SCREEN = {"Code": ["calc.py — calculator", "1 def add(a, b):", "2     return a
 
 @pytest.fixture(autouse=True)
 def _isolate(monkeypatch):
-    monkeypatch.delenv("COACH_REPLAY_DIR", raising=False)
+    for k in ("COACH_REPLAY_DIR", "DEMO", "ORCH_STUBS"):
+        monkeypatch.delenv(k, raising=False)
     from server.coach.diagnose import reset_memo
 
     reset_memo()
@@ -441,3 +442,75 @@ def test_diagnose_identical_repeat_is_free(monkeypatch):
     assert len(calls) == n and again["_meta"]["memo"] is True  # no second paid call
     run(coach.diagnose(step, failed, None, "x = 2", error_text="TypeError: bad operand"))
     assert len(calls) > n  # the code changed → a fresh diagnosis
+
+
+
+# ---------- DEMO / stubbed coach = zero cost (S11: 19 Claude calls in one DEMO rehearsal take) ---------------
+
+import httpx
+
+from server.coach import voice, web
+
+
+@pytest.mark.parametrize("env", [{"DEMO": "1"}, {"ORCH_STUBS": "lesson,coach"}, {"ORCH_STUBS": "all"}])
+def test_offline_mode_makes_no_paid_call(monkeypatch, tmp_path, env):
+    for k, v in env.items():
+        monkeypatch.setenv(k, v)
+    for k in ("ANTHROPIC_API_KEY", "BRIGHTDATA_API_KEY", "BRIGHTDATA_SERP_ZONE", "BRIGHTDATA_UNLOCKER_ZONE", "ELEVENLABS_API_KEY", "ELEVENLABS_VOICE_ID"):
+        monkeypatch.setenv(k, "real-looking")
+    monkeypatch.setenv("COACH_TTS_DIR", str(tmp_path))
+    monkeypatch.setattr(llm, "_load_env", lambda: None)
+
+    def no_network(*a, **kw):
+        raise AssertionError("a paid call left the coach in offline mode")
+
+    monkeypatch.setattr(llm, "get_client", no_network)
+    monkeypatch.setattr(web, "_bd_request", no_network)
+    monkeypatch.setattr(voice, "_transport", httpx.MockTransport(no_network))
+    monkeypatch.setattr(voice, "_client", None)
+
+    from server.coach import case_diffusion as d
+
+    common.set_lesson(d.LESSON)
+    card = run(coach.diagnose(d.STEP, d.HIGH_LR_FAILED, d.HIGH_LR_METRICS, d.HIGH_LR_CODE))
+    assert card["_meta"]["route"] == "playbook" and card["_meta"]["playbook_id"] == "lr_too_high"  # the offline answer
+    assert run(coach.explain(d.STEP, "why?", {}))["_meta"]["fallback_reason"]
+    assert run(coach.warm()) == {"skipped": "offline"}
+    j = StepJudge()
+    pending = [{"checkId": "c1", "status": "pending"}]
+    assert not j.should_judge(S1, pending, idle_s=60, video_playing=False, screen=SCREEN)  # never on a timer
+    r = run(coach.judge_step(S2, SCREEN, check_results=[{"checkId": "c2", "status": "pending"}]))
+    assert r["offline"] is True and r["done"] is False and r["checks"]["c2"]["verdict"] == "unsure"
+    assert run(coach.judge_step(S2, SCREEN, check_results=[{"checkId": "c2", "status": "pass"}]))["done"] is True
+    from server.coach.tests.screen_case import make_screen
+
+    assert run(coach.locate("the learning rate", make_screen())) == []  # no exact text → no model
+    assert run(coach.point(d.STEP, make_screen(), about="x"))["via"] in ("exact", "fallback")
+    assert run(web.gather("pandas", "Series.iteritems", "q")) == []
+    assert run(voice.speak("Nice, step passed.")) is None  # nothing new synthesized
+
+
+def test_offline_mode_flags():
+    import os
+
+    for env, want in [({}, False), ({"ORCH_STUBS": "lesson"}, False), ({"ORCH_STUBS": "lesson, coach"}, True), ({"DEMO": "1"}, True)]:
+        old = {k: os.environ.pop(k, None) for k in ("DEMO", "ORCH_STUBS")}
+        os.environ.update(env)
+        try:
+            assert llm.offline_mode() is want
+        finally:
+            for k in ("DEMO", "ORCH_STUBS"):
+                os.environ.pop(k, None)
+                if old[k] is not None:
+                    os.environ[k] = old[k]
+
+
+def test_demo_replay_fixtures_still_work(monkeypatch):
+    """The demo CLI replays recorded answers under DEMO=1: replay is free, so it isn't blocked."""
+    monkeypatch.setenv("DEMO", "1")
+    monkeypatch.setenv("COACH_REPLAY_DIR", str(llm.FIXTURES_DIR))
+    from server.coach import case_diffusion as d
+
+    common.set_lesson(d.LESSON)
+    card = run(coach.diagnose(d.STEP, d.HIGH_LR_FAILED, d.HIGH_LR_METRICS, d.HIGH_LR_CODE))
+    assert card["_meta"].get("source") == "replay"
