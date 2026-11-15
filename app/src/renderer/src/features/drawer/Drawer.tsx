@@ -447,7 +447,9 @@ function GlassCheckList({ checks }: { checks: CheckItem[] }): ReactNode {
               {c.label}
             </span>
             {c.detail && (
-              <span className="shrink-0 text-[12px] tabular-nums" style={{ color: c.status === 'fail' ? glass.offTrack : glass.faint }}>
+              // At most ~45% of the row and wrapping: a long engine detail ("loss 0.25 at step 4000, need < 0.01…")
+              // must never squeeze the label to one letter per line.
+              <span className="max-w-[45%] text-right text-[12px] tabular-nums [overflow-wrap:anywhere]" style={{ color: c.status === 'fail' ? glass.offTrack : glass.faint }}>
                 {c.detail}
               </span>
             )}
