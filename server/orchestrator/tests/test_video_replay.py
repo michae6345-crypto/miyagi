@@ -301,8 +301,6 @@ def test_s1_does_not_pass_on_an_empty_terminal(rp):
 
 
 # ------------------------------------------------------------------ s2: imports + MNIST
-@_xfail("V5", "'Run Run the cell (Shift+Enter) in the VS Code terminal': run_command is a sentence, and Shift+Enter "
-              "is a notebook action, not the terminal")
 def test_s2_instruction_is_plain_and_points_at_the_notebook(rp):
     run(rp.to("s2"))
     text = rp.started("s2")["instructions"]
@@ -440,8 +438,8 @@ def test_s5_to_s6_does_not_bounce_back_over_the_videos_notebook_name(rp):
     assert not [c for c in rp.of("card") if "Untitled.ipynb" in f"{c.get('title')} {c.get('body')}"]
 
 
-@_xfail("V5", "every Run-the-cell step said 'Run Run the cell (Shift+Enter) in the VS Code terminal'")
 def test_no_step_says_run_run_or_sends_a_notebook_cell_to_the_terminal(rp):
+    """V5 (fixed): every Run-the-cell step said 'Run Run the cell (Shift+Enter) in the VS Code terminal'."""
     async def go():
         await rp.start()
         for sid in ORDER:
