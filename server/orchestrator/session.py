@@ -55,6 +55,7 @@ from . import advice_clear  # t8: a Hint / Not yet card goes once the code it is
 from . import run_pointing  # t7: the Run ▷ found once VS Code filled its AX tree; a Not yet in the code boxes the code
 from . import offtrack_targets  # t8: a lesson's Not yet carries the culprit lines as its targets (the card steps off)
 from . import setup_rows  # t9 V12: the setup card's rows stay put while it installs; Install all
+from . import nb_coach  # T11: a notebook run still going keeps its output rows pending and the coach quiet
 
 log = logging.getLogger("orchestrator.session")
 
@@ -362,6 +363,7 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
         self.build_tick_s = build_tick_s
         self.ready_hold_s = float(os.environ.get("ORCH_READY_HOLD_S", "1.5"))
         self.offtrack_grace_s = float(os.environ.get("ORCH_OFFTRACK_GRACE_S", "20"))  # no offtrack this early in a step
+        self.video_offtrack_hold = True  # T11: no unasked off-track while the video still teaches the step
         self.check_wait_s = float(os.environ.get("ORCH_CHECK_WAIT_S", "1.2"))  # check_step: wait for a fresh frame
         self.has_python: bool | None = None  # is `python` on PATH? None = look (tests pin it)
 
@@ -3614,11 +3616,17 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
 
     async def _publish(self, step: dict, results: list[dict]) -> None:
         screen_ids = {c.get("id") for c in step.get("checks") or [] if c.get("type") == "screen_contains"}
+        nb_run: bool | None = None  # T11: is a notebook run still going (asked once, only when a row would go red)
         for r in results:
             cid = r.get("checkId")
             shown = r.get("status", "pending")
             if shown == "fail" and not (self.screen_gate_open if cid in screen_ids else self.gate_open):
                 shown = "pending"  # "watching": code not typed yet isn't a failure until Check / a verdict / the timer
+            if shown == "fail" and nb_coach.waits_on_run(step, r):
+                if nb_run is None:
+                    nb_run = nb_coach.run_in_progress(self, step)
+                if nb_run:  # T11 (s7): "not printed yet" while Run All still runs is not a failure (printed 4 s later)
+                    shown = "pending"
             detail = r.get("detail") if shown == r.get("status", "pending") else None  # a masked fail says nothing
             prev = self.check_state.get(cid)
             label = r.get("label") or (prev or {}).get("label") or cid
@@ -3984,6 +3992,10 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
             # never "off track" before the learner did anything on this step, nor in its first ~20 s (t8: unless it
             # is a known failure of the curated lesson the learner just made: its card is certain and instant)
             return self._speak_note(reason, "held (learner not started / first ~20 s)")
+        if self._video_still_teaching(step, ctx, failed):
+            return self._speak_note(reason, "held (the video still teaches this step: until it waits, or Check)")
+        if nb_coach.run_in_progress(self, step):  # T11 (s7): its output isn't printed yet; never a triage of a half run
+            return self._speak_note(reason, "held (the notebook run is still going)")
         if self._editor_state_card(step):  # unsaved file / another lesson's folder: say that, never "off track"
             return self._speak_note(reason, "held (editor-state card instead)")
         if changed := self._changed_since_run(step):  # Nov 15: never (again) a diagnosis of a run of older code
@@ -4010,24 +4022,49 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
         self.spoken_sig, self.spoken_t = sig, self.clock()
         self._spawn(self._coach(self.step_gen, step, failed, ctx, level))
 
+    _REAL_ERROR = re.compile(r"Traceback \(most recent call last\)|\b\w*(?:Error|Exception): |command not found")
+
+    def _video_still_teaching(self, step: dict, ctx: RunContext, failed: list[dict]) -> bool:
+        """T11 (s1, 08:28:36): an unasked off-track card while the video still taught the step (1:07 of 0:40-1:13). In
+        a video lesson it waits until the video reaches the step's gate ("Video waits at", the segment's end) or the
+        learner presses Check my work on this step. An error row failing on a real error (a traceback) still speaks.
+        A "Just teach me" / curated lesson (no video) is unchanged."""
+        if not self.video_offtrack_hold or self.lesson_mode or self.segment_done or stage.on(self):
+            return False
+        seg = self._segment(step)
+        if seg is None or (self.video_t is not None and self.video_t >= seg["end"] - 0.3):
+            return False
+        if getattr(self, "_check_asked_t", -1e9) >= self.step_t0:
+            return False
+        try:
+            return not self._REAL_ERROR.search(self._error_text(step, ctx, failed))
+        except Exception:  # noqa: BLE001 - no error read: hold, as for no error
+            log.exception("error text failed")
+            return True
+
+    def _error_text(self, step: dict, ctx: RunContext, failed: list[dict]) -> str:
+        """The error an error row that fails is about: the notebook's own error output, else the run's tail, else the
+        screen's error lines. '' when no error row fails (never an old error for an unrelated row)."""
+        about_error = any(re.search(r"error|traceback|exception|exit code|crash", " ".join(
+            str(r.get(k) or "") for k in ("label", "detail", "type", "checkId")), re.I) or
+            str(r.get("checkId") or "").endswith("-ran") for r in failed or [])
+        if not about_error:
+            return ""
+        nb = nb_coach.notebook_step(self, step)
+        err = nb_coach.notebook_error(self, step) if nb else ""
+        if not err:
+            tail = ctx.output_tail[-40:] if isinstance(getattr(ctx, "output_tail", None), list) else []
+            err = "\n".join(tail or self._screen_error_lines())
+        return err
+
     def _traceback_card(self, step: dict, ctx: RunContext, failed: list[dict],
                         code: str | None = None) -> dict | None:
         """t10 (CP5: s2's correct "load_dat is missing the a" took ~13 s through Claude): a deterministic Python
         traceback (AttributeError with a near-match, NameError, SyntaxError with a line) -> its card now, no model
         call. The error: the notebook's own error output, else the run's tail, else the screen's error lines."""
-        from . import nb_coach
-
-        about_error = any(re.search(r"error|traceback|exception|exit code|crash", " ".join(
-            str(r.get(k) or "") for k in ("label", "detail", "type", "checkId")), re.I) or
-            str(r.get("checkId") or "").endswith("-ran") for r in failed or [])
-        if not about_error:  # an error row fails: never an old error's card for an unrelated row
-            return None
         try:
-            nb = nb_coach.notebook_step(self, step)
-            err = nb_coach.notebook_error(self, step) if nb else ""
-            if not err:
-                tail = ctx.output_tail[-40:] if isinstance(getattr(ctx, "output_tail", None), list) else []
-                err = "\n".join(tail or self._screen_error_lines())
+            err = self._error_text(step, ctx, failed)  # '' unless an error row fails
+            nb = bool(err) and nb_coach.notebook_step(self, step)
             if not err:
                 return None
             if code is None:
@@ -5359,6 +5396,15 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
                 return "Cursor" if app.lower() == "cursor" else "VS Code"
         return None
 
+    def _setup_without_code(self, step: dict) -> bool:
+        """A setup step with no code to type (T11 s1 "Activate .venv and start Jupyter": a terminal command): tagged /
+        titled setup, or, in a video lesson whose other steps carry their code, the one step without any."""
+        if (step.get("code") or "").strip():
+            return False
+        if step.get("setup") or self.SETUP_STEP.search(step.get("title") or ""):
+            return True
+        return not self.lesson_mode and any((s.get("code") or "").strip() for s in self.steps or [])
+
     def _diagram_step(self, step: dict) -> dict:
         """Step ids repeat across lessons (s1, s2...): namespace the id by lesson so S4's cache can't
         hand one lesson's diagram to another."""
@@ -5367,6 +5413,9 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
 
     async def _prefetch_diagram(self, gen: int, step: dict) -> None:
         """Warm S4's diagram cache for this step so the diagram button is instant (errors are ignored)."""
+        if self._setup_without_code(step):  # T11: s1's ~4 s Sonnet diagram of "activate .venv" nobody opened
+            log.info("diagram prefetch skipped: %s is a setup step with no code", step.get("id"))
+            return
         await asyncio.sleep(2.0)  # let the step settle (code on screen, video playing)
         if gen != self.step_gen or not self.m.has_diagrams() or curated.active(self):
             return  # a curated lesson's diagrams are its own files: no S4 call
@@ -5713,6 +5762,7 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
 
     async def _check_step_now(self, step: dict) -> None:
         gen = self.step_gen
+        self._check_asked_t = self.clock()  # T11: they asked: off-track cards may speak before the video's gate
         await self._status("thinking")
         if self.lesson_mode and self._run_command(step):  # a run step checks the code that will run: saved first
             await self._save_step_file(step)

@@ -142,6 +142,7 @@ async def _ask(step: dict, check_results: list[dict] | None, screen: Any, files:
         res = await llm.structured_call(
             purpose="judge", model=llm.model_for("judge"), system=llm.cached_system(JUDGE_SYSTEM),
             user_text=user, schema=JUDGE_SCHEMA, effort="low", max_tokens=2000, timeout=15.0,
+            thinking={"type": "disabled"},  # T11: a short verdict; adaptive thinking cost 400-500 output tokens a call
         )
     except llm.CoachLLMError as e:
         log.info("judge: unavailable (%s)", e)
