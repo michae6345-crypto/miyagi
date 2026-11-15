@@ -125,3 +125,5 @@ fonts/                GoogleSansFlex.woff2, OFL.txt
 7. Copy: short, calm, plain. At most about 12 words of body per card, and at most one Miyagi line per card.
 
 **Off track is apricot, not amber** (Adrian, Sat 4 PM: the kit's amber `#FFB020` "is the most AI slop yellow"). Off track is now the soft apricot `#FFC4A3` from the pastel family (`brand.offTrack`, `color.amber` in code so call sites didn't change); `#C8693A` for text on a light surface. It still means only one thing: off track. Green still means passed.
+
+**The brand is lowercase** (Adrian, Sat 5 PM): wherever the product names itself it's "miyagi", like the wordmark: "ask miyagi", "ask miyagi anything", "miyagi is offline…", the window title and the app name. Teaching copy (titles, steps, buttons like "Show me") keeps normal sentence case.

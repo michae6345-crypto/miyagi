@@ -18,7 +18,7 @@ import { useLesson } from '../../core/lesson'
 import { useAppearance } from '../../core/prefs'
 import { sendAction, triggerShortcut, type ActionKind, type ActionShortcut } from '../../core/shortcuts'
 import { MiyagiMark } from '../../core/ui/Mark'
-import { actionTone, glass, spring, type OptionAction } from '../../core/theme'
+import { actionTone, copy, glass, spring, type OptionAction } from '../../core/theme'
 import { useDiagram } from '../diagrams/store'
 import { toggleVoice } from '../voice/store'
 import { Equalizer, useVoiceTile } from './Equalizer'
@@ -84,7 +84,7 @@ export function ShortcutBar({ bottom }: { bottom: number }): ReactNode {
               onClick={() => bridge.emit('launcher:toggle')}
             >
               <MiyagiMark size={15} tone={appearance === 'light' ? 'light' : 'dark'} />
-              <span className="flex-1 text-[14.5px]">Ask Miyagi</span>
+              <span className="flex-1 text-[14.5px]">{copy.ask}</span>
               <GlassKey text={bridge.platform.keys.launcher} />
             </button>
             {BUTTONS.map(({ kind, label, icon }) => {

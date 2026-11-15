@@ -129,12 +129,7 @@ export default defineMainFeature({
     ctx.engine.onEvent((e) => {
       if (e.type !== 'config.status') return
       lastStatus = e.payload
-      if (!autoOpened && needsKeys(e.payload)) {
-        autoOpened = true
-        // The window may still be loading on the very first connect.
-        if (win.webContents.isLoading()) win.webContents.once('did-finish-load', () => setTimeout(show, 200))
-        else show()
-      }
+      // Never opens by itself (Adrian, Sat 5 PM): the learner opens Settings (gear, launcher, ⌘,).
     })
 
     // ---- IPC ----------------------------------------------------------------------------------

@@ -2,7 +2,7 @@
  * Feature: pill. The island's pill-sized states (34px tall, width hugs content), to mockup 01 + the
  * Miyagi brand (app/brand/BRAND.md): always black and white, the bonsai as a one-color glyph on the left
  * (monochrome everywhere in the app), the status on the right.
- *   idle      no lesson yet: "[bonsai] Ask Miyagi ⌥Space" (click opens the launcher); "Offline" with no engine
+ *   idle      no lesson yet: "[bonsai] ask miyagi ⌥Space" (lowercase, Michael) (click opens the launcher); "Offline" with no engine
  *   building  between Build lesson and the first step: lesson.building message + spinner + progress line
  *   compact   during a lesson: "[bonsai] Step 4 · Define the residual  ◔ ●" (ring = steps done, dot = status);
  *             "Next part is still building" after a pass while a long video's next part builds
@@ -33,11 +33,11 @@ function Idle(): ReactNode {
       className={`group flex h-[34px] cursor-pointer items-center whitespace-nowrap pl-[13px] text-[13px] font-medium ${offline ? 'pr-[16px]' : 'pr-[7px]'}`}
       style={{ color: offline ? color.label : color.text }}
       onClick={() => bridge.emit('launcher:toggle')}
-      aria-label={offline ? 'Offline: Miyagi is not connected' : 'Ask Miyagi: open the launcher'}
+      aria-label={offline ? 'Offline: miyagi is not connected' : 'ask miyagi: open the launcher'}
     >
       <LeadMark />
       <SwapText id={offline ? 'offline' : 'ask'} className="opacity-90 transition-opacity duration-150 group-hover:opacity-100">
-        {offline ? 'Offline' : 'Ask Miyagi'}
+        {offline ? 'Offline' : 'ask miyagi'}
       </SwapText>
       {/* Concentric with the pill: 7px inset, fully round (radius 10 inside radius 17). Hidden offline: nothing to ask. */}
       {!offline && <Kbd className="ml-[10px] !h-[20px] !rounded-full !px-[8px]">{bridge.platform.keys.launcher}</Kbd>}
