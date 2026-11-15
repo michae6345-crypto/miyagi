@@ -177,13 +177,14 @@ function Question({ text }: { text: string }): ReactNode {
 }
 
 /** A label that opens its URL outside the overlay (window.open; Electron's main hands https to the browser). */
-function LinkText({ label, url }: { label: string; url?: string }): ReactNode {
-  if (!url) return <span className="truncate">{label}</span>
+function LinkText({ label, url, wrap }: { label: string; url?: string; wrap?: boolean }): ReactNode {
+  const fit = wrap ? 'line-clamp-2 break-words' : 'truncate'
+  if (!url) return <span className={fit}>{label}</span>
   return (
     <a
       href={url}
       data-link
-      className="cursor-pointer truncate underline-offset-2 hover:underline"
+      className={`cursor-pointer ${fit} underline-offset-2 hover:underline`}
       style={{ color: 'inherit' }}
       onClick={(e) => {
         e.preventDefault()
@@ -293,15 +294,16 @@ function Diagnosis({ o, checks }: { o: OfftrackPayload; checks: ReturnType<typeo
           )}
 
           {o.citation && (
-            <div className="mt-[12px] flex min-w-0 items-center gap-[6px] text-[12px]" style={{ color: color.faint }}>
-              <BookOpen size={12} className="shrink-0" />
-              <LinkText label={o.citation.label} url={o.citation.url} />
+            <div className="mt-[12px] flex min-w-0 items-start gap-[6px] text-[12px] leading-[16px]" style={{ color: color.faint }}>
+              <BookOpen size={12} className="mt-[2px] shrink-0" />
+              {/* Up to two lines, so a source like "§8.4 (breaking symmetry)" isn't cut mid-word. */}
+              <LinkText label={o.citation.label} url={o.citation.url} wrap />
             </div>
           )}
         </div>
 
-        {/* No diff yet: the panel keeps its room, so the card doesn't jump when one arrives. */}
-        <Evidence o={o} failing={failing} width={rightW} reserveDiff />
+        {/* At level 2 the next rung brings the diff: keep its room so the card doesn't jump. Otherwise no empty room. */}
+        <Evidence o={o} failing={failing} width={rightW} reserveDiff={o.level === 2} />
       </div>
 
       {options.length > 0 && (

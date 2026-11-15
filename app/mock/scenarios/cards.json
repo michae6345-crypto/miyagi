@@ -740,17 +740,17 @@
           },
           "items": [
             {
-              "tool": "cursor",
-              "label": "Cursor",
+              "tool": "vscode",
+              "label": "VS Code",
               "kind": "editor",
               "why": "Where you write the code",
               "needed": true,
               "installed": true,
               "ok": true,
-              "version": "0.45",
+              "version": "1.95",
               "install": {
                 "method": "download",
-                "url": "https://cursor.com/download"
+                "url": "https://code.visualstudio.com/download"
               }
             },
             {
@@ -824,20 +824,20 @@
           "body": "One package to install. The video links two files.",
           "setup": {
             "editorNeeded": true,
-            "editorLabel": "Cursor",
+            "editorLabel": "VS Code",
             "items": [
               {
-                "tool": "cursor",
-                "label": "Cursor",
+                "tool": "vscode",
+                "label": "VS Code",
                 "kind": "editor",
                 "why": "Where you write the code",
                 "needed": true,
                 "installed": true,
                 "ok": true,
-                "version": "0.45",
+                "version": "1.95",
                 "install": {
                   "method": "download",
-                  "url": "https://cursor.com/download"
+                  "url": "https://code.visualstudio.com/download"
                 }
               },
               {
@@ -968,20 +968,20 @@
           "body": "Everything is installed. Grab the tutorial files.",
           "setup": {
             "editorNeeded": true,
-            "editorLabel": "Cursor",
+            "editorLabel": "VS Code",
             "items": [
               {
-                "tool": "cursor",
-                "label": "Cursor",
+                "tool": "vscode",
+                "label": "VS Code",
                 "kind": "editor",
                 "why": "Where you write the code",
                 "needed": true,
                 "installed": true,
                 "ok": true,
-                "version": "0.45",
+                "version": "1.95",
                 "install": {
                   "method": "download",
-                  "url": "https://cursor.com/download"
+                  "url": "https://code.visualstudio.com/download"
                 }
               },
               {
@@ -1053,7 +1053,7 @@
           "kind": "hint",
           "title": "Code not visible",
           "body": "The plotting code isn't on screen.",
-          "where": "Open plot_solution.py in Cursor",
+          "where": "Open plot_solution.py in VS Code",
           "guidingQuestion": "Which array holds the exact solution?",
           "actions": [
             "open_editor"

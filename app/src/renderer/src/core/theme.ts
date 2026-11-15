@@ -75,9 +75,9 @@ export const color = {
   /**
    * Panels on the dark HUD (the launcher / ask panel). CSS can't blur other apps in Electron, so this is far more
    * opaque than the kit's .72: at .90 the code under the ask panel still showed through (Michael's tests 2-3, A13).
-   * Same value as the drawer's --glass-bg.
+   * At .96 text behind the launcher still showed next to its rows (Michael's Devpost shots), so it is now solid.
    */
-  glass: 'rgba(28,28,30,.96)'
+  glass: 'rgb(28,28,30)'
 } as const
 
 export const font = {
