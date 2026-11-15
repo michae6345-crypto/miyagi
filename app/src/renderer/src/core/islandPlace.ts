@@ -19,7 +19,7 @@ import { useLayoutEffect, useMemo, useRef, useState, type RefObject } from 'reac
 import type { Layout } from '../../../preload/api'
 import { hole, intersects, isUsableRect, MIN_VISIBLE_SHARE, overlapShare, sameRect, toLocal } from '../features/spotlight/place'
 import { useSpotlight } from '../features/spotlight/store'
-import type { Rect } from './lesson'
+import { useLesson, type Rect } from './lesson'
 
 type Offset = { x: number; y: number }
 const AT_NOTCH: Offset = { x: 0, y: 0 }
@@ -167,12 +167,20 @@ type Spot = { id: string; boxes: Rect[]; at: Offset; until: number }
 export function useIslandOffset(card: { id: string; w: number; h: number } | undefined, top: number, layout: Layout, wrapper: RefObject<HTMLElement | null>, still = false): Offset {
   const main = useSpotlight((s) => (s.target && isUsableRect(s.target.rect) ? s.target.rect : undefined))
   const others = useSpotlight((s) => s.targets)
+  // The off-track's own targets, kept while the off-track stands: a spotlight clear wipes the spotlight's copy.
+  const flagged = useLesson((s) => s.offtrack?.targets)
   // The holes as the spotlight draws them: the main one while it's on this display, and the coach's others with it.
+  // The coach's targets count even with no spotlight up (Michael's desktop test 6/7, item 5: the "Not yet" card sat on
+  // lines 40-48, the very lines it was talking about, because the step's box had cleared when it opened).
   const keepOff = useMemo(() => {
-    if (!main) return []
+    const rects: Rect[] = []
+    for (const r of [main, ...others.map((t) => t.rect), ...(flagged ?? []).map((t) => t?.rect)]) {
+      if (isUsableRect(r) && !rects.some((k) => sameRect(k, r, SAME_BOX_PX))) rects.push(r)
+    }
+    if (!rects.length) return []
     const screen = { x: 0, y: 0, w: layout.width, h: layout.height }
-    return [main, ...others.map((t) => t.rect)].map((r) => hole(toLocal(r, layout.origin))).filter((h) => overlapShare(h, screen) >= MIN_VISIBLE_SHARE)
-  }, [main, others, layout])
+    return rects.map((r) => hole(toLocal(r, layout.origin))).filter((h) => overlapShare(h, screen) >= MIN_VISIBLE_SHARE)
+  }, [main, others, flagged, layout])
   const w = card?.w ?? 0
   const h = card?.h ?? 0
   const { others: avoid, chips } = useOverlayUi(wrapper, keepOff.length > 0, card?.id ?? '')
