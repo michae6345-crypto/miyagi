@@ -14,6 +14,7 @@ import { motion, useReducedMotion } from 'motion/react'
 import { useCallback, useLayoutEffect, useRef, useState, type CSSProperties, type ReactNode } from 'react'
 import type { CheckItem, Offtrack } from '../../core/lesson'
 import { color, fill } from '../../core/theme'
+import { isProse, LITERAL, NUMBER, readingValue, readsAsCode } from './code'
 import { Curve, fmt, plotArray, plotPoints, type Line } from './Curve'
 import { useSeries } from './store'
 
@@ -27,20 +28,23 @@ const NBSP = String.fromCharCode(0xa0)
 const thinScroll: CSSProperties = { scrollbarWidth: 'thin', scrollbarColor: `${fill.track} transparent` }
 
 const PREFIX = /^\s*(yours|you|got|now)\b\s*[:=]?\s*/i
-/** Unprefixed details that read as a value: a digit or a code character, or a bare literal. */
-const CODEY = /[\d=()[\]{}<>"`_]|\.(?=\S)/
-const LITERAL = /^(true|false|none|null|nan|undefined|inf)$/i
 
 /**
- * Your value from a check's detail: "yours 2.50e-1" → "2.50e-1", "yours 1" → "1", "2.5" → "2.5". Status text
- * ("not seen in Code", "rerunning") is not a value: undefined.
+ * Your value from a check's detail: "yours 2.50e-1" → "2.50e-1", "yours 1" → "1", "2.5" → "2.5", the engine's
+ * "loss 0.25 at step 300, need < 0.01" → "0.25". Status text is never a value, even when it names a file or
+ * holds a digit ("not in weather.py yet", "not seen in Code", "missing", "exited with code 1"): undefined.
  */
 export function yoursValue(detail?: string): string | undefined {
   const d = (detail ?? '').trim()
-  if (!d) return undefined
   const prefix = d.match(PREFIX)
-  if (prefix) return d.slice(prefix[0].length).trim() || undefined
-  return CODEY.test(d) || LITERAL.test(d) ? d : undefined
+  const rest = prefix ? d.slice(prefix[0].length).trim() : d
+  if (!rest) return undefined
+  const reading = readingValue(rest)
+  if (reading) return reading
+  if (NUMBER.test(rest) || LITERAL.test(rest)) return rest
+  if (isProse(rest)) return undefined
+  // "yours …" says it's a value; without the prefix it has to read as code on its own.
+  return prefix || readsAsCode(rest) ? rest : undefined
 }
 
 /**
