@@ -14,6 +14,7 @@ import { ChevronDown, Maximize2 } from 'lucide-react'
 import { glass, spring } from '../../core/theme'
 import { Firing, isFiringNetwork } from '../diagrams/Firing'
 import { NeuralNet } from '../diagrams/NeuralNet'
+import { SafeDiagram } from '../diagrams/SafeDiagram'
 import { openLiveFull, useDiagram, useLiveNetwork } from '../diagrams/store'
 import { titleOf } from '../diagrams/Tabs'
 
@@ -70,7 +71,7 @@ export function LiveNetSection(): ReactNode {
             exit={{ height: 0, opacity: 0 }}
             transition={spring}
           >
-            {isFiringNetwork(data) ? <Firing data={data} compact /> : <NeuralNet data={data} compact />}
+            <SafeDiagram resetKey={data}>{isFiringNetwork(data) ? <Firing data={data} compact /> : <NeuralNet data={data} compact />}</SafeDiagram>
             {d.caption && (
               <div className="mt-[6px] line-clamp-2 text-[12.5px] leading-[17px]" style={{ color: glass.label }}>
                 {d.caption}

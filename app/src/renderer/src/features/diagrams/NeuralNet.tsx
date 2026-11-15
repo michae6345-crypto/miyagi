@@ -45,13 +45,13 @@ const squash: Record<string, (z: number) => number> = {
 
 /** Every layer's activations for one input. */
 function forward(f: Frame, layers: number[], x: number[], act: (z: number) => number): number[][] {
-  const out = [x]
+  const out = [x ?? []]
   for (let l = 0; l < layers.length - 1; l++) {
     const prev = out[l]
     const next: number[] = []
     for (let j = 0; j < layers[l + 1]; j++) {
       let z = f.b[l]?.[j] ?? 0
-      for (let i = 0; i < layers[l]; i++) z += prev[i] * (f.W[l]?.[i * layers[l + 1] + j] ?? 0)
+      for (let i = 0; i < layers[l]; i++) z += (prev[i] ?? 0) * (f.W[l]?.[i * layers[l + 1] + j] ?? 0)
       next.push(act(z))
     }
     out.push(next)
@@ -78,7 +78,7 @@ function useTime(run: boolean): number {
     let id = 0
     start.current = performance.now()
     const tick = (now: number): void => {
-      setT(now - start.current)
+      setT(Math.max(0, now - start.current))  // a rAF timestamp can precede the effect's performance.now()
       id = requestAnimationFrame(tick)
     }
     id = requestAnimationFrame(tick)
@@ -175,6 +175,7 @@ export function NeuralNet({ data, compact = false }: { data: Record<string, unkn
     }
   }
 
+  if (!(sample >= 0 && sample < samples.length)) sample = 0
   const acts = forward(frame, layers, samples[sample], act)
   const shown = (l: number, i: number): number => {
     if (mode !== 'forward' || reduced) return acts[l][i]
