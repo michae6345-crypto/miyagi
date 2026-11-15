@@ -29,3 +29,15 @@ jobs:
       - uses: actions/upload-artifact@v4
         if: hashFiles('app/dist/**') != ''
         with: { name: mac-app, path: app/dist/mac*/** }
+      # The Mac download on miyagi.study. upload-artifact drops symlinks and the executable bit, so the
+      # raw .app above can't run once downloaded: ad-hoc sign it and zip it with ditto, which keeps both.
+      - name: zip for download
+        if: hashFiles('app/dist/**') != ''
+        continue-on-error: true
+        run: |
+          app_path=$(ls -d app/dist/mac*/Miyagi.app | head -1)
+          codesign --force --deep --sign - "$app_path"
+          ditto -c -k --sequesterRsrc --keepParent "$app_path" app/dist/Miyagi-Mac.zip
+      - uses: actions/upload-artifact@v4
+        if: hashFiles('app/dist/Miyagi-Mac.zip') != ''
+        with: { name: mac-zip, path: app/dist/Miyagi-Mac.zip, compression-level: 0 }
