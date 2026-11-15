@@ -124,8 +124,10 @@ export const setConnected = (connected: boolean): void => {
 onUi('reset', () => set({ ...blank }))
 
 const REPLAY_WAIT_MS = 2000
+/** lesson.ended reason "interrupted" (an engine deploy): how long the screen stays as it is for the engine to come back. */
+const INTERRUPT_WAIT_MS = 30000
 let held: { id?: string; timer: ReturnType<typeof setTimeout> } | undefined
-function holdReconnectReset(): void {
+function holdReconnectReset(wait = REPLAY_WAIT_MS): void {
   if (held) return
   const id = get().lesson?.id
   if (!id) {
@@ -137,7 +139,7 @@ function holdReconnectReset(): void {
     timer: setTimeout(() => {
       held = undefined
       emitUi('reset', { scope: 'lesson', reason: 'reconnect' })
-    }, REPLAY_WAIT_MS)
+    }, wait)
   }
 }
 
@@ -171,6 +173,13 @@ setGate((msg) => {
  * scope "lesson" tells the launcher to keep its query and results (a new search may be in flight).
  */
 onMessage('lesson.ended', (p) => {
+  // reason "interrupted" (claude/stable-nosave): an engine deploy, and it comes back with the same lesson. Keep the
+  // screen, say so quietly, and reset only if no replay of this lesson arrives.
+  if ((p.reason as string | undefined) === 'interrupted' && get().lesson?.id) {
+    notify('Reconnecting…')
+    holdReconnectReset(INTERRUPT_WAIT_MS)
+    return
+  }
   emitUi('reset', { scope: 'lesson', reason: p.reason })
 })
 
@@ -197,6 +206,8 @@ onMessage('lesson.updated', (p) =>
 )
 onMessage('step.started', (p) => {
   const s = get()
+  // replay: true (claude/stable-nosave): the step on screen sent again. Keep its checks and progress.
+  if ((p as typeof p & { replay?: boolean }).replay && p.stepId === s.stepId) return
   const pos = s.steps.findIndex((x) => x.id === p.stepId)
   const before = pos > 0 ? s.steps.slice(0, pos).map((x) => x.id) : []
   set({
@@ -222,7 +233,13 @@ onMessage('check.updated', (p) => {
 onMessage('step.passed', (p) => {
   const s = get()
   const summary = (p as typeof p & { summary?: string }).summary
-  if (p.skipped) {
+  // already: true (claude/stable-nosave): a step done before (a resume). Mark it done quietly: no green flash, no
+  // step-done card; the engine's own "You already did..." card follows.
+  if (p.skipped || (p as typeof p & { already?: boolean }).already) {
+    if (!p.skipped) {
+      set({ passed: Array.from(new Set([...s.passed, p.stepId])), pendingNext: p.pending === true, offtrack: undefined })
+      return
+    }
     // Skipped, not passed: no green flash, no "Good. Now the next one."
     set({ passed: Array.from(new Set([...s.passed, p.stepId])), skipped: Array.from(new Set([...s.skipped, p.stepId])), pendingNext: p.pending === true, offtrack: undefined })
     return

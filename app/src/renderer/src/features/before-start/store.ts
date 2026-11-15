@@ -45,7 +45,9 @@ export function startLesson(): void {
 let firstStepSeen = false
 onMessage('lesson.ready', (p) => {
   firstStepSeen = false
-  set({ open: p.lesson.mode === 'lesson' && worthASheet(p.lesson) })
+  // replay: true (an engine restart resuming this lesson, claude/stable-nosave): never the Before you start sheet.
+  const replay = (p as typeof p & { replay?: boolean }).replay === true
+  set({ open: !replay && p.lesson.mode === 'lesson' && worthASheet(p.lesson) })
 })
 onMessage('step.started', (p) => {
   // By position, not p.index: the engine numbers steps from 1 (Michael's test 5), so index > 0 closed every new lesson.

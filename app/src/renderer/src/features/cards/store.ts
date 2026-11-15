@@ -391,7 +391,7 @@ onMessage('diagram', () => {
 onMessage('step.passed', (p) => {
   const { recovered, offtrackSeq } = get()
   set({ offtrackOpen: false, fixing: false, resume: false })
-  if (!recovered || p.skipped) return
+  if (!recovered || p.skipped || (p as typeof p & { already?: boolean }).already) return // already: done before, quietly
   const lesson = useLesson.getState()
   const index = lesson.steps.findIndex((x) => x.id === p.stepId)
   const summary = (p as typeof p & { summary?: string }).summary
