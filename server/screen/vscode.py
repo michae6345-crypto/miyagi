@@ -209,3 +209,53 @@ def vscode_window(obs: ScreenObservation, app: str | None = None) -> VSCodeWindo
             out.folder, out.sources["folder"] = min(heads, key=lambda b: b.rect.y).text.strip().lower(), "explorer"
 
     return out
+
+
+# ---------------------------------------------------------------------- the active file, from every source
+
+def _name(p: str | None) -> str | None:
+    if not p:
+        return None
+    return p.replace("\\", "/").rstrip("/").split("/")[-1] or None
+
+
+def resolve_active(extension: dict | None = None, ax: dict | None = None, title: dict | None = None,
+                   ocr: dict | None = None) -> dict:
+    """Combine the active-file reads, freshest and most exact first:
+
+    1. extension: the companion extension's active editor ({file, path, folder, dirty}) -> trusted alone
+    2. ax:        AXDocument of the focused VS Code window ({path, dirty})            -> trusted alone
+    3. title:     the live window title "● file — folder" ({file, folder, dirty})
+    4. ocr:       the active tab + breadcrumb of a fresh frame ({file, path, folder, dirty})
+    Title and OCR are reported only when they agree (by file name). Otherwise `file` is None and
+    `confidence` is "unsure"; never a guess. Explorer rows are never a source.
+    -> {file, path, folder, dirty, source, confidence: exact | agreed | unsure | none, candidates}"""
+    cands = {k: v for k, v in (("extension", extension), ("ax", ax), ("title", title), ("ocr", ocr)) if v}
+    out = {"file": None, "path": None, "folder": None, "dirty": None, "source": None, "confidence": "none",
+           "candidates": {k: {"file": v.get("file") or _name(v.get("path")), "dirty": v.get("dirty")}
+                          for k, v in cands.items()}}
+    for src in ("extension", "ax"):
+        v = cands.get(src)
+        name = (v or {}).get("file") or _name((v or {}).get("path"))
+        if name:
+            out.update(file=name, path=v.get("path"), folder=v.get("folder"), dirty=v.get("dirty"), source=src,
+                       confidence="exact")
+            return out
+    t, o = cands.get("title"), cands.get("ocr")
+    tn, on = (t or {}).get("file"), (o or {}).get("file")
+    if tn and on and _alnum(tn) == _alnum(on):
+        out.update(file=tn, path=(o or {}).get("path"), folder=(t or {}).get("folder") or (o or {}).get("folder"),
+                   dirty=(t or {}).get("dirty") if (t or {}).get("dirty") is not None else (o or {}).get("dirty"),
+                   source="title+ocr", confidence="agreed")
+    elif tn or on:
+        out["confidence"] = "unsure"
+        out["folder"] = (t or {}).get("folder") or (o or {}).get("folder")
+    return out
+
+
+def ocr_only(win: VSCodeWindow | None) -> dict | None:
+    """The OCR part of a vscode_window() read (tab / breadcrumb), without its title fallback."""
+    if win is None or win.sources.get("file") not in ("tab", "breadcrumb", "tab+breadcrumb"):
+        return None
+    dirty = win.dirty if win.sources.get("dirty") == "tab" else None
+    return {"file": win.file, "path": win.path, "folder": win.folder, "dirty": dirty}

@@ -219,3 +219,16 @@ pick = marks.by_id(cs, 10)    # Candidate(id, kind, text, rect, app, line, regio
   text, and rows under them are `occluded`.
 - Fixture: `vscode_window_notes_inline_chat` (empty notes.py, inline chat over line 1, README.md in
   the Explorer). Regenerate one fixture with `python -m server.screen.tests.make_window_fixtures NAME`.
+
+## `reader.active_file()`: the learner's current file, fresh
+`get_reader().active_file(fresh=True, folder=None)` reads every source now, best first:
+1. the companion extension's active editor (`server.workspace.vscode_ext`, the window with `folder`);
+2. AX: the focused VS Code window's AXDocument (when Accessibility is granted);
+3. the live window title `● file — folder` (window server, read now);
+4. OCR of the active tab + breadcrumb in a NEW frame.
+
+The extension and AX are trusted alone. The title and OCR only count when they agree. Otherwise
+`file` is None and `confidence` is `"unsure"` (`candidates` shows what each source said), so callers
+never claim a wrong file. Returns `{file, path, folder, dirty, source, confidence, candidates, title,
+app, t}`. It blocks for ~0.3 s plus one capture; use `asyncio.to_thread` from async code.
+`vscode_window(fresh=True)` also forces a new frame.

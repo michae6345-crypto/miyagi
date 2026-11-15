@@ -448,11 +448,13 @@ class ScreenReader:
                         log.exception("frontmost callback failed")
                 last = cur
 
-    def vscode_window(self, app: str | None = None) -> dict | None:
+    def vscode_window(self, app: str | None = None, fresh: bool = False) -> dict | None:
         """{app, title, folder, file, path, symbol, dirty, sources} of the frontmost VS Code window
-        (OCR of a fresh frame + its window title; AX's file and dirty flag when Accessibility is on)."""
+        (OCR of a frame + its window title; AX's file and dirty flag when Accessibility is on).
+        fresh=True captures a NEW frame first (Check / step changes: never a frame from before the
+        learner's last switch). For "which file is open" prefer `active_file()`."""
         from .vscode import vscode_window
-        obs = self._fresh_obs()
+        obs = self._fresh_obs(max_age=0.0 if fresh else 1.0)
         win = vscode_window(obs, app) if obs is not None else None
         if win is None:
             return None
@@ -464,6 +466,56 @@ class ScreenReader:
                 if snap.document:
                     win.sources["document"] = snap.document
         return win.to_dict()
+
+    def active_file(self, fresh: bool = True, folder: str | None = None) -> dict:
+        """THE answer to "which file is the learner on", read fresh from every source, best first:
+        the companion extension (/state of the window with `folder`, else the focused one), AX (the
+        focused VS Code window's AXDocument), the live window title, then OCR of the active tab +
+        breadcrumb in a NEW frame (fresh=True). Extension/AX are trusted alone; title and OCR only when
+        they agree. Otherwise file=None, confidence="unsure": callers must not claim a wrong file.
+        -> {file, path, folder, dirty, source, confidence, candidates, title, app, t}. Blocking
+        (~0.3 s extension timeout + one capture); from async code use asyncio.to_thread."""
+        from . import vscode as V
+        ext = ax_d = title_d = ocr_d = None
+        app = title = None
+        try:                                         # 1. the companion extension
+            from server.workspace import vscode_ext as vx
+            ed = vx.active_editor() if folder is None else None
+            if folder is not None:
+                st = vx.state(folder=folder)
+                if st and st.get("file") and "://" not in str(st["file"]):
+                    ed = {"file": Path(st["file"]).name, "path": st["file"], "dirty": bool(st.get("dirty"))}
+            if ed and ed.get("file"):
+                ext = {"file": ed.get("file"), "path": ed.get("path"), "folder": ed.get("folder"),
+                       "dirty": ed.get("dirty")}
+        except Exception as e:  # noqa: BLE001
+            log.debug("companion extension unavailable: %s", e)
+        front = self.frontmost(max_age=0.0) if fresh else self.frontmost()
+        front_is_code = bool(front) and any(M.app_matches(a, front["app"]) for a in L.EDITOR_APPS)
+        if front_is_code:
+            app, title = front["app"], front.get("title") or ""
+            if ext is None and sys.platform == "darwin" and self.use_ax:    # 2. AX
+                try:
+                    from . import ax
+                    snap = ax.snapshot() if ax.trusted() else None
+                    if snap is not None and snap.document and M.app_matches(snap.app, app):
+                        ax_d = {"path": snap.document, "file": Path(snap.document).name, "dirty": snap.dirty}
+                except Exception as e:  # noqa: BLE001
+                    log.debug("AX document read failed: %s", e)
+            t_file, t_folder, t_dirty = V.parse_title(title)                  # 3. the live window title
+            if t_file:
+                title_d = {"file": t_file, "folder": t_folder, "dirty": t_dirty}
+        if ext is None and ax_d is None:                                       # 4. OCR of a fresh frame
+            try:
+                obs = self._fresh_obs(max_age=0.0 if fresh else 1.0)
+                ocr_d = V.ocr_only(V.vscode_window(obs)) if obs is not None else None
+            except Exception as e:  # noqa: BLE001
+                log.debug("OCR active-file read failed: %s", e)
+        out = V.resolve_active(ext, ax_d, title_d, ocr_d)
+        out.update(app=app, title=title, t=time.time())
+        if out["confidence"] == "unsure":
+            log.info("active file unsure: %s", out["candidates"])
+        return out
 
     def _fresh_obs(self, max_age: float = 1.0) -> ScreenObservation | None:
         obs = self.latest()
