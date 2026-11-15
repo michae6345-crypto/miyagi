@@ -6109,7 +6109,7 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
                     p["detail"] = st["detail"]
                 out.append(("check.updated", p))
             if self.last_offtrack and not self.passed and not held:
-                out.append(("offtrack", self.last_offtrack))
+                out.append(("offtrack", {k: v for k, v in self.last_offtrack.items() if k != "targets"}))  # no stale box on reconnect
         if done:  # a reconnecting app gets the ending again (its End lesson closes the lesson)
             out.append(("card", lesson_end.card(self)))
         out.append(("status", {"state": "watching" if held and self.status == "offtrack" else self.status}))
