@@ -6,8 +6,8 @@
  *
  * Owner: core. Features add modes; they don't edit this file.
  */
-import { AnimatePresence, motion } from 'motion/react'
-import { useCallback, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react'
+import { AnimatePresence, motion, useIsPresent } from 'motion/react'
+import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react'
 import type { Layout } from '../../../preload/api'
 import { bridge } from '../bridge'
 import { onUi } from './bus'
@@ -15,6 +15,9 @@ import { useIslandOffset } from './islandPlace'
 import { startBuild, useLesson } from './lesson'
 import { getIslandModes } from './registry'
 import { color, pill, shadows, spring, springOut } from './theme'
+
+/** After a press on the island, an open card holds still this long (Michael's desktop test 5: the first Install missed). */
+const PRESS_HOLD_MS = 1500
 
 export function Island({ top, layout }: { top: number; layout: Layout }): ReactNode {
   const [hover, setHover] = useState(false)
@@ -29,6 +32,10 @@ export function Island({ top, layout }: { top: number; layout: Layout }): ReactN
   const islandEl = useRef<HTMLDivElement>(null)
   const wrapper = useRef<HTMLDivElement>(null)
   const passFlash = useLesson((s) => s.passFlash)
+  /** The pointer is on the island, or pressed it in the last PRESS_HOLD_MS: an open card holds still (islandPlace.ts). */
+  const [pointerIn, setPointerIn] = useState(false)
+  const [pressHold, setPressHold] = useState(false)
+  const pressTimer = useRef<ReturnType<typeof setTimeout>>(undefined)
 
   // Ask every registered mode whether it wants the island. (Stable array → stable hook order.)
   const islandModes = getIslandModes()
@@ -59,26 +66,45 @@ export function Island({ top, layout }: { top: number; layout: Layout }): ReactN
     return () => offs.forEach((off) => off())
   }, [])
 
-  // Measure whichever layer is active; the container springs to its size.
-  const [active, setActive] = useState<HTMLDivElement | null>(null)
-  const bindActive = useCallback((el: HTMLDivElement | null) => {
-    if (el) setActive(el)
-  }, [])
+  // Measure the active mode's live layer; the container springs to its size (Michael's review A1). The layer is found
+  // by data-island-layer, which only a present layer carries: a mode that comes back under the same key while its exit
+  // still runs keeps its old node and gets no new ref, so a ref bound on mount could point at a node that was leaving
+  // (measured 0 once gone: the island collapsed to nothing for 35 s). A 0 measurement never wins: the last good size stays.
   const [size, setSize] = useState<{ w: number; h: number }>({ w: 120, h: pill.height })
+  const modeId = mode?.id
+  const fixed = mode?.width
   useLayoutEffect(() => {
-    if (!active) return
-    const measure = (): void => {
-      const fixed = mode?.width
-      setSize({ w: fixed ?? Math.ceil(active.offsetWidth), h: fixed ? Math.ceil(active.offsetHeight) : pill.height })
+    const root = islandEl.current
+    if (!root || !modeId) return
+    let ro: ResizeObserver | undefined
+    let raf = 0
+    let tries = 0
+    const measure = (el: HTMLElement): void => {
+      const w = fixed ?? Math.ceil(el.offsetWidth)
+      const h = fixed ? Math.ceil(el.offsetHeight) : pill.height
+      if (w > 0 && h > 0) setSize((s) => (s.w === w && s.h === h ? s : { w, h }))
     }
-    measure()
-    const ro = new ResizeObserver(measure)
-    ro.observe(active)
-    return () => ro.disconnect()
-  }, [active, mode])
+    const bind = (): void => {
+      const el = root.querySelector<HTMLElement>(`[data-island-layer="${CSS.escape(modeId)}"]`)
+      if (!el) {
+        if (++tries < 30) raf = requestAnimationFrame(bind)
+        return
+      }
+      measure(el)
+      ro = new ResizeObserver(() => measure(el))
+      ro.observe(el)
+    }
+    bind()
+    return () => {
+      cancelAnimationFrame(raf)
+      ro?.disconnect()
+    }
+  }, [modeId, fixed])
 
-  // An open card steps off the spotlight's hole and the coach's targets (Michael's desktop test 3, item 3). Transform only.
-  const offset = useIslandOffset(mode && !isPill && held[at] ? { id: mode.id, w: size.w, h: size.h } : undefined, top, layout, wrapper)
+  // An open card steps off the spotlight's hole and the coach's targets (Michael's desktop test 3, item 3), decided as
+  // it opens and then held still, never moved under the pointer or just after a press (desktop test 5). Transform only.
+  const card = mode && !isPill && held[at] ? { id: mode.id, w: size.w, h: size.h } : undefined
+  const offset = useIslandOffset(card, top, layout, wrapper, pointerIn || pressHold)
 
   // Tell main (or the browser bus) our current size, so the launcher can grow out of exactly this shape, and where we
   // are (dx/dy from the notch spot: main's click-through poll covers the island there).
@@ -89,13 +115,38 @@ export function Island({ top, layout }: { top: number; layout: Layout }): ReactN
   const enter = (): void => {
     clearTimeout(hoverTimer.current)
     leaving.current = false
+    setPointerIn(true)
     hoverTimer.current = setTimeout(() => setHover(true), 150)
   }
   const leave = (): void => {
     clearTimeout(hoverTimer.current)
     leaving.current = true
+    setPointerIn(false)
     hoverTimer.current = setTimeout(() => setHover(false), 300)
   }
+  const press = (): void => {
+    clearTimeout(pressTimer.current)
+    setPressHold(true)
+    pressTimer.current = setTimeout(() => setPressHold(false), PRESS_HOLD_MS)
+  }
+  useEffect(() => () => clearTimeout(pressTimer.current), [])
+
+  // The pointer left without a mouseleave (click-through forwarding can drop it): the next move outside, or the
+  // pointer leaving the window, ends it. So does the island going away under it.
+  useEffect(() => {
+    if (!pointerIn) return
+    if (!mode) return void setPointerIn(false)
+    const move = (e: MouseEvent): void => {
+      if (!islandEl.current?.contains(e.target as Node)) setPointerIn(false)
+    }
+    const out = (): void => setPointerIn(false)
+    window.addEventListener('mousemove', move)
+    document.addEventListener('mouseleave', out)
+    return () => {
+      window.removeEventListener('mousemove', move)
+      document.removeEventListener('mouseleave', out)
+    }
+  }, [pointerIn, mode])
 
   // The hover card must not outstay the pointer (Michael's audit A8): a mouseleave that never came (click-through
   // forwarding can drop it) is caught on the next move outside; the window losing focus or the pointer leaving it,
@@ -153,6 +204,7 @@ export function Island({ top, layout }: { top: number; layout: Layout }): ReactN
         transition={landing ? { duration: 0 } : { ...(isPill ? springOut : spring), ...(justLanded ? { velocity: 0 } : {}) }}
         onMouseEnter={enter}
         onMouseLeave={leave}
+        onPointerDownCapture={press}
       >
         {/* Step passed: the island flashes green (tint 0 → .25 → 0 over 600ms). */}
         <motion.div
@@ -164,19 +216,28 @@ export function Island({ top, layout }: { top: number; layout: Layout }): ReactN
           transition={{ duration: 0.6, ease: 'easeInOut' }}
         />
         <AnimatePresence initial={false}>
-          <motion.div
-            key={mode.id}
-            ref={bindActive}
-            className="absolute left-1/2 top-0"
-            style={{ x: '-50%', width: mode.width ?? 'max-content' }}
-            initial={{ opacity: 0, y: 4 }}
-            animate={{ opacity: 1, y: 0, transition: { duration: 0.2, delay: 0.06, ease: 'easeOut' } }}
-            exit={{ opacity: 0, transition: { duration: 0.08 } }}
-          >
+          <Layer key={mode.id} id={mode.id} width={mode.width}>
             <Content />
-          </motion.div>
+          </Layer>
         </AnimatePresence>
       </motion.div>
+    </motion.div>
+  )
+}
+
+/** One mode's content layer. Only a present layer carries data-island-layer, so a leaving one is never measured. */
+function Layer({ id, width, children }: { id: string; width?: number; children: ReactNode }): ReactNode {
+  const present = useIsPresent()
+  return (
+    <motion.div
+      data-island-layer={present ? id : undefined}
+      className="absolute left-1/2 top-0"
+      style={{ x: '-50%', width: width ?? 'max-content' }}
+      initial={{ opacity: 0, y: 4 }}
+      animate={{ opacity: 1, y: 0, transition: { duration: 0.2, delay: 0.06, ease: 'easeOut' } }}
+      exit={{ opacity: 0, transition: { duration: 0.08 } }}
+    >
+      {children}
     </motion.div>
   )
 }
