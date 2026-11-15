@@ -270,14 +270,15 @@ def parse_arxiv(xml_text: str) -> list[dict]:
 
 # --------------------------------------------------------------------------- Claude + web search tool
 
-async def claude_search(ctx: Ctx, query: str, *, timeout: float = 11.0, extra_results: int = 4) -> list[dict]:
+async def claude_search(ctx: Ctx, query: str, *, timeout: float = 11.0, extra_results: int = 4,
+                        videos_only: bool = False) -> list[dict]:
     """Claude plans and runs the searches (server-side web_search tool). Only URLs from the tool's
     result blocks are kept (see claude.search); Claude's own picks lead, with its 'why'."""
     if not ctx.keys.anthropic:
         return []
     from . import claude
 
-    found, info = await claude.search(ctx.keys.anthropic, query, timeout=timeout)
+    found, info = await claude.search(ctx.keys.anthropic, query, timeout=timeout, videos_only=videos_only)
     ctx.used.add("claude-search")
     ctx.extra["claude"] = info
     out, extras = [], 0
