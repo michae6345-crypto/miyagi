@@ -199,6 +199,38 @@ class ScreenBridge:
         if self.reader is not None:
             self.reader.set_overlay_bounds(rects)
 
+    UI_TEXT_KEYS = frozenset({"title", "body", "caption", "instructions", "what", "why", "label", "detail", "action",
+                              "reason", "message"})
+
+    def note_ui(self, type_: str, payload: dict | None) -> None:
+        """Every Engine->App event: the prose Miyagi puts on screen (card title / body, captions, step lines, check
+        labels; never code or snippets) goes to the Haiku targeter, which then never boxes our own overlay's text even
+        when overlay.bounds misses it (server.screen.target.note_ui_text)."""
+        if self.reader is None or not payload or type_ in ("metric", "screen.seen", "video.state"):
+            return
+        texts: list[str] = []
+
+        def walk(v: Any, depth: int) -> None:
+            if isinstance(v, dict) and depth < 4:
+                for k, x in v.items():
+                    if isinstance(x, str) and k in self.UI_TEXT_KEYS:
+                        texts.append(x)
+                    elif isinstance(x, (dict, list)):
+                        walk(x, depth + 1)
+            elif isinstance(v, list) and depth < 4:
+                for x in v[:50]:
+                    walk(x, depth + 1)
+
+        walk(payload, 0)
+        if not texts:
+            return
+        try:
+            from server.screen.target import note_ui_text
+
+            note_ui_text(texts[:200])
+        except Exception:  # noqa: BLE001 - never let this break an emit
+            log.debug("note_ui failed", exc_info=True)
+
     def screenshot(self) -> Any:
         """A PIL image of the screen (overlay blacked out by E6), or None. Blocking (~20 ms): use a thread."""
         if self.reader is None or not hasattr(self.reader, "screenshot_pil"):

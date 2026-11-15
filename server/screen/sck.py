@@ -26,7 +26,7 @@ from .types import Rect, ScreenPermissionError
 log = logging.getLogger("server.screen.sck")
 
 # Our overlay: Electron in dev (com.github.Electron), the packaged app by name/bundle.
-DEFAULT_OVERLAY_BUNDLES = {"com.github.Electron"}
+DEFAULT_OVERLAY_BUNDLES = {"com.github.Electron", "dev.sandhacks.miyagi"}
 DEFAULT_OVERLAY_NAME = re.compile(r"miyagi|sandhacks", re.IGNORECASE)  # + TUT_OVERLAY_BUNDLES env
 # Never capture these at all (P1 privacy): password managers, messaging.
 DEFAULT_PRIVATE_BUNDLES = {"com.1password.1password", "com.agilebits.onepassword7", "com.bitwarden.desktop",
@@ -56,13 +56,16 @@ class SCKCapturer:
         self._filter = None
         self._display = None
         self.excluded_apps: list[str] = []
+        self.overlay_apps: list[str] = []   # which of them are our overlay: empty -> its pixels are in the frame
+
+    def _is_overlay(self, app) -> bool:
+        bid = str(app.bundleIdentifier() or "")
+        return bid in self.overlay_bundles or bool(DEFAULT_OVERLAY_NAME.search(str(app.applicationName() or "")))
 
     def _is_excluded(self, app) -> bool:
-        bid = str(app.bundleIdentifier() or "")
-        name = str(app.applicationName() or "")
         if int(app.processID()) == os.getpid():
             return True
-        return bid in self.overlay_bundles or bid in self.private_bundles or bool(DEFAULT_OVERLAY_NAME.search(name))
+        return self._is_overlay(app) or str(app.bundleIdentifier() or "") in self.private_bundles
 
     def _refresh(self) -> None:
         ev, box = threading.Event(), {}
@@ -87,6 +90,7 @@ class SCKCapturer:
             raise RuntimeError("primary display not in SCShareableContent")
         excluded = [a for a in content.applications() if self._is_excluded(a)]
         self.excluded_apps = [str(a.applicationName() or a.bundleIdentifier()) for a in excluded]
+        self.overlay_apps = [str(a.applicationName() or a.bundleIdentifier()) for a in excluded if self._is_overlay(a)]
         self._filter = SCK.SCContentFilter.alloc().initWithDisplay_excludingApplications_exceptingWindows_(
             disp, excluded, [])
         self._display = disp

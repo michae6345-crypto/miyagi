@@ -81,6 +81,8 @@ class Engine:
     async def _emit(self, type_: str, payload: dict | None = None) -> None:
         if type_ == "lesson.ready" and self.hub.clients:
             self.seen_lesson = ((payload or {}).get("lesson") or {}).get("id")
+        if (note := getattr(self.screen, "note_ui", None)) is not None:
+            note(type_, payload)  # the targeter never boxes Miyagi's own text (cards, captions) seen on screen
         await self.hub.emit(type_, payload)
 
     async def ingest(self, ev: dict) -> None:

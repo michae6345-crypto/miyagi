@@ -328,7 +328,8 @@ Return for THIS step only:
   metric_threshold / metric_trend for numbers the run prints, with metric_pattern (named group value, plus
   step when printed per step/epoch). Never "visual".
 {stack_guide}
-- targets: app + a short literal on-screen `match` (e.g. "function Header") + caption.
+- targets: app + a short literal on-screen `match` (e.g. "function Header") + caption: a 2-6 word pointer on
+  the box ("Type it here", "Type below Header", "Run it here"), never the whole instruction.
 - explanations: MM:SS moments in this slice where a concept is explained.
 - hints: 2-4, gentlest first. common_mistakes: concrete ones for this step.
 """

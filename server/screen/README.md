@@ -250,11 +250,17 @@ rect, why = await confirm_on_screen(box_rect, intent)   # verifier: agree | move
   - regions 1-5: terminal, editor, explorer, terminal_menu, run_button;
   - editor code and blank rows, even when Vision reads no line numbers;
   - other OCR lines;
-  - callers can add `extra` marks (ids from 500).
-- **Request:** the frame is cropped to the front window, scaled to ≤ 1280 px each way, and gets numbered tags (yellow = lines, cyan = regions). It goes out as ONE `claude-haiku-5-5` call: thinking off, effort low, max_tokens 160, strict JSON `{"ids", "confidence", "why"}`. No `temperature`, since Haiku 5.5 rejects it.
+  - callers can add `extra` marks (ids from 500);
+  - never Miyagi's own UI: lines under `overlay.bounds` (the rects when the frame was taken + the current ones, 6 pt
+    padding) are dropped and blacked out, and so are lines reading as text Miyagi is showing (`note_ui_text`, fed
+    by the engine from every card / caption / step line) for when the bounds miss it.
+- **Request:** the frame is cropped to the front window, scaled to ≤ 1280 px each way, and gets numbered tags (yellow = lines, cyan = regions). It goes out as ONE `claude-haiku-5-5` call: thinking off, effort low, max_tokens 160, structured output (`output_config.format` json_schema `SCHEMA`) `{"ids", "confidence", "why"}`, parsed leniently (first JSON object; a cut-off one's ids + confidence). No `temperature`, since Haiku 5.5 rejects it.
 - **No box (None) when:** confidence < `MIYAGI_VISION_MIN_CONF` (0.6), no ids, a timeout (`MIYAGI_VISION_TIMEOUT_S`, 2.5 s), an API error, no key, or the budget `MIYAGI_VISION_MAX_CALLS_PER_MIN` (6) is spent.
 - **Outcomes:** `pick_with_outcome()` says which case it was. The verifier keeps the engine's own box unless Haiku *answered*: a confident pick elsewhere moves the box, and a sure "nothing" (≥ 0.75) removes it.
 - **Cache:** keyed by (the candidate-set hash = what Haiku is shown, snapped to 4 pt; intent; app), 120 s, including "nothing" answers.
+  Per question (intent = the step's action + code) the last answer is reused across frames: a pick stands while its rows are in place and
+  the rows above them are unchanged (typing into / below the line doesn't re-ask); "nothing" is held 2 s; error / timeout / low confidence
+  retry after 3, 6, 12, 24, 30 s. One call per question at a time; the 6/min budget stays.
 - **Logging:** each call logs its tokens and a running $ estimate (Haiku 5.5: $0.10 / $0.50 per MTok); `stats()` gives the totals and p50/p95.
 - **Orchestrator:** `ScreenBridge.pick()` / `.confirm()`. `MIYAGI_VISION_TARGET=0` turns both off.
 - **Tests:** `tests/test_target.py`, offline with a stub client: 17 labelled cases over 6 fixtures. The fixture `vscode_lesson_calculator` is Michael's real screen: no line numbers OCR'd, Chat panel, run icon. Known gap (xfail): line 1 of an EMPTY file under the inline chat widget is not a mark.

@@ -78,6 +78,7 @@ class ScreenReader:
         self._prev_thumb: bytes | None = None
         self._prev_layout: tuple = ()
         self._overlay: list[Rect] = []
+        self._latest_overlay: list[Rect] = []    # the overlay rects when the latest frame was captured
         self._lesson_folder: str | None = None   # set_lesson_folder: other folders' VS Code windows are left out
         self._subs: list[tuple[Callback, asyncio.AbstractEventLoop | None]] = []
         self._metric_readers: list[TerminalMetricReader] = []
@@ -254,6 +255,12 @@ class ScreenReader:
         """Rects (points, top-left) covered by our own overlay; OCR inside them is ignored."""
         with self._lock:
             self._overlay = [Rect.from_any(r) for r in (rects or [])]
+
+    def overlay_rects(self) -> list[Rect]:
+        """Our overlay's rects to leave out of the latest frame: the ones reported when it was captured and the
+        current ones (a card that opened or moved since the capture is covered either way)."""
+        with self._lock:
+            return list(self._latest_overlay) + [r for r in self._overlay if r not in self._latest_overlay]
 
     def set_lesson_folder(self, folder: str | None) -> None:
         """Bind the screen to the lesson's own editor window (a folder name or path; None unbinds). VS Code windows
@@ -660,7 +667,8 @@ class ScreenReader:
                 img, screen, scale, excluded = sck
                 windows = [w for w in macos.list_windows(screen) if w.app not in excluded]
                 self.backend = "sck"
-                return img, screen, scale, windows, None, "live", True
+                # left out only if SCK found our overlay app to exclude; else its pixels are in: mask by overlay.bounds
+                return img, screen, scale, windows, None, "live", bool(getattr(self._sck, "overlay_apps", True))
             f = self._fallback_capture()
         except macos.ScreenPermissionError:
             if not self._permission_warned:
@@ -763,7 +771,7 @@ class ScreenReader:
                 self._attach_cursor_and_ax(obs)
             self.ocr_ms_history = (self.ocr_ms_history + [ms])[-50:]
             with self._lock:
-                self._latest, self._latest_image = obs, img
+                self._latest, self._latest_image, self._latest_overlay = obs, img, overlay
                 subs = list(self._subs)
                 readers = list(self._metric_readers)
         for r in readers:
@@ -850,11 +858,12 @@ class ScreenReader:
 
         from . import macos
         with self._lock:
-            img, obs, overlay = self._latest_image, self._latest, list(self._overlay)
+            img, obs = self._latest_image, self._latest
         if img is None:
             self.observe_now(force=True)
             with self._lock:
                 img, obs = self._latest_image, self._latest
+        overlay = self.overlay_rects()
         if img is None or obs is None:
             return None, None
         pil = macos.cgimage_to_pil(img)
