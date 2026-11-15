@@ -33,6 +33,19 @@ export function panelRect(layout: Layout, lessonMode = false): Rect {
   return { x: rightEdge(layout) - INSET - w, y: wa.y + INSET, w, h }
 }
 
+/** Mockup 02: the drawer collapsed to a step rail, and the concept panel to its left. */
+export const RAIL_W = 52
+export const CONCEPT_W = 560
+const CONCEPT_GAP = 8
+
+export function conceptRects(layout: Layout, lessonMode = false): { rail: Rect; panel: Rect } {
+  const p = panelRect(layout, lessonMode)
+  const rail = { x: p.x + p.w - RAIL_W, y: p.y, w: RAIL_W, h: p.h }
+  const leftEdge = layout.workArea.x + INSET
+  const w = Math.max(280, Math.min(CONCEPT_W, rail.x - CONCEPT_GAP - leftEdge))
+  return { rail, panel: { x: rail.x - CONCEPT_GAP - w, y: p.y, w, h: p.h } }
+}
+
 /** The tab's hit box, flush with the right edge; the bar sits inside it, TAB.edge from that edge. */
 export function tabRect(layout: Layout): Rect {
   const wa = layout.workArea

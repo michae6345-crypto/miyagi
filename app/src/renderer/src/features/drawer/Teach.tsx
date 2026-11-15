@@ -19,6 +19,7 @@ import { FlowDiagram } from '../before-start/Flow'
 import { openBeforeStart } from '../before-start/store'
 import { useStepSnippet } from '../overview/snippet'
 import { copyText, findPrimer, useStepDetail } from './plan'
+import { openConcept, useDrawer } from './store'
 
 const hoverVar = { '--drawer-hover': glass.fieldHover } as CSSProperties
 const thinScroll = { scrollbarWidth: 'thin', scrollbarColor: `${glass.track} transparent` } as CSSProperties
@@ -186,7 +187,8 @@ export function StepDetail({ stepId, instructions, planKind, indent, padX }: { s
   const detail = useStepDetail((s) => (s.detail?.stepId === stepId ? s.detail : undefined))
   const primer = useLesson((s) => s.lesson?.primer) ?? NO_PRIMER
   const snippet = useStepSnippet()
-  const [openId, setOpenId] = useState<string>()
+  // Mockup 02: a concept chip opens the concept panel (Concept.tsx); the drawer collapses to a step rail.
+  const openId = useDrawer((s) => s.concept)
 
   const kind = detail?.kind ?? planKind
   // The engine's full code first; the spotlight's snippet for this step (overview/snippet) as the fallback.
@@ -209,7 +211,6 @@ export function StepDetail({ stepId, instructions, planKind, indent, padX }: { s
     )
   }
 
-  const open = openId ? primer.find((p) => p.id === openId) : undefined
   return (
     <div data-part="drawer-detail" className="pb-[12px]" style={{ paddingLeft: indent, paddingRight: padX, marginTop: -2 }}>
       {(kind || instructions) && (
@@ -230,14 +231,9 @@ export function StepDetail({ stepId, instructions, planKind, indent, padX }: { s
       {chips.length > 0 && (
         <div data-part="drawer-concepts" className="mt-[10px] flex flex-wrap gap-[6px]">
           {chips.map((c) => (
-            <ConceptChip key={c.key} label={c.label} item={c.item} open={!!c.item && c.item.id === openId} onToggle={(id) => setOpenId((o) => (o === id ? undefined : id))} />
+            <ConceptChip key={c.key} label={c.label} item={c.item} open={!!c.item && c.item.id === openId} onToggle={openConcept} />
           ))}
         </div>
-      )}
-      {open && (
-        <motion.div className="mt-[8px]" initial={{ opacity: 0, y: -4 }} animate={{ opacity: 1, y: 0 }} transition={{ ...spring, opacity: { duration: 0.18 } }}>
-          <PrimerCard item={open} />
-        </motion.div>
       )}
     </div>
   )
@@ -295,7 +291,7 @@ function ConceptChip({ label, item, open, onToggle }: { label: string; item?: Pr
 }
 
 /** The full code (never truncated): long lines scroll sideways rather than wrap, so what you see is what you type. */
-function CodeBlock({ code, caption, bleed }: { code: string; caption: string; bleed: number }): ReactNode {
+export function CodeBlock({ code, caption, bleed }: { code: string; caption: string; bleed: number }): ReactNode {
   const [copied, setCopied] = useState<'yes' | 'no'>()
   const timer = useRef<ReturnType<typeof setTimeout>>(undefined)
   useEffect(() => () => clearTimeout(timer.current), [])
