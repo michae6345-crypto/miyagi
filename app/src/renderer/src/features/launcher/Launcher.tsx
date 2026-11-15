@@ -43,7 +43,7 @@ import { MiyagiMark } from '../../core/ui/Mark'
 import { OptionButton, Spinner } from '../../core/ui/atoms'
 import { color, copy, fill, launcher as launcherTheme, pill, radius, scrim, shadows, spring, springOut } from '../../core/theme'
 import { Action, Chip, Hint, HowChoice, Rise, type How } from './parts'
-import { EndRow, LinkRow, MessageRow, ResultRow, ROW_H, SkeletonRow } from './Rows'
+import { EndRow, LinkRow, MessageRow, ResultRow, ROW_H, SettingsRow, SkeletonRow } from './Rows'
 import { clearResults, setLauncherOpen, startSearch, useSearch } from './store'
 import { chipTones } from './tint'
 import { parseYouTube } from './youtube'
@@ -53,7 +53,14 @@ type Mode = 'search' | 'ask'
 type View = 'idle' | 'link' | 'searching' | 'results' | 'empty' | 'error'
 type Size = { w: number; h: number }
 /** What Enter (and the footer action) would do right now. Mirrors submit(). */
-type Act = 'end' | 'ask' | 'build' | 'search' | 'searching' | 'none'
+type Act = 'settings' | 'end' | 'ask' | 'build' | 'search' | 'searching' | 'none'
+
+/** Words that lead to Settings. The whole input (3+ letters) must be the start of one: "sett", "keys", "appear". */
+const SETTINGS_WORDS = ['settings', 'keys', 'preferences', 'appearance']
+const isSettingsQuery = (text: string): boolean => {
+  const q = text.trim().toLowerCase()
+  return q.length >= 3 && SETTINGS_WORDS.some((w) => w.startsWith(q))
+}
 
 /** Launcher width when grown out of the notch. */
 const WIDTH = launcherTheme.width
@@ -255,11 +262,13 @@ export function Launcher({ layout }: { layout: Layout }): ReactNode {
   const typed = (mode === 'ask' ? question : query).trim()
   /** During a lesson, with nothing typed: "End lesson" is the first row, highlighted. Typing replaces it. */
   const endRow = lesson.hasLesson && !typed && (mode === 'ask' || view === 'idle')
+  /** The typed text is a settings word: a single "Settings" row replaces everything else. */
+  const settingsRow = !link && isSettingsQuery(typed)
   /**
    * A topic is typed and Enter would start something new (not build a result already listed): offer the two ways
    * to learn it, "Watch a video" (today's search flow) or "Just teach me" (learn {mode:"lesson"}, no video).
    */
-  const choosing = mode === 'search' && !link && !!typed && (typed !== search.query || (!results.length && !search.pending))
+  const choosing = !settingsRow && mode === 'search' && !link && !!typed && (typed !== search.query || (!results.length && !search.pending))
   const teachKey = bridge.platform.os === 'mac' ? '⌘↵' : 'Ctrl↵'
   const highlight = view === 'link' ? 0 : view === 'results' ? selIndex : -1
 
@@ -317,6 +326,13 @@ export function Launcher({ layout }: { layout: Layout }): ReactNode {
     setPhase('closing')
   }
 
+  /** Settings has its own window (grown from the island by core); the launcher goes back into the island as usual. */
+  const openSettings = (): void => {
+    if (phaseRef.current !== 'open') return
+    bridge.invoke('settings:open').catch(() => {})
+    setPhase('closing')
+  }
+
   const ask = (): void => {
     const text = question.trim()
     if (!text || phaseRef.current !== 'open') return
@@ -342,6 +358,7 @@ export function Launcher({ layout }: { layout: Layout }): ReactNode {
   }
 
   const submit = (): void => {
+    if (settingsRow) return openSettings()
     if (endRow) return endLesson()
     if (mode === 'ask') return ask()
     if (link) return build()
@@ -357,11 +374,16 @@ export function Launcher({ layout }: { layout: Layout }): ReactNode {
       e.stopPropagation() // the stage's Esc would also dismiss cards
       return close()
     }
+    // ⌘, (Ctrl+, on Windows): Settings, whatever is typed.
+    if (e.key === ',' && (bridge.platform.os === 'mac' ? e.metaKey : e.ctrlKey)) {
+      e.preventDefault()
+      return openSettings()
+    }
     if (e.key === 'Enter') {
       e.preventDefault()
       if (e.nativeEvent.isComposing) return
       // ⌘Enter (Ctrl+Enter on Windows) = "Just teach me" straight away, whichever way is highlighted.
-      if ((e.metaKey || e.ctrlKey) && mode === 'search' && !link && typed) return teach(typed)
+      if ((e.metaKey || e.ctrlKey) && mode === 'search' && !link && !settingsRow && typed) return teach(typed)
       return submit()
     }
     if (e.key === 'Tab') {
@@ -414,7 +436,9 @@ export function Launcher({ layout }: { layout: Layout }): ReactNode {
 
   const offline = !lesson.connected
   const inlineError = view === 'results' && search.error
-  const act: Act = endRow
+  const act: Act = settingsRow
+    ? 'settings'
+    : endRow
     ? 'end'
     : mode === 'ask'
       ? typed
@@ -431,6 +455,7 @@ export function Launcher({ layout }: { layout: Layout }): ReactNode {
               : 'searching'
   const busy = search.pending && mode === 'search' && view !== 'link'
   const actLabel = {
+    settings: 'Settings',
     end: 'End lesson',
     ask: 'Ask',
     build: 'Build lesson',
@@ -528,7 +553,16 @@ export function Launcher({ layout }: { layout: Layout }): ReactNode {
             </Rise>
           )}
 
-          {choosing ? (
+          {settingsRow && (
+            <Rise key="settings" i={2} className="pt-[8px]">
+              <div className="relative mx-[20px]" style={{ height: ROW_H }}>
+                <div className="pointer-events-none absolute inset-x-0 top-0 rounded-[12px]" style={{ height: ROW_H, background: fill.highlight }} />
+                <SettingsRow onPick={openSettings} />
+              </div>
+            </Rise>
+          )}
+
+          {settingsRow ? null : choosing ? (
             <Rise key="how" i={2} className="px-[20px] pt-[12px]">
               <HowChoice how={how} teachKey={teachKey} onPick={pick} />
             </Rise>
@@ -589,7 +623,7 @@ export function Launcher({ layout }: { layout: Layout }): ReactNode {
                 {offline && <WifiOff size={13} strokeWidth={1.8} className="shrink-0" />}
                 {note && <span className="truncate">{note}</span>}
               </span>
-              {view === 'results' && visible.length > 1 && <Hint label="Choose" keycap="↑↓" />}
+              {view === 'results' && visible.length > 1 && !settingsRow && <Hint label="Choose" keycap="↑↓" />}
               {choosing ? (
                 <Hint label="Switch" keycap="⇥" />
               ) : (
@@ -600,7 +634,7 @@ export function Launcher({ layout }: { layout: Layout }): ReactNode {
                   </>
                 )
               )}
-              <Action label={actLabel} keycap="↵" enabled={act === 'end' || act === 'ask' || act === 'build' || act === 'search'} strong onClick={submit} />
+              <Action label={actLabel} keycap="↵" enabled={act === 'settings' || act === 'end' || act === 'ask' || act === 'build' || act === 'search'} strong onClick={submit} />
             </div>
           </Rise>
         </motion.div>
