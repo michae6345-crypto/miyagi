@@ -28,8 +28,9 @@ export const setPanelHeight = (h: number): void => {
   if (h > 0 && useDrawer.getState().panelH !== h) useDrawer.setState({ panelH: h })
 }
 
-// Esc / a card's close button closes every surface, the drawer included.
-onUi('dismiss', closeDrawer)
+// Esc / a card's ✕ close cards, diagrams and sheets, never the drawer: during a lesson it only closes when the
+// learner hides it with its own control or the right-edge "Steps" handle (Michael's live test, Sun 12:55 AM: a
+// "Not yet" card's ✕ took the whole drawer with it, and the step plan and code to type were gone).
 onUi('reset', closeDrawer)
 // A new lesson starts closed (the stage's ?drawer=open keeps it open for review). A "Just teach me" lesson
 // (lesson.mode "lesson") opens it: there's no player and no chapter list, so the drawer is where
