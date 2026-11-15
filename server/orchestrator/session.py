@@ -373,6 +373,8 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
         self.last_results: list[dict] = []
         self.last_failed: list[dict] = []
         self._recent_cards: dict[tuple, float] = {}
+        self._recent_slot: dict[tuple, int] = {}  # card sig -> _slot_n right after it went out
+        self._slot_n = 0  # cards / off-tracks / diagrams sent: the app's one card slot changed this many times
         self._offtrack_key: tuple | None = None  # (step, level, title) of the last offtrack sent
         self._action_spot = False  # a spotlight from show_me / hint / explain is up
         self._coach_error_sent = False  # "Coach unavailable" at most once per step
@@ -475,6 +477,8 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
             await curated.send_reference(self)
         elif type_ == "card":
             offtrack_targets.carded(self)  # it takes the off-track card's place: no off-track re-send on top of it
+        if type_ in ("card", "offtrack", "diagram"):
+            self._slot_n += 1
         await self._emit_raw(type_, payload or {})
 
     def _bind_epoch(self) -> None:
@@ -5169,7 +5173,10 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
         sig = (card.get("stepId"), card.get("kind"), card.get("level"), card.get("title"), card.get("body"))
         now = self.clock()
         last = self._recent_cards.get(sig)
-        if last is not None and now - last < window_s:
+        # demo pre-test: a press (Explain / Check my work after a Not yet) whose card another card / off-track /
+        # diagram has replaced since goes out again (it isn't on screen any more: dropping it answered nothing)
+        covered = not auto and _ANSWERED.get() is not None and self._recent_slot.get(sig) != self._slot_n
+        if last is not None and now - last < window_s and not covered:
             log.info("dropped duplicate card %r", card.get("title"))
             if (answered := _ANSWERED.get()) is not None:
                 answered.add("card")  # a press: this very card went out moments ago, so no "Nothing to do" notice
@@ -5177,6 +5184,7 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
         self._recent_cards[sig] = now
         self._last_card_t = now
         await self.emit("card", card)
+        self._recent_slot[sig] = self._slot_n
         advice_clear.sent(self, card)  # t8: a Hint / Not yet goes once the code it is about changed
         mine = (not auto and _ANSWERED.get() is not None) or "confirm" in (card.get("actions") or [])
         self._card_in_use = (card.get("title") or "", now, self.step_gen) if mine else None  # (_learner_card_up)
