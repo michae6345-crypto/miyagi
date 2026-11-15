@@ -16,13 +16,13 @@
 import { motion } from 'motion/react'
 import { useEffect, type ReactNode } from 'react'
 import { useShallow } from 'zustand/react/shallow'
-import { BookOpen, Check, Code2, Download, ExternalLink, File, FileCode2, FolderGit2, Hammer, History, Info, Lightbulb, ListChecks, MessageCircle, MessageSquareText, NotebookText, Play, Search, SkipForward, SquareTerminal, Undo2, Wrench, FolderOpen, RotateCcw, type LucideIcon } from 'lucide-react'
+import { BookOpen, Check, Code2, Download, ExternalLink, File, FileCode2, Footprints, FolderGit2, Hammer, History, Info, Lightbulb, ListChecks, MessageCircle, MessageSquareText, NotebookText, Play, Search, SkipForward, SquarePlay, SquareTerminal, Undo2, Wrench, FolderOpen, RotateCcw, type LucideIcon } from 'lucide-react'
 import type { PreflightInfo } from '../../../../../../shared/contracts/events'
 import type { Payload } from '../../../../common/wire'
 import { bridge } from '../../bridge'
 import { useLesson, useProgress, useThinking, type Offtrack as OfftrackPayload } from '../../core/lesson'
 import { defineFeature } from '../../core/registry'
-import { usePressed } from '../../core/shortcuts'
+import { usePressed, type ActionKind } from '../../core/shortcuts'
 import { CheckList, CloseButton, OptionButton, PrimaryButton, Spinner, StatusDot } from '../../core/ui/atoms'
 import { actionTone, color, copy, fill } from '../../core/theme'
 import { Curve, fmt, Key, plotPoints, type Line } from './Curve'
@@ -381,8 +381,8 @@ type EngineCard = Payload<'card'>
 
 /**
  * Header per card kind: a small icon tile instead of a text eyebrow. The options that made the card keep
- * their pastel (Explain sky, Hint pink, same as their buttons); the rest are neutral tiles.
- * Typed against the contract so a new kind fails here, not at runtime.
+ * their pastel (Explain sky, Hint pink, Show me lilac, same as their buttons); the rest are neutral tiles.
+ * Typed against the contract so a new kind fails here, not at runtime. tileOf() picks the tile per card.
  */
 const KIND: Record<EngineCard['kind'], { label: string; Icon: LucideIcon; tone?: string }> = {
   explain: { label: 'Explain', Icon: MessageSquareText, tone: actionTone.explain },
@@ -398,10 +398,32 @@ type Tile = (typeof KIND)[EngineCard['kind']]
 
 /** A run step's card ("Run it for me") and its result (the program's output): a neutral terminal tile. */
 const RUN: Tile = { label: 'Run', Icon: SquareTerminal }
+/** Show me's answer (e.g. "Code not visible" + where): lilac with the Show me glyph, like its button. */
+const SHOW_ME: Tile = { label: 'Show me', Icon: SquarePlay, tone: actionTone.show_me }
+/** Step controls and the step judge ("Looks done?", "Not yet", "Stuck on this step?"): a status card, never an option. */
+const STEP: Tile = { label: 'Step', Icon: Footprints }
+/** Wrong-folder card (use_this_folder). */
+const FOLDER: Tile = { label: 'Folder', Icon: FolderOpen }
+/** "Apply this fix?" (a diff to confirm): the Do it for me preview. */
+const FIX: Tile = { label: 'Do it for me', Icon: Wrench }
 
-/** The tile for a card: its kind's, unless what the card is about says otherwise. */
-function tileOf(c: EngineCard): Tile {
-  if (c.output || c.actions?.includes('run_command')) return RUN
+const STEP_ACTIONS: CardAction[] = ['skip_step', 'check_step']
+/** Cards that answer a question (the tile can follow the button that asked): not setup, resume or preflight. */
+const ANSWERS: EngineCard['kind'][] = ['explain', 'hint', 'answer']
+
+/**
+ * The tile for a card: its kind's, unless what the card is about says otherwise. The contract has no kind for
+ * these yet, so: output / run_command = Run; source "judge" or step-control actions = Step; a diff = the fix
+ * preview; an answer that came right after Show me (`from`, the pressed action) = Show me.
+ */
+function tileOf(c: EngineCard, from?: ActionKind): Tile {
+  const actions = c.actions ?? []
+  if (c.output || actions.includes('run_command') || from === 'run_command') return RUN
+  if (c.source === 'judge') return STEP
+  if (actions.includes('use_this_folder')) return FOLDER
+  if (actions.some((a) => STEP_ACTIONS.includes(a)) || (from && (STEP_ACTIONS as string[]).includes(from))) return STEP
+  if (c.diff) return FIX
+  if (from === 'show_me' && ANSWERS.includes(c.kind)) return SHOW_ME
   return KIND[c.kind] ?? KIND.answer
 }
 
@@ -696,12 +718,14 @@ function Where({ text }: { text: string }): ReactNode {
 
 function Card(): ReactNode {
   const c = useCards((x) => x.card)
+  const from = useCards((x) => x.cardFrom)
   if (!c) return null
-  const k = tileOf(c)
+  const k = tileOf(c, from)
   const actions = c.actions ?? []
-  // A title that only repeats the kind ("Hint") is dropped: the body becomes the headline.
+  // A title that only repeats the kind or the tile ("Hint") is dropped: the body becomes the headline.
   // Long bodies fold to a few lines with a "More" that opens them in place (never cut off for good).
-  const redundant = !c.title || c.title.trim().toLowerCase() === k.label.toLowerCase()
+  const t = c.title?.trim().toLowerCase()
+  const redundant = !t || t === k.label.toLowerCase() || t === (KIND[c.kind] ?? KIND.answer).label.toLowerCase()
   return (
     <div data-card={c.kind} style={{ padding: `16px ${PAD}px 16px` }}>
       <div className="flex items-start gap-[10px]">
