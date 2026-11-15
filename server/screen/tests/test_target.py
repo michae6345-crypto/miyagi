@@ -429,8 +429,8 @@ def test_confirm_spot_moves_a_wrong_box_and_keeps_it_when_haiku_is_unavailable()
     assert (rect, why) == (crumb, "kept:timeout")
 
 
-@pytest.mark.xfail(strict=True, reason="known gap (E6 marks.py): an EMPTY file has no code row to lay rows out from, "
-                                       "so line 1 under VS Code's inline chat widget is not offered as a mark")
+@pytest.mark.xfail(strict=False, reason="gap until E6's 11add98 (empty file: line 1 is a blank row) is merged; then "
+                                        "this passes and the marker can go")
 def test_known_gap_empty_file_line_one_under_inline_chat():
     _frame, obs = _load("vscode_window_notes_inline_chat")
     cands = T.build_candidates(obs, "Code")
