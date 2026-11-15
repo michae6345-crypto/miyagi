@@ -14,6 +14,8 @@ The Haiku targeter "moved" the engine's boxes with confidence 0.7-0.85 every tim
   the targeter may move it only when LINE_MOVE_CONF sure and never into a def / block or onto code
   (_line_move_ok, target.verdict move_conf); a vision pick obeys the same rule (_vision_ok). t4's step-start box
   (_start_box) takes that row too (_start_line_box) and its Haiku refine obeys the same rule (_refine_start_box).
+- t6 (desktop test 6): _insert_follow keeps that box on its row when the editor scrolls under it (the step start's
+  `code -g` jump lands ~0.5 s after the box); _run_ended drops the coach's box from the run before a new run's end.
 
 A mixin: every method runs on the LessonSession (self._show_spot, self._code_progress, ...).
 """
@@ -145,12 +147,103 @@ class LessonBoxes:
         if not below and plan.get("new_line"):
             cap = self.NEW_LINE_CAPTION  # that row holds the next section: the box marks the new line to open
         prog = {"path": p, "line": line, "kind": kind, "expect": lines[above - 1].strip() if above else ""}
-        spot = await self._progress_spot(step, prog, caption=cap)
+        row = (prog, cap, lines, above, below)
+        spot = await self._row_box(step, *row)
+        if spot is not None and not show_me:
+            self._insert_at = (self.step_gen, row)  # t6: _insert_follow keeps the step's box on this row
+            t = getattr(self, "_insert_recheck_task", None)
+            if t is None or t[0] != self.step_gen or t[1].done():
+                self._insert_recheck_task = (self.step_gen, self._spawn(self._insert_recheck(self.step_gen),
+                                                                        timer=True))
+        return spot
+
+    async def _row_box(self, step: dict, prog: dict, cap: str, lines: list[str], above: int, below: bool,
+                       jump: bool = True) -> dict | None:
+        """_insert_spot's row on screen: Accessibility / the gutter (jump: scroll to it when it's off screen), else OCR
+        of the unique line above; never on that line above. None: not on screen."""
+        spot = await self._progress_spot(step, prog, caption=cap, jump=jump)
         if spot is None and above and (txt := spot_lines.unique_text(lines, above)):
             spot = self._row_spot(step, txt, cap, prog, down=not below)  # the gutter missed (a short file)
         elif not below:
             spot = self._not_on_above(spot, lines, above)
         return spot
+
+    def _insert_box_up(self, at: tuple | None) -> bool:
+        """t6: is the box up the step's own insertion box _insert_spot placed for `at` (gen, row)?"""
+        own = getattr(self, "_spot_owner", None)
+        return bool(self.lesson_mode and self.step is not None and not self.passed and self.spot_rect is not None
+                    and at is not None and at[0] == self.step_gen and own is not None and own[0] == "step"
+                    and own[1] == self.step_gen and self._spot_caption == at[1][1]
+                    and not getattr(self, "_spot_matched", False))
+
+    def _insert_follow(self) -> None:
+        """t6 (T6-CP11 / CP16), on a frame, no model call: the step's insertion box stays on its file row when the
+        editor scrolls under it. Test 6: the box went up at step start from the editor as it was, then the step's own
+        `code -g nn.py:<comment>` jump landed ~0.5 s later and VS Code centred the comment: nn5's box (row 48, under
+        `# Test it`) ended up on line 46, above the comment; nn2's after Do it for me (row 23, under `# Backprop`) on
+        line 29, after `# Test it`. The row stays the one placed (typing the first line doesn't move it;
+        _progress_follow takes over once the step's code is in the file); never a jump (the learner's own scroll
+        stays). One check at a time; a frame during one asks again after it."""
+        at = getattr(self, "_insert_at", None)
+        if not self._insert_box_up(at):
+            return
+        task = getattr(self, "_insert_follow_task", None)
+        if task is not None and not task.done():
+            self._insert_follow_again = True
+            return
+        self._insert_follow_again = False
+        self._insert_follow_task = self._spawn(self._refollow_insert(self.step_gen, self.step), timer=True)
+
+    INSERT_RECHECK_S = (1.0, 2.5)  # t6: the step start's `code -g` jump lands ~0.5-1 s after the box goes up
+
+    async def _insert_recheck(self, gen: int) -> None:
+        """t6: _insert_follow once more after the step start's jump, frame or not (a static screen sends the next
+        frame only after the reader's max_age, 15 s)."""
+        for d in self.INSERT_RECHECK_S:
+            await asyncio.sleep(d)
+            if gen != self.step_gen or self.passed:
+                return
+            self._insert_follow()
+
+    async def _refollow_insert(self, gen: int, step: dict) -> None:
+        while True:
+            at = getattr(self, "_insert_at", None)
+            if gen != self.step_gen or not self._insert_box_up(at) or self._code_progress(step) is not None \
+                    or self._fix_active():
+                return  # the step moved on, another box is up, or the typing / a fix decides the box now
+            spot = await self._row_box(step, *at[1], jump=False)
+            r, old = (spot or {}).get("rect"), self.spot_rect
+            if r and old and gen == self.step_gen and self._insert_box_up(at) \
+                    and abs(float(r["y"]) - float(old["y"])) > self.SPOT_MOVE_PX:
+                log.info("insertion box: line %s moved %+.0f pt on screen (a scroll); the box follows it (t6)",
+                         at[1][0]["line"], float(r["y"]) - float(old["y"]))
+                await self._show_spot(spot, steady=True, owner="step", verify=False)
+            if not getattr(self, "_insert_follow_again", False):
+                return
+            self._insert_follow_again = False
+
+    def _run_ended(self, run) -> None:
+        """t6 (T6-CP10): a new run of the step ended (VS Code's command_end, _ext_run). The coach's box from the run
+        before it ("Error: forward called too early" on that run's traceback, left on the next run's loss lines) and
+        the off-track text it followed are stale now: they go, and the new run's evaluation boxes what is still wrong.
+        cmd_typos' card on this very run (typo_card, posted on the same command_end) is about this run: it stays."""
+        typo = getattr(self, "_typo_card", None)
+        if typo is not None and typo[0] == self.step_gen and typo[2] >= float(getattr(run, "started_t", 0.0) or 0.0):
+            return
+        own = getattr(self, "_spot_owner", None)
+        step = self.step or {}
+        track = self.spot_track
+        if track is not None and not any(t.get("match") == track[0] for t in step.get("targets") or []):
+            self.spot_track = None  # an off-track's text follow (_offtrack_spot) would put that old box back
+        if self.spot_rect is not None and own is not None and own[0] == "offtrack" and own[1] == self.step_gen:
+            self._spawn(self._clear_stale_box(self.step_gen, own))
+
+    async def _clear_stale_box(self, gen: int, own: tuple) -> None:
+        async with self._spot_lock():
+            if gen != self.step_gen or self.spot_rect is None or getattr(self, "_spot_owner", None) is not own:
+                return  # the step moved on, or another box went up meanwhile
+            log.info("a new run ended: the coach's box %r from the run before it goes (t6)", self._spot_caption)
+            await self.emit("spotlight", {"clear": True})
 
     async def _start_line_box(self, gen: int, step: dict, plan: dict) -> bool:
         """t5 (d), t4's _start_box for a step whose new code goes where the file says (_insert_plan): THE row from the

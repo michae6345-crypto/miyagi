@@ -1961,16 +1961,18 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
         head = self._code_head(step)
         return self.FINISH_CAPTIONS[0 if re.match(r"(async\s+)?def\b", head) else 1 if head.startswith("class ") else 2]
 
-    async def _progress_spot(self, step: dict, prog: dict, caption: str | None = None) -> dict | None:
+    async def _progress_spot(self, step: dict, prog: dict, caption: str | None = None,
+                             jump: bool = True) -> dict | None:
         """E9 / E15: the editor row of `prog` (_code_progress), from Accessibility or the OCR'd gutter (one line high,
-        right of the line numbers). Scrolled off: jump there and ask once more. Only with the real screen reader."""
+        right of the line numbers). Scrolled off: jump there and ask once more (not with jump=False: t6's
+        _insert_follow never scrolls the learner's editor). Only with the real screen reader."""
         if getattr(self.screen, "reader", None) is None:
             return None
         from . import workspace as wsmod
 
         path, line = prog["path"], prog["line"]
         where = await asyncio.to_thread(wsmod.line_location, path, line)
-        if not where.get("rect") and (where.get("direction") or where.get("reason") == "not_visible"):
+        if jump and not where.get("rect") and (where.get("direction") or where.get("reason") == "not_visible"):
             if self.workspace is not None and self.editor_open:
                 self.workspace.goto(str(path), line)
                 await asyncio.sleep(0.4)
@@ -3883,6 +3885,7 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
                 await self._run_box_done()
                 self._maybe_respot()
                 self._fix_follow()  # t5 (b): a fix became active under the step's own box: the fix line replaces it
+                self._insert_follow()  # t6: the insertion box stays on its row when the editor scrolls under it
 
     OVERLAY_APPS = {"miyagi", "electron", "miyagi-overlay"}
     RESPOT_S = 5.0  # E16: a lesson step with no box while its VS Code window is in front: place it again this often
@@ -5357,6 +5360,7 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
         self.step_runs.append(run)
         self.engaged = True
         self._acted()  # the learner's run (a breakpoint); a diagnosis of the code before it is stale
+        self._run_ended(run)  # t6: so is the coach's box on the run before it (T6-CP10's stale terminal error box)
         gen, step, card = self.step_gen, self.step, self._run_for_me_card
 
         async def run_end() -> None:
