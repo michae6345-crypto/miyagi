@@ -341,6 +341,8 @@ class LessonSession:
         self.latched_pass: set[str] = set()  # screen checks that passed this step: kept unless the file on disk disagrees
         self._run_need: dict | None = None  # run step (fixed at its first evaluation): {cmd, expect, baseline, ran}
         self._lesson_win_seen: tuple[float, bool] = (-1e9, False)  # (when, lesson's VS Code window open on any Space)
+        self._ext_run_t = 0.0  # wall clock of the last Run it for me typed into VS Code's terminal by the companion
+        self._file_hits: dict[str, tuple[float, Path | None]] = {}  # lesson file -> (when looked up, where it is)
         self.engaged = False  # learner touched files / ran something during this step
         self.gate_open = False  # failing checks are shown as fail (else pending)
         self.step_t0 = self.clock()
@@ -3060,15 +3062,30 @@ class LessonSession:
         """A helper from E3's server.checks (None when the checks run on the stubs)."""
         return getattr((getattr(self.m, "real", None) or {}).get("checks"), name, None)
 
-    def _check_file(self, step: dict, check: dict) -> Path | None:
-        """The lesson file a VS Code screen check is about: the step's file in the lesson folder (in lesson mode it
-        may not exist yet). None for a check on another app, a step without a file, or (video lessons, where the
-        learner may work elsewhere) a file that isn't in the lesson folder. One stat: this runs on every frame."""
+    def _check_files(self, step: dict, check: dict) -> list[Path]:
+        """The lesson files a VS Code screen check can be about: the check's own file, then the step's (targets,
+        checks, step file), where they are in the lesson folder. In lesson mode a nested one is found too (a folder
+        search at most every 5 s), and the step's file stands in even before it exists. [] for a check on another
+        app, a step without files, or (video lessons, where the learner may work elsewhere) files that aren't in the
+        lesson folder. Runs on every frame: a stat per file."""
         if (check.get("app") or "").strip().lower() not in CODE_APP_NAMES:
-            return None
-        f = self._step_file(step)
-        p = Path(self.workdir) / f if f else None
-        return p if p is not None and (self.lesson_mode or p.is_file()) else None
+            return []
+        from . import workspace as wsmod
+
+        names = [check.get("file")] + [t.get("file") for t in step.get("targets") or []] + \
+            [c.get("file") for c in (step.get("checks") or []) + (step.get("precision_checks") or [])] + [step.get("file")]
+        out: list[Path] = []
+        for f in dict.fromkeys(str(n).strip() for n in names if self._real_file(n)):
+            p = Path(self.workdir) / f
+            if not p.is_file():
+                t, p = self._file_hits.get(f, (-1e9, None)) if self.lesson_mode else (self.clock(), None)
+                if self.clock() - t > 5.0:
+                    p = wsmod.resolve_file(self.workdir, f)
+                    self._file_hits[f] = (self.clock(), p)
+            if p is not None and p not in out:
+                out.append(p)
+        first = self._step_file(step)
+        return out or ([Path(self.workdir) / first] if self.lesson_mode and first else [])
 
     def _lesson_window_shown(self) -> bool | None:
         """Is the lesson's VS Code window in the latest frame? True: a VS Code window there names the lesson folder
@@ -3118,25 +3135,34 @@ class LessonSession:
             return gate
         defs = {c.get("id"): c for c in step.get("checks") or []}
         shown: Any = ...  # computed once, on first need
+        carded = False
+
+        def graded(c: dict, paths: list[Path]) -> dict:  # on the files: a pass from any, else the first one's verdict
+            res = [on_file(c, p) for p in paths]
+            return next((x for x in res if x.get("status") == "pass"), res[0])
+
         out = []
         for r in gate.get("checks") or []:
             cid, c = r.get("checkId"), defs.get(r.get("checkId")) or {}
             if c.get("type") != "screen_contains":
                 out.append(r)
                 continue
-            path = self._check_file(step, c)
-            if path is not None and self.lesson_mode and ctx.screen is not None:
+            paths = self._check_files(step, c)
+            if paths and self.lesson_mode and ctx.screen is not None:
                 if shown is ...:
                     shown = self._lesson_window_shown()
                 hidden = text_of(ctx.screen, c.get("app")) is None
                 if hidden or (shown is False and self._lesson_window_open()):
-                    r = on_file(c, path)
+                    r = graded(c, paths)
                     if r.get("status") != "pass" and not (shown or self._lesson_window_open()):
-                        r = on_file(c, path, window_open=False)  # no lesson window anywhere: "Open VS Code …"
+                        r = on_file(c, paths[0], window_open=False)  # no lesson window anywhere: "Open VS Code …"
+                    elif r.get("status") != "pass" and shown is False and not carded:
+                        carded = True
+                        self._editor_state_card(step)  # typing in another lesson's folder: "Wrong folder?" now
             if r.get("status") == "pass":
                 self.latched_pass.add(cid)
             elif cid in self.latched_pass:
-                if path is None or on_file(c, path).get("status") == "pass":
+                if not paths or graded(c, paths).get("status") == "pass":
                     prev = self.check_state.get(cid) or {}
                     r = {**r, "status": "pass",
                          "detail": prev.get("detail") if prev.get("status") == "pass" else "seen earlier in this step"}
@@ -3153,10 +3179,14 @@ class LessonSession:
         return gate
 
     def _need_run(self, step: dict, results: list[dict], gate: dict) -> tuple[list[dict], dict]:
-        """Lesson mode: a run step ("Run your first output") can't pass on its code alone, it needs a run since the
-        step began. Evidence: a `tut run` / Run it for me of the step's command that exited 0, or the lesson's VS
-        Code terminal showing that command run more times than when the step began, or showing the step's expected
-        output under its last run when it didn't then (never with an error after it). Shown as one more row ("Ran
+        """Lesson mode: a run step ("Run your first output") can't pass on its code alone, it needs a run of its
+        command since the step began. Evidence, any one: a `tut run` / Run it for me (subprocess) run; VS Code's
+        report of the command ending in a terminal of the lesson folder (the companion's command_end, from shell
+        integration: the learner's own runs and Run it for me in VS Code's terminal); or the lesson's VS Code
+        terminal showing it run: more runs than when the step began, the step's expected output under its last run
+        when it wasn't there then, the command typed at the prompt and then entered, or, 2 s after Run it for me
+        typed it there, the run on screen. A run counts when it exited 0, or showed no crash the step didn't ask for
+        (E3's run_output: "run it and see the ZeroDivisionError" passes on that error). Shown as one more row ("Ran
         python3 calculator.py"); until it is green the step can't pass."""
         need = self._run_need
         if need is None:  # fixed at the step's first evaluation: a typing step whose code is now saved stays one
@@ -3167,41 +3197,88 @@ class LessonSession:
             expect += [rf"^\s*{re.escape(ln.strip())}\s*$" for ln in (step.get("expected_output") or "").splitlines()
                        if ln.strip()][:1]
             need = self._run_need = {"cmd": cmd.splitlines()[-1].strip() if cmd else "", "expect": expect,
-                                     "base": None, "base_shows": False, "ran": None}
+                                     "base": None, "base_shows": False, "ran": None,
+                                     "seq": 0, "end": None, "typed": False, "left": None}
         cmd = need["cmd"]
-        count, same = self._checks_fn("terminal_runs"), self._checks_fn("command_matches")
-        if not cmd or count is None or same is None:
+        count, same, out = (self._checks_fn(n) for n in ("terminal_runs", "command_matches", "run_output"))
+        if not cmd or count is None or same is None or out is None:
             return results, gate
-        row = {"checkId": f"{step['id']}-ran", "label": f"Ran {cmd}"[:60], "status": "pending",
-               "detail": "Run it in the terminal (or press Run it for me)"}
-        if need["ran"]:
-            row = {**row, "status": "pass", "detail": need["ran"]}
+        base = {"checkId": f"{step['id']}-ran", "label": f"Ran {cmd}"[:60], "status": "pending",
+                "detail": "Run it in the terminal (or press Run it for me)"}
+
+        def ended(code: int | None, lines: Any) -> dict:  # a run that finished: green, or why not
+            err, shows = out([str(x) for x in lines or []], need["expect"])
+            if code == 0 or (not err and (shows or code is None)):
+                return {**base, "status": "pass", "detail": "ran without errors" if code == 0
+                        else "ran and showed the expected output" if shows else "ran in the terminal"}
+            return {**base, "detail": f"the last run stopped with exit code {code}" if code else "the run printed an error"}
+
+        row = {**base, "status": "pass", "detail": need["ran"]} if need["ran"] else base
         for run in reversed(self.step_runs):  # tut run / Run it for me: the latest finished run of this command
             if row["status"] == "pass":
                 break
             if run.run_id.startswith("screen-") or run.exit_code is None or not same(cmd, run.command):
                 continue
-            if run.exit_code == 0:
-                row = {**row, "status": "pass", "detail": "ran without errors"}
-            else:
-                row["detail"] = f"the last run stopped with exit code {run.exit_code}"
+            row = ended(run.exit_code, run.output_tail)
             break
-        if row["status"] != "pass" and (rows := self._terminal_rows()) is not None:
+        if row["status"] != "pass":  # VS Code's shell integration: its exit code beats reading the terminal
+            for c in self._ext_commands_ended(need):
+                if same(cmd, str(c.get("commandLine") or "")):
+                    need["end"] = c
+            if need["end"] is not None:
+                row = ended(need["end"].get("exitCode"), need["end"].get("outputTail"))
+        if row["status"] != "pass" and need["end"] is None and (rows := self._terminal_rows()) is not None:
             n, err, shows = count(cmd, rows, need["expect"])
+            now = self.clock()
+            if rows and count(cmd, [rows[-1], ""])[0]:  # typed at the prompt (the bottom row), Enter not pressed yet
+                need["typed"], need["left"] = True, None
+            elif need["typed"] and need["left"] is None:
+                need["left"] = now
+            # it left the prompt and stayed gone 1.5 s (one misread frame can't fake it): it was entered
+            entered = need["typed"] and need["left"] is not None and now - need["left"] >= 1.5
+            ext = self._ext_run_t >= self._step_wall_t0 and time.time() - self._ext_run_t >= 2.0
             # baseline: the terminal as the step began (or as it first showed), the most its first 2 s of reads saw,
             # so a frame that misread an old run can't make that old run look new later
-            if need["base"] is None or self.clock() - self.step_t0 < 2.0:
+            if need["base"] is None or now - self.step_t0 < 2.0:
                 need["base"], need["base_shows"] = max(n, need["base"] or 0), need["base_shows"] or shows
-            # a new run: one more run than at the start, or the step's expected output under the last run when it
-            # wasn't there at the start (a small panel can scroll an old run off as the new one comes in)
-            elif n > need["base"] or (shows and not need["base_shows"]):
-                row = {**row, "detail": "the run printed an error"} if err else \
-                    {**row, "status": "pass", "detail": "ran in the terminal"}
+            # a new run: one more run than at the start, the step's expected output under the last run when it
+            # wasn't there at the start, the command entered at the prompt, or Run it for me typed it 2 s ago (a
+            # small panel, a restored history or a new terminal can hide that a run is new)
+            elif n and (n > need["base"] or (shows and not need["base_shows"]) or entered or ext):
+                row = {**base, "detail": "the run printed an error"} if err else \
+                    {**base, "status": "pass", "detail": "ran in the terminal"}
+                if err:
+                    need["typed"] = False  # that run crashed: the next one has to be entered again
         if row["status"] == "pass":
             need["ran"] = row["detail"]
         elif gate.get("passed"):
             gate = {**gate, "passed": False, "via": None}
         return [*results, row], gate
+
+    def _ext_commands_ended(self, need: dict) -> list[dict]:
+        """Commands VS Code reported ended in a terminal of the lesson folder since the step began, oldest first
+        ({commandLine, exitCode, outputTail, cwd, ...}): the companion's command_end events, pushed to the engine
+        (no HTTP here). Each event is read once (need["seq"]); other folders' windows don't count."""
+        try:
+            import importlib
+
+            evs = importlib.import_module("server.workspace.vscode_ext").recent_events(need["seq"])
+        except Exception:  # noqa: BLE001
+            return []
+        mine, found = os.path.realpath(self.workdir), []
+        for ev in evs:
+            need["seq"] = max(need["seq"], int(ev.get("seq") or 0))
+            c = ev.get("command")
+            if ev.get("type") != "command_end" or not isinstance(c, dict):
+                continue
+            t = (c.get("startedAt") or 0) / 1000 or float(ev.get("received") or 0)
+            cwd = os.path.realpath(str(c["cwd"])) if c.get("cwd") else ""
+            here = (cwd == mine or cwd.startswith(mine + os.sep)
+                    or str(self.workdir) in str(c.get("commandLine") or "")  # Run it for me: "cd <lesson> && …"
+                    or (not cwd and any(os.path.realpath(str(f)) == mine for f in ev.get("folders") or [])))
+            if here and t >= self._step_wall_t0:
+                found.append(c)
+        return found
 
     def _run_missing(self, step: dict) -> str:
         """The run a run step still needs ('' when it ran, or it isn't a run step)."""
@@ -3412,7 +3489,8 @@ class LessonSession:
         code, file = self._code_excerpt(step)
         files = {file: code} if file and code else {}
         try:
-            if not j.should_judge(step, self.last_results, idle_s=self.learner_idle_s(),
+            if not j.should_judge(step, [r for r in self.last_results if r.get("checkId") != f"{step['id']}-ran"],
+                                  idle_s=self.learner_idle_s(),
                                   video_playing=self.video_playing and not self.segment_done,
                                   screen=screen, files=files, focused_app=self._focused_app(),
                                   **self._judge_gate_kwargs(step)):
@@ -3634,6 +3712,7 @@ class LessonSession:
             try:
                 if await asyncio.to_thread(ext.run_in_terminal, cmd, cwd=self.workdir, folder=self.workdir):
                     self._acted()
+                    self._ext_run_t = time.time()  # _need_run: this run happened, whatever the terminal showed before
                     await self._card(step, "Running it", f"{cmd} is running in VS Code's terminal.", kind="answer")
                     return
             except Exception:  # noqa: BLE001

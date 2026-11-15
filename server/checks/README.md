@@ -58,9 +58,14 @@ The orchestrator (`LessonSession._settle_checks` / `_need_run`) uses three pure 
   the pattern is in the file; else "not in <file> yet", or "Open VS Code so I can check it." only when no lesson window exists.
 - A `screen_contains` that passed in a step stays passed (latched in the session) unless the file on disk lacks it.
 - `terminal_runs(command, rows, expect)` -> `(runs, error, shows)`: how often terminal rows show `command` run (followed
-  by another row, so a typed-but-unrun command never counts), whether an error follows the last run, and whether the
-  step's expected output (`expect` regexes) does. With `command_matches(expected, actual)` for `tut run` / Run it for me
-  runs, this is the run evidence a run step needs: its code being on screen is not enough.
+  by another row, so a typed-but-unrun command never counts), and `run_output`'s verdict on the output under the last
+  run (not "shown" when a later row runs the same program: it may be a misread newer run). With
+  `command_matches(expected, actual)` for `tut run` / Run it for me / VS Code `command_end` runs, this is the run
+  evidence a run step needs: its code being on screen is not enough. A command with no script (`python3 --version`,
+  `node -v`) matches as a whole, at the end of the row / command line (`python` == `python3`).
+- `run_output(lines, expect)` -> `(error, shows)`: `shows` = an `expect` regex is in the output; `error` = a crash
+  (traceback, `XError:` line, "command not found") the step didn't ask for. An expected pattern found in the error
+  lines ("run it and see the ZeroDivisionError") makes the crash the step's point; output printed before a crash doesn't.
 
 ### `metric_trend`: thresholds
 The window is the points with `step ≥ latest_step − window` (default 1000; pending below 8 points or < 50 % coverage).

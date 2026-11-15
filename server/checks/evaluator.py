@@ -631,9 +631,12 @@ def screen_check_on_file(check: dict, path: str | os.PathLike | None, window_ope
 
 def command_matches(expected: str | None, actual: str | None) -> bool:
     """Does the command that ran (``actual``) run what ``expected`` runs? Interpreter wrappers and flags are ignored
-    (``python3 calculator.py`` == ``tut run python calculator.py``); an empty side never matches."""
-    if not expected or not actual or not _script_tokens(expected):
+    (``python3 calculator.py`` == ``tut run python calculator.py``); an empty side never matches. A command with no
+    script (``python3 --version``, ``node -v``, ``python3``) must end ``actual`` as a whole (python == python3)."""
+    if not expected or not actual:
         return False
+    if not _script_tokens(expected):
+        return _ends_with(actual, _seq(expected))
     return _command_matches(expected, actual)
 
 
@@ -656,30 +659,70 @@ def _program(token: str) -> str:
     return "python" if _INTERP.fullmatch(name) else name
 
 
+def _seq(text: str) -> list[str]:
+    """A command as words for a whole-command match: programs by name (``python3`` -> ``python``), flags without
+    their dashes (OCR may read ``--version`` as ``—version``)."""
+    return [w for w in (_program(t).lstrip("-\u2013\u2014") for t in _words(text)) if w]
+
+
+def _ends_with(text: str, whole: list[str]) -> bool:
+    """Does ``text`` (a terminal row, or a command line such as ``cd x && python3 --version``) end with the command
+    ``whole`` (from ``_seq``)?"""
+    got = _seq(text)
+    return bool(whole) and got[-len(whole):] == whole
+
+
+def run_output(lines: Iterable[str], expect: Iterable[str] = ()) -> tuple[bool, bool]:
+    """``(error, shows)`` for a run's output ``lines``: ``shows`` = one of the ``expect`` regexes (the step's expected
+    output) is in it; ``error`` = it shows a crash (a traceback, an ``XError:`` line, "command not found", ...) that
+    the step didn't ask for. An expected pattern found in the error lines ("run it and see the ZeroDivisionError")
+    makes the crash the step's point, not a failure; expected output printed before a crash doesn't."""
+    lines = [str(x) for x in lines]
+    text = "\n".join(lines)
+    errs = "\n".join(x for x in lines if _RUN_ERROR.search(x))
+    shows = wanted = False
+    for pattern in expect:
+        try:
+            shows = shows or bool(search_screen(pattern, text))
+            wanted = wanted or bool(errs and search_screen(pattern, errs))
+        except re.error:
+            continue
+    return bool(errs) and not wanted, shows
+
+
 def terminal_runs(command: str, rows: list[str], expect: Iterable[str] = ()) -> tuple[int, bool, bool]:
     """``(runs, error, shows)`` for terminal ``rows`` (visual lines, top to bottom): how many times they show
-    ``command`` being RUN, whether the output after the last such run shows an error, and whether it shows any of the
-    ``expect`` regexes (the step's expected output, e.g. ``^5$``).
+    ``command`` being RUN, and for the output after the last such run ``run_output``'s ``(error, shows)``: a crash
+    the step didn't ask for, and the step's expected output (``expect`` regexes, e.g. ``^5$``).
 
     A run is a row that names what the command runs (its script tokens, plus its program: ``python``/``python3``,
-    or ``tut``) with at least one row after it (Enter was pressed: output or a new prompt). A command typed but not
-    yet run is the bottom row, so it never counts; neither does a traceback line that mentions the file."""
+    or ``tut``; a command with no script, ``python3 --version``, ends the row whole) with at least one row after it
+    (Enter was pressed: output or a new prompt). A command typed but not yet run is the bottom row, so it never
+    counts; neither does a traceback line that mentions the file. When a later row runs the same program (another
+    script, or this one misread by OCR: ``calculator.pv``), the output under the last run seen may not be the latest
+    run's, so it never counts as shown."""
     want = _script_tokens(command)
     head = next((_program(t) for t in _words(command) if "=" not in t), "")  # skip env assignments (X=1 cmd)
-    if not want or not head:
+    whole = [] if want else _seq(command)
+    if not head or not (want or whole):
         return 0, False, False
+
+    def runs_program(row: str) -> bool:
+        names = {_program(t) for t in _words(row)}
+        return head in names or "tut" in names
+
+    def is_run(row: str) -> bool:
+        if whole:
+            return _ends_with(row, whole)
+        return all(w in _script_tokens(row) for w in want) and runs_program(row)
+
     n, last = 0, None
     for i, row in enumerate(rows[:-1]):
-        programs = {_program(t) for t in _words(row)}
-        if all(w in _script_tokens(row) for w in want) and (head in programs or "tut" in programs):
+        if is_run(row):
             n, last = n + 1, i
     if last is None:
         return 0, False, False
-    tail = rows[last + 1:]
-    shows = False
-    for pattern in expect:
-        try:
-            shows = shows or bool(search_screen(pattern, "\n".join(tail)))
-        except re.error:
-            continue
-    return n, any(_RUN_ERROR.search(r) for r in tail), shows
+    err, shows = run_output(rows[last + 1:], expect)
+    if shows and any(runs_program(r) for r in rows[last + 1:-1]):
+        shows = False
+    return n, err, shows
