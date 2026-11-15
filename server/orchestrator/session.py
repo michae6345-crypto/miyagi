@@ -345,6 +345,8 @@ class LessonSession:
         self.full_card: dict | None = None
         self.confirm_pending = False
         self.confirm_check_ids: list[str] = []  # E5 judge's "Looks done?": the checks `confirm` passes
+        self._step_wall_t0 = time.time()  # wall clock at step start (file mtimes compare against it)
+        self._term_at_start: tuple = ()
         self.judged_pass: set[str] = set()  # checks E5's judge saw done on screen (count as passed)
         self._carded_checks: set[str] = set()  # checks a hint / "Not yet" card already covers (no offtrack too)
         self._last_card_t = -1e9
@@ -638,10 +640,35 @@ class LessonSession:
         if self.screen is None:
             return None
         try:
-            return self.screen.lines()
+            lines = self.screen.lines()
         except Exception:  # noqa: BLE001
             log.exception("screen lines failed")
             return None
+        panel = self._vscode_terminal_lines()
+        if panel:  # checks with app "Terminal" also read VS Code's integrated terminal (where lessons say to run)
+            lines = dict(lines or {})
+            lines["Terminal"] = list(lines.get("Terminal") or []) + panel
+        return lines
+
+    def _vscode_terminal_lines(self) -> list[str]:
+        """The OCR lines inside VS Code's integrated terminal panel (E6's terminal region), top to bottom."""
+        region = getattr(self.screen, "region", None) if self.screen is not None else None
+        blocks = getattr(self.last_obs, "blocks", None) or []
+        if region is None or not blocks:
+            return []
+        try:
+            r = region("terminal")
+        except Exception:  # noqa: BLE001
+            return []
+        if not r:
+            return []
+        out = []
+        for b in blocks:
+            br = b.rect.to_dict() if hasattr(b.rect, "to_dict") else (b.rect if isinstance(b.rect, dict) else vars(b.rect))
+            cx, cy = br["x"] + br["w"] / 2, br["y"] + br["h"] / 2
+            if r["x"] <= cx <= r["x"] + r["w"] and r["y"] <= cy <= r["y"] + r["h"]:
+                out.append((br["y"], br["x"], str(getattr(b, "text", ""))))
+        return [t for _, _, t in sorted(out)]
 
     def screen_active(self) -> bool:
         return self.screen is not None and bool(getattr(self.screen, "active", True))
@@ -1137,7 +1164,8 @@ class LessonSession:
         if lines and all(self.SHELL_CMD.match(ln) for ln in lines):
             return self._python3("\n".join(ln.strip().lstrip("$ ").strip() for ln in lines))
         if rc and (not code or self._step_code_in_file(step)
-                   or self.RUN_WORDS.search(f"{step.get('title', '')} {step.get('details', '')}")):
+                   or self.RUN_WORDS.search(f"{step.get('title', '')} {step.get('details', '')} "
+                                            f"{step.get('instructions', '')}")):
             return self._python3(rc)
         return ""
 
@@ -1397,7 +1425,7 @@ class LessonSession:
             if isinstance(step.get(k), str) and step[k].strip():
                 return step[k].strip()
         if cmd := self._run_command(step):
-            return f"Run it in the terminal: {cmd.splitlines()[0]}"
+            return f"Run {cmd.splitlines()[0]} in the VS Code terminal"
         code, file = (step.get("code") or "").strip(), (self._step_file(step) or "").strip()
         first = next((ln.strip() for ln in code.splitlines() if ln.strip() and not ln.strip().startswith("#")), "")
         if first and file:
@@ -1406,8 +1434,8 @@ class LessonSession:
             exists = Path(self.workdir).is_dir() and wsmod.resolve_file(self.workdir, file) is not None
             more = " …" if len([ln for ln in code.splitlines() if ln.strip()]) > 1 else ""
             line = first if len(first) <= 60 else first[:57] + "…"
-            return (f"In {Path(file).name}, type {line}{more}" if exists
-                    else f"Create {Path(file).name} and type {line}{more}")
+            return (f"In VS Code, type {line}{more} in {Path(file).name}" if exists
+                    else f"In VS Code, create {Path(file).name} and type {line}{more}")
         text = " ".join((step.get("instructions") or "").split())
         m = re.match(r"(.+?[.!?])(\s|$)", text)
         sent = m.group(1) if m else text
@@ -1439,6 +1467,8 @@ class LessonSession:
         step = self.steps[idx]
         if self.lesson_mode:
             self._ensure_step_file(step)  # before the payload: step 1 reads "In calc.py, type …"
+            self._step_wall_t0 = time.time()  # after creating it: only the learner's saves count
+            self._term_at_start = tuple(self._vscode_terminal_lines())
         started = self._step_started_payload(step)
         await self.emit("step.started", started)
         self._say("step.started", started)
@@ -1474,7 +1504,10 @@ class LessonSession:
                 self.segment_done = True
                 self.segment_end_t = self.clock()
                 await self.evaluate("start")  # already done before the clip: ask "Looks done?" now
-        if back is not None:
+        if back is not None and self._dirty_step_file(step):  # they typed it: it's just not saved
+            await self._emit_card({"stepId": step["id"], "kind": "hint", "title": f"Save {empty}",
+                                   "body": f"Save {empty} in VS Code (⌘S)."})
+        elif back is not None:
             await self._emit_card({"stepId": step["id"], "kind": "hint", "title": f"{empty} is still empty",
                                    "body": f"Type this step's code into {empty} first; then we'll run it."})
         elif self.lesson_mode and (cmd := self._run_command(step)):  # the run step's own button
@@ -1808,7 +1841,7 @@ class LessonSession:
     # ------------------------------------------------------------------ evaluation
     async def evaluate(self, trigger: str) -> None:
         """trigger: start | segment | file | run_end | metric | screen | manual | check (the learner asked)"""
-        learner = trigger in ("file", "run_end", "metric", "check", "judge")
+        learner = trigger in ("file", "run_end", "metric", "check", "judge") or self._learner_evidence()
         if self.awaiting_resume:
             return  # frozen until the learner picks Continue / Start new
         async with self._lock:
@@ -1839,8 +1872,9 @@ class LessonSession:
             if gate.get("passed") and gate.get("via") != shown_list:  # green by the other route: show it green
                 why = "confirmed by your files" if gate.get("via") == "precision" else "confirmed on screen"
                 results = [r if r.get("status") == "pass" else {**r, "status": "pass", "detail": why} for r in results]
-            if gate.get("passed") and self.lesson_mode and self._file_unready(step):
-                # the screen shows the code but the file on disk is empty / unsaved: the file decides
+            if gate.get("passed") and (self._dirty_step_file(step) or self._other_folder(step)
+                                       or (self.lesson_mode and self._file_unready(step))):
+                # the screen shows the code, but it's unsaved / in another folder / not on disk: the file decides
                 gate = {**gate, "passed": False, "via": None}
                 self._editor_state_card(step)
             if self.judged_pass:  # E5's judge saw these done on screen: they count like any pass
@@ -1958,6 +1992,26 @@ class LessonSession:
                 if app.lower() in (a or "").lower() and ls:
                     return "\n".join(ls)[:limit], None
         return "", None
+
+    def _learner_evidence(self) -> bool:
+        """Lesson mode, without keyboard signals: the step's file was saved since the step began, or a run step's
+        VS Code terminal shows new output. Either means the learner did it (never stale output / old files)."""
+        step = self.step
+        if not self.lesson_mode or step is None:
+            return False
+        from . import workspace as wsmod
+
+        f = self._step_file(step)
+        p = wsmod.resolve_file(self.workdir, f) if f else None
+        try:
+            if p is not None and p.stat().st_mtime > self._step_wall_t0 + 0.05:
+                return True
+        except OSError:
+            pass
+        if self._run_command(step):
+            now = tuple(self._vscode_terminal_lines())
+            return bool(now) and now != self._term_at_start
+        return False
 
     def learner_started(self) -> bool:
         """Did the learner do anything on this step: a save, a run, an action, or typing since it started?"""
@@ -2104,8 +2158,10 @@ class LessonSession:
             if card.get("notStarted"):  # E5: nothing done yet -> one plain instruction, never amber / "off track"
                 self.spoken_sig = None  # a real diagnosis may follow once they've worked on it
                 self._carded_checks |= ids
-                nudge = {"stepId": step["id"], "kind": "hint", "title": card.get("title") or "Start here",
-                         "body": card.get("body") or step.get("instructions", "")}
+                body = card.get("body") or step.get("instructions", "")
+                if self.lesson_mode or len(body.split()) > 12:  # one action, <= 12 words (the drawer has the rest)
+                    body = self._action_line(step)
+                nudge = {"stepId": step["id"], "kind": "hint", "title": card.get("title") or "Start here", "body": body}
                 if self.lesson_mode:
                     nudge["actions"] = ["apply_fix"]
                 await self._emit_card(nudge, window_s=120.0, auto=True)
@@ -2202,13 +2258,14 @@ class LessonSession:
         in_editor = front in CODE_APP_NAMES
         if not in_editor and self.spot_rect is not None and (self._spot_app or "").lower() in CODE_APP_NAMES:
             self._spot_away = True
+            self.spot_rect, self._spot_caption = None, None  # the box must come back when VS Code does (S1 g)
             await self.emit("spotlight", {"clear": True})
             return True
         if in_editor and self._spot_away and self.step is not None and not self.passed:
             self._spot_away = False
             step = self.step
             if self.lesson_mode:
-                self._spawn(self._lesson_spot(self.step_gen, step, tries=3), timer=True)
+                self._spawn(self._lesson_spot(self.step_gen, step, tries=8), timer=True)
             else:
                 await self._spotlight_target(step)
             return True
@@ -2955,15 +3012,14 @@ class LessonSession:
             wf = self._wrong_folder or {}
             file = wf.get("file") or Path(self._step_file(step) or step.get("file") or "").name
             self._spawn(self._emit_card({"stepId": step["id"], "kind": "hint", "title": "Wrong folder?",
-                                         "body": f"You're editing {file} in {other}, but this lesson is in "
-                                                 f"{Path(self.workdir).name}.",
+                                         "body": f"This is {other}/{file}. Open the lesson's {file} in VS Code.",
                                          "actions": ["use_this_folder", "open_editor"] if wf.get("can_adopt")
                                          else ["open_editor"]}, window_s=120.0))
             return True
         dirty = self._dirty_step_file(step)
         if dirty:
             self._spawn(self._emit_card({"stepId": step["id"], "kind": "hint", "title": f"Save {dirty}",
-                                         "body": "Save with ⌘S so I can check it."}, window_s=60.0))
+                                         "body": f"Save {dirty} in VS Code (⌘S)."}, window_s=60.0))
             return True
         return False
 
@@ -3087,8 +3143,8 @@ class LessonSession:
             return
         if self.last_results and all(r.get("status") == "pass" for r in self.last_results):
             return
-        self._stuck_card_sent = await self._emit_card({"stepId": step["id"], "kind": "hint", "title": "Stuck on this step?",
-                                                       "body": "Skip it, or ask for a hint.", "actions": ["skip_step"]},
+        self._stuck_card_sent = await self._emit_card({"stepId": step["id"], "kind": "hint", "title": "Need a hand?",
+                                                       "body": "Press Hint for a nudge.", "actions": ["skip_step"]},
                                                       auto=True)
 
     async def _type_step_for_them(self, step: dict) -> None:

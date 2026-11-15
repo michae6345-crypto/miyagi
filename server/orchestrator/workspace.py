@@ -196,6 +196,19 @@ def prepare(graph: dict, goal: str) -> str | None:
     ws = _s2()
     if ws is None:
         return None
+    from . import config
+
+    if config.demo_mode():  # DEMO costs nothing: the folder, but no Claude-written starter files
+        try:
+            hero = ws.hero_workdir(graph) if hasattr(ws, "hero_workdir") else None
+            if hero is not None:
+                return str(hero)
+            folder = ws.lessons_root() / ws.folder_name(graph)
+            folder.mkdir(parents=True, exist_ok=True)
+            return str(folder)
+        except Exception:  # noqa: BLE001
+            log.exception("demo folder failed")
+            return None
     try:
         return str(ws.prepare(graph, goal))
     except Exception:  # noqa: BLE001
@@ -230,6 +243,10 @@ def requirements(graph: dict, folder: str) -> list[dict] | None:
     """S2's setup check: the lesson's tools, each checked on this Mac (read-only; Claude haiku, cached per
     lesson). None when S2's module isn't available; [] when it couldn't tell (no key / error). Blocking: run
     it in a thread."""
+    from . import config
+
+    if config.demo_mode():
+        return None  # DEMO costs nothing (S2's check asks Claude haiku)
     ws = _s2()
     fn = getattr(ws, "requirements", None) if ws is not None else None
     if fn is None:
