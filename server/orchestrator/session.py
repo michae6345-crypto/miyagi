@@ -585,7 +585,12 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
             if not self.typing():
                 break
             await asyncio.sleep(0.5)
-        await asyncio.to_thread(self.workspace.open, folder, True, file=self._editor_file(self.step), **self._open_holds())
+        from . import workspace as wsmod
+
+        # Miyagi's player / overlay stay in front during a video lesson: hold only a short grace, not until the learner
+        # leaves Miyagi (Michael, Nov 15 7:19: VS Code came 30 s late). Typing still holds it (_open_holds' busy).
+        await asyncio.to_thread(self.workspace.open, folder, True, file=self._editor_file(self.step),
+                                miyagi_wait_s=wsmod.VIDEO_MIYAGI_WAIT_S, **self._open_holds())
         self.editor_open = True
         self._record("editor_opened", {"auto": True, "folder": Path(folder).name})
         if self.step is not None:
