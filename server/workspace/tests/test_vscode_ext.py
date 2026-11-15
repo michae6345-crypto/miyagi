@@ -230,6 +230,22 @@ def test_record_event_and_subscribers():
     assert len(seen) == 2
 
 
+def test_scroll_events_never_push_a_run_out_of_the_history():
+    """Audit (Nov 15): companion 0.0.5 posts `visible` on every scroll. They reach the subscribers (box_follow) and
+    last_event, but stay out of the 200-event history, so a long scroll never evicts the command_end that Run it for
+    me / the run row read back with recent_events()."""
+    vx.reset_events()
+    seen = []
+    unsub = vx.subscribe(seen.append)
+    end = vx.record_event({"type": "command_end", "command": {"exitCode": 0}})
+    for i in range(500):
+        vx.record_event({"type": "visible", "visibleRanges": [{"startLine": i, "endLine": i + 30}]})
+    unsub()
+    assert any(e["seq"] == end["seq"] for e in vx.recent_events(end["seq"] - 1))
+    assert vx.last_event("visible")["visibleRanges"][0]["startLine"] == 499
+    assert sum(1 for e in seen if e["type"] == "visible") == 500
+
+
 def test_async_subscriber_runs_on_the_loop():
     got = []
 

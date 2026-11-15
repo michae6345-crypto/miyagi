@@ -351,6 +351,9 @@ _latest: dict[str, dict] = {}
 _subscribers: list[Callable[[dict], Any]] = []
 _lock = threading.Lock()
 _seq = 0
+# Companion 0.0.5's `visible` (every scroll, 80 ms debounce) goes to the subscribers and last_event only: in the
+# 200-event history a long scroll pushed out the command_end / dirty events that recent_events() readers still need.
+_NOT_KEPT = frozenset({"visible"})
 
 
 def record_event(ev: dict) -> dict:
@@ -361,7 +364,8 @@ def record_event(ev: dict) -> dict:
     with _lock:
         _seq += 1
         item = {**ev, "seq": _seq, "received": time.time()}
-        _events.append(item)
+        if str(ev.get("type") or "") not in _NOT_KEPT:
+            _events.append(item)
         _latest[str(ev.get("type") or "")] = item
         subs = list(_subscribers)
     for cb in subs:
