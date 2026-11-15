@@ -9,11 +9,13 @@
  * The pill moves on without waiting for the engine's step.started (the mock sends it ~4s later),
  * using step.passed.nextStepId or the next entry in lesson.steps. step.started then just confirms it.
  *
- * Also here: the notice line (core `notice`, shown ~5 s) and the offline state (core `connected`, after a grace).
+ * Also here: the notice line (core `notice`, shown ~5 s), the offline state (core `connected`, after a grace), and
+ * "Lesson saved · Undo" after End (review A3).
  */
 import { create } from 'zustand'
 import { onMessage, onUi } from '../../core/bus'
-import { notify, useLesson, type Notice } from '../../core/lesson'
+import { useLesson, type Notice } from '../../core/lesson'
+import { sendAction, usePressed } from '../../core/shortcuts'
 
 /** How long the green check holds before the text crossfades to the next step. */
 export const PASS_HOLD_MS = 560
@@ -29,9 +31,13 @@ type PillState = {
   notice?: Notice
   /** connected has been false for longer than OFFLINE_GRACE_MS. */
   offline: boolean
+  /** "Lesson saved · Undo" is on the pill (UNDO_MS after an End that kept the save). */
+  undo: boolean
+  /** Undo was pressed: the bonsai spins until the lesson is back (never look dead), at most RESUME_WAIT_MS. */
+  resuming: boolean
 }
 
-export const usePill = create<PillState>(() => ({ offline: false }))
+export const usePill = create<PillState>(() => ({ offline: false, undo: false, resuming: false }))
 const set = usePill.setState
 
 let holdTimer: ReturnType<typeof setTimeout> | undefined
@@ -41,11 +47,14 @@ const clear = (): void => {
   set({ celebrating: undefined, advanced: undefined, buildMessage: undefined })
 }
 
-// A full reset (dev HUD) clears everything. A lesson-scoped one (reconnect, lesson ended) keeps a notice on screen:
-// it may be the reason the lesson ended.
+// A full reset (dev HUD) clears everything. A lesson-scoped one (reconnect, lesson ended) keeps a notice on screen
+// (it may be the reason the lesson ended) and the Undo after End (that reset comes just before it).
 onUi('reset', (p) => {
   clear()
-  if (!(p as { scope?: string } | undefined)?.scope) hideNotice()
+  if ((p as { scope?: string } | undefined)?.scope) return
+  hideNotice()
+  dropUndo()
+  doneResuming()
 })
 onMessage('lesson.ready', () => {
   clearTimeout(holdTimer)
@@ -55,6 +64,12 @@ onMessage('lesson.ready', () => {
 onMessage('lesson.building', (p) => set({ buildMessage: p.failed ? undefined : p.message }))
 // The engine caught up. A celebration still in progress finishes on its own timer.
 onMessage('step.started', () => set({ advanced: undefined, buildMessage: undefined }))
+// A lesson is on screen again (resumed, or a new one): the Undo is spent and nothing is waiting any more.
+for (const t of ['lesson.building', 'lesson.ready', 'step.started'] as const)
+  onMessage(t, () => {
+    dropUndo()
+    doneResuming()
+  })
 onMessage('step.passed', (p) => {
   const { steps } = useLesson.getState()
   const i = steps.findIndex((s) => s.id === p.stepId)
@@ -85,17 +100,56 @@ function hideNotice(): void {
 }
 
 /**
- * The learner ended the lesson with End (the bar's or the launcher's): one calm line that it's kept, instead of
- * dropping silently back to the idle pill (Michael's desktop test 3, item 11). Only for the engine's reason "stopped":
- * that End keeps the save, and the resume card offers it back (server/sessions/resume.py KEEP_END). No line for
+ * The learner ended the lesson with End (the bar's or the launcher's): say where it went and offer Undo (Michael's
+ * review A3: "After any end, show where it went and offer Undo"; desktop test 3, item 11). The pill reads
+ * "Lesson saved · Undo" for UNDO_MS, then falls back to the idle pill. Undo sends action resume, which restores the
+ * kept save even with no lesson in memory (the engine's Resumer.resume reloads the step graph at the saved step).
+ * Only for the engine's reason "stopped": that End keeps the save (server/sessions/resume.py KEEP_END). No line for
  * "new lesson" (a new search or build replaced it), nor "end_lesson" / "POST /end" ("Start a new lesson" on the resume
- * card: the save is cleared, so "saved" would be untrue).
+ * card: the save is cleared, so "saved" would be untrue and Undo couldn't work).
  * Core turns lesson.ended into a lesson-scoped reset first (it registered before this handler); that reset keeps
- * notices, so the line survives it.
+ * the Undo, so it survives it.
  */
-export const LESSON_SAVED = 'Lesson saved. Continue anytime.'
+export const LESSON_SAVED = 'Lesson saved'
+export const UNDO_MS = 8000
+export const RESUME_WAIT_MS = 10_000
+let undoTimer: ReturnType<typeof setTimeout> | undefined
+let resumeTimer: ReturnType<typeof setTimeout> | undefined
+
+function offerUndo(): void {
+  clearTimeout(undoTimer)
+  set({ undo: true })
+  undoTimer = setTimeout(dropUndo, UNDO_MS)
+}
+function dropUndo(): void {
+  clearTimeout(undoTimer)
+  if (usePill.getState().undo) set({ undo: false })
+}
+function doneResuming(): void {
+  clearTimeout(resumeTimer)
+  if (usePill.getState().resuming) set({ resuming: false })
+}
+
+/** Undo (the pill's button after End): the engine resumes the kept save; the line goes at once. */
+export function undoEnd(): void {
+  dropUndo()
+  sendAction('resume')
+  clearTimeout(resumeTimer)
+  set({ resuming: true })
+  resumeTimer = setTimeout(doneResuming, RESUME_WAIT_MS)
+}
+
 onMessage('lesson.ended', (p) => {
-  if (p.reason === 'stopped') notify(LESSON_SAVED)
+  doneResuming()
+  if (p.reason === 'stopped') offerUndo()
+  else dropUndo()
+})
+// The engine answered the resume some other way (a card, an error): stop waiting.
+onMessage('card', doneResuming)
+onMessage('error', doneResuming)
+// "Start a new lesson" on the resume card (action end_lesson) clears the save: no Undo for that.
+usePressed.subscribe((s) => {
+  if (s.kind === 'end_lesson') dropUndo()
 })
 
 // ---------------------------------------------------------------------------

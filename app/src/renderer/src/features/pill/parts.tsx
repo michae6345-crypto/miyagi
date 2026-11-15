@@ -34,10 +34,11 @@ export function MonoMark({ size = 16, tone = color.text, className = '' }: { siz
 /**
  * The lead glyph: the bonsai, or the small core Spinner while the engine is thinking (an explain, a hint,
  * a diagram: 2-5 s), so a shortcut never looks dead. Both sit in the same 16px box: no layout change,
- * a 150ms crossfade only when thinking actually starts or stops.
+ * a 150ms crossfade only when thinking actually starts or stops. `busy`: spin anyway (the pill sent something and
+ * waits for its answer, e.g. Undo / Continue resuming a saved lesson).
  */
-export function LeadMark(): ReactNode {
-  const thinking = useThinking()
+export function LeadMark({ busy = false }: { busy?: boolean }): ReactNode {
+  const thinking = useThinking() || busy
   return (
     <span className="relative mr-[8px] inline-block h-[16px] w-[16px] shrink-0" data-thinking={thinking || undefined}>
       <motion.span className="absolute inset-0" initial={false} animate={{ opacity: thinking ? 0 : 1 }} transition={{ duration: 0.15 }}>

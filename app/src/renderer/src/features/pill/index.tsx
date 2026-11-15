@@ -8,6 +8,7 @@
  *             once the lesson is set (lesson.ready, before the first step.started) it's static: "Lesson ready ●", no spinner, no line
  *   compact   during a lesson: "[bonsai] Step 4 · Define the residual  4/8 ●" (count = this step / steps, dot = status);
  *             "Next part is still building" after a pass while a long video's next part builds
+ *   saved     after End (lesson.ended "stopped"): "[bonsai] Lesson saved · [Undo]" for ~8 s, then idle (review A3)
  *   notice    one line for ~5 s over any of them (engine errors, a failed build, notify()), then back
  * While the engine is thinking, the bonsai becomes the small spinner (LeadMark). Offline mid-lesson: hollow dot.
  * Calm: nothing animates unless the state really changed (no timer ticks, no repeats of the same line).
@@ -17,16 +18,16 @@
  * 13px medium · "Step 4 ·" in the muted label color, title in the text color.
  * The step-pass moment (check → flash → crossfade) is driven by ./store.ts.
  */
-import { AnimatePresence } from 'motion/react'
+import { AnimatePresence, motion } from 'motion/react'
 import { useRef, type ReactNode } from 'react'
 import { useShallow } from 'zustand/react/shallow'
 import { bridge } from '../../bridge'
 import { notify, useLesson } from '../../core/lesson'
 import { defineFeature } from '../../core/registry'
-import { color, copy } from '../../core/theme'
+import { color, copy, fill } from '../../core/theme'
 import { Kbd, Spinner } from '../../core/ui/atoms'
 import { BuildLine, FitSwap, LeadMark, MonoMark, StatusMark, StepCount, SwapText, type Mark } from './parts'
-import { usePill } from './store'
+import { LESSON_SAVED, undoEnd, usePill } from './store'
 
 /**
  * Offline, but the app is bringing its own engine up (main/localEngine.ts, built Mac app): say what's happening.
@@ -42,6 +43,7 @@ function offlineLabel(state?: string): { text: string; busy: boolean } {
 
 function Idle(): ReactNode {
   const offline = usePill((s) => s.offline)
+  const resuming = usePill((s) => s.resuming)
   const local = useLesson((s) => s.localEngine)
   const off = offlineLabel(local?.state)
   const click = (): void => {
@@ -63,7 +65,7 @@ function Idle(): ReactNode {
       title={offline ? local?.line : undefined}
       aria-label={offline ? `${off.text}: miyagi is not connected` : 'ask miyagi: open the launcher'}
     >
-      <LeadMark />
+      <LeadMark busy={resuming} />
       <SwapText id={offline ? `offline-${local?.state ?? ''}` : 'ask'} className="opacity-90 transition-opacity duration-150 group-hover:opacity-100">
         {offline ? off.text : copy.ask}
       </SwapText>
@@ -245,12 +247,50 @@ function NoticeLine(): ReactNode {
   )
 }
 
+/**
+ * After End kept the save (review A3): where it went, and a way back for UNDO_MS. Undo is a small neutral chip (chrome,
+ * not an option: no pastel; not the surface's primary: no white fill), concentric with the pill's right end.
+ */
+function SavedLine(): ReactNode {
+  return (
+    <div role="status" className="flex h-[34px] items-center whitespace-nowrap pl-[13px] pr-[6px] text-[13px] font-medium" style={{ color: color.text }} data-saved>
+      <MonoMark className="mr-[8px]" />
+      <span>{LESSON_SAVED}</span>
+      <span style={{ color: color.label }}>&nbsp;·&nbsp;</span>
+      <motion.button
+        type="button"
+        data-hit
+        className="ml-[4px] h-[22px] cursor-pointer rounded-full px-[10px] text-[12px] font-medium"
+        style={{ backgroundColor: fill.button, color: color.text }}
+        whileHover={{ backgroundColor: fill.chipHover }}
+        whileTap={{ scale: 0.96 }}
+        transition={{ duration: 0.12 }}
+        onClick={undoEnd}
+        aria-label="Undo: continue the lesson"
+      >
+        Undo
+      </motion.button>
+    </div>
+  )
+}
+
 export default defineFeature({
   id: 'pill',
   islandModes: [
     { id: 'idle', priority: 0, useActive: () => useLesson((s) => !s.lesson && !s.building), Content: Idle },
     { id: 'building', priority: 1, useActive: () => useLesson((s) => s.building && !s.stepId), Content: Building },
     { id: 'compact', priority: 2, useActive: () => useLesson((s) => !!s.stepId), Content: Compact },
+    // Over the idle pill only (a new lesson building or on screen wins), and never offline: Undo would go nowhere.
+    {
+      id: 'saved',
+      priority: 4,
+      useActive: () => {
+        const undo = usePill((s) => s.undo && !s.offline)
+        const idle = useLesson((s) => !s.lesson && !s.building)
+        return undo && idle
+      },
+      Content: SavedLine
+    },
     // Above the pill states, below hover (20) and cards (40+): a card the learner opened stays in front.
     { id: 'notice', priority: 5, useActive: () => usePill((s) => !!s.notice), Content: NoticeLine }
   ]
