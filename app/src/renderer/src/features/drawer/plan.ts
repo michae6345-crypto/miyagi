@@ -99,6 +99,16 @@ export function stepStatuses(x: StatusInput, o: Outcomes): StepStatus[] {
   })
 }
 
+/**
+ * The current step, when it just passed (or was skipped) and the engine's next step.started hasn't come yet: the gap
+ * where the pill already runs ahead to the next step (Michael's test 10, item 9). The drawer holds that step open and
+ * names the next one in its header, so nothing collapses and re-grows at a step change.
+ */
+export function useJustEnded(): string | undefined {
+  const ended = useOutcomes((o) => o.ended)
+  return useLesson((s) => (ended && ended === s.stepId ? ended : undefined))
+}
+
 /** stepStatuses for the lesson in core/lesson. */
 export function useStepStatuses(): StepStatus[] {
   const o = useOutcomes()

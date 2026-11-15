@@ -14,7 +14,7 @@ import type { ReactNode } from 'react'
 import { Waypoints } from 'lucide-react'
 import { actionTone, color, fill } from '../../core/theme'
 import { CloseButton } from '../../core/ui/atoms'
-import { useDiagram } from './store'
+import { useDiagram, type DiagramPayload } from './store'
 import { Graph } from './Graph'
 import { NeuralNet, WEIGHT_NEG, WEIGHT_POS } from './NeuralNet'
 import { SafeDiagram } from './SafeDiagram'
@@ -38,17 +38,7 @@ export function DiagramView(): ReactNode {
         <CloseButton />
       </div>
       <div className="mt-[10px]">
-        <SafeDiagram resetKey={d.data}>
-        {d.kind === 'network' &&
-          ((d.data as Record<string, unknown>).frames ? (
-            isFiringNetwork(d.data as Record<string, unknown>) ? <Firing data={d.data as Record<string, unknown>} /> : <NeuralNet data={d.data as Record<string, unknown>} />
-          ) : (
-            <Network data={d.data as Record<string, unknown>} />
-          ))}
-        {d.kind === 'gradients' && <Gradients data={d.data as Record<string, unknown>} />}
-        {d.kind === 'heatmap' && <Heatmap data={d.data as HeatmapData} />}
-        {d.kind === 'graph' && <Graph data={d.data as GraphDiagramData} />}
-        </SafeDiagram>
+        <DiagramBody d={d} />
       </div>
       {/* Left-aligned under the left-aligned title (audit A23). */}
       {d.caption && (
@@ -63,6 +53,23 @@ export function DiagramView(): ReactNode {
   )
 }
 
+/** The drawing itself, at the island's 600 px content width, in island (dark) ink. The drawer's flyout reuses it. */
+export function DiagramBody({ d }: { d: DiagramPayload }): ReactNode {
+  return (
+    <SafeDiagram resetKey={d.data}>
+      {d.kind === 'network' &&
+        ((d.data as Record<string, unknown>).frames ? (
+          isFiringNetwork(d.data as Record<string, unknown>) ? <Firing data={d.data as Record<string, unknown>} /> : <NeuralNet data={d.data as Record<string, unknown>} />
+        ) : (
+          <Network data={d.data as Record<string, unknown>} />
+        ))}
+      {d.kind === 'gradients' && <Gradients data={d.data as Record<string, unknown>} />}
+      {d.kind === 'heatmap' && <Heatmap data={d.data as HeatmapData} />}
+      {d.kind === 'graph' && <Graph data={d.data as GraphDiagramData} />}
+    </SafeDiagram>
+  )
+}
+
 const draw = (i: number) => ({ initial: { pathLength: 0, opacity: 0 }, animate: { pathLength: 1, opacity: 1 }, transition: { duration: 0.35, delay: i * 0.03 } })
 
 function Network({ data }: { data: Record<string, unknown> }): ReactNode {
@@ -72,9 +79,12 @@ function Network({ data }: { data: Record<string, unknown> }): ReactNode {
   const inputs = (data.inputs as string[]) ?? []
   const derivs = (data.derivatives as string[]) ?? []
   const residual = (data.residual as string) ?? ''
-  const W = 600
+  const output = typeof data.output === 'string' ? data.output : ''
   const H = 196
   const netW = 420
+  // With nothing on the right (no autograd arrows, no combined output) the drawing ends at the output's name, written
+  // in full: no empty right third, so it sits centred (test 10 judge review: "softm…", network in the left 420 of 600).
+  const W = derivs.length || residual ? 600 : Math.round(netW - 24 + 19 + (output ? output.length * 6.6 + 4 : 0) + 16)
   // Node names sit OUTSIDE the circles (inputs to the left, the output to the right): inside, "X" covered the first
   // input and "output" overlapped its node (Michael's test 5). Room on the left grows with the longest input name.
   const short = (t: string): string => (t.length > 12 ? `${t.slice(0, 11)}…` : t)
@@ -150,8 +160,9 @@ function Network({ data }: { data: Record<string, unknown> }): ReactNode {
           </text>
         )
       })}
-      {typeof data.output === 'string' && data.output && (
-        // With autograd arrows on the right (derivatives), the short output name stays in its node, clear of them.
+      {output && (
+        // With autograd arrows on the right (derivatives), the short output name stays in its node, clear of them;
+        // without them it's written in full to the node's right (W makes room for it).
         <text
           x={colX[colX.length - 1] + (derivs.length ? 0 : 19)}
           y={82 + 4}
@@ -160,7 +171,7 @@ function Network({ data }: { data: Record<string, unknown> }): ReactNode {
           fontSize="12"
           fontStyle="italic"
         >
-          {short(data.output)}
+          {derivs.length ? short(output) : output}
         </text>
       )}
       {/* labels */}

@@ -6,8 +6,17 @@ import { create } from 'zustand'
 import { onMessage, onUi } from '../../core/bus'
 import { useDiagram } from '../diagrams/store'
 
+export type Side = 'left' | 'right'
+
 type DrawerState = {
   open: boolean
+  /**
+   * Which screen edge the learner put the drawer on (drag its header sideways; saved). Michael, Nov 15 5:45 AM: things
+   * under it (VS Code's Run button, the terminal) couldn't be clicked, and it couldn't be moved.
+   */
+  side: Side
+  /** Where it's drawn right now: `side`, or the other edge while the spotlight's target sits under it (index.tsx). */
+  at: Side
   /** The panel's last rendered height (it hugs its content). Kept while it's hidden, for the spotlight check. */
   panelH?: number
   /** Mockup 02: the primer item (concept) open in the concept panel; the drawer collapses to a step rail meanwhile. */
@@ -23,7 +32,30 @@ type DrawerState = {
 /** Stage only: `?drawer=open` starts with the drawer open (review and screenshots). */
 const startOpen = typeof location !== 'undefined' && new URLSearchParams(location.search).get('drawer') === 'open'
 
-export const useDrawer = create<DrawerState>(() => ({ open: startOpen }))
+const SIDE_KEY = 'miyagi.drawer.side'
+function savedSide(): Side {
+  try {
+    return localStorage.getItem(SIDE_KEY) === 'left' ? 'left' : 'right'
+  } catch {
+    return 'right'
+  }
+}
+
+const initialSide = savedSide()
+export const useDrawer = create<DrawerState>(() => ({ open: startOpen, side: initialSide, at: initialSide }))
+
+/** The learner dropped the drawer on an edge: keep it there (this session and the next). */
+export function setDrawerSide(side: Side): void {
+  if (useDrawer.getState().side !== side) useDrawer.setState({ side })
+  try {
+    localStorage.setItem(SIDE_KEY, side)
+  } catch {
+    // storage unavailable: the side holds for this session only
+  }
+}
+export const setDrawerAt = (at: Side): void => {
+  if (useDrawer.getState().at !== at) useDrawer.setState({ at })
+}
 
 export const toggleDrawer = (): void => useDrawer.setState((s) => ({ open: !s.open, concept: undefined }))
 export const closeDrawer = (): void => useDrawer.setState({ open: false, concept: undefined })
@@ -46,16 +78,12 @@ onUi('reset', closeDrawer)
 // "Step N of M" and the step's instructions live (Michael, Sat 3:56 PM).
 onMessage('lesson.ready', (p) => useDrawer.setState({ open: startOpen || p.lesson.mode === 'lesson', concept: undefined, peekStep: undefined }))
 
-// The engine pushed the first live network for a step: open the drawer so it's seen (updates to the same step's
-// network never reopen it, so the learner's own "Hide steps" sticks).
+// A pushed diagram opens nothing (Michael, Nov 15 7 AM). The learner opened the Diagram flyout: it slides out of the
+// drawer's inner edge, so bring the drawer (as the full panel, not the concept rail) if it was closed.
 useDiagram.subscribe((s, prev) => {
-  if (!s.live || s.live === prev.live) return
-  if (prev.live && prev.live.step === s.live.step) return
-  useDrawer.setState({ open: true, concept: undefined })
-})
-// The learner asked for the diagram while the step has a live network: show the drawer (its panel unfolds itself).
-useDiagram.subscribe((s, prev) => {
-  if (s.liveFocus && s.liveFocus !== prev.liveFocus) useDrawer.setState({ open: true, concept: undefined })
+  if (!s.open || prev.open) return
+  const d = useDrawer.getState()
+  if (!d.open || d.concept) useDrawer.setState({ open: true, concept: undefined })
 })
 
 /** http(s) links only; anything else (file:, javascript:, a bare path) is ignored. */

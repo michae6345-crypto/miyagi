@@ -8,7 +8,6 @@ import { bridge } from '../../bridge'
 import { onMessage, onUi } from '../../core/bus'
 import { sendAction, usePressed, type ActionKind } from '../../core/shortcuts'
 import { clearOfftrack, dismissAfter, seekVideo, useLesson, WITHDRAW_MS, type CheckItem } from '../../core/lesson'
-import { useDiagram } from '../diagrams/store'
 
 export type Point = { step: number; value: number }
 /** `seq` = event order of its first point (compared with the off-track's), `at` = when its last point arrived (ms). */
@@ -529,19 +528,7 @@ onMessage('card', (raw) => {
     lastAsk = 0
   }
 })
-/**
- * A diagram takes the card's place only when it opens at the top. A live network the engine pushes for the drawer's
- * panel (curated lessons push one at every step start, right after the run step's "Run it" card) opens nothing up
- * there, so the card stays: else "Run it for me" vanished the moment Train it started. The diagrams feature decides
- * where it goes, so this looks once its handler has run.
- */
-onMessage('diagram', () => {
-  queueMicrotask(() => {
-    if (!useDiagram.getState().open) return
-    cancelClose()
-    set({ card: undefined, pending: undefined, resume: over(), offtrackOpen: false })
-  })
-})
+// A diagram never takes the card's place: it opens beside the drawer, never at the top (diagrams/store.ts, drawer/Flyout.tsx).
 onMessage('step.passed', (p) => {
   const { recovered, offtrackSeq } = get()
   set({ offtrackOpen: false, fixing: false, resume: false })

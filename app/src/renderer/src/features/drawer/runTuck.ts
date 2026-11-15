@@ -1,19 +1,13 @@
 /**
  * Feature: drawer. A run step (step.kind "run") tucks the drawer to its "Steps" handle so VS Code's Run button and the
  * terminal are clear (Michael's test, Sun 2:56 AM), unless the learner pressed the handle for this step.
- * While it is tucked, the live network floats out instead of tucking with it: training is the demo moment
- * (Michael's test 6). FloatNet shows it in RUN_CORNER; dragging it settles it there for real.
+ * While it is tucked, nothing floats on its own: the Diagram button slides the flyout out from the handle's edge, below
+ * the editor's tab row (RUN_DROP) so the Run button stays clear, and above the terminal (RUN_SHARE). Flyout.tsx.
  */
 import { useLesson } from '../../core/lesson'
-import type { Corner } from './netFloat'
 import { useStepDetail } from './plan'
 import { useDrawer } from './store'
 
-/**
- * Top-right, where the drawer was (Michael's test 7: top-left still sat over the terminal and under the bar). FloatNet
- * drops it below the editor's tab row (RUN_DROP) so the Run button stays clear, and fits it above the terminal.
- */
-export const RUN_CORNER: Corner = 'tr'
 /** Below the editor's tab row and its Run ▷ (VS Code: title bar + tabs + breadcrumbs ≈ 80 px). */
 export const RUN_DROP = 88
 /** The share of the work area above the terminal panel (VS Code's panel takes about the bottom third). */

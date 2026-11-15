@@ -16,10 +16,9 @@
  * too, but it also blocks every motion that mounts later inside those rows, like the green tick drawing in.)
  */
 import { AnimatePresence, motion } from 'motion/react'
-import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type ReactNode, type RefObject } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type PointerEvent as ReactPointerEvent, type ReactNode, type RefObject } from 'react'
 import { useShallow } from 'zustand/react/shallow'
-import { ArrowUpRight, ChevronsRight, FileCode2, FileText, FolderGit2, Newspaper, X, type LucideIcon } from 'lucide-react'
-import { LiveNetSection } from './LiveNet'
+import { ArrowUpRight, ChevronsLeft, ChevronsRight, FileCode2, FileText, FolderGit2, Newspaper, X, type LucideIcon } from 'lucide-react'
 import type { Source, SourceKind, StepSummary } from '../../../../../../shared/contracts/events'
 import { builtByLabel, seekVideo, useLesson, useProgress, type CheckItem, type Rect } from '../../core/lesson'
 import { useAppearance } from '../../core/prefs'
@@ -29,8 +28,8 @@ import { GlassCheck, GlassSpinner } from '../../core/ui/glass'
 import { useCards } from '../cards/store'
 import { parseYouTube, thumbnailFor } from '../launcher/youtube'
 import { HANDLE, TAB } from './geometry'
-import { count, lessonOutline, planTotal, useStepDetail, useStepStatuses, type StepStatus } from './plan'
-import { closeDrawer, isWebLink, openSource, setPanelHeight, toggleDrawer } from './store'
+import { count, lessonOutline, planTotal, useJustEnded, useStepDetail, useStepStatuses, type StepStatus } from './plan'
+import { closeDrawer, isWebLink, openSource, setDrawerSide, setPanelHeight, toggleDrawer, useDrawer, type Side } from './store'
 import { BuildStrip, lessonTopic, minutesLeft, NeedsChip, OverviewText, PrimerSection, StepActions, StepDetail } from './Teach'
 
 /**
@@ -55,6 +54,7 @@ const hoverCls = 'hover:bg-[var(--drawer-hover)]'
 /** `onOpen`: what a press does instead of toggling (a run step's tucked drawer: show it for that step). */
 export function Tab({ rect, shown, labeled = false, onOpen }: { rect: Rect; shown: boolean; labeled?: boolean; onOpen?: () => void }): ReactNode {
   const [hover, setHover] = useState(false)
+  const side = useDrawer((s) => s.at)
   if (labeled) return <StepsHandle rect={rect} shown={shown} onOpen={onOpen} />
   return (
     <AnimatePresence>
@@ -78,7 +78,7 @@ export function Tab({ rect, shown, labeled = false, onOpen }: { rect: Rect; show
         >
           <motion.span
             className="absolute rounded-full"
-            style={{ right: TAB.edge, top: (rect.h - TAB.h) / 2, width: TAB.w, height: TAB.h, background: glass.track }}
+            style={{ [side === 'left' ? 'left' : 'right']: TAB.edge, top: (rect.h - TAB.h) / 2, width: TAB.w, height: TAB.h, background: glass.track }}
             animate={{ scaleX: hover ? 1.5 : 1, scaleY: hover ? 1.15 : 1 }}
             transition={spring}
           />
@@ -93,6 +93,8 @@ export function Tab({ rect, shown, labeled = false, onOpen }: { rect: Rect; show
  * hid the drawer always has the way back (Michael's live test, Sun 12:55 AM). Neutral chrome: glass tokens, no pastel.
  */
 function StepsHandle({ rect, shown, onOpen }: { rect: Rect; shown: boolean; onOpen?: () => void }): ReactNode {
+  const left = useDrawer((s) => s.at) === 'left'
+  const out = left ? -12 : 12
   return (
     <AnimatePresence>
       {shown && (
@@ -105,7 +107,7 @@ function StepsHandle({ rect, shown, onOpen }: { rect: Rect; shown: boolean; onOp
           title="Show lesson steps"
           className="absolute flex cursor-pointer items-center justify-center border text-[12px] font-semibold"
           style={{
-            left: rect.x,
+            left: left ? rect.x + HANDLE.edge : rect.x,
             top: rect.y,
             width: rect.w - HANDLE.edge,
             height: rect.h,
@@ -116,10 +118,10 @@ function StepsHandle({ rect, shown, onOpen }: { rect: Rect; shown: boolean; onOp
             color: glass.label,
             writingMode: 'vertical-rl'
           }}
-          initial={{ opacity: 0, x: 12 }}
+          initial={{ opacity: 0, x: out }}
           animate={{ opacity: 1, x: 0 }}
-          exit={{ opacity: 0, x: 12 }}
-          whileHover={{ x: -2 }}
+          exit={{ opacity: 0, x: out }}
+          whileHover={{ x: left ? 2 : -2 }}
           transition={{ ...spring, opacity: { duration: 0.18 } }}
           onMouseDown={(e) => e.preventDefault()}
           onClick={onOpen ?? toggleDrawer}
@@ -135,7 +137,10 @@ function StepsHandle({ rect, shown, onOpen }: { rect: Rect; shown: boolean; onOp
 // Panel
 // ---------------------------------------------------------------------------
 
-export function Panel({ rect }: { rect: Rect }): ReactNode {
+/** How far the header must move sideways before it's a drag (a plain press still clicks its buttons). */
+const SIDE_DRAG_SLOP = 6
+
+export function Panel({ rect, side = 'right' }: { rect: Rect; side?: Side }): ReactNode {
   const lesson = useLesson((s) => s.lesson)
   const lessonMode = lesson?.mode === 'lesson'
   const plan = usePlanProgress()
@@ -148,7 +153,8 @@ export function Panel({ rect }: { rect: Rect }): ReactNode {
   const topic = lessonMode && lesson?.title ? lessonTopic(lesson.title) : undefined
   // A hairline under the header once the list scrolls, so text doesn't run straight into the title.
   const [scrolled, setScrolled] = useState(false)
-  const away = rect.w + 24
+  const away = (side === 'left' ? -1 : 1) * (rect.w + 24)
+  const drag = useSideDrag(side)
   // The panel hugs its content (up to rect.h, then the list scrolls). Report the real height so the
   // spotlight check covers only what's on screen. offsetHeight ignores the slide's transform.
   useLayoutEffect(() => {
@@ -180,14 +186,22 @@ export function Panel({ rect }: { rect: Rect }): ReactNode {
         color: glass.text
       }}
       initial={{ x: away, opacity: 0 }}
-      animate={{ x: 0, opacity: 1 }}
+      animate={{ x: drag.dx, opacity: 1 }}
       exit={{ x: away, opacity: 0, transition: { ...springOut, opacity: { duration: 0.18 } } }}
       transition={{ ...spring, opacity: { duration: 0.18 } }}
     >
       <div
         data-part="drawer-header"
         className="shrink-0 border-b px-[18px] pb-[12px] pt-[16px]"
-        style={{ borderColor: scrolled ? glass.rule : 'transparent', transition: 'border-color 150ms ease-out' }}
+        style={{
+          borderColor: scrolled ? glass.rule : 'transparent',
+          transition: 'border-color 150ms ease-out',
+          cursor: drag.dragging ? 'grabbing' : 'grab',
+          touchAction: 'none'
+        }}
+        title="Drag sideways to move the steps to the other edge"
+        onPointerDown={drag.onPointerDown}
+        onClickCapture={drag.onClickCapture}
       >
         <div className="flex items-start gap-[12px]">
           <div className="min-w-0 flex-1">
@@ -217,15 +231,14 @@ export function Panel({ rect }: { rect: Rect }): ReactNode {
             onMouseDown={(e) => e.preventDefault()}
             onClick={closeDrawer}
             aria-label={lessonMode ? 'Hide steps' : 'Close'}
-            title={lessonMode ? 'Hide steps (the Steps tab on the right brings them back)' : undefined}
+            title={lessonMode ? `Hide steps (the Steps tab on the ${side} brings them back)` : undefined}
           >
             {/* A lesson's drawer collapses to the "Steps" handle: a chevron, so it never reads as a card's ✕. */}
-            {lessonMode ? <ChevronsRight size={13} strokeWidth={2.2} /> : <X size={12} strokeWidth={2.2} />}
+            {lessonMode ? (side === 'left' ? <ChevronsLeft size={13} strokeWidth={2.2} /> : <ChevronsRight size={13} strokeWidth={2.2} />) : <X size={12} strokeWidth={2.2} />}
           </button>
         </div>
         {plan.known > 0 && <ProgressHeader plan={plan} />}
       </div>
-      <LiveNetSection />
       <div
         ref={scroller}
         className="relative min-h-0 flex-initial overflow-y-auto px-[8px] pb-[12px]"
@@ -298,8 +311,13 @@ type PlanProgress = { done: number; skipped: number; known: number; total?: numb
  * where we are, and minutes left.
  */
 function usePlanProgress(): PlanProgress {
-  const { index } = useProgress()
+  const { index: at } = useProgress()
   const statuses = useStepStatuses()
+  // Passed, next step.started not here yet: the pill already shows the next step, so the header does too (Michael's
+  // test 10, item 9: "Step 4 of 7" under a pill at Step 5). Not after the last step: that reads "All N steps done".
+  const ended = useJustEnded()
+  const ahead = useLesson((s) => !!ended && (at < s.steps.length - 1 || s.pendingNext || !s.complete))
+  const index = ahead ? at + 1 : at
   const p = useLesson(
     useShallow((s) => {
       const done = statuses.filter((x) => x === 'done').length
@@ -396,6 +414,15 @@ function Steps({ scroller }: { scroller: RefObject<HTMLDivElement | null> }): Re
 
   // The current step stays current (expanded) even when core still lists it as passed or skipped (after Back).
   const statuses = useStepStatuses()
+  // Just passed, next step.started on its way: the row stays open (its code and green checks) until the next step
+  // opens, so the panel doesn't shrink and grow back at every step change (Michael's test 10, item 9). The last
+  // step of a finished lesson closes as before.
+  const ended = useJustEnded()
+  const held = useLesson((s) => {
+    if (!ended) return undefined
+    const i = s.steps.findIndex((x) => x.id === ended)
+    return i >= 0 && (i < s.steps.length - 1 || s.pendingNext || !s.complete) ? ended : undefined
+  })
   const waitingOnSetup = useWaitingOnSetup()
   const timeW = useTimeWidth(steps, complete)
   // The current step's code arriving after step.started grows the row: keep it in view then too.
@@ -408,16 +435,18 @@ function Steps({ scroller }: { scroller: RefObject<HTMLDivElement | null> }): Re
       {steps.map((s, i) => {
         const status: StepStatus = statuses[i] ?? 'locked'
         const k = fresh.indexOf(s.id)
+        const open = status === 'current' || s.id === held
         return (
           <StepRow
             key={s.id}
             step={s}
             n={i + 1}
             status={status}
+            held={s.id === held}
             timeW={timeW}
-            checks={status === 'current' ? checks : undefined}
-            instructions={status === 'current' ? instructions : undefined}
-            actions={status === 'current' && lessonMode}
+            checks={open ? checks : undefined}
+            instructions={open ? instructions : undefined}
+            actions={open && lessonMode}
             note={status === 'current' && waitingOnSetup ? 'Waiting on setup' : undefined}
             enterDelay={k < 0 ? undefined : k * 0.04}
           />
@@ -498,10 +527,31 @@ function useKeepInView(scroller: RefObject<HTMLDivElement | null>, stepId: strin
         else if (c.top - 12 < now) target = c.top - 12
       }
     }
+    reach(box, at, target ?? now)
     if (target === undefined) return
     box.scrollTo({ top: Math.max(0, target), behavior: first.current ? 'auto' : 'smooth' })
     first.current = false
   }, [scroller, stepId, checksKey, settled, checking, codeLen])
+}
+
+/** The list's own bottom padding (its pb-[12px] class). */
+const LIST_PAD = 12
+
+/**
+ * The list only scrolls so far: past its end the browser clamps the scroll, and when the clamp stops inside the intro
+ * above the plan, the "What you're building" strip sits cut in half under the header (Michael's tests 8 and 10: from
+ * step 5 on the drawer opened scrolled halfway, the flow boxes cut off at the top). Then room at the list's foot lets
+ * the scroll land on the block edge clearOfIntro chose. Only while the list overflows (the panel is at its full height,
+ * so the extra room never grows it), and recomputed on every pass, so it never piles up.
+ */
+function reach(box: HTMLElement, at: (n: HTMLElement) => { top: number; bottom: number }, want: number): void {
+  const plan = box.querySelector<HTMLElement>('[data-part="drawer-plan"]')
+  const extra = Number(box.dataset.reach ?? 0)
+  const max = box.scrollHeight - extra - box.clientHeight
+  const need = plan && max > 0 && want > max && max < at(plan).top ? Math.ceil(want - max) : 0
+  if (need === extra) return
+  box.dataset.reach = String(need)
+  box.style.paddingBottom = need ? `${LIST_PAD + need}px` : ''
 }
 
 /**
@@ -539,6 +589,7 @@ function StepRow({
   step,
   n,
   status,
+  held = false,
   timeW,
   checks,
   instructions,
@@ -550,6 +601,8 @@ function StepRow({
   /** The step's number in the plan (1-based), drawn in its ring. */
   n: number
   status: StepStatus
+  /** Just passed or skipped, the next step not started yet: stays open (done icon) until the next step opens. */
+  held?: boolean
   timeW: number
   checks?: CheckItem[]
   /** The current step's "what to do now" (Michael: a "Just teach me" lesson has no chapter list to read). */
@@ -563,10 +616,11 @@ function StepRow({
   const mounted = useMounted()
   const v = step.video
   const current = status === 'current'
+  const open = current || held
   const canSeek = status !== 'locked' && !!v
   // The plan line (steps[].what); the title when the engine sent none.
   const line = step.what?.trim() || undefined
-  const tone = current ? glass.text : status === 'done' || status === 'skipped' ? glass.label : glass.faint
+  const tone = open ? glass.text : status === 'done' || status === 'skipped' ? glass.label : glass.faint
   const indent = ROW.padX + ROW.icon + ROW.gap + (timeW ? timeW + ROW.gap : 0)
   // No time column (a "Just teach me" lesson): plan lines wrap to two lines instead of being cut off.
   const wrap = timeW === 0
@@ -576,7 +630,7 @@ function StepRow({
       data-step={step.id}
       data-status={status}
       className="rounded-[12px]"
-      style={{ background: current ? glass.fieldHover : 'transparent' }}
+      style={{ background: open ? glass.fieldHover : 'transparent' }}
       initial={enterDelay === undefined ? false : { opacity: 0, y: 6 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ ...spring, delay: enterDelay ?? 0, opacity: { duration: 0.25, delay: enterDelay ?? 0 } }}
@@ -611,7 +665,7 @@ function StepRow({
           </span>
         )}
         <span
-          className={`min-w-0 flex-1 text-[14px] ${wrap ? 'line-clamp-2 leading-[20px]' : 'truncate'} ${current ? 'font-semibold' : ''}`}
+          className={`min-w-0 flex-1 text-[14px] ${wrap ? 'line-clamp-2 leading-[20px]' : 'truncate'} ${open ? 'font-semibold' : ''}`}
           style={{ color: tone }}
           title={line && line !== step.title ? step.title : undefined}
         >
@@ -624,7 +678,7 @@ function StepRow({
           </span>
         )}
       </button>
-      {current && <StepDetail stepId={step.id} instructions={instructions} planKind={step.kind} indent={indent} padX={ROW.padX} />}
+      {open && <StepDetail stepId={step.id} instructions={instructions} planKind={step.kind} indent={indent} padX={ROW.padX} />}
       {checks && checks.length > 0 && (
         <motion.div
           data-part="drawer-checks"
@@ -637,7 +691,15 @@ function StepRow({
           <CheckList checks={checks} surface="glass" />
         </motion.div>
       )}
-      {actions && <StepActions padX={ROW.padX} />}
+      {/* A held (finished) step keeps the row's room but its options are spent: faded and inert until the next opens. */}
+      {actions &&
+        (held ? (
+          <div aria-hidden style={{ opacity: 0.35, pointerEvents: 'none' }}>
+            <StepActions padX={ROW.padX} />
+          </div>
+        ) : (
+          <StepActions padX={ROW.padX} />
+        ))}
     </motion.div>
   )
 }
@@ -761,4 +823,59 @@ function KindTile({ source }: { source: Source }): ReactNode {
       <I size={14} strokeWidth={1.6} />
     </span>
   )
+}
+
+/**
+ * Drag the panel's header sideways (Michael, Nov 15 5:45 AM: "I should be able to move it right to left, and lock it to
+ * that side"). The panel follows the pointer; let go past the screen's middle and it settles on that edge (saved), else
+ * it springs back. A press that doesn't travel SIDE_DRAG_SLOP stays a click (the header's buttons still work).
+ */
+function useSideDrag(side: Side): {
+  dx: number
+  dragging: boolean
+  onPointerDown: (e: ReactPointerEvent) => void
+  onClickCapture: (e: React.MouseEvent) => void
+} {
+  const [dx, setDx] = useState(0)
+  const [dragging, setDragging] = useState(false)
+  const moved = useRef(false)
+  return {
+    dx,
+    dragging,
+    onPointerDown: (e) => {
+      if (e.button !== 0) return
+      moved.current = false
+      const x0 = e.clientX
+      const y0 = e.clientY
+      const move = (m: PointerEvent): void => {
+        const d = m.clientX - x0
+        if (!moved.current && Math.hypot(d, m.clientY - y0) < SIDE_DRAG_SLOP) return
+        if (!moved.current) {
+          moved.current = true
+          setDragging(true)
+        }
+        setDx(d)
+      }
+      const up = (u: PointerEvent): void => {
+        window.removeEventListener('pointermove', move)
+        window.removeEventListener('pointerup', up)
+        window.removeEventListener('pointercancel', up)
+        setDragging(false)
+        if (!moved.current) return
+        const mid = window.innerWidth / 2
+        const to: Side = u.clientX < mid ? 'left' : 'right'
+        setDx(0)
+        if (to !== side) setDrawerSide(to)
+      }
+      window.addEventListener('pointermove', move)
+      window.addEventListener('pointerup', up)
+      window.addEventListener('pointercancel', up)
+    },
+    onClickCapture: (e) => {
+      if (!moved.current) return
+      moved.current = false
+      e.stopPropagation()
+      e.preventDefault()
+    }
+  }
 }
