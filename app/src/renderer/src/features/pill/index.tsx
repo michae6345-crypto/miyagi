@@ -2,7 +2,8 @@
  * Feature: pill. The island's pill-sized states (34px tall, width hugs content), to mockup 01 + the
  * Miyagi brand (app/brand/BRAND.md): always black and white, the bonsai as a one-color glyph on the left
  * (monochrome everywhere in the app), the status on the right.
- *   idle      no lesson yet: "[bonsai] ask miyagi ⌥Space ●" (lowercase, Michael) (click opens the launcher); "Offline ○" with no engine
+ *   idle      no lesson yet: "[bonsai] ask miyagi ⌥Space ●" (lowercase, Michael) (click opens the launcher); "Offline ○" with no engine;
+ *             while the engine offers a saved lesson back: "[bonsai] Continue · <lesson>  2/7 ●" (click resumes it, review A7)
  *   building  between Build lesson and the first step: lesson.building message + spinner + progress line
  *             (the stage's words always in full, at most STAGE_MAX characters, never cut mid-word: desktop test 3, item 9);
  *             once the lesson is set (lesson.ready, before the first step.started) it's static: "Lesson ready ●", no spinner, no line
@@ -27,7 +28,7 @@ import { defineFeature } from '../../core/registry'
 import { color, copy, fill } from '../../core/theme'
 import { Kbd, Spinner } from '../../core/ui/atoms'
 import { BuildLine, FitSwap, LeadMark, MonoMark, StatusMark, StepCount, SwapText, type Mark } from './parts'
-import { LESSON_SAVED, undoEnd, usePill } from './store'
+import { LESSON_SAVED, resumeSaved, undoEnd, usePill, type SavedOffer } from './store'
 
 /**
  * Offline, but the app is bringing its own engine up (main/localEngine.ts, built Mac app): say what's happening.
@@ -41,12 +42,42 @@ function offlineLabel(state?: string): { text: string; busy: boolean } {
   return { text: 'Offline', busy: false }
 }
 
+/**
+ * Cut a label at a word boundary with "…" past `max` characters, never mid-word (desktop test 3, item 9). One very long
+ * word stays whole (a CSS max width is the last resort).
+ */
+function clipWords(text: string, max: number): string {
+  if (text.length <= max) return text
+  const at = text.lastIndexOf(' ', max)
+  return at > 0 ? `${text.slice(0, at).replace(/[\s,:·–—-]+$/, '')}…` : text
+}
+
+/** Longest lesson title the Continue pill shows (about 180px at 13px), so the pill stays near the notice line's width. */
+const OFFER_MAX = 28
+
+/** The idle pill's words for a saved lesson the engine offers back (review A7). */
+function continueLabel(o: SavedOffer): { id: string; title?: string; count?: { n: number; total: number }; full?: string; aria: string } {
+  const title = o.title ? clipWords(o.title, OFFER_MAX) : undefined
+  const count = o.n !== undefined && o.total !== undefined ? { n: o.n, total: o.total } : undefined
+  return {
+    id: `continue-${o.title ?? ''}-${o.n ?? ''}-${o.total ?? ''}`,
+    title,
+    count,
+    full: o.title && title !== o.title ? `Continue ${o.title}` : undefined,
+    aria: `Continue ${o.title ?? 'the lesson'}${count ? `, step ${count.n} of ${count.total}` : ''}`
+  }
+}
+
 function Idle(): ReactNode {
   const offline = usePill((s) => s.offline)
   const resuming = usePill((s) => s.resuming)
+  const offer = usePill((s) => s.offer)
   const local = useLesson((s) => s.localEngine)
   const off = offlineLabel(local?.state)
+  // The engine offers a saved lesson back and its card is closed (review A7): the pill is the way back into it.
+  const cont = !offline && offer ? continueLabel(offer) : undefined
   const click = (): void => {
+    if (cont) return resumeSaved()
     if (offline && local?.state === 'missing') {
       void bridge.invoke('engine-local:copy').then(() => notify('Install command copied. Paste it in Terminal.')).catch(() => undefined)
       return
@@ -62,21 +93,46 @@ function Idle(): ReactNode {
       className="group flex h-[34px] cursor-pointer items-center whitespace-nowrap pl-[13px] pr-[14px] text-[13px] font-medium"
       style={{ color: offline ? color.label : color.text }}
       onClick={click}
-      title={offline ? local?.line : undefined}
-      aria-label={offline ? `${off.text}: miyagi is not connected` : 'ask miyagi: open the launcher'}
+      title={offline ? local?.line : cont?.full}
+      aria-label={offline ? `${off.text}: miyagi is not connected` : cont ? cont.aria : 'ask miyagi: open the launcher'}
+      data-offer={cont ? cont.id : undefined}
     >
       <LeadMark busy={resuming} />
-      <SwapText id={offline ? `offline-${local?.state ?? ''}` : 'ask'} className="opacity-90 transition-opacity duration-150 group-hover:opacity-100">
-        {offline ? off.text : copy.ask}
+      <SwapText
+        id={offline ? `offline-${local?.state ?? ''}` : cont ? cont.id : 'ask'}
+        className="flex opacity-90 transition-opacity duration-150 group-hover:opacity-100"
+      >
+        {offline ? (
+          off.text
+        ) : cont ? (
+          cont.title ? (
+            // Like compact's "Step 4 · <title>": the lead-in muted, the lesson in the text color.
+            <>
+              <span style={{ color: color.label }}>Continue ·&nbsp;</span>
+              <span className="max-w-[220px] truncate">{cont.title}</span>
+            </>
+          ) : (
+            'Continue the lesson'
+          )
+        ) : (
+          copy.ask
+        )}
       </SwapText>
       {offline && off.busy && <span className="ml-[10px] inline-flex"><Spinner size={13} c={color.label} /></span>}
-      {/* Fully round (radius 10 inside the pill's 17). Hidden offline: nothing to ask. */}
-      {!offline && <Kbd className="ml-[10px] !h-[20px] !rounded-full !px-[8px]">{bridge.platform.keys.launcher}</Kbd>}
+      {/* Fully round (radius 10 inside the pill's 17). Hidden offline: nothing to ask. Hidden on Continue: a click resumes. */}
+      {!offline && !cont && <Kbd className="ml-[10px] !h-[20px] !rounded-full !px-[8px]">{bridge.platform.keys.launcher}</Kbd>}
       {/* The status dot on the right, like every pill state (BRAND.md): gray watching, hollow gray offline (audit A21).
-          Spaced like compact: 15 after text, 9 after the key chip or spinner. */}
-      <span className={`flex items-center ${offline && !off.busy ? 'ml-[15px]' : 'ml-[9px]'}`}>
-        <StatusMark mark={offline ? 'offline' : 'watching'} />
-      </span>
+          Spaced like compact: 15 after text, 9 after the key chip, spinner or step count. */}
+      {cont ? (
+        <span className="ml-[15px] flex items-center gap-[9px]">
+          {cont.count && <StepCount n={cont.count.n} total={cont.count.total} />}
+          <StatusMark mark="watching" />
+        </span>
+      ) : (
+        <span className={`flex items-center ${offline && !off.busy ? 'ml-[15px]' : 'ml-[9px]'}`}>
+          <StatusMark mark={offline ? 'offline' : 'watching'} />
+        </span>
+      )}
     </button>
   )
 }
@@ -106,10 +162,7 @@ const STAGE_MAX = 34
  */
 function stageLabel(stage: string): string {
   const clause = stage.split(/\s*;\s*|\.\s+|\s[–—]\s/)[0].trim() || stage
-  if (clause.length <= STAGE_MAX) return clause
-  const at = clause.lastIndexOf(' ', STAGE_MAX)
-  // One very long word: show it whole rather than cut it.
-  return at > 0 ? `${clause.slice(0, at).replace(/[\s,:·–—-]+$/, '')}…` : clause
+  return clipWords(clause, STAGE_MAX)
 }
 
 /** The building pill once lesson.ready has landed and the first step hasn't started: nothing is working any more. */
