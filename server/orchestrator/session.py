@@ -4305,8 +4305,8 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
         except Exception as e:  # live mode: a missing/failing module is reported, never faked
             log.exception("action %s failed", kind)
             if asking and self.step is not None and gen == self.step_gen:  # never a silent failure for a question
-                card = (stage.fallback_answer(self, kind, text) if stage.on(self) else None) or \
-                    self._ask_failed_card(kind, text, e)  # a Demo lesson: the lesson's own answer, never "Couldn't reach"
+                card = (stage.fallback_answer(self, kind, text) if curated.active(self) else None) or \
+                    self._ask_failed_card(kind, text, e)  # the curated / Demo lesson: its own answer, never "Couldn't reach"
                 await self._emit_card(card, window_s=0.0)
             else:
                 await self.emit("error", {"message": f"{kind}: {e}"})
@@ -4499,7 +4499,7 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
                             self._spawn(self._show_spot(spot))
 
                 ctx["on_targets"] = on_targets
-            card = await self.m.explain(step, text if kind == "ask" else (text or None), ctx)
+            card = await self._explain_in_time(step, text if kind == "ask" else (text or None), ctx)
             if gen != self.step_gen:
                 return  # the learner moved to another step meanwhile: an answer about the old one would mislead
             card = dict(card)
@@ -4819,6 +4819,24 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
         """Is a question / explain / hint in flight, or was it answered < ASK_HOLD_S ago? Then no stuck, idle,
         judge or off-track card (QA 11-14: a stuck card released on Enter took the answer's place)."""
         return self._asks_in_flight > 0 or self.clock() < self._ask_hold_until
+
+    # t8 offline: a typed question in the curated / Demo lesson waits at most this long for Claude. On a venue network
+    # that drops packets the coach call sat out its 45 s timeout twice (82 s measured), and every press behind it
+    # (Check my work, Show me, Run it for me) queued for that long. Then the step's own Explain card answers instead.
+    # A live answer takes ~9 s (03:00:33 -> 03:00:41 on test 6).
+    CURATED_ASK_S = float(os.environ.get("MIYAGI_ASK_DEADLINE_S") or 12.0)
+
+    async def _explain_in_time(self, step: dict, question: str | None, ctx: dict) -> dict:
+        """m.explain, cut off after CURATED_ASK_S in the curated / Demo lesson (it has an offline answer)."""
+        call = self.m.explain(step, question, ctx)
+        if not curated.active(self):
+            return await call
+        try:
+            return await asyncio.wait_for(call, self.CURATED_ASK_S)
+        except asyncio.TimeoutError:
+            log.warning("ask: no answer from Claude within %.0fs (network?); the lesson's own answer instead",
+                        self.CURATED_ASK_S)
+            raise ConnectionError(f"connection: no answer within {self.CURATED_ASK_S:.0f}s") from None
 
     def _ask_failed_card(self, kind: str, text: str | None, e: Exception) -> dict:
         """The learner's question failed after the retries: say so in the answer slot, with Try again (`retry`)."""
