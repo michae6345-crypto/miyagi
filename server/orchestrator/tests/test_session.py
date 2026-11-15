@@ -1402,6 +1402,53 @@ def test_s2_setup_card_install_and_open_editor_gate(tmp_path, monkeypatch):
     assert not calls  # never opened VS Code
 
 
+
+def test_lesson_mode_install_success_is_one_line_without_open_or_skip(tmp_path, monkeypatch):
+    """E27: after Install, "Ready to go · requests installed ✓" offered Open Visual Studio Code and Skip while weather.py
+    was in front. In lesson mode the editor is open: the success is one line that closes itself, no buttons."""
+    monkeypatch.setenv("TUT_WORKDIR", str(tmp_path))
+    from server.orchestrator import workspace as wsmod
+    from server.orchestrator.workspace import Workspace
+    from server.workspace import setup_card
+
+    state = {"ok": False}
+
+    def reqs(graph, folder):
+        return [{"tool": "requests", "label": "requests", "kind": "python_package", "why": "http", "needed": True,
+                 "installed": state["ok"], "ok": state["ok"], "install": {"method": "pip", "command": "pip install requests", "url": None}},
+                {"tool": "vscode", "label": "Visual Studio Code", "kind": "editor", "why": "the editor", "needed": True,
+                 "installed": True, "ok": True, "install": {"method": "none", "command": None, "url": None}}]
+
+    def fake_install(item, folder, on_line):
+        state["ok"] = True
+        return {"ok": True, "tool": item["tool"], "version": "2.32.3"}
+
+    monkeypatch.setattr(wsmod, "requirements", reqs)
+    monkeypatch.setattr(wsmod, "setup_card", setup_card)
+    monkeypatch.setattr(wsmod, "install", fake_install)
+    rig = Rig(tmp_path)
+    rig.s.workspace = Workspace(enabled=True, runner=lambda argv: True)
+
+    async def go():
+        g = stubs.load_fixture_lesson()
+        g["lesson"]["mode"] = "lesson"
+        for st in g["steps"]:
+            st.pop("video", None)
+        await rig.s.load_graph(g)
+        await rig.settle()
+        await asyncio.sleep(0.05)
+        setup = [c for c in rig.of("card") if c["kind"] == "setup"][0]
+        assert "install" in setup["actions"] and "open_editor" not in setup["actions"]
+        await rig.s.action("install", "requests")
+        await asyncio.sleep(0.1)
+
+    run(go())
+    last = rig.of("card")[-1]
+    assert last["title"] == "requests installed ✓" and last["actions"] == [] and last["dismissAfterMs"] > 0
+    assert rig.s._setup_card is None  # nothing pending: the Start card / nudges may go out
+    ready = rig.of("lesson.ready")[0]
+    assert ready["lesson"]["outline"]["count"] == len(ready["steps"])  # E23: a finished build's outline is its steps
+
 def test_long_video_builds_progressively(rig):
     """E2's on_update: start on part 1, append later parts, wait (not finish) at the end of the built part."""
     full = stubs.load_fixture_lesson()

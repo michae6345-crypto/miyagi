@@ -476,6 +476,43 @@ async function diff(body) {
   return { ok: true, file: fsPath, title, proposed: right.toString() };
 }
 
+// After Miyagi pip-installs a package into the lesson's <folder>/.venv (E20): Pylance resolved `import requests` when
+// the folder opened, before the .venv existed, and kept its "could not be resolved" warning. Select that .venv as
+// this folder's interpreter (Python extension API) and restart the Python language server so it re-reads the
+// packages. Best effort: either part may be unavailable (no Python extension, an older API).
+async function pythonRefresh(body) {
+  const root = body && body.folder ? path.resolve(String(body.folder)) : folders()[0];
+  if (!root) throw new HttpError(400, 'folder_required');
+  const wf = typeof vscode.workspace.getWorkspaceFolder === 'function'
+    ? vscode.workspace.getWorkspaceFolder(vscode.Uri.file(root)) : undefined;
+  const py = process.platform === 'win32'
+    ? path.join(root, '.venv', 'Scripts', 'python.exe')
+    : path.join(root, '.venv', 'bin', 'python');
+  const out = { ok: true, folder: root, interpreter: null, restarted: false };
+  if (fs.existsSync(py)) {
+    try {
+      const ext = vscode.extensions.getExtension('ms-python.python');
+      const api = ext ? (ext.isActive ? ext.exports : await ext.activate()) : null;
+      const envs = api && api.environments;
+      if (envs && typeof envs.updateActiveEnvironmentPath === 'function') {
+        if (typeof envs.refreshEnvironments === 'function') await envs.refreshEnvironments();
+        await envs.updateActiveEnvironmentPath(py, wf ? wf.uri : vscode.Uri.file(root));
+        out.interpreter = py;
+      }
+    } catch (err) {
+      log(`python/refresh: selecting ${py} failed: ${(err && err.message) || err}`);
+    }
+  }
+  try {
+    await vscode.commands.executeCommand('python.analysis.restartLanguageServer');
+    out.restarted = true;
+  } catch (err) {
+    log(`python/refresh: restarting the language server failed: ${(err && err.message) || err}`);
+  }
+  log(`python/refresh: ${JSON.stringify(out)}`);
+  return out;
+}
+
 const ACTIONS = {
   'POST /open': openFile,
   'POST /highlight': highlight,
@@ -483,6 +520,7 @@ const ACTIONS = {
   'POST /terminal/run': terminalRun,
   'POST /apply': apply,
   'POST /diff': diff,
+  'POST /python/refresh': pythonRefresh,
 };
 
 // Answer within ACTION_DEADLINE_MS. A slower action still finishes: the reply says {pending, id} and the
@@ -792,6 +830,7 @@ async function activate(context) {
     subs.push(w.onDidEndTerminalShellExecution(onCommandEnd));
   }
   subs.push(vscode.commands.registerCommand('miyagi.companion.explainSelection', explainSelection));
+  subs.push(vscode.commands.registerCommand('miyagi.companion.refreshPython', () => pythonRefresh({}))); // E20 (also POST /python/refresh)
   subs.push(vscode.commands.registerCommand('miyagi.companion.status', () => { // no toast; GET /health instead
     log(S.port ? `status: listening on 127.0.0.1:${S.port}` : 'status: no free port (8791-8799)');
     return S.port;

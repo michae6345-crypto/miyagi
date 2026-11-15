@@ -54,6 +54,17 @@ NATIVE_FULLSCREEN = os.environ.get("MIYAGI_FULLSCREEN", "").strip().lower() == "
 # lesson's PANEL_W_LESSON 420 (A9, adrian/shell #83) + its 8 pt inset + an 8 pt gap), so the drawer doesn't cover the editor. MIYAGI_DRAWER_W=0:
 # the full width.
 DRAWER_W = float(os.environ.get("MIYAGI_DRAWER_W", "436"))
+# E22: the lesson's editor window also ends above the overlay's shortcut bar at the bottom of the screen (app
+# shortcut-bar BAR_HEIGHT 88 + its gap: the same 112 pt the player dock and the drawer keep clear, drawer/geometry.ts
+# BAR_CLEARANCE), so the terminal's last lines (the program's output, the prompt) are never under the bar.
+# MIYAGI_BAR_CLEARANCE=0: the full height.
+BAR_CLEARANCE = float(os.environ.get("MIYAGI_BAR_CLEARANCE", "112"))
+
+
+def above_bar(frame: tuple[float, float, float, float]) -> tuple[float, float, float, float]:
+    """(x, y, w, h) with its bottom BAR_CLEARANCE above the visible screen's bottom (never under half its height)."""
+    x, y, w, h = frame
+    return (x, y, w, max(round(h * 0.5), h - BAR_CLEARANCE))
 # Our own overlay must never be treated as "the app the learner was in".
 OVERLAY_NAMES = {n.strip().lower() for n in os.environ.get("MIYAGI_OVERLAY_APPS", "Miyagi,miyagi-overlay,Electron").split(",") if n.strip()}
 
@@ -266,8 +277,8 @@ def make_fullscreen(editor: dict, report: dict, *, folder: str | None = None, ax
     elif (frame := left_frame(1.0)) is None:
         report["fullscreen"] = "skipped: no screen info"
     else:
-        x, y, w, h = frame
-        frame = (x, y, max(round(w * EDITOR_FRACTION), w - DRAWER_W), h)  # the screen minus the overlay's drawer
+        x, y, w, h = above_bar(frame)
+        frame = (x, y, max(round(w * EDITOR_FRACTION), w - DRAWER_W), h)  # the screen minus the overlay's drawer and bar
         report["fullscreen"] = "done (maximized)" if ax.set_frame(win, *frame) else "failed: the editor refused the new frame"
     if win is not None and folder:
         put_away_other_lessons(ax, pid, folder, win, report)
@@ -365,6 +376,7 @@ def arrange(editor: dict, previous: dict | None, report: dict, *, ax=None, wait_
     if frame is None:
         report["arrange"] = "skipped: no screen info"
         return
+    frame = above_bar(frame)  # E22: the shortcut bar spans the bottom middle, over the left 60% too
     report["arranged"] = ax.set_frame(win, *frame)
     report["frame"] = [round(v) for v in frame]
     report["arrange"] = "done" if report["arranged"] else "failed: the editor refused the new frame"
@@ -418,9 +430,12 @@ def open_editor_report(path: Path | str, file: str | None = None, *, runner: Run
         target = f if f.is_file() else None
     prev = previous if previous is not None else frontmost_app(skip={ed["app"], ed.get("process") or PROCESS_NAMES.get(ed["id"], "")})
     if ed.get("cli"):
-        # no `-n`: `code <folder>` focuses the window that already has this folder, and opens one only if none does
-        # reuse_window: the frontmost VS Code window is an older Miyagi lesson folder -> `-r` swaps this folder in
-        argv = [ed["cli"], *(["-r"] if reuse_window else []), str(folder)] + (["-g", str(target)] if target else [])
+        # no `-n` in general: `code <folder>` focuses the window that already has this folder, and opens one only if
+        # none does. reuse_window (reuse_lesson_window: the frontmost VS Code window shows an OLDER Miyagi lesson
+        # folder and no window has this one) -> `-n`: this folder gets a window of its own. E21: `-r` swapped it into
+        # the old lesson's window, which then asked to save weather.py under Miyagi's sheet; the old window is
+        # minimized instead (put_away_other_lessons), its unsaved edits kept, no dialog.
+        argv = [ed["cli"], *(["-n"] if reuse_window else []), str(folder)] + (["-g", str(target)] if target else [])
         report["command"] = " ".join([Path(argv[0]).name, *argv[1:]])
         report["opened"] = run(argv)
     if not report["opened"] and sys.platform == "darwin":
@@ -758,10 +773,11 @@ def open_lesson_editor(folder: str | Path, file: str | None = None, *, lesson_id
                        miyagi_wait_s: float | None = None, cancelled: Callable[[], bool] | None = None, **kw) -> dict:
     """Open the lesson folder in the editor AT MOST ONCE per (lesson id, folder); idempotent and focus-safe.
 
-    - First call: `code <folder> -g <file>` (never `-n`: VS Code focuses a window that already has the folder),
-      then the one-time arrange / full screen. An automatic call (explicit=False) first waits until the
-      learner isn't in Miyagi (launcher/cards: `miyagi_focused`) and `busy()` (typing) is false; if that takes
-      a while it waits in a background thread (background=True) instead of blocking the caller.
+    - First call: `code <folder> -g <file>` (no `-n`: VS Code focuses a window that already has the folder; `-n` only
+      when the frontmost window shows an older lesson, E21), then the one-time arrange / full screen. An automatic
+      call (explicit=False) first waits until the learner isn't in Miyagi (launcher/cards: `miyagi_focused`) and
+      `busy()` (typing) is false; if that takes a while it waits in a background thread (background=True) instead
+      of blocking the caller.
     - Later calls: nothing, unless explicit=True (the learner pressed "Open VS Code"): then `code <folder>
       [-g <file>]` brings that folder's existing window forward. Never a second window, never a re-arrange.
     - file: the latest call's file wins, so a deferred first open shows the file asked for last (the step's), not
@@ -838,9 +854,10 @@ def open_lesson_editor(folder: str | Path, file: str | None = None, *, lesson_id
 
 
 def reuse_lesson_window(folder: str | Path, *, windows: Callable[[], list[dict]] | None = None) -> bool:
-    """New lesson: reuse the frontmost VS Code window (`code -r`) only if it shows an OLDER Miyagi lesson folder
-    (under ~/miyagi/lessons) and no window already has this folder. Windows outside the lessons folder are
-    never touched (then a plain `code <folder>` adds or focuses a window)."""
+    """New lesson: True when the frontmost VS Code window shows an OLDER Miyagi lesson folder (under ~/miyagi/lessons)
+    and no window already has this folder. The folder then opens in a NEW window (`code -n`, E21: `-r` reused the old
+    lesson's window and its save dialog) and the old one is minimized. Windows outside the lessons folder are never
+    touched (then a plain `code <folder>` adds or focuses a window)."""
     from .active import vscode_windows
 
     try:

@@ -306,6 +306,19 @@ def install(item: dict, folder: str, on_line) -> dict:
     return dict(fn(item, workdir=folder, on_line=on_line))
 
 
+def refresh_python(folder: str) -> dict | None:
+    """E20: after a pip install into <folder>/.venv, the lesson's VS Code window selects that .venv and restarts its
+    Python language server (companion extension), so `import requests` loses Pylance's warning. Blocking (retries for
+    up to ~20 s while the window starts): run it in a thread. Never raises; None when no window answered."""
+    try:
+        from server.workspace import vscode_ext
+
+        return vscode_ext.refresh_python(folder)
+    except Exception:  # noqa: BLE001 - a refinement: the lesson runs without it
+        log.exception("refresh_python failed")
+        return None
+
+
 def goto_argv(path: str, line: int) -> list[str] | None:
     """S2: the jump command for the learner's editor (Cursor if that's theirs), so jumps never launch a
     second editor; else VS Code's `code -r -g`."""

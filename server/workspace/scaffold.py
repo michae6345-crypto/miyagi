@@ -112,8 +112,9 @@ Rules:
   rails new, mkdir + git init, ...), do NOT pre-create it: return no files for it.
 - Never write code that a step asks the learner to write. Starter code files get only what the
   tutorial's starting point plausibly has: a module docstring/comment saying what the file is for,
-  `# Step N: ...` placeholder comments, or the boilerplate the tutorial starts from. No function
-  bodies, imports, components or commands a step tells the learner to add.
+  or the boilerplate the tutorial starts from. No function bodies, imports, components or commands
+  a step tells the learner to add. No step-numbered placeholder comments (`# Step 1: ...`): no step
+  uses or removes them, so they end up below the learner's code.
 - Dependency files (requirements.txt, package.json, Cargo.toml, ...) list what the tutorial
   installs. Pin an old major version (lesson.libraries) only if the tutorial's code breaks without
   it; otherwise use lower bounds that install on a current toolchain (Python 3.12, Node 20+).
@@ -218,6 +219,29 @@ def _is_text_name(p: str) -> bool:
     return name in TEXT_NAMES or any(name.endswith(ext) for ext in TEXT_EXT)
 
 
+# E26: "# Step 1: start building the weather CLI here" stayed on line 10, under the learner's step-2 code: no step uses
+# or removes a step-numbered placeholder. One whole comment line ("# Step 2 - ...", "// step 3", "<!-- Step 1 -->").
+# `--` starts a comment only in SQL, Lua and Haskell; elsewhere it is a CLI flag line (`  --step 1000 \`) and stays.
+_MARKER_RE = (r"^[ \t]*(?:(?:{lead})[ \t]*|/\*[ \t]*(?=[^\n]*\*/)|<!--[ \t]*(?=[^\n]*-->))"
+              r"(?:TODO:?[ \t]*)?\(?step[ \t]*\d+\b[^\n]*(?:\n|\Z)")
+_STEP_MARKER = re.compile(_MARKER_RE.replace("{lead}", "#|//|;"), re.I | re.M)
+_STEP_MARKER_DASH = re.compile(_MARKER_RE.replace("{lead}", "#|//|--|;"), re.I | re.M)
+_DASH_COMMENT_EXT = {".sql", ".lua", ".hs"}
+
+
+def strip_step_markers(text: str, path: str = "") -> str:
+    """A starter code file without step-numbered placeholder comment lines (the docstring and the rest kept). Prose and
+    data files (`# Step 1` is a Markdown heading there) are left as they are."""
+    ext = PurePosixPath(path or "").suffix.lower()
+    if ext in {".md", ".txt", ".csv", ".tsv", ".json", ".jsonl"}:
+        return text or ""
+    out = (_STEP_MARKER_DASH if ext in _DASH_COMMENT_EXT else _STEP_MARKER).sub("", text or "")
+    if out == (text or ""):
+        return out
+    out = re.sub(r"\n{3,}", "\n\n", out)
+    return out.rstrip("\n") + "\n" if out.strip() else ""
+
+
 def vet(raw: dict, graph: dict) -> tuple[Scaffold, list[str]]:
     """Apply the safety and no-solution rules. Returns the cleaned scaffold and the leak
     messages (for one corrective round trip)."""
@@ -272,7 +296,7 @@ def vet(raw: dict, graph: dict) -> tuple[Scaffold, list[str]]:
         if len(sc.files) >= MAX_FILES:
             sc.dropped.append(f"{f.get('path')}: over {MAX_FILES} files")
             continue
-        content = str(f.get("content") or "")
+        content = strip_step_markers(str(f.get("content") or ""), str(f.get("path") or ""))
         if (p := admit(str(f.get("path") or ""), content, "")) is not None:
             sc.files[p] = content
 
@@ -291,7 +315,7 @@ def vet(raw: dict, graph: dict) -> tuple[Scaffold, list[str]]:
                 elif kind == "commit":
                     files = {}
                     for f in op.get("files") or []:
-                        content = str(f.get("content") or "")
+                        content = strip_step_markers(str(f.get("content") or ""), str(f.get("path") or ""))
                         if (p := admit(str(f.get("path") or ""), content, "commit: ")) is not None:
                             files[p] = content
                     sc.git_ops.append({"op": "commit", "message": (op.get("message") or "update")[:200], "files": files})

@@ -270,6 +270,25 @@ def run_in_terminal(cmd: str, *, cwd: str | Path | None = None, folder: str | Pa
     return _post("/terminal/run", body, folder=folder or cwd)
 
 
+def refresh_python(folder: str | Path, *, tries: int = 10, every_s: float = 2.0, sleep=time.sleep) -> dict | None:
+    """After a pip install into <folder>/.venv (E20): the window that has `folder` open selects that .venv as its Python
+    interpreter and restarts the Python language server, so Pylance re-reads the packages (it resolved `import
+    requests` before the .venv existed and kept the warning). Only that window, never another one. Retries while the
+    window or its extension is still starting (the folder opened the same second the install finished). Blocking.
+    None when no window has the folder open; {"ok": False, "error": "no_route"} from an older extension."""
+    root = str(Path(folder).expanduser().resolve())
+    for k in range(max(1, tries)):
+        w = next((w for w in windows() if any(_inside(root, f) or _inside(f, root) for f in w.get("folders") or [])), None)
+        if w is not None:
+            out = _call(int(w["port"]), "POST", "/python/refresh", {"folder": root})
+            if out is not None:
+                log.info("python refresh in %s: %s", Path(root).name, out)
+                return out
+        if k + 1 < tries:
+            sleep(every_s)
+    return None
+
+
 def apply(file: str | Path, new_text: str | None = None, *, edits: Iterable[dict] | None = None, save: bool = True,
           reveal: bool = True, folder: str | Path | None = None) -> dict | None:
     """Edit through VS Code (WorkspaceEdit), then save: the learner's unsaved buffer is edited, not clobbered on
