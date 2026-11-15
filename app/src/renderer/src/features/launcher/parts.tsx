@@ -28,33 +28,24 @@ export function Rise({ i, children, className = '' }: { i: number; children: Rea
 }
 
 /**
- * A rounded chip: a suggestion to search, or a quick action. With `tone` it's a solid pastel option (fill and border in
- * the tone, ink text and icon); without, a quiet neutral chip. Colors are inline because they animate on hover.
+ * A topic suggestion chip: always a quiet neutral chip. Topics are not options, so they never take the action pastels
+ * (Michael's audit A18). Colors are inline because they animate on hover.
  */
-export function Chip({ icon: I, label, kbd, tone, onClick }: { icon: LucideIcon; label: string; kbd?: string; tone?: string; onClick: () => void }): ReactNode {
-  const ink = color.onAccent
+export function Chip({ icon: I, label, onClick }: { icon: LucideIcon; label: string; onClick: () => void }): ReactNode {
   return (
     <motion.button
       type="button"
       tabIndex={-1}
-      className={`flex h-[30px] cursor-pointer items-center gap-[7px] whitespace-nowrap rounded-full border pl-[11px] text-[13px] ${tone ? 'font-medium' : ''} ${kbd ? 'pr-[4px]' : 'pr-[13px]'}`}
-      style={tone ? { backgroundColor: tone, borderColor: tone, color: ink, filter: 'brightness(1)' } : { backgroundColor: fill.chip, borderColor: fill.chipBorder, color: fill.chipText }}
-      whileHover={tone ? { filter: 'brightness(1.06)' } : { backgroundColor: fill.chipHover, color: color.text }}
+      className="flex h-[30px] cursor-pointer items-center gap-[7px] whitespace-nowrap rounded-full border pl-[11px] pr-[13px] text-[13px]"
+      style={{ backgroundColor: fill.chip, borderColor: fill.chipBorder, color: fill.chipText }}
+      whileHover={{ backgroundColor: fill.chipHover, color: color.text }}
       whileTap={{ scale: 0.97 }}
       transition={{ duration: 0.12 }}
       onMouseDown={(e) => e.preventDefault()}
       onClick={onClick}
     >
-      <I size={13} strokeWidth={1.8} className="shrink-0" style={{ color: tone ? ink : color.faint }} />
+      <I size={13} strokeWidth={1.8} className="shrink-0" style={{ color: color.faint }} />
       {label}
-      {kbd &&
-        (tone ? (
-          <span className="inline-flex h-[22px] items-center rounded-full px-[8px] text-[11px] font-medium" style={{ background: fill.onAccentKey, color: ink }}>
-            {kbd}
-          </span>
-        ) : (
-          <Kbd className="!h-[22px] !rounded-full !px-[8px] !text-[11px]">{kbd}</Kbd>
-        ))}
     </motion.button>
   )
 }
@@ -107,12 +98,12 @@ export function HowChoice({ how, teachKey, onPick }: { how: How; teachKey: strin
   )
 }
 
-/** A passive key hint in the footer, e.g. "Choose ↑↓": same shape as an Action, not clickable. */
+/** A passive key hint in the footer, keycap first: "↑↓ Choose", "esc Close". Not clickable. */
 export function Hint({ label, keycap }: { label: string; keycap: string }): ReactNode {
   return (
-    <span className="flex h-[30px] shrink-0 items-center gap-[8px] whitespace-nowrap pl-[10px] pr-[4px] text-[13px]" style={{ color: color.faint }}>
-      {label}
+    <span className="flex h-[30px] shrink-0 items-center gap-[7px] whitespace-nowrap pl-[4px] pr-[10px] text-[13px]" style={{ color: color.faint }}>
       <Kbd className="!h-[22px] !min-w-[24px] !justify-center !rounded-full !px-[6px] !text-[12px]">{keycap}</Kbd>
+      {label}
     </span>
   )
 }
