@@ -22,7 +22,7 @@ import { GlassPrimary, GlassSpinner } from '../../core/ui/glass'
 import { FlowDiagram } from '../before-start/Flow'
 import { openBeforeStart } from '../before-start/store'
 import { useStepSnippet } from '../overview/snippet'
-import { copyText, findPrimer, useStepDetail } from './plan'
+import { copyText, findPrimer, useStepDetail, type OutlineRow } from './plan'
 import { openConcept, useDrawer } from './store'
 
 const hoverVar = { '--drawer-hover': glass.fieldHover } as CSSProperties
@@ -113,11 +113,21 @@ export function lessonTopic(title: string): string {
   return t || full
 }
 
-/** "about N min left": the steps' estMinutes summed over the steps not passed or skipped yet (undefined without estimates). */
-export function minutesLeft(steps: StepSummary[], done: string[]): number | undefined {
-  if (!steps.some((s) => typeof s.estMinutes === 'number')) return undefined
-  const left = steps.filter((s) => !done.includes(s.id)).reduce((sum, s) => sum + (s.estMinutes ?? 0), 0)
-  return Math.max(0, Math.round(left))
+/**
+ * "about N min left": the steps' estMinutes summed over the steps not passed or skipped yet (undefined without estimates).
+ * rows: the outline's (E23) while the rest of the lesson is still streaming in. A row counts until its step arrives; an
+ * arrived step without its own estimate keeps its row's, so the sum doesn't jump as steps land (review A14).
+ */
+export function minutesLeft(steps: StepSummary[], done: string[], rows: OutlineRow[] = []): number | undefined {
+  const byIndex = new Map(rows.map((r) => [r.index, r.estMinutes]))
+  const arrived = new Set(steps.map((s) => s.index))
+  const est = [
+    ...steps.filter((s) => !done.includes(s.id)).map((s) => s.estMinutes ?? byIndex.get(s.index)),
+    ...rows.filter((r) => !arrived.has(r.index)).map((r) => r.estMinutes)
+  ]
+  const known = [...steps.map((s) => s.estMinutes ?? byIndex.get(s.index)), ...rows.map((r) => r.estMinutes)]
+  if (!known.some((m) => typeof m === 'number')) return undefined
+  return Math.max(0, Math.round(est.reduce<number>((sum, m) => sum + (m ?? 0), 0)))
 }
 
 export function OverviewText({ text }: { text: string }): ReactNode {

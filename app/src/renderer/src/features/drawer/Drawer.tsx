@@ -27,7 +27,7 @@ import { CheckList, Thumb, useChecking } from '../../core/ui/atoms'
 import { GlassCheck, GlassSpinner } from '../../core/ui/glass'
 import { parseYouTube, thumbnailFor } from '../launcher/youtube'
 import { HANDLE, TAB } from './geometry'
-import { useStepDetail, useStepStatuses, type StepStatus } from './plan'
+import { count, lessonOutline, planTotal, useStepDetail, useStepStatuses, type StepStatus } from './plan'
 import { closeDrawer, isWebLink, openSource, setPanelHeight, toggleDrawer } from './store'
 import { BuildStrip, lessonTopic, minutesLeft, NeedsChip, OverviewText, PrimerSection, StepActions, StepDetail } from './Teach'
 
@@ -207,7 +207,7 @@ export function Panel({ rect }: { rect: Rect }): ReactNode {
             {lessonMode ? <ChevronsRight size={13} strokeWidth={2.2} /> : <X size={12} strokeWidth={2.2} />}
           </button>
         </div>
-        {plan.total > 0 && <ProgressHeader plan={plan} />}
+        {plan.known > 0 && <ProgressHeader plan={plan} />}
       </div>
       <LiveNetSection />
       <div
@@ -234,7 +234,7 @@ export function Panel({ rect }: { rect: Rect }): ReactNode {
         )}
         <NeedsChip />
         <PrimerSection />
-        <Label part="drawer-plan" right={plan.total > 0 ? `${plan.done} of ${plan.total} done` : undefined}>
+        <Label part="drawer-plan" right={plan.total ? `${plan.done} of ${plan.total} done` : plan.done > 0 ? `${plan.done} done` : undefined}>
           {lessonMode ? 'Plan' : 'Steps'}
         </Label>
         <Steps scroller={scroller} />
@@ -270,7 +270,11 @@ function Label({ children, right, part }: { children: ReactNode; right?: ReactNo
 // Header progress
 // ---------------------------------------------------------------------------
 
-type PlanProgress = { done: number; skipped: number; total: number; index: number; hasStep: boolean; complete: boolean; left?: number }
+/**
+ * known: steps that have arrived. total: how many the lesson has, undefined while it is still streaming in without an
+ * outline (plan.ts planTotal, review A14).
+ */
+type PlanProgress = { done: number; skipped: number; known: number; total?: number; index: number; hasStep: boolean; complete: boolean; left?: number }
 
 /**
  * Steps done: passed (or before the current one), never skipped and never the current step itself (the same rule as
@@ -284,40 +288,52 @@ function usePlanProgress(): PlanProgress {
     useShallow((s) => {
       const done = statuses.filter((x) => x === 'done').length
       const skipped = statuses.filter((x) => x === 'skipped').length
-      // Mockup 01: "about N min left" (steps[].estMinutes over the steps still to do: the current one counts, a skipped one doesn't).
-      const left = minutesLeft(
-        s.steps,
-        s.steps.filter((_, i) => statuses[i] === 'done' || statuses[i] === 'skipped').map((x) => x.id)
-      )
-      return { done, skipped, total: s.steps.length, hasStep: !!s.stepId, complete: s.complete, left }
+      const outline = lessonOutline(s.lesson)
+      const finished = s.steps.filter((_, i) => statuses[i] === 'done' || statuses[i] === 'skipped').map((x) => x.id)
+      // Mockup 01: "about N min left" (steps[].estMinutes over the steps still to do: the current one counts, a skipped
+      // one doesn't). While steps stream in, the list's sum grows with every part (review A14), so only the outline's
+      // estimates count then; with no outline the time shows once the lesson is complete.
+      const left = s.complete ? minutesLeft(s.steps, finished) : outline ? minutesLeft(s.steps, finished, outline.rows) : undefined
+      return { done, skipped, known: s.steps.length, total: planTotal(s.steps.length, s.complete, outline), hasStep: !!s.stepId, complete: s.complete, left }
     })
   )
   return { ...p, index }
 }
 
+/**
+ * The header line. Never a total that isn't known yet (review A14): "Step 1 · more coming" until the lesson is complete
+ * or the outline (E23) gives the count, then "Step 1 of 6".
+ */
+function stepLine(plan: PlanProgress): string {
+  const { total } = plan
+  // Every step passed or skipped: the lesson is over. Skipped steps never read as done.
+  if (plan.complete && total && plan.done + plan.skipped >= total) {
+    if (plan.skipped) return `${plan.done} of ${total} done · ${plan.skipped} skipped`
+    return total === 1 ? 'Step done' : `All ${total} steps done`
+  }
+  if (plan.hasStep) return total ? `Step ${plan.index + 1} of ${total}` : `Step ${plan.index + 1} · more coming`
+  return total ? count(total, 'step') : `${count(plan.known, 'step')} · more coming`
+}
+
 /** Mockup 01: a thin bar (neutral fill, never green: green only means passed), "Step N of M" and the time left. Never scrolls. */
 function ProgressHeader({ plan }: { plan: PlanProgress }): ReactNode {
-  // Every step passed or skipped: the lesson is over. Skipped steps never read as done.
-  const all = plan.complete && plan.total > 0 && plan.done + plan.skipped >= plan.total
-  const line = !all
-    ? plan.hasStep
-      ? `Step ${plan.index + 1} of ${plan.total}`
-      : `${plan.total} steps`
-    : plan.skipped
-      ? `${plan.done} of ${plan.total} done · ${plan.skipped} skipped`
-      : `All ${plan.total} steps done`
+  const all = plan.complete && !!plan.total && plan.done + plan.skipped >= plan.total
+  const line = stepLine(plan)
   return (
     <div data-part="drawer-progress" className="mt-[11px]">
-      <div className="h-[3px] overflow-hidden rounded-full" style={{ background: glass.track }}>
-        <motion.div
-          data-part="drawer-progress-fill"
-          className="h-full w-full"
-          style={{ background: glass.text, originX: 0 }}
-          initial={false}
-          animate={{ scaleX: plan.total ? plan.done / plan.total : 0 }}
-          transition={spring}
-        />
-      </div>
+      {/* No total yet: no bar (a fill over the steps so far would shrink back with every part that lands). */}
+      {!!plan.total && (
+        <div className="h-[3px] overflow-hidden rounded-full" style={{ background: glass.track }}>
+          <motion.div
+            data-part="drawer-progress-fill"
+            className="h-full w-full"
+            style={{ background: glass.text, originX: 0 }}
+            initial={false}
+            animate={{ scaleX: plan.done / plan.total }}
+            transition={spring}
+          />
+        </div>
+      )}
       <div className="mt-[7px] flex items-baseline justify-between gap-[8px] text-[12px] leading-[16px]">
         <span data-part="drawer-step-of" className="font-semibold tabular-nums" style={{ color: glass.label }}>
           {line}
@@ -349,6 +365,11 @@ function Steps({ scroller }: { scroller: RefObject<HTMLDivElement | null> }): Re
       lessonMode: s.lesson?.mode === 'lesson'
     }))
   )
+  // The outline (E23) knows how many steps are still to come: "2 more steps coming".
+  const more = useLesson((s) => {
+    const o = lessonOutline(s.lesson)
+    return o ? o.count - s.steps.length : undefined
+  })
   // Ids on screen when the drawer opened: those rows never animate in. Anything appended later does.
   const atOpen = useRef<Set<string> | null>(null)
   if (!atOpen.current) atOpen.current = new Set(steps.map((s) => s.id))
@@ -381,7 +402,7 @@ function Steps({ scroller }: { scroller: RefObject<HTMLDivElement | null> }): Re
           />
         )
       })}
-      <AnimatePresence>{(!complete || pendingNext) && <PendingRow key="pending" waiting={pendingNext} part={part} timeW={timeW} />}</AnimatePresence>
+      <AnimatePresence>{(!complete || pendingNext) && <PendingRow key="pending" waiting={pendingNext} part={part} more={more} timeW={timeW} />}</AnimatePresence>
     </div>
   )
 }
@@ -612,8 +633,11 @@ function NumberRing({ n, current }: { n: number; current: boolean }): ReactNode 
   )
 }
 
-/** "More steps coming" (Part 2 of 5) while the video builds; "Next part is still building" when the learner is waiting on it. */
-function PendingRow({ waiting, part, timeW }: { waiting: boolean; part?: string; timeW: number }): ReactNode {
+/**
+ * "More steps coming" (Part 2 of 5) while the video builds, "2 more steps coming" when the outline (E23) gives the count;
+ * "Next part is still building" when the learner is waiting on it.
+ */
+function PendingRow({ waiting, part, more, timeW }: { waiting: boolean; part?: string; more?: number; timeW: number }): ReactNode {
   const mounted = useMounted()
   return (
     <motion.div
@@ -636,7 +660,7 @@ function PendingRow({ waiting, part, timeW }: { waiting: boolean; part?: string;
       </span>
       {timeW > 0 && <span className="shrink-0" style={{ width: timeW }} />}
       <span className="min-w-0 flex-1 truncate text-[13px]" style={{ color: waiting ? glass.label : glass.faint }}>
-        {waiting ? 'Next part is still building' : 'More steps coming'}
+        {waiting ? 'Next part is still building' : more && more > 0 ? `${count(more, 'more step', 'more steps')} coming` : 'More steps coming'}
       </span>
       {part && (
         <span className="shrink-0 text-[12px] tabular-nums" style={{ color: glass.faint }}>
