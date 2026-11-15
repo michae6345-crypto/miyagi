@@ -15,7 +15,7 @@
 import { ChevronLeft, ChevronRight } from 'lucide-react'
 import { motion, useReducedMotion } from 'motion/react'
 import { useCallback, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from 'react'
-import type { CheckItem, Offtrack } from '../../core/lesson'
+import { useLesson, type CheckItem, type Offtrack } from '../../core/lesson'
 import { color, fill } from '../../core/theme'
 import { diffLines, fitRows, isProse, LITERAL, NUMBER, readingValue, readsAsCode, type DiffRow } from './code'
 import { Curve, fmt, plotArray, plotPoints, type Line } from './Curve'
@@ -35,10 +35,15 @@ const RECENT_MS = 45_000
  */
 function seriesFits(o: Offtrack, name: string | undefined, at: number): boolean {
   if (o.curve) return true
+  // The engine (7863fa6): a crashed run's failing check reads "no loss: the run stopped with an error". This run has no
+  // curve, so an older run's points are not evidence for it.
+  const none = name && `no ${name.toLowerCase()}`
+  if (none && useLesson.getState().checks.some((c) => c.status !== 'pass' && (c.detail ?? '').trim().toLowerCase().startsWith(none))) return false
   const text = `${o.title ?? ''} ${o.body ?? ''} ${o.reason ?? ''}`.toLowerCase()
   if (name && text.includes(name.toLowerCase())) return true
   return at >= offtrackAt - RECENT_MS
 }
+
 
 const PAD = 12
 const GAP = 12
@@ -76,6 +81,12 @@ export function yoursValue(detail?: string): string | undefined {
 export function expectedValue(label: string): string | undefined {
   const cmp = label.match(/(<=|>=|==|!=|≤|≥|<|>|=)\s*([^<>=≤≥]+)$/)
   if (cmp) return `${cmp[1]} ${cmp[2].trim()}`
+  // "Loss falls below 0.01" → "< 0.01" (the engine's check labels, 7863fa6).
+  const word = label.match(/\b(below|under|less than|above|over|more than|at least|at most)\s+(-?\d[\d,]*(?:\.\d+)?(?:e[-+]?\d+)?)\s*$/i)
+  if (word) {
+    const op: Record<string, string> = { below: '<', under: '<', 'less than': '<', above: '>', over: '>', 'more than': '>', 'at least': '≥', 'at most': '≤' }
+    return `${op[word[1].toLowerCase()]} ${word[2]}`
+  }
   const nums = label.match(/(?<![\w.])-?\d[\d,]*(?:\.\d+)?(?:e[-+]?\d+)?(?![\w])/gi)
   return nums?.length ? nums[nums.length - 1] : undefined
 }
