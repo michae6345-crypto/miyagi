@@ -246,6 +246,9 @@ async def forget(s: Any, step: dict, card: dict) -> None:
     if own and own[0] == "offtrack" and getattr(s, "spot_rect", None) is not None and s.last_offtrack is None:
         s.spot_track = None
         await s.emit("spotlight", {"clear": True})
+    from . import advice_clear
+
+    await advice_clear.forgotten(s, card)  # t8: the Hint / Not yet card resting on it goes too
 
 
 async def drop_offtrack(s: Any, step: dict, full: dict) -> bool:
