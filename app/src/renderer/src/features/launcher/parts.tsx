@@ -7,7 +7,7 @@
  */
 import { motion, useReducedMotion } from 'motion/react'
 import type { ReactNode } from 'react'
-import type { LucideIcon } from 'lucide-react'
+import { GraduationCap, Play, type LucideIcon } from 'lucide-react'
 import { Kbd } from '../../core/ui/atoms'
 import { color, fill, spring } from '../../core/theme'
 
@@ -56,6 +56,54 @@ export function Chip({ icon: I, label, kbd, tone, onClick }: { icon: LucideIcon;
           <Kbd className="!h-[22px] !rounded-full !px-[8px] !text-[11px]">{kbd}</Kbd>
         ))}
     </motion.button>
+  )
+}
+
+/** How the learner wants to learn the topic they typed (Michael, "two ways to learn"). */
+export type How = 'video' | 'lesson'
+
+/**
+ * The two ways to learn, under the query: "Watch a video" (search, preflight, gated player) or "Just teach me"
+ * (no video: a text lesson over the full-screen editor). Monochrome chrome, not pastel options and not a second white
+ * primary (the footer's Search / Start lesson is the one primary): the picked one is a lit chip (brighter fill, ring
+ * border, full-white text), the other a quiet chip. Tab switches, Enter picks, ⌘/Ctrl+Enter is "Just teach me".
+ */
+export function HowChoice({ how, teachKey, onPick }: { how: How; teachKey: string; onPick: (h: How) => void }): ReactNode {
+  const options: { id: How; label: string; Icon: LucideIcon; kbd?: string }[] = [
+    { id: 'video', label: 'Watch a video', Icon: Play },
+    { id: 'lesson', label: 'Just teach me', Icon: GraduationCap, kbd: teachKey }
+  ]
+  return (
+    <div className="flex flex-wrap gap-[8px]" role="radiogroup" aria-label="How do you want to learn this?">
+      {options.map(({ id, label, Icon, kbd }) => {
+        const on = id === how
+        return (
+          <motion.button
+            key={id}
+            type="button"
+            tabIndex={-1}
+            role="radio"
+            aria-checked={on}
+            className={`flex h-[30px] cursor-pointer items-center gap-[7px] whitespace-nowrap rounded-full border pl-[11px] text-[13px] font-medium ${kbd ? 'pr-[4px]' : 'pr-[13px]'}`}
+            initial={false}
+            animate={
+              on
+                ? { backgroundColor: fill.chipHover, borderColor: fill.ring, color: color.text }
+                : { backgroundColor: fill.chip, borderColor: fill.chipBorder, color: fill.chipText }
+            }
+            whileHover={on ? undefined : { backgroundColor: fill.chipHover, color: color.text }}
+            whileTap={{ scale: 0.97 }}
+            transition={{ duration: 0.14 }}
+            onMouseDown={(e) => e.preventDefault()}
+            onClick={() => onPick(id)}
+          >
+            <Icon size={13} strokeWidth={1.8} className="shrink-0" />
+            {label}
+            {kbd && <Kbd className="!h-[22px] !rounded-full !px-[8px] !text-[11px]">{kbd}</Kbd>}
+          </motion.button>
+        )
+      })}
+    </div>
   )
 }
 
