@@ -330,6 +330,19 @@ class ScreenReader:
             out[n] = r.to_dict() if r else None
         return out
 
+    def candidates(self, intent: str | None = None, app: str | None = None, max_lines: int = 120):
+        """Set-of-marks targets from a fresh frame (<= 1 s old): regions with fixed ids (1 terminal,
+        2 editor, 3 explorer, 4 terminal_menu; their rects are the same stabilized ones locate_region
+        returns) and OCR lines from id 10 (editor code rows with file line numbers first). Hover
+        tooltips, the breadcrumb and the tab/title bar are left out. -> list[marks.Candidate];
+        `marks.listing(c)` is the prompt text, `marks.by_id(c, id)` the pick."""
+        from . import marks
+        obs = self._fresh_obs()
+        if obs is None:
+            return []
+        regions = {n: self.locate_region(n, app) for n in marks.REGION_IDS}
+        return marks.candidates(obs, intent, app, max_lines=max_lines, regions=regions)
+
     def _ax_menu_item(self, title: str) -> Rect | None:
         """The frontmost app's menu-bar item (AX: exact, even while the menu bar is auto-hidden in
         full screen, where the rect is where it appears). None without Accessibility."""
