@@ -51,6 +51,13 @@ function cfg(key, fallback) {
   }
 }
 
+// Miyagi's own overlay (white spotlight box, drawer, cards) is the only UI. The extension draws nothing in VS Code
+// (no highlight box, no diff tab) unless miyagi.editorUi is turned on; opening the lesson file and the "Miyagi"
+// terminal stay on.
+function editorUi() {
+  return cfg('editorUi', false) === true;
+}
+
 function log(msg) {
   try {
     if (S.log) S.log.appendLine(`[${new Date().toISOString()}] ${msg}`);
@@ -266,9 +273,11 @@ function decorationTypes() {
 }
 
 function paintHighlight(editor) {
+  const draw = editorUi();
+  if (!draw && !S.decorations) return; // invisible by default: no decoration types, nothing painted
   const d = decorationTypes();
   const h = S.highlight;
-  const on = h && samePath(docKey(editor.document), h.file);
+  const on = draw && h && samePath(docKey(editor.document), h.file);
   const ranges = { single: [], top: [], middle: [], bottom: [] };
   if (on) {
     const line = (n) => new vscode.Range(n - 1, 0, n - 1, 0);
@@ -430,6 +439,7 @@ function proposedUri(fsPath, text) {
 async function diff(body) {
   const fsPath = resolveFile(body.file);
   if (typeof body.newText !== 'string') throw new HttpError(400, 'newText_required');
+  if (!editorUi()) throw new HttpError(409, 'editor_ui_off'); // no diff tab: Miyagi's card shows the diff
   const exists = fs.existsSync(fsPath) || vscode.workspace.textDocuments.some((d) => samePath(docKey(d), fsPath));
   const left = exists ? vscode.Uri.file(fsPath) : proposedUri(fsPath, '');
   const right = proposedUri(fsPath, body.newText);
@@ -691,9 +701,8 @@ async function activate(context) {
     subs.push(w.onDidStartTerminalShellExecution(onCommandStart));
     subs.push(w.onDidEndTerminalShellExecution(onCommandEnd));
   }
-  subs.push(vscode.commands.registerCommand('miyagi.companion.status', () => {
-    const msg = S.port ? `Miyagi companion is listening on 127.0.0.1:${S.port}` : 'Miyagi companion has no free port (8791-8799)';
-    w.showInformationMessage(msg);
+  subs.push(vscode.commands.registerCommand('miyagi.companion.status', () => { // no toast; GET /health instead
+    log(S.port ? `status: listening on 127.0.0.1:${S.port}` : 'status: no free port (8791-8799)');
     return S.port;
   }));
 

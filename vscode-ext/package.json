@@ -23,6 +23,14 @@
         "title": "Miyagi: Companion status"
       }
     ],
+    "menus": {
+      "commandPalette": [
+        {
+          "command": "miyagi.companion.status",
+          "when": "false"
+        }
+      ]
+    },
     "configuration": {
       "title": "Miyagi Companion",
       "properties": {
@@ -35,6 +43,11 @@
           "type": "string",
           "default": "http://127.0.0.1:8787",
           "description": "Miyagi engine; editor/save/terminal events are posted to <engineUrl>/vscode/event."
+        },
+        "miyagi.editorUi": {
+          "type": "boolean",
+          "default": false,
+          "description": "Let the engine draw inside VS Code: the /highlight box and /diff tabs. Off: Miyagi's overlay is the only UI (opening the lesson file and the \"Miyagi\" terminal still work)."
         }
       }
     }
