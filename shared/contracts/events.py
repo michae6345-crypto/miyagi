@@ -271,6 +271,7 @@ class SpotlightTarget(_Model):
     app: str | None = None
     matched: str | None = None
     snippet: str | None = None  # code to type at the rect (lesson mode / Show me)
+    zoom: bool | None = None  # a VS Code control under 32 pt (Run ▷, Toggle Panel, unsaved dot): the app's loupe
 
 
 class SpotlightClear(_Model):

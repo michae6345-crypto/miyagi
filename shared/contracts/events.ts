@@ -61,7 +61,7 @@ export interface EngineEvents {
     guidingQuestion?: string;  // a Socratic nudge to show under the body
   };
   /** Screen-first: rect is in screen POINTS, TOP-LEFT origin (Electron convention), relative to the PRIMARY display's FULL frame (y=0 is the very top, menu bar included). v1 watches the primary display only. Same convention for overlay.bounds. */
-  "spotlight": { rect: { x: number; y: number; w: number; h: number }; caption: string; app?: string; matched?: string; snippet?: string } | { clear: true };   // snippet: code to type there (lesson mode / Show me), shown monospace under the caption
+  "spotlight": { rect: { x: number; y: number; w: number; h: number }; caption: string; app?: string; matched?: string; snippet?: string; zoom?: boolean } | { clear: true };   // snippet: code to type there (lesson mode / Show me), shown monospace under the caption   // zoom: the target is one of VS Code's own controls under 32 pt (the Run ▷, Toggle Panel, a tab's unsaved dot): show the loupe
   /** What the engine currently sees (debug HUD / optional). */
   "screen.seen": { app: string; summary: string; t: number };
   "video.seek": { t: number; play: boolean };

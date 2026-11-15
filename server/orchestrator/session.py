@@ -43,6 +43,7 @@ from .modules import Modules
 from .captions import short_caption
 from . import spot_lines  # t5: which editor line a lesson box goes on
 from . import typo_card  # Nov 15: terminal-command typos on run steps, no model call
+from . import ui_targets  # t6: VS Code's real controls (AX) boxed: Terminal, save, open the file, ...
 from .lesson_boxes import LessonBoxes
 
 log = logging.getLogger("orchestrator.session")
@@ -1584,7 +1585,8 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
         """A run step's box: VS Code's Run ▷ (_run_button_spot), else the terminal's prompt line, else where to open
         the terminal (_terminal_spot). {} when none is on screen; "kind" says which."""
         spot = await self._run_button_spot(step, cmd)
-        return spot if spot is not None else self._terminal_spot(step, cmd)
+        spot = spot if spot is not None else self._terminal_spot(step, cmd)
+        return await ui_targets.run_spot(self, step, cmd, spot)  # t6: save / open the terminal / ... by AX first
 
     async def _ensure_terminal(self, step: dict) -> bool:
         """Michael (Nov 15): "you're telling me to type in the terminal, but I can't open the terminal ... It needs to
@@ -2372,6 +2374,7 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
             self.workspace.goto_target(self.workdir, step, missing="end" if self.lesson_mode else "first")
             if self.lesson_mode:  # L2: that jump needs VS Code in front; the extension shows the step's file anyway
                 self._spawn(self._show_step_file(step), timer=True)
+                self._spawn(ui_targets.watch_file(self, self.step_gen, step), timer=True)  # t6: else "Click nn.py"
         await self._status("watching")
         await self.evaluate("start")
         if seg is not None and not self.passed and self.step is step:
@@ -4340,6 +4343,8 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
                 return
             if self.lesson_mode and await self._show_step_file(step, explicit=True):
                 await asyncio.sleep(0.4)  # L2: the editor switched to the step's file: box it, not the old one
+            elif self.lesson_mode and await ui_targets.show_open_file(self, step):
+                return  # t6: the companion couldn't switch files: nn.py's tab / Explorer row is the one box
             if self.lesson_mode and not self._run_command(step) and (step.get("code") or "").strip():
                 await self._lesson_show_me(gen, step)  # E15 + t5 (c): ONE box on the right line + its answer card
                 return

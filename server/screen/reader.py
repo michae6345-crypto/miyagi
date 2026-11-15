@@ -89,6 +89,7 @@ class ScreenReader:
         self._front_cbs: list[Callable[[dict | None, dict | None], object]] = []
         self._front_thread: threading.Thread | None = None
         self._run_btn: tuple[float, Rect | None] = (0.0, None)
+        self._ui_els: dict[str, tuple[float, Rect | None]] = {}  # ax.find_ui results by key (_ax_ui)
         self._lock = threading.RLock()
         self._capture_lock = threading.Lock()
         self._thread: threading.Thread | None = None
@@ -328,6 +329,8 @@ class ScreenReader:
         4-point grid, unchanged while it moves < 12 points, kept through one missed frame.
         max_age: an older latest frame is re-captured + OCR'd first (blocking); the engine's event loop passes a
         large one (its callers read blocks from that same latest frame, and a capture there froze every tick)."""
+        if name.startswith("ui:"):  # one of VS Code's own controls, by Accessibility only (ax.find_ui)
+            return self._ax_ui(name[3:])
         title = R.menu_title(name)            # "terminal_menu" / "menu:Run" keep their case
         name = R.canonical(name)
         obs = self._fresh_obs(max_age)
@@ -401,6 +404,26 @@ class ScreenReader:
         except Exception as e:  # noqa: BLE001
             log.debug("AX run button lookup failed: %s", e)
         self._run_btn = (time.time(), rect)
+        return rect
+
+    def _ax_ui(self, key: str) -> Rect | None:
+        """ax.find_ui(key) in the lesson's window: "terminal_tab", "toggle_panel", "tab:nn.py", "dirty:nn.py",
+        "explorer:nn.py", "problems", "interpreter". Cached like the Run ▷ (found: 1 s; not there: no new walk for
+        4 s). None without Accessibility, in a fixture, or when it isn't on screen."""
+        if sys.platform != "darwin" or not self.use_ax or self.fixture:
+            return None
+        t, cached = self._ui_els.get(key, (0.0, None))
+        if time.time() - t < (1.0 if cached is not None else 4.0):
+            return cached
+        rect = None
+        try:
+            from . import ax
+            if ax.trusted():
+                el = ax.find_ui(key, self._lesson_folder)
+                rect = el.rect if el is not None else None
+        except Exception as e:  # noqa: BLE001
+            log.debug("AX %s lookup failed: %s", key, e)
+        self._ui_els[key] = (time.time(), rect)
         return rect
 
     # ------------------------------------------------------------------ frontmost app / VS Code window
