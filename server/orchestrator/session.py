@@ -37,7 +37,7 @@ from collections.abc import Awaitable, Callable
 from pathlib import Path
 from typing import Any
 
-from . import config, curated, editor_text, perf, scene_watch, where_row
+from . import config, curated, editor_text, perf, scene_watch, stage, where_row
 from .context import RunContext, RunInfo, metrics_summary
 from .modules import Modules
 from .captions import short_caption
@@ -458,6 +458,8 @@ class LessonSession:
         self._spawn(self._setup_card_task(graph, folder))
 
     async def _setup_card_task(self, graph: dict, folder: str) -> None:
+        if stage.on_graph(graph):
+            return  # a Demo lesson installs nothing: its runs are recorded (stage.py)
         from . import workspace as wsmod
 
         items, found = await asyncio.gather(  # what it needs (3-6 s first time, cached) + the video's own files
@@ -898,6 +900,9 @@ class LessonSession:
 
     # ------------------------------------------------------------------ search + build
     async def learn(self, query: str, mode: str | None = None) -> None:
+        if stage.wanted(mode):  # the launcher's Demo option (or MIYAGI_STAGE=1): the staged neural-net lesson
+            await self.learn_demo(query)
+            return
         if mode == "lesson":  # "Just teach me": no video search, a text lesson for the goal
             await self.learn_text(query)
             return
@@ -933,6 +938,9 @@ class LessonSession:
         await self._pick(url, picked[0] if picked else None)
 
     async def learn_url(self, url: str, skip_preflight: bool = False) -> None:
+        if stage.forced():  # MIYAGI_STAGE=1: a pasted link starts the Demo lesson too
+            await self.learn_demo(stage.GOAL)
+            return
         if skip_preflight:  # e.g. the demo's autostart: no learner pick to confirm
             await self._run_build(url, self.query)
             return
@@ -1197,7 +1205,21 @@ class LessonSession:
             return
         await self._run_build("", goal, factory=lambda: self._build_text(goal))
 
-    async def _load_curated(self, goal: str, graph: dict) -> None:
+    async def learn_demo(self, goal: str, fresh: bool = False) -> None:
+        """The launcher's Demo option: the curated neural-net lesson for any goal, staged (stage.py: checks pass on
+        cue, runs are recorded, one planned "Not yet"). fresh: also put the clean nn.py back in a pinned folder."""
+        if self.graph is not None or self.phase in ("building", "searching"):
+            await self.end_lesson("new lesson")
+        self.query = goal
+        self.results, self.pending_pick = {}, None
+        graph = curated.lesson_for(goal, force=True)
+        if graph is None:  # the lesson file is missing: "Just teach me" as usual
+            await self._run_build("", goal, factory=lambda: self._build_text(goal))
+            return
+        stage.mark(graph)
+        await self._run_build("", goal, factory=lambda: self._load_curated(goal, graph, fresh=fresh))
+
+    async def _load_curated(self, goal: str, graph: dict, fresh: bool = False) -> None:
         """A curated "Just teach me" lesson: no build, its folder with a clean starter, then the lesson."""
         self.phase = "building"
         await self._status("thinking")
@@ -1207,7 +1229,7 @@ class LessonSession:
             await self.emit("lesson.building", self.build_progress)
             await asyncio.to_thread(curated.forget_saved, graph)  # starts at step 1, never a pre-restart save's step
             try:
-                folder = await asyncio.to_thread(curated.prepare_folder, graph)
+                folder = await asyncio.to_thread(curated.prepare_folder, graph, fresh)
             except Exception:  # noqa: BLE001 - the lesson still runs in the default folder
                 log.exception("curated lesson folder failed")
                 folder = None
@@ -2622,6 +2644,9 @@ class LessonSession:
     # ------------------------------------------------------------------ evaluation
     async def evaluate(self, trigger: str) -> None:
         """trigger: start | segment | file | run_end | metric | screen | manual | check (the learner asked)"""
+        if stage.on(self):  # a Demo lesson: a save passes a typing step, the recorded run grades a run step
+            await stage.evaluate(self, trigger)
+            return
         learner = trigger in ("file", "run_end", "metric", "check", "judge") or self._learner_evidence()
         if self.awaiting_resume:
             return  # frozen until the learner picks Continue / Start new
@@ -2763,6 +2788,8 @@ class LessonSession:
 
     async def tick(self) -> None:
         """Called ~1/s: idle-after-action, stuck, and typing-deferred speech."""
+        if stage.on(self):
+            return  # a Demo lesson: no screen health, scene glances, judge, stuck cards or idle nudges
         step = self.step
         await self._check_screen_health()
         await scene_watch.tick(self)  # a Haiku glance at the screen every ~5 s during a step (scene_watch.py)
@@ -4259,6 +4286,9 @@ class LessonSession:
         "Not yet" saying what's missing in whole sentences (from the failing rows, the step's exact command, a
         syntax error on its own line), with the spot to fix when the judge gives one. Without the judge (offline /
         no key) the deterministic checks decide alone. The status stays "thinking" until that verdict (_status)."""
+        if stage.on(self):  # a Demo lesson: Check my work passes the step (a run step runs first)
+            await stage.check(self, step)
+            return
         self._checking = getattr(self, "_checking", 0) + 1
         try:
             await self._check_step_now(step)
@@ -5272,6 +5302,9 @@ class LessonSession:
         """"Run it for me": the step's command in the lesson folder (VS Code's terminal via the companion extension
         when it's up; else a subprocess, 10 s, stdin closed, the lesson's .venv first on PATH). The output goes in a
         card and the run feeds the step's checks with its real exit code / output."""
+        if stage.on(self):  # a Demo lesson: the recorded run of the lesson's own code (stage.py)
+            await stage.run(self, step)
+            return
         curated.prepare_step(self, step)  # NumPy may have just been installed into the lesson's .venv
         cmd = self._run_command(step) or (step.get("run_command") or "").strip()
         if not cmd:

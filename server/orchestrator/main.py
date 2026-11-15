@@ -8,6 +8,8 @@
   POST /debug/pass       force-pass the active step
   POST /debug/goto/{i}   jump to step i
   POST /debug/lesson     DEMO only: load the cached/canned lesson without searching
+  GET  /stage            is a Demo lesson running (launcher → Demo, or MIYAGI_STAGE=1; stage.py)
+  POST /stage/{cmd}      presenter, Demo lessons only: next | back | restart
 
 Run:  python -m server.orchestrator.main      (or uvicorn server.orchestrator.main:app --port 8787)
 """
@@ -27,7 +29,7 @@ from shared.contracts.events import parse_app_message
 
 from server import config as server_config
 
-from . import config, recorder
+from . import config, recorder, stage
 from .hub import Hub, log_received
 from .modules import Modules
 from .screen_bridge import ScreenBridge
@@ -371,6 +373,28 @@ async def debug_pass() -> dict:
 async def debug_goto(idx: int) -> dict:
     await engine.session.goto_step(idx)
     return {"ok": True}
+
+
+@app.get("/stage")
+async def stage_state() -> dict:
+    """Is a Demo lesson running (the app binds the presenter keys while it is)?"""
+    return stage.state(engine.session)
+
+
+@app.post("/stage/{cmd}")
+async def stage_cmd(cmd: str) -> dict:
+    """Presenter, Demo lessons only: next (pass the step) | back (the step before) | restart (step 1, clean nn.py)."""
+    fn = {"next": stage.next_step, "back": stage.back, "restart": stage.restart}.get(cmd)
+    if fn is None:
+        return {"ok": False, "error": f"unknown: {cmd} (next, back, restart)"}
+    if not stage.on(engine.session):
+        return {"ok": False, "error": "no Demo lesson is running"}
+    if cmd == "restart":  # it ends the lesson it runs in: never inside this request
+        task = asyncio.create_task(fn(engine.session))
+        engine._replays.add(task)
+        task.add_done_callback(engine._replays.discard)
+        return {"ok": True}
+    return {"ok": await fn(engine.session)}
 
 
 @app.post("/debug/lesson")
