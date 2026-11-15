@@ -185,8 +185,10 @@ def test_v10_offtrack_names_what_is_left_then_goes(monkeypatch):
     assert not s.sent
     s.rows(s3c2="pass", s3c3="fail")
     run(advice_clear.checks_moved(s))
-    assert len(s.sent) == 1
-    kind, card = s.sent[0]
+    assert len(s.sent) == 2  # t11: the off-track is withdrawn first (the app would show it again under the card)
+    assert s.sent[0] == ("offtrack", {"stepId": "s3", "severity": "warn", "title": "", "body": "", "actions": [],
+                                      "dismissAfterMs": 1})
+    kind, card = s.sent[1]
     assert kind == "card" and card["title"] == "Not yet" and card["kind"] == "step" and card["verdict"] == "not_done"
     assert "Testing count printed" in card["body"] and "Training count printed" not in card["body"]
     assert card["actions"] == ["show_me", "hint"]

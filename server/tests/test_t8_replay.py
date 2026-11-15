@@ -344,7 +344,10 @@ def test_t8_just_teach_me_nn1_to_nn4(t8):
     assert not [x for x in b if x["caption"].startswith("Click ▷")]
     # -- CP9: random again -> the ▷ box is back, the stuck card is not sent again; the run learns, nn4 passes
     s = seg("nn4-fix", "nn4-good")
-    assert not of(s, "offtrack")
+    sent = [o for o in of(s, "offtrack") if not o.get("dismissAfterMs")]
+    assert not sent, sent
+    # t11: the stale "All weights start at zero" is withdrawn (offtrack dismissAfterMs 1), never left under a card
+    assert all(o["stepId"] == "nn4" and o["dismissAfterMs"] == 1 and not o["title"] for o in of(s, "offtrack"))
     b = boxes(s)
     assert b and b[-1]["caption"] == "Click ▷ to run nn.py", b
     s = seg("nn4-good", "end")

@@ -27,6 +27,16 @@ the card goes; some left: the card is sent again, a "Not yet" naming only those 
 one is tracked. A check that can't be told now (pending) changes nothing. The step passing (or Skip) clears a tracked
 card before step.passed (the app's step.passed closes an off-track itself, not a card), so a "Not yet" card never
 outlives its step. The curated lesson keeps its own basis (culprit lines / diagnosis) only.
+
+Desktop test 11 (Nov 15, video lesson s2, 08:29:38-08:32:32): the off-track "load_dat() should be load_data()" came back
+when the learner closed a later Explain card, long after the fix passed its check, and Explain then explained the fixed
+problem. An Explain card had ended tracking (`sent`), so the off-track was never withdrawn, and the app keeps its
+off-track under any card that goes on top. Now the off-track is tracked on its own (`_offtrack_up`) until it is
+withdrawn, the step moves on or a new one replaces it, whatever card goes on top; its checks passing (or its line gone)
+withdraws it with `offtrack {stepId, dismissAfterMs: 1}` (the app ends its off-track state; a `card` withdrawal of an
+off-track is ignored by the app) and forgets the diagnosis (last_offtrack, the coach's copy, cards resting on it), so
+Explain / a hint never build on it. Only rows failing now are a card's basis: a pending row ("checked when the cell
+runs") turning green moves nothing.
 """
 from __future__ import annotations
 
@@ -52,10 +62,12 @@ def _not_yet(card: dict) -> bool:
 
 
 def _open(s: Any) -> dict[str, dict]:
-    """{checkId: row} of the step's rows not passing now: evaluate's last_failed (the drawer's red rows + the other
-    route's) and its results' rows that aren't green (what Check's "Not yet" body names)."""
-    rows = [*(getattr(s, "last_failed", None) or []),
-            *(r for r in getattr(s, "last_results", None) or [] if isinstance(r, dict) and r.get("status") != "pass")]
+    """{checkId: row} of the step's rows failing now: evaluate's last_failed (the drawer's red rows + the other
+    route's) and its results' failing rows. t11: never a pending row (it can't be told yet: "checked when the cell
+    runs"), so a "No errors" row turning green never re-sends a card for what is left."""
+    rows = [*(r for r in getattr(s, "last_failed", None) or [] if isinstance(r, dict)
+              and r.get("status", "fail") == "fail"),
+            *(r for r in getattr(s, "last_results", None) or [] if isinstance(r, dict) and r.get("status") == "fail")]
     out: dict[str, dict] = {}
     for r in rows:
         if isinstance(r, dict) and r.get("checkId") and str(r["checkId"]) not in out:
@@ -93,8 +105,29 @@ def _track(s: Any, what: str, card: dict, basis: dict | None) -> None:
                     if basis is not None else None)
 
 
+def _ups(s: Any) -> list[dict]:
+    """The tracked off-track (t11: until withdrawn, whatever card is on top) and the card in the slot, each once."""
+    out: list[dict] = []
+    for up in (getattr(s, "_offtrack_up", None), getattr(s, "_advice_up", None)):
+        if up is not None and all(up is not u for u in out):
+            out.append(up)
+    return out
+
+
+def _tracked(s: Any, up: dict) -> bool:
+    return up is getattr(s, "_advice_up", None) or up is getattr(s, "_offtrack_up", None)
+
+
+def _drop(s: Any, up: dict) -> None:
+    if getattr(s, "_advice_up", None) is up:
+        s._advice_up = None
+    if getattr(s, "_offtrack_up", None) is up:
+        s._offtrack_up = None
+
+
 def sent(s: Any, card: dict) -> None:
-    """_emit_card sent `card`: it holds the slot now. A Hint / "Not yet" is tracked; any other card ends tracking."""
+    """_emit_card sent `card`: it holds the slot now. A Hint / "Not yet" is tracked; any other card ends tracking of
+    the slot (t11: not of the off-track under it: the app shows that again when the card closes)."""
     step = getattr(s, "step", None)
     if step is None or card.get("stepId") not in (None, step.get("id")) or not _advice(card):
         s._advice_up = None
@@ -103,8 +136,21 @@ def sent(s: Any, card: dict) -> None:
 
 
 def sent_offtrack(s: Any, step: dict, full: dict, shown: dict) -> None:
-    """_offer_offtrack sent the off-track card `shown` (the diagnosis `full`)."""
+    """_offer_offtrack sent the off-track card `shown` (the diagnosis `full`): it holds the slot, and (t11) it is
+    tracked on its own until it is withdrawn, the step moves on or another off-track replaces it."""
     _track(s, "offtrack", shown, _basis(s, step, full, _checks(s, shown, True)))
+    s._offtrack_up = s._advice_up
+
+
+def live_offtrack(s: Any) -> dict | None:
+    """t11: the off-track Explain may build on: last_offtrack, None once every check it rested on passes (its
+    withdrawal forgets it too; this covers the moment before that)."""
+    off = getattr(s, "last_offtrack", None)
+    up = getattr(s, "_offtrack_up", None)
+    if off is None or up is None or not up.get("checks") or up.get("gen") != getattr(s, "step_gen", None):
+        return off
+    now = _open(s)
+    return None if all(_passes(s, cid, now) for cid in up["checks"]) else off
 
 
 def closed(s: Any, title: str, by: str | None) -> None:
@@ -130,19 +176,32 @@ async def _gone(s: Any, step: dict, up: dict) -> str:
     return ""
 
 
-async def clear(s: Any, up: dict, why: str) -> None:
-    """Take the tracked card down now (see the module doc)."""
-    if getattr(s, "_advice_up", None) is not up:
+async def clear(s: Any, up: dict, why: str, forget: bool = True) -> None:
+    """Take the tracked card down now (see the module doc). An off-track is withdrawn with `offtrack` dismissAfterMs 1
+    (t11: the app ignores a `card` withdrawal of a card that isn't on screen) and, `forget`, its diagnosis is
+    forgotten (last_offtrack, the coach's copy, a Hint / Not yet resting on it): Explain never builds on it again."""
+    if not _tracked(s, up):
         return
-    s._advice_up = None
+    _drop(s, up)
     card = up["card"]
     if up["what"] == "card":
-        payload = {**card, "dismissAfterMs": CLEAR_MS}
+        log.info("advice card %r cleared: %s (t8)", card.get("title"), why)
+        await s.emit("card", {**card, "dismissAfterMs": CLEAR_MS})
     else:
-        payload = {"stepId": card.get("stepId"), "kind": "step", "title": card.get("title") or "",
-                   "body": card.get("body") or "", "dismissAfterMs": CLEAR_MS}
-    log.info("advice card %r cleared: %s (t8)", card.get("title"), why)
-    await s.emit("card", payload)
+        step = getattr(s, "step", None) or {}
+        log.info("off-track %r withdrawn: %s (t11)", card.get("title"), why)
+        # the contract's required fields, empty: the app reads stepId + dismissAfterMs (voice has nothing to say)
+        await s.emit("offtrack", {"stepId": card.get("stepId") or step.get("id") or "",
+                                  "severity": card.get("severity") or "warn", "title": "", "body": "", "actions": [],
+                                  "dismissAfterMs": CLEAR_MS})
+        off = up.get("off") or card
+        if forget and step:
+            from . import stale_advice
+
+            await stale_advice.forget(s, step, {**off, "stepId": off.get("stepId") or step.get("id")})
+            if getattr(s, "status", None) == "offtrack" and getattr(s, "last_offtrack", None) is None \
+                    and hasattr(s, "_status"):
+                await s._status("watching")
     use = getattr(s, "_card_in_use", None)
     if use is not None and str(use[0]).strip().casefold() == str(card.get("title") or "").strip().casefold():
         s._card_in_use = None  # the learner's own card is gone: a kept off-track may go out
@@ -150,38 +209,39 @@ async def clear(s: Any, up: dict, why: str) -> None:
 
 async def follow(s: Any, force: bool = False) -> None:
     """A frame (at most every POLL_S) / a VS Code edit or save (force): the tracked card's cause gone -> clear it."""
-    up = getattr(s, "_advice_up", None)
-    if up is None:
-        return
-    step = getattr(s, "step", None)
-    if step is None or up["gen"] != s.step_gen or s.passed:
-        s._advice_up = None  # step.started / step.passed took it down in the app
-        return
-    if not force:  # (an edit / save event checks at once and never holds up the next frame's check)
-        now = time.monotonic()
-        if now - up["checked"] < POLL_S:
-            return
-        up["checked"] = now
-    try:
-        why = await _gone(s, step, up)
-    except Exception:  # noqa: BLE001 - can't tell: the card stays
-        log.exception("advice_clear: check failed")
-        return
-    if why and up["gen"] == s.step_gen and not s.passed:
-        await clear(s, up, why)
+    for up in _ups(s):
+        if not _tracked(s, up):
+            continue  # an earlier clear this tick took it down with its diagnosis
+        step = getattr(s, "step", None)
+        if step is None or up["gen"] != s.step_gen or s.passed:
+            _drop(s, up)  # step.started / step.passed took it down in the app
+            continue
+        if not force:  # (an edit / save event checks at once and never holds up the next frame's check)
+            now = time.monotonic()
+            if now - up["checked"] < POLL_S:
+                continue
+            up["checked"] = now
+        try:
+            why = await _gone(s, step, up)
+        except Exception:  # noqa: BLE001 - can't tell: the card stays
+            log.exception("advice_clear: check failed")
+            continue
+        if why and up["gen"] == s.step_gen and not s.passed:
+            # saved without the line: the diagnosis is gone; fixed but unsaved: Check still says "Save" off it
+            await clear(s, up, why, forget=why.endswith("gone"))
 
 
 async def forgotten(s: Any, card: dict) -> None:
-    """stale_advice.forget dropped the diagnosis `card`: a card resting on it goes too."""
+    """stale_advice.forget dropped the diagnosis `card`: the off-track (t11) and a card resting on it go too."""
     from . import stale_advice
 
-    up = getattr(s, "_advice_up", None)
-    if up is None or up["gen"] != s.step_gen:
-        return
-    off = up.get("off")
-    if off is not None and stale_advice._key({**off, "stepId": off.get("stepId") or card.get("stepId")}) == \
-            stale_advice._key(card):
-        await clear(s, up, f"its diagnosis {card.get('title')!r} is gone")
+    for up in _ups(s):
+        if not _tracked(s, up) or up["gen"] != s.step_gen:
+            continue
+        off = up.get("off")
+        if off is not None and stale_advice._key({**off, "stepId": off.get("stepId") or card.get("stepId")}) == \
+                stale_advice._key(card):
+            await clear(s, up, f"its diagnosis {card.get('title')!r} is gone", forget=False)
 
 
 def _passes(s: Any, cid: str, now: dict[str, dict]) -> bool:
@@ -196,22 +256,30 @@ def _passes(s: Any, cid: str, now: dict[str, dict]) -> bool:
 async def checks_moved(s: Any) -> None:
     """t9 (V10): evaluate published the step's rows (a frame's background re-check, a save, a run's end, Check my work).
     A tracked "Not yet" one of whose checks passes now: none of them left failing -> it goes; some left -> it is sent
-    again naming only those (and that card is tracked)."""
-    up = getattr(s, "_advice_up", None)
-    if up is None or not up.get("checks"):
-        return
-    step = getattr(s, "step", None)
-    if step is None or up["gen"] != s.step_gen or s.passed:
-        return
-    was: dict[str, dict] = up["checks"]
-    now = _open(s)
-    moved = [cid for cid in was if _passes(s, cid, now)]
-    if not moved:
-        return
-    left = {cid: now[cid] for cid in was if cid in now}
-    if not left:
-        await clear(s, up, f"its checks pass now ({', '.join(moved)})")
-        return
+    again naming only those (and that card is tracked). t11: a tracked off-track one of whose checks passes is
+    withdrawn whatever card is on top (and forgotten); when it held the slot, a "Not yet" naming what's left takes it."""
+    for up in _ups(s):
+        if not _tracked(s, up) or not up.get("checks"):
+            continue
+        step = getattr(s, "step", None)
+        if step is None or up["gen"] != s.step_gen or s.passed:
+            return
+        was: dict[str, dict] = up["checks"]
+        now = _open(s)
+        moved = [cid for cid in was if _passes(s, cid, now)]
+        if not moved:
+            continue
+        left = {cid: now[cid] for cid in was if cid in now}
+        in_slot = getattr(s, "_advice_up", None) is up
+        if not left or up["what"] == "offtrack":
+            await clear(s, up, f"its checks pass now ({', '.join(moved)})")
+            if not left or not in_slot or getattr(s, "_advice_up", None) is not None:
+                continue  # covered by another card: the drawer's rows say what's left
+        await _again(s, step, up, moved, left)
+
+
+async def _again(s: Any, step: dict, up: dict, moved: list[str], left: dict[str, dict]) -> None:
+    """The "Not yet" naming only the checks `left`, in the place of the tracked card `up` (tracked in its place)."""
     from . import code_gate
 
     try:
@@ -238,6 +306,7 @@ async def checks_moved(s: Any) -> None:
 async def step_passed(s: Any) -> None:
     """t9 (V10): the step passed / was skipped: a tracked Hint / "Not yet" card goes now (the app's step.passed closes
     the off-track, not a card; step.started only clears it later, and not at all while the next part builds)."""
+    s._offtrack_up = None  # the app's step.passed ends the off-track itself
     up = getattr(s, "_advice_up", None)
     if up is None:
         return
