@@ -174,6 +174,12 @@ def _redact(raw: dict) -> dict:
     return {"type": raw.get("type"), "payload": "<redacted>"} if raw.get("type") == "config.keys" else raw
 
 
+def _searching(running: dict, session: Any) -> bool:
+    """The worker is on a search (learn, not "Just teach me") that is still streaming rows."""
+    cur, job = running.get("cmd") or {}, running.get("job")
+    return job is not None and not job.done() and cur.get("type") == "learn" and session.phase == "searching"
+
+
 def _brief(raw: dict) -> str:
     """'action hint' / 'learn': the type (+ an action's kind), never a payload (config.keys holds keys)."""
     p = raw.get("payload")
@@ -223,14 +229,21 @@ async def ws_endpoint(ws: WebSocket) -> None:
         while True:
             raw = await queue.get()
             running["cmd"] = raw
+            job = running["job"] = asyncio.ensure_future(engine.dispatch(raw))  # cancellable: a new learn ends a search
             try:
-                await engine.dispatch(raw)
+                await job
+            except asyncio.CancelledError:
+                cur = asyncio.current_task()
+                if cur is not None and cur.cancelling():
+                    raise  # the app left: the worker (and its command) stop
+                log.info("%s cancelled: a newer request replaced it", _brief(raw))
             except Exception as e:
                 log.exception("command failed: %s", _redact(raw))
                 with contextlib.suppress(Exception):
                     await engine.hub.send_to(ws, "error", {"message": f"{raw.get('type')}: {e}"})
             finally:
                 running.pop("cmd", None)
+                running.pop("job", None)
 
     task = asyncio.create_task(worker())
     try:
@@ -240,6 +253,9 @@ async def ws_endpoint(ws: WebSocket) -> None:
                 continue
             if raw.get("type") in ("learn", "learn_url", "build_lesson") and engine.session.building():
                 await engine.session.cancel_build()  # unblock the queue: the new request replaces the build
+            elif raw.get("type") in ("learn", "learn_url", "build_lesson") and _searching(running, engine.session):
+                running["job"].cancel()  # "Just teach me" / a pick / a new query while the search still runs: it
+                # replaces the search (rows so far stay pickable) instead of waiting out its tail (live: 15 s)
             if raw.get("type") in ("video.state", "overlay.bounds", "end_lesson"):  # instant: skip the queue
                 try:
                     await engine.dispatch(raw)

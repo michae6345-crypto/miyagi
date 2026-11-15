@@ -37,7 +37,7 @@ from collections.abc import Awaitable, Callable
 from pathlib import Path
 from typing import Any
 
-from . import config, editor_text, scene_watch, where_row
+from . import config, editor_text, perf, scene_watch, where_row
 from .context import RunContext, RunInfo, metrics_summary
 from .modules import Modules
 
@@ -873,6 +873,9 @@ class LessonSession:
                 await self.emit("search.result", r)
                 if self.result_stagger_s and self.m.demo:
                     await asyncio.sleep(self.result_stagger_s)
+        except asyncio.CancelledError:  # a newer learn / pick replaced this search (main.py): not "searching" any more
+            self.phase = "idle" if self.graph is None else self.phase
+            raise
         except Exception as e:
             log.exception("search failed")
             await self.emit("error", {"message": f"Search failed: {e}. Paste a YouTube link instead."})
@@ -955,21 +958,22 @@ class LessonSession:
 
     async def _run_build(self, url: str, goal: str, video_meta: dict | None = None, *,
                          factory: Callable[[], Awaitable[None]] | None = None) -> None:
-        """Builds run as their own task so end_lesson / a new learn can cancel them mid-flight."""
+        """Builds run as their own task so end_lesson / a new learn can cancel them mid-flight. The command returns as
+        soon as the lesson is live (a progressive build's step 1): the rest builds on in the background, so the
+        learner's presses (Install, Diagram, Check) don't queue behind it (perf.until_loaded)."""
         if self.graph is not None:
             await self.end_lesson("new lesson")
         await self.cancel_build()
+        self._loaded_evt = asyncio.Event()  # set by load_graph
         task = asyncio.ensure_future(factory() if factory is not None else self._build(url, goal, video_meta))
         self._build_task = task
+        task.add_done_callback(lambda t: setattr(self, "_build_task", None) if self._build_task is t else None)
+        if not await perf.until_loaded(task, self._loaded_evt):
+            return  # the lesson is running; cancel_build / end_lesson still stop the rest of the build
         try:
-            await task
+            task.result()
         except asyncio.CancelledError:
-            cur = asyncio.current_task()
-            if cur is not None and cur.cancelling():
-                raise  # we ourselves are being cancelled (shutdown)
-        finally:
-            if self._build_task is task:
-                self._build_task = None
+            pass  # cancel_build (a new learn / end_lesson): they report what happens next
 
     def building(self) -> bool:
         return self._build_task is not None and not self._build_task.done()
@@ -1603,6 +1607,8 @@ class LessonSession:
         if self._download_after_build:  # "Download tutorial files" on the preflight card
             self._download_after_build = False
             self._spawn(self.action("download"))
+        if (loaded := getattr(self, "_loaded_evt", None)) is not None:
+            loaded.set()  # _run_build: the lesson is live, free the command queue
 
     def _step_summary(self, st: dict, i: int) -> dict:
         summary = {"id": st["id"], "index": st.get("index", i), "title": st["title"]}
@@ -3384,29 +3390,37 @@ class LessonSession:
         judge (offline / no key) the deterministic checks decide alone."""
         gen = self.step_gen
         await self._status("thinking")
-        if self.screen is not None:
-            self.screen.poke()  # a new frame, not one from before their last keystroke
-            if self.check_wait_s:
-                await asyncio.sleep(self.check_wait_s)
+        if self.screen is not None:  # a new frame, not one from before their last keystroke
+            if (fresh := getattr(self.screen, "fresh_frame", None)) is not None:
+                await fresh(self.check_wait_s)  # returns as soon as that frame is in (was a flat 1.2 s sleep)
+            else:
+                self.screen.poke()
+                if self.check_wait_s:
+                    await asyncio.sleep(self.check_wait_s)
         if gen != self.step_gen:
             return
         self.engaged = True
+        # Which file is the learner really on? Read it fresh (extension / AX / title / new-frame OCR), never guess
+        # from screen text (Michael: switched README -> .py, pressed Check, got "you're still on README"). Read
+        # alongside the checks (independent; ~0.3 s extension timeout), not after them.
+        reader = getattr(self.screen, "reader", None)
+        active_job = None
+        if reader is not None and hasattr(reader, "active_file"):
+            folder = (self.graph or {}).get("lesson", {}).get("workdir") or getattr(self, "workdir", None)
+            active_job = asyncio.ensure_future(asyncio.to_thread(reader.active_file, True, folder))
+            active_job.add_done_callback(lambda t: t.cancelled() or t.exception())  # unread when the checks pass
         await self.evaluate("check")
         if self.passed or gen != self.step_gen:
             return
-        if self._save_file:  # every check passes, only the save is missing: say that, no judge
+        if self._save_file:  # every check passes, only the save is missing: say that, no judge (active_job: unread)
             await self._emit_card(editor_text.save_card(step["id"], self._save_file), window_s=2.0)
             await self._status("watching")
             return
         screen, files, exact = self._judge_inputs(step)
-        # Which file is the learner really on? Read it fresh (extension / AX / title / new-frame OCR), never guess
-        # from screen text (Michael: switched README -> .py, pressed Check, got "you're still on README").
         active = None
-        reader = getattr(self.screen, "reader", None)
-        if reader is not None and hasattr(reader, "active_file"):
-            folder = (self.graph or {}).get("lesson", {}).get("workdir") or getattr(self, "workdir", None)
+        if active_job is not None:
             try:
-                active = await asyncio.to_thread(reader.active_file, True, folder)
+                active = await active_job
             except Exception as e:  # noqa: BLE001 - best effort; None means "unsure", so nothing claims a file
                 log.info("check_step: active_file unavailable (%s)", e)
         try:
