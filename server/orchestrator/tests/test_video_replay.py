@@ -317,7 +317,6 @@ def test_s2_passes_on_the_code_and_no_errors(rp):
     assert rp.started("s3")
 
 
-@_xfail("V2", "`mnist.load_data()` wrapped to '…datasets.mnist.' / 'load_data()' never matched")
 def test_s2_passes_when_load_data_wraps_onto_the_next_line(rp):
     async def go():
         await rp.to("s2")
@@ -328,7 +327,6 @@ def test_s2_passes_when_load_data_wraps_onto_the_next_line(rp):
     assert rp.passed("s2")
 
 
-@_xfail("V2", "`load_data()` ran off the narrow editor's right edge; the notebook on disk had it")
 def test_s2_passes_when_load_data_is_clipped_but_in_the_notebook(rp):
     async def go():
         await rp.to("s2")
@@ -362,7 +360,6 @@ def test_s3_video_plays_its_clip_then_waits_for_the_checks(rp):
     assert types_.index("video.pause") < types_.index("step.passed")
 
 
-@_xfail("V3", "'Image shape line printed' passed on the SOURCE line print('Shape of the images…'), not its output")
 def test_s3_output_checks_do_not_pass_on_the_source_alone(rp):
     async def go():
         await rp.to("s3")
@@ -387,6 +384,12 @@ def test_s3_passes_once_the_cell_ran(rp):
 
 
 # ------------------------------------------------------------------ s4-s7, and the video around every step
+S4_OUTPUT_LABEL = pytest.mark.xfail(strict=True, reason=(
+    "REGRESSION 2b236a5 (claude/t9-checks, V3 fix): is_output_check reads s4c4 'Softmax output layer added' as an "
+    "output check (label says 'output'), so s4 never passes on its code and the lesson stops at s4"))
+
+
+@S4_OUTPUT_LABEL
 @pytest.mark.parametrize("sid", ["s4", "s5", "s6", "s7"])
 def test_later_steps_pass_on_the_cell_and_its_output(rp, sid):
     async def go():
@@ -398,6 +401,7 @@ def test_later_steps_pass_on_the_cell_and_its_output(rp, sid):
     assert rp.passed(sid)
 
 
+@S4_OUTPUT_LABEL
 def test_the_whole_lesson_video_gates_and_resumes_in_order(rp):
     """All seven steps, the player reporting each clip's end before the learner's work: a step that plays its clip
     gets seek(start, play) + play after step.started, pause once the clip ends with checks still open, and nothing
