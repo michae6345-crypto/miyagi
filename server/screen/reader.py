@@ -311,6 +311,9 @@ class ScreenReader:
         obs = self._fresh_obs()
         if name == "run_button":
             rect = self._ax_run_button() if obs is None or obs.source == "live" else None
+            if rect is None and obs is not None:          # the ▷ icon on the tab row, by OCR
+                reg = R.find_region(obs, name, app)
+                rect = reg.rect if reg else None
         elif title is not None:
             rect = self._ax_menu_item(title) if obs is None or obs.source == "live" else None
             if rect is None and obs is not None:
