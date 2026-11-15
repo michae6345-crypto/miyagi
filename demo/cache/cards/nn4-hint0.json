@@ -2,5 +2,5 @@
  "stepId": "nn4",
  "kind": "hint",
  "title": "Hint 1 of 2",
- "body": "forward(X)[1] is the output for all four inputs."
+ "body": "Press Run it for me, or run the command in VS Code's terminal (Terminal > New Terminal)."
 }

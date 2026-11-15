@@ -1,0 +1,6 @@
+{
+ "stepId": "nn5",
+ "kind": "explain",
+ "title": "Reading the output",
+ "body": "Outputs are between 0 and 1. Above 0.5 counts as 1, so 0.03 0.98 0.97 0.03 reads as 0 1 1 0."
+}

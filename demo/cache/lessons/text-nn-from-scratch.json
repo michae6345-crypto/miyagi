@@ -10,6 +10,7 @@
   "mode": "lesson",
   "complete": true,
   "builtBy": "claude",
+  "curated": "nn-from-scratch",
   "overview": "We'll build a neural network with nothing but NumPy and teach it XOR: output 1 when exactly one input is 1. First the network and its forward pass, then backprop, then a training loop, and last a test that prints 0 1 1 0.",
   "primer": [
    {
@@ -39,7 +40,7 @@
   "build": {
    "summary": "A 2-4-1 neural network in NumPy that learns XOR.",
    "outcome": "Run it and the loss falls below 0.001; it prints [0 1 1 0] for the four inputs.",
-   "estMinutes": 12
+   "estMinutes": 14
   },
   "flow": [
    {
@@ -113,64 +114,71 @@
    "explanations": [],
    "title": "Build the network",
    "kind": "code",
-   "what": "The data, random weights and a forward pass",
+   "what": "The XOR data, random weights and a forward pass",
    "why": "Every guess the network makes is this forward pass: weighted sums squished by sigmoid, one layer at a time.",
    "concepts": [
     "p1",
     "p2",
     "p3"
    ],
-   "action": "In nn.py, paste the network under # Step 1",
-   "instructions": "Under # Step 1, add the XOR data, the weights and the forward pass.",
+   "action": "In nn.py, paste this under # The network",
+   "instructions": "Under # The network, add the XOR data, the weights and the forward pass.",
    "checks": [
     {
      "id": "nn1c1",
      "type": "screen_contains",
      "label": "The XOR data is in nn.py",
      "app": "Code",
-     "pattern": "y\\s*=\\s*np\\.array\\(\\[\\[0\\],\\s*\\[1\\]"
+     "pattern": "y\\s*=\\s*np\\.array\\(\\s*\\[\\s*\\[\\s*0\\s*\\]\\s*,\\s*\\[\\s*1\\s*\\]"
     },
     {
      "id": "nn1c2",
      "type": "screen_contains",
      "label": "W1 and W2 are created",
      "app": "Code",
-     "pattern": "W2\\s*=\\s*np\\."
+     "pattern": "W1\\s*=\\s*np\\.[\\s\\S]*W2\\s*=\\s*np\\."
     },
     {
      "id": "nn1c3",
      "type": "screen_contains",
-     "label": "forward is defined",
+     "label": "forward() is defined",
      "app": "Code",
-     "pattern": "def\\s+forward\\(X\\)"
+     "pattern": "def\\s+forward\\s*\\(\\s*X\\s*\\)"
     }
    ],
    "precision_checks": [
     {
      "id": "nn1p1",
      "type": "file_contains",
-     "label": "nn.py defines forward",
+     "label": "nn.py has the XOR data",
      "file": "nn.py",
-     "pattern": "def forward\\(X\\):"
+     "pattern": "y\\s*=\\s*np\\.array\\(\\s*\\[\\s*\\[\\s*0\\s*\\]\\s*,\\s*\\[\\s*1\\s*\\]"
     },
     {
      "id": "nn1p2",
      "type": "file_contains",
-     "label": "nn.py has sigmoid",
+     "label": "nn.py creates W1 and W2",
      "file": "nn.py",
-     "pattern": "1 / \\(1 \\+ np\\.exp\\(-z\\)\\)"
+     "pattern": "W1\\s*=\\s*np\\.[\\s\\S]*W2\\s*=\\s*np\\."
+    },
+    {
+     "id": "nn1p3",
+     "type": "file_contains",
+     "label": "nn.py defines sigmoid and forward",
+     "file": "nn.py",
+     "pattern": "1\\s*/\\s*\\(\\s*1\\s*\\+\\s*np\\.exp\\(\\s*-\\s*z\\s*\\)\\s*\\)[\\s\\S]*def\\s+forward\\s*\\(\\s*X\\s*\\)\\s*:"
     }
    ],
    "targets": [
     {
      "app": "Code",
      "file": "nn.py",
-     "match": "# Step 1: the network",
+     "match": "# The network",
      "caption": "Paste the network under this line"
     }
    ],
    "hints": [
-    "Use the drawer's Copy button, then paste under # Step 1.",
+    "Copy the code from the drawer and paste it under # The network.",
     "forward returns two things: the hidden layer h and the output."
    ],
    "common_mistakes": [
@@ -192,15 +200,15 @@
    "concepts": [
     "p4"
    ],
-   "action": "In nn.py, add backward under # Step 2",
-   "instructions": "Under # Step 2, add backward. It returns one gradient per weight.",
+   "action": "In nn.py, paste backward under # Backprop",
+   "instructions": "Under # Backprop, add backward. It returns one gradient per weight.",
    "checks": [
     {
      "id": "nn2c1",
      "type": "screen_contains",
-     "label": "backward is defined",
+     "label": "backward() is defined",
      "app": "Code",
-     "pattern": "def\\s+backward\\("
+     "pattern": "def\\s+backward\\s*\\("
     },
     {
      "id": "nn2c2",
@@ -216,15 +224,22 @@
      "type": "file_contains",
      "label": "nn.py defines backward",
      "file": "nn.py",
-     "pattern": "def backward\\(X, y, h, out\\):"
+     "pattern": "def\\s+backward\\s*\\(\\s*X\\s*,\\s*y\\s*,\\s*h\\s*,\\s*out\\s*\\)\\s*:"
+    },
+    {
+     "id": "nn2p2",
+     "type": "file_contains",
+     "label": "nn.py sends the error back through W2",
+     "file": "nn.py",
+     "pattern": "d_h\\s*=\\s*d_out\\s*@\\s*W2\\.T"
     }
    ],
    "targets": [
     {
      "app": "Code",
      "file": "nn.py",
-     "match": "# Step 2: backprop",
-     "caption": "Add backward under this line"
+     "match": "# Backprop",
+     "caption": "Paste backward under this line"
     }
    ],
    "hints": [
@@ -243,40 +258,36 @@
    "file": "nn.py",
    "code": "lr = 1.0\nfor epoch in range(5000):\n    h, out = forward(X)\n    dW2, db2, dW1, db1 = backward(X, y, h, out)\n    W2 -= lr * dW2\n    b2 -= lr * db2\n    W1 -= lr * dW1\n    b1 -= lr * db1\n    loss = np.mean((out - y) ** 2)\n    if epoch % 1000 == 0:\n        print(f\"epoch {epoch:4d}  loss {loss:.4f}\")",
    "explanations": [],
-   "title": "Train",
+   "title": "Write the training loop",
    "kind": "code",
    "what": "A loop that steps every weight downhill 5,000 times",
-   "why": "Each step lowers the loss a little. If the loss stops falling, the network has stopped learning.",
+   "why": "Each step lowers the loss a little. The loop prints the loss every 1,000 epochs so you can watch it fall.",
    "concepts": [
     "p4"
    ],
-   "action": "Add the training loop under # Step 3, then run python3 nn.py",
-   "instructions": "Under # Step 3, add the training loop, then run python3 nn.py in the terminal.",
-   "run_command": "python3 nn.py",
+   "action": "In nn.py, paste the loop under # Training",
+   "instructions": "Under # Training, add the training loop. It prints the loss every 1,000 epochs.",
    "checks": [
     {
      "id": "nn3c1",
      "type": "screen_contains",
-     "label": "The loop updates the weights",
+     "label": "The loop runs 5,000 epochs",
      "app": "Code",
-     "pattern": "W1\\s*-=\\s*lr\\s*\\*\\s*dW1"
+     "pattern": "for\\s+epoch\\s+in\\s+range\\(\\s*5000\\s*\\)"
     },
     {
      "id": "nn3c2",
-     "type": "screen_absent",
-     "label": "Training runs without errors",
-     "app": "Terminal",
-     "pattern": "Traceback|Error"
+     "type": "screen_contains",
+     "label": "Every weight steps downhill",
+     "app": "Code",
+     "pattern": "W2\\s*-=\\s*lr\\s*\\*\\s*dW2[\\s\\S]*W1\\s*-=\\s*lr\\s*\\*\\s*dW1"
     },
     {
      "id": "nn3c3",
-     "type": "metric_threshold",
-     "label": "Loss falls below 0.01",
-     "metric": "loss",
-     "op": "<",
-     "value": 0.01,
-     "metric_pattern": "epoch\\s+(?P<step>\\d+)\\s+loss\\s+(?P<value>[0-9.eE+-]+)",
-     "by_step": 4000
+     "type": "screen_contains",
+     "label": "It prints the loss",
+     "app": "Code",
+     "pattern": "print\\(\\s*f[\\\"']epoch"
     }
    ],
    "precision_checks": [
@@ -285,40 +296,38 @@
      "type": "file_contains",
      "label": "nn.py has the training loop",
      "file": "nn.py",
-     "pattern": "for epoch in range\\(5000\\):"
+     "pattern": "for\\s+epoch\\s+in\\s+range\\(\\s*5000\\s*\\)"
     },
     {
      "id": "nn3p2",
-     "type": "metric_threshold",
-     "label": "Loss falls below 0.01",
-     "metric": "loss",
-     "op": "<",
-     "value": 0.01,
-     "metric_pattern": "epoch\\s+(?P<step>\\d+)\\s+loss\\s+(?P<value>[0-9.eE+-]+)",
-     "by_step": 4000
+     "type": "file_contains",
+     "label": "nn.py updates W1 and W2",
+     "file": "nn.py",
+     "pattern": "W2\\s*-=\\s*lr\\s*\\*\\s*dW2[\\s\\S]*W1\\s*-=\\s*lr\\s*\\*\\s*dW1"
+    },
+    {
+     "id": "nn3p3",
+     "type": "file_contains",
+     "label": "nn.py prints the loss",
+     "file": "nn.py",
+     "pattern": "print\\(\\s*f[\\\"']epoch"
     }
    ],
    "targets": [
     {
      "app": "Code",
      "file": "nn.py",
-     "match": "# Step 3: train",
-     "caption": "Add the training loop under this line"
-    },
-    {
-     "app": "Terminal",
-     "file": "nn.py",
-     "match": "python3 nn.py",
-     "caption": "Run python3 nn.py and watch the loss"
+     "match": "# Training",
+     "caption": "Paste the loop under this line"
     }
    ],
    "hints": [
-    "Look at how W1 and W2 start. What does every hidden neuron compute when all its weights are 0?",
-    "Start them random, like the lesson: np.random.randn(2, 4) * 0.5 and np.random.randn(4, 1) * 0.5. Then run again."
+    "Copy the loop from the drawer and paste it under # Training, with its indentation.",
+    "Inside the loop: forward, backward, then W -= lr * dW for all four weights."
    ],
    "common_mistakes": [
-    "Starting W1 and W2 at zero: every hidden neuron stays identical and the loss never moves.",
-    "Running before saving, so the old file runs."
+    "Losing the indentation under for epoch.",
+    "Updating only W1 and W2, not the biases."
    ],
    "estMinutes": 3
   },
@@ -326,63 +335,190 @@
    "id": "nn4",
    "index": 4,
    "file": "nn.py",
-   "code": "print((forward(X)[1] > 0.5).astype(int).ravel())",
+   "code": "python3 nn.py",
    "explanations": [],
-   "title": "Test it",
-   "kind": "code",
-   "what": "Print what it predicts for all four inputs",
-   "why": "Outputs above 0.5 count as 1, so you can check its answers against XOR.",
+   "title": "Train it",
+   "kind": "run",
+   "what": "Run it and watch the loss fall",
+   "why": "Each printed line is one checkpoint. If the loss stops falling, the network has stopped learning.",
    "concepts": [
-    "p1"
+    "p4"
    ],
-   "action": "Add the print under # Step 4, then run python3 nn.py",
-   "instructions": "Under # Step 4, print the predictions, then run python3 nn.py.",
+   "instructions": "Run nn.py in VS Code's terminal and watch the loss.",
    "run_command": "python3 nn.py",
-   "expected_output": "[0 1 1 0]",
    "checks": [
     {
      "id": "nn4c1",
-     "type": "screen_contains",
-     "label": "It predicts 0 1 1 0",
-     "app": "Terminal",
-     "pattern": "\\[0 1 1 0\\]"
+     "type": "metric_threshold",
+     "label": "Loss falls below 0.01",
+     "metric": "loss",
+     "op": "<",
+     "value": 0.01,
+     "metric_pattern": "epoch\\s+(?P<step>\\d+)\\s+loss\\s+(?P<value>[0-9Oo.eE+-]+)",
+     "by_step": 4000
     }
    ],
    "precision_checks": [
     {
      "id": "nn4p1",
      "type": "file_contains",
-     "label": "nn.py prints the predictions",
+     "label": "nn.py has the training loop",
      "file": "nn.py",
-     "pattern": "> 0\\.5\\)\\.astype\\(int\\)"
+     "pattern": "for\\s+epoch\\s+in\\s+range\\(\\s*5000\\s*\\)"
     },
     {
      "id": "nn4p2",
-     "type": "output_contains",
-     "label": "The output is [0 1 1 0]",
-     "pattern": "\\[0 1 1 0\\]"
+     "type": "metric_threshold",
+     "label": "Your run's loss falls below 0.01",
+     "metric": "loss",
+     "op": "<",
+     "value": 0.01,
+     "metric_pattern": "epoch\\s+(?P<step>\\d+)\\s+loss\\s+(?P<value>[0-9Oo.eE+-]+)",
+     "by_step": 4000
+    }
+   ],
+   "targets": [
+    {
+     "app": "Terminal",
+     "file": "nn.py",
+     "match": "python3 nn.py",
+     "caption": "Run it here"
+    }
+   ],
+   "hints": [
+    "Press Run it for me, or run the command in VS Code's terminal (Terminal > New Terminal).",
+    "Watch the epoch lines: the loss should fall below 0.01 by epoch 4000."
+   ],
+   "common_mistakes": [
+    "Starting W1 and W2 at zero: every hidden neuron stays identical and the loss never moves.",
+    "Running before saving, so the old file runs."
+   ],
+   "estMinutes": 1
+  },
+  {
+   "id": "nn5",
+   "index": 5,
+   "file": "nn.py",
+   "code": "h, out = forward(X)\nprint((out > 0.5).astype(int).ravel())\nfor name, w in ((\"W1\", W1), (\"b1\", b1), (\"W2\", W2), (\"b2\", b2)):\n    print(name, np.round(w, 3).tolist())",
+   "explanations": [],
+   "title": "Test it",
+   "kind": "code",
+   "what": "Print its answers and the weights it learned",
+   "why": "Outputs above 0.5 count as 1, so you can check its answers against XOR. The weights are what it learned.",
+   "concepts": [
+    "p1"
+   ],
+   "action": "In nn.py, paste this under # Test it",
+   "instructions": "Under # Test it, print the predictions and the weights.",
+   "checks": [
+    {
+     "id": "nn5c1",
+     "type": "screen_contains",
+     "label": "It prints the predictions",
+     "app": "Code",
+     "pattern": "\\(\\s*out\\s*>\\s*0\\.5\\s*\\)\\.astype\\(\\s*int\\s*\\)"
+    },
+    {
+     "id": "nn5c2",
+     "type": "screen_contains",
+     "label": "It prints W1, b1, W2 and b2",
+     "app": "Code",
+     "pattern": "\\(\\s*[\\\"']W1[\\\"']\\s*,\\s*W1\\s*\\)"
+    }
+   ],
+   "precision_checks": [
+    {
+     "id": "nn5p1",
+     "type": "file_contains",
+     "label": "nn.py prints the predictions",
+     "file": "nn.py",
+     "pattern": "\\(\\s*out\\s*>\\s*0\\.5\\s*\\)\\.astype\\(\\s*int\\s*\\)"
+    },
+    {
+     "id": "nn5p2",
+     "type": "file_contains",
+     "label": "nn.py prints the weights",
+     "file": "nn.py",
+     "pattern": "\\(\\s*[\\\"']W1[\\\"']\\s*,\\s*W1\\s*\\)"
     }
    ],
    "targets": [
     {
      "app": "Code",
      "file": "nn.py",
-     "match": "# Step 4: test it",
-     "caption": "Print the predictions under this line"
+     "match": "# Test it",
+     "caption": "Paste the test under this line"
     }
    ],
    "hints": [
-    "forward(X)[1] is the output for all four inputs.",
+    "forward(X) gives h and out; out holds the four answers.",
     "Compare with 0.5 and turn True/False into 1/0 with .astype(int)."
    ],
    "common_mistakes": [
-    "Printing forward(X) instead of forward(X)[1], which prints h too."
+    "Printing h instead of out."
    ],
    "estMinutes": 2
+  },
+  {
+   "id": "nn6",
+   "index": 6,
+   "file": "nn.py",
+   "code": "python3 nn.py",
+   "explanations": [],
+   "title": "See what it learned",
+   "kind": "run",
+   "what": "Run it: it answers 0 1 1 0",
+   "why": "Your network learned XOR from four examples. The panel on the right is drawn from the weights it printed.",
+   "concepts": [
+    "p1"
+   ],
+   "instructions": "Run nn.py again and read its answers.",
+   "run_command": "python3 nn.py",
+   "expected_output": "[0 1 1 0]",
+   "checks": [
+    {
+     "id": "nn6c1",
+     "type": "screen_contains",
+     "label": "It answers 0 1 1 0",
+     "app": "Terminal",
+     "pattern": "\\[\\s*0\\s*,?\\s*1\\s*,?\\s*1\\s*,?\\s*0\\s*\\]"
+    }
+   ],
+   "precision_checks": [
+    {
+     "id": "nn6p1",
+     "type": "file_contains",
+     "label": "nn.py prints the predictions",
+     "file": "nn.py",
+     "pattern": "\\(\\s*out\\s*>\\s*0\\.5\\s*\\)\\.astype\\(\\s*int\\s*\\)"
+    },
+    {
+     "id": "nn6p2",
+     "type": "output_contains",
+     "label": "Your run prints [0 1 1 0]",
+     "pattern": "\\[\\s*0\\s*,?\\s*1\\s*,?\\s*1\\s*,?\\s*0\\s*\\]"
+    }
+   ],
+   "targets": [
+    {
+     "app": "Terminal",
+     "file": "nn.py",
+     "match": "python3 nn.py",
+     "caption": "Run it here"
+    }
+   ],
+   "hints": [
+    "Press Run it for me, or run the command again in VS Code's terminal.",
+    "The first line after the losses is its answer for 00, 01, 10 and 11."
+   ],
+   "common_mistakes": [
+    "Reading the loss lines instead of the [0 1 1 0] line under them."
+   ],
+   "estMinutes": 1
   }
  ],
  "build": {
   "mode": "lesson",
-  "note": "Written by hand for the offline demo (scripts/make_nn_demo.py), no model call."
+  "note": "Written by hand (scripts/make_nn_demo.py), no model call. Served instantly for neural-network goals by server/orchestrator/curated.py."
  }
 }

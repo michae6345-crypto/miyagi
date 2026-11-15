@@ -1,0 +1,6 @@
+{
+ "stepId": "nn5",
+ "kind": "hint",
+ "title": "Hint 1 of 2",
+ "body": "forward(X) gives h and out; out holds the four answers."
+}

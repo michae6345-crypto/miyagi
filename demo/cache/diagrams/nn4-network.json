@@ -1,6 +1,6 @@
 {
  "kind": "network",
- "caption": "After the fix: random starts make each neuron different. Watch them learn 0 1 1 0.",
+ "caption": "Run it and the weights move while the loss falls. This redraws from your run.",
  "data": {
   "layers": [
    2,

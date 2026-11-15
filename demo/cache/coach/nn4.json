@@ -1,5 +1,5 @@
 {
- "stepId": "nn3",
+ "stepId": "nn4",
  "severity": "fail",
  "title": "Loss is stuck at 0.25",
  "body": "All four hidden neurons start with the same weights, so they get the same update and stay copies. With zeros nothing moves at all. Start W1 and W2 random.",

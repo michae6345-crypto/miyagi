@@ -1,6 +1,6 @@
 {
  "stepId": "nn4",
  "kind": "explain",
- "title": "Reading the output",
- "body": "Outputs are between 0 and 1. Above 0.5 counts as 1, so 0.03 0.98 0.97 0.03 reads as 0 1 1 0."
+ "title": "Reading the loss",
+ "body": "The loss is the mean squared error over the four inputs. Answering 0.5 for everything scores 0.25; a network that has learned XOR goes below 0.01."
 }

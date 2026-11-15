@@ -1,69 +1,70 @@
-# Neural-net demo: handoff and presenter guide
+# Neural-net lesson: handoff and presenter guide
 
-The in-person demo: **build a neural net from scratch** in the real miyagi, on the real engine in DEMO mode.
-No API calls and no network: the lesson, the coach's off-track card, hints, Explain / Ask cards and the live
-network diagrams all come from `demo/cache`. Checks are the real ones (screen + file + run output).
+The demo topic: **build a neural network from scratch** (2 inputs, 4 hidden neurons, 1 output, NumPy, learns XOR).
+It is a curated lesson: written by hand, served instantly, the same every time.
 
-Two branches, both needed:
-
-| Branch | Base | What |
+| Mode | How it starts | What's live |
 |---|---|---|
-| `adrian/nn-demo-engine` (this one) | integration/live | the lesson as cache files, `scripts/make_nn_demo.py`, `scripts/miyagi-nn-demo.sh`, 3-line DEMO diagram lookup in `server/orchestrator/modules.py` |
-| `adrian/nn-demo-app` | adrian/shell | `features/diagrams/NeuralNet.tsx`: network diagrams with real weights draw a live network. Without it the diagrams fall back to the old static view. Plus a drawer fix (long check details wrap). |
+| **LIVE** (`scripts/miyagi-engine.sh`) | Launcher → any neural-network goal → **Just teach me** | The off-track coach (Claude). Lesson, hints, Explain and the network diagrams come from `demo/cache` (no build, no build cost). |
+| **DEMO** (`scripts/miyagi-nn-demo.sh`) | Same | Nothing: DEMO=1 also serves the coach's off-track card from `demo/cache/coach/nn4.json`. |
 
-## Setup (Mac, once)
+Checks are the real ones in both: VS Code's exact editor text (companion extension), else `nn.py` on disk; the run steps
+on what the run printed (VS Code's terminal via the extension, Run it for me, or the screen).
 
-1. Check out both branches (worktrees are easiest). Your Mac auto-pulls `adrian/shell`, which does **not** have
-   the app side yet: run the app from `adrian/nn-demo-app`, or merge it into shell.
-2. NumPy for the `python3` the terminal uses: `python3 -c "import numpy"`. If that fails: `pip3 install numpy`.
-   If pip refuses ("externally-managed-environment", Homebrew Python): `brew install numpy`.
-3. Dry run once, start to finish (about 4 minutes).
+## Which goals get it
 
-## Start a take
+`server/orchestrator/curated.py` `matches(goal)`: the goal names a neural network ("neural network", "neural net",
+"nn", "multilayer perceptron", "MLP") and nothing more specific (LLM / GPT / transformer, fine-tuning, CNN / RNN / GAN,
+PyTorch / TensorFlow / Keras, images / MNIST / text / prices, another language such as JavaScript or C++).
+"build a neural network", "neural net from scratch", "teach me how to create a neural network", "train a tiny neural
+network", "build a nn": yes. "build an LLM", "fine-tune a neural network", "neural network in pytorch": no, those build
+a lesson as before. `MIYAGI_CURATED=0` turns curated lessons off.
 
-```bash
-scripts/miyagi-nn-demo.sh          # engine on :8787, DEMO=1; resets demo/nn-lab/nn.py and its own state dir
-```
-Every take starts clean: `nn.py` goes back to the four `# Step N` anchors, and progress is wiped, so there is no
-"Continue where you left off?" card. The engine opens VS Code on `demo/nn-lab`.
+The folder is `~/miyagi/lessons/a-neural-net-from-scratch-<hash>/` (the same every time, so a NumPy installed into its
+`.venv` stays). A fresh start puts the clean `nn.py` back; the previous attempt is kept in
+`~/miyagi/lessons/.miyagi-state/attempts/`. NumPy: the setup card offers to install it into the lesson's `.venv` when
+`python3` doesn't have it; the run steps then say `.venv/bin/python nn.py` (VS Code's terminal doesn't activate the venv).
 
-Then the app (from `adrian/nn-demo-app`): open the launcher, type **build a neural net from scratch**, pick
-**Just teach me** (Tab, then Enter, or ⌘↵). The pill builds the lesson; the drawer opens on step 1 of 4.
+## The six steps (what to do, what appears, what to say)
 
-## The four steps (what to do, what appears, what to say)
+The right-hand panel of the drawer shows a live network at every step (pushed by the engine; `adrian/shell` PR #94).
 
-| # | You do | miyagi shows | Say |
-|---|---|---|---|
-| 0 | Launcher → "build a neural net from scratch" → Just teach me | The lesson: what we're building, "Before you start" (4 ideas), the plan, step 1's code with Copy | "Tell it what you want to learn. Claude writes a lesson, then miyagi watches you do it." |
-| 1 | **⌥D** first: the network firing. Esc. Then Copy step 1, paste under `# Step 1`, **change the two weight lines to zeros**: `W1 = np.zeros((2, 4))`, `W2 = np.zeros((4, 1))`. Save. | Diagram: circles light up by activation, blue/brown weights, signals firing, want vs gets for 00 01 10 11. Then the checks go green: "Good. Now the next one." | "This is what we're building. I'll take a shortcut: zeros instead of random weights. The shapes are right, so it passes." |
-| 2 | Copy backward, paste under `# Step 2`, save. **⌥D**: the error flowing back. | Checks green | "Backprop: the error goes back along the same weights; every weight gets its share of the blame." |
-| 3 | Copy the loop, paste under `# Step 3`, save, run `python3 nn.py` in the VS Code terminal | Loss 0.2500 on every line → **off track**: "Loss is stuck at 0.25", guiding question, yours vs expected. **⌥D**: four identical neurons, all 0.50. **⌥H** twice: the hint ladder ends at "start them random". | "Every check passed, but the loss never moved. miyagi caught it from the curve and asks a question first. All four neurons are the same neuron." |
-| 3b | Change the two lines back to `np.random.randn(2, 4) * 0.5` / `np.random.randn(4, 1) * 0.5`, save, run again | Loss 0.2691 → 0.0009 → back on track, step passes | "Random starts break the tie. Now it learns." |
-| 4 | **⌥D** first: watch it learn. Esc. Copy the print, paste under `# Step 4`, save, run | Weights grow, outputs settle on 0 1 1 0; then `[0 1 1 0]`, lesson complete | "From nothing to a working neural net, every step checked." |
+| # | Step | You do | miyagi shows | Say |
+|---|---|---|---|---|
+| 1 | Build the network | Copy, paste under `# The network`. For the story, **change the two weight lines to zeros**: `W1 = np.zeros((2, 4))`, `W2 = np.zeros((4, 1))`. Save. | Panel: the network firing (forward pass). Checks go green. | "This is what we're building. I'll take a shortcut: zeros instead of random weights. The shapes are right, so it passes." |
+| 2 | Backprop | Copy, paste under `# Backprop`, save | Panel: the error flowing back | "Backprop: the error goes back along the same weights; every weight gets its share of the blame." |
+| 3 | Write the training loop | Copy, paste under `# Training`, save | Panel: what training will do | |
+| 4 | Train it | Run it (Run it for me, or the command in VS Code's terminal) | Loss 0.2500 on every line → **off track** (live coach). Panel: **four identical neurons**. ⌥H twice: "look at how W1 and W2 start" → "start them random". | "Every check passed, but the loss never moved. All four hidden neurons are the same neuron." |
+| 4b | | Change the two lines back to `np.random.randn(2, 4) * 0.5` / `np.random.randn(4, 1) * 0.5`, save, run again | Loss 0.2691 → 0.0009, step passes. Panel: **your run**, weights moving while the loss falls | "Random starts break the tie. Now it learns." |
+| 5 | Test it | Copy, paste under `# Test it`, save | Panel: your run again | |
+| 6 | See what it learned | Run it | `[0 1 1 0]` and the weights; lesson complete. Panel: your network answering 00 01 10 11, drawn from the weights it printed | "From nothing to a working neural net, every step checked." |
 
-Screenshots from the test run (browser stage on Windows, the desktop behind it is the stage's placeholder image):
-`docs/nn-demo/1-lesson-step1.jpg`, `2-network-firing.png`, `3-off-track.jpg`, `4-four-identical-neurons.jpg`.
+⌥D on any step opens the panel's network full size (no engine round trip when the panel has one).
 
-## What was tested, what wasn't
+## Under the hood
 
-Tested on Adrian's Windows laptop: this branch's engine (DEMO=1, `ORCH_SCREEN=0` because screen reading is
-macOS-only) with the app's browser stage connected. Lesson load, steps 1-2 passing on file checks, the real
-run's output (posted to `/ingest`) going off track at 0.25 with the cached coach card, hints and diagrams,
-the fix passing step 3, `[0 1 1 0]` passing step 4.
-
-**Not tested** (needs your Mac): the screen checks (VS Code regexes, Terminal), reading the loss off the
-Terminal with `metric_pattern` (`epoch\s+(?P<step>\d+)\s+loss\s+(?P<value>…)`), Electron, VS Code auto-open.
+- Lesson and data: `scripts/make_nn_demo.py` (retrains with NumPy and rewrites every file, so every number on screen is
+  real): `demo/cache/lessons/text-nn-from-scratch.json`, `cards/nn<k>-*.json` (+ `nn4-stuck-*`), `diagrams/nn<k>-network.json`
+  + `nn4-gradients.json`, `coach/nn4.json` (DEMO only), `demo/nn-start.py`.
+- Engine: `server/orchestrator/curated.py`. Pushed diagrams are ordinary `diagram` events (kind `network`, `data.frames`,
+  `stepId` = the current step). After a run, the frames are redrawn from the learner's run: their printed losses, and
+  their weights once `nn.py` prints them (step 5's code does). A run that matches the lesson's own run (seed 0) uses its
+  exact weights for every frame.
+- Typing and running are separate steps (the engine's lesson mode shows a run step's command as its snippet; one step
+  for both hid the code).
 
 ## If something goes wrong
 
-- **Step 3 never goes off track**: the loss lines weren't read. Check the Terminal shows `epoch 4000  loss 0.2500`
-  and isn't covered; the check needs the line for epoch 4000.
-- **A "Continue where you left off?" card**: the take didn't start from the script. Restart it with the script.
-- **A different lesson loads on Just teach me**: another lesson-mode file in `demo/cache/lessons` is newer. The
-  script touches this one; run the script again.
-- **Diagrams look static (old network view)**: the app isn't on `adrian/nn-demo-app`.
+- **Step 4 never goes off track**: no loss lines were read. With the companion extension the run's own output is used;
+  without it the screen must show `epoch 4000  loss 0.2500` in the terminal.
+- **`ModuleNotFoundError: numpy`**: install NumPy from the setup card (or `brew install numpy`); the run steps then use
+  `.venv/bin/python nn.py`.
+- **A different lesson loads on Just teach me**: the goal didn't match (see above), or `MIYAGI_CURATED=0`.
+- **No network on the right**: the app is older than `adrian/shell` PR #94 (pushed diagrams then open as a card).
 
-## Changing the lesson
+## DEMO setup (Mac, once)
 
-Edit `scripts/make_nn_demo.py` (code per step, checks, cards, captions) and run `python3 scripts/make_nn_demo.py`.
-It retrains the network with NumPy and rewrites every cache file, so the numbers on screen stay real.
+1. NumPy for the `python3` the terminal uses: `python3 -c "import numpy"`, else `pip3 install numpy` (Homebrew Python:
+   `brew install numpy`).
+2. `scripts/miyagi-nn-demo.sh` (engine on :8787, DEMO=1, `demo/nn-lab/nn.py` reset, its own state dir wiped each take).
+3. The app from `adrian/shell`. Launcher: **build a neural network**, then **Just teach me**.

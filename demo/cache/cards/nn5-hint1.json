@@ -1,0 +1,6 @@
+{
+ "stepId": "nn5",
+ "kind": "hint",
+ "title": "Hint 2 of 2",
+ "body": "Compare with 0.5 and turn True/False into 1/0 with .astype(int)."
+}

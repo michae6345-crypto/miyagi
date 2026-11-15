@@ -1,0 +1,6 @@
+{
+ "stepId": "nn6",
+ "kind": "explain",
+ "title": "What the weights mean",
+ "body": "Hidden neuron 1 turns on when either input is 1 (OR); neuron 3 only when both are (AND). The output adds the first and subtracts the third: OR minus AND is XOR."
+}

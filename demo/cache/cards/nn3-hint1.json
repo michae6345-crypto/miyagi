@@ -2,5 +2,5 @@
  "stepId": "nn3",
  "kind": "hint",
  "title": "Hint 2 of 2",
- "body": "Start them random, like the lesson: np.random.randn(2, 4) * 0.5 and np.random.randn(4, 1) * 0.5. Then run again."
+ "body": "Inside the loop: forward, backward, then W -= lr * dW for all four weights."
 }

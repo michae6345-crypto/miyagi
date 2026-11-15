@@ -1,6 +1,6 @@
 {
  "kind": "network",
- "caption": "Training: every weight takes a small step downhill 5,000 times, and ŷ settles on 0 1 1 0.",
+ "caption": "What your loop will do: every weight takes a small step downhill 5,000 times, and ŷ settles on 0 1 1 0.",
  "data": {
   "layers": [
    2,
