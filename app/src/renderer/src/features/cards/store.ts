@@ -54,14 +54,20 @@ type CardsState = {
   pending?: { kind: CardAction; at: number; sawThinking: boolean }
   /** What the finder said about each result (style, captions…), by videoId and url: the preflight card's meta line. */
   results: Record<string, ResultMeta>
+  /**
+   * Install all (desktop test 9, A8): the setup rows still to install, in row order. Local chain: the head runs, the
+   * rest wait; `started` = the rows this chain has kicked off (one that ends not ok stops the chain). `engine`: the
+   * engine's own install_all runs them and the app only follows its setup.progress.
+   */
+  queue?: { tools: string[]; started: string[]; engine: boolean }
 }
 
 export type ResultMeta = Pick<Payload<'search.result'>, 'style' | 'captions' | 'chapters' | 'durationS'>
 
-/** One setup item's install: running (Install button disabled, spinner + latest line) until done. */
-export type Install = { running: boolean; line?: string; error?: string }
+/** One setup item's install: running (Install button disabled, spinner + latest line) until done; ok once it succeeded. */
+export type Install = { running: boolean; line?: string; error?: string; ok?: boolean; version?: string }
 
-const blank: CardsState = { offtrackOpen: false, offtrackClosed: false, fixing: false, recovered: false, resume: false, offtrackSeq: undefined, success: undefined, card: undefined, cardFrom: undefined, metrics: {}, tutorial: {}, installs: {}, pending: undefined, results: {} }
+const blank: CardsState = { offtrackOpen: false, offtrackClosed: false, fixing: false, recovered: false, resume: false, offtrackSeq: undefined, success: undefined, card: undefined, cardFrom: undefined, metrics: {}, tutorial: {}, installs: {}, pending: undefined, results: {}, queue: undefined }
 export const useCards = create<CardsState>(() => ({ ...blank }))
 
 /**
@@ -151,7 +157,8 @@ export function cardAct(kind: CardAction, text?: string): void {
   if (kind === 'install' && text !== undefined) {
     // One install per tool: a double click can't start a second one.
     if (get().installs[text]?.running) return
-    setInstall(text, { running: true, line: undefined, error: undefined })
+    holdBody()
+    setInstall(text, { running: true, line: undefined, error: undefined, ok: undefined })
   }
   // One answer at a time; Skip / Pick another always work (they just end the card).
   if (get().pending && !PER_ITEM.has(kind) && !CLOSE_NOW.has(kind)) return
@@ -220,12 +227,111 @@ onMessage('search.result', (p) => {
   set({ results })
 })
 
-/** Install progress: lines while it runs, then {done, ok, error}. A re-sent setup card with the item ok flips the row to a check. */
+/** Install progress: lines while it runs, then {done, ok, error}. The row flips to its check right away (a re-sent setup card confirms it). */
 onMessage('setup.progress', (p) => {
-  if (p.done) setInstall(p.tool, { running: false, line: undefined, error: p.ok === false ? (p.error ?? 'Install failed') : undefined })
-  else if (p.line) setInstall(p.tool, { running: true, line: p.line })
+  if (p.done) {
+    const ok = p.ok !== false && !p.error
+    setInstall(p.tool, { running: false, line: undefined, ok, version: p.version, error: ok ? undefined : (p.error ?? 'Install failed') })
+  } else if (p.line) setInstall(p.tool, { running: true, line: p.line })
   else setInstall(p.tool, { running: true })
+  pump()
 })
+
+// ---------------------------------------------------------------------------------------------------------------
+// Setup card (desktop test 9, A8): Install all, and rows that never move.
+// ---------------------------------------------------------------------------------------------------------------
+
+type SetupItem = NonNullable<Payload<'card'>['setup']>['items'][number]
+/** The engine's own install-all action, once it exists (not in shared/contracts yet): sent instead of the local chain. */
+export const INSTALL_ALL = 'install_all'
+/** Install methods that go through `install {text: tool}` (download / open open a page instead; none has nothing). */
+const INSTALLS = new Set<SetupItem['install']['method']>(['pip', 'brew', 'brew_cask'])
+/** A row is done when the card says ok or its install just succeeded (before the re-sent card confirms it). */
+export const itemDone = (x: SetupItem, installs: Record<string, Install>): boolean => x.ok || !!installs[x.tool]?.ok
+/** The needed rows Install all covers: missing, installed by a package manager. */
+export function installable(items: SetupItem[], installs: Record<string, Install>): SetupItem[] {
+  return items.filter((x) => x.needed && !itemDone(x, installs) && INSTALLS.has(x.install.method))
+}
+
+/** Install all: the engine's install_all when the card offers it, else each missing row in turn (one at a time). */
+export function installAll(): void {
+  const s = get()
+  const card = s.card
+  if (!card?.setup || s.queue) return
+  const tools = installable(card.setup.items, s.installs).map((x) => x.tool)
+  if (tools.length === 0) return
+  holdBody()
+  if ((card.actions as string[] | undefined)?.includes(INSTALL_ALL)) {
+    // A Retry left over from before must not read as this run's failure.
+    for (const t of tools) if (!s.installs[t]?.running) setInstall(t, { error: undefined })
+    set({ queue: { tools, started: [], engine: true } })
+    sendAction(INSTALL_ALL as ActionKind)
+    return
+  }
+  set({ queue: { tools, started: [], engine: false } })
+  pump()
+}
+
+/**
+ * Moves Install all along: drops the rows that are done; the local chain starts the next row once the one before it
+ * finished ok. A row that ends without ok (its error shows on the row, with Retry) stops the chain there.
+ */
+function pump(): void {
+  const q = get().queue
+  if (!q) return
+  const installs = get().installs
+  const items = get().card?.setup?.items ?? []
+  const done = (t: string): boolean => !!installs[t]?.ok || !!items.find((x) => x.tool === t)?.ok
+  const tools = q.tools.filter((t) => !done(t))
+  const head = tools[0]
+  if (!head) return set({ queue: undefined })
+  if (q.engine) {
+    // The engine runs them; a failure ends our "Waiting" rows (if it carries on, its progress shows that anyway).
+    const failed = tools.some((t) => installs[t]?.error && !installs[t]?.running)
+    return set({ queue: failed ? undefined : { ...q, tools } })
+  }
+  if (installs[head]?.running) return set({ queue: { ...q, tools } })
+  if (q.started.includes(head)) return set({ queue: undefined }) // it ran and isn't ok: the chain stops on its error
+  set({ queue: { ...q, tools, started: [...q.started, head] } })
+  cardAct('install', head)
+}
+
+/**
+ * The setup card's rows, kept across re-sent cards: order by first appearance (keyed by tool), and a row stays once
+ * it's installed even when the engine stops listing it (a lesson-mode card lists only what's still missing), as a check
+ * in place. `body`: from the first install until nothing is missing, the body stays what it was when the learner
+ * pressed Install. The engine re-sends the card with its install status as the body (about once a second), which
+ * changed the body's height and moved every row under the cursor; the rows already show that status.
+ */
+type Rows = { order: string[]; items: Map<string, SetupItem>; body?: string }
+let rows: Rows | undefined
+const dropRows = (): void => void (rows = undefined)
+function holdBody(): void {
+  const card = get().card
+  if (rows && rows.body === undefined && card?.setup) rows.body = card.body
+}
+function steadySetup(p: Payload<'card'>): Payload<'card'> {
+  if (p.kind !== 'setup' || !p.setup?.items?.length) return p
+  const s: Rows = rows ?? (rows = { order: [], items: new Map<string, SetupItem>() })
+  const installs = get().installs
+  const fresh = new Map(p.setup.items.map((x) => [x.tool, x]))
+  for (const x of p.setup.items) if (!s.order.includes(x.tool)) s.order.push(x.tool)
+  const items: SetupItem[] = []
+  for (const t of s.order) {
+    const x = fresh.get(t)
+    const was = s.items.get(t)
+    if (x) {
+      s.items.set(t, x)
+      items.push(x)
+    } else if (was && (was.ok || installs[t]?.ok)) {
+      const kept = { ...was, installed: true, ok: true, version: was.version ?? installs[t]?.version }
+      s.items.set(t, kept)
+      items.push(kept)
+    }
+  }
+  if (items.every((x) => !x.needed || x.ok)) s.body = undefined // ready: the engine's own words again
+  return { ...p, body: s.body ?? p.body, setup: { ...p.setup, items } }
+}
 
 /** A card's video jump: core seekVideo sets the intent in every window; the player follows core/lesson.video. */
 export function jumpTo(t: number): void {
@@ -252,6 +358,7 @@ onUi('reset', (p) => {
   clearTimeout(pendingTimer)
   cancelClose()
   dropHeldOfftrack()
+  dropRows()
   dismissed = undefined
   // scope "lesson" (lesson.ended): a new search may be in flight, so keep what the finder said about its results.
   const keep = (p as { scope?: string } | undefined)?.scope === 'lesson'
@@ -269,6 +376,7 @@ onUi('shortcut', (kind) => {
 onUi('dismiss', closeTop)
 onMessage('lesson.ready', () => {
   dropHeldOfftrack()
+  dropRows()
   dismissed = undefined
   clearTimeout(pendingTimer)
   cancelClose()
@@ -353,8 +461,9 @@ onMessage('offtrack', (p) => {
   openOfftrack(p)
 })
 // "Apply this fix?" (a diff to confirm) replaces the "Waiting for the fix" view, so `fixing` ends here.
-onMessage('card', (p) => {
-  // A re-sent setup card: rows that are installed now drop their install state.
+onMessage('card', (raw) => {
+  // A re-sent setup card keeps its rows in place (steadySetup); rows that are installed now drop their install state.
+  const p = steadySetup(raw)
   const ok = new Set((p.setup?.items ?? []).filter((x) => x.ok).map((x) => x.tool))
   if (ok.size) set({ installs: Object.fromEntries(Object.entries(get().installs).filter(([t]) => !ok.has(t))) })
   clearTimeout(pendingTimer)
@@ -362,6 +471,7 @@ onMessage('card', (p) => {
   const cardFrom = lastPress && Date.now() - lastPress.at < ASKED_WITHIN_MS ? lastPress.kind : undefined
   lastPress = undefined
   set({ card: p, cardFrom, pending: undefined, resume: over(), offtrackOpen: false, ...(p.diff ? { fixing: false } : {}) })
+  pump() // a re-sent setup card that marks the running row ok moves Install all on
   // A passing note ("numpy installed ✓", dismissAfterMs 4000) goes by itself (Michael's test 6: still up after 30 s).
   // Not in shared/contracts yet: read it off the payload.
   clearTimeout(autoTimer)

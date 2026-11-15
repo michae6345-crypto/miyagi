@@ -71,10 +71,10 @@ export function readsAsCode(text: string): boolean {
 
 /**
  * The value in a metric reading, where a sentence carries one: "loss 0.25 at step 300, need < 0.01" → "0.25",
- * "loss diverged: nan at step 30" → "nan". The metric's name comes from the data, so any name matches.
+ * "loss diverged: nan at step 30" → "nan", "loss 0.49 at epoch 18000" → "0.49". The metric's name comes from the data, so any name matches.
  */
 export function readingValue(text: string): string | undefined {
-  const m = text.match(/(?:^|\s)([-+]?(?:\d[\d,]*(?:\.\d+)?|\.\d+)(?:e[-+]?\d+)?|[-+]?(?:nan|inf(?:inity)?))\s+at step\s+\d/i)
+  const m = text.match(/(?:^|\s)([-+]?(?:\d[\d,]*(?:\.\d+)?|\.\d+)(?:e[-+]?\d+)?|[-+]?(?:nan|inf(?:inity)?))\s+at (?:step|epoch)\s+\d/i)
   return m?.[1]
 }
 
