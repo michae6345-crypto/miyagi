@@ -339,11 +339,12 @@ class Modules:
             return None
 
     async def judge_step(self, step: dict, screen: Any = None, files: dict | None = None, *, check_results: Any = None,
-                         focused_app: str = "", lesson: dict | None = None) -> dict | None:
+                         focused_app: str = "", lesson: dict | None = None, active_file: dict | None = None) -> dict | None:
         fn = self._real_fn("coach", "judge_step")
         if fn is None:
             return None
-        return await fn(step, screen, files, check_results=check_results, focused_app=focused_app, lesson=lesson)
+        return await fn(step, screen, files, check_results=check_results, focused_app=focused_app, lesson=lesson,
+                        active_file=active_file)
 
     # -- E2 lazy long-video parts: later parts are built only as the learner nears them
     def lesson_needs_more(self, graph: dict, step_index: int) -> bool:
