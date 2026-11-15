@@ -1,6 +1,6 @@
 {
  "stepId": "nn1",
  "kind": "answer",
- "title": "Sigmoid or ReLU?",
- "body": "Both work. Sigmoid keeps outputs in 0..1 like XOR's answers, and its slope σ(1 − σ) keeps backprop to one line."
+ "title": "Why no tanh on the output?",
+ "body": "tanh keeps a neuron between -1 and 1. The hidden layers need that bend; the output just adds them up, so it can reach any value. Its weights start small (* 0.1), so its first guesses are near 0."
 }

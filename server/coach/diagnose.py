@@ -53,13 +53,13 @@ Hard limits:
 - title: 3 to 7 words (hard maximum 8), plain statement of the cause (not a question, no trailing period), in sentence case (capitalize only the first word and proper nouns), with code names in backticks ("`subtract` and `divide` not written yet").
 - body: at most 30 words, at most 2 sentences. Sentence 1: why it fails. Sentence 2: what to do, stated completely in words with the concrete value or name (e.g. "Set lr to 1e-3."), because the diff is often hidden at first.
 - Refer to their code by its real names (variables, functions) when helpful.
-- diff_expected: the smallest replacement for the learner's offending line(s): one contiguous block of at most 8 lines that makes EVERY edit your body's action sentence asks for (if the fix touches two nearby lines, the block covers both), in the learner's style and variable names; "" if no code change applies. If the fix adds training stages, keep the total training budget about the same (split the epochs across stages). diff_yours: the learner's current line(s) copied exactly from the numbered excerpt (without line numbers); "" if none. diff_line: the 1-based line number of diff_yours in the excerpt, 0 if none. diff_file: the file name if known, else "".
+- diff_expected: the smallest replacement for the learner's offending line(s): one contiguous block of at most 8 lines that makes EVERY edit your body's action sentence asks for (if the fix touches two nearby lines, the block covers both), in the learner's style and variable names; "" if no code change applies. If the fix adds training stages, keep the total training budget about the same (split the epochs across stages). diff_yours: the learner's current line(s) copied exactly from the numbered excerpt (without line numbers); "" if none. diff_line: the 1-based line number of diff_yours in the excerpt, 0 if none. diff_file: the file name if known, else "". To delete line(s) (e.g. a shell command like `python3 main.py` typed into the .py file), diff_yours is them, diff_expected is "" and the body says "Delete …".
 - Ground the card in evidence: WEB SOURCES (official docs, changelogs, Stack Overflow / GitHub issues fetched live for this failure) take precedence over memory for API names, versions and deprecations. If a web source contradicts your memory, trust the source. Prefer official docs over community posts.
-- diff_command: when the fix is a terminal action (install or upgrade a package, add a CLI flag, re-run with an option), that single shell command; else "". It can go with or without a code diff.
+- diff_command: when the fix is a terminal action (install or upgrade a package, add a CLI flag, re-run with an option), that single shell command; else "". It can go with or without a code diff. Never a command the learner typed into their file by mistake: deleting that line is the fix (diff_yours).
 - citation_id: pick one id from the CITATIONS list (web:N, source:..., or a playbook id) only when that source directly supports the card; otherwise "none". Never invent a source.
 - playbook_id: the matching playbook entry id, or "none" if no entry fits. Do not force a match: if the evidence does not fit an entry, diagnose from first principles.
 - severity: "warn" when it runs but the result is off (a metric plateaus, a test count is short, output differs); "fail" when it crashes, errors, or produces nan/inf.
-- actions: include "apply_fix" only when diff_expected is non-empty; include "show_me" when a specific line is implicated.
+- actions: include "apply_fix" only when diff_expected is non-empty or the fix deletes diff_yours; include "show_me" when a specific line is implicated.
 - guiding_question: one Socratic question (at most 20 words) about THIS cause that leads the learner to the fix without stating it, e.g. "What happens to Adam's steps when the learning rate is large?". It is the first rung of the hint ladder.
 
 - Trust what is on screen (error text, versions in tracebacks) over the lesson's library versions: the learner may have a newer release than the tutorial.
@@ -371,6 +371,28 @@ def _tidy_title(title: str, step: dict, code_excerpt: str = "") -> str:
     return out[0].upper() + out[1:] if lead.islower() else out  # "macOS …" keeps its case
 
 
+_DELETE_WORDS = re.compile(r"\b(?:delete|remove|take\s+out|erase|get\s+rid\s+of)\b", re.I)
+_DELETE_LINE = re.compile(r"\b(?:delete|remove|take\s+out|erase|get\s+rid\s+of)\b[^.\n]*?\blines?\b", re.I)
+_SHELL_LINE = re.compile(r"^\$?\s*(?:python[\d.]*|pip[\d.]*|uv|npm|npx|node|yarn|pnpm|git|cd|ls|bash|sh|make|pytest)\s",
+                         re.I)
+
+
+def _flat(s: str | None) -> str:
+    return " ".join((s or "").split())
+
+
+def _deletes_line(yours: str, expected: str, command: str, words: str) -> bool:
+    """diff_yours with no diff_expected is a deletion when the line is a shell command (typed into the file) or the
+    command itself, or the card says to delete that line ("delete the … line", "remove `x = 1`"); else (yours only
+    points at the line, "remove the extra comma") there is no code diff."""
+    lines = [_flat(x) for x in (yours or "").splitlines() if x.strip()]
+    if not lines or (expected or "").strip():
+        return False
+    if all(_SHELL_LINE.match(x) for x in lines) or _flat(command) in lines or _DELETE_LINE.search(words or ""):
+        return True
+    return bool(_DELETE_WORDS.search(words or "")) and any(_flat(t) in lines for t in re.findall(r"`([^`]+)`", words))
+
+
 def _shape(data: dict, step: dict, code_excerpt: str, lesson: dict | None, sources: list[dict] | None = None) -> dict:
     expected = (data.get("diff_expected") or "").strip("\n")
     yours = (data.get("diff_yours") or "").strip()
@@ -378,9 +400,14 @@ def _shape(data: dict, step: dict, code_excerpt: str, lesson: dict | None, sourc
     if command and _unsafe_git_continue(command, code_excerpt, yours, expected):
         command = ""  # would commit unresolved conflict markers (S9 QA, verified)
     diff = None
-    if command and not expected:  # terminal-only fix: the app copies it to the clipboard
+    # a deletion (yours, no expected: "delete the `python3 nn.py` line from nn.py") is a file fix: it kept only the
+    # command, so Do it for me copied `python3 nn.py` for the terminal (QA 11-15 02:59:22) instead of deleting line 41
+    delete = _deletes_line(yours, expected, command, f"{data.get('title') or ''} {data.get('body') or ''}")
+    if delete and _flat(command) in {_flat(x) for x in yours.splitlines()}:
+        command = ""  # the command typed into the file is the line to delete, never one to run
+    if command and not expected and not delete:  # terminal-only fix: the app copies it to the clipboard
         diff = {"expected": "", "yours": "", "command": command}
-    if expected:
+    if expected or delete:
         diff = {"expected": expected, "yours": yours, **({"command": command} if command else {})}
         f = data.get("diff_file") or _target_file(step)
         if f:

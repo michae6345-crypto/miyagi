@@ -121,8 +121,38 @@ def strip_open(card: dict, name: str) -> dict | None:
     return out
 
 
+OPEN_SENTENCE = re.compile(r"\s*Open the lesson folder in [^?.]+[?.]")
+
+
+async def setup_without_open(s: Any, card: dict) -> dict:
+    """A setup card without "Open Visual Studio Code" when the lesson's VS Code window is already open (companion
+    extension window holding the folder, else a window title naming it). t5 02:11:33: "Ready to go" offered Open while
+    VS Code had the lesson folder open in front. Nothing left to install: Skip reads "Done". Never raises."""
+    if "open_editor" not in (card.get("actions") or []) or getattr(getattr(s, "screen", None), "reader", None) is None:
+        return card  # (no real screen reader: tests never read the learner's real VS Code)
+    folder = getattr(s, "workdir", None)
+    if not folder:
+        return card
+    try:
+        found = await asyncio.to_thread(lesson_active_file, folder, getattr(getattr(s, "last_obs", None), "windows", None))
+    except Exception:  # noqa: BLE001 - a refinement: the card goes out as before
+        log.exception("where_row: lesson-window check failed")
+        return card
+    if found is None:
+        return card  # no window of the lesson folder: Open is the right answer
+    out = {**card, "actions": [a for a in card["actions"] if a != "open_editor"]}
+    out["body"] = OPEN_SENTENCE.sub("", out.get("body") or "").strip() or out.get("body") or ""
+    if "install" not in out["actions"] and isinstance(out.get("setup"), dict):
+        out["setup"] = {**out["setup"], "actionLabels": {**(out["setup"].get("actionLabels") or {}), "skip_setup": "Done"}}
+    log.info("where_row: the lesson's VS Code window is open (%s): no Open on setup card %r", found.get("source"),
+             card.get("title"))
+    return out
+
+
 async def filter_card(s: Any, card: dict) -> dict | None:
     """The card to send (maybe without its Where row / Open), or None to send nothing. Never raises."""
+    if card.get("kind") == "setup":
+        return await setup_without_open(s, card)
     if not offers_open(card) or card.get("kind") in KEEP_KINDS or "use_this_folder" in (card.get("actions") or []):
         return card
     if getattr(getattr(s, "screen", None), "reader", None) is None:

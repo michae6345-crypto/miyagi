@@ -21,7 +21,7 @@ import os
 import re
 import time
 
-from . import builder, claude, cost, gemini
+from . import builder, claude, coverage, cost, gemini, runnames
 from .schema import schema_errors
 from .workdir import scan
 
@@ -91,6 +91,8 @@ STEP_SCHEMA = {
             "required": ["file", "match", "caption"]}},
         "hints": {"type": "array", "items": {"type": "string"}},
         "common_mistakes": {"type": "array", "items": {"type": "string"}},
+        "shows": {"type": "string", "description": "a run step only: <= 4 words starting with see/watch, what THIS run "
+                  "shows that no other run in the lesson does ('see the untrained guesses', 'watch the loss fall'); '' for code"},
     },
     "required": ["file", "code", "checks", "targets", "hints"],
 }
@@ -172,8 +174,10 @@ or inside; call only names that exist by now. A step either types code or runs a
   sits ON the box: a 2-6 word pointer ("Type it here", "Type below sigmoid_slope", "Run it here"), never the
   whole instruction (that goes in instructions / hints);
 - checks (at least one; graded from the learner's screen): screen_contains with app "Code" and a SHORT regex
-  (< 60 chars, spacing-tolerant) for a distinctive fragment of this step's code; and, if the step runs
-  something, a screen_contains with app "Terminal" on what it PRINTS (never the typed command);
+  (< 60 chars, spacing-tolerant) for a distinctive fragment of this step's code, one per function or variable the
+  code defines, on its key expression (each def's return line, each assignment's right-hand side: never only the
+  `def` line), so a wrong body never passes; and, if the step runs something, a screen_contains with app "Terminal"
+  on what it PRINTS (never the typed command), and `shows`: what this run lets the learner see at this point;
   precision_checks: file_contains on the same fragment in `file`, command_exit_ok for a quick run;
 - every check label: <= 6 words, unique within the step, an OUTCOME that names what the learner made, with each
   name from the code in backticks exactly as spelled there ("`roll` gets `random.randint(1, 6)`", "`sigmoid()`
@@ -273,6 +277,7 @@ async def build_text_lesson(goal: str, workdir: str, on_update=None, *, cache: b
             if m := re.match(r"s(\d+)", st["id"]):
                 first.setdefault(int(m.group(1)), k)
             _renumber(st, k)
+        runnames.name_runs(ordered)  # T5: a generic / repeated run name says what that run shows
         distinct_steps(ordered)  # E25: never two steps with the same title or plan line
         b = dict(build)
         if complete and b and all(st.get("estMinutes") for st in ordered):
@@ -363,8 +368,12 @@ async def build_text_lesson(goal: str, workdir: str, on_update=None, *, cache: b
             if not _is_run_step(part):
                 f = part.get("file") or ""
                 before = state.get(f, "")
+                if left := coverage.cover_definitions(part, before):  # T5: every def / assignment checked on its body
+                    warnings.append(f"step {i}: no check left for {', '.join(left)} (over {coverage.MAX_CHECKS} checks)")
                 state[f] = (state.get(f, "").rstrip("\n") + "\n" + (part.get("code") or "")).lstrip("\n") if f else state.get(f, "")
                 exact_anchor(part, state.get(f, ""), before)
+            else:  # T5: named for what THIS run shows, never "Run main.py" / one line for every run
+                runnames.name_run(part, d.get("shows") or "", done, steps_plan[i:])
             out.append(part)
         return out
 
@@ -940,6 +949,9 @@ def _code_title(st: dict) -> str:
     names = [a or b for a, b in _DEF.findall(st.get("code") or "")]
     if names:
         return _short_title("Write " + " and ".join(f"{n}()" for n in names[:2]), 6)
+    made = list(dict.fromkeys(d["name"] for d in coverage.definitions(st.get("code") or "") if d["kind"] == "assign"))
+    if made:  # T5: "Add hidden and output", never "Add the code to main.py"
+        return _short_title("Add " + " and ".join(made[:2]), 6)
     f = os.path.basename(st.get("file") or "")
     return f"Add the code to {f}" if f else "Add the code"
 
@@ -1000,6 +1012,14 @@ def fill_missing(g: dict) -> dict:
     what / why on every step, a sentence-case title. Deterministic, no model call."""
     les = g.get("lesson") or {}
     steps = g.get("steps") or []
+    files: dict[str, str] = {}  # T5: each file as the steps so far left it
+    for st in steps:
+        f = st.get("file") or ""
+        if f and not _is_run_step(st) and (st.get("code") or "").strip():
+            coverage.cover_definitions(st, files.get(f, ""))  # every def / assignment checked on its body
+            files[f] = (files.get(f, "").rstrip("\n") + "\n" + st["code"]).lstrip("\n")
+    runnames.name_runs(steps)  # T5: no four runs called "Run your program and see what it prints"
+    distinct_steps(steps)
     if les.get("title") and g.get("_title_case") != "model":  # only titles cached by an older builder
         les["title"] = sentence_case(les["title"], les.get("goal") or "")
     if not (les.get("overview") or "").strip():

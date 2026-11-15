@@ -18,7 +18,7 @@ from typing import Any
 
 from . import llm
 from .common import clamp_words, get_lesson, number_lines, step_brief, system_blocks
-from .diagnose import LAST, notebook_code
+from .diagnose import LAST, _deletes_line, notebook_code
 from .hints import apply_fix
 from .screen import ScreenContext
 
@@ -64,7 +64,7 @@ PATCH_SYSTEM = """You write the smallest change that fixes the learner's current
 - yours: the exact contiguous line(s) to replace, copied from the numbered file (without the line numbers).
 - expected: the replacement line(s), with the same indentation as in the file.
 - line: 1-based line number of the first line of `yours`.
-- command: if the fix is a terminal action instead (install a package, `git rebase --abort`), that one shell command and yours/expected ""; else "". Never `git add` / `--continue` while conflict markers remain.
+- command: if the fix is a terminal action instead (install a package, `git rebase --abort`), that one shell command and yours/expected ""; else "". Never `git add` / `--continue` while conflict markers remain. A line typed into the file by mistake (a shell command in a .py file) is a file fix: yours = that line, expected "", command "".
 - summary: one line, at most 12 words, imperative ("Lower Adam's learning rate to 1e-3").
 - The result must be valid code (Python must compile) and must actually change something."""
 
@@ -148,8 +148,9 @@ async def do_it_for_me(step: dict, file: str, file_text: str, last_offtrack: dic
     add_code = "" if use_diagnosis else (step.get("code") or "").strip("\n")
     head = _step_code_head(step) if add_code else ""
     if use_diagnosis and (diff := last.get("diff")):
-        if diff.get("command") and not diff.get("expected"):
-            return _command_result(diff["command"], action or "Run this command", "diagnosis")
+        if diff.get("command") and not diff.get("expected") and not _deletes_line(diff.get("yours") or "", "",
+                                                                                    diff["command"], action):
+            return _command_result(diff["command"], action or "Run this command", "diagnosis")  # (else a deletion)
         p = apply_fix({**diff, "file": file}, file_text)
         missing = missing_edits(action, diff.get("expected", ""), diff.get("yours", "")) if p["error"] is None else []
         if p["error"] is None and not missing:
@@ -180,7 +181,8 @@ async def do_it_for_me(step: dict, file: str, file_text: str, last_offtrack: dic
         except llm.CoachLLMError as e:
             raise llm.CoachUnavailable(f"could not write a patch: {e}") from e
         d = res.data
-        if (d.get("command") or "").strip() and not (d.get("expected") or "").strip():
+        if (d.get("command") or "").strip() and not (d.get("expected") or "").strip() and not _deletes_line(
+                d.get("yours") or "", "", d["command"], d.get("summary") or ""):
             return _command_result(d["command"].strip(), d["summary"], f"opus#{attempt + 1}")
         p = apply_fix({"yours": d["yours"], "expected": d["expected"], "line": d.get("line"), "file": file}, file_text)
         missing = missing_edits(action, d["expected"], d["yours"]) if p["error"] is None else []
