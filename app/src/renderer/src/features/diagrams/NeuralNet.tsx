@@ -17,6 +17,7 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { useReducedMotion } from 'motion/react'
 import { color, fill, font, glass } from '../../core/theme'
+import { printedLoss } from './Firing'
 
 const POS = '#58C4DD'
 const NEG = '#C08552'
@@ -101,7 +102,6 @@ const STAGE_MS = 520
 const FILL_MS = 260
 const HOLD_MS = 900
 const TRAIN_MS = 6200
-const TRAIN_HOLD_MS = 2600
 const TRAIN_SAMPLE_MS = 760
 
 /**
@@ -147,12 +147,12 @@ export function NeuralNet({ data, compact = false }: { data: Record<string, unkn
   if (reduced) {
     sample = Math.min(1, samples.length - 1)
   } else if (mode === 'train') {
-    const cycle = TRAIN_MS + TRAIN_HOLD_MS
-    const local = t % cycle
-    trainP = clamp01(local / TRAIN_MS)
+    // Play once and stop on the last real row; epoch / loss show the last real row reached (Michael's test 8).
+    trainP = clamp01(t / TRAIN_MS)
     const at = trainP * (frames.length - 1)
-    const i = Math.min(frames.length - 2, Math.floor(at))
-    frame = frames.length > 1 ? mix(frames[i], frames[i + 1], at - i) : frames[0]
+    const i = Math.max(0, Math.min(frames.length - 2, Math.floor(at)))
+    const real = frames[trainP >= 1 ? frames.length - 1 : i]
+    frame = frames.length > 1 ? { ...mix(frames[i], frames[i + 1], at - i), epoch: real.epoch, loss: real.loss } : frames[0]
     sample = Math.floor(t / TRAIN_SAMPLE_MS) % samples.length
   } else if (mode === 'backward') {
     sample = Math.min(1, samples.length - 1)
@@ -319,7 +319,7 @@ function CompactReadout(props: {
             epoch <span style={{ color: ink.text }}>{frame.epoch.toLocaleString('en-US')}</span>
           </span>
           <span style={{ color: ink.faint }}>
-            loss <span style={{ color: ink.text, fontWeight: 600 }}>{frame.loss < 0.01 ? frame.loss.toExponential(1) : frame.loss.toFixed(4)}</span>
+            loss <span style={{ color: ink.text, fontWeight: 600 }}>{printedLoss(frame.loss)}</span>
           </span>
         </div>
       )}
@@ -404,7 +404,7 @@ function Readout(props: {
       })}
       {mode === 'train' && (
         <text x={x} y={top + samples.length * rowH + 16} fontSize={12} fill={ink.label} style={{ fontVariantNumeric: 'tabular-nums' }}>
-          epoch {frame.epoch.toLocaleString('en-US')} · loss {frame.loss < 0.01 ? frame.loss.toExponential(1) : frame.loss.toFixed(4)}
+          epoch {frame.epoch.toLocaleString('en-US')} · loss {printedLoss(frame.loss)}
         </text>
       )}
       {mode === 'backward' && err !== undefined && (

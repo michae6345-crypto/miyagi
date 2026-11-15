@@ -179,13 +179,15 @@ export function SwapText({ id, children, className = '' }: { id: string; childre
       animate={{ width: w?.px }}
       transition={w?.instant ? { duration: 0 } : spring}
     >
-      <span ref={measure} aria-hidden className={`invisible absolute left-0 top-0 whitespace-nowrap ${className}`}>
+      {/* w-max: an absolute box shrinks to its container, which is this slot's current (animated) width, so a
+          truncating title inside could never measure wider than the last one (Michael's test 8: "See what it learne"). */}
+      <span ref={measure} aria-hidden className={`invisible absolute left-0 top-0 w-max whitespace-nowrap ${className}`}>
         {children}
       </span>
       <AnimatePresence initial={false}>
         <motion.span
           key={id}
-          className={`absolute left-0 top-[8px] whitespace-nowrap leading-[18px] ${className}`}
+          className={`absolute left-0 top-[8px] w-max whitespace-nowrap leading-[18px] ${className}`}
           initial={{ opacity: 0, y: 7 }}
           animate={{ opacity: 1, y: 0, transition: { duration: 0.24, ease: 'easeOut', delay: 0.11 } }}
           exit={{ opacity: 0, y: -7, transition: { duration: 0.1, ease: 'easeIn' } }}

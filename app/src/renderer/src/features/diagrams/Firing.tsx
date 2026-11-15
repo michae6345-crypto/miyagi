@@ -82,6 +82,8 @@ function forward(f: FiringFrame, layers: number[], x: number[], act: (z: number)
 }
 
 const lerp = (a: number, b: number, t: number): number => a + (b - a) * t
+/** A loss the way a training script prints it (0.0009, not 9.0e-4); scientific only below 0.0001. */
+export const printedLoss = (v: number): string => (v !== 0 && Math.abs(v) < 1e-4 ? v.toExponential(1) : v.toFixed(4))
 const clamp01 = (v: number): number => Math.min(1, Math.max(0, v))
 const ease = (v: number): number => {
   const c = clamp01(v)
@@ -129,9 +131,8 @@ const FLASH_MS = 480
 const TRAVEL_MS = 320
 const REST_AT = 1250
 const REST_LEVEL = 0.14
-/** Train mode: the frames play through in this long, then hold on the last. Reduced motion: one frame every 2 s. */
+/** Train mode: the frames play through once in this long, then hold on the last. Reduced motion: one frame every 2 s. */
 const TRAIN_MS = 6200
-const TRAIN_HOLD_MS = 2200
 const STILL_STEP_MS = 2000
 /** A new event's weights tween in from what was on screen. */
 const TWEEN_MS = 600
@@ -186,15 +187,17 @@ export function Firing({ data }: { data: Record<string, unknown>; compact?: bool
   let trainP = 1
   if (frame && mode === 'train' && frames.length > 1) {
     if (reduced) {
-      const i = still % frames.length
+      const i = Math.min(still, frames.length - 1)
       frame = frames[i]
       trainP = i / (frames.length - 1)
     } else {
-      const local = t % (TRAIN_MS + TRAIN_HOLD_MS)
-      trainP = clamp01(local / TRAIN_MS)
+      // Play once and stop on the run's last real row (Michael's test 8: looping replayed numbers the terminal never
+      // printed). The weights tween between rows; epoch and loss always show the last real row reached.
+      trainP = clamp01(t / TRAIN_MS)
       const at = trainP * (frames.length - 1)
       const i = Math.min(frames.length - 2, Math.floor(at))
-      frame = mix(frames[i], frames[i + 1], at - i)
+      const real = frames[trainP >= 1 ? frames.length - 1 : i]
+      frame = { ...mix(frames[i], frames[i + 1], at - i), epoch: real.epoch, loss: real.loss }
     }
   }
   // A new event: tween from the last frame drawn to the new one.
@@ -336,7 +339,8 @@ export function Firing({ data }: { data: Record<string, unknown>; compact?: bool
 
   const losses = frames.map((f) => f.loss).filter((v): v is number => typeof v === 'number' && Number.isFinite(v))
   const total = typeof data.epochs === 'number' ? data.epochs : undefined
-  const yhat = acts[L]?.[0]
+  // A preview (data.preview, before any code exists) shows no prediction: those numbers aren't the learner's yet.
+  const yhat = data.preview === true ? undefined : acts[L]?.[0]
   const rawTarget = (frame as { target?: unknown }).target ?? data.target ?? (data.targets as unknown[] | undefined)?.[0]
   const target = typeof rawTarget === 'number' ? rawTarget : Array.isArray(rawTarget) && typeof rawTarget[0] === 'number' ? (rawTarget[0] as number) : undefined
   const num = { fontVariantNumeric: 'tabular-nums' } as const
@@ -369,7 +373,7 @@ export function Firing({ data }: { data: Record<string, unknown>; compact?: bool
               <span className={key} style={{ color: ink.faint }}>
                 Loss
               </span>
-              <span className={val}>{frame.loss < 0.001 ? frame.loss.toExponential(1) : frame.loss.toFixed(4)}</span>
+              <span className={val}>{printedLoss(frame.loss)}</span>
             </div>
           )}
           {losses.length > 1 && (

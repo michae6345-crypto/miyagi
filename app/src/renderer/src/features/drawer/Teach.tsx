@@ -370,7 +370,8 @@ export function CodeBlock({ code, caption, bleed }: { code: string; caption: str
         <pre ref={pre} className="overflow-x-auto whitespace-pre-wrap px-[12px] py-[9px] text-[12px] leading-[18px]" style={{ fontFamily: font.mono, color: glass.text, overflowWrap: 'anywhere', ...thinScroll }}>
           <code>
             {shown.split(/\r?\n/).map((line, i) => (
-              <span key={i} className="block" style={{ paddingLeft: '2ch', textIndent: '-2ch' }}>
+              // The rest of a wrapped line hangs under its own code (its indent + 2), not at the margin (test 8).
+              <span key={i} className="block" style={{ paddingLeft: `${hangOf(line)}ch`, textIndent: `-${hangOf(line)}ch` }}>
                 {line || ' '}
               </span>
             ))}
@@ -458,4 +459,9 @@ export function StepActions({ padX }: { padX: number }): ReactNode {
       <GlassPrimary label={checking ? 'Checking…' : 'Check my work'} icon={checking ? SpinPrimary : Check} onClick={() => !checking && sendAction('check_step')} />
     </div>
   )
+}
+
+/** A code line's hanging indent in ch: its own leading whitespace (tabs as 4) plus 2. */
+function hangOf(line: string): number {
+  return (line.match(/^[ \t]*/)?.[0].replace(/\t/g, '    ').length ?? 0) + 2
 }
