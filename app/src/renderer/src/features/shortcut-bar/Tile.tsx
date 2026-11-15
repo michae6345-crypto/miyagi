@@ -8,19 +8,24 @@ import { AnimatePresence, motion } from 'motion/react'
 import { useState, type ReactNode } from 'react'
 import type { LucideIcon } from 'lucide-react'
 import type { ActionKind } from '../../core/shortcuts'
-import { actionTone, color, glass, type OptionAction } from '../../core/theme'
+import { actionTone, color, fill, glass, type OptionAction } from '../../core/theme'
 import { Glyph } from './Busy'
 import { useAltHeld } from './keys'
 import { PRESS_MS, PRESS_SCALE } from './press'
 
-export type Look = { background: string; color: string }
+/** A tile's fill and glyph color, plus its busy spinner: `glass` = GlassSpinner (CSS vars), `track` = ring behind the arc. */
+export type Look = { background: string; color: string; track: string; glass: boolean }
 
-/** Tile looks. Options: their pastel + ink. Chrome: a neutral glass tile. The one primary / a toggle that's on: glass.button. */
+/**
+ * Tile looks. Options: their pastel + ink, the core ink Spinner on an ink-10% track. Chrome: a neutral glass tile.
+ * The one primary / a toggle that's on: glass.button; its track is the button's text at 18% (no glass token reads
+ * on glass.button in both appearances).
+ */
 export const look = {
-  option: (kind: OptionAction): Look => ({ background: actionTone[kind], color: color.onAccent }),
-  neutral: { background: glass.fieldHover, color: glass.text } as Look,
-  quiet: { background: glass.field, color: glass.label } as Look,
-  primary: { background: glass.button, color: glass.buttonText } as Look
+  option: (kind: OptionAction): Look => ({ background: actionTone[kind], color: color.onAccent, track: fill.onAccentKey, glass: false }),
+  neutral: { background: glass.fieldHover, color: glass.text, track: glass.track, glass: true } as Look,
+  quiet: { background: glass.field, color: glass.label, track: glass.track, glass: true } as Look,
+  primary: { background: glass.button, color: glass.buttonText, track: `color-mix(in srgb, ${glass.buttonText} 18%, transparent)`, glass: true } as Look
 }
 
 /** Hover fill for anything clickable on the bar (CSS, so it follows the appearance). */
@@ -66,9 +71,9 @@ export function Tile({ label, icon: Icon, look: l, onClick, keycap, busyKind, di
       onPointerLeave={() => setHover(false)}
       onClick={onClick}
     >
-      <span className="grid h-[30px] w-[30px] place-items-center rounded-[9px]" style={l}>
+      <span className="grid h-[30px] w-[30px] place-items-center rounded-[9px]" style={{ background: l.background, color: l.color }}>
         {busyKind ? (
-          <Glyph kind={busyKind} tone={l.color} size={16}>
+          <Glyph kind={busyKind} tone={l.color} track={l.track} glass={l.glass} size={16}>
             {inner}
           </Glyph>
         ) : (
