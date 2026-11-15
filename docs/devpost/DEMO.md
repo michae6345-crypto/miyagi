@@ -15,7 +15,7 @@ write the real numbers in.**
 1. **Network:** the phone hotspot. The venue Wi-Fi blocks Tiger's port, and YouTube rate-limits caption requests from it.
 2. **Permissions:** turn on **Screen & System Audio Recording** and **Accessibility** for the terminal app that runs the engine,
    under System Settings › Privacy & Security. Quit and reopen that terminal after granting.
-3. **Engine** (`.env` already has `LESSON_ENGINE=claude-first`):
+3. **Engine** (`.env` has `LESSON_ENGINE=auto`, `GEMINI_API_KEY` set, and `MIYAGI_EDITOR=vscode`):
    ```bash
    ORCH_LADDER_MIN_S=0 COACH_OFFLINE_FALLBACK=1 scripts/miyagi-engine.sh
    ```
@@ -29,8 +29,8 @@ write the real numbers in.**
    ```
 6. **Pre-fill the hero code** in `demo/pinn-lab/pinn_diffusion.py`. This is a local edit: **don't commit it**.
    - Fill sections 1–7 the way the video does: `lr = 0.3`, `steps = 2500`, and keep `report(i, loss, test_loss)`.
-   - The reference solution is `server/lesson/fixtures/diffusion_workdir/pinn_diffusion.py`. The rehearsal PR's
-     `scripts/rehearse.py --prefill demo/pinn-lab` does it automatically once that PR is merged.
+   - The reference solution is `server/lesson/fixtures/diffusion_workdir/pinn_diffusion.py`. Or run
+     `.venv/bin/python scripts/rehearse.py --prefill demo/pinn-lab`, which does it automatically (merged in #43).
    - **Don't add files to `demo/pinn-lab`.** The lesson cache key includes the folder's file names, and a miss means a live build.
 7. **Warm both caches:**
    - Run the path 1 query once and pick Toscano.
@@ -49,7 +49,7 @@ write the real numbers in.**
 |---|---|---|
 | **0:00** | VS Code on screen, the island pill under the notch. | "YouTube tutorials can't tell whether you actually got it. Miyagi can. It turns any tutorial into an auto-graded lab, and there are two ways in." |
 | **0:07** | **⌥Space**. The launcher grows out of the island. Type **`learn physics informed machine learning with PINNs in PyTorch`**, then press **↵** (Watch a video). | "First way: watch a video. Claude searches YouTube with Bright Data's Google results, and Bright Data reads each video's comments, so a broken tutorial gets flagged." |
-| **0:14** | **↑/↓** to *Learning Physics Informed Machine Learning Part 1* (Toscano), then **↵**. The **preflight card** shows within 5 s. Click **Build**. | "Before building anything, Miyagi tells me what this video is and what I'm missing. Then Claude builds the lesson from the transcript." |
+| **0:14** | **↑/↓** to *Learning Physics Informed Machine Learning Part 1* (Toscano), then **↵**. The **preflight card** shows within 5 s. Click **Build**. | "Before building anything, Miyagi tells me what this video is and what I'm missing. Then Gemini watches the video and builds the lesson, with Claude reading the transcript as backup." |
 | **0:22** | The lesson loads (cached) and VS Code opens `demo/pinn-lab`. Switch to the second tab and press **↵** on `debug/goto/7`: the step's clip plays, then pauses. The screen dims to a **white box** on the code. | "Each step plays one clip and waits. Miyagi reads my whole screen on the device and boxes exactly where I work. Let's skip to training." |
 | **0:30** | In the VS Code terminal: **`tut run python pinn_diffusion.py`** ↵. The loss sits around 17. | "Learning rate 0.3." |
 | **0:47** | The pill pulses **amber** 16.5–18.8 s after ↵. | "The check reads my loss and tests whether it's improving, statistically. It isn't." |
@@ -59,7 +59,7 @@ write the real numbers in.**
 | **1:18** | Bottom bar › **End lesson**. Then **⌥Space**, type **`build a calculator`**, press **⌘↵** (Just teach me). | "Second way: no video at all. Just teach me." |
 | **1:24** | The pill shows the build. VS Code opens **full screen**. Step 1 appears and the white box sits on the exact line, with the code to type under the caption. | "Claude researched the official docs with web search and wrote the lesson, and Miyagi boxes exactly where to type." |
 | **1:34** | Type the boxed line, **⌘S**, then bottom bar › **Check**. The step goes green and the box moves to the next line. | "Check runs the step's checks on my screen, then a Claude judge. Green." |
-| **1:48** | — | "Two ways to learn, both graded from your real screen, and it survives a restart. Built on Claude, Bright Data and Tiger Data." |
+| **1:48** | — | "Two ways to learn, both graded from your real screen, and it survives a restart. Built on Claude, Gemini, Bright Data and Tiger Data." |
 
 **If something stalls:**
 - **Search is slow:** press Esc and run `ORCH_LADDER_MIN_S=0 COACH_OFFLINE_FALLBACK=1 scripts/miyagi-demo.sh`, which autostarts
@@ -76,12 +76,12 @@ write the real numbers in.**
 ## 60-second fallback (no network at all)
 
 ```bash
-DEMO=1 ORCH_AUTOSTART=1 ORCH_LESSON=demo/cache/lessons/aebc6b8fba02dac5.json TUT_WORKDIR="$PWD/demo/pinn-lab" scripts/miyagi-engine.sh
+scripts/miyagi-offline.sh
 ```
 - The checks, screen reader, `tut run` and Tiger spool all run on the laptop.
 - **Watch the coach card:** under plain `DEMO=1` the rehearsal saw the orchestrator's β-curriculum stub card instead of the
-  `lr_too_high` one. The rehearsal PR's `scripts/miyagi-offline.sh` + `demo/cache/coach/s8.json` fix that, but they **aren't
-  merged**. Until they are, prefer the live engine with `COACH_OFFLINE_FALLBACK=1` (above).
+  `lr_too_high` one. `scripts/miyagi-offline.sh` (above) pins the hero lesson, and `demo/cache/coach/s8.json` serves the right card
+  (both merged in #43).
 - If even the engine won't start, run `cd app && DEMO=1 npm run dev`. It plays a scripted lesson inside Electron, with no engine
   and no network.
 - The video can't play offline. Narrate, or play the backup screen recording.
@@ -126,9 +126,10 @@ only steps 1–2 are stage-safe, and step 2 needs the workaround below.** The bu
 
 ## Judge Q&A cheat sheet (3 min)
 
-**"Two ways to learn: what's the difference?"** Watch a video builds the lesson from a real YouTube tutorial: Claude reads its
-transcript. The video is gated step by step. Just teach me has no
-video: Claude plans the steps, researches the official docs with web search and fetch, and writes the exact code for each step.
+**"Two ways to learn: what's the difference?"** Watch a video builds the lesson from a real YouTube tutorial: Gemini watches the
+video while Claude reads its transcript as a backup. The video is gated step by step. Just teach me has no
+video: Claude writes an overview and a step plan, researches the official docs with web search and fetch, and for each step says
+what you build and why, with the complete code to type.
 Both are graded the same way, from your screen.
 
 **"Is the coach scripted?"** No. Live diagnoses come from `claude-sonnet-5-5` with the failing checks, your metrics, your code and
@@ -139,27 +140,31 @@ a marked-up screenshot (`server/coach/`). Canned cards exist only under `DEMO=1`
 regions from the screen reader, and Apple Vision OCR as the fallback. The overlay dims the rest of the screen to 55%.
 
 **"How do you read the screen?"** ScreenCaptureKit first, then Apple's `screencapture` when ScreenCaptureKit stalls (macOS 26
-does that), then CoreGraphics. OCR runs on the device in 100–220 ms per changed frame, and our own overlay is excluded.
+does that), then CoreGraphics. OCR runs on the device in 100–220 ms per changed frame, and our own overlay is excluded. macOS Accessibility adds VS Code's
+live buffer and caret. The VS Code companion extension is an optional precision boost; without it, Miyagi reads the screen.
 
 **"How do you know the loss is flat, not noisy?"** A Mann-Kendall significance test plus a Theil-Sen effect size of at least 5%.
 Flat noisy curves pass ≤ 3/300 times (it was 61–136).
 
 **"What's Bright Data for?"** The SERP API supplies Google's video results for search, the YouTube comments dataset flags
-tutorials that no longer work (up to 36 comments read per video in our recorded live searches), and the Web Unlocker is the
-fallback route for captions.
+tutorials that no longer work (up to 36 comments read per video in our recorded live searches), the Web Unlocker is the first
+route for captions (and the backup for watch pages), and the coach looks up docs through SERP + Unlocker (`server/coach/web.py`).
 
 **"What's in Tiger?"** `learning_events` and `training_metrics` hypertables plus five continuous aggregates: the live 1 s curve,
 time per step, fail rate per check, a stuck heatmap per 15 s of video, and learner progress. You can see them live at
 `localhost:8787/stats`. When the venue Wi-Fi blocks the port, writes spool to disk and replay later.
 
-**"Where's Gemini?"** The lesson builder has an optional path where Gemini watches the video itself when there's no transcript
-(the cached hero lesson was built that way). It's off in our build to control cost; it's capped per day and logged in `build.cost`.
+**"Where's Gemini?"** Gemini watches the video. It gets the YouTube URL at 0.5 fps plus the title, description and chapters, and
+returns the steps with timestamps, the code typed on screen, draft checks and the hint ladder. Claude builds the same lesson from
+the transcript in parallel and is used if Gemini fails or takes over 75 s. The cached hero lesson was built by Gemini. Gemini is
+capped per day and logged in `build.cost`; everything else (Just teach me, search, the coach, the judge, screen reading) is Claude.
 
 **"What did it cost / how do you control spend?"** An unsupervised test sweep drained our prepaid Gemini credit (about $20, team
-figure). Since then: a billing fast-fail, a daily Gemini cap, skims off, Claude tiers (Haiku/Sonnet; Opus off), Gemini off and
-per-model token logging.
+figure). Since then: a billing fast-fail, a daily Gemini cap, skims off, Claude tiers (Haiku/Sonnet; Opus off), Claude's
+transcript draft as the fallback when Gemini is out of credit, and per-model token logging.
 
 **"What if it crashes?"** Every lesson is saved as it's built. A restart offers to resume at the same step with no rebuild.
 
 **"Will it edit my files?"** Only after you click Do it for me and confirm a diff preview. It refuses while the file has unsaved
-changes, writes only code that compiles, can be undone, and never runs terminal commands.
+changes, writes only code that compiles, and can be undone. A fix that's a terminal command is copied to your clipboard, never
+run. The one command Miyagi runs is a run step's own command, when you press Run it for me.
