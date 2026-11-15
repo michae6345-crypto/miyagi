@@ -568,20 +568,25 @@ export function Launcher({ layout }: { layout: Layout }): ReactNode {
           ? 'teach'
           : !typed
             ? 'none'
-            : choosing || retry
-              ? 'search'
-              : results.length
-                ? 'build'
-                : 'searching'
+            : choosing
+              ? how === 'lesson'
+                ? 'teach'
+                : 'search'
+              : retry
+                ? 'search'
+                : results.length
+                  ? 'build'
+                  : 'searching'
   const busy = search.pending && mode === 'search' && view !== 'link'
+  /** The primary says what Enter does: named after the picked way to learn (Michael's audit A19), never a bare "Search". */
   const actLabel = {
     settings: 'Settings',
     resume: 'Continue',
     end: 'End lesson',
     ask: 'Ask',
     build: 'Build lesson',
-    teach: 'Start lesson',
-    search: choosing && how === 'lesson' ? 'Start lesson' : 'Search',
+    teach: 'Teach me',
+    search: choosing ? 'Find videos' : 'Try again',
     searching: 'Searching…',
     none: ''
   }[act]
@@ -705,7 +710,7 @@ export function Launcher({ layout }: { layout: Layout }): ReactNode {
 
           {settingsRow ? null : choosing ? (
             <Rise key="how" i={2} className="px-[20px] pt-[12px]">
-              <HowChoice how={how} teachKey={teachKey} onPick={pick} />
+              <HowChoice how={how} onPick={pick} />
             </Rise>
           ) : mode === 'ask' ? (
             <Rise key="ask" i={2} className="flex flex-wrap gap-[8px] px-[20px] pt-[12px]">
@@ -775,7 +780,11 @@ export function Launcher({ layout }: { layout: Layout }): ReactNode {
               </span>
               {choices > 1 && <Hint label="Choose" keycap="↑↓" />}
               {choosing ? (
-                <Hint label="Switch" keycap="⇥" />
+                <>
+                  <Hint label="Switch" keycap="⇥" />
+                  {/* Each keycap once, here (not inside the chip): ⌘↵ teaches whichever way is picked; with "Just teach me" picked, ↵ already does. */}
+                  {how === 'video' && <Hint label="Teach me" keycap={teachKey} />}
+                </>
               ) : (
                 lesson.hasLesson && (
                   <>

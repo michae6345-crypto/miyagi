@@ -56,17 +56,18 @@ export type How = 'video' | 'lesson'
 /**
  * The two ways to learn, under the query: "Watch a video" (search, preflight, gated player) or "Just teach me"
  * (no video: a text lesson over the full-screen editor). Monochrome chrome, not pastel options and not a second white
- * primary (the footer's Search / Start lesson is the one primary): the picked one is a lit chip (brighter fill, ring
- * border, full-white text), the other a quiet chip. Tab switches, Enter picks, ⌘/Ctrl+Enter is "Just teach me".
+ * primary (the footer's "Find videos" / "Teach me" is the one primary): the picked one is a lit chip (brighter fill,
+ * ring border, full-white text), the other a quiet chip. Tab switches, Enter picks, ⌘/Ctrl+Enter is "Just teach me".
+ * No keycaps on the chips: each key is shown once, in the footer (Michael's audit A19).
  */
-export function HowChoice({ how, teachKey, onPick }: { how: How; teachKey: string; onPick: (h: How) => void }): ReactNode {
-  const options: { id: How; label: string; Icon: LucideIcon; kbd?: string }[] = [
+export function HowChoice({ how, onPick }: { how: How; onPick: (h: How) => void }): ReactNode {
+  const options: { id: How; label: string; Icon: LucideIcon }[] = [
     { id: 'video', label: 'Watch a video', Icon: Play },
-    { id: 'lesson', label: 'Just teach me', Icon: GraduationCap, kbd: teachKey }
+    { id: 'lesson', label: 'Just teach me', Icon: GraduationCap }
   ]
   return (
     <div className="flex flex-wrap gap-[8px]" role="radiogroup" aria-label="How do you want to learn this?">
-      {options.map(({ id, label, Icon, kbd }) => {
+      {options.map(({ id, label, Icon }) => {
         const on = id === how
         return (
           <motion.button
@@ -75,7 +76,7 @@ export function HowChoice({ how, teachKey, onPick }: { how: How; teachKey: strin
             tabIndex={-1}
             role="radio"
             aria-checked={on}
-            className={`flex h-[30px] cursor-pointer items-center gap-[7px] whitespace-nowrap rounded-full border pl-[11px] text-[13px] font-medium ${kbd ? 'pr-[4px]' : 'pr-[13px]'}`}
+            className="flex h-[30px] cursor-pointer items-center gap-[7px] whitespace-nowrap rounded-full border pl-[11px] pr-[13px] text-[13px] font-medium"
             initial={false}
             animate={
               on
@@ -90,7 +91,6 @@ export function HowChoice({ how, teachKey, onPick }: { how: How; teachKey: strin
           >
             <Icon size={13} strokeWidth={1.8} className="shrink-0" />
             {label}
-            {kbd && <Kbd className="!h-[22px] !rounded-full !px-[8px] !text-[11px]">{kbd}</Kbd>}
           </motion.button>
         )
       })}
@@ -98,10 +98,10 @@ export function HowChoice({ how, teachKey, onPick }: { how: How; teachKey: strin
   )
 }
 
-/** A passive key hint in the footer, keycap first: "↑↓ Choose", "esc Close". Not clickable. */
+/** A passive key hint in the footer, keycap first: "↑↓ Choose", "esc Close". Not clickable. color.label, so it reads (A19). */
 export function Hint({ label, keycap }: { label: string; keycap: string }): ReactNode {
   return (
-    <span className="flex h-[30px] shrink-0 items-center gap-[7px] whitespace-nowrap pl-[4px] pr-[10px] text-[13px]" style={{ color: color.faint }}>
+    <span className="flex h-[30px] shrink-0 items-center gap-[7px] whitespace-nowrap pl-[4px] pr-[10px] text-[13px]" style={{ color: color.label }}>
       <Kbd className="!h-[22px] !min-w-[24px] !justify-center !rounded-full !px-[6px] !text-[12px]">{keycap}</Kbd>
       {label}
     </span>
