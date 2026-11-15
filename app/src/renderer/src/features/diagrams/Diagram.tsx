@@ -1,6 +1,7 @@
 /**
  * Intuition diagrams (the server sends the data; we only render).
- *   network   : the real model's layers + autograd arrows to u_t, u_x → residual
+ *   network   : the real model's layers + autograd arrows to u_t, u_x → residual; with real weights (data.frames),
+ *               a live network whose neurons light up and fire (NeuralNet.tsx)
  *   gradients : gradient norm per layer over training (shows the PINN failure)
  *   heatmap   : predicted vs exact field on a canvas (Heatmap.tsx)
  *   graph     : any topic's nodes + edges, every layout family (Graph.tsx); tabs when a step has several kinds (Tabs.tsx)
@@ -15,6 +16,7 @@ import { actionTone, color, fill } from '../../core/theme'
 import { CloseButton } from '../../core/ui/atoms'
 import { useDiagram } from './store'
 import { Graph } from './Graph'
+import { NeuralNet } from './NeuralNet'
 import { Heatmap, type HeatmapData } from './Heatmap'
 import { DiagramTabs, titleOf } from './Tabs'
 import type { GraphDiagramData } from '../../../../../../shared/contracts/events'
@@ -34,7 +36,8 @@ export function DiagramView(): ReactNode {
         <CloseButton />
       </div>
       <div className="mt-[10px]">
-        {d.kind === 'network' && <Network data={d.data as Record<string, unknown>} />}
+        {d.kind === 'network' &&
+          ((d.data as Record<string, unknown>).frames ? <NeuralNet data={d.data as Record<string, unknown>} /> : <Network data={d.data as Record<string, unknown>} />)}
         {d.kind === 'gradients' && <Gradients data={d.data as Record<string, unknown>} />}
         {d.kind === 'heatmap' && <Heatmap data={d.data as HeatmapData} />}
         {d.kind === 'graph' && <Graph data={d.data as GraphDiagramData} />}

@@ -16,8 +16,7 @@
  *   }
  * }
  * `wait` is milliseconds after the previous item. `goto` chains another segment.
- * Triggers: "connect", a command type ("learn", "build_lesson", "learn_url"), "learn:lesson" ("Just teach me",
- * falls back to "learn"), or "action:<kind>". A scenario with "full": false stays out of the merged "full" one.
+ * Triggers: "connect", a command type ("learn", "build_lesson", "learn_url"), or "action:<kind>".
  */
 import type { Incoming, Outgoing } from '../src/common/wire'
 
@@ -106,8 +105,6 @@ export function createMockEngine(scenario: Scenario, emit: (m: Incoming) => void
         return
       }
       if (cmd.type === 'action') trigger(`action:${cmd.payload.kind}`)
-      // "Just teach me" (learn {mode:"lesson"}) has its own trigger when a scenario defines one; else it's plain "learn".
-      else if (cmd.type === 'learn' && cmd.payload.mode === 'lesson' && scenario.on['learn:lesson']) trigger('learn:lesson')
       else trigger(cmd.type)
     }
   }
