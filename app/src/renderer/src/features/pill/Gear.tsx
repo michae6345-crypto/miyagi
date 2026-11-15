@@ -9,7 +9,8 @@
  * It's an overlay layer, not part of the pill's content: the island measures its content for its width and clips it,
  * so a gear inside would widen the pill and move the step title. Instead it follows the island's live rect (its width
  * spring, its slide aside for VS Code's quick-pick, the launcher / settings hiding it) and hides while a card is open.
- * Beside a quick-pick (screen.avoid) it takes the pill's other side rather than cover the picker.
+ * Beside a quick-pick (screen.avoid) or the video panel (the player's dock) it takes the pill's other side rather
+ * than cover them.
  * Chrome, not an option: neutral glyph (muted, white on hover), no pastel, no glow.
  */
 import { Settings } from 'lucide-react'
@@ -18,8 +19,10 @@ import { useEffect, useRef, useState, type ReactNode } from 'react'
 import type { Layout } from '../../../../preload/api'
 import { bridge } from '../../bridge'
 import { useAvoid } from '../../core/islandPlace'
+import { useLesson } from '../../core/lesson'
 import { getIslandModes } from '../../core/registry'
 import { color, pill, shadows } from '../../core/theme'
+import { dockRect } from '../player/dock'
 import { intersects, toLocal } from '../spotlight/place'
 
 /** The button's diameter, centred on the pill's 34px row. */
@@ -63,6 +66,14 @@ function spotFor(root: HTMLElement, layout: Layout): Spot | undefined {
   const right = Math.round(x + w + GAP)
   const left = Math.round(x - GAP - SIZE)
   const avoid = useAvoid.getState().rects.map((a) => toLocal(a, layout.origin))
+  // The video panel (test 10 judge review: the gear sat on its header, the pill grows with the step title). In
+  // Electron it's its own window, so the overlay DOM can't see it: use the player's own dock math, like the spotlight
+  // caption does. A "Just teach me" lesson has no player.
+  const lesson = useLesson.getState().lesson
+  if (lesson && lesson.mode !== 'lesson') {
+    const d = dockRect(layout.workArea)
+    avoid.push({ x: d.x, y: d.y, w: d.width, h: d.height })
+  }
   const blocked = (gx: number): boolean =>
     gx < 0 || gx + SIZE > root.offsetWidth || avoid.some((a) => intersects({ x: gx, y: top, w: SIZE, h: SIZE }, a))
   return { x: blocked(right) && !blocked(left) ? left : right, y: top, visible }
