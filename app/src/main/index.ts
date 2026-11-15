@@ -354,7 +354,8 @@ app.whenReady().then(async () => {
     reportBounds,
     raise,
     islandSize: () => islandSize,
-    yieldIsland: (on) => send(overlay, on ? 'island:yield' : 'island:return')
+    yieldIsland: (on) => send(overlay, on ? 'island:yield' : 'island:return'),
+    overlayRects: () => overlayRects
   })
 })
 

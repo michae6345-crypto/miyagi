@@ -60,6 +60,11 @@ export type MainContext = {
    */
   islandSize(): { w: number; h: number }
   yieldIsland(on: boolean): void
+  /**
+   * The overlay window's own visible UI (bar, cards, drawer, island…: every data-hit / data-ui element), in screen
+   * points, as the renderer last reported it for overlay.bounds (sampled every 300 ms). Feature windows not included.
+   */
+  overlayRects(): { x: number; y: number; w: number; h: number }[]
 }
 
 export type MainFeature = { id: string; setup(ctx: MainContext): void }
