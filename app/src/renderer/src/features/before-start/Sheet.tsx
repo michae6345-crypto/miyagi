@@ -24,7 +24,7 @@ import { useLesson } from '../../core/lesson'
 import { color, fill } from '../../core/theme'
 import { CloseButton, PrimaryButton } from '../../core/ui/atoms'
 import { FlowDiagram } from './Flow'
-import { closeBeforeStart } from './store'
+import { closeBeforeStart, lessonDone } from './store'
 
 export const SHEET_W = 520
 const PAD = 22
@@ -50,7 +50,8 @@ export function Sheet(): ReactNode {
       flow: s.lesson?.flow,
       prerequisites: s.lesson?.prerequisites,
       learnFirst: s.lesson?.learnFirst,
-      stepIndex: s.steps.find((x) => x.id === s.stepId)?.index
+      stepIndex: s.steps.find((x) => x.id === s.stepId)?.index,
+      done: lessonDone(s)
     }))
   )
   const needs = l.prerequisites ?? []
@@ -91,7 +92,7 @@ export function Sheet(): ReactNode {
         <Section title="You'll need">
           <div className="flex flex-col gap-[8px]">
             {needs.map((p) => (
-              <NeedRow key={p.id} need={p} />
+              <NeedRow key={p.id} need={p} done={l.done} />
             ))}
           </div>
         </Section>
@@ -137,7 +138,8 @@ function Section({ title, children }: { title: string; children: ReactNode }): R
   )
 }
 
-function NeedRow({ need }: { need: Prerequisite }): ReactNode {
+/** done: the lesson's steps have all passed, so an unseen prerequisite reads "Used in this lesson", not "Not seen yet". */
+function NeedRow({ need, done }: { need: Prerequisite; done?: boolean }): ReactNode {
   const passed = need.status === 'passed'
   return (
     <div data-need={need.id} data-status={need.status} className="flex items-start gap-[10px]">
@@ -152,7 +154,7 @@ function NeedRow({ need }: { need: Prerequisite }): ReactNode {
         <div className="flex items-baseline justify-between gap-[10px]">
           <span className="truncate text-[13.5px] font-semibold leading-[18px]">{need.title}</span>
           <span className="shrink-0 text-[12px] leading-[16px]" style={{ color: passed ? color.label : color.faint }}>
-            {passed ? need.evidence || 'Passed' : 'Not seen yet'}
+            {passed ? need.evidence || 'Passed' : done ? 'Used in this lesson' : 'Not seen yet'}
           </span>
         </div>
         {need.why && (

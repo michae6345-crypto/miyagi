@@ -515,6 +515,10 @@ function actionLabel(c: EngineCard, a: CardAction): string {
  */
 function primaryOf(c: EngineCard, known: CardAction[]): CardAction | undefined {
   if (c.kind === 'preflight' && c.recommended && known.includes(c.recommended)) return c.recommended
+  // A setup card with something still to install: that item's Install is the one white primary (SetupItems lead),
+  // and Open VS Code steps back to a quiet button. Michael's run (Sun 03:13): the white button was Open VS Code, the
+  // NumPy row's Install a small grey one, and the engine only ever got skip_setup.
+  if (c.setup?.items.some((x) => x.needed && !x.ok && x.install.method !== 'none')) return undefined
   // A lone action becomes the primary, except option actions and Try again, which stay pastel / neutral.
   // Skip on a setup card is never the primary (A17): the item's Install is.
   const lone = known.length === 1 && !isOption(known[0]) && known[0] !== 'retry' && known[0] !== 'skip_setup' ? known[0] : undefined
