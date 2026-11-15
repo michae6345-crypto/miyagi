@@ -2,9 +2,9 @@
  * Feature: cards. Coach cards that grow out of the pill, in the calm black-island look (mockup 02):
  *   offtrack  layout C (Adrian): ~620 wide, two columns (one below 520). Left: ring + "Not yet", the title,
  *             the guiding question (or the body), the citation. Right: the evidence panel (Evidence.tsx):
- *             yours | expected from the diff, the failing checks and the curve, all monochrome. Under both,
- *             the options in the shortcut bar's order (Explain, Show me, Hint) and, at level 3, "Do it for me"
- *             on its own row. Off track has no hue anywhere.
+ *             yours | expected from the diff, the failing checks and the curve, all monochrome. Under both, at
+ *             level 3, "Do it for me". Explain / Show me / Hint stay in the shortcut bar while it's up (A11): a
+ *             card carries only its own action. Off track has no hue anywhere.
  *             After Do it for me, it collapses to "Waiting for the fix": the line the code should read
  *             (the engine may or may not write it), and the re-run's curve drawing live.
  *   success   green, "Good. Now the next one." after a recovered step: now-vs-before curve, auto-hides.
@@ -31,6 +31,8 @@ import { useDrawer } from '../drawer/store'
 import { Curve, fmt, Key, plotPoints, type Line } from './Curve'
 import { BODY_LINES, Clamp, HEADLINE_LINES } from './Clamp'
 import { Evidence, useHasEvidence } from './Evidence'
+import { shortEditor, useFitLevel } from './fit'
+import { isEditor, useFrontApp } from './front'
 import { act, cardAct, jumpTo, SUCCESS_MS, useCards, useOverlayWidth, useSeries, type CardAction, type Install } from './store'
 
 /** Layout C: about 620 wide; below NARROW (a small display) the two columns stack. */
@@ -124,24 +126,37 @@ function useBusyIcon(): (kind: string, icon?: LucideIcon, quiet?: boolean) => Lu
   const thinking = useThinking()
   const pressed = usePressed((p) => p.kind)
   const pending = useCards((c) => c.pending?.kind)
-  return (kind, icon, quiet) => ((thinking && pressed === kind) || pending === kind ? (quiet ? SpinText : SpinInk) : icon)
+  return (kind, icon, quiet) => ((thinking && pressed === kind && !UNANSWERED.has(kind)) || pending === kind ? (quiet ? SpinText : SpinInk) : icon)
 }
 
-/** A neutral (non-primary) card action: same shape as PrimaryButton, quiet fill. */
-function QuietButton({ label, icon: I, onClick }: { label: string; icon?: LucideIcon; onClick: () => void }): ReactNode {
+/**
+ * Actions the engine never answers (open_editor just brings the editor forward): their spin is the card's own short
+ * settle (store SETTLE), never a later "thinking" about something else (desktop test 5: Open spun on and on).
+ */
+const UNANSWERED = new Set<string>(['open_editor'])
+
+/**
+ * A neutral (non-primary) card action: same shape as PrimaryButton, quiet fill. `compact` (a row that doesn't fit,
+ * A22): a round icon-only button, the label as its tooltip and accessible name. A button without an icon keeps its label.
+ */
+function QuietButton({ label, icon: I, onClick, compact }: { label: string; icon?: LucideIcon; onClick: () => void; compact?: boolean }): ReactNode {
+  const iconOnly = compact && !!I
   return (
     <motion.button
       type="button"
-      className="flex h-[30px] shrink-0 cursor-pointer items-center gap-[7px] whitespace-nowrap rounded-full px-[13px] text-[13px] font-medium"
+      data-compact={iconOnly ? '' : undefined}
+      className={`flex h-[30px] shrink-0 cursor-pointer items-center gap-[7px] whitespace-nowrap rounded-full text-[13px] font-medium ${iconOnly ? 'w-[30px] justify-center' : 'px-[13px]'}`}
       style={{ backgroundColor: fill.button, color: color.text }}
       whileHover={{ backgroundColor: fill.chipHover }}
       whileTap={{ scale: 0.97 }}
       transition={{ duration: 0.12 }}
+      title={iconOnly ? label : undefined}
+      aria-label={iconOnly ? label : undefined}
       onMouseDown={(e) => e.preventDefault()}
       onClick={onClick}
     >
       {I && <I size={13} strokeWidth={1.8} className="shrink-0" />}
-      {label}
+      {!iconOnly && label}
     </motion.button>
   )
 }
@@ -225,14 +240,22 @@ const OFFTRACK_OPTIONS = [
 ] as const
 
 /**
+ * The shortcut bar is on screen with its help tiles (Explain, Diagram, Show me, Hint): it shows for the whole lesson
+ * (ShortcutBar's `on`). While it does, a card never repeats them (Michael's review A11: the same actions showed 2-3
+ * times at once); a card carries only its own action (Do it for me, Run it, Install, Continue, Check…).
+ */
+const useBarHelp = (): boolean => useLesson((l) => !!l.lesson)
+
+/**
  * Layout C (Adrian picked "side by side"). Left: ring + "Not yet", the title, the guiding question (or the body),
- * the citation as one faint line. Right: the evidence panel. Under both, full width so three options with their
- * keycaps always fit on one row: Explain, Show me, Hint; at level 3 with apply_fix, the one white "Do it for me"
- * on its own row. Below NARROW the panel drops under the left column.
+ * the citation as one faint line. Right: the evidence panel. Under both, full width: Explain, Show me, Hint only when
+ * the bar isn't up to offer them (A11), and at level 3 with apply_fix, the one white "Do it for me": the hint ladder's
+ * top rung, which only this card offers. Below NARROW the panel drops under the left column.
  */
 function Diagnosis({ o, checks }: { o: OfftrackPayload; checks: ReturnType<typeof useLesson.getState>['checks'] }): ReactNode {
   const busy = useBusyIcon()
   const keys = bridge.platform.keys
+  const options = useBarHelp() ? [] : OFFTRACK_OPTIONS
   const width = useOfftrackWidth()
   const narrow = width < NARROW
   const inner = width - PAD * 2
@@ -248,7 +271,10 @@ function Diagnosis({ o, checks }: { o: OfftrackPayload; checks: ReturnType<typeo
     <div data-card="offtrack" data-layout={narrow ? 'stacked' : hasEvidence ? 'side-by-side' : 'single'} style={{ width, padding: `16px ${PAD}px 16px` }}>
       <div className="flex h-[22px] items-center gap-[8px] text-[13px] leading-none">
         <StatusDot status="offtrack" size={8} />
-        <span style={{ color: color.label }}>Not yet</span>
+        {/* White, never the watching gray (A22): Not yet must not read as Watching. Still no hue. */}
+        <span className="font-medium" style={{ color: color.text }}>
+          Not yet
+        </span>
         <span className="flex-1" />
         <CloseButton />
       </div>
@@ -256,7 +282,12 @@ function Diagnosis({ o, checks }: { o: OfftrackPayload; checks: ReturnType<typeo
       <div className={`mt-[10px] flex ${narrow ? 'flex-col gap-[14px]' : 'items-start'}`} style={narrow ? undefined : { gap: COL_GAP }}>
         <div className="min-w-0 flex-1" style={narrow ? undefined : { maxWidth: leftW }}>
           <div className="text-[18px] font-semibold leading-[23px] tracking-[-0.01em]"><CodeText text={titleText(o.title)} /></div>
-          {o.guidingQuestion ? <Question text={o.guidingQuestion} /> : <Body>{o.body}</Body>}
+          {/* The body folds to 3 lines with a "More" (Clamp), never cut off for good (A22). */}
+          {o.guidingQuestion ? (
+            <Question text={o.guidingQuestion} />
+          ) : (
+            <Clamp text={o.body} lines={3} className="mt-[3px] text-[14px] leading-[20px]" style={{ color: color.label }} />
+          )}
 
           {o.citation && (
             <div className="mt-[12px] flex min-w-0 items-center gap-[6px] text-[12px]" style={{ color: color.faint }}>
@@ -270,13 +301,15 @@ function Diagnosis({ o, checks }: { o: OfftrackPayload; checks: ReturnType<typeo
         <Evidence o={o} failing={failing} width={rightW} reserveDiff />
       </div>
 
-      <div data-options className="mt-[14px] flex flex-wrap items-center gap-[8px]">
-        {OFFTRACK_OPTIONS.map((x) => (
-          <OptionButton key={x.action} action={x.action} label={x.label} kbd={keys[x.action]} icon={busy(x.action)} onClick={() => act(x.action)} />
-        ))}
-      </div>
+      {options.length > 0 && (
+        <div data-options className="mt-[14px] flex flex-wrap items-center gap-[8px]">
+          {options.map((x) => (
+            <OptionButton key={x.action} action={x.action} label={x.label} kbd={keys[x.action]} icon={busy(x.action)} onClick={() => act(x.action)} />
+          ))}
+        </div>
+      )}
       {canFix && (
-        <div data-fix className="mt-[8px] flex">
+        <div data-fix className={`${options.length > 0 ? 'mt-[8px]' : 'mt-[14px]'} flex`}>
           <PrimaryButton label={ACTION.apply_fix!.label} icon={busy('apply_fix', ACTION.apply_fix!.Icon)} onClick={() => act('apply_fix')} />
         </div>
       )}
@@ -399,7 +432,7 @@ function Success(): ReactNode {
 type EngineCard = Payload<'card'>
 
 /**
- * Header per card kind: a small icon tile instead of a text eyebrow. The options that made the card keep
+ * Header per card kind: a small icon tile on the card's header line (answers add a faint eyebrow, EYEBROW). The options that made the card keep
  * their pastel (Explain sky, Hint pink, Show me lilac, same as their buttons); the rest are neutral tiles.
  * Typed against the contract so a new kind fails here, not at runtime. tileOf() picks the tile per card.
  */
@@ -453,18 +486,24 @@ function tileOf(c: EngineCard, from?: ActionKind): Tile {
   return KIND[c.kind] ?? KIND.answer
 }
 
-function KindTile({ k }: { k: Tile }): ReactNode {
+function KindTile({ k, size = 24 }: { k: Tile; size?: number }): ReactNode {
   return (
     <span
-      className="grid h-[24px] w-[24px] shrink-0 place-items-center rounded-[7px]"
-      style={k.tone ? { background: k.tone, color: color.onAccent } : { background: fill.tile, color: color.text }}
+      className="grid shrink-0 place-items-center"
+      style={{ width: size, height: size, borderRadius: Math.round(size * 0.3), ...(k.tone ? { background: k.tone, color: color.onAccent } : { background: fill.tile, color: color.text }) }}
       aria-label={k.label}
       title={k.label}
     >
-      <k.Icon size={13} strokeWidth={1.9} />
+      <k.Icon size={size > 22 ? 13 : 12} strokeWidth={1.9} />
     </span>
   )
 }
+
+/**
+ * Cards that answer the learner (Explain, Hint, an answer, Show me's where-to-work) say what answered in a faint
+ * eyebrow beside their tile (Michael's review A23); status cards (step, run, setup…) carry the tile alone.
+ */
+const EYEBROW = new Set<Tile>([KIND.explain, KIND.hint, KIND.answer, KIND.where])
 
 /** Button per card action. At most one white primary per card: the first primary kind present. */
 const ACTION: Partial<Record<CardAction, { label: string; Icon?: LucideIcon; primary?: boolean }>> = {
@@ -499,11 +538,14 @@ const OPTION = ['show_me', 'hint'] as const
 type OptionCardAction = (typeof OPTION)[number]
 const isOption = (a: CardAction): a is OptionCardAction => (OPTION as readonly CardAction[]).includes(a)
 
-/** The engine names some buttons itself: setup.actionLabels ("Download tutorial files"), setup.editorLabel ("Open Cursor"). */
-function actionLabel(c: EngineCard, a: CardAction): string {
+/**
+ * The engine names some buttons itself: setup.actionLabels ("Download tutorial files"), setup.editorLabel ("Open Cursor").
+ * `short` (a row that doesn't fit on one line, A22): our own short label instead ("Download", "Open VS Code").
+ */
+function actionLabel(c: EngineCard, a: CardAction, short?: boolean): string {
   const custom = c.setup?.actionLabels?.[a]
-  if (custom) return custom
-  if (a === 'open_editor' && c.setup?.editorLabel) return `Open ${c.setup.editorLabel}`
+  if (custom && !short) return custom
+  if (a === 'open_editor' && c.setup?.editorLabel) return `Open ${short ? shortEditor(c.setup.editorLabel) : c.setup.editorLabel}`
   // "Type this for you?" (a fix preview): the confirm types the diff into the learner's file.
   if (a === 'confirm' && c.diff) return 'Type it'
   return ACTION[a]!.label
@@ -522,8 +564,13 @@ function primaryOf(c: EngineCard, known: CardAction[]): CardAction | undefined {
   // A lone action becomes the primary, except option actions and Try again, which stay pastel / neutral.
   // Skip on a setup card is never the primary (A17): the item's Install is.
   const lone = known.length === 1 && !isOption(known[0]) && known[0] !== 'retry' && known[0] !== 'skip_setup' ? known[0] : undefined
-  return known.find((a) => ACTION[a]!.primary) ?? lone
+  // A setup card with everything ready: "Open <editor>" is never its primary (desktop test 5), it stays quiet.
+  const ready = setupReady(c)
+  return known.find((a) => ACTION[a]!.primary && !(ready && a === 'open_editor')) ?? (ready && lone === 'open_editor' ? undefined : lone)
 }
+
+/** A setup card that says everything is ready ("Ready to go"): every needed item is installed and ok. */
+const setupReady = (c: EngineCard): boolean => c.kind === 'setup' && !!c.setup && c.setup.items.every((x) => !x.needed || x.ok)
 
 /** A unified diff as monospace lines: + white, - muted and struck, context faint. Headers dropped. */
 function UnifiedDiff({ diff }: { diff: string }): ReactNode {
@@ -593,7 +640,8 @@ function SetupItems({ setup, lead }: { setup: NonNullable<EngineCard['setup']>; 
         const run = x.ok ? undefined : installs[x.tool]
         const detail = x.ok ? x.version : run?.running ? (run.line ?? 'Installing…') : (run?.error ?? x.why)
         return (
-          <div key={x.tool} className="flex min-h-[28px] items-center gap-[8px]">
+          // min-h 30 = the button's height: a row doesn't change height when Install turns into "Installing…" or a check.
+          <div key={x.tool} className="flex min-h-[30px] items-center gap-[8px]">
             <span style={{ color: x.ok ? color.text : color.faint }}>{x.ok ? <Check size={13} /> : '·'}</span>
             <span className="truncate">{x.label}</span>
             {/* The reason wraps to two lines instead of being cut off (A17). */}
@@ -601,7 +649,7 @@ function SetupItems({ setup, lead }: { setup: NonNullable<EngineCard['setup']>; 
               {detail}
             </span>
             {!x.ok && run?.running && (
-              <span className="flex items-center gap-[6px] px-[9px] py-[3px] text-[12px] font-medium" style={{ color: color.faint }} aria-disabled>
+              <span className="flex h-[30px] shrink-0 items-center gap-[6px] px-[9px] text-[12px] font-medium" style={{ color: color.faint }} aria-disabled>
                 <Spinner size={12} c={color.faint} /> Installing…
               </span>
             )}
@@ -668,7 +716,7 @@ function TwoTap({ armKey, label, armedLabel, onConfirm }: { armKey: string; labe
     <button
       type="button"
       data-two-tap="idle"
-      className="mr-[12px] h-[34px] cursor-pointer px-[4px] text-[13px] transition-colors"
+      className="mr-[12px] h-[30px] cursor-pointer px-[4px] text-[13px] transition-colors"
       style={{ color: color.faint }}
       // Like every other card button: no focus grab on press (the overlay never takes focus from the editor).
       onMouseDown={(e) => e.preventDefault()}
@@ -713,26 +761,36 @@ function startOver(): void {
 
 function CardActions({ card, actions }: { card: EngineCard; actions: CardAction[] }): ReactNode {
   const busy = useBusyIcon()
-  const known = actions.filter((a) => ACTION[a])
-  if (known.length === 0) return null
+  // Hint / Show me (the judge's "Not yet" card) are the bar's while it's up (A11): the card keeps only its own buttons.
+  const barHelp = useBarHelp()
+  const known = actions.filter((a) => ACTION[a] && !(barHelp && isOption(a)))
   const primary = primaryOf(card, known)
   const keys = bridge.platform.keys
+  const row = useRef<HTMLDivElement>(null)
+  // One row, always (A22): too wide, the labels go short (1), then the quiet buttons go icon-only (2). Never a wrap.
+  const fit = useFitLevel(row, `${known.join()}|${known.map((a) => actionLabel(card, a)).join()}`, 2)
+  if (known.length === 0) return null
+  const short = fit >= 1
   // Option actions (Show me / Hint) first, then quiet actions, the one white primary on the right.
   return (
-    <div className="mt-[16px] flex flex-wrap items-center gap-[8px]">
+    <div ref={row} data-actions data-fit={fit || undefined} className="mt-[16px] flex items-center gap-[8px]">
       {OPTION.filter((a) => known.includes(a)).map((a) => (
-        <OptionButton key={a} action={a} label={ACTION[a]!.label} kbd={keys[a]} icon={busy(a)} onClick={() => cardAct(a)} />
+        <OptionButton key={a} action={a} label={ACTION[a]!.label} kbd={short ? undefined : keys[a]} icon={busy(a)} onClick={() => cardAct(a)} />
       ))}
       {known
         .filter((a) => a !== primary && !isOption(a) && a !== 'end_lesson')
         .map((a) => (
-          a === 'skip_setup' ? <QuietLink key={a} label={actionLabel(card, a)} onClick={() => cardAct(a)} /> : <QuietButton key={a} label={actionLabel(card, a)} icon={busy(a, ACTION[a]!.Icon, true)} onClick={() => cardAct(a)} />
+          a === 'skip_setup' ? (
+            <QuietLink key={a} label={actionLabel(card, a, short)} onClick={() => cardAct(a)} />
+          ) : (
+            <QuietButton key={a} label={actionLabel(card, a, short)} icon={busy(a, ACTION[a]!.Icon, true)} compact={fit >= 2} onClick={() => cardAct(a)} />
+          )
         ))}
       {/* "Start a new lesson" discards the save: it sits apart from Continue and needs a second tap (desktop test 3),
           then opens the launcher for the next one (A7). */}
       {known.includes('end_lesson') && primary !== 'end_lesson' && <TwoTap armKey={`${card.kind}:${card.title}`} label={actionLabel(card, 'end_lesson')} armedLabel={card.kind === 'resume' ? 'No, start a new lesson' : 'Start over'} onConfirm={startOver} />}
       <span className="flex-1" />
-      {primary && <PrimaryButton label={actionLabel(card, primary)} icon={busy(primary, ACTION[primary]!.Icon)} onClick={() => cardAct(primary)} />}
+      {primary && <PrimaryButton label={actionLabel(card, primary, short)} icon={busy(primary, ACTION[primary]!.Icon)} onClick={() => cardAct(primary)} />}
     </div>
   )
 }
@@ -769,7 +827,7 @@ function Preflight({ card }: { card: EngineCard }): ReactNode {
     <div data-preflight className="mt-[12px] flex flex-col gap-[6px] text-[13px] leading-[18px]">
       {meta.length > 0 && <div style={{ color: color.label }}>{meta.join(' · ')}</div>}
       {needs.length > 0 && (
-        <div className="truncate" style={{ color: color.label }} title={needs.map((x) => x.label).join(', ')}>
+        <div className="line-clamp-2" style={{ color: color.label }} title={needs.map((x) => x.label).join(', ')}>
           <span style={{ color: color.faint }}>Needs </span>
           {needs.map((x) => x.label).join(', ')}
           {missing > 0 && <span style={{ color: color.faint }}> · {missing} to install</span>}
@@ -982,27 +1040,38 @@ function Card(): ReactNode {
 }
 
 function FullCard({ c, k }: { c: EngineCard; k: Tile }): ReactNode {
-  const actions = c.actions ?? []
+  const front = useFrontApp((f) => f.app)
+  // A ready setup card doesn't offer "Open <editor>" while that editor is the app in front (desktop test 5).
+  const opened = setupReady(c) && isEditor(front, c.setup?.editorLabel)
+  const actions = (c.actions ?? []).filter((a) => !(opened && a === 'open_editor'))
   // A title that only repeats the kind or the tile ("Hint") is dropped: the body becomes the headline.
   // Long bodies fold to a few lines with a "More" that opens them in place (never cut off for good).
   const t = c.title?.trim().toLowerCase()
   const redundant = !t || t === k.label.toLowerCase() || t === (KIND[c.kind] ?? KIND.answer).label.toLowerCase()
   return (
     <div data-card={c.kind} style={{ padding: `16px ${PAD}px 16px` }}>
-      <div className="flex items-start gap-[10px]">
-        <KindTile k={k} />
-        <div className="min-w-0 flex-1 pt-[1px]">
-          {redundant ? (
-            <Clamp text={c.body} lines={HEADLINE_LINES} className="text-[16px] font-medium leading-[22px] tracking-[-0.01em]" />
-          ) : (
-            <>
-              <div className="text-[17px] font-semibold leading-[22px] tracking-[-0.01em]"><CodeText text={titleText(c.title)} /></div>
-              <Clamp text={c.body} lines={BODY_LINES} className="mt-[3px] text-[14px] leading-[20px]" style={{ color: color.label }} />
-            </>
-          )}
-          {c.guidingQuestion && <Question text={c.guidingQuestion} />}
-        </div>
+      {/* One left edge (A23): the tile (and its eyebrow) sit on the header line, like the off-track card's ring and
+          "Not yet", so the title, the body and every row and button under them start at the card's padding. */}
+      <div data-card-head className="flex h-[22px] items-center gap-[8px]">
+        <KindTile k={k} size={22} />
+        {EYEBROW.has(k) && (
+          <span data-eyebrow className="truncate text-[12px] font-medium" style={{ color: color.faint }}>
+            {k.label}
+          </span>
+        )}
+        <span className="min-w-[8px] flex-1" />
         <CloseButton />
+      </div>
+      <div className="mt-[10px] min-w-0">
+        {redundant ? (
+          <Clamp text={c.body} lines={HEADLINE_LINES} className="text-[16px] font-medium leading-[22px] tracking-[-0.01em]" />
+        ) : (
+          <>
+            <div className="text-[17px] font-semibold leading-[22px] tracking-[-0.01em]"><CodeText text={titleText(c.title)} /></div>
+            <Clamp text={c.body} lines={BODY_LINES} className="mt-[3px] text-[14px] leading-[20px]" style={{ color: color.label }} />
+          </>
+        )}
+        {c.guidingQuestion && <Question text={c.guidingQuestion} />}
       </div>
       {c.kind === 'preflight' && <Preflight card={c} />}
       {c.where && <Where text={c.where} />}
