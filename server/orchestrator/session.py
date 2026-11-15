@@ -3374,6 +3374,8 @@ class LessonSession:
 
     def _offtrack_wait(self) -> str | None:
         """Why an off-track card can't go out right now (None: it can)."""
+        if self.awaiting_resume or getattr(self, "awaiting_start", False):
+            return "the lesson is held"  # never behind the Continue? card or the Before-you-start sheet
         if self.clock() - self._last_card_t < self.CARD_GAP_S:
             return "a card just went up"
         if self._ask_held():
