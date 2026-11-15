@@ -15,8 +15,9 @@ import { useLesson, type Rect } from '../../core/lesson'
 import { defineFeature } from '../../core/registry'
 import { hole, intersects, toLocal } from '../spotlight/place'
 import { useSpotlight } from '../spotlight/store'
+import { ConceptPanel, Rail } from './Concept'
 import { Panel, Tab } from './Drawer'
-import { panelRect, tabRect } from './geometry'
+import { conceptRects, panelRect, tabRect } from './geometry'
 import { useDrawer } from './store'
 
 /** After the spotlight leaves, wait this long before sliding back (a spotlight tour hops between targets). */
@@ -27,17 +28,25 @@ function DrawerLayer({ layout }: { layout: Layout }): ReactNode {
   const open = useDrawer((s) => s.open)
   const panelH = useDrawer((s) => s.panelH)
   const lessonMode = useLesson((s) => s.lesson?.mode === 'lesson')
+  // Mockup 02: a concept open = the drawer collapsed to a step rail + the concept panel beside it.
+  const concept = useDrawer((s) => s.concept)
   const panel = panelRect(layout, lessonMode)
+  const conceptAt = conceptRects(layout, lessonMode)
   const tab = tabRect(layout)
-  // What the drawer covers: open (even while it has yielded) = the panel at its real height, out to the edge;
-  // closed = just the tab.
-  const area: Rect = open ? { x: panel.x, y: panel.y, w: tab.x + tab.w - panel.x, h: Math.min(panel.h, panelH ?? panel.h) } : tab
+  // What the drawer covers: open (even while it has yielded) = the panel at its real height (or the concept
+  // panel + rail), out to the edge; closed = just the tab.
+  const left = concept ? conceptAt.panel.x : panel.x
+  const area: Rect = open ? { x: left, y: panel.y, w: tab.x + tab.w - left, h: concept ? panel.h : Math.min(panel.h, panelH ?? panel.h) } : tab
   const yielding = useYield(useSpotlightOn(area, layout))
   const showPanel = on && open && !yielding
   return (
     <>
       <Tab rect={tab} shown={on && !showPanel && !yielding} />
-      <AnimatePresence>{showPanel && <Panel key="drawer" rect={panel} />}</AnimatePresence>
+      <AnimatePresence>
+        {showPanel && !concept && <Panel key="drawer" rect={panel} />}
+        {showPanel && concept && <Rail key="rail" rect={conceptAt.rail} />}
+        {showPanel && concept && <ConceptPanel key="concept" rect={conceptAt.panel} />}
+      </AnimatePresence>
     </>
   )
 }

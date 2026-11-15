@@ -9,6 +9,8 @@ type DrawerState = {
   open: boolean
   /** The panel's last rendered height (it hugs its content). Kept while it's hidden, for the spotlight check. */
   panelH?: number
+  /** Mockup 02: the primer item (concept) open in the concept panel; the drawer collapses to a step rail meanwhile. */
+  concept?: string
 }
 
 /** Stage only: `?drawer=open` starts with the drawer open (review and screenshots). */
@@ -16,8 +18,12 @@ const startOpen = typeof location !== 'undefined' && new URLSearchParams(locatio
 
 export const useDrawer = create<DrawerState>(() => ({ open: startOpen }))
 
-export const toggleDrawer = (): void => useDrawer.setState((s) => ({ open: !s.open }))
-export const closeDrawer = (): void => useDrawer.setState({ open: false })
+export const toggleDrawer = (): void => useDrawer.setState((s) => ({ open: !s.open, concept: undefined }))
+export const closeDrawer = (): void => useDrawer.setState({ open: false, concept: undefined })
+/** A concept chip was clicked: open the concept panel (the drawer stays open, as a rail). */
+export const openConcept = (id: string): void => useDrawer.setState({ open: true, concept: id })
+/** "Back to step N": the full drawer again. */
+export const closeConcept = (): void => useDrawer.setState({ concept: undefined })
 export const setPanelHeight = (h: number): void => {
   if (h > 0 && useDrawer.getState().panelH !== h) useDrawer.setState({ panelH: h })
 }
@@ -28,7 +34,7 @@ onUi('reset', closeDrawer)
 // A new lesson starts closed (the stage's ?drawer=open keeps it open for review). A "Just teach me" lesson
 // (lesson.mode "lesson") opens it: there's no player and no chapter list, so the drawer is where
 // "Step N of M" and the step's instructions live (Michael, Sat 3:56 PM).
-onMessage('lesson.ready', (p) => useDrawer.setState({ open: startOpen || p.lesson.mode === 'lesson' }))
+onMessage('lesson.ready', (p) => useDrawer.setState({ open: startOpen || p.lesson.mode === 'lesson', concept: undefined }))
 
 /** http(s) links only; anything else (file:, javascript:, a bare path) is ignored. */
 export function isWebLink(url: string): boolean {
