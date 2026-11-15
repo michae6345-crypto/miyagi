@@ -16,6 +16,9 @@ import { startBuild, useLesson } from './lesson'
 import { getIslandModes } from './registry'
 import { color, pill, shadows, spring, springOut } from './theme'
 
+/** After a press on the island, an open card holds still this long (Michael's desktop test 5: the first Install missed). */
+const PRESS_HOLD_MS = 1500
+
 export function Island({ top, layout }: { top: number; layout: Layout }): ReactNode {
   const [hover, setHover] = useState(false)
   const [landing, setLanding] = useState(false)
@@ -29,6 +32,10 @@ export function Island({ top, layout }: { top: number; layout: Layout }): ReactN
   const islandEl = useRef<HTMLDivElement>(null)
   const wrapper = useRef<HTMLDivElement>(null)
   const passFlash = useLesson((s) => s.passFlash)
+  /** The pointer is on the island, or pressed it in the last PRESS_HOLD_MS: an open card holds still (islandPlace.ts). */
+  const [pointerIn, setPointerIn] = useState(false)
+  const [pressHold, setPressHold] = useState(false)
+  const pressTimer = useRef<ReturnType<typeof setTimeout>>(undefined)
 
   // Ask every registered mode whether it wants the island. (Stable array → stable hook order.)
   const islandModes = getIslandModes()
@@ -94,8 +101,10 @@ export function Island({ top, layout }: { top: number; layout: Layout }): ReactN
     }
   }, [modeId, fixed])
 
-  // An open card steps off the spotlight's hole and the coach's targets (Michael's desktop test 3, item 3). Transform only.
-  const offset = useIslandOffset(mode && !isPill && held[at] ? { id: mode.id, w: size.w, h: size.h } : undefined, top, layout, wrapper)
+  // An open card steps off the spotlight's hole and the coach's targets (Michael's desktop test 3, item 3), decided as
+  // it opens and then held still, never moved under the pointer or just after a press (desktop test 5). Transform only.
+  const card = mode && !isPill && held[at] ? { id: mode.id, w: size.w, h: size.h } : undefined
+  const offset = useIslandOffset(card, top, layout, wrapper, pointerIn || pressHold)
 
   // Tell main (or the browser bus) our current size, so the launcher can grow out of exactly this shape, and where we
   // are (dx/dy from the notch spot: main's click-through poll covers the island there).
@@ -106,13 +115,38 @@ export function Island({ top, layout }: { top: number; layout: Layout }): ReactN
   const enter = (): void => {
     clearTimeout(hoverTimer.current)
     leaving.current = false
+    setPointerIn(true)
     hoverTimer.current = setTimeout(() => setHover(true), 150)
   }
   const leave = (): void => {
     clearTimeout(hoverTimer.current)
     leaving.current = true
+    setPointerIn(false)
     hoverTimer.current = setTimeout(() => setHover(false), 300)
   }
+  const press = (): void => {
+    clearTimeout(pressTimer.current)
+    setPressHold(true)
+    pressTimer.current = setTimeout(() => setPressHold(false), PRESS_HOLD_MS)
+  }
+  useEffect(() => () => clearTimeout(pressTimer.current), [])
+
+  // The pointer left without a mouseleave (click-through forwarding can drop it): the next move outside, or the
+  // pointer leaving the window, ends it. So does the island going away under it.
+  useEffect(() => {
+    if (!pointerIn) return
+    if (!mode) return void setPointerIn(false)
+    const move = (e: MouseEvent): void => {
+      if (!islandEl.current?.contains(e.target as Node)) setPointerIn(false)
+    }
+    const out = (): void => setPointerIn(false)
+    window.addEventListener('mousemove', move)
+    document.addEventListener('mouseleave', out)
+    return () => {
+      window.removeEventListener('mousemove', move)
+      document.removeEventListener('mouseleave', out)
+    }
+  }, [pointerIn, mode])
 
   // The hover card must not outstay the pointer (Michael's audit A8): a mouseleave that never came (click-through
   // forwarding can drop it) is caught on the next move outside; the window losing focus or the pointer leaving it,
@@ -170,6 +204,7 @@ export function Island({ top, layout }: { top: number; layout: Layout }): ReactN
         transition={landing ? { duration: 0 } : { ...(isPill ? springOut : spring), ...(justLanded ? { velocity: 0 } : {}) }}
         onMouseEnter={enter}
         onMouseLeave={leave}
+        onPointerDownCapture={press}
       >
         {/* Step passed: the island flashes green (tint 0 → .25 → 0 over 600ms). */}
         <motion.div

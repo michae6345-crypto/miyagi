@@ -10,11 +10,14 @@
  * player). If no spot is clear, the one that covers the least. Island.tsx springs it there (transform only) and back
  * to the notch when the card closes, so the card is still born from the notch and returns to it.
  *
+ * The spot is decided as the card opens and then held (Michael's desktop test 5: the setup card stepped down off the
+ * box between his look and his click, and the first Install missed). See useIslandOffset.
+ *
  * Owner: core.
  */
-import { useEffect, useLayoutEffect, useMemo, useRef, useState, type RefObject } from 'react'
+import { useLayoutEffect, useMemo, useRef, useState, type RefObject } from 'react'
 import type { Layout } from '../../../preload/api'
-import { hole, intersects, isUsableRect, MIN_VISIBLE_SHARE, overlapShare, toLocal } from '../features/spotlight/place'
+import { hole, intersects, isUsableRect, MIN_VISIBLE_SHARE, overlapShare, sameRect, toLocal } from '../features/spotlight/place'
 import { useSpotlight } from '../features/spotlight/store'
 import type { Rect } from './lesson'
 
@@ -38,6 +41,13 @@ const UI_EVERY_MS = 400
 const HUGE_SHARE = 0.5
 /** The spotlight's chips (its caption, the coach's target labels): its [data-ui] elements. */
 const CHIPS = '[data-spotlight] [data-ui]'
+/**
+ * An opening card's spot may follow its first measurements (its real size, a first read of the chips) this long:
+ * about its spring out of the notch, before it's anything to click. After that it holds still.
+ */
+const SETTLE_MS = 300
+/** Holes within this many px of the ones a card was placed for are the same box (OCR jitter, a re-sent off-track). */
+const SAME_BOX_PX = 12
 
 const clamp = (v: number, lo: number, hi: number): number => Math.min(hi, Math.max(lo, v))
 const grow = (r: Rect, by: number): Rect => ({ x: r.x - by, y: r.y - by, w: r.w + by * 2, h: r.h + by * 2 })
@@ -83,12 +93,14 @@ type OverlayUi = { others: Rect[]; chips: Rect[] }
 const NO_UI: OverlayUi = { others: NONE, chips: NONE }
 
 /**
- * The overlay's UI around the island, window coordinates, read from the DOM every UI_EVERY_MS while `on`:
+ * The overlay's UI around the island, window coordinates, read from the DOM every UI_EVERY_MS while `on` (the spotlight
+ * is up, card or not), and once more the moment `fresh` changes (a card opens: it's placed around the chips as they
+ * are in that very frame, the coach's target labels that came with it included):
  *   - others: everything marked data-hit / data-ui, minus the island itself and the spotlight scene;
  *   - chips: the spotlight's caption and target labels. The caption steps around the island and springs to its new
  *     spot, so a chip counts once it's at rest (the same in two reads in a row; the first read is taken as it is).
  */
-function useOverlayUi(wrapper: RefObject<HTMLElement | null>, on: boolean): OverlayUi {
+function useOverlayUi(wrapper: RefObject<HTMLElement | null>, on: boolean, fresh: string): OverlayUi {
   const [ui, setUi] = useState<OverlayUi>(NO_UI)
   useLayoutEffect(() => {
     if (!on) return
@@ -131,21 +143,28 @@ function useOverlayUi(wrapper: RefObject<HTMLElement | null>, on: boolean): Over
       clearInterval(id)
       setUi(NO_UI)
     }
-  }, [wrapper, on])
+  }, [wrapper, on, fresh])
   return on ? ui : NO_UI
 }
+
+const sameBoxes = (a: Rect[], b: Rect[]): boolean => a.length === b.length && a.every((r, i) => sameRect(r, b[i], SAME_BOX_PX))
+
+/** Where the open card sits: its mode, the holes it was placed for, its offset, and until when it may still settle. */
+type Spot = { id: string; boxes: Rect[]; at: Offset; until: number }
 
 /**
  * The island's offset right now. `card`: the open card's mode and size (undefined for the pill or a hover peek: they
  * stay at the notch). `top`: the notch spot's top. `wrapper`: the island's positioning element (its parent is the
- * overlay root). A card that moved stays put when the spotlight clears (no hole left to dodge: a card that jumps
- * while it's read is worse); it goes back to the notch when it closes, or when a new hole leaves the notch clear.
+ * overlay root). `still`: the pointer is on the island or pressed it a moment ago (Island.tsx).
  *
- * The caption steps around the island, so the island only reacts to a chip it actually covers: it keeps the chips
- * it last placed itself around (per card and holes) until a chip at rest is under the spot it's at, and only then
- * re-places around the chips as they are. A caption that moved away never pulls the card back: the two don't chase.
+ * A card's spot is decided as it opens, from the box, the coach's targets and the chips known then (chips not at rest
+ * yet: their last place at rest), so the island springs from the notch straight to it. Its first SETTLE_MS may still
+ * follow its real size. Then it holds still while it stays open: not for a chip that settles or moves (the caption
+ * steps around the card, not the other way round), not when the card grows, not when the spotlight clears. Only a new
+ * box (another target) places it again, and never while `still`: that waits until the pointer is off it. A card that
+ * opens or replaces another under the pointer keeps the spot it's at.
  */
-export function useIslandOffset(card: { id: string; w: number; h: number } | undefined, top: number, layout: Layout, wrapper: RefObject<HTMLElement | null>): Offset {
+export function useIslandOffset(card: { id: string; w: number; h: number } | undefined, top: number, layout: Layout, wrapper: RefObject<HTMLElement | null>, still = false): Offset {
   const main = useSpotlight((s) => (s.target && isUsableRect(s.target.rect) ? s.target.rect : undefined))
   const others = useSpotlight((s) => s.targets)
   // The holes as the spotlight draws them: the main one while it's on this display, and the coach's others with it.
@@ -156,33 +175,28 @@ export function useIslandOffset(card: { id: string; w: number; h: number } | und
   }, [main, others, layout])
   const w = card?.w ?? 0
   const h = card?.h ?? 0
-  const notch = useMemo(() => ({ x: (layout.width - w) / 2, y: top, w, h }), [layout.width, top, w, h])
-  const on = !!card && keepOff.length > 0
-  const { others: avoid, chips: live } = useOverlayUi(wrapper, on)
-  // The chips this card last placed itself around, for these holes (a new card or a new hole starts clean).
-  const scope = card && on ? `${card.id}|${JSON.stringify(keepOff)}` : ''
-  const kept = useRef<{ scope: string; chips: Rect[] }>({ scope: '', chips: NONE })
-  const { placed, chips } = useMemo(() => {
-    if (!on) return { placed: AT_NOTCH, chips: NONE }
+  const { others: avoid, chips } = useOverlayUi(wrapper, keepOff.length > 0, card?.id ?? '')
+
+  const decide = (): Offset => {
+    if (!card || !keepOff.length) return AT_NOTCH
+    const notch = { x: (layout.width - w) / 2, y: top, w, h }
     const wa = layout.workArea
     const bounds = { x: wa.x + EDGE, y: top, w: wa.width - EDGE * 2, h: wa.y + wa.height - BAR_CLEARANCE - top }
-    const place = (around: Rect[]): Offset => placeIsland(notch, [...keepOff, ...around], bounds, avoid)
-    let around = kept.current.scope === scope ? kept.current.chips : NONE
-    let at = place(around)
-    const spot = { x: notch.x + at.x, y: notch.y + at.y, w: notch.w, h: notch.h }
-    if (around !== live && live.some((c) => intersects(spot, c))) {
-      around = live
-      at = place(around)
-    }
-    return { placed: at, chips: around }
-  }, [on, scope, notch, keepOff, layout.workArea, top, avoid, live])
-  useEffect(() => {
-    kept.current = { scope, chips }
-  }, [scope, chips])
-  const stuck = useRef<{ id: string; at: Offset }>(undefined)
-  const offset = card && !keepOff.length && stuck.current?.id === card.id ? stuck.current.at : placed
-  useEffect(() => {
-    stuck.current = card && (offset.x || offset.y) ? { id: card.id, at: offset } : undefined
+    return placeIsland(notch, [...keepOff, ...chips], bounds, avoid)
+  }
+  const spot = useRef<Spot>(undefined)
+  const prev = spot.current
+  const now = Date.now()
+  const fresh = (): Spot | undefined => card && { id: card.id, boxes: keepOff, at: decide(), until: now + SETTLE_MS }
+  let next: Spot | undefined
+  if (!card) next = undefined
+  else if (!prev) next = still ? { id: card.id, boxes: keepOff, at: AT_NOTCH, until: 0 } : fresh() // grows out of the pill (opened under the pointer: stays put)
+  else if (prev.id !== card.id) next = still ? { id: card.id, boxes: keepOff, at: prev.at, until: 0 } : fresh()
+  else if (now < prev.until) next = { ...prev, boxes: keepOff, at: decide() } // still springing out: follow its real size
+  else if (keepOff.length && !sameBoxes(keepOff, prev.boxes) && !still) next = fresh() // a new box
+  else next = prev
+  useLayoutEffect(() => {
+    spot.current = next
   })
-  return offset
+  return next?.at ?? AT_NOTCH
 }
