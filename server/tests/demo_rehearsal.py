@@ -601,6 +601,22 @@ class Rehearsal:
             r.time(f"save -> {nxt} started", started.t - t, limits[2])
             self._track_steps(m)
 
+    def run_metrics(self, mark: int) -> list[tuple[Any, float]]:
+        """The live curve of the learner's own runs: (epoch, loss), not the lesson's reference curve (runId tutorial)."""
+        return [(e.p.get("step"), e.p.get("value")) for e in self.app.since(mark, "metric")
+                if e.p.get("runId") != "tutorial"]
+
+    @staticmethod
+    def previews(r: Row, diagrams: list[Ev]) -> None:
+        """DEMO §2 rows 2-5: before the learner's first run the panel shows previews (data.preview, no epoch / loss)."""
+        r.check(diagrams, "no panel pictures before the first run")
+        for e in diagrams:
+            d = e.p.get("data") or {}
+            stats = [f for f in d.get("frames") or [] if f.get("loss") is not None or f.get("epoch") is not None]
+            r.check(bool(e.p.get("preview") or d.get("preview")), f"{e.p.get('stepId')} {d.get('mode')}: not a preview")
+            r.check(not stats, f"{e.p.get('stepId')} {d.get('mode')}: {len(stats)} frames carry epoch/loss (e.g. epoch "
+                    f"{stats[-1].get('epoch') if stats else ''} loss {stats[-1].get('loss') if stats else ''})")
+
     def diagram_for(self, sid: str, mark: int) -> list[Ev]:
         return [e for e in self.app.since(mark, "diagram") if e.p.get("stepId") == sid]
 
@@ -682,39 +698,38 @@ class Rehearsal:
             out = str(ran.p.get("output") or "")
             losses = _loss_lines(out)
             r.check(losses and all(abs(v - 0.49) < 1e-9 for v in losses), f"run card losses {losses}")
-            r.check("python3 nn.py" in ran.p.get("title", ""), f"run card title {ran.p.get('title')!r}")
+            r.check(ran.p.get("title") == "Ran nn.py", f"run card title {ran.p.get('title')!r} (DEMO: Ran nn.py)")
             off = await app.wait("offtrack", since=m, timeout=6, what="the Not yet card")
             r.time("run card -> Not yet", off.t - ran.t, 3.0)
             r.check(off.p.get("title") == "Loss is stuck at 0.49", f"Not yet title {off.p.get('title')!r}")
             r.check(off.p.get("stepId") == "nn4", f"Not yet stepId {off.p.get('stepId')}")
             r.check("hint" in (off.p.get("actions") or []), f"no Hint on the Not yet card: {off.p.get('actions')}")
-            metr = [e.p.get("value") for e in app.since(m, "metric")]
+            metr = [v for _, v in self.run_metrics(m)]
             r.check(metr and all(abs(v - 0.49) < 1e-9 for v in metr), f"live curve {metr}")
-            same = [e for e in app.since(m, "diagram") if "same" in str(e.p.get("caption", "")).lower()]
-            r.check(same, "the panel never showed the identical hidden neurons")
+            stuck = [e for e in app.since(m, "diagram") if (e.p.get("data") or {}).get("mode") == "stuck"
+                     or "same" in str(e.p.get("caption", "")).lower()]
+            r.check(stuck, "the panel never showed the identical hidden neurons (loss stuck)")
+            if stuck:
+                d = stuck[-1].p.get("data") or {}
+                r.check(not d.get("preview"), "the stuck panel is marked preview (it is their run)")
+                last = [f.get("loss") for f in d.get("frames") or [] if f.get("loss") is not None][-1:]
+                r.check(last and abs(last[0] - 0.49) < 1e-6, f"the stuck panel's loss {last} (want 0.4900)")
             fail = [e for e in app.since(m, "check.updated") if e.p.get("status") == "fail"]
             r.check(fail and "0.4900" in str(fail[-1].p.get("detail")), f"loss row: {[e.p for e in fail]}")
             r.check(len([e for e in app.since(m, "card") if str(e.p.get("title", "")).startswith("Ran ")]) == 1,
                     "one press, more than one run card")
             r.check(not app.find(m, "step.passed"), "the stuck run passed the step")
-            self.stuck_card = off.p
-        async with self.row("T1.6a", "brief 7", "panel pictures before the first run are previews without run stats",
-                            tier="brief") as r:
+            self.stuck_card, self.stuck_mark, self.stuck_row = off.p, m, (fail[-1].p if fail else {})
+        async with self.row("T1.6a", "DEMO §2 rows 2-5", "panel pictures before the first run: previews, no epoch / loss") as r:
             cut = first_run if first_run is not None else len(app.events)
-            pre = [e for e in app.since(start, "diagram") if e.i < cut and not str(e.p.get("caption", "")).lower().startswith("your run")]
-            r.check(pre, "no panel pictures before the first run")
-            for e in pre:
-                d = e.p.get("data") or {}
-                stats = [f for f in d.get("frames") or [] if f.get("loss") is not None or f.get("epoch") is not None]
-                flagged = bool(e.p.get("preview") or d.get("preview"))
-                r.check(flagged, f"{e.p.get('stepId')} {d.get('mode')}: not marked preview")
-                r.check(not stats, f"{e.p.get('stepId')} {d.get('mode')}: {len(stats)} frames carry epoch/loss "
-                        f"(e.g. epoch {stats[-1].get('epoch') if stats else ''} loss {stats[-1].get('loss') if stats else ''})")
-        async with self.row("T1.6b", "brief 5", "Not yet card payload: expected shows the target, citation fits",
+            self.previews(r, [e for e in app.since(start, "diagram") if e.i < cut])
+        async with self.row("T1.6b", "brief 5", "Not yet: the loss row and curve show yours vs expected, citation fits",
                             tier="brief") as r:
             p = getattr(self, "stuck_card", None) or {}
-            exp = str((p.get("diff") or {}).get("expected") or "")
-            r.check("0.01" in exp, f"diff.expected {exp!r} (want the target, loss below 0.01)")
+            detail = str((getattr(self, "stuck_row", None) or {}).get("detail") or "")
+            r.check("0.01" in detail, f"loss row detail {detail!r} (want the target, loss below 0.01)")
+            ref = [e for e in app.since(getattr(self, "stuck_mark", 0), "metric") if e.p.get("runId") == "tutorial"]
+            r.check(ref, "no expected curve (metric runId tutorial) for the Not yet's loss chart")
             label = str((p.get("citation") or {}).get("label") or "")
             r.check(len(label) <= 40, f"citation label is {len(label)} chars: {label!r}")
         async with self.row("T1.7", "DEMO §2 row 7", "Hint -> Hint 1 of 2 'Look at how W1, W2 and W3 start…'") as r:
@@ -744,7 +759,7 @@ class Rehearsal:
             passed = await app.wait("step.passed", lambda p: p.get("stepId") == "nn4", since=m, timeout=6,
                                     what="step.passed nn4")
             r.time("Check -> step.passed", passed.t - t, 4.5)
-            metr = [(e.p.get("step"), e.p.get("value")) for e in app.since(m, "metric")]
+            metr = self.run_metrics(m)
             r.check(metr and abs(metr[0][1] - 0.8187) < 1e-4, f"first loss {metr[:1]} (want 0.8187)")
             r.check(metr and abs(metr[-1][1] - 0.0009) < 1e-4 and metr[-1][0] == 18000,
                     f"last loss {metr[-1:]} (want 0.0009 at epoch 18000)")
@@ -758,6 +773,10 @@ class Rehearsal:
             self._track_steps(m)
             trained = [e for e in app.since(m, "diagram") if e.p.get("stepId") == "nn4"]
             r.check(trained, "the panel didn't show the network training")
+            if trained:
+                d = trained[-1].p.get("data") or {}
+                r.check(not d.get("preview") and d.get("mode") == "train",
+                        f"the panel after the run: mode {d.get('mode')!r} preview {d.get('preview')!r} (want their run)")
         async with self.row("T1.9", "DEMO §2 row 9", "nn5 Test it: paste, ⌘S -> green, step 6") as r:
             m = app.mark()
             await self.save_pass(r, "nn5", "nn6", paste_under(self.read_nn(), SECTIONS[3], self.step_code("nn5")))
@@ -773,7 +792,7 @@ class Rehearsal:
                                  what="the run card")
             r.time("press -> run card", ran.t - t, 2.5)
             out = str(ran.p.get("output") or "")
-            r.check(ran.p.get("title") == "Ran python3 nn.py", f"run card title {ran.p.get('title')!r}")
+            r.check(ran.p.get("title") == "Ran nn.py", f"run card title {ran.p.get('title')!r} (DEMO: Ran nn.py)")
             r.check("ran without errors" in str(ran.p.get("body", "")).lower(), f"run card body {ran.p.get('body')!r}")
             r.check("[-1.0, 0.0, 1.0]" in out, f"no [-1.0, 0.0, 1.0] in {out!r}")
             r.check(all(re.search(rf"^{w}\b", out, re.M) for w in ("W1", "b1", "W2", "b2", "W3", "b3")),
@@ -827,6 +846,8 @@ class Rehearsal:
             r.check(sg.get("on") and sg.get("step") == "nn1" and not sg.get("runs"), f"/stage {sg}")
             kept = list((self.base / "lessons" / ".miyagi-state" / "attempts").rglob("nn-*.py"))
             r.check(kept, "take 1's nn.py wasn't kept in .miyagi-state/attempts")
+            first = [e for e in app.since(start, "diagram") if e.p.get("stepId") == "nn1"]
+            self.previews(r, first[:1])  # a second take previews again, never take 1's trained run
         async with self.row("T2.2", "DEMO §2 rows 2-3", "Start, nn1 pasted + ⌘S -> step 2") as r:
             await self.start_lesson(r)
             await self.save_pass(r, "nn1", "nn2", set_weights(paste_under(starter(), SECTIONS[0],
@@ -893,7 +914,7 @@ class Rehearsal:
                     await app.wait("step.started", lambda p, s=nxt: p.get("stepId") == s, since=mm,
                                    timeout=3, what=f"step.started {nxt}")
             r.check(not app.find(m, "offtrack"), "a Not yet on the presenter's next")
-            good = [e.p.get("value") for e in app.since(m, "metric")]
+            good = [v for _, v in self.run_metrics(m)]
             r.check(good and abs(good[-1] - 0.0009) < 1e-4, f"Train it's run {good[-1:]} (want 0.0009)")
             r.check(not [v for v in good if abs(v - 0.49) < 1e-9], "the run under ⌃⌥⌘→ was the stuck one (0.4900)")
             runs = [e for e in app.since(m, "card") if str(e.p.get("title", "")).startswith("Ran ")]
