@@ -27,12 +27,9 @@ import { CheckList, Thumb, useChecking } from '../../core/ui/atoms'
 import { GlassCheck, GlassSpinner } from '../../core/ui/glass'
 import { parseYouTube, thumbnailFor } from '../launcher/youtube'
 import { HANDLE, TAB } from './geometry'
-import { useStepDetail } from './plan'
+import { useStepDetail, useStepStatuses, type StepStatus } from './plan'
 import { closeDrawer, isWebLink, openSource, setPanelHeight, toggleDrawer } from './store'
 import { BuildStrip, lessonTopic, minutesLeft, NeedsChip, OverviewText, PrimerSection, StepActions, StepDetail } from './Teach'
-
-/** skipped: the learner pressed Skip. Done, but not passed, so never green. */
-type StepStatus = 'done' | 'skipped' | 'current' | 'locked'
 
 /** Row geometry: icon column, gap, time column. The current step's checks line up with its title. */
 const ROW = { h: 38, padX: 10, icon: 18, gap: 11 } as const
@@ -216,7 +213,10 @@ export function Panel({ rect }: { rect: Rect }): ReactNode {
       <div
         ref={scroller}
         className="relative min-h-0 flex-initial overflow-y-auto px-[8px] pb-[12px]"
-        style={{ scrollbarWidth: 'thin', scrollbarColor: `${glass.track} transparent` }}
+        // The list starts under the fixed header (never behind it). scrollPaddingTop keeps the browser's own scrolls
+        // (focus, a drag-select running off the top) clear of the edge by a label's height, like useKeepInView's
+        // 34 px (Michael's review A19: the sticky header cut content).
+        style={{ scrollbarWidth: 'thin', scrollbarColor: `${glass.track} transparent`, scrollPaddingTop: 34 }}
         onScroll={(e) => setScrolled(e.currentTarget.scrollTop > 2)}
       >
         {lesson?.build ? (
@@ -234,7 +234,9 @@ export function Panel({ rect }: { rect: Rect }): ReactNode {
         )}
         <NeedsChip />
         <PrimerSection />
-        <Label right={plan.total > 0 ? `${plan.done} of ${plan.total} done` : undefined}>{lessonMode ? 'Plan' : 'Steps'}</Label>
+        <Label part="drawer-plan" right={plan.total > 0 ? `${plan.done} of ${plan.total} done` : undefined}>
+          {lessonMode ? 'Plan' : 'Steps'}
+        </Label>
         <Steps scroller={scroller} />
         {sources.length > 0 && (
           <>
@@ -249,9 +251,9 @@ export function Panel({ rect }: { rect: Rect }): ReactNode {
   )
 }
 
-function Label({ children, right }: { children: ReactNode; right?: ReactNode }): ReactNode {
+function Label({ children, right, part }: { children: ReactNode; right?: ReactNode; part?: string }): ReactNode {
   return (
-    <div className="flex items-baseline justify-between gap-[8px] px-[10px] pb-[4px] pt-[14px] text-[12px] leading-[16px]">
+    <div data-part={part} className="flex items-baseline justify-between gap-[8px] px-[10px] pb-[4px] pt-[14px] text-[12px] leading-[16px]">
       <span className="font-semibold" style={{ color: glass.label }}>
         {children}
       </span>
@@ -268,18 +270,26 @@ function Label({ children, right }: { children: ReactNode; right?: ReactNode }):
 // Header progress
 // ---------------------------------------------------------------------------
 
-type PlanProgress = { done: number; total: number; index: number; hasStep: boolean; complete: boolean; left?: number }
+type PlanProgress = { done: number; skipped: number; total: number; index: number; hasStep: boolean; complete: boolean; left?: number }
 
-/** Steps done (passed, skipped, or before the current one: the same rule as the rows), where we are, and minutes left. */
+/**
+ * Steps done: passed (or before the current one), never skipped and never the current step itself (the same rule as
+ * the rows, plan.ts stepStatuses; Michael's desktop test 4, Sun 1:42 AM: 2 passes + 2 skips read "4 of 7 done"),
+ * where we are, and minutes left.
+ */
 function usePlanProgress(): PlanProgress {
   const { index } = useProgress()
+  const statuses = useStepStatuses()
   const p = useLesson(
     useShallow((s) => {
-      const cur = s.steps.findIndex((x) => x.id === s.stepId)
-      const done = s.steps.filter((x, i) => s.passed.includes(x.id) || (cur >= 0 && i < cur)).length
-      // Mockup 01: "about N min left" (steps[].estMinutes over the steps not passed or skipped yet).
-      const left = minutesLeft(s.steps, [...s.passed, ...s.skipped])
-      return { done, total: s.steps.length, hasStep: !!s.stepId, complete: s.complete, left }
+      const done = statuses.filter((x) => x === 'done').length
+      const skipped = statuses.filter((x) => x === 'skipped').length
+      // Mockup 01: "about N min left" (steps[].estMinutes over the steps still to do: the current one counts, a skipped one doesn't).
+      const left = minutesLeft(
+        s.steps,
+        s.steps.filter((_, i) => statuses[i] === 'done' || statuses[i] === 'skipped').map((x) => x.id)
+      )
+      return { done, skipped, total: s.steps.length, hasStep: !!s.stepId, complete: s.complete, left }
     })
   )
   return { ...p, index }
@@ -287,8 +297,15 @@ function usePlanProgress(): PlanProgress {
 
 /** Mockup 01: a thin bar (neutral fill, never green: green only means passed), "Step N of M" and the time left. Never scrolls. */
 function ProgressHeader({ plan }: { plan: PlanProgress }): ReactNode {
-  const all = plan.complete && plan.done >= plan.total
-  const line = all ? `All ${plan.total} steps done` : plan.hasStep ? `Step ${plan.index + 1} of ${plan.total}` : `${plan.total} steps`
+  // Every step passed or skipped: the lesson is over. Skipped steps never read as done.
+  const all = plan.complete && plan.total > 0 && plan.done + plan.skipped >= plan.total
+  const line = !all
+    ? plan.hasStep
+      ? `Step ${plan.index + 1} of ${plan.total}`
+      : `${plan.total} steps`
+    : plan.skipped
+      ? `${plan.done} of ${plan.total} done · ${plan.skipped} skipped`
+      : `All ${plan.total} steps done`
   return (
     <div data-part="drawer-progress" className="mt-[11px]">
       <div className="h-[3px] overflow-hidden rounded-full" style={{ background: glass.track }}>
@@ -320,12 +337,10 @@ function ProgressHeader({ plan }: { plan: PlanProgress }): ReactNode {
 // ---------------------------------------------------------------------------
 
 function Steps({ scroller }: { scroller: RefObject<HTMLDivElement | null> }): ReactNode {
-  const { steps, stepId, passed, skipped, checks, complete, parts, pendingNext, instructions, lessonMode } = useLesson(
+  const { steps, stepId, checks, complete, parts, pendingNext, instructions, lessonMode } = useLesson(
     useShallow((s) => ({
       steps: s.steps,
       stepId: s.stepId,
-      passed: s.passed,
-      skipped: s.skipped,
       checks: s.checks,
       complete: s.complete,
       parts: s.parts,
@@ -339,7 +354,8 @@ function Steps({ scroller }: { scroller: RefObject<HTMLDivElement | null> }): Re
   if (!atOpen.current) atOpen.current = new Set(steps.map((s) => s.id))
   const fresh = steps.filter((s) => !atOpen.current!.has(s.id)).map((s) => s.id)
 
-  const cur = steps.findIndex((s) => s.id === stepId)
+  // The current step stays current (expanded) even when core still lists it as passed or skipped (after Back).
+  const statuses = useStepStatuses()
   const timeW = useTimeWidth(steps, complete)
   // The current step's code arriving after step.started grows the row: keep it in view then too.
   const codeLen = useStepDetail((d) => (d.detail && d.detail.stepId === stepId ? (d.detail.code?.length ?? 0) : -1))
@@ -349,13 +365,7 @@ function Steps({ scroller }: { scroller: RefObject<HTMLDivElement | null> }): Re
   return (
     <div className="flex flex-col">
       {steps.map((s, i) => {
-        const status: StepStatus = skipped.includes(s.id)
-          ? 'skipped'
-          : passed.includes(s.id) || (cur >= 0 && i < cur)
-            ? 'done'
-            : s.id === stepId
-              ? 'current'
-              : 'locked'
+        const status: StepStatus = statuses[i] ?? 'locked'
         const k = fresh.indexOf(s.id)
         return (
           <StepRow
@@ -391,7 +401,8 @@ function useTimeWidth(steps: StepSummary[], complete: boolean): number {
 /**
  * Keep the current step in view inside the list, without scrolling anything outside it (audit A11: its checks were cut
  * off at the bottom).
- *  - The whole step fits: show all of it, from the label above it down to the row after it peeking in.
+ *  - The whole step fits: show all of it, from the label above it down to the row after it peeking in, never stopping
+ *    partway through the overview above the plan (clearOfIntro).
  *  - It's taller than the list: a new step starts at its title (what to type); once a check has a result (or a Check
  *    is running), the checks and the option row under them come up from below the fold.
  */
@@ -424,6 +435,7 @@ function useKeepInView(scroller: RefObject<HTMLDivElement | null>, stepId: strin
     if (step.bottom + 8 - top <= view) {
       if (top < now) target = top
       else if (end > now + view) target = Math.min(top, end - view)
+      if (target !== undefined) target = clearOfIntro(box, at, target, step.bottom + 8 <= view)
     } else if (newStep) {
       target = top
     } else {
@@ -440,6 +452,28 @@ function useKeepInView(scroller: RefObject<HTMLDivElement | null>, stepId: strin
     box.scrollTo({ top: Math.max(0, target), behavior: first.current ? 'auto' : 'smooth' })
     first.current = false
   }, [scroller, stepId, checksKey, settled, checking, codeLen])
+}
+
+/**
+ * Never park the list partway through the text above the plan (what we're building, Needs, Before you start): Michael's
+ * desktop test 3, item 6, the overview's first lines sat cut off under the fixed header. A target inside that intro
+ * becomes 0 when the step still fits from the top (its row-after peek may go), else the next block edge below it,
+ * so the intro is either all there or cleanly scrolled away under the header's hairline. The step's top stays in
+ * view either way: every candidate is at or above the plan label.
+ */
+function clearOfIntro(
+  box: HTMLElement,
+  at: (n: HTMLElement) => { top: number; bottom: number },
+  target: number,
+  fitsFromTop: boolean
+): number {
+  const plan = box.querySelector<HTMLElement>('[data-part="drawer-plan"]')
+  if (!plan) return target
+  const planTop = at(plan).top
+  if (target <= 0 || target >= planTop) return target
+  if (fitsFromTop) return 0
+  const edges = Array.from(box.children, (c) => at(c as HTMLElement).top).filter((t) => t >= target && t <= planTop)
+  return Math.min(planTop, ...edges)
 }
 
 /** True only during a component's first render (so nothing animates just because the drawer opened). */
