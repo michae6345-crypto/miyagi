@@ -374,6 +374,28 @@ async def restart(session: Any) -> bool:
     return True
 
 
+def requirements(folder: str | None = None) -> list[dict] | None:
+    """The setup check in a Demo lesson: the curated lesson's own list (curated.requirements_raw: VS Code, python,
+    NumPy) in S2's item format, with no Claude call and nothing looked up, and NumPy missing on every take (Michael's
+    flow: "Missing: numpy" -> Install -> "numpy installed ✓"), also when this Mac's lesson .venv has it from the last
+    take, or on the offline engine (DEMO=1, where the real check returns nothing). None: S2 isn't there."""
+    try:
+        from server.workspace import setup
+    except Exception:  # noqa: BLE001
+        return None
+    try:
+        items = setup._items(curated.requirements_raw())
+        brew = setup.brew_path()
+    except Exception:  # noqa: BLE001 - no card, the Demo goes on
+        log.exception("stage: no setup items")
+        return None
+    for it in items:
+        here = it["kind"] != "python_package"
+        it.update(installed=here, ok=here, version="", where="")
+        it["install"] = {k: v for k, v in setup.recipe(it, brew).items() if k != "package"}
+    return items
+
+
 async def install(session: Any, tool: str, item: dict | None) -> None:
     """Install on the setup card ("Missing: numpy") in a Demo lesson: the same progress and the same closing
     "numpy installed ✓" card as a real install, and it always gets there. The real pip install runs for up to
