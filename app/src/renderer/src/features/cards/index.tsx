@@ -14,30 +14,7 @@
 import { motion } from 'motion/react'
 import type { ReactNode } from 'react'
 import { useShallow } from 'zustand/react/shallow'
-import {
-  BookOpen,
-  Check,
-  Code2,
-  Download,
-  ExternalLink,
-  File,
-  FileCode2,
-  FolderGit2,
-  Hammer,
-  History,
-  Lightbulb,
-  ListChecks,
-  MapPin,
-  MessageCircle,
-  MessageSquareText,
-  NotebookText,
-  Play,
-  Search,
-  SkipForward,
-  Undo2,
-  Wrench,
-  type LucideIcon
-} from 'lucide-react'
+import { BookOpen, Check, Code2, Download, ExternalLink, File, FileCode2, FolderGit2, Hammer, History, Lightbulb, ListChecks, MapPin, MessageCircle, MessageSquareText, NotebookText, Play, Search, SkipForward, Undo2, Wrench, FolderOpen, type LucideIcon } from 'lucide-react'
 import type { PreflightInfo } from '../../../../../../shared/contracts/events'
 import type { Payload } from '../../../../common/wire'
 import { bridge } from '../../bridge'
@@ -420,6 +397,10 @@ const ACTION: Partial<Record<CardAction, { label: string; Icon?: LucideIcon; pri
   // Step controls ("Not yet" / "Looks done?" / "Stuck on this step?" cards).
   check_step: { label: 'Check again', Icon: Check },
   skip_step: { label: 'Skip step', Icon: SkipForward },
+  // Wrong-folder card: the learner is editing the lesson file in another folder; adopt that folder (engine copies only missing files).
+  use_this_folder: { label: 'Use this folder', Icon: FolderOpen },
+  // Run steps: the engine runs the step's command in the lesson folder and shows the output.
+  run_command: { label: 'Run it for me', Icon: Play, primary: true },
   confirm: { label: 'Yes', Icon: Check, primary: true },
   apply_fix: { label: 'Do it for me', Icon: Wrench, primary: true },
   open_editor: { label: 'Open VS Code', Icon: Code2, primary: true },
