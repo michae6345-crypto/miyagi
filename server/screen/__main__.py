@@ -9,6 +9,7 @@
     python -m server.screen fixture NAME [--apps Code Terminal]   # save a privacy-safe fixture PNG
     python -m server.screen line pinn_demo/pinn_convection.py 47 [--out line.png]   # editor row rect
     python -m server.screen anchor "def pde_residual(" [--file path] [--out anchor.png]
+    python -m server.screen region terminal|editor|explorer|run_button|all [--app Code]
 
 Every command takes --image PATH to run on a saved screenshot instead of the live screen
 (`line`/`anchor` also take a recorded `<name>.ocr.json`).
@@ -231,6 +232,22 @@ def cmd_anchor(args) -> None:
     sys.exit(0 if loc else 1)
 
 
+def cmd_region(args) -> None:
+    from .regions import find_region
+    obs, reader = _obs(args)
+    names = [args.name] if args.name != "all" else ["terminal", "editor", "explorer", "run_button"]
+    out = {}
+    for n in names:
+        if reader is not None:
+            r = reader.locate_region(n, args.app)
+            out[n] = r.to_dict() if r else None
+        else:
+            reg = find_region(obs, n, args.app)
+            out[n] = reg.to_dict() if reg else None
+    print(json.dumps(out, indent=2))
+    sys.exit(0 if any(out.values()) else 1)
+
+
 def cmd_ax(args) -> None:
     """AX spike: what the accessibility tree gives for the frontmost app, every 0.5 s."""
     from . import ax
@@ -320,6 +337,10 @@ def main(argv=None) -> None:
     an.add_argument("--app")
     an.add_argument("--out")
     an.set_defaults(fn=cmd_anchor)
+    rg = sub.add_parser("region", help="rect of terminal | editor | explorer | run_button | all")
+    rg.add_argument("name")
+    rg.add_argument("--app")
+    rg.set_defaults(fn=cmd_region)
     args = p.parse_args(argv)
     args.fn(args)
 

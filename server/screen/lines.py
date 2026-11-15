@@ -88,6 +88,7 @@ class EditorPane:
     text_left: float
     text_right: float
     blocks: list[Block] = field(default_factory=list)
+    right_edge: float = 0.0          # the editor group's right boundary (window, next group, side panel)
 
     @property
     def first(self) -> int:
@@ -228,6 +229,9 @@ def find_panes(obs: ScreenObservation, app: str | None = None, min_rows: int = 4
             gx2 = sorted(c.x2 for c in chain)[len(chain) // 2]
             right_limit = (min(c.x for c in cols[i + 1][0]) - lh) if i + 1 < len(cols) else (
                 win_rect.x2 if win_rect else obs.screen.x2 if obs.screen.w else max(b.rect.x2 for b in bs))
+            side = _side_column(bs, gx2, right_limit, lh)
+            if side is not None:     # a secondary side bar (Chat, Copilot, Outline) right of the editor
+                right_limit = side - 8
             pane_blocks = [b for b in bs if b.rect.x2 > gx - 2 and b.rect.x < right_limit]
             panes.append(_build_pane(a, win, chain, lh, gx, gx2, right_limit, pane_blocks, obs, win_rect))
     panes.sort(key=lambda p: -len(p.measured))
@@ -252,9 +256,34 @@ def _build_pane(app, win, chain: list[_Cand], lh: float, gx: float, gx2: float, 
     if code_x2 and max(code_x2) < text_right - MINIMAP:   # leave the minimap out unless code runs under it
         text_right -= MINIMAP
     text_right = max(text_left + 10 * lh, text_right)
-    pane = EditorPane(app, win, rows, set(rows), lh, gx, gx2, text_left, text_right, blocks)
+    pane = EditorPane(app, win, rows, set(rows), lh, gx, gx2, text_left, text_right, blocks, right_limit)
     _extend(pane, chain, obs, win_rect)
     return pane
+
+
+def _side_column(blocks: list[Block], gx2: float, right_limit: float, lh: float) -> float | None:
+    """Left edge of a text column right of the code that is NOT code: its blocks have no code
+    running into them from the left, at least three of them line up, and it has its own header
+    level with the editor tabs, above the first code row (VS Code's secondary side bar: "Chat",
+    "Outline" ...). Lined-up trailing comments have no such header."""
+    code_top = min((b.rect.cy for b in blocks if gx2 - 2 <= b.rect.x < gx2 + 80), default=None)  # line 1-ish
+    if code_top is None:
+        return None
+    cands = []
+    for b in blocks:
+        if b.rect.cy < code_top - lh / 2 or b.rect.x <= gx2 + 200 or b.rect.x >= right_limit:
+            continue
+        if any(o is not b and abs(o.rect.cy - b.rect.cy) < 0.5 * b.rect.h and o.rect.x < b.rect.x
+               and b.rect.x - o.rect.x2 < 30 for o in blocks):
+            continue
+        cands.append(b.rect.x)
+    cands.sort()
+    for i, x in enumerate(cands):
+        if len([c for c in cands[i:] if c - x <= 24]) < 3:
+            continue
+        if any(code_top - 6 * lh <= b.rect.cy < code_top - lh / 2 and abs(b.rect.x - x) <= 30 for b in blocks):
+            return x
+    return None
 
 
 SCROLLBAR = 14.0
