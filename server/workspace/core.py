@@ -122,6 +122,44 @@ def set_redirect(lesson_folder: Path, to: Path) -> None:
     sf.write_text(json.dumps(st, indent=1))
 
 
+PREVIOUS_DIR = ".miyagi-previous"
+# never set aside: installs, the video's downloads, our README; dot entries (.venv, .vscode, .git...) except notebook
+# checkpoints, which hold the last run's notebook too
+_KEEP = {"README.md", "tutorial", "venv", "node_modules", "__pycache__"}
+
+
+def set_aside_previous(folder: str | Path) -> Path | None:
+    """A FRESH build of a lesson whose folder is reused (Michael, Nov 15 7:19: test 9's mnist.ipynb passed s1-s3 by
+    itself on a new build): the learner's files from the earlier run (notebooks, .py files, folders they made) move to
+    <folder>/.miyagi-previous/<YYYYmmdd-HHMMSS>/, nothing deleted. Kept in place: .venv and other dot entries, tutorial/
+    downloads, README.md and the starter files prepare() wrote (state "files"). Returns where they went, or None when
+    there was nothing to move. A resume never comes here. Blocking (file I/O); never raises."""
+    folder = Path(folder).expanduser().resolve()
+    try:
+        st = read_state(folder) or {}
+        starters = {Path(f).parts[0] for f in st.get("files") or [] if f}
+        if st.get("readme"):
+            starters.add(Path(st["readme"]).parts[0])
+        move = [p for p in folder.iterdir()
+                if p.name not in _KEEP and p.name not in starters
+                and (not p.name.startswith(".") or p.name == ".ipynb_checkpoints")]
+        if not move:
+            return None
+        dest = folder / PREVIOUS_DIR / time.strftime("%Y%m%d-%H%M%S")
+        n, i = dest, 1
+        while n.exists():  # two fresh builds within a second
+            n, i = dest.with_name(f"{dest.name}-{i}"), i + 1
+        n.mkdir(parents=True)
+        for p in move:
+            p.rename(n / p.name)
+        log.info("fresh build of %s: the last run's %s moved to %s", folder.name, ", ".join(sorted(p.name for p in move)),
+                 n.relative_to(folder))
+        return n
+    except OSError as e:
+        log.warning("could not set the last run's files aside in %s: %s", folder, e)
+        return None
+
+
 def open_file_for(folder: Path) -> str | None:
     """The starter file prepare() picked to open first (else README.md if present)."""
     st = read_state(folder) or {}
