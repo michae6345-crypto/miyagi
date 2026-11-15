@@ -61,11 +61,29 @@ class ScreenBridge:
         try:
             if self._unsub:
                 self._unsub()
+            if getattr(self, "_front_unsub", None):
+                self._front_unsub()
             self.unwatch()
             if self.reader is not None and hasattr(self.reader, "stop"):
                 self.reader.stop()
         except Exception:  # noqa: BLE001
             log.exception("screen stop failed")
+
+    def watch_frontmost(self, on_front: Callable[[str], Awaitable[None]]) -> None:
+        """E6 on_frontmost_change: `on_front(app_name)` on the loop within ~0.25 s of an app switch / Space swipe."""
+        r = self.reader
+        if r is None or self._loop is None or not hasattr(r, "on_frontmost_change"):
+            return
+        loop = self._loop
+
+        def cb(new: dict | None, old: dict | None) -> None:  # E6's poller thread
+            app = str((new or {}).get("app") or "")
+            loop.call_soon_threadsafe(lambda: asyncio.ensure_future(on_front(app)))
+
+        try:
+            self._front_unsub = r.on_frontmost_change(cb)
+        except Exception:  # noqa: BLE001
+            log.exception("on_frontmost_change failed")
 
     def down_reason(self) -> str | None:
         """Why the reader can't see the screen right now (E6: status error / no_permission), else None."""

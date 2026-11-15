@@ -327,8 +327,8 @@ class Modules:
 
     # -- E5's Claude step judge (Haiku): the Check button and checks the machine can't see
     def make_step_judge(self) -> Any:
-        """A coach.StepJudge per lesson, or None (no coach / stubbed)."""
-        if "coach" in self.forced:
+        """A coach.StepJudge per lesson, or None (no coach / stubbed / DEMO: no paid calls)."""
+        if "coach" in self.forced or self.demo:
             return None
         mod = self.real.get("coach")
         cls = getattr(mod, "StepJudge", None) if mod else None
@@ -443,6 +443,8 @@ class Modules:
             return 0
 
     async def warm(self) -> None:
+        if self.demo:
+            return  # DEMO costs nothing
         fn = self._real_fn("coach", "warm")
         if fn is not None:
             try:

@@ -43,6 +43,7 @@ class Rig:
         self.s.offtrack_grace_s = 0  # most tests drive the ladder at once; the grace has its own test
         self.s.CARD_GAP_S = 0  # pacing (8 s between cards, 2 s between spotlight moves) has its own test
         self.s.SPOT_MIN_GAP_S = 0
+        self.s.has_python = True  # run-step wording: `python` is there (the python3 rewrite has its own test)
 
     @property
     def events(self) -> list[dict]:
@@ -2057,7 +2058,7 @@ def test_just_teach_me_lesson_mode_has_no_video_and_spotlights_where_to_type(tmp
     assert [s["id"] for s in rig.of("lesson.updated")[0]["steps"]] == ["s2"]
     assert calls and rig.s.editor_open  # opened without an "Open VS Code?" card
     spot = rig.of("spotlight")[-1]
-    assert spot["caption"] == "In calc.py, type def add(a, b): …"  # the step's one action, as in the drawer
+    assert spot["caption"] == "In VS Code, type def add(a, b): … in calc.py"  # the step's one action, as in the drawer
     assert spot["snippet"] == "def add(a, b):\n    return a + b\n"
     assert spot["matched"] == "# add goes here"
 
@@ -2288,7 +2289,7 @@ def test_stuck_card_offers_skip_once_after_90s_idle(rig):
         await rig.settle()
 
     run(go())
-    stuck = [c for c in rig.of("card") if c["title"] == "Stuck on this step?"]
+    stuck = [c for c in rig.of("card") if c["title"] == "Need a hand?"]
     assert len(stuck) == 1 and stuck[0]["actions"] == ["skip_step"]
 
 
@@ -2484,10 +2485,10 @@ def test_step_started_instructions_are_one_concrete_action(rig):
     s = rig.s
     assert s._action_line({"id": "s1", "title": "t", "file": "calculator.py",
                            "code": "print(\"Calculator\")\nx = 1\n", "instructions": "Long text."}) \
-        == 'Create calculator.py and type print("Calculator") …'
+        == 'In VS Code, create calculator.py and type print("Calculator") …'
     (rig.workdir / "calculator.py").write_text("")
     assert s._action_line({"id": "s1", "title": "t", "file": "calculator.py", "code": "print(1)\n"}) \
-        == "In calculator.py, type print(1)"
+        == "In VS Code, type print(1) in calculator.py"
     assert s._action_line({"id": "s2", "title": "t", "instructions": "Add an nn.Tanh after each Linear layer. "
                                                                      "This keeps the output smooth."}) \
         == "Add an nn.Tanh after each Linear layer."
@@ -2569,7 +2570,7 @@ def test_run_step_boxes_the_vscode_terminal_never_the_breadcrumb(tmp_path, monke
     assert first["caption"] == "Open the terminal: ⌃`" and first["snippet"] == "python calc.py"
     assert first["rect"] == {"x": 0.0, "y": 976.0, "w": 1200.0, "h": 24.0}  # the status bar, never empty space
     last = rig.of("spotlight")[-1]
-    assert last["caption"] == "Run it in the terminal: python calc.py" and last["rect"]["y"] == 100.0 + 20 * 22
+    assert last["caption"] == "Run python calc.py in the VS Code terminal" and last["rect"]["y"] == 100.0 + 20 * 22
     assert not [s for s in rig.of("spotlight") if "matched" in s and ">" in s["matched"]]
 
 
@@ -2604,7 +2605,7 @@ def test_auto_cards_are_paced_20s_into_a_step_and_8s_apart(rig):
 
     async def go():
         await _to_step(rig, 1)
-        card = {"stepId": "s2", "kind": "hint", "title": "Stuck on this step?", "body": "b", "actions": ["skip_step"]}
+        card = {"stepId": "s2", "kind": "hint", "title": "Need a hand?", "body": "b", "actions": ["skip_step"]}
         assert await rig.s._emit_card(card, auto=True) is False  # 0 s into the step
         rig.clock.t += 21
         await rig.s._emit_card({**card, "title": "Not yet", "kind": "answer"})  # a card the learner asked for
@@ -2669,7 +2670,7 @@ def test_run_step_uses_e6_terminal_region(tmp_path, monkeypatch):
     first = run(go())
     assert first["caption"] == "Open the terminal: ⌃`" and first["rect"]["h"] == 24.0  # status bar, not the editor
     last = rig.of("spotlight")[-1]
-    assert last["caption"] == "Run it in the terminal: python calc.py"
+    assert last["caption"] == "Run python calc.py in the VS Code terminal"
     assert last["rect"] == {"x": 260.0, "y": 600.0, "w": 900.0, "h": 240.0}
 
 
@@ -2728,7 +2729,7 @@ def test_unsaved_file_says_save_before_any_offtrack_and_judge_cannot_pass_it(tmp
     assert not rig.of("step.passed") and not rig.of("offtrack")
     titles = [c["title"] for c in rig.of("card")]
     assert "Not yet" in titles and "Save calc.py" in titles
-    assert any("Save calc.py with ⌘S" in c["body"] for c in rig.of("card") if c["title"] == "Not yet")
+    assert any("Save calc.py" in c["body"] for c in rig.of("card") if c["title"] == "Not yet")
     assert [c for c in rig.of("card") if c["title"] == "Not yet"][0]["actions"] == ["apply_fix", "skip_step"]
 
 
@@ -2751,7 +2752,7 @@ def test_another_lessons_folder_gets_one_calm_card(tmp_path, monkeypatch):
 
     run(go())
     cards = [c for c in rig.of("card") if c["title"] == "Wrong folder?"]
-    assert len(cards) == 1 and cards[0]["actions"] == ["open_editor"] and "old-lesson-1a2b3c" in cards[0]["body"]
+    assert len(cards) == 1 and cards[0]["actions"] == ["open_editor"] and "old-lesson-1a2b3c/calc.py" in cards[0]["body"]
     assert not rig.of("offtrack")
 
 
@@ -2760,9 +2761,9 @@ def test_run_step_wording_and_terminal_pseudo_file(rig):
     s = rig.s
     run_step = {"id": "s7", "title": "Run it", "file": "calculator.py", "code": "python calculator.py\n",
                 "targets": [{"file": "calculator.py", "match": "calculator"}]}
-    assert s._action_line(run_step) == "Run it in the terminal: python calculator.py"
+    assert s._action_line(run_step) == "Run python calculator.py in the VS Code terminal"
     assert s._action_line({**run_step, "file": "(terminal)", "targets": [{"file": "(terminal)", "match": "x"}]}) \
-        == "Run it in the terminal: python calculator.py"
+        == "Run python calculator.py in the VS Code terminal"
     assert s._step_file({"id": "s2", "file": "(terminal)", "targets": [{"file": "(terminal)"}]}) is None
 
 
@@ -3014,3 +3015,85 @@ def test_lesson_mode_targeter_confirms_moves_or_drops_the_located_box(tmp_path, 
             assert not boxes
         else:
             assert boxes and boxes[-1]["rect"] == moved and boxes[-1]["matched"] == "# add goes here"
+
+
+
+def test_s11_run_steps_anchors_and_python3(rig, tmp_path):
+    """S11's rehearsal: a run step with code + run_command, regex-looking anchors, missing anchors, no `python`."""
+    from server.orchestrator import workspace as wsmod
+
+    (rig.workdir / "calculator.py").write_text('"""Calc."""\n\ndef add(a, b):\n    return a + b\n\nprint(add(2, 3))\n')
+    loc = wsmod.target_location(rig.workdir, {"targets": [{"file": "calculator.py", "match": "return a + b"}]})
+    assert loc[1] == 4  # literal first: the regex '+' doesn't send it to line 1
+    loc = wsmod.target_location(rig.workdir, {"targets": [{"file": "calculator.py", "match": "print(add(2, 3))"}]})
+    assert loc[1] == 6
+    loc = wsmod.target_location(rig.workdir, {"targets": [{"file": "calculator.py", "match": "def main"}]}, missing="end")
+    assert loc[1] == 7  # not in the file: where the new code goes
+
+    s2 = {"id": "s2", "title": "Run your first output", "file": "calculator.py", "code": "print(add(2, 3))",
+          "run_command": "python calculator.py", "details": "In the terminal, run python calculator.py"}
+    assert rig.s._run_command(s2) == "python calculator.py"  # its code is already in the file: a run step
+    assert rig.s._action_line(s2) == "Run python calculator.py in the VS Code terminal"
+    s8 = {"id": "s8", "title": "Try it", "file": "(terminal)", "code": "python calculator.py"}
+    assert rig.s._action_line(s8) == "Run python calculator.py in the VS Code terminal"
+    rig.s.has_python = False  # this Mac: python3 only
+    assert rig.s._run_command(s2) == "python3 calculator.py"
+    assert rig.s._run_command({"id": "x", "code": "cd app && python main.py"}) == "cd app && python3 main.py"
+
+
+
+def test_lesson_step_passes_on_its_own_when_the_file_is_saved(tmp_path, monkeypatch):
+    """S1: steps didn't advance after the learner saved (no keyboard signal in the harness). A save of the step's
+    file since the step began is the learner's action."""
+    import time as _t
+
+    async def build(goal, workdir, on_update=None, **kw):
+        return _text_lesson()
+
+    rig, screen, _ = _lesson_rig(tmp_path, monkeypatch, build)
+
+    async def go():
+        await rig.s.learn("calc", mode="lesson")
+        await rig.settle()
+        _t.sleep(0.1)
+        (tmp_path / "calc.py").write_text("def add(a, b):\n    return a + b\n")  # saved, no watcher event
+        await rig.s.evaluate("screen")
+        await rig.settle()
+
+    run(go())
+    assert rig.of("step.passed")[0]["stepId"] == "s1"
+
+
+def test_run_step_passes_from_vscode_integrated_terminal_output(tmp_path, monkeypatch):
+    """S9: app:Terminal checks read VS Code's terminal panel (E6 region) too; new output there = the learner ran it."""
+    from types import SimpleNamespace as NS
+
+    g = _run_lesson()
+    g["steps"][1]["checks"] = [{"id": "s2c1", "type": "screen_contains", "label": "prints 5", "pattern": "^5$",
+                                "app": "Terminal"}]
+    g["steps"][1]["precision_checks"] = []
+
+    async def build(goal, workdir, on_update=None, **kw):
+        return g
+
+    rig, screen, _ = _lesson_rig(tmp_path, monkeypatch, build)
+    (tmp_path / "calc.py").write_text("print(5)\n")
+    screen.regions = {"terminal": {"x": 0.0, "y": 600.0, "w": 1200.0, "h": 300.0}}
+
+    def block(text, y):
+        return NS(text=text, app="Code", rect={"x": 10.0, "y": y, "w": 300.0, "h": 18.0})
+
+    async def go():
+        await rig.s.learn("calc", mode="lesson")
+        await rig.settle()
+        rig.s.last_obs = NS(app="Code", windows=[], blocks=[block("print(5)", 100.0)])
+        await rig.s.goto_step(1)
+        await rig.settle()
+        assert not [p for p in rig.of("step.passed") if p["stepId"] == "s2"]
+        rig.s.last_obs = NS(app="Code", windows=[], blocks=[block("print(5)", 100.0),
+                                                            block("% python3 calc.py", 620.0), block("5", 640.0)])
+        await rig.s.on_screen(rig.s.last_obs)
+        await rig.settle()
+
+    run(go())
+    assert rig.of("step.passed")[-1]["stepId"] == "s2"
