@@ -1,6 +1,21 @@
 # drawer
 
-**Status:** pass 2 done (light/dark glass, content-fit height), awaiting review (not pushed) · **Priority:** P2 · **Port:** 5184 · **Branch:** `adrian/drawer`
+**Status:** pass 3 done (Michael's side: "Just teach me" overview, plan and full code to type), PR into `adrian/shell` · **Priority:** P2 · **Port:** 5184 · **Branch:** `adrian/drawer` (pass 3: `michael/app-drawer-plan`)
+
+### Pass 3 (Sat Nov 14, night): "Just teach me" shows what to type
+Michael tried a "Just teach me" lesson: the instructions weren't clear and didn't show what to type. The drawer now reads, top to bottom:
+- **What we're building**: `lesson.ready.lesson.overview`, one paragraph.
+- **Before you start** (collapsed, "3 ideas"): `lesson.primer[]`, each concept's title, body and small example in mono.
+- **The plan**: one line per step from `steps[].what` (the title when missing; the title shows on hover). Without a time column the lines wrap to two lines instead of being cut off. Current = highlighted row, passed = the green tick as before, **skipped = a ring with a dash, never green** (`useLesson().skipped`, contract `step.passed.skipped`).
+- **The current step**: a neutral Type / Run / Read badge (`kind` code / run / read) + the one-line `instructions`; the **full `code`** (or the exact command) in mono with **Copy**, never truncated (long lines scroll sideways so what you see is what you type); **Why:** + `why`; concept chips (`concepts`, matched to primer items by id or title) that open the primer item in place. Falls back to the spotlight snippet (`overview/snippet`) when `code` is missing. A video lesson without these fields looks exactly as before.
+- **Checks** wrap long labels instead of truncating (all lessons).
+- Lesson mode is 384 wide (no player to line up with; code needs the room). Video lessons stay 340.
+- The "Claude read this tutorial" line is hidden in lesson mode (Claude wrote the lesson, it didn't read one). A hairline appears under the header once the list scrolls.
+- **Copy**: the overlay is `focusable: false`, and Chromium refuses `navigator.clipboard` and `execCommand('copy')` in an unfocused document (checked in headless Brave). So Electron copies in main: `src/main/features/drawer.ts` handles `drawer:copy` with Electron's `clipboard`. The stage uses a web handler (`navigator.clipboard`). **Electron unverified** (typechecked only).
+
+New files: `plan.ts` (store: reads the new fields defensively with local types), `Teach.tsx` (overview, primer, step detail, code block), `src/main/features/drawer.ts`.
+
+**See it:** `npm run dev:web -- --port 5184` → `http://localhost:5184/?scenario=drawer`: a CLI calculator lesson (lesson mode, so the drawer opens itself) runs ~9 s: step 1 Type passes, step 2 Run (`python3 calculator.py`) passes, step 3 Type stays current with a long check label. Click a concept chip or "Before you start". The old GPT video demo: Ctrl+K, paste a YouTube link, Enter (`learn_url@step_calc`). Shots: `agents/shots/drawer-plan-*.png` (run, code, concept, primer, light, video-unchanged), taken in headless Brave at 2×.
 
 ### Pass 2 (Sat Nov 14, evening): light / dark
 **Works** (headless Chrome over CDP, 28/28 checks in dark AND in light):
@@ -67,3 +82,5 @@ A slim tab on the right edge (vertically centered, 6px from the edge). Click →
 4. ~~`alpha(hex, a)` in `core/theme.ts`~~ done in core.
 5. **`CheckList` / `CheckIcon` / `Spinner` on glass** (pass 2): core's are drawn for the black island (white text, white rings, `color.green`), so on a light glass panel the labels vanish. A `surface?: 'island' | 'glass'` prop (glass = `theme.glass.*`) would do. *Workaround:* `GlassCheckList` in `Drawer.tsx` (same layout and motion). The player's checks will hit the same thing when it moves to glass.
 6. **An opaque glass background** (`glass.solid`, or `--glass-bg` closer to 1): with `backdrop-filter` gone, `.9`/`.92` lets whatever is under a panel show through (for the drawer, the player's moving video). *Workaround:* an inset `glass.bg` layer under the drawer's content (`boxShadow`), ~99% opaque.
+7. **Sync the "Just teach me" contract fields into the app** (pass 3): `StepKind`, `StepSummary.kind/what`, `PrimerItem`, `lesson.ready.lesson.primer/overview`, `step.started.kind/what/why/concepts/code/details` are on `integration/live`'s `shared/contracts/events.ts` but not in the app's copy. *Workaround:* local types in `features/drawer/plan.ts`, read defensively.
+8. **`builtByLabel` for lesson mode**: it says "Claude read this tutorial" for any `builtBy: "claude"`, also when Claude wrote the lesson itself. *Workaround:* the drawer hides the line in lesson mode; the overview card and others still show it.
