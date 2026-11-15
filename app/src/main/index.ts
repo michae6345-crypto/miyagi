@@ -171,15 +171,23 @@ function hideLauncher(): void {
   returnFocus(app, overlay)
 }
 
+const ACTION_KINDS: Exclude<ShortcutKind, 'launcher'>[] = ['back', 'explain', 'diagram', 'show_me', 'hint', 'voice_toggle']
+
 /** Global action shortcuts go to the overlay renderer, which decides (features may claim them) and tells the engine. */
 function registerActionShortcuts(): void {
   if (actionsRegistered) return
   actionsRegistered = true
-  const kinds: Exclude<ShortcutKind, 'launcher'>[] = ['back', 'explain', 'diagram', 'show_me', 'hint', 'voice_toggle']
-  for (const kind of kinds) {
+  for (const kind of ACTION_KINDS) {
     const ok = globalShortcut.register(platform.accelerators[kind], () => send(overlay, 'shortcut', kind))
     if (!ok) console.warn(`[tut] shortcut ${platform.accelerators[kind]} is taken by another app`)
   }
+}
+
+/** A lesson ended: hand the lesson keys back to the other apps until the next lesson.ready (Michael, Sun 12:49 AM). */
+function unregisterActionShortcuts(): void {
+  if (!actionsRegistered) return
+  actionsRegistered = false
+  for (const kind of ACTION_KINDS) globalShortcut.unregister(platform.accelerators[kind])
 }
 
 /** overlay.bounds = the overlay's own UI rects + every visible reported feature window (screen points). */
@@ -250,6 +258,7 @@ app.whenReady().then(async () => {
   engine.onEvent((e) => {
     forEachWindow((w) => w.webContents.send('engine:event', e))
     if (e.type === 'lesson.ready') registerActionShortcuts()
+    if (e.type === 'lesson.ended') unregisterActionShortcuts()
   })
   engine.onStatus((c) => forEachWindow((w) => w.webContents.send('engine:status', c)))
 
@@ -312,8 +321,9 @@ app.whenReady().then(async () => {
   const ok = globalShortcut.register(platform.accelerators.launcher, () => (launcherOpen ? closeLauncher() : openLauncher()))
   if (!ok) console.warn(`[tut] launcher shortcut ${platform.accelerators.launcher} is taken`)
 
-  // Always-available kill switch: ⌥Q (Mac) / Alt+Q (Windows) quits the overlay.
-  if (!globalShortcut.register('Alt+Q', () => app.quit())) console.warn('[tut] quit shortcut Alt+Q is taken')
+  // Always-available kill switch: ⌃⌥Q (Mac; ⌥Q alone types "œ" in editors) / Alt+Q (Windows) quits the overlay.
+  const quitKey = platform.os === 'mac' ? 'Control+Alt+Q' : 'Alt+Q'
+  if (!globalShortcut.register(quitKey, () => app.quit())) console.warn(`[tut] quit shortcut ${quitKey} is taken`)
 
   screen.on('display-metrics-changed', () => {
     for (const w of [overlay, launcher]) {
