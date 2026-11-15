@@ -60,6 +60,12 @@ export type Install = { running: boolean; line?: string; error?: string }
 
 const blank: CardsState = { offtrackOpen: false, offtrackClosed: false, fixing: false, recovered: false, resume: false, offtrackSeq: undefined, success: undefined, card: undefined, metrics: {}, tutorial: {}, installs: {}, pending: undefined, results: {} }
 export const useCards = create<CardsState>(() => ({ ...blank }))
+
+/**
+ * The overlay's width in points (the display in Electron, 1600 in the browser stage), from an invisible
+ * overlay layer (index.tsx). Its own store so lesson resets never touch it. The off-track card sizes from it.
+ */
+export const useOverlayWidth = create<{ w: number }>(() => ({ w: typeof window === 'undefined' ? 1600 : window.innerWidth }))
 const set = useCards.setState
 const get = useCards.getState
 
@@ -68,7 +74,7 @@ let successTimer: ReturnType<typeof setTimeout> | undefined
 /**
  * The off-track the learner closed with ✕. The engine re-sends `offtrack` while the step keeps
  * failing; an unchanged one must not pop the card back up. It reopens only for a new step, a
- * higher hint level or a different title (hovering the pill still brings it back; the pill stays amber).
+ * higher hint level or a different title (hovering the pill still brings it back; the pill keeps its off-track ring).
  */
 type OfftrackSig = { stepId: string; level: number; title: string }
 let dismissed: OfftrackSig | undefined
@@ -229,7 +235,7 @@ onMessage('step.started', (p) => {
   set({ offtrackOpen: false, offtrackClosed: false, fixing: false, recovered: false, resume: false, offtrackSeq: undefined, card: keep ? c : undefined })
 })
 onMessage('offtrack', (p) => {
-  // A re-send of the off-track the learner closed: keep the state (amber pill, recovered) but not the card.
+  // A re-send of the off-track the learner closed: keep the state (off-track pill, recovered) but not the card.
   if (stillDismissed(p)) {
     set({ recovered: true })
     return
