@@ -13,12 +13,13 @@ import type { StepSummary, VideoSegment } from '../../../../../../shared/contrac
 import type { Layout } from '../../../../preload/api'
 import { cmd } from '../../../../common/wire'
 import { bridge, isElectron } from '../../bridge'
-import { useLesson, useProgress, useStatus, useThinking } from '../../core/lesson'
+import { useLesson, useStatus, useThinking } from '../../core/lesson'
 import { useAppearance } from '../../core/prefs'
 import { sendAction, usePressed } from '../../core/shortcuts'
 import { clock, color, copy, glass, radius, spring } from '../../core/theme'
 import { Spinner } from '../../core/ui/atoms'
 import { MiyagiMark } from '../../core/ui/Mark'
+import { usePill } from '../pill/store'
 import { dockRect } from './dock'
 import { GlassCheck, GlassDot, GlassPrimary, GlassQuiet, GlassSpinner } from './glass'
 import { attachPlayer, clipStart, inGate, player, usePlayer } from './store'
@@ -79,10 +80,32 @@ export function PlayerPanel({ framed = false }: { framed?: boolean }): ReactNode
   )
 }
 
+/**
+ * The step number the pill shows (Michael's desktop test 9: the header said "Step 1 of 7" while the pill said Step 2).
+ * At a pass the pill moves on by itself (pill store: `celebrating`, then `advanced`) before the engine's step.started;
+ * this reads the same state with the pill's rules, so the two never disagree.
+ */
+function useShownStep(): { n: number; total: number } {
+  const l = useLesson(useShallow((s) => ({ stepId: s.stepId, steps: s.steps })))
+  const { celebrating, advanced } = usePill(useShallow((s) => ({ celebrating: s.celebrating, advanced: s.advanced })))
+  const total = Math.max(1, l.steps.length)
+  const at = (id?: string): number => l.steps.findIndex((x) => x.id === id)
+  const n = (i: number): { n: number; total: number } => ({ n: Math.min(total, Math.max(0, i) + 1), total })
+  // 1) The pill's green check holds the passed step.
+  if (celebrating) return n(at(celebrating))
+  // 2) After a pass, before step.started: the next step (or the last one, when the lesson is done or a part is building).
+  if (advanced && advanced.from === l.stepId) {
+    const to = advanced.to ?? l.steps[at(advanced.from) + 1]?.id
+    return to && at(to) >= 0 ? n(at(to)) : n(at(advanced.from) + 1)
+  }
+  // 3) The engine's current step.
+  return n(at(l.stepId))
+}
+
 function Header(): ReactNode {
   const title = useLesson((s) => s.lesson?.title)
   const hasStep = useLesson((s) => !!s.stepId)
-  const { index, total } = useProgress()
+  const { n, total } = useShownStep()
   const status = useStatus()
   const appearance = useAppearance()
   return (
@@ -95,7 +118,7 @@ function Header(): ReactNode {
       <span className="flex-1" />
       {hasStep && (
         <span className="shrink-0 text-[12px] tabular-nums" style={{ color: glass.faint }}>
-          Step {index + 1} of {total}
+          Step {n} of {total}
         </span>
       )}
       <GlassDot status={status} />
