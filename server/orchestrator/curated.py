@@ -712,6 +712,8 @@ def _stuck_card(session: Any, step: dict, failed: list[dict]) -> dict | None:
         "actions": ["explain", "show_me", "hint"]}
     card = {k: copy.deepcopy(cached[k]) for k in STUCK_CARD_KEYS if k in cached}
     card["stepId"] = step["id"]
+    if all("zeros" in rhs for rhs in first.values() if "rand" not in rhs):
+        card["title"] = "All weights start at zero"  # t8's live title (Michael: good); the cause, not the symptom
     return card
 
 

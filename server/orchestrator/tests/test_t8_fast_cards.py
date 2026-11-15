@@ -217,8 +217,8 @@ def test_stuck_run_card_goes_out_at_the_run_without_the_model(rig):  # noqa: F81
     assert dt < 1.0, dt  # t8: ~8.2 s
     assert not calls
     stage_card = curated._cache_json("coach", "nn4.json")
-    assert card["title"] == stage_card["title"] == "Loss is stuck at 0.49"  # the Demo's card, word for word
-    assert card["body"] == stage_card["body"] and card["citation"] == stage_card["citation"]
+    assert card["title"] == "All weights start at zero"  # t8's live title
+    assert card["body"] == stage_card["body"] and card["citation"] == stage_card["citation"]  # the Demo's words
     assert set(card["actions"]) == {"explain", "show_me", "hint", "apply_fix"} and card["level"] == 2
     validate_engine_payload("offtrack", card)
     assert [p for p in rig.of("check.updated") if p["status"] == "fail"]  # the loss row says not yet with it
