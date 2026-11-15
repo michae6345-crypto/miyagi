@@ -13,6 +13,9 @@ demo script: [`docs/devpost/DEMO.md`](docs/devpost/DEMO.md).
 
 ## 30-second quickstart (macOS)
 
+**New to Miyagi?** One line in Terminal installs the app and the engine, with no git, Node or Python needed:
+[`docs/INSTALL.md`](docs/INSTALL.md). The rest of this section is for working on the code.
+
 Put your keys in `.env` at the repo root (copy `.env.example`; at least `ANTHROPIC_API_KEY` and `GEMINI_API_KEY`), or enter them
 in the app's Settings sheet. Never commit `.env`.
 
