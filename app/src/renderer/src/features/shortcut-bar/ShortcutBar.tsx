@@ -203,10 +203,11 @@ export function ShortcutBar({ bottom, dock = 0, lift = 0 }: { bottom: number; do
   // Video lessons keep the replay glyph (Back rewinds the video). Audit A22.
   const textLesson = useLesson((x) => x.lesson?.mode === 'lesson')
   const firstStep = useProgress().index === 0
-  // A12 / A8: folded while the pointer has been off it a while, or while another app is in front.
+  // A12 / A8: folded while the pointer has been off it a while, or while another app is in front. During a step it
+  // stays up while the lesson's app is in front: Hint and Show me were hard to find folded (Michael's test 6).
   const idle = useFold((f) => f.idle)
   const away = useFront((f) => f.away)
-  const folded = idle || away
+  const folded = away || (idle && !hasStep)
   const busy = useRef(false)
   busy.current = step.armed || step.skipping
   useEffect(() => holdWhile(() => busy.current), [])

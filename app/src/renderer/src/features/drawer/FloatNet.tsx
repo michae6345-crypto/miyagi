@@ -19,12 +19,16 @@ import { glass, radius } from '../../core/theme'
 import { useLiveNetwork } from '../diagrams/store'
 import { PANEL_W, PANEL_W_LESSON, panelRect } from './geometry'
 import { NetBody, NetHeader, useHeaderDrag } from './LiveNet'
-import { dock, setFloatWidth, settle, useNetFloat, type Corner } from './netFloat'
+import { dock, setFloatWidth, settle, useNetFloat, type Corner, type Spot } from './netFloat'
+import { RUN_CORNER, useRunTuck } from './runTuck'
+import { useBarTop } from '../shortcut-bar/lift'
 import { useDrawer } from './store'
 
 const INSET = 16
 /** Clear of the shortcut bar at the bottom (its 88 px + gap), as the drawer and player dock are. */
 const BOTTOM_CLEAR = 112
+/** Air between the card and the bar's top edge (Michael's test 6: a bottom corner sat on the lifted bar). */
+const BAR_GAP = 12
 /** Clear of the notch / island band under the menu bar. */
 const TOP_CLEAR = 8
 const R = 0.99
@@ -40,7 +44,8 @@ export function FloatNetLayer({ layout }: { layout: Layout }): ReactNode {
   const d = useLiveNetwork()
   const spot = useNetFloat((s) => s.spot)
   const pickup = useNetFloat((s) => s.pickup)
-  if (!d || (!spot.floating && !pickup)) return null
+  const run = !!useRunTuck()
+  if (!d || (!spot.floating && !pickup && !run)) return null
   return <FloatNet layout={layout} />
 }
 
@@ -49,6 +54,11 @@ function FloatNet({ layout }: { layout: Layout }): ReactNode {
   const reduced = useReducedMotion() ?? false
   const lessonMode = useLesson((s) => s.lesson?.mode === 'lesson')
   const drawerOpen = useDrawer((s) => s.open)
+  const barTop = useBarTop(layout)
+  const run = !!useRunTuck()
+  // A run step floats the docked network out to RUN_CORNER (runTuck.ts) until the step ends or the learner moves it.
+  const saved = useNetFloat((s) => s.spot)
+  const spot: Spot = saved.floating || !run ? saved : { floating: true, corner: RUN_CORNER }
   const root = useRef<HTMLDivElement>(null)
   const card = useRef<HTMLDivElement>(null)
   const x = useMotionValue(0)
@@ -86,7 +96,7 @@ function FloatNet({ layout }: { layout: Layout }): ReactNode {
     if (drawerOpen) right = Math.min(right, panel.x - INSET - w) // clear of the drawer column
     right = Math.max(left, right)
     const top = b.minY + INSET + TOP_CLEAR
-    const bottom = Math.max(top, b.maxY - BOTTOM_CLEAR)
+    const bottom = Math.max(top, Math.min(b.maxY - BOTTOM_CLEAR, barTop - BAR_GAP - h))
     const out: Target[] = [
       { kind: 'corner', corner: 'tl', at: { x: left, y: top } },
       { kind: 'corner', corner: 'tr', at: { x: right, y: top } },
@@ -94,9 +104,9 @@ function FloatNet({ layout }: { layout: Layout }): ReactNode {
       { kind: 'corner', corner: 'br', at: { x: right, y: bottom } }
     ]
     const at = useNetFloat.getState().dockAt
-    if (drawerOpen && at) out.push({ kind: 'dock', at: toLocal(at) })
+    if (drawerOpen && at && !run) out.push({ kind: 'dock', at: toLocal(at) })
     return out
-  }, [bounds, layout, lessonMode, drawerOpen, w, toLocal])
+  }, [bounds, layout, lessonMode, drawerOpen, w, toLocal, barTop, h, run])
 
   const stopAnim = (): void => {
     anim.current.forEach((a) => a.stop())
@@ -202,10 +212,11 @@ function FloatNet({ layout }: { layout: Layout }): ReactNode {
   }, [w, h, x, y])
 
   // First placement: picked up from the drawer (keep tracking that same press), or a remembered corner.
+  // The screen, the drawer, the bar or the card's height changed while it rests in a corner: stay in that corner.
   useLayoutEffect(() => {
     if (placed.current) return
     placed.current = true
-    const { pickup, spot } = useNetFloat.getState()
+    const { pickup } = useNetFloat.getState()
     if (pickup) {
       const at = toLocal({ x: pickup.x, y: pickup.y })
       const ptr = toLocal({ x: pickup.pointerX, y: pickup.pointerY })
@@ -226,8 +237,6 @@ function FloatNet({ layout }: { layout: Layout }): ReactNode {
     }
   }, [targets, toLocal, track, x, y])
 
-  // The screen, the drawer or the card's height changed while it rests in a corner: stay in that corner.
-  const spot = useNetFloat((s) => s.spot)
   useEffect(() => {
     if (dragging || anim.current.length || !spot.floating) return
     const t = targets().find((c) => c.kind === 'corner' && c.corner === spot.corner)

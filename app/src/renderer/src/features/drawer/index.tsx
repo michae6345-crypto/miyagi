@@ -13,7 +13,7 @@
  *
  * A run step (step.kind "run") tucks it to the "Steps" handle: the learner needs VS Code's Run button and the terminal,
  * both under the panel (Michael's test, Sun 2:56 AM). Pressing the handle shows it again for that step; the next step
- * puts it back as it was.
+ * puts it back as it was. The live network floats out meanwhile (runTuck.ts, FloatNet.tsx).
  */
 import { AnimatePresence } from 'motion/react'
 import { useEffect, useState, type ReactNode } from 'react'
@@ -27,7 +27,7 @@ import { Panel, Tab } from './Drawer'
 import { FloatNetLayer } from './FloatNet'
 import { conceptRects, panelRect, tabRect } from './geometry'
 import { Selectable, SelectionExplain } from './SelectionExplain'
-import { useStepDetail } from './plan'
+import { useRunTuck } from './runTuck'
 import { peekDrawer, useDrawer } from './store'
 
 /** After the spotlight leaves, wait this long before sliding back (a spotlight tour hops between targets). */
@@ -49,9 +49,8 @@ function DrawerLayer({ layout }: { layout: Layout }): ReactNode {
   const area: Rect = open ? { x: left, y: panel.y, w: tab.x + tab.w - left, h: concept ? panel.h : Math.min(panel.h, panelH ?? panel.h) } : tab
   const showMe = useSpotlight((s) => s.showMe)
   const yielding = useYield(useSpotlightOn(area, layout) && (!lessonMode || showMe))
-  const runStep = useStepDetail((s) => (s.detail?.kind === 'run' ? s.detail.stepId : undefined))
-  const peekStep = useDrawer((s) => s.peekStep)
-  const tucked = lessonMode && open && !!runStep && peekStep !== runStep
+  const runStep = useRunTuck()
+  const tucked = !!runStep
   const showPanel = on && open && !yielding && !tucked
   return (
     <>

@@ -4,11 +4,13 @@
  * It opens by itself when a "Just teach me" lesson arrives with something to say before step 1 (lesson.ready
  * build / flow / prerequisites / learnFirst), and again from the drawer's "Needs: ..." chip. It closes on
  * "Start the lesson", "Learn ... first", Esc, a reset or the lesson ending. The engine's step 1 may already be
- * running underneath: closing never sends anything.
+ * running underneath. Only "Start the lesson" sends something: action {kind:"start"} (startLesson), so the engine
+ * releases its hold without waiting for a click into the editor (Michael's test 6).
  */
 import { create } from 'zustand'
 import { onMessage, onUi } from '../../core/bus'
 import { useLesson } from '../../core/lesson'
+import { sendAction, type ActionKind } from '../../core/shortcuts'
 
 export const useBeforeStart = create<{ open: boolean }>(() => ({ open: false }))
 const set = useBeforeStart.setState
@@ -29,6 +31,11 @@ export const openBeforeStart = (): void => {
   if (worthASheet(useLesson.getState().lesson)) set({ open: true }) // the drawer's chip: on purpose, even when done
 }
 export const closeBeforeStart = (): void => set({ open: false })
+/** "Start the lesson": close the sheet and tell the engine to go. "start" isn't in the contract's action kinds yet. */
+export function startLesson(): void {
+  closeBeforeStart()
+  sendAction('start' as ActionKind)
+}
 
 /**
  * Only a NEW lesson at step 0 gets the sheet (Michael's tests 2-3, A15): on a resume it came back over the code and
