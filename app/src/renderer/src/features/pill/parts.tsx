@@ -217,3 +217,29 @@ export function BuildLine({ progress }: { progress: number }): ReactNode {
     </motion.span>
   )
 }
+
+/**
+ * SwapText for the building pill (Michael's desktop test 3, item 9: "Setting up your project fo…"). Same crossfade
+ * (old text up and out, new text in from below), but the slot can never be narrower than the text it shows: old and
+ * new text stack in one grid cell, both in flow, so the slot is the wider of the two during the swap and then exactly
+ * the new text. No measured or animated width that can lag a stage behind and clip the label mid-word; the island
+ * (which hugs its content) springs its own width around it.
+ */
+export function FitSwap({ id, children }: { id: string; children: ReactNode }): ReactNode {
+  return (
+    <span className="grid h-[34px] shrink-0 overflow-hidden" data-fit>
+      <AnimatePresence initial={false}>
+        <motion.span
+          key={id}
+          className="whitespace-nowrap pt-[8px] leading-[18px]"
+          style={{ gridArea: '1 / 1' }}
+          initial={{ opacity: 0, y: 7 }}
+          animate={{ opacity: 1, y: 0, transition: { duration: 0.24, ease: 'easeOut', delay: 0.11 } }}
+          exit={{ opacity: 0, y: -7, transition: { duration: 0.1, ease: 'easeIn' } }}
+        >
+          {children}
+        </motion.span>
+      </AnimatePresence>
+    </span>
+  )
+}
