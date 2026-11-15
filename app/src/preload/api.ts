@@ -4,7 +4,8 @@
  * UI signals (cross-window choreography):
  *   main -> launcher : 'launcher:open' {from:{w,h}} (the island's current size: the launcher grows out of it), 'launcher:close'
  *   main -> overlay  : 'launcher:open' (the island hides: the launcher has it), 'launcher:closed' (the island is back)
- *   overlay -> main  : 'island:size' {w,h} (the island's current size, so the launcher can start from it)
+ *   overlay -> main  : 'island:size' {w,h,dx,dy} (the island's current size, so the launcher can start from it; dx/dy:
+ *                      a card's offset from the notch spot, core/islandPlace.ts)
  *   any <-> any      : 'video:intent' (core seekVideo: main relays it to every OTHER window)
  *   any -> overlay   : 'island:yield' / 'island:return' (a focusable surface like settings grows out of the
  *                      island: the island hides until it's handed back). Main relays them to the overlay.
