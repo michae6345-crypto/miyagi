@@ -1547,7 +1547,7 @@ def test_preflight_before_build_then_build_or_pick_another(rig):
 
     async def go():
         await rig.s.learn("build chat gpt")
-        assert prefetched == [(3, "build chat gpt")]
+        assert prefetched == [(1, "build chat gpt"), (3, "build chat gpt")]  # the video row as it came, then the top 3
         await rig.s.build_lesson(["r1"])
         assert not built and rig.s.phase == "preflight"
         cards = [c for c in rig.of("card") if c["kind"] == "preflight"]
@@ -1568,6 +1568,74 @@ def test_preflight_before_build_then_build_or_pick_another(rig):
     run(go())
     assert built == [stubs.SEARCH_RESULTS[0]["url"]]
     assert rig.of("lesson.ready") and rig.s.phase == "active"
+
+
+def test_preflight_prefetch_starts_while_the_search_still_streams(rig):
+    """Video speed: a live search streams its first rows at ~5 s and ends at ~18 s, and a pick before search.done
+    cancels it (main.py), so prefetching only at search.done left the picked card waiting ~3-5 s on Claude. The first
+    3 video rows are prefetched as they arrive; search.done still prefetches the final top 3."""
+    prefetched, gate = [], asyncio.Event()
+    rig.s.m._preflight_mod = lambda: _fake_preflight(prefetched)
+    rows = [{"id": f"v{i}", "kind": "video", "title": f"V{i}", "meta": "", "score": 90 - i, "reason": "",
+             "url": f"https://www.youtube.com/watch?v=vid{i:08d}"} for i in range(5)]
+    rows.insert(1, {"id": "b1", "kind": "blog", "title": "B", "meta": "", "score": 89, "reason": "",
+                    "url": "https://example.com/post"})
+
+    async def search(query):
+        for i, r in enumerate(rows):
+            if i == 3:
+                await gate.wait()  # the search's slow tail
+            yield dict(r)
+
+    rig.s.m.search = search
+
+    async def go():
+        task = asyncio.ensure_future(rig.s.learn("build a pinn"))
+        for _ in range(50):
+            await asyncio.sleep(0.01)
+            if len(prefetched) >= 2:
+                break
+        before_done = list(prefetched)
+        assert not rig.of("search.done")
+        gate.set()
+        await task
+        return before_done
+
+    before_done = run(go())
+    assert before_done == [(1, "build a pinn"), (1, "build a pinn")]  # v0 and v1 while streaming (not the blog)
+    assert prefetched == [(1, "build a pinn")] * 3 + [(6, "build a pinn")]  # 3 early (v2 after the gate), then search.done
+    assert rig.of("search.done")
+
+
+def test_cached_lesson_holds_ready_like_a_curated_one(rig):
+    """Video speed: Build on a cached lesson waited the full ORCH_READY_HOLD_S (1.5 s) after "Lesson ready" for a
+    build that took 0 s. A cache hit (E2's cache_hit stage) holds 0.6 s like a curated lesson; a real build keeps 1.5."""
+    rig.s.ready_hold_s, rig.s.CACHED_READY_HOLD_S = 0.4, 0.05
+
+    def builder(hit: bool):
+        async def build(url, goal, workdir, on_progress=None, **kw):
+            if hit and on_progress:
+                on_progress("cache_hit", "abc.json")
+                on_progress("done", "abc.json")
+            return stubs.load_fixture_lesson()
+        return build
+
+    async def timed(hit: bool) -> float:
+        rig.s.m.build_lesson = builder(hit)
+        t0 = asyncio.get_running_loop().time()
+        await rig.s._run_build("https://www.youtube.com/watch?v=abcdefghijk", "g")
+        await rig.built()
+        assert rig.s.graph is not None
+        return asyncio.get_running_loop().time() - t0
+
+    async def go():
+        cached = await timed(True)
+        await rig.s.end_lesson()
+        built = await timed(False)
+        return cached, built
+
+    cached, built = run(go())
+    assert cached < 0.3 and built >= 0.4
 
 
 def test_end_lesson_clears_a_pending_pick(rig):
