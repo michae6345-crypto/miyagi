@@ -6,8 +6,9 @@ No Gemini. Claude only:
     and tutorials; only URLs that came back from the tools are ever cited;
   * per step (claude-haiku-5-5, Opus only when a quality check fails): the exact code to type, where to
     type it (targets: file + anchor), machine-checkable checks, hints, common mistakes.
-Step 1 goes out through on_update as soon as it's ready (no waiting on research); the rest follow in
-order. lesson.mode = "lesson"; steps have no `video`.
+Step 1 goes out through on_update as soon as it's ready (no waiting on research); the rest are drafted in
+parallel and follow in order, one built step per plan step: lesson.outline lists them all from the start.
+lesson.mode = "lesson"; steps have no `video`.
 """
 
 from __future__ import annotations
@@ -47,8 +48,10 @@ PLAN_SCHEMA = {
             "title": {"type": "string"}, "instructions": {"type": "string"}, "file": {"type": "string"},
             "what": {"type": "string"}, "why": {"type": "string"},
             "concepts": {"type": "array", "items": {"type": "integer"}, "description": "1-based numbers of the primer concepts this step uses"},
-            "estMinutes": {"type": "integer", "description": "whole minutes a beginner needs for this step"}},
-            "required": ["title", "instructions", "file", "what", "why", "concepts", "estMinutes"]}},
+            "estMinutes": {"type": "integer", "description": "whole minutes a beginner needs for this step"},
+            "adds": {"type": "array", "items": {"type": "string"},
+                     "description": "exact names this step's code introduces (functions, variables, classes, imports); [] for a run step"}},
+            "required": ["title", "instructions", "file", "what", "why", "concepts", "estMinutes", "adds"]}},
         # learn-anything screens (drawer v2, "Before you start"): same call, no extra model call
         "build": {"type": "object", "properties": {"summary": {"type": "string"}, "outcome": {"type": "string"}},
                   "required": ["summary", "outcome"]},
@@ -110,7 +113,13 @@ mkdir, cd, touch or create folders, and never write absolute paths; name files r
 The app also creates each step's file (empty) before that step starts: never ask the learner to create a file
 ("In calculator.py, type ...", never "Create calculator.py and type ...").
 Order: step 1 is always typing code into a file (never a terminal step); a step that runs a program comes
-AFTER the steps that write that program's code.
+AFTER the steps that write that program's code. A step either types code or runs a command, never both: when
+the learner should run the program, that is a step of its own (file "").
+Steps only ADD code: the learner never deletes, moves or retypes lines, so never plan a step that wraps, moves,
+renames, replaces or refactors code an earlier step wrote (write the function first, then the code that calls it).
+Every step title and every `what` is unique in the lesson and says what THAT step's code does; a run step says what
+that run shows at that point ("Run it: one roll", "Run it: five rolls in a row"), never the same words as another
+run step.
 Also teach the ideas, in plain words for a complete beginner:
 - overview (<= 60 words): what we're building and the plan, e.g. "We'll build a command-line notes app. First a
   list to hold notes, then functions to add and show them, then saving them to a file so they survive a restart."
@@ -119,7 +128,9 @@ Also teach the ideas, in plain words for a complete beginner:
   diagramPrompt: one sentence describing a picture that would help, or "" if none would.
 - per step: what (<= 12 words: the plan line for this step, e.g. "A list that holds your notes"),
   why (<= 25 words: what this part does in the app), concepts (numbers of the primer concepts it uses),
-  estMinutes (whole minutes a beginner needs for the step, typing included; usually 2-8).
+  estMinutes (whole minutes a beginner needs for the step, typing included; usually 2-8), adds (the exact names
+  the step's code introduces: functions, variables, classes, imports; [] for a run step). The steps are written
+  at the same time from this plan, so later steps use exactly these names.
 - build: summary (<= 20 words: what the learner will build, e.g. "A calculator that runs in your terminal"),
   outcome (<= 25 words: what the finished program does when you run it, e.g. "Type 8, / and 2 and it prints 4.0").
 - flow: 3-6 boxes of a "how it works" diagram, left to right, following how the finished program works: label
@@ -164,8 +175,9 @@ or inside; call only names that exist by now. A step either types code or runs a
   (< 60 chars, spacing-tolerant) for a distinctive fragment of this step's code; and, if the step runs
   something, a screen_contains with app "Terminal" on what it PRINTS (never the typed command);
   precision_checks: file_contains on the same fragment in `file`, command_exit_ok for a quick run;
-- every check label: <= 6 words, unique within the step, naming the thing the learner made by its name in the
-  code ("X inputs typed", "y answers typed", "sigmoid() defined"), never a bare call ("array() is typed") or the
+- every check label: <= 6 words, unique within the step, an OUTCOME that names what the learner made, with each
+  name from the code in backticks exactly as spelled there ("`roll` gets `random.randint(1, 6)`", "`sigmoid()`
+  defined", "`random` imported", "Prints the roll"); never "X typed", never a bare call ("array() is typed") or the
   regex; product names as they are spelled (NumPy, pandas, PyTorch);
 {stack_guide}
 - the step's file already exists (the app creates it, empty, before the step starts): captions and hints never
@@ -239,25 +251,29 @@ async def build_text_lesson(goal: str, workdir: str, on_update=None, *, cache: b
                                        effort="medium", role="segment", check=plan_ok)
     primer = make_primer(plan.get("primer") or [])
     overview = _words(plan.get("overview") or "", 60)
-    steps_plan = order_plan(plan["steps"])
+    plan_steps = list(plan["steps"])
+    steps_plan = plan_runs(order_plan(plan_steps))  # E23: ONE built step per plan step, so the outline is final
     overview = overview or overview_fallback(plan.get("title") or goal, steps_plan)  # the drawer always has one
     build = make_build(plan.get("build") or {}, steps_plan)
-    flow = make_flow(plan.get("flow") or [], plan["steps"], steps_plan)  # step numbers -> the reordered plan
+    flow = make_flow(plan.get("flow") or [], plan_steps, steps_plan)  # step numbers -> the reordered plan
     prereqs, learn_first = make_needs(plan.get("prerequisites") or [], plan.get("learnFirst") or [])
-    outline = "; ".join(f"{i}. {s['title']}" for i, s in enumerate(steps_plan, 1))
+    outline = "; ".join(f"{i}. {s['title']}" + (f" (adds {', '.join(_adds(s))})" if _adds(s) else "")
+                        for i, s in enumerate(steps_plan, 1))
     libs = {lb["name"]: lb.get("version", "") for lb in plan.get("libraries") or [] if lb.get("name")}
-    done: list[dict] = []  # steps in order (a plan step may become two: code, then run)
+    done: list[dict] = []  # steps in order, one per plan step (a step that failed to build is left out)
+    tried = [0]  # plan steps built (or failed) so far, in order: the outline shows the plan for the rest
     sources: list[dict] = []
     warnings: list[str] = []
     state: dict[str, str] = {}  # file -> its content after the steps so far
 
     def graph_now(complete: bool) -> dict:
         ordered = json.loads(json.dumps(done))
-        first = {}  # plan step number -> the index of its first built step (a plan step may become code + run)
+        first = {}  # plan step number -> the index of its built step
         for k, st in enumerate(ordered, 1):
             if m := re.match(r"s(\d+)", st["id"]):
                 first.setdefault(int(m.group(1)), k)
             _renumber(st, k)
+        distinct_steps(ordered)  # E25: never two steps with the same title or plan line
         b = dict(build)
         if complete and b and all(st.get("estMinutes") for st in ordered):
             b["estMinutes"] = sum(st["estMinutes"] for st in ordered)  # exactly the steps' estimates added up
@@ -266,6 +282,7 @@ async def build_text_lesson(goal: str, workdir: str, on_update=None, *, cache: b
         needs = {"build": b, "flow": boxes, "prerequisites": prereqs, "learnFirst": learn_first}
         g = {"lesson": {"id": f"lesson-{key[5:13]}", "title": plan.get("title") or goal, "goal": goal, "workdir": workdir,
                         "libraries": libs, "mode": "lesson", "complete": complete, "builtBy": "claude", "primer": primer,
+                        "outline": make_outline(ordered, [] if complete else steps_plan[tried[0]:]),
                         **({"overview": overview} if overview else {}), **{k: v for k, v in needs.items() if v}},
              "sources": [{"id": f"src{i}", "kind": "repo" if "github.com/" in s["url"] else "blog", "title": s["title"][:200], "url": s["url"]}
                          for i, s in enumerate(sources, 1)],
@@ -285,27 +302,39 @@ async def build_text_lesson(goal: str, workdir: str, on_update=None, *, cache: b
         except Exception as e:  # noqa: BLE001
             log.warning("on_update failed: %s", e)
 
-    async def step(i: int, notes: str) -> list[dict]:
+    def prompt_for(i: int, notes: str, earlier: str) -> str:
         sp = steps_plan[i - 1]
-        earlier = "\n\n".join(f"# {f}\n{c}" for f, c in state.items() if c.strip())
-        prompt = STEP_PROMPT.format(goal=goal, lesson=plan.get("title", ""), outline=outline, index=i, title=sp["title"],
-                                    instructions=sp["instructions"], file=sp.get("file") or "(terminal)", workdir=summary,
-                                    earlier=earlier or "(none yet)",
-                                    research=(f"Research notes (current docs):\n{notes}\n" if notes else ""),
-                                    stack_guide=gemini.STACK_GUIDE)
+        return STEP_PROMPT.format(goal=goal, lesson=plan.get("title", ""), outline=outline, index=i, title=sp["title"],
+                                  instructions=sp["instructions"], file=sp.get("file") or "(terminal)", workdir=summary,
+                                  earlier=earlier or "(none yet)",
+                                  research=(f"Research notes (current docs):\n{notes}\n" if notes else ""),
+                                  stack_guide=gemini.STACK_GUIDE)
 
-        def ok(o: dict) -> str | None:
-            if not ((o.get("code") or "").strip() or (o.get("run_command") or "").strip()):
-                return "no code"
-            if re.search(r"^\s*(\.\.\.|…)\s*$|#\s*\.\.\.|//\s*\.\.\.|\.\.\.\s*(rest|more|etc)", o.get("code") or "", re.M | re.I):
-                return "code has a '...' placeholder instead of the complete code"
-            if not o.get("checks"):
-                return "no checks"
-            if not any((t.get("match") or "").strip() for t in o.get("targets") or []):
-                return "no target anchor"
-            return None
+    def typed_so_far() -> str:
+        return "\n\n".join(f"# {f}\n{c}" for f, c in state.items() if c.strip())
 
-        d = await claude._generate_json(SYSTEM, prompt, STEP_SCHEMA, effort="low", structured=False, role="detail", check=ok)
+    def ok(o: dict) -> str | None:
+        if not ((o.get("code") or "").strip() or (o.get("run_command") or "").strip()):
+            return "no code"
+        if re.search(r"^\s*(\.\.\.|…)\s*$|#\s*\.\.\.|//\s*\.\.\.|\.\.\.\s*(rest|more|etc)", o.get("code") or "", re.M | re.I):
+            return "code has a '...' placeholder instead of the complete code"
+        if not o.get("checks"):
+            return "no checks"
+        if not any((t.get("match") or "").strip() for t in o.get("targets") or []):
+            return "no target anchor"
+        return None
+
+    async def draft(i: int, notes: str, earlier: str) -> dict:
+        return await claude._generate_json(SYSTEM, prompt_for(i, notes, earlier), STEP_SCHEMA, effort="low",
+                                           structured=False, role="detail", check=ok)
+
+    async def step(i: int, notes: str, d: dict | None = None) -> list[dict]:
+        """Build plan step i against the files the earlier steps produced. d: its draft, written in parallel with the
+        other steps (E23); checked here against the real files and rewritten when it contradicts them."""
+        sp = steps_plan[i - 1]
+        prompt = prompt_for(i, notes, typed_so_far())
+        if d is None:
+            d = await draft(i, notes, typed_so_far())
         problem = consistency_problem(d.get("file") or sp.get("file") or "", d.get("code") or "", d.get("run_command") or "", state)
         if problem:  # contradicts the file the earlier steps produced: Opus rewrites it, told exactly what's wrong
             log.info("step %d: %s; rewriting with %s", i, problem, claude.escalation_model())
@@ -324,7 +353,7 @@ async def build_text_lesson(goal: str, workdir: str, on_update=None, *, cache: b
         st = _assemble_step(i, sp, d)
         st["expected_output"] = (d.get("expected_output") or "").strip()
         out = []
-        parts = split_code_and_run(sanitize_step(st, workdir))
+        parts = [one_step(sanitize_step(st, workdir), sp)]  # never split in two: the outline already counted it
         for part in parts:
             part = builder.tidy_labels(explain_step(shape_step(use_python3(part)), sp, primer, len(parts)))  # step 1 goes out before _finalize
             if not _is_run_step(part):
@@ -337,26 +366,40 @@ async def build_text_lesson(goal: str, workdir: str, on_update=None, *, cache: b
 
     # 1. step 1 right away (no waiting for research)
     done.extend(await step(1, ""))
+    tried[0] = 1
     log.info("text lesson: step 1 ready in %.1fs", time.time() - t0)
     builder._emit("first_steps", "1 step")
     await emit(False)
 
-    # 2. research (bounded wait), then the rest one by one: each step is written against the file the
-    #    earlier steps produced, so nothing is re-added, renamed or called before it exists
+    # 2. research (bounded wait), then steps 2..N drafted in parallel (E23: the last one came +54.5 s later when they
+    #    were written one by one). Each draft sees step 1's code and the plan of the steps before it (titles and the
+    #    names they add); then, in order, each is checked against the files the earlier steps really produced and
+    #    rewritten if it contradicts them, so nothing is re-added, renamed or called before it exists.
     try:
         res = await asyncio.wait_for(asyncio.shield(research_task), max(0.0, RESEARCH_WAIT_S - (time.time() - t0)))
     except (asyncio.TimeoutError, TimeoutError):
         res = {"notes": "", "sources": []}
         warnings.append("research took too long; later steps were written without it")
     sources.extend(res.get("sources") or [])
-    for i in range(2, len(steps_plan) + 1):
-        try:
-            done.extend(await step(i, res.get("notes", "")))
-        except RuntimeError as e:
-            warnings.append(f"step {i} ({steps_plan[i - 1]['title']}) failed: {str(e)[:160]}")
-            continue
-        builder._emit("more_steps", f"step {i}/{len(steps_plan)}")
-        await emit(False)
+    notes = res.get("notes", "")
+    typed = typed_so_far()
+    drafts = {i: asyncio.ensure_future(draft(i, notes, typed + parallel_note(steps_plan, 2, i)))
+              for i in range(2, len(steps_plan) + 1)}
+    try:
+        for i, fut in drafts.items():
+            try:
+                done.extend(await step(i, notes, await fut))
+            except RuntimeError as e:
+                warnings.append(f"step {i} ({steps_plan[i - 1]['title']}) failed: {str(e)[:160]}")
+                continue
+            finally:
+                tried[0] = i
+            builder._emit("more_steps", f"step {i}/{len(steps_plan)}")
+            await emit(False)
+    finally:
+        for fut in drafts.values():
+            if not fut.done():
+                fut.cancel()
 
     g = graph_now(True)
     link_run_steps(g["steps"])
@@ -506,6 +549,97 @@ def order_plan(steps: list[dict]) -> list[dict]:
     return steps
 
 
+_RUNNABLE = (".py", ".js", ".mjs", ".cjs", ".ts", ".rb", ".go", ".rs", ".sh")
+
+
+def plan_runs(steps: list[dict]) -> list[dict]:
+    """E23: a plan step is built as exactly ONE step (never split into code + run later), so the plan itself runs the
+    program: when code is written into a runnable file after the plan's last run step (or it has none), a run step
+    is added at the end. Done before anything is built, so the outline in lesson.ready is the final step list."""
+    steps = list(steps)
+    last_file, last_write, last_run = "", -1, -1
+    for k, st in enumerate(steps):
+        f = (st.get("file") or "").strip()
+        if _is_run_plan(st):
+            last_run = k
+        elif f.endswith(_RUNNABLE):
+            last_file, last_write = f, k
+    if last_file and last_write > last_run:
+        name = os.path.basename(last_file)
+        steps.append({"title": f"Run {name}", "instructions": f"Run {name} in the terminal.", "file": "", "what": "",
+                      "why": "", "concepts": [], "estMinutes": 1, "adds": []})
+    return steps
+
+
+def _adds(sp: dict) -> list[str]:
+    """The names a plan step's code introduces (the plan's `adds`), as the parallel step writers share them."""
+    return [str(n).strip() for n in sp.get("adds") or [] if str(n).strip()][:8]
+
+
+def parallel_note(steps_plan: list[dict], start: int, i: int) -> str:
+    """For step i drafted at the same time as steps start..i-1: what those add before it (E23)."""
+    rows = [f"- step {k}: {sp['title']} ({sp.get('file') or 'terminal'})" + (f"; adds {', '.join(_adds(sp))}" if _adds(sp) else "")
+            for k, sp in enumerate(steps_plan[start - 1:i - 1], start)]
+    if not rows:
+        return ""
+    return ("\n\nWritten at the same time as this step, and in the files before it (use these exact names; never "
+            "add them again):\n" + "\n".join(rows))
+
+
+def one_step(st: dict, sp: dict) -> dict:
+    """One built step per plan step (E23: the outline is final): a code step that also came back with a command keeps
+    the code (the plan runs the program in a run step of its own); a run step that also came back with code keeps the
+    command, with its own id and title."""
+    parts = split_code_and_run(st)
+    if len(parts) == 1:
+        return st
+    code_step, run_step = parts
+    if not _is_run_plan(sp):
+        return code_step
+    run_step.update(id=st["id"], title=st["title"])
+    return run_step
+
+
+def make_outline(built: list[dict], rest: list[dict]) -> dict:
+    """lesson.outline (E23): every step of the lesson from the start, so the drawer's "Step 1 of N · about M min"
+    never jumps: the built steps, then the plan for the ones still being written. count = the final step count."""
+    rows = [{"index": k, "title": st.get("title") or "", "kind": st.get("kind") or step_kind(st),
+             **({"what": st["what"]} if st.get("what") else {}),
+             **({"estMinutes": st["estMinutes"]} if st.get("estMinutes") else {})} for k, st in enumerate(built, 1)]
+    for sp in rest:
+        what, est = _words(sp.get("what") or "", 12), _minutes(sp.get("estMinutes"))
+        rows.append({"index": len(rows) + 1, "title": _short_title(sp.get("title") or "", 6),
+                     "kind": "run" if _is_run_plan(sp) else "code",
+                     **({"what": what} if what else {}), **({"estMinutes": est} if est else {})})
+    distinct_steps(rows)
+    out: dict = {"count": len(rows), "steps": rows}
+    if rows and all(r.get("estMinutes") for r in rows):
+        out["estMinutes"] = sum(r["estMinutes"] for r in rows)
+    return out
+
+
+def distinct_steps(steps: list[dict]) -> None:
+    """E25: no two steps share a title or a plan line (`what`): plan rows 3 and 6 both read "Run your program and see
+    what it prints". A later repeat gets "again" (a run) or its number; earlier steps never change."""
+    for key in ("title", "what"):
+        seen: set[str] = set()
+        for st in steps:
+            v = " ".join(str(st.get(key) or "").split())
+            if not v:
+                continue
+            if v.lower() in seen:
+                run = (st.get("kind") or step_kind(st)) == "run"
+                cands = []
+                if run and key == "what" and (m := re.match(r"Run your (.+?) and see what it prints$", v)):
+                    cands.append(f"Run your {m.group(1)} again and see what changed")
+                if run:
+                    cands.append(f"{v} again")
+                cands += [f"{v} ({n})" for n in range(2, 30)]
+                v = next((c for c in cands if c.lower() not in seen), v)
+                st[key] = v
+            seen.add(v.lower())
+
+
 def _noun(file: str) -> str:
     stem = re.sub(r"[_-]+", " ", os.path.splitext(os.path.basename(file or ""))[0]).strip()
     return stem if stem and stem.lower() not in ("main", "index", "app", "script") else "program"
@@ -532,6 +666,8 @@ def shape_step(st: dict) -> dict:
     code_lines = [ln for ln in (st.get("code") or "").splitlines() if ln.strip()]
     if code_lines and _RUN_TITLE.match(st.get("title") or ""):  # "Run the calculator" on a step that types code
         st["title"] = _code_title(st)
+    elif code_lines and _REWORK_TITLE.match(st.get("title") or "") and _defined(st.get("code") or ""):
+        st["title"] = _code_title(st)  # E25: "Wrap the roll in a function" when the code ADDS roll_die(): "Write roll_die()"
     if code_lines:  # exactly what to do: where to type, and that the snippet below is the whole thing
         what = "line" if len(code_lines) == 1 else "lines"
         text = f"In {f}, type the {what} below." if f else f"Type the {what} below."
@@ -757,9 +893,10 @@ def explain_step(st: dict, sp: dict, primer: list[dict], parts: int = 1) -> dict
     if est := _minutes(sp.get("estMinutes")):  # the plan's estimate; split into code + run, the run part takes 1 min of it
         st["estMinutes"] = est if parts < 2 else 1 if st["kind"] == "run" else max(1, est - 1)
     ids = [p["id"] for p in primer]
-    if st["kind"] == "run":  # a run step split off a code step: its own plain explanation
+    if st["kind"] == "run":  # the plan's own line for this run (E25: never one template for every run), else a plain one
         prog = _noun(st.get("file") or "")
-        st["what"] = _words(f"Run your {prog} and see what it prints", 12)
+        planned = _words(sp.get("what") or "", 12) if _is_run_plan(sp) else ""
+        st["what"] = planned or _words(f"Run your {prog} and see what it prints", 12)
         st["why"] = _words(_WHY_RUN, 25)
         st["concepts"] = [p["id"] for p in primer if _RUN_CONCEPT.search(p["title"] + " " + p["body"])][:2]
         return st
@@ -773,6 +910,8 @@ def explain_step(st: dict, sp: dict, primer: list[dict], parts: int = 1) -> dict
 WHY_FALLBACK = "Each step adds one small piece you can check before moving on, so mistakes show up early."
 _WHY_RUN = "Running the file makes the computer follow your code line by line, so you can check it works."
 _RUN_TITLE = re.compile(r"^\s*(run|execute|launch|try|test)\b", re.I)
+# a title that promises to change code an earlier step wrote; steps only ever add lines, so it can't be true
+_REWORK_TITLE = re.compile(r"^\s*(wrap|move|refactor|replace|rewrite|convert|turn|rename|extract|restructure)\b", re.I)
 _DANGLING = re.compile(r"\s+(in|on|to|at|for|of|with|from|by|into|the|a|an|and|or|is|are|was|be|your|its|this|that)$", re.I)
 _VERB_START = re.compile(r"^(build|create|make|write|code|program|set up)\b", re.I)
 

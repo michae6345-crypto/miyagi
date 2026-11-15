@@ -196,8 +196,13 @@ def _lesson_name(title: str) -> str:
 
 def prerequisite_status(prereqs: list[dict], lesson_id: str | None = None) -> list[dict]:
     """Each prerequisite with status "passed" + evidence ("Passed in Python Calculator") when a finished lesson (not
-    this one) covered every word of its title, else "unknown". New dicts; the input is not changed."""
-    done = [(e, _stems(" ".join(e.get("covered") or []))) for e in reversed(completed()) if e.get("lessonId") != lesson_id]
+    this one) covered every word of its title, else "unknown". New dicts; the input is not changed.
+    E23: after the finished lessons, the steps passed so far in unfinished ones (mastery.py): a `def` passed in the
+    weather lesson makes the dice lesson's "Python functions" read "Passed in Weather CLI"."""
+    from . import mastery
+
+    rows = list(reversed(completed())) + mastery.entries()  # each newest first; a finished lesson is the better evidence
+    done = [(e, _stems(" ".join(e.get("covered") or []))) for e in rows if e.get("lessonId") != lesson_id]
     out = []
     for p in prereqs:
         if not isinstance(p, dict):

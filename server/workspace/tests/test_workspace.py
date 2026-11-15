@@ -118,9 +118,19 @@ def test_solution_leak_is_sent_back_then_dropped():
 
 def test_leak_fixed_on_retry_is_kept():
     g = load("pandas_pokemon.json")
-    fc = FakeClient(reply([("main.py", "x.groupby(['Type 1'])\n")]), reply([("main.py", "# Step 6: group by type\n")]))
+    fc = FakeClient(reply([("main.py", "x.groupby(['Type 1'])\n")]), reply([("main.py", '"""Pokemon by type."""\n# Step 6: group by type\n')]))
     sc = scaffold.generate(g, "", client=fc)
-    assert sc.files == {"main.py": "# Step 6: group by type\n"} and sc.dropped == []
+    assert sc.files == {"main.py": '"""Pokemon by type."""\n'} and sc.dropped == []  # E26: no step-numbered placeholder
+
+
+def test_starter_files_have_no_step_numbered_placeholders():
+    """E26: '# Step 1: start building the weather CLI here' stayed under the learner's step-2 code."""
+    raw = reply([("weather.py", '"""Weather CLI."""\n\nimport sys\n\n# Step 1: start building the weather CLI here\n'),
+                 ("app.js", "// step 2 - fetch\nconst a = 1;\n"), ("notes.md", "# Step 1: Install\n")])
+    sc, _ = scaffold.vet(raw, {"steps": []})
+    assert sc.files["weather.py"] == '"""Weather CLI."""\n\nimport sys\n'
+    assert sc.files["app.js"] == "const a = 1;\n" and sc.files["notes.md"] == "# Step 1: Install\n"  # Markdown: a heading
+    assert "No step-numbered placeholder" in scaffold.PROMPT
 
 
 def test_learner_created_and_unsafe_files_are_dropped():

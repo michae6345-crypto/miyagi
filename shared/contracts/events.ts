@@ -21,6 +21,11 @@ export interface PrimerItem { id: string; title: string; body: string; code?: st
 export interface LessonBuild { summary: string; outcome: string; estMinutes?: number }   // summary: what you'll build (<= 20 words); outcome: what the finished result looks like / does (<= 25 words); estMinutes: the whole lesson (= the sum of the steps' estMinutes)
 export interface FlowBox { label: string; detail?: string; stepIndex?: number }   // one box of the "How it works" diagram (3-6, left to right): label <= 3 words; detail: a formula or <= 4 words; stepIndex: StepSummary.index of the step that builds this box (absent: no single step)
 export interface Prerequisite { id: string; title: string; why: string; status: "passed" | "unknown"; evidence?: string }   // title <= 4 words; why <= 12 words; passed: a lesson completed on this Mac covered it (evidence "Passed in Python Calculator"); unknown: not seen yet (never a failure)
+/** lesson.ready's outline (E23): EVERY step of the lesson from the first lesson.ready on, while the rest is still being written
+ *  (lesson.updated then delivers the steps themselves), so "Step 1 of N · about M min" is right from the start and never jumps.
+ *  count = the number of steps the lesson ends with; a row's index = that StepSummary.index once it arrives. */
+export interface OutlineStep { index: number; title: string; kind?: StepKind; what?: string; estMinutes?: number }
+export interface LessonOutline { count: number; steps: OutlineStep[]; estMinutes?: number }   // estMinutes: the whole lesson (the sum of the rows'), when every row has one
 export interface LearnFirstItem { title: string; minutes: number; kind: "notebook" | "interactive" | "video" | "read"; covers: string }   // a short mini-lesson for a prerequisite not passed yet; covers: Prerequisite.id; the app starts one with learn {query: title, mode: "lesson"} ("video" kind: mode "video")
 
 // ---------- Engine -> App events ----------
@@ -36,7 +41,8 @@ export interface EngineEvents {
   "lesson.ready": { lesson: { id: string; title: string; sources: Source[]; complete?: boolean; builtBy?: "gemini" | "claude" | "mixed" | "chapters" | "unknown"; provisional?: boolean;
                               goalMatch?: { score: number | null; note: string };
                               mode?: "video" | "lesson"; primer?: PrimerItem[]; overview?: string;
-                              build?: LessonBuild; flow?: FlowBox[]; prerequisites?: Prerequisite[]; learnFirst?: LearnFirstItem[] }; steps: StepSummary[] };   // build / flow / prerequisites / learnFirst: the learn-anything screens (see LessonBuild above)   // overview: "What we're building" (<= 60 words)   // primer: "Before you start" concepts (lesson mode)   // mode "lesson" ("Just teach me"): no video, no player events; the editor is full screen and each step spotlights where to type   // complete false = a long video is still building (see lesson.updated)
+                              build?: LessonBuild; flow?: FlowBox[]; prerequisites?: Prerequisite[]; learnFirst?: LearnFirstItem[];
+                              outline?: LessonOutline }; steps: StepSummary[] };   // outline: every step from the start (absent: a build whose step count isn't known yet)   // build / flow / prerequisites / learnFirst: the learn-anything screens (see LessonBuild above)   // overview: "What we're building" (<= 60 words)   // primer: "Before you start" concepts (lesson mode)   // mode "lesson" ("Just teach me"): no video, no player events; the editor is full screen and each step spotlights where to type   // complete false = a long video is still building (see lesson.updated)
   /** a long video's next part was built: new steps APPENDED (ids never change, earlier steps never edited) */
   "lesson.updated": { steps: StepSummary[]; complete: boolean; parts?: { done: number; failed: number; total: number } };
   "step.started": { stepId: string; index: number; title: string; instructions: string; video?: VideoSegment | null; details?: string; kind?: StepKind; what?: string; why?: string; concepts?: string[]; code?: string; estMinutes?: number };   // estMinutes: about how long this step takes ("about 4 min")   // code: the exact code to type / command to run, in full (never truncated)   // what: what you build in this step (<= 12 words); why: what it means (<= 25 words); concepts: primer ids   // instructions: ONE concrete action ("Create calculator.py and type print(…)"); details: the full explanation; video null/absent: no player for this step
@@ -68,6 +74,7 @@ export interface EngineEvents {
    *          when the step's code isn't on screen yet. The lilac Show me tile. */
   "card": { stepId?: string; kind: "explain" | "hint" | "answer" | "resume" | "setup" | "preflight" | "step" | "where"; title: string; body: string; videoJump?: { t: number; label: string };
             output?: string;              // monospace output block (e.g. the last lines of "Run it for me")
+            dismissAfterMs?: number;      // the app closes the card on its own after this long (a one-line success: "requests installed ✓", no buttons)
             actions?: Array<"confirm" | "undo" | "apply_fix" | "open_editor" | "resume" | "end_lesson" | "install" | "skip_setup" | "open_in_browser" | "build" | "pick_another" | "download" | "skip_step" | "check_step" | "use_this_folder" | "run_command" | "retry" | "hint" | "show_me">;    // buttons on the card -> send `action {kind}`; retry ("Try again"): on the "Couldn't reach Claude" answer card; hint / show_me: the same actions as on the off-track card (judge "Not yet" card)
             items?: SetupItem[];          // kind "preflight": early tool check (a second card of the same kind replaces the first)
             warning?: string;             // kind "preflight": shown in amber when the video doesn't fit the goal (goalMatch.score < 0.5)

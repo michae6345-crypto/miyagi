@@ -576,12 +576,29 @@ class LessonSession:
             else:
                 reason = (str(res.get("error") or "unknown error").strip().splitlines() or ["unknown error"])[-1]
                 status = f"{label} failed: {reason[:160]}"
+            # E27: VS Code is already open (a lesson-mode lesson, or the learner opened it): the rebuilt card never offers
+            # "Open Visual Studio Code" again (_setup_card_task's lesson-mode filter), and when nothing is left to
+            # install the success is one short line that closes itself, with no buttons (no Skip).
+            opened = self.lesson_mode or self.editor_open
             if self.graph is not None:  # re-check so the row flips to installed
                 fresh = await asyncio.to_thread(wsmod.requirements, self.graph, self.workdir)
                 if fresh:
                     self.reqs = fresh
                     self._setup_card = wsmod.setup_card(fresh)
-            await self._install_status(status)
+                    if self._setup_card and opened:
+                        self._setup_card["actions"] = [a for a in self._setup_card.get("actions") or [] if a != "open_editor"]
+            if res.get("ok") and (item.get("install") or {}).get("method") == "pip" and self.workdir \
+                    and getattr(self.screen, "reader", None) is not None:  # real windows only (never in tests)
+                # E20: Pylance resolved `import requests` before the .venv existed and never looked again: the lesson's
+                # VS Code window selects <folder>/.venv and restarts its Python language server (companion extension)
+                self._spawn(asyncio.to_thread(wsmod.refresh_python, self.workdir), timer=True)
+            if res.get("ok") and opened and not self.pending_pick \
+                    and "install" not in ((self._setup_card or {}).get("actions") or []):
+                self._setup_card = None  # nothing pending any more
+                await self.emit("card", {"kind": "setup", "title": status, "body": "", "actions": [],
+                                         "dismissAfterMs": 4000})  # the app closes it after 4 s (or the learner does)
+            else:
+                await self._install_status(status)
         finally:
             self._installing.discard(tool)
 
@@ -1647,6 +1664,20 @@ class LessonSession:
         for k in ("build", "flow", "prerequisites", "learnFirst"):  # learn-anything screens (drawer v2, "Before you start")
             if lesson.get(k):
                 info[k] = lesson[k]
+        # E23: every step from the start (titles, count, minutes), so "Step 1 of N · about M min" never jumps while
+        # the rest is still being written: the steps built so far, then the builder's outline for the rest (none for
+        # a build still running without one: its count isn't known yet)
+        ol = lesson.get("outline") if isinstance(lesson.get("outline"), dict) else None
+        if lesson.get("complete") is not False:
+            rows = list(steps)
+        else:
+            rows = list(steps) + [r for r in (ol or {}).get("steps") or [] if isinstance(r, dict)][len(steps):] if ol else []
+        rows = [{k: r[k] for k in ("index", "title", "kind", "what", "estMinutes") if r.get(k) not in (None, "")}
+                for r in rows if isinstance(r, dict) and r.get("title")]
+        if rows:
+            info["outline"] = {"count": len(rows), "steps": rows}
+            if all(isinstance(r.get("estMinutes"), int) for r in rows):
+                info["outline"]["estMinutes"] = sum(r["estMinutes"] for r in rows)
         if info.get("prerequisites"):  # passed / unknown from the lessons finished on this Mac; learn-first only for gaps
             from server.sessions import store
 

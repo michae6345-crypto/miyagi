@@ -29,7 +29,7 @@ import time
 from collections.abc import Callable
 from typing import Any
 
-from . import store
+from . import mastery, store
 
 log = logging.getLogger("sessions")
 
@@ -150,6 +150,8 @@ class Resumer:
                 self.save_now()
             elif type_ == "step.passed":
                 p = payload or {}
+                if not p.get("skipped"):  # E23: what this step practised, evidence for later lessons' prerequisites
+                    mastery.record_step_safely(self.s.graph or {}, p.get("stepId"))
                 if p.get("nextStepId") or p.get("pending"):
                     self.save_now(self.s.idx + 1)  # quit before the advance -> resume on the next step
                 else:

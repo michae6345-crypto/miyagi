@@ -26,6 +26,10 @@
       {
         "command": "miyagi.companion.explainSelection",
         "title": "Miyagi: Explain this"
+      },
+      {
+        "command": "miyagi.companion.refreshPython",
+        "title": "Miyagi: Refresh the lesson's Python environment"
       }
     ],
     "menus": {

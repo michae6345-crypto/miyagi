@@ -420,3 +420,22 @@ def test_legacy_graph_file_still_resumes(state_dir):
     (state_dir / "current.graph.json").write_text(json.dumps(g))
     (state_dir / "current.json").write_text(json.dumps({"lessonId": "L1", "stepIndex": 0, "stepCount": 1}))
     assert sessions.load_graph(sessions.load()) == g
+
+
+
+def test_a_passed_step_marks_later_prerequisites_passed():
+    """E23: 'Python functions' read 'Not seen yet' right after a def passed in the (unfinished) weather lesson."""
+    from server.sessions import mastery
+
+    weather = {"lesson": {"id": "lesson-weather", "title": "Build a tiny weather CLI"}, "steps": [
+        {"id": "s1", "title": "Import requests", "file": "weather.py", "kind": "code", "code": "import requests\n"},
+        {"id": "s2", "title": "Write get_weather()", "file": "weather.py", "kind": "code",
+         "code": "def get_weather(city):\n    return requests.get(URL).json()\n"}]}
+    need = [{"id": "python-functions", "title": "Python functions", "why": "w", "status": "unknown"},
+            {"id": "loops", "title": "Loops", "why": "w", "status": "unknown"}]
+    assert [q["status"] for q in store.prerequisite_status(need, "lesson-dice")] == ["unknown", "unknown"]
+    mastery.record_step(weather, "s2")
+    got = store.prerequisite_status(need, "lesson-dice")
+    assert got[0]["status"] == "passed" and got[0]["evidence"] == "Passed in Tiny weather CLI"
+    assert got[1]["status"] == "unknown"  # never practised: still "not seen yet"
+    assert store.prerequisite_status(need, "lesson-weather")[0]["status"] == "unknown"  # not its own lesson

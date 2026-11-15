@@ -83,6 +83,7 @@ window's first folder, and `~` is expanded.
 | `POST /terminal/run` | `{cmd, cwd?, preserveFocus?}` | `{ok, terminal: "Miyagi", created, sent, shellIntegration, reportsExitCode}`. Reuses one "Miyagi" terminal: shows it, then `sendText(cmd)`. When `cwd` is given and the shell is somewhere else, it sends `cd '<cwd>' && cmd`. The exit code and output arrive later in `/state.lastCommand` and as a `command_end` event |
 | `POST /apply` | `{file, newText \| edits, save = true, reveal = true}` | `{ok, file, created, saved, dirty, version, lineCount}`. Edits through a `WorkspaceEdit`, so an **unsaved buffer** is edited and not overwritten on disk behind VS Code's back. Then it saves. `newText` on a missing file creates the file |
 | `POST /diff` | `{file, newText, title?}` | `{ok, file, title, proposed}`. Only with `miyagi.editorUi` on (else 409 `editor_ui_off`): runs `vscode.diff` with the file (as the editor has it) on the left and `newText` on the right. Changes nothing |
+| `POST /python/refresh` | `{folder?}` (default: the first workspace folder) | `{ok, folder, interpreter, restarted}`. After a pip install into `<folder>/.venv`: selects that interpreter for the folder (Python extension API) and runs `python.analysis.restartLanguageServer`, so Pylance re-reads the packages. Also the command `miyagi.companion.refreshPython` |
 
 `edits` is a list. Each edit takes one of these forms:
 

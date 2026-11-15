@@ -139,6 +139,22 @@ class GoalMatch(_Model):
     note: str = ""
 
 
+class OutlineStep(_Model):
+    """One row of lesson.outline: a step of the lesson, built or still being written."""
+    index: int
+    title: str
+    kind: StepKind | None = None
+    what: str | None = None
+    estMinutes: int | None = None
+
+
+class LessonOutline(_Model):
+    """E23: every step from the first lesson.ready on (count = the final step count), so "Step 1 of N" never jumps."""
+    count: int
+    steps: list[OutlineStep]
+    estMinutes: int | None = None  # the whole lesson, when every row has one
+
+
 class LessonInfo(_Model):
     id: str
     title: str
@@ -154,6 +170,7 @@ class LessonInfo(_Model):
     flow: list[FlowBox] | None = None  # learn-anything: the "How it works" diagram
     prerequisites: list[Prerequisite] | None = None  # learn-anything: "You'll need" / the "Needs" chip
     learnFirst: list[LearnFirstItem] | None = None  # learn-anything: mini-lessons for the gaps
+    outline: LessonOutline | None = None  # every step from the start (absent: a build whose step count isn't known yet)
 
 
 class LessonReady(_Model):
@@ -400,6 +417,7 @@ class Card(_Model):
     preflight: PreflightInfo | None = None  # kind "preflight"
     where: str | None = None  # coach: where to go when the place isn't on screen (no dim)
     output: str | None = None  # monospace output block (e.g. "Run it for me")
+    dismissAfterMs: int | None = None  # the app closes the card on its own after this long (one-line success, no buttons)
     source: Literal["judge"] | None = None  # E5's step judge made it: a step-status card (kind "step"), never an answer
     verdict: Literal["done", "not_done"] | None = None  # source "judge": the WHOLE step. done = "Looks done?", not_done = "Not yet"
     checkIds: list[str] | None = None  # source "judge": the checks it is about (done: what Yes vouches for; not_done: still missing)
