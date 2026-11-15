@@ -12,6 +12,12 @@ type DrawerState = {
   panelH?: number
   /** Mockup 02: the primer item (concept) open in the concept panel; the drawer collapses to a step rail meanwhile. */
   concept?: string
+  /**
+   * A run step tucks the drawer to its handle so VS Code's Run button (top-right of the editor tabs) and the terminal
+   * panel stay clear (Michael's test, Sun 2:56 AM: "I can't open the terminal because the overlay on the right side is
+   * covering it"). The learner pressing the handle brings it back for that step: this is that step's id.
+   */
+  peekStep?: string
 }
 
 /** Stage only: `?drawer=open` starts with the drawer open (review and screenshots). */
@@ -25,6 +31,8 @@ export const closeDrawer = (): void => useDrawer.setState({ open: false, concept
 export const openConcept = (id: string): void => useDrawer.setState({ open: true, concept: id })
 /** "Back to step N": the full drawer again. */
 export const closeConcept = (): void => useDrawer.setState({ concept: undefined })
+/** The handle was pressed while a run step had the drawer tucked: show it for the rest of this step. */
+export const peekDrawer = (stepId: string): void => useDrawer.setState({ open: true, peekStep: stepId })
 export const setPanelHeight = (h: number): void => {
   if (h > 0 && useDrawer.getState().panelH !== h) useDrawer.setState({ panelH: h })
 }
@@ -36,7 +44,7 @@ onUi('reset', closeDrawer)
 // A new lesson starts closed (the stage's ?drawer=open keeps it open for review). A "Just teach me" lesson
 // (lesson.mode "lesson") opens it: there's no player and no chapter list, so the drawer is where
 // "Step N of M" and the step's instructions live (Michael, Sat 3:56 PM).
-onMessage('lesson.ready', (p) => useDrawer.setState({ open: startOpen || p.lesson.mode === 'lesson', concept: undefined }))
+onMessage('lesson.ready', (p) => useDrawer.setState({ open: startOpen || p.lesson.mode === 'lesson', concept: undefined, peekStep: undefined }))
 
 // The engine pushed the first live network for a step: open the drawer so it's seen (updates to the same step's
 // network never reopen it, so the learner's own "Hide steps" sticks).

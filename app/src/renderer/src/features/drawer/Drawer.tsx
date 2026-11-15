@@ -45,9 +45,10 @@ const hoverCls = 'hover:bg-[var(--drawer-hover)]'
 // ---------------------------------------------------------------------------
 
 /** 4×40 at glass.track, inside a wider hit box. Hover stretches the bar a little (transform only). */
-export function Tab({ rect, shown, labeled = false }: { rect: Rect; shown: boolean; labeled?: boolean }): ReactNode {
+/** `onOpen`: what a press does instead of toggling (a run step's tucked drawer: show it for that step). */
+export function Tab({ rect, shown, labeled = false, onOpen }: { rect: Rect; shown: boolean; labeled?: boolean; onOpen?: () => void }): ReactNode {
   const [hover, setHover] = useState(false)
-  if (labeled) return <StepsHandle rect={rect} shown={shown} />
+  if (labeled) return <StepsHandle rect={rect} shown={shown} onOpen={onOpen} />
   return (
     <AnimatePresence>
       {shown && (
@@ -66,7 +67,7 @@ export function Tab({ rect, shown, labeled = false }: { rect: Rect; shown: boole
           onHoverStart={() => setHover(true)}
           onHoverEnd={() => setHover(false)}
           onMouseDown={(e) => e.preventDefault()}
-          onClick={toggleDrawer}
+          onClick={onOpen ?? toggleDrawer}
         >
           <motion.span
             className="absolute rounded-full"
@@ -84,7 +85,7 @@ export function Tab({ rect, shown, labeled = false }: { rect: Rect; shown: boole
  * A "Just teach me" lesson's collapsed drawer: a glass "Steps" handle on the right edge, plain to see, so a learner who
  * hid the drawer always has the way back (Michael's live test, Sun 12:55 AM). Neutral chrome: glass tokens, no pastel.
  */
-function StepsHandle({ rect, shown }: { rect: Rect; shown: boolean }): ReactNode {
+function StepsHandle({ rect, shown, onOpen }: { rect: Rect; shown: boolean; onOpen?: () => void }): ReactNode {
   return (
     <AnimatePresence>
       {shown && (
@@ -114,7 +115,7 @@ function StepsHandle({ rect, shown }: { rect: Rect; shown: boolean }): ReactNode
           whileHover={{ x: -2 }}
           transition={{ ...spring, opacity: { duration: 0.18 } }}
           onMouseDown={(e) => e.preventDefault()}
-          onClick={toggleDrawer}
+          onClick={onOpen ?? toggleDrawer}
         >
           Steps
         </motion.button>
