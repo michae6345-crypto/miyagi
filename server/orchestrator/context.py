@@ -44,6 +44,7 @@ class RunContext:
     last_run: RunInfo | None = None
     runs: list[RunInfo] = field(default_factory=list)  # all runs this step, oldest first
     screen: Any = None  # {app: [lines]} from the screen reader, or None
+    editor: str | None = None  # "Code" in a VS Code lesson: check details then name VS Code's terminal
 
     @property
     def running(self) -> bool:

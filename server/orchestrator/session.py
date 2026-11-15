@@ -345,6 +345,7 @@ class LessonSession:
         self._file_hits: dict[str, tuple[float, Path | None]] = {}  # lesson file -> (when looked up, where it is)
         self.engaged = False  # learner touched files / ran something during this step
         self.gate_open = False  # failing checks are shown as fail (else pending)
+        self.screen_gate_open = False  # unmatched screen_contains checks are shown as fail too (else "watching")
         self.step_t0 = self.clock()
         self.last_action_t = -1e9  # last save / run start / explicit action (session clock)
         self.best_pass = 0
@@ -698,7 +699,8 @@ class LessonSession:
         tut = [r for r in self.step_runs if not r.run_id.startswith("screen-")]
         last = (tut or self.step_runs or [None])[-1]
         return RunContext(workdir=self.workdir, last_run=last, runs=list(self.step_runs),
-                          screen=self._screen_lines())
+                          screen=self._screen_lines(),
+                          editor="Code" if self.lesson_mode and not self.notebook_lesson else None)
 
     def _screen_lines(self) -> dict | None:
         if self.screen is None:
@@ -2008,8 +2010,10 @@ class LessonSession:
             n_pass = sum(1 for r in results if r.get("status") == "pass")
             if n_pass > self.best_pass:
                 self.best_pass, self.last_progress_t = n_pass, self.clock()
-            if failed and learner:
+            if failed and (trigger == "check" or (learner and self.clock() - self.step_t0 >= self.offtrack_grace_s)):
+                # E1: a learner action after the step's first ~20 s shows fails; Check (they asked) shows them all
                 self.gate_open = True
+                self.screen_gate_open = self.screen_gate_open or trigger == "check"
             await self._publish(step, results)
             if gate.get("passed"):
                 if learner or self.acted_since_step_start():
@@ -2030,12 +2034,13 @@ class LessonSession:
                     self._consider_speaking("repeat" if repeat else "breakpoint", step, failed, ctx)
 
     async def _publish(self, step: dict, results: list[dict]) -> None:
+        screen_ids = {c.get("id") for c in step.get("checks") or [] if c.get("type") == "screen_contains"}
         for r in results:
             cid = r.get("checkId")
             shown = r.get("status", "pending")
-            if shown == "fail" and not self.gate_open:
-                shown = "pending"
-            detail = r.get("detail")
+            if shown == "fail" and not (self.screen_gate_open if cid in screen_ids else self.gate_open):
+                shown = "pending"  # "watching": code not typed yet isn't a failure until Check / a verdict / the timer
+            detail = r.get("detail") if shown == r.get("status", "pending") else None  # a masked fail says nothing
             prev = self.check_state.get(cid)
             label = r.get("label") or (prev or {}).get("label") or cid
             if prev and prev["status"] == shown and prev.get("detail") == detail:
@@ -2071,15 +2076,19 @@ class LessonSession:
                 return
             if self.clock() - self.last_progress_t >= config.STUCK_S:
                 self.last_progress_t = self.clock()  # one "stuck" per window
-                await self._open_gate(step)
+                await self._open_gate(step, timer=True)
                 self._consider_speaking("stuck", step, self.last_failed, ctx)
             elif self.learner_idle_s() >= self.idle_gate_s:
-                await self._open_gate(step)
+                await self._open_gate(step, timer=True)
                 self._consider_speaking("idle", step, self.last_failed, ctx)
 
-    async def _open_gate(self, step: dict) -> None:
-        if not self.gate_open:
-            self.gate_open = True
+    async def _open_gate(self, step: dict, timer: bool = False) -> None:
+        """Show failing checks as failed, unmatched screen checks too. A verdict (judge / coach) opens it at once; the
+        stuck / idle timer only once the learner did something on this step and its first ~20 s are over (E1)."""
+        if timer and (not self.learner_started() or self.clock() - self.step_t0 < self.offtrack_grace_s):
+            return
+        if not (self.gate_open and self.screen_gate_open):
+            self.gate_open = self.screen_gate_open = True
             await self._publish(step, self.last_results)
 
     # ------------------------------------------------------------------ coaching (hint ladder)
@@ -2330,6 +2339,9 @@ class LessonSession:
                 self._last_card_t = self.clock()
                 await self.emit("offtrack", shown)
                 self._say("offtrack", shown)
+                async with self._lock:  # the coach's verdict: the check rows say "not yet" with it (E1)
+                    if gen == self.step_gen and not self.passed:
+                        await self._open_gate(step)
             else:
                 log.info("same offtrack as before (%s, level %s); not re-sent", step["id"], level)
             self._record("offtrack", {"title": full.get("title"), "level": level,
@@ -3664,6 +3676,10 @@ class LessonSession:
             if await self._emit_card(card, auto=True):
                 if shown := getattr(self.judge, "card_shown", None):
                     shown(step["id"], card)  # E5: the same card isn't offered again for this step until a save
+                if card.get("verdict") == "not_done":  # the judge's verdict: the check rows say "not yet" with it (E1)
+                    async with self._lock:
+                        if gen == self.step_gen and not self.passed:
+                            await self._open_gate(step)
                 if "confirm" in (card.get("actions") or []):
                     self.confirm_pending = True
                     self.confirm_check_ids = list(card.get("checkIds") or [])

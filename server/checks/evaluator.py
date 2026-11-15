@@ -67,6 +67,9 @@ class RunContext:
     # None = the orchestrator doesn't say: treated as done, so a hidden app never leaves a
     # check pending forever. See _not_visible().
     segment_done: bool | None = None
+    # The lesson's editor app ("Code" in a "Just teach me" VS Code lesson), else None. Its terminal is then the
+    # learner's terminal: the details say "VS Code's terminal", never Terminal.app.
+    editor: str | None = None
 
     @property
     def after_segment(self) -> bool:
@@ -165,7 +168,7 @@ def _file_contains(check: dict, ctx: RunContext) -> CheckResult:
     if m:
         line = text.count("\n", 0, m.start()) + 1
         return _result(check, "pass", f"found in {rel}:{line}")
-    return _result(check, "fail", f"pattern not found in {rel}")
+    return _result(check, "fail", f"not in {rel} yet")
 
 
 def _script_tokens(command: str) -> list[str]:
@@ -448,7 +451,7 @@ def _screen(check: dict, ctx: RunContext, absent: bool) -> CheckResult:
     pattern, app = check.get("pattern"), check.get("app")
     if not pattern:
         return _result(check, "fail", "check has no 'pattern'")
-    where = f" in {app}" if app else " on screen"
+    where = f" in {_app_name(app, ctx)}" if app else " on screen"
     text = screen_text(ctx.screen, app)
     if text is None:
         return _not_visible(check, ctx, absent)
@@ -461,8 +464,10 @@ def _screen(check: dict, ctx: RunContext, absent: bool) -> CheckResult:
             return _result(check, "fail", f"still showing {m.group(0)[:80]!r}{where}")
         return _result(check, "pass", f"not showing{where}")
     if m:
-        return _result(check, "pass", f"seen{where}: {m.group(0)[:80]!r}")
-    return _result(check, "fail", f"not seen{where}")
+        return _result(check, "pass", f"seen{where}")
+    # learner words (E2): the file the code goes in when known ("not in calculator.py yet"), else the app
+    f = os.path.basename(str(check.get("file") or "")) if app not in _TERMINAL_APPS else ""
+    return _result(check, "fail", f"not in {f} yet" if f else f"not{where} yet" if app else "not showing yet")
 
 
 def _not_visible(check: dict, ctx: RunContext, absent: bool) -> CheckResult:
@@ -483,11 +488,24 @@ def _not_visible(check: dict, ctx: RunContext, absent: bool) -> CheckResult:
         return _result(check, "pending", "waiting for screen" if no_screen else f"{app} not open yet")
     if no_screen:
         return _result(check, "pending", "screen reading is off: can't see " + (app or "the screen"))
-    hint = f"Open {_APP_NAMES.get(app, app)} so I can check it." if app else "nothing on screen yet"
+    if not app:
+        hint = "nothing on screen yet"
+    elif app in _TERMINAL_APPS and ctx.editor == "Code":  # a VS Code lesson runs code in VS Code's own terminal
+        hint = "Open VS Code's terminal (⌃`) so I can check it."
+    else:
+        hint = f"Open {_APP_NAMES.get(app, app)} so I can check it."
     return _result(check, "fail" if ctx.after_segment and app else "pending", hint)
 
 
 _APP_NAMES = {"Code": "VS Code", "Terminal": "the Terminal", "iTerm2": "iTerm"}  # what the learner calls them
+_TERMINAL_APPS = ("Terminal", "iTerm2")
+
+
+def _app_name(app: str, ctx: RunContext) -> str:
+    """What the learner calls the check's app; in a VS Code lesson the terminal is VS Code's own."""
+    if app in _TERMINAL_APPS and ctx.editor == "Code":
+        return "VS Code's terminal"
+    return _APP_NAMES.get(app, app)
 
 
 def _screen_contains(check: dict, ctx: RunContext) -> CheckResult:
@@ -556,7 +574,22 @@ def evaluate_step(step: dict, ctx: RunContext | None = None, types: Iterable[str
     else:
         raise ValueError(f"which must be 'checks', 'precision' or 'all', not {which!r}")
     wanted = set(types) if types is not None else None
+    f = _step_file(step)  # a VS Code check not seen yet names the file the code goes in ("not in calculator.py yet")
+    checks = [{**c, "file": f} if f and c.get("type") == "screen_contains" and c.get("app") == "Code"
+              and not c.get("file") else c for c in checks]
     return [evaluate_check(c, ctx) for c in checks if wanted is None or c.get("type") in wanted]
+
+
+def _step_file(step: dict) -> str:
+    """The step's file (its first target's, check's or own ``file``), for the learner-worded details. A run step's
+    "(terminal)" / "terminal" is a place, not a file."""
+    names = [t.get("file") for t in step.get("targets") or []]
+    names += [c.get("file") for c in (step.get("checks") or []) + (step.get("precision_checks") or [])]
+    for n in [*names, step.get("file")]:
+        n = str(n or "").strip()
+        if n and not n.startswith("(") and n.lower() not in ("terminal", "the terminal", "shell"):
+            return n
+    return ""
 
 
 class StepGate(TypedDict):
@@ -621,7 +654,7 @@ def screen_check_on_file(check: dict, path: str | os.PathLike | None, window_ope
     except re.error as exc:
         return _result(check, "fail", f"invalid pattern: {exc}")
     if m:
-        return _result(check, "pass", f"found in {name}: {m.group(0)[:80]!r}")
+        return _result(check, "pass", f"found in {name}")
     if not window_open:
         app = check.get("app")
         return _result(check, "fail", f"Open {_APP_NAMES.get(app, app)} so I can check it." if app
