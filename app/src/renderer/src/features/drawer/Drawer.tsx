@@ -16,9 +16,9 @@
  * too, but it also blocks every motion that mounts later inside those rows, like the green tick drawing in.)
  */
 import { AnimatePresence, motion } from 'motion/react'
-import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type ReactNode, type RefObject } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type PointerEvent as ReactPointerEvent, type ReactNode, type RefObject } from 'react'
 import { useShallow } from 'zustand/react/shallow'
-import { ArrowUpRight, ChevronsRight, FileCode2, FileText, FolderGit2, Newspaper, X, type LucideIcon } from 'lucide-react'
+import { ArrowUpRight, ChevronsLeft, ChevronsRight, FileCode2, FileText, FolderGit2, Newspaper, X, type LucideIcon } from 'lucide-react'
 import { LiveNetSection } from './LiveNet'
 import type { Source, SourceKind, StepSummary } from '../../../../../../shared/contracts/events'
 import { builtByLabel, seekVideo, useLesson, useProgress, type CheckItem, type Rect } from '../../core/lesson'
@@ -30,7 +30,7 @@ import { useCards } from '../cards/store'
 import { parseYouTube, thumbnailFor } from '../launcher/youtube'
 import { HANDLE, TAB } from './geometry'
 import { count, lessonOutline, planTotal, useStepDetail, useStepStatuses, type StepStatus } from './plan'
-import { closeDrawer, isWebLink, openSource, setPanelHeight, toggleDrawer } from './store'
+import { closeDrawer, isWebLink, openSource, setDrawerSide, setPanelHeight, toggleDrawer, useDrawer, type Side } from './store'
 import { BuildStrip, lessonTopic, minutesLeft, NeedsChip, OverviewText, PrimerSection, StepActions, StepDetail } from './Teach'
 
 /**
@@ -55,6 +55,7 @@ const hoverCls = 'hover:bg-[var(--drawer-hover)]'
 /** `onOpen`: what a press does instead of toggling (a run step's tucked drawer: show it for that step). */
 export function Tab({ rect, shown, labeled = false, onOpen }: { rect: Rect; shown: boolean; labeled?: boolean; onOpen?: () => void }): ReactNode {
   const [hover, setHover] = useState(false)
+  const side = useDrawer((s) => s.at)
   if (labeled) return <StepsHandle rect={rect} shown={shown} onOpen={onOpen} />
   return (
     <AnimatePresence>
@@ -78,7 +79,7 @@ export function Tab({ rect, shown, labeled = false, onOpen }: { rect: Rect; show
         >
           <motion.span
             className="absolute rounded-full"
-            style={{ right: TAB.edge, top: (rect.h - TAB.h) / 2, width: TAB.w, height: TAB.h, background: glass.track }}
+            style={{ [side === 'left' ? 'left' : 'right']: TAB.edge, top: (rect.h - TAB.h) / 2, width: TAB.w, height: TAB.h, background: glass.track }}
             animate={{ scaleX: hover ? 1.5 : 1, scaleY: hover ? 1.15 : 1 }}
             transition={spring}
           />
@@ -93,6 +94,8 @@ export function Tab({ rect, shown, labeled = false, onOpen }: { rect: Rect; show
  * hid the drawer always has the way back (Michael's live test, Sun 12:55 AM). Neutral chrome: glass tokens, no pastel.
  */
 function StepsHandle({ rect, shown, onOpen }: { rect: Rect; shown: boolean; onOpen?: () => void }): ReactNode {
+  const left = useDrawer((s) => s.at) === 'left'
+  const out = left ? -12 : 12
   return (
     <AnimatePresence>
       {shown && (
@@ -105,7 +108,7 @@ function StepsHandle({ rect, shown, onOpen }: { rect: Rect; shown: boolean; onOp
           title="Show lesson steps"
           className="absolute flex cursor-pointer items-center justify-center border text-[12px] font-semibold"
           style={{
-            left: rect.x,
+            left: left ? rect.x + HANDLE.edge : rect.x,
             top: rect.y,
             width: rect.w - HANDLE.edge,
             height: rect.h,
@@ -116,10 +119,10 @@ function StepsHandle({ rect, shown, onOpen }: { rect: Rect; shown: boolean; onOp
             color: glass.label,
             writingMode: 'vertical-rl'
           }}
-          initial={{ opacity: 0, x: 12 }}
+          initial={{ opacity: 0, x: out }}
           animate={{ opacity: 1, x: 0 }}
-          exit={{ opacity: 0, x: 12 }}
-          whileHover={{ x: -2 }}
+          exit={{ opacity: 0, x: out }}
+          whileHover={{ x: left ? 2 : -2 }}
           transition={{ ...spring, opacity: { duration: 0.18 } }}
           onMouseDown={(e) => e.preventDefault()}
           onClick={onOpen ?? toggleDrawer}
@@ -135,7 +138,10 @@ function StepsHandle({ rect, shown, onOpen }: { rect: Rect; shown: boolean; onOp
 // Panel
 // ---------------------------------------------------------------------------
 
-export function Panel({ rect }: { rect: Rect }): ReactNode {
+/** How far the header must move sideways before it's a drag (a plain press still clicks its buttons). */
+const SIDE_DRAG_SLOP = 6
+
+export function Panel({ rect, side = 'right' }: { rect: Rect; side?: Side }): ReactNode {
   const lesson = useLesson((s) => s.lesson)
   const lessonMode = lesson?.mode === 'lesson'
   const plan = usePlanProgress()
@@ -148,7 +154,8 @@ export function Panel({ rect }: { rect: Rect }): ReactNode {
   const topic = lessonMode && lesson?.title ? lessonTopic(lesson.title) : undefined
   // A hairline under the header once the list scrolls, so text doesn't run straight into the title.
   const [scrolled, setScrolled] = useState(false)
-  const away = rect.w + 24
+  const away = (side === 'left' ? -1 : 1) * (rect.w + 24)
+  const drag = useSideDrag(side)
   // The panel hugs its content (up to rect.h, then the list scrolls). Report the real height so the
   // spotlight check covers only what's on screen. offsetHeight ignores the slide's transform.
   useLayoutEffect(() => {
@@ -180,14 +187,22 @@ export function Panel({ rect }: { rect: Rect }): ReactNode {
         color: glass.text
       }}
       initial={{ x: away, opacity: 0 }}
-      animate={{ x: 0, opacity: 1 }}
+      animate={{ x: drag.dx, opacity: 1 }}
       exit={{ x: away, opacity: 0, transition: { ...springOut, opacity: { duration: 0.18 } } }}
       transition={{ ...spring, opacity: { duration: 0.18 } }}
     >
       <div
         data-part="drawer-header"
         className="shrink-0 border-b px-[18px] pb-[12px] pt-[16px]"
-        style={{ borderColor: scrolled ? glass.rule : 'transparent', transition: 'border-color 150ms ease-out' }}
+        style={{
+          borderColor: scrolled ? glass.rule : 'transparent',
+          transition: 'border-color 150ms ease-out',
+          cursor: drag.dragging ? 'grabbing' : 'grab',
+          touchAction: 'none'
+        }}
+        title="Drag sideways to move the steps to the other edge"
+        onPointerDown={drag.onPointerDown}
+        onClickCapture={drag.onClickCapture}
       >
         <div className="flex items-start gap-[12px]">
           <div className="min-w-0 flex-1">
@@ -217,10 +232,10 @@ export function Panel({ rect }: { rect: Rect }): ReactNode {
             onMouseDown={(e) => e.preventDefault()}
             onClick={closeDrawer}
             aria-label={lessonMode ? 'Hide steps' : 'Close'}
-            title={lessonMode ? 'Hide steps (the Steps tab on the right brings them back)' : undefined}
+            title={lessonMode ? `Hide steps (the Steps tab on the ${side} brings them back)` : undefined}
           >
             {/* A lesson's drawer collapses to the "Steps" handle: a chevron, so it never reads as a card's ✕. */}
-            {lessonMode ? <ChevronsRight size={13} strokeWidth={2.2} /> : <X size={12} strokeWidth={2.2} />}
+            {lessonMode ? (side === 'left' ? <ChevronsLeft size={13} strokeWidth={2.2} /> : <ChevronsRight size={13} strokeWidth={2.2} />) : <X size={12} strokeWidth={2.2} />}
           </button>
         </div>
         {plan.known > 0 && <ProgressHeader plan={plan} />}
@@ -761,4 +776,59 @@ function KindTile({ source }: { source: Source }): ReactNode {
       <I size={14} strokeWidth={1.6} />
     </span>
   )
+}
+
+/**
+ * Drag the panel's header sideways (Michael, Nov 15 5:45 AM: "I should be able to move it right to left, and lock it to
+ * that side"). The panel follows the pointer; let go past the screen's middle and it settles on that edge (saved), else
+ * it springs back. A press that doesn't travel SIDE_DRAG_SLOP stays a click (the header's buttons still work).
+ */
+function useSideDrag(side: Side): {
+  dx: number
+  dragging: boolean
+  onPointerDown: (e: ReactPointerEvent) => void
+  onClickCapture: (e: React.MouseEvent) => void
+} {
+  const [dx, setDx] = useState(0)
+  const [dragging, setDragging] = useState(false)
+  const moved = useRef(false)
+  return {
+    dx,
+    dragging,
+    onPointerDown: (e) => {
+      if (e.button !== 0) return
+      moved.current = false
+      const x0 = e.clientX
+      const y0 = e.clientY
+      const move = (m: PointerEvent): void => {
+        const d = m.clientX - x0
+        if (!moved.current && Math.hypot(d, m.clientY - y0) < SIDE_DRAG_SLOP) return
+        if (!moved.current) {
+          moved.current = true
+          setDragging(true)
+        }
+        setDx(d)
+      }
+      const up = (u: PointerEvent): void => {
+        window.removeEventListener('pointermove', move)
+        window.removeEventListener('pointerup', up)
+        window.removeEventListener('pointercancel', up)
+        setDragging(false)
+        if (!moved.current) return
+        const mid = window.innerWidth / 2
+        const to: Side = u.clientX < mid ? 'left' : 'right'
+        setDx(0)
+        if (to !== side) setDrawerSide(to)
+      }
+      window.addEventListener('pointermove', move)
+      window.addEventListener('pointerup', up)
+      window.addEventListener('pointercancel', up)
+    },
+    onClickCapture: (e) => {
+      if (!moved.current) return
+      moved.current = false
+      e.stopPropagation()
+      e.preventDefault()
+    }
+  }
 }
