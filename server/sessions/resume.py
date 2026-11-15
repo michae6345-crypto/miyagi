@@ -6,7 +6,8 @@ E4's session already freezes a lesson in memory when the app comes back (snapsho
 video.pause + card {kind:"resume"}; action resume / end_lesson). This adds:
   - autosave to ~/miyagi/state on lesson.ready / lesson.updated (graph + progress: video AND "Just teach
     me" text lessons) and step.started / step.passed (passed + skipped) / video.state (throttled); cleared on
-    lesson.ended (end_lesson, a new learn, POST /end) and when the last step passes
+    lesson.ended (end_lesson, a new learn, POST /end) and when the last step passes; KEPT on lesson.ended
+    "stopped" (the bar's End), protected like a pre-restart save until the learner answers
   - snapshot() with no lesson in memory but one saved (the engine restarted): spotlight clear,
     video.pause, status idle, the resume card
   - resume() with no lesson in memory: reload the cached step graph (no rebuild) at the saved step and
@@ -33,6 +34,7 @@ log = logging.getLogger("sessions")
 
 VIDEO_SAVE_EVERY_S = 3.0
 EXPLICIT_END = ("end_lesson", "POST /end")  # the learner chose "Start a new lesson"
+KEEP_END = ("stopped",)  # the bar's / launcher's End: stop for now; the save is offered back like a restart's
 PROMPT_EVENTS = ("card", "video.pause", "status", "spotlight", "error")  # sending the prompt isn't activity
 
 
@@ -153,6 +155,9 @@ class Resumer:
                     store.clear()  # lesson complete: nothing to resume
             elif type_ == "lesson.ended":
                 if self._pending and (payload or {}).get("reason") not in EXPLICIT_END:
+                    return
+                if (payload or {}).get("reason") in KEEP_END:  # protected until Continue / Start new / another lesson
+                    self._pending = store.load() is not None
                     return
                 self._pending = False
                 store.clear()

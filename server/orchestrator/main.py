@@ -28,7 +28,7 @@ from shared.contracts.events import parse_app_message
 from server import config as server_config
 
 from . import config, recorder
-from .hub import Hub
+from .hub import Hub, log_received
 from .modules import Modules
 from .screen_bridge import ScreenBridge
 from .session import LessonSession
@@ -132,6 +132,7 @@ class Engine:
         msg = parse_app_message(raw)
         p = msg.payload
         s = self.session
+        log_received(msg.type, p)
         if msg.type == "learn":
             await s.learn(p.query, getattr(p, "mode", None))
         elif msg.type == "learn_url":
@@ -144,8 +145,8 @@ class Engine:
             await s.video_state(p.t, p.playing)
         elif msg.type == "overlay.bounds":
             s.overlay_bounds([r.model_dump() for r in p.rects])
-        elif msg.type == "end_lesson":
-            await s.end_lesson("end_lesson")
+        elif msg.type == "end_lesson":  # the bar's / launcher's End: stop for now, the saved progress stays resumable
+            await s.end_lesson("stopped")  # (the resume card's "Start a new lesson" is action end_lesson: discards)
         elif msg.type == "config.keys":
             await self.hub.emit("config.status", apply_keys(p.model_dump()))
 
