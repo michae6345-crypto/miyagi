@@ -36,10 +36,57 @@ class Inputs:
             except Exception as e:  # noqa: BLE001
                 log.warning("Quartz unavailable (%s); no cursor/idle signals", e)
         self._own_t, self._own = -1e9, False
+        # E5: which app got the keys / clicks. The OS only gives global ages; attribute() (session.tick ~1/s and every
+        # app switch) books the events since its last call to the app that was in front: the lesson's own editor /
+        # terminal (work) or anything else (Miyagi's ask box, the Claude app, a browser: foreign).
+        self._work_now = True  # the app in front at the last attribute() is one the lesson is done in
+        self._seen: dict[str, float | None] = {"key": None, "click": None}  # newest event already booked (monotonic)
+        self._work_t: dict[str, float] = {"key": -1e9, "click": -1e9}  # newest event booked as lesson work
 
     @property
     def available(self) -> bool:
         return self.q is not None
+
+    def attribute(self, work_now: bool | None = None) -> None:
+        """Book the keys / clicks since the last call to the app that was in front meanwhile (the last `work_now`;
+        foreign whenever Miyagi itself has the keyboard now), then remember `work_now` (None: unchanged)."""
+        if self.q is not None:
+            now = time.monotonic()
+            work = self._work_now and not self.miyagi_in_front()
+            for kind, since in (("key", self.seconds_since_key()), ("click", self.seconds_since_click())):
+                if since is None:
+                    continue
+                at, last = now - since, self._seen[kind]
+                if last is None or at > last + 0.05:  # something new since the last booking
+                    self._seen[kind] = at
+                    if work:
+                        self._work_t[kind] = at
+        if work_now is not None:
+            self._work_now = bool(work_now)
+
+    def mark_foreign(self) -> None:
+        """The learner just submitted text typed into Miyagi (an ask, a learn query, an explain): whatever was typed
+        since the last booking went there, not into the lesson's files."""
+        work, self._work_now = self._work_now, False
+        self.attribute()
+        self._work_now = work
+
+    def _work_since(self, kind: str) -> float | None:
+        if self.q is None:
+            return None
+        self.attribute()
+        return max(0.0, time.monotonic() - self._work_t[kind])
+
+    def seconds_since_work_key(self) -> float | None:
+        """Seconds since the last key typed into the lesson's own editor / terminal (E5)."""
+        return self._work_since("key")
+
+    def seconds_since_work_click(self) -> float | None:
+        return self._work_since("click")
+
+    def seconds_since_work_input(self) -> float | None:
+        vals = [v for v in (self.seconds_since_work_key(), self.seconds_since_work_click()) if v is not None]
+        return min(vals) if vals else None
 
     def miyagi_in_front(self) -> bool:
         """Is Miyagi's own overlay (the launcher, a card's text box) the active app? Keys typed there are a question
@@ -96,15 +143,40 @@ class FakeInputs:
         self.pos: tuple[float, float] | None = None
         self.available = True
         self.own_front = False  # tests: Miyagi's launcher / card box is the active app
+        self.foreign_front = False  # tests: another app (the Claude app, a browser) is in front, not the lesson's
+        self.work_key_t = -1e9  # the last key / click made in the lesson's own editor / terminal (E5)
+        self.work_click_t = -1e9
 
     def miyagi_in_front(self) -> bool:
         return self.own_front
 
+    def _work(self) -> bool:
+        return not (self.own_front or self.foreign_front)
+
     def key(self) -> None:
         self.key_t = self.clock()
+        if self._work():
+            self.work_key_t = self.key_t
 
     def click(self) -> None:
         self.click_t = self.clock()
+        if self._work():
+            self.work_click_t = self.click_t
+
+    def attribute(self, work_now: bool | None = None) -> None:
+        pass  # key() / click() book each event as it happens (own_front / foreign_front)
+
+    def mark_foreign(self) -> None:
+        pass
+
+    def seconds_since_work_key(self) -> float | None:
+        return self.clock() - self.work_key_t
+
+    def seconds_since_work_click(self) -> float | None:
+        return self.clock() - self.work_click_t
+
+    def seconds_since_work_input(self) -> float | None:
+        return min(self.seconds_since_work_key(), self.seconds_since_work_click())
 
     def move(self, x: float, y: float) -> None:
         self.pos = (x, y)
