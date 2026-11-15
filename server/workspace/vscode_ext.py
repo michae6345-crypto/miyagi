@@ -8,6 +8,7 @@
     vx.show_terminal(); vx.run_in_terminal("python calculator.py", cwd=lesson_dir)
     vx.last_command()                        # {commandLine, exitCode, outputTail[], running, cwd} (shell integration)
     vx.apply(path, new_text=...)             # WorkspaceEdit + save: works on unsaved buffers
+    vx.save(path)                            # ⌘S on that file (0.0.4 /save; older: a no-op /apply that saves)
     vx.replace_line(path, yours, expected)   # E5's apply_fix semantics (indentation kept)
     vx.diff(path, new_text)                  # preview only
     vx.buffer_text(path)                     # the editor's text, unsaved edits included
@@ -303,6 +304,23 @@ def apply(file: str | Path, new_text: str | None = None, *, edits: Iterable[dict
     else:
         raise ValueError("apply() needs new_text or edits")
     return _post("/apply", body, file=path, folder=folder)
+
+
+def save(file: str | Path, *, folder: str | Path | None = None) -> dict | None:
+    """Save `file` in the window that has it, as ⌘S does: its unsaved edits go to disk (Run it for me / Check on a run
+    step, so what runs is what the editor shows). The 0.0.4 extension's POST /save -> {ok, file, open, saved, dirty};
+    an older one (no_route): a no-op /apply edit (empty text at 1:1) that saves the buffer as it is: no text change,
+    no cursor move, nothing revealed. None when no window answered."""
+    path = _abs(file, folder)
+    w = _window(file=path, folder=folder)
+    if w is None:
+        return None
+    port = int(w["port"])
+    out = _call(port, "POST", "/save", {"file": path})
+    if out is not None and out.get("error") == "no_route":
+        noop = {"startLine": 1, "startColumn": 1, "endLine": 1, "endColumn": 1, "text": ""}
+        out = _call(port, "POST", "/apply", {"file": path, "edits": [noop], "save": True, "reveal": False})
+    return out
 
 
 def replace_line(file: str | Path, yours: str, expected: str, *, save: bool = True,

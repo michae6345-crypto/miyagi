@@ -701,10 +701,27 @@ def command_matches(expected: str | None, actual: str | None) -> bool:
         return False
     if not _script_tokens(expected):
         return _ends_with(actual, _seq(expected))
+    # A Python run is ANY python invocation of the script: VS Code's Run ▷ ("/abs/.venv/bin/python" "/abs/nn.py"),
+    # `tut run python nn.py`, `uv run nn.py`; never another program that names the file (`cat nn.py`, `code nn.py`).
+    if _runs_python(expected) and not _runs_python(actual):
+        return False
     return _command_matches(expected, actual)
 
 
 _INTERP = re.compile(r"python(3(\.\d+)?)?")
+_PY_RUNNERS = {"python", "tut", "uv", "ipython", "pipenv", "poetry"}
+
+
+def _runs_python(command: str) -> bool:
+    """Does ``command`` start Python: a python interpreter (any path / version: ``.venv/bin/python``,
+    ``python3.12``) or a runner that does (``tut``, ``uv``)?"""
+    for t in _words(command):
+        if "=" in t and not t.startswith(("/", ".")):
+            continue  # env assignments (X=1 python3 nn.py)
+        name = os.path.basename(t)
+        if name in _PY_RUNNERS or re.fullmatch(r"python[\d.]*t?", name):
+            return True
+    return False
 # Python's crash output (a traceback, or a SyntaxError / IndentationError line) and the shell's "can't run it"
 _RUN_ERROR = re.compile(r"^\s*[A-Z]\w*(Error|Exception):|Traceback \(most recent call last\)|command not found"
                         r"|No such file or directory|can't open file")

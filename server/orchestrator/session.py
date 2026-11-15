@@ -1458,6 +1458,213 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
                 return {k: float(r[k]) for k in ("x", "y", "w", "h")}
         return None
 
+    # Michael (Nov 15, nn4): "I want to click just the run button in the top-right corner." A run step that runs its own
+    # .py file boxes VS Code's editor-title Run ▷ (the Python extension's "Run Python File"); the terminal box is the
+    # fallback. Its run counts like a typed one (command_matches: any python invocation of the step's file).
+    RUN_BUTTON_CAPTION = "Click ▷ to run"
+
+    def _run_button_file(self, step: dict, cmd: str) -> str | None:
+        """The .py file a run step's command runs with nothing else (`python3 nn.py`, `.venv/bin/python nn.py`): what
+        VS Code's Run ▷ runs on its own. None for any other command (arguments, a module, several commands)."""
+        import shlex
+
+        lines = [ln.strip() for ln in (cmd or "").strip().splitlines() if ln.strip()]
+        if len(lines) != 1:
+            return None
+        try:
+            words = shlex.split(lines[0])
+        except ValueError:
+            return None
+        if len(words) != 2 or not re.fullmatch(r"python[\d.]*", Path(words[0]).name) or not words[1].endswith(".py"):
+            return None
+        name = Path(words[1]).name
+        f = self._step_file(step)
+        return name if not f or Path(f).name == name else None
+
+    def _active_editor_file(self) -> str | None:
+        """The lesson window's active editor's file name ("nn.py"; "" with no editor): the companion extension's /state,
+        else that window's title ("● nn.py — <folder>"). None when unknown. Blocking (<= 0.3 s): call it in a thread."""
+        mine = os.path.realpath(self.workdir)
+        if getattr(self.screen, "reader", None) is not None:  # never the real editor in tests
+            try:
+                from server.workspace import vscode_ext as vx
+
+                st = vx.state(folder=self.workdir)
+            except Exception:  # noqa: BLE001
+                st = None
+            if st and any(os.path.realpath(str(f)) == mine for f in st.get("folders") or []):
+                return Path(str(st["file"])).name if st.get("file") else ""
+        from server.workspace.active import parse_title
+
+        for w in getattr(self.last_obs, "windows", None) or []:
+            if (getattr(w, "app", "") or "").lower() in CODE_APP_NAMES:
+                t = parse_title(getattr(w, "title", "") or "")
+                if t and t.get("folder_name") == Path(self.workdir).name:
+                    return t.get("file") or ""
+        return None
+
+    def _under_overlay(self, x: float, y: float) -> bool:
+        """Is screen point (x, y) under Miyagi's own UI (the drawer, a card, the bar: the app's overlay.bounds)?"""
+        fn = getattr(getattr(self.screen, "reader", None), "overlay_rects", None) if self.screen is not None else None
+        try:
+            for o in fn() if fn is not None else []:
+                d = o.to_dict() if hasattr(o, "to_dict") else dict(o)
+                if d["x"] <= x <= d["x"] + d["w"] and d["y"] <= y <= d["y"] + d["h"]:
+                    return True
+        except Exception:  # noqa: BLE001 - unknown: the box goes up
+            return False
+        return False
+
+    def _run_note(self, why: str) -> None:
+        """Log why a run step's box isn't on the Run ▷ (once per step and reason: the box loop retries every 2 s)."""
+        key = (self.step_gen, why)
+        if key != getattr(self, "_run_noted", None):
+            self._run_noted = key
+            log.info("run step %s: %s", (self.step or {}).get("id"), why)
+
+    async def _run_button_spot(self, step: dict, cmd: str) -> dict | None:
+        """VS Code's Run ▷ for a run step whose command is `python <its .py file>`, while that file is the lesson
+        window's active editor. Found (a) by Accessibility (the lesson window's AX tree: "Run Python File"), else
+        (b) by OCR (the ▷ on the editor's tab row): server.screen's "run_button" region. None (the caller boxes the
+        terminal instead): another command or file, no button found, or it's outside the lesson window's top band or
+        under Miyagi's drawer (a window maximized under it)."""
+        name = self._run_button_file(step, cmd)
+        region = getattr(self.screen, "region", None) if self.screen is not None else None
+        if not name or region is None or self._lesson_window_hidden():
+            return None
+        active = await asyncio.to_thread(self._active_editor_file)
+        if active is not None and active != name:
+            self._run_note(f"{active or 'no file'} is in front, not {name}: no Run ▷ box")
+            return None
+        r = await asyncio.to_thread(region, "run_button")  # AX: a bounded walk of VS Code's tree, never on the loop
+        win = self._editor_window()
+        if not r or win is None:
+            self._run_note("VS Code's Run ▷ isn't on screen (no Python extension?): the terminal box instead")
+            return None
+        cx, cy = r["x"] + r["w"] / 2, r["y"] + r["h"] / 2
+        if (not (win["x"] <= cx <= win["x"] + win["w"] and win["y"] <= cy <= win["y"] + min(160.0, win["h"] * 0.3))
+                or max(r["w"], r["h"]) > 64.0):
+            self._run_note(f"the Run ▷ found at {r} isn't on the lesson window's tab row: the terminal box instead")
+            return None
+        if self._under_overlay(cx, cy):
+            self._run_note("VS Code's Run ▷ is under Miyagi's drawer: the terminal box instead")
+            return None
+        s = max(28.0, r["w"], r["h"])
+        return {"rect": {"x": cx - s / 2, "y": cy - s / 2, "w": s, "h": s},
+                "caption": f"{self.RUN_BUTTON_CAPTION} {name}", "app": "Code", "kind": "run_button"}
+
+    async def _run_spot(self, step: dict, cmd: str) -> dict:
+        """A run step's box: VS Code's Run ▷ (_run_button_spot), else the terminal's prompt line, else where to open
+        the terminal (_terminal_spot). {} when none is on screen; "kind" says which."""
+        spot = await self._run_button_spot(step, cmd)
+        return spot if spot is not None else self._terminal_spot(step, cmd)
+
+    async def _ensure_terminal(self, step: dict) -> bool:
+        """Michael (Nov 15): "you're telling me to type in the terminal, but I can't open the terminal ... It needs to
+        either auto-open it or show me where to open it." A run step whose lesson window is on screen without its
+        terminal panel: the companion extension opens it (POST /terminal {show, cwd, preserveFocus}: the "Miyagi"
+        terminal, in the lesson folder; the focus stays put; the 0.0.3 extension has it). Real windows only.
+        -> opened now."""
+        if (not self.lesson_mode or getattr(self.screen, "reader", None) is None or self._lesson_window_hidden()
+                or self._editor_off_screen() or self._editor_window() is None):
+            return False
+        region = getattr(self.screen, "region", None)
+        if region is not None and await asyncio.to_thread(region, "terminal"):
+            return False  # the panel is on screen
+        ext = await asyncio.to_thread(self._vscode_ext)
+        if ext is None or not hasattr(ext, "show_terminal"):
+            self._run_note("VS Code's terminal is closed and the companion extension isn't up: Open the terminal box")
+            return False
+        try:
+            res = await asyncio.to_thread(ext.show_terminal, folder=self.workdir, cwd=self.workdir, preserve_focus=True)
+        except Exception:  # noqa: BLE001
+            log.exception("show_terminal failed")
+            return False
+        ok = bool(res and res.get("ok", True) and res.get("shown", True))
+        log.info("run step %s: VS Code's terminal panel %s (%s)", step.get("id"), "opened" if ok else "not opened", res)
+        return ok
+
+    async def _ready_run_step(self, gen: int, step: dict) -> None:
+        """A run step's start: the lesson window leaves room for Miyagi's drawer (workspace.fit_beside_drawer: its Run ▷
+        and VS Code's top-right buttons never under it; full screen / maximized: logged, left), then VS Code's terminal
+        panel opens if it's closed (_ensure_terminal), once the lesson window is on screen (<= ~6 s)."""
+        if getattr(self.screen, "reader", None) is None:  # tests: never the real editor
+            return
+        from . import workspace as wsmod
+
+        await asyncio.to_thread(wsmod.fit_beside_drawer, self.workdir)
+        for _ in range(6):
+            if gen != self.step_gen or self.passed or self._spot_frozen():
+                return
+            if not self._lesson_window_hidden() and not self._editor_off_screen() and self._editor_window() is not None:
+                await self._ensure_terminal(step)
+                return
+            await asyncio.sleep(1.0)
+
+    # Nov 15 (nn4): the learner deleted the bad line in nn.py but didn't save; Run it for me ran the old file twice
+    # (SyntaxError, line 41) and the coach kept explaining that old run. Run it for me and Check save the step's file
+    # through the companion first, so what runs is what's in the editor.
+    async def _save_step_file(self, step: dict) -> bool:
+        """The step's file, saved in VS Code when it holds unsaved edits (the companion's /save; the 0.0.3 extension: a
+        no-op /apply that saves). Real windows only. -> saved now."""
+        from . import workspace as wsmod
+
+        f = self._step_file(step) or step.get("file") or ""
+        p = wsmod.resolve_file(self.workdir, f) if f else None
+        if p is None or getattr(self.screen, "reader", None) is None:
+            return False
+        ext = await asyncio.to_thread(self._vscode_ext)
+        if ext is None or not hasattr(ext, "save"):
+            return False
+        if not self._dirty_step_file(step):  # this tick's read may be old: ask VS Code (a clean file is never touched)
+            buf = (await asyncio.to_thread(ext.buffer_text, p, folder=self.workdir)
+                   if hasattr(ext, "buffer_text") else None)
+            if not (buf or {}).get("dirty"):
+                return False
+        try:
+            res = await asyncio.to_thread(ext.save, p, folder=self.workdir)
+        except Exception:  # noqa: BLE001
+            log.exception("saving %s failed", p.name)
+            return False
+        ok = bool(res and res.get("ok"))
+        log.info("saved %s before the run: %s", p.name, res)
+        if ok and res.get("pending") and hasattr(ext, "buffer_text"):  # VS Code answers after 250 ms: wait for the disk
+            for _ in range(6):
+                await asyncio.sleep(0.25)
+                buf = await asyncio.to_thread(ext.buffer_text, p, folder=self.workdir)
+                if not (buf or {}).get("dirty"):
+                    break
+        if ok:
+            self._buffers.clear()  # the next read sees it saved
+            await self._buffers.refresh([p], self.workdir)
+        return ok
+
+    def _save_then_run(self, step: dict, name: str | None = None) -> dict | None:
+        """A run step whose file holds unsaved edits: the one card that says so ({title, body}); None otherwise."""
+        if not (self.lesson_mode and self._run_command(step)):
+            return None
+        name = name or self._dirty_step_file(step)
+        return {"title": f"Save {name}", "body": f"Save {name} (⌘S), then run it."} if name else None
+
+    def _changed_since_run(self, step: dict) -> str | None:
+        """A run step whose last run failed, and its file changed since that run began (saved after it, or unsaved
+        edits now): that run, its errors and any diagnosis of them are about older code. -> the file name, else None."""
+        run = next((r for r in reversed(self.step_runs) if not r.running), None)
+        if not (self.lesson_mode and self._run_command(step)) or run is None or run.exit_code == 0:
+            return None
+        from . import workspace as wsmod
+
+        f = self._step_file(step) or step.get("file") or ""
+        if not f:
+            return None
+        if self._dirty_step_file(step):
+            return Path(f).name
+        p = wsmod.resolve_file(self.workdir, f)
+        try:
+            return Path(f).name if p is not None and p.stat().st_mtime > run.started_t + 0.05 else None
+        except OSError:
+            return None
+
     def _terminal_spot(self, step: dict, cmd: str) -> dict:
         """Run step: box the live prompt line of VS Code's integrated terminal (E8: one line inside the panel, never
         the whole panel, the status bar or the Chat side bar; the panel only when no prompt is readable); if it
@@ -1526,14 +1733,16 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
 
         cmd = self._run_command(step)
         if cmd:
-            for _ in range(30):  # ~60 s: upgrade "open the terminal" to the terminal box once it's open
+            for _ in range(30):  # ~60 s: upgrade "open the terminal" to the Run ▷ / terminal box once it's there
                 if gone() or self._step_ran():  # E17: after a run the box has done its job (_run_box_done)
                     return
-                spot = self._terminal_spot(step, cmd)
+                spot = await self._run_spot(step, cmd)
+                if gone() or self._step_ran():
+                    return
                 kind = spot.pop("kind", None)
-                if spot:  # E17: the terminal panel / menu item are where to act; the targeter never moves them
+                if spot:  # E17: the Run ▷ / terminal panel / menu item are where to act; the targeter never moves them
                     await self._show_spot(spot, steady=True, verify=False)
-                if kind == "terminal":
+                if kind in ("terminal", "run_button"):
                     return
                 await asyncio.sleep(2.0)
             return
@@ -2168,6 +2377,8 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
         await self._maybe_pass_setup_step()
         if self.lesson_mode and not self.passed and self.step is step and not held:  # held: the box comes on Start
             self._spawn(self._lesson_spot(self.step_gen, step), timer=True)
+            if self._run_command(step):  # the terminal panel open, the window beside the drawer
+                self._spawn(self._ready_run_step(self.step_gen, step), timer=True)
 
     MIN_SEGMENT_S = 3.0
 
@@ -3177,6 +3388,8 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
             return self._speak_note(reason, "held (learner not started / first ~20 s)")
         if self._editor_state_card(step):  # unsaved file / another lesson's folder: say that, never "off track"
             return self._speak_note(reason, "held (editor-state card instead)")
+        if changed := self._changed_since_run(step):  # Nov 15: never (again) a diagnosis of a run of older code
+            return self._speak_note(reason, f"held ({changed} changed since its last run: run it again)")
         if self.clock() < self._coach_retry_at:
             return self._speak_note(reason, "held (coach failed recently)")  # e.g. offline: wait before trying again
         if self.typing():
@@ -3387,9 +3600,10 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
                 self.spoken_sig = None  # the next breakpoint tries again
                 if hold == "wrong_folder":
                     self._editor_state_card(step)
-                elif hold == "unsaved":
-                    await self._emit_card({"stepId": step["id"], "kind": "step", "title": card.get("title") or "Save first",
-                                           "body": card.get("body") or "Save with ⌘S so I can check it."}, window_s=60.0)
+                elif hold == "unsaved":  # a run step: the same card as _editor_state_card's (no flicker between two)
+                    said = self._save_then_run(step) or {"title": card.get("title") or "Save first",
+                                                         "body": card.get("body") or "Save with ⌘S so I can check it."}
+                    await self._emit_card({"stepId": step["id"], "kind": "step", **said}, window_s=60.0)
                 # "unconfirmed": the OCR read disagreed with the last one: say nothing, a later read decides
                 await self._status("watching")
                 return
@@ -3688,11 +3902,13 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
         return bool(self.step_runs) or getattr(self, "_ext_run_t", 0.0) >= self._step_wall_t0
 
     async def _run_box_done(self) -> None:
-        """E17: the run step's own box ("Run it here" / "Open the terminal") has done its job once the step ran."""
+        """E17: the run step's own box ("Click ▷ to run" / "Run it here" / "Open the terminal") has done its job once
+        the step ran."""
         own = getattr(self, "_spot_owner", None)
+        cap = self._spot_caption or ""
         if (self.lesson_mode and self.spot_rect is not None and own is not None and own[0] == "step"
                 and self.step is not None and self._run_command(self.step) and self._step_ran()
-                and (self._spot_caption == self.RUN_CAPTION or (self._spot_caption or "").startswith("Open the terminal"))):
+                and (cap == self.RUN_CAPTION or cap.startswith(("Open the terminal", self.RUN_BUTTON_CAPTION)))):
             async with self._spot_lock():
                 if self.spot_rect is not None:
                     await self.emit("spotlight", {"clear": True})
@@ -3776,6 +3992,8 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
                     self.step_runs.append(run)
             run.command = ev.get("command", run.command) or run.command
             run.cwd = ev.get("cwd", run.cwd) or run.cwd
+            if isinstance(ev.get("started_at"), (int, float)) and ev["started_at"] > 0:  # VS Code's own start time
+                run.started_t = float(ev["started_at"])
         self._touch()
         in_step = run in self.step_runs
         if kind == "run_started":
@@ -4065,6 +4283,11 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
             quick = await self._show_where(step)  # exact match / window: instant
             if quick and self.lesson_mode:
                 return  # the target box + what to type there is the whole answer
+            if self.lesson_mode and (cmd := self._run_command(step)):  # no Run ▷ / terminal on screen: never a box
+                await self._emit_card({"stepId": step["id"], "kind": "step", "title": "Run it",  # on a line of the file
+                                       "body": f"Run it in the terminal: {cmd.splitlines()[0]}",
+                                       "actions": ["run_command"]})
+                return
             if self.m.has_pointing():  # E5: the diagnosed line, the step's target, else Haiku (<= 3 s)
                 screen = await self._screen_for_coach(step)
                 r = await self.m.show_me(step, screen, self.last_offtrack) if screen is not None else None
@@ -4234,11 +4457,21 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
         """Spotlight where to work NOW: the step's target on screen, else its app's window. False = nothing visible.
         A press's answer (E8 owner "answer": Explain / Hint / Show me). E9: once the step's code is (partly) in the
         file, where it goes on, never the "where to start" anchor. t5: a fix that is up boxes the line to fix; nothing
-        typed yet boxes where the code goes (the file decides, _insert_spot)."""
+        typed yet boxes where the code goes (the file decides, _insert_spot). A run step otherwise: VS Code's Run ▷ or
+        the terminal, never a line of its file (Nov 15, nn4: Show me boxed nn.py's last line "Type it here: python3
+        nn.py", and the learner typed the command into nn.py)."""
         if self.lesson_mode and self._fix_active() and (fix := await self._change_spot(step)) is not None:
             self._action_spot = True  # t5 (b): the press points at the line to fix: the one box
             await self._show_spot(fix, owner="answer")
             return True
+        if self.lesson_mode and (cmd := self._run_command(step)):
+            await self._ensure_terminal(step)
+            spot = await self._run_spot(step, cmd)
+            spot.pop("kind", None)
+            if spot:
+                self._action_spot = True
+                await self._show_spot(spot, owner="answer")
+            return bool(spot)
         if self.lesson_mode and (prog := self._code_progress(step)) is not None:
             spot = await self._progress_spot(step, prog) if prog["kind"] != "done" else None
             if spot:
@@ -4276,7 +4509,8 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
         where its next line goes). None: nothing typed yet (Show me boxes where to start, as before).
         t5: the diff's first line that really CHANGES (not a shared context line like `def sigmoid(x):`), found in the
         file first (its editor row, file-exact; the fuzzy OCR match boxed look-alike lines), on screen only when the
-        gutter misses; a diagnosis whose line is no longer in the file is stale: the step's code decides then."""
+        gutter misses; a diagnosis whose line is no longer in the file is stale: the step's code decides then.
+        A run step's snippet is its command: never under a line of the file (Nov 15: typed into nn.py)."""
         t = self._fix_target(step)
         if t is None:
             return None
@@ -4285,6 +4519,8 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
             hit = self._locate(re.escape(t["yours"]), "Code", t["caption"])
             if hit and not self._chrome_hit(hit) and not self._long_hit(hit, t["yours"]):
                 spot = {**hit, **self._snippet(step), "_line": self._line_meta(t, float(hit["rect"]["h"]))}
+        if spot is not None and self._run_command(step):
+            spot.pop("snippet", None)  # a run step's snippet is its command: never under a line of the file
         return spot
 
     @staticmethod
@@ -4649,6 +4885,8 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
     async def _check_step_now(self, step: dict) -> None:
         gen = self.step_gen
         await self._status("thinking")
+        if self.lesson_mode and self._run_command(step):  # a run step checks the code that will run: saved first
+            await self._save_step_file(step)
         if self.screen is not None:  # a new frame, not one from before their last keystroke
             if (fresh := getattr(self.screen, "fresh_frame", None)) is not None:
                 await fresh(self.check_wait_s)  # returns as soon as that frame is in (was a flat 1.2 s sleep)
@@ -4995,6 +5233,10 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
                     {**base, "status": "pass", "detail": "ran in the terminal"}
                 if err:
                     need["typed"] = False  # that run crashed: the next one has to be entered again
+        if row["status"] != "pass" and (save := self._save_then_run(step)) is not None:  # a run uses the disk's file
+            row = {**base, "detail": save["body"].rstrip(".")}  # "Save nn.py (⌘S), then run it" (never a stale fail)
+        elif row["status"] == "fail" and (changed := self._changed_since_run(step)):  # that run was of older code
+            row = {**base, "detail": f"{changed} changed since that run: run it again"}
         if row["status"] == "pass":
             need["ran"] = row["detail"]
         elif gate.get("passed"):
@@ -5063,6 +5305,8 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
         tail = c.get("outputTail")
         lines = [str(x) for x in tail] if isinstance(tail, list) else str(tail or "").splitlines()
         run = RunInfo(run_id=run_id, command=str(c.get("commandLine") or ""), cwd=str(c.get("cwd") or self.workdir))
+        if isinstance(c.get("startedAt"), (int, float)) and c["startedAt"] > 0:
+            run.started_t = c["startedAt"] / 1000
         run.add_output(lines)
         try:
             run.exit_code = int(c.get("exitCode"))
@@ -5347,9 +5591,10 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
         if unsaved and self._save_file:
             return True  # every check green, only the save missing: "Save to finish" said it (once per dirty episode)
         dirty = self._dirty_step_file(step) if unsaved else None
-        if dirty:
-            self._spawn(self._emit_card({"stepId": step["id"], "kind": "step", "title": f"Save {dirty}",
-                                         "body": f"Save {dirty} in VS Code (⌘S)."}, window_s=60.0))
+        if dirty:  # a run step: "Save nn.py (⌘S), then run it." (the run uses the file on disk)
+            card = (self._save_then_run(step, dirty)
+                    or {"title": f"Save {dirty}", "body": f"Save {dirty} in VS Code (⌘S)."})
+            self._spawn(self._emit_card({"stepId": step["id"], "kind": "step", **card}, window_s=60.0))
             return True
         return False
 
@@ -5800,6 +6045,7 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
         if not cmd:
             await self._card(step, "Nothing to run", "This step has no command.", kind="answer")
             return
+        await self._save_step_file(step)  # the fix in the editor is what runs (Nov 15: the old file ran twice)
         ext = self._vscode_ext()
         if ext is not None and hasattr(ext, "run_in_terminal"):
             try:
@@ -5949,7 +6195,8 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
                          **({"actions": ["run_command"]} if stopped else {}))
         if gen != self.step_gen or run_id in self.runs:
             return
-        await self.ingest({"kind": "run_started", "run_id": run_id, "command": want, "cwd": self.workdir})
+        await self.ingest({"kind": "run_started", "run_id": run_id, "command": want, "cwd": self.workdir,
+                           "started_at": (end.get("startedAt") or 0) / 1000})
         await self.ingest({"kind": "output", "run_id": run_id, "lines": tail})
         if mx := self._metrics_in(step, tail):  # the step's metric checks grade this run's exact output, not OCR
             await self.ingest({"kind": "metrics", "run_id": run_id, "metrics": mx})

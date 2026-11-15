@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import logging
 import os
+import re
 import threading
 import time
 from collections.abc import Callable
@@ -358,6 +359,81 @@ def find_button(pattern, max_nodes: int = 1500) -> Element | None:
                 label = _s(attr(el, a))
                 if label and pattern.search(label):
                     return element_info(el, str(front.localizedName() or ""))
+        queue.extend(attr(el, "AXChildren") or [])
+    return None
+
+
+# VS Code's editor-title Run ▷: the Python extension's "Run Python File" (its dropdown's chevron is "Run or Debug...",
+# the activity bar's "Run and Debug": never those), or Code Runner's "Run Code".
+RUN_BUTTON_LABEL = re.compile(r"\bRun Python File\b|^Run Code\b", re.IGNORECASE)
+_RUN_SKIP_ROLES = {"AXTextArea", "AXTextField", "AXStaticText", "AXOutline", "AXTable", "AXList", "AXRow", "AXImage",
+                   "AXMenu", "AXScrollBar"}  # an editor's text, the Explorer tree, terminal rows: no buttons inside
+_run_cache: dict = {}  # {"pid", "el"}: the button found last time, re-checked (rect + label) instead of a new walk
+_VSCODE_BUNDLES = ("com.microsoft.VSCode", "com.microsoft.VSCodeInsiders", "com.visualstudio.code.oss", "com.vscodium")
+
+
+def _code_app(folder: str | None = None):
+    """(pid, window) of VS Code's window for `folder` (its AXDocument inside it), else VS Code's focused window. The
+    frontmost app when it is VS Code, else the running one: the learner may be on Miyagi's drawer. VS Code only."""
+    front = NSWorkspace.sharedWorkspace().frontmostApplication()
+    apps = [front] if front is not None and str(front.bundleIdentifier() or "") in _VSCODE_BUNDLES else []
+    if not apps:
+        for b in _VSCODE_BUNDLES:
+            apps = list(NSRunningApplication.runningApplicationsWithBundleIdentifier_(b) or [])
+            if apps:
+                break
+    if not apps:
+        return None, None
+    pid = int(apps[0].processIdentifier())
+    app_el = AX.AXUIElementCreateApplication(pid)
+    AX.AXUIElementSetMessagingTimeout(app_el, MESSAGING_TIMEOUT)
+    if not enable_electron_ax(app_el, pid):
+        return None, None
+    if folder:
+        from urllib.parse import unquote
+        root = os.path.realpath(os.path.expanduser(str(folder)))
+        for win in attr(app_el, "AXWindows") or []:
+            doc = attr(win, "AXDocument")
+            path = os.path.realpath(unquote(str(doc).removeprefix("file://"))) if doc is not None else ""
+            if path == root or path.startswith(root + os.sep):
+                return pid, win
+    return pid, attr(app_el, "AXFocusedWindow") or attr(app_el, "AXMainWindow")
+
+
+def _run_label(el) -> str | None:
+    for a in ("AXDescription", "AXTitle", "AXHelp"):
+        label = _s(attr(el, a))
+        if label and RUN_BUTTON_LABEL.search(label) and "debug" not in label.lower():
+            return label
+    return None
+
+
+def find_run_button(folder: str | None = None, max_nodes: int = 2500) -> Element | None:
+    """VS Code's editor-title Run ▷ ("Run Python File") in the lesson's window (`folder`), even while another app
+    (Miyagi's drawer) is in front. Bounded BFS that skips text areas, trees and lists; the element found is kept
+    and only re-checked next time (its rect and label: 3 AX reads instead of a walk). None without one."""
+    pid, win = _code_app(folder)
+    if win is None:
+        return None
+    el = _run_cache.get("el") if _run_cache.get("pid") == pid else None
+    if el is not None and _run_label(el) and (r := rect_of(el)) is not None and r.w > 2 and r.h > 2:
+        return Element(role="AXButton", subrole=None, title=None, value=None, description=_run_label(el), rect=r,
+                       app="Code")
+    _run_cache.clear()
+    queue, seen = [win], 0
+    while queue and seen < max_nodes:
+        el = queue.pop(0)
+        if el is None:
+            continue
+        seen += 1
+        role = _s(attr(el, "AXRole"))
+        if role == "AXButton":
+            if _run_label(el) and (r := rect_of(el)) is not None and r.w > 2 and r.h > 2:
+                _run_cache.update(pid=pid, el=el)
+                return element_info(el, "Code")
+            continue
+        if role in _RUN_SKIP_ROLES:
+            continue
         queue.extend(attr(el, "AXChildren") or [])
     return None
 

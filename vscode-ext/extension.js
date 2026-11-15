@@ -12,7 +12,7 @@ const os = require('os');
 const path = require('path');
 const vscode = require('vscode');
 
-const VERSION = '0.0.3';
+const VERSION = '0.0.4';
 const DEFAULT_PORT = 8791;
 const PORT_SPAN = 9;
 const ACTION_DEADLINE_MS = 250; // the engine's client gives up after 300 ms
@@ -513,12 +513,27 @@ async function pythonRefresh(body) {
   return out;
 }
 
+// Save one file the way Cmd+S does (its unsaved edits go to disk). The engine saves the lesson file before Run it for
+// me and Check on a run step, so the code that runs is the code the editor shows. A file with no open buffer, or a
+// clean one, is left alone. No file: the active editor's.
+async function save(body) {
+  const fsPath = body && body.file ? resolveFile(body.file) : null;
+  const ed = vscode.window.activeTextEditor;
+  const doc = fsPath ? vscode.workspace.textDocuments.find((d) => samePath(docKey(d), fsPath)) : ed && ed.document;
+  if (!doc) return { ok: true, file: fsPath, open: false, saved: false, dirty: false };
+  const was = !!doc.isDirty;
+  const saved = was ? !!(await doc.save()) : false;
+  if (was) log(`save: ${docKey(doc)} -> ${saved}`);
+  return { ok: true, file: docKey(doc), open: true, saved, wasDirty: was, dirty: !!doc.isDirty };
+}
+
 const ACTIONS = {
   'POST /open': openFile,
   'POST /highlight': highlight,
   'POST /terminal': terminal,
   'POST /terminal/run': terminalRun,
   'POST /apply': apply,
+  'POST /save': save,
   'POST /diff': diff,
   'POST /python/refresh': pythonRefresh,
 };

@@ -39,14 +39,14 @@ has focus. Change it under Keyboard Shortcuts → "Miyagi: Explain this".
 Package the `.vsix` (`.vscodeignore` keeps the tests out) and install it:
 
 ```bash
-cd vscode-ext && npx @vscode/vsce@3.2.1 package --allow-missing-repository --skip-license --no-dependencies -o dist/miyagi-companion-0.0.3.vsix
-"/Applications/Visual Studio Code.app/Contents/Resources/app/bin/code" --install-extension dist/miyagi-companion-0.0.3.vsix --force
+cd vscode-ext && npx @vscode/vsce@3.2.1 package --allow-missing-repository --skip-license --no-dependencies -o dist/miyagi-companion-0.0.4.vsix
+"/Applications/Visual Studio Code.app/Contents/Resources/app/bin/code" --install-extension dist/miyagi-companion-0.0.4.vsix --force
 ```
 
 Or, from the repo root, copy the folder into VS Code's extensions folder:
 
 ```bash
-rm -rf ~/.vscode/extensions/miyagi.companion-0.0.* && cp -R vscode-ext ~/.vscode/extensions/miyagi.companion-0.0.3
+rm -rf ~/.vscode/extensions/miyagi.companion-0.0.* && cp -R vscode-ext ~/.vscode/extensions/miyagi.companion-0.0.4
 ```
 
 Then reload each open VS Code window: **Cmd+Shift+P → "Developer: Reload Window"**. To check it:
@@ -81,6 +81,7 @@ window's first folder, and `~` is expanded.
 | `POST /terminal` | `{show: true, cwd?, preserveFocus?}` | `{ok, shown, terminal, created}`. Shows the "Miyagi" terminal, else the active one, else creates "Miyagi" |
 | `POST /terminal` | `{show: false}` | Closes the panel |
 | `POST /terminal/run` | `{cmd, cwd?, preserveFocus?}` | `{ok, terminal: "Miyagi", created, sent, shellIntegration, reportsExitCode}`. Reuses one "Miyagi" terminal: shows it, then `sendText(cmd)`. When `cwd` is given and the shell is somewhere else, it sends `cd '<cwd>' && cmd`. The exit code and output arrive later in `/state.lastCommand` and as a `command_end` event |
+| `POST /save` | `{file?}` (no file: the active editor) | `{ok, file, open, saved, wasDirty, dirty}`. Saves that file's buffer the way Cmd+S does, only when it holds unsaved edits. The engine calls it before Run it for me and Check on a run step, so the code that runs is what the editor shows. A 0.0.3 extension answers `no_route`; the engine then saves with a no-op `/apply` (empty text at 1:1, `save: true`, `reveal: false`) |
 | `POST /apply` | `{file, newText \| edits, save = true, reveal = true}` | `{ok, file, created, saved, dirty, version, lineCount}`. Edits through a `WorkspaceEdit`, so an **unsaved buffer** is edited and not overwritten on disk behind VS Code's back. Then it saves. `newText` on a missing file creates the file |
 | `POST /diff` | `{file, newText, title?}` | `{ok, file, title, proposed}`. Only with `miyagi.editorUi` on (else 409 `editor_ui_off`): runs `vscode.diff` with the file (as the editor has it) on the left and `newText` on the right. Changes nothing |
 | `POST /python/refresh` | `{folder?}` (default: the first workspace folder) | `{ok, folder, interpreter, restarted}`. After a pip install into `<folder>/.venv`: selects that interpreter for the folder (Python extension API) and runs `python.analysis.restartLanguageServer`, so Pylance re-reads the packages. Also the command `miyagi.companion.refreshPython` |
@@ -110,7 +111,7 @@ finishes, and its result is posted as an `action_done` event. The engine's clien
 
 ```jsonc
 {
-  "ok": true, "app": "vscode", "extension": "0.0.3", "vscodeVersion": "1.146.0", "pid": 123, "port": 8791,
+  "ok": true, "app": "vscode", "extension": "0.0.4", "vscodeVersion": "1.146.0", "pid": 123, "port": 8791,
   "folders": ["/Users/me/miyagi/lessons/python-calculator-e430dc"], "workspaceName": "python-calculator-e430dc",
   "file": "/Users/me/miyagi/lessons/python-calculator-e430dc/calculator.py", "relPath": "calculator.py",
   "dirty": true, "languageId": "python", "lineCount": 4,

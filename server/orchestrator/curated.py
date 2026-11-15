@@ -62,8 +62,9 @@ SHAPES = {f"{p}{k}": ((LAYERS[k - 1], LAYERS[k]) if p == "W" else (LAYERS[k],))
           for k in range(1, len(LAYERS)) for p in ("W", "b")}
 SIZES = {name: math.prod(shape) for name, shape in SHAPES.items()}
 ADOPT_AFTER_S = 1.0  # Run it for me's own wait polls every 0.3 s: it takes its runs first
-# python3 nn.py, .venv/bin/python nn.py, python3 ./nn.py, and VS Code's ▶ Run Python File: "/abs/.venv/bin/python"
-# "/abs/lesson folder/nn.py" (absolute, maybe quoted). Never `cat nn.py`, never nn.pyc.
+# python3 nn.py, .venv/bin/python nn.py, python3 ./nn.py, tut run python nn.py, and VS Code's ▷ Run Python File (the
+# Python extension types the interpreter and the file as absolute paths, quoted when they hold a space:
+# "/a b/.venv/bin/python" "/a b/nn.py"). Never `cat nn.py`, never nn.pyc / nn.py.bak.
 RUN_RX = re.compile(rf"""(?:^|[\s/"'])python[\d.]*["']?\s+(?:-\S+\s+)*["']?(?:[^"'\s]*/|"[^"]*/|'[^']*/)?"""
                     rf"""{re.escape(FILE)}(?![\w.])""")
 LOOP_STEP = "nn3"  # the step that writes the training loop: from here on a run prints losses the panel can draw
@@ -699,7 +700,8 @@ async def on_command_end(session: Any, ev: dict) -> None:
         except Exception:  # noqa: BLE001
             code = 0
     parsed = parse_output(lines)
-    await session.ingest({"kind": "run_started", "run_id": run_id, "command": line, "cwd": c.get("cwd") or session.workdir})
+    await session.ingest({"kind": "run_started", "run_id": run_id, "command": line,
+                          "cwd": c.get("cwd") or session.workdir, "started_at": started})
     if lines:
         await session.ingest({"kind": "output", "run_id": run_id, "lines": lines[-200:]})
     if parsed["losses"]:
