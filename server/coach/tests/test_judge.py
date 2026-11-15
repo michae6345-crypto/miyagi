@@ -118,8 +118,8 @@ def test_done_but_a_deterministic_check_disagrees_asks(monkeypatch):
     r = run(StepJudge().judge(S2, [{"checkId": "c2", "status": "fail", "detail": "calc.py not found in workdir"}], screen=SCREEN,
                               files={"calc.py": "def add(a, b):\n    return a + b\n"}))
     assert r["events"] == []  # never overrule a machine check
-    assert r["card"] == {"stepId": "s2", "kind": "answer", "title": "Looks done?", "body": "calc.py is open in VS Code",
-                         "actions": ["confirm", "skip_step"], "checkIds": ["c2"]}
+    assert r["card"] == {"stepId": "s2", "kind": "hint", "source": "judge", "verdict": "done", "title": "Looks done?",
+                         "body": "calc.py is open in VS Code", "actions": ["confirm", "skip_step"], "checkIds": ["c2"]}
     assert len(r["card"]["body"].split()) <= 12
 
 

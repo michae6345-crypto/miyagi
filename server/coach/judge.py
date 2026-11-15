@@ -7,10 +7,15 @@ he was clearly past it).
                           screen=obs_or_text, files=files):
         j = await judge.judge(step, check_results, screen=obs_or_text, files=files, focused_app=app)
         for ev in j["events"]: emit(ev["type"], ev["payload"])   # check.updated status "pass"
-        if j["card"]: emit("card", j["card"])                     # "Looks done?" / "Already ahead?"
+        if j["card"]: emit("card", j["card"])                     # "Looks done?" / "Not yet" / "Already ahead?"
+        if j["card"] and <it was shown>: judge.card_shown(step["id"], j["card"])
 
 Gate: some check not passed, the learner idle >= 8 s, the video not playing, at most one judgment per
 20 s per step, and only when the screen text or the files changed since the last one.
+Cards are step-status cards (`source: "judge"`, kind "hint"), never answers. "Looks done?" only when Claude
+sees the WHOLE step done (`verdict: "done"`); a check-level disagreement on an unfinished step is "Not yet"
+(`verdict: "not_done"`, Hint / Show me). A card the learner already saw is not offered again for that step
+until the files change.
 Haiku only (`llm.model_for("judge")`); never raises (None on any failure).
 """
 
@@ -25,7 +30,7 @@ from typing import Any
 from . import llm
 from .common import clamp_words, get_lesson
 from .diagnose import notebook_code
-from .gate import PeriodicGate
+from .gate import PeriodicGate, files_signature
 from .pointing import deterministic_targets, editor_state, step_file, where_hint
 
 log = logging.getLogger("coach.judge")
@@ -244,32 +249,45 @@ class StepJudge:
                  clock: Callable[[], float] = time.monotonic):
         self.idle_s, self.clock = idle_s, clock
         self.gate = PeriodicGate(base_s=min_interval_s, cap_s=cap_s, stop_after=stop_after, clock=clock)
+        self._files: dict[str, str] = {}  # step id -> files signature at its last judgment
+        self._shown: dict[str, tuple] = {}  # step id -> (card key, files signature) of the last card the learner saw
 
     def should_judge(self, step: dict, check_results: list[dict], *, idle_s: float, video_playing: bool,
                      screen: Any = None, files: dict[str, str] | None = None, focused_app: str = "",
                      screen_ok: bool = True, display_asleep: bool = False, file_mtimes: dict[str, Any] | None = None) -> bool:
-        """`file_mtimes` ({path: mtime}) is preferred over `files` for change detection."""
+        """`file_mtimes` ({path: mtime}) is preferred over `files` for change detection. The screen is compared
+        without the "(focused)" marker: switching apps over the same text is not a change."""
         if llm.offline_mode() or screen is None or video_playing or idle_s < self.idle_s:
             return False  # offline (DEMO): never; no screen = the reader is down
         if check_results and all(r.get("status") == "pass" for r in check_results):
             return False
-        return self.gate.allow(step.get("id", ""), screen=screen_text(screen, focused_app), files=file_mtimes or files,
+        return self.gate.allow(step.get("id", ""), screen=screen_text(screen), files=file_mtimes or files,
                                screen_ok=screen_ok, asleep=display_asleep)
 
     async def judge(self, step: dict, check_results: list[dict], *, screen: Any = None, files: dict[str, str] | None = None,
                     focused_app: str = "", lesson: dict | None = None, file_mtimes: dict[str, Any] | None = None) -> dict | None:
-        """{"checks": [...], "events": [check.updated...], "card": {...} | None, "summary", "_meta"}, or None."""
+        """{"checks": [...], "events": [check.updated...], "card": {...} | None, "done", "summary", "_meta"}, or None.
+        `done`: Claude sees the whole step done. `card` is None when it repeats the card the learner already saw
+        for this step (card_shown) and no file changed since."""
         sid = step.get("id", "")
-        self.gate.started(sid, screen=screen_text(screen, focused_app), files=file_mtimes or files)
+        fsig = files_signature(file_mtimes or files)
+        self.gate.started(sid, screen=screen_text(screen), files=file_mtimes or files)
         asked = await _ask(step, check_results, screen, files, focused_app, lesson)
         if asked is None:
             return None
         data, res, checks, status, steps = asked
         out = self._decide(step, checks, status, steps, data, files, screen)
-        verdict = (tuple(sorted((v["check_id"], v["verdict"]) for v in out["checks"])), data.get("on_step_id", ""),
-                   (out["card"] or {}).get("title"), len(out["events"]))
+        # the backoff follows what Claude saw, never the card it led to: a card going up must not reset it to 20 s
+        verdict = (tuple(sorted((v["check_id"], v["verdict"]) for v in out["checks"])), data.get("on_step_id", ""))
         self.gate.record(sid, verdict)
+        self._files[sid] = fsig
+        if out["card"] and self._shown.get(sid) == (_card_key(out["card"]), fsig):
+            out = out | {"card": None}  # already shown for this step, nothing saved since: don't repeat it
         return out | {"_meta": _meta(res) | {"gate": self.gate.state(sid)}}
+
+    def card_shown(self, step_id: str, card: dict) -> None:
+        """The session showed `card`: the same card is not offered again for this step until the files change."""
+        self._shown[step_id] = (_card_key(card), self._files.get(step_id, ""))
 
     def _decide(self, step: dict, checks: list[dict], status: dict, steps: list[dict], data: dict,
                 files: dict[str, str] | None = None, screen: Any = None) -> dict:
@@ -277,7 +295,7 @@ class StepJudge:
         by_id = {c["id"]: c for c in checks}
         verdicts = [v for v in data.get("checks") or [] if v.get("check_id") in by_id]  # unknown ids dropped
         summary = clamp_words(data.get("summary", ""), 12).rstrip(".")
-        events, disagree, blocked = [], [], set()
+        events, disagree, blocked, seen = [], [], set(), set()
         for v in verdicts:
             c, st = by_id[v["check_id"]], status.get(v["check_id"], {}).get("status", "pending")
             conf = float(v.get("confidence") or 0)
@@ -286,6 +304,8 @@ class StepJudge:
             if why := _file_blocker(step, c, files, screen):  # never pass a file nobody has saved/seen
                 blocked.add(why)
                 continue
+            if conf >= LOOKS_DONE_CONFIDENCE:
+                seen.add(c["id"])
             if st == "fail":  # a deterministic check disagrees: ask, don't overrule it
                 if conf >= LOOKS_DONE_CONFIDENCE:
                     disagree.append(v)
@@ -294,17 +314,33 @@ class StepJudge:
                 events.append({"type": "check.updated", "payload": {
                     "stepId": sid, "checkId": c["id"], "label": c.get("label", ""), "status": "pass",
                     "detail": clamp_words(f"Claude saw it on screen: {saw}", 24)}})
+        # the step's overall verdict: every check passed by the machine or seen done by Claude (as judge_step)
+        done = bool(checks) and all(status.get(c["id"], {}).get("status") == "pass" or c["id"] in seen for c in checks)
         card = None
         other = next((s for s in steps if s["id"] == data.get("on_step_id") and s["id"] != sid), None)
         idx = {s["id"]: i for i, s in enumerate(steps)}
+        # judge cards are step-status cards (source "judge", kind "hint"), never answers: they don't take the answer slot
         if other is not None and idx.get(other["id"], -1) > idx.get(sid, -1):  # ahead of the lesson; behind → no card
-            card = {"stepId": sid, "kind": "answer", "title": "Already ahead?",
+            card = {"stepId": sid, "kind": "hint", "source": "judge", "title": "Already ahead?",
                     "body": clamp_words(f"You look to be on “{other.get('title', other['id'])}” already", 12),
                     "actions": ["skip_step"], "targetStepId": other["id"]}
         elif "unsaved" in blocked:
-            card = {"stepId": sid, "kind": "answer", "title": "Save so I can check", "body": f"{SAVE_FIRST}.", "actions": []}
-        elif disagree:
-            card = {"stepId": sid, "kind": "answer", "title": "Looks done?",
+            card = {"stepId": sid, "kind": "hint", "source": "judge", "title": "Save so I can check",
+                    "body": f"{SAVE_FIRST}.", "actions": []}
+        elif disagree and done:  # "Looks done?" only when Claude sees the WHOLE step done; Yes vouches for these checks
+            card = {"stepId": sid, "kind": "hint", "source": "judge", "verdict": "done", "title": "Looks done?",
                     "body": summary or clamp_words(disagree[0].get("evidence") or disagree[0].get("reason", ""), 12),
-                    "actions": ["confirm", "skip_step"], "checkIds": [v["check_id"] for v in disagree]}
-        return {"checks": verdicts, "events": events, "card": card, "summary": summary}
+                    "actions": ["confirm", "skip_step"], "checkIds": [c["id"] for c in checks if c["id"] in seen]}
+        elif disagree:  # Claude sees part of it but the step isn't done: say what's left, never "Looks done?"
+            left = [c["id"] for c in checks if c["id"] not in seen and status.get(c["id"], {}).get("status") != "pass"]
+            why = (data.get("missing") or next((v.get("reason", "") for v in verdicts
+                                                if v["check_id"] in left and v["verdict"] == "not_done"), "")
+                   or f"Still missing: {by_id[left[0]].get('label') or left[0]}")
+            card = {"stepId": sid, "kind": "hint", "source": "judge", "verdict": "not_done", "title": "Not yet",
+                    "body": clamp_words(why, 12).rstrip("."), "actions": ["hint", "show_me", "skip_step"], "checkIds": left}
+        return {"checks": verdicts, "events": events, "card": card, "done": done, "summary": summary}
+
+
+def _card_key(card: dict) -> tuple:
+    """What makes two judge cards "the same card" for the learner: title + the checks it is about."""
+    return card.get("title"), tuple(sorted(card.get("checkIds") or []))
