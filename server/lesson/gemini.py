@@ -330,6 +330,14 @@ the learner's SCREEN with on-device OCR (Apple Vision) and evaluates checks lite
   to the workdir, command_exit_ok with a quick command that exists (small --epochs/--steps flag), metric_* by
   the ::metric:: name the code prints.
 Never emit "visual".
+The learner's Python environment is ready before step 1: Miyagi makes the lesson's virtual environment `.venv` in the
+workdir (with a Python every listed library has wheels for) and its setup card pip-installs the lesson's libraries into
+it. So a step where the tutorial makes a venv (`python3 -m venv venv`) or pip-installs those libraries becomes: activate
+`.venv` (`source .venv/bin/activate`) and start what the tutorial starts next (e.g. `jupyter notebook`, or open the
+notebook in VS Code). Never tell the learner to create another venv (never with bare `python3`) or to install the
+lesson's libraries again; never check for pip's output ("Successfully installed") or for a venv folder other than
+`.venv`. File and folder names the tutorial uses incidentally (Jupyter's default Untitled.ipynb, the presenter's venv
+or project folder) are not requirements: never put them in instructions as names the learner must use.
 """
 ADAPT_SYSTEM += STACK_GUIDE
 

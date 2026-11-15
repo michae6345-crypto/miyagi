@@ -626,9 +626,13 @@ async def _run(key, url: str, goal: str, *, row, timeout: float, late_s: float, 
             if prior.get(k_row) and not m.get(k_meta):  # watch page / oEmbed failed: the search row still read it
                 m[k_meta] = prior[k_row]
         _copy_meta(res, m)
-        for k in ("captions", "durationLabel", "long"):
+        for k in ("durationLabel", "long"):
             if k in prior:
                 res[k] = prior[k]
+        # V5: captions are True when the finder saw CC, the watch page lists caption tracks or the builder cached a
+        # transcript; a missing CC badge is no proof of "no captions" (auto captions carry none), so never claim False
+        if prior.get("captions") or m.get("captions") or _transcript_cached(vid):
+            res["captions"] = True
         if not m.get("title"):
             res["missing"].append("metadata")
 
@@ -771,6 +775,19 @@ async def _finish_late(key, res: dict, late: dict[str, asyncio.Task], late_s: fl
             _late.pop(key, None)
 
 
+def _transcript_cached(video_id: str | None) -> bool:
+    """A transcript the lesson builder fetched for this video (demo/cache/transcripts/<id>.json, with lines)."""
+    if not video_id:
+        return False
+    try:
+        from server.lesson.transcript import _cache_path
+
+        p = _cache_path(video_id)
+        return p.is_file() and bool((json.loads(p.read_text()) or {}).get("transcript"))
+    except Exception:  # noqa: BLE001
+        return False
+
+
 def _copy_meta(res: dict, m: dict) -> None:
     for src, dst in (("title", "title"), ("channel", "channel"), ("duration_s", "durationS"), ("category", "category"),
                      ("keywords", "keywords"), ("published", "published"), ("thumbnail", "thumbnail"),
@@ -821,6 +838,12 @@ def needs_line(items: list[dict]) -> str:
     return "Needs: " + " ".join(one(it) for it in shown)
 
 
+def _sentence(text: str) -> str:
+    """V5: a body line ends like a sentence (the app may run the lines together into one paragraph)."""
+    text = " ".join((text or "").split())
+    return text if not text or text[-1] in ".!?…" else text + "."
+
+
 def preflight_card(res: dict) -> dict:
     """card {kind: "preflight"}: what the video is, how well it fits the goal, what it needs.
     actions: build / pick_another, plus install when a needed tool is missing (S2's install flow)."""
@@ -831,18 +854,21 @@ def preflight_card(res: dict) -> dict:
         facts.append(f"{len(res['chapters'])} chapters")
     if res.get("captions"):
         facts.append("CC")
-    if res.get("channel"):
-        facts.append(res["channel"])
-    lines = [" · ".join(f for f in facts if f)]
-    if res.get("topic"):
-        lines.append(res["topic"])
+    channel, topic = " ".join((res.get("channel") or "").split()), " ".join((res.get("topic") or "").split())
+    # V5: the app runs body lines together, so "· Kie Codes" + "Codes and trains a…" read "Kie Codes Codes and trains a…":
+    # a topic that opens with the channel's last word takes the channel as its subject ("Kie Codes codes and trains a…")
+    if channel and topic and topic.split()[0].strip(",.:;").lower() == channel.split()[-1].lower():
+        channel, topic = "", f"{channel} {topic[0].lower()}{topic[1:]}"
+    if channel:
+        facts.append(channel)
+    lines = [_sentence(" · ".join(f for f in facts if f)), _sentence(topic)]
     gm = res.get("goalMatch")
     warning = None
     if gm and gm.get("score") is not None and gm["score"] < LOW_MATCH:
         warning = gm.get("note") or "This video may not teach your goal."
-        lines.append("⚠ " + warning)
+        lines.append("⚠ " + _sentence(warning))
     elif gm and gm.get("note"):
-        lines.append(gm["note"])
+        lines.append(_sentence(gm["note"]))
     plan = res.get("buildPlan") or {}
     est = plan.get("estSecondsToFirstSteps")
     if plan.get("cached"):
