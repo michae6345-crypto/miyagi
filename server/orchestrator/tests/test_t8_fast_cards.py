@@ -165,3 +165,88 @@ def test_known_offtrack_reads_the_plus_sign_only():
         assert curated.known_offtrack(S(SIGN), STEPS["nn3"], fail) is None  # another step
     finally:
         curated.active = orig
+
+
+# ------------------------------------------------------------------------------- the stuck run (zeros)
+
+STUCK_OUT = [f"epoch {e:5d}  loss {curated.STUCK_LOSS:.4f}" for e in range(0, 20000, 2000)]
+NN4 = (curated.STARTER_FILE.read_text(encoding="utf-8")
+       .replace("# The network\n", "# The network\n" + STEPS["nn1"]["code"] + "\n")
+       .replace("# Backprop\n", "# Backprop\n" + STEPS["nn2"]["code"] + "\n")
+       .replace("# Training\n", "# Training\n" + STEPS["nn3"]["code"] + "\n"))
+ZEROS4 = (NN4.replace("W1 = np.random.randn(1, 4)", "W1 = np.zeros((1, 4))")
+          .replace("W2 = np.random.randn(4, 4)", "W2 = np.zeros((4, 4))")
+          .replace("W3 = np.random.randn(4, 1) * 0.1", "W3 = np.zeros((4, 1))"))
+
+
+async def _stuck_run(rig, n: int = 1):  # noqa: F811
+    rid = f"vscode-{n}"
+    await rig.s.ingest({"kind": "run_started", "run_id": rid, "command": "python3 nn.py", "cwd": str(rig.workdir),
+                        "started_at": time.time()})
+    await rig.s.ingest({"kind": "output", "run_id": rid, "lines": STUCK_OUT})
+    await rig.s.ingest({"kind": "metrics", "run_id": rid, "metrics": [
+        {"step": int(ln.split()[1]), "name": "loss", "value": curated.STUCK_LOSS} for ln in STUCK_OUT]})
+    await rig.s.ingest({"kind": "run_ended", "run_id": rid, "exit_code": 0})
+
+
+async def _at_nn4(rig):  # noqa: F811
+    await rig.s.learn("build a neural network", mode="lesson")
+    await settle(rig)
+    await rig.s.goto_step(3)
+    await settle(rig)
+    assert rig.s.step["id"] == "nn4"
+
+
+def test_stuck_run_card_goes_out_at_the_run_without_the_model(rig):  # noqa: F811
+    """t8: the zero-weights run ended 05:52:42.3, its card came 05:52:50.5 (grace + idle gate + Sonnet 4.3 s). 19 s
+    into nn4 (inside the grace) the run ends stuck at 0.49: the lesson's own stuck card is up at once, no model call."""
+    calls = _slow_coach(rig)
+
+    async def go():
+        await _at_nn4(rig)
+        (rig.workdir / "nn.py").write_text(ZEROS4)
+        rig.clock.t += 19
+        t0 = time.monotonic()
+        await _stuck_run(rig)
+        card, dt = await _first_offtrack(rig, t0)
+        await settle(rig)
+        return card, dt
+
+    card, dt = run(go())
+    assert card is not None, rig.types()
+    assert dt < 1.0, dt  # t8: ~8.2 s
+    assert not calls
+    stage_card = curated._cache_json("coach", "nn4.json")
+    assert card["title"] == stage_card["title"] == "Loss is stuck at 0.49"  # the Demo's card, word for word
+    assert card["body"] == stage_card["body"] and card["citation"] == stage_card["citation"]
+    assert set(card["actions"]) == {"explain", "show_me", "hint", "apply_fix"} and card["level"] == 2
+    validate_engine_payload("offtrack", card)
+    assert [p for p in rig.of("check.updated") if p["status"] == "fail"]  # the loss row says not yet with it
+    print(f"\nzero-weights Not yet card: {dt * 1000:.0f} ms after the run ended (t8: ~8.2 s)")
+
+
+def test_stuck_card_is_not_said_again_once_the_weights_are_random(rig):  # noqa: F811
+    """t8 05:53:22: the learner started W1..W3 random again and saved; the ladder's level-3 re-send of the stuck card
+    must not go out (the old run is stuck, the file isn't): a rerun is next."""
+    calls = _slow_coach(rig)
+
+    async def go():
+        await _at_nn4(rig)
+        p = rig.workdir / "nn.py"
+        p.write_text(ZEROS4)
+        rig.clock.t += 25
+        await _stuck_run(rig)
+        await settle(rig)
+        n = len(rig.of("offtrack"))
+        p.write_text(NN4)  # random again, saved
+        rig.clock.t += 60  # past the ladder's wait
+        await rig.s.on_file_change([str(p)])
+        await settle(rig)
+        await rig.s.on_file_change([str(p)])  # the same failure again: the ladder's "repeat"
+        await settle(rig)
+        return n
+
+    n = run(go())
+    assert n == 1 and len(rig.of("offtrack")) == 1, [o["title"] for o in rig.of("offtrack")]
+    assert not calls
+    assert curated.known_offtrack(rig.s, rig.s.step, [{"checkId": "nn4c1", "status": "fail"}]) is None

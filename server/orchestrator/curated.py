@@ -688,13 +688,40 @@ def _sign_card(session: Any, step: dict, failed: list[dict]) -> dict | None:
     return None
 
 
+_W_LINE = re.compile(r"^\s*(W\d+)\s*=(?!=)\s*(\S.*)$")
+STUCK_CARD_KEYS = ("severity", "title", "body", "guidingQuestion", "citation", "actions")
+
+
+def _stuck_card(session: Any, step: dict, failed: list[dict]) -> dict | None:
+    """t8 (05:52:42 run -> 05:52:50 card, ~8 s: the grace, the idle gate, Sonnet 4.3 s): nn4's run sat at STUCK_LOSS
+    and nn.py still starts W1..W3 without random numbers. The card is the lesson's own (demo/cache/coach/nn4.json, the
+    Demo's stuck card: the same words live and on stage); its box / targets are the W lines (offtrack_targets)."""
+    if step.get("id") != TRAIN_STEP or not _stuck_here(session, step):
+        return None
+    path, lines = session._step_lines(step)
+    first: dict[str, str] = {}
+    for ln in lines:
+        m = _W_LINE.match(ln.split("#", 1)[0])
+        if m and m.group(1) not in first:
+            first[m.group(1)] = m.group(2)
+    if not first or all("rand" in rhs for rhs in first.values()):
+        return None  # they start random now: that run is old (a rerun is next), never "start them random" again
+    cached = _cache_json("coach", f"{TRAIN_STEP}.json") or {
+        "severity": "fail", "title": f"Loss is stuck at {STUCK_LOSS:.2f}",
+        "body": "Every hidden neuron starts the same, so they stay copies. Start W1, W2 and W3 random.",
+        "actions": ["explain", "show_me", "hint"]}
+    card = {k: copy.deepcopy(cached[k]) for k in STUCK_CARD_KEYS if k in cached}
+    card["stepId"] = step["id"]
+    return card
+
+
 def known_offtrack(session: Any, step: dict | None, failed: list[dict]) -> dict | None:
     """The off-track card for a known failure of the curated lesson, from the files alone (no model call), or None
     (not the curated lesson, nothing known fails, or its cause is no longer in the file: Claude diagnoses it)."""
     if step is None or not failed or not active(session):
         return None
     try:
-        return _sign_card(session, step, failed)
+        return _sign_card(session, step, failed) or _stuck_card(session, step, failed)
     except Exception:  # noqa: BLE001 - the coach diagnoses it as before
         log.exception("curated: no instant card")
         return None

@@ -3672,6 +3672,10 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
             if missing_module.check_run(self, step, ctx):  # a lesson package isn't installed: Install, no model call
                 return
             card = self.full_card if (level == 3 and self.full_card) else None
+            if card is not None and card is self._known_full and curated.known_offtrack(self, step, failed) is None:
+                log.info("instant off-track %r: its cause is gone from the file; not said again", card.get("title"))
+                return  # t8: e.g. the weights start random now, the stuck run is old: a rerun is next
+            known = False
             if card is None:
                 by_id = {c["id"]: c for c in (step.get("checks") or []) + (step.get("precision_checks") or [])}
                 failed_checks = [{**by_id.get(r.get("checkId"), {}), **r} for r in failed]
@@ -3681,6 +3685,7 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
                 code, _file = self._code_excerpt(step)
                 card = curated.known_offtrack(self, step, failed)  # t8: a known failure: no model call
                 if card is not None:
+                    known = True
                     log.info("instant off-track %r for %s (curated, no model call)", card.get("title"), step["id"])
                     stale_advice.note(self, step, card, code)
             if card is None:
@@ -3760,6 +3765,7 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
             full.setdefault("severity", "warn")
             full.setdefault("actions", ["explain", "show_me", "hint"])
             self.full_card = full
+            self._known_full = full if known else None  # t8: a curated instant card (its level-3 re-send rechecks it)
             if level == 2:  # concept: what's wrong and why, not the patch
                 shown = {k: v for k, v in full.items() if k != "diff"}
                 shown["actions"] = [a for a in full["actions"] if a != "apply_fix"] or ["explain", "hint"]
@@ -3781,6 +3787,7 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
 
     # E14: a diagnosis that lands while a card just went up, the learner's question is answered, the display sleeps
     # or no app is connected is KEPT and sent when that ends (it was dropped, and a later trigger paid for it again)
+    _known_full: dict | None = None  # t8: full_card when it is a curated instant card (curated.known_offtrack)
     _pending_offtrack: dict | None = None
     _pending_task: asyncio.Task | None = None
     PENDING_OFFTRACK_S = 90.0  # a kept diagnosis older than this is stale: the next trigger diagnoses afresh
