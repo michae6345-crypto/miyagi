@@ -192,7 +192,8 @@ def test_same_file():
 def test_observation_round_trip():
     obs, _ = _load("vscode_fullscreen_top")
     again = ScreenObservation.from_dict(obs.to_dict())
-    assert again.blocks == obs.blocks and again.windows == obs.windows and again.screen == obs.screen
+    assert [b.to_dict() for b in again.blocks] == [b.to_dict() for b in obs.blocks]
+    assert again.windows == obs.windows and again.screen == obs.screen
 
 
 def test_to_dict_is_json():

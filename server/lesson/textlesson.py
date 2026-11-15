@@ -445,7 +445,7 @@ def link_run_steps(steps: list[dict]) -> None:
             continue
         pc = st.setdefault("precision_checks", [])
         pc[:] = [c for c in pc if c.get("type") != "file_contains"]
-        pc.insert(0, {"id": "", "type": "file_contains", "label": f"code is in {f}"[:40], "file": f,
+        pc.insert(0, {"id": "", "type": "file_contains", "label": builder.plain_label(f"code is in {f}", {"type": "file_contains", "file": f}), "file": f,
                       "pattern": builder.literal_pattern(frag[:60])})
         for j, c in enumerate(pc, 1):
             c["id"] = f"{st['id']}p{j}"

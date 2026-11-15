@@ -1,0 +1,695 @@
+{
+ "t": 0.0,
+ "app": "Code",
+ "windows": [
+  {
+   "app": "Code",
+   "title": "\u25cf calculator.py \u2014 python-calculator-e430dc",
+   "rect": {
+    "x": 0.0,
+    "y": 33.0,
+    "w": 1320.0,
+    "h": 1000.0
+   }
+  }
+ ],
+ "screen": {
+  "x": 0,
+  "y": 0,
+  "w": 1728,
+  "h": 1117
+ },
+ "scale": 2.0,
+ "ocr_ms": 298.3,
+ "frame": 1,
+ "source": "fixture:vscode_window_calc_hover.png",
+ "trigger": "tick",
+ "cursor": null,
+ "under_cursor": null,
+ "ax": null,
+ "overlay_excluded": false,
+ "capture": "",
+ "postprocessed": false,
+ "blocks": [
+  {
+   "text": "Code",
+   "rect": {
+    "x": 47.7,
+    "y": 12.6,
+    "w": 32.7,
+    "h": 12.6
+   },
+   "confidence": 1.0,
+   "app": null,
+   "window": null
+  },
+  {
+   "text": "File",
+   "rect": {
+    "x": 100.5,
+    "y": 10.0,
+    "w": 22.6,
+    "h": 15.1
+   },
+   "confidence": 1.0,
+   "app": null,
+   "window": null
+  },
+  {
+   "text": "Edit",
+   "rect": {
+    "x": 140.7,
+    "y": 12.6,
+    "w": 25.1,
+    "h": 12.6
+   },
+   "confidence": 1.0,
+   "app": null,
+   "window": null
+  },
+  {
+   "text": "Selection",
+   "rect": {
+    "x": 185.9,
+    "y": 10.0,
+    "w": 55.3,
+    "h": 15.1
+   },
+   "confidence": 1.0,
+   "app": null,
+   "window": null
+  },
+  {
+   "text": "View",
+   "rect": {
+    "x": 256.2,
+    "y": 10.0,
+    "w": 32.7,
+    "h": 15.1
+   },
+   "confidence": 1.0,
+   "app": null,
+   "window": null
+  },
+  {
+   "text": "Go",
+   "rect": {
+    "x": 306.4,
+    "y": 12.6,
+    "w": 20.1,
+    "h": 12.6
+   },
+   "confidence": 1.0,
+   "app": null,
+   "window": null
+  },
+  {
+   "text": "Run",
+   "rect": {
+    "x": 344.1,
+    "y": 12.6,
+    "w": 27.6,
+    "h": 12.6
+   },
+   "confidence": 1.0,
+   "app": null,
+   "window": null
+  },
+  {
+   "text": "Terminal",
+   "rect": {
+    "x": 386.8,
+    "y": 10.0,
+    "w": 52.7,
+    "h": 15.1
+   },
+   "confidence": 1.0,
+   "app": null,
+   "window": null
+  },
+  {
+   "text": "Window",
+   "rect": {
+    "x": 459.6,
+    "y": 10.0,
+    "w": 47.7,
+    "h": 15.1
+   },
+   "confidence": 1.0,
+   "app": null,
+   "window": null
+  },
+  {
+   "text": "Help",
+   "rect": {
+    "x": 524.9,
+    "y": 10.0,
+    "w": 30.1,
+    "h": 15.1
+   },
+   "confidence": 1.0,
+   "app": null,
+   "window": null
+  },
+  {
+   "text": "Sat Nov 14 4:12 PM",
+   "rect": {
+    "x": 1534.6,
+    "y": 10.0,
+    "w": 115.5,
+    "h": 15.1
+   },
+   "confidence": 1.0,
+   "app": null,
+   "window": null
+  },
+  {
+   "text": "python-calculator-e430dc",
+   "rect": {
+    "x": 582.7,
+    "y": 45.2,
+    "w": 138.1,
+    "h": 15.1
+   },
+   "confidence": 1.0,
+   "app": "Code",
+   "window": "\u25cf calculator.py \u2014 python-calculator-e430dc"
+  },
+  {
+   "text": "EXPLORER",
+   "rect": {
+    "x": 65.3,
+    "y": 80.3,
+    "w": 57.8,
+    "h": 12.6
+   },
+   "confidence": 1.0,
+   "app": "Code",
+   "window": "\u25cf calculator.py \u2014 python-calculator-e430dc"
+  },
+  {
+   "text": "calculator.py",
+   "rect": {
+    "x": 301.4,
+    "y": 80.3,
+    "w": 65.3,
+    "h": 12.6
+   },
+   "confidence": 1.0,
+   "app": "Code",
+   "window": "\u25cf calculator.py \u2014 python-calculator-e430dc"
+  },
+  {
+   "text": "test_calculator.py",
+   "rect": {
+    "x": 444.6,
+    "y": 80.3,
+    "w": 92.9,
+    "h": 12.6
+   },
+   "confidence": 1.0,
+   "app": "Code",
+   "window": "\u25cf calculator.py \u2014 python-calculator-e430dc"
+  },
+  {
+   "text": "PYTHON-CALCULATOR-E430DC",
+   "rect": {
+    "x": 57.8,
+    "y": 105.4,
+    "w": 168.3,
+    "h": 15.1
+   },
+   "confidence": 1.0,
+   "app": "Code",
+   "window": "\u25cf calculator.py \u2014 python-calculator-e430dc"
+  },
+  {
+   "text": "python-calculator-e430dc > src \u203a calculatorpy > add",
+   "rect": {
+    "x": 301.4,
+    "y": 107.9,
+    "w": 261.2,
+    "h": 15.1
+   },
+   "confidence": 1.0,
+   "app": "Code",
+   "window": "\u25cf calculator.py \u2014 python-calculator-e430dc"
+  },
+  {
+   "text": "\"'''A tiny calculator for the python-calculator lesson.\"'''",
+   "rect": {
+    "x": 361.7,
+    "y": 125.5,
+    "w": 404.4,
+    "h": 17.6
+   },
+   "confidence": 1.0,
+   "app": "Code",
+   "window": "\u25cf calculator.py \u2014 python-calculator-e430dc"
+  },
+  {
+   "text": "src",
+   "rect": {
+    "x": 72.8,
+    "y": 133.0,
+    "w": 20.1,
+    "h": 12.6
+   },
+   "confidence": 1.0,
+   "app": "Code",
+   "window": "\u25cf calculator.py \u2014 python-calculator-e430dc"
+  },
+  {
+   "text": "calculator.py",
+   "rect": {
+    "x": 90.4,
+    "y": 155.6,
+    "w": 67.8,
+    "h": 12.6
+   },
+   "confidence": 1.0,
+   "app": "Code",
+   "window": "\u25cf calculator.py \u2014 python-calculator-e430dc"
+  },
+  {
+   "text": "tests",
+   "rect": {
+    "x": 72.8,
+    "y": 175.7,
+    "w": 30.1,
+    "h": 12.6
+   },
+   "confidence": 1.0,
+   "app": "Code",
+   "window": "\u25cf calculator.py \u2014 python-calculator-e430dc"
+  },
+  {
+   "text": "def add(a, b):",
+   "rect": {
+    "x": 361.7,
+    "y": 180.5,
+    "w": 103.0,
+    "h": 15.5
+   },
+   "confidence": 1.0,
+   "app": "Code",
+   "window": "\u25cf calculator.py \u2014 python-calculator-e430dc"
+  },
+  {
+   "text": "test_calculator.py",
+   "rect": {
+    "x": 90.4,
+    "y": 198.3,
+    "w": 92.9,
+    "h": 12.6
+   },
+   "confidence": 1.0,
+   "app": "Code",
+   "window": "\u25cf calculator.py \u2014 python-calculator-e430dc"
+  },
+  {
+   "text": "(function) def add(",
+   "rect": {
+    "x": 396.8,
+    "y": 208.3,
+    "w": 135.6,
+    "h": 12.7
+   },
+   "confidence": 1.0,
+   "app": "Code",
+   "window": "\u25cf calculator.py \u2014 python-calculator-e430dc"
+  },
+  {
+   "text": "README.md",
+   "rect": {
+    "x": 75.3,
+    "y": 218.4,
+    "w": 70.3,
+    "h": 12.6
+   },
+   "confidence": 1.0,
+   "app": "Code",
+   "window": "\u25cf calculator.py \u2014 python-calculator-e430dc"
+  },
+  {
+   "text": "a: Any,",
+   "rect": {
+    "x": 424.5,
+    "y": 225.9,
+    "w": 52.7,
+    "h": 15.1
+   },
+   "confidence": 1.0,
+   "app": "Code",
+   "window": "\u25cf calculator.py \u2014 python-calculator-e430dc"
+  },
+  {
+   "text": "b: Any",
+   "rect": {
+    "x": 424.5,
+    "y": 243.5,
+    "w": 45.2,
+    "h": 15.1
+   },
+   "confidence": 1.0,
+   "app": "Code",
+   "window": "\u25cf calculator.py \u2014 python-calculator-e430dc"
+  },
+  {
+   "text": "def",
+   "rect": {
+    "x": 361.7,
+    "y": 253.5,
+    "w": 25.1,
+    "h": 12.6
+   },
+   "confidence": 1.0,
+   "app": "Code",
+   "window": "\u25cf calculator.py \u2014 python-calculator-e430dc"
+  },
+  {
+   "text": ") \u2192 Any",
+   "rect": {
+    "x": 396.8,
+    "y": 260.7,
+    "w": 60.4,
+    "h": 15.7
+   },
+   "confidence": 1.0,
+   "app": "Code",
+   "window": "\u25cf calculator.py \u2014 python-calculator-e430dc"
+  },
+  {
+   "text": "Add two numbers.",
+   "rect": {
+    "x": 396.8,
+    "y": 283.5,
+    "w": 87.9,
+    "h": 12.7
+   },
+   "confidence": 1.0,
+   "app": "Code",
+   "window": "\u25cf calculator.py \u2014 python-calculator-e430dc"
+  },
+  {
+   "text": "10",
+   "rect": {
+    "x": 321.5,
+    "y": 288.7,
+    "w": 20.1,
+    "h": 12.6
+   },
+   "confidence": 1.0,
+   "app": "Code",
+   "window": "\u25cf calculator.py \u2014 python-calculator-e430dc"
+  },
+  {
+   "text": "11",
+   "rect": {
+    "x": 321.5,
+    "y": 306.2,
+    "w": 17.6,
+    "h": 15.1
+   },
+   "confidence": 1.0,
+   "app": "Code",
+   "window": "\u25cf calculator.py \u2014 python-calculator-e430dc"
+  },
+  {
+   "text": "12",
+   "rect": {
+    "x": 321.5,
+    "y": 326.3,
+    "w": 17.6,
+    "h": 12.6
+   },
+   "confidence": 1.0,
+   "app": "Code",
+   "window": "\u25cf calculator.py \u2014 python-calculator-e430dc"
+  },
+  {
+   "text": "def multiply(a,b):",
+   "rect": {
+    "x": 361.7,
+    "y": 326.3,
+    "w": 138.1,
+    "h": 15.2
+   },
+   "confidence": 1.0,
+   "app": "Code",
+   "window": "\u25cf calculator.py \u2014 python-calculator-e430dc"
+  },
+  {
+   "text": "13",
+   "rect": {
+    "x": 321.5,
+    "y": 343.9,
+    "w": 17.6,
+    "h": 12.6
+   },
+   "confidence": 1.0,
+   "app": "Code",
+   "window": "\u25cf calculator.py \u2014 python-calculator-e430dc"
+  },
+  {
+   "text": "return a * b",
+   "rect": {
+    "x": 391.8,
+    "y": 343.9,
+    "w": 87.9,
+    "h": 12.6
+   },
+   "confidence": 1.0,
+   "app": "Code",
+   "window": "\u25cf calculator.py \u2014 python-calculator-e430dc"
+  },
+  {
+   "text": "14",
+   "rect": {
+    "x": 321.5,
+    "y": 361.5,
+    "w": 20.1,
+    "h": 12.6
+   },
+   "confidence": 1.0,
+   "app": "Code",
+   "window": "\u25cf calculator.py \u2014 python-calculator-e430dc"
+  },
+  {
+   "text": "15",
+   "rect": {
+    "x": 321.5,
+    "y": 379.0,
+    "w": 17.6,
+    "h": 12.6
+   },
+   "confidence": 1.0,
+   "app": "Code",
+   "window": "\u25cf calculator.py \u2014 python-calculator-e430dc"
+  },
+  {
+   "text": "16",
+   "rect": {
+    "x": 321.5,
+    "y": 396.6,
+    "w": 20.1,
+    "h": 12.6
+   },
+   "confidence": 1.0,
+   "app": "Code",
+   "window": "\u25cf calculator.py \u2014 python-calculator-e430dc"
+  },
+  {
+   "text": "def divide(a, b):",
+   "rect": {
+    "x": 361.7,
+    "y": 396.5,
+    "w": 123.1,
+    "h": 15.2
+   },
+   "confidence": 1.0,
+   "app": "Code",
+   "window": "\u25cf calculator.py \u2014 python-calculator-e430dc"
+  },
+  {
+   "text": "if b = 0:",
+   "rect": {
+    "x": 391.8,
+    "y": 414.0,
+    "w": 70.4,
+    "h": 15.5
+   },
+   "confidence": 1.0,
+   "app": "Code",
+   "window": "\u25cf calculator.py \u2014 python-calculator-e430dc"
+  },
+  {
+   "text": "17",
+   "rect": {
+    "x": 321.5,
+    "y": 414.2,
+    "w": 17.6,
+    "h": 15.1
+   },
+   "confidence": 1.0,
+   "app": "Code",
+   "window": "\u25cf calculator.py \u2014 python-calculator-e430dc"
+  },
+  {
+   "text": "raise ZeroDivisionError(\"division by zero\")",
+   "rect": {
+    "x": 419.4,
+    "y": 434.0,
+    "w": 303.9,
+    "h": 13.0
+   },
+   "confidence": 1.0,
+   "app": "Code",
+   "window": "\u25cf calculator.py \u2014 python-calculator-e430dc"
+  },
+  {
+   "text": "18",
+   "rect": {
+    "x": 321.5,
+    "y": 434.2,
+    "w": 20.1,
+    "h": 12.6
+   },
+   "confidence": 1.0,
+   "app": "Code",
+   "window": "\u25cf calculator.py \u2014 python-calculator-e430dc"
+  },
+  {
+   "text": "19",
+   "rect": {
+    "x": 321.5,
+    "y": 451.8,
+    "w": 17.6,
+    "h": 12.6
+   },
+   "confidence": 1.0,
+   "app": "Code",
+   "window": "\u25cf calculator.py \u2014 python-calculator-e430dc"
+  },
+  {
+   "text": "return a / b",
+   "rect": {
+    "x": 391.8,
+    "y": 451.8,
+    "w": 87.9,
+    "h": 12.7
+   },
+   "confidence": 1.0,
+   "app": "Code",
+   "window": "\u25cf calculator.py \u2014 python-calculator-e430dc"
+  },
+  {
+   "text": "20",
+   "rect": {
+    "x": 321.5,
+    "y": 469.4,
+    "w": 20.1,
+    "h": 12.6
+   },
+   "confidence": 1.0,
+   "app": "Code",
+   "window": "\u25cf calculator.py \u2014 python-calculator-e430dc"
+  },
+  {
+   "text": "21",
+   "rect": {
+    "x": 321.5,
+    "y": 487.0,
+    "w": 17.6,
+    "h": 12.6
+   },
+   "confidence": 1.0,
+   "app": "Code",
+   "window": "\u25cf calculator.py \u2014 python-calculator-e430dc"
+  },
+  {
+   "text": "22",
+   "rect": {
+    "x": 321.5,
+    "y": 504.5,
+    "w": 17.6,
+    "h": 15.1
+   },
+   "confidence": 1.0,
+   "app": "Code",
+   "window": "\u25cf calculator.py \u2014 python-calculator-e430dc"
+  },
+  {
+   "text": "if",
+   "rect": {
+    "x": 361.7,
+    "y": 504.5,
+    "w": 20.1,
+    "h": 12.6
+   },
+   "confidence": 1.0,
+   "app": "Code",
+   "window": "\u25cf calculator.py \u2014 python-calculator-e430dc"
+  },
+  {
+   "text": "= \"_main_\":",
+   "rect": {
+    "x": 444.6,
+    "y": 504.5,
+    "w": 103.0,
+    "h": 15.1
+   },
+   "confidence": 1.0,
+   "app": "Code",
+   "window": "\u25cf calculator.py \u2014 python-calculator-e430dc"
+  },
+  {
+   "text": "_name_",
+   "rect": {
+    "x": 384.3,
+    "y": 507.0,
+    "w": 55.3,
+    "h": 15.1
+   },
+   "confidence": 1.0,
+   "app": "Code",
+   "window": "\u25cf calculator.py \u2014 python-calculator-e430dc"
+  },
+  {
+   "text": "print(add(2,3))",
+   "rect": {
+    "x": 389.2,
+    "y": 519.2,
+    "w": 118.2,
+    "h": 21.0
+   },
+   "confidence": 1.0,
+   "app": "Code",
+   "window": "\u25cf calculator.py \u2014 python-calculator-e430dc"
+  },
+  {
+   "text": "23",
+   "rect": {
+    "x": 324.0,
+    "y": 522.1,
+    "w": 15.1,
+    "h": 15.1
+   },
+   "confidence": 1.0,
+   "app": "Code",
+   "window": "\u25cf calculator.py \u2014 python-calculator-e430dc"
+  },
+  {
+   "text": "Ln 4, Col9 Spaces: 4 UTF-8 LF Python",
+   "rect": {
+    "x": 896.7,
+    "y": 1014.0,
+    "w": 218.5,
+    "h": 15.1
+   },
+   "confidence": 1.0,
+   "app": "Code",
+   "window": "\u25cf calculator.py \u2014 python-calculator-e430dc"
+  }
+ ]
+}

@@ -47,6 +47,9 @@ def prepare(lesson: dict, goal: str = "", *, root: Path | None = None, client=No
     folder = (base / paths.folder_name(lesson)).resolve()
     folder.mkdir(parents=True, exist_ok=True)
     state = read_state(folder)
+    if state and state.get("redirect") and Path(state["redirect"]).is_dir():  # "use this folder" (active.adopt_folder)
+        log.info("lesson %s continues in %s", folder.name, state["redirect"])
+        return Path(state["redirect"])
     if state and state.get("scaffolded") and not state.get("error"):
         log.info("reusing lesson folder %s", folder)
         # README is ours and cheap: rewrite it so wording fixes reach existing folders (no Claude call).
@@ -86,6 +89,15 @@ def prepare(lesson: dict, goal: str = "", *, root: Path | None = None, client=No
     log.info("prepared %s: %d file(s), git=%s, dropped=%d%s", folder, len(written), sc.git_init,
              len(sc.dropped), f", error: {sc.error}" if sc.error else "")
     return folder
+
+
+def set_redirect(lesson_folder: Path, to: Path) -> None:
+    """Remember that this lesson continues in another folder (the learner's choice); prepare() returns it."""
+    st = read_state(lesson_folder) or {}
+    st["redirect"] = str(to)
+    sf = _state_file(lesson_folder)
+    sf.parent.mkdir(parents=True, exist_ok=True)
+    sf.write_text(json.dumps(st, indent=1))
 
 
 def open_file_for(folder: Path) -> str | None:
