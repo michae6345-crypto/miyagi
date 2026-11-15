@@ -4,7 +4,7 @@
  * Pass 3 (Adrian: "simpler"): each tile is its glyph + label; keycaps only on hover or while ⌥ is held (Tile.tsx).
  * Options wear their pastel (theme.actionTone): Explain / Diagram sky, Show me lilac, Hint pink, ink glyphs.
  * Back and Voice are neutral chrome (Voice on = glass.button). Step controls after one hairline: Check is the one
- * primary, Skip step / End lesson are quiet. Layout 'more' (layout.ts, ?bar=more) folds Back / Skip / End into More.
+ * primary, Skip step / End lesson are quiet. (Adrian picked this over a "More" menu for Back / Skip / End, Sat.)
  * The bar is a glass panel: theme.glass tokens, so it follows Settings → Appearance (light / dark).
  * Thinking: the pressed tile's glyph is the Spinner (Busy.tsx). Any trigger dips its tile for 90 ms (press.ts).
  * Voice speaking: the equalizer (Equalizer.tsx). Diagram open: its tile stays lit.
@@ -22,8 +22,6 @@ import { actionTone, glass, spring, type OptionAction } from '../../core/theme'
 import { useDiagram } from '../diagrams/store'
 import { toggleVoice } from '../voice/store'
 import { Equalizer, useVoiceTile } from './Equalizer'
-import { barLayout } from './layout'
-import { MoreTile, type MoreItem } from './More'
 import { usePress } from './press'
 import { GlassKey, hoverCls, look, Tile } from './Tile'
 
@@ -49,9 +47,6 @@ const STEP_BUTTONS: StepBtn[] = [
   { id: 'end', label: 'End lesson', icon: Square, run: () => bridge.send(cmd('end_lesson', {})), title: 'End this lesson' }
 ]
 
-/** Moved into More in layout 'more'. */
-const IN_MORE = new Set<string>(['back', 'skip', 'end'])
-
 export const BAR_HEIGHT = 74
 
 const isOption = (kind: ActionShortcut): kind is ActionShortcut & OptionAction => kind in actionTone
@@ -64,16 +59,7 @@ export function ShortcutBar({ bottom }: { bottom: number }): ReactNode {
   const appearance = useAppearance()
   // Any shortcut (click, global key, stage key, launcher chip): the matching tile dips for 90 ms (press.ts).
   const pressed = usePress((p) => p.kind)
-  const more = barLayout === 'more'
-
-  const actionTiles = BUTTONS.filter((b) => !(more && IN_MORE.has(b.kind)))
-  const stepTiles = hasStep ? STEP_BUTTONS.filter((b) => !(more && IN_MORE.has(b.id))) : []
-  const moreItems: MoreItem[] = more
-    ? [
-        { id: 'back', label: 'Back', icon: RotateCcw, run: () => triggerShortcut('back'), keycap: bridge.platform.keys.back },
-        ...(hasStep ? STEP_BUTTONS.filter((b) => b.id !== 'check').map(({ id, label, icon, run, title }) => ({ id, label, icon, run, title })) : [])
-      ]
-    : []
+  const stepTiles = hasStep ? STEP_BUTTONS : []
 
   return (
     <AnimatePresence>
@@ -88,7 +74,7 @@ export function ShortcutBar({ bottom }: { bottom: number }): ReactNode {
         >
           <div
             data-hit
-            data-bar-layout={barLayout}
+            data-shortcut-bar
             className="pointer-events-auto flex items-center gap-[2px] rounded-[24px] border p-[8px]"
             style={{ height: BAR_HEIGHT, background: glass.bg, borderColor: glass.hairline, boxShadow: glass.shadow, backdropFilter: 'blur(30px) saturate(1.4)' }}
           >
@@ -101,7 +87,7 @@ export function ShortcutBar({ bottom }: { bottom: number }): ReactNode {
               <span className="flex-1 text-[14.5px]">Ask Miyagi</span>
               <GlassKey text={bridge.platform.keys.launcher} />
             </button>
-            {actionTiles.map(({ kind, label, icon }) => {
+            {BUTTONS.map(({ kind, label, icon }) => {
               const voiceOn = kind === 'voice_toggle' && voice.on
               const l = isOption(kind) ? look.option(kind) : voiceOn ? look.primary : look.neutral
               return (
@@ -120,11 +106,10 @@ export function ShortcutBar({ bottom }: { bottom: number }): ReactNode {
                 />
               )
             })}
-            {(stepTiles.length > 0 || more) && <div className="mx-[6px] h-[34px] w-px" style={{ background: glass.rule }} />}
+            {stepTiles.length > 0 && <div className="mx-[6px] h-[34px] w-px" style={{ background: glass.rule }} />}
             {stepTiles.map(({ id, label, icon, kind, run, title }) => (
               <Tile key={id} label={label} icon={icon} look={id === 'check' ? look.primary : look.quiet} quiet={id !== 'check'} busyKind={kind} title={title} onClick={run} />
             ))}
-            {more && <MoreTile items={moreItems} dip={pressed === 'back'} />}
           </div>
         </motion.div>
       )}
