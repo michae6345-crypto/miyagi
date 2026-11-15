@@ -1,0 +1,1677 @@
+{
+ "t": 0.0,
+ "app": "Code",
+ "windows": [
+  {
+   "app": "Code",
+   "title": "pinn_convection.py \u2014 pinn_demo",
+   "rect": {
+    "x": 0,
+    "y": 0,
+    "w": 1728,
+    "h": 1117
+   }
+  }
+ ],
+ "screen": {
+  "x": 0,
+  "y": 0,
+  "w": 1728,
+  "h": 1117
+ },
+ "scale": 2.0,
+ "ocr_ms": 398.9,
+ "frame": 1,
+ "source": "fixture:vscode_fullscreen_top.png",
+ "trigger": "tick",
+ "cursor": null,
+ "under_cursor": null,
+ "ax": null,
+ "overlay_excluded": false,
+ "blocks": [
+  {
+   "text": "EXPLORER",
+   "rect": {
+    "x": 65.3,
+    "y": 12.6,
+    "w": 57.8,
+    "h": 12.6
+   },
+   "confidence": 1.0,
+   "app": "Code",
+   "window": "pinn_convection.py \u2014 pinn_demo"
+  },
+  {
+   "text": "pinn_convection.py",
+   "rect": {
+    "x": 311.4,
+    "y": 12.6,
+    "w": 100.5,
+    "h": 12.6
+   },
+   "confidence": 1.0,
+   "app": "Code",
+   "window": "pinn_convection.py \u2014 pinn_demo"
+  },
+  {
+   "text": "train.py",
+   "rect": {
+    "x": 482.2,
+    "y": 12.6,
+    "w": 40.2,
+    "h": 12.6
+   },
+   "confidence": 1.0,
+   "app": "Code",
+   "window": "pinn_convection.py \u2014 pinn_demo"
+  },
+  {
+   "text": "README.md",
+   "rect": {
+    "x": 577.7,
+    "y": 12.6,
+    "w": 72.8,
+    "h": 12.6
+   },
+   "confidence": 1.0,
+   "app": "Code",
+   "window": "pinn_convection.py \u2014 pinn_demo"
+  },
+  {
+   "text": "PINN_DEMO",
+   "rect": {
+    "x": 57.8,
+    "y": 40.2,
+    "w": 65.3,
+    "h": 15.1
+   },
+   "confidence": 1.0,
+   "app": "Code",
+   "window": "pinn_convection.py \u2014 pinn_demo"
+  },
+  {
+   "text": "pinn_demo \u203a pinn_convection.py \u203a pde_residual",
+   "rect": {
+    "x": 311.4,
+    "y": 40.0,
+    "w": 236.1,
+    "h": 12.7
+   },
+   "confidence": 1.0,
+   "app": "Code",
+   "window": "pinn_convection.py \u2014 pinn_demo"
+  },
+  {
+   "text": "'''''Physics-informed neural network for the 1D convection equation.",
+   "rect": {
+    "x": 374.2,
+    "y": 57.5,
+    "w": 464.7,
+    "h": 18.0
+   },
+   "confidence": 1.0,
+   "app": "Code",
+   "window": "pinn_convection.py \u2014 pinn_demo"
+  },
+  {
+   "text": "dald",
+   "rect": {
+    "x": 72.8,
+    "y": 70.3,
+    "w": 27.6,
+    "h": 7.5
+   },
+   "confidence": 1.0,
+   "app": "Code",
+   "window": "pinn_convection.py \u2014 pinn_demo"
+  },
+  {
+   "text": "outputs",
+   "rect": {
+    "x": 75.3,
+    "y": 87.9,
+    "w": 42.7,
+    "h": 12.6
+   },
+   "confidence": 1.0,
+   "app": "Code",
+   "window": "pinn_convection.py \u2014 pinn_demo"
+  },
+  {
+   "text": "u_t + beta * u_x = 0,",
+   "rect": {
+    "x": 401.9,
+    "y": 95.4,
+    "w": 150.7,
+    "h": 15.1
+   },
+   "confidence": 1.0,
+   "app": "Code",
+   "window": "pinn_convection.py \u2014 pinn_demo"
+  },
+  {
+   "text": "x in [0, 2*pil,",
+   "rect": {
+    "x": 570.1,
+    "y": 95.4,
+    "w": 110.5,
+    "h": 15.1
+   },
+   "confidence": 1.0,
+   "app": "Code",
+   "window": "pinn_convection.py \u2014 pinn_demo"
+  },
+  {
+   "text": "t in [0, 1]",
+   "rect": {
+    "x": 695.7,
+    "y": 95.3,
+    "w": 80.4,
+    "h": 15.2
+   },
+   "confidence": 1.0,
+   "app": "Code",
+   "window": "pinn_convection.py \u2014 pinn_demo"
+  },
+  {
+   "text": "pinn_convection.py",
+   "rect": {
+    "x": 72.8,
+    "y": 110.4,
+    "w": 103.0,
+    "h": 12.6
+   },
+   "confidence": 1.0,
+   "app": "Code",
+   "window": "pinn_convection.py \u2014 pinn_demo"
+  },
+  {
+   "text": "u(x, 0) = sin(x),",
+   "rect": {
+    "x": 401.9,
+    "y": 113.0,
+    "w": 123.1,
+    "h": 17.6
+   },
+   "confidence": 1.0,
+   "app": "Code",
+   "window": "pinn_convection.py \u2014 pinn_demo"
+  },
+  {
+   "text": "periodic boundary",
+   "rect": {
+    "x": 567.6,
+    "y": 113.0,
+    "w": 125.6,
+    "h": 15.1
+   },
+   "confidence": 1.0,
+   "app": "Code",
+   "window": "pinn_convection.py \u2014 pinn_demo"
+  },
+  {
+   "text": "train.py",
+   "rect": {
+    "x": 72.8,
+    "y": 133.0,
+    "w": 40.2,
+    "h": 12.6
+   },
+   "confidence": 1.0,
+   "app": "Code",
+   "window": "pinn_convection.py \u2014 pinn_demo"
+  },
+  {
+   "text": "README.md",
+   "rect": {
+    "x": 72.8,
+    "y": 153.1,
+    "w": 72.8,
+    "h": 12.6
+   },
+   "confidence": 1.0,
+   "app": "Code",
+   "window": "pinn_convection.py \u2014 pinn_demo"
+  },
+  {
+   "text": "The network takes (x,",
+   "rect": {
+    "x": 374.2,
+    "y": 150.5,
+    "w": 153.2,
+    "h": 15.2
+   },
+   "confidence": 1.0,
+   "app": "Code",
+   "window": "pinn_convection.py \u2014 pinn_demo"
+  },
+  {
+   "text": "t)",
+   "rect": {
+    "x": 530.0,
+    "y": 150.6,
+    "w": 15.1,
+    "h": 12.6
+   },
+   "confidence": 1.0,
+   "app": "Code",
+   "window": "pinn_convection.py \u2014 pinn_demo"
+  },
+  {
+   "text": "and returns u. The loss is the PDE residual on",
+   "rect": {
+    "x": 547.5,
+    "y": 150.5,
+    "w": 329.0,
+    "h": 12.7
+   },
+   "confidence": 1.0,
+   "app": "Code",
+   "window": "pinn_convection.py \u2014 pinn_demo"
+  },
+  {
+   "text": "collocation points plus the initial-condition error.",
+   "rect": {
+    "x": 374.2,
+    "y": 168.0,
+    "w": 366.7,
+    "h": 15.2
+   },
+   "confidence": 1.0,
+   "app": "Code",
+   "window": "pinn_convection.py \u2014 pinn_demo"
+  },
+  {
+   "text": "requirements.txt",
+   "rect": {
+    "x": 72.8,
+    "y": 175.7,
+    "w": 87.9,
+    "h": 12.6
+   },
+   "confidence": 1.0,
+   "app": "Code",
+   "window": "pinn_convection.py \u2014 pinn_demo"
+  },
+  {
+   "text": "import math",
+   "rect": {
+    "x": 374.2,
+    "y": 203.2,
+    "w": 82.9,
+    "h": 15.2
+   },
+   "confidence": 1.0,
+   "app": "Code",
+   "window": "pinn_convection.py \u2014 pinn_demo"
+  },
+  {
+   "text": "10",
+   "rect": {
+    "x": 334.0,
+    "y": 220.9,
+    "w": 17.6,
+    "h": 12.6
+   },
+   "confidence": 1.0,
+   "app": "Code",
+   "window": "pinn_convection.py \u2014 pinn_demo"
+  },
+  {
+   "text": "11",
+   "rect": {
+    "x": 334.0,
+    "y": 241.0,
+    "w": 17.6,
+    "h": 12.6
+   },
+   "confidence": 1.0,
+   "app": "Code",
+   "window": "pinn_convection.py \u2014 pinn_demo"
+  },
+  {
+   "text": "import torch",
+   "rect": {
+    "x": 374.2,
+    "y": 241.0,
+    "w": 87.9,
+    "h": 12.6
+   },
+   "confidence": 1.0,
+   "app": "Code",
+   "window": "pinn_convection.py \u2014 pinn_demo"
+  },
+  {
+   "text": "from torch import nn",
+   "rect": {
+    "x": 374.2,
+    "y": 256.0,
+    "w": 145.7,
+    "h": 15.1
+   },
+   "confidence": 1.0,
+   "app": "Code",
+   "window": "pinn_convection.py \u2014 pinn_demo"
+  },
+  {
+   "text": "12",
+   "rect": {
+    "x": 334.0,
+    "y": 258.5,
+    "w": 17.6,
+    "h": 12.6
+   },
+   "confidence": 1.0,
+   "app": "Code",
+   "window": "pinn_convection.py \u2014 pinn_demo"
+  },
+  {
+   "text": "13",
+   "rect": {
+    "x": 334.0,
+    "y": 276.1,
+    "w": 17.6,
+    "h": 12.6
+   },
+   "confidence": 1.0,
+   "app": "Code",
+   "window": "pinn_convection.py \u2014 pinn_demo"
+  },
+  {
+   "text": "14",
+   "rect": {
+    "x": 334.0,
+    "y": 293.7,
+    "w": 20.1,
+    "h": 12.6
+   },
+   "confidence": 1.0,
+   "app": "Code",
+   "window": "pinn_convection.py \u2014 pinn_demo"
+  },
+  {
+   "text": "BETA = 30.0",
+   "rect": {
+    "x": 374.2,
+    "y": 293.5,
+    "w": 80.4,
+    "h": 15.2
+   },
+   "confidence": 1.0,
+   "app": "Code",
+   "window": "pinn_convection.py \u2014 pinn_demo"
+  },
+  {
+   "text": "15",
+   "rect": {
+    "x": 334.0,
+    "y": 311.3,
+    "w": 17.6,
+    "h": 12.6
+   },
+   "confidence": 1.0,
+   "app": "Code",
+   "window": "pinn_convection.py \u2014 pinn_demo"
+  },
+  {
+   "text": "N_COLLOCATION = 2000",
+   "rect": {
+    "x": 374.2,
+    "y": 311.3,
+    "w": 145.7,
+    "h": 15.2
+   },
+   "confidence": 1.0,
+   "app": "Code",
+   "window": "pinn_convection.py \u2014 pinn_demo"
+  },
+  {
+   "text": "16",
+   "rect": {
+    "x": 334.0,
+    "y": 328.8,
+    "w": 20.1,
+    "h": 12.6
+   },
+   "confidence": 1.0,
+   "app": "Code",
+   "window": "pinn_convection.py \u2014 pinn_demo"
+  },
+  {
+   "text": "N_INITIAL = 256",
+   "rect": {
+    "x": 374.2,
+    "y": 328.8,
+    "w": 110.5,
+    "h": 15.2
+   },
+   "confidence": 1.0,
+   "app": "Code",
+   "window": "pinn_convection.py \u2014 pinn_demo"
+  },
+  {
+   "text": "17",
+   "rect": {
+    "x": 334.0,
+    "y": 346.4,
+    "w": 20.1,
+    "h": 12.6
+   },
+   "confidence": 1.0,
+   "app": "Code",
+   "window": "pinn_convection.py \u2014 pinn_demo"
+  },
+  {
+   "text": "EPOCHS = 5000",
+   "rect": {
+    "x": 374.2,
+    "y": 346.4,
+    "w": 95.4,
+    "h": 15.1
+   },
+   "confidence": 1.0,
+   "app": "Code",
+   "window": "pinn_convection.py \u2014 pinn_demo"
+  },
+  {
+   "text": "18",
+   "rect": {
+    "x": 334.0,
+    "y": 366.5,
+    "w": 20.1,
+    "h": 12.6
+   },
+   "confidence": 1.0,
+   "app": "Code",
+   "window": "pinn_convection.py \u2014 pinn_demo"
+  },
+  {
+   "text": "LEARNING_RATE = 1e-3",
+   "rect": {
+    "x": 374.2,
+    "y": 366.5,
+    "w": 145.7,
+    "h": 12.6
+   },
+   "confidence": 1.0,
+   "app": "Code",
+   "window": "pinn_convection.py \u2014 pinn_demo"
+  },
+  {
+   "text": "19",
+   "rect": {
+    "x": 334.0,
+    "y": 384.0,
+    "w": 17.6,
+    "h": 12.6
+   },
+   "confidence": 1.0,
+   "app": "Code",
+   "window": "pinn_convection.py \u2014 pinn_demo"
+  },
+  {
+   "text": "20",
+   "rect": {
+    "x": 334.0,
+    "y": 401.6,
+    "w": 17.6,
+    "h": 12.6
+   },
+   "confidence": 1.0,
+   "app": "Code",
+   "window": "pinn_convection.py \u2014 pinn_demo"
+  },
+  {
+   "text": "21",
+   "rect": {
+    "x": 334.0,
+    "y": 419.2,
+    "w": 17.6,
+    "h": 12.6
+   },
+   "confidence": 1.0,
+   "app": "Code",
+   "window": "pinn_convection.py \u2014 pinn_demo"
+  },
+  {
+   "text": "class MLP(nn.Module) :",
+   "rect": {
+    "x": 374.2,
+    "y": 419.0,
+    "w": 150.7,
+    "h": 15.2
+   },
+   "confidence": 1.0,
+   "app": "Code",
+   "window": "pinn_convection.py \u2014 pinn_demo"
+  },
+  {
+   "text": "22",
+   "rect": {
+    "x": 334.0,
+    "y": 436.8,
+    "w": 17.6,
+    "h": 12.6
+   },
+   "confidence": 1.0,
+   "app": "Code",
+   "window": "pinn_convection.py \u2014 pinn_demo"
+  },
+  {
+   "text": "def",
+   "rect": {
+    "x": 401.9,
+    "y": 436.8,
+    "w": 25.1,
+    "h": 12.6
+   },
+   "confidence": 1.0,
+   "app": "Code",
+   "window": "pinn_convection.py \u2014 pinn_demo"
+  },
+  {
+   "text": "_init_(self, width: int = 64, depth: int = 4):",
+   "rect": {
+    "x": 432.0,
+    "y": 436.8,
+    "w": 339.1,
+    "h": 17.7
+   },
+   "confidence": 1.0,
+   "app": "Code",
+   "window": "pinn_convection.py \u2014 pinn_demo"
+  },
+  {
+   "text": "23",
+   "rect": {
+    "x": 334.0,
+    "y": 456.8,
+    "w": 17.6,
+    "h": 12.6
+   },
+   "confidence": 1.0,
+   "app": "Code",
+   "window": "pinn_convection.py \u2014 pinn_demo"
+  },
+  {
+   "text": "super()._init__()",
+   "rect": {
+    "x": 429.5,
+    "y": 454.3,
+    "w": 130.6,
+    "h": 15.1
+   },
+   "confidence": 1.0,
+   "app": "Code",
+   "window": "pinn_convection.py \u2014 pinn_demo"
+  },
+  {
+   "text": "24",
+   "rect": {
+    "x": 334.0,
+    "y": 471.9,
+    "w": 20.1,
+    "h": 15.1
+   },
+   "confidence": 1.0,
+   "app": "Code",
+   "window": "pinn_convection.py \u2014 pinn_demo"
+  },
+  {
+   "text": "layers = [nn.Linear(2, width), nn.Tanh()]",
+   "rect": {
+    "x": 432.0,
+    "y": 471.9,
+    "w": 288.8,
+    "h": 17.6
+   },
+   "confidence": 1.0,
+   "app": "Code",
+   "window": "pinn_convection.py \u2014 pinn_demo"
+  },
+  {
+   "text": "25",
+   "rect": {
+    "x": 334.0,
+    "y": 492.0,
+    "w": 17.6,
+    "h": 12.6
+   },
+   "confidence": 1.0,
+   "app": "Code",
+   "window": "pinn_convection.py \u2014 pinn_demo"
+  },
+  {
+   "text": "for -",
+   "rect": {
+    "x": 429.5,
+    "y": 492.0,
+    "w": 45.2,
+    "h": 17.6
+   },
+   "confidence": 1.0,
+   "app": "Code",
+   "window": "pinn_convection.py \u2014 pinn_demo"
+  },
+  {
+   "text": "in range(depth-1):",
+   "rect": {
+    "x": 472.2,
+    "y": 492.0,
+    "w": 143.2,
+    "h": 15.1
+   },
+   "confidence": 1.0,
+   "app": "Code",
+   "window": "pinn_convection.py \u2014 pinn_demo"
+  },
+  {
+   "text": "26",
+   "rect": {
+    "x": 334.0,
+    "y": 509.6,
+    "w": 20.1,
+    "h": 12.6
+   },
+   "confidence": 1.0,
+   "app": "Code",
+   "window": "pinn_convection.py \u2014 pinn_demo"
+  },
+  {
+   "text": "layers += [nn.Linear(width, width), nn.Tanh()]",
+   "rect": {
+    "x": 459.6,
+    "y": 509.5,
+    "w": 324.0,
+    "h": 15.1
+   },
+   "confidence": 1.0,
+   "app": "Code",
+   "window": "pinn_convection.py \u2014 pinn_demo"
+  },
+  {
+   "text": "27",
+   "rect": {
+    "x": 334.0,
+    "y": 527.1,
+    "w": 20.1,
+    "h": 12.6
+   },
+   "confidence": 1.0,
+   "app": "Code",
+   "window": "pinn_convection.py \u2014 pinn_demo"
+  },
+  {
+   "text": "layers.append(nn.Linear(width,1))",
+   "rect": {
+    "x": 429.5,
+    "y": 527.1,
+    "w": 243.6,
+    "h": 15.1
+   },
+   "confidence": 1.0,
+   "app": "Code",
+   "window": "pinn_convection.py \u2014 pinn_demo"
+  },
+  {
+   "text": "28",
+   "rect": {
+    "x": 334.0,
+    "y": 544.7,
+    "w": 20.1,
+    "h": 15.1
+   },
+   "confidence": 1.0,
+   "app": "Code",
+   "window": "pinn_convection.py \u2014 pinn_demo"
+  },
+  {
+   "text": "self.net = nn.Sequential(*layers)",
+   "rect": {
+    "x": 429.5,
+    "y": 544.5,
+    "w": 236.1,
+    "h": 15.5
+   },
+   "confidence": 1.0,
+   "app": "Code",
+   "window": "pinn_convection.py \u2014 pinn_demo"
+  },
+  {
+   "text": "29",
+   "rect": {
+    "x": 334.0,
+    "y": 562.3,
+    "w": 17.6,
+    "h": 15.1
+   },
+   "confidence": 1.0,
+   "app": "Code",
+   "window": "pinn_convection.py \u2014 pinn_demo"
+  },
+  {
+   "text": "30",
+   "rect": {
+    "x": 334.0,
+    "y": 579.8,
+    "w": 20.1,
+    "h": 15.1
+   },
+   "confidence": 1.0,
+   "app": "Code",
+   "window": "pinn_convection.py \u2014 pinn_demo"
+  },
+  {
+   "text": "def forward(self, x, t):",
+   "rect": {
+    "x": 401.9,
+    "y": 579.8,
+    "w": 173.3,
+    "h": 17.7
+   },
+   "confidence": 1.0,
+   "app": "Code",
+   "window": "pinn_convection.py \u2014 pinn_demo"
+  },
+  {
+   "text": "31",
+   "rect": {
+    "x": 334.0,
+    "y": 597.4,
+    "w": 17.6,
+    "h": 15.1
+   },
+   "confidence": 1.0,
+   "app": "Code",
+   "window": "pinn_convection.py \u2014 pinn_demo"
+  },
+  {
+   "text": "return self.net(torch.cat([x,",
+   "rect": {
+    "x": 429.5,
+    "y": 599.9,
+    "w": 211.0,
+    "h": 15.1
+   },
+   "confidence": 1.0,
+   "app": "Code",
+   "window": "pinn_convection.py \u2014 pinn_demo"
+  },
+  {
+   "text": "tl, dim=1))",
+   "rect": {
+    "x": 638.0,
+    "y": 599.9,
+    "w": 82.9,
+    "h": 15.1
+   },
+   "confidence": 1.0,
+   "app": "Code",
+   "window": "pinn_convection.py \u2014 pinn_demo"
+  },
+  {
+   "text": "32",
+   "rect": {
+    "x": 334.0,
+    "y": 617.5,
+    "w": 20.1,
+    "h": 12.6
+   },
+   "confidence": 1.0,
+   "app": "Code",
+   "window": "pinn_convection.py \u2014 pinn_demo"
+  },
+  {
+   "text": "33",
+   "rect": {
+    "x": 334.0,
+    "y": 635.1,
+    "w": 20.1,
+    "h": 12.6
+   },
+   "confidence": 1.0,
+   "app": "Code",
+   "window": "pinn_convection.py \u2014 pinn_demo"
+  },
+  {
+   "text": "34",
+   "rect": {
+    "x": 334.0,
+    "y": 652.6,
+    "w": 20.1,
+    "h": 12.6
+   },
+   "confidence": 1.0,
+   "app": "Code",
+   "window": "pinn_convection.py \u2014 pinn_demo"
+  },
+  {
+   "text": "def sample_collocation(n: int):",
+   "rect": {
+    "x": 374.2,
+    "y": 652.5,
+    "w": 221.0,
+    "h": 17.7
+   },
+   "confidence": 1.0,
+   "app": "Code",
+   "window": "pinn_convection.py \u2014 pinn_demo"
+  },
+  {
+   "text": "x = torch.rand(n, 1) * 2 * math.pi",
+   "rect": {
+    "x": 401.9,
+    "y": 670.0,
+    "w": 243.6,
+    "h": 15.5
+   },
+   "confidence": 1.0,
+   "app": "Code",
+   "window": "pinn_convection.py \u2014 pinn_demo"
+  },
+  {
+   "text": "35",
+   "rect": {
+    "x": 334.0,
+    "y": 670.2,
+    "w": 20.1,
+    "h": 15.1
+   },
+   "confidence": 1.0,
+   "app": "Code",
+   "window": "pinn_convection.py \u2014 pinn_demo"
+  },
+  {
+   "text": "36",
+   "rect": {
+    "x": 334.0,
+    "y": 690.3,
+    "w": 17.6,
+    "h": 12.6
+   },
+   "confidence": 1.0,
+   "app": "Code",
+   "window": "pinn_convection.py \u2014 pinn_demo"
+  },
+  {
+   "text": "t = torch.rand(n, 1)",
+   "rect": {
+    "x": 401.9,
+    "y": 690.3,
+    "w": 143.2,
+    "h": 12.7
+   },
+   "confidence": 1.0,
+   "app": "Code",
+   "window": "pinn_convection.py \u2014 pinn_demo"
+  },
+  {
+   "text": "37",
+   "rect": {
+    "x": 334.0,
+    "y": 707.9,
+    "w": 17.6,
+    "h": 12.6
+   },
+   "confidence": 1.0,
+   "app": "Code",
+   "window": "pinn_convection.py \u2014 pinn_demo"
+  },
+  {
+   "text": "x. requires_grad_(True)",
+   "rect": {
+    "x": 401.9,
+    "y": 707.9,
+    "w": 158.2,
+    "h": 15.1
+   },
+   "confidence": 1.0,
+   "app": "Code",
+   "window": "pinn_convection.py \u2014 pinn_demo"
+  },
+  {
+   "text": "38",
+   "rect": {
+    "x": 334.0,
+    "y": 725.4,
+    "w": 20.1,
+    "h": 12.6
+   },
+   "confidence": 1.0,
+   "app": "Code",
+   "window": "pinn_convection.py \u2014 pinn_demo"
+  },
+  {
+   "text": "t.requires_grad_(True)",
+   "rect": {
+    "x": 401.9,
+    "y": 725.4,
+    "w": 155.7,
+    "h": 15.1
+   },
+   "confidence": 1.0,
+   "app": "Code",
+   "window": "pinn_convection.py \u2014 pinn_demo"
+  },
+  {
+   "text": "39",
+   "rect": {
+    "x": 334.0,
+    "y": 743.0,
+    "w": 17.6,
+    "h": 12.6
+   },
+   "confidence": 1.0,
+   "app": "Code",
+   "window": "pinn_convection.py \u2014 pinn_demo"
+  },
+  {
+   "text": "return x, t",
+   "rect": {
+    "x": 401.8,
+    "y": 742.7,
+    "w": 83.0,
+    "h": 15.6
+   },
+   "confidence": 1.0,
+   "app": "Code",
+   "window": "pinn_convection.py \u2014 pinn_demo"
+  },
+  {
+   "text": "40",
+   "rect": {
+    "x": 334.0,
+    "y": 760.6,
+    "w": 17.6,
+    "h": 12.6
+   },
+   "confidence": 1.0,
+   "app": "Code",
+   "window": "pinn_convection.py \u2014 pinn_demo"
+  },
+  {
+   "text": "PROBLEMS OUTPUT DEBUGCONSOLE TERMINAL PORTS",
+   "rect": {
+    "x": 311.4,
+    "y": 808.3,
+    "w": 314.0,
+    "h": 12.7
+   },
+   "confidence": 1.0,
+   "app": "Code",
+   "window": "pinn_convection.py \u2014 pinn_demo"
+  },
+  {
+   "text": "tripi@mac pinn_demo % python pinn_convection.py",
+   "rect": {
+    "x": 311.4,
+    "y": 835.9,
+    "w": 334.0,
+    "h": 15.1
+   },
+   "confidence": 1.0,
+   "app": "Code",
+   "window": "pinn_convection.py \u2014 pinn_demo"
+  },
+  {
+   "text": "epoch",
+   "rect": {
+    "x": 311.4,
+    "y": 853.4,
+    "w": 40.2,
+    "h": 15.1
+   },
+   "confidence": 1.0,
+   "app": "Code",
+   "window": "pinn_convection.py \u2014 pinn_demo"
+  },
+  {
+   "text": "loss",
+   "rect": {
+    "x": 411.9,
+    "y": 853.4,
+    "w": 32.7,
+    "h": 12.6
+   },
+   "confidence": 1.0,
+   "app": "Code",
+   "window": "pinn_convection.py \u2014 pinn_demo"
+  },
+  {
+   "text": "1.2034e+01",
+   "rect": {
+    "x": 444.6,
+    "y": 853.4,
+    "w": 75.3,
+    "h": 12.6
+   },
+   "confidence": 1.0,
+   "app": "Code",
+   "window": "pinn_convection.py \u2014 pinn_demo"
+  },
+  {
+   "text": "pde 3.009e-01",
+   "rect": {
+    "x": 532.5,
+    "y": 853.4,
+    "w": 98.0,
+    "h": 15.1
+   },
+   "confidence": 1.0,
+   "app": "Code",
+   "window": "pinn_convection.py \u2014 pinn_demo"
+  },
+  {
+   "text": "100",
+   "rect": {
+    "x": 369.2,
+    "y": 868.5,
+    "w": 25.1,
+    "h": 15.1
+   },
+   "confidence": 1.0,
+   "app": "Code",
+   "window": "pinn_convection.py \u2014 pinn_demo"
+  },
+  {
+   "text": "8.5441e+00",
+   "rect": {
+    "x": 444.5,
+    "y": 868.4,
+    "w": 75.4,
+    "h": 15.3
+   },
+   "confidence": 1.0,
+   "app": "Code",
+   "window": "pinn_convection.py \u2014 pinn_demo"
+  },
+  {
+   "text": "pde 2.136e-01",
+   "rect": {
+    "x": 534.8,
+    "y": 867.7,
+    "w": 95.7,
+    "h": 19.1
+   },
+   "confidence": 1.0,
+   "app": "Code",
+   "window": "pinn_convection.py \u2014 pinn_demo"
+  },
+  {
+   "text": "epoch",
+   "rect": {
+    "x": 311.4,
+    "y": 871.0,
+    "w": 40.2,
+    "h": 12.6
+   },
+   "confidence": 1.0,
+   "app": "Code",
+   "window": "pinn_convection.py \u2014 pinn_demo"
+  },
+  {
+   "text": "loss",
+   "rect": {
+    "x": 411.9,
+    "y": 871.0,
+    "w": 32.7,
+    "h": 12.6
+   },
+   "confidence": 1.0,
+   "app": "Code",
+   "window": "pinn_convection.py \u2014 pinn_demo"
+  },
+  {
+   "text": "6.0663e+00",
+   "rect": {
+    "x": 444.5,
+    "y": 885.6,
+    "w": 75.5,
+    "h": 16.1
+   },
+   "confidence": 1.0,
+   "app": "Code",
+   "window": "pinn_convection.py \u2014 pinn_demo"
+  },
+  {
+   "text": "pde 1.517e-01",
+   "rect": {
+    "x": 535.0,
+    "y": 886.0,
+    "w": 95.4,
+    "h": 15.1
+   },
+   "confidence": 1.0,
+   "app": "Code",
+   "window": "pinn_convection.py \u2014 pinn_demo"
+  },
+  {
+   "text": "epoch",
+   "rect": {
+    "x": 314.0,
+    "y": 888.6,
+    "w": 37.7,
+    "h": 12.6
+   },
+   "confidence": 1.0,
+   "app": "Code",
+   "window": "pinn_convection.py \u2014 pinn_demo"
+  },
+  {
+   "text": "200",
+   "rect": {
+    "x": 369.2,
+    "y": 886.1,
+    "w": 25.1,
+    "h": 15.1
+   },
+   "confidence": 1.0,
+   "app": "Code",
+   "window": "pinn_convection.py \u2014 pinn_demo"
+  },
+  {
+   "text": "loss",
+   "rect": {
+    "x": 409.4,
+    "y": 886.1,
+    "w": 32.7,
+    "h": 15.1
+   },
+   "confidence": 1.0,
+   "app": "Code",
+   "window": "pinn_convection.py \u2014 pinn_demo"
+  },
+  {
+   "text": "300",
+   "rect": {
+    "x": 369.2,
+    "y": 903.6,
+    "w": 25.1,
+    "h": 12.6
+   },
+   "confidence": 1.0,
+   "app": "Code",
+   "window": "pinn_convection.py \u2014 pinn_demo"
+  },
+  {
+   "text": "loss",
+   "rect": {
+    "x": 409.4,
+    "y": 903.6,
+    "w": 35.2,
+    "h": 12.6
+   },
+   "confidence": 1.0,
+   "app": "Code",
+   "window": "pinn_convection.py \u2014 pinn_demo"
+  },
+  {
+   "text": "4.3071e+00",
+   "rect": {
+    "x": 444.6,
+    "y": 903.6,
+    "w": 75.3,
+    "h": 12.6
+   },
+   "confidence": 1.0,
+   "app": "Code",
+   "window": "pinn_convection.py \u2014 pinn_demo"
+  },
+  {
+   "text": "pde 1.077e-01",
+   "rect": {
+    "x": 535.0,
+    "y": 903.5,
+    "w": 95.4,
+    "h": 15.2
+   },
+   "confidence": 1.0,
+   "app": "Code",
+   "window": "pinn_convection.py \u2014 pinn_demo"
+  },
+  {
+   "text": "epoch",
+   "rect": {
+    "x": 314.0,
+    "y": 906.2,
+    "w": 37.7,
+    "h": 12.6
+   },
+   "confidence": 1.0,
+   "app": "Code",
+   "window": "pinn_convection.py \u2014 pinn_demo"
+  },
+  {
+   "text": "epoch",
+   "rect": {
+    "x": 314.0,
+    "y": 921.2,
+    "w": 37.7,
+    "h": 15.1
+   },
+   "confidence": 1.0,
+   "app": "Code",
+   "window": "pinn_convection.py \u2014 pinn_demo"
+  },
+  {
+   "text": "400",
+   "rect": {
+    "x": 369.2,
+    "y": 921.2,
+    "w": 25.1,
+    "h": 12.6
+   },
+   "confidence": 1.0,
+   "app": "Code",
+   "window": "pinn_convection.py \u2014 pinn_demo"
+  },
+  {
+   "text": "loss",
+   "rect": {
+    "x": 409.4,
+    "y": 921.2,
+    "w": 35.2,
+    "h": 12.6
+   },
+   "confidence": 1.0,
+   "app": "Code",
+   "window": "pinn_convection.py \u2014 pinn_demo"
+  },
+  {
+   "text": "3.0580e+00",
+   "rect": {
+    "x": 444.6,
+    "y": 921.2,
+    "w": 75.3,
+    "h": 12.6
+   },
+   "confidence": 1.0,
+   "app": "Code",
+   "window": "pinn_convection.py \u2014 pinn_demo"
+  },
+  {
+   "text": "pde 7.645e-02",
+   "rect": {
+    "x": 535.0,
+    "y": 921.0,
+    "w": 95.4,
+    "h": 15.5
+   },
+   "confidence": 1.0,
+   "app": "Code",
+   "window": "pinn_convection.py \u2014 pinn_demo"
+  },
+  {
+   "text": "loss",
+   "rect": {
+    "x": 409.4,
+    "y": 936.3,
+    "w": 32.7,
+    "h": 15.1
+   },
+   "confidence": 1.0,
+   "app": "Code",
+   "window": "pinn_convection.py \u2014 pinn_demo"
+  },
+  {
+   "text": "pde 5.428e-02",
+   "rect": {
+    "x": 535.0,
+    "y": 936.3,
+    "w": 95.4,
+    "h": 15.2
+   },
+   "confidence": 1.0,
+   "app": "Code",
+   "window": "pinn_convection.py \u2014 pinn_demo"
+  },
+  {
+   "text": "epoch",
+   "rect": {
+    "x": 311.4,
+    "y": 938.8,
+    "w": 40.2,
+    "h": 12.6
+   },
+   "confidence": 1.0,
+   "app": "Code",
+   "window": "pinn_convection.py \u2014 pinn_demo"
+  },
+  {
+   "text": "500",
+   "rect": {
+    "x": 369.2,
+    "y": 938.8,
+    "w": 25.1,
+    "h": 12.6
+   },
+   "confidence": 1.0,
+   "app": "Code",
+   "window": "pinn_convection.py \u2014 pinn_demo"
+  },
+  {
+   "text": "2.1712e+00",
+   "rect": {
+    "x": 444.6,
+    "y": 938.8,
+    "w": 75.3,
+    "h": 12.6
+   },
+   "confidence": 1.0,
+   "app": "Code",
+   "window": "pinn_convection.py \u2014 pinn_demo"
+  },
+  {
+   "text": "600",
+   "rect": {
+    "x": 369.2,
+    "y": 953.8,
+    "w": 25.1,
+    "h": 12.6
+   },
+   "confidence": 1.0,
+   "app": "Code",
+   "window": "pinn_convection.py \u2014 pinn_demo"
+  },
+  {
+   "text": "1.5416e+00",
+   "rect": {
+    "x": 444.5,
+    "y": 953.3,
+    "w": 75.6,
+    "h": 16.1
+   },
+   "confidence": 1.0,
+   "app": "Code",
+   "window": "pinn_convection.py \u2014 pinn_demo"
+  },
+  {
+   "text": "pde 3.854e-02",
+   "rect": {
+    "x": 535.0,
+    "y": 953.8,
+    "w": 95.4,
+    "h": 15.2
+   },
+   "confidence": 1.0,
+   "app": "Code",
+   "window": "pinn_convection.py \u2014 pinn_demo"
+  },
+  {
+   "text": "epoch",
+   "rect": {
+    "x": 314.0,
+    "y": 956.4,
+    "w": 37.7,
+    "h": 12.6
+   },
+   "confidence": 1.0,
+   "app": "Code",
+   "window": "pinn_convection.py \u2014 pinn_demo"
+  },
+  {
+   "text": "loss",
+   "rect": {
+    "x": 409.4,
+    "y": 956.4,
+    "w": 35.2,
+    "h": 12.6
+   },
+   "confidence": 1.0,
+   "app": "Code",
+   "window": "pinn_convection.py \u2014 pinn_demo"
+  },
+  {
+   "text": "epoch",
+   "rect": {
+    "x": 314.0,
+    "y": 973.9,
+    "w": 37.7,
+    "h": 12.6
+   },
+   "confidence": 1.0,
+   "app": "Code",
+   "window": "pinn_convection.py \u2014 pinn_demo"
+  },
+  {
+   "text": "700",
+   "rect": {
+    "x": 366.7,
+    "y": 971.4,
+    "w": 27.6,
+    "h": 12.6
+   },
+   "confidence": 1.0,
+   "app": "Code",
+   "window": "pinn_convection.py \u2014 pinn_demo"
+  },
+  {
+   "text": "loss",
+   "rect": {
+    "x": 409.4,
+    "y": 971.4,
+    "w": 32.7,
+    "h": 12.6
+   },
+   "confidence": 1.0,
+   "app": "Code",
+   "window": "pinn_convection.py \u2014 pinn_demo"
+  },
+  {
+   "text": "1.0945e+00",
+   "rect": {
+    "x": 444.6,
+    "y": 971.4,
+    "w": 75.3,
+    "h": 12.6
+   },
+   "confidence": 1.0,
+   "app": "Code",
+   "window": "pinn_convection.py \u2014 pinn_demo"
+  },
+  {
+   "text": "pde 2.736e-02",
+   "rect": {
+    "x": 535.0,
+    "y": 971.4,
+    "w": 95.4,
+    "h": 15.1
+   },
+   "confidence": 1.0,
+   "app": "Code",
+   "window": "pinn_convection.py \u2014 pinn_demo"
+  },
+  {
+   "text": "800",
+   "rect": {
+    "x": 366.7,
+    "y": 989.0,
+    "w": 27.6,
+    "h": 12.6
+   },
+   "confidence": 1.0,
+   "app": "Code",
+   "window": "pinn_convection.py \u2014 pinn_demo"
+  },
+  {
+   "text": "loss",
+   "rect": {
+    "x": 409.4,
+    "y": 989.0,
+    "w": 32.7,
+    "h": 12.6
+   },
+   "confidence": 1.0,
+   "app": "Code",
+   "window": "pinn_convection.py \u2014 pinn_demo"
+  },
+  {
+   "text": "7.7710e-01",
+   "rect": {
+    "x": 444.6,
+    "y": 989.0,
+    "w": 75.3,
+    "h": 12.6
+   },
+   "confidence": 1.0,
+   "app": "Code",
+   "window": "pinn_convection.py \u2014 pinn_demo"
+  },
+  {
+   "text": "pde 1.943e-02",
+   "rect": {
+    "x": 535.0,
+    "y": 989.0,
+    "w": 95.4,
+    "h": 15.1
+   },
+   "confidence": 1.0,
+   "app": "Code",
+   "window": "pinn_convection.py \u2014 pinn_demo"
+  },
+  {
+   "text": "epoch",
+   "rect": {
+    "x": 311.4,
+    "y": 991.5,
+    "w": 40.2,
+    "h": 12.6
+   },
+   "confidence": 1.0,
+   "app": "Code",
+   "window": "pinn_convection.py \u2014 pinn_demo"
+  },
+  {
+   "text": "epoch",
+   "rect": {
+    "x": 311.4,
+    "y": 1006.6,
+    "w": 40.2,
+    "h": 15.1
+   },
+   "confidence": 1.0,
+   "app": "Code",
+   "window": "pinn_convection.py \u2014 pinn_demo"
+  },
+  {
+   "text": "900",
+   "rect": {
+    "x": 366.7,
+    "y": 1006.6,
+    "w": 27.6,
+    "h": 12.6
+   },
+   "confidence": 1.0,
+   "app": "Code",
+   "window": "pinn_convection.py \u2014 pinn_demo"
+  },
+  {
+   "text": "loss",
+   "rect": {
+    "x": 409.4,
+    "y": 1006.6,
+    "w": 35.2,
+    "h": 12.6
+   },
+   "confidence": 1.0,
+   "app": "Code",
+   "window": "pinn_convection.py \u2014 pinn_demo"
+  },
+  {
+   "text": "5.5174e-01",
+   "rect": {
+    "x": 444.6,
+    "y": 1006.6,
+    "w": 75.3,
+    "h": 12.6
+   },
+   "confidence": 1.0,
+   "app": "Code",
+   "window": "pinn_convection.py \u2014 pinn_demo"
+  },
+  {
+   "text": "pde 1.379e-02",
+   "rect": {
+    "x": 535.0,
+    "y": 1006.5,
+    "w": 95.4,
+    "h": 15.1
+   },
+   "confidence": 1.0,
+   "app": "Code",
+   "window": "pinn_convection.py \u2014 pinn_demo"
+  },
+  {
+   "text": "1000",
+   "rect": {
+    "x": 361.7,
+    "y": 1021.6,
+    "w": 32.7,
+    "h": 12.6
+   },
+   "confidence": 1.0,
+   "app": "Code",
+   "window": "pinn_convection.py \u2014 pinn_demo"
+  },
+  {
+   "text": "3.9174e-01",
+   "rect": {
+    "x": 444.5,
+    "y": 1021.4,
+    "w": 75.4,
+    "h": 15.5
+   },
+   "confidence": 1.0,
+   "app": "Code",
+   "window": "pinn_convection.py \u2014 pinn_demo"
+  },
+  {
+   "text": "pde 9.793e-03",
+   "rect": {
+    "x": 535.0,
+    "y": 1021.5,
+    "w": 98.0,
+    "h": 15.2
+   },
+   "confidence": 1.0,
+   "app": "Code",
+   "window": "pinn_convection.py \u2014 pinn_demo"
+  },
+  {
+   "text": "epoch",
+   "rect": {
+    "x": 311.4,
+    "y": 1024.1,
+    "w": 40.2,
+    "h": 12.6
+   },
+   "confidence": 1.0,
+   "app": "Code",
+   "window": "pinn_convection.py \u2014 pinn_demo"
+  },
+  {
+   "text": "loss",
+   "rect": {
+    "x": 409.4,
+    "y": 1024.1,
+    "w": 35.2,
+    "h": 12.6
+   },
+   "confidence": 1.0,
+   "app": "Code",
+   "window": "pinn_convection.py \u2014 pinn_demo"
+  },
+  {
+   "text": "Ln 9, Col5 Spaces: 4 UTF-8 LF Python 3.11.9",
+   "rect": {
+    "x": 1205.6,
+    "y": 1096.9,
+    "w": 253.7,
+    "h": 15.1
+   },
+   "confidence": 1.0,
+   "app": "Code",
+   "window": "pinn_convection.py \u2014 pinn_demo"
+  }
+ ]
+}

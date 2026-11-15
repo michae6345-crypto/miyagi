@@ -1,0 +1,364 @@
+{
+  "lesson": {
+    "id": "lesson-6e88be47",
+    "title": "React useEffect Hook Cleanup",
+    "goal": "react useEffect cleanup",
+    "libraries": {
+      "react": "18.x"
+    },
+    "builtBy": "gemini",
+    "workdir": "/Users/tripi/miyagi/lessons/_new"
+  },
+  "sources": [
+    {
+      "id": "src1",
+      "kind": "video",
+      "title": "React useEffect Hook Cleanup",
+      "url": "https://www.youtube.com/watch?v=ZipmUa9N7Os",
+      "videoId": "ZipmUa9N7Os"
+    }
+  ],
+  "steps": [
+    {
+      "id": "s1",
+      "index": 1,
+      "title": "Create the Timer component",
+      "instructions": "Create a React app with npx create-react-app demo-app, then start the dev server with npm start. Add src/Components/Timer.js with a seconds state and a useEffect that runs setInterval every 1000ms.",
+      "video": {
+        "sourceId": "src1",
+        "start": 51.0,
+        "end": 73.0
+      },
+      "checks": [
+        {
+          "id": "s1c1",
+          "type": "screen_contains",
+          "label": "useEffect hook in Timer",
+          "app": "Code",
+          "pattern": "useEffect\\s*\\("
+        },
+        {
+          "id": "s1c2",
+          "type": "screen_contains",
+          "label": "setInterval inside effect",
+          "app": "Code",
+          "pattern": "setInterval\\s*\\("
+        },
+        {
+          "id": "s1c3",
+          "type": "screen_contains",
+          "label": "Dev server compiled",
+          "app": "Terminal",
+          "pattern": "Compiled\\s+successfully|webpack\\s+compiled|Local:\\s+http://localhost:\\d+"
+        },
+        {
+          "id": "s1c4",
+          "type": "screen_absent",
+          "label": "No compile errors",
+          "app": "Terminal",
+          "pattern": "Failed\\s+to\\s+compile|ERR!"
+        }
+      ],
+      "precision_checks": [
+        {
+          "id": "s1p1",
+          "type": "file_exists",
+          "label": "Timer.js exists",
+          "file": "demo-app/src/Components/Timer.js"
+        },
+        {
+          "id": "s1p2",
+          "type": "file_contains",
+          "label": "Timer uses setInterval",
+          "file": "demo-app/src/Components/Timer.js",
+          "pattern": "setInterval\\s*\\("
+        }
+      ],
+      "targets": [
+        {
+          "app": "Code",
+          "file": "src/Components/Timer.js",
+          "match": "setInterval(",
+          "caption": "Start the interval inside useEffect with an empty dependency array"
+        }
+      ],
+      "explanations": [
+        {
+          "topic": "Why cleanup prevents memory leaks and unwanted side effects",
+          "t": 11.0,
+          "sourceId": "src1"
+        },
+        {
+          "topic": "Timer component state and setInterval logic",
+          "t": 52.0,
+          "sourceId": "src1"
+        }
+      ],
+      "hints": [
+        "Which React hooks do you need to track seconds and start an interval on mount?",
+        "Pass an empty dependency array [] to useEffect so the interval is created once on mount.",
+        "Use setSeconds(prevSeconds => prevSeconds + 1) inside setInterval(..., 1000) and export Timer as default."
+      ],
+      "common_mistakes": [
+        "Forgetting the empty dependency array [] on useEffect, causing a new interval on every render",
+        "Using seconds + 1 instead of the functional updater prevSeconds => prevSeconds + 1",
+        "Forgetting export default Timer at the bottom of Timer.js"
+      ],
+      "run_command": "npm start",
+      "code": "import React, { useEffect, useState } from 'react'; function Timer() { const [seconds, setSeconds] = useState(0); useEffect(() => { setInterval(() => { setSeconds(prevSeconds => prevSeconds + 1); console.log('timer running...'); }, 1000); }, []); return (<div>seconds : {seconds}</div>); } export default Timer;"
+    },
+    {
+      "id": "s2",
+      "index": 2,
+      "title": "Toggle Timer in App component",
+      "instructions": "In src/App.js, import Timer, add a boolean showTimer state initialized to false, and render a Toggle Timer button alongside {showTimer && <Timer/>}. Toggle the timer on and off in Chrome and watch the console keep logging after unmount.",
+      "video": {
+        "sourceId": "src1",
+        "start": 73.0,
+        "end": 165.0
+      },
+      "checks": [
+        {
+          "id": "s2c1",
+          "type": "screen_contains",
+          "label": "Boolean state toggles Timer",
+          "app": "Code",
+          "pattern": "useState\\s*\\(\\s*false\\s*\\)"
+        },
+        {
+          "id": "s2c2",
+          "type": "screen_contains",
+          "label": "Conditional Timer JSX rendered",
+          "app": "Code",
+          "pattern": "&&\\s*<Timer"
+        },
+        {
+          "id": "s2c3",
+          "type": "screen_contains",
+          "label": "Dev server compiled",
+          "app": "Terminal",
+          "pattern": "Compiled\\s+successfully|webpack\\s+compiled"
+        }
+      ],
+      "precision_checks": [
+        {
+          "id": "s2p1",
+          "type": "file_contains",
+          "label": "App imports Timer",
+          "file": "src/App.js",
+          "pattern": "import\\s+Timer"
+        },
+        {
+          "id": "s2p2",
+          "type": "file_contains",
+          "label": "Conditional Timer render",
+          "file": "src/App.js",
+          "pattern": "&&\\s*<Timer"
+        }
+      ],
+      "targets": [
+        {
+          "app": "Code",
+          "file": "src/App.js",
+          "match": "<Timer",
+          "caption": "Conditionally mount and unmount Timer based on showTimer"
+        }
+      ],
+      "explanations": [
+        {
+          "topic": "Using conditional rendering to mount and unmount Timer",
+          "t": 101.0,
+          "sourceId": "src1"
+        },
+        {
+          "topic": "Why the unmounted timer keeps logging without cleanup",
+          "t": 124.0,
+          "sourceId": "src1"
+        }
+      ],
+      "hints": [
+        "How can you conditionally render <Timer/> in JSX using a boolean state?",
+        "Create const [showTimer, setShowTimer] = useState(false) and toggle it in the button onClick handler.",
+        "Render <button onClick={() => setShowTimer(!showTimer)}>Toggle Timer</button> and {showTimer && <Timer/>}."
+      ],
+      "common_mistakes": [
+        "Forgetting to import Timer from ./Components/Timer",
+        "Passing setShowTimer(!showTimer) directly to onClick instead of wrapping it in an arrow function () => setShowTimer(!showTimer)"
+      ],
+      "code": "import React, { useState } from \"react\"; import Timer from \"./Components/Timer\"; function App() { const [showTimer, setShowTimer] = useState(false); return (<div><button onClick={() => setShowTimer(!showTimer)}>Toggle Timer</button>{showTimer && <Timer/>}</div>); } export default App;"
+    },
+    {
+      "id": "s3",
+      "index": 3,
+      "title": "Return cleanup function in Timer",
+      "instructions": "In src/Components/Timer.js, store setInterval's return value in intervalId and return a cleanup function from useEffect that calls clearInterval(intervalId) and logs 'clean up called'. Run npm start and toggle Timer off in Chrome to verify the timer stops.",
+      "video": {
+        "sourceId": "src1",
+        "start": 166.0,
+        "end": 236.0
+      },
+      "checks": [
+        {
+          "id": "s3c1",
+          "type": "screen_contains",
+          "label": "Cleanup calls clearInterval",
+          "app": "Code",
+          "pattern": "clearInterval\\s*\\("
+        },
+        {
+          "id": "s3c2",
+          "type": "screen_contains",
+          "label": "Dev server listening locally",
+          "app": "Terminal",
+          "pattern": "Local:\\s+http://localhost:\\d+|webpack\\s+compiled"
+        },
+        {
+          "id": "s3c3",
+          "type": "screen_absent",
+          "label": "No terminal errors",
+          "app": "Terminal",
+          "pattern": "Failed\\s+to\\s+compile|ERR!"
+        }
+      ],
+      "precision_checks": [
+        {
+          "id": "s3p1",
+          "type": "file_contains",
+          "label": "clearInterval in Timer",
+          "file": "src/Components/Timer.js",
+          "pattern": "clearInterval\\s*\\("
+        },
+        {
+          "id": "s3p2",
+          "type": "file_contains",
+          "label": "Cleanup function returned",
+          "file": "src/Components/Timer.js",
+          "pattern": "return\\s*\\(\\s*\\)\\s*=>"
+        }
+      ],
+      "targets": [
+        {
+          "app": "Code",
+          "file": "src/Components/Timer.js",
+          "match": "clearInterval(",
+          "caption": "Return a cleanup function from useEffect to clear the interval on unmount"
+        }
+      ],
+      "explanations": [
+        {
+          "topic": "Returning a cleanup function with clearInterval from useEffect",
+          "t": 176.0,
+          "sourceId": "src1"
+        },
+        {
+          "topic": "Verifying cleanup stops the background timer on unmount",
+          "t": 215.0,
+          "sourceId": "src1"
+        }
+      ],
+      "hints": [
+        "What does setInterval return so you can cancel it later?",
+        "Assign const intervalId = setInterval(...) and return () => { ... } at the end of the useEffect callback.",
+        "Inside the returned cleanup function, call clearInterval(intervalId) and console.log('clean up called')."
+      ],
+      "common_mistakes": [
+        "Calling clearInterval(intervalId) directly inside useEffect instead of inside a returned function",
+        "Forgetting to save the interval ID returned by setInterval"
+      ],
+      "run_command": "npm start",
+      "code": "const intervalId = setInterval(() => { setSeconds(prevSeconds => prevSeconds + 1); console.log('timer running...'); }, 1000); return () => { clearInterval(intervalId); console.log('clean up called'); };"
+    },
+    {
+      "id": "s4",
+      "index": 4,
+      "title": "Run cleanup on state change",
+      "instructions": "In src/Components/Timer.js, add a reset boolean state with a Reset button, include reset in the useEffect dependency array, and call setSeconds(0) inside the cleanup. Click Reset in Chrome to verify cleanup runs and seconds restart from 0.",
+      "video": {
+        "sourceId": "src1",
+        "start": 237.0,
+        "end": 335.0
+      },
+      "checks": [
+        {
+          "id": "s4c1",
+          "type": "screen_contains",
+          "label": "Cleanup resets seconds",
+          "app": "Code",
+          "pattern": "setSeconds\\s*\\(\\s*0\\s*\\)"
+        },
+        {
+          "id": "s4c2",
+          "type": "screen_contains",
+          "label": "Reset button rendered",
+          "app": "Code",
+          "pattern": "Reset\\s*</button>"
+        },
+        {
+          "id": "s4c3",
+          "type": "screen_contains",
+          "label": "Dev server compiled",
+          "app": "Terminal",
+          "pattern": "Compiled\\s+successfully|webpack\\s+compiled"
+        }
+      ],
+      "precision_checks": [
+        {
+          "id": "s4p1",
+          "type": "file_contains",
+          "label": "useEffect depends on reset",
+          "file": "src/Components/Timer.js",
+          "pattern": "\\[\\s*reset\\s*\\]"
+        },
+        {
+          "id": "s4p2",
+          "type": "file_contains",
+          "label": "setSeconds(0) in cleanup",
+          "file": "src/Components/Timer.js",
+          "pattern": "setSeconds\\s*\\(\\s*0\\s*\\)"
+        }
+      ],
+      "targets": [
+        {
+          "app": "Code",
+          "file": "src/Components/Timer.js",
+          "match": "setSeconds(0)",
+          "caption": "Reset seconds in cleanup, which runs whenever the dependency changes"
+        }
+      ],
+      "explanations": [
+        {
+          "topic": "How cleanup executes before re-running useEffect when a dependency changes",
+          "t": 237.0,
+          "sourceId": "src1"
+        },
+        {
+          "topic": "Tracing Reset button state change through cleanup and new interval creation",
+          "t": 297.0,
+          "sourceId": "src1"
+        }
+      ],
+      "hints": [
+        "How do you make useEffect re-run when the user clicks a Reset button?",
+        "Add const [reset, setReset] = useState(false) and put [reset] as the dependency array of useEffect.",
+        "Call setSeconds(0) inside the cleanup function and toggle reset in <button onClick={() => setReset(!reset)}>Reset</button>."
+      ],
+      "common_mistakes": [
+        "Forgetting to add reset to the useEffect dependency array [reset], so clicking Reset never triggers cleanup",
+        "Wrapping multiple JSX elements in Timer return without a parent <div>"
+      ],
+      "code": "const [reset, setReset] = useState(false); useEffect(() => { const intervalId = setInterval(() => { setSeconds(prevSeconds => prevSeconds + 1); console.log('timer running...'); }, 1000); return () => { clearInterval(intervalId); setSeconds(0); console.log('clean up called'); }; }, [reset]); return (<div><div>seconds : {seconds}</div><button onClick={() => setReset(!reset)}>Reset</button></div>);"
+    }
+  ],
+  "build": {
+    "adapted": true,
+    "model": {
+      "video": "gemini-4-hydrogen (watched the video)",
+      "adapt": "claude-opus-5-5"
+    },
+    "seconds": 37.2,
+    "workdir_metrics": [],
+    "workdir_fp": "ce81718481d5",
+    "community_signals": 0,
+    "warnings": []
+  }
+}

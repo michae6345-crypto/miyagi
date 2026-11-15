@@ -17,9 +17,22 @@ type DiagramState = {
   step?: string
   byKind: Partial<Record<DiagramKind, DiagramPayload>>
   kinds: DiagramKind[]
+  /** Concept diagrams for the drawer's concept panel (mockup 02), by concept title. Never shown on the island. */
+  concepts: Record<string, DiagramPayload>
 }
 
-const empty = { diagram: undefined, open: false, step: undefined, byKind: {}, kinds: [] } satisfies DiagramState
+const empty = { diagram: undefined, open: false, step: undefined, byKind: {}, kinds: [], concepts: {} } satisfies DiagramState
+
+/**
+ * The concept panel asks for a picture with action {kind:"diagram", text:"<concept title>"} (contract: concept
+ * diagrams are made on demand). The next `diagram` that arrives within this window is that picture: it goes to
+ * `concepts`, and the island stays as it is.
+ */
+const CONCEPT_WITHIN_MS = 60000
+let conceptAsk: { title: string; at: number } | undefined
+export function expectConceptDiagram(title: string): void {
+  conceptAsk = { title, at: Date.now() }
+}
 
 export const useDiagram = create<DiagramState>(() => ({ ...empty }))
 const set = useDiagram.setState
@@ -69,6 +82,12 @@ onUi('shortcut', (kind) => {
   return true
 })
 onMessage('diagram', (p) => {
+  if (conceptAsk && Date.now() - conceptAsk.at < CONCEPT_WITHIN_MS) {
+    const title = conceptAsk.title
+    conceptAsk = undefined
+    set({ concepts: { ...get().concepts, [title]: p } })
+    return
+  }
   const step = p.stepId ?? useLesson.getState().stepId
   const s = get()
   const same = s.step === step

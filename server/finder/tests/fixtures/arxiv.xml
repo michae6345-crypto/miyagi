@@ -1,0 +1,149 @@
+<?xml version='1.0' encoding='UTF-8'?>
+<feed xmlns:opensearch="http://a9.com/-/spec/opensearch/1.1/" xmlns:arxiv="http://arxiv.org/schemas/atom" xmlns="http://www.w3.org/2005/Atom">
+  <id>https://arxiv.org/api/QlI9jdBo7MdIcGi06Ckl+p1GA+I</id>
+  <title>arXiv Query: search_query=all:pinn AND all:convection&amp;id_list=&amp;start=0&amp;max_results=5</title>
+  <updated>2026-11-14T21:22:22Z</updated>
+  <link href="https://arxiv.org/api/query?search_query=all:pinn+AND+all:convection&amp;start=0&amp;max_results=5&amp;id_list=" type="application/atom+xml"/>
+  <opensearch:itemsPerPage>5</opensearch:itemsPerPage>
+  <opensearch:totalResults>82</opensearch:totalResults>
+  <opensearch:startIndex>0</opensearch:startIndex>
+  <entry>
+    <id>http://arxiv.org/abs/2505.02580v2</id>
+    <title>Temperature and pressure reconstruction in turbulent Rayleigh-Bénard convection by Lagrangian velocities using PINN</title>
+    <updated>2025-06-05T10:24:47Z</updated>
+    <link href="https://arxiv.org/abs/2505.02580v2" rel="alternate" type="text/html"/>
+    <link href="https://arxiv.org/pdf/2505.02580v2" rel="related" type="application/pdf" title="pdf"/>
+    <summary>Velocity, pressure, and temperature are the key variables for understanding thermal convection, and measuring them all is a complex task. In this paper, we demonstrate a method to reconstruct temperature and pressure fields based on given Lagrangian velocity data. A physics-informed neural network (PINN) based on a multilayer perceptron architecture and a periodic sine activation function is used to reconstruct both the temperature and the pressure for two cases of turbulent Rayleigh-Bénard convection (Pr = 6.9, Ra = $10^9$). The first dataset is generated with DNS and it includes Lagrangian velocity data of 150000 tracer particles. The second contains a PTV experiment with the same system parameters in a water-filled cubic cell, and we observed about 50000 active particle tracks per time step with the open-source framework proPTV. A realistic temperature and pressure field could be reconstructed in both cases, which underlines the importance of PINNs also in the context of experimental data. In the case of the DNS, the reconstructed temperature and pressure fields show a 90\% correlation over all particles when directly validated against the ground truth. Thus, the proposed method, in combination with particle tracking velocimetry, is able to provide velocity, temperature, and pressure fields in convective flows even in the hard turbulence regime. The PINN used in this paper is compatible with proPTV and is part of an open source project. It is available on request at https://github.com/DLR-AS-BOA.</summary>
+    <category term="physics.flu-dyn" scheme="http://arxiv.org/schemas/atom"/>
+    <category term="physics.comp-ph" scheme="http://arxiv.org/schemas/atom"/>
+    <published>2025-05-05T11:31:33Z</published>
+    <arxiv:comment>This manuscript is also submitted to Measurments Science and Technology</arxiv:comment>
+    <arxiv:primary_category term="physics.flu-dyn"/>
+    <author>
+      <name>R. Barta</name>
+    </author>
+    <author>
+      <name>M. -C. Volk</name>
+    </author>
+    <author>
+      <name>C. Bauer</name>
+    </author>
+    <author>
+      <name>C. Wagner</name>
+    </author>
+    <author>
+      <name>M. Mommert</name>
+    </author>
+  </entry>
+  <entry>
+    <id>http://arxiv.org/abs/2503.23801v1</id>
+    <title>A PINN Methodology for Temperature Field Reconstruction in the PIV Measurement Plane: Case of Rayleigh-Bénard Convection</title>
+    <updated>2025-03-31T07:24:06Z</updated>
+    <link href="https://arxiv.org/abs/2503.23801v1" rel="alternate" type="text/html"/>
+    <link href="https://arxiv.org/pdf/2503.23801v1" rel="related" type="application/pdf" title="pdf"/>
+    <summary>We present a method to infer temperature fields from stereo particle-image velocimetry (PIV) data in turbulent Rayleigh-Bénard convection (RBC) using Physics-informed neural networks (PINNs). The physical setup is a cubic RBC cell with Rayleigh number $\text{Ra}=10^7$ and Prandtl number $\text{Pr}=0.7$. With data only available in a vertical plane $A:x=x_0$, the residuals of the governing partial differential equations are minimised in an enclosing 3D domain around $A$ with thickness $δ_x$. Dynamic collocation point sampling strategies are used to overcome the lack of 3D labelled information and to optimize the overall convergence of the PINN. In particular, in the out-of-plane direction $x$, the collocation points are distributed according to a normal distribution, in order to emphasize the region where data is provided. Along the vertical direction, we leverage meshing information and sample points from a distribution designed based on the grid of a direct numerical simulation (DNS). This approach points greater attention to critical regions, particularly the areas with high temperature gradients within the thermal boundary layers. Using planar three-component velocity data from a DNS, we successfully validate the reconstruction of the temperature fields in the PIV plane. We evaluate the robustness of our method with respect to characteristics of the labelled data used for training: the data time span, the sampling frequency, some noisy data and boundary data omission, aiming to better accommodate the challenges associated with experimental data. Developing PINNs on controlled simulation data is a crucial step toward their effective deployment on experimental data. The key is to systematically introduce noise, gaps, and uncertainties in simulated data to mimic real-world conditions and ensure robust generalization.</summary>
+    <category term="physics.flu-dyn" scheme="http://arxiv.org/schemas/atom"/>
+    <published>2025-03-31T07:24:06Z</published>
+    <arxiv:primary_category term="physics.flu-dyn"/>
+    <author>
+      <name>Marie-Christine Volk</name>
+    </author>
+    <author>
+      <name>Anne Sergent</name>
+    </author>
+    <author>
+      <name>Didier Lucor</name>
+    </author>
+    <author>
+      <name>Michael Mommert</name>
+    </author>
+    <author>
+      <name>Christian Bauer</name>
+    </author>
+    <author>
+      <name>Claus Wagner</name>
+    </author>
+    <arxiv:doi>10.1016/j.icheatmasstransfer.2025.109284</arxiv:doi>
+    <link rel="related" href="https://doi.org/10.1016/j.icheatmasstransfer.2025.109284" title="doi"/>
+  </entry>
+  <entry>
+    <id>http://arxiv.org/abs/2607.03682v2</id>
+    <title>LRX-PINN: A Layer-Resolving XNet Physics-Informed Neural Network with Integrated Cauchy Activations for Convection-Dominated Problems</title>
+    <updated>2026-07-12T12:14:42Z</updated>
+    <link href="https://arxiv.org/abs/2607.03682v2" rel="alternate" type="text/html"/>
+    <link href="https://arxiv.org/pdf/2607.03682v2" rel="related" type="application/pdf" title="pdf"/>
+    <summary>Convection-dominated convection-diffusion problems often develop thin layers, where the solution has sharp transition profiles and its derivatives are highly localized. This creates a structural mismatch for standard physics-informed neural networks (PINNs), whose trial spaces are not designed to match the value--derivative structure of such layers. We propose a Layer-Resolving XNet Physics-Informed Neural Network (LRX-PINN) based on integrated Cauchy activations. The proposed basis is transition-type at the solution level, while its derivative recovers a localized Cauchy kernel. We show that this structure matches the scaling of convection-dominated layers, inherits the Cauchy approximation mechanism at the derivative-profile level, and identifies \(d/\|w\|\) as the effective physical width of a ridge neuron. For analytic layer profiles, this yields derivative-stable exponential approximation in the stretched coordinate and a layer-scaled estimate for the strong residual of the singularly perturbed operator. Numerical experiments on several convection-dominated benchmarks show that LRX-PINN achieves higher accuracy than PIKAN and Fourier-feature PINNs while using less than \(30\%\) of their trainable parameters. On more challenging benchmarks, embedding the proposed representation into hp-VPINN-based frameworks further improves the best results obtained by existing hp-VPINN-based baselines without changing their original loss functionals or stabilization strategies. These results show that neural representations aligned with layer structure provide a compact and effective approach for convection-dominated problems.</summary>
+    <category term="math.AP" scheme="http://arxiv.org/schemas/atom"/>
+    <category term="cs.LG" scheme="http://arxiv.org/schemas/atom"/>
+    <published>2026-07-04T03:25:05Z</published>
+    <arxiv:comment>30 pages; 16 figures</arxiv:comment>
+    <arxiv:primary_category term="math.AP"/>
+    <author>
+      <name>Zihao Guo</name>
+    </author>
+    <author>
+      <name>Xin Li</name>
+    </author>
+    <author>
+      <name>Zhihong Xia</name>
+    </author>
+  </entry>
+  <entry>
+    <id>http://arxiv.org/abs/2603.24114v1</id>
+    <title>FFV-PINN: A Fast Physics-Informed Neural Network with Simplified Finite Volume Discretization and Residual Correction</title>
+    <updated>2026-03-25T09:22:30Z</updated>
+    <link href="https://arxiv.org/abs/2603.24114v1" rel="alternate" type="text/html"/>
+    <link href="https://arxiv.org/pdf/2603.24114v1" rel="related" type="application/pdf" title="pdf"/>
+    <summary>Physics-informed neural networks (PINNs) have emerged as a major research focus. However, today's PINNs encounter several limitations. Firstly, during the construction of the loss function using automatic differentiation, PINNs often neglect information from neighboring points, which hinders their ability to enforce physical constraints and diminishes their accuracy. Furthermore, issues such as instability and poor convergence persist during PINN training, limiting their applicability to complex fluid dynamics problems. To address these challenges, a fast physics-informed neural network framework that integrates a simplified finite volume method (FVM) and residual correction loss term has been proposed, referred to as Fast Finite Volume PINN (FFV-PINN). FFV-PINN utilizes a simplified FVM discretization for the convection term, with an accompanying improvement in the dispersion and dissipation behavior. Unlike traditional FVM, the FFV-PINN outputs can be simply and directly harnessed to approximate values on control surfaces, thereby simplifying the discretization process. Moreover, a residual correction loss term is introduced to significantly accelerates convergence and improves training efficiency. To validate the performance, we solve a series of challenging problems -- including flow in the two-dimensional steady and unsteady lid-driven cavity, three-dimensional steady lid-driven cavity, backward-facing step flows, and natural convection at high Reynolds number and Rayleigh number. Notably, the FFV-PINN can achieve data-free solutions for the lid-driven cavity flow at Re = 10000 and natural convection at Ra = 1e8 for the first time in PINN literature, even while requiring only 680s and 231s. It further highlights the effectiveness of FFV-PINN in improving both speed and accuracy, marking another step forward in the progression of PINNs as competitive neural PDE solvers.</summary>
+    <category term="cs.CE" scheme="http://arxiv.org/schemas/atom"/>
+    <published>2026-03-25T09:22:30Z</published>
+    <arxiv:primary_category term="cs.CE"/>
+    <arxiv:journal_ref>Computer Methods in Applied Mechanics and Engineering 444 (2025): 118139</arxiv:journal_ref>
+    <author>
+      <name>Chang Wei</name>
+    </author>
+    <author>
+      <name>Yuchen Fan</name>
+    </author>
+    <author>
+      <name>Jian Cheng Wong</name>
+    </author>
+    <author>
+      <name>Chin Chun Ooi</name>
+    </author>
+    <author>
+      <name>Heyang Wang</name>
+    </author>
+    <author>
+      <name>Pao-Hsiung Chiu</name>
+    </author>
+    <arxiv:doi>10.1016/j.cma.2025.118139</arxiv:doi>
+    <link rel="related" href="https://doi.org/10.1016/j.cma.2025.118139" title="doi"/>
+  </entry>
+  <entry>
+    <id>http://arxiv.org/abs/2603.01998v1</id>
+    <title>Hybrid ROM-PINN Framework for Closure Modeling in Convection-Dominated Systems</title>
+    <updated>2026-03-02T15:49:21Z</updated>
+    <link href="https://arxiv.org/abs/2603.01998v1" rel="alternate" type="text/html"/>
+    <link href="https://arxiv.org/pdf/2603.01998v1" rel="related" type="application/pdf" title="pdf"/>
+    <summary>Reduced-order models (ROMs) have become an essential tool for reducing the computational cost of fluid flow simulations. While standard ROMs can efficiently approximate laminar flows, their accuracy often suffers in convection-dominated regimes due to the truncation of dynamically important modes. To account for the influence of unresolved scales, ROM closure models are commonly introduced. Classical closure strategies are typically based on phenomenological arguments or analogies with large eddy simulation (LES), often formulated within a variational multiscale (VMS) framework, in which the resolved and unresolved scales are explicitly separated and their interactions are systematically modeled. More recently, advances in data-driven modeling and machine learning have opened new opportunities to construct ROM closures that are both more accurate and more consistent with the underlying physics. In this work, we develop a new ROM closure that combines machine learning with physics-based modeling principles. The closure term is derived within a VMS framework, where the reduced solution space is decomposed into resolved and unresolved components. This VMS-derived closure term is then modeled using PhysicsInformed Neural Networks (PINNs) and incorporated into a newly constructed C-PINN-ROM. The resulting closure leverages high-fidelity data while enforcing physical constraints imposed by the reduced-order equations, thereby ensuring consistency with the underlying dynamics and enhanced robustness in convection-dominated regimes. Through this PINN-based framework, we demonstrate how physics-informed machine learning can substantially improve the accuracy and robustness of ROMs, effectively bridging classical multiscale closure modeling with state-of-the-art data-driven methodologies.</summary>
+    <category term="physics.flu-dyn" scheme="http://arxiv.org/schemas/atom"/>
+    <published>2026-03-02T15:49:21Z</published>
+    <arxiv:primary_category term="physics.flu-dyn"/>
+    <author>
+      <name>Ferhat Kaya</name>
+    </author>
+    <author>
+      <name>Birgul Koc</name>
+    </author>
+    <author>
+      <name>Atakan Aygun</name>
+    </author>
+    <author>
+      <name>Onur Ata</name>
+    </author>
+    <author>
+      <name>Ali Karakus</name>
+    </author>
+  </entry>
+</feed>

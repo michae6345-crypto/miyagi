@@ -10,6 +10,7 @@
 import { create } from 'zustand'
 import type { Payload } from '../../../../common/wire'
 import { onMessage, onUi } from '../../core/bus'
+import { usePressed } from '../../core/shortcuts'
 import { useCards } from '../cards/store'
 import { sameRect } from './place'
 
@@ -37,7 +38,12 @@ export const JITTER_PX = 8
 /** A card that opens this soon after its spotlight still owns it (the engine may send them in either order). */
 const PAIR_MS = 1500
 
-export const useSpotlight = create<{ target?: SpotlightTarget; targets: CoachTarget[] }>(() => ({ target: undefined, targets: [] }))
+/**
+ * showMe: the current target answers a Show me press, so it keeps the strong dim (scrim.spotlight). Anything else in a
+ * "Just teach me" lesson (the step's "type here" target) gets the soft one, so the learner's own code stays readable
+ * (Michael's audit A6). See Spotlight.tsx.
+ */
+export const useSpotlight = create<{ target?: SpotlightTarget; targets: CoachTarget[]; showMe: boolean }>(() => ({ target: undefined, targets: [], showMe: false }))
 const set = useSpotlight.setState
 const get = useSpotlight.getState
 
@@ -51,8 +57,26 @@ function clearNow(): void {
   clearTimeout(pendingClear)
   pendingClear = undefined
   cameWith = undefined
-  set({ target: undefined, targets: [] })
+  set({ target: undefined, targets: [], showMe: false })
 }
+
+/**
+ * The last Show me press, for as long as a spotlight can still be its answer: core clears `usePressed` the moment
+ * the spotlight arrives (maybe before our handler runs), so keep our own copy. Another press, a new step or a
+ * reset ends it, and so does SHOW_ME_MS without an answer.
+ */
+const SHOW_ME_MS = 30_000
+let showMePressedAt = 0
+usePressed.subscribe((s) => {
+  if (s.kind) showMePressedAt = s.kind === 'show_me' ? s.at : 0
+})
+const answersShowMe = (): boolean => usePressed.getState().kind === 'show_me' || (showMePressedAt > 0 && Date.now() - showMePressedAt < SHOW_ME_MS)
+const forgetShowMe = (): void => {
+  showMePressedAt = 0
+}
+onUi('reset', forgetShowMe)
+onMessage('step.started', forgetShowMe)
+onMessage('step.passed', forgetShowMe)
 
 /** Clear, but give a replacement that's already on its way a beat to arrive (no dim flash). */
 function clearSoon(): void {
@@ -93,8 +117,10 @@ onMessage('spotlight', (p) => {
   if (prev && still && prev.caption === next.caption && prev.matched === next.matched && prev.code === next.code && prev.snippet === next.snippet) return
   arrivedAt = Date.now()
   cameWith = openCard()
+  // A Show me answer keeps its strong dim while the engine re-reads it (new words at the same place).
+  const showMe = answersShowMe() || (still && get().showMe)
   // New words at (nearly) the same place: keep the old rect so only the caption changes.
-  set({ target: still && prev ? { ...next, rect: prev.rect } : next })
+  set({ target: still && prev ? { ...next, rect: prev.rect } : next, showMe })
 })
 
 // The coach's targets: the engine spotlights targets[0]; the rest are drawn as extra cut-outs while it's up.

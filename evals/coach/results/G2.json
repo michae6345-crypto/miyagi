@@ -1,0 +1,151 @@
+{
+ "id": "G2",
+ "topic": "git",
+ "step": "s3",
+ "mistake": "At the `edit` stop, removed the debug line in index.js but ran `git rebase --continue` without `git add`",
+ "truth": "The edit is unstaged; git refuses with the (misleading) 'You must edit all merge conflicts ... using git add'. There is no conflict. Fix: `git add index.js` then `git rebase --continue`.",
+ "ocr": {
+  "blocks": 40,
+  "ms": 157,
+  "lines_by_app": {
+   "": 2,
+   "Code": 18,
+   "Terminal": 11
+  }
+ },
+ "cursor": {
+  "xy": [
+   1012.0,
+   240.2
+  ],
+  "on": "You must edit all merge conflicts and then"
+ },
+ "gate_before": {
+  "passed": false,
+  "via": null,
+  "passed_screen_only": false,
+  "checks": [
+   "s3c1 pass: seen in Terminal: 'Stopped at'",
+   "s3c2 fail: not seen in Terminal",
+   "s3c3 pass: not showing in Terminal"
+  ],
+  "precision": [
+   "s3p1 pending: run `tut run ! git log -p main..feature/login -- index.js | grep -q '^+.*DEBUG: LOGIN'`",
+   "s3p2 pending: run `tut run test ! -d .git/rebase-merge`"
+  ]
+ },
+ "fires": true,
+ "fires_screen_only": true,
+ "inputs": {
+  "code_from": "screen OCR (Code)",
+  "code_chars": 362,
+  "target_location": null,
+  "cursor_under": "You must edit all merge conflicts and then"
+ },
+ "warm_s": 1.79,
+ "card_s": 2.8,
+ "targets_s": null,
+ "card": {
+  "stepId": "s3",
+  "severity": "warn",
+  "title": "Not yet: Rebase completed",
+  "body": "Change only the first line's pick keyword to edit, then save and close git-rebase-todo.",
+  "actions": [
+   "explain",
+   "show_me",
+   "hint"
+  ]
+ },
+ "meta": {
+  "route": "template",
+  "triage": {
+   "route": "template",
+   "by": "haiku",
+   "reason": "The failed check says the rebase completion was not seen in Terminal and there is no error output, which suggests the learner has not yet run the rebase steps. No known playbook failure mode matches, so the step's own hint should be enough."
+  },
+  "model": null,
+  "latency_s": null,
+  "playbook_id": null,
+  "web_sources": [],
+  "usage": null
+ },
+ "diagnosis_auto": false,
+ "targets": {
+  "n": 0,
+  "any": false,
+  "first": false,
+  "texts": [],
+  "labels": []
+ },
+ "hint3": {
+  "title": "Compare with the tutorial",
+  "diff": null
+ },
+ "orchestrator_resolves_file": false,
+ "patch": {
+  "file": "index.js",
+  "unified_diff": "",
+  "summary": "index.js is already clean; stage it and continue rebase",
+  "line": 6,
+  "requires_confirmation": true,
+  "_meta": {
+   "via": "opus#1"
+  },
+  "s": 4.54,
+  "changed_lines": 0
+ },
+ "check_after": {
+  "in_progress": true,
+  "commits": [
+   "Add README and login endpoint",
+   "Add logout endpoint",
+   "Cleanup",
+   "Add authentication middleware"
+  ],
+  "log": [
+   "# wrote index.js",
+   "learner@MacBook-Pro git-rebase-lab % git rebase --continue",
+   "You must edit all merge conflicts and then",
+   "mark them as resolved using git add",
+   "learner@MacBook-Pro git-rebase-lab % git rebase --continue",
+   "You must edit all merge conflicts and then",
+   "mark them as resolved using git add",
+   "learner@MacBook-Pro git-rebase-lab % git rebase --continue",
+   "You must edit all merge conflicts and then",
+   "mark them as resolved using git add",
+   "learner@MacBook-Pro git-rebase-lab % git rebase --continue",
+   "You must edit all merge conflicts and then",
+   "mark them as resolved using git add"
+  ],
+  "ok": false,
+  "why": "rebase not finished or debug line kept",
+  "terminal": [
+   "# wrote index.js",
+   "learner@MacBook-Pro git-rebase-lab % git rebase --continue",
+   "You must edit all merge conflicts and then",
+   "mark them as resolved using git add",
+   "learner@MacBook-Pro git-rebase-lab % git rebase --continue",
+   "You must edit all merge conflicts and then",
+   "mark them as resolved using git add",
+   "learner@MacBook-Pro git-rebase-lab % git rebase --continue",
+   "You must edit all merge conflicts and then",
+   "mark them as resolved using git add",
+   "learner@MacBook-Pro git-rebase-lab % git rebase --continue",
+   "You must edit all merge conflicts and then",
+   "mark them as resolved using git add"
+  ],
+  "index_after": "const express = require('express');\nconst app = express();\napp.use(express.json());\n\napp.post('/login', (req, res) => {\n  res.json({ ok: true });\n});\n\napp.listen(3000, () => console.log('Server running on port 3000'));\n"
+ },
+ "gate_after": {
+  "passed": false,
+  "via": null,
+  "failed": [
+   "s3c2 Rebase completed: not seen in Terminal"
+  ]
+ },
+ "spotlight": {
+  "via": "step target (fallback)",
+  "rect": null,
+  "on_line": false
+ }
+}

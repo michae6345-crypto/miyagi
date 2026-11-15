@@ -1,0 +1,631 @@
+{
+ "meta": {
+  "id": "react-useeffect",
+  "url": "https://www.youtube.com/watch?v=L-1sP3Ljhsg",
+  "goal": "learn the React useEffect hook: run side effects on mount and on state changes, and clean them up",
+  "src": "/private/tmp/claude-501/-Users-tripi-sand-hacks-sandhacks-tutor--claude-worktrees-lesson-eval-fe1fb1/e71fa444-540f-45b2-90e3-d8ca490665c3/scratchpad/src6",
+  "engine_env": "auto",
+  "captions": "saved by an earlier run (results/); live fetch failed: no transcript for L-1sP3Ljhsg: brightdata watch page: Bright Data returned an empty body; brightdata captions: Bright Data returned an empty body; timedtext: Cl",
+  "wall_s": 45.6,
+  "workdir": "(fresh empty temp dir)",
+  "model": {
+   "video": "gemini-4-hydrogen (watched the video)",
+   "adapt": "claude-opus-5-5"
+  },
+  "path": "gemini",
+  "fallback_notes": [],
+  "length_s": 1191
+ },
+ "graph": {
+  "lesson": {
+   "id": "lesson-1e38dd20",
+   "title": "React useEffect Hook Introduction",
+   "goal": "learn the React useEffect hook: run side effects on mount and on state changes, and clean them up",
+   "libraries": {
+    "react": "18.x",
+    "vite": "5.x"
+   },
+   "builtBy": "gemini",
+   "workdir": "/var/folders/2g/b60087014tq94njh6r4zdmhm0000gn/T/lesson-eval-react-useeffect-148awmkl"
+  },
+  "sources": [
+   {
+    "id": "src1",
+    "kind": "video",
+    "title": "React useEffect Hook Introduction",
+    "url": "https://www.youtube.com/watch?v=L-1sP3Ljhsg",
+    "videoId": "L-1sP3Ljhsg"
+   }
+  ],
+  "steps": [
+   {
+    "id": "s1",
+    "index": 1,
+    "title": "Set up React counter component",
+    "instructions": "Create a Vite React project (npm create vite@latest my-react-app -- --template react), run npm install and npm run dev, and render MyComponent in src/App.jsx. In src/MyComponent.jsx, import useState and useEffect, add a count state starting at 0, and render a paragraph plus an Add button wired to addCount.",
+    "video": {
+     "sourceId": "src1",
+     "start": 120.0,
+     "end": 205.0
+    },
+    "checks": [
+     {
+      "id": "s1c1",
+      "type": "screen_contains",
+      "label": "Import useState and useEffect",
+      "app": "Code",
+      "pattern": "useState\\s*,\\s*useEffect"
+     },
+     {
+      "id": "s1c2",
+      "type": "screen_contains",
+      "label": "Initialize count with useState",
+      "app": "Code",
+      "pattern": "useState\\(0\\)"
+     },
+     {
+      "id": "s1c3",
+      "type": "screen_contains",
+      "label": "Vite dev server running",
+      "app": "Terminal",
+      "pattern": "Local:\\s+http://localhost:\\d+"
+     },
+     {
+      "id": "s1c4",
+      "type": "screen_absent",
+      "label": "No terminal errors",
+      "app": "Terminal",
+      "pattern": "ERR!|Error:|error\\s+TS\\d+"
+     }
+    ],
+    "precision_checks": [
+     {
+      "id": "s1p1",
+      "type": "file_exists",
+      "label": "Vite package.json exists",
+      "file": "my-react-app/package.json"
+     },
+     {
+      "id": "s1p2",
+      "type": "file_contains",
+      "label": "Component uses useState(0)",
+      "file": "my-react-app/src/MyComponent.jsx",
+      "pattern": "useState\\(0\\)"
+     },
+     {
+      "id": "s1p3",
+      "type": "file_contains",
+      "label": "App renders MyComponent",
+      "file": "my-react-app/src/App.jsx",
+      "pattern": "<MyComponent"
+     }
+    ],
+    "targets": [
+     {
+      "app": "Code",
+      "file": "src/MyComponent.jsx",
+      "match": "useState(0)",
+      "caption": "Declare the count state variable and addCount updater"
+     },
+     {
+      "app": "Terminal",
+      "match": "Local:",
+      "caption": "Vite dev server URL"
+     }
+    ],
+    "explanations": [
+     {
+      "topic": "What useEffect does and its three trigger modes",
+      "t": 8.0,
+      "sourceId": "src1"
+     },
+     {
+      "topic": "Importing useEffect from react",
+      "t": 120.0,
+      "sourceId": "src1"
+     }
+    ],
+    "hints": [
+     "Did you create the Vite React app and render <MyComponent /> inside src/App.jsx?",
+     "Import both useState and useEffect from \"react\" at the top of src/MyComponent.jsx.",
+     "Use const [count, setCount] = useState(0); and update it with setCount(c => c + 1); inside addCount."
+    ],
+    "common_mistakes": [
+     "Forgetting to export default MyComponent or import it into src/App.jsx",
+     "Using onClick={addCount()} instead of passing the function reference onClick={addCount}"
+    ],
+    "run_command": "npm run dev",
+    "code": "import React, {useState, useEffect} from \"react\"; function MyComponent() { const [count, setCount] = useState(0); function addCount(){ setCount(c => c + 1); } return (<> <p>Count: {count}</p> <button onClick={addCount}>Add</button> </>); } export default MyComponent;"
+   },
+   {
+    "id": "s2",
+    "index": 2,
+    "title": "Run useEffect on every render",
+    "instructions": "Inside MyComponent, add a useEffect call with an arrow function and no dependency array. In the callback, set document.title to a template string showing the current count.",
+    "video": {
+     "sourceId": "src1",
+     "start": 205.0,
+     "end": 290.0
+    },
+    "checks": [
+     {
+      "id": "s2c1",
+      "type": "screen_contains",
+      "label": "Call useEffect hook",
+      "app": "Code",
+      "pattern": "useEffect\\(\\s*\\(\\)\\s*=>"
+     },
+     {
+      "id": "s2c2",
+      "type": "screen_contains",
+      "label": "Update document title",
+      "app": "Code",
+      "pattern": "document\\.title\\s*="
+     }
+    ],
+    "precision_checks": [
+     {
+      "id": "s2p1",
+      "type": "file_contains",
+      "label": "Effect sets document.title",
+      "file": "my-react-app/src/MyComponent.jsx",
+      "pattern": "document\\.title\\s*="
+     }
+    ],
+    "targets": [
+     {
+      "app": "Code",
+      "file": "src/MyComponent.jsx",
+      "match": "document.title",
+      "caption": "Set document.title inside useEffect without a dependency array"
+     }
+    ],
+    "explanations": [
+     {
+      "topic": "Running useEffect after every re-render when no dependencies array is passed",
+      "t": 207.0,
+      "sourceId": "src1"
+     },
+     {
+      "topic": "Empty dependency array runs side code only once on mount",
+      "t": 290.0,
+      "sourceId": "src1"
+     }
+    ],
+    "hints": [
+     "Where should useEffect be placed inside a function component?",
+     "Place useEffect(() => { ... }); near the top of MyComponent, after useState.",
+     "Assign document.title = `Count: ${count}`; inside the arrow function."
+    ],
+    "common_mistakes": [
+     "Using regular single quotes instead of backticks for the template literal `Count: ${count}`",
+     "Calling useEffect inside a nested helper function instead of at the top level of the component"
+    ],
+    "code": "useEffect(() => { document.title = `Count: ${count}`; });"
+   },
+   {
+    "id": "s3",
+    "index": 3,
+    "title": "Limit useEffect to component mount",
+    "instructions": "In src/MyComponent.jsx, pass an empty array [] as the second argument to useEffect so the title only updates when the component first mounts. Click Add in the browser to verify the count increments while the page title stays unchanged.",
+    "video": {
+     "sourceId": "src1",
+     "start": 290.0,
+     "end": 351.0
+    },
+    "checks": [
+     {
+      "id": "s3c1",
+      "type": "screen_contains",
+      "label": "Empty dependency array",
+      "app": "Code",
+      "pattern": "document\\.title[\\s\\S]{0,40}\\}\\s*,\\s*\\[\\s*\\]"
+     },
+     {
+      "id": "s3c2",
+      "type": "screen_contains",
+      "label": "useEffect used",
+      "app": "Code",
+      "pattern": "useEffect\\s*\\("
+     }
+    ],
+    "precision_checks": [
+     {
+      "id": "s3p1",
+      "type": "file_contains",
+      "label": "Empty deps in file",
+      "file": "src/MyComponent.jsx",
+      "pattern": "useEffect\\([\\s\\S]*\\}\\s*,\\s*\\[\\s*\\]\\s*\\)"
+     }
+    ],
+    "targets": [
+     {
+      "app": "Code",
+      "file": "src/MyComponent.jsx",
+      "match": "}, []);",
+      "caption": "Add an empty dependency array to run the effect only on mount"
+     }
+    ],
+    "explanations": [
+     {
+      "topic": "Running useEffect on mount plus when a specific dependency changes",
+      "t": 351.0,
+      "sourceId": "src1"
+     }
+    ],
+    "hints": [
+     "What second argument tells useEffect to run only once?",
+     "Pass an empty array [] after the callback function in useEffect.",
+     "Your call should end with }, []);"
+    ],
+    "common_mistakes": [
+     "Leaving out the comma between the callback function and the dependency array",
+     "Omitting the empty array when you only want one-time initialization on mount"
+    ],
+    "code": "useEffect(() => { document.title = `Count: ${count}`; }, []);"
+   },
+   {
+    "id": "s4",
+    "index": 4,
+    "title": "Trigger useEffect on count changes",
+    "instructions": "In src/MyComponent.jsx, add count to the useEffect dependency array so the title updates on mount and whenever count changes. Also add a subtractCount function and a Subtract button to test decrementing count.",
+    "video": {
+     "sourceId": "src1",
+     "start": 351.0,
+     "end": 445.0
+    },
+    "checks": [
+     {
+      "id": "s4c1",
+      "type": "screen_contains",
+      "label": "Add subtractCount handler",
+      "app": "Code",
+      "pattern": "function\\s+subtractCount|subtractCount\\s*="
+     }
+    ],
+    "precision_checks": [
+     {
+      "id": "s4p1",
+      "type": "file_contains",
+      "label": "count dependency in file",
+      "file": "src/MyComponent.jsx",
+      "pattern": "\\}\\s*,\\s*\\[\\s*count\\s*\\]\\s*\\)"
+     },
+     {
+      "id": "s4p2",
+      "type": "file_contains",
+      "label": "Subtract button in file",
+      "file": "src/MyComponent.jsx",
+      "pattern": "onClick=\\{subtractCount\\}"
+     }
+    ],
+    "targets": [
+     {
+      "app": "Code",
+      "file": "src/MyComponent.jsx",
+      "match": "[count]",
+      "caption": "Include count in the dependency array"
+     }
+    ],
+    "explanations": [
+     {
+      "topic": "Difference between no dependency array and [value]",
+      "t": 382.0,
+      "sourceId": "src1"
+     }
+    ],
+    "hints": [
+     "Which state variable should trigger the title update?",
+     "Put count inside the dependency array: [count].",
+     "Duplicate addCount to create subtractCount using setCount(c => c - 1); and wire a Subtract button."
+    ],
+    "common_mistakes": [
+     "Putting quotes around \"count\" in the dependency array instead of passing the state variable",
+     "Mutating count directly instead of using setCount(c => c - 1)"
+    ],
+    "code": "useEffect(() => { document.title = `Count: ${count}`; }, [count]); function subtractCount(){ setCount(c => c - 1); } <button onClick={subtractCount}>Subtract</button>"
+   },
+   {
+    "id": "s5",
+    "index": 5,
+    "title": "Watch multiple dependencies in useEffect",
+    "instructions": "In src/MyComponent.jsx, add a color state starting at \"green\", a changeColor function toggling green/red, a Change Color button, and style the paragraph with {{color: color}}. Include ${color} in document.title and use [count, color] as the dependency array.",
+    "video": {
+     "sourceId": "src1",
+     "start": 445.0,
+     "end": 597.0
+    },
+    "checks": [
+     {
+      "id": "s5c1",
+      "type": "screen_contains",
+      "label": "Add color state",
+      "app": "Code",
+      "pattern": "setColor\\]\\s*=\\s*useState"
+     },
+     {
+      "id": "s5c2",
+      "type": "screen_contains",
+      "label": "Watch count and color",
+      "app": "Code",
+      "pattern": "count\\s*,\\s*color\\s*\\]|color\\s*,\\s*count\\s*\\]"
+     }
+    ],
+    "precision_checks": [
+     {
+      "id": "s5p1",
+      "type": "file_contains",
+      "label": "Deps in file",
+      "file": "src/MyComponent.jsx",
+      "pattern": "\\[\\s*(count\\s*,\\s*color|color\\s*,\\s*count)\\s*\\]"
+     },
+     {
+      "id": "s5p2",
+      "type": "file_contains",
+      "label": "changeColor defined",
+      "file": "src/MyComponent.jsx",
+      "pattern": "changeColor"
+     }
+    ],
+    "targets": [
+     {
+      "app": "Code",
+      "file": "src/MyComponent.jsx",
+      "match": "[count, color]",
+      "caption": "Re-run the effect when either count or color changes"
+     }
+    ],
+    "explanations": [
+     {
+      "topic": "Why missing a dependency causes stale title updates",
+      "t": 543.0,
+      "sourceId": "src1"
+     },
+     {
+      "topic": "Benefits of useEffect for organization and cleanup",
+      "t": 609.0,
+      "sourceId": "src1"
+     }
+    ],
+    "hints": [
+     "Notice how changing color does not update the title until color is listed as a dependency.",
+     "Create color state with useState(\"green\") and toggle it with a ternary in changeColor.",
+     "Update the dependency array to [count, color] so either state change updates document.title."
+    ],
+    "common_mistakes": [
+     "Using single curly braces style={color: color} instead of double curly braces style={{color: color}} in JSX",
+     "Forgetting to add color to the dependency array when color is used inside useEffect"
+    ],
+    "code": "const [color, setColor] = useState(\"green\"); useEffect(() => { document.title = `Count: ${count} ${color}`; }, [count, color]); function changeColor(){ setColor(c => c === \"green\" ? \"red\" : \"green\"); } <p style={{color: color}}>Count: {count}</p> <button onClick={changeColor}>Change Color</button>"
+   },
+   {
+    "id": "s6",
+    "index": 6,
+    "title": "Track window resize with useEffect",
+    "instructions": "In src/MyComponent.jsx, create width and height state initialized from window.innerWidth and window.innerHeight and render them in two paragraphs. Define handleResize to update both, and register window.addEventListener(\"resize\", handleResize) inside a useEffect with an empty dependency array.",
+    "video": {
+     "sourceId": "src1",
+     "start": 693.0,
+     "end": 951.0
+    },
+    "checks": [
+     {
+      "id": "s6c1",
+      "type": "screen_contains",
+      "label": "Initialize window dimensions",
+      "app": "Code",
+      "pattern": "window\\.innerWidth"
+     },
+     {
+      "id": "s6c2",
+      "type": "screen_contains",
+      "label": "Register resize listener",
+      "app": "Code",
+      "pattern": "addEventListener\\(\\s*\\S?resize"
+     },
+     {
+      "id": "s6c3",
+      "type": "screen_contains",
+      "label": "Effect hook used",
+      "app": "Code",
+      "pattern": "useEffect\\("
+     }
+    ],
+    "precision_checks": [
+     {
+      "id": "s6p1",
+      "type": "file_contains",
+      "label": "Resize listener in file",
+      "file": "src/MyComponent.jsx",
+      "pattern": "addEventListener\\(\\s*[\"']resize[\"']"
+     },
+     {
+      "id": "s6p2",
+      "type": "file_contains",
+      "label": "Empty dependency array",
+      "file": "src/MyComponent.jsx",
+      "pattern": "\\}\\s*,\\s*\\[\\s*\\]\\s*\\)"
+     }
+    ],
+    "targets": [
+     {
+      "app": "Code",
+      "file": "src/MyComponent.jsx",
+      "match": "addEventListener(\"resize\"",
+      "caption": "Attach the resize event listener once on component mount"
+     }
+    ],
+    "explanations": [
+     {
+      "topic": "Why adding an event listener outside useEffect leaks listeners on every re-render",
+      "t": 863.0,
+      "sourceId": "src1"
+     },
+     {
+      "topic": "Why React Strict Mode runs useEffect twice in development",
+      "t": 928.0,
+      "sourceId": "src1"
+     }
+    ],
+    "hints": [
+     "Initialize width and height with window.innerWidth and window.innerHeight.",
+     "Define handleResize to call setWidth(window.innerWidth) and setHeight(window.innerHeight).",
+     "Wrap window.addEventListener(\"resize\", handleResize); inside useEffect(() => { ... }, []); so only one listener is added."
+    ],
+    "common_mistakes": [
+     "Calling window.addEventListener directly in the component body, causing thousands of duplicate listeners",
+     "Forgetting the empty [] dependency array on the listener setup effect"
+    ],
+    "code": "const [width, setWidth] = useState(window.innerWidth); const [height, setHeight] = useState(window.innerHeight); useEffect(() => { window.addEventListener(\"resize\", handleResize); console.log(\"EVENT LISTENER ADDED\"); }, []); function handleResize(){ setWidth(window.innerWidth); setHeight(window.innerHeight); } return (<> <p>Window Width: {width}px</p> <p>Window Height: {height}px</p> </>);"
+   },
+   {
+    "id": "s7",
+    "index": 7,
+    "title": "Clean up the resize listener",
+    "instructions": "Inside the resize useEffect in src/MyComponent.jsx, return a cleanup arrow function that calls window.removeEventListener(\"resize\", handleResize) and logs \"EVENT LISTENER REMOVED\".",
+    "video": {
+     "sourceId": "src1",
+     "start": 951.0,
+     "end": 1051.0
+    },
+    "checks": [
+     {
+      "id": "s7c1",
+      "type": "screen_contains",
+      "label": "Return cleanup function",
+      "app": "Code",
+      "pattern": "return\\s*\\(\\s*\\)\\s*=>"
+     },
+     {
+      "id": "s7c2",
+      "type": "screen_contains",
+      "label": "Remove resize event listener",
+      "app": "Code",
+      "pattern": "removeEventListener\\(\\s*\\W?resize"
+     }
+    ],
+    "precision_checks": [
+     {
+      "id": "s7p1",
+      "type": "file_contains",
+      "label": "Cleanup removes listener",
+      "file": "src/MyComponent.jsx",
+      "pattern": "removeEventListener\\(\\s*[\"']resize[\"']"
+     },
+     {
+      "id": "s7p2",
+      "type": "file_contains",
+      "label": "Cleanup returned from effect",
+      "file": "src/MyComponent.jsx",
+      "pattern": "return\\s*\\(\\s*\\)\\s*=>"
+     }
+    ],
+    "targets": [
+     {
+      "app": "Code",
+      "file": "src/MyComponent.jsx",
+      "match": "removeEventListener",
+      "caption": "Return a cleanup function to remove the resize listener on unmount"
+     }
+    ],
+    "explanations": [
+     {
+      "topic": "When the useEffect cleanup function runs (before re-render or on unmount)",
+      "t": 952.0,
+      "sourceId": "src1"
+     },
+     {
+      "topic": "Using multiple useEffect hooks in the same component",
+      "t": 1051.0,
+      "sourceId": "src1"
+     }
+    ],
+    "hints": [
+     "How does useEffect know what cleanup code to run when a component unmounts?",
+     "Return a function from inside your useEffect callback.",
+     "Return () => { window.removeEventListener(\"resize\", handleResize); console.log(\"EVENT LISTENER REMOVED\"); }"
+    ],
+    "common_mistakes": [
+     "Calling removeEventListener immediately instead of wrapping it inside a returned arrow function",
+     "Passing a different function reference to removeEventListener than the one given to addEventListener"
+    ],
+    "code": "return () => { window.removeEventListener(\"resize\", handleResize); console.log(\"EVENT LISTENER REMOVED\"); }"
+   },
+   {
+    "id": "s8",
+    "index": 8,
+    "title": "Add a second useEffect hook",
+    "instructions": "Below the first effect in src/MyComponent.jsx, add a second useEffect that sets document.title to `Size: ${width} x ${height}` whenever width or height changes.",
+    "video": {
+     "sourceId": "src1",
+     "start": 1051.0,
+     "end": 1132.0
+    },
+    "checks": [
+     {
+      "id": "s8c1",
+      "type": "screen_contains",
+      "label": "Set document title",
+      "app": "Code",
+      "pattern": "document\\.title"
+     },
+     {
+      "id": "s8c2",
+      "type": "screen_contains",
+      "label": "Depend on width and height",
+      "app": "Code",
+      "pattern": "width\\s*,\\s*height\\s*\\]"
+     }
+    ],
+    "precision_checks": [
+     {
+      "id": "s8p1",
+      "type": "file_contains",
+      "label": "Title effect in file",
+      "file": "src/MyComponent.jsx",
+      "pattern": "document\\.title\\s*="
+     },
+     {
+      "id": "s8p2",
+      "type": "file_contains",
+      "label": "Width/height dependencies",
+      "file": "src/MyComponent.jsx",
+      "pattern": "\\[\\s*width\\s*,\\s*height\\s*\\]"
+     }
+    ],
+    "targets": [
+     {
+      "app": "Code",
+      "file": "src/MyComponent.jsx",
+      "match": "document.title",
+      "caption": "Use a separate useEffect hook to sync document.title with width and height"
+     }
+    ],
+    "explanations": [],
+    "hints": [
+     "Can a React component call useEffect more than once?",
+     "Add a second useEffect call right after the resize listener effect.",
+     "Set document.title = `Size: ${width} x ${height}`; with [width, height] as the dependency array."
+    ],
+    "common_mistakes": [
+     "Putting the title update inside the mount-only [] useEffect instead of creating a new one with [width, height]",
+     "Omitting width or height from the second effect dependency array"
+    ],
+    "code": "useEffect(() => { document.title = `Size: ${width} x ${height}`; }, [width, height]);"
+   }
+  ],
+  "build": {
+   "adapted": true,
+   "model": {
+    "video": "gemini-4-hydrogen (watched the video)",
+    "adapt": "claude-opus-5-5"
+   },
+   "seconds": 45.6,
+   "workdir_metrics": [],
+   "workdir_fp": "c1f7725e2dc4",
+   "community_signals": 0,
+   "warnings": []
+  }
+ },
+ "error": null
+}

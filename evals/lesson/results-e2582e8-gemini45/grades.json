@@ -1,0 +1,234 @@
+[
+ {
+  "id": "react-useeffect",
+  "path": null,
+  "model": null,
+  "wall_s": 45.1,
+  "error": "RuntimeError: no engine could build the lesson:\ngemini: no answer within 45s\nrs/tripi/sand hacks/sandhacks-tutor/.claude/worktrees/lesson-eval-fe1fb1/evals/lesson/run.py\", line 89, in build_one\n    graph = asyncio.run(build_lesson(vid[\"url\"], vid[\"goal\"], wd, cache=False))\n            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/Users/tripi/.local/share/uv/python/cpython-3.12.16-macos-aarch64-none/lib/python3.12/asyncio/runners.py\", line 195, in run\n    return runner.run(main)\n           ^^^^^^^^^^^^^^^^\n  File \"/Users/tripi/.local/share/uv/python/cpython-3.12.1",
+  "flags": [],
+  "auto_score": 0.0,
+  "canned_across_lessons": []
+ },
+ {
+  "id": "git-rebase",
+  "path": "gemini",
+  "model": {
+   "video": "gemini-4-hydrogen (watched the video)",
+   "adapt": "claude-opus-5-5"
+  },
+  "wall_s": 42.7,
+  "error": null,
+  "flags": [
+   "steps cover only 28% of the video",
+   "explanation timestamps outside their step: ['s1']"
+  ],
+  "schema_errors": [],
+  "lint": [],
+  "steps": 5,
+  "titles": [
+   "Clone repo and inspect branches",
+   "Start rebasing feature/login onto main",
+   "Resolve and stage index.js conflicts",
+   "Continue rebase to next conflict",
+   "Resolve package.json and finish rebase"
+  ],
+  "build_warnings": [],
+  "ranges": [
+   [
+    330.0,
+    358.0
+   ],
+   [
+    358.0,
+    378.0
+   ],
+   [
+    378.0,
+    408.0
+   ],
+   [
+    408.0,
+    470.0
+   ],
+   [
+    470.0,
+    494.0
+   ]
+  ],
+  "ranges_ordered": true,
+  "ranges_inside_video": true,
+  "coverage": 0.28,
+  "length_s": 584,
+  "checks": [
+   {
+    "step": "s1",
+    "id": "s1c1",
+    "type": "screen_contains",
+    "app": "Terminal",
+    "pattern": "Cloning\\s+into|Receiving\\s+objects",
+    "metric_pattern": null,
+    "issues": [],
+    "matches_real_output": false
+   },
+   {
+    "step": "s1",
+    "id": "s1c2",
+    "type": "screen_contains",
+    "app": "Terminal",
+    "pattern": "Switched\\s+to\\s+(a\\s+new\\s+)?branch|Already\\s+on",
+    "metric_pattern": null,
+    "issues": [],
+    "matches_real_output": true
+   },
+   {
+    "step": "s1",
+    "id": "s1c3",
+    "type": "screen_contains",
+    "app": "Terminal",
+    "pattern": "remotes/origin/",
+    "metric_pattern": null,
+    "issues": [],
+    "matches_real_output": false
+   },
+   {
+    "step": "s1",
+    "id": "s1c4",
+    "type": "screen_absent",
+    "app": "Terminal",
+    "pattern": "fatal:",
+    "metric_pattern": null,
+    "issues": [],
+    "matches_real_output": false
+   },
+   {
+    "step": "s2",
+    "id": "s2c1",
+    "type": "screen_contains",
+    "app": "Terminal",
+    "pattern": "CONFLICT\\s*\\(content\\)|Merge\\s+conflict\\s+in",
+    "metric_pattern": null,
+    "issues": [],
+    "matches_real_output": true
+   },
+   {
+    "step": "s2",
+    "id": "s2c2",
+    "type": "screen_contains",
+    "app": "Terminal",
+    "pattern": "rebase\\s+in\\s+progress|currently\\s+rebasing|Could\\s+not\\s+apply",
+    "metric_pattern": null,
+    "issues": [],
+    "matches_real_output": true
+   },
+   {
+    "step": "s2",
+    "id": "s2c3",
+    "type": "screen_contains",
+    "app": "Terminal",
+    "pattern": "both\\s+modified:",
+    "metric_pattern": null,
+    "issues": [],
+    "matches_real_output": false
+   },
+   {
+    "step": "s3",
+    "id": "s3c1",
+    "type": "screen_absent",
+    "app": "Code",
+    "pattern": "<<<<<<<|>>>>>>>",
+    "metric_pattern": null,
+    "issues": []
+   },
+   {
+    "step": "s3",
+    "id": "s3c2",
+    "type": "screen_contains",
+    "app": "Terminal",
+    "pattern": "all\\s+conflicts\\s+fixed",
+    "metric_pattern": null,
+    "issues": [],
+    "matches_real_output": false
+   },
+   {
+    "step": "s4",
+    "id": "s4c1",
+    "type": "screen_contains",
+    "app": "Terminal",
+    "pattern": "Merge\\s+conflict\\s+in\\s+package\\.json",
+    "metric_pattern": null,
+    "issues": [],
+    "matches_real_output": false
+   },
+   {
+    "step": "s5",
+    "id": "s5c1",
+    "type": "screen_absent",
+    "app": "Code",
+    "pattern": "<<<<<<<|>>>>>>>",
+    "metric_pattern": null,
+    "issues": []
+   },
+   {
+    "step": "s5",
+    "id": "s5c2",
+    "type": "screen_contains",
+    "app": "Terminal",
+    "pattern": "Successfully\\s+rebased",
+    "metric_pattern": null,
+    "issues": [],
+    "matches_real_output": true
+   },
+   {
+    "step": "s5",
+    "id": "s5c3",
+    "type": "screen_contains",
+    "app": "Terminal",
+    "pattern": "working\\s+tree\\s+clean",
+    "metric_pattern": null,
+    "issues": [],
+    "matches_real_output": true
+   }
+  ],
+  "n_checks": 13,
+  "n_metric": 0,
+  "n_generic": 0,
+  "n_issues": 0,
+  "real_output_verified": "5/11",
+  "code_checks_grounded": "0/0",
+  "steps_without_specific_check": [],
+  "steps_grounded": "5/5",
+  "leakage": [],
+  "auto_score": 7.7,
+  "canned_across_lessons": []
+ },
+ {
+  "id": "pandas-30min",
+  "path": null,
+  "model": null,
+  "wall_s": 45.1,
+  "error": "RuntimeError: no engine could build the lesson:\ngemini: no answer within 45s\nrs/tripi/sand hacks/sandhacks-tutor/.claude/worktrees/lesson-eval-fe1fb1/evals/lesson/run.py\", line 89, in build_one\n    graph = asyncio.run(build_lesson(vid[\"url\"], vid[\"goal\"], wd, cache=False))\n            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/Users/tripi/.local/share/uv/python/cpython-3.12.16-macos-aarch64-none/lib/python3.12/asyncio/runners.py\", line 195, in run\n    return runner.run(main)\n           ^^^^^^^^^^^^^^^^\n  File \"/Users/tripi/.local/share/uv/python/cpython-3.12.1",
+  "flags": [],
+  "auto_score": 0.0,
+  "canned_across_lessons": []
+ },
+ {
+  "id": "rust-cli",
+  "path": null,
+  "model": null,
+  "wall_s": 45.1,
+  "error": "RuntimeError: no engine could build the lesson:\ngemini: no answer within 45s\nrs/tripi/sand hacks/sandhacks-tutor/.claude/worktrees/lesson-eval-fe1fb1/evals/lesson/run.py\", line 89, in build_one\n    graph = asyncio.run(build_lesson(vid[\"url\"], vid[\"goal\"], wd, cache=False))\n            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/Users/tripi/.local/share/uv/python/cpython-3.12.16-macos-aarch64-none/lib/python3.12/asyncio/runners.py\", line 195, in run\n    return runner.run(main)\n           ^^^^^^^^^^^^^^^^\n  File \"/Users/tripi/.local/share/uv/python/cpython-3.12.1",
+  "flags": [],
+  "auto_score": 0.0,
+  "canned_across_lessons": []
+ },
+ {
+  "id": "fastapi-rest",
+  "path": null,
+  "model": null,
+  "wall_s": 45.1,
+  "error": "RuntimeError: no engine could build the lesson:\ngemini: no answer within 45s\nrs/tripi/sand hacks/sandhacks-tutor/.claude/worktrees/lesson-eval-fe1fb1/evals/lesson/run.py\", line 89, in build_one\n    graph = asyncio.run(build_lesson(vid[\"url\"], vid[\"goal\"], wd, cache=False))\n            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/Users/tripi/.local/share/uv/python/cpython-3.12.16-macos-aarch64-none/lib/python3.12/asyncio/runners.py\", line 195, in run\n    return runner.run(main)\n           ^^^^^^^^^^^^^^^^\n  File \"/Users/tripi/.local/share/uv/python/cpython-3.12.1",
+  "flags": [],
+  "auto_score": 0.0,
+  "canned_across_lessons": []
+ }
+]

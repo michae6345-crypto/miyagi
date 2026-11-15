@@ -1,0 +1,37 @@
+{
+  "lesson": {
+    "id": "lesson-pandas-galli",
+    "title": "Complete Python Pandas Data Science Tutorial",
+    "goal": "learn pandas: read a CSV, sort, filter and group data",
+    "libraries": {"pandas": "1.x", "python": "3.x"}
+  },
+  "sources": [
+    {"id": "src1", "kind": "video", "title": "Complete Python Pandas Data Science Tutorial! (Reading CSV/Excel files, Sorting, Filtering, Groupby)",
+     "url": "https://www.youtube.com/watch?v=vmEHCJofslg", "videoId": "vmEHCJofslg"}
+  ],
+  "build": {"hand_written": true, "note": "Hand-written test graph for server/workspace (no Gemini quota spent). Steps follow the tutorial's outline; no video timestamps claimed."},
+  "steps": [
+    {"id": "s1", "index": 1, "title": "Load the Pokemon CSV",
+     "instructions": "In main.py, import pandas and read pokemon_data.csv into a DataFrame called df, then print df.head(3).",
+     "checks": [{"id": "s1c1", "type": "screen_contains", "label": "read_csv in editor", "app": "Code", "pattern": "pd\\.read_csv\\("}],
+     "precision_checks": [{"id": "s1p1", "type": "file_contains", "label": "CSV loaded", "file": "main.py", "pattern": "read_csv\\(\\s*['\"]pokemon_data\\.csv"}],
+     "targets": [{"app": "Code", "file": "main.py", "match": "read_csv", "caption": "Load the CSV"}]},
+    {"id": "s2", "index": 2, "title": "Read headers and rows",
+     "instructions": "Print df.columns, the Name column, and the row at index 1 with df.iloc[1].",
+     "checks": [{"id": "s2c1", "type": "screen_contains", "label": "iloc used", "app": "Code", "pattern": "\\.iloc\\["}],
+     "precision_checks": [{"id": "s2p1", "type": "file_contains", "label": "columns printed", "file": "main.py", "pattern": "df\\.columns"}]},
+    {"id": "s3", "index": 3, "title": "Sort by name and HP",
+     "instructions": "Sort df by Type 1 ascending and HP descending with sort_values.",
+     "checks": [{"id": "s3c1", "type": "screen_contains", "label": "sort_values used", "app": "Code", "pattern": "sort_values\\("}]},
+    {"id": "s4", "index": 4, "title": "Add a Total column",
+     "instructions": "Add a Total column that sums HP, Attack, Defense, Sp. Atk, Sp. Def and Speed.",
+     "checks": [{"id": "s4c1", "type": "screen_contains", "label": "Total column assigned", "app": "Code", "pattern": "df\\[\\s*['\"]Total['\"]\\s*\\]\\s*="}]},
+    {"id": "s5", "index": 5, "title": "Filter Grass and Poison types",
+     "instructions": "Keep rows where Type 1 is Grass and Type 2 is Poison, and save them to filtered.csv.",
+     "checks": [{"id": "s5c1", "type": "screen_contains", "label": "Grass filter", "app": "Code", "pattern": "==\\s*['\"]Grass['\"]"}],
+     "precision_checks": [{"id": "s5p1", "type": "file_exists", "label": "filtered.csv written", "file": "filtered.csv"}]},
+    {"id": "s6", "index": 6, "title": "Group by type",
+     "instructions": "Group by Type 1 and show the mean Attack, sorted descending.",
+     "checks": [{"id": "s6c1", "type": "screen_contains", "label": "groupby used", "app": "Code", "pattern": "groupby\\(\\s*\\[?['\"]Type 1"}]}
+  ]
+}

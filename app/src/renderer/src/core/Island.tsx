@@ -9,6 +9,7 @@
 import { AnimatePresence, motion } from 'motion/react'
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react'
 import { bridge } from '../bridge'
+import { onUi } from './bus'
 import { startBuild, useLesson } from './lesson'
 import { getIslandModes } from './registry'
 import { color, pill, shadows, spring, springOut } from './theme'
@@ -21,6 +22,9 @@ export function Island({ top }: { top: number }): ReactNode {
   /** The launcher (its own focusable window) has grown out of the island: hide until it hands back. */
   const [yielded, setYielded] = useState(false)
   const hoverTimer = useRef<ReturnType<typeof setTimeout>>(undefined)
+  /** A leave is pending (the 300ms grace): the outside-move check below doesn't restart it. */
+  const leaving = useRef(false)
+  const islandEl = useRef<HTMLDivElement>(null)
   const passFlash = useLesson((s) => s.passFlash)
 
   // Ask every registered mode whether it wants the island. (Stable array → stable hook order.)
@@ -74,12 +78,39 @@ export function Island({ top }: { top: number }): ReactNode {
 
   const enter = (): void => {
     clearTimeout(hoverTimer.current)
+    leaving.current = false
     hoverTimer.current = setTimeout(() => setHover(true), 150)
   }
   const leave = (): void => {
     clearTimeout(hoverTimer.current)
+    leaving.current = true
     hoverTimer.current = setTimeout(() => setHover(false), 300)
   }
+
+  // The hover card must not outstay the pointer (Michael's audit A8): a mouseleave that never came (click-through
+  // forwarding can drop it) is caught on the next move outside; the window losing focus or the pointer leaving it,
+  // or any shortcut (a bar press, a key: a card is on its way), collapses it at once.
+  useEffect(() => {
+    if (!hover) return
+    const collapse = (): void => {
+      clearTimeout(hoverTimer.current)
+      setHover(false)
+    }
+    const move = (e: MouseEvent): void => {
+      if (!leaving.current && !islandEl.current?.contains(e.target as Node)) leave()
+    }
+    const offShortcut = onUi('shortcut', () => void collapse())
+    window.addEventListener('mousemove', move)
+    window.addEventListener('blur', collapse)
+    document.addEventListener('mouseleave', collapse)
+    return () => {
+      offShortcut()
+      window.removeEventListener('mousemove', move)
+      window.removeEventListener('blur', collapse)
+      document.removeEventListener('mouseleave', collapse)
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [hover])
 
   if (!mode) return null
   const { Content } = mode
@@ -87,6 +118,7 @@ export function Island({ top }: { top: number }): ReactNode {
   return (
     <div className="pointer-events-none absolute inset-x-0 flex justify-center" style={{ top }}>
       <motion.div
+        ref={islandEl}
         data-hit
         className="pointer-events-auto relative overflow-hidden text-white"
         style={{
