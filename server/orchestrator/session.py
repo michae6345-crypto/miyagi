@@ -3276,6 +3276,10 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
                 self.last_bp_sig = sig
                 if trigger == "run_end" or repeat or speak_now:  # a new syntax error: the coach explains it now
                     self._consider_speaking("repeat" if repeat else "breakpoint", step, failed, ctx)
+            if (failed and not self.coaching and self._sig(failed) != self.spoken_sig
+                    and curated.known_offtrack(self, step, failed) is not None):
+                # t8: a known failure of the curated lesson (nn2's sign) is said now, not after the idle gate
+                self._consider_speaking("known", step, failed, ctx)
 
     _FILE_DETAIL = re.compile(r"(found in|typed in|confirmed by your files)\b")
 
@@ -3642,8 +3646,10 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
         if self._ask_held():  # the learner asked Miyagi something: no proactive card over (or right after) the answer
             self.pending_speak = None
             return
-        if not self.learner_started() or self.clock() - self.step_t0 < self.offtrack_grace_s:
-            # never "off track" before the learner did anything on this step, nor in its first ~20 s
+        if not self.learner_started() or (self.clock() - self.step_t0 < self.offtrack_grace_s
+                                          and curated.known_offtrack(self, step, failed) is None):
+            # never "off track" before the learner did anything on this step, nor in its first ~20 s (t8: unless it
+            # is a known failure of the curated lesson the learner just made: its card is certain and instant)
             return self._speak_note(reason, "held (learner not started / first ~20 s)")
         if self._editor_state_card(step):  # unsaved file / another lesson's folder: say that, never "off track"
             return self._speak_note(reason, "held (editor-state card instead)")
@@ -3814,6 +3820,10 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
             if missing_module.check_run(self, step, ctx):  # a lesson package isn't installed: Install, no model call
                 return
             card = self.full_card if (level == 3 and self.full_card) else None
+            if card is not None and card is self._known_full and curated.known_offtrack(self, step, failed) is None:
+                log.info("instant off-track %r: its cause is gone from the file; not said again", card.get("title"))
+                return  # t8: e.g. the weights start random now, the stuck run is old: a rerun is next
+            known = False
             if card is None:
                 by_id = {c["id"]: c for c in (step.get("checks") or []) + (step.get("precision_checks") or [])}
                 failed_checks = [{**by_id.get(r.get("checkId"), {}), **r} for r in failed]
@@ -3821,6 +3831,12 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
 
                 await stale_advice.fresh(self, step)  # VS Code's text this tick, not a 4 s old read's disk fallback
                 code, _file = self._code_excerpt(step)
+                card = curated.known_offtrack(self, step, failed)  # t8: a known failure: no model call
+                if card is not None:
+                    known = True
+                    log.info("instant off-track %r for %s (curated, no model call)", card.get("title"), step["id"])
+                    stale_advice.note(self, step, card, code)
+            if card is None:
                 sfile = self._step_file(step) or step.get("file") or _file or ""
                 file_state = {"path": sfile, "saved": not self._dirty_step_file(step),
                               "wrong_folder": bool(self._other_folder(step))} if sfile else None
@@ -3897,6 +3913,7 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
             full.setdefault("severity", "warn")
             full.setdefault("actions", ["explain", "show_me", "hint"])
             self.full_card = full
+            self._known_full = full if known else None  # t8: a curated instant card (its level-3 re-send rechecks it)
             if level == 2:  # concept: what's wrong and why, not the patch
                 shown = {k: v for k, v in full.items() if k != "diff"}
                 shown["actions"] = [a for a in full["actions"] if a != "apply_fix"] or ["explain", "hint"]
@@ -3918,6 +3935,7 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
 
     # E14: a diagnosis that lands while a card just went up, the learner's question is answered, the display sleeps
     # or no app is connected is KEPT and sent when that ends (it was dropped, and a later trigger paid for it again)
+    _known_full: dict | None = None  # t8: full_card when it is a curated instant card (curated.known_offtrack)
     _pending_offtrack: dict | None = None
     _pending_task: asyncio.Task | None = None
     PENDING_OFFTRACK_S = 90.0  # a kept diagnosis older than this is stale: the next trigger diagnoses afresh
@@ -4450,8 +4468,8 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
         except Exception as e:  # live mode: a missing/failing module is reported, never faked
             log.exception("action %s failed", kind)
             if asking and self.step is not None and gen == self.step_gen:  # never a silent failure for a question
-                card = (stage.fallback_answer(self, kind, text) if stage.on(self) else None) or \
-                    self._ask_failed_card(kind, text, e)  # a Demo lesson: the lesson's own answer, never "Couldn't reach"
+                card = (stage.fallback_answer(self, kind, text) if curated.active(self) else None) or \
+                    self._ask_failed_card(kind, text, e)  # the curated / Demo lesson: its own answer, never "Couldn't reach"
                 await self._emit_card(card, window_s=0.0)
             else:
                 await self.emit("error", {"message": f"{kind}: {e}"})
@@ -4644,7 +4662,7 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
                             self._spawn(self._show_spot(spot))
 
                 ctx["on_targets"] = on_targets
-            card = await self.m.explain(step, text if kind == "ask" else (text or None), ctx)
+            card = await self._explain_in_time(step, text if kind == "ask" else (text or None), ctx)
             if gen != self.step_gen:
                 return  # the learner moved to another step meanwhile: an answer about the old one would mislead
             card = dict(card)
@@ -4965,6 +4983,24 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
         """Is a question / explain / hint in flight, or was it answered < ASK_HOLD_S ago? Then no stuck, idle,
         judge or off-track card (QA 11-14: a stuck card released on Enter took the answer's place)."""
         return self._asks_in_flight > 0 or self.clock() < self._ask_hold_until
+
+    # t8 offline: a typed question in the curated / Demo lesson waits at most this long for Claude. On a venue network
+    # that drops packets the coach call sat out its 45 s timeout twice (82 s measured), and every press behind it
+    # (Check my work, Show me, Run it for me) queued for that long. Then the step's own Explain card answers instead.
+    # A live answer takes ~9 s (03:00:33 -> 03:00:41 on test 6).
+    CURATED_ASK_S = float(os.environ.get("MIYAGI_ASK_DEADLINE_S") or 12.0)
+
+    async def _explain_in_time(self, step: dict, question: str | None, ctx: dict) -> dict:
+        """m.explain, cut off after CURATED_ASK_S in the curated / Demo lesson (it has an offline answer)."""
+        call = self.m.explain(step, question, ctx)
+        if not curated.active(self):
+            return await call
+        try:
+            return await asyncio.wait_for(call, self.CURATED_ASK_S)
+        except asyncio.TimeoutError:
+            log.warning("ask: no answer from Claude within %.0fs (network?); the lesson's own answer instead",
+                        self.CURATED_ASK_S)
+            raise ConnectionError(f"connection: no answer within {self.CURATED_ASK_S:.0f}s") from None
 
     def _ask_failed_card(self, kind: str, text: str | None, e: Exception) -> dict:
         """The learner's question failed after the retries: say so in the answer slot, with Try again (`retry`)."""
