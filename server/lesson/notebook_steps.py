@@ -33,10 +33,9 @@ _SPLIT = re.compile(r"\s*(?:&&|;|\n)\s*")
 _YOUR_NOTEBOOK = re.compile(r"\b(in|to|into|from|open)\s+(?:your|the|a\s+new)\s+(?:jupyter\s+)?notebook\b", re.I)
 _APP_WORDS = re.compile(r"\bin\s+(?:Jupyter(?:\s+Notebook)?\s+or\s+(?:Google\s+)?Colab|(?:Google\s+)?Colab\s+or\s+Jupyter(?:\s+Notebook)?)\b",
                         re.I)
-# what VS Code's notebook kernel picker reads with the lesson's .venv selected: ".venv (Python 3.12.16)", or with the
-# version first, ".venv (3.12.16) (Python 3.12.16)" (VS Code 1.146, test 12: the old pattern missed it and step 1 got a
-# false Not yet), older builds "Python 3.12.16 ('.venv': venv)"; never the Explorer's bare .venv folder
-KERNEL_PATTERN = r"\.?venv\s*(?:\(\s*\d[\d.]*\s*\)\s*)?\(\s*Python\s*3|['‘’]\.?venv['‘’]\s*:\s*venv"
+# what VS Code's notebook kernel picker reads with the lesson's .venv selected: ".venv (Python 3.12.16)" (older builds:
+# "Python 3.12.16 ('.venv': venv)"); never the Explorer's bare .venv folder
+KERNEL_PATTERN = r"\.?venv\s*\(\s*Python\s*3|['‘’]\.?venv['‘’]\s*:\s*venv"
 # the kernel's own errors in VS Code, and the terminal's (the step's old check: a pip / shell error still fails it)
 KERNEL_ERRORS = r"Failed\s+to\s+start\s+the\s+[Kk]ernel|[Kk]ernel\s+died|Traceback|ERROR:|ERR!"
 # a notebook named after what the lesson works on (MNIST -> mnist.ipynb), else notebook.ipynb
