@@ -286,6 +286,10 @@ async def vscode_event(body: dict = Body(...)) -> dict:
     from server.workspace import vscode_ext
 
     vscode_ext.record_event(body)
+    if body.get("type") == "explain_selection":  # "Miyagi: Explain this" -> an Explain card in the overlay (selection.py)
+        from .selection import explain_from_vscode
+
+        return {"ok": True, "explaining": explain_from_vscode(engine.session, body)}
     return {"ok": True}
 
 

@@ -17,6 +17,7 @@ fix = await coach.fix_outdated(error_text, lesson["libraries"])  # offtrack-shap
 |---|---|---|
 | `diagnose(step, failed_checks, metrics_summary, code_excerpt, *, error_text="")` | `offtrack` payload (+ `_meta`) | triage → Opus 5.5 (low effort) or no model |
 | `explain(step, question, context)` | `card` with `videoJump` when a step `explanations` entry matches | Opus 5.5 |
+| `explain_selection(step, selection, context)` | `card` kind `explain` about text the learner selected (VS Code "Miyagi: Explain this", the drawer's "Explain more"); the step is context only. `selection` comes from `server/orchestrator/selection.py`, with the card's title | Sonnet 5.5 (`COACH_MODEL_EXPLAIN_SELECTION`) |
 | `hint(step, level, last_offtrack=None)` | `card` kind `hint` (+ `level`, `diff`, `citation`, `actions`). Follows the latest diagnosis: 0 = its `guidingQuestion`, 1 = the video moment about that issue (else the step segment), 2 = its source, 3 = its diff. Works with the public card too | none |
 | `apply_fix(diff, file_text)` | `{unified_diff, new_text, requires_confirmation: True}`; never writes | none |
 | `fix_outdated(error_text, libraries)` | offtrack-shaped fix with source URL, or `None` | known table → Bright Data SERP + Unlocker → Opus |

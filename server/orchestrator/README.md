@@ -102,7 +102,9 @@ screen, nothing is spotlighted.
     A step gone back to is never passed by a click or key alone (its code may already be in the file): a save, a run, Check, or
     "Looks done?" → Confirm passes it again.
   - `show_me` replays the clip and turns the spotlight on.
-  - `explain` and `ask` return a coach `card`.
+  - `explain` and `ask` return a coach `card`. `explain` with `text` (the drawer's "Explain more" on selected lesson
+    text) explains that selection instead, like VS Code's "Miyagi: Explain this" (POST /vscode/event
+    `explain_selection`): see `selection.py`.
   - `hint` walks the hint ladder.
   - `diagram` returns `gradients` after a metric failure and `network` otherwise, or the kind named in `text`.
   - `voice_toggle` flips the voice flag.
