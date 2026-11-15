@@ -3345,12 +3345,23 @@ class LessonSession:
                                                                     else Path(self.workdir) / file)
         if path.name in dirty_files(self.last_obs):  # unsaved edits in VS Code: writing the file would fight them
             ext = self._vscode_ext()
-            if ext is not None and hasattr(ext, "apply"):  # the companion extension edits the live buffer instead
+            if ext is not None and hasattr(ext, "apply") and hasattr(ext, "buffer_text"):
+                # The companion extension edits the live buffer instead. apply(new_text) REPLACES the whole buffer, so
+                # append this step's code to what the editor holds (unsaved edits included), never just the snippet.
+                ok = None
                 try:
-                    ok = await asyncio.to_thread(ext.apply, str(path), step["code"])
+                    buf = await asyncio.to_thread(ext.buffer_text, str(path))
+                    cur = (buf or {}).get("text")
+                    if isinstance(cur, str):
+                        code = step["code"].rstrip("\n") + "\n"
+                        if code.strip() in cur:
+                            ok = {"ok": True}  # already there
+                        else:
+                            new_text = cur + ("" if not cur or cur.endswith("\n") else "\n") + code
+                            ok = await asyncio.to_thread(ext.apply, str(path), new_text)
                 except Exception:  # noqa: BLE001
-                    ok = False
-                if ok:
+                    ok = None
+                if isinstance(ok, dict) and ok.get("ok") and not ok.get("pending"):
                     await self._card(step, "Done", f"Added {self._code_head(step)} to {path.name}.", kind="answer")
                     return
             await self._card(step, f"Save {path.name} first?", "Press ⌘S, then Do it for me again.",
