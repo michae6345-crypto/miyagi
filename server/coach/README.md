@@ -67,6 +67,14 @@ targets = await coach.locate("the learning rate", screen)  # exact text → no m
   - It returns `{command, …}` for terminal fixes.
   - It reuses the diagnosis's diff only if it contains every value the action sentence names ("…to `squash`", "…to 1e-3"); otherwise Opus writes the patch.
 
+## Zero-cost mode: DEMO=1 or ORCH_STUBS includes the coach
+
+`llm.offline_mode()` is true with `DEMO=1`, or with `ORCH_STUBS=all` or a list naming `coach` (e.g. `lesson,coach`). In that mode nothing paid leaves the coach. Recorded fixtures (`COACH_REPLAY_DIR`) still replay. S11 had counted 19 Claude calls in one DEMO rehearsal take.
+- **Claude:** `structured_call` refuses before any network call. `diagnose` and `explain` return their offline cards (playbook or template).
+- **Step judge:** `StepJudge.should_judge` is always false, so it never runs on a timer. `judge_step` (the Check button) returns `{offline: true}`: machine-passed checks are "done", the rest "unsure", and `done` is true only if every check already passed.
+- **Other calls:** `warm()` is skipped, `locate` uses exact text only, `point` falls back to `where`, and Bright Data is never called.
+- **Voice:** already-cached audio still plays; nothing new is synthesized.
+
 ## Cost gate for periodic calls (gate.py)
 
 Michael's key: the step judge called Haiku every ~20 s while he was away with the display asleep. `PeriodicGate` now guards it, and is exported for any other periodic coach call. The rules:
