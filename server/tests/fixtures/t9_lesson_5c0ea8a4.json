@@ -1,0 +1,556 @@
+{
+  "lesson": {
+    "id": "lesson-5c0ea8a4",
+    "title": "Build Your First Neural Network with TensorFlow",
+    "goal": "build a neural network",
+    "libraries": {
+      "tensorflow": "2.15.0",
+      "numpy": "1.26.4",
+      "matplotlib": "3.8.3",
+      "jupyter": "1.0.0"
+    },
+    "builtBy": "gemini",
+    "workdir": "/private/tmp/claude-501/-Users-tripi-sand-hacks/310883d9-ce6c-4528-b04a-f5ddfa45fe76/scratchpad/t7gem/real/lessons/_new",
+    "complete": true,
+    "goalMatch": {
+      "score": 0.93,
+      "note": "This video walks you through coding, training and testing a basic neural network on MNIST with TensorFlow, which directly matches building a neural network, though the example is a simple beginner one"
+    }
+  },
+  "sources": [
+    {
+      "id": "src1",
+      "kind": "video",
+      "title": "Build Your First Neural Network with TensorFlow",
+      "url": "https://www.youtube.com/watch?v=VPlFpvLOgtQ",
+      "videoId": "VPlFpvLOgtQ"
+    }
+  ],
+  "steps": [
+    {
+      "id": "s1",
+      "index": 1,
+      "title": "Create venv and start Jupyter",
+      "instructions": "In an empty project folder, create and activate a venv, then pip install jupyter, tensorflow, numpy and matplotlib. Launch Jupyter Notebook and create a new Python 3 notebook.",
+      "video": {
+        "sourceId": "src1",
+        "start": 40.0,
+        "end": 73.0
+      },
+      "checks": [
+        {
+          "id": "s1c1",
+          "type": "screen_contains",
+          "label": "Packages installed via pip",
+          "app": "Terminal",
+          "pattern": "Successfully\\s*installed|Requirement\\s*already\\s*satisfied"
+        },
+        {
+          "id": "s1c2",
+          "type": "screen_contains",
+          "label": "Jupyter server running",
+          "app": "Terminal",
+          "pattern": "localhost:\\d+|Jupyter\\s*Server|http://127\\.0\\.0\\.1:\\d+"
+        },
+        {
+          "id": "s1c3",
+          "type": "screen_absent",
+          "label": "No terminal errors",
+          "app": "Terminal",
+          "pattern": "Traceback|ERROR:|ERR!"
+        }
+      ],
+      "precision_checks": [
+        {
+          "id": "s1p1",
+          "type": "file_exists",
+          "label": "Venv folder created",
+          "file": "venv/bin/activate"
+        }
+      ],
+      "targets": [
+        {
+          "app": "Terminal",
+          "match": "pip3 install jupyter",
+          "caption": "Install packages inside the activated venv"
+        }
+      ],
+      "explanations": [
+        {
+          "topic": "Using a virtual environment and Jupyter Notebook",
+          "t": 40.0,
+          "sourceId": "src1"
+        }
+      ],
+      "hints": [
+        "Make sure your virtual environment is active before installing packages.",
+        "Run `source venv/bin/activate` so `(venv)` appears in your terminal prompt.",
+        "Run `pip3 install jupyter tensorflow numpy matplotlib` followed by `jupyter notebook`, then click New -> Python 3 (ipykernel)."
+      ],
+      "common_mistakes": [
+        "Installing packages globally before activating the virtual environment.",
+        "Forgetting to select the Python 3 (ipykernel) kernel when creating the new notebook."
+      ],
+      "run_command": "python3 -m venv venv && source venv/bin/activate && pip3 install jupyter tensorflow numpy matplotlib && jupyter notebook"
+    },
+    {
+      "id": "s2",
+      "index": 2,
+      "title": "Import libraries and load MNIST",
+      "instructions": "In your notebook, import tensorflow, layers, models, matplotlib.pyplot and numpy, then load MNIST with tf.keras.datasets.mnist.load_data() and divide both image arrays by 255. Run the cell (Shift+Enter).",
+      "video": {
+        "sourceId": "src1",
+        "start": 73.0,
+        "end": 126.0
+      },
+      "checks": [
+        {
+          "id": "s2c1",
+          "type": "screen_contains",
+          "label": "TensorFlow imported",
+          "app": "Code",
+          "pattern": "import\\s+tensorflow\\s+as\\s+tf"
+        },
+        {
+          "id": "s2c2",
+          "type": "screen_contains",
+          "label": "mnist load_data called",
+          "app": "Code",
+          "pattern": "mnist\\.load_data\\(\\)"
+        },
+        {
+          "id": "s2c3",
+          "type": "screen_contains",
+          "label": "Pixels divided by 255",
+          "app": "Code",
+          "pattern": "float32['\"]?\\)\\s*/\\s*255"
+        },
+        {
+          "id": "s2c4",
+          "type": "screen_absent",
+          "label": "No import or load errors",
+          "app": "Code",
+          "pattern": "ModuleNotFoundError|AttributeError|Traceback"
+        },
+        {
+          "id": "s2c5",
+          "type": "screen_absent",
+          "label": "No download error output",
+          "app": "Code",
+          "pattern": "Exception|URLError|ImportError"
+        }
+      ],
+      "precision_checks": [
+        {
+          "id": "s2p1",
+          "type": "file_contains",
+          "label": "Notebook imports TensorFlow",
+          "file": "Untitled.ipynb",
+          "pattern": "import tensorflow as tf"
+        }
+      ],
+      "targets": [
+        {
+          "app": "Code",
+          "file": "Untitled.ipynb",
+          "match": "mnist.load_data()",
+          "caption": "Load MNIST and normalize pixels"
+        }
+      ],
+      "explanations": [
+        {
+          "topic": "MNIST 28x28 grayscale images and 0-1 normalization",
+          "t": 81.0,
+          "sourceId": "src1"
+        }
+      ],
+      "hints": [
+        "Use `tf.keras.datasets.mnist.load_data()` to unpack training and test tuples.",
+        "Cast pixel integers to `float32` before dividing by `255`.",
+        "Write `train_images = train_images.astype('float32') / 255` and do the same for `test_images`."
+      ],
+      "common_mistakes": [
+        "Misspelling `mnist` when calling `tf.keras.datasets.mnist.load_data()`.",
+        "Forgetting to normalize `test_images` as well as `train_images`."
+      ],
+      "run_command": "Run the cell (Shift+Enter)",
+      "code": "import tensorflow as tf\nfrom tensorflow.keras import layers, models\nimport matplotlib.pyplot as plt\nimport numpy as np\n\n(train_images, train_labels), (test_images, test_labels) = tf.keras.datasets.mnist.load_data()\ntrain_images = train_images.astype('float32') / 255\ntest_images = test_images.astype('float32') / 255"
+    },
+    {
+      "id": "s3",
+      "index": 3,
+      "title": "Inspect shapes and plot digits",
+      "instructions": "Print the counts of train_images and test_images and the shape of train_images[0]. Use plt.subplots(1, 10, figsize=(10, 10)) to show the first 10 digits in grayscale with their labels, then run the cell.",
+      "video": {
+        "sourceId": "src1",
+        "start": 126.0,
+        "end": 151.0
+      },
+      "checks": [
+        {
+          "id": "s3c1",
+          "type": "screen_contains",
+          "label": "subplots call typed",
+          "app": "Code",
+          "pattern": "plt\\.subplots\\("
+        },
+        {
+          "id": "s3c2",
+          "type": "screen_contains",
+          "label": "Training count printed",
+          "app": "Code",
+          "pattern": "training\\s*dataset:?\\s*60000"
+        },
+        {
+          "id": "s3c3",
+          "type": "screen_contains",
+          "label": "Testing count printed",
+          "app": "Code",
+          "pattern": "testing\\s*dataset:?\\s*10000"
+        },
+        {
+          "id": "s3c4",
+          "type": "screen_contains",
+          "label": "Image shape line printed",
+          "app": "Code",
+          "pattern": "Shape\\s*of\\s*the\\s*images"
+        }
+      ],
+      "precision_checks": [],
+      "targets": [
+        {
+          "app": "Code",
+          "file": "Untitled.ipynb",
+          "match": "plt.subplots(1, 10",
+          "caption": "Plot the first 10 training digits with labels"
+        }
+      ],
+      "explanations": [],
+      "hints": [
+        "Access `.shape[0]` on `train_images` and `test_images` for dataset sizes.",
+        "Loop `for i in range(10):` and call `axes[i].imshow(..., cmap='gray')`.",
+        "Set each subplot title with `axes[i].set_title(train_labels[i])` and hide axes with `axes[i].axis('off')`."
+      ],
+      "common_mistakes": [
+        "Calling `plt.imshow` instead of `axes[i].imshow` inside the subplot loop.",
+        "Omitting `cmap='gray'` and rendering grayscale digits in the default viridis colormap."
+      ],
+      "run_command": "Run the cell (Shift+Enter)",
+      "code": "print('Number of images in the training dataset:', train_images.shape[0])\nprint('Number of images in the testing dataset:', test_images.shape[0])\nprint('Shape of the images in the training dataset:', train_images[0].shape)\n\nfig, axes = plt.subplots(1, 10, figsize=(10, 10))\nfor i in range(10):\n    axes[i].imshow(train_images[i].reshape(28, 28), cmap='gray')\n    axes[i].set_title(train_labels[i])\n    axes[i].axis('off')\nplt.show()"
+    },
+    {
+      "id": "s4",
+      "index": 4,
+      "title": "Define the sequential neural network",
+      "instructions": "Build `model` with models.Sequential: Flatten(input_shape=(28, 28, 1)), Dense 128 relu, Dense 64 relu, Dense 10 softmax. Run the cell (Shift+Enter).",
+      "video": {
+        "sourceId": "src1",
+        "start": 151.0,
+        "end": 251.0
+      },
+      "checks": [
+        {
+          "id": "s4c1",
+          "type": "screen_contains",
+          "label": "Sequential model defined",
+          "app": "Code",
+          "pattern": "models\\.Sequential\\("
+        },
+        {
+          "id": "s4c2",
+          "type": "screen_contains",
+          "label": "Flatten input layer added",
+          "app": "Code",
+          "pattern": "layers\\.Flatten\\("
+        },
+        {
+          "id": "s4c3",
+          "type": "screen_contains",
+          "label": "Dense 128 layer added",
+          "app": "Code",
+          "pattern": "layers\\.Dense\\(\\s*128"
+        },
+        {
+          "id": "s4c4",
+          "type": "screen_contains",
+          "label": "Softmax output layer added",
+          "app": "Code",
+          "pattern": "softmax"
+        },
+        {
+          "id": "s4c5",
+          "type": "screen_absent",
+          "label": "No model build errors",
+          "app": "Code",
+          "pattern": "Traceback|ValueError|TypeError|NameError"
+        }
+      ],
+      "precision_checks": [
+        {
+          "id": "s4p1",
+          "type": "file_contains",
+          "label": "Notebook has Sequential model",
+          "file": "Untitled.ipynb",
+          "pattern": "models\\.Sequential"
+        }
+      ],
+      "targets": [
+        {
+          "app": "Code",
+          "file": "Untitled.ipynb",
+          "match": "models.Sequential([",
+          "caption": "Define the Sequential model"
+        }
+      ],
+      "explanations": [
+        {
+          "topic": "Feedforward architecture: 784 inputs, ReLU hidden layers, Softmax output",
+          "t": 152.0,
+          "sourceId": "src1"
+        }
+      ],
+      "hints": [
+        "Start by flattening the 28x28 image into a 784-element vector.",
+        "Stack `layers.Dense(128, activation='relu')` and `layers.Dense(64, activation='relu')`.",
+        "End with `layers.Dense(10, activation='softmax')` to output probabilities for digits 0-9."
+      ],
+      "common_mistakes": [
+        "Forgetting `layers.Flatten` before the first `Dense` layer.",
+        "Using `'relu'` instead of `'softmax'` on the final 10-neuron output layer."
+      ],
+      "run_command": "Run the cell (Shift+Enter)",
+      "code": "model = models.Sequential([\n    layers.Flatten(input_shape=(28, 28, 1)),\n    layers.Dense(128, activation='relu'),\n    layers.Dense(64, activation='relu'),\n    layers.Dense(10, activation='softmax')\n])"
+    },
+    {
+      "id": "s5",
+      "index": 5,
+      "title": "Compile and train the model",
+      "instructions": "Compile `model` with adam, sparse_categorical_crossentropy and accuracy metrics, then train with `history = model.fit(train_images, train_labels, epochs=5)`.",
+      "video": {
+        "sourceId": "src1",
+        "start": 251.0,
+        "end": 437.0
+      },
+      "checks": [
+        {
+          "id": "s5c1",
+          "type": "screen_contains",
+          "label": "model.compile called",
+          "app": "Code",
+          "pattern": "model\\s*\\.\\s*compile\\s*\\("
+        },
+        {
+          "id": "s5c2",
+          "type": "screen_contains",
+          "label": "model.fit called",
+          "app": "Code",
+          "pattern": "model\\s*\\.\\s*fit\\s*\\("
+        },
+        {
+          "id": "s5c3",
+          "type": "metric_threshold",
+          "label": "Training accuracy reaches 0.95",
+          "metric": "accuracy",
+          "metric_pattern": "accuracy:\\s*(?P<value>\\d+\\.\\d+)",
+          "op": ">=",
+          "value": 0.95
+        }
+      ],
+      "precision_checks": [],
+      "targets": [
+        {
+          "app": "Code",
+          "file": "Untitled.ipynb",
+          "match": "model.fit(",
+          "caption": "Train the model for 5 epochs"
+        }
+      ],
+      "explanations": [
+        {
+          "topic": "Backpropagation and training loop over 60,000 images",
+          "t": 255.0,
+          "sourceId": "src1"
+        },
+        {
+          "topic": "Negative log likelihood / sparse categorical crossentropy loss",
+          "t": 298.0,
+          "sourceId": "src1"
+        }
+      ],
+      "hints": [
+        "Call `model.compile(...)` before calling `model.fit(...)`.",
+        "Use `loss='sparse_categorical_crossentropy'` since `train_labels` are integer digit indices.",
+        "Pass `train_images, train_labels, epochs=5` to `model.fit`."
+      ],
+      "common_mistakes": [
+        "Using `categorical_crossentropy` instead of `sparse_categorical_crossentropy` when labels are integers rather than one-hot vectors.",
+        "Forgetting to call `model.compile` before `model.fit`."
+      ],
+      "run_command": "Run the cell (Shift+Enter)",
+      "code": "model.compile(optimizer='adam',\n              loss='sparse_categorical_crossentropy',\n              metrics=['accuracy'])\n\nhistory = model.fit(\n    train_images,\n    train_labels,\n    epochs=5\n)"
+    },
+    {
+      "id": "s6",
+      "index": 6,
+      "title": "Predict and visualize one digit",
+      "instructions": "Define view_classify(image, probabilities), then run model.predict(image.reshape(1, 28, 28, 1)) on test_images[0] and pass the result to view_classify. Run the cell (Shift+Enter).",
+      "video": {
+        "sourceId": "src1",
+        "start": 437.0,
+        "end": 483.0
+      },
+      "checks": [
+        {
+          "id": "s6c1",
+          "type": "screen_contains",
+          "label": "view_classify defined",
+          "app": "Code",
+          "pattern": "def\\s+view_classify\\("
+        },
+        {
+          "id": "s6c2",
+          "type": "screen_contains",
+          "label": "model.predict called",
+          "app": "Code",
+          "pattern": "model\\.predict\\("
+        },
+        {
+          "id": "s6c3",
+          "type": "screen_contains",
+          "label": "Class Probability title shown",
+          "app": "Code",
+          "pattern": "Class\\s*Probability"
+        },
+        {
+          "id": "s6c4",
+          "type": "screen_contains",
+          "label": "predict progress printed",
+          "app": "Code",
+          "pattern": "\\d+/\\d+\\s*\\S*\\s*\\d+ms/step|Epoch|ms/step"
+        },
+        {
+          "id": "s6c5",
+          "type": "screen_absent",
+          "label": "No predict errors",
+          "app": "Code",
+          "pattern": "Traceback|ValueError|NameError"
+        }
+      ],
+      "precision_checks": [
+        {
+          "id": "s6p1",
+          "type": "file_contains",
+          "label": "Notebook calls view_classify",
+          "file": "Untitled.ipynb",
+          "pattern": "view_classify\\(image"
+        }
+      ],
+      "targets": [
+        {
+          "app": "Code",
+          "file": "Untitled.ipynb",
+          "match": "model.predict(image.reshape(1, 28, 28, 1))",
+          "caption": "Predict probabilities for one digit"
+        }
+      ],
+      "explanations": [],
+      "hints": [
+        "`model.predict` expects a batch dimension even for a single image.",
+        "Reshape `image` to `(1, 28, 28, 1)` before passing it to `model.predict`.",
+        "Pass `probabilities[0]` (not `probabilities`) to `view_classify` so `barh` gets a 1D array of 10 values."
+      ],
+      "common_mistakes": [
+        "Passing `image` directly to `model.predict` without reshaping to `(1, 28, 28, 1)`.",
+        "Passing `probabilities` instead of `probabilities[0]` to `view_classify`."
+      ],
+      "run_command": "Run the cell (Shift+Enter)",
+      "code": "def view_classify(image, probabilities):\n    fig, (ax1, ax2) = plt.subplots(figsize=(6,9), ncols=2)\n    ax1.imshow(image)\n    ax1.axis('off')\n    ax2.barh(np.arange(10), probabilities)\n    ax2.set_aspect(0.1)\n    ax2.set_yticks(np.arange(10))\n    ax2.set_yticklabels(np.arange(10))\n    ax2.set_title('Class Probability')\n    ax2.set_xlim(0, 1.1)\n    plt.tight_layout()\n\nimage, label = test_images[0], test_labels[0]\nprobabilities = model.predict(image.reshape(1, 28, 28, 1))\nview_classify(image, probabilities[0])"
+    },
+    {
+      "id": "s7",
+      "index": 7,
+      "title": "Evaluate accuracy on test set",
+      "instructions": "Evaluate the trained model with `model.evaluate(test_images, test_labels)`, unpacking `test_loss` and `test_accuracy`. Print the percentage accuracy across all 10,000 test images.",
+      "video": {
+        "sourceId": "src1",
+        "start": 484.0,
+        "end": 507.0
+      },
+      "checks": [
+        {
+          "id": "s7c1",
+          "type": "screen_contains",
+          "label": "model.evaluate called",
+          "app": "Code",
+          "pattern": "model\\.evaluate\\s*\\("
+        },
+        {
+          "id": "s7c2",
+          "type": "screen_contains",
+          "label": "Accuracy summary printed",
+          "app": "Code",
+          "pattern": "Accuracy\\s*of\\s*the\\s*neural\\s*network"
+        },
+        {
+          "id": "s7c3",
+          "type": "screen_contains",
+          "label": "evaluate progress output shown",
+          "app": "Code",
+          "pattern": "accuracy:\\s*0\\.\\d+"
+        },
+        {
+          "id": "s7c4",
+          "type": "metric_threshold",
+          "label": "Test accuracy at least 95",
+          "metric": "test_accuracy",
+          "metric_pattern": "test\\s*images:\\s*(?P<value>\\d+\\.\\d+)%",
+          "op": ">=",
+          "value": 95
+        }
+      ],
+      "precision_checks": [
+        {
+          "id": "s7p1",
+          "type": "file_contains",
+          "label": "evaluate saved in notebook",
+          "file": "Untitled.ipynb",
+          "pattern": "model\\.evaluate"
+        }
+      ],
+      "targets": [
+        {
+          "app": "Code",
+          "file": "Untitled.ipynb",
+          "match": "model.evaluate(test_images, test_labels)",
+          "caption": "Compute loss and accuracy on the test set"
+        }
+      ],
+      "explanations": [],
+      "hints": [
+        "`model.evaluate(test_images, test_labels)` returns a tuple of `(loss, accuracy)`.",
+        "Multiply `test_accuracy` by 100 and format with `:.2f` to print the percentage."
+      ],
+      "common_mistakes": [
+        "Evaluating on `train_images` instead of `test_images`.",
+        "Forgetting that `model.evaluate` returns both loss and accuracy, causing a `TypeError` when formatting."
+      ],
+      "run_command": "Run the cell (Shift+Enter)",
+      "code": "test_loss, test_accuracy = model.evaluate(test_images, test_labels)\nprint(f'Accuracy of the neural network on the {test_images.shape[0]} test images: {test_accuracy * 100:.2f}%')"
+    }
+  ],
+  "build": {
+    "adapted": true,
+    "model": {
+      "video": "gemini-4-hydrogen (watched the video)",
+      "adapt": "claude-sonnet-5-5"
+    },
+    "seconds": 78.1,
+    "workdir_metrics": [],
+    "workdir_fp": "ce81718481d5",
+    "community_signals": 0,
+    "warnings": [
+      "s2: runs `Run the cell (Shift+Enter)` but has no check on its output (what it prints, a count, a metric)",
+      "s4: runs `Run the cell (Shift+Enter)` but has no check on its output (what it prints, a count, a metric)"
+    ]
+  }
+}
