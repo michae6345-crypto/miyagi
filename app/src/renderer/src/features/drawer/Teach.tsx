@@ -83,7 +83,7 @@ export function NeedsChip(): ReactNode {
         data-part="drawer-needs"
         className="flex h-[26px] max-w-full cursor-pointer items-center gap-[6px] rounded-full border px-[10px] text-[12px] hover:bg-[var(--drawer-hover)]"
         style={{ ...hoverVar, background: glass.field, borderColor: glass.rule, color: glass.label }}
-        title="Before you start"
+        title="Your lesson"
         onMouseDown={(e) => e.preventDefault()}
         onClick={openBeforeStart}
       >
@@ -151,7 +151,7 @@ export function PrimerSection(): ReactNode {
         onMouseDown={(e) => e.preventDefault()}
         onClick={() => setOpen((o) => !o)}
       >
-        <span className="font-semibold">Before you start</span>
+        <span className="font-semibold">Key ideas</span>
         <span style={{ color: glass.faint }}>
           {primer.length} {primer.length === 1 ? 'idea' : 'ideas'}
         </span>
