@@ -41,8 +41,10 @@ function SpotlightLayer({ layout }: { layout: Layout }): ReactNode {
 
   // In Electron the lesson player is its own window (docked right 40%), so the overlay DOM can't see it:
   // keep the caption off it using the player's own dock math. (In the stage it's also in the DOM.)
-  const lessonOn = useLesson((s) => !!s.lesson)
-  const dock = lessonOn ? dockRect(wa) : undefined
+  // A "Just teach me" lesson has no player (main/features/player.ts keeps it hidden): avoiding its empty dock
+  // flipped the caption left, over the Explorer (Michael's audit A7).
+  const playerOn = useLesson((s) => !!s.lesson && s.lesson.mode !== 'lesson')
+  const dock = playerOn ? dockRect(wa) : undefined
   const avoid = dock ? [{ x: dock.x, y: dock.y, w: dock.width, h: dock.height }] : []
   return (
     <Spotlight

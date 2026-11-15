@@ -7,15 +7,19 @@ import type { Rect } from '../../core/lesson'
 export type Point = { x: number; y: number }
 export type Side = 'right' | 'left' | 'below' | 'above' | 'inside'
 
-/** Breathing room around the OCR'd text block (the engine's own padding is small; this matches mockup 04). */
+/** Breathing room left and right of the OCR'd text block (the engine's own padding is small; mockup 04). */
 export const HOLE_PAD = 8
+/**
+ * Above and below it: about 3 pt, so an editor line's hole stays inside that line's leading (Michael's audit A7: at 8,
+ * plus a 30 pt minimum, the box was ~1.7 lines tall and cut into the next line).
+ */
+export const HOLE_PAD_Y = 3
 /** A one-word target still gets a hole you can see. */
-export const HOLE_MIN = { w: 44, h: 30 } as const
+export const HOLE_MIN = { w: 44, h: 20 } as const
 export const HOLE_RADIUS = 12
-/** Caption: gap to the hole, distance kept from the screen edges, offset from the hole's top (mockup 04: 21). */
+/** Caption: gap to the hole, distance kept from the screen edges. */
 export const CAPTION_GAP = 8
 export const EDGE_MARGIN = 16
-export const CAPTION_TOP_OFFSET = 21
 /** How far the caption may slide along the hole to get clear of other UI before it settles for covering a little of it. */
 export const MAX_SLIDE = 160
 
@@ -46,16 +50,16 @@ export function contains(r: Rect, p: Point): boolean {
   return p.x >= r.x && p.x < r.x + r.w && p.y >= r.y && p.y < r.y + r.h
 }
 
-/** The cut-out: the target plus padding, grown around its center to a minimum size. */
-export function hole(r: Rect, pad = HOLE_PAD): Rect {
+/** The cut-out: the target plus padding (wide left/right, tight above/below), grown around its center to a minimum size. */
+export function hole(r: Rect, pad = HOLE_PAD, padY = HOLE_PAD_Y): Rect {
   const w = Math.max(r.w + pad * 2, HOLE_MIN.w)
-  const h = Math.max(r.h + pad * 2, HOLE_MIN.h)
+  const h = Math.max(r.h + padY * 2, HOLE_MIN.h)
   return { x: r.x + r.w / 2 - w / 2, y: r.y + r.h / 2 - h / 2, w, h }
 }
 
-/** Corner radius that never exceeds half the short side. */
+/** Corner radius: at most a third of the short side, so a one-line hole is a rounded box, not a capsule. */
 export function holeRadius(r: Rect): number {
-  return Math.min(HOLE_RADIUS, r.w / 2, r.h / 2)
+  return Math.max(0, Math.min(HOLE_RADIUS, r.w / 3, r.h / 3))
 }
 
 const clamp = (v: number, lo: number, hi: number): number => (hi < lo ? lo : Math.min(hi, Math.max(lo, v)))
@@ -65,12 +69,14 @@ type Placed = Point & { side: Side }
 /**
  * Where the caption goes, in window coordinates. `target` is the hole, `bounds` the usable area
  * (the work area: no menu bar, dock or taskbar), `avoid` our other overlay UI (shortcut bar, pill, cards).
- *   1. right of the hole, top-aligned with its first line (FRONTEND-HANDOFF → Placement)
+ *   1. right of the hole, a chip centered on its midline (mockup 01; Michael's audit A7: top-aligned, it hung
+ *      ~10 px low and spilled onto the next row, e.g. a terminal's tab strip)
  *   2. flipped to the left when the right side would run off-screen
  *   3. below / above the hole when it's too wide for either side (a full-width terminal)
- *   4. last resort: inside the hole's top-right corner
- * Always clamped so it stays fully on screen (top and bottom edges included). Other UI it must not
- * cover (`avoid`, ignored where it overlaps the target itself):
+ *   4. last resort, only when none of 1-3 fits on screen: inside the hole's top-right corner
+ * Always clamped so it stays fully on screen (top and bottom edges included), and never on the hole
+ * (a spot that clamping pushed onto it is dropped). Other UI it must not cover (`avoid`, ignored where it
+ * overlaps the target itself):
  *   - the first of 1–3 whose spot is free wins;
  *   - else the free spot nearest to one of them, sliding it along its edge of the hole (≤ MAX_SLIDE);
  *   - else (nothing free nearby) the one that covers the least, so it stays next to the target.
@@ -80,25 +86,28 @@ export function placeCaption(target: Rect, size: { w: number; h: number }, bound
   const top = bounds.y + EDGE_MARGIN
   const right = bounds.x + bounds.w - EDGE_MARGIN
   const bottom = bounds.y + bounds.h - EDGE_MARGIN
-  const sideY = clamp(target.y + Math.min(CAPTION_TOP_OFFSET, target.h / 4), top, bottom - size.h)
+  const sideY = clamp(target.y + target.h / 2 - size.h / 2, top, bottom - size.h)
   const alongX = clamp(target.x, left, right - size.w)
 
   const rx = target.x + target.w + CAPTION_GAP
   const lx = target.x - CAPTION_GAP - size.w
-  const by = target.y + target.h + CAPTION_GAP / 2
-  const ay = target.y - CAPTION_GAP / 2 - size.h
+  const by = target.y + target.h + CAPTION_GAP
+  const ay = target.y - CAPTION_GAP - size.h
   const inside: Placed = {
     x: clamp(target.x + target.w - size.w - 12, left, right - size.w),
     y: clamp(target.y + 12, top, bottom - size.h),
     side: 'inside'
   }
+  // The hole plus a hairline of air: no caption spot may touch it.
+  const keepOff = grow(target, 2)
+  const offHole = (p: Placed): boolean => !intersects({ x: p.x, y: p.y, w: size.w, h: size.h }, keepOff)
   const candidates: Array<Placed | false> = [
     rx + size.w <= right && { x: rx, y: sideY, side: 'right' },
     lx >= left && { x: lx, y: sideY, side: 'left' },
     by + size.h <= bottom && { x: alongX, y: by, side: 'below' },
     ay >= top && { x: alongX, y: ay, side: 'above' }
   ]
-  const fitting = candidates.filter((p): p is Placed => !!p)
+  const fitting = candidates.filter((p): p is Placed => !!p && offHole(p))
   // Covering the target is worse than nudging away from other UI, so `inside` is only for "nothing fits".
   if (!fitting.length) return inside
 

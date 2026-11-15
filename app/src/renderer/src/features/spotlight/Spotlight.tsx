@@ -10,9 +10,9 @@
  *
  * Brand (app/brand/BRAND.md) + Adrian ("less like AI slop, more precise"): the cut-out is edged by ONE white
  * hairline, whatever the state (the pill and the card already carry status color), over a faint
- * `color.onAccent` keyline so it reads over light apps. The caption is up to two lines on the island's black,
- * flush beside the cut-out: no eyebrow, no dot, no code (the card has the diff). The speaker shows only while
- * voice is on (tap to turn it off).
+ * `color.onAccent` keyline so it reads over light apps. The caption is a chip on the island's black, one line when
+ * it fits (two at most), to the right of the cut-out and centered on it (mockup 01; Michael's audit A7): no eyebrow,
+ * no dot, no code (the card has the diff). The speaker shows only while voice is on (tap to turn it off).
  *
  * Animation (FRONTEND-HANDOFF → "Dim overlay + spotlight"):
  *   - the dim fades in over 280ms;
@@ -32,11 +32,11 @@ import { toggleVoice, useVoice } from '../voice/store'
 import { hole, holeRadius, placeCaption, type Side } from './place'
 import type { SpotlightMode, SpotlightTarget } from './store'
 
-/** The caption hugs its text, up to this width, wrapping to at most CAPTION_LINES lines. */
-const CAPTION_MAX_W = 360
+/** The caption chip hugs its text, up to this width, wrapping to at most CAPTION_LINES lines (one is the aim). */
+const CAPTION_MAX_W = 420
 const CAPTION_LINES = 2
-/** Until the caption has been measured. */
-const CAPTION_GUESS = { w: 280, h: 44 }
+/** Until the caption has been measured: one line. */
+const CAPTION_GUESS = { w: 240, h: 26 }
 /** The dim: `scrim.spotlight` (black at .66, Adrian's "more contrast") or `scrim.spotlightSoft`, fading in over 280ms. */
 const DIM = { strong: scrim.spotlight, soft: scrim.spotlightSoft, fade: 0.28 } as const
 /** The ring: a crisp hairline (no blur) over a faint dark keyline for contrast on light apps. */
@@ -285,7 +285,7 @@ const ENTER: Record<Side, { x: number; y: number }> = {
 function Snippet({ code }: { code: string }): ReactNode {
   return (
     <pre
-      className="mt-[8px] mr-[5px] max-h-[144px] overflow-hidden whitespace-pre rounded-[10px] px-[10px] py-[7px] text-[12.5px] leading-[18px]"
+      className="mb-[3px] mt-[6px] max-h-[144px] overflow-hidden whitespace-pre rounded-[10px] px-[10px] py-[7px] text-[12.5px] leading-[18px]"
       style={{ fontFamily: font.mono, background: fill.field, color: color.text }}
     >
       {code.replace(/\s+$/, '')}
@@ -323,17 +323,17 @@ function Caption({ target, hole: cut, bounds, avoid: outside, reduced }: { targe
       ref={ref}
       data-ui
       data-side={at.side}
-      className="absolute left-0 top-0 py-[11px] pl-[16px] pr-[11px]"
+      className={`absolute left-0 top-0 py-[4px] pl-[11px] ${voiceOn ? 'pr-[4px]' : 'pr-[11px]'}`}
       style={{ maxWidth: CAPTION_MAX_W, borderRadius: radius.chip, background: color.island, boxShadow: shadows.card }}
       initial={{ opacity: 0, x: at.x + from.x, y: at.y + from.y }}
       animate={{ opacity: 1, x: at.x, y: at.y }}
       transition={reduced ? { duration: 0.2 } : { ...spring, opacity: { duration: 0.2 } }}
     >
-      <div className="flex items-start gap-[10px]">
-        {/* Up to two lines, then clamped (Michael: one line cut off "Type this in the VS Code terminal (use python…"). */}
+      <div className="flex items-center gap-[8px]">
+        {/* A one-line chip; up to two lines, then clamped (Michael: one line cut off "Type this in the VS Code terminal (use python…"). */}
         <div
-          className="min-w-0 overflow-hidden font-medium leading-[22px]"
-          style={{ fontSize: text.sm, color: color.text, display: '-webkit-box', WebkitBoxOrient: 'vertical', WebkitLineClamp: CAPTION_LINES }}
+          className="min-w-0 overflow-hidden font-medium leading-[18px]"
+          style={{ fontSize: text.xs, color: color.text, display: '-webkit-box', WebkitBoxOrient: 'vertical', WebkitLineClamp: CAPTION_LINES }}
           title={target.caption}
         >
           {target.caption}
@@ -342,12 +342,12 @@ function Caption({ target, hole: cut, bounds, avoid: outside, reduced }: { targe
         {voiceOn && (
           <button
             data-hit
-            className="pointer-events-auto grid h-[24px] w-[24px] shrink-0 cursor-pointer place-items-center rounded-full"
+            className="pointer-events-auto -my-[1px] grid h-[20px] w-[20px] shrink-0 cursor-pointer place-items-center rounded-full"
             style={{ background: color.accent, color: color.onAccent }}
             onClick={toggleVoice}
             aria-label="Turn voice off"
           >
-            <Volume2 size={13} />
+            <Volume2 size={12} />
           </button>
         )}
       </div>
