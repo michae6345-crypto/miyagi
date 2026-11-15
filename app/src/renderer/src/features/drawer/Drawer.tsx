@@ -24,7 +24,7 @@ import { GlassCheck, GlassSpinner } from '../../core/ui/glass'
 import { parseYouTube, thumbnailFor } from '../launcher/youtube'
 import { TAB } from './geometry'
 import { closeDrawer, isWebLink, openSource, setPanelHeight, toggleDrawer } from './store'
-import { OverviewText, PrimerSection, StepDetail } from './Teach'
+import { BuildStrip, minutesLeft, NeedsChip, OverviewText, PrimerSection, StepDetail } from './Teach'
 
 /** skipped: the learner pressed Skip. Done, but not passed, so never green. */
 type StepStatus = 'done' | 'skipped' | 'current' | 'locked'
@@ -85,6 +85,8 @@ export function Panel({ rect }: { rect: Rect }): ReactNode {
   const lesson = useLesson((s) => s.lesson)
   const hasStep = useLesson((s) => !!s.stepId)
   const progress = useProgress()
+  // Mockup 01: "about N min left" next to "Step N of M" (steps[].estMinutes over the steps not done yet).
+  const left = useLesson((s) => minutesLeft(s.steps, [...s.passed, ...s.skipped]))
   const scroller = useRef<HTMLDivElement>(null)
   const box = useRef<HTMLDivElement>(null)
   const by = builtByLabel(lesson?.builtBy, lesson?.mode)
@@ -157,14 +159,25 @@ export function Panel({ rect }: { rect: Rect }): ReactNode {
         style={{ scrollbarWidth: 'thin', scrollbarColor: `${glass.track} transparent` }}
         onScroll={(e) => setScrolled(e.currentTarget.scrollTop > 2)}
       >
-        {overview && (
+        {lesson?.build ? (
           <>
-            <Label>What we're building</Label>
-            <OverviewText text={overview} />
+            <Label>What you're building</Label>
+            <BuildStrip />
           </>
+        ) : (
+          overview && (
+            <>
+              <Label>What we're building</Label>
+              <OverviewText text={overview} />
+            </>
+          )
         )}
+        <NeedsChip />
         <PrimerSection />
-        <Label>{progress.total > 0 && hasStep ? `Step ${progress.index + 1} of ${progress.total}` : 'Steps'}</Label>
+        <Label>
+          {progress.total > 0 && hasStep ? `Step ${progress.index + 1} of ${progress.total}` : 'Steps'}
+          {left !== undefined && left > 0 && <span style={{ color: glass.faint }}>{` · about ${left} min left`}</span>}
+        </Label>
         <Steps scroller={scroller} />
         {sources.length > 0 && (
           <>

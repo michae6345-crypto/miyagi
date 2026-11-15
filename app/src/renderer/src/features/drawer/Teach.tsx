@@ -11,9 +11,12 @@
 import { motion } from 'motion/react'
 import { useEffect, useRef, useState, type CSSProperties, type ReactNode } from 'react'
 import { BookOpen, Check, ChevronRight, Copy, Keyboard, Terminal, type LucideIcon } from 'lucide-react'
-import type { PrimerItem, StepKind } from '../../../../../../shared/contracts/events'
+import { useShallow } from 'zustand/react/shallow'
+import type { Prerequisite, PrimerItem, StepKind, StepSummary } from '../../../../../../shared/contracts/events'
 import { useLesson } from '../../core/lesson'
 import { font, glass, spring } from '../../core/theme'
+import { FlowDiagram } from '../before-start/Flow'
+import { openBeforeStart } from '../before-start/store'
 import { useStepSnippet } from '../overview/snippet'
 import { copyText, findPrimer, useStepDetail } from './plan'
 
@@ -23,6 +26,79 @@ const thinScroll = { scrollbarWidth: 'thin', scrollbarColor: `${glass.track} tra
 // ---------------------------------------------------------------------------
 // Overview
 // ---------------------------------------------------------------------------
+
+/**
+ * Mockup 01's "What you're building" strip (lesson.ready build + flow): the summary, the outcome in a quieter
+ * line, and the small "how it works" diagram with the current step's box outlined. Used instead of the overview
+ * paragraph when the engine sends `build`.
+ */
+export function BuildStrip(): ReactNode {
+  const b = useLesson(
+    useShallow((s) => ({ build: s.lesson?.build, flow: s.lesson?.flow, stepIndex: s.steps.find((x) => x.id === s.stepId)?.index }))
+  )
+  if (!b.build) return null
+  return (
+    <div data-part="drawer-build" className="px-[10px] pb-[2px]">
+      <p className="text-[13.5px] leading-[19px]" style={{ color: glass.text }}>
+        {b.build.summary}
+      </p>
+      {b.build.outcome && (
+        <p className="mt-[3px] text-[12.5px] leading-[17px]" style={{ color: glass.label }}>
+          {b.build.outcome}
+        </p>
+      )}
+      {!!b.flow?.length && (
+        <div className="mt-[9px]">
+          <FlowDiagram flow={b.flow} currentIndex={b.stepIndex} tone={{ text: glass.text, faint: glass.faint, box: glass.field, border: glass.rule, current: glass.text }} />
+        </div>
+      )}
+    </div>
+  )
+}
+
+const NO_NEEDS: Prerequisite[] = []
+
+/**
+ * Mockup 01's "Needs: ..." chip (lesson.ready prerequisites): what the lesson leans on, with a tick when every one
+ * has passed in an earlier lesson. It opens the "Before you start" sheet (features/before-start) for the details.
+ */
+export function NeedsChip(): ReactNode {
+  const needs = useLesson((s) => s.lesson?.prerequisites) ?? NO_NEEDS
+  if (needs.length === 0) return null
+  const allPassed = needs.every((n) => n.status === 'passed')
+  const names = needs.slice(0, 2).map((n) => n.title).join(', ')
+  const more = needs.length > 2 ? ` +${needs.length - 2}` : ''
+  return (
+    <div className="px-[10px] pt-[10px]">
+      <button
+        type="button"
+        data-part="drawer-needs"
+        className="flex h-[26px] max-w-full cursor-pointer items-center gap-[6px] rounded-full border px-[10px] text-[12px] hover:bg-[var(--drawer-hover)]"
+        style={{ ...hoverVar, background: glass.field, borderColor: glass.rule, color: glass.label }}
+        title="Before you start"
+        onMouseDown={(e) => e.preventDefault()}
+        onClick={openBeforeStart}
+      >
+        {allPassed && <Check size={12} strokeWidth={2.4} style={{ color: glass.pass }} className="shrink-0" />}
+        <span className="shrink-0 font-semibold" style={{ color: glass.text }}>
+          Needs:
+        </span>
+        <span className="truncate">
+          {names}
+          {more}
+        </span>
+        <ChevronRight size={12} strokeWidth={2} className="shrink-0" style={{ color: glass.faint }} />
+      </button>
+    </div>
+  )
+}
+
+/** "about N min left": the steps' estMinutes summed over the steps not passed or skipped yet (undefined without estimates). */
+export function minutesLeft(steps: StepSummary[], done: string[]): number | undefined {
+  if (!steps.some((s) => typeof s.estMinutes === 'number')) return undefined
+  const left = steps.filter((s) => !done.includes(s.id)).reduce((sum, s) => sum + (s.estMinutes ?? 0), 0)
+  return Math.max(0, Math.round(left))
+}
 
 export function OverviewText({ text }: { text: string }): ReactNode {
   return (
