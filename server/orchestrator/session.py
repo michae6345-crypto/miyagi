@@ -2225,6 +2225,10 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
         self.workdir = new_wd
         if self.on_workdir:
             self.on_workdir(new_wd)
+        if self.notebook_lesson:  # t9 V3: the .ipynb saves itself, so the checks read the cells' real outputs
+            from . import workspace as wsmod
+
+            wsmod.notebook_autosave(new_wd)
         self.m.set_lesson(graph)
         if not stage.on_graph(graph):  # a Demo lesson never calls the coach
             self._spawn(self.m.warm(), timer=True)  # pre-warm the coach's cached lesson prefix
