@@ -19,9 +19,19 @@ type DiagramState = {
   kinds: DiagramKind[]
   /** Concept diagrams for the drawer's concept panel (mockup 02), by concept title. Never shown on the island. */
   concepts: Record<string, DiagramPayload>
+  /**
+   * The live network the engine pushed for a step (kind "network" with real weights, sent without the learner asking:
+   * the forward pass starting, a training run, the stuck-loss off-track). It shows in the drawer's right-hand panel
+   * for that step and updates in place as new ones arrive; it never opens over the code. ⌃⌥D opens it full size.
+   */
+  live?: { step?: string; diagram: DiagramPayload }
 }
 
-const empty = { diagram: undefined, open: false, step: undefined, byKind: {}, kinds: [], concepts: {} } satisfies DiagramState
+const empty = { diagram: undefined, open: false, step: undefined, byKind: {}, kinds: [], concepts: {}, live: undefined } satisfies DiagramState
+
+/** A network diagram with real weights (data.frames): what NeuralNet.tsx draws. */
+export const isLiveNetwork = (p: DiagramPayload): boolean =>
+  p.kind === 'network' && Array.isArray((p.data as Record<string, unknown> | undefined)?.frames)
 
 /**
  * The concept panel asks for a picture with action {kind:"diagram", text:"<concept title>"} (contract: concept
@@ -74,6 +84,18 @@ const unhold = (): void => {
 onUi('shortcut', (kind) => {
   if (kind !== 'diagram') return
   if (!get().open) {
+    // The step's live network is already here: open it full size, no new request to the engine.
+    const live = liveForStep()
+    if (live) {
+      const step = live.step ?? useLesson.getState().stepId
+      const s = get()
+      const same = s.step === step
+      const kinds = same ? (s.kinds.includes('network') ? s.kinds : [...s.kinds, 'network' as DiagramKind]) : ['network' as DiagramKind]
+      set({ diagram: live.diagram, open: true, step, byKind: { ...(same ? s.byKind : {}), network: live.diagram }, kinds })
+      unhold()
+      heldUntil = Date.now() + HOLD_MS
+      return true
+    }
     requestedAt = Date.now()
     return
   }
@@ -89,12 +111,22 @@ onMessage('diagram', (p) => {
     return
   }
   const step = p.stepId ?? useLesson.getState().stepId
+  const asked = !!requestedAt && Date.now() - requestedAt < ASKED_WITHIN_MS
+  if (isLiveNetwork(p)) {
+    set({ live: { step, diagram: p } })
+    // Pushed, not asked for: the drawer panel shows it (and the full-size view, if it's already open, follows along).
+    if (!asked) {
+      const s = get()
+      if (s.open && s.diagram && isLiveNetwork(s.diagram) && s.step === step) set({ diagram: p, byKind: { ...s.byKind, network: p } })
+      return
+    }
+  }
   const s = get()
   const same = s.step === step
   const kinds = same ? (s.kinds.includes(p.kind) ? s.kinds : [...s.kinds, p.kind]) : [p.kind]
   set({ diagram: p, open: true, step, byKind: { ...(same ? s.byKind : {}), [p.kind]: p }, kinds })
   unhold()
-  if (requestedAt && Date.now() - requestedAt < ASKED_WITHIN_MS) heldUntil = Date.now() + HOLD_MS
+  if (asked) heldUntil = Date.now() + HOLD_MS
   requestedAt = 0
 })
 /** An automatic card / off-track: close the diagram now, or (during a hold) when the hold ends. */
@@ -117,3 +149,16 @@ onMessage('step.started', () => {
   unhold()
   set({ open: false })
 })
+
+/** The live network for the lesson's current step (an event without a stepId counts for whichever step is on). */
+export function liveForStep(): DiagramState['live'] {
+  const live = get().live
+  const cur = useLesson.getState().stepId
+  return live && (!live.step || !cur || live.step === cur) ? live : undefined
+}
+/** React: the live network for the current step, or undefined. */
+export function useLiveNetwork(): DiagramPayload | undefined {
+  const live = useDiagram((s) => s.live)
+  const cur = useLesson((s) => s.stepId)
+  return live && (!live.step || !cur || live.step === cur) ? live.diagram : undefined
+}
