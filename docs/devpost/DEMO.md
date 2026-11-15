@@ -1,180 +1,137 @@
-# Miyagi: live demo script (2 min), fallback (60 s), judge Q&A (3 min)
+# Miyagi: 2-minute demo (both ways to learn), 60-second fallback, judge Q&A
 
-Hero: Juan Toscano, *Learning Physics Informed Machine Learning Part 1: PINNs* (YouTube `AXXnSzmpyoI`, 24 min, PyTorch,
-1D diffusion). Cached lesson: `demo/cache/lessons/aebc6b8fba02dac5.json` (9 steps). Hero failure: `lr = 0.3` → loss stuck around 17
-(fails 6/6 seeds) → coach says `1e-3` → green (`demo/pinn-lab/README.md`).
+- **Path 1, Watch a video:** Juan Toscano, *Learning Physics Informed Machine Learning Part 1: PINNs* (YouTube `AXXnSzmpyoI`,
+  24 min). Cached lesson: `demo/cache/lessons/aebc6b8fba02dac5.json` (9 steps). The failure: `lr = 0.3` keeps the loss stuck
+  around 17 (fails 6/6 seeds), the coach says `1e-3`, and the step goes green (`demo/pinn-lab/README.md`).
+- **Path 2, Just teach me:** "build a calculator", the goal Michael ran live (commit `b37a767`). No video, Claude only.
+
+The timings for path 1 come from 3 rehearsal takes, all passing. **Path 2 has no measured timings in the repo yet: rehearse it and
+write the real numbers in.**
 
 ---
 
 ## T-15 min: setup (off stage)
 
-1. Network: plug into the **phone hotspot**. The venue Wi-Fi blocks Tiger's port and YouTube rate-limits caption requests from it.
-2. Permissions: **System Settings › Privacy & Security › Screen & System Audio Recording** and **Accessibility** both ON for the
-   terminal app that runs the engine. Quit and reopen that terminal after granting.
-3. Tiger check (optional, quote the number if asked):
-   ```bash
-   .venv/bin/python -m server.checks.tiger --ping
-   ```
-4. Engine. Start it with **`ORCH_LADDER_MIN_S=0 COACH_OFFLINE_FALLBACK=1`**.
-   - `ORCH_LADDER_MIN_S=0`: otherwise the "Do it for me" card can't appear until 20 s after the first card
-     (`server/orchestrator/config.py:117`).
-   - `COACH_OFFLINE_FALLBACK=1`: if Opus can't be reached and the code confidently matches a playbook entry, the coach shows that
-     playbook card, marked `offline: true` (`server/coach/llm.py`, merged into `integration/live`). It's off by default because
-     of the no-fake rule.
-
-   Pick **A** (the full flow, with live search) or **B** (lesson already loaded):
+1. **Network:** the phone hotspot. The venue Wi-Fi blocks Tiger's port, and YouTube rate-limits caption requests from it.
+2. **Permissions:** turn on **Screen & System Audio Recording** and **Accessibility** for the terminal app that runs the engine,
+   under System Settings › Privacy & Security. Quit and reopen that terminal after granting.
+3. **Engine** (`.env` already has `LESSON_ENGINE=claude-first`):
    ```bash
    ORCH_LADDER_MIN_S=0 COACH_OFFLINE_FALLBACK=1 scripts/miyagi-engine.sh
    ```
-   ```bash
-   ORCH_LADDER_MIN_S=0 COACH_OFFLINE_FALLBACK=1 scripts/miyagi-demo.sh
-   ```
-   B autostarts the hero lesson on `demo/pinn-lab` from E2's cache, with no launcher needed. Everything else (screen, checks, coach)
-   is still live.
-5. App: `cd app && npm run dev` on the `adrian/shell` branch (or the integration build). `ENGINE_URL` defaults to
-   `ws://localhost:8787`.
-6. **Python for the training run.** On the demo Mac, plain `python` doesn't exist and the system `python3` has no torch. In the
-   VS Code terminal:
+   - `ORCH_LADDER_MIN_S=0`: "Do it for me" appears after one more save instead of 20 s later.
+   - `COACH_OFFLINE_FALLBACK=1`: if the network dies, the coach still shows the matching playbook card, marked offline.
+4. **App:** from the **`adrian/shell`** branch (the launcher's two ways to learn and the bottom bar are there), run
+   `cd app && npm run dev`.
+5. **Python for the training run:**
    ```bash
    source .venv/bin/activate && python -c "import torch; from pydoe import lhs"
    ```
-   The rehearsed command is `tut run python pinn_diffusion.py`. It sends exact `::metric::` values. Plain `python …` relies on OCR
-   of the terminal, which the rehearsal didn't cover.
-7. **Pre-fill the code so the demo starts at the training step** (local edit, **don't commit**). Run
-   `.venv/bin/python scripts/rehearse.py --prefill demo/pinn-lab`. It writes sections 1–7 the way the video does, with `lr = 0.3`
-   and `steps = 2500` (runs take about 17–20 s). `rehearse.py` comes from the rehearsal PR "demo: rehearsal script + offline
-   fallback" (`claude/demo-rehearsal-06521d`). Without it, fill the sections by hand from
-   `server/lesson/fixtures/diffusion_workdir/pinn_diffusion.py`. **Don't add files to `demo/pinn-lab`** (`results.png` etc.):
-   E2's cache key includes the folder's file names, and a cache miss means a live Gemini build.
-8. Warm the cache: run the stage query once in the launcher, so the search cache and the lesson cache are both hot.
-9. Layout: VS Code on the left two-thirds with the integrated terminal open at the bottom. Font size up (⌘+ ×2) so OCR and the
-   judges can read it. Close Slack and email notifications (Focus mode ON).
-10. A **second terminal tab**, with this typed in but **not run**: `curl -X POST localhost:8787/debug/goto/7`. The lesson starts
-    at s1, and this jumps to s8, "Train the network and log loss".
+6. **Pre-fill the hero code** in `demo/pinn-lab/pinn_diffusion.py`. This is a local edit: **don't commit it**.
+   - Fill sections 1–7 the way the video does: `lr = 0.3`, `steps = 2500`, and keep `report(i, loss, test_loss)`.
+   - The reference solution is `server/lesson/fixtures/diffusion_workdir/pinn_diffusion.py`. The rehearsal PR's
+     `scripts/rehearse.py --prefill demo/pinn-lab` does it automatically once that PR is merged.
+   - **Don't add files to `demo/pinn-lab`.** The lesson cache key includes the folder's file names, and a miss means a live build.
+7. **Warm both caches:**
+   - Run the path 1 query once and pick Toscano.
+   - Then ⌥Space, type `build a calculator`, ⌘↵, and let it finish. Text lessons are cached by goal + folder, so on stage it
+     comes back from the cache.
+   - End both lessons afterwards (bottom bar › End lesson).
+8. **Layout:** VS Code, terminal open, font ⌘+ twice, Focus mode on. A second terminal tab has
+   `curl -X POST localhost:8787/debug/goto/7` typed in but **not run**.
+9. Optional: a browser tab on `http://localhost:8787/stats` (the Tiger stats page) for Q&A.
 
 ---
 
-## The 2-minute live demo
+## The 2-minute script
 
 | Time | Do | Say |
 |---|---|---|
-| **0:00** | Nothing on screen but VS Code. | "YouTube tutorials can't tell whether you actually got it. Miyagi can. It turns any tutorial into an auto-graded lab." |
-| **0:08** | Press **⌥Space**. The launcher grows out of the notch. Type exactly: **`learn physics informed machine learning with PINNs in PyTorch`** and press **↵**. | "I ask Miyagi anything. It searches the live web: Claude with web search, Bright Data's Google SERP, YouTube, GitHub and arXiv." |
-| **0:13** | Rows stream in (first one in about 3–4 s). Point at a row's reason and any comment warning. | "Claude scores every result, and Bright Data pulls the comments of the top videos, so a video people say is broken gets flagged." |
-| **0:20** | **↑/↓** to *Learning Physics Informed Machine Learning Part 1* (Toscano), then **↵**. The **preflight card** appears within 5 s: style, length, chapters, tools needed. Click **Build**. The panel morphs into the pill. | "Before building anything, Miyagi tells me what this video really is and what I need installed. Then Gemini watches the whole 24-minute video and turns it into steps with checks a machine can grade from my screen. This one's cached; cold, it took 31 seconds." |
-| **0:30** | `lesson.ready` (0.02 s from the cache). VS Code opens `demo/pinn-lab`. The lesson starts at s1. Switch to the second terminal tab and press **↵** on the `debug/goto/7` line: the video jumps to s8's clip, plays it, then pauses. The spotlight dims the screen around the training code. | "Each step plays one clip, then waits for me. Miyagi reads my whole screen with Apple Vision on the device, so it knows exactly where I should be working. Let's skip ahead to training." |
-| **0:45** | In the VS Code terminal type **`tut run python pinn_diffusion.py`** and press **↵**. The loss prints and sits around 17. | "I'm training with learning rate 0.3." |
-| **1:02** | Pill pulses **amber** (16.5–18.8 s after ↵). The check fails at step 2000, about 3 s before the run ends. | "The check reads my loss and tests whether it's actually improving, statistically. It isn't." |
-| **1:08** | The coach card appears 5–7 s after amber (2–4 s after the run ends): *"Learning rate 0.3 is far too high… Set lr to 1e-3."* The spotlight lands on `lr=0.3`. This first card is a level-2 hint (Explain / Show me / Hint), **no fix button yet**. | "Claude Opus looks at my real screen and code and diagnoses it: about 3–4 seconds of model time. Nothing in it is scripted." |
-| **1:14** | Press **⌘S** once. Within 1 s the level-3 card adds **Do it for me**. Click it: the preview shows `lr=0.3` → `lr=1e-3`. Click **Confirm**. (Or just type **`lr = 1e-3`** and **⌘S**.) | "Hints come before answers. If I want, it shows the exact diff, applies it only when I confirm, and I can undo it." |
-| **1:18** | Run **`tut run python pinn_diffusion.py`** again. The loss drops under 1e-2 by step 1000 (green in 12–16 s; talk over it). | "Every check, every failure and every metric streams into Tiger Data: hypertables plus continuous aggregates. That gives a creator a stuck heatmap over their own video." |
-| **1:33** | The step turns **green**. The video **resumes by itself** 0.4 s later. | "Green. The video moves on only when my code works." |
-| **1:36** | **Just teach me beat (20 s): only if the launcher row has landed and been rehearsed. Otherwise press ⌥D instead** (a diagram of the step's network). ⌥Space, choose **Build a lesson from the internet**, type **`build a calculator`**, ↵. The editor opens full screen, step 1 appears, and Miyagi boxes the line to type. | "No video needed: say 'just teach me', and Claude researches the official docs, writes the lesson, and shows me exactly where to type." (⌥D instead: "Need intuition? Claude draws a diagram for whatever step you're on.") |
-| **1:56** | — | "Miyagi: any tutorial, any topic, graded from your real screen. Built on Claude, Gemini, Bright Data and Tiger Data." |
+| **0:00** | VS Code on screen, the island pill under the notch. | "YouTube tutorials can't tell whether you actually got it. Miyagi can. It turns any tutorial into an auto-graded lab, and there are two ways in." |
+| **0:07** | **⌥Space**. The launcher grows out of the island. Type **`learn physics informed machine learning with PINNs in PyTorch`**, then press **↵** (Watch a video). | "First way: watch a video. Claude searches YouTube with Bright Data's Google results, and Bright Data reads each video's comments, so a broken tutorial gets flagged." |
+| **0:14** | **↑/↓** to *Learning Physics Informed Machine Learning Part 1* (Toscano), then **↵**. The **preflight card** shows within 5 s. Click **Build**. | "Before building anything, Miyagi tells me what this video is and what I'm missing. Then Claude builds the lesson from the transcript; Gemini watches the video only when there's no transcript." |
+| **0:22** | The lesson loads (cached) and VS Code opens `demo/pinn-lab`. Switch to the second tab and press **↵** on `debug/goto/7`: the step's clip plays, then pauses. The screen dims to a **white box** on the code. | "Each step plays one clip and waits. Miyagi reads my whole screen on the device and boxes exactly where I work. Let's skip to training." |
+| **0:30** | In the VS Code terminal: **`tut run python pinn_diffusion.py`** ↵. The loss sits around 17. | "Learning rate 0.3." |
+| **0:47** | The pill pulses **amber** 16.5–18.8 s after ↵. | "The check reads my loss and tests whether it's improving, statistically. It isn't." |
+| **0:53** | The coach card arrives 5–7 s after amber: *"Learning rate 0.3 is far too high… Set lr to 1e-3."* | "Claude Opus reads my real screen and code. No script." |
+| **0:58** | **⌘S** once. Within 1 s **Do it for me** appears. Click it, review the `lr=0.3 → lr=1e-3` preview, click **Confirm**. | "Hints before answers. The fix is a diff I approve, and I can undo it." |
+| **1:02** | **`tut run python pinn_diffusion.py`** again. Green arrives 11.6–15.9 s later and the video resumes 0.4 s after that. | "Every check and every metric streams into Tiger Data. That's what lets a creator see where learners get stuck." |
+| **1:18** | Bottom bar › **End lesson**. Then **⌥Space**, type **`build a calculator`**, press **⌘↵** (Just teach me). | "Second way: no video at all. Just teach me." |
+| **1:24** | The pill shows the build. VS Code opens **full screen**. Step 1 appears and the white box sits on the exact line, with the code to type under the caption. | "Claude researched the official docs with web search and wrote the lesson, and Miyagi boxes exactly where to type." |
+| **1:34** | Type the boxed line, **⌘S**, then bottom bar › **Check**. The step goes green and the box moves to the next line. | "Check runs the step's checks on my screen, then a Claude judge. Green." |
+| **1:48** | — | "Two ways to learn, both graded from your real screen, and it survives a restart. Built on Claude, Bright Data, Tiger Data and Gemini." |
 
-**Just teach me status (check before the freeze):**
-- The engine side is merged: `learn {mode: "lesson"}` → `build_text_lesson`, the full-screen editor and the line boxes. Michael
-  ran a live calculator lesson on it.
-- The launcher row "Build a lesson from the internet" isn't in the pushed app code (`aa45e49`; the launcher sends `learn` without
-  `mode`). Don't put it on stage until that row is in the app build you're demoing and has passed a live take.
-
-**If something stalls live:**
-- The search is slow or empty: press **Esc**, then restart with `scripts/miyagi-demo.sh` (option B). The lesson is already
-  loaded, so skip to 0:35.
-- No amber after the run: you probably ran plain `python`. Use `tut run python …` so the metrics are exact. Press **⌥H** to force
-  the hint card.
-- The network dies mid-demo:
-  - With `COACH_OFFLINE_FALLBACK=1` (E5's change is now merged), the live engine still shows the "Learning rate is too high"
-    playbook card, 0.9 s after amber (the rehearsal session verified this offline). There's no "Do it for me" offline, so fix `lr`
-    by hand and carry on. No engine switch is needed.
-  - If you forgot the flag, the live engine shows **no** coach card (`CoachUnavailable`). Switch to `scripts/miyagi-offline.sh`
-    (below).
-- The live coach card's 5–7 s after amber is the rehearsed number. E5's PR #1 should bring it down to about 3.4 s (Opus only), but
-  that hasn't been re-measured live (cost freeze), so keep 5–7 s in the timing until someone measures it.
+**If something stalls:**
+- **Search is slow:** press Esc and run `ORCH_LADDER_MIN_S=0 COACH_OFFLINE_FALLBACK=1 scripts/miyagi-demo.sh`, which autostarts
+  the hero lesson. Skip to 0:22.
+- **No amber:** you ran plain `python`. Use `tut run`. Press ⌥H to force the hint card.
+- **Network dies:** with `COACH_OFFLINE_FALLBACK=1` the live engine still shows the "Learning rate is too high" playbook card
+  (0.9 s after amber, verified offline in rehearsal). There's no "Do it for me" offline, so type `lr = 1e-3` by hand. Path 2's
+  first build needs the network, so it only works offline if the cache was warmed in step 7.
+- **The engine crashed:** restart it. The resume card ("<title> · step N of M") brings the lesson back at the same step.
+- **Path 2 misbehaves:** skip it and press **⌥D** on the hero step instead (a Claude-built diagram of the network).
 
 ---
 
-## 60-second fallback (the network is dead)
-
-Everything below runs with **no internet** except YouTube playback.
+## 60-second fallback (no network at all)
 
 ```bash
-scripts/miyagi-offline.sh
+DEMO=1 ORCH_AUTOSTART=1 ORCH_LESSON=demo/cache/lessons/aebc6b8fba02dac5.json TUT_WORKDIR="$PWD/demo/pinn-lab" scripts/miyagi-engine.sh
 ```
-- This script comes from the rehearsal PR "demo: rehearsal script + offline fallback" (`claude/demo-rehearsal-06521d`). Make sure
-  it's merged before the freeze. It runs `DEMO=1` with autostart, **pins the hero lesson** (plain `DEMO=1` loads the newest
-  cached lesson), and ships `demo/cache/coach/s8.json`: E5's `lr_too_high` playbook card from `server/coach/playbook.py`, word
-  for word.
-- **Don't use plain `DEMO=1`.** As shipped, it shows the orchestrator's stub card ("Loss plateaued at large β … β curriculum"),
-  which is the wrong card for this failure.
-- What the rehearsal verified offline: search, lesson, checks, `tut run` and the Tiger spool all work. The checks and the training
-  run are real, because they run on the laptop.
-- Offline there's **no "Do it for me"** (the card has no diff), and under `DEMO=1` `apply_fix` writes without a preview. Fix the
-  learning rate **by hand**.
-- If even the engine won't start: `cd app && DEMO=1 npm run dev` plays the scripted lesson **inside Electron with no engine and
-  no network** (`app/README.md`, "Demo mode").
-- The video can't play offline. Narrate over the step card, or play the **backup screen recording** of the full live run.
+- The checks, screen reader, `tut run` and Tiger spool all run on the laptop.
+- **Watch the coach card:** under plain `DEMO=1` the rehearsal saw the orchestrator's β-curriculum stub card instead of the
+  `lr_too_high` one. The rehearsal PR's `scripts/miyagi-offline.sh` + `demo/cache/coach/s8.json` fix that, but they **aren't
+  merged**. Until they are, prefer the live engine with `COACH_OFFLINE_FALLBACK=1` (above).
+- If even the engine won't start, run `cd app && DEMO=1 npm run dev`. It plays a scripted lesson inside Electron, with no engine
+  and no network.
+- The video can't play offline. Narrate, or play the backup screen recording.
 
-**Script (60 s):**
 | Time | Do | Say |
 |---|---|---|
-| 0:00 | Lesson already loaded, pill showing "Step 8 · Train the network". | "Wi-Fi's down, so this is Miyagi offline: same checks, same screen reader, cached lesson." |
-| 0:10 | Run `tut run python pinn_diffusion.py` with `lr=0.3`. | "Learning rate 0.3: the loss sits at 17." |
-| 0:28 | Amber, then the coach card. | "The plateau check fails. Normally Claude Opus diagnoses this live from my screen; offline you get the same diagnosis from our curated playbook." |
+| 0:00 | Hero lesson loaded, at step 8. | "No Wi-Fi, so this is Miyagi offline: same checks, same screen reader, cached lesson." |
+| 0:10 | `tut run python pinn_diffusion.py` with `lr = 0.3`. | "The loss sits at 17." |
+| 0:28 | Amber, then the card. | "The plateau check fails, and offline you get the curated diagnosis." |
 | 0:35 | Type `lr = 1e-3`, save, run again. | "Fix it…" |
-| 0:50 | Green. | "…green. The video would resume here. The live version finds the tutorial and builds the lesson itself." |
+| 0:50 | Green. | "…green. Online, Claude finds the tutorial or writes the lesson itself." |
 
 ---
 
-## Judge Q&A cheat sheet (3 min)
+## Judge Q&A cheat sheet
 
-**"Is the coach scripted?"** No. On the live path `diagnose` calls `claude-opus-5-5` with the failing checks, the metric series,
-your code and a set-of-mark screenshot (`server/coach/diagnose.py`, `llm.py`). Canned cards exist only under `DEMO=1`. Triage
-skips the model only on purpose (nothing run yet, or an exact known error signature).
+**"Two ways to learn: what's the difference?"** Watch a video builds the lesson from a real YouTube tutorial: Claude reads its
+transcript, and Gemini watches the video only when there's no transcript. The video is gated step by step. Just teach me has no
+video: Claude plans the steps, researches the official docs with web search and fetch, and writes the exact code for each step.
+Both are graded the same way, from your screen.
 
-**"How do you know the loss is flat and not just noisy?"** `metric_trend` needs both a Mann-Kendall significance test (|z| ≥
-2.576) and a Theil-Sen effect size of at least 5% across the window. On 300 random seeds, flat noisy curves falsely pass ≤ 3 times (it
-was 61–136). The threshold check uses the median of the last 5 points (`server/checks/evaluator.py`).
+**"Is the coach scripted?"** No. Live diagnoses come from `claude-opus-5-5` with the failing checks, your metrics, your code and
+a marked-up screenshot (`server/coach/`). Canned cards exist only under `DEMO=1` or the opt-in offline fallback, which is marked
+`offline: true`.
 
-**"How do you read the screen?"** ScreenCaptureKit frames about once a second, re-OCR'd with Apple Vision only when the frame
-changed (100–220 ms on device). Our own overlay is excluded from the capture. Rects are in screen points, the same space as the
-spotlight. With Accessibility granted we also read VS Code's live buffer and caret (`server/screen/`).
+**"How does it know where to box?"** It uses macOS Accessibility for the exact editor line rect, VS Code's terminal and editor
+regions from the screen reader, and Apple Vision OCR as the fallback. The overlay dims the rest of the screen to 55%.
 
-**"Does it work beyond PINNs?"** Yes, measured. React, git, pandas, Rust and FastAPI tutorials all built into schema-valid lessons
-scored 8–9/10, with no PINN leakage (`evals/lesson/report.md`). Diagrams work for git graphs, React data flow and pandas groupby
-(`server/diagrams/examples/`).
+**"How do you read the screen?"** ScreenCaptureKit first, then Apple's `screencapture` when ScreenCaptureKit stalls (macOS 26
+does that), then CoreGraphics. OCR runs on the device in 100–220 ms per changed frame, and our own overlay is excluded.
 
-**"What does Gemini do vs Claude?"** Gemini watches YouTube, and only for the lesson the learner picked (the finder's skim is off
-by default to save cost). Claude does everything that reads text, code or screens: search, scoring, preflight, the transcript
-lesson path, the coach, diagrams and scaffolding. In the lesson builder it's Haiku/Sonnet first, and Opus only when a quality check fails.
+**"How do you know the loss is flat, not noisy?"** A Mann-Kendall significance test plus a Theil-Sen effect size of at least 5%.
+Flat noisy curves pass ≤ 3/300 times (it was 61–136).
 
-**"What did it cost / how do you control spend?"** An unsupervised test sweep drained our prepaid Gemini credit (about $20,
-team-reported), so we added a billing fast-fail, turned the skims off, tiered the Claude models, and logged per-model tokens on every
-build (`build.cost`). There's also a daily Gemini cap (25 video calls per day by default).
+**"What's Bright Data for?"** The SERP API supplies Google's video results for search, the YouTube comments dataset flags
+tutorials that no longer work (up to 36 comments read per video in our recorded live searches), and the Web Unlocker is the
+fallback route for captions.
 
-**"Is there a no-video mode?"** Yes, "Build a lesson from the internet" (Just teach me), Claude only. Claude researches with web
-search and the official docs, writes the lesson, and the editor opens full screen with the exact line boxed. The engine side is
-merged; the launcher row is landing.
+**"What's in Tiger?"** `learning_events` and `training_metrics` hypertables plus five continuous aggregates: the live 1 s curve,
+time per step, fail rate per check, a stuck heatmap per 15 s of video, and learner progress. You can see them live at
+`localhost:8787/stats`. When the venue Wi-Fi blocks the port, writes spool to disk and replay later.
 
-**"What if the engine crashes?"** Every lesson is saved as it's built, so a restart offers to resume at the same step with no
-rebuild (`b80996d`).
+**"Where's Gemini?"** It's the video-watching fallback in the lesson builder, used when there's no transcript or Claude's draft
+fails. It's capped per day and its token use is logged in `build.cost`.
 
-**"What's Bright Data for?"** The SERP API runs the web search, the Web Scraper API pulls YouTube comments that flag outdated
-tutorials, and the Web Unlocker fetches pages Claude reads and the docs the coach cites.
+**"What did it cost / how do you control spend?"** An unsupervised test sweep drained our prepaid Gemini credit (about $20, team
+figure). Since then: a billing fast-fail, a daily Gemini cap, skims off, Claude tiers (Haiku/Sonnet, Opus only on failure) and
+per-model token logging.
 
-**"What's in Tiger?"** Two hypertables (`training_metrics`, `learning_events`) and five continuous aggregates (live 1 s curves,
-time per step, fail rate per check, stuck heatmap per 15 s of video, learner progress). The venue Wi-Fi blocks Tiger's port, so the
-writer spools to disk and replays on reconnect: nothing is lost.
+**"What if it crashes?"** Every lesson is saved as it's built. A restart offers to resume at the same step with no rebuild.
 
-**"What if Gemini's out of quota?"** That happened today. The Claude transcript path races Gemini, every lesson draft is cached,
-and a failure is a plain-English error in under 6 s, never fake data.
-
-**"Will it edit my files?"** On the live path, only after you click Do it for me *and* confirm a diff preview. It refuses while the file has unsaved
-edits, writes only patches that compile, keeps a backup for undo, and never runs terminal commands (it copies them to your clipboard).
-
-**"Latency numbers?"** First search result about 3–4 s live (under 0.1 s from the cache); lesson from a 24-min video 31 s (Gemini),
-29–83 s via the Claude transcript path; coach card 2–4 s after the run ends, of which 3–4 s is Opus (it starts before the run
-ends); video resumes 0.4 s after green. Three rehearsal takes of the hero: all passed, 44–50 s of machine time each.
-
-**"What's next?"** ElevenLabs voice for cards (app side built), a creator dashboard on the Tiger aggregates, and event-driven
-capture instead of 1 fps.
+**"Will it edit my files?"** Only after you click Do it for me and confirm a diff preview. It refuses while the file has unsaved
+changes, writes only code that compiles, can be undone, and never runs terminal commands.
