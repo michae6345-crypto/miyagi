@@ -16,6 +16,7 @@
  */
 import { motion } from 'motion/react'
 import { useEffect, useRef, useState, type ReactNode } from 'react'
+import { create } from 'zustand'
 import { useShallow } from 'zustand/react/shallow'
 import { BookOpen, Check, Code2, Download, ExternalLink, File, FileCode2, Footprints, FolderGit2, Hammer, History, Info, Lightbulb, ListChecks, MessageCircle, MessageSquareText, NotebookText, Play, Search, SkipForward, SquarePlay, SquareTerminal, Undo2, Wrench, FolderOpen, RotateCcw, type LucideIcon } from 'lucide-react'
 import type { PreflightInfo } from '../../../../../../shared/contracts/events'
@@ -24,7 +25,7 @@ import { bridge } from '../../bridge'
 import { useLesson, useProgress, useThinking, type Offtrack as OfftrackPayload } from '../../core/lesson'
 import { defineFeature } from '../../core/registry'
 import { usePressed, type ActionKind } from '../../core/shortcuts'
-import { CheckList, CloseButton, OptionButton, PrimaryButton, Spinner, StatusDot } from '../../core/ui/atoms'
+import { CheckList, CloseButton, CodeText, OptionButton, PrimaryButton, Spinner, StatusDot } from '../../core/ui/atoms'
 import { actionTone, color, copy, fill } from '../../core/theme'
 import { Curve, fmt, Key, plotPoints, type Line } from './Curve'
 import { BODY_LINES, Clamp, HEADLINE_LINES } from './Clamp'
@@ -144,6 +145,12 @@ function QuietButton({ label, icon: I, onClick }: { label: string; icon?: Lucide
   )
 }
 
+/**
+ * A card title as the engine wrote it, ready for CodeText (backticks become mono, never shown literally; Michael's
+ * desktop test 4: About `Every to-do app needs a pla…`). A title cut inside code loses its closing backtick: close it.
+ */
+const titleText = (t: string): string => ((t.match(/`/g)?.length ?? 0) % 2 ? `${t}\`` : t)
+
 /** The engine's Socratic nudge, under the body (off-track and engine cards alike). */
 function Question({ text }: { text: string }): ReactNode {
   return (
@@ -245,7 +252,7 @@ function Diagnosis({ o, checks }: { o: OfftrackPayload; checks: ReturnType<typeo
 
       <div className={`mt-[10px] flex ${narrow ? 'flex-col gap-[14px]' : 'items-start'}`} style={narrow ? undefined : { gap: COL_GAP }}>
         <div className="min-w-0 flex-1" style={narrow ? undefined : { maxWidth: leftW }}>
-          <div className="text-[18px] font-semibold leading-[23px] tracking-[-0.01em]">{o.title}</div>
+          <div className="text-[18px] font-semibold leading-[23px] tracking-[-0.01em]"><CodeText text={titleText(o.title)} /></div>
           {o.guidingQuestion ? <Question text={o.guidingQuestion} /> : <Body>{o.body}</Body>}
 
           {o.citation && (
@@ -583,35 +590,52 @@ function SetupItems({ setup }: { setup: NonNullable<EngineCard['setup']> }): Rea
   )
 }
 
-/** How long the second tap of a TwoTap button stays armed. */
-const ARM_MS = 3000
+/** How long a TwoTap stays armed after the first tap: long enough for a slow, deliberate second tap. */
+const ARM_MS = 10_000
 
 /**
- * A destructive card action as a quiet text link: the first tap only arms it ("Tap again to start over"), the
- * second within ARM_MS acts. A stray click meant for the button next to it does nothing.
+ * Which TwoTap is armed (its armKey) and since when. Kept outside the component, so a re-sent or re-mounted card
+ * keeps the armed button (Michael's desktop test 4: the second tap on "Tap again to start over" did nothing).
  */
-function TwoTap({ label, onConfirm }: { label: string; onConfirm: () => void }): ReactNode {
-  const [armed, setArmed] = useState(false)
-  const timer = useRef<ReturnType<typeof setTimeout>>(undefined)
-  useEffect(() => () => clearTimeout(timer.current), [])
+const useArm = create<{ key?: string; at: number }>(() => ({ at: 0 }))
+
+/**
+ * A destructive card action as a quiet text link. The first tap only arms it: the link becomes a real button
+ * ("Yes, start over") for ARM_MS, and pressing that acts. A stray click meant for the button next to it does nothing.
+ */
+function TwoTap({ armKey, label, onConfirm }: { armKey: string; label: string; onConfirm: () => void }): ReactNode {
+  const armed = useArm((s) => s.key === armKey)
+  useEffect(() => {
+    if (!armed) return
+    const t = setTimeout(() => {
+      if (useArm.getState().key === armKey) useArm.setState({ key: undefined })
+    }, Math.max(0, useArm.getState().at + ARM_MS - Date.now()))
+    return () => clearTimeout(t)
+  }, [armed, armKey])
+  if (armed)
+    return (
+      <span data-two-tap="armed" className="mr-[12px] flex">
+        <QuietButton
+          label="Yes, start over"
+          icon={RotateCcw}
+          onClick={() => {
+            useArm.setState({ key: undefined })
+            onConfirm()
+          }}
+        />
+      </span>
+    )
   return (
     <button
       type="button"
-      data-two-tap={armed ? 'armed' : 'idle'}
-      className="mr-[12px] h-[34px] px-[4px] text-[13px] transition-colors"
-      style={{ color: armed ? color.label : color.faint }}
-      onClick={() => {
-        clearTimeout(timer.current)
-        if (armed) {
-          setArmed(false)
-          onConfirm()
-          return
-        }
-        setArmed(true)
-        timer.current = setTimeout(() => setArmed(false), ARM_MS)
-      }}
+      data-two-tap="idle"
+      className="mr-[12px] h-[34px] cursor-pointer px-[4px] text-[13px] transition-colors"
+      style={{ color: color.faint }}
+      // Like every other card button: no focus grab on press (the overlay never takes focus from the editor).
+      onMouseDown={(e) => e.preventDefault()}
+      onClick={() => useArm.setState({ key: armKey, at: Date.now() })}
     >
-      {armed ? 'Tap again to start over' : label}
+      {label}
     </button>
   )
 }
@@ -634,7 +658,7 @@ function CardActions({ card, actions }: { card: EngineCard; actions: CardAction[
           <QuietButton key={a} label={actionLabel(card, a)} icon={busy(a, ACTION[a]!.Icon, true)} onClick={() => cardAct(a)} />
         ))}
       {/* "Start a new lesson" discards the save: it sits apart from Continue and needs a second tap (desktop test 3). */}
-      {known.includes('end_lesson') && primary !== 'end_lesson' && <TwoTap label={actionLabel(card, 'end_lesson')} onConfirm={() => cardAct('end_lesson')} />}
+      {known.includes('end_lesson') && primary !== 'end_lesson' && <TwoTap armKey={`${card.kind}:${card.title}`} label={actionLabel(card, 'end_lesson')} onConfirm={() => cardAct('end_lesson')} />}
       <span className="flex-1" />
       {primary && <PrimaryButton label={actionLabel(card, primary)} icon={busy(primary, ACTION[primary]!.Icon)} onClick={() => cardAct(primary)} />}
     </div>
@@ -788,7 +812,7 @@ function Card(): ReactNode {
             <Clamp text={c.body} lines={HEADLINE_LINES} className="text-[16px] font-medium leading-[22px] tracking-[-0.01em]" />
           ) : (
             <>
-              <div className="text-[17px] font-semibold leading-[22px] tracking-[-0.01em]">{c.title}</div>
+              <div className="text-[17px] font-semibold leading-[22px] tracking-[-0.01em]"><CodeText text={titleText(c.title)} /></div>
               <Clamp text={c.body} lines={BODY_LINES} className="mt-[3px] text-[14px] leading-[20px]" style={{ color: color.label }} />
             </>
           )}
