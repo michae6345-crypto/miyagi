@@ -213,7 +213,10 @@ export function Panel({ rect }: { rect: Rect }): ReactNode {
       <div
         ref={scroller}
         className="relative min-h-0 flex-initial overflow-y-auto px-[8px] pb-[12px]"
-        style={{ scrollbarWidth: 'thin', scrollbarColor: `${glass.track} transparent` }}
+        // The list starts under the fixed header (never behind it). scrollPaddingTop keeps the browser's own scrolls
+        // (focus, a drag-select running off the top) clear of the edge by a label's height, like useKeepInView's
+        // 34 px (Michael's review A19: the sticky header cut content).
+        style={{ scrollbarWidth: 'thin', scrollbarColor: `${glass.track} transparent`, scrollPaddingTop: 34 }}
         onScroll={(e) => setScrolled(e.currentTarget.scrollTop > 2)}
       >
         {lesson?.build ? (
