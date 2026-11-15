@@ -68,7 +68,26 @@ GEO = {"act_w": 48, "side_w": 252, "tabs_h": 35, "crumbs_h": 22, "status_h": 22,
        "font": 12.0}
 
 
-def render(name: str, folder: str, file: str, src: str, *, panel: bool, term: list[str]) -> dict:
+def render_other_app(name: str, app: str = "Safari", title: str = "Google") -> dict:
+    """A plain browser window in front (VS Code not frontmost)."""
+    from PIL import Image, ImageDraw, ImageFont
+
+    FIXDIR.mkdir(parents=True, exist_ok=True)
+    img = Image.new("RGB", (W * S, H * S), (250, 250, 250))
+    d = ImageDraw.Draw(img)
+    d.rectangle([0, 0, W * S, 80 * S], fill=(230, 230, 230))
+    d.text((40 * S, 30 * S), "https://www.google.com", font=ImageFont.truetype(UI, 14 * S), fill=(40, 40, 40))
+    d.text((600 * S, 400 * S), "Search the web", font=ImageFont.truetype(UI, 28 * S), fill=(60, 60, 60))
+    png = FIXDIR / f"{name}.png"
+    img.save(png, optimize=True)
+    (FIXDIR / f"{name}.json").write_text(json.dumps({
+        "screen": {"x": 0, "y": 0, "w": W, "h": H}, "scale": float(S), "app": app,
+        "windows": [{"app": app, "title": title, "rect": {"x": 0, "y": 0, "w": W, "h": H}}]}))
+    return {"png": str(png)}
+
+
+def render(name: str, folder: str, file: str, src: str, *, panel: bool, term: list[str], dirty: bool = False,
+           title_folder: str | None = None) -> dict:
     """VS Code full screen (Dark+): explorer, one tab, breadcrumb, gutter + code, optional terminal panel.
     Writes <name>.png + sidecar <name>.json; returns geometry + per-line truth rows (screen points)."""
     from PIL import Image, ImageDraw, ImageFont
@@ -94,10 +113,12 @@ def render(name: str, folder: str, file: str, src: str, *, panel: bool, term: li
     d.text((P(g["act_w"] + 12), P(40)), folder.upper()[:28], font=ui_small, fill=(204, 204, 204))
     d.text((P(g["act_w"] + 28), P(64)), file, font=ui, fill=(204, 204, 204))
     d.rectangle([P(ex), 0, P(W), P(g["tabs_h"])], fill=(45, 45, 45))
-    tw = 40 + len(file) * 7.2
+    tab = f"{file}  ●" if dirty else file
+    shown_folder = title_folder or folder
+    tw = 40 + len(tab) * 7.2
     d.rectangle([P(ex), 0, P(ex + tw), P(g["tabs_h"])], fill=(30, 30, 30))
-    d.text((P(ex + 14), P(10)), file, font=ui, fill=(204, 204, 204))
-    d.text((P(ex + 14), P(g["tabs_h"] + 4)), f"{folder}  ›  {file}", font=ui_small, fill=(150, 150, 150))
+    d.text((P(ex + 14), P(10)), tab, font=ui, fill=(204, 204, 204))
+    d.text((P(ex + 14), P(g["tabs_h"] + 4)), f"{shown_folder}  ›  {file}", font=ui_small, fill=(150, 150, 150))
     lines = src.split("\n") if src else [""]
     truth = {}
     rows = int((panel_y - top) // g["line_h"])
@@ -123,7 +144,8 @@ def render(name: str, folder: str, file: str, src: str, *, panel: bool, term: li
     img.save(png, optimize=True)
     (FIXDIR / f"{name}.json").write_text(json.dumps({
         "screen": {"x": 0, "y": 0, "w": W, "h": H}, "scale": float(S), "app": "Code",
-        "windows": [{"app": "Code", "title": f"{file} — {folder}", "rect": {"x": 0, "y": 0, "w": W, "h": H}}]}))
+        "windows": [{"app": "Code", "title": f"{'● ' if dirty else ''}{file} — {shown_folder}",
+                     "rect": {"x": 0, "y": 0, "w": W, "h": H}}]}))
     return {"png": str(png), "top": top, "panel_y": panel_y if panel else None, "editor_x": ex,
             "gutter_right": gutter_right, "truth": truth}
 
@@ -246,8 +268,8 @@ async def run_scenario(lesson_path: Path, scenario: str, hold: float) -> dict:
     geo_by_step: dict[str, dict] = {}
     forced: list[str] = []
 
-    async def show(name: str, src: list[str], term_lines: list[str], file: str) -> dict:
-        fx = render(name, folder, file, "\n".join(src), panel=scenario == "open", term=term_lines)
+    async def show(name: str, src: list[str], term_lines: list[str], file: str, *, fx: dict | None = None, **kw) -> dict:
+        fx = fx or render(name, folder, file, "\n".join(src), panel=scenario == "open", term=term_lines, **kw)
         if reader is not None:
             reader.fixture = fx["png"]
             try:
@@ -296,6 +318,8 @@ async def run_scenario(lesson_path: Path, scenario: str, hold: float) -> dict:
             forced.append(st["id"])
             await engine.session.goto_step(i + 1)
 
+    extras = await run_extras(engine, lesson, rec, show, render, workdir, folder, starter) if scenario == "open" else {}
+
     # screen-down: show_me must answer at once
     down = {}
     if reader is not None:
@@ -320,14 +344,58 @@ async def run_scenario(lesson_path: Path, scenario: str, hold: float) -> dict:
         except Exception:  # noqa: BLE001
             pass
     return {"scenario": scenario, "lesson": lesson, "events": rec.events, "argv": rec.argv, "geo": geo_by_step,
-            "forced": forced, "screen_down": down}
+            "forced": forced, "screen_down": down, "extras": extras}
+
+
+async def run_extras(engine, lesson, rec, show, render_fn, workdir: Path, folder: str, starter: str) -> dict:
+    """New round-2 behaviours, on a typing step that isn't done yet (only the starter line is on screen, so the
+    coach gate opens): (g) the box clears when VS Code isn't frontmost and comes back; (h) an unsaved file
+    (● in the title) gets "Save with ⌘S" and no off-track; (i) the file open from another lesson's folder gets
+    one calm card with open_editor and no off-track."""
+    out: dict = {}
+    idx = next((i for i, st in enumerate(lesson["steps"]) if step_kind(st) == "type" and i > 0), 0)
+    st = lesson["steps"][idx]
+    file = code_file(lesson, idx)
+    base = [starter] if starter else []
+    (workdir / file).write_text("\n".join(base) + "\n")
+
+    async def phase(name: str, secs: float, **show_kw) -> list[dict]:
+        n = len(rec.events)
+        t = rec.now()
+        await show(name, base, ["% "], file, **show_kw)
+        await asyncio.sleep(secs)
+        return [{**e, "dt": round(e["t"] - t, 2)} for e in rec.events[n:]]
+
+    await engine.session.goto_step(idx)
+    await asyncio.sleep(1.0)
+    ev0 = await phase("x-editor", 6)
+    out["step"] = st["id"]
+    out["box_before"] = [e["payload"].get("rect") for e in ev0 if e["type"] == "spotlight" and e["payload"].get("rect")]
+    ev1 = await phase("x-away", 5, fx=render_other_app("x-away"))
+    clr = next((e for e in ev1 if e["type"] == "spotlight" and e["payload"].get("clear")), None)
+    out["g_clear_after_s"] = clr["dt"] if clr else None
+    ev2 = await phase("x-back", 6)
+    back = next((e for e in ev2 if e["type"] == "spotlight" and e["payload"].get("rect")), None)
+    out["g_rebox_after_s"] = back["dt"] if back else None
+    ev3 = await phase("x-dirty", 14, dirty=True)
+    save = next((e for e in ev3 if e["type"] == "card" and "⌘S" in json.dumps(e["payload"], ensure_ascii=False)), None)
+    out["h_save_card_after_s"] = save["dt"] if save else None
+    out["h_save_card"] = (save or {}).get("payload", {}).get("title")
+    out["h_offtrack"] = [e["payload"].get("title") for e in ev3 if e["type"] == "offtrack"]
+    ev4 = await phase("x-otherfolder", 14, title_folder="some-other-lesson")
+    wf = next((e for e in ev4 if e["type"] == "card" and "open_editor" in (e["payload"].get("actions") or [])), None)
+    out["i_card_after_s"] = wf["dt"] if wf else None
+    out["i_card"] = (wf or {}).get("payload", {}).get("title")
+    out["i_offtrack"] = [e["payload"].get("title") for e in ev4 if e["type"] == "offtrack"]
+    out["i_cards"] = [e["payload"].get("title") for e in ev4 if e["type"] == "card"]
+    return out
 
 
 # ---------------------------------------------------------------- assertions
 def judge(res: dict) -> dict:
     lesson, events, geo = res["lesson"], res["events"], res["geo"]
     scen = res["scenario"]
-    items = {k: [] for k in "abcdef"}
+    items = {k: [] for k in "abcdefj"}
     rows = []
     starts = [e for e in events if e["type"] == "step.started"]
     for si, se in enumerate(starts):
@@ -397,6 +465,14 @@ def judge(res: dict) -> dict:
         # (d)
         if kind == "run" and not se.get("file_bytes"):
             items["d"].append(f"{sid}: run step started while {se.get('file')} is {'empty' if se.get('file_bytes') == 0 else 'missing'}")
+        # (j) the first help card of the step offers "Do it for me" (apply_fix)
+        help_cards = [e for e in cards if e["type"] == "offtrack" or (
+            e["payload"].get("kind") == "hint" and not re.match(r"(Looks done|I can't see|Save |That's another)",
+                                                                e["payload"].get("title") or ""))]
+        if help_cards and "apply_fix" not in (help_cards[0]["payload"].get("actions") or []):
+            items.setdefault("j", []).append(f"{sid}: first help card {help_cards[0]['payload'].get('title')!r} "
+                                             f"has actions {help_cards[0]['payload'].get('actions')}")
+        row["first_help_card"] = (help_cards[0]["payload"].get("title"), help_cards[0]["payload"].get("actions")) if help_cards else None
         # (f)
         ins = se["payload"].get("instructions") or ""
         words = ins.split()
@@ -427,6 +503,17 @@ def judge(res: dict) -> dict:
         items["e"].append(f"`-n` used {n_flag}x")
     if any(re.search(r"cursor", " ".join(a), re.I) for a in argv):
         items["e"].append("Cursor in a command: " + str([a for a in argv if re.search(r'cursor', ' '.join(a), re.I)]))
+    x = res.get("extras") or {}
+    if x:
+        items["g"] = [] if (x.get("g_clear_after_s") is not None and x["g_clear_after_s"] <= 2.0) else [
+            f"{x.get('step')}: no spotlight clear within 2 s of another app in front (got {x.get('g_clear_after_s')})"]
+        if x.get("g_rebox_after_s") is None:
+            items["g"].append(f"{x.get('step')}: no new box after VS Code came back")
+        items["h"] = ([] if x.get("h_save_card_after_s") is not None else [f"{x.get('step')}: no ⌘S card for an unsaved file"]) + (
+            [f"off-track while unsaved: {x['h_offtrack']}"] if x.get("h_offtrack") else [])
+        items["i"] = ([] if x.get("i_card_after_s") is not None else [f"{x.get('step')}: no open_editor card for another lesson's folder "
+                                                                      f"(cards {x.get('i_cards')})"]) + (
+            [f"off-track in the wrong folder: {x['i_offtrack']}"] if x.get("i_offtrack") else [])
     return {"items": items, "rows": rows, "opens": opens, "activations": activations, "gotos": len(gotos), "argv": argv}
 
 
@@ -468,6 +555,8 @@ def main() -> None:
         print(f"  editor commands: opens={j['opens']} activations(open -a, no folder)={len(j['activations'])} gotos(-g)={j['gotos']}")
         print(f"  forced step changes (engine didn't advance by itself): {res['forced']}")
         print(f"  screen down: {res['screen_down']}")
+        if res.get("extras"):
+            print(f"  extras: {res['extras']}")
         verdict = {k: ("PASS" if not v else "FAIL") for k, v in j["items"].items()}
         sd = res["screen_down"].get("card_after_s")
         verdict["screen-down card ≤ 1 s"] = "PASS" if sd is not None and sd <= 1.0 else f"FAIL ({sd})"
