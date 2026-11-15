@@ -57,6 +57,7 @@ Hard limits:
 - guiding_question: one Socratic question (at most 20 words) about THIS cause that leads the learner to the fix without stating it, e.g. "What happens to Adam's steps when the learning rate is large?". It is the first rung of the hint ladder.
 
 - Trust what is on screen (error text, versions in tracebacks) over the lesson's library versions: the learner may have a newer release than the tutorial.
+- Code read from the screen (OCR) can contain recognition errors and editor overlays (hover tooltips like "(function) def add(a: Any, b: Any) -> None", autocomplete). Never claim a line is malformed, misnamed or missing syntax because of how OCR text looks; only a saved file or an actual error message can show that.
 - Never put `git add` or `git rebase/merge/cherry-pick --continue` in diff_command while the file still has conflict markers (<<<<<<< ======= >>>>>>>) that your diff does not remove: that would commit the markers. Say to resolve the markers first.
 
 If the evidence is genuinely insufficient, say what to check next instead of guessing.
@@ -306,8 +307,19 @@ async def diagnose(
     screen: ScreenContext | None = None,
     on_targets: Callable[[list[dict]], Any] | None = None,
     cursor: dict | None = None,
+    file_state: dict | None = None,
+    code_source: str = "file",
 ) -> dict:
     """Return an `offtrack` payload for the failed step.
+
+    Holds (no diagnosis, no model call; the card carries `hold` and the orchestrator must NOT show
+    it as an offtrack), from Michael's live misdiagnosis of an unsaved, OCR'd `def add(a, b):`:
+      - `hold: "wrong_folder"`: `file_state["wrong_folder"]`, the learner edits a same-named file
+        elsewhere (the orchestrator shows its own card);
+      - `hold: "unsaved"`: `file_state["saved"] is False`, or the screen shows the step's file
+        unsaved (●, Untitled-N) → the only message is "Save with ⌘S so I can check it.";
+      - `hold: "unconfirmed"`: `code_source="screen"` (the excerpt is OCR) and it doesn't match the
+        previous read of this step: two agreeing reads before claiming anything; say nothing.
 
     With `screen` (a set-of-mark ScreenContext) Opus also sees the screen and returns
     `targets` first: [{boxId, label, text, rect}] in screen points. The reply is streamed and
@@ -320,6 +332,8 @@ async def diagnose(
     for logs; strip them before sending (see `public()`).
     """
     lesson = lesson if lesson is not None else get_lesson()
+    if (held := _hold(step, screen, file_state, code_excerpt, code_source)) is not None:
+        return held
     if not error_text.strip() and screen is not None:
         # screen-first lessons have no captured stderr: an error/refusal visible on screen is the
         # error text (S9 QA: without it, triage sent git/React failures to the "not done yet" card)
@@ -354,6 +368,36 @@ async def diagnose(
     card["_meta"]["triage"] = {"route": t.route, "by": t.by, "reason": t.reason}
     LAST[card["stepId"]] = card
     return card
+
+
+_SCREEN_READS: dict[str, str] = {}  # step id → last OCR'd code excerpt (normalized)
+
+
+def _hold(step: dict, screen: Any, file_state: dict | None, code: str, code_source: str) -> dict | None:
+    from .pointing import editor_state, step_file
+
+    sid = step.get("id", "")
+    fs = file_state or {}
+
+    def card(hold: str, title: str, body: str) -> dict:
+        return {"stepId": sid, "severity": "warn", "title": title, "body": body, "actions": [], "hold": hold,
+                "_meta": {"route": "hold", "hold": hold}}
+
+    if fs.get("wrong_folder"):
+        return card("wrong_folder", "Different folder", "This file isn't in the lesson folder.")
+    name = (step_file(step) or "").rsplit("/", 1)[-1]
+    ed = editor_state(screen) if screen is not None else {}
+    unsaved_on_screen = bool(ed) and ed.get("unsaved") and (ed.get("untitled") or not name or ed.get("file") == name)
+    if fs.get("saved") is False or unsaved_on_screen:
+        return card("unsaved", "Save so I can check", "Save with ⌘S so I can check it.")
+    if code_source == "screen" and code.strip():
+        norm = re.sub(r"\s+", "", code)
+        prev, _SCREEN_READS[sid] = _SCREEN_READS.get(sid), norm
+        if prev != norm:
+            return card("unconfirmed", "", "")
+    else:
+        _SCREEN_READS.pop(sid, None)
+    return None
 
 
 def metric_goals(step: dict) -> dict[str, str]:

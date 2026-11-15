@@ -141,6 +141,27 @@ async def _ask(step: dict, check_results: list[dict] | None, screen: Any, files:
     return res.data, res, checks, status, steps
 
 
+def _file_blocker(step: dict, check: dict, files: dict[str, str] | None, screen: Any) -> str | None:
+    """Why Claude may NOT pass a check about a file: "unsaved" | "not seen" | "empty", or None.
+    Michael: step 1 showed as passed while calculator.py was unsaved (and in another folder)."""
+    name = (check.get("file") or "").rsplit("/", 1)[-1]
+    if not name:
+        expected = (step_file(step) or "").rsplit("/", 1)[-1]
+        name = expected if expected and expected in (check.get("label") or "") else ""
+    if not name:
+        return None
+    ed = editor_state(screen) if screen is not None else {}
+    if ed and ed.get("unsaved") and (ed.get("untitled") or ed.get("file") == name):
+        return "unsaved"
+    text = next((t for p, t in (files or {}).items() if p == name or p.rsplit("/", 1)[-1] == name), None)
+    if text is None:
+        return "not seen"
+    return "empty" if not text.strip() else None
+
+
+SAVE_FIRST = "Save with ⌘S so I can check it"
+
+
 def _meta(res: llm.CallResult) -> dict:
     return {"model": res.model, "latency_s": round(res.latency_s, 2), "usage": res.usage}
 
@@ -171,13 +192,20 @@ async def judge_step(step: dict, screen: Any = None, files: dict[str, str] | Non
         return None
     data, res, checks, status, _steps = asked
     by_id = {c["id"] for c in checks}
+    check_by_id = {c["id"]: c for c in checks}
     out: dict[str, dict] = {}
+    blocked: set[str] = set()
     for v in data.get("checks") or []:
         if v.get("check_id") in by_id:
             verdict = {"done": "done", "not_done": "not_done"}.get(v.get("verdict"), "unsure")
+            reason = v.get("reason", "")
             if verdict == "done" and float(v.get("confidence") or 0) < LOOKS_DONE_CONFIDENCE:
                 verdict = "unsure"
-            out[v["check_id"]] = {"verdict": verdict, "reason": v.get("reason", ""), "evidence": v.get("evidence", "")}
+            if verdict == "done" and status.get(v["check_id"], {}).get("status") != "pass" and (
+                    why := _file_blocker(step, check_by_id[v["check_id"]], files, screen)):
+                verdict, reason = "unsure", f"the file is {why}, so I can't confirm it"
+                blocked.add(why)
+            out[v["check_id"]] = {"verdict": verdict, "reason": reason, "evidence": v.get("evidence", "")}
     for cid in by_id - out.keys():
         out[cid] = {"verdict": "unsure", "reason": "not judged", "evidence": ""}
     done = bool(checks) and all(status.get(c["id"], {}).get("status") == "pass" or out[c["id"]]["verdict"] == "done" for c in checks)
@@ -185,6 +213,8 @@ async def judge_step(step: dict, screen: Any = None, files: dict[str, str] | Non
     where = None
     if not done and (editor_state(screen) or step_file(step)):
         where = where_hint(step, None, screen)
+    if "unsaved" in blocked:
+        missing = where = SAVE_FIRST
     target = None
     if hasattr(screen, "boxes"):
         ev = next((o["evidence"] for o in out.values() if o["evidence"] and (o["verdict"] == "done") == done), "")
@@ -224,18 +254,22 @@ class StepJudge:
         if asked is None:
             return None
         data, res, checks, status, steps = asked
-        return self._decide(step, checks, status, steps, data) | {"_meta": _meta(res)}
+        return self._decide(step, checks, status, steps, data, files, screen) | {"_meta": _meta(res)}
 
-    def _decide(self, step: dict, checks: list[dict], status: dict, steps: list[dict], data: dict) -> dict:
+    def _decide(self, step: dict, checks: list[dict], status: dict, steps: list[dict], data: dict,
+                files: dict[str, str] | None = None, screen: Any = None) -> dict:
         sid = step.get("id", "")
         by_id = {c["id"]: c for c in checks}
         verdicts = [v for v in data.get("checks") or [] if v.get("check_id") in by_id]  # unknown ids dropped
         summary = clamp_words(data.get("summary", ""), 12).rstrip(".")
-        events, disagree = [], []
+        events, disagree, blocked = [], [], set()
         for v in verdicts:
             c, st = by_id[v["check_id"]], status.get(v["check_id"], {}).get("status", "pending")
             conf = float(v.get("confidence") or 0)
             if v["verdict"] != "done" or st == "pass":
+                continue
+            if why := _file_blocker(step, c, files, screen):  # never pass a file nobody has saved/seen
+                blocked.add(why)
                 continue
             if st == "fail":  # a deterministic check disagrees: ask, don't overrule it
                 if conf >= LOOKS_DONE_CONFIDENCE:
@@ -252,6 +286,8 @@ class StepJudge:
             card = {"stepId": sid, "kind": "answer", "title": "Already ahead?",
                     "body": clamp_words(f"You look to be on “{other.get('title', other['id'])}” already", 12),
                     "actions": ["skip_step"], "targetStepId": other["id"]}
+        elif "unsaved" in blocked:
+            card = {"stepId": sid, "kind": "answer", "title": "Save so I can check", "body": f"{SAVE_FIRST}.", "actions": []}
         elif disagree:
             card = {"stepId": sid, "kind": "answer", "title": "Looks done?",
                     "body": summary or clamp_words(disagree[0].get("evidence") or disagree[0].get("reason", ""), 12),
