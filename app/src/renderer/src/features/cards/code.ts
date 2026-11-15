@@ -28,18 +28,26 @@ const ENGLISH = new Set(
   )
 )
 
-/** Words only, apart from filenames, quotes and numbers: a sentence. Mostly words, some of them English: prose. */
+/**
+ * A sentence: apart from filenames, quotes and numbers it's words (all of them, or most), and some of them are
+ * English that code doesn't use ("weather.py not found", "Yours is still empty"). "return x" and "import numpy as
+ * np" are words too, but no English: code.
+ */
 function wordy(s: string): boolean {
   const toks = s
     .replace(QUOTED, ' ')
     .split(/\s+/)
     .filter((t) => t && !FILE.test(t) && !NUM.test(t))
   const words = toks.filter((t) => WORD.test(t))
-  if (words.length >= 2 && words.length === toks.length) return true
-  return words.length >= 3 && words.length >= toks.length * 0.6 && words.some((w) => ENGLISH.has(w.replace(/[,.:;!?]$/, '').toLowerCase()))
+  const english = words.some((w) => ENGLISH.has(w.replace(/[,.:;!?]$/, '').toLowerCase()))
+  if (!english || words.length < 2) return false
+  return words.length === toks.length || (words.length >= 3 && words.length >= toks.length * 0.6)
 }
 
-/** Status or prose, not code: "not in weather.py yet", "weather.py not found", "Open VS Code so I can check it.". */
+/**
+ * Status or prose, not code: "not in weather.py yet", "weather.py not found", "Open VS Code so I can check it.",
+ * "(missing)". Code that happens to be words ("return x") is not prose.
+ */
 export function isProse(text: string): boolean {
   const s = text.trim()
   if (!s) return false

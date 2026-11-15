@@ -60,9 +60,28 @@ export function expectedValue(label: string): string | undefined {
 
 const norm = (s: string): string => s.replace(/\s+/g, ' ').trim()
 
+/** A diff side as code: '' when it's empty or only status ("not in weather.py yet", "(missing)"). Blank end lines go. */
+function codeOf(s?: string): string {
+  const t = (s ?? '').replace(/^(?:[ \t]*\r?\n)+|(?:\r?\n[ \t]*)+$/g, '')
+  const lines = t.split(/\r?\n/).filter((l) => l.trim())
+  return lines.length > 0 && !lines.every(isProse) ? t : ''
+}
+
+/**
+ * The diff's real code: your side and the expected one (a terminal-only fix: its command). Undefined when neither
+ * side has any (both empty, or only status text), so the panel never shows an empty or prose-only diff.
+ */
+type Sides = { yours: string; expected: string; file?: string; line?: number }
+function diffSides(diff: Offtrack['diff']): Sides | undefined {
+  if (!diff) return undefined
+  const yours = codeOf(diff.yours)
+  const expected = codeOf(diff.expected) || codeOf(diff.command)
+  return yours || expected ? { yours, expected, file: diff.file, line: diff.line } : undefined
+}
+
 /** A check row worth showing: your value is known and the row doesn't just repeat the diff. */
 type Row = { id: string; label: string; yours: string; expected?: string }
-function checkRows(failing: CheckItem[], diff: Offtrack['diff']): Row[] {
+function checkRows(failing: CheckItem[], diff: Sides | undefined): Row[] {
   // The diff's code, whole and line by line: a check whose value is already in it adds nothing.
   const inDiff = new Set(diff ? [diff.yours, diff.expected, ...diff.yours.split(/\r?\n/), ...diff.expected.split(/\r?\n/)].map(norm).filter(Boolean) : [])
   const rows: Row[] = []
@@ -230,16 +249,31 @@ function Code({ text, mark }: { text: string; mark?: (line: string) => boolean }
   )
 }
 
+/** What the panel has to show: the diff's real code, the check rows with a real value, the curve. */
+function useContent(o: Offtrack, failing: CheckItem[]): { diff?: Sides; rows: Row[]; spark: ReturnType<typeof useSpark> } {
+  const spark = useSpark(o)
+  const diff = diffSides(o.diff)
+  return { diff, rows: checkRows(failing, diff), spark }
+}
+
 /**
- * Null when the payload has no evidence: the left column then takes the whole card. `reserveDiff`: while the
- * off-track has no diff yet, keep the room a one-line diff takes (an invisible caption + code row at the bottom),
- * so the card doesn't grow when the diff arrives (it usually comes with the level-3 hint).
+ * Whether the off-track card has an evidence panel at all: real code in the diff, a check with a real value, or
+ * the curve. False = Evidence renders nothing and the card should take its one-column layout. Status text alone
+ * ("not in weather.py yet", "not seen in Code") is no evidence.
+ */
+export function useHasEvidence(o: Offtrack, failing: CheckItem[]): boolean {
+  const { diff, rows, spark } = useContent(o, failing)
+  return !!diff || rows.length > 0 || !!spark
+}
+
+/**
+ * Null when the payload has no evidence (see useHasEvidence): the left column then takes the whole card.
+ * `reserveDiff`: while the off-track has no diff yet, keep the room a one-line diff takes (an invisible caption +
+ * code row at the bottom), so the card doesn't grow when the diff arrives (it usually comes with the level-3 hint).
  */
 export function Evidence({ o, failing, width, reserveDiff }: { o: Offtrack; failing: CheckItem[]; width: number; reserveDiff?: boolean }): ReactNode {
-  const spark = useSpark(o)
-  const rows = checkRows(failing, o.diff)
-  if (!o.diff && rows.length === 0 && !spark) return null
-  const diff = o.diff
+  const { diff, rows, spark } = useContent(o, failing)
+  if (!diff && rows.length === 0 && !spark) return null
   const where = diff && [diff.file, diff.line ? `L${diff.line}` : undefined].filter(Boolean).join(' · ')
   // Highlight only what the expected side adds: its lines that yours doesn't have.
   const yoursLines = new Set(diff ? diff.yours.split(/\r?\n/).map(norm) : [])
@@ -281,7 +315,7 @@ export function Evidence({ o, failing, width, reserveDiff }: { o: Offtrack; fail
           </>
         )}
 
-        {reserveDiff && !diff && (
+        {reserveDiff && !o.diff && (
           <div className="invisible contents" aria-hidden data-reserve>
             <Label>{NBSP}</Label>
             <Code text={NBSP} />
