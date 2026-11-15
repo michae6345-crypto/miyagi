@@ -1,10 +1,10 @@
 @import "tailwindcss";
 
 @theme {
-  /* Miyagi brand (app/brand/BRAND.md). Green = passed, amber = off track, gray = watching. No blue. */
+  /* Miyagi brand (app/brand/BRAND.md). Green = passed, apricot = off track, gray = watching. No blue. */
   --color-pass: #30D158;
   --color-pass-deep: #1F9B45;
-  --color-offtrack: #FFB020;
+  --color-offtrack: #FFC4A3;
   --color-watching: #8E8E93;
   --color-ink: #141414;
   --color-paper: #F6F6F3;
