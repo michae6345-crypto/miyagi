@@ -325,6 +325,15 @@ def ran(cmd: str, limit: int = 60) -> str:
     return f"Ran {line}"[:limit] if line else "Ran it"
 
 
+_IN_VS_CODE = re.compile(r"(^|(?<=[.!?])\s+)In VS Code,\s+([a-z])")
+
+
+def fix_first(text: str) -> str:
+    """A lesson's Not yet starts with the fix itself (test 8: "In VS Code, change + to - on line 25 of nn.py." ->
+    "Change + to - on line 25 of nn.py."): "Just teach me" is all in VS Code, so the place says nothing."""
+    return _IN_VS_CODE.sub(lambda m: m.group(1) + m.group(2).upper(), text)
+
+
 def plain_copy(s: Any, type_: str, payload: dict) -> None:
     """The card / off-track's text fields as plain copy (see the module doc), in place."""
     code = ((getattr(s, "step", None) or {}).get("code") or "").strip()
@@ -342,6 +351,11 @@ def plain_copy(s: Any, type_: str, payload: dict) -> None:
         label = short_citation(plain(cit["label"]))
         if label != cit["label"]:
             payload["citation"] = {**cit, "label": label}
+    if getattr(s, "lesson_mode", False) and (type_ == "offtrack" or is_not_yet(payload)):
+        for k in ("body", "guidingQuestion"):  # t8: "In VS Code, change + to - on line 25 of nn.py." -> the fix first
+            v = payload.get(k)
+            if isinstance(v, str) and (new := fix_first(v)) != v and new.strip():
+                payload[k] = new
     if type_ == "offtrack" and getattr(s, "lesson_mode", False):  # test 7: Hint / Show me on every lesson Not yet
         acts = [a for a in payload.get("actions") or [] if isinstance(a, str)]
         want = set(acts) | {"show_me", "hint"}

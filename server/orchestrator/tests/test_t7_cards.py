@@ -97,7 +97,7 @@ def test_stuck_not_yet_card_has_yours_expected_citation_and_actions(rig):  # noq
         await settle(rig)
         assert passed(rig)[-1] == curated.TRAIN_STEP
         good = [c for c in rig.of("check.updated") if c["stepId"] == curated.TRAIN_STEP][-1]
-        assert good["status"] == "pass" and re.fullmatch(r"loss 0\.\d{4} < 0\.01 at step 18000", good["detail"])
+        assert good["status"] == "pass" and re.fullmatch(r"loss 0\.\d{4}, below 0\.01", good["detail"])
     run(go())
 
 
@@ -112,7 +112,11 @@ def test_reference_curve_is_the_lessons_own_run():
 def test_metric_detail_words_like_the_checks_module():
     check = {"metric": "loss", "op": "<", "value": 0.01, "by_step": 18000}
     assert curated.metric_detail(check, [(0, 0.49), (18000, 0.49)]) == "loss 0.4900 at step 18000, need < 0.01"
-    assert curated.metric_detail(check, [(0, 0.8187), (18000, 0.0009)]) == "loss 0.0009 < 0.01 at step 18000"
+    assert curated.metric_detail(check, [(0, 0.8187), (18000, 0.0009)]) == "loss 0.0009, below 0.01"
+    # t8: the LAST printed row, as nn.py prints it (the checks module's median said 0.0013, the epoch-14000 value)
+    rows = [(0, 0.8187), (14000, 0.0013), (16000, 0.0011), (18000, 0.0009)]
+    assert curated.metric_detail(check, rows) == "loss 0.0009, below 0.01"
+    assert curated.metric_detail(check, [(0, 0.8187), (18000, 0.00004)]) == "loss 0.0000, below 0.01"
     assert curated.metric_detail(check, []) is None  # a crash printed no loss: nothing to show
 
 
@@ -143,7 +147,7 @@ def test_completion_card_is_plain(rig):  # noqa: F811
         text = f"{card['title']} {card['body']} {card['skillMap']['headline']}"
         for slop in ("You built", "Lesson complete", "Lesson finished", "You finished", "You reached"):
             assert slop not in text
-        assert "1-4-4-1" in card["body"] and re.search(r"Loss 0\.819 → 0\.000\d+ in your last run\.", card["body"])
+        assert "1-4-4-1" in card["body"] and re.search(r"Loss 0\.8187 → 0\.000\d+ in your last run\.", card["body"])
         # node details and the cross-track notes stay in the payload (the app shows them on click)
         assert all(n.get("detail") for n in card["skillMap"]["nodes"])
         assert card["skillMap"]["cross"] and all(c.get("note") for c in card["skillMap"]["cross"])

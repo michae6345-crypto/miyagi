@@ -286,7 +286,7 @@ def test_screen_metric_on_hidden_app_says_what_to_open():
     assert r["status"] == "fail" and r["detail"] == "open Terminal so I can read loss"
     assert status(c, RunContext(screen=CODE_ONLY, segment_done=False)) == "pending"
     r = evaluate_check(c, RunContext(screen={"Terminal": ["$ python train.py"]}, segment_done=True))
-    assert r["status"] == "pending" and r["detail"] == "waiting for 'loss' in Terminal"  # visible: training may be starting
+    assert r["status"] == "pending" and r["detail"] == "waiting for the run's loss lines in Terminal"  # visible: training may be starting
     t = {**c, "type": "metric_trend", "trend": "decreasing", "window": 100}
     assert status(t, RunContext(screen=CODE_ONLY, segment_done=True)) == "fail"
     # a `tut run` still running: its metrics arrive over /ingest, so keep waiting

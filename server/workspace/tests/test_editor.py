@@ -287,7 +287,9 @@ def kw():
     return {"trusted": lambda: False, "previous": None, "arrange_windows": False, "windows": lambda: []}
 
 
-def test_open_once_per_lesson_and_folder_never_dash_n(tmp_path, fresh):
+def test_open_once_per_lesson_and_folder_never_dash_n(tmp_path, fresh, monkeypatch):
+    # the explicit open below passes no window list: never ask the real VS Code (56cb5ca): its window is still there
+    monkeypatch.setattr(E, "_lesson_window_alive", lambda folder: True)
     calls, run = opener(tmp_path)
     for _ in range(5):  # lesson-mode open, auto-open after the setup check, resume, retries…
         E.open_lesson_editor(tmp_path, "main.py", lesson_id="L1", runner=run, focus=lambda: CODE, **kw())

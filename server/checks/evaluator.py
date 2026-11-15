@@ -126,9 +126,13 @@ def _result(check: dict, status: CheckStatus, detail: str) -> CheckResult:
 
 
 def _fmt(v: float) -> str:
-    if v == 0 or 1e-3 <= abs(v) < 1e4:
+    """A value the way a training script prints it: plain decimals (test 8: 0.0009, never 9.00e-04)."""
+    if v == 0 or not math.isfinite(v) or 1e-3 <= abs(v) < 1e4:
         return f"{v:.4g}"
-    return f"{v:.2e}"
+    if abs(v) >= 1e4:
+        return f"{v:.0f}"
+    digits = 3 - math.floor(math.log10(abs(v)))  # 4 significant digits, no exponent
+    return f"{v:.{digits}f}".rstrip("0").rstrip(".")
 
 
 def _resolve(workdir: str, rel: str) -> str:
@@ -289,7 +293,7 @@ def _waiting_for_metric(check: dict, ctx: RunContext, name: str) -> CheckResult:
             and screen_text(ctx.screen, app) is None):
         return _result(check, "fail" if ctx.after_segment else "pending", f"open {app} so I can read {name}")
     where = f" in {app}" if app and check.get("metric_pattern") else ""
-    return _result(check, "pending", f"waiting for '{name}'{where}")
+    return _result(check, "pending", f"waiting for the run's {name.replace('_', ' ')} lines{where}")  # t8: plain words
 
 
 def _metric_threshold(check: dict, ctx: RunContext) -> CheckResult:

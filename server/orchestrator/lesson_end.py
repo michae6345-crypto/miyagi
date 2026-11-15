@@ -100,12 +100,15 @@ def _lower_is_better(name: str) -> bool | None:
 
 
 def _fmt(v: float) -> str:
+    """As a training script prints it (test 8): "0.8187", "0.0009" (4 significant digits, never 9e-04 or 0.819)."""
     a = abs(v)
     if a >= 100:
         return f"{v:,.0f}"
     if a >= 1:
         return f"{v:.2f}".rstrip("0").rstrip(".")
-    return f"{v:.3g}"
+    if a == 0 or not math.isfinite(v):
+        return f"{v:g}"
+    return f"{v:.{3 - math.floor(math.log10(a))}f}".rstrip("0").rstrip(".")
 
 
 def _patterns(s: Any) -> list[tuple[str, re.Pattern]]:
