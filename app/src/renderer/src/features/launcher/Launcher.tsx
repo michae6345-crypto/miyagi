@@ -54,7 +54,7 @@ import type { Layout } from '../../../../preload/api'
 import { cmd } from '../../../../common/wire'
 import { bridge } from '../../bridge'
 import { onUi } from '../../core/bus'
-import { useLesson, useProgress } from '../../core/lesson'
+import { noteLearnMode, useLesson, useProgress } from '../../core/lesson'
 import { getIslandModes, type IslandMode } from '../../core/registry'
 import { sendAction } from '../../core/shortcuts'
 import { MiyagiMark } from '../../core/ui/Mark'
@@ -442,6 +442,7 @@ export function Launcher({ layout }: { layout: Layout }): ReactNode {
     startSearch(q)
     delays.current.clear()
     setSel(0)
+    noteLearnMode(undefined)
     bridge.send(cmd('learn', { query: q }))
   }
 
@@ -455,6 +456,7 @@ export function Launcher({ layout }: { layout: Layout }): ReactNode {
     lastPick.current = undefined
     topic.current = q
     clearResults()
+    noteLearnMode(as)
     bridge.send(cmd('learn', { query: q, mode: as }))
     setPhase('building')
   }

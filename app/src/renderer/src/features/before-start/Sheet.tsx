@@ -20,7 +20,7 @@ import { BookOpen, Check, MousePointerClick, NotebookText, Play, type LucideIcon
 import type { LearnFirstItem, Prerequisite } from '../../../../../../shared/contracts/events'
 import { cmd } from '../../../../common/wire'
 import { bridge } from '../../bridge'
-import { useLesson } from '../../core/lesson'
+import { useLesson, noteLearnMode } from '../../core/lesson'
 import { color, fill } from '../../core/theme'
 import { CloseButton, PrimaryButton } from '../../core/ui/atoms'
 import { FlowDiagram } from './Flow'
@@ -38,6 +38,7 @@ const LEARN_KIND: Record<LearnFirstItem['kind'], { icon: LucideIcon; label: stri
 
 /** Start a mini-lesson for a prerequisite (contract LearnFirstItem: learn {query: title, mode}). */
 function learn(item: LearnFirstItem): void {
+  noteLearnMode(undefined)
   bridge.send(cmd('learn', { query: item.title, mode: item.kind === 'video' ? 'video' : 'lesson' }))
   closeBeforeStart()
 }

@@ -141,7 +141,8 @@ export function Panel({ rect }: { rect: Rect }): ReactNode {
   const plan = usePlanProgress()
   const scroller = useRef<HTMLDivElement>(null)
   const box = useRef<HTMLDivElement>(null)
-  const by = builtByLabel(lesson?.builtBy, lesson?.mode)
+  const demo = useLesson((s) => s.demo)
+  const by = builtByLabel(lesson?.builtBy, lesson?.mode, demo)
   const sources = lesson?.sources ?? []
   const overview = lesson?.overview?.trim()
   const topic = lessonMode && lesson?.title ? lessonTopic(lesson.title) : undefined

@@ -68,6 +68,8 @@ type LessonState = {
   notice?: Notice
   /** The engine this app starts on a Mac (main/localEngine.ts): installing, starting, missing, failed… */
   localEngine?: { state: string; line?: string; logs?: string }
+  /** This lesson came from the launcher's Demo option (the curated lesson): no "Claude wrote this lesson" line. */
+  demo: boolean
 }
 
 export type Notice = { text: string; tone: 'error' | 'info'; at: number }
@@ -96,7 +98,8 @@ const blank = {
   engineState: undefined,
   seen: undefined,
   error: undefined,
-  notice: undefined
+  notice: undefined,
+  demo: false
 } satisfies Partial<LessonState>
 
 export const useLesson = create<LessonState>(() => ({ connected: false, ...blank }))
@@ -189,7 +192,13 @@ onMessage('lesson.building', (p) =>
     ? set({ building: false, buildingMessage: undefined, buildingProgress: undefined, buildingElapsed: undefined })
     : set({ building: true, buildingMessage: p.message, buildingProgress: p.progress, buildingElapsed: p.elapsedS })
 )
-onMessage('lesson.ready', (p) => set({ ...blank, lesson: p.lesson, steps: p.steps, complete: p.lesson.complete !== false, building: true }))
+/** The mode of the last learn the launcher sent. lesson.ready doesn't say "demo", so the app remembers what it asked for. */
+let learnMode: string | undefined
+export function noteLearnMode(mode: string | undefined): void {
+  learnMode = mode
+}
+
+onMessage('lesson.ready', (p) => set({ ...blank, lesson: p.lesson, steps: p.steps, complete: p.lesson.complete !== false, building: true, demo: learnMode === 'demo' }))
 /**
  * A long video's next part: the engine sends only the NEW steps (contract: appended, ids stable), sometimes an
  * empty list with complete:true. Merge by id (a known id is updated in place) so the list never shrinks.
@@ -302,7 +311,9 @@ export function useThinking(): boolean {
  * "Gemini watched this video" style line, from lesson.builtBy (undefined when unknown).
  * mode "lesson" ("Just teach me"): Claude wrote the lesson and no tutorial was read, so "Claude wrote this lesson".
  */
-export function builtByLabel(by: LessonInfo['builtBy'], mode?: LessonInfo['mode']): string | undefined {
+export function builtByLabel(by: LessonInfo['builtBy'], mode?: LessonInfo['mode'], demo = false): string | undefined {
+  // The Demo lesson is curated (server/orchestrator/stage.py), not written by a model (Michael, 5 AM shoot).
+  if (demo) return undefined
   if (mode === 'lesson' && (by === 'claude' || by === 'unknown' || by == null)) return 'Claude wrote this lesson'
   return by === 'gemini' ? 'Gemini watched this video' : by === 'claude' ? 'Claude read this tutorial' : by === 'mixed' ? 'Built by Gemini and Claude' : undefined
 }
