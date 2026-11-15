@@ -20,7 +20,7 @@ import { useLiveNetwork } from '../diagrams/store'
 import { PANEL_W, PANEL_W_LESSON, panelRect } from './geometry'
 import { NetBody, NetHeader, useHeaderDrag } from './LiveNet'
 import { dock, setFloatWidth, settle, useNetFloat, type Corner, type Spot } from './netFloat'
-import { RUN_CORNER, useRunTuck } from './runTuck'
+import { RUN_CORNER, RUN_DROP, RUN_SHARE, useRunTuck } from './runTuck'
 import { useBarTop } from '../shortcut-bar/lift'
 import { useDrawer } from './store'
 
@@ -59,6 +59,8 @@ function FloatNet({ layout }: { layout: Layout }): ReactNode {
   // A run step floats the docked network out to RUN_CORNER (runTuck.ts) until the step ends or the learner moves it.
   const saved = useNetFloat((s) => s.spot)
   const spot: Spot = saved.floating || !run ? saved : { floating: true, corner: RUN_CORNER }
+  /** Placed by the run step, not by the learner: dropped below the tab row and fitted above the terminal. */
+  const auto = run && !saved.floating
   const root = useRef<HTMLDivElement>(null)
   const card = useRef<HTMLDivElement>(null)
   const x = useMotionValue(0)
@@ -99,14 +101,14 @@ function FloatNet({ layout }: { layout: Layout }): ReactNode {
     const bottom = Math.max(top, Math.min(b.maxY - BOTTOM_CLEAR, barTop - BAR_GAP - h))
     const out: Target[] = [
       { kind: 'corner', corner: 'tl', at: { x: left, y: top } },
-      { kind: 'corner', corner: 'tr', at: { x: right, y: top } },
+      { kind: 'corner', corner: 'tr', at: { x: right, y: auto ? top + RUN_DROP : top } },
       { kind: 'corner', corner: 'bl', at: { x: left, y: bottom } },
       { kind: 'corner', corner: 'br', at: { x: right, y: bottom } }
     ]
     const at = useNetFloat.getState().dockAt
     if (drawerOpen && at && !run) out.push({ kind: 'dock', at: toLocal(at) })
     return out
-  }, [bounds, layout, lessonMode, drawerOpen, w, toLocal, barTop, h, run])
+  }, [bounds, layout, lessonMode, drawerOpen, w, toLocal, barTop, h, run, auto])
 
   const stopAnim = (): void => {
     anim.current.forEach((a) => a.stop())
@@ -202,6 +204,24 @@ function FloatNet({ layout }: { layout: Layout }): ReactNode {
     setH(el.offsetHeight)
     return () => ro.disconnect()
   }, [])
+
+  // A run step's card fits between the tab row and the terminal (and the bar): narrower for the step, the
+  // learner's width back after it.
+  const runW = useRef<number | undefined>(undefined)
+  useEffect(() => {
+    if (!auto) {
+      if (runW.current !== undefined) setW(runW.current)
+      runW.current = undefined
+      return
+    }
+    const wa = layout.workArea
+    const top = wa.y + INSET + TOP_CLEAR + RUN_DROP
+    const room = Math.min(wa.y + wa.height * RUN_SHARE, barTop - BAR_GAP) - top
+    if (room > 0 && h > room + 4 && w > MIN_W) {
+      runW.current ??= w
+      setW(Math.max(MIN_W, Math.floor((w * room) / h)))
+    }
+  }, [auto, h, w, layout, barTop])
 
   // Resizing from a right or bottom corner: keep that edge fixed as the width (and so the height) changes.
   useLayoutEffect(() => {

@@ -191,7 +191,8 @@ export const copy = {
   launcherPlaceholder: 'ask miyagi anything',
   /** The pill / bar entry point. */
   ask: 'ask miyagi',
-  passed: 'Good. Now the next one.'
+  /** Michael, test 7: "Good. Now the next one." read as filler; the step's own result says more. */
+  passed: 'Step done.'
 } as const
 
 /** Which bonsai cut to use at which size (see core/ui/Mark.tsx). */

@@ -76,6 +76,8 @@ onUi('reset', () => {
 // training run (frames over at least two epochs) for the loss chart.
 onMessage('diagram', (p) => {
   if (p.kind !== 'network') return
+  // A preview (data.preview, before the learner's first real run) is not their network: not the thumbnail, not the charts.
+  if ((p.data as { preview?: unknown } | undefined)?.preview === true) return
   const net = readNet(p.data)
   if (!net) return
   set(lossSeries(net) ? { net, trained: net } : { net })

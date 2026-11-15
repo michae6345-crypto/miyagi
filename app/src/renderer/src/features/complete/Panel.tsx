@@ -147,7 +147,7 @@ function useMeta(): string {
   return useMemo(() => {
     const done = l.passed.filter((id) => !l.skipped.includes(id)).length
     const mins = startedAt ? Math.round((Date.now() - startedAt) / 60000) : 0
-    return [l.mode === 'lesson' ? 'Just teach me' : '', l.total ? `${Math.min(done, l.total)} of ${l.total} steps` : '', mins >= 1 ? `${mins} min` : '']
+    return [l.total ? `${Math.min(done, l.total)} of ${l.total} steps` : '', mins >= 1 ? `${mins} min` : '']
       .filter(Boolean)
       .join(' · ')
     // eslint-disable-next-line react-hooks/exhaustive-deps
