@@ -3094,6 +3094,12 @@ class LessonSession:
                          kind="answer", actions=["undo"])
         await self.on_file_change([str(path)])
 
+    def _judge_results(self) -> list[dict]:
+        """last_results for a judge: a row held green only by an unsaved buffer (_unsaved_holds) goes as "pending",
+        so the judge's own file blocker refuses it until the save (a held row must never pass the step)."""
+        held = getattr(self, "_unsaved_holds", set())
+        return [{**r, "status": "pending"} if r.get("checkId") in held else r for r in self.last_results]
+
     async def _check_step(self, step: dict) -> None:
         """"Can I move on?": re-run the checks on a fresh frame now (asking counts as acting, so a pass moves on
         at once), then E5's Claude judge looks at the screen + files. Done -> step.passed. Not done -> ONE card
@@ -3124,7 +3130,7 @@ class LessonSession:
                 log.info("check_step: active_file unavailable (%s)", e)
         try:
             verdict = await self.m.judge_step(step, screen=self._screen_lines(), files={file: code} if file and code else {},
-                                              check_results=self.last_results, focused_app=self._focused_app(),
+                                              check_results=self._judge_results(), focused_app=self._focused_app(),
                                               lesson=(self.graph or {}).get("lesson"), active_file=active)
         except Exception as e:  # noqa: BLE001 - the judge is a bonus
             log.info("check_step: no judge (%s)", e)
@@ -3135,6 +3141,9 @@ class LessonSession:
             verdict = {**verdict, "done": False,
                        "missing": (f"Save {d} with ⌘S so I can check it" if (d := self._dirty_step_file(step))
                                    else f"Type the code into {Path(self._step_file(step) or step.get('file') or '').name}")}
+        if verdict and verdict.get("done") and getattr(self, "_unsaved_holds", None):  # code typed, not saved yet
+            verdict = {**verdict, "done": False,
+                       "missing": f"Save {Path(self._step_file(step) or step.get('file') or '').name} with ⌘S so I can check it"}
         if verdict and verdict.get("done") and (unrun := self._run_missing(step)):
             verdict = {**verdict, "done": False, "missing": unrun}  # the judge saw the code; a run step needs the run
         if verdict and verdict.get("done"):
@@ -3702,7 +3711,7 @@ class LessonSession:
 
     async def _run_judge(self, gen: int, step: dict, screen: Any, files: dict) -> None:
         try:
-            j = await self.judge.judge(step, self.last_results, screen=screen, files=files,
+            j = await self.judge.judge(step, self._judge_results(), screen=screen, files=files,
                                        focused_app=self._focused_app(), lesson=(self.graph or {}).get("lesson"),
                                        file_mtimes=self._judge_gate_kwargs(step)["file_mtimes"])
         except Exception:  # noqa: BLE001
