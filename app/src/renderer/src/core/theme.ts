@@ -72,8 +72,12 @@ export const color = {
   hairline: hud.dark.hairline,
   /** The notch pill and the island: always black. */
   island: brand.pill,
-  /** Panels on the dark HUD. CSS can't blur other apps in Electron, so this is more opaque than the kit's .72. */
-  glass: 'rgba(28,28,30,.90)'
+  /**
+   * Panels on the dark HUD (the launcher / ask panel). CSS can't blur other apps in Electron, so this is far more
+   * opaque than the kit's .72: at .90 the code under the ask panel still showed through (Michael's tests 2-3, A13).
+   * Same value as the drawer's --glass-bg.
+   */
+  glass: 'rgba(28,28,30,.96)'
 } as const
 
 export const font = {
