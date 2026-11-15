@@ -6,7 +6,7 @@ import { create } from 'zustand'
 import type { Payload } from '../../../../common/wire'
 import { bridge } from '../../bridge'
 import { onMessage, onUi } from '../../core/bus'
-import { sendAction } from '../../core/shortcuts'
+import { sendAction, usePressed } from '../../core/shortcuts'
 import { seekVideo, useLesson, type CheckItem } from '../../core/lesson'
 
 export type Point = { step: number; value: number }
@@ -205,6 +205,7 @@ const over = (): boolean => get().offtrackOpen || get().resume
 onUi('reset', (p) => {
   clearTimeout(successTimer)
   clearTimeout(pendingTimer)
+  dropHeldOfftrack()
   dismissed = undefined
   // scope "lesson" (lesson.ended): a new search may be in flight, so keep what the finder said about its results.
   const keep = (p as { scope?: string } | undefined)?.scope === 'lesson'
@@ -221,6 +222,7 @@ onUi('shortcut', (kind) => {
 })
 onUi('dismiss', closeTop)
 onMessage('lesson.ready', () => {
+  dropHeldOfftrack()
   dismissed = undefined
   clearTimeout(pendingTimer)
   // Keep what the finder said about the results: a preflight card may still be up for the next pick.
@@ -231,10 +233,34 @@ onMessage('lesson.ready', () => {
 onMessage('step.started', (p) => {
   const c = get().card
   const keep = !!c?.actions?.length && (!c.stepId || c.stepId === p.stepId)
+  dropHeldOfftrack()
   dismissed = undefined
   set({ offtrackOpen: false, offtrackClosed: false, fixing: false, recovered: false, resume: false, offtrackSeq: undefined, card: keep ? c : undefined })
 })
-onMessage('offtrack', (p) => {
+/**
+ * A card the learner asked for (Explain, Hint, Show me, an answer) is held this long before an automatic off-track
+ * may replace it (Michael's desktop test). An off-track that arrives meanwhile waits and opens when the hold ends.
+ */
+const CARD_HOLD_MS = 8000
+/** A card this soon after the learner pressed one of these counts as the one they asked for. */
+const ASKED_WITHIN_MS = 30000
+const ASKED = new Set(['explain', 'hint', 'show_me', 'ask'])
+let lastAsk = 0
+// core clears `pressed` as soon as a card arrives (possibly before our handler runs), so note presses as they happen.
+usePressed.subscribe((s) => {
+  if (s.kind && ASKED.has(s.kind)) lastAsk = s.at
+})
+let cardHeldUntil = 0
+let heldOfftrack: Payload<'offtrack'> | undefined
+let offtrackTimer: ReturnType<typeof setTimeout> | undefined
+function dropHeldOfftrack(): void {
+  clearTimeout(offtrackTimer)
+  offtrackTimer = undefined
+  heldOfftrack = undefined
+  cardHeldUntil = 0
+}
+
+function openOfftrack(p: Payload<'offtrack'>): void {
   // A re-send of the off-track the learner closed: keep the state (off-track pill, recovered) but not the card.
   if (stillDismissed(p)) {
     set({ recovered: true })
@@ -242,6 +268,21 @@ onMessage('offtrack', (p) => {
   }
   dismissed = undefined
   set({ offtrackOpen: true, offtrackClosed: false, fixing: false, recovered: true, resume: false, offtrackSeq: ++seq, card: undefined, pending: undefined, success: undefined })
+}
+onMessage('offtrack', (p) => {
+  const left = cardHeldUntil - Date.now()
+  if (get().card && left > 0) {
+    heldOfftrack = p // the newest one wins
+    if (!offtrackTimer)
+      offtrackTimer = setTimeout(() => {
+        const q = heldOfftrack
+        dropHeldOfftrack()
+        if (q) openOfftrack(q)
+      }, left)
+    return
+  }
+  dropHeldOfftrack()
+  openOfftrack(p)
 })
 // "Apply this fix?" (a diff to confirm) replaces the "Waiting for the fix" view, so `fixing` ends here.
 onMessage('card', (p) => {
@@ -250,6 +291,10 @@ onMessage('card', (p) => {
   if (ok.size) set({ installs: Object.fromEntries(Object.entries(get().installs).filter(([t]) => !ok.has(t))) })
   clearTimeout(pendingTimer)
   set({ card: p, pending: undefined, resume: over(), offtrackOpen: false, ...(p.diff ? { fixing: false } : {}) })
+  if (lastAsk && Date.now() - lastAsk < ASKED_WITHIN_MS) {
+    cardHeldUntil = Date.now() + CARD_HOLD_MS
+    lastAsk = 0
+  }
 })
 onMessage('diagram', () => set({ card: undefined, pending: undefined, resume: over(), offtrackOpen: false }))
 onMessage('step.passed', (p) => {
