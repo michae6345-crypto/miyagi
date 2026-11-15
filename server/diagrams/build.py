@@ -400,8 +400,11 @@ last_meta: dict = {}
 
 
 def cache_key(step: dict, context: dict) -> tuple:
-    """(step id, hash of code + screen text, normalized question, kind hint)."""
-    h = hashlib.sha256((_code(context) + "\x00" + _screen_text(context.get("screen"))).encode()).hexdigest()[:16]
+    """(lesson:step id, hash of the STEP's own code, normalized question, kind hint). t10: never the live screen text
+    or the learner's file (video captions changed it every frame, so the step-start prefetch never served a press:
+    7 prefetches + a 2.5 s Sonnet call on the click). One step's diagram is drawn once; a typed question differs."""
+    own = "\x00".join(str(step.get(k) or "") for k in ("code", "title", "instructions"))
+    h = hashlib.sha256(own.encode()).hexdigest()[:16]
     q = re.sub(r"\s+", " ", _question(context).lower())
     return (str(step.get("id") or step.get("title") or ""), h, q, context.get("kind") or "")
 
@@ -415,7 +418,7 @@ async def build(step: dict, context: dict | None = None, *, client=None) -> dict
 
     context keys (all optional): code, file, screen ({app: [lines]} | [lines] | str), question,
     lesson ({title, goal}), offtrack ({title, body}), kind ("network" | "graph" preference).
-    Cached by (step id, code+screen hash, question). Raises DiagramError; never returns canned data.
+    Cached by (step id, the step's own code, question, kind). Raises DiagramError; never returns canned data.
     """
     if not isinstance(step, dict) or not (step.get("title") or step.get("instructions")):
         raise DiagramError("No current step to draw a diagram for")
