@@ -61,7 +61,7 @@ def opener(tmp_path, ok=lambda a: True):
 def test_open_with_cursor_cli_then_frontmost_without_accessibility(tmp_path):
     calls, run = opener(tmp_path)
     rep = E.open_editor_report(tmp_path, "main.py", runner=run, editor=CURSOR, trusted=lambda: False, previous=None)
-    assert calls[0] == ["/opt/homebrew/bin/cursor", "-n", str(tmp_path.resolve()), "-g", str((tmp_path / "main.py").resolve())]
+    assert calls[0] == ["/opt/homebrew/bin/cursor", str(tmp_path.resolve()), "-g", str((tmp_path / "main.py").resolve())]
     assert calls[1] == ["open", "-a", "Cursor"]
     assert rep["opened"] and rep["frontmost"] and rep["label"] == "Cursor"
     assert rep["arrange"] == "skipped: Accessibility not granted" and "unfullscreened" not in rep
@@ -108,7 +108,7 @@ class FakeAX:
 
 
 def test_arrange_unfullscreens_previous_and_docks_editor_left(monkeypatch):
-    monkeypatch.setattr(E, "find_pid", lambda name: 222)
+    monkeypatch.setattr(E, "find_pid", lambda name, bundle=None: 222)
     monkeypatch.setattr(E, "left_frame", lambda fraction=0.6: (0, 38, round(1728 * fraction), 1079))
     ax, rep = FakeAX(fullscreen_prev=True, fullscreen_editor=True), {}
     E.arrange(CURSOR, {"pid": 111, "name": "Safari"}, rep, ax=ax, sleep=lambda s: None)
@@ -117,7 +117,7 @@ def test_arrange_unfullscreens_previous_and_docks_editor_left(monkeypatch):
 
 
 def test_arrange_leaves_windowed_apps_alone(monkeypatch):
-    monkeypatch.setattr(E, "find_pid", lambda name: 222)
+    monkeypatch.setattr(E, "find_pid", lambda name, bundle=None: 222)
     monkeypatch.setattr(E, "left_frame", lambda fraction=0.6: (0, 0, 600, 800))
     ax, rep = FakeAX(fullscreen_prev=False), {}
     E.arrange(CURSOR, {"pid": 111, "name": "Terminal"}, rep, ax=ax, sleep=lambda s: None)
@@ -125,7 +125,7 @@ def test_arrange_leaves_windowed_apps_alone(monkeypatch):
 
 
 def test_arrange_gives_up_without_an_editor_window(monkeypatch):
-    monkeypatch.setattr(E, "find_pid", lambda name: None)
+    monkeypatch.setattr(E, "find_pid", lambda name, bundle=None: None)
     rep = {}
     E.arrange(CURSOR, None, rep, ax=FakeAX(), wait_s=0.01, sleep=lambda s: None)
     assert rep["arrange"].startswith("skipped: no Cursor window")
@@ -189,7 +189,7 @@ def test_make_fullscreen_sets_axfullscreen(monkeypatch):
         def enter_fullscreen(self, w):
             self.log.append(("enter_fs", w))
             return True
-    monkeypatch.setattr(E, "find_pid", lambda name: 222)
+    monkeypatch.setattr(E, "find_pid", lambda name, bundle=None: 222)
     ax, rep = AXF(fullscreen_editor=False), {}
     E.make_fullscreen(CURSOR, rep, ax=ax, sleep=lambda s: None)
     assert ax.log == [("enter_fs", "ed")] and rep["fullscreen"] == "done"
@@ -262,3 +262,142 @@ def test_page_start_for_big_files(tmp_path):
     f.write_text("\n".join(f"line {i}" for i in range(1, 1201)))
     assert E._page_start("line 501\nline 502\nline 503", f) == 501
     assert E._page_start("x", tmp_path / "missing.py") == 1
+
+
+# --------------------------------------------------------------------------- open once, never steal focus (Michael:
+# "it's also opening up multiple VS Codes after a little bit of time"; the launcher collapsing while typing)
+
+MIYAGI = ("dev.sandhacks.miyagi", "Miyagi")
+CODE = ("com.microsoft.VSCode", "Code")
+VSC = {"id": "vscode", "label": "Visual Studio Code", "app": "Visual Studio Code", "cli": "/usr/local/bin/code",
+       "bundle": "com.microsoft.VSCode", "process": "Code"}
+
+
+@pytest.fixture
+def fresh(monkeypatch):
+    E.reset_open_state()
+    monkeypatch.setattr(E, "preferred_editor", lambda installed=None: VSC)
+    monkeypatch.setattr(E, "frontmost_app", lambda skip=None: None)
+    yield
+    E.reset_open_state()
+
+
+def kw():
+    return {"trusted": lambda: False, "previous": None, "arrange_windows": False}
+
+
+def test_open_once_per_lesson_and_folder_never_dash_n(tmp_path, fresh):
+    calls, run = opener(tmp_path)
+    for _ in range(5):  # lesson-mode open, auto-open after the setup check, resume, retries…
+        E.open_lesson_editor(tmp_path, "main.py", lesson_id="L1", runner=run, focus=lambda: CODE, **kw())
+    opens = [c for c in calls if c[0] == VSC["cli"]]
+    assert len(opens) == 1 and "-n" not in opens[0] and opens[0][1] == str(tmp_path.resolve())
+    # the learner presses "Open VS Code": bring that folder's window forward, still no -n, no second arrange
+    rep = E.open_lesson_editor(tmp_path, "main.py", lesson_id="L1", runner=run, explicit=True, focus=lambda: MIYAGI)
+    assert rep["already"] and calls[-1] == [VSC["cli"], str(tmp_path.resolve()), "-g", str((tmp_path / "main.py").resolve())]
+    # a new lesson in the same folder: one more open (VS Code focuses the existing window: still no -n)
+    E.open_lesson_editor(tmp_path, None, lesson_id="L2", runner=run, focus=lambda: CODE, **kw())
+    assert len([c for c in calls if c[0] == VSC["cli"]]) == 3 and not any("-n" in c for c in calls)
+
+
+def test_concurrent_open_calls_open_once(tmp_path, fresh):
+    import threading as th
+
+    calls, run = opener(tmp_path)
+    ts = [th.Thread(target=E.open_lesson_editor, args=(tmp_path,), kwargs={"lesson_id": "L", "runner": run,
+                    "focus": lambda: CODE, **kw()}) for _ in range(8)]
+    for t in ts:
+        t.start()
+    for t in ts:
+        t.join()
+    assert len([c for c in calls if c[0] == VSC["cli"]]) == 1
+
+
+def test_arrange_and_fullscreen_run_once(tmp_path, fresh, monkeypatch):
+    n = {"arrange": 0, "fs": 0}
+    monkeypatch.setattr(E, "arrange", lambda *a, **k: n.__setitem__("arrange", n["arrange"] + 1))
+    monkeypatch.setattr(E, "make_fullscreen", lambda *a, **k: n.__setitem__("fs", n["fs"] + 1))
+    _, run = opener(tmp_path)
+    for _ in range(4):
+        E.open_lesson_editor(tmp_path, lesson_id="A", runner=run, focus=lambda: CODE, trusted=lambda: True, previous=None, wait=True)
+        E.open_lesson_editor(tmp_path, lesson_id="F", runner=run, focus=lambda: CODE, trusted=lambda: True, fullscreen=True, wait=True)
+    assert n == {"arrange": 1, "fs": 1}
+
+
+def test_auto_open_waits_while_miyagi_has_focus(tmp_path, fresh):
+    calls, run = opener(tmp_path)
+    front = {"app": MIYAGI}
+    rep = E.open_lesson_editor(tmp_path, lesson_id="L", runner=run, focus=lambda: front["app"], background=False,
+                               wait_s=0.05, sleep=lambda s: None, **kw())
+    assert rep == {"opened": False, "deferred": True, "gave_up": True} and calls == []
+    assert E.open_state(tmp_path, "L") is None  # gave up: a later call may open it
+    # typing in another app also defers; once Miyagi lets go, it opens (once)
+    seq = iter([MIYAGI, MIYAGI, CODE, CODE, CODE])
+    rep = E.open_lesson_editor(tmp_path, lesson_id="L", runner=run, focus=lambda: next(seq), background=False,
+                               sleep=lambda s: None, **kw())
+    assert rep["opened"] and len([c for c in calls if c[0] == VSC["cli"]]) == 1
+
+
+def test_auto_open_in_background_does_not_block(tmp_path, fresh):
+    import time as _t
+
+    calls, run = opener(tmp_path)
+    front = {"app": MIYAGI}
+    rep = E.open_lesson_editor(tmp_path, lesson_id="L", runner=run, focus=lambda: front["app"], **kw())
+    assert rep == {"opened": False, "deferred": True} and E.open_state(tmp_path, "L")["state"] == "waiting"
+    assert E.open_lesson_editor(tmp_path, lesson_id="L", runner=run, focus=lambda: CODE, **kw())["already"]  # no 2nd waiter
+    front["app"] = ("com.apple.Terminal", "Terminal")
+    for _ in range(40):
+        if E.open_state(tmp_path, "L")["state"] == "open":
+            break
+        _t.sleep(0.05)
+    assert E.open_state(tmp_path, "L")["state"] == "open" and len([c for c in calls if c[0] == VSC["cli"]]) == 1
+
+
+def test_explicit_open_ignores_focus(tmp_path, fresh):
+    calls, run = opener(tmp_path)
+    rep = E.open_lesson_editor(tmp_path, lesson_id="L", runner=run, explicit=True, focus=lambda: MIYAGI, **kw())
+    assert rep["opened"] and calls
+
+
+def test_auto_jumps_never_steal_focus_or_race_startup(tmp_path, fresh):
+    f = tmp_path / "main.py"
+    f.write_text("x\n")
+    calls = []
+    run = lambda a: calls.append(a) or True  # noqa: E731
+    up = lambda ed: True  # noqa: E731
+    assert not E.jump(f, 3, runner=run, focus=lambda: MIYAGI, window_up=up)                       # learner in Miyagi
+    assert not E.jump(f, 3, runner=run, focus=lambda: ("com.apple.Safari", "Safari"), window_up=up)  # elsewhere
+    assert not E.jump(f, 3, runner=run, focus=lambda: CODE, window_up=lambda ed: False)           # no window yet
+    E._opened[("L", str(tmp_path))] = {"state": "opening", "t": 0}
+    assert not E.jump(f, 3, runner=run, focus=lambda: CODE, window_up=up)                         # still opening
+    E._opened[("L", str(tmp_path))]["state"] = "open"
+    assert E.jump(f, 3, runner=run, focus=lambda: CODE, window_up=up)                             # in VS Code already
+    assert E.jump(f, 4, runner=run, focus=lambda: MIYAGI, window_up=lambda ed: False, explicit=True)  # Do it for me
+    assert calls == [["/usr/local/bin/code", "-r", "-g", f"{f}:3"], ["/usr/local/bin/code", "-r", "-g", f"{f}:4"]]
+
+
+def test_miyagi_focus_detection():
+    assert E.miyagi_focused(MIYAGI) and E.miyagi_focused(("com.github.Electron", "Electron"))
+    assert not E.miyagi_focused(CODE) and not E.miyagi_focused(None)
+    assert E.editor_focused(VSC, CODE) and not E.editor_focused(VSC, MIYAGI)
+
+
+def test_orchestrator_workspace_opens_once_and_guards_jumps(tmp_path, fresh):
+    """The orchestrator's lesson flow: lesson-mode open + auto-open + resume + 8 spotlight retries -> one open."""
+    from server.orchestrator.workspace import Workspace
+
+    calls = []
+    w = Workspace(enabled=True, runner=lambda a: calls.append(a) or True)
+    w.lesson_key = "lesson-1"
+    (tmp_path / "main.py").write_text("x\n")
+    w.open(str(tmp_path), True, True)          # _open_editor_full
+    w.open(str(tmp_path), True)                # _auto_open_editor
+    w.open(str(tmp_path), True, True)          # resume / replaced provisional lesson
+    opens = [c for c in calls if str(tmp_path.resolve()) in c and "-r" not in c]
+    assert len(opens) == 1 and "-n" not in opens[0]
+    w.open(str(tmp_path), force=True, explicit=True)  # the learner's button: brought forward
+    assert len([c for c in calls if str(tmp_path.resolve()) in c and "-r" not in c]) == 2
+    for _ in range(8):
+        w.goto(str(tmp_path / "main.py"), 1)   # test runner: VS Code counts as frontmost, window up
+    assert all(c[1:3] == ["-r", "-g"] for c in calls if "-g" in c and c[1] == "-r")
