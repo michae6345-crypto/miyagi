@@ -425,13 +425,7 @@ def test_s5_to_s6_does_not_bounce_back_over_the_videos_notebook_name(rp):
     """Replay finding (fixed): after s5 passed, the s6 run step resolved the video's Untitled.ipynb, found it 'still
     empty' and started s5 again. session._typing_step_for_empty_run now reads the learner's notebook (mnist.ipynb)."""
     async def go():
-        await rp.start()
-        for prev in ORDER[:ORDER.index("s5")]:  # s4 is skipped while the 2b236a5 label regression stands
-            await rp.do(prev)
-            if not rp.passed(prev):
-                await rp.s.action("skip_step")
-                await rp.settle()
-        assert rp.s.step["id"] == "s5"
+        await rp.to("s5")
         await rp.do("s5")
 
     run(go())
