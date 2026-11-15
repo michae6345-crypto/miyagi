@@ -2248,10 +2248,17 @@ class LessonSession:
         return self.clock() - since >= self.NUDGE_EDITOR_S
 
     def _nudge_fp(self, step: dict, ctx: RunContext) -> int:
-        """What a "not started" verdict rests on: the learner's code (the file, else the screen) and the editor's text."""
+        """What a "not started" verdict rests on: the learner's code (the file, else the screen), the editor's text and
+        what the coach reads as the error text: the last run (id, exit code, output tail) and the terminal's lines
+        (Terminal / iTerm / Warp / VS Code's panel; a notebook lesson's browser). A new run or new terminal output (a
+        video lesson's Terminal.app, `tut run`) then asks the coach once more, so a later error is never left unseen."""
         lines = getattr(ctx, "screen", None) or {}
         shown = tuple(ln for app, ls in lines.items() if (app or "").lower() in CODE_APP_NAMES for ln in ls or [])
-        return hash((self._code_excerpt(step)[0], shown))
+        terms = ("terminal", "iterm", "warp") + (tuple(b.lower() for b in self.BROWSER_APPS) if self.notebook_lesson else ())
+        term = tuple(ln for app, ls in lines.items() if any(t in (app or "").lower() for t in terms) for ln in ls or [])
+        run, tail = getattr(ctx, "last_run", None), getattr(ctx, "output_tail", None)
+        tail = tuple(tail[-40:]) if isinstance(tail, list) else ()
+        return hash((self._code_excerpt(step)[0], shown, term, (run.run_id, run.exit_code) if run else None, tail))
 
     def _nudge_held(self, step: dict, ctx: RunContext) -> bool:
         """The coach already said "not started" for this step, this code and this screen text: don't ask it again (no
