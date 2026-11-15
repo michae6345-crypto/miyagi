@@ -18,7 +18,9 @@
  *            Over a search's rows, the first row is always "Just teach me" (the same learn {query, mode:'lesson'}
  *            as the chip below); it is the default pick when the search for what's typed found no video. Only
  *            video rows are listed (the store drops the rest).
- *   ask    : a lesson exists → "Ask about this step" → action {kind:'ask', text}.
+ *   ask    : a lesson exists → "Ask about this step" → action {kind:'ask', text}. Under the field, 2-3 suggested questions
+ *            about the step (its check, title, concepts: questions.ts); one click asks it (Michael's review A11). The
+ *            options (Explain, Hint …) stay in the bar, not repeated here.
  * During a lesson with nothing typed, "Continue <lesson>" is the only row (Enter goes back to the lesson). Ending
  * the lesson is a quiet two-tap "End lesson" link in the footer (Michael's desktop test 3, item 8): no key reaches it,
  * so a stray Enter or ↓ then Enter can't end a lesson.
@@ -51,14 +53,16 @@ import { bridge } from '../../bridge'
 import { onUi } from '../../core/bus'
 import { useLesson, useProgress } from '../../core/lesson'
 import { getIslandModes, type IslandMode } from '../../core/registry'
-import { sendAction, triggerShortcut } from '../../core/shortcuts'
+import { sendAction } from '../../core/shortcuts'
 import { MiyagiMark } from '../../core/ui/Mark'
-import { OptionButton, Spinner } from '../../core/ui/atoms'
+import { Spinner } from '../../core/ui/atoms'
 import { color, copy, fill, launcher as launcherTheme, pill, radius, scrim, shadows, spring, springOut } from '../../core/theme'
 import { useCards } from '../cards/store'
+import { findPrimer, useStepDetail } from '../drawer/plan'
 import { hole, isUsableRect, toLocal } from '../spotlight/place'
 import { useSpotlight } from '../spotlight/store'
-import { Action, Chip, EndLink, Hint, HOW_LABEL, HowChoice, Rise, type How } from './parts'
+import { Action, Chip, EndLink, Hint, HOW_LABEL, HowChoice, QuestionChips, Rise, type How } from './parts'
+import { stepQuestions } from './questions'
 import { LessonRow, LinkRow, MessageRow, ResultRow, ResumeRow, ROW_H, SettingsRow, SkeletonRow } from './Rows'
 import { clearResults, markAsked, setLauncherOpen, startSearch, useSearch } from './store'
 import { placeClear } from './place'
@@ -192,9 +196,14 @@ export function Launcher({ layout }: { layout: Layout }): ReactNode {
       hasStep: !!s.stepId,
       hasLesson: !!s.lesson,
       building: s.building,
-      title: s.lesson?.title
+      title: s.lesson?.title,
+      stepId: s.stepId,
+      checks: s.checks,
+      primer: s.lesson?.primer
     }))
   )
+  /** The step's concepts (step.started, kept by the drawer's store), for the suggested questions (review A11). */
+  const stepDetail = useStepDetail((s) => s.detail)
   const progress = useProgress()
   /**
    * The engine is waiting on "Continue where you left off?" (after an engine restart it sends card {kind:'resume'},
@@ -417,6 +426,10 @@ export function Launcher({ layout }: { layout: Layout }): ReactNode {
   /** The idle topic chips, minus the lesson in progress, being built or waiting to resume: never offer it again. */
   const current = [...(lesson.hasLesson || lesson.building ? [lesson.title, topic.current] : []), saved?.title].filter((t): t is string => !!t)
   const suggestions = SUGGESTIONS.filter((s) => !current.some((t) => sameTopic(s.label, t)))
+  /** Ask mode: questions about the step on screen, from its own check, title and concepts (a concept id → its primer title). */
+  const concepts =
+    stepDetail && stepDetail.stepId === lesson.stepId ? stepDetail.concepts.map((c) => (lesson.primer && findPrimer(lesson.primer, c)?.title) || c) : []
+  const questions = mode === 'ask' && lesson.hasStep ? stepQuestions({ title: lesson.stepTitle, concepts, checks: lesson.checks }) : []
 
   // ---- actions --------------------------------------------------------------------------------
 
@@ -505,9 +518,10 @@ export function Launcher({ layout }: { layout: Layout }): ReactNode {
     setPhase('closing')
   }
 
-  const ask = (): void => {
-    const text = question.trim()
+  /** Ask what's typed, or a suggested question (it goes into the field, which keeps it until the answer arrives). */
+  const ask = (text = question.trim()): void => {
     if (!text || phaseRef.current !== 'open') return
+    setQuestion(text)
     bridge.send(cmd('action', { kind: 'ask', text }))
     markAsked()
     setPhase('sending')
@@ -517,11 +531,6 @@ export function Launcher({ layout }: { layout: Layout }): ReactNode {
   const switchMode = (): void => {
     if (!lesson.hasLesson || phaseRef.current !== 'open') return
     setMode((m) => (m === 'ask' ? 'search' : 'ask'))
-  }
-
-  const quick = (kind: 'explain' | 'hint'): void => {
-    close()
-    triggerShortcut(kind)
   }
 
   /**
@@ -820,10 +829,11 @@ export function Launcher({ layout }: { layout: Layout }): ReactNode {
               <HowChoice how={how} onPick={pick} />
             </Rise>
           ) : mode === 'ask' ? (
-            <Rise key="ask" i={2} className="flex flex-wrap gap-[8px] px-[20px] pt-[12px]">
-              <OptionButton action="explain" label="Explain this step" kbd={bridge.platform.keys.explain} onClick={() => quick('explain')} />
-              <OptionButton action="hint" label="Give me a hint" kbd={bridge.platform.keys.hint} onClick={() => quick('hint')} />
-            </Rise>
+            questions.length > 0 && (
+              <Rise key="ask" i={2} className="px-[20px] pt-[12px]">
+                <QuestionChips questions={questions} onPick={(q) => ask(q)} />
+              </Rise>
+            )
           ) : (view === 'idle' || resumeRows) && !lessonRow ? (
             // Under Continue (a saved lesson waiting) the old search rows step aside for the topic chips too.
             suggestions.length > 0 && (

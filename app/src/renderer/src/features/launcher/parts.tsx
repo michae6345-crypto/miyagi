@@ -7,7 +7,7 @@
  */
 import { motion, useReducedMotion, type HTMLMotionProps } from 'motion/react'
 import { useRef, type ReactNode } from 'react'
-import { GraduationCap, Play, Square, type LucideIcon } from 'lucide-react'
+import { GraduationCap, MessageCircleQuestion, Play, Square, type LucideIcon } from 'lucide-react'
 import { bridge } from '../../bridge'
 import { color, fill, spring } from '../../core/theme'
 
@@ -130,6 +130,38 @@ export function HowChoice({ how, onPick }: { how: How; onPick: (h: How) => void 
           </motion.button>
         )
       })}
+    </div>
+  )
+}
+
+/**
+ * The ask panel's suggested questions about the current step (Michael's review A11; see questions.ts). The same model
+ * as the two ways: a question is a whole request, so a click (its press, usePress) asks it at once; the field shows it
+ * until the answer card arrives. Quiet neutral chips like the topics: the white "Ask" stays the one primary, and the
+ * pastel options (Explain / Hint …) stay in the bar.
+ */
+export function QuestionChips({ questions, onPick }: { questions: string[]; onPick: (q: string) => void }): ReactNode {
+  const press = usePress(onPick)
+  return (
+    <div className="flex flex-wrap gap-[8px]" role="group" aria-label="Suggested questions">
+      {questions.map((q) => (
+        <motion.button
+          key={q}
+          type="button"
+          tabIndex={-1}
+          data-question
+          title={q}
+          className="flex h-[30px] min-w-0 max-w-full cursor-pointer items-center gap-[7px] rounded-full border pl-[11px] pr-[13px] text-[13px]"
+          style={{ backgroundColor: fill.chip, borderColor: fill.chipBorder, color: fill.chipText }}
+          whileHover={{ backgroundColor: fill.chipHover, color: color.text }}
+          whileTap={{ scale: 0.97 }}
+          transition={{ duration: 0.12 }}
+          {...press(q)}
+        >
+          <MessageCircleQuestion size={13} strokeWidth={1.8} className="shrink-0" style={{ color: color.faint }} />
+          <span className="truncate">{q}</span>
+        </motion.button>
+      ))}
     </div>
   )
 }
