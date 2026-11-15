@@ -2,8 +2,13 @@
 
 A tiny VS Code extension that lets the Miyagi engine **read and drive VS Code exactly** instead of guessing from OCR:
 which folder and file are open, unsaved edits, the cursor, the terminal's last command with its exit code and output.
-It can also open a file at a line, box lines with a white highlight, open the terminal, run a command in it, apply a
-fix and save it, and preview a fix as a diff.
+It can also open a file at a line, open the terminal, run a command in it, and apply a fix and save it.
+
+**It draws nothing in VS Code.** Miyagi's own overlay (the white spotlight box, the drawer, the cards) is the only
+UI, so a lesson looks the same with or without the extension. The only things you see in VS Code are the lesson
+file being opened and the one terminal named "Miyagi" that "Run it for me" uses. No status bar item, no
+notification, no webview, no editor decoration, no diff tab, and no command palette entry. The `/highlight` box
+and `/diff` tab exist only behind the `miyagi.editorUi` setting (default `false`).
 
 It is plain JavaScript (`extension.js` + `package.json`) with no build step and no dependencies. It needs
 VS Code 1.90 or newer; exit codes need 1.93 or newer. It starts on VS Code startup (`onStartupFinished`) and serves
@@ -27,7 +32,8 @@ Then reload each open VS Code window: **Cmd+Shift+P → "Developer: Reload Windo
 curl -s 127.0.0.1:8791/health
 ```
 
-You can also run **"Miyagi: Companion status"** from the command palette to see the window's port.
+The output channel "Miyagi Companion" (Output panel, never opened by the extension) logs the port and each
+`terminal/run`.
 
 - **Update:** run the same copy command again, then reload the window.
 - **Uninstall:** `rm -rf ~/.vscode/extensions/miyagi.companion-0.0.1`, then reload the window.
@@ -47,13 +53,13 @@ window's first folder, and `~` is expanded.
 | `GET /state` | | see below |
 | `GET /text?file=<path>` | (no file: the active editor) | `{file, text, dirty, version, languageId, lineCount}`. The editor's text, **unsaved edits included** |
 | `POST /open` | `{file, line?, column?, preserveFocus?}` | `{ok, file, line, languageId, dirty}`. Opens in **this** window (never a new one), keeps the column the file is already shown in, and centers the line |
-| `POST /highlight` | `{file, startLine, endLine?, focus?, reveal?}` | `{ok, file, startLine, endLine}`. One white 2px box (faint white fill) around the lines, centered in view. One highlight per window; it is repainted when the file becomes visible again |
+| `POST /highlight` | `{file, startLine, endLine?, focus?, reveal?}` | `{ok, file, startLine, endLine}`. Centers the lines in view and records them in `/state.highlight`. Draws nothing unless `miyagi.editorUi` is on: then one white 2px box (faint white fill) around the lines, one per window, repainted when the file becomes visible again |
 | `POST /highlight` | `{clear: true}` | `{ok, cleared: true}` |
 | `POST /terminal` | `{show: true, cwd?, preserveFocus?}` | `{ok, shown, terminal, created}`. Shows the "Miyagi" terminal, else the active one, else creates "Miyagi" |
 | `POST /terminal` | `{show: false}` | Closes the panel |
 | `POST /terminal/run` | `{cmd, cwd?, preserveFocus?}` | `{ok, terminal: "Miyagi", created, sent, shellIntegration, reportsExitCode}`. Reuses one "Miyagi" terminal: shows it, then `sendText(cmd)`. When `cwd` is given and the shell is somewhere else, it sends `cd '<cwd>' && cmd`. The exit code and output arrive later in `/state.lastCommand` and as a `command_end` event |
 | `POST /apply` | `{file, newText \| edits, save = true, reveal = true}` | `{ok, file, created, saved, dirty, version, lineCount}`. Edits through a `WorkspaceEdit`, so an **unsaved buffer** is edited and not overwritten on disk behind VS Code's back. Then it saves. `newText` on a missing file creates the file |
-| `POST /diff` | `{file, newText, title?}` | `{ok, file, title, proposed}`. Runs `vscode.diff` with the file (as the editor has it) on the left and `newText` on the right. Changes nothing |
+| `POST /diff` | `{file, newText, title?}` | `{ok, file, title, proposed}`. Only with `miyagi.editorUi` on (else 409 `editor_ui_off`): runs `vscode.diff` with the file (as the editor has it) on the left and `newText` on the right. Changes nothing |
 
 `edits` is a list. Each edit takes one of these forms:
 
@@ -70,7 +76,7 @@ Errors come back as `{ok: false, error}` with an HTTP status:
 | 400 | `file_required`, `bad_json`, `cmd_required`, `newText_or_edits_required`, `bad_edit` |
 | 403 | `origin_not_allowed`, `browser_not_allowed`, `host_not_allowed` |
 | 404 | `not_found`, `no_route` |
-| 409 | `find_not_found`, `edit_rejected` |
+| 409 | `find_not_found`, `edit_rejected`, `editor_ui_off` |
 | 415 | `json_required` |
 
 **Slow actions:** an action that takes longer than 250 ms answers `{ok: true, pending: true, id}`. It still
