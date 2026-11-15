@@ -104,7 +104,8 @@ def test_low_confidence_or_cant_tell_does_nothing(monkeypatch):
 def test_done_but_a_deterministic_check_disagrees_asks(monkeypatch):
     fake(monkeypatch, {"checks": [{"check_id": "c2", "verdict": "done", "confidence": 0.9, "reason": "file open in editor",
                                    "evidence": "calc.py — calculator"}], "on_step_id": "", "summary": "calc.py is open in VS Code"})
-    r = run(StepJudge().judge(S2, [{"checkId": "c2", "status": "fail", "detail": "calc.py not found in workdir"}], screen=SCREEN))
+    r = run(StepJudge().judge(S2, [{"checkId": "c2", "status": "fail", "detail": "calc.py not found in workdir"}], screen=SCREEN,
+                              files={"calc.py": "def add(a, b):\n    return a + b\n"}))
     assert r["events"] == []  # never overrule a machine check
     assert r["card"] == {"stepId": "s2", "kind": "answer", "title": "Looks done?", "body": "calc.py is open in VS Code",
                          "actions": ["confirm", "skip_step"], "checkIds": ["c2"]}
@@ -163,6 +164,12 @@ def _vscode_untitled() -> ScreenContext:
     return ScreenContext(image=Image.new("RGB", (10, 10)), cursor=(100, 90), boxes=boxes, scale=1.0, app="Code").numbered()
 
 
+def _vscode_saved() -> ScreenContext:
+    boxes = [Box(0, "calc.py — calculator", 300, 8, 200, 14, source="ax", app="Code", role="AXTitle"),
+             Box(0, "def add(a, b):", 60, 80, 120, 13, app="Code"), Box(0, "return a + b", 80, 95, 100, 13, app="Code")]
+    return ScreenContext(image=Image.new("RGB", (10, 10)), cursor=(100, 90), boxes=boxes, scale=1.0, app="Code").numbered()
+
+
 def test_where_reads_the_editor_state():
     assert where_hint(CALC, None, _vscode_untitled()) == "You're in VS Code on an unsaved file. Save it as calculator.py in the lesson folder"
     obs = SimpleNamespace(app="Code", windows=[SimpleNamespace(app="Code", title="● calc.py — calculator")],
@@ -200,7 +207,8 @@ def test_judge_step_not_done_says_what_and_where(monkeypatch):
 def test_judge_step_done_points_at_the_evidence(monkeypatch):
     fake(monkeypatch, {"checks": [{"check_id": "c3", "verdict": "done", "confidence": 0.9, "reason": "add is defined", "evidence": "def add(a, b):"}],
                        "on_step_id": "", "summary": "add() defined", "missing": ""})
-    r = run(coach.judge_step(S3, _vscode_untitled(), check_results=[{"checkId": "c3", "status": "pending"}]))
+    r = run(coach.judge_step(S3, _vscode_saved(), files={"calc.py": "def add(a, b):\n    return a + b\n"},
+                             check_results=[{"checkId": "c3", "status": "pending"}]))
     assert r["done"] is True and r["missing"] == "" and r["where"] is None
     assert r["target"]["text"] == "def add(a, b):" and set(r["target"]["rect"]) == {"x", "y", "w", "h"}
 
@@ -282,3 +290,81 @@ def test_hint_after_a_not_started_card_is_the_instruction():
     h = coach.hint(CALC1, 0, nudge, screen=_vscode_untitled())  # reads the screen: the unsaved tab
     assert h["body"] == "You're in VS Code on an unsaved file. Save it as calculator.py in the lesson folder, then print a welcome message with print()."
     assert "Not yet:" not in coach.hint(CALC1, 1, nudge)["body"]
+
+
+
+# ---------- Michael's live misdiagnosis: unsaved, OCR'd `def add(a, b):` in another folder ---------------
+
+OCR_CODE = "def(a, b)\n(function) def add(a: Any, b: Any) -> None"
+
+
+def _no_model(monkeypatch):
+    async def boom(**kw):
+        raise AssertionError("a held diagnosis must not call a model")
+
+    monkeypatch.setattr(llm, "structured_call", boom)
+
+
+def test_unsaved_file_only_asks_to_save(monkeypatch):
+    _no_model(monkeypatch)
+    failed = [{"checkId": "c3", "label": "add() defined", "status": "fail"}]
+    card = run(coach.diagnose(S3, failed, None, OCR_CODE, file_state={"path": "calc.py", "saved": False}))
+    assert card["hold"] == "unsaved" and card["body"] == "Save with ⌘S so I can check it." and "Line 1" not in card["body"]
+    unsaved_tab = _vscode_untitled()  # the screen alone shows it: Untitled-1 / ●
+    assert run(coach.diagnose(S3, failed, None, OCR_CODE, screen=unsaved_tab))["hold"] == "unsaved"
+    assert coach.diagnose.__module__  # LAST is not polluted by holds
+    from server.coach.diagnose import LAST
+
+    assert "s3" not in LAST
+
+
+def test_wrong_folder_is_not_diagnosed(monkeypatch):
+    _no_model(monkeypatch)
+    card = run(coach.diagnose(S3, [{"checkId": "c3", "status": "fail"}], None, "def add(a, b):\n    return a + b",
+                              file_state={"path": "/other/calc.py", "saved": True, "wrong_folder": True}))
+    assert card["hold"] == "wrong_folder"
+
+
+def test_screen_code_needs_two_agreeing_reads(monkeypatch):
+    calls = []
+
+    async def call(**kw):
+        calls.append(kw["purpose"])
+        if kw["purpose"] == "triage":
+            return llm.CallResult(data={"route": "opus", "playbook_id": "none", "reason": ""}, model="h")
+        return llm.CallResult(data={"playbook_id": "none", "severity": "warn", "title": "t", "body": "b. Do x.", "citation_id": "none",
+                                    "diff_expected": "", "diff_yours": "", "diff_file": "", "diff_line": 0, "diff_command": "",
+                                    "actions": [], "guiding_question": "q?"}, model="o")
+
+    monkeypatch.setattr(llm, "structured_call", call)
+    failed = [{"checkId": "c3", "status": "fail"}]
+    step = {**S3, "id": "s3-ocr"}
+    assert run(coach.diagnose(step, failed, None, OCR_CODE, code_source="screen"))["hold"] == "unconfirmed"  # first read
+    assert run(coach.diagnose(step, failed, None, "def add(a, b):", code_source="screen"))["hold"] == "unconfirmed"  # disagrees
+    assert calls == []
+    card = run(coach.diagnose(step, failed, None, "def add(a,  b):", code_source="screen"))  # agrees with the previous read
+    assert "hold" not in card  # no longer held: normal routing (here: nothing run yet → the start nudge)
+
+
+def test_prompt_distrusts_ocr_syntax():
+    from server.coach.diagnose import COACH_SYSTEM
+
+    assert "hover tooltips" in COACH_SYSTEM and "Never claim a line is malformed" in COACH_SYSTEM
+
+
+def test_judge_never_passes_unsaved_empty_or_unseen_files(monkeypatch):
+    done = {"checks": [{"check_id": "c2", "verdict": "done", "confidence": 0.95, "reason": "calc.py tab is open", "evidence": "calc.py"}],
+            "on_step_id": "", "summary": "calc.py open", "missing": ""}
+    pending = [{"checkId": "c2", "status": "pending"}]
+    fake(monkeypatch, done)
+    unsaved = ScreenContext(image=Image.new("RGB", (10, 10)), cursor=(1, 1), scale=1.0, app="Code",
+                            boxes=[Box(0, "● calc.py — calculator", 300, 8, 200, 14, source="ax", app="Code", role="AXTitle")]).numbered()
+    r = run(StepJudge().judge(S2, pending, screen=unsaved, files={"calc.py": "x = 1"}))
+    assert r["events"] == [] and r["card"]["title"] == "Save so I can check" and r["card"]["body"] == "Save with ⌘S so I can check it."
+    for files in (None, {"calc.py": "   \n"}, {"other.py": "x = 1"}):  # not seen / empty
+        r = run(StepJudge().judge(S2, pending, screen=SCREEN, files=files))
+        assert r["events"] == [] and r["card"] is None
+    r = run(StepJudge().judge(S2, pending, screen=SCREEN, files={"/lesson/calc.py": "def add(a, b): ..."}))
+    assert r["events"][0]["payload"]["status"] == "pass"  # saved, non-empty → may pass
+    j = run(coach.judge_step(S2, unsaved, files={"calc.py": "x = 1"}, check_results=pending))
+    assert j["done"] is False and j["checks"]["c2"]["verdict"] == "unsure" and j["missing"] == "Save with ⌘S so I can check it"
