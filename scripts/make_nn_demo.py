@@ -131,10 +131,12 @@ for epoch in range({EPOCHS}):
     if epoch % {PRINT_EVERY} == 0:
         print(f"epoch {{epoch:{EPOCH_W}d}}  loss {{loss:.4f}}")""",
     "nn4": RUN,
-    "nn5": """h1, h2, out = forward(np.array([[-np.pi / 2], [0.0], [np.pi / 2]]))
-print(np.round(out, 1).ravel().tolist())
-for name, w in (("W1", W1), ("b1", b1), ("W2", W2), ("b2", b2), ("W3", W3), ("b3", b3)):
-    print(name, np.round(w, 3).tolist())""",
+    # t8: the answers line prints LAST (VS Code's terminal shows its bottom rows: [-1.0, 0.0, 1.0] stays on screen), and
+    # + 0.0 turns NumPy's -0.0 into 0.0 (a bias rounded to zero printed "-0.0"; the answer for x = 0 could too)
+    "nn5": """for name, w in (("W1", W1), ("b1", b1), ("W2", W2), ("b2", b2), ("W3", W3), ("b3", b3)):
+    print(name, (np.round(w, 3) + 0.0).tolist())
+h1, h2, out = forward(np.array([[-np.pi / 2], [0.0], [np.pi / 2]]))
+print((np.round(out, 1) + 0.0).ravel().tolist())""",
     "nn6": RUN,
 }
 
@@ -465,11 +467,11 @@ STEPS = [
         "nn5", 5,
         title="Test it",
         kind="code",
-        what="Print its answers and the weights it learned",
+        what="Print the weights it learned and its answers",
         why="sin(-π/2) = -1, sin(0) = 0 and sin(π/2) = 1, so you can check its answers. The weights are what it learned.",
         concepts=["p1"],
         action="In nn.py, paste this under # Test it",
-        instructions="Under # Test it, print its answers for -π/2, 0 and π/2, and the weights.",
+        instructions="Under # Test it, print the weights, then its answers for -π/2, 0 and π/2.",
         checks=[
             {"id": "nn5c1", "type": "screen_contains", "label": "It prints its answers", "app": "Code",
              "pattern": ANSWERS_RX},
