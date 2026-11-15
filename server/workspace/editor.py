@@ -51,9 +51,9 @@ EDITOR_FRACTION = float(os.environ.get("MIYAGI_EDITOR_FRACTION", "0.6"))
 # macOS full screen, which moves the window into its own Space (where the overlay and other lesson windows get lost).
 NATIVE_FULLSCREEN = os.environ.get("MIYAGI_FULLSCREEN", "").strip().lower() == "native"
 # The maximized lesson window stops short of the overlay's drawer on the right (app drawer/geometry.ts: a "Just teach me"
-# lesson's PANEL_W_LESSON 384 + its 8 pt inset + an 8 pt gap), so the drawer doesn't cover the editor. MIYAGI_DRAWER_W=0:
+# lesson's PANEL_W_LESSON 420 (A9, adrian/shell #83) + its 8 pt inset + an 8 pt gap), so the drawer doesn't cover the editor. MIYAGI_DRAWER_W=0:
 # the full width.
-DRAWER_W = float(os.environ.get("MIYAGI_DRAWER_W", "400"))
+DRAWER_W = float(os.environ.get("MIYAGI_DRAWER_W", "436"))
 # Our own overlay must never be treated as "the app the learner was in".
 OVERLAY_NAMES = {n.strip().lower() for n in os.environ.get("MIYAGI_OVERLAY_APPS", "Miyagi,miyagi-overlay,Electron").split(",") if n.strip()}
 
