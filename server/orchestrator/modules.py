@@ -21,7 +21,7 @@ from collections.abc import AsyncIterator, Callable
 from pathlib import Path
 from typing import Any
 
-from . import stubs
+from . import bg, stubs
 from .config import DEMO_CACHE, demo_mode
 from .context import RunContext
 
@@ -185,6 +185,7 @@ class Modules:
 
             task = asyncio.ensure_future(_call(fn, query, on_result=on_result, **kwargs))
             seen: set = set()
+            getter: asyncio.Future | None = None
             try:
                 while True:
                     getter = asyncio.ensure_future(queue.get())
@@ -213,7 +214,13 @@ class Modules:
                 raise ModuleUnavailable(f"finder.search failed: {type(e).__name__}: {e}") from e
             except BaseException:  # cancelled (a newer learn replaced this search) / closed early: stop the finder too
                 task.cancel()
+                bg.keep(task)  # held until its cancellation lands (V13: never GC'd mid-flight)
                 raise
+            finally:
+                # V13: a learn cancelled while waiting here left the pending queue.get() task behind; only a
+                # reference cycle held it, and GC later logged "Task was destroyed but it is pending!".
+                if getter is not None and not getter.done():
+                    getter.cancel()
         try:
             out = fn(query)
             if hasattr(out, "__aiter__"):  # streaming finder
