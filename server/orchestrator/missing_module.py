@@ -75,9 +75,16 @@ def lesson_item(session: Any, mod: str) -> dict | None:
 
 
 def _match(items: list[dict], mod: str) -> dict | None:
+    """The setup item for a missing module. Also by its pip name (`sklearn` -> scikit-learn, `cv2` -> opencv-python,
+    `PIL` -> pillow) when the lesson's item named only the pip package, so those still get their Install button."""
+    from server.workspace.setup import IMPORT_ALIASES
+
+    wanted = {mod, PIP.get(mod, mod)}
     for it in items:
         names = {(it.get(k) or "").strip() for k in ("import_name", "pip_name", "tool")}
-        if mod in names and ((it.get("install") or {}).get("method") == "pip" or it.get("kind") == "python_package"):
+        for n in list(names):
+            names.update(IMPORT_ALIASES.get(n.lower(), []))
+        if wanted & names and ((it.get("install") or {}).get("method") == "pip" or it.get("kind") == "python_package"):
             return it
     return None
 
