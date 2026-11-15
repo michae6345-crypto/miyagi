@@ -470,6 +470,10 @@ class NetworkDiagram(_Model):
     activation: str
     derivatives: list[str]
     residual: str
+    # True: a preview of the lesson's own network before the learner's first run (server/orchestrator/curated.py), not
+    # a run: frames without epoch / loss, never a training run (mode forward / backward / stuck). The app shows
+    # "Preview", no Epoch / Loss / sparkline, and keeps it out of the completion charts. Absent: a real run.
+    preview: bool | None = None
 
 
 class GradientsDiagram(_Model):

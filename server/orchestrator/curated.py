@@ -18,11 +18,20 @@ MIYAGI_CURATED=0 turns all of it off ("Just teach me" builds a lesson as before)
 Pushed diagrams (one `diagram` event each, kind "network" with data.frames, stepId = the current step): the app shows
 them in the drawer's right-hand panel (adrian/shell PR #94). When a step starts: its own picture (forward pass, backprop,
 training). After every run that prints losses, from the loop step on (Run it for me, the terminal, VS Code's ▶ Run Python
-File): identical hidden neurons when the loss is stuck at STUCK_LOSS, else the learner's own run (their printed losses,
-and their weights once nn.py prints them; a run that isn't the lesson's own run says the weights drawn are the lesson's).
+File): identical hidden neurons when the loss is stuck at STUCK_LOSS (mode "stuck"), else the learner's own run (their
+printed losses, and their weights once nn.py prints them; a run that isn't the lesson's own run says the weights drawn
+are the lesson's).
+
+Previews (t7): until the learner's first real run, a step's picture is a preview of the lesson's own network, not a run.
+data.preview is true, its frames carry no epoch and no loss, and it never plays a training run (mode forward, backward
+or stuck, never train): at step 1 the network you're building, at step 2 the error flowing back, at steps 3 and 4 the
+network the loop starts from, standing still. t7 showed "EPOCH 20,000 · LOSS 7.8e-4" at step 1 and a training run down
+to loss 0.0042 at step 3 while nn.py held zeros, two minutes before the Demo's "loss is stuck at 0.49". Only the
+learner's own runs (their terminal, Run it for me, the Demo's recorded runs) carry epoch and loss; preview is absent.
 
 The payload (data): layers [1, 4, 4, 1], labels {input: ["x"], output: ["y"]}, placement "drawer", activation "tanh"
-(hidden; the output is linear), samples / targets (x = -π/2, 0, π/2 and sin(x)), target (sin(π/2) = 1), mode, frames:
+(hidden; the output is linear), samples / targets (x = -π/2, 0, π/2 and sin(x)), target (sin(π/2) = 1), mode, frames,
+preview (previews only):
     {epoch, loss, input: x, target: sin(x), W: [W1 1x4, W2 4x4, W3 4x1], b: [b1[4], b2[4], b3[1]], a: [[x], [4], [4], [y]]}
 W[k][i][j] is the weight from neuron i of layer k to neuron j of layer k+1; `a` is every neuron's activation for that
 frame's input (the app fires the neurons from it). Train frames all fire x = π/2 (the panel's prediction climbs to its
@@ -69,6 +78,16 @@ ADOPT_AFTER_S = 1.0  # Run it for me's own wait polls every 0.3 s: it takes its 
 RUN_RX = re.compile(rf"""(?:^|[\s/"'])python[\d.]*["']?\s+(?:-\S+\s+)*["']?(?:[^"'\s]*/|"[^"]*/|'[^']*/)?"""
                     rf"""{re.escape(FILE)}(?![\w.])""")
 LOOP_STEP = "nn3"  # the step that writes the training loop: from here on a run prints losses the panel can draw
+# A step's preview caption, where the cached one (demo/cache/diagrams/<step>-network.json) describes a run: nothing in
+# the panel says the network learns before the learner's own run shows it (the Demo's zeros take gets stuck at step 4).
+PREVIEW_CAPTION = {
+    "nn3": "Your loop will move every weight a small step downhill, 20,000 times. Run it at the next step to see it.",
+    "nn4": "Run it and this redraws from your run: its weights and its loss.",
+    "nn5": "The lesson's network before training. Run nn.py and this redraws from your run.",
+    "nn6": "The lesson's trained network: x goes in, sin(x) comes out. Run nn.py to draw yours.",
+}
+STUCK_PREVIEW_CAPTION = ("If every weight starts at zero, all eight hidden neurons are the same neuron: same start, "
+                         "same update, so nothing moves.")
 
 # ---------------------------------------------------------------------------------------------------------- matching
 
@@ -488,6 +507,34 @@ def forward_frames(frame: dict, samples: list | None) -> list[dict]:
     return [_fire(copy.deepcopy(frame), x) for x in _sample_xs([frame], samples)]
 
 
+def _still(f: dict) -> dict:
+    """A copy of frame `f` without its run stats (epoch, loss): only weights and activations."""
+    return {k: copy.deepcopy(v) for k, v in f.items() if k not in ("epoch", "loss")}
+
+
+def preview(d: dict, caption: str | None = None, mode: str | None = None) -> dict:
+    """Diagram `d` (a cached step picture) as a preview of the lesson's own network, before the learner's first run:
+    data.preview true, frames without epoch or loss, and never a training run: a train picture becomes its first frame
+    standing still (mode "forward": the network the loop starts from, which the learner's run tweens on from), fired
+    once per sample (π/2 last, the frame the app keeps up). mode "stuck" (the stuck picture before a stuck run) is one
+    still frame the same way. Forward and backward pictures keep their frames. `caption` replaces the cached one."""
+    d = copy.deepcopy(d)
+    data = d["data"]
+    frames = [f for f in data.get("frames") or [] if isinstance(f, dict)]
+    mode = mode or data.get("mode") or "forward"
+    if mode in ("train", "stuck") and frames:
+        frames = forward_frames(_still(frames[0]), data.get("samples"))
+    if mode == "train":
+        mode = "forward"
+    data["frames"] = [_still(f) for f in frames]
+    data["mode"] = mode
+    data["preview"] = True
+    data.pop("epochs", None)  # the app's "Epoch … / 20,000"
+    if caption:
+        d["caption"] = caption
+    return d
+
+
 def live_frames(ref: list[dict], losses: list[tuple[int, float]], final: dict | None,
                 samples: list | None = None) -> tuple[list[dict], bool]:
     """The training frames for the learner's run -> (frames, same_as_reference).
@@ -507,7 +554,12 @@ def live_frames(ref: list[dict], losses: list[tuple[int, float]], final: dict | 
     shared = [(e, v) for e, v in losses if e in by_epoch]
     same = len(shared) >= 2 and all(abs(float(by_epoch[e]["loss"]) - v) <= max(6e-4, 0.02 * v) for e, v in shared)
     xs = _sample_xs(ref, samples)
-    if same or not losses:
+    if not losses:  # their weights without loss lines: one frame and no epoch or loss (the reference's aren't theirs)
+        f = _still(ref[-1])
+        if final:
+            f["W"], f["b"] = copy.deepcopy(final["W"]), copy.deepcopy(final["b"])
+        return [_fire(f, f.get("input", xs[-1]))], False
+    if same:
         frames = copy.deepcopy(ref)
         real = dict(losses)
         for f in frames:
@@ -552,17 +604,21 @@ def _train_caption(losses: list[tuple[int, float]], final: dict | None, same: bo
 
 def _live(session: Any, kind: str) -> dict | None:
     """The diagram drawn from the learner's latest training run: 'train' (weights moving, loss falling), 'forward'
-    (the trained network answering -π/2, 0 and π/2) or 'stuck' (identical hidden neurons, their flat loss)."""
+    (the trained network answering -π/2, 0 and π/2) or 'stuck' (identical hidden neurons, their flat loss: mode
+    "stuck", the app's "loss stuck"). None when they have no such run ('stuck' without a stuck run: step_diagram shows
+    the stuck picture as a preview, never their loss on the zeros' weights)."""
     st = _state(session)
     losses, final = st.get("losses") or [], st.get("final")
-    if kind == "stuck" or st.get("stuck"):  # a stuck run (also after Skip): the picture is the stuck one
+    if st.get("stuck") and losses:  # their run is stuck (also after Skip): the picture is the stuck one
         base = _ref(f"{TRAIN_STEP}-gradients")
         if base is None:
             return None
         frames, _ = live_frames(base["data"]["frames"], losses, None, base["data"].get("samples"))
-        v = losses[-1][1] if losses else STUCK_LOSS
-        return _with_frames(base, frames, caption=f"Your run: the loss sits at {v:.4f}. All eight hidden neurons are "
-                                                  "the same neuron: same start, same update, so nothing moves.")
+        return _with_frames(base, frames, mode="stuck",
+                            caption=f"Your run: the loss sits at {losses[-1][1]:.4f}. All eight hidden neurons are the "
+                                    "same neuron: same start, same update, so nothing moves.")
+    if kind == "stuck":
+        return None
     base = _ref(f"{TRAIN_STEP}-network")
     if base is None:
         return None
@@ -596,16 +652,19 @@ def _after(session: Any, step: dict, sid: str) -> bool:
 def step_diagram(session: Any, step: dict, kind: str | None = None) -> dict | None:
     """What the right-hand panel / the Diagram button shows for this step now. kind "gradients" asks for the stuck
     picture; None picks: the stuck picture while this step's run is stuck, else the learner's own run once there is
-    one (the loop, training and test steps), else the step's precomputed network. Always with stepId."""
+    one (the loop, training and test steps), else the step's precomputed network as a preview (preview(): no epoch,
+    no loss, no training run). The stuck picture without a stuck run of theirs is a preview too. Always with stepId."""
     sid = step.get("id")
     st = _state(session)
     d = None
     if kind == "gradients" or (kind is None and st.get("stuck") and st.get("stuck_step") == sid):
-        d = _live(session, "stuck") or _ref(f"{sid}-gradients")
+        d = _live(session, "stuck")
+        if d is None and (base := _ref(f"{TRAIN_STEP}-gradients")) is not None:
+            d = preview(base, STUCK_PREVIEW_CAPTION, mode="stuck")
     elif _after(session, step, LOOP_STEP) and (st.get("losses") or st.get("final")):
         d = _live(session, "forward" if sid == TEST_STEP else "train")
-    if d is None:
-        d = _ref(f"{sid}-network")
+    if d is None and (ref := _ref(f"{sid}-network")) is not None:
+        d = preview(ref, PREVIEW_CAPTION.get(sid))
     if d is None:
         return None
     d = dict(d)

@@ -97,7 +97,7 @@ export interface EngineEvents {
     caption: string;
     stepId?: string;
     data:
-      | { layers: number[]; activation: string; derivatives: string[]; residual: string }            // network
+      | { layers: number[]; activation: string; derivatives: string[]; residual: string; preview?: boolean }   // network   // preview true: a picture of the lesson's own network before the learner's first run (curated.py), not a run: its frames have no epoch / loss and it never plays training (mode forward / backward / stuck); show a "Preview" label, no Epoch / Loss / loss sparkline, and keep it out of the completion screen's charts. Absent: a real run (the learner's terminal, Run it for me, the Demo's recorded runs), frames carry epoch + loss
       | { layers: string[]; epochs: number[]; norms: number[][] }                                     // gradients: norms[layer][epochIdx]
       | { x: number[]; t: number[]; predicted: number[][]; exact?: number[][] }                      // heatmap
       | GraphDiagramData;                                                                             // graph (any topic; server/diagrams)
