@@ -265,9 +265,9 @@ def test_absent_fails_only_when_the_pattern_is_seen():
 
 def test_contains_on_hidden_app_says_what_to_open():
     r = evaluate_check(OPEN_TERM, RunContext(screen=CODE_ONLY, segment_done=False))
-    assert r["status"] == "pending" and r["detail"] == "open Terminal so I can check: training started"
+    assert r["status"] == "pending" and r["detail"] == "Open the Terminal so I can check it."
     r = evaluate_check(OPEN_TERM, RunContext(screen=CODE_ONLY, segment_done=True))
-    assert r["status"] == "fail" and r["detail"] == "open Terminal so I can check: training started"
+    assert r["status"] == "fail" and r["detail"] == "Open the Terminal so I can check it."
     r = evaluate_check(OPEN_TERM, RunContext(segment_done=True))  # no screen reader: not the learner's fault
     assert r["status"] == "pending" and "screen reading is off" in r["detail"]
 
