@@ -2985,7 +2985,8 @@ def test_lesson_mode_vision_pick_boxes_the_line_when_text_and_gutter_miss(tmp_pa
 
 def test_lesson_mode_targeter_confirms_moves_or_drops_the_located_box(tmp_path, monkeypatch):
     """_confirm_spot: screen.confirm (Haiku verifier) returns the box to show. A moved rect replaces the located one;
-    None (Haiku is sure nothing on screen matches) means no box; the question is the step's caption + code."""
+    None (Haiku is sure nothing on screen matches) withdraws it (t4: the start box goes up before Haiku answers); the
+    question is the step's caption + code."""
     async def build(goal, workdir, on_update=None, **kw):
         return _text_lesson()
 
@@ -3019,7 +3020,7 @@ def test_lesson_mode_targeter_confirms_moves_or_drops_the_located_box(tmp_path, 
         assert asked[0][1].startswith("In calc.py, type the lines below.") and "(code: def add(a, b):" in asked[0][1]
         boxes = [sp for sp in rig.of("spotlight") if "rect" in sp]
         if answer is None:
-            assert not boxes
+            assert rig.of("spotlight")[-1] == {"clear": True} and rig.s.spot_rect is None
         else:
             assert boxes and boxes[-1]["rect"] == moved and boxes[-1]["matched"] == "# add goes here"
 

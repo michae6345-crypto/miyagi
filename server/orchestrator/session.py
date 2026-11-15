@@ -1406,11 +1406,13 @@ class LessonSession:
     async def _lesson_spot(self, gen: int, step: dict, tries: int = 8) -> None:
         """Lesson mode, step start: box where to act and caption it. Run step -> VS Code's terminal panel (or
         "Open the terminal: ⌃`" over the editor until it's open); type step -> the target line in the file.
-        ONE spotlight once found; the editor may still be opening, so it retries for a few seconds."""
+        ONE spotlight once found; the editor may still be opening, so it retries for a few seconds.
+        t4: a type step's deterministic start box goes up at once (_start_box; Haiku only refines it afterwards), and
+        none of these boxes ever replaces the off-track card's box while that card is up (_offtrack_box)."""
         cmd = self._run_command(step)
         if cmd:
             for _ in range(30):  # ~60 s: upgrade "open the terminal" to the terminal box once it's open
-                if gen != self.step_gen or self.passed:
+                if gen != self.step_gen or self.passed or self._offtrack_box() == "up":
                     return
                 spot = self._terminal_spot(step, cmd)
                 kind = spot.pop("kind", None)
@@ -1421,7 +1423,9 @@ class LessonSession:
                 await asyncio.sleep(2.0)
             return
         for i in range(max(1, tries)):
-            if gen != self.step_gen or self.passed:
+            if gen != self.step_gen or self.passed or self._offtrack_box() == "up":
+                return
+            if await self._start_box(gen, step) or gen != self.step_gen or self.passed:
                 return
             if await self._spotlight_target(step) or gen != self.step_gen or self.passed:
                 return
@@ -1436,6 +1440,103 @@ class LessonSession:
                 await self._show_spot(spot, steady=True)
                 return
             await asyncio.sleep(1.0)  # no whole-window box: the exact line, or nothing
+        for _ in range(self.START_BOX_EXTRA_TRIES):  # t4: VS Code came up late (a save dialog, full screen): keep
+            await asyncio.sleep(1.0)  # trying the cheap deterministic box a while longer (no Haiku until it's found)
+            if gen != self.step_gen or self.passed or self.spot_rect is not None or self._offtrack_box() == "up":
+                return
+            if await self._start_box(gen, step):
+                return
+
+    # t4 (live tests 3 + 4): no box at rest after step.started. Step 1's anchor is its own code (not in the file yet),
+    # the AX / gutter line lookup missed in a short file, both Haiku picks were unsure, and the loop gave up ~12 s in
+    # (once before a save dialog went away); a found box waited ~2 s for the Haiku check. The start box below is found
+    # from the files + OCR alone and shown at once; the targeter only refines it.
+    START_BOX_EXTRA_TRIES = 20
+    START_BELOW = "Type below this line"
+    _TYPE_WHERE = re.compile(r"type (below|above)\b", re.I)
+
+    def _start_where(self, step: dict) -> tuple[str, str] | None:
+        """Lesson code step: (text to find on screen, caption) for its start box, from the files alone. The first target
+        whose anchor is in its file (not the step's own code, e.g. step 1's "tasks = []"): captioned with the target's
+        own "Type below <anchor>" pointer, else "Type it here" (the anchor is the place, e.g. a "# add goes here" line).
+        Else the step file's last non-empty line, where new code goes: "Type below this line". None: no such line (an
+        empty file), or one too short / repeated / regex-like to find on screen for sure."""
+        from . import workspace as wsmod
+
+        code = step.get("code") or ""
+        for t in step.get("targets") or []:
+            match = (t.get("match") or "").strip()
+            if match and match not in code and self._anchor_in_file(t):
+                cap = short_caption(self._no_create(t.get("caption") or ""))
+                return t["match"], (cap if self._TYPE_WHERE.match(cap) else self.TYPE_CAPTION)
+        f = self._step_file(step)
+        p = wsmod.resolve_file(self.workdir, f) if f and not f.endswith(".ipynb") else None
+        try:
+            lines = [ln.strip() for ln in p.read_text(errors="replace").splitlines()] if p is not None else []
+        except OSError:
+            return None
+        tail = next((ln for ln in reversed(lines) if ln), "")
+        if len(tail.replace(" ", "")) < 4 or "|" in tail or sum(tail in ln for ln in lines) != 1:
+            return None  # ")" / "return" / a line seen twice: OCR could box another one
+        return tail, self.START_BELOW
+
+    async def _start_box(self, gen: int, step: dict) -> bool:
+        """t4: the type box right after step.started, within ~1 s of the editor showing: _start_where's line, found by
+        OCR inside the lesson's editor pane (never chrome, another app or Miyagi's drawer), shown now; THEN the Haiku
+        targeter refines it (_refine_start_box). The off-track card's box is never replaced.
+        -> placed (or already up)."""
+        if self._offtrack_box() == "up" or self._lesson_window_hidden():
+            return False
+        where = self._start_where(step)
+        spot = self._locate(where[0], None, where[1]) if where else None
+        app = ((spot or {}).get("app") or "").lower()
+        if not spot or (app and app not in CODE_APP_NAMES):
+            return False  # not on screen yet, or only in another app's window
+        pane = await asyncio.to_thread(self._code_pane)
+        if gen != self.step_gen or self.passed or self._offtrack_box() == "up" or self._chrome_hit(spot, pane):
+            return False
+        r = spot["rect"]
+        if pane is not None:  # E3: a code step's line box stays inside the editor pane (never the terminal / Chat)
+            x, x2 = max(r["x"], pane["x"]), min(r["x"] + r["w"], pane["x"] + pane["w"])
+            r = {**r, "x": x, "w": max(8.0, x2 - x)}
+        spot = {**spot, "rect": r, **self._snippet(step)}
+        self.spot_track = (where[0], None, where[1])  # frames move it with its line (_follow_spot)
+        old = self.spot_rect
+        if old and self._spot_caption == where[1] and all(abs(r[k] - old[k]) <= self.SPOT_MOVE_PX for k in "xywh"):
+            return True  # the same box is already up: no re-send, no second Haiku question
+        await self._show_spot(spot)  # at once: not after the ~2 s Haiku check
+        if self.spot_rect is not r:
+            return False
+        await self._refine_start_box(gen, spot, pane)
+        return True
+
+    async def _refine_start_box(self, gen: int, spot: dict, pane: dict | None) -> None:
+        """The Haiku targeter (_confirm_spot) checks the start box once it's up: keeps it, moves it (inside the editor
+        pane), or withdraws it when it's sure nothing on screen matches. Never over a box that went up meanwhile."""
+        confirmed = await self._confirm_spot(spot)
+        if gen != self.step_gen or self.passed or self.spot_rect is not spot["rect"]:
+            return  # the step moved on, or another box (the off-track's, Show me, a re-place) is up now
+        if confirmed is None:
+            log.info("targeter: no real target for %r; start box withdrawn", spot.get("caption"))
+            self.spot_rect, self._spot_caption, self._spot_t = None, None, self.clock()
+            await self.emit("spotlight", {"clear": True})
+            return
+        r = confirmed["rect"]
+        if all(abs(r[k] - spot["rect"][k]) <= self.SPOT_MOVE_PX for k in ("x", "y", "w", "h")):
+            return  # agreed (or unsure): the deterministic box stands
+        if pane is not None and not self._in_pane(r, pane):
+            log.info("targeter moved %r out of the editor pane; keeping the start box", spot.get("caption"))
+            return
+        await self._show_spot(confirmed)
+
+    def _offtrack_box(self) -> str | None:
+        """t4, one box at a time. "up": the box the engine follows is the off-track card's own (the line to fix) and
+        the checks that card covers still fail: the type box waits and never replaces it. "done": those checks pass
+        now: the type box comes back (_follow_spot). None: the box isn't the off-track's. (The app's ✕ isn't sent.)"""
+        t, off, ids = self.spot_track, self.last_offtrack, self._offtracked_checks
+        if not (t and off and off.get("title") and t[2] == off["title"]) or self.passed:
+            return None
+        return "done" if ids and not ids & {r.get("checkId") for r in self.last_failed} else "up"
 
     async def _vision_spot(self, step: dict) -> dict | None:
         """Text match and gutter line both missed (e.g. a short new file: Vision reads no line numbers): Haiku picks
@@ -1978,6 +2079,10 @@ class LessonSession:
     async def _follow_spot(self) -> None:
         """On a new frame: move the spotlight with its target (only if it moved > 4pt)."""
         if self.spot_track is None or self.passed or self.step is None:
+            return
+        if self.lesson_mode and self._offtrack_box() == "done":  # t4: the off-track's checks pass: the type box returns
+            self.spot_track = None
+            self._spawn(self._lesson_spot(self.step_gen, self.step, tries=3), timer=True)
             return
         if self.clock() - self._spot_t < self.SPOT_MIN_GAP_S:
             return  # at most one re-send every 2 s
