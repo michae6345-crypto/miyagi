@@ -16,7 +16,6 @@ Haiku only (`llm.model_for("judge")`); never raises (None on any failure).
 
 from __future__ import annotations
 
-import hashlib
 import logging
 import re
 import time
@@ -26,6 +25,7 @@ from typing import Any
 from . import llm
 from .common import clamp_words, get_lesson
 from .diagnose import notebook_code
+from .gate import PeriodicGate
 from .pointing import deterministic_targets, editor_state, step_file, where_hint
 
 log = logging.getLogger("coach.judge")
@@ -98,10 +98,6 @@ def files_text(files: dict[str, str] | None) -> str:
         body = notebook_code(text or "")
         parts.append(f"FILE {path}:\n{body[:MAX_FILE_CHARS]}" + ("\n…(truncated)" if len(body) > MAX_FILE_CHARS else ""))
     return "\n\n".join(parts)
-
-
-def _sig(*parts: str) -> str:
-    return hashlib.sha256("\x00".join(parts).encode()).hexdigest()[:16]
 
 
 # ---------- the judge -----------------------------------------------------------------------------------
@@ -226,35 +222,39 @@ async def judge_step(step: dict, screen: Any = None, files: dict[str, str] | Non
 
 
 class StepJudge:
-    def __init__(self, *, min_interval_s: float = 20.0, idle_s: float = 8.0, clock: Callable[[], float] = time.monotonic):
-        self.min_interval_s, self.idle_s, self.clock = min_interval_s, idle_s, clock
-        self._last_t: dict[str, float] = {}
-        self._last_sig: dict[str, str] = {}
+    """Periodic judge with the cost gate (gate.PeriodicGate): changed screen/files only, never while
+    the reader is down or the display sleeps, 20 s → 5 min backoff on repeat verdicts, stop after 3."""
+
+    def __init__(self, *, min_interval_s: float = 20.0, idle_s: float = 8.0, cap_s: float = 300.0, stop_after: int = 3,
+                 clock: Callable[[], float] = time.monotonic):
+        self.idle_s, self.clock = idle_s, clock
+        self.gate = PeriodicGate(base_s=min_interval_s, cap_s=cap_s, stop_after=stop_after, clock=clock)
 
     def should_judge(self, step: dict, check_results: list[dict], *, idle_s: float, video_playing: bool,
-                     screen: Any = None, files: dict[str, str] | None = None, focused_app: str = "") -> bool:
-        sid = step.get("id", "")
-        if video_playing or idle_s < self.idle_s:
-            return False
+                     screen: Any = None, files: dict[str, str] | None = None, focused_app: str = "",
+                     screen_ok: bool = True, display_asleep: bool = False, file_mtimes: dict[str, Any] | None = None) -> bool:
+        """`file_mtimes` ({path: mtime}) is preferred over `files` for change detection."""
+        if screen is None or video_playing or idle_s < self.idle_s:
+            return False  # no screen = the reader is down
         if check_results and all(r.get("status") == "pass" for r in check_results):
             return False
-        last = self._last_t.get(sid)
-        if last is not None and self.clock() - last < self.min_interval_s:
-            return False
-        sig = _sig(screen_text(screen, focused_app), files_text(files))
-        return sig != self._last_sig.get(sid)
+        return self.gate.allow(step.get("id", ""), screen=screen_text(screen, focused_app), files=file_mtimes or files,
+                               screen_ok=screen_ok, asleep=display_asleep)
 
     async def judge(self, step: dict, check_results: list[dict], *, screen: Any = None, files: dict[str, str] | None = None,
-                    focused_app: str = "", lesson: dict | None = None) -> dict | None:
+                    focused_app: str = "", lesson: dict | None = None, file_mtimes: dict[str, Any] | None = None) -> dict | None:
         """{"checks": [...], "events": [check.updated...], "card": {...} | None, "summary", "_meta"}, or None."""
         sid = step.get("id", "")
-        self._last_t[sid] = self.clock()
-        self._last_sig[sid] = _sig(screen_text(screen, focused_app), files_text(files))
+        self.gate.started(sid, screen=screen_text(screen, focused_app), files=file_mtimes or files)
         asked = await _ask(step, check_results, screen, files, focused_app, lesson)
         if asked is None:
             return None
         data, res, checks, status, steps = asked
-        return self._decide(step, checks, status, steps, data, files, screen) | {"_meta": _meta(res)}
+        out = self._decide(step, checks, status, steps, data, files, screen)
+        verdict = (tuple(sorted((v["check_id"], v["verdict"]) for v in out["checks"])), data.get("on_step_id", ""),
+                   (out["card"] or {}).get("title"), len(out["events"]))
+        self.gate.record(sid, verdict)
+        return out | {"_meta": _meta(res) | {"gate": self.gate.state(sid)}}
 
     def _decide(self, step: dict, checks: list[dict], status: dict, steps: list[dict], data: dict,
                 files: dict[str, str] | None = None, screen: Any = None) -> dict:

@@ -25,6 +25,9 @@ SCREEN = {"Code": ["calc.py — calculator", "1 def add(a, b):", "2     return a
 @pytest.fixture(autouse=True)
 def _isolate(monkeypatch):
     monkeypatch.delenv("COACH_REPLAY_DIR", raising=False)
+    from server.coach.diagnose import reset_memo
+
+    reset_memo()
     common.set_lesson(LESSON)
     yield
     common.set_lesson(None)
@@ -58,8 +61,11 @@ def test_gate():
     assert not j.should_judge(S1, pending, idle_s=3, video_playing=False, screen=SCREEN)  # learner busy
     assert not j.should_judge(S1, pending, idle_s=30, video_playing=True, screen=SCREEN)  # video playing
     assert not j.should_judge(S1, [{"checkId": "c1", "status": "pass"}], idle_s=30, video_playing=False, screen=SCREEN)
+    assert not j.should_judge(S1, pending, idle_s=30, video_playing=False, screen=None)  # screen reader down
+    assert not j.should_judge(S1, pending, idle_s=30, video_playing=False, screen=SCREEN, display_asleep=True)
+    assert not j.should_judge(S1, pending, idle_s=30, video_playing=False, screen=SCREEN, screen_ok=False)
     assert j.should_judge(S1, pending, idle_s=9, video_playing=False, screen=SCREEN)
-    j._last_t["s1"], j._last_sig["s1"] = clock.t, "x"
+    j.gate.started("s1", screen="x")
     clock.t += 10
     assert not j.should_judge(S1, pending, idle_s=30, video_playing=False, screen=SCREEN)  # < 20 s since the last one
     clock.t += 15
@@ -368,3 +374,70 @@ def test_judge_never_passes_unsaved_empty_or_unseen_files(monkeypatch):
     assert r["events"][0]["payload"]["status"] == "pass"  # saved, non-empty → may pass
     j = run(coach.judge_step(S2, unsaved, files={"calc.py": "x = 1"}, check_results=pending))
     assert j["done"] is False and j["checks"]["c2"]["verdict"] == "unsure" and j["missing"] == "Save with ⌘S so I can check it"
+
+
+
+# ---------- cost gate (Michael: Haiku every ~20 s while he was away, display asleep) -------------------------
+
+from server.coach.gate import PeriodicGate, screen_signature
+
+
+def test_clock_and_order_noise_is_not_change():
+    a = "Code\ncalc.py — calculator\n4:37 PM\nThu Nov 14\n87%\ndef add(a, b):"
+    b = "def add(a, b):\nCode\n4:38 PM\ncalc.py — calculator\nThu Nov 14\n86%"
+    assert screen_signature(a) == screen_signature(b)
+    assert screen_signature(a) != screen_signature(a + "\n    return a + b")
+
+
+def test_backoff_and_stop_after_three_identical_verdicts(monkeypatch):
+    clock = Clock()
+    j = StepJudge(clock=clock)
+    fake(monkeypatch, {"checks": [{"check_id": "c2", "verdict": "not_done", "confidence": 0.9, "reason": "no file", "evidence": ""}],
+                       "on_step_id": "", "summary": "", "missing": "create calc.py"})
+    pending = [{"checkId": "c2", "status": "pending"}]
+    calls, waits = 0, []
+    for n in range(1, 201):  # 200 ticks of 10 s; the screen changes a little every tick (a scrolling log)
+        scr = SCREEN | {"Terminal": [f"log line {n}"]}
+        if j.should_judge(S2, pending, idle_s=60, video_playing=False, screen=scr):
+            run(j.judge(S2, pending, screen=scr))
+            calls += 1
+            waits.append(j.gate.state("s2")["interval_s"])
+        clock.t += 10
+    assert waits[:3] == [20.0, 40.0, 80.0] and calls == 3  # doubled each time, then stopped after 3 identical verdicts
+    assert j.gate.state("s2")["stopped"] is True
+    # a real change (a save) restarts it at the base interval
+    clock.t += 1
+    assert j.should_judge(S2, pending, idle_s=60, video_playing=False, screen=SCREEN, file_mtimes={"calc.py": 1731600000.0})
+    other_app = {"Safari": [f"docs line {i}" for i in range(12)]}  # an app switch also wakes it
+    assert j.should_judge(S2, pending, idle_s=60, video_playing=False, screen=other_app)
+
+
+def test_backoff_caps_at_five_minutes():
+    g = PeriodicGate(stop_after=99, clock=Clock())
+    for _ in range(12):
+        g.record("k", "same")
+    assert g.state("k")["interval_s"] == 300.0
+    g.record("k", "different")
+    assert g.state("k")["interval_s"] == 20.0
+
+
+def test_diagnose_identical_repeat_is_free(monkeypatch):
+    calls = []
+
+    async def call(**kw):
+        calls.append(kw["purpose"])
+        if kw["purpose"] == "triage":
+            return llm.CallResult(data={"route": "opus", "playbook_id": "none", "reason": ""}, model="h")
+        return llm.CallResult(data={"playbook_id": "none", "severity": "warn", "title": "t", "body": "b. Do x.", "citation_id": "none",
+                                    "diff_expected": "", "diff_yours": "", "diff_file": "", "diff_line": 0, "diff_command": "",
+                                    "actions": [], "guiding_question": "q?"}, model="o")
+
+    monkeypatch.setattr(llm, "structured_call", call)
+    step = {"id": "m1", "title": "Run", "instructions": "Run it.", "checks": [{"id": "x", "type": "command_exit_ok", "label": "runs"}]}
+    failed = [{"checkId": "x", "status": "fail", "detail": "exit 1"}]
+    run(coach.diagnose(step, failed, None, "x = 1", error_text="TypeError: bad operand"))
+    n = len(calls)
+    again = run(coach.diagnose(step, failed, None, "x = 1", error_text="TypeError: bad operand"))
+    assert len(calls) == n and again["_meta"]["memo"] is True  # no second paid call
+    run(coach.diagnose(step, failed, None, "x = 2", error_text="TypeError: bad operand"))
+    assert len(calls) > n  # the code changed → a fresh diagnosis

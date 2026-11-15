@@ -17,6 +17,7 @@ from .common import get_lesson, set_lesson, system_blocks
 from .diagnose import diagnose, playbook_card, public
 from .explain import explain
 from .hints import apply_fix, hint
+from .gate import PeriodicGate
 from .judge import StepJudge, judge_step
 from .llm import CoachUnavailable, OutdatedFixUnavailable, set_keys
 from .metrics import summarize as summarize_metrics
@@ -48,6 +49,7 @@ __all__ = [
     "Box",
     "CoachUnavailable",
     "OutdatedFixUnavailable",
+    "PeriodicGate",
     "ScreenContext",
     "StepJudge",
     "apply_fix",
