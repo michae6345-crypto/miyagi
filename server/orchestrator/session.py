@@ -3290,14 +3290,14 @@ class LessonSession:
             await self._card(step, "Nothing to run", "This step has no command.", kind="answer")
             return
         ext = self._vscode_ext()
-        if ext is not None and hasattr(ext, "terminal_run"):
+        if ext is not None and hasattr(ext, "run_in_terminal"):
             try:
-                if await asyncio.to_thread(ext.terminal_run, cmd, self.workdir):
+                if await asyncio.to_thread(ext.run_in_terminal, cmd, cwd=self.workdir, folder=self.workdir):
                     self._acted()
                     await self._card(step, "Running it", f"{cmd} is running in VS Code's terminal.", kind="answer")
                     return
             except Exception:  # noqa: BLE001
-                log.exception("terminal_run failed; running it here")
+                log.exception("run_in_terminal failed; running it here")
         await self._status("thinking")
         run_id = f"run-for-me-{int(time.time() * 1000)}"
         await self.ingest({"kind": "run_started", "run_id": run_id, "command": cmd, "cwd": self.workdir})
