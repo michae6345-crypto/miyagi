@@ -119,12 +119,14 @@ exact step. A Demo lesson is never saved, so every Demo start is a fresh take fr
 
 ### Other ways to run it
 
-- **Demo** in the launcher: the neural-network lesson staged for a presentation. Typing steps pass on cue, run steps show a
-  recorded run of the lesson's own code, and no Claude call happens on stage. While a Demo lesson runs, ⌃⌥⌘→ passes the
-  step, ⌃⌥⌘← goes back a step and ⌃⌥⌘R starts again at step 1 with a clean `nn.py` (they call `POST /stage/next`,
-  `/stage/back` and `/stage/restart`). Run of show: [`docs/DEMO.md`](docs/DEMO.md).
-- `scripts/miyagi-nn-demo.sh`: the neural-network lesson with `DEMO=1`, so the lesson, hints and coach card come from
-  `demo/cache` and nothing goes over the network. Checks stay real.
+- **Demo** in the launcher: the neural-network lesson staged for a presentation. A typing step passes by itself about a
+  second after its code is pasted, run steps show a recorded run of the lesson's own code, and no Claude call happens on
+  stage. While a Demo lesson runs, ⌃⌥⌘→ passes the step, ⌃⌥⌘← goes back a step and ⌃⌥⌘R starts again at step 1 with a
+  clean `nn.py`, on disk and in VS Code (they call `POST /stage/next`, `/stage/back` and `/stage/restart`). Run of show:
+  [`docs/DEMO.md`](docs/DEMO.md).
+- `scripts/miyagi-nn-demo.sh`: the offline engine (`DEMO=1`) for the Demo chip. The lesson, hints and cards come from
+  `demo/cache` and nothing goes over the network. Use only the Demo chip on it (see "No network at the venue" in
+  [`docs/DEMO.md`](docs/DEMO.md)).
 - `scripts/miyagi-demo.sh`: the earlier PINN lesson (Juan Toscano's video `AXXnSzmpyoI`, a cached lesson, `demo/pinn-lab`),
   started automatically, with everything else live.
 - `DEMO=1 scripts/miyagi-engine.sh`: cached search, lessons and coach cards, with no live API calls. Checks stay real.
