@@ -73,6 +73,8 @@ const set = useCards.setState
 const get = useCards.getState
 
 let successTimer: ReturnType<typeof setTimeout> | undefined
+/** The card's own dismissAfterMs. */
+let autoTimer: ReturnType<typeof setTimeout> | undefined
 
 /**
  * The off-track the learner closed with ✕. The engine re-sends `offtrack` while the step keeps
@@ -360,6 +362,14 @@ onMessage('card', (p) => {
   const cardFrom = lastPress && Date.now() - lastPress.at < ASKED_WITHIN_MS ? lastPress.kind : undefined
   lastPress = undefined
   set({ card: p, cardFrom, pending: undefined, resume: over(), offtrackOpen: false, ...(p.diff ? { fixing: false } : {}) })
+  // A passing note ("numpy installed ✓", dismissAfterMs 4000) goes by itself (Michael's test 6: still up after 30 s).
+  // Not in shared/contracts yet: read it off the payload.
+  clearTimeout(autoTimer)
+  const after = (p as typeof p & { dismissAfterMs?: number }).dismissAfterMs
+  if (typeof after === 'number' && after > 0)
+    autoTimer = setTimeout(() => {
+      if (get().card === p) closeCard()
+    }, after)
   if (lastAsk && Date.now() - lastAsk < ASKED_WITHIN_MS) {
     cardHeldUntil = Date.now() + CARD_HOLD_MS
     lastAsk = 0

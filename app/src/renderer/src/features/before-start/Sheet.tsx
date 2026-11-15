@@ -24,7 +24,7 @@ import { useLesson } from '../../core/lesson'
 import { color, fill } from '../../core/theme'
 import { CloseButton, PrimaryButton } from '../../core/ui/atoms'
 import { FlowDiagram } from './Flow'
-import { closeBeforeStart, lessonDone } from './store'
+import { closeBeforeStart, lessonDone, startLesson } from './store'
 
 export const SHEET_W = 520
 const PAD = 22
@@ -121,7 +121,7 @@ export function Sheet(): ReactNode {
             <span className="truncate">Learn {first.title} first</span>
           </button>
         )}
-        <PrimaryButton label="Start the lesson" onClick={closeBeforeStart} />
+        <PrimaryButton label="Start the lesson" onClick={startLesson} />
       </div>
     </div>
   )

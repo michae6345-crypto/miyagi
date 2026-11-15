@@ -2,14 +2,9 @@
 import type { ReactNode } from 'react'
 import type { Layout } from '../../../../preload/api'
 import { defineFeature } from '../../core/registry'
-import { useLift } from './lift'
+import { ABOVE_DOCK, useLift } from './lift'
 import { ShortcutBar } from './ShortcutBar'
 
-/**
- * The bar's lower edge above the Dock / taskbar: clear of an editor's status bar (VS Code's is 22px) with a little air
- * (review A12: it covered the status bar). The folded handle sits lower, over the status bar's empty middle.
- */
-const ABOVE_DOCK = 30
 
 function BarLayer({ layout }: { layout: Layout }): ReactNode {
   // Lifted above the spotlight's hole when it reaches into the bar (./lift.ts).

@@ -49,7 +49,7 @@
 import { AnimatePresence, motion, useReducedMotion, type HTMLMotionProps, type TargetAndTransition, type Transition } from 'motion/react'
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, type ClipboardEvent, type KeyboardEvent, type ReactNode } from 'react'
 import { useShallow } from 'zustand/react/shallow'
-import { Aperture, Bot, Mic, Waves, WifiOff, type LucideIcon } from 'lucide-react'
+import { Aperture, Bot, Mic, Network, WifiOff, type LucideIcon } from 'lucide-react'
 import type { Layout } from '../../../../preload/api'
 import { cmd } from '../../../../common/wire'
 import { bridge } from '../../bridge'
@@ -100,11 +100,11 @@ const STAGGER = 0.04
 /** The pill core's island lands on after Build lesson. */
 const PILL: Size = { w: pill.landingWidth, h: pill.height }
 
-/** Idle suggestions: example asks across fields (never the demo lesson's topic). One click searches. */
+/** Idle suggestions: example asks across fields. One click searches. The demo's lesson leads (Michael's test 6). */
 const SUGGESTIONS: { icon: LucideIcon; label: string }[] = [
+  { icon: Network, label: 'Build a neural network' },
   { icon: Bot, label: 'Fine-tune an LLM' },
-  { icon: Aperture, label: 'Build a ray tracer' },
-  { icon: Waves, label: 'Train a diffusion model' }
+  { icon: Aperture, label: 'Build a ray tracer' }
 ]
 
 /**
