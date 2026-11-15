@@ -93,8 +93,9 @@ _PANEL_TABS = ("PROBLEMS", "OUTPUT", "DEBUG CONSOLE", "TERMINAL", "PORTS", "GITL
 _SIDEBAR_MARKERS = re.compile(r"^(?:[›>v]\s*)?(EXPLORER|Explorer|OUTLINE|Outline|TIMELINE|Timeline|OPEN EDITORS"
                               r"|Open Editors)\b")
 _PROMPT = re.compile(r"^\S*@\S+.*?[%$#❯➜]\s|(?:^|\s)[%$❯➜]\s+\S|^\(\S+\)\s.*[%$#]\s|^PS [A-Z]:\\")
-# the live prompt may be empty (nothing typed yet): "tripi@mac calc %" ends the line
-_PROMPT_END = re.compile(r"^\S*@\S+.*\s[%$#❯➜]\s*$|^\s*(?:\(\S+\)\s*)?(?:\S+\s+)?[%$❯➜]\s*$")
+# the live prompt may be empty (nothing typed yet): "tripi@mac calc %" ends the line; VS Code's Python extension
+# auto-activates the lesson's .venv, so it is usually "(.venv) tripi@mac calc %"
+_PROMPT_END = re.compile(r"^(?:\(\S+\)\s+)?\S*@\S+.*\s[%$#❯➜]\s*$|^\s*(?:\(\S+\)\s*)?(?:\S+\s+)?[%$❯➜]\s*$")
 
 
 @dataclass

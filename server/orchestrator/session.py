@@ -1260,8 +1260,8 @@ class LessonSession:
         region = getattr(self.screen, "region", None) if self.screen is not None else None
         if region is not None:  # E6: the panel / editor regions, stabilized (no jitter)
             if term := region("terminal"):
-                rect = region("terminal_prompt") or term
-                return {"rect": rect, "caption": self._action_line(step), "app": "Code", **snip, "kind": "terminal"}
+                term = region("terminal_prompt") or term  # E8: the live prompt line; the panel only without one
+                return {"rect": term, "caption": self._action_line(step), "app": "Code", **snip, "kind": "terminal"}
         hit = None
         if self.screen is not None:  # a shell prompt first: that's where the command goes, not the TERMINAL tab
             for rx in (r"\w+@[\w.-]+.*[%$#]\s*$", r"^\s*(\(\w+\)\s*)?\S*\s*[%$❯]\s*$", r"^\s*TERMINAL\b"):
@@ -1269,11 +1269,13 @@ class LessonSession:
                 if hit and (win is None or hit["rect"]["y"] > win["y"] + win["h"] * 0.3):  # the panel is low
                     break
                 hit = None
-        if hit:  # E8: that one line (room for the command after the prompt), inside the window
+        if hit:
             t = hit["rect"]
-            x = max(win["x"], t["x"]) if win else t["x"]
-            w = max(t["w"] + 160.0, 420.0)
-            rect = {"x": x, "y": t["y"], "w": min(w, win["x"] + win["w"] - x) if win else w, "h": t["h"]}
+            if win:  # E8: that one line (room for the command after the prompt), inside the window
+                x = max(win["x"], t["x"])
+                rect = {"x": x, "y": t["y"], "w": min(max(t["w"] + 160.0, 420.0), win["x"] + win["w"] - x), "h": t["h"]}
+            else:  # E8: no window to clamp to: still the one line
+                rect = {"x": t["x"], "y": t["y"], "w": max(t["w"] + 160.0, 420.0), "h": t["h"]}
             return {"rect": rect, "caption": self._action_line(step), "app": "Code", **snip, "kind": "terminal"}
         return self._open_terminal_spot(win, snip)
 
@@ -1314,9 +1316,11 @@ class LessonSession:
         for i in range(max(1, tries)):
             if gen != self.step_gen or self.passed:
                 return
-            if await self._spotlight_target(step):
+            if await self._spotlight_target(step) or gen != self.step_gen or self.passed:
                 return
             if (spot := await self._editor_line_spot(step)) is not None:
+                if gen != self.step_gen or self.passed:  # E3: the step moved on during the line lookup
+                    return
                 await self._show_spot(spot, steady=True)
                 return
             if i in (1, 4) and (spot := await self._vision_spot(step)) is not None:  # <= 2 Haiku calls per step
@@ -1335,6 +1339,9 @@ class LessonSession:
         spot = {"caption": self._type_caption(step), "app": "Code", **self._snippet(step)}
         res = await pick(self._spot_intent(spot))  # same question _confirm_spot asks next: answered from the cache
         if not res or res.get("kind") not in ("code", "blank"):
+            return None
+        if res["rect"]["h"] > 3 * 20.0 + 12:  # E3: taller than ~3 lines (merged rows) is a block, not the line
+            log.info("vision spot: %r is %.0f pt tall; no box", res.get("label"), res["rect"]["h"])
             return None
         log.info("vision spot: %s (%.2f, %s)", res.get("label"), res.get("confidence", 0), res.get("reason"))
         return {"rect": res["rect"], **spot}
@@ -1701,7 +1708,10 @@ class LessonSession:
             self.spot_track = (t["match"], None if self.lesson_mode else t.get("app"), t.get("caption", ""))
         if self.lesson_mode:  # an anchor that isn't in the file (yet) would box some other line: skip it
             tlist = [t for t in tlist if self._anchor_in_file(t)]
+        gen = self.step_gen
         pane = await asyncio.to_thread(self._code_pane) if self.lesson_mode and tlist else None
+        if gen != self.step_gen:  # E3: the step moved on while the pane was read: no stale box
+            return False
         for t in tlist:
             cap = self._type_caption(step, t) if self.lesson_mode else t.get("caption", "")
             app = None if self.lesson_mode else t.get("app")  # lesson mode: whichever editor they use

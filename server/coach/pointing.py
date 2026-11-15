@@ -177,7 +177,7 @@ def where_hint(step: dict, last: dict | None = None, screen: Any = None) -> str:
     f = step_file(step, last)
     name = f.rsplit("/", 1)[-1] if f else ""
     ed = editor_state(screen)
-    if ed and name:
+    if ed and name and name != "(terminal)":  # a run step's "(terminal)" is a place, not a file to open
         if ed["untitled"]:
             return f"You're in {ed['app']} on an unsaved file. Save it as {name} in the lesson folder"
         if ed["file"] and ed["file"] != name:
