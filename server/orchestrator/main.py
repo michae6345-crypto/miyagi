@@ -65,6 +65,7 @@ class Engine:
             self.resumer = None
         self.recorder = recorder.Recorder()
         self._ticker: asyncio.Task | None = None
+        self._avoider: asyncio.Task | None = None  # t9: screen.avoid (quick_pick.py)
         self._replays: set[asyncio.Task] = set()
         self.last_client_gone: float | None = None
         self.seen_lesson: str | None = None  # lesson id an app has already been shown
@@ -109,6 +110,7 @@ class Engine:
             elif url := os.environ.get("ORCH_LESSON_URL"):  # real builder (E2's cache makes it instant)
                 self._autostart = asyncio.create_task(self.session.learn_url(url, skip_preflight=True))
         self._ticker = asyncio.create_task(self._tick_loop())
+        self._avoider = asyncio.create_task(self._avoid_loop())
         log.info("engine up: demo=%s modules=%s workdir=%s screen=%s precision=%s", self.modules.demo,
                  self.modules.describe(), self.session.workdir, self.session.screen_active(),
                  config.precision_setting())
@@ -150,10 +152,11 @@ class Engine:
         self.save_progress()
         await self.watcher.stop()
         self.screen.stop()
-        if self._ticker:
-            self._ticker.cancel()
-            with contextlib.suppress(asyncio.CancelledError):
-                await self._ticker
+        for task in (self._ticker, self._avoider):
+            if task:
+                task.cancel()
+                with contextlib.suppress(asyncio.CancelledError):
+                    await task
 
     async def _tick_loop(self) -> None:
         while True:
@@ -162,6 +165,17 @@ class Engine:
                 await self.session.tick()
             except Exception:
                 log.exception("tick failed")
+
+    async def _avoid_loop(self) -> None:
+        """t9: every 0.5 s while a lesson runs, VS Code's quick-pick -> screen.avoid when it changed (quick_pick.py)."""
+        from . import quick_pick
+
+        while True:
+            await asyncio.sleep(quick_pick.POLL_S)
+            try:
+                await quick_pick.poll(self.session)
+            except Exception:
+                log.exception("screen.avoid poll failed")
 
     async def dispatch(self, raw: dict) -> None:
         msg = parse_app_message(raw)
@@ -364,6 +378,8 @@ async def vscode_event(body: dict = Body(...)) -> dict:
         from . import box_follow
 
         box_follow.on_visible(engine.session, item)
+    if body.get("type") in ("dirty", "save", "editor", "visible", "command_end", "focus"):
+        engine.session.relayout(f"VS Code {body.get('type')}")  # V9: a cell ran / output / edit: the box re-measures
     if body.get("type") == "explain_selection":  # "Miyagi: Explain this" -> an Explain card in the overlay (selection.py)
         from .selection import explain_from_vscode
 

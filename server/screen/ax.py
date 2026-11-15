@@ -600,6 +600,80 @@ def find_ui(key: str, folder: str | None = None, max_nodes: int = 2500) -> Eleme
     _missed(f"ui:{key}", pid, seen)
     return None
 
+
+# t9: VS Code's quick-pick (the input box at the top centre: the command palette, the kernel picker, "Select Interpreter")
+# opens under Miyagi's overlay; the engine reports where it is (screen.avoid) so the app moves its card and step pill off
+# it. While it is open VS Code keeps focus in its input (role combobox: AXComboBox); its list is a listbox labelled
+# "Quick Input" (AXList); the widget's div has class "quick-input-widget" (Chromium's AXDOMClassList). Found from the
+# focused element UP (a dozen AX reads: cheap enough for the 0.5 s poll), never by a walk of the whole tree.
+_QP_INPUT_ROLES = {"AXComboBox", "AXTextField", "AXSearchField"}
+_QP_HINT = re.compile(r"quick[\s_-]?(?:input|pick|open)", re.IGNORECASE)
+_QP_TOP = 0.4      # the widget's top edge is in the window's top 40%
+_QP_CENTRE = 0.12  # its centre is within 12% of the window's width of the window's centre
+_QP_MAX_W = 0.9    # and it is narrower than 90% of the window (the workbench around it is not it)
+
+
+def _qp_hint(el, get) -> bool:
+    """`el` says it is (part of) the quick input: its label / id / DOM class."""
+    labels = [str(v) for a in ("AXDescription", "AXTitle", "AXHelp", "AXIdentifier", "AXDOMIdentifier")
+              if (v := get(el, a))]
+    labels += [str(c) for c in (get(el, "AXDOMClassList") or [])]
+    return any(_QP_HINT.search(lb) for lb in labels)
+
+
+def _qp_placed(r: Rect | None, win: Rect | None) -> bool:
+    """Where the quick-pick sits: top 40% of its window, horizontally centred, not the full width."""
+    if r is None or r.w < 120 or r.h < 12:
+        return False
+    if win is None or win.w <= 0 or win.h <= 0:
+        return True
+    return (win.y - 2 <= r.y <= win.y + _QP_TOP * win.h and r.w <= _QP_MAX_W * win.w
+            and abs((r.x + r.w / 2) - (win.x + win.w / 2)) <= _QP_CENTRE * win.w)
+
+
+def _inside(outer: Rect, inner: Rect) -> bool:
+    return (outer.x - 1 <= inner.x and outer.y - 1 <= inner.y and inner.x + inner.w <= outer.x + outer.w + 1
+            and inner.y + inner.h <= outer.y + outer.h + 1)
+
+
+def quickpick_in(win, focused, get=None, rect=None) -> Rect | None:
+    """The open quick-pick's rect (the whole widget: input + list), from `focused` (the app's focused element: the
+    picker's input while it is open) up its parents; None when the focus is anywhere else. `win`: the window it is in.
+    `get(el, attr)` / `rect(el)` default to the real AX reads (tests pass a fake tree)."""
+    get, rect = get or attr, rect or rect_of
+    if focused is None or _s(get(focused, "AXRole")) not in _QP_INPUT_ROLES:
+        return None
+    wr = rect(win) if win is not None else None
+    ir = rect(focused)
+    if not _qp_placed(ir, wr):
+        return None
+    hinted = _s(get(focused, "AXRole")) == "AXComboBox" or _qp_hint(focused, get)
+    box, el = ir, focused
+    for _ in range(8):  # input -> filter -> header -> quick-input-widget -> workbench (too wide: stop)
+        el = get(el, "AXParent")
+        r = rect(el) if el is not None else None
+        if r is None or not _qp_placed(r, wr) or not _inside(r, ir):
+            break
+        box = r
+        hinted = hinted or _qp_hint(el, get) or any(
+            _s(get(k, "AXRole")) == "AXList" and _qp_hint(k, get) for k in (get(el, "AXChildren") or [])[:8])
+    return box if hinted else None
+
+
+def find_quickpick(folder: str | None = None) -> Element | None:
+    """VS Code's open quick-pick (see quickpick_in) in the lesson's VS Code (`folder`), also while Miyagi's drawer is in
+    front. None when it is closed or VS Code isn't running."""
+    pid, win = _code_app(folder)
+    if win is None:
+        return None
+    app_el = AX.AXUIElementCreateApplication(pid)
+    AX.AXUIElementSetMessagingTimeout(app_el, MESSAGING_TIMEOUT)
+    focused = attr(app_el, "AXFocusedUIElement")
+    r = quickpick_in(attr(focused, "AXWindow") or win, focused)
+    return Element(role="AXGroup", subrole=None, title=None, value=None, description="quickpick", rect=r,
+                   app="Code") if r is not None else None
+
+
 def snapshot() -> AXSnapshot | None:
     """One read of the frontmost app + the element under the mouse. ~5-30 ms."""
     t0 = time.perf_counter()

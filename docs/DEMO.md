@@ -81,6 +81,34 @@ lands after the next step started passes nothing, because that step's code isn't
 | The engine says `port 8787 is already in use` | Another engine or `npm run mock` is still running. The script prints its PID: `kill <pid>`, then start again. |
 | The engine or Python is broken on the Mac (last resort) | Quit the engine. In `app/`, run `DEMO=1 SCENARIO=nndemo npm run dev`, or `npm run mock -- nndemo` in one terminal and `npm run dev` in another. Launcher → anything → third chip → Enter. You get the same lesson, cards, runs and network panel. It can't see saves, so press Check my work after each paste. Use Run it for me on steps 4 and 6, and Check my work again after "Not yet". There are no presenter keys, VS Code won't open by itself, and Video and Just teach me don't work. |
 
+### No network at the venue (offline fallback)
+
+Checked on Nov 15 on a private engine with the network blocked (sandbox, a proxy and a Tiger port that never answer,
+no keys). The Demo chip run of show passed every row on the LIVE engine and on the offline one.
+
+1. **Wi-Fi fully off is better than flaky.** With Wi-Fi off, every call fails at once and the lesson's own cards
+   answer. With flaky Wi-Fi, a typed question waits up to 12 s (`MIYAGI_ASK_DEADLINE_S`) and then the step's own
+   explanation answers.
+2. **Engine.** Quit the LIVE engine (Ctrl-C in its terminal; :8787 must be free), then from the repo root run
+   `scripts/miyagi-nn-demo.sh`. It puts a clean `demo/nn-lab/nn.py` in place and wipes `demo/.nn-state`, so every
+   start is step 1. Hint, Explain and typed questions come from `demo/cache/cards`, with no wait. If you are already
+   mid-take on the LIVE engine when Wi-Fi drops, keep going: the Demo needs no network.
+3. **App.** `cd app && npm run dev`, then ⌥Space, type the goal, the **Demo** chip, Enter. Same run of show as section 2.
+   VS Code opens `demo/nn-lab/nn.py`. NumPy is not needed (Demo runs are recorded).
+4. **Between takes.** Press ⌃⌥⌘R (step 1, clean `nn.py`), or End and start the Demo again from the launcher. Both gave a
+   fresh take on this engine.
+5. **Tiger Data.** Nothing to do. Its port is blocked at the venue, so every event and loss value goes to
+   `~/.miyagi/tiger-spool` at once and the lesson never waits. Don't delete that folder. Once you are back online the
+   engine uploads it by itself (it retries every 30 s), or run
+   `.venv/bin/python -m server.checks.tiger --flush-spool`. `/stats` reads "offline" until then.
+6. **What doesn't work offline.** Watch a video, and Just teach me for any other topic. That one sits on "Setting up
+   your project folder" for minutes. Say "that one needs the internet" and stay on the neural net. On the offline
+   engine use only the Demo chip: its Just teach me keeps the old `demo/nn-lab/nn.py` and doesn't grade it the same
+   way. On the LIVE engine with Wi-Fi off, Just teach me for the neural net works, but its setup card asks to install
+   NumPy, which needs the network: press Skip. Its runs use `python3`, which needs NumPy.
+7. **Last resort** (no Python engine at all): the app's mock, `DEMO=1 SCENARIO=nndemo npm run dev` in `app/` (see the
+   table above).
+
 ## 4. For you, not for the judges
 
 **How it works.** The Demo chip sends `learn` with `mode: "demo"`. Whatever was typed, the engine

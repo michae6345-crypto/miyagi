@@ -332,12 +332,15 @@ class ScreenContext:
 
     def resolve_targets(self, targets: list[dict]) -> list[dict]:
         """Model output [{box_id, label}] → [{boxId, label, text, rect}] in screen points; unknown ids dropped."""
+        from server.orchestrator.captions import for_line  # (re only: no engine import)
+
         ids = self.by_id()
         out = []
         for t in targets or []:
             b = ids.get(int(t.get("box_id", -1)))
             if b is not None and all(o["boxId"] != b.id for o in out):
                 label = str(t.get("label", "")).strip()[:40]  # the spotlight's label: sentence case ("Open tab", not "open tab")
+                label = for_line(label, b.text) or ""  # V9: never "Assign fig, axes here" on the line that already does
                 out.append({"boxId": b.id, "label": label[:1].upper() + label[1:], "text": b.text, "rect": b.rect()})
         return out
 
