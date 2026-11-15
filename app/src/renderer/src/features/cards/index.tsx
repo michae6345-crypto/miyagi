@@ -248,14 +248,17 @@ const useBarHelp = (): boolean => useLesson((l) => !!l.lesson)
 
 /**
  * Layout C (Adrian picked "side by side"). Left: ring + "Not yet", the title, the guiding question (or the body),
- * the citation as one faint line. Right: the evidence panel. Under both, full width: Explain, Show me, Hint only when
- * the bar isn't up to offer them (A11), and at level 3 with apply_fix, the one white "Do it for me": the hint ladder's
+ * the citation as one faint line. Right: the evidence panel. Under both, full width: Explain, Show me, Hint (test 6:
+ * always, even with the bar up), and at level 3 with apply_fix, the one white "Do it for me": the hint ladder's
  * top rung, which only this card offers. Below NARROW the panel drops under the left column.
  */
 function Diagnosis({ o, checks }: { o: OfftrackPayload; checks: ReturnType<typeof useLesson.getState>['checks'] }): ReactNode {
   const busy = useBusyIcon()
   const keys = bridge.platform.keys
-  const options = useBarHelp() ? [] : OFFTRACK_OPTIONS
+  // Michael, test 6: the Not yet card carries its own Hint / Show me again (the bar's alone read as "no actions"),
+  // limited to what the engine offers when it lists any of them.
+  const offered = OFFTRACK_OPTIONS.filter((x) => o.actions.includes(x.action))
+  const options = offered.length > 0 ? offered : OFFTRACK_OPTIONS
   const width = useOfftrackWidth()
   const narrow = width < NARROW
   const inner = width - PAD * 2
@@ -283,9 +286,9 @@ function Diagnosis({ o, checks }: { o: OfftrackPayload; checks: ReturnType<typeo
         <div className="min-w-0 flex-1" style={narrow ? undefined : { maxWidth: leftW }}>
           <div className="text-[18px] font-semibold leading-[23px] tracking-[-0.01em]"><CodeText text={titleText(o.title)} /></div>
           {/* The body folds to 3 lines with a "More" (Clamp), never cut off for good (A22). */}
-          {o.guidingQuestion ? (
-            <Question text={o.guidingQuestion} />
-          ) : (
+          {/* Test 6: the body is never hidden behind the question, and both open in place (Clamp's "More"). */}
+          {o.guidingQuestion && <Question text={o.guidingQuestion} />}
+          {o.body && o.body !== o.guidingQuestion && (
             <Clamp text={o.body} lines={3} className="mt-[3px] text-[14px] leading-[20px]" style={{ color: color.label }} />
           )}
 

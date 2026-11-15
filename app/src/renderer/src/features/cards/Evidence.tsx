@@ -20,6 +20,25 @@ import { color, fill } from '../../core/theme'
 import { diffLines, fitRows, isProse, LITERAL, NUMBER, readingValue, readsAsCode, type DiffRow } from './code'
 import { Curve, fmt, plotArray, plotPoints, type Line } from './Curve'
 import { useSeries } from './store'
+import { onMessage } from '../../core/bus'
+
+/** When the current off-track arrived: a live series that stopped well before it is an earlier run's, not this error's. */
+let offtrackAt = 0
+onMessage('offtrack', () => {
+  offtrackAt = Date.now()
+})
+const RECENT_MS = 45_000
+
+/**
+ * Michael, test 6: a NameError card showed an earlier run's loss sparkline. The live series is this card's evidence
+ * only when the card names a curve, its text mentions the metric, or the series was still moving when it arrived.
+ */
+function seriesFits(o: Offtrack, name: string | undefined, at: number): boolean {
+  if (o.curve) return true
+  const text = `${o.title ?? ''} ${o.body ?? ''} ${o.reason ?? ''}`.toLowerCase()
+  if (name && text.includes(name.toLowerCase())) return true
+  return at >= offtrackAt - RECENT_MS
+}
 
 const PAD = 12
 const GAP = 12
@@ -105,7 +124,7 @@ function checkRows(failing: CheckItem[], diff: Sides | undefined): Row[] {
  */
 function useSpark(o: Offtrack): { lines: Line[]; name?: string; yours?: string; tutorial?: string; at?: number } | undefined {
   const { name, before: run, tutorial } = useSeries(o.curve?.label)
-  const live = run && run.points.length > 1 ? run : undefined
+  const live = run && run.points.length > 1 && seriesFits(o, name, run.at) ? run : undefined
   const yours = live ? plotPoints(live.points) : o.curve ? plotArray(o.curve.yours) : []
   if (yours.length < 2) return undefined
   const ref = live ? (tutorial && tutorial.length > 1 ? plotPoints(tutorial) : []) : o.curve ? plotArray(o.curve.tutorial) : []
