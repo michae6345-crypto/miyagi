@@ -221,3 +221,20 @@ graph.setdefault("lesson", {})["workdir"] = str(await asyncio.to_thread(workspac
 `config.resolve_workdir` gives `TUT_WORKDIR` priority over `lesson.workdir`, and `scripts/miyagi-engine.sh` exports
 `TUT_WORKDIR=demo/pinn-lab`, so with the hook in place, the script should export `ORCH_HERO_WORKDIR` instead
 (or `resolve_workdir` should prefer an absolute `lesson.workdir`). Otherwise every lesson still lands in pinn-lab.
+
+## Which window is the learner in? (active.py)
+
+- `active_editor()` → `{folder, folder_name, file, path, dirty, title, miyagi_lesson, source}` for the frontmost VS Code
+  window. It uses Accessibility (`AXDocument`, works for any folder), else the window title, "● file — folder" (CGWindowList,
+  Screen Recording only; or pass E6's `titles`). A title's folder name resolves to a path only under ~/miyagi/lessons.
+- `wrong_folder(lesson_folder, lesson_files)` → `{learner_folder, learner_folder_name, lesson_folder, file, dirty,
+  can_adopt, …}` when the learner edits a lesson file (same name) in another folder. The default `lesson_files` is the
+  lesson folder's files.
+- `adopt_folder(lesson_folder, learner_folder)` ("use this folder") copies the files the learner's folder lacks
+  (not .git/.venv/node_modules/tutorial, ≤ 5 MB each). It never overwrites or deletes, and refuses `/`, home, and the
+  lessons root itself. It records a redirect, so `prepare()` returns the learner's folder for that lesson from then on.
+- New lesson: if the frontmost VS Code window shows an OLDER Miyagi lesson folder, `open_lesson_editor` reuses it
+  (`code -r <new folder>`). Windows outside ~/miyagi/lessons are never reused. If a window already has the new folder,
+  plain `code <folder>` focuses it.
+- The active app comes from `lsappinfo` (Launch Services, live). `NSWorkspace.frontmostApplication` goes stale in the
+  engine (no AppKit run loop).

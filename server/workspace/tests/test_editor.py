@@ -283,7 +283,7 @@ def fresh(monkeypatch):
 
 
 def kw():
-    return {"trusted": lambda: False, "previous": None, "arrange_windows": False}
+    return {"trusted": lambda: False, "previous": None, "arrange_windows": False, "windows": lambda: []}
 
 
 def test_open_once_per_lesson_and_folder_never_dash_n(tmp_path, fresh):
@@ -319,8 +319,10 @@ def test_arrange_and_fullscreen_run_once(tmp_path, fresh, monkeypatch):
     monkeypatch.setattr(E, "make_fullscreen", lambda *a, **k: n.__setitem__("fs", n["fs"] + 1))
     _, run = opener(tmp_path)
     for _ in range(4):
-        E.open_lesson_editor(tmp_path, lesson_id="A", runner=run, focus=lambda: CODE, trusted=lambda: True, previous=None, wait=True)
-        E.open_lesson_editor(tmp_path, lesson_id="F", runner=run, focus=lambda: CODE, trusted=lambda: True, fullscreen=True, wait=True)
+        E.open_lesson_editor(tmp_path, lesson_id="A", runner=run, focus=lambda: CODE, trusted=lambda: True, previous=None,
+                             wait=True, windows=lambda: [])
+        E.open_lesson_editor(tmp_path, lesson_id="F", runner=run, focus=lambda: CODE, trusted=lambda: True, fullscreen=True,
+                             wait=True, windows=lambda: [])
     assert n == {"arrange": 1, "fs": 1}
 
 
