@@ -3337,11 +3337,15 @@ class LessonSession:
             try:
                 p = await self.m.do_it_for_me(step, path.name, text, self.last_offtrack)
             except Exception as e:
-                await self._card(step, "Fix it by hand", f"I couldn't make a safe patch: {e}")
-                await self._status("offtrack" if self.last_offtrack else "watching")
+                log.info("do_it_for_me: no safe patch for %s: %s", step.get("id"), e)  # internal: never on a card
+                await self._fix_by_hand(step, path, text, diff)
                 return
             if not p.get("new_text"):
-                await self._card(step, "Fix it by hand", p.get("summary") or "No safe patch for this one.")
+                if p.get("command"):
+                    await self._card(step, "Fix it by hand", p.get("summary") or "Run the command in your terminal.")
+                    await self._status("offtrack" if self.last_offtrack else "watching")
+                else:
+                    await self._fix_by_hand(step, path, text, diff)
                 return
             self.pending_patch = {"path": path, "old": text, "new": p["new_text"], "line": p.get("line") or 1,
                                   "first": (expected or "").strip().splitlines()[:1]}
@@ -3357,7 +3361,7 @@ class LessonSession:
                 log.warning("proposed fix for %s does not compile; asking the learner to do it", path.name)
                 new_text = None
         if new_text is None or new_text == text:
-            await self._card(step, "Fix it by hand", f"Replace `{yours.strip()}` with `{expected.strip()}`.")
+            await self._fix_by_hand(step, path, text, diff)
             return
         backup_dir = config.REPO_ROOT / "demo" / "runs" / "backups"
         try:
@@ -3378,6 +3382,40 @@ class LessonSession:
         await self._card(step, "Fix applied", "Re-run to check it. Undo if you'd rather type it yourself.",
                          kind="answer", actions=["undo"])
         await self.on_file_change([str(path)])
+
+    async def _fix_by_hand(self, step: dict, path: Path, text: str, diff: dict) -> None:
+        """No safe patch from the coach. Lesson mode, the file lacks the step's code: offer to type it (the
+        "Type this for you?" preview, confirm -> _apply_patch). Else a plain card saying what to change, with
+        Show me. The coach's internal reason is logged by the caller, never shown (T4: "no safe patch: …")."""
+        from . import step_code
+
+        code = step.get("code") or ""
+        if self.lesson_mode and code.strip() and not step_code.code_complete(code, text):
+            new_text, line, replaced = step_code.place_code(code, text, step_code.anchors(step))
+            ok = bool(new_text) and new_text != text
+            if ok and path.suffix == ".py":
+                try:
+                    compile(new_text, str(path), "exec")
+                except SyntaxError:
+                    ok = False
+            if ok:
+                import difflib
+
+                self.pending_patch = {"path": path, "old": text, "new": new_text, "line": line,
+                                      "first": code.strip().splitlines()[:1],
+                                      "result": f"Typed {self._code_head(step)} into {path.name}."}
+                summary = (f"Puts this step's code in {path.name} in place of yours." if replaced
+                           else f"Adds this step's code to {path.name}.")
+                await self._card(step, "Type this for you?", summary, kind="answer", actions=["confirm"],
+                                 diff="".join(difflib.unified_diff(text.splitlines(True), new_text.splitlines(True),
+                                                                   f"a/{path.name}", f"b/{path.name}")))
+                await self._status("offtrack" if self.last_offtrack else "watching")
+                return
+        body = (step_code.fix_in_words(diff.get("yours"), diff.get("expected"), diff.get("line"), text)
+                or (self.last_offtrack or {}).get("body")
+                or "Compare your code with the step's code and change it to match.")
+        await self._card(step, "Fix it by hand", body, actions=["show_me"])
+        await self._status("offtrack" if self.last_offtrack else "watching")
 
     def _judge_results(self) -> list[dict]:
         """last_results for a judge: a row held green only by an unsaved buffer (_unsaved_holds) goes as "pending",
@@ -4211,9 +4249,10 @@ class LessonSession:
             except Exception as e:  # noqa: BLE001
                 log.info("do_it_for_me (lesson step) failed: %s", e)
             await self._status("watching")
-        if not new_text and text.strip():  # no coach (offline / no key): add the step's code at the end
-            new_text = text.rstrip("\n") + "\n\n" + code
-            line = len(text.rstrip("\n").splitlines()) + 2
+        if not new_text and text.strip():  # no coach patch: type the step's code over the learner's partial copy of
+            from . import step_code  # it, else below the step's target line, else at the end (never a second copy)
+
+            new_text, line, _ = step_code.place_code(code, text, step_code.anchors(step))
         if not new_text or new_text == text:
             await self._card(step, "Type it yourself", step["code"], kind="answer")
             return

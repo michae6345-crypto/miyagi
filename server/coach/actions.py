@@ -106,13 +106,19 @@ def _action_sentence(card: dict) -> str:
     return sentences[-1] if sentences else card.get("title", "Apply the suggested fix")
 
 
-def missing_edits(action: str, expected: str) -> list[str]:
+def missing_edits(action: str, expected: str, yours: str = "") -> list[str]:
     """Values the action sentence asks for ("…to 1e-3", "…to `squash`") that the patch doesn't contain.
-    S9 G1: the card said two edits, the diff made one, and the rebase 'succeeded' with nothing squashed."""
+    S9 G1: the card said two edits, the diff made one, and the rebase 'succeeded' with nothing squashed.
+    A value the patch takes out (in `yours`, gone from `expected`) is the old side of the edit, not a
+    missing one, unless the sentence names it as a target (T4: "change `add` to `append`" rejected
+    `tasks.append(task)` for lacking `add`)."""
     wanted = re.findall(r"`([^`]+)`", action) + re.findall(r"\bto\s+([\w.+\-=/]+[\w)])", action)
-    exp = expected.lower()
+    targets = {t.lower() for t in re.findall(r"\b(?:to|with|into|be|use)\s+`([^`]+)`", action, re.I)
+               + re.findall(r"\bto\s+([\w.+\-=/]+[\w)])", action)}
+    exp, old = expected.lower(), (yours or "").lower()
     stop = {"the", "a", "an", "it", "be", "use", "your", "their", "make", "keep", "match"}
-    return [w for w in dict.fromkeys(wanted) if w.lower() not in stop and w.lower() not in exp]
+    return [w for w in dict.fromkeys(wanted)
+            if (lw := w.lower()) not in stop and lw not in exp and not (lw in old and lw not in targets)]
 
 
 async def do_it_for_me(step: dict, file: str, file_text: str, last_offtrack: dict | None = None, *, lesson: dict | None = None) -> dict:
@@ -130,7 +136,7 @@ async def do_it_for_me(step: dict, file: str, file_text: str, last_offtrack: dic
         if diff.get("command") and not diff.get("expected"):
             return _command_result(diff["command"], action or "Run this command", "diagnosis")
         p = apply_fix({**diff, "file": file}, file_text)
-        missing = missing_edits(action, diff.get("expected", "")) if p["error"] is None else []
+        missing = missing_edits(action, diff.get("expected", ""), diff.get("yours", "")) if p["error"] is None else []
         if p["error"] is None and not missing:
             return _result(file, p, action, diff.get("line"), "diagnosis")
         error = p["error"] or f"the diagnosis's diff misses part of the fix: {', '.join(missing)}"
@@ -159,7 +165,7 @@ async def do_it_for_me(step: dict, file: str, file_text: str, last_offtrack: dic
         if (d.get("command") or "").strip() and not (d.get("expected") or "").strip():
             return _command_result(d["command"].strip(), d["summary"], f"opus#{attempt + 1}")
         p = apply_fix({"yours": d["yours"], "expected": d["expected"], "line": d.get("line"), "file": file}, file_text)
-        missing = missing_edits(action, d["expected"]) if p["error"] is None else []
+        missing = missing_edits(action, d["expected"], d["yours"]) if p["error"] is None else []
         if p["error"] is None and not missing:
             return _result(file, p, d["summary"], d.get("line"), f"opus#{attempt + 1}")
         error = p["error"] or f"the patch misses part of the fix: {', '.join(missing)}"
