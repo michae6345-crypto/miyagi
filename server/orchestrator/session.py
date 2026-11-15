@@ -37,7 +37,7 @@ from collections.abc import Awaitable, Callable
 from pathlib import Path
 from typing import Any
 
-from . import config, curated, editor_text, missing_module, perf, scene_watch, where_row
+from . import config, curated, editor_text, missing_module, perf, scene_watch, stage, where_row
 from .context import RunContext, RunInfo, metrics_summary
 from .modules import Modules
 from .captions import short_caption
@@ -480,6 +480,8 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
         self._spawn(self._setup_card_task(graph, folder))
 
     async def _setup_card_task(self, graph: dict, folder: str) -> None:
+        if stage.on_graph(graph):
+            return  # a Demo lesson installs nothing: its runs are recorded (stage.py)
         from . import workspace as wsmod
 
         items, found = await asyncio.gather(  # what it needs (3-6 s first time, cached) + the video's own files
@@ -939,6 +941,9 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
 
     # ------------------------------------------------------------------ search + build
     async def learn(self, query: str, mode: str | None = None) -> None:
+        if stage.wanted(mode):  # the launcher's Demo option (or MIYAGI_STAGE=1): the staged neural-net lesson
+            await self.learn_demo(query)
+            return
         if mode == "lesson":  # "Just teach me": no video search, a text lesson for the goal
             await self.learn_text(query)
             return
@@ -974,6 +979,9 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
         await self._pick(url, picked[0] if picked else None)
 
     async def learn_url(self, url: str, skip_preflight: bool = False) -> None:
+        if stage.forced():  # MIYAGI_STAGE=1: a pasted link starts the Demo lesson too
+            await self.learn_demo(stage.GOAL)
+            return
         if skip_preflight:  # e.g. the demo's autostart: no learner pick to confirm
             await self._run_build(url, self.query)
             return
@@ -1241,7 +1249,21 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
             return
         await self._run_build("", goal, factory=lambda: self._build_text(goal))
 
-    async def _load_curated(self, goal: str, graph: dict) -> None:
+    async def learn_demo(self, goal: str, fresh: bool = False) -> None:
+        """The launcher's Demo option: the curated neural-net lesson for any goal, staged (stage.py: checks pass on
+        cue, runs are recorded, one planned "Not yet"). fresh: also put the clean nn.py back in a pinned folder."""
+        if self.graph is not None or self.phase in ("building", "searching"):
+            await self.end_lesson("new lesson")
+        self.query = goal
+        self.results, self.pending_pick = {}, None
+        graph = curated.lesson_for(goal, force=True)
+        if graph is None:  # the lesson file is missing: "Just teach me" as usual
+            await self._run_build("", goal, factory=lambda: self._build_text(goal))
+            return
+        stage.mark(graph)
+        await self._run_build("", goal, factory=lambda: self._load_curated(goal, graph, fresh=fresh))
+
+    async def _load_curated(self, goal: str, graph: dict, fresh: bool = False) -> None:
         """A curated "Just teach me" lesson: no build, its folder with a clean starter, then the lesson."""
         self.phase = "building"
         await self._status("thinking")
@@ -1251,7 +1273,7 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
             await self.emit("lesson.building", self.build_progress)
             await asyncio.to_thread(curated.forget_saved, graph)  # starts at step 1, never a pre-restart save's step
             try:
-                folder = await asyncio.to_thread(curated.prepare_folder, graph)
+                folder = await asyncio.to_thread(curated.prepare_folder, graph, fresh)
             except Exception:  # noqa: BLE001 - the lesson still runs in the default folder
                 log.exception("curated lesson folder failed")
                 folder = None
@@ -2007,7 +2029,7 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
         """Text match and gutter line both missed (e.g. a short new file: Vision reads no line numbers): Haiku picks
         the row from the marked screenshot (server.screen.target). None = no box; it never boxes chrome or tooltips."""
         pick = getattr(self.screen, "pick", None) if getattr(self.screen, "reader", None) is not None else None
-        if pick is None or self._lesson_window_hidden():  # nothing of the lesson's to pick: no Haiku call
+        if pick is None or self._lesson_window_hidden() or stage.on(self):  # nothing to pick / a Demo: no Haiku call
             return None
         spot = {"caption": self._type_caption(step), "app": "Code", **self._snippet(step)}
         res = await pick(self._no_create(self._spot_intent(spot)))  # same question _confirm_spot asks next: answered from the cache
@@ -2171,7 +2193,8 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
         if self.on_workdir:
             self.on_workdir(new_wd)
         self.m.set_lesson(graph)
-        self._spawn(self.m.warm(), timer=True)  # pre-warm the coach's cached lesson prefix
+        if not stage.on_graph(graph):  # a Demo lesson never calls the coach
+            self._spawn(self.m.warm(), timer=True)  # pre-warm the coach's cached lesson prefix
         if self.voice:
             self._prefetch_voice()
         await self.emit("lesson.ready", self._lesson_ready_payload())
@@ -2512,7 +2535,7 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
         (low confidence / "nothing" / an error) keeps the box only inside the lesson's editor pane (`pane`). Haiku
         unavailable (no key / timeout / budget): the box stands. No real reader (tests): it stands."""
         confirm = getattr(self.screen, "confirm", None) if getattr(self.screen, "reader", None) is not None else None
-        if confirm is None:
+        if confirm is None or stage.on(self):  # a Demo lesson: the box stands, no Haiku call
             return spot
         kw: dict[str, Any] = {"pane": pane} if pane is not None else {}
         if move_conf is not None and spot_lines.takes_kw(confirm, "move_conf"):  # t5 (d): a file box moves when sure
@@ -2944,6 +2967,9 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
     # ------------------------------------------------------------------ evaluation
     async def evaluate(self, trigger: str) -> None:
         """trigger: start | segment | file | run_end | metric | screen | manual | check (the learner asked)"""
+        if stage.on(self):  # a Demo lesson: a save passes a typing step, the recorded run grades a run step
+            await stage.evaluate(self, trigger)
+            return
         learner = trigger in ("file", "run_end", "metric", "check", "judge") or self._learner_evidence()
         if self.awaiting_resume or self.awaiting_start:
             return  # frozen until the learner picks Continue / Start new; held until Start / the first edit (E4)
@@ -3086,6 +3112,12 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
 
     async def tick(self) -> None:
         """Called ~1/s: idle-after-action, stuck, and typing-deferred speech."""
+        if stage.on(self):  # a Demo lesson: no screen health, scene glances, judge, stuck cards or idle nudges,
+            self._attribute_input()  # but the reader follows the step (E3) and a click / edit in VS Code ends
+            self._sync_screen_soon()  # "Before you start" (E4), so step 1 gets its box
+            if self.awaiting_start:
+                await self._maybe_begin()
+            return
         step = self.step
         self._attribute_input()  # E5: the last second's keys / clicks, booked to the app that got them
         self._sync_screen_soon()  # E3: the reader runs only while a lesson step does (and the app hasn't left)
@@ -4166,7 +4198,9 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
         except Exception as e:  # live mode: a missing/failing module is reported, never faked
             log.exception("action %s failed", kind)
             if asking and self.step is not None and gen == self.step_gen:  # never a silent failure for a question
-                await self._emit_card(self._ask_failed_card(kind, text, e), window_s=0.0)
+                card = (stage.fallback_answer(self, kind, text) if stage.on(self) else None) or \
+                    self._ask_failed_card(kind, text, e)  # a Demo lesson: the lesson's own answer, never "Couldn't reach"
+                await self._emit_card(card, window_s=0.0)
             else:
                 await self.emit("error", {"message": f"{kind}: {e}"})
             if self.step is not None:
@@ -4310,7 +4344,7 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
                                        "body": f"Run it in the terminal: {cmd.splitlines()[0]}",
                                        "actions": ["run_command"]})
                 return
-            if self.m.has_pointing():  # E5: the diagnosed line, the step's target, else Haiku (<= 3 s)
+            if self.m.has_pointing() and not stage.on(self):  # E5: the diagnosed line, the step's target, else Haiku (<= 3 s)
                 screen = await self._screen_for_coach(step)
                 r = await self.m.show_me(step, screen, self.last_offtrack) if screen is not None else None
                 if gen != self.step_gen:
@@ -4389,6 +4423,7 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
                 await self._status("offtrack" if self.last_offtrack else "watching")
                 return
             card = curated.hint_card(self, step, self.hint_level) or \
+                (stage.last_hint(self, step) if stage.on(self) else None) or \
                 dict(await self.m.hint(step, self.hint_level, self.last_offtrack, screen=screen))
             if gen != self.step_gen:
                 return
@@ -4404,6 +4439,8 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
             return
         if kind == "diagram":
             want = (text or "").strip().lower()
+            if stage.on(self) and want not in ("network", "gradients"):
+                want = ""  # a Demo lesson: a concept title gets the step's own network, never a model call
             if (d := curated.diagram_for_action(self, step, want)) is not None:  # curated: its own network, instantly
                 await self.emit("diagram", d)
                 return
@@ -4794,7 +4831,7 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
         if self._by_name(step, path, text) is not None:  # T5: the step's defs are in the file: its code in their
             await self._fix_by_hand(step, path, text, diff)  # place (previewed), no model call, no second copies
             return
-        if self.m.has_do_it_for_me():  # E5: a minimal, compiling patch -> preview -> confirm -> apply
+        if self.m.has_do_it_for_me() and not stage.on(self):  # E5: a minimal, compiling patch -> preview -> confirm -> apply
             await self._status("thinking")
             try:
                 p = await self.m.do_it_for_me(step, path.name, text, self.last_offtrack)
@@ -4902,6 +4939,9 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
         "Not yet" saying what's missing in whole sentences (from the failing rows, the step's exact command, a
         syntax error on its own line), with the spot to fix when the judge gives one. Without the judge (offline /
         no key) the deterministic checks decide alone. The status stays "thinking" until that verdict (_status)."""
+        if stage.on(self):  # a Demo lesson: Check my work passes the step (a run step runs first)
+            await stage.check(self, step)
+            return
         self._checking = getattr(self, "_checking", 0) + 1
         try:
             await self._check_step_now(step)
@@ -5892,7 +5932,7 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
             new_text = code
         elif (hit := self._by_name(step, path, text)) is not None:  # T5: the step's defs are in the file: its code
             (new_text, line), summary = hit, f"Puts this step's code in {path.name} in place of yours."  # in place
-        elif self.m.has_do_it_for_me():
+        elif self.m.has_do_it_for_me() and not stage.on(self):  # a Demo lesson: the step's own code, no model
             thinking = True
             await self._status("thinking")
             try:  # a patch that ADDS the step's code (never the last diagnosis's cached diff, which only fixed a
@@ -6084,6 +6124,9 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
         """"Run it for me": the step's command in the lesson folder (VS Code's terminal via the companion extension
         when it's up; else a subprocess, 10 s, stdin closed, the lesson's .venv first on PATH). The output goes in a
         card and the run feeds the step's checks with its real exit code / output."""
+        if stage.on(self):  # a Demo lesson: the recorded run of the lesson's own code (stage.py)
+            await stage.run(self, step)
+            return
         curated.prepare_step(self, step)  # NumPy may have just been installed into the lesson's .venv
         cmd = self._run_command(step) or (step.get("run_command") or "").strip()
         if not cmd:

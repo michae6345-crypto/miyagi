@@ -604,7 +604,7 @@ EngineEventType = Literal[
 # ---------- App -> Engine commands ----------
 class Learn(_Model):
     query: str
-    mode: Literal["video", "lesson"] | None = None  # "lesson" = "Just teach me": no video search
+    mode: Literal["video", "lesson", "demo"] | None = None  # "lesson" = "Just teach me": no video search; "demo": the staged neural-net lesson (server/orchestrator/stage.py)
 
 
 class LearnUrl(_Model):

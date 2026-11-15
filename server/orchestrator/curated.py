@@ -117,9 +117,10 @@ def matches(goal: str) -> bool:
     return bool(g) and (_NN.search(g) is not None or _typo_nn(g)) and _NOT.search(g) is None
 
 
-def lesson_for(goal: str) -> dict | None:
-    """The curated step graph for `goal`, or None (no match, MIYAGI_CURATED=0, or the file is missing)."""
-    if not enabled() or not matches(goal):
+def lesson_for(goal: str, force: bool = False) -> dict | None:
+    """The curated step graph for `goal`, or None (no match, MIYAGI_CURATED=0, or the file is missing).
+    force: whatever the goal (the launcher's Demo option, stage.py)."""
+    if not force and (not enabled() or not matches(goal)):
         return None
     try:
         g = json.loads(LESSON_FILE.read_text(encoding="utf-8"))
@@ -135,7 +136,8 @@ def lesson_for(goal: str) -> dict | None:
 
 
 def active(session: Any) -> bool:
-    return enabled() and ((getattr(session, "graph", None) or {}).get("lesson") or {}).get("curated") == KEY
+    lesson = (getattr(session, "graph", None) or {}).get("lesson") or {}
+    return (enabled() or bool(lesson.get("stage"))) and lesson.get("curated") == KEY  # a Demo lesson: always
 
 
 # ---------------------------------------------------------------------------------------------------------- folder
@@ -147,12 +149,13 @@ def _starter() -> str:
         return "import numpy as np\n"
 
 
-def prepare_folder(graph: dict) -> str:
+def prepare_folder(graph: dict, fresh: bool = False) -> str:
     """The lesson's folder with a clean nn.py, ready at once (never asks Claude for starter files).
 
     LIVE: <lessons root>/<slug>-<hash> (the same folder every time, so a NumPy installed into its .venv stays). A fresh
     start puts the clean starter back; the learner's earlier nn.py is kept in <lessons root>/.miyagi-state/attempts/.
-    TUT_WORKDIR pins the folder (dev, scripts/miyagi-nn-demo.sh): nn.py is only created there when it's missing or empty.
+    TUT_WORKDIR pins the folder (dev, scripts/miyagi-nn-demo.sh): nn.py is only created there when it's missing or empty,
+    unless fresh (a Demo lesson's restart: the clean starter back there too, the last attempt kept).
     Blocking (file I/O): run it in a thread."""
     pinned = bool(os.environ.get("TUT_WORKDIR"))
     try:
@@ -174,7 +177,7 @@ def prepare_folder(graph: dict) -> str:
         cur = ""
     if not cur.strip():
         p.write_text(starter, encoding="utf-8")
-    elif cur != starter and not pinned:
+    elif cur != starter and (not pinned or fresh):
         root = paths.lessons_root() if paths is not None else folder.parent
         keep = root / ".miyagi-state" / "attempts" / folder.name / f"nn-{time.strftime('%Y%m%d-%H%M%S')}.py"
         try:
@@ -682,6 +685,12 @@ async def on_command_end(session: Any, ev: dict) -> None:
             or (not cwd and any(os.path.realpath(str(f)) == mine for f in ev.get("folders") or [])))
     started = (c.get("startedAt") or 0) / 1000 or float(ev.get("received") or 0)
     if not here or started < getattr(session, "_step_wall_t0", 0.0) - 1.0:
+        return
+    from . import stage  # (stage imports this module)
+
+    if stage.on(session):  # a Demo lesson: the terminal's own output stays on screen, the recorded run grades it
+        if stage._is_run(session, step):  # (a run typed on a typing step passes nothing)
+            await stage.run(session, step, typed=True)
         return
     # The same id as Run it for me's own wait for this run (session._terminal_run_result, which also posts the result
     # card): give it a moment; whichever ingests first owns the run, the other stands back.
