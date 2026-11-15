@@ -12,7 +12,7 @@ const os = require('os');
 const path = require('path');
 const vscode = require('vscode');
 
-const VERSION = '0.0.5';
+const VERSION = '0.0.6';
 const DEFAULT_PORT = 8791;
 const PORT_SPAN = 9;
 const ACTION_DEADLINE_MS = 250; // the engine's client gives up after 300 ms
@@ -28,6 +28,10 @@ const EXPLAIN_AROUND_CHARS = 3000;
 const EXPLAIN_REPEAT_MS = 1000; // the same selection again within this of the last press: dropped (a held key)
 const PROPOSED_SCHEME = 'miyagi-proposed';
 const PENDING = Symbol('pending');
+// .ipynb opens in VS Code's notebook editor (its built-in ipynb notebook type; the Jupyter extension runs the cells),
+// never as raw JSON in a text editor (t9 V11). No such editor: VS Code's default for the file (vscode.open).
+const NOTEBOOK_TYPE = 'jupyter-notebook';
+const NOTEBOOK_WAIT_MS = 1500; // the notebook editor shows up in visibleNotebookEditors shortly after openWith
 
 const S = {
   server: null,
@@ -246,11 +250,93 @@ async function readText(query) {
 
 // ---------------------------------------------------------------- actions
 
+function isNotebook(fsPath) {
+  return path.extname(String(fsPath || '')).toLowerCase() === '.ipynb';
+}
+
+function notebookDoc(fsPath) {
+  return (vscode.workspace.notebookDocuments || [])
+    .find((nb) => nb.uri && nb.uri.scheme === 'file' && samePath(nb.uri.fsPath, fsPath));
+}
+
+function notebookEditorFor(fsPath) {
+  const mine = (e) => e && e.notebook && e.notebook.uri.scheme === 'file' && samePath(e.notebook.uri.fsPath, fsPath);
+  const a = vscode.window.activeNotebookEditor;
+  return mine(a) ? a : (vscode.window.visibleNotebookEditors || []).find(mine);
+}
+
+async function waitForNotebookEditor(fsPath) {
+  const until = Date.now() + NOTEBOOK_WAIT_MS;
+  for (;;) {
+    const ne = notebookEditorFor(fsPath);
+    if (ne || Date.now() > until) return ne;
+    await new Promise((r) => setTimeout(r, 25));
+  }
+}
+
+// The engine's line for a notebook is a line of the raw .ipynb JSON on disk (server/orchestrator/workspace.py
+// target_location; past the end = "where new code goes"). -> 0-based index of the cell that line belongs to, or null.
+function notebookCellForLine(text, line) {
+  let nb;
+  try { nb = JSON.parse(text); } catch (_) { return null; }
+  const cells = nb && Array.isArray(nb.cells) ? nb.cells : [];
+  if (!cells.length || !(line >= 1)) return null;
+  const lines = text.split('\n');
+  if (line > lines.length) return cells.length - 1;
+  let at = -1; // nbformat writes each cell's keys sorted, so a cell starts at its "cell_type" key
+  for (let i = 0; i < line; i++) if (/^\s*"cell_type"\s*:/.test(lines[i])) at++;
+  const src = (c) => (Array.isArray(c.source) ? c.source.join('') : String(c.source || ''));
+  let want = null; // the source text on that line, if it is one (e.g. `   "x = mnist.load_data()\n",`)
+  try { want = JSON.parse(lines[line - 1].trim().replace(/,$/, '')); } catch (_) { want = null; }
+  if (typeof want === 'string' && want.trim()) {
+    want = want.trim();
+    if (at >= 0 && at < cells.length && src(cells[at]).includes(want)) return at;
+    const hit = cells.findIndex((c) => src(c).includes(want));
+    if (hit >= 0) return hit;
+  }
+  return at >= 0 && at < cells.length ? at : null;
+}
+
+async function openNotebook(fsPath, body) {
+  const uri = vscode.Uri.file(fsPath);
+  const opts = { preserveFocus: !!body.preserveFocus, preview: false };
+  const shown = notebookEditorFor(fsPath);
+  if (shown && shown.viewColumn) opts.viewColumn = shown.viewColumn; // never split
+  let ne;
+  try {
+    await vscode.commands.executeCommand('vscode.openWith', uri, NOTEBOOK_TYPE, opts);
+    ne = await waitForNotebookEditor(fsPath);
+  } catch (err) {
+    log(`open: ${fsPath} in the notebook editor failed: ${(err && err.message) || err}`);
+  }
+  const line = int(body.line) > 0 ? int(body.line) : null;
+  if (!ne) { // no notebook editor (no ipynb support): whatever VS Code opens .ipynb with
+    await vscode.commands.executeCommand('vscode.open', uri, opts);
+    return { ok: true, file: fsPath, line, notebook: false, cell: null, languageId: null, dirty: false };
+  }
+  let cell = null;
+  if (line) {
+    let text = null;
+    try { text = fs.readFileSync(fsPath, 'utf8'); } catch (_) { text = null; }
+    cell = text === null ? null : notebookCellForLine(text, line);
+    const count = ne.notebook.cellCount || 0;
+    if (cell !== null && cell >= count) cell = count ? count - 1 : null; // the buffer has fewer cells than the disk
+    if (cell !== null && vscode.NotebookRange) {
+      const r = new vscode.NotebookRange(cell, cell + 1);
+      ne.selections = [r];
+      const how = vscode.NotebookEditorRevealType;
+      ne.revealRange(r, how ? how.InCenterIfOutsideViewport : undefined);
+    }
+  }
+  return { ok: true, file: fsPath, line, notebook: true, cell, languageId: null, dirty: !!ne.notebook.isDirty };
+}
+
 async function openFile(body) {
   const fsPath = resolveFile(body.file);
   if (!fs.existsSync(fsPath) && !vscode.workspace.textDocuments.some((d) => samePath(docKey(d), fsPath))) {
     throw new HttpError(404, 'not_found');
   }
+  if (isNotebook(fsPath)) return openNotebook(fsPath, body);
   const doc = await vscode.workspace.openTextDocument(vscode.Uri.file(fsPath));
   const line = clampLine(body.line, doc);
   const opts = { preserveFocus: !!body.preserveFocus };
@@ -432,6 +518,9 @@ function editToReplace(doc, e) {
 
 async function apply(body) {
   const fsPath = resolveFile(body.file);
+  // A notebook's text is its JSON: a text edit would fight the notebook editor's own copy (and open raw JSON on
+  // reveal). The engine writes .ipynb cell by cell on disk, and asks to save (POST /save) before that.
+  if (isNotebook(fsPath)) throw new HttpError(409, 'notebook_unsupported', 'edit notebooks cell by cell, not as text');
   const uri = vscode.Uri.file(fsPath);
   const known = fs.existsSync(fsPath) || vscode.workspace.textDocuments.some((d) => samePath(docKey(d), fsPath));
   const we = new vscode.WorkspaceEdit();
@@ -522,6 +611,16 @@ async function pythonRefresh(body) {
 async function save(body) {
   const fsPath = body && body.file ? resolveFile(body.file) : null;
   const ed = vscode.window.activeTextEditor;
+  // A notebook saves as a notebook (its cells and outputs), never through a raw JSON text buffer.
+  const nbe = vscode.window.activeNotebookEditor;
+  const nb = fsPath ? (isNotebook(fsPath) ? notebookDoc(fsPath) : null)
+    : (ed && ed.document.uri.scheme === 'vscode-notebook-cell' && nbe ? nbe.notebook : null);
+  if (nb) {
+    const was = !!nb.isDirty;
+    const saved = was ? !!(await (typeof nb.save === 'function' ? nb.save() : vscode.workspace.save(nb.uri))) : false;
+    if (was) log(`save: notebook ${nb.uri.fsPath} -> ${saved}`);
+    return { ok: true, file: nb.uri.fsPath, open: true, notebook: true, saved, wasDirty: was, dirty: !!nb.isDirty };
+  }
   const doc = fsPath ? vscode.workspace.textDocuments.find((d) => samePath(docKey(d), fsPath)) : ed && ed.document;
   if (!doc) return { ok: true, file: fsPath, open: false, saved: false, dirty: false };
   const was = !!doc.isDirty;
@@ -906,4 +1005,4 @@ function deactivate() {
     proposed: new Map(), dirty: new Map(), lastFocusedAt: 0 });
 }
 
-module.exports = { activate, deactivate, _internal: { S, cleanOutput, tailLines, editToReplace, refuse, selectionPayload } };
+module.exports = { activate, deactivate, _internal: { S, cleanOutput, tailLines, editToReplace, refuse, selectionPayload, notebookCellForLine } };
