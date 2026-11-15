@@ -256,7 +256,9 @@ def learner_text(s: Any, type_: str, payload: dict) -> dict:
 # ------------------------------------------------------------------ 4. plain copy
 FENCE = re.compile(r"```[\w+.-]*[ \t]*\n?")
 TICKS = re.compile(r"`([^`\n]+)`")
-BOLD = re.compile(r"\*\*([^*\n]+)\*\*")
+# **bold** only as markdown writes it: no space just inside the stars, no word or bracket just outside them. Python's
+# power operator is never bold (the Demo's sign-bug Hint "change (1 + h2 ** 2) to (1 - h2 ** 2)" lost both **; h2**2).
+BOLD = re.compile(r"(?<![\w)\]])\*\*(?=[^\s*])([^*\n]+?)(?<=[^\s*])\*\*(?![\w(\[])")
 CUT_WORDS = 8  # a trailing "…" fragment this long is a cut sentence (clamp_words), not "Installing NumPy…"
 CITE_CHARS = 38  # the off-track card's citation line (about 270 px of 12 px text)
 LESSON_OFFTRACK_ACTIONS = ("explain", "show_me", "hint", "apply_fix")  # the contract's order
@@ -490,12 +492,16 @@ def words(yours: str, expected: str) -> tuple[str, str, str]:
 async def diagnosed_hint(s: Any, step: dict) -> bool:
     """Lesson mode Hint from what is already known (see the module doc). True = answered (card + box)."""
     try:
-        if not getattr(s, "lesson_mode", False) or s._run_command(step):
+        if not getattr(s, "lesson_mode", False):
+            return False
+        off = getattr(s, "last_offtrack", None) or {}
+        run = bool(s._run_command(step))  # a run step: only a line its Not yet diagnosed in the code (the Demo's
+        if run and not (off.get("stepId") == step.get("id") and (off.get("diff") or {}).get("yours")):  # sign bug)
             return False
         name, text = step_file_text(s, step)
         lines = text.splitlines()
         f = focus(s, step, lines) if lines else None
-        if f is None:
+        if f is None or (run and f[3] != "diagnosis"):
             return False
         n, yours, expected, src = f
         key = (step["id"], yours.strip(), expected.strip())
