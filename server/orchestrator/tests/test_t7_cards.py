@@ -22,8 +22,9 @@ from server.orchestrator import card_copy, curated, lesson_end, stage
 from server.orchestrator.tests.test_stage import RANDOM, ZEROS, passed, rig, save, settle  # noqa: F401 (fixture)
 
 # ------------------------------------------------------------------ the app's readers (Evidence.tsx, code.ts)
-_READING = re.compile(r"(?:^|\s)([-+]?(?:\d[\d,]*(?:\.\d+)?|\.\d+)(?:e[-+]?\d+)?|[-+]?(?:nan|inf(?:inity)?))\s+at step\s+\d",
-                      re.I)
+# (code.ts readingValue as of adrian/shell PR #137, 230348a: "at step N" or "at epoch N")
+_READING = re.compile(r"(?:^|\s)([-+]?(?:\d[\d,]*(?:\.\d+)?|\.\d+)(?:e[-+]?\d+)?|[-+]?(?:nan|inf(?:inity)?))"
+                      r"\s+at (?:step|epoch)\s+\d", re.I)
 
 
 def app_yours(detail: str) -> str | None:
@@ -70,7 +71,7 @@ def test_stuck_not_yet_card_has_yours_expected_citation_and_actions(rig):  # noq
         card = off[-1]
         # the failing loss row: yours 0.4900, expected 0.01 (read by the app from the detail and the label)
         row = [e["payload"] for e in ev if e["type"] == "check.updated" and e["payload"]["status"] == "fail"][-1]
-        assert row["detail"] == "loss 0.4900 at step 18000, need < 0.01"
+        assert row["detail"] == "loss 0.4900 at epoch 18000, need < 0.01"
         assert app_yours(row["detail"]) == "0.4900" and app_expected(row["label"]) == "0.01"
         # the loss curve's expected cell: the lesson's own run, as runId "tutorial", sent before the card
         tut = [e["payload"] for e in ev if e["type"] == "metric" and e["payload"]["runId"] == "tutorial"]
@@ -111,7 +112,7 @@ def test_reference_curve_is_the_lessons_own_run():
 
 def test_metric_detail_words_like_the_checks_module():
     check = {"metric": "loss", "op": "<", "value": 0.01, "by_step": 18000}
-    assert curated.metric_detail(check, [(0, 0.49), (18000, 0.49)]) == "loss 0.4900 at step 18000, need < 0.01"
+    assert curated.metric_detail(check, [(0, 0.49), (18000, 0.49)]) == "loss 0.4900 at epoch 18000, need < 0.01"
     assert curated.metric_detail(check, [(0, 0.8187), (18000, 0.0009)]) == "loss 0.0009, below 0.01"
     # t8: the LAST printed row, as nn.py prints it (the checks module's median said 0.0013, the epoch-14000 value)
     rows = [(0, 0.8187), (14000, 0.0013), (16000, 0.0011), (18000, 0.0009)]
