@@ -2,7 +2,7 @@
  * Feature: pill. The island's pill-sized states (34px tall, width hugs content), to mockup 01 + the
  * Miyagi brand (app/brand/BRAND.md): always black and white, the bonsai as a one-color glyph on the left
  * (monochrome everywhere in the app), the status on the right.
- *   idle      no lesson yet: "[bonsai] ask miyagi ⌥Space" (lowercase, Michael) (click opens the launcher); "Offline" with no engine
+ *   idle      no lesson yet: "[bonsai] ask miyagi ⌥Space ●" (lowercase, Michael) (click opens the launcher); "Offline ○" with no engine
  *   building  between Build lesson and the first step: lesson.building message + spinner + progress line;
  *             once the lesson is set (lesson.ready, before the first step.started) it's static: "Lesson ready ●", no spinner, no line
  *   compact   during a lesson: "[bonsai] Step 4 · Define the residual  4/8 ●" (count = this step / steps, dot = status);
@@ -56,7 +56,7 @@ function Idle(): ReactNode {
   }
   return (
     <button
-      className={`group flex h-[34px] cursor-pointer items-center whitespace-nowrap pl-[13px] text-[13px] font-medium ${offline ? 'pr-[16px]' : 'pr-[7px]'}`}
+      className="group flex h-[34px] cursor-pointer items-center whitespace-nowrap pl-[13px] pr-[14px] text-[13px] font-medium"
       style={{ color: offline ? color.label : color.text }}
       onClick={click}
       title={offline ? local?.line : undefined}
@@ -67,8 +67,13 @@ function Idle(): ReactNode {
         {offline ? off.text : copy.ask}
       </SwapText>
       {offline && off.busy && <span className="ml-[10px] inline-flex"><Spinner size={13} c={color.label} /></span>}
-      {/* Concentric with the pill: 7px inset, fully round (radius 10 inside radius 17). Hidden offline: nothing to ask. */}
+      {/* Fully round (radius 10 inside the pill's 17). Hidden offline: nothing to ask. */}
       {!offline && <Kbd className="ml-[10px] !h-[20px] !rounded-full !px-[8px]">{bridge.platform.keys.launcher}</Kbd>}
+      {/* The status dot on the right, like every pill state (BRAND.md): gray watching, hollow gray offline (audit A21).
+          Spaced like compact: 15 after text, 9 after the key chip or spinner. */}
+      <span className={`flex items-center ${offline && !off.busy ? 'ml-[15px]' : 'ml-[9px]'}`}>
+        <StatusMark mark={offline ? 'offline' : 'watching'} />
+      </span>
     </button>
   )
 }
