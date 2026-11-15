@@ -20,6 +20,9 @@ import { color, fill, font, glass } from '../../core/theme'
 
 const POS = '#58C4DD'
 const NEG = '#C08552'
+/** The weight-sign colors, shared with the static network diagram (Diagram.tsx). */
+export const WEIGHT_POS = POS
+export const WEIGHT_NEG = NEG
 
 /** Island (black HUD) or glass (the drawer: flips with Settings → Appearance). Status colors never appear here. */
 type Ink = { text: string; label: string; faint: string; ring: string; lit: string; highlight: string; track: string }
