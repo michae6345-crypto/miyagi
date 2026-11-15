@@ -22,6 +22,8 @@
  * During a lesson with nothing typed, "Continue <lesson>" is the only row (Enter goes back to the lesson). Ending
  * the lesson is a quiet two-tap "End lesson" link in the footer (Michael's desktop test 3, item 8): no key reaches it,
  * so a stray Enter or ↓ then Enter can't end a lesson.
+ * A saved lesson waiting to resume (the engine's card {kind:'resume'} after a restart; the lesson may not be loaded in
+ * the app yet) gets the same first row, "Continue <its title>", and Enter sends action resume (item 10).
  *
  * Two ways to learn a typed topic (Michael, Sat 3:23 PM): "Watch a video" (the search flow above) or
  * "Just teach me" (learn {query, mode:"lesson"}: no video, the engine writes the lesson; the panel goes
@@ -46,10 +48,11 @@ import { bridge } from '../../bridge'
 import { onUi } from '../../core/bus'
 import { useLesson, useProgress } from '../../core/lesson'
 import { getIslandModes, type IslandMode } from '../../core/registry'
-import { triggerShortcut } from '../../core/shortcuts'
+import { sendAction, triggerShortcut } from '../../core/shortcuts'
 import { MiyagiMark } from '../../core/ui/Mark'
 import { OptionButton, Spinner } from '../../core/ui/atoms'
 import { color, copy, fill, launcher as launcherTheme, pill, radius, scrim, shadows, spring, springOut } from '../../core/theme'
+import { useCards } from '../cards/store'
 import { Action, Chip, EndLink, Hint, HowChoice, Rise, type How } from './parts'
 import { LessonRow, LinkRow, MessageRow, ResultRow, ResumeRow, ROW_H, SettingsRow, SkeletonRow } from './Rows'
 import { clearResults, markAsked, setLauncherOpen, startSearch, useSearch } from './store'
@@ -98,6 +101,18 @@ const sameTopic = (a: string, b: string): boolean => {
   const x = words(a)
   const y = words(b)
   return x.trim() !== '' && y.trim() !== '' && (x.includes(y) || y.includes(x))
+}
+
+/**
+ * The engine's "Continue where you left off?" card (card {kind:'resume'}) says which lesson in its body:
+ * "<lesson title> · step 3: <step title>". Split it into the Continue row's title and meta line; any other body is
+ * the meta line as it is.
+ */
+function savedLesson(body: string): { title?: string; where: string } {
+  const text = body.trim()
+  const m = /^(.*?)\s+·\s+step\s+([^:]*):\s*(.*)$/i.exec(text)
+  if (m && m[1].trim()) return { title: m[1].trim(), where: m[3].trim() ? `Step ${m[2].trim()} · ${m[3].trim()}` : `Step ${m[2].trim()}` }
+  return { where: text || 'Where you left off' }
 }
 
 const isPillSized = (s: Size): boolean => s.h <= pill.height + 1
@@ -162,6 +177,12 @@ export function Launcher({ layout }: { layout: Layout }): ReactNode {
     }))
   )
   const progress = useProgress()
+  /**
+   * The engine is waiting on "Continue where you left off?" (after an engine restart it sends card {kind:'resume'},
+   * actions resume / end_lesson, and the lesson may not be loaded in the app yet). Michael's desktop test 3, item 10.
+   */
+  const resumeCard = useCards((c) => (c.card?.kind === 'resume' ? c.card : undefined))
+  const saved = resumeCard ? savedLesson(resumeCard.body) : undefined
   const islandMode = useIslandMode()
   const reduce = useReducedMotion()
   const input = useRef<HTMLInputElement>(null)
@@ -196,7 +217,11 @@ export function Launcher({ layout }: { layout: Layout }): ReactNode {
       bridge.on('launcher:open', (payload) => {
         const f = (payload as { from?: Size } | undefined)?.from
         setFrom(f && f.w > 0 && f.h > 0 ? { w: Math.round(f.w), h: Math.round(f.h) } : PILL)
-        setMode(useLesson.getState().lesson ? 'ask' : 'search')
+        const hasLesson = !!useLesson.getState().lesson
+        setMode(hasLesson ? 'ask' : 'search')
+        // A saved lesson is waiting to resume (item 10): the first decision is Continue, so an old search text left in
+        // the field (it outlives an engine restart) must not hide the Continue row.
+        if (!hasLesson && useCards.getState().card?.kind === 'resume') setQuery('')
         setHow('video')
         disarmEnd()
         delays.current.clear()
@@ -337,13 +362,20 @@ export function Launcher({ layout }: { layout: Layout }): ReactNode {
   const settingsRow = !link && isSettingsQuery(typed)
   const choosing = !settingsRow && mode === 'search' && !link && !!typed && (typed !== search.query || view === 'idle')
   const teachKey = bridge.platform.os === 'mac' ? '⌘↵' : 'Ctrl↵'
+  /**
+   * During a lesson, with nothing typed: "Continue <lesson>" is the only row, highlighted (Enter goes back to the
+   * lesson). Typing replaces it. End lesson is the footer's quiet two-tap link, out of reach of Enter and ↑↓.
+   * While the engine waits on a saved lesson (resume card, item 10) the row is there with nothing typed whatever else
+   * is on screen (old search rows step aside), and Continue resumes it.
+   */
+  const resumeRows = !typed && (resumeCard ? true : lesson.hasLesson && (mode === 'ask' || view === 'idle'))
   /** What a text lesson would be about: what's typed, else the query the rows on screen belong to. */
   const goal = typed || (view === 'idle' ? '' : search.query)
   /**
    * "Build a lesson from the internet": the fixed first row over a search's rows (not while the two ways are offered,
-   * not for a settings word or a pasted link, not in ask mode). Same request as "Just teach me".
+   * not for a settings word or a pasted link, not in ask mode, not under Continue). Same request as "Just teach me".
    */
-  const lessonRow = mode === 'search' && !link && !settingsRow && !!goal && !choosing
+  const lessonRow = mode === 'search' && !link && !settingsRow && !!goal && !choosing && !resumeRows
   /** Video rows (and skeletons, the empty / error row) sit one slot lower under the lesson row. */
   const off = lessonRow ? 1 : 0
   const listed = view === 'idle' ? 0 : view === 'results' || view === 'searching' ? Math.min(MAX_ROWS, visible.length + skeletons) : 1
@@ -358,14 +390,9 @@ export function Launcher({ layout }: { layout: Layout }): ReactNode {
   const noVideo = retry && view === 'empty' && lesson.connected
   const onLesson = lessonRow && (sel === LESSON || noVideo)
   const selIndex = Math.min(Math.max(0, sel), Math.max(0, visible.length - 1))
-  /**
-   * During a lesson, with nothing typed: "Continue <lesson>" is the only row, highlighted (Enter goes back to the
-   * lesson). Typing replaces it. End lesson is the footer's quiet two-tap link, out of reach of Enter and ↑↓.
-   */
-  const resumeRows = lesson.hasLesson && !typed && (mode === 'ask' || view === 'idle')
   const highlight = view === 'link' || onLesson ? 0 : view === 'results' ? selIndex + off : -1
-  /** The idle topic chips, minus the lesson in progress (or being built): never offer it again. */
-  const current = lesson.hasLesson || lesson.building ? [lesson.title, topic.current].filter((t): t is string => !!t) : []
+  /** The idle topic chips, minus the lesson in progress, being built or waiting to resume: never offer it again. */
+  const current = [...(lesson.hasLesson || lesson.building ? [lesson.title, topic.current] : []), saved?.title].filter((t): t is string => !!t)
   const suggestions = SUGGESTIONS.filter((s) => !current.some((t) => sameTopic(s.label, t)))
 
   // ---- actions --------------------------------------------------------------------------------
@@ -425,6 +452,16 @@ export function Launcher({ layout }: { layout: Layout }): ReactNode {
     setPhase('closing')
   }
 
+  /**
+   * Continue: back to the lesson. While the engine waits on a saved lesson (resume card) that is action resume (the
+   * engine reloads it and the card goes); either way the panel goes back into the island.
+   */
+  const continueLesson = (): void => {
+    if (phaseRef.current !== 'open') return
+    if (resumeCard) sendAction('resume')
+    close()
+  }
+
   /** The footer's End lesson: the first click arms it ("Tap to end"), a second one within END_ARM_MS ends the lesson. */
   const tapEnd = (): void => {
     if (phaseRef.current !== 'open') return
@@ -473,7 +510,7 @@ export function Launcher({ layout }: { layout: Layout }): ReactNode {
   const submit = (): void => {
     if (settingsRow) return openSettings()
     // "Continue" goes back into the island and the lesson carries on. Enter never ends a lesson (the footer link does).
-    if (resumeRows) return close()
+    if (resumeRows) return continueLesson()
     if (mode === 'ask') return ask()
     if (link) return build()
     if (onLesson) return teach(goal)
@@ -571,7 +608,7 @@ export function Launcher({ layout }: { layout: Layout }): ReactNode {
   const returnTo = phase === 'building' ? building : islandMode
 
   const offline = !lesson.connected
-  const inlineError = view === 'results' && search.error
+  const inlineError = view === 'results' && !resumeRows && search.error
   const act: Act = settingsRow
     ? 'settings'
     : resumeRows
@@ -699,10 +736,16 @@ export function Launcher({ layout }: { layout: Layout }): ReactNode {
               <div className="relative mx-[20px]" style={{ height: ROW_H }}>
                 <div className="pointer-events-none absolute inset-x-0 top-0 rounded-[12px]" style={{ height: ROW_H, background: fill.highlight }} />
                 <ResumeRow
-                  lessonTitle={lesson.title}
-                  // Ask mode already names the step in the line above the field.
-                  where={mode === 'search' && lesson.hasStep ? `Step ${progress.index + 1} of ${progress.total} · ${lesson.stepTitle}` : 'Where you left off'}
-                  onPick={close}
+                  lessonTitle={saved ? (saved.title ?? lesson.title) : lesson.title}
+                  // Ask mode already names the step in the line above the field. A saved lesson: where the card says.
+                  where={
+                    saved
+                      ? saved.where
+                      : mode === 'search' && lesson.hasStep
+                        ? `Step ${progress.index + 1} of ${progress.total} · ${lesson.stepTitle}`
+                        : 'Where you left off'
+                  }
+                  onPick={continueLesson}
                 />
               </div>
             </Rise>
@@ -726,7 +769,8 @@ export function Launcher({ layout }: { layout: Layout }): ReactNode {
               <OptionButton action="explain" label="Explain this step" kbd={bridge.platform.keys.explain} onClick={() => quick('explain')} />
               <OptionButton action="hint" label="Give me a hint" kbd={bridge.platform.keys.hint} onClick={() => quick('hint')} />
             </Rise>
-          ) : view === 'idle' && !lessonRow ? (
+          ) : (view === 'idle' || resumeRows) && !lessonRow ? (
+            // Under Continue (a saved lesson waiting) the old search rows step aside for the topic chips too.
             suggestions.length > 0 && (
               <Rise key="try" i={2} className="flex flex-wrap gap-[8px] px-[20px] pt-[12px]">
                 {suggestions.map((s) => (
