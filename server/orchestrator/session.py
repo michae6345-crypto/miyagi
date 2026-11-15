@@ -5023,7 +5023,10 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
         if kind == "back":
             idx = self.idx
             seg = self._segment(step)
-            if ((text or "").strip().lower() in ("prev", "previous") or not seg) and idx > 0:
+            # Back is the previous step in every lesson (Michael, Nov 15 9:15: in a video lesson Back only rewound the
+            # clip, so a learner who skipped a step couldn't get its code back). Rewinding the clip stays on the
+            # player's own Back-to-the-step's-start button, and Back on step 1 still rewinds.
+            if idx > 0:
                 self._revisit_gen = self.step_gen + 1  # start_step's reset bumps step_gen once: never auto-passed
                 await self.start_step(idx - 1)  # no clip to rewind (a "Just teach me" lesson): the previous step
                 return
