@@ -7,7 +7,7 @@
     if editor_needed(reqs): open_editor(wd, open_file_for(wd))   # Cursor or VS Code, only after the learner says yes
 """
 
-from .active import active_editor, adopt_folder, vscode_windows, wrong_folder
+from .active import active_editor, adopt_folder, folder_on_screen, vscode_windows, wrong_folder
 from .core import open_file_for, prepare, read_state
 from .editor import (
     editor_label,
@@ -25,7 +25,7 @@ from .resources import summary as download_summary
 from .setup import editor_needed, install, missing, requirements, setup_card
 
 __all__ = [
-    "active_editor", "adopt_folder", "vscode_windows", "wrong_folder",
+    "active_editor", "adopt_folder", "folder_on_screen", "vscode_windows", "wrong_folder",
     "NO_RESOURCES",
     "build_workdir",
     "download_resources",
