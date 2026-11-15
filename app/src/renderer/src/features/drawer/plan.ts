@@ -105,6 +105,45 @@ export function useStepStatuses(): StepStatus[] {
   return useLesson(useShallow((s) => stepStatuses(s, o)))
 }
 
+// ---------------------------------------------------------------------------
+// How big the plan is (review A14)
+// ---------------------------------------------------------------------------
+
+/** One row of the outline: its step's StepSummary.index once that step arrives, and about how long it takes. */
+export type OutlineRow = { index: number; estMinutes?: number }
+/** lesson.ready's lesson.outline (engine E23): the number of steps the lesson ends with, sent before they all arrive. */
+export type Outline = { count: number; rows: OutlineRow[] }
+
+/**
+ * The outline, when the engine sent one. It is an additive field this branch's contract doesn't have yet, so it is
+ * read defensively from core/lesson's lesson (core keeps lesson.ready's lesson object whole).
+ */
+export function lessonOutline(lesson: unknown): Outline | undefined {
+  const o = (lesson as { outline?: { count?: unknown; steps?: unknown } } | undefined)?.outline
+  if (!o || typeof o.count !== 'number' || !Number.isFinite(o.count) || o.count < 1) return undefined
+  const rows: OutlineRow[] = []
+  for (const r of Array.isArray(o.steps) ? (o.steps as Array<{ index?: unknown; estMinutes?: unknown }>) : []) {
+    if (typeof r?.index !== 'number') continue
+    rows.push({ index: r.index, estMinutes: typeof r.estMinutes === 'number' ? r.estMinutes : undefined })
+  }
+  return { count: Math.round(o.count), rows }
+}
+
+/**
+ * How many steps the lesson has, or undefined while that isn't known (Michael's review A14: "1 steps" and "Step 1 of 1"
+ * next to "More steps coming" while a lesson streamed in). Complete: the step list. Still building: the outline's
+ * count when the engine sent one, else unknown, and nothing says "of N" until it is.
+ */
+export function planTotal(steps: number, complete: boolean, outline?: Outline): number | undefined {
+  if (complete) return steps
+  return outline ? Math.max(outline.count, steps) : undefined
+}
+
+/** "1 step", "3 steps". */
+export function count(n: number, one: string, many = `${one}s`): string {
+  return `${n} ${n === 1 ? one : many}`
+}
+
 /** A step's concept names a primer item by id or by title (any case). */
 export function findPrimer(primer: PrimerItem[], concept: string): PrimerItem | undefined {
   const c = concept.trim().toLowerCase()

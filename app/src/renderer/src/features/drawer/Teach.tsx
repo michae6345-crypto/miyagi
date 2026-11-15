@@ -1,7 +1,7 @@
 /**
  * Feature: drawer. The "Just teach me" parts of the drawer (Michael: show the big picture, then the plan, then
  * exactly what to type):
- *  - OverviewText: "What we're building", one paragraph (lesson.ready overview).
+ *  - OverviewText: "What you're building", one paragraph (lesson.ready overview).
  *  - PrimerSection: "Before you start", collapsed by default; each concept with its body and a small example.
  *  - StepDetail: inside the current step, a Type / Run badge with the one-line instruction, the full code (or the
  *    exact command) in mono with Copy, "Why:" and concept chips that open the matching primer item in place.
@@ -22,7 +22,7 @@ import { GlassPrimary, GlassSpinner } from '../../core/ui/glass'
 import { FlowDiagram } from '../before-start/Flow'
 import { openBeforeStart } from '../before-start/store'
 import { useStepSnippet } from '../overview/snippet'
-import { copyText, findPrimer, useStepDetail } from './plan'
+import { copyText, findPrimer, useStepDetail, type OutlineRow } from './plan'
 import { openConcept, useDrawer } from './store'
 
 const hoverVar = { '--drawer-hover': glass.fieldHover } as CSSProperties
@@ -113,11 +113,21 @@ export function lessonTopic(title: string): string {
   return t || full
 }
 
-/** "about N min left": the steps' estMinutes summed over the steps not passed or skipped yet (undefined without estimates). */
-export function minutesLeft(steps: StepSummary[], done: string[]): number | undefined {
-  if (!steps.some((s) => typeof s.estMinutes === 'number')) return undefined
-  const left = steps.filter((s) => !done.includes(s.id)).reduce((sum, s) => sum + (s.estMinutes ?? 0), 0)
-  return Math.max(0, Math.round(left))
+/**
+ * "about N min left": the steps' estMinutes summed over the steps not passed or skipped yet (undefined without estimates).
+ * rows: the outline's (E23) while the rest of the lesson is still streaming in. A row counts until its step arrives; an
+ * arrived step without its own estimate keeps its row's, so the sum doesn't jump as steps land (review A14).
+ */
+export function minutesLeft(steps: StepSummary[], done: string[], rows: OutlineRow[] = []): number | undefined {
+  const byIndex = new Map(rows.map((r) => [r.index, r.estMinutes]))
+  const arrived = new Set(steps.map((s) => s.index))
+  const est = [
+    ...steps.filter((s) => !done.includes(s.id)).map((s) => s.estMinutes ?? byIndex.get(s.index)),
+    ...rows.filter((r) => !arrived.has(r.index)).map((r) => r.estMinutes)
+  ]
+  const known = [...steps.map((s) => s.estMinutes ?? byIndex.get(s.index)), ...rows.map((r) => r.estMinutes)]
+  if (!known.some((m) => typeof m === 'number')) return undefined
+  return Math.max(0, Math.round(est.reduce<number>((sum, m) => sum + (m ?? 0), 0)))
 }
 
 export function OverviewText({ text }: { text: string }): ReactNode {
@@ -143,13 +153,14 @@ export function PrimerSection(): ReactNode {
       <button
         type="button"
         className="flex w-full cursor-pointer items-center gap-[6px] px-[10px] pb-[4px] pt-[14px] text-left text-[12px] leading-[16px]"
-        style={{ color: glass.label }}
+        style={{ color: glass.faint }}
         aria-expanded={open}
         onMouseDown={(e) => e.preventDefault()}
         onClick={() => setOpen((o) => !o)}
       >
-        <span className="font-semibold">Key ideas</span>
-        <span style={{ color: glass.faint }}>
+        {/* The drawer's section labels (mockup 01's small caps). */}
+        <span className="text-[11px] font-semibold uppercase tracking-[0.06em]">Key ideas</span>
+        <span>
           {primer.length} {primer.length === 1 ? 'idea' : 'ideas'}
         </span>
         <motion.span className="grid place-items-center" animate={{ rotate: open ? 90 : 0 }} transition={spring}>

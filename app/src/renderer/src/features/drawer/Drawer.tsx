@@ -4,7 +4,8 @@
  * video is still building part by part, and the lesson's sources.
  *
  * The header never scrolls (mockup 01): for a "Just teach me" lesson the "Just teach me · <topic>" eyebrow, then the
- * title, a thin progress bar (neutral fill: green only means passed) and "Step N of M · about N min left".
+ * title, then one row: "Step N of M", a thin progress bar (neutral fill: green only means passed), "about N min left"
+ * ("Step N · more coming" and no bar or time while a lesson still streams in with no known total, review A14).
  *
  * A "Just teach me" lesson adds, top to bottom (Teach.tsx): what we're building, "Before you start", the plan
  * (numbered, one line per step from steps[].what, "N of M done"), and inside the current step the full code to
@@ -25,14 +26,20 @@ import { useAppearance } from '../../core/prefs'
 import { alpha, clock, color, glass, kindTone, radius, spring, springOut } from '../../core/theme'
 import { CheckList, Thumb, useChecking } from '../../core/ui/atoms'
 import { GlassCheck, GlassSpinner } from '../../core/ui/glass'
+import { useCards } from '../cards/store'
 import { parseYouTube, thumbnailFor } from '../launcher/youtube'
 import { HANDLE, TAB } from './geometry'
-import { useStepDetail, useStepStatuses, type StepStatus } from './plan'
+import { count, lessonOutline, planTotal, useStepDetail, useStepStatuses, type StepStatus } from './plan'
 import { closeDrawer, isWebLink, openSource, setPanelHeight, toggleDrawer } from './store'
 import { BuildStrip, lessonTopic, minutesLeft, NeedsChip, OverviewText, PrimerSection, StepActions, StepDetail } from './Teach'
 
-/** Row geometry: icon column, gap, time column. The current step's checks line up with its title. */
-const ROW = { h: 38, padX: 10, icon: 18, gap: 11 } as const
+/**
+ * Row geometry: icon column, gap, time column. The current step's checks line up with its title. A plan row with no
+ * time column (a "Just teach me" lesson) is mockup 01's denser list: at least 32 tall, its line wrapping to two.
+ */
+const ROW = { h: 38, wrapH: 32, wrapPadY: 6, padX: 10, icon: 18, gap: 11 } as const
+/** Section labels: mockup 01's small caps (the eyebrow's style), faint. */
+const CAPS = 'text-[11px] font-semibold uppercase tracking-[0.06em]'
 /**
  * Every color is a glass token (theme.glass: CSS variables that flip with Settings → Appearance), never color.* /
  * fill.* (those are the black island's). Hover goes through a CSS variable so it stays a token too.
@@ -178,7 +185,7 @@ export function Panel({ rect }: { rect: Rect }): ReactNode {
     >
       <div
         data-part="drawer-header"
-        className="shrink-0 border-b px-[18px] pb-[10px] pt-[14px]"
+        className="shrink-0 border-b px-[18px] pb-[12px] pt-[16px]"
         style={{ borderColor: scrolled ? glass.rule : 'transparent', transition: 'border-color 150ms ease-out' }}
       >
         <div className="flex items-start gap-[12px]">
@@ -188,7 +195,13 @@ export function Panel({ rect }: { rect: Rect }): ReactNode {
                 {topic ? `Just teach me · ${topic}` : 'Just teach me'}
               </div>
             )}
-            <div className="line-clamp-2 text-[15px] font-semibold leading-[20px]">{lesson?.title ?? ''}</div>
+            {/* Mockup 01: a lesson's title is the header (20 pt); a video's stays 15 next to its player. */}
+            <div
+              data-part="drawer-title"
+              className={`line-clamp-2 font-semibold ${lessonMode ? 'text-[20px] leading-[25px] tracking-[-0.01em]' : 'text-[15px] leading-[20px]'}`}
+            >
+              {lesson?.title ?? ''}
+            </div>
             {by && (
               <div className="mt-[2px] truncate text-[12px] leading-[16px]" style={{ color: glass.faint }}>
                 {by}
@@ -208,7 +221,7 @@ export function Panel({ rect }: { rect: Rect }): ReactNode {
             {lessonMode ? <ChevronsRight size={13} strokeWidth={2.2} /> : <X size={12} strokeWidth={2.2} />}
           </button>
         </div>
-        {plan.total > 0 && <ProgressHeader plan={plan} />}
+        {plan.known > 0 && <ProgressHeader plan={plan} />}
       </div>
       <LiveNetSection />
       <div
@@ -228,15 +241,15 @@ export function Panel({ rect }: { rect: Rect }): ReactNode {
         ) : (
           overview && (
             <>
-              <Label>What we're building</Label>
+              <Label>What you're building</Label>
               <OverviewText text={overview} />
             </>
           )
         )}
         <NeedsChip />
         <PrimerSection />
-        <Label part="drawer-plan" right={plan.total > 0 ? `${plan.done} of ${plan.total} done` : undefined}>
-          {lessonMode ? 'Plan' : 'Steps'}
+        <Label part="drawer-plan" right={plan.total ? `${plan.done} of ${plan.total} done` : plan.done > 0 ? `${plan.done} done` : undefined}>
+          {lessonMode ? 'The plan' : 'Steps'}
         </Label>
         <Steps scroller={scroller} />
         {sources.length > 0 && (
@@ -254,12 +267,12 @@ export function Panel({ rect }: { rect: Rect }): ReactNode {
 
 function Label({ children, right, part }: { children: ReactNode; right?: ReactNode; part?: string }): ReactNode {
   return (
-    <div data-part={part} className="flex items-baseline justify-between gap-[8px] px-[10px] pb-[4px] pt-[14px] text-[12px] leading-[16px]">
-      <span className="font-semibold" style={{ color: glass.label }}>
+    <div data-part={part} className="flex items-baseline justify-between gap-[8px] px-[10px] pb-[4px] pt-[14px] leading-[16px]">
+      <span className={CAPS} style={{ color: glass.faint }}>
         {children}
       </span>
       {right && (
-        <span data-part="drawer-done" className="shrink-0 tabular-nums" style={{ color: glass.faint }}>
+        <span data-part="drawer-done" className="shrink-0 text-[12px] tabular-nums" style={{ color: glass.faint }}>
           {right}
         </span>
       )}
@@ -271,7 +284,11 @@ function Label({ children, right, part }: { children: ReactNode; right?: ReactNo
 // Header progress
 // ---------------------------------------------------------------------------
 
-type PlanProgress = { done: number; skipped: number; total: number; index: number; hasStep: boolean; complete: boolean; left?: number }
+/**
+ * known: steps that have arrived. total: how many the lesson has, undefined while it is still streaming in without an
+ * outline (plan.ts planTotal, review A14).
+ */
+type PlanProgress = { done: number; skipped: number; known: number; total?: number; index: number; hasStep: boolean; complete: boolean; left?: number }
 
 /**
  * Steps done: passed (or before the current one), never skipped and never the current step itself (the same rule as
@@ -285,50 +302,65 @@ function usePlanProgress(): PlanProgress {
     useShallow((s) => {
       const done = statuses.filter((x) => x === 'done').length
       const skipped = statuses.filter((x) => x === 'skipped').length
-      // Mockup 01: "about N min left" (steps[].estMinutes over the steps still to do: the current one counts, a skipped one doesn't).
-      const left = minutesLeft(
-        s.steps,
-        s.steps.filter((_, i) => statuses[i] === 'done' || statuses[i] === 'skipped').map((x) => x.id)
-      )
-      return { done, skipped, total: s.steps.length, hasStep: !!s.stepId, complete: s.complete, left }
+      const outline = lessonOutline(s.lesson)
+      const finished = s.steps.filter((_, i) => statuses[i] === 'done' || statuses[i] === 'skipped').map((x) => x.id)
+      // Mockup 01: "about N min left" (steps[].estMinutes over the steps still to do: the current one counts, a skipped
+      // one doesn't). While steps stream in, the list's sum grows with every part (review A14), so only the outline's
+      // estimates count then; with no outline the time shows once the lesson is complete.
+      const left = s.complete ? minutesLeft(s.steps, finished) : outline ? minutesLeft(s.steps, finished, outline.rows) : undefined
+      return { done, skipped, known: s.steps.length, total: planTotal(s.steps.length, s.complete, outline), hasStep: !!s.stepId, complete: s.complete, left }
     })
   )
   return { ...p, index }
 }
 
-/** Mockup 01: a thin bar (neutral fill, never green: green only means passed), "Step N of M" and the time left. Never scrolls. */
-function ProgressHeader({ plan }: { plan: PlanProgress }): ReactNode {
+/**
+ * The header line. Never a total that isn't known yet (review A14): "Step 1 · more coming" until the lesson is complete
+ * or the outline (E23) gives the count, then "Step 1 of 6".
+ */
+function stepLine(plan: PlanProgress): string {
+  const { total } = plan
   // Every step passed or skipped: the lesson is over. Skipped steps never read as done.
-  const all = plan.complete && plan.total > 0 && plan.done + plan.skipped >= plan.total
-  const line = !all
-    ? plan.hasStep
-      ? `Step ${plan.index + 1} of ${plan.total}`
-      : `${plan.total} steps`
-    : plan.skipped
-      ? `${plan.done} of ${plan.total} done · ${plan.skipped} skipped`
-      : `All ${plan.total} steps done`
+  if (plan.complete && total && plan.done + plan.skipped >= total) {
+    if (plan.skipped) return `${plan.done} of ${total} done · ${plan.skipped} skipped`
+    return total === 1 ? 'Step done' : `All ${total} steps done`
+  }
+  if (plan.hasStep) return total ? `Step ${plan.index + 1} of ${total}` : `Step ${plan.index + 1} · more coming`
+  return total ? count(total, 'step') : `${count(plan.known, 'step')} · more coming`
+}
+
+/**
+ * Mockup 01, one row: "Step N of M", a thin bar (neutral fill, never green: green only means passed), the time left.
+ * Never scrolls. No total yet: no bar (a fill over the steps so far would shrink back with every part that lands), and
+ * the row keeps its height when the bar comes in.
+ */
+function ProgressHeader({ plan }: { plan: PlanProgress }): ReactNode {
+  const all = plan.complete && !!plan.total && plan.done + plan.skipped >= plan.total
+  const line = stepLine(plan)
   return (
-    <div data-part="drawer-progress" className="mt-[11px]">
-      <div className="h-[3px] overflow-hidden rounded-full" style={{ background: glass.track }}>
-        <motion.div
-          data-part="drawer-progress-fill"
-          className="h-full w-full"
-          style={{ background: glass.text, originX: 0 }}
-          initial={false}
-          animate={{ scaleX: plan.total ? plan.done / plan.total : 0 }}
-          transition={spring}
-        />
-      </div>
-      <div className="mt-[7px] flex items-baseline justify-between gap-[8px] text-[12px] leading-[16px]">
-        <span data-part="drawer-step-of" className="font-semibold tabular-nums" style={{ color: glass.label }}>
-          {line}
-        </span>
-        {!all && plan.left !== undefined && plan.left > 0 && (
-          <span data-part="drawer-left" className="truncate" style={{ color: glass.faint }}>
-            about {plan.left} min left
+    <div data-part="drawer-progress" className="mt-[10px] flex items-center gap-[10px] text-[13px] leading-[18px]">
+      <span data-part="drawer-step-of" className="shrink-0 font-semibold tabular-nums" style={{ color: glass.text }}>
+        {line}
+      </span>
+      <span className="min-w-[24px] flex-1">
+        {!!plan.total && (
+          <span className="block h-[4px] overflow-hidden rounded-full" style={{ background: glass.track }}>
+            <motion.span
+              data-part="drawer-progress-fill"
+              className="block h-full w-full"
+              style={{ background: glass.text, originX: 0 }}
+              initial={false}
+              animate={{ scaleX: plan.done / plan.total }}
+              transition={spring}
+            />
           </span>
         )}
-      </div>
+      </span>
+      {!all && plan.left !== undefined && plan.left > 0 && (
+        <span data-part="drawer-left" className="min-w-0 shrink truncate" style={{ color: glass.faint }}>
+          about {plan.left} min left
+        </span>
+      )}
     </div>
   )
 }
@@ -350,6 +382,11 @@ function Steps({ scroller }: { scroller: RefObject<HTMLDivElement | null> }): Re
       lessonMode: s.lesson?.mode === 'lesson'
     }))
   )
+  // The outline (E23) knows how many steps are still to come: "2 more steps coming".
+  const more = useLesson((s) => {
+    const o = lessonOutline(s.lesson)
+    return o ? o.count - s.steps.length : undefined
+  })
   // Ids on screen when the drawer opened: those rows never animate in. Anything appended later does.
   const atOpen = useRef<Set<string> | null>(null)
   if (!atOpen.current) atOpen.current = new Set(steps.map((s) => s.id))
@@ -357,6 +394,7 @@ function Steps({ scroller }: { scroller: RefObject<HTMLDivElement | null> }): Re
 
   // The current step stays current (expanded) even when core still lists it as passed or skipped (after Back).
   const statuses = useStepStatuses()
+  const waitingOnSetup = useWaitingOnSetup()
   const timeW = useTimeWidth(steps, complete)
   // The current step's code arriving after step.started grows the row: keep it in view then too.
   const codeLen = useStepDetail((d) => (d.detail && d.detail.stepId === stepId ? (d.detail.code?.length ?? 0) : -1))
@@ -378,13 +416,22 @@ function Steps({ scroller }: { scroller: RefObject<HTMLDivElement | null> }): Re
             checks={status === 'current' ? checks : undefined}
             instructions={status === 'current' ? instructions : undefined}
             actions={status === 'current' && lessonMode}
+            note={status === 'current' && waitingOnSetup ? 'Waiting on setup' : undefined}
             enterDelay={k < 0 ? undefined : k * 0.04}
           />
         )
       })}
-      <AnimatePresence>{(!complete || pendingNext) && <PendingRow key="pending" waiting={pendingNext} part={part} timeW={timeW} />}</AnimatePresence>
+      <AnimatePresence>{(!complete || pendingNext) && <PendingRow key="pending" waiting={pendingNext} part={part} more={more} timeW={timeW} />}</AnimatePresence>
     </div>
   )
+}
+
+/**
+ * A setup card with something still missing is up (Michael's review A17): until Install or Skip is chosen (and while an
+ * install runs), the current step reads "Waiting on setup". Read-only from the cards store.
+ */
+function useWaitingOnSetup(): boolean {
+  return useCards((c) => c.card?.kind === 'setup' && (c.card.setup?.items ?? c.card.items ?? []).some((x) => x.needed && !x.ok))
 }
 
 /**
@@ -494,6 +541,7 @@ function StepRow({
   checks,
   instructions,
   actions,
+  note,
   enterDelay
 }: {
   step: StepSummary
@@ -506,6 +554,8 @@ function StepRow({
   instructions?: string
   /** The option row (Explain / Diagram / Show me / Hint + Check my work): the current step of a "Just teach me" lesson. */
   actions?: boolean
+  /** A quiet status at the row's end ("Waiting on setup"): faint, no hue. */
+  note?: string
   enterDelay?: number
 }): ReactNode {
   const mounted = useMounted()
@@ -518,6 +568,7 @@ function StepRow({
   const indent = ROW.padX + ROW.icon + ROW.gap + (timeW ? timeW + ROW.gap : 0)
   // No time column (a "Just teach me" lesson): plan lines wrap to two lines instead of being cut off.
   const wrap = timeW === 0
+  const estimate = typeof step.estMinutes === 'number' && step.estMinutes > 0 ? `about ${Math.round(step.estMinutes)} min` : undefined
   return (
     <motion.div
       data-step={step.id}
@@ -531,7 +582,7 @@ function StepRow({
       <button
         type="button"
         className={`flex w-full items-center rounded-[12px] text-left ${canSeek ? `cursor-pointer ${hoverCls}` : 'cursor-default'}`}
-        style={{ ...(wrap ? { minHeight: ROW.h, paddingTop: 9, paddingBottom: 9 } : { height: ROW.h }), paddingLeft: ROW.padX, paddingRight: ROW.padX, gap: ROW.gap, ...hoverVar }}
+        style={{ ...(wrap ? { minHeight: ROW.wrapH, paddingTop: ROW.wrapPadY, paddingBottom: ROW.wrapPadY } : { height: ROW.h }), paddingLeft: ROW.padX, paddingRight: ROW.padX, gap: ROW.gap, ...hoverVar }}
         disabled={!canSeek}
         onMouseDown={(e) => e.preventDefault()}
         onClick={() => v && seekVideo(v.start)}
@@ -564,6 +615,12 @@ function StepRow({
         >
           {line ?? step.title}
         </span>
+        {/* Mockup 01: the current step's "about 4 min" at the row's end; a status note ("Waiting on setup") wins. */}
+        {(note || (current && estimate)) && (
+          <span data-part={note ? 'drawer-step-note' : 'drawer-step-est'} className="shrink-0 text-[12px]" style={{ color: glass.faint }}>
+            {note ?? estimate}
+          </span>
+        )}
       </button>
       {current && <StepDetail stepId={step.id} instructions={instructions} planKind={step.kind} indent={indent} padX={ROW.padX} />}
       {checks && checks.length > 0 && (
@@ -613,14 +670,17 @@ function NumberRing({ n, current }: { n: number; current: boolean }): ReactNode 
   )
 }
 
-/** "More steps coming" (Part 2 of 5) while the video builds; "Next part is still building" when the learner is waiting on it. */
-function PendingRow({ waiting, part, timeW }: { waiting: boolean; part?: string; timeW: number }): ReactNode {
+/**
+ * "More steps coming" (Part 2 of 5) while the video builds, "2 more steps coming" when the outline (E23) gives the count;
+ * "Next part is still building" when the learner is waiting on it.
+ */
+function PendingRow({ waiting, part, more, timeW }: { waiting: boolean; part?: string; more?: number; timeW: number }): ReactNode {
   const mounted = useMounted()
   return (
     <motion.div
       data-part="drawer-pending"
       className="flex items-center"
-      style={{ height: ROW.h, paddingLeft: ROW.padX, paddingRight: ROW.padX, gap: ROW.gap }}
+      style={{ height: timeW ? ROW.h : ROW.wrapH, paddingLeft: ROW.padX, paddingRight: ROW.padX, gap: ROW.gap }}
       initial={mounted ? { opacity: 0 } : false}
       animate={{ opacity: 1 }}
       exit={{ opacity: 0, transition: { duration: 0.18 } }}
@@ -637,7 +697,7 @@ function PendingRow({ waiting, part, timeW }: { waiting: boolean; part?: string;
       </span>
       {timeW > 0 && <span className="shrink-0" style={{ width: timeW }} />}
       <span className="min-w-0 flex-1 truncate text-[13px]" style={{ color: waiting ? glass.label : glass.faint }}>
-        {waiting ? 'Next part is still building' : 'More steps coming'}
+        {waiting ? 'Next part is still building' : more && more > 0 ? `${count(more, 'more step', 'more steps')} coming` : 'More steps coming'}
       </span>
       {part && (
         <span className="shrink-0 text-[12px] tabular-nums" style={{ color: glass.faint }}>
