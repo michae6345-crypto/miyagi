@@ -1,0 +1,632 @@
+{
+  "lesson": {
+    "id": "lesson-43e26ca1",
+    "title": "Build a Python Calculator",
+    "goal": "python calculator",
+    "workdir": "/Users/tripi/miyagi/lessons/python-calculator-e430dc",
+    "libraries": {},
+    "mode": "lesson",
+    "complete": true,
+    "builtBy": "claude"
+  },
+  "sources": [],
+  "steps": [
+    {
+      "id": "s1",
+      "index": 1,
+      "title": "Add the add function",
+      "instructions": "In calculator.py, below the comment, write def add(a, b): that returns a + b, then add print(add(2, 3)) at the bottom.",
+      "code": "def add(a, b):\n    return a + b\n\nprint(add(2, 3))",
+      "file": "calculator.py",
+      "checks": [
+        {
+          "id": "s1c1",
+          "type": "screen_contains",
+          "label": "add function is written in the",
+          "app": "Code",
+          "pattern": "def\\s+add\\(a,\\s*b\\):"
+        },
+        {
+          "id": "s1c2",
+          "type": "screen_contains",
+          "label": "add returns the sum",
+          "app": "Code",
+          "pattern": "return\\s+a\\s*\\+\\s*b"
+        }
+      ],
+      "precision_checks": [
+        {
+          "id": "s1p1",
+          "type": "file_contains",
+          "label": "calculator.py defines add(a, b)",
+          "file": "calculator.py",
+          "pattern": "def add\\(a, b\\):"
+        },
+        {
+          "id": "s1p2",
+          "type": "file_contains",
+          "label": "calculator.py prints add(2, 3)",
+          "file": "calculator.py",
+          "pattern": "print\\(add\\(2,\\s*3\\)\\)"
+        },
+        {
+          "id": "s1p3",
+          "type": "command_exit_ok",
+          "label": "calculator.py runs without error",
+          "command": "python calculator.py"
+        }
+      ],
+      "targets": [
+        {
+          "app": "Code",
+          "file": "calculator.py",
+          "match": "# Step 1:",
+          "caption": "Type the add function on the lines below this comment"
+        },
+        {
+          "app": "Code",
+          "file": "calculator.py",
+          "match": "return a + b",
+          "caption": "Indent the return line by four spaces so it sits inside add"
+        }
+      ],
+      "explanations": [],
+      "hints": [
+        "Type the def line right below the comment, then press Enter.",
+        "The body of add must be indented under the def line by four spaces.",
+        "Leave one blank line, then add print(add(2, 3)) at the bottom and save before running."
+      ],
+      "common_mistakes": [
+        "Forgetting the colon after def add(a, b).",
+        "Not indenting return a + b, which causes an IndentationError.",
+        "Writing add(a, b) with a missing parenthesis or a typo in the name, so the print line fails.",
+        "Forgetting to save the file (Ctrl+S / Cmd+S) before running python calculator.py, so the output is stale or missing.",
+        "Running the file from a different folder, so Python cannot find calculator.py."
+      ],
+      "run_command": "python calculator.py"
+    },
+    {
+      "id": "s2",
+      "index": 2,
+      "title": "Run your first output",
+      "instructions": "In the terminal, run python calculator.py and check that it prints 5.",
+      "code": "print(add(2, 3))",
+      "file": "calculator.py",
+      "checks": [
+        {
+          "id": "s2c1",
+          "type": "screen_contains",
+          "label": "The add function is still in",
+          "app": "Code",
+          "pattern": "def\\s+add\\(a,\\s*b\\)"
+        }
+      ],
+      "precision_checks": [
+        {
+          "id": "s2p1",
+          "type": "file_contains",
+          "label": "calculator.py has the print call for",
+          "file": "calculator.py",
+          "pattern": "print\\(add\\(2,\\s*3\\)\\)"
+        },
+        {
+          "id": "s2p2",
+          "type": "command_exit_ok",
+          "label": "python calculator.py runs without error",
+          "command": "python calculator.py"
+        },
+        {
+          "id": "s2p3",
+          "type": "output_contains",
+          "label": "The script's output is 5",
+          "pattern": "^5$"
+        }
+      ],
+      "targets": [
+        {
+          "file": "calculator.py",
+          "match": "print(add(",
+          "caption": "This line is already in your file. It calls add(2, 3) and prints the result. Leave it as is.",
+          "app": "Code"
+        },
+        {
+          "app": "Terminal",
+          "file": "calculator.py",
+          "match": "python calculator.py",
+          "caption": "In the terminal, type python calculator.py and press Enter."
+        }
+      ],
+      "explanations": [],
+      "hints": [
+        "Make sure the terminal is open in the lesson folder, the same folder that contains calculator.py.",
+        "Type the command exactly as python calculator.py (lowercase, with the .py ending) and press Enter.",
+        "You should see a single line with 5 under the command. If you see an error instead, check that the add function and the print line are both in calculator.py and saved."
+      ],
+      "common_mistakes": [
+        "Saving the file is missing: the terminal runs the file on disk, so press Cmd/Ctrl+S before running, or the print line will not be the version that runs.",
+        "Running from the wrong folder gives 'No such file or directory'. Use the terminal in the lesson folder.",
+        "Typing python calculator (no .py) or calculator.py alone. The file must be run with python calculator.py.",
+        "Indentation or a missing parenthesis in print(add(2, 3)) causes a SyntaxError. The line must match print(add(2, 3)) exactly, with two closing parentheses."
+      ],
+      "run_command": "python calculator.py"
+    },
+    {
+      "id": "s3",
+      "index": 3,
+      "title": "Add three more operations",
+      "instructions": "In calculator.py, above the print line, write subtract, multiply and divide functions that each take a and b and return the result.",
+      "code": "def subtract(a, b):\n    return a - b\n\ndef multiply(a, b):\n    return a * b\n\ndef divide(a, b):\n    return a / b",
+      "file": "calculator.py",
+      "checks": [
+        {
+          "id": "s3c1",
+          "type": "screen_contains",
+          "label": "subtract function is typed in the",
+          "app": "Code",
+          "pattern": "def\\s+subtract\\(a,\\s*b\\)"
+        },
+        {
+          "id": "s3c2",
+          "type": "screen_contains",
+          "label": "multiply function is typed in the",
+          "app": "Code",
+          "pattern": "def\\s+multiply\\(a,\\s*b\\)"
+        },
+        {
+          "id": "s3c3",
+          "type": "screen_contains",
+          "label": "divide function is typed in the",
+          "app": "Code",
+          "pattern": "def\\s+divide\\(a,\\s*b\\)"
+        }
+      ],
+      "precision_checks": [
+        {
+          "id": "s3p1",
+          "type": "file_contains",
+          "label": "subtract defined in calculator.py",
+          "file": "calculator.py",
+          "pattern": "def\\s+subtract\\(a,\\s*b\\):"
+        },
+        {
+          "id": "s3p2",
+          "type": "file_contains",
+          "label": "multiply defined in calculator.py",
+          "file": "calculator.py",
+          "pattern": "def\\s+multiply\\(a,\\s*b\\):"
+        },
+        {
+          "id": "s3p3",
+          "type": "file_contains",
+          "label": "divide defined in calculator.py",
+          "file": "calculator.py",
+          "pattern": "def\\s+divide\\(a,\\s*b\\):"
+        },
+        {
+          "id": "s3p4",
+          "type": "command_exit_ok",
+          "label": "calculator.py runs without errors",
+          "command": "python calculator.py"
+        }
+      ],
+      "targets": [
+        {
+          "app": "Code",
+          "file": "calculator.py",
+          "match": "return a + b",
+          "caption": "Leave the add function as it is, then type the three new functions below it, above the print line."
+        }
+      ],
+      "explanations": [],
+      "hints": [
+        "Put each new function under add, with a blank line between them. The print line stays at the bottom.",
+        "Each function needs `def`, its name, `(a, b):`, and an indented `return` line. Indent the return by four spaces.",
+        "Subtract uses `a - b`, multiply uses `a * b`, and divide uses `a / b`. Don't worry about zero yet; that guard comes in step 4."
+      ],
+      "common_mistakes": [
+        "Typing the new functions below the print line. They still work, but the terminal output comes before they're defined, so keep them above print.",
+        "Forgetting the colon after `(a, b)` or the indentation under `def`, which gives a SyntaxError when you run the file.",
+        "Writing `b - a` or `b / a` by mistake. Keep the first argument on the left so subtract(10, 4) returns 6.",
+        "Adding a zero check in divide now. That belongs to step 4, so keep divide to a single return line for this step."
+      ],
+      "run_command": "python calculator.py"
+    },
+    {
+      "id": "s4",
+      "index": 4,
+      "title": "Guard against dividing by zero",
+      "instructions": "In calculator.py, make divide raise ValueError(\"Cannot divide by zero\") when b is 0 before returning a / b.",
+      "code": "def divide(a, b):\n    if b == 0:\n        raise ValueError(\"Cannot divide by zero\")\n    return a / b",
+      "file": "calculator.py",
+      "checks": [
+        {
+          "id": "s4c1",
+          "type": "screen_contains",
+          "label": "divide raises ValueError on zero",
+          "app": "Code",
+          "pattern": "raise\\s+ValueError\\(\"Cannot divide by zero\"\\)"
+        },
+        {
+          "id": "s4c2",
+          "type": "screen_contains",
+          "label": "divide function defined",
+          "app": "Code",
+          "pattern": "def\\s+divide\\(a,\\s*b\\)"
+        }
+      ],
+      "precision_checks": [
+        {
+          "id": "s4p1",
+          "type": "file_contains",
+          "label": "calculator.py has the zero guard",
+          "file": "calculator.py",
+          "pattern": "raise ValueError\\(\"Cannot divide by zero\"\\)"
+        },
+        {
+          "id": "s4p2",
+          "type": "file_contains",
+          "label": "calculator.py defines divide",
+          "file": "calculator.py",
+          "pattern": "def divide\\(a, b\\):"
+        },
+        {
+          "id": "s4p3",
+          "type": "command_exit_ok",
+          "label": "calculator.py runs without error",
+          "command": "python calculator.py"
+        }
+      ],
+      "targets": [
+        {
+          "app": "Code",
+          "file": "calculator.py",
+          "match": "return a + b",
+          "caption": "Type the new divide function on the line(s) below add"
+        }
+      ],
+      "explanations": [],
+      "hints": [
+        "Put divide below add, leaving one blank line between the two functions.",
+        "The guard is an if statement that checks whether b equals 0 before the division line runs.",
+        "Use two equal signs (==) for comparison; one (=) assigns a value and will cause an error."
+      ],
+      "common_mistakes": [
+        "Writing `if b = 0:` with one equals sign, which is a syntax error.",
+        "Putting the `return a / b` line above the `if` check, so the division happens before the guard.",
+        "Forgetting the colon at the end of the `if` line or `def` line.",
+        "Indenting the `raise` or `return` lines inconsistently, so Python reports an IndentationError.",
+        "Misspelling the message so it no longer reads exactly \"Cannot divide by zero\"."
+      ],
+      "run_command": "python calculator.py"
+    },
+    {
+      "id": "s5",
+      "index": 5,
+      "title": "Read user input",
+      "instructions": "In calculator.py, replace the print line with a main() function that uses input() to read two numbers with float() and an operator symbol.",
+      "code": "def main():\n    first = float(input(\"First number: \"))\n    op = input(\"Operator (+, -, *, /): \")\n    second = float(input(\"Second number: \"))\n    print(f\"You entered {first} {op} {second}\")\n\nif __name__ == \"__main__\":\n    main()",
+      "file": "calculator.py",
+      "checks": [
+        {
+          "id": "s5c1",
+          "type": "screen_contains",
+          "label": "main() function is in the editor",
+          "app": "Code",
+          "pattern": "def\\s+main\\(\\)"
+        },
+        {
+          "id": "s5c2",
+          "type": "screen_contains",
+          "label": "Numbers are read with float(input(",
+          "app": "Code",
+          "pattern": "float\\(input\\("
+        },
+        {
+          "id": "s5c3",
+          "type": "screen_contains",
+          "label": "Calculator echoes the entered values in",
+          "app": "Terminal",
+          "pattern": "You entered"
+        }
+      ],
+      "precision_checks": [
+        {
+          "id": "s5p1",
+          "type": "file_contains",
+          "label": "calculator.py defines main()",
+          "file": "calculator.py",
+          "pattern": "def main\\(\\):"
+        },
+        {
+          "id": "s5p2",
+          "type": "file_contains",
+          "label": "calculator.py reads a number with float(input())",
+          "file": "calculator.py",
+          "pattern": "float\\(input\\("
+        },
+        {
+          "id": "s5p3",
+          "type": "file_contains",
+          "label": "The old print(add(2, 3)) line was",
+          "file": "calculator.py",
+          "pattern": "^(?!.*print\\(add\\(2, 3\\)\\)).*$"
+        },
+        {
+          "id": "s5p4",
+          "type": "command_exit_ok",
+          "label": "calculator.py parses as valid Python",
+          "command": "python3 -c \"import ast; ast.parse(open('calculator.py').read())\""
+        }
+      ],
+      "targets": [
+        {
+          "file": "calculator.py",
+          "match": "return a + b",
+          "caption": "Type the new main() function below add()",
+          "app": "Code"
+        },
+        {
+          "file": "calculator.py",
+          "match": "print(add(2, 3))",
+          "caption": "Delete this print line; main() replaces it",
+          "app": "Code"
+        }
+      ],
+      "explanations": [],
+      "hints": [
+        "Delete the print(add(2, 3)) line first, then type main() in its place.",
+        "Each input() call pauses the program and waits for you to type in the terminal, then press Enter.",
+        "Wrap input() in float() for the two numbers so you can do math on them later; the operator stays a plain string."
+      ],
+      "common_mistakes": [
+        "Leaving print(add(2, 3)) in the file, which runs before main() and clutters the output.",
+        "Forgetting the parentheses in def main(): or the colon at the end of the line.",
+        "Indenting the body of main() inconsistently; use four spaces for every line inside the function.",
+        "Dropping the if __name__ == \"__main__\": guard, so main() never runs when you execute the file.",
+        "Writing float(input(...)) without the closing parenthesis, which gives a SyntaxError."
+      ],
+      "run_command": "python3 calculator.py"
+    },
+    {
+      "id": "s6",
+      "index": 6,
+      "title": "Pick the operation",
+      "instructions": "In main(), use if/elif on the operator (+, -, *, /) to call the matching function and print the result, with an else that prints Unknown operator.",
+      "code": "def main():\n    a = float(input(\"First number: \"))\n    op = input(\"Operator (+, -, *, /): \")\n    b = float(input(\"Second number: \"))\n\n    if op == \"+\":\n        result = add(a, b)\n    elif op == \"-\":\n        result = subtract(a, b)\n    elif op == \"*\":\n        result = multiply(a, b)\n    elif op == \"/\":\n        result = divide(a, b)\n    else:\n        print(\"Unknown operator\")\n        return\n\n    print(f\"Result: {result}\")\n\nif __name__ == \"__main__\":\n    main()",
+      "file": "calculator.py",
+      "checks": [
+        {
+          "id": "s6c1",
+          "type": "screen_contains",
+          "label": "if/elif operator chain is in the",
+          "app": "Code",
+          "pattern": "elif\\s+op\\s*==\\s*\"/\""
+        },
+        {
+          "id": "s6c2",
+          "type": "screen_contains",
+          "label": "Unknown operator fallback is in the",
+          "app": "Code",
+          "pattern": "Unknown\\s+operator"
+        },
+        {
+          "id": "s6c3",
+          "type": "screen_contains",
+          "label": "calculator prints a Result line",
+          "app": "Terminal",
+          "pattern": "Result:\\s*-?\\d"
+        }
+      ],
+      "precision_checks": [
+        {
+          "id": "s6p1",
+          "type": "file_contains",
+          "label": "main() is defined",
+          "file": "calculator.py",
+          "pattern": "def\\s+main\\("
+        },
+        {
+          "id": "s6p2",
+          "type": "file_contains",
+          "label": "multiplication branch present",
+          "file": "calculator.py",
+          "pattern": "if\\s+op\\s*==\\s*\"\\+\""
+        },
+        {
+          "id": "s6p3",
+          "type": "command_exit_ok",
+          "label": "module imports cleanly without running main",
+          "command": "python3 -c \"import calculator\""
+        }
+      ],
+      "targets": [
+        {
+          "file": "calculator.py",
+          "match": "# Step 1: Start building your calculator here",
+          "caption": "Type the main() function below this comment, after your add function",
+          "app": "Code"
+        }
+      ],
+      "explanations": [],
+      "hints": [
+        "Build main() one piece at a time: first read a, op, and b with input(), then add the if/elif chain.",
+        "Each condition compares op to a string in quotes, such as op == \"+\". Watch for the colon at the end of each if, elif, and else line.",
+        "Indent the body of every if, elif, and else by four spaces, and put the else's print under else:."
+      ],
+      "common_mistakes": [
+        "Forgetting the quotes around the operator, so op == + is a syntax error instead of op == \"+\".",
+        "Using = instead of == in the comparisons, which raises a SyntaxError.",
+        "Missing the colon after elif or else, or mixing tabs and spaces in the indentation.",
+        "Calling subtract, multiply, or divide by names that differ from the functions you wrote in step 3 (check the def lines).",
+        "Running the script and typing an operator with extra spaces, such as ' +', which falls through to Unknown operator."
+      ],
+      "run_command": "python3 calculator.py"
+    },
+    {
+      "id": "s7",
+      "index": 7,
+      "title": "Run the calculator",
+      "instructions": "At the bottom of calculator.py add if __name__ == \"__main__\": followed by an indented main() call.",
+      "code": "if __name__ == \"__main__\":\n    main()",
+      "file": "calculator.py",
+      "checks": [
+        {
+          "id": "s7c1",
+          "type": "screen_contains",
+          "label": "Code: main-guard line is typed",
+          "app": "Code",
+          "pattern": "if\\s+__name__\\s*==\\s*[\"']__main__[\"']"
+        },
+        {
+          "id": "s7c2",
+          "type": "screen_contains",
+          "label": "Code: main() is called under the",
+          "app": "Code",
+          "pattern": "__main__[\"']:\\s*\\n\\s+main\\(\\)"
+        }
+      ],
+      "precision_checks": [
+        {
+          "id": "s7p1",
+          "type": "file_contains",
+          "label": "calculator.py has the main guard",
+          "file": "calculator.py",
+          "pattern": "if\\s+__name__\\s*==\\s*[\"']__main__[\"']"
+        },
+        {
+          "id": "s7p2",
+          "type": "file_contains",
+          "label": "calculator.py calls main() indented under the",
+          "file": "calculator.py",
+          "pattern": "\\n\\s+main\\(\\)"
+        },
+        {
+          "id": "s7p3",
+          "type": "command_exit_ok",
+          "label": "calculator.py runs without error",
+          "command": "python3 calculator.py"
+        }
+      ],
+      "targets": [
+        {
+          "app": "Code",
+          "file": "calculator.py",
+          "match": "Start building your calculator here",
+          "caption": "Go to the bottom of the file and type the main guard. Keep the main() line indented four spaces."
+        }
+      ],
+      "explanations": [],
+      "hints": [
+        "Put the new lines at the very bottom of calculator.py, after everything else, with no indent on the if line.",
+        "The word after `__name__ ==` is the string \"__main__\" with two underscores on each side, and the colon at the end is required.",
+        "The main() line must be indented four spaces under the if, or Python will raise an IndentationError."
+      ],
+      "common_mistakes": [
+        "Writing __name__ == main without quotes, or using __name__ = \"__main__\" with a single equals sign.",
+        "Forgetting the colon at the end of the if line.",
+        "Indenting the if line itself, or leaving main() unindented so it runs outside the guard.",
+        "Calling main() when no main function exists yet; if you have not defined main() in Step 6, define it first or Python will raise a NameError.",
+        "Running the file while it waits for input and leaving the terminal stuck; press Ctrl+C and type your answers when prompted."
+      ],
+      "run_command": "python3 calculator.py"
+    },
+    {
+      "id": "s8",
+      "index": 8,
+      "title": "Try it in the terminal",
+      "instructions": "In the terminal, run python calculator.py and enter 8, 2 and / to see 4.0 printed.",
+      "code": "python calculator.py",
+      "file": "(terminal)",
+      "checks": [
+        {
+          "id": "s8c1",
+          "type": "screen_contains",
+          "label": "Calculator prompted for input",
+          "app": "Terminal",
+          "pattern": "(?i)(number|operation|enter)\\s*.*:"
+        }
+      ],
+      "precision_checks": [
+        {
+          "id": "s8p1",
+          "type": "file_contains",
+          "label": "calculator.py reads user input",
+          "file": "calculator.py",
+          "pattern": "input\\("
+        },
+        {
+          "id": "s8p2",
+          "type": "command_exit_ok",
+          "label": "Calculator runs with 8, 2, /",
+          "command": "printf '8\\n2\\n/\\n' | python calculator.py"
+        },
+        {
+          "id": "s8p3",
+          "type": "output_contains",
+          "label": "8 / 2 prints 4.0",
+          "pattern": "4\\.0"
+        }
+      ],
+      "targets": [
+        {
+          "app": "Terminal",
+          "file": "(terminal)",
+          "match": "python calculator.py",
+          "caption": "Type this in the terminal, press Enter, then answer the prompts: 8, 2, and /"
+        }
+      ],
+      "explanations": [],
+      "hints": [
+        "Open the terminal in your lesson folder (the one with calculator.py) and run python calculator.py.",
+        "When it asks, type 8 and press Enter, then 2 and Enter, then / and Enter. Type only the value, no quotes.",
+        "If you see 4 instead of 4.0, convert your inputs with float(...) instead of int(...). On some systems use python3 calculator.py."
+      ],
+      "common_mistakes": [
+        "Running the command from a different folder, giving 'No such file or directory'.",
+        "Typing all three values on one line (8 2 /) instead of pressing Enter after each.",
+        "Converting input with int() so the division logic or output differs from 4.0.",
+        "Typing the operation word 'divide' instead of the symbol / that your if/elif checks.",
+        "Forgetting to save calculator.py before running, so the old version runs."
+      ],
+      "run_command": "python calculator.py"
+    }
+  ],
+  "build": {
+    "mode": "lesson",
+    "seconds": 44.0,
+    "warnings": [
+      "research took too long; later steps were written without it",
+      "s1: runs `python calculator.py` but has no check on its output (what it prints, a count, a metric)",
+      "s2: runs `python calculator.py` but has no check on its output (what it prints, a count, a metric)",
+      "s3: runs `python calculator.py` but has no check on its output (what it prints, a count, a metric)",
+      "s4: runs `python calculator.py` but has no check on its output (what it prints, a count, a metric)",
+      "s7: runs `python3 calculator.py` but has no check on its output (what it prints, a count, a metric)"
+    ],
+    "model": {
+      "plan": "claude-sonnet-5-5",
+      "steps": "claude-haiku-5-5",
+      "research": "claude-sonnet-5-5"
+    },
+    "cost": {
+      "gemini_calls": 0,
+      "claude_calls": 11,
+      "tokens": {
+        "claude-sonnet-5-5": {
+          "input": 38126,
+          "output": 2332,
+          "calls": 2
+        },
+        "claude-haiku-5-5": {
+          "input": 20304,
+          "output": 12926,
+          "calls": 8
+        },
+        "claude-opus-5-5": {
+          "input": 2540,
+          "output": 758,
+          "calls": 1
+        }
+      }
+    }
+  }
+}

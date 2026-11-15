@@ -108,6 +108,34 @@ scripts/miyagi-offline.sh
 
 ---
 
+## Second path: "Just teach me" (no video), about 60 s
+
+Rehearsed on integration/live ff8fdd1 with DEMO=1, offline, without the screen reader (`docs/REHEARSAL.md` §7). **On ff8fdd1
+only steps 1–2 are stage-safe, and step 2 needs the workaround below.** The bugs are with E4.
+
+**Setup (adds to T-15):**
+- Cached lesson `demo/cache/lessons/text-43e26ca1d86c37ed.json` ("Build a Python Calculator", 8 steps, Michael's live run;
+  added by the rehearsal PR). `DEMO=1` serves the newest cached lesson in "lesson" mode.
+- Seed the lesson folder with the live run's starter. S2 names the folder from the goal, so type the goal exactly as below.
+  Reset it before every take.
+  ```bash
+  D=~/miyagi/lessons/build-a-calculator-in-python-b38f75; rm -rf "$D" && mkdir -p "$D" && printf '"""A simple Python calculator."""\n\n# Step 1: Start building your calculator here\n' > "$D/calculator.py"
+  ```
+- `DEMO=1` isn't free online on this path: S2 calls Claude once to scaffold the folder, and every **Check** press asks E5's
+  judge (Claude). Both are small, but they are real calls.
+- VS Code goes full screen only if the terminal that runs the engine has **Accessibility**; otherwise press ⌃⌘F.
+
+| Time | Do | Say |
+|---|---|---|
+| 0:00 | ⌥Space, type **`build a calculator in python`**, press **Just teach me** (or the "Build a lesson from the internet" row). | "No video this time: just teach me." |
+| 0:03 | The lesson is ready in ~2 s (cached). VS Code opens on `calculator.py`; the box sits on `# Step 1: …`, captioned "Type the add function on the lines below this comment". | "It writes the lesson, opens my editor and shows me exactly where to type." |
+| 0:10 | Type `def add(a, b):` / `return a + b`, then `print(add(2, 3))`. ⌘S, press **Check**. | "I type, I ask: can I move on?" |
+| 0:25 | Step 2, "Run your first output". **Known bug:** it says "type print(add(2, 3))" and boxes that line instead of the terminal. Ignore the box and run `python3 calculator.py` in the VS Code terminal (`python` doesn't exist on this Mac). | "Now run it." |
+| 0:35 | Prints `5`, step goes green (0.4–0.5 s after the run). | "Green: it checked my real run, not a quiz." |
+| 0:45 | Stop here. Steps 3–7 box line 1 (a regex bug), and their captions contradict the step. | "Each step is a real piece of the program, graded the same way." |
+
+---
+
 ## Judge Q&A cheat sheet (3 min)
 
 **"Is the coach scripted?"** No. On the live path `diagnose` calls `claude-opus-5-5` with the failing checks, the metric series,
