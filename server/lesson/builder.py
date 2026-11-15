@@ -26,8 +26,10 @@ from .schema import (
     stack_of,
     standard_error_pattern,
     schema_errors,
+    spans_lines,
     standard_output_check,
     step_check_problems,
+    value_line,
 )
 from .workdir import WorkdirInfo, scan
 
@@ -515,7 +517,8 @@ async def _watch(url: str, vid: str, goal: str) -> dict:
             d = await claude_draft()
             _emit("steps_ready", "claude")
             return d
-        except RuntimeError as e:
+        except Exception as e:  # noqa: BLE001  any transcript-path failure: Gemini watches instead
+            e = e if isinstance(e, RuntimeError) else RuntimeError(f"{type(e).__name__}: {e}")
             errors.append(f"claude: {str(e)[:300]}")
             log.warning("claude-first: transcript path failed (%s); asking Gemini to watch the video", str(e)[:150])
             _emit("engine_switch", _short_reason(str(e)) if "transcript" not in str(e).lower() else "no_transcript")
@@ -523,8 +526,8 @@ async def _watch(url: str, vid: str, goal: str) -> dict:
             d = await gemini_draft()
             _emit("steps_ready", "gemini")
             return d
-        except RuntimeError as e:
-            errors.append(f"gemini: {str(e)[:300]}")
+        except Exception as e:  # noqa: BLE001
+            errors.append(f"gemini: {(str(e) if isinstance(e, RuntimeError) else f'{type(e).__name__}: {e}')[:300]}")
         raise RuntimeError("no engine could build the lesson:\n" + "\n".join(errors))
 
     tasks: dict[str, asyncio.Task] = {}
@@ -550,7 +553,9 @@ async def _watch(url: str, vid: str, goal: str) -> dict:
                 eng = next(k for k, v in tasks.items() if v is t)
                 try:
                     draft = t.result()
-                except RuntimeError as e:
+                except Exception as e:  # noqa: BLE001  any failure of one engine (a TypeError from an SDK with no key,
+                    # an httpx error) must leave the race to the other one, never end a build Gemini was winning
+                    e = e if isinstance(e, RuntimeError) else RuntimeError(f"{type(e).__name__}: {e}")
                     errors.append(f"{eng}: {str(e)[:300]}")
                     log.warning("%s video pass failed: %s", eng, str(e)[:200])
                     if eng == "gemini" and "claude" in tasks:
@@ -954,6 +959,10 @@ def normalize_checks(graph: dict, known_metrics: set[str]) -> dict:
         for c in step["checks"] + step.get("precision_checks", []):
             if c.get("pattern") and looks_like_literal(c["pattern"]):
                 c["pattern"] = literal_pattern(c["pattern"])
+            # the checker reads one printed line at a time: keep the line that holds the number (a trend that loses
+            # its step that way is then dropped by lint/repair; a threshold keeps working)
+            if c.get("metric_pattern") and spans_lines(c["metric_pattern"]) and (line := value_line(c["metric_pattern"])):
+                c["metric_pattern"] = line
     complete_metric_checks(graph, known_metrics)
     return align_precision_metrics(graph)
 
