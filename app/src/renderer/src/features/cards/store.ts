@@ -418,3 +418,16 @@ function latest(metrics: Record<string, Series>): string | undefined {
   for (const [k, v] of Object.entries(metrics)) if (!best || v.run.at > metrics[best].run.at) best = k
   return best
 }
+
+/**
+ * The current step's checks have all just turned Passed: a "Not yet" (the off-track card, or the card answering
+ * "Can I move on?") is stale, so it closes. A card waiting on a decision (a fix to confirm, resume) stays.
+ * Michael's test, Sun 2:56 AM: "Not yet" stayed up while every check in the drawer showed Passed.
+ */
+useLesson.subscribe((s, prev) => {
+  const allPass = (c: typeof s.checks): boolean => c.length > 0 && c.every((x) => x.status === 'pass')
+  if (!allPass(s.checks) || (prev.stepId === s.stepId && allPass(prev.checks))) return
+  const { offtrackOpen, card, cardFrom } = get()
+  const staleCard = !!card && cardFrom === 'check_step' && !awaitsDecision(card) && (!card.stepId || card.stepId === s.stepId)
+  if (offtrackOpen || staleCard) set({ offtrackOpen: false, resume: false, ...(staleCard ? { card: undefined } : {}) })
+})
