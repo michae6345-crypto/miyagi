@@ -16,7 +16,7 @@
 import { motion } from 'motion/react'
 import { useEffect, type ReactNode } from 'react'
 import { useShallow } from 'zustand/react/shallow'
-import { BookOpen, Check, Code2, Download, ExternalLink, File, FileCode2, FolderGit2, Hammer, History, Info, Lightbulb, ListChecks, MessageCircle, MessageSquareText, NotebookText, Play, Search, SkipForward, Undo2, Wrench, FolderOpen, type LucideIcon } from 'lucide-react'
+import { BookOpen, Check, Code2, Download, ExternalLink, File, FileCode2, FolderGit2, Hammer, History, Info, Lightbulb, ListChecks, MessageCircle, MessageSquareText, NotebookText, Play, Search, SkipForward, Undo2, Wrench, FolderOpen, RotateCcw, type LucideIcon } from 'lucide-react'
 import type { PreflightInfo } from '../../../../../../shared/contracts/events'
 import type { Payload } from '../../../../common/wire'
 import { bridge } from '../../bridge'
@@ -426,8 +426,18 @@ const ACTION: Partial<Record<CardAction, { label: string; Icon?: LucideIcon; pri
   undo: { label: 'Undo', Icon: Undo2 },
   end_lesson: { label: 'Start a new lesson' },
   skip_setup: { label: 'Skip' },
-  open_in_browser: { label: 'Open in browser', Icon: BookOpen }
+  open_in_browser: { label: 'Open in browser', Icon: BookOpen },
+  // "Couldn't reach Claude" answer card: the engine re-sends the learner's last ask / explain / hint.
+  retry: { label: 'Try again', Icon: RotateCcw },
+  // Judge "Not yet" card: the same Hint / Show me as the off-track card (drawn as OptionButtons in CardActions).
+  hint: { label: 'Hint' },
+  show_me: { label: 'Show me' }
 }
+
+/** Card actions drawn as pastel OptionButtons with keycaps (like the off-track card), not as quiet buttons. */
+const OPTION = ['show_me', 'hint'] as const
+type OptionCardAction = (typeof OPTION)[number]
+const isOption = (a: CardAction): a is OptionCardAction => (OPTION as readonly CardAction[]).includes(a)
 
 /** The engine names some buttons itself: setup.actionLabels ("Download tutorial files"), setup.editorLabel ("Open Cursor"). */
 function actionLabel(c: EngineCard, a: CardAction): string {
@@ -443,7 +453,9 @@ function actionLabel(c: EngineCard, a: CardAction): string {
  */
 function primaryOf(c: EngineCard, known: CardAction[]): CardAction | undefined {
   if (c.kind === 'preflight' && c.recommended && known.includes(c.recommended)) return c.recommended
-  return known.find((a) => ACTION[a]!.primary) ?? (known.length === 1 ? known[0] : undefined)
+  // A lone action becomes the primary, except option actions and Try again, which stay pastel / neutral.
+  const lone = known.length === 1 && !isOption(known[0]) && known[0] !== 'retry' ? known[0] : undefined
+  return known.find((a) => ACTION[a]!.primary) ?? lone
 }
 
 /** A unified diff as monospace lines: + white, - muted and struck, context faint. Headers dropped. */
@@ -524,11 +536,15 @@ function CardActions({ card, actions }: { card: EngineCard; actions: CardAction[
   const known = actions.filter((a) => ACTION[a])
   if (known.length === 0) return null
   const primary = primaryOf(card, known)
-  // Quiet actions on the left, the one white primary on the right.
+  const keys = bridge.platform.keys
+  // Option actions (Show me / Hint) first, then quiet actions, the one white primary on the right.
   return (
     <div className="mt-[16px] flex flex-wrap items-center gap-[8px]">
+      {OPTION.filter((a) => known.includes(a)).map((a) => (
+        <OptionButton key={a} action={a} label={ACTION[a]!.label} kbd={keys[a]} icon={busy(a)} onClick={() => cardAct(a)} />
+      ))}
       {known
-        .filter((a) => a !== primary)
+        .filter((a) => a !== primary && !isOption(a))
         .map((a) => (
           <QuietButton key={a} label={actionLabel(card, a)} icon={busy(a, ACTION[a]!.Icon, true)} onClick={() => cardAct(a)} />
         ))}
