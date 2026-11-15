@@ -148,6 +148,9 @@ export const kindTone = {
  * island and every card stay black like the Dynamic Island. On a glass panel use these instead of color.* /
  * fill.*: they are CSS variables (styles.css) that switch on <html data-appearance>. Not for canvas (no var()).
  */
+/** The glass panel background as plain colors, for main (a window paints it before CSS loads). Keep in sync with styles.css. */
+export const glassBg = { dark: 'rgba(28,28,30,0.9)', light: 'rgba(250,250,248,0.92)' } as const
+
 export const glass = {
   bg: 'var(--glass-bg)',
   text: 'var(--glass-text)',
