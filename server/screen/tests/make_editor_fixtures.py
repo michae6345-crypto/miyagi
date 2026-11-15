@@ -179,7 +179,9 @@ def main() -> None:
         blocks = M.reading_order(M.assign_windows(blocks, windows))
         obs = ScreenObservation(t=0.0, app=spec.app, windows=windows, blocks=blocks, screen=screen,
                                 scale=float(S), ocr_ms=ms, frame=1, source=f"fixture:{png.name}")
-        (FIX / f"{spec.name}.ocr.json").write_text(json.dumps(obs.to_dict(), indent=1) + "\n")
+        rec = obs.to_dict()
+        rec["postprocessed"] = False    # RAW Vision output: loaders apply match.postprocess like a live frame
+        (FIX / f"{spec.name}.ocr.json").write_text(json.dumps(rec, indent=1) + "\n")
         (FIX / f"{spec.name}.truth.json").write_text(json.dumps(
             {"geometry": geo, "lines": {str(k): v for k, v in truth.items()}}, indent=1) + "\n")
         print(f"{spec.name}: {len(blocks)} blocks, OCR {ms:.0f} ms, visible {geo['visible']}")
