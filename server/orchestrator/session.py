@@ -4000,8 +4000,15 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
         return True
 
     def _step_ran(self) -> bool:
-        """This step ran its command: a `tut run` / screen-read run, or Run it for me in VS Code's terminal."""
-        return bool(self.step_runs) or getattr(self, "_ext_run_t", 0.0) >= self._step_wall_t0
+        """This step ran its command: a `tut run` / VS Code / Run it for me run, Run it for me typed into VS Code's
+        terminal, or loss lines read off the screen once the step's run row saw that run. t6 (nn4): the screen reader
+        read the last session's training output (VS Code's restored terminal) the moment the step began; that made the
+        step look run, so its Run ▷ box never went up."""
+        if getattr(self, "_ext_run_t", 0.0) >= self._step_wall_t0:
+            return True
+        if any(not r.run_id.startswith("screen-") for r in self.step_runs):
+            return True
+        return bool(self.step_runs) and bool((self._run_need or {}).get("ran"))
 
     async def _run_box_done(self) -> None:
         """E17: the run step's own box ("Click ▷ to run" / "Run it here" / "Open the terminal") has done its job once
@@ -6184,6 +6191,7 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
             return
         curated.prepare_step(self, step)  # NumPy may have just been installed into the lesson's .venv
         cmd = self._run_command(step) or (step.get("run_command") or "").strip()
+        cmd = curated.run_for_me_command(self, step, cmd)  # curated: the lesson .venv's python once NumPy is in it
         if not cmd:
             await self._card(step, "Nothing to run", "This step has no command.", kind="answer")
             return
