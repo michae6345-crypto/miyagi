@@ -1220,3 +1220,47 @@ def test_pure_install_steps_are_tagged_setup_unless_the_goal_is_installing():
         {k: v for k, v in s1.items() if k != "precision_checks"} | {"index": 1}]}) == []
     out2 = builder.normalize_checks(g("install Python on my Mac"), set())
     assert "setup" not in out2["steps"][0]
+
+
+# ---- LESSON_ENGINE=claude-first (Michael: Gemini only when the transcript route can't do it) -----------
+
+def test_claude_first_never_calls_gemini_when_the_transcript_works(fake, monkeypatch):
+    monkeypatch.setenv("LESSON_ENGINE", "claude-first")
+    calls = []
+    _claude_fakes(monkeypatch, calls)
+
+    async def gemini_must_not_run(*a, **k):
+        raise AssertionError("Gemini was called although the transcript path worked")
+
+    monkeypatch.setattr(gemini, "watch_video", gemini_must_not_run)
+    seen = []
+    g = asyncio.run(builder.build_lesson(URL, "x", WORKDIR, refresh=True, on_progress=lambda s, m: seen.append((s, m))))
+    assert g["lesson"]["builtBy"] == "claude" and calls[:2] == ["transcript", "claude-watch"]
+    assert ("steps_ready", "claude") in seen and not any(s == "watching" for s, _ in seen)
+
+
+def test_claude_first_falls_back_to_gemini_without_a_transcript(fake, monkeypatch):
+    monkeypatch.setenv("LESSON_ENGINE", "claude-first")
+
+    async def no_transcript(vid):
+        raise RuntimeError("no transcript for x: timedtext: 429 Too Many Requests")
+
+    monkeypatch.setattr(transcript, "fetch_video_info", no_transcript)
+    gemini.last_model = "gemini-4-hydrogen"
+    seen = []
+    g = asyncio.run(builder.build_lesson(URL, "x", WORKDIR, refresh=True, on_progress=lambda s, m: seen.append((s, m))))
+    assert fake["watch"] == 1 and g["lesson"]["builtBy"] == "gemini"
+    assert ("engine_switch", "no_transcript") in seen
+
+
+def test_claude_first_long_video_uses_the_transcript_not_gemini_parts(fake, monkeypatch):
+    monkeypatch.setenv("LESSON_ENGINE", "claude-first")
+
+    async def meta(vid):
+        return {"video_id": vid, "title": "Long", "description": "", "length_s": 5000, "chapters": []}
+
+    monkeypatch.setattr(transcript, "fetch_metadata", meta)
+    calls = []
+    _claude_fakes(monkeypatch, calls)
+    g = asyncio.run(builder.build_lesson(URL, "x", WORKDIR, refresh=True))
+    assert fake["watch"] == 0 and g["lesson"]["builtBy"] == "claude" and not g["build"].get("progressive")

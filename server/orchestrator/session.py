@@ -197,6 +197,11 @@ def notebook_sources(text: str) -> str | None:
     return "\n".join(out) if out else "# (notebook: no code cells)"
 
 
+def _has_parts(graph: dict | None) -> bool:
+    parts = ((graph or {}).get("lesson") or {}).get("parts") or {}
+    return bool(parts.get("total") or parts.get("list"))
+
+
 def is_provisional(graph: dict | None) -> bool:
     """E2's quick-start placeholder (built from the chapter list after 8 s): replaced, never extended."""
     if not graph:
@@ -312,6 +317,7 @@ class LessonSession:
 
     # ------------------------------------------------------------------ basics
     def _reset_step_state(self) -> None:
+        self._placeholder_hold = False
         self.check_state: dict[str, dict] = {}  # what the app was last told, per checkId
         self.last_results: list[dict] = []
         self.last_failed: list[dict] = []
@@ -1401,6 +1407,13 @@ class LessonSession:
         step = self.step
         if step is None or self.passed:
             return
+        if step.get("provisional") or is_provisional(self.graph):
+            # E2 quick start: the placeholder is watch-along only. It never passes or pends: at the end of its
+            # clip we hold quietly until the real lesson replaces it (_replace_provisional starts the real s1).
+            if not self._placeholder_hold:
+                self._placeholder_hold = True
+                await self._status("thinking")
+            return
         self.passed = True
         nxt = self.steps[self.idx + 1]["id"] if self.idx + 1 < len(self.steps) else None
         more_coming = nxt is None and (self.graph or {}).get("lesson", {}).get("complete") is False
@@ -1428,11 +1441,12 @@ class LessonSession:
             self.waiting_more = True  # _extend_lesson starts the next step when it arrives
             await self._status("thinking")
             parts = (self.graph or {}).get("lesson", {}).get("parts") or {}
-            done, total = int(parts.get("done") or 0), int(parts.get("total") or 0)
-            where = f" (part {min(done + 1, total)} of {total})" if total else ""
-            await self._emit_card({"stepId": step["id"], "kind": "hint", "title": "Building the next part…",
-                                   "body": f"The next part of this video is being built{where}. "
-                                           "Keep watching; its steps start here as soon as they're ready."})
+            if parts.get("total") or parts.get("list"):  # only a real long-video part build gets this card
+                done, total = int(parts.get("done") or 0), int(parts.get("total") or 0)
+                where = f" (part {min(done + 1, total)} of {total})" if total else ""
+                await self._emit_card({"stepId": step["id"], "kind": "hint", "title": "Building the next part…",
+                                       "body": f"The next part of this video is being built{where}. "
+                                               "Keep watching; its steps start here as soon as they're ready."})
             await self.emit("video.play", {})  # the video keeps playing meanwhile
         else:
             self.phase = "done"
@@ -1443,15 +1457,18 @@ class LessonSession:
         """Is anything building more steps for this lesson (the build itself, or an extend)? Starts an
         extend if one is due."""
         self._maybe_extend()
-        return self._parts_building or (self._extend_task is not None and not self._extend_task.done())
+        return (self.building() or self._parts_building
+                or (self._extend_task is not None and not self._extend_task.done()))
 
     def _maybe_extend(self) -> None:
         """Near the last built step of a lazily built long video, build the next part in the background
         (one Gemini call per part the learner actually reaches)."""
         g = self.graph
-        if (g is None or self._parts_building or self._extend_failed
+        if (g is None or self._parts_building or self.building() or self._extend_failed
                 or (self._extend_task is not None and not self._extend_task.done())
-                or (g.get("lesson") or {}).get("complete") is not False):
+                or (g.get("lesson") or {}).get("complete") is not False
+                or is_provisional(g)  # a placeholder is replaced by the running build, never extended
+                or not _has_parts(g)):  # only lazily built long videos have parts to extend
             return
         step = self.step
         cur = step.get("index", self.idx) if step else self.idx
