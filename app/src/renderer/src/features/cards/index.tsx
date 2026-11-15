@@ -2,9 +2,9 @@
  * Feature: cards. Coach cards that grow out of the pill, in the calm black-island look (mockup 02):
  *   offtrack  layout C (Adrian): ~620 wide, two columns (one below 520). Left: ring + "Not yet", the title,
  *             the guiding question (or the body), the citation. Right: the evidence panel (Evidence.tsx):
- *             yours | expected from the diff, the failing checks and the curve, all monochrome. Under both,
- *             the options in the shortcut bar's order (Explain, Show me, Hint) and, at level 3, "Do it for me"
- *             on its own row. Off track has no hue anywhere.
+ *             yours | expected from the diff, the failing checks and the curve, all monochrome. Under both, at
+ *             level 3, "Do it for me". Explain / Show me / Hint stay in the shortcut bar while it's up (A11): a
+ *             card carries only its own action. Off track has no hue anywhere.
  *             After Do it for me, it collapses to "Waiting for the fix": the line the code should read
  *             (the engine may or may not write it), and the re-run's curve drawing live.
  *   success   green, "Good. Now the next one." after a recovered step: now-vs-before curve, auto-hides.
@@ -225,14 +225,22 @@ const OFFTRACK_OPTIONS = [
 ] as const
 
 /**
+ * The shortcut bar is on screen with its help tiles (Explain, Diagram, Show me, Hint): it shows for the whole lesson
+ * (ShortcutBar's `on`). While it does, a card never repeats them (Michael's review A11: the same actions showed 2-3
+ * times at once); a card carries only its own action (Do it for me, Run it, Install, Continue, Check…).
+ */
+const useBarHelp = (): boolean => useLesson((l) => !!l.lesson)
+
+/**
  * Layout C (Adrian picked "side by side"). Left: ring + "Not yet", the title, the guiding question (or the body),
- * the citation as one faint line. Right: the evidence panel. Under both, full width so three options with their
- * keycaps always fit on one row: Explain, Show me, Hint; at level 3 with apply_fix, the one white "Do it for me"
- * on its own row. Below NARROW the panel drops under the left column.
+ * the citation as one faint line. Right: the evidence panel. Under both, full width: Explain, Show me, Hint only when
+ * the bar isn't up to offer them (A11), and at level 3 with apply_fix, the one white "Do it for me": the hint ladder's
+ * top rung, which only this card offers. Below NARROW the panel drops under the left column.
  */
 function Diagnosis({ o, checks }: { o: OfftrackPayload; checks: ReturnType<typeof useLesson.getState>['checks'] }): ReactNode {
   const busy = useBusyIcon()
   const keys = bridge.platform.keys
+  const options = useBarHelp() ? [] : OFFTRACK_OPTIONS
   const width = useOfftrackWidth()
   const narrow = width < NARROW
   const inner = width - PAD * 2
@@ -270,13 +278,15 @@ function Diagnosis({ o, checks }: { o: OfftrackPayload; checks: ReturnType<typeo
         <Evidence o={o} failing={failing} width={rightW} reserveDiff />
       </div>
 
-      <div data-options className="mt-[14px] flex flex-wrap items-center gap-[8px]">
-        {OFFTRACK_OPTIONS.map((x) => (
-          <OptionButton key={x.action} action={x.action} label={x.label} kbd={keys[x.action]} icon={busy(x.action)} onClick={() => act(x.action)} />
-        ))}
-      </div>
+      {options.length > 0 && (
+        <div data-options className="mt-[14px] flex flex-wrap items-center gap-[8px]">
+          {options.map((x) => (
+            <OptionButton key={x.action} action={x.action} label={x.label} kbd={keys[x.action]} icon={busy(x.action)} onClick={() => act(x.action)} />
+          ))}
+        </div>
+      )}
       {canFix && (
-        <div data-fix className="mt-[8px] flex">
+        <div data-fix className={`${options.length > 0 ? 'mt-[8px]' : 'mt-[14px]'} flex`}>
           <PrimaryButton label={ACTION.apply_fix!.label} icon={busy('apply_fix', ACTION.apply_fix!.Icon)} onClick={() => act('apply_fix')} />
         </div>
       )}
@@ -709,7 +719,9 @@ function startOver(): void {
 
 function CardActions({ card, actions }: { card: EngineCard; actions: CardAction[] }): ReactNode {
   const busy = useBusyIcon()
-  const known = actions.filter((a) => ACTION[a])
+  // Hint / Show me (the judge's "Not yet" card) are the bar's while it's up (A11): the card keeps only its own buttons.
+  const barHelp = useBarHelp()
+  const known = actions.filter((a) => ACTION[a] && !(barHelp && isOption(a)))
   if (known.length === 0) return null
   const primary = primaryOf(card, known)
   const keys = bridge.platform.keys
