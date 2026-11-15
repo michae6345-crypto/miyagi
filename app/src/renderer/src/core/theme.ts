@@ -143,7 +143,32 @@ export const kindTone = {
   blog: brand.pastel.lilac
 } as const
 
-/** Screen dims behind surfaces. */
+/**
+ * Glass panels (shortcut bar, player, drawer) follow Settings → Appearance (System / Light / Dark); the notch
+ * island and every card stay black like the Dynamic Island. On a glass panel use these instead of color.* /
+ * fill.*: they are CSS variables (styles.css) that switch on <html data-appearance>. Not for canvas (no var()).
+ */
+export const glass = {
+  bg: 'var(--glass-bg)',
+  text: 'var(--glass-text)',
+  label: 'var(--glass-label)',
+  faint: 'var(--glass-faint)',
+  hairline: 'var(--glass-hairline)',
+  field: 'var(--glass-field)',
+  fieldHover: 'var(--glass-field-hover)',
+  rule: 'var(--glass-rule)',
+  key: 'var(--glass-key)',
+  keyText: 'var(--glass-key-text)',
+  track: 'var(--glass-track)',
+  /** The one primary action on a glass panel: white on dark, ink on light. */
+  button: 'var(--glass-button)',
+  buttonText: 'var(--glass-button-text)',
+  /** Status on glass: the same meanings, deeper on light for contrast. */
+  pass: 'var(--glass-pass)',
+  offTrack: 'var(--glass-offtrack)',
+  shadow: 'var(--glass-shadow)'
+} as const
+
 /** Screen dims behind surfaces. spotlight .66: Adrian asked for more contrast than the spec's .55. */
 export const scrim = { spotlight: 'rgba(0,0,0,.66)', launcher: 'rgba(0,0,0,.22)' } as const
 

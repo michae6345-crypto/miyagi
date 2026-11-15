@@ -11,6 +11,7 @@
 import { app, BrowserWindow, globalShortcut, ipcMain, screen, session, shell, type BrowserWindowConstructorOptions } from 'electron'
 import { join } from 'node:path'
 import { EngineLink } from './engine'
+import { setupPrefs } from './prefs'
 import type { MainContext, MainFeature } from './context'
 import {
   describePlatform,
@@ -267,6 +268,8 @@ app.whenReady().then(() => {
       send(w, 'layout', layoutFor(w))
     }
   })
+
+  setupPrefs((channel, payload) => forEachWindow((w) => w.webContents.send(`feat:${channel}`, payload)))
 
   loadFeatures({
     app,
