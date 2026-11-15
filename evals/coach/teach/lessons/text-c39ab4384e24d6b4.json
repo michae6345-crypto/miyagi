@@ -1,0 +1,725 @@
+{
+  "lesson": {
+    "id": "lesson-c39ab438",
+    "title": "Build a Python Calculator",
+    "goal": "build a simple calculator in python",
+    "workdir": "/Users/tripi/miyagi/lessons/_new",
+    "libraries": {
+      "python": "3"
+    },
+    "mode": "lesson",
+    "complete": true,
+    "builtBy": "claude"
+  },
+  "sources": [
+    {
+      "id": "src1",
+      "kind": "repo",
+      "title": "SimplePythonTutorial/Simple Calculator Tutorial.md at master \u00b7 neilbalch/SimplePythonTutorial \u00b7 GitHub",
+      "url": "https://github.com/neilbalch/SimplePythonTutorial/blob/master/Simple%20Calculator%20Tutorial.md"
+    },
+    {
+      "id": "src2",
+      "kind": "blog",
+      "title": "How to make calculator in python?",
+      "url": "https://mitalichaturvedi.medium.com/how-to-make-calculator-in-python-bd59d6d1f6d4"
+    },
+    {
+      "id": "src3",
+      "kind": "blog",
+      "title": "19: Simple Calculator using built-in functions - 1000+ Python Programs",
+      "url": "https://code2care.org/python-programs/build-simple-calculator-program-using-built-in-functions/"
+    },
+    {
+      "id": "src4",
+      "kind": "blog",
+      "title": "Python Program to Make a Simple Calculator",
+      "url": "https://www.programiz.com/python-programming/examples/calculator"
+    },
+    {
+      "id": "src5",
+      "kind": "blog",
+      "title": "How to Make a Python Calculator",
+      "url": "https://builtin.com/software-engineering-perspectives/python-calculator"
+    },
+    {
+      "id": "src6",
+      "kind": "blog",
+      "title": "How to Make a Calculator With Python (in 5 Steps)",
+      "url": "https://phoenixnap.com/kb/python-calculator"
+    },
+    {
+      "id": "src7",
+      "kind": "blog",
+      "title": "Tkinter",
+      "url": "https://en.wikipedia.org/wiki/Tkinter"
+    },
+    {
+      "id": "src8",
+      "kind": "blog",
+      "title": "Build a Simple Calculator in Python (Step-by-Step Beginner Tutorial)",
+      "url": "https://www.teachercolab.com/blog/build-a-simple-calculator-in-python"
+    },
+    {
+      "id": "src9",
+      "kind": "blog",
+      "title": "Calculator Program in Python Using Functions",
+      "url": "https://codingeasily.in/tutorial/python/calculator-python/"
+    },
+    {
+      "id": "src10",
+      "kind": "blog",
+      "title": "How to make a calculator in Python - Altcademy.com",
+      "url": "https://www.altcademy.com/blog/how-to-make-a-calculator-in-python/"
+    },
+    {
+      "id": "src11",
+      "kind": "blog",
+      "title": "Make a Simple Calculator - Python - GeeksforGeeks",
+      "url": "https://www.geeksforgeeks.org/python/make-simple-calculator-using-python/"
+    },
+    {
+      "id": "src12",
+      "kind": "blog",
+      "title": "Python Program to Make a Simple Calculator [Easy Steps]",
+      "url": "https://intellipaat.com/blog/how-to-make-calculator-in-python/"
+    },
+    {
+      "id": "src13",
+      "kind": "blog",
+      "title": "Simple Calculator Program in Python - W3schools",
+      "url": "https://www.w3schools.in/python/examples/simple-calculator"
+    },
+    {
+      "id": "src14",
+      "kind": "blog",
+      "title": "0% found this document useful (0 votes)",
+      "url": "https://www.scribd.com/document/724610147/www-programiz"
+    },
+    {
+      "id": "src15",
+      "kind": "blog",
+      "title": "\ufeff.. _tut-informal: An Informal Introduction to Python",
+      "url": "https://docs.python.org/3.3/_sources/tutorial/introduction.txt"
+    },
+    {
+      "id": "src16",
+      "kind": "blog",
+      "title": "3. An Informal Introduction to Python \u2014 Python 3.11.18 documentation",
+      "url": "https://docs.python.org/3.11/tutorial/introduction.html"
+    },
+    {
+      "id": "src17",
+      "kind": "blog",
+      "title": "3. An Informal Introduction to Python \u2014 Python 3.3.7 documentation",
+      "url": "https://docs.python.org/3.3/tutorial/introduction.html"
+    },
+    {
+      "id": "src18",
+      "kind": "blog",
+      "title": "The Python Tutorial \u2014 Python 3.10.21 documentation",
+      "url": "https://docs.python.org/3.10/tutorial/index.html"
+    },
+    {
+      "id": "src19",
+      "kind": "blog",
+      "title": "The Python Tutorial \u2014 Python 3.15.2 documentation",
+      "url": "https://docs.python.org/3/tutorial/index.html"
+    },
+    {
+      "id": "src20",
+      "kind": "blog",
+      "title": "3. An Informal Introduction to Python \u2014 Python 3.15.2 documentation",
+      "url": "https://docs.python.org/3/tutorial/introduction.html"
+    },
+    {
+      "id": "src21",
+      "kind": "blog",
+      "title": "3. An Informal Introduction to Python \u2014 Python 2.7.18 documentation",
+      "url": "https://docs.python.org/2/tutorial/introduction.html"
+    },
+    {
+      "id": "src22",
+      "kind": "blog",
+      "title": "3. An Informal Introduction to Python \u2014 Python v3.1.4 documentation",
+      "url": "https://docs.python.org/release/3.1.4/tutorial/introduction.html"
+    },
+    {
+      "id": "src23",
+      "kind": "blog",
+      "title": ".. _tut-informal: An Informal Introduction to Python",
+      "url": "https://docs.python.org/3.5/_sources/tutorial/introduction.rst.txt"
+    },
+    {
+      "id": "src24",
+      "kind": "blog",
+      "title": "Doctest",
+      "url": "https://en.wikipedia.org/wiki/Doctest"
+    }
+  ],
+  "steps": [
+    {
+      "id": "s1",
+      "index": 1,
+      "title": "Create the project file",
+      "instructions": "In your terminal run: mkdir -p /Users/tripi/miyagi/lessons/_new && cd /Users/tripi/miyagi/lessons/_new && touch calculator.py. Then open calculator.py in your editor and type: print(\"Calculator ready\")",
+      "code": "print(\"Calculator ready\")",
+      "file": "calculator.py",
+      "checks": [
+        {
+          "id": "s1c1",
+          "type": "screen_contains",
+          "label": "print line typed in calculator.py",
+          "app": "Code",
+          "pattern": "print\\(\\s*\"Calculator ready\"\\s*\\)"
+        }
+      ],
+      "precision_checks": [
+        {
+          "id": "s1p1",
+          "type": "file_exists",
+          "label": "calculator.py exists in the lesson folder",
+          "file": "calculator.py"
+        },
+        {
+          "id": "s1p2",
+          "type": "file_contains",
+          "label": "calculator.py contains the print line",
+          "file": "calculator.py",
+          "pattern": "print\\(\\s*\"Calculator ready\"\\s*\\)"
+        },
+        {
+          "id": "s1p3",
+          "type": "command_exit_ok",
+          "label": "calculator.py was created in the lesson",
+          "command": "test -f /Users/tripi/miyagi/lessons/_new/calculator.py"
+        }
+      ],
+      "targets": [
+        {
+          "file": "calculator.py",
+          "match": "print(\"Calculator ready\")",
+          "caption": "Type this line in calculator.py, then save with Cmd+S",
+          "app": "Code"
+        }
+      ],
+      "explanations": [],
+      "hints": [
+        "In your terminal, run: mkdir -p /Users/tripi/miyagi/lessons/_new && cd /Users/tripi/miyagi/lessons/_new && touch calculator.py",
+        "Open calculator.py in your editor. It should be empty, and the terminal command above creates it for you.",
+        "Type exactly: print(\"Calculator ready\") and press Cmd+S to save."
+      ],
+      "common_mistakes": [
+        "Typing the print line into the terminal instead of calculator.py",
+        "Forgetting the closing parenthesis or using mismatched quotes",
+        "Creating calculator.py in a different folder than /Users/tripi/miyagi/lessons/_new",
+        "Forgetting to save the file before moving on"
+      ]
+    },
+    {
+      "id": "s2",
+      "index": 2,
+      "title": "Run your first script",
+      "instructions": "In the terminal, run: python3 calculator.py. You should see Calculator ready printed.",
+      "code": "python3 calculator.py",
+      "file": "(terminal)",
+      "checks": [
+        {
+          "id": "s2c1",
+          "type": "screen_contains",
+          "label": "Script output appears in the terminal",
+          "app": "Terminal",
+          "pattern": "Calculator\\s+ready"
+        },
+        {
+          "id": "s2c2",
+          "type": "screen_absent",
+          "label": "No Python error in the terminal",
+          "app": "Terminal",
+          "pattern": "Traceback|No such file or directory|SyntaxError"
+        },
+        {
+          "id": "s2c3",
+          "type": "screen_contains",
+          "label": "The print line is visible in",
+          "app": "Code",
+          "pattern": "print\\s*\\(\\s*[\"']Calculator\\s+ready"
+        }
+      ],
+      "precision_checks": [
+        {
+          "id": "s2p1",
+          "type": "file_contains",
+          "label": "calculator.py contains the print line",
+          "file": "calculator.py",
+          "pattern": "print\\s*\\(\\s*[\"']Calculator ready[\"']\\s*\\)"
+        },
+        {
+          "id": "s2p2",
+          "type": "command_exit_ok",
+          "label": "The script runs without errors",
+          "command": "python3 calculator.py"
+        },
+        {
+          "id": "s2p3",
+          "type": "output_contains",
+          "label": "The script prints Calculator ready",
+          "pattern": "Calculator ready"
+        }
+      ],
+      "targets": [
+        {
+          "app": "Terminal",
+          "file": "(terminal)",
+          "match": "$",
+          "caption": "Type python3 calculator.py at the terminal prompt, then press Enter"
+        },
+        {
+          "app": "Code",
+          "file": "calculator.py",
+          "match": "print(\"Calculator ready\")",
+          "caption": "This is the line that runs. Its text should appear in the terminal"
+        }
+      ],
+      "explanations": [],
+      "hints": [
+        "Open a terminal in the same folder as calculator.py. In VS Code, use Terminal \u2192 New Terminal.",
+        "Type the command exactly: python3 calculator.py, then press Enter. On Windows, use: py calculator.py",
+        "If you see 'No such file or directory', run ls (or dir on Windows) to check that calculator.py is in the current folder. If it isn't, cd into your project folder first."
+      ],
+      "common_mistakes": [
+        "Running the command from a different folder than the one that holds calculator.py.",
+        "Forgetting to save the file before running it, so Python runs an old or empty version.",
+        "Typing python instead of python3 on macOS or Linux. That can be missing or point to Python 2.",
+        "Typing the code into the Python REPL (the >>> prompt) instead of running the file from the shell. Type exit() to leave the REPL first.",
+        "Misspelling the file name, for example calculater.py or calculator.py.txt."
+      ],
+      "run_command": "python3 calculator.py"
+    },
+    {
+      "id": "s3",
+      "index": 3,
+      "title": "Add the math functions",
+      "instructions": "Replace the print line with four functions: add(a, b), subtract(a, b), multiply(a, b) and divide(a, b), each returning the result. Make divide return \"Error: divide by zero\" when b == 0, then add print(add(2, 3)) and print(divide(8, 0)) at the bottom to test.",
+      "code": "def add(a, b):\n    return a + b\n\ndef subtract(a, b):\n    return a - b\n\ndef multiply(a, b):\n    return a * b\n\ndef divide(a, b):\n    if b == 0:\n        return \"Error: divide by zero\"\n    return a / b\n\nprint(add(2, 3))\nprint(divide(8, 0))",
+      "file": "calculator.py",
+      "checks": [
+        {
+          "id": "s3c1",
+          "type": "screen_contains",
+          "label": "divide function is in the editor",
+          "app": "Code",
+          "pattern": "def\\s+divide\\(a,\\s*b\\)"
+        },
+        {
+          "id": "s3c2",
+          "type": "screen_contains",
+          "label": "divide-by-zero message is in the editor",
+          "app": "Code",
+          "pattern": "Error:\\s*divide by zero"
+        },
+        {
+          "id": "s3c3",
+          "type": "screen_contains",
+          "label": "terminal prints the divide-by-zero message",
+          "app": "Terminal",
+          "pattern": "Error:\\s*divide by zero"
+        }
+      ],
+      "precision_checks": [
+        {
+          "id": "s3p1",
+          "type": "file_contains",
+          "label": "calculator.py defines divide(a, b)",
+          "file": "calculator.py",
+          "pattern": "def\\s+divide\\(a,\\s*b\\)"
+        },
+        {
+          "id": "s3p2",
+          "type": "file_contains",
+          "label": "calculator.py has the zero check",
+          "file": "calculator.py",
+          "pattern": "if\\s+b\\s*==\\s*0"
+        },
+        {
+          "id": "s3p3",
+          "type": "command_exit_ok",
+          "label": "script runs without errors",
+          "command": "python3 calculator.py"
+        }
+      ],
+      "targets": [
+        {
+          "app": "Code",
+          "file": "calculator.py",
+          "match": "def add(",
+          "caption": "Replace the old print line with these four functions, starting here."
+        },
+        {
+          "app": "Code",
+          "file": "calculator.py",
+          "match": "print(divide(8, 0))",
+          "caption": "Type these two test lines at the bottom of the file."
+        }
+      ],
+      "explanations": [],
+      "hints": [
+        "Delete the old print(\"Calculator ready\") line first, then type each function with four spaces of indentation under its def line.",
+        "Inside divide, check `if b == 0:` (two equals signs) before dividing, and return the error text.",
+        "Save the file, then run `python3 calculator.py` in the terminal. You should see 5 and then the error message."
+      ],
+      "common_mistakes": [
+        "Using a single `=` in `if b = 0:` instead of `==`, which causes a SyntaxError.",
+        "Forgetting to indent the lines under each def, which raises an IndentationError.",
+        "Using `print` inside the functions instead of `return`, so add(2, 3) prints 5 but gives back None.",
+        "Dividing with `a / b` before the zero check, which raises ZeroDivisionError.",
+        "Leaving the old print(\"Calculator ready\") line in place, which is harmless but no longer what this step asks for."
+      ],
+      "run_command": "python3 calculator.py"
+    },
+    {
+      "id": "s4",
+      "index": 4,
+      "title": "Check the function output",
+      "instructions": "Run python3 calculator.py in the terminal. You should see 5 and then Error: divide by zero.",
+      "code": "print(add(2, 3))\ntry:\n    print(divide(1, 0))\nexcept ZeroDivisionError:\n    print(\"Error: divide by zero\")",
+      "file": "calculator.py",
+      "checks": [
+        {
+          "id": "s4c1",
+          "type": "screen_contains",
+          "label": "Test calls for add and divide",
+          "app": "Code",
+          "pattern": "print\\(add\\(2,\\s*3\\)\\)"
+        },
+        {
+          "id": "s4c2",
+          "type": "screen_contains",
+          "label": "Terminal shows the divide-by-zero error message",
+          "app": "Terminal",
+          "pattern": "Error:\\s*divide by zero"
+        }
+      ],
+      "precision_checks": [
+        {
+          "id": "s4p1",
+          "type": "file_contains",
+          "label": "calculator.py calls divide(1, 0) inside a",
+          "file": "calculator.py",
+          "pattern": "divide\\(1,\\s*0\\)"
+        },
+        {
+          "id": "s4p2",
+          "type": "command_exit_ok",
+          "label": "calculator.py runs without crashing",
+          "command": "python3 calculator.py"
+        },
+        {
+          "id": "s4p3",
+          "type": "output_contains",
+          "label": "Running the script prints the error",
+          "pattern": "Error:\\s*divide by zero"
+        }
+      ],
+      "targets": [
+        {
+          "app": "Code",
+          "file": "calculator.py",
+          "match": "print(\"Calculator ready\")",
+          "caption": "Add the new test lines after this line"
+        }
+      ],
+      "explanations": [],
+      "hints": [
+        "Add the new lines below print(\"Calculator ready\") in calculator.py, then save the file.",
+        "Run python3 calculator.py in the terminal from the folder that contains calculator.py. The 5 should appear on its own line, followed by the error message.",
+        "If you see a NameError, check that add and divide are defined above these lines. They should come from the previous step, so make sure you saved that step's code."
+      ],
+      "common_mistakes": [
+        "Typing the new lines above print(\"Calculator ready\") or outside the file. Put them after it so the output order matches.",
+        "Forgetting the colon after try or except, or leaving the indentation of the print inside try and except uneven. Python needs the block under each one indented by 4 spaces.",
+        "Catching the wrong exception. Use ZeroDivisionError here, since that is what dividing by zero raises. A plain print of divide(1, 0) without try will crash with a traceback instead of the message.",
+        "Running the script from a different folder, so python3 cannot find calculator.py. Run it from the folder where you saved the file.",
+        "Typing the command into the editor instead of the terminal, or forgetting to save the file before running it, so the old output appears."
+      ],
+      "run_command": "python3 calculator.py"
+    },
+    {
+      "id": "s5",
+      "index": 5,
+      "title": "Read numbers from the user",
+      "instructions": "Delete the two test print lines and add a function get_number(prompt) that returns float(input(prompt)). Then add a line at the bottom: print(get_number(\"Enter a number: \")) and run it with a value like 4 to see 4.0.",
+      "code": "def get_number(prompt):\n    return float(input(prompt))\n\nprint(get_number(\"Enter a number: \"))",
+      "file": "calculator.py",
+      "checks": [
+        {
+          "id": "s5c1",
+          "type": "screen_contains",
+          "label": "get_number function is in the editor",
+          "app": "Code",
+          "pattern": "def get_number\\(prompt\\):\\s*return float\\(input\\(prompt\\)\\)"
+        },
+        {
+          "id": "s5c2",
+          "type": "screen_contains",
+          "label": "Call to get_number is at the",
+          "app": "Code",
+          "pattern": "print\\(get_number\\(\"Enter a number: \"\\)\\)"
+        },
+        {
+          "id": "s5c3",
+          "type": "screen_contains",
+          "label": "Terminal shows the input prompt",
+          "app": "Terminal",
+          "pattern": "Enter a number:"
+        }
+      ],
+      "precision_checks": [
+        {
+          "id": "s5p1",
+          "type": "file_contains",
+          "label": "calculator.py defines get_number(prompt)",
+          "file": "calculator.py",
+          "pattern": "def get_number\\(prompt\\):"
+        },
+        {
+          "id": "s5p2",
+          "type": "file_contains",
+          "label": "calculator.py converts input with float()",
+          "file": "calculator.py",
+          "pattern": "return float\\(input\\(prompt\\)\\)"
+        },
+        {
+          "id": "s5p3",
+          "type": "file_contains",
+          "label": "test print lines were removed",
+          "file": "calculator.py",
+          "pattern": "^(?!print\\(get_number).*print\\(\"Calculator ready\"\\)"
+        },
+        {
+          "id": "s5p4",
+          "type": "command_exit_ok",
+          "label": "script runs with input 4 and",
+          "command": "printf '4\\n' | python3 calculator.py"
+        }
+      ],
+      "targets": [
+        {
+          "app": "Code",
+          "file": "calculator.py",
+          "match": "def get_number(",
+          "caption": "Type the get_number function here, at the top of the file."
+        },
+        {
+          "app": "Code",
+          "file": "calculator.py",
+          "match": "print(get_number(",
+          "caption": "Add this line at the bottom of the file."
+        }
+      ],
+      "explanations": [],
+      "hints": [
+        "Delete the two test print lines from the earlier steps first, so the file has only the new function and the new print line.",
+        "Put the function on its own, and indent the return line with 4 spaces under def get_number(prompt):.",
+        "Run python3 calculator.py in the Terminal, type 4 when asked, and press Enter. You should see 4.0 printed."
+      ],
+      "common_mistakes": [
+        "Leaving the old test print lines in the file, so they print before the prompt.",
+        "Forgetting the 4-space indent under def get_number(prompt):, which gives an IndentationError.",
+        "Using int() instead of float(), so decimal input like 2.5 crashes with ValueError.",
+        "Typing the prompt as get_number(Enter a number:) without quotes, which gives a NameError.",
+        "Forgetting the closing parenthesis in print(get_number(\"Enter a number: \")), which gives a SyntaxError.",
+        "Running the file from a different folder, so python3 calculator.py says No such file or directory."
+      ],
+      "run_command": "python3 calculator.py"
+    },
+    {
+      "id": "s6",
+      "index": 6,
+      "title": "Build the calculator loop",
+      "instructions": "Replace the test print with a main() function that asks for two numbers and an operator (+, -, *, /), picks the matching function, and prints the result. Finish the file with if __name__ == \"__main__\": main().",
+      "code": "# calculator.py\n\ndef add(a, b):\n    return a + b\n\ndef sub(a, b):\n    return a - b\n\ndef mul(a, b):\n    return a * b\n\ndef div(a, b):\n    return a / b\n\nfunctions = {\"+\": add, \"-\": sub, \"*\": mul, \"/\": div}\n\ndef main():\n    print(\"Calculator (type q to quit)\")\n    while True:\n        text = input(\"First number (or q): \").strip()\n        if text.lower() == \"q\":\n            break\n        try:\n            a = float(text)\n            op = input(\"Operator (+, -, *, /): \").strip()\n            b = float(input(\"Second number: \").strip())\n        except ValueError:\n            print(\"Please enter a number.\")\n            continue\n        func = functions.get(op)\n        if func is None:\n            print(\"Unknown operator.\")\n            continue\n        try:\n            print(func(a, b))\n        except ZeroDivisionError:\n            print(\"Cannot divide by zero.\")\n\nif __name__ == \"__main__\":\n    main()\n",
+      "file": "calculator.py",
+      "checks": [
+        {
+          "id": "s6c1",
+          "type": "screen_contains",
+          "label": "main() function is typed in calculator.py",
+          "app": "Code",
+          "pattern": "def main\\("
+        },
+        {
+          "id": "s6c2",
+          "type": "screen_contains",
+          "label": "Operator lookup table is typed",
+          "app": "Code",
+          "pattern": "functions\\.get\\(op\\)"
+        },
+        {
+          "id": "s6c3",
+          "type": "screen_contains",
+          "label": "Entry-point guard is typed",
+          "app": "Code",
+          "pattern": "if __name__ == \"__main__\""
+        },
+        {
+          "id": "s6c4",
+          "type": "screen_contains",
+          "label": "Calculator prompt printed in the terminal",
+          "app": "Terminal",
+          "pattern": "Calculator \\(type q to quit\\)"
+        }
+      ],
+      "precision_checks": [
+        {
+          "id": "s6p1",
+          "type": "file_contains",
+          "label": "calculator.py defines main()",
+          "file": "calculator.py",
+          "pattern": "def main\\("
+        },
+        {
+          "id": "s6p2",
+          "type": "file_contains",
+          "label": "calculator.py has the __main__ guard",
+          "file": "calculator.py",
+          "pattern": "if __name__ == \"__main__\":"
+        },
+        {
+          "id": "s6p3",
+          "type": "command_exit_ok",
+          "label": "Program exits cleanly when user types",
+          "command": "printf 'q\\n' | python3 calculator.py"
+        }
+      ],
+      "targets": [
+        {
+          "app": "Code",
+          "file": "calculator.py",
+          "match": "def main(",
+          "caption": "Type the main() function here, replacing the test print"
+        },
+        {
+          "app": "Code",
+          "file": "calculator.py",
+          "match": "if __name__ == \"__main__\":",
+          "caption": "Finish the file with this entry-point guard and call main()"
+        }
+      ],
+      "explanations": [],
+      "hints": [
+        "Start by deleting the test print(\"Calculator ready\") line. Then type main() below the functions.",
+        "The menu-free loop works like this: read a number, read an operator, read a second number, print the result, then repeat until the user types q.",
+        "If you see a NameError, check that add, sub, mul, and div are defined above main() and that functions maps each operator to its function."
+      ],
+      "common_mistakes": [
+        "Leaving the old print(\"Calculator ready\") line in place, so the file prints two messages.",
+        "Typing = instead of == in if __name__ == \"__main__\":, which causes a SyntaxError.",
+        "Forgetting the colon after def main() or if __name__ == \"__main__\".",
+        "Forgetting the indentation under main(), so the loop lines fall outside the function.",
+        "Calling main() at the top of the file, before the functions are defined. Keep it inside the __main__ guard at the bottom.",
+        "Using int() instead of float(), which crashes on decimal input like 2.5.",
+        "Dividing by zero without the try/except, so the program crashes instead of printing a message."
+      ],
+      "run_command": "python3 calculator.py"
+    },
+    {
+      "id": "s7",
+      "index": 7,
+      "title": "Try your calculator",
+      "instructions": "Run python3 calculator.py, enter 6, 3 and *, and confirm it prints 18.0. Run it again with 5, 0 and / to see the divide-by-zero error message.",
+      "code": "python3 calculator.py\n# at the prompts type: 6, then 3, then *\n# then run it again:\npython3 calculator.py\n# at the prompts type: 5, then 0, then /",
+      "file": "(terminal)",
+      "checks": [
+        {
+          "id": "s7c1",
+          "type": "screen_contains",
+          "label": "Divide-by-zero message shown",
+          "app": "Terminal",
+          "pattern": "(?i)(zero|cannot\\s*divide|can't\\s*divide|error)"
+        },
+        {
+          "id": "s7c2",
+          "type": "screen_absent",
+          "label": "No crash traceback in the terminal",
+          "app": "Terminal",
+          "pattern": "Traceback\\s*\\(most\\s*recent"
+        }
+      ],
+      "precision_checks": [
+        {
+          "id": "s7p1",
+          "type": "file_exists",
+          "label": "calculator.py exists",
+          "file": "calculator.py"
+        },
+        {
+          "id": "s7p2",
+          "type": "file_contains",
+          "label": "calculator.py guards against division by zero",
+          "file": "calculator.py",
+          "pattern": "ZeroDivisionError|==\\s*0"
+        },
+        {
+          "id": "s7p3",
+          "type": "command_exit_ok",
+          "label": "calculator.py has valid Python syntax",
+          "command": "python3 -c \"import ast; ast.parse(open('calculator.py').read())\""
+        }
+      ],
+      "targets": [
+        {
+          "app": "Terminal",
+          "file": "(terminal)",
+          "match": "calculator.py",
+          "caption": "Run python3 calculator.py here. Then answer the prompts with 6, 3 and *."
+        }
+      ],
+      "explanations": [],
+      "hints": [
+        "Run the script from the folder that contains calculator.py. Type each value at its prompt and press Enter after each one.",
+        "The calculator uses float(), so 6 * 3 shows as 18.0, not 18. That is expected.",
+        "If dividing by 0 shows a Traceback, go back to step 6. Make sure the calculation is inside try/except ZeroDivisionError, or that it checks for b == 0 before dividing."
+      ],
+      "common_mistakes": [
+        "Running the command from a different folder, which gives \"No such file or directory\".",
+        "Typing the operator before the numbers, or using x instead of *.",
+        "Typing 'python' instead of 'python3' on macOS or Linux. On Windows, use 'py calculator.py'.",
+        "Expecting 18 instead of 18.0. The calculator converts input with float(), so results are always floats.",
+        "Forgetting to save calculator.py after step 6, so the old version runs and only prints 'Calculator ready'."
+      ],
+      "run_command": "python3 calculator.py"
+    }
+  ],
+  "build": {
+    "mode": "lesson",
+    "seconds": 46.0,
+    "warnings": [],
+    "model": {
+      "plan": "claude-sonnet-5-5",
+      "steps": "claude-haiku-5-5",
+      "research": "claude-sonnet-5-5"
+    },
+    "cost": {
+      "gemini_calls": 0,
+      "claude_calls": 11,
+      "tokens": {
+        "claude-sonnet-5-5": {
+          "input": 30627,
+          "output": 2169,
+          "calls": 2
+        },
+        "claude-haiku-5-5": {
+          "input": 23150,
+          "output": 13462,
+          "calls": 7
+        },
+        "claude-opus-5-5": {
+          "input": 6874,
+          "output": 2136,
+          "calls": 2
+        }
+      }
+    }
+  }
+}

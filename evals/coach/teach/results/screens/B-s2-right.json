@@ -1,0 +1,22 @@
+{
+ "screen": {
+  "x": 0,
+  "y": 0,
+  "w": 1728,
+  "h": 1117
+ },
+ "scale": 2.0,
+ "app": "Code",
+ "windows": [
+  {
+   "app": "Code",
+   "title": "calculator.py \u2014 _new",
+   "rect": {
+    "x": 0,
+    "y": 0,
+    "w": 1728,
+    "h": 1117
+   }
+  }
+ ]
+}
