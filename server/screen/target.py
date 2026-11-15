@@ -10,9 +10,13 @@ How:
    3 explorer, 4 terminal_menu, 5 run_button), then editor rows from id 10 (code and blank, even
    when Vision reads no line numbers), then other OCR lines; never the breadcrumb, tab bar, title
    bar, hover tooltips or a side bar such as Chat. Callers can add `extra` marks (ids from 500).
+   Miyagi's own UI is never a candidate: lines under the app's `overlay.bounds` (frame-time and
+   current) are dropped and blacked out, and so are lines that read as text Miyagi itself is showing
+   (`note_ui_text`, fed from every emitted card / caption / step), for when the bounds miss it.
 2. The frame is cropped to the candidates, downscaled to <= 1280 px wide, and every candidate gets
    a small numbered tag. ONE Haiku request (`claude-haiku-5-5`, thinking off, effort low,
-   max_tokens 160) returns strict JSON `{"ids": [...], "confidence": 0..1, "why": "..."}`.
+   max_tokens 160, structured output `output_config.format` = SCHEMA) returns JSON
+   `{"ids": [...], "confidence": 0..1, "why": "..."}`; parse_answer still reads it leniently.
 3. Ids map back to the candidates' rects (screen points, top-left of the primary display: the
    `spotlight` space). Several ids are merged only when they are adjacent rows of one block.
 4. Low confidence (< MIYAGI_VISION_MIN_CONF, default 0.6), no ids, a timeout (2.5 s), an API error,
@@ -22,6 +26,11 @@ How:
 Cache: by (frame content hash, intent, app). The frame hash is the hash of the candidate set (ids,
 kinds, OCR text, rects snapped to 4 pt), i.e. what the model is shown; a blinking caret or a
 cursor move doesn't bust it, a changed line does. Answers (including "nothing") are kept 120 s.
+Per question (intent: the step's action + code, so per step) the last answer is also kept and reused
+across frames: a pick stands while its rows are still in place and the rows above them are unchanged
+(the learner typing into / below the picked line doesn't re-ask); "nothing" is held 6 s; an error,
+timeout or low-confidence pick is retried only after a backoff (3, 6, 12, 24, 30 s). One call per
+question at a time. The 6 calls/min budget stays.
 Cost: every call logs input/output tokens and a running $ estimate; `stats()` returns the totals.
 Sampling: Haiku 5.5 rejects `temperature` != default, so it isn't sent. Determinism comes from
 thinking off + effort low + strict JSON + the cache.
@@ -56,6 +65,21 @@ MAX_W = 1280
 EXTRA_ID = 500                         # our extra candidates; E6's ids (1-4, 10..) stay untouched
 CACHE_TTL = 120.0
 CACHE_MAX = 128
+RETRY_BASE_S, RETRY_MAX_S = 3.0, 30.0  # a failed / low-confidence pick is asked again after 3, 6, 12, 24, 30 s
+NONE_HOLD_S = 6.0                      # "nothing matches" is not asked again for 6 s, even on a changed screen
+OVERLAY_PAD = 6.0                      # pt around each overlay.bounds rect (edges, shadows, a late report)
+UI_TEXT_TTL = 600.0                    # s a string Miyagi showed counts as "ours" (note_ui_text)
+
+# Structured output: the answer is always this JSON object (ids first, so a cut-off answer still has them).
+SCHEMA = {
+    "type": "object",
+    "properties": {"ids": {"type": "array", "items": {"type": "integer"}},
+                   "confidence": {"type": "number"},
+                   "why": {"type": "string"}},
+    "required": ["ids", "confidence", "why"],
+    "additionalProperties": False,
+}
+_FORMAT_OK = True                      # off for the process if the API ever rejects output_config.format
 
 SYSTEM = (
     "You choose what a coding tutor highlights on a learner's screen (VS Code on macOS). The screenshot "
@@ -130,14 +154,14 @@ def build_candidates(obs: ScreenObservation, app: str | None = "Code", *, region
     """E6's set-of-marks candidates (regions 1-5 incl. the run ▷, editor code/blank rows even without a
     readable gutter, other OCR lines; never breadcrumb / tab bar / tooltips / side bar) + `extra`.
     `regions`: stabilized region rects (reader.locate_region) or None (computed from `obs`).
-    `exclude`: our overlay's rects; lines whose centre is inside are dropped (regions are kept).
+    `exclude`: our overlay's rects; lines whose centre is inside (OVERLAY_PAD around) are dropped (regions are kept).
     `extra`: (kind, text, rect) tuples, ids from EXTRA_ID."""
     cands = [Cand(c.id, c.kind, c.text, c.rect, c.line, c.region, c.occluded)
              for c in MK.candidates(obs, None, app, regions=regions)]
     for i, (kind, text, rect) in enumerate(extra):
         cands.append(Cand(EXTRA_ID + i, kind, text, Rect.from_any(rect)))
     if exclude:
-        ex = [Rect.from_any(r) for r in exclude]
+        ex = [Rect.from_any(r).pad(OVERLAY_PAD) for r in exclude]
         cands = [c for c in cands if c.kind == "region" or not any(r.contains(c.rect) for r in ex)]
     if obs.screen.w:
         cands = [c for c in cands if c.rect.clamp(obs.screen).w > 2 and c.rect.clamp(obs.screen).h > 2]
@@ -210,7 +234,7 @@ def render_marks(frame, cands: list[Cand], obs: ScreenObservation, exclude: Sequ
 
     d = ImageDraw.Draw(img, "RGBA")
     for r in exclude:                                           # our overlay: never shown to the model
-        r = Rect.from_any(r)
+        r = Rect.from_any(r).pad(OVERLAY_PAD)
         d.rectangle([*P(r.x, r.y), *P(r.x2, r.y2)], fill=(0, 0, 0, 255))
     font = _font(max(10, min(14, round(11 * max(1.0, f)))))
 
@@ -250,17 +274,40 @@ def render_marks(frame, cands: list[Cand], obs: ScreenObservation, exclude: Sequ
 
 # ---------------------------------------------------------------------- answer
 
-def parse_answer(text: str) -> tuple[list[int], float, str] | None:
-    """`{"ids": [12], "confidence": 0.9, "why": "..."}` (code fences / stray prose tolerated) ->
-    (ids, confidence 0..1, why); None when there's no valid JSON object."""
-    m = re.search(r"\{.*\}", text or "", re.DOTALL)
-    if not m:
+_DECODER = json.JSONDecoder()
+
+
+def _first_object(text: str) -> dict | None:
+    """The first JSON object in `text` that has "ids" / "id" (else the first object at all): prose, code fences or
+    a second object around it are ignored. A cut-off object (max_tokens) -> its "ids" and "confidence", if both
+    made it out."""
+    first = None
+    for m in re.finditer(r"\{", text):
+        try:
+            obj, _end = _DECODER.raw_decode(text, m.start())
+        except ValueError:
+            continue
+        if isinstance(obj, dict):
+            if "ids" in obj or "id" in obj:
+                return obj
+            first = first if first is not None else obj
+    if first is not None:
+        return first
+    ids = re.search(r'"ids?"\s*:\s*(\[[^\]\[{}]*\]|-?\d+|null)', text)
+    conf = re.search(r'"confidence"\s*:\s*"?(-?\d+(?:\.\d+)?)', text)
+    if ids is None or conf is None:
         return None
     try:
-        d = json.loads(m.group(0))
-    except (json.JSONDecodeError, ValueError):
+        return {"ids": json.loads(ids.group(1)), "confidence": conf.group(1)}
+    except ValueError:
         return None
-    if not isinstance(d, dict):
+
+
+def parse_answer(text: str) -> tuple[list[int], float, str] | None:
+    """`{"ids": [12], "confidence": 0.9, "why": "..."}` -> (ids, confidence 0..1, why). Lenient (see _first_object):
+    code fences / stray prose around it are tolerated; None when there's no JSON answer in it."""
+    d = _first_object(text or "")
+    if d is None:
         return None
     raw = d.get("ids", d.get("id", []))
     if raw is None:
@@ -325,23 +372,43 @@ class _Budget:
         return True
 
 
+@dataclass
+class _Memo:
+    """The last answer to one question (intent), whatever the frame: see _memo_answer."""
+    t: float
+    outcome: str
+    conf: float
+    res: dict | None
+    rows: list[Cand]              # "picked": the picked rows, as they were
+    context: tuple                # "picked": _context() of those rows when picked
+    retry_at: float               # failed / "none": not asked again before this (_now())
+    fails: int                    # consecutive failed / low-confidence asks
+
+
+_now = time.monotonic             # the cache / memo clock (tests move it)
 _BUDGET = _Budget()
 _CACHE: OrderedDict[str, tuple[float, dict | None]] = OrderedDict()
+_MEMO: OrderedDict[str, _Memo] = OrderedDict()
 _INFLIGHT: dict[str, asyncio.Future] = {}
 _CLIENTS: dict[str, Any] = {}
 _STATS: dict[str, Any] = {}
 _LAT: deque[float] = deque(maxlen=500)
+_UI_TEXT: deque[tuple[float, str]] = deque(maxlen=64)
 
 
 def reset() -> None:
     """Clear cache, budget and stats (tests)."""
+    global _FORMAT_OK
+    _FORMAT_OK = True
     _CACHE.clear()
+    _MEMO.clear()
     _INFLIGHT.clear()
     _BUDGET.calls.clear()
     _LAT.clear()
+    _UI_TEXT.clear()
     _STATS.clear()
     _STATS.update(calls=0, cache_hits=0, budget_skips=0, timeouts=0, errors=0, no_key=0, low_confidence=0,
-                  none=0, picked=0, input_tokens=0, output_tokens=0, cost_usd=0.0)
+                  none=0, picked=0, held=0, ours_dropped=0, input_tokens=0, output_tokens=0, cost_usd=0.0)
 
 
 reset()
@@ -418,27 +485,33 @@ async def pick_with_outcome(frame, ocr_boxes, intent: str, *, app: str | None = 
         return None, "no_candidates", 0.0
     obs = _as_obs(frame, ocr_boxes, app, screen)
     cands = build_candidates(obs, app, regions=regions, exclude=exclude, extra=extra)
+    cands, ours = _drop_ours(cands, intent)
     if not cands:
         return None, "no_candidates", 0.0
+    qkey = hashlib.blake2b(f"{MODEL}|{app}|{intent.lower()}".encode(), digest_size=16).hexdigest()
     key = hashlib.blake2b(f"{MODEL}|{app}|{intent.lower()}|{signature(cands)}".encode(), digest_size=16).hexdigest()
     found, val = _cache_get(key)
     if found:
         _STATS["cache_hits"] += 1
         return val
-    if key in _INFLIGHT:                       # the same question is already being asked
+    if (held := _memo_answer(qkey, cands, obs)) is not None:
+        return held
+    if qkey in _INFLIGHT:                      # the same question is already being asked (maybe on an older frame)
         try:
-            res, outcome, conf = await asyncio.shield(_INFLIGHT[key])
+            res, outcome, conf = await asyncio.shield(_INFLIGHT[qkey])
         except Exception:  # noqa: BLE001
             return None, "error", 0.0
         return (dict(res, cached=True) if res else None), outcome, conf
     fut = asyncio.get_running_loop().create_future()
-    _INFLIGHT[key] = fut
+    _INFLIGHT[qkey] = fut
     out: tuple[dict | None, str, float] = (None, "error", 0.0)
+    mask = [*exclude, *(c.rect for c in ours)]
     try:
-        out = await _ask(frame, obs, cands, intent, key, client, api_key, exclude, timeout, min_conf, t0, app)
+        out = await _ask(frame, obs, cands, intent, key, client, api_key, mask, timeout, min_conf, t0, app)
+        _remember(qkey, cands, *out)
         return out
     finally:
-        _INFLIGHT.pop(key, None)
+        _INFLIGHT.pop(qkey, None)
         if not fut.done():
             fut.set_result(out)
 
@@ -456,10 +529,12 @@ async def _ask(frame, obs, cands, intent, key, client, api_key, exclude, timeout
         if _STATS["no_key"] == 1:
             log.warning("pick_target: no Anthropic key (config.keys.anthropic / ANTHROPIC_API_KEY): skipped")
         return None, "no_key", 0.0
+    global _FORMAT_OK
     jpeg, size = await asyncio.to_thread(render_marks, frame, cands, obs, exclude, MAX_W, app)
     text = f"Request: {intent}\n\nTags (id [kind] OCR text):\n{listing(cands)}"
+    fmt = {"format": {"type": "json_schema", "schema": SCHEMA}} if _FORMAT_OK else {}
     kwargs = {"model": MODEL, "max_tokens": MAX_TOKENS, "system": SYSTEM,
-              "thinking": {"type": "disabled"}, "output_config": {"effort": "low"},
+              "thinking": {"type": "disabled"}, "output_config": {"effort": "low", **fmt},
               "messages": [{"role": "user", "content": [
                   {"type": "image", "source": {"type": "base64", "media_type": "image/jpeg",
                                                "data": base64.standard_b64encode(jpeg).decode("ascii")}},
@@ -478,6 +553,9 @@ async def _ask(frame, obs, cands, intent, key, client, api_key, exclude, timeout
         timed_out = "Timeout" in type(e).__name__
         _STATS["timeouts" if timed_out else "errors"] += 1
         log.warning("pick_target: %s: %s", type(e).__name__, str(e)[:200])
+        if fmt and getattr(e, "status_code", None) == 400 and re.search(r"output_config|schema", str(e), re.I):
+            _FORMAT_OK = False                 # this API / model won't take the schema: plain JSON from now on
+            log.warning("pick_target: structured output rejected; asking for plain JSON (parsed leniently)")
         return None, "timeout" if timed_out else "error", 0.0
     api_ms = (time.perf_counter() - ta) * 1000
     _LAT.append(api_ms)
@@ -490,8 +568,8 @@ async def _ask(frame, obs, cands, intent, key, client, api_key, exclude, timeout
     answer = "".join(getattr(b, "text", "") for b in getattr(resp, "content", []) or []
                      if getattr(b, "type", None) == "text")
     parsed = parse_answer(answer) if getattr(resp, "stop_reason", None) != "refusal" else None
-    log.info("pick_target %r -> %s | %d cands, img %dx%d, in=%d out=%d $%.5f (total $%.4f, %d calls) %.0fms",
-             intent[:60], answer.strip()[:120], len(cands), size[0], size[1], inp, out, cost,
+    log.info("pick_target %r -> %s | %d cands, %d masked, img %dx%d, in=%d out=%d $%.5f (total $%.4f, %d calls) %.0fms",
+             intent[:60], answer.strip()[:120], len(cands), len(exclude), size[0], size[1], inp, out, cost,
              _STATS["cost_usd"], _STATS["calls"], api_ms)
     if parsed is None:
         _STATS["errors"] += 1
@@ -532,7 +610,7 @@ def _result(cands: list[Cand], ids: list[int], conf: float, why: str, obs: Scree
 
 def _cache_get(key: str):
     hit = _CACHE.get(key)
-    if hit is None or time.monotonic() - hit[0] > CACHE_TTL:
+    if hit is None or _now() - hit[0] > CACHE_TTL:
         _CACHE.pop(key, None)
         return False, None
     _CACHE.move_to_end(key)
@@ -541,10 +619,150 @@ def _cache_get(key: str):
 
 
 def _cache_put(key: str, val) -> None:
-    _CACHE[key] = (time.monotonic(), val)
+    _CACHE[key] = (_now(), val)
     _CACHE.move_to_end(key)
     while len(_CACHE) > CACHE_MAX:
         _CACHE.popitem(last=False)
+
+
+# ---------------------------------------------------------------------- per-question memory (frames change)
+
+def _same_row(p: Cand, c: Cand) -> bool:
+    """Is `c` (this frame) the row `p` was when it was picked? The same kind of place at the same position (within a
+    third of a row), the same file line when both are known, and the same text or text that grew / shrank from it
+    (the learner typing there). Regions / icons: same name, within 12 pt."""
+    if p.kind in ("region", "toolbar") or c.kind in ("region", "toolbar"):
+        return c.kind == p.kind and c.text == p.text and all(
+            abs(a - b) <= 12 for a, b in zip((c.rect.x, c.rect.y, c.rect.x2, c.rect.y2),
+                                             (p.rect.x, p.rect.y, p.rect.x2, p.rect.y2)))
+    if _group(c) != _group(p) or abs(c.rect.cy - p.rect.cy) > max(3.0, p.rect.h / 3):
+        return False
+    if min(c.rect.x2, p.rect.x2) - max(c.rect.x, p.rect.x) <= 0 and abs(c.rect.x - p.rect.x) > 24:
+        return False
+    if p.line and c.line:
+        return p.line == c.line
+    a, b = M.squash(p.text), M.squash(c.text)
+    return not a or not b or a.startswith(b) or b.startswith(a)
+
+
+def _context(cands: list[Cand], rows: list[Cand]) -> tuple:
+    """What a pick of `rows` depends on besides the rows themselves: the other rows of their group (the editor's, or
+    one panel's lines) ABOVE them, by position (8 pt) and text. Typing into or below the picked rows keeps it; a
+    scroll or an edit above them changes it. Regions / icons: nothing else."""
+    first = rows[0]
+    if first.kind in ("region", "toolbar"):
+        return ()
+    g, top, ids = _group(first), min(c.rect.y for c in rows), {c.id for c in rows}
+    return tuple(sorted((round(c.rect.cy / 8), M.squash(c.text)) for c in cands
+                        if c.id not in ids and c.kind not in ("region", "toolbar") and _group(c) == g
+                        and c.rect.cy < top))
+
+
+def _carry(m: _Memo, cands: list[Cand], obs: ScreenObservation) -> dict | None:
+    """A remembered pick on this frame: the same rows (new rects) when all are still there and the rows above them
+    are unchanged; None otherwise (ask again)."""
+    rows = []
+    for p in m.rows:
+        c = next((c for c in cands if c.id not in {r.id for r in rows} and _same_row(p, c)), None)
+        if c is None:
+            return None
+        rows.append(c)
+    if not rows or m.res is None or _context(cands, rows) != m.context:
+        return None
+    first, r = rows[0], rows[0].rect
+    for c in rows[1:]:
+        r = r.union(c.rect)
+    if first.kind not in ("region", "toolbar"):
+        r = Rect(r.x - 2, r.y - 2, r.w + 4, r.h + 4)
+    if obs.screen.w:
+        r = r.clamp(obs.screen)
+    label = first.label() + (f" (+{len(rows) - 1} more rows)" if len(rows) > 1 else "")
+    return dict(m.res, rect=r.to_dict(), box_ids=[c.id for c in rows], label=label, kind=first.kind,
+                line=first.line, region=first.region, cached=True)
+
+
+def _memo_answer(qkey: str, cands: list[Cand], obs: ScreenObservation) -> tuple[dict | None, str, float] | None:
+    """The last answer to this question, when it still holds on this frame (else None: ask):
+    - picked: the same rows in place and nothing above them changed (_carry) -> the pick, re-placed;
+    - none: within NONE_HOLD_S; error / timeout / low_confidence: until the backoff is over -> that outcome again."""
+    m = _MEMO.get(qkey)
+    if m is None or _now() - m.t > CACHE_TTL:
+        _MEMO.pop(qkey, None)
+        return None
+    if m.outcome == "picked":
+        res = _carry(m, cands, obs)
+        if res is None:
+            return None
+        _STATS["cache_hits"] += 1
+        return res, "picked", m.conf
+    if _now() < m.retry_at:
+        _STATS["held"] += 1
+        return None, m.outcome, m.conf
+    return None
+
+
+def _remember(qkey: str, cands: list[Cand], res: dict | None, outcome: str, conf: float) -> None:
+    """Keep what one ask learned for this question (see _memo_answer). Budget / no key: nothing was asked."""
+    if outcome not in (*ASKED, "error", "timeout"):
+        return
+    now, prev = _now(), _MEMO.get(qkey)
+    if outcome == "picked":
+        by = {c.id: c for c in cands}
+        rows = [by[i] for i in (res or {}).get("box_ids") or [] if i in by]
+        if not rows:
+            return
+        m = _Memo(now, outcome, conf, dict(res), rows, _context(cands, rows), now, 0)
+    elif outcome == "none":
+        m = _Memo(now, outcome, conf, None, [], (), now + NONE_HOLD_S, 0)
+    else:
+        fails = (prev.fails + 1) if prev is not None and prev.fails else 1
+        wait = min(RETRY_MAX_S, RETRY_BASE_S * 2 ** (fails - 1))
+        m = _Memo(now, outcome, conf, None, [], (), now + wait, fails)
+        log.info("pick_target: %s; asking again in %.0f s at the earliest", outcome, wait)
+    _MEMO[qkey] = m
+    _MEMO.move_to_end(qkey)
+    while len(_MEMO) > CACHE_MAX:
+        _MEMO.popitem(last=False)
+
+
+# ---------------------------------------------------------------------- Miyagi's own text
+
+def note_ui_text(texts: Iterable[str]) -> None:
+    """Strings Miyagi is showing (card title / body, captions, step lines; never code): an OCR line that reads as one
+    of them is our overlay seen through a gap in `overlay.bounds`, never a target (_drop_ours)."""
+    now = _now()
+    for t in texts:
+        s = M.squash(re.sub(r"`[^`]*`", " ", str(t or "")))   # code spans out: the learner may type those
+        if len(s) < 12:
+            continue
+        for i, (_, u) in enumerate(_UI_TEXT):
+            if u == s:                                          # shown again: its clock restarts
+                del _UI_TEXT[i]
+                break
+        _UI_TEXT.append((now, s))
+
+
+def _drop_ours(cands: list[Cand], intent: str) -> tuple[list[Cand], list[Cand]]:
+    """-> (candidates, the ones dropped as Miyagi's own text): a line (>= 12 letters) that is a whole string Miyagi
+    showed in the last UI_TEXT_TTL s, or a wrapped piece of one (>= 30% of it; an editor row: >= half). Never one
+    the question itself names (the step's code is in the intent)."""
+    now = _now()
+    ui = [u for t, u in _UI_TEXT if now - t <= UI_TEXT_TTL]
+    if not ui:
+        return cands, []
+    asked = M.squash(intent)
+    keep, ours = [], []
+    for c in cands:
+        s = M.squash(c.text) if c.kind != "region" else ""
+        part = 0.5 if c.kind in ("code", "blank") else 0.3
+        if len(s) >= 12 and s not in asked and any(s in u and len(s) >= part * len(u) for u in ui):
+            ours.append(c)
+        else:
+            keep.append(c)
+    if ours:
+        _STATS["ours_dropped"] += len(ours)
+        log.info("pick_target: %d line(s) of Miyagi's own UI left out (%s)", len(ours), ours[0].text[:60])
+    return keep, ours
 
 
 # ---------------------------------------------------------------------- verifier
@@ -592,8 +810,8 @@ def _live_args(reader, app: str | None) -> dict:
         regions = {}
     desc = getattr(reader, "_describer", None)
     key = desc._key() if desc is not None and hasattr(desc, "_key") else None
-    return {"regions": regions or None, "api_key": key or None,
-            "exclude": list(getattr(reader, "_overlay", []) or [])}
+    ov = reader.overlay_rects() if hasattr(reader, "overlay_rects") else getattr(reader, "_overlay", [])
+    return {"regions": regions or None, "api_key": key or None, "exclude": list(ov or [])}
 
 
 async def pick_on_screen(intent: str, app: str | None = "Code", reader=None, **kw) -> dict | None:
@@ -630,6 +848,6 @@ def overlaps(a, b, min_frac: float = 0.5) -> bool:
     return inter >= min_frac * min(a.w * a.h, b.w * b.h)
 
 
-__all__ = ["ASKED", "Cand", "build_candidates", "confirm_on_screen", "confirm_spot", "listing", "merge", "overlaps",
-           "parse_answer", "pick_on_screen", "pick_target", "pick_with_outcome", "render_marks", "reset", "signature",
-           "stats", "verdict"]
+__all__ = ["ASKED", "Cand", "build_candidates", "confirm_on_screen", "confirm_spot", "listing", "merge", "note_ui_text",
+           "overlaps", "parse_answer", "pick_on_screen", "pick_target", "pick_with_outcome", "render_marks", "reset",
+           "signature", "stats", "verdict"]

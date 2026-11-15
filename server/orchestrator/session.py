@@ -38,6 +38,7 @@ from pathlib import Path
 from typing import Any
 
 from . import config
+from .captions import short_caption
 from .context import RunContext, RunInfo, metrics_summary
 from .modules import Modules
 
@@ -1940,7 +1941,8 @@ class LessonSession:
         self.spot_rect, self._spot_caption, self._spot_t = r, spot.get("caption"), self.clock()
         self._spot_app = spot.get("app") or ("Code" if self.lesson_mode else None)
         self._spot_misses = 0
-        await self.emit("spotlight", {**spot, "caption": self._no_create(spot["caption"])} if spot.get("caption") else spot)
+        await self.emit("spotlight", {**spot, "caption": short_caption(self._no_create(spot["caption"]))}  # <= ~8 words
+                        if spot.get("caption") else spot)
 
     async def _follow_spot(self) -> None:
         """On a new frame: move the spotlight with its target (only if it moved > 4pt)."""

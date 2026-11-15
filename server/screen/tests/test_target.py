@@ -255,7 +255,8 @@ def test_request_is_one_small_haiku_call_with_marked_image():
     kw = stub.calls[0]
     assert kw["model"] == "claude-haiku-5-5"
     assert kw["max_tokens"] <= 200
-    assert kw["thinking"] == {"type": "disabled"} and kw["output_config"] == {"effort": "low"}
+    assert kw["thinking"] == {"type": "disabled"} and kw["output_config"]["effort"] == "low"
+    assert kw["output_config"]["format"] == {"type": "json_schema", "schema": T.SCHEMA}   # always machine-readable
     assert not {"temperature", "top_p", "top_k"} & set(kw)            # Haiku 5.5 rejects them
     img_block, text_block = kw["messages"][0]["content"]
     img = Image.open(io.BytesIO(base64.b64decode(img_block["source"]["data"])))
@@ -323,8 +324,8 @@ def test_cache_by_frame_and_intent():
     assert len(stub.calls) == 1 and not a["cached"] and b["cached"] and a["rect"] == b["rect"]
     run(T.pick_target(frame, obs, "the add function", client=stub))   # another intent: a call
     assert len(stub.calls) == 2
-    obs2 = ScreenObservation.from_dict(obs.to_dict())                    # the screen changed: a call
-    obs2.blocks = [b for b in obs2.blocks if "subtract" not in b.text]
+    obs2 = ScreenObservation.from_dict(obs.to_dict())                    # a line above the pick changed: a call
+    obs2.blocks = [b for b in obs2.blocks if "calculator for" not in b.text]
     run(T.pick_target(frame, obs2, "def add", client=stub))
     assert len(stub.calls) == 3
     none_stub = Stub(ans([], 0.9))                                       # "nothing" is cached too
@@ -343,7 +344,7 @@ def test_budget_per_minute(monkeypatch):
     assert len(stub.calls) == 2 and T.stats()["budget_skips"] == 2
 
 
-def test_timeout_returns_none_fast():
+def test_timeout_returns_none_fast(monkeypatch):
     frame, obs = _load("vscode_window_calc_clean")
     stub = Stub(ans([2]), delay=5.0)
     import time
@@ -351,13 +352,18 @@ def test_timeout_returns_none_fast():
     assert run(T.pick_target(frame, obs, "editor", client=stub, timeout=0.2)) is None
     assert time.perf_counter() - t < 2.0
     assert T.stats()["timeouts"] == 1
-    assert run(T.pick_target(frame, obs, "editor", client=Stub(ans([2], 0.9)))) is not None  # not cached
+    again = Stub(ans([2], 0.9))
+    assert run(T.pick_target(frame, obs, "editor", client=again)) is None and not again.calls  # backoff: not yet
+    monkeypatch.setattr(T, "_now", lambda: time.monotonic() + T.RETRY_BASE_S + 1)
+    assert run(T.pick_target(frame, obs, "editor", client=again)) is not None  # not cached: asked after the backoff
 
 
-def test_api_error_returns_none_and_is_not_cached():
+def test_api_error_returns_none_and_is_not_cached(monkeypatch):
+    import time
     frame, obs = _load("vscode_window_calc_clean")
     assert run(T.pick_target(frame, obs, "editor", client=Stub(exc=RuntimeError("529 overloaded")))) is None
     assert T.stats()["errors"] == 1
+    monkeypatch.setattr(T, "_now", lambda: time.monotonic() + T.RETRY_BASE_S + 1)     # after the backoff
     assert run(T.pick_target(frame, obs, "editor", client=Stub(ans([2], 0.9)))) is not None
 
 

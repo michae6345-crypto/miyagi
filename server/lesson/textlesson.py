@@ -157,7 +157,9 @@ or inside; call only names that exist by now. A step either types code or runs a
   correct and runnable with the
   earlier steps' code), file: where it goes;
 - targets: file + `match` = a short literal anchor already in the file or typed in this step (e.g.
-  "function add(", "export default App") + caption, so the overlay can box exactly where to type;
+  "function add(", "export default App") + caption, so the overlay can box exactly where to type. The caption
+  sits ON the box: a 2-6 word pointer ("Type it here", "Type below sigmoid_slope", "Run it here"), never the
+  whole instruction (that goes in instructions / hints);
 - checks (at least one; graded from the learner's screen): screen_contains with app "Code" and a SHORT regex
   (< 60 chars, spacing-tolerant) for a distinctive fragment of this step's code; and, if the step runs
   something, a screen_contains with app "Terminal" on what it PRINTS (never the typed command);
