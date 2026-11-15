@@ -18,6 +18,8 @@ type NetFloat = {
   pickup?: Pickup
   /** The drawer's "Network · floating" row, in overlay coordinates: where a dock animates to. */
   dockAt?: { x: number; y: number }
+  /** Width the learner resized the floating card to (this session), or unset for the default. */
+  width?: number
 }
 
 const KEY = 'miyagi.netSpot'
@@ -58,6 +60,10 @@ export function dock(): void {
   const spot: Spot = { floating: false }
   save(spot)
   useNetFloat.setState({ spot, pickup: undefined })
+}
+
+export function setFloatWidth(width: number): void {
+  useNetFloat.setState({ width })
 }
 
 export function setDockAt(at: { x: number; y: number } | undefined): void {
