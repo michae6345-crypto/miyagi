@@ -125,8 +125,22 @@ test('POST /open reveals the line in this window and /state reports it exactly',
   assert.equal(miss.body.error, 'not_found');
 });
 
-test('POST /highlight draws one white box around the block and {clear:true} removes it', async (t) => {
+test('POST /highlight draws nothing by default: Miyagi\'s overlay is the only UI (it still reveals and records)', async (t) => {
   const s = await setup(t);
+  fs.writeFileSync(s.file, 'a\nb\nc\nd\ne\n');
+  const r = await s.req('POST', '/highlight', { file: s.file, startLine: 2, endLine: 4 });
+  assert.equal(r.status, 200, JSON.stringify(r.body));
+  assert.deepEqual(r.body, { ok: true, file: s.file, startLine: 2, endLine: 4 });
+  assert.equal(s.ctl.decorationTypes.length, 0, 'no decoration types, so no box and no overview-ruler mark');
+  assert.ok(s.ctl.editors.every((ed) => ed.decorations.size === 0));
+  assert.deepEqual(s.ctl.calls.reveals.at(-1), { file: s.file, startLine: 1, endLine: 3, how: 2 });
+  assert.deepEqual((await s.req('GET', '/state')).body.highlight, { file: s.file, startLine: 2, endLine: 4 });
+  assert.deepEqual((await s.req('POST', '/highlight', { clear: true })).body, { ok: true, cleared: true });
+  assert.equal(s.ctl.decorationTypes.length, 0);
+});
+
+test('POST /highlight with miyagi.editorUi draws one white box around the block and {clear:true} removes it', async (t) => {
+  const s = await setup(t, { config: { editorUi: true } });
   fs.writeFileSync(s.file, 'a\nb\nc\nd\ne\n');
   const r = await s.req('POST', '/highlight', { file: s.file, startLine: 2, endLine: 4 });
   assert.equal(r.status, 200, JSON.stringify(r.body));
@@ -245,8 +259,16 @@ test('POST /apply writes over an unsaved buffer and saves; edits keep indentatio
   assert.equal(fs.readFileSync(path.join(s.dir, 'ops.py'), 'utf8'), 'def sub(a, b):\n    return a - b\n');
 });
 
-test('POST /diff opens vscode.diff: the file on the left, the proposed text on the right', async (t) => {
+test('POST /diff opens no diff tab by default (409 editor_ui_off)', async (t) => {
   const s = await setup(t);
+  const r = await s.req('POST', '/diff', { file: s.file, newText: 'x = 1\n' });
+  assert.equal(r.status, 409);
+  assert.deepEqual(r.body, { ok: false, error: 'editor_ui_off' });
+  assert.equal(s.ctl.calls.commands.length, 0, 'nothing opened');
+});
+
+test('POST /diff with miyagi.editorUi opens vscode.diff: the file on the left, the proposed text on the right', async (t) => {
+  const s = await setup(t, { config: { editorUi: true } });
   const r = await s.req('POST', '/diff', { file: s.file, newText: 'def add(a, b):\n    return a + b\n' });
   assert.equal(r.status, 200, JSON.stringify(r.body));
   const call = s.ctl.calls.commands.find((c) => c.id === 'vscode.diff');
@@ -289,14 +311,14 @@ test('a slow action answers {pending} within the deadline and reports the result
   assert.equal(done.result.line, 2);
 });
 
-test('window focus and dirty flips post events; the status command reports the port', async (t) => {
+test('window focus and dirty flips post events; the status command reports the port without a toast', async (t) => {
   const s = await setup(t);
   s.ctl.ev.windowState.fire({ focused: false });
   s.ctl.ev.windowState.fire({ focused: true });
   await waitFor(() => s.engine.events.filter((e) => e.type === 'focus').length >= 2);
   assert.ok((await s.req('GET', '/state')).body.lastFocusedAt > 0);
   assert.equal(await s.ctl.registered['miyagi.companion.status'](), s.port);
-  assert.match(s.ctl.calls.info[0], new RegExp(String(s.port)));
+  assert.deepEqual(s.ctl.calls.info, [], 'no notification');
 });
 
 test('works without the shell-integration API (VS Code < 1.93): commands still run, no exit code', async (t) => {

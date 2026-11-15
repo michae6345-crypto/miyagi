@@ -13,6 +13,7 @@ name from a title resolves to a path only under ~/miyagi/lessons (MIYAGI_LESSONS
 from __future__ import annotations
 
 import logging
+import re
 import shutil
 from collections.abc import Callable, Iterable
 from pathlib import Path
@@ -60,8 +61,9 @@ def is_lesson_folder(folder: str | Path | None) -> bool:
     return f.parent == root and not f.name.startswith(".")
 
 
-def _cg_vscode_titles() -> list[str]:
-    """Titles of VS Code's normal windows, front to back (on-screen first)."""
+def _cg_vscode_titles(onscreen_only: bool = False) -> list[str]:
+    """Titles of VS Code's normal windows, front to back (on-screen first; onscreen_only: only the windows the
+    current Space shows, never a full-screen window on another Space)."""
     try:
         import AppKit
         import Quartz
@@ -76,7 +78,7 @@ def _cg_vscode_titles() -> list[str]:
         if int(w.get("kCGWindowOwnerPID", -1)) != pid or w.get("kCGWindowLayer", 1) != 0:
             continue
         name = str(w.get("kCGWindowName") or "")
-        if name:
+        if name and (w.get("kCGWindowIsOnscreen") or not onscreen_only):
             out.append((0 if w.get("kCGWindowIsOnscreen") else 1, name))
     return [n for _, n in sorted(out, key=lambda x: x[0])]  # stable: z-order kept within each group
 
@@ -139,8 +141,16 @@ def active_editor(*, titles: Iterable[str] | None = None, ax: Callable[[], dict 
     """The frontmost VS Code window: {folder, folder_name, file, path, dirty, title, miyagi_lesson, source}.
 
     folder/path are absolute when known: from AXDocument (any folder), else from the title for folders under
-    ~/miyagi/lessons; None otherwise (the folder name is still there). None when VS Code has no window."""
+    ~/miyagi/lessons; None otherwise (the folder name is still there). None when VS Code has no window.
+    With `titles` (the windows on screen, front to back), AX counts only when its focused window is the front one
+    of those: VS Code's focused window can be a full-screen window on another Space while the screen shows another."""
     a = (ax or _ax_front_document)()
+    if a and a.get("document") and titles is not None:
+        titles = list(titles)
+        ax_folder = (parse_title(a.get("title", "")) or {}).get("folder_name")
+        front = parse_title(titles[0]) if titles else None
+        if ax_folder and (front is None or front.get("folder_name") != ax_folder):
+            a = None
     if a and a.get("document"):
         doc = Path(a["document"])
         p = parse_title(a.get("title", "")) or {"file": doc.name, "folder_name": None, "dirty": False}
@@ -166,33 +176,75 @@ def active_editor(*, titles: Iterable[str] | None = None, ax: Callable[[], dict 
             "title": w["title"], "miyagi_lesson": w["miyagi_lesson"], "source": "title"}
 
 
-def wrong_folder(lesson_folder: str | Path, lesson_files: Iterable[str] | None = None, *,
-                 active: dict | None = None, titles: Iterable[str] | None = None) -> dict | None:
-    """The learner edits a lesson file (same name) in ANOTHER folder than the one the lesson watches.
+_NOT_FOLDERS = {"Welcome", "Get Started", "Settings", "Extensions", "Keyboard Shortcuts", "Release Notes"}
 
-    -> {learner_folder (path or None), learner_folder_name, lesson_folder, file, dirty, can_adopt} | None.
+
+def _names_folder(name: str | None) -> bool:
+    """A title part that really is a folder (not VS Code's Welcome tab, an Untitled editor or a lone file)."""
+    n = (name or "").strip()
+    return bool(n) and n not in _NOT_FOLDERS and not n.startswith("Untitled") and not re.search(r"\.[A-Za-z0-9]{1,6}$", n)
+
+
+def _in_project(name: str, lesson: Path) -> bool:
+    """A window title's folder `name` is the lesson's project: the lesson folder ("in": a custom window.title may show
+    its path), a folder above it, or one up to 2 levels inside it (create-react-app's demo-app/). The same rule as
+    E6's server.screen.vscode.is_foreign and the coach's other_project."""
+    n = name.split("[")[0].strip()   # "folder [SSH: host]"
+    if lesson.name in n or n in lesson.parts:
+        return True
+    try:
+        return any(p.name == n for pat in ("*", "*/*") for p in lesson.glob(pat) if p.is_dir())
+    except OSError:
+        return False
+
+
+def wrong_folder(lesson_folder: str | Path, lesson_files: Iterable[str] | None = None, *,
+                 active: dict | None = None, titles: Iterable[str] | None = None,
+                 window_check: bool = False) -> dict | None:
+    """The learner edits a lesson file (same name) in ANOTHER folder than the one the lesson watches
+    (reason "same_file"); with window_check=True (the lesson is bound to its own VS Code window: Miyagi opened it),
+    ALSO when the VS Code window on screen shows another folder, whatever file it has open (reason "other_window").
+    window_check reads only the windows the current Space shows (not a full-screen window on another Space).
+
+    -> {learner_folder (path or None), learner_folder_name, lesson_folder, file, dirty, can_adopt, reason} | None.
     lesson_files: the lesson's file names/paths (targets, check files); default: the files in lesson_folder.
-    can_adopt: "use this folder" is possible (the learner's folder path is known and is a real folder)."""
+    can_adopt: "use this folder" is possible (the learner's folder path is known and is a real folder; never
+    another Miyagi lesson's folder for "other_window")."""
+    if window_check and active is None and titles is None:
+        titles = _cg_vscode_titles(onscreen_only=True)
     act = active if active is not None else active_editor(titles=titles)
-    if not act or not act.get("file"):
+    if not act:
         return None
     lesson = Path(lesson_folder).expanduser().resolve()
-    if act.get("folder") and Path(act["folder"]).resolve() == lesson:
+    folder = Path(act["folder"]).resolve() if act.get("folder") else None
+    if folder and (folder == lesson or lesson in folder.parents):
         return None
-    if not act.get("folder") and act.get("folder_name") == lesson.name:
+    if act.get("path") and lesson in Path(act["path"]).resolve().parents:
+        return None  # a file of the lesson's own folder (AX / the extension: in a window on a folder above it)
+    if not folder and act.get("folder_name") and _in_project(act["folder_name"], lesson):
         return None
     if lesson_files is None:
         names = {p.name for p in lesson.rglob("*") if p.is_file() and not (set(p.relative_to(lesson).parts) & SKIP_DIRS)} \
             if lesson.is_dir() else set()
     else:
         names = {Path(f).name for f in lesson_files if f}
-    if act["file"] not in names:
+    same_file = bool(act.get("file")) and act["file"] in names
+    if not same_file and not (window_check and _names_folder(act.get("folder_name"))
+                              and not (folder and folder in lesson.parents)):   # a window on a folder above the lesson
         return None
     learner = act.get("folder")
     return {"learner_folder": learner, "learner_folder_name": act.get("folder_name"), "lesson_folder": str(lesson),
-            "file": act["file"], "path": act.get("path"), "dirty": bool(act.get("dirty")),
+            "file": act.get("file"), "path": act.get("path"), "dirty": bool(act.get("dirty")),
             "learner_is_miyagi_lesson": bool(act.get("miyagi_lesson")),
-            "can_adopt": bool(learner) and Path(learner).is_dir() and _safe_target(Path(learner), lesson)}
+            "reason": "same_file" if same_file else "other_window",
+            "can_adopt": bool(learner) and Path(learner).is_dir() and _safe_target(Path(learner), lesson)
+            and (same_file or not act.get("miyagi_lesson"))}
+
+
+def folder_on_screen(folder: str | Path) -> bool:
+    """Is a VS Code window showing `folder` on screen now (the current Space)? (after Open: did it come forward?)"""
+    name = Path(folder).expanduser().name
+    return any(w.get("folder_name") == name for w in vscode_windows(_cg_vscode_titles(onscreen_only=True)))
 
 
 def _safe_target(target: Path, lesson: Path) -> bool:

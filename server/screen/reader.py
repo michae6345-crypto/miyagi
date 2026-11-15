@@ -78,6 +78,7 @@ class ScreenReader:
         self._prev_thumb: bytes | None = None
         self._prev_layout: tuple = ()
         self._overlay: list[Rect] = []
+        self._lesson_folder: str | None = None   # set_lesson_folder: other folders' VS Code windows are left out
         self._subs: list[tuple[Callback, asyncio.AbstractEventLoop | None]] = []
         self._metric_readers: list[TerminalMetricReader] = []
         self._tiger: TigerWriter | None = None
@@ -253,6 +254,18 @@ class ScreenReader:
         """Rects (points, top-left) covered by our own overlay; OCR inside them is ignored."""
         with self._lock:
             self._overlay = [Rect.from_any(r) for r in (rects or [])]
+
+    def set_lesson_folder(self, folder: str | None) -> None:
+        """Bind the screen to the lesson's own editor window (a folder name or path; None unbinds). VS Code windows
+        whose title names ANOTHER folder are then left out of every observation: their OCR text (checks, coach,
+        locate), their rects (regions, line spotlights, Show me), AX text of such a window or of one on another
+        Space, and the screenshot a model sees (blacked out). They are listed in `obs.foreign`."""
+        folder = str(folder) if folder else None
+        with self._lock:
+            changed, self._lesson_folder = folder != self._lesson_folder, folder
+        if changed:
+            log.info("screen bound to %s", Path(folder).name if folder else "every window")
+            self.poke("lesson_folder", force=True)
 
     def locate(self, match: str, app: str | None = None) -> Rect | None:
         res = self.locate_match(match, app)
@@ -460,7 +473,8 @@ class ScreenReader:
             return None
         if obs.source == "live":
             snap = self.ax_reader.latest() if self.ax_reader is not None and self.ax_reader.available else None
-            if snap is not None and time.time() - snap.t < 2.0 and M.app_matches(win.app, snap.app):
+            if snap is not None and time.time() - snap.t < 2.0 and M.app_matches(win.app, snap.app) \
+                    and self._ax_shown(snap, obs):
                 if snap.dirty is not None:
                     win.dirty, win.sources["dirty"] = snap.dirty, "ax"
                 if snap.document:
@@ -540,7 +554,7 @@ class ScreenReader:
         except Exception as e:  # noqa: BLE001
             log.debug("AX editor read failed: %s", e)
             return None, None
-        if snap is None or snap.editor is None:
+        if snap is None or snap.editor is None or not self._ax_shown(snap, self.latest()):
             return None, None
         return snap.editor, snap.document
 
@@ -730,12 +744,18 @@ class ScreenReader:
             blocks = repair_code_rows(img, screen, scale, blocks)
             blocks = [Block(redact(b.text), b.rect, b.confidence, b.app, b.window, b.role) for b in blocks
                       if not is_private_app(b.app)]
+            from .vscode import scope_to_folder
+            with self._lock:
+                folder = self._lesson_folder
+            blocks, shown, foreign, foreign_rects = scope_to_folder(  # fixture frames (DEMO fallback) are never scoped
+                blocks, windows, folder if source == "live" else None)
             self._frame += 1
             obs = ScreenObservation(t=time.time(), app=fixture_app or macos.frontmost_app(windows),
-                                    windows=windows, blocks=blocks, screen=screen, scale=scale,
+                                    windows=shown, blocks=blocks, screen=screen, scale=scale,
                                     ocr_ms=ms, frame=self._frame, source=source, trigger=trigger,
                                     overlay_excluded=overlay_excluded,
-                                    capture=(self.backend or "") if source == "live" else "fixture")
+                                    capture=(self.backend or "") if source == "live" else "fixture",
+                                    foreign=foreign, foreign_rects=foreign_rects)
             obs.editor = _editor_info(obs)
             if source == "live":
                 self._attach_cursor_and_ax(obs)
@@ -764,9 +784,16 @@ class ScreenReader:
 
     # ------------------------------------------------------------------ cursor + AX
 
+    @staticmethod
+    def _ax_shown(snap, obs: ScreenObservation | None) -> bool:
+        """Is the AX snapshot's focused window one this frame shows? VS Code's focused window can be off screen (full
+        screen on another Space) or another folder's (set_lesson_folder): its text / caret rect must not count."""
+        from .vscode import window_shown
+        return obs is None or obs.source != "live" or window_shown(snap.app, snap.window_title, obs.windows)
+
     def _attach_cursor_and_ax(self, obs: ScreenObservation) -> None:
         snap = self.ax_reader.latest() if self.ax_reader else None
-        if snap is not None and time.time() - snap.t > 2.0:
+        if snap is not None and (time.time() - snap.t > 2.0 or not self._ax_shown(snap, obs)):
             snap = None
         if snap is not None:
             obs.ax = _redact_ax(snap.to_dict())
@@ -831,7 +858,7 @@ class ScreenReader:
         pil = macos.cgimage_to_pil(img)
         s = obs.scale
         d = ImageDraw.Draw(pil)
-        for r in overlay:
+        for r in overlay + list(getattr(obs, "foreign_rects", None) or []):  # + other folders' VS Code windows
             d.rectangle([(r.x - obs.screen.x) * s, (r.y - obs.screen.y) * s,
                          (r.x2 - obs.screen.x) * s, (r.y2 - obs.screen.y) * s], fill=(0, 0, 0))
         if region is not None:

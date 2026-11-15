@@ -11,7 +11,8 @@ const { createFakeVscode, loadExtension } = require('./fake-vscode');
 async function main() {
   const dir = path.resolve(process.argv[2] || process.cwd());
   const engineUrl = process.argv[3] || 'http://127.0.0.1:9';
-  const { vscode, ctl } = createFakeVscode({ folders: [dir], config: { port: 0, engineUrl } });
+  // editorUi on so the cross-language test covers every route (/diff answers 409 editor_ui_off by default)
+  const { vscode, ctl } = createFakeVscode({ folders: [dir], config: { port: 0, engineUrl, editorUi: true } });
   const create = vscode.window.createTerminal;
   vscode.window.createTerminal = (opts) => {
     const t = create(opts);
