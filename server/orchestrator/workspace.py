@@ -333,7 +333,7 @@ class Workspace:
                 workdir, ws.open_file_for(Path(workdir)), lesson_id=self._key(), fullscreen=full and real,
                 explicit=explicit, runner=None if (real and not full) else self.run,
                 **({} if real else {"focus": lambda: None, "background": False, "arrange_windows": False,
-                                     "trusted": lambda: False, "previous": None}))
+                                     "trusted": lambda: False, "previous": None, "windows": lambda: []}))
             self.opened = workdir
             return
         if self.opened == workdir:  # older S2: at most once per folder
