@@ -104,7 +104,7 @@ function useClock(run: boolean): number {
     let id = 0
     const start = performance.now()
     const tick = (now: number): void => {
-      setT(now - start)
+      setT(Math.max(0, now - start))
       id = requestAnimationFrame(tick)
     }
     id = requestAnimationFrame(tick)
