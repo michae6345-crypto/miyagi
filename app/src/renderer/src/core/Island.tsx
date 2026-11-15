@@ -102,8 +102,10 @@ export function Island({ top, layout }: { top: number; layout: Layout }): ReactN
     }
   }, [modeId, fixed])
 
-  // An open card steps off the spotlight's hole and the coach's targets (Michael's desktop test 3, item 3), decided as
-  // it opens and then held still, never moved under the pointer or just after a press (desktop test 5). Transform only.
+  // An open card steps off the spotlight's hole, the coach's and its own targets (Michael's desktop test 3, item 3) and
+  // out of the engine's avoid rects (screen.avoid: VS Code's quick-pick, test 9, A3), decided as it opens and then held
+  // still (a new avoid rect is the one exception), never moved under the pointer or just after a press (desktop test 5).
+  // Transform only.
   const card = mode && !isPill && held[at] ? { id: mode.id, w: size.w, h: size.h } : undefined
   const offset = useIslandOffset(card, top, layout, wrapper, pointerIn || pressHold)
 

@@ -13,13 +13,24 @@
  * The spot is decided as the card opens and then held (Michael's desktop test 5: the setup card stepped down off the
  * box between his look and his click, and the first Install missed). See useIslandOffset.
  *
+ * Avoid rects (Michael's desktop test 9, A3 / A4: the "Not yet" card and the step pill sat over VS Code's kernel
+ * picker, top centre). The engine's `screen.avoid` says what is open on top of the learner's app and must stay visible
+ * (a quick-pick: kernel picker, command palette, Select Interpreter). An open card steps out of it like out of a
+ * spotlight box, and goes back to its own spot when it closes. The one
+ * exception to "held once shown": a NEW avoid rect moves an open card (the learner opened that picker on purpose), but
+ * never while the pointer is on it or just after a press. Nothing is guessed when the engine says nothing: the picker
+ * opens top centre, right where every card and the pill are born, and a card moved off that spot for good would sit
+ * over the editor's Run / Select Kernel buttons (top right) or the code itself (below).
+ *
  * Owner: core.
  */
 import { useLayoutEffect, useMemo, useRef, useState, type RefObject } from 'react'
+import { create } from 'zustand'
 import type { Layout } from '../../../preload/api'
 import { useCards } from '../features/cards/store'
 import { hole, intersects, isUsableRect, MIN_VISIBLE_SHARE, overlapShare, sameRect, toLocal } from '../features/spotlight/place'
 import { useSpotlight } from '../features/spotlight/store'
+import { onMessage, onUi } from './bus'
 import { useLesson, type Rect } from './lesson'
 
 type Offset = { x: number; y: number }
@@ -55,6 +66,65 @@ const SAME_BOX_PX = 12
  * opened top-centre, then jumped to the lower-left over the editor and terminal the moment VS Code finished opening).
  */
 const HOLDS = new Set(['before-start'])
+
+/**
+ * The engine sends `screen.avoid` only when something changes ({rects: []} = closed). A close that never came is
+ * dropped after this long (a picker is open a few seconds, not a minute).
+ */
+const AVOID_TTL_MS = 45_000
+/** At most this many avoid rects are read from one message. */
+const AVOID_MAX = 8
+
+/**
+ * `screen.avoid` (Michael, Sun 6:36 AM; additive, landing in shared/contracts/events.ts on integration/live):
+ *   "screen.avoid": { rects: { kind: "quickpick"; x: number; y: number; w: number; h: number }[] }
+ * Screen points, top-left origin, like spotlight.rect. Sent only when something changes; [] = the picker closed. Only
+ * while a lesson is active; cleared on lesson.ended / reset too. Any kind is treated the same way.
+ * TODO(contract): once adrian/shell's events.ts has "screen.avoid", drop AvoidEvent and the cast in onRaw below and
+ * subscribe with onMessage('screen.avoid', ...) (common/wire.ts already lets the type through).
+ * Browser stage: window.__miyagiAvoid([{ kind: 'quickpick', x: 456, y: 44, w: 600, h: 240 }]) opens one,
+ * __miyagiAvoid([]) closes it; ?scenario=quickpick plays it on a "Not yet" card and the step pill.
+ */
+type AvoidEvent = { rects?: Array<{ kind?: string; x: number; y: number; w: number; h: number }> }
+export const useAvoid = create<{ rects: Rect[] }>(() => ({ rects: NONE }))
+let avoidTimer: ReturnType<typeof setTimeout> | undefined
+
+function readAvoid(payload: unknown): Rect[] {
+  const list = (payload as AvoidEvent | null | undefined)?.rects
+  if (!Array.isArray(list)) return NONE
+  const out: Rect[] = []
+  for (const r of list.slice(0, AVOID_MAX)) {
+    if (isUsableRect(r)) out.push({ x: Math.round(r.x), y: Math.round(r.y), w: Math.round(r.w), h: Math.round(r.h) })
+  }
+  return out
+}
+
+export function setAvoid(rects: Rect[]): void {
+  clearTimeout(avoidTimer)
+  if (rects.length) avoidTimer = setTimeout(() => setAvoid(NONE), AVOID_TTL_MS)
+  const now = useAvoid.getState().rects
+  if (now.length === rects.length && now.every((r, i) => sameRect(r, rects[i]))) return
+  useAvoid.setState({ rects: rects.length ? rects : NONE })
+}
+
+/** onMessage for a type the contract on this branch doesn't have yet (see the TODO above). */
+const onRaw = onMessage as unknown as (type: string, fn: (payload: unknown) => void) => () => void
+onRaw('screen.avoid', (p) => setAvoid(readAvoid(p)))
+onMessage('lesson.ended', () => setAvoid(NONE))
+onUi('reset', () => void setAvoid(NONE))
+if (typeof window !== 'undefined') {
+  ;(window as unknown as { __miyagiAvoid?: (rects: unknown[]) => void }).__miyagiAvoid = (rects) => setAvoid(readAvoid({ rects }))
+}
+
+/** The avoid rects in window coordinates, the ones on this display. */
+function useAvoidLocal(layout: Layout): Rect[] {
+  const rects = useAvoid((s) => s.rects)
+  return useMemo(() => {
+    if (!rects.length) return NONE
+    const screen = { x: 0, y: 0, w: layout.width, h: layout.height }
+    return rects.map((r) => toLocal(r, layout.origin)).filter((r) => intersects(r, screen))
+  }, [rects, layout])
+}
 
 const clamp = (v: number, lo: number, hi: number): number => Math.min(hi, Math.max(lo, v))
 const grow = (r: Rect, by: number): Rect => ({ x: r.x - by, y: r.y - by, w: r.w + by * 2, h: r.h + by * 2 })
@@ -158,6 +228,8 @@ const sameBoxes = (a: Rect[], b: Rect[]): boolean => a.length === b.length && a.
 
 /** Where the open card sits: its mode, the holes it was placed for, its offset, and until when it may still settle. */
 type Spot = { id: string; boxes: Rect[]; at: Offset; until: number }
+/** An open card stepped out of avoid rects: the rects and holes it was placed for, and where (undefined: no need). */
+type Aside = { id: string; clear: Rect[]; boxes: Rect[]; at?: Offset }
 
 /**
  * The island's offset right now. `card`: the open card's mode and size (undefined for the pill or a hover peek: they
@@ -173,6 +245,10 @@ type Spot = { id: string; boxes: Rect[]; at: Offset; until: number }
  *
  * The card's own targets (`card.targets`) count like the coach's, kept while the card is open: a spotlight clear or the
  * next step.started wipes the spotlight's copy (desktop test 9, A5: the step card sat on the code it talked about).
+ *
+ * Avoid rects (useAvoid: VS Code's quick-pick, desktop test 9, A3): a new one that overlaps the card's spot moves the
+ * card out of it, even though the card is held, and when it closes the card goes back to its own spot. Held while the
+ * same rects stand; never moved while `still` (it waits until the pointer is off it, then moves).
  */
 export function useIslandOffset(card: { id: string; w: number; h: number } | undefined, top: number, layout: Layout, wrapper: RefObject<HTMLElement | null>, still = false): Offset {
   const main = useSpotlight((s) => (s.target && isUsableRect(s.target.rect) ? s.target.rect : undefined))
@@ -193,15 +269,16 @@ export function useIslandOffset(card: { id: string; w: number; h: number } | und
     const screen = { x: 0, y: 0, w: layout.width, h: layout.height }
     return rects.map((r) => hole(toLocal(r, layout.origin))).filter((h) => overlapShare(h, screen) >= MIN_VISIBLE_SHARE)
   }, [main, others, flagged, carded, layout])
+  const clear = useAvoidLocal(layout)
   const w = card?.w ?? 0
   const h = card?.h ?? 0
-  const { others: avoid, chips } = useOverlayUi(wrapper, keepOff.length > 0, card?.id ?? '')
+  const { others: avoid, chips } = useOverlayUi(wrapper, keepOff.length > 0 || clear.length > 0, card?.id ?? '')
 
+  const notch = { x: (layout.width - w) / 2, y: top, w, h }
+  const wa = layout.workArea
+  const bounds = { x: wa.x + EDGE, y: top, w: wa.width - EDGE * 2, h: wa.y + wa.height - BAR_CLEARANCE - top }
   const decide = (): Offset => {
     if (!card || !keepOff.length) return AT_NOTCH
-    const notch = { x: (layout.width - w) / 2, y: top, w, h }
-    const wa = layout.workArea
-    const bounds = { x: wa.x + EDGE, y: top, w: wa.width - EDGE * 2, h: wa.y + wa.height - BAR_CLEARANCE - top }
     return placeIsland(notch, [...keepOff, ...chips], bounds, avoid)
   }
   const spot = useRef<Spot>(undefined)
@@ -215,8 +292,25 @@ export function useIslandOffset(card: { id: string; w: number; h: number } | und
   else if (now < prev.until) next = { ...prev, boxes: keepOff, at: decide() } // still springing out: follow its real size
   else if (keepOff.length && !sameBoxes(keepOff, prev.boxes) && !still && !HOLDS.has(card.id)) next = fresh() // a new box
   else next = prev
+  const base = next?.at ?? AT_NOTCH
+
+  // A3: out of what the engine says must stay visible (a quick-pick); back to `base` once it's gone. Any card, the
+  // held "Your lesson" sheet too: a picker the learner opened on purpose wins.
+  const aside = useRef<Aside>(undefined)
+  const was = aside.current
+  let nextAside: Aside | undefined
+  if (!card) nextAside = undefined
+  else if (still) nextAside = was && { ...was, id: card.id } // nothing moves under the pointer
+  else if (!clear.length) nextAside = undefined // it closed: back to the card's own spot
+  else if (was && was.id === card.id && sameBoxes(clear, was.clear) && sameBoxes(keepOff, was.boxes) && now >= (next?.until ?? 0)) nextAside = was
+  else {
+    const here = { x: notch.x + base.x, y: notch.y + base.y, w, h }
+    const hit = clear.some((c) => intersects(here, grow(c, CARD_GAP)))
+    nextAside = { id: card.id, clear, boxes: keepOff, at: hit ? placeIsland(notch, [...keepOff, ...chips, ...clear], bounds, avoid) : undefined }
+  }
   useLayoutEffect(() => {
     spot.current = next
+    aside.current = nextAside
   })
-  return next?.at ?? AT_NOTCH
+  return nextAside?.at ?? base
 }
