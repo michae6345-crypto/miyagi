@@ -429,8 +429,8 @@ async def next_step(session: Any) -> bool:
     await _begin(session)
     if _is_run(session, step):
         st, sid = _st(session), step.get("id")
-        st["good"].add(sid)  # never the stuck run, also for a run already under way
-        st["runs"][sid] = max(1, st["runs"].get(sid, 0))
+        st["good"].add(sid)  # never the stuck run, also for a run already under way (_run reads `good`)
+        # (no bump of st["runs"] here: _run counts the run it plays, so GET /stage says 1 run, not 2)
         for _ in range(200):  # a Run it for me in flight finishes first (it now learns), then this one passes
             if sid not in st["running"] or session.step is not step:
                 break

@@ -138,6 +138,7 @@ async def presenter(port: int, base: Path) -> None:
             await k.press("next", "nn4", "nn5", double=True)  # the run step, pressed twice: one run that learns
             losses = [e.p.get("value") for e in app.since(m, "metric") if e.p.get("runId") != "tutorial"]
             assert losses and abs(losses[-1] - 0.0009) < 1e-4, f"nn4's run under next: {losses[-3:]}"
+            assert (await k.get("/stage")).get("runs") == {"nn4": 1}, "next on the run step counts one run"
             await k.press("next", "nn5", "nn6", double=True)
             for frm, to in zip(reversed(STEPS), reversed(STEPS[:-1])):  # back x5: nn6 -> nn1, one step each
                 await k.press("back", frm, to)

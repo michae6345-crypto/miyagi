@@ -136,7 +136,7 @@ def _hint(step: dict, level: int, last_offtrack: dict | None = None) -> dict:
             if (step.get("code") or "").strip():
                 f = (step.get("file") or "").rsplit("/", 1)[-1]
                 where = f"in {f} in VS Code" if f and f != "(terminal)" else "in VS Code"
-                return _card(step, 0, _titled("Type this", _short(step)), f"Type exactly this {where}, then save.",
+                return _card(step, 0, _titled("Type this", _short(step)), f"Type exactly this {where}.",
                              code=step["code"].strip("\n"), actions=["show_me"])
             if (cmd := (step.get("run_command") or "").strip()):
                 return _card(step, 0, _titled("Run this", _short(step)), f"Run `{cmd}` in the VS Code terminal and read the last line.",

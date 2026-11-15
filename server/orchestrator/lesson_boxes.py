@@ -409,7 +409,7 @@ class LessonBoxes:
         actions = ["apply_fix"]
         if kind == "done":
             title, actions = "It's all typed", ["check_step"]
-            body = f"All of this step's code is in {name}. Save it, then press Check."
+            body = f"All of this step's code is in {name}. Press Check."
         elif kind == "change":
             title = f"Fix line {n}"
             body = f"Line {n} of {name} should read: `{expect}`" if expect else f"Delete line {n} of {name}."
