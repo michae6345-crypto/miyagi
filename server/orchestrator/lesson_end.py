@@ -186,9 +186,60 @@ def metric_line(s: Any) -> str | None:
     return None
 
 
+_NB_PCT = re.compile(r"(\d+(?:\.\d+)?)\s*%")
+_NB_ACC = re.compile(r"\baccuracy\b\s*[:=]?\s*(\d+(?:\.\d+)?)", re.I)
+
+
+def notebook_line(s: Any) -> str | None:
+    """t10: a notebook lesson has no runs; its proof is the notebook's last printed accuracy ("Test accuracy 97.59% in
+    your notebook."), from the lesson's .ipynb on disk (cell outputs as saved)."""
+    try:
+        from server.checks.notebook import find_notebook, read_notebook
+    except Exception:  # noqa: BLE001
+        return None
+    names = []
+    for st in getattr(s, "steps", None) or []:
+        for x in (st.get("targets") or []) + (st.get("checks") or []) + (st.get("precision_checks") or []):
+            f = str((x or {}).get("file") or "")
+            if f.lower().endswith(".ipynb") and f not in names:
+                names.append(f)
+    nb_name = str(((getattr(s, "graph", None) or {}).get("lesson") or {}).get("notebook") or "")
+    if nb_name.lower().endswith(".ipynb"):
+        names.insert(0, nb_name)
+    workdir = getattr(s, "workdir", None)
+    if not names and not getattr(s, "notebook_lesson", False):
+        return None
+    try:
+        nb = read_notebook(find_notebook(workdir, names)) if workdir else None
+    except Exception:  # noqa: BLE001
+        return None
+    if nb is None:
+        return None
+    for out in reversed(nb.outputs or []):
+        for line in reversed(str(out).splitlines()):
+            if not re.search(r"\baccuracy\b", line, re.I):
+                continue
+            if pcts := _NB_PCT.findall(line):  # "… on the 10000 test images: 97.59%": the percentage, as printed
+                pct = f"{pcts[-1]}%"
+            elif m := _NB_ACC.search(line):  # "accuracy: 0.9759"
+                try:
+                    v = float(m.group(1))
+                except ValueError:
+                    continue
+                pct = f"{v * 100:.2f}%" if 0 <= v <= 1 else f"{_fmt(v)}%"
+            else:
+                continue
+            label = "Test accuracy" if re.search(r"\btest", line, re.I) else "Accuracy"
+            return f"{label} {pct} in your notebook."
+    return None
+
+
 def evidence(s: Any) -> str | None:
-    """The real proof it works: a metric that moved the right way, else the last command that ran cleanly."""
+    """The real proof it works: a metric that moved the right way, else (t10: a notebook lesson) the notebook's last
+    printed accuracy, else the last command that ran cleanly."""
     if line := metric_line(s):
+        return line
+    if line := notebook_line(s):
         return line
     for run in _ok_runs(s):
         if (run.command or "").strip():

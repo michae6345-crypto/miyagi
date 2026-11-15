@@ -91,11 +91,7 @@ def prepare(lesson: dict, goal: str = "", *, root: Path | None = None, client=No
     if state and state.get("scaffolded") and not state.get("error"):
         log.info("reusing lesson folder %s", folder)
         # README is ours and cheap: rewrite it so wording fixes reach existing folders (no Claude call).
-        sc = scaffold.Scaffold(lesson_kind=state.get("lesson_kind") or "code", stack=state.get("stack") or "",
-                               summary=state.get("summary") or "", setup=state.get("setup") or [])
-        sc.files = {f: "" for f in state.get("files") or [] if (folder / f).is_file()}
-        sc.git_init = bool((state.get("git") or {}).get("init"))
-        sc.git_ops = [{"op": "commit"}] * int((state.get("git") or {}).get("commits") or 0)
+        sc = _state_scaffold(folder, state)
         _write_readme(folder, lesson, goal, sc)
         if sc.lesson_kind == "code":
             _write_vscode_settings(folder)
@@ -355,6 +351,43 @@ def _apply(folder: Path, sc: scaffold.Scaffold) -> list[str]:
     return sorted(set(written))
 
 
+def _state_scaffold(folder: Path, state: dict) -> scaffold.Scaffold:
+    sc = scaffold.Scaffold(lesson_kind=state.get("lesson_kind") or "code", stack=state.get("stack") or "",
+                           summary=state.get("summary") or "", setup=state.get("setup") or [])
+    sc.files = {f: "" for f in state.get("files") or [] if (folder / f).is_file()}
+    sc.git_init = bool((state.get("git") or {}).get("init"))
+    sc.git_ops = [{"op": "commit"}] * int((state.get("git") or {}).get("commits") or 0)
+    return sc
+
+
+def refresh_readme(folder: str | Path, lesson: dict, goal: str = "") -> str | None:
+    """t10: rewrite our README from the lesson as it will run (after the lesson's .venv / notebook normalisations, so
+    step 1 isn't "Create venv and start Jupyter" any more). Only a folder prepare() scaffolded, only our own README.
+    Never raises; -> the README's name or None."""
+    try:
+        folder = Path(folder)
+        state = read_state(folder) if folder.is_dir() else None
+        if not state or not state.get("scaffolded") or state.get("error"):
+            return None
+        return _write_readme(folder, lesson, goal or str(state.get("goal") or ""), _state_scaffold(folder, state))
+    except Exception:  # noqa: BLE001
+        log.exception("README refresh failed for %s", folder)
+        return None
+
+
+def _folder_note(folder: Path) -> str:
+    """t10: what the lesson folder really starts with ("The folder starts empty" was wrong next to .venv/ and
+    tutorial/)."""
+    have = []
+    if (folder / ".venv").is_dir() or (folder / "venv").is_dir():
+        have.append("`.venv/` is the lesson's Python environment (Miyagi made it; you don't need to make another)")
+    if (folder / "tutorial").is_dir():
+        have.append("`tutorial/` holds the video's own files, the finished version (peek only when you're stuck)")
+    if not have:
+        return "The folder starts empty: step 1 creates the project."
+    return " ".join(f"{h}." for h in have)
+
+
 def _fmt_t(t) -> str:
     try:
         t = int(float(t))
@@ -410,7 +443,7 @@ def _write_readme(folder: Path, graph: dict, goal: str, sc: scaffold.Scaffold) -
     elif sc.lesson_kind == "conceptual":
         lines += ["Nothing to set up here: this lesson explains ideas; there is no code to write.", ""]
     elif not sc.error:
-        lines += ["The folder starts empty: step 1 creates the project.", ""]
+        lines += [_folder_note(folder), ""]
     lines += ["_Prepared by miyagi. Starter files only; every step is yours to write._" if sc.lesson_kind == "code"
               else "_Prepared by miyagi._", ""]
     # Nothing in the README may pass an editor screen check on its own: drop any line that would.

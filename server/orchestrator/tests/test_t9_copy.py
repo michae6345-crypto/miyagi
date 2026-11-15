@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import re
 from pathlib import Path
 
 from server.finder import core as finder_core
@@ -28,7 +29,9 @@ def test_cached_notebook_step_line_has_one_verb_and_no_terminal(rig):  # noqa: F
     assert STEPS["s2"]["run_command"] == "Run the cell (Shift+Enter)"  # the cached lesson, as the demo replays it
     for sid in ("s2", "s3", "s4"):
         p = s._step_started_payload(STEPS[sid])
-        assert p["instructions"] == "Run the cell (Shift+Enter) in the notebook", sid
+        # t10: the step says what to type (its code shows under the line), never only "Run the cell"
+        assert re.fullmatch(r"Add a cell with the code below to [\w.-]+\.ipynb, then press Shift\+Enter",
+                            p["instructions"]), (sid, p["instructions"])
         assert "Run Run" not in p["instructions"] and "terminal" not in p["instructions"]
         assert p["code"] == STEPS[sid]["code"].strip()  # the code to type, not "Run the cell (Shift+Enter)"
     # a .ipynb step whose run_command is words without Shift+Enter: still the notebook, still one verb
