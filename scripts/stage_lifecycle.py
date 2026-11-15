@@ -321,7 +321,8 @@ async def _expect_resume(case: Case, engine: stage.Engine, before: dict) -> None
         resumed = c.since(i)
         j = c.mark()
         await c.send("action", {"kind": "end_lesson"})  # the card's "Start a new lesson" button
-        await assert_ended(case, c, engine, j, reason="end_lesson", quiet_s=3)
+        # E11: the save is kept (stopped) until another lesson is built, like the bar's End
+        await assert_ended(case, c, engine, j, reason="end_lesson", quiet_s=3, kept=True)
         case.sequence = ("snapshot: " + seq([e for e in c.events[:i]]) + "\n      after resume: " + seq(resumed)
                          + "\n      after end_lesson: " + seq(c.since(j)))
         print(f"      {C['dim']}{case.sequence}{C['x']}")

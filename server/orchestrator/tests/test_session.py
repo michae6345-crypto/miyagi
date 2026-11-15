@@ -1261,14 +1261,14 @@ def test_returning_app_gets_resume_card_and_lesson_is_frozen(rig):
         await _to_step(rig, 3)
         await rig.s.video_state(250.0, True)
         snap = rig.s.snapshot(ask_resume=True)
-        assert [t for t, _ in snap] == ["video.pause", "card"]
-        card = snap[1][1]
+        assert [t for t, _ in snap] == ["spotlight", "video.pause", "card"]  # E7: no box left behind the card
+        card = snap[2][1]
         assert card["kind"] == "resume" and card["actions"] == ["resume", "end_lesson"]
         assert card["title"] == "Continue where you left off?" and "Write the PDE residual" in card["body"]
         m = rig.mark()
         await rig.save("u_t + beta * u_x\nautograd.grad\n")  # frozen: nothing is graded while undecided
         assert not [e for e in rig.since(m) if e["type"] in ("check.updated", "step.passed", "offtrack")]
-        assert [t for t, _ in rig.s.snapshot()] == ["video.pause", "card"]  # still undecided
+        assert [t for t, _ in rig.s.snapshot()] == ["spotlight", "video.pause", "card"]  # still undecided
         m = rig.mark()
         await rig.s.action("resume")
         return rig.since(m)
@@ -2283,6 +2283,7 @@ def test_stuck_card_offers_skip_once_after_90s_idle(rig):
     async def go():
         await _to_step(rig, 1)
         await rig.end_segment()
+        rig.s._acted()  # E4: only once the learner started on the step
         rig.clock.t += 95
         await rig.s.tick()
         await rig.s.tick()
@@ -2290,7 +2291,112 @@ def test_stuck_card_offers_skip_once_after_90s_idle(rig):
 
     run(go())
     stuck = [c for c in rig.of("card") if c["title"] == "Need a hand?"]
-    assert len(stuck) == 1 and stuck[0]["actions"] == ["skip_step"]
+    assert len(stuck) == 1 and stuck[0]["actions"] == ["hint", "skip_step"]
+
+
+def test_stuck_card_waits_for_the_learner_and_a_pending_preview(rig):
+    async def go():
+        await _to_step(rig, 1)
+        await rig.end_segment()
+        rig.clock.t += 95
+        await rig.s.tick()  # never started on the step: no card
+        rig.s._acted()
+        rig.s.pending_patch = {"file": "x.py"}  # a "Do it for me" preview waits on them
+        rig.clock.t += 95
+        await rig.s.tick()
+        await rig.settle()
+
+    run(go())
+    assert not [c for c in rig.of("card") if c["title"] == "Need a hand?"]
+
+
+def _rig_with_inputs(tmp_path, monkeypatch):
+    monkeypatch.setenv("TUT_WORKDIR", str(tmp_path))
+    monkeypatch.delenv("DEMO", raising=False)
+    return Rig(tmp_path, with_inputs=True)
+
+
+def test_keys_typed_into_miyagi_or_another_app_are_not_lesson_work(tmp_path, monkeypatch):
+    rig = _rig_with_inputs(tmp_path, monkeypatch)
+
+    async def go():
+        await _to_step(rig, 1)
+        rig.clock.t += 30
+        rig.inputs.own_front = True  # E5: the learner types a question into Miyagi's ask box
+        rig.inputs.key()
+        rig.inputs.click()
+        assert not rig.s.learner_started() and not rig.s.acted_since_step_start()
+        assert rig.s.learner_idle_s() >= 30
+        rig.inputs.own_front, rig.inputs.foreign_front = False, True  # ... then into the Claude app
+        rig.inputs.key()
+        assert not rig.s.learner_started() and rig.s.learner_idle_s() >= 30
+        rig.inputs.foreign_front = False  # in the lesson's editor: that's work
+        rig.inputs.key()
+        assert rig.s.learner_started() and rig.s.learner_idle_s() == 0
+
+    run(go())
+
+
+def test_state_has_no_text_under_the_pointer_unless_a_step_runs(tmp_path, monkeypatch):
+    rig = _rig_with_inputs(tmp_path, monkeypatch)
+    rect = types.SimpleNamespace(x=100.0, y=100.0, w=300.0, h=20.0,
+                                 to_dict=lambda: {"x": 100.0, "y": 100.0, "w": 300.0, "h": 20.0})
+    obs = types.SimpleNamespace(blocks=[types.SimpleNamespace(text="my own chat message", app="Claude", rect=rect)])
+    rig.inputs.move(150.0, 110.0)
+    rig.s.last_obs = obs
+    assert rig.s.state()["cursor"] is None  # E3: idle
+    run(_to_step(rig, 1))
+    rig.s.last_obs = obs
+    assert rig.s.state()["cursor"]["under"]["text"] == "my own chat message"
+    rig.s.snapshot(ask_resume=True)
+    st = rig.s.state()
+    assert st["cursor"] is None and st["phase"] == "awaiting_resume"  # E7: the freeze shows from outside
+
+
+def _sheet_lesson() -> dict:
+    g = stubs.text_lesson(stubs.load_fixture_lesson(), goal="teach me PINNs")
+    g["lesson"]["build"] = {"summary": "A tiny PINN for the convection equation", "outcome": "It trains"}
+    return g
+
+
+def test_before_you_start_holds_the_lesson_until_start_or_an_edit(rig):
+    bad = lambda ev: [e for e in ev if e["type"] in ("offtrack", "spotlight") and not e["payload"].get("clear")
+                      or e["type"] == "card" and e["payload"].get("title") == "Need a hand?"
+                      or e["type"] == "check.updated" and e["payload"]["status"] == "fail"]
+
+    async def go():
+        await rig.s.load_graph(_sheet_lesson())
+        await rig.settle()
+        assert rig.s.awaiting_start and rig.s.state()["phase"] == "ready"  # E4: the sheet is up
+        m = rig.mark()
+        for _ in range(3):
+            rig.clock.t += 100
+            await rig.s.tick()
+        await rig.settle()
+        assert not bad(rig.since(m)) and rig.s.awaiting_start
+        await rig.s.action("start")
+        await rig.settle()
+        assert not rig.s.awaiting_start and rig.s.state()["phase"] == "active"
+
+        # the app comes back: Continue re-sends lesson.ready, so the sheet opens again: held, nothing stale replayed
+        step = rig.s.step
+        cid = next(iter(rig.s.check_state))
+        rig.s.check_state[cid] = {**rig.s.check_state[cid], "status": "fail", "detail": "old"}
+        rig.s.last_offtrack = {"stepId": step["id"], "severity": "warn", "title": "Stale", "body": "made earlier"}
+        rig.s.snapshot(ask_resume=True)
+        m = rig.mark()
+        await rig.s.action("resume")
+        await rig.settle()
+        rig.clock.t += 200
+        await rig.s.tick()
+        await rig.settle()
+        assert rig.s.awaiting_start and not bad(rig.since(m))
+        rig.write("# the learner's first edit\n", name=rig.s._step_file(step))
+        await rig.s.tick()
+        await rig.settle()
+        assert not rig.s.awaiting_start
+
+    run(go())
 
 
 def test_dead_screen_is_reported_once_and_show_me_says_why(tmp_path, monkeypatch):

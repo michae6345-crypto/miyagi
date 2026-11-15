@@ -6,9 +6,11 @@ E4's session already freezes a lesson in memory when the app comes back (snapsho
 video.pause + card {kind:"resume"}; action resume / end_lesson). This adds:
   - autosave to ~/miyagi/state on lesson.ready / lesson.updated (graph + progress: video AND "Just teach
     me" text lessons) and step.started / step.passed (passed + skipped) / video.state (throttled); cleared on
-    lesson.ended (end_lesson, a new learn, POST /end) and when the last step passes; KEPT on lesson.ended
-    "stopped" (the bar's End), marked `stopped`: offered back by the resume card when the app next connects,
-    restored only by its Continue (a rebuild of the same lesson starts over and replaces it)
+    POST /end and when the last step passes; KEPT on lesson.ended "stopped" (the bar's End) and "end_lesson"
+    (the resume card's "Start a new lesson", E11: it threw the lesson away for good, and a stray click near
+    Continue did it), marked `stopped`: offered back by the resume card when the app next connects, restored
+    only by its Continue, replaced once another lesson is actually built (a rebuild of the same lesson starts
+    over and replaces it). The lesson it replaced goes on the recent list (store.recent()).
   - snapshot() with no lesson in memory but one saved (the engine restarted): spotlight clear,
     video.pause, status idle, the resume card
   - resume() with no lesson in memory: reload the cached step graph (no rebuild) at the saved step and
@@ -17,8 +19,8 @@ video.pause + card {kind:"resume"}; action resume / end_lesson). This adds:
 
 The save made before a restart is protected until the learner answers the card: while it is pending
 nothing saves or clears it (an app connect, a snapshot, a disconnect, the engine stopping, the frozen
-in-memory lesson). Continue restores it; Start new (end_lesson / POST /end) clears it; a different
-lesson replaces it; the SAME lesson loaded again (a rebuild that hit the lesson cache) continues at the
+in-memory lesson). Continue restores it; Start new (end_lesson) keeps it, marked stopped; POST /end clears
+it; a different lesson replaces it; the SAME lesson loaded again (a rebuild that hit the lesson cache) continues at the
 saved step instead of starting over, except for a save the bar's End kept (`stopped`): that one starts over.
 """
 
@@ -34,8 +36,10 @@ from . import store
 log = logging.getLogger("sessions")
 
 VIDEO_SAVE_EVERY_S = 3.0
-EXPLICIT_END = ("end_lesson", "POST /end")  # the learner chose "Start a new lesson"
-KEEP_END = ("stopped",)  # the bar's / launcher's End: stop for now; the save is offered back like a restart's
+EXPLICIT_END = ("end_lesson", "POST /end")  # the learner chose "Start a new lesson" / a terminal ended it
+# the bar's / launcher's End, and the resume card's "Start a new lesson": stop for now; the save stays (offered back
+# like a restart's) until another lesson is built (E11). Only POST /end and a finished lesson clear it.
+KEEP_END = ("stopped", "end_lesson")
 PROMPT_EVENTS = ("card", "video.pause", "status", "spotlight", "error")  # sending the prompt isn't activity
 
 
@@ -159,7 +163,7 @@ class Resumer:
             elif type_ == "lesson.ended":
                 if self._pending and (payload or {}).get("reason") not in EXPLICIT_END:
                     return
-                if (payload or {}).get("reason") in KEEP_END:  # protected until Continue / Start new / another lesson
+                if (payload or {}).get("reason") in KEEP_END:  # protected until Continue / another lesson / POST /end
                     saved = store.load()
                     if saved is not None:  # marked: only Continue restores it, never a rebuild (also after a restart)
                         store.save({**saved, "stopped": True})

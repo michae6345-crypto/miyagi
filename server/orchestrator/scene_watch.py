@@ -184,8 +184,11 @@ class SceneWatch:
         if s.step_gen != self._gen:
             self._gen = s.step_gen
             self._reset_step()
-        if not self.enabled() or s.passed or s.awaiting_resume:
-            return
+        if not self.enabled() or s.passed or s.awaiting_resume or getattr(s, "awaiting_start", False):
+            return  # also held under "Before you start" (E4)
+        clients = getattr(s, "_clients_ok", None)
+        if callable(clients) and not clients():
+            return  # E7: no app connected: nobody to show a look's result to (was: looks every ~5 s with the app quit)
         if self._task is not None and not self._task.done():
             return  # one look in flight at most
         now = s.clock()
@@ -278,9 +281,15 @@ class SceneWatch:
         image, obs = got
         run = s._run_command(step)
         look = self._look or mod.look
+        front = getattr(s, "_front_now", None)  # the OS's frontmost app now (E5: the frame said Code over Claude)
+        front = (front() if callable(front) else "") or str(getattr(obs, "app", "") or "")
+        try:  # typedFraction from the step file's text (VS Code's buffer, else the disk), not from the picture
+            code, src = s._code_excerpt(step) if not run else ("", None)
+        except Exception:  # noqa: BLE001
+            code, src = "", None
         try:
             sc = await look(image, step, step_file=s._step_file(step), run=run or None, spot=self._spot_text(step, run),
-                            front_app=str(getattr(obs, "app", "") or ""), frame=frame_no, **self._mask_args(obs))
+                            front_app=front, frame=frame_no, file_text=code if src else None, **self._mask_args(obs))
         except Exception as e:  # noqa: BLE001
             kind = getattr(e, "kind", None)
             if kind in ("no_key", "offline"):

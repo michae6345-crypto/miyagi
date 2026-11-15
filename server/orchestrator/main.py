@@ -47,6 +47,7 @@ class Engine:
         self.workspace = Workspace()
         self.session = LessonSession(self._emit, self.modules, screen=self.screen, workspace=self.workspace,
                                      inputs=Inputs())
+        self.session.has_clients = lambda: bool(self.hub.clients)  # E7: no app, no screen reading / looks / cards
         self.watcher = Watcher(self.session.on_file_change, interval=config.WATCH_INTERVAL_S)
         self.session.on_workdir = self.watcher.set_root
         try:  # S7: progress saved to ~/miyagi/state; "Continue where you left off?" survives an engine restart
@@ -148,7 +149,7 @@ class Engine:
         elif msg.type == "overlay.bounds":
             s.overlay_bounds([r.model_dump() for r in p.rects])
         elif msg.type == "end_lesson":  # the bar's / launcher's End: stop for now, the saved progress stays resumable
-            await s.end_lesson("stopped")  # (the resume card's "Start a new lesson" is action end_lesson: discards)
+            await s.end_lesson("stopped")  # (the resume card's "Start a new lesson", action end_lesson, keeps it too)
         elif msg.type == "config.keys":
             await self.hub.emit("config.status", apply_keys(p.model_dump()))
 
