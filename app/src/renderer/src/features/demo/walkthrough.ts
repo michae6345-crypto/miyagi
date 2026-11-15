@@ -235,7 +235,14 @@ let autoTimer: ReturnType<typeof setTimeout> | undefined
 function scheduleAuto(): void {
   clearTimeout(autoTimer)
   const { done } = useWalk.getState()
-  if (done >= BEATS.length) return
+  // Autoplay loops (a demo running by itself at the table): hold the last screen, then start over.
+  if (done >= BEATS.length) {
+    autoTimer = setTimeout(() => {
+      restart()
+      scheduleAuto()
+    }, 9000)
+    return
+  }
   // Long enough to read the line out loud.
   autoTimer = setTimeout(() => void nextBeat(), 2600 + BEATS[done].say.length * 25)
 }
