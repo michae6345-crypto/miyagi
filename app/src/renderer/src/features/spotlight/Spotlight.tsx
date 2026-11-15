@@ -6,7 +6,7 @@
  *
  * Brand (app/brand/BRAND.md) + Adrian ("less like AI slop, more precise"): the cut-out is edged by ONE white
  * hairline, whatever the state (the pill and the card already carry status color), over a faint
- * `color.onAccent` keyline so it reads over light apps. The caption is one line on the island's black,
+ * `color.onAccent` keyline so it reads over light apps. The caption is up to two lines on the island's black,
  * flush beside the cut-out: no eyebrow, no dot, no code (the card has the diff). The speaker shows only while
  * voice is on (tap to turn it off).
  *
@@ -27,8 +27,9 @@ import { toggleVoice, useVoice } from '../voice/store'
 import { hole, holeRadius, placeCaption, type Side } from './place'
 import type { SpotlightMode, SpotlightTarget } from './store'
 
-/** The caption hugs its one line, up to this width. */
+/** The caption hugs its text, up to this width, wrapping to at most CAPTION_LINES lines. */
 const CAPTION_MAX_W = 360
+const CAPTION_LINES = 2
 /** Until the caption has been measured. */
 const CAPTION_GUESS = { w: 280, h: 44 }
 /** The dim: `scrim.spotlight` (black at .66, Adrian's "more contrast"; the handoff said 55%), fading in over 280ms. */
@@ -67,7 +68,8 @@ function Scene({ target, rect, bounds, mode, showCaption, avoid, extras }: Props
   const cut = hole(rect)
   const register = useAnimatedHole(cut, reduced)
   const status = useStatus()
-  const pulse = usePulse(`${status}|${target.caption}|${Math.round(cut.x)},${Math.round(cut.y)},${Math.round(cut.w)},${Math.round(cut.h)}`, reduced)
+  // Pulse per new target or state, not per move: a moving ring that re-pulses reads as flicker.
+  const pulse = usePulse(`${status}|${target.caption}`, reduced)
   const id = useId().replace(/[^a-zA-Z0-9_-]/g, '')
   // Fallback (cut order): the same hairline, no dim.
   const outline = mode === 'outline'
@@ -301,8 +303,13 @@ function Caption({ target, hole: cut, bounds, avoid: outside, reduced }: { targe
       animate={{ opacity: 1, x: at.x, y: at.y }}
       transition={reduced ? { duration: 0.2 } : { ...spring, opacity: { duration: 0.2 } }}
     >
-      <div className="flex items-center gap-[10px]">
-        <div className="min-w-0 truncate font-medium leading-[22px]" style={{ fontSize: text.sm, color: color.text }} title={target.caption}>
+      <div className="flex items-start gap-[10px]">
+        {/* Up to two lines, then clamped (Michael: one line cut off "Type this in the VS Code terminal (use python…"). */}
+        <div
+          className="min-w-0 overflow-hidden font-medium leading-[22px]"
+          style={{ fontSize: text.sm, color: color.text, display: '-webkit-box', WebkitBoxOrient: 'vertical', WebkitLineClamp: CAPTION_LINES }}
+          title={target.caption}
+        >
           {target.caption}
         </div>
         {/* Only while voice is on: white, like every toggle that's on. Tap to turn it off. */}
