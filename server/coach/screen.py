@@ -15,13 +15,70 @@ from __future__ import annotations
 import base64
 import io
 import json
+import logging
 import math
+import re
 from dataclasses import dataclass, field
+from pathlib import Path, PurePath
 from typing import Any
+
+log = logging.getLogger("coach.screen")
 
 OVERVIEW_WIDTH = 1280
 CROP_PX = 400
 MAX_BOXES = 120
+
+_VSCODE_APPS = {"code", "visual studio code", "code - insiders", "vscodium"}
+_TITLE_SEP = re.compile(r"\s+[—–-]\s+")
+_FILE_EXT = re.compile(r"\.\w{1,6}$")
+
+
+def _alnum(s: str) -> str:
+    return re.sub(r"[^0-9a-z]", "", (s or "").lower())
+
+
+def _squash(s: str) -> str:
+    return re.sub(r"\s+", "", (s or "").lower())
+
+
+def other_project(app: str, title: str, lesson_folder: str) -> bool:
+    """Is this a VS Code window on another project? Its title ("● file — folder") names a folder that is not the
+    lesson folder, a folder above it or one inside it (QA 11-14: the old TinyStories window's requirements.txt reached the
+    calculator lesson's coach). Unknown (no lesson folder, no title, no folder in it, not VS Code) → False."""
+    if not lesson_folder or not title or (app or "").lower() not in _VSCODE_APPS:
+        return False
+    parts = [p for p in _TITLE_SEP.split(title.strip().lstrip("●").strip()) if p and p not in ("Visual Studio Code", "Code", "VSCodium")]
+    if len(parts) >= 2:
+        folder = parts[1]
+    elif len(parts) == 1 and not _FILE_EXT.search(parts[0]) and not parts[0].lower().startswith("untitled"):
+        folder = parts[0]  # no editor open: the title is just the folder
+    else:
+        return False
+    folder = _alnum(folder.split("[")[0])  # "folder [SSH: host]"
+    path = [_alnum(p) for p in PurePath(lesson_folder).parts]
+    if not folder or not path or (path[-1] and path[-1] in folder) or folder in path:
+        return False
+    return not _inside(folder, lesson_folder)
+
+
+def _inside(folder: str, lesson_folder: str) -> bool:
+    """A folder up to 2 levels inside the lesson folder (create-react-app's demo-app/, the downloaded tutorial/)."""
+    try:
+        return any(_alnum(p.name) == folder for pat in ("*", "*/*") for p in Path(lesson_folder).glob(pat) if p.is_dir())
+    except OSError:
+        return False
+
+
+def _made_of(line: str, words: frozenset[str]) -> bool:
+    """Is `line` (E6 joins a row's boxes with spaces) a concatenation of these squashed box texts?"""
+    s = _squash(line)
+    if not s or not words:
+        return False
+    longest = max(len(w) for w in words)
+    ok = [True] + [False] * len(s)
+    for i in range(1, len(s) + 1):
+        ok[i] = any(ok[j] and s[j:i] in words for j in range(max(0, i - longest), i))
+    return ok[-1]
 
 
 @dataclass
@@ -75,23 +132,61 @@ class ScreenContext:
     line: int | None = None  # caret / hovered line (AX)
     element: str = ""  # AX element under the cursor, e.g. 'AXButton "Run"'
     active_file: dict | None = None  # E6 reader.vscode_window() / companion extension: the ONLY source of "which file is open"
+    lesson_folder: str = ""  # the active lesson's folder: from_observation leaves other projects' VS Code windows out
     _img: Any = field(default=None, repr=False)
+    _own: frozenset = field(default=frozenset(), repr=False)  # squashed texts of every kept box (before the MAX_BOXES cut)
+    _foreign: frozenset = field(default=frozenset(), repr=False)  # squashed texts of the boxes left out
+    _layers: list = field(default_factory=list, repr=False)  # [(rect, hidden)] front to back, when a window is hidden
 
     @classmethod
     def from_observation(cls, obs: Any, image: Any, cursor: tuple[float, float], **extra: Any) -> ScreenContext:
-        """Adapter for E6 `ScreenObservation` (or a dict): `blocks[{text, rect, app}]`, `scale`, `screen`."""
+        """Adapter for E6 `ScreenObservation` (or a dict): `blocks[{text, rect, app, window}]`, `windows`, `scale`, `screen`.
+        With `lesson_folder`, boxes of another project's VS Code window are left out and that window is greyed out
+        in the screenshot: hints, pointing and diagnoses only ever read the lesson's own windows."""
+        folder = str(extra.get("lesson_folder") or "")
+        hidden: dict[tuple[str, str], bool] = {}
+
+        def other(app: str, title: str) -> bool:
+            if (app, title) not in hidden:
+                hidden[(app, title)] = other_project(app, title, folder)
+            return hidden[(app, title)]
+
         blocks = _get(obs, "blocks", []) or []
-        boxes = []
+        boxes, own, foreign = [], set(), set()
         for b in blocks:
             text = str(_get(b, "text", "")).strip()
             if not text:
                 continue
+            app = _get(b, "app", "") or ""
+            if other(app, str(_get(b, "window", "") or "")):
+                foreign.add(_squash(text))
+                continue
+            own.add(_squash(text))
             x, y, w, h = _rect(_get(b, "rect"))
-            boxes.append(Box(0, text, x, y, w, h, source=_get(b, "source", "ocr") or "ocr", app=_get(b, "app", "") or "", role=_get(b, "role", "") or ""))
+            boxes.append(Box(0, text, x, y, w, h, source=_get(b, "source", "ocr") or "ocr", app=app, role=_get(b, "role", "") or ""))
+        layers = []
+        for win in _get(obs, "windows", []) or []:
+            try:
+                layers.append((_rect(_get(win, "rect")), other(str(_get(win, "app", "") or ""), str(_get(win, "title", "") or ""))))
+            except (KeyError, TypeError, ValueError):
+                continue
         screen = _get(obs, "screen")
         origin = _rect(screen)[:2] if screen is not None else (0.0, 0.0)
         ctx = cls(image=image, cursor=cursor, boxes=boxes, scale=float(_get(obs, "scale", 2.0) or 2.0), origin=origin, app=_get(obs, "app", "") or "", **extra)
+        ctx._own, ctx._foreign = frozenset(own - {""}), frozenset(foreign - {""})
+        if any(h for _, h in layers):
+            ctx._layers = layers
+        if foreign or ctx._layers:
+            log.info("screen: left out %d boxes from other projects' VS Code windows %s (lesson folder %s)",
+                     len(foreign), sorted({t for (_, t), h in hidden.items() if h}), PurePath(folder).name)
         return ctx.numbered()
+
+    def drop_foreign(self, text: str) -> str:
+        """`text` (rows the orchestrator read off the screen: an error tail, screen-read code) without the rows made
+        only of boxes from another project's VS Code window. Rows the lesson's own windows also show are kept."""
+        if not self._foreign or not text:
+            return text
+        return "\n".join(ln for ln in text.splitlines() if not (_made_of(ln, self._foreign) and not _made_of(ln, self._own)))
 
     def numbered(self) -> ScreenContext:
         """Keep the MAX_BOXES boxes nearest the cursor, numbered 1..N in reading order."""
@@ -106,7 +201,7 @@ class ScreenContext:
     # ---------- geometry ---------------------------------------------------------------
     def pil(self):
         if self._img is None:
-            from PIL import Image
+            from PIL import Image, ImageDraw
 
             img = self.image
             if isinstance(img, (bytes, bytearray)):
@@ -114,6 +209,13 @@ class ScreenContext:
             elif isinstance(img, str):
                 img = Image.open(img)
             self._img = img.convert("RGB")
+            if self._layers:  # another project's window: greyed out, so the model can't read it in the picture either
+                mask = Image.new("L", self._img.size, 0)
+                draw = ImageDraw.Draw(mask)
+                for (x, y, w, h), hide in reversed(self._layers):  # back to front: the front-most window wins, as on screen
+                    (x0, y0), (x1, y1) = self.to_px(x, y), self.to_px(x + w, y + h)
+                    draw.rectangle([x0, y0, x1, y1], fill=255 if hide else 0)
+                self._img.paste((128, 128, 128), (0, 0, self._img.width, self._img.height), mask)
         return self._img
 
     def to_px(self, x: float, y: float) -> tuple[float, float]:

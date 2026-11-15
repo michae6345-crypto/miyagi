@@ -1853,7 +1853,8 @@ class LessonSession:
 
     def typing(self) -> bool:
         v = self.inputs.seconds_since_key() if self.inputs is not None else None
-        return v is not None and v < config.TYPING_GUARD_S
+        own = getattr(self.inputs, "miyagi_in_front", None)  # keys typed into Miyagi's own launcher aren't editor work
+        return v is not None and v < config.TYPING_GUARD_S and not (callable(own) and own())
 
     def acted_since_step_start(self) -> bool:
         if self.last_action_t >= self.step_t0:
@@ -2051,6 +2052,9 @@ class LessonSession:
         """reason: breakpoint | repeat | stuck | idle. Decides whether, and at which ladder level, to speak."""
         if self.coaching or self.passed or not failed:
             return
+        if self._ask_held():  # the learner asked Miyagi something: no proactive card over (or right after) the answer
+            self.pending_speak = None
+            return
         if not self.learner_started() or self.clock() - self.step_t0 < self.offtrack_grace_s:
             return  # never "off track" before the learner did anything on this step, nor in its first ~20 s
         if self._editor_state_card(step):  # unsaved file / another lesson's folder: say that, never "off track"
@@ -2100,6 +2104,7 @@ class LessonSession:
         loc = target_location(self.workdir, step)
         if loc:
             extra = {"file": str(loc[0]), "line": loc[1]}
+        extra["lesson_folder"] = str(self.workdir or "")  # E5 leaves other projects' VS Code windows out of the coach's view
         return self.m.screen_context(self.last_obs, image, pos, **extra)
 
     def _screen_error_lines(self, n: int = 40) -> list[str]:
@@ -2212,7 +2217,7 @@ class LessonSession:
             self.ladder = level
             self.last_offtrack = full
             key = (step["id"], level, (full.get("title") or "").strip().lower())
-            if self.clock() - self._last_card_t < self.CARD_GAP_S:  # a card just went up: don't stack another
+            if self.clock() - self._last_card_t < self.CARD_GAP_S or self._ask_held():  # a card just went up / asked
                 self.spoken_sig = None  # try again on the next trigger
                 await self._status("watching")
                 return
@@ -2427,15 +2432,28 @@ class LessonSession:
             else:
                 await self._open_in_browser((text or "").strip())
             return
+        if kind == "retry":  # the "Couldn't reach Claude" card's Try again: the question that failed, once more
+            kind, text = self._last_ask or ("explain", None)
+        asking = kind in self.ASK_KINDS and self.step is not None
+        if asking:  # hold every proactive card until the answer is out (and drop one the typing guard queued)
+            self._last_ask, self.pending_speak = (kind, text), None
+            self._asks_in_flight += 1
+        gen = self.step_gen
         token = _EPOCH.set(self.lesson_epoch)  # a card that finishes after end_lesson is dropped
         try:
             await self._action(kind, text)
         except Exception as e:  # live mode: a missing/failing module is reported, never faked
             log.exception("action %s failed", kind)
-            await self.emit("error", {"message": f"{kind}: {e}"})
+            if asking and self.step is not None and gen == self.step_gen:  # never a silent failure for a question
+                await self._emit_card(self._ask_failed_card(kind, text, e), window_s=0.0)
+            else:
+                await self.emit("error", {"message": f"{kind}: {e}"})
             if self.step is not None:
                 await self._status("offtrack" if self.last_offtrack else ("passed" if self.passed else "watching"))
         finally:
+            if asking:
+                self._asks_in_flight = max(0, self._asks_in_flight - 1)
+                self._ask_hold_until = self.clock() + self.ASK_HOLD_S
             _EPOCH.reset(token)
 
     async def _action(self, kind: str, text: str | None = None) -> None:
@@ -2445,7 +2463,10 @@ class LessonSession:
         if kind == "confirm":  # "Apply this fix?" preview, or "Looks done? Confirm"
             if step is not None and self.pending_patch is not None:
                 await self._apply_patch(step)
-            elif step is not None and self.confirm_pending and not self.passed:
+            elif step is not None and (self.confirm_pending or self.confirm_check_ids) and not self.passed:
+                # confirm_check_ids: the judge's "Looks done?" stays armed until the step changes or Claude
+                # stops seeing it done (evaluate() only clears confirm_pending, the checks-pass card's flag)
+                await self._status("thinking")  # the app's Yes spinner ends on thinking -> passed, even on the last step
                 self.confirm_pending = False
                 for cid in self.confirm_check_ids:  # E5's "Looks done?": the learner vouches for these checks
                     label = (self.check_state.get(cid) or {}).get("label", cid)
@@ -2453,6 +2474,8 @@ class LessonSession:
                                                       "status": "pass", "detail": "You confirmed it"})
                 self.confirm_check_ids = []
                 await self._pass_step()
+            elif step is not None and not self.passed:
+                await self._confirm_stale(step)  # a "Looks done?" that went stale: re-check, never a silent no-op
             return
         if kind == "undo":
             await self._undo_fix()
@@ -2753,12 +2776,37 @@ class LessonSession:
         }
 
     CARD_GAP_S = 8.0  # never two automatic cards within 8 s
+    ASK_KINDS = ("explain", "ask", "hint")  # the learner asked Miyagi: proactive cards wait for the answer
+    ASK_HOLD_S = 10.0  # ...and for this long after it (or its "Couldn't reach Claude" card) went up
+    _asks_in_flight = 0
+    _ask_hold_until = -1e9
+    _last_ask: tuple[str, str | None] | None = None  # what "retry" re-sends
+
+    def _ask_held(self) -> bool:
+        """Is a question / explain / hint in flight, or was it answered < ASK_HOLD_S ago? Then no stuck, idle,
+        judge or off-track card (QA 11-14: a stuck card released on Enter took the answer's place)."""
+        return self._asks_in_flight > 0 or self.clock() < self._ask_hold_until
+
+    def _ask_failed_card(self, kind: str, text: str | None, e: Exception) -> dict:
+        """The learner's question failed after the retries: say so in the answer slot, with Try again (`retry`)."""
+        msg = str(e)
+        if "connection" in msg.lower():
+            title, why = "Couldn't reach Claude", "Check your connection, then try again."
+        elif "ANTHROPIC_API_KEY" in msg:
+            title, why = "Claude isn't set up", "Add your Anthropic key in Settings, then try again."
+        else:
+            title, why = "Claude couldn't answer", "Try again in a moment."
+        q = " ".join((text or "").split())
+        asked = f"“{q[:60]}{'…' if len(q) > 60 else ''}” didn't get an answer. " if kind == "ask" and q else ""
+        return {"stepId": (self.step or {}).get("id"), "kind": "answer", "title": title, "body": asked + why,
+                "actions": ["retry"]}
 
     def _auto_card_ok(self) -> bool:
         """May the engine show a card nobody asked for right now? Not in a step's first ~20 s, never within 8 s
-        of the last card."""
+        of the last card, never while the learner's own question is being answered."""
         now = self.clock()
-        return now - self.step_t0 >= self.offtrack_grace_s and now - self._last_card_t >= self.CARD_GAP_S
+        return (now - self.step_t0 >= self.offtrack_grace_s and now - self._last_card_t >= self.CARD_GAP_S
+                and not self._ask_held())
 
     async def _emit_card(self, card: dict, window_s: float = 15.0, auto: bool = False) -> bool:
         """Send a card unless the same one (step + kind + level + title + body) went out moments ago: repeated
@@ -3137,10 +3185,42 @@ class LessonSession:
         if self.judged_pass:
             await self.evaluate("judge")
         card = j.get("card")
+        if not j.get("done"):
+            self.confirm_check_ids = []  # Claude no longer sees the step done: a later Yes re-checks (_confirm_stale)
         if card and not self.passed and gen == self.step_gen:
-            if await self._emit_card(card, auto=True) and "confirm" in (card.get("actions") or []):
-                self.confirm_pending = True
-                self.confirm_check_ids = list(card.get("checkIds") or [])
+            if card.get("verdict") == "not_done":
+                ids = {r.get("checkId") for r in self.last_failed if r.get("checkId")}
+                if self.coaching or (ids and ids <= self._offtracked_checks and self.last_offtrack):
+                    return  # the off-track card says "Not yet" better (question, evidence, Show me): don't cover it
+            if await self._emit_card(card, auto=True):
+                if shown := getattr(self.judge, "card_shown", None):
+                    shown(step["id"], card)  # E5: the same card isn't offered again for this step until a save
+                if "confirm" in (card.get("actions") or []):
+                    self.confirm_pending = True
+                    self.confirm_check_ids = list(card.get("checkIds") or [])
+
+    CONFIRM_TIMEOUT_S = 7.0  # Yes on a stale "Looks done?" answers within this (the app's button gives up at 10 s)
+
+    async def _confirm_stale(self, step: dict) -> None:
+        """Yes on a "Looks done?" that is no longer armed (the checks changed since it went up): re-check like the
+        Check button, but answer within CONFIRM_TIMEOUT_S. When the re-check runs late (a slow judge) or ends with
+        only a status, the deterministic checks decide and a card says what is still missing."""
+        gen, last_card = self.step_gen, self._last_card_t
+        # not cancelled on timeout (a cancel inside _pass_step would strand the lesson); a late pass still counts
+        check = self._spawn(self._check_step(step))
+        late = not (await asyncio.wait({check}, timeout=self.CONFIRM_TIMEOUT_S))[0]
+        if late:
+            log.info("confirm: re-check took over %.0f s; the checks decide", self.CONFIRM_TIMEOUT_S)
+        if self.passed or gen != self.step_gen or self._last_card_t != last_card:
+            return  # passed, moved on, or the re-check already answered with a card
+        labels = [r.get("label") or r.get("checkId") for r in self.last_failed
+                  or [r for r in self.last_results if r.get("status") != "pass"]]
+        what = ("" if late else (self.last_offtrack or {}).get("title") or "") or (
+            f"Still missing: {'; '.join(str(x) for x in labels[:2])}" if labels else "The checks haven't passed yet")
+        body = " ".join((("Couldn't double-check in time. " if late else "") + what).split()[:16])
+        await self._emit_card({"stepId": step["id"], "kind": "hint", "source": "judge", "verdict": "not_done",
+                               "title": "Not yet", "body": body, "actions": ["hint", "show_me", "skip_step"]}, window_s=2.0)
+        await self._status("offtrack" if self.last_offtrack else "watching")
 
     SETUP_STEP = re.compile(r"\b(install(ing|ation|ed)?|download(ing)?|set\s*-?\s*up|setup)\b", re.I)
 

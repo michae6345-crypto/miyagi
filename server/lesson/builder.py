@@ -1050,13 +1050,33 @@ def clean_check(raw: dict, cid: str) -> dict | None:
 _FILLER = re.compile(r"\b(still|now|already|successfully|correctly|properly|actually|really|been|being)\b\s*", re.I)
 _IDENT = re.compile(r"[A-Za-z_][A-Za-z0-9_]{2,}")
 _REGEX_WORDS = {"def", "function", "class", "const", "let", "var", "return", "import", "from", "self", "true", "false", "none"}
+_KEYWORDS = {"if", "elif", "else", "for", "while", "not", "and", "with", "async", "await", "raise", "try", "except"}
+
+
+def _not_a_phrase(s: str, check: dict) -> bool:
+    """Unbalanced brackets/quotes or regex syntax: the model echoed its pattern (or half of it) as the label."""
+    if not s:
+        return False
+    if (check.get("pattern") or "").strip() == s:
+        return True
+    if any(s.count(a) != s.count(b) for a, b in ("()", "[]", "{}")) or s.count('"') % 2 or s.count("`") % 2:
+        return True
+    return bool(re.search(r"\\|\.\*|\.\+|\(\?|^\^|\$$", s))
+
+
+def label_is_cut(label: str, check: dict) -> bool:
+    """Cut off mid-phrase ("add function is written in the"), or a regex fragment ("read with float(input(")."""
+    s = re.sub(r"\s+", " ", (label or "").strip()).rstrip(".:;,")
+    return (bool(re.search(r"\s(in|on|to|at|for|of|with|the|a|an|and|or|is|are|was|be)$", s, re.I))
+            or s.endswith(("…", "...")) or _not_a_phrase(s, check))
 
 
 def plain_label(label: str, check: dict) -> str:
     """A complete, plain checklist phrase of <= 6 words. Never cut mid-phrase: tidy the model's label, and
     if it is still too long, write one from the check itself ("add() is in calculator.py")."""
     s = re.sub(r"\s+", " ", (label or "").strip()).rstrip(".:;,")
-    cut = bool(re.search(r"\s(in|on|to|at|for|of|with|the|a|an|and|or|is|are|was|be)$", s, re.I)) or s.endswith(("…", "..."))
+    s = re.sub(r"^(code|terminal|editor)\s*:\s*", "", s, flags=re.I)  # "Code: main-guard line is typed"
+    cut = label_is_cut(s, check)
     s = re.sub(r"^(the|a|an)\s+", "", s, flags=re.I)
     s = _FILLER.sub("", s).strip()
     s = re.sub(r"\b(has|have|is|are)\s+(written|typed|added|defined|present)\b", r"\2", s, flags=re.I)
@@ -1064,13 +1084,19 @@ def plain_label(label: str, check: dict) -> str:
         return s[0].upper() + s[1:]
     # too long, cut off mid-phrase, or empty: write a complete one from the check itself
     t, f, app = check.get("type"), check.get("file") or "", check.get("app")
-    name = next((w for w in _IDENT.findall(check.get("pattern") or "") if w.lower() not in _REGEX_WORDS), "")
-    if t in ("file_contains", "screen_contains") and name and "(" in (check.get("pattern") or "") and app != "Terminal":
+    pat = check.get("pattern") or ""
+    name = next((w for w in _IDENT.findall(pat) if w.lower() not in _REGEX_WORDS | _KEYWORDS and not w.startswith("__")), "")
+    words = " ".join(re.sub(r"\\s[+*]?", " ", pat).split())  # `Unknown\s+operator` -> "Unknown operator"
+    phrase = words if (re.fullmatch(r"[A-Za-z][A-Za-z0-9 ]{2,30}", words) and len(words.split()) <= 3
+                       and words.split()[0].lower() not in _REGEX_WORDS | _KEYWORDS) else ""
+    if t in ("file_contains", "screen_contains") and name and "(" in pat and app != "Terminal":
         return f"{name}() is in {f}" if f else f"{name}() is typed"
     if t == "file_contains":
-        return f"Code is in {f}" if f else "Code is in the file"
+        return f"{phrase or 'Code'} is in {f}" if f else f"{phrase or 'Code'} is in the file"
     if t == "screen_contains":
-        return "The terminal shows the output" if app in ("Terminal", "iTerm2") else (f"{name} is typed" if name else "The code is typed")
+        if app in ("Terminal", "iTerm2"):
+            return f"The terminal shows {phrase}" if phrase else "The terminal shows the output"
+        return f"{phrase or name} is typed" if phrase or name else "The code is typed"
     if t == "screen_absent":
         return "No errors in the terminal" if app in ("Terminal", "iTerm2") else "No errors on screen"
     if t == "command_exit_ok":
