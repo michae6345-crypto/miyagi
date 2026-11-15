@@ -7,17 +7,19 @@
  *   starts at the release velocity (only a real fling overshoots a little);
  * - past the screen edge it rubber-bands (0.12) instead of stopping hard;
  * - reduced motion: no momentum, it jumps straight to the target.
+ * - the inner bottom corner (the one facing the middle of the screen) is a resize grip: width only, the diagram scales
+ *   with it, and the corner the card rests in stays put.
  * The card carries data-hit, and the overlay reads hit boxes from the live DOM, so click-through follows it.
  */
 import { animate, motion, useMotionValue, useReducedMotion, type AnimationPlaybackControls } from 'motion/react'
-import { useCallback, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useRef, useState, type PointerEvent as ReactPointerEvent, type ReactNode } from 'react'
 import type { Layout } from '../../../../preload/api'
 import { useLesson } from '../../core/lesson'
 import { glass, radius } from '../../core/theme'
 import { useLiveNetwork } from '../diagrams/store'
 import { PANEL_W, PANEL_W_LESSON, panelRect } from './geometry'
 import { NetBody, NetHeader, useHeaderDrag } from './LiveNet'
-import { dock, settle, useNetFloat, type Corner } from './netFloat'
+import { dock, setFloatWidth, settle, useNetFloat, type Corner } from './netFloat'
 import { useDrawer } from './store'
 
 const INSET = 16
@@ -28,6 +30,8 @@ const TOP_CLEAR = 8
 const R = 0.99
 const RUBBER = 0.12
 const FLING = 400 // px/s: below this a drop settles without bounce
+const MIN_W = 240
+const MAX_W = 560
 
 type Pt = { x: number; y: number }
 type Target = { kind: 'corner'; corner: Corner; at: Pt } | { kind: 'dock'; at: Pt }
@@ -49,7 +53,9 @@ function FloatNet({ layout }: { layout: Layout }): ReactNode {
   const card = useRef<HTMLDivElement>(null)
   const x = useMotionValue(0)
   const y = useMotionValue(0)
-  const [w, setW] = useState(lessonMode ? PANEL_W_LESSON : PANEL_W)
+  const [w, setW] = useState(() => useNetFloat.getState().width ?? (lessonMode ? PANEL_W_LESSON : PANEL_W))
+  /** While resizing: the card edges that must stay where they are. */
+  const sizing = useRef<{ right?: number; bottom?: number } | null>(null)
   const [h, setH] = useState(300)
   const [dragging, setDragging] = useState(false)
   const [folded, setFolded] = useState(false)
@@ -187,6 +193,14 @@ function FloatNet({ layout }: { layout: Layout }): ReactNode {
     return () => ro.disconnect()
   }, [])
 
+  // Resizing from a right or bottom corner: keep that edge fixed as the width (and so the height) changes.
+  useLayoutEffect(() => {
+    const k = sizing.current
+    if (!k) return
+    if (k.right !== undefined) x.set(k.right - w)
+    if (k.bottom !== undefined) y.set(k.bottom - h)
+  }, [w, h, x, y])
+
   // First placement: picked up from the drawer (keep tracking that same press), or a remembered corner.
   useLayoutEffect(() => {
     if (placed.current) return
@@ -224,6 +238,42 @@ function FloatNet({ layout }: { layout: Layout }): ReactNode {
     const p = toLocal({ x: e.clientX, y: e.clientY })
     track(e, { x: p.x - x.get(), y: p.y - y.get() })
   })
+  const side: 'left' | 'right' = spot.floating && (spot.corner === 'tr' || spot.corner === 'br') ? 'left' : 'right'
+  const onBottom = spot.floating && (spot.corner === 'bl' || spot.corner === 'br')
+  const resize = (e: ReactPointerEvent): void => {
+    if (e.button !== 0) return
+    e.preventDefault()
+    e.stopPropagation()
+    stopAnim()
+    setDragging(true)
+    const start = toLocal({ x: e.clientX, y: e.clientY })
+    const startW = w
+    const room = bounds().maxX + w - bounds().minX - 2 * INSET
+    const hi = Math.max(MIN_W, Math.min(MAX_W, room))
+    sizing.current = {
+      right: side === 'left' ? x.get() + w : undefined,
+      bottom: onBottom ? y.get() + h : undefined
+    }
+    let last = startW
+    const move = (ev: PointerEvent): void => {
+      const p = toLocal({ x: ev.clientX, y: ev.clientY })
+      const dx = p.x - start.x
+      last = Math.round(Math.min(hi, Math.max(MIN_W, startW + (side === 'right' ? dx : -dx))))
+      setW(last)
+    }
+    const up = (): void => {
+      window.removeEventListener('pointermove', move)
+      window.removeEventListener('pointerup', up)
+      window.removeEventListener('pointercancel', up)
+      sizing.current = null
+      setFloatWidth(last)
+      setDragging(false)
+    }
+    window.addEventListener('pointermove', move)
+    window.addEventListener('pointerup', up)
+    window.addEventListener('pointercancel', up)
+  }
+
   const dockNow = (): void => {
     const t = targets().find((c) => c.kind === 'dock')
     if (t) go(t)
@@ -255,6 +305,23 @@ function FloatNet({ layout }: { layout: Layout }): ReactNode {
       >
         <NetHeader d={d} folded={folded} onFold={() => setFolded((f) => !f)} grab={grab} dragging={dragging} onDoubleClick={dockNow} />
         {!folded && <NetBody d={d} />}
+        {!folded && (
+          <div
+            data-part="live-net-resize"
+            aria-label="Resize"
+            onPointerDown={resize}
+            className="absolute bottom-0 h-[18px] w-[18px]"
+            style={{
+              [side]: 0,
+              cursor: side === 'right' ? 'nwse-resize' : 'nesw-resize',
+              touchAction: 'none'
+            }}
+          >
+            <svg width="18" height="18" viewBox="0 0 18 18" style={{ transform: side === 'left' ? 'scaleX(-1)' : undefined }}>
+              <path d="M14 8 L8 14 M14 12 L12 14" stroke="currentColor" strokeOpacity={0.4} strokeWidth={1.25} strokeLinecap="round" />
+            </svg>
+          </div>
+        )}
       </motion.div>
     </div>
   )
