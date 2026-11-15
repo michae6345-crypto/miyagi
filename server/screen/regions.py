@@ -92,7 +92,9 @@ STATUS_BAR = 22.0
 _PANEL_TABS = ("PROBLEMS", "OUTPUT", "DEBUG CONSOLE", "TERMINAL", "PORTS", "GITLENS", "COMMENTS")
 _SIDEBAR_MARKERS = re.compile(r"^(?:[›>v]\s*)?(EXPLORER|Explorer|OUTLINE|Outline|TIMELINE|Timeline|OPEN EDITORS"
                               r"|Open Editors)\b")
-_PROMPT = re.compile(r"^\S*@\S+.*?[%$#❯➜]\s|(?:^|\s)[%$❯➜]\s+\S|^\(\S+\)\s.*[%$#]\s|^PS [A-Z]:\\")
+# VS Code's shell-integration mark left of each prompt (a filled / hollow circle) reads as "•" / "o": not part of it
+_DECO = r"(?:[•●○◦oO]\s+)?"
+_PROMPT = re.compile(rf"^{_DECO}\S*@\S+.*?[%$#❯➜]\s|(?:^|\s)[%$❯➜]\s+\S|^\(\S+\)\s.*[%$#]\s|^PS [A-Z]:\\")
 # the live prompt may be empty (nothing typed yet): "tripi@mac calc %" ends the line; VS Code's Python extension
 # auto-activates the lesson's .venv, so it is usually "(.venv) tripi@mac calc %"
 _PROMPT_END = re.compile(r"^(?:\(\S+\)\s+)?\S*@\S+.*\s[%$#❯➜]\s*$|^\s*(?:\(\S+\)\s*)?(?:\S+\s+)?[%$❯➜]\s*$")
@@ -227,7 +229,8 @@ def _run_icon(lay: _Layout) -> Region | None:
 
 
 def _panel_header(lay: _Layout) -> M.Line | None:
-    """The panel's tab-header row: has TERMINAL (upper case) and usually other panel tab names."""
+    """The panel's tab-header row: has TERMINAL (upper case) and usually other panel tab names. Newer VS Code
+    writes them in title case ("Problems  Output  Debug Console  Terminal  Ports"): then Terminal and two others."""
     below = lay.pane.rect.y2 - 4 if lay.pane else lay.win.rect.y + lay.win.rect.h * 0.3
     best = None
     for ln in lay.rows:
@@ -235,10 +238,13 @@ def _panel_header(lay: _Layout) -> M.Line | None:
             continue
         # Vision may split the row ("PROBLEMS" | "OUTPUT DEBUG CONSOLE TERMINAL PORTS"): join the row
         row = " ".join(x.text for x in lay.rows if abs(x.rect.cy - ln.rect.cy) < 0.5 * ln.rect.h)
-        if not re.search(r"\bTERMINAL\b", row):
-            continue
-        others = sum(1 for t in _PANEL_TABS if t != "TERMINAL" and t in row)
-        if (others >= 1 or len(row.split()) <= 3) and (best is None or ln.rect.y < best.rect.y):
+        if re.search(r"\bTERMINAL\b", row):
+            others = sum(1 for t in _PANEL_TABS if t != "TERMINAL" and t in row)
+            ok = others >= 1 or len(row.split()) <= 3
+        else:  # title case: two other tab names too, so a comment such as "# Output goes to the Terminal" isn't it
+            ok = bool(re.search(r"\bTerminal\b", row)) and sum(
+                1 for t in _PANEL_TABS if t != "TERMINAL" and re.search(rf"\b{t.title()}\b", row)) >= 2
+        if ok and (best is None or ln.rect.y < best.rect.y):
             best = ln
     return best
 
@@ -248,7 +254,8 @@ def _prompt_line(lay: _Layout) -> M.Line | None:
         below = lay.pane.rect.y2 + 2
         cands = [ln for ln in lay.rows if ln.rect.y >= below and _PROMPT.search(ln.text)]
     else:   # no editor gutter: only unmistakable `user@host ... %` prompts in the lower half
-        cands = [ln for ln in lay.rows if ln.rect.cy > lay.win.rect.cy and re.match(r"^\S*@\S+.*?[%$#]\s", ln.text)]
+        cands = [ln for ln in lay.rows
+                 if ln.rect.cy > lay.win.rect.cy and re.match(rf"^{_DECO}\S*@\S+.*?[%$#]\s", ln.text)]
     cands = [ln for ln in cands if ln.rect.y2 <= lay.status_top + 2]
     return min(cands, key=lambda ln: ln.rect.y) if cands else None
 

@@ -796,7 +796,9 @@ class LessonSession:
             log.exception("screen lines failed")
             return None
         panel = self._vscode_terminal_lines()
-        if panel:  # checks with app "Terminal" also read VS Code's integrated terminal (where lessons say to run)
+        # checks with app "Terminal" also read VS Code's integrated terminal (where lessons say to run); an open but
+        # empty panel is on screen too ("not printed yet"), never "Open VS Code's terminal"
+        if panel or self._terminal_panel_open():
             lines = dict(lines or {})
             lines["Terminal"] = list(lines.get("Terminal") or []) + panel
         return lines
@@ -820,6 +822,14 @@ class LessonSession:
             if r["x"] <= cx <= r["x"] + r["w"] and r["y"] <= cy <= r["y"] + r["h"]:
                 out.append((br["y"], br["x"], str(getattr(b, "text", ""))))
         return [t for _, _, t in sorted(out)]
+
+    def _terminal_panel_open(self) -> bool:
+        """Is VS Code's integrated terminal panel on screen (E6's terminal region), even with no text in it yet?"""
+        region = getattr(self.screen, "region", None) if self.screen is not None else None
+        try:
+            return bool(region and region("terminal"))
+        except Exception:  # noqa: BLE001
+            return False
 
     def screen_active(self) -> bool:
         return self.screen is not None and bool(getattr(self.screen, "active", True))
@@ -4276,10 +4286,12 @@ class LessonSession:
         ext = self._vscode_ext()
         if ext is not None and hasattr(ext, "run_in_terminal"):
             try:
+                seq = self._ext_seq(ext)  # before typing it: a quick program's command_end may arrive at once
                 if await asyncio.to_thread(ext.run_in_terminal, cmd, cwd=self.workdir, folder=self.workdir):
                     self._acted()
                     self._ext_run_t = time.time()  # _need_run: this run happened, whatever the terminal showed before
                     await self._card(step, "Running it", f"{cmd} is running in VS Code's terminal.", kind="answer")
+                    self._spawn(self._terminal_run_result(self.step_gen, step, cmd, seq), timer=True)
                     return
             except Exception:  # noqa: BLE001
                 log.exception("run_in_terminal failed; running it here")
@@ -4319,6 +4331,66 @@ class LessonSession:
                          output="\n".join(lines[-8:]) or "(no output)")
         if not self.passed and self.step is step:
             await self._status("offtrack" if self.last_offtrack else "watching")
+
+    RUN_WAIT_S = 900.0  # Run it for me in VS Code's terminal: an input() loop runs until the learner quits it
+    _run_diag_key: tuple | None = None  # the terminal run crash last handed to the coach (each one once)
+
+    @staticmethod
+    def _ext_seq(ext: Any) -> int:
+        """The companion's latest event number (0 when unknown): every event after it is newer than now."""
+        fn = getattr(ext, "last_event", None)
+        try:
+            return int(((fn() if fn else None) or {}).get("seq") or 0)
+        except Exception:  # noqa: BLE001
+            return 0
+
+    async def _terminal_run_result(self, gen: int, step: dict, cmd: str, seq: int) -> None:
+        """Run it for me typed `cmd` into VS Code's terminal (the "Running it" card). When the companion reports it
+        ended (command_end), that card's slot gets the result like the subprocess run's card: the exit status and the
+        last 8 lines of output. The run then feeds the step like one (ingest: the checks see it ended), and a crash (a
+        non-zero exit, or an error the step didn't ask for) goes to the coach's diagnosis once, never silence."""
+        want = cmd.splitlines()[-1].strip()
+        same = self._checks_fn("command_matches") or (lambda a, b: bool(a) and a in (b or ""))
+        cursor, deadline, end = {"seq": seq}, self.clock() + self.RUN_WAIT_S, None
+        while end is None:
+            await asyncio.sleep(0.3)
+            if gen != self.step_gen or self.passed or self.clock() > deadline:
+                return  # the step moved on (its cards go with it), or it never ended
+            end = next((c for c in self._ext_commands_ended(cursor) if same(want, str(c.get("commandLine") or ""))),
+                       None)
+        run_id = f"vscode-{end.get('id')}-{end.get('startedAt')}"
+        if run_id in self.runs:
+            return  # Run it for me pressed twice: the other wait already reported this run
+        code, tail = end.get("exitCode"), [str(x) for x in end.get("outputTail") or []]
+        out = self._checks_fn("run_output")
+        err, shows = out(tail, (self._run_need or {}).get("expect") or []) if out else (False, False)
+        crashed = bool(err) or (code not in (0, None) and not shows)  # as _need_run grades it
+        body = (f"It stopped with exit code {code}." if code not in (0, None) else "It printed an error." if err
+                else "It ran without errors." if code == 0 else "It finished.")
+        await self._card(step, f"Ran {want[:60]}", body, kind="answer", output="\n".join(tail[-8:]) or "(no output)")
+        if gen != self.step_gen or run_id in self.runs:
+            return
+        await self.ingest({"kind": "run_started", "run_id": run_id, "command": want, "cwd": self.workdir})
+        await self.ingest({"kind": "output", "run_id": run_id, "lines": tail})
+        key = (gen, code, tuple(tail[-8:]))
+        diagnose = crashed and not self.coaching and key != self._run_diag_key
+        if diagnose:
+            self.coaching = True  # the run_end breakpoint stays quiet: the crash goes to the coach below, with its row
+        try:
+            await self.ingest({"kind": "run_ended", "run_id": run_id,
+                               "exit_code": code if code is not None else int(crashed)})
+        finally:
+            if diagnose and gen == self.step_gen:
+                self.coaching = False
+        if not diagnose or gen != self.step_gen or self.passed:
+            return
+        self._run_diag_key = key
+        row = {"checkId": f"{step['id']}-ran", "type": "command_exit_ok", "label": f"Ran {want}"[:60], "status": "fail",
+               "detail": f"the last run stopped with exit code {code}" if code else "the run printed an error"}
+        failed = [row, *(r for r in self.last_failed if r.get("checkId") != row["checkId"])]
+        self.coaching = True
+        self.spoken_sig, self.spoken_t = self._sig(failed), self.clock()
+        self._spawn(self._coach(gen, step, failed, self.context(), 2))
 
     async def _apply_patch(self, step: dict) -> None:
         """Confirmed preview: re-check (unsaved edits? file changed since the preview?), back up, write."""
