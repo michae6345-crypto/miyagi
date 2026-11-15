@@ -123,6 +123,8 @@ def parse_watch_page(html: str) -> dict:
     m = re.search(r'"(?:uploadDate|publishDate)":\s?"([\d-]+)', html)
     if m:
         out["published"] = m.group(1)
+    if '"captionTracks"' in html:  # V5: the player lists caption tracks (auto captions too)
+        out["captions"] = True
     chs = chapters_from_page(youtube.initial_data(html), out.get("duration_s"))
     if chs:
         out["chapters"], out["chaptersFrom"] = chs, "youtube"

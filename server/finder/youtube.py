@@ -104,7 +104,7 @@ def parse_search(data: dict, limit: int = 12) -> list[dict]:
             "published": _text(v.get("publishedTimeText") or {}),
             "description": " ".join(x for x in (summary, snippet or _text(v.get("descriptionSnippet") or {})) if x)[:900],
             "chapters": len(chapters - {""}),
-            "captions": "CC" in badges,
+            "captions": True if "CC" in badges else None,  # V5: no CC badge isn't "no captions" (auto captions have none)
             "thumbnail": thumbs[-1]["url"].split("?")[0] if thumbs else f"https://i.ytimg.com/vi/{vid}/hqdefault.jpg",
         })
         if len(out) >= limit:
