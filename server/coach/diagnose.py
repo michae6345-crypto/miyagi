@@ -20,7 +20,9 @@ from .common import (
     clamp_words,
     failed_checks_text,
     get_lesson,
+    lesson_gen,
     number_lines,
+    on_new_lesson,
     order_actions,
     resolve_citation,
     step_brief,
@@ -419,8 +421,13 @@ async def diagnose(
     Extra keys starting with `_` (e.g. `_meta`: route, model, latency, usage) are
     for logs; strip them before sending (see `public()`).
     """
+    gen = lesson_gen()
     lesson = lesson if lesson is not None else get_lesson()
     active_file = active_file if active_file is not None else getattr(screen, "active_file", None)
+    if screen is not None and hasattr(screen, "drop_foreign"):  # screen rows from another project's window never reach the prompt
+        error_text = screen.drop_foreign(error_text)
+        if code_source == "screen":
+            code_excerpt = screen.drop_foreign(code_excerpt)
     if (held := _hold(step, screen, file_state, code_excerpt, code_source, active_file)) is not None:
         return held
     if _empty_code_step(step, code_excerpt, file_state):  # an empty file at a code step: not started, not off track
@@ -464,8 +471,9 @@ async def diagnose(
         if web_task is not None and not web_task.done():
             web_task.cancel()
     card["_meta"]["triage"] = {"route": t.route, "by": t.by, "reason": t.reason}
-    LAST[card["stepId"]] = card
-    _MEMO[step.get("id", "")] = (memo_key, time.monotonic(), copy.deepcopy(card))
+    if gen == lesson_gen():  # a diagnosis that outlived its lesson must not become the next lesson's "s3"
+        LAST[card["stepId"]] = card
+        _MEMO[step.get("id", "")] = (memo_key, time.monotonic(), copy.deepcopy(card))
     return card
 
 
@@ -493,6 +501,7 @@ def _memo_key(step: dict, failed_checks: list, metrics: Any, code: str, error_te
 
 
 _SCREEN_READS: dict[str, str] = {}  # step id → last OCR'd code excerpt (normalized)
+on_new_lesson(LAST.clear, _MEMO.clear, _SCREEN_READS.clear)  # all keyed by bare step ids, which every lesson reuses
 
 
 def _empty_code_step(step: dict, code: str, file_state: dict | None) -> bool:
