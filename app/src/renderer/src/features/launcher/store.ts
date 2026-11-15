@@ -5,6 +5,7 @@
  */
 import { create } from 'zustand'
 import type { Payload } from '../../../../common/wire'
+import { bridge } from '../../bridge'
 import { onMessage, onUi } from '../../core/bus'
 
 /**
@@ -78,3 +79,17 @@ onMessage('error', (p) => {
   const s = get()
   if (s.pending || s.open) set({ error: p.message, pending: false })
 })
+
+/**
+ * The launcher is open, as any overlay feature sees it (the shortcut bar, the spotlight). In the browser stage it lives
+ * in this document, so its store says so; in Electron it's its own window (its store isn't the overlay's), so also
+ * follow main's launcher:open / launcher:closed signals to the overlay.
+ */
+const useLauncherSignal = create<{ open: boolean }>(() => ({ open: false }))
+bridge.on('launcher:open', () => useLauncherSignal.setState({ open: true }))
+bridge.on('launcher:closed', () => useLauncherSignal.setState({ open: false }))
+export function useLauncherOpen(): boolean {
+  const here = useSearch((s) => s.open)
+  const signal = useLauncherSignal((s) => s.open)
+  return here || signal
+}

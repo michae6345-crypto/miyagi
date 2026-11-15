@@ -27,6 +27,7 @@ import { useCallback, useEffect, useId, useLayoutEffect, useRef, useState, type 
 import { Volume2 } from 'lucide-react'
 import { useLesson, useStatus, type Rect } from '../../core/lesson'
 import { useDrawer } from '../drawer/store'
+import { useLauncherOpen } from '../launcher/store'
 import { color, fill, font, radius, scrim, shadows, spring, text } from '../../core/theme'
 import { toggleVoice, useVoice } from '../voice/store'
 import { hole, holeRadius, placeCaption, type Side } from './place'
@@ -42,6 +43,8 @@ const DIM = { strong: scrim.spotlight, soft: scrim.spotlightSoft, fade: 0.28 } a
 /** The ring: a crisp hairline (no blur) over a faint dark keyline for contrast on light apps. */
 const RING = { width: 1, keyline: 3, keylineOpacity: 0.35 } as const
 const PULSE = { from: 0.45, peak: 1, rest: 0.9, duration: 1.2 } as const
+/** While the ask panel (the launcher) is open, the caption and target labels step back so the panel reads (A13). */
+const ASKING_OPACITY = 0.3
 
 type Props = {
   target?: SpotlightTarget
@@ -80,6 +83,7 @@ function Scene({ target, rect, bounds, mode, soft, showCaption, avoid, extras }:
   const id = useId().replace(/[^a-zA-Z0-9_-]/g, '')
   // Fallback (cut order): the same hairline, no dim.
   const outline = mode === 'outline'
+  const asking = useLauncherOpen()
   const more = extras.map((e) => ({ ...e, cut: hole(e.rect), key: `${e.id}:${Math.round(e.rect.x)},${Math.round(e.rect.y)},${Math.round(e.rect.w)},${Math.round(e.rect.h)}` }))
   // The caption keeps clear of the other targets and their labels too.
   const keepClear = [...avoid, ...more.map((e) => ({ x: e.cut.x, y: e.cut.y - LABEL.h - LABEL.gap, w: e.cut.w, h: e.cut.h + LABEL.h + LABEL.gap }))]
@@ -134,8 +138,10 @@ function Scene({ target, rect, bounds, mode, soft, showCaption, avoid, extras }:
           </motion.g>
         ))}
       </svg>
-      {more.map((e) => e.label && <TargetLabel key={e.key} text={e.label} hole={e.cut} bounds={bounds} />)}
-      {showCaption && <Caption target={target} hole={cut} bounds={bounds} avoid={keepClear} reduced={reduced} />}
+      <motion.div className="absolute inset-0" initial={false} animate={{ opacity: asking ? ASKING_OPACITY : 1 }} transition={{ duration: 0.2 }}>
+        {more.map((e) => e.label && <TargetLabel key={e.key} text={e.label} hole={e.cut} bounds={bounds} />)}
+        {showCaption && <Caption target={target} hole={cut} bounds={bounds} avoid={keepClear} reduced={reduced} />}
+      </motion.div>
     </motion.div>
   )
 }
