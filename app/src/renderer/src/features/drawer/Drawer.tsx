@@ -12,7 +12,7 @@ import { useEffect, useRef, useState, type CSSProperties, type ReactNode, type R
 import { useShallow } from 'zustand/react/shallow'
 import { ArrowUpRight, FileCode2, FileText, FolderGit2, Newspaper, X, type LucideIcon } from 'lucide-react'
 import type { Source, SourceKind, StepSummary } from '../../../../../../shared/contracts/events'
-import { builtByLabel, seekVideo, useLesson, type CheckItem, type Rect } from '../../core/lesson'
+import { builtByLabel, seekVideo, useLesson, useProgress, type CheckItem, type Rect } from '../../core/lesson'
 import { brand, color, fill, kindTone, radius, shadow, spring, springOut } from '../../core/theme'
 import { CheckIcon, CheckList, Spinner, Thumb } from '../../core/ui/atoms'
 import { parseYouTube, thumbnailFor } from '../launcher/youtube'
@@ -72,6 +72,8 @@ export function Tab({ rect, shown }: { rect: Rect; shown: boolean }): ReactNode 
 
 export function Panel({ rect }: { rect: Rect }): ReactNode {
   const lesson = useLesson((s) => s.lesson)
+  const hasStep = useLesson((s) => !!s.stepId)
+  const progress = useProgress()
   const scroller = useRef<HTMLDivElement>(null)
   const by = builtByLabel(lesson?.builtBy)
   const sources = lesson?.sources ?? []
@@ -119,7 +121,7 @@ export function Panel({ rect }: { rect: Rect }): ReactNode {
         </button>
       </div>
       <div ref={scroller} className="relative min-h-0 flex-1 overflow-y-auto px-[8px] pb-[12px]" style={{ scrollbarWidth: 'thin', scrollbarColor: `${fill.track} transparent` }}>
-        <Label>Steps</Label>
+        <Label>{progress.total > 0 && hasStep ? `Step ${progress.index + 1} of ${progress.total}` : 'Steps'}</Label>
         <Steps scroller={scroller} />
         {sources.length > 0 && (
           <>
@@ -147,8 +149,17 @@ function Label({ children }: { children: ReactNode }): ReactNode {
 // ---------------------------------------------------------------------------
 
 function Steps({ scroller }: { scroller: RefObject<HTMLDivElement | null> }): ReactNode {
-  const { steps, stepId, passed, checks, complete, parts, pendingNext } = useLesson(
-    useShallow((s) => ({ steps: s.steps, stepId: s.stepId, passed: s.passed, checks: s.checks, complete: s.complete, parts: s.parts, pendingNext: s.pendingNext }))
+  const { steps, stepId, passed, checks, complete, parts, pendingNext, instructions } = useLesson(
+    useShallow((s) => ({
+      steps: s.steps,
+      stepId: s.stepId,
+      passed: s.passed,
+      checks: s.checks,
+      complete: s.complete,
+      parts: s.parts,
+      pendingNext: s.pendingNext,
+      instructions: s.instructions.trim()
+    }))
   )
   // Ids on screen when the drawer opened: those rows never animate in. Anything appended later does.
   const atOpen = useRef<Set<string> | null>(null)
@@ -165,7 +176,17 @@ function Steps({ scroller }: { scroller: RefObject<HTMLDivElement | null> }): Re
       {steps.map((s, i) => {
         const status: StepStatus = passed.includes(s.id) || (cur >= 0 && i < cur) ? 'done' : s.id === stepId ? 'current' : 'locked'
         const k = fresh.indexOf(s.id)
-        return <StepRow key={s.id} step={s} status={status} timeW={timeW} checks={status === 'current' ? checks : undefined} enterDelay={k < 0 ? undefined : k * 0.04} />
+        return (
+          <StepRow
+            key={s.id}
+            step={s}
+            status={status}
+            timeW={timeW}
+            checks={status === 'current' ? checks : undefined}
+            instructions={status === 'current' ? instructions : undefined}
+            enterDelay={k < 0 ? undefined : k * 0.04}
+          />
+        )
       })}
       <AnimatePresence>{(!complete || pendingNext) && <PendingRow key="pending" waiting={pendingNext} part={part} timeW={timeW} />}</AnimatePresence>
     </div>
@@ -209,7 +230,22 @@ function useMounted(): boolean {
   return mounted.current
 }
 
-function StepRow({ step, status, timeW, checks, enterDelay }: { step: StepSummary; status: StepStatus; timeW: number; checks?: CheckItem[]; enterDelay?: number }): ReactNode {
+function StepRow({
+  step,
+  status,
+  timeW,
+  checks,
+  instructions,
+  enterDelay
+}: {
+  step: StepSummary
+  status: StepStatus
+  timeW: number
+  checks?: CheckItem[]
+  /** The current step's "what to do now" (Michael: a "Just teach me" lesson has no chapter list to read). */
+  instructions?: string
+  enterDelay?: number
+}): ReactNode {
   const mounted = useMounted()
   const v = step.video
   const current = status === 'current'
@@ -254,6 +290,16 @@ function StepRow({ step, status, timeW, checks, enterDelay }: { step: StepSummar
           {step.title}
         </span>
       </button>
+      {instructions && (
+        <div
+          data-part="drawer-instructions"
+          className="line-clamp-3 pb-[10px] text-[13px] leading-[18px]"
+          style={{ paddingLeft: indent, paddingRight: ROW.padX, marginTop: -4, color: color.label }}
+          title={instructions}
+        >
+          {instructions}
+        </div>
+      )}
       {checks && checks.length > 0 && (
         <motion.div
           data-part="drawer-checks"
