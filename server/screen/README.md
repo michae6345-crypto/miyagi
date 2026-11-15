@@ -157,3 +157,52 @@ spotlight). They're stable: edges snap to a 4-point grid, the last rect is kept 
   CLI: `python -m server.screen region all` (or `--image <fixture>.ocr.json`).
 - Tests: `tests/test_regions.py` uses the three rendered full-screen editors (panel at y=800, editor
   x=300) and a recorded real windowed VS Code with Explorer, a Chat side panel and Terminal.app.
+
+## VS Code window, frontmost app, menu bar, hover tooltips
+```python
+r = get_reader()
+r.vscode_window()     # {app, title, folder, file, path, symbol, dirty, sources} | None
+r.frontmost()         # {app, pid, title, window_id, rect} of the window in front on the current Space
+r.is_frontmost("Code")
+unsub = r.on_frontmost_change(lambda new, old: ...)    # fires within ~0.25 s (app switch, Space swipe)
+r.locate_region("terminal_menu")   # "Terminal" in the macOS menu bar while VS Code is in front
+r.locate_region("menu:Run")        # any menu-bar item
+```
+- **vscode_window**: the folder comes from the command center and the window title
+  (`● calculator.py — python-calculator-e430dc`), else the Explorer header or the breadcrumb root.
+  The file comes from the title, and the path from the breadcrumb (`src/calculator.py`), spelled as
+  on the tab when OCR drops the dot. Dirty comes from the title's `●` (VS Code's default title
+  includes it; OCR rarely reads the dot on the tab), or from AX when granted. Pure version:
+  `server.screen.vscode.vscode_window(obs)`.
+- **frontmost**: the first normal on-screen window from the window server (`CGWindowListCopyWindowInfo`,
+  ~0.3 ms, no permission needed). It follows Space swipes and full screen at once; our overlay never
+  counts. `on_frontmost_change` runs one 0.25 s poller and also pokes a capture.
+- **terminal_menu**: AX (`AXMenuBar > AXMenuBarItem "Terminal"`) when trusted, else OCR of the menu
+  strip. The strip must show ≥3 VS Code menus and VS Code must be in front. It's None in full screen
+  (menu bar hidden) or when another app is in front.
+- **Hover tooltips** (Pylance `(function) def add(`, diagnostics): their blocks get `role="hover"`
+  and are left out of `text()`, `lines_by_app()`, `locate()` and line reading. `obs.hovers()` has their
+  text. Rows under a hover come back with `LineLocation.occluded=True`. Before this, a hover over
+  `def subtract(a, b):` read as `def b: Any`.
+- **Split coloured words**: Vision splits a line at colour changes (`def` | `add(a, b):`).
+  Touching blocks on one row are re-joined into one block, so the coach's numbered boxes say
+  `def add(a, b):`. A row that still reads like `def(a, b):` (name missing) is OCR'd again on its own
+  and replaced only if the second read has the name.
+
+## Set-of-marks candidates (for a model to pick a target by id)
+```python
+from server.screen import candidates, marks
+cs = candidates("the line that defines add")   # live; or candidates(intent, obs=obs) on an observation
+prompt = marks.listing(cs)    # "2 [region] editor\n10 [code L4] def add(a, b):\n..."
+pick = marks.by_id(cs, 10)    # Candidate(id, kind, text, rect, app, line, region, score, occluded)
+```
+- **Regions** keep fixed ids: 1 terminal, 2 editor, 3 explorer, 4 terminal_menu. Absent ones are
+  left out. Live, they are the same stabilized rects `locate_region` returns.
+- **Lines** start at id 10. Editor code rows come first, in file-line order, as full-width rows
+  with `line`. Then every other OCR line in reading order, tagged with the region it's in
+  (`terminal` / `explorer` / ...).
+- **Left out:** hover tooltips, the breadcrumb, the editor tab bar and title bar (command center),
+  and gutter numbers. Rows partly under a tooltip are `occluded` and say so in the listing.
+- **Stable ids:** the same observation always numbers the same way, whatever the intent.
+- **`intent`:** only adds a `score` and, past `max_lines`, keeps the most relevant lines, still in
+  id order.

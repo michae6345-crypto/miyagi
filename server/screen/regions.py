@@ -1,5 +1,6 @@
 """Stable screen regions of VS Code for lesson-mode spotlights: "terminal", "editor", "explorer",
-"run_button". Pure Python (no pyobjc) except the run button, which only AX can see.
+"run_button", "terminal_menu" (any menu-bar item: "menu:<Title>"). Pure Python (no pyobjc) except
+the run button, which only AX can see.
 
     find_region(obs, "terminal")  -> Region | None     (one frame, raw)
     RegionStabilizer().update(key, rect, frame)          (4 pt grid, keeps the last rect if it moved < 12 pt)
@@ -26,9 +27,55 @@ from . import lines as L
 from . import match as M
 from .types import Block, Rect, ScreenObservation, Window
 
-REGIONS = ("terminal", "editor", "explorer", "run_button")
+REGIONS = ("terminal", "editor", "explorer", "run_button", "terminal_menu")
+MENU_BAR_H = 40.0          # the macOS menu bar is 24-37 pt (notch Macs: 37)
+_MENUS = ("File", "Edit", "Selection", "View", "Go", "Run", "Terminal", "Window", "Help")
 ALIASES = {"panel": "terminal", "integrated_terminal": "terminal", "sidebar": "explorer", "side_bar": "explorer",
-           "files": "explorer", "code": "editor", "run": "run_button", "run button": "run_button"}
+           "files": "explorer", "code": "editor", "run": "run_button", "run button": "run_button",
+           "terminal menu": "terminal_menu", "menu:terminal": "terminal_menu"}
+
+
+def menu_title(name: str) -> str | None:
+    """"terminal_menu" -> "Terminal"; "menu:Run" -> "Run"; anything else -> None."""
+    n = canonical(name)
+    if n == "terminal_menu":
+        return "Terminal"
+    if name.lower().startswith("menu:"):
+        return name.split(":", 1)[1].strip()
+    return None
+
+
+def find_menu_item(obs: ScreenObservation, title: str, app: str | None = None) -> Region | None:
+    """`title` in the macOS menu bar, read by OCR, when it is VS Code's menu bar: the frontmost
+    window is VS Code (or `app`) and the strip shows its menus (File / Edit / View / Run / Terminal ...).
+    None when the menu bar is hidden (full screen) or belongs to another app. A word inside a merged
+    Vision block ("Run Terminal Window") gets its share of the block's width."""
+    front = obs.windows[0] if obs.windows else None
+    wanted = app or "Code"
+    if front is not None and not M.app_matches(wanted, front.app) and not (
+            app is None and any(M.app_matches(e, front.app) for e in L.EDITOR_APPS)):
+        return None
+    if front is None and not M.app_matches(wanted, obs.app):
+        return None
+    top = obs.screen.y if obs.screen.h else 0.0
+    # menu-bar blocks are outside every window, or over a full-screen window when the bar is revealed
+    strip = [b for b in obs.blocks if b.rect.y2 <= top + MENU_BAR_H]
+    words = " ".join(b.text for b in strip).split()
+    if sum(1 for m in _MENUS if m in words) < 3:
+        return None
+    for b in sorted(strip, key=lambda b: b.rect.x):
+        toks = b.text.split()
+        if title not in toks:
+            continue
+        if len(toks) == 1:
+            x, w = b.rect.x, b.rect.w
+        else:   # proportional share of the merged block
+            before = len(" ".join(toks[:toks.index(title)])) + (1 if toks.index(title) else 0)
+            cw = b.rect.w / max(1, len(b.text))
+            x, w = b.rect.x + before * cw, len(title) * cw
+        bar_h = max(24.0, min(MENU_BAR_H - 3, b.rect.y2 + 8 - top))
+        return Region(f"menu:{title}", Rect(x - 8, top, w + 16, bar_h), front.app if front else obs.app, "menu_bar_ocr")
+    return None
 
 STATUS_BAR = 22.0
 _PANEL_TABS = ("PROBLEMS", "OUTPUT", "DEBUG CONSOLE", "TERMINAL", "PORTS", "GITLENS", "COMMENTS")
@@ -82,7 +129,7 @@ def _layout(obs: ScreenObservation, app: str | None) -> _Layout | None:
     win = _editor_window(obs, app)
     if win is None:
         return None
-    blocks = [b for b in obs.blocks if b.app == win.app and b.window == win.title]
+    blocks = [b for b in obs.blocks_in(None) if b.app == win.app and b.window == win.title]
     rows = M.group_lines(blocks)
     panes = [p for p in L.find_panes(obs, win.app) if p.window == win.title]
     pane = min(panes, key=lambda p: p.gutter_x) if panes else None   # left-most editor group
@@ -179,6 +226,8 @@ def _explorer(lay: _Layout) -> Region | None:
 def find_region(obs: ScreenObservation, name: str, app: str | None = None) -> Region | None:
     """One frame, no smoothing. `app` restricts to that app's window (default: front-most VS Code /
     Cursor window). `terminal` with app="Terminal" (or iTerm2 ...) is that app's window content."""
+    if menu_title(name) is not None:
+        return find_menu_item(obs, menu_title(name), app)
     name = canonical(name)
     if name not in REGIONS:
         raise ValueError(f"unknown region {name!r} (one of {', '.join(REGIONS)})")
@@ -189,6 +238,8 @@ def find_region(obs: ScreenObservation, name: str, app: str | None = None) -> Re
         return Region("terminal", Rect(w.rect.x, w.rect.y + 28, w.rect.w, w.rect.h - 28), w.app, "window")
     if name == "run_button":
         return None    # icon only: AX (reader.locate_region) or nothing
+    if menu_title(name) is not None:
+        return find_menu_item(obs, menu_title(name), app)
     lay = _layout(obs, app)
     if lay is None:
         return None

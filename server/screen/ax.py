@@ -317,6 +317,19 @@ def _xterm_rows(focused, max_up: int = 6) -> list[str]:
     return []
 
 
+def menu_bar_item(title: str) -> Element | None:
+    """The frontmost app's menu-bar item called `title` ("Terminal"): AXMenuBar > AXMenuBarItem."""
+    front = NSWorkspace.sharedWorkspace().frontmostApplication()
+    if front is None:
+        return None
+    app_el = AX.AXUIElementCreateApplication(int(front.processIdentifier()))
+    AX.AXUIElementSetMessagingTimeout(app_el, MESSAGING_TIMEOUT)
+    for item in attr(attr(app_el, "AXMenuBar"), "AXChildren") or []:
+        if _s(attr(item, "AXTitle")) == title:
+            return element_info(item, str(front.localizedName() or ""))
+    return None
+
+
 def find_button(pattern, max_nodes: int = 1500) -> Element | None:
     """First AXButton in the frontmost app's focused window whose title/description/help matches
     `pattern` (compiled regex), e.g. VS Code's editor-title "Run Python File". Bounded BFS."""
