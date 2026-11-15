@@ -268,6 +268,7 @@ class LessonSession:
         self.result_stagger_s = result_stagger_s
         self.build_tick_s = build_tick_s
         self.ready_hold_s = float(os.environ.get("ORCH_READY_HOLD_S", "1.5"))
+        self.offtrack_grace_s = float(os.environ.get("ORCH_OFFTRACK_GRACE_S", "20"))  # no offtrack this early in a step
         self.check_wait_s = float(os.environ.get("ORCH_CHECK_WAIT_S", "1.2"))  # check_step: wait for a fresh frame
 
         self.phase = "idle"  # idle | searching | building | active | done
@@ -336,6 +337,8 @@ class LessonSession:
         self.confirm_pending = False
         self.confirm_check_ids: list[str] = []  # E5 judge's "Looks done?": the checks `confirm` passes
         self.judged_pass: set[str] = set()  # checks E5's judge saw done on screen (count as passed)
+        self._carded_checks: set[str] = set()  # checks a hint / "Not yet" card already covers (no offtrack too)
+        self._offtracked_checks: set[str] = set()  # checks an offtrack already covers (no "Not yet" card too)
         self._judging = False
         self._stuck_card_sent = False
         self.segment_end_t: float | None = None
@@ -1217,9 +1220,35 @@ class LessonSession:
         return {"lesson": info, "steps": steps}
 
     # ------------------------------------------------------------------ steps
+    def _action_line(self, step: dict) -> str:
+        """ONE concrete thing to do now, for the app to show under the current chapter: E2's own `action`, else
+        "Create <file> and type <first line>" from the step's code, else the instructions' first sentence."""
+        for k in ("action", "todo"):
+            if isinstance(step.get(k), str) and step[k].strip():
+                return step[k].strip()
+        code, file = (step.get("code") or "").strip(), (step.get("file") or self._step_file(step) or "").strip()
+        first = next((ln.strip() for ln in code.splitlines() if ln.strip() and not ln.strip().startswith("#")), "")
+        if first and file:
+            from . import workspace as wsmod
+
+            exists = Path(self.workdir).is_dir() and wsmod.resolve_file(self.workdir, file) is not None
+            more = " …" if len([ln for ln in code.splitlines() if ln.strip()]) > 1 else ""
+            line = first if len(first) <= 60 else first[:57] + "…"
+            return (f"In {Path(file).name}, type {line}{more}" if exists
+                    else f"Create {Path(file).name} and type {line}{more}")
+        text = " ".join((step.get("instructions") or "").split())
+        m = re.match(r"(.+?[.!?])(\s|$)", text)
+        sent = m.group(1) if m else text
+        words = sent.split()
+        return " ".join(words[:20]) + ("…" if len(words) > 20 else "")
+
     def _step_started_payload(self, step: dict) -> dict:
+        full = step.get("instructions", "")
+        action = self._action_line(step) or full
         p = {"stepId": step["id"], "index": step.get("index", self.idx), "title": step["title"],
-             "instructions": step.get("instructions", "")}
+             "instructions": action}
+        if full and " ".join(full.split()) != action:
+            p["details"] = full  # the step's full explanation (the app may show it on expand)
         seg = self._segment(step)
         if seg:
             p["video"] = seg
@@ -1233,6 +1262,8 @@ class LessonSession:
         self.phase = "active"
         self._reset_step_state()
         step = self.steps[idx]
+        if self.lesson_mode:
+            self._ensure_step_file(step)  # before the payload: step 1 reads "In calc.py, type …"
         started = self._step_started_payload(step)
         await self.emit("step.started", started)
         self._say("step.started", started)
@@ -1243,26 +1274,43 @@ class LessonSession:
             await self.emit("check.updated", {"stepId": step["id"], "checkId": c["id"],
                                               "label": c.get("label", c["id"]), "status": "pending"})
         seg = self._segment(step)
-        if seg:
-            t0 = seg["start"] if seek_to is None or not (seg["start"] <= seek_to < seg["end"]) else float(seek_to)
-            await self.emit("video.seek", {"t": t0, "play": True})
-            await self.emit("video.play", {})
-            self._spawn(self._segment_timer(self.step_gen, seg["end"] - seg["start"]), timer=True)
-        else:
+        resuming = seek_to is not None and seg is not None and seg["start"] <= seek_to < seg["end"]
+        if seg is None or not (resuming or self._video_needed(step, seg)):
+            seg = None  # setup / nothing to watch: the video stays where it is (Show me still plays it)
             self.segment_done = True
             self.segment_end_t = self.clock()
         self._watch_screen_metrics(step)
         if self.m.has_diagrams() and os.environ.get("ORCH_DIAGRAM_PREFETCH", "1") == "1":
             self._spawn(self._prefetch_diagram(self.step_gen, step), timer=True)
-        if self.lesson_mode:
-            self._ensure_step_file(step)
         if self.workspace is not None and self.editor_open:  # `code -g` would itself launch VS Code
             self.workspace.goto_target(self.workdir, step)
         await self._status("watching")
         await self.evaluate("start")
+        if seg is not None and not self.passed and self.step is step:
+            ahead = any(r.get("status") == "pass" for r in self.last_results)  # already doing it: don't replay
+            if not ahead or resuming:
+                t0 = float(seek_to) if resuming else seg["start"]
+                play = not self.typing()  # never start the video over the learner's typing
+                await self.emit("video.seek", {"t": t0, "play": play})
+                if play:
+                    await self.emit("video.play", {})
+                self._spawn(self._segment_timer(self.step_gen, seg["end"] - t0), timer=True)
+            else:
+                self.segment_done = True
+                self.segment_end_t = self.clock()
+                await self.evaluate("start")  # already done before the clip: ask "Looks done?" now
         await self._maybe_pass_setup_step()
         if self.lesson_mode and not self.passed and self.step is step:
             self._spawn(self._lesson_spot(self.step_gen, step), timer=True)
+
+    MIN_SEGMENT_S = 3.0
+
+    def _video_needed(self, step: dict, seg: dict) -> bool:
+        """Play the clip only when it teaches something: not for setup / install steps (E2 tags them setup: true)
+        and not for a sliver of video."""
+        if step.get("setup") or self.SETUP_STEP.search(step.get("title", "")):
+            return False
+        return seg["end"] - seg["start"] >= self.MIN_SEGMENT_S
 
     def _watch_screen_metrics(self, step: dict) -> None:
         if self.screen is None:
@@ -1632,15 +1680,19 @@ class LessonSession:
                     return "\n".join(ls)[:limit], None
         return "", None
 
-    ACT_GRACE_S = 25.0  # without an edit / run / action, the coach waits this long into a step
+    def learner_started(self) -> bool:
+        """Did the learner do anything on this step: a save, a run, an action, or typing since it started?"""
+        if self.last_action_t >= self.step_t0:
+            return True
+        v = self.inputs.seconds_since_key() if self.inputs is not None else None
+        return v is not None and v <= self.clock() - self.step_t0
 
     def _consider_speaking(self, reason: str, step: dict, failed: list[dict], ctx: RunContext) -> None:
         """reason: breakpoint | repeat | stuck | idle. Decides whether, and at which ladder level, to speak."""
         if self.coaching or self.passed or not failed:
             return
-        if (reason not in ("breakpoint", "repeat") and self.last_action_t < self.step_t0
-                and self.clock() - self.step_t0 < self.ACT_GRACE_S):
-            return  # nothing done yet on this step (no edit, run or action): never "Not yet" on step start
+        if not self.learner_started() or self.clock() - self.step_t0 < self.offtrack_grace_s:
+            return  # never "off track" before the learner did anything on this step, nor in its first ~20 s
         if self.clock() < self._coach_retry_at:
             return  # the coach failed recently (e.g. offline): wait before trying again
         if self.typing():
@@ -1753,6 +1805,14 @@ class LessonSession:
                 self._coach_backoff, self._coach_retry_at = 0.0, 0.0
             if gen != self.step_gen or self.passed:
                 return
+            ids = {r.get("checkId") for r in failed if r.get("checkId")}
+            if card.get("notStarted"):  # E5: nothing done yet -> one plain instruction, never amber / "off track"
+                self.spoken_sig = None  # a real diagnosis may follow once they've worked on it
+                self._carded_checks |= ids
+                await self._emit_card({"stepId": step["id"], "kind": "hint", "title": card.get("title") or "Start here",
+                                       "body": card.get("body") or step.get("instructions", "")}, window_s=120.0)
+                await self._status("watching")
+                return
             full = dict(card)
             full.setdefault("stepId", step["id"])
             full.setdefault("severity", "warn")
@@ -1769,6 +1829,11 @@ class LessonSession:
             self.ladder = level
             self.last_offtrack = full
             key = (step["id"], level, (full.get("title") or "").strip().lower())
+            if level == 2 and ids and ids <= self._carded_checks:
+                log.info("a card already covers %s; no offtrack on top of it", sorted(ids))
+                await self._status("watching")
+                return
+            self._offtracked_checks |= ids
             if key != self._offtrack_key:  # only a NEW card: new step, higher level or a different diagnosis
                 self._offtrack_key = key  # (re-sending the same one reopens a card the learner just closed)
                 await self.emit("offtrack", shown)
@@ -1997,11 +2062,11 @@ class LessonSession:
                 await self.emit("video.seek", {"t": seg["start"], "play": True})
                 await self.emit("video.play", {})
             gen = self.step_gen
-            quick = await self._show_where(step)  # exact match / window: instant
-            if not quick and (reason := self.screen_down_reason()):  # say why there's no spotlight
+            if reason := self.screen_down_reason():  # say at once why there's no spotlight (no capture attempt)
                 await self._emit_card({"stepId": step["id"], "kind": "hint", "title": "I can't see your screen",
                                        "body": self.screen_down_message(reason)})
                 return
+            quick = await self._show_where(step)  # exact match / window: instant
             if quick and self.lesson_mode:
                 return  # the target box + what to type there is the whole answer
             if self.m.has_pointing():  # E5: the diagnosed line, the step's target, else Haiku (<= 3 s)
@@ -2387,6 +2452,11 @@ class LessonSession:
                       [r for r in self.last_results if r.get("status") != "pass"]]
             missing = ("Still missing: " + "; ".join(str(x) for x in labels[:3])) if labels else "The checks haven't passed yet"
         body = " ".join(missing.split()[:12])
+        ids = {r.get("checkId") for r in self.last_failed if r.get("checkId")}
+        if ids and ids <= self._offtracked_checks and self.last_offtrack:
+            await self._status("offtrack")  # the offtrack card on screen already says what's missing
+            return
+        self._carded_checks |= ids
         target = (verdict or {}).get("target") or {}
         if target.get("rect"):
             await self._show_spot({"rect": target["rect"], "caption": body})
