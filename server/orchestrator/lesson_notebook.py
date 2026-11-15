@@ -51,6 +51,22 @@ def create(s: Any) -> Path | None:
     return p
 
 
+def first_file(s: Any) -> str | None:
+    """The file VS Code should open first in a VS Code notebook lesson when the step names none yet (the auto-open
+    runs before step 1 starts): the lesson's notebook, made if missing. None = not a notebook lesson. Never raises.
+    Michael, Nov 15 10:45: VS Code opened on README.md and the drawer covered the Explorer, so the learner had to
+    move the drawer to open mnist.ipynb."""
+    try:
+        nb = name(s)
+        if not nb:
+            return None
+        p = create(s) or (Path(getattr(s, "workdir", "") or "") / nb)
+        return str(p) if p.is_file() else None
+    except Exception:  # noqa: BLE001 - a convenience: VS Code still opens on the folder
+        log.exception("lesson notebook lookup failed")
+        return None
+
+
 async def open_when_up(s: Any, path: str) -> bool:
     """Show the notebook in the lesson's own VS Code window once that window answers (companion extension), without
     taking focus. True = shown. Gives up after OPEN_WAIT_S, on another lesson, or without the extension (tests)."""

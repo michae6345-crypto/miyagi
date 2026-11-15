@@ -707,7 +707,7 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
         # t10: right after the learner's own Build click, no grace (Miyagi is in front because of that click: Build ->
         # VS Code took 4.7 s), and only keystrokes hold it (the click itself isn't typing)
         follows_build = self.clock() - getattr(self, "_build_t0", -1e9) < BUILD_OPEN_FOLLOW_S
-        file = self._editor_file(self.step)
+        file = self._editor_file(self.step) or lesson_notebook.first_file(self)  # no step file yet: the notebook
         nb = file if file and file.lower().endswith(".ipynb") else None  # t10: `code -g` is for text files
         await asyncio.to_thread(self.workspace.open, folder, True, file=None if nb else file,
                                 miyagi_wait_s=0.0 if follows_build else wsmod.VIDEO_MIYAGI_WAIT_S,
@@ -875,7 +875,7 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
             log.info("open_editor ignored: this lesson doesn't use an editor")
             return  # e.g. a Blender/Figma lesson: never open VS Code
         log.info("open_editor: bringing %s forward", Path(self.workdir).name)
-        file = self._editor_file(self.step)
+        file = self._editor_file(self.step) or lesson_notebook.first_file(self)  # no step file yet: the notebook
         loc = wsmod.target_location(self.workdir, self.step) if self.step is not None and file else None
         line = loc[1] if loc and str(loc[0]) == file else None
         real = getattr(self.screen, "reader", None) is not None  # real windows only (never in tests)
