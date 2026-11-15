@@ -116,6 +116,30 @@ def gemini_fallback() -> bool:
     return os.environ.get("FINDER_GEMINI_FALLBACK", "0") == "1"
 
 
+ALL_KINDS = ("video", "blog", "notebook", "repo", "paper")
+
+
+def kinds() -> set[str]:
+    """Which result kinds the finder searches for. Default: YouTube videos only (Michael: the list is
+    videos; "Build a lesson from the internet" is a separate path). FINDER_KINDS=all brings back
+    blogs, notebooks, repos and papers; a comma list (e.g. "video,repo") picks some."""
+    load_env()
+    raw = os.environ.get("FINDER_KINDS", "video").strip().lower()
+    if raw in ("all", "*"):
+        return set(ALL_KINDS)
+    picked = {k.strip() for k in raw.split(",") if k.strip() in ALL_KINDS}
+    return picked or {"video"}
+
+
+def min_score() -> int:
+    """Relevance floor: a row the model scored below this is never sent (FINDER_MIN_SCORE, default 40)."""
+    load_env()
+    try:
+        return max(0, min(100, int(os.environ.get("FINDER_MIN_SCORE", "40"))))
+    except ValueError:
+        return 40
+
+
 def long_video_s() -> float:
     """Same setting as server/lesson (progressive build above it): LESSON_LONG_VIDEO_S, default 30 min."""
     load_env()

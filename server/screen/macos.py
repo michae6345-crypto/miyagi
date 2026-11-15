@@ -4,6 +4,9 @@ Everything here imports pyobjc lazily-at-module-level, so only import this modul
 """
 from __future__ import annotations
 
+import os
+import subprocess
+import tempfile
 import time
 from dataclasses import dataclass
 
@@ -22,6 +25,9 @@ _IGNORED_OWNERS = {"Window Server", "Dock", "Control Center", "SystemUIServer", 
 
 class ScreenUnavailableError(RuntimeError):
     """Permission is fine but the display gave no image right now (sleep / lock); retry later."""
+
+
+SCREENCAPTURE = "/usr/sbin/screencapture"
 
 
 @dataclass
@@ -54,11 +60,58 @@ def main_display_bounds() -> Rect:
 def capture_main_display() -> Frame:
     """Grab the whole primary display (all windows composited, including our overlay)."""
     t = time.time()
+    if display_asleep():
+        raise ScreenUnavailableError("display asleep")
     img = Quartz.CGDisplayCreateImage(Quartz.CGMainDisplayID())
     if img is None:
         if not has_permission():
             raise ScreenPermissionError(PERMISSION_HELP)
         raise ScreenUnavailableError("display returned no image (asleep, locked, or switching Spaces?)")
+    screen = main_display_bounds()
+    scale = Quartz.CGImageGetWidth(img) / screen.w if screen.w else 1.0
+    return Frame(img, screen, scale, t)
+
+
+def display_asleep() -> bool:
+    try:
+        return bool(Quartz.CGDisplayIsAsleep(Quartz.CGMainDisplayID()))
+    except Exception:  # noqa: BLE001
+        return False
+
+
+def capture_main_display_cli(timeout: float = 4.0) -> Frame:
+    """Grab the primary display with Apple's `screencapture` tool (overlay included: mask it).
+
+    A different capture path from ScreenCaptureKit / CGDisplayCreateImage. On macOS 26, replayd
+    sometimes drops a third-party process's connection in a loop (XPC_ERROR_CONNECTION_INTERRUPTED
+    thousands of times a second): SCK never answers and CGDisplayCreateImage (built on SCK) blocks
+    5 s and returns nil, while `screencapture` keeps working. ~130-180 ms + ~15 ms decode at 3456 px.
+    The temp PNG is 0600 and deleted before returning.
+    """
+    t = time.time()
+    if display_asleep():
+        raise ScreenUnavailableError("display asleep")
+    fd, path = tempfile.mkstemp(prefix="miyagi-screen-", suffix=".png")
+    os.close(fd)
+    try:
+        try:
+            r = subprocess.run([SCREENCAPTURE, "-x", "-t", "png", "-D", "1", path], capture_output=True,
+                               timeout=timeout, check=False)
+        except subprocess.TimeoutExpired as e:
+            raise ScreenUnavailableError(f"screencapture timed out after {timeout:.0f} s") from e
+        if r.returncode != 0 or os.path.getsize(path) == 0:
+            if not has_permission():
+                raise ScreenPermissionError(PERMISSION_HELP)
+            err = (r.stderr or b"").decode(errors="replace").strip()[:200]
+            raise ScreenUnavailableError(f"screencapture failed (exit {r.returncode}): {err or 'no image'}")
+        img = load_cgimage(path, cache=True)
+    finally:
+        try:
+            os.unlink(path)
+        except OSError:
+            pass
+    if img is None:
+        raise ScreenUnavailableError("screencapture wrote an unreadable image")
     screen = main_display_bounds()
     scale = Quartz.CGImageGetWidth(img) / screen.w if screen.w else 1.0
     return Frame(img, screen, scale, t)
@@ -170,12 +223,14 @@ def ocr_image(image, screen: Rect, scale: float, crop: Rect | None = None) -> tu
 
 # ---------------------------------------------------------------- image I/O (fixtures, debug PNGs)
 
-def load_cgimage(path: str):
+def load_cgimage(path: str, cache: bool = False):
+    """cache=True decodes now (needed when the file is deleted right after)."""
     url = Quartz.CFURLCreateFromFileSystemRepresentation(None, path.encode(), len(path.encode()), False)
     src = Quartz.CGImageSourceCreateWithURL(url, None)
     if src is None:
         raise FileNotFoundError(path)
-    return Quartz.CGImageSourceCreateImageAtIndex(src, 0, None)
+    opts = {Quartz.kCGImageSourceShouldCacheImmediately: True} if cache else None
+    return Quartz.CGImageSourceCreateImageAtIndex(src, 0, opts)
 
 
 def save_cgimage_png(image, path: str) -> None:

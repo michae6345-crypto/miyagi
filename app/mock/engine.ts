@@ -96,6 +96,14 @@ export function createMockEngine(scenario: Scenario, emit: (m: Incoming) => void
         trigger('connect')
         return
       }
+      // Like the engine: stop every scripted timer, then lesson.ended + status idle (or the scenario's own 'end_lesson').
+      if (cmd.type === 'end_lesson') {
+        clear()
+        if (scenario.on.end_lesson) return trigger('end_lesson')
+        emit({ type: 'lesson.ended', payload: { reason: 'end_lesson' } })
+        emit({ type: 'status', payload: { state: 'idle' } })
+        return
+      }
       if (cmd.type === 'action') trigger(`action:${cmd.payload.kind}`)
       else trigger(cmd.type)
     }

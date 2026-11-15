@@ -201,7 +201,7 @@ def test_screen_contains_and_absent_with_app_scope():
     assert status(sc, RunContext()) == "pending"  # no observation yet
     assert evaluate_step({"checks": [sc]}, screen=OBS)[0]["status"] == "pass"
     assert status({**sc, "app": "Terminal"}, RunContext(screen=OBS)) == "fail"  # it's in the editor, not the terminal
-    assert status({**sc, "app": "Safari"}, RunContext(screen=OBS)) == "pending"  # app not on screen
+    assert status({**sc, "app": "Safari"}, RunContext(screen=OBS, segment_done=False)) == "pending"  # app not on screen yet
     ab = {"id": "s2", "type": "screen_absent", "label": "no import error", "pattern": "ModuleNotFoundError", "app": "Terminal"}
     r = evaluate_check(ab, RunContext(screen=OBS))
     assert r["status"] == "fail" and "ModuleNotFoundError" in r["detail"]
@@ -232,6 +232,65 @@ def test_metric_pattern_trend_from_output_without_metric_name():
     assert status(c, RunContext(output_tail=lines, running=True, command="x")) == "pass"
     flat = [f"it {s} | loss {0.2504 - s * 1e-7:.5f}" for s in range(0, 3000, 50)]
     assert status(c, RunContext(output_tail=flat, running=True, command="x")) == "fail"
+
+
+# ---------------------------------------------------------------- hidden apps: never pending forever
+NO_ERRORS = {"id": "s1c1", "type": "screen_absent", "label": "no errors so far", "app": "Terminal",
+             "pattern": r"Traceback|Error:"}
+OPEN_TERM = {"id": "s1c2", "type": "screen_contains", "label": "training started", "app": "Terminal",
+             "pattern": r"epoch \d+"}
+CODE_ONLY = {"Code": ["import torch", "model = Net()"]}  # Terminal closed / behind another app
+
+
+def test_absent_on_hidden_app_passes_after_segment():
+    r = evaluate_check(NO_ERRORS, RunContext(screen=CODE_ONLY, segment_done=True))
+    assert r["status"] == "pass" and "Terminal is not on screen" in r["detail"]
+    r = evaluate_check(NO_ERRORS, RunContext(screen=CODE_ONLY, segment_done=False))
+    assert r["status"] == "pending" and r["detail"] == "Terminal not open yet"
+    # orchestrator doesn't say (old wiring): treated as done, so it can never hang the step
+    assert status(NO_ERRORS, RunContext(screen=CODE_ONLY)) == "pass"
+    # no screen reading at all: nothing seen, nothing to flag
+    assert status(NO_ERRORS, RunContext(segment_done=True)) == "pass"
+    assert status(NO_ERRORS, RunContext(segment_done=False)) == "pending"
+
+
+def test_absent_fails_only_when_the_pattern_is_seen():
+    shown = {"Terminal": ["Traceback (most recent call last):", "ValueError: shapes"]}
+    for seg in (False, True, None):
+        r = evaluate_check(NO_ERRORS, RunContext(screen=shown, segment_done=seg))
+        assert r["status"] == "fail" and "Traceback" in r["detail"]
+    clean = {"Terminal": ["$ python train.py", "epoch 1 loss 0.3"]}
+    assert status(NO_ERRORS, RunContext(screen=clean, segment_done=False)) == "pass"
+
+
+def test_contains_on_hidden_app_says_what_to_open():
+    r = evaluate_check(OPEN_TERM, RunContext(screen=CODE_ONLY, segment_done=False))
+    assert r["status"] == "pending" and r["detail"] == "open Terminal so I can check: training started"
+    r = evaluate_check(OPEN_TERM, RunContext(screen=CODE_ONLY, segment_done=True))
+    assert r["status"] == "fail" and r["detail"] == "open Terminal so I can check: training started"
+    r = evaluate_check(OPEN_TERM, RunContext(segment_done=True))  # no screen reader: not the learner's fault
+    assert r["status"] == "pending" and "screen reading is off" in r["detail"]
+
+
+def test_hidden_absent_check_no_longer_blocks_the_step():
+    step = {"checks": [NO_ERRORS, {**OPEN_TERM, "app": "Code", "pattern": r"model = Net\(\)"}]}
+    g = evaluate_gate(step, RunContext(screen=CODE_ONLY, segment_done=True))
+    assert g["passed"] and [r["status"] for r in g["checks"]] == ["pass", "pass"]
+    assert not evaluate_gate(step, RunContext(screen=CODE_ONLY, segment_done=False))["passed"]
+
+
+def test_screen_metric_on_hidden_app_says_what_to_open():
+    c = {"id": "m", "type": "metric_threshold", "label": "loss < 0.3", "metric": "loss", "app": "Terminal",
+         "metric_pattern": r"epoch (?P<step>\d+) loss (?P<value>\S+)", "op": "<", "value": 0.3}
+    r = evaluate_check(c, RunContext(screen=CODE_ONLY, segment_done=True))
+    assert r["status"] == "fail" and r["detail"] == "open Terminal so I can read loss"
+    assert status(c, RunContext(screen=CODE_ONLY, segment_done=False)) == "pending"
+    r = evaluate_check(c, RunContext(screen={"Terminal": ["$ python train.py"]}, segment_done=True))
+    assert r["status"] == "pending" and r["detail"] == "waiting for 'loss' in Terminal"  # visible: training may be starting
+    t = {**c, "type": "metric_trend", "trend": "decreasing", "window": 100}
+    assert status(t, RunContext(screen=CODE_ONLY, segment_done=True)) == "fail"
+    # a `tut run` still running: its metrics arrive over /ingest, so keep waiting
+    assert status(c, RunContext(screen=CODE_ONLY, segment_done=True, running=True, command="python t.py")) == "pending"
 
 
 # ---------------------------------------------------------------- precision_checks

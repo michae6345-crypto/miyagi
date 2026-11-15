@@ -1,0 +1,175 @@
+{
+  "name": "voice",
+  "on": {
+    "connect": "voice_intro",
+    "action:explain@step_voice": "voice_explain",
+    "action:hint@step_voice": "voice_offtrack"
+  },
+  "segments": {
+    "voice_intro": [
+      {
+        "wait": 100,
+        "type": "lesson.ready",
+        "payload": {
+          "lesson": {
+            "id": "pinn-convection",
+            "title": "PINNs · Convection",
+            "sources": [
+              {
+                "id": "r1",
+                "kind": "video",
+                "title": "Learning PIML Part 1 – PINNs",
+                "url": "https://www.youtube.com/watch?v=AXXnSzmpyoI",
+                "meta": "Video · Juan Toscano · 24:20"
+              },
+              {
+                "id": "r2",
+                "kind": "notebook",
+                "title": "pinn_convection.ipynb",
+                "url": "https://github.com/",
+                "meta": "Notebook · GitHub · runs locally"
+              },
+              {
+                "id": "r3",
+                "kind": "paper",
+                "title": "Characterizing possible failure modes in PINNs",
+                "url": "https://arxiv.org/abs/2109.01050",
+                "meta": "Paper · Krishnapriyan et al. · NeurIPS 2021"
+              }
+            ]
+          },
+          "steps": [
+            {
+              "id": "s1",
+              "index": 0,
+              "title": "Set up the environment",
+              "video": {
+                "videoId": "AXXnSzmpyoI",
+                "start": 0,
+                "end": 70
+              }
+            },
+            {
+              "id": "s2",
+              "index": 1,
+              "title": "Sample collocation points",
+              "video": {
+                "videoId": "AXXnSzmpyoI",
+                "start": 70,
+                "end": 125
+              }
+            },
+            {
+              "id": "s3",
+              "index": 2,
+              "title": "Build the MLP",
+              "video": {
+                "videoId": "AXXnSzmpyoI",
+                "start": 125,
+                "end": 372
+              }
+            },
+            {
+              "id": "s4",
+              "index": 3,
+              "title": "Define the residual",
+              "video": {
+                "videoId": "AXXnSzmpyoI",
+                "start": 372,
+                "end": 588
+              }
+            },
+            {
+              "id": "s5",
+              "index": 4,
+              "title": "Write the training loop",
+              "video": {
+                "videoId": "AXXnSzmpyoI",
+                "start": 588,
+                "end": 760
+              }
+            },
+            {
+              "id": "s6",
+              "index": 5,
+              "title": "Train at β = 30",
+              "video": {
+                "videoId": "AXXnSzmpyoI",
+                "start": 760,
+                "end": 870
+              }
+            },
+            {
+              "id": "s7",
+              "index": 6,
+              "title": "Fix it with a β curriculum",
+              "video": {
+                "videoId": "AXXnSzmpyoI",
+                "start": 870,
+                "end": 1120
+              }
+            }
+          ]
+        }
+      },
+      {
+        "wait": 100,
+        "goto": "step_voice"
+      }
+    ],
+    "step_voice": [
+      {
+        "wait": 200,
+        "type": "step.started",
+        "payload": {
+          "stepId": "s4",
+          "title": "Define the residual",
+          "instructions": "Write the residual u_t + β·u_x",
+          "video": {
+            "videoId": "AXXnSzmpyoI",
+            "start": 372,
+            "end": 588
+          },
+          "index": 3
+        }
+      },
+      {
+        "wait": 0,
+        "type": "video.seek",
+        "payload": {
+          "t": 372,
+          "play": true
+        }
+      }
+    ],
+    "voice_explain": [
+      {
+        "wait": 250,
+        "type": "card",
+        "payload": {
+          "stepId": "s4",
+          "kind": "explain",
+          "title": "Why autograd?",
+          "body": "u_t and u_x are slopes of the network. Autograd gets them exactly, so the residual trains."
+        }
+      }
+    ],
+    "voice_offtrack": [
+      {
+        "wait": 250,
+        "type": "offtrack",
+        "payload": {
+          "stepId": "s4",
+          "severity": "warn",
+          "title": "The residual is missing a term",
+          "body": "Your residual only has u_t. Add the convection term too.",
+          "actions": [
+            "explain",
+            "show_me"
+          ],
+          "level": 2
+        }
+      }
+    ]
+  }
+}

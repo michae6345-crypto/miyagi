@@ -11,6 +11,7 @@ export default defineConfig({
   renderer: {
     resolve: { alias: { ...alias, '@': resolve(__dirname, 'src/renderer/src') } },
     plugins: [react(), tailwindcss()],
-    server: { fs: { allow: [resolve(__dirname, '..')] } }
+    // hmr.overlay off: the overlay window is full-screen, so Vite's red error page would cover (and block) the whole desktop.
+    server: { fs: { allow: [resolve(__dirname, '..')] }, hmr: { overlay: false } }
   }
 })

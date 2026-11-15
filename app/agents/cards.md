@@ -1,6 +1,6 @@
 # cards
 
-**Status:** pass 1 + Miyagi brand pass done (calm restyle, live curve, generic for any metric, brand colors and copy), rebased on core db72ef9 (brand kit), waiting for Adrian's review. Nothing half-done is hidden behind a flag. The off-track copy in the demo still comes from core's `offtrack.json` (core request 4). · **Priority:** P0 · **Port:** 5177 · **Branch:** `adrian/cards`
+**Status:** pass 2 (functional) done on core be157ff: preflight card, download + setup resources, `where` line, never-dead buttons, ⌥H brings off-track back, citation link. UI polish's look kept as is. Checked in the stage (headless Chrome), screenshots re-shot. Not pushed. · **Priority:** P0 · **Port:** 5177 · **Branch:** `adrian/cards`
 
 ## Goal
 Coach cards that grow out of the pill. **Off-track** (amber): what's wrong in ≤12 words, the yours-vs-tutorial loss curve, "expected vs yours", the checks, and Show me / Explain / Apply fix. **Back on track** (green) after a recovered step; auto-hides. **Explain / Hint / Answer** cards from the engine, with an optional "jump to 7:00" video link. Calm: no shaking, no red.
@@ -25,7 +25,13 @@ islandModes: offtrack (70), success (60), card (50)
 ## Test
 `npm run dev:web -- --port 5177` → `http://localhost:5177/?scenario=full`. Ctrl+K → type anything → Enter → Enter builds the lesson. Alt+E / Alt+H at step 4 or 6 → explain / hint card. About 30 s in, step 6 goes off-track (loss curve is live). Alt+E there → explain with a video jump; Esc returns to the off-track card. Apply fix → "Waiting for the fix" (the loss drops live) → "Back on track" → auto-hides. Esc dismisses; the HUD's Reset restarts.
 `?scenario=offtrack` checks the fallback (no `metric` events: the curve comes from `offtrack.curve`, the success card shows the checks instead of a curve). `?scenario=cards` alone does nothing (it only overrides segments of the full run).
-Screenshots: `agents/shots/cards-brand-*.png` (offtrack, offtrack-stage, explain, hint, fixing-1/2, success, generic-accuracy).
+**Pass 2 flows (same `?scenario=full`):**
+- Paste a YouTube link in the launcher (Ctrl+K, paste, Enter) → **preflight** card (Coding · 24 min · 7 chapters, Needs …). Build → the lesson builds, then a **setup** card: Install on PyTorch (progress lines, then a check), two linked files, Download tutorial files / Skip / Open Cursor.
+- At step 7 (after Apply fix at step 6), Alt+S → "Code not visible" with the **where** line and its Open button.
+- At step 6: Esc closes the off-track card, Alt+H brings it back.
+- Every card button that waits on the engine shows the spinner (the mock sends `status thinking` around these).
+
+Screenshots: `agents/shots/cards-*.png`: offtrack, offtrack-stage, offtrack-question, explain, hint, fixing-1/2, success, generic-accuracy, preflight, preflight-warning, setup, setup-installing, download-busy, where, where-busy.
 
 ## Adrian's spec
 **First pass (no spec from Adrian yet):** build to the mockups in `docs/mockups/` (01–05 are the target look; 06–07 are earlier explorations to restyle in the Apple look) and the animation + placement spec in `docs/FRONTEND-HANDOFF.md`. Don't spend time on colors (Adrian's theme comes later). Adrian reviews after this pass and writes his spec here for pass 2.
@@ -34,9 +40,21 @@ Screenshots: `agents/shots/cards-brand-*.png` (offtrack, offtrack-stage, explain
 1. ~~**HMR on feature files**~~: fixed in core 0876da5 (lazy registry).
 2. **Island sizes / timing: no change needed.** Off-track is 460 wide × ~472 tall, "Waiting for the fix" ~386, "Back on track" ~251, explain/hint 420 wide. All fit under `maxCardWidth` 520.
 4. **Off-track demo copy in `mock/scenarios/offtrack.json` (core) doesn't follow the kit voice yet.** Suggested, step 6 `offtrack`: `title` "Loss is flat at 0.25", `body` "Add a β curriculum, then rerun.", `reason` "flat for 5,200 epochs" (the curve caption already says the metric). `explain_step6` body (18 words → 11): "Steep waves make early gradients vanish. The net settles flat." The cards only render what the engine sends, so this is a mock change, not a cards change.
+5. **Links from the overlay window.** Only the player window has `setWindowOpenHandler` (https → `shell.openExternal`). The citation link and a setup row's "Get it" use `window.open`, which in the overlay would open a new Electron window. Suggest the same handler on every window in `main/index.ts`.
+6. **Pick another during a build.** The launcher's Enter puts the pill in "building" (`startBuild`) before the preflight card. After Pick another reopens the launcher, nothing clears `building` until the next `lesson.building`/`lesson.ready`. Core (or the launcher) should clear it when the launcher reopens without a build.
 3. *(FYI, nothing to do now)* Metrics live in `features/cards/store.ts` (`useCards(s => s.metrics)`, `useSeries()`), readable by other features (e.g. the overview card could show the live loss). If several features end up needing them, move them into `core/lesson.ts` later.
 
 ## Notes
+**Pass 2 (functional, Michael's live-test list):**
+- **Never look dead.** Every card button (white, pastel and quiet) swaps its icon for the core `Spinner` while `useThinking() && usePressed().kind === kind`. Engine-card buttons that wait on an answer (download, open_editor, build, confirm, apply_fix, undo, resume, end_lesson) also keep the card up, spinner on, until the engine answers: a new card or event, `status` leaving "thinking", `lesson.building` for the preflight Build, or 10 s. Skip and Pick another close at once; per-row Install / Open never close it.
+- **Preflight** (`card.kind "preflight"`): one meta line (style · length · chapters · captions; captions come from the finder's `search.result` for the same videoId/url), "Needs …" from `card.items` (+ "N to install"), `warning` in amber, Build / Pick another with `recommended` as the white primary. Pick another sends `pick_another` and opens the launcher (`launcher:toggle`).
+- **Download / setup**: `download` reads `setup.actionLabels.download ?? 'Download'`, quiet unless it's the only button. `setup.resources` listed under the items (icon by kind, name, kind). `open_editor` reads `Open ${setup.editorLabel}`. Setup rows follow `install.method`: "download" opens its URL ("Get it"), "open" sends `open_in_browser`, "none" has no button.
+- **`card.where`**: one line ("Open plot_solution.py in Cursor") with an Open button (`open_editor`); the card's own open_editor button is then not repeated.
+- **`guidingQuestion`** shows under the body on the off-track card and on engine cards, in `color.label`.
+- **⌥H** while the off-track card is closed (and nothing else is up) brings it back and is claimed, so no new hint request goes out. With the card open, ⌥H asks for a hint as before.
+- **Citation**: the label is a link (`window.open`), see core request 5.
+- **Mock**: `learn_url` → preflight (overrides happy's `learn_url` on purpose: paste → preflight → Build → happy's `lesson`), `action:build` → lesson + setup card, `action:install` → progress → re-sent card, `action:download` / `action:open_editor` → thinking then quiet, `action:show_me@step7` → the where card.
+
 **Brand (Miyagi kit, `app/brand/BRAND.md`)**: amber only while off track (the off-track header and dot, the "yours" line, the "Yours" diff row, a failing check). Green only once passed (the success header, the re-run line on the success card, passing checks). Everything else is neutral: the tutorial line and "Expected" label are muted white, the re-run line is white while waiting, hint/explain/answer cards are muted. Apply fix is the white `CardButton` with a wrench icon (the old wand had sparkles). The success headline is `copy.passed` ("Good. Now the next one."). No gradient fills, glows, blue, purple or emoji. UI copy says "rerun" like the kit.
 
 **What pass 1 does**
@@ -58,4 +76,4 @@ Screenshots: `agents/shots/cards-brand-*.png` (offtrack, offtrack-stage, explain
 
 **Not in the contract (mock-only extras, read leniently):** `offtrack.reason`, `offtrack.curve`, `step.passed.summary`. Ask Michael to add them, or the cards simply hide those bits.
 
-**Left for pass 2**: Adrian's spec and theme; ⌘↵ for Apply fix (the overlay window isn't focused, so it needs a global shortcut: a core request if wanted); pause the success auto-hide on hover; open the citation link (needs a main-process `shell.openExternal`).
+**Left**: Adrian's spec; ⌘↵ for Apply fix (the overlay window isn't focused, so it needs a global shortcut: a core request if wanted); pause the success auto-hide on hover; the main-process link handler (core request 5).

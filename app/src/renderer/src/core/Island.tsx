@@ -41,7 +41,10 @@ export function Island({ top }: { top: number }): ReactNode {
         setTimeout(() => setJustLanded(false), 700)
       }),
       bridge.on('launcher:open', () => setYielded(true)),
-      bridge.on('launcher:closed', () => setYielded(false))
+      bridge.on('launcher:closed', () => setYielded(false)),
+      // Any other surface born from the island (settings…): same hand-over.
+      bridge.on('island:yield', () => setYielded(true)),
+      bridge.on('island:return', () => setYielded(false))
     ]
     return () => offs.forEach((off) => off())
   }, [])

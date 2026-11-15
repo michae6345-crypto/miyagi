@@ -16,7 +16,8 @@ screen_contains(obs, r"u_t\s*\+\s*beta", app="Code")        # for screen_contain
 evaluate_step(step, ctx, screen=obs.lines_by_app())          # E3: pass whole rows, not raw blocks
 m = reader.watch_metrics(lesson_id, {"loss": check["metric_pattern"]}, on_metric, app=None,
                          on_restart=lambda run_id: ...)     # on_metric(name, step, value); m.reset() on step change
-answer = await reader.describe("Is this loss curve converging?", region=None)  # Gemini, rate-limited
+answer = await reader.describe("Is this loss curve converging?", region=None)  # Claude Opus 5.5, rate-limited
+res = await reader.where("the Run button")            # Claude Haiku 5.5 picks among numbered OCR lines -> exact rect
 reader.poke()                                 # capture now (e.g. right after a run ended)
 ```
 
@@ -33,11 +34,13 @@ reader.poke()                                 # capture now (e.g. right after a 
   `screen-<lesson>-r2` and `on_restart(run_id)` fires, so curves don't mix runs. Points go to Tiger Data
   `training_metrics` (`run_id = "screen-<lesson>"`) when `TIGER_DATABASE_URL` is a real URL; otherwise
   it logs once and carries on.
-- **env**: loads `TUT_ENV` (default `/Users/tripi/sand hacks/sandhacks-tutor/.env`). `GEMINI_API_KEY`
-  for describe, `GEMINI_VISION_MODEL` (default `gemini-3.8-flash`), `TUT_SCREEN_FIXTURE=path.png` to
+- **env**: loads `TUT_ENV` (default `/Users/tripi/sand hacks/sandhacks-tutor/.env`).
+  `ANTHROPIC_API_KEY` for describe/where (Claude only: the screen is never sent to Gemini),
+  `TUT_SCREEN_COACH_MODEL` / `TUT_SCREEN_QUICK_MODEL` (defaults `claude-opus-5-5` / `claude-haiku-5-5`), `TUT_SCREEN_FIXTURE=path.png` to
   replay a saved screenshot instead of the live screen.
 - **permission**: the app running the engine needs *System Settings › Privacy & Security › Screen &
-  System Audio Recording*. Without it the reader prints exactly that and falls back to the fixture PNGs.
+  System Audio Recording*. Without it capture raises `ScreenPermissionError` (see `reader.status` / `on_error`);
+  fixture PNGs are used only when asked for (`TUT_SCREEN_FIXTURE`, `--image`) or under `DEMO=1`.
 - **perf** (M5 Pro, 3456×2234 Retina, accurate mode, language correction off): capture ~17 ms;
   OCR ~100–220 ms per frame warm depending on how much text is on screen, ~250–350 ms on the first
   frame (Vision warm-up). Static screens aren't re-OCR'd.
@@ -48,7 +51,8 @@ python -m server.screen watch [--app Terminal] [--json]      # frontmost app + O
 python -m server.screen locate "def pde_residual" --out locate.png [--all]   # rect + PNG with it drawn
 python -m server.screen metrics 'epoch\s+(?P<step>\d+).*?loss\s+(?P<value>[0-9.eE+-]+)'
 python -m server.screen bench -n 8                           # capture + OCR latency
-python -m server.screen describe "what is on screen?"
+python -m server.screen describe "what is on screen?"           # Claude Opus 5.5
+python -m server.screen where "the Run button"                   # Claude Haiku 5.5, set-of-mark
 python -m server.screen fixture NAME --apps Code Terminal --titles pinn   # compose a fixture from only those windows
 python -m server.screen --image server/screen/fixtures/vscode_terminal_flat.png locate "beta * u_x"
 ```
@@ -56,3 +60,72 @@ python -m server.screen --image server/screen/fixtures/vscode_terminal_flat.png 
 ## Tests
 `pytest server/screen/tests`: pure logic runs anywhere; `test_fixtures.py` runs real Vision OCR on
 the two fixture screenshots (VS Code + Terminal, flat loss at β=30 vs. dropping loss), macOS only.
+
+## AX, cursor, events (PR "screen: ax + cursor + events")
+- **AX (`ax.py`)**: exact VS Code/Terminal state. Needs **Accessibility** for the app that runs the engine,
+  and in VS Code `"editor.accessibilitySupport": "on"`. `reader.ax_reader.latest()` gives an `AXSnapshot`:
+  `editor` (buffer page, caret, `caret_line`, `line_rect`, `rect_for_line(n)`, `line_at_y(y)`),
+  `document`, `dirty`, `terminal_lines`, and `under_mouse`. AX text of at least 100 chars is merged into `obs.text()`/`lines_by_app()`.
+- **Cursor**: `obs.cursor`, `obs.under_cursor`, `reader.cursor_context()` →
+  `{x, y, app, window, ocr_line, ocr_rect, ax, caret_line, editor_line, editor_line_text, editor_line_rect}`.
+- **Triggers**: click / typing_pause / scroll_stop / app_switch / AX changes → capture (>= 1.5 s apart,
+  hash-gated OCR); `obs.trigger` says which. `reader.events.typing_recently()` for the don't-nag gate.
+- **Overlay exclusion**: ScreenCaptureKit leaves out `com.github.Electron` (dev overlay), names matching
+  `miyagi|sandhacks`, `TUT_OVERLAY_BUNDLES`, our pid, and password managers/Messages. `obs.overlay_excluded`.
+- **Privacy**: emails, SSNs, phone and card numbers are redacted in OCR and AX text.
+```bash
+python -m server.screen ax --seconds 20 [--prompt]   # AX spike: frontmost app's editor/terminal state
+python -m server.screen cursor --seconds 20          # what's under the mouse
+```
+
+## Editor lines: where to type ("Just teach me")
+```python
+from server.screen import locate_line, locate_anchor
+loc = locate_line("pinn_demo/pinn_convection.py", 48)          # LineLocation, truthy when on screen
+loc.rect            # Rect: full-width row of the editor text area (points, top-left, primary display)
+loc.visible_lines   # (first, last) file lines visible in that editor pane
+loc.direction       # "up" / "down" when the line is scrolled off (rect None): scroll, then ask again
+loc.reason          # None | no_editor | file_not_active | not_visible | not_found
+loc = locate_anchor("def pde_residual(", file="pinn_demo/pinn_convection.py")
+loc.line, loc.rect, loc.match_rect   # its file line, the full row, and the anchor text itself
+```
+- **OCR** (always): finds the line-number gutter (a right-aligned column of increasing integers),
+  fits row centres and line height, and fills rows Vision didn't number (it skips lone digits
+  1–9, and blank lines have no text) up to the breadcrumbs above and the panel below. Width: from
+  the code's left edge to the minimap. Works for full-screen windows (no menu-bar offset) and any
+  font size; the terminal panel's `epoch 100, 200, …` column is rejected (wrong spacing).
+- **The right file**: the breadcrumb above the pane, else the window title. Tabs don't count
+  (inactive tabs are listed too). Another file in front gives `reason="file_not_active"`.
+- **Off-screen anchors**: from the AX buffer when Accessibility is granted (unsaved text too), or
+  from `file` on disk; `line` + `direction` come back with `rect=None`.
+- **AX** (when granted): the focused file, exact buffer text, and the caret-line rect. A row that
+  agrees with OCR within half a line takes AX's y (`source="ax+ocr"`). If they disagree, OCR wins
+  (folding and word wrap break AX's extrapolation from the caret). AX alone is used only when OCR
+  finds no editor. **AX is not verified live yet** (no Accessibility grant on the dev Mac).
+- `obs=` runs on a given observation (pure, any OS); without it the live reader uses a frame at
+  most 1 s old.
+```bash
+python -m server.screen line pinn_demo/pinn_convection.py 48 --out line.png
+python -m server.screen --image server/screen/fixtures/cursor_fullscreen_bigfont.ocr.json line x.py 100
+python -m server.screen anchor "def pde_residual(" --file pinn_demo/pinn_convection.py
+```
+Tests: `server/screen/tests/test_lines.py` runs on recorded Vision OCR of three rendered
+full-screen editors: VS Code at the top of a file, VS Code scrolled to lines 44–84, and Cursor at
+14 pt scrolled to 70–115. Each fixture has ground truth for every row; all rows land within 2 pt.
+Regenerate them with `python -m server.screen.tests.make_editor_fixtures`.
+
+## Capture backends and replayd stalls
+Order: **ScreenCaptureKit** (overlay left out of our frames) → **`screencapture`** (Apple's tool;
+overlay text masked via `set_overlay_bounds`) → **CGDisplayCreateImage**. `obs.capture` says which one
+made the frame (`sck` / `cli` / `cg` / `fixture`). `TUT_CAPTURE=cli` skips SCK; `TUT_CAPTURE=cg` is the
+old CG-only path.
+
+Why: on macOS 26, replayd (the daemon behind SCK) sometimes drops a third-party process's connection
+in a loop. Our process then logs `XPC_ERROR_CONNECTION_INTERRUPTED` thousands of times a second, and
+ReplayKit burns ~15% CPU. No SCK completion handler fires, and `CGDisplayCreateImage` (built on SCK)
+blocks 5 s and returns nil. Before this fix that surfaced as `ScreenUnavailableError: display returned
+no image`, and the coach went blind. Apple's `screencapture` uses a private path and keeps working
+(~130–180 ms + ~15 ms decode). It isn't caused by full-screen Spaces or a changing display ID (the main
+display stays ID 1, awake and unlocked). SCK calls now time out after 1.5 s. A stall makes the
+reader use `screencapture` for that same frame, then skip SCK for 10 s, 20 s, … up to 5 min. A
+recovery resets the backoff. An interrupted SCK connection is no longer reported as `no_permission`.

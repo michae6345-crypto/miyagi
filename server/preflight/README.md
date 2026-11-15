@@ -31,6 +31,13 @@ await emit("card", preflight_card(res))       # kind "preflight", actions build 
      and the chapter *times* (the row only has a chapter count).
    - S2's `server.workspace.requirements()` on a metadata-level step graph (lesson id `preflight-<videoId>`),
      checked locally and read-only. It is skipped with a note if `server.workspace` doesn't export it yet.
+   - **Built before?** The same lookup E2's `build_lesson` does: E4's `build_workdir`, then `cache_key`, else
+     `find_cached` (same video + same folder layout). On a hit, the card says "Built before: ready instantly
+     (N steps)" (`buildPlan.cached`, estimate 0), and the tool check runs on the real cached graph and its
+     real folder (e.g. demo/pinn-lab), so it matches the setup card that follows. The check is repeated on
+     every memo hit, so a result prefetched before the first build is never stale.
+   - **Coding lessons always get the editor.** E2 adapts them to a local folder even when the video uses Colab.
+     The metadata-level graph tells S2 this (`LOCAL_NOTE`), and `editorNeeded` is True for `style: coding`.
 3. **buildPlan:** `whole` (≤ 30 min) or `chapters`. `firstChapter` is the window E2 builds first (its
    `plan_windows` when importable, else the same rule). `firstHandsOn` is Claude's first hands-on chapter.
    When it starts 1–10 min in, E2 skips the talk-only intro before it (`skippedIntro`), and part 1 starts
