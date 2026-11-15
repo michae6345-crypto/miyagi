@@ -231,8 +231,8 @@ def where_hint(step: dict, last: dict | None = None, screen: Any = None) -> str:
             return f"You're in {ed['app']} on an unsaved file. Save it as {name} in the lesson folder"
         if ed["file"] and ed["file"] != name:
             return f"You're in {ed['app']} on {ed['file']}. Open {name} from the lesson folder"
-        if ed["file"] == name and ed["unsaved"]:
-            return f"{name} is open in {ed['app']} with unsaved changes. Save it"
+        if ed["file"] == name and ed["unsaved"]:  # a lesson autosaves: never ask a learner to save (Michael)
+            return f"{name} is open in {ed['app']}" if lesson_mode(step) else f"{name} is open in {ed['app']} with unsaved changes. Save it"
     if name and lesson_mode(step):  # lesson mode created the file already (S9); the lesson is in VS Code
         return "Open VS Code's terminal (⌃`)" if name == "(terminal)" else f"Open {name} in VS Code"
     if name and creates_file(step, name):

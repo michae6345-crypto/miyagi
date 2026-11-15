@@ -18,7 +18,7 @@ Hooks in LessonSession (kept tiny for merges):
   now starts from what is known: the last diagnosis's diff, else the last "Not yet"'s "change A to B", else the line
   of the file that differs from the step's code. The first press names the line and the thing to look at ("Look at
   the sign inside np.exp on line 20 of main.py."), the next gives the fix ("On line 20, change np.exp(x) to
-  np.exp(-x), then save main.py."), with a box on that line.
+  np.exp(-x)."), with a box on that line. No "then save": lessons autosave (Michael: learners never press ⌘S).
 - Plain copy (test 7, `plain_copy`, also from `learner_text`): no markdown on a card (test 6: "`forward` defined
   after the training loop"; the app shows bodies as plain text), no sentence the engine cut with "…" (test 6: "move
   the data, weights, `forward` and `backward` under #…"), a citation short enough to fit its one line (test 7:
@@ -103,7 +103,7 @@ def cant_read(terminal: bool, run_it: bool, file: str = "") -> str:
     if terminal:
         return ("I can't read the terminal yet. Make the terminal panel taller, or press Run it for me." if run_it
                 else "I can't read the terminal yet. Make the terminal panel taller.")
-    return f"I can't read that part of {file or 'your file'} yet. Save it, then press Check again."
+    return f"I can't read that part of {file or 'your file'} yet. Press Check again."
 
 
 def _canon(term: str) -> str:
@@ -510,7 +510,7 @@ async def diagnosed_hint(s: Any, step: dict) -> bool:
             cap = "Look here"
         else:  # next press: the fix
             card = {"stepId": step["id"], "kind": "hint", "title": f"Fix line {n}",
-                    "body": f"On line {n}, {fix}, then save {name}.", "level": 3, "levelName": "diff"}
+                    "body": f"On line {n}, {fix}.", "level": 3, "levelName": "diff"}
     except Exception:  # noqa: BLE001 - the coach's own hint answers instead
         log.exception("diagnosed hint failed")
         return False

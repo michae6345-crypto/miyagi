@@ -173,6 +173,7 @@ def test_presenter_next_back_restart(rig):
             assert await stage.next_step(rig.s)
             await settle(rig)
         assert passed(rig) == ["nn1", "nn2", "nn3", "nn4"] and not rig.of("offtrack")
+        assert stage.state(rig.s)["runs"] == {"nn4": 1}  # next on the run step: one run, counted once
         assert await stage.back(rig.s)
         await settle(rig)
         assert rig.s.step["id"] == "nn4"
