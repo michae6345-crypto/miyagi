@@ -1032,7 +1032,7 @@ def clean_check(raw: dict, cid: str) -> dict | None:
     t = raw.get("type")
     if t not in CHECK_TYPES:
         return None
-    c = {"id": cid, "type": t, "label": _clip_words(raw.get("label") or t.replace("_", " "), 6)}
+    c = {"id": cid, "type": t, "label": ""}
     for k in _CHECK_FIELDS[t]:
         v = raw.get(k)
         if v is None or v == "":
@@ -1043,7 +1043,44 @@ def clean_check(raw: dict, cid: str) -> dict | None:
             except (TypeError, ValueError):
                 continue
         c[k] = v
+    c["label"] = plain_label(raw.get("label") or "", c)
     return c
+
+
+_FILLER = re.compile(r"\b(still|now|already|successfully|correctly|properly|actually|really|been|being)\b\s*", re.I)
+_IDENT = re.compile(r"[A-Za-z_][A-Za-z0-9_]{2,}")
+_REGEX_WORDS = {"def", "function", "class", "const", "let", "var", "return", "import", "from", "self", "true", "false", "none"}
+
+
+def plain_label(label: str, check: dict) -> str:
+    """A complete, plain checklist phrase of <= 6 words. Never cut mid-phrase: tidy the model's label, and
+    if it is still too long, write one from the check itself ("add() is in calculator.py")."""
+    s = re.sub(r"\s+", " ", (label or "").strip()).rstrip(".:;,")
+    cut = bool(re.search(r"\s(in|on|to|at|for|of|with|the|a|an|and|or|is|are|was|be)$", s, re.I)) or s.endswith(("…", "..."))
+    s = re.sub(r"^(the|a|an)\s+", "", s, flags=re.I)
+    s = _FILLER.sub("", s).strip()
+    s = re.sub(r"\b(has|have|is|are)\s+(written|typed|added|defined|present)\b", r"\2", s, flags=re.I)
+    if s and not cut and len(s.split()) <= 6 and len(s) >= 4:
+        return s[0].upper() + s[1:]
+    # too long, cut off mid-phrase, or empty: write a complete one from the check itself
+    t, f, app = check.get("type"), check.get("file") or "", check.get("app")
+    name = next((w for w in _IDENT.findall(check.get("pattern") or "") if w.lower() not in _REGEX_WORDS), "")
+    if t in ("file_contains", "screen_contains") and name and "(" in (check.get("pattern") or "") and app != "Terminal":
+        return f"{name}() is in {f}" if f else f"{name}() is typed"
+    if t == "file_contains":
+        return f"Code is in {f}" if f else "Code is in the file"
+    if t == "screen_contains":
+        return "The terminal shows the output" if app in ("Terminal", "iTerm2") else (f"{name} is typed" if name else "The code is typed")
+    if t == "screen_absent":
+        return "No errors in the terminal" if app in ("Terminal", "iTerm2") else "No errors on screen"
+    if t == "command_exit_ok":
+        return "The program runs"
+    if t == "file_exists":
+        return f"{f} exists" if f else "The file exists"
+    if t in ("metric_threshold", "metric_trend"):
+        m = check.get("metric") or "metric"
+        return f"{m} {check.get('op', '<')} {check.get('value')}" if t == "metric_threshold" and check.get("value") is not None else f"{m} is improving"
+    return "Step check"
 
 
 def repair(graph: dict, info: WorkdirInfo) -> dict:
@@ -1074,7 +1111,7 @@ def fallback_screen_checks(step: dict) -> list[dict]:
     for t in step.get("targets", []):
         frag = (t.get("match") or "").strip()
         if 3 <= len(frag):
-            return [{"id": "", "type": "screen_contains", "label": _clip_words(t.get("caption") or frag, 6),
+            return [{"id": "", "type": "screen_contains", "label": plain_label(t.get("caption") or frag, {"type": "screen_contains", "app": t.get("app")}),
                      "app": t.get("app") or "Code", "pattern": literal_pattern(frag)[:80]}]
     return []
 
