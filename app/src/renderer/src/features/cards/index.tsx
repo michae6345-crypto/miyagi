@@ -425,7 +425,7 @@ function Success(): ReactNode {
 type EngineCard = Payload<'card'>
 
 /**
- * Header per card kind: a small icon tile instead of a text eyebrow. The options that made the card keep
+ * Header per card kind: a small icon tile on the card's header line (answers add a faint eyebrow, EYEBROW). The options that made the card keep
  * their pastel (Explain sky, Hint pink, Show me lilac, same as their buttons); the rest are neutral tiles.
  * Typed against the contract so a new kind fails here, not at runtime. tileOf() picks the tile per card.
  */
@@ -479,18 +479,24 @@ function tileOf(c: EngineCard, from?: ActionKind): Tile {
   return KIND[c.kind] ?? KIND.answer
 }
 
-function KindTile({ k }: { k: Tile }): ReactNode {
+function KindTile({ k, size = 24 }: { k: Tile; size?: number }): ReactNode {
   return (
     <span
-      className="grid h-[24px] w-[24px] shrink-0 place-items-center rounded-[7px]"
-      style={k.tone ? { background: k.tone, color: color.onAccent } : { background: fill.tile, color: color.text }}
+      className="grid shrink-0 place-items-center"
+      style={{ width: size, height: size, borderRadius: Math.round(size * 0.3), ...(k.tone ? { background: k.tone, color: color.onAccent } : { background: fill.tile, color: color.text }) }}
       aria-label={k.label}
       title={k.label}
     >
-      <k.Icon size={13} strokeWidth={1.9} />
+      <k.Icon size={size > 22 ? 13 : 12} strokeWidth={1.9} />
     </span>
   )
 }
+
+/**
+ * Cards that answer the learner (Explain, Hint, an answer, Show me's where-to-work) say what answered in a faint
+ * eyebrow beside their tile (Michael's review A23); status cards (step, run, setup…) carry the tile alone.
+ */
+const EYEBROW = new Set<Tile>([KIND.explain, KIND.hint, KIND.answer, KIND.where])
 
 /** Button per card action. At most one white primary per card: the first primary kind present. */
 const ACTION: Partial<Record<CardAction, { label: string; Icon?: LucideIcon; primary?: boolean }>> = {
@@ -1025,20 +1031,28 @@ function FullCard({ c, k }: { c: EngineCard; k: Tile }): ReactNode {
   const redundant = !t || t === k.label.toLowerCase() || t === (KIND[c.kind] ?? KIND.answer).label.toLowerCase()
   return (
     <div data-card={c.kind} style={{ padding: `16px ${PAD}px 16px` }}>
-      <div className="flex items-start gap-[10px]">
-        <KindTile k={k} />
-        <div className="min-w-0 flex-1 pt-[1px]">
-          {redundant ? (
-            <Clamp text={c.body} lines={HEADLINE_LINES} className="text-[16px] font-medium leading-[22px] tracking-[-0.01em]" />
-          ) : (
-            <>
-              <div className="text-[17px] font-semibold leading-[22px] tracking-[-0.01em]"><CodeText text={titleText(c.title)} /></div>
-              <Clamp text={c.body} lines={BODY_LINES} className="mt-[3px] text-[14px] leading-[20px]" style={{ color: color.label }} />
-            </>
-          )}
-          {c.guidingQuestion && <Question text={c.guidingQuestion} />}
-        </div>
+      {/* One left edge (A23): the tile (and its eyebrow) sit on the header line, like the off-track card's ring and
+          "Not yet", so the title, the body and every row and button under them start at the card's padding. */}
+      <div data-card-head className="flex h-[22px] items-center gap-[8px]">
+        <KindTile k={k} size={22} />
+        {EYEBROW.has(k) && (
+          <span data-eyebrow className="truncate text-[12px] font-medium" style={{ color: color.faint }}>
+            {k.label}
+          </span>
+        )}
+        <span className="min-w-[8px] flex-1" />
         <CloseButton />
+      </div>
+      <div className="mt-[10px] min-w-0">
+        {redundant ? (
+          <Clamp text={c.body} lines={HEADLINE_LINES} className="text-[16px] font-medium leading-[22px] tracking-[-0.01em]" />
+        ) : (
+          <>
+            <div className="text-[17px] font-semibold leading-[22px] tracking-[-0.01em]"><CodeText text={titleText(c.title)} /></div>
+            <Clamp text={c.body} lines={BODY_LINES} className="mt-[3px] text-[14px] leading-[20px]" style={{ color: color.label }} />
+          </>
+        )}
+        {c.guidingQuestion && <Question text={c.guidingQuestion} />}
       </div>
       {c.kind === 'preflight' && <Preflight card={c} />}
       {c.where && <Where text={c.where} />}
