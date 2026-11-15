@@ -10,6 +10,8 @@
  * The bar is a glass panel: theme.glass tokens, so it follows Settings → Appearance (light / dark).
  * Thinking: the pressed tile's glyph is the Spinner (Busy.tsx). Any trigger dips its tile for 90 ms (press.ts).
  * Voice speaking: the equalizer (Equalizer.tsx). Diagram open: its tile stays lit.
+ * Folded (review A12, fold.ts): a thin handle over the middle of the status bar while the pointer has been off the bar
+ * for a few seconds. The pointer on the handle brings it back.
  */
 import { AnimatePresence, motion } from 'motion/react'
 import { useEffect, useRef, useState, type ReactNode } from 'react'
@@ -27,6 +29,7 @@ import { useDiagram } from '../diagrams/store'
 import { useLauncherOpen } from '../launcher/store'
 import { toggleVoice } from '../voice/store'
 import { Equalizer, useVoiceTile } from './Equalizer'
+import { holdWhile, pointerLeft, reveal, useFold } from './fold'
 import { usePress } from './press'
 import { GlassKey, hoverCls, look, Tile } from './Tile'
 
@@ -141,7 +144,49 @@ const CARD_STEP_ACTIONS = new Set<string>(['confirm', 'skip_step', 'check_step']
  */
 const ASK_W = 196
 
-export function ShortcutBar({ bottom, lift = 0 }: { bottom: number; lift?: number }): ReactNode {
+/** How far the bar drops as it folds into its handle (transform only). */
+const FOLD_Y = 28
+
+/**
+ * The folded bar: a short glass pill with a faint grip, centered over the status bar's empty middle. Its hit area is
+ * taller than the pill (up to where the bar's lower edge sits), so the pointer on its way up lands on it.
+ */
+function Handle({ bottom, height, onReach }: { bottom: number; height: number; onReach: () => void }): ReactNode {
+  return (
+    <motion.div
+      className="pointer-events-none absolute inset-x-0 flex justify-center"
+      style={{ bottom }}
+      initial={{ opacity: 0, y: 6 }}
+      animate={{ opacity: 1, y: 0 }}
+      exit={{ opacity: 0, y: 6 }}
+      transition={spring}
+    >
+      <div
+        data-hit
+        data-shortcut-handle
+        role="button"
+        aria-label="Show the shortcut bar"
+        className="pointer-events-auto flex w-[168px] cursor-pointer items-end justify-center pb-[3px]"
+        style={{ height }}
+        onPointerEnter={onReach}
+        onClick={onReach}
+      >
+        <span
+          className="flex h-[12px] w-[128px] items-center justify-center rounded-full border"
+          style={{ background: glass.bg, borderColor: glass.hairline, boxShadow: glass.shadow }}
+        >
+          <span className="h-[4px] w-[56px] rounded-full" style={{ background: glass.faint }} />
+        </span>
+      </div>
+    </motion.div>
+  )
+}
+
+/**
+ * bottom: the bar's lower edge above the display's bottom (above the status bar band); dock: the Dock / taskbar's
+ * height (the handle sits just above it); lift: px above the spotlight's hole (lift.ts).
+ */
+export function ShortcutBar({ bottom, dock = 0, lift = 0 }: { bottom: number; dock?: number; lift?: number }): ReactNode {
   const on = useLesson((x) => !!x.lesson)
   const hasStep = useLesson((x) => !!x.stepId)
   const diagramOpen = useDiagram((d) => d.open)
@@ -157,22 +202,32 @@ export function ShortcutBar({ bottom, lift = 0 }: { bottom: number; lift?: numbe
   // Video lessons keep the replay glyph (Back rewinds the video). Audit A22.
   const textLesson = useLesson((x) => x.lesson?.mode === 'lesson')
   const firstStep = useProgress().index === 0
+  // A12: folded while the pointer has been off it a while.
+  const folded = useFold((f) => f.idle)
+  const busy = useRef(false)
+  busy.current = step.armed || step.skipping
+  useEffect(() => holdWhile(() => busy.current), [])
+  const unfold = reveal
+  const handleBottom = dock + 2
 
   return (
     <AnimatePresence>
-      {on && (
+      {on && folded && <Handle key="handle" bottom={handleBottom} height={Math.max(20, bottom - handleBottom)} onReach={unfold} />}
+      {on && !folded && (
         <motion.div
+          key="bar"
           className="pointer-events-none absolute inset-x-0 flex justify-center"
           style={{ bottom }}
-          initial={{ opacity: 0, y: 16 }}
+          initial={{ opacity: 0, y: FOLD_Y }}
           animate={{ opacity: 1, y: -lift }}
-          exit={{ opacity: 0, y: 16 }}
+          exit={{ opacity: 0, y: FOLD_Y }}
           transition={spring}
         >
           <div
             data-hit
             data-shortcut-bar
             onPointerEnter={raiseOverlay}
+            onPointerLeave={pointerLeft}
             className="pointer-events-auto flex items-center gap-[2px] rounded-[24px] border p-[8px]"
             style={{ height: BAR_HEIGHT, background: glass.bg, borderColor: glass.hairline, boxShadow: glass.shadow, backdropFilter: 'blur(30px) saturate(1.4)' }}
           >
