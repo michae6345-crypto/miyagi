@@ -168,8 +168,8 @@ async def _work_here(session: Any, step: dict) -> bool:
         texts.append(path.read_text(encoding="utf-8", errors="replace"))
     except OSError:
         pass
-    try:
-        return any(all(re.search(p, t, re.M) for p in pats) for t in texts)
+    try:  # most of them, not all: a planted bug (the tanh slope's + sign) is still the step's code
+        return any(2 * sum(bool(re.search(p, t, re.M)) for p in pats) >= len(pats) for t in texts)
     except re.error:
         return True
 

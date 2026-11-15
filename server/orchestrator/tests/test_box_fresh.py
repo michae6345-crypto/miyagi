@@ -437,11 +437,7 @@ def test_t7_diagnosis_line_is_scrolled_into_view_and_boxed(tmp_path, vs):
     async def go():
         await _demo_at(rig, vs, bad, "nn2")
         vs.scroll(1)
-        from server.orchestrator import stage  # nn2's sign is wrong: a save no longer passes it, the presenter's next does
-
-        assert await stage.next_step(rig.s)
-        await _settle(rig)
-        assert rig.s.step["id"] == "nn3"
+        await _to_step(rig, vs, "nn3")
         await asyncio.sleep(0.8)
         vs.scroll(33)  # line n is far above the screen
         full = {"stepId": "nn3", "severity": "fail", "title": "Wrong sign in tanh slope",
