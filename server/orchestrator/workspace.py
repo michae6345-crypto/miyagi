@@ -299,6 +299,16 @@ def setup_card(items: list[dict], resources: list[dict] | None = None) -> dict |
     return fn(items, resources=resources) if resources else fn(items)
 
 
+def editor_opens(card: dict, items: list[dict]) -> dict:
+    """t9 V8: VS Code opens on the lesson folder by itself, so the setup card never asks to open it (no Open button, no
+    "Open the lesson folder in Visual Studio Code?" in its body). In place; returns the card."""
+    card["actions"] = [a for a in card.get("actions") or [] if a != "open_editor"]
+    ed = next((it for it in items if it.get("kind") == "editor"), None)
+    if ed and isinstance(card.get("body"), str):
+        card["body"] = card["body"].replace(f" Open the lesson folder in {ed.get('label')}?", "")
+    return card
+
+
 def find_resources(graph: dict) -> list[dict]:
     """S2: code / notebooks / data the video links (one watch-page fetch per video, cached). Blocking."""
     ws = _s2()

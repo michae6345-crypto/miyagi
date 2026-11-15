@@ -693,7 +693,8 @@ def test_setup_card_only_when_a_tool_is_missing(tmp_path, monkeypatch):
         await rig.settle()
 
     run(go())
-    assert [c for c in rig.of("card") if c["kind"] == "setup"] and not calls and not rig.s.editor_open
+    # t9 V8: a coding lesson's VS Code opens by itself alongside the setup card (as the curated lesson's does)
+    assert [c for c in rig.of("card") if c["kind"] == "setup"] and calls and rig.s.editor_open
 
 
 def test_non_code_lesson_never_offers_vscode(tmp_path, monkeypatch):
