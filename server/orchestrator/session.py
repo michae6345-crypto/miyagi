@@ -3554,6 +3554,9 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
             if card is None:
                 by_id = {c["id"]: c for c in (step.get("checks") or []) + (step.get("precision_checks") or [])}
                 failed_checks = [{**by_id.get(r.get("checkId"), {}), **r} for r in failed]
+                from . import stale_advice
+
+                await stale_advice.fresh(self, step)  # VS Code's text this tick, not a 4 s old read's disk fallback
                 code, _file = self._code_excerpt(step)
                 sfile = self._step_file(step) or step.get("file") or _file or ""
                 file_state = {"path": sfile, "saved": not self._dirty_step_file(step),
@@ -3593,6 +3596,7 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
                         await self._status("watching")
                     return
                 self._coach_backoff, self._coach_retry_at = 0.0, 0.0
+                stale_advice.note(self, step, card, code)  # what it read: its line, gone later, makes it stale
             if gen != self.step_gen or self.passed:
                 return
             ids = {r.get("checkId") for r in failed if r.get("checkId")}
@@ -3698,6 +3702,10 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
                 await self._status(want)  # (only a real change: a flip can close a card the app is showing, A1)
             return
         self._pending_offtrack = None
+        from . import stale_advice
+
+        if await stale_advice.drop_offtrack(self, step, full):  # its line is gone from VS Code's text: never sent
+            return  # (QA 11-15 02:59:20: the ladder re-sent "delete the python3 nn.py line" after it was deleted)
         if level == 2 and ids and ids <= self._carded_checks:
             log.info("a card already covers %s; no offtrack on top of it", sorted(ids))
             await self._status("watching")
@@ -4318,6 +4326,9 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
             # t5 (a): a lesson's Explain keeps the ONE line _show_where boxed (the fix line / where the code goes on),
             # never the coach's mentioned lines on top of it ("Change this line" x3 beside "Type it here")
             keep = self.lesson_mode and placed and kind == "explain"
+            from . import stale_advice
+
+            await stale_advice.before_answer(self, step)  # VS Code's exact text now; a stale diagnosis leaves its context
             ctx = self._explain_context()
             screen = await self._screen_for_coach(step)
             if screen is not None:
@@ -4336,6 +4347,7 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
                 return  # the learner moved to another step meanwhile: an answer about the old one would mislead
             card = dict(card)
             card["stepId"] = step["id"]
+            card = await stale_advice.answer(self, step, card)  # never "delete line 41" once line 41 is gone (03:00:41)
             if card.get("targets") and not keep:
                 spot = self._target_spot(card["targets"][0])
                 if spot:
@@ -4730,6 +4742,10 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
         diff = (self.last_offtrack or {}).get("diff") or {}
         command = diff.get("command")
         file, yours, expected = diff.get("file"), diff.get("yours"), diff.get("expected")
+        from . import stale_advice
+
+        if await stale_advice.line_fix(self, step, diff):  # a line to delete from the file (02:59:22: the `python3
+            return  # nn.py` typed into nn.py went to the clipboard): the previewed deletion, never "Command copied"
         if command:  # terminal fix: stage it on the clipboard, the learner presses Enter (never sent for them)
             ok = await self._clipboard(command)
             await self._card(step, "Command copied" if ok else "Run this command",
@@ -4913,6 +4929,10 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
             await self._emit_card(editor_text.save_card(step["id"], self._save_file), window_s=2.0)
             await self._status("watching", check=True)
             return
+        from . import stale_advice
+
+        if await stale_advice.check_pressed(self, step):  # the off-track's line is gone from VS Code's text, unsaved:
+            return  # "You fixed it / Save nn.py (⌘S)."; saved: forgotten, the rows below say what's left
         screen, files, exact = self._judge_inputs(step)
         active = None
         if active_job is not None:
@@ -4956,6 +4976,9 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
                 return
             # E1: the judge's passes reached rows the code gate fails (a syntax error / a missing piece, e.g. a
             # requests.get without params): the drawer shows them red, so "Not yet", never step.passed
+
+        if await stale_advice.checks_win(self, step, gen):  # every row green: no "Not yet" contradicting them (Bug C)
+            return
         from . import code_gate
 
         missing = (verdict or {}).get("missing") or ""
@@ -5712,6 +5735,10 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
                 if self.coaching or (ids and ids <= self._offtracked_checks and self.last_offtrack) or (
                         pend is not None and pend["gen"] == gen and ids and ids <= pend["ids"]):
                     return  # the off-track card (up, coming or kept) says "Not yet" better: one card per mistake
+                from . import stale_advice
+
+                if stale_advice.judge_contradicts(self, card):  # Bug C: never a "Not yet" over all-green rows
+                    return
             if await self._emit_card(card, auto=True):
                 if ids:  # E13: and no off-track on top of this "Not yet" for the same checks (until it's closed)
                     self._carded_checks |= ids
@@ -6329,7 +6356,7 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
                     p["detail"] = st["detail"]
                 out.append(("check.updated", p))
             if self.last_offtrack and not self.passed and not held:
-                out.append(("offtrack", self.last_offtrack))
+                out.append(("offtrack", {k: v for k, v in self.last_offtrack.items() if k != "targets"}))  # no stale box on reconnect
         if done:  # a reconnecting app gets the ending again (its End lesson closes the lesson)
             out.append(("card", lesson_end.card(self)))
         out.append(("status", {"state": "watching" if held and self.status == "offtrack" else self.status}))
