@@ -12,6 +12,8 @@
  *   player:dock    snap back to the right 40% (and save that)
  *   player:hover   (on: boolean) focusable while hovered
  *   player:hide    the lesson is gone (the player window's lesson became null): hide the window
+ *   player:setup   (on: boolean) a setup card is waiting (from the overlay, where the cards live): relayed to every
+ *                  window as feat:player:setup, so the player holds the video until setup is done or skipped
  *
  * Hidden again on lesson.ended (except reason "interrupted": an engine deploy that comes back with the same lesson).
  *
@@ -142,6 +144,9 @@ export default defineMainFeature({
     ctx.handle('player:hide', () => {
       if (Date.now() - readyAt > 1500) hide()
     })
+    // A setup card is waiting, or not any more (from the overlay, where the cards live): every window hears it, and the
+    // player holds the video until setup is done or skipped (Michael's desktop test 9).
+    ctx.handle('player:setup', (on) => ctx.broadcast('player:setup', on === true))
     ctx.handle('player:hover', (on) => {
       if (!win.isDestroyed()) win.setFocusable(!!on)
     })

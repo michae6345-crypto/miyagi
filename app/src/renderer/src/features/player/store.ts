@@ -19,14 +19,18 @@
  */
 import { create } from 'zustand'
 import type { VideoSegment } from '../../../../../../shared/contracts/events'
-import { cmd } from '../../../../common/wire'
+import { cmd, type Payload } from '../../../../common/wire'
 import { bridge, isElectron, registerWebHandler } from '../../bridge'
 import { onMessage, onUi } from '../../core/bus'
 import { useLesson } from '../../core/lesson'
+import { useCards } from '../cards/store'
 import { describeYTError, isYouTubeId, loadYouTube, resolveVideoId, YTState, type YTPlayer } from './youtube'
 
-/** Why the video is paused. 'gate' = we stopped at the step's end; 'engine' = video.pause. */
-export type PausedBy = 'gate' | 'engine' | 'user' | 'ended'
+/**
+ * Why the video is paused. 'gate' = we stopped at the step's end; 'engine' = video.pause; 'setup' = a setup card is
+ * waiting (it starts once setup is done or skipped).
+ */
+export type PausedBy = 'gate' | 'engine' | 'user' | 'ended' | 'setup'
 
 type PlayerState = {
   /** The YouTube player exists and answered onReady. */
@@ -510,7 +514,8 @@ onMessage('card', (p) => {
 onMessage('step.started', (p) => {
   clearTimeout(resumeTimer)
   excursion = false
-  setUi({ resuming: false, pausedBy: undefined })
+  // A setup card still waiting: cue the clip and hold it (it starts when setup is done or skipped).
+  setUi({ resuming: false, pausedBy: setupHold ? 'setup' : undefined })
   const seg = p.video ?? useLesson.getState().steps.find((x) => x.id === p.stepId)?.video
   if (!seg) return
   const t = now()
@@ -519,8 +524,8 @@ onMessage('step.started', (p) => {
   const start = clipStart(seg)
   if (sameVideo && t >= start - 1 && t < seg.end - GATE_EPS) {
     want = { ...want, videoId: resolveVideoId(seg.videoId) }
-    setPlay(true)
-  } else go(seg.videoId, start, true)
+    if (!setupHold) setPlay(true)
+  } else go(seg.videoId, start, !setupHold)
 })
 
 onMessage('step.passed', (p) => {
@@ -534,7 +539,7 @@ onMessage('step.passed', (p) => {
     // The next part of a long video is still building: keep the video where it is (if it's still
     // playing it holds at this clip's end). The engine starts the next step after lesson.updated.
     if (p.pending) return
-    if (!s.playing && s.pausedBy !== 'user' && s.pausedBy !== 'ended') player.play()
+    if (!s.playing && s.pausedBy !== 'user' && s.pausedBy !== 'ended' && !setupHold) player.play()
   }, RESUME_DELAY_MS)
 })
 
@@ -543,7 +548,8 @@ onMessage('step.passed', (p) => {
 useLesson.subscribe((s, prev) => {
   if (s.video === prev.video || !s.video.at || !isHost) return // at = 0: lesson.ready / reset blanking it
   const v = s.video
-  if (v.kind === 'pause') player.pause('engine')
+  // video.pause while a setup card waits: still the setup hold (no "Waiting for your checks"; it starts after setup).
+  if (v.kind === 'pause') player.pause(setupHold ? 'setup' : 'engine')
   else if (v.kind === 'play') player.play()
   else player.seek(v.t, v.playing, v.kind === 'seek' ? 'engine' : 'user', true)
 })
@@ -559,11 +565,66 @@ if (isElectron && isHost)
 onUi('reset', () => {
   clearTimeout(resumeTimer)
   excursion = false
+  setupHold = false
   skippedIntro = undefined
   want = { ...want, play: false }
   if (yt && ready) yt.pauseVideo()
   setUi({ ...blank, ready: usePlayer.getState().ready })
 })
+
+// ---------------------------------------------------------------------------
+// Hold during setup (Michael's desktop test 9: the video autoplayed to 0:44 while "Set up first" was waiting)
+// ---------------------------------------------------------------------------
+
+/**
+ * A setup card waiting on the learner ("Set up first": Install / Open VS Code / Skip). The passing note that ends
+ * setup ("matplotlib installed ✓", no buttons) is not one.
+ */
+export const setupWaiting = (c: Payload<'card'> | undefined): boolean => c?.kind === 'setup' && (c.actions?.length ?? 0) > 0
+
+/** The card lands < 1 s after step.started: a hold this early in the clip goes back to its start. */
+const SETUP_REWIND_S = 5
+let setupHold = false
+
+/** on: pause (back to the clip's start if it only just began). off: play, if the setup hold is still why it's paused. */
+function holdForSetup(on: boolean): void {
+  if (on === setupHold) return
+  setupHold = on
+  if (on) {
+    clearTimeout(resumeTimer)
+    const seg = openSegment()
+    const start = seg ? clipStart(seg) : undefined
+    const t = now()
+    const back = start !== undefined && t >= start - 1 && t - start < SETUP_REWIND_S ? start : t
+    setUi({ resuming: false, pausedBy: 'setup' })
+    go(undefined, back, false)
+    return
+  }
+  // Done or skipped. Not if something else paused it meanwhile (the learner, the gate, the end).
+  if (usePlayer.getState().pausedBy === 'setup') player.play()
+}
+
+/**
+ * Where it's decided: the cards' window (the overlay in Electron; the one stage window in the browser), since only
+ * there do Skip, ✕ and the card's own timers close it. The player window hears it through main (player:setup, relayed
+ * to every window). It also follows its own copy of the cards store, which sees every card the engine sends (the
+ * "installed ✓" note that ends setup), in case the relay is missing.
+ */
+const cardsWindow = !isElectron || route === 'overlay' || route === ''
+if (cardsWindow)
+  useCards.subscribe((s, prev) => {
+    const on = setupWaiting(s.card)
+    if (on === setupWaiting(prev.card)) return
+    if (isHost) holdForSetup(on)
+    else bridge.invoke('player:setup', on).catch(() => undefined)
+  })
+if (isElectron && isHost) {
+  bridge.onFeature('player:setup', (on) => holdForSetup(on === true))
+  useCards.subscribe((s, prev) => {
+    const on = setupWaiting(s.card)
+    if (on !== setupWaiting(prev.card)) holdForSetup(on)
+  })
+}
 
 // Browser stage: stand-ins for the main-process handlers (there's no window to move).
 registerWebHandler('player:dock', () => undefined)

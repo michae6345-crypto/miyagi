@@ -152,7 +152,7 @@ function Header(): ReactNode {
 // Video + gate states
 // ---------------------------------------------------------------------------
 
-type Mode = 'loading' | 'error' | 'passed' | 'building' | 'waiting' | 'paused' | undefined
+type Mode = 'loading' | 'error' | 'passed' | 'building' | 'setup' | 'waiting' | 'paused' | undefined
 
 function Video(): ReactNode {
   const host = useRef<HTMLDivElement>(null)
@@ -171,6 +171,8 @@ function Video(): ReactNode {
         ? 'loading'
         : !p.playing && pendingNext
           ? 'building'
+          : !p.playing && p.pausedBy === 'setup'
+          ? 'setup'
           : !p.playing && stepOpen && (p.pausedBy === 'gate' || p.pausedBy === 'engine')
           ? 'waiting'
           : !p.playing && p.pausedBy === 'user'
@@ -186,6 +188,7 @@ function Video(): ReactNode {
         {mode === 'waiting' && <Waiting key="waiting" />}
         {mode === 'passed' && <Passed key="passed" />}
         {mode === 'building' && <BuildingNext key="building" />}
+        {mode === 'setup' && <SetupHold key="setup" />}
         {mode === 'paused' && <PausedGlyph key="paused" />}
         {mode === 'loading' && <Loading key="loading" />}
         {mode === 'error' && <ErrorState key="error" message={p.error!} />}
@@ -278,6 +281,23 @@ function BuildingNext(): ReactNode {
             {parts.done} of {parts.total} parts ready
           </div>
         )}
+      </motion.div>
+    </GlassScrim>
+  )
+}
+
+/** A setup card is waiting ("Set up first"): the video holds at the clip's start and plays once setup is done or skipped. */
+function SetupHold(): ReactNode {
+  return (
+    <GlassScrim>
+      <motion.div className="flex flex-col items-center px-6 text-center" {...rise}>
+        <div className="flex items-center gap-[8px] text-[17px] font-semibold leading-tight">
+          <span className="h-[7px] w-[7px] shrink-0 rounded-full" style={{ background: color.gray }} />
+          Set up first
+        </div>
+        <div className="mt-[8px] text-[13px]" style={{ color: glass.label }}>
+          The video starts when setup is done.
+        </div>
       </motion.div>
     </GlassScrim>
   )
