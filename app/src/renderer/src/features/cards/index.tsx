@@ -27,6 +27,7 @@ import { defineFeature } from '../../core/registry'
 import { usePressed, type ActionKind } from '../../core/shortcuts'
 import { CheckList, CloseButton, CodeText, OptionButton, PrimaryButton, Spinner, StatusDot } from '../../core/ui/atoms'
 import { actionTone, color, copy, fill } from '../../core/theme'
+import { useDrawer } from '../drawer/store'
 import { Curve, fmt, Key, plotPoints, type Line } from './Curve'
 import { BODY_LINES, Clamp, HEADLINE_LINES } from './Clamp'
 import { Evidence } from './Evidence'
@@ -826,11 +827,101 @@ function Where({ text }: { text: string }): ReactNode {
   )
 }
 
+// ---------------------------------------------------------------------------
+// Chip: a step card the drawer already shows (Michael's review A4)
+// ---------------------------------------------------------------------------
+
+/**
+ * Step controls: while a card carries one, the bar's Check and Skip step go quiet (shortcut-bar, audit A17), so the
+ * card holds the step's primary. Such a card never folds to a chip, or nothing on screen would offer it.
+ */
+const OWNS_STEP = new Set<CardAction>(['confirm', 'skip_step', 'check_step'])
+/** The chip's text is cut past this width (the full card is one tap away). */
+const CHIP_TEXT_W = 240
+
+/** A card across re-sends (the engine re-sends the same step card): a chip the learner opened stays open. */
+const cardKey = (c: EngineCard): string => `${c.kind}:${c.stepId ?? ''}:${c.title}`
+
+/** The chip the learner tapped open (its cardKey). */
+const useOpened = create<{ key?: string }>(() => ({}))
+
+/**
+ * "Shrink a card to a chip when the drawer already shows the same content" (A4): a kind "step" card (contract: the
+ * step's own status and controls: Run it, Save calc.py, Not yet…) for the step the open drawer shows (`shownStep`:
+ * the current step while the drawer is open and not on a concept). Not one that holds the step's primary (OWNS_STEP),
+ * and not once tapped open. Every other kind stays a full card.
+ */
+function folds(c: EngineCard | undefined, shownStep: string | undefined, opened: string | undefined): boolean {
+  if (!c || c.kind !== 'step' || !shownStep) return false
+  if (c.stepId && c.stepId !== shownStep) return false
+  if ((c.actions ?? []).some((a) => OWNS_STEP.has(a))) return false
+  return cardKey(c) !== opened
+}
+
+/** Is the card a chip right now? (The island reads it through the card mode's width.) */
+function isChip(): boolean {
+  const d = useDrawer.getState()
+  const l = useLesson.getState()
+  return folds(useCards.getState().card, d.open && !d.concept && l.lesson ? l.stepId : undefined, useOpened.getState().key)
+}
+
+/** isChip() as a hook: re-renders on every input (the card, the drawer, the step, a tap). */
+function useChip(): boolean {
+  const card = useCards((x) => x.card)
+  const drawerOnStep = useDrawer((d) => d.open && !d.concept)
+  const step = useLesson((l) => (l.lesson ? l.stepId : undefined))
+  const opened = useOpened((o) => o.key)
+  return folds(card, drawerOnStep ? step : undefined, opened)
+}
+
+/**
+ * The card folded to a pill-sized row: its kind tile and a short title, ✕ still closes it. A tap on the row opens the
+ * full card (the island springs back out to it).
+ */
+function Chip({ c, k }: { c: EngineCard; k: Tile }): ReactNode {
+  const t = c.title?.trim()
+  const text = t && t.toLowerCase() !== k.label.toLowerCase() ? titleText(t) : c.body
+  return (
+    <div data-card={c.kind} data-chip className="flex h-[34px] items-center gap-[8px] whitespace-nowrap pl-[5px] pr-[6px]">
+      <button
+        type="button"
+        className="flex min-w-0 cursor-pointer items-center gap-[9px] opacity-90 transition-opacity duration-150 hover:opacity-100"
+        style={{ color: color.text }}
+        // Like every other card button: no focus grab on press.
+        onMouseDown={(e) => e.preventDefault()}
+        onClick={() => useOpened.setState({ key: cardKey(c) })}
+        title={c.body}
+      >
+        <KindTile k={k} />
+        <span className="truncate text-[13px] font-medium" style={{ maxWidth: CHIP_TEXT_W }}>
+          <CodeText text={text} />
+        </span>
+      </button>
+      <CloseButton />
+    </div>
+  )
+}
+
 function Card(): ReactNode {
   const c = useCards((x) => x.card)
   const from = useCards((x) => x.cardFrom)
+  const chip = useChip()
   if (!c) return null
   const k = tileOf(c, from)
+  if (chip)
+    return (
+      <Swap id="chip">
+        <Chip c={c} k={k} />
+      </Swap>
+    )
+  return (
+    <Swap id="card">
+      <FullCard c={c} k={k} />
+    </Swap>
+  )
+}
+
+function FullCard({ c, k }: { c: EngineCard; k: Tile }): ReactNode {
   const actions = c.actions ?? []
   // A title that only repeats the kind or the tile ("Hint") is dropped: the body becomes the headline.
   // Long bodies fold to a few lines with a "More" that opens them in place (never cut off for good).
@@ -892,7 +983,19 @@ export default defineFeature({
       Content: Offtrack
     },
     { id: 'success', priority: 60, width: SUCCESS_W, useActive: () => useCards((c) => !!c.success), Content: Success },
-    { id: 'card', priority: 50, width: CARD_W, useActive: () => useCards((c) => !!c.card), Content: Card }
+    {
+      id: 'card',
+      priority: 50,
+      // A chip is pill-sized (no width: 34 tall, hugging its row); read at render time like the off-track card's.
+      get width() {
+        return isChip() ? undefined : CARD_W
+      },
+      useActive: () => {
+        useChip() // subscribes, so the island re-reads the width when the card folds or opens
+        return useCards((c) => !!c.card)
+      },
+      Content: Card
+    }
   ],
   // Renders nothing: it only reports the overlay's width (see WidthProbe).
   overlayLayers: [{ id: 'cards-width', z: 1, Component: WidthProbe }]
