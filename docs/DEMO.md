@@ -37,16 +37,16 @@ day. Section 4 explains what happens underneath. Keep it to yourself.
 | # | You do | On screen | You say |
 |---|---|---|---|
 | 0 | Nothing yet. VS Code is in front. | | "Most coding tutorials leave you copying along and hoping it works. miyagi turns 'teach me X' into a lesson in your own editor. It watches what you write and checks each step." |
-| 1 | ⌥Space, type `teach me to build a neural network from scratch`, Tab to the third chip (or click it), Enter. | The launcher folds into the pill, then the **Before you start** sheet: how it works (inputs → hidden layer → output → backprop → gradient step) and what to know first. | "I'll ask it to teach me a neural network from scratch, in plain NumPy. Before step one, it shows me the plan and what I should know first." |
+| 1 | ⌥Space, type `teach me to build a neural network from scratch`, Tab to the third chip (or click it), Enter. | The launcher folds into the pill, then the **Before you start** sheet: how it works (input → hidden layer 1 → hidden layer 2 → output → backprop → gradient step) and what to know first (NumPy arrays, matrix multiply, derivatives). | "I'll ask it to teach me a neural network from scratch, in plain NumPy. Before step one, it shows me the plan and what I should know first." |
 | 2 | Click **Start the lesson**. | VS Code opens `nn.py`. The drawer on the right shows step 1 of 6, its code, and the network. | "Six steps. It opened the file for me." |
-| 3 | Step 1, Build the network: **Copy** in the drawer, paste under `# The network`. Change the two weight lines to `W1 = np.zeros((2, 4))` and `W2 = np.zeros((4, 1))`. ⌘S. | The panel shows the network firing. The rows go green one by one, then step 2 starts. | "This is what we're building: two inputs, four hidden neurons, one output. It will learn XOR. I'll take a shortcut and start the weights at zero. The shapes are right, so it passes." |
+| 3 | Step 1, Build the network: **Copy** in the drawer, paste under `# The network`. Change the three weight lines to `W1 = np.zeros((1, 4))`, `W2 = np.zeros((4, 4))` and `W3 = np.zeros((4, 1))`. ⌘S. | The panel shows the network firing, x from -3 to 3. The rows go green one by one, then step 2 starts. | "This is what we're building: x goes in, two layers of four neurons, y comes out. It will learn to draw a sine curve. I'll take a shortcut and start the weights at zero. The shapes are right, so it passes." |
 | 4 | Step 2, Backprop: Copy, paste under `# Backprop`, ⌘S. | The panel shows the error flowing back. Green, next step. | "Backprop. The error goes back along the same weights, and every weight gets its share of the blame." |
-| 5 | Step 3, Write the training loop: Copy, paste under `# Training`, ⌘S. | Green, next step. | "The training loop: forward, backward, then move every weight a little downhill, five thousand times." |
-| 6 | Step 4, Train it: press **Run it for me** once and wait. | The run card shows `loss 0.2500` on every line. The panel shows four identical neurons. Then the **Not yet · Loss is stuck at 0.25** card takes the run card's place. | "Every check passed, but the loss never moved. All four hidden neurons are the same neuron." |
-| 7 | Press **Hint** on the card (or ⌃⌥H). | **Hint 1 of 2:** "Look at how W1 and W2 start…" | "I'll ask for a hint, not the answer. Look at how the weights start. They're all zero, so every neuron gets the same update." |
-| 8 | Change the two lines back to `np.random.randn(2, 4) * 0.5` and `np.random.randn(4, 1) * 0.5`. ⌘S. Press **Check my work** (in the bar or the drawer). The Run it for me button is gone at this point, which is expected. | The loss goes from 0.2691 to 0.0009. The row goes green. The panel shows the network training, its weights moving as the loss falls. | "Random starts break the tie. Now it learns." |
+| 5 | Step 3, Write the training loop: Copy, paste under `# Training`, ⌘S. | Green, next step. | "The training loop: forward, backward, then move every weight a little downhill, twenty thousand times." |
+| 6 | Step 4, Train it: press **Run it for me** once and wait. | The run card shows `loss 0.4900` on every line. The panel shows all eight hidden neurons identical, every one at 0. Then the **Not yet · Loss is stuck at 0.49** card takes the run card's place. | "Every check passed, but the loss never moved. All eight hidden neurons are the same neuron, so it answers zero for every x." |
+| 7 | Press **Hint** on the card (or ⌃⌥H). | **Hint 1 of 2:** "Look at how W1, W2 and W3 start…" | "I'll ask for a hint, not the answer. Look at how the weights start. They're all zero, so every neuron outputs zero and gets the same update." |
+| 8 | Change the three lines back to `np.random.randn(1, 4)`, `np.random.randn(4, 4)` and `np.random.randn(4, 1) * 0.1`. ⌘S. Press **Check my work** (in the bar or the drawer). The Run it for me button is gone at this point, which is expected. | The loss goes from 0.8187 to 0.0009 by epoch 18000. The row goes green. The panel shows the network training, its weights moving as the loss falls. | "Random starts break the tie. Now it learns." |
 | 9 | Step 5, Test it: Copy, paste under `# Test it`, ⌘S. | Green, next step. | "Last piece: print its answers and the weights it learned." |
-| 10 | Step 6, See what it learned: press **Run it for me**. | "Ran python3 nn.py · It ran without errors", with `[0 1 1 0]` and the weights. The drawer says **All 6 steps done**. The panel shows the network answering 00, 01, 10, 11. | "Zero, one, one, zero. That's XOR. From nothing to a working neural net, every step checked." |
+| 10 | Step 6, See what it learned: press **Run it for me**. | "Ran python3 nn.py · It ran without errors", with `[-1.0, 0.0, 1.0]` (its answers for x = -π/2, 0, π/2) and then W1 to b3. The drawer says **All 6 steps done**. The panel shows the network answering x from -3 to 3, drawn from the weights it printed. | "Minus one, zero, one. That's sine at minus pi over two, zero and pi over two. From nothing to a network that draws a sine wave, every step checked." |
 | 11 | Close. | | "Type any topic and it builds the lesson the same way. It can also play a YouTube tutorial and pause it until your code catches up. That's miyagi." |
 
 The launcher chip reads "Demo" and its button reads "Start demo". Don't read them aloud. Get past the launcher
@@ -58,7 +58,7 @@ quickly while you talk.
 |---|---|
 | ⌘S and the rows don't go green | Press **Check my work**. If nothing happens, press ⌃⌥⌘→. A second ⌘S right after a pass never skips a step. |
 | The paste landed in the wrong place, or the indentation is off | Keep going. The step still passes. |
-| Train it learned on the first run (no "Not yet") | The weight lines weren't zeros when you pressed Run it for me. Skip the stuck beat and say "Random starts, so it learns right away." If you forgot the zeros at step 1, change the lines at step 4, before the first Run it for me. |
+| Train it learned on the first run (no "Not yet") | All three weight lines (W1, W2, W3) were random when you pressed Run it for me. Skip the stuck beat and say "Random starts, so it learns right away." If you forgot the zeros at step 1, change the lines at step 4, before the first Run it for me. |
 | Short on time at step 4 | ⌃⌥⌘→ passes Train it on the run that learns, with no "Not yet". |
 | No Run it for me button after "Not yet" | That's expected. **Check my work** runs it again, and the second run always learns. |
 | You went one step too far | ⌃⌥⌘← goes back one step. |
@@ -81,8 +81,8 @@ first 2.5 s), Check my work, or ⌃⌥⌘→. It doesn't matter what the file ho
 step passes the normal way. A run step never runs anything. Run it for me, Check my work, Do it for me, or a
 `python3 nn.py` typed in VS Code's terminal all show a recorded run of the lesson's own code
 (`demo/cache/stage/nn-runs.json`, real NumPy output from `scripts/make_stage_runs.py`). Its loss lines feed the
-live curve and the panel. There is one planned "Not yet". On Train it, the first run is the stuck one if `W1` or
-`W2` in `nn.py` isn't started with something random. The engine reads the editor's text through the companion,
+live curve and the panel. There is one planned "Not yet". On Train it, the first run is the stuck one (loss 0.4900 on
+every line) if `W1`, `W2` or `W3` in `nn.py` isn't started with something random. The engine reads the editor's text through the companion,
 unsaved edits included, and falls back to the saved file. The card comes from `demo/cache/coach/nn4.json` and the
 hints from `demo/cache/cards/nn4-stuck-hint*.json`. Any later run learns. A Demo lesson does no grading, screen
 reading, setup card, idle nudges or coach calls, so NumPy doesn't need to be installed. Watch a video and Just
@@ -103,7 +103,7 @@ teach me are untouched and real.
 
 | Variable | Default | What it does |
 |---|---|---|
-| `MIYAGI_STAGE_STUCK` | `zeros` | `zeros`: the first Train it run is stuck only if W1 or W2 isn't random. `always`: the first run is stuck whatever the file says. `never`: no stuck run. |
+| `MIYAGI_STAGE_STUCK` | `zeros` | `zeros`: the first Train it run is stuck only if W1, W2 or W3 isn't random. `always`: the first run is stuck whatever the file says. `never`: no stuck run. |
 | `MIYAGI_STAGE` | off | `1`: every lesson is a Demo lesson (Just teach me, a video search, a pasted link). With this you can pick Just teach me so the button reads "Teach me" and the word Demo never shows, but real Video and Just teach me lessons are gone until you restart the engine without it. |
 | `MIYAGI_STAGE_DWELL_S` | `2.5` | A save in a step's first N seconds doesn't count. |
 | `MIYAGI_STAGE_GRADE_S` | `1.0` | Time spent "checking" before the first row goes green. |

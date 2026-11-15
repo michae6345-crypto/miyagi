@@ -10,9 +10,9 @@ diagrams, unchanged), staged so nothing on stage can break:
   - A run step never runs anything: Run it for me (and Check my work, Do it for me, a `python3 nn.py` typed in VS
     Code's terminal) shows a recorded run of the lesson's own code (demo/cache/stage/nn-runs.json, made by
     scripts/make_stage_runs.py: real NumPy output). Its loss lines feed the app's live curve and the network panel.
-  - One planned "Not yet": on Train it, the FIRST run is the stuck one (loss 0.2500 on every line, four identical
-    neurons in the panel, the off-track card from demo/cache/coach/nn4.json, the stuck hint ladder) when nn.py starts
-    W1 or W2 without random numbers (the zeros shortcut in step 1). Any later run learns. MIYAGI_STAGE_STUCK=always
+  - One planned "Not yet": on Train it, the FIRST run is the stuck one (the loss at curated.STUCK_LOSS on every line,
+    identical hidden neurons in the panel, the off-track card from demo/cache/coach/nn4.json, the stuck hint ladder)
+    when nn.py starts any W<k> without random numbers (the zeros shortcut in step 1). Any later run learns. MIYAGI_STAGE_STUCK=always
     makes the first run stuck whatever the file says; never: no stuck run.
   - No grading, judging, screen reading, setup card, idle nudges or coach calls: evaluate() and tick() stand back.
 
@@ -195,7 +195,7 @@ async def _pass(session: Any, step: dict, gen: int, lines: list[str] | None = No
 async def _stuck(session: Any, step: dict, lines: list[str]) -> None:
     """The planned "Not yet": the training check fails on the run's flat loss, and the coach's card says why."""
     sid, gen = step.get("id"), session.step_gen
-    await asyncio.sleep(STUCK_S)  # the run's output and the four identical neurons first, then the verdict
+    await asyncio.sleep(STUCK_S)  # the run's output and the identical neurons first, then the verdict
     if gen != session.step_gen or session.passed or sid in _st(session)["good"]:
         return  # moved on, or the presenter's next is passing it
     losses = curated.parse_output(lines)["losses"]
@@ -212,7 +212,7 @@ async def _stuck(session: Any, step: dict, lines: list[str]) -> None:
         card = json.loads(COACH_FILE.read_text(encoding="utf-8"))
     except (OSError, ValueError):
         card = {"severity": "fail", "title": f"Loss is stuck at {v:.2f}",
-                "body": "All four hidden neurons start the same, so they stay copies. Start W1 and W2 random.",
+                "body": "Every hidden neuron starts the same, so they stay copies. Start the weights random.",
                 "actions": ["explain", "hint", "show_me"]}
     card["stepId"] = sid
     session.gate_open = session.screen_gate_open = True
@@ -296,7 +296,7 @@ async def _run(session: Any, step: dict, gen: int, sid: str, st: dict, typed: bo
     if not typed:
         await session._card(step, f"Ran {cmd.splitlines()[0][:60]}", "It ran without errors.", kind="answer",
                             output="\n".join(lines[-8:]) or "(no output)")
-    curated.after_evaluate(session, step, "run_end")  # the panel: four identical neurons, or their run
+    curated.after_evaluate(session, step, "run_end")  # the panel: identical neurons, or their run
     if stuck:
         await _stuck(session, step, lines)
     else:
