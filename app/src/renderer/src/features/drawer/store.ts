@@ -45,6 +45,10 @@ useDiagram.subscribe((s, prev) => {
   if (prev.live && prev.live.step === s.live.step) return
   useDrawer.setState({ open: true, concept: undefined })
 })
+// The learner asked for the diagram while the step has a live network: show the drawer (its panel unfolds itself).
+useDiagram.subscribe((s, prev) => {
+  if (s.liveFocus && s.liveFocus !== prev.liveFocus) useDrawer.setState({ open: true, concept: undefined })
+})
 
 /** http(s) links only; anything else (file:, javascript:, a bare path) is ignored. */
 export function isWebLink(url: string): boolean {

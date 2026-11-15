@@ -149,9 +149,28 @@ export function cardAct(kind: CardAction, text?: string): void {
   }, PENDING_MS)
 }
 
+/**
+ * A card that's done waits this long before it goes (Michael's review A1): a card that arrives meanwhile takes its place
+ * in the open island, so close-then-card in quick succession never flashes the island down to nothing. The pressed
+ * button keeps its spinner until then.
+ */
+const CLOSE_DELAY_MS = 100
+let closeTimer: ReturnType<typeof setTimeout> | undefined
+
 function closeCard(): void {
   clearTimeout(pendingTimer)
-  set({ card: undefined, pending: undefined })
+  if (closeTimer) return // already on its way out
+  const closing = get().card
+  closeTimer = setTimeout(() => {
+    closeTimer = undefined
+    // Whatever replaced or cleared it meanwhile (a new card, ✕, a reset) has already decided.
+    if (get().card === closing) set({ card: undefined, pending: undefined })
+  }, CLOSE_DELAY_MS)
+}
+/** Anything that sets or clears the card itself drops a close still on its way. */
+function cancelClose(): void {
+  clearTimeout(closeTimer)
+  closeTimer = undefined
 }
 
 function setInstall(tool: string, patch: Partial<Install>): void {
@@ -200,6 +219,7 @@ function closeTop(): void {
   if (closingOfftrack) dismissed = sig(offtrack)
   const back = s.resume && !!offtrack
   clearTimeout(pendingTimer)
+  cancelClose()
   set({ card: undefined, success: undefined, resume: false, offtrackOpen: back, pending: undefined, ...(closingOfftrack ? { offtrackClosed: true } : {}) })
 }
 const over = (): boolean => get().offtrackOpen || get().resume
@@ -207,6 +227,7 @@ const over = (): boolean => get().offtrackOpen || get().resume
 onUi('reset', (p) => {
   clearTimeout(successTimer)
   clearTimeout(pendingTimer)
+  cancelClose()
   dropHeldOfftrack()
   dismissed = undefined
   // scope "lesson" (lesson.ended): a new search may be in flight, so keep what the finder said about its results.
@@ -227,6 +248,7 @@ onMessage('lesson.ready', () => {
   dropHeldOfftrack()
   dismissed = undefined
   clearTimeout(pendingTimer)
+  cancelClose()
   // Keep what the finder said about the results: a preflight card may still be up for the next pick.
   set({ ...blank, results: get().results })
 })
@@ -277,6 +299,7 @@ function openOfftrack(p: Payload<'offtrack'>): void {
     return
   }
   dismissed = undefined
+  cancelClose()
   set({ offtrackOpen: true, offtrackClosed: false, fixing: false, recovered: true, resume: false, offtrackSeq: ++seq, card: undefined, pending: undefined, success: undefined })
 }
 /**
@@ -312,6 +335,7 @@ onMessage('card', (p) => {
   const ok = new Set((p.setup?.items ?? []).filter((x) => x.ok).map((x) => x.tool))
   if (ok.size) set({ installs: Object.fromEntries(Object.entries(get().installs).filter(([t]) => !ok.has(t))) })
   clearTimeout(pendingTimer)
+  cancelClose() // it takes the closing card's place
   const cardFrom = lastPress && Date.now() - lastPress.at < ASKED_WITHIN_MS ? lastPress.kind : undefined
   lastPress = undefined
   set({ card: p, cardFrom, pending: undefined, resume: over(), offtrackOpen: false, ...(p.diff ? { fixing: false } : {}) })
@@ -320,7 +344,10 @@ onMessage('card', (p) => {
     lastAsk = 0
   }
 })
-onMessage('diagram', () => set({ card: undefined, pending: undefined, resume: over(), offtrackOpen: false }))
+onMessage('diagram', () => {
+  cancelClose()
+  set({ card: undefined, pending: undefined, resume: over(), offtrackOpen: false })
+})
 onMessage('step.passed', (p) => {
   const { recovered, offtrackSeq } = get()
   set({ offtrackOpen: false, fixing: false, resume: false })
