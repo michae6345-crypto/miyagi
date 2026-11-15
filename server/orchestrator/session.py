@@ -43,6 +43,7 @@ from .modules import Modules
 from .captions import short_caption
 from . import spot_lines  # t5: which editor line a lesson box goes on
 from . import typo_card  # Nov 15: terminal-command typos on run steps, no model call
+from . import start_hold  # t6: the Before-you-start hold gates checks only; the step's line on screen
 from .lesson_boxes import LessonBoxes
 
 log = logging.getLogger("orchestrator.session")
@@ -405,12 +406,12 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
             return  # "Just teach me": there is no player
         if type_ == "spotlight" and (payload or {}).get("clear"):
             self.spot_rect, self._spot_caption = None, None  # the next target box goes out again
-        elif type_ == "spotlight" and (self.awaiting_resume or self.awaiting_start):
-            # E7: no box (or dim / code popup) behind the "Continue?" card or the "Before you start" sheet; the same
-            # box goes out again once the lesson runs (spot_rect forgotten, so it isn't taken as already shown)
+        elif type_ == "spotlight" and self.awaiting_resume:
+            # E7: no box (or dim / code popup) behind the "Continue?" card; the same box goes out again once the lesson
+            # runs (spot_rect forgotten, so it isn't taken as already shown). t6: under "Before you start" it does go
+            # out (start_hold.py: the hold gates checks / judge / coaching, not where to type)
             self.spot_rect, self._spot_caption = None, None
-            log.info("no box while %s: %r", "Continue? is up" if self.awaiting_resume else "the lesson waits for Start",
-                     (payload or {}).get("caption"))
+            log.info("no box while Continue? is up: %r", (payload or {}).get("caption"))
             return
         ep = _EPOCH.get()
         if ep is not None and ep != self.lesson_epoch and type_ not in ALWAYS_SENT:
@@ -2349,6 +2350,7 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
             self.workspace.goto_target(self.workdir, step, missing="end" if self.lesson_mode else "first")
             if self.lesson_mode:  # L2: that jump needs VS Code in front; the extension shows the step's file anyway
                 self._spawn(self._show_step_file(step), timer=True)
+                self._spawn(start_hold.reveal_step_line(self, step), timer=True)  # t6: and its line on screen
         await self._status("watching")
         await self.evaluate("start")
         if seg is not None and not self.passed and self.step is step:
@@ -2380,7 +2382,7 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
                                    "actions": ["run_command"]})
         await curated.on_step_started(self, step)  # curated lesson: the step's network in the right-hand panel
         await self._maybe_pass_setup_step()
-        if self.lesson_mode and not self.passed and self.step is step and not held:  # held: the box comes on Start
+        if self.lesson_mode and not self.passed and self.step is step:  # t6: held too (the hold gates checks only)
             self._spawn(self._lesson_spot(self.step_gen, step), timer=True)
             if self._run_command(step):  # the terminal panel open, the window beside the drawer
                 self._spawn(self._ready_run_step(self.step_gen, step), timer=True)
@@ -3143,16 +3145,20 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
     _no_client_since: float | None = None
     SCREEN_NO_CLIENT_S = 3.0  # no app this long: the reader pauses (a reconnect blip doesn't)
     START_ACTIONS = frozenset({"start", "open_editor", "show_me", "hint", "check_step", "skip_step", "run_command",
-                               "apply_fix", "confirm", "back", "use_this_folder", "undo"})  # they begin a held step
+                               "apply_fix", "confirm", "back", "use_this_folder", "undo",
+                               # t6: Install on the setup card left step 1 held; any learner press begins it
+                               "install", "skip_setup", "explain", "diagram", "ask", "download", "open_in_browser",
+                               "retry"})  # they begin a held step
     WORK_TERMINALS = ("terminal", "iterm", "warp")
 
     @property
     def awaiting_start(self) -> bool:
         """A "Just teach me" lesson whose "Before you start" sheet is up (the app opens it on every lesson.ready of a
         lesson with build / flow / prerequisites / learnFirst, and keeps it only when the first step.started is step 1):
-        VS Code opens under it as before, but no checks, judge, scene look, box, idle ladder, stuck card or off-track
+        VS Code opens under it as before, but no checks, judge, scene look, idle ladder, stuck card or off-track
         until the learner presses / types in the lesson's editor (the overlay can't take focus, so "Start the lesson"
-        is a click with VS Code in front), edits the step file, presses a step control, or sends action start (E4)."""
+        is a click with VS Code in front: start_hold.front_input), edits the step file, presses any control, or sends
+        action start (E4). t6: the step's type box does go up under it (start_hold.py)."""
         return self._start_hold is not None and self._start_hold == self.lesson_epoch and self.graph is not None
 
     def _hold_for_sheet(self, lesson: dict | None) -> None:
@@ -3192,6 +3198,8 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
         v = self._work_since("input")
         if v is not None and v < self.clock() - self._hold_t and self._front_now():  # front app known: not a guess
             await self._begin("a key / click in the lesson's editor")
+        elif await start_hold.front_input(self):  # t6: "Start the lesson" is a click on the overlay, VS Code in front
+            await self._begin("a key / click with the lesson's VS Code window in front")
 
     async def _begin(self, why: str) -> None:
         """The held step begins: checks run, the spotlight goes up, and the grace / idle / stuck clocks start now (E4).
@@ -3260,11 +3268,14 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
 
     async def on_front_switch(self, app: str) -> None:
         """main.py's E6 frontmost watcher: the keys before the switch went to the old app, the next ones to this one
-        (E5); then the box follows the switch (on_frontmost), except behind "Continue?" or "Before you start" (E7)."""
+        (E5); then the box follows the switch (on_frontmost), except behind "Continue?" (E7; t6: under "Before you
+        start" too, where the type box is up and VS Code coming to the front can start the step: start_hold.py)."""
         self._attribute_input()
-        if self.awaiting_resume or self.awaiting_start:
+        if self.awaiting_start:
+            start_hold.note_front(self, app)  # t6: VS Code in front + a key / click starts the held step (tick)
+        if self.awaiting_resume:
             return
-        await self.on_frontmost(app)
+        await self.on_frontmost(app)  # t6: under "Before you start" too: the type box is up there
 
     def _input_was_miyagi(self) -> None:
         """The learner submitted text typed into Miyagi (an ask / explain): those keys weren't lesson work (E5)."""
@@ -4112,6 +4123,7 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
             self.workspace.goto_target(self.workdir, step, missing="end" if self.lesson_mode else "first")
             if self.lesson_mode:  # Continue: back to the step's file
                 self._spawn(self._show_step_file(step, explicit=True), timer=True)
+                self._spawn(start_hold.reveal_step_line(self, step, again=True), timer=True)  # t6: its line on screen
         # the checks are re-graded by the next frame / save (the reader runs again), not replayed as they were
         await self._status("offtrack" if self.last_offtrack and not self.passed and not self.awaiting_start
                            else "watching")
