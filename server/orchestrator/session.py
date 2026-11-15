@@ -47,6 +47,7 @@ from . import spot_lines  # t5: which editor line a lesson box goes on
 from . import typo_card  # Nov 15: terminal-command typos on run steps, no model call
 from . import ui_targets  # t6: VS Code's real controls (AX) boxed: Terminal, save, open the file, ...
 from . import start_hold  # t6: the Before-you-start hold gates checks only; the step's line on screen
+from . import nb_coach  # t12: a notebook step's code already in the notebook gets no box
 from . import box_follow  # t7: the type box waits for the step start's jump, then follows every scroll
 from .lesson_boxes import LessonBoxes
 from . import quiet_save  # Nov 15: no ⌘S chores, ~1 s freshness, one "You already did" card instead of a cascade
@@ -1352,6 +1353,8 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
         self.pending_patch, self.undo, self.build_progress = None, None, None
         self.pending_pick = None
         self._deferred_installs, self._setup_card = [], None
+        if had_lesson and callable(getattr(self.workspace, "restore_layout", None)):
+            self.workspace.restore_layout()  # t12: VS Code back to its frame from before the lesson (End / stop)
         self.editor_open = False
         self.awaiting_resume = False
         self.waiting_more = False
@@ -2725,6 +2728,9 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
             self._step_wall_t0 = time.time()  # after creating it: only the learner's saves count
             self._term_at_start = tuple(self._vscode_terminal_lines())
         started = self._step_started_payload(step)
+        if carry is not None and started.get("video"):  # t12: the app's player jumps to video.start unless it's already
+            v = started["video"]  # past it (2:51 -> 4:12, 4:36 -> 7:18): the clip it plays on from starts where it is
+            started["video"] = {**v, "start": min(v["start"], max(0.0, float(int(carry)) - 1.0))}
         await self.emit("step.started", started)
         self._say("step.started", started)
         self._maybe_extend()  # E2 lazy parts: nearing the last built step -> build the next part now
@@ -2839,12 +2845,14 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
         prev, at = self.step, self._play_at
         if prev is None or at is None or self.segment_done or not (0 <= idx < len(self.steps)):
             return None
+        if prev.get("id") in getattr(self, "skipped_steps", ()):  # Skip: on to the next clip (app: step.passed skipped)
+            return None
         a, b = self._segment(prev), self._segment(self.steps[idx])
         if not a or not b or self.steps[idx] is prev or a["videoId"] != b["videoId"]:
             return None
         now = at[0] + max(0.0, self.clock() - at[1])
-        if not (a["start"] - 1 <= now < b["start"]) or abs(b["start"] - a["end"]) > 2.0:
-            return None  # not in that clip any more, or the next segment doesn't start where it ends
+        if not (a["start"] - 1 <= now < b["end"] - 1) or abs(b["start"] - a["end"]) > 2.0:
+            return None  # not in that clip or the next one, or the next segment doesn't start where it ends
         return now
 
     async def _segment_timer(self, gen: int, duration: float) -> None:
@@ -2891,6 +2899,8 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
             return False  # E7: paused / E9: the code is typed (partly): _lesson_spot boxes where it goes on
         if self.lesson_mode and self._insert_plan(step) is not None:
             return False  # t5 (d): the file says where new code goes (_insert_spot), not a fuzzy OCR hit of the anchor
+        if owner == "step" and not self.lesson_mode and nb_coach.code_typed(self, step):
+            return False  # t12: a notebook step's code is in the notebook: no box + code popup over what they typed
         if tlist and self.spot_track is None and self._spot_rank_ok(owner):  # E8: never under a higher box
             t = tlist[0]
             self.spot_track = (t["match"], "Code" if self.lesson_mode else t.get("app"), t.get("caption", ""))
@@ -3273,6 +3283,12 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
                 if own and self._code_progress(self.step) is not None:
                     self.spot_track = None  # E9: "where to start typing" is done once the code is there
                     return
+            elif own and nb_coach.code_typed(self, self.step):  # t12: the same for a notebook step's code
+                self.spot_track = None
+                if self.spot_rect is not None and self._spot_rank_ok("step"):
+                    self.spot_rect, self._spot_caption, self._spot_t = None, None, self.clock()
+                    await self.emit("spotlight", {"clear": True})
+                return
             owner = "step" if own else (self._spot_held_by() or "step")
         spot = self._locate(match, app, caption)
         if spot and (self._chrome_hit(spot) or (self.lesson_mode and self._long_hit(spot, match))):

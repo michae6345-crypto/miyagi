@@ -237,7 +237,8 @@ def test_coding_long_video_card():
     assert card["actions"] == ["build", "pick_another", "install"]  # torch missing
     # t10: the app draws the meta row and "Needs … · N to install" from card.preflight / card.items, not the body
     assert "Coding ·" not in card["body"] and "1:56:20" not in card["body"] and "Needs" not in card["body"]
-    assert card["preflight"]["style"] == "coding" and card["preflight"]["durationS"] == 6980 and card["preflight"]["chapters"] == 7
+    # t12: the card carries the length in whole minutes (1:56:20 -> 6960 s, "1 h 56 min" in the app)
+    assert card["preflight"]["style"] == "coding" and card["preflight"]["durationS"] == 6960 and card["preflight"]["chapters"] == 7
     assert [(it["label"], it["ok"]) for it in card["items"] if it["needed"]] == [
         ("Visual Studio Code", True), ("Python 3", True), ("PyTorch", False)]
     assert needs_line(res["requirements"]) == "Needs: Visual Studio Code ✓ Python 3 ✓ PyTorch (to install in the lesson's .venv)"

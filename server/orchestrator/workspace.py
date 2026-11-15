@@ -597,6 +597,19 @@ class Workspace:
         if argv:
             self.run(argv)
 
+    def restore_layout(self) -> bool:
+        """t12 (test 12: VS Code stayed narrowed after End lesson): the lesson ended or stopped, so the windows Miyagi
+        arranged for it go back to their frames from before (server.workspace.editor.restore_frames). Real windows
+        only (tests inject a runner); AX blocks, so a thread. -> whether a restore was started."""
+        if self.run != self._spawn:
+            return False
+        ws = _s2()
+        restore = getattr(getattr(ws, "editor", None), "restore_frames", None)
+        if restore is None:
+            return False
+        threading.Thread(target=restore, daemon=True, name="miyagi-restore-windows").start()
+        return True
+
     def goto_target(self, workdir: str, step: dict, explicit: bool = False, missing: str = "first") -> None:
         loc = target_location(workdir, step, missing=missing)
         if loc is None:

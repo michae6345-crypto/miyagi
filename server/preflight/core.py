@@ -909,11 +909,17 @@ def _sentence(text: str) -> str:
     return text if not text or text[-1] in ".!?…" else text + "."
 
 
+def _whole_minutes(secs: Any) -> Any:
+    """t12: the card's length as the app shows it ("N min", rounded): whole minutes, rounded down, so an 8:40 video
+    reads "8 min" beside the result's 8:40 (it read "9 min"). Under a minute (or unknown): as it is."""
+    return 60 * (int(secs) // 60) if isinstance(secs, (int, float)) and secs >= 60 else secs
+
+
 def preflight_card(res: dict) -> dict:
     """card {kind: "preflight"}: what the video is, how well it fits the goal, what it needs.
     actions: build / pick_another, plus install when a needed tool is missing (S2's install flow).
     Desktop test 10: the body no longer carries the "Coding · 8:40 · 7 chapters · CC" line or the "Needs: …" line; the
-    app draws both from card.preflight and card.items ("Coding · 9 min · 7 chapters · Captions", "Needs … · 4 to
+    app draws both from card.preflight and card.items ("Coding · 8 min · 7 chapters · Captions", "Needs … · 4 to
     install"), so the card said everything twice."""
     channel, topic = " ".join((res.get("channel") or "").split()), " ".join((res.get("topic") or "").split())
     # V5: a topic that opens with the channel's last word takes the channel as its subject ("Kie Codes codes and
@@ -923,11 +929,9 @@ def preflight_card(res: dict) -> dict:
     lines = [_sentence(topic)]
     gm = res.get("goalMatch")
     warning = None
-    if gm and gm.get("score") is not None and gm["score"] < LOW_MATCH:
-        warning = gm.get("note") or "This video may not teach your goal."
-        lines.append("⚠ " + _sentence(warning))
-    elif gm and gm.get("note"):
-        lines.append(_sentence(gm["note"]))
+    if gm and gm.get("score") is not None and gm["score"] < LOW_MATCH:  # t12: the fit note only on a poor match
+        warning = gm.get("note") or "This video may not teach your goal."  # (a good one's said "though only a basic
+        lines.append("⚠ " + _sentence(warning))  # digit classifier on one dataset" under a 0.9 match)
     plan = res.get("buildPlan") or {}
     est = plan.get("estSecondsToFirstSteps")
     if plan.get("cached"):
@@ -964,7 +968,7 @@ def preflight_card(res: dict) -> dict:
         "actions": actions,
         "preflight": {
             "videoId": res.get("videoId"), "url": res.get("url"), "style": res.get("style"), "styleFrom": res.get("styleFrom"), "topic": res.get("topic"),
-            "durationS": res.get("durationS"), "chapters": len(res.get("chapters") or []),
+            "durationS": _whole_minutes(res.get("durationS")), "chapters": len(res.get("chapters") or []),
             "goalMatch": gm, "buildPlan": plan, "editorNeeded": res.get("editorNeeded"), "partial": res.get("partial", False),
         },
     }

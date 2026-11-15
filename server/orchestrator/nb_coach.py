@@ -216,6 +216,41 @@ def waits_on_run(step: dict, row: dict) -> bool:
     return _is_output_check(c, c)
 
 
+_TYPED: dict[tuple, bool] = {}  # (notebook, mtime, step id) -> code_typed's notebook read (the box follows every frame)
+
+
+def code_typed(session: Any, step: dict | None) -> bool:
+    """t12 (test 12, s3): is a notebook step's code already in the learner's notebook? Its code checks all pass, or
+    its first code line (spacing ignored) is in a cell. Then a video lesson's box + code popup on that line only covers
+    what they typed (it went up on the plt.subplots line while the cell ran, dimming VS Code over its digits)."""
+    if step is None or not getattr(session, "notebook_lesson", False):
+        return False
+    try:
+        if not session._notebook_cell(step):
+            return False  # a shell step (pip install, jupyter): its box is on the terminal
+    except Exception:  # noqa: BLE001
+        return False
+    by_id = _checks_by_id(step)
+    rows = [r for r in getattr(session, "last_results", None) or [] if r.get("checkId") in by_id
+            and not str(r.get("checkId")).endswith("-ran") and not _is_output_check(by_id[r["checkId"]], r)]
+    if rows and all(r.get("status") == "pass" for r in rows):
+        return True
+    first = next((ln for ln in (step.get("code") or "").splitlines() if ln.strip() and not ln.strip().startswith("#")), "")
+    head = re.sub(r"\s+", "", first)
+    p = notebook_path(session, step)
+    if not head or p is None:
+        return False
+    try:
+        key = (str(p), p.stat().st_mtime_ns, step.get("id"))
+    except OSError:
+        return False
+    if key not in _TYPED:
+        if len(_TYPED) > 64:
+            _TYPED.clear()
+        _TYPED[key] = any(head in re.sub(r"\s+", "", c.get("source") or "") for c in cells(p) if c.get("type") == "code")
+    return _TYPED[key]
+
+
 def last_metric(cs: list[dict], name: str = "accuracy") -> str | None:
     """The last `accuracy: 0.9861` the cells printed (ANSI stripped), or None."""
     vals = re.findall(rf"\b{re.escape(name)}\s*[:=]\s*([0-9]*\.?[0-9]+)", "\n".join(c.get("out") or "" for c in cs))

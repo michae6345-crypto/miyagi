@@ -276,6 +276,64 @@ class AX:
         return ok1 and ok2
 
 
+# t12 (test 12: VS Code stayed narrowed after End lesson, ~40% of the screen empty): each window Miyagi arranged, as
+# [window, its frame before Miyagi's first arrange, the frames Miyagi set (asked, then read back)]
+_arranged: list[list] = []
+_arranged_lock = threading.Lock()
+RESTORE_SLACK = 4.0  # pt: a window this close to the frame Miyagi set is still where Miyagi put it
+
+
+def _set_frame(ax, win, x: float, y: float, w: float, h: float) -> bool:
+    """ax.set_frame, remembering the window's frame before Miyagi first arranged it (restore_frames puts it back)."""
+    read = getattr(ax, "frame", None)
+    try:
+        before = read(win) if read else None
+    except Exception:  # noqa: BLE001 - remembering is a refinement: the arrange itself goes on
+        before = None
+    ok = ax.set_frame(win, x, y, w, h)
+    if before is None or not ok:
+        return ok
+    try:
+        now = read(win)
+    except Exception:  # noqa: BLE001
+        now = None
+    with _arranged_lock:
+        e = next((e for e in _arranged if e[0] is win or e[0] == win), None)
+        if e is None:
+            _arranged.append([win, before, [(x, y, w, h)] + ([now] if now else [])])
+        else:
+            e[2] = [(x, y, w, h)] + ([now] if now else [])  # a later arrange (the drawer's room): its first frame stays
+    return ok
+
+
+def restore_frames(ax=None) -> list[tuple]:
+    """t12: lesson end / stop puts each window Miyagi arranged back to its frame from before the lesson, unless the
+    learner moved or resized it since (then it's theirs, left as it is). Best effort, never raises; blocking (AX):
+    call it in a thread. -> the frames restored."""
+    with _arranged_lock:
+        saved = list(_arranged)
+        _arranged.clear()
+    if not saved:
+        return []
+    done: list[tuple] = []
+    try:
+        ax = ax or AX()
+        for win, before, set_to in saved:
+            now = ax.frame(win)
+            if now is None:
+                continue  # closed since
+            if not any(all(abs(a - b) <= RESTORE_SLACK for a, b in zip(now, f)) for f in set_to):
+                log.info("window restore: moved or resized since Miyagi arranged it; left as it is")
+                continue
+            if ax.set_frame(win, *before):
+                done.append(tuple(before))
+        if done:
+            log.info("window restore: %d window(s) back to their frame from before the lesson", len(done))
+    except Exception as e:  # noqa: BLE001 - tidying windows must never break ending the lesson
+        log.debug("window restore failed: %r", e)
+    return done
+
+
 def make_fullscreen(editor: dict, report: dict, *, folder: str | None = None, ax=None, wait_s: float = 20.0,
                     sleep=time.sleep) -> None:
     """With Accessibility: fill the screen with the editor's window. Default: maximized to the main screen's visible
@@ -305,7 +363,7 @@ def make_fullscreen(editor: dict, report: dict, *, folder: str | None = None, ax
     else:
         x, y, w, h = below_pill(above_bar(frame))  # t10: under the step pill / gear, above the shortcut bar
         frame = (x, y, max(round(w * EDITOR_FRACTION), w - DRAWER_W), h)  # the screen minus the overlay's drawer and bar
-        report["fullscreen"] = "done (maximized)" if ax.set_frame(win, *frame) else "failed: the editor refused the new frame"
+        report["fullscreen"] = "done (maximized)" if _set_frame(ax, win, *frame) else "failed: the editor refused the new frame"
     if win is not None and folder:
         put_away_other_lessons(ax, pid, folder, win, report)
     log.info("full screen %s: %s", Path(folder).name if folder else editor["label"], report["fullscreen"])
@@ -348,7 +406,7 @@ def fit_beside_drawer(folder: str, *, ax=None, editor: dict | None = None,
         if limit - x < 480:
             log.info("drawer room: %s starts too far right to narrow (left as it is)", name)
             return "too far right (left as it is)"
-        ok = ax.set_frame(win, x, y, limit - x, h)
+        ok = _set_frame(ax, win, x, y, limit - x, h)
         log.info("drawer room: %s narrowed to end at x=%.0f, beside the drawer: %s", name, limit, ok)
         return "narrowed" if ok else "failed: the editor refused the new frame"
     except Exception as e:  # noqa: BLE001 - a refinement: the lesson runs without it
@@ -449,7 +507,7 @@ def arrange(editor: dict, previous: dict | None, report: dict, *, ax=None, wait_
         return
     frame = below_pill(above_bar(frame))  # E22: the shortcut bar spans the bottom middle, over the left 60% too;
     # t10: the step pill and the gear sit under the menu bar, over the window's title bar
-    report["arranged"] = ax.set_frame(win, *frame)
+    report["arranged"] = _set_frame(ax, win, *frame)
     report["frame"] = [round(v) for v in frame]
     report["arrange"] = "done" if report["arranged"] else "failed: the editor refused the new frame"
     if folder:
