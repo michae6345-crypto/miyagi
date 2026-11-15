@@ -19,6 +19,11 @@ Hooks in LessonSession (kept tiny for merges):
   of the file that differs from the step's code. The first press names the line and the thing to look at ("Look at
   the sign inside np.exp on line 20 of main.py."), the next gives the fix ("On line 20, change np.exp(x) to
   np.exp(-x), then save main.py."), with a box on that line.
+- Plain copy (test 7, `plain_copy`, also from `learner_text`): no markdown on a card (test 6: "`forward` defined
+  after the training loop"; the app shows bodies as plain text), no sentence the engine cut with "…" (test 6: "move
+  the data, weights, `forward` and `backward` under #…"), a citation short enough to fit its one line (test 7:
+  "Goodfellow et al., Deep Learning §8.4 (br…"), and a lesson's off-track always offers Hint and Show me.
+  `ran(cmd)`: a run's card title / check row in plain words ("Ran nn.py", never "Ran .venv/bin/python nn.py").
 """
 from __future__ import annotations
 
@@ -240,11 +245,108 @@ def learner_text(s: Any, type_: str, payload: dict) -> dict:
                          s._step_file(step), body)
                 payload["body"] = body
         _clean_fields(s, step if mine else None, payload, type_)
+        plain_copy(s, type_, payload)
         if type_ == "card" and mine and is_not_yet(payload):
             s._last_not_yet = {"stepId": step["id"], "gen": s.step_gen, "body": payload.get("body") or ""}
     except Exception:  # noqa: BLE001 - wording is a refinement: the card goes out as it was
         log.exception("card_copy failed; card sent as is")
     return payload
+
+
+# ------------------------------------------------------------------ 4. plain copy
+FENCE = re.compile(r"```[\w+.-]*[ \t]*\n?")
+TICKS = re.compile(r"`([^`\n]+)`")
+BOLD = re.compile(r"\*\*([^*\n]+)\*\*")
+CUT_WORDS = 8  # a trailing "…" fragment this long is a cut sentence (clamp_words), not "Installing NumPy…"
+CITE_CHARS = 38  # the off-track card's citation line (about 270 px of 12 px text)
+LESSON_OFFTRACK_ACTIONS = ("explain", "show_me", "hint", "apply_fix")  # the contract's order
+
+
+def plain(text: Any) -> Any:
+    """`forward` -> forward, **bold** -> bold, ``` fences dropped: a card's text is plain (the app draws bodies as
+    they come). Non-strings pass through."""
+    if not isinstance(text, str) or not text:
+        return text
+    out = BOLD.sub(r"\1", TICKS.sub(r"\1", FENCE.sub("", text)))
+    return out.replace("`", "")  # an unpaired backtick (a title cut inside code)
+
+
+def whole_sentences(text: Any) -> Any:
+    """A body that ends in a sentence the engine cut ("…") keeps the whole sentences before it. Kept as is: no whole
+    sentence before the cut, or a short status line ("Saved. Running it again…")."""
+    if not isinstance(text, str) or not text.rstrip().endswith("…"):
+        return text
+    parts = re.split(r"(?<=[.!?])\s+", text.strip())
+    if len(parts) < 2 or len(parts[-1].split()) < CUT_WORDS:
+        return text
+    return " ".join(parts[:-1])
+
+
+def short_citation(label: Any) -> Any:
+    """A citation label that fits its line: "Goodfellow et al., Deep Learning §8.4 (breaking symmetry)" ->
+    "Goodfellow et al., Deep Learning §8.4"; a web page's " - Site" / " | Site" tail goes too. Never cut mid-word:
+    a label still too long is left to the app."""
+    if not isinstance(label, str):
+        return label
+    t = " ".join(label.split())
+    for rx in (r"\s*\([^()]*\)\s*$", r"\s+[|·–—-]\s+[^|·–—-]+$"):
+        if len(t) <= CITE_CHARS:
+            break
+        shorter = re.sub(rx, "", t).strip()
+        t = shorter or t
+    return t
+
+
+_INTERP = re.compile(r"^(?:.*/)?(?:python[\d.]*|py|node|deno|bun|ruby|perl|php|bash|sh|zsh|Rscript|julia)$", re.I)
+_WRAP = ({"env"}, {"tut", "run"}, {"uv", "run"}, {"poetry", "run"}, {"pipenv", "run"})
+
+
+def ran(cmd: str, limit: int = 60) -> str:
+    """A run in plain words: "Ran nn.py" for `python3 nn.py`, `.venv/bin/python nn.py` or VS Code's ▷
+    (`"/a b/.venv/bin/python" "/a b/nn.py"`); "Ran npm test" for anything else (its first line)."""
+    line = next((ln.strip() for ln in (cmd or "").splitlines() if ln.strip()), "")
+    line = re.split(r"\s*(?:&&|;)\s*", line)[-1].strip() or line  # "cd <lesson> && python3 nn.py": the run
+    try:
+        import shlex
+
+        toks = shlex.split(line)
+    except ValueError:
+        toks = line.split()
+    for wrap in _WRAP:  # env python3 x.py, tut run python nn.py, uv run python x.py
+        if len(toks) > len(wrap) and {Path(t).name for t in toks[:len(wrap)]} == wrap:
+            toks = toks[len(wrap):]
+            break
+    if len(toks) >= 2 and _INTERP.match(toks[0]):
+        script = next((t for t in toks[1:] if not t.startswith("-")), "")
+        if re.search(r"\w\.\w{1,5}$", script):  # a script file (not `python -m pytest`)
+            return f"Ran {Path(script).name}"[:limit]
+    if toks and "/" in toks[0]:  # an interpreter or tool by its path: its name
+        line = " ".join([Path(toks[0]).name, *toks[1:]])
+    return f"Ran {line}"[:limit] if line else "Ran it"
+
+
+def plain_copy(s: Any, type_: str, payload: dict) -> None:
+    """The card / off-track's text fields as plain copy (see the module doc), in place."""
+    code = ((getattr(s, "step", None) or {}).get("code") or "").strip()
+    for k in TEXT_FIELDS:
+        v = payload.get(k)
+        if isinstance(v, str) and ("${" in v or (code and v.strip() == code)):
+            continue  # code itself ("Type it yourself", a JS template literal): its backticks are code
+        new = plain(v)
+        if k != "title":
+            new = whole_sentences(new)
+        if new != v and isinstance(new, str) and new.strip():
+            payload[k] = new
+    cit = payload.get("citation")
+    if isinstance(cit, dict) and isinstance(cit.get("label"), str):
+        label = short_citation(plain(cit["label"]))
+        if label != cit["label"]:
+            payload["citation"] = {**cit, "label": label}
+    if type_ == "offtrack" and getattr(s, "lesson_mode", False):  # test 7: Hint / Show me on every lesson Not yet
+        acts = [a for a in payload.get("actions") or [] if isinstance(a, str)]
+        want = set(acts) | {"show_me", "hint"}
+        payload["actions"] = [a for a in LESSON_OFFTRACK_ACTIONS if a in want] + [
+            a for a in acts if a not in LESSON_OFFTRACK_ACTIONS]
 
 
 # ------------------------------------------------------------------ 3. Hint from what is known

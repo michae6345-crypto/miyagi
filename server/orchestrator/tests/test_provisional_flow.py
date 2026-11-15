@@ -76,8 +76,8 @@ def test_placeholder_end_then_real_lesson_replaces_it_without_interruption(tmp_p
         assert rig.s.graph["lesson"]["provisional"] and rig.s.step["provisional"]
         await rig.s.video_state(rig.s.step["video"]["end"] + 1, True)  # the placeholder's clip ends
         await asyncio.sleep(0.05)
-        await build
-        await rig.settle()
+        await build  # returns once the placeholder is live (perf.until_loaded); the build runs on
+        await rig.built()
 
     asyncio.run(go())
     errors = [e["message"] for e in rig.of("error")]

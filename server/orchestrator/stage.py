@@ -31,7 +31,7 @@ import time
 from pathlib import Path
 from typing import Any
 
-from . import config, curated
+from . import card_copy, config, curated
 
 log = logging.getLogger("orchestrator.stage")
 
@@ -153,11 +153,9 @@ def _quiet() -> None:
 # ---------------------------------------------------------------------------------------------------------- passing
 
 def _detail(step: dict, check: dict, lines: list[str]) -> str:
-    if check.get("type") == "metric_threshold":
-        losses = curated.parse_output(lines)["losses"]
-        if losses:
-            e, v = losses[-1]
-            return f"loss {v:.4f} at epoch {e}"
+    if check.get("type") == "metric_threshold":  # test 7: worded like the checks module, so the app reads the values
+        if detail := curated.metric_detail(check, curated.parse_output(lines)["losses"]):
+            return detail
     if check.get("type") == "output_contains" or (check.get("app") or "") == "Terminal":
         return next((ln.strip() for ln in lines if ln.strip().startswith("[")), "seen in the terminal")
     return f"found in {step.get('file') or curated.FILE}"
@@ -198,13 +196,13 @@ async def _stuck(session: Any, step: dict, lines: list[str]) -> None:
     await asyncio.sleep(STUCK_S)  # the run's output and the identical neurons first, then the verdict
     if gen != session.step_gen or session.passed or sid in _st(session)["good"]:
         return  # moved on, or the presenter's next is passing it
-    losses = curated.parse_output(lines)["losses"]
-    v = losses[-1][1] if losses else curated.STUCK_LOSS
-    e = losses[-1][0] if losses else 4000
+    losses = curated.parse_output(lines)["losses"] or [(18000, curated.STUCK_LOSS)]
+    v = losses[-1][1]
     for c in session.display_checks(step):  # the loss row fails on the flat loss; the file rows stay green
         label = c.get("label", c["id"])
         bad = c.get("type") == "metric_threshold"
-        status, detail = ("fail", f"loss {v:.4f} at epoch {e}") if bad else ("pass", _detail(step, c, lines))
+        # test 7: "loss 0.4900 at step 18000, need < 0.01": the card's evidence shows yours 0.4900 | expected 0.01
+        status, detail = ("fail", curated.metric_detail(c, losses)) if bad else ("pass", _detail(step, c, lines))
         session.check_state[c["id"]] = {"label": label, "status": status, "detail": detail}
         await session.emit("check.updated", {"stepId": sid, "checkId": c["id"], "label": label, "status": status,
                                              "detail": detail})
@@ -213,7 +211,7 @@ async def _stuck(session: Any, step: dict, lines: list[str]) -> None:
     except (OSError, ValueError):
         card = {"severity": "fail", "title": f"Loss is stuck at {v:.2f}",
                 "body": "Every hidden neuron starts the same, so they stay copies. Start the weights random.",
-                "actions": ["explain", "hint", "show_me"]}
+                "actions": ["explain", "show_me", "hint"]}
     card["stepId"] = sid
     session.gate_open = session.screen_gate_open = True
     session.last_offtrack = card
@@ -294,7 +292,7 @@ async def _run(session: Any, step: dict, gen: int, sid: str, st: dict, typed: bo
     await session.ingest({"kind": "run_ended", "run_id": run_id, "exit_code": 0})
     session._record("run_for_me", {"command": cmd[:200], "exit_code": 0, "stage": True}, step)
     if not typed:
-        await session._card(step, f"Ran {cmd.splitlines()[0][:60]}", "It ran without errors.", kind="answer",
+        await session._card(step, card_copy.ran(cmd), "It ran without errors.", kind="answer",
                             output="\n".join(lines[-8:]) or "(no output)")
     curated.after_evaluate(session, step, "run_end")  # the panel: identical neurons, or their run
     if stuck:

@@ -97,7 +97,7 @@ export interface EngineEvents {
     caption: string;
     stepId?: string;
     data:
-      | { layers: number[]; activation: string; derivatives: string[]; residual: string }            // network
+      | { layers: number[]; activation: string; derivatives: string[]; residual: string; preview?: boolean }   // network   // preview true: a picture of the lesson's own network before the learner's first run (curated.py), not a run: its frames have no epoch / loss and it never plays training (mode forward / backward / stuck); show a "Preview" label, no Epoch / Loss / loss sparkline, and keep it out of the completion screen's charts. Absent: a real run (the learner's terminal, Run it for me, the Demo's recorded runs), frames carry epoch + loss
       | { layers: string[]; epochs: number[]; norms: number[][] }                                     // gradients: norms[layer][epochIdx]
       | { x: number[]; t: number[]; predicted: number[][]; exact?: number[][] }                      // heatmap
       | GraphDiagramData;                                                                             // graph (any topic; server/diagrams)
@@ -154,7 +154,7 @@ export interface SkillNode { id: string; label: string; state: SkillState; detai
 export interface SkillEdge { from: string; to: string }                                         // SkillNode ids
 export interface SkillCross { track: string; label: string; to: string; note?: string }       // a dashed "shared idea" link from another track's concept (track "Math", label "Matrix multiply") to SkillNode.id `to`; note: the link's caption
 export interface SkillNext { title: string; goal: string }                                     // an up-next lesson; goal = launcher text: start it with learn {query: goal, mode: "lesson"}
-export interface SkillMap { track: string; headline: string; nodes: SkillNode[]; edges: SkillEdge[]; cross: SkillCross[]; next: SkillNext[] }   // track: "Machine learning"; headline: "You built a neural network from scratch. 7 mastered, 5 up next in Machine learning."
+export interface SkillMap { track: string; headline: string; nodes: SkillNode[]; edges: SkillEdge[]; cross: SkillCross[]; next: SkillNext[] }   // track: "Neural networks"; headline: "A 1-4-4-1 network that learns the shape of sin(x). 8 mastered, 5 up next in Neural networks."
 
 // ---------- App -> Engine commands ----------
 export interface AppCommands {

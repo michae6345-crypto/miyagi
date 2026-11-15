@@ -41,6 +41,7 @@ from . import config, curated, editor_text, missing_module, perf, scene_watch, s
 from .context import RunContext, RunInfo, metrics_summary
 from .modules import Modules
 from .captions import short_caption
+from .card_copy import ran as _ran  # t7: a run in plain words ("Ran nn.py", not "Ran .venv/bin/python nn.py")
 from . import spot_lines  # t5: which editor line a lesson box goes on
 from . import typo_card  # Nov 15: terminal-command typos on run steps, no model call
 from . import ui_targets  # t6: VS Code's real controls (AX) boxed: Terminal, save, open the file, ...
@@ -48,6 +49,7 @@ from . import start_hold  # t6: the Before-you-start hold gates checks only; the
 from . import box_follow  # t7: the type box waits for the step start's jump, then follows every scroll
 from .lesson_boxes import LessonBoxes
 from . import quiet_save  # Nov 15: no ⌘S chores, ~1 s freshness, one "You already did" card instead of a cascade
+from . import run_pointing  # t7: the Run ▷ found once VS Code filled its AX tree; a Not yet in the code boxes the code
 
 log = logging.getLogger("orchestrator.session")
 
@@ -306,6 +308,7 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
         self.resources: list[dict] = []  # S2: files the video links (download button)
         self.waiting_more = False  # passed the last built step of a long video that's still building
         self.skipped_steps: list[str] = []
+        self.assisted_steps: list[str] = []  # t7: steps whose code Do it for me typed (the skill map: practiced)
         self._run_redirected: set[str] = set()
         self._parts_building = False  # build_lesson itself is still adding parts (non-lazy long video)
         self._extend_task: asyncio.Task | None = None  # E2 lazy parts: the next part being built
@@ -438,6 +441,8 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
                 return
         if (answered := _ANSWERED.get()) is not None and not (payload or {}).get("clear"):
             answered.add(type_)  # a spotlight clear is not an answer
+        if type_ == "offtrack" and payload:  # t7: the card's "expected" column: the curated lesson's own run first
+            await curated.send_reference(self)
         await self._emit_raw(type_, payload or {})
 
     def _bind_epoch(self) -> None:
@@ -1593,8 +1598,8 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
             return None
         r = await asyncio.to_thread(region, "run_button")  # AX: a bounded walk of VS Code's tree, never on the loop
         win = self._editor_window()
-        if not r or win is None:
-            self._run_note("VS Code's Run ▷ isn't on screen (no Python extension?): the terminal box instead")
+        if not r or win is None:  # t7: maybe VS Code is still filling its AX tree (run_pointing looks again)
+            self._run_note("VS Code's Run ▷ isn't found (yet): the terminal box for now")
             return None
         cx, cy = r["x"] + r["w"] / 2, r["y"] + r["h"] / 2
         if (not (win["x"] <= cx <= win["x"] + win["w"] and win["y"] <= cy <= win["y"] + min(160.0, win["h"] * 0.3))
@@ -1790,19 +1795,8 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
             return gen != self.step_gen or self.passed or self._spot_frozen() or self._offtrack_box() == "up"
 
         cmd = self._run_command(step)
-        if cmd:
-            for _ in range(30):  # ~60 s: upgrade "open the terminal" to the Run ▷ / terminal box once it's there
-                if gone() or self._step_ran():  # E17: after a run the box has done its job (_run_box_done)
-                    return
-                spot = await self._run_spot(step, cmd)
-                if gone() or self._step_ran():
-                    return
-                kind = spot.pop("kind", None)
-                if spot:  # E17: the Run ▷ / terminal panel / menu item are where to act; the targeter never moves them
-                    await self._show_spot(spot, steady=True, verify=False)
-                if kind in ("terminal", "run_button"):
-                    return
-                await asyncio.sleep(2.0)
+        if cmd:  # the Run ▷ / terminal / "open the terminal" box; t7: a terminal box becomes the ▷ once it's found
+            await run_pointing.place_run_box(self, gen, step, cmd, gone)
             return
         for i in range(max(1, tries)):
             if gone():
@@ -2219,6 +2213,7 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
         self.runs = {}
         self._extend_failed = False
         self.skipped_steps = []  # ids the learner skipped (S7 saves them apart from passed steps)
+        self.assisted_steps = []  # t7: ids whose code Do it for me typed in full (the skill map: not mastered)
         self._run_redirected: set[str] = set()  # run steps already sent back to their typing step once
         self.judge = self.m.make_step_judge()
         new_wd = str(config.resolve_workdir(graph.get("lesson", {}).get("workdir")))
@@ -2425,8 +2420,10 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
                 await self.evaluate("start")  # already done before the clip: ask "Looks done?" now
         # E5: the run caption ("Run it here" on the terminal, or "Open the terminal") goes up whenever the lesson's VS
         # Code window is on screen; the drawer says the command. The Run it card only when no caption can go up
-        # (Run it for me stays on Check's "Not yet" card).
-        spot_up = self._can_see() and self._editor_window() is not None and not self._lesson_window_hidden()
+        # (Run it for me stays on Check's "Not yet" card). t7: a Demo lesson always gets it, beside the ▷ / terminal
+        # box (docs/DEMO.md presses Run it for me on Train it and See what it learned; the box was up, so no button).
+        spot_up = (self._can_see() and self._editor_window() is not None and not self._lesson_window_hidden()
+                   and not stage.on(self))
         if back is not None and self._dirty_step_file(step):  # they typed it: it's just not saved
             await self._emit_card({"stepId": step["id"], "kind": "step", "title": f"Save {empty}",
                                    "body": f"Save {empty} in VS Code (⌘S)."})
@@ -2884,7 +2881,7 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
         else:
             self.phase = "done"
             await self.emit("video.play", {})
-            self._spawn_lesson_end()  # t5: the completion card ("You built …", their run's numbers, End lesson)
+            self._spawn_lesson_end()  # t5: the completion card (its skill count, their run's numbers, End lesson)
 
     def _spawn_lesson_end(self) -> None:
         from . import lesson_end
@@ -4030,6 +4027,7 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
             async with self._spot_lock():
                 if self.spot_rect is not None:
                     await self.emit("spotlight", {"clear": True})
+        await run_pointing.follow(self)  # t7: a culprit box -> the ▷ once the code changed; that ▷ goes on the rerun
 
     def _maybe_respot(self) -> None:
         """E16: no box up on a lesson step while its VS Code window is in front (the first tries ran under a save
@@ -4210,6 +4208,7 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
                 self._spawn(self._show_step_file(step, explicit=True), timer=True)
                 self._spawn(start_hold.reveal_step_line(self, step, again=True), timer=True)  # t6: its line on screen
         # the checks are re-graded by the next frame / save (the reader runs again), not replayed as they were
+        self.status = ""  # the snapshot's status was held back for this one: always sent (_status skips unchanged states)
         await self._status("offtrack" if self.last_offtrack and not self.passed and not self.awaiting_start
                            else "watching")
 
@@ -4589,7 +4588,13 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
         file, where it goes on, never the "where to start" anchor. t5: a fix that is up boxes the line to fix; nothing
         typed yet boxes where the code goes (the file decides, _insert_spot). A run step otherwise: VS Code's Run ▷ or
         the terminal, never a line of its file (Nov 15, nn4: Show me boxed nn.py's last line "Type it here: python3
-        nn.py", and the learner typed the command into nn.py)."""
+        nn.py", and the learner typed the command into nn.py). t7: a run step whose "Not yet" is in the code (stuck
+        loss: W1..W3; a diagnosed line; a NameError) boxes those lines, never the ▷ (run_pointing.culprit_spot)."""
+        if (culprit := await run_pointing.culprit_spot(self, step)) is not None:
+            if culprit:  # ({}: those lines aren't on screen: no box beats "click ▷ again")
+                self._action_spot = True
+                await self._show_spot(culprit, owner="answer")
+            return True
         if self.lesson_mode and self._fix_active() and (fix := await self._change_spot(step)) is not None:
             self._action_spot = True  # t5 (b): the press points at the line to fix: the one box
             await self._show_spot(fix, owner="answer")
@@ -5124,9 +5129,10 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
         if target.get("rect"):
             await self._show_spot({"rect": target["rect"], "caption": body.split("\n")[0]})
             self._action_spot = True
-        # teach first: Hint / Show me on the first "Not yet"; Do it for me / Run it for me only on a repeat
+        # teach first: Hint / Show me on the first "Not yet"; Do it for me only on a repeat. A run step's rerun (Run
+        # it for me) is on every one: running it is the step itself, not the answer (t7: the Demo had no rerun button)
         n = self._not_yet_n[1] + 1 if getattr(self, "_not_yet_n", (None, 0))[0] == self.step_gen else 1
-        teach = ((["run_command"] if self._run_command(step) else ["apply_fix"]) if n > 1 else []) + ["hint", "show_me"]
+        teach = (["run_command"] if self._run_command(step) else ["apply_fix"] if n > 1 else []) + ["hint", "show_me"]
         if await self._emit_card({"stepId": step["id"], "kind": "answer", "title": "Not yet", "body": body,
                                   "actions": (teach if self.lesson_mode else []) + ["skip_step"]}, window_s=2.0):
             self._not_yet_n = (self.step_gen, n)  # a double press inside 2 s is one "Not yet", not a repeat
@@ -5334,7 +5340,7 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
         count, same, out = (self._checks_fn(n) for n in ("terminal_runs", "command_matches", "run_output"))
         if not cmd or count is None or same is None or out is None:
             return results, gate
-        base = {"checkId": f"{step['id']}-ran", "label": f"Ran {cmd}"[:60], "status": "pending",
+        base = {"checkId": f"{step['id']}-ran", "label": _ran(cmd), "status": "pending",
                 "detail": "Run it in the terminal (or press Run it for me)"}
         from . import terminal_run
 
@@ -5475,7 +5481,7 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
             if card is not None and card[0] == gen == self.step_gen and self._run_for_me_card is card:  # Running it
                 self._run_for_me_card = None  # becomes the result, before the coach's card (that one goes on top)
                 self._record("run_for_me", {"command": card[1][:200], "exit_code": run.exit_code}, step)
-                await self._card(step, f"Ran {card[1].splitlines()[0][:60]}",
+                await self._card(step, _ran(card[1]),
                                  self._run_verdict(run.exit_code, run.output_tail), kind="answer",
                                  output="\n".join(run.output_tail[-8:]) or "(no output)")
             for _ in range(20):  # the stale diagnosis _acted cancelled must end first, or the breakpoint is dropped
@@ -6257,7 +6263,7 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
         self._record("run_for_me", {"command": cmd[:200], "exit_code": code}, step)
         body = (f"Stopped after {self.RUN_TIMEOUT_S:.0f} s (is it waiting for input?)." if timed_out
                 else "It ran without errors." if code == 0 else f"It stopped with exit code {code}.")
-        await self._card(step, f"Ran {cmd.splitlines()[0][:60]}", body, kind="answer",
+        await self._card(step, _ran(cmd), body, kind="answer",
                          output="\n".join(lines[-8:]) or "(no output)")
         if not self.passed and self.step is step:
             await self._status("offtrack" if self.last_offtrack else "watching")
@@ -6351,7 +6357,7 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
         body = ("It stopped before it finished. Press Run it for me again." if stopped
                 else f"It stopped with exit code {code}." if code not in (0, None) else "It printed an error." if err
                 else "It ran without errors." if code == 0 else "It finished.")
-        await self._card(step, f"Ran {want[:60]}", body, kind="answer", output="\n".join(tail[-8:]) or "(no output)",
+        await self._card(step, _ran(want), body, kind="answer", output="\n".join(tail[-8:]) or "(no output)",
                          **({"actions": ["run_command"]} if stopped else {}))
         if gen != self.step_gen or run_id in self.runs:
             return
@@ -6373,7 +6379,7 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
         if not diagnose or gen != self.step_gen or self.passed:
             return
         self._run_diag_key = key
-        row = {"checkId": f"{step['id']}-ran", "type": "command_exit_ok", "label": f"Ran {want}"[:60], "status": "fail",
+        row = {"checkId": f"{step['id']}-ran", "type": "command_exit_ok", "label": _ran(want), "status": "fail",
                "detail": f"the last run stopped with exit code {code}" if code else "the run printed an error"}
         failed = [row, *(r for r in self.last_failed if r.get("checkId") != row["checkId"])]
         self.coaching = True
@@ -6417,6 +6423,8 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
             if spot:
                 await self._show_spot(spot)
         self._record("fix_applied", {"file": path.name}, step)
+        if pp.get("step_code") and step["id"] not in self.assisted_steps:  # t7: practiced, not mastered (skill map)
+            self.assisted_steps.append(step["id"])
         if pp.get("result"):  # a lesson step's code: say what changed in one line
             await self._card(step, "Done", pp["result"], kind="answer", actions=["undo"])
         else:
@@ -6431,6 +6439,8 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
         path, text = self.undo
         self.undo = None
         path.write_text(text)
+        if step["id"] in self.assisted_steps:  # their own version again: no longer Do it for me's
+            self.assisted_steps.remove(step["id"])
         await self._card(step, "Undone", "Your version is back.")
         await self.on_file_change([str(path)])
 

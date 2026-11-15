@@ -37,16 +37,18 @@ either counts.
 ## The six steps (what to do, what appears, what to say)
 
 The right-hand panel of the drawer shows a live network at every step (pushed by the engine; `adrian/shell` PR #94).
+Until the learner's first run it is a preview of the lesson's own network (`data.preview`: no epoch, no loss, never a
+training run); from the first run on it is their run.
 
 | # | Step | You do | miyagi shows | Say |
 |---|---|---|---|---|
-| 1 | Build the network | Copy, paste under `# The network`. For the story, **change the three weight lines to zeros**: `W1 = np.zeros((1, 4))`, `W2 = np.zeros((4, 4))`, `W3 = np.zeros((4, 1))`. Save. | Panel: the network firing (forward pass, x = -π/2, 0, π/2). Checks go green. | "This is what we're building: x goes in, y comes out. I'll take a shortcut: zeros instead of random weights. The shapes are right, so it passes." |
-| 2 | Backprop | Copy, paste under `# Backprop`, save | Panel: the error flowing back | "Backprop: the error goes back along the same weights; every weight gets its share of the blame." |
-| 3 | Write the training loop | Copy, paste under `# Training`, save | Panel: what training will do | |
-| 4 | Train it | Run it (Run it for me, or the command in VS Code's terminal) | Loss 0.4900 on every line → **off track** (live coach). Panel: **identical hidden neurons** (all eight at 0). ⌥H twice: "look at how W1, W2 and W3 start" → "start them random". | "Every check passed, but the loss never moved. All eight hidden neurons are the same neuron: each outputs tanh(0) = 0, so the network answers 0 for every x." |
+| 1 | Build the network | Copy, paste under `# The network`. For the story, **change the three weight lines to zeros**: `W1 = np.zeros((1, 4))`, `W2 = np.zeros((4, 4))`, `W3 = np.zeros((4, 1))`. Save. | Panel: a preview of the network you're building, firing (forward pass). Checks go green. | "This is what we're building: x goes in, y comes out. I'll take a shortcut: zeros instead of random weights. The shapes are right, so it passes." |
+| 2 | Backprop | Copy, paste under `# Backprop`, save | Panel: a preview of the error flowing back | "Backprop: the error goes back along the same weights; every weight gets its share of the blame." |
+| 3 | Write the training loop | Copy, paste under `# Training`, save | Panel: a preview of the network the loop starts from, standing still (nothing trains before the run) | |
+| 4 | Train it | Run it (Run it for me, or the command in VS Code's terminal) | Loss 0.4900 on every line → **off track** (live coach). Panel: **loss stuck**, identical dark hidden neurons (all eight at 0), loss 0.4900. ⌥H twice: "look at how W1, W2 and W3 start" → "start them random". | "Every check passed, but the loss never moved. All eight hidden neurons are the same neuron: each outputs tanh(0) = 0, so the network answers 0 for every x." |
 | 4b | | Change the three lines back to `np.random.randn(1, 4)` / `np.random.randn(4, 4)` / `np.random.randn(4, 1) * 0.1`, save, run again (about 0.4 s) | Loss 0.8187 → 0.0009 (epoch 0 → 18000), step passes. Panel: **your run**, weights moving while the loss falls | "Random starts break the tie. Now it learns." |
 | 5 | Test it | Copy, paste under `# Test it`, save | Panel: your run again | |
-| 6 | See what it learned | Run it | `[-1.0, 0.0, 1.0]` (its answers for -π/2, 0, π/2) and the weights; lesson complete. Panel: your network answering x = -π/2, 0, π/2, drawn from the weights it printed | "From nothing to a network that draws a sine wave, every step checked." |
+| 6 | See what it learned | Run it | `[-1.0, 0.0, 1.0]` (its answers for -π/2, 0, π/2) and the weights; the completion card ("Neural networks · 8 skills mastered", loss first → last). Panel: your network answering x = -π/2, 0, π/2, drawn from the weights it printed | "From nothing to a network that draws a sine wave, every step checked." |
 
 ⌥D on any step opens the panel's network full size (no engine round trip when the panel has one).
 
@@ -65,7 +67,10 @@ The right-hand panel of the drawer shows a live network at every step (pushed by
   `{epoch, loss, input, target, W: [W1 1x4, W2 4x4, W3 4x1], b: [b1[4], b2[4], b3[1]], a: [[x], [4], [4], [y]]}`:
   `W[k][i][j]` is the weight from neuron i of layer k to neuron j of layer k+1 (nested rows, no longer flat), `a` is
   every neuron's activation for that frame's `input` (the app fires the neurons from it; the engine recomputes it from
-  the learner's printed weights). Train frames (every 1,000 epochs) all fire x = π/2, so the panel's
+  the learner's printed weights). `preview` (true, t7): a step's cached picture before the learner's first run;
+  its frames have no `epoch` / `loss` and it is never mode `train` (steps 3 and 4 are the start weights, standing
+  still; the stuck picture asked for before a stuck run is mode `stuck`, one frame). The learner's runs leave it out
+  and carry `epoch` and `loss`; a stuck run is mode `stuck`. Train frames (every 1,000 epochs) all fire x = π/2, so the panel's
   prediction climbs to its target 1.000 (the app shows `data.target` while it tweens train frames); forward frames are
   the trained weights once per sample, π/2 last (t6: x = 3, the worst-fit edge, read "Prediction 0.202 target -0.141").
 - Numbers: zeros sit at exactly 0.49 = mean(sin(x)²) over the 50 points (`curated.STUCK_LOSS`); the lesson's run
