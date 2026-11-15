@@ -475,6 +475,20 @@ onMessage('offtrack', (p) => {
   dropHeldOfftrack()
   openOfftrack(p)
 })
+// A Not yet card kept under another card (resume) whose step's checks all pass now is stale: closing the card on top
+// must not bring it back (Michael's test 11: "load_dat() should be load_data()" resurfaced after the fix passed).
+// Runs after core/lesson has merged the update (its handler registered first).
+onMessage('check.updated', (p) => {
+  const s = get()
+  const o = useLesson.getState().offtrack
+  if (!s.resume || !o || o.stepId !== p.stepId || p.status !== 'pass') return
+  const checks = useLesson.getState().checks
+  if (checks.length && checks.every((c) => c.status === 'pass')) {
+    lastOfftrack = undefined
+    clearOfftrack(p.stepId)
+    set({ resume: false })
+  }
+})
 // "Apply this fix?" (a diff to confirm) replaces the "Waiting for the fix" view, so `fixing` ends here.
 /** Same card again (same step, kind, title, body and everything else but its timer). */
 function sameCard(a: Payload<'card'>, b: Payload<'card'>): boolean {

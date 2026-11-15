@@ -344,15 +344,21 @@ const DOCK_GAP = 16
  * boxes know about it: slide a card left until its right edge is DOCK_GAP clear of the panel, never past the work
  * area's left edge.
  */
-function offDock(notch: Rect | undefined, at: Offset, playerOn: boolean, layout: Layout): Offset {
+export function offDock(notch: Rect | undefined, at: Offset, playerOn: boolean, layout: Layout): Offset {
   if (!notch || !playerOn) return at
   const wa = layout.workArea
+  // Below VS Code's title bar, tabs and notebook toolbar (the kernel picker, Run All): a card at the top centre took
+  // the click meant for ".venv", the first step of every notebook lesson (Michael's test 11, item 3).
+  const minY = wa.y + NOTEBOOK_TOOLBAR_BOTTOM - notch.y
+  const y = Math.max(at.y, minY)
   const limit = dockRect(wa).x - DOCK_GAP
   const right = notch.x + at.x + notch.w
-  if (right <= limit) return at
+  if (right <= limit) return { x: at.x, y }
   const minX = wa.x + EDGE - notch.x
-  return { x: Math.max(minX, at.x - (right - limit)), y: at.y }
+  return { x: Math.max(minX, at.x - (right - limit)), y }
 }
+/** Bottom of VS Code's toolbar rows (title bar + tabs + notebook toolbar), from the work area's top, in points. */
+const NOTEBOOK_TOOLBAR_BOTTOM = 112
 
 /**
  * The pill's offset (desktop test 9, A4: the step pill hid the quick-pick's first row). `pill`: its size while the

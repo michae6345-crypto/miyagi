@@ -5,6 +5,7 @@
  * Only type imports from electron, so the renderer can import describePlatform() too.
  */
 import type { App, BrowserWindow, BrowserWindowConstructorOptions } from 'electron'
+import { execFile } from 'node:child_process'
 
 export type Rect = { x: number; y: number; width: number; height: number }
 
@@ -156,11 +157,20 @@ export function setupApp(app: App): void {
 
 /**
  * After the launcher hides, hand keyboard focus back to the app the user was in (VS Code).
- * Windows does this by itself. On macOS, hiding the app returns focus; then re-show the overlay
- * without activating. VERIFY ON THE MAC: if the pill flickers, try removing app.hide().
+ * Windows does this by itself. On macOS, reactivate the app that was in front (`open -b <bundle>`, from
+ * features/front-app) and keep the overlay up without activating it. app.hide() is only the fallback when that app
+ * isn't known: in Michael's test 11 it hid the overlay with it, and showInactive didn't bring it back (Finder in front).
  */
-export function returnFocus(app: App, overlay: BrowserWindow): void {
+export function returnFocus(app: App, overlay: BrowserWindow, previousBundle?: string): void {
   if (!isMac()) return
+  if (previousBundle) {
+    execFile('open', ['-b', previousBundle], (err) => {
+      if (err) console.warn('[focus] could not reactivate', previousBundle, err.message)
+    })
+    overlay.showInactive()
+    raise(overlay)
+    return
+  }
   app.hide()
   setTimeout(() => {
     overlay.showInactive()

@@ -11,7 +11,7 @@ import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 're
 import type { Layout } from '../../../preload/api'
 import { bridge } from '../bridge'
 import { onUi } from './bus'
-import { useIslandOffset, usePillOffset } from './islandPlace'
+import { offDock, useIslandOffset, usePillOffset } from './islandPlace'
 import { startBuild, useLesson } from './lesson'
 import { Boundary } from './ui/Boundary'
 import { getIslandModes } from './registry'
@@ -111,7 +111,11 @@ export function Island({ top, layout }: { top: number; layout: Layout }): ReactN
   // The pill slides beside what the engine says must stay visible (VS Code's quick-pick, test 9, A4).
   const peek = !!mode && !isPill && !held[at]
   const pillOffset = usePillOffset(mode && isPill ? { w: size.w, h: size.h } : undefined, peek, top, layout, pointerIn || pressHold)
-  const offset = card ? cardOffset : pillOffset
+  // A step card that opens on its own (a peek) clears the docked video panel and VS Code's toolbar too (test 11: it
+  // clipped "Bu|ild…" under the panel).
+  const playerOn = useLesson((s) => !!s.lesson && s.lesson.mode !== 'lesson')
+  const peekAt = { x: (layout.width - size.w) / 2, y: top, w: size.w, h: size.h }
+  const offset = card ? cardOffset : peek ? offDock(peekAt, pillOffset, playerOn, layout) : pillOffset
 
   // Tell main (or the browser bus) our current size, so the launcher can grow out of exactly this shape, and where we
   // are (dx/dy from the notch spot: main's click-through poll covers the island there).

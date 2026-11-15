@@ -14,6 +14,7 @@ import { EngineLink } from './engine'
 import { setupPrefs } from './prefs'
 import { setupLocalEngine } from './localEngine'
 import { serveRenderer } from './serve'
+import { previousApp } from './features/front-app'
 import type { MainContext, MainFeature } from './context'
 import {
   describePlatform,
@@ -213,7 +214,7 @@ function hideLauncher(): void {
   launcherOpen = false
   launcher.hide()
   send(overlay, 'launcher:closed') // the island is back
-  returnFocus(app, overlay)
+  returnFocus(app, overlay, previousApp())
 }
 
 const ACTION_KINDS: Exclude<ShortcutKind, 'launcher'>[] = ['back', 'explain', 'diagram', 'show_me', 'hint', 'voice_toggle']
