@@ -11,8 +11,12 @@ you what's wrong, with the card landing 2–4 s after your run ends. It gives hi
 Two ways to learn:
 - **Watch a video:** search, then a preflight card (what the video is and what it needs), then a lesson built from the video, then
   the video gated step by step. Long videos build part by part.
-- **Just teach me** (**in progress**, not merged): no video. Claude researches with web search and the official docs and writes
-  the lesson itself, and the editor opens full screen with the exact place to type boxed.
+- **Just teach me** ("Build a lesson from the internet", Claude only): no video. Claude researches with web search and the official
+  docs and writes the lesson itself, and the editor opens full screen with the exact place to type boxed. The engine side is
+  merged; the launcher row isn't in the pushed app yet.
+
+The launcher search shows YouTube videos only (Claude web search + Bright Data's Google video results). During a lesson, the
+player has **Check my work**, **Replay**, **Skip step** and **End lesson**. Lessons survive an engine restart.
 
 Built at SanD Hacks 2026 (UCSD, Nov 14–15). Devpost write-up: [`docs/devpost/SUBMISSION.md`](docs/devpost/SUBMISSION.md) ·
 demo script: [`docs/devpost/DEMO.md`](docs/devpost/DEMO.md).
@@ -81,7 +85,7 @@ flowchart LR
 |---|---|
 | `app/` | Electron + React + TypeScript overlay: the notch pill, the ⌥Space launcher, the spotlight (dims the screen around a rect), cards, diagrams, the YouTube player that pauses at each step's end. Speaks only `shared/contracts/events.ts`. |
 | `server/orchestrator/` | The hub (FastAPI on :8787): lesson state machine, don't-nag gate, hint ladder, Do it for me (preview → confirm → apply → undo), `DEMO=1` replay. |
-| `server/finder/` | Real tutorial search; first result in about 3–4 s, best video first. |
+| `server/finder/` | Real tutorial search: YouTube videos only by default (`FINDER_KINDS=all` adds blogs, notebooks, repos and papers), scored by Claude, with a relevance floor. |
 | `server/preflight/` | A card within 5 s of the pick (style, length, goal fit, tools needed) with Build / Pick another; nothing is built before you say so. |
 | `server/lesson/` | YouTube video → step graph (long videos part by part, `progressive.py`) with screen-gradable checks (`step-graph.schema.json`), cached in `demo/cache/lessons/`. |
 | `server/workspace/` | One folder per lesson with Claude-written starter files that never pass a step on their own; opens VS Code. |

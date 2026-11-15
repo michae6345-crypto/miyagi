@@ -28,17 +28,26 @@ yourself and doesn't let you move on until it really works. Miyagi does that for
 Miyagi has **two ways to learn**:
 - **Watch a video** (shipped, below): Miyagi finds a real tutorial, checks it in a preflight card, builds a lesson from the video,
   and gates the video step by step.
-- **Just teach me** (**in progress**, not merged yet): no video. Claude researches the topic with web search and the official docs
-  and writes the lesson itself. The editor opens full screen and Miyagi boxes exactly where to type. Details below.
+- **Just teach me** ("Build a lesson from the internet", Claude only): no video. Claude researches the topic with web search and the
+  official docs and writes the lesson itself. The editor opens full screen and Miyagi boxes exactly where to type. The engine side
+  is merged; the launcher row isn't in the pushed app yet. Details below.
+
+Every lesson, either kind, **survives an engine restart**: the step graph is saved as soon as the lesson is ready and on every update,
+and a restart offers "<title> · step N of M · X min ago" to resume at the same step, with no rebuild (commit `b80996d`).
 
 **Watch a video:**
 
 1. **Ask.** Press **⌥Space**. A launcher grows out of the MacBook notch. Type what you want to learn, e.g. *"learn physics informed
    machine learning with PINNs in PyTorch"*.
-2. **Find.** Miyagi searches the live web for real tutorials (YouTube, blogs, notebooks, repos, papers): Claude with web search
-   plus the Bright Data SERP API. Claude scores every candidate, and Bright Data pulls the comments of the top 3 videos so videos
-   people say "don't work anymore" get flagged. Every row shows its style (coding / no-code / conceptual) and length. The first
-   result shows up in about 3–4 s.
+2. **Find.** The launcher search shows **YouTube videos only** (`FINDER_KINDS=video`, the default since commit `b27d68d`):
+   - Claude with web search asks for videos, and one Bright Data SERP query adds Google's video results.
+   - Claude scores every candidate, and rows scoring under 40 are never shown (`FINDER_MIN_SCORE`).
+   - Bright Data pulls the comments of the top 3 videos, so videos people say "don't work anymore" get flagged.
+   - Every row shows its style (coding / no-code / conceptual) and length.
+   - Blogs, notebooks, repos and papers are still searched with `FINDER_KINDS=all`. The first-result timings below were measured
+     before this change, with all kinds on.
+
+   The other way in is **"Build a lesson from the internet"** (Just teach me, below).
 3. **Preflight.** Within 5 s of your pick, a card says what the video actually is: its style, length and chapters, whether it fits
    your goal, and which tools it needs ("VS Code ✓ Python 3 ✓ torch ✗"). It has two buttons, **Build** or **Pick another**.
    Nothing is built until you say so. (`server/preflight/`)
@@ -51,6 +60,11 @@ Miyagi has **two ways to learn**:
 6. **Follow along.** The video plays one step and then pauses. Miyagi watches your **whole screen** (Apple Vision OCR on the
    device, plus macOS Accessibility) and spotlights where you should work. When the step's checks pass on your real screen, the
    step turns green and the video resumes on its own.
+   - Under the video: **Check my work** (deterministic checks first, then a Claude step judge; "Not yet" comes with one short
+     reason and a spotlight), **Replay** and **Skip step**. **End lesson** is in the player header. (`app/src/renderer/src/features/player/Player.tsx`,
+     commit `71abc6f`.)
+   - **(unverified)** A single bottom bar holding Check / Skip step / End lesson isn't in the pushed app code (`aa45e49`). There,
+     the bottom bar is the shortcut bar: Ask, Back, Explain, Diagram, Show me, Hint, Voice.
 7. **Get unstuck.** If a check fails (say, the loss is stuck around 17), the step goes amber and a Claude Opus coach diagnoses the
    problem from your actual screen and code, with the card landing 2–4 s after the run ends. It gives one short card with a hint ladder: a guiding question, then the moment in
    the video, then the source, then the exact fix. **"Do it for me"** shows a diff preview, applies it only after you confirm, and
@@ -60,17 +74,21 @@ Miyagi has **two ways to learn**:
 9. **Remember everything.** Every learning event and metric streams into Tiger Data (TimescaleDB hypertables + continuous
    aggregates): time per step, fail rate per check, and a "stuck heatmap" over the video's timeline.
 
-**Just teach me (in progress):**
-- `build_text_lesson(goal, workdir)` (commit `f438b88`, branch `claude/michael-lesson-135f28`) is **Claude only, no Gemini**:
+**Just teach me ("Build a lesson from the internet"):**
+- `build_text_lesson(goal, workdir)` (`server/lesson/textlesson.py`, commit `f438b88`) is **Claude only, no Gemini**:
   - Sonnet plans 3–8 steps from your starter files.
   - Sonnet with web search and web fetch researches the later steps in parallel. Sources are only URLs the tools returned.
   - Haiku writes each step: the exact code to type, the target (file + anchor), screen checks and hints. Opus takes over only when
     a check on its output fails.
   - Step 1 goes out without waiting for the research.
 - Full-screen editor and `editor_line_rect()` (an exact line rect from macOS Accessibility, for boxing where to type): commit
-  `12c1b26`, branch `claude/workspace-pycheck`.
-- Status: both have **offline tests only**: a Python calculator, a React todo list and a file-renaming CLI, all with faked
-  models. They're **not merged into `integration/live`**, and the launcher and engine don't call them yet.
+  `12c1b26`, `server/workspace/editor.py`.
+- Status:
+  - **Merged into `integration/live`.** The engine runs it on `learn {mode: "lesson"}` (`server/orchestrator/session.py`,
+    `learn_text`).
+  - It has offline tests (a Python calculator, a React todo list, a file-renaming CLI) and was fixed after Michael's live
+    calculator run (commits `b37a767`, `2b05846`, `d279748`).
+  - **(unverified in the UI)** The launcher row that starts it isn't in the pushed app code yet.
 
 Nothing in it is PINN-specific. We evaluated the lesson builder on React, git, pandas, Rust and FastAPI tutorials (numbers below).
 
@@ -144,7 +162,12 @@ Electron + React + TypeScript + Tailwind + Motion for the overlay, PyTorch for t
   - Speculative **prebuild is opt-in** (`ORCH_PREBUILD=1`), and the tests blank paid keys (`d500d03`, `bb8feb2`).
   - A **daily Gemini cap**: `LESSON_GEMINI_DAILY_CAP`, 25 video calls/day by default, persisted in
     `~/miyagi/state/gemini_usage.json`; when it's used up the Claude transcript path takes over. Long videos also build later
-    parts only on demand. Both are in commit `6eb9aab`, which is **not merged into `integration/live` yet**.
+    parts only on demand. Both are in commit `6eb9aab`, now merged into `integration/live`.
+- **macOS 26 screen capture stalls.** `replayd` kept dropping our process's ScreenCaptureKit connection (thousands of
+  `XPC_ERROR_CONNECTION_INTERRUPTED` a second), and `CGDisplayCreateImage` blocked for 5 s and returned nothing, even though the
+  display was awake. The fix is to capture with ScreenCaptureKit, fall back to Apple's `/usr/sbin/screencapture` (a temp PNG,
+  mode 0600, deleted after), and then to CoreGraphics. The ScreenCaptureKit timeout dropped to 1.5 s, with backoff from 10 s doubling to
+  5 min. The engine also tells the app when the screen reader is down. (Commits `e23a751`, `27c1804`; `server/screen/tests/test_capture.py`.)
 - **YouTube rate limits.** From the venue network, YouTube returned `429 Too Many Requests` on caption (`timedtext`) requests, so
   with Gemini also out of quota no new lesson could be built. Every failure now ends in under 6 s with a plain-English
   error instead of a hang. (`docs/STAGES.md` re-run.)
@@ -185,7 +208,7 @@ Electron + React + TypeScript + Tailwind + Motion for the overlay, PyTorch for t
 
 ## What's next
 
-- Land **Just teach me** (no-video lessons) in the launcher and the engine, and merge the daily Gemini cap.
+- Ship the **"Build a lesson from the internet"** launcher row for Just teach me (the engine side is merged).
 - Voice: ElevenLabs narration of cards (the app side is built; the engine side is in progress).
 - Video-ID–level community warnings at specific timestamps ("this breaks at 12:40 with pandas 2.x").
 - A creator dashboard on the Tiger aggregates: where learners get stuck in *your* video, and which steps take the longest.
@@ -218,8 +241,8 @@ Gemini is spent only on the lesson the learner picked. The hero lesson was built
 
 ### Bright Data (Data for Good)
 Bright Data is Miyagi's **live-web layer**, and the "good" it does is keeping learners away from tutorials that no longer work.
-- **SERP API** (Google) runs the web searches for written tutorials and notebooks, keeps Google's video results, and resolves
-  `google.com/goto` links. `server/finder/brightdata.py`, `server/finder/sources.py`.
+- **SERP API** (Google): by default, one query per search for Google's **video** results (with `FINDER_KINDS=all` it also runs
+  the written-tutorial and notebook searches). It resolves `google.com/goto` links. `server/finder/brightdata.py`, `server/finder/sources.py`.
 - **Web Scraper API, YouTube comments dataset:** the comments of the top 3 videos are pulled within a 10 s cap.
   Comments like "outdated" or "doesn't work" become row `warnings`. `server/finder/brightdata.py`
   (`BRIGHTDATA_YT_COMMENTS_DATASET`).

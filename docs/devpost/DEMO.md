@@ -19,8 +19,8 @@ Hero: Juan Toscano, *Learning Physics Informed Machine Learning Part 1: PINNs* (
    - `ORCH_LADDER_MIN_S=0`: otherwise the "Do it for me" card can't appear until 20 s after the first card
      (`server/orchestrator/config.py:117`).
    - `COACH_OFFLINE_FALLBACK=1`: if Opus can't be reached and the code confidently matches a playbook entry, the coach shows that
-     playbook card, marked `offline: true` (`server/coach/llm.py`). It's off by default because of the no-fake rule, and it does
-     nothing until **E5's PR #1** is merged into `integration/live`.
+     playbook card, marked `offline: true` (`server/coach/llm.py`, merged into `integration/live`). It's off by default because
+     of the no-fake rule.
 
    Pick **A** (the full flow, with live search) or **B** (lesson already loaded):
    ```bash
@@ -69,13 +69,14 @@ Hero: Juan Toscano, *Learning Physics Informed Machine Learning Part 1: PINNs* (
 | **1:14** | Press **⌘S** once. Within 1 s the level-3 card adds **Do it for me**. Click it: the preview shows `lr=0.3` → `lr=1e-3`. Click **Confirm**. (Or just type **`lr = 1e-3`** and **⌘S**.) | "Hints come before answers. If I want, it shows the exact diff, applies it only when I confirm, and I can undo it." |
 | **1:18** | Run **`tut run python pinn_diffusion.py`** again. The loss drops under 1e-2 by step 1000 (green in 12–16 s; talk over it). | "Every check, every failure and every metric streams into Tiger Data: hypertables plus continuous aggregates. That gives a creator a stuck heatmap over their own video." |
 | **1:33** | The step turns **green**. The video **resumes by itself** 0.4 s later. | "Green. The video moves on only when my code works." |
-| **1:36** | **Just teach me beat (20 s): only if it has landed and been rehearsed. Otherwise press ⌥D instead** (a diagram of the step's network). ⌥Space, choose **Just teach me**, type **`build a calculator`**, ↵. The editor opens full screen, step 1 appears, and Miyagi boxes the line to type. | "No video needed: say 'just teach me', and Claude researches the official docs, writes the lesson, and shows me exactly where to type." (⌥D instead: "Need intuition? Claude draws a diagram for whatever step you're on.") |
+| **1:36** | **Just teach me beat (20 s): only if the launcher row has landed and been rehearsed. Otherwise press ⌥D instead** (a diagram of the step's network). ⌥Space, choose **Build a lesson from the internet**, type **`build a calculator`**, ↵. The editor opens full screen, step 1 appears, and Miyagi boxes the line to type. | "No video needed: say 'just teach me', and Claude researches the official docs, writes the lesson, and shows me exactly where to type." (⌥D instead: "Need intuition? Claude draws a diagram for whatever step you're on.") |
 | **1:56** | — | "Miyagi: any tutorial, any topic, graded from your real screen. Built on Claude, Gemini, Bright Data and Tiger Data." |
 
-**Just teach me status (check before the freeze):** the builder (`build_text_lesson`, commit `f438b88`) and the full-screen
-editor with Accessibility line boxes (commit `12c1b26`) exist only on unmerged branches, with offline tests. As of `integration/live`
-`292561d` the launcher and engine don't call them, so there's no "Just teach me" option to choose yet. Don't put it on stage
-unless it's merged, wired, and has passed a live take.
+**Just teach me status (check before the freeze):**
+- The engine side is merged: `learn {mode: "lesson"}` → `build_text_lesson`, the full-screen editor and the line boxes. Michael
+  ran a live calculator lesson on it.
+- The launcher row "Build a lesson from the internet" isn't in the pushed app code (`aa45e49`; the launcher sends `learn` without
+  `mode`). Don't put it on stage until that row is in the app build you're demoing and has passed a live take.
 
 **If something stalls live:**
 - The search is slow or empty: press **Esc**, then restart with `scripts/miyagi-demo.sh` (option B). The lesson is already
@@ -83,11 +84,11 @@ unless it's merged, wired, and has passed a live take.
 - No amber after the run: you probably ran plain `python`. Use `tut run python …` so the metrics are exact. Press **⌥H** to force
   the hint card.
 - The network dies mid-demo:
-  - **Once E5's PR #1 is merged** and the engine runs with `COACH_OFFLINE_FALLBACK=1`, the live engine still shows the "Learning
-    rate is too high" playbook card, 0.9 s after amber (verified offline in rehearsal). There's no "Do it for me" offline, so fix
-    `lr` by hand and carry on. No engine switch is needed.
-  - **Until PR #1 is merged**, the live engine shows **no** coach card (`CoachUnavailable`, plus an error toast about once a
-    second). Don't wait. Stop the engine and switch to `scripts/miyagi-offline.sh` (below).
+  - With `COACH_OFFLINE_FALLBACK=1` (E5's change is now merged), the live engine still shows the "Learning rate is too high"
+    playbook card, 0.9 s after amber (the rehearsal session verified this offline). There's no "Do it for me" offline, so fix `lr`
+    by hand and carry on. No engine switch is needed.
+  - If you forgot the flag, the live engine shows **no** coach card (`CoachUnavailable`). Switch to `scripts/miyagi-offline.sh`
+    (below).
 - The live coach card's 5–7 s after amber is the rehearsed number. E5's PR #1 should bring it down to about 3.4 s (Opus only), but
   that hasn't been re-measured live (cost freeze), so keep 5–7 s in the timing until someone measures it.
 
@@ -149,10 +150,14 @@ lesson path, the coach, diagrams and scaffolding. In the lesson builder it's Hai
 
 **"What did it cost / how do you control spend?"** An unsupervised test sweep drained our prepaid Gemini credit (about $20,
 team-reported), so we added a billing fast-fail, turned the skims off, tiered the Claude models, and logged per-model tokens on every
-build (`build.cost`). A daily Gemini cap (25 video calls) is written but not merged yet.
+build (`build.cost`). There's also a daily Gemini cap (25 video calls per day by default).
 
-**"Is there a no-video mode?"** "Just teach me" is in progress: Claude researches with web search and the docs and writes the
-lesson itself, and the editor opens full screen with the exact line boxed. It has offline tests and isn't wired into the app yet.
+**"Is there a no-video mode?"** Yes, "Build a lesson from the internet" (Just teach me), Claude only. Claude researches with web
+search and the official docs, writes the lesson, and the editor opens full screen with the exact line boxed. The engine side is
+merged; the launcher row is landing.
+
+**"What if the engine crashes?"** Every lesson is saved as it's built, so a restart offers to resume at the same step with no
+rebuild (`b80996d`).
 
 **"What's Bright Data for?"** The SERP API runs the web search, the Web Scraper API pulls YouTube comments that flag outdated
 tutorials, and the Web Unlocker fetches pages Claude reads and the docs the coach cites.
