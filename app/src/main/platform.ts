@@ -72,6 +72,9 @@ export function overlayWindowOptions(bounds: Rect): BrowserWindowConstructorOpti
     show: false,
     backgroundColor: '#00000000',
     enableLargerThanScreen: true,
+    // The overlay never becomes the active window, so without this macOS swallows the first click on the bar and
+    // cards (Michael's desktop test, item 1: Skip, Check and Diagram needed a second click).
+    acceptFirstMouse: true,
     ...(isMac() ? { type: 'panel' as const } : {})
   }
 }
