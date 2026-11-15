@@ -4,6 +4,7 @@
  */
 import { create } from 'zustand'
 import { onMessage, onUi } from '../../core/bus'
+import { useDiagram } from '../diagrams/store'
 
 type DrawerState = {
   open: boolean
@@ -36,6 +37,14 @@ onUi('reset', closeDrawer)
 // (lesson.mode "lesson") opens it: there's no player and no chapter list, so the drawer is where
 // "Step N of M" and the step's instructions live (Michael, Sat 3:56 PM).
 onMessage('lesson.ready', (p) => useDrawer.setState({ open: startOpen || p.lesson.mode === 'lesson', concept: undefined }))
+
+// The engine pushed the first live network for a step: open the drawer so it's seen (updates to the same step's
+// network never reopen it, so the learner's own "Hide steps" sticks).
+useDiagram.subscribe((s, prev) => {
+  if (!s.live || s.live === prev.live) return
+  if (prev.live && prev.live.step === s.live.step) return
+  useDrawer.setState({ open: true, concept: undefined })
+})
 
 /** http(s) links only; anything else (file:, javascript:, a bare path) is ignored. */
 export function isWebLink(url: string): boolean {
