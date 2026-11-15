@@ -8,7 +8,7 @@
 """
 
 from .active import active_editor, adopt_folder, folder_on_screen, vscode_windows, wrong_folder
-from .core import open_file_for, prepare, read_state
+from .core import open_file_for, prepare, read_state, set_aside_previous
 from .editor import (
     editor_label,
     editor_line_location,
@@ -26,7 +26,7 @@ from .setup import editor_needed, install, missing, requirements, setup_card
 
 __all__ = [
     "active_editor", "adopt_folder", "folder_on_screen", "vscode_windows", "wrong_folder",
-    "NO_RESOURCES",
+    "NO_RESOURCES", "set_aside_previous",
     "build_workdir",
     "download_resources",
     "download_summary",

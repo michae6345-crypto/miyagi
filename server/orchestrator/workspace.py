@@ -268,6 +268,26 @@ def prepare(graph: dict, goal: str) -> str | None:
         return None
 
 
+def set_aside_previous(folder: str | None, graph: dict) -> str | None:
+    """A fresh build in a reused lesson folder: the last run's learner files go to <folder>/.miyagi-previous/<time>/
+    (S2's set_aside_previous) so no step passes on them. Never the hero folder, never a TUT_WORKDIR one. Blocking."""
+    if not folder or os.environ.get("TUT_WORKDIR"):
+        return None
+    ws = _s2()
+    fn = getattr(ws, "set_aside_previous", None) if ws is not None else None
+    if fn is None:
+        return None
+    try:
+        hero = ws.hero_workdir(graph) if hasattr(ws, "hero_workdir") else None
+        if hero is not None and Path(hero).resolve() == Path(folder).resolve():
+            return None
+        moved = fn(folder)
+        return str(moved) if moved else None
+    except Exception:  # noqa: BLE001 - the lesson still starts, with the files as they were
+        log.exception("setting the last run's files aside failed")
+        return None
+
+
 CODE_APPS = {"code", "vs code", "vscode", "visual studio code", "cursor", "terminal", "iterm", "iterm2"}
 
 

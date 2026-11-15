@@ -1282,6 +1282,8 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
                 await self.emit("lesson.building", self.build_progress)
                 first = copy.deepcopy(g)
                 folder = await asyncio.to_thread(wsmod.prepare, first, goal)
+                if not self._continues_save(first):  # a fresh build: no step passes on the last run's files
+                    await asyncio.to_thread(wsmod.set_aside_previous, folder, first)
                 if folder:
                     first.setdefault("lesson", {})["workdir"] = folder
                 self.build_progress = None
@@ -1320,6 +1322,8 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
             self.build_progress = {"message": "Setting up your project folder", "progress": 0.97}
             await self.emit("lesson.building", self.build_progress)
             folder = await asyncio.to_thread(wsmod.prepare, graph, goal)  # S2: starter files (Claude), 0-25 s
+            if not self._continues_save(graph):  # a fresh build: no step passes on the last run's files (Nov 15 7:19)
+                await asyncio.to_thread(wsmod.set_aside_previous, folder, graph)
             if folder:
                 graph.setdefault("lesson", {})["workdir"] = folder
             self.build_progress = None
@@ -1351,6 +1355,24 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
             if not ok:
                 self.phase = "idle" if self.graph is None else self.phase
         await self.load_graph(graph)
+
+    @staticmethod
+    def _continues_save(graph: dict) -> bool:
+        """Will this build pick up a saved place (sessions.Resumer.load_graph: an engine restart's save of THIS lesson
+        that the learner never ended)? Then its files stay as they are. A save the learner ended (`stopped`: only the
+        resume card's Continue restores it, never a build) or none at all: a fresh build. Unknown: keep the files."""
+        lid = (graph.get("lesson") or {}).get("id")
+        try:
+            from server.sessions import store
+            from server.sessions.resume import is_demo
+        except Exception:  # noqa: BLE001 - no saves at all: every build is fresh
+            return False
+        try:
+            saved = store.load()
+            return bool(lid and saved and saved.get("lessonId") == lid and not saved.get("stopped") and not is_demo(graph))
+        except Exception:  # noqa: BLE001
+            log.exception("reading the lesson save failed: keeping the lesson's files")
+            return True
 
     # ---------------------------------------------------------- "Just teach me" (no video)
     async def learn_text(self, goal: str) -> None:
