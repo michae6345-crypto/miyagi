@@ -2,13 +2,14 @@
  * The skill map (mockups 10 and 12), drawn from card.skillMap only: lanes with a tile header,
  * concept nodes left to right, arrows between them. Mastered = a green ring with a check (green only ever means
  * passed), learning = a white ring with a dot, next = a dashed ring. Other tracks' concepts sit in a lane above,
- * with dashed "shared idea" arrows down to the node they feed. Hover or click a node: its detail in the strip below.
+ * with dashed "shared idea" arrows down to the node they feed. Hover or click a node: what it is in the detail box.
+ * Click an arrow: the two concepts it joins and the engine's note for it (no text drawn along the arrows).
  */
 import { motion } from 'motion/react'
 import { useMemo, useState, type ReactNode } from 'react'
 import { BookOpen, Code2, FileText, Layers, Sigma, Wrench, type LucideIcon } from 'lucide-react'
 import { color, fill, spring } from '../../core/theme'
-import { DETAIL_LINE, LINE, NODE, NOTE_LINE, layout, type Lane } from './layout'
+import { DETAIL_LINE, LINE, NODE, layout, type Lane, type Layout, type Path } from './layout'
 import type { SkillMap as Map, SkillNode, SkillState } from './types'
 
 /** A lane's glyph by track name (neutral tile; the name itself always comes from the data). */
@@ -134,23 +135,50 @@ function Detail({ node, map, boxed }: { node: SkillNode; map: Map; boxed: boolea
   )
 }
 
+/** A clicked arrow: the concept it comes from, the one it leads to, and the engine's note on how they connect. */
+function LinkDetail({ path, map, L, boxed }: { path: Path; map: Map; L: Layout; boxed: boolean }): ReactNode {
+  const node = (id: string): SkillNode | undefined => map.nodes.find((n) => n.id === id)
+  const cross = L.cross.find((c) => c.key === path.from)
+  const from = cross ? `${cross.track}: ${cross.label}` : (node(path.from)?.label ?? '')
+  const to = node(path.to)
+  const body = path.note ?? to?.detail
+  return (
+    <div className={boxed ? 'flex h-full flex-col justify-center' : 'mt-[18px] border-t pt-[14px]'} style={boxed ? undefined : { borderColor: fill.rule }} data-link-detail>
+      <div className="flex flex-wrap items-center gap-x-[8px] gap-y-[2px] text-[15px] font-semibold leading-[20px]" style={{ color: color.text }}>
+        <span>{from}</span>
+        <span style={{ color: color.faint }}>→</span>
+        <span>{to?.label}</span>
+      </div>
+      {body && (
+        <div className="mt-[5px] text-[13px] leading-[18px]" style={{ color: color.label }}>
+          {body}
+        </div>
+      )}
+    </div>
+  )
+}
+
 /** The default selection: the first node still being learned, else the first one up next, else the last. */
 const firstOpen = (nodes: SkillNode[]): string | undefined =>
   (nodes.find((n) => n.state === 'learning') ?? nodes.find((n) => n.state === 'next') ?? nodes[nodes.length - 1])?.id
 
-export function SkillMapView({ map, width }: { map: Map; width: number }): ReactNode {
+/** `heading`: the "N skills mastered" line (off when the panel's own header already says it). */
+export function SkillMapView({ map, width, heading = true }: { map: Map; width: number; heading?: boolean }): ReactNode {
   const L = useMemo(() => layout(map, width), [map, width])
   const [sel, setSel] = useState<string | undefined>(() => firstOpen(map.nodes))
-  const node = map.nodes.find((n) => n.id === sel)
+  const link = sel?.startsWith('link:') ? L.paths[Number(sel.slice(5))] : undefined
+  const node = link ? undefined : map.nodes.find((n) => n.id === sel)
   const mastered = map.nodes.filter((n) => n.state === 'mastered').length
   const states = (['mastered', 'learning', 'next'] as const).filter((s) => map.nodes.some((n) => n.state === s))
 
   return (
     <div data-skill-map>
       <div className="mb-[12px] flex items-center gap-[16px]">
-        <span className="text-[16px] font-semibold" style={{ color: color.text }}>
-          {mastered ? `${mastered} skill${mastered === 1 ? '' : 's'} mastered` : 'Skill map'}
-        </span>
+        {heading && (
+          <span className="text-[16px] font-semibold" style={{ color: color.text }}>
+            {mastered ? `${mastered} skill${mastered === 1 ? '' : 's'} mastered` : 'Skill map'}
+          </span>
+        )}
         <span className="flex-1" />
         {states.map((s) => (
           <span key={s} className="flex items-center gap-[6px] text-[12px]" style={{ color: color.label }}>
@@ -183,7 +211,7 @@ export function SkillMapView({ map, width }: { map: Map; width: number }): React
               key={i}
               d={p.d}
               fill="none"
-              stroke={fill.ring}
+              stroke={sel === `link:${i}` ? color.text : fill.ring}
               strokeWidth={p.dashed ? 1.5 : 1.4}
               strokeDasharray={p.dashed ? '4 4' : undefined}
               markerEnd="url(#sk-arrow)"
@@ -193,18 +221,23 @@ export function SkillMapView({ map, width }: { map: Map; width: number }): React
             />
           ))}
         </svg>
+        {/* Wide invisible strokes over the arrows: a click explains the link. */}
+        <svg className="absolute left-0 top-0" width={L.width} height={L.height} style={{ pointerEvents: 'none' }}>
+          {L.paths.map((p, i) => (
+            <path
+              key={i}
+              data-link={i}
+              d={p.d}
+              fill="none"
+              stroke="transparent"
+              strokeWidth={14}
+              style={{ pointerEvents: 'stroke', cursor: 'pointer' }}
+              onClick={() => setSel(`link:${i}`)}
+            />
+          ))}
+        </svg>
         {L.lanes.map((lane) => (
           <LaneHeader key={`${lane.kind}:${lane.name}`} lane={lane} />
-        ))}
-        {L.notes.map((n) => (
-          <div
-            key={`${n.x}:${n.y}`}
-            className="absolute overflow-hidden text-[12px]"
-            style={{ left: n.x, top: n.y, width: n.w, lineHeight: `${NOTE_LINE}px`, color: color.faint, display: '-webkit-box', WebkitBoxOrient: 'vertical', WebkitLineClamp: 2 }}
-            title={n.text}
-          >
-            {n.text}
-          </div>
         ))}
         {L.cross.map((c, i) => (
           <motion.div
@@ -254,16 +287,16 @@ export function SkillMapView({ map, width }: { map: Map; width: number }): React
             )}
           </motion.button>
         ))}
-        {node && L.detail && (
+        {(node || link) && L.detail && (
           <div data-skill-detail className="absolute" style={{ left: L.detail.x, top: L.detail.y, width: L.detail.w, height: L.detail.h }}>
-            <Detail node={node} map={map} boxed />
+            {link ? <LinkDetail path={link} map={map} L={L} boxed /> : node && <Detail node={node} map={map} boxed />}
           </div>
         )}
       </div>
 
-      {node && !L.detail && (
+      {(node || link) && !L.detail && (
         <div data-skill-detail>
-          <Detail node={node} map={map} boxed={false} />
+          {link ? <LinkDetail path={link} map={map} L={L} boxed={false} /> : node && <Detail node={node} map={map} boxed={false} />}
         </div>
       )}
     </div>
