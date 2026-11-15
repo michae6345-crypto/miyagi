@@ -831,11 +831,6 @@ function Where({ text }: { text: string }): ReactNode {
 // Chip: a step card the drawer already shows (Michael's review A4)
 // ---------------------------------------------------------------------------
 
-/**
- * Step controls: while a card carries one, the bar's Check and Skip step go quiet (shortcut-bar, audit A17), so the
- * card holds the step's primary. Such a card never folds to a chip, or nothing on screen would offer it.
- */
-const OWNS_STEP = new Set<CardAction>(['confirm', 'skip_step', 'check_step'])
 /** The chip's text is cut past this width (the full card is one tap away). */
 const CHIP_TEXT_W = 240
 
@@ -845,16 +840,38 @@ const cardKey = (c: EngineCard): string => `${c.kind}:${c.stepId ?? ''}:${c.titl
 /** The chip the learner tapped open (its cardKey). */
 const useOpened = create<{ key?: string }>(() => ({}))
 
+/** The step the open drawer shows (its id, title and instructions), or undefined when the drawer isn't on a step. */
+type Shown = { id: string; title: string; instructions: string }
+
+/** Lowercase words only, so "Add the XOR data." matches "add the `XOR` data". */
+const words = (s: string | undefined): string =>
+  (s ?? '')
+    .toLowerCase()
+    .replace(/[`"'“”‘’.,:;!?…()[\]]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+
+/** The card only repeats what the drawer shows for that step: its text holds the step's title or its instructions. */
+function repeatsDrawer(c: EngineCard, shown: Shown): boolean {
+  const said = words(`${c.title ?? ''} ${c.body ?? ''}`)
+  const title = words(shown.title)
+  const how = words(shown.instructions)
+  const body = words(c.body)
+  return (title.length >= 8 && said.includes(title)) || (how.length >= 12 && (said.includes(how) || (body.length >= 12 && how.includes(body))))
+}
+
 /**
- * "Shrink a card to a chip when the drawer already shows the same content" (A4): a kind "step" card (contract: the
- * step's own status and controls: Run it, Save calc.py, Not yet…) for the step the open drawer shows (`shownStep`:
- * the current step while the drawer is open and not on a concept). Not one that holds the step's primary (OWNS_STEP),
- * and not once tapped open. Every other kind stays a full card.
+ * "Shrink a card to a chip when the drawer already shows the same content" (A4). Only a card that adds nothing to the
+ * open drawer folds: a step or hint card the engine sent on its own (not one the learner asked for), for the step the
+ * drawer shows, with no buttons (nothing to hide behind the tap), whose text just repeats that step's title or
+ * instructions (e.g. the "Start here" nudge). The judge's "Not yet", "Wrong folder?", "Run it" and every card with a
+ * button stay full: the drawer doesn't say what they say. Never once tapped open.
  */
-function folds(c: EngineCard | undefined, shownStep: string | undefined, opened: string | undefined): boolean {
-  if (!c || c.kind !== 'step' || !shownStep) return false
-  if (c.stepId && c.stepId !== shownStep) return false
-  if ((c.actions ?? []).some((a) => OWNS_STEP.has(a))) return false
+function folds(c: EngineCard | undefined, cardFrom: string | undefined, shown: Shown | undefined, opened: string | undefined): boolean {
+  if (!c || !shown || cardFrom || (c.kind !== 'step' && c.kind !== 'hint')) return false
+  if (c.stepId && c.stepId !== shown.id) return false
+  if ((c.actions ?? []).length > 0 || c.diff || c.output || c.where || c.videoJump) return false
+  if (!repeatsDrawer(c, shown)) return false
   return cardKey(c) !== opened
 }
 
@@ -862,16 +879,21 @@ function folds(c: EngineCard | undefined, shownStep: string | undefined, opened:
 function isChip(): boolean {
   const d = useDrawer.getState()
   const l = useLesson.getState()
-  return folds(useCards.getState().card, d.open && !d.concept && l.lesson ? l.stepId : undefined, useOpened.getState().key)
+  const shown = d.open && !d.concept && l.lesson && l.stepId ? { id: l.stepId, title: l.stepTitle, instructions: l.instructions } : undefined
+  const s = useCards.getState()
+  return folds(s.card, s.cardFrom, shown, useOpened.getState().key)
 }
 
 /** isChip() as a hook: re-renders on every input (the card, the drawer, the step, a tap). */
 function useChip(): boolean {
   const card = useCards((x) => x.card)
+  const cardFrom = useCards((x) => x.cardFrom)
   const drawerOnStep = useDrawer((d) => d.open && !d.concept)
-  const step = useLesson((l) => (l.lesson ? l.stepId : undefined))
+  const id = useLesson((l) => (l.lesson ? l.stepId : undefined))
+  const title = useLesson((l) => l.stepTitle)
+  const instructions = useLesson((l) => l.instructions)
   const opened = useOpened((o) => o.key)
-  return folds(card, drawerOnStep ? step : undefined, opened)
+  return folds(card, cardFrom, drawerOnStep && id ? { id, title, instructions } : undefined, opened)
 }
 
 /**
