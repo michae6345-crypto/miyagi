@@ -242,6 +242,32 @@ def test_a_queued_second_press_is_the_same_run(rig):
     run(go())
 
 
+def test_a_queued_second_press_after_a_run_that_passed_is_quiet(rig):
+    """Demo rehearsal (Nov 15): Run it for me double-clicked on a run that LEARNS. The socket runs the second press
+    after the first one's run passed the step, so it found the step passed and answered "Nothing to do here" over the
+    run's own card (on nn6: over [-1.0, 0.0, 1.0], the Demo's last beat). One press, one run, nothing else."""
+    async def go():
+        await rig.s.learn("anything", mode="demo")
+        await settle(rig)
+        await save(rig, RANDOM)
+        for _ in range(2):
+            await save(rig, "\n")
+        for sid in ("nn4", "nn6"):
+            assert rig.s.step["id"] == sid
+            m = rig.mark()
+            await rig.s.action("run_command")
+            await rig.s.action("run_command")  # queued behind the first: it arrives once the step has passed
+            await settle(rig)
+            cards = [e["payload"]["title"] for e in rig.since(m) if e["type"] == "card"]
+            assert passed(rig)[-1] == sid
+            assert len([t for t in cards if t.startswith("Ran ")]) == 1
+            assert "Nothing to do here" not in cards, cards
+            if sid == "nn4":
+                await save(rig, "\n")  # nn5
+        assert passed(rig) == ["nn1", "nn2", "nn3", "nn4", "nn5", "nn6"]
+    run(go())
+
+
 def test_next_during_a_run_passes_without_not_yet(rig, monkeypatch):
     monkeypatch.setattr(stage, "RUN_S", 0.2)
 
