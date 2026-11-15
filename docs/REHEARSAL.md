@@ -12,7 +12,8 @@ On **c4e78c7** (E5's PR #1 merged, plus d279748 "calmer coaching"), zero-cost: *
 39.8 s; the LIVE engine with the network dead and `COACH_OFFLINE_FALLBACK=1` took 45.9 s and showed the playbook card. The
 card now comes 8.1–8.4 s after amber: d279748 shows no offtrack in a step's first 20 s (`ORCH_OFFTRACK_GRACE_S`), and these
 takes start the run 0.5 s after the step jump. On stage the run starts ~15 s after the jump and amber comes ~17 s after
-that, so the grace never applies there.
+that, so the grace never applies there. On **ff8fdd1**, zero-cost: both offline takes PASS again (DEMO=1 40.4 s;
+the live engine with the network dead 46.5 s).
 
 The script plays the app over the WebSocket: it reports the playhead like the player does, and it runs the learner's
 code with `tut run`. It starts its own engine on **:8797** (never :8787) on a **temp copy** of `demo/pinn-lab`, spools
@@ -218,3 +219,61 @@ newest cached lesson. Both are fixed in 3123eb6, and `miyagi-offline.sh` pins `O
 | S8 | Hero preflight card: "Building takes ~66 s" (cached: 0.02 s), "No code editor needed / google_colab" (it's a VS Code lesson) | fixed in PR #42 (not merged yet) |
 | S2 | Setup check reports pyDOE missing when the current pyDOE (module `pydoe`) is installed; cold imports time out at 8 s | fixed in PR #41 (not merged yet) |
 | S6 | DEMO.md timings and fixes: the first card has no Do it for me; the step jump; `python` missing on this Mac; the offline fallback | sent |
+
+## 7. Path 2: "Just teach me" (no video)
+
+```bash
+.venv/bin/python scripts/rehearse.py --path teach --offline --demo      # zero cost; add --teach-steps 2 for the stage cut
+```
+
+The take: pre-seed the lesson folder with the starter Michael's live run got → `learn {query: "build a calculator in
+python", mode: "lesson"}` (what "Just teach me" sends) → `lesson.ready` (DEMO=1 serves `text-43e26ca1d86c37ed.json`) → for each
+step: type the step's `code` into `calculator.py` and press **Check** (`action check_step`), or for a run step `tut run`;
+`skip_step` if it can't pass. For each step it records the instruction, the cards, and **where the engine would box it**. The
+box comes from the engine's own `_run_command` / `target_location` on the real files at that moment, not an on-screen check:
+without a screen reader the engine sends no box rects.
+
+**Not covered yet: the real screen** (dim + box, VS Code full screen, Check judged from the screen, stale boxes after switching
+apps). That needs VS Code on the real display, and Michael's live engine on :8787 (live coach, screen reader on, an active
+calculator lesson) would see it too, so it could make paid calls and move his lesson. Waiting for the parent session's OK.
+
+### Measured (ff8fdd1, DEMO=1 + offline, no screen reader)
+
+| Beat | Measured | Notes |
+|---|---|---|
+| Just teach me → `lesson.ready` | 2.0 s | 1.5 s of it is the ready hold; `mode: "lesson"`, no video events at all |
+| Step start → box | none without the screen reader | the engine sends only `spotlight {clear}` |
+| Type + **Check** → answer | 1.4–1.5 s | 1.2 s is `ORCH_CHECK_WAIT_S` (a fresh frame); without the screen reader it's always "Not yet: … runs without error" |
+| Run → green | 0.4–0.5 s | every step that has a run check |
+
+### Where each step's box goes (engine's own functions, starter seeded)
+
+| Step | Engine treats it as | Box line (engine / where the anchor really is) | Caption / instruction problem |
+|---|---|---|---|
+| s1 Add the add function | type | 3 / 3 `# Step 1: …` ✅ | none (with the seeded starter; without it the file is empty and the caption says "below this comment") |
+| s2 Run your first output | **type** (has both `code` and `run_command`) | the `print(add(` line | Instruction "In calculator.py, type print(add(2, 3))", caption "already in your file. Leave it as is": they contradict each other, and there's **no terminal box** |
+| s3 Add three more operations | type | **1** / 6 `return a + b` | regex bug: `+` makes the match miss, so the box is on the docstring |
+| s4 Guard against dividing by zero | type | **1** / 6 | same; "Type the new divide function" though s3 already wrote it (E2) |
+| s5 Read user input | type | **1** / 6 | same; its run check is `python3 -c "import ast…"`, which a learner never runs |
+| s6 Pick the operation | type | 3 / 3 `# Step 1: …` | caption "Type the main() function below this comment, after your add function" (main() was s5; the comment is above add) |
+| s7 Run the calculator | type | 3 / 3 (top of the file) | caption "Go to the bottom of the file": the box is at the top |
+| s8 Try it in the terminal | **run** (terminal box) | terminal | instruction "In (terminal), type python calculator.py"; `python` doesn't exist on this Mac |
+
+All sent to E4 with repros (E2's content issues flagged as E2's).
+
+### Pre-demo additions for this path
+1. Seed the folder (DEMO.md "Second path" has the one-liner); reset it before every take.
+2. Type the goal exactly: `build a calculator in python` (S2 names the folder from it; another wording → another folder, no starter).
+3. VS Code full screen needs Accessibility for the terminal running the engine (else ⌃⌘F by hand).
+4. Online, `DEMO=1` still makes small Claude calls on this path: 1 scaffold call per new folder, plus E5's judge on every Check
+   (19 attempts in one 8-step offline take).
+
+### If X fails, say this
+| Beat | If it fails | Say | Do |
+|---|---|---|---|
+| Just teach me | Builds for more than a few seconds | "It's writing the lesson from the web." | DEMO=1 should be ~2 s; if it isn't, check that the cached `text-*.json` is in `demo/cache/lessons`. |
+| Step 1 box | On the wrong line, or the caption mentions a comment that isn't there | "Right here, under the comment." | Point at line 3 yourself; the starter wasn't seeded. |
+| Check | "Not yet" right after typing | "It wants proof it runs, not just the text." | Save, run `python3 calculator.py`, press Check again. |
+| Step 2 | Says "type print(add(2, 3))" and boxes the editor | "Now run it." | Run `python3 calculator.py` in the terminal; ignore the box. |
+| Run | `command not found: python` | "Mac Python is python3." | `python3 calculator.py`. |
+| Steps 3+ | Box on line 1 | Stop the path here. | End the lesson (`curl -X POST localhost:8787/end`). |

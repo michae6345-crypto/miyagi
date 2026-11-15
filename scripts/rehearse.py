@@ -392,17 +392,22 @@ class Take:
         mark = "OK  " if ok else "FAIL"
         self.log(f"[{mark}] {name}: {end - start:.2f}s  {detail}")
 
-    async def tut_run(self) -> tuple[float, float, int, str]:
-        """`tut run python pinn_diffusion.py` in the workdir, the engine's /ingest as the sink."""
+    async def tut_run(self, argv: list[str] | None = None, timeout: float = 600.0) -> tuple[float, float, int, str]:
+        """`tut run <argv>` in the workdir (default: the hero's `python pinn_diffusion.py`), the engine's /ingest as
+        the sink. stdin is /dev/null, so a script that waits for input() ends instead of hanging the take."""
         env = dict(os.environ, TUT_INGEST_URL=f"{self.http}/ingest", PYTHONUNBUFFERED="1",
                    **{k: v for k, v in self.run_env.items()})
         tut = ROOT / ".venv" / "bin" / "tut"
-        py = ROOT / ".venv" / "bin" / "python"
+        argv = argv or [str(ROOT / ".venv" / "bin" / "python"), "pinn_diffusion.py"]
         t_start = self.now()
-        proc = await asyncio.create_subprocess_exec(str(tut), "run", "-v", str(py), "pinn_diffusion.py",
-                                                    cwd=self.workdir, env=env, stdout=asyncio.subprocess.PIPE,
+        proc = await asyncio.create_subprocess_exec(str(tut), "run", "-v", *argv, cwd=self.workdir, env=env,
+                                                    stdin=asyncio.subprocess.DEVNULL, stdout=asyncio.subprocess.PIPE,
                                                     stderr=asyncio.subprocess.STDOUT)
-        out, _ = await proc.communicate()
+        try:
+            out, _ = await asyncio.wait_for(proc.communicate(), timeout)
+        except TimeoutError:
+            proc.kill()
+            out, _ = await proc.communicate()
         text = out.decode(errors="replace")
         return t_start, self.now(), proc.returncode or 0, text
 
@@ -583,15 +588,217 @@ class Take:
                 self.notes.append(f"{label} tut: {line.strip()[:200]}")
 
 
+# --------------------------------------------------------------------------- "Just teach me" (no video)
+
+TEACH_QUERY = "build a calculator in python"
+TEACH_LESSON = ROOT / "demo" / "cache" / "lessons" / "text-43e26ca1d86c37ed.json"  # Michael's live calculator run
+# The starter S2's Claude scaffold wrote for that run (~/miyagi/lessons/python-calculator-e430dc). Offline (or under the
+# cost freeze) the scaffold call fails and the folder gets a README only, so the steps' "# Step 1: …" anchor is missing.
+TEACH_STARTER = {"calculator.py": '"""A simple Python calculator."""\n\n# Step 1: Start building your calculator here\n'}
+
+
+def teach_folder(lessons_root: Path, goal: str = TEACH_QUERY) -> Path:
+    """The folder the engine's "Just teach me" build will use (S2's name for the seed lesson in _build_text)."""
+    import hashlib
+
+    from server.workspace.paths import folder_name
+
+    seed = {"lesson": {"id": "text-" + hashlib.sha1(goal.strip().lower().encode()).hexdigest()[:10], "title": goal,
+                       "goal": goal, "mode": "lesson"}, "steps": [], "sources": []}
+    return lessons_root / folder_name(seed)
+
+
+def _engine_run_command(step: dict) -> str:
+    """The engine's own rule (LessonSession._run_command): a "run it" step boxes the terminal, anything else boxes
+    a line in the editor."""
+    from server.orchestrator.session import LessonSession
+
+    return LessonSession._run_command(LessonSession, step)
+
+
+def _literal_line(text: str, match: str) -> int | None:
+    for i, ln in enumerate(text.splitlines(), start=1):
+        if match in ln:
+            return i
+    return None
+
+
+def box_report(step: dict, workdir: Path) -> dict:
+    """Where the engine would box this step, from the files as they are now (no screen needed): the run/type
+    decision, the target's line by the engine's target_location (regex) vs where the anchor literally is."""
+    from server.orchestrator.workspace import target_location
+
+    run_cmd = _engine_run_command(step)
+    t = next((x for x in step.get("targets") or [] if x.get("match")), {})
+    rep = {"kind": "run (terminal box)" if run_cmd else "type (editor line box)", "run_command": run_cmd,
+           "target": t.get("match"), "target_app": t.get("app"), "caption": t.get("caption")}
+    f = workdir / (t.get("file") or step.get("file") or "")
+    if t.get("file") and f.is_file():
+        text = f.read_text(errors="replace")
+        loc = target_location(workdir, step)
+        rep["engine_line"] = loc[1] if loc else None
+        rep["literal_line"] = _literal_line(text, t["match"])
+        rep["file_lines"] = len(text.splitlines())
+    return rep
+
+
+def _type_into(text: str, code: str) -> str:
+    """The learner types the step's code: a function that already exists is rewritten in place, `if __name__`
+    stays last, and once main() exists the old top-level test print goes (as the steps ask)."""
+    lines = text.rstrip("\n").splitlines()
+    for m in re.finditer(r"^def (\w+)\(", code, re.MULTILINE):  # rewrite: drop the old def block
+        name, out, skip = m.group(1), [], False
+        for ln in lines:
+            if re.match(rf"def {name}\(", ln):
+                skip = True
+                continue
+            if skip and (ln.startswith((" ", "\t")) or not ln.strip()):
+                continue
+            skip = False
+            out.append(ln)
+        lines = out
+    if "def main(" in code or "def main(" in "\n".join(lines):
+        lines = [ln for ln in lines if not re.fullmatch(r"print\(add\(2, ?3\)\)", ln.strip())]
+    tail = []
+    if "__main__" not in code and any("__main__" in ln for ln in lines):
+        k = next(i for i, ln in enumerate(lines) if "__main__" in ln)
+        lines, tail = lines[:k], lines[k:]
+    return "\n".join(lines + ["", code.rstrip("\n"), ""] + tail).strip("\n") + "\n"
+
+
+def _stdin_for(step: dict) -> str | None:
+    """`printf '8\n2\n/\n' | python calculator.py` in a precision check -> the answers to pipe in."""
+    for c in step.get("precision_checks") or []:
+        m = re.search(r"printf\s+(['\"])(.*?)\1\s*\|", c.get("command") or "")
+        if m:
+            return m.group(2)
+    return None
+
+
+class TeachTake(Take):
+    """The "Just teach me" path: learn {mode: lesson} -> lesson.ready (no video) -> each step: type -> Check
+    (action check_step) -> next; a run step: `tut run`. Records instructions, cards, spotlights, and where the
+    engine would box each step."""
+
+    def __init__(self, *a, max_steps: int = 0, **kw):
+        super().__init__(*a, **kw)
+        self.max_steps = max_steps
+        self.steps_out: list[dict] = []
+
+    async def run(self, run_env: dict[str, str]) -> dict:
+        res = await super().run(run_env)
+        res["teach_steps"] = self.steps_out
+        return res
+
+    async def _check(self, sid: str, wait: float = 8.0) -> tuple[str, dict, float]:
+        t = self.now()
+        await self.send("action", {"kind": "check_step"})
+        try:
+            t1, ev = await self.expect(lambda ty, p: (ty == "step.passed" and p.get("stepId") == sid)
+                                       or (ty == "card" and p.get("stepId") == sid), f"Check on {sid}", timeout=wait)
+        except TimeoutError:
+            return "no answer", {}, self.now() - t
+        matched_type = self.events[self.cursor - 1][1]  # expect() leaves the cursor just past the match
+        return ("passed" if matched_type == "step.passed" else "card"), ev, t1 - t
+
+    async def _script(self) -> None:
+        await asyncio.sleep(0.3)
+        self.cursor = len(self.events)
+        t = self.now()
+        await self.send("learn", {"query": TEACH_QUERY, "mode": "lesson"})
+        t1, ready = await self.expect(lambda ty, p: ty == "lesson.ready" or (ty == "lesson.building" and p.get("failed")),
+                                      "lesson.ready", timeout=max(self.timeout, 120))
+        if "lesson" not in ready:
+            self.beat("Just teach me → lesson.ready", t, t1, False, ready.get("message", ""))
+            raise RuntimeError("text lesson build failed")
+        async with httpx.AsyncClient() as c:
+            st = (await c.get(f"{self.http}/state")).json()
+        self.workdir = Path(st["workdir"])
+        steps = (st.get("lesson") or {}).get("id"), ready["steps"]
+        video = any(ty.startswith("video.") for _, ty, _ in self.events)
+        self.beat("Just teach me → lesson.ready", t, t1, ready["lesson"]["id"].startswith("lesson-") and not video,
+                  f"{ready['lesson']['id']} {ready['lesson'].get('title')!r} · {len(ready['steps'])} steps · "
+                  f"{'VIDEO EVENTS SENT' if video else 'no video'} · folder {self.workdir.name}")
+        building = [p.get("message", "") for _, ty, p in self.events if ty == "lesson.building"]
+        self.notes.append("build stages: " + " | ".join(dict.fromkeys(building)))
+        starter = {p.name: p.read_text(errors="replace")[:300] for p in sorted(self.workdir.iterdir()) if p.is_file()}
+        self.notes.append(f"starter files: {json.dumps(starter)[:400]}")
+        lesson = json.loads(TEACH_LESSON.read_text())
+        by_id = {s["id"]: s for s in lesson["steps"]}
+        n = len(ready["steps"]) if not self.max_steps else min(self.max_steps, len(ready["steps"]))
+        for k in range(n):
+            sid = ready["steps"][k]["id"]
+            step = by_id.get(sid, {})
+            since = self.cursor
+            t0 = self.now()
+            try:
+                ts, started = await self.expect(lambda ty, p: ty == "step.started" and p.get("stepId") == sid,
+                                                f"step.started {sid}", timeout=20, since=max(0, since - 40))
+            except TimeoutError:
+                self.beat(f"{sid} starts", t0, self.now(), False, "never started")
+                break
+            await asyncio.sleep(1.0)  # the step-start spotlight / setup card land
+            rec = {"step": sid, "title": step.get("title"), "instructions": started.get("instructions"),
+                   "details": (started.get("details") or "")[:200], "box": box_report(step, self.workdir),
+                   "spotlights": [p for _, ty, p in self.events[since:] if ty == "spotlight"],
+                   "cards_at_start": [{k2: p.get(k2) for k2 in ("kind", "title", "body")} for _, ty, p in self.events[since:]
+                                      if ty == "card"]}
+            run_cmd = rec["box"]["run_command"]
+            f = self.workdir / (step.get("file") or "calculator.py")
+            passed, how = False, []
+            if not run_cmd and (step.get("code") or "").strip():  # type step
+                tt = self.now()
+                f.write_text(_type_into(f.read_text() if f.exists() else "", step["code"]))
+                await asyncio.sleep(1.0)
+                how.append("typed")
+                verdict, ev, dt = await self._check(sid)
+                how.append(f"Check → {verdict}" + (f" {ev.get('title')!r}: {ev.get('body')!r}" if verdict == "card" else ""))
+                passed = verdict == "passed"
+                self.beat(f"{sid} type → Check", tt, self.now(), passed, how[-1][:150])
+            if not passed:  # a run (the run step itself, or a type step whose checks also want a run)
+                stdin = _stdin_for(step)
+                script = (run_cmd or step.get("run_command") or f"python {f.name}").replace("python ", "python3 ", 1)
+                argv = ["bash", "-c", f"printf '{stdin}' | {script}"] if stdin else script.split()
+                tr, te, code, out = await self.tut_run(argv, timeout=30)
+                how.append(f"tut run {' '.join(argv)[:60]!r} → exit {code}, out {out.splitlines()[:1]!r}")
+                try:
+                    await self.expect(lambda ty, p: ty == "step.passed" and p.get("stepId") == sid, f"{sid} passes",
+                                      timeout=4, since=since)
+                    passed = True
+                except TimeoutError:
+                    verdict, ev, dt = await self._check(sid)
+                    how.append(f"Check → {verdict}" + (f" {ev.get('title')!r}: {ev.get('body')!r}" if verdict == "card" else ""))
+                    passed = verdict == "passed"
+                self.beat(f"{sid} run{' step' if run_cmd else ''} → green", tr, self.now(), passed, how[-1][:150])
+            if not passed:
+                await self.send("action", {"kind": "skip_step"})
+                how.append("skipped")
+            rec.update(passed=passed, how=how, seconds=round(self.now() - t0, 2))
+            self.steps_out.append(rec)
+            self.cursor = len(self.events)
+
+
 # --------------------------------------------------------------------------- main
 
 
 async def rehearse_once(i: int, args, scratch: Path) -> dict:
     base = scratch / f"take-{i}-{int(time.time())}"
     base.mkdir(parents=True)
-    wd = make_workdir(base, args.steps, "0.3")
+    teach = args.path == "teach"
+    wd = (base / "lessons") if teach else make_workdir(base, args.steps, "0.3")
     extra = dict(kv.split("=", 1) for kv in args.env)
     env = engine_env(args.port, wd, demo=args.demo, offline=args.offline, extra=extra)
+    if teach:  # S2 makes the lesson folder under the take, and DEMO=1 serves the newest cached "lesson"-mode lesson
+        wd.mkdir()
+        env.update({"MIYAGI_LESSONS_DIR": str(wd), "MIYAGI_LESSONS": str(wd)})
+        env.pop("ORCH_LESSON", None)
+        if TEACH_LESSON.exists():
+            os.utime(TEACH_LESSON)
+        if args.teach_starter:  # S2 never replaces existing files: the stage folder starts like Michael's live run
+            folder = teach_folder(wd)
+            folder.mkdir(parents=True)
+            for name, text in TEACH_STARTER.items():
+                (folder / name).write_text(text)
     if not args.real_spool:  # Tiger still spools (that's what we test), but into the take's folder: a rehearsal
         env["TUT_SPOOL_DIR"] = str(base / "tiger-spool")  # must never upload into the team's real Tiger stats
     run_env = {k: env[k] for k in ("TIGER_DATABASE_URL", "TUT_SPOOL_DIR") if k in env}
@@ -608,7 +815,10 @@ async def rehearse_once(i: int, args, scratch: Path) -> dict:
     try:
         async with httpx.AsyncClient() as c:
             health = (await c.get(f"http://127.0.0.1:{args.port}/health")).json()
-        take = Take(args.port, wd, fix=args.fix, verbose=args.verbose, timeout=args.timeout, pick_after=args.pick_after)
+        if teach:
+            take = TeachTake(args.port, wd, fix=args.fix, verbose=args.verbose, timeout=args.timeout, max_steps=args.teach_steps)
+        else:
+            take = Take(args.port, wd, fix=args.fix, verbose=args.verbose, timeout=args.timeout, pick_after=args.pick_after)
         res = await take.run(run_env)
     finally:
         eng.stop()
@@ -622,6 +832,14 @@ async def rehearse_once(i: int, args, scratch: Path) -> dict:
     print(f"  take {i}: {'PASS' if ok else 'FAIL'} in {res['total_s']:.1f}s")
     for n in res["notes"]:
         print(f"    · {n}")
+    for st in res.get("teach_steps", []):
+        b = st["box"]
+        print(f"    {st['step']} {st['title']!r}: {b['kind']}; box target {b.get('target')!r} → engine line "
+              f"{b.get('engine_line')} / literal line {b.get('literal_line')} of {b.get('file_lines')}; "
+              f"{'PASS' if st['passed'] else 'SKIPPED'} in {st['seconds']}s")
+        print(f"       instructions: {st['instructions']!r}")
+        print(f"       caption: {b.get('caption')!r}")
+        print(f"       how: {st['how']}")
     return res
 
 
@@ -631,6 +849,11 @@ def main() -> int:
     ap.add_argument("--runs", type=int, default=1)
     ap.add_argument("--demo", action="store_true", help="DEMO=1 engine (demo/cache + canned stubs)")
     ap.add_argument("--offline", action="store_true", help="external APIs unreachable (bad keys, dead proxy, Tiger black-holed)")
+    ap.add_argument("--path", choices=["hero", "teach"], default="hero",
+                    help="hero: the PINN video lesson; teach: \"Just teach me\" (no video, cached text lesson, DEMO=1)")
+    ap.add_argument("--teach-steps", type=int, default=0, help="with --path teach: stop after N steps (0 = all)")
+    ap.add_argument("--no-teach-starter", dest="teach_starter", action="store_false",
+                    help="with --path teach: don't pre-seed the lesson folder with the live run's calculator.py starter")
     ap.add_argument("--real-spool", action="store_true",
                     help="spool Tiger data to ~/.miyagi/tiger-spool (uploaded to the real Tiger later); default: the take's folder")
     ap.add_argument("--real-inputs", action="store_true",
