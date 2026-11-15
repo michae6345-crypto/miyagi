@@ -33,7 +33,7 @@ import { BODY_LINES, Clamp, HEADLINE_LINES } from './Clamp'
 import { Evidence, useHasEvidence } from './Evidence'
 import { shortEditor, useFitLevel } from './fit'
 import { isEditor, useFrontApp } from './front'
-import { act, cardAct, jumpTo, SUCCESS_MS, useCards, useOverlayWidth, useSeries, type CardAction, type Install } from './store'
+import { act, cardAct, installAll, installable, itemDone, jumpTo, SUCCESS_MS, useCards, useOverlayWidth, useSeries, type CardAction, type Install } from './store'
 
 /** Layout C: about 620 wide; below NARROW (a small display) the two columns stack. */
 const OFFTRACK_MAX = 620
@@ -638,43 +638,43 @@ function QuietLink({ label, onClick }: { label: string; onClick: () => void }): 
  */
 function SetupItems({ setup, lead }: { setup: NonNullable<EngineCard['setup']>; lead?: boolean }): ReactNode {
   const installs = useCards((s) => s.installs)
+  // Install all's run (store installAll): the rows still to go, in row order. It lives in the store, so a re-sent or
+  // re-mounted card keeps it going.
+  const queue = useCards((s) => s.queue)
+  // Rows come in a steady order (store steadySetup: by first appearance; an installed row stays as a check).
   const items = setup.items.filter((x) => x.needed)
-  // Desktop test 9, A8: one "Install all" when two or more rows need a package install. It runs them one after
-  // another through the same per-row action (install {text: tool}); a failed row keeps its Retry and the run moves on.
-  const installable = items.filter((x) => !x.ok && x.install.method !== 'none' && x.install.method !== 'download' && x.install.method !== 'open')
-  const [queue, setQueue] = useState<string[]>([])
-  const busy = items.some((x) => installs[x.tool]?.running)
-  useEffect(() => {
-    if (busy || queue.length === 0) return
-    const [next, ...rest] = queue
-    setQueue(rest)
-    const x = items.find((y) => y.tool === next)
-    if (x && !x.ok) cardAct('install', x.tool)
-  }, [busy, queue, items])
   if (items.length === 0) return null
-  const all = installable.length >= 2
-  const allRunning = queue.length > 0 || (all && busy)
-  // One white primary per surface: with Install all, every row's button stays quiet.
-  const first = lead && !all ? items.find((x) => !x.ok && !installs[x.tool]?.running && x.install.method !== 'none') : undefined
+  // Desktop test 9, A8: one "Install all" (the card's one white primary) when two or more rows need a package
+  // install; it stays put while its run goes on. A single missing row keeps its own Install as the primary.
+  const all = installable(items, installs).length >= 2 || !!queue
+  const first = lead && !all ? items.find((x) => !itemDone(x, installs) && !installs[x.tool]?.running && x.install.method !== 'none') : undefined
   return (
     <div className="mt-[12px] flex flex-col gap-[6px] text-[13px]">
       {items.map((x) => {
+        const done = itemDone(x, installs)
         const run = x.ok ? undefined : installs[x.tool]
-        const detail = x.ok ? x.version : run?.running ? (run.line ?? 'Installing…') : (run?.error ?? x.why)
+        const waiting = !done && !run?.running && !!queue?.tools.includes(x.tool)
+        // Until the first progress line, the reason stays (the slot already says "Installing…").
+        const detail = done ? (x.version ?? run?.version) : run?.running ? (run.line ?? x.why) : (run?.error ?? x.why)
         return (
-          // A8: every row is exactly 34 px (two 16 px detail lines fit) and the button sits in a fixed 104 px slot, so
-          // nothing moves while a row installs: the next Install stays where the cursor is.
-          <div key={x.tool} className="flex h-[34px] items-center gap-[8px] overflow-hidden">
-            <span style={{ color: x.ok ? color.text : color.faint }}>{x.ok ? <Check size={13} /> : '·'}</span>
+          // A8: every row is exactly 34 px (two 16 px detail lines fit), the mark sits in a fixed 13 px column and the
+          // button in a fixed 104 px slot, so nothing moves while a row installs: the next Install stays under the cursor.
+          <div key={x.tool} data-setup-row={x.tool} className="flex h-[34px] items-center gap-[8px] overflow-hidden">
+            <span className="flex w-[13px] shrink-0 justify-center" style={{ color: done ? color.text : color.faint }}>{done ? <Check size={13} /> : '·'}</span>
             <span className="truncate">{x.label}</span>
             {/* The reason wraps to two lines instead of being cut off (A17). */}
             <span className="line-clamp-2 min-w-0 flex-1 text-[12px] leading-[16px]" style={{ color: run?.error ? color.text : color.faint }} title={detail}>
               {detail}
             </span>
             <span className="flex w-[104px] shrink-0 justify-end">
-              {!x.ok && run?.running && (
+              {!done && run?.running && (
                 <span className="flex h-[30px] items-center gap-[6px] px-[9px] text-[12px] font-medium" style={{ color: color.faint }} aria-disabled>
                   <Spinner size={12} c={color.faint} /> Installing…
+                </span>
+              )}
+              {waiting && (
+                <span className="flex h-[30px] items-center px-[9px] text-[12px] font-medium" style={{ color: color.faint }} aria-disabled>
+                  Waiting
                 </span>
               )}
               {x === first && (
@@ -684,10 +684,11 @@ function SetupItems({ setup, lead }: { setup: NonNullable<EngineCard['setup']>; 
                   onClick={() => itemAct(x)}
                 />
               )}
-              {x !== first && !x.ok && !run?.running && x.install.method !== 'none' && (
+              {x !== first && !done && !run?.running && !waiting && x.install.method !== 'none' && (
                 <button
                   className="flex cursor-pointer items-center gap-[5px] rounded-full px-[10px] py-[3px] text-[12px] font-medium"
                   style={{ background: fill.button, color: color.text }}
+                  onMouseDown={(e) => e.preventDefault()}
                   onClick={() => itemAct(x)}
                 >
                   {x.install.method === 'download' || x.install.method === 'open' ? <ExternalLink size={12} /> : <Download size={12} />}{' '}
@@ -700,12 +701,12 @@ function SetupItems({ setup, lead }: { setup: NonNullable<EngineCard['setup']>; 
       })}
       {all && (
         <div className="mt-[4px] flex h-[30px] justify-end">
-          {allRunning ? (
+          {queue ? (
             <span className="flex h-[30px] items-center gap-[6px] px-[9px] text-[12px] font-medium" style={{ color: color.faint }} aria-disabled>
               <Spinner size={12} c={color.faint} /> Installing all…
             </span>
           ) : (
-            <PrimaryButton label="Install all" icon={Download} onClick={() => setQueue(installable.map((x) => x.tool))} />
+            <PrimaryButton label="Install all" icon={Download} onClick={installAll} />
           )}
         </div>
       )}
