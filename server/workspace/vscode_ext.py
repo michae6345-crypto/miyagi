@@ -127,6 +127,12 @@ def windows(timeout: float = TIMEOUT_S) -> list[dict]:
     return sorted(wins, key=lambda w: (bool(w.get("windowFocused")), w.get("lastFocusedAt") or 0), reverse=True)
 
 
+def window_state(port: int, timeout: float = TIMEOUT_S) -> dict | None:
+    """The /state of exactly the window on `port` (a windows() entry's port; no scan of every port), or None."""
+    st = _call(int(port), "GET", "/state", timeout=timeout)
+    return st if st and st.get("app") == "vscode" and st.get("port") else None
+
+
 def available() -> bool:
     return bool(windows())
 

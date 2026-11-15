@@ -45,6 +45,7 @@ from . import spot_lines  # t5: which editor line a lesson box goes on
 from . import typo_card  # Nov 15: terminal-command typos on run steps, no model call
 from . import ui_targets  # t6: VS Code's real controls (AX) boxed: Terminal, save, open the file, ...
 from . import start_hold  # t6: the Before-you-start hold gates checks only; the step's line on screen
+from . import box_follow  # t7: the type box waits for the step start's jump, then follows every scroll
 from .lesson_boxes import LessonBoxes
 from . import quiet_save  # Nov 15: no ⌘S chores, ~1 s freshness, one "You already did" card instead of a cascade
 
@@ -1775,6 +1776,8 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
         (_start_box; Haiku only refines it), and no box replaces the off-track card's box while that card is up."""
         if getattr(self, "_lesson_spot_gen", None) == gen or self._spot_frozen():
             return
+        if box_follow.hidden(self, getattr(self, "_insert_at", None)):
+            return  # t7: the learner scrolled the step's row away: it comes back with the row (box_follow), no jump
         self._lesson_spot_gen = gen
         try:
             await self._lesson_spot_once(gen, step, tries)
@@ -2400,6 +2403,7 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
             self._spawn(self._prefetch_diagram(self.step_gen, step), timer=True)
         if self.workspace is not None and self.editor_open:  # `code -g` would itself launch VS Code
             self.workspace.goto_target(self.workdir, step, missing="end" if self.lesson_mode else "first")
+            box_follow.jumped(self, step)  # t7: the step's first box waits for that jump to land
             if self.lesson_mode:  # L2: that jump needs VS Code in front; the extension shows the step's file anyway
                 self._spawn(self._show_step_file(step), timer=True)
                 self._spawn(ui_targets.watch_file(self, self.step_gen, step), timer=True)  # t6: else "Click nn.py"
@@ -3911,7 +3915,9 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
         anchor, cap = self._offtrack_anchor(step, full)
         cap = cap if self.lesson_mode else ""  # "Change to …" where the step's code is on show; a video keeps its title
         title = self._plain(full.get("title")) or "Look here"  # no markdown on the box (E10)
-        spot = self._locate(re.escape(anchor), None, cap or title) if anchor else None
+        spot = await box_follow.diagnosis_spot(self, step, anchor, cap or title) if self.lesson_mode else None  # t7
+        if spot is None:  # (the file's row, scrolled into view; else OCR of the line on screen)
+            spot = self._locate(re.escape(anchor), None, cap or title) if anchor else None
         if spot is None and full.get("targets"):  # the coach pointed at screen boxes (set-of-mark): one ON that line
             import difflib
 

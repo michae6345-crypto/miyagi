@@ -39,14 +39,14 @@ has focus. Change it under Keyboard Shortcuts → "Miyagi: Explain this".
 Package the `.vsix` (`.vscodeignore` keeps the tests out) and install it:
 
 ```bash
-cd vscode-ext && npx @vscode/vsce@3.2.1 package --allow-missing-repository --skip-license --no-dependencies -o dist/miyagi-companion-0.0.4.vsix
-"/Applications/Visual Studio Code.app/Contents/Resources/app/bin/code" --install-extension dist/miyagi-companion-0.0.4.vsix --force
+cd vscode-ext && npx @vscode/vsce@3.2.1 package --allow-missing-repository --skip-license --no-dependencies -o dist/miyagi-companion-0.0.5.vsix
+"/Applications/Visual Studio Code.app/Contents/Resources/app/bin/code" --install-extension dist/miyagi-companion-0.0.5.vsix --force
 ```
 
 Or, from the repo root, copy the folder into VS Code's extensions folder:
 
 ```bash
-rm -rf ~/.vscode/extensions/miyagi.companion-0.0.* && cp -R vscode-ext ~/.vscode/extensions/miyagi.companion-0.0.4
+rm -rf ~/.vscode/extensions/miyagi.companion-0.0.* && cp -R vscode-ext ~/.vscode/extensions/miyagi.companion-0.0.5
 ```
 
 Then reload each open VS Code window: **Cmd+Shift+P → "Developer: Reload Window"**. To check it:
@@ -111,7 +111,7 @@ finishes, and its result is posted as an `action_done` event. The engine's clien
 
 ```jsonc
 {
-  "ok": true, "app": "vscode", "extension": "0.0.4", "vscodeVersion": "1.146.0", "pid": 123, "port": 8791,
+  "ok": true, "app": "vscode", "extension": "0.0.5", "vscodeVersion": "1.146.0", "pid": 123, "port": 8791,
   "folders": ["/Users/me/miyagi/lessons/python-calculator-e430dc"], "workspaceName": "python-calculator-e430dc",
   "file": "/Users/me/miyagi/lessons/python-calculator-e430dc/calculator.py", "relPath": "calculator.py",
   "dirty": true, "languageId": "python", "lineCount": 4,
@@ -147,6 +147,7 @@ The extension makes a best-effort `POST <miyagi.engineUrl>/vscode/event` (defaul
 | `dirty` | `file, dirty, languageId` | A buffer became dirty or clean (flips only, not every keystroke) |
 | `save` | `file, languageId` | A file was saved |
 | `focus` | `focused` | The window gained or lost focus |
+| `visible` | `file, lineCount, visibleRanges` | The active editor scrolled or its line count changed (80 ms debounce, only when one of them really changed). 0.0.5: the engine's type box follows its row at once (`server/orchestrator/box_follow.py`); an older extension: the engine reads `/state` instead |
 | `terminal` | `opened` or `closed` (a name) | A terminal was opened or closed |
 | `command_start` | `command` | A command started (needs shell integration) |
 | `command_end` | `command` (with `exitCode` and `outputTail`) | A command ended (needs shell integration) |

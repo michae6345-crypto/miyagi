@@ -87,6 +87,7 @@ function createFakeVscode({ folders = [], config = {}, shellApi = true, openDela
   const decorationTypes = [];
   const ev = {
     activeEditor: new EventEmitter(), visibleEditors: new EventEmitter(), windowState: new EventEmitter(),
+    visibleRanges: new EventEmitter(),
     openTerminal: new EventEmitter(), closeTerminal: new EventEmitter(),
     shellStart: new EventEmitter(), shellEnd: new EventEmitter(),
   };
@@ -110,6 +111,7 @@ function createFakeVscode({ folders = [], config = {}, shellApi = true, openDela
       onDidChangeActiveTextEditor: ev.activeEditor.event,
       onDidChangeVisibleTextEditors: ev.visibleEditors.event,
       onDidChangeWindowState: ev.windowState.event,
+      onDidChangeTextEditorVisibleRanges: ev.visibleRanges.event,
       onDidOpenTerminal: ev.openTerminal.event,
       onDidCloseTerminal: ev.closeTerminal.event,
       createOutputChannel: () => ({ lines: [], appendLine(l) { this.lines.push(l); }, dispose() {} }),

@@ -311,6 +311,25 @@ test('a slow action answers {pending} within the deadline and reports the result
   assert.equal(done.result.line, 2);
 });
 
+test('a scroll or a line-count change of the active editor posts one `visible` event (t7: the type box follows)', async (t) => {
+  const s = await setup(t);
+  await s.req('POST', '/open', { file: 'calculator.py', line: 3 });
+  const ed = s.vscode.window.activeTextEditor;
+  assert.ok(ed, 'an active editor');
+  ed.visibleRanges = [new s.vscode.Range(7, 0, 34, 0)];
+  s.ctl.ev.visibleRanges.fire({ textEditor: ed, visibleRanges: ed.visibleRanges });
+  s.ctl.ev.visibleRanges.fire({ textEditor: ed, visibleRanges: ed.visibleRanges }); // debounced: one event
+  const ev = await waitFor(() => s.engine.events.find((e) => e.type === 'visible'));
+  assert.equal(ev.file, s.file);
+  assert.deepEqual(ev.visibleRanges, [{ startLine: 8, endLine: 35 }]);
+  assert.equal(ev.lineCount, ed.document.lineCount);
+  assert.deepEqual(ev.folders, [s.dir]);
+  await new Promise((r) => setTimeout(r, 150));
+  s.ctl.ev.visibleRanges.fire({ textEditor: ed, visibleRanges: ed.visibleRanges }); // the same view again: no event
+  await new Promise((r) => setTimeout(r, 150));
+  assert.equal(s.engine.events.filter((e) => e.type === 'visible').length, 1);
+});
+
 test('window focus and dirty flips post events; the status command reports the port without a toast', async (t) => {
   const s = await setup(t);
   s.ctl.ev.windowState.fire({ focused: false });

@@ -12,11 +12,12 @@ const os = require('os');
 const path = require('path');
 const vscode = require('vscode');
 
-const VERSION = '0.0.4';
+const VERSION = '0.0.5';
 const DEFAULT_PORT = 8791;
 const PORT_SPAN = 9;
 const ACTION_DEADLINE_MS = 250; // the engine's client gives up after 300 ms
 const EVENT_TIMEOUT_MS = 300;
+const VISIBLE_DEBOUNCE_MS = 80; // `visible`: the engine's type box follows a scroll within ~0.2 s (t7)
 const MAX_BODY = 4 * 1024 * 1024;
 const TAIL_CHARS = 16000;
 const TAIL_LINES = 40;
@@ -41,6 +42,8 @@ const S = {
   proposedEmitter: null,
   dirty: new Map(), // document key -> last isDirty seen
   editorTimer: null,
+  visibleTimer: null,
+  visibleKey: null, // file|ranges|lineCount of the last `visible` event
   lastExplain: null, // {text, at} of the last "Miyagi: Explain this" press
   log: null,
 };
@@ -730,6 +733,8 @@ function onCommandEnd(e) {
 function onDocChange(e) {
   const doc = e.document;
   const key = docKey(doc);
+  const act = vscode.window.activeTextEditor;
+  if (act && act.document === doc) onVisible({ textEditor: act }); // the line count may have changed (a paste, a reload)
   const was = S.dirty.get(key);
   if (was === !!doc.isDirty) return;
   S.dirty.set(key, !!doc.isDirty);
@@ -745,6 +750,28 @@ function onSave(doc) {
 function onEditor() {
   clearTimeout(S.editorTimer);
   S.editorTimer = setTimeout(() => postEvent('editor', editorPayload()), 120);
+}
+
+function visiblePayload() {
+  const ed = vscode.window.activeTextEditor;
+  const doc = ed && ed.document;
+  return { file: doc ? docKey(doc) : null, lineCount: doc ? doc.lineCount : 0,
+    visibleRanges: ed ? ed.visibleRanges.map((r) => ({ startLine: r.start.line + 1, endLine: r.end.line + 1 })) : [] };
+}
+
+// t7: the active editor scrolled or its line count changed -> `visible` (80 ms debounce; only real changes), so the
+// engine's "Type it here" box follows its row at once instead of on its next screen frame.
+function onVisible(e) {
+  const ed = e && e.textEditor;
+  if (!ed || ed !== vscode.window.activeTextEditor) return;
+  clearTimeout(S.visibleTimer);
+  S.visibleTimer = setTimeout(() => {
+    const p = visiblePayload();
+    const key = `${p.file}|${p.visibleRanges.map((r) => `${r.startLine}-${r.endLine}`).join(',')}|${p.lineCount}`;
+    if (key === S.visibleKey) return;
+    S.visibleKey = key;
+    postEvent('visible', p);
+  }, VISIBLE_DEBOUNCE_MS);
 }
 
 function onWindowState(st) {
@@ -836,6 +863,7 @@ async function activate(context) {
   subs.push(w.onDidChangeActiveTextEditor(onEditor));
   subs.push(w.onDidChangeVisibleTextEditors((eds) => { if (S.highlight) for (const ed of eds) paintHighlight(ed); }));
   subs.push(w.onDidChangeWindowState(onWindowState));
+  if (typeof w.onDidChangeTextEditorVisibleRanges === 'function') subs.push(w.onDidChangeTextEditorVisibleRanges(onVisible));
   subs.push(ws.onDidSaveTextDocument(onSave));
   subs.push(ws.onDidChangeTextDocument(onDocChange));
   if (typeof w.onDidOpenTerminal === 'function') subs.push(w.onDidOpenTerminal((t) => postEvent('terminal', { opened: t.name })));
@@ -873,7 +901,8 @@ function deactivate() {
     }
   }
   clearTimeout(S.editorTimer);
-  Object.assign(S, { port: null, decorations: null, highlight: null, lastCommand: null, running: new Map(),
+  clearTimeout(S.visibleTimer);
+  Object.assign(S, { visibleKey: null, port: null, decorations: null, highlight: null, lastCommand: null, running: new Map(),
     proposed: new Map(), dirty: new Map(), lastFocusedAt: 0 });
 }
 

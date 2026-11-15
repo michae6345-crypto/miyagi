@@ -356,6 +356,10 @@ async def vscode_event(body: dict = Body(...)) -> dict:
         from . import typo_card
 
         engine.session._spawn(typo_card.on_vscode_event(engine.session, item))
+    if body.get("type") == "visible":  # t7: the editor scrolled (companion 0.0.5): the type box follows its row now
+        from . import box_follow
+
+        box_follow.on_visible(engine.session, item)
     if body.get("type") == "explain_selection":  # "Miyagi: Explain this" -> an Explain card in the overlay (selection.py)
         from .selection import explain_from_vscode
 

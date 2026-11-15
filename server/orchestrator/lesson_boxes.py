@@ -16,6 +16,8 @@ The Haiku targeter "moved" the engine's boxes with confidence 0.7-0.85 every tim
   (_start_box) takes that row too (_start_line_box) and its Haiku refine obeys the same rule (_refine_start_box).
 - t6 (desktop test 6): _insert_follow keeps that box on its row when the editor scrolls under it (the step start's
   `code -g` jump lands ~0.5 s after the box); _run_ended drops the coach's box from the run before a new run's end.
+- t7 (desktop test 7): box_follow.py: the first box waits for that jump to land, then follows every scroll the
+  companion reports (~0.2 s), re-planned from the file, and goes while its row is off screen.
 
 A mixin: every method runs on the LessonSession (self._show_spot, self._code_progress, ...).
 """
@@ -26,7 +28,7 @@ import logging
 import re
 from pathlib import Path
 
-from . import spot_lines
+from . import box_follow, spot_lines
 
 log = logging.getLogger("orchestrator.session")
 
@@ -114,8 +116,8 @@ class LessonBoxes:
         """Nov 15: an insertion box must never sit on the line above it (the section comment). When the comment's own
         text, OCR'd on screen, is inside the box (an Accessibility / gutter row one off), move the box one row down."""
         if spot is None or not above or getattr(self, "screen", None) is None \
-                or getattr(self.screen, "reader", None) is None:
-            return spot
+                or getattr(self.screen, "reader", None) is None or not box_follow.fresh_ocr(self):
+            return spot  # t7: never an OCR frame from before the editor's last scroll
         txt = spot_lines.unique_text(lines, above)
         try:
             hit = self.screen.locate(re.escape(txt), "Code") if txt else None
@@ -134,35 +136,40 @@ class LessonBoxes:
     async def _insert_spot(self, step: dict, show_me: bool = False, plan: dict | None = None) -> dict | None:
         """t5 (d): the box at _insert_plan's row: "Type it here". When that row already holds code, or for Show me
         (never a dim over an empty row), the line above it: "Type below this line". None: not such a step, or the
-        row isn't on screen (gutter and OCR both missed; no model call here)."""
+        row isn't on screen (gutter and OCR both missed; no model call here). t7: a section comment's step boxes the
+        row under the comment for Show me too (t6 persona: Show me boxed `# The network` itself, its "Type below
+        this l..." caption clipped)."""
         plan = plan or self._insert_plan(step)
         if plan is None:
             return None
+        row = self._insert_row(step, plan, show_me)
+        spot = await self._row_box(step, *row)
+        if spot is not None and not show_me:
+            self._insert_at = (self.step_gen, row)  # t6: _insert_follow keeps the step's box on this row
+            self._insert_hidden = None
+            box_follow.start_watch(self)  # t7: and follows every scroll of the editor within ~0.2 s
+        return spot
+
+    def _insert_row(self, step: dict, plan: dict, show_me: bool = False) -> tuple:
+        """_insert_plan's row as _row_box takes it: (prog, caption, lines, above, below)."""
         p, lines, ins, above = plan["path"], plan["lines"], plan["ins"], plan["above"]
         if "new_line" in plan:  # Nov 15: a section comment's step: the row under it, never the comment itself
-            below = bool(above) and show_me
+            below = False  # t7: Show me too
         else:
             below = bool(above) and (show_me or (ins <= len(lines) and bool(lines[ins - 1].strip())))
         line, kind, cap = (above, "below", self.BELOW_CAPTION) if below else (ins, "insert", self.TYPE_CAPTION)
         if not below and plan.get("new_line"):
             cap = self.NEW_LINE_CAPTION  # that row holds the next section: the box marks the new line to open
         prog = {"path": p, "line": line, "kind": kind, "expect": lines[above - 1].strip() if above else ""}
-        row = (prog, cap, lines, above, below)
-        spot = await self._row_box(step, *row)
-        if spot is not None and not show_me:
-            self._insert_at = (self.step_gen, row)  # t6: _insert_follow keeps the step's box on this row
-            t = getattr(self, "_insert_recheck_task", None)
-            if t is None or t[0] != self.step_gen or t[1].done():
-                self._insert_recheck_task = (self.step_gen, self._spawn(self._insert_recheck(self.step_gen),
-                                                                        timer=True))
-        return spot
+        return prog, cap, lines, above, below
 
     async def _row_box(self, step: dict, prog: dict, cap: str, lines: list[str], above: int, below: bool,
                        jump: bool = True) -> dict | None:
         """_insert_spot's row on screen: Accessibility / the gutter (jump: scroll to it when it's off screen), else OCR
         of the unique line above; never on that line above. None: not on screen."""
         spot = await self._progress_spot(step, prog, caption=cap, jump=jump)
-        if spot is None and above and (txt := spot_lines.unique_text(lines, above)):
+        if spot is None and above and (jump or box_follow.fresh_ocr(self)) and (  # t7: a follow (jump=False)
+                txt := spot_lines.unique_text(lines, above)):  # never from a frame captured before the scroll
             spot = self._row_spot(step, txt, cap, prog, down=not below)  # the gutter missed (a short file)
         elif not below:
             spot = self._not_on_above(spot, lines, above)
@@ -185,7 +192,7 @@ class LessonBoxes:
         _progress_follow takes over once the step's code is in the file); never a jump (the learner's own scroll
         stays). One check at a time; a frame during one asks again after it."""
         at = getattr(self, "_insert_at", None)
-        if not self._insert_box_up(at):
+        if not (self._insert_box_up(at) or box_follow.hidden(self, at)):  # t7: or its row scrolled off screen
             return
         task = getattr(self, "_insert_follow_task", None)
         if task is not None and not task.done():
@@ -194,33 +201,8 @@ class LessonBoxes:
         self._insert_follow_again = False
         self._insert_follow_task = self._spawn(self._refollow_insert(self.step_gen, self.step), timer=True)
 
-    INSERT_RECHECK_S = (1.0, 2.5)  # t6: the step start's `code -g` jump lands ~0.5-1 s after the box goes up
-
-    async def _insert_recheck(self, gen: int) -> None:
-        """t6: _insert_follow once more after the step start's jump, frame or not (a static screen sends the next
-        frame only after the reader's max_age, 15 s)."""
-        for d in self.INSERT_RECHECK_S:
-            await asyncio.sleep(d)
-            if gen != self.step_gen or self.passed:
-                return
-            self._insert_follow()
-
     async def _refollow_insert(self, gen: int, step: dict) -> None:
-        while True:
-            at = getattr(self, "_insert_at", None)
-            if gen != self.step_gen or not self._insert_box_up(at) or self._code_progress(step) is not None \
-                    or self._fix_active():
-                return  # the step moved on, another box is up, or the typing / a fix decides the box now
-            spot = await self._row_box(step, *at[1], jump=False)
-            r, old = (spot or {}).get("rect"), self.spot_rect
-            if r and old and gen == self.step_gen and self._insert_box_up(at) \
-                    and abs(float(r["y"]) - float(old["y"])) > self.SPOT_MOVE_PX:
-                log.info("insertion box: line %s moved %+.0f pt on screen (a scroll); the box follows it (t6)",
-                         at[1][0]["line"], float(r["y"]) - float(old["y"]))
-                await self._show_spot(spot, steady=True, owner="step", verify=False)
-            if not getattr(self, "_insert_follow_again", False):
-                return
-            self._insert_follow_again = False
+        await box_follow.refollow(self, gen, step)  # t7: re-planned from the file, off screen -> no box, never a jump
 
     def _run_ended(self, run) -> None:
         """t6 (T6-CP10): a new run of the step ended (VS Code's command_end, _ext_run). The coach's box from the run
@@ -251,7 +233,13 @@ class LessonBoxes:
         _refine_start_box lets the targeter move only an insertion row, only LINE_MOVE_CONF sure, only onto an empty
         row outside every def / block. Test 5: step 3's start box was a fuzzy OCR hit of `return s * (1 - s)` (line
         24, inside sigmoid_slope), and Haiku moved step 6's right box (line 43) onto W2's line at 0.8.
-        -> placed (or already up)."""
+        -> placed (or already up). t7: after the step start's jump has landed (box_follow.settle)."""
+        await box_follow.settle(self, gen)
+        if gen != self.step_gen or self.passed:
+            return False
+        plan = self._insert_plan(step)  # the file as it is after the wait
+        if plan is None:
+            return False  # typing began meanwhile: _lesson_spot's progress box
         spot = await self._insert_spot(step, plan=plan)
         if spot is None or gen != self.step_gen or self.passed or self._offtrack_box() == "up" or self._fix_active():
             return False
@@ -432,12 +420,18 @@ class LessonBoxes:
             body = f"Start a new line under line {n} of {name}" + (f" (`{expect}`)" if expect else "") + \
                 " and type this step's code there."
         else:
-            title, body = f"Type on line {n}", f"Type this step's code on line {n} of {name}."
+            title = f"Type on line {n}"
+            body = f"Type this step's code on line {n} of {name}" + (f", under `{expect}`." if expect else ".")
+        card = {"stepId": step["id"], "kind": "answer", "title": title, "body": body, "actions": actions}
+        if kind in ("insert", "below") and (code := (step.get("code") or "").strip("\n")):
+            # t7 (t6 persona: "Show me ... shows no code"): the code that goes there, as the inserted lines under the
+            # line above (the app's unified diff: + lines white, context faint); Do it for me puts exactly this there
+            card["diff"] = "\n".join(([f" {meta.get('expect')}"] if meta.get("expect") else [])
+                                     + [f"+{ln}" for ln in code.split("\n")])
         if spot is not None:
             self._action_spot = True
             await self._show_spot(spot, owner="answer")
-        await self._emit_card({"stepId": step["id"], "kind": "answer", "title": title, "body": body,
-                               "actions": actions}, window_s=2.0)
+        await self._emit_card(card, window_s=2.0)
 
     def _fix_target(self, step: dict) -> dict | None:
         """_change_spot's line from the files alone: {path, line, kind, expect, caption[, yours]} or None."""
