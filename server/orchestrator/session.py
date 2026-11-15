@@ -3245,7 +3245,7 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
             self.m.cancel_coach()
 
     def learner_idle_s(self) -> float:
-        own = min(self.clock() - self.last_action_t, self.clock() - max(self.step_t0, self._go_t))  # t10: per step
+        own = self.clock() - self.last_action_t
         v = self._work_since("input")  # E5: a click in the Claude app / keys in Miyagi's ask box aren't lesson work
         return own if v is None else min(own, v)
 
@@ -3460,7 +3460,7 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
         await quiet_save.poll(self)  # Nov 15: the buffer changed -> re-graded now, not at the next 2-5 s scene look
         await scene_watch.tick(self)  # a Haiku glance at the screen every ~5 s during a step (scene_watch.py)
         if step is not None and not self.passed and not self.awaiting_resume:
-            if self.learner_started():  # t10: never before the learner does something on THIS step (was always true)
+            if self._go_t <= self.step_t0 or self.learner_started():  # after Continue: once they work again (E4)
                 self._maybe_judge(step)
             await self._maybe_stuck_card(step)
         if (step is None or self.passed or self.coaching or not self.last_failed or not self.engaged
@@ -6189,8 +6189,8 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
         """E5's StepJudge in the background: when the learner is idle and the deterministic checks can't tell
         (pending), Claude (Haiku) looks; gates (idle >= 8 s, <= 1 per 20 s, only on change) are E5's."""
         j = self.judge
-        if j is None or self._judging or not self.last_results or getattr(self, "_checking", 0):
-            return  # t10: never beside Check my work's own judge for this step
+        if j is None or self._judging or not self.last_results:
+            return
         screen, files, exact = self._judge_inputs(step)
         try:
             if not j.should_judge(step, [r for r in self.last_results if r.get("checkId") != f"{step['id']}-ran"],

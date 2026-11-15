@@ -74,10 +74,8 @@ class _State:
 
 
 class PeriodicGate:
-    def __init__(self, *, base_s: float = 20.0, cap_s: float = 300.0, stop_after: int = 3, clock: Callable[[], float] = time.monotonic,
-                 wake_on_screen: bool = True):
+    def __init__(self, *, base_s: float = 20.0, cap_s: float = 300.0, stop_after: int = 3, clock: Callable[[], float] = time.monotonic):
         self.base_s, self.cap_s, self.stop_after, self.clock = base_s, cap_s, stop_after, clock
-        self.wake_on_screen = wake_on_screen  # False (t10 scene looks): only `files` wakes a stopped key, never pixels
         self._s: dict[str, _State] = {}
 
     def _st(self, key: str) -> _State:
@@ -94,7 +92,7 @@ class PeriodicGate:
         if st.stopped:
             # stopped after 3 identical answers: only a save or a real screen change (an app switch,
             # >= 25% of lines) wakes it; a scrolling log or a ticking counter does not
-            if not files_changed and (not self.wake_on_screen or _distance(screen_lines(screen), st.lines) < WAKE_DISTANCE):
+            if not files_changed and _distance(screen_lines(screen), st.lines) < WAKE_DISTANCE:
                 return False
             st.stopped, st.same = False, 0
         if files_changed and st.last_t is not None:
