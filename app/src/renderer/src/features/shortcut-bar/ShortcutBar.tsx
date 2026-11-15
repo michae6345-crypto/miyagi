@@ -26,7 +26,7 @@ import { MiyagiMark } from '../../core/ui/Mark'
 import { actionTone, copy, glass, spring, type OptionAction } from '../../core/theme'
 import { useCards } from '../cards/store'
 import { useComplete } from '../complete/store'
-import { useDiagram } from '../diagrams/store'
+import { useDiagram, useUnseen } from '../diagrams/store'
 import { useLauncherOpen } from '../launcher/store'
 import { toggleVoice } from '../voice/store'
 import { Equalizer, useVoiceTile } from './Equalizer'
@@ -194,6 +194,8 @@ export function ShortcutBar({ bottom, dock = 0, lift = 0 }: { bottom: number; do
   const on = useLesson((x) => !!x.lesson) && !completing
   const hasStep = useLesson((x) => !!x.stepId)
   const diagramOpen = useDiagram((d) => d.open)
+  // The step has a diagram the learner hasn't opened: a small neutral dot on the Diagram tile (nothing opens by itself).
+  const diagramWaiting = useUnseen()
   const voice = useVoiceTile()
   const appearance = useAppearance()
   // Any shortcut (click, global key, stage key, launcher chip): the matching tile dips for 90 ms (press.ts).
@@ -272,6 +274,7 @@ export function ShortcutBar({ bottom, dock = 0, lift = 0 }: { bottom: number; do
                   busyKind={kind}
                   dip={pressed === kind}
                   lit={kind === 'diagram' && diagramOpen}
+                  dot={kind === 'diagram' && diagramWaiting}
                   pressed={kind === 'diagram' ? diagramOpen : kind === 'voice_toggle' ? voice.on : undefined}
                   glyph={voiceOn && voice.speaking ? <Equalizer tone={l.color} size={16} /> : undefined}
                   onClick={() => (kind === 'voice_toggle' ? toggleVoice() : triggerShortcut(kind))}

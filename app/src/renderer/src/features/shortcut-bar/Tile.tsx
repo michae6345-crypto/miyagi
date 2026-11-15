@@ -10,7 +10,7 @@ import { motion } from 'motion/react'
 import { useState, type ReactNode } from 'react'
 import type { LucideIcon } from 'lucide-react'
 import type { ActionKind } from '../../core/shortcuts'
-import { actionTone, color, fill, glass, type OptionAction } from '../../core/theme'
+import { actionTone, color, fill, glass, spring, type OptionAction } from '../../core/theme'
 import { Glyph } from './Busy'
 import { useAltHeld } from './keys'
 import { PRESS_MS, PRESS_SCALE } from './press'
@@ -49,6 +49,8 @@ type TileProps = {
   dip?: boolean
   /** Diagram open: the tile's button stays filled. */
   lit?: boolean
+  /** Something waits behind this tile (a diagram the step has, not opened yet): a small neutral dot, no glow. */
+  dot?: boolean
   /** Toggles (Diagram, Voice): aria-pressed. */
   pressed?: boolean
   expanded?: boolean
@@ -61,7 +63,7 @@ type TileProps = {
   onDown?: boolean
 }
 
-export function Tile({ label, icon: Icon, look: l, onClick, keycap, busyKind, dip, lit, pressed, expanded, disabled, title, glyph, onDown }: TileProps): ReactNode {
+export function Tile({ label, icon: Icon, look: l, onClick, keycap, busyKind, dip, lit, dot, pressed, expanded, disabled, title, glyph, onDown }: TileProps): ReactNode {
   const [hover, setHover] = useState(false)
   const alt = useAltHeld((a) => a.held)
   const inner = glyph ?? <Icon size={16} strokeWidth={1.8} />
@@ -81,7 +83,18 @@ export function Tile({ label, icon: Icon, look: l, onClick, keycap, busyKind, di
       onPointerDown={onDown && !disabled ? (e) => e.button === 0 && onClick() : undefined}
       onClick={onDown ? (e) => e.detail === 0 && onClick() : onClick}
     >
-      <span className="grid h-[28px] w-[28px] place-items-center rounded-[8px]" style={{ background: l.background, color: l.color }}>
+      <span className="relative grid h-[28px] w-[28px] place-items-center rounded-[8px]" style={{ background: l.background, color: l.color }}>
+        {dot && (
+          <motion.span
+            data-part="tile-dot"
+            aria-hidden
+            className="absolute -right-[3px] -top-[3px] h-[7px] w-[7px] rounded-full"
+            style={{ background: glass.text }}
+            initial={{ scale: 0, opacity: 0 }}
+            animate={{ scale: 1, opacity: 1 }}
+            transition={spring}
+          />
+        )}
         {busyKind ? (
           <Glyph kind={busyKind} tone={l.color} track={l.track} glass={l.glass} size={16}>
             {inner}

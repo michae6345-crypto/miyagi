@@ -14,7 +14,7 @@ import type { ReactNode } from 'react'
 import { Waypoints } from 'lucide-react'
 import { actionTone, color, fill } from '../../core/theme'
 import { CloseButton } from '../../core/ui/atoms'
-import { useDiagram } from './store'
+import { useDiagram, type DiagramPayload } from './store'
 import { Graph } from './Graph'
 import { NeuralNet, WEIGHT_NEG, WEIGHT_POS } from './NeuralNet'
 import { SafeDiagram } from './SafeDiagram'
@@ -38,17 +38,7 @@ export function DiagramView(): ReactNode {
         <CloseButton />
       </div>
       <div className="mt-[10px]">
-        <SafeDiagram resetKey={d.data}>
-        {d.kind === 'network' &&
-          ((d.data as Record<string, unknown>).frames ? (
-            isFiringNetwork(d.data as Record<string, unknown>) ? <Firing data={d.data as Record<string, unknown>} /> : <NeuralNet data={d.data as Record<string, unknown>} />
-          ) : (
-            <Network data={d.data as Record<string, unknown>} />
-          ))}
-        {d.kind === 'gradients' && <Gradients data={d.data as Record<string, unknown>} />}
-        {d.kind === 'heatmap' && <Heatmap data={d.data as HeatmapData} />}
-        {d.kind === 'graph' && <Graph data={d.data as GraphDiagramData} />}
-        </SafeDiagram>
+        <DiagramBody d={d} />
       </div>
       {/* Left-aligned under the left-aligned title (audit A23). */}
       {d.caption && (
@@ -60,6 +50,23 @@ export function DiagramView(): ReactNode {
         </div>
       )}
     </div>
+  )
+}
+
+/** The drawing itself, at the island's 600 px content width, in island (dark) ink. The drawer's flyout reuses it. */
+export function DiagramBody({ d }: { d: DiagramPayload }): ReactNode {
+  return (
+    <SafeDiagram resetKey={d.data}>
+      {d.kind === 'network' &&
+        ((d.data as Record<string, unknown>).frames ? (
+          isFiringNetwork(d.data as Record<string, unknown>) ? <Firing data={d.data as Record<string, unknown>} /> : <NeuralNet data={d.data as Record<string, unknown>} />
+        ) : (
+          <Network data={d.data as Record<string, unknown>} />
+        ))}
+      {d.kind === 'gradients' && <Gradients data={d.data as Record<string, unknown>} />}
+      {d.kind === 'heatmap' && <Heatmap data={d.data as HeatmapData} />}
+      {d.kind === 'graph' && <Graph data={d.data as GraphDiagramData} />}
+    </SafeDiagram>
   )
 }
 

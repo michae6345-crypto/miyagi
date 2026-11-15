@@ -19,7 +19,6 @@ import { AnimatePresence, motion } from 'motion/react'
 import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type PointerEvent as ReactPointerEvent, type ReactNode, type RefObject } from 'react'
 import { useShallow } from 'zustand/react/shallow'
 import { ArrowUpRight, ChevronsLeft, ChevronsRight, FileCode2, FileText, FolderGit2, Newspaper, X, type LucideIcon } from 'lucide-react'
-import { LiveNetSection } from './LiveNet'
 import type { Source, SourceKind, StepSummary } from '../../../../../../shared/contracts/events'
 import { builtByLabel, seekVideo, useLesson, useProgress, type CheckItem, type Rect } from '../../core/lesson'
 import { useAppearance } from '../../core/prefs'
@@ -240,7 +239,6 @@ export function Panel({ rect, side = 'right' }: { rect: Rect; side?: Side }): Re
         </div>
         {plan.known > 0 && <ProgressHeader plan={plan} />}
       </div>
-      <LiveNetSection />
       <div
         ref={scroller}
         className="relative min-h-0 flex-initial overflow-y-auto px-[8px] pb-[12px]"

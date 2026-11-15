@@ -13,7 +13,11 @@
  *
  * A run step (step.kind "run") tucks it to the "Steps" handle: the learner needs VS Code's Run button and the terminal,
  * both under the panel (Michael's test, Sun 2:56 AM). Pressing the handle shows it again for that step; the next step
- * puts it back as it was. The live network floats out meanwhile (runTuck.ts, FloatNet.tsx).
+ * puts it back as it was. Nothing floats out meanwhile: the Diagram button slides the flyout out of the handle's edge.
+ *
+ * The Diagram flyout (Flyout.tsx, Michael Nov 15 7 AM) slides out of the panel's inner edge, only when the learner
+ * presses Diagram; pushed diagrams wait for that (diagrams/store.ts). It replaced the drawer's network section and the
+ * free-floating network card (its corners, the remembered per-lesson spot, the drag-out).
  *
  * Left or right (Michael, Nov 15 5:45 AM): dragging the header sideways moves it to the other edge, and it stays there.
  * When the spotlight's target sits under it (its center inside the panel: the Run ▷ box, a button, never a whole-line
@@ -29,7 +33,8 @@ import { hole, intersects, toLocal } from '../spotlight/place'
 import { useSpotlight } from '../spotlight/store'
 import { ConceptPanel, Rail } from './Concept'
 import { Panel, Tab } from './Drawer'
-import { FloatNetLayer } from './FloatNet'
+import { useDiagram } from '../diagrams/store'
+import { Flyout } from './Flyout'
 import { conceptRects, panelRect, tabRect } from './geometry'
 import { Selectable, SelectionExplain } from './SelectionExplain'
 import { useRunTuck } from './runTuck'
@@ -67,8 +72,16 @@ function DrawerLayer({ layout }: { layout: Layout }): ReactNode {
   // A run step whose target the drawer already slid off (or never covered) stays out: no need to tuck it away.
   const tucked = !!runStep && !(center && !under(side))
   const showPanel = on && open && !yielding && !tucked
+  // The Diagram flyout: out of the panel's inner edge, or on a run step out of the tucked handle's edge. Drawn first,
+  // so the panel and the handle sit on top of the strip it tucks under them. Hidden (still open) while the drawer
+  // yields to the spotlight or shows a concept; it comes back with the drawer.
+  const flyout = useDiagram((s) => s.open && !!s.diagram)
+  const flyAt = !on || !flyout ? undefined : showPanel && !concept ? { anchor: panel, run: false } : tucked ? { anchor: tab, run: true } : undefined
   return (
     <>
+      <AnimatePresence>
+        {flyAt && <Flyout key={`flyout-${side}-${flyAt.run ? 'run' : 'panel'}`} layout={layout} side={side} anchor={flyAt.anchor} run={flyAt.run} />}
+      </AnimatePresence>
       <Tab rect={tab} shown={on && !showPanel && (!yielding || tucked)} labeled={lessonMode} onOpen={tucked && runStep ? () => peekDrawer(runStep) : undefined} />
       <Selectable>
         <AnimatePresence>
@@ -118,9 +131,4 @@ function useYield(reason: boolean): boolean {
   return reason || held
 }
 
-export default defineFeature({ id: 'drawer', overlayLayers: [
-    { id: 'drawer', z: 40, Component: DrawerLayer },
-    // The live network, dragged out of the drawer: over the drawer, under the island (z 50).
-    { id: 'drawer-net-float', z: 45, Component: FloatNetLayer }
-  ]
-})
+export default defineFeature({ id: 'drawer', overlayLayers: [{ id: 'drawer', z: 40, Component: DrawerLayer }] })

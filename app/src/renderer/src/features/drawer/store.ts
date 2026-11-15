@@ -78,16 +78,12 @@ onUi('reset', closeDrawer)
 // "Step N of M" and the step's instructions live (Michael, Sat 3:56 PM).
 onMessage('lesson.ready', (p) => useDrawer.setState({ open: startOpen || p.lesson.mode === 'lesson', concept: undefined, peekStep: undefined }))
 
-// The engine pushed the first live network for a step: open the drawer so it's seen (updates to the same step's
-// network never reopen it, so the learner's own "Hide steps" sticks).
+// A pushed diagram opens nothing (Michael, Nov 15 7 AM). The learner opened the Diagram flyout: it slides out of the
+// drawer's inner edge, so bring the drawer (as the full panel, not the concept rail) if it was closed.
 useDiagram.subscribe((s, prev) => {
-  if (!s.live || s.live === prev.live) return
-  if (prev.live && prev.live.step === s.live.step) return
-  useDrawer.setState({ open: true, concept: undefined })
-})
-// The learner asked for the diagram while the step has a live network: show the drawer (its panel unfolds itself).
-useDiagram.subscribe((s, prev) => {
-  if (s.liveFocus && s.liveFocus !== prev.liveFocus) useDrawer.setState({ open: true, concept: undefined })
+  if (!s.open || prev.open) return
+  const d = useDrawer.getState()
+  if (!d.open || d.concept) useDrawer.setState({ open: true, concept: undefined })
 })
 
 /** http(s) links only; anything else (file:, javascript:, a bare path) is ignored. */
