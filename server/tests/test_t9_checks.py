@@ -194,3 +194,21 @@ def test_v3_notebook_lessons_autosave(tmp_path):
     (tmp_path / ".vscode" / "settings.json").write_text(json.dumps({"files.autoSave": "off", "x": 1}))
     core.ensure_notebook_autosave(tmp_path)
     assert json.loads((tmp_path / ".vscode" / "settings.json").read_text()) == {"files.autoSave": "off", "x": 1}
+
+
+def test_v3_only_printed_results_are_output_checks():
+    """2b236a5 read s4c4 "Softmax output layer added" (a code check) as output-only: s4 could never pass."""
+    from server.checks.evaluator import is_output_check
+
+    out = {c["id"] for s in lesson()["steps"] for c in s.get("checks") or [] if is_output_check(c)}
+    assert out == {"s3c2", "s3c3", "s3c4", "s6c3", "s6c4", "s7c2", "s7c3"}, out
+    s4 = step("s4")
+    code = {"Code": ["model = models.Sequential([", "    layers.Flatten(input_shape=(28, 28, 1)),",
+                     "    layers.Dense(128, activation='relu'),", "    layers.Dense(10, activation='softmax')", "])"]}
+    res = by_id(evaluate_step(s4, RunContext(screen=code)))
+    assert res["s4c4"]["status"] == "pass" and evaluate_gate(s4, RunContext(screen=code))["passed"]
+    assert not is_output_check({"type": "screen_contains", "label": "Output layer uses softmax", "pattern": "softmax"})
+    assert not is_output_check({"type": "screen_contains", "label": "Loss printed", "pattern": r"print\(loss\)"})
+    assert is_output_check({"type": "screen_contains", "label": "Loss printed", "pattern": r"loss:\s*0\.\d+"})
+    assert is_output_check({"type": "screen_contains", "label": "Cell output shown", "pattern": r"60000"})
+    assert is_output_check({"type": "screen_contains", "label": "x", "pattern": r"model\.fit\(", "output": True})

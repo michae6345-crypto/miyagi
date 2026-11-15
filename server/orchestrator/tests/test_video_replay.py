@@ -384,12 +384,6 @@ def test_s3_passes_once_the_cell_ran(rp):
 
 
 # ------------------------------------------------------------------ s4-s7, and the video around every step
-S4_OUTPUT_LABEL = pytest.mark.xfail(strict=True, reason=(
-    "REGRESSION 2b236a5 (claude/t9-checks, V3 fix): is_output_check reads s4c4 'Softmax output layer added' as an "
-    "output check (label says 'output'), so s4 never passes on its code and the lesson stops at s4"))
-
-
-@S4_OUTPUT_LABEL
 @pytest.mark.parametrize("sid", ["s4", "s5", "s6", "s7"])
 def test_later_steps_pass_on_the_cell_and_its_output(rp, sid):
     async def go():
@@ -401,7 +395,6 @@ def test_later_steps_pass_on_the_cell_and_its_output(rp, sid):
     assert rp.passed(sid)
 
 
-@S4_OUTPUT_LABEL
 def test_the_whole_lesson_video_gates_and_resumes_in_order(rp):
     """All seven steps, the player reporting each clip's end before the learner's work: a step that plays its clip
     gets seek(start, play) + play after step.started, pause once the clip ends with checks still open, and nothing
