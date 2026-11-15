@@ -629,12 +629,14 @@ def test_demo_mode_falls_back_to_stubs(rig, monkeypatch, tmp_path):
     assert r2.of("offtrack")[0]["title"] != "Loss plateaued at large β"  # E5's own DEMO card, not the old stub
 
 
-def test_vscode_opens_only_after_the_learner_says_yes(tmp_path, monkeypatch):
+def test_coding_lesson_opens_vscode_by_itself_after_lesson_ready(tmp_path, monkeypatch):
+    """Michael: "it needs to open VS Code". A coding lesson with nothing missing opens the editor on its own
+    (after lesson.ready, no "Open…?" card) and jumps to the step's target."""
     monkeypatch.setenv("TUT_WORKDIR", str(tmp_path))
     from server.orchestrator import workspace as wsmod
     from server.orchestrator.workspace import Workspace
 
-    monkeypatch.setattr(wsmod, "requirements", lambda graph, folder: None)  # no S2 check: the plain offer
+    monkeypatch.setattr(wsmod, "requirements", lambda graph, folder: None)  # no S2 check (no key)
 
     calls = []
     ws = Workspace(enabled=True, runner=lambda argv: calls.append(argv) or True)
@@ -644,19 +646,41 @@ def test_vscode_opens_only_after_the_learner_says_yes(tmp_path, monkeypatch):
 
     async def go():
         await rig.start_lesson()
+        await asyncio.sleep(0.05)  # the setup check runs in the background
+        await rig.settle()
         await rig.s.goto_step(3)
         await rig.settle()
-        await asyncio.sleep(0.05)  # the setup card is computed in the background
-        assert not calls  # nothing opened, not even `code -g`
-        card = next(c for c in rig.of("card") if c["title"] != "Looks done?")
-        assert card["title"] == f"Open {wsmod.editor_label()}?" and card["actions"] == ["open_editor"]  # Cursor if installed
-        await rig.s.action("open_editor")
 
     run(go())
-    first = calls[0]  # S2's open_editor: `code -n <dir> [-g <file>]`, or `open -a "Visual Studio Code" <dir>`
+    first = calls[0]  # S2's open_editor: `code -n <dir> [-g <file>]` (bundled CLI if not on PATH), or `open -a`
     assert (first[1:3] == ["-n", str(tmp_path.resolve())]) or (first[:3] == ["open", "-a", "Visual Studio Code"])
+    assert rig.s.editor_open and not [c for c in rig.of("card") if (c.get("actions") or []) == ["open_editor"]]
+    assert rig.types().index("lesson.ready") < len(rig.types())  # opened after the lesson UI was up
     gotos = [c for c in calls if "-g" in c and "-n" not in c]
     assert gotos and gotos[-1][-1] == f"{tmp_path / 'pinn_convection.py'}:4"
+
+
+def test_setup_card_only_when_a_tool_is_missing(tmp_path, monkeypatch):
+    monkeypatch.setenv("TUT_WORKDIR", str(tmp_path))
+    from server.orchestrator import workspace as wsmod
+    from server.orchestrator.workspace import Workspace
+
+    items = [{"tool": "vscode", "label": "VS Code", "kind": "editor", "needed": True, "ok": True},
+             {"tool": "torch", "label": "PyTorch", "kind": "pip", "needed": True, "ok": False}]
+    monkeypatch.setattr(wsmod, "requirements", lambda graph, folder: items)
+    monkeypatch.setattr(wsmod, "setup_card", lambda its, resources=None: {"kind": "setup", "title": "Before you start",
+                                                                           "body": "PyTorch is missing", "actions": ["install"]})
+    calls = []
+    rig = Rig(tmp_path)
+    rig.s.workspace = Workspace(enabled=True, runner=lambda argv: calls.append(argv) or True)
+
+    async def go():
+        await rig.start_lesson()
+        await asyncio.sleep(0.05)
+        await rig.settle()
+
+    run(go())
+    assert [c for c in rig.of("card") if c["kind"] == "setup"] and not calls and not rig.s.editor_open
 
 
 def test_non_code_lesson_never_offers_vscode(tmp_path, monkeypatch):
@@ -2472,3 +2496,32 @@ def test_step_started_instructions_are_one_concrete_action(rig):
     run(go())
     st = rig.of("step.started")[0]
     assert st["instructions"] == "Create pinn_convection.py in your project folder." and "details" not in st
+
+
+def test_open_editor_without_code_on_path(tmp_path, monkeypatch):
+    """Michael's Mac has no `code` on PATH: the app's bundled CLI is used, and if the CLI fails the folder still
+    opens with `open -a "Visual Studio Code" <folder>`."""
+    import sys
+
+    from server.workspace import editor as ed
+
+    fake_cli = tmp_path / "code"
+    fake_cli.write_text("#!/bin/sh\n")
+    monkeypatch.setattr(ed.shutil, "which", lambda name: None)
+    monkeypatch.setitem(ed.EDITORS["vscode"], "bundled_cli", str(fake_cli))
+    assert ed._cli(ed.EDITORS["vscode"]) == str(fake_cli)
+
+    monkeypatch.setattr(sys, "platform", "darwin")
+    folder = tmp_path / "lesson"
+    folder.mkdir()
+    vscode = {"id": "vscode", "label": "Visual Studio Code", "app": "Visual Studio Code", "cli": str(fake_cli)}
+    calls = []
+
+    def runner(argv):  # the CLI fails (exit != 0); `open -a` works
+        calls.append(argv)
+        return argv[0] == "open"
+
+    rep = ed.open_editor_report(folder, editor=vscode, runner=runner, arrange_windows=False, trusted=lambda: False,
+                                previous={})
+    assert rep["opened"] and calls[0][:2] == [str(fake_cli), "-n"]
+    assert calls[1] == ["open", "-a", "Visual Studio Code", str(folder.resolve())]

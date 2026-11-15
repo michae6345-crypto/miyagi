@@ -423,21 +423,41 @@ class LessonSession:
                 await self.emit("card", card)
             await self._maybe_pass_setup_step()
             return
+        coding = not self.notebook_lesson and (wsmod.editor_needed(items) if items else wsmod.needs_editor(graph))
         if items:  # S2: what this lesson needs, what's installed, install recipes (+ "Download tutorial files")
             self.reqs = items
-            card = wsmod.setup_card(items, resources=found)
-            if card:
-                self._setup_card = card
-                await self.emit("card", card)
+            missing = [it for it in items if it.get("needed") and not it.get("ok")]
+            if coding and not missing:  # everything's here: open the editor now, no "Ready to go… Open?" card
+                await self._auto_open_editor(folder)
+                if found:  # keep the video's files one tap away
+                    await self.emit("card", {"kind": "hint", "title": "Tutorial files",
+                                             "body": f"The video links {len(found)} file(s). Save them in your lesson folder?",
+                                             "actions": ["download"]})
+            else:  # something is missing: the setup card (install buttons)
+                card = wsmod.setup_card(items, resources=found)
+                if card:
+                    self._setup_card = card
+                    await self.emit("card", card)
             await self._maybe_pass_setup_step()  # an install step for tools that are already here
             return
-        # no setup check available (module missing, no key): a plain offer, only for editor lessons
-        if not wsmod.needs_editor(graph):
+        if coding:  # no setup check available (module missing, no key): a coding lesson opens its editor
+            await self._auto_open_editor(folder)
+
+    async def _auto_open_editor(self, folder: str) -> None:
+        """Coding lesson, nothing missing: open the learner's editor on the lesson folder (S2: VS Code first, the
+        left part of the screen so the player docked on the right stays visible). Runs after lesson.ready and
+        waits out typing, so it never steals focus mid-keystroke."""
+        if self.workspace is None or self.editor_open:
             return
-        label = wsmod.editor_label()  # S2: Cursor when that's the learner's editor
-        await self.emit("card", {"kind": "hint", "title": f"Open {label}?",
-                                 "body": f"This lesson works in {label}. Open the {Path(folder).name} folder there?",
-                                 "actions": ["open_editor"]})
+        for _ in range(20):  # up to ~10 s
+            if not self.typing():
+                break
+            await asyncio.sleep(0.5)
+        await asyncio.to_thread(self.workspace.open, folder, True)
+        self.editor_open = True
+        self._record("editor_opened", {"auto": True, "folder": Path(folder).name})
+        if self.step is not None:
+            await asyncio.to_thread(self.workspace.goto_target, self.workdir, self.step)
 
     async def _open_in_browser(self, tool: str) -> None:
         """Open a no-code lesson's web app (the learner pressed its button). Only the lesson's own https URLs."""
