@@ -265,3 +265,53 @@ def test_work_ends_the_before_you_start_hold(rig):
         assert passed(rig) == ["nn1"]
         assert not rig.s.awaiting_start, f"still held (was held: {held})"
     run(go())
+
+
+SIGN_BUG = "    d_h1 = d_h2 @ W2.T * (1 + h1 ** 2)" + chr(10)
+
+
+def test_the_planted_sign_bug_is_the_not_yet(rig):
+    async def go():
+        await rig.s.learn("build a neural network", mode="demo")
+        await settle(rig)
+        await save(rig, RANDOM)
+        await save(rig, "# Backprop" + chr(10) + SIGN_BUG)
+        await save(rig, chr(10))
+        assert rig.s.step["id"] == "nn4"
+        line = (rig.workdir / "nn.py").read_text().splitlines().index(SIGN_BUG.rstrip(chr(10))) + 1
+        await rig.s.action("run_command")
+        await settle(rig)
+        off = rig.of("offtrack")
+        assert off and off[-1]["title"] == "Wrong sign in tanh slope"
+        assert f"line {line}" in off[-1]["body"] and off[-1]["diff"]["line"] == line
+        assert "(1 - h1 ** 2)" in off[-1]["diff"]["expected"]
+        rows = {c["checkId"]: c for c in rig.of("check.updated") if c["stepId"] == "nn4"}
+        assert any(r["status"] == "fail" for r in rows.values())  # the loss row, on the stalled loss
+        rig.clock.t += 5  # fixed (or not), the next run learns
+        await rig.s.action("run_command")
+        await settle(rig)
+        assert passed(rig)[-1] == "nn4"
+    run(go())
+
+
+def test_install_on_the_setup_card_always_ends_installed(rig, monkeypatch):
+    from server.orchestrator import workspace as wsmod
+
+    def offline(item, workdir, on_line):
+        raise OSError("no network")
+
+    monkeypatch.setattr(wsmod, "install", offline)
+
+    async def go():
+        await rig.s.learn("anything", mode="demo")
+        await settle(rig)
+        rig.s.reqs = [{"tool": "numpy", "label": "numpy", "needed": True, "ok": False,
+                       "install": {"method": "pip", "pip_name": "numpy"}}]
+        rig.s._setup_card = {"kind": "setup", "title": "Missing: numpy", "body": "", "actions": ["install"]}
+        await rig.s.action("install", "numpy")
+        await settle(rig)
+        done = [c for c in rig.of("card") if c.get("kind") == "setup"][-1]
+        assert done["title"] == "numpy installed ✓" and done["dismissAfterMs"] > 0 and done["actions"] == []
+        assert [p for p in rig.of("setup.progress") if p.get("done")][-1]["ok"] is True
+        assert not rig.of("error")
+    run(go())

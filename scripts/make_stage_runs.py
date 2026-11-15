@@ -25,13 +25,15 @@ from make_nn_demo import ANCHOR, CODE, STARTER  # noqa: E402
 OUT = ROOT / "demo" / "cache" / "stage" / "nn-runs.json"
 
 
-def program(steps: list[str], zeros: bool = False) -> str:
+def program(steps: list[str], zeros: bool = False, sign: str = "") -> str:
     src = STARTER
     for sid in steps:
         code = CODE[sid]
         if zeros and sid == "nn1":  # W<k> = np.random.randn(r, c) [* s]  ->  W<k> = np.zeros((r, c))
             code = re.sub(r"^(W\d+) = np\.random\.randn\(([^)]*)\)(?: \* [\d.]+)?$", r"\1 = np.zeros((\2))", code,
                           flags=re.M)
+        if sign and sid == "nn2":  # the planted bug: the tanh slope of layer `sign` with +
+            code = code.replace(f"(1 - {sign} ** 2)", f"(1 + {sign} ** 2)")
         src = src.replace(ANCHOR[sid], f"{ANCHOR[sid]}\n{code}", 1)
     return src
 
@@ -46,7 +48,9 @@ def run(src: str) -> list[str]:
 
 def main() -> None:
     runs = {
-        "nn4": {"good": run(program(["nn1", "nn2", "nn3"])), "stuck": run(program(["nn1", "nn2", "nn3"], zeros=True))},
+        "nn4": {"good": run(program(["nn1", "nn2", "nn3"])), "stuck": run(program(["nn1", "nn2", "nn3"], zeros=True)),
+                "sign_h1": run(program(["nn1", "nn2", "nn3"], sign="h1")),
+                "sign_h2": run(program(["nn1", "nn2", "nn3"], sign="h2"))},
         "nn6": {"good": run(program(["nn1", "nn2", "nn3", "nn5"]))},
     }
     OUT.parent.mkdir(parents=True, exist_ok=True)
