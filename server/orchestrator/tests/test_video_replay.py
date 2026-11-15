@@ -61,6 +61,15 @@ for _ln in S2_CODE:
 S3_CODE = STEPS["s3"]["code"].splitlines()
 S3_OUT = ["Number of images in the training dataset: 60000", "Number of images in the testing dataset: 10000",
           "Shape of the images in the training dataset: (28, 28)"]
+BAR = "━━━━━━━━━━━━━━━━━━━━"
+S5_OUT = [ln for e, acc, loss in [(1, 0.8763, 0.4312), (2, 0.9634, 0.1221), (3, 0.9752, 0.0815), (4, 0.9821, 0.0587),
+                                  (5, 0.9862, 0.0441)]
+          for ln in (f"Epoch {e}/5", f"1875/1875 {BAR} 3s 1ms/step - accuracy: {acc:.4f} - loss: {loss:.4f}")]
+S6_OUT = [f"1/1 {BAR} 0s 45ms/step", "Class Probability"]  # the progress line, then the bar chart's title (OCR)
+S7_OUT = [f"313/313 {BAR} 0s 1ms/step - accuracy: 0.9771 - loss: 0.0790",
+          "Accuracy of the neural network on the 10000 test images: 97.71%"]
+OUT = {"s2": [], "s3": S3_OUT, "s4": [], "s5": S5_OUT, "s6": S6_OUT, "s7": S7_OUT}
+ORDER = ["s1", "s2", "s3", "s4", "s5", "s6", "s7"]
 
 
 def _cell(code: str, outputs: list[str] | None) -> dict:
@@ -182,26 +191,40 @@ class Replay:
         await self.work()
         await self.frame(Terminal=S1_TERMINAL)
 
-    async def do_s2(self, lines: list[str] | None = None) -> None:
-        self.cells = [_cell(STEPS["s2"]["code"], [])]
+    async def do_cell(self, sid: str, run: bool = True, lines: list[str] | None = None) -> None:
+        """The step's cell typed into mnist.ipynb (and run: its output under it), saved; VS Code shows that cell."""
+        self.cells = [c for c in self.cells if c["metadata"].get("step") != sid]
+        cell = _cell(STEPS[sid]["code"], OUT[sid] if run else None)
+        cell["metadata"]["step"] = sid
+        self.cells.append(cell)
         self.save_notebook()
         await self.work()
-        await self.frame(Code=[NB] + (lines or S2_CODE))
+        await self.frame(Code=[NB] + (lines or STEPS[sid]["code"].splitlines()) + (OUT[sid] if run else []))
+
+    async def do(self, sid: str) -> None:
+        await (self.do_s1() if sid == "s1" else self.do_cell(sid))
+
+    async def do_s2(self, lines: list[str] | None = None) -> None:
+        await self.do_cell("s2", lines=lines)
 
     async def do_s3(self, run: bool = True) -> None:
-        self.cells = [_cell(STEPS["s2"]["code"], []), _cell(STEPS["s3"]["code"], S3_OUT if run else None)]
-        self.save_notebook()
-        await self.work()
-        await self.frame(Code=[NB] + S3_CODE + (S3_OUT if run else []))
+        await self.do_cell("s3", run=run)
 
     async def to(self, sid: str) -> None:
         """Start the lesson and do every step before `sid` right."""
         await self.start()
-        order = ["s1", "s2", "s3"]
-        for prev in order[:order.index(sid)]:
-            await getattr(self, f"do_{prev}")()
+        for prev in ORDER[:ORDER.index(sid)]:
+            await self.do(prev)
             assert self.passed(prev), (prev, self.rows(prev))
+            await self.past_bounce(prev)
         assert self.s.step["id"] == sid
+
+    async def past_bounce(self, sid: str) -> None:
+        """Replay finding (s5 -> s6): the s6 run step finds the video's Untitled.ipynb 'still empty' and starts s5
+        again; the learner answers its "Looks done?" with Confirm. A no-op once that bounce is fixed."""
+        if self.s.step is not None and self.s.step["id"] == sid:
+            await self.s.action("confirm")
+            await self.settle()
 
 
 @pytest.fixture
@@ -363,6 +386,71 @@ def test_s3_passes_once_the_cell_ran(rp):
     assert {k: r["status"] for k, r in rp.rows("s3").items()} == \
         {"s3c1": "pass", "s3c2": "pass", "s3c3": "pass", "s3c4": "pass"}
     assert rp.passed("s3") and rp.started("s4")
+
+
+# ------------------------------------------------------------------ s4-s7, and the video around every step
+@pytest.mark.parametrize("sid", ["s4", "s5", "s6", "s7"])
+def test_later_steps_pass_on_the_cell_and_its_output(rp, sid):
+    async def go():
+        await rp.to(sid)
+        await rp.do(sid)
+
+    run(go())
+    assert all(r["status"] == "pass" for r in rp.rows(sid).values()), rp.rows(sid)
+    assert rp.passed(sid)
+
+
+def test_the_whole_lesson_video_gates_and_resumes_in_order(rp):
+    """All seven steps, the player reporting each clip's end before the learner's work: a step that plays its clip
+    gets seek(start, play) + play after step.started, pause once the clip ends with checks still open, and nothing
+    plays again until the step passes; the last pass plays the video on (the outro)."""
+    async def go():
+        await rp.start()
+        for sid in ORDER:
+            await rp.video_at(STEPS[sid]["video"]["end"])
+            await rp.do(sid)
+            assert rp.passed(sid), (sid, rp.rows(sid))
+            await rp.past_bounce(sid)
+        await rp.settle()
+
+    run(go())
+    ev = [(e["type"], e["payload"]) for e in rp.rig.events
+          if e["type"].startswith("video.") or e["type"] in ("step.started", "step.passed")]
+    for sid in ORDER:
+        i = next(k for k, (t, p) in enumerate(ev) if t == "step.started" and p["stepId"] == sid)
+        j = next(k for k, (t, p) in enumerate(ev) if t == "step.passed" and p["stepId"] == sid)
+        mid = [t if t != "video.seek" else (t, p["t"], p["play"]) for t, p in ev[i + 1:j]]
+        if mid:  # the clip played: seek to its start, play, pause at its end
+            assert mid == [("video.seek", STEPS[sid]["video"]["start"], True), "video.play", "video.pause"], (sid, mid)
+    assert ev[-1] == ("video.play", {}) and ev[-2][0] == "step.passed" and ev[-2][1]["stepId"] == "s7"
+    assert rp.s.phase == "done"
+
+
+@_xfail("V4 family (replay finding, no owner yet)", "after s5 passes, the s6 run step resolves the video's "
+        "Untitled.ipynb, finds it 'still empty' and starts s5 again ('Untitled.ipynb is still empty' card, s5 told to "
+        "'create Untitled.ipynb'): session._typing_step_for_empty_run")
+def test_s5_to_s6_does_not_bounce_back_over_the_videos_notebook_name(rp):
+    async def go():
+        await rp.to("s5")
+        await rp.do("s5")
+
+    run(go())
+    assert rp.s.step["id"] == "s6"
+    assert [p["stepId"] for p in rp.of("step.started")].count("s5") == 1
+    assert not [c for c in rp.of("card") if "Untitled.ipynb" in f"{c.get('title')} {c.get('body')}"]
+
+
+@_xfail("V5", "every Run-the-cell step said 'Run Run the cell (Shift+Enter) in the VS Code terminal'")
+def test_no_step_says_run_run_or_sends_a_notebook_cell_to_the_terminal(rp):
+    async def go():
+        await rp.start()
+        for sid in ORDER:
+            await rp.do(sid)
+
+    run(go())
+    for p in rp.of("step.started"):
+        assert "Run Run" not in p["instructions"], p
+        assert not ("Shift+Enter" in p["instructions"] and "terminal" in p["instructions"].lower()), p
 
 
 # ------------------------------------------------------------------ End
