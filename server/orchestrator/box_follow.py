@@ -281,9 +281,12 @@ async def refollow(s: Any, gen: int, step: dict) -> None:
     its row as the editor shows it now. Never a jump, no model call."""
     while True:
         was = getattr(s, "_insert_at", None)
-        if gen != s.step_gen or was is None or was[0] != gen or not (s._insert_box_up(was) or hidden(s, was)) \
-                or s._code_progress(step) is not None or s._fix_active():
-            return  # the step moved on, another box is up, or the typing / a fix decides the box now
+        if gen != s.step_gen or was is None or was[0] != gen or not (s._insert_box_up(was) or hidden(s, was)):
+            return  # the step moved on, or another box is up
+        if s._code_progress(step) is not None or s._fix_active():
+            if getattr(s, "_insert_hidden", None) == gen:  # (audit) the row's box was down while scrolled off: the
+                s._insert_hidden = None  # typing / the fix places the box now (_lesson_spot no longer waits on it)
+            return  # the typing / a fix decides the box now
         at = _replan(s, step, was)
         prog = at[1][0]
         v = await view(s)

@@ -453,3 +453,36 @@ def test_t7_diagnosis_line_is_scrolled_into_view_and_boxed(tmp_path, vs):
         assert rig.s._spot_owner[0] == "offtrack"
 
     run(go())
+
+
+def test_t7_typing_after_the_row_scrolled_off_hands_the_box_to_the_typing(tmp_path, vs):
+    """Audit (Nov 15): the learner scrolls the step's row off screen (the box goes, `hidden`), scrolls back and types
+    the step's first line there. The typing decides the box from then on (_progress_follow / _lesson_spot), so the
+    hidden state must end: it used to stay for the rest of the step, and _lesson_spot / _maybe_respot returned early
+    on it, so no box came back at all."""
+    from server.orchestrator import box_follow
+
+    rig = _rig(tmp_path, vs)
+    vs.lag = 0.3
+
+    async def go():
+        await _demo_at(rig, vs, NN1_DONE, "nn1")
+        vs.scroll(1)
+        await _to_step(rig, vs, "nn2")
+        await asyncio.sleep(1.0)
+        assert rig.s.spot_rect is not None
+        vs.scroll(26)  # line 23 above the screen: the box goes
+        await asyncio.sleep(0.8)
+        assert box_follow.hidden(rig.s, rig.s._insert_at)
+        first = STEPS["nn2"]["code"].split("\n")[0]
+        vs.path.write_text(_pasted(NN1_DONE, "# Backprop", first), encoding="utf-8")  # typed (and saved) on row 23
+        vs.scroll(12)  # back on screen
+        await asyncio.sleep(0.8)
+        assert rig.s._code_progress(rig.s.step) is not None
+        assert not box_follow.hidden(rig.s, rig.s._insert_at)  # the typing owns the box now
+        m = rig.mark()
+        await rig.s._lesson_spot(rig.s.step_gen, rig.s.step, tries=1)  # what _maybe_respot spawns
+        await _settle(rig)
+        assert _boxes(rig, m) or rig.s.spot_rect is not None, "no box for the typing"
+
+    run(go())
