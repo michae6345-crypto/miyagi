@@ -1079,7 +1079,24 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
         card = self.m.preflight_card(res)
         self.reqs = list(card.get("items") or res.get("items") or []) or self.reqs  # Install on this card uses S2's flow
         pick["card"] = card
+        await self._sync_row_captions(res)
         await self.emit("card", card)
+
+    async def _sync_row_captions(self, res: dict) -> None:
+        """V5: the app's preflight line says Captions / No captions from the picked video's search row, whose False only
+        meant "no CC badge" (test 9: "No captions" for a video built from a 181-line transcript). Re-send that row (same
+        id: the app updates it in place) with what preflight knows: True when known, else no claim at all."""
+        vid = res.get("videoId")
+        for row in self.results.values():
+            if not vid or row.get("videoId") != vid or row.get("captions") is (True if res.get("captions") else None):
+                continue
+            if res.get("captions"):
+                row["captions"] = True
+            elif "captions" in row:
+                row.pop("captions")
+            else:
+                continue
+            await self.emit("search.result", row)
 
     async def _build_pick(self) -> None:
         pick, self.pending_pick = self.pending_pick, None
@@ -2365,6 +2382,24 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
         return {"lesson": info, "steps": steps}
 
     # ------------------------------------------------------------------ steps
+    _RUN_VERB = re.compile(r"^(?:run|execute|press|hit|click)\b\s*", re.I)
+    _NOTEBOOK_RUN = re.compile(r"shift\s*\+\s*enter|\bcells?\b", re.I)
+
+    def _run_line(self, step: dict, cmd: str) -> str:
+        """V5: "Run <cmd> in the VS Code terminal" for a shell command. A video build's run_command can be the action in
+        words ("Run the cell (Shift+Enter)", "run python3 app.py"): never "Run Run …", and a notebook cell (Shift+Enter, a
+        cell, a .ipynb step) runs in the notebook, not in the terminal."""
+        verb = self._RUN_VERB.match(cmd)
+        if verb and self.SHELL_CMD.match(cmd[verb.end():]):  # "run python3 app.py": the command is what follows
+            cmd, verb = cmd[verb.end():], None
+        if self.SHELL_CMD.match(cmd) or not (verb or self._NOTEBOOK_RUN.search(cmd)):
+            return f"Run {cmd} in the VS Code terminal"
+        line = (cmd if verb else f"Run {cmd}").rstrip(" .")
+        line = line[0].upper() + line[1:]
+        if self._NOTEBOOK_RUN.search(cmd) or (self._step_file(step) or "").lower().endswith(".ipynb"):
+            return line if re.search(r"\bnotebook\b", line, re.I) else f"{line} in the notebook"
+        return f"{line} in the VS Code terminal"
+
     def _action_line(self, step: dict) -> str:
         """ONE concrete thing to do now, for the app to show under the current chapter: E2's own `action`, else
         "In <file>, type the lines below." (lesson mode: the step's code shows under it; a video lesson has no snippet,
@@ -2375,7 +2410,7 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
         if cmd := self._run_command(step):
             if self.lesson_mode and (f := self._run_button_file(step, cmd)):  # t8: the ▷ the step's box points at
                 return f"Click ▷ to run {f} (or run {cmd.splitlines()[0]} in the terminal)"
-            return f"Run {cmd.splitlines()[0]} in the VS Code terminal"
+            return self._run_line(step, cmd.splitlines()[0].strip())
         code, file = (step.get("code") or "").strip(), (self._step_file(step) or "").strip()
         first = next((ln.strip() for ln in code.splitlines() if ln.strip() and not ln.strip().startswith("#")), "")
         if first and file:
@@ -2409,7 +2444,10 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
                 p[k] = step[k].strip()
         if isinstance(step.get("concepts"), list) and step["concepts"]:
             p["concepts"] = [c for c in step["concepts"] if isinstance(c, str)]
-        exact = self._run_command(step) or (step.get("code") or "").strip()  # the full thing to type / run, never cut
+        rc = self._run_command(step)
+        if rc and not self.SHELL_CMD.match(rc) and (self._RUN_VERB.match(rc) or self._NOTEBOOK_RUN.search(rc)):
+            rc = ""  # V5: "Run the cell (Shift+Enter)" is an action in words, not the code to type or run
+        exact = rc or (step.get("code") or "").strip()  # the full thing to type / run, never cut
         if exact:
             p["code"] = exact
         if isinstance(step.get("estMinutes"), int) and step["estMinutes"] > 0:
