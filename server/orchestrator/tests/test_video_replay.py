@@ -391,8 +391,11 @@ def test_t10_no_untitled_notebook_in_any_step_copy(rp):
         text = " ".join(str(p.get(k) or "") for k in ("title", "instructions", "details"))
         assert "Untitled" not in text and "Colab" not in text, (sid, text)
         assert not re.search(r"\bcreate\s+mnist\.ipynb", text, re.I), (sid, text)
-    assert rp.started("s5")["instructions"].startswith(f"In {NB}, add a cell: model.compile("), rp.started("s5")
-    assert rp.started("s7")["instructions"].startswith(f"In {NB}, add a cell: test_loss, test_accuracy"), rp.started("s7")
+    # t10-steps: a notebook step says where its cell goes; the code to type shows under it
+    for sid, first in (("s5", "model.compile("), ("s7", "test_loss, test_accuracy")):
+        assert rp.started(sid)["instructions"] == f"Add a cell with the code below to {NB}, then press Shift+Enter", \
+            rp.started(sid)
+        assert first in str(rp.started(sid).get("code") or rp.started(sid).get("snippet") or ""), rp.started(sid)
     for st in rp.s.steps:
         files = [x.get("file") for k in ("targets", "checks", "precision_checks") for x in st.get(k) or [] if x.get("file")]
         assert all(f in (NB, ".venv/bin/activate") for f in files), (st["id"], files)

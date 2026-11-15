@@ -691,6 +691,9 @@ def evaluate_step(step: dict, ctx: RunContext | None = None, types: Iterable[str
     checks = [{**c, "run": True} if run and c.get("type") == "screen_absent" and c.get("app") in _TERMINAL_APPS
               else c for c in checks]
     ctx = _with_step_notebook(step, ctx)
+    if isinstance(ctx.notebook, Notebook) and not str(step.get("code") or "").strip():
+        # t10-flow's s1 (select the .venv kernel) has no cell of its own: the screen decides, never "when the cell runs"
+        ctx = dataclasses.replace(ctx, notebook=False)
     code = "\n".join([str(step.get("code") or "")] + [str(t.get("match") or "") for t in step.get("targets") or []]
                      + (ctx.notebook.sources if isinstance(ctx.notebook, Notebook) else []))
     checks = [{**c, "_code": code} if c.get("type") == "screen_contains" and is_output_check(c) else c for c in checks]

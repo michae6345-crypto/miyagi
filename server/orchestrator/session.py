@@ -6541,6 +6541,8 @@ class LessonSession(LessonBoxes):  # t5: lesson_boxes.py, one box on the line th
             return
         if (step.get("code") or "").strip() and not self._run_command(step):
             return  # a typing step is never an install step, whatever its title says
+        if str(step.get("file") or "").lower().endswith(".ipynb"):
+            return  # t10-flow: "Select the .venv kernel in mnist.ipynb" is never done by an install the check found
         if self._runs_more_than_setup(step):
             return  # it also starts something (jupyter notebook, npm run dev): the learner has to run it
         requires = {str(t).lower() for t in step.get("requires") or []}

@@ -27,7 +27,7 @@ def test_cached_lesson_gets_mnist_notebook_everywhere_and_is_idempotent():
     assert "Untitled" not in json.dumps(g["steps"])
     s1 = g["steps"][0]
     assert s1["title"] == "Open mnist.ipynb with the .venv kernel" and "run_command" not in s1
-    assert [c["id"] for c in s1["checks"]] == ["s1c2", "s1c3"] and [c["id"] for c in s1["precision_checks"]] == ["s1p1"]
+    assert [c["id"] for c in s1["checks"]] == ["s1c2", "s1c3"] and [c["id"] for c in s1.get("precision_checks") or []] == []  # t10-checks: no vacuous .venv file check
     told = {k: v for k, v in s1.items() if k != "explanations"}  # (the video's own topic may name Jupyter Notebook)
     assert "jupyter notebook" not in json.dumps(told).lower()
     assert g["steps"][1]["instructions"].startswith("In mnist.ipynb, import tensorflow")
