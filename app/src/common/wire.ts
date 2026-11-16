@@ -47,6 +47,9 @@ const KNOWN = new Set<string>([
   'setup.progress',
   'config.status'
 ] satisfies (keyof EngineEvents | 'config.status')[])
+// Michael's VS Code quick-pick rects (desktop test 9, A3 / A4; core/islandPlace.ts). TODO(contract): move into the list
+// above once adrian/shell's events.ts has "screen.avoid".
+KNOWN.add('screen.avoid')
 
 /** Parse one WebSocket frame. Accepts `{type, payload}` (contract) and, leniently, flat `{type, ...fields}`. */
 export function parseEngineMessage(raw: unknown): Incoming | null {

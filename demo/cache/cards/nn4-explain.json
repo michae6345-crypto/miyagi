@@ -1,0 +1,6 @@
+{
+ "stepId": "nn4",
+ "kind": "explain",
+ "title": "Reading the loss",
+ "body": "The loss is the mean squared error over the 50 points. Answering 0 for every x scores 0.49; a network that has learned the curve goes below 0.01."
+}

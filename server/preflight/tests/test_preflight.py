@@ -217,7 +217,7 @@ def test_build_plan_mirrors_e2_window_1():
 
 
 def test_needs_line():
-    assert needs_line(REQ_CODING) == "Needs: Visual Studio Code ✓ Python 3 ✓ PyTorch ✗"
+    assert needs_line(REQ_CODING) == "Needs: Visual Studio Code ✓ Python 3 ✓ PyTorch (to install in the lesson's .venv)"
     assert needs_line(REQ_NOCODE) == "Needs: Botpress (web)"  # the editor isn't needed, so not shown
     assert needs_line([]) == ""
 
@@ -235,8 +235,13 @@ def test_coding_long_video_card():
     card = preflight_card(res)
     assert card["kind"] == "preflight" and card["title"].startswith("Let's build GPT")
     assert card["actions"] == ["build", "pick_another", "install"]  # torch missing
-    assert "Coding · 1:56:20 · 7 chapters · Andrej Karpathy" in card["body"]
-    assert "Needs: Visual Studio Code ✓ Python 3 ✓ PyTorch ✗" in card["body"]
+    # t10: the app draws the meta row and "Needs … · N to install" from card.preflight / card.items, not the body
+    assert "Coding ·" not in card["body"] and "1:56:20" not in card["body"] and "Needs" not in card["body"]
+    # t12: the card carries the length in whole minutes (1:56:20 -> 6960 s, "1 h 56 min" in the app)
+    assert card["preflight"]["style"] == "coding" and card["preflight"]["durationS"] == 6960 and card["preflight"]["chapters"] == 7
+    assert [(it["label"], it["ok"]) for it in card["items"] if it["needed"]] == [
+        ("Visual Studio Code", True), ("Python 3", True), ("PyTorch", False)]
+    assert needs_line(res["requirements"]) == "Needs: Visual Studio Code ✓ Python 3 ✓ PyTorch (to install in the lesson's .venv)"
     assert "Long video: skipping the 7:52 intro, I'll build 7:52–14:27 first" in card["body"]
     assert "warning" not in card
     assert card["preflight"]["goalMatch"]["score"] == 0.92 and card["items"][2]["install"]["method"] == "pip"
@@ -296,7 +301,8 @@ def test_late_requirements_reach_on_late():
 
     run(go())
     assert len(got) == 1 and got[0]["late"] and not got[0]["partial"]
-    assert "PyTorch ✗" in preflight_card(got[0])["body"] and "install" in preflight_card(got[0])["actions"]
+    late = preflight_card(got[0])
+    assert ("torch", False) in [(it["tool"], it["ok"]) for it in late["items"]] and "install" in late["actions"]
 
 
 def test_late_claude_fills_the_card_in():
@@ -392,13 +398,13 @@ def test_finder_row_style_is_prior_and_fallback():
     res = run(_pf("zE2MJ3_muNQ", "build chat gpt", claude=claude, row=row))
     assert "Search's style guess (from the results page): no-code" in claude.calls[0]["messages"][0]["content"]
     assert res["styleFrom"] == "claude" and res["captions"] is True and res["durationLabel"] == "19 min"
-    assert "CC" in preflight_card(res)["body"]
+    assert "CC" not in preflight_card(res)["body"]  # t10: the app shows "Captions" from the finder's row
     # Claude too slow: the card still says no-code, from the finder's row (not invented), and no editor
     core.clear_memo()
     late = run(_pf("zE2MJ3_muNQ", "build chat gpt", claude=FakeClaude(NOCODE, delay=5), row=row, timeout=0.5, late_s=0))
     assert late["style"] == "no-code" and late["styleFrom"] == "finder" and late["editorNeeded"] is False
     card = preflight_card(late)
-    assert card["body"].startswith("No-code · 19:29") and card["preflight"]["style"] == "no-code" and card["preflight"]["styleFrom"] == "finder"
+    assert not card["body"].startswith("No-code ·") and card["preflight"]["style"] == "no-code" and card["preflight"]["styleFrom"] == "finder"
 
 
 def test_finder_row_fills_in_when_youtube_is_blocked():
@@ -453,7 +459,8 @@ def test_coding_lesson_always_gets_the_editor():
     res = run(_pf("kCc8FmEb1nY", "build an LLM", req=req))
     card = preflight_card(res)
     assert res["editorNeeded"] is True and "No code editor" not in card["body"]
-    assert "Needs: Visual Studio Code ✓" in card["body"]
+    editor = next(it for it in card["items"] if it["kind"] == "editor")
+    assert editor["label"] == "Visual Studio Code" and editor["needed"] and editor["ok"]  # the app's "Needs" row
     assert "LOCALLY in VS Code" in seen["steps"][0]["instructions"]  # S2 is told how Miyagi runs lessons
 
 
@@ -497,3 +504,40 @@ def test_memo_hit_rechecks_the_lesson_cache():
     assert "cached" not in first["buildPlan"] and first["buildPlan"]["estSecondsToFirstSteps"] > 0
     assert again["cached"] and again["buildPlan"]["cached"] and "ready instantly (5 steps)" in preflight_card(again)["body"]
     assert "cached" not in third["buildPlan"] and third["buildPlan"]["estSecondsToFirstSteps"] == first["buildPlan"]["estSecondsToFirstSteps"]
+
+
+def test_claudes_read_is_kept_on_disk_so_a_rerun_makes_no_call(tmp_path, monkeypatch):
+    """Video speed: a demo re-run (or a pick after an engine restart: the 10 min memo is gone) shows the same card
+    without a Claude call or its wait. Same answer as the first read; another goal or a stale file asks again."""
+    claude = FakeClaude(CODING, delay=0.3)
+    first = run(_pf("kCc8FmEb1nY", "build an LLM", claude=claude, classify_cache=tmp_path))
+    assert len(claude.calls) == 1 and list(tmp_path.glob("kCc8FmEb1nY-*.json"))
+    core.clear_memo()  # an engine restart
+    t0 = time.monotonic()
+    again = run(_pf("kCc8FmEb1nY", "Build an  LLM", claude=claude, classify_cache=tmp_path))
+    assert len(claude.calls) == 1 and time.monotonic() - t0 < 0.25  # no call, no 0.3 s wait
+    for k in ("style", "styleWhy", "topic", "goalMatch", "libraries"):
+        assert again[k] == first[k]
+    assert again["buildPlan"] == first["buildPlan"] and preflight_card(again) == preflight_card(first)
+    core.clear_memo()
+    run(_pf("kCc8FmEb1nY", "build a chatbot", claude=claude, classify_cache=tmp_path))  # another goal: its own read
+    assert len(claude.calls) == 2
+    core.clear_memo()
+    monkeypatch.setattr(core, "CLASSIFY_TTL_S", -1)  # stale
+    run(_pf("kCc8FmEb1nY", "build an LLM", claude=claude, classify_cache=tmp_path))
+    assert len(claude.calls) == 3
+
+
+def test_claudes_read_cache_default_dir_and_off_switch(tmp_path, monkeypatch):
+    monkeypatch.setenv("PREFLIGHT_CACHE_DIR", str(tmp_path))
+    assert core.classify_cache_dir() == tmp_path
+    monkeypatch.setenv("PREFLIGHT_CACHE", "0")
+    assert core.classify_cache_dir() is None
+    core.classify_save(tmp_path, "kCc8FmEb1nY", "x", CODING)
+    assert core.classify_cached(tmp_path, "kCc8FmEb1nY", " X ") == CODING
+    assert core.classify_cached(tmp_path, "kCc8FmEb1nY", "y") is None and core.classify_cached(None, "v", "x") is None
+    # a test double for Claude never reads or writes the real cache (classify_cache defaults to off with a client)
+    monkeypatch.setenv("PREFLIGHT_CACHE", "1")
+    claude = FakeClaude(CODING)
+    run(_pf("kCc8FmEb1nY", "x", claude=claude))
+    assert len(claude.calls) == 1

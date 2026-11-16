@@ -104,6 +104,7 @@ async def triage(
                 effort="low",
                 max_tokens=2000,
                 timeout=10.0,
+                thinking={"type": "disabled"},  # T11: a route verdict; adaptive thinking cost up to 540 output tokens
             )
             d = res.data
             pid = d.get("playbook_id") if d.get("playbook_id") in BY_ID else None

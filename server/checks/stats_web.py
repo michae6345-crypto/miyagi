@@ -45,6 +45,8 @@ ORDER BY time DESC LIMIT 1
 """
 SQL_CURRENT_LESSON = "SELECT lesson_id FROM learning_events WHERE lesson_id IS NOT NULL ORDER BY time DESC LIMIT 1"
 SQL_LESSON_OF_RUN = "SELECT lesson_id FROM runs WHERE id = %s"
+# 'learner' | 'demo' (a Demo lesson's recorded run: labelled as a recording, never as the learner's live run) | None
+SQL_SOURCE_OF_RUN = "SELECT source FROM runs WHERE id = %s"
 SQL_CURVE = """
 SELECT name, step, value FROM metrics_1s
 WHERE run_id = %s AND bucket > now() - interval '6 hours'
@@ -166,10 +168,12 @@ def collect(run_id: str | None = None, lesson_id: str | None = None, source_id: 
             if not lesson_id:
                 r = conn.execute(SQL_CURRENT_LESSON).fetchone()
                 lesson_id = r[0] if r else None
-            data: dict[str, Any] = {"online": True, "run_id": run_id, "lesson_id": lesson_id, "curve": {},
-                                    "reference": None, "time_per_step": [], "check_fail_rate": [], "stuck": [],
-                                    "timings_ms": timings}
+            data: dict[str, Any] = {"online": True, "run_id": run_id, "lesson_id": lesson_id, "run_source": None,
+                                    "curve": {}, "reference": None, "time_per_step": [], "check_fail_rate": [],
+                                    "stuck": [], "timings_ms": timings}
             if run_id:
+                r = conn.execute(SQL_SOURCE_OF_RUN, (run_id,)).fetchone()
+                data["run_source"] = r[0] if r else None
                 data["curve"] = _curves(_timed(conn, SQL_CURVE, (run_id,), timings, "curve (metrics_1s)"))
                 ref = find_reference_run(conn, run_id, lesson_id)
                 if ref:
@@ -273,18 +277,19 @@ function render(d){
  if(!d.online)return offline(d);
  $("banner").style.display=d.spool&&d.spool.rows?"block":"none";
  if(d.spool&&d.spool.rows)$("banner").textContent="Tiger online · uploading "+d.spool.rows+" spooled rows";
- $("meta").textContent="lesson "+(d.lesson_id||"–")+" · run "+(d.run_id||"–")+" · refreshed "+new Date().toLocaleTimeString();
+ const demo=d.run_source==="demo";
+ $("meta").textContent="lesson "+(d.lesson_id||"–")+" · run "+(d.run_id||"–")+(demo?" (Demo recording, not a live run)":"")+" · refreshed "+new Date().toLocaleTimeString();
  $("k-rate").textContent=d.ingest.rows_per_s;$("k-rows").textContent=d.ingest.metrics_total.toLocaleString()+" · "+d.ingest.events_total.toLocaleString();
  const ms=Object.values(d.timings_ms);$("k-q").textContent=ms.length?Math.max(...ms).toFixed(1):"–";$("k-chunks").textContent=d.ingest.chunks??"–";
  // live curve (+ tutorial reference)
  const names=Object.keys(d.curve), metric=params.get("metric")||(names.includes("loss")?"loss":names[0]);
  show("curve",!!metric);
  if(metric){const pts=d.curve[metric].filter(p=>p[1]!==null).map(p=>({x:p[0],y:p[1]}));
-  const ds=[{label:metric+" (you)",data:pts,borderColor:css("--accent"),backgroundColor:css("--accent"),pointRadius:0,borderWidth:2,tension:.2}];
+  const ds=[{label:metric+(demo?" (Demo recording)":" (you)"),data:pts,borderColor:css("--accent"),backgroundColor:css("--accent"),pointRadius:0,borderWidth:2,tension:.2}];
   const ref=d.reference&&d.reference.curve[metric];
   if(ref)ds.push({label:"tutorial",data:ref.filter(p=>p[1]!==null).map(p=>({x:p[0],y:p[1]})),borderColor:css("--ref"),borderDash:[5,4],pointRadius:0,borderWidth:1.5});
   const pos=pts.every(p=>p.y>0)&&(!ref||ref.every(p=>p[1]===null||p[1]>0));
-  $("s-curve").textContent="metrics_1s continuous aggregate · "+pts.length+" buckets"+(ref?" · dashed = tutorial reference ("+d.reference.run_id+")":"");
+  $("s-curve").textContent=(demo?"Demo recording (replayed output, not a live run) · ":"")+"metrics_1s continuous aggregate · "+pts.length+" buckets"+(ref?" · dashed = tutorial reference ("+d.reference.run_id+")":"");
   chart("curve",{type:"line",data:{datasets:ds},options:{animation:false,parsing:false,responsive:true,
    scales:{x:{type:"linear",title:{display:true,text:"training step"}},y:{type:pos?"logarithmic":"linear",title:{display:true,text:metric}}},
    plugins:{legend:{labels:{boxWidth:12}}}}})}

@@ -5,43 +5,28 @@
  */
 import { AnimatePresence, motion, useAnimate, useReducedMotion } from 'motion/react'
 import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react'
-import treeSmall from '../../assets/brand/tree-small-dark.svg'
 import { useLesson, useThinking } from '../../core/lesson'
 import { color, spring } from '../../core/theme'
 import { Spinner } from '../../core/ui/atoms'
+import { MiyagiMark } from '../../core/ui/Mark'
 import { pulsedOfftrack } from './store'
 
 /** offline: a hollow gray dot (no connection). pending: the next part is still building (spinner, no dot). */
 export type Mark = 'watching' | 'offtrack' | 'passed' | 'check' | 'done' | 'offline' | 'pending'
 
 /**
- * The bonsai as a one-color template glyph, like a menu-bar icon: white on the black pill. Adrian's call:
- * the tree is monochrome everywhere in the app (the green pads are for the app icon and external surfaces).
- * Same file and geometry as MiyagiMark's small cut (the SVG is the mask), so nothing is redrawn.
- * 16px: the art is ~10.5×12 inside the box, the optical size of mockup 01's icon.
- */
-export function MonoMark({ size = 16, tone = color.text, className = '' }: { size?: number; tone?: string; className?: string }): ReactNode {
-  const mask = `url("${treeSmall}") center / contain no-repeat`
-  return (
-    <span
-      aria-hidden
-      className={`inline-block shrink-0 ${className}`}
-      style={{ width: size, height: size, backgroundColor: tone, WebkitMask: mask, mask }}
-    />
-  )
-}
-
-/**
- * The lead glyph: the bonsai, or the small core Spinner while the engine is thinking (an explain, a hint,
+ * The lead glyph: the bonsai (in color, the brand's small cut in a 16px box: the art is ~10.5×12, the optical size of
+ * mockup 01's icon), or the small core Spinner while the engine is thinking (an explain, a hint,
  * a diagram: 2-5 s), so a shortcut never looks dead. Both sit in the same 16px box: no layout change,
- * a 150ms crossfade only when thinking actually starts or stops.
+ * a 150ms crossfade only when thinking actually starts or stops. `busy`: spin anyway (the pill sent something and
+ * waits for its answer, e.g. Undo / Continue resuming a saved lesson).
  */
-export function LeadMark(): ReactNode {
-  const thinking = useThinking()
+export function LeadMark({ busy = false }: { busy?: boolean }): ReactNode {
+  const thinking = useThinking() || busy
   return (
     <span className="relative mr-[8px] inline-block h-[16px] w-[16px] shrink-0" data-thinking={thinking || undefined}>
       <motion.span className="absolute inset-0" initial={false} animate={{ opacity: thinking ? 0 : 1 }} transition={{ duration: 0.15 }}>
-        <MonoMark />
+        <MiyagiMark size={16} className="block" />
       </motion.span>
       <AnimatePresence initial={false}>
         {thinking && (
@@ -178,13 +163,15 @@ export function SwapText({ id, children, className = '' }: { id: string; childre
       animate={{ width: w?.px }}
       transition={w?.instant ? { duration: 0 } : spring}
     >
-      <span ref={measure} aria-hidden className={`invisible absolute left-0 top-0 whitespace-nowrap ${className}`}>
+      {/* w-max: an absolute box shrinks to its container, which is this slot's current (animated) width, so a
+          truncating title inside could never measure wider than the last one (Michael's test 8: "See what it learne"). */}
+      <span ref={measure} aria-hidden className={`invisible absolute left-0 top-0 w-max whitespace-nowrap ${className}`}>
         {children}
       </span>
       <AnimatePresence initial={false}>
         <motion.span
           key={id}
-          className={`absolute left-0 top-[8px] whitespace-nowrap leading-[18px] ${className}`}
+          className={`absolute left-0 top-[8px] w-max whitespace-nowrap leading-[18px] ${className}`}
           initial={{ opacity: 0, y: 7 }}
           animate={{ opacity: 1, y: 0, transition: { duration: 0.24, ease: 'easeOut', delay: 0.11 } }}
           exit={{ opacity: 0, y: -7, transition: { duration: 0.1, ease: 'easeIn' } }}
@@ -215,5 +202,31 @@ export function BuildLine({ progress }: { progress: number }): ReactNode {
         transition={spring}
       />
     </motion.span>
+  )
+}
+
+/**
+ * SwapText for the building pill (Michael's desktop test 3, item 9: "Setting up your project fo…"). Same crossfade
+ * (old text up and out, new text in from below), but the slot can never be narrower than the text it shows: old and
+ * new text stack in one grid cell, both in flow, so the slot is the wider of the two during the swap and then exactly
+ * the new text. No measured or animated width that can lag a stage behind and clip the label mid-word; the island
+ * (which hugs its content) springs its own width around it.
+ */
+export function FitSwap({ id, children }: { id: string; children: ReactNode }): ReactNode {
+  return (
+    <span className="grid h-[34px] shrink-0 overflow-hidden" data-fit>
+      <AnimatePresence initial={false}>
+        <motion.span
+          key={id}
+          className="whitespace-nowrap pt-[8px] leading-[18px]"
+          style={{ gridArea: '1 / 1' }}
+          initial={{ opacity: 0, y: 7 }}
+          animate={{ opacity: 1, y: 0, transition: { duration: 0.24, ease: 'easeOut', delay: 0.11 } }}
+          exit={{ opacity: 0, y: -7, transition: { duration: 0.1, ease: 'easeIn' } }}
+        >
+          {children}
+        </motion.span>
+      </AnimatePresence>
+    </span>
   )
 }

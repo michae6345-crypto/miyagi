@@ -805,7 +805,7 @@ def test_level0_after_e4_strips_the_diff(replay):
 def test_level0_for_an_old_card_without_a_question():
     old = {"stepId": "d6", "title": "Learning rate 0.3 is far too high", "body": "…", "citation": {"label": "x", "url": "https://example.org"}}
     q = coach.hint(d.STEP, 0, old)["body"]
-    assert q.startswith("Learning rate 0.3 is far too high:") and q.endswith("?")
+    assert "Learning rate 0.3" not in q and q.endswith("?")  # t10 CP6: a nudge, never the title restated
 
 
 # ---------- voice (ElevenLabs track) ------------------------------------------------------------------

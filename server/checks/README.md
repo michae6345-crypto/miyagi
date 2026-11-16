@@ -43,6 +43,10 @@ A **pure function**: no network, no DB, no model calls. It never raises: a malfo
   (`metric_pattern` + `app`) whose app is hidden fails with "open <app> so I can read <metric>". A fail is what lets
   the orchestrator's idle/stuck help fire; `pending` never does. With no screen reading at all, `screen_contains`
   stays pending (not the learner's fault). Orchestrator wiring: pass `segment_done=session.segment_done` in the context.
+- **A hidden terminal is graded on the run.** A `Terminal`/`iTerm2` check whose terminal can't be read is graded on
+  the step's last finished run (`exit_code` + `output_tail`: `tut run`, Run it for me, VS Code's `command_end`), and
+  on a run step (`kind: "run"` or a `(terminal)` target) a `screen_absent` one stays pending until that run exists
+  instead of passing on the hidden terminal.
 - Accepts a ScreenObservation `{t, app, windows[{app,title,rect}], blocks[{text,rect,confidence,app?}]}` or `{app: [lines]|text}`.
   A block belongs to the frontmost window (first in `windows`) that contains its centre. Rects can be `{x,y,w,h}`/`{x,y,width,height}`/`[x,y,w,h]`.
   `app` matching is a case-insensitive substring. Blocks with confidence < 0.3 are dropped.
@@ -55,7 +59,8 @@ A **pure function**: no network, no DB, no model calls. It never raises: a malfo
 The orchestrator (`LessonSession._settle_checks` / `_need_run`) uses three pure helpers so checks neither un-pass nor false-pass:
 - `screen_check_on_file(check, path, window_open=True)`: a VS Code `screen_contains` graded on the lesson's file on disk,
   for frames that can't show the lesson window (another folder's VS Code window in front, or no editor text). Pass when
-  the pattern is in the file; else "not in <file> yet", or "Open VS Code so I can check it." only when no lesson window exists.
+  the pattern is in the file; else "not in <file> yet", or "Open VS Code so I can check it." only when no lesson window exists
+  and the file can't be read (a readable file answers the question).
 - A `screen_contains` that passed in a step stays passed (latched in the session) unless the editor's text lacks it:
   the VS Code companion's live buffer when it holds unsaved edits of the file, else the file on disk once saved after
   the pass. OCR misreads while the learner types into an unsaved (still empty) file never un-pass it. A hold the

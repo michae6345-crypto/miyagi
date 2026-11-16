@@ -1,5 +1,5 @@
 /**
- * Feature: overview. The code to type for the current step (contract spotlight.snippet: "Just teach me" steps and
+ * Feature: overview. The code to type for the current step (contract step.started.code, then spotlight.snippet: "Just teach me" steps and
  * Show me). The step card shows it under the instructions (Michael, Sat 3:23 PM), and it stays there after the
  * spotlight itself clears. A new step, or any reset, drops it.
  */
@@ -17,6 +17,10 @@ onMessage('spotlight', (p) => {
   if (code) set({ stepId: useLesson.getState().stepId, code })
 })
 onMessage('step.started', (p) => {
-  if (useStepSnippet.getState().stepId !== p.stepId) set(none)
+  // The step's own code (contract step.started.code) is the snippet until a spotlight sends one (Michael, test 10:
+  // in video lessons the code was only in the closed drawer).
+  const code = p.code?.replace(/\s+$/, '')
+  if (code) set({ stepId: p.stepId, code })
+  else if (useStepSnippet.getState().stepId !== p.stepId) set(none)
 })
 onUi('reset', () => set(none))

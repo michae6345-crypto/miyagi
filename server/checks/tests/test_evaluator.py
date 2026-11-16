@@ -249,8 +249,8 @@ def test_absent_on_hidden_app_passes_after_segment():
     assert r["status"] == "pending" and r["detail"] == "Terminal not open yet"
     # orchestrator doesn't say (old wiring): treated as done, so it can never hang the step
     assert status(NO_ERRORS, RunContext(screen=CODE_ONLY)) == "pass"
-    # no screen reading at all: nothing seen, nothing to flag
-    assert status(NO_ERRORS, RunContext(segment_done=True)) == "pass"
+    # no screen reading at all (t9 V1: no frame yet): nothing was looked at, so it never passes
+    assert status(NO_ERRORS, RunContext(segment_done=True)) == "pending"
     assert status(NO_ERRORS, RunContext(segment_done=False)) == "pending"
 
 
@@ -269,7 +269,7 @@ def test_contains_on_hidden_app_says_what_to_open():
     r = evaluate_check(OPEN_TERM, RunContext(screen=CODE_ONLY, segment_done=True))
     assert r["status"] == "fail" and r["detail"] == "Open the Terminal so I can check it."
     r = evaluate_check(OPEN_TERM, RunContext(segment_done=True))  # no screen reader: not the learner's fault
-    assert r["status"] == "pending" and "screen reading is off" in r["detail"]
+    assert r["status"] == "pending" and r["detail"] == "waiting for the screen"
 
 
 def test_hidden_absent_check_no_longer_blocks_the_step():
@@ -286,7 +286,7 @@ def test_screen_metric_on_hidden_app_says_what_to_open():
     assert r["status"] == "fail" and r["detail"] == "open Terminal so I can read loss"
     assert status(c, RunContext(screen=CODE_ONLY, segment_done=False)) == "pending"
     r = evaluate_check(c, RunContext(screen={"Terminal": ["$ python train.py"]}, segment_done=True))
-    assert r["status"] == "pending" and r["detail"] == "waiting for 'loss' in Terminal"  # visible: training may be starting
+    assert r["status"] == "pending" and r["detail"] == "waiting for the run's loss lines in Terminal"  # visible: training may be starting
     t = {**c, "type": "metric_trend", "trend": "decreasing", "window": 100}
     assert status(t, RunContext(screen=CODE_ONLY, segment_done=True)) == "fail"
     # a `tut run` still running: its metrics arrive over /ingest, so keep waiting

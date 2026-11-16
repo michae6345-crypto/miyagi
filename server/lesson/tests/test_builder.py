@@ -1317,3 +1317,17 @@ def test_tests_cannot_reach_a_real_api():
         anthropic.AsyncAnthropic()
     with pytest.raises(AssertionError):
         claude.client()
+
+
+def test_label_case_keeps_names_from_the_code_lowercase():
+    """E25: 'Randint roll typed' on a lesson built after the 01:11 label fix."""
+    c = {"type": "screen_contains", "app": "Code", "pattern": r"roll\s*=\s*random\.randint\(1,\s*6\)"}
+    assert builder.label_case("randint roll typed", c) == "randint roll typed"  # an attribute the check looks for
+    code = "import random\nroll = random.randint(1, 6)\nprint(roll)\n"
+    assert builder.label_case("Randint roll typed", c, code) == "randint roll typed"
+    assert builder.label_case("random import typed", {"type": "screen_contains", "pattern": r"import\s+random"}, code) == "random import typed"
+    assert builder.label_case("print of roll typed", {"type": "screen_contains", "pattern": r"print\("}, code) == "Print of roll typed"  # a builtin reads as a word
+    assert builder.label_case("numpy is imported", {"type": "screen_contains", "pattern": "import numpy"}, "import numpy as np") == "NumPy is imported"
+    assert builder.label_case("`roll` gets `random.randint(1, 6)`", c, code) == "`roll` gets `random.randint(1, 6)`"
+    st = {"code": code, "checks": [{"id": "a", "type": "screen_contains", "label": "Randint roll typed", "pattern": r"random\.randint\("}]}
+    assert builder.tidy_labels(st)["checks"][0]["label"] == "randint roll typed"

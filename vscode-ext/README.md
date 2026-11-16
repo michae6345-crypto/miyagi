@@ -39,14 +39,14 @@ has focus. Change it under Keyboard Shortcuts → "Miyagi: Explain this".
 Package the `.vsix` (`.vscodeignore` keeps the tests out) and install it:
 
 ```bash
-cd vscode-ext && npx @vscode/vsce@3.2.1 package --allow-missing-repository --skip-license --no-dependencies -o dist/miyagi-companion-0.0.3.vsix
-"/Applications/Visual Studio Code.app/Contents/Resources/app/bin/code" --install-extension dist/miyagi-companion-0.0.3.vsix --force
+cd vscode-ext && npx @vscode/vsce@3.2.1 package --allow-missing-repository --skip-license --no-dependencies -o dist/miyagi-companion-0.0.6.vsix
+"/Applications/Visual Studio Code.app/Contents/Resources/app/bin/code" --install-extension dist/miyagi-companion-0.0.6.vsix --force
 ```
 
 Or, from the repo root, copy the folder into VS Code's extensions folder:
 
 ```bash
-rm -rf ~/.vscode/extensions/miyagi.companion-0.0.* && cp -R vscode-ext ~/.vscode/extensions/miyagi.companion-0.0.3
+rm -rf ~/.vscode/extensions/miyagi.companion-0.0.* && cp -R vscode-ext ~/.vscode/extensions/miyagi.companion-0.0.6
 ```
 
 Then reload each open VS Code window: **Cmd+Shift+P → "Developer: Reload Window"**. To check it:
@@ -75,14 +75,16 @@ window's first folder, and `~` is expanded.
 | `GET /health` | | `{ok, name, version, port, pid}` |
 | `GET /state` | | see below |
 | `GET /text?file=<path>` | (no file: the active editor) | `{file, text, dirty, version, languageId, lineCount}`. The editor's text, **unsaved edits included** |
-| `POST /open` | `{file, line?, column?, preserveFocus?}` | `{ok, file, line, languageId, dirty}`. Opens in **this** window (never a new one), keeps the column the file is already shown in, and centers the line |
+| `POST /open` | `{file, line?, column?, preserveFocus?}` | `{ok, file, line, languageId, dirty}`. Opens in **this** window (never a new one), keeps the column the file is already shown in, and centers the line. 0.0.6: an `.ipynb` opens in the notebook editor (`vscode.openWith … 'jupyter-notebook'`; no notebook support: `vscode.open`), never as raw JSON; `line` (a line of the `.ipynb` JSON on disk) selects and reveals its cell; the reply adds `notebook` and `cell` |
 | `POST /highlight` | `{file, startLine, endLine?, focus?, reveal?}` | `{ok, file, startLine, endLine}`. Centers the lines in view and records them in `/state.highlight`. Draws nothing unless `miyagi.editorUi` is on: then one white 2px box (faint white fill) around the lines, one per window, repainted when the file becomes visible again |
 | `POST /highlight` | `{clear: true}` | `{ok, cleared: true}` |
 | `POST /terminal` | `{show: true, cwd?, preserveFocus?}` | `{ok, shown, terminal, created}`. Shows the "Miyagi" terminal, else the active one, else creates "Miyagi" |
 | `POST /terminal` | `{show: false}` | Closes the panel |
 | `POST /terminal/run` | `{cmd, cwd?, preserveFocus?}` | `{ok, terminal: "Miyagi", created, sent, shellIntegration, reportsExitCode}`. Reuses one "Miyagi" terminal: shows it, then `sendText(cmd)`. When `cwd` is given and the shell is somewhere else, it sends `cd '<cwd>' && cmd`. The exit code and output arrive later in `/state.lastCommand` and as a `command_end` event |
-| `POST /apply` | `{file, newText \| edits, save = true, reveal = true}` | `{ok, file, created, saved, dirty, version, lineCount}`. Edits through a `WorkspaceEdit`, so an **unsaved buffer** is edited and not overwritten on disk behind VS Code's back. Then it saves. `newText` on a missing file creates the file |
+| `POST /save` | `{file?}` (no file: the active editor) | `{ok, file, open, saved, wasDirty, dirty}`. Saves that file's buffer the way Cmd+S does, only when it holds unsaved edits. The engine calls it before Run it for me and Check on a run step, so the code that runs is what the editor shows. A 0.0.3 extension answers `no_route`; the engine then saves with a no-op `/apply` (empty text at 1:1, `save: true`, `reveal: false`). 0.0.6: an `.ipynb` open in the notebook editor saves as a notebook (`notebook: true`), never through a JSON text buffer |
+| `POST /apply` | `{file, newText \| edits, save = true, reveal = true}` | `{ok, file, created, saved, dirty, version, lineCount}`. Edits through a `WorkspaceEdit`, so an **unsaved buffer** is edited and not overwritten on disk behind VS Code's back. Then it saves. `newText` on a missing file creates the file. 0.0.6: an `.ipynb` is refused (409 `notebook_unsupported`): its text is JSON, and a text edit would fight the notebook editor |
 | `POST /diff` | `{file, newText, title?}` | `{ok, file, title, proposed}`. Only with `miyagi.editorUi` on (else 409 `editor_ui_off`): runs `vscode.diff` with the file (as the editor has it) on the left and `newText` on the right. Changes nothing |
+| `POST /python/refresh` | `{folder?}` (default: the first workspace folder) | `{ok, folder, interpreter, restarted}`. After a pip install into `<folder>/.venv`: selects that interpreter for the folder (Python extension API) and runs `python.analysis.restartLanguageServer`, so Pylance re-reads the packages. Also the command `miyagi.companion.refreshPython` |
 
 `edits` is a list. Each edit takes one of these forms:
 
@@ -109,7 +111,7 @@ finishes, and its result is posted as an `action_done` event. The engine's clien
 
 ```jsonc
 {
-  "ok": true, "app": "vscode", "extension": "0.0.3", "vscodeVersion": "1.146.0", "pid": 123, "port": 8791,
+  "ok": true, "app": "vscode", "extension": "0.0.6", "vscodeVersion": "1.146.0", "pid": 123, "port": 8791,
   "folders": ["/Users/me/miyagi/lessons/python-calculator-e430dc"], "workspaceName": "python-calculator-e430dc",
   "file": "/Users/me/miyagi/lessons/python-calculator-e430dc/calculator.py", "relPath": "calculator.py",
   "dirty": true, "languageId": "python", "lineCount": 4,
@@ -145,6 +147,7 @@ The extension makes a best-effort `POST <miyagi.engineUrl>/vscode/event` (defaul
 | `dirty` | `file, dirty, languageId` | A buffer became dirty or clean (flips only, not every keystroke) |
 | `save` | `file, languageId` | A file was saved |
 | `focus` | `focused` | The window gained or lost focus |
+| `visible` | `file, lineCount, visibleRanges` | The active editor scrolled or its line count changed (80 ms debounce, only when one of them really changed). 0.0.5: the engine's type box follows its row at once (`server/orchestrator/box_follow.py`); an older extension: the engine reads `/state` instead |
 | `terminal` | `opened` or `closed` (a name) | A terminal was opened or closed |
 | `command_start` | `command` | A command started (needs shell integration) |
 | `command_end` | `command` (with `exitCode` and `outputTail`) | A command ended (needs shell integration) |

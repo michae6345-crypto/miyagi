@@ -1,31 +1,28 @@
 /**
  * Feature: drawer. The "Just teach me" parts of the drawer (Michael: show the big picture, then the plan, then
  * exactly what to type):
- *  - OverviewText: "What we're building", one paragraph (lesson.ready overview).
+ *  - OverviewText: "What you're building", one paragraph (lesson.ready overview).
  *  - PrimerSection: "Before you start", collapsed by default; each concept with its body and a small example.
  *  - StepDetail: inside the current step, a Type / Run badge with the one-line instruction, the full code (or the
  *    exact command) in mono with Copy, "Why:" and concept chips that open the matching primer item in place.
- *  - StepActions: mockup 01's option row under the current step's checks: Explain / Diagram / Show me / Hint and
- *    "Check my work", the drawer's one primary.
+ *  - StepActions: "Check my work" under the current step's checks, the drawer's one primary (the options are in
+ *    the shortcut bar, A11).
  *
- * Glass tokens only (theme.glass); chrome stays neutral, pastels only on the option row (theme.actionTone through
- * OptionButton), green stays for passed.
+ * Glass tokens only (theme.glass); chrome stays neutral, green stays for passed.
  */
 import { motion } from 'motion/react'
 import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type ReactNode, type RefObject } from 'react'
 import { BookOpen, Check, ChevronDown, ChevronRight, ChevronUp, Copy, Keyboard, Terminal, type LucideIcon } from 'lucide-react'
 import { useShallow } from 'zustand/react/shallow'
 import type { Prerequisite, PrimerItem, StepKind, StepSummary } from '../../../../../../shared/contracts/events'
-import { bridge } from '../../bridge'
 import { useLesson, useThinking } from '../../core/lesson'
-import { sendAction, triggerShortcut, usePressed, type ActionKind, type ActionShortcut } from '../../core/shortcuts'
-import { color, fill, font, glass, spring } from '../../core/theme'
-import { OptionButton, Spinner } from '../../core/ui/atoms'
+import { sendAction, usePressed } from '../../core/shortcuts'
+import { font, glass, spring } from '../../core/theme'
 import { GlassPrimary, GlassSpinner } from '../../core/ui/glass'
 import { FlowDiagram } from '../before-start/Flow'
 import { openBeforeStart } from '../before-start/store'
 import { useStepSnippet } from '../overview/snippet'
-import { copyText, findPrimer, useStepDetail } from './plan'
+import { copyText, findPrimer, useStepDetail, type OutlineRow } from './plan'
 import { openConcept, useDrawer } from './store'
 
 const hoverVar = { '--drawer-hover': glass.fieldHover } as CSSProperties
@@ -83,7 +80,7 @@ export function NeedsChip(): ReactNode {
         data-part="drawer-needs"
         className="flex h-[26px] max-w-full cursor-pointer items-center gap-[6px] rounded-full border px-[10px] text-[12px] hover:bg-[var(--drawer-hover)]"
         style={{ ...hoverVar, background: glass.field, borderColor: glass.rule, color: glass.label }}
-        title="Before you start"
+        title="Your lesson"
         onMouseDown={(e) => e.preventDefault()}
         onClick={openBeforeStart}
       >
@@ -116,11 +113,21 @@ export function lessonTopic(title: string): string {
   return t || full
 }
 
-/** "about N min left": the steps' estMinutes summed over the steps not passed or skipped yet (undefined without estimates). */
-export function minutesLeft(steps: StepSummary[], done: string[]): number | undefined {
-  if (!steps.some((s) => typeof s.estMinutes === 'number')) return undefined
-  const left = steps.filter((s) => !done.includes(s.id)).reduce((sum, s) => sum + (s.estMinutes ?? 0), 0)
-  return Math.max(0, Math.round(left))
+/**
+ * "about N min left": the steps' estMinutes summed over the steps not passed or skipped yet (undefined without estimates).
+ * rows: the outline's (E23) while the rest of the lesson is still streaming in. A row counts until its step arrives; an
+ * arrived step without its own estimate keeps its row's, so the sum doesn't jump as steps land (review A14).
+ */
+export function minutesLeft(steps: StepSummary[], done: string[], rows: OutlineRow[] = []): number | undefined {
+  const byIndex = new Map(rows.map((r) => [r.index, r.estMinutes]))
+  const arrived = new Set(steps.map((s) => s.index))
+  const est = [
+    ...steps.filter((s) => !done.includes(s.id)).map((s) => s.estMinutes ?? byIndex.get(s.index)),
+    ...rows.filter((r) => !arrived.has(r.index)).map((r) => r.estMinutes)
+  ]
+  const known = [...steps.map((s) => s.estMinutes ?? byIndex.get(s.index)), ...rows.map((r) => r.estMinutes)]
+  if (!known.some((m) => typeof m === 'number')) return undefined
+  return Math.max(0, Math.round(est.reduce<number>((sum, m) => sum + (m ?? 0), 0)))
 }
 
 export function OverviewText({ text }: { text: string }): ReactNode {
@@ -146,13 +153,14 @@ export function PrimerSection(): ReactNode {
       <button
         type="button"
         className="flex w-full cursor-pointer items-center gap-[6px] px-[10px] pb-[4px] pt-[14px] text-left text-[12px] leading-[16px]"
-        style={{ color: glass.label }}
+        style={{ color: glass.faint }}
         aria-expanded={open}
         onMouseDown={(e) => e.preventDefault()}
         onClick={() => setOpen((o) => !o)}
       >
-        <span className="font-semibold">Before you start</span>
-        <span style={{ color: glass.faint }}>
+        {/* The drawer's section labels (mockup 01's small caps). */}
+        <span className="text-[11px] font-semibold uppercase tracking-[0.06em]">Key ideas</span>
+        <span>
           {primer.length} {primer.length === 1 ? 'idea' : 'ideas'}
         </span>
         <motion.span className="grid place-items-center" animate={{ rotate: open ? 90 : 0 }} transition={spring}>
@@ -357,8 +365,16 @@ export function CodeBlock({ code, caption, bleed }: { code: string; caption: str
         </button>
       </div>
       <div className="relative">
+        {/* Lines never wrap (Michael, test 10: "sparse_categoric / al_crossentropy" broke inside a name, and typing it as
+            shown fails); long lines scroll sideways. */}
         <pre ref={pre} className="overflow-x-auto whitespace-pre px-[12px] py-[9px] text-[12px] leading-[18px]" style={{ fontFamily: font.mono, color: glass.text, ...thinScroll }}>
-          <code>{shown}</code>
+          <code>
+            {shown.split(/\r?\n/).map((line, i) => (
+              <span key={i} className="block">
+                {line || ' '}
+              </span>
+            ))}
+          </code>
         </pre>
         {more && (
           <button
@@ -416,40 +432,30 @@ function useMoreToTheRight(ref: RefObject<HTMLPreElement | null>, content: strin
 }
 
 // ---------------------------------------------------------------------------
-// The option row
+// The step's action
 // ---------------------------------------------------------------------------
 
-/** The spinner in an option's icon slot: ink on the pastel (the cards' SpinInk). */
-const SpinInk = ((p: { size?: number }) => <Spinner size={p.size ?? 13} c={color.onAccent} track={fill.onAccentKey} />) as unknown as LucideIcon
 /** The spinner in the primary's icon slot: the glass button's text color (white on dark, ink on light). */
 const SpinPrimary = ((p: { size?: number }) => <GlassSpinner size={p.size ?? 13} c={glass.buttonText} track={glass.rule} />) as unknown as LucideIcon
 
-const OPTIONS: Array<{ kind: ActionShortcut & ('explain' | 'diagram' | 'show_me' | 'hint'); label: string }> = [
-  { kind: 'explain', label: 'Explain' },
-  { kind: 'diagram', label: 'Diagram' },
-  { kind: 'show_me', label: 'Show me' },
-  { kind: 'hint', label: 'Hint' }
-]
-
 /**
- * Mockup 01: the current step's options, in their pastels with the platform's keycaps (bridge.platform.keys), the
- * same path as the shortcut bar (triggerShortcut), and "Check my work" (action check_step) as the one primary.
- * Never looks dead: the pressed button's icon spins while the engine thinks about it.
+ * The current step's one action: "Check my work" (action check_step). Explain / Diagram / Show me / Hint live only
+ * in the shortcut bar, which is always up during a step, so the drawer doesn't repeat them (tests 2-3, A11).
+ * Never looks dead: the icon spins while the engine thinks about it.
  */
 export function StepActions({ padX }: { padX: number }): ReactNode {
-  const keys = bridge.platform.keys
   const thinking = useThinking()
   const pressed = usePressed((p) => p.kind)
-  const busy = (k: ActionKind): boolean => thinking && pressed === k
-  const checking = busy('check_step')
+  const checking = thinking && pressed === 'check_step'
   return (
-    <div data-part="drawer-actions" className="flex flex-wrap items-center gap-[6px] pb-[12px]" style={{ paddingLeft: padX, paddingRight: padX }}>
-      {OPTIONS.map((o) => (
-        <OptionButton key={o.kind} action={o.kind} label={o.label} kbd={keys[o.kind]} icon={busy(o.kind) ? SpinInk : undefined} onClick={() => triggerShortcut(o.kind)} />
-      ))}
-      <span className="ml-auto">
-        <GlassPrimary label={checking ? 'Checking…' : 'Check my work'} icon={checking ? SpinPrimary : Check} onClick={() => !checking && sendAction('check_step')} />
-      </span>
+    // Sticky at the scroller's bottom while its step is on screen (Michael's test 8: on a tall step 6 the button was
+    // cut off at the drawer's bottom edge). Opaque glass under the current row's tint, so rows scrolling behind don't show through.
+    <div
+      data-part="drawer-actions"
+      className="sticky bottom-0 z-[1] flex items-center justify-end pb-[12px] pt-[6px]"
+      style={{ paddingLeft: padX, paddingRight: padX, borderRadius: '0 0 12px 12px', background: glass.bg, boxShadow: `inset 0 0 0 999px ${glass.bg}, inset 0 0 0 999px ${glass.fieldHover}` }}
+    >
+      <GlassPrimary label={checking ? 'Checking…' : 'Check my work'} icon={checking ? SpinPrimary : Check} onClick={() => !checking && sendAction('check_step')} />
     </div>
   )
 }

@@ -4,11 +4,11 @@
     reqs = requirements(graph)                 # read-only: tools + installed/version/install recipe
     install(item, on_line=print)               # only after the learner says yes
     wd = prepare(graph, goal)                  # Path; the hero lesson gets demo/pinn-lab
-    if editor_needed(reqs): open_editor(wd, open_file_for(wd))   # Cursor or VS Code, only after the learner says yes
+    if editor_needed(reqs): open_editor(wd, open_file_for(wd))   # VS Code, only after the learner says yes
 """
 
 from .active import active_editor, adopt_folder, folder_on_screen, vscode_windows, wrong_folder
-from .core import open_file_for, prepare, read_state
+from .core import lesson_folder, open_file_for, prepare, read_state, set_aside_previous
 from .editor import (
     editor_label,
     editor_line_location,
@@ -26,7 +26,7 @@ from .setup import editor_needed, install, missing, requirements, setup_card
 
 __all__ = [
     "active_editor", "adopt_folder", "folder_on_screen", "vscode_windows", "wrong_folder",
-    "NO_RESOURCES",
+    "NO_RESOURCES", "set_aside_previous",
     "build_workdir",
     "download_resources",
     "download_summary",
@@ -40,6 +40,7 @@ __all__ = [
     "hero_workdir",
     "install",
     "installed_editors",
+    "lesson_folder",
     "lessons_root",
     "missing",
     "open_editor",

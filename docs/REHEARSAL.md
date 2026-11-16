@@ -1,5 +1,9 @@
 # Hero demo rehearsal: measured timings, offline result, stage checklist
 
+A record of the Nov 14 PINN rehearsal, kept for its numbers. Some steps predate the current build: lessons now grade the
+unsaved code in VS Code (no ⌘S needed to be graded), and the Mac lesson keys are ⌃⌥ (Hint ⌃⌥H, Diagram ⌃⌥D). The current
+run of show is [`docs/DEMO.md`](DEMO.md).
+
 Rehearsed on 2026-11-14 on the stage Mac with `scripts/rehearse.py`, on `integration/live` **3123eb6**. That base
 includes E4's fixes for the bugs this rehearsal found and S8's preflight card. An earlier batch on 9f89e04 gave the
 same picture; see the end of §1. Re-checked on **bb8feb2** (the head when this PR was opened): one live take and the
@@ -276,7 +280,7 @@ All sent to E4 with repros (E2's content issues flagged as E2's).
 | Check | "Not yet" right after typing | "It wants proof it runs, not just the text." | Save, run `python3 calculator.py`, press Check again. |
 | Step 2 | Says "type print(add(2, 3))" and boxes the editor | "Now run it." | Run `python3 calculator.py` in the terminal; ignore the box. |
 | Run | `command not found: python` | "Mac Python is python3." | `python3 calculator.py`. |
-| Steps 3+ | Box on line 1 | Stop the path here. | End the lesson (`curl -X POST localhost:8787/end`). |
+| Steps 3+ | Box on line 1 | Stop the path here. | End the lesson (`curl -X POST 'localhost:8787/end?forget=1'`; plain `/end` keeps the place for a deploy). |
 
 ### Boxes on rendered VS Code frames (S1's harness, integration/live 054aa06, zero cost)
 

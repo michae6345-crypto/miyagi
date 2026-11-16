@@ -19,14 +19,18 @@
  */
 import { create } from 'zustand'
 import type { VideoSegment } from '../../../../../../shared/contracts/events'
-import { cmd } from '../../../../common/wire'
+import { cmd, type Payload } from '../../../../common/wire'
 import { bridge, isElectron, registerWebHandler } from '../../bridge'
 import { onMessage, onUi } from '../../core/bus'
 import { useLesson } from '../../core/lesson'
+import { useCards } from '../cards/store'
 import { describeYTError, isYouTubeId, loadYouTube, resolveVideoId, YTState, type YTPlayer } from './youtube'
 
-/** Why the video is paused. 'gate' = we stopped at the step's end; 'engine' = video.pause. */
-export type PausedBy = 'gate' | 'engine' | 'user' | 'ended'
+/**
+ * Why the video is paused. 'gate' = we stopped at the step's end; 'engine' = video.pause; 'setup' = a setup card is
+ * waiting (it starts once setup is done or skipped).
+ */
+export type PausedBy = 'gate' | 'engine' | 'user' | 'ended' | 'setup'
 
 type PlayerState = {
   /** The YouTube player exists and answered onReady. */
@@ -44,8 +48,35 @@ type PlayerState = {
   resuming: boolean
   /** Autoplay with sound was blocked, so we play muted until the learner unmutes. */
   muted: boolean
+  /** The learner's volume, 0-100 (saved). */
+  volume: number
+  /** The learner's playback speed (saved): 0.75x to 2x, for learners who want to go fast (Michael, Nov 15). */
+  rate: number
   error?: string
 }
+
+/** The speed chip cycles through these. */
+export const RATES = [1, 1.25, 1.5, 2, 0.75] as const
+const PREF_KEY = 'miyagi.player.prefs'
+function savedPrefs(): { volume: number; rate: number } {
+  try {
+    const v = JSON.parse(localStorage.getItem(PREF_KEY) ?? '{}') as { volume?: unknown; rate?: unknown }
+    const volume = typeof v.volume === 'number' && v.volume >= 0 && v.volume <= 100 ? Math.round(v.volume) : 100
+    const rate = typeof v.rate === 'number' && (RATES as readonly number[]).includes(v.rate) ? v.rate : 1
+    return { volume, rate }
+  } catch {
+    return { volume: 100, rate: 1 }
+  }
+}
+function savePrefs(): void {
+  const { volume, rate } = usePlayer.getState()
+  try {
+    localStorage.setItem(PREF_KEY, JSON.stringify({ volume, rate }))
+  } catch {
+    // storage unavailable: the settings hold for this session only
+  }
+}
+const prefs = savedPrefs()
 
 const blank: PlayerState = {
   ready: false,
@@ -58,6 +89,8 @@ const blank: PlayerState = {
   pausedBy: undefined,
   resuming: false,
   muted: false,
+  volume: prefs.volume,
+  rate: prefs.rate,
   error: undefined
 }
 
@@ -241,6 +274,18 @@ function setPlay(play: boolean): void {
   sync(true)
 }
 
+/** The learner's volume and speed onto the YouTube player (on ready, and each time playback starts: a new clip can reset the rate). */
+function applyPrefs(): void {
+  if (!yt || !ready) return
+  const { volume, rate } = usePlayer.getState()
+  try {
+    yt.setVolume(volume)
+    if (yt.getPlaybackRate() !== rate) yt.setPlaybackRate(rate)
+  } catch {
+    // an older player without these calls: leave YouTube's defaults
+  }
+}
+
 /** Browsers block autoplay with sound without a user gesture: fall back to muted playback. */
 function watchAutoplay(): void {
   clearTimeout(autoplayTimer)
@@ -263,11 +308,36 @@ function gate(end: number): void {
   sync(true)
 }
 
+/**
+ * Where the lesson's video ends for us: the last step's clip end (Michael's desktop test 12). Past it YouTube shows its
+ * end screen with a suggested video, which invites the learner to leave. Only once the last step is the current one.
+ */
+function lessonEnd(): number | undefined {
+  const s = useLesson.getState()
+  const withVideo = s.steps.filter((x) => x.video)
+  const last = withVideo[withVideo.length - 1]
+  if (!last?.video || s.stepId !== last.id) return undefined
+  if (resolveVideoId(last.video.videoId) !== loadedId) return undefined
+  return last.video.end
+}
+
+/** Stop at the lesson's end, before YouTube's end screen: paused like 'ended'. */
+function stopAtEnd(end: number): void {
+  if (!yt) return
+  want = { ...want, t: end, play: false }
+  clearTimeout(autoplayTimer)
+  yt.pauseVideo()
+  setUi({ pausedBy: 'ended' })
+  sync(true)
+}
+
 function tick(): void {
   if (!yt || !ready) return
   const t = now()
   const h = holdPoint()
   if (h && isRolling(state()) && inGate(t)) return gate(h.end)
+  const e = h ? undefined : lessonEnd()
+  if (e !== undefined && !excursion && isRolling(state()) && t >= e - GATE_EPS && t < e + GATE_ZONE) return stopAtEnd(e)
   const s = usePlayer.getState()
   if (Math.abs(s.t - t) > 0.04 || !s.duration) sync()
 }
@@ -293,6 +363,7 @@ function onStateChange(st: number): void {
   // Our intent wins: seekTo on a cued video starts playback even when we wanted it paused.
   if (st === YTState.PLAYING && !want.play) return yt.pauseVideo()
   if (isRolling(st)) clearTimeout(autoplayTimer)
+  if (st === YTState.PLAYING) applyPrefs()
   if (st === YTState.ENDED) {
     want = { ...want, play: false }
     setUi({ pausedBy: holdPoint() ? 'gate' : 'ended' })
@@ -313,8 +384,12 @@ export function attachPlayer(host: HTMLElement): () => void {
   loadYouTube()
     .then((YT) => {
       if (dead) return
+      // Quiet embed (Michael's desktop test 9): no controls (ours drive it), related videos from the same channel only
+      // (rel 0), no annotations or cards (iv_load_policy 3), no keyboard, no fullscreen. modestbranding is a no-op on
+      // today's player but harmless. A paused embed still draws its title bar and "More videos" strip: the panel's
+      // gate states cover the frame (Player.tsx GlassScrim cover).
+      const vars: Record<string, string | number> = { controls: 0, disablekb: 1, fs: 0, rel: 0, iv_load_policy: 3, modestbranding: 1, playsinline: 1, enablejsapi: 1 }
       // Under file:// (packaged Electron) there's no http(s) origin to give YouTube: see player.md → Notes.
-      const vars: Record<string, string | number> = { controls: 0, disablekb: 1, fs: 0, rel: 0, iv_load_policy: 3, playsinline: 1, enablejsapi: 1 }
       if (/^https?:$/.test(location.protocol)) vars.origin = location.origin
       // Created empty, then everything goes through go(). (Creating it with a videoId and re-cueing
       // on ready races YouTube's own first cue: the clip then starts at 0 instead of the step start.)
@@ -327,6 +402,7 @@ export function attachPlayer(host: HTMLElement): () => void {
             if (dead) return
             yt = player
             ready = true
+            applyPrefs()
             loadedId = undefined
             if (want.videoId) go(want.videoId, want.t, want.play)
             else sync()
@@ -398,6 +474,44 @@ export const player = {
     yt?.unMute()
     setUi({ muted: false })
   },
+  /** The volume slider: 0 mutes, anything above unmutes. Saved for the next lesson. */
+  setVolume(v: number): void {
+    const volume = Math.max(0, Math.min(100, Math.round(v)))
+    setUi({ volume, muted: volume === 0 })
+    if (yt && ready) {
+      yt.setVolume(volume)
+      if (volume === 0) yt.mute()
+      else yt.unMute()
+    }
+    savePrefs()
+  },
+  /** The speaker button: mute, or back to the last volume (at least a little, so it's audible). */
+  toggleMute(): void {
+    const s = usePlayer.getState()
+    if (s.muted || s.volume === 0) {
+      const volume = s.volume || 60
+      yt?.unMute()
+      yt?.setVolume(volume)
+      setUi({ muted: false, volume })
+      savePrefs()
+    } else {
+      yt?.mute()
+      setUi({ muted: true })
+    }
+  },
+  /** The speed chip: the next rate in RATES. Saved for the next lesson. */
+  cycleRate(): void {
+    const cur = usePlayer.getState().rate
+    const i = (RATES as readonly number[]).indexOf(cur)
+    const rate = RATES[(i + 1) % RATES.length]
+    setUi({ rate })
+    try {
+      yt?.setPlaybackRate(rate)
+    } catch {
+      // not supported: the chip still shows the choice, applied on the next play
+    }
+    savePrefs()
+  },
   /** Seek from the timeline: never past the open step's gate. */
   scrub(t: number): void {
     const h = holdPoint()
@@ -429,7 +543,8 @@ onMessage('card', (p) => {
 onMessage('step.started', (p) => {
   clearTimeout(resumeTimer)
   excursion = false
-  setUi({ resuming: false, pausedBy: undefined })
+  // A setup card still waiting: cue the clip and hold it (it starts when setup is done or skipped).
+  setUi({ resuming: false, pausedBy: setupHold ? 'setup' : undefined })
   const seg = p.video ?? useLesson.getState().steps.find((x) => x.id === p.stepId)?.video
   if (!seg) return
   const t = now()
@@ -438,8 +553,8 @@ onMessage('step.started', (p) => {
   const start = clipStart(seg)
   if (sameVideo && t >= start - 1 && t < seg.end - GATE_EPS) {
     want = { ...want, videoId: resolveVideoId(seg.videoId) }
-    setPlay(true)
-  } else go(seg.videoId, start, true)
+    if (!setupHold) setPlay(true)
+  } else go(seg.videoId, start, !setupHold)
 })
 
 onMessage('step.passed', (p) => {
@@ -453,7 +568,7 @@ onMessage('step.passed', (p) => {
     // The next part of a long video is still building: keep the video where it is (if it's still
     // playing it holds at this clip's end). The engine starts the next step after lesson.updated.
     if (p.pending) return
-    if (!s.playing && s.pausedBy !== 'user' && s.pausedBy !== 'ended') player.play()
+    if (!s.playing && s.pausedBy !== 'user' && s.pausedBy !== 'ended' && !setupHold) player.play()
   }, RESUME_DELAY_MS)
 })
 
@@ -462,19 +577,83 @@ onMessage('step.passed', (p) => {
 useLesson.subscribe((s, prev) => {
   if (s.video === prev.video || !s.video.at || !isHost) return // at = 0: lesson.ready / reset blanking it
   const v = s.video
-  if (v.kind === 'pause') player.pause('engine')
+  // video.pause while a setup card waits: still the setup hold (no "Waiting for your checks"; it starts after setup).
+  if (v.kind === 'pause') player.pause(setupHold ? 'setup' : 'engine')
   else if (v.kind === 'play') player.play()
   else player.seek(v.t, v.playing, v.kind === 'seek' ? 'engine' : 'user', true)
 })
 
+// The lesson is gone (End, an interrupted lesson that never came back, an engine restart with no lesson): the player
+// window hides (Michael's desktop test 9: the empty panel stayed open after End). Main also hides it on lesson.ended.
+// The browser stage's panel already leaves with the lesson (StagePlayer).
+if (isElectron && isHost)
+  useLesson.subscribe((s, prev) => {
+    if (prev.lesson && !s.lesson) bridge.invoke('player:hide').catch(() => undefined)
+  })
+
 onUi('reset', () => {
   clearTimeout(resumeTimer)
   excursion = false
+  setupHold = false
   skippedIntro = undefined
   want = { ...want, play: false }
   if (yt && ready) yt.pauseVideo()
   setUi({ ...blank, ready: usePlayer.getState().ready })
 })
+
+// ---------------------------------------------------------------------------
+// Hold during setup (Michael's desktop test 9: the video autoplayed to 0:44 while "Set up first" was waiting)
+// ---------------------------------------------------------------------------
+
+/**
+ * A setup card waiting on the learner ("Set up first": Install / Open VS Code / Skip). The passing note that ends
+ * setup ("matplotlib installed ✓", no buttons) is not one.
+ */
+export const setupWaiting = (c: Payload<'card'> | undefined): boolean => c?.kind === 'setup' && (c.actions?.length ?? 0) > 0
+
+/** The card lands < 1 s after step.started: a hold this early in the clip goes back to its start. */
+const SETUP_REWIND_S = 5
+let setupHold = false
+
+/** on: pause (back to the clip's start if it only just began). off: play, if the setup hold is still why it's paused. */
+function holdForSetup(on: boolean): void {
+  if (on === setupHold) return
+  setupHold = on
+  if (on) {
+    clearTimeout(resumeTimer)
+    const seg = openSegment()
+    const start = seg ? clipStart(seg) : undefined
+    const t = now()
+    const back = start !== undefined && t >= start - 1 && t - start < SETUP_REWIND_S ? start : t
+    setUi({ resuming: false, pausedBy: 'setup' })
+    go(undefined, back, false)
+    return
+  }
+  // Done or skipped. Not if something else paused it meanwhile (the learner, the gate, the end).
+  if (usePlayer.getState().pausedBy === 'setup') player.play()
+}
+
+/**
+ * Where it's decided: the cards' window (the overlay in Electron; the one stage window in the browser), since only
+ * there do Skip, ✕ and the card's own timers close it. The player window hears it through main (player:setup, relayed
+ * to every window). It also follows its own copy of the cards store, which sees every card the engine sends (the
+ * "installed ✓" note that ends setup), in case the relay is missing.
+ */
+const cardsWindow = !isElectron || route === 'overlay' || route === ''
+if (cardsWindow)
+  useCards.subscribe((s, prev) => {
+    const on = setupWaiting(s.card)
+    if (on === setupWaiting(prev.card)) return
+    if (isHost) holdForSetup(on)
+    else bridge.invoke('player:setup', on).catch(() => undefined)
+  })
+if (isElectron && isHost) {
+  bridge.onFeature('player:setup', (on) => holdForSetup(on === true))
+  useCards.subscribe((s, prev) => {
+    const on = setupWaiting(s.card)
+    if (on !== setupWaiting(prev.card)) holdForSetup(on)
+  })
+}
 
 // Browser stage: stand-ins for the main-process handlers (there's no window to move).
 registerWebHandler('player:dock', () => undefined)

@@ -1,7 +1,9 @@
 #!/usr/bin/env bash
-# Start the engine in LIVE mode for LAN access: real modules, real screen, VS Code auto-open.
+# Start the engine in LIVE mode: real modules, real screen, VS Code auto-open.
 #
-#   scripts/miyagi-engine.sh                 # ws://<this-mac>.local:8787 and ws://localhost:8787
+#   scripts/miyagi-engine.sh                 # ws://localhost:8787 (this Mac only)
+#   ENGINE_HOST=0.0.0.0 scripts/miyagi-engine.sh   # opt-in LAN access: ws://<this-mac>.local:8787 (Adrian's app on
+#                                            # another Mac). GET /state and /events have no auth and carry screen text.
 #   scripts/miyagi-engine.sh --port 8788     # extra args go to the engine (--host/--port)
 #   scripts/miyagi-demo.sh                   # the PINN hero lesson, autostarted on demo/pinn-lab
 #   DEMO=1 scripts/miyagi-engine.sh          # cached/canned demo data instead of live APIs
@@ -23,7 +25,7 @@ if [ ! -x "$PY" ]; then
   PY="$ROOT/.venv/bin/python"
 fi
 
-export ENGINE_HOST="${ENGINE_HOST:-0.0.0.0}"
+export ENGINE_HOST="${ENGINE_HOST:-127.0.0.1}"  # E3: LAN (0.0.0.0) is opt-in
 export ENGINE_PORT="${ENGINE_PORT:-8787}"
 export ORCH_SCREEN="${ORCH_SCREEN:-1}"
 export ORCH_OPEN_WORKSPACE="${ORCH_OPEN_WORKSPACE:-1}"
@@ -61,6 +63,10 @@ if command -v lsof >/dev/null && lsof -nP -iTCP:"$ENGINE_PORT" -sTCP:LISTEN >/de
 fi
 
 HOSTNAME_LOCAL="$(scutil --get LocalHostName 2>/dev/null || hostname -s).local"
-echo "[miyagi] engine: ws://localhost:$ENGINE_PORT  ·  LAN: ws://$HOSTNAME_LOCAL:$ENGINE_PORT"
+if [ "$ENGINE_HOST" = "0.0.0.0" ]; then
+  echo "[miyagi] engine: ws://localhost:$ENGINE_PORT  ·  LAN: ws://$HOSTNAME_LOCAL:$ENGINE_PORT (no auth: trusted networks only)"
+else
+  echo "[miyagi] engine: ws://$ENGINE_HOST:$ENGINE_PORT  (LAN: ENGINE_HOST=0.0.0.0 $0)"
+fi
 echo "[miyagi] workspace: ${TUT_WORKDIR:-per lesson in ~/miyagi/lessons}   mode: $([ "${DEMO:-0}" = "1" ] && echo DEMO || echo LIVE)   autostart: $ORCH_AUTOSTART"
 exec "$PY" -m server.orchestrator.main --host "$ENGINE_HOST" --port "$ENGINE_PORT" "$@"

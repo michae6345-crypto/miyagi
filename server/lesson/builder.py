@@ -26,9 +26,13 @@ from .schema import (
     stack_of,
     standard_error_pattern,
     schema_errors,
+    spans_lines,
     standard_output_check,
     step_check_problems,
+    value_line,
 )
+from .notebook_steps import use_lesson_notebook
+from .venv_steps import use_lesson_venv
 from .workdir import WorkdirInfo, scan
 
 # Progress for the UI. Stable stage ids (the app maps them to text; log wording may change):
@@ -332,6 +336,8 @@ async def _build_lesson_impl(
         "community_signals": n_signals,
         "warnings": warnings,
     }
+    use_lesson_venv(graph)  # t9 V6: no second venv / reinstall in a step (Miyagi's setup card fills the lesson's .venv)
+    use_lesson_notebook(graph)  # t10: a Jupyter lesson's own notebook (mnist.ipynb) in VS Code, never Untitled.ipynb
     errs = schema_errors(graph)
     if errs:
         raise RuntimeError("step graph failed contract validation:\n" + "\n".join(errs))
@@ -515,7 +521,8 @@ async def _watch(url: str, vid: str, goal: str) -> dict:
             d = await claude_draft()
             _emit("steps_ready", "claude")
             return d
-        except RuntimeError as e:
+        except Exception as e:  # noqa: BLE001  any transcript-path failure: Gemini watches instead
+            e = e if isinstance(e, RuntimeError) else RuntimeError(f"{type(e).__name__}: {e}")
             errors.append(f"claude: {str(e)[:300]}")
             log.warning("claude-first: transcript path failed (%s); asking Gemini to watch the video", str(e)[:150])
             _emit("engine_switch", _short_reason(str(e)) if "transcript" not in str(e).lower() else "no_transcript")
@@ -523,8 +530,8 @@ async def _watch(url: str, vid: str, goal: str) -> dict:
             d = await gemini_draft()
             _emit("steps_ready", "gemini")
             return d
-        except RuntimeError as e:
-            errors.append(f"gemini: {str(e)[:300]}")
+        except Exception as e:  # noqa: BLE001
+            errors.append(f"gemini: {(str(e) if isinstance(e, RuntimeError) else f'{type(e).__name__}: {e}')[:300]}")
         raise RuntimeError("no engine could build the lesson:\n" + "\n".join(errors))
 
     tasks: dict[str, asyncio.Task] = {}
@@ -550,7 +557,9 @@ async def _watch(url: str, vid: str, goal: str) -> dict:
                 eng = next(k for k, v in tasks.items() if v is t)
                 try:
                     draft = t.result()
-                except RuntimeError as e:
+                except Exception as e:  # noqa: BLE001  any failure of one engine (a TypeError from an SDK with no key,
+                    # an httpx error) must leave the race to the other one, never end a build Gemini was winning
+                    e = e if isinstance(e, RuntimeError) else RuntimeError(f"{type(e).__name__}: {e}")
                     errors.append(f"{eng}: {str(e)[:300]}")
                     log.warning("%s video pass failed: %s", eng, str(e)[:200])
                     if eng == "gemini" and "claude" in tasks:
@@ -954,6 +963,10 @@ def normalize_checks(graph: dict, known_metrics: set[str]) -> dict:
         for c in step["checks"] + step.get("precision_checks", []):
             if c.get("pattern") and looks_like_literal(c["pattern"]):
                 c["pattern"] = literal_pattern(c["pattern"])
+            # the checker reads one printed line at a time: keep the line that holds the number (a trend that loses
+            # its step that way is then dropped by lint/repair; a threshold keeps working)
+            if c.get("metric_pattern") and spans_lines(c["metric_pattern"]) and (line := value_line(c["metric_pattern"])):
+                c["metric_pattern"] = line
     complete_metric_checks(graph, known_metrics)
     return align_precision_metrics(graph)
 
@@ -1145,9 +1158,28 @@ def _code_tokens(check: dict) -> list[str]:
     return [t.rstrip(".") for t in re.findall(r"[A-Za-z_][\w.]*|\d[\w.]*", text)]
 
 
-def label_case(label: str, check: dict) -> str:
+def _code_names(code: str) -> dict[str, str]:
+    """The names in a step's code (strings and comments left out), lowercase -> as spelled: the learner's variables,
+    functions and modules (roll, randint, random). Keywords and builtins are words a label may start with (Print, Return)."""
+    import builtins
+    import keyword
+
+    bare = re.sub(r"(\"\"\"|''')[\s\S]*?\1|\"(?:\\.|[^\"\\\n])*\"|'(?:\\.|[^'\\\n])*'", " ", code or "")
+    bare = re.sub(r"#[^\n]*|//[^\n]*", " ", bare)
+    skip = set(keyword.kwlist) | set(dir(builtins)) | _REGEX_WORDS | _KEYWORDS
+    out: dict[str, str] = {}
+    for n in re.findall(r"[A-Za-z_][A-Za-z0-9_]*", bare):
+        if n not in skip and n.lower() not in skip:
+            out.setdefault(n.lower(), n)
+    return out
+
+
+def label_case(label: str, check: dict, code: str = "") -> str:
     """Capitalize a label's first word, except code (nn.py, sigmoid_slope, np.array()) and product names, which keep
-    their spelling anywhere ("NumPy is imported", never "Numpy is imported"; "nn.py runs", never "Nn.py runs")."""
+    their spelling anywhere ("NumPy is imported", never "Numpy is imported"; "nn.py runs", never "Nn.py runs").
+    E25: a first word that names something in the code keeps its spelling too: the step's `code` ("random import typed",
+    "roll gets random.randint(1, 6)") or an attribute the check looks for ("randint roll typed", never "Randint roll
+    typed"). A backticked first word is code as written."""
     from .textlesson import CASED  # textlesson imports this module
 
     words = (label or "").split(" ")
@@ -1157,10 +1189,18 @@ def label_case(label: str, check: dict) -> str:
         if i == 0 and bare:
             toks = _code_tokens(check)
             assigned = len(words) > 1 and re.fullmatch(r"[-+*/@%]?=", words[1])  # "y = np.array() typed"
-            if re.search(r"[._\d]", bare) or "(" in w or (bare in toks and (len(bare) <= 2 or assigned)):
+            attrs = {p.lower(): p for t in toks for p in t.split(".")[1:] if p}  # random.randint -> randint
+            named = _code_names(code).get(bare.lower()) or attrs.get(bare.lower())
+            if w.startswith("`"):
+                pass  # `roll` gets `random.randint(1, 6)`: code, exactly as written
+            elif re.search(r"[._\d]", bare) or "(" in w or (bare in toks and (len(bare) <= 2 or assigned)):
                 words[i] = w.replace(bare, next((t for t in toks if t.lower() == bare.lower()), bare))  # "Nn.py" -> "nn.py"
+            elif canon:
+                words[i] = w.replace(bare, canon)
+            elif named:
+                words[i] = w.replace(bare, named)  # "Randint roll typed" -> "randint roll typed"
             else:
-                words[i] = w.replace(bare, canon) if canon else w[:1].upper() + w[1:]
+                words[i] = w[:1].upper() + w[1:]
         elif canon and bare[:1].isupper() and bare != canon:  # a lowercase mid-label "numpy" is the module: kept
             words[i] = w.replace(bare, canon)
     return " ".join(words)
@@ -1169,11 +1209,12 @@ def label_case(label: str, check: dict) -> str:
 def tidy_labels(step: dict) -> dict:
     """Labels within a step's checklist are unique and cased: two checks both labelled "array() is typed" get the
     identifier that tells them apart ("array() is typed (X)", "array() is typed (y)"). Deterministic, no model call."""
+    code = step.get("code") or ""  # E25: a label starting with a name from the step's code keeps its spelling
     for key in ("checks", "precision_checks"):
         checks = step.get(key) or []
         for c in checks:
             if c.get("label"):
-                c["label"] = label_case(c["label"], c)
+                c["label"] = label_case(c["label"], c, code)
         groups: dict[str, list[dict]] = {}
         for c in checks:
             groups.setdefault((c.get("label") or "").strip().lower(), []).append(c)

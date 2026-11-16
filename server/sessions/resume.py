@@ -6,9 +6,11 @@ E4's session already freezes a lesson in memory when the app comes back (snapsho
 video.pause + card {kind:"resume"}; action resume / end_lesson). This adds:
   - autosave to ~/miyagi/state on lesson.ready / lesson.updated (graph + progress: video AND "Just teach
     me" text lessons) and step.started / step.passed (passed + skipped) / video.state (throttled); cleared on
-    lesson.ended (end_lesson, a new learn, POST /end) and when the last step passes; KEPT on lesson.ended
-    "stopped" (the bar's End), marked `stopped`: offered back by the resume card when the app next connects,
-    restored only by its Continue (a rebuild of the same lesson starts over and replaces it)
+    POST /end and when the last step passes; KEPT on lesson.ended "stopped" (the bar's End) and "end_lesson"
+    (the resume card's "Start a new lesson", E11: it threw the lesson away for good, and a stray click near
+    Continue did it), marked `stopped`: offered back by the resume card when the app next connects, restored
+    only by its Continue, replaced once another lesson is actually built (a rebuild of the same lesson starts
+    over and replaces it). The lesson it replaced goes on the recent list (store.recent()).
   - snapshot() with no lesson in memory but one saved (the engine restarted): spotlight clear,
     video.pause, status idle, the resume card
   - resume() with no lesson in memory: reload the cached step graph (no rebuild) at the saved step and
@@ -17,8 +19,8 @@ video.pause + card {kind:"resume"}; action resume / end_lesson). This adds:
 
 The save made before a restart is protected until the learner answers the card: while it is pending
 nothing saves or clears it (an app connect, a snapshot, a disconnect, the engine stopping, the frozen
-in-memory lesson). Continue restores it; Start new (end_lesson / POST /end) clears it; a different
-lesson replaces it; the SAME lesson loaded again (a rebuild that hit the lesson cache) continues at the
+in-memory lesson). Continue restores it; Start new (end_lesson) keeps it, marked stopped; POST /end clears
+it; a different lesson replaces it; the SAME lesson loaded again (a rebuild that hit the lesson cache) continues at the
 saved step instead of starting over, except for a save the bar's End kept (`stopped`): that one starts over.
 """
 
@@ -29,14 +31,26 @@ import time
 from collections.abc import Callable
 from typing import Any
 
-from . import store
+from . import mastery, store
 
 log = logging.getLogger("sessions")
 
 VIDEO_SAVE_EVERY_S = 3.0
-EXPLICIT_END = ("end_lesson", "POST /end")  # the learner chose "Start a new lesson"
-KEEP_END = ("stopped",)  # the bar's / launcher's End: stop for now; the save is offered back like a restart's
+EXPLICIT_END = ("end_lesson", "POST /end")  # the learner chose "Start a new lesson" / a terminal ended it
+# the bar's / launcher's End, and the resume card's "Start a new lesson": stop for now; the save stays (offered back
+# like a restart's) until another lesson is built (E11). Only POST /end and a finished lesson clear it.
+KEEP_END = ("stopped", "end_lesson")
+# Nov 15: `curl -X POST localhost:8787/end` before every engine deploy cleared the learner's place, so after the restart
+# the app was back on the start sheet and typing the goal again began at step 1. That end now keeps the save, NOT marked
+# stopped: the next connection after the restart continues at that exact step (POST /end?forget=1 still clears it).
+INTERRUPTED = "interrupted"
 PROMPT_EVENTS = ("card", "video.pause", "status", "spotlight", "error")  # sending the prompt isn't activity
+
+
+def is_demo(graph: dict | None) -> bool:
+    """A Demo take (orchestrator/stage.py marks lesson.stage): never saved, resumed or offered back. Michael runs the
+    Demo many times in a row and every start must be a fresh take at step 1 (no resume card, no auto-resume)."""
+    return bool(((graph or {}).get("lesson") or {}).get("stage"))
 
 
 def ago(seconds: float) -> str:
@@ -79,6 +93,8 @@ class Resumer:
         self._started_at: dict[str, float] = {}
         self._last_activity: float | None = None
         self._restoring = False  # resume() is reloading: its lesson.ready must not overwrite the saved step
+        if (old := store.load()) is not None and is_demo(store.load_graph(old)):
+            store.clear()  # a Demo take saved by an older engine: never offered back
         self._pending = store.load() is not None  # saved before this engine started, not answered yet
         self._emit = session.emit
         self._load_graph = session.load_graph
@@ -124,6 +140,10 @@ class Resumer:
     def save_now(self, step_index: int | None = None, with_graph: bool = False) -> dict | None:
         if self._pending or getattr(self.s, "awaiting_resume", False):
             return None  # the save on disk is the learner's place until they answer the resume card
+        if getattr(self.s, "phase", None) == "done":
+            return None  # t5: the lesson ran to its end (cleared at its last step.passed): an app quit must not save it back
+        if is_demo(self.s.graph):
+            return None  # a Demo take is never resumed: each Demo start is step 1 (stage.py)
         st = self.capture(step_index)
         if st is None:
             return None
@@ -150,6 +170,8 @@ class Resumer:
                 self.save_now()
             elif type_ == "step.passed":
                 p = payload or {}
+                if not p.get("skipped"):  # E23: what this step practised, evidence for later lessons' prerequisites
+                    mastery.record_step_safely(self.s.graph or {}, p.get("stepId"))
                 if p.get("nextStepId") or p.get("pending"):
                     self.save_now(self.s.idx + 1)  # quit before the advance -> resume on the next step
                 else:
@@ -157,15 +179,20 @@ class Resumer:
                     skipped = set(getattr(self.s, "skipped_steps", None) or []) | ({p.get("stepId")} if p.get("skipped") else set())
                     store.record_completed(self.s.graph or {}, skipped)  # evidence for later lessons' prerequisites
             elif type_ == "lesson.ended":
+                if (payload or {}).get("reason") == INTERRUPTED:  # a deploy's end: the place stays (POST /end saved it
+                    self._pending = self._pending or store.load() is not None  # just before), resumed after the restart
+                    return
                 if self._pending and (payload or {}).get("reason") not in EXPLICIT_END:
                     return
-                if (payload or {}).get("reason") in KEEP_END:  # protected until Continue / Start new / another lesson
+                if (payload or {}).get("reason") in KEEP_END:  # protected until Continue / another lesson / POST /end
                     saved = store.load()
                     if saved is not None:  # marked: only Continue restores it, never a rebuild (also after a restart)
                         store.save({**saved, "stopped": True})
                     self._pending = saved is not None
                     return
                 self._pending = False
+                if (payload or {}).get("reason") == "new lesson" and (saved := store.load()) is not None:
+                    store.remember(saved)  # E11: a new learn / "Learn X first" replaced it: on the recent list
                 store.clear()
                 self._graph_saved_for = None
         except Exception:  # noqa: BLE001 - saving must never break the lesson
@@ -208,7 +235,8 @@ class Resumer:
             saved = store.load()
             self._pending = False
             lid = (graph.get("lesson") or {}).get("id")
-            if saved is not None and lid and lid == saved.get("lessonId") and not saved.get("stopped"):
+            if (saved is not None and lid and lid == saved.get("lessonId") and not saved.get("stopped")
+                    and not is_demo(graph)):  # a Demo start is always step 1, never a save's step
                 old = store.load_graph(saved)
                 if old is not None and len(old.get("steps") or []) > len(graph.get("steps") or []):
                     graph = old  # a partial rebuild: keep the full saved graph (later parts merge by id)

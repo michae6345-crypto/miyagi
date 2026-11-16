@@ -16,13 +16,24 @@
  */
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { useReducedMotion } from 'motion/react'
-import { color, fill, font } from '../../core/theme'
+import { color, fill, font, glass } from '../../core/theme'
+import { printedLoss } from './Firing'
 
 const POS = '#58C4DD'
 const NEG = '#C08552'
+/** The weight-sign colors, shared with the static network diagram (Diagram.tsx). */
+export const WEIGHT_POS = POS
+export const WEIGHT_NEG = NEG
+
+/** Island (black HUD) or glass (the drawer: flips with Settings → Appearance). Status colors never appear here. */
+type Ink = { text: string; label: string; faint: string; ring: string; lit: string; highlight: string; track: string }
+const ISLAND: Ink = { text: color.text, label: color.label, faint: color.faint, ring: fill.ring, lit: color.onAccent, highlight: fill.highlight, track: fill.track }
+const GLASS: Ink = { text: glass.text, label: glass.label, faint: glass.faint, ring: glass.hairline, lit: glass.buttonText, highlight: glass.field, track: glass.track }
 
 type Frame = { epoch: number; loss: number; W: number[][]; b: number[][] }
 type Mode = 'forward' | 'backward' | 'train'
+/** The backward pulse's least strength: visible on a weight of any size. */
+const BACK_MIN = 0.35
 
 const W = 600
 const H = 262
@@ -37,13 +48,14 @@ const squash: Record<string, (z: number) => number> = {
 
 /** Every layer's activations for one input. */
 function forward(f: Frame, layers: number[], x: number[], act: (z: number) => number): number[][] {
-  const out = [x]
+  const out = [x ?? []]
   for (let l = 0; l < layers.length - 1; l++) {
     const prev = out[l]
     const next: number[] = []
     for (let j = 0; j < layers[l + 1]; j++) {
-      let z = f.b[l]?.[j] ?? 0
-      for (let i = 0; i < layers[l]; i++) z += prev[i] * (f.W[l]?.[i * layers[l + 1] + j] ?? 0)
+      // A frame may carry only epoch / loss (a live run line without weights): missing weights count as 0, never throw.
+      let z = f.b?.[l]?.[j] ?? 0
+      for (let i = 0; i < layers[l]; i++) z += (prev?.[i] ?? 0) * (f.W?.[l]?.[i * layers[l + 1] + j] ?? 0)
       next.push(act(z))
     }
     out.push(next)
@@ -56,8 +68,8 @@ function mix(a: Frame, b: Frame, t: number): Frame {
   return {
     epoch: Math.round(lerp(a.epoch, b.epoch, t)),
     loss: Math.exp(lerp(Math.log(Math.max(a.loss, 1e-9)), Math.log(Math.max(b.loss, 1e-9)), t)),
-    W: a.W.map((row, l) => row.map((v, k) => lerp(v, b.W[l]?.[k] ?? v, t))),
-    b: a.b.map((row, l) => row.map((v, k) => lerp(v, b.b[l]?.[k] ?? v, t)))
+    W: (a.W ?? b.W ?? []).map((row, l) => row.map((v, k) => lerp(v, b.W?.[l]?.[k] ?? v, t))),
+    b: (a.b ?? b.b ?? []).map((row, l) => row.map((v, k) => lerp(v, b.b?.[l]?.[k] ?? v, t)))
   }
 }
 
@@ -70,7 +82,7 @@ function useTime(run: boolean): number {
     let id = 0
     start.current = performance.now()
     const tick = (now: number): void => {
-      setT(now - start.current)
+      setT(Math.max(0, now - start.current))  // a rAF timestamp can precede the effect's performance.now()
       id = requestAnimationFrame(tick)
     }
     id = requestAnimationFrame(tick)
@@ -90,10 +102,14 @@ const STAGE_MS = 520
 const FILL_MS = 260
 const HOLD_MS = 900
 const TRAIN_MS = 6200
-const TRAIN_HOLD_MS = 2600
 const TRAIN_SAMPLE_MS = 760
 
-export function NeuralNet({ data }: { data: Record<string, unknown> }): ReactNode {
+/**
+ * compact: the drawer's right-hand panel (Michael, Sun 1:55 AM). Just the network at the panel's width, with the
+ * epoch / loss and a one-line want / gets strip under it in HTML (the full-size readout would shrink to unreadable).
+ */
+export function NeuralNet({ data, compact = false }: { data: Record<string, unknown>; compact?: boolean }): ReactNode {
+  const ink = compact ? GLASS : ISLAND
   const layers = (data.layers as number[]) ?? []
   const frames = (data.frames as Frame[]) ?? []
   const samples = (data.samples as number[][]) ?? []
@@ -131,12 +147,12 @@ export function NeuralNet({ data }: { data: Record<string, unknown> }): ReactNod
   if (reduced) {
     sample = Math.min(1, samples.length - 1)
   } else if (mode === 'train') {
-    const cycle = TRAIN_MS + TRAIN_HOLD_MS
-    const local = t % cycle
-    trainP = clamp01(local / TRAIN_MS)
+    // Play once and stop on the last real row; epoch / loss show the last real row reached (Michael's test 8).
+    trainP = clamp01(t / TRAIN_MS)
     const at = trainP * (frames.length - 1)
-    const i = Math.min(frames.length - 2, Math.floor(at))
-    frame = frames.length > 1 ? mix(frames[i], frames[i + 1], at - i) : frames[0]
+    const i = Math.max(0, Math.min(frames.length - 2, Math.floor(at)))
+    const real = frames[trainP >= 1 ? frames.length - 1 : i]
+    frame = frames.length > 1 ? { ...mix(frames[i], frames[i + 1], at - i), epoch: real.epoch, loss: real.loss } : frames[0]
     sample = Math.floor(t / TRAIN_SAMPLE_MS) % samples.length
   } else if (mode === 'backward') {
     sample = Math.min(1, samples.length - 1)
@@ -162,7 +178,8 @@ export function NeuralNet({ data }: { data: Record<string, unknown> }): ReactNod
     }
   }
 
-  const acts = forward(frame, layers, samples[sample], act)
+  if (!(sample >= 0 && sample < samples.length)) sample = 0
+  const acts = forward(frame ?? frames[0], layers, samples[sample] ?? [], act)
   const shown = (l: number, i: number): number => {
     if (mode !== 'forward' || reduced) return acts[l][i]
     if (l > reached) return 0
@@ -173,15 +190,25 @@ export function NeuralNet({ data }: { data: Record<string, unknown> }): ReactNod
   const err = target !== undefined ? y - target : undefined
 
   // Strongest weight on screen sets the scale (so a zero network reads as empty, not as faint lines).
-  const maxW = Math.max(1.5, ...frame.W.flat().map(Math.abs))
+  const maxW = Math.max(1.5, ...(frame.W ?? []).flat().map(Math.abs))
 
-  return (
-    <svg width={W} height={H} viewBox={`0 0 ${W} ${H}`} className="mx-auto block max-w-full" style={{ fontFamily: font.ui }}>
+  // Room for the input names left of the first column and the output name right of the last (13 px text, ~7.4 px a
+  // glyph), so the drawer's compact view scales the whole thing into its width instead of cutting the output off.
+  const padL = Math.max(0, Math.ceil(Math.max(0, ...inputs.map((t) => String(t ?? '').length)) * 7.4 + R + 8 - 40))
+  const padR = Math.max(0, Math.ceil(String(output ?? '').length * 7.4 + R + 8 - (NET_W - (pos[L]?.[0]?.x ?? NET_W - 46)) + 6))
+  const net = (
+    <svg
+      width={compact ? '100%' : W}
+      height={compact ? undefined : H}
+      viewBox={compact ? `${-padL} 0 ${NET_W + padL + padR} ${H}` : `0 0 ${W} ${H}`}
+      className="mx-auto block max-w-full"
+      style={{ fontFamily: font.ui }}
+    >
       {/* Weights */}
       {pos.slice(0, -1).map((col, l) =>
         col.flatMap((a, i) =>
           pos[l + 1].map((b, j) => {
-            const w = frame.W[l]?.[i * layers[l + 1] + j] ?? 0
+            const w = frame.W?.[l]?.[i * layers[l + 1] + j] ?? 0
             const m = Math.min(1, Math.abs(w) / maxW)
             return (
               <line
@@ -205,9 +232,11 @@ export function NeuralNet({ data }: { data: Record<string, unknown> }): ReactNod
         pos[pulse.back ? pulse.from - 1 : pulse.from].flatMap((a, i) =>
           pos[pulse.back ? pulse.from : pulse.from + 1].map((b, j) => {
             const l = pulse.back ? pulse.from - 1 : pulse.from
-            const w = frame.W[l]?.[i * layers[l + 1] + j] ?? 0
+            const w = frame.W?.[l]?.[i * layers[l + 1] + j] ?? 0
             const m = Math.min(1, Math.abs(w) / maxW)
-            const strength = pulse.back ? m : m * acts[l][i]
+            // Backward: the error reaches every weight, so it's always drawn (test 7, item 10: with small or zero
+            // weights the blame pulse vanished and nothing visibly flowed from y back to x).
+            const strength = pulse.back ? Math.max(BACK_MIN, m) : m * acts[l][i]
             if (strength < 0.04) return null
             const p = ease(pulse.p)
             const [sx, sy, ex, ey] = pulse.back ? [b.x, b.y, a.x, a.y] : [a.x, a.y, b.x, b.y]
@@ -232,8 +261,8 @@ export function NeuralNet({ data }: { data: Record<string, unknown> }): ReactNod
           const blamed = mode === 'backward' && pulse && l === pulse.from - 1 && pulse.p > 0.85
           return (
             <g key={`n${l}-${i}`}>
-              <circle cx={p.x} cy={p.y} r={R} fill={color.text} fillOpacity={0.04 + 0.92 * a} stroke={blamed ? NEG : fill.ring} strokeWidth={blamed ? 2.4 : 1.2} />
-              <text x={p.x} y={p.y + 4} textAnchor="middle" fontSize={11} fontWeight={600} fill={lit ? color.onAccent : color.text} style={{ fontVariantNumeric: 'tabular-nums' }}>
+              <circle cx={p.x} cy={p.y} r={R} fill={ink.text} fillOpacity={0.04 + 0.92 * a} stroke={blamed ? NEG : ink.ring} strokeWidth={blamed ? 2.4 : 1.2} />
+              <text x={p.x} y={p.y + 4} textAnchor="middle" fontSize={11} fontWeight={600} fill={lit ? ink.lit : ink.text} style={{ fontVariantNumeric: 'tabular-nums' }}>
                 {l === 0 ? String(Math.round(a * 100) / 100) : a.toFixed(2)}
               </text>
             </g>
@@ -243,26 +272,87 @@ export function NeuralNet({ data }: { data: Record<string, unknown> }): ReactNod
 
       {/* Labels: input names, the output name, layer captions */}
       {pos[0].map((p, i) => (
-        <text key={`in${i}`} x={p.x - R - 8} y={p.y + 4} textAnchor="end" fontSize={13} fill={color.label}>
+        <text key={`in${i}`} x={p.x - R - 8} y={p.y + 4} textAnchor="end" fontSize={13} fill={ink.label}>
           {inputs[i] ?? ''}
         </text>
       ))}
-      <text x={pos[L][0].x + R + 8} y={pos[L][0].y + 4} fontSize={13} fill={color.label}>
+      <text x={pos[L][0].x + R + 8} y={pos[L][0].y + 4} fontSize={13} fill={ink.label}>
         {output}
       </text>
       {pos.map((col, l) => (
-        <text key={`cap${l}`} x={col[0].x} y={H - 6} textAnchor="middle" fontSize={11} fill={color.faint}>
+        <text key={`cap${l}`} x={col[0].x} y={H - 6} textAnchor="middle" fontSize={11} fill={ink.faint}>
           {l === 0 ? 'inputs' : l === L ? 'output' : `hidden · ${(data.activation as string) ?? ''}`}
         </text>
       ))}
 
-      <Readout x={NET_W + 18} frames={frames} frame={frame} mode={mode} samples={samples} targets={targets} sample={sample} layers={layers} act={act} err={err} reduced={reduced} trainP={trainP} />
+      {!compact && <Readout ink={ink} x={NET_W + 18} frames={frames} frame={frame} mode={mode} samples={samples} targets={targets} sample={sample} layers={layers} act={act} err={err} reduced={reduced} trainP={trainP} />}
     </svg>
+  )
+  if (!compact) return net
+  return (
+    <div>
+      {net}
+      <CompactReadout ink={ink} frame={frame} mode={mode} samples={samples} targets={targets} sample={sample} layers={layers} act={act} err={err} />
+    </div>
+  )
+}
+
+/** Under the drawer's network: epoch · loss while training (or the error going back), then want / gets per sample (2 × 2). */
+function CompactReadout(props: {
+  ink: Ink
+  frame: Frame
+  mode: Mode
+  samples: number[][]
+  targets: number[]
+  sample: number
+  layers: number[]
+  act: (z: number) => number
+  err?: number
+}): ReactNode {
+  const { ink, frame, mode, samples, targets, sample, layers, act, err } = props
+  const num = { fontVariantNumeric: 'tabular-nums' } as const
+  return (
+    <div className="mt-[6px] px-[2px]">
+      {mode === 'train' && (
+        <div data-part="nn-train" className="flex items-baseline gap-[14px] text-[13px] leading-[18px]" style={num}>
+          <span style={{ color: ink.faint }}>
+            epoch <span style={{ color: ink.text }}>{frame.epoch.toLocaleString('en-US')}</span>
+          </span>
+          <span style={{ color: ink.faint }}>
+            loss <span style={{ color: ink.text, fontWeight: 600 }}>{printedLoss(frame.loss)}</span>
+          </span>
+        </div>
+      )}
+      {mode === 'backward' && err !== undefined && (
+        <div className="text-[13px] leading-[18px]" style={{ ...num, color: ink.label }}>
+          error ŷ − y = {err >= 0 ? '+' : '−'}
+          {Math.abs(err).toFixed(2)}
+        </div>
+      )}
+      <div className="mt-[4px] grid gap-[4px]" style={{ gridTemplateColumns: `repeat(${Math.min(2, samples.length)}, minmax(0, 1fr))` }}>
+        {samples.map((s, k) => {
+          const out = forward(frame, layers, s, act)[layers.length - 1][0]
+          return (
+            <div
+              key={k}
+              className="rounded-[8px] px-[6px] py-[3px] text-[11.5px] leading-[15px]"
+              style={{ ...num, background: k === sample ? ink.highlight : 'transparent', opacity: k === sample ? 1 : 0.6, color: ink.text }}
+            >
+              <div style={{ fontFamily: font.mono }}>{s.join(' ')}</div>
+              <div style={{ color: ink.faint }}>
+                want {targets[k] ?? '–'} · <span style={{ color: ink.text }}>{out.toFixed(2)}</span>
+              </div>
+            </div>
+          )
+        })}
+      </div>
+    </div>
   )
 }
 
 /** Right of the network: every sample with its target and ŷ (the current one lit), and the epoch / loss while training. */
 function Readout(props: {
+  ink: Ink
   x: number
   frames: Frame[]
   frame: Frame
@@ -276,19 +366,19 @@ function Readout(props: {
   reduced: boolean
   trainP: number
 }): ReactNode {
-  const { x, frame, mode, samples, targets, sample, layers, act, err } = props
+  const { ink, x, frame, mode, samples, targets, sample, layers, act, err } = props
   const rowH = 30
   const top = 34
   const barW = 74
   return (
     <g>
-      <text x={x} y={18} fontSize={11} fill={color.faint}>
+      <text x={x} y={18} fontSize={11} fill={ink.faint}>
         input
       </text>
-      <text x={x + 62} y={18} fontSize={11} fill={color.faint}>
+      <text x={x + 62} y={18} fontSize={11} fill={ink.faint}>
         want
       </text>
-      <text x={x + 104} y={18} fontSize={11} fill={color.faint}>
+      <text x={x + 104} y={18} fontSize={11} fill={ink.faint}>
         gets
       </text>
       {samples.map((s, k) => {
@@ -297,28 +387,28 @@ function Readout(props: {
         const on = k === sample
         return (
           <g key={k} opacity={on ? 1 : 0.55}>
-            {on && <rect x={x - 8} y={yk - 6} width={W - x} height={rowH - 4} rx={8} fill={fill.highlight} />}
-            <text x={x} y={yk + 12} fontSize={13} fill={color.text} style={{ fontVariantNumeric: 'tabular-nums', fontFamily: font.mono }}>
+            {on && <rect x={x - 8} y={yk - 6} width={W - x} height={rowH - 4} rx={8} fill={ink.highlight} />}
+            <text x={x} y={yk + 12} fontSize={13} fill={ink.text} style={{ fontVariantNumeric: 'tabular-nums', fontFamily: font.mono }}>
               {s.join(' ')}
             </text>
-            <text x={x + 70} y={yk + 12} fontSize={13} fill={color.text} style={{ fontVariantNumeric: 'tabular-nums', fontFamily: font.mono }}>
+            <text x={x + 70} y={yk + 12} fontSize={13} fill={ink.text} style={{ fontVariantNumeric: 'tabular-nums', fontFamily: font.mono }}>
               {targets[k] ?? ''}
             </text>
-            <rect x={x + 104} y={yk + 2} width={barW} height={12} rx={6} fill={fill.track} />
-            <rect x={x + 104} y={yk + 2} width={Math.max(2, barW * out)} height={12} rx={6} fill={color.text} />
-            <text x={x + 104 + barW + 8} y={yk + 12} fontSize={12} fill={color.label} style={{ fontVariantNumeric: 'tabular-nums' }}>
+            <rect x={x + 104} y={yk + 2} width={barW} height={12} rx={6} fill={ink.track} />
+            <rect x={x + 104} y={yk + 2} width={Math.max(2, barW * out)} height={12} rx={6} fill={ink.text} />
+            <text x={x + 104 + barW + 8} y={yk + 12} fontSize={12} fill={ink.label} style={{ fontVariantNumeric: 'tabular-nums' }}>
               {out.toFixed(2)}
             </text>
           </g>
         )
       })}
       {mode === 'train' && (
-        <text x={x} y={top + samples.length * rowH + 16} fontSize={12} fill={color.label} style={{ fontVariantNumeric: 'tabular-nums' }}>
-          epoch {frame.epoch.toLocaleString('en-US')} · loss {frame.loss < 0.01 ? frame.loss.toExponential(1) : frame.loss.toFixed(4)}
+        <text x={x} y={top + samples.length * rowH + 16} fontSize={12} fill={ink.label} style={{ fontVariantNumeric: 'tabular-nums' }}>
+          epoch {frame.epoch.toLocaleString('en-US')} · loss {printedLoss(frame.loss)}
         </text>
       )}
       {mode === 'backward' && err !== undefined && (
-        <text x={x} y={top + samples.length * rowH + 16} fontSize={12} fill={color.label} style={{ fontVariantNumeric: 'tabular-nums' }}>
+        <text x={x} y={top + samples.length * rowH + 16} fontSize={12} fill={ink.label} style={{ fontVariantNumeric: 'tabular-nums' }}>
           error ŷ − y = {err >= 0 ? '+' : '−'}
           {Math.abs(err).toFixed(2)}
         </text>

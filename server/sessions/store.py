@@ -7,7 +7,8 @@ graph file is written first, then current.json (the commit point) is replaced to
 graph files are removed only after that. clear() removes current.json first. So a reader never sees
 progress without its graph. A missing, unreadable or corrupt file reads as "none".
 history.json lists the lessons finished on this Mac (what each covered): a later lesson's prerequisites read
-"passed" from it (prerequisite_status). Override the folder with MIYAGI_STATE_DIR (tests do).
+"passed" from it (prerequisite_status). recent.json lists the last RECENT_MAX unfinished lessons a newer one replaced
+(the launcher's "Continue: Build a tiny weather CLI · 2/7", E11). Override the folder with MIYAGI_STATE_DIR (tests do).
 """
 
 from __future__ import annotations
@@ -86,6 +87,12 @@ def save(state: dict, graph: dict | None = None) -> dict:
     lid = str(out.get("lessonId") or "lesson")
     name = _graph_name(lid)
     if graph is not None:
+        prev = load()
+        if prev is not None and prev.get("lessonId") != out.get("lessonId"):
+            try:  # another lesson replaces this save: keep it on the recent list
+                remember(prev)
+            except OSError as e:
+                log.warning("could not update the recent lessons: %s", e)
         _write_atomic(state_dir() / name, graph)  # 1. the graph, under its own name
     if (state_dir() / name).exists():
         out["graphFile"] = name
@@ -144,6 +151,33 @@ def clear() -> None:
             log.warning("could not remove %s: %s", p, e)
 
 
+# ---------------------------------------------------------------- recent unfinished lessons (E11)
+RECENT_MAX = 5
+RECENT_FIELDS = ("lessonId", "title", "mode", "sourceUrl", "stepIndex", "stepCount", "stepTitle", "workdir",
+                 "lastActiveAt")
+
+
+def _recent_path() -> Path:
+    return state_dir() / "recent.json"  # not a graph-*.json file: clear() never removes it
+
+
+def recent() -> list[dict]:
+    """Unfinished lessons a newer lesson replaced, newest first: {lessonId, title, mode, sourceUrl, stepIndex,
+    stepCount, stepTitle, workdir, lastActiveAt}. Their step graphs aren't kept: a rebuild (E2's cache) brings one
+    back."""
+    data = _read(_recent_path())
+    return [e for e in data if isinstance(e, dict) and e.get("lessonId")] if isinstance(data, list) else []
+
+
+def remember(state: dict) -> None:
+    """Put an unfinished lesson's save on the recent list (newest first, one entry per lesson)."""
+    entry = {k: state.get(k) for k in RECENT_FIELDS if state.get(k) is not None}
+    if not entry.get("lessonId"):
+        return
+    rest = [e for e in recent() if e.get("lessonId") != entry["lessonId"]]
+    _write_atomic(_recent_path(), ([entry] + rest)[:RECENT_MAX])
+
+
 # ---------------------------------------------------------------- finished lessons (prerequisite evidence)
 HISTORY_MAX = 50
 _STOP = {"a", "an", "the", "and", "or", "of", "in", "on", "to", "for", "with", "your", "how", "what", "basic", "intro",
@@ -196,8 +230,13 @@ def _lesson_name(title: str) -> str:
 
 def prerequisite_status(prereqs: list[dict], lesson_id: str | None = None) -> list[dict]:
     """Each prerequisite with status "passed" + evidence ("Passed in Python Calculator") when a finished lesson (not
-    this one) covered every word of its title, else "unknown". New dicts; the input is not changed."""
-    done = [(e, _stems(" ".join(e.get("covered") or []))) for e in reversed(completed()) if e.get("lessonId") != lesson_id]
+    this one) covered every word of its title, else "unknown". New dicts; the input is not changed.
+    E23: after the finished lessons, the steps passed so far in unfinished ones (mastery.py): a `def` passed in the
+    weather lesson makes the dice lesson's "Python functions" read "Passed in Weather CLI"."""
+    from . import mastery
+
+    rows = list(reversed(completed())) + mastery.entries()  # each newest first; a finished lesson is the better evidence
+    done = [(e, _stems(" ".join(e.get("covered") or []))) for e in rows if e.get("lessonId") != lesson_id]
     out = []
     for p in prereqs:
         if not isinstance(p, dict):

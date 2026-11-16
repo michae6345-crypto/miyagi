@@ -1,0 +1,6 @@
+{
+ "stepId": "nn5",
+ "kind": "answer",
+ "title": "Why round the weights?",
+ "body": "Three decimals are enough to read them, and the drawing on the right uses the same numbers."
+}

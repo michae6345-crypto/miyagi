@@ -294,14 +294,54 @@ def check_problems(c: dict, allowed: list[str], where: str, known_metrics=None, 
                 out.append(f"metric_pattern does not compile ({err})")
             elif "value" not in re.compile(mp).groupindex:
                 out.append("metric_pattern must have a named group `value`")
+            elif spans_lines(mp):
+                out.append("metric_pattern spans lines ([\\s\\S], \\n or the s flag), but the checker reads ONE printed line at a "
+                           "time: match only the line that holds the number; when the step/epoch is printed on a line of its "
+                           "own (Keras: 'Epoch 1/5'), use metric_threshold on the value's line instead of metric_trend")
             elif t == "metric_trend" and "step" not in re.compile(mp).groupindex:
                 out.append("metric_trend's metric_pattern needs a named group `step` (a trend is over steps)")
+        if t == "metric_trend" and (w := _int(c.get("window"))) is not None and w < TREND_MIN_POINTS - 1:
+            out.append(f"metric_trend window {w} can never hold the {TREND_MIN_POINTS} points a trend needs; for a run that "
+                       f"prints a few values (5 epochs), use metric_threshold on the final value")
         if where == "precision_checks" and known_metrics and c.get("metric") and not _metric_known(c["metric"], known_metrics):
             out.append(f"metric {c['metric']!r} is never printed by the workdir code (known: {sorted(known_metrics)})")
     if t in ("file_exists", "file_contains") and known_files and c.get("file"):
         if c["file"] not in known_files and not _creatable(c["file"]):
             out.append(f"file {c['file']!r} is not in the workdir (files: {sorted(known_files)[:20]})")
     return out
+
+
+# The checks module reads a metric off ONE printed line at a time (server.checks.extract_metrics, also the screen
+# reader), and a trend needs TREND_MIN_POINTS points inside `window` steps (server/checks/evaluator.py, kept equal by a
+# test). A metric check that breaks either can never pass: the step's video stays paused for good (Nov 15: a Keras
+# lesson's "Epoch\s*(?P<step>\d+)/\d+[\s\S]*?loss:..." over 5 epochs, window 5).
+TREND_MIN_POINTS = 8
+_ANY_CHAR = r"\[(?:\\s\\S|\\S\\s|\\w\\W|\\W\\w|\\d\\D|\\D\\d)\]"  # [\s\S] and friends: any character, newlines too
+_SPANS_LINES = re.compile(_ANY_CHAR + r"|(?<!\\)\\[nr]|\(\?[aiLmux]*s[aiLmux]*[:)]")
+_CROSS_LINE_TOKEN = re.compile(r"(?:" + _ANY_CHAR + r"|(?<!\\)\\[nr])+(?:[*+?]|\{\d*,?\d*\})?\??")
+
+
+def spans_lines(pattern: str) -> bool:
+    """True when a regex is written to match across lines ([\\s\\S], \\n, the s flag)."""
+    return "\n" in pattern or bool(_SPANS_LINES.search(pattern))
+
+
+def value_line(pattern: str) -> str | None:
+    """The part of a line-spanning metric_pattern that matches the line holding (?P<value>...), or None.
+    "Epoch\\s*(?P<step>\\d+)/\\d+[\\s\\S]*?loss:\\s*(?P<value>\\d+\\.\\d+)" -> "loss:\\s*(?P<value>\\d+\\.\\d+)"."""
+    for part in _CROSS_LINE_TOKEN.split(pattern.replace("\n", r"\n")):
+        part = part.strip()
+        if "(?P<value>" not in part or spans_lines(part) or _regex_error(part):
+            continue
+        return part if "value" in re.compile(part).groupindex else None
+    return None
+
+
+def _int(v) -> int | None:
+    try:
+        return int(v)
+    except (TypeError, ValueError):
+        return None
 
 
 def _regex_error(p: str) -> str | None:

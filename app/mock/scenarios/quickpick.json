@@ -1,0 +1,58 @@
+{
+  "name": "quickpick",
+  "on": {
+    "connect": "qp_start"
+  },
+  "segments": {
+    "qp_start": [
+      {
+        "wait": 400,
+        "type": "lesson.ready",
+        "payload": {
+          "lesson": { "id": "qp-demo", "title": "Digits · MNIST", "sources": [], "mode": "lesson" },
+          "steps": [
+            { "id": "q1", "index": 0, "title": "Import libraries and load MNIST" },
+            { "id": "q2", "index": 1, "title": "Build the network" }
+          ]
+        }
+      },
+      {
+        "wait": 300,
+        "type": "step.started",
+        "payload": { "stepId": "q1", "index": 0, "title": "Import libraries and load MNIST", "instructions": "Import torch and load the MNIST training set." }
+      },
+      { "wait": 2500, "type": "screen.avoid", "payload": { "rects": [{ "kind": "quickpick", "x": 500, "y": 38, "w": 600, "h": 240 }] } },
+      { "wait": 3500, "type": "screen.avoid", "payload": { "rects": [] } },
+      {
+        "wait": 1500,
+        "type": "offtrack",
+        "payload": {
+          "stepId": "q1",
+          "severity": "fail",
+          "reason": "no kernel selected",
+          "title": "The notebook has no kernel",
+          "body": "Pick the lesson's Python as the kernel, then run the cell.",
+          "actions": ["show_me", "explain", "hint"]
+        }
+      },
+      { "wait": 2500, "type": "screen.avoid", "payload": { "rects": [{ "kind": "quickpick", "x": 500, "y": 38, "w": 600, "h": 240 }] } },
+      { "wait": 4000, "type": "screen.avoid", "payload": { "rects": [] } },
+      { "wait": 2500, "goto": "qp_card" }
+    ],
+    "qp_card": [
+      {
+        "wait": 0,
+        "type": "card",
+        "payload": {
+          "stepId": "q1",
+          "kind": "step",
+          "title": "Import libraries and load the MNIST training set from torchvision",
+          "body": "These lines bring in torch and the digits you train on.",
+          "targets": [{ "boxId": 0, "label": "imports", "text": "import torch", "rect": { "x": 560, "y": 130, "w": 480, "h": 88 } }]
+        }
+      },
+      { "wait": 3000, "type": "screen.avoid", "payload": { "rects": [{ "kind": "quickpick", "x": 500, "y": 38, "w": 600, "h": 240 }] } },
+      { "wait": 4000, "type": "screen.avoid", "payload": { "rects": [] } }
+    ]
+  }
+}

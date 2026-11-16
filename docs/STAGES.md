@@ -1,5 +1,8 @@
 # Stage-by-stage runs on 4 non-PINN topics (2026-11-14, venue Wi-Fi)
 
+A test log from Nov 14, kept as recorded. Item (h) predates the current build: lessons now grade the unsaved code in
+VS Code and the companion saves the file when a step needs it, so learners never press ⌘S.
+
 Three runs, newest first:
 - **Gemini paid** (14:23–14:29, integration/live 4ff1417: billing on, same key).
 - **after** (~14:15, 36eaf92: per-lesson workspaces, human build errors, Bright Data zones live).

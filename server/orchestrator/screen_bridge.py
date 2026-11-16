@@ -11,10 +11,12 @@ import asyncio
 import importlib
 import logging
 import os
+import threading
+import time
 from collections.abc import Awaitable, Callable
 from typing import Any
 
-from . import perf
+from . import bg, perf
 from .config import env_flag
 
 log = logging.getLogger("orchestrator.screen")
@@ -34,6 +36,12 @@ class ScreenBridge:
         self._loop: asyncio.AbstractEventLoop | None = None
         self.metric_run_id: str | None = None
         self._confirms = perf.ConfirmMemo()  # one Haiku verdict per (intent, box) for a few seconds, shared
+        # E3: no lesson step running (idle, building, "Continue?" unanswered, no app connected): the reader stops
+        # capturing; reads answer "nothing" (no stale frame, no targeter call) until resume()
+        self.paused = False
+        self._fresh_after = 0.0  # wall clock of the last resume(): frames older than that are from before the pause
+        self._on_front: Callable[[str], Awaitable[None]] | None = None
+        self._pause_lock = threading.Lock()
 
     @property
     def active(self) -> bool:
@@ -53,6 +61,7 @@ class ScreenBridge:
             self._loop = asyncio.get_running_loop()
             self._unsub = reader.subscribe(on_obs)
             self.reader = reader
+            self.paused = False
             log.info("screen reader started")
             return True
         except Exception as e:  # noqa: BLE001 - permission / platform problems must not kill the hub
@@ -72,16 +81,65 @@ class ScreenBridge:
         except Exception:  # noqa: BLE001
             log.exception("screen stop failed")
 
+    def pause(self, why: str = "") -> None:
+        """Stop capturing the screen while no lesson step runs (E3: after a lesson ended the reader went on OCR'ing
+        every second and /state served the text under the pointer). Stops the capture thread, the Accessibility
+        reader, the event taps and the frontmost poller; resume() starts them again. Blocking (joins the capture
+        thread): call it in a thread."""
+        r = self.reader
+        if r is None or self.paused:
+            return
+        self.paused = True  # reads answer "nothing" from now on, before the thread has even stopped
+        with self._pause_lock:
+            try:  # metric watchers stay (they're only fed by captures): a resumed step reads its terminal again
+                if getattr(self, "_front_unsub", None):
+                    self._front_unsub()
+                    self._front_unsub = None
+                if hasattr(r, "stop"):
+                    r.stop()
+            except Exception:  # noqa: BLE001
+                log.exception("screen pause failed")
+        log.info("screen reader paused (%s)", why or "no lesson step")
+
+    def resume(self, why: str = "") -> None:
+        """Capture again (a lesson step started / Continue / the app reconnected). Blocking (~0.1-2 s): a thread."""
+        r = self.reader
+        if r is None or not self.paused:
+            return
+        with self._pause_lock:
+            self._fresh_after = time.time()
+            try:
+                ax = getattr(r, "ax_reader", None)
+                for t in (getattr(r, "_thread", None), getattr(ax, "_thread", None)):
+                    if t is not None and t.is_alive():  # a capture / AX read outlived stop()'s join: start() would
+                        t.join(timeout=10)  # return early with the stop flag still set, and the reader would die
+                if getattr(r, "events", None) is not None:
+                    r.events = None  # event taps can't be restarted once stopped: the reader makes new ones
+                r.start()
+                stop = getattr(r, "_stop", None)
+                if stop is not None and stop.is_set():  # still stopping: stay paused, the next tick tries again
+                    log.warning("screen reader still stopping; resume retried (%s)", why or "lesson step")
+                    return
+                if ax is not None and hasattr(ax, "start"):
+                    ax.start()  # the AX reader restarts in place (its change listeners are kept)
+            except Exception:  # noqa: BLE001
+                log.exception("screen resume failed")
+            self.paused = False
+            if self._on_front is not None:
+                self.watch_frontmost(self._on_front)
+        log.info("screen reader resumed (%s)", why or "lesson step")
+
     def watch_frontmost(self, on_front: Callable[[str], Awaitable[None]]) -> None:
         """E6 on_frontmost_change: `on_front(app_name)` on the loop within ~0.25 s of an app switch / Space swipe."""
         r = self.reader
+        self._on_front = on_front  # re-subscribed by resume()
         if r is None or self._loop is None or not hasattr(r, "on_frontmost_change"):
             return
         loop = self._loop
 
         def cb(new: dict | None, old: dict | None) -> None:  # E6's poller thread
             app = str((new or {}).get("app") or "")
-            loop.call_soon_threadsafe(lambda: asyncio.ensure_future(on_front(app)))
+            loop.call_soon_threadsafe(lambda: bg.spawn(on_front(app)))  # held until done (V13)
 
         try:
             self._front_unsub = r.on_frontmost_change(cb)
@@ -103,7 +161,12 @@ class ScreenBridge:
 
     # -- reads
     def latest(self) -> Any:
-        return self.reader.latest() if self.reader is not None else None
+        if self.reader is None or self.paused:
+            return None
+        obs = self.reader.latest()
+        if obs is not None and self._fresh_after and float(getattr(obs, "t", 0) or 0) < self._fresh_after:
+            return None  # captured before the last pause: not what's on screen now
+        return obs
 
     def lines(self, obs: Any = None) -> dict[str, list[str]] | None:
         obs = obs if obs is not None else self.latest()
@@ -115,9 +178,21 @@ class ScreenBridge:
             log.exception("lines_by_app failed")
             return None
 
+    def fresh(self, max_age: float = 1.0) -> Any:
+        """t10: the latest frame when it is at most max_age s old, else a new capture + OCR (blocking: call it in a
+        thread), so locate() / snap_rows() read what is on screen now. None: paused / capture failing / no reader."""
+        if self.reader is None or self.paused or self.down_reason():
+            return None
+        try:
+            fn = getattr(self.reader, "_fresh_obs", None)
+            return fn(max_age) if fn is not None else self.reader.observe_now(force=True)
+        except Exception:  # noqa: BLE001
+            log.exception("fresh read failed")
+            return None
+
     def locate(self, match: str, app: str | None = None) -> dict | None:
         """-> {rect:{x,y,w,h}, app, matched} or None."""
-        if self.reader is None or not match or self.down_reason():
+        if self.reader is None or self.paused or not match or self.down_reason():
             return None  # capture is failing: a locate would block on a fresh capture for seconds (S1)
         try:
             res = self.reader.locate_match(match, app)
@@ -133,10 +208,25 @@ class ScreenBridge:
             out["matched"] = res.matched[:200]
         return out
 
+    def snap_rows(self, rect: dict, app: str | None = None) -> dict | None:
+        """t8: a text match's box {x, y, w, h} with the y / height of its editor rows (the full-line box's: the
+        tight "Look here" box sat 3.4 pt low and cut the next line), x / width kept. None: not on an editor's rows."""
+        fn = getattr(self.reader, "snap_rows", None) if self.reader is not None and not self.paused else None
+        if fn is None:
+            return None
+        try:
+            from server.screen.types import Rect
+
+            r = fn(Rect(float(rect["x"]), float(rect["y"]), float(rect["w"]), float(rect["h"])), app)
+        except Exception:  # noqa: BLE001 - the match's own box stands
+            log.exception("snap_rows failed")
+            return None
+        return {k: float(v) for k, v in r.to_dict().items() if k in ("x", "y", "w", "h")} if r is not None else None
+
     def region(self, name: str, app: str | None = None) -> dict | None:
         """E6: a VS Code region's rect {x, y, w, h} ("terminal" | "editor" | "explorer" | "run_button"), stabilized
         (4-pt grid, kept while edges move < 12 pt), or None when it isn't on screen."""
-        if self.reader is None or self.down_reason() or not hasattr(self.reader, "locate_region"):
+        if self.reader is None or self.paused or self.down_reason() or not hasattr(self.reader, "locate_region"):
             return None
         try:
             if perf.on_loop():  # the event loop: the latest frame's region, never a blocking capture + OCR (~0.2-0.5 s
@@ -160,8 +250,8 @@ class ScreenBridge:
     async def pick(self, intent: str, app: str | None = "Code") -> dict | None:
         """Haiku set-of-marks pick (server.screen.target): {rect, box_ids, label, confidence, reason, ...} or None
         (low confidence / nothing matches / timeout / budget / no key). Off with MIYAGI_VISION_TARGET=0."""
-        if self.reader is None or self.down_reason() or not env_flag("MIYAGI_VISION_TARGET", True):
-            return None
+        if self.reader is None or self.paused or self.down_reason() or not env_flag("MIYAGI_VISION_TARGET", True):
+            return None  # paused: no lesson step / no app to show a box to, so no Haiku call either (E7)
         try:
             from server.screen.target import pick_on_screen
 
@@ -170,17 +260,27 @@ class ScreenBridge:
             log.exception("vision pick failed")
             return None
 
-    async def confirm(self, rect: dict, intent: str, app: str | None = "Code") -> dict | None:
+    # E6: Haiku answered but couldn't vouch for the box (unsure, "nothing" said without conviction, a garbled answer, no
+    # candidates for the app): the box only stands inside the lesson's editor pane (the engine's own line match there).
+    UNSURE = frozenset({"kept:low_confidence", "kept:none", "kept:error", "kept:no_candidates"})
+
+    async def confirm(self, rect: dict, intent: str, app: str | None = "Code", pane: dict | None = None,
+                      move_conf: float | None = None) -> dict | None:
         """Haiku verifier for a box the engine located itself (server.screen.target.verdict): -> the rect to show (the
-        same box, or what Haiku picked instead) or None when Haiku is sure nothing on screen matches. Haiku off /
-        unavailable / unsure: the box unchanged."""
+        same box, or what Haiku picked instead) or None when Haiku is sure nothing on screen matches, or (E6) is unsure
+        and the box isn't inside the lesson's editor pane (`pane`, else E6's "editor" region of the latest frame).
+        Haiku off / unavailable (no key, timeout, budget): the box unchanged. move_conf (t5): a box the engine took
+        from the file moves only on a pick at least this sure."""
+        mc = {"move_conf": move_conf} if move_conf is not None else {}
         if self.reader is None or self.down_reason() or not env_flag("MIYAGI_VISION_TARGET", True):
+            return rect
+        if self.paused:  # E7: no lesson step / no app: no Haiku call (no box goes out anyway)
             return rect
         async def ask() -> tuple[dict | None, str]:
             try:
                 from server.screen.target import confirm_on_screen
 
-                out, why = await confirm_on_screen(rect, intent, app, reader=self.reader)
+                out, why = await confirm_on_screen(rect, intent, app, reader=self.reader, **mc)
             except Exception:
                 log.exception("vision confirm failed; keeping the box")
                 return rect, "kept:exception"
@@ -190,7 +290,14 @@ class ScreenBridge:
 
         # the same box + intent from several callers within a second (frame follow, step start, Check) or again a
         # few seconds later: one Haiku call, not three (live: 3 calls in 1 s, then the 6/min budget skipped real ones)
-        out, why = await self._confirms.get(intent, app, rect, ask)
+        out, why = await self._confirms.get(intent + (f"\x00move>={move_conf}" if mc else ""), app, rect, ask)
+        if why in self.UNSURE:
+            pane = pane if pane is not None else self.region("editor", app)
+            cx, cy = float(rect["x"]) + float(rect["w"]) / 2, float(rect["y"]) + float(rect["h"]) / 2
+            if pane is None or not (pane["x"] - 4 <= cx <= pane["x"] + pane["w"] + 4
+                                    and pane["y"] - 4 <= cy <= pane["y"] + pane["h"] + 4):
+                log.info("targeter %s and the box isn't in the lesson's editor pane: no box for %r", why, intent[:80])
+                return None
         if why == "agree" or why.startswith("kept"):
             return rect  # this caller's own box (a shared verdict may come from a box a few points off)
         return dict(out) if isinstance(out, dict) else out
@@ -233,7 +340,7 @@ class ScreenBridge:
 
     def screenshot(self) -> Any:
         """A PIL image of the screen (overlay blacked out by E6), or None. Blocking (~20 ms): use a thread."""
-        if self.reader is None or not hasattr(self.reader, "screenshot_pil"):
+        if self.reader is None or self.paused or not hasattr(self.reader, "screenshot_pil"):
             return None
         try:
             return self.reader.screenshot_pil()
@@ -250,7 +357,7 @@ class ScreenBridge:
         the poked capture itself waits out the reader's 1.5 s debounce; this captures + OCRs at once in a thread
         (~0.3-0.5 s, no model call), never longer than `timeout`. -> True when the fresh frame is in."""
         r = self.reader
-        if r is None:
+        if r is None or self.paused:
             return False
         if not hasattr(r, "observe_now") or self.down_reason():
             if hasattr(r, "poke"):
@@ -302,6 +409,13 @@ class FakeScreen:
         self.watched: dict[str, str] = {}
         self.active = True
         self.down: str | None = None  # tests: what down_reason() reports
+        self.paused = False  # tests: what the session asked for (pause / resume); reads are unchanged
+
+    def pause(self, why: str = "") -> None:
+        self.paused = True
+
+    def resume(self, why: str = "") -> None:
+        self.paused = False
 
     def latest(self) -> Any:
         return self.text

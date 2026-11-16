@@ -27,7 +27,7 @@ export type LocalEngineState = 'off' | 'checking' | 'installing' | 'starting' | 
 export type LocalEngineStatus = { state: LocalEngineState; line?: string; logs?: string }
 
 /** Michael's installer (docs/INSTALL.md), for a Mac where the app carries no engine. */
-const ONE_LINER = 'curl -fsSL https://raw.githubusercontent.com/michae6345-crypto/sandhacks-tutor/integration/live/scripts/install.sh | bash'
+const ONE_LINER = 'curl -fsSL https://raw.githubusercontent.com/michae6345-crypto/miyagi/integration/live/scripts/install.sh | bash'
 
 /** True when something accepts a TCP connection on 127.0.0.1:port within `ms`. */
 function listening(port: number, ms = 700): Promise<boolean> {
