@@ -33,6 +33,10 @@ export type YTPlayer = {
   mute(): void
   unMute(): void
   isMuted(): boolean
+  setVolume(v: number): void
+  getVolume(): number
+  setPlaybackRate(rate: number): void
+  getPlaybackRate(): number
   destroy(): void
   getVideoData?(): { video_id?: string; title?: string; author?: string }
 }

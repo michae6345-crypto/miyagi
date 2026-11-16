@@ -10,7 +10,7 @@ import { motion } from 'motion/react'
 import { useState, type ReactNode } from 'react'
 import type { LucideIcon } from 'lucide-react'
 import type { ActionKind } from '../../core/shortcuts'
-import { actionTone, color, fill, glass, type OptionAction } from '../../core/theme'
+import { actionTone, color, fill, glass, spring, type OptionAction } from '../../core/theme'
 import { Glyph } from './Busy'
 import { useAltHeld } from './keys'
 import { PRESS_MS, PRESS_SCALE } from './press'
@@ -49,6 +49,8 @@ type TileProps = {
   dip?: boolean
   /** Diagram open: the tile's button stays filled. */
   lit?: boolean
+  /** Something waits behind this tile (a diagram the step has, not opened yet): a small neutral dot, no glow. */
+  dot?: boolean
   /** Toggles (Diagram, Voice): aria-pressed. */
   pressed?: boolean
   expanded?: boolean
@@ -56,15 +58,19 @@ type TileProps = {
   title?: string
   /** Replaces the icon (the Voice equalizer). */
   glyph?: ReactNode
+  /** Fire on the press itself, not the click (End lesson, desktop test 9 A2): a click needs down and up on the same
+   * spot, and the bar can lift or re-render between them. Keyboard activation still goes through onClick. */
+  onDown?: boolean
 }
 
-export function Tile({ label, icon: Icon, look: l, onClick, keycap, busyKind, dip, lit, pressed, expanded, disabled, title, glyph }: TileProps): ReactNode {
+export function Tile({ label, icon: Icon, look: l, onClick, keycap, busyKind, dip, lit, dot, pressed, expanded, disabled, title, glyph, onDown }: TileProps): ReactNode {
   const [hover, setHover] = useState(false)
   const alt = useAltHeld((a) => a.held)
   const inner = glyph ?? <Icon size={16} strokeWidth={1.8} />
   return (
     <motion.button
-      className={`relative flex h-[62px] min-w-[72px] flex-col items-center justify-center rounded-[14px] px-[6px] ${disabled ? 'cursor-default' : `cursor-pointer ${hoverCls}`}`}
+      // No browser focus ring (it's blue: brand). Keyboard focus shows as the neutral hover fill instead.
+      className={`relative flex h-[62px] min-w-[72px] flex-col items-center justify-center rounded-[14px] px-[6px] outline-none focus-visible:bg-[var(--glass-field)] ${disabled ? 'cursor-default' : `cursor-pointer ${hoverCls}`}`}
       style={{ ...(lit ? { background: glass.field } : {}), ...(disabled ? { opacity: DISABLED_OPACITY } : {}) }}
       aria-pressed={pressed}
       aria-expanded={expanded}
@@ -75,9 +81,21 @@ export function Tile({ label, icon: Icon, look: l, onClick, keycap, busyKind, di
       transition={{ duration: PRESS_MS / 1000 }}
       onPointerEnter={() => setHover(true)}
       onPointerLeave={() => setHover(false)}
-      onClick={onClick}
+      onPointerDown={onDown && !disabled ? (e) => e.button === 0 && onClick() : undefined}
+      onClick={onDown ? (e) => e.detail === 0 && onClick() : onClick}
     >
-      <span className="grid h-[28px] w-[28px] place-items-center rounded-[8px]" style={{ background: l.background, color: l.color }}>
+      <span className="relative grid h-[28px] w-[28px] place-items-center rounded-[8px]" style={{ background: l.background, color: l.color }}>
+        {dot && (
+          <motion.span
+            data-part="tile-dot"
+            aria-hidden
+            className="absolute -right-[3px] -top-[3px] h-[7px] w-[7px] rounded-full"
+            style={{ background: glass.text }}
+            initial={{ scale: 0, opacity: 0 }}
+            animate={{ scale: 1, opacity: 1 }}
+            transition={spring}
+          />
+        )}
         {busyKind ? (
           <Glyph kind={busyKind} tone={l.color} track={l.track} glass={l.glass} size={16}>
             {inner}

@@ -13,6 +13,7 @@ import { defineFeature } from '../../core/registry'
 import { CheckList, Kbd, StatusDot, Thumb } from '../../core/ui/atoms'
 import { clock, color, fill } from '../../core/theme'
 import { useDrawer } from '../drawer/store'
+import { parseYouTube, thumbnailFor } from '../launcher/youtube'
 import { CARD_W, LayoutProbe, setCardHeight, useOverviewActive } from './clear'
 import { Gear } from './Gear'
 import { GoalNote, Instructions, Meta, StepSnippet } from './Lines'
@@ -80,6 +81,11 @@ function Overview(): ReactNode {
     return () => ro.disconnect()
   }, [])
   const start = s.video ? clock(s.video.start) : undefined
+  // The lesson's real video thumbnail, not the placeholder slide (Michael's test 12, item 7).
+  const videoId = useLesson((x) => {
+    const v = x.lesson?.sources.find((src) => src.kind === 'video')
+    return v ? (v.videoId ?? parseYouTube(v.url)?.videoId) : undefined
+  })
   const end = s.video ? clock(s.video.end) : undefined
   // One short fact, no sentence: where the video waits (or that this step passed).
   const footer = status === 'passed' ? 'Passed' : end ? `Video waits at ${end}` : undefined
@@ -87,12 +93,12 @@ function Overview(): ReactNode {
     <div ref={root} className="px-[22px] pb-[16px] pt-[20px]">
       <div className="flex gap-[16px]">
         {/* "Just teach me" lessons have no video: no thumbnail, no timestamps. */}
-        {!s.textLesson && <Thumb w={120} h={68} time={start} />}
+        {!s.textLesson && <Thumb w={120} h={68} time={start} src={videoId ? thumbnailFor(videoId) : undefined} />}
         <div className="min-w-0 flex-1 pt-[2px]">
           <div className="flex items-center gap-[7px] text-[13px]" style={{ color: color.label }}>
             Step {index + 1} of {total} <StatusDot status={status} />
           </div>
-          <div className="mt-[2px] truncate text-[20px] font-semibold tracking-[-0.015em]">{s.title}</div>
+          <div className="mt-[2px] line-clamp-2 text-[20px] font-semibold tracking-[-0.015em]" title={s.title}>{s.title}</div>
           <GoalNote />
           <Segments total={total} index={index} status={status} skipped={skipped} />
         </div>

@@ -10,23 +10,28 @@
  * The bar is a glass panel: theme.glass tokens, so it follows Settings → Appearance (light / dark).
  * Thinking: the pressed tile's glyph is the Spinner (Busy.tsx). Any trigger dips its tile for 90 ms (press.ts).
  * Voice speaking: the equalizer (Equalizer.tsx). Diagram open: its tile stays lit.
+ * Folded (review A12 / A8, fold.ts + front.ts): a thin handle over the middle of the status bar while the pointer has
+ * been off the bar for a few seconds, or while another app is in front. The pointer on the handle brings it back.
  */
 import { AnimatePresence, motion } from 'motion/react'
 import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { ArrowLeft, AudioLines, Check, Lightbulb, MessageSquareText, RotateCcw, SkipForward, Square, SquarePlay, Waypoints, type LucideIcon } from 'lucide-react'
-import { create } from 'zustand'
 import { cmd } from '../../../../common/wire'
 import { bridge, registerWebHandler } from '../../bridge'
+import { emitUi } from '../../core/bus'
 import { useLesson, useProgress } from '../../core/lesson'
 import { useAppearance } from '../../core/prefs'
 import { sendAction, triggerShortcut, type ActionKind, type ActionShortcut } from '../../core/shortcuts'
 import { MiyagiMark } from '../../core/ui/Mark'
 import { actionTone, copy, glass, spring, type OptionAction } from '../../core/theme'
 import { useCards } from '../cards/store'
-import { useDiagram } from '../diagrams/store'
-import { useSearch } from '../launcher/store'
+import { useComplete } from '../complete/store'
+import { useDiagram, useUnseen } from '../diagrams/store'
+import { useLauncherOpen } from '../launcher/store'
 import { toggleVoice } from '../voice/store'
 import { Equalizer, useVoiceTile } from './Equalizer'
+import { holdWhile, pointerLeft, reveal, useFold } from './fold'
+import { useFront, wake } from './front'
 import { usePress } from './press'
 import { GlassKey, hoverCls, look, Tile } from './Tile'
 
@@ -55,7 +60,15 @@ const STEP_BUTTONS: StepBtn[] = [
 /** Skip: repeat presses inside this window are ignored (Michael's desktop test: one tap could skip twice). */
 const SKIP_LOCK_MS = 1000
 /** End: the first tap arms it ("Tap to end"); a second tap inside this window ends the lesson. No one-tap loss. */
-const END_ARM_MS = 3000
+const END_ARM_MS = 4000
+
+/** After End on a finished lesson: how long to wait for the engine's lesson.ended before closing the lesson UI here. */
+const END_FALLBACK_MS = 1500
+/** Every step of a complete lesson passed (skipped steps count: they're in `passed` too). */
+function lessonDone(): boolean {
+  const s = useLesson.getState()
+  return !!s.lesson && s.complete && s.steps.length > 0 && s.steps.every((x) => s.passed.includes(x.id))
+}
 
 /** Step-control state: the Skip lock and the End confirm, each cleared by its own timer. */
 function useStepControls(): { skipping: boolean; armed: boolean; run: (id: StepBtn['id']) => void } {
@@ -73,6 +86,18 @@ function useStepControls(): { skipping: boolean; armed: boolean; run: (id: StepB
       return
     }
     clearTimeout(timers.current.end)
+    // The lesson is finished (every step passed): nothing to lose, so End is one tap. If the engine doesn't answer
+    // with lesson.ended (it ignored end_lesson once a lesson was done, Michael's test 5), close the drawer, cards and
+    // bar here anyway, so the learner is never stuck on a finished lesson.
+    if (lessonDone()) {
+      setArmed(false)
+      const shown = useLesson.getState().lesson
+      bridge.send(cmd('end_lesson', {}))
+      timers.current.end = setTimeout(() => {
+        if (shown && useLesson.getState().lesson === shown) emitUi('reset', { scope: 'lesson', reason: 'end_lesson' })
+      }, END_FALLBACK_MS)
+      return
+    }
     if (!armed) {
       setArmed(true)
       timers.current.end = setTimeout(() => setArmed(false), END_ARM_MS)
@@ -116,26 +141,61 @@ registerWebHandler('overlay:raise', () => true)
 const CARD_STEP_ACTIONS = new Set<string>(['confirm', 'skip_step', 'check_step'])
 
 /**
- * The launcher is open. In the browser stage it lives in this document, so its store says so; in Electron it's its own
- * window (its store isn't ours), so also follow main's launcher:open / launcher:closed signals to the overlay.
+ * The Ask field's width. It keeps it while the launcher is open (only its words fade, so the launcher is the one ask
+ * field on screen): collapsing it made every bar button slide left and back (Michael's tests 2-3, A13).
  */
-const useLauncherSignal = create<{ open: boolean }>(() => ({ open: false }))
-bridge.on('launcher:open', () => useLauncherSignal.setState({ open: true }))
-bridge.on('launcher:closed', () => useLauncherSignal.setState({ open: false }))
-function useLauncherOpen(): boolean {
-  const here = useSearch((s) => s.open)
-  const signal = useLauncherSignal((s) => s.open)
-  return here || signal
+const ASK_W = 196
+
+/** How far the bar drops as it folds into its handle (transform only). */
+const FOLD_Y = 28
+
+/**
+ * The folded bar: a short glass pill with a faint grip, centered over the status bar's empty middle. Its hit area is
+ * taller than the pill (up to where the bar's lower edge sits), so the pointer on its way up lands on it.
+ */
+function Handle({ bottom, height, onReach }: { bottom: number; height: number; onReach: () => void }): ReactNode {
+  return (
+    <motion.div
+      className="pointer-events-none absolute inset-x-0 flex justify-center"
+      style={{ bottom }}
+      initial={{ opacity: 0, y: 6 }}
+      animate={{ opacity: 1, y: 0 }}
+      exit={{ opacity: 0, y: 6 }}
+      transition={spring}
+    >
+      <div
+        data-hit
+        data-shortcut-handle
+        role="button"
+        aria-label="Show the shortcut bar"
+        className="pointer-events-auto flex w-[168px] cursor-pointer items-end justify-center pb-[3px]"
+        style={{ height }}
+        onPointerEnter={onReach}
+        onClick={onReach}
+      >
+        <span
+          className="flex h-[12px] w-[128px] items-center justify-center rounded-full border"
+          style={{ background: glass.bg, borderColor: glass.hairline, boxShadow: glass.shadow }}
+        >
+          <span className="h-[4px] w-[56px] rounded-full" style={{ background: glass.faint }} />
+        </span>
+      </div>
+    </motion.div>
+  )
 }
 
-/** The Ask field's width, open and collapsed (just the tree, while the launcher is the one ask field on screen). */
-const ASK_W = 196
-const ASK_COLLAPSED_W = 44
-
-export function ShortcutBar({ bottom, lift = 0 }: { bottom: number; lift?: number }): ReactNode {
-  const on = useLesson((x) => !!x.lesson)
+/**
+ * bottom: the bar's lower edge above the display's bottom (above the status bar band); dock: the Dock / taskbar's
+ * height (the handle sits just above it); lift: px above the spotlight's hole (lift.ts).
+ */
+export function ShortcutBar({ bottom, dock = 0, lift = 0 }: { bottom: number; dock?: number; lift?: number }): ReactNode {
+  // Michael's test 8: no Hint / Skip / Check my work under the lesson-complete panel (it has its own End lesson).
+  const completing = useComplete((c) => !!c.card)
+  const on = useLesson((x) => !!x.lesson) && !completing
   const hasStep = useLesson((x) => !!x.stepId)
   const diagramOpen = useDiagram((d) => d.open)
+  // The step has a diagram the learner hasn't opened: a small neutral dot on the Diagram tile (nothing opens by itself).
+  const diagramWaiting = useUnseen()
   const voice = useVoiceTile()
   const appearance = useAppearance()
   // Any shortcut (click, global key, stage key, launcher chip): the matching tile dips for 90 ms (press.ts).
@@ -148,32 +208,45 @@ export function ShortcutBar({ bottom, lift = 0 }: { bottom: number; lift?: numbe
   // Video lessons keep the replay glyph (Back rewinds the video). Audit A22.
   const textLesson = useLesson((x) => x.lesson?.mode === 'lesson')
   const firstStep = useProgress().index === 0
+  // A12 / A8: folded while the pointer has been off it a while, or while another app is in front. During a step it
+  // stays up while the lesson's app is in front: Hint and Show me were hard to find folded (Michael's test 6).
+  const idle = useFold((f) => f.idle)
+  const away = useFront((f) => f.away)
+  const folded = away || (idle && !hasStep)
+  const busy = useRef(false)
+  busy.current = step.armed || step.skipping
+  useEffect(() => holdWhile(() => busy.current), [])
+  const unfold = (): void => {
+    if (useFront.getState().away) wake()
+    reveal()
+  }
+  const handleBottom = dock + 2
 
   return (
     <AnimatePresence>
-      {on && (
+      {on && folded && <Handle key="handle" bottom={handleBottom} height={Math.max(20, bottom - handleBottom)} onReach={unfold} />}
+      {on && !folded && (
         <motion.div
+          key="bar"
           className="pointer-events-none absolute inset-x-0 flex justify-center"
           style={{ bottom }}
-          initial={{ opacity: 0, y: 16 }}
+          initial={{ opacity: 0, y: FOLD_Y }}
           animate={{ opacity: 1, y: -lift }}
-          exit={{ opacity: 0, y: 16 }}
+          exit={{ opacity: 0, y: FOLD_Y }}
           transition={spring}
         >
           <div
             data-hit
             data-shortcut-bar
             onPointerEnter={raiseOverlay}
+            onPointerLeave={pointerLeft}
             className="pointer-events-auto flex items-center gap-[2px] rounded-[24px] border p-[8px]"
             style={{ height: BAR_HEIGHT, background: glass.bg, borderColor: glass.hairline, boxShadow: glass.shadow, backdropFilter: 'blur(30px) saturate(1.4)' }}
           >
-            {/* While the launcher is open it is the ask field: this one collapses to the tree (no second input). */}
+            {/* While the launcher is open it is the ask field: this one keeps its width but shows only the tree (A13). */}
             <motion.button
               className={`mr-[8px] flex h-[44px] shrink-0 cursor-pointer items-center gap-[9px] overflow-hidden whitespace-nowrap rounded-[22px] border pl-[14px] pr-[8px] text-left ${hoverCls}`}
-              style={{ borderColor: glass.hairline, color: glass.label }}
-              initial={false}
-              animate={{ width: askCollapsed ? ASK_COLLAPSED_W : ASK_W }}
-              transition={spring}
+              style={{ width: ASK_W, borderColor: glass.hairline, color: glass.label }}
               aria-label={copy.ask}
               data-collapsed={askCollapsed ? '' : undefined}
               onClick={() => bridge.emit('launcher:toggle')}
@@ -201,6 +274,7 @@ export function ShortcutBar({ bottom, lift = 0 }: { bottom: number; lift?: numbe
                   busyKind={kind}
                   dip={pressed === kind}
                   lit={kind === 'diagram' && diagramOpen}
+                  dot={kind === 'diagram' && diagramWaiting}
                   pressed={kind === 'diagram' ? diagramOpen : kind === 'voice_toggle' ? voice.on : undefined}
                   glyph={voiceOn && voice.speaking ? <Equalizer tone={l.color} size={16} /> : undefined}
                   onClick={() => (kind === 'voice_toggle' ? toggleVoice() : triggerShortcut(kind))}
@@ -213,7 +287,7 @@ export function ShortcutBar({ bottom, lift = 0 }: { bottom: number; lift?: numbe
               const tip = id === 'end' && step.armed ? 'Tap again to end the lesson' : title
               // Check is the bar's one primary, unless a card with its own step controls is up (A17): then it's quiet.
               const primary = (id === 'check' && !cardSteps) || (id === 'end' && step.armed)
-              return <Tile key={id} label={shown} icon={icon} look={primary ? look.primary : look.quiet} busyKind={kind} title={tip} onClick={() => step.run(id)} />
+              return <Tile key={id} label={shown} icon={icon} look={primary ? look.primary : look.quiet} busyKind={kind} title={tip} onDown={id === 'end'} onClick={() => step.run(id)} />
             })}
           </div>
         </motion.div>

@@ -14,7 +14,7 @@ Earlier passes:
 - ✅ The step-pass moment is one gesture: check draws → ring advances → flash → text crossfades to the next step at 560ms (`shots/pill-step-pass.png`).
 - ✅ Off-track: the dot eases to amber and pulses twice (scale only, no glow), once per episode (`shots/pill-offtrack.png`).
 - ✅ Last step: "Lesson complete" with the ring closed in green.
-- ✅ Miyagi brand: the bonsai is a one-color white glyph (monochrome everywhere in the app since core efed46a), "Ask Miyagi ⌥Space", white ring/spinner/line, green only at the pass, amber only off track, gray watching, tokens only.
+- ✅ Miyagi brand: the bonsai is in color, `<MiyagiMark size={16} />` (Adrian, Sun Nov 15; it was a one-color white glyph from Sat 2 PM), "Ask Miyagi ⌥Space", white ring/spinner/line, green only at the pass, amber only off track, gray watching, tokens only.
 - ✅ Mac notch: core places the pill just under the notch (`pillTop 40`).
 - ❌ Not seen in Electron (Windows). Checked in headless Chrome at 1600×1000 (the Browser pane was hidden). Offline was driven by calling core's `setConnected(false)` in the page (the inline mock can't disconnect).
 

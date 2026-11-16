@@ -1,11 +1,12 @@
-/** Feature: spotlight (screen-first). Dim + rounded cut-out with a hairline ring at the engine's rect + caption. */
+/** Feature: spotlight (screen-first). Dim + ONE rounded cut-out with a hairline ring at the engine's rect + caption. */
 import { useEffect, type ReactNode } from 'react'
 import type { Layout } from '../../../../preload/api'
 import { notify, useLesson } from '../../core/lesson'
 import { defineFeature } from '../../core/registry'
 import { dockRect } from '../player/dock'
-import { hole, isUsableRect, MIN_VISIBLE_SHARE, overlapShare, sameRect, toLocal } from './place'
-import { Spotlight, type Extra } from './Spotlight'
+import { plain } from './code'
+import { hole, isUsableRect, MIN_VISIBLE_SHARE, overlapShare, toLocal } from './place'
+import { Spotlight } from './Spotlight'
 import { spotlightMode, useSpotlight } from './store'
 
 const mode = spotlightMode()
@@ -27,17 +28,15 @@ function SpotlightLayer({ layout }: { layout: Layout }): ReactNode {
   // Nothing to point at (an empty or zero-size rect, or off the primary display): say it on the pill
   // instead of showing nothing. Once per target: a re-sent identical spotlight keeps the same object.
   useEffect(() => {
-    if (t && !here) notify(t.caption?.trim() || 'Not on this screen')
+    // The pill shows text as-is: no literal backticks (A21).
+    if (t && !here) notify(plain(t.caption ?? '').trim() || 'Not on this screen')
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [t])
 
-  // The coach's other targets (card.targets / offtrack.targets), minus the one the spotlight is on.
-  const extras: Extra[] = here
-    ? targets
-        .filter((x) => !(t && sameRect(x.rect, t.rect, 12)))
-        .map((x) => ({ id: String(x.boxId), label: x.label, rect: toLocal(x.rect, layout.origin) }))
-        .filter((x) => overlapShare(hole(x.rect), screen) >= MIN_VISIBLE_SHARE)
-    : []
+  // One rect per spotlight (Michael's tests 2-3, A10): the coach's other targets (card.targets / offtrack.targets)
+  // are never drawn as more boxes; they're OCR'd text on screen, so the caption reads them to start past the longest
+  // line beside the box.
+  const text = here ? targets.map((x) => toLocal(x.rect, layout.origin)) : []
 
   // In Electron the lesson player is its own window (docked right 40%), so the overlay DOM can't see it:
   // keep the caption off it using the player's own dock math. (In the stage it's also in the DOM.)
@@ -50,7 +49,7 @@ function SpotlightLayer({ layout }: { layout: Layout }): ReactNode {
     <Spotlight
       target={here && t}
       rect={here}
-      extras={extras}
+      text={text}
       bounds={{ x: wa.x, y: wa.y, w: wa.width, h: wa.height }}
       avoid={avoid}
       mode={mode}
