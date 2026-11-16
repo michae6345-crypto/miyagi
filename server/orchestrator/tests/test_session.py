@@ -41,6 +41,7 @@ class Rig:
                                inputs=self.inputs)
         self.s.ready_hold_s = 0
         self.s.offtrack_grace_s = 0  # most tests drive the ladder at once; the grace has its own test
+        self.s.video_offtrack_hold = False  # ...while the clip plays too; the T11 hold has its own (test_t11_speed)
         self.s.CARD_GAP_S = 0  # pacing (8 s between cards, 2 s between spotlight moves) has its own test
         self.s.SPOT_MIN_GAP_S = 0
         self.s.has_python = True  # run-step wording: `python` is there (the python3 rewrite has its own test)
@@ -64,6 +65,14 @@ class Rig:
     async def settle(self) -> None:
         await asyncio.sleep(0)
         await self.s.drain()
+
+    async def built(self) -> None:
+        """The whole build, then settle. Since perf.until_loaded (2240591) a learn returns once the lesson is live
+        (the quick-start placeholder / a progressive step 1); the rest of the build runs on as `_build_task`."""
+        task = self.s._build_task
+        if task is not None:
+            await asyncio.wait({task})
+        await self.settle()
 
     async def start_lesson(self) -> None:
         graph = stubs.load_fixture_lesson()
@@ -355,7 +364,8 @@ def test_hero_ladder_concept_then_exact_fix_then_green(rig):
     passed = [e["payload"] for e in fixed if e["type"] == "step.passed"]
     assert passed == [{"stepId": "s6"}]  # last step: no nextStepId
     assert rig.s.phase == "done"
-    assert fixed[-1]["type"] == "video.play"
+    assert fixed[-1]["type"] == "video.pause"  # t11: the completion panel never plays the video's outro behind it
+    assert "video.play" not in [e["type"] for e in fixed[[e["type"] for e in fixed].index("step.passed"):]]
 
 
 def test_typing_guard_defers_speech_until_the_learner_stops(tmp_path, monkeypatch):
@@ -472,7 +482,8 @@ def test_actions_route(rig):
     kinds = [e["payload"]["kind"] for e in ev if e["type"] == "diagram"]
     assert kinds == ["gradients", "heatmap"]
     seeks = [e["payload"] for e in ev if e["type"] == "video.seek"]
-    assert seeks == [{"t": 380.0, "play": True}, {"t": 380.0, "play": True}]
+    # 14f55e7: Back opens the previous step (s5, 310-380 s) and plays its clip from its start; Show me then replays it
+    assert seeks == [{"t": 310.0, "play": True}, {"t": 310.0, "play": True}]
     assert rig.s.voice is True
 
 
@@ -685,7 +696,8 @@ def test_setup_card_only_when_a_tool_is_missing(tmp_path, monkeypatch):
         await rig.settle()
 
     run(go())
-    assert [c for c in rig.of("card") if c["kind"] == "setup"] and not calls and not rig.s.editor_open
+    # t9 V8: a coding lesson's VS Code opens by itself alongside the setup card (as the curated lesson's does)
+    assert [c for c in rig.of("card") if c["kind"] == "setup"] and calls and rig.s.editor_open
 
 
 def test_non_code_lesson_never_offers_vscode(tmp_path, monkeypatch):
@@ -1198,7 +1210,7 @@ def test_post_end_endpoint(tmp_path, monkeypatch):
     main.engine.recorder.enabled = False
     with TestClient(main.app) as client:
         r = client.post("/end")
-        assert r.json() == {"ok": True, "ended": None}
+        assert r.json() == {"ok": True, "ended": None, "kept": False}  # Nov 15: kept = the place stays for after a restart
         assert main.engine.session.phase == "idle"
 
 
@@ -1261,14 +1273,14 @@ def test_returning_app_gets_resume_card_and_lesson_is_frozen(rig):
         await _to_step(rig, 3)
         await rig.s.video_state(250.0, True)
         snap = rig.s.snapshot(ask_resume=True)
-        assert [t for t, _ in snap] == ["video.pause", "card"]
-        card = snap[1][1]
+        assert [t for t, _ in snap] == ["spotlight", "video.pause", "card"]  # E7: no box left behind the card
+        card = snap[2][1]
         assert card["kind"] == "resume" and card["actions"] == ["resume", "end_lesson"]
         assert card["title"] == "Continue where you left off?" and "Write the PDE residual" in card["body"]
         m = rig.mark()
         await rig.save("u_t + beta * u_x\nautograd.grad\n")  # frozen: nothing is graded while undecided
         assert not [e for e in rig.since(m) if e["type"] in ("check.updated", "step.passed", "offtrack")]
-        assert [t for t, _ in rig.s.snapshot()] == ["video.pause", "card"]  # still undecided
+        assert [t for t, _ in rig.s.snapshot()] == ["spotlight", "video.pause", "card"]  # still undecided
         m = rig.mark()
         await rig.s.action("resume")
         return rig.since(m)
@@ -1398,9 +1410,57 @@ def test_s2_setup_card_install_and_open_editor_gate(tmp_path, monkeypatch):
     assert prog[-1] == {"tool": "pandas", "done": True, "ok": True, "version": "2.2.3"}
     last = rig.of("card")[-1]
     assert last["title"] == "Ready to go" and last["body"] == "pandas installed ✓"  # the row flipped, status on the card
-    assert any(c["body"].startswith("Installing pandas") for c in rig.of("card"))
+    # t9 V12: while the card still offers Install its body stays put (the row shows the progress: setup.progress)
+    assert not any(c["body"].startswith("Installing pandas") for c in rig.of("card"))
     assert not calls  # never opened VS Code
 
+
+
+def test_lesson_mode_install_success_is_one_line_without_open_or_skip(tmp_path, monkeypatch):
+    """E27: after Install, "Ready to go · requests installed ✓" offered Open Visual Studio Code and Skip while weather.py
+    was in front. In lesson mode the editor is open: the success is one line that closes itself, no buttons."""
+    monkeypatch.setenv("TUT_WORKDIR", str(tmp_path))
+    from server.orchestrator import workspace as wsmod
+    from server.orchestrator.workspace import Workspace
+    from server.workspace import setup_card
+
+    state = {"ok": False}
+
+    def reqs(graph, folder):
+        return [{"tool": "requests", "label": "requests", "kind": "python_package", "why": "http", "needed": True,
+                 "installed": state["ok"], "ok": state["ok"], "install": {"method": "pip", "command": "pip install requests", "url": None}},
+                {"tool": "vscode", "label": "Visual Studio Code", "kind": "editor", "why": "the editor", "needed": True,
+                 "installed": True, "ok": True, "install": {"method": "none", "command": None, "url": None}}]
+
+    def fake_install(item, folder, on_line):
+        state["ok"] = True
+        return {"ok": True, "tool": item["tool"], "version": "2.32.3"}
+
+    monkeypatch.setattr(wsmod, "requirements", reqs)
+    monkeypatch.setattr(wsmod, "setup_card", setup_card)
+    monkeypatch.setattr(wsmod, "install", fake_install)
+    rig = Rig(tmp_path)
+    rig.s.workspace = Workspace(enabled=True, runner=lambda argv: True)
+
+    async def go():
+        g = stubs.load_fixture_lesson()
+        g["lesson"]["mode"] = "lesson"
+        for st in g["steps"]:
+            st.pop("video", None)
+        await rig.s.load_graph(g)
+        await rig.settle()
+        await asyncio.sleep(0.05)
+        setup = [c for c in rig.of("card") if c["kind"] == "setup"][0]
+        assert "install" in setup["actions"] and "open_editor" not in setup["actions"]
+        await rig.s.action("install", "requests")
+        await asyncio.sleep(0.1)
+
+    run(go())
+    last = rig.of("card")[-1]
+    assert last["title"] == "requests installed ✓" and last["actions"] == [] and last["dismissAfterMs"] > 0
+    assert rig.s._setup_card is None  # nothing pending: the Start card / nudges may go out
+    ready = rig.of("lesson.ready")[0]
+    assert ready["lesson"]["outline"]["count"] == len(ready["steps"])  # E23: a finished build's outline is its steps
 
 def test_long_video_builds_progressively(rig):
     """E2's on_update: start on part 1, append later parts, wait (not finish) at the end of the built part."""
@@ -1492,7 +1552,7 @@ def test_preflight_before_build_then_build_or_pick_another(rig):
 
     async def go():
         await rig.s.learn("build chat gpt")
-        assert prefetched == [(3, "build chat gpt")]
+        assert prefetched == [(1, "build chat gpt"), (3, "build chat gpt")]  # the video row as it came, then the top 3
         await rig.s.build_lesson(["r1"])
         assert not built and rig.s.phase == "preflight"
         cards = [c for c in rig.of("card") if c["kind"] == "preflight"]
@@ -1513,6 +1573,74 @@ def test_preflight_before_build_then_build_or_pick_another(rig):
     run(go())
     assert built == [stubs.SEARCH_RESULTS[0]["url"]]
     assert rig.of("lesson.ready") and rig.s.phase == "active"
+
+
+def test_preflight_prefetch_starts_while_the_search_still_streams(rig):
+    """Video speed: a live search streams its first rows at ~5 s and ends at ~18 s, and a pick before search.done
+    cancels it (main.py), so prefetching only at search.done left the picked card waiting ~3-5 s on Claude. The first
+    3 video rows are prefetched as they arrive; search.done still prefetches the final top 3."""
+    prefetched, gate = [], asyncio.Event()
+    rig.s.m._preflight_mod = lambda: _fake_preflight(prefetched)
+    rows = [{"id": f"v{i}", "kind": "video", "title": f"V{i}", "meta": "", "score": 90 - i, "reason": "",
+             "url": f"https://www.youtube.com/watch?v=vid{i:08d}"} for i in range(5)]
+    rows.insert(1, {"id": "b1", "kind": "blog", "title": "B", "meta": "", "score": 89, "reason": "",
+                    "url": "https://example.com/post"})
+
+    async def search(query):
+        for i, r in enumerate(rows):
+            if i == 3:
+                await gate.wait()  # the search's slow tail
+            yield dict(r)
+
+    rig.s.m.search = search
+
+    async def go():
+        task = asyncio.ensure_future(rig.s.learn("build a pinn"))
+        for _ in range(50):
+            await asyncio.sleep(0.01)
+            if len(prefetched) >= 2:
+                break
+        before_done = list(prefetched)
+        assert not rig.of("search.done")
+        gate.set()
+        await task
+        return before_done
+
+    before_done = run(go())
+    assert before_done == [(1, "build a pinn"), (1, "build a pinn")]  # v0 and v1 while streaming (not the blog)
+    assert prefetched == [(1, "build a pinn")] * 3 + [(6, "build a pinn")]  # 3 early (v2 after the gate), then search.done
+    assert rig.of("search.done")
+
+
+def test_cached_lesson_holds_ready_like_a_curated_one(rig):
+    """Video speed: Build on a cached lesson waited the full ORCH_READY_HOLD_S (1.5 s) after "Lesson ready" for a
+    build that took 0 s. A cache hit (E2's cache_hit stage) holds 0.6 s like a curated lesson; a real build keeps 1.5."""
+    rig.s.ready_hold_s, rig.s.CACHED_READY_HOLD_S = 0.4, 0.05
+
+    def builder(hit: bool):
+        async def build(url, goal, workdir, on_progress=None, **kw):
+            if hit and on_progress:
+                on_progress("cache_hit", "abc.json")
+                on_progress("done", "abc.json")
+            return stubs.load_fixture_lesson()
+        return build
+
+    async def timed(hit: bool) -> float:
+        rig.s.m.build_lesson = builder(hit)
+        t0 = asyncio.get_running_loop().time()
+        await rig.s._run_build("https://www.youtube.com/watch?v=abcdefghijk", "g")
+        await rig.built()
+        assert rig.s.graph is not None
+        return asyncio.get_running_loop().time() - t0
+
+    async def go():
+        cached = await timed(True)
+        await rig.s.end_lesson()
+        built = await timed(False)
+        return cached, built
+
+    cached, built = run(go())
+    assert cached < 0.3 and built >= 0.4
 
 
 def test_end_lesson_clears_a_pending_pick(rig):
@@ -1819,11 +1947,15 @@ def test_coach_gets_screen_error_text_without_tut_run(tmp_path, monkeypatch):
     assert "You have unstaged changes" in seen.get("error_text", "")
 
 
-def test_show_me_uses_e5_pointing(rig):
+@pytest.mark.parametrize("h,rect", [
+    (18, {"x": 5.0, "y": 6.0, "w": 7.0, "h": 18.0}),  # one text row: exactly the pointing box
+    (8, {"x": 5.0, "y": 0.0, "w": 7.0, "h": 20.0}),  # E24 (f265edd): a sliver is one 20 pt row centred on it
+])
+def test_show_me_uses_e5_pointing(rig, h, rect):
     rig.s.m.has_pointing = lambda: True
 
     async def show_me(step, screen, last):
-        return {"targets": [{"boxId": 1, "label": "here", "text": "net = ...", "rect": {"x": 5, "y": 6, "w": 7, "h": 8}}],
+        return {"targets": [{"boxId": 1, "label": "here", "text": "net = ...", "rect": {"x": 5, "y": 6, "w": 7, "h": h}}],
                 "caption": "Build the MLP here", "where": None}
 
     rig.s.m.show_me = show_me
@@ -1839,7 +1971,7 @@ def test_show_me_uses_e5_pointing(rig):
 
     run(go())
     spot = rig.of("spotlight")[-1]
-    assert spot["rect"] == {"x": 5.0, "y": 6.0, "w": 7.0, "h": 8.0} and spot["caption"] == "Build the MLP here"
+    assert spot["rect"] == rect and spot["caption"] == "Build the MLP here"
 
 
 def test_build_error_shows_only_e2s_sentence():
@@ -1875,7 +2007,7 @@ def test_quick_start_provisional_step_is_replaced(rig):
 
     async def go():
         await rig.s.learn_url("https://www.youtube.com/watch?v=abcdefghijk")
-        await rig.settle()
+        await rig.built()  # learn_url returned with the placeholder live; the real lesson replaces it after
 
     import json
     run(go())
@@ -1920,6 +2052,8 @@ def test_notebook_excerpt_is_cell_sources_not_cut_json(rig):
     rig.write(json.dumps(nb), "lab.ipynb")
     code, f = rig.s._code_excerpt({"targets": [{"file": "lab.ipynb"}]})
     assert f == "lab.ipynb"
+    assert len(code) < 600  # t10: a cell's output goes as a short tail (3 lines), never the 20 KB of it
+    code = "\n".join(ln for ln in code.split("\n") if not ln.startswith("# [output]"))
     assert code == ("# %% [cell 1]\nimport torch\nlr = 0.3\n"
                     "# %% [cell 2]\nopt = torch.optim.Adam(net.parameters(), lr=lr)")
     rig.write("{not json", "broken.ipynb")  # not parseable: falls back to the raw text, still limited
@@ -2117,7 +2251,8 @@ def test_skip_step_moves_on_without_a_pass(rig):
 
 
 def test_check_step_passes_now_or_says_what_is_missing(rig):
-    """Check button: deterministic checks first, then E5's judge; ONE "Not yet" card (<= 12 words) + spotlight."""
+    """Check button: deterministic checks first, then E5's judge; ONE "Not yet" card + spotlight. E19 (7026814): the
+    body is whole sentences (no 12-word cut that ended "..., then save the")."""
     rig.s.check_wait_s = 0
     calls = []
 
@@ -2136,7 +2271,8 @@ def test_check_step_passes_now_or_says_what_is_missing(rig):
         await rig.settle()
         new = rig.of("card")[n_cards:]
         assert len(new) == 1 and new[0]["title"] == "Not yet" and new[0]["kind"] == "answer"
-        assert new[0]["actions"] == ["skip_step"] and len(new[0]["body"].split()) <= 12
+        assert new[0]["actions"] == ["hint", "show_me", "skip_step"]  # t10: a video Not yet teaches too
+        assert new[0]["body"] == "Add a Tanh activation after the first Linear layer, then save the file."
         assert rig.of("spotlight")[-1]["rect"]["w"] == 300.0
         assert calls and "pinn_convection.py" in calls[0]
         assert all(p["stepId"] != "s2" for p in rig.of("step.passed"))
@@ -2176,7 +2312,7 @@ def test_check_step_without_a_judge_names_the_failing_checks(rig):
 
     run(go())
     card = rig.of("card")[-1]
-    assert card["title"] == "Not yet" and "uses tanh" in card["body"] and card["actions"] == ["skip_step"]
+    assert card["title"] == "Not yet" and "uses tanh" in card["body"] and card["actions"] == ["hint", "show_me", "skip_step"]
 
 
 def test_provisional_placeholder_is_replaced_even_when_the_real_lesson_races_it(rig, monkeypatch):
@@ -2283,6 +2419,7 @@ def test_stuck_card_offers_skip_once_after_90s_idle(rig):
     async def go():
         await _to_step(rig, 1)
         await rig.end_segment()
+        rig.s._acted()  # E4: only once the learner started on the step
         rig.clock.t += 95
         await rig.s.tick()
         await rig.s.tick()
@@ -2290,7 +2427,134 @@ def test_stuck_card_offers_skip_once_after_90s_idle(rig):
 
     run(go())
     stuck = [c for c in rig.of("card") if c["title"] == "Need a hand?"]
-    assert len(stuck) == 1 and stuck[0]["actions"] == ["skip_step"]
+    assert len(stuck) == 1 and stuck[0]["actions"] == ["hint", "skip_step"]
+
+
+def test_stuck_card_waits_for_the_learner_and_a_pending_preview(rig):
+    async def go():
+        await _to_step(rig, 1)
+        await rig.end_segment()
+        rig.clock.t += 95
+        await rig.s.tick()  # never started on the step: no card
+        rig.s._acted()
+        rig.s.pending_patch = {"file": "x.py"}  # a "Do it for me" preview waits on them
+        rig.clock.t += 95
+        await rig.s.tick()
+        await rig.settle()
+
+    run(go())
+    assert not [c for c in rig.of("card") if c["title"] == "Need a hand?"]
+
+
+def _rig_with_inputs(tmp_path, monkeypatch):
+    monkeypatch.setenv("TUT_WORKDIR", str(tmp_path))
+    monkeypatch.delenv("DEMO", raising=False)
+    return Rig(tmp_path, with_inputs=True)
+
+
+def test_keys_typed_into_miyagi_or_another_app_are_not_lesson_work(tmp_path, monkeypatch):
+    rig = _rig_with_inputs(tmp_path, monkeypatch)
+
+    async def go():
+        await _to_step(rig, 1)
+        rig.clock.t += 30
+        rig.inputs.own_front = True  # E5: the learner types a question into Miyagi's ask box
+        rig.inputs.key()
+        rig.inputs.click()
+        assert not rig.s.learner_started() and not rig.s.acted_since_step_start()
+        assert rig.s.learner_idle_s() >= 30
+        rig.inputs.own_front, rig.inputs.foreign_front = False, True  # ... then into the Claude app
+        rig.inputs.key()
+        assert not rig.s.learner_started() and rig.s.learner_idle_s() >= 30
+        rig.inputs.foreign_front = False  # in the lesson's editor: that's work
+        rig.inputs.key()
+        assert rig.s.learner_started() and rig.s.learner_idle_s() == 0
+
+    run(go())
+
+
+def test_state_has_no_text_under_the_pointer_unless_a_step_runs(tmp_path, monkeypatch):
+    rig = _rig_with_inputs(tmp_path, monkeypatch)
+    rect = types.SimpleNamespace(x=100.0, y=100.0, w=300.0, h=20.0,
+                                 to_dict=lambda: {"x": 100.0, "y": 100.0, "w": 300.0, "h": 20.0})
+    obs = types.SimpleNamespace(blocks=[types.SimpleNamespace(text="my own chat message", app="Claude", rect=rect)])
+    rig.inputs.move(150.0, 110.0)
+    rig.s.last_obs = obs
+    assert rig.s.state()["cursor"] is None  # E3: idle
+    run(_to_step(rig, 1))
+    rig.s.last_obs = obs
+    assert rig.s.state()["cursor"]["under"]["text"] == "my own chat message"
+    rig.s.snapshot(ask_resume=True)
+    st = rig.s.state()
+    assert st["cursor"] is None and st["phase"] == "awaiting_resume"  # E7: the freeze shows from outside
+
+
+def _sheet_lesson() -> dict:
+    g = stubs.text_lesson(stubs.load_fixture_lesson(), goal="teach me PINNs")
+    g["lesson"]["build"] = {"summary": "A tiny PINN for the convection equation", "outcome": "It trains"}
+    return g
+
+
+def test_before_you_start_holds_the_lesson_until_start_or_an_edit(rig):
+    bad = lambda ev: [e for e in ev if e["type"] in ("offtrack", "spotlight") and not e["payload"].get("clear")
+                      or e["type"] == "card" and e["payload"].get("title") == "Need a hand?"
+                      or e["type"] == "check.updated" and e["payload"]["status"] == "fail"]
+
+    async def go():
+        await rig.s.load_graph(_sheet_lesson())
+        await rig.settle()
+        assert rig.s.awaiting_start and rig.s.state()["phase"] == "ready"  # E4: the sheet is up
+        m = rig.mark()
+        for _ in range(3):
+            rig.clock.t += 100
+            await rig.s.tick()
+        await rig.settle()
+        assert not bad(rig.since(m)) and rig.s.awaiting_start
+        await rig.s.action("start")
+        await rig.settle()
+        assert not rig.s.awaiting_start and rig.s.state()["phase"] == "active"
+
+        # the app comes back: Continue re-sends lesson.ready, so the sheet opens again: held, nothing stale replayed
+        step = rig.s.step
+        cid = next(iter(rig.s.check_state))
+        rig.s.check_state[cid] = {**rig.s.check_state[cid], "status": "fail", "detail": "old"}
+        rig.s.last_offtrack = {"stepId": step["id"], "severity": "warn", "title": "Stale", "body": "made earlier"}
+        rig.s.snapshot(ask_resume=True)
+        m = rig.mark()
+        await rig.s.action("resume")
+        await rig.settle()
+        rig.clock.t += 200
+        await rig.s.tick()
+        await rig.settle()
+        assert rig.s.awaiting_start and not bad(rig.since(m))
+        rig.write("# the learner's first edit\n", name=rig.s._step_file(step))
+        await rig.s.tick()
+        await rig.settle()
+        assert not rig.s.awaiting_start
+
+    run(go())
+
+
+def test_before_you_start_holds_only_step_one_and_only_with_an_app(rig):
+    async def go():
+        rig.s.has_clients = lambda: False  # no app got lesson.ready (rehearse_boxes, autostart): no sheet, no hold
+        await rig.s.load_graph(_sheet_lesson())
+        await rig.settle()
+        assert not rig.s.awaiting_start
+        await rig.s.end_lesson()
+        rig.s.has_clients = None
+        await rig.s.load_graph(_sheet_lesson())
+        await rig.settle()
+        assert rig.s.awaiting_start
+        await rig.s.start_step(1)  # a restore at a later step: the app closes the sheet on it (store.ts)
+        await rig.settle()
+        assert not rig.s.awaiting_start
+        rig.s.snapshot(ask_resume=True)
+        await rig.s.action("resume")  # Continue at step 2 re-sends lesson.ready, but the app shows no sheet there
+        await rig.settle()
+        assert not rig.s.awaiting_start and rig.s.state()["phase"] == "active"
+
+    run(go())
 
 
 def test_dead_screen_is_reported_once_and_show_me_says_why(tmp_path, monkeypatch):
@@ -2736,7 +3000,7 @@ def test_unsaved_file_says_save_before_any_offtrack_and_judge_cannot_pass_it(tmp
     titles = [c["title"] for c in rig.of("card")]
     assert "Not yet" in titles and "Save calc.py" in titles
     assert any("Save calc.py" in c["body"] for c in rig.of("card") if c["title"] == "Not yet")
-    assert [c for c in rig.of("card") if c["title"] == "Not yet"][0]["actions"] == ["apply_fix", "skip_step"]
+    assert [c for c in rig.of("card") if c["title"] == "Not yet"][0]["actions"] == ["hint", "show_me", "skip_step"]
 
 
 def test_another_lessons_folder_gets_one_calm_card(tmp_path, monkeypatch):
@@ -2889,7 +3153,7 @@ def test_run_it_for_me_runs_the_command_shows_output_and_passes_the_run_check(tm
 
     run(go())
     ran = [c for c in rig.of("card") if c["title"].startswith("Ran ")][-1]
-    assert ran["title"] == "Ran python calc.py" and ran["output"] == "5" and ran["body"] == "It ran without errors."
+    assert ran["title"] == "Ran calc.py" and ran["output"] == "5" and ran["body"] == "It ran without errors."
     assert rig.of("step.passed")[-1]["stepId"] == "s2"
 
 
@@ -2946,6 +3210,8 @@ def test_lesson_mode_vision_pick_boxes_the_line_when_text_and_gutter_miss(tmp_pa
     """Short new file: OCR has neither the target text nor the line numbers, so the text match and the gutter line
     both miss. The Haiku set-of-marks pick (screen.pick) boxes the row, at most twice per step; a pick that isn't an
     editor row (toolbar / region) is never used for a type step."""
+    from server.orchestrator import workspace as wsmod
+
     async def build(goal, workdir, on_update=None, **kw):
         return _text_lesson()
 
@@ -2966,6 +3232,9 @@ def test_lesson_mode_vision_pick_boxes_the_line_when_text_and_gutter_miss(tmp_pa
         screen.reader = object()          # "the real reader is running" (vision is only used then)
         screen.pick = pick
         rig.s._editor_line_spot = no_line
+        # the gutter misses for t5 (d)'s insertion row too (2f21672 / 9cfd59c: _start_box -> _insert_spot asks
+        # Accessibility / the gutter first); never the real screen reader in a test
+        monkeypatch.setattr(wsmod, "line_location", lambda path, line: {})
 
         async def go():
             await rig.s.learn("build a calculator", mode="lesson")
@@ -2985,7 +3254,8 @@ def test_lesson_mode_vision_pick_boxes_the_line_when_text_and_gutter_miss(tmp_pa
 
 def test_lesson_mode_targeter_confirms_moves_or_drops_the_located_box(tmp_path, monkeypatch):
     """_confirm_spot: screen.confirm (Haiku verifier) returns the box to show. A moved rect replaces the located one;
-    None (Haiku is sure nothing on screen matches) means no box; the question is the step's caption + code."""
+    None (Haiku is sure nothing on screen matches) withdraws it (t4: the start box goes up before Haiku answers); the
+    question is the step's caption + code."""
     async def build(goal, workdir, on_update=None, **kw):
         return _text_lesson()
 
@@ -3019,7 +3289,7 @@ def test_lesson_mode_targeter_confirms_moves_or_drops_the_located_box(tmp_path, 
         assert asked[0][1].startswith("In calc.py, type the lines below.") and "(code: def add(a, b):" in asked[0][1]
         boxes = [sp for sp in rig.of("spotlight") if "rect" in sp]
         if answer is None:
-            assert not boxes
+            assert rig.of("spotlight")[-1] == {"clear": True} and rig.s.spot_rect is None
         else:
             assert boxes and boxes[-1]["rect"] == moved and boxes[-1]["matched"] == "# add goes here"
 

@@ -1,0 +1,6 @@
+{
+ "stepId": "nn6",
+ "kind": "explain",
+ "title": "What the weights mean",
+ "body": "Each first-layer neuron is tanh(w·x), an S-curve through 0: steep when its weight is big, gentle when it's small. The second layer mixes those S-curves, and the output adds them up into the sine wave. The biases stay at 0: sin is symmetric (sin(-x) = -sin(x)), and so is a network with no biases."
+}

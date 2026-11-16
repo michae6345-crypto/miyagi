@@ -21,7 +21,7 @@ from collections.abc import AsyncIterator, Callable
 from pathlib import Path
 from typing import Any
 
-from . import stubs
+from . import bg, stubs
 from .config import DEMO_CACHE, demo_mode
 from .context import RunContext
 
@@ -185,6 +185,7 @@ class Modules:
 
             task = asyncio.ensure_future(_call(fn, query, on_result=on_result, **kwargs))
             seen: set = set()
+            getter: asyncio.Future | None = None
             try:
                 while True:
                     getter = asyncio.ensure_future(queue.get())
@@ -213,7 +214,13 @@ class Modules:
                 raise ModuleUnavailable(f"finder.search failed: {type(e).__name__}: {e}") from e
             except BaseException:  # cancelled (a newer learn replaced this search) / closed early: stop the finder too
                 task.cancel()
+                bg.keep(task)  # held until its cancellation lands (V13: never GC'd mid-flight)
                 raise
+            finally:
+                # V13: a learn cancelled while waiting here left the pending queue.get() task behind; only a
+                # reference cycle held it, and GC later logged "Task was destroyed but it is pending!".
+                if getter is not None and not getter.done():
+                    getter.cancel()
         try:
             out = fn(query)
             if hasattr(out, "__aiter__"):  # streaming finder
@@ -549,6 +556,23 @@ class Modules:
         if fn is not None:
             fn(kind, lesson_id, step_id, video_t, payload, source_id=source_id)
 
+    def record_run(self, run: dict, metrics: list[tuple]) -> bool:
+        """A finished run's `runs` row + its metrics [(time, name, step, value)] -> Tiger (same queue + spool as
+        record). False when Tiger recording is off here (checks stubbed), so the caller doesn't count it as written."""
+        if "checks" in self.forced:
+            return False
+        try:
+            tiger = importlib.import_module("server.checks.tiger")
+        except Exception:  # noqa: BLE001 - no Tiger module: nothing to record
+            return False
+        rec_run, rec_metric = getattr(tiger, "record_run", None), getattr(tiger, "record_metric", None)
+        if rec_run is None or rec_metric is None:
+            return False
+        rec_run(run)
+        for t, name, step, value in metrics:
+            rec_metric(run["id"], name, step, value, time=t)
+        return True
+
     # -- voice (E5: ElevenLabs behind server.coach.voice; fills the existing `speak` event)
     def _voice(self) -> Any:
         if self.demo or "coach" in self.forced:
@@ -587,13 +611,14 @@ class Modules:
     def has_do_it_for_me(self) -> bool:
         return self._real_fn("coach", "do_it_for_me") is not None
 
-    async def do_it_for_me(self, step: dict, file: str, file_text: str, last_offtrack: dict | None) -> dict:
-        """-> {file, unified_diff, summary, line, new_text, requires_confirmation}; ModuleUnavailable if no safe patch."""
+    async def do_it_for_me(self, step: dict, file: str, file_text: str, last_offtrack: dict | None, **kw: Any) -> dict:
+        """-> {file, unified_diff, summary, line, new_text, requires_confirmation}; ModuleUnavailable if no safe patch.
+        kw: use_diagnosis=False (a lesson step's code, never the cached diagnosis diff)."""
         fn = self._real_fn("coach", "do_it_for_me")
         if fn is None:
             raise self._missing("coach", "do_it_for_me")
         try:
-            return _to_dict(await _call(fn, step, file, file_text, last_offtrack))
+            return _to_dict(await _call(fn, step, file, file_text, last_offtrack, **kw))
         except Exception as e:
             raise ModuleUnavailable(f"{getattr(e, 'reason', None) or e}") from e
 
@@ -667,7 +692,10 @@ class Modules:
         """S4: server.diagrams.build(step, context) -> {kind, caption, data, stepId}. `kind` is only a
         preference ("network" | "graph"); DEMO stubs draw network/gradients/heatmap."""
         stub_kind = kind or "network"
-        cached = self._cache("diagrams", f"{stub_kind}.json")
+        # DEMO: a step's own diagram first (diagrams/<step>-<kind>.json; the session namespaces ids as lesson:step),
+        # then the shared one for that kind.
+        sid = str((step or {}).get("id", "")).split(":")[-1]
+        cached = (self._cache("diagrams", f"{sid}-{stub_kind}.json") if sid else None) or self._cache("diagrams", f"{stub_kind}.json")
         if cached:
             return cached
         ctx_in = dict(context or {})

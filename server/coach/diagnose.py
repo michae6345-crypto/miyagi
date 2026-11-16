@@ -53,17 +53,18 @@ Hard limits:
 - title: 3 to 7 words (hard maximum 8), plain statement of the cause (not a question, no trailing period), in sentence case (capitalize only the first word and proper nouns), with code names in backticks ("`subtract` and `divide` not written yet").
 - body: at most 30 words, at most 2 sentences. Sentence 1: why it fails. Sentence 2: what to do, stated completely in words with the concrete value or name (e.g. "Set lr to 1e-3."), because the diff is often hidden at first.
 - Refer to their code by its real names (variables, functions) when helpful.
-- diff_expected: the smallest replacement for the learner's offending line(s): one contiguous block of at most 8 lines that makes EVERY edit your body's action sentence asks for (if the fix touches two nearby lines, the block covers both), in the learner's style and variable names; "" if no code change applies. If the fix adds training stages, keep the total training budget about the same (split the epochs across stages). diff_yours: the learner's current line(s) copied exactly from the numbered excerpt (without line numbers); "" if none. diff_line: the 1-based line number of diff_yours in the excerpt, 0 if none. diff_file: the file name if known, else "".
+- diff_expected: the smallest replacement for the learner's offending line(s): one contiguous block of at most 8 lines that makes EVERY edit your body's action sentence asks for (if the fix touches two nearby lines, the block covers both), in the learner's style and variable names; "" if no code change applies. If the fix adds training stages, keep the total training budget about the same (split the epochs across stages). diff_yours: the learner's current line(s) copied exactly from the numbered excerpt (without line numbers); "" if none. diff_line: the 1-based line number of diff_yours in the excerpt, 0 if none. diff_file: the file name if known, else "". To delete line(s) (e.g. a shell command like `python3 main.py` typed into the .py file), diff_yours is them, diff_expected is "" and the body says "Delete …".
 - Ground the card in evidence: WEB SOURCES (official docs, changelogs, Stack Overflow / GitHub issues fetched live for this failure) take precedence over memory for API names, versions and deprecations. If a web source contradicts your memory, trust the source. Prefer official docs over community posts.
-- diff_command: when the fix is a terminal action (install or upgrade a package, add a CLI flag, re-run with an option), that single shell command; else "". It can go with or without a code diff.
+- diff_command: when the fix is a terminal action (install or upgrade a package, add a CLI flag, re-run with an option), that single shell command; else "". It can go with or without a code diff. Never a command the learner typed into their file by mistake: deleting that line is the fix (diff_yours).
 - citation_id: pick one id from the CITATIONS list (web:N, source:..., or a playbook id) only when that source directly supports the card; otherwise "none". Never invent a source.
 - playbook_id: the matching playbook entry id, or "none" if no entry fits. Do not force a match: if the evidence does not fit an entry, diagnose from first principles.
 - severity: "warn" when it runs but the result is off (a metric plateaus, a test count is short, output differs); "fail" when it crashes, errors, or produces nan/inf.
-- actions: include "apply_fix" only when diff_expected is non-empty; include "show_me" when a specific line is implicated.
+- actions: include "apply_fix" only when diff_expected is non-empty or the fix deletes diff_yours; include "show_me" when a specific line is implicated.
 - guiding_question: one Socratic question (at most 20 words) about THIS cause that leads the learner to the fix without stating it, e.g. "What happens to Adam's steps when the learning rate is large?". It is the first rung of the hint ladder.
 
 - Trust what is on screen (error text, versions in tracebacks) over the lesson's library versions: the learner may have a newer release than the tutorial.
 - Never say or guess which file is open or active in the editor from the screen text: the Explorer, tab strip, breadcrumbs and overlays (e.g. VS Code's inline chat over line 1) all show file names. Only an "ACTIVE FILE" line says which file is open; without it, don't mention it at all.
+- File and folder names the tutorial uses incidentally (Jupyter's default Untitled.ipynb, the presenter's venv or project folder, paths on their machine, a `file` in the step's targets) are never requirements: the learner may name their notebook, files and folders anything. Never ask them to rename, move or re-save a file to match the tutorial; a name is required only when a FAILED CHECK itself names that file. When the failed checks read the screen or the code (screen_contains / screen_absent), the card is about exactly what that check looks for (e.g. that line is not on screen yet, or is cut off at the editor's edge).
 - The body states the cause and the fix; it never asks the learner a question.
 - Code read from the screen (OCR) can contain recognition errors and editor overlays (hover tooltips like "(function) def add(a: Any, b: Any) -> None", autocomplete). Never claim a line is malformed, misnamed or missing syntax because of how OCR text looks; only a saved file or an actual error message can show that.
 - Never put `git add` or `git rebase/merge/cherry-pick --continue` in diff_command while the file still has conflict markers (<<<<<<< ======= >>>>>>>) that your diff does not remove: that would commit the markers. Say to resolve the markers first.
@@ -175,6 +176,105 @@ def _no_questions_or_open_file_claims(card: dict, known_active: bool) -> bool:
     return True
 
 
+# Desktop test 9 (Nov 15, V4): "Not yet · Notebook is mnist.ipynb, not Untitled.ipynb · Rename mnist.ipynb to
+# Untitled.ipynb", with a box on the Explorer item, while the only failing check was the screen check
+# `mnist\.load_data\(\)`. Untitled.ipynb was only the video's Jupyter default (in the step's targets). A name is required
+# only when a failing check of the step itself names that file (never a precision check: those are an extra route to
+# green, never a hurdle; never a Jupyter / VS Code default notebook name). A card or a box label that asks to rename /
+# save as / move to any other name is dropped: the card is rewritten from the failing check, the box goes.
+_PLACEHOLDER_NB = re.compile(r"^Untitled(?:[-_ ]?\d+)?\.ipynb$", re.I)
+_RENAME_TO = re.compile(
+    r"\b(?:rename|re-?save|save|move|call|name)\b(?:[^.\n]|\.(?=\w))*?\b(?:to|as|into)\s+[`'\"]?([\w./~-]+)"
+    r"|\bname\s+(?:it|the\s+(?:file|notebook|folder))\s+[`'\"]?([\w./~-]+)",
+    re.I,
+)
+
+
+def required_names(step: dict, failed_checks: list) -> set[str]:
+    """Base names of the files the step's own failing checks name (precision checks and default notebook names never)."""
+    own = {c.get("id") for c in step.get("checks") or [] if isinstance(c, dict)}
+    out = set()
+    if lesson_mode(step):  # a "Just teach me" lesson's own file (Miyagi made it: nn.py, calculator.py) is a real name
+        for f in [step.get("file")] + [t.get("file") for t in step.get("targets") or [] if isinstance(t, dict)]:
+            if f and not str(f).startswith("("):
+                out.add(str(f).rstrip("/").rsplit("/", 1)[-1].lower())
+    for c in failed_checks or []:
+        if not isinstance(c, dict) or (c.get("checkId") or c.get("id")) not in own:
+            continue
+        name = str(c.get("file") or "").rstrip("/").rsplit("/", 1)[-1]
+        if name and not _PLACEHOLDER_NB.match(name):
+            out.add(name.lower())
+    return out
+
+
+def asks_incidental_rename(text: str, required: set[str]) -> bool:
+    """Does `text` ask the learner to rename / save as / move something to a name no failing check needs?"""
+    for m in _RENAME_TO.finditer(text or ""):
+        raw = (m.group(1) or m.group(2) or "").rstrip(".")
+        name = raw.rstrip("/").rsplit("/", 1)[-1].lower()
+        if ("." in name or "venv" in name or "/" in raw) and name not in required:
+            return True
+    return False
+
+
+def keep_targets(targets: list[dict] | None, required: set[str]) -> list[dict]:
+    """Screen targets without the boxes whose label asks for an incidental rename ("Rename to Untitled.ipynb")."""
+    return [t for t in targets or [] if not asks_incidental_rename(str(t.get("label") or ""), required)]
+
+
+def _pattern_text(pattern: str) -> str:
+    """A screen check's regex as the text it looks for, when it is a plain literal: `mnist\\.load_data\\(\\)` ->
+    "mnist.load_data()", `import\\s+tensorflow\\s+as\\s+tf` -> "import tensorflow as tf"; "" for a real regex."""
+    t = re.sub(r"\\s(?:[*+?]|\{\d*,?\d*\})?", " ", pattern or "")
+    if not t.strip() or re.search(r"(?<!\\)[.\[\]|*+?{}^$()]|\\[dDwWbBSAZ\d]", t):
+        return ""
+    return " ".join(re.sub(r"\\(.)", r"\1", t).split())
+
+
+def check_card(step: dict, failed_checks: list) -> dict:
+    """The card for the step's first failing check, from the check alone (no model): what it looks for and the one
+    thing to do. A hold (no card) when no failing check of the step is known."""
+    own = {c.get("id"): c for c in step.get("checks") or [] if isinstance(c, dict)}
+    fc = next((c for c in failed_checks or [] if isinstance(c, dict) and (c.get("checkId") or c.get("id")) in own), None)
+    if fc is None:
+        return {"stepId": step.get("id", ""), "severity": "warn", "title": "", "body": "", "actions": [], "hold": "unconfirmed",
+                "_meta": {"route": "hold", "hold": "unconfirmed", "reason": "an incidental rename, and no failing check"}}
+    c = {**own[fc.get("checkId") or fc.get("id")], **fc}
+    label = str(c.get("label") or "this check").strip().rstrip(".")
+    text = _pattern_text(str(c.get("pattern") or ""))
+    t = c.get("type") or ""
+    if t == "screen_contains":
+        title = f"`{text}` not on screen yet" if text else f"Not on screen yet: {label}"
+        body = (f"The check reads your screen and can't find `{text}` yet. Scroll VS Code so that whole line is in view."
+                if text else f"The check reads your screen and hasn't seen this yet: {label}. Scroll VS Code so that code is in view.")
+    elif t == "screen_absent":
+        title = f"`{text}` is on screen" if text else f"Not passing yet: {label}"
+        body = (f"The check flags `{text}` on your screen. Fix what it points at, then run it again." if text
+                else f"The check flags something on your screen: {label}. Fix the error it shows, then run it again.")
+    elif t.startswith("metric_"):
+        title, body = f"Not reached yet: {label}", "The run's printed value hasn't reached the step's target yet. Run it again and compare."
+    else:
+        title, body = f"Not passing yet: {label}", "Compare your code with the step's code, then check again."
+    return {"stepId": step.get("id", ""), "severity": "warn", "title": clamp_title(title), "body": clamp_body(body),
+            "actions": order_actions([], has_diff=False), "_meta": {"route": "guard", "playbook_id": None}}
+
+
+def drop_incidental_rename(card: dict, step: dict, failed_checks: list) -> dict:
+    """V4: a card that asks for a rename no failing check needs becomes the failing check's own card."""
+    required = required_names(step, failed_checks)
+    if not asks_incidental_rename(f"{card.get('title') or ''}. {card.get('body') or ''}. {card.get('why') or ''}", required):
+        if card.get("targets"):
+            card["targets"] = keep_targets(card["targets"], required)
+        return card
+    out = check_card(step, failed_checks)
+    out["_meta"].update({k: v for k, v in (card.get("_meta") or {}).items() if k not in ("route", "playbook_id")})
+    out["_meta"]["dropped"] = {"title": card.get("title"), "body": card.get("body"), "why": "incidental rename"}
+    if card.get("targets") is not None and "hold" not in out:
+        out["targets"] = []
+    log.info("coach: dropped an incidental rename card (%r) for %s", card.get("title"), out.get("title") or "a hold")
+    return out
+
+
 LESSON_MODE_RULE = (
     'LESSON MODE ("Just teach me"): the learner types this lesson\'s code in VS Code. Make the body\'s LAST '
     "sentence ONE action of at most 12 words that names the file and VS Code (e.g. \"In VS Code, name the "
@@ -187,9 +287,9 @@ def _lesson_action(card: dict) -> None:
     sentences = [x.strip() for x in re.split(r"(?<=[.!?])\s+", card.get("body", "")) if x.strip()]
     if not sentences:
         return
-    action = clamp_words(sentences[-1], 12)
+    action = sentences[-1]  # t7: the whole action sentence (test 6 cut it at 12 words: "...and `backward` under #…")
     card["why"] = " ".join(sentences[:-1])
-    card["body"] = action if action.endswith((".", "!", "?", "…")) else action + "."
+    card["body"] = action if action.endswith((".", "!", "?")) else action.rstrip("…").rstrip() + "."
 
 
 def error_card(step: dict, error_text: str, code: str) -> dict:
@@ -371,6 +471,28 @@ def _tidy_title(title: str, step: dict, code_excerpt: str = "") -> str:
     return out[0].upper() + out[1:] if lead.islower() else out  # "macOS …" keeps its case
 
 
+_DELETE_WORDS = re.compile(r"\b(?:delete|remove|take\s+out|erase|get\s+rid\s+of)\b", re.I)
+_DELETE_LINE = re.compile(r"\b(?:delete|remove|take\s+out|erase|get\s+rid\s+of)\b[^.\n]*?\blines?\b", re.I)
+_SHELL_LINE = re.compile(r"^\$?\s*(?:python[\d.]*|pip[\d.]*|uv|npm|npx|node|yarn|pnpm|git|cd|ls|bash|sh|make|pytest)\s",
+                         re.I)
+
+
+def _flat(s: str | None) -> str:
+    return " ".join((s or "").split())
+
+
+def _deletes_line(yours: str, expected: str, command: str, words: str) -> bool:
+    """diff_yours with no diff_expected is a deletion when the line is a shell command (typed into the file) or the
+    command itself, or the card says to delete that line ("delete the … line", "remove `x = 1`"); else (yours only
+    points at the line, "remove the extra comma") there is no code diff."""
+    lines = [_flat(x) for x in (yours or "").splitlines() if x.strip()]
+    if not lines or (expected or "").strip():
+        return False
+    if all(_SHELL_LINE.match(x) for x in lines) or _flat(command) in lines or _DELETE_LINE.search(words or ""):
+        return True
+    return bool(_DELETE_WORDS.search(words or "")) and any(_flat(t) in lines for t in re.findall(r"`([^`]+)`", words))
+
+
 def _shape(data: dict, step: dict, code_excerpt: str, lesson: dict | None, sources: list[dict] | None = None) -> dict:
     expected = (data.get("diff_expected") or "").strip("\n")
     yours = (data.get("diff_yours") or "").strip()
@@ -378,9 +500,14 @@ def _shape(data: dict, step: dict, code_excerpt: str, lesson: dict | None, sourc
     if command and _unsafe_git_continue(command, code_excerpt, yours, expected):
         command = ""  # would commit unresolved conflict markers (S9 QA, verified)
     diff = None
-    if command and not expected:  # terminal-only fix: the app copies it to the clipboard
+    # a deletion (yours, no expected: "delete the `python3 nn.py` line from nn.py") is a file fix: it kept only the
+    # command, so Do it for me copied `python3 nn.py` for the terminal (QA 11-15 02:59:22) instead of deleting line 41
+    delete = _deletes_line(yours, expected, command, f"{data.get('title') or ''} {data.get('body') or ''}")
+    if delete and _flat(command) in {_flat(x) for x in yours.splitlines()}:
+        command = ""  # the command typed into the file is the line to delete, never one to run
+    if command and not expected and not delete:  # terminal-only fix: the app copies it to the clipboard
         diff = {"expected": "", "yours": "", "command": command}
-    if expected:
+    if expected or delete:
         diff = {"expected": expected, "yours": yours, **({"command": command} if command else {})}
         f = data.get("diff_file") or _target_file(step)
         if f:
@@ -459,7 +586,7 @@ async def diagnose(
         error_text = screen.drop_foreign(error_text)
         if code_source == "screen":
             code_excerpt = screen.drop_foreign(code_excerpt)
-    if (held := _hold(step, screen, file_state, code_excerpt, code_source, active_file)) is not None:
+    if (held := _hold(step, screen, file_state, code_excerpt, code_source, active_file, error_text)) is not None:
         return held
     if _empty_code_step(step, code_excerpt, file_state):  # an empty file at a code step: not started, not off track
         card = template_card(step, failed_checks, screen, empty_file=True)
@@ -498,7 +625,17 @@ async def diagnose(
             card = playbook_card(step, BY_ID[t.playbook_id], code_excerpt, severity="fail" if has_error else "warn")
         else:
             sources = await web_task if web_task is not None else []
-            card = await _opus(step, failed_checks, metrics_text, flags, code_excerpt, error_text, lesson, effort, sources, screen, on_targets, cursor, active_file)
+            required = required_names(step, failed_checks)
+            spot = on_targets
+            if on_targets is not None:  # V4: a streamed box labelled "Rename to Untitled.ipynb" never goes up
+                def spot(targets: list[dict], _up=on_targets) -> Any:
+                    kept = keep_targets(targets, required)
+                    return _up(kept) if kept else None
+            card = await _opus(step, failed_checks, metrics_text, flags, code_excerpt, error_text, lesson, effort, sources, screen, spot, cursor, active_file)
+            if card.get("_meta", {}).get("route") == "opus":
+                card = drop_incidental_rename(card, step, failed_checks)
+                if card["_meta"].get("route") == "guard" and lesson_mode(step):
+                    _lesson_action(card)
     finally:
         if web_task is not None and not web_task.done():
             web_task.cancel()
@@ -542,7 +679,8 @@ def _empty_code_step(step: dict, code: str, file_state: dict | None) -> bool:
     return lesson_mode(step) and bool((step.get("code") or "").strip()) and not (code or "").strip() and (step.get("file") or "") != "(terminal)"
 
 
-def _hold(step: dict, screen: Any, file_state: dict | None, code: str, code_source: str, active_file: dict | None = None) -> dict | None:
+def _hold(step: dict, screen: Any, file_state: dict | None, code: str, code_source: str, active_file: dict | None = None,
+          error_text: str = "") -> dict | None:
     from .pointing import editor_state, step_file
 
     sid = step.get("id", "")
@@ -562,7 +700,9 @@ def _hold(step: dict, screen: Any, file_state: dict | None, code: str, code_sour
     if code_source == "screen" and code.strip():
         norm = re.sub(r"\s+", "", code)
         prev, _SCREEN_READS[sid] = _SCREEN_READS.get(sid), norm
-        if prev != norm:
+        # an error to explain (a traceback, "SyntaxError: …") needs no second read of the code: t3 held a run's
+        # SyntaxError as "unconfirmed" on every frame for 20 s
+        if prev != norm and not ERROR_SIGNATURE.search(error_text or ""):
             return card("unconfirmed", "", "")
     else:
         _SCREEN_READS.pop(sid, None)

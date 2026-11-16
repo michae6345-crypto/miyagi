@@ -112,7 +112,7 @@ python -m server.screen --image server/screen/fixtures/cursor_fullscreen_bigfont
 python -m server.screen anchor "def pde_residual(" --file pinn_demo/pinn_convection.py
 ```
 Tests: `server/screen/tests/test_lines.py` runs on recorded Vision OCR of three rendered
-full-screen editors: VS Code at the top of a file, VS Code scrolled to lines 44–84, and Cursor at
+full-screen editors: VS Code at the top of a file, VS Code scrolled to lines 44–84, and a third editor at
 14 pt scrolled to 70–115. Each fixture has ground truth for every row; all rows land within 2 pt.
 Regenerate them with `python -m server.screen.tests.make_editor_fixtures`.
 

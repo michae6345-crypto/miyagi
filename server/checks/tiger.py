@@ -1,14 +1,15 @@
 """Tiger Data writers + stats for the engine (GENERALITY RULE: the time-series memory of every session).
 
-    from server.checks.tiger import record_event, record_metric
+    from server.checks.tiger import record_event, record_metric, record_run
 
     record_event("step_started", lesson_id, step_id, video_t=212.0)
     record_event("check_fail", lesson_id, step_id, video_t, {"check_id": "s4c2", "detail": "plateau"})
     record_event("step_passed", lesson_id, step_id, video_t)   # duration_s filled in from step_started
     record_metric("screen-pinn", "loss", 1200, 0.2504)          # any numeric signal
+    record_run({"id": "vscode-7-1731670000000", "lesson_id": "text-nn", "source": "learner", ...})  # its runs row
 
-Both calls are non-blocking (an in-memory queue). A daemon thread COPYs batches into
-``learning_events`` / ``training_metrics`` every 0.5 s. **Offline-safe:** when Tiger can't be
+All three are non-blocking (an in-memory queue). A daemon thread COPYs batches into
+``learning_events`` / ``training_metrics`` (and upserts ``runs``) every 0.5 s. **Offline-safe:** when Tiger can't be
 reached (venue Wi-Fi blocking the port, no URL yet, a write error), batches are appended to a
 local spool (``~/.miyagi/tiger-spool/*.jsonl``, override ``$TUT_SPOOL_DIR``). The writer retries
 every 30 s and uploads the whole spool (including ``tut run``'s) as soon as Tiger answers. It
@@ -74,6 +75,7 @@ def spool_status(spool_dir: str | Path | None = None) -> dict:
     return {"dir": str(d), "files": len(files), "rows": rows}
 
 
+RUN_COLS = ("id", "lesson_id", "step_id", "source", "command", "exit_code", "started_at", "ended_at", "tail")
 INSERT_RUN_SQL = (
     "INSERT INTO runs (id, lesson_id, step_id, source, command, exit_code, started_at, ended_at, tail) "
     "VALUES (%(id)s, %(lesson_id)s, %(step_id)s, %(source)s, %(command)s, %(exit_code)s, %(started_at)s, %(ended_at)s, %(tail)s) "
@@ -164,6 +166,7 @@ class TigerWriter:
 
     def __init__(self, dsn: str | None = None, session_id: str | None = None, flush_every: float = 0.5,
                  connect: Any = None, spool_dir: str | Path | None = None, retry_every: float = RETRY_S):
+        self._env_dsn = dsn is None  # follows TIGER_DATABASE_URL (see _sync_dsn)
         self.dsn = dsn if dsn is not None else os.environ.get("TIGER_DATABASE_URL", "")
         self.session_id = session_id or os.environ.get("TUT_SESSION_ID") or f"sess_{uuid.uuid4().hex[:10]}"
         self.flush_every = flush_every
@@ -216,6 +219,13 @@ class TigerWriter:
             return
         self._put(("m", (time or _now(), run_id, int(step), name, v)))
 
+    def record_run(self, run: dict) -> None:
+        """A `runs` row (RUN_COLS; started_at / ended_at as datetimes or None), upserted: /stats reads a run's
+        lesson and source ('learner' | 'tutorial' | 'demo') from it."""
+        if not isinstance(run, dict) or not run.get("id"):
+            return
+        self._put(("r", {k: run.get(k) for k in RUN_COLS}))
+
     def flush(self, timeout: float = 5.0) -> None:
         """Write (or spool) everything queued now: blocking, for shutdown and tests."""
         if self._thread is None:
@@ -254,14 +264,14 @@ class TigerWriter:
                     self._thread = threading.Thread(target=self._loop, name="tiger-writer", daemon=True)
                     self._thread.start()
 
-    def _drain(self) -> tuple[list[tuple], list[tuple]]:
-        ev, me = [], []
+    def _drain(self) -> tuple[list[tuple], list[tuple], list[dict]]:
+        ev, me, rs = [], [], []
         while True:
             try:
                 k, row = self._q.get_nowait()
             except queue.Empty:
-                return ev, me
-            (ev if k == "e" else me).append(row)
+                return ev, me, rs
+            (ev if k == "e" else rs if k == "r" else me).append(row)
 
     def _open(self):
         if self._connect is not None:
@@ -269,6 +279,24 @@ class TigerWriter:
         import psycopg
 
         return psycopg.connect(self.dsn, autocommit=True, connect_timeout=CONNECT_TIMEOUT_S)
+
+    def _sync_dsn(self) -> bool:
+        """A writer built from the environment follows TIGER_DATABASE_URL. The app's Settings can send a Tiger URL
+        (config.keys -> os.environ, orchestrator.apply_keys) after this writer started; without this it would keep
+        spooling, or writing to the old service, until the engine restarts. True if the URL changed."""
+        if not self._env_dsn:
+            return False
+        dsn = os.environ.get("TIGER_DATABASE_URL", "")
+        if dsn == self.dsn:
+            return False
+        self.dsn = dsn
+        self.no_url = not dsn or "..." in dsn
+        self.online = False
+        self.last_error = "TIGER_DATABASE_URL not set" if self.no_url else None
+        self._next_retry = 0.0
+        self._warned_offline = False
+        log.info("Tiger Data URL changed (%s)", "cleared" if self.no_url else "connecting")
+        return True
 
     def _go_offline(self, why: str) -> None:
         self.online = False
@@ -305,44 +333,52 @@ class TigerWriter:
         except Exception:  # noqa: BLE001, S110
             pass
 
-    def _spool(self, events: list[tuple], metrics: list[tuple]) -> None:
+    def _spool(self, events: list[tuple], metrics: list[tuple], runs: list[dict] | None = None) -> None:
+        runs = runs or []
+        n = len(events) + len(metrics) + len(runs)
         try:
             self.spool_dir.mkdir(parents=True, exist_ok=True)
             if sum(f.stat().st_size for f in self.spool_dir.glob("*.jsonl")) > MAX_SPOOL_BYTES:
-                self.dropped += len(events) + len(metrics)
+                self.dropped += n
                 return
             with open(self.spool_file, "a", encoding="utf-8") as fh:
+                for r in runs:  # the same {"k": "r"} line `tut run` spools (replay_spool stores runs first)
+                    fh.write(json.dumps({"k": "r", "v": {k: _iso(v) if isinstance(v, dt.datetime) else v
+                                                         for k, v in r.items()}}, default=str) + "\n")
                 for r in events:
                     fh.write(json.dumps({"k": "e", "v": [_iso(r[0]), *r[1:]]}, default=str) + "\n")
                 for r in metrics:
                     fh.write(json.dumps({"k": "m", "v": [_iso(r[0]), *r[1:]]}) + "\n")
-            self.rows_spooled += len(events) + len(metrics)
+            self.rows_spooled += n
         except OSError as exc:
-            self.dropped += len(events) + len(metrics)
-            log.warning("tiger spool write failed (%s); %d rows dropped", exc, len(events) + len(metrics))
+            self.dropped += n
+            log.warning("tiger spool write failed (%s); %d rows dropped", exc, n)
 
     def _loop(self) -> None:
         conn = None
         try:
             while True:
                 stopping = self._stop.wait(self.flush_every)
-                ev, me = self._drain()
+                ev, me, rs = self._drain()
+                if self._sync_dsn() and conn is not None:
+                    self._close(conn)
+                    conn = None
                 if conn is None and not self.no_url and time.monotonic() >= self._next_retry:
                     conn = self._try_connect()
-                if ev or me:
+                if ev or me or rs:
                     if conn is not None:
                         t0 = time.perf_counter()
-                        try:
-                            self.rows_written += write_batch(conn, ev, me)
+                        try:  # runs first: an upsert, so spooling it again when the COPY after it fails is harmless
+                            self.rows_written += write_batch(conn, [], [], rs) + write_batch(conn, ev, me)
                             self.flushes += 1
                             self.last_flush_ms = (time.perf_counter() - t0) * 1000
                         except Exception as exc:  # noqa: BLE001
                             self._close(conn)
                             conn = None
                             self._go_offline(f"write failed: {_redact(str(exc).strip()[:160], self.dsn)}")
-                            self._spool(ev, me)
+                            self._spool(ev, me, rs)
                     else:
-                        self._spool(ev, me)
+                        self._spool(ev, me, rs)
                 if stopping:
                     return
         finally:
@@ -394,6 +430,15 @@ def record_metric(run_id: str, name: str, step: int, value: float, **kw: Any) ->
         get_writer().record_metric(run_id, name, step, value, **kw)
     except Exception:  # noqa: BLE001
         log.exception("record_metric failed")
+
+
+def record_run(run: dict) -> None:
+    """Upsert a run's ``runs`` row: its lesson, step and source ('learner' | 'tutorial' | 'demo'), which /stats
+    reads. Non-blocking; never raises."""
+    try:
+        get_writer().record_run(run)
+    except Exception:  # noqa: BLE001
+        log.exception("record_run failed")
 
 
 # ---------------------------------------------------------------- stats

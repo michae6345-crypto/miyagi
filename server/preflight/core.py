@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import asyncio
 import functools
+import hashlib
 import inspect
 import json
 import logging
@@ -164,6 +165,67 @@ async def classify(key: str, goal: str, m: dict, skim: dict | None, *, timeout: 
     }
 
 
+# --------------------------------------------------------------------------- Claude's read, kept on disk
+# The same (video, goal) always gets the same read, so it is kept like the finder's search cache: a demo re-run (or any
+# pick after an engine restart, when the 10 min memo is gone) shows its card without a Claude call or its ~2-3 s wait.
+CLASSIFY_TTL_S = float(os.environ.get("PREFLIGHT_CACHE_TTL", 7 * 24 * 3600))
+_CLASSIFY_KEYS = ("style", "styleWhy", "topic", "goalMatch", "firstHandsOnChapter", "libraries")
+
+
+def classify_cache_dir() -> Path | None:
+    """PREFLIGHT_CACHE_DIR > demo/cache/preflight (beside the finder's demo/cache/search); PREFLIGHT_CACHE=0: off."""
+    if os.environ.get("PREFLIGHT_CACHE", "1") == "0":
+        return None
+    return Path(os.environ.get("PREFLIGHT_CACHE_DIR") or (CACHE_DIR.parent / "preflight")).expanduser()
+
+
+def _norm_goal(goal: str) -> str:
+    return " ".join((goal or "").lower().split())
+
+
+def _classify_path(root: Path, vid: str, goal: str) -> Path:
+    return root / f"{vid}-{hashlib.sha1(_norm_goal(goal).encode()).hexdigest()[:8]}.json"
+
+
+def classify_cached(root: Path | None, vid: str | None, goal: str) -> dict | None:
+    """Claude's saved read of this video for this goal (classify()'s dict), or None (none / stale / unreadable)."""
+    if root is None or not vid:
+        return None
+    try:
+        data = json.loads(_classify_path(root, vid, goal).read_text())
+    except (OSError, ValueError):
+        return None
+    c = data.get("classify") if isinstance(data, dict) else None
+    if (data.get("videoId") != vid or data.get("goal") != _norm_goal(goal) or not isinstance(c, dict)
+            or any(k not in c for k in _CLASSIFY_KEYS) or time.time() - float(data.get("created") or 0) > CLASSIFY_TTL_S):
+        return None
+    return c
+
+
+def classify_save(root: Path | None, vid: str | None, goal: str, c: dict) -> None:
+    if root is None or not vid or not isinstance(c, dict):
+        return
+    try:
+        p = _classify_path(root, vid, goal)
+        p.parent.mkdir(parents=True, exist_ok=True)
+        tmp = p.with_suffix(f".{os.getpid()}.tmp")
+        tmp.write_text(json.dumps({"videoId": vid, "goal": _norm_goal(goal), "created": int(time.time()),
+                                   "classify": {k: c.get(k) for k in _CLASSIFY_KEYS}}, indent=1))
+        tmp.replace(p)
+    except OSError as e:  # a read-only checkout: no cache, same card
+        log.debug("preflight: couldn't keep Claude's read (%s)", e)
+
+
+async def _classify_kept(root: Path | None, vid: str | None, goal: str, coro) -> dict:
+    c = await coro
+    classify_save(root, vid, goal, c)
+    return c
+
+
+async def _known(c: dict) -> dict:
+    return dict(c)
+
+
 # --------------------------------------------------------------------------- finder skim (cached, no new Gemini call)
 
 def cached_skim(video_id: str | None, row: dict | None = None, *, cache_dir: Path | None = None) -> dict | None:
@@ -249,8 +311,49 @@ def cached_lesson(url: str, goal: str) -> dict | None:
     if not hit:
         return None
     graph = json.loads(Path(hit).read_text())
+    folder = _lesson_folder(graph)
     graph.setdefault("lesson", {})["workdir"] = workdir
-    return {"graph": graph, "file": Path(hit).name, "steps": len(graph.get("steps") or []), "workdir": workdir}
+    return {"graph": graph, "file": Path(hit).name, "steps": len(graph.get("steps") or []), "workdir": workdir,
+            "folder": folder if folder and Path(folder).is_dir() else None}
+
+
+def _lesson_folder(graph: dict) -> str | None:
+    """The folder the build of `graph` works in (E4's lesson_folder, else S2's): the one whose .venv the setup card
+    checks after Build. Read-only. Desktop test 10: preflight checked the build's placeholder folder (`_new`), so the
+    system Python, and said "tensorflow ✕ · 4 to install" while the lesson's .venv had all four (no setup card came)."""
+    try:
+        from server.orchestrator.workspace import lesson_folder  # E4: TUT_WORKDIR / demo / S2
+
+        return lesson_folder(graph)
+    except Exception as e:  # noqa: BLE001
+        log.debug("preflight: E4's lesson_folder unavailable (%s)", type(e).__name__)
+    try:
+        from server.workspace import lesson_folder  # S2
+
+        return str(lesson_folder(graph))
+    except Exception:  # noqa: BLE001
+        return None
+
+
+def _hit_folder(hit: dict | None) -> str | None:
+    """The folder the setup check reads for a cached lesson (a lesson_cache without "folder": its workdir)."""
+    return (hit.get("folder", hit.get("workdir")) or None) if hit else None
+
+
+def _venv_mark(folder: str | None) -> str | None:
+    """The lesson .venv the setup check reads, as "<python>@<site-packages mtime>"; None when there's no .venv yet. A
+    memoised preflight with another mark checked packages that changed since (a build made the .venv, Install added
+    to it), so it is checked again."""
+    if not folder:
+        return None
+    venv = Path(folder) / ".venv"
+    try:
+        if not (venv / "bin" / "python").exists():
+            return None
+        mtimes = [p.stat().st_mtime for p in (venv / "lib").glob("python*/site-packages")]
+    except OSError:
+        return None
+    return f"{venv / 'bin' / 'python'}@{max(mtimes, default=0.0):.3f}"
 
 
 def _call_req(req: Callable, graph: dict, workdir: str | None):
@@ -454,6 +557,7 @@ async def preflight(
     lesson_cache: Callable | bool = True,
     use_memo: bool = True,
     cache_dir: Path | None = None,
+    classify_cache: Path | bool | None = None,
 ) -> dict:
     """Everything we can learn about the picked video within `timeout` seconds (hard). Never raises.
 
@@ -462,24 +566,34 @@ async def preflight(
       reply) lands within `late_s` more seconds; re-emit preflight_card(result) then (same card, filled in).
     requirements_fn: True = server.workspace.requirements when importable; None/False = skip; or a callable.
     Results are memoised per (video, goal) for 10 min, and a call while prefetch() is still working on
-    the same video waits for that run instead of starting another."""
+    the same video waits for that run instead of starting another.
+    classify_cache: where Claude's read is kept per (video, goal) (classify_cache_dir()); None = there unless a
+      claude_client is passed (tests), False = never, a Path = that folder."""
+    if classify_cache is None:
+        classify_cache = classify_cache_dir() if claude_client is None else None
+    elif classify_cache is True:
+        classify_cache = classify_cache_dir()
     key = _key(url, goal) if use_memo else object()
     if use_memo:
         if (hit := _memo_get(key)) is not None:
-            _listen(key, on_late)
-            return await _recheck_lesson_cache({**hit, "cached": True}, url, goal, lesson_cache)
-        if (running := _inflight.get(key)) is not None:
+            if (fresh := await _recheck_lesson_cache({**hit, "cached": True}, url, goal, lesson_cache)) is not None:
+                _listen(key, on_late)
+                return fresh
+            _memo.pop(key, None)  # the lesson's .venv changed since that check: check it again
+        elif (running := _inflight.get(key)) is not None:
             try:
                 res = await asyncio.wait_for(asyncio.shield(running), timeout)
-                _listen(key, on_late)
-                return await _recheck_lesson_cache({**res, "cached": True}, url, goal, lesson_cache)
+                if (fresh := await _recheck_lesson_cache({**res, "cached": True}, url, goal, lesson_cache)) is not None:
+                    _listen(key, on_late)
+                    return fresh
+                _memo.pop(key, None)
             except Exception as e:  # noqa: BLE001 - a prefetch that failed or is slow: run our own
                 log.info("preflight: prefetch for %s not usable (%s), running it now", key[0], type(e).__name__)
     if on_late is not None:
         _listeners.setdefault(key, []).append(on_late)
     task = asyncio.ensure_future(_run(key, url, goal, row=row, timeout=timeout, late_s=late_s, keys=keys or resolve_keys(api_keys),
                                       http=http, claude_client=claude_client, requirements_fn=requirements_fn, lesson_cache=lesson_cache,
-                                      use_memo=use_memo, cache_dir=cache_dir))
+                                      use_memo=use_memo, cache_dir=cache_dir, classify_cache=classify_cache or None))
     _inflight[key] = task
     try:
         return await task
@@ -488,16 +602,25 @@ async def preflight(
             _inflight.pop(key, None)
 
 
-async def _recheck_lesson_cache(res: dict, url: str, goal: str, lesson_cache) -> dict:
+async def _recheck_lesson_cache(res: dict, url: str, goal: str, lesson_cache) -> dict | None:
     """A memoised result may predate a build (prefetched, then built, then picked again): the lesson
-    cache is re-read (milliseconds) so "Built before: ready instantly" is never stale."""
+    cache is re-read (milliseconds) so "Built before: ready instantly" is never stale. None when the lesson's
+    .venv changed since (made by the build, added to by Install): its package checks are stale, so check again."""
     if not lesson_cache or not res.get("buildPlan"):
         return res
     look = lesson_cache if callable(lesson_cache) else cached_lesson
+
+    def look_now() -> tuple[dict | None, str | None]:
+        h = look(url, goal)
+        return h, _venv_mark(_hit_folder(h))
+
     try:
-        hit = await asyncio.wait_for(asyncio.to_thread(look, url, goal), 1.0)
+        hit, venv = await asyncio.wait_for(asyncio.to_thread(look_now), 1.0)
     except Exception:  # noqa: BLE001
         return res
+    if venv != res.get("lessonVenv"):
+        log.info("preflight: the lesson .venv changed since the memoised check (%s -> %s)", res.get("lessonVenv"), venv)
+        return None
     plan = dict(res["buildPlan"])
     if hit:
         res = {**res, "cachedLesson": {"file": hit["file"], "steps": hit["steps"], "workdir": hit["workdir"]}}
@@ -526,7 +649,7 @@ def clear_memo() -> None:
 
 
 async def _run(key, url: str, goal: str, *, row, timeout: float, late_s: float, keys: Keys, http, claude_client,
-               requirements_fn, use_memo: bool, cache_dir, lesson_cache) -> dict:
+               requirements_fn, use_memo: bool, cache_dir, lesson_cache, classify_cache: Path | None = None) -> dict:
     t0 = time.monotonic()
     deadline = t0 + timeout
 
@@ -557,9 +680,13 @@ async def _run(key, url: str, goal: str, *, row, timeout: float, late_s: float, 
             if prior.get(k_row) and not m.get(k_meta):  # watch page / oEmbed failed: the search row still read it
                 m[k_meta] = prior[k_row]
         _copy_meta(res, m)
-        for k in ("captions", "durationLabel", "long"):
+        for k in ("durationLabel", "long"):
             if k in prior:
                 res[k] = prior[k]
+        # V5: captions are True when the finder saw CC, the watch page lists caption tracks or the builder cached a
+        # transcript; a missing CC badge is no proof of "no captions" (auto captions carry none), so never claim False
+        if prior.get("captions") or m.get("captions") or _transcript_cached(vid):
+            res["captions"] = True
         if not m.get("title"):
             res["missing"].append("metadata")
 
@@ -575,10 +702,14 @@ async def _run(key, url: str, goal: str, *, row, timeout: float, late_s: float, 
             finally:
                 res["timings"][name] = round(time.monotonic() - t1, 2)
 
-        if m.get("title") and (keys.anthropic or claude_client is not None):
-            tasks["claude"] = asyncio.create_task(timed("claude", classify(
+        known = classify_cached(classify_cache, vid, goal) if m.get("title") else None
+        if known is not None:  # Claude already read this video for this goal: no call, no wait
+            tasks["claude"] = asyncio.create_task(timed("claude", _known(known)))
+            res["notes"].append("claude: saved read")
+        elif m.get("title") and (keys.anthropic or claude_client is not None):
+            tasks["claude"] = asyncio.create_task(timed("claude", _classify_kept(classify_cache, vid, goal, classify(
                 keys.anthropic or "", goal, m, skim, timeout=max(0.5, left(0.1)) + max(0.0, late_s), client=claude_client,
-                prior=prior)))
+                prior=prior))))
         elif m.get("title"):
             res["notes"].append("no ANTHROPIC_API_KEY")
         req = _default_requirements() if requirements_fn is True else (requirements_fn or None)
@@ -591,9 +722,11 @@ async def _run(key, url: str, goal: str, *, row, timeout: float, late_s: float, 
             res["timings"]["cache"] = round(time.monotonic() - t0, 2)
         if cached:
             res["cachedLesson"] = {"file": cached["file"], "steps": cached["steps"], "workdir": cached["workdir"]}
+            res["lessonFolder"] = _hit_folder(cached)
+            res["lessonVenv"] = await asyncio.to_thread(_venv_mark, res["lessonFolder"])
         if req is not None and (m.get("title") or cached):
-            if cached:  # the real lesson (and its real folder): exactly what the setup card will check
-                job = functools.partial(_call_req, req, cached["graph"], cached["workdir"])
+            if cached:  # the real lesson in its real folder (its .venv, if any): exactly what the setup card will check
+                job = functools.partial(_call_req, req, cached["graph"], res["lessonFolder"])
             else:
                 job = functools.partial(_call_req, req, light_graph(m, goal), None)
             tasks["requirements"] = asyncio.create_task(timed("requirements", asyncio.to_thread(job)))
@@ -698,6 +831,19 @@ async def _finish_late(key, res: dict, late: dict[str, asyncio.Task], late_s: fl
             _late.pop(key, None)
 
 
+def _transcript_cached(video_id: str | None) -> bool:
+    """A transcript the lesson builder fetched for this video (demo/cache/transcripts/<id>.json, with lines)."""
+    if not video_id:
+        return False
+    try:
+        from server.lesson.transcript import _cache_path
+
+        p = _cache_path(video_id)
+        return p.is_file() and bool((json.loads(p.read_text()) or {}).get("transcript"))
+    except Exception:  # noqa: BLE001
+        return False
+
+
 def _copy_meta(res: dict, m: dict) -> None:
     for src, dst in (("title", "title"), ("channel", "channel"), ("duration_s", "durationS"), ("category", "category"),
                      ("keywords", "keywords"), ("published", "published"), ("thumbnail", "thumbnail"),
@@ -729,12 +875,17 @@ def _editor_needed(res: dict) -> bool | None:
 
 # --------------------------------------------------------------------------- the card
 
-STYLE_LABEL = {"coding": "Coding", "no-code": "No-code", "conceptual": "Concepts only"}
+def _venv_install(it: dict) -> bool:
+    """A Python package that isn't there yet: the setup card's Install puts it in the lesson's .venv (made with
+    best_python() when there's none yet), so it isn't "✗"."""
+    return (it.get("kind") == "python_package" and not it.get("ok")
+            and (it.get("install") or {}).get("method") == "pip")
 
 
 def needs_line(items: list[dict]) -> str:
-    """'Needs: VS Code ✓ Python ✓ PyTorch ✗' (needed items only; the editor only when it's needed;
-    web apps as 'Botpress (web)')."""
+    """'Needs: VS Code ✓ Python ✓ Git ✗ PyTorch, numpy (to install in the lesson's .venv)' (needed items only; the
+    editor only when it's needed; web apps as 'Botpress (web)'). Desktop test 10: a Python package that isn't installed
+    yet says what the setup card will do with it, not "✗"."""
     shown = [it for it in items if it.get("needed")]
     if not shown:
         return ""
@@ -745,31 +896,42 @@ def needs_line(items: list[dict]) -> str:
             return f"{label} (web)"
         return f"{label} {'✓' if it.get('ok') else '✗'}"
 
-    return "Needs: " + " ".join(one(it) for it in shown)
+    parts = [one(it) for it in shown if not _venv_install(it)]
+    venv = [str(it.get("label") or it.get("tool")) for it in shown if _venv_install(it)]
+    if venv:
+        parts.append(f"{', '.join(venv)} (to install in the lesson's .venv)")
+    return "Needs: " + " ".join(parts)
+
+
+def _sentence(text: str) -> str:
+    """V5: a body line ends like a sentence (the app may run the lines together into one paragraph)."""
+    text = " ".join((text or "").split())
+    return text if not text or text[-1] in ".!?…" else text + "."
+
+
+def _whole_minutes(secs: Any) -> Any:
+    """t12: the card's length as the app shows it ("N min", rounded): whole minutes, rounded down, so an 8:40 video
+    reads "8 min" beside the result's 8:40 (it read "9 min"). Under a minute (or unknown): as it is."""
+    return 60 * (int(secs) // 60) if isinstance(secs, (int, float)) and secs >= 60 else secs
 
 
 def preflight_card(res: dict) -> dict:
     """card {kind: "preflight"}: what the video is, how well it fits the goal, what it needs.
-    actions: build / pick_another, plus install when a needed tool is missing (S2's install flow)."""
-    facts = [STYLE_LABEL.get(res.get("style", ""), "")]
-    if res.get("durationS"):
-        facts.append(_fmt(res["durationS"]))
-    if res.get("chapters"):
-        facts.append(f"{len(res['chapters'])} chapters")
-    if res.get("captions"):
-        facts.append("CC")
-    if res.get("channel"):
-        facts.append(res["channel"])
-    lines = [" · ".join(f for f in facts if f)]
-    if res.get("topic"):
-        lines.append(res["topic"])
+    actions: build / pick_another, plus install when a needed tool is missing (S2's install flow).
+    Desktop test 10: the body no longer carries the "Coding · 8:40 · 7 chapters · CC" line or the "Needs: …" line; the
+    app draws both from card.preflight and card.items ("Coding · 8 min · 7 chapters · Captions", "Needs … · 4 to
+    install"), so the card said everything twice."""
+    channel, topic = " ".join((res.get("channel") or "").split()), " ".join((res.get("topic") or "").split())
+    # V5: a topic that opens with the channel's last word takes the channel as its subject ("Kie Codes codes and
+    # trains a…", never "Codes and trains a…" right under the channel)
+    if channel and topic and topic.split()[0].strip(",.:;").lower() == channel.split()[-1].lower():
+        topic = f"{channel} {topic[0].lower()}{topic[1:]}"
+    lines = [_sentence(topic)]
     gm = res.get("goalMatch")
     warning = None
-    if gm and gm.get("score") is not None and gm["score"] < LOW_MATCH:
-        warning = gm.get("note") or "This video may not teach your goal."
-        lines.append("⚠ " + warning)
-    elif gm and gm.get("note"):
-        lines.append(gm["note"])
+    if gm and gm.get("score") is not None and gm["score"] < LOW_MATCH:  # t12: the fit note only on a poor match
+        warning = gm.get("note") or "This video may not teach your goal."  # (a good one's said "though only a basic
+        lines.append("⚠ " + _sentence(warning))  # digit classifier on one dataset" under a 0.9 match)
     plan = res.get("buildPlan") or {}
     est = plan.get("estSecondsToFirstSteps")
     if plan.get("cached"):
@@ -790,10 +952,7 @@ def preflight_card(res: dict) -> dict:
         lines.append("No code editor needed for this one.")
     if res.get("partial") and not res.get("goalMatch"):
         lines.append("I couldn't check this video in time; you can still build it.")
-    items = res.get("requirements") or []
-    need = needs_line(items)
-    if need:
-        lines.append(need)
+    items = res.get("requirements") or []  # the app's "Needs … · N to install" row (needs_line is the text form)
     missing = [it for it in items if it.get("needed") and not it.get("ok")]
     actions = ["build", "pick_another"] + (["install"] if missing else [])
     card: dict[str, Any] = {
@@ -809,7 +968,7 @@ def preflight_card(res: dict) -> dict:
         "actions": actions,
         "preflight": {
             "videoId": res.get("videoId"), "url": res.get("url"), "style": res.get("style"), "styleFrom": res.get("styleFrom"), "topic": res.get("topic"),
-            "durationS": res.get("durationS"), "chapters": len(res.get("chapters") or []),
+            "durationS": _whole_minutes(res.get("durationS")), "chapters": len(res.get("chapters") or []),
             "goalMatch": gm, "buildPlan": plan, "editorNeeded": res.get("editorNeeded"), "partial": res.get("partial", False),
         },
     }

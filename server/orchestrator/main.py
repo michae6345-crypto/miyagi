@@ -8,6 +8,8 @@
   POST /debug/pass       force-pass the active step
   POST /debug/goto/{i}   jump to step i
   POST /debug/lesson     DEMO only: load the cached/canned lesson without searching
+  GET  /stage            is a Demo lesson running (launcher → Demo, or MIYAGI_STAGE=1; stage.py)
+  POST /stage/{cmd}      presenter, Demo lessons only: next | back | restart
 
 Run:  python -m server.orchestrator.main      (or uvicorn server.orchestrator.main:app --port 8787)
 """
@@ -27,7 +29,7 @@ from shared.contracts.events import parse_app_message
 
 from server import config as server_config
 
-from . import config, recorder
+from . import config, recorder, stage
 from .hub import Hub, log_received
 from .modules import Modules
 from .screen_bridge import ScreenBridge
@@ -47,8 +49,13 @@ class Engine:
         self.workspace = Workspace()
         self.session = LessonSession(self._emit, self.modules, screen=self.screen, workspace=self.workspace,
                                      inputs=Inputs())
+        self.session.has_clients = lambda: bool(self.hub.clients)  # E4: only an app shows "Before you start"
+        # E7: the app left: no screen reading / looks / cards (an engine that never had one, e.g. rehearse_boxes, goes on)
+        self.session.app_left = lambda: not self.hub.clients and self.last_client_gone is not None
         self.watcher = Watcher(self.session.on_file_change, interval=config.WATCH_INTERVAL_S)
         self.session.on_workdir = self.watcher.set_root
+        # E14: no off-track to an app that left (headless runs that never had an app still get them, e.g. /events)
+        self.session.has_client = lambda: bool(self.hub.clients) or self.last_client_gone is None
         try:  # S7: progress saved to ~/miyagi/state; "Continue where you left off?" survives an engine restart
             from server.sessions import Resumer
 
@@ -58,6 +65,7 @@ class Engine:
             self.resumer = None
         self.recorder = recorder.Recorder()
         self._ticker: asyncio.Task | None = None
+        self._avoider: asyncio.Task | None = None  # t9: screen.avoid (quick_pick.py)
         self._replays: set[asyncio.Task] = set()
         self.last_client_gone: float | None = None
         self.seen_lesson: str | None = None  # lesson id an app has already been shown
@@ -95,16 +103,43 @@ class Engine:
         if not self.screen.start(self.session.on_screen):
             self.session.screen = None  # precision mode only (files + tut run)
         else:  # E6: app switch / Space swipe within ~0.25 s -> clear (or re-place) the spotlight at once
-            self.screen.watch_frontmost(self.session.on_frontmost)
+            self.screen.watch_frontmost(self.session.on_front_switch)  # (E5: also books the keys to the old app)
         if config.env_flag("ORCH_AUTOSTART"):  # no launcher needed: the lesson is live from the start
             if self.modules.demo and (graph := self.modules._lesson_file()):
                 await self.session.load_graph(graph)
             elif url := os.environ.get("ORCH_LESSON_URL"):  # real builder (E2's cache makes it instant)
                 self._autostart = asyncio.create_task(self.session.learn_url(url, skip_preflight=True))
         self._ticker = asyncio.create_task(self._tick_loop())
+        self._avoider = asyncio.create_task(self._avoid_loop())
         log.info("engine up: demo=%s modules=%s workdir=%s screen=%s precision=%s", self.modules.demo,
                  self.modules.describe(), self.session.workdir, self.session.screen_active(),
                  config.precision_setting())
+
+    async def auto_resume(self) -> None:
+        """The first app connection after an engine restart (or a deploy's POST /end) while a lesson was running: that
+        lesson continues at its saved step, as if nothing happened (Michael, Nov 15: restarts sent him back to "begin
+        project"). Not a lesson the learner ended (End / Start new: `stopped`, offered by the resume card as before),
+        not one finished, not one idle longer than ORCH_AUTO_RESUME_S (default 3 h), never a Demo take (each Demo
+        start is a fresh take at step 1: stage.py)."""
+        s = self.session
+        if self.resumer is None or self.hub.clients or s.graph is not None or s.phase != "idle":
+            return
+        try:
+            from server.sessions import store
+            from server.sessions.resume import is_demo
+
+            saved = store.load()
+            if not saved or saved.get("stopped") or (graph := store.load_graph(saved)) is None or is_demo(graph):
+                return
+            idle = time.time() - float(saved.get("lastActiveAt") or saved.get("startedAt") or 0)
+            if idle > float(os.environ.get("ORCH_AUTO_RESUME_S", str(3 * 3600))):
+                return
+            log.info("auto-resume: %s at step %s (%s) after an engine restart", saved.get("lessonId"),
+                     int(saved.get("stepIndex") or 0) + 1, saved.get("stepId"))
+            await self.resumer.resume()
+            self.seen_lesson = self._lesson_id()  # the app sees it in this connection's snapshot
+        except Exception:  # noqa: BLE001 - never blocks the connection: the resume card is still there
+            log.exception("auto-resume failed")
 
     def save_progress(self) -> None:
         if self.resumer is not None and self.session.graph is not None and not self.session.awaiting_resume:
@@ -117,10 +152,11 @@ class Engine:
         self.save_progress()
         await self.watcher.stop()
         self.screen.stop()
-        if self._ticker:
-            self._ticker.cancel()
-            with contextlib.suppress(asyncio.CancelledError):
-                await self._ticker
+        for task in (self._ticker, self._avoider):
+            if task:
+                task.cancel()
+                with contextlib.suppress(asyncio.CancelledError):
+                    await task
 
     async def _tick_loop(self) -> None:
         while True:
@@ -129,6 +165,17 @@ class Engine:
                 await self.session.tick()
             except Exception:
                 log.exception("tick failed")
+
+    async def _avoid_loop(self) -> None:
+        """t9: every 0.5 s while a lesson runs, VS Code's quick-pick -> screen.avoid when it changed (quick_pick.py)."""
+        from . import quick_pick
+
+        while True:
+            await asyncio.sleep(quick_pick.POLL_S)
+            try:
+                await quick_pick.poll(self.session)
+            except Exception:
+                log.exception("screen.avoid poll failed")
 
     async def dispatch(self, raw: dict) -> None:
         msg = parse_app_message(raw)
@@ -148,9 +195,11 @@ class Engine:
         elif msg.type == "overlay.bounds":
             s.overlay_bounds([r.model_dump() for r in p.rects])
         elif msg.type == "end_lesson":  # the bar's / launcher's End: stop for now, the saved progress stays resumable
-            await s.end_lesson("stopped")  # (the resume card's "Start a new lesson" is action end_lesson: discards)
+            await s.end_lesson("stopped")  # (the resume card's "Start a new lesson", action end_lesson, keeps it too)
         elif msg.type == "config.keys":
             await self.hub.emit("config.status", apply_keys(p.model_dump()))
+        elif msg.type in ("card.shown", "card.closed"):  # E14: what the learner really has on screen
+            await s.card_seen(msg.type == "card.shown", p.stepId, p.title, p.kind, getattr(p, "by", None))
 
 
 # config.keys -> server.config (get_key) + the env vars modules read. Memory only; never logged.
@@ -219,9 +268,10 @@ except Exception as _e:  # noqa: BLE001
 @app.websocket("/")
 async def ws_endpoint(ws: WebSocket) -> None:
     await ws.accept()
+    await engine.auto_resume()  # Nov 15: an engine restart mid-lesson: back at that exact step, not the start sheet
     for type_, payload in engine.session.snapshot(ask_resume=engine.app_returning()):
         await engine.hub.send_to(ws, type_, payload)
-    engine.hub.clients.add(ws)
+    engine.hub.join(ws)
     engine.mark_lesson_seen()
     queue: asyncio.Queue[dict] = asyncio.Queue()
     running: dict[str, dict] = {}  # the command the worker is on (a press queued behind it is logged on arrival)
@@ -248,6 +298,7 @@ async def ws_endpoint(ws: WebSocket) -> None:
                 running.pop("job", None)
 
     task = asyncio.create_task(worker())
+    why = "cancelled"  # how the socket ended (E14: the hub logs every close)
     try:
         while True:
             raw = await ws.receive_json()
@@ -258,7 +309,7 @@ async def ws_endpoint(ws: WebSocket) -> None:
             elif raw.get("type") in ("learn", "learn_url", "build_lesson") and _searching(running, engine.session):
                 running["job"].cancel()  # "Just teach me" / a pick / a new query while the search still runs: it
                 # replaces the search (rows so far stay pickable) instead of waiting out its tail (live: 15 s)
-            if raw.get("type") in ("video.state", "overlay.bounds", "end_lesson"):  # instant: skip the queue
+            if raw.get("type") in ("video.state", "overlay.bounds", "end_lesson", "card.shown", "card.closed"):  # instant
                 try:
                     await engine.dispatch(raw)
                 except Exception:
@@ -267,12 +318,15 @@ async def ws_endpoint(ws: WebSocket) -> None:
                 if (cur := running.get("cmd")) is not None:  # '<- …' is logged when it runs; this says it waited
                     log.info("<- %s queued behind %s (%d waiting)", _brief(raw), _brief(cur), queue.qsize())
                 await queue.put(raw)
-    except (WebSocketDisconnect, RuntimeError):
-        pass
+    except WebSocketDisconnect as e:
+        why = f"closed, code {e.code}"
+    except RuntimeError as e:
+        why = f"closed ({e})"
     except Exception:
         log.exception("websocket error")
+        why = "error"
     finally:
-        engine.hub.clients.discard(ws)
+        engine.hub.drop(ws, why)
         if not engine.hub.clients:
             engine.last_client_gone = time.monotonic()
             engine.save_progress()  # the app left: keep the exact video position (autosave is throttled)
@@ -303,7 +357,30 @@ async def vscode_event(body: dict = Body(...)) -> dict:
     """The VS Code companion (vscode-ext/) posts editor/save/dirty/focus/command_end events; see server.workspace.vscode_ext."""
     from server.workspace import vscode_ext
 
-    vscode_ext.record_event(body)
+    item = vscode_ext.record_event(body)
+    from . import quiet_save  # Nov 15: a dirty / save / editor change of the step file re-grades within ~0.2 s
+
+    quiet_save.on_vscode_event(engine.session, item)
+    if body.get("type") in ("dirty", "save", "editor") and (getattr(engine.session, "_advice_up", None) is not None
+                                                             or getattr(engine.session, "_offtrack_up", None) is not None):
+        from . import advice_clear  # t8: the Hint / Not yet whose line was just fixed goes within ~1 s
+
+        engine.session._spawn(advice_clear.follow(engine.session, force=True))
+    if body.get("type") == "command_end":  # a curated lesson's run: VS Code's exact output grades it (curated.py)
+        from . import curated
+
+        if curated.active(engine.session):
+            engine.session._spawn(curated.on_command_end(engine.session, item))  # never holds up the extension
+    if body.get("type") in ("command_end", "save"):  # Nov 15: a run step's terminal typo -> instant card (cmd_typos)
+        from . import typo_card
+
+        engine.session._spawn(typo_card.on_vscode_event(engine.session, item))
+    if body.get("type") == "visible":  # t7: the editor scrolled (companion 0.0.5): the type box follows its row now
+        from . import box_follow
+
+        box_follow.on_visible(engine.session, item)
+    if body.get("type") in ("dirty", "save", "editor", "visible", "command_end", "focus"):
+        engine.session.relayout(f"VS Code {body.get('type')}")  # V9: a cell ran / output / edit: the box re-measures
     if body.get("type") == "explain_selection":  # "Miyagi: Explain this" -> an Explain card in the overlay (selection.py)
         from .selection import explain_from_vscode
 
@@ -312,11 +389,16 @@ async def vscode_event(body: dict = Body(...)) -> dict:
 
 
 @app.post("/end")
-async def end_lesson() -> dict:
-    """End the current lesson from a terminal:  curl -X POST localhost:8787/end"""
+async def end_lesson(forget: int = 0) -> dict:
+    """End the current lesson from a terminal:  curl -X POST localhost:8787/end
+    Nov 15: this runs before every engine deploy, so the learner's place is KEPT: the next app connection after the
+    restart continues at that exact step. A clean start (tests) that drops it:  curl -X POST 'localhost:8787/end?forget=1'"""
     lesson = (engine.session.graph or {}).get("lesson", {}).get("id")
-    await engine.session.end_lesson("POST /end")
-    return {"ok": True, "ended": lesson}
+    demo = stage.on(engine.session)  # a Demo take is never saved (sessions.resume.is_demo): the next Demo is step 1
+    if not forget:
+        engine.save_progress()  # the exact step + checks, just before the lesson is unloaded
+    await engine.session.end_lesson("POST /end" if forget else "interrupted")
+    return {"ok": True, "ended": lesson, "kept": bool(lesson) and not forget and not demo}
 
 
 @app.get("/state")
@@ -358,6 +440,28 @@ async def debug_pass() -> dict:
 async def debug_goto(idx: int) -> dict:
     await engine.session.goto_step(idx)
     return {"ok": True}
+
+
+@app.get("/stage")
+async def stage_state() -> dict:
+    """Is a Demo lesson running (the app binds the presenter keys while it is)?"""
+    return stage.state(engine.session)
+
+
+@app.post("/stage/{cmd}")
+async def stage_cmd(cmd: str) -> dict:
+    """Presenter, Demo lessons only: next (pass the step) | back (the step before) | restart (step 1, clean nn.py)."""
+    fn = {"next": stage.next_step, "back": stage.back, "restart": stage.restart}.get(cmd)
+    if fn is None:
+        return {"ok": False, "error": f"unknown: {cmd} (next, back, restart)"}
+    if not stage.on(engine.session):
+        return {"ok": False, "error": "no Demo lesson is running"}
+    if cmd == "restart":  # it ends the lesson it runs in: never inside this request
+        task = asyncio.create_task(fn(engine.session))
+        engine._replays.add(task)
+        task.add_done_callback(engine._replays.discard)
+        return {"ok": True}
+    return {"ok": await fn(engine.session)}
 
 
 @app.post("/debug/lesson")

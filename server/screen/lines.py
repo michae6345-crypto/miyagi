@@ -52,6 +52,7 @@ class LineLocation:
     pane: Rect | None = None          # the editor text area (all visible rows)
     line_height: float | None = None
     occluded: bool = False            # a hover tooltip / inline chat widget covers part of the row
+    text_x2: float | None = None      # t8: right edge of the row's OCR'd text (None: no text read on that row)
 
     def __bool__(self) -> bool:
         return self.rect is not None
@@ -63,7 +64,7 @@ class LineLocation:
                 "text": self.text, "match_rect": self.match_rect.to_dict() if self.match_rect else None,
                 "pane": self.pane.to_dict() if self.pane else None,
                 "line_height": round(self.line_height, 2) if self.line_height else None,
-                "occluded": self.occluded}
+                "occluded": self.occluded, "text_x2": round(self.text_x2, 1) if self.text_x2 else None}
 
 
 @dataclass
@@ -418,8 +419,37 @@ def locate_line(obs: ScreenObservation, file: str | None, line: int, app: str | 
         return loc
     loc.rect = r.clamp(obs.screen) if obs.screen.w else r
     loc.text = pane.row_text(line) or None
+    blocks = pane.row_blocks(line)
+    loc.text_x2 = max(b.rect.x2 for b in blocks) if blocks else None
     loc.occluded = _under_hover(obs, loc.rect)
     return loc
+
+
+def snap_rows(obs: ScreenObservation, r: Rect, app: str | None = None) -> Rect | None:
+    """t8 (frames 05:51:58-05:52:09): a text match's box (match.locate_match: the OCR'd text's own centre +- half the
+    row pitch) sat 3.4 pt below the full-line box of the same line (the gutter's row) and its bottom edge cut through
+    the next line's text. -> `r` with the y / height of the editor rows it covers (the gutter's rows, as the full-line
+    box has them), x / width unchanged. None: `r` isn't on an editor pane's rows."""
+    for pane in find_panes(obs, app):
+        if not (pane.gutter_x2 - 2 <= r.cx <= max(pane.text_right, pane.right_edge or 0.0) + 2):
+            continue
+        h = pane.line_height
+
+        def near(y: float) -> int | None:  # every visible line (rows the gutter didn't read are interpolated)
+            d = {n: abs(cy - y) for n in range(pane.first, pane.last + 1) if (cy := pane.y_for(n)) is not None}
+            n = min(d, key=d.get) if d else None
+            return n if n is not None and d[n] <= h / 2 else None
+
+        first, last = near(r.y + h / 2), near(r.y2 - h / 2)
+        if (first is None or last is None) and r.h <= 1.8 * h:
+            first = last = near(r.cy)
+        if first is None or last is None or last < first:
+            continue
+        a, b = pane.row_rect(first), pane.row_rect(last)
+        if a is None or b is None:
+            continue
+        return Rect(r.x, a.y, r.w, b.y2 - a.y)
+    return None
 
 
 def _empty_file_row(obs: ScreenObservation, file: str | None, line: int, app: str | None) -> LineLocation | None:

@@ -267,12 +267,33 @@ def brew_path() -> str | None:
     return None
 
 
+# The lesson .venv's Python: 3.12 first (every common ML wheel exists for it), then the nearest versions. The newest
+# isn't the best pick: on a brand-new 3.14 the wheels for TensorFlow and friends often don't exist yet.
+PYTHON_PREFERENCE = (12, 13, 11, 10, 14, 9)
+
+
+def _xcode_stub(path: str | None) -> bool:
+    """Apple's /usr/bin/python3 on a Mac without the Command Line Tools: running it pops the "install the developer
+    tools" dialog instead of starting Python. A read-only setup check must never trigger that."""
+    if sys.platform != "darwin" or not path:
+        return False
+    try:
+        if Path(path).resolve() != Path("/usr/bin/python3"):
+            return False
+        r = subprocess.run(["xcode-select", "-p"], capture_output=True, text=True, timeout=5)
+        return r.returncode != 0
+    except (OSError, subprocess.SubprocessError):
+        return False
+
+
 def best_python() -> str | None:
-    """The newest python3.x on PATH (Apple's /usr/bin/python3 is often 3.9)."""
-    for minor in range(14, 8, -1):
-        if p := shutil.which(f"python3.{minor}"):
+    """The python3.x to build a lesson .venv with: PYTHON_PREFERENCE order, then plain python3. Never Apple's
+    Xcode stub (no Command Line Tools), so a Mac without Python shows the Python row as missing, with its Install."""
+    for minor in PYTHON_PREFERENCE:
+        if (p := shutil.which(f"python3.{minor}")) and not _xcode_stub(p):
             return p
-    return shutil.which("python3")
+    p = shutil.which("python3")
+    return None if _xcode_stub(p) else p
 
 
 def find_app(bundle_id: str, name: str, run: Runner = _run) -> str | None:
@@ -300,7 +321,7 @@ def check(item: dict, *, workdir: Path | str | None = None, run: Runner = _run) 
         item.update(installed=True, version="", where=cat.get("url") or _https(item.get("url", "")), ok=True)
         return item
     if kind == "python_package":
-        check_python_packages([item], venv_python(workdir) or best_python(), run=run)
+        check_python_packages([item], check_python(workdir), run=run)
         return item
     else:
         if cat.get("bundle") or kind in ("app", "editor"):
@@ -356,6 +377,13 @@ def venv_python(workdir: Path | str | None) -> str | None:
         return None
     p = Path(workdir) / ".venv" / "bin" / "python"
     return str(p) if p.exists() else None
+
+
+def check_python(workdir: Path | str | None) -> str | None:
+    """The Python whose packages the setup check reads: the lesson folder's .venv when it has one, else best_python()
+    (the one Install builds that .venv from). The setup card and the preflight card both check through requirements(),
+    so they agree (desktop test 10)."""
+    return venv_python(workdir) or best_python()
 
 
 # --------------------------------------------------------------------------- requirements()
@@ -430,7 +458,7 @@ def _items(raw: dict) -> list[dict]:
         "why": (ed.get("why") or "") if ed.get("needed") else "No editor needed: " + _lower_first(ed.get("why") or "this lesson doesn't edit code files."),
         "min_version": "",
     }]
-    seen = {"vscode", "cursor"}  # the editor is item 0 only (Cursor when installed, MIYAGI_EDITOR overrides)
+    seen = {"vscode", "cursor"}  # the editor is item 0 only (VS Code; MIYAGI_EDITOR overrides)
     for t in (raw.get("tools") or [])[:20]:
         tool = _canonical(t.get("tool", ""))
         if not tool or tool in seen or not re.fullmatch(r"[a-z0-9][a-z0-9._+@\-]{0,40}", tool):
@@ -482,7 +510,7 @@ def requirements(lesson: dict, *, workdir: Path | str | None = None, client=None
     with ThreadPoolExecutor(max_workers=8) as ex:
         futs = [ex.submit(check, it, workdir=workdir, run=run) for it in items if it["kind"] != "python_package"]
         if pys:  # one interpreter, packages imported one after another (cold imports in parallel time out)
-            futs.append(ex.submit(check_python_packages, pys, venv_python(workdir) or best_python(), run=run))
+            futs.append(ex.submit(check_python_packages, pys, check_python(workdir), run=run))
         for f in futs:
             f.result()
     for it in items:
@@ -542,7 +570,7 @@ def install(item: dict, *, workdir: Path | str | None = None, on_line: Callable[
                 out["error"] = f"could not create .venv: {txt[-300:]}"
                 return out
             py = venv_python(workdir)
-        argv = [py, "-m", "pip", "install", "--disable-pip-version-check", r["package"]]
+        argv = [py, "-m", "pip", "install", "--disable-pip-version-check", "--progress-bar", "off", r["package"]]
     elif r["method"] == "brew_cask":
         argv = [brew, "install", "--cask", r["package"]]
     else:
@@ -613,12 +641,12 @@ def setup_card(items: list[dict], *, step_id: str | None = None, resources: list
     actions = ((["open_editor"] if need_ed and ed and ed.get("installed") else []) + (["open_in_browser"] if web else [])
                + (["download"] if resources else []) + (["install"] if miss else []) + ["skip_setup"])
     card = {
-        "kind": "setup", "title": "Before you start" if miss else "Ready to go", "body": body,
+        "kind": "setup", "title": "Set up first" if miss else "Ready to go", "body": body,
         "actions": actions,
         "setup": {
             "editorNeeded": need_ed,
             "editor": ed["tool"] if ed else None,          # "cursor" | "vscode"
-            "editorLabel": ed["label"] if ed else None,    # "Cursor": the open_editor button reads "Open Cursor"
+            "editorLabel": ed["label"] if ed else None,    # "Visual Studio Code": the open_editor button reads "Open Visual Studio Code"
             "resources": [{"name": r["name"], "url": r["url"], "kind": r["kind"]} for r in resources or []],
             "actionLabels": {"open_editor": f"Open {ed['label']}" if ed else "Open editor", "open_in_browser": "Open in browser",
                              "download": "Download tutorial files",

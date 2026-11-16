@@ -8,6 +8,7 @@ reading style works.
 
 from __future__ import annotations
 
+import time
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -23,6 +24,7 @@ class RunInfo:
     exit_code: int | None = None  # None while running
     output_tail: list[str] = field(default_factory=list)
     metrics: dict[str, list[tuple[int, float]]] = field(default_factory=dict)
+    started_t: float = field(default_factory=time.time)  # wall clock: when it began (VS Code's startedAt when known)
 
     @property
     def running(self) -> bool:

@@ -1,7 +1,7 @@
-"""open_editor(): open a lesson folder in the learner's editor (Cursor or VS Code), bring it to the front,
+"""open_editor(): open a lesson folder in the learner's editor (VS Code), bring it to the front,
 and, only with Accessibility permission, make room for the overlay's video.
 
-Editor choice: MIYAGI_EDITOR=cursor|code (vscode) if that editor is installed, else Cursor, else VS Code.
+Editor choice: MIYAGI_EDITOR=code (vscode) if that editor is installed, else VS Code (see ALLOW_CURSOR below).
 
 Without Accessibility (always): `<cli> -n <dir> -g <file>` (fallback `open -a <App> <dir> [<file>]`), then
 `open -a <App>` so the editor is frontmost. A full-screen app the learner was in stays as it is; the editor
@@ -24,6 +24,7 @@ import threading
 import time
 from collections.abc import Callable
 from pathlib import Path
+from typing import Any
 
 log = logging.getLogger("server.workspace")
 
@@ -54,6 +55,32 @@ NATIVE_FULLSCREEN = os.environ.get("MIYAGI_FULLSCREEN", "").strip().lower() == "
 # lesson's PANEL_W_LESSON 420 (A9, adrian/shell #83) + its 8 pt inset + an 8 pt gap), so the drawer doesn't cover the editor. MIYAGI_DRAWER_W=0:
 # the full width.
 DRAWER_W = float(os.environ.get("MIYAGI_DRAWER_W", "436"))
+# E22: the lesson's editor window also ends above the overlay's shortcut bar at the bottom of the screen (app
+# shortcut-bar BAR_HEIGHT 88 + its gap: the same 112 pt the player dock and the drawer keep clear, drawer/geometry.ts
+# BAR_CLEARANCE), so the terminal's last lines (the program's output, the prompt) are never under the bar.
+# MIYAGI_BAR_CLEARANCE=0: the full height.
+BAR_CLEARANCE = float(os.environ.get("MIYAGI_BAR_CLEARANCE", "112"))
+
+
+def above_bar(frame: tuple[float, float, float, float]) -> tuple[float, float, float, float]:
+    """(x, y, w, h) with its bottom BAR_CLEARANCE above the visible screen's bottom (never under half its height)."""
+    x, y, w, h = frame
+    return (x, y, w, max(round(h * 0.5), h - BAR_CLEARANCE))
+
+
+# t10: the overlay's step pill and settings gear sit just under the menu bar (y 40-75 pt on a 1728x1117 display), on
+# top of VS Code's title bar for the whole lesson (the window title and the title-bar icons hidden). The lesson's
+# window starts PILL_CLEARANCE below the visible screen's top instead (and is that much shorter), as it ends
+# BAR_CLEARANCE above the shortcut bar. MIYAGI_PILL_CLEARANCE=0: right under the menu bar.
+PILL_CLEARANCE = float(os.environ.get("MIYAGI_PILL_CLEARANCE", "44"))
+
+
+def below_pill(frame: tuple[float, float, float, float]) -> tuple[float, float, float, float]:
+    """(x, y, w, h) with its top PILL_CLEARANCE below the visible screen's top, the height that much less (never
+    under half of it)."""
+    x, y, w, h = frame
+    clear = max(0.0, min(PILL_CLEARANCE, round(h * 0.5)))
+    return (x, y + clear, w, h - clear)
 # Our own overlay must never be treated as "the app the learner was in".
 OVERLAY_NAMES = {n.strip().lower() for n in os.environ.get("MIYAGI_OVERLAY_APPS", "Miyagi,miyagi-overlay,Electron").split(",") if n.strip()}
 
@@ -116,7 +143,7 @@ def editor_id() -> str:
 
 
 def editor_label() -> str:
-    """"Cursor" / "Visual Studio Code": for "Open Cursor?" cards."""
+    """"Visual Studio Code": for "Open Visual Studio Code?" cards."""
     return EDITORS[editor_id()]["label"]
 
 
@@ -230,6 +257,16 @@ class AX:
     def exit_fullscreen(self, win) -> bool:
         return self.A.AXUIElementSetAttributeValue(win, "AXFullScreen", False) == 0
 
+    def frame(self, win) -> tuple[float, float, float, float] | None:
+        """(x, y, w, h) in AX (top-left) points, or None."""
+        A = self.A
+        p, s = self._get(win, "AXPosition"), self._get(win, "AXSize")
+        if p is None or s is None:
+            return None
+        ok1, pt = A.AXValueGetValue(p, A.kAXValueCGPointType, None)
+        ok2, sz = A.AXValueGetValue(s, A.kAXValueCGSizeType, None)
+        return (float(pt.x), float(pt.y), float(sz.width), float(sz.height)) if ok1 and ok2 else None
+
     def set_frame(self, win, x: float, y: float, w: float, h: float) -> bool:
         A = self.A
         pos = A.AXValueCreate(A.kAXValueCGPointType, (x, y))
@@ -239,7 +276,65 @@ class AX:
         return ok1 and ok2
 
 
-def make_fullscreen(editor: dict, report: dict, *, folder: str | None = None, ax=None, wait_s: float = 8.0,
+# t12 (test 12: VS Code stayed narrowed after End lesson, ~40% of the screen empty): each window Miyagi arranged, as
+# [window, its frame before Miyagi's first arrange, the frames Miyagi set (asked, then read back)]
+_arranged: list[list] = []
+_arranged_lock = threading.Lock()
+RESTORE_SLACK = 4.0  # pt: a window this close to the frame Miyagi set is still where Miyagi put it
+
+
+def _set_frame(ax, win, x: float, y: float, w: float, h: float) -> bool:
+    """ax.set_frame, remembering the window's frame before Miyagi first arranged it (restore_frames puts it back)."""
+    read = getattr(ax, "frame", None)
+    try:
+        before = read(win) if read else None
+    except Exception:  # noqa: BLE001 - remembering is a refinement: the arrange itself goes on
+        before = None
+    ok = ax.set_frame(win, x, y, w, h)
+    if before is None or not ok:
+        return ok
+    try:
+        now = read(win)
+    except Exception:  # noqa: BLE001
+        now = None
+    with _arranged_lock:
+        e = next((e for e in _arranged if e[0] is win or e[0] == win), None)
+        if e is None:
+            _arranged.append([win, before, [(x, y, w, h)] + ([now] if now else [])])
+        else:
+            e[2] = [(x, y, w, h)] + ([now] if now else [])  # a later arrange (the drawer's room): its first frame stays
+    return ok
+
+
+def restore_frames(ax=None) -> list[tuple]:
+    """t12: lesson end / stop puts each window Miyagi arranged back to its frame from before the lesson, unless the
+    learner moved or resized it since (then it's theirs, left as it is). Best effort, never raises; blocking (AX):
+    call it in a thread. -> the frames restored."""
+    with _arranged_lock:
+        saved = list(_arranged)
+        _arranged.clear()
+    if not saved:
+        return []
+    done: list[tuple] = []
+    try:
+        ax = ax or AX()
+        for win, before, set_to in saved:
+            now = ax.frame(win)
+            if now is None:
+                continue  # closed since
+            if not any(all(abs(a - b) <= RESTORE_SLACK for a, b in zip(now, f)) for f in set_to):
+                log.info("window restore: moved or resized since Miyagi arranged it; left as it is")
+                continue
+            if ax.set_frame(win, *before):
+                done.append(tuple(before))
+        if done:
+            log.info("window restore: %d window(s) back to their frame from before the lesson", len(done))
+    except Exception as e:  # noqa: BLE001 - tidying windows must never break ending the lesson
+        log.debug("window restore failed: %r", e)
+    return done
+
+
+def make_fullscreen(editor: dict, report: dict, *, folder: str | None = None, ax=None, wait_s: float = 20.0,
                     sleep=time.sleep) -> None:
     """With Accessibility: fill the screen with the editor's window. Default: maximized to the main screen's visible
     frame, in the current Space. MIYAGI_FULLSCREEN=native: macOS full screen (AXFullScreen=true).
@@ -266,12 +361,57 @@ def make_fullscreen(editor: dict, report: dict, *, folder: str | None = None, ax
     elif (frame := left_frame(1.0)) is None:
         report["fullscreen"] = "skipped: no screen info"
     else:
-        x, y, w, h = frame
-        frame = (x, y, max(round(w * EDITOR_FRACTION), w - DRAWER_W), h)  # the screen minus the overlay's drawer
-        report["fullscreen"] = "done (maximized)" if ax.set_frame(win, *frame) else "failed: the editor refused the new frame"
+        x, y, w, h = below_pill(above_bar(frame))  # t10: under the step pill / gear, above the shortcut bar
+        frame = (x, y, max(round(w * EDITOR_FRACTION), w - DRAWER_W), h)  # the screen minus the overlay's drawer and bar
+        report["fullscreen"] = "done (maximized)" if _set_frame(ax, win, *frame) else "failed: the editor refused the new frame"
     if win is not None and folder:
         put_away_other_lessons(ax, pid, folder, win, report)
     log.info("full screen %s: %s", Path(folder).name if folder else editor["label"], report["fullscreen"])
+
+
+def fit_beside_drawer(folder: str, *, ax=None, editor: dict | None = None,
+                      screen: tuple[float, float, float, float] | None = None) -> str:
+    """A run step (Michael, Nov 15: Miyagi's drawer covered VS Code's top-right corner: the Run ▷ and the panel
+    toggle): the lesson's window ends DRAWER_W short of the main screen's right edge, as make_fullscreen leaves it.
+    A window the learner put in macOS full screen, or maximized under the drawer (it spans the whole visible width),
+    is logged and left as it is; another window that reaches under the drawer is narrowed (x, y and height kept).
+    Best effort, never raises; blocking (AX): call it in a thread. -> what it found / did (also logged)."""
+    if DRAWER_W <= 0:
+        return "off (MIYAGI_DRAWER_W=0)"
+    try:
+        if not ax_trusted():
+            return "skipped: Accessibility not granted"
+        ax = ax or AX()
+        ed = editor or preferred_editor()
+        pid = editor_pid(ed) if ed else None
+        win = ax.folder_window(pid, folder) if pid else None
+        if win is None:
+            return "skipped: no lesson window"
+        name = Path(folder).name
+        if ax.is_fullscreen(win):
+            log.info("drawer room: %s is in macOS full screen; the drawer covers its right edge (left as it is)", name)
+            return "full screen (left as it is)"
+        fr, vis = ax.frame(win), screen or left_frame(1.0)
+        if fr is None or vis is None:
+            return "skipped: no frame"
+        x, y, w, h = fr
+        vx, _vy, vw, _vh = vis
+        limit = vx + max(round(vw * EDITOR_FRACTION), vw - DRAWER_W)  # make_fullscreen's right edge
+        if x >= vx + vw or x + w <= vx or x + w <= limit + 2:
+            return "ok"
+        if x <= vx + 2 and x + w >= vx + vw - 2:
+            log.info("drawer room: %s is maximized under the drawer (%.0f pt of it covered; left as it is)",
+                     name, x + w - limit)
+            return "maximized under the drawer (left as it is)"
+        if limit - x < 480:
+            log.info("drawer room: %s starts too far right to narrow (left as it is)", name)
+            return "too far right (left as it is)"
+        ok = _set_frame(ax, win, x, y, limit - x, h)
+        log.info("drawer room: %s narrowed to end at x=%.0f, beside the drawer: %s", name, limit, ok)
+        return "narrowed" if ok else "failed: the editor refused the new frame"
+    except Exception as e:  # noqa: BLE001 - a refinement: the lesson runs without it
+        log.debug("fit beside drawer failed: %r", e)
+        return f"failed: {e!r}"
 
 
 def put_away_other_lessons(ax, pid: int, folder: str, win, report: dict, *, wait_s: float = 8.0,
@@ -365,7 +505,9 @@ def arrange(editor: dict, previous: dict | None, report: dict, *, ax=None, wait_
     if frame is None:
         report["arrange"] = "skipped: no screen info"
         return
-    report["arranged"] = ax.set_frame(win, *frame)
+    frame = below_pill(above_bar(frame))  # E22: the shortcut bar spans the bottom middle, over the left 60% too;
+    # t10: the step pill and the gear sit under the menu bar, over the window's title bar
+    report["arranged"] = _set_frame(ax, win, *frame)
     report["frame"] = [round(v) for v in frame]
     report["arrange"] = "done" if report["arranged"] else "failed: the editor refused the new frame"
     if folder:
@@ -418,9 +560,12 @@ def open_editor_report(path: Path | str, file: str | None = None, *, runner: Run
         target = f if f.is_file() else None
     prev = previous if previous is not None else frontmost_app(skip={ed["app"], ed.get("process") or PROCESS_NAMES.get(ed["id"], "")})
     if ed.get("cli"):
-        # no `-n`: `code <folder>` focuses the window that already has this folder, and opens one only if none does
-        # reuse_window: the frontmost VS Code window is an older Miyagi lesson folder -> `-r` swaps this folder in
-        argv = [ed["cli"], *(["-r"] if reuse_window else []), str(folder)] + (["-g", str(target)] if target else [])
+        # no `-n` in general: `code <folder>` focuses the window that already has this folder, and opens one only if
+        # none does. reuse_window (reuse_lesson_window: the frontmost VS Code window shows an OLDER Miyagi lesson
+        # folder and no window has this one) -> `-n`: this folder gets a window of its own. E21: `-r` swapped it into
+        # the old lesson's window, which then asked to save weather.py under Miyagi's sheet; the old window is
+        # minimized instead (put_away_other_lessons), its unsaved edits kept, no dialog.
+        argv = [ed["cli"], *(["-n"] if reuse_window else []), str(folder)] + (["-g", str(target)] if target else [])
         report["command"] = " ".join([Path(argv[0]).name, *argv[1:]])
         report["opened"] = run(argv)
     if not report["opened"] and sys.platform == "darwin":
@@ -553,7 +698,7 @@ def editor_line_location(file: str | Path, line: int, *, snapshot: Callable[[], 
     d = loc.to_dict() if hasattr(loc, "to_dict") else dict(loc or {})
     rect = d.get("rect")
     out.update(rect=rect, source="screen" if rect else None, reason=d.get("reason") if not rect else None)
-    for k in ("direction", "visible_lines", "line_height"):
+    for k in ("direction", "visible_lines", "line_height", "text_x2"):  # t8 text_x2: where the row's text ends
         if d.get(k) is not None:
             out[k] = d[k]
     return out
@@ -714,15 +859,19 @@ def _frontmost() -> tuple[str, str] | None:
     return (str(a.bundleIdentifier() or ""), str(a.localizedName() or "")) if a is not None else None
 
 
-def miyagi_focused(front: tuple[str, str] | None = None) -> bool:
+_LIVE: Any = object()  # "ask the system now"; an explicit None is "no app known in front" (never a second live query)
+
+
+def miyagi_focused(front: tuple[str, str] | None = _LIVE) -> bool:
     """Is our overlay (the launcher, a card's text box) the active app? Then any editor activation would blur
-    it, and the launcher closes on blur."""
-    f = front if front is not None else _frontmost()
+    it, and the launcher closes on blur. No argument: the live frontmost app. None: nothing known in front (e.g. an
+    injected focus() that found nothing): not Miyagi, never a second, live lookup of this Mac's front app."""
+    f = _frontmost() if front is _LIVE else front
     return bool(f) and (f[0] in MIYAGI_BUNDLES or f[1].lower() in OVERLAY_NAMES)
 
 
-def editor_focused(editor: dict, front: tuple[str, str] | None = None) -> bool:
-    f = front if front is not None else _frontmost()
+def editor_focused(editor: dict, front: tuple[str, str] | None = _LIVE) -> bool:
+    f = _frontmost() if front is _LIVE else front
     return bool(f) and f[0] == (editor.get("bundle") or EDITORS.get(editor.get("id", ""), {}).get("bundle"))
 
 
@@ -758,10 +907,11 @@ def open_lesson_editor(folder: str | Path, file: str | None = None, *, lesson_id
                        miyagi_wait_s: float | None = None, cancelled: Callable[[], bool] | None = None, **kw) -> dict:
     """Open the lesson folder in the editor AT MOST ONCE per (lesson id, folder); idempotent and focus-safe.
 
-    - First call: `code <folder> -g <file>` (never `-n`: VS Code focuses a window that already has the folder),
-      then the one-time arrange / full screen. An automatic call (explicit=False) first waits until the
-      learner isn't in Miyagi (launcher/cards: `miyagi_focused`) and `busy()` (typing) is false; if that takes
-      a while it waits in a background thread (background=True) instead of blocking the caller.
+    - First call: `code <folder> -g <file>` (no `-n`: VS Code focuses a window that already has the folder; `-n` only
+      when the frontmost window shows an older lesson, E21), then the one-time arrange / full screen. An automatic
+      call (explicit=False) first waits until the learner isn't in Miyagi (launcher/cards: `miyagi_focused`) and
+      `busy()` (typing) is false; if that takes a while it waits in a background thread (background=True) instead
+      of blocking the caller.
     - Later calls: nothing, unless explicit=True (the learner pressed "Open VS Code"): then `code <folder>
       [-g <file>]` brings that folder's existing window forward. Never a second window, never a re-arrange.
     - file: the latest call's file wins, so a deferred first open shows the file asked for last (the step's), not
@@ -779,6 +929,14 @@ def open_lesson_editor(folder: str | Path, file: str | None = None, *, lesson_id
             st = _opened[key] = {"state": "waiting", "t": time.monotonic(), "file": file}
         elif file:
             st["file"] = file  # L2: a first open still waiting opens on this one
+    if not first and st.get("state") == "open" and windows is None and not _lesson_window_alive(key[1]):
+        # The editor was quit (or the folder's window closed) since it opened: open it again. A rerun of the same
+        # lesson in the same folder (Demo, a second "Just teach me") otherwise left the learner with no VS Code at
+        # all (Michael, Nov 15 5:11 AM).
+        with _open_lock:
+            st = _opened[key] = {"state": "waiting", "t": time.monotonic(), "file": file}
+        first = True
+        log.info("editor for %s was closed since it opened: opening it again", Path(key[1]).name)
     if not first:
         if not explicit:
             return {"opened": False, "already": True, "state": st["state"]}
@@ -837,10 +995,29 @@ def open_lesson_editor(folder: str | Path, file: str | None = None, *, lesson_id
     return {"opened": False, "deferred": True}
 
 
+def _lesson_window_alive(folder: str | Path) -> bool:
+    """Is the editor running with a window on this lesson folder right now? Unknown counts as yes (keep the
+    at-most-once rule); a plain `code <folder>` on a window that is there only focuses it anyway."""
+    try:
+        ed = preferred_editor()
+        if ed and editor_pid(ed) is None:
+            return False  # the editor isn't running at all
+        from .active import vscode_windows
+
+        wins = vscode_windows()
+    except Exception:  # noqa: BLE001 - no window list: assume it's still there
+        return True
+    if not wins:
+        return False  # running, but no window open
+    name = Path(folder).expanduser().resolve().name
+    return any(w.get("folder_name") == name for w in wins)
+
+
 def reuse_lesson_window(folder: str | Path, *, windows: Callable[[], list[dict]] | None = None) -> bool:
-    """New lesson: reuse the frontmost VS Code window (`code -r`) only if it shows an OLDER Miyagi lesson folder
-    (under ~/miyagi/lessons) and no window already has this folder. Windows outside the lessons folder are
-    never touched (then a plain `code <folder>` adds or focuses a window)."""
+    """New lesson: True when the frontmost VS Code window shows an OLDER Miyagi lesson folder (under ~/miyagi/lessons)
+    and no window already has this folder. The folder then opens in a NEW window (`code -n`, E21: `-r` reused the old
+    lesson's window and its save dialog) and the old one is minimized. Windows outside the lessons folder are never
+    touched (then a plain `code <folder>` adds or focuses a window)."""
     from .active import vscode_windows
 
     try:

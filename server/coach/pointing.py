@@ -42,6 +42,55 @@ def _first_line(text: str) -> str:
     return next((ln.strip() for ln in (text or "").splitlines() if ln.strip()), "")
 
 
+def plain(text: str | None) -> str:
+    """Markdown off a caption (E10: "`get_weather` returns response" showed its backticks on the box)."""
+    t = re.sub(r"\[([^\]]+)\]\([^)]*\)", r"\1", text or "")
+    t = t.replace("`", "").replace("**", "")
+    return " ".join(t.split()).strip(" .")
+
+
+LINE_REF = re.compile(r"\bline\s+(\d+)\b", re.IGNORECASE)
+
+
+def focus_line(last: dict | None) -> tuple[str, str]:
+    """(the learner's line to point at, a caption for it) from the diagnosis's diff. E10: Explain boxed line 7, the
+    diff's first line, while the card said "change line 8": the line the card names wins (diff.line + offset), else
+    the first line that really changes. Caption: "Change to <expected line>" / "Add <line> below" / "Delete this line"."""
+    import difflib
+
+    diff = (last or {}).get("diff") or {}
+    yours = (diff.get("yours") or "").strip("\n").splitlines()
+    while yours and not yours[0].strip():
+        yours.pop(0)
+    if not yours:
+        return "", ""
+    expected = (diff.get("expected") or "").splitlines()
+    ops = difflib.SequenceMatcher(a=[x.strip() for x in yours], b=[x.strip() for x in expected], autojunk=False).get_opcodes()
+    idx, cap = 0, ""
+    for tag, i1, i2, j1, j2 in ops:
+        if tag == "replace":
+            idx, cap = i1, f"Change to {expected[j1].strip()}"
+        elif tag == "delete":
+            idx, cap = i1, "Delete this line"
+        elif tag == "insert":
+            idx, cap = max(0, i1 - 1), f"Add {expected[j1].strip()} {'below' if i1 else 'above'}"
+        if tag != "equal":
+            break
+    m = LINE_REF.search(f"{(last or {}).get('body') or ''} {(last or {}).get('title') or ''}")
+    first = diff.get("line")
+    if m and isinstance(first, int) and first > 0 and 0 <= int(m.group(1)) - first < len(yours):
+        named = int(m.group(1)) - first
+        if named != idx:
+            idx = named
+            j = next((j1 + (idx - i1) for tag, i1, i2, j1, j2 in ops
+                      if tag == "replace" and i1 <= idx < i2 and j1 + (idx - i1) < j2), None)
+            cap = f"Change to {expected[j].strip()}" if j is not None else ""
+    cap = plain(cap)
+    if len(cap.split()) > 8 or len(cap) > 40:  # resolve_targets keeps 40 characters of a label
+        cap = ""
+    return yours[idx].strip(), cap
+
+
 FILE_NAME = re.compile(r"\b([\w.-]+\.(?:py|ipynb|js|jsx|ts|tsx|html|css|md|json|txt|csv|sh|rs|go|java|c|cpp|rb))\b")
 UNTITLED = re.compile(r"\bUntitled-?\d*\b(?:\.\w+)?")
 EDITORS = {"code": "VS Code", "visual studio code": "VS Code", "cursor": "Cursor", "pycharm": "PyCharm", "xcode": "Xcode",
@@ -182,8 +231,8 @@ def where_hint(step: dict, last: dict | None = None, screen: Any = None) -> str:
             return f"You're in {ed['app']} on an unsaved file. Save it as {name} in the lesson folder"
         if ed["file"] and ed["file"] != name:
             return f"You're in {ed['app']} on {ed['file']}. Open {name} from the lesson folder"
-        if ed["file"] == name and ed["unsaved"]:
-            return f"{name} is open in {ed['app']} with unsaved changes. Save it"
+        if ed["file"] == name and ed["unsaved"]:  # a lesson autosaves: never ask a learner to save (Michael)
+            return f"{name} is open in {ed['app']}" if lesson_mode(step) else f"{name} is open in {ed['app']} with unsaved changes. Save it"
     if name and lesson_mode(step):  # lesson mode created the file already (S9); the lesson is in VS Code
         return "Open VS Code's terminal (⌃`)" if name == "(terminal)" else f"Open {name} in VS Code"
     if name and creates_file(step, name):
@@ -201,7 +250,7 @@ def deterministic_targets(step: dict, screen: ScreenContext, last: dict | None =
     """Exact matches only: the diagnosed line, then the step's target patterns."""
     boxes = screen.boxes
     want: list[tuple[str, str]] = []  # (kind, needle)
-    if line := _first_line(((last or {}).get("diff") or {}).get("yours", "")):
+    if line := focus_line(last)[0]:  # the line the card names / that changes, not the diff's first line (E10)
         want.append(("text", line))
     for t in step.get("targets") or []:
         if t.get("match"):
@@ -245,22 +294,31 @@ TERMINALS = {"terminal", "iterm2", "iterm", "warp", "alacritty", "kitty", "ghost
 def _short(label: str, n: int = 3) -> str:
     """`label` in sentence case with file names intact ("Open calculator.py here"); "" when it is over `n` words
     (a clip like "open tab" or "the code for" says nothing: the caller says the action instead)."""
-    words = (label or "").split()
+    words = plain(label).split()  # a card title's `code` keeps no backticks on the box (E10)
     if len(words) > n:
         return ""
     s = " ".join(words).rstrip(".:;,")
-    return s[:1].upper() + s[1:]
+    return s[:1].upper() + s[1:] if words and words[0].isalpha() else s  # "get_weather …" stays a code name
+
+
+def answer_caption(caption: str | None) -> str:
+    """The box's caption from the ANSWER (E10: an answer about a missing comma boxed line 6 as "Type it here"): the
+    model's caption ("Add a comma here"), plain text, <= 6 words; "" = none (the pointing label stays)."""
+    s = plain(caption)
+    if s and len(s.split()) <= 6 and len(s) <= 40:
+        return s[:1].upper() + s[1:] if s.split()[0].isalpha() else s
+    return ""
 
 
 def spot_label(step: dict, last: dict | None = None, screen: Any = None) -> str:
-    """A spotlight label: a short sentence-case action for the box ("Open calculator.py here", "Change this line",
-    "Run it here", "Type it here"), never a clip of what the coach was asked."""
+    """A spotlight label: a short sentence-case action for the box ("Open calculator.py here", "Change to
+    return response.json()", "Run it here", "Type it here"), never a clip of what the coach was asked."""
     name = (step_file(step, last) or "").rsplit("/", 1)[-1]
     shown = editor_state(screen).get("file") if screen is not None else ""
     if name and name != "(terminal)" and shown and shown != name:
         return f"Open {name} here"
     if ((last or {}).get("diff") or {}).get("yours"):
-        return "Change this line"
+        return (lesson_mode(step) and focus_line(last)[1]) or "Change this line"  # a lesson shows the code anyway
     if step.get("kind") == "run" or ((step.get("run_command") or "").strip() and not (step.get("code") or "").strip()):
         return "Run it here"
     return "Type it here" if (step.get("code") or "").strip() else "Look here"
@@ -274,12 +332,14 @@ async def point(
     last: dict | None = None,
     use_model: bool = True,
     timeout: float = 3.0,
+    label: str | None = None,
 ) -> dict:
-    """Targets for `about` (what the coach is saying), or a `where` instruction. Never raises."""
+    """Targets for `about` (what the coach is saying), or a `where` instruction. Never raises.
+    label: the box caption to use instead of the step's action (a learner's question: not "Type it here")."""
     if screen is None or not screen.boxes:
         return {"targets": [], "where": where_hint(step, last, screen), "via": "no-screen"}
     if t := deterministic_targets(step, screen, last):
-        return {"targets": t, "where": None, "via": "exact"}
+        return {"targets": [{**x, "label": label} for x in t] if label else t, "where": None, "via": "exact"}
     if not use_model:
         return {"targets": [], "where": where_hint(step, last, screen), "via": "none"}
     user = (
@@ -299,7 +359,7 @@ async def point(
     except (llm.CoachLLMError, TimeoutError) as e:
         log.info("point: model unavailable (%s); where-only", e)
         return {"targets": [], "where": where_hint(step, last, screen), "via": "fallback"}
-    label = spot_label(step, last, screen)
+    label = label or spot_label(step, last, screen)
     targets = screen.resolve_targets([{"box_id": i, "label": label} for i in res.data.get("box_ids", [])[:3]])
     if targets:
         where = None

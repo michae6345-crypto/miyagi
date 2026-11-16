@@ -79,14 +79,18 @@ def test_graph_payload_has_layout_and_step_id():
     assert "UserList.jsx" in kw["messages"][0]["content"] and "useEffect" in kw["messages"][0]["content"]
 
 
-def test_cache_by_step_and_code_hash():
+def test_cache_by_step_and_its_own_code():
+    """t10: keyed on the step (its id + its own code) and the kind, never the live screen or the learner's file:
+    a press after the step-start prefetch is served from the cache, however the captions / typing changed."""
     fake = FakeClient(FLOW)
-    run(build(STEP, CTX, client=fake))
-    run(build(STEP, dict(CTX), client=fake))
+    run(build(STEP, {**CTX, "screen": {"Miyagi": ["caption one"]}}, client=fake))  # the prefetch
+    run(build(STEP, {**CTX, "screen": {"Miyagi": ["caption two"]}, "code": CTX["code"] + "\n// edited"},
+              client=fake))  # the press, frames later
     assert len(fake.calls) == 1 and diagrams.last_meta.get("cached")
-    run(build(STEP, {**CTX, "code": CTX["code"] + "\n// edited"}, client=fake))
-    run(build(STEP, {**CTX, "question": "why the empty array?"}, client=fake))
-    assert len(fake.calls) == 3
+    run(build({**STEP, "code": "useEffect(() => {}, [])"}, CTX, client=fake))  # the step's own code changed
+    run(build(STEP, {**CTX, "question": "why the empty array?"}, client=fake))  # a typed question
+    run(build(STEP, {**CTX, "kind": "network"}, client=fake))  # another kind
+    assert len(fake.calls) == 4
 
 
 def test_concurrent_presses_share_one_call():

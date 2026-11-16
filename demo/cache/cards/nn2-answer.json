@@ -1,0 +1,6 @@
+{
+ "stepId": "nn2",
+ "kind": "answer",
+ "title": "Why 1 - h2 ** 2?",
+ "body": "It's tanh's slope. The chain rule multiplies it in wherever the signal went through a tanh."
+}

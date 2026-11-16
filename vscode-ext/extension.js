@@ -12,11 +12,12 @@ const os = require('os');
 const path = require('path');
 const vscode = require('vscode');
 
-const VERSION = '0.0.3';
+const VERSION = '0.0.6';
 const DEFAULT_PORT = 8791;
 const PORT_SPAN = 9;
 const ACTION_DEADLINE_MS = 250; // the engine's client gives up after 300 ms
 const EVENT_TIMEOUT_MS = 300;
+const VISIBLE_DEBOUNCE_MS = 80; // `visible`: the engine's type box follows a scroll within ~0.2 s (t7)
 const MAX_BODY = 4 * 1024 * 1024;
 const TAIL_CHARS = 16000;
 const TAIL_LINES = 40;
@@ -27,6 +28,10 @@ const EXPLAIN_AROUND_CHARS = 3000;
 const EXPLAIN_REPEAT_MS = 1000; // the same selection again within this of the last press: dropped (a held key)
 const PROPOSED_SCHEME = 'miyagi-proposed';
 const PENDING = Symbol('pending');
+// .ipynb opens in VS Code's notebook editor (its built-in ipynb notebook type; the Jupyter extension runs the cells),
+// never as raw JSON in a text editor (t9 V11). No such editor: VS Code's default for the file (vscode.open).
+const NOTEBOOK_TYPE = 'jupyter-notebook';
+const NOTEBOOK_WAIT_MS = 1500; // the notebook editor shows up in visibleNotebookEditors shortly after openWith
 
 const S = {
   server: null,
@@ -41,6 +46,8 @@ const S = {
   proposedEmitter: null,
   dirty: new Map(), // document key -> last isDirty seen
   editorTimer: null,
+  visibleTimer: null,
+  visibleKey: null, // file|ranges|lineCount of the last `visible` event
   lastExplain: null, // {text, at} of the last "Miyagi: Explain this" press
   log: null,
 };
@@ -243,11 +250,93 @@ async function readText(query) {
 
 // ---------------------------------------------------------------- actions
 
+function isNotebook(fsPath) {
+  return path.extname(String(fsPath || '')).toLowerCase() === '.ipynb';
+}
+
+function notebookDoc(fsPath) {
+  return (vscode.workspace.notebookDocuments || [])
+    .find((nb) => nb.uri && nb.uri.scheme === 'file' && samePath(nb.uri.fsPath, fsPath));
+}
+
+function notebookEditorFor(fsPath) {
+  const mine = (e) => e && e.notebook && e.notebook.uri.scheme === 'file' && samePath(e.notebook.uri.fsPath, fsPath);
+  const a = vscode.window.activeNotebookEditor;
+  return mine(a) ? a : (vscode.window.visibleNotebookEditors || []).find(mine);
+}
+
+async function waitForNotebookEditor(fsPath) {
+  const until = Date.now() + NOTEBOOK_WAIT_MS;
+  for (;;) {
+    const ne = notebookEditorFor(fsPath);
+    if (ne || Date.now() > until) return ne;
+    await new Promise((r) => setTimeout(r, 25));
+  }
+}
+
+// The engine's line for a notebook is a line of the raw .ipynb JSON on disk (server/orchestrator/workspace.py
+// target_location; past the end = "where new code goes"). -> 0-based index of the cell that line belongs to, or null.
+function notebookCellForLine(text, line) {
+  let nb;
+  try { nb = JSON.parse(text); } catch (_) { return null; }
+  const cells = nb && Array.isArray(nb.cells) ? nb.cells : [];
+  if (!cells.length || !(line >= 1)) return null;
+  const lines = text.split('\n');
+  if (line > lines.length) return cells.length - 1;
+  let at = -1; // nbformat writes each cell's keys sorted, so a cell starts at its "cell_type" key
+  for (let i = 0; i < line; i++) if (/^\s*"cell_type"\s*:/.test(lines[i])) at++;
+  const src = (c) => (Array.isArray(c.source) ? c.source.join('') : String(c.source || ''));
+  let want = null; // the source text on that line, if it is one (e.g. `   "x = mnist.load_data()\n",`)
+  try { want = JSON.parse(lines[line - 1].trim().replace(/,$/, '')); } catch (_) { want = null; }
+  if (typeof want === 'string' && want.trim()) {
+    want = want.trim();
+    if (at >= 0 && at < cells.length && src(cells[at]).includes(want)) return at;
+    const hit = cells.findIndex((c) => src(c).includes(want));
+    if (hit >= 0) return hit;
+  }
+  return at >= 0 && at < cells.length ? at : null;
+}
+
+async function openNotebook(fsPath, body) {
+  const uri = vscode.Uri.file(fsPath);
+  const opts = { preserveFocus: !!body.preserveFocus, preview: false };
+  const shown = notebookEditorFor(fsPath);
+  if (shown && shown.viewColumn) opts.viewColumn = shown.viewColumn; // never split
+  let ne;
+  try {
+    await vscode.commands.executeCommand('vscode.openWith', uri, NOTEBOOK_TYPE, opts);
+    ne = await waitForNotebookEditor(fsPath);
+  } catch (err) {
+    log(`open: ${fsPath} in the notebook editor failed: ${(err && err.message) || err}`);
+  }
+  const line = int(body.line) > 0 ? int(body.line) : null;
+  if (!ne) { // no notebook editor (no ipynb support): whatever VS Code opens .ipynb with
+    await vscode.commands.executeCommand('vscode.open', uri, opts);
+    return { ok: true, file: fsPath, line, notebook: false, cell: null, languageId: null, dirty: false };
+  }
+  let cell = null;
+  if (line) {
+    let text = null;
+    try { text = fs.readFileSync(fsPath, 'utf8'); } catch (_) { text = null; }
+    cell = text === null ? null : notebookCellForLine(text, line);
+    const count = ne.notebook.cellCount || 0;
+    if (cell !== null && cell >= count) cell = count ? count - 1 : null; // the buffer has fewer cells than the disk
+    if (cell !== null && vscode.NotebookRange) {
+      const r = new vscode.NotebookRange(cell, cell + 1);
+      ne.selections = [r];
+      const how = vscode.NotebookEditorRevealType;
+      ne.revealRange(r, how ? how.InCenterIfOutsideViewport : undefined);
+    }
+  }
+  return { ok: true, file: fsPath, line, notebook: true, cell, languageId: null, dirty: !!ne.notebook.isDirty };
+}
+
 async function openFile(body) {
   const fsPath = resolveFile(body.file);
   if (!fs.existsSync(fsPath) && !vscode.workspace.textDocuments.some((d) => samePath(docKey(d), fsPath))) {
     throw new HttpError(404, 'not_found');
   }
+  if (isNotebook(fsPath)) return openNotebook(fsPath, body);
   const doc = await vscode.workspace.openTextDocument(vscode.Uri.file(fsPath));
   const line = clampLine(body.line, doc);
   const opts = { preserveFocus: !!body.preserveFocus };
@@ -326,13 +415,32 @@ function findTerminal(name) {
   return vscode.window.terminals.find((t) => t.name === name && !t.exitStatus);
 }
 
+// A terminal Miyagi just created: text sent before its shell prints the first prompt is echoed twice (once raw by
+// the tty, once after the prompt). Commands wait for shell integration to come up (the prompt is there), or
+// SHELL_READY_MS when it never does (shell integration off). Without the API (VS Code < 1.93): sent at once.
+const SHELL_READY_MS = 3000;
+const shellReady = new WeakMap(); // Terminal -> Promise, resolved once its shell can take a command
+
+function waitForShell(t) {
+  return new Promise((resolve) => {
+    const on = vscode.window.onDidChangeTerminalShellIntegration;
+    if (t.shellIntegration || typeof on !== 'function') return resolve();
+    let sub = null;
+    const done = () => { clearTimeout(timer); if (sub) sub.dispose(); resolve(); };
+    const timer = setTimeout(done, SHELL_READY_MS);
+    sub = on((e) => { if (e.terminal === t) done(); });
+  });
+}
+
 function miyagiTerminal(cwd) {
   const t = findTerminal(TERMINAL_NAME);
   if (t) return { t, created: false };
   const opts = { name: TERMINAL_NAME };
   const dir = cwd ? path.resolve(cwd) : folders()[0];
   if (dir && fs.existsSync(dir)) opts.cwd = dir;
-  return { t: vscode.window.createTerminal(opts), created: true };
+  const nt = vscode.window.createTerminal(opts);
+  shellReady.set(nt, waitForShell(nt));
+  return { t: nt, created: true };
 }
 
 async function terminal(body) {
@@ -357,8 +465,11 @@ async function terminalRun(body) {
     if (!samePath(here, body.cwd)) text = `cd ${shq(path.resolve(body.cwd))} && ${cmd}`;
   }
   t.show(!!body.preserveFocus);
-  t.sendText(text, true);
-  log(`terminal/run: ${text}`);
+  // answer now (the engine waits 300 ms at most); a new terminal gets the command once its shell is ready
+  const send = () => { t.sendText(text, true); log(`terminal/run: ${text}`); };
+  const ready = shellReady.get(t);
+  if (ready && !t.shellIntegration) ready.then(send).catch((e) => log(`terminal/run failed: ${e}`));
+  else send();
   return { ok: true, terminal: t.name, created, sent: text, shellIntegration: !!t.shellIntegration,
     reportsExitCode: hasShellApi() };
 }
@@ -407,6 +518,9 @@ function editToReplace(doc, e) {
 
 async function apply(body) {
   const fsPath = resolveFile(body.file);
+  // A notebook's text is its JSON: a text edit would fight the notebook editor's own copy (and open raw JSON on
+  // reveal). The engine writes .ipynb cell by cell on disk, and asks to save (POST /save) before that.
+  if (isNotebook(fsPath)) throw new HttpError(409, 'notebook_unsupported', 'edit notebooks cell by cell, not as text');
   const uri = vscode.Uri.file(fsPath);
   const known = fs.existsSync(fsPath) || vscode.workspace.textDocuments.some((d) => samePath(docKey(d), fsPath));
   const we = new vscode.WorkspaceEdit();
@@ -454,13 +568,76 @@ async function diff(body) {
   return { ok: true, file: fsPath, title, proposed: right.toString() };
 }
 
+// After Miyagi pip-installs a package into the lesson's <folder>/.venv (E20): Pylance resolved `import requests` when
+// the folder opened, before the .venv existed, and kept its "could not be resolved" warning. Select that .venv as
+// this folder's interpreter (Python extension API) and restart the Python language server so it re-reads the
+// packages. Best effort: either part may be unavailable (no Python extension, an older API).
+async function pythonRefresh(body) {
+  const root = body && body.folder ? path.resolve(String(body.folder)) : folders()[0];
+  if (!root) throw new HttpError(400, 'folder_required');
+  const wf = typeof vscode.workspace.getWorkspaceFolder === 'function'
+    ? vscode.workspace.getWorkspaceFolder(vscode.Uri.file(root)) : undefined;
+  const py = process.platform === 'win32'
+    ? path.join(root, '.venv', 'Scripts', 'python.exe')
+    : path.join(root, '.venv', 'bin', 'python');
+  const out = { ok: true, folder: root, interpreter: null, restarted: false };
+  if (fs.existsSync(py)) {
+    try {
+      const ext = vscode.extensions.getExtension('ms-python.python');
+      const api = ext ? (ext.isActive ? ext.exports : await ext.activate()) : null;
+      const envs = api && api.environments;
+      if (envs && typeof envs.updateActiveEnvironmentPath === 'function') {
+        if (typeof envs.refreshEnvironments === 'function') await envs.refreshEnvironments();
+        await envs.updateActiveEnvironmentPath(py, wf ? wf.uri : vscode.Uri.file(root));
+        out.interpreter = py;
+      }
+    } catch (err) {
+      log(`python/refresh: selecting ${py} failed: ${(err && err.message) || err}`);
+    }
+  }
+  try {
+    await vscode.commands.executeCommand('python.analysis.restartLanguageServer');
+    out.restarted = true;
+  } catch (err) {
+    log(`python/refresh: restarting the language server failed: ${(err && err.message) || err}`);
+  }
+  log(`python/refresh: ${JSON.stringify(out)}`);
+  return out;
+}
+
+// Save one file the way Cmd+S does (its unsaved edits go to disk). The engine saves the lesson file before Run it for
+// me and Check on a run step, so the code that runs is the code the editor shows. A file with no open buffer, or a
+// clean one, is left alone. No file: the active editor's.
+async function save(body) {
+  const fsPath = body && body.file ? resolveFile(body.file) : null;
+  const ed = vscode.window.activeTextEditor;
+  // A notebook saves as a notebook (its cells and outputs), never through a raw JSON text buffer.
+  const nbe = vscode.window.activeNotebookEditor;
+  const nb = fsPath ? (isNotebook(fsPath) ? notebookDoc(fsPath) : null)
+    : (ed && ed.document.uri.scheme === 'vscode-notebook-cell' && nbe ? nbe.notebook : null);
+  if (nb) {
+    const was = !!nb.isDirty;
+    const saved = was ? !!(await (typeof nb.save === 'function' ? nb.save() : vscode.workspace.save(nb.uri))) : false;
+    if (was) log(`save: notebook ${nb.uri.fsPath} -> ${saved}`);
+    return { ok: true, file: nb.uri.fsPath, open: true, notebook: true, saved, wasDirty: was, dirty: !!nb.isDirty };
+  }
+  const doc = fsPath ? vscode.workspace.textDocuments.find((d) => samePath(docKey(d), fsPath)) : ed && ed.document;
+  if (!doc) return { ok: true, file: fsPath, open: false, saved: false, dirty: false };
+  const was = !!doc.isDirty;
+  const saved = was ? !!(await doc.save()) : false;
+  if (was) log(`save: ${docKey(doc)} -> ${saved}`);
+  return { ok: true, file: docKey(doc), open: true, saved, wasDirty: was, dirty: !!doc.isDirty };
+}
+
 const ACTIONS = {
   'POST /open': openFile,
   'POST /highlight': highlight,
   'POST /terminal': terminal,
   'POST /terminal/run': terminalRun,
   'POST /apply': apply,
+  'POST /save': save,
   'POST /diff': diff,
+  'POST /python/refresh': pythonRefresh,
 };
 
 // Answer within ACTION_DEADLINE_MS. A slower action still finishes: the reply says {pending, id} and the
@@ -655,6 +832,8 @@ function onCommandEnd(e) {
 function onDocChange(e) {
   const doc = e.document;
   const key = docKey(doc);
+  const act = vscode.window.activeTextEditor;
+  if (act && act.document === doc) onVisible({ textEditor: act }); // the line count may have changed (a paste, a reload)
   const was = S.dirty.get(key);
   if (was === !!doc.isDirty) return;
   S.dirty.set(key, !!doc.isDirty);
@@ -670,6 +849,28 @@ function onSave(doc) {
 function onEditor() {
   clearTimeout(S.editorTimer);
   S.editorTimer = setTimeout(() => postEvent('editor', editorPayload()), 120);
+}
+
+function visiblePayload() {
+  const ed = vscode.window.activeTextEditor;
+  const doc = ed && ed.document;
+  return { file: doc ? docKey(doc) : null, lineCount: doc ? doc.lineCount : 0,
+    visibleRanges: ed ? ed.visibleRanges.map((r) => ({ startLine: r.start.line + 1, endLine: r.end.line + 1 })) : [] };
+}
+
+// t7: the active editor scrolled or its line count changed -> `visible` (80 ms debounce; only real changes), so the
+// engine's "Type it here" box follows its row at once instead of on its next screen frame.
+function onVisible(e) {
+  const ed = e && e.textEditor;
+  if (!ed || ed !== vscode.window.activeTextEditor) return;
+  clearTimeout(S.visibleTimer);
+  S.visibleTimer = setTimeout(() => {
+    const p = visiblePayload();
+    const key = `${p.file}|${p.visibleRanges.map((r) => `${r.startLine}-${r.endLine}`).join(',')}|${p.lineCount}`;
+    if (key === S.visibleKey) return;
+    S.visibleKey = key;
+    postEvent('visible', p);
+  }, VISIBLE_DEBOUNCE_MS);
 }
 
 function onWindowState(st) {
@@ -761,6 +962,7 @@ async function activate(context) {
   subs.push(w.onDidChangeActiveTextEditor(onEditor));
   subs.push(w.onDidChangeVisibleTextEditors((eds) => { if (S.highlight) for (const ed of eds) paintHighlight(ed); }));
   subs.push(w.onDidChangeWindowState(onWindowState));
+  if (typeof w.onDidChangeTextEditorVisibleRanges === 'function') subs.push(w.onDidChangeTextEditorVisibleRanges(onVisible));
   subs.push(ws.onDidSaveTextDocument(onSave));
   subs.push(ws.onDidChangeTextDocument(onDocChange));
   if (typeof w.onDidOpenTerminal === 'function') subs.push(w.onDidOpenTerminal((t) => postEvent('terminal', { opened: t.name })));
@@ -770,6 +972,7 @@ async function activate(context) {
     subs.push(w.onDidEndTerminalShellExecution(onCommandEnd));
   }
   subs.push(vscode.commands.registerCommand('miyagi.companion.explainSelection', explainSelection));
+  subs.push(vscode.commands.registerCommand('miyagi.companion.refreshPython', () => pythonRefresh({}))); // E20 (also POST /python/refresh)
   subs.push(vscode.commands.registerCommand('miyagi.companion.status', () => { // no toast; GET /health instead
     log(S.port ? `status: listening on 127.0.0.1:${S.port}` : 'status: no free port (8791-8799)');
     return S.port;
@@ -797,8 +1000,9 @@ function deactivate() {
     }
   }
   clearTimeout(S.editorTimer);
-  Object.assign(S, { port: null, decorations: null, highlight: null, lastCommand: null, running: new Map(),
+  clearTimeout(S.visibleTimer);
+  Object.assign(S, { visibleKey: null, port: null, decorations: null, highlight: null, lastCommand: null, running: new Map(),
     proposed: new Map(), dirty: new Map(), lastFocusedAt: 0 });
 }
 
-module.exports = { activate, deactivate, _internal: { S, cleanOutput, tailLines, editToReplace, refuse, selectionPayload } };
+module.exports = { activate, deactivate, _internal: { S, cleanOutput, tailLines, editToReplace, refuse, selectionPayload, notebookCellForLine } };

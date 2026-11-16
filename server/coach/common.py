@@ -112,7 +112,13 @@ def clamp_body(text: str, soft: int = 42) -> str:
     room = soft - len(action.split())
     if not action or room < 8:
         return clamp_words(text, soft)
-    return f"{clamp_words(' '.join(parts[:-1]), room).rstrip('…').rstrip(',;: ')}… {action}"
+    # t7: whole sentences of the cause that fit, never one cut with "…" (test 6: "…under #…")
+    cause: list[str] = []
+    for p in parts[:-1]:
+        if len(" ".join([*cause, p]).split()) > room:
+            break
+        cause.append(p)
+    return " ".join([*cause, action])
 
 
 def clamp_title(text: str, limit: int = 8) -> str:
