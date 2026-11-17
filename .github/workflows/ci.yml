@@ -25,7 +25,14 @@ jobs:
       - uses: actions/setup-node@v4
         with: { node-version: "22" }
       - run: |
-          if [ -f app/package.json ]; then cd app && npm ci && npm run build --if-present && npx electron-builder --mac --dir --publish never; else echo "no app yet"; fi
+          if [ -f app/package.json ]; then
+            # The engine goes inside the app (Resources/engine), as `npm run ship:mac` does: this commit's server/ plus the
+            # installer from claude/distribution (main has no scripts/install.sh yet). localEngine.ts installs it on first launch.
+            git fetch --no-tags --depth=1 origin +refs/heads/claude/distribution:refs/remotes/origin/claude/distribution
+            cd app && npm ci && npm run build --if-present
+            MIYAGI_ENGINE_REF=HEAD MIYAGI_INSTALL_REF=origin/claude/distribution node scripts/bundle-engine.mjs
+            npx electron-builder --mac --dir --publish never
+          else echo "no app yet"; fi
       - uses: actions/upload-artifact@v4
         if: hashFiles('app/dist/**') != ''
         with: { name: mac-app, path: app/dist/mac*/** }
@@ -36,6 +43,7 @@ jobs:
         continue-on-error: true
         run: |
           app_path=$(ls -d app/dist/mac*/Miyagi.app | head -1)
+          echo "engine inside: $(cat "$app_path/Contents/Resources/engine/VERSION" 2>/dev/null || echo none)"
           codesign --force --deep --sign - "$app_path"
           ditto -c -k --sequesterRsrc --keepParent "$app_path" app/dist/Miyagi-Mac.zip
       - uses: actions/upload-artifact@v4
