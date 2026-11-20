@@ -40,15 +40,17 @@ type DrawerState = {
 const startOpen = typeof location !== 'undefined' && new URLSearchParams(location.search).get('drawer') === 'open'
 
 const SIDE_KEY = 'miyagi.drawer.side'
-function savedSide(): Side {
+/** The edge the learner chose by dragging (saved), else undefined: the lesson's kind picks (lesson.ready below). */
+function savedSide(): Side | undefined {
   try {
-    return localStorage.getItem(SIDE_KEY) === 'left' ? 'left' : 'right'
+    const v = localStorage.getItem(SIDE_KEY)
+    return v === 'left' || v === 'right' ? v : undefined
   } catch {
-    return 'right'
+    return undefined
   }
 }
 
-const initialSide = savedSide()
+const initialSide = savedSide() ?? 'right'
 export const useDrawer = create<DrawerState>(() => ({ open: startOpen, side: initialSide, at: initialSide }))
 
 /** The learner dropped the drawer on an edge: keep it there (this session and the next). */
@@ -85,7 +87,13 @@ onUi('reset', closeDrawer)
 // A new lesson starts closed (the stage's ?drawer=open keeps it open for review). A "Just teach me" lesson
 // (lesson.mode "lesson") opens it: there's no player and no chapter list, so the drawer is where
 // "Step N of M" and the step's instructions live (Michael, Sat 3:56 PM).
-onMessage('lesson.ready', (p) => useDrawer.setState({ open: startOpen || p.lesson.mode === 'lesson', concept: undefined, peekStep: undefined, claimed: false }))
+// Every lesson opens it (Michael, Nov 15 9:15: in a video lesson the steps and their code weren't on screen while the
+// video played). A video lesson puts it on the LEFT edge, over VS Code's sidebar, clear of the player docked on the
+// right; a "Just teach me" lesson keeps the right. A side the learner dragged it to wins in both.
+onMessage('lesson.ready', (p) => {
+  const side = savedSide() ?? (p.lesson.mode === 'lesson' ? 'right' : 'left')
+  useDrawer.setState({ open: true, side, at: side, concept: undefined, peekStep: undefined, claimed: false })
+})
 
 // A pushed diagram opens nothing (Michael, Nov 15 7 AM). The learner opened the Diagram flyout: it slides out of the
 // drawer's inner edge, so bring the drawer (as the full panel, not the concept rail) if it was closed.
