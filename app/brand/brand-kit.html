@@ -148,7 +148,7 @@ button{font:inherit;color:inherit}
 const $=(s,r=document)=>r.querySelector(s),$$=(s,r=document)=>[...r.querySelectorAll(s)];
 const f=n=>Math.round(n*100)/100;
 let uid=0;
-const C={g:'#30d158',gd:'#1f9b45',ink:'#141414',soil:'#6b5643',jin:'#e7e2d6',paper:'#f6f6f3'};
+const C={g:'#30d158',gd:'#1f9b45',ink:'#141414',bark:'#5a4433',clay:'#b5603f',barkDk:'#a07a5c',clayDk:'#c2694a',soil:'#6b5643',jin:'#e7e2d6',paper:'#f6f6f3'};
 const B=(P,t)=>{const u=1-t;return[0,1].map(i=>u*u*u*P[0][i]+3*u*u*t*P[1][i]+3*u*t*t*P[2][i]+t*t*t*P[3][i]);};
 const Bd=(P,t)=>{const u=1-t;return[0,1].map(i=>3*u*u*(P[1][i]-P[0][i])+6*u*t*(P[2][i]-P[1][i])+3*t*t*(P[3][i]-P[2][i]));};
 const wAt=(w0,w1,t)=>w0+(w1-w0)*Math.pow(t,.85);
@@ -186,10 +186,10 @@ const SMALL={trunk:[[[50,74],[34,62],[66,48],[49,28]],12,6],front:[[31,50,[[-8,-
 const SHADE=1.8;
 function tree(s,o={}){
   const id='t'+(uid++),lvl=o.level||(s<=32?'small':s<=140?'icon':'full'),dk=o.tone==='dk';
-  const ink=dk?'#f4f4f5':C.ink,line=dk?'#141414':C.paper;
+  const bark=dk?C.barkDk:C.bark,clay=dk?C.clayDk:C.clay,line=dk?'#141414':C.paper;
   if(lvl==='small'){
     const tr=taper(...SMALL.trunk);
-    return `<svg class="bz" viewBox="0 0 100 100" width="${s}" height="${s}" aria-hidden="true"><g fill="${ink}"><rect x="18" y="73" width="64" height="6" rx="2"/><path d="M22 79H78L74 89H26Z"/>${tr}</g><g fill="${C.g}">${SMALL.front.map((p,k)=>padShape(p,p[1],'pad',k,id,'s')).join('')}</g></svg>`;
+    return `<svg class="bz" viewBox="0 0 100 100" width="${s}" height="${s}" aria-hidden="true"><g fill="${clay}"><rect x="18" y="73" width="64" height="6" rx="2"/><path d="M22 79H78L74 89H26Z"/></g><g fill="${bark}">${tr}</g><g fill="${C.g}">${SMALL.front.map((p,k)=>padShape(p,p[1],'pad',k,id,'s')).join('')}</g></svg>`;
   }
   const full=lvl==='full';
   let back=T.back.map((p,k)=>`<g data-part="depth">${padShape(p,p[1],'pad',k,id,'bk').replace('class="pad"',`class="pad" style="--d:${k}" fill="${C.gd}"`)}</g>`).join('');
@@ -201,12 +201,12 @@ function tree(s,o={}){
   const jinG=full?`<g data-part="jin" fill="${C.jin}">${taper(T.jin,1.7,.5)}</g>`:'';
   const front=T.front.map((p,k)=>`<g class="pad" style="--d:${k+2}" data-part="pads"><g fill="${C.gd}">${padShape(p,p[1],'',k,id,'fd')}</g><g fill="${C.g}">${padShape(p,p[1]-SHADE,'',k,id,'fl')}</g></g>`).join('');
   const soil=full?`<g data-part="soil"><path d="M23 74.3C35 72.1 65 72.1 77 74.3Z" fill="${dk?'#5a4b3d':C.soil}"/><clipPath id="${id}ms"><rect x="0" y="0" width="100" height="74.3"/></clipPath><g clip-path="url(#${id}ms)" fill="${C.gd}"><circle cx="31" cy="74.2" r="2.4"/><circle cx="35.6" cy="73.9" r="1.7"/><circle cx="65.8" cy="74.1" r="2.2"/><circle cx="70.2" cy="74.3" r="1.5"/></g></g>`:'';
-  const pot=`<g data-part="pot" fill="${ink}"><rect x="19" y="74" width="62" height="4.5" rx="1.6"/><path d="M22.5 78.5H77.5L74.2 87.5H25.8Z"/>
+  const pot=`<g data-part="pot" fill="${clay}"><rect x="19" y="74" width="62" height="4.5" rx="1.6"/><path d="M22.5 78.5H77.5L74.2 87.5H25.8Z"/>
     <path d="M28.5 87.4H37.5V89C37.5 90.6 36.2 91.6 34.8 91.6H31.2C29.8 91.6 28.5 90.6 28.5 89Z"/><path d="M62.5 87.4H71.5V89C71.5 90.6 70.2 91.6 68.8 91.6H65.2C63.8 91.6 62.5 90.6 62.5 89Z"/>
     ${full?`<path d="M21 75.3H79" stroke="${line}" stroke-opacity=".16" stroke-width=".6"/><path d="M23.4 80.6H76.6" stroke="${line}" stroke-opacity=".1" stroke-width=".6"/><rect x="68.4" y="82" width="3" height="3" rx=".4" fill="none" stroke="${line}" stroke-opacity=".35" stroke-width=".5"/>`:''}</g>`;
   const cons=full&&o.cons?consOf():'';
   return `<svg class="bz" viewBox="0 0 100 100" width="${s}" height="${s}" aria-hidden="true">${soil}
-    <g class="cano">${back}<g class="tr" fill="${ink}"><g data-part="trunk">${br}${trunk}</g><g data-part="roots">${roots}</g></g>${grainG}${jinG}${front}</g>${pot}${cons}</svg>`;
+    <g class="cano">${back}<g class="tr" fill="${bark}"><g data-part="trunk">${br}${trunk}</g><g data-part="roots">${roots}</g></g>${grainG}${jinG}${front}</g>${pot}${cons}</svg>`;
 }
 function consOf(){
   let g='';for(let i=0;i<=100;i+=4)g+=`<path d="M${i} 0V100M0 ${i}H100" stroke="#000" stroke-opacity="${i%20?0.05:0.11}" stroke-width=".2"/>`;
@@ -217,12 +217,12 @@ function consOf(){
 const PARTS=[
   ['pads','Two-tone pads','#30d158','Each pad is five circles cut flat at the base, with a darker band underneath, the way light hits real foliage.'],
   ['depth','Back pads','#1f9b45','Two darker pads behind the trunk give the tree depth without any gradient.'],
-  ['trunk','Tapered trunk and branches','#141414','One curve for the trunk, four for the branches, each tapering from base to tip. Every branch starts exactly on the trunk.'],
-  ['roots','Root flare','#141414','The roots spread into the soil. Bonsai growers call it nebari, and judges of real bonsai look for it first.'],
+  ['trunk','Tapered trunk and branches','#5a4433','One curve for the trunk, four for the branches, each tapering from base to tip. Every branch starts exactly on the trunk.'],
+  ['roots','Root flare','#5a4433','The roots spread into the soil. Bonsai growers call it nebari, and judges of real bonsai look for it first.'],
   ['bark','Bark grain','#9b9b94','Three thin lines that follow the trunk’s curve at fixed fractions of its width.'],
   ['jin','Deadwood','#e7e2d6','A short silver stub of dead branch, called jin. A detail only real bonsai have.'],
   ['soil','Soil and moss','#6b5643','A low mound of soil with four moss domes along the rim.'],
-  ['pot','The pot','#141414','A rim with a glaze line, a recessed band, a small maker’s seal, and rounded cloud feet.']
+  ['pot','The pot','#b5603f','A rim with a glaze line, a recessed band, a small maker’s seal, and rounded cloud feet.']
 ];
 $('#parts').innerHTML=PARTS.map(([k,t,c,d])=>`<button type="button" class="pt" data-p="${k}"><i style="background:${c}"></i><b>${t}</b><span>${d}</span></button>`).join('');
 const st=document.createElement('style');st.textContent=PARTS.map(([k])=>`.bz[data-f="${k}"] [data-part]:not([data-part="${k}"]){opacity:.14}`).join('');document.head.appendChild(st);
