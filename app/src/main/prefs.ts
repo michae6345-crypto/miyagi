@@ -12,6 +12,7 @@ import { app, ipcMain, nativeTheme } from 'electron'
 import { readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { DEFAULT_PREFS, sanitizePrefs, type Prefs } from '../common/prefs'
+import { inStorePackage } from './platform'
 
 export function setupPrefs(broadcast: (channel: string, payload: unknown) => void): void {
   const file = join(app.getPath('userData'), 'prefs.json')
@@ -24,6 +25,7 @@ export function setupPrefs(broadcast: (channel: string, payload: unknown) => voi
 
   const apply = (): void => {
     nativeTheme.themeSource = prefs.appearance
+    if (inStorePackage()) return // the Store build can't open at login (platform.ts); Settings hides the switch
     try {
       app.setLoginItemSettings({ openAtLogin: prefs.launchAtLogin })
     } catch (err) {

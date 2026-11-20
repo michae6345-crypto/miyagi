@@ -1,5 +1,6 @@
 /**
- * Feature: settings. The General section: Appearance, Read lessons aloud, Open at login.
+ * Feature: settings. The General section: Appearance, Read lessons aloud, Open at login (not in the Store build:
+ * bridge.platform.loginItem).
  * Each control applies at once through core prefs (setPrefs → main saves userData/prefs.json and tells every
  * window); only the keys wait for Save. Appearance switches the glass panels (theme.glass); the notch island,
  * the cards and this sheet stay black.
@@ -9,6 +10,7 @@
  */
 import { motion } from 'motion/react'
 import type { CSSProperties, KeyboardEvent, ReactNode } from 'react'
+import { bridge } from '../../bridge'
 import { setPrefs, usePrefs, type Appearance } from '../../core/prefs'
 import { color, fill, spring } from '../../core/theme'
 
@@ -33,9 +35,11 @@ export function General(): ReactNode {
       <Row label="Read lessons aloud">
         <Switch on={voiceOnStart} label="Read lessons aloud" onChange={(v) => setPrefs({ voiceOnStart: v })} />
       </Row>
-      <Row label="Open at login">
-        <Switch on={launchAtLogin} label="Open at login" onChange={(v) => setPrefs({ launchAtLogin: v })} />
-      </Row>
+      {bridge.platform.loginItem && (
+        <Row label="Open at login">
+          <Switch on={launchAtLogin} label="Open at login" onChange={(v) => setPrefs({ launchAtLogin: v })} />
+        </Row>
+      )}
     </>
   )
 }

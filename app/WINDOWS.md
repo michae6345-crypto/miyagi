@@ -29,6 +29,6 @@ npm run build && npx electron-builder --win nsis --x64 --publish never
 
 ## Known limits
 
-- Unsigned: SmartScreen asks once (More info > Run anyway). PCs with Smart App Control on can block it outright; only code signing fixes that.
+- Unsigned: SmartScreen asks once (More info > Run anyway). PCs with Smart App Control on can block it outright; only code signing fixes that. The Microsoft Store package (signed by the Store) is the fix in progress: `STORE.md`.
 - Checked on Adrian's laptop (Sat Nov 14, packaged build, `DEMO=1`): the pill shows Ctrl⇧Space, Ctrl+Shift+Space opens the launcher, Esc closes it, a second launch exits. Smart App Control let the first two builds run and blocked the third (Code Integrity event 3118), so the sync agent's smoke test skips a blocked build instead of failing it.
 - The app talks to the engine at `ENGINE_URL` (default `ws://localhost:8787`), same as the Mac. Without an engine the pill says Offline. The engine's screen reader is macOS-only for now (Michael's `server/`).

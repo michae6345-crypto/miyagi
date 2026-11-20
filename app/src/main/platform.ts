@@ -18,6 +18,21 @@ export type PlatformInfo = {
   keys: Record<ShortcutKind, string>
   /** Electron accelerators for globalShortcut. */
   accelerators: Record<ShortcutKind, string>
+  /** Whether "Open at login" works here. False in the Microsoft Store build (see inStorePackage). */
+  loginItem: boolean
+}
+
+/**
+ * True when running from the Microsoft Store (MSIX) package. Windows hides a packaged app's Run-key entry, so
+ * app.setLoginItemSettings does nothing there and Settings leaves out "Open at login". The browser stage has no
+ * `process`, so it's false there.
+ */
+export function inStorePackage(): boolean {
+  try {
+    return typeof process !== 'undefined' && (process as { windowsStore?: boolean }).windowsStore === true
+  } catch {
+    return false
+  }
 }
 
 /**
@@ -48,6 +63,7 @@ export function describePlatform(os: string): PlatformInfo {
   return {
     os: mac ? 'mac' : 'win',
     pillTop: pillTopFor(mac),
+    loginItem: !inStorePackage(),
     // Mac lesson keys are ⌃⌥ (Control+Option), not ⌥ alone (Adrian, Sun 1 AM, after Michael's test): ⌥← is word-left
     // in VS Code and ⌥E/D/S/H/V type characters (⌥E is the accent key), so global ⌥ shortcuts stole the learner's
     // typing. ⌃⌥ combos type nothing. The launcher stays ⌥Space. Windows is unchanged (Ctrl+Alt is AltGr there).

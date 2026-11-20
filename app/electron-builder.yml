@@ -34,3 +34,21 @@ nsis:
   createDesktopShortcut: true
   createStartMenuShortcut: true
   runAfterFinish: true
+# The Microsoft Store package (MSIX/AppX): npx electron-builder --win appx --x64 --publish never
+#   -> dist/Miyagi-Store.appx. Unsigned on purpose: the Store signs it after certification, so Store installs get
+# no SmartScreen or Smart App Control prompt. Tiles: build/appx (scripts/make-store-tiles.py). The three ★ values
+# must be copied from Partner Center > the app > Product identity once the name is reserved; until then they are
+# placeholders and the package can't be uploaded. Steps: STORE.md.
+appx:
+  artifactName: Miyagi-Store.${ext}
+  identityName: Miyagi # ★ Package/Identity/Name
+  publisher: CN=00000000-0000-0000-0000-000000000000 # ★ Package/Identity/Publisher
+  publisherDisplayName: miyagi # ★ Package/Properties/PublisherDisplayName
+  applicationId: Miyagi
+  displayName: miyagi
+  backgroundColor: '#FFFFFF'
+  languages:
+    - en-US
+  minVersion: 10.0.17763.0
+  maxVersionTested: 10.0.26100.0
+  addAutoLaunchExtension: false
