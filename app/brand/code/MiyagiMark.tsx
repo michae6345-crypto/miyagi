@@ -10,7 +10,7 @@ import wordmark from '../assets/brand/wordmark.svg';
 import wordmarkDark from '../assets/brand/wordmark-dark.svg';
 
 type Level = 'auto' | 'full' | 'icon' | 'small';
-type Tone = 'light' | 'dark'; // "dark" = for dark backgrounds (white trunk and pot)
+type Tone = 'light' | 'dark'; // "dark" = for dark backgrounds (lighter bark and clay)
 
 const SRC = {
   full: { light: treeFull, dark: treeFullDark },
