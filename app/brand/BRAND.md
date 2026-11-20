@@ -25,7 +25,7 @@ Read this before building anything people will see: the overlay app, the VS Code
 
 ## Logo
 
-The logo is a **bonsai in the informal upright style** (moyogi): an S-shaped trunk with three foliage pads stepping up to a crown, in a shallow pot. It is built on a 100-unit grid. Pads are flat-bottomed clouds of circles, and the trunk is one curve that tapers from base to tip. `brand-kit.html` shows the construction (toggle "Show construction") and lights up each part.
+The logo is a **bonsai in the informal upright style** (moyogi): an S-shaped brown trunk with three green foliage pads stepping up to a crown, in a shallow clay pot. The colors match the 3D tree on miyagi.study. It is built on a 100-unit grid. Pads are flat-bottomed clouds of circles, and the trunk is one curve that tapers from base to tip. `brand-kit.html` shows the construction (toggle "Show construction") and lights up each part.
 
 There are three cuts of the same tree. Use the right one for the size:
 
@@ -35,7 +35,7 @@ There are three cuts of the same tree. Use the right one for the size:
 | **Icon** | 48 to 140 px: app icon, dock, lockups | Same shapes and two-tone pads, roots; no texture | `logo/svg/tree-icon.svg` |
 | **Small** | 16 to 32 px: tabs, menu bar, notch pill | Three pads, thick trunk, plain pot | `logo/svg/tree-small.svg` |
 
-Each has a `-dark` version (white trunk and pot) for dark backgrounds.
+Each has a `-dark` version for dark backgrounds, with a lighter bark (`#A07A5C`) and pot (`#C2694A`) so they read on black.
 
 **Wordmark:** lowercase `miyagi` in Google Sans Flex 600, tracking −4.5%, with the dot of the first i replaced by a green light (#30D158). The files are outlined, so no font is needed. Use the files; do not retype it.
 
@@ -54,7 +54,9 @@ Each has a `-dark` version (white trunk and pot) for dark backgrounds.
 | Pass text | `#1C8A3C` | Green text on light backgrounds |
 | Off track | no hue | A check failed: a hollow white ring and the words "Not yet". Calm: no red, no shaking. (`#FFB020` amber and apricot are retired, see below.) |
 | Watching gray | `#8E8E93` | The status dot while Miyagi watches |
-| Ink | `#141414` | Text, the trunk and pot, buttons on light |
+| Ink | `#141414` | Text, buttons on light |
+| Bark | `#5A4433` | The trunk, branches and roots (`#A07A5C` on dark) |
+| Clay | `#B5603F` | The pot (`#C2694A` on dark) |
 | Paper | `#F6F6F3` | Brand background: site, Devpost, slides |
 | Pill | `#000000` | The notch pill, always black |
 
@@ -86,7 +88,7 @@ How it's applied: buttons and chips are a solid pastel fill with ink text and ic
 The overlay should feel like a first-party Apple feature (Spotlight, Dynamic Island), not a chatbot. Michael's frontend handoff is the spec for layout and motion; this kit sets the look:
 
 - Glass follows macOS: dark HUD glass by default, light when the system is light. Tokens in `code/theme.ts` (`hud.dark`, `hud.light`).
-- **Inside the app the tree is in color** (Adrian, Sun Nov 15, reverting Saturday's monochrome cut): green pads, light trunk and pot on dark, exactly as in the logo files, in the pill, launcher, cards and everywhere else (`<MiyagiMark />` does this by default). Don't make it a white or one-color silhouette again.
+- **Inside the app the tree is in color** (Adrian, Sun Nov 15, reverting Saturday's monochrome cut): green pads, brown trunk and clay pot (Adrian, Nov 19), exactly as in the logo files, in the pill, launcher, cards and everywhere else (`<MiyagiMark />` does this by default). Don't make it a white or one-color silhouette again.
 - The notch pill is always black, with the small tree on the left and the status dot on the right: gray watching, hollow white ring off track, green passed.
 - The launcher input shows the small tree where the mockup had a sparkle, with the placeholder "ask miyagi anything".
 - One spring everywhere: stiffness 420, damping 34, mass 0.9. Radii 14 / 20 / 28.
