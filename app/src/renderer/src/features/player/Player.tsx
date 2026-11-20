@@ -110,7 +110,7 @@ function Header(): ReactNode {
   const appearance = useAppearance()
   return (
     <div className="flex h-[44px] shrink-0 items-center gap-[9px] px-[16px]" style={drag}>
-      {/* Like the notch pill: the bonsai on the left, the status dot on the right. On light, the dark-trunk cut. */}
+      {/* Like the notch pill: the bonsai on the left, the status dot on the right. On light, the light-background cut. */}
       <MiyagiMark size={14} tone={appearance === 'light' ? 'light' : 'dark'} />
       <span className="truncate text-[13px] font-semibold" style={{ color: glass.text }}>
         {title ?? 'Lesson'}
