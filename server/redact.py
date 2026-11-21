@@ -8,20 +8,21 @@
     scrub_secrets({"a": ["ghp_..."]})              # a copy with every string redacted
 
 Applied at the boundaries where text leaves the engine: screen OCR and Accessibility text (server.screen.privacy),
-every coach request (server.coach.llm), the screen describe/where calls (server.screen.describe), editor text the
-companion hands over ("Explain this", via server.workspace.core.text_for_model), a secret step file sent to the coach
-(session._coach_excerpt, coach.actions.do_it_for_me) and web search words (coach.web.search_safe). Every screenshot
+every coach request (server.coach.llm), the diagrams prompt (server.diagrams.build.user_prompt), the screen
+describe/where calls (server.screen.describe), editor text the companion hands over ("Explain this", via
+server.workspace.core.text_for_model), the step file sent to the coach (session._for_coach, coach.actions.do_it_for_me) and web search words (coach.web.search_safe). Every screenshot
 sent out blacks out rows that held a secret. Grading reads the learner's real text; only what is sent out is redacted,
 and coach.hints.apply_fix refuses a patch that would write SECRET_MARK into the file.
 
 What counts as a secret:
   - known formats: Anthropic / OpenAI `sk-...`, Google `AIza...`, GitHub `ghp_` / `gho_` / `ghu_` / `ghs_` / `ghr_` /
     `github_pat_`, Slack `xox?-` / `xapp-`, Stripe `sk_live_` / `rk_test_` ..., ElevenLabs `sk_<hex>`, AWS `AKIA...`,
-    HuggingFace `hf_...`, npm `npm_...`, GitLab `glpat-...`, PyPI `pypi-AgEIcHlwaS5vcmc...`, JWTs (`eyJ...`),
-    PEM private key blocks, the password in `scheme://user:password@host`;
+    HuggingFace `hf_...`, npm `npm_...`, GitLab `glpat-...`, PyPI `pypi-AgEIcHlwaS5vcmc...`, Stripe webhook `whsec_...`,
+    JWTs (`eyJ...`), PEM private key blocks, the password in `scheme://user:password@host`, `token <40 hex>`;
   - a long base64-ish value after a name with KEY / TOKEN / SECRET / PASSWORD / CREDENTIAL / AUTH in it, anywhere in
     a line (`API_KEY=...`, `token: "..."`, `secret = '...'`, `API_KEY=... python app.py`, `?apiKey=...&x=1`,
-    `"x-api-key: ..."`), and `Basic <base64 of user:password>`;
+    `"x-api-key: ..."`, `os.environ["API_KEY"] = "..."`, `db_password="Tr0ub4dor&3xyz"`), and
+    `Basic <base64 of user:password>`;
   - the exact keys this engine holds (Settings keys, the miyagi cloud token, provider keys in the environment).
 The marker is SECRET_MARK, so a caller can tell a line held one (the screen describe call blacks out those rows).
 
@@ -62,8 +63,11 @@ _TOKEN_RES: tuple[re.Pattern[str], ...] = (
     re.compile(r"(?<![\w-])npm_[A-Za-z0-9]{36,}"),
     re.compile(r"(?<![\w-])glpat-[A-Za-z0-9_\-]{20,}"),
     re.compile(r"(?<![\w-])pypi-AgEIcHlwaS5vcmc[A-Za-z0-9_\-]{20,}"),
+    re.compile(r"(?<![\w-])whsec_[A-Za-z0-9]{24,}"),
 )
 _BEARER = re.compile(r"(?i)(\bbearer\s+)[A-Za-z0-9_\-.=+/]{16,}")
+# `Authorization: token <40 hex>`: a GitHub classic token in the `token` scheme
+_TOKEN_SCHEME = re.compile(r"(?i)(\btoken[ \t]+)[0-9a-f]{40}(?![0-9a-z])")
 # `Authorization: Basic dXNlcjpwYXNz...`: base64 of `user:password` (decoded and checked in _basic, so "basic
 # understanding" stays)
 _BASIC = re.compile(r"(?i)(\bbasic[ \t]+)(?P<val>[A-Za-z0-9+/]{12,}+={0,2})(?![\w+/=])")
@@ -74,8 +78,12 @@ _URL_PASSWORD = re.compile(r"(\b[a-z][a-z0-9+.\-]{0,30}://[^\s:/@]+:)([^\s@/]{3,
 # secret-sounding word is looked for in it afterwards (_SECRET_WORD): no nested, unbounded backtracking.
 _NAME = r"(?P<n>[A-Za-z_][\w.\-]{0,63}+)"
 _SECRET_WORD = re.compile(r"(?i)key|token|secret|passw(?:or)?d|pwd|credential|auth|dsn")
+# after NAME: an optional closing quote and bracket (`"api_key": "..."`, `os.environ["API_KEY"] = "..."`,
+# `config['token'] = '...'`); the quoted value is any run without whitespace, a quote or a backslash
+# (`"Tr0ub4dor&3xyz"`), taken possessively
+_NAME_END = r"""["'\]]{0,2}+"""
 _ASSIGN_QUOTED = re.compile(
-    r"(?i)(?P<name>\b" + _NAME + r"""["']?[ \t]*[:=][ \t]*)(?P<q>["'])(?P<val>[A-Za-z0-9+/_\-.=~:]{12,})(?P=q)""")
+    r"(?i)(?P<name>\b" + _NAME + _NAME_END + r"""[ \t]*[:=][ \t]*)(?P<q>["'])(?P<val>[^\s"'\\]{12,}+)(?P=q)""")
 _ASSIGN_BARE = re.compile(
     r"(?im)(?P<name>^[ \t]*(?:export[ \t]+)?" + _NAME + r"[ \t]*[:=][ \t]*)"
     r"(?P<val>[A-Za-z0-9+/_\-.=~]{16,})[ \t]*$")
@@ -84,7 +92,7 @@ _ASSIGN_BARE = re.compile(
 # starts the line or follows ? & ( , - whitespace or a quote; the value ends at whitespace, & ; # ) , a quote or the
 # line's end. Both are bounded / possessive, so this stays linear (_SECRET_WORD and _looks_secret decide afterwards).
 _ASSIGN_INLINE = re.compile(
-    r"""(?m)(?P<name>(?:^|(?<=[?&(,\-\s"']))""" + _NAME + r"[ \t]{0,4}+[:=][ \t]{0,4}+)"
+    r"""(?m)(?P<name>(?:^|(?<=[?&(,\-\s"']))""" + _NAME + _NAME_END + r"[ \t]{0,4}+[:=][ \t]{0,4}+)"
     r"""(?P<val>[A-Za-z0-9+/_\-.=~%]{12,}+)(?=[\s&;#),"']|$)""")
 # one line of a secret file whose shape is kept (names and comments stay, the value is hidden). `(\S(?:.*\S)?)` takes
 # the value up to its last non-blank character without a lazy scan (a lazy `.*?` before `[ \t]*$` is quadratic).
@@ -145,7 +153,7 @@ def _quick_skip(text: str) -> bool:
     return not any(t in low for t in ("sk", "aiza", "gh", "xox", "xapp", "xi-", "akia", "asia", "eyj", "://",
                                       "key", "token", "secret", "pass", "pwd", "credential", "auth", "dsn",
                                       "-----begin", "github_pat", "bearer", "hf_", "npm_", "glpat-",
-                                      "pypi-")) and not _has_known(text)
+                                      "pypi-", "whsec_")) and not _has_known(text)
 
 
 def _has_known(text: str) -> bool:
@@ -165,6 +173,7 @@ def redact_secrets(text: str, *, known: Iterable[str] | None = None) -> str:
     for rx in _TOKEN_RES:
         text = rx.sub(SECRET_MARK, text)
     text = _BEARER.sub(lambda m: m.group(1) + SECRET_MARK, text)
+    text = _TOKEN_SCHEME.sub(lambda m: m.group(1) + SECRET_MARK, text)
     text = _URL_PASSWORD.sub(lambda m: m.group(1) + SECRET_MARK + m.group(3), text)
     text = _ASSIGN_QUOTED.sub(_assign_quoted, text)
     text = _ASSIGN_BARE.sub(_assign_bare, text)

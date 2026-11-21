@@ -442,12 +442,12 @@ def hint_step(card: dict, *, curated_of: int | None = None, curated_n: int | Non
 
 
 def _for_coach(code: str, file: str | None) -> str:
-    """The step file's text as a coach request may carry it: a secret file (.env, .env.local, .npmrc ...) keeps its
-    names with every value hidden (server.workspace.core.text_for_model), so `DB_PASSWORD=hunter2` never leaves."""
-    from server.redact import is_secret_file
+    """The step file's text as a coach request may carry it (server.workspace.core.text_for_model): a secret file
+    (.env, .env.local, .npmrc ...) keeps its names with every value hidden, so `DB_PASSWORD=hunter2` never leaves, and
+    any other file has its key-shaped values redacted (the diagrams call does not go through coach.llm)."""
     from server.workspace.core import text_for_model
 
-    return text_for_model(file, code) if code and file and is_secret_file(file) else code
+    return text_for_model(file, code) if code else code
 
 
 def notebook_sources(text: str) -> str | None:

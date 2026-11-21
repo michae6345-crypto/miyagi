@@ -76,6 +76,29 @@ def test_mid_line_matcher_leaves_ordinary_text(line):
     assert redact_secrets(line, known=()) == line
 
 
+@pytest.mark.parametrize("line, want", [
+    (f'os.environ["OPENAI_API_KEY"] = "{V}"', f'os.environ["OPENAI_API_KEY"] = "{SECRET_MARK}"'),
+    (f"os.environ['HF_TOKEN'] = '{V}'", f"os.environ['HF_TOKEN'] = '{SECRET_MARK}'"),
+    (f'config["api_key"] = "{V}"', f'config["api_key"] = "{SECRET_MARK}"'),
+    (f"os.environ['API_KEY']={V}", f"os.environ['API_KEY']={SECRET_MARK}"),
+    ('db_password="Tr0ub4dor&3xyz"', f'db_password="{SECRET_MARK}"'),
+    ('"Authorization": "token 0123456789abcdef0123456789abcdef01234567"', f'"Authorization": "token {SECRET_MARK}"'),
+    ("STRIPE_WEBHOOK = make(whsec_" + "a1B2c3D4e5F6g7H8i9J0k1L2m3N4)", f"STRIPE_WEBHOOK = make({SECRET_MARK})"),
+])
+def test_subscript_assignments_header_tokens_and_punctuated_values(line, want):
+    """The common tutorial shape `os.environ["KEY"] = "..."`, a `token` scheme header, a webhook secret, a password
+    with punctuation: a generic or self-hosted key has no known format, so the name decides."""
+    assert redact_secrets(line, known=()) == want
+
+
+@pytest.mark.parametrize("line", [
+    'key = os.getenv("API_KEY")', "for key in d.keys():", 'if config["token"] == "abc123def456ghi":',
+    'value = os.environ["API_KEY"]', "a token 0123456789abcdef is short", 'TOKEN_URL = "https://x.com/oauth"',
+])
+def test_subscript_and_token_matchers_leave_ordinary_code(line):
+    assert redact_secrets(line, known=()) == line
+
+
 def test_urls_with_a_password_and_bearer_headers():
     assert redact_secrets("DATABASE_URL=postgres://me:hunter2pass@db.example.com/x") == \
         f"DATABASE_URL=postgres://me:{SECRET_MARK}@db.example.com/x"
@@ -145,7 +168,8 @@ def test_pypirc_hides_values_after_equals_or_colon():
 @pytest.mark.parametrize("text", [
     "key" + "a-" * 50_000, "token_" * 17_000, "a." * 50_000 + "key='x'", "a-" * 50_000 + "://", "k=\"" * 33_000,
     "x=a" + " " * 100_000 + "b", "api_key=" * 12_500, "token:" * 17_000, "&key=" * 20_000, "basic " * 17_000,
-    "Basic " + "A" * 100_000, "?token=" + "a1" * 50_000 + "&", " key: " * 17_000,
+    "Basic " + "A" * 100_000, "?token=" + "a1" * 50_000 + "&", " key: " * 17_000, "a[\"key\"]=\"" * 10_000,
+    "token " * 17_000, "x[\"token\"] = \"" + "a&" * 50_000,
 ])
 def test_a_100kb_adversarial_line_redacts_quickly(text):
     """Coach requests redact the learner's whole file: a long run of `a-a-...` or `token_token_...` (minified code, a
@@ -242,7 +266,9 @@ def test_a_secret_step_file_reaches_the_coach_as_names_only():
         out = _for_coach(env, name)
         assert "hunter2" not in out and "=abc" not in out
         assert out.splitlines()[:2] == ["# db", f"DB_PASSWORD={SECRET_MARK}"]
-    assert _for_coach("x = 'hunter2'\n", "main.py") == "x = 'hunter2'\n"  # not a secret file: llm.py redacts keys
+    assert _for_coach("x = 'hunter2'\n", "main.py") == "x = 'hunter2'\n"  # a short value has no key shape
+    out = _for_coach(f'openai.api_key = "{OPENAI}"\nKEY = "{GOOGLE}"\n', "/x/main.py")  # any file: keys redacted
+    assert OPENAI not in out and GOOGLE not in out and "sk-" not in out and "AIza" not in out
     fake = SimpleNamespace(_code_excerpt=lambda step, limit=6000: (env, ".env"))
     code, file = LessonSession._coach_excerpt(fake, {"id": "s1"})
     assert file == ".env" and "hunter2" not in code and fake._code_excerpt({})[0] == env
@@ -333,3 +359,24 @@ def test_web_grounding_never_searches_with_a_secret(monkeypatch):
         assert GOOGLE not in q and B64 not in q and GITHUB not in q and SECRET_MARK not in q
     assert web.search_safe("TypeError: x is not a function") == "TypeError: x is not a function"
     assert GOOGLE not in web.serp_url(f"error {GOOGLE}")
+
+
+def test_the_diagrams_prompt_carries_no_key_from_an_ordinary_step_file():
+    """server.diagrams.build calls Anthropic directly (not through coach.llm) on every step's prefetch: the learner's
+    main.py, question and stuck card are redacted in the prompt it sends."""
+    import importlib
+
+    dbuild = importlib.import_module("server.diagrams.build")
+    from server.diagrams.tests.test_build import FLOW, FakeClient
+    from server.orchestrator.session import _for_coach
+
+    code = f'import openai\nopenai.api_key = "{OPENAI}"\ngenai.configure(api_key="{GOOGLE}")\n'
+    ctx = {"code": code, "file": "main.py", "question": f"why does {OPENAI} fail?",
+           "offtrack": {"title": "Key", "body": f"os.environ['OPENAI_API_KEY'] = '{V}'"}}
+    for c in (ctx, {**ctx, "code": _for_coach(code, "/x/main.py")}):
+        prompt = dbuild.user_prompt({"id": "s1", "title": "Call the API"}, c)
+        assert "sk-" not in prompt and "AIza" not in prompt and V not in prompt and SECRET_MARK in prompt
+    fake = FakeClient(FLOW)
+    asyncio.run(dbuild._call(fake, {"id": "s1", "title": "Call the API"}, ctx))
+    sent = json_dump(fake.calls[0])
+    assert "sk-" not in sent and "AIza" not in sent and V not in sent

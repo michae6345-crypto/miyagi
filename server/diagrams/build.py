@@ -239,7 +239,10 @@ def user_prompt(step: dict, context: dict) -> str:
         parts.append(f"The learner asked: {q}")
     if context.get("kind") in ("network", "graph"):
         parts.append(f"Preferred kind: {context['kind']} (if it fits the rules).")
-    return "\n\n".join(parts)
+    # ROADMAP 5.2: this call skips coach.llm, so the learner's code, question and stuck card are redacted here
+    from server.redact import redact_secrets
+
+    return redact_secrets("\n\n".join(parts))
 
 
 # ---------------------------------------------------------------- validation
