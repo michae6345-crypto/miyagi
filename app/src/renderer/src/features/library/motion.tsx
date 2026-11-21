@@ -35,6 +35,22 @@ export function Rise({ i = 0, children, className = '', style, as = 'div', ...re
   )
 }
 
+/**
+ * The white focus ring for the core buttons (PrimaryButton, QuietButton) until core gives them one (agents/library.md,
+ * Core request 0(a)): without it Chromium draws its own orange ring. Same ring as Press: 2 px solid, offset 2, at once.
+ * The span is display: contents, so it never changes the layout around the button.
+ */
+export function Ring({ children }: { children: ReactNode }): ReactNode {
+  return (
+    <span
+      className="contents [&>button:focus-visible]:outline-2 [&>button:focus-visible]:outline-offset-2 [&>button:focus-visible]:outline-solid [&>button:focus-visible]:outline-[color:var(--home-ring)]"
+      style={{ '--home-ring': color.text } as CSSProperties}
+    >
+      {children}
+    </span>
+  )
+}
+
 /** The hover / press tint: a layer over the control that only changes opacity. */
 const tint: Variants = { rest: { opacity: 0 }, hover: { opacity: 1, transition: { duration: 0.12 } }, press: { opacity: 1, transition: { duration: 0.04 } } }
 

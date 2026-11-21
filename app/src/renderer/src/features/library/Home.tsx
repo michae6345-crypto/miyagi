@@ -2,13 +2,14 @@
  * Feature: library. Home: the miyagi home dashboard, the Library window's first view (the Dock click, the tray and
  * openLibrary() land here). Top to bottom:
  *
- *   hero      Continue where you left off (the ONE white primary on this surface; Finish setup when setup is left
- *             and nothing is saved), beside the ask field ("ask miyagi anything": a goal or a pasted YouTube link,
- *             started exactly like the launcher; homeModel.ts)
+ *   hero      Continue where you left off (the ONE white primary on this surface; Finish setup instead whenever setup
+ *             is left: then the hero line says what's missing and Continue waits, quiet), beside the ask field ("ask
+ *             miyagi anything": a goal or a pasted YouTube link, started exactly like the launcher; homeModel.ts)
  *   band      Today ring, This week, Reps, Rhythm (features/dashboard)
- *   skills    the skill constellation, with Review and Up next beside it (every button there is quiet)
  *   lessons   Ready to run (lessons saved on this Mac, finished ones last) and Recent activity
+ *   skills    the skill constellation, with Review and Up next beside it (every button there is quiet)
  *   footer    Milestones
+ * The page is a container: narrower windows stack the hero over the ask card and move the rail under the skills.
  * A brand-new learner (nothing saved, nothing done) gets one calm "how it works" card instead of a wall of empty
  * charts; the engine away with nothing cached gets one offline line. Every other part has its own loading and empty
  * state, and rises in a beat after the one above (motion.tsx).
@@ -36,7 +37,7 @@ import type { DashData } from '../dashboard/types'
 import { thumbnailFor } from '../launcher/youtube'
 import { summarize, useRows } from '../onboarding/rows'
 import { finishedIds, pickHero, pickVideo, readAsk, recentActivity, setAskText, stepsPassed, submitAsk, useAsk, type Hero, type Recent } from './homeModel'
-import { Press, Rise } from './motion'
+import { Press, Ring, Rise } from './motion'
 import { Skeleton, TOOL_NAME, ToolTile, minutesLabel, soft, stepsLabel } from './parts'
 import { openDetail, setSection, start, useLibrary } from './store'
 
@@ -85,7 +86,7 @@ const KICKER: Record<Hero['kind'], string> = {
   empty: `Welcome to ${copy.name}`
 }
 
-function HeroCard({ hero, setupLeft }: { hero: Hero; setupLeft: boolean }): ReactNode {
+function HeroCard({ hero, setupLeft, setupHint }: { hero: Hero; setupLeft: boolean; setupHint: string }): ReactNode {
   // Either start in flight (this window's library store, or Up next / skills in the dashboard store) holds the hero.
   const libStarting = useLibrary((s) => s.starting)
   const dashStarting = useDash((s) => s.starting)
@@ -106,8 +107,12 @@ function HeroCard({ hero, setupLeft }: { hero: Hero; setupLeft: boolean }): Reac
   const fraction = hero.kind === 'resume' || hero.kind === 'live' ? hero.fraction : hero.kind === 'building' ? (hero.fraction ?? 0) : undefined
   // The empty hero says what miyagi is; the ask card beside it is where to type (never the same line twice).
   const title = hero.kind === 'empty' ? 'Learn by doing, checked step by step' : (hero.title ?? 'Your next lesson')
-  const line = hero.kind === 'empty' ? (setupLeft ? 'Finish setup first, then ask on the right.' : 'Ask on the right. Your lessons and progress live here.') : hero.line
-  const tools = hero.kind === 'resume' || hero.kind === 'fresh' ? hero.tools : []
+  // A saved lesson can't start while setup is left (Accessibility off, the engine down): the hero says what's missing
+  // and Finish setup takes the white primary; the lesson's own button waits, quiet and disabled, saying why.
+  // Offline is not setup: the engine row reads Connecting, and the hero's caption already says miyagi is offline.
+  const blocked = setupLeft && connected && (hero.kind === 'resume' || hero.kind === 'fresh')
+  const line = hero.kind === 'empty' ? (setupLeft ? 'Finish setup first, then ask on the right.' : 'Ask on the right. Your lessons and progress live here.') : blocked ? setupHint : hero.line
+  const tools = !blocked && (hero.kind === 'resume' || hero.kind === 'fresh') ? hero.tools : []
   return (
     <section aria-labelledby="home-hero" data-home-hero={hero.kind} className="relative flex h-full gap-[24px]" style={{ ...card, padding: 24 }}>
       <div className="flex min-w-0 flex-1 flex-col">
@@ -117,8 +122,13 @@ function HeroCard({ hero, setupLeft }: { hero: Hero; setupLeft: boolean }): Reac
         <h2 id="home-hero" className="m-0 line-clamp-2 font-semibold" style={{ marginTop: 8, fontSize: type2.xl, lineHeight: '26px', letterSpacing: '-0.01em', color: color.text }}>
           {title}
         </h2>
-        <div className="flex flex-wrap items-center gap-x-[8px] gap-y-[4px]" style={{ marginTop: 6, fontSize: type2.sm, color: soft }}>
-          <span>{line}</span>
+        <div className="flex flex-wrap items-center gap-x-[8px] gap-y-[4px]" style={{ marginTop: 6, fontSize: type2.sm, color: blocked ? color.text : soft }}>
+          {blocked && (
+            <span className="flex shrink-0">
+              <StatusGlyph state="notyet" size={14} />
+            </span>
+          )}
+          <span data-hero-line>{line}</span>
           {tools.length > 0 && (
             <span style={{ color: color.label }}>
               {' · '}
@@ -127,29 +137,46 @@ function HeroCard({ hero, setupLeft }: { hero: Hero; setupLeft: boolean }): Reac
           )}
         </div>
         <div className="mt-auto flex flex-wrap items-center gap-[12px]" style={{ paddingTop: 20 }}>
-          {hero.kind === 'resume' && (
-            <PrimaryButton
-              label="Continue"
-              icon={Play}
-              size="lg"
-              busy={busy}
-              disabled={!hero.canStart || (!!starting && !busy)}
-              title={hero.canStart ? 'Picks up at your step. Ready instantly.' : 'This engine can’t start saved lessons yet.'}
-              onClick={() => void start(hero.id)}
-            />
+          {(blocked || (hero.kind === 'empty' && setupLeft)) && (
+            <Ring>
+              <PrimaryButton label="Finish setup" icon={Settings2} size="lg" onClick={() => void openOnboarding()} />
+            </Ring>
           )}
-          {hero.kind === 'fresh' && (
-            <PrimaryButton label="Start lesson" icon={Play} size="lg" busy={busy} disabled={!hero.canStart || (!!starting && !busy)} onClick={() => void start(hero.id)} />
+          {blocked && (
+            <Ring>
+              <QuietButton label={hero.kind === 'resume' ? 'Continue' : 'Start lesson'} icon={Play} size="lg" disabled title={`${setupHint} Then this lesson is ready.`} onClick={() => undefined} />
+            </Ring>
           )}
-          {hero.kind === 'live' && <PrimaryButton label="Back to the lesson" icon={ArrowRight} size="lg" onClick={() => void closeWindow('library')} />}
-          {hero.kind === 'empty' && setupLeft && <PrimaryButton label="Finish setup" icon={Settings2} size="lg" onClick={() => void openOnboarding()} />}
+          {!blocked && hero.kind === 'resume' && (
+            <Ring>
+              <PrimaryButton
+                label="Continue"
+                icon={Play}
+                size="lg"
+                busy={busy}
+                disabled={!hero.canStart || (!!starting && !busy)}
+                title={hero.canStart ? 'Picks up at your step. Ready instantly.' : 'This engine can’t start saved lessons yet.'}
+                onClick={() => void start(hero.id)}
+              />
+            </Ring>
+          )}
+          {!blocked && hero.kind === 'fresh' && (
+            <Ring>
+              <PrimaryButton label="Start lesson" icon={Play} size="lg" busy={busy} disabled={!hero.canStart || (!!starting && !busy)} onClick={() => void start(hero.id)} />
+            </Ring>
+          )}
+          {hero.kind === 'live' && (
+            <Ring>
+              <PrimaryButton label="Back to the lesson" icon={ArrowRight} size="lg" onClick={() => void closeWindow('library')} />
+            </Ring>
+          )}
           {hero.kind === 'building' && (
             <span className="flex items-center gap-[8px]" style={caption}>
               <Spinner size={14} c={color.text} />
               The island shows each step. You can keep working.
             </span>
           )}
-          {!connected && (hero.kind === 'resume' || hero.kind === 'fresh') ? (
+          {blocked ? null : !connected && (hero.kind === 'resume' || hero.kind === 'fresh') ? (
             <span role="status" style={caption}>
               miyagi is offline. This picks up when it connects.
             </span>
@@ -193,7 +220,7 @@ function AskCard({ primary }: { primary: boolean }): ReactNode {
   const input = useRef<HTMLInputElement>(null)
   const read = readAsk(ask.text, items, canStart)
   const go = (): void => {
-    if (!submitAsk(connected)) input.current?.focus()
+    if (!submitAsk(connected) && !useAsk.getState().sending) input.current?.focus()
   }
   const Btn = primary ? PrimaryButton : QuietButton
   const actionLabel = read.kind === 'link' ? (read.match ? 'Start lesson' : 'Build lesson') : 'Teach me'
@@ -272,7 +299,10 @@ function AskCard({ primary }: { primary: boolean }): ReactNode {
           {read.kind === 'goal' && (
             <motion.div key="goal" className="flex flex-col gap-[12px]" initial={{ opacity: 0, y: 4 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, transition: { duration: 0.12 } }} transition={spring}>
               <div className="flex items-center gap-[12px]">
-                <Btn label={actionLabel} icon={ArrowRight} busy={!!ask.sending} disabled={!!ask.sending} onClick={go} />
+                {/* Busy, never disabled: the label stays readable while it sends (submitAsk ignores a second send). */}
+                <Ring>
+                  <Btn label={actionLabel} icon={ArrowRight} busy={!!ask.sending} onClick={go} />
+                </Ring>
                 {ask.note ? (
                   <span role="status" style={{ ...caption, color: color.text }}>
                     {ask.note}
@@ -281,12 +311,14 @@ function AskCard({ primary }: { primary: boolean }): ReactNode {
                   <span style={caption}>{ask.sending ? 'Sending to miyagi' : connected ? 'A lesson, step by step. The island shows the build.' : 'miyagi is offline.'}</span>
                 )}
               </div>
+              {/* Once per text (homeModel pickVideo): a second click would close the launcher it just opened. */}
               <Press
                 data-pick-video
-                disabled={!!ask.sending}
+                disabled={!!ask.sending || !!ask.picked}
+                title={ask.picked ? 'The launcher has your goal. Its keycap opens it again.' : undefined}
                 onClick={() => void pickVideo()}
                 className="flex items-center gap-[8px] self-start"
-                style={{ height: 28, padding: '0 8px', marginLeft: -8, borderRadius: radius2.control, fontSize: type2.xs, color: soft }}
+                style={{ height: 28, padding: '0 8px', marginLeft: -8, borderRadius: radius2.control, fontSize: type2.xs, color: soft, opacity: ask.picked ? 0.55 : 1 }}
               >
                 <span className="relative">Pick a video instead</span>
                 <span className="relative flex">
@@ -307,7 +339,9 @@ function AskCard({ primary }: { primary: boolean }): ReactNode {
                 </div>
               </div>
               <div className="flex items-center gap-[12px]">
-                <Btn label={actionLabel} icon={read.match ? Play : ArrowRight} busy={!!ask.sending} disabled={!!ask.sending} onClick={go} />
+                <Ring>
+                  <Btn label={actionLabel} icon={read.match ? Play : ArrowRight} busy={!!ask.sending} onClick={go} />
+                </Ring>
                 {ask.note && (
                   <span role="status" style={{ ...caption, color: color.text }}>
                     {ask.note}
@@ -334,7 +368,7 @@ function ReadyToRun({ upNext, done }: { upNext: Set<string>; done: Set<string> }
   const ready = [...fresh.filter((i) => !done.has(i.id)), ...fresh.filter((i) => done.has(i.id))]
   return (
     <section aria-labelledby="home-ready" data-home-ready className="flex h-full flex-col gap-[12px]" style={{ ...card, padding: 20 }}>
-      <H2 id="home-ready" right={ready.length > 3 ? <QuietButton label={`See all ${ready.length}`} onClick={() => setSection('library')} /> : <span style={caption}>Saved on this Mac</span>}>
+      <H2 id="home-ready" right={ready.length > 3 ? <Ring><QuietButton label={`See all ${ready.length}`} onClick={() => setSection('library')} /></Ring> :<span style={caption}>Saved on this Mac</span>}>
         Ready to run
       </H2>
       {!loaded ? (
@@ -465,8 +499,11 @@ function RecentActivity({ rows, now, loading, offline }: { rows: Recent[]; now: 
 
 // ---- offline ----------------------------------------------------------------------------------------------------
 
-/** The engine is away and nothing is cached: one calm line instead of empty charts that read as "your history is gone". */
-function OfflineDash(): ReactNode {
+/**
+ * The engine is away and nothing is cached: one calm line instead of empty charts that read as "your history is gone".
+ * "miyagi is offline" is said once on the page: here, unless the hero's caption already says it (said).
+ */
+function OfflineDash({ said }: { said: boolean }): ReactNode {
   return (
     <section role="status" data-home-offline className="flex items-center gap-[16px]" style={{ ...card, padding: '20px 24px' }}>
       <span className="flex shrink-0 items-center justify-center" style={{ width: 40, height: 40, borderRadius: radius2.card, background: fill.chip }}>
@@ -474,9 +511,9 @@ function OfflineDash(): ReactNode {
       </span>
       <span className="flex min-w-0 flex-col gap-[2px]">
         <span className="font-medium" style={{ fontSize: type2.sm, color: color.text }}>
-          {copy.name} is offline. Your progress shows when it connects.
+          Your streak, skills and reviews are safe.
         </span>
-        <span style={caption}>Your streak, skills and reviews are safe.</span>
+        {!said && <span style={caption}>{copy.name} is offline. They show here when it connects.</span>}
       </span>
     </section>
   )
@@ -539,7 +576,8 @@ export function Home(): ReactNode {
   const loading = load === 'loading'
   const connected = useLesson((s) => s.connected)
   const lib = useLibrary(useShallow((s) => ({ loaded: s.loaded, count: s.items.length })))
-  const setupLeft = !summarize(useRows()).canStart
+  const sum = summarize(useRows())
+  const setupLeft = !sum.canStart
   // Engine away with nothing to show: the dashboard sections say so once, never "No skills yet".
   const offline = !connected && !data && !loading
   // Nothing saved, nothing done, nothing tracked: one welcome card instead of a wall of empty cards.
@@ -547,14 +585,25 @@ export function Home(): ReactNode {
   const firstRun = connected && !loading && lib.loaded && !lib.count && !data?.completed.length && !data?.inProgress.length && !data?.tracks.length
   const upNext = new Set((data?.next ?? []).flatMap((n) => (n.id ? [n.id] : [])))
   const done = finishedIds(data)
-  // One primary per surface: the hero's when it has one (Finish setup counts), else the ask field's action.
+  // One primary per surface: the hero's when it has one (Finish setup counts, also when it stands in for Continue),
+  // else the ask field's action.
   const heroPrimary = hero.kind === 'resume' || hero.kind === 'fresh' || hero.kind === 'live' || (hero.kind === 'empty' && setupLeft)
+  // The hero says "miyagi is offline" when it has a lesson to pick up: then the offline card doesn't say it again.
+  const offlineSaid = !connected && (hero.kind === 'resume' || hero.kind === 'fresh')
+  /*
+   * The page is a container (Tailwind container queries on [data-home]): the Library window goes down to 560 px wide.
+   *   >= 1000 px   hero and ask side by side
+   *   >= 900 px    the 300 px rail beside the constellation; below it the rail moves under it (two columns, then one)
+   *                and the band's four tiles wrap to two by two (features/dashboard Band, overridden from here)
+   *   >= 760 px    Ready to run and Recent activity side by side
+   * Ready to run and Recent activity sit above the skills: what can I run now is on the first screen at 1280x820.
+   */
   return (
-    <div data-home className="flex min-h-0 flex-1 flex-col overflow-y-auto" style={{ color: color.text }}>
-      <div className="flex flex-col gap-[16px]" style={{ padding: '20px 32px 32px' }}>
-        <div className="grid gap-[16px]" style={{ gridTemplateColumns: 'minmax(0, 1.15fr) minmax(0, 1fr)', minHeight: 224 }}>
+    <div data-home className="@container flex min-h-0 flex-1 flex-col overflow-y-auto" style={{ color: color.text }}>
+      <div className="flex flex-col gap-[16px] px-[20px] @min-[760px]:px-[32px]" style={{ paddingTop: 20, paddingBottom: 32 }}>
+        <div data-home-top className="grid grid-cols-1 gap-[16px] @min-[1000px]:min-h-[224px] @min-[1000px]:grid-cols-[minmax(0,1.15fr)_minmax(0,1fr)]">
           <Rise i={0}>
-            <HeroCard hero={hero} setupLeft={setupLeft} />
+            <HeroCard hero={hero} setupLeft={setupLeft} setupHint={sum.hint} />
           </Rise>
           <Rise i={1}>
             <AskCard primary={!heroPrimary} />
@@ -562,46 +611,46 @@ export function Home(): ReactNode {
         </div>
         {offline ? (
           <Rise i={2}>
-            <OfflineDash />
+            <OfflineDash said={offlineSaid} />
           </Rise>
         ) : firstRun ? (
           <Rise i={2}>
             <FirstRun />
           </Rise>
         ) : (
-          <>
-            <Rise i={2}>
-              <Band data={data} now={now} goals={goals} r={r} t={t} loading={loading} />
-            </Rise>
-            <div className="grid gap-[16px]" style={{ gridTemplateColumns: 'minmax(0, 1fr) 300px' }}>
-              <Rise i={3} className="grid" style={{ minHeight: data?.tracks.length ? 452 : undefined }}>
-                <Constellation data={data} review={due} loading={loading}>
-                  <SkillCard data={data} now={now} route="library" />
-                </Constellation>
-              </Rise>
-              <Rise i={4} className="flex flex-col gap-[12px]" data-rail="">
-                {loading ? (
-                  <>
-                    <Skeleton h={160} />
-                    <Skeleton h={200} />
-                  </>
-                ) : (
-                  <>
-                    <Review data={data} due={due} later={later} now={now} route="library" />
-                    <UpNext data={data} route="library" />
-                  </>
-                )}
-              </Rise>
-            </div>
-          </>
+          <Rise i={2} className="@max-[899px]:[&>[data-band]]:grid-cols-2! @max-[479px]:[&>[data-band]]:grid-cols-1!">
+            <Band data={data} now={now} goals={goals} r={r} t={t} loading={loading} />
+          </Rise>
         )}
         {!firstRun && (
-          <div className="grid gap-[16px]" style={{ gridTemplateColumns: 'minmax(0, 1fr) minmax(0, 1fr)' }}>
-            <Rise i={5}>
+          <div data-home-lessons className="grid grid-cols-1 gap-[16px] @min-[760px]:grid-cols-2">
+            <Rise i={3}>
               <ReadyToRun upNext={upNext} done={done} />
             </Rise>
-            <Rise i={6}>
+            <Rise i={4}>
               <RecentActivity rows={recentActivity(data)} now={now} loading={loading} offline={offline} />
+            </Rise>
+          </div>
+        )}
+        {!offline && !firstRun && (
+          <div data-home-skills className="grid grid-cols-1 gap-[16px] @min-[900px]:grid-cols-[minmax(0,1fr)_300px]">
+            <Rise i={5} className="grid" style={{ minHeight: data?.tracks.length ? 452 : undefined }}>
+              <Constellation data={data} review={due} loading={loading}>
+                <SkillCard data={data} now={now} route="library" />
+              </Constellation>
+            </Rise>
+            <Rise i={6} className="flex flex-col gap-[12px] @max-[899px]:grid @max-[899px]:grid-cols-2 @max-[899px]:items-start @max-[599px]:grid-cols-1" data-rail="">
+              {loading ? (
+                <>
+                  <Skeleton h={160} />
+                  <Skeleton h={200} />
+                </>
+              ) : (
+                <>
+                  <Review data={data} due={due} later={later} now={now} route="library" />
+                  <UpNext data={data} route="library" />
+                </>
+              )}
             </Rise>
           </div>
         )}
