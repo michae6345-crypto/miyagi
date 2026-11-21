@@ -13,10 +13,11 @@ import type { Layout } from '../../../../preload/api'
 import { bridge } from '../../bridge'
 import { useIslandBox } from '../../core/Island'
 import { useLesson } from '../../core/lesson'
-import { brand, color, dock, elevation, fill, highlight, radius2, spring, surface, type2 } from '../../core/theme'
+import { brand, color, dock, elevation, fill, highlight, radius2, surface, type2 } from '../../core/theme'
 import { OptionButton, PrimaryButton } from '../../core/ui/atoms'
 import { QuietButton } from '../../core/ui/buttons'
 import { MiyagiMark } from '../../core/ui/Mark'
+import { enter, fade, springOut } from '../../core/ui/motion'
 import { StatusGlyph } from '../../core/ui/status'
 import { CoachMark, MARK_W } from './CoachMark'
 import { place, type Rect } from './place'
@@ -36,8 +37,8 @@ function SamplePanel({ x, y }: { x: number; y: number }): ReactNode {
       style={{ left: x, top: y, width: dock.w, height: PANEL_H, padding: 16, borderRadius: radius2.panel, background: surface.panel, boxShadow: `${highlight.top}, inset 0 0 0 1px ${surface.border}, ${elevation.panel}` }}
       initial={{ opacity: 0, x: 16 }}
       animate={{ opacity: 1, x: 0 }}
-      exit={{ opacity: 0, x: 16 }}
-      transition={spring}
+      exit={{ opacity: 0, x: 16, transition: { ...springOut, opacity: fade.out } }}
+      transition={enter(0, fade.slow)}
     >
       <div className="flex items-center gap-[8px]">
         <MiyagiMark size={16} />

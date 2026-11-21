@@ -7,7 +7,7 @@ import { emitUi } from '../bus'
 import { usePressed } from '../shortcuts'
 import { actionTone, brand, color, duration, ease, fill, font, glass, highlight, spring, type OptionAction } from '../theme'
 import { GlassCheck, GlassSpinner } from './glass'
-import { pressMotion } from './motion'
+import { pressMotion, sizeMove, twoBeats } from './motion'
 
 /** A white or pastel slab on the island (options, the island's primary): lit top edge, ink base line. No drop: the island is black. */
 const SLAB = `${highlight.onLight}, ${highlight.base}`
@@ -22,8 +22,8 @@ export function StatusDot({ status, size = 7 }: { status: Status; size?: number 
       className="inline-block shrink-0 rounded-full"
       style={{ width: size, height: size, background: ring ? 'transparent' : c, boxShadow: ring ? `inset 0 0 0 1.5px ${c}` : undefined }}
       initial={{ scale: 1 }}
-      animate={{ scale: status === 'offtrack' ? [1, 1.35, 1, 1.35, 1] : 1 }}
-      transition={{ duration: 0.9, ease: 'easeInOut' }}
+      animate={{ scale: status === 'offtrack' ? [...twoBeats.keyframes] : 1 }}
+      transition={twoBeats.transition}
     />
   )
 }
@@ -31,6 +31,8 @@ export function StatusDot({ status, size = 7 }: { status: Status; size?: number 
 /** Lesson progress ring. The arc advances on the spring. */
 export function ProgressRing({ fraction, size = 15, stroke = 2 }: { fraction: number; size?: number; stroke?: number }): ReactNode {
   const r = (size - stroke) / 2
+  // pathLength is a dash, not a transform: MotionConfig would still play it, so Reduce Motion snaps the arc.
+  const reduce = useReducedMotion()
   return (
     <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`} className="shrink-0 -rotate-90">
       <circle cx={size / 2} cy={size / 2} r={r} fill="none" stroke={fill.track} strokeWidth={stroke} />
@@ -44,7 +46,7 @@ export function ProgressRing({ fraction, size = 15, stroke = 2 }: { fraction: nu
         strokeLinecap="round"
         initial={false}
         animate={{ pathLength: Math.max(0.001, fraction) }}
-        transition={spring}
+        transition={sizeMove(reduce, spring)}
       />
     </svg>
   )

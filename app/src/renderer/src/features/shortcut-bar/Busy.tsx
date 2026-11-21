@@ -14,6 +14,7 @@ import { useLesson, useThinking } from '../../core/lesson'
 import { usePressed, type ActionKind } from '../../core/shortcuts'
 import { Spinner } from '../../core/ui/atoms'
 import { GlassSpinner } from '../../core/ui/glass'
+import { fade } from '../../core/ui/motion'
 
 /** A press owns a thinking spell that starts at most this long after it (2–5 s model calls; allows one queued call). */
 const OWN_MS = 6000
@@ -49,7 +50,7 @@ export function Glyph({ kind, tone, track, glass, size = 19, children }: { kind:
       style={{ width: size, height: size }}
       initial={{ opacity: 0, scale: 0.8 }}
       animate={{ opacity: 1, scale: 1 }}
-      transition={{ duration: 0.12 }}
+      transition={fade.tint}
       {...(busy ? { role: 'status', 'aria-label': 'Working', 'data-busy': '' } : {})}
     >
       {busy ? glass ? <GlassSpinner size={size - 2} c={tone} track={track} /> : <Spinner size={size - 2} c={tone} track={track} /> : children}

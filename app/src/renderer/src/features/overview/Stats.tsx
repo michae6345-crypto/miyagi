@@ -8,6 +8,7 @@ import type { ReactNode } from 'react'
 import { ChartColumn } from 'lucide-react'
 import { bridge, registerWebHandler } from '../../bridge'
 import { color } from '../../core/theme'
+import { fade } from '../../core/ui/motion'
 
 const STAGE_STATS = 'http://localhost:8787/stats'
 
@@ -24,7 +25,7 @@ export function Stats(): ReactNode {
       className="flex cursor-pointer items-center gap-[5px]"
       style={{ color: color.label }}
       whileHover={{ color: color.text }}
-      transition={{ duration: 0.15 }}
+      transition={fade.in}
       onClick={() => {
         bridge.invoke('overview:open-stats').catch(() => {})
       }}

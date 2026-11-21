@@ -5,6 +5,7 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { AnimatePresence, motion, useReducedMotion } from 'motion/react'
 import { color, fill, font, radius2, surface, type2 } from '../../../core/theme'
+import { fade } from '../../../core/ui/motion'
 import { Keycap, type KeyName } from '../../../core/ui/Keycap'
 
 /**
@@ -104,8 +105,8 @@ export function Tip({
             }}
             initial={reduced ? { opacity: 0 } : { opacity: 0, y }}
             animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, transition: { duration: 0.08 } }}
-            transition={{ duration: 0.12 }}
+            exit={{ opacity: 0, transition: fade.instant }}
+            transition={fade.tint}
           >
             <span>{label}</span>
             {k && <Keycap k={k} size="sm" />}

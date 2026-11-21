@@ -9,6 +9,7 @@ import { Spinner } from '../../core/ui/atoms'
 import { Keycap } from '../../core/ui/Keycap'
 import { color, fill, font, radius2, spring, status, type2 } from '../../core/theme'
 import { setVisible, type CardId } from './store'
+import { fade, press } from '../../core/ui/motion'
 
 export type Glyph = 'ring' | 'arc' | 'tick' | 'wifi-off' | 'wifi'
 
@@ -73,7 +74,7 @@ export function PillLine({
       style={{ paddingLeft: 12, paddingRight: chip || action ? 5 : 16, gap: 10, fontSize: type2.sm, fontWeight: 500, color: color.text }}
       initial={reduce ? { opacity: 0 } : { opacity: 0, y: 3 }}
       animate={{ opacity: 1, y: 0 }}
-      transition={{ ...spring, opacity: { duration: 0.18 } }}
+      transition={{ ...spring, opacity: fade.in }}
     >
       <ErrGlyph g={glyph} />
       <span>{text}</span>
@@ -98,8 +99,8 @@ export function PillLine({
           className="flex h-[24px] cursor-pointer items-center"
           style={{ padding: '0 10px', borderRadius: radius2.round, background: color.accent, color: color.onAccent, fontSize: type2.xs, fontWeight: 600, border: 'none' }}
           whileHover={{ filter: 'brightness(0.94)' }}
-          whileTap={{ scale: 0.96 }}
-          transition={{ duration: 0.12 }}
+          whileTap={{ scale: press.scale }}
+          transition={{ ...fade.tint, scale: spring }}
           onMouseDown={(e) => e.preventDefault()}
           onClick={action.onClick}
         >
@@ -145,7 +146,7 @@ export function CardFrame({
   const part = (i: number): Record<string, unknown> => ({
     initial: reduce ? { opacity: 0 } : { opacity: 0, y: 6 },
     animate: { opacity: 1, y: 0 },
-    transition: { ...spring, delay: reduce ? 0 : 0.05 + i * 0.04, opacity: { duration: 0.2, delay: reduce ? 0 : 0.05 + i * 0.04 } }
+    transition: { ...spring, delay: reduce ? 0 : 0.05 + i * 0.04, opacity: { ...fade.in, delay: reduce ? 0 : 0.05 + i * 0.04 } }
   })
   let n = 0
   return (

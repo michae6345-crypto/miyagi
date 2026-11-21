@@ -16,11 +16,11 @@
  */
 import { AnimatePresence, motion, useReducedMotion } from 'motion/react'
 import { useEffect, type ReactNode } from 'react'
-import { color, copy, duration, ease, elevation, fill, font, highlight, radius2, spring, surface, tint, type2 } from '../../core/theme'
+import { color, copy, duration, elevation, fill, font, highlight, radius2, spring, surface, tint, type2 } from '../../core/theme'
 import { Spinner } from '../../core/ui/atoms'
 import { PrimaryButton } from '../../core/ui/buttons'
 import { MiyagiMark } from '../../core/ui/Mark'
-import { pressMotion } from '../../core/ui/motion'
+import { ease, pressMotion } from '../../core/ui/motion'
 import { AppleGlyph, GoogleGlyph, TextLink } from '../account/ui'
 import { MARK_ID } from '../onboarding/Intro'
 import { Avatar } from './Avatar'
@@ -50,7 +50,7 @@ function Shimmer(): ReactNode {
       style={{ left: 0, background: tint.hoverOnLight, borderRadius: radius2.card }}
       initial={reduce ? { opacity: 0, x: '97%' } : { x: '-110%' }}
       animate={reduce ? { opacity: [0, 1, 0] } : { x: '310%' }}
-      transition={reduce ? { duration: 2.2, ease: 'easeInOut', repeat: Infinity } : { duration: 1.8, ease: ease.inOut, repeat: Infinity, repeatDelay: 0.4 }}
+      transition={reduce ? { duration: 2.2, ease: ease.inOut, repeat: Infinity } : { duration: 1.8, ease: ease.inOut, repeat: Infinity, repeatDelay: 0.4 }}
     />
   )
 }

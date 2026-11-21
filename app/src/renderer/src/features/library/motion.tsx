@@ -1,6 +1,6 @@
 /**
- * Feature: library. Home's motion, on UI-POLISH-SPEC section 5 (enter, stagger) and section 3 (hover, press). Local
- * until core/ui/motion.ts lands (polish lane; agents/library.md, Core requests): same numbers, so the swap is a rename.
+ * Feature: library. Home's motion, on UI-POLISH-SPEC section 5 (enter, stagger) and section 3 (hover, press), built on
+ * the shared helpers in core/ui/motion (docs/MOTION.md).
  *
  *   rise      enter: up 6 px on the house spring, fade 180 ms. Exit 120 ms. Never from scale 0.
  *   stagger   35 ms per child, only the first 8 children are staggered (the rest arrive with the 8th).
@@ -10,19 +10,13 @@
  */
 import { motion, useReducedMotion, type HTMLMotionProps, type Variants } from 'motion/react'
 import { forwardRef, type CSSProperties, type ReactNode } from 'react'
-import { color, fill, spring } from '../../core/theme'
-
-const STAGGER = 0.035
-const MAX_STAGGERED = 8
+import { color, fill } from '../../core/theme'
+import { enter, fade, press, spring, stagger, staggerDelay } from '../../core/ui/motion'
 
 export const rise: Variants = {
-  hidden: { opacity: 0, y: 6 },
-  shown: (i: number = 0) => ({
-    opacity: 1,
-    y: 0,
-    transition: { y: { ...spring, delay: Math.min(i, MAX_STAGGERED) * STAGGER }, opacity: { duration: 0.18, ease: [0.23, 1, 0.32, 1], delay: Math.min(i, MAX_STAGGERED) * STAGGER } }
-  }),
-  gone: { opacity: 0, transition: { duration: 0.12 } }
+  hidden: { opacity: 0, y: stagger.rise },
+  shown: (i: number = 0) => ({ opacity: 1, y: 0, transition: enter(staggerDelay(i)) }),
+  gone: { opacity: 0, transition: fade.out }
 }
 
 /** A block that rises in as the i-th of its group (i caps at 8). */
@@ -54,9 +48,9 @@ export function Ring({ children }: { children: ReactNode }): ReactNode {
 }
 
 /** The hover / press tint: a layer over the control that only changes opacity. */
-const tint: Variants = { rest: { opacity: 0 }, hover: { opacity: 1, transition: { duration: 0.12 } }, press: { opacity: 1, transition: { duration: 0.04 } } }
+const tint: Variants = { rest: { opacity: 0, transition: fade.tint }, hover: { opacity: 1, transition: fade.tint }, press: { opacity: 1, transition: fade.press } }
 
-type PressProps = Omit<HTMLMotionProps<'button'>, 'children'> & { children: ReactNode; /** big tiles dip a little more (0.96) */ large?: boolean; tintColor?: string }
+type PressProps = Omit<HTMLMotionProps<'button'>, 'children'> & { children: ReactNode; /** big tiles dip a little more (press.scaleLarge, .96) */ large?: boolean; tintColor?: string }
 
 /**
  * A neutral pressable surface (cards, rows): hover lightens it by white .06, press dips it on the spring. Focus draws
@@ -72,7 +66,7 @@ export const Press = forwardRef<HTMLButtonElement, PressProps>(function Press({ 
       animate="rest"
       whileHover={disabled ? undefined : 'hover'}
       whileTap={disabled ? undefined : 'press'}
-      variants={{ rest: { scale: 1, transition: spring }, hover: { scale: 1 }, press: { scale: large ? 0.98 : 0.97, transition: spring } }}
+      variants={{ rest: { scale: 1, transition: spring }, hover: { scale: 1 }, press: { scale: large ? press.scaleLarge : press.scale, transition: spring } }}
       className={`relative cursor-pointer overflow-hidden text-left outline-offset-2 focus-visible:outline-2 focus-visible:outline-solid disabled:cursor-default ${className}`}
       style={{ outlineColor: color.text, ...style }}
       {...rest}

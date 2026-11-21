@@ -4,6 +4,7 @@ import type { ReactNode } from 'react'
 import { Settings } from 'lucide-react'
 import { bridge } from '../../bridge'
 import { color } from '../../core/theme'
+import { fade } from '../../core/ui/motion'
 
 export function Gear(): ReactNode {
   return (
@@ -14,7 +15,7 @@ export function Gear(): ReactNode {
       className="-mr-[4px] grid h-[22px] w-[22px] cursor-pointer place-items-center rounded-full"
       style={{ color: color.label }}
       whileHover={{ color: color.text }}
-      transition={{ duration: 0.15 }}
+      transition={fade.in}
       onClick={() => {
         bridge.invoke('settings:open').catch(() => {})
       }}

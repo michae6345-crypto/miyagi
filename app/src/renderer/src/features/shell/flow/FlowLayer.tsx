@@ -27,6 +27,7 @@ import { cmd } from '../../../../../common/wire'
 import { bridge } from '../../../bridge'
 import { canSend } from '../../../core/lesson'
 import { color, type2 } from '../../../core/theme'
+import { beat, fade } from '../../../core/ui/motion'
 import { Keycap } from '../../../core/ui/Keycap'
 import { Login } from '../../auth/Login'
 import { Checklist } from '../../onboarding/Checklist'
@@ -54,7 +55,7 @@ function View({ id, children }: { id: string; children: ReactNode }): ReactNode 
 }
 
 /** The strip's right-hand link: quiet text in the label gray, fading in a beat after the strip. */
-const linkIn = { duration: 0.18, delay: 0.3 }
+const linkIn = { ...fade.in, delay: 5 * beat }
 
 /** Start on You're ready: the lesson it shows (the engine's suggestion, zero model calls) when there is one, and home. */
 function start(): void {

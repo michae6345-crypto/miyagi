@@ -17,7 +17,8 @@ import { useRef, type ReactNode } from 'react'
 import { useShallow } from 'zustand/react/shallow'
 import { useLesson, useProgress as useLessonProgress } from '../../core/lesson'
 import { closeWindow, openOnboarding } from '../../core/surfaces'
-import { color, copy, elevation, fill, highlight, radius2, spring, tone, type Tone, type2 } from '../../core/theme'
+import { color, copy, elevation, fill, highlight, radius2, tone, type Tone, type2 } from '../../core/theme'
+import { enter, press } from '../../core/ui/motion'
 import { Spinner } from '../../core/ui/atoms'
 import { PrimaryButton, QuietButton } from '../../core/ui/buttons'
 import { Keycap } from '../../core/ui/Keycap'
@@ -202,8 +203,8 @@ function AskBlock({ primary }: { primary: boolean }): ReactNode {
             disabled={!!ask.sending}
             initial={{ opacity: 0, scale: 0.9 }}
             animate={{ opacity: 1, scale: 1 }}
-            whileTap={{ scale: 0.94 }}
-            transition={spring}
+            whileTap={{ scale: press.scale }}
+            transition={enter()}
             className="flex shrink-0 cursor-pointer items-center justify-center"
             style={{ width: 34, height: 34, borderRadius: radius2.row, background: fill.chip, color: color.text }}
           >

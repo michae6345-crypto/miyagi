@@ -25,6 +25,7 @@ import { useBarTop } from '../shortcut-bar/lift'
 import { NetBody } from './LiveNet'
 import { RUN_DROP, RUN_SHARE } from './runTuck'
 import type { Side } from './store'
+import { fade } from '../../core/ui/motion'
 
 /** About the width of a lesson's drawer (mockup 01), clamped to the room beside the drawer. */
 export const FLY_W = 420
@@ -122,8 +123,8 @@ export function Flyout({ layout, side, anchor, run }: { layout: Layout; side: Si
       }}
       initial={{ x: away, opacity: 0 }}
       animate={{ x: 0, opacity: 1 }}
-      exit={{ x: away, opacity: 0, transition: { ...springOut, opacity: { duration: 0.18 } } }}
-      transition={{ ...spring, opacity: { duration: 0.18 } }}
+      exit={{ x: away, opacity: 0, transition: { ...springOut, opacity: fade.in } }}
+      transition={{ ...spring, opacity: fade.in }}
     >
       <div ref={content} className="pb-[12px] pt-[12px]">
         <div className="flex min-w-0 items-center gap-[10px] pb-[10px]">

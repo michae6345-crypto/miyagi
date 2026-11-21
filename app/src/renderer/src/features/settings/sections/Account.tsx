@@ -16,7 +16,7 @@ import type { KeyState } from '../../../../../../../shared/contracts/events'
 import { bridge } from '../../../bridge'
 import { useLesson } from '../../../core/lesson'
 import { PrimaryButtonV2, QuietButton, Spinner } from '../../../core/ui/atoms'
-import { pressMotion } from '../../../core/ui/motion'
+import { fade, pressMotion } from '../../../core/ui/motion'
 import { color, copy, fill, radius2, type2 } from '../../../core/theme'
 import type { KeyFlow } from '../account'
 import { KEY_LABEL, REQUIRED, SHOWN, type KeyInfo, type KeyName } from '../keys'
@@ -98,7 +98,7 @@ export function Account({ flow, live }: { flow: KeyFlow; live: boolean }): React
               style={{ color: color.text }}
               initial={{ opacity: 0, y: 2 }}
               animate={{ opacity: 1, y: 0 }}
-              transition={{ duration: 0.18 }}
+              transition={fade.in}
             >
               <Check size={13} strokeWidth={1.8} aria-hidden className="shrink-0" />
               <span className="truncate">{flow.saved}</span>

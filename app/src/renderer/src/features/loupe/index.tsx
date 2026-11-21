@@ -14,7 +14,7 @@
  * features/spotlight/Spotlight.tsx. The callout is data-ui, so the spotlight caption keeps clear of it.
  */
 import { AnimatePresence, motion, useReducedMotion } from 'motion/react'
-import type { ReactNode } from 'react'
+import { useRef, type ReactNode } from 'react'
 import type { Layout } from '../../../../preload/api'
 import type { Rect } from '../../core/lesson'
 import { defineFeature } from '../../core/registry'
@@ -23,10 +23,14 @@ import { useLauncherOpen } from '../launcher/store'
 import { hole, holeRadius, isUsableRect, MIN_VISIBLE_SHARE, overlapShare, toLocal } from '../spotlight/place'
 import { useSpotlight } from '../spotlight/store'
 import { arrow, glyphFrom, PAD, placeCallout, ringSize, wantsZoom } from './place'
+import { fade } from '../../core/ui/motion'
 
 const ASKING_OPACITY = 0.3
 /** The arrow: a white hairline over a faint dark keyline (the spotlight ring's recipe), with a small open head. */
 const LINE = { width: 1.5, keyline: 3.5, keylineOpacity: 0.35, head: 7 } as const
+
+/** How far the target can move and keep its callout (px); further is a new target. */
+const JUMP_PX = 96
 
 function LoupeLayer({ layout }: { layout: Layout }): ReactNode {
   const t = useSpotlight((s) => s.target)
@@ -39,7 +43,13 @@ function LoupeLayer({ layout }: { layout: Layout }): ReactNode {
   const local = t && isUsableRect(t.rect) ? toLocal(t.rect, layout.origin) : undefined
   const here = local && overlapShare(hole(local), screen) >= MIN_VISIBLE_SHARE ? local : undefined
   const on = !!(t && here && wantsZoom(here, (t as { zoom?: unknown }).zoom))
-  const key = here ? `${Math.round(here.x)},${Math.round(here.y)}` : 'none'
+  // Motion (docs/MOTION.md): keyed by position, every small move of the target (a scroll, the editor reflowing)
+  // remounted the loupe, so a second callout regrew from the button while the first faded. Now a nearby move keeps
+  // the callout and it glides there on the spring; only a jump to somewhere else grows a new one.
+  const jump = useRef({ n: 0, x: Number.NaN, y: Number.NaN })
+  if (here && !(Math.hypot(here.x - jump.current.x, here.y - jump.current.y) <= JUMP_PX)) jump.current = { n: jump.current.n + 1, x: here.x, y: here.y }
+  else if (here) jump.current = { ...jump.current, x: here.x, y: here.y }
+  const key = here ? `loupe-${jump.current.n}` : 'none'
 
   return (
     <AnimatePresence>
@@ -51,7 +61,7 @@ function LoupeLayer({ layout }: { layout: Layout }): ReactNode {
           initial={{ opacity: 0 }}
           animate={{ opacity: asking ? ASKING_OPACITY : 1 }}
           exit={{ opacity: 0 }}
-          transition={{ duration: 0.2 }}
+          transition={fade.in}
         >
           <Callout target={here} glyph={glyphFrom(t?.caption)} bounds={bounds} reduced={reduced} />
         </motion.div>
@@ -72,7 +82,7 @@ function Callout({ target, glyph, bounds, reduced }: { target: Rect; glyph?: str
     <>
       {line && (
         <svg className="absolute inset-0 h-full w-full" aria-hidden data-part="loupe-arrow">
-          <motion.g initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: 0.2, delay: reduced ? 0 : 0.12 }}>
+          <motion.g initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ ...fade.in, delay: reduced ? 0 : 0.12 }}>
             <Arrow from={line.from} to={line.to} stroke={color.onAccent} width={LINE.keyline} opacity={LINE.keylineOpacity} />
             <Arrow from={line.from} to={line.to} stroke={color.text} width={LINE.width} opacity={1} />
           </motion.g>
@@ -85,7 +95,7 @@ function Callout({ target, glyph, bounds, reduced }: { target: Rect; glyph?: str
         style={{ width: box.w, height: box.h, background: color.island, borderRadius: radius.card, boxShadow: shadows.card, border: `1px solid ${fill.chipBorder}` }}
         initial={reduced ? { opacity: 0, x: box.x, y: box.y } : { opacity: 0, scale: 0.4, x: box.x + from.x, y: box.y + from.y }}
         animate={{ opacity: 1, scale: 1, x: box.x, y: box.y }}
-        transition={reduced ? { duration: 0.2 } : { ...spring, opacity: { duration: 0.15 } }}
+        transition={reduced ? fade.in : { ...spring, opacity: fade.in }}
       >
         {/* The target, enlarged: the spotlight's hairline ring, with the button's glyph on a keycap inside. */}
         <div
