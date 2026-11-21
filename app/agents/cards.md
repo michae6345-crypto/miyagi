@@ -1,5 +1,7 @@
 # cards
 
+**v2 (A2 `michael/app-pill-cards`, port 5187):** in progress. Owner of the pill and the cards for miyagi-v2 BUILD-PLAN A2 (Les-Mini, the pill lines of Les-Checking / NotYet / Passed, the Err-KernelInContext card footer, the Err-VSCodeSetup sheet). See "v2 (A2)" below.
+
 **Status:** pass 3 done: the off-track card is layout C (side by side, Adrian's pick), off track has no hue anywhere in cards. Merged core 369d97b. Checked in the stage (headless Chrome), screenshots re-shot. Not pushed. · **Priority:** P0 · **Port:** 5177 · **Branch:** `adrian/cards`
 
 ## Goal

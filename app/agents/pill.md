@@ -1,5 +1,7 @@
 # pill
 
+**v2 (A2 `michael/app-pill-cards`, port 5187):** in progress. Owner of the pill and the cards for miyagi-v2 BUILD-PLAN A2 (Les-Mini, the pill lines of Les-Checking / NotYet / Passed, the Err-KernelInContext card footer, the Err-VSCodeSetup sheet). See "v2 (A2)" below.
+
 **Status:** pass 2 (functional: notice, thinking, offline, next part) done, waiting on Adrian's review · **Priority:** P0 · **Port:** 5174 · **Branch:** `adrian/pill`
 
 Pass 2 (Michael's audit + live test), on core `be157ff`:
