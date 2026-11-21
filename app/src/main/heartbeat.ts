@@ -8,8 +8,10 @@
  *   alive()        : call on every pong and every message
  */
 export const PING_MS = 5000
-export const DEAD_MS = 12_000
-export const PROBE_MS = 3000
+/** An engine busy with OCR, a model call or a lesson build can leave its event loop blocked for many seconds; a late pong is not a dead socket. */
+export const DEAD_MS = 30_000
+/** Wake / network change only: a healthy engine answers at once, but a busy one may need a few seconds. A miss redials (the held reset keeps the same lesson on screen). */
+export const PROBE_MS = 8000
 
 export type HeartbeatIo = { ping(): void; dead(): void }
 

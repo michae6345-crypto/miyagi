@@ -350,13 +350,19 @@ const boundsOut = coalesce<void>(sendBoundsNow, 50)
 function sendBounds(): void {
   boundsOut.push()
 }
+/** A window hid or closed: the OCR mask must shrink now, not up to 50 ms later. */
+function sendBoundsFlushed(): void {
+  boundsOut.push()
+  boundsOut.flush()
+}
 
 function reportBounds(win: BrowserWindow): void {
   reported.add(win)
-  for (const ev of ['move', 'resize', 'show', 'hide'] as const) win.on(ev as 'move', sendBounds)
+  for (const ev of ['move', 'resize', 'show'] as const) win.on(ev as 'move', sendBounds)
+  win.on('hide', sendBoundsFlushed)
   win.on('closed', () => {
     reported.delete(win)
-    sendBounds()
+    sendBoundsFlushed()
   })
   sendBounds()
 }
@@ -602,6 +608,7 @@ function setupMenu(): void {
   )
 }
 
+app.on('before-quit', () => boundsOut.flush())
 app.on('will-quit', () => {
   globalShortcut.unregisterAll()
   stopLocalEngine()

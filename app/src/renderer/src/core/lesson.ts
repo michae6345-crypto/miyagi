@@ -375,7 +375,8 @@ useLesson.subscribe((s, prev) => {
   thinkingTimer = setTimeout(() => {
     thinkingTimer = undefined
     if (get().engineState !== 'thinking') return
-    set({ engineState: undefined })
+    // Same set as setConnected(false): a stale busy/retry caption must not outlive the spinner.
+    set({ engineState: undefined, busy: undefined, statusDetail: undefined })
     notify('That is taking too long. Try again.', 'info', { id: 'thinking-timeout' })
   }, THINKING_MAX_MS)
 })
