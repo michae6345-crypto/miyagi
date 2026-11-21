@@ -32,6 +32,7 @@ export ORCH_OPEN_WORKSPACE="${ORCH_OPEN_WORKSPACE:-1}"
 # LIVE: no lesson until the launcher sends `learn`; each lesson gets its own workspace under ~/miyagi/lessons.
 # (The PINN hero with demo/pinn-lab autostarted is scripts/miyagi-demo.sh.)
 export ORCH_AUTOSTART="${ORCH_AUTOSTART:-0}"
+export ORCH_AUTO_RESUME="${ORCH_AUTO_RESUME:-1}"  # dev deploys keep the running lesson; the app (localEngine.ts) starts fresh
 
 # --- macOS Screen Recording permission (the screen reader needs it) ---------------------
 if [ "$(uname)" = "Darwin" ] && [ "$ORCH_SCREEN" = "1" ]; then
