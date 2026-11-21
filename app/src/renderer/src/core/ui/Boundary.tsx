@@ -7,7 +7,8 @@
 import { Component, type ErrorInfo, type ReactNode } from 'react'
 
 /** retryMs: also try again by itself after this long (the island: one bad render must not leave the screen empty). */
-type Props = { name: string; retryKey?: unknown; retryMs?: number; children: ReactNode }
+/** fallback: shown while it is down, instead of nothing (the island shows its resting pill, never an empty black shape). */
+type Props = { name: string; retryKey?: unknown; retryMs?: number; fallback?: ReactNode; children: ReactNode }
 type State = { failed: boolean; key?: unknown }
 
 export class Boundary extends Component<Props, State> {
@@ -39,6 +40,6 @@ export class Boundary extends Component<Props, State> {
   }
 
   render(): ReactNode {
-    return this.state.failed ? null : this.props.children
+    return this.state.failed ? (this.props.fallback ?? null) : this.props.children
   }
 }

@@ -354,3 +354,44 @@ export function unlockLabels(data: DashData | undefined, unlocks: string[]): str
   const all = data?.tracks.flatMap((t) => t.skills) ?? []
   return unlocks.map((u) => all.find((s) => s.id === u || skillKey(s.label) === skillKey(u))?.label ?? u)
 }
+
+// ---- skill groups -----------------------------------------------------------------------------------------------
+
+export type SkillGroup = { key: string; title: string; kicker?: string; track: DashTrack }
+
+/**
+ * The skills page's groups: one per track, unless a track's skills came from two or more different lessons we know
+ * by name. Then each lesson is its own group (titled by the lesson, the track as its small label), so one lesson's
+ * skills never hide under a broad track name.
+ */
+export function groupTracks(data: DashData | undefined): SkillGroup[] {
+  const lessons = lessonIndex(data)
+  const out: SkillGroup[] = []
+  for (const t of data?.tracks ?? []) {
+    const titleOf = (s: DashSkill): string | undefined => {
+      const id = s.lessons.find((l) => lessons.has(l))
+      return id ? lessons.get(id)!.title : undefined
+    }
+    const titles = new Set(t.skills.map(titleOf).filter((x): x is string => !!x))
+    if (titles.size < 2) {
+      out.push({ key: t.track, title: t.track, track: t })
+      continue
+    }
+    const groups = new Map<string, DashSkill[]>()
+    for (const s of t.skills) {
+      const k = titleOf(s) ?? t.track
+      groups.set(k, [...(groups.get(k) ?? []), s])
+    }
+    for (const [title, skills] of groups) {
+      const ids = new Set(skills.map((s) => s.id))
+      const mastered = skills.filter((s) => s.state === 'mastered').length
+      out.push({
+        key: `${t.track}\u0000${title}`,
+        title,
+        kicker: title === t.track ? undefined : t.track,
+        track: { ...t, skills, mastered, total: skills.length, edges: t.edges.filter((e) => ids.has(e.from) && ids.has(e.to)), cross: t.cross.filter((c) => ids.has(c.to)) }
+      })
+    }
+  }
+  return out
+}

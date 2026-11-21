@@ -202,7 +202,7 @@ export function Sidebar({ compact, short, blocked = false }: { compact: boolean;
       style={{ width: compact ? SIDEBAR_COMPACT_W : SIDEBAR_W, padding: compact ? '0 10px 12px' : '0 12px 12px', background: fill.group, boxShadow: `inset -1px 0 0 ${fill.hairline}` }}
     >
       {/* The window's own traffic lights sit here (hiddenInset); this strip drags the window. */}
-      <div data-drag className="shrink-0" style={{ height: 40 }} />
+      <div data-drag className="mg-lights shrink-0" />
       <div data-drag className="flex shrink-0 items-center gap-[8px]" style={{ padding: compact ? '4px 0 20px' : '4px 10px 20px', justifyContent: compact ? 'center' : undefined }}>
         <SidebarBrand compact={compact} />
       </div>

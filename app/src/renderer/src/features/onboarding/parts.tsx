@@ -56,7 +56,7 @@ export function Footer({ sum, left, border = true, label = 'Start learning', onS
 
 export function LauncherHint({ lead }: { lead?: string }): ReactNode {
   return (
-    <div className="flex items-center gap-[8px]">
+    <div className="flex items-center gap-[8px] whitespace-nowrap">
       {lead && <span style={{ fontSize: type2.sm, color: color.label }}>{lead}</span>}
       <Keycap k="launcher" />
       <span style={{ fontSize: type2.sm, color: color.label }}>{copy.launcherPlaceholder}</span>

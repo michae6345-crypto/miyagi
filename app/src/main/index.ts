@@ -8,18 +8,20 @@
  * Features add their own main-process code in src/main/features/<name>.ts (see context.ts).
  * Owner: core.
  */
-import { app, BrowserWindow, globalShortcut, ipcMain, screen, session, type BrowserWindowConstructorOptions, type IpcMainEvent, type IpcMainInvokeEvent, type WebContents } from 'electron'
+import { app, BrowserWindow, globalShortcut, ipcMain, Menu, net, powerMonitor, screen, session, type BrowserWindowConstructorOptions, type IpcMainEvent, type IpcMainInvokeEvent, type WebContents } from 'electron'
 import { join } from 'node:path'
 import { V2_COMMANDS } from '../common/wire'
 import { setupIdentity } from './identity'
 import { EngineLink } from './engine'
-import { setupPrefs } from './prefs'
+import { setupPrefs, trackWindowBackground, windowBackground } from './prefs'
 import { ENGINE_TOKEN, localEngineState, setupLocalEngine } from './localEngine'
 import { serveRenderer } from './serve'
 import { setupAppWindows, type AppWindows } from './appWindows'
 import { setupPermissions } from './permissions'
 import { openLinkInBrowser, safeOpenExternal } from './safeOpen'
 import { previousApp } from './features/front-app'
+import { gateCore, gateIsOpen } from './gate'
+import { coalesce } from './coalesce'
 import type { MainContext, MainFeature } from './context'
 import {
   describePlatform,
@@ -52,8 +54,17 @@ const signalListeners = new Map<string, Set<(payload?: unknown) => void>>()
 let overlay: BrowserWindow
 let launcher: BrowserWindow
 let launcherOpen = false
+/** Bumped on every close request and open: a stale close watchdog never hides a newer open. */
+let launcherGen = 0
+/** When the launcher last opened (ms): a second press of the key inside LAUNCHER_DOUBLE_MS is the same press twice, not a close. */
+let launcherOpenedAt = 0
+const LAUNCHER_DOUBLE_MS = 400
+/** The miyagi window (home, settings...) that had the keyboard when the launcher opened: Esc gives it back there, never to Finder. */
+let launcherOrigin: BrowserWindow | undefined
+/** The pill's top before fitting to a display's menu bar / notch band (platform.pillTop is the fitted one). */
+let basePillTop = 0
 /** The island's latest size, so the launcher can grow out of its exact shape (dx/dy: a card moved off the spotlight). */
-let islandSize: { w: number; h: number; dx?: number; dy?: number } = { w: 300, h: 34 }
+let islandSize: { w: number; h: number; dx?: number; dy?: number; shown?: boolean } = { w: 300, h: 34 }
 /** Built app: where main/serve.ts serves the renderer (set before any window is created). */
 let rendererOrigin: string | undefined
 let actionsRegistered = false
@@ -161,6 +172,10 @@ function createWindow(route: string, options: BrowserWindowConstructorOptions, k
   })
   windows.add(win)
   win.on('closed', () => windows.delete(win))
+  if (kind === 'app') {
+    win.setBackgroundColor(windowBackground())
+    trackWindowBackground(win)
+  }
   showAfterFirstPaint(win)
   // Every overlay window follows the learner across Spaces and over full-screen apps (Michael, Sat). App windows
   // (v2) stay on their own Space like any Mac window.
@@ -233,7 +248,7 @@ function createCoreWindow(route: 'overlay' | 'launcher'): BrowserWindow {
 function layoutFor(win: BrowserWindow): Layout {
   const b = win.getBounds()
   const wa = screen.getDisplayMatching(b).workArea
-  return { origin: { x: b.x, y: b.y }, width: b.width, height: b.height, workArea: { x: wa.x - b.x, y: wa.y - b.y, width: wa.width, height: wa.height } }
+  return { origin: { x: b.x, y: b.y }, width: b.width, height: b.height, pillTop: platform.pillTop, workArea: { x: wa.x - b.x, y: wa.y - b.y, width: wa.width, height: wa.height } }
 }
 
 function send(win: BrowserWindow | undefined, signal: UiSignal, payload?: unknown): void {
@@ -245,8 +260,13 @@ function forEachWindow(fn: (w: BrowserWindow) => void): void {
 }
 
 function openLauncher(): void {
-  if (launcherOpen) return
+  // Launch gate (main/gate.ts): no launcher before the login and setup are through.
+  if (launcherOpen || !gateIsOpen()) return
+  const front = BrowserWindow.getFocusedWindow()
+  launcherOrigin = front && front !== overlay && front !== launcher && !front.isDestroyed() ? front : undefined
   launcherOpen = true
+  launcherGen++
+  launcherOpenedAt = Date.now()
   keptBlurs = []
   launcherModifier = false
   launcher.show()
@@ -266,7 +286,14 @@ function openLauncher(): void {
 }
 
 function closeLauncher(): void {
-  if (launcherOpen) send(launcher, 'launcher:close') // renderer animates out, then emits launcher:hidden
+  if (!launcherOpen) return
+  send(launcher, 'launcher:close') // renderer animates out, then emits launcher:hidden
+  // Watchdog: the launcher renderer is hung or gone and never says launcher:hidden: the island must not stay invisible.
+  // (Only if it is still the same open: a quick reopen has a newer generation.)
+  const gen = ++launcherGen
+  setTimeout(() => {
+    if (launcherOpen && gen === launcherGen && !launcher.isDestroyed()) hideLauncher()
+  }, 2500)
 }
 
 /** When blurs kept the launcher open (loop guard: an app that keeps grabbing focus wins after a few tries). */
@@ -302,6 +329,16 @@ function hideLauncher(): void {
   launcherOpen = false
   launcher.hide()
   send(overlay, 'launcher:closed') // the island is back
+  const origin = launcherOrigin
+  launcherOrigin = undefined
+  if (origin && !origin.isDestroyed() && origin.isVisible()) {
+    // Opened from a miyagi window: it gets the keyboard back. returnFocus would reactivate "the last other app" (Finder).
+    overlay.showInactive()
+    raise(overlay)
+    if (process.platform === 'darwin') app.focus({ steal: true })
+    origin.focus()
+    return
+  }
   returnFocus(app, overlay, previousApp())
 }
 
@@ -312,7 +349,7 @@ const ACTION_KINDS: Exclude<ShortcutKind, 'launcher'>[] = (['back', 'explain', '
 
 /** Global action shortcuts go to the overlay renderer, which decides (features may claim them) and tells the engine. */
 function registerActionShortcuts(): void {
-  if (actionsRegistered) return
+  if (actionsRegistered || !gateIsOpen()) return
   actionsRegistered = true
   for (const kind of ACTION_KINDS) {
     const ok = globalShortcut.register(platform.accelerators[kind], () => send(overlay, 'shortcut', kind))
@@ -328,7 +365,7 @@ function unregisterActionShortcuts(): void {
 }
 
 /** overlay.bounds = the overlay's own UI rects + every visible reported feature window (screen points). */
-function sendBounds(): void {
+function sendBoundsNow(): void {
   const extra = [...reported]
     .filter((w) => !w.isDestroyed() && w.isVisible())
     .map((w) => {
@@ -338,12 +375,24 @@ function sendBounds(): void {
   engine.send({ type: 'overlay.bounds', payload: { rects: [...overlayRects, ...extra] } })
 }
 
+/** Window move/resize fire per frame while dragging; the engine only needs the last one (50 ms trailing). */
+const boundsOut = coalesce<void>(sendBoundsNow, 50)
+function sendBounds(): void {
+  boundsOut.push()
+}
+/** A window hid or closed: the OCR mask must shrink now, not up to 50 ms later. */
+function sendBoundsFlushed(): void {
+  boundsOut.push()
+  boundsOut.flush()
+}
+
 function reportBounds(win: BrowserWindow): void {
   reported.add(win)
-  for (const ev of ['move', 'resize', 'show', 'hide'] as const) win.on(ev as 'move', sendBounds)
+  for (const ev of ['move', 'resize', 'show'] as const) win.on(ev as 'move', sendBounds)
+  win.on('hide', sendBoundsFlushed)
   win.on('closed', () => {
     reported.delete(win)
-    sendBounds()
+    sendBoundsFlushed()
   })
   sendBounds()
 }
@@ -390,18 +439,36 @@ app.whenReady().then(async () => {
   }
   // Launch-ease lane: the pill sits under the menu bar / notch band, never on it (platform.ts fitPillTop). Before any
   // window exists: every renderer gets pillTop in its launch arguments.
-  platform.pillTop = fitPillTop(platform.pillTop, displayNow())
+  basePillTop = platform.pillTop
+  platform.pillTop = fitPillTop(basePillTop, displayNow())
   overlay = createCoreWindow('overlay')
   launcher = createCoreWindow('launcher')
 
   overlay.setIgnoreMouseEvents(true, { forward: true })
-  overlay.once('ready-to-show', () => overlay.showInactive())
+  // Launch gate (main/gate.ts, Michael Nov 21: launch = start from new): the overlay shows and the launcher key
+  // registers only once the login and setup are through, and both go away on a sign-out. Until then only the home
+  // window (its first-run flow) is on screen. showInactive before the first paint is held (showAfterFirstPaint).
+  gateCore({
+    overlay,
+    launcherKey: (on) => {
+      if (!on) return globalShortcut.unregister(platform.accelerators.launcher)
+      const ok = globalShortcut.register(platform.accelerators.launcher, () => {
+        if (!launcherOpen) return openLauncher()
+        if (Date.now() - launcherOpenedAt >= LAUNCHER_DOUBLE_MS) closeLauncher() // a second press right after an open is ignored
+      })
+      if (!ok) console.warn(`[tut] launcher shortcut ${platform.accelerators.launcher} is taken`)
+    },
+    closed: () => {
+      if (launcherOpen) closeLauncher()
+      unregisterActionShortcuts()
+    }
+  })
   launcher.on('blur', onLauncherBlur)
   launcher.webContents.on('before-input-event', (_e, input) => (launcherModifier = isLeavingModifier(input)))
 
   engine.onEvent((e) => {
     forEachWindow((w) => w.webContents.send('engine:event', e))
-    if (e.type === 'lesson.ready') registerActionShortcuts()
+    if (e.type === 'lesson.ready' && gateIsOpen()) registerActionShortcuts()
     if (e.type === 'lesson.ended') unregisterActionShortcuts()
   })
   engine.onStatus((c) => forEachWindow((w) => w.webContents.send('engine:status', c)))
@@ -459,7 +526,9 @@ app.whenReady().then(async () => {
         send(overlay, signal, payload)
         break
       case 'launcher:toggle':
-        launcherOpen ? closeLauncher() : openLauncher()
+        // The pill can't open the launcher while the gate is closed (closing one that is open is always fine).
+        if (launcherOpen) closeLauncher()
+        else if (gateIsOpen()) openLauncher()
         break
       case 'shortcut':
         // A shortcut pressed in another window (the launcher's Explain / Hint chips): run it in the overlay, where
@@ -478,22 +547,65 @@ app.whenReady().then(async () => {
     signalListeners.get(signal)?.forEach((fn) => fn(payload))
   })
 
-  const ok = globalShortcut.register(platform.accelerators.launcher, () => (launcherOpen ? closeLauncher() : openLauncher()))
-  if (!ok) console.warn(`[tut] launcher shortcut ${platform.accelerators.launcher} is taken`)
-  // Windows keeps one instance (features/windows.ts): opening miyagi again from the Start menu shows the launcher,
-  // instead of a second launch that silently exits.
-  app.on('second-instance', () => openLauncher())
+  // The launcher key follows the gate (gateCore above). A second launch opens home: features/launch.ts owns
+  // 'second-instance' (it used to open the launcher here too, over a closed gate).
 
   // Always-available kill switch: ⌃⌥Q (Mac; ⌥Q alone types "œ" in editors) / Alt+Q (Windows) quits the overlay.
   const quitKey = platform.os === 'mac' ? 'Control+Alt+Q' : 'Alt+Q'
   if (!globalShortcut.register(quitKey, () => app.quit())) console.warn(`[tut] quit shortcut ${quitKey} is taken`)
 
+  // Engine link health: after sleep, unlock or a network change the socket may be half open. Ping it (drop + redial
+  // when nothing answers) instead of showing a healthy pill that is deaf.
+  const wake = (): void => engine.wake()
+  // Displays change (plugged, unplugged, resolution, the menu bar's band, a new primary): the two core windows follow the
+  // PRIMARY display (the one the engine watches), the pill is re-fitted under its menu bar / notch band and centered on
+  // it, and the windows are raised again (a display change drops them below other panels). Debounced: a plug fires several.
+  let refitTimer: ReturnType<typeof setTimeout> | undefined
+  const refit = (): void => {
+    clearTimeout(refitTimer)
+    refitTimer = setTimeout(() => {
+      platform.pillTop = fitPillTop(basePillTop, displayNow())
+      for (const w of [overlay, launcher]) {
+        if (w.isDestroyed()) continue
+        w.setBounds(overlayBounds(displayNow()))
+        raise(w)
+        send(w, 'layout', layoutFor(w))
+      }
+    }, 150)
+  }
+  // Every way the island can be left half-open by the system: collapse it to rest (core/Island.tsx collapseAll).
+  const collapseIsland = (): void => send(overlay, 'island:collapse')
+  overlay.webContents.on('responsive', collapseIsland)
   screen.on('display-metrics-changed', () => {
-    for (const w of [overlay, launcher]) {
-      w.setBounds(overlayBounds(screen.getDisplayMatching(w.getBounds())))
-      send(w, 'layout', layoutFor(w))
-    }
+    collapseIsland()
+    refit()
   })
+  screen.on('display-added', () => {
+    collapseIsland()
+    refit()
+  })
+  screen.on('display-removed', () => {
+    collapseIsland()
+    refit()
+  })
+  // Wake and unlock: macOS can drop the panels' level and the renderer's frames; re-raise and re-send the layout.
+  powerMonitor.on('resume', () => {
+    collapseIsland()
+    refit()
+    wake()
+  })
+  powerMonitor.on('unlock-screen', () => {
+    collapseIsland()
+    refit()
+    wake()
+  })
+  let wasOnline = net.isOnline()
+  const netTimer = setInterval(() => {
+    const on = net.isOnline()
+    if (on && !wasOnline) wake()
+    wasOnline = on
+  }, 3000)
+  netTimer.unref()
 
   setupPrefs((channel, payload) => forEachWindow((w) => w.webContents.send(`feat:${channel}`, payload)), trustedSender)
   // One download: a built app on a Mac starts (and first installs) the engine itself. See main/localEngine.ts.
@@ -538,8 +650,28 @@ app.whenReady().then(async () => {
     openWindow: (route, args) => appWindows?.open(route, args),
     appWindow: (route) => appWindows?.get(route)
   })
+  setupMenu()
 })
 
+/**
+ * The standard macOS app menu (Nov 21: the test found only "Edit"): miyagi, Edit, View (Enter Full Screen), Window
+ * (Minimize, Zoom). The only menu definition (overlay-raise.ts no longer sets one), set once after the features load. Full screen
+ * and zoom act on the focused window; only app windows are fullscreenable (platform.ts appWindowOptions), so for the
+ * overlay, pill and panels those items stay disabled by Electron.
+ */
+function setupMenu(): void {
+  if (platform.os !== 'mac') return
+  Menu.setApplicationMenu(
+    Menu.buildFromTemplate([
+      { label: 'miyagi', submenu: [{ role: 'about' }, { type: 'separator' }, { role: 'hide' }, { role: 'hideOthers' }, { role: 'unhide' }, { type: 'separator' }, { role: 'quit' }] },
+      { role: 'editMenu' },
+      { label: 'View', submenu: [{ role: 'togglefullscreen' }] },
+      { label: 'Window', role: 'windowMenu', submenu: [{ role: 'minimize' }, { role: 'zoom' }, { type: 'separator' }, { role: 'front' }] }
+    ])
+  )
+}
+
+app.on('before-quit', () => boundsOut.flush())
 app.on('will-quit', () => {
   globalShortcut.unregisterAll()
   stopLocalEngine()

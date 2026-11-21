@@ -172,3 +172,15 @@ Not verified: Electron (`npm run dev`), real TCC prompts, the relaunch, the VS C
 
 ## Notes
 - No email to Adrian was sent from this session (the lane is claimed by the draft PR); the coordination email is left to Michael.
+
+## Setup walkthrough pass (Nov 21, lane michael/app-setup-walkthrough)
+- Progress is five dots (onboarding/Dots.tsx; shell/flow/Strip.tsx and the setup window use it), no text stepper. Each step is one centered screen: a pastel-washed stage with depth holding the live picture, title, one line, the live status, Back and the one primary.
+- Re-grant: a Screen Recording or Accessibility step the learner asked for and macOS still does not report after 7 s says "switch miyagi off and on again" and "remove it with the minus, add it back" (Guided.tsx REGRANT_MS); Screen Recording's primary is Relaunch miyagi. Stage: `?flow=1&step=access&regrant=1`.
+- You're ready offers a sample lesson card and "Show me around" (primary) or "Skip"; both land on Home and start no lesson.
+- Walkthrough: features/tips TourLayer.tsx (overlay z 72) + tourStore.ts + tourMarks.ts: five marks over a sample panel, same CoachMark. Re-open: tray "Show me around" (main/features/launch.ts), stage `?tour=1..5`. main: onboarding:tour start/end/seen (onboarding.json tourSeen).
+- Launcher: launcher/guard.ts ignores a `launcher:close` within 400 ms of an open (double toggle); main/index.ts hideLauncher returns focus to the miyagi window that opened the launcher (no returnFocus, no timed refocus; the launcher-focus feature was folded into it in the Nov 21 combine), and the global key ignores a second press within 400 ms of an open.
+
+### Core requests
+1. (Done in the Nov 21 combine) Settings: a "Show me around" row calling `startTour()` from features/tips/tourStore.
+2. main/index.ts hideLauncher: skip `returnFocus(... previousApp())` when launcher-focus.ts found a miyagi origin window (today it reactivates the last non-miyagi app, Finder, and launcher-focus re-focuses the window at 60/200/500 ms to win that race). Also make the global shortcut path ignore a second press within 400 ms of an open.
+3. Light theme tokens (theme lane): setup shots in light match dark until the tokens switch.

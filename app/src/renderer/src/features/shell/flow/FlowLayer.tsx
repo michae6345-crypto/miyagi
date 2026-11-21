@@ -35,7 +35,7 @@ import { Intro } from '../../onboarding/Intro'
 import { useLive } from '../../onboarding/Onboarding'
 import { Ready } from '../../onboarding/Ready'
 import { summarize, useRows } from '../../onboarding/rows'
-import { markDone, useOnboarding } from '../../onboarding/store'
+import { markDone, noteSetupShown, useOnboarding } from '../../onboarding/store'
 import { arriveDelay, layerIn, layerOut, leave, screenOut } from './motion'
 import { Strip } from './Strip'
 import './web'
@@ -79,10 +79,14 @@ export function FlowLayer({ width, height }: { width: number; height: number }):
   const rows = useRows()
   const sum = useMemo(() => summarize(rows), [rows])
 
-  // Setup counts as done the moment every row is green (as in the setup window), even before Start.
+  // Setup counts as done the moment every row is green (as in the setup window), even before Start. Only once the
+  // setup walk shows: the login screen (a later launch, setup long done) never marks anything.
+  const walking = phase === 'setup' || phase === 'ready'
   useEffect(() => {
+    if (!walking) return
+    noteSetupShown()
     if (sum.allOk) markDone()
-  }, [sum.allOk])
+  }, [sum.allOk, walking])
 
   // Setup again: Esc hands back to home, before anything under the layer (a preview, the search) sees the key.
   useEffect(() => {
@@ -111,7 +115,7 @@ export function FlowLayer({ width, height }: { width: number; height: number }):
       exit={{ opacity: 0, transition: layerOut }}
     >
       <motion.div data-flow-screen className="flex h-full w-full select-none flex-col" initial={false} animate={{ opacity: leaving ? 0 : 1 }} transition={screenOut}>
-        <header data-drag className="relative flex h-[64px] shrink-0 items-center justify-center">
+        <header data-drag className="mg-flow-head relative flex shrink-0 items-center justify-center">
           {!intro && <Strip phase={phase} step={phase === 'setup' ? step : undefined} rows={rows} skipped={skipped} mark={!leaving && !again} compact={width < COMPACT_W} />}
           <AnimatePresence>
             {again ? (
@@ -169,7 +173,7 @@ export function FlowLayer({ width, height }: { width: number; height: number }):
             {phase === 'ready' && (
               <View key={sum.canStart ? 'ready' : 'checklist'} id={sum.canStart ? 'ready' : 'checklist'}>
                 {sum.canStart ? (
-                  <Ready rows={rows} sum={sum} mark={false} again={again} onStart={done} />
+                  <Ready rows={rows} sum={sum} mark={false} again={again} onStart={done} onTour={() => finishFlow(true)} />
                 ) : (
                   <Checklist rows={rows} sum={sum} mark={false} again={again} onGuide={backToSetup} onStart={again ? () => leaveAgain() : start} />
                 )}
