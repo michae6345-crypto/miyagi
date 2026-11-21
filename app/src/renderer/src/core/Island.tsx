@@ -18,6 +18,7 @@ import { startBuild, useLesson } from './lesson'
 import { Boundary } from './ui/Boundary'
 import { MiyagiMark } from './ui/Mark'
 import { getIslandModes } from './registry'
+import { perf } from './perf'
 import { islandSizeFor, PILL_FALLBACK, type IslandSize } from './islandSize'
 import { color, duration, ease, pill, shadows, spring, springOut } from './theme'
 
@@ -182,10 +183,20 @@ export function Island({ top, layout }: { top: number; layout: Layout }): ReactN
 
   // Tell main (or the browser bus) our current size, so the launcher can grow out of exactly this shape, and where we
   // are (dx/dy from the notch spot: main's click-through poll covers the island there).
+  // One message per animation frame at most (a size and an offset that change together send once), and `shown: false` while no mode
+  // owns the island, so main's click poll stops grabbing a ghost card-size rect over the page (the last size stays for the
+  // launcher's hand-off).
+  const hasMode = !!modeId
   useEffect(() => {
-    // `shown` false = nothing is drawn (no mode, or the launcher has it): main's click poll must not grab a ghost box.
-    if (!landing) bridge.emit('island:size', reportedBox(!!modeId && !yielded, size, offset.x, offset.y))
-  }, [size, landing, offset.x, offset.y, modeId, yielded])
+    if (landing) return
+    perf.count('island.size.requested')
+    const raf = requestAnimationFrame(() => {
+      perf.count('island.size.sent')
+      // `shown` false = nothing is drawn (no mode, or the launcher has it): main's click poll must not grab a ghost box.
+      bridge.emit('island:size', reportedBox(hasMode && !yielded, size, offset.x, offset.y))
+    })
+    return () => cancelAnimationFrame(raf)
+  }, [size, landing, offset.x, offset.y, hasMode, yielded])
   // v2: the same box for in-window readers (useIslandBox).
   useEffect(() => {
     const next: IslandBox = { x: Math.round((layout.width - size.w) / 2 + offset.x), y: Math.round(top + offset.y), w: size.w, h: size.h, mode: modeId, pill: isPill, visible: !!modeId && !yielded }

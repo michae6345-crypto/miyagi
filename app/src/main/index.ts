@@ -8,7 +8,7 @@
  * Features add their own main-process code in src/main/features/<name>.ts (see context.ts).
  * Owner: core.
  */
-import { app, BrowserWindow, globalShortcut, ipcMain, Menu, powerMonitor, screen, session, type BrowserWindowConstructorOptions, type IpcMainEvent, type IpcMainInvokeEvent, type WebContents } from 'electron'
+import { app, BrowserWindow, globalShortcut, ipcMain, Menu, net, powerMonitor, screen, session, type BrowserWindowConstructorOptions, type IpcMainEvent, type IpcMainInvokeEvent, type WebContents } from 'electron'
 import { join } from 'node:path'
 import { V2_COMMANDS } from '../common/wire'
 import { setupIdentity } from './identity'
@@ -21,6 +21,7 @@ import { setupPermissions } from './permissions'
 import { openLinkInBrowser, safeOpenExternal } from './safeOpen'
 import { previousApp } from './features/front-app'
 import { gateCore, gateIsOpen } from './gate'
+import { coalesce } from './coalesce'
 import type { MainContext, MainFeature } from './context'
 import {
   describePlatform,
@@ -364,7 +365,7 @@ function unregisterActionShortcuts(): void {
 }
 
 /** overlay.bounds = the overlay's own UI rects + every visible reported feature window (screen points). */
-function sendBounds(): void {
+function sendBoundsNow(): void {
   const extra = [...reported]
     .filter((w) => !w.isDestroyed() && w.isVisible())
     .map((w) => {
@@ -374,12 +375,24 @@ function sendBounds(): void {
   engine.send({ type: 'overlay.bounds', payload: { rects: [...overlayRects, ...extra] } })
 }
 
+/** Window move/resize fire per frame while dragging; the engine only needs the last one (50 ms trailing). */
+const boundsOut = coalesce<void>(sendBoundsNow, 50)
+function sendBounds(): void {
+  boundsOut.push()
+}
+/** A window hid or closed: the OCR mask must shrink now, not up to 50 ms later. */
+function sendBoundsFlushed(): void {
+  boundsOut.push()
+  boundsOut.flush()
+}
+
 function reportBounds(win: BrowserWindow): void {
   reported.add(win)
-  for (const ev of ['move', 'resize', 'show', 'hide'] as const) win.on(ev as 'move', sendBounds)
+  for (const ev of ['move', 'resize', 'show'] as const) win.on(ev as 'move', sendBounds)
+  win.on('hide', sendBoundsFlushed)
   win.on('closed', () => {
     reported.delete(win)
-    sendBounds()
+    sendBoundsFlushed()
   })
   sendBounds()
 }
@@ -541,6 +554,9 @@ app.whenReady().then(async () => {
   const quitKey = platform.os === 'mac' ? 'Control+Alt+Q' : 'Alt+Q'
   if (!globalShortcut.register(quitKey, () => app.quit())) console.warn(`[tut] quit shortcut ${quitKey} is taken`)
 
+  // Engine link health: after sleep, unlock or a network change the socket may be half open. Ping it (drop + redial
+  // when nothing answers) instead of showing a healthy pill that is deaf.
+  const wake = (): void => engine.wake()
   // Displays change (plugged, unplugged, resolution, the menu bar's band, a new primary): the two core windows follow the
   // PRIMARY display (the one the engine watches), the pill is re-fitted under its menu bar / notch band and centered on
   // it, and the windows are raised again (a display change drops them below other panels). Debounced: a plug fires several.
@@ -576,11 +592,20 @@ app.whenReady().then(async () => {
   powerMonitor.on('resume', () => {
     collapseIsland()
     refit()
+    wake()
   })
   powerMonitor.on('unlock-screen', () => {
     collapseIsland()
     refit()
+    wake()
   })
+  let wasOnline = net.isOnline()
+  const netTimer = setInterval(() => {
+    const on = net.isOnline()
+    if (on && !wasOnline) wake()
+    wasOnline = on
+  }, 3000)
+  netTimer.unref()
 
   setupPrefs((channel, payload) => forEachWindow((w) => w.webContents.send(`feat:${channel}`, payload)), trustedSender)
   // One download: a built app on a Mac starts (and first installs) the engine itself. See main/localEngine.ts.
@@ -646,6 +671,7 @@ function setupMenu(): void {
   )
 }
 
+app.on('before-quit', () => boundsOut.flush())
 app.on('will-quit', () => {
   globalShortcut.unregisterAll()
   stopLocalEngine()

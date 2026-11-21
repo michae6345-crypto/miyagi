@@ -135,7 +135,7 @@ export default defineMainFeature({
       const p = screen.getCursorScreenPoint()
       if (away) {
         // Grab nothing. The pointer resting on the island (the pill, an open card) asks the renderer to wake (A8).
-        if (!within(p, island)) restSince = 0
+        if (!shown || !within(p, island)) restSince = 0
         else if (!restSince) restSince = Date.now()
         else if (restSince > 0 && Date.now() - restSince >= REST_MS) {
           restSince = -1 // once per rest
@@ -143,7 +143,7 @@ export default defineMainFeature({
         }
         return
       }
-      const now = within(p, island) || (hits ?? ctx.overlayRects()).some((r) => within(p, r))
+      const now = (shown && within(p, island)) || (hits ?? ctx.overlayRects()).some((r) => within(p, r))
       if (now && !grabbed) {
         grabbed = true
         ctx.overlay.setIgnoreMouseEvents(false)
