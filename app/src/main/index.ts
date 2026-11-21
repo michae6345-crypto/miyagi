@@ -13,7 +13,7 @@ import { join } from 'node:path'
 import { V2_COMMANDS } from '../common/wire'
 import { EngineLink } from './engine'
 import { setupPrefs } from './prefs'
-import { localEngineState, setupLocalEngine } from './localEngine'
+import { ENGINE_TOKEN, localEngineState, setupLocalEngine } from './localEngine'
 import { serveRenderer } from './serve'
 import { setupAppWindows, type AppWindows } from './appWindows'
 import { setupPermissions } from './permissions'
@@ -36,7 +36,8 @@ import type { Layout, UiSignal } from '../preload/api'
 
 const platform = describePlatform(process.platform)
 const ENGINE_URL = process.env.ENGINE_URL ?? 'ws://localhost:8787'
-const engine = new EngineLink(ENGINE_URL, process.env.DEMO === '1' ? (process.env.SCENARIO ?? 'full') : undefined)
+// The token goes in with the constructor: the first connect starts there, before setupLocalEngine runs.
+const engine = new EngineLink(ENGINE_URL, process.env.DEMO === '1' ? (process.env.SCENARIO ?? 'full') : undefined, ENGINE_TOKEN)
 let stopLocalEngine: () => void = () => undefined
 
 const windows = new Set<BrowserWindow>()
@@ -477,9 +478,9 @@ app.whenReady().then(async () => {
     }
   })
 
-  setupPrefs((channel, payload) => forEachWindow((w) => w.webContents.send(`feat:${channel}`, payload)))
+  setupPrefs((channel, payload) => forEachWindow((w) => w.webContents.send(`feat:${channel}`, payload)), trustedSender)
   // One download: a built app on a Mac starts (and first installs) the engine itself. See main/localEngine.ts.
-  stopLocalEngine = setupLocalEngine(engine, ENGINE_URL, (channel, payload) => forEachWindow((w) => w.webContents.send(`feat:${channel}`, payload)))
+  stopLocalEngine = setupLocalEngine(engine, ENGINE_URL, (channel, payload) => forEachWindow((w) => w.webContents.send(`feat:${channel}`, payload)), trustedSender)
 
   // v2 (W0-4 / W0-5 / W0-6): app windows, permission probes, the one way out to a browser.
   const broadcastAll = (channel: string, payload: unknown): void => forEachWindow((w) => w.webContents.send(`feat:${channel}`, payload))

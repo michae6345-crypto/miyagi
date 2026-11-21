@@ -45,8 +45,14 @@ export function isAllowedUrl(raw: unknown): boolean {
   }
   if (u.protocol === 'mailto:') {
     // A plain address and at most a subject: never a body or cc built from a page.
-    const keys = [...u.searchParams.keys()]
-    return EMAIL.test(decodeURIComponent(u.pathname)) && keys.every((k) => k === 'subject')
+    // A malformed % sequence (mailto:a%E0@b.co) makes decodeURIComponent throw: refuse it, never throw from here
+    // (this runs inside the window-open handler).
+    try {
+      const keys = [...u.searchParams.keys()]
+      return EMAIL.test(decodeURIComponent(u.pathname)) && keys.every((k) => k === 'subject')
+    } catch {
+      return false
+    }
   }
   if (u.protocol !== 'https:' || u.username || u.password || (u.port && u.port !== '443')) return false
   const host = u.hostname.toLowerCase()

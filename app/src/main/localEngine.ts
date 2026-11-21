@@ -15,7 +15,7 @@
  * Every window hears the state as feat:engine-local {state, line?}; bridge.invoke('engine-local:get') reads it.
  * The macOS Screen Recording prompt names miyagi (the app started the engine), not Terminal.
  */
-import { app, clipboard, ipcMain, shell } from 'electron'
+import { app, clipboard, ipcMain, shell, type IpcMainInvokeEvent } from 'electron'
 import { spawn, type ChildProcess } from 'node:child_process'
 import { randomBytes } from 'node:crypto'
 import { cpSync, existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs'
@@ -72,7 +72,16 @@ export function localEngineState(): LocalEngineState {
  */
 export const ENGINE_TOKEN: string = process.env.MIYAGI_ENGINE_TOKEN?.trim() || randomBytes(32).toString('base64url')
 
-export function setupLocalEngine(engine: EngineLink, url: string, broadcast: (channel: string, payload: unknown) => void): () => void {
+/**
+ * `trusted`: main's sender check (index.ts trustedSender). Every handler here answers only our own windows; an
+ * untrusted sender gets undefined / false and, for restart, nothing is stopped or spawned.
+ */
+export function setupLocalEngine(
+  engine: EngineLink,
+  url: string,
+  broadcast: (channel: string, payload: unknown) => void,
+  trusted: (e: IpcMainInvokeEvent) => boolean
+): () => void {
   let status: LocalEngineStatus = { state: 'off' }
   let child: ChildProcess | undefined
   /** We're quitting: the engine's exit is ours, not a crash. */
@@ -84,16 +93,19 @@ export function setupLocalEngine(engine: EngineLink, url: string, broadcast: (ch
     current = next
     broadcast('engine-local', status)
   }
-  // Every connect carries the token; an engine without one configured ignores the header.
+  // Every connect carries the token (index.ts also passes it to the EngineLink constructor, so the very first attempt
+  // does); an engine without one configured ignores the header.
   engine.setToken(ENGINE_TOKEN)
-  ipcMain.handle('feat:engine-local:get', () => status)
-  ipcMain.handle('feat:engine-local:command', () => ONE_LINER)
+  ipcMain.handle('feat:engine-local:get', (e) => (trusted(e) ? status : undefined))
+  ipcMain.handle('feat:engine-local:command', (e) => (trusted(e) ? ONE_LINER : undefined))
   // The pill's "Install the engine": the one-liner on the clipboard. "Engine didn't start": open its log.
-  ipcMain.handle('feat:engine-local:copy', () => {
+  ipcMain.handle('feat:engine-local:copy', (e) => {
+    if (!trusted(e)) return false
     clipboard.writeText(ONE_LINER)
     return true
   })
-  ipcMain.handle('feat:engine-local:logs', async () => {
+  ipcMain.handle('feat:engine-local:logs', async (e) => {
+    if (!trusted(e)) return false
     const file = status.logs ?? ''
     return file && existsSync(file) ? (await shell.openPath(file)) === '' : false
   })
@@ -103,7 +115,7 @@ export function setupLocalEngine(engine: EngineLink, url: string, broadcast: (ch
    * Missing / failed: run the start-up sequence again. → { ok, state }
    */
   let restart: () => { ok: boolean; state: LocalEngineState } = () => ({ ok: false, state: status.state })
-  ipcMain.handle('feat:engine-local:restart', () => restart())
+  ipcMain.handle('feat:engine-local:restart', (e) => (trusted(e) ? restart() : { ok: false, state: status.state }))
 
   const port = (() => {
     try {

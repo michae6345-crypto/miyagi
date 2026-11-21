@@ -69,7 +69,12 @@ export class EngineLink {
   /** v2: the last config.keys the settings feature sent (the full payload), so a later token can ride on it. */
   private lastKeys?: Extract<Outgoing, { type: 'config.keys' }>
 
-  constructor(private url: string, demoScenario?: string) {
+  /**
+   * `token` (v2): the per-launch engine token (localEngine ENGINE_TOKEN). Given here, not later, because the first
+   * WebSocket attempt starts inside this constructor and must already carry X-Miyagi-Token.
+   */
+  constructor(private url: string, demoScenario?: string, token?: string) {
+    this.token = token || undefined
     if (demoScenario) {
       const scenario = scenarios[demoScenario] ?? scenarios.full
       this.demo = createMockEngine(scenario, (e) => this.dispatch(e))
