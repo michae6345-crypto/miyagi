@@ -6,7 +6,9 @@
  *            on the house spring (layoutId). Arrow keys move along the list (and switch the page, like the macOS
  *            sidebar), Home / End jump to the ends. ⌘1..⌘6 are handled by Shell.tsx.
  *   status   Setup, Engine and Cloud at a glance (features/library Status.tsx), hidden when the window is short
- *   account  a chip at the foot: who is signed in and the plan, or how miyagi runs without an account. Opens Account.
+ *   account  a chip at the foot: who is signed in and the plan, or how miyagi runs without an account. Opens the
+ *            account sheet over the content (signed in: the account; signed out: Sign in to sync), never a window.
+ *            Its avatar is shared with the sheet: it flies into the sheet's header and back (AccountSheet.tsx).
  *
  * Compact (narrow window): icons only, 64 px, labels as tooltips. Navigation is chrome: neutral fills, never a hue.
  */
@@ -17,10 +19,11 @@ import { pressMotion } from '../../core/ui/motion'
 import { MiyagiMark, MiyagiWordmark } from '../../core/ui/Mark'
 import { planLabel, v2Cloud } from '../account/model'
 import { loadAccount, useAccount } from '../account/store'
-import { Avatar } from '../auth/Avatar'
 import { authOn } from '../auth/model'
 import { loadAuth, useAuth } from '../auth/store'
 import { StatusArea } from '../library/Status'
+import { SharedAvatar } from './AccountSheet'
+import { openSheet, useSheet } from './sheet'
 import { PAGES, setPage, useShell, type PageId } from './store'
 
 export const SIDEBAR_W = 224
@@ -91,12 +94,19 @@ function Nav({ compact }: { compact: boolean }): ReactNode {
   )
 }
 
+/** Where the avatar sits while it is lent to the sheet: an empty recessed circle, so the chip never looks broken. */
+function AvatarSocket(): ReactNode {
+  return <span aria-hidden data-avatar="socket" className="block shrink-0" style={{ width: 32, height: 32, borderRadius: radius2.round, background: surface.well, boxShadow: `${highlight.well}, inset 0 0 0 1px ${fill.hairline}` }} />
+}
+
 /**
  * The account chip: the signed-in learner (the real login, features/auth: avatar initial, name, email), "Not signed
  * in / Sign in to sync" when signed out; the person and the plan under v2Cloud (mock); "This Mac" with login off.
  */
 function AccountChip({ compact }: { compact: boolean }): ReactNode {
   const on = useShell((s) => s.page === 'account')
+  // While a sheet shows the avatar, the chip keeps an empty slot (the avatar is in the sheet's header).
+  const lent = useSheet((s) => s.kind !== null && s.kind !== 'plans')
   const account = useAccount((s) => s.account)
   const accountLoaded = useAccount((s) => s.loaded)
   const user = useAuth((s) => s.user)
@@ -141,9 +151,10 @@ function AccountChip({ compact }: { compact: boolean }): ReactNode {
         outlineColor: focus.dark
       }}
       {...pressMotion()}
-      onClick={() => setPage('account')}
+      aria-haspopup={login || v2Cloud ? 'dialog' : undefined}
+      onClick={() => (login || v2Cloud ? openSheet(signedIn ? 'account' : 'signin') : setPage('account'))}
     >
-      <Avatar initial={initial} size={32} />
+      {lent ? <AvatarSocket /> : <SharedAvatar initial={initial} size={32} />}
       {!compact && (
         <span className="relative flex min-w-0 flex-1 flex-col" style={{ gap: 2 }}>
           {pending ? (
@@ -167,10 +178,11 @@ function AccountChip({ compact }: { compact: boolean }): ReactNode {
   )
 }
 
-export function Sidebar({ compact, short }: { compact: boolean; short: boolean }): ReactNode {
+export function Sidebar({ compact, short, blocked = false }: { compact: boolean; short: boolean; /** the account sheet is open: lit, but inert */ blocked?: boolean }): ReactNode {
   return (
     <aside
       data-shell-sidebar={compact ? 'compact' : 'full'}
+      inert={blocked}
       className="flex h-full shrink-0 flex-col"
       style={{ width: compact ? SIDEBAR_COMPACT_W : SIDEBAR_W, padding: compact ? '0 10px 12px' : '0 12px 12px', background: fill.group, boxShadow: `inset -1px 0 0 ${fill.hairline}` }}
     >

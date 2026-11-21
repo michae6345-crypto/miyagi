@@ -4,26 +4,27 @@
  * Shipped (LOGIN_ENABLED, v2Cloud off): the real login (features/auth; main keeps the session, the page only sees
  * {name, email, avatarInitial}):
  *   signed in    the avatar initial, name and email, Sign out; Use your own key (Settings page › Your key)
- *   signed out   one calm card, "Sign in to sync your progress across Macs"; Sign in opens the login window
+ *   signed out   one calm card, "Sign in to sync your progress across Macs"; Sign in opens the sign-in sheet over
+ *                this page (AccountSheet.tsx), never a second window
  *   loading      a skeleton card until auth:get answers (no answer reads as signed out)
  * v2Cloud (mock data, stage or a VITE_MIYAGI_V2_CLOUD=1 build): who, the plan, this month's help meter, Upgrade (the
- *   one primary, Free only: opens Pricing in the account window), Use your own key, Sign out.
+ *   one primary, Free only: opens the plans sheet), Use your own key, Sign out (asks first, in the sheet).
  * Login off: miyagi runs on this Mac, with your own key or the cloud setup.
- * Nothing here can block a lesson, and nothing is sent from here: main and the login window do that.
+ * Nothing here can block a lesson, and nothing is sent from here: main and the sheet do that.
  */
 import { KeyRound, LogOut } from 'lucide-react'
 import { useEffect, type ReactNode } from 'react'
 import { bridge } from '../../../bridge'
-import { openAccount, openLogin } from '../../../core/surfaces'
 import { color, copy, fill, highlight, radius2, surface, type2 } from '../../../core/theme'
 import { PrimaryButton, QuietButton } from '../../../core/ui/buttons'
 import { MiyagiMark } from '../../../core/ui/Mark'
 import { planLabel, v2Cloud } from '../../account/model'
-import { loadAccount, signOut as signOutMock, useAccount } from '../../account/store'
+import { loadAccount, useAccount } from '../../account/store'
 import { Chip, MenuRow, MeterGroup, PersonGlyph, Rule } from '../../account/ui'
 import { Avatar } from '../../auth/Avatar'
 import { authOn } from '../../auth/model'
-import { loadAuth, signOut, useAuth } from '../../auth/store'
+import { loadAuth, useAuth } from '../../auth/store'
+import { openSheet } from '../sheet'
 import { setPage, setSettingsSection } from '../store'
 
 const card = { borderRadius: radius2.panel, background: fill.group, boxShadow: `${highlight.topSoft}, inset 0 0 0 1px ${surface.border}, ${surface.shadowSmall}` } as const
@@ -73,7 +74,7 @@ function SignInCard(): ReactNode {
         {copy.name} works without an account too.
       </p>
       <div style={{ marginTop: 8 }}>
-        <PrimaryButton size="lg" label="Sign in" onClick={() => void openLogin('login')} />
+        <PrimaryButton size="lg" label="Sign in" onClick={() => openSheet('signin')} />
       </div>
     </section>
   )
@@ -127,7 +128,7 @@ function LoginAccount(): ReactNode {
           </div>
         </div>
         <div>
-          <QuietButton icon={LogOut} label="Sign out" onClick={signOut} />
+          <QuietButton icon={LogOut} label="Sign out" onClick={() => openSheet('signout')} />
         </div>
       </section>
       <KeyRow />
@@ -204,14 +205,14 @@ function CloudAccount(): ReactNode {
           <span style={caption}>Checks never count. Only live help does.</span>
         )}
         {account.plan === 'free' ? (
-          <PrimaryButton size="lg" block label="Upgrade to Pro" onClick={() => void openAccount('pricing')} />
+          <PrimaryButton size="lg" block label="Upgrade to Pro" onClick={() => openSheet('plans')} />
         ) : (
-          <QuietButton label="See plans" onClick={() => void openAccount('pricing')} />
+          <QuietButton label="See plans" onClick={() => openSheet('plans')} />
         )}
       </section>
       <section aria-label="Account actions" className="flex flex-col" style={{ ...card, padding: 8 }}>
         <MenuRow icon={KeyRound} label="Use your own key" right={ownKey === undefined ? undefined : ownKey ? 'On' : 'Off'} onClick={toYourKey} />
-        <MenuRow icon={LogOut} label="Sign out" onClick={signOutMock} />
+        <MenuRow icon={LogOut} label="Sign out" onClick={() => openSheet('signout')} />
       </section>
       {note && (
         <p role="status" className="m-0 text-center" style={{ fontSize: type2.xs, color: color.label }}>

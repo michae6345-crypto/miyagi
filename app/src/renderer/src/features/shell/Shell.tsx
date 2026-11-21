@@ -15,6 +15,10 @@
  * preview, a skill card or clears the search, and otherwise does nothing.
  * Each page renders inside its own error boundary: a page that throws shows a calm card with Try again, and the
  * other pages keep working.
+ *
+ * Sign-in and the account open as a sheet over the content area (AccountSheet.tsx, sheet.ts), never a second window:
+ * the content dims, the sidebar stays lit, and everything behind the sheet is inert until it closes. A click on the
+ * sidebar while it is open closes it.
  */
 import { AnimatePresence, motion, type Variants } from 'motion/react'
 import { RotateCcw } from 'lucide-react'
@@ -29,11 +33,13 @@ import { LessonSearch, Lessons, greeting, openLauncher } from '../library/Librar
 import { Ring } from '../library/motion'
 import { v2Cloud } from '../account/model'
 import { useLibrary } from '../library/store'
+import { AccountSheetHost } from './AccountSheet'
 import { AccountPage } from './pages/AccountPage'
 import { ProgressPage } from './pages/ProgressPage'
 import { SettingsPage } from './pages/SettingsPage'
 import { SkillsPage } from './pages/SkillsPage'
-import { Sidebar } from './Sidebar'
+import { Sidebar, SIDEBAR_COMPACT_W, SIDEBAR_W } from './Sidebar'
+import { closeSheet, useSheet } from './sheet'
 import { PAGES, setPage, useShell, type PageId } from './store'
 
 /** Below this window width the sidebar shows icons only; below SHORT_H it drops the status block. */
@@ -193,6 +199,7 @@ export function Shell(): ReactNode {
   const page = useShell((s) => s.page)
   const visited = useShell((s) => s.visited)
   const openId = useLibrary((s) => s.openId)
+  const sheet = useSheet((s) => !!s.kind)
   const [ref, size] = useSize<HTMLDivElement>()
 
   // ⌘1..⌘6 (Ctrl+1..6 on Windows) pick a page. Typing in a field is left alone except for these chords.
@@ -211,20 +218,25 @@ export function Shell(): ReactNode {
   }, [])
 
   const backLabel = PAGES.find((p) => p.id === page)?.label
+  const compact = size.w < COMPACT_W
+  const sideW = compact ? SIDEBAR_COMPACT_W : SIDEBAR_W
   return (
-    <div ref={ref} data-shell={page} className="flex h-full w-full" style={{ color: color.text }}>
-      <Sidebar compact={size.w < COMPACT_W} short={size.h < SHORT_H} />
+    <div ref={ref} data-shell={page} data-shell-sheet-open={sheet || undefined} className="relative flex h-full w-full" style={{ color: color.text }}>
+      <Sidebar compact={compact} short={size.h < SHORT_H} blocked={sheet} />
+      {/* While the sheet is open the sidebar stays lit but inert; a click on it closes the sheet. */}
+      {sheet && <div data-shell-sheet-catcher data-no-drag aria-hidden className="absolute inset-y-0 left-0 z-40" style={{ width: sideW }} onPointerDown={closeSheet} />}
       <main className="relative min-w-0 flex-1 overflow-hidden">
         {PAGES.filter((p) => visited.includes(p.id)).map((p) => (
-          <PageFrame key={p.id} page={p.id} active={p.id === page} covered={!!openId} />
+          <PageFrame key={p.id} page={p.id} active={p.id === page} covered={!!openId || sheet} />
         ))}
         <AnimatePresence>
           {openId && (
-            <motion.div key="detail" data-shell-detail={openId} {...riseIn} className="absolute inset-0 z-20" style={{ background: color.window }}>
+            <motion.div key="detail" data-shell-detail={openId} {...riseIn} inert={sheet} className="absolute inset-0 z-20" style={{ background: color.window }}>
               <Detail id={openId} back={backLabel} />
             </motion.div>
           )}
         </AnimatePresence>
+        <AccountSheetHost mainW={size.w - sideW} mainH={size.h} />
       </main>
     </div>
   )

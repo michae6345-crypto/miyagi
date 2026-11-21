@@ -6,19 +6,21 @@
  *   Engine   the engine row's state and word (Running, Starting, Connecting, Not yet). Click: guided setup too.
  *   Cloud    the install token's phase (cloud:get) and config.status.cloud: Connected, Setting up, Offline...
  *   Plan     v2Cloud only (mock data in the stage, off in a normal build): the plan and this period's live help.
+ *            A click opens the account sheet in the home window (features/shell sheet.ts), the account window elsewhere.
  * Status glyphs are the shared ones: green only when that part is done, the white ring for Not yet, gray otherwise.
  * Reads only; it asks for fresh permissions / health / cloud when the window comes forward. Never prompts.
  */
 import { ChevronRight } from 'lucide-react'
 import { useEffect, type ReactNode } from 'react'
 import { useLesson } from '../../core/lesson'
-import { openAccount, openOnboarding } from '../../core/surfaces'
+import { openOnboarding } from '../../core/surfaces'
 import { color, fill, radius2, surface, type2 } from '../../core/theme'
 import { StatusGlyph, type StatusState } from '../../core/ui/status'
 import { v2Cloud } from '../account/model'
 import { loadAccount, useAccount } from '../account/store'
 import { summarize, useRows } from '../onboarding/rows'
 import { refreshCloud, refreshPerms, requestHealth, useOnboarding } from '../onboarding/store'
+import { openAccountSurface } from '../shell/sheet'
 import { Press } from './motion'
 
 /** retry: guided setup can fix it (the row opens it). unused: this Mac builds with its own key, no cloud help. */
@@ -81,12 +83,12 @@ function PlanRow({ cloudUnused }: { cloudUnused: boolean }): ReactNode {
   }, [])
   if (!loaded) return <div aria-hidden style={{ height: 44, margin: '4px 8px 0', borderRadius: radius2.control, background: fill.skeleton }} />
   if (!account?.signedIn)
-    return <Row label="Account" line={{ state: 'unknown', word: 'Sign in', detail: 'Sign in to keep your plan on every Mac.' }} onClick={() => void openAccount('signin')} chevron />
+    return <Row label="Account" line={{ state: 'unknown', word: 'Sign in', detail: 'Sign in to keep your plan on every Mac.' }} onClick={() => openAccountSurface('signin')} chevron />
   const help = cloudUnused ? undefined : account.help
   const plan = account.plan === 'pro' ? 'Pro plan' : account.plan === 'teams' ? 'Teams plan' : 'Free plan'
   const f = help && help.limit ? Math.min(1, help.used / help.limit) : 0
   return (
-    <Press className="flex w-full flex-col" style={{ padding: '8px 8px', gap: 6, borderRadius: radius2.control }} aria-label={`${plan}${help ? `, ${help.used} of ${help.limit} help used` : ''}`} onClick={() => void openAccount('menu')}>
+    <Press className="flex w-full flex-col" style={{ padding: '8px 8px', gap: 6, borderRadius: radius2.control }} aria-label={`${plan}${help ? `, ${help.used} of ${help.limit} help used` : ''}`} onClick={() => openAccountSurface('account')}>
       <span className="relative flex w-full items-center" style={{ gap: 8 }}>
         <span className="min-w-0 flex-1 truncate" style={{ fontSize: type2.sm, color: color.text }}>
           {plan}
