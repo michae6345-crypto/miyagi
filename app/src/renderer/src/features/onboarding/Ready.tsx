@@ -1,7 +1,8 @@
 /**
- * Feature: onboarding (A3). Onb-Setup-Ready: every row green, "You're all set". The "Your first lesson" card shows only
- * when the engine offers one (a cached lesson from library.list); nothing is invented when it doesn't. Start learning
- * starts that lesson (library.start: zero model calls) or, without one, opens the Library (home).
+ * Feature: onboarding. Onb-Setup-Ready, the end of setup: "You're ready", every row green, Start. The "Your first
+ * lesson" card shows only when the engine offers one (a cached lesson from library.list); nothing is invented when it
+ * doesn't. Start starts that lesson (library.start: zero model calls) or, without one, opens home (the Library). The
+ * rows rise in one after another; the launcher hint says how to open miyagi from now on.
  */
 import { motion } from 'motion/react'
 import { useEffect, type ReactNode } from 'react'
@@ -12,8 +13,7 @@ import { staggerList } from '../../core/ui/motion'
 import { Row } from './Row'
 import type { Row as RowData, Summary } from './rows'
 import { SheetHeader } from './Checklist'
-import { Footer } from './SetupList'
-import { LauncherHint } from './Welcome'
+import { Footer, LauncherHint, rise, stagger } from './parts'
 import { requestSuggestion, useOnboarding } from './store'
 
 const TOOL: Record<LessonTool, string> = { vscode: 'VS Code', jupyter: 'Jupyter', terminal: 'Terminal', excel: 'Excel' }
@@ -32,14 +32,19 @@ export function Ready({ rows, sum }: { rows: RowData[]; sum: Summary }): ReactNo
   useEffect(() => requestSuggestion(), [])
   return (
     <div data-onb-view="ready" role="dialog" aria-labelledby="onb-title" className="mx-auto flex h-full w-full max-w-[656px] flex-col p-[32px] pt-[40px]">
-      <SheetHeader title="You're all set" rows={rows} sum={sum} brand />
-      <motion.div role="list" variants={staggerList} initial="hidden" animate="shown" className="mt-[24px] grid grid-cols-2 gap-[8px]">
+      <SheetHeader title="You're ready" rows={rows} sum={sum} brand />
+      <motion.p className="m-0 mt-[8px]" style={{ fontSize: type2.body, lineHeight: '24px', color: color.label }} initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: 0.2 }}>
+        miyagi is set up on this Mac.
+      </motion.p>
+      <motion.div role="list" className="mt-[24px] grid grid-cols-2 gap-[8px]" variants={stagger(0.06)} initial="hidden" animate="shown">
         {rows.map((r) => (
-          <Row key={r.id} row={r} variant="compact" />
+          <motion.div key={r.id} role="none" variants={rise}>
+            <Row row={r} variant="compact" />
+          </motion.div>
         ))}
       </motion.div>
       {suggestion && (
-        <div data-onb-lesson={suggestion.id} className="mt-[24px] flex flex-col gap-[8px]">
+        <motion.div data-onb-lesson={suggestion.id} className="mt-[24px] flex flex-col gap-[8px]" variants={rise} initial="hidden" animate="shown">
           <span style={{ fontSize: type2.xs, letterSpacing: '0.2px', color: color.label }}>Your first lesson</span>
           <div className="flex items-center gap-[16px] p-[16px]" style={{ borderRadius: radius2.chip, boxShadow: `inset 0 0 0 1px ${surface.border}` }}>
             <div className="grid h-[48px] w-[48px] shrink-0 place-items-center" style={{ borderRadius: radius2.card, background: surface.row }}>
@@ -54,10 +59,10 @@ export function Ready({ rows, sum }: { rows: RowData[]; sum: Summary }): ReactNo
               </span>
             </div>
           </div>
-        </div>
+        </motion.div>
       )}
       <div className="flex-1" />
-      <Footer sum={sum} left={<LauncherHint />} />
+      <Footer sum={sum} label="Start" left={<LauncherHint lead="Open miyagi anytime" />} />
     </div>
   )
 }

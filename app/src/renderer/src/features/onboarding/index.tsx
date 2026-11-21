@@ -1,9 +1,10 @@
 /**
- * Feature: onboarding (A3). Brief: app/agents/onboarding.md. Mockups: Onb-Setup-Full, Onb-Checklist-Mixed,
- * Onb-Setup-Ready, Onb-Permission-Recovery.
+ * Feature: onboarding (A3, then the intro-setup lane). Brief: app/agents/onboarding.md. Mockups: Onb-Checklist-Mixed,
+ * Onb-Setup-Ready, Onb-Permission-Recovery; the intro and guided setup are this lane's own (Michael's choice, Nov 20).
  *
- *   window 'onboarding' (kind 'app')  the setup window: rows for Screen Recording, Accessibility, the VS Code
- *                                     companion and the engine (with the cloud install token), then Ready.
+ *   window 'onboarding' (kind 'app')  the setup window: the branded intro on the first launch, then guided setup (one
+ *                                     step per screen: Screen Recording, Accessibility, the VS Code companion, the
+ *                                     engine with cloud access), then You're ready. Review setup is the checklist.
  *                                     main/features/onboarding.ts opens it on the first run; openOnboarding() from
  *                                     core/surfaces opens it any time after.
  *   island mode 'onboarding-recovery' a permission went away mid-lesson: priority 75 (README island table), a card

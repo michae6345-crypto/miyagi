@@ -1,8 +1,10 @@
 /**
  * Main-process side of onboarding (A3; renderer: src/renderer/src/features/onboarding/).
  *
- *   - Done flag: userData/onboarding.json {done, at}. Not done → the Onboarding app window opens once the overlay has
- *     loaded, at the two-pane first-run size (Onb-Setup-Full, FIRST_RUN). MIYAGI_SKIP_ONBOARDING=1 skips it (dev).
+ *   - Flags: userData/onboarding.json {done, at, introSeen}. Not done → the Onboarding app window opens once the overlay
+ *     has loaded, at the first-run size (FIRST_RUN): the branded intro the very first time ({view:'intro'}), guided
+ *     setup after that ({view:'setup'}: a relaunch for Screen Recording lands back in the walk, not the intro).
+ *     MIYAGI_SKIP_ONBOARDING=1 skips it (dev). The window's title stays "miyagi" whatever the page says.
  *   - Prompts happen ONLY here and ONLY on a click (BUILD-PLAN Section 6): onboarding:prompt(kind). Screen Recording:
  *     one tiny capture makes macOS ask; Accessibility: isTrustedAccessibilityClient(true). System Settings itself opens
  *     through core's permissions:open(kind) (fixed URLs in main/safeOpen.ts), never a URL from a renderer.
@@ -12,8 +14,9 @@
  *     the renderer falls back to the engine's own fix. Never another editor.
  *
  * Handles (bridge.invoke; ctx.handle checks the sender):
- *   onboarding:get                  → { done }
+ *   onboarding:get                  → { done, introSeen }
  *   onboarding:done                 write the flag → true
+ *   onboarding:intro-seen           the intro played (or was skipped) → true
  *   onboarding:prompt (kind)        the macOS prompt for 'screen' | 'accessibility' → boolean (asked)
  *   onboarding:relaunch             app.relaunch() + quit (macOS applies a Screen Recording grant after one)
  *   onboarding:install-companion    → { ok, reason? }; broadcasts feat:onboarding:companion {state}
@@ -27,13 +30,13 @@ import { homedir } from 'node:os'
 import { join } from 'node:path'
 import { defineMainFeature } from '../context'
 
-/** Onb-Setup-Full's dialog. The renderer's stage uses the same numbers (features/onboarding/web.ts). */
+/** The first launch's window (intro + guided setup). The renderer's stage uses the same numbers (features/onboarding/web.ts). */
 const FIRST_RUN = { w: 944, h: 640 }
 const INSTALL_TIMEOUT_MS = 180_000
 const EXTENSIONS = ['ms-python.python', 'ms-toolsai.jupyter']
 const VSIX_RE = /^miyagi[A-Za-z0-9._-]*\.vsix$/
 
-type Flag = { done: boolean; at?: string }
+type Flag = { done: boolean; at?: string; introSeen?: boolean }
 
 /** VS Code's own CLI inside the app bundle: present even when `code` was never added to PATH. */
 function codeCli(): string | undefined {
@@ -80,7 +83,7 @@ export default defineMainFeature({
     if (existsSync(file)) {
       try {
         const raw = JSON.parse(readFileSync(file, 'utf8')) as Partial<Flag>
-        flag = { done: raw.done === true, at: typeof raw.at === 'string' ? raw.at : undefined }
+        flag = { done: raw.done === true, at: typeof raw.at === 'string' ? raw.at : undefined, introSeen: raw.introSeen === true }
       } catch {
         console.warn('[onboarding] onboarding.json could not be read; showing setup again')
       }
@@ -96,10 +99,13 @@ export default defineMainFeature({
       }
     }
 
-    /** The first run: the two-pane window, centered on the display under the pointer, clamped to its work area. */
+    /** The first run: intro (once) then guided setup, centered on the display under the pointer, clamped to its work area. */
     const openFirstRun = (): void => {
-      const win = ctx.openWindow('onboarding', { view: 'welcome' })
+      const win = ctx.openWindow('onboarding', { view: flag.introSeen ? 'setup' : 'intro' })
       if (!win || win.isDestroyed()) return
+      // The product's name, lowercase, in the title bar and the Window menu (BRAND.md), whatever the page sets.
+      win.setTitle('miyagi')
+      win.on('page-title-updated', (e) => e.preventDefault())
       const area = screen.getDisplayNearestPoint(screen.getCursorScreenPoint()).workArea
       const w = Math.min(FIRST_RUN.w, area.width - 32)
       const h = Math.min(FIRST_RUN.h, area.height - 32)
@@ -109,10 +115,17 @@ export default defineMainFeature({
 
     if (!flag.done && process.env.MIYAGI_SKIP_ONBOARDING !== '1') ctx.overlay.webContents.once('did-finish-load', openFirstRun)
 
-    ctx.handle('onboarding:get', () => ({ done: flag.done }))
+    ctx.handle('onboarding:get', () => ({ done: flag.done, introSeen: flag.introSeen === true }))
     ctx.handle('onboarding:done', () => {
       if (!flag.done) {
-        flag = { done: true, at: new Date().toISOString() }
+        flag = { ...flag, done: true, at: new Date().toISOString() }
+        save()
+      }
+      return true
+    })
+    ctx.handle('onboarding:intro-seen', () => {
+      if (!flag.introSeen) {
+        flag = { ...flag, introSeen: true }
         save()
       }
       return true
