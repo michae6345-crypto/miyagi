@@ -1,6 +1,6 @@
 # privacy (ROADMAP 5.4)
 
-**Status:** first pass done (on top of `claude/telemetry`; its switch is unchanged) · **Priority:** P1 (before strangers install) · **Port:** 5615 · **Branch:** `michael/app-privacy` (from `michael/v2-integration`) · **PR:** draft into `adrian/shell`
+**Status:** done, ready for review (v2-integration merged in, telemetry and the account link included; Adrian's policy edits folded in) · **Priority:** P1 (before strangers install) · **Port:** 5615 · **Branch:** `michael/app-privacy` (from `michael/v2-integration`) · **PR:** draft into `adrian/shell`
 
 ## Goal
 Settings > Privacy tells the learner, plainly and honestly, what miyagi sees, what leaves the Mac and where it goes,
@@ -17,7 +17,8 @@ line each. A link opens the privacy policy. Delete my data erases everything miy
 ## Rules
 - Honest subset only: say only what the code does today. Read `server/screen/privacy.py`, `server/coach/common.py`,
   `server/workspace/core.py`, `app/src/main/features/cloud.ts`, `telemetry.ts` before writing a fact.
-  5.1 and 5.2 (cropping, secret redaction) are NOT done: do not claim them.
+  5.1 (cropping) is NOT done: do not claim it. 5.2 (key redaction) landed in the engine (integration/live 742ab87a) but
+  matches by shape: the policy describes it with that caveat, the panel never promises it.
 - Facts live in `facts.ts` once; the panel and `web/privacy.md` say the same things.
 - Copy ≤12 words per line, calm, lowercase "miyagi". No red for delete: the existing two-step confirm stays.
 - The policy link opens through the existing external-link path (no new window type). URL: `https://miyagi.study/privacy`.
@@ -74,12 +75,42 @@ Unit: `cd app && node --import tsx --test src/renderer/src/features/settings/pri
   screenshots), the same way `scene_watch._mask_args` does, and in `reader._vision_input` (`describe`, unused live).
   Then the screen line can say "Password apps blacked out." again.
 - Not deleted by Delete my data (said so in the confirm and policy): ~/miyagi (lessons, progress: engine side),
-  the anonymous install token (install.bin), the local error log and saved crash reports, onboarding.json.
+  the anonymous install token (install.bin), the account link on miyagi-cloud, the local error log and saved crash
+  reports, onboarding.json, telemetry/state.json.
+- miyagi-cloud /v1/link and /v1/events are on claude/eng-proxy, not on integration/live or Render yet: the policy
+  describes them with [CHECK] markers. Cloud follow-up: drop the user id from proxy log lines (app.py sets
+  request.state.user on every proxied call), and a delete endpoint for the link and counts.
 - auth.ts keeps `decided` in memory, so the login shows again on the next launch, not right away.
 
+## Notes (finish round: telemetry merged, Adrian's edits, account link)
+- Merged origin/michael/v2-integration (telemetry 3e54ecc7, cloud link, reconnect). One conflict, the Privacy.tsx header
+  comment: kept this lane's code, took the integration wording for the telemetry switch.
+- web/privacy.md: Adrian's text from 06330ea0 (adrian/legal-privacy) taken as written in its own commit, then
+  re-checked against the code. Changed only where the code says otherwise:
+  - key and token redaction (5.2) landed in the engine (integration/live 742ab87a, server/redact.py): screen text,
+    coach requests, Explain this, step files; every screenshot blacks out rows that held a key. It matches by shape, so
+    the policy says it can miss some. Help and pointing screenshots still do NOT black out password apps.
+  - the lesson-folder scan (lesson/workdir.py, sent by claude.adapt_checks) is not redacted: said so.
+  - crash sharing sends only {kind, app_version} (telemetry/core.ts crashEvent), never error lines; usage has no cost
+    prop; /v1/events keeps daily counts per install (cloud/store.py events, claude/eng-proxy).
+  - the account link: what /v1/link keeps (token hash + Supabase user id), sign-out never unlinks, another account
+    signing in replaces it. The [DECIDE] on unlinking stays as a question.
+  - the IP: used in memory to rate-limit installs, not stored (Adrian said "up to an hour": the key can stay longer).
+  - one word that trips the brand lint (the editor's text caret) is reworded.
+  Not taken: his other legal files (COOKIES, RISKS, TERMS, site cookie check). All his [TBD] / [DECIDE] / [CHECK]
+  markers stay; DRAFT stays on line 1.
+- facts.ts: two new rows, Account link ("When you sign in, miyagi’s server ties this Mac to your account.") and
+  miyagi’s server ("Passes AI calls on. Keeps counts and cost, never your work."). Crash is now "Only the kind of
+  error, never its text. Off unless you share."; usage "Lesson and step counts. Never your code or screen."
+  The policy table has one row per panel row; facts.test.ts checks label and line together and the link and
+  telemetry wording.
+- Delete my data also removes userData/cloud-link.json (the local note of the link, no token). The cloud row stays.
+- Stage shots not retaken this round (no visible windows allowed): privacy-panel.png shows the old crash and usage
+  lines and lacks the two new rows. Retake headlessly before merge.
+
 ## Merge status
-- Waits for telemetry merge: origin/claude/telemetry is not yet in michael/v2-integration, so this lane is not merged
-  there yet (merging first would drag in an unreviewed lane). Draft PR #199 (michael/app-privacy -> adrian/shell) stays open.
+- v2-integration is merged into this branch; it can merge into michael/v2-integration after review. Draft PR #199
+  (michael/app-privacy -> adrian/shell) stays open.
 
 ## Core requests
-_None expected._
+_None._ (settings.ts: one comment line for settings:delete, the lane's own handler.)
