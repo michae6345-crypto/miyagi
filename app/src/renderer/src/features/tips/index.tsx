@@ -29,12 +29,14 @@ import { bridge, isElectron } from '../../bridge'
 import { reserveRect, useDock } from '../../core/dock'
 import { useIslandBox, type IslandBox } from '../../core/Island'
 import { onUi } from '../../core/bus'
+import { useGateOpen } from '../../core/gate'
 import { useLesson } from '../../core/lesson'
 import { usePressed } from '../../core/shortcuts'
 import { defineFeature } from '../../core/registry'
 import { MiyagiMark } from '../../core/ui/Mark'
 import { usePill } from '../pill/store'
 import { CoachMark, MARK_W } from './CoachMark'
+import { floorFree, tipsRunning } from './gate'
 import { place, sameRect, type Rect } from './place'
 import { stageTray, TRAY_CHANNEL } from './stage'
 import { dismissTip, setTipMenu, showTip, tipsEnabled, turnTipsOff, useTips, withdrawTip } from './store'
@@ -95,11 +97,13 @@ function TipsLayer({ layout }: { layout: Layout }): ReactNode {
 
   const [anchor, setAnchor] = useState<Anchor | undefined>()
   const [size, setSize] = useState({ w: MARK_W, h: 128 })
-  // First-run setup has the floor until it is finished: no tip competes with its window.
-  const onboarded = useOnboardingDone(tipsEnabled && !off)
+  // The sign-in gate (core/gate.ts), then first-run setup, have the floor: no tip competes with them, nothing is asked
+  // or timed before the gate opens (lane overlay-gate).
+  const gateOpen = useGateOpen()
+  const onboarded = floorFree(useOnboardingDone(tipsEnabled && !off && gateOpen), gateOpen)
   const onboardedRef = useRef(onboarded)
   onboardedRef.current = onboarded
-  /** When the floor became free (start-up, or setup just finished): the first tip waits STARTUP_MS after it. */
+  /** When the floor became free (the gate opened, or setup just finished): the first tip waits STARTUP_MS after it. */
   const readyAt = useRef(Date.now())
   useEffect(() => {
     if (onboarded) readyAt.current = Date.now()
@@ -115,7 +119,8 @@ function TipsLayer({ layout }: { layout: Layout }): ReactNode {
 
   useEffect(() => {
     // Nothing left to teach (every tip seen, or tips off): no polling at all, the overlay stays quiet.
-    if (!tipsEnabled || off || allSeen) return
+    // Nor before the sign-in gate opens: no loop, so no STARTUP_MS clock either.
+    if (!tipsRunning({ enabled: tipsEnabled, off, allSeen, gateOpen })) return
     let candidate: { id: TipId; target: Rect; since: number } | undefined
     /** The anchor the mark is drawn at (mirrors `anchor`), for following it and for a press on its element. */
     let shown: Anchor | undefined
@@ -258,7 +263,7 @@ function TipsLayer({ layout }: { layout: Layout }): ReactNode {
       offs.forEach((o) => o())
       window.removeEventListener('pointerdown', onDown, true)
     }
-  }, [off, allSeen, layout.height])
+  }, [off, allSeen, gateOpen, layout.height])
 
   // The mark's real size, for placing it (its text wraps to 2 or 3 lines).
   useLayoutEffect(() => {

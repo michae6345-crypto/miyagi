@@ -3,11 +3,15 @@
  * island at z = 50. Also owns overlay.bounds reporting and click-through.
  *
  * Owner: core. Features add layers via defineFeature({ overlayLayers }).
+ *
+ * The sign-in gate (core/gate.ts): until main says it is open, the overlay draws nothing (no layer, no island) and
+ * ignores global shortcuts, even if main showed the window early. A renderer backstop for main's own gate.
  */
 import { useEffect, useRef, type ReactNode } from 'react'
 import type { Layout } from '../../../preload/api'
 import { cmd } from '../../../common/wire'
 import { bridge } from '../bridge'
+import { gateIsOpen, useGateOpen } from './gate'
 import { Island } from './Island'
 import { getOverlayLayers } from './registry'
 import { triggerShortcut, type ActionShortcut } from './shortcuts'
@@ -18,8 +22,10 @@ const ISLAND_Z = 50
 export function Overlay({ layout }: { layout: Layout }): ReactNode {
   const root = useRef<HTMLDivElement>(null)
   useReportBounds(root, layout)
-  // Global shortcuts arrive from main as a 'shortcut' signal; route them through the shared path.
-  useEffect(() => bridge.on('shortcut', (kind) => triggerShortcut(kind as ActionShortcut)), [])
+  // Global shortcuts arrive from main as a 'shortcut' signal; route them through the shared path (none before the gate).
+  useEffect(() => bridge.on('shortcut', (kind) => gateIsOpen() && triggerShortcut(kind as ActionShortcut)), [])
+  const open = useGateOpen()
+  if (!open) return null
   const overlayLayers = getOverlayLayers()
   return (
     <div ref={root} className="absolute inset-0 overflow-hidden" style={{ width: layout.width, height: layout.height }}>
@@ -82,7 +88,18 @@ function useReportBounds(root: React.RefObject<HTMLDivElement | null>, layout: L
     let lastHits = ''
     const tick = (): void => {
       const el = root.current
-      if (!el) return
+      if (!el) {
+        // Nothing drawn (the sign-in gate closed again): clear what main and the engine last heard, once.
+        if (lastHits && lastHits !== '[]') {
+          lastHits = '[]'
+          tellMain('overlay:hits', [])
+        }
+        if (last && last !== '[]') {
+          last = '[]'
+          bridge.send(cmd('overlay.bounds', { rects: [] }))
+        }
+        return
+      }
       const box = el.getBoundingClientRect()
       if (!box.width) return
       const k = layout.width / box.width // undo the browser stage's CSS scale (1 in Electron)
