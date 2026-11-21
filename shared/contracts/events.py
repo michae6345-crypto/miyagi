@@ -783,7 +783,6 @@ class ProgressEvent(_Model):
 class ConfigStatus(_Model):
     anthropic: KeyState
     gemini: KeyState
-    brightdata: KeyState
     elevenlabs: KeyState
     tigerUrl: KeyState
     miyagiToken: KeyState | None = None  # v2: the install token
@@ -889,7 +888,6 @@ class ConfigKeys(_Model):
 
     anthropic: str | None = None
     gemini: str | None = None
-    brightdata: str | None = None
     elevenlabs: str | None = None
     tigerUrl: str | None = None
     miyagiToken: str | None = None  # v2: the anonymous install token ("mi_..."); memory only
