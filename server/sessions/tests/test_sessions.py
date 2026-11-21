@@ -156,11 +156,12 @@ def test_resume_after_engine_restart_restores_step_and_video():
     second.clock.t = first.clock.t + 3600
 
     async def after():
-        msgs = second.s.snapshot()  # what main.py's ws_endpoint sends a new connection
-        assert [t for t, _ in msgs] == ["spotlight", "video.pause", "status", "card"]
-        assert msgs[2][1] == {"state": "idle"} and "step 3 of" in msgs[3][1]["body"]
-        assert msgs[3][1]["body"].endswith("1 h ago")
-        for t, p in msgs:
+        msgs = second.s.snapshot()  # what main.py's ws_endpoint sends a new connection: Nov 21, nothing but idle
+        assert msgs == [("status", {"state": "idle"})]
+        offer = second.r.pending_offer()  # sent after the app's library.list (main.py), never on connect
+        assert offer["kind"] == "resume" and "step 3 of" in offer["body"]
+        assert offer["body"].endswith("1 h ago")
+        for t, p in [*msgs, ("card", offer)]:
             engine_message(t, p)
         m = second.mark()
         await second.s.action("resume")  # the card's button
@@ -172,7 +173,9 @@ def test_resume_after_engine_restart_restores_step_and_video():
         assert len(started) == 1 and started[0]["index"] == 2  # no detour through step 0
         assert started[0]["video"] == seg  # the video lesson gets its segment back
         seeks = [e["payload"] for e in evs if e["type"] == "video.seek"]
-        assert seeks[-1] == {"t": seg["start"] + 20, "play": True}
+        assert seeks[-1] == {"t": seg["start"] + 20, "play": False}  # Nov 21: restored paused at its place
+        assert "video.play" not in types
+        assert sessions.load()["lastActiveAt"] == first.clock.t  # the restore keeps "1 h ago" honest
         assert second.s.idx == 2 and second.s.phase == "active"
         assert ("status", {"state": "watching"}) in [(e["type"], e["payload"]) for e in evs]
 
@@ -187,7 +190,8 @@ def test_end_lesson_clears_the_save_and_new_learn_too():
         await e.settle()
         assert sessions.load() is not None
         await e.s.end_lesson("end_lesson")  # E11: "Start a new lesson" keeps it until another lesson is built
-        assert sessions.load()["stopped"] is True and e.s.snapshot()[-1][0] == "card"
+        assert sessions.load()["stopped"] is True and e.s.snapshot() == [("status", {"state": "idle"})]
+        assert e.r.pending_offer() is None  # Nov 21: a stopped save is the library's Continue row, not a card
         await e.s.end_lesson("POST /end")  # a terminal's end clears it
         assert sessions.load() is None and sessions.load_graph() is None
         assert e.s.snapshot() == [("status", {"state": "idle"})]
@@ -280,8 +284,8 @@ def test_text_lesson_survives_restart_step_3_of_7_with_zero_build_calls():
     calls = _no_builds(e2)
 
     async def after():
-        msgs = e2.s.snapshot()
-        card = msgs[-1][1]
+        assert e2.s.snapshot() == [("status", {"state": "idle"})]  # Nov 21: nothing on connect
+        card = e2.r.pending_offer()  # after library.list
         assert card["kind"] == "resume" and card["actions"] == ["resume", "end_lesson"]
         assert card["body"].startswith(full["lesson"]["title"] + " · step 3 of 7")
         m = e2.mark()
@@ -308,10 +312,10 @@ def test_end_lesson_on_the_resume_card_keeps_it_until_another_lesson_is_built():
     e2 = Engine()
 
     async def go():
-        assert e2.s.snapshot()[-1][0] == "card"
+        assert e2.r.pending_offer()["kind"] == "resume"
         await e2.s.action("end_lesson")  # E11: a stray click on "Start a new lesson" no longer loses it
         assert e2.s.graph is None and sessions.load()["lessonId"] == old_id
-        assert e2.s.snapshot()[-1][0] == "card"  # still offered by Continue
+        assert e2.r.pending_offer() is None  # still offered by Continue (the library's continue row), not a card
         other = stubs.load_fixture_lesson()
         other["lesson"]["id"] = "another-lesson"
         await e2.s.load_graph(other)  # a new lesson is built: it replaces the save, the old one goes on the recent list
@@ -416,14 +420,16 @@ def test_restart_connect_state_then_resume_starts_the_saved_step(tmp_path, monke
         for _ in range(2):  # connect, leave, connect again: nothing is answered yet
             with client.websocket_connect("/") as ws:
                 assert ws.receive_json()["type"] == "engine.hello"  # v2: always the first message
-                msgs = [ws.receive_json() for _ in range(4)]
-                assert [m["type"] for m in msgs] == ["spotlight", "video.pause", "status", "card"]
-                assert " · step 2 of 7" in msgs[3]["payload"]["body"]
+                assert ws.receive_json() == {"type": "status", "payload": {"state": "idle"}}  # Nov 21: only idle
+                ws.send_json({"type": "library.list", "payload": {}})  # the offer comes with the library
+                msgs = [ws.receive_json() for _ in range(2)]
+                assert [m["type"] for m in msgs] == ["library", "card"]
+                assert " · step 2 of 7" in msgs[1]["payload"]["body"]
         st = client.get("/state").json()
         assert st["phase"] == "awaiting_resume" and st["saved"]["stepId"] == s2 and st["saved"]["stepIndex"] == 1
         assert {p.name: p.read_bytes() for p in state_dir.iterdir()} == files  # not one byte rewritten
         with client.websocket_connect("/") as ws:
-            [ws.receive_json() for _ in range(4)]
+            [ws.receive_json() for _ in range(2)]
             ws.send_json({"type": "action", "payload": {"kind": "resume"}})
             got = []
             while not any(m["type"] == "step.started" for m in got):
@@ -441,7 +447,7 @@ def test_same_lesson_loaded_again_after_restart_continues_at_the_saved_step():
     fresh = json.loads(json.dumps(lesson))  # e.g. a "Just teach me" rebuild that hit the lesson cache
 
     async def go():
-        assert e2.s.snapshot()[-1][0] == "card"
+        assert e2.r.pending_offer()["kind"] == "resume"
         await e2.s.load_graph(fresh)
         await e2.settle()
         assert e2.s.idx == 1 and sessions.load()["stepIndex"] == 1

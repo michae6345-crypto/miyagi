@@ -109,6 +109,9 @@ V2_COMMANDS = ("health.get", "permission.open", "library.list", "library.get", "
 V2_INSTANT = frozenset(V2_COMMANDS) - {"library.start"}
 INSTANT = frozenset({"video.state", "overlay.bounds", "end_lesson", "card.shown", "card.closed"})
 LESSON_STARTS = frozenset({"learn", "learn_url", "build_lesson", "library.start"})  # each replaces a running build
+# Nov 21 (launch-quiet): what counts as the learner asking for a lesson on this connection (session.learner_asked)
+LEARNER_ASKS = LESSON_STARTS
+LEARNER_ASK_ACTIONS = frozenset({"start", "resume", "build"})  # Start, Continue, the preflight card's Build (a pick)
 SECRET_COMMANDS = frozenset({"config.keys", "config.validate"})  # payloads hold keys: never logged, never echoed
 PERMISSION_KINDS = ("screen", "accessibility", "automation")
 LIBRARY_ID_RE = re.compile(r"^[A-Za-z0-9_-]{1,64}$")
@@ -500,6 +503,9 @@ class Engine:
         self.session = LessonSession(self._emit, self.modules, screen=self.screen, workspace=self.workspace,
                                      inputs=Inputs())
         self.session.has_clients = lambda: bool(self.hub.clients)  # E4: only an app shows "Before you start"
+        # Nov 21 (launch-quiet): nothing asked yet: VS Code never opens under "Before you start" until the learner
+        # asks on a connection (dispatch: learn / pick / library.start / action start or resume)
+        self.session.learner_asked = False
         # E7: the app left: no screen reading / looks / cards (an engine that never had one, e.g. rehearse_boxes, goes on)
         self.session.app_left = lambda: not self.hub.clients and self.last_client_gone is not None
         self.watcher = Watcher(self.session.on_file_change, interval=config.WATCH_INTERVAL_S)
@@ -537,10 +543,16 @@ class Engine:
         """The app reconnects after being away (>= ORCH_RESUME_AFTER_S with no client) to a lesson it had
         already shown: offer "Continue / Start new". A first connection (e.g. the demo's autostart) or a
         quick network blip just continues."""
-        if self.hub.clients or self.last_client_gone is None or not self._lesson_id():
+        if not self.app_was_away() or not self._lesson_id():
             return False
-        away = time.monotonic() - self.last_client_gone
-        return self.seen_lesson == self._lesson_id() and away >= float(os.environ.get("ORCH_RESUME_AFTER_S", "10"))
+        return self.seen_lesson == self._lesson_id()
+
+    def app_was_away(self) -> bool:
+        """No app now, and the last one left >= ORCH_RESUME_AFTER_S ago (an app relaunch on an engine that kept
+        running, lesson or not). Nov 21: its old preflight card is never sent again."""
+        if self.hub.clients or self.last_client_gone is None:
+            return False
+        return time.monotonic() - self.last_client_gone >= float(os.environ.get("ORCH_RESUME_AFTER_S", "10"))
 
     async def _emit(self, type_: str, payload: dict | None = None) -> None:
         if type_ == "lesson.ready" and self.hub.clients:
@@ -735,6 +747,11 @@ class Engine:
             await reply("health", await self.health_payload())
         elif type_ == "library.list":
             await reply("library", await self.library_payload())
+            # Nov 21 (launch-quiet): the saved lesson is offered here, once the app asks for its library (after
+            # sign-in), never on connect. Its `continue` row is in the library too; Continue = action resume.
+            offer = self.resumer.pending_offer() if self.resumer is not None else None
+            if offer is not None:
+                await reply("card", offer)
         elif type_ == "library.get":
             found = await self.library_detail(p.id)
             if found is None:  # no reply (contract): the app's ask ends on its own timeout
@@ -850,6 +867,8 @@ class Engine:
         p = msg.payload
         s = self.session
         log_received(msg.type, p)
+        if msg.type in LEARNER_ASKS or msg.type == "action" and getattr(p, "kind", None) in LEARNER_ASK_ACTIONS:
+            s.learner_asked = True  # Nov 21: the learner asked for this lesson: VS Code may open under the sheet
         if msg.type in V2_INSTANT:
             async def reply(type_: str, payload: dict) -> None:
                 if ws is None:
@@ -1017,9 +1036,11 @@ async def ws_endpoint(ws: WebSocket) -> None:
         await ws.close(code=1008)
         return
     await ws.accept()
+    if not engine.hub.clients:  # Nov 21: a new app run asks again before VS Code opens by itself
+        engine.session.learner_asked = False
     restored = await engine.auto_resume()  # off unless ORCH_AUTO_RESUME=1 (Nov 21: every launch starts fresh)
     await engine.hub.send_to(ws, "engine.hello", engine.hello(restored))  # v2: always the first message
-    for type_, payload in engine.session.snapshot(ask_resume=engine.app_returning()):
+    for type_, payload in engine.session.snapshot(ask_resume=engine.app_returning(), returning=engine.app_was_away()):
         await engine.hub.send_to(ws, type_, payload)
     for type_, payload in engine.status_replay():  # a v2 app coming back: offline / busy / the last health
         await engine.hub.send_to(ws, type_, payload)
@@ -1161,8 +1182,10 @@ async def vscode_event(body: dict = Body(...)) -> dict:
 @app.post("/end")
 async def end_lesson(forget: int = 0) -> dict:
     """End the current lesson from a terminal:  curl -X POST localhost:8787/end
-    Nov 15: this runs before every engine deploy, so the learner's place is KEPT: the next app connection after the
-    restart continues at that exact step. A clean start (tests) that drops it:  curl -X POST 'localhost:8787/end?forget=1'"""
+    Nov 15: this runs before every engine deploy, so the learner's place is KEPT on disk. Nov 21: it is no longer
+    continued by itself on the next connection (ORCH_AUTO_RESUME=1 only): the app offers it through Continue (the
+    library's continue row and the resume card after library.list). A clean start (tests) that drops it:
+    curl -X POST 'localhost:8787/end?forget=1'"""
     lesson = (engine.session.graph or {}).get("lesson", {}).get("id")
     demo = stage.on(engine.session)  # a Demo take is never saved (sessions.resume.is_demo): the next Demo is step 1
     if not forget:
