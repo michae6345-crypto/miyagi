@@ -1,7 +1,7 @@
 /**
  * Feature: errors. The cards that grow out of the island (one white primary each, no status hue):
  *
- *   err-engine-offline (72)  "miyagi stopped responding."  Restart miyagi / Copy details     Err-EngineReconnect 02
+ *   err-engine-offline (72)  "The engine stopped responding."  Restart engine / Copy details     Err-EngineReconnect 02
  *   err-editor-closed (66)   "Your place is saved."  Reopen in VS Code / End lesson for now      Err-VSCodeClosed
  *   err-build-failed (62)    "This video could not become a lesson."  Transcript (if offered), library Err-LessonBuildFailed
  *   err-limit (58)           "You have used today's free checks." (v2Cloud only, flagged)          Err-OfflineAndLimits
@@ -113,7 +113,7 @@ export function EngineOfflineCard(): ReactNode {
     restart === 'failed'
       ? 'Restart did not work. Quit and reopen miyagi.'
       : external
-        ? 'miyagi runs in Terminal here. Restart it in Terminal.'
+        ? 'This engine runs in Terminal. Restart it in Terminal.'
         : restart === 'starting'
           ? 'Restarting. This takes a few seconds.'
           : `Tried ${TRIES} times. Restart takes a few seconds.`
@@ -124,14 +124,14 @@ export function EngineOfflineCard(): ReactNode {
       head={
         <>
           <ErrGlyph g="ring" size={18} />
-          <span style={{ fontSize: type2.xs, color: color.label }}>miyagi offline</span>
+          <span style={{ fontSize: type2.xs, color: color.label }}>Engine offline</span>
         </>
       }
-      title="miyagi stopped responding."
+      title="The engine stopped responding."
       body={inLesson ? 'Your place in the lesson is saved.' : 'Nothing you made is lost.'}
     >
       <div className="flex flex-col gap-2">
-        <PrimaryButton size="lg" block label={external ? 'Try again' : 'Restart miyagi'} busy={restart === 'starting'} disabled={restart === 'starting'} onClick={() => void onRestart()} />
+        <PrimaryButton size="lg" block label={external ? 'Try again' : 'Restart engine'} busy={restart === 'starting'} disabled={restart === 'starting'} onClick={() => void onRestart()} />
         <QuietButton size="lg" block label={copied === 'yes' ? 'Copied' : copied === 'no' ? 'Could not copy' : 'Copy details'} onClick={() => void onCopy()} />
       </div>
       <Caption>{foot}</Caption>
